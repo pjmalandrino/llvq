@@ -1,0 +1,10 @@
+[package]
+name = "llvq-search"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Exact nearest-neighbour search on unions of Leech lattice shells (Adoul-Barth style, LLVQ paper §3.1)."
+
+[dependencies]
+llvq-core = { path = "../llvq-core" }

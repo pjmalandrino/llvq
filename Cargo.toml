@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["llvq-core", "llvq-search", "llvq-bench"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/pjmalandrino/pjmalandrino"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
