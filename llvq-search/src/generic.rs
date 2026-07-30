@@ -224,6 +224,10 @@ pub struct BallSearcher {
     even_cold: Vec<EvenCold>,
     odd_cold: Vec<OddCold>,
     scratch: Scratch,
+    /// Highest shell the search may return. Lowering it shrinks the codebook
+    /// — `Λ₂₄(12)` needs 47 index bits instead of 48, which buys a gain bit
+    /// at the same total rate (the paper's Table 8 best configuration).
+    shell_cap: u32,
 }
 
 /// Per-query scratch buffers (kept in the searcher to stay allocation-free).
@@ -485,7 +489,23 @@ impl BallSearcher {
             even_cold,
             odd_cold,
             scratch: Scratch::new(),
+            shell_cap: MAX_SHELL,
         }
+    }
+
+    /// Restrict the search to shells `2..=cap`.
+    ///
+    /// The class tables keep their bounds and their order, so the pruning
+    /// stays valid: a skipped class could not have improved the incumbent
+    /// anyway, and the `break` still fires on a bound that dominates every
+    /// later entry.
+    pub fn set_shell_cap(&mut self, cap: u32) {
+        assert!((2..=MAX_SHELL).contains(&cap), "cap must be in 2..=13");
+        self.shell_cap = cap;
+    }
+
+    pub fn shell_cap(&self) -> u32 {
+        self.shell_cap
     }
 
     /// Exact `argmax ⟨x, v⟩` per shell m = 2..=13. `ws` must be reusable;
@@ -683,6 +703,7 @@ impl BallSearcher {
     /// mandatory).
     fn nearest_by(&mut self, s: &Searcher, x: &[f64; DIM], obj: Obj, best0: f64) -> Found {
         let g = s.leech().golay();
+        let cap = self.shell_cap as u8;
         let sc = &mut self.scratch;
 
         sc.neg_mask = 0;
@@ -731,8 +752,11 @@ impl BallSearcher {
         // — the bound is attained, so it *is* the score.
         for &meta in self.even_w0.iter() {
             let cold = &self.even_cold[meta as usize];
-            let dot = cold.all.score(&sc.p_abs);
             let shell = cold.shell_idx as u32 + 2;
+            if shell > cap as u32 {
+                continue;
+            }
+            let dot = cold.all.score(&sc.p_abs);
             let norm = (16 * shell) as f64;
             let key = obj.key(dot, norm, 1.0 / norm.sqrt());
             if key > best {
@@ -771,6 +795,9 @@ impl BallSearcher {
                         if h.bound <= best {
                             break; // table is in decreasing bound order
                         }
+                        if h.shell > cap {
+                            continue;
+                        }
                         let dot = h.a.score(&sc.p_y);
                         let key = obj.key(dot, h.norm, h.inv_r);
                         if key > best {
@@ -794,6 +821,9 @@ impl BallSearcher {
                     for h in grp.flat.iter() {
                         if h.bound <= best {
                             break;
+                        }
+                        if h.shell > cap {
+                            continue;
                         }
                         let (dot, sac) = even_dot(h, sc, matched_parity, a_last);
                         let key = obj.key(dot, h.norm, h.inv_r);

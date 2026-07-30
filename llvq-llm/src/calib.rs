@@ -130,7 +130,10 @@ pub enum Codebook {
     Direction,
     /// Leech direction plus a `gain_bits`-bit magnitude code, relative to a
     /// per-row scale. The honest 2 bit/weight configuration.
-    ShapeGain { gain_bits: u32 },
+    ///
+    /// `max_shell` restricts the direction code: 13 is the full ball (48-bit
+    /// index), 12 costs 47 bits and pays for the gain bit at the same rate.
+    ShapeGain { gain_bits: u32, max_shell: u32 },
 }
 
 impl Codebook {
@@ -140,7 +143,10 @@ impl Codebook {
         match self {
             Codebook::Identity | Codebook::Grid { .. } => 24.0 * 16.0,
             Codebook::Direction => 48.0 + 16.0,
-            Codebook::ShapeGain { gain_bits } => 48.0 + *gain_bits as f64,
+            Codebook::ShapeGain {
+                gain_bits,
+                max_shell,
+            } => (llvq_quant::quantizer::index_bits(*max_shell) + *gain_bits) as f64,
         }
     }
 }
@@ -258,7 +264,7 @@ pub fn quantize_model(
                 // The gain levels are fitted to *this* matrix, in the basis it
                 // will be quantized in.
                 let gain = match codebook {
-                    Codebook::ShapeGain { gain_bits } => Some(fit_gain_centroids(
+                    Codebook::ShapeGain { gain_bits, .. } => Some(fit_gain_centroids(
                         &weights.w,
                         d_out,
                         d_in,
@@ -276,9 +282,12 @@ pub fn quantize_model(
                             step,
                         }),
                         Codebook::Direction => Box::new(LeechDirection::new()),
-                        Codebook::ShapeGain { .. } => Box::new(LeechShapeGain::new(
-                            gain.clone().expect("fitted above"),
-                        )),
+                        Codebook::ShapeGain { max_shell, .. } => {
+                            Box::new(LeechShapeGain::with_shell_cap(
+                                gain.clone().expect("fitted above"),
+                                max_shell,
+                            ))
+                        }
                     }
                 };
                 quantize_layer_parallel(

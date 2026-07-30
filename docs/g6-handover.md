@@ -4,6 +4,10 @@
 > (G1–G5) est acquis et n'a pas besoin d'être relu : voir `CLAUDE.md` si un
 > détail manque.
 
+> **Un run tourne peut-être encore** : voir `docs/run-de-nuit.md`
+> (`Λ₂₄(12)` + 1 bit de gain sur Qwen3-4B, ~3,5 h). Son résultat n'est pas
+> bloquant pour G6 — il affine le débit publié, il ne change pas le noyau.
+
 ## Où en est le projet
 
 **G1–G5 verts.** Λ₂₄ + Golay, recherche NN exacte m ≤ 13, indexage bijectif

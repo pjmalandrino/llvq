@@ -136,10 +136,18 @@ fn main() -> anyhow::Result<()> {
         // Direction only: the magnitude stays a free float, so this is NOT a
         // 2 bit/weight code. Kept as the quality ceiling of the direction.
         "direction" => llvq_llm::calib::Codebook::Direction,
-        // `leech1`, `leech2`… select the gain bits; `leech` means one.
+        // `leech1` = one gain bit over the full ball; `leech1c12` caps the
+        // direction code at shell 12, which frees the bit the gain costs.
         other => {
-            let bits = other.strip_prefix("leech").and_then(|r| r.parse().ok()).unwrap_or(1);
-            llvq_llm::calib::Codebook::ShapeGain { gain_bits: bits }
+            let rest = other.strip_prefix("leech").unwrap_or("1");
+            let (g, c) = match rest.split_once('c') {
+                Some((g, c)) => (g, c.parse().unwrap_or(13)),
+                None => (rest, 13),
+            };
+            llvq_llm::calib::Codebook::ShapeGain {
+                gain_bits: g.parse().unwrap_or(1),
+                max_shell: c,
+            }
         }
     };
 

@@ -190,3 +190,49 @@ fn nearest_angular_matches_the_per_shell_pass() {
     let b = ball.nearest_angular(&s, &scaled);
     assert_eq!(a.point, b.point, "Q_dir must be invariant to positive scaling");
 }
+
+/// Capping the shell must restrict the codebook and nothing else: the winner
+/// has to be the best point of `Λ₂₄(cap)`, which is exactly the per-shell
+/// maximum restricted to `2..=cap`.
+#[test]
+fn shell_cap_restricts_the_codebook_exactly() {
+    let s = Searcher::new();
+    let leech = llvq_core::Leech::new();
+    let mut ball = BallSearcher::new();
+    let mut rng = SplitMix64::new(0x2C_0004);
+
+    for cap in [2u32, 5, 12, 13] {
+        ball.set_shell_cap(cap);
+        assert_eq!(ball.shell_cap(), cap);
+        for q in 0..12 {
+            let x = gauss_vec(&mut rng, 0.4 + 0.3 * (q % 6) as f64);
+            let f = ball.nearest_angular(&s, &x);
+            assert!(f.shell <= cap, "returned shell {} above cap {cap}", f.shell);
+            assert!(leech.contains(&f.point));
+
+            // Ground truth: the per-shell maxima, ranked over 2..=cap only.
+            let mut want = f64::NEG_INFINITY;
+            for b in ball.shell_bests(&s, &x) {
+                if b.shell <= cap {
+                    want = want.max(b.dot / ((16 * b.shell) as f64).sqrt());
+                }
+            }
+            let got = f.dot / ((16 * f.shell) as f64).sqrt();
+            assert!(
+                (got - want).abs() <= TOL,
+                "cap {cap}, query {q}: capped encoder {got} vs restricted best {want}"
+            );
+        }
+    }
+    // And the cap must survive: an uncapped searcher may still reach shell 13.
+    ball.set_shell_cap(13);
+    let mut reached = false;
+    for q in 0..40 {
+        let x = gauss_vec(&mut rng, 0.5 + 0.2 * (q % 9) as f64);
+        if ball.nearest_angular(&s, &x).shell > 12 {
+            reached = true;
+            break;
+        }
+    }
+    assert!(reached, "shell 13 unreachable even uncapped — the cap leaked");
+}

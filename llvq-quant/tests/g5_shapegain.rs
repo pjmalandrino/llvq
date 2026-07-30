@@ -147,3 +147,59 @@ fn the_row_scale_is_load_bearing() {
          {with} vs {without}"
     );
 }
+
+/// The index width must match the ball actually searched — that one bit is
+/// the whole reason to cap at shell 12.
+#[test]
+fn index_width_follows_the_shell_cap() {
+    use llvq_quant::quantizer::index_bits;
+    assert_eq!(index_bits(13), 48, "the full ball needs 48 bits");
+    assert_eq!(index_bits(12), 47, "Λ24(12) fits in 47 — that pays the gain bit");
+    // Monotone, and never wider than the full ball.
+    for c in 2..=13u32 {
+        assert!(index_bits(c) <= 48);
+        if c > 2 {
+            assert!(index_bits(c) >= index_bits(c - 1));
+        }
+    }
+}
+
+/// And a capped quantizer must never emit a direction from a higher shell.
+#[test]
+fn capped_quantizer_stays_inside_its_ball() {
+    let leech = llvq_core::Leech::new();
+    let mut rng = SplitMix64::new(0x6_0005);
+    let (d_out, d_in) = (4usize, 8 * DIM);
+    let w = random_matrix(&mut rng, d_out, d_in);
+    let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
+    let mut q = LeechShapeGain::with_shell_cap(centroids, 12);
+
+    let mut out = vec![0.0f64; DIM];
+    for i in 0..d_out {
+        let row = &w[i * d_in..(i + 1) * d_in];
+        q.set_row_scale(row_scale(row));
+        for b in row.chunks_exact(DIM) {
+            q.quantize(b, &mut out);
+            let n = out.iter().map(|a| a * a).sum::<f64>().sqrt();
+            if n == 0.0 {
+                continue;
+            }
+            // Recover the shell: reconstruction = point · n/√(16m).
+            let mut shell = None;
+            for m in 2..=13u32 {
+                let c = ((16 * m) as f64).sqrt() / n;
+                let pt: llvq_core::Point =
+                    core::array::from_fn(|k| (out[k] * c).round() as i32);
+                if (0..DIM).all(|k| (out[k] * c - pt[k] as f64).abs() < 1e-6)
+                    && llvq_core::Leech::shell_index(&pt) == Some(m as u64)
+                    && leech.contains(&pt)
+                {
+                    shell = Some(m);
+                    break;
+                }
+            }
+            let m = shell.expect("reconstruction must come from Λ24");
+            assert!(m <= 12, "cap 12 violated: direction on shell {m}");
+        }
+    }
+}

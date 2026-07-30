@@ -184,10 +184,21 @@ impl LeechShapeGain {
     /// `centroids` are gains **relative to the row scale**, as fitted by
     /// [`fit_gain_centroids`].
     pub fn new(centroids: Vec<f64>) -> Self {
+        Self::with_shell_cap(centroids, llvq_search::classes::MAX_SHELL)
+    }
+
+    /// Restrict the direction code to `Λ₂₄(cap)`.
+    ///
+    /// `cap = 12` drops the index from 48 to 47 bits, which pays for a gain
+    /// bit at the same total rate — the paper's Table 8 best configuration,
+    /// `norm(Λ₂₄(12))` + 1 gain bit.
+    pub fn with_shell_cap(centroids: Vec<f64>, cap: u32) -> Self {
         assert!(!centroids.is_empty(), "need at least one gain level");
+        let mut ball = BallSearcher::new();
+        ball.set_shell_cap(cap);
         Self {
             searcher: Searcher::new(),
-            ball: BallSearcher::new(),
+            ball,
             centroids,
             row_scale: 1.0,
         }
@@ -300,4 +311,14 @@ pub fn row_scale(row: &[f64]) -> f64 {
         return 0.0;
     }
     (row.iter().map(|a| a * a).sum::<f64>() / (n / DIM).max(1) as f64).sqrt()
+}
+
+/// Bits needed to index `Λ₂₄(cap) ∪ {0}` — `⌈log₂(N(cap) + 1)⌉`.
+///
+/// 48 for the full ball, 47 for `cap = 12`. That one bit is what makes a
+/// gain bit free at 2.000 bits/dim.
+pub fn index_bits(cap: u32) -> u32 {
+    let cs = llvq_search::classes::enumerate_classes(cap);
+    let n: u64 = (2..=cap).map(|m| cs.shell_cardinality(m)).sum();
+    (128 - (n as u128).leading_zeros()).max(1)
 }
