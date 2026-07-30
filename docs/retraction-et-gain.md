@@ -58,17 +58,28 @@ row »*. Une ligne de 2560 aurait eu besoin de 106 échelles distinctes.
 
 ## Ce que ça coûte
 
-| | annoncé | réel |
-|---|---|---|
-| bits/bloc (cap 13, 1 bit de gain) | 49 | **64** (48 index + 16 norme f16) |
-| bits/poids, Qwen3-4B | 2,1117 | **~2,75** |
-| artefact | 1,74 Go | **~2,03 Go** |
-| compression vs FP16 8,04 Go | ×4,63 | **×3,96** |
+Recalculé sur les vraies dimensions de Qwen3-4B (36 blocs, 2560 × 9728, 7
+projections par bloc, embedding lié de 151 936 × 2560 en f16) :
 
-Pour le run `leech1c12` (cap 12) : 2,0702 annoncé, **~2,70** réel.
+| configuration | bits/bloc | bits/poids | artefact | vs FP16 8,04 Go |
+|---|---|---|---|---|
+| cap 13 + 1 bit de gain, **annoncé** | 49 | 2,1117 | 1,737 Go | ×4,63 |
+| cap 13, **réel** (48 index + 16 f16) | 64 | **2,7338** | **2,019 Go** | **×3,98** |
+| cap 12 + 1 bit, annoncé (run en cours) | 48 | 2,0702 | 1,718 Go | ×4,68 |
+| cap 12, **réel** | 63 | **2,6923** | **2,001 Go** | **×4,02** |
+
+> Le modèle de comptabilité ci-dessus reproduit **exactement** les chiffres
+> publiés — 2,1117 b/w, 1,737 Go, ×4,63 — et retrouve aussi le 2,7289 de la
+> ligne « magnitude libre » du `CLAUDE.md` au millième près, l'écart de 0,0049
+> étant précisément les échelles de ligne que `Codebook::Direction` ne stocke
+> pas. Les chiffres « réel » ne sont donc pas une estimation.
 
 **La perplexité reste valide.** 14,9104 est une mesure, pas un calcul. C'est
 son étiquette de débit qui est fausse.
+
+Et le point qui fait mal : **à 2,73 bits/poids, la comparaison au papier
+change de nature.** Leur meilleure configuration sans fine-tuning tient
+15,54 à 2,000 bits. On tient 14,91, mais à 37 % de bits en plus, pas 5,6 %.
 
 ## Les correctifs
 
