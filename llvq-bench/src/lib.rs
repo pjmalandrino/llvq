@@ -254,11 +254,10 @@ pub fn precompute13(s: &Searcher, xs: &[[f64; DIM]]) -> Vec<BlockDots13> {
             .chunks(chunk)
             .map(|ch| {
                 sc.spawn(move || {
-                    let mut ws = Workspace::new();
                     let mut ball = BallSearcher::new();
                     ch.iter()
                         .map(|x| {
-                            let bests = ball.shell_bests(s, &mut ws, x);
+                            let bests = ball.shell_bests(s, x);
                             BlockDots13 {
                                 xx: x.iter().map(|v| v * v).sum(),
                                 d: core::array::from_fn(|i| bests[i].dot),
@@ -313,4 +312,42 @@ pub fn rate_spherical13() -> f64 {
 /// Bits/dim of ball-13 shape–gain with `k_bits` of gain per block.
 pub fn rate_shape_gain13(k_bits: u32) -> f64 {
     ((llvq_core::leech::N_SHELL_13_CUMULATIVE as f64).log2() + k_bits as f64) / DIM as f64
+}
+
+// ---------------------------------------------------------------------------
+// Single shell vs union of shells — an engineering question, not an academic
+// one (paper App. G)
+// ---------------------------------------------------------------------------
+//
+// The paper adopts the union of shells because it gives "slightly better"
+// angular uniformity per bit, and says so explicitly. But it also records the
+// counter-argument: a single shell has **constant norm**, which fixes the
+// scaling between dot products and removes the rescaling of intermediate
+// accumulations in a fused kernel — and it has far fewer classes, so both the
+// encoder scan and the decoder unranking shrink. For a deployable artifact
+// that trade may well go the other way, so it has to be measured, not assumed.
+
+/// Best projection `⟨x, v̂⟩` restricted to one shell.
+#[inline]
+pub fn t_single(d: &BlockDots13, shell: u32) -> f64 {
+    d.d[(shell - 2) as usize] / ((16 * shell) as f64).sqrt()
+}
+
+/// Shape–gain MSE per weight using only shell `m` as the direction code.
+pub fn shape_gain_mse13_single(dots: &[BlockDots13], centroids: &[f64], shell: u32) -> f64 {
+    dots.iter()
+        .map(|d| {
+            let t = t_single(d, shell);
+            let g = centroids[nearest_centroid(centroids, t)];
+            d.xx - 2.0 * g * t + g * g
+        })
+        .sum::<f64>()
+        / (DIM * dots.len()) as f64
+}
+
+/// Bits/dim of a single-shell shape–gain code: `log2|Shell(m)|/24 + k/24`.
+pub fn rate_shape_gain13_single(shell: u32, k_bits: u32) -> f64 {
+    let n = llvq_search::classes::enumerate_classes(llvq_search::classes::MAX_SHELL)
+        .shell_cardinality(shell);
+    ((n as f64).log2() + k_bits as f64) / DIM as f64
 }

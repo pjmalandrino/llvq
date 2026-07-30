@@ -17,40 +17,172 @@
 //! if the matched minus-parity (= #{i ∈ c : xᵢ < 0}, arrangement-
 //! independent) differs from the class requirement, exactly one value must
 //! take a mismatched sign (three or more mismatches are dominated). The
-//! exact repair: the sacrificed value v contributes `−v·|x|`, so it goes to
-//! the **smallest** |x| of the support while the remaining values repack
-//! greedily on the rest — computed for each distinct value kind via one
-//! suffix scan, NOT by flipping in place (flipping v at its greedy slot is
-//! suboptimal: sacrificing value u at slot w and promoting the values after
-//! it beats it whenever the promotion gain exceeds the slot difference).
+//! exact repair is then a single flip of the **smallest** word value, which
+//! the sorted pairing has already placed on the smallest support |x|; see
+//! `even_dot` for why sacrificing a larger value and repacking the rest can
+//! never beat it.
+//!
+//! ## Phase 2c — why the inner loops are cheap
+//!
+//! Every maximizer above is a **sorted pairing** `Σᵢ Vᵢ·Aᵢ` of a class value
+//! vector `V` against a sorted query vector `A`. `V` is constant over long
+//! runs (at most 3 word kinds, 2 free kinds, 5 odd kinds), so with the
+//! prefix sums `P` of `A` the sum telescopes to
+//!
+//! ```text
+//! Σᵢ Vᵢ·Aᵢ = Σ_runs (v_r − v_{r+1}) · P[end_r]      (v_{last+1} := 0)
+//! ```
+//!
+//! — **one multiply-add per run**, no per-coordinate work at all
+//! (`Lin`). The parity repair telescopes the same way. What is left per
+//! codeword is building `P`, and that no longer needs a sort either: the
+//! support / off-support orders fall out of one pass over the global |x|
+//! order, and the odd `y` order is a two-pointer **merge** of two
+//! already-sorted halves (24 comparisons, not a 24-element sort).
+//!
+//! The class tables are then stored **flat and per shell**, physically
+//! reordered per query by decreasing upper bound, so each class loop is a
+//! contiguous scan that `break`s — no index indirection and no pointer
+//! chasing on the hot path. Data needed only to materialize the single
+//! winner (expanded value vectors) lives in a separate cold side table.
+//!
+//! [`crate::generic_ref`] recomputes the same maxima the naive way, and the
+//! `g2c_reference` suite requires exact agreement.
 
 use crate::classes::{enumerate_classes, ClassSet, MAX_SHELL};
-use crate::{Found, Metric, Searcher, Workspace};
+use crate::{Found, Metric, Searcher};
 use llvq_core::{Point, DIM};
 
 /// Number of shells covered (m = 2..=13).
 pub const NSHELLS: usize = (MAX_SHELL - 1) as usize;
 
-/// Runtime form of an even class.
-struct EvenRt {
-    shell_idx: usize,
-    /// Word values expanded descending, e.g. [6, 2, 2, …] (len = w).
-    word: Vec<f64>,
-    /// Distinct word kinds with the index range they occupy in `word`.
-    kinds: Vec<(f64, usize, usize)>, // (value, first, last)
-    /// Free values expanded descending.
-    free: Vec<f64>,
-    p_req: u32,
-    /// Upper bound on the class dot given sorted |x| (computed per query).
-    bound: f64,
+/// Padded length of the prefix / sorted scratch arrays. A power of two, so a
+/// masked index provably stays in range and the bounds check disappears
+/// without `unsafe` (the crate is `forbid(unsafe_code)`).
+const PLEN: usize = 32;
+const PMASK: usize = PLEN - 1;
+
+/// A telescoped sorted pairing: `Σₖ coef[k]·P[pos[k]]`, where `P` holds the
+/// prefix sums of the query vector. Unused slots carry `coef = 0`, so the
+/// evaluation is branch-free and fully unrolled.
+#[derive(Clone, Copy)]
+struct Lin<const N: usize> {
+    coef: [f64; N],
+    pos: [u8; N],
 }
 
-/// Runtime form of an odd class.
-struct OddRt {
-    shell_idx: usize,
-    /// Contribution multiset ascending: a(v) = +v (v ≡ 3 mod 4) else −v.
-    a_asc: [f64; DIM],
+impl<const N: usize> Lin<N> {
+    /// Build from `(value, count)` runs laid out over consecutive slots from
+    /// 0, the values monotone in the order given.
+    fn new(vals: &[(u8, u8)]) -> Self {
+        let v: Vec<(f64, u8)> = vals.iter().map(|&(v, n)| (v as f64, n)).collect();
+        Self::from_values(&v)
+    }
+
+    fn from_values(vals: &[(f64, u8)]) -> Self {
+        assert!(vals.len() <= N, "run count exceeds the compiled capacity");
+        let mut coef = [0.0; N];
+        let mut pos = [0u8; N];
+        let mut end = 0usize;
+        for (k, &(v, n)) in vals.iter().enumerate() {
+            end += n as usize;
+            // Telescoping coefficient: vₖ − vₖ₊₁, with vₗₐₛₜ₊₁ := 0.
+            let next = vals.get(k + 1).map_or(0.0, |&(v, _)| v);
+            coef[k] = v - next;
+            pos[k] = end as u8;
+        }
+        Self { coef, pos }
+    }
+
+    #[inline]
+    fn score(&self, p: &[f64; PLEN]) -> f64 {
+        let mut acc = 0.0;
+        for k in 0..N {
+            acc += self.coef[k] * p[self.pos[k] as usize & PMASK];
+        }
+        acc
+    }
+}
+
+/// Hot record of an odd class: bound, score form, and its side-table id.
+///
+/// `bound` holds the per-query upper bound **in the objective of the table
+/// this record lives in** — the raw dot product in the per-shell tables of
+/// [`BallSearcher::shell_bests`], the β-objective in the flat tables of
+/// [`BallSearcher::nearest_scaled`]. Each pass recomputes it before use.
+#[derive(Clone, Copy)]
+struct OddHot {
     bound: f64,
+    /// `a(v)` ascending, paired with `y` ascending.
+    a: Lin<5>,
+    /// `‖v‖² = 16m` and `1/‖v‖` — the shell radius, for the objectives.
+    norm: f64,
+    inv_r: f64,
+    shell: u8,
+    meta: u16,
+}
+
+/// Hot record of an even class within one Golay-weight group. `bound` has
+/// the same table-relative meaning as in [`OddHot`].
+#[derive(Clone, Copy)]
+struct EvenHot {
+    bound: f64,
+    /// Word values descending, paired with support |x| descending.
+    word: Lin<3>,
+    /// Free values descending, paired with off-support |x| descending.
+    free: Lin<2>,
+    /// Smallest word value — the one the parity repair flips.
+    w_min: f64,
+    p_req: u8,
+    /// `‖v‖² = 16m` and `1/‖v‖` — the shell radius, for the objectives.
+    norm: f64,
+    inv_r: f64,
+    shell: u8,
+    meta: u16,
+}
+
+/// Cold side table: the per-query bound form plus everything needed only to
+/// materialize the one winner.
+struct OddCold {
+    /// `|a(v)|` descending, paired with global |x| descending — the bound.
+    absl: Lin<5>,
+    a_asc: [f64; DIM],
+}
+
+struct EvenCold {
+    /// Word ∪ free values descending over all 24 slots — the bound.
+    all: Lin<5>,
+    word_flat: Vec<f64>,
+    free_flat: Vec<f64>,
+    w: usize,
+    shell_idx: usize,
+}
+
+/// What the encoder is maximizing over the codebook.
+///
+/// Both objectives are **strictly increasing in the dot product** at fixed
+/// shell, which is the only property the pruning needs: a class whose dot
+/// bound is `B` has objective bound `key(B, shell)`, so one global threshold
+/// orders every class of every shell.
+#[derive(Clone, Copy)]
+enum Obj {
+    /// `2β⟨x,v⟩ − β²‖v‖²` — maximizing it minimizes `‖x − βv‖²`
+    /// (spherical shaping, the ball `β·(Λ₂₄(13) ∪ {0})`).
+    Euclidean { two_beta: f64, beta2: f64 },
+    /// `⟨x, v⟩/‖v‖ = ⟨x, v̂⟩` — the projection onto the unit direction
+    /// (shape–gain: the codebook is the *normalized* ball, and the magnitude
+    /// is left to a separate gain quantizer or to a closed-form scale).
+    Angular,
+}
+
+impl Obj {
+    #[inline]
+    fn key(&self, dot: f64, norm: f64, inv_r: f64) -> f64 {
+        match *self {
+            Obj::Euclidean { two_beta, beta2 } => two_beta * dot - beta2 * norm,
+            Obj::Angular => dot * inv_r,
+        }
+    }
 }
 
 /// Winner descriptor, enough to materialize the point once at the end.
@@ -58,257 +190,420 @@ struct OddRt {
 enum GBest {
     None,
     Odd {
-        class: usize,
+        meta: u16,
         c: u32,
     },
     Even {
-        /// Group index in `even_by_w`, or `usize::MAX` for the w = 0 group.
-        grp: usize,
-        idx: usize,
+        meta: u16,
         c: u32,
-        /// Sacrificed word-kind value (goes to the min-|x| support slot
-        /// with mismatched sign), if the parity repair was needed.
-        sac: Option<f64>,
+        /// Whether the parity repair fired — the smallest word value, on the
+        /// smallest support |x|, then carries a mismatched sign.
+        sac: bool,
     },
 }
 
-/// The generic engine: class tables grouped for the codeword loops.
+/// One Golay-weight group, in two layouts of the same classes: bucketed per
+/// shell for [`BallSearcher::shell_bests`], and flat (shells mixed) for
+/// [`BallSearcher::nearest_scaled`], whose single global threshold wants one
+/// list to sort and one place to break. Both are a few hundred records; the
+/// duplication buys each pass a contiguous, correctly ordered scan.
+struct Group {
+    w: usize,
+    shells: [Vec<EvenHot>; NSHELLS],
+    flat: Vec<EvenHot>,
+}
+
+/// The generic engine: flat per-shell class tables plus cold side tables.
 pub struct BallSearcher {
-    even_by_w: Vec<(u32, Vec<EvenRt>)>,
-    even_w0: Vec<EvenRt>,
-    odd: Vec<OddRt>,
+    even_by_w: Vec<Group>,
+    /// `w = 0` even classes (codeword 0 only, 17 of them): cold enough to
+    /// keep as a plain list of side-table ids.
+    even_w0: Vec<u16>,
+    odd_by_shell: [Vec<OddHot>; NSHELLS],
+    odd_flat: Vec<OddHot>,
+    even_cold: Vec<EvenCold>,
+    odd_cold: Vec<OddCold>,
+    scratch: Scratch,
+}
+
+/// Per-query scratch buffers (kept in the searcher to stay allocation-free).
+///
+/// The per-codeword partitions below are written **branchlessly**: each
+/// element is stored to both destination arrays and only the matching cursor
+/// advances, so the wrong store is overwritten later. The membership bit is
+/// a coin flip on 24 coordinates × 8191 codewords — a predicted branch there
+/// mispredicts about half the time, which costs more than the redundant
+/// stores by a wide margin.
+struct Scratch {
+    /// Bit i set iff `xᵢ < 0`. The even parity repair needs
+    /// `#{i ∈ c : xᵢ < 0} mod 2`, which is one masked popcount — the reason
+    /// this engine needs no [`Workspace`] subset tables at all.
+    neg_mask: u32,
+    /// |x| descending and its prefix sums.
+    abs_desc: [f64; DIM],
+    p_abs: [f64; PLEN],
+    /// Positions by |x| descending (support split + materialization).
+    order: [usize; DIM],
+    /// Positions by xᵢ ascending, and the matching values (odd merge).
+    asc_idx: [usize; DIM],
+    asc_val: [f64; DIM],
+    /// Support / off-support |x| descending, with their prefix sums.
+    sup: [f64; PLEN],
+    p_sup: [f64; PLEN],
+    off: [f64; PLEN],
+    p_off: [f64; PLEN],
+    /// Odd merge halves, each ascending and `+∞`-terminated so the merge
+    /// needs no exhaustion test; only the prefix sums of `y` are ever kept.
+    in_asc: [f64; PLEN],
+    out_asc: [f64; PLEN],
+    p_y: [f64; PLEN],
+}
+
+impl Scratch {
+    fn new() -> Self {
+        Self {
+            neg_mask: 0,
+            abs_desc: [0.0; DIM],
+            p_abs: [0.0; PLEN],
+            order: [0; DIM],
+            asc_idx: [0; DIM],
+            asc_val: [0.0; DIM],
+            sup: [0.0; PLEN],
+            p_sup: [0.0; PLEN],
+            off: [0.0; PLEN],
+            p_off: [0.0; PLEN],
+            in_asc: [f64::INFINITY; PLEN],
+            out_asc: [f64::INFINITY; PLEN],
+            p_y: [0.0; PLEN],
+        }
+    }
+
+    /// Branchless split of the global |x| order along the support of `c`
+    /// into `sup` / `off` (both descending), with their prefix sums.
+    /// `w` must be `c.count_ones()`.
+    #[inline]
+    fn split_support(&mut self, c: u32, w: usize) {
+        let (mut ns, mut no) = (0usize, 0usize);
+        for k in 0..DIM {
+            let a = self.abs_desc[k];
+            let bit = (c >> self.order[k] & 1) as usize;
+            self.sup[ns & PMASK] = a;
+            self.off[no & PMASK] = a;
+            ns += bit;
+            no += 1 - bit;
+        }
+        debug_assert_eq!(ns, w);
+        self.p_sup[0] = 0.0;
+        for k in 0..w {
+            self.p_sup[k + 1] = self.p_sup[k] + self.sup[k];
+        }
+        self.p_off[0] = 0.0;
+        for k in 0..DIM - w {
+            self.p_off[k + 1] = self.p_off[k] + self.off[k];
+        }
+    }
+
+    /// Prefix sums of `yᵢ = (i ∈ c ? xᵢ : −xᵢ)` sorted ascending.
+    ///
+    /// The off-support half is filled from the back: `−x` runs descending
+    /// along the ascending-`x` order, so writing it in reverse lands it
+    /// ascending. Two sorted halves then merge in 24 comparisons, and `y`
+    /// itself is never stored — it feeds straight into `p_y`.
+    #[inline]
+    fn merge_y(&mut self, c: u32) {
+        let ni_tot = c.count_ones() as usize;
+        let no_tot = DIM - ni_tot;
+        let (mut ni, mut no) = (0usize, 0usize);
+        for k in 0..DIM {
+            let v = self.asc_val[k];
+            let bit = (c >> self.asc_idx[k] & 1) as usize;
+            self.in_asc[ni & PMASK] = v;
+            // `no` can reach `no_tot` before the pass ends; the `+ PLEN`
+            // keeps the index unsigned and the mask parks those spare
+            // stores on the unused slot 31.
+            self.out_asc[(no_tot + PLEN - 1 - no) & PMASK] = -v;
+            ni += bit;
+            no += 1 - bit;
+        }
+        debug_assert_eq!(ni, ni_tot);
+        self.in_asc[ni_tot] = f64::INFINITY;
+        self.out_asc[no_tot] = f64::INFINITY;
+        let (mut ia, mut ib) = (0usize, 0usize);
+        self.p_y[0] = 0.0;
+        for k in 0..DIM {
+            let vi = self.in_asc[ia & PMASK];
+            let vo = self.out_asc[ib & PMASK];
+            let take_in = vi <= vo;
+            let y = if take_in { vi } else { vo };
+            ia += take_in as usize;
+            ib += !take_in as usize;
+            self.p_y[k + 1] = self.p_y[k] + y;
+        }
+    }
+}
+
+/// `max ⟨x, v⟩` over the arrangements of one even class on one codeword, and
+/// whether the parity repair fired.
+///
+/// The repair is a **single case**: flip the smallest word value, which the
+/// sorted pairing already placed on the smallest support |x|. Sacrificing a
+/// larger kind `u` at its last slot `j` and repacking the values after it
+/// scores `base − u·A_j + D_j − u·A_{w−1}` with
+/// `D_j = Σ_{i>j} Vᵢ(A_{i−1} − Aᵢ)`; expanding that telescoping sum gives
+///
+/// ```text
+/// score(j) − score(w−1) = Σ_{t=j}^{w−2} (V_{t+1} − V_t)·A_t + (V_{w−1} − V_j)·A_{w−1}
+/// ```
+///
+/// and every term is ≤ 0, since `V` is descending and `A ≥ 0`. So no repack
+/// can ever beat the plain flip. Two tests hold this down:
+/// `even_repair_matches_dp_reference` compares it to an exhaustive
+/// assignment DP, and `generic_ref` — which still tries every kind at every
+/// slot — pins it end to end.
+///
+/// `a_last` is the smallest support |x| and `matched_parity` the sign parity
+/// of the codeword; both are shared by every class of the group.
+#[inline]
+fn even_dot(h: &EvenHot, sc: &Scratch, matched_parity: u8, a_last: f64) -> (f64, bool) {
+    let base = h.word.score(&sc.p_sup);
+    let repair = matched_parity != h.p_req;
+    let on_score = if repair {
+        base - 2.0 * h.w_min * a_last
+    } else {
+        base
+    };
+    (on_score + h.free.score(&sc.p_off), repair)
 }
 
 impl BallSearcher {
     pub fn new() -> Self {
         let ClassSet { even, odd } = enumerate_classes(MAX_SHELL);
-        let mut even_by_w: Vec<(u32, Vec<EvenRt>)> = Vec::new();
+
+        let mut even_by_w: Vec<Group> = Vec::new();
         let mut even_w0 = Vec::new();
+        let mut even_cold: Vec<EvenCold> = Vec::new();
         for c in even {
-            let mut word = Vec::new();
-            let mut kinds = Vec::new();
-            for &(v, n) in &c.word_vals {
-                let first = word.len();
-                for _ in 0..n {
-                    word.push(v as f64);
-                }
-                kinds.push((v as f64, first, word.len() - 1));
+            let w = c.w as usize;
+            let shell_idx = (c.shell - 2) as usize;
+            let meta = u16::try_from(even_cold.len()).expect("class count fits u16");
+            let mut all_vals: Vec<(u8, u8)> = c
+                .word_vals
+                .iter()
+                .chain(c.free_vals.iter())
+                .copied()
+                .collect();
+            all_vals.sort_unstable_by_key(|v| core::cmp::Reverse(v.0));
+            even_cold.push(EvenCold {
+                all: Lin::new(&all_vals),
+                word_flat: flatten(&c.word_vals),
+                free_flat: flatten(&c.free_vals),
+                w,
+                shell_idx,
+            });
+
+            if w == 0 {
+                even_w0.push(meta);
+                continue;
             }
-            let mut free = Vec::new();
-            for &(v, n) in &c.free_vals {
-                for _ in 0..n {
-                    free.push(v as f64);
-                }
-            }
-            let rt = EvenRt {
-                shell_idx: (c.shell - 2) as usize,
-                word,
-                kinds,
-                free,
-                p_req: c.p_req as u32,
+            let hot = EvenHot {
                 bound: 0.0,
+                word: Lin::new(&c.word_vals),
+                free: Lin::new(&c.free_vals),
+                w_min: c.word_vals.last().expect("w > 0 implies a word value").0 as f64,
+                p_req: c.p_req,
+                norm: (16 * c.shell) as f64,
+                inv_r: 1.0 / ((16 * c.shell) as f64).sqrt(),
+                shell: c.shell as u8,
+                meta,
             };
-            if c.w == 0 {
-                even_w0.push(rt);
-            } else {
-                match even_by_w.iter_mut().find(|(w, _)| *w == c.w) {
-                    Some((_, v)) => v.push(rt),
-                    None => even_by_w.push((c.w, vec![rt])),
+            match even_by_w.iter_mut().find(|g| g.w == w) {
+                Some(g) => {
+                    g.shells[shell_idx].push(hot);
+                    g.flat.push(hot);
+                }
+                None => {
+                    let mut g = Group {
+                        w,
+                        shells: core::array::from_fn(|_| Vec::new()),
+                        flat: vec![hot],
+                    };
+                    g.shells[shell_idx].push(hot);
+                    even_by_w.push(g);
                 }
             }
         }
-        even_by_w.sort_unstable_by_key(|&(w, _)| w);
+        even_by_w.sort_unstable_by_key(|g| g.w);
 
-        let odd = odd
-            .into_iter()
-            .map(|c| {
-                let mut a = Vec::with_capacity(DIM);
-                for &(v, n) in &c.vals {
-                    let av = if v % 4 == 3 { v as f64 } else { -(v as f64) };
-                    for _ in 0..n {
-                        a.push(av);
-                    }
+        let mut odd_cold: Vec<OddCold> = Vec::new();
+        let mut odd_by_shell: [Vec<OddHot>; NSHELLS] = core::array::from_fn(|_| Vec::new());
+        let mut odd_flat: Vec<OddHot> = Vec::new();
+        for c in odd {
+            let shell_idx = (c.shell - 2) as usize;
+            // a(v) = +v for v ≡ 3 (mod 4), −v otherwise. Ascending order:
+            // the negatives by decreasing |v| first, then the positives.
+            let mut asc: Vec<(f64, u8)> = Vec::with_capacity(c.vals.len());
+            for &(v, n) in &c.vals {
+                if v % 4 != 3 {
+                    asc.push((-(v as f64), n));
                 }
-                debug_assert_eq!(a.len(), DIM);
-                a.sort_unstable_by(f64::total_cmp);
-                OddRt {
-                    shell_idx: (c.shell - 2) as usize,
-                    a_asc: a.try_into().expect("24 odd values"),
-                    bound: 0.0,
+            }
+            for &(v, n) in c.vals.iter().rev() {
+                if v % 4 == 3 {
+                    asc.push((v as f64, n));
                 }
-            })
-            .collect();
+            }
+            debug_assert!(asc.windows(2).all(|p| p[0].0 < p[1].0));
+            let mut flat = Vec::with_capacity(DIM);
+            for &(v, n) in &asc {
+                for _ in 0..n {
+                    flat.push(v);
+                }
+            }
+            let meta = u16::try_from(odd_cold.len()).expect("class count fits u16");
+            odd_cold.push(OddCold {
+                // |a(v)| = v, and `c.vals` is already descending.
+                absl: Lin::new(&c.vals),
+                a_asc: flat.try_into().expect("24 odd values"),
+            });
+            let hot = OddHot {
+                bound: 0.0,
+                a: Lin::from_values(&asc),
+                norm: (16 * c.shell) as f64,
+                inv_r: 1.0 / ((16 * c.shell) as f64).sqrt(),
+                shell: c.shell as u8,
+                meta,
+            };
+            odd_by_shell[shell_idx].push(hot);
+            odd_flat.push(hot);
+        }
 
         Self {
             even_by_w,
             even_w0,
-            odd,
+            odd_by_shell,
+            odd_flat,
+            even_cold,
+            odd_cold,
+            scratch: Scratch::new(),
         }
     }
 
     /// Exact `argmax ⟨x, v⟩` per shell m = 2..=13. `ws` must be reusable;
     /// the searcher provides the Golay tables.
-    pub fn shell_bests(
-        &mut self,
-        s: &Searcher,
-        ws: &mut Workspace,
-        x: &[f64; DIM],
-    ) -> [Found; NSHELLS] {
-        ws.fill(x);
+    pub fn shell_bests(&mut self, s: &Searcher, x: &[f64; DIM]) -> [Found; NSHELLS] {
         let g = s.leech().golay();
+        let sc = &mut self.scratch;
 
         let mut best = [f64::NEG_INFINITY; NSHELLS];
         let mut best_at = [GBest::None; NSHELLS];
 
-        // Global |x| order (descending), shared by all even classes.
-        let mut order: [usize; DIM] = core::array::from_fn(|i| i);
-        order.sort_unstable_by(|&a, &b| x[b].abs().total_cmp(&x[a].abs()));
-        let abs_desc: [f64; DIM] = core::array::from_fn(|k| x[order[k]].abs());
+        // Global orders: |x| descending (even classes) and x ascending (odd).
+        sc.neg_mask = 0;
+        for (i, xi) in x.iter().enumerate() {
+            sc.neg_mask |= ((*xi < 0.0) as u32) << i;
+        }
+        for (i, sl) in sc.order.iter_mut().enumerate() {
+            *sl = i;
+        }
+        sc.order
+            .sort_unstable_by(|&a, &b| x[b].abs().total_cmp(&x[a].abs()));
+        sc.p_abs[0] = 0.0;
+        for k in 0..DIM {
+            sc.abs_desc[k] = x[sc.order[k]].abs();
+            sc.p_abs[k + 1] = sc.p_abs[k] + sc.abs_desc[k];
+        }
+        for (i, sl) in sc.asc_idx.iter_mut().enumerate() {
+            *sl = i;
+        }
+        sc.asc_idx.sort_unstable_by(|&a, &b| x[a].total_cmp(&x[b]));
+        for k in 0..DIM {
+            sc.asc_val[k] = x[sc.asc_idx[k]];
+        }
 
-        // Per-query class bounds (sorted-pairing upper bounds, support-free:
-        // any placement satisfies Σ v·(±x) ≤ Σ sorted(values)·sorted(|x|)).
+        // Per-query bounds: pair the class values (descending) with |x|
+        // (descending), ignoring the support split — no placement of the
+        // class can score more (rearrangement inequality). Then sort each
+        // per-shell table by decreasing bound so the class loops can break.
         for grp in self.even_by_w.iter_mut() {
-            for cl in grp.1.iter_mut() {
-                let mut vals: Vec<f64> =
-                    cl.word.iter().chain(cl.free.iter()).copied().collect();
-                vals.sort_unstable_by(|a, b| b.total_cmp(a));
-                cl.bound = vals.iter().zip(abs_desc.iter()).map(|(v, a)| v * a).sum();
+            for shelf in grp.shells.iter_mut() {
+                for h in shelf.iter_mut() {
+                    h.bound = self.even_cold[h.meta as usize].all.score(&sc.p_abs);
+                }
+                shelf.sort_unstable_by(|a, b| b.bound.total_cmp(&a.bound));
             }
         }
-        for cl in self.even_w0.iter_mut() {
-            cl.bound = cl.free.iter().zip(abs_desc.iter()).map(|(v, a)| v * a).sum();
-        }
-        for cl in self.odd.iter_mut() {
-            let mut abs_a: [f64; DIM] = core::array::from_fn(|k| cl.a_asc[k].abs());
-            abs_a.sort_unstable_by(|a, b| b.total_cmp(a));
-            cl.bound = abs_a.iter().zip(abs_desc.iter()).map(|(v, a)| v * a).sum();
+        for shelf in self.odd_by_shell.iter_mut() {
+            for h in shelf.iter_mut() {
+                h.bound = self.odd_cold[h.meta as usize].absl.score(&sc.p_abs);
+            }
+            shelf.sort_unstable_by(|a, b| b.bound.total_cmp(&a.bound));
         }
 
-        // w = 0 even classes: codeword 0, free values on the global top |x|.
-        for (ci, cl) in self.even_w0.iter().enumerate() {
-            let score: f64 = cl.free.iter().zip(abs_desc.iter()).map(|(v, a)| v * a).sum();
-            if score > best[cl.shell_idx] {
-                best[cl.shell_idx] = score;
-                best_at[cl.shell_idx] = GBest::Even {
-                    grp: usize::MAX,
-                    idx: ci,
+        // w = 0 even classes: codeword 0, free values on the global top |x|
+        // — the bound is attained, so it *is* the score.
+        for &meta in self.even_w0.iter() {
+            let cold = &self.even_cold[meta as usize];
+            let score = cold.all.score(&sc.p_abs);
+            if score > best[cold.shell_idx] {
+                best[cold.shell_idx] = score;
+                best_at[cold.shell_idx] = GBest::Even {
+                    meta,
                     c: 0,
-                    sac: None,
+                    sac: false,
                 };
             }
         }
 
         // Even classes, grouped by Golay weight.
-        let mut sup = [0f64; DIM];
-        for (gi, (w, group)) in self.even_by_w.iter().enumerate() {
-            let w = *w as usize;
+        for grp in self.even_by_w.iter() {
+            let w = grp.w;
             for &c in g.of_weight(w) {
-                // Support |x| sorted descending.
-                let mut n = 0;
-                for (i, xi) in x.iter().enumerate() {
-                    if c >> i & 1 == 1 {
-                        sup[n] = xi.abs();
-                        n += 1;
-                    }
-                }
-                debug_assert_eq!(n, w);
-                sup[..w].sort_unstable_by(|a, b| b.total_cmp(a));
-                let matched_parity = ws.neg_count(c) % 2;
+                sc.split_support(c, w);
+                let matched_parity = ((c & sc.neg_mask).count_ones() % 2) as u8;
+                let a_last = sc.sup[(w - 1) & PMASK];
 
-                // Off-support |x| descending (probe the global order).
-                let mut off = [0f64; DIM];
-                let mut no = 0;
-                let max_free = group.iter().map(|cl| cl.free.len()).max().unwrap_or(0);
-                for &p in order.iter() {
-                    if no == max_free {
-                        break;
-                    }
-                    if c >> p & 1 == 0 {
-                        off[no] = x[p].abs();
-                        no += 1;
-                    }
-                }
-
-                for (ci, cl) in group.iter().enumerate() {
-                    if cl.bound <= best[cl.shell_idx] {
-                        continue;
-                    }
-                    let off_score: f64 =
-                        cl.free.iter().zip(off.iter()).map(|(v, a)| v * a).sum();
-                    let base: f64 =
-                        cl.word.iter().zip(sup.iter()).map(|(v, a)| v * a).sum();
-                    let (on_score, sac) = if matched_parity == cl.p_req {
-                        (base, None)
-                    } else {
-                        // Exact one-mismatch repair: sacrifice one value of
-                        // kind u at the min-|x| slot, repack the rest.
-                        // Removing the last occurrence (index j) of u shifts
-                        // values j+1..w up one slot: gain D_j =
-                        // Σ_{i>j} V_i·(A_{i−1} − A_i); score =
-                        // base − u·A_j + D_j − u·A_{w−1}.
-                        let mut bestrep = f64::NEG_INFINITY;
-                        let mut bestu = 0.0;
-                        // Suffix scan: D over j from w−1 down to 0.
-                        let mut d = 0.0;
-                        let mut k_iter = cl.kinds.len();
-                        // kinds are stored desc by value; their `last`
-                        // indices increase. Walk j from w−1 downward.
-                        let mut j = w;
-                        while j > 0 {
-                            j -= 1;
-                            // If j is the last occurrence of some kind,
-                            // evaluate the sacrifice of that kind.
-                            while k_iter > 0 && cl.kinds[k_iter - 1].2 == j {
-                                let u = cl.kinds[k_iter - 1].0;
-                                let cand = base - u * sup[j] + d - u * sup[w - 1];
-                                if cand > bestrep {
-                                    bestrep = cand;
-                                    bestu = u;
-                                }
-                                k_iter -= 1;
-                            }
-                            if j > 0 {
-                                d += cl.word[j] * (sup[j - 1] - sup[j]);
-                            }
+                for (si, shelf) in grp.shells.iter().enumerate() {
+                    for h in shelf.iter() {
+                        if h.bound <= best[si] {
+                            break; // table is in decreasing bound order
                         }
-                        (bestrep, Some(bestu))
-                    };
-                    let score = on_score + off_score;
-                    if score > best[cl.shell_idx] {
-                        best[cl.shell_idx] = score;
-                        best_at[cl.shell_idx] = GBest::Even {
-                            grp: gi,
-                            idx: ci,
-                            c,
-                            sac,
-                        };
+                        let (score, sac) = even_dot(h, sc, matched_parity, a_last);
+                        if score > best[si] {
+                            best[si] = score;
+                            best_at[si] = GBest::Even {
+                                meta: h.meta,
+                                c,
+                                sac,
+                            };
+                        }
                     }
                 }
             }
         }
 
-        // Odd classes: shared y-sort per codeword.
+        // Odd classes: `y` ascending per codeword, then run-wise scores.
         for &c in g.codewords() {
-            let mut y: [f64; DIM] = core::array::from_fn(|i| {
-                if c >> i & 1 == 1 {
-                    x[i]
-                } else {
-                    -x[i]
-                }
-            });
-            y.sort_unstable_by(f64::total_cmp);
-            for (ci, cl) in self.odd.iter().enumerate() {
-                if cl.bound <= best[cl.shell_idx] {
-                    continue;
-                }
-                let score: f64 = cl.a_asc.iter().zip(y.iter()).map(|(a, b)| a * b).sum();
-                if score > best[cl.shell_idx] {
-                    best[cl.shell_idx] = score;
-                    best_at[cl.shell_idx] = GBest::Odd { class: ci, c };
+            // yᵢ = (i ∈ c ? xᵢ : −xᵢ). Split the global ascending order in
+            // two: the in-support part stays ascending, the off-support part
+            // negates to descending — so `y` is a two-pointer merge, not a
+            // sort, and it is consumed straight into its prefix sums.
+            sc.merge_y(c);
+
+            for (si, shelf) in self.odd_by_shell.iter().enumerate() {
+                for h in shelf.iter() {
+                    if h.bound <= best[si] {
+                        break; // table is in decreasing bound order
+                    }
+                    let score = h.a.score(&sc.p_y);
+                    if score > best[si] {
+                        best[si] = score;
+                        best_at[si] = GBest::Odd { meta: h.meta, c };
+                    }
                 }
             }
         }
 
+        let order = sc.order;
         core::array::from_fn(|si| Found {
             point: self.materialize(x, &order, best_at[si]),
             shell: si as u32 + 2,
@@ -317,14 +612,8 @@ impl BallSearcher {
     }
 
     /// Exact NN over the ball Λ₂₄(13) ∪ {0} under `metric` at scale 1.
-    pub fn nearest_ball13(
-        &mut self,
-        s: &Searcher,
-        ws: &mut Workspace,
-        x: &[f64; DIM],
-        metric: Metric,
-    ) -> Found {
-        let bests = self.shell_bests(s, ws, x);
+    pub fn nearest_ball13(&mut self, s: &Searcher, x: &[f64; DIM], metric: Metric) -> Found {
+        let bests = self.shell_bests(s, x);
         let mut winner = bests[0];
         let mut key = f64::NEG_INFINITY;
         for f in bests {
@@ -340,11 +629,210 @@ impl BallSearcher {
         winner
     }
 
+    /// Exact nearest codeword of `β·(Λ₂₄(13) ∪ {0})` — **spherical
+    /// shaping**, the production encoder path for a Euclidean quantizer.
+    ///
+    /// Returns the **unscaled** lattice point `v` (reconstruct with `β·v`);
+    /// `shell = 0` with a zero point means the origin won.
+    pub fn nearest_scaled(&mut self, s: &Searcher, x: &[f64; DIM], beta: f64) -> Found {
+        assert!(beta > 0.0, "scale must be positive");
+        // The origin is a codeword of the ball, and its key is exactly 0.
+        self.nearest_by(
+            s,
+            x,
+            Obj::Euclidean {
+                two_beta: 2.0 * beta,
+                beta2: beta * beta,
+            },
+            0.0,
+        )
+    }
+
+    /// Exact `argmax ⟨x, v⟩/‖v‖` over `Λ₂₄(13)` — the **shape** quantizer of
+    /// shape–gain, i.e. the nearest point of the *normalized* ball on the
+    /// unit sphere.
+    ///
+    /// This is the direction quantizer `Q_dir` of the paper's Algorithm 1,
+    /// and the configuration its Table 8 and Appendix I recommend: with a
+    /// code of low angular distortion, capacity is better spent entirely on
+    /// directions, magnitudes being carried by the norm-preserving GPTQ step
+    /// and a closed-form scale afterwards.
+    ///
+    /// Returns the **unscaled** lattice point `v`; the direction is
+    /// `v/‖v‖ = v/√(16·shell)` and `dot/‖v‖` is the projection `⟨x, v̂⟩` the
+    /// gain quantizer has to encode. The origin is *not* a candidate — a
+    /// direction is always required.
+    pub fn nearest_angular(&mut self, s: &Searcher, x: &[f64; DIM]) -> Found {
+        self.nearest_by(s, x, Obj::Angular, f64::NEG_INFINITY)
+    }
+
+    /// Shared encoder core: one global threshold over every class of every
+    /// shell.
+    ///
+    /// [`Self::shell_bests`] answers twelve independent questions and so
+    /// carries twelve independent pruning thresholds; a quantizer only ever
+    /// asks one. Ranking every class by a single objective lets one
+    /// threshold prune *across* shells. Two consequences the per-shell pass
+    /// cannot have: sections (each Golay-weight group, and the whole odd
+    /// coset) are visited in decreasing top bound, so the best incumbent is
+    /// found first; and a section whose best class cannot reach that
+    /// incumbent is skipped outright — 4096 codewords at a time.
+    ///
+    /// `best0` seeds the threshold with any codeword that needs no search
+    /// (the origin, at key 0, for a ball; `−∞` when a direction is
+    /// mandatory).
+    fn nearest_by(&mut self, s: &Searcher, x: &[f64; DIM], obj: Obj, best0: f64) -> Found {
+        let g = s.leech().golay();
+        let sc = &mut self.scratch;
+
+        sc.neg_mask = 0;
+        for (i, xi) in x.iter().enumerate() {
+            sc.neg_mask |= ((*xi < 0.0) as u32) << i;
+        }
+        for (i, sl) in sc.order.iter_mut().enumerate() {
+            *sl = i;
+        }
+        sc.order
+            .sort_unstable_by(|&a, &b| x[b].abs().total_cmp(&x[a].abs()));
+        sc.p_abs[0] = 0.0;
+        for k in 0..DIM {
+            sc.abs_desc[k] = x[sc.order[k]].abs();
+            sc.p_abs[k + 1] = sc.p_abs[k] + sc.abs_desc[k];
+        }
+        for (i, sl) in sc.asc_idx.iter_mut().enumerate() {
+            *sl = i;
+        }
+        sc.asc_idx.sort_unstable_by(|&a, &b| x[a].total_cmp(&x[b]));
+        for k in 0..DIM {
+            sc.asc_val[k] = x[sc.asc_idx[k]];
+        }
+
+        // Per-query bounds, in the objective, and the resulting order.
+        for grp in self.even_by_w.iter_mut() {
+            for h in grp.flat.iter_mut() {
+                let b = self.even_cold[h.meta as usize].all.score(&sc.p_abs);
+                h.bound = obj.key(b, h.norm, h.inv_r);
+            }
+            grp.flat.sort_unstable_by(|a, b| b.bound.total_cmp(&a.bound));
+        }
+        for h in self.odd_flat.iter_mut() {
+            let b = self.odd_cold[h.meta as usize].absl.score(&sc.p_abs);
+            h.bound = obj.key(b, h.norm, h.inv_r);
+        }
+        self.odd_flat
+            .sort_unstable_by(|a, b| b.bound.total_cmp(&a.bound));
+
+        let mut best = best0;
+        let mut best_dot = 0.0f64;
+        let mut best_shell = 0u32;
+        let mut best_at = GBest::None;
+
+        // w = 0 even classes: codeword 0, free values on the global top |x|
+        // — the bound is attained, so it *is* the score.
+        for &meta in self.even_w0.iter() {
+            let cold = &self.even_cold[meta as usize];
+            let dot = cold.all.score(&sc.p_abs);
+            let shell = cold.shell_idx as u32 + 2;
+            let norm = (16 * shell) as f64;
+            let key = obj.key(dot, norm, 1.0 / norm.sqrt());
+            if key > best {
+                best = key;
+                best_dot = dot;
+                best_shell = shell;
+                best_at = GBest::Even {
+                    meta,
+                    c: 0,
+                    sac: false,
+                };
+            }
+        }
+
+        // Sections in decreasing top bound: `usize::MAX` marks the odd coset.
+        let mut sections: Vec<(f64, usize)> = self
+            .even_by_w
+            .iter()
+            .enumerate()
+            .map(|(gi, grp)| (grp.flat[0].bound, gi))
+            .collect();
+        sections.push((self.odd_flat[0].bound, usize::MAX));
+        sections.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+
+        for &(top, sec) in sections.iter() {
+            if top <= best {
+                break; // sorted descending: no later section can win either
+            }
+            if sec == usize::MAX {
+                for &c in g.codewords() {
+                    if self.odd_flat[0].bound <= best {
+                        break; // the whole coset is exhausted
+                    }
+                    sc.merge_y(c);
+                    for h in self.odd_flat.iter() {
+                        if h.bound <= best {
+                            break; // table is in decreasing bound order
+                        }
+                        let dot = h.a.score(&sc.p_y);
+                        let key = obj.key(dot, h.norm, h.inv_r);
+                        if key > best {
+                            best = key;
+                            best_dot = dot;
+                            best_shell = h.shell as u32;
+                            best_at = GBest::Odd { meta: h.meta, c };
+                        }
+                    }
+                }
+            } else {
+                let grp = &self.even_by_w[sec];
+                let w = grp.w;
+                for &c in g.of_weight(w) {
+                    if grp.flat[0].bound <= best {
+                        break; // the whole weight group is exhausted
+                    }
+                    sc.split_support(c, w);
+                    let matched_parity = ((c & sc.neg_mask).count_ones() % 2) as u8;
+                    let a_last = sc.sup[(w - 1) & PMASK];
+                    for h in grp.flat.iter() {
+                        if h.bound <= best {
+                            break;
+                        }
+                        let (dot, sac) = even_dot(h, sc, matched_parity, a_last);
+                        let key = obj.key(dot, h.norm, h.inv_r);
+                        if key > best {
+                            best = key;
+                            best_dot = dot;
+                            best_shell = h.shell as u32;
+                            best_at = GBest::Even {
+                                meta: h.meta,
+                                c,
+                                sac,
+                            };
+                        }
+                    }
+                }
+            }
+        }
+
+        if matches!(best_at, GBest::None) {
+            // Only reachable for a ball objective, where the origin wins.
+            return Found {
+                point: [0; DIM],
+                shell: 0,
+                dot: 0.0,
+            };
+        }
+        let order = sc.order;
+        Found {
+            point: self.materialize(x, &order, best_at),
+            shell: best_shell,
+            dot: best_dot,
+        }
+    }
+
     fn materialize(&self, x: &[f64; DIM], order: &[usize; DIM], b: GBest) -> Point {
         match b {
             GBest::None => unreachable!("every shell 2..=13 is non-empty"),
-            GBest::Odd { class, c } => {
-                let cl = &self.odd[class];
+            GBest::Odd { meta, c } => {
+                let cold = &self.odd_cold[meta as usize];
                 let mut yi: Vec<(f64, usize)> = (0..DIM)
                     .map(|i| {
                         let y = if c >> i & 1 == 1 { x[i] } else { -x[i] };
@@ -354,58 +842,36 @@ impl BallSearcher {
                 yi.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
                 let mut p: Point = [0; DIM];
                 for (k, &(_, i)) in yi.iter().enumerate() {
-                    let a = cl.a_asc[k];
+                    let a = cold.a_asc[k];
                     let coord = a * if c >> i & 1 == 1 { 1.0 } else { -1.0 };
                     p[i] = coord as i32;
                 }
                 p
             }
-            GBest::Even { grp, idx, c, sac } => {
-                let cl = if grp == usize::MAX {
-                    &self.even_w0[idx]
-                } else {
-                    &self.even_by_w[grp].1[idx]
-                };
+            GBest::Even { meta, c, sac } => {
+                let cold = &self.even_cold[meta as usize];
                 let mut p: Point = [0; DIM];
                 // Support positions sorted by |x| descending.
-                let mut supi: Vec<usize> =
-                    (0..DIM).filter(|&i| c >> i & 1 == 1).collect();
+                let mut supi: Vec<usize> = (0..DIM).filter(|&i| c >> i & 1 == 1).collect();
                 supi.sort_unstable_by(|&a, &b| x[b].abs().total_cmp(&x[a].abs()));
                 let w = supi.len();
-                debug_assert_eq!(w, cl.word.len());
-                if w > 0 {
-                    let mut vals = cl.word.clone();
-                    if let Some(u) = sac {
-                        // Remove the last occurrence of u; the sacrificed
-                        // value goes to the min-|x| slot with mismatched
-                        // sign, the rest pack greedily on the other slots.
-                        let j = vals
-                            .iter()
-                            .rposition(|&v| v == u)
-                            .expect("sacrificed kind present");
-                        vals.remove(j);
-                        for (k, &v) in vals.iter().enumerate() {
-                            let i = supi[k];
-                            p[i] = if x[i] < 0.0 { -(v as i32) } else { v as i32 };
-                        }
-                        let i = supi[w - 1];
-                        // Mismatched sign on purpose.
-                        p[i] = if x[i] < 0.0 { u as i32 } else { -(u as i32) };
-                    } else {
-                        for (k, &v) in vals.iter().enumerate() {
-                            let i = supi[k];
-                            p[i] = if x[i] < 0.0 { -(v as i32) } else { v as i32 };
-                        }
-                    }
+                debug_assert_eq!(w, cold.w);
+                // Word values pair with the support |x| descending, signs
+                // matched — except the last one, which the parity repair
+                // flips on purpose.
+                for (k, &v) in cold.word_flat.iter().enumerate() {
+                    let i = supi[k];
+                    let neg = (x[i] < 0.0) ^ (sac && k == w - 1);
+                    p[i] = if neg { -(v as i32) } else { v as i32 };
                 }
                 // Free values on the largest off-support |x|.
                 let mut fi = 0;
                 for &i in order.iter() {
-                    if fi == cl.free.len() {
+                    if fi == cold.free_flat.len() {
                         break;
                     }
                     if c >> i & 1 == 0 {
-                        let v = cl.free[fi];
+                        let v = cold.free_flat[fi];
                         p[i] = if x[i] < 0.0 { -(v as i32) } else { v as i32 };
                         fi += 1;
                     }
@@ -414,6 +880,16 @@ impl BallSearcher {
             }
         }
     }
+}
+
+fn flatten(vals: &[(u8, u8)]) -> Vec<f64> {
+    let mut out = Vec::new();
+    for &(v, n) in vals {
+        for _ in 0..n {
+            out.push(v as f64);
+        }
+    }
+    out
 }
 
 impl Default for BallSearcher {

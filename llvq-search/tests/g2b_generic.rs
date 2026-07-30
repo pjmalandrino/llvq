@@ -7,11 +7,10 @@
 //!    which were themselves validated against brute-force enumeration in
 //!    `g2_search.rs`. This transitively pins the generic engine to the
 //!    ground truth on the shells where ground truth is enumerable.
-//! 2. **DP reference for the even parity repair**: the greedy
-//!    sacrifice-and-repack rule is checked against an exhaustive assignment
-//!    DP (positions × value-multiset × sign parity) on random inputs, per
-//!    (class, codeword) — including the classes of high shells that no
-//!    enumeration can reach.
+//! 2. **DP reference for the even parity repair**: the closed-form repair is
+//!    checked against an exhaustive assignment DP (positions × value-multiset
+//!    × sign parity) on random inputs — including the classes of high shells
+//!    that no enumeration can reach.
 //! 3. **Membership**: every materialized winner must pass `Leech::contains`
 //!    on its declared shell radius with a consistent dot product.
 
@@ -38,7 +37,7 @@ fn generic_matches_fast_path_on_shells_2_and_3() {
     let n = if cfg!(debug_assertions) { 10 } else { 200 };
     for _ in 0..n {
         let x = gauss_vec(&mut rng, 1.0);
-        let bests = ball.shell_bests(&s, &mut ws, &x);
+        let bests = ball.shell_bests(&s, &x);
         let f2 = s.nearest_in_shell2_with(&mut ws, &x);
         let f3 = s.nearest_in_shell3_with(&mut ws, &x);
         assert!(
@@ -61,7 +60,6 @@ fn winners_are_members_with_consistent_dots() {
     let s = Searcher::new();
     let l = Leech::new();
     let mut ball = BallSearcher::new();
-    let mut ws = Workspace::new();
     let mut rng = SplitMix64::new(0x2B_0002);
     let n = if cfg!(debug_assertions) { 5 } else { 60 };
     for q in 0..n {
@@ -69,7 +67,7 @@ fn winners_are_members_with_consistent_dots() {
         // angular-per-shell argmax toward wider leaders).
         let scale = 0.5 + 0.25 * (q % 8) as f64;
         let x = gauss_vec(&mut rng, scale);
-        for f in ball.shell_bests(&s, &mut ws, &x) {
+        for f in ball.shell_bests(&s, &x) {
             assert!(l.contains(&f.point), "shell {} winner not in Λ24", f.shell);
             assert_eq!(
                 Leech::shell_index(&f.point),
@@ -139,33 +137,35 @@ fn dp_on_support(values: &[(f64, usize)], sup: &[f64], p_req: u32) -> f64 {
     rec(0, &mut counts, 0, values, sup, p_req, &mut memo)
 }
 
-/// Greedy closed form under test (mirrors generic.rs): pair values desc with
-/// |x| desc, signs matched; on parity mismatch, sacrifice one value of some
-/// kind at the min-|x| slot and repack.
-fn greedy_on_support(values_desc: &[f64], kinds: &[(f64, usize)], sup_desc: &[f64], matched_parity: u32, p_req: u32) -> f64 {
+/// Closed form under test (mirrors `generic.rs`): pair values descending with
+/// |x| descending, signs matched; on a parity mismatch, flip the **smallest**
+/// value, which already sits on the smallest support |x|.
+///
+/// That single case is the whole rule. Sacrificing a *larger* kind u at its
+/// last slot j and repacking the values after it scores
+/// `base − u·A_j + D_j − u·A_{w−1}` with `D_j = Σ_{i>j} Vᵢ(A_{i−1} − Aᵢ)`,
+/// and expanding the telescoping sum gives
+///
+/// ```text
+/// score(j) − score(w−1) = Σ_{t=j}^{w−2} (V_{t+1} − V_t)·A_t + (V_{w−1} − V_j)·A_{w−1}
+/// ```
+///
+/// — every term ≤ 0 because `V` is descending and `A ≥ 0`. So no repack can
+/// ever beat the plain flip, and the DP below is what proves it empirically:
+/// it explores *every* assignment, so if the simplification were ever wrong
+/// it would score strictly higher.
+fn greedy_on_support(
+    values_desc: &[f64],
+    sup_desc: &[f64],
+    matched_parity: u32,
+    p_req: u32,
+) -> f64 {
     let w = sup_desc.len();
     let base: f64 = values_desc.iter().zip(sup_desc).map(|(v, a)| v * a).sum();
     if matched_parity == p_req {
         return base;
     }
-    let mut bestrep = f64::NEG_INFINITY;
-    let mut d = 0.0;
-    // kinds as (value, last index) with last increasing; walk j downward.
-    let mut k_iter = kinds.len();
-    let mut j = w;
-    while j > 0 {
-        j -= 1;
-        while k_iter > 0 && kinds[k_iter - 1].1 == j {
-            let u = kinds[k_iter - 1].0;
-            let cand = base - u * sup_desc[j] + d - u * sup_desc[w - 1];
-            bestrep = bestrep.max(cand);
-            k_iter -= 1;
-        }
-        if j > 0 {
-            d += values_desc[j] * (sup_desc[j - 1] - sup_desc[j]);
-        }
-    }
-    bestrep
+    base - 2.0 * values_desc[w - 1] * sup_desc[w - 1]
 }
 
 #[test]
@@ -194,14 +194,12 @@ fn even_repair_matches_dp_reference() {
             for p_req in [0u32, 1] {
                 let dp = dp_on_support(vals, &sup, p_req);
                 let mut values_desc = Vec::new();
-                let mut kinds = Vec::new();
                 for &(v, n) in vals {
                     for _ in 0..n {
                         values_desc.push(v);
                     }
-                    kinds.push((v, values_desc.len() - 1));
                 }
-                let greedy = greedy_on_support(&values_desc, &kinds, &sup, 0, p_req);
+                let greedy = greedy_on_support(&values_desc, &sup, 0, p_req);
                 assert!(
                     (dp - greedy).abs() <= 1e-9,
                     "case {vals:?} trial {trial} p_req {p_req}: dp {dp} vs greedy {greedy}"

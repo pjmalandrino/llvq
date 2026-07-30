@@ -16,7 +16,7 @@
 use llvq_core::{Leech, SplitMix64, DIM};
 use llvq_search::generic::BallSearcher;
 use llvq_search::index::{Indexer, N13};
-use llvq_search::{Searcher, Workspace};
+use llvq_search::Searcher;
 
 #[test]
 fn origin_and_bounds() {
@@ -101,13 +101,12 @@ fn search_winners_roundtrip() {
     let s = Searcher::new();
     let ix = Indexer::new();
     let mut ball = BallSearcher::new();
-    let mut ws = Workspace::new();
     let mut rng = SplitMix64::new(0x63_0002);
     let n = if cfg!(debug_assertions) { 4 } else { 40 };
     for q in 0..n {
         let scale = 0.5 + 0.25 * (q % 8) as f64;
         let x: [f64; DIM] = core::array::from_fn(|_| scale * rng.next_gaussian());
-        for f in ball.shell_bests(&s, &mut ws, &x) {
+        for f in ball.shell_bests(&s, &x) {
             let idx = ix.encode(&f.point).expect("winner must encode");
             assert_eq!(ix.decode(idx), Some(f.point), "winner round-trip");
         }

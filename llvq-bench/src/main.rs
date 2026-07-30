@@ -107,12 +107,30 @@ fn main() {
         "{:<38} {:>9} {:>9} {:>12} {:>9}",
         "method", "bits/dim", "MSE", "SQNR(bits)", "Ret(%)"
     );
-    row("paper Table 3: spherical shaping", 2.0, 0.1084);
-    row("paper Table 3: shape–gain", 2.0, 0.1078);
+    // Paper Table 8 (App. H), read off the rendered PDF — text extraction of
+    // this document doubles digits (0.084 came out as "0.1084").
+    row("paper: spherical shaping Λ24(13)", 2.0, 0.084);
+    row("paper: shape–gain, 0 gain bits", 2.0, 0.085);
+    row("paper: shape–gain, 1 gain bit", 2.0, 0.078);
     row("LLVQ spherical shaping (m ≤ 13)", r13, mse13);
     for (k, r, mse) in &rows_sg13 {
         row(&format!("LLVQ shape–gain, {k}-bit gain (m ≤ 13)"), *r, *mse);
     }
+    // Single shell vs the union: same harness, one line of difference. Gain
+    // centroids are fitted on `train`, like every other row — measuring them
+    // on the set they were fitted to would flatter the single-shell codes.
+    for m in [12u32, 13] {
+        let t_train: Vec<f64> = train13.iter().map(|d| t_single(d, m)).collect();
+        for k in [0u32, 1] {
+            let centroids = lloyd_max(&t_train, k, 60);
+            row(
+                &format!("LLVQ shape–gain, {k}-bit gain (shell {m} only)"),
+                rate_shape_gain13_single(m, k),
+                shape_gain_mse13_single(&eval13, &centroids, m),
+            );
+        }
+    }
+
     println!(
         "{:<38} {:>9.4} {:>9.4} {:>12.4} {:>9.2}",
         "Shannon limit @ 2 bits/dim",

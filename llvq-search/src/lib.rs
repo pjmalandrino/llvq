@@ -39,6 +39,7 @@
 
 pub mod classes;
 pub mod generic;
+pub mod generic_ref;
 pub mod index;
 
 use llvq_core::{Leech, Point, DIM};
