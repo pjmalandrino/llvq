@@ -108,6 +108,59 @@ fn with_retraction_the_gain_codebook_still_changes_the_output() {
     );
 }
 
+/// Under the old retraction, shape–gain **was** the direction-only quantizer.
+///
+/// Both pick the same lattice point, and the retraction then gives both the
+/// same norm — so they are one quantizer wearing two names, agreeing to about
+/// one ulp. This matters for reading the project's history: the `CLAUDE.md`
+/// 4B table reports 14.2684 for "free magnitude" and 15.2909 for "1 gain bit"
+/// as if the codebook explained the gap. It cannot. Whatever produced that 7 %
+/// came from somewhere else — amplified numerical divergence across 36
+/// sequentially-calibrated blocks is the obvious suspect, an undocumented
+/// configuration difference the other.
+///
+/// With the retraction fixed, the two are genuinely different quantizers and
+/// an A/B between them measures something real.
+#[test]
+fn under_the_old_retraction_shape_gain_was_direction_only() {
+    let mut rng = SplitMix64::new(0x6_D1A6);
+    let base = weights(&mut rng);
+    let h = random_hessian(&mut rng, D_IN, 4 * D_IN);
+    let factor = GptqFactor::new(&h, D_IN, 1e-2).expect("SPD");
+    let centroids = fit_gain_centroids(&base, D_OUT, D_IN, DIM, 1, 40);
+    assert!(
+        centroids.iter().all(|c| *c > 1e-6),
+        "a near-zero gain level would zero blocks out and confound this test: \
+         {centroids:?}"
+    );
+
+    let mut a = Weights::new(D_OUT, D_IN, base.clone());
+    quantize_layer(
+        &mut a,
+        &factor,
+        None,
+        &mut llvq_quant::quantizer::LeechDirection::new(),
+        &cfg(true),
+    );
+
+    let mut b = Weights::new(D_OUT, D_IN, base.clone());
+    let mut q = LeechShapeGain::new(centroids).with_free_magnitude();
+    quantize_layer(&mut b, &factor, None, &mut q, &cfg(true));
+
+    let worst = a
+        .w
+        .iter()
+        .zip(b.w.iter())
+        .map(|(x, y)| (x - y).abs() / x.abs().max(1e-300))
+        .fold(0.0f64, f64::max);
+    assert!(
+        worst < 1e-12,
+        "the two should be the same quantizer under the old retraction, but \
+         they differ by a relative {worst:e} — the gain code is doing \
+         something again, which changes how the project's own history reads"
+    );
+}
+
 /// The rate a configuration claims must be a rate its reconstruction can
 /// actually honour.
 ///

@@ -81,6 +81,46 @@ Et le point qui fait mal : **à 2,73 bits/poids, la comparaison au papier
 change de nature.** Leur meilleure configuration sans fine-tuning tient
 15,54 à 2,000 bits. On tient 14,91, mais à 37 % de bits en plus, pas 5,6 %.
 
+## ⚠️ Une conséquence sur la lecture de l'historique
+
+Si la rétraction annulait le gain, alors `Codebook::Direction` et
+`Codebook::ShapeGain` choisissaient le même point du réseau **et** finissaient
+sur la même norme : un seul quantifieur sous deux noms.
+
+Mesuré (`under_the_old_retraction_shape_gain_was_direction_only`) : sur une
+couche entière, écart relatif maximal **7,1 × 10⁻¹⁵**, mêmes zéros, centroïdes
+sains. Ce sont bien les mêmes poids.
+
+Donc les deux premières lignes du tableau 4B comparent **deux configurations
+identiques** :
+
+| | bits/poids | wiki |
+|---|---|---|
+| wikitext, magnitude libre | 2,7289 | 14,2684 |
+| wikitext, 1 bit de gain | 2,1117 | 15,2909 |
+
+L'écart de **7 %** ne peut pas venir du codebook. Deux suspects :
+
+1. **Une divergence numérique amplifiée.** La calibration est séquentielle —
+   36 blocs, chacun quantifié contre les activations sorties des blocs déjà
+   quantifiés. `nearest_angular` est un argmax : deux candidats à 10⁻¹⁵ l'un
+   de l'autre suffisent à faire basculer le point choisi, et l'écart n'est
+   plus microscopique. Sur 3 blocs l'écart mesuré était de 0,04 % ; sur 36, de
+   7 %.
+2. Une différence de configuration non consignée entre les deux runs.
+
+**Ce que ça invalide.** La conclusion « quantifier le gain ne coûte presque
+rien — 0,04 % de perplexité pour 0,52 bit/poids » comparait deux
+configurations identiques. Elle n'a jamais été mesurée. (Elle reste peut-être
+vraie ; simplement, rien ne l'établit.)
+
+**Ce que ça suggère de faire, et c'est bon marché.** Un **run de contrôle de
+variance** : lancer deux fois la même configuration sur 36 blocs, ou lancer
+`direction` contre `leech1f` (qui sont le même quantifieur), et regarder
+l'écart de perplexité. Tant qu'on ne connaît pas cette dispersion, on ne sait
+pas si un écart de 5 % entre deux configurations est un signal ou du bruit —
+et plusieurs conclusions du projet reposent sur des écarts de cet ordre.
+
 ## Les correctifs
 
 | # | correctif | où |
