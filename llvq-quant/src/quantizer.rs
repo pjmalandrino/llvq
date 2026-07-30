@@ -9,6 +9,21 @@ use llvq_core::DIM;
 use llvq_search::generic::BallSearcher;
 use llvq_search::Searcher;
 
+/// What a quantizer emitted for the block it just reconstructed — everything
+/// an artifact needs to rebuild that block, and nothing else.
+///
+/// The lattice point rather than its 48-bit index: bijective indexing costs a
+/// multiset-permutation rank per block, which has no business running inside
+/// the quantization loop. A layer's points are encoded once, when the layer is
+/// written out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockCode {
+    /// Direction, as a point of `√8·Λ₂₄ ⊂ Z²⁴`.
+    pub point: llvq_core::Point,
+    /// Rank of the gain level within the matrix's fitted centroids.
+    pub gain: u32,
+}
+
 /// Reconstructs a block of weights from its quantized representation.
 ///
 /// The contract is deliberately narrow — in, out, same length — so the GPTQ
@@ -31,6 +46,47 @@ pub trait BlockQuantizer {
 
     /// Write the reconstruction of `v` into `out` (same length as `v`).
     fn quantize(&mut self, v: &[f64], out: &mut [f64]);
+
+    /// The code the last [`Self::quantize`] call emitted, for quantizers that
+    /// have one — the lattice point and the gain level rank.
+    ///
+    /// This is what an artifact writes. Quantizers with no discrete code
+    /// (identity, scalar rounding) return `None` and simply cannot be
+    /// serialized at a compressed rate.
+    ///
+    /// **The code describes what `quantize` produced, not necessarily what the
+    /// layer loop keeps.** A retraction that moves the block off the code's
+    /// own magnitude invalidates it; nothing here can detect that, so the
+    /// guarantee comes from the round-trip test instead — decode the artifact
+    /// and demand the evaluated weights back, bit for bit.
+    fn last_code(&self) -> Option<BlockCode> {
+        None
+    }
+
+    /// The sphere the retraction of Algorithm 3 should put this block back on,
+    /// given the block's norm before quantization.
+    ///
+    /// **Which sphere is not a detail.** Rescaling to the block's own
+    /// pre-quantization norm hands back a free float per block, which silently
+    /// cancels whatever the gain code just chose: two disjoint gain codebooks
+    /// then produce bit-identical weights, and the reconstruction costs 16
+    /// bits per block that no rate accounting charges. A quantizer that codes
+    /// its magnitude must name a sphere **its code can express**.
+    ///
+    /// The default is the input norm, which is exactly right for quantizers
+    /// whose magnitude is free by construction ([`LeechDirection`]) or which
+    /// carry no notion of block magnitude at all ([`Identity`],
+    /// [`ScalarGrid`]).
+    ///
+    /// `None` means *"my output is already on the sphere it should be on —
+    /// do not touch it."* That is not the same as retracting to the norm the
+    /// quantizer just produced: rescaling by a computed `k ≈ 1` perturbs the
+    /// last bits, and a decoder rebuilding the block from its code alone
+    /// cannot reproduce that perturbation. An artifact can only be bit-exact
+    /// if the loop leaves such blocks alone.
+    fn retraction_target(&self, norm_before: f64) -> Option<f64> {
+        Some(norm_before)
+    }
 }
 
 /// Shape only, with the block magnitude kept in **full precision**.
@@ -172,12 +228,43 @@ impl BlockQuantizer for ScalarGrid {
 /// finds one to be better, and says so.
 ///
 /// Rate: `(48 + k)` bits per 24 weights, plus one row scale per output row.
+///
+/// ## An unresolved tension with the spherical retraction
+///
+/// Eq. 17 as written retracts a block back to `‖W_{i,B}‖₂` — its exact
+/// pre-quantization norm. Composed with a gain code, that **cancels the code
+/// outright**: the level chosen here is overwritten, and the stored magnitude
+/// is a free float per block (16 bits nothing charges for). `g5_retraction.rs`
+/// pins it — two disjoint codebooks then give bit-identical weights.
+///
+/// The paper's own resolution is that magnitudes are held "by the norm
+/// constraint during GPTQ **and then by a closed-form solve at the end of the
+/// layer**" — Algorithm 3's `refine_group_scales`, which we keep disabled
+/// because it degraded perplexity across 28 blocks.
+///
+/// So there are three coherent designs and we have not measured which is
+/// right, only which is *honest*:
+///
+/// | | retraction | rate/block | gain code |
+/// |---|---|---|---|
+/// | [`Self::retract_to_level`] (default) | to the nearest code level | 47 + k | load-bearing |
+/// | [`Self::with_free_magnitude`] | to the exact block norm | 47 + 16 | inert |
+/// | Algorithm 3 as written | exact norm, then a closed-form solve | to be determined | deferred to the solve |
+///
+/// The default is the honest one: what the code claims to store is what the
+/// reconstruction uses. The alternative is kept so the two can be A/B'd
+/// rather than argued about — the choice is a measurement, not a preference.
 pub struct LeechShapeGain {
     searcher: Searcher,
     ball: BallSearcher,
     /// Gain levels, relative to the row scale, ascending.
     centroids: Vec<f64>,
     row_scale: f64,
+    /// Retract to a level the gain code can express, rather than to the
+    /// block's own norm.
+    retract_to_level: bool,
+    /// Code emitted by the most recent `quantize`, for artifact writing.
+    last: Option<BlockCode>,
 }
 
 impl LeechShapeGain {
@@ -201,12 +288,60 @@ impl LeechShapeGain {
             ball,
             centroids,
             row_scale: 1.0,
+            retract_to_level: true,
+            last: None,
         }
+    }
+
+    /// Let the retraction restore the block's exact norm, as Eq. 17 is
+    /// written — which makes the gain code inert and the true rate `47 + 16`
+    /// bits per block rather than `47 + k`.
+    ///
+    /// This is what every run before 2026-07-31 did, unknowingly. Kept only so
+    /// the two can be measured against each other; see the type's note.
+    pub fn with_free_magnitude(mut self) -> Self {
+        self.retract_to_level = false;
+        self
     }
 
     /// Bits spent per block on the gain.
     pub fn gain_bits(&self) -> u32 {
         self.centroids.len().next_power_of_two().trailing_zeros()
+    }
+
+    /// Rebuild a block from its code alone — the decoder side of an artifact.
+    ///
+    /// This must mirror [`BlockQuantizer::quantize`] operation for operation,
+    /// not merely agree with it mathematically: a round-trip that is only
+    /// correct to a few ulps is not a round-trip, and the difference between
+    /// the two is exactly the kind of thing that shows up as an unexplained
+    /// perplexity three hours into a run.
+    pub fn reconstruct(&self, code: &BlockCode, row_scale: f64, out: &mut [f64]) {
+        assert_eq!(out.len(), DIM);
+        match llvq_core::Leech::shell_index(&code.point) {
+            Some(m) if m > 0 => {
+                let picked = self.centroids[code.gain as usize] * row_scale;
+                let scale = picked / ((16 * m) as f64).sqrt();
+                for (o, &p) in out.iter_mut().zip(code.point.iter()) {
+                    *o = p as f64 * scale;
+                }
+            }
+            // The origin: a zero block, representable and reconstructed as is.
+            _ => out.fill(0.0),
+        }
+    }
+
+    /// Bits per block this quantizer actually costs, given how it retracts.
+    ///
+    /// The point of having this on the quantizer rather than in a table: a
+    /// configuration cannot claim a rate its reconstruction does not honour.
+    pub fn block_bits(&self) -> u32 {
+        let index = index_bits(self.ball.shell_cap());
+        if self.retract_to_level {
+            index + self.gain_bits()
+        } else {
+            index + 16
+        }
     }
 }
 
@@ -219,32 +354,80 @@ impl BlockQuantizer for LeechShapeGain {
         self.row_scale = if scale > 0.0 { scale } else { 1.0 };
     }
 
+    /// The retraction must land on a magnitude this code can express, so it
+    /// targets the nearest gain level rather than the block's own norm.
+    ///
+    /// Retracting to `norm_before` instead would restore a free float per
+    /// block and cancel the gain code outright — see the trait's note and the
+    /// type's note on the three coherent designs.
+    fn retraction_target(&self, norm_before: f64) -> Option<f64> {
+        if self.retract_to_level {
+            // `quantize` already placed the block on the nearest level's
+            // sphere. Rescaling it to a recomputed value of that same norm
+            // would only cost a rounding error the decoder cannot mirror.
+            debug_assert!(
+                {
+                    let want = nearest_level(&self.centroids, norm_before / self.row_scale);
+                    want.is_finite()
+                },
+                "gain levels must be finite"
+            );
+            None
+        } else {
+            Some(norm_before)
+        }
+    }
+
     fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
         let x: &[f64; DIM] = v.try_into().expect("block must be 24 weights");
         let norm = x.iter().map(|a| a * a).sum::<f64>().sqrt();
         if norm == 0.0 {
             out.fill(0.0);
+            // The origin is a codebook point (index 0); a zero block is
+            // representable, not an absence of code.
+            self.last = Some(BlockCode {
+                point: [0; DIM],
+                gain: 0,
+            });
             return;
         }
         let f = self.ball.nearest_angular(&self.searcher, x);
         // The gain code sees the block norm relative to its row, which is
         // what makes a two-level code meaningful at all.
         let g = norm / self.row_scale;
-        let picked = nearest_level(&self.centroids, g) * self.row_scale;
+        let level = nearest_level_index(&self.centroids, g);
+        let picked = self.centroids[level] * self.row_scale;
         let scale = picked / ((16 * f.shell) as f64).sqrt();
         for (o, &p) in out.iter_mut().zip(f.point.iter()) {
             *o = p as f64 * scale;
         }
+        self.last = Some(BlockCode {
+            point: f.point,
+            gain: level as u32,
+        });
+    }
+
+    fn last_code(&self) -> Option<BlockCode> {
+        self.last
     }
 }
 
 #[inline]
 fn nearest_level(levels: &[f64], g: f64) -> f64 {
-    let mut best = (f64::INFINITY, levels[0]);
-    for &c in levels {
+    levels[nearest_level_index(levels, g)]
+}
+
+/// The **rank** of the nearest level, which is what gets written to disk.
+///
+/// The value alone cannot be stored: an artifact carries the level's index
+/// and looks the value up in the matrix's fitted centroids.
+#[inline]
+fn nearest_level_index(levels: &[f64], g: f64) -> usize {
+    let mut best = (f64::INFINITY, 0usize);
+    for (i, &c) in levels.iter().enumerate() {
         let d = (g - c).abs();
         if d < best.0 {
-            best = (d, c);
+            best = (d, i);
         }
     }
     best.1

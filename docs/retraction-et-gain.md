@@ -1,0 +1,167 @@
+# La rétraction annulait le code de gain — 2026-07-31
+
+> Trouvé en préparant l'écriture de l'artefact 2 bits. Deux défauts de
+> comptabilité, corrigés ; une question de conception ouverte, **non tranchée**.
+> Branche `g6-artefact`, rien n'est mergé.
+
+## Résumé
+
+Le chiffre publié — **14,9104 de perplexité à 2,1117 bits/poids** sur Qwen3-4B
+— a une perplexité juste et un **débit faux**. Le modèle évalué stocke une
+magnitude flottante libre par bloc de 24 poids, soit 16 bits que la
+comptabilité ne facture pas. Le débit réel est **~2,75 bits/poids**, et la
+compression réelle **×3,96** au lieu de ×4,63.
+
+Les deux défauts sont corrigés et testés. Mais le correctif a une conséquence
+sur la sémantique du Spherical GPTQ qui demande une décision et un A/B.
+
+## Défaut 1 — la rétraction annule le gain
+
+`LeechShapeGain::quantize` choisit un niveau de gain et rend un bloc de norme
+`picked`. Puis `quantize_layer` applique la rétraction sphérique (Eq. 17) :
+
+```rust
+let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();  // = picked
+let k = norm_before / n;
+for q in qbuf[..b].iter_mut() { *q *= k; }                     // norme = norm_before
+```
+
+La norme finale est `norm_before` — la norme du bloc avant quantification, un
+flottant libre. **Le niveau choisi disparaît intégralement.**
+
+Mesuré (`g5_retraction.rs`) : deux codebooks de gain disjoints, `[0,25 / 0,75]`
+et `[6 / 19]`, produisent des poids **bit-identiques** — `max |Δ| = 0e0`. Et
+après une passe de couche, 24 blocs prennent 24 magnitudes distinctes alors que
+le code n'en a que 2.
+
+Le contrôle sans rétraction passe : ce n'est pas le harnais, c'est la
+composition.
+
+**Pourquoi aucun test ne l'attrapait.** `the_gain_is_actually_quantized`
+appelle `quantize()` **directement**. Il n'exerce jamais la rétraction que
+`quantize_layer` applique juste après, et tous les runs utilisent
+`retract: true`. C'est le motif documenté quatre fois au §5 du `CLAUDE.md` —
+une assertion qui n'exerce pas le paramètre qu'elle est censée couvrir — et
+l'ironie est que ce test-là avait été écrit pour attraper la quatrième
+occurrence.
+
+## Défaut 2 — le `row_scale` dérivait
+
+`row_scale`, la référence à laquelle le code de gain rapporte chaque bloc,
+était recalculé **à chaque bloc** sur l'état courant de la ligne, qui bouge à
+mesure que l'erreur se propage. Mesuré sur une même ligne : 0,04737 au bloc 0,
+0,04837 au bloc 1.
+
+Or la comptabilité facture **une f16 par ligne** (`Report::rows * 16`), et le
+commentaire du trait énonce l'intention : *« That scale is one float per
+row »*. Une ligne de 2560 aurait eu besoin de 106 échelles distinctes.
+
+## Ce que ça coûte
+
+| | annoncé | réel |
+|---|---|---|
+| bits/bloc (cap 13, 1 bit de gain) | 49 | **64** (48 index + 16 norme f16) |
+| bits/poids, Qwen3-4B | 2,1117 | **~2,75** |
+| artefact | 1,74 Go | **~2,03 Go** |
+| compression vs FP16 8,04 Go | ×4,63 | **×3,96** |
+
+Pour le run `leech1c12` (cap 12) : 2,0702 annoncé, **~2,70** réel.
+
+**La perplexité reste valide.** 14,9104 est une mesure, pas un calcul. C'est
+son étiquette de débit qui est fausse.
+
+## Les correctifs
+
+| # | correctif | où |
+|---|---|---|
+| 1 | `BlockQuantizer::retraction_target()` — le quantifieur nomme la sphère ; par défaut la norme d'entrée, pour `LeechShapeGain` le **niveau de code le plus proche** | `quantizer.rs`, `gptq.rs` |
+| 2 | `row_scale` calculé une fois par ligne, avant la boucle des blocs | `gptq.rs` |
+
+État : **70 tests verts, zéro warning clippy.** Les 16 tests GPTQ existants
+passent inchangés, dont `parallel_matches_serial_exactly` et
+`correction_is_the_analytic_minimizer`.
+
+Cinq tests nouveaux dans `llvq-quant/tests/g5_retraction.rs`, dont celui qui
+manquait vraiment :
+
+> `the_claimed_rate_matches_what_the_reconstruction_needs` — le nombre de
+> magnitudes distinctes que la reconstruction produit doit tenir dans les bits
+> que le quantifieur facture. Une assertion de **coût**, pas de qualité.
+
+## ⚠️ La question ouverte, à trancher
+
+Le correctif 1 a une conséquence : pour `LeechShapeGain`, la rétraction
+devient un **no-op** — elle vise le niveau que `quantize` a déjà produit. Le
+« Spherical » du Spherical GPTQ ne fait donc plus rien de spécifique pour ce
+quantifieur.
+
+Ça peut être sans conséquence, ou coûter cher : la Table 9 du papier montre
+que le GPTQ euclidien sans rotation s'effondre à 91,90 de perplexité là où le
+Spherical GPTQ tient à 6,90. **On ne sait pas** quelle part de ce gain vient
+de la rétraction elle-même et quelle part de la rétroaction d'erreur.
+
+Trois designs cohérents, dont un seul est mesuré :
+
+| | rétraction | bits/bloc | code de gain | mesuré ? |
+|---|---|---|---|---|
+| **A** — `retract_to_level` (défaut) | vers le niveau du code | 47 + k | porteur | ❌ |
+| **B** — `with_free_magnitude()` | vers la norme exacte | 47 + 16 | inerte | ✅ c'est ce que tous les runs ont fait |
+| **C** — Algorithme 3 à la lettre | norme exacte, puis résolution close en fin de couche | ? | délégué au solve | ❌ `group_scales` dégradait |
+
+Le papier dit que les magnitudes sont tenues « par la contrainte de norme
+pendant GPTQ **puis par une résolution close en fin de couche** » — c'est
+`refine_group_scales`, qu'on désactive parce qu'il dégradait la perplexité sur
+28 blocs. On a donc la rétraction **sans** le mécanisme censé re-quantifier les
+magnitudes derrière. C est peut-être la vraie lecture du papier, et mériterait
+qu'on relise l'annexe I avant de choisir.
+
+**Le choix est une mesure, pas une préférence.** Les deux comportements sont
+accessibles pour être A/B-és.
+
+## L'A/B à lancer, et pourquoi il ne choisit pas
+
+A/B sur 3 blocs de Qwen3-0.6B, une seule variable, ~8 min chacun :
+
+```bash
+LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_CALIB=c4 cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 2048 metal nogs leech1c12 3 rot
+```
+
+```bash
+LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_CALIB=c4 cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 2048 metal nogs leech1c12f 3 rot
+```
+
+Le suffixe `f` de `leech1c12f` restaure le comportement B, et **le facture
+correctement** (16 bits au lieu de 1) — les deux lignes de débit sont donc
+directement comparables.
+
+⚠️ Cet A/B ne sert **pas** à choisir entre A et B. B n'est pas une option : il
+coûte 0,64 bit/poids de plus que ce qu'il annonce. L'A/B sert à mesurer **ce
+que coûte l'honnêteté** en perplexité. Si A dégrade peu, on publie A. Si A
+dégrade beaucoup, la vraie réponse est C, et il faut relire l'annexe I.
+
+## Ce qu'il faut corriger dans la communication
+
+Trois endroits portent le chiffre faux, et le brouillon de mail demande
+lui-même qu'aucun chiffre ne diverge du README :
+
+- `README.md` — le tableau de résultat et la section « Read this before
+  quoting the number »
+- `CLAUDE.md` — § Qwen3-4B, et la ligne « Compression réelle sur le 4B »
+- `docs/mail-qualcomm-draft.md`
+
+À ne pas faire avant l'A/B : le chiffre juste dépend de quelle option on
+retient.
+
+## La leçon, qui est la même que les quatre précédentes
+
+> Tant qu'on simule, on peut se raconter ce qu'on veut sur ce que ça coûterait ;
+> dès qu'il faut écrire des octets, il faut les compter.
+
+C'est déjà écrit dans le `CLAUDE.md`, à propos de l'erreur de comptabilité
+précédente (2,0653 annoncé pour 2,7289 réel). Le même paragraphe s'applique
+mot pour mot à celle-ci — et elle a été trouvée exactement de la même façon,
+en préparant l'écriture de l'artefact.
+
+La nuance neuve : le test écrit pour empêcher la récidive **testait le
+quantifieur nu**, pas le chemin composé. Une assertion sur un composant ne dit
+rien du pipeline qui l'utilise.

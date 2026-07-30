@@ -138,8 +138,16 @@ fn main() -> anyhow::Result<()> {
         "direction" => llvq_llm::calib::Codebook::Direction,
         // `leech1` = one gain bit over the full ball; `leech1c12` caps the
         // direction code at shell 12, which frees the bit the gain costs.
+        // A trailing `f` — `leech1c12f` — restores the pre-2026-07-31
+        // behaviour where the retraction cancelled the gain code and the
+        // magnitude was a free f16 per block. It is charged as 16 bits, so the
+        // two are directly comparable on the rate line.
         other => {
             let rest = other.strip_prefix("leech").unwrap_or("1");
+            let (rest, free_magnitude) = match rest.strip_suffix('f') {
+                Some(r) => (r, true),
+                None => (rest, false),
+            };
             let (g, c) = match rest.split_once('c') {
                 Some((g, c)) => (g, c.parse().unwrap_or(13)),
                 None => (rest, 13),
@@ -147,6 +155,7 @@ fn main() -> anyhow::Result<()> {
             llvq_llm::calib::Codebook::ShapeGain {
                 gain_bits: g.parse().unwrap_or(1),
                 max_shell: c,
+                free_magnitude,
             }
         }
     };

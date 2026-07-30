@@ -133,7 +133,16 @@ pub enum Codebook {
     ///
     /// `max_shell` restricts the direction code: 13 is the full ball (48-bit
     /// index), 12 costs 47 bits and pays for the gain bit at the same rate.
-    ShapeGain { gain_bits: u32, max_shell: u32 },
+    ///
+    /// `free_magnitude` restores the pre-2026-07-31 behaviour, where the
+    /// spherical retraction put each block back on its exact norm and thereby
+    /// cancelled the gain code — a free f16 per block. It is charged as such
+    /// here. Kept only to A/B the honest configuration against it.
+    ShapeGain {
+        gain_bits: u32,
+        max_shell: u32,
+        free_magnitude: bool,
+    },
 }
 
 impl Codebook {
@@ -143,10 +152,17 @@ impl Codebook {
         match self {
             Codebook::Identity | Codebook::Grid { .. } => 24.0 * 16.0,
             Codebook::Direction => 48.0 + 16.0,
+            // A free per-block magnitude is an f16, and has to be charged as
+            // one — claiming `gain_bits` while the retraction hands back a
+            // float is exactly the accounting error of 2026-07-31.
             Codebook::ShapeGain {
                 gain_bits,
                 max_shell,
-            } => (llvq_quant::quantizer::index_bits(*max_shell) + *gain_bits) as f64,
+                free_magnitude,
+            } => {
+                let magnitude = if *free_magnitude { 16 } else { *gain_bits };
+                (llvq_quant::quantizer::index_bits(*max_shell) + magnitude) as f64
+            }
         }
     }
 }
@@ -282,11 +298,20 @@ pub fn quantize_model(
                             step,
                         }),
                         Codebook::Direction => Box::new(LeechDirection::new()),
-                        Codebook::ShapeGain { max_shell, .. } => {
-                            Box::new(LeechShapeGain::with_shell_cap(
+                        Codebook::ShapeGain {
+                            max_shell,
+                            free_magnitude,
+                            ..
+                        } => {
+                            let q = LeechShapeGain::with_shell_cap(
                                 gain.clone().expect("fitted above"),
                                 max_shell,
-                            ))
+                            );
+                            Box::new(if free_magnitude {
+                                q.with_free_magnitude()
+                            } else {
+                                q
+                            })
                         }
                     }
                 };

@@ -33,7 +33,7 @@
 //! loop itself. It is off by default.
 
 use crate::linalg::GptqFactor;
-use crate::quantizer::BlockQuantizer;
+use crate::quantizer::{BlockCode, BlockQuantizer};
 
 /// What to do with input channels that do not fill a whole block.
 ///
@@ -139,7 +139,42 @@ pub fn quantize_layer(
     quant: &mut dyn BlockQuantizer,
     cfg: &GptqConfig,
 ) {
+    quantize_layer_capturing(weights, factor, h, quant, cfg, None)
+}
+
+/// [`quantize_layer`], additionally recording the code of every block.
+///
+/// `codes`, when given, is `d_out × (d_in / cfg.block)` in **row-major** order
+/// — `codes[i * nblocks + p]` is row `i`, block `p`. Entries stay `None` for
+/// quantizers that carry no discrete code.
+///
+/// Tail columns under [`TailPolicy::KeepExact`] produce no code: they are not
+/// quantized, and an artifact stores them verbatim.
+pub fn quantize_layer_capturing(
+    weights: &mut Weights,
+    factor: &GptqFactor,
+    h: Option<&[f64]>,
+    quant: &mut dyn BlockQuantizer,
+    cfg: &GptqConfig,
+    mut codes: Option<&mut [Option<BlockCode>]>,
+) {
     let (d_out, d_in) = (weights.d_out, weights.d_in);
+    let nblocks = d_in / cfg.block;
+    if let Some(c) = codes.as_deref() {
+        assert_eq!(
+            c.len(),
+            d_out * nblocks,
+            "code buffer must be d_out × (d_in / block)"
+        );
+        // The group-scale refinement rewrites the weights after every block is
+        // chosen, so the codes would no longer describe what is stored.
+        assert!(
+            !cfg.group_scales,
+            "capturing codes is incompatible with group_scales: the closed-form \
+             refinement rescales blocks after the fact, and no block code can \
+             express the result"
+        );
+    }
     assert_eq!(factor.dim(), d_in, "factor must match the input dimension");
     assert!(cfg.block > 0);
     if cfg.group_scales {
@@ -154,6 +189,16 @@ pub fn quantize_layer(
     let mut qbuf = vec![0.0f64; cfg.block];
     // Error of the current block, d_out × b, row-major.
     let mut e = vec![0.0f64; d_out * cfg.block];
+
+    // One reference scale per output row, fixed **before** the block loop.
+    //
+    // It is stored as a single f16 per row, so it must not drift as error
+    // feedback rewrites the row: recomputing it per block would make the
+    // reconstruction depend on d_in/24 distinct scales that no artifact can
+    // carry at the rate the accounting charges.
+    let row_scales: Vec<f64> = (0..d_out)
+        .map(|i| crate::quantizer::row_scale(weights.row(i)))
+        .collect();
 
     let mut s = 0usize;
     while s < d_in {
@@ -173,8 +218,7 @@ pub fn quantize_layer(
             let row = weights.row_mut(i);
             // The gain code needs the row's scale; quantizers without one
             // ignore this.
-            let rs = crate::quantizer::row_scale(row);
-            quant.set_row_scale(rs);
+            quant.set_row_scale(row_scales[i]);
             let v = &row[s..s + b];
             let norm_before = if cfg.retract {
                 v.iter().map(|a| a * a).sum::<f64>().sqrt()
@@ -183,13 +227,18 @@ pub fn quantize_layer(
             };
             quant.quantize(v, &mut qbuf[..b]);
             if cfg.retract {
-                // Π_{‖w‖}: put the candidate back on the sphere of the
-                // original block norm, per row (Eq. 17).
-                let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();
-                if n > 0.0 {
-                    let k = norm_before / n;
-                    for q in qbuf[..b].iter_mut() {
-                        *q *= k;
+                // Π_{‖w‖}: put the candidate back on a sphere, per row
+                // (Eq. 17). The quantizer names which one — for a gain code it
+                // must be a sphere the code can express, or the retraction
+                // would hand the magnitude back as a free float and cancel the
+                // gain entirely. `None` means it is already there.
+                if let Some(target) = quant.retraction_target(norm_before) {
+                    let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();
+                    if n > 0.0 {
+                        let k = target / n;
+                        for q in qbuf[..b].iter_mut() {
+                            *q *= k;
+                        }
                     }
                 }
             }
@@ -197,6 +246,9 @@ pub fn quantize_layer(
                 // Residual against the *compensated* weights (see module doc).
                 e[i * b + k] = row[s + k] - qbuf[k];
                 row[s + k] = qbuf[k];
+            }
+            if let Some(c) = codes.as_deref_mut() {
+                c[i * nblocks + s / cfg.block] = quant.last_code();
             }
         }
 

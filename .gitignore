@@ -1,2 +1,4 @@
 target/
 Cargo.lock
+tgt/
+tgt-clippy/

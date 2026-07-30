@@ -89,7 +89,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G3 | Indexage bijectif 48 bits (format v1) | ✅ |
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
-| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 14,91 à 2,11 bits** sur Qwen3-4B, calibration hors domaine (papier : 15,54 / QTIP : 17,04) |
+| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 14,91** sur Qwen3-4B, calibration hors domaine (papier : 15,54 / QTIP : 17,04) — ⚠️ **le débit annoncé était faux, ~2,75 bits et non 2,11**, cf. [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md) |
 | G6 | Noyau fusé (déquant + matvec) | ❌ à faire |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
@@ -449,6 +449,23 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 45 — avant tout run complet, et sur une seule variable.
 
 ### Qwen3-4B — le gate G5 (2026-07-29/30)
+
+> 🚨 **Les colonnes « bits/poids » de cette section sont fausses (2026-07-31).**
+> La rétraction sphérique remettait chaque bloc sur sa norme d'origine, ce qui
+> **annulait le code de gain** : la magnitude stockée était un flottant libre
+> par bloc, 16 bits que la comptabilité ne facturait pas. Les 2,1117 bits/poids
+> valent en réalité **~2,75**, et la compression ×4,63 vaut **~×3,96**. Les
+> perplexités, elles, restent valides — ce sont des mesures.
+>
+> Diagnostic, correctifs et décision à prendre :
+> [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
+>
+> 🔎 Piste ouverte : ce tableau donne 14,2684 pour « magnitude libre » et
+> 15,2909 pour « 1 bit de gain » alors que le gain étant inerte, les deux
+> auraient dû être identiques. Une explication possible — non vérifiée — est
+> qu'un niveau de gain proche de zéro annule le bloc, et que la rétraction ne
+> le restaure pas (elle est sautée quand `n == 0`). À confirmer avant de
+> conclure quoi que ce soit de cet écart.
 
 Protocole : shape–gain, rétraction sphérique, rotation d'entrée, `faer`,
 131 k tokens de calibration, `TailPolicy::KeepExact`. Évaluation wikitext-2
