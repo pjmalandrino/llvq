@@ -1,0 +1,19 @@
+[package]
+name = "llvq-quant"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+llvq-core = { path = "../llvq-core" }
+llvq-search = { path = "../llvq-search" }
+faer = { version = "0.24", optional = true, default-features = false, features = ["std", "linalg", "rayon"] }
+
+[features]
+default = []
+# Swap the four cubic passes of `GptqFactor::new` for faer's blocked,
+# vectorized, threaded ones. Same mathematics, same tests; ~30-100× faster on
+# the widths of a 4B model. Off by default so the crate stays dependency-free
+# and auditable end to end.
+fast-linalg = ["dep:faer"]

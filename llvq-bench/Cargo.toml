@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Gaussian-source rate-distortion evaluation of the LLVQ quantizers (paper §4, gate G4)."
 
+[features]
+fast-linalg = ["llvq-quant/fast-linalg"]
+
 [dependencies]
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
+llvq-quant = { path = "../llvq-quant" }
