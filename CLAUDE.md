@@ -89,7 +89,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G3 | Indexage bijectif 48 bits (format v1) | ✅ |
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
-| G5 | Spherical GPTQ + pipeline LLM | 🟡 **Wiki 15,29 à 2,11 bits** sur Qwen3-4B ; parité papier une fois le biais de domaine corrigé |
+| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 14,91 à 2,11 bits** sur Qwen3-4B, calibration hors domaine (papier : 15,54 / QTIP : 17,04) |
 | G6 | Noyau fusé (déquant + matvec) | ❌ à faire |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
@@ -455,10 +455,11 @@ Protocole : shape–gain, rétraction sphérique, rotation d'entrée, `faer`,
 test, ctx 4096, 12 fenêtres. Baseline FP32 **12,2336** (papier : 12,41 — 1,4 %
 d'écart, expliqué par 12 fenêtres contre 73 ; **le harnais est validé**).
 
-| config | bits/poids | wiki | ×  | C4 | × |
+| calibration | bits/poids | wiki | × | C4 | × |
 |---|---|---|---|---|---|
-| magnitude libre (⚠️ pas 2 bits) | 2,7289 | 14,2684 | ×1,166 | 26,0866 | ×1,296 |
-| **1 bit de gain (honnête)** | **2,1117** | **15,2909** | **×1,250** | 28,2024 | ×1,401 |
+| wikitext, magnitude libre (⚠️ pas 2 bits) | 2,7289 | 14,2684 | ×1,166 | 26,0866 | ×1,296 |
+| wikitext, 1 bit de gain | 2,1117 | 15,2909 | ×1,250 | 28,2024 | ×1,401 |
+| **C4 (protocole du papier), 1 bit de gain** | **2,1117** | **14,9104** | **×1,219** | — | — |
 
 3,45 h pour 252 matrices et 3,63 Md de poids (contre 6,3 h avant `faer`).
 
@@ -472,16 +473,38 @@ d'écart, expliqué par 12 fenêtres contre 73 ; **le harnais est validé**).
    2,21 bits. **0,04 % de perplexité pour 0,52 bit/poids.** Les 0,73 bit
    dépensés en magnitude libre ne servaient à rien — exactement ce
    qu'annonce la Table 8.
-2. **La pénalité de domaine est réelle et mesurée deux fois** : ×1,111 et
-   ×1,121 selon la config. Calibrer sur le corpus d'évaluation vaut **~12 %**.
+2. **Il n'y a pas de pénalité de domaine — j'avais mal raisonné.** Le modèle
+   calibré sur wikitext donne ×1,250 sur wikitext et ×1,401 sur C4, et j'en
+   avais conclu que calibrer en domaine flattait de ~12 %. **Faux** : cet
+   écart mesure la *difficulté du corpus C4*, pas un avantage de calibration.
+   Le bon test change le corpus de **calibration** en gardant l'évaluation
+   fixe — et il dit l'inverse : calibrer sur C4 donne **14,91 contre 15,29**,
+   donc *mieux*, C4 étant plus divers que wikitext-2 train.
+   > ⚠️ **Ne pas confondre « corpus d'évaluation plus difficile » et « biais de
+   > domaine ».** Seul le second est un biais, et il ne se mesure qu'en
+   > faisant varier la calibration à évaluation constante.
 3. **Le contrôle identité rend ×1,000 exact** avec et sans rotation, et
    reporte 16,01 bits/poids — la chaîne *et* la comptabilité sont saines.
 
-Ce qu'ils n'établissent **pas** : qu'on batte le papier. En corrigeant du
-biais de domaine, notre 15,29 remonte vers **~17,1**, soit **à égalité** avec
-QTIP (17,04) et le LLVQ 0 bit (17,05). La conclusion défendable est
-**« on reproduit le papier à débit égal »**, rien de plus. Le run à
-calibration C4 (`LLVQ_CALIB=c4`) donnera le chiffre sans astérisque.
+**Ce qui est défendable** : avec le protocole de calibration du papier
+(hors domaine), on atterrit à **14,9104 (×1,219)**, au niveau de leur
+meilleure configuration sans fine-tuning (15,54, ×1,252), et nettement sous
+QTIP et sous leur LLVQ 0 bit (tous deux ×1,37).
+
+**Ce qui ne l'est pas** : « on les bat ». Il reste **2,1117 bits/poids contre
+2,000**, soit 5,6 % de bits en plus. Dont ~0,1 bit vient de la politique de
+queue — que le papier **ne spécifie jamais**, donc une partie de l'écart est
+un détail non renseigné chez eux plutôt qu'un avantage chez nous.
+
+Deux différences jouent en revanche **contre** nous : ~131 k tokens de
+calibration contre leurs 6 100 séquences (~100× moins), et la rotation
+d'entrée seule là où ils utilisent « Input + Output ».
+
+**Pour un chiffre à débit strictement égal** : restreindre la recherche
+angulaire à `Λ₂₄(12)` fait tomber l'index à 47 bits, plus 1 bit de gain =
+48 bits par bloc — littéralement la meilleure ligne de leur Table 8
+(`norm(Λ₂₄(12))` + 1 bit de gain). Petit changement dans le quantifieur,
+run de 3,5 h.
 
 > 🚨 **L'erreur de comptabilité, et ce qu'elle apprend.** Le premier run 4B a
 > été annoncé à 2,0653 bits/poids. Faux : `LeechDirection` stocke la
