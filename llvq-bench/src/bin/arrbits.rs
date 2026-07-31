@@ -11,8 +11,8 @@
 //! Λ₂₄ splits into an even and an odd coset, and v1 encodes them differently.
 //! The **odd** coset takes a single rank over all 24 magnitudes — comparing a
 //! global rank against masks is exactly right there. The **even** coset
-//! encodes the Golay codeword separately (12 bits, against ~20 for an
-//! unconstrained support) and then two shorter ranks, on and off the support.
+//! encodes the codeword's rank within its weight bucket — log2 γ(w) bits,
+//! 9.6 to 11.3 — and then two shorter ranks, on and off the support.
 //! Charging it a global rank would overstate what v1 costs and flatter every
 //! alternative.
 //!
@@ -49,9 +49,14 @@ fn nested_mask_bits(counts: &[usize], slots: usize) -> f64 {
     bits
 }
 
-/// Fixed-width type tag per slot.
+/// Fixed-width type tag per slot. A single-type or empty side carries zero
+/// information and is billed zero — `.max(1.0)` here used to overcharge it,
+/// biasing the comparison against the one scheme that least deserved help.
 fn positional_bits(n_types: usize, slots: usize) -> f64 {
-    slots as f64 * (n_types as f64).log2().ceil().max(1.0)
+    if n_types <= 1 || slots == 0 {
+        return 0.0;
+    }
+    slots as f64 * (n_types as f64).log2().ceil()
 }
 
 /// Counts per type, descending, zeros dropped.

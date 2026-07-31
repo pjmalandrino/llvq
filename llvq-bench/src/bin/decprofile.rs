@@ -8,6 +8,13 @@
 //! place — `Indexer::decode` stays untouched, and a stage that turns out to be
 //! free is one we do not need to redesign.
 //!
+//! ⚠️ Audited 2026-07-31: stage 4 understates its own tries (~2.2×, tiny
+//! ranks break early) while overstating the per-call shape (4 kinds, n = 24),
+//! and the 806 ns also hide ~100-150 ns of Vec allocations no stage shows.
+//! The 71 % headline lands near the truth (~75-82 %) by accidental
+//! compensation. Kept for the stage breakdown; `decfull` is the end-to-end
+//! measurement that supersedes it.
+//!
 //! Run: `cargo run --release -p llvq-bench --bin decprofile`
 
 use llvq_core::{SplitMix64, DIM};
