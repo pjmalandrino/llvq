@@ -11,7 +11,7 @@
 
 pub use llvq_artifact::{
     decode_matrix, read_all, read_header, read_matrix, split_name, write_matrix, ArtifactWriter,
-    QuantizedMatrix,
+    Blob, Header, QuantizedMatrix, RawTensor,
 };
 
 /// Decode an artifact straight into a model, one matrix at a time.
@@ -33,11 +33,11 @@ pub fn load(
 ) -> anyhow::Result<(usize, usize)> {
     let f = std::fs::File::open(path.as_ref())?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let n = read_header(&mut r)?;
+    let head = read_header(&mut r)?;
     let ix = llvq_search::index::Indexer::new();
     let dtype = model.dtype();
     let mut weights = 0usize;
-    for _ in 0..n {
+    for _ in 0..head.matrices {
         let m = read_matrix(&mut r, &ix)?;
         weights += m.d_out * m.d_in;
         let w = decode_matrix(&m);
@@ -53,5 +53,5 @@ pub fn load(
         );
         *lin = candle_nn::Linear::new(t, None);
     }
-    Ok((n as usize, weights))
+    Ok((head.matrices as usize, weights))
 }

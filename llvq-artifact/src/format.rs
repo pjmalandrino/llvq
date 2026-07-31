@@ -31,7 +31,13 @@ use llvq_search::pack::{BitReader, BitWriter};
 use std::io::{Read, Write};
 
 /// Format identifier. Any change to the layout below bumps this.
-pub const MAGIC: &[u8; 4] = b"LVQ1";
+///
+/// `LVQ1` held quantized projections and nothing else, so a file needed the
+/// original checkpoint beside it to run. `LVQ2` adds the raw tensors and the
+/// blobs that make it self-contained. Both are readable; only `LVQ2` is
+/// written.
+pub const MAGIC: &[u8; 4] = b"LVQ2";
+pub const MAGIC_V1: &[u8; 4] = b"LVQ1";
 
 /// One quantized matrix, everything a decoder needs.
 pub struct QuantizedMatrix {
@@ -292,30 +298,82 @@ impl<W: Write> ArtifactWriter<W> {
         Ok(())
     }
 
+    /// Close the file with the sections that make it self-contained.
+    ///
+    /// Taking them here rather than streaming them is deliberate: the counts
+    /// have to precede the data, and a writer that cannot seek must therefore
+    /// know them before writing. They are also small next to the codes —
+    /// except the embedding, which is one tensor.
+    pub fn seal(
+        mut self,
+        raws: &[crate::RawTensor],
+        blobs: &[crate::Blob],
+    ) -> Result<(u64, u64)> {
+        put_u32(&mut self.out, raws.len() as u32)?;
+        let mut extra = 0u64;
+        for t in raws {
+            extra += crate::write_raw(&mut self.out, t)?;
+        }
+        put_u32(&mut self.out, blobs.len() as u32)?;
+        for b in blobs {
+            extra += crate::write_blob(&mut self.out, b)?;
+        }
+        self.out.flush()?;
+        Ok((self.payload_bits, extra * 8))
+    }
+
+    /// Close without the extra sections, producing a projections-only file.
+    ///
+    /// Kept for the quantization run, which streams matrices as it goes and
+    /// has no checkpoint tensors to hand. `bin/seal` completes such a file.
     pub fn finish(mut self) -> Result<u64> {
+        put_u32(&mut self.out, 0)?;
+        put_u32(&mut self.out, 0)?;
         self.out.flush()?;
         Ok(self.payload_bits)
     }
 }
 
-/// Read the file header, returning how many matrices follow.
+/// What a file's header says: which version, and how many matrices follow.
+pub struct Header {
+    /// 2 for a self-contained file, 1 for projections only.
+    pub version: u32,
+    pub matrices: u32,
+}
+
+impl Header {
+    /// Whether the file carries embeddings, norms and tokenizer — i.e. whether
+    /// it can run without the original checkpoint.
+    pub fn is_self_contained(&self) -> bool {
+        self.version >= 2
+    }
+}
+
+/// Read the file header.
 ///
 /// Separate from [`read_all`] because a 4B model's codes are 14 GB of lattice
 /// points: anything that walks a real artifact has to do it one matrix at a
 /// time, and holding them all was never an option.
-pub fn read_header(r: &mut impl Read) -> Result<u32> {
+pub fn read_header(r: &mut impl Read) -> Result<Header> {
     let mut magic = [0u8; 4];
     r.read_exact(&mut magic)
         .map_err(|_| Error::Truncated { reading: "magic" })?;
-    if &magic != MAGIC {
+    let version = if &magic == MAGIC {
+        2
+    } else if &magic == MAGIC_V1 {
+        1
+    } else {
         return Err(Error::NotAnArtifact { got: magic });
-    }
-    get_u32(r, "matrix count")
+    };
+    Ok(Header {
+        version,
+        matrices: get_u32(r, "matrix count")?,
+    })
 }
 
 /// Read every matrix back. Only safe for small models — see [`read_header`].
 pub fn read_all(r: &mut impl Read) -> Result<Vec<QuantizedMatrix>> {
-    let n = read_header(r)?;
+    let h = read_header(r)?;
     let ix = Indexer::new();
-    (0..n).map(|_| read_matrix(r, &ix)).collect()
+    (0..h.matrices).map(|_| read_matrix(r, &ix)).collect()
 }

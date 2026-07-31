@@ -11,6 +11,7 @@ llvq-search = { path = "../llvq-search" }
 llvq-artifact = { path = "../llvq-artifact" }
 llvq-quant = { path = "../llvq-quant" }
 candle-core = "0.9"
+half = "2"
 candle-nn = "0.9"
 candle-transformers = "0.9"
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }

@@ -378,17 +378,17 @@ pub fn quantize_model_capturing(
                 // weights *before* quantization — exactly as `quantize_layer`
                 // fixes them internally. Recomputing them afterwards would
                 // read the quantized row and give different values.
-                let row_scales: Vec<f64> = capturing
-                    .then(|| {
-                        (0..d_out)
-                            .map(|i| {
-                                llvq_quant::quantizer::row_scale(
-                                    &weights.w[i * d_in..(i + 1) * d_in],
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let row_scales: Vec<f64> = if capturing {
+                    (0..d_out)
+                        .map(|i| {
+                            llvq_quant::quantizer::row_scale(
+                                &weights.w[i * d_in..(i + 1) * d_in],
+                            )
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
                 // Named for what it counts — 24-column blocks in a row —
                 // because `nblocks` in this function already means the
                 // model's transformer-block count, and shadowing it fed

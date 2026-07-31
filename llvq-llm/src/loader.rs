@@ -11,6 +11,10 @@ pub struct Checkpoint {
     pub config: Config,
     pub weights: Vec<PathBuf>,
     pub tokenizer: PathBuf,
+    /// The raw `config.json`. Sealing copies the file rather than
+    /// re-serializing the parsed struct, so a field candle does not model is
+    /// carried across instead of silently dropped.
+    pub config_path: PathBuf,
 }
 
 impl Checkpoint {
@@ -46,6 +50,7 @@ impl Checkpoint {
             config,
             weights,
             tokenizer,
+            config_path,
         })
     }
 

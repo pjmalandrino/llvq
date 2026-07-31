@@ -69,7 +69,8 @@ fn verify_artifact(path: &str, model: &Qwen3) -> anyhow::Result<()> {
     use candle_core::DType;
     let f = std::fs::File::open(path)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let n = llvq_llm::artifact2::read_header(&mut r)?;
+    let head = llvq_llm::artifact2::read_header(&mut r)?;
+    let n = head.matrices;
     eprintln!("verifying {n} matrices against the evaluated model…");
     // One matrix at a time: a 4B model's codes are 14 GB of lattice points.
     let ix = llvq_search::index::Indexer::new();

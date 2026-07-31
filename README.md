@@ -31,9 +31,20 @@ weights bit for bit (3 633 315 840 of them).
 | **This implementation** | **16.9617** | **×1.386** | **2.1696 weighed** |
 | LLVQ, 2 gain bits *(paper, best without fine-tuning)* | 15.54 | ×1.252 | 2.000 |
 
-Whole model, embedding included: **1.76 GB against 8.04 GB in FP16, ×4.57.**
-The tied embedding stays at f16 and is 9.7 % of the model — which is why the
-end-to-end ratio is ×4.57 and not the ×7.4 the linear layers alone suggest.
+**The whole model is one file: 1.771 GB against 8.045 GB in FP16, ×4.54.**
+It carries the quantized projections, every tensor the quantizer did not touch
+(the tied embedding, at f16, is 9.7 % of the model — which is why the ratio is
+×4.54 and not the ×7.4 the linear layers alone suggest), the config and the
+tokenizer. It opens with no checkpoint, no Hugging Face cache and no network:
+
+```bash
+cargo run --release -p llvq-llm --features metal --bin run -- qwen3-4b-llvq.bin metal 24
+```
+```
+   1.771 GB on disk against 8.045 GB in FP16  →  ×4.54
+── "The capital of France is"
+   →  Paris. (True or False?)
+```
 
 ### Read this before quoting the number
 
@@ -94,9 +105,6 @@ The encoder runs at **1 469 blocks/s/core** (24 weights per block) after a
   simplicity", is slower than QTIP, and its authors call low-level optimization
   "largely orthogonal" to their contribution. **The kernel the 2-bit regime
   needs does not exist anywhere.**
-* **The artifact is not self-contained.** It carries the 252 linear
-  projections; embeddings, RMSNorm weights and the config still come from the
-  checkpoint.
 * **No MMLU, no CSR**, and no domain-specific benchmark.
 
 ## An open question for the authors
