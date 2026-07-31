@@ -190,6 +190,18 @@ pub struct RunConfig {
 ///
 /// `hidden` holds one `(1, seq, hidden_size)` tensor per calibration window,
 /// entering block 0; it is advanced in place as the loop proceeds.
+/// The rotation seed actually used for one (block, activation) pair.
+///
+/// **One source of truth on purpose.** This value is needed twice — to build
+/// the rotation, and to store it in the artifact so a decoder can undo it —
+/// and the two must agree exactly. Written out twice, they can drift: storing
+/// the run's base seed instead un-rotates every matrix with block 0's
+/// transform, which decodes to plausible garbage rather than failing. A
+/// mutation test caught that nothing forbade it; this makes it unwriteable.
+pub fn effective_rotation_seed(base: u64, block: usize, act: Act) -> u64 {
+    base ^ ((block as u64) << 32) ^ (act.index() << 16)
+}
+
 /// Receives each matrix's codes as it is quantized, so a whole model never has
 /// to be held in memory at once — 151 M blocks of Qwen3-4B would be 14 GB of
 /// lattice points.
@@ -291,7 +303,7 @@ pub fn quantize_model_capturing(
             // Quantizing in a rotated basis means the Hessian has to move
             // with it: H' = Q H Qᵀ, since x' = Q x.
             let rot = rotation_seed.map(|s| {
-                Rotation::new(n, s ^ ((t as u64) << 32) ^ (act.index() << 16))
+                Rotation::new(n, effective_rotation_seed(s, t, act))
             });
             if let Some(q) = &rot {
                 q.rotate_hessian(&mut h);
@@ -436,7 +448,7 @@ pub fn quantize_model_capturing(
                     // one would un-rotate every matrix with block 0's
                     // transform and silently scramble the model.
                     let eff_seed = rotation_seed
-                        .map(|s| s ^ ((t as u64) << 32) ^ (act.index() << 16));
+                        .map(|s| effective_rotation_seed(s, t, act));
                     s.push(crate::artifact2::QuantizedMatrix {
                         name: crate::artifact::key(t, name),
                         d_out,
