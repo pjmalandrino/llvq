@@ -79,6 +79,7 @@ fn unrank_fast(
     let mut n = out.len() as u64;
     let mut tried = 0u32;
     for slot in out.iter_mut() {
+        #[allow(clippy::needless_range_loop)] // `j` is written into `*slot`
         for j in 0..k {
             let c = counts[j] as u64;
             if c == 0 {
