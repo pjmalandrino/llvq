@@ -36,8 +36,8 @@ mod sealed;
 
 pub use error::Error;
 pub use format::{
-    decode_matrix, read_all, read_header, read_matrix, split_name, write_matrix, ArtifactWriter,
-    Header, QuantizedMatrix, MAGIC, MAGIC_V1,
+    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, split_name, write_matrix,
+    ArtifactWriter, Header, QuantizedMatrix, RawMatrix, MAGIC, MAGIC_V1,
 };
 pub use sealed::{read_blob, read_raw, write_blob, write_raw, Blob, RawTensor};
 

@@ -13,3 +13,4 @@ fast-linalg = ["llvq-quant/fast-linalg"]
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
 llvq-quant = { path = "../llvq-quant" }
+llvq-artifact = { path = "../llvq-artifact" }

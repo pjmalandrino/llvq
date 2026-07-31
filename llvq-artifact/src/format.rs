@@ -164,8 +164,32 @@ pub fn write_matrix(w: &mut impl Write, ix: &Indexer, m: &QuantizedMatrix) -> Re
     Ok(m.bits())
 }
 
-/// Read back what [`write_matrix`] wrote.
-pub fn read_matrix(r: &mut impl Read, ix: &Indexer) -> Result<QuantizedMatrix> {
+/// One matrix with its codes left as raw `(index, gain)` pairs — what the
+/// stream actually stores, before any lattice decoding.
+///
+/// This is the entry point for anything that walks a real artifact at scale:
+/// the load-time transcoder and the format-accounting benches classify blocks
+/// straight from the index (a class is a fixed multiset of |values|, so most
+/// per-block facts need no decode at all). [`read_matrix`] is this plus a
+/// decode of every index.
+pub struct RawMatrix {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// Row-major `d_out × (d_in / 24)`, one index per block, undecoded and
+    /// **unvalidated** — decoding is where an out-of-range index surfaces.
+    pub indices: Vec<u64>,
+    /// Gain level rank per block, same order.
+    pub gains: Vec<u32>,
+    pub row_scales: Vec<f64>,
+    pub centroids: Vec<f64>,
+    pub rotation_seed: Option<u64>,
+    pub shell_cap: u32,
+    pub tail: Vec<f64>,
+}
+
+/// Read one matrix without decoding its indices.
+pub fn read_matrix_raw(r: &mut impl Read) -> Result<RawMatrix> {
     let n = get_u32(r, "name length")? as usize;
     let mut name = vec![0u8; n];
     r.read_exact(&mut name)
@@ -199,29 +223,51 @@ pub fn read_matrix(r: &mut impl Read, ix: &Indexer) -> Result<QuantizedMatrix> {
 
     let ib = llvq_quant::quantizer::index_bits(shell_cap);
     let gb = centroids.len().next_power_of_two().trailing_zeros();
-    let nblocks = d_in / DIM;
+    let nblocks = d_out * (d_in / DIM);
     let mut br = BitReader::new(&bytes);
-    let mut codes = Vec::with_capacity(d_out * nblocks);
-    for _ in 0..d_out * nblocks {
-        let idx = br.read(ib);
-        let gain = br.read(gb) as u32;
+    let mut indices = Vec::with_capacity(nblocks);
+    let mut gains = Vec::with_capacity(nblocks);
+    for _ in 0..nblocks {
+        indices.push(br.read(ib));
+        gains.push(br.read(gb) as u32);
+    }
+
+    Ok(RawMatrix {
+        name,
+        d_out,
+        d_in,
+        indices,
+        gains,
+        row_scales,
+        centroids,
+        rotation_seed: has_rot.then_some(seed),
+        shell_cap,
+        tail,
+    })
+}
+
+/// Read back what [`write_matrix`] wrote.
+pub fn read_matrix(r: &mut impl Read, ix: &Indexer) -> Result<QuantizedMatrix> {
+    let raw = read_matrix_raw(r)?;
+    let mut codes = Vec::with_capacity(raw.indices.len());
+    for (&idx, &gain) in raw.indices.iter().zip(&raw.gains) {
         let point = ix.decode(idx).ok_or(Error::IndexOutOfRange {
-            name: name.clone(),
+            name: raw.name.clone(),
             index: idx,
         })?;
         codes.push(BlockCode { point, gain });
     }
 
     Ok(QuantizedMatrix {
-        name,
-        d_out,
-        d_in,
+        name: raw.name,
+        d_out: raw.d_out,
+        d_in: raw.d_in,
         codes,
-        row_scales,
-        centroids,
-        rotation_seed: has_rot.then_some(seed),
-        shell_cap,
-        tail,
+        row_scales: raw.row_scales,
+        centroids: raw.centroids,
+        rotation_seed: raw.rotation_seed,
+        shell_cap: raw.shell_cap,
+        tail: raw.tail,
     })
 }
 
