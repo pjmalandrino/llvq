@@ -72,13 +72,13 @@ mod gpu {
 
         /// Threads per threadgroup the hardware will actually accept.
         pub fn max_threads_per_group(&self) -> u64 {
-            self.pipeline.max_total_threads_per_threadgroup() as u64
+            self.pipeline.max_total_threads_per_threadgroup()
         }
 
         /// Width of a SIMD group — 32 on every Apple GPU, but read rather than
         /// assumed, because the whole lane-op accounting depends on it.
         pub fn simd_width(&self) -> u64 {
-            self.pipeline.thread_execution_width() as u64
+            self.pipeline.thread_execution_width()
         }
 
         /// A shared-storage buffer holding `data`.
