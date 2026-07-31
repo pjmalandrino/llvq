@@ -81,6 +81,35 @@ Et le point qui fait mal : **à 2,73 bits/poids, la comparaison au papier
 change de nature.** Leur meilleure configuration sans fine-tuning tient
 15,54 à 2,000 bits. On tient 14,91, mais à 37 % de bits en plus, pas 5,6 %.
 
+## Le run `leech1c12` de la nuit, et ce qu'il dit
+
+Terminé le 2026-07-31 à 04h26, 12 715 s pour 252 matrices et 3 633 315 840
+poids. Baseline **12,2336** — identique au run publié, donc le harnais n'a pas
+bougé et la comparaison est valide.
+
+| | bits annoncés | bits **réels** | wiki | × |
+|---|---|---|---|---|
+| publié (`leech1`, cap 13) | 2,1117 | 2,7338 | 14,9104 | ×1,219 |
+| cette nuit (`leech1c12`, cap 12) | 2,0702 | **2,6923** | **15,3272** | ×1,253 |
+
+**Le run était fondé sur une prémisse fausse.** Son raisonnement : plafonner à
+`Λ₂₄(12)` fait tomber l'index de 48 à 47 bits, *« ce qui paie le bit de
+gain »*. Mais le bit de gain ne servait à rien — il était annulé par la
+rétraction. Le cap n'a donc rien payé : il a réduit le codebook de direction
+(moins de points, donc plus de distorsion angulaire) en échange d'un bit sur
+**64** au lieu d'un bit sur 48.
+
+Le résultat est cohérent avec ça : **0,04 bit/poids d'économie pour 2,8 % de
+perplexité en plus**, et une dégradation dans le sens attendu quand on rétrécit
+un codebook.
+
+⚠️ « Cohérent avec » n'est pas « démontré par ». 2,8 % est du même ordre que
+l'écart inexpliqué de la section suivante, et tant que la variance du pipeline
+est inconnue, cet écart pourrait aussi être du bruit.
+
+L'artefact écrit fait **6,8 Go** — des reconstructions f16, comme prévu. Ce
+n'est pas le fichier compressé.
+
 ## ⚠️ Une conséquence sur la lecture de l'historique
 
 Si la rétraction annulait le gain, alors `Codebook::Direction` et
