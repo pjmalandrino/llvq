@@ -119,6 +119,55 @@ valeur est 5× meilleure.
 - Les 2,52 T op/s viennent d'une chaîne dépendante (latence), donc tous les
   budgets « opérations par bloc » restent ~2× pessimistes.
 
+## Le format runtime, figé sur mesure (2026-08-01)
+
+`rtbits` a fait la comptabilité **complète** — assignation + signes + classe +
+gain + adressage, rien d'exclu — des layouts candidats, exhaustivement sur les
+**150 681 600 blocs** du 4B publié (6,5 s : tout est au niveau classe, une
+recherche binaire par index suffit). La distribution réelle colle au proxy
+gaussien : 3-5 niveaux de magnitude, 4 pour 65,9 % des blocs, 50/50 pair/impair.
+
+| layout (masques imbriqués) | b/poids | Go/token | plafond |
+|---|---|---|---|
+| borne inf. (adressage gratuit) | 2,9243 | 2,11 | 190 |
+| **groupé 32, stride octet + base u32** | **3,3548** | 2,30 | **174 tok/s** |
+| **champ fixe 96 bits (3×u32 alignés)** | **4,0000** | 2,59 | **154 tok/s** |
+| archive v1 (48 b/bloc, indécodable en fusé) | 2,0000 | 1,69 | (237) |
+
+**Morts par la mesure** : le positionnel (+0,8 b/poids sur chaque variante —
+⌈lg L⌉ bits × 24 slots contre des masques qui rétrécissent), l'offset u16 par
+bloc (3,59 — dominé par le groupé-32 qui n'en met qu'un par groupe), le champ
+fixe 128 en nibbles (5,33 — dominé par le fixe-96, possible parce que le
+**pire cas exact sur toute la table cap-13 est 74 bits**, classe 238, coquille
+12 ; 96 bits couvrent tout bloc possible avec 22 bits de marge, pour toujours).
+
+**Le payload est figé**, commun aux deux finalistes, bit-packé LSB-first :
+
+```
+[classe : 9 bits][gain : g bits][signes : nz bits][masques imbriqués]
+```
+
+- classe : 0 = origine, sinon 1 + rang de la classe dans la disposition v1
+  (coquilles croissantes, paires puis impaires) ; 384 valeurs ≤ 2⁹.
+- signes : un bit par coordonnée **non nulle**, ordre des slots, 1 = négatif.
+  Le décodeur maintient un compteur de non-zéros en balayant les slots — il
+  n'y a donc pas de popcount à payer pour trouver son bit de signe.
+- masques : niveaux dans l'ordre **canonique** (comptes décroissants, égalité
+  → valeur décroissante), masque k sur les slots que les niveaux < k ont
+  laissés libres ; L−1 masques, le dernier niveau est implicite. Largeurs et
+  valeurs se lisent dans la table des classes (384 entrées, constante).
+
+**Ce que la mesure ne tranche pas — et qui revient au GPU** : F96 paie 19 %
+de trafic en plus mais lit 3 u32 alignés à stride constant, sans indirection ;
+G32 est plus compact mais lit à des offsets d'octet variables via une base par
+groupe. Le transcodeur produit les deux ; le banc GPU sur blocs réels
+départage. Tout le reste est mort.
+
+⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
+d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai
+plancher adressable est 3,35 ; les plafonds deviennent 174/154 tok/s, toujours
+~3,1-3,5× le FP16, et le lm_head pèse toujours le tiers du trafic.
+
 ## Note de provenance
 
 « 2,1595 b/poids » = bits de payload / *tous* les poids (queue comprise),
