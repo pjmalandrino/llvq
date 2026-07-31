@@ -46,14 +46,17 @@ sans raison, et **ne jamais** faire confiance à `pdftotext` dessus.
 
 ```
 llvq-core/     Golay [24,12,8] + Λ₂₄ + couches. ZÉRO dépendance, forbid(unsafe).
-llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage.
+llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage, packing.
 llvq-quant/    Spherical GPTQ : algèbre dense, boucle par blocs, quantifieurs.
+llvq-artifact/ Le format .llvq : writer, reader, décodeur. ZÉRO dépendance.
 llvq-llm/      Côté modèle : passe avant observable, corpus, perplexité. (candle)
-llvq-bench/    Évaluation débit-distorsion sur source gaussienne.
+llvq-bench/    Débit-distorsion, débit encodeur, coût du décodage.
 ```
 
-**`llvq-core`, `llvq-search`, `llvq-quant` et `llvq-bench` restent sans
-dépendance externe.** Seul `llvq-llm` en a — candle, tokenizers, hf-hub,
+**`llvq-core`, `llvq-search`, `llvq-quant`, `llvq-artifact` et `llvq-bench`
+restent sans dépendance externe.** Lire un modèle quantifié ne doit pas exiger
+un runtime de tenseurs : l'arbre complet de `llvq-artifact` fait 3 crates,
+contre 690 pour `llvq-llm`. Seul `llvq-llm` en a — candle, tokenizers, hf-hub,
 parquet — parce qu'il faut bien charger et exécuter un modèle. C'est aussi le
 seul crate où `unsafe` est autorisé (mapper un safetensors de plusieurs Go
 l'est par construction dans candle). Le plan prévoyait
@@ -72,6 +75,7 @@ cargo test                                   # suite rapide (les tests lourds so
 cargo run --release -p llvq-bench --bin llvq-bench   # tableau qualité
 cargo run --release -p llvq-bench --bin encbench      # débit encodeur, 1 cœur
 cargo run --release -p llvq-bench --bin betasweep     # sensibilité de β (G4)
+cargo run --release -p llvq-bench --bin decbench      # coût du décodage (G6)
 
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
@@ -89,7 +93,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G3 | Indexage bijectif 48 bits (format v1) | ✅ |
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
-| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 14,91** sur Qwen3-4B, calibration hors domaine (papier : 15,54 / QTIP : 17,04) — ⚠️ **le débit annoncé était faux, ~2,75 bits et non 2,11**, cf. [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md) |
+| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
 | G6 | Noyau fusé (déquant + matvec) | ❌ à faire |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
@@ -450,22 +454,18 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 
 ### Qwen3-4B — le gate G5 (2026-07-29/30)
 
-> 🚨 **Les colonnes « bits/poids » de cette section sont fausses (2026-07-31).**
-> La rétraction sphérique remettait chaque bloc sur sa norme d'origine, ce qui
-> **annulait le code de gain** : la magnitude stockée était un flottant libre
-> par bloc, 16 bits que la comptabilité ne facturait pas. Les 2,1117 bits/poids
-> valent en réalité **~2,75**, et la compression ×4,63 vaut **~×3,96**. Les
-> perplexités, elles, restent valides — ce sont des mesures.
+> 🚨 **Les chiffres de cette section sont périmés (2026-07-31).** La rétraction
+> sphérique annulait le code de gain : la magnitude stockée était un flottant
+> libre par bloc, 16 bits que la comptabilité ne facturait pas. Les 2,1117
+> bits/poids valaient en réalité **2,7338**, et les 14,9104 décrivaient donc un
+> modèle à 2,73 bits, pas à 2,11.
 >
-> Diagnostic, correctifs et décision à prendre :
+> **Le chiffre honnête, mesuré sur un fichier de 981 Mo et vérifié bit pour bit :
+> 16,9617 de perplexité à 2,1696 bits/poids** (×1,386). Juste sous QTIP (17,04),
+> à 8,5 % de bits en plus, et 9 % au-dessus de la meilleure config du papier.
+>
+> Diagnostic complet, les trois défauts et ce qui reste à décider :
 > [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
->
-> 🔎 Piste ouverte : ce tableau donne 14,2684 pour « magnitude libre » et
-> 15,2909 pour « 1 bit de gain » alors que le gain étant inerte, les deux
-> auraient dû être identiques. Une explication possible — non vérifiée — est
-> qu'un niveau de gain proche de zéro annule le bloc, et que la rétraction ne
-> le restaure pas (elle est sautée quand `n == 0`). À confirmer avant de
-> conclure quoi que ce soit de cet écart.
 
 Protocole : shape–gain, rétraction sphérique, rotation d'entrée, `faer`,
 131 k tokens de calibration, `TailPolicy::KeepExact`. Évaluation wikitext-2
