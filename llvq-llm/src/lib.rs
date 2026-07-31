@@ -10,6 +10,7 @@
 //! keeps `forbid(unsafe_code)`.
 
 pub mod artifact;
+pub mod artifact2;
 pub mod calib;
 pub mod corpus;
 pub mod loader;

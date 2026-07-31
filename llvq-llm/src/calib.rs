@@ -23,7 +23,7 @@
 
 use crate::model::{Act, Capture, Qwen3};
 use candle_core::{DType, Device, Tensor};
-use llvq_quant::gptq::{quantize_layer_parallel, GptqConfig, Weights};
+use llvq_quant::gptq::{GptqConfig, Weights};
 use llvq_quant::linalg::GptqFactor;
 use llvq_quant::quantizer::{
     fit_gain_centroids, BlockQuantizer, Identity, LeechDirection, LeechShapeGain, ScalarGrid,
@@ -190,11 +190,34 @@ pub struct RunConfig {
 ///
 /// `hidden` holds one `(1, seq, hidden_size)` tensor per calibration window,
 /// entering block 0; it is advanced in place as the loop proceeds.
+/// Receives each matrix's codes as it is quantized, so a whole model never has
+/// to be held in memory at once — 151 M blocks of Qwen3-4B would be 14 GB of
+/// lattice points.
+pub trait MatrixSink {
+    fn push(&mut self, m: crate::artifact2::QuantizedMatrix) -> anyhow::Result<()>;
+}
+
 pub fn quantize_model(
     model: &mut Qwen3,
     hidden: &mut [Tensor],
     run: &RunConfig,
+    progress: impl FnMut(usize, usize, &str),
+) -> anyhow::Result<Report> {
+    quantize_model_capturing(model, hidden, run, progress, None)
+}
+
+/// [`quantize_model`], streaming every matrix's codes to `sink`.
+///
+/// Capture is refused for codebooks whose reconstruction the codes cannot
+/// describe — the free-magnitude variant, and anything that is not shape–gain.
+/// Writing a file that decodes to different weights than the ones measured is
+/// the failure this whole module exists to prevent.
+pub fn quantize_model_capturing(
+    model: &mut Qwen3,
+    hidden: &mut [Tensor],
+    run: &RunConfig,
     mut progress: impl FnMut(usize, usize, &str),
+    mut sink: Option<&mut dyn MatrixSink>,
 ) -> anyhow::Result<Report> {
     let RunConfig {
         gptq: cfg,
@@ -207,6 +230,27 @@ pub fn quantize_model(
     let codebook = *codebook;
     let (damping, threads, limit) = (*damping, *threads, *limit);
     let rotation_seed = *rotation_seed;
+    // Only shape–gain with a load-bearing gain code is describable by codes.
+    let capturing = sink.is_some();
+    if capturing {
+        anyhow::ensure!(
+            matches!(
+                codebook,
+                Codebook::ShapeGain {
+                    free_magnitude: false,
+                    ..
+                }
+            ),
+            "this codebook's reconstruction cannot be described by block codes; \
+             writing an artifact for it would produce a file that decodes to \
+             different weights than the ones evaluated"
+        );
+        anyhow::ensure!(
+            !cfg.group_scales,
+            "group_scales rescales blocks after they are chosen, so no block \
+             code describes the result"
+        );
+    }
     let t0 = std::time::Instant::now();
     let mut report = Report::default();
     let device = model.device().clone();
@@ -290,6 +334,9 @@ pub fn quantize_model(
                     )),
                     _ => None,
                 };
+                // The closure takes `gain` by move; the sink needs the same
+                // levels to store them.
+                let gain_for_sink = gain.clone();
                 let make = move || -> Box<dyn BlockQuantizer> {
                     match codebook {
                         Codebook::Identity => Box::new(Identity { block: cfg.block }),
@@ -315,14 +362,89 @@ pub fn quantize_model(
                         }
                     }
                 };
-                quantize_layer_parallel(
+                // The row scales the loop will use, computed on the rotated
+                // weights *before* quantization — exactly as `quantize_layer`
+                // fixes them internally. Recomputing them afterwards would
+                // read the quantized row and give different values.
+                let row_scales: Vec<f64> = capturing
+                    .then(|| {
+                        (0..d_out)
+                            .map(|i| {
+                                llvq_quant::quantizer::row_scale(
+                                    &weights.w[i * d_in..(i + 1) * d_in],
+                                )
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let nblocks = d_in / cfg.block;
+                let mut codes = capturing.then(|| vec![None; d_out * nblocks]);
+                llvq_quant::gptq::quantize_layer_parallel_capturing(
                     &mut weights,
                     factor,
                     cfg.group_scales.then_some(hmat.as_slice()),
                     &make,
                     cfg,
                     threads,
+                    codes.as_deref_mut(),
                 );
+                // Narrow the tail to the precision it is *stored* at, before
+                // anything else reads it.
+                //
+                // The tail is kept "exact", but exact in f64 is not something
+                // an artifact can carry — and the un-rotation mixes every
+                // column into every other, so one rounded tail column shifts
+                // the whole row by an ulp. Rounding here, in the rotated basis
+                // and before the un-rotation, is what makes the file and the
+                // evaluated model the same object rather than nearly the same.
+                if capturing {
+                    let tail_w = d_in % cfg.block;
+                    for i in 0..d_out {
+                        let at = i * d_in + nblocks * cfg.block;
+                        for v in weights.w[at..at + tail_w].iter_mut() {
+                            *v = *v as f32 as f64;
+                        }
+                    }
+                }
+                // The tail is read here, in the rotated basis, because that is
+                // what the decoder rebuilds before un-rotating.
+                if let Some(s) = sink.as_deref_mut() {
+                    let tail_w = d_in % cfg.block;
+                    let mut tail = Vec::with_capacity(d_out * tail_w);
+                    for i in 0..d_out {
+                        let at = i * d_in + nblocks * cfg.block;
+                        tail.extend_from_slice(&weights.w[at..at + tail_w]);
+                    }
+                    let codes = codes
+                        .take()
+                        .expect("allocated when capturing")
+                        .into_iter()
+                        .collect::<Option<Vec<_>>>()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("a quantized block emitted no code")
+                        })?;
+                    let max_shell = match codebook {
+                        Codebook::ShapeGain { max_shell, .. } => max_shell,
+                        _ => unreachable!("checked when capturing was enabled"),
+                    };
+                    // The *effective* seed, not the run's base seed: the
+                    // rotation is per (block, activation). Storing the base
+                    // one would un-rotate every matrix with block 0's
+                    // transform and silently scramble the model.
+                    let eff_seed = rotation_seed
+                        .map(|s| s ^ ((t as u64) << 32) ^ (act.index() << 16));
+                    s.push(crate::artifact2::QuantizedMatrix {
+                        name: crate::artifact::key(t, name),
+                        d_out,
+                        d_in,
+                        codes,
+                        row_scales,
+                        centroids: gain_for_sink.expect("shape-gain fits centroids"),
+                        rotation_seed: eff_seed,
+                        shell_cap: max_shell,
+                        tail,
+                    })?;
+                }
                 if let Some(q) = rot {
                     q.unrotate_weight_rows(&mut weights.w, d_out);
                 }

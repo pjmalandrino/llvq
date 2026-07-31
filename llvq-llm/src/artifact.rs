@@ -22,7 +22,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Name of a projection's weight, matching the checkpoint convention.
-fn key(block: usize, name: &str) -> String {
+pub fn key(block: usize, name: &str) -> String {
     format!("model.layers.{block}.{name}.weight")
 }
 

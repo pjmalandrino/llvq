@@ -135,6 +135,66 @@ fn codes_reconstruct_bit_for_bit_beside_a_tail() {
     round_trip(100, 12, 1, 0x6_A004);
 }
 
+/// Splitting by rows must split the codes the same way.
+///
+/// The weights are cut with `rows_per * d_in` and the codes with
+/// `rows_per * nblocks`. If those two ever disagree, one row silently inherits
+/// another's codes — the weights would still be right, the artifact wrong, and
+/// only a round-trip would notice. This is the code-side twin of
+/// `parallel_matches_serial_exactly`.
+#[test]
+fn parallel_capture_matches_serial_capture() {
+    let d_in = 5 * DIM;
+    // Deliberately not a multiple of the thread count, so the last chunk is
+    // short and the two slicings can drift apart.
+    let d_out = 7usize;
+    let mut rng = SplitMix64::new(0x6_A101);
+    let base: Vec<f64> = (0..d_out * d_in)
+        .map(|k| 10f64.powi((k / d_in) as i32 % 4 - 2) * rng.next_gaussian())
+        .collect();
+    let h = random_hessian(&mut rng, d_in, 4 * d_in);
+    let factor = GptqFactor::new(&h, d_in, 1e-2).expect("SPD");
+    let centroids = fit_gain_centroids(&base, d_out, d_in, DIM, 1, 40);
+    let cfg = GptqConfig {
+        block: DIM,
+        retract: true,
+        group_scales: false,
+        lambda: 1e-2,
+        tail: TailPolicy::KeepExact,
+    };
+    let nblocks = d_in / DIM;
+
+    let run = |threads: usize| -> (Vec<f64>, Vec<Option<BlockCode>>) {
+        let mut w = Weights::new(d_out, d_in, base.clone());
+        let mut codes = vec![None; d_out * nblocks];
+        let cs = centroids.clone();
+        let make = move || -> Box<dyn llvq_quant::quantizer::BlockQuantizer> {
+            Box::new(LeechShapeGain::with_shell_cap(cs.clone(), 12))
+        };
+        llvq_quant::gptq::quantize_layer_parallel_capturing(
+            &mut w,
+            &factor,
+            None,
+            &make,
+            &cfg,
+            threads,
+            Some(codes.as_mut_slice()),
+        );
+        (w.w, codes)
+    };
+
+    let (w1, c1) = run(1);
+    for threads in [2usize, 3, 4, 8] {
+        let (wn, cn) = run(threads);
+        assert_eq!(w1, wn, "{threads} threads changed the weights");
+        assert_eq!(
+            c1, cn,
+            "{threads} threads changed the codes — the row split and the code \
+             split have drifted apart"
+        );
+    }
+}
+
 /// The free-magnitude variant is *not* codeable, and the round-trip is what
 /// says so. Without this, a future change could quietly reintroduce the
 /// defect of 2026-07-31 and the artifact would silently drift from the model.

@@ -16,7 +16,7 @@
 //!     configuration Appendix I recommends.
 
 use candle_core::{DType, Device, Tensor};
-use llvq_llm::calib::quantize_model;
+
 use llvq_llm::corpus::{hf_parquet_text, wikitext2_test};
 use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
@@ -25,6 +25,88 @@ use llvq_quant::gptq::{GptqConfig, TailPolicy};
 
 fn arg<T: std::str::FromStr>(a: &[String], i: usize, d: T) -> T {
     a.get(i).and_then(|s| s.parse().ok()).unwrap_or(d)
+}
+
+/// Streams matrices to disk as they are quantized. Buffered, because the
+/// index stream is written in 6-byte units and 151 M of them through an
+/// unbuffered `File` would be 151 M syscalls.
+struct FileSink {
+    w: llvq_llm::artifact2::ArtifactWriter<std::io::BufWriter<std::fs::File>>,
+    path: String,
+}
+
+impl FileSink {
+    fn create(path: &str, n: u32) -> anyhow::Result<Self> {
+        let f = std::fs::File::create(path)?;
+        Ok(Self {
+            w: llvq_llm::artifact2::ArtifactWriter::new(
+                std::io::BufWriter::with_capacity(1 << 20, f),
+                n,
+            )?,
+            path: path.to_string(),
+        })
+    }
+    fn finish(self) -> anyhow::Result<(u64, String)> {
+        let bits = self.w.finish()?;
+        Ok((bits, self.path))
+    }
+}
+
+impl llvq_llm::calib::MatrixSink for FileSink {
+    fn push(&mut self, m: llvq_llm::artifact2::QuantizedMatrix) -> anyhow::Result<()> {
+        self.w.push(&m)
+    }
+}
+
+/// Decode the artifact and demand the evaluated weights back, bit for bit.
+///
+/// This is the whole point of writing a file rather than reporting a number:
+/// a rate you cannot decode is a claim, not a measurement. Done one matrix at
+/// a time — decoding Qwen3-4B in one go would be 14 GB.
+fn verify_artifact(path: &str, model: &Qwen3) -> anyhow::Result<()> {
+    use candle_core::DType;
+    let f = std::fs::File::open(path)?;
+    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
+    let n = llvq_llm::artifact2::read_header(&mut r)?;
+    eprintln!("verifying {n} matrices against the evaluated model…");
+    // One matrix at a time: a 4B model's codes are 14 GB of lattice points.
+    let ix = llvq_search::index::Indexer::new();
+
+    let mut checked = 0usize;
+    for _ in 0..n {
+        let m = &llvq_llm::artifact2::read_matrix(&mut r, &ix)?;
+        let decoded = llvq_llm::artifact2::decode_matrix(m);
+        // `name` is `model.layers.{b}.{proj}.weight`.
+        let parts: Vec<&str> = m.name.split('.').collect();
+        let b: usize = parts[2].parse()?;
+        let proj = parts[3..parts.len() - 1].join(".");
+        let want = model.blocks[b]
+            .linear(&proj)
+            .weight()
+            .to_dtype(DType::F32)?
+            .flatten_all()?
+            .to_vec1::<f32>()?;
+        anyhow::ensure!(
+            decoded.len() == want.len(),
+            "{}: decoded {} weights, model holds {}",
+            m.name,
+            decoded.len(),
+            want.len()
+        );
+        for (k, (g, e)) in decoded.iter().zip(want.iter()).enumerate() {
+            anyhow::ensure!(
+                g.to_bits() == e.to_bits(),
+                "{name} weight {k}: artifact decodes {g:e}, model holds {e:e} \
+                 (Δ = {delta:e}). The file is a different model from the one \
+                 measured.",
+                name = m.name,
+                delta = g - e
+            );
+        }
+        checked += decoded.len();
+    }
+    eprintln!("  ✓ {checked} weights identical, bit for bit");
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -171,6 +253,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    // `LLVQ_ARTIFACT=<path>` writes the real compressed artifact: packed
+    // lattice indices, not reconstructions. The file's size is the bit rate.
+    let artifact_path = std::env::var("LLVQ_ARTIFACT").ok();
+    let n_matrices = 7 * limit.min(model.blocks.len());
+
     let t0 = std::time::Instant::now();
     let run = llvq_llm::calib::RunConfig {
         gptq: cfg,
@@ -180,16 +267,37 @@ fn main() -> anyhow::Result<()> {
         limit,
         rotation_seed,
     };
-    let report = quantize_model(
+    let progress = |t: usize, n: usize, name: &str| {
+        if name == "mlp.down_proj" {
+            eprintln!("  block {:>2}/{n} done ({:.0}s)", t + 1, t0.elapsed().as_secs_f64());
+        }
+    };
+    let mut sink = match &artifact_path {
+        Some(p) => {
+            eprintln!("writing the compressed artifact to {p}");
+            Some(FileSink::create(p, n_matrices as u32)?)
+        }
+        None => None,
+    };
+    let report = llvq_llm::calib::quantize_model_capturing(
         &mut model,
         &mut hidden,
         &run,
-        |t, n, name| {
-            if name == "mlp.down_proj" {
-                eprintln!("  block {:>2}/{n} done ({:.0}s)", t + 1, t0.elapsed().as_secs_f64());
-            }
-        },
+        progress,
+        sink.as_mut().map(|s| s as &mut dyn llvq_llm::calib::MatrixSink),
     )?;
+    if let Some(s) = sink {
+        let (bits, path) = s.finish()?;
+        let bytes = std::fs::metadata(&path)?.len();
+        eprintln!(
+            "artifact: {:.3} GB on disk, payload {:.4} bits/weight over {} \
+             quantized weights",
+            bytes as f64 / 1e9,
+            bits as f64 / (report.weights - report.tail_weights) as f64,
+            report.weights - report.tail_weights,
+        );
+        verify_artifact(&path, &model)?;
+    }
 
     eprintln!(
         "quantized {} matrices, {} weights in {:.0}s ({:.4} bits/weight)",

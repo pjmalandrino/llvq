@@ -435,22 +435,55 @@ pub fn quantize_layer_parallel(
     cfg: &GptqConfig,
     threads: usize,
 ) {
+    quantize_layer_parallel_capturing(weights, factor, h, make_quantizer, cfg, threads, None)
+}
+
+/// [`quantize_layer_parallel`], recording block codes as it goes.
+///
+/// The row split carries over to the codes unchanged: rows never interact, so
+/// thread `t` owns rows `[a, b)` of the weights **and** entries
+/// `[a·nblocks, b·nblocks)` of the code buffer. Both slices are cut with the
+/// same `rows_per`, and zipping them is what keeps the two in step — a
+/// mismatch would silently attribute one row's codes to another.
+pub fn quantize_layer_parallel_capturing(
+    weights: &mut Weights,
+    factor: &GptqFactor,
+    h: Option<&[f64]>,
+    make_quantizer: &(dyn Fn() -> Box<dyn BlockQuantizer> + Sync),
+    cfg: &GptqConfig,
+    threads: usize,
+    codes: Option<&mut [Option<BlockCode>]>,
+) {
     let (d_out, d_in) = (weights.d_out, weights.d_in);
+    let nblocks = d_in / cfg.block;
     let threads = threads.max(1).min(d_out);
     if threads == 1 {
         let mut q = make_quantizer();
-        quantize_layer(weights, factor, h, q.as_mut(), cfg);
+        quantize_layer_capturing(weights, factor, h, q.as_mut(), cfg, codes);
         return;
     }
+    if let Some(c) = codes.as_deref() {
+        assert_eq!(c.len(), d_out * nblocks, "code buffer must match the layer");
+    }
     let rows_per = d_out.div_ceil(threads);
+    // `None` still has to be split, so both arms drive the same loop.
+    let mut empty: Vec<Option<BlockCode>> = Vec::new();
+    let code_buf: &mut [Option<BlockCode>] = match codes {
+        Some(c) => c,
+        None => &mut empty,
+    };
+    let capturing = !code_buf.is_empty();
+    let code_chunk = if capturing { rows_per * nblocks } else { 1 };
+
     std::thread::scope(|sc| {
-        for (chunk, slice) in weights.w.chunks_mut(rows_per * d_in).enumerate() {
+        let mut code_it = code_buf.chunks_mut(code_chunk);
+        for slice in weights.w.chunks_mut(rows_per * d_in) {
             let rows = slice.len() / d_in;
-            let _ = chunk;
+            let cslice = if capturing { code_it.next() } else { None };
             sc.spawn(move || {
                 let mut sub = Weights::new(rows, d_in, slice.to_vec());
                 let mut q = make_quantizer();
-                quantize_layer(&mut sub, factor, h, q.as_mut(), cfg);
+                quantize_layer_capturing(&mut sub, factor, h, q.as_mut(), cfg, cslice);
                 slice.copy_from_slice(&sub.w);
             });
         }
