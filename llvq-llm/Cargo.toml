@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
+llvq-artifact = { path = "../llvq-artifact" }
 llvq-quant = { path = "../llvq-quant" }
 candle-core = "0.9"
 candle-nn = "0.9"

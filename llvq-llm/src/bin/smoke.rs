@@ -54,7 +54,9 @@ impl FileSink {
 
 impl llvq_llm::calib::MatrixSink for FileSink {
     fn push(&mut self, m: llvq_llm::artifact2::QuantizedMatrix) -> anyhow::Result<()> {
-        self.w.push(&m)
+        // `llvq-artifact` has its own error type on purpose — it carries no
+        // dependencies, `anyhow` included. The bridge converts.
+        Ok(self.w.push(&m)?)
     }
 }
 
