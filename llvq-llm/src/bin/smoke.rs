@@ -50,7 +50,18 @@ fn main() -> anyhow::Result<()> {
     // Where to persist the quantized projections, so the model can be probed
     // later instead of being re-quantized.
     let save_to = a.get(9).cloned();
-    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    // `LLVQ_THREADS` caps the encoder pool. A full run wants every core, but
+    // an A/B launched on a machine someone is working on should not take the
+    // whole machine — the Leech encoder is the part that saturates it.
+    let threads = std::env::var("LLVQ_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+        });
     eprintln!("device {device:?}, {threads} encoder threads");
 
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
