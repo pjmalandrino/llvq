@@ -134,8 +134,8 @@ fn main() {
 
     println!("{N} blocs gaussiens quantifiés — coût de l'arrangement seul\n");
     println!(
-        "  {:<22}{:>9}{:>9}{:>12}   {}",
-        "schéma", "bits", "Δ", "Δ b/poids", "décodage"
+        "  {:<22}{:>9}{:>9}{:>12}   décodage",
+        "schéma", "bits", "Δ", "Δ b/poids"
     );
     println!("  {}", "-".repeat(86));
     row("rang optimal", opt, "~575 ns — 60 divisions u128");
