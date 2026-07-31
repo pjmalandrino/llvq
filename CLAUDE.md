@@ -4,6 +4,11 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
+> 🧭 **Reprise de session** : [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md)
+> — où on en est, quoi faire ensuite, et les pièges de mesure GPU chèrement
+> acquis. Le modèle est publié et démarre seul ; le noyau est le chantier
+> ouvert.
+
 ## 1. Objectif
 
 Réduire le coût d'inférence LLM pour de la **souveraineté** : faire tenir de
@@ -49,6 +54,7 @@ llvq-core/     Golay [24,12,8] + Λ₂₄ + couches. ZÉRO dépendance, forbid(u
 llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage, packing.
 llvq-quant/    Spherical GPTQ : algèbre dense, boucle par blocs, quantifieurs.
 llvq-artifact/ Le format .llvq : writer, reader, décodeur. ZÉRO dépendance.
+llvq-metal/    Micro-bancs GPU (macOS) : plomberie Metal, coût du décodage.
 llvq-llm/      Côté modèle : passe avant observable, corpus, perplexité. (candle)
 llvq-bench/    Débit-distorsion, débit encodeur, coût du décodage.
 ```
@@ -94,7 +100,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | ❌ à faire |
+| G6 | Noyau fusé (déquant + matvec) | 🟡 **verrou levé** — décodage à masques mesuré sur GPU à **0,11 ns/bloc** (1,43× le coût de ne rien décoder). Le noyau lui-même reste à écrire. Voir [`docs/format-noyau.md`](docs/format-noyau.md) et [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :

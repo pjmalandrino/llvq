@@ -21,6 +21,8 @@ Golay reconstruit par XOR (4,2 ns). Que faire ?
 | `arrbits` (par coset) | arrangement : masques imbriqués **+0,342 b/poids** vs rang optimal ; positionnel +0,598 |
 | `decfast` | récurrence `M' = M·c_j/n` en u64 : unrank **4,7×** plus rapide, bit-identique |
 | `decfull` | **décodeur v1 complet : 243 ns/bloc, 3,3×**, bit-identique sur 200 766 points (bornes de classes incluses) |
+| `llvq-metal/hello` | M3 Max : SIMD 32, 1024 threads/groupe, **2,52 T op/s** (chaîne dépendante — une latence, pas un débit crête) |
+| `llvq-metal/decode` | **GPU, 16,7 M blocs** : sol 0,08 ns/bloc · **masques 0,11 ns/bloc (1,43× le sol)** · rang 8,27 ns/bloc (106×) |
 
 ## Les impasses, et pourquoi
 
@@ -54,7 +56,7 @@ Deux formats, un transcodage payé une fois :
 | disque | rang (v1) — **2,1595 b/poids**, le chiffre publié | optimal en bits | inchangé |
 | chargement | transcodage rang → layout runtime | **~3,1 s** pour un 4B (12 cœurs, `decfull`) | mesuré |
 | RAM | masques imbriqués, ~2,6-3,0 b/poids | +16-40 % de trafic vs 2,16 | conçu, non implémenté |
-| noyau | **un bloc par lane**, décodage sériel des masques (~100-150 lane-ops/bloc) | sous le point de bascule (~185-200) | à mesurer sur Metal |
+| noyau | **un bloc par lane**, décodage sériel des masques | **0,11 ns/bloc mesuré** → 16,8 ms/token sur un 4B | ✅ mesuré, viable |
 
 Le surcoût des masques n'existe qu'en RAM : le fichier ne bouge pas.
 
@@ -76,14 +78,46 @@ Bascule mémoire→calcul : ~185-200 opérations/bloc dans le scénario réel. L
 décodage bloc-par-lane des masques (~100-150) passe dessous ; le décodage
 direct du rang (~509, compté par `decfast`) ne donnerait que ~1,5× le FP16.
 
-## Ce que le micro-banc Metal doit mesurer (premier travail local)
+## Le verrou est levé (2026-07-31, soir)
 
-1. Décodage masques, un bloc par lane, layout SoA — lane-ops réels, divergence,
-   pression registre, coalescence. C'est LE chiffre qui décide.
-2. En contrôle : décodage direct du rang (recurrence u64, division par magie)
-   pour vérifier le ~509.
-3. Les risques non chiffrés : formes de classes variables entre lanes
-   (divergence), 24 poids × 32 blocs en vol (registres).
+`llvq-metal/decode` mesure, sur GPU, 16,7 M blocs, sortie vérifiée contre une
+référence CPU écrite indépendamment :
+
+| noyau | par bloc | débit | vs sol |
+|---|---|---|---|
+| sol (aucun décodage) | 0,08 ns | 1,29·10¹⁰ blocs/s | — |
+| **masques imbriqués** | **0,11 ns** | 9,01·10⁹ blocs/s | **1,43×** |
+| rang (récurrence u64) | 8,27 ns | 1,21·10⁸ blocs/s | 106× |
+
+**Décoder par masques coûte 43 % de plus que ne rien décoder.** Sur un 4B :
+16,8 ms/token de décodage, contre 1252 ms pour le rang. La séparation
+archive/runtime n'est pas un raffinement, c'est la condition d'existence du
+noyau — 75× d'écart entre les deux formats.
+
+### Trois défauts de banc corrigés en route, chacun changeant le résultat
+
+1. La v1 **stockait** les 24 poids décodés : le « sol » sortait à 195 Go/s
+   d'écritures non coalescées, un banc mémoire déguisé en décodeur. Un noyau
+   fusé n'écrit jamais les poids décodés — le banc accumule désormais un
+   produit scalaire et écrit un float par bloc.
+2. L'activation était relue en mémoire globale à chaque itération (24 lectures
+   par thread), plafonnant le sol à 80 Go/s. Elle est chargée une fois par
+   threadgroup.
+3. À 2 M blocs, le surcoût de soumission (~0,18 ms) valait le travail mesuré.
+   16,7 M blocs le ramènent à 12 %.
+
+Sans ces corrections le verdict était « 25 tok/s, c'est mort ». La vraie
+valeur est 5× meilleure.
+
+### Ce que ce chiffre ne couvre PAS
+
+- **Tous les blocs ont 4 magnitudes** dans le banc ; les vrais en ont 3, 4 ou 5
+  → la divergence entre lanes n'est pas testée.
+- **Codes synthétiques**, pas de lecture réelle du flux depuis la RAM.
+- **Pas de matvec** : ni réduction inter-lanes, ni tuilage, ni écriture de la
+  sortie.
+- Les 2,52 T op/s viennent d'une chaîne dépendante (latence), donc tous les
+  budgets « opérations par bloc » restent ~2× pessimistes.
 
 ## Note de provenance
 
