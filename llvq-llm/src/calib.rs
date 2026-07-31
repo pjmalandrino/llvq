@@ -377,8 +377,12 @@ pub fn quantize_model_capturing(
                             .collect()
                     })
                     .unwrap_or_default();
-                let nblocks = d_in / cfg.block;
-                let mut codes = capturing.then(|| vec![None; d_out * nblocks]);
+                // Named for what it counts — 24-column blocks in a row —
+                // because `nblocks` in this function already means the
+                // model's transformer-block count, and shadowing it fed
+                // the wrong number to `progress`.
+                let row_blocks = d_in / cfg.block;
+                let mut codes = capturing.then(|| vec![None; d_out * row_blocks]);
                 llvq_quant::gptq::quantize_layer_parallel_capturing(
                     &mut weights,
                     factor,
@@ -400,7 +404,7 @@ pub fn quantize_model_capturing(
                 if capturing {
                     let tail_w = d_in % cfg.block;
                     for i in 0..d_out {
-                        let at = i * d_in + nblocks * cfg.block;
+                        let at = i * d_in + row_blocks * cfg.block;
                         for v in weights.w[at..at + tail_w].iter_mut() {
                             *v = *v as f32 as f64;
                         }
@@ -412,7 +416,7 @@ pub fn quantize_model_capturing(
                     let tail_w = d_in % cfg.block;
                     let mut tail = Vec::with_capacity(d_out * tail_w);
                     for i in 0..d_out {
-                        let at = i * d_in + nblocks * cfg.block;
+                        let at = i * d_in + row_blocks * cfg.block;
                         tail.extend_from_slice(&weights.w[at..at + tail_w]);
                     }
                     let codes = codes

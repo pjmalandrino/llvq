@@ -276,6 +276,56 @@ impl<W: Write> ArtifactWriter<W> {
     }
 }
 
+/// Decode an artifact straight into a model, one matrix at a time.
+///
+/// Returns how many projections were replaced.
+///
+/// ## What this file is not
+///
+/// It carries the **linear projections only**. Embeddings, RMSNorm weights and
+/// the config still come from the checkpoint, so a `.llvq` is not yet a
+/// self-contained model — it is the compressed 90 % of one. On Qwen3-4B the
+/// tied embedding is 389 M weights at f16, 9.7 % of the model and the reason
+/// the end-to-end ratio is ~4.6× rather than the ~7.6× the linear layers alone
+/// would suggest.
+pub fn load(
+    model: &mut crate::model::Qwen3,
+    path: impl AsRef<std::path::Path>,
+    device: &candle_core::Device,
+) -> anyhow::Result<(usize, usize)> {
+    let f = std::fs::File::open(path.as_ref())?;
+    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
+    let n = read_header(&mut r)?;
+    let ix = Indexer::new();
+    let dtype = model.dtype();
+    let mut weights = 0usize;
+    for _ in 0..n {
+        let m = read_matrix(&mut r, &ix)?;
+        weights += m.d_out * m.d_in;
+        let w = decode_matrix(&m);
+        let (b, proj) = split_name(&m.name)?;
+        let t = candle_core::Tensor::from_vec(w, (m.d_out, m.d_in), device)?
+            .to_dtype(dtype)?;
+        let lin = model.blocks[b].linear_mut(&proj);
+        anyhow::ensure!(
+            lin.weight().dims() == [m.d_out, m.d_in],
+            "{}: artifact holds {:?}, model expects {:?}",
+            m.name,
+            [m.d_out, m.d_in],
+            lin.weight().dims()
+        );
+        *lin = candle_nn::Linear::new(t, None);
+    }
+    Ok((n as usize, weights))
+}
+
+/// `model.layers.{b}.{proj}.weight` → `(b, proj)`.
+pub fn split_name(name: &str) -> anyhow::Result<(usize, String)> {
+    let parts: Vec<&str> = name.split('.').collect();
+    anyhow::ensure!(parts.len() >= 5, "unexpected tensor name {name}");
+    Ok((parts[2].parse()?, parts[3..parts.len() - 1].join(".")))
+}
+
 /// Read the file header, returning how many matrices follow.
 ///
 /// Separate from [`read_all`] because a 4B model's codes are 14 GB of lattice
