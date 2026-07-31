@@ -1,24 +1,23 @@
 //! What does it cost, in bits, to say *which value goes where* — without a
 //! permutation rank?
 //!
-//! The rank is optimal: `log2(24! / Π nᵢ!)` bits, and nothing beats it. It is
-//! also 71 % of the decode cost, because reaching a rank means dividing
-//! 128-bit integers sixty times per block. Every alternative here trades bits
-//! for divisions; this measures the exchange rate on real quantized blocks
-//! rather than on a worked example.
+//! The rank is optimal, and it is also 71 % of the decode cost: reaching one
+//! means dividing 128-bit integers sixty times per block. Every alternative
+//! here trades bits for divisions; this measures the exchange rate on real
+//! quantized blocks.
 //!
-//! Schemes, cheapest to decode first:
+//! ## The two cosets are not the same problem
 //!
-//! * **positional** — `ceil(log2(types))` bits per coordinate. One shift and
-//!   mask each, no divisions, no tables. The obvious thing, and the most
-//!   wasteful.
-//! * **nested masks** — a 24-bit mask for the first magnitude, then a mask
-//!   over what remains, and so on. Branch-free, and adapts to skewed counts.
-//! * **grouped ranks** — split the 24 slots into G groups and rank each from a
-//!   lookup table. Divisions become table reads; the loss is that the per-group
-//!   counts must be transmitted. Computed on the actual positions, not assumed
-//!   proportional.
-//! * **optimal rank** — what the archive format does, for reference.
+//! Λ₂₄ splits into an even and an odd coset, and v1 encodes them differently.
+//! The **odd** coset takes a single rank over all 24 magnitudes — comparing a
+//! global rank against masks is exactly right there. The **even** coset
+//! encodes the Golay codeword separately (12 bits, against ~20 for an
+//! unconstrained support) and then two shorter ranks, on and off the support.
+//! Charging it a global rank would overstate what v1 costs and flatter every
+//! alternative.
+//!
+//! So they are measured apart. The codeword is common to both schemes and
+//! cancels out, so it is excluded from both sides.
 //!
 //! Run: `cargo run --release -p llvq-bench --bin arrbits`
 
@@ -38,22 +37,10 @@ fn rank_bits(counts: &[usize]) -> f64 {
     lg_fact(n) - counts.iter().map(|&c| lg_fact(c)).sum::<f64>()
 }
 
-fn lg_binom(n: usize, k: usize) -> f64 {
-    if k > n {
-        return 0.0;
-    }
-    lg_fact(n) - lg_fact(k) - lg_fact(n - k)
-}
-
-/// Fixed-width type tag per coordinate.
-fn positional_bits(n_types: usize) -> f64 {
-    DIM as f64 * (n_types as f64).log2().ceil().max(1.0)
-}
-
 /// One mask over the still-unassigned slots per type, largest count first. The
 /// last type needs no mask — it is whatever is left.
-fn nested_mask_bits(counts: &[usize]) -> f64 {
-    let mut left = DIM;
+fn nested_mask_bits(counts: &[usize], slots: usize) -> f64 {
+    let mut left = slots;
     let mut bits = 0.0;
     for &c in counts.iter().take(counts.len().saturating_sub(1)) {
         bits += left as f64;
@@ -62,27 +49,54 @@ fn nested_mask_bits(counts: &[usize]) -> f64 {
     bits
 }
 
-/// Rank each group independently, from the **actual** type layout.
-///
-/// Two terms: the ranks themselves, and the cost of saying how each type
-/// splits across groups — without which a decoder cannot size its tables.
-fn grouped_rank_bits(kinds: &[usize], n_types: usize, g: usize) -> f64 {
-    let per = DIM / g;
-    let mut bits = 0.0;
-    let mut split = vec![vec![0usize; n_types]; g];
-    for (slot, &k) in kinds.iter().enumerate() {
-        split[slot / per][k] += 1;
+/// Fixed-width type tag per slot.
+fn positional_bits(n_types: usize, slots: usize) -> f64 {
+    slots as f64 * (n_types as f64).log2().ceil().max(1.0)
+}
+
+/// Counts per type, descending, zeros dropped.
+fn tally(kinds: &[usize], n_types: usize) -> Vec<usize> {
+    let mut c = vec![0usize; n_types];
+    for &k in kinds {
+        c[k] += 1;
     }
-    for group in &split {
-        bits += rank_bits(group);
+    c.retain(|&n| n > 0);
+    c.sort_unstable_by(|a, b| b.cmp(a));
+    c
+}
+
+#[derive(Default)]
+struct Acc {
+    n: usize,
+    opt: f64,
+    mask: f64,
+    pos: f64,
+}
+
+impl Acc {
+    fn show(&self, title: &str, total: usize) {
+        let k = self.n as f64;
+        let (o, m, p) = (self.opt / k, self.mask / k, self.pos / k);
+        println!(
+            "\n  {title} — {} blocs ({:.1} %)",
+            self.n,
+            100.0 * k / total as f64
+        );
+        println!("  {}", "-".repeat(62));
+        println!("  {:<24}{o:>9.1} bits", "rang optimal (v1)");
+        println!(
+            "  {:<24}{m:>9.1} bits{:>+9.1}{:>+11.3} b/poids",
+            "masques imbriqués",
+            m - o,
+            (m - o) / DIM as f64
+        );
+        println!(
+            "  {:<24}{p:>9.1} bits{:>+9.1}{:>+11.3} b/poids",
+            "positionnel",
+            p - o,
+            (p - o) / DIM as f64
+        );
     }
-    // Transmitting the split: for each type, how its `c` copies land in `g`
-    // groups — a composition, `C(c + g - 1, g - 1)`.
-    for t in 0..n_types {
-        let c: usize = split.iter().map(|s| s[t]).sum();
-        bits += lg_binom(c + g - 1, g - 1);
-    }
-    bits
 }
 
 fn main() {
@@ -90,7 +104,7 @@ fn main() {
     let s = Searcher::new();
     let mut ball = BallSearcher::new();
 
-    let (mut opt, mut pos, mut mask, mut g4, mut g6, mut g8) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let (mut odd, mut even) = (Acc::default(), Acc::default());
     let mut worst_types = 0usize;
 
     for _ in 0..N {
@@ -106,49 +120,54 @@ fn main() {
             .iter()
             .map(|v| mags.iter().position(|m| *m == v.abs()).expect("present"))
             .collect();
-        let mut counts = vec![0usize; mags.len()];
-        for &k in &kinds {
-            counts[k] += 1;
-        }
-        counts.sort_unstable_by(|a, b| b.cmp(a));
         worst_types = worst_types.max(mags.len());
 
-        opt += rank_bits(&counts);
-        pos += positional_bits(mags.len());
-        mask += nested_mask_bits(&counts);
-        g4 += grouped_rank_bits(&kinds, mags.len(), 4);
-        g6 += grouped_rank_bits(&kinds, mags.len(), 6);
-        g8 += grouped_rank_bits(&kinds, mags.len(), 8);
+        if f.point.iter().all(|v| v % 2 != 0) {
+            // Odd coset: one rank over all 24 slots. Signs carry no bits —
+            // codeword membership forces them.
+            let c = tally(&kinds, mags.len());
+            odd.n += 1;
+            odd.opt += rank_bits(&c);
+            odd.mask += nested_mask_bits(&c, DIM);
+            odd.pos += positional_bits(c.len(), DIM);
+        } else {
+            // Even coset: the support is where coordinates are ≢ 0 (mod 4) —
+            // the Golay word. v1 ranks on and off it separately.
+            let on: Vec<usize> = (0..DIM)
+                .filter(|&i| f.point[i] % 4 != 0)
+                .map(|i| kinds[i])
+                .collect();
+            let off: Vec<usize> = (0..DIM)
+                .filter(|&i| f.point[i] % 4 == 0)
+                .map(|i| kinds[i])
+                .collect();
+            let (con, coff) = (tally(&on, mags.len()), tally(&off, mags.len()));
+            even.n += 1;
+            even.opt += rank_bits(&con) + rank_bits(&coff);
+            even.mask +=
+                nested_mask_bits(&con, on.len()) + nested_mask_bits(&coff, off.len());
+            even.pos +=
+                positional_bits(con.len(), on.len()) + positional_bits(coff.len(), off.len());
+        }
     }
 
-    let n = N as f64;
-    let base = opt / n;
-    let row = |name: &str, total: f64, decode: &str| {
-        let per_block = total / n;
-        println!(
-            "  {name:<22}{per_block:>9.1}{:>9.1}{:>12.3}   {decode}",
-            per_block - base,
-            (per_block - base) / DIM as f64
-        );
-    };
+    println!("{N} blocs gaussiens quantifiés — coût de l'arrangement seul");
+    println!("  (le codeword Golay est commun aux schémas, donc exclu des deux)");
+    odd.show("COSET IMPAIR", N);
+    even.show("COSET PAIR", N);
 
-    println!("{N} blocs gaussiens quantifiés — coût de l'arrangement seul\n");
-    println!(
-        "  {:<22}{:>9}{:>9}{:>12}   décodage",
-        "schéma", "bits", "Δ", "Δ b/poids"
-    );
-    println!("  {}", "-".repeat(86));
-    row("rang optimal", opt, "~575 ns — 60 divisions u128");
-    row("rangs groupés (4)", g4, "4 lectures de table");
-    row("rangs groupés (6)", g6, "6 lectures de table");
-    row("rangs groupés (8)", g8, "8 lectures de table");
-    row("masques imbriqués", mask, "1 masque par type, branch-free");
-    row("positionnel", pos, "1 décalage par coordonnée");
-    println!("  {}", "-".repeat(86));
+    let tot = N as f64;
+    let base = odd.opt + even.opt;
+    let d = |x: f64| (x - base) / tot / DIM as f64;
+    println!("\n  MOYENNE PONDÉRÉE");
+    println!("  {}", "-".repeat(62));
+    println!("  masques imbriqués{:>+34.3} bits/poids", d(odd.mask + even.mask));
+    println!("  positionnel{:>+40.3} bits/poids", d(odd.pos + even.pos));
+
     println!("\n  jusqu'à {worst_types} magnitudes distinctes dans un bloc");
     println!(
-        "\n  Δ b/poids s'ajoute aux 2,1595 mesurés sur le fichier. Repère : au-delà\n  \
-         de +0,35 on dépasse 2,5 bits/poids, et l'écart avec QTIP (2,000)\n  \
-         devient difficile à défendre."
+        "\n  Ce Δ s'ajoute aux 2,1595 bits/poids pesés sur le fichier. Repère :\n  \
+         au-delà de +0,35 on dépasse 2,5 bits/poids, et l'écart avec QTIP\n  \
+         (2,000) devient difficile à défendre."
     );
 }
