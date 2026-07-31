@@ -19,6 +19,7 @@ use llvq_search::index::Indexer;
 
 /// Build a matrix whose codes are real lattice points, drawn by decoding
 /// random indices — the codebook is the only source of valid points.
+#[allow(clippy::too_many_arguments)] // a format has many fields; that is the point
 fn synthetic(
     ix: &Indexer,
     rng: &mut SplitMix64,
