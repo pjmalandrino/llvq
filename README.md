@@ -9,6 +9,9 @@ The mathematical core — lattice, exact nearest-neighbour search, bijective
 indexing, GPTQ — has **no external dependencies**, so it can be read end to
 end. Only the model side pulls in `candle`.
 
+> **Want to just run it?** → [`LAUNCH_ME.md`](LAUNCH_ME.md). The model is at
+> [Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit).
+>
 > Working notes, non-obvious derivations and the full experimental history are
 > in [`CLAUDE.md`](CLAUDE.md) (in French).
 
