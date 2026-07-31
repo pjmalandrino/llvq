@@ -100,7 +100,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | 🟡 **verrou levé** — décodage à masques mesuré sur GPU à **0,11 ns/bloc** (1,43× le coût de ne rien décoder). Le noyau lui-même reste à écrire. Voir [`docs/format-noyau.md`](docs/format-noyau.md) et [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md) |
+| G6 | Noyau fusé (déquant + matvec) | 🟡 **format runtime figé et mesuré sur blocs réels** (2026-08-01) — payload masques canonique, adressage **Grouped32** (3,355 b/poids, 0,158 ns/bloc sur les blocs du 4B publié, 16,7 M vérifiés contre le décodeur CPU) ; transcodeur `.llvq` → runtime verrouillé bit pour bit (10 mutants tués). **Seul le matvec reste à écrire.** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :

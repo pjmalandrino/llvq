@@ -157,11 +157,34 @@ fixe 128 en nibbles (5,33 — dominé par le fixe-96, possible parce que le
   laissés libres ; L−1 masques, le dernier niveau est implicite. Largeurs et
   valeurs se lisent dans la table des classes (384 entrées, constante).
 
-**Ce que la mesure ne tranche pas — et qui revient au GPU** : F96 paie 19 %
-de trafic en plus mais lit 3 u32 alignés à stride constant, sans indirection ;
-G32 est plus compact mais lit à des offsets d'octet variables via une base par
-groupe. Le transcodeur produit les deux ; le banc GPU sur blocs réels
-départage. Tout le reste est mort.
+**Tranché sur GPU le 2026-08-01** (`decreal`, 16,7 M blocs réels du 4B
+publié, préfixes contigus des 252 matrices, chaque sortie vérifiée contre le
+décodeur CPU — lui-même épinglé bit pour bit sur `Indexer::decode`, 10
+mutants tués) :
+
+| noyau | par bloc | vs sol | b/poids | plafond trafic |
+|---|---|---|---|---|
+| sol (12 o lus, rien décodé) | 0,084 ns | — | — | — |
+| Fixed96, loads alignés | 0,152 ns | 1,81× | 4,000 | 154 tok/s |
+| **Grouped32, strides octet** | **0,158 ns** | 1,89× | **3,355** | **174 tok/s** |
+
+**Grouped32 est le format du noyau.** Ses loads non alignés et l'indirection
+de base coûtent 4 % de calcul ; sa compacité rend 19 % de trafic. Le trafic
+est la ressource rare — c'est toute la thèse de la quantification. F96 reste
+dans le transcodeur comme variante de référence (même payload, adressage
+trivial), utile au débogage du noyau.
+
+Au passage, la question laissée ouverte par le banc synthétique est close :
+le format **réel** — 3-5 niveaux mélangés, table des 384 classes, curseur de
+bits — coûte 0,152-0,158 ns/bloc là où le squelette uniforme à 4 niveaux
+coûtait 0,11. +38 %, dans l'épaisseur du trait.
+
+⚠️ Ces ns/bloc sont des débits de la forme « un bloc par lane, chaîne
+sérielle » — la forme la plus pessimiste. Ils comparent les variantes entre
+elles et bornent le surcoût du décodage sur le travail FMA irréductible
+(le sol) ; ils ne prédisent pas le débit du matvec fusé, qui réorganisera
+le parallélisme d'instructions. C'est l'étape suivante, et la seule
+restante : le matvec sur une couche, contre le FP16 de la même machine.
 
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai

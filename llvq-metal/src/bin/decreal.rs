@@ -229,8 +229,8 @@ fn gpu_class_table(fd: &FastDecoder) -> Vec<GpuClassRec> {
         let lv = fd.levels(ci);
         let norm = ((16 * lv.shell) as f64).sqrt();
         let mut vals = [0.0f32; 5];
-        for i in 0..lv.len {
-            vals[i] = (lv.values[i] as f64 / norm) as f32;
+        for (v, &raw) in vals.iter_mut().zip(&lv.values[..lv.len]) {
+            *v = (raw as f64 / norm) as f32;
         }
         recs.push(GpuClassRec {
             vals,
