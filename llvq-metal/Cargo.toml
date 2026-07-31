@@ -14,3 +14,4 @@ llvq-search = { path = "../llvq-search" }
 # crate exists precisely to answer a question about one GPU.
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.29"
+llvq-artifact = { path = "../llvq-artifact" }
