@@ -50,6 +50,10 @@
 //! `g2c_reference` suite requires exact agreement.
 
 use crate::classes::{enumerate_classes, ClassSet, MAX_SHELL};
+
+/// A cap that excludes nothing: no class of the m ≤ 13 ball has more than
+/// five distinct magnitudes.
+pub const MAX_LEVELS_ANY: usize = 5;
 use crate::{Found, Metric, Searcher};
 use llvq_core::{Point, DIM};
 
@@ -381,7 +385,27 @@ fn even_dot(h: &EvenHot, sc: &Scratch, matched_parity: u8, a_last: f64) -> (f64,
 
 impl BallSearcher {
     pub fn new() -> Self {
+        Self::with_level_cap(MAX_LEVELS_ANY)
+    }
+
+    /// Build a searcher restricted to classes with at most `cap` distinct
+    /// magnitudes per block — **zero included**, so `{6, 4, 2, 0}` counts as
+    /// four.
+    ///
+    /// This is a codebook restriction, not a search heuristic: the excluded
+    /// points simply do not exist for this searcher, and the index built over
+    /// the same filter stays bijective. It exists because the runtime layout's
+    /// width is `34 + 24(L−1)` bits — the level count *is* the memory cost, so
+    /// capping it is the one knob that trades distortion for RAM directly.
+    ///
+    /// Removing entries from tables that are sorted by bound keeps them
+    /// sorted, so every prune and every `break` stays valid.
+    pub fn with_level_cap(cap: usize) -> Self {
         let ClassSet { even, odd } = enumerate_classes(MAX_SHELL);
+        // Level count of an even class: its distinct word/free values, plus
+        // zero when any coordinate is off both.
+        let even: Vec<_> = even.into_iter().filter(|c| c.n_levels() <= cap).collect();
+        let odd: Vec<_> = odd.into_iter().filter(|c| c.n_levels() <= cap).collect();
 
         let mut even_by_w: Vec<Group> = Vec::new();
         let mut even_w0 = Vec::new();

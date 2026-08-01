@@ -82,3 +82,51 @@ problème à résoudre — pas un détail d'optimisation.
 
 Aucune de ces trois n'est acquise. La comparaison a coûté une heure et vaut
 plus que la journée de noyau qui l'a précédée.
+
+## La sortie n° 2, mesurée : plafonner les niveaux (`bin/lcap`)
+
+La largeur du payload runtime est `34 + 24(L−1)` bits, où L est le nombre de
+magnitudes distinctes du bloc — **zéro compris**. Donc L *est* le coût mémoire,
+et le plafonner est le seul bouton qui échange directement distorsion contre
+RAM. Mesuré sur source gaussienne, 20 000 blocs d'entraînement + 20 000
+d'évaluation, shape–gain 1 bit, centroïdes ajustés sur le train :
+
+| L max | codebook | index | b/dim | MSE | rétention | **RAM b/poids** |
+|---|---|---|---|---|---|---|
+| 5 *(actuel)* | 2,81·10¹⁴ | 48 b | 2,0417 | 0,0714 | 93,26 % | 5,667 |
+| **4** | 2,61·10¹⁴ *(93 %)* | 48 b | 2,0417 | 0,0719 | **93,01 %** | **4,667** |
+| **3** | 6,23·10¹³ *(22 %)* | 46 b | 1,9583 | 0,0854 | **90,65 %** | **3,667** |
+| 2 | 7,53·10¹⁰ | 37 b | 1,5833 | 0,1524 | 85,71 % | 2,667 |
+
+**`L ≤ 4` est quasi gratuit** : −0,25 point de rétention pour **−1 bit/poids**
+de RAM. On jette 7 % du codebook et on ne perd presque rien — la prédiction
+haute dimension se vérifie. À prendre sans discuter.
+
+**`L ≤ 3` est un vrai arbitrage** : −2,61 points de rétention pour −2 bits/poids.
+Mais il fait passer le format **sous le 4 bits** (3,667 contre 4,50), et il
+baisse aussi le débit disque (1,958 b/dim contre 2,042).
+
+Bénéfice de bord : sous plafond, **tous les blocs ont la même largeur**, donc
+le stride devient fixe — plus de table de bases, plus de padding par groupe, et
+un décodage plus court (2 masques au lieu de 4 à `L ≤ 3`). Le noyau devrait
+être *plus* rapide, pas moins.
+
+### Ce que ça change à 70B
+
+| en RAM | taille | tient sur |
+|---|---|---|
+| FP16 | 140 Go | rien |
+| `Slot32` actuel | 48,2 Go | Mac 64 Go |
+| `L ≤ 4` | 40,8 Go | Mac 64 Go |
+| MLX 4 bits | 39,4 Go | Mac 48 Go |
+| **`L ≤ 3`** | **32,1 Go** | **Mac 48 Go** |
+
+`L ≤ 3` reprend l'avantage mémoire perdu — 18 % sous le 4 bits — tout en
+gardant la vitesse. **La question « petit ET rapide » a une réponse
+affirmative.**
+
+⚠️ Source gaussienne, une seule graine, pas de GPTQ. Les vrais poids ne sont
+pas gaussiens et la boucle GPTQ déforme leur distribution : ceci **indique**,
+ça ne tranche pas. L'A/B sur 3 blocs du vrai modèle tranche — et vu ce que
+MMLU vient de révéler (on perd déjà plus de capacités que le papier), la
+mesure à surveiller n'est pas la perplexité mais MMLU.

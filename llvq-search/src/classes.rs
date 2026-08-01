@@ -96,6 +96,16 @@ pub(crate) fn multinomial(counts: &[u8]) -> u128 {
 }
 
 impl EvenClass {
+    /// Distinct magnitudes a block of this class shows, **zero included** —
+    /// `{6, 4, 2, 0}` is four. Zero counts because the runtime layout spends
+    /// a mask on it like any other level, so this is the number its width
+    /// `34 + 24(L−1)` is a function of.
+    pub fn n_levels(&self) -> usize {
+        let free_n: u32 = self.free_vals.iter().map(|&(_, n)| n as u32).sum();
+        let n0 = 24 - self.w - free_n;
+        self.word_vals.len() + self.free_vals.len() + usize::from(n0 > 0)
+    }
+
     pub fn cardinality(&self) -> u64 {
         let free_n: u32 = self.free_vals.iter().map(|&(_, n)| n as u32).sum();
         let n0 = 24 - self.w - free_n;
@@ -115,6 +125,11 @@ impl EvenClass {
 }
 
 impl OddClass {
+    /// Distinct magnitudes; an odd class never contains a zero.
+    pub fn n_levels(&self) -> usize {
+        self.vals.len()
+    }
+
     pub fn cardinality(&self) -> u64 {
         let mut arr = FACT[24];
         for &(_, n) in &self.vals {
