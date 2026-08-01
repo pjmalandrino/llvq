@@ -73,8 +73,11 @@ pub struct ClassRecord {
     pub len: u8,
     /// Nonzero coordinates — the sign field's width.
     pub nonzero: u8,
-    /// Total payload width in bits, class and gain fields included.
+    /// Total payload width in bits, class and gain fields included —
+    /// nested-mask arrangement ([`Layout::Fixed96`] / [`Layout::Grouped32`]).
     pub width: u16,
+    /// Same, for the slot-space arrangement of [`Layout::Flat32`].
+    pub width_flat: u16,
 }
 
 /// The 384-entry constant table both sides of the format share.
@@ -99,6 +102,7 @@ impl ClassTable {
             len: 1,
             nonzero: 0,
             width: (CLASS_BITS + gain_bits) as u16,
+            width_flat: (CLASS_BITS + gain_bits) as u16,
         });
         for ci in 0..fd.n_classes() {
             let lv = fd.levels(ci);
@@ -108,12 +112,14 @@ impl ClassTable {
                 mask_bits += left;
                 left -= lv.counts[i] as u32;
             }
+            let common = CLASS_BITS + gain_bits + lv.nonzero as u32;
             recs.push(ClassRecord {
                 values: lv.values,
                 counts: lv.counts,
                 len: lv.len as u8,
                 nonzero: lv.nonzero,
-                width: (CLASS_BITS + gain_bits + lv.nonzero as u32 + mask_bits) as u16,
+                width: (common + mask_bits) as u16,
+                width_flat: (common + DIM as u32 * (lv.len as u32 - 1)) as u16,
             });
         }
         Self { recs, gain_bits }
@@ -135,16 +141,44 @@ impl ClassTable {
     pub fn worst_width(&self) -> u32 {
         self.recs.iter().map(|r| r.width as u32).max().unwrap_or(0)
     }
+
+    /// Widest [`Layout::Flat32`] payload — 130 bits on the cap-13 table.
+    pub fn worst_width_flat(&self) -> u32 {
+        self.recs.iter().map(|r| r.width_flat as u32).max().unwrap_or(0)
+    }
 }
 
-/// How blocks are addressed in the stream.
+/// How blocks are addressed in the stream — and, for [`Layout::Flat32`],
+/// how the payload itself is arranged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
-    /// 96 bits per block, constant stride, aligned.
+    /// 96 bits per block, constant stride, aligned. Nested-mask payload.
     Fixed96,
     /// Byte-rounded max-width stride per group of [`GROUP`] blocks, one u32
-    /// byte base per group.
+    /// byte base per group. Nested-mask payload.
     Grouped32,
+    /// Grouped addressing with a **kernel-shaped** payload, bought with
+    /// bits: the fused matvec showed the nested masks' cost is fundamental —
+    /// resolving one slot takes prefix popcounts in rank space, ~156 µs of
+    /// ALU on a layer whose structural floor is 49 µs. This layout removes
+    /// that wall:
+    ///
+    /// ```text
+    /// [class : 9][gain : g][signs : nz, level-major][slot masks : 24 × (L−1)]
+    /// ```
+    ///
+    /// * masks are in **slot space**, one 24-bit word per level `1..L`;
+    ///   level 0 — the most populated — is the complement of their union.
+    ///   No popcounts, no rank walk: a level's slots come straight off its
+    ///   word with `ctz`, and zero slots are never touched at all.
+    /// * signs are reordered **level-major** (levels in canonical order,
+    ///   slots ascending within a level, the zero level skipped), so a
+    ///   per-level walk consumes them sequentially — the running counter
+    ///   the slot-order signs forced is gone.
+    ///
+    /// Worst case 130 bits (odd 5-level class, 24 signs), so this payload
+    /// does not fit `Fixed96` and is grouped-only.
+    Flat32,
 }
 
 /// A transcoded block stream, plus what it takes to address it.
@@ -177,7 +211,7 @@ impl RuntimeBlocks {
         assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
         let bit0 = match self.layout {
             Layout::Fixed96 => b as u64 * (FIXED96_BYTES as u64 * 8),
-            Layout::Grouped32 => {
+            Layout::Grouped32 | Layout::Flat32 => {
                 let g = b / GROUP;
                 let stride = (self.bases[g + 1] - self.bases[g]) as u64 / GROUP as u64;
                 (self.bases[g] as u64 + (b % GROUP) as u64 * stride) * 8
@@ -189,6 +223,9 @@ impl RuntimeBlocks {
         let rec = table.record(id);
         if id == 0 {
             return ([0; DIM], gain);
+        }
+        if self.layout == Layout::Flat32 {
+            return (decode_flat(&mut cur, rec), gain);
         }
 
         let signs = cur.read(rec.nonzero as u32);
@@ -250,15 +287,23 @@ pub fn transcode(
         bases: Vec::new(),
     };
 
+    let flat = layout == Layout::Flat32;
+    let width_of = |rec: &ClassRecord| {
+        if flat {
+            rec.width_flat as u32
+        } else {
+            rec.width as u32
+        }
+    };
     match layout {
         Layout::Fixed96 => {
             out.data = vec![0u8; n * FIXED96_BYTES];
             for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
                 let bit0 = b as u64 * (FIXED96_BYTES as u64 * 8);
-                encode_block(fd, table, idx, gain, &mut out.data, bit0)?;
+                encode_block(fd, table, idx, gain, &mut out.data, bit0, false)?;
             }
         }
-        Layout::Grouped32 => {
+        Layout::Grouped32 | Layout::Flat32 => {
             let ngroups = n.div_ceil(GROUP);
             out.bases = Vec::with_capacity(ngroups + 1);
             let mut base = 0u32;
@@ -269,7 +314,7 @@ pub fn transcode(
                 let mut width = 0u32;
                 for &idx in blocks {
                     let id = class_id(fd, idx)?;
-                    width = width.max(table.record(id).width as u32);
+                    width = width.max(width_of(table.record(id)));
                 }
                 let stride = width.div_ceil(8);
                 // A partial trailing group still pays all 32 lanes, so the
@@ -279,7 +324,7 @@ pub fn transcode(
                     blocks.iter().zip(&gains[g * GROUP..]).enumerate()
                 {
                     let bit0 = (base as u64 + l as u64 * stride as u64) * 8;
-                    encode_block(fd, table, idx, gain, &mut out.data, bit0)?;
+                    encode_block(fd, table, idx, gain, &mut out.data, bit0, flat)?;
                 }
                 base += GROUP as u32 * stride;
             }
@@ -287,6 +332,38 @@ pub fn transcode(
         }
     }
     Ok(out)
+}
+
+/// Decode a [`Layout::Flat32`] payload after its class and gain fields.
+fn decode_flat(cur: &mut BitCursor, rec: &ClassRecord) -> Point {
+    let nlev = rec.len as usize;
+    let signs = cur.read(rec.nonzero as u32);
+    let mut masks = [0u32; MAX_LEVELS];
+    let mut union = 0u32;
+    for m in masks.iter_mut().take(nlev).skip(1) {
+        *m = cur.read(DIM as u32) as u32;
+        union |= *m;
+    }
+    masks[0] = !union & 0xff_ffff;
+
+    let mut p = [0i32; DIM];
+    let mut sbase = 0u32;
+    for (k, &mk) in masks.iter().enumerate().take(nlev) {
+        let v = rec.values[k];
+        if v == 0 {
+            continue; // zero slots stay zero and carry no signs
+        }
+        let mut lm = mk;
+        let mut t = 0u32;
+        while lm != 0 {
+            let i = lm.trailing_zeros() as usize;
+            lm &= lm - 1;
+            p[i] = if signs >> (sbase + t) & 1 == 1 { -v } else { v };
+            t += 1;
+        }
+        sbase += rec.counts[k] as u32;
+    }
+    p
 }
 
 /// Class field value for an index: 0 for the origin, `1 + ci` otherwise.
@@ -308,6 +385,7 @@ fn encode_block(
     gain: u32,
     data: &mut [u8],
     bit0: u64,
+    flat: bool,
 ) -> Result<()> {
     let id = class_id(fd, idx)?;
     let rec = *table.record(id);
@@ -329,6 +407,46 @@ fn encode_block(
             .position(|&u| u == a)
             .expect("decoded value belongs to its class") as u8;
     }
+    let nlev = rec.len as usize;
+
+    if flat {
+        // Signs level-major: levels in canonical order, slots ascending
+        // within a level, the zero level skipped.
+        let mut signs = 0u64;
+        let mut nz = 0u32;
+        for k in 0..nlev {
+            if rec.values[k] == 0 {
+                continue;
+            }
+            for (i, &l) in level.iter().enumerate() {
+                if l as usize == k {
+                    if p[i] < 0 {
+                        signs |= 1 << nz;
+                    }
+                    nz += 1;
+                }
+            }
+        }
+        debug_assert_eq!(nz, rec.nonzero as u32);
+        w.push(signs, nz);
+
+        // Slot-space masks for levels 1.., level 0 implicit.
+        for k in 1..nlev {
+            let mut mask = 0u64;
+            for (i, &l) in level.iter().enumerate() {
+                if l as usize == k {
+                    mask |= 1 << i;
+                }
+            }
+            w.push(mask, DIM as u32);
+        }
+        assert_eq!(
+            w.pos - bit0,
+            rec.width_flat as u64,
+            "class {id}: encoded flat width disagrees with the table"
+        );
+        return Ok(());
+    }
 
     // Signs of the nonzero slots, slot order.
     let mut signs = 0u64;
@@ -345,7 +463,6 @@ fn encode_block(
     w.push(signs, nz);
 
     // Nested masks, mirroring the decoder's running-rank walk.
-    let nlev = rec.len as usize;
     let mut left = DIM as u32;
     for k in 0..nlev - 1 {
         let mut mask = 0u64;

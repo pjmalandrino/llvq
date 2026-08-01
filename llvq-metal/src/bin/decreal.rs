@@ -32,99 +32,9 @@ use std::io::BufReader;
 /// Blocks to measure — the synthetic bench's 16.7 M, for comparability.
 const N: usize = 1 << 24;
 
+// Appended to `llvq_metal::PAYLOAD_MSL`, which provides ClassRec, the
+// cursor, `decode_payload` and `cursor_g32` — the same source `matvec` uses.
 const SRC: &str = r#"
-#include <metal_stdlib>
-using namespace metal;
-
-constant uint DIM = 24;
-
-// Mirror of the Rust-side record. 32 bytes; `vals` are the level values
-// already divided by the shell norm, so a block's weights are
-// vals[level] * gscale[gain] (row scale folded elsewhere).
-struct ClassRec {
-    float vals[5];
-    uchar counts[4];
-    uchar len;
-    uchar nz;
-    uchar pad[6];
-};
-
-// ---------------------------------------------------------------------------
-// A 96-bit cursor in registers. Fields are ≤ 32 bits wide; width 0 is legal
-// (the origin's empty sign field) and must not shift by 64.
-// ---------------------------------------------------------------------------
-struct Cursor { ulong lo; uint hi; };
-
-static inline uint take(thread Cursor &c, uint width) {
-    if (width == 0) return 0u;
-    uint v = uint(c.lo & ((1ul << width) - 1ul));
-    c.lo = (c.lo >> width) | (ulong(c.hi) << (64u - width));
-    c.hi = c.hi >> width;
-    return v;
-}
-
-// ---------------------------------------------------------------------------
-// The payload decode both layouts share, from an aligned cursor.
-//
-// The level chain is the popcount form the synthetic bench measured: the
-// mask of the block's *last* level is replaced by all-ones, so the chain
-// needs no per-level count checks — it stops where the class says it stops.
-// The sign index is a running nonzero counter, free in the serial walk.
-// ---------------------------------------------------------------------------
-static inline float decode_payload(Cursor c,
-                                   constant ClassRec* tab,
-                                   constant float* gscale,
-                                   threadgroup const float* xs)
-{
-    uint id   = take(c, 9);
-    uint gain = take(c, 1);            // the published 4B: 1 gain bit
-    constant ClassRec &r = tab[id];
-    uint len = r.len;
-    uint signs = take(c, r.nz);
-
-    uint left = DIM;
-    uint m0 = 0xffffffu, m1 = 0xffffffu, m2 = 0xffffffu, m3 = 0xffffffu;
-    if (len > 1) { m0 = take(c, left); left -= r.counts[0];
-        if (len > 2) { m1 = take(c, left); left -= r.counts[1];
-            if (len > 3) { m2 = take(c, left); left -= r.counts[2];
-                if (len > 4) { m3 = take(c, left); }
-                else m3 = 0xffffffu;
-            } else { m2 = 0xffffffu; }
-        } else { m1 = 0xffffffu; }
-    } else { m0 = 0xffffffu; }
-
-    float dot = 0.0f;
-    uint nz = 0;
-    for (uint i = 0; i < DIM; ++i) {
-        uint b0 = 1u << i;
-        float v;
-        if (m0 & b0) {
-            v = r.vals[0];
-        } else {
-            uint p1 = popcount(~m0 & (b0 - 1u));
-            uint b1 = 1u << p1;
-            if (m1 & b1) {
-                v = r.vals[1];
-            } else {
-                uint p2 = popcount(~m1 & (b1 - 1u));
-                uint b2 = 1u << p2;
-                if (m2 & b2) {
-                    v = r.vals[2];
-                } else {
-                    uint p3 = popcount(~m2 & (b2 - 1u));
-                    v = (m3 & (1u << p3)) ? r.vals[3] : r.vals[4];
-                }
-            }
-        }
-        if (v != 0.0f) {
-            if ((signs >> nz) & 1u) v = -v;
-            ++nz;
-        }
-        dot += v * xs[i];
-    }
-    return dot * gscale[gain];
-}
-
 // ---------------------------------------------------------------------------
 // floor: read the fixed layout's 12 bytes, decode nothing.
 // ---------------------------------------------------------------------------
@@ -183,65 +93,10 @@ kernel void decode_g32(device const uint*     words  [[buffer(0)]],
     if (tid < DIM) xs[tid] = x[tid];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    uint g = gid >> 5;
-    uint base = bases[g];
-    uint stride = (bases[g + 1] - base) >> 5;
-    uint byte = base + (gid & 31u) * stride;
-
-    uint w = byte >> 2;
-    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2], w3 = words[w + 3];
-    uint sh = (byte & 3u) * 8u;
-    ulong lo = (ulong(w1) << 32) | ulong(w0);
-    uint  hi;
-    if (sh == 0) {
-        hi = w2;
-    } else {
-        lo = (lo >> sh) | (ulong(w2) << (64u - sh));
-        hi = (w2 >> sh) | (w3 << (32u - sh));
-    }
-    Cursor c = { lo, hi };
+    Cursor c = cursor_g32(words, bases, gid);
     out[gid] = decode_payload(c, tab, gscale, xs);
 }
 "#;
-
-/// GPU-side class record; must match the shader's `ClassRec` byte for byte.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct GpuClassRec {
-    vals: [f32; 5],
-    counts: [u8; 4],
-    len: u8,
-    nz: u8,
-    pad: [u8; 6],
-}
-
-fn gpu_class_table(fd: &FastDecoder) -> Vec<GpuClassRec> {
-    let mut recs = Vec::with_capacity(fd.n_classes() + 1);
-    // Entry 0: the origin.
-    recs.push(GpuClassRec {
-        vals: [0.0; 5],
-        counts: [24, 0, 0, 0],
-        len: 1,
-        nz: 0,
-        pad: [0; 6],
-    });
-    for ci in 0..fd.n_classes() {
-        let lv = fd.levels(ci);
-        let norm = ((16 * lv.shell) as f64).sqrt();
-        let mut vals = [0.0f32; 5];
-        for (v, &raw) in vals.iter_mut().zip(&lv.values[..lv.len]) {
-            *v = (raw as f64 / norm) as f32;
-        }
-        recs.push(GpuClassRec {
-            vals,
-            counts: [lv.counts[0], lv.counts[1], lv.counts[2], lv.counts[3]],
-            len: lv.len as u8,
-            nz: lv.nonzero,
-            pad: [0; 6],
-        });
-    }
-    recs
-}
 
 /// The activation and gain levels the dot products run against.
 const GSCALE: [f32; 2] = [0.9, 1.1];
@@ -326,13 +181,14 @@ fn main() -> Result<(), String> {
     );
 
     // ---- GPU setup ----
-    let floor = llvq_metal::Kernel::new(SRC, "floor96")?;
+    let src = format!("{}{}", llvq_metal::PAYLOAD_MSL, SRC);
+    let floor = llvq_metal::Kernel::new(&src, "floor96")?;
     println!("GPU : {}", floor.device_name());
     let overhead = floor.overhead(20);
     println!("  surcoût de soumission {:.3} ms\n", overhead * 1e3);
 
     let x = xvec();
-    let recs = gpu_class_table(&fd);
+    let recs = llvq_metal::gpu_class_table(&fd);
     let bf96 = floor.buffer(&f96.data);
     // Pad so the grouped kernel's fourth word never reads past the end.
     let mut g32_data = g32.data.clone();
@@ -376,7 +232,7 @@ fn main() -> Result<(), String> {
     let t_floor = report("sol (12 o lus, rien décodé)", t.seconds, 0.0);
 
     // ---- Fixed96 ----
-    let kf = llvq_metal::Kernel::new(SRC, "decode_f96")?;
+    let kf = llvq_metal::Kernel::new(&src, "decode_f96")?;
     let t = kf.time(n as u64, 256, 3, 15, |enc| {
         enc.set_buffer(0, Some(&bf96), 0);
         enc.set_buffer(1, Some(&btab), 0);
@@ -389,7 +245,7 @@ fn main() -> Result<(), String> {
     verify("Fixed96", &got, &f96, &table, &x);
 
     // ---- Grouped32 ----
-    let kg = llvq_metal::Kernel::new(SRC, "decode_g32")?;
+    let kg = llvq_metal::Kernel::new(&src, "decode_g32")?;
     let t = kg.time(n as u64, 256, 3, 15, |enc| {
         enc.set_buffer(0, Some(&bg32), 0);
         enc.set_buffer(1, Some(&bbases), 0);
