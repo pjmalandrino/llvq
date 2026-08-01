@@ -54,6 +54,30 @@ pub fn dtype_name(d: DType) -> String {
     format!("{d:?}").to_ascii_lowercase()
 }
 
+/// A dependency-free fingerprint of a token stream (FNV-1a, 64 bits).
+///
+/// Two perplexities are comparable only if they scored the *same tokens*. That
+/// is normally assumed — same corpus, same context length — and the assumption
+/// holds right up until the two arms take their tokenizer from different
+/// places, which is exactly what happens when the baseline loads a checkpoint
+/// and the quantized arm loads a sealed artifact carrying its own
+/// `tokenizer.json`.
+///
+/// A silent divergence there does not crash and does not look wrong: it
+/// produces two plausible perplexities of two different token streams, and
+/// their ratio is meaningless. Printing this on the result line turns an
+/// assumption into something a reader checks by comparing two lines.
+pub fn token_fingerprint(ids: &[u32]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &id in ids {
+        for b in id.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +106,32 @@ mod tests {
         for d in [DType::F16, DType::BF16, DType::F32] {
             assert_eq!(parse_dtype(&dtype_name(d)).unwrap(), d);
         }
+    }
+
+    /// The fingerprint exists to catch two arms tokenizing differently, so it
+    /// has to move on every way two streams can differ: content, order, and
+    /// length. A checksum blind to any one of them would report "same tokens"
+    /// on a stream that is not.
+    #[test]
+    fn the_fingerprint_separates_streams_that_differ() {
+        let base: Vec<u32> = (0..64).collect();
+        assert_eq!(token_fingerprint(&base), token_fingerprint(&base.clone()));
+
+        let mut one_token_off = base.clone();
+        one_token_off[31] = 999;
+        assert_ne!(token_fingerprint(&base), token_fingerprint(&one_token_off));
+
+        // Order: a permutation is a different stream, and a sum-based digest
+        // would call it identical.
+        let mut swapped = base.clone();
+        swapped.swap(3, 4);
+        assert_ne!(token_fingerprint(&base), token_fingerprint(&swapped));
+
+        // Length: a prefix must not collide with the whole.
+        assert_ne!(token_fingerprint(&base), token_fingerprint(&base[..63]));
+
+        // And a leading zero must count — folding over `to_le_bytes` rather
+        // than over a decimal rendering is what makes that true.
+        assert_ne!(token_fingerprint(&[0, 1]), token_fingerprint(&[1]));
     }
 }

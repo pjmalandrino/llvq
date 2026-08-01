@@ -96,6 +96,10 @@ cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
 # ⚠️ ppl tourne en f32 par défaut, mmlu et run en f16. Chaque métrique est
 # cohérente en interne ; les COMPARER exige le même dtype des deux côtés :
 #   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal
+# ppl sait scorer le FICHIER SCELLÉ (4ᵉ arg), donc exactement l'objet que mmlu
+# score. Les deux bras ne sont comparables que si l'EMPREINTE DE TOKENS
+# imprimée sur la ligne de résultat est la même :
+#   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal ~/qwen3-4b-llvq.bin
 
 # A/B à faire tourner (3 blocs = ~8 min chacun, une seule variable à la fois)
 #   LLVQ_CALIB_SEED={1,2,3}  → la barre d'erreur qui manque au projet

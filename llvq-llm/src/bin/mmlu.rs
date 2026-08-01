@@ -47,18 +47,9 @@
 //! control of Phase 5: the test you re-run first when a result looks odd.
 
 use candle_core::{DType, Device, IndexOp, Tensor};
-use candle_nn::VarBuilder;
-use candle_transformers::models::qwen3::Config;
 use llvq_llm::corpus::{mmlu_split, MmluItem};
-use llvq_llm::model::{NoCapture, Qwen3};
-use std::collections::{BTreeMap, HashMap};
-use std::io::Read;
-
-fn read_u32(r: &mut impl Read) -> anyhow::Result<u32> {
-    let mut b = [0u8; 4];
-    r.read_exact(&mut b)?;
-    Ok(u32::from_le_bytes(b))
-}
+use llvq_llm::model::NoCapture;
+use std::collections::BTreeMap;
 
 /// `underscored_subject` → `underscored subject`, as the standard prompt wants.
 fn pretty(subject: &str) -> String {
@@ -191,53 +182,15 @@ fn main() -> anyhow::Result<()> {
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
 
     // ---- the model: the shipped artifact, or the reference checkpoint ----
-    let sealed = model_arg.ends_with(".llvq") || model_arg.ends_with(".bin");
-    let (model, tok, label) = if sealed {
-        let f = std::fs::File::open(&model_arg)?;
-        let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-        let head = llvq_artifact::read_header(&mut r)?;
-        anyhow::ensure!(
-            head.is_self_contained(),
-            "{model_arg} is projections-only (format v{}); seal it first",
-            head.version
-        );
-        let ix = llvq_search::index::Indexer::new();
-        let mut tensors: HashMap<String, Tensor> = HashMap::new();
-        for _ in 0..head.matrices {
-            let m = llvq_artifact::read_matrix(&mut r, &ix)?;
-            let w = llvq_artifact::decode_matrix(&m);
-            let t = Tensor::from_vec(w, (m.d_out, m.d_in), &device)?.to_dtype(dtype)?;
-            tensors.insert(m.name, t);
-        }
-        let n_raw = read_u32(&mut r)?;
-        for _ in 0..n_raw {
-            let t = llvq_artifact::read_raw(&mut r)?;
-            let vals: Vec<half::f16> =
-                t.data.iter().map(|b| half::f16::from_bits(*b)).collect();
-            let tensor = Tensor::from_vec(vals, t.dims.clone(), &device)?.to_dtype(dtype)?;
-            tensors.insert(t.name, tensor);
-        }
-        let n_blob = read_u32(&mut r)?;
-        let mut blobs: HashMap<String, Vec<u8>> = HashMap::new();
-        for _ in 0..n_blob {
-            let b = llvq_artifact::read_blob(&mut r)?;
-            blobs.insert(b.name, b.bytes);
-        }
-        let config: Config = serde_json::from_slice(
-            blobs
-                .get("config.json")
-                .ok_or_else(|| anyhow::anyhow!("no config.json in {model_arg}"))?,
-        )?;
-        let tok = tokenizers::Tokenizer::from_bytes(
-            blobs
-                .get("tokenizer.json")
-                .ok_or_else(|| anyhow::anyhow!("no tokenizer.json in {model_arg}"))?,
-        )
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let vb = VarBuilder::from_tensors(tensors, dtype, &device);
+    //
+    // The sealed path is shared with `bin/run` and `bin/ppl` — see
+    // `llvq_llm::sealed` for why having three copies of it was a problem and
+    // not just duplication.
+    let (model, tok, label) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
+        let s = llvq_llm::sealed::load(&model_arg, dtype, &device)?;
         (
-            Qwen3::new(&config, vb)?,
-            tok,
+            s.model,
+            s.tokenizer,
             format!("{model_arg} [LLVQ 2-bit, sealed]"),
         )
     } else {
@@ -245,9 +198,9 @@ fn main() -> anyhow::Result<()> {
         let tok = ck.tokenizer()?;
         let vb = ck.var_builder(dtype, &device)?;
         (
-            Qwen3::new(&ck.config, vb)?,
+            llvq_llm::model::Qwen3::new(&ck.config, vb)?,
             tok,
-            format!("{model_arg} [FP16 reference]"),
+            format!("{model_arg} [reference checkpoint]"),
         )
     };
     eprintln!(

@@ -16,3 +16,4 @@ pub mod corpus;
 pub mod eval;
 pub mod loader;
 pub mod model;
+pub mod sealed;
