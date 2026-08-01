@@ -234,6 +234,71 @@ Et le rappel d'échelle : même à 0,87×, le modèle 2 bits tient là où le FP
 ne **rentre pas** — l'argument du projet reste la classe de modèle chargeable,
 le débit est le second combat.
 
+## La brèche : Slot32, 2,2× le FP16 (2026-08-01, nuit)
+
+Un audit adversarial de 14 agents (4 lentilles × réfutation) a rendu trois
+verdicts sur le banc du matvec, tous vérifiés puis intégrés :
+
+**1. Le quatrième piège de mesure du projet.** Les buffers LLVQ (11-17 Mo)
+tenaient dans le **SLC de 48 Mo** et étaient rejoués 576 fois — mesurés
+cache-résidents, là où le FP16 (49,8 Mo > SLC) streamait la DRAM, c'est-à-dire
+le régime que l'inférence réelle (1,8 Go/token) impose à tout le monde. Tous
+les chiffres LLVQ antérieurs étaient des plafonds optimistes ; l'écart serré
+« parité » n'était pas tranchable dans ce protocole. Corrigé : **4 copies de
+chaque flux de poids en rotation** sur les 32 dispatches — l'empreinte
+cumulée déborde le SLC pour tous. (Au passage : ce qui sérialise les 32
+dispatches est le hazard WAW sur le buffer de sortie partagé, pas la
+frontière d'encodeur — le harnais le documentait faux, corrigé.)
+
+**2. Le tri par classe est un levier nul — en principe.** Les 32 lanes d'un
+simdgroup exécutent le même ensemble de blocs quel que soit leur ordre
+interne : le coût lockstep est invariant par permutation intra-groupe. Ce qui
+avait fait gagner `Sorted32`, c'était l'extraction d'en-tête à offsets
+directs, pas le tri — deux variables changées à la fois, la faute de méthode
+que ce projet documente depuis les A/B de calibration. `Sorted32` reste
+comme pièce de mesure.
+
+**3. La brèche structurelle : `Layout::Slot32`.** Signes en **masque de
+slots de 24 bits** → le payload entier vit à offsets fixes :
+
+```
+[classe 9][gain 1][smask 24][m₁..m₄ @ 24 bits]
+```
+
+La largeur ne dépend plus que de L. Le décodeur n'a plus besoin de nz, ni du
+niveau zéro, ni des bases de signes, ni d'aucune boucle par niveau : 24 tours
+fixes, niveau par 4 tests de masques (les absents sont zéro, le niveau 0 est
+le défaut), signe par un bit, **zéro divergence, zéro état sériel**, quatre
+chaînes indépendantes. Verrouillé comme les autres : round-trips bit-exacts
+sur les 5 layouts, canonicité des octets testée (les bits de signe des slots
+zéro sont nuls — un mutant l'a exigé), largeur unifiée table↔assert (un
+autre mutant), 2 mutants équivalents identifiés comme tels.
+
+**Résultat** — gate_proj 9728×2560 réel, protocole froid, best-of-15, stable
+sur 4 runs :
+
+| noyau | µs | Go/s eff. | vs FP16 | b/poids |
+|---|---|---|---|---|
+| FP16 (half4) | 139,8-141,8 | ~355 | 1,00× | 16 |
+| sol (zéro décodage) | 51-53 | — | 2,7× | — |
+| **LLVQ fusé Slot32** | **61,9-64,2** | ~275 | **2,20-2,26×** | 5,375 |
+| LLVQ fusé Sorted32 | 135 | 124 | 1,04× | 4,75 |
+| LLVQ fusé Flat32 | 156 | 105 | 0,90× | 4,54 |
+| LLVQ fusé nested G32 | 208 | 53 | 0,68× | 3,35 |
+
+Le décodage Slot32 coûte **12 µs au-dessus du sol** — il se glisse dans les
+bulles de latence mémoire, ce qu'un noyau fusé doit faire. L'échelle des
+échanges bits↔vitesse est maintenant mesurée de bout en bout : 2,16 b/poids
+(archive, indécodable) → 3,35 (nested, 0,68×) → 4,54 (Flat32, 0,90×) →
+**5,375 (Slot32, 2,21×)**. Sur le 4B : ~2,44 Go de linéaires + 0,78 de
+lm_head ≈ 3,2 Go/token → plafond ~124 tok/s, ~2,5× le FP16 — cohérent avec
+le 2,2× mesuré sur la couche.
+
+⚠️ Piste ouverte pour reprendre des bits sans perdre la vitesse : les blocs
+à 5 niveaux (3,4 %) fixent le stride de ~2/3 des groupes à 17 octets ;
+plafonner le quantifieur à L ≤ 4 (ou isoler les blocs L=5) ramènerait le
+stride typique à 14 octets, ~4,4 b/poids, sans toucher au décodeur.
+
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai
 plancher adressable est 3,35 ; les plafonds deviennent 174/154 tok/s, toujours

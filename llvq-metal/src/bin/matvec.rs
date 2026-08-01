@@ -942,8 +942,10 @@ fn main() -> Result<(), String> {
         format!("{:.2}×", t16 / tf)
     );
     println!(
-        "\n  poids lus : FP16 {:.1} Mo, LLVQ G32 {:.1} Mo, Flat32 {:.1} Mo",
-        f16_bytes / 1e6, g32_bytes / 1e6, flat_bytes / 1e6
+        "\n  poids lus : FP16 {:.1} Mo, G32 {:.1} Mo, Flat32 {:.1} Mo, \
+         Slot32 {:.1} Mo ({:.3} b/poids)",
+        f16_bytes / 1e6, g32_bytes / 1e6, flat_bytes / 1e6, slot_bytes / 1e6,
+        rtl.bits_per_weight()
     );
     println!(
         "\n  poids lus : FP16 {:.1} Mo, LLVQ {:.1} Mo (×{:.2} de moins)",
