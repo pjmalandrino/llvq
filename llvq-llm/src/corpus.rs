@@ -118,6 +118,52 @@ pub fn wikitext2_test() -> anyhow::Result<String> {
     Ok(rows.join("\n\n"))
 }
 
+/// What a slice of C4 is being asked for. The two roles must never read the
+/// same text, which is why the shard is chosen here and nowhere else.
+///
+/// ## The trap this closes
+///
+/// `c4_validation` used to serve both. `bin/smoke` called it to build the
+/// calibration set and `bin/ppl` called it — identical arguments — to build
+/// the evaluation set, and the function is entirely deterministic: one
+/// hard-coded shard, read from byte 0, documents in file order up to a
+/// character budget. Both harnesses window from token 0 as well. So under
+/// `LLVQ_CALIB=c4` with a C4 evaluation corpus, the first evaluation windows
+/// **were** the calibration windows: GPTQ optimized the weights on the exact
+/// text the perplexity then graded them on.
+///
+/// No published number was contaminated — `bin/smoke` always evaluates on
+/// WikiText-2, and the C4 column of the 4B table belongs to a WikiText-calibrated
+/// row — but the docstring on this function advertised it as *the
+/// out-of-domain control*, the very property the configuration destroyed.
+/// That is the kind of comment one trusts.
+///
+/// Disjointness is now structural rather than arithmetic: the roles read
+/// different shards of a dataset whose shards partition it. An offset into one
+/// shard would have worked too, and would have needed a reserve constant
+/// larger than every future calibration budget — a promise nobody would
+/// remember to keep.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum C4Role {
+    /// Scoring. Keeps shard 0, so every C4 perplexity already published stays
+    /// measured on exactly the same text.
+    Evaluation,
+    /// Building the Hessians.
+    Calibration,
+}
+
+/// `allenai/c4`'s English validation split is published in 8 shards.
+const C4_SHARDS: usize = 8;
+
+/// The shard a role reads. Different by construction — see [`C4Role`].
+pub fn c4_shard_path(role: C4Role) -> String {
+    let i = match role {
+        C4Role::Evaluation => 0,
+        C4Role::Calibration => 1,
+    };
+    format!("en/c4-validation.{i:05}-of-{C4_SHARDS:05}.json.gz")
+}
+
 /// C4 (web crawl), validation split — the **out-of-domain** control.
 ///
 /// Our calibration set is WikiText-2 *train* and our headline number is
@@ -130,6 +176,16 @@ pub fn wikitext2_test() -> anyhow::Result<String> {
 /// the method and how much is the domain. If the degradation is comparable,
 /// the number stands; if it jumps, the calibration set is doing the work.
 pub fn c4_validation(max_chars: usize) -> anyhow::Result<String> {
+    c4_text(C4Role::Evaluation, max_chars)
+}
+
+/// C4 text for building Hessians — a different shard from [`c4_validation`],
+/// so calibrating and evaluating on "C4" can no longer be the same text.
+pub fn c4_calibration(max_chars: usize) -> anyhow::Result<String> {
+    c4_text(C4Role::Calibration, max_chars)
+}
+
+fn c4_text(role: C4Role, max_chars: usize) -> anyhow::Result<String> {
     use std::io::Read;
     let api = hf_hub::api::sync::Api::new()?;
     let file = api
@@ -138,7 +194,7 @@ pub fn c4_validation(max_chars: usize) -> anyhow::Result<String> {
             hf_hub::RepoType::Dataset,
             "main".to_string(),
         ))
-        .get("en/c4-validation.00000-of-00008.json.gz")?;
+        .get(&c4_shard_path(role))?;
     let mut gz = flate2::read::GzDecoder::new(std::fs::File::open(file)?);
     let mut raw = String::new();
     // The shard is far larger than we need; stop once we have enough text.
@@ -166,4 +222,45 @@ pub fn c4_validation(max_chars: usize) -> anyhow::Result<String> {
     }
     anyhow::ensure!(!out.is_empty(), "no usable text decoded from the C4 shard");
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The property the whole split rests on. A refactor that collapses the
+    /// two roles onto one shard — or a `c4_shard_path` that stops reading its
+    /// argument — reinstates the self-grading configuration in silence.
+    #[test]
+    fn the_two_roles_read_different_shards() {
+        assert_ne!(
+            c4_shard_path(C4Role::Calibration),
+            c4_shard_path(C4Role::Evaluation)
+        );
+    }
+
+    /// Evaluation must stay on shard 0: every C4 perplexity in `CLAUDE.md` was
+    /// measured there, and moving it would silently restate them.
+    #[test]
+    fn evaluation_keeps_the_published_shard() {
+        assert_eq!(
+            c4_shard_path(C4Role::Evaluation),
+            "en/c4-validation.00000-of-00008.json.gz"
+        );
+    }
+
+    /// Both paths have to be shards that exist. A formatting slip — a missing
+    /// zero-pad, a wrong shard count — would only surface as a 404 hours into
+    /// a run, on the machine of whoever tried to reproduce the number.
+    #[test]
+    fn both_paths_are_well_formed_shards() {
+        for role in [C4Role::Evaluation, C4Role::Calibration] {
+            let p = c4_shard_path(role);
+            let i: usize = p["en/c4-validation.".len()..][..5]
+                .parse()
+                .unwrap_or_else(|_| panic!("{p} has no shard index"));
+            assert!(i < C4_SHARDS, "{p} indexes past {C4_SHARDS} shards");
+            assert!(p.ends_with(&format!("-of-{C4_SHARDS:05}.json.gz")), "{p}");
+        }
+    }
 }

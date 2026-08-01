@@ -244,13 +244,16 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  baseline ppl = {base:.4}");
 
     // ---- calibration windows ----
-    // Calibrating on the corpus we evaluate on flatters the result by ~12 %,
-    // measured. `LLVQ_CALIB=c4` reproduces the paper's setup: calibrate out of
-    // domain, evaluate on wikitext.
+    // `LLVQ_CALIB=c4` reproduces the paper's setup: calibrate out of domain,
+    // evaluate on wikitext. (The "~12 %" this comment used to claim was a
+    // misreading — it measured how much harder C4 is as an *evaluation*
+    // corpus, not a calibration advantage. See CLAUDE.md §Qwen3-4B.)
     let calib_kind = std::env::var("LLVQ_CALIB").unwrap_or_else(|_| "wikitext2".into());
     eprintln!("tokenizing calibration set ({calib_kind})…");
     let train = if calib_kind == "c4" {
-        llvq_llm::corpus::c4_validation(8_000_000)?
+        // A different shard from the one `bin/ppl` evaluates on — otherwise
+        // calibrating on C4 and scoring on C4 is the same text twice.
+        llvq_llm::corpus::c4_calibration(8_000_000)?
     } else {
         hf_parquet_text(
             "Salesforce/wikitext",
