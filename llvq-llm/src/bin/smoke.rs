@@ -14,6 +14,13 @@
 //!   * far fewer calibration tokens than the paper uses;
 //!   * shape–gain with 0 gain bits and the spherical retraction, which is the
 //!     configuration Appendix I recommends.
+//!
+//! Environment knobs: `LLVQ_MODEL`, `LLVQ_CALIB` (`c4` for the paper's
+//! out-of-domain setup), `LLVQ_ARTIFACT`, `LLVQ_THREADS`, `LLVQ_DAMPING`, and
+//! `LLVQ_CALIB_SEED` — the last one draws the calibration windows at random
+//! offsets instead of taking a prefix, which is how a **run-to-run error bar**
+//! gets measured. Three seeds on 3 blocks is the cheapest thing in this repo
+//! that turns a 3 % difference from an anecdote into a result.
 
 use candle_core::{DType, Device, Tensor};
 
@@ -25,6 +32,57 @@ use llvq_quant::gptq::{GptqConfig, TailPolicy};
 
 fn arg<T: std::str::FromStr>(a: &[String], i: usize, d: T) -> T {
     a.get(i).and_then(|s| s.parse().ok()).unwrap_or(d)
+}
+
+/// Where each calibration window starts in the tokenized corpus.
+///
+/// `seed = None` reproduces the historical behaviour — a contiguous prefix
+/// from token 0 — and stays the default, because that is what every published
+/// run used and silently moving it would orphan those numbers.
+///
+/// But a fixed prefix makes run-to-run variance **unmeasurable**, and that is
+/// the gap worth closing: several conclusions in this project rest on 3–7 %
+/// differences whose noise floor nobody knows. `LLVQ_CALIB_SEED=<n>` draws the
+/// windows at random offsets over the whole corpus, which is what GPTQ, QuIP#
+/// and QTIP all do, and which makes "run it under three seeds and look at the
+/// spread" possible.
+///
+/// ⚠️ Do **not** expect a perplexity gain from it. Under `LLVQ_CALIB=c4` the
+/// corpus is already hundreds of unrelated web documents concatenated, so "the
+/// first 500 documents of a crawl" and "500 documents drawn at random" are
+/// nearly the same sample. The deliverable here is the error bar, not the
+/// mean — and if the three seeds land far apart, that is itself the finding.
+fn window_starts(n: usize, ntokens: usize, len: usize, seed: Option<u64>) -> Vec<usize> {
+    let Some(seed) = seed else {
+        return (0..n).map(|w| w * len).collect();
+    };
+    assert!(ntokens >= len, "corpus shorter than one window");
+    // Offsets are unaligned on purpose: aligning them to multiples of `len`
+    // would sample the same grid the prefix already walks, only in a different
+    // order, and would not probe the corpus any more widely.
+    let span = (ntokens - len + 1) as u64;
+    let mut rng = llvq_core::SplitMix64::new(seed);
+    let mut seen = std::collections::HashSet::with_capacity(n);
+    let mut out = Vec::with_capacity(n);
+    // Distinct windows: a repeated one would weight its tokens twice in the
+    // Hessian for nothing. `span` dwarfs `n` on any corpus large enough to
+    // calibrate on, so the retry budget is a formality — but an unbounded
+    // loop on a short corpus would hang instead of reporting.
+    for _ in 0..(64 * n).max(1024) {
+        if out.len() == n {
+            break;
+        }
+        let s = (rng.next() % span) as usize;
+        if seen.insert(s) {
+            out.push(s);
+        }
+    }
+    assert_eq!(
+        out.len(),
+        n,
+        "corpus too short to draw {n} distinct windows of {len}"
+    );
+    out
 }
 
 /// Streams matrices to disk as they are quantized. Buffered, because the
@@ -207,11 +265,24 @@ fn main() -> anyhow::Result<()> {
         .to_vec();
     let n_calib = n_calib.min(train_ids.len() / calib_len);
     anyhow::ensure!(n_calib > 0, "calibration corpus too short");
-    eprintln!("  {n_calib} windows of {calib_len} = {} tokens", n_calib * calib_len);
+    // Unset = the contiguous prefix every published run used. Set = random
+    // offsets, which is how an error bar gets measured. See `window_starts`.
+    let calib_seed = std::env::var("LLVQ_CALIB_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    eprintln!(
+        "  {n_calib} windows of {calib_len} = {} tokens, {}",
+        n_calib * calib_len,
+        match calib_seed {
+            Some(s) => format!("seeded offsets (seed {s})"),
+            None => "contiguous prefix from token 0".into(),
+        }
+    );
 
+    let starts = window_starts(n_calib, train_ids.len(), calib_len, calib_seed);
     let mut hidden: Vec<Tensor> = Vec::with_capacity(n_calib);
-    for w in 0..n_calib {
-        let ids = &train_ids[w * calib_len..(w + 1) * calib_len];
+    for &s in &starts {
+        let ids = &train_ids[s..s + calib_len];
         let t = Tensor::from_slice(ids, (1, calib_len), &device)?;
         hidden.push(model.embed_tokens(&t)?);
     }
@@ -331,12 +402,80 @@ fn main() -> anyhow::Result<()> {
     }
 
     let quant = ppl(&model)?;
-    println!("\n=== {repo} [{kind}, {} blocks, rot {}, calib {calib_kind}], wikitext-2, ctx {eval_ctx}, {n_eval} windows ===",
+    println!("\n=== {repo} [{kind}, {} blocks, rot {}, calib {calib_kind}/{}], wikitext-2, ctx {eval_ctx}, {n_eval} windows ===",
         if limit == usize::MAX { model.blocks.len() } else { limit.min(model.blocks.len()) },
-        if rotation_seed.is_some() { "on" } else { "off" });
+        if rotation_seed.is_some() { "on" } else { "off" },
+        match calib_seed {
+            Some(s) => format!("seed {s}"),
+            None => "prefix".into(),
+        });
     println!("baseline (FP32)      ppl = {base:.4}");
     println!("LLVQ 2-bit           ppl = {quant:.4}");
     println!("degradation          ×{:.3}", quant / base);
     println!("effective rate           = {:.4} bits/weight", report.bits_per_weight());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window_starts;
+
+    const N: usize = 8;
+    const LEN: usize = 2048;
+    const TOKENS: usize = 4_000_000;
+
+    /// No seed must reproduce the historical prefix exactly. Every published
+    /// number was measured on it, so a change here reinterprets them.
+    #[test]
+    fn no_seed_is_the_contiguous_prefix() {
+        let s = window_starts(N, TOKENS, LEN, None);
+        assert_eq!(s, (0..N).map(|w| w * LEN).collect::<Vec<_>>());
+    }
+
+    /// Every window must fit. An off-by-one in the span would slice past the
+    /// end of the token vector and panic three hours into a run.
+    #[test]
+    fn every_window_fits_in_the_corpus() {
+        // Deliberately tight: the last legal start is exactly `ntokens - len`.
+        for tokens in [TOKENS, N * LEN, N * LEN + 1] {
+            for &s in &window_starts(N, tokens, LEN, Some(7)) {
+                assert!(s + LEN <= tokens, "window at {s} overruns {tokens}");
+            }
+        }
+    }
+
+    /// A seed has to be reproducible, and two seeds have to disagree —
+    /// otherwise the three runs that are supposed to produce an error bar
+    /// would produce the same number three times and report a spread of zero.
+    #[test]
+    fn seeds_are_reproducible_and_distinct() {
+        assert_eq!(
+            window_starts(N, TOKENS, LEN, Some(1)),
+            window_starts(N, TOKENS, LEN, Some(1))
+        );
+        assert_ne!(
+            window_starts(N, TOKENS, LEN, Some(1)),
+            window_starts(N, TOKENS, LEN, Some(2))
+        );
+    }
+
+    /// The point of seeding is to leave the head of the corpus, not to shuffle
+    /// within it. Drawing from `0..n·len` would satisfy every test above and
+    /// sample exactly the same tokens as the prefix.
+    #[test]
+    fn seeded_windows_leave_the_prefix() {
+        let s = window_starts(N, TOKENS, LEN, Some(3));
+        assert!(
+            s.iter().any(|&x| x > N * LEN),
+            "every window landed inside the prefix: {s:?}"
+        );
+    }
+
+    /// Repeated windows would weight their tokens twice in the Hessian.
+    #[test]
+    fn windows_are_distinct() {
+        let s = window_starts(64, TOKENS, LEN, Some(5));
+        let uniq: std::collections::HashSet<_> = s.iter().copied().collect();
+        assert_eq!(uniq.len(), s.len());
+    }
 }
