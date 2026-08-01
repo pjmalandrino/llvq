@@ -4,10 +4,12 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
-> 🧭 **Reprise de session** : [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md)
-> — où on en est, quoi faire ensuite, et les pièges de mesure GPU chèrement
-> acquis. Le modèle est publié et démarre seul ; le noyau est le chantier
-> ouvert.
+> 🧭 **Reprise de session** : [`docs/format-noyau.md`](docs/format-noyau.md)
+> — l'état du noyau, les quatre pièges de mesure GPU chèrement acquis, et
+> l'échelle bits↔vitesse. Le modèle est publié et démarre seul ; le noyau fusé
+> existe et bat le FP16 de 2,07× sur le modèle entier, mais **n'est pas encore
+> branché dans `bin/run`** — c'est le chantier ouvert.
+> Historique antérieur : [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md).
 
 ## 1. Objectif
 
@@ -83,6 +85,11 @@ cargo run --release -p llvq-bench --bin encbench      # débit encodeur, 1 cœur
 cargo run --release -p llvq-bench --bin betasweep     # sensibilité de β (G4)
 cargo run --release -p llvq-bench --bin decbench      # coût du décodage (G6)
 
+# GPU (macOS) — le noyau et la thèse
+cargo run --release -p llvq-metal --bin thesis        # un token, 252 matrices, LLVQ vs FP16
+cargo run --release -p llvq-metal --bin matvec        # une couche, tous les layouts
+cargo run --release -p llvq-metal --bin decreal       # coût du décodage seul, blocs réels
+
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
@@ -100,7 +107,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | ✅ **le matvec fusé bat le FP16 : 2,2×** (2026-08-01, nuit) — gate_proj réel du 4B, 62-64 µs contre 140 au FP16 de la même machine (355 Go/s, 93 % du pic), **protocole froid** (4 copies en rotation, le SLC de 48 Mo était le 4ᵉ piège de mesure, trouvé par audit adversarial de 14 agents), sorties à ~10⁻⁸ de la référence. Le layout gagnant est `Slot32` — payload à offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence, décodage 12 µs au-dessus du sol — au prix de 5,375 b/poids (échelle mesurée : 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,375 Slot32 = 2,21×). Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : l'intégration modèle (bin/run sur le noyau), et reprendre des bits (L≤4 → ~4,4 b/poids).** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
+| G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,07×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence — au prix de 5,51 b/poids en RAM (échelle mesurée : 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07×). Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : brancher le noyau dans `bin/run`, et reprendre des bits (L≤4 → ~4,4 b/poids).** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :

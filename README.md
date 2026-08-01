@@ -97,17 +97,42 @@ the decoder before trusting a model can read it end to end.
 The encoder runs at **1 469 blocks/s/core** (24 weights per block) after a
 5.5× optimization pass; quantizing Qwen3-4B takes ~3.5 h on an M3 Max.
 
+## Speed: the fused kernel
+
+The archive format is optimal in bits and unusable in a kernel — decoding a
+bijective index costs **8.27 ns/block on a GPU**, 106× the floor. So the file
+stays as it is, and a **transcode at load time** (~3 s for a 4B) produces a
+kernel-shaped layout. `Slot32` puts every field at a fixed offset —
+`[class 9][gain 1][sign mask 24][slot masks 24×(L−1)]` — which turns the decode
+into a fixed 24-slot loop with no divergence and no serial state.
+
+Measured over **all 252 projection matrices** of the published model, one
+command buffer per format, cold by construction (2.50 GB / 7.27 GB of distinct
+weights against a 48 MB system cache), every one of the 1 105 920 output rows
+verified against an f64 CPU reference first:
+
+| | ms/token | GB read | vs FP16 |
+|---|---|---|---|
+| FP16 (half4, 335 GB/s ≈ 93 % of peak) | 21.691 | 7.27 | 1.00× |
+| **LLVQ fused (Slot32)** | **10.460** | 2.50 | **2.07×** |
+
+```bash
+cargo run --release -p llvq-metal --bin thesis
+```
+
+The paper's own kernel reaches 1.36-1.48× on a single shell (M = 3) — the
+multi-shell kernel the 2-bit regime needs existed nowhere before this one.
+
+**What this costs**: the runtime layout spends 5.51 bits/weight against the
+file's 2.1696 — fixed offsets are what buy the speed. Loading `Grouped32`
+instead (3.35 b/w, 1.52 GB) gives up the speed for the space; both come from
+the same file. Even at the widest, the loaded model is ~3.3 GB against 8.045.
+
 ## What is *not* here
 
-* **No inference speedup. Zero.** The fused dequantize+matvec kernel is
-  unwritten, and the archive format is not usable in one: decoding a bijective
-  index costs **827 ns/block** against 4.5 ns for a Golay codeword rebuilt by
-  XOR — a factor of **183×**, measured (`cargo run --release -p llvq-bench
-  --bin decbench`). A kernel needs a different, transcoded format. The paper is
-  in the same position: its own CUDA kernel handles a single shell "for
-  simplicity", is slower than QTIP, and its authors call low-level optimization
-  "largely orthogonal" to their contribution. **The kernel the 2-bit regime
-  needs does not exist anywhere.**
+* **The kernel is not wired into the runner.** `bin/run` still decodes weights
+  into memory and does an ordinary matvec, so the shipped model gains no speed
+  yet. The kernel is measured in `llvq-metal`, not integrated.
 * **No MMLU, no CSR**, and no domain-specific benchmark.
 
 ## An open question for the authors
@@ -160,10 +185,18 @@ Load the artifact and generate from it:
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --features metal --bin run -- q4b.llvq metal 24
 ```
 
-What decoding costs, which is what gates the fused kernel:
+One token of projections, LLVQ against FP16, on the whole model — the
+thesis itself, with all 252 matrices verified before timing:
+
+```bash
+cargo run --release -p llvq-metal --bin thesis
+```
+
+What decoding costs in each candidate layout, which is what gated the kernel:
 
 ```bash
 cargo run --release -p llvq-bench --bin decbench
+cargo run --release -p llvq-metal --bin decreal
 ```
 
 ## Notes on method

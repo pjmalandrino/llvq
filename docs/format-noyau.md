@@ -299,6 +299,61 @@ le 2,2× mesuré sur la couche.
 plafonner le quantifieur à L ≤ 4 (ou isoler les blocs L=5) ramènerait le
 stride typique à 14 octets, ~4,4 b/poids, sans toucher au décodeur.
 
+## La thèse, sur le modèle entier (2026-08-01)
+
+`bin/thesis` mesure la revendication elle-même : **un token de projections**,
+les 252 matrices du 4B publié, un command buffer par format.
+
+La forme est honnête par construction, et c'est le point : une passe touche
+2,50 Go (LLVQ) ou 7,27 Go (FP16) de poids **distincts** — rien n'est relu, donc
+aucune matrice ne peut se cacher dans le SLC de 48 Mo. Là où `bin/matvec` doit
+forcer le régime froid avec 4 copies en rotation, ici le travail réel le donne.
+Une seule soumission pour 252 dispatches, sérialisés par le hazard WAW sur la
+sortie partagée — le même mécanisme que la dépendance entre couches.
+
+| | ms/token | Go lus | Go/s | vs FP16 |
+|---|---|---|---|---|
+| FP16 (half4) | 21,691 | 7,27 | 335 | 1,00× |
+| **LLVQ fusé (Slot32)** | **10,460** | 2,50 | 239 | **2,07×** |
+
+Avec le `lm_head` lié (389 M poids f16, non quantifié, identique aux deux
+côtés, 2,32 ms) : **41,6 → 78,2 tok/s**, ×1,88. C'est lui qui plafonne le
+rapport de bout en bout, et c'est le levier suivant identifié depuis juillet.
+
+**1 105 920 lignes vérifiées** contre une référence CPU f64 avant toute mesure
+— pire erreur LLVQ 3,4·10⁻⁸·Σ|w·x|, FP16 2,8·10⁻⁸.
+
+### Le trou de couverture que ça a fermé
+
+`bin/matvec` stageait toute l'activation en mémoire threadgroup : 10 Ko à
+d_in = 2560, mais **38 Ko à d_in = 9728 contre la limite Metal de 32 Ko**. Les
+36 `down_proj` du modèle n'auraient pas pu tourner — le 2,2× était mesuré sur
+une forme qui passe. Les deux noyaux de `thesis` tuilent l'activation par
+128 blocs (3072 colonnes, 12 Ko), donc les six formes du modèle empruntent le
+même code.
+
+### Le prix en RAM, et que c'est un cadran
+
+Sur le modèle entier `Slot32` coûte **5,51 b/poids** (contre 5,375 sur
+gate_proj : les autres formes ont d'autres distributions de classes et
+d'autres arrondis de stride). Le fichier, lui, ne bouge pas — 2,1696 b/poids.
+D'un même `.llvq` on charge le format qu'on veut :
+
+| en RAM | b/poids | projections | vitesse |
+|---|---|---|---|
+| `Grouped32` | 3,35 | 1,52 Go | 0,68× |
+| `Flat32` | 4,54 | 2,06 Go | 0,90× |
+| **`Slot32`** | **5,51** | **2,50 Go** | **2,07×** |
+
+Même au plus large, le modèle chargé fait ~3,3 Go contre 8,045 en FP16.
+
+### Ce que ce chiffre ne couvre pas
+
+Attention, normes, activations et la rotation de `x` ne sont pas mesurées —
+seulement la part que la quantification change. Et **le noyau n'est pas branché
+dans `bin/run`** : le runner livré décode toujours en mémoire puis fait un
+matvec ordinaire. C'est le dernier chantier.
+
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai
 plancher adressable est 3,35 ; les plafonds deviennent 174/154 tok/s, toujours
