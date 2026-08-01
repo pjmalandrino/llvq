@@ -80,6 +80,10 @@ pub struct ClassRecord {
     pub width: u16,
     /// Same, for the slot-space arrangement of [`Layout::Flat32`].
     pub width_flat: u16,
+    /// Same, for [`Layout::Slot32`] — the nz-bit sign field traded for the
+    /// fixed 24-bit mask. One source for both the stride computation and
+    /// the encoder's width assert, so they cannot drift apart silently.
+    pub width_slot: u16,
 }
 
 /// The 384-entry constant table both sides of the format share.
@@ -105,6 +109,7 @@ impl ClassTable {
             nonzero: 0,
             width: (CLASS_BITS + gain_bits) as u16,
             width_flat: (CLASS_BITS + gain_bits) as u16,
+            width_slot: (CLASS_BITS + gain_bits) as u16,
         });
         for ci in 0..fd.n_classes() {
             let lv = fd.levels(ci);
@@ -122,6 +127,8 @@ impl ClassTable {
                 nonzero: lv.nonzero,
                 width: (common + mask_bits) as u16,
                 width_flat: (common + DIM as u32 * (lv.len as u32 - 1)) as u16,
+                width_slot: (common - lv.nonzero as u32
+                    + DIM as u32 * lv.len as u32) as u16,
             });
         }
         Self { recs, gain_bits }
@@ -377,14 +384,7 @@ pub fn transcode(
         Layout::Fixed96 | Layout::Grouped32 => rec.width as u32,
         Layout::Flat32 => rec.width_flat as u32,
         Layout::Sorted32 => rec.width_flat as u32 + POS_BITS,
-        Layout::Slot32 => {
-            if rec.len == 1 && rec.values[0] == 0 {
-                rec.width_flat as u32 // the origin: header only
-            } else {
-                // Trade the nz-bit sign field for the fixed 24-bit mask.
-                rec.width_flat as u32 - rec.nonzero as u32 + DIM as u32
-            }
-        }
+        Layout::Slot32 => rec.width_slot as u32,
     };
     match layout {
         Layout::Fixed96 => {
@@ -542,7 +542,7 @@ fn encode_block(
         }
         assert_eq!(
             w.pos - bit0,
-            rec.width_flat as u64 - rec.nonzero as u64 + DIM as u64 + extra,
+            rec.width_slot as u64 + extra,
             "class {id}: encoded slot width disagrees with the table"
         );
         return Ok(());

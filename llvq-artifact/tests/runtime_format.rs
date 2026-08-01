@@ -187,3 +187,43 @@ fn out_of_range_index_is_refused() {
     let r = transcode(&fd, &table, &[N13 + 1], &[0], Layout::Fixed96);
     assert!(r.is_err(), "an index past N13 must not transcode");
 }
+
+/// The Slot32 sign mask is canonical: zero slots carry 0 bits, so equal
+/// inputs transcode to equal bytes. An encoder that set them freely would
+/// pass every round-trip (−0 = 0) and silently break byte-determinism.
+#[test]
+fn slot32_zero_slots_have_zero_sign_bits() {
+    let fd = FastDecoder::new();
+    let ix = Indexer::new();
+    let table = ClassTable::new(&fd, 1);
+    // Class boundaries cover every class — including every zero pattern.
+    let indices: Vec<u64> = (0..fd.n_classes())
+        .map(|ci| fd.class_range(ci).0)
+        .collect();
+    let gains = vec![0u32; indices.len()];
+    let rt = transcode(&fd, &table, &indices, &gains, Layout::Slot32).expect("ok");
+    let read_bits = |bit0: u64, width: u32| -> u64 {
+        let mut v = 0u64;
+        for i in 0..width as u64 {
+            let b = bit0 + i;
+            v |= ((rt.data[(b / 8) as usize] >> (b % 8)) as u64 & 1) << i;
+        }
+        v
+    };
+    for (b, &idx) in indices.iter().enumerate() {
+        let g = b / GROUP;
+        let stride = (rt.bases[g + 1] - rt.bases[g]) as u64 / GROUP as u64;
+        let bit0 = (rt.bases[g] as u64 + (b % GROUP) as u64 * stride) * 8;
+        let smask = read_bits(bit0 + 10, 24) as u32;
+        let p = ix.decode(idx).expect("valid");
+        for (i, &v) in p.iter().enumerate() {
+            if v == 0 {
+                assert_eq!(
+                    smask >> i & 1,
+                    0,
+                    "block {b}: zero slot {i} carries a sign bit"
+                );
+            }
+        }
+    }
+}
