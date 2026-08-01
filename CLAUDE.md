@@ -100,7 +100,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | 🟡 **format runtime figé et mesuré sur blocs réels** (2026-08-01) — payload masques canonique, adressage **Grouped32** (3,355 b/poids, 0,158 ns/bloc sur les blocs du 4B publié, 16,7 M vérifiés contre le décodeur CPU) ; transcodeur `.llvq` → runtime verrouillé bit pour bit (10 mutants tués). **Seul le matvec reste à écrire.** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
+| G6 | Noyau fusé (déquant + matvec) | 🟡 **le matvec fusé existe, juste et mesuré** (2026-08-01) : gate_proj réel du 4B, sorties à ~10⁻⁸ de la référence, **0,87× le FP16** de la même machine (155 µs vs 134,6 ; le sol sans décodage fait 2,73×). Le layout qui le porte est `Flat32` (masques espace-slots + signes niveau-majeur, 4,54 b/poids), imposé par la mesure contre les masques imbriqués (0,65×). Transcodeur 3 layouts bit-exact, 18 mutants tués au total. **Reste : combler les 13 % (tri des blocs par classe dans les groupes), puis l'intégration modèle.** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :

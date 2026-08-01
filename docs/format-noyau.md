@@ -186,6 +186,54 @@ elles et bornent le surcoût du décodage sur le travail FMA irréductible
 le parallélisme d'instructions. C'est l'étape suivante, et la seule
 restante : le matvec sur une couche, contre le FP16 de la même machine.
 
+## Le matvec fusé, et le layout qu'il a imposé (2026-08-01, soir)
+
+`llvq-metal/matvec` : gate_proj 9728×2560 du 4B publié — poids, centroïdes,
+échelles de ligne et queue réels, sorties vérifiées à ~10⁻⁸·Σ|w·x| près
+contre une référence CPU f64, mesuré à 32 dispatches par command buffer
+(une matvec ≈ 150 µs, l'ordre du surcoût de soumission — le piège documenté).
+
+| noyau | µs | Go/s eff. | vs FP16 |
+|---|---|---|---|
+| FP16 (half4, simdgroup/ligne) | 134,6 | 370 | 1,00× |
+| sol G32 (mêmes loads, zéro décodage) | 49,2 | 224 | **2,73×** |
+| LLVQ fusé, masques imbriqués (G32) | 206,5 | 53 | 0,65× |
+| **LLVQ fusé, Flat32** | **155,0** | 106 | **0,87×** |
+
+**Le baseline est honnête** (370 Go/s ≈ 93 % du pic machine) et **la forme
+est bonne** (le sol bat le FP16 de 2,7×). Tout le déficit est l'ALU du
+décodage — et il a fallu réviser la décision d'adressage prise le même jour :
+les masques imbriqués, optimaux en bits, exigent des **popcounts de préfixes
+en espace de rangs par slot**, un mur que trois réécritures du noyau n'ont
+pas contourné (sans-branches 245 µs, niveaux packés deux passes 331,
+demi-masques 189 — toutes battues par le naïf à 206).
+
+**`Layout::Flat32`** attaque le mur côté format, ce que seul le transcodeur
+paie : masques en **espace de slots** (un mot de 24 bits par niveau, niveau 0
+implicite par complément), signes réordonnés **niveau-majeur**. Le noyau
+itère chaque niveau par `ctz`, consomme ses signes séquentiellement, et ne
+touche **jamais** un slot zéro. Coût : 4,54 b/poids sur cette couche (16,5 Mo
+contre 11,0 en G32 imbriqué, contre 49,8 en FP16), pire cas 130 bits —
+grouped-only. Verrouillé par les mêmes round-trips bit-exacts que les deux
+autres layouts, la table GPU épinglée champ par champ, 8 mutants tués.
+
+**Où on en est, dit sans fard** : le noyau fusé multi-coquilles existe,
+il est juste, et il fait **0,87× le FP16** — pas encore le gain. Le budget
+est précis : 85 µs d'ALU au-dessus du sol pour égaler le FP16, on en
+consomme 106. Les 1,36-1,48× du papier (Table 7) sont une **coquille unique,
+M = 3, sur GPU datacenter** — pas comparables. Leviers identifiés, par ordre :
+
+1. **Trier les blocs par classe dans chaque groupe de 32** (+5 bits/bloc pour
+   la position d'origine) : les lanes d'un même simdgroup décoderaient la
+   même classe — plus de divergence dans les boucles de niveaux, tables
+   uniformes. C'est le levier le plus prometteur et il est côté transcodeur.
+2. Deux blocs en vol par lane (pipeline logiciel explicite).
+3. Occupancy/taille de threadgroup (non exploré : 256 partout).
+
+Et le rappel d'échelle : même à 0,87×, le modèle 2 bits tient là où le FP16
+ne **rentre pas** — l'argument du projet reste la classe de modèle chargeable,
+le débit est le second combat.
+
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai
 plancher adressable est 3,35 ; les plafonds deviennent 174/154 tok/s, toujours
