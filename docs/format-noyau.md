@@ -321,7 +321,15 @@ côtés, 2,32 ms) : **41,6 → 78,2 tok/s**, ×1,88. C'est lui qui plafonne le
 rapport de bout en bout, et c'est le levier suivant identifié depuis juillet.
 
 **1 105 920 lignes vérifiées** contre une référence CPU f64 avant toute mesure
-— pire erreur LLVQ 3,4·10⁻⁸·Σ|w·x|, FP16 2,8·10⁻⁸.
+— pire erreur LLVQ 3,4·10⁻⁸·Σ|w·x|, FP16 2,8·10⁻⁸. Reproductible : 2,07× et
+2,08× sur deux passes.
+
+🔎 **Le fusé n'est pas encore limité par la mémoire, et c'est une marge.** Le
+FP16 tire 336 Go/s (93 % du pic) : il est au mur de la bande passante, il n'y
+a rien à en tirer de plus. Le LLVQ n'en tire que **240** — donc il reste
+borné par le calcul du décodage. Au même débit mémoire que le FP16, ses
+2,50 Go passeraient en **7,5 ms**, soit **2,9×** au lieu de 2,07. C'est le
+plafond de la forme actuelle, et il se prend sans changer un bit du format.
 
 ### Le trou de couverture que ça a fermé
 
