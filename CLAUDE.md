@@ -140,22 +140,48 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 
 ## 3ter. MMLU — ce que la perplexité cachait (2026-08-01)
 
+> 🚨 **Les deux chiffres de cette section sont des moyennes MACRO ; le papier
+> rapporte du MICRO. Ils ne sont pas comparables et il faut les remesurer.**
+> Corrigé dans le harnais le 2026-08-01 (§A1).
+>
+> `bin/mmlu` tirait `limit` questions **par matière** puis divisait
+> `Σright / Σtotal` globalement. Avec 40 par matière et 57 matières, chaque
+> terme pèse pareil : la division est algébriquement la moyenne **non
+> pondérée** des 57 taux. Or le split MMLU est très déséquilibré —
+> `professional_law` 1 534 questions, `abstract_algebra` 100 — donc le macro
+> sur-pondère les petites matières STEM d'un facteur ~2,5.
+>
+> **C'est exactement là que le 2 bits fait ses dégâts** (voir le profil par
+> matière ci-dessous), donc le biais frappe beaucoup plus fort le bras
+> quantifié que la baseline. Conséquence directe : l'argument « les deux
+> écarts pointent en sens opposés, donc ce n'est pas un décalage de protocole
+> qui s'annulerait » **est faux** — un échange macro/micro produit
+> précisément cette signature-là. Ordre de grandeur attendu après correction :
+> baseline ~71, chute ~−10 pp, c'est-à-dire au niveau du papier.
+>
+> Le dump par matière du run n'a pas été conservé, donc **le micro ne peut pas
+> être recalculé a posteriori** : il faut relancer les deux bras. Le harnais
+> rapporte désormais micro *et* macro côte à côte, plus l'erreur
+> d'échantillonnage (le « ±1 pp » ci-dessous était affirmé, pas mesuré).
+>
+> ⚠️ Second facteur de confusion sur cette même comparaison, non corrigé :
+> la perplexité est mesurée en **F32** et MMLU en **F16** (§A2).
+
 Harnais maison (`bin/mmlu`), **dans notre pipeline, sur le fichier scellé** —
 pas un checkpoint déquantifié dans le moteur d'un tiers, parce que MLX et
 notre `bin/run` divergent au 5ᵉ token sur les mêmes poids. Hendrycks 5-shot,
-2 280 questions tirées à graine fixe, ±1 pp.
+2 280 questions tirées à graine fixe.
 
-| | nous | papier |
+| | nous (macro ⚠️) | papier (micro) |
 |---|---|---|
 | FP16 | **72,85** | 70,2 |
 | LLVQ 2 bits | **57,59** | 60,7 |
 | **chute** | **−15,3 pp** (79,1 % retenus) | −9,5 pp (86,5 %) |
 
-**On égale le papier en perplexité et on perd nettement plus en capacités.**
-Les deux écarts pointent en sens *opposés* (baseline +2,8σ, quantifié −3,0σ),
-donc ce n'est pas un décalage de protocole qui s'annulerait. Cause la plus
-probable : le volume de calibration — ~131 k tokens contre leurs 6 100
-séquences, ~100× moins.
+**Ce qui survit à la correction, c'est le profil par matière ; pas l'écart au
+papier.** L'hypothèse du volume de calibration (~131 k tokens contre leurs
+6 100 séquences, ~100× moins) reste plausible mais n'a plus d'écart à
+expliquer tant que le micro n'est pas mesuré.
 
 > 🔎 **Le profil par matière montre le mécanisme** : algèbre abstraite et
 > comptabilité tombent à **25 %, exactement le hasard**, pendant qu'histoire,
