@@ -4,6 +4,11 @@
 //!
 //! Non-overlapping windows over the concatenated raw test split, mean
 //! next-token NLL, `ppl = exp(mean)`. The paper reports at 4096 context.
+//!
+//! The model dtype defaults to F32 here and to F16 in `bin/mmlu`, which is
+//! fine within each metric and **not** fine across them — see
+//! [`llvq_llm::eval`]. `LLVQ_DTYPE=f16` scores perplexity on the same object
+//! MMLU scores, and the resolved dtype is printed with the result.
 
 use candle_core::{DType, Device};
 use llvq_llm::corpus::{c4_validation, wikitext2_test};
@@ -27,12 +32,16 @@ fn main() -> anyhow::Result<()> {
     } else {
         Device::Cpu
     };
-    eprintln!("device: {device:?}, context {ctx}");
+    let dtype = llvq_llm::eval::dtype(DType::F32)?;
+    eprintln!(
+        "device: {device:?}, context {ctx}, dtype {}",
+        llvq_llm::eval::dtype_name(dtype)
+    );
 
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
-    let vb = ck.var_builder(DType::F32, &device)?;
+    let vb = ck.var_builder(dtype, &device)?;
     let mut model = Qwen3::new(&ck.config, vb)?;
     if let Some(path) = &overlay {
         let n = llvq_llm::artifact::load(&mut model, path, &device)?;
@@ -68,9 +77,12 @@ fn main() -> anyhow::Result<()> {
             t0.elapsed().as_secs_f64()
         );
     }
+    // The dtype belongs on the result line, not only in the run's stderr: a
+    // perplexity quoted without it cannot be compared to an MMLU score.
     println!(
-        "\n{repo} — {corpus}, ctx {ctx}, {nwin} windows{}\nppl = {:.4}",
-        if overlay.is_some() { " [LLVQ 2-bit]" } else { " [FP32]" },
+        "\n{repo} — {corpus}, ctx {ctx}, {nwin} windows, dtype {}{}\nppl = {:.4}",
+        llvq_llm::eval::dtype_name(dtype),
+        if overlay.is_some() { " [LLVQ 2-bit]" } else { " [baseline]" },
         (nll / count as f64).exp()
     );
     Ok(())

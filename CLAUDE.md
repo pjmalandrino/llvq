@@ -93,6 +93,9 @@ cargo run --release -p llvq-metal --bin decreal       # coût du décodage seul,
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
+# ⚠️ ppl tourne en f32 par défaut, mmlu et run en f16. Chaque métrique est
+# cohérente en interne ; les COMPARER exige le même dtype des deux côtés :
+#   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal
 cargo clippy --all-targets                   # doit rester à zéro warning
 ```
 

@@ -152,6 +152,13 @@ fn main() -> anyhow::Result<()> {
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
+    // F32, and deliberately **not** wired to `LLVQ_DTYPE`. `verify_artifact`
+    // demands the decoded file back bit for bit from the weights this model
+    // holds; at F16 the model would hand back rounded weights and the proof
+    // would fail for a reason that has nothing to do with the codebook. The
+    // quantized weights only exist at full precision here — which is exactly
+    // why the F16 object `bin/mmlu` and `bin/run` score is outside the
+    // round-trip proof. See `llvq_llm::eval`.
     let vb = ck.var_builder(DType::F32, &device)?;
     let mut model = Qwen3::new(&ck.config, vb)?;
 

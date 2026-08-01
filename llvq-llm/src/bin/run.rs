@@ -38,8 +38,10 @@ fn main() -> anyhow::Result<()> {
     };
     let n_new: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(24);
     // f16 rather than f32: the model ran at half precision anyway, and the
-    // difference is 7 GB of RAM against 15 on a 4B.
-    let dtype = DType::F16;
+    // difference is 7 GB of RAM against 15 on a 4B. `LLVQ_DTYPE=f32` puts the
+    // generation back on the exact weights `verify_artifact` round-trips —
+    // the narrowing below is outside that proof.
+    let dtype = llvq_llm::eval::dtype(DType::F16)?;
 
     let bytes = std::fs::metadata(&path)?.len();
     let f = std::fs::File::open(&path)?;
@@ -100,6 +102,7 @@ fn main() -> anyhow::Result<()> {
         head.matrices
     );
     println!("── model");
+    println!("   running at dtype {}", llvq_llm::eval::dtype_name(dtype));
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",
         bytes as f64 / 1e9,

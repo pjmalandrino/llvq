@@ -36,7 +36,10 @@
 //!   whole test split — which is what `lm-eval-harness` reports and therefore
 //!   what the paper's 70.2 / 60.7 are. See [`micro`]: this is the axis that
 //!   moves the number by several points and it must never be left implicit
-//!   again.
+//!   again;
+//! * the model dtype, printed with the score. It defaults to F16 here and to
+//!   F32 in `bin/ppl`, so an MMLU score and a perplexity are not by default
+//!   two measurements of one object — `LLVQ_DTYPE` is what makes them one.
 //!
 //! **Run the FP16 baseline first.** The paper reports 70.2 on Qwen3-4B; if
 //! this harness does not land there, the protocol is wrong and no other number
@@ -182,7 +185,10 @@ fn main() -> anyhow::Result<()> {
     // Sampled at random from a fixed seed, never the first N: MMLU test sets
     // are not shuffled, and the head of a subject is not a fair sample of it.
     let limit: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
-    let dtype = DType::F16;
+    // F16 here, F32 in `bin/ppl` — internally consistent per metric, and a
+    // confound the moment the two are compared. `LLVQ_DTYPE` moves either one
+    // onto the other, and the resolved value is printed with the score.
+    let dtype = llvq_llm::eval::dtype(DType::F16)?;
 
     // ---- the model: the shipped artifact, or the reference checkpoint ----
     let sealed = model_arg.ends_with(".llvq") || model_arg.ends_with(".bin");
@@ -244,7 +250,10 @@ fn main() -> anyhow::Result<()> {
             format!("{model_arg} [FP16 reference]"),
         )
     };
-    eprintln!("model: {label}\ndevice: {device:?}");
+    eprintln!(
+        "model: {label}\ndevice: {device:?}, dtype {}",
+        llvq_llm::eval::dtype_name(dtype)
+    );
 
     // ---- the four answer tokens, resolved once ----
     //
@@ -363,8 +372,9 @@ fn main() -> anyhow::Result<()> {
     per_subject.sort_by(|a, b| b.rate().total_cmp(&a.rate()));
     println!("\n{label}");
     println!(
-        "MMLU 5-shot — {total} questions scorées sur {population}, {} matières",
-        per_subject.len()
+        "MMLU 5-shot — {total} questions scorées sur {population}, {} matières, dtype {}",
+        per_subject.len(),
+        llvq_llm::eval::dtype_name(dtype)
     );
     println!("  {}", "-".repeat(56));
     println!("  meilleures :");
