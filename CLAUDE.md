@@ -138,6 +138,34 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > de boule ne semble pas optimisé. **Conclusion : à iso-réglage, on reproduit
 > le papier ; notre avance est un artefact de réglage, pas un meilleur code.**
 
+## 3bis. ⚠️ Face au 4 bits — la comparaison qui recadre tout (2026-08-01)
+
+Tout le reste de ce fichier compare LLVQ au **FP16**. C'est la mauvaise
+référence. Mesuré le même jour, même machine, 4 bits produit localement depuis
+le checkpoint en cache (`mlx_lm.convert -q --q-bits 4 --q-group-size 64`) :
+
+| | MLX 4 bits | LLVQ 2 bits |
+|---|---|---|
+| disque | 2,263 Go | **1,771 Go** (×1,28 pour nous) |
+| RAM | **2,39 Go** mesuré | 3,28 Go (×1,37 contre nous) |
+| débit | **129,8 tok/s** bout en bout | ~78,5 projeté (×1,65 contre nous) |
+| qualité | ~1-2 % | ×1,386 |
+
+**Sur un 4B le 4 bits nous domine partout sauf le disque.** La cause est
+structurelle : le gain de place est sur le *disque* (3,52 b/poids), mais le
+format que le noyau rapide lit en *RAM* coûte **5,51 b/poids**, soit plus que
+les 4,50 du 4 bits. À 70B : `Slot32` = 48,2 Go, *pire* que les 39,4 du 4 bits ;
+`Grouped32` = 29,3 Go mais à 0,68× le FP16.
+
+> **Le format qui va vite ne rentre pas mieux que du 4 bits ; le format qui
+> rentre mieux ne va pas vite.** C'est le problème central à résoudre, pas un
+> détail d'optimisation. Trois sorties possibles, analyse complète :
+> [`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+
+Ce qui n'est pas réfuté : le noyau lui-même (un décodeur Leech multi-coquilles
+fusé qui bat le FP16 de 2,07× n'existe nulle part, papier compris). Ce qui est
+réfuté, c'est le *produit* sur un 4B.
+
 ## 4. Dérivations à ne pas re-chercher
 
 Ce sont les résultats non triviaux qui ont coûté du temps. Ils sont testés,
