@@ -76,7 +76,7 @@ pub fn mmlu_split(split: &str) -> anyhow::Result<Vec<MmluItem>> {
                 ("answer", Field::Long(v)) => answer = Some(*v as usize),
                 ("answer", Field::Int(v)) => answer = Some(*v as usize),
                 ("answer", Field::Str(s)) => {
-                    answer = "ABCD".find(s.trim()).map(|i| i);
+                    answer = "ABCD".find(s.trim());
                 }
                 ("choices", Field::ListInternal(list)) => {
                     for e in list.elements() {
