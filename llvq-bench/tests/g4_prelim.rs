@@ -55,13 +55,43 @@ fn gaussian_retention_at_one_bit_per_dim() {
     let ret = retention_pct(mse, r);
     assert!(ret > 87.0, "retention {ret:.2}% below the expected ≈ 90%");
 
-    // Shape–gain with a 2-bit gain must reduce MSE vs pure shaping.
-    let train_t: Vec<f64> = train_dots.iter().map(BlockDots::t).collect();
-    let centroids = lloyd_max(&train_t, 2, 60);
-    let mse_sg = shape_gain_mse(&eval_dots, &centroids);
-    assert!(
-        mse_sg < mse,
-        "2-bit gain ({mse_sg}) must improve MSE over spherical ({mse})"
-    );
+    // Shape–gain with a 2-bit gain, scored the way `LeechShapeGain` scores it:
+    // the gain code rounds the block **norm**, and its centroids are fitted on
+    // norms.
+    let train_norm: Vec<f64> = train_dots.iter().map(BlockDots::norm).collect();
+    let mse_sg = shape_gain_mse_shipped(&eval_dots, &lloyd_max(&train_norm, 2, 60));
     assert!(mse_sg > shannon * 0.9, "shape–gain MSE implausibly low");
+
+    // Rounding the projection instead is `argmin_g ‖x − g·v̂‖²`, so it bounds
+    // the shipped rule from below; and spherical shaping is the special case
+    // of a single-level gain, so the bound must beat that too. Both orderings
+    // are forced by algebra, not by this seed.
+    let train_t: Vec<f64> = train_dots.iter().map(BlockDots::t).collect();
+    let bound = shape_gain_mse_projected(&eval_dots, &lloyd_max(&train_t, 2, 60));
+    assert!(
+        bound < mse_sg,
+        "the optimal-gain bound ({bound}) must beat the shipped rule ({mse_sg})"
+    );
+    assert!(
+        bound < mse,
+        "the optimal-gain bound ({bound}) must beat spherical shaping ({mse})"
+    );
+
+    // 🔎 The shipped rule, on the other hand, does **not** beat spherical
+    // shaping at this rate: 0.2942 against 0.2857, +3.0 %. At m ≤ 3 the
+    // angular resolution is coarse, so cos θ sits well below 1 and the
+    // `2/(1 + cos θ)` penalty for rounding the norm rather than the projection
+    // swallows everything the gain code buys. At m ≤ 13 it does not — see
+    // `g4_full`, where the shipped rule still wins.
+    //
+    // This assertion is here to record a measurement, not to demand a
+    // property: until 2026-08-01 the test asserted `mse_sg < mse`, which only
+    // ever held because the bench was scoring the bound instead of the
+    // encoder. If this goes red, the situation improved and the note above is
+    // the thing to update.
+    assert!(
+        mse_sg > mse,
+        "shipped shape–gain ({mse_sg}) now beats spherical shaping ({mse}) at \
+         m ≤ 3 — good news, and it changes the story this test records"
+    );
 }

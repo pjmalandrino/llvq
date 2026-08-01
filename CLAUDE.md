@@ -120,14 +120,25 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 | papier, spherical shaping | `Λ₂₄(13)` | 2,000 | 0,084 | 89,37 % |
 | papier, shape–gain 0 bit de gain | `norm(Λ₂₄(13))` | 2,000 | 0,085 | 89,12 % |
 | papier, shape–gain 1 bit de gain | `norm(Λ₂₄(12))` | 2,000 | 0,078 | 92,14 % |
-| **notre shape–gain 0 bit de gain** | `norm(Λ₂₄(13))` | 1,9999 | 0,0840 | **89,36 %** |
+| **notre shape–gain 0 bit de gain** | `norm(Λ₂₄(13))` | 1,9999 | 0,0850 | **88,90 %** |
 | **notre spherical shaping (β\* = 0,350)** | `Λ₂₄(13)` | 1,9999 | 0,0775 | **92,23 %** |
 | Shannon | — | 2,000 | 0,0625 | 100 % |
 
+> ⚠️ **Les lignes shape–gain ont bougé le 2026-08-01 (§A5).** Le banc codait
+> le gain sur la **projection** `⟨x,v̂⟩` — l'optimum à direction fixée — alors
+> que `LeechShapeGain` code la **norme** du bloc. Même reconstruction, même
+> formule d'erreur, scalaire différent : le banc mesurait un quantifieur
+> strictement meilleur que celui qui a produit l'artefact, de `2/(1+cos θ)`
+> par bloc. Les chiffres ci-dessus sont ceux du quantifieur **livré** ; la
+> borne à gain optimal reste imprimée en dessous de chaque ligne par le banc.
+> `tests/bench_matches_production.rs` épingle désormais le banc sur
+> `LeechShapeGain::quantize`, bloc par bloc. Le spherical shaping n'a pas de
+> code de gain, donc ses 92,23 % sont inchangés.
+>
 > 🔎 **L'écart sur le spherical shaping s'explique par β, pas par le
 > codebook — ne pas le revendiquer comme une victoire.** Notre shape–gain
-> 0 bit reproduit le papier au millième (89,36 vs 89,12), donc protocole et
-> codebook sont bons. Mais notre spherical shaping le dépasse de presque
+> 0 bit reproduit le papier à 0,2 point près (88,90 vs 89,12), donc protocole
+> et codebook sont bons. Mais notre spherical shaping le dépasse de presque
 > 3 points (92,23 vs 89,37). Le balayage
 > (`cargo run --release -p llvq-bench --bin betasweep`) montre un optimum
 > **étroit** :
@@ -789,14 +800,20 @@ train — `cargo run --release -p llvq-bench --bin llvq-bench`) :
 | code | bits/dim | MSE | rétention | classes |
 |---|---|---|---|---|
 | papier, union `norm(Λ₂₄(12))` + 1 bit de gain | 2,0000 | 0,078 | 92,14 % | 383 |
-| notre union `norm(Λ₂₄(13))` + 0 bit | 1,9999 | 0,0840 | 89,36 % | 383 |
-| **coquille 12 seule + 1 bit de gain** | **1,9584** | 0,0805 | **92,81 %** | **79** |
-| **coquille 13 seule + 1 bit de gain** | 2,0113 | 0,0751 | **92,83 %** | **82** |
+| notre union `norm(Λ₂₄(13))` + 0 bit | 1,9999 | 0,0850 | 88,90 % | 383 |
+| **coquille 12 seule + 1 bit de gain** | **1,9584** | 0,0817 | **92,24 %** | **79** |
+| **coquille 13 seule + 1 bit de gain** | 2,0113 | 0,0762 | **92,33 %** | **82** |
 
-La coquille 12 seule bat la meilleure configuration union du papier **à la
-fois en débit et en rétention**, avec **4,8× moins de classes** et une norme
-constante. Structure des coquilles (vérifiée par la même formule de
-cardinalité que la série thêta) :
+> ⚠️ **Chiffres révisés le 2026-08-01 (§A5)** : le banc codait le gain sur la
+> projection, la production le code sur la norme du bloc. Les rétentions
+> perdent ~0,5 point (12 seule : 92,81 → **92,24** ; 13 seule : 92,83 →
+> **92,33**). **La marge sur le papier passe de 0,67 point à 0,10** — c'est
+> maintenant un ex æquo, pas une victoire.
+
+La coquille 12 seule **égale** la meilleure configuration union du papier en
+rétention (92,24 contre 92,14, dans le bruit) tout en la battant en débit, avec
+**4,8× moins de classes** et une norme constante. Structure des coquilles
+(vérifiée par la même formule de cardinalité que la série thêta) :
 
 | m | \|Shell(m)\| | bits/dim | classes |
 |---|---|---|---|

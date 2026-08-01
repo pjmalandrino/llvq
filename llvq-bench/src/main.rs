@@ -35,13 +35,23 @@ fn main() {
     let mse_sph = spherical_mse(&eval_dots, beta);
     let r_sph = rate_spherical();
 
-    // Shape–gain: Lloyd–Max gain codebooks fitted on train projections.
+    // Shape–gain, two rows per rate. The first is the shipped rule — the gain
+    // code rounds the block norm, exactly as `LeechShapeGain` does, centroids
+    // fitted on norms. The second rounds the projection instead, which is the
+    // best any gain code can do for a given direction and therefore a bound,
+    // not a configuration. Reporting only the bound is what made every G4
+    // retention figure describe a quantizer that never ran on a model.
+    let train_norm: Vec<f64> = train_dots.iter().map(BlockDots::norm).collect();
     let train_t: Vec<f64> = train_dots.iter().map(BlockDots::t).collect();
-    let rows_sg: Vec<(u32, f64, f64)> = [0u32, 2]
+    let rows_sg: Vec<(u32, f64, f64, f64)> = [0u32, 2]
         .into_iter()
         .map(|k| {
-            let centroids = lloyd_max(&train_t, k, 60);
-            (k, rate_shape_gain(k), shape_gain_mse(&eval_dots, &centroids))
+            (
+                k,
+                rate_shape_gain(k),
+                shape_gain_mse_shipped(&eval_dots, &lloyd_max(&train_norm, k, 60)),
+                shape_gain_mse_projected(&eval_dots, &lloyd_max(&train_t, k, 60)),
+            )
         })
         .collect();
 
@@ -64,8 +74,9 @@ fn main() {
         lloyd_max_1bit_scalar_mse(),
     );
     row("LLVQ spherical shaping (m ≤ 3)", r_sph, mse_sph);
-    for (k, r, mse) in &rows_sg {
+    for (k, r, mse, bound) in &rows_sg {
         row(&format!("LLVQ shape–gain, {k}-bit gain (m ≤ 3)"), *r, *mse);
+        row(&format!("  ↳ borne, gain optimal ({k}-bit)"), *r, *bound);
     }
     println!(
         "{:<38} {:>9.4} {:>9.4} {:>12.4} {:>9.2}",
@@ -93,12 +104,17 @@ fn main() {
     let mse13 = spherical_mse13(&eval13, beta13);
     let r13 = rate_spherical13();
 
+    let train_norm13: Vec<f64> = train13.iter().map(BlockDots13::norm).collect();
     let train_t13: Vec<f64> = train13.iter().map(BlockDots13::t).collect();
-    let rows_sg13: Vec<(u32, f64, f64)> = [0u32, 2]
+    let rows_sg13: Vec<(u32, f64, f64, f64)> = [0u32, 2]
         .into_iter()
         .map(|k| {
-            let centroids = lloyd_max(&train_t13, k, 60);
-            (k, rate_shape_gain13(k), shape_gain_mse13(&eval13, &centroids))
+            (
+                k,
+                rate_shape_gain13(k),
+                shape_gain_mse13_shipped(&eval13, &lloyd_max(&train_norm13, k, 60)),
+                shape_gain_mse13_projected(&eval13, &lloyd_max(&train_t13, k, 60)),
+            )
         })
         .collect();
 
@@ -113,16 +129,16 @@ fn main() {
     row("paper: shape–gain, 0 gain bits", 2.0, 0.085);
     row("paper: shape–gain, 1 gain bit", 2.0, 0.078);
     row("LLVQ spherical shaping (m ≤ 13)", r13, mse13);
-    for (k, r, mse) in &rows_sg13 {
+    for (k, r, mse, bound) in &rows_sg13 {
         row(&format!("LLVQ shape–gain, {k}-bit gain (m ≤ 13)"), *r, *mse);
+        row(&format!("  ↳ borne, gain optimal ({k}-bit)"), *r, *bound);
     }
     // Single shell vs the union: same harness, one line of difference. Gain
     // centroids are fitted on `train`, like every other row — measuring them
     // on the set they were fitted to would flatter the single-shell codes.
     for m in [12u32, 13] {
-        let t_train: Vec<f64> = train13.iter().map(|d| t_single(d, m)).collect();
         for k in [0u32, 1] {
-            let centroids = lloyd_max(&t_train, k, 60);
+            let centroids = lloyd_max(&train_norm13, k, 60);
             row(
                 &format!("LLVQ shape–gain, {k}-bit gain (shell {m} only)"),
                 rate_shape_gain13_single(m, k),
@@ -138,5 +154,12 @@ fn main() {
         0.0625,
         2.0,
         100.0
+    );
+    println!(
+        "\nLes lignes « shape–gain » codent le gain sur la NORME du bloc, comme\n\
+         LeechShapeGain — c'est le quantifieur livré. Les lignes « borne »\n\
+         codent la projection ⟨x,v̂⟩, qui minimise l'erreur à direction fixée :\n\
+         c'est un plancher, pas une configuration, et l'écart vaut 2/(1+cos θ).\n\
+         Les tables de docs/ d'avant le 2026-08-01 rapportaient la borne."
     );
 }

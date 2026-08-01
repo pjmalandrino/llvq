@@ -67,8 +67,15 @@ principal du projet, et il n'est pas levé.**
 | code | bits/dim | rétention | classes | norme |
 |---|---|---|---|---|
 | union `norm(Λ₂₄(12))` + 1 bit de gain (meilleur du papier) | 2,0000 | 92,14 % | 383 | variable |
-| **coquille 12 seule + 1 bit de gain** | **1,9584** | **92,81 %** | **79** | **constante** |
-| coquille 13 seule + 1 bit de gain | 2,0113 | 92,83 % | 82 | constante |
+| **coquille 12 seule + 1 bit de gain** | **1,9584** | **92,24 %** | **79** | **constante** |
+| coquille 13 seule + 1 bit de gain | 2,0113 | 92,33 % | 82 | constante |
+
+> ⚠️ Rétentions révisées le 2026-08-01 (§A5) : 92,81 → 92,24 et 92,83 → 92,33.
+> Le banc codait le gain sur la projection, la production le code sur la norme
+> du bloc. **La marge sur le papier tombe de 0,67 à 0,10 point** : la coquille
+> unique fait maintenant *jeu égal* en rétention, pas mieux. L'argument tient
+> toujours, mais il repose désormais sur le débit et le matériel, plus sur la
+> qualité.
 
 Trois conséquences pour le noyau : plus de recherche de coquille, **4,8× moins
 de classes**, et une **norme constante** — donc un facteur d'échelle fixe entre

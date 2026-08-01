@@ -193,9 +193,12 @@ que 2,17 bits de qualité. **À iso-mémoire, le q4 est strictement meilleur sur
 **À dire — et commence par la restriction, pas par le résultat :**
 
 > Attention, ce n'est **pas** « on bat le papier ». Notre shape–gain 0 bit
-> reproduit leur chiffre au millième — 89,36 contre 89,12 — donc protocole et
-> codebook sont identiques et corrects. L'écart n'existe que sur la variante où
-> β est réglé.
+> reproduit leur chiffre à deux dixièmes de point — 88,90 contre 89,12 — donc
+> protocole et codebook sont identiques et corrects. L'écart n'existe que sur
+> la variante où β est réglé.
+
+*(88,90 et non 89,36 depuis le 2026-08-01 : le banc mesurait le gain sur la
+projection, la production le mesure sur la norme du bloc — §A5.)*
 
 **Ce que c'est :** β est le facteur d'échelle du réseau — en clair, le rayon de
 la boule dans laquelle on quantifie. On l'ajuste sur un jeu d'entraînement

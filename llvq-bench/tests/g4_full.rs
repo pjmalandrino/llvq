@@ -54,12 +54,24 @@ fn gaussian_retention_at_two_bits_per_dim() {
         "retention {ret:.2}% regressed from the reference run (92.23%)"
     );
 
-    // Shape–gain with 2-bit gain must further reduce MSE.
-    let train_t: Vec<f64> = train13.iter().map(BlockDots13::t).collect();
-    let centroids = lloyd_max(&train_t, 2, 60);
-    let mse_sg = shape_gain_mse13(&eval13, &centroids);
+    // Shape–gain with 2-bit gain must further reduce MSE. Fitted and scored on
+    // block **norms** — the rule `LeechShapeGain` implements.
+    let train_norm: Vec<f64> = train13.iter().map(BlockDots13::norm).collect();
+    let centroids = lloyd_max(&train_norm, 2, 60);
+    let mse_sg = shape_gain_mse13_shipped(&eval13, &centroids);
     assert!(mse_sg < mse, "2-bit gain ({mse_sg}) must improve on spherical ({mse})");
     assert!(mse_sg > shannon * 0.9, "shape–gain MSE implausibly low");
+
+    // Rounding the projection is the optimum at fixed direction, so it cannot
+    // be worse than rounding the norm. If these two ever cross, one of them
+    // has stopped computing what its name says — and the ordering is the only
+    // thing keeping the bound from being quoted as a result again.
+    let train_t: Vec<f64> = train13.iter().map(BlockDots13::t).collect();
+    let bound = shape_gain_mse13_projected(&eval13, &lloyd_max(&train_t, 2, 60));
+    assert!(
+        bound < mse_sg,
+        "the optimal-gain bound ({bound}) must beat the shipped rule ({mse_sg})"
+    );
 
     // The 2-bit point must dominate the 1-bit point of g4_prelim.
     assert!(mse < 0.15, "2 bits/dim must be far below the 1-bit MSE (0.2865)");

@@ -93,16 +93,23 @@ d'évaluation, shape–gain 1 bit, centroïdes ajustés sur le train :
 
 | L max | codebook | index | b/dim | MSE | rétention | **RAM b/poids** |
 |---|---|---|---|---|---|---|
-| 5 *(actuel)* | 2,81·10¹⁴ | 48 b | 2,0417 | 0,0714 | 93,26 % | 5,667 |
-| **4** | 2,61·10¹⁴ *(93 %)* | 48 b | 2,0417 | 0,0719 | **93,01 %** | **4,667** |
-| **3** | 6,23·10¹³ *(22 %)* | 46 b | 1,9583 | 0,0854 | **90,65 %** | **3,667** |
-| 2 | 7,53·10¹⁰ | 37 b | 1,5833 | 0,1524 | 85,71 % | 2,667 |
+| 5 *(actuel)* | 2,81·10¹⁴ | 48 b | 2,0417 | 0,0725 | 92,72 % | 5,667 |
+| **4** | 2,61·10¹⁴ *(93 %)* | 48 b | 2,0417 | 0,0730 | **92,46 %** | **4,667** |
+| **3** | 6,23·10¹³ *(22 %)* | 46 b | 1,9583 | 0,0870 | **89,94 %** | **3,667** |
+| 2 | 7,53·10¹⁰ | 37 b | 1,5833 | 0,1583 | 83,97 % | 2,667 |
 
-**`L ≤ 4` est quasi gratuit** : −0,25 point de rétention pour **−1 bit/poids**
+> ⚠️ **Table révisée le 2026-08-01 (§A5).** Le banc ajustait et arrondissait le
+> gain sur la **projection** `⟨x,v̂⟩` ; `LeechShapeGain` l'ajuste et l'arrondit
+> sur la **norme** du bloc. Toutes les rétentions perdent 0,3 à 1,7 point.
+> **Aucune décision ne change** : les écarts entre plafonds bougent à peine, et
+> `L ≤ 3` reste sous les 4,50 b/poids du 4 bits. Ce qui change, c'est que la
+> table décrit enfin le quantifieur qui a produit l'artefact.
+
+**`L ≤ 4` est quasi gratuit** : −0,26 point de rétention pour **−1 bit/poids**
 de RAM. On jette 7 % du codebook et on ne perd presque rien — la prédiction
 haute dimension se vérifie. À prendre sans discuter.
 
-**`L ≤ 3` est un vrai arbitrage** : −2,61 points de rétention pour −2 bits/poids.
+**`L ≤ 3` est un vrai arbitrage** : −2,52 points de rétention pour −2 bits/poids.
 Mais il fait passer le format **sous le 4 bits** (3,667 contre 4,50), et il
 baisse aussi le débit disque (1,958 b/dim contre 2,042).
 
