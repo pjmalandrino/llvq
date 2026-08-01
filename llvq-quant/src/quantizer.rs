@@ -280,8 +280,22 @@ impl LeechShapeGain {
     /// bit at the same total rate — the paper's Table 8 best configuration,
     /// `norm(Λ₂₄(12))` + 1 gain bit.
     pub fn with_shell_cap(centroids: Vec<f64>, cap: u32) -> Self {
+        Self::with_caps(centroids, cap, llvq_search::generic::MAX_LEVELS_ANY)
+    }
+
+    /// Restrict the direction code by shell **and** by the number of distinct
+    /// magnitudes a block may hold, zero included.
+    ///
+    /// The level cap is a memory knob, not a quality one: the fused kernel's
+    /// runtime layout spends `34 + 24(L−1)` bits per block, so L *is* what it
+    /// costs in RAM. Capping at 4 drops a bit per weight for 0.25 points of
+    /// retention on a Gaussian source; capping at 3 drops two bits — under
+    /// 4-bit quantization's 4.50 — for 2.6 points (`llvq-bench --bin lcap`).
+    /// Whether real weights behave like that Gaussian is the whole question,
+    /// and only a run answers it.
+    pub fn with_caps(centroids: Vec<f64>, cap: u32, level_cap: usize) -> Self {
         assert!(!centroids.is_empty(), "need at least one gain level");
-        let mut ball = BallSearcher::new();
+        let mut ball = BallSearcher::with_level_cap(level_cap);
         ball.set_shell_cap(cap);
         Self {
             searcher: Searcher::new(),

@@ -244,6 +244,13 @@ fn main() -> anyhow::Result<()> {
                 Some(r) => (r, true),
                 None => (rest, false),
             };
+            // A trailing `L<n>` caps the distinct magnitudes per block —
+            // `leech1c12L3` is one gain bit, shell ≤ 12, at most three
+            // levels. That cap is what sets the fused kernel's RAM width.
+            let (rest, level_cap) = match rest.split_once('L') {
+                Some((r, l)) => (r, l.parse().unwrap_or(5)),
+                None => (rest, llvq_search::generic::MAX_LEVELS_ANY),
+            };
             let (g, c) = match rest.split_once('c') {
                 Some((g, c)) => (g, c.parse().unwrap_or(13)),
                 None => (rest, 13),
@@ -252,6 +259,7 @@ fn main() -> anyhow::Result<()> {
                 gain_bits: g.parse().unwrap_or(1),
                 max_shell: c,
                 free_magnitude,
+                level_cap,
             }
         }
     };

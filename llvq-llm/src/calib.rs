@@ -142,6 +142,10 @@ pub enum Codebook {
         gain_bits: u32,
         max_shell: u32,
         free_magnitude: bool,
+        /// Distinct magnitudes a block may hold, zero included. 5 excludes
+        /// nothing; lower values shrink the codebook and, more to the point,
+        /// the width of the runtime layout the fused kernel reads.
+        level_cap: usize,
     },
 }
 
@@ -159,6 +163,13 @@ impl Codebook {
                 gain_bits,
                 max_shell,
                 free_magnitude,
+                // The level cap shrinks the codebook — Λ₂₄(13) at L ≤ 3 needs
+                // 46 index bits, not 48 — but the artifact still indexes over
+                // the full ball, so the file pays 48. The saving is real and
+                // claimable only once the indexer is rebuilt over the same
+                // filter; charging it here would report a rate the file does
+                // not have.
+                level_cap: _,
             } => {
                 let magnitude = if *free_magnitude { 16 } else { *gain_bits };
                 (llvq_quant::quantizer::index_bits(*max_shell) + magnitude) as f64
@@ -360,11 +371,13 @@ pub fn quantize_model_capturing(
                         Codebook::ShapeGain {
                             max_shell,
                             free_magnitude,
+                            level_cap,
                             ..
                         } => {
-                            let q = LeechShapeGain::with_shell_cap(
+                            let q = LeechShapeGain::with_caps(
                                 gain.clone().expect("fitted above"),
                                 max_shell,
+                                level_cap,
                             );
                             Box::new(if free_magnitude {
                                 q.with_free_magnitude()
