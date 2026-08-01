@@ -183,6 +183,45 @@ mod gpu {
             }
         }
 
+        /// Encode `n` **different** dispatches — one per work item — into a
+        /// single command buffer, and time the whole thing.
+        ///
+        /// `bind` receives the encoder and the item index, and returns that
+        /// item's `(threads, threadgroup)`. This is the shape of a real
+        /// decode step: many distinct matrices, each read once, one commit.
+        /// Because every item has its own weights, the pass is cold by
+        /// construction — no rotation trick needed.
+        ///
+        /// Serialization comes from the write-write hazard on the shared
+        /// output buffer, as in [`Self::dispatch_many`]; give each dispatch
+        /// its own output and the passes would overlap and lie.
+        pub fn dispatch_batch(
+            &self,
+            bind: impl Fn(&metal::ComputeCommandEncoderRef, usize) -> (u64, u64),
+            n: usize,
+        ) -> Timing {
+            let cmd = self.queue.new_command_buffer();
+            let mut total = 0u64;
+            for i in 0..n {
+                let enc = cmd.new_compute_command_encoder();
+                enc.set_compute_pipeline_state(&self.pipeline);
+                let (threads, group) = bind(enc, i);
+                enc.dispatch_threads(
+                    MTLSize::new(threads, 1, 1),
+                    MTLSize::new(group.min(self.max_threads_per_group()), 1, 1),
+                );
+                enc.end_encoding();
+                total += threads;
+            }
+            let t = std::time::Instant::now();
+            cmd.commit();
+            cmd.wait_until_completed();
+            Timing {
+                seconds: t.elapsed().as_secs_f64(),
+                threads: total,
+            }
+        }
+
         /// [`Self::dispatch_many`] with warm-up and best-of-`reps`, like
         /// [`Self::time`].
         pub fn time_many(
@@ -260,6 +299,62 @@ mod gpu {
 
 #[cfg(target_os = "macos")]
 pub use gpu::{Kernel, Timing};
+
+/// f32 → IEEE 754 binary16 bits, round to nearest even. No `half` crate —
+/// this crate stays at two dependencies.
+pub fn f16_bits(x: f32) -> u16 {
+    let b = x.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let exp = ((b >> 23) & 0xff) as i32;
+    let man = b & 0x7f_ffff;
+    if exp == 255 {
+        // Inf / NaN.
+        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
+    }
+    let e16 = exp - 127 + 15;
+    if e16 >= 31 {
+        return sign | 0x7c00; // overflow to inf
+    }
+    if e16 <= 0 {
+        // Subnormal (or zero): shift the implicit-1 mantissa down.
+        if e16 < -10 {
+            return sign;
+        }
+        let man = man | 0x80_0000;
+        let shift = (14 - e16) as u32;
+        let half = 1u32 << (shift - 1);
+        let mut v = man >> shift;
+        // Round to nearest even.
+        let rem = man & ((1 << shift) - 1);
+        if rem > half || (rem == half && v & 1 == 1) {
+            v += 1;
+        }
+        return sign | v as u16;
+    }
+    let mut v = (sign as u32) | ((e16 as u32) << 10) | (man >> 13);
+    let rem = man & 0x1fff;
+    if rem > 0x1000 || (rem == 0x1000 && v & 1 == 1) {
+        v += 1; // may carry into the exponent — that is correct rounding
+    }
+    v as u16
+}
+
+pub fn f16_to_f64(h: u16) -> f64 {
+    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = (h >> 10) & 0x1f;
+    let man = (h & 0x3ff) as f64;
+    sign * match exp {
+        0 => man * (-24f64).exp2(),
+        31 => {
+            if man == 0.0 {
+                f64::INFINITY
+            } else {
+                f64::NAN
+            }
+        }
+        e => (1.0 + man / 1024.0) * ((e as f64) - 15.0).exp2(),
+    }
+}
 
 /// GPU-side class record; must match [`PAYLOAD_MSL`]'s `ClassRec` byte for
 /// byte — which is why it lives in the same crate as that source.
@@ -423,6 +518,86 @@ static inline float decode_payload(Cursor c,
         dot += v * xs[i];
     }
     return dot * gscale[gain];
+}
+
+// ---------------------------------------------------------------------------
+// 24 bits at an absolute offset of a 128-bit register pair. `off` here is
+// always 24/48/72/96, so the funnel shifts never degenerate.
+// ---------------------------------------------------------------------------
+static inline uint ext24(ulong lo, ulong hi, uint off) {
+    ulong v = (off < 64u) ? ((lo >> off) | (hi << (64u - off)))
+                          : (hi >> (off - 64u));
+    return uint(v) & 0xffffffu;
+}
+
+// ---------------------------------------------------------------------------
+// Slot32 — the production decoder. Every field at a fixed offset:
+// [class 9][gain 1][smask 24][m1..m4 @ 24]. A fixed 24-slot loop with no nz,
+// no zero level, no per-level walk, no serial state: the level comes from
+// four slot-mask tests (absent masks are zero, level 0 is the default), the
+// sign from one bit. Zero divergence, four independent FMA chains.
+//
+// `xb` points at the block's 24 activations. The caller owns the staging;
+// with a large d_in that must be tiled, since threadgroup memory is 32 KB.
+// ---------------------------------------------------------------------------
+static inline float slot_dot(device const uint* words,
+                             device const uint* bases,
+                             constant ClassRec* tab,
+                             constant float* gscale,
+                             uint b,
+                             threadgroup const float* xb)
+{
+    uint g = b >> 5;
+    uint base = bases[g];
+    uint stride = (bases[g + 1] - base) >> 5;
+    uint byte = base + (b & 31u) * stride;
+
+    // Five words: the worst case is a 24-bit byte-alignment shift plus a
+    // 130-bit payload = 154 bits.
+    uint w = byte >> 2;
+    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
+         w3 = words[w + 3], w4 = words[w + 4];
+    uint sh = (byte & 3u) * 8u;
+    ulong lo = (ulong(w1) << 32) | ulong(w0);
+    ulong hi = (ulong(w3) << 32) | ulong(w2);
+
+    // The 10-bit header is read in place (sh + 10 <= 34 < 64); its shift
+    // folds into the alignment shift, and the remaining <= 120 bits land in
+    // two registers.
+    uint hdr  = uint(lo >> sh) & 0x3ffu;
+    uint id   = hdr & 0x1ffu;
+    uint gain = hdr >> 9;
+    uint fs = sh + 10u;
+    ulong pay_lo = (lo >> fs) | (hi << (64u - fs));
+    ulong pay_hi = (hi >> fs) | (ulong(w4) << (64u - fs));
+
+    constant ClassRec &r = tab[id];
+    uint smask = uint(pay_lo) & 0xffffffu;
+    uint nlev = r.len;
+    uint m1 = (nlev > 1) ? ext24(pay_lo, pay_hi, 24u) : 0u;
+    uint m2 = (nlev > 2) ? ext24(pay_lo, pay_hi, 48u) : 0u;
+    uint m3 = (nlev > 3) ? ext24(pay_lo, pay_hi, 72u) : 0u;
+    uint m4 = (nlev > 4) ? ext24(pay_lo, pay_hi, 96u) : 0u;
+    float v0 = r.vals[0], v1 = r.vals[1], v2 = r.vals[2],
+          v3 = r.vals[3], v4 = r.vals[4];
+
+    float d0 = 0.0f, d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
+    for (uint i = 0; i < DIM; i += 4) {
+        for (uint k = 0; k < 4; ++k) {
+            uint j = i + k;
+            uint bj = 1u << j;
+            float v = (m1 & bj) ? v1 : (m2 & bj) ? v2 : (m3 & bj) ? v3
+                    : (m4 & bj) ? v4 : v0;
+            v = (smask & bj) ? -v : v;
+            switch (k) {
+                case 0: d0 = fma(v, xb[j], d0); break;
+                case 1: d1 = fma(v, xb[j], d1); break;
+                case 2: d2 = fma(v, xb[j], d2); break;
+                default: d3 = fma(v, xb[j], d3); break;
+            }
+        }
+    }
+    return ((d0 + d1) + (d2 + d3)) * gscale[gain];
 }
 
 // ---------------------------------------------------------------------------

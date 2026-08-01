@@ -222,14 +222,6 @@ kernel void matvec_g32(device const uint*   words  [[buffer(0)]],
 // with ctz, signs shift out sequentially, zero slots are never touched.
 // ---------------------------------------------------------------------------
 
-// 24 bits at an absolute offset of a 128-bit register pair. `off` ∈ [1, 96]:
-// the callers' offsets start at nz ≥ 1, so 64 - off stays a legal shift.
-static inline uint ext24(ulong lo, ulong hi, uint off) {
-    ulong v = (off < 64u) ? ((lo >> off) | (hi << (64u - off)))
-                          : (hi >> (off - 64u));
-    return uint(v) & 0xffffffu;
-}
-
 // 160-bit cursor: the flat worst case is 130 payload bits + a byte shift.
 struct Cur5 { ulong lo; ulong hi; uint xt; };
 
@@ -326,72 +318,6 @@ kernel void matvec_flat(device const uint*   words  [[buffer(0)]],
         }
         y[row] = acc * rscale[row] + t;
     }
-}
-
-// ---------------------------------------------------------------------------
-// Slot32: the audit's structural breach. Every field at a fixed offset —
-// [class 9][gain 1][smask 24][m1..m4 @ 24] — so the decode is a fixed
-// 24-slot loop with no nz, no zero level, no per-level walks, no serial
-// state: level by four slot-mask tests (absent masks are zero, level 0 the
-// default), sign by one bit. Zero divergence, four independent chains.
-// ---------------------------------------------------------------------------
-static inline float slot_dot(device const uint* words,
-                             device const uint* bases,
-                             constant ClassRec* tab,
-                             constant float* gscale,
-                             uint b,
-                             threadgroup const float* xb)
-{
-    uint g = b >> 5;
-    uint base = bases[g];
-    uint stride = (bases[g + 1] - base) >> 5;
-    uint byte = base + (b & 31u) * stride;
-
-    uint w = byte >> 2;
-    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
-         w3 = words[w + 3], w4 = words[w + 4];
-    uint sh = (byte & 3u) * 8u;
-    ulong lo = (ulong(w1) << 32) | ulong(w0);
-    ulong hi = (ulong(w3) << 32) | ulong(w2);
-
-    // 10-bit header read in place; its shift folds into the alignment
-    // shift, and the remaining ≤ 120 bits land in two registers.
-    uint hdr  = uint(lo >> sh) & 0x3ffu;
-    uint id   = hdr & 0x1ffu;
-    uint gain = hdr >> 9;
-    uint fs = sh + 10u;
-    ulong pay_lo = (lo >> fs) | (hi << (64u - fs));
-    ulong pay_hi = (hi >> fs) | (ulong(w4) << (64u - fs));
-
-    constant ClassRec &r = tab[id];
-    uint smask = uint(pay_lo) & 0xffffffu;
-    // Fixed offsets: mask k at 24k. Absent masks read as zero only if we
-    // gate on len — gate with selects, not branches.
-    uint nlev = r.len;
-    uint m1 = (nlev > 1) ? ext24(pay_lo, pay_hi, 24u) : 0u;
-    uint m2 = (nlev > 2) ? ext24(pay_lo, pay_hi, 48u) : 0u;
-    uint m3 = (nlev > 3) ? ext24(pay_lo, pay_hi, 72u) : 0u;
-    uint m4 = (nlev > 4) ? ext24(pay_lo, pay_hi, 96u) : 0u;
-    float v0 = r.vals[0], v1 = r.vals[1], v2 = r.vals[2],
-          v3 = r.vals[3], v4 = r.vals[4];
-
-    float d0 = 0.0f, d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
-    for (uint i = 0; i < DIM; i += 4) {
-        for (uint k = 0; k < 4; ++k) {
-            uint j = i + k;
-            uint bj = 1u << j;
-            float v = (m1 & bj) ? v1 : (m2 & bj) ? v2 : (m3 & bj) ? v3
-                    : (m4 & bj) ? v4 : v0;
-            v = (smask & bj) ? -v : v;
-            switch (k) {
-                case 0: d0 = fma(v, xb[j], d0); break;
-                case 1: d1 = fma(v, xb[j], d1); break;
-                case 2: d2 = fma(v, xb[j], d2); break;
-                default: d3 = fma(v, xb[j], d3); break;
-            }
-        }
-    }
-    return ((d0 + d1) + (d2 + d3)) * gscale[gain];
 }
 
 kernel void matvec_slot(device const uint*   words  [[buffer(0)]],
@@ -556,62 +482,6 @@ struct Params {
     tail_w: u32,
 }
 
-/// f32 → IEEE 754 binary16 bits, round to nearest even. No `half` crate —
-/// this crate stays at two dependencies.
-fn f16_bits(x: f32) -> u16 {
-    let b = x.to_bits();
-    let sign = ((b >> 16) & 0x8000) as u16;
-    let exp = ((b >> 23) & 0xff) as i32;
-    let man = b & 0x7f_ffff;
-    if exp == 255 {
-        // Inf / NaN.
-        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e16 = exp - 127 + 15;
-    if e16 >= 31 {
-        return sign | 0x7c00; // overflow to inf
-    }
-    if e16 <= 0 {
-        // Subnormal (or zero): shift the implicit-1 mantissa down.
-        if e16 < -10 {
-            return sign;
-        }
-        let man = man | 0x80_0000;
-        let shift = (14 - e16) as u32;
-        let half = 1u32 << (shift - 1);
-        let mut v = man >> shift;
-        // Round to nearest even.
-        let rem = man & ((1 << shift) - 1);
-        if rem > half || (rem == half && v & 1 == 1) {
-            v += 1;
-        }
-        return sign | v as u16;
-    }
-    let mut v = (sign as u32) | ((e16 as u32) << 10) | (man >> 13);
-    let rem = man & 0x1fff;
-    if rem > 0x1000 || (rem == 0x1000 && v & 1 == 1) {
-        v += 1; // may carry into the exponent — that is correct rounding
-    }
-    v as u16
-}
-
-fn f16_to_f64(h: u16) -> f64 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = (h >> 10) & 0x1f;
-    let man = (h & 0x3ff) as f64;
-    sign * match exp {
-        0 => man * (-24f64).exp2(),
-        31 => {
-            if man == 0.0 {
-                f64::INFINITY
-            } else {
-                f64::NAN
-            }
-        }
-        e => (1.0 + man / 1024.0) * ((e as f64) - 15.0).exp2(),
-    }
-}
-
 /// `max |got − want| / Σ|wᵢxᵢ|` over the rows — the error unit a float dot
 /// product is actually accountable to (relative error explodes when a row
 /// cancels to near zero, which says nothing about the kernel).
@@ -688,7 +558,7 @@ fn main() -> Result<(), String> {
             w[row * d_in + nblocks * DIM + t] = m.tail[row * tail_w + t];
         }
     }
-    let w16: Vec<u16> = w.iter().map(|&v| f16_bits(v as f32)).collect();
+    let w16: Vec<u16> = w.iter().map(|&v| llvq_metal::f16_bits(v as f32)).collect();
 
     // References and error scales, f64.
     let mut y_ref = vec![0.0f64; d_out];
@@ -699,7 +569,7 @@ fn main() -> Result<(), String> {
         for c in 0..d_in {
             let xv = x[c] as f64;
             a += w[row * d_in + c] * xv;
-            b += f16_to_f64(w16[row * d_in + c]) * xv;
+            b += llvq_metal::f16_to_f64(w16[row * d_in + c]) * xv;
             s += (w[row * d_in + c] * xv).abs();
         }
         y_ref[row] = a;
