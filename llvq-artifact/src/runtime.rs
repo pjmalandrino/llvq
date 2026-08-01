@@ -62,6 +62,8 @@ pub const CLASS_BITS: u32 = 9;
 pub const FIXED96_BYTES: usize = 12;
 /// Lanes per group of the grouped layout.
 pub const GROUP: usize = 32;
+/// Bits of the in-group position field of [`Layout::Sorted32`].
+pub const POS_BITS: u32 = 5;
 
 /// What the decoder knows about a class before reading any block bits.
 #[derive(Clone, Copy, Debug, Default)]
@@ -179,6 +181,40 @@ pub enum Layout {
     /// Worst case 130 bits (odd 5-level class, 24 signs), so this payload
     /// does not fit `Fixed96` and is grouped-only.
     Flat32,
+    /// [`Layout::Flat32`] plus divergence control: within each group of 32,
+    /// blocks are **sorted by class id**, and each payload carries its
+    /// original in-group position so the consumer can put the dot product
+    /// back on the right output row:
+    ///
+    /// ```text
+    /// [class : 9][gain : g][pos : 5][signs][slot masks]
+    /// ```
+    ///
+    /// The 32 lanes of a SIMD group then decode runs of equal classes:
+    /// aligned level loops, uniform table loads. Costs 5 bits per block and
+    /// a per-group permutation; the kernel pays one atomic add per row per
+    /// group instead of a per-row `simd_sum`. Worst case 135 bits.
+    ///
+    /// ⚠️ The adversarial audit showed the sort itself is a null lever: the
+    /// 32 lanes of a SIMD group execute the same block set whatever their
+    /// order inside it. Kept for the measurement record.
+    Sorted32,
+    /// The audit's structural breach: signs as a 24-bit **slot mask**, so
+    /// the whole payload sits at fixed offsets:
+    ///
+    /// ```text
+    /// [class : 9][gain : g][sign mask : 24][slot masks : 24 × (L−1)]
+    /// ```
+    ///
+    /// Width is a function of the level count alone — 34 + 24(L−1), worst
+    /// case 130 bits, unchanged. The decoder needs no `nz`, no zero-level
+    /// index, no sign bases and no per-level walks: a fixed 24-slot loop,
+    /// level by four slot-mask tests (absent masks are zero, level 0 is the
+    /// default), sign by one bit of the mask — zero divergence, no serial
+    /// state, fully unrollable. Sign bits of zero slots are written 0, so
+    /// transcodes stay byte-deterministic. Costs 24−nz bits over `Flat32`
+    /// (nothing on odd-coset blocks); grouped-only, like the others.
+    Slot32,
 }
 
 /// A transcoded block stream, plus what it takes to address it.
@@ -211,12 +247,40 @@ impl RuntimeBlocks {
         assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
         let bit0 = match self.layout {
             Layout::Fixed96 => b as u64 * (FIXED96_BYTES as u64 * 8),
-            Layout::Grouped32 | Layout::Flat32 => {
+            Layout::Grouped32 | Layout::Flat32 | Layout::Sorted32 | Layout::Slot32 => {
                 let g = b / GROUP;
                 let stride = (self.bases[g + 1] - self.bases[g]) as u64 / GROUP as u64;
                 (self.bases[g] as u64 + (b % GROUP) as u64 * stride) * 8
             }
         };
+        // Sorted32 first: the slot at position `b` holds a *different*,
+        // sorted block — reading its header as if it were block `b` (and
+        // especially taking its `id == 0` early return) would be wrong.
+        if self.layout == Layout::Sorted32 {
+            // The block for position `b` sits in whichever slot of its group
+            // carries that position. Scan the real slots — O(32), and this
+            // is the reference decoder, not the kernel.
+            let g = b / GROUP;
+            let want = (b % GROUP) as u64;
+            let stride = (self.bases[g + 1] - self.bases[g]) as u64 / GROUP as u64;
+            let real = GROUP.min(self.n_blocks - g * GROUP);
+            for slot in 0..real {
+                let at = (self.bases[g] as u64 + slot as u64 * stride) * 8;
+                let mut c = BitCursor::new(&self.data, at);
+                let sid = c.read(CLASS_BITS) as usize;
+                let sgain = c.read(self.gain_bits) as u32;
+                let spos = c.read(POS_BITS);
+                if spos == want {
+                    let srec = table.record(sid);
+                    if sid == 0 {
+                        return ([0; DIM], sgain);
+                    }
+                    return (decode_flat(&mut c, srec), sgain);
+                }
+            }
+            unreachable!("position {want} missing from group {g}");
+        }
+
         let mut cur = BitCursor::new(&self.data, bit0);
         let id = cur.read(CLASS_BITS) as usize;
         let gain = cur.read(self.gain_bits) as u32;
@@ -226,6 +290,27 @@ impl RuntimeBlocks {
         }
         if self.layout == Layout::Flat32 {
             return (decode_flat(&mut cur, rec), gain);
+        }
+        if self.layout == Layout::Slot32 {
+            let smask = cur.read(DIM as u32) as u32;
+            let nlev = rec.len as usize;
+            let mut masks = [0u32; MAX_LEVELS];
+            for m in masks.iter_mut().take(nlev).skip(1) {
+                *m = cur.read(DIM as u32) as u32;
+            }
+            let mut p = [0i32; DIM];
+            for (i, pi) in p.iter_mut().enumerate() {
+                let b = 1u32 << i;
+                // Absent masks are zero; level 0 is the default.
+                let mut v = rec.values[0];
+                for (mk, &vk) in masks.iter().zip(&rec.values).take(nlev).skip(1) {
+                    if mk & b != 0 {
+                        v = vk;
+                    }
+                }
+                *pi = if smask & b != 0 { -v } else { v };
+            }
+            return (p, gain);
         }
 
         let signs = cur.read(rec.nonzero as u32);
@@ -287,12 +372,18 @@ pub fn transcode(
         bases: Vec::new(),
     };
 
-    let flat = layout == Layout::Flat32;
-    let width_of = |rec: &ClassRecord| {
-        if flat {
-            rec.width_flat as u32
-        } else {
-            rec.width as u32
+    let sorted = layout == Layout::Sorted32;
+    let width_of = |rec: &ClassRecord| match layout {
+        Layout::Fixed96 | Layout::Grouped32 => rec.width as u32,
+        Layout::Flat32 => rec.width_flat as u32,
+        Layout::Sorted32 => rec.width_flat as u32 + POS_BITS,
+        Layout::Slot32 => {
+            if rec.len == 1 && rec.values[0] == 0 {
+                rec.width_flat as u32 // the origin: header only
+            } else {
+                // Trade the nz-bit sign field for the fixed 24-bit mask.
+                rec.width_flat as u32 - rec.nonzero as u32 + DIM as u32
+            }
         }
     };
     match layout {
@@ -300,10 +391,10 @@ pub fn transcode(
             out.data = vec![0u8; n * FIXED96_BYTES];
             for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
                 let bit0 = b as u64 * (FIXED96_BYTES as u64 * 8);
-                encode_block(fd, table, idx, gain, &mut out.data, bit0, false)?;
+                encode_block(fd, table, idx, gain, &mut out.data, bit0, layout, None)?;
             }
         }
-        Layout::Grouped32 | Layout::Flat32 => {
+        Layout::Grouped32 | Layout::Flat32 | Layout::Sorted32 | Layout::Slot32 => {
             let ngroups = n.div_ceil(GROUP);
             out.bases = Vec::with_capacity(ngroups + 1);
             let mut base = 0u32;
@@ -320,11 +411,23 @@ pub fn transcode(
                 // A partial trailing group still pays all 32 lanes, so the
                 // base difference always divides by 32.
                 out.data.resize(base as usize + GROUP * stride as usize, 0);
-                for (l, (&idx, &gain)) in
-                    blocks.iter().zip(&gains[g * GROUP..]).enumerate()
-                {
-                    let bit0 = (base as u64 + l as u64 * stride as u64) * 8;
-                    encode_block(fd, table, idx, gain, &mut out.data, bit0, flat)?;
+                // Sorted32: slot l holds the block whose class id ranks
+                // l-th in the group (stable), and says where it came from.
+                let mut order: Vec<usize> = (0..blocks.len()).collect();
+                if sorted {
+                    let ids: Vec<usize> = blocks
+                        .iter()
+                        .map(|&idx| class_id(fd, idx))
+                        .collect::<Result<_>>()?;
+                    order.sort_by_key(|&l| ids[l]);
+                }
+                for (slot, &l) in order.iter().enumerate() {
+                    let bit0 = (base as u64 + slot as u64 * stride as u64) * 8;
+                    let pos = if sorted { Some(l as u32) } else { None };
+                    encode_block(
+                        fd, table, blocks[l], gains[g * GROUP + l],
+                        &mut out.data, bit0, layout, pos,
+                    )?;
                 }
                 base += GROUP as u32 * stride;
             }
@@ -378,6 +481,7 @@ fn class_id(fd: &FastDecoder, idx: u64) -> Result<usize> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn encode_block(
     fd: &FastDecoder,
     table: &ClassTable,
@@ -385,13 +489,21 @@ fn encode_block(
     gain: u32,
     data: &mut [u8],
     bit0: u64,
-    flat: bool,
+    layout: Layout,
+    pos: Option<u32>,
 ) -> Result<()> {
+    let flat = layout == Layout::Flat32 || layout == Layout::Sorted32;
     let id = class_id(fd, idx)?;
     let rec = *table.record(id);
     let mut w = BitSink::new(data, bit0);
     w.push(id as u64, CLASS_BITS);
     w.push(gain as u64, table.gain_bits);
+    let extra = if let Some(p) = pos {
+        w.push(p as u64, POS_BITS);
+        POS_BITS as u64
+    } else {
+        0
+    };
     if id == 0 {
         return Ok(());
     }
@@ -408,6 +520,33 @@ fn encode_block(
             .expect("decoded value belongs to its class") as u8;
     }
     let nlev = rec.len as usize;
+
+    if layout == Layout::Slot32 {
+        // Sign mask in slot space — zero slots contribute 0 bits, written 0.
+        let mut smask = 0u64;
+        for (i, &v) in p.iter().enumerate() {
+            if v < 0 {
+                smask |= 1 << i;
+            }
+        }
+        w.push(smask, DIM as u32);
+        // Slot-space masks for levels 1.., level 0 implicit — as Flat32.
+        for k in 1..nlev {
+            let mut mask = 0u64;
+            for (i, &l) in level.iter().enumerate() {
+                if l as usize == k {
+                    mask |= 1 << i;
+                }
+            }
+            w.push(mask, DIM as u32);
+        }
+        assert_eq!(
+            w.pos - bit0,
+            rec.width_flat as u64 - rec.nonzero as u64 + DIM as u64 + extra,
+            "class {id}: encoded slot width disagrees with the table"
+        );
+        return Ok(());
+    }
 
     if flat {
         // Signs level-major: levels in canonical order, slots ascending
@@ -442,7 +581,7 @@ fn encode_block(
         }
         assert_eq!(
             w.pos - bit0,
-            rec.width_flat as u64,
+            rec.width_flat as u64 + extra,
             "class {id}: encoded flat width disagrees with the table"
         );
         return Ok(());
@@ -484,7 +623,7 @@ fn encode_block(
     // actually written corrupts grouped strides silently.
     assert_eq!(
         w.pos - bit0,
-        rec.width as u64,
+        rec.width as u64 + extra,
         "class {id}: encoded width disagrees with the table"
     );
     Ok(())

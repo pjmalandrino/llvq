@@ -222,6 +222,14 @@ kernel void matvec_g32(device const uint*   words  [[buffer(0)]],
 // with ctz, signs shift out sequentially, zero slots are never touched.
 // ---------------------------------------------------------------------------
 
+// 24 bits at an absolute offset of a 128-bit register pair. `off` ∈ [1, 96]:
+// the callers' offsets start at nz ≥ 1, so 64 - off stays a legal shift.
+static inline uint ext24(ulong lo, ulong hi, uint off) {
+    ulong v = (off < 64u) ? ((lo >> off) | (hi << (64u - off)))
+                          : (hi >> (off - 64u));
+    return uint(v) & 0xffffffu;
+}
+
 // 160-bit cursor: the flat worst case is 130 payload bits + a byte shift.
 struct Cur5 { ulong lo; ulong hi; uint xt; };
 
@@ -319,7 +327,224 @@ kernel void matvec_flat(device const uint*   words  [[buffer(0)]],
         y[row] = acc * rscale[row] + t;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Slot32: the audit's structural breach. Every field at a fixed offset —
+// [class 9][gain 1][smask 24][m1..m4 @ 24] — so the decode is a fixed
+// 24-slot loop with no nz, no zero level, no per-level walks, no serial
+// state: level by four slot-mask tests (absent masks are zero, level 0 the
+// default), sign by one bit. Zero divergence, four independent chains.
+// ---------------------------------------------------------------------------
+static inline float slot_dot(device const uint* words,
+                             device const uint* bases,
+                             constant ClassRec* tab,
+                             constant float* gscale,
+                             uint b,
+                             threadgroup const float* xb)
+{
+    uint g = b >> 5;
+    uint base = bases[g];
+    uint stride = (bases[g + 1] - base) >> 5;
+    uint byte = base + (b & 31u) * stride;
+
+    uint w = byte >> 2;
+    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
+         w3 = words[w + 3], w4 = words[w + 4];
+    uint sh = (byte & 3u) * 8u;
+    ulong lo = (ulong(w1) << 32) | ulong(w0);
+    ulong hi = (ulong(w3) << 32) | ulong(w2);
+
+    // 10-bit header read in place; its shift folds into the alignment
+    // shift, and the remaining ≤ 120 bits land in two registers.
+    uint hdr  = uint(lo >> sh) & 0x3ffu;
+    uint id   = hdr & 0x1ffu;
+    uint gain = hdr >> 9;
+    uint fs = sh + 10u;
+    ulong pay_lo = (lo >> fs) | (hi << (64u - fs));
+    ulong pay_hi = (hi >> fs) | (ulong(w4) << (64u - fs));
+
+    constant ClassRec &r = tab[id];
+    uint smask = uint(pay_lo) & 0xffffffu;
+    // Fixed offsets: mask k at 24k. Absent masks read as zero only if we
+    // gate on len — gate with selects, not branches.
+    uint nlev = r.len;
+    uint m1 = (nlev > 1) ? ext24(pay_lo, pay_hi, 24u) : 0u;
+    uint m2 = (nlev > 2) ? ext24(pay_lo, pay_hi, 48u) : 0u;
+    uint m3 = (nlev > 3) ? ext24(pay_lo, pay_hi, 72u) : 0u;
+    uint m4 = (nlev > 4) ? ext24(pay_lo, pay_hi, 96u) : 0u;
+    float v0 = r.vals[0], v1 = r.vals[1], v2 = r.vals[2],
+          v3 = r.vals[3], v4 = r.vals[4];
+
+    float d0 = 0.0f, d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
+    for (uint i = 0; i < DIM; i += 4) {
+        for (uint k = 0; k < 4; ++k) {
+            uint j = i + k;
+            uint bj = 1u << j;
+            float v = (m1 & bj) ? v1 : (m2 & bj) ? v2 : (m3 & bj) ? v3
+                    : (m4 & bj) ? v4 : v0;
+            v = (smask & bj) ? -v : v;
+            switch (k) {
+                case 0: d0 = fma(v, xb[j], d0); break;
+                case 1: d1 = fma(v, xb[j], d1); break;
+                case 2: d2 = fma(v, xb[j], d2); break;
+                default: d3 = fma(v, xb[j], d3); break;
+            }
+        }
+    }
+    return ((d0 + d1) + (d2 + d3)) * gscale[gain];
+}
+
+kernel void matvec_slot(device const uint*   words  [[buffer(0)]],
+                        device const uint*   bases  [[buffer(1)]],
+                        constant ClassRec*   tab    [[buffer(2)]],
+                        constant float*      gscale [[buffer(3)]],
+                        device const float*  rscale [[buffer(4)]],
+                        device const float*  tail   [[buffer(5)]],
+                        device const float*  x      [[buffer(6)]],
+                        device float*        y      [[buffer(7)]],
+                        constant Params&     P      [[buffer(8)]],
+                        threadgroup float*   xs     [[threadgroup(0)]],
+                        uint gid  [[thread_position_in_grid]],
+                        uint tid  [[thread_index_in_threadgroup]],
+                        uint tgs  [[threads_per_threadgroup]],
+                        uint lane [[thread_index_in_simdgroup]])
+{
+    for (uint i = tid; i < P.d_in; i += tgs) xs[i] = x[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint row = gid >> 5;
+    uint b0r = row * P.nblocks;
+    float acc = 0.0f;
+    for (uint j = lane; j < P.nblocks; j += 32) {
+        acc += slot_dot(words, bases, tab, gscale, b0r + j, xs + j * DIM);
+    }
+    acc = simd_sum(acc);
+    if (lane == 0) {
+        float t = 0.0f;
+        uint c0 = P.nblocks * DIM;
+        for (uint i = 0; i < P.tail_w; ++i) {
+            t += tail[row * P.tail_w + i] * xs[c0 + i];
+        }
+        y[row] = acc * rscale[row] + t;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sorted32: one SIMD group per *data* group of 32 class-sorted blocks. All
+// lanes decode runs of equal classes — aligned level loops, uniform table
+// reads. Each payload carries its original in-group position; the lane
+// rebuilds row and column from it, and the row sums leave through two
+// masked simd_sums and at most two atomic adds per group.
+// ---------------------------------------------------------------------------
+kernel void tail_init(device const float* rtail [[buffer(0)]],
+                      device const float* x     [[buffer(1)]],
+                      device float*       y     [[buffer(2)]],
+                      constant Params&    P     [[buffer(3)]],
+                      uint gid [[thread_position_in_grid]])
+{
+    if (gid >= P.d_out) return;
+    float t = 0.0f;
+    uint c0 = P.nblocks * DIM;
+    for (uint i = 0; i < P.tail_w; ++i) {
+        t += rtail[gid * P.tail_w + i] * x[c0 + i];
+    }
+    y[gid] = t;
+}
+
+kernel void matvec_sorted(device const uint*   words  [[buffer(0)]],
+                          device const uint*   bases  [[buffer(1)]],
+                          constant ClassRec*   tab    [[buffer(2)]],
+                          constant float*      gscale [[buffer(3)]],
+                          device const float*  rscale [[buffer(4)]],
+                          device const float*  x      [[buffer(5)]],
+                          device atomic_float* y      [[buffer(6)]],
+                          constant Params&     P      [[buffer(7)]],
+                          threadgroup float*   xs     [[threadgroup(0)]],
+                          uint gid  [[thread_position_in_grid]],
+                          uint tid  [[thread_index_in_threadgroup]],
+                          uint tgs  [[threads_per_threadgroup]],
+                          uint lane [[thread_index_in_simdgroup]])
+{
+    for (uint i = tid; i < P.d_in; i += tgs) xs[i] = x[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Several data groups per SIMD group, so the activation staging and the
+    // barrier amortize over 4x the blocks (one lane = one block otherwise).
+    uint s0 = gid >> 5;
+    uint ngroups = (P.d_out * P.nblocks + 31u) / 32u;
+    for (uint g = s0 * 4u; g < min((s0 + 1u) * 4u, ngroups); ++g) {
+    uint base = bases[g];
+    uint stride = (bases[g + 1] - base) >> 5;
+    uint byte = base + lane * stride;
+
+    uint w = byte >> 2;
+    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
+         w3 = words[w + 3], w4 = words[w + 4];
+    uint sh = (byte & 3u) * 8u;
+    ulong lo = (ulong(w1) << 32) | ulong(w0);
+    ulong hi = (ulong(w3) << 32) | ulong(w2);
+
+    // The 15-bit header sits within lo even before alignment (sh + 15 ≤ 39),
+    // so it is read directly and its shift folds into the byte-alignment
+    // shift: one funnel stage, and what remains (≤ 120 bits) fits two
+    // registers. No sequential cursor at all after this point — signs and
+    // masks come off (lo, hi) at absolute offsets, independently.
+    uint hdr  = uint(lo >> sh) & 0x7fffu;
+    uint id   = hdr & 0x1ffu;
+    uint gain = (hdr >> 9) & 1u;
+    uint pos  = hdr >> 10;
+    uint fs = sh + 15u;
+    ulong pay_lo = (lo >> fs) | (hi << (64u - fs));
+    ulong pay_hi = (hi >> fs) | (ulong(w4) << (64u - fs));
+
+    constant ClassRec &r = tab[id];
+    uint nlev = r.len;
+    uint nz = r.nz;
+    uint signs = uint(pay_lo) & ((1u << nz) - 1u);
+
+    // Mask k lives at bits [nz + 24k, nz + 24k + 24) — nz ≥ 1 for every
+    // class that has masks, so the funnel shifts below never degenerate.
+    uint m1 = 0, m2 = 0, m3 = 0, m4 = 0;
+    if (nlev > 1) { m1 = ext24(pay_lo, pay_hi, nz);
+        if (nlev > 2) { m2 = ext24(pay_lo, pay_hi, nz + 24u);
+            if (nlev > 3) { m3 = ext24(pay_lo, pay_hi, nz + 48u);
+                if (nlev > 4) { m4 = ext24(pay_lo, pay_hi, nz + 72u); } } } }
+    uint m0 = ~(m1 | m2 | m3 | m4) & 0xffffffu;
+
+    // Row and column from the original position. A group spans at most two
+    // rows (nblocks >= 32, asserted host-side): one division for the
+    // group's first row, one compare for the rest.
+    uint orig = (g << 5) + pos;
+    uint rA = (g << 5) / P.nblocks;
+    uint row = rA + uint(orig >= (rA + 1) * P.nblocks);
+    uint j = orig - row * P.nblocks;
+
+    threadgroup const float* xb = xs + j * DIM;
+    uint zl = r.zlev;
+    float d = 0.0f;
+    if (zl != 0u) d += lrun(m0, r.vals[0], signs >> r.sbase[0], xb);
+    if (nlev > 1 && zl != 1u) d += lrun(m1, r.vals[1], signs >> r.sbase[1], xb);
+    if (nlev > 2 && zl != 2u) d += lrun(m2, r.vals[2], signs >> r.sbase[2], xb);
+    if (nlev > 3 && zl != 3u) d += lrun(m3, r.vals[3], signs >> r.sbase[3], xb);
+    if (nlev > 4 && zl != 4u) d += lrun(m4, r.vals[4], signs >> r.sbase[4], xb);
+    d = d * gscale[gain] * rscale[row];
+
+    float dA = (row == rA) ? d : 0.0f;
+    float sA = simd_sum(dA);
+    float sB = simd_sum(d - dA);
+    if (lane == 0) {
+        atomic_fetch_add_explicit(&y[rA], sA, memory_order_relaxed);
+        if (sB != 0.0f) {
+            atomic_fetch_add_explicit(&y[rA + 1], sB, memory_order_relaxed);
+        }
+    }
+    }
+}
 "#;
+
+fn n_blocks_total(m: &llvq_artifact::RawMatrix) -> usize {
+    m.indices.len()
+}
 
 /// Mirror of the shader's `Params`.
 #[repr(C)]
@@ -435,6 +660,11 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let rtf = transcode(&fd, &table, &m.indices, &m.gains, Layout::Flat32)
         .map_err(|e| e.to_string())?;
+    let rts = transcode(&fd, &table, &m.indices, &m.gains, Layout::Sorted32)
+        .map_err(|e| e.to_string())?;
+    let rtl = transcode(&fd, &table, &m.indices, &m.gains, Layout::Slot32)
+        .map_err(|e| e.to_string())?;
+    assert!(nblocks >= 32, "a sorted group must span at most two rows");
 
     let mut rng = llvq_core::SplitMix64::new(0x6_AC71);
     let x: Vec<f32> = (0..d_in).map(|_| rng.next_gaussian() as f32).collect();
@@ -498,15 +728,31 @@ fn main() -> Result<(), String> {
     g32_data.extend_from_slice(&[0u8; 16]);
     let mut flat_data = rtf.data.clone();
     flat_data.extend_from_slice(&[0u8; 20]);
+    let mut sort_data = rts.data.clone();
+    sort_data.extend_from_slice(&[0u8; 20]);
+    let mut slot_data = rtl.data.clone();
+    slot_data.extend_from_slice(&[0u8; 20]);
 
-    let bw16 = kf16.buffer(&w16);
+    // The audit's cache-defeat protocol: K dispatches replaying ONE resident
+    // buffer measure the 48 MB system-level cache, not the DRAM streaming
+    // regime a 1.8 GB model lives in. Four copies of every weight stream,
+    // rotated per dispatch, push every cumulative footprint past the SLC.
+    const R: usize = 4;
+    let copies = |data: &[u8]| -> Vec<metal::Buffer> {
+        (0..R).map(|_| kf16.buffer(data)).collect()
+    };
+    let bw16s: Vec<metal::Buffer> = (0..R).map(|_| kf16.buffer(&w16)).collect();
     let bx = kf16.buffer(&x);
     let by = kf16.empty::<f32>(d_out);
     let bp = kf16.buffer(&params);
-    let bwords = kf16.buffer(&g32_data);
+    let bwordsv = copies(&g32_data);
     let bbases = kf16.buffer(&rt.bases);
-    let bwordsf = kf16.buffer(&flat_data);
+    let bwordsfv = copies(&flat_data);
     let bbasesf = kf16.buffer(&rtf.bases);
+    let bwordssv = copies(&sort_data);
+    let bbasess = kf16.buffer(&rts.bases);
+    let bwordslv = copies(&slot_data);
+    let bbasesl = kf16.buffer(&rtl.bases);
     let btab = kf16.buffer(&recs);
     let bgs = kf16.buffer(&gscale);
     let brs = kf16.buffer(&rscale);
@@ -515,15 +761,15 @@ fn main() -> Result<(), String> {
     let threads = (d_out * 32) as u64;
     let xs_bytes = (d_in * 4) as u64;
 
-    let bind_f16 = |enc: &metal::ComputeCommandEncoderRef| {
-        enc.set_buffer(0, Some(&bw16), 0);
+    let bind_f16 = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bw16s[k % R]), 0);
         enc.set_buffer(1, Some(&bx), 0);
         enc.set_buffer(2, Some(&by), 0);
         enc.set_buffer(3, Some(&bp), 0);
         llvq_metal::Kernel::set_threadgroup_memory(enc, 0, xs_bytes);
     };
-    let bind_g32 = |enc: &metal::ComputeCommandEncoderRef| {
-        enc.set_buffer(0, Some(&bwords), 0);
+    let bind_g32 = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bwordsv[k % R]), 0);
         enc.set_buffer(1, Some(&bbases), 0);
         enc.set_buffer(2, Some(&btab), 0);
         enc.set_buffer(3, Some(&bgs), 0);
@@ -536,8 +782,8 @@ fn main() -> Result<(), String> {
     };
 
     let kflat = llvq_metal::Kernel::new(&src, "matvec_flat")?;
-    let bind_flat = |enc: &metal::ComputeCommandEncoderRef| {
-        enc.set_buffer(0, Some(&bwordsf), 0);
+    let bind_flat = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bwordsfv[k % R]), 0);
         enc.set_buffer(1, Some(&bbasesf), 0);
         enc.set_buffer(2, Some(&btab), 0);
         enc.set_buffer(3, Some(&bgs), 0);
@@ -549,20 +795,64 @@ fn main() -> Result<(), String> {
         llvq_metal::Kernel::set_threadgroup_memory(enc, 0, xs_bytes);
     };
 
+    let ksort = llvq_metal::Kernel::new(&src, "matvec_sorted")?;
+    let kslot = llvq_metal::Kernel::new(&src, "matvec_slot")?;
+    let bind_slot = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bwordslv[k % R]), 0);
+        enc.set_buffer(1, Some(&bbasesl), 0);
+        enc.set_buffer(2, Some(&btab), 0);
+        enc.set_buffer(3, Some(&bgs), 0);
+        enc.set_buffer(4, Some(&brs), 0);
+        enc.set_buffer(5, Some(&btail), 0);
+        enc.set_buffer(6, Some(&bx), 0);
+        enc.set_buffer(7, Some(&by), 0);
+        enc.set_buffer(8, Some(&bp), 0);
+        llvq_metal::Kernel::set_threadgroup_memory(enc, 0, xs_bytes);
+    };
+    let kinit = llvq_metal::Kernel::new(&src, "tail_init")?;
+    let nsgroups = (n_blocks_total(&m) as u64).div_ceil(32);
+    let bind_init = |enc: &metal::ComputeCommandEncoderRef, _k: usize| {
+        enc.set_buffer(0, Some(&btail), 0);
+        enc.set_buffer(1, Some(&bx), 0);
+        enc.set_buffer(2, Some(&by), 0);
+        enc.set_buffer(3, Some(&bp), 0);
+    };
+    let bind_sort = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bwordssv[k % R]), 0);
+        enc.set_buffer(1, Some(&bbasess), 0);
+        enc.set_buffer(2, Some(&btab), 0);
+        enc.set_buffer(3, Some(&bgs), 0);
+        enc.set_buffer(4, Some(&brs), 0);
+        enc.set_buffer(5, Some(&bx), 0);
+        enc.set_buffer(6, Some(&by), 0);
+        enc.set_buffer(7, Some(&bp), 0);
+        llvq_metal::Kernel::set_threadgroup_memory(enc, 0, xs_bytes);
+    };
+
     // ---- verify before timing ----
-    kf16.dispatch(threads, 256, bind_f16);
+    kf16.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_f16(e, 0));
     let got: Vec<f32> = unsafe { kf16.read(&by, d_out) };
     check("FP16", &got, &y16_ref, &scale);
-    kg32.dispatch(threads, 256, bind_g32);
+    kg32.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_g32(e, 0));
     let got: Vec<f32> = unsafe { kg32.read(&by, d_out) };
     check("LLVQ G32", &got, &y_ref, &scale);
-    kflat.dispatch(threads, 256, bind_flat);
+    kflat.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_flat(e, 0));
     let got: Vec<f32> = unsafe { kflat.read(&by, d_out) };
     check("LLVQ Flat32", &got, &y_ref, &scale);
+    let sthreads = nsgroups.div_ceil(4) * 32;
+    kinit.dispatch(d_out as u64, 256, |e: &metal::ComputeCommandEncoderRef| {
+        bind_init(e, 0)
+    });
+    ksort.dispatch(sthreads, 256, |e: &metal::ComputeCommandEncoderRef| bind_sort(e, 0));
+    let got: Vec<f32> = unsafe { ksort.read(&by, d_out) };
+    check("LLVQ Sorted32", &got, &y_ref, &scale);
+    kslot.dispatch(threads, 256, |e: &metal::ComputeCommandEncoderRef| bind_slot(e, 0));
+    let got: Vec<f32> = unsafe { kslot.read(&by, d_out) };
+    check("LLVQ Slot32", &got, &y_ref, &scale);
 
     let kfl = llvq_metal::Kernel::new(&src, "matvec_floor")?;
-    let bind_floor = |enc: &metal::ComputeCommandEncoderRef| {
-        enc.set_buffer(0, Some(&bwords), 0);
+    let bind_floor = |enc: &metal::ComputeCommandEncoderRef, k: usize| {
+        enc.set_buffer(0, Some(&bwordsv[k % R]), 0);
         enc.set_buffer(1, Some(&bbases), 0);
         enc.set_buffer(2, Some(&brs), 0);
         enc.set_buffer(3, Some(&bx), 0);
@@ -579,6 +869,14 @@ fn main() -> Result<(), String> {
     let tg = (kg32.time_many(threads, 256, K, 3, 15, bind_g32).seconds - overhead)
         / K as f64;
     let tf = (kflat.time_many(threads, 256, K, 3, 15, bind_flat).seconds - overhead)
+        / K as f64;
+    let ts = (ksort.time_many(sthreads, 256, K, 3, 15, bind_sort).seconds
+        - overhead)
+        / K as f64;
+    let ti = (kinit.time_many(d_out as u64, 256, K, 3, 15, bind_init).seconds
+        - overhead)
+        / K as f64;
+    let tl = (kslot.time_many(threads, 256, K, 3, 15, bind_slot).seconds - overhead)
         / K as f64;
 
     let f16_bytes = (d_out * d_in * 2) as f64;
@@ -609,6 +907,29 @@ fn main() -> Result<(), String> {
         g32_bytes / tg / 1e9,
         format!("{:.2}×", t16 / tg)
     );
+    let slot_bytes = rtl.data.len() as f64
+        + rtl.bases.len() as f64 * 4.0
+        + (d_out * tail_w) as f64 * 4.0
+        + d_out as f64 * 4.0;
+    println!(
+        "  {:<22}{:>10.2}{:>12.0}{:>14}",
+        "LLVQ fusé (Slot32)",
+        tl * 1e6,
+        slot_bytes / tl / 1e9,
+        format!("{:.2}×", t16 / tl)
+    );
+    let sort_bytes = rts.data.len() as f64
+        + rts.bases.len() as f64 * 4.0
+        + (d_out * tail_w) as f64 * 4.0
+        + d_out as f64 * 4.0;
+    println!(
+        "  {:<22}{:>10.2}{:>12.0}{:>14}",
+        "LLVQ fusé (Sorted32)",
+        (ts + ti) * 1e6,
+        sort_bytes / (ts + ti) / 1e9,
+        format!("{:.2}×", t16 / (ts + ti))
+    );
+    println!("  (dont init queue : {:.2} µs)", ti * 1e6);
     let flat_bytes = rtf.data.len() as f64
         + rtf.bases.len() as f64 * 4.0
         + (d_out * tail_w) as f64 * 4.0

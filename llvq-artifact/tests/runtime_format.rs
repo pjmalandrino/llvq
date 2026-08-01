@@ -36,7 +36,7 @@ fn runtime_roundtrip_is_bit_exact_everywhere() {
     indices.push(0); // the origin block, mid-stream
     let gains: Vec<u32> = indices.iter().map(|_| (rng.next() & 1) as u32).collect();
 
-    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32] {
+    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         let rt = transcode(&fd, &table, &indices, &gains, layout).expect("transcodes");
         assert_eq!(rt.n_blocks, indices.len());
         for b in (0..indices.len()).rev() {
@@ -89,7 +89,7 @@ fn artifact_stream_to_runtime_is_bit_exact() {
     assert_eq!(raw.indices, indices, "raw indices survive the stream");
     assert_eq!(raw.gains, gains, "raw gains survive the stream");
 
-    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32] {
+    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         let rt =
             transcode(&fd, &table, &raw.indices, &raw.gains, layout).expect("transcodes");
         for (b, code) in m.codes.iter().enumerate() {
@@ -128,7 +128,7 @@ fn grouped_strides_are_exact() {
     // 45 blocks: one full group, one partial.
     let indices: Vec<u64> = (0..45).map(|_| 1 + rng.next() % N13).collect();
     let gains = vec![0u32; indices.len()];
-    for layout in [Layout::Grouped32, Layout::Flat32] {
+    for layout in [Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         let rt = transcode(&fd, &table, &indices, &gains, layout).expect("ok");
         assert_eq!(rt.bases.len(), 3);
         assert_eq!(*rt.bases.last().unwrap() as usize, rt.data.len());
@@ -152,7 +152,7 @@ fn two_bit_gains_roundtrip() {
     let mut rng = SplitMix64::new(0x6_9A1B);
     let indices: Vec<u64> = (0..500).map(|_| 1 + rng.next() % N13).collect();
     let gains: Vec<u32> = (0..500).map(|_| (rng.next() & 3) as u32).collect();
-    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32] {
+    for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         let rt = transcode(&fd, &table, &indices, &gains, layout).expect("ok");
         for b in 0..indices.len() {
             let (p, g) = rt.decode_block(&table, b);

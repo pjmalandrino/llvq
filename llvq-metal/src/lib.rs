@@ -135,8 +135,7 @@ mod gpu {
         }
 
         /// Encode `k` sequential dispatches of the same kernel in **one**
-        /// command buffer — one encoder each, so Metal serializes them —
-        /// and return the wall-clock of the whole buffer.
+        /// command buffer and return the wall-clock of the whole buffer.
         ///
         /// This exists for kernels whose single run is the same order as the
         /// submission overhead (~0.15 ms): a matvec is ~150 µs, and
@@ -144,18 +143,31 @@ mod gpu {
         /// With k of them back to back the measurement is milliseconds and
         /// the commit overhead is subtracted once. The per-encoder cost
         /// stays in — real inference also pays one dispatch per layer op.
+        ///
+        /// ⚠️ What serializes the passes is **not** the encoder boundary —
+        /// Apple GPUs overlap hazard-free passes of one command buffer.
+        /// It is the write-write hazard on the *shared, tracked output
+        /// buffer* every dispatch binds. A caller that gave each dispatch
+        /// its own output (or moved buffers into an untracked heap) would
+        /// let the passes overlap and measure something much prettier and
+        /// entirely false. Keep one output buffer.
+        ///
+        /// `bind` receives the dispatch index so callers can rotate *input*
+        /// buffers across dispatches — the cache-defeat protocol: replaying
+        /// one resident weight buffer 32× measures the system-level cache,
+        /// not the DRAM streaming regime real inference lives in.
         pub fn dispatch_many(
             &self,
             threads: u64,
             group: u64,
             k: usize,
-            bind: impl Fn(&metal::ComputeCommandEncoderRef),
+            bind: impl Fn(&metal::ComputeCommandEncoderRef, usize),
         ) -> Timing {
             let cmd = self.queue.new_command_buffer();
-            for _ in 0..k {
+            for i in 0..k {
                 let enc = cmd.new_compute_command_encoder();
                 enc.set_compute_pipeline_state(&self.pipeline);
-                bind(enc);
+                bind(enc, i);
                 enc.dispatch_threads(
                     MTLSize::new(threads, 1, 1),
                     MTLSize::new(group.min(self.max_threads_per_group()), 1, 1),
@@ -180,7 +192,7 @@ mod gpu {
             k: usize,
             warmup: usize,
             reps: usize,
-            bind: impl Fn(&metal::ComputeCommandEncoderRef),
+            bind: impl Fn(&metal::ComputeCommandEncoderRef, usize),
         ) -> Timing {
             for _ in 0..warmup {
                 self.dispatch_many(threads, group, k, &bind);
