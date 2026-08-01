@@ -49,6 +49,37 @@ cargo run --release -p llvq-llm --features metal --bin run -- qwen3-4b-llvq.bin 
    →  Paris. (True or False?)
 ```
 
+### MMLU — what the perplexity was hiding
+
+Perplexity measures average surprise on running text. It says nothing about
+what a model can still *do*. Measured here (5-shot Hendrycks, 2 280 questions
+sampled at a fixed seed, ±1 pp, **through this project's own pipeline on the
+shipped file** — not a dequantized checkpoint in someone else's engine):
+
+| | ours | paper |
+|---|---|---|
+| FP16 baseline | **72.85** | 70.2 |
+| LLVQ 2-bit | **57.59** | 60.7 |
+| **drop** | **−15.3 pp** *(79.1 % retained)* | −9.5 pp *(86.5 % retained)* |
+
+**We match the paper on perplexity and lose noticeably more on capability.**
+The two gaps point opposite ways — our baseline is 2.8σ *above* theirs, our
+quantized model 3.0σ *below* — so this is not a protocol offset that cancels.
+The most likely cause is calibration volume: ~131 k tokens against their 6 100
+sequences, roughly 100× less. Reasoning tasks depend on rare, precise
+activations that a small calibration set never covers.
+
+The per-subject profile makes the mechanism visible: abstract algebra and
+professional accounting fall to **25 %, exactly chance**, while history, law
+and psychology hold above 80 %. **Two-bit quantization damages reasoning far
+more than recall** — and recall is what a perplexity corpus mostly measures.
+This is the decoupling [arXiv:2607.08734](https://arxiv.org/abs/2607.08734)
+describes, observed directly.
+
+```bash
+cargo run --release -p llvq-llm --features metal --bin mmlu -- model.llvq metal 40
+```
+
 ### Read this before quoting the number
 
 * **We land just under QTIP, at 8.5 % more bits.** 16.96 against 17.04, but at

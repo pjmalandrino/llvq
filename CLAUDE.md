@@ -138,6 +138,32 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > de boule ne semble pas optimisé. **Conclusion : à iso-réglage, on reproduit
 > le papier ; notre avance est un artefact de réglage, pas un meilleur code.**
 
+## 3ter. MMLU — ce que la perplexité cachait (2026-08-01)
+
+Harnais maison (`bin/mmlu`), **dans notre pipeline, sur le fichier scellé** —
+pas un checkpoint déquantifié dans le moteur d'un tiers, parce que MLX et
+notre `bin/run` divergent au 5ᵉ token sur les mêmes poids. Hendrycks 5-shot,
+2 280 questions tirées à graine fixe, ±1 pp.
+
+| | nous | papier |
+|---|---|---|
+| FP16 | **72,85** | 70,2 |
+| LLVQ 2 bits | **57,59** | 60,7 |
+| **chute** | **−15,3 pp** (79,1 % retenus) | −9,5 pp (86,5 %) |
+
+**On égale le papier en perplexité et on perd nettement plus en capacités.**
+Les deux écarts pointent en sens *opposés* (baseline +2,8σ, quantifié −3,0σ),
+donc ce n'est pas un décalage de protocole qui s'annulerait. Cause la plus
+probable : le volume de calibration — ~131 k tokens contre leurs 6 100
+séquences, ~100× moins.
+
+> 🔎 **Le profil par matière montre le mécanisme** : algèbre abstraite et
+> comptabilité tombent à **25 %, exactement le hasard**, pendant qu'histoire,
+> droit et psychologie tiennent au-dessus de 80 %. Le 2 bits abîme le
+> **raisonnement** bien plus que la **restitution** — et c'est la restitution
+> que mesure surtout un corpus de perplexité. Ne plus jamais présenter la
+> perplexité seule comme preuve de qualité.
+
 ## 3bis. ⚠️ Face au 4 bits — la comparaison qui recadre tout (2026-08-01)
 
 Tout le reste de ce fichier compare LLVQ au **FP16**. C'est la mauvaise
