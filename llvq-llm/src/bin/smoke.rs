@@ -350,10 +350,36 @@ fn main() -> anyhow::Result<()> {
     let artifact_path = std::env::var("LLVQ_ARTIFACT").ok();
     let n_matrices = 7 * limit.min(model.blocks.len());
 
+    // Hessian damping, relative to `mean(diag H)` — `H + λ·mean(diag H)·I`.
+    //
+    // 1e-2 was the only value ever passed, on every layer width (2560, 4096,
+    // 9728), and it was never swept. That is not a defensible state for the
+    // parameter that conditions the whole error compensation, in a repo that
+    // sweeps β to the thousandth. `LLVQ_DAMPING` makes {3e-3, 1e-2, 3e-2} on
+    // 3 blocks an eight-minute A/B.
+    //
+    // The prediction is that it changes nothing: because the damping is
+    // relative to `mean(diag H)` and an LLM activation Hessian is heavy-tailed
+    // — a few massive-activation directions carry most of the trace — that
+    // floor already dominates the noisy directions. It is why GPTQ, QuIP# and
+    // QTIP all use a single relative `percdamp` whatever the width. Publish
+    // the null result; "never measured" is the thing to fix.
+    let damping = match std::env::var("LLVQ_DAMPING") {
+        Ok(s) => s
+            .parse::<f64>()
+            .map_err(|_| anyhow::anyhow!("LLVQ_DAMPING={s:?} is not a number"))?,
+        Err(_) => 1e-2,
+    };
+    anyhow::ensure!(
+        damping >= 0.0 && damping.is_finite(),
+        "LLVQ_DAMPING must be finite and non-negative, got {damping}"
+    );
+    eprintln!("hessian damping {damping:e} (relative to mean(diag H))");
+
     let t0 = std::time::Instant::now();
     let run = llvq_llm::calib::RunConfig {
         gptq: cfg,
-        damping: 1e-2,
+        damping,
         codebook,
         threads,
         limit,
@@ -416,6 +442,9 @@ fn main() -> anyhow::Result<()> {
     println!("LLVQ 2-bit           ppl = {quant:.4}");
     println!("degradation          ×{:.3}", quant / base);
     println!("effective rate           = {:.4} bits/weight", report.bits_per_weight());
+    // On the result line, not only in stderr: an A/B whose swept parameter is
+    // not printed with its number is an A/B nobody can re-read six weeks later.
+    println!("hessian damping          = {damping:e}");
     Ok(())
 }
 

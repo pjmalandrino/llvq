@@ -96,6 +96,10 @@ cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
 # ⚠️ ppl tourne en f32 par défaut, mmlu et run en f16. Chaque métrique est
 # cohérente en interne ; les COMPARER exige le même dtype des deux côtés :
 #   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal
+
+# A/B à faire tourner (3 blocs = ~8 min chacun, une seule variable à la fois)
+#   LLVQ_CALIB_SEED={1,2,3}  → la barre d'erreur qui manque au projet
+#   LLVQ_DAMPING={3e-3,1e-2,3e-2}  → jamais balayé ; résultat nul attendu
 cargo clippy --all-targets                   # doit rester à zéro warning
 ```
 
