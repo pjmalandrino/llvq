@@ -186,8 +186,10 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > rapporte désormais micro *et* macro côte à côte, plus l'erreur
 > d'échantillonnage (le « ±1 pp » ci-dessous était affirmé, pas mesuré).
 >
-> ⚠️ Second facteur de confusion sur cette même comparaison, non corrigé :
-> la perplexité est mesurée en **F32** et MMLU en **F16** (§A2).
+> ✅ **Le second facteur de confusion suspecté sur cette comparaison — ppl en
+> F32, MMLU en F16 — a été mesuré le 2026-08-01, et il est nul** (§A2). Il ne
+> reste donc que l'agrégation pour expliquer l'écart. Voir le tableau
+> « fichier scellé » ci-dessous.
 
 Harnais maison (`bin/mmlu`), **dans notre pipeline, sur le fichier scellé** —
 pas un checkpoint déquantifié dans le moteur d'un tiers, parce que MLX et
@@ -581,6 +583,26 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 >
 > Diagnostic complet, les trois défauts et ce qui reste à décider :
 > [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
+
+> ✅ **Le 16,9617 est confirmé sur le fichier lui-même (2026-08-01, §A2).**
+> Il avait été mesuré par la boucle interne de `smoke`, en F32, sur le modèle
+> encore en mémoire. `bin/ppl` sait désormais charger l'artefact scellé, donc
+> on peut scorer les octets livrés plutôt qu'une reconstruction :
+>
+> | bras | dtype | source | ppl |
+> |---|---|---|---|
+> | baseline | f32 | checkpoint | 12,2336 |
+> | baseline | **f16** | checkpoint | **12,2361** |
+> | LLVQ 2 bits | f32 | modèle en mémoire | 16,9617 |
+> | **LLVQ 2 bits** | **f16** | **`~/qwen3-4b-llvq.bin` décodé** | **16,9415** |
+>
+> Dégradation **×1,3846** en f16 contre ×1,3865 en f32. **Le confondant
+> F32/MMLU-F16 est donc nul à 0,1 % près** : il ne reste que l'agrégation
+> macro/micro (§3ter) pour expliquer l'écart au papier sur MMLU.
+>
+> Les deux bras impriment la même empreinte de tokens `3f1baca9033bf251` — 12
+> fenêtres de 4096 identiques des deux côtés, donc le rapport a un sens. C'est
+> la condition qu'on supposait sans la vérifier.
 
 Protocole : shape–gain, rétraction sphérique, rotation d'entrée, `faer`,
 131 k tokens de calibration, `TailPolicy::KeepExact`. Évaluation wikitext-2
