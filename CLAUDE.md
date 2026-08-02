@@ -160,7 +160,7 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > de boule ne semble pas optimisé. **Conclusion : à iso-réglage, on reproduit
 > le papier ; notre avance est un artefact de réglage, pas un meilleur code.**
 
-## 3ter. MMLU — ce que la perplexité cachait (2026-08-01)
+## 3ter. MMLU — ce que la perplexité cachait (2026-08-01, remesuré le 08-02)
 
 > 🚨 **Les deux chiffres de cette section sont des moyennes MACRO ; le papier
 > rapporte du MICRO. Ils ne sont pas comparables et il faut les remesurer.**
@@ -178,34 +178,56 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > quantifié que la baseline. Conséquence directe : l'argument « les deux
 > écarts pointent en sens opposés, donc ce n'est pas un décalage de protocole
 > qui s'annulerait » **est faux** — un échange macro/micro produit
-> précisément cette signature-là. Ordre de grandeur attendu après correction :
-> baseline ~71, chute ~−10 pp, c'est-à-dire au niveau du papier.
+> précisément cette signature-là.
 >
-> Le dump par matière du run n'a pas été conservé, donc **le micro ne peut pas
-> être recalculé a posteriori** : il faut relancer les deux bras. Le harnais
-> rapporte désormais micro *et* macro côte à côte, plus l'erreur
-> d'échantillonnage (le « ±1 pp » ci-dessous était affirmé, pas mesuré).
->
-> ✅ **Le second facteur de confusion suspecté sur cette comparaison — ppl en
-> F32, MMLU en F16 — a été mesuré le 2026-08-01, et il est nul** (§A2). Il ne
-> reste donc que l'agrégation pour expliquer l'écart. Voir le tableau
-> « fichier scellé » ci-dessous.
+> ✅ **Le second facteur de confusion suspecté — ppl en F32, MMLU en F16 — a
+> été mesuré et il est nul** (§A2, 0,1 % d'écart). L'agrégation était donc bien
+> la seule piste restante.
+
+**Remesuré en micro le 2026-08-02** (§A1), f16 des deux côtés, mêmes 2 280
+questions et même graine que le run publié. Log par matière conservé cette
+fois : [`docs/mmlu-micro-2026-08-02.log`](docs/mmlu-micro-2026-08-02.log).
 
 Harnais maison (`bin/mmlu`), **dans notre pipeline, sur le fichier scellé** —
 pas un checkpoint déquantifié dans le moteur d'un tiers, parce que MLX et
-notre `bin/run` divergent au 5ᵉ token sur les mêmes poids. Hendrycks 5-shot,
-2 280 questions tirées à graine fixe.
+notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 
-| | nous (macro ⚠️) | papier (micro) |
-|---|---|---|
-| FP16 | **72,85** | 70,2 |
-| LLVQ 2 bits | **57,59** | 60,7 |
-| **chute** | **−15,3 pp** (79,1 % retenus) | −9,5 pp (86,5 %) |
+| | micro (= papier) | macro | papier |
+|---|---|---|---|
+| FP16 | **70,42 ± 1,28** | 72,85 | 70,2 |
+| LLVQ 2 bits | **56,09 ± 1,36** | 57,59 | 60,7 |
+| **chute** | **−14,33 pp** (79,7 % retenus) | −15,26 pp | −9,5 pp (86,5 %) |
 
-**Ce qui survit à la correction, c'est le profil par matière ; pas l'écart au
-papier.** L'hypothèse du volume de calibration (~131 k tokens contre leurs
-6 100 séquences, ~100× moins) reste plausible mais n'a plus d'écart à
-expliquer tant que le micro n'est pas mesuré.
+> ✅ **Le contrôle passe sur les deux bras** : les macros ressortent à 72,85 et
+> 57,59, *exactement* les chiffres publiés la veille. La seule différence entre
+> les deux colonnes est l'agrégation, sans autre variable.
+
+**Ce que la correction change, et ce qu'elle ne change pas.**
+
+1. **Sur la baseline, elle explique tout.** 72,85 → **70,42 contre 70,2 au
+   papier : +0,22 pp, soit 0,17 σ.** L'écart de +2,65 pp qu'on mettait sur le
+   compte de vagues différences de protocole était *entièrement* l'échange
+   macro/micro. **Le harnais maison est validé** à un niveau jamais atteint.
+2. **Sur le bras quantifié, elle ne change presque rien.** La chute passe de
+   −15,26 à −14,33 pp : l'agrégation n'en valait que **0,93 pp**. Face aux
+   −9,5 pp du papier il reste **−4,8 pp**, et notre 56,09 est à 3,4 σ de leur
+   60,7.
+
+> ⚠️ **La prédiction de l'audit était fausse sur ce point, et il faut le dire.**
+> Il annonçait « chute ~−10 pp, c'est-à-dire au niveau du papier ». Le
+> *diagnostic* du bug était juste ; l'*ordre de grandeur* de son effet ne
+> l'était pas. Le macro/micro pesait ~1 pp, pas ~6.
+
+**Donc la conclusion de fond tient, et elle est mieux fondée qu'avant** :
+notre quantification perd nettement plus en capacités que la leur. L'argument
+est même plus propre — puisque la baseline reproduit le papier à 0,22 pp, le
+déficit du bras quantifié ne peut plus être imputé au harnais. Cause la plus
+probable, inchangée : le volume de calibration (~131 k tokens contre 6 100
+séquences, ~100× moins).
+
+⚠️ Ce qui **est** mort : l'argument « les deux écarts pointent en sens opposés,
+donc ce n'est pas un décalage de protocole qui s'annulerait ». Il ne reste
+qu'un seul écart, du côté quantifié.
 
 > 🔎 **Le profil par matière montre le mécanisme** : algèbre abstraite et
 > comptabilité tombent à **25 %, exactement le hasard**, pendant qu'histoire,
