@@ -23,10 +23,47 @@
 //! published perplexity incomparable to its own documentation, and nobody
 //! would see it happen.
 
-use candle_core::DType;
+use candle_core::{DType, Device};
 
 /// Environment override for a harness's model dtype: `f16`, `bf16` or `f32`.
 pub const DTYPE_ENV: &str = "LLVQ_DTYPE";
+
+/// Resolve `cpu` / `cuda` / `metal` into a device, **failing loudly**.
+///
+/// ## Why the fallback had to go
+///
+/// Every binary used to write `Device::new_metal(0).unwrap_or(Device::Cpu)`,
+/// which swallows the error. On a laptop that is a mild annoyance: a broken
+/// Metal init silently runs ~7× slower. On rented hardware billed by the
+/// minute it is a direct, invisible cost — a job on a GPU flavor that fails to
+/// initialize CUDA would run the whole quantization on the flavor's handful of
+/// vCPUs, at GPU prices, and report nothing wrong. A 32B run costs four times
+/// more on the wrong device.
+///
+/// So an unavailable accelerator is now an error naming the feature that is
+/// missing. Falling back to CPU stays possible — by asking for `cpu`, which is
+/// a decision someone took rather than one a `unwrap_or` took for them.
+pub fn device(name: &str) -> anyhow::Result<Device> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "cpu" => Ok(Device::Cpu),
+        // candle defines both constructors unconditionally and returns
+        // `NotCompiledWith*Support` when the feature is off, so there is no
+        // `cfg` here — the error message already says which flag is missing.
+        "cuda" | "gpu" => Device::new_cuda(0).map_err(|e| {
+            anyhow::anyhow!(
+                "CUDA requested but unavailable: {e}\n\
+                 Build with `--features cuda`, or pass `cpu` deliberately."
+            )
+        }),
+        "metal" => Device::new_metal(0).map_err(|e| {
+            anyhow::anyhow!(
+                "Metal requested but unavailable: {e}\n\
+                 Build with `--features metal`, or pass `cpu` deliberately."
+            )
+        }),
+        other => anyhow::bail!("unknown device {other:?} — use cpu, cuda or metal"),
+    }
+}
 
 /// Resolve the model dtype: `default`, unless `LLVQ_DTYPE` overrides it.
 pub fn dtype(default: DType) -> anyhow::Result<DType> {

@@ -1,0 +1,55 @@
+# CUDA build of the quantization binaries, for HF Jobs GPU flavors.
+#
+# Separate from `ops/Dockerfile` rather than parameterized by build args,
+# because a Space builds its Dockerfile **as written** — `--build-arg` is a
+# local-docker concept and does not reach the Hub builder.
+#
+# ## The compute capability has to be pinned
+#
+# `candle`'s CUDA build detects the target architecture by running
+# `nvidia-smi`. The Space builder has **no GPU**, so detection fails and the
+# build dies unless `CUDA_COMPUTE_CAP` is set. That makes the image
+# architecture-specific, so the flavor is chosen here and not at launch:
+#
+#   89 → Ada        : `l4x1` (24 GB), `l40sx1` (48 GB)
+#   90 → Hopper     : `h200`
+#   80 → Ampere     : `a100-large`
+#
+# 89 covers the two cheapest GPU flavors, which is what the 0.6B validation and
+# the 8B run need. Change it here, and rebuild, to move to H200 for a 32B.
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build
+ARG FEATURES=cuda,fast-linalg
+ENV CUDA_COMPUTE_CAP=89
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates build-essential pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /src
+COPY . .
+# `fast-linalg` is not optional in practice: without it the GPTQ factorization
+# runs the reference Cholesky, measured at 28.4 s against 0.7 s with `faer` on
+# one block of Qwen3-0.6B — 40× slower, for a bit-identical perplexity. On
+# rented hardware that is a 40× bill on that phase.
+RUN cargo build --release -p llvq-llm --features ${FEATURES} \
+      --bin smoke --bin ppl --bin mmlu --bin seal --bin run --bin oracle
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates libssl3 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build \
+      /src/target/release/smoke \
+      /src/target/release/ppl \
+      /src/target/release/mmlu \
+      /src/target/release/seal \
+      /src/target/release/run \
+      /src/target/release/oracle \
+      /usr/local/bin/
+ENV HF_HOME=/scratch/hf
+WORKDIR /scratch
+# Space runtime only — a Job always overrides the command.
+CMD ["sleep", "infinity"]

@@ -22,7 +22,7 @@
 //! gets measured. Three seeds on 3 blocks is the cheapest thing in this repo
 //! that turns a 3 % difference from an anecdote into a result.
 
-use candle_core::{DType, Device, Tensor};
+use candle_core::{DType, Tensor};
 
 use llvq_llm::corpus::{hf_parquet_text, wikitext2_test};
 use llvq_llm::loader::Checkpoint;
@@ -176,11 +176,7 @@ fn main() -> anyhow::Result<()> {
     let calib_len: usize = arg(&a, 1, 2048);
     let n_eval: usize = arg(&a, 2, 12);
     let eval_ctx: usize = arg(&a, 3, 2048);
-    let device = if a.get(4).map(|s| s == "metal").unwrap_or(false) {
-        Device::new_metal(0).unwrap_or(Device::Cpu)
-    } else {
-        Device::Cpu
-    };
+    let device = llvq_llm::eval::device(a.get(4).map(String::as_str).unwrap_or("cpu"))?;
     // Algorithm 3's closed-form gain refinement. Appendix I treats it as part
     // of the 0-gain-bit configuration, not as an extra.
     let group_scales = a.get(5).map(|s| s == "gs").unwrap_or(false);
@@ -424,6 +420,27 @@ fn main() -> anyhow::Result<()> {
         report.seconds,
         report.bits_per_weight()
     );
+    // Where the time went, largest first. Which phase dominates flips with the
+    // backend — Leech encoding on Metal, forward passes on a CPU-only job — so
+    // the only way to know what to optimize (and which flavor to rent) is to
+    // read it off the run itself.
+    eprintln!("phases :");
+    for (name, secs, pct) in report.phases.ranked() {
+        eprintln!("  {name:<22}{secs:>9.1}s{pct:>7.1} %");
+    }
+    // A 40× difference that is otherwise invisible. Measured on one block of
+    // Qwen3-0.6B: factorization 28.4 s without `fast-linalg`, 0.7 s with it,
+    // for a bit-identical perplexity. The feature has to stay opt-in — it is
+    // what keeps `llvq-quant` free of external dependencies, which the project
+    // claims — so the omission is made loud instead.
+    if !cfg!(feature = "fast-linalg") {
+        eprintln!(
+            "\n  ⚠️  compilé SANS `fast-linalg` : la factorisation tourne sur \
+             l'implémentation\n      de référence, ~40× plus lente que `faer` \
+             pour un résultat identique.\n      Ajouter `--features fast-linalg` \
+             avant de payer du matériel."
+        );
+    }
 
     if let Some(path) = &save_to {
         llvq_llm::artifact::save(&model, path)?;

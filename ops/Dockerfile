@@ -54,3 +54,8 @@ COPY --from=build \
 # hundreds of GB — the container filesystem does not.
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
+# Only for the Space's own runtime: a Job always overrides the command. This
+# image serves nothing, it is a binary container that Spaces happens to be a
+# convenient builder for — so the Space will sit idle on free CPU rather than
+# crash-loop.
+CMD ["sleep", "infinity"]

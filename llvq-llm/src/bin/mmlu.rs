@@ -46,7 +46,7 @@
 //! it produces means anything. That is the same discipline as the identity
 //! control of Phase 5: the test you re-run first when a result looks odd.
 
-use candle_core::{DType, Device, IndexOp, Tensor};
+use candle_core::{DType, IndexOp, Tensor};
 use llvq_llm::corpus::{mmlu_split, MmluItem};
 use llvq_llm::model::NoCapture;
 use std::collections::BTreeMap;
@@ -167,11 +167,7 @@ fn main() -> anyhow::Result<()> {
         .first()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("give a sealed .llvq path or a HF repo id"))?;
-    let device = if a.get(1).map(|s| s == "metal").unwrap_or(false) {
-        Device::new_metal(0).unwrap_or(Device::Cpu)
-    } else {
-        Device::Cpu
-    };
+    let device = llvq_llm::eval::device(a.get(1).map(String::as_str).unwrap_or("cpu"))?;
     // Questions per subject, for a cheap protocol check before the full run.
     // Sampled at random from a fixed seed, never the first N: MMLU test sets
     // are not shuffled, and the head of a subject is not a fair sample of it.

@@ -83,6 +83,62 @@ impl Capture for BlockCapture {
     }
 }
 
+/// Where a run's wall clock went, in seconds per phase.
+///
+/// ## Why this exists
+///
+/// The first remote run made the point sharply. On this Mac, with Metal doing
+/// the forward passes, the Leech encoder is ~59 % of a run. On a CPU-only x86
+/// job — same code, same model — it is **12 %**, and the forward passes
+/// dominate. Two opposite optimization targets, and no way to tell which one
+/// applies to a given flavor without measuring it there.
+///
+/// That matters directly in money: hardware is billed by the minute, and the
+/// gap between the right and the wrong flavor for a 32B run is a factor of
+/// four. `CLAUDE.md` already carries the warning that the profiler has never
+/// been used on this project; this is the cheap half of fixing that.
+#[derive(Debug, Default, Clone)]
+pub struct Phases {
+    /// Pass 1 — forward through the block, accumulating `H = AᵀA/N`.
+    pub capture: f64,
+    /// `GptqFactor::new`, four per block. Cubic in the activation width, and
+    /// measured at 1.5 % of a 4B run since `faer` — not the bottleneck it was.
+    pub factor: f64,
+    /// Weights out to `f64` and reconstructions back — the host↔device
+    /// traffic, which a GPU run pays and a CPU run does not.
+    pub transfer: f64,
+    /// The GPTQ loop itself: Leech search, error feedback, retraction.
+    pub quantize: f64,
+    /// Packing lattice indices into the artifact.
+    pub write: f64,
+    /// Pass 2 — advance the activations through the *quantized* block.
+    pub advance: f64,
+}
+
+impl Phases {
+    pub fn total(&self) -> f64 {
+        self.capture + self.factor + self.transfer + self.quantize + self.write + self.advance
+    }
+
+    /// `(name, seconds, percent)`, largest first — what to optimize, in order.
+    pub fn ranked(&self) -> Vec<(&'static str, f64, f64)> {
+        let total = self.total().max(1e-9);
+        let mut v = vec![
+            ("capture (passe 1)", self.capture, 0.0),
+            ("factorisation", self.factor, 0.0),
+            ("transfert f64", self.transfer, 0.0),
+            ("quantification", self.quantize, 0.0),
+            ("écriture artefact", self.write, 0.0),
+            ("advance (passe 2)", self.advance, 0.0),
+        ];
+        for e in v.iter_mut() {
+            e.2 = 100.0 * e.1 / total;
+        }
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        v
+    }
+}
+
 /// What a quantization run reports back.
 #[derive(Debug, Default, Clone)]
 pub struct Report {
@@ -95,6 +151,8 @@ pub struct Report {
     /// Bits per quantized block, gain included.
     pub block_bits: f64,
     pub seconds: f64,
+    /// Where the time went. See [`Phases`].
+    pub phases: Phases,
 }
 
 impl Report {
@@ -285,13 +343,16 @@ pub fn quantize_model_capturing(
         if t >= limit {
             let mut none = crate::model::NoCapture;
             let mask = model.causal_mask_for(&hidden[0])?;
+            let tp = std::time::Instant::now();
             for h in hidden.iter_mut() {
                 let next = model.blocks[t].forward(&*h, model.rotary(), &mask, t, &mut none)?;
                 *h = next;
             }
+            report.phases.advance += tp.elapsed().as_secs_f64();
             continue;
         }
         // ---- pass 1: collect H with the original weights ----
+        let tp = std::time::Instant::now();
         let mut cap = BlockCapture {
             target: t,
             acc: HashMap::new(),
@@ -304,8 +365,10 @@ pub fn quantize_model_capturing(
         for h in hidden.iter() {
             let _ = model.blocks[t].forward(h, model.rotary(), &mask, t, &mut cap)?;
         }
+        report.phases.capture += tp.elapsed().as_secs_f64();
 
         // ---- factor once per activation, not once per matrix ----
+        let tp = std::time::Instant::now();
         let mut factors: HashMap<Act, (GptqFactor, Vec<f64>, Option<Rotation>)> =
             HashMap::new();
         for act in Act::ALL {
@@ -324,10 +387,13 @@ pub fn quantize_model_capturing(
             factors.insert(act, (f, h, rot));
         }
 
+        report.phases.factor += tp.elapsed().as_secs_f64();
+
         // ---- quantize the seven matrices ----
         for act in Act::ALL {
             let (factor, hmat, rot) = &factors[&act];
             for name in act.consumers() {
+                let tp = std::time::Instant::now();
                 let lin = model.blocks[t].linear_mut(name);
                 let w = lin.weight();
                 let (d_out, d_in) = w.dims2()?;
@@ -338,6 +404,8 @@ pub fn quantize_model_capturing(
                     .into_iter()
                     .map(|v| v as f64)
                     .collect();
+                report.phases.transfer += tp.elapsed().as_secs_f64();
+                let tp = std::time::Instant::now();
                 let mut weights = Weights::new(d_out, d_in, flat);
                 // W' = W Qᵀ, quantize there, then Ŵ = Ŵ' Q — a drop-in
                 // replacement that needs no runtime transform.
@@ -435,8 +503,10 @@ pub fn quantize_model_capturing(
                         }
                     }
                 }
+                report.phases.quantize += tp.elapsed().as_secs_f64();
                 // The tail is read here, in the rotated basis, because that is
                 // what the decoder rebuilds before un-rotating.
+                let tp = std::time::Instant::now();
                 if let Some(s) = sink.as_deref_mut() {
                     let tail_w = d_in % cfg.block;
                     let mut tail = Vec::with_capacity(d_out * tail_w);
@@ -474,6 +544,8 @@ pub fn quantize_model_capturing(
                         tail,
                     })?;
                 }
+                report.phases.write += tp.elapsed().as_secs_f64();
+                let tp = std::time::Instant::now();
                 if let Some(q) = rot {
                     q.unrotate_weight_rows(&mut weights.w, d_out);
                 }
@@ -481,6 +553,7 @@ pub fn quantize_model_capturing(
                 let t2 = Tensor::from_vec(recon, (d_out, d_in), &device)?
                     .to_dtype(w.dtype())?;
                 *lin = candle_nn::Linear::new(t2, None);
+                report.phases.transfer += tp.elapsed().as_secs_f64();
 
                 report.matrices += 1;
                 report.weights += (d_out * d_in) as u64;
@@ -492,11 +565,13 @@ pub fn quantize_model_capturing(
         }
 
         // ---- pass 2: advance the activations through the quantized block ----
+        let tp = std::time::Instant::now();
         let mut none = crate::model::NoCapture;
         for h in hidden.iter_mut() {
             let next = model.blocks[t].forward(&*h, model.rotary(), &mask, t, &mut none)?;
             *h = next;
         }
+        report.phases.advance += tp.elapsed().as_secs_f64();
     }
 
     report.seconds = t0.elapsed().as_secs_f64();

@@ -36,6 +36,7 @@ import argparse
 import json
 import sys
 import urllib.request
+from pathlib import Path
 
 # --- hardware ---------------------------------------------------------------
 #
@@ -251,15 +252,24 @@ def cmd_launch(args) -> int:
               f"\nRelance avec --yes, ou --max-usd plus haut.", file=sys.stderr)
         return 1
 
-    # `LLVQ_MODEL` must accept a local directory for the mounted volume to be
-    # of any use — that is code item C5, and until it lands the container will
-    # re-download the checkpoint from the Hub instead.
+    # Mounting the checkpoint as a volume is only useful once `LLVQ_MODEL`
+    # accepts a local directory — code item C5. Until it lands, `--mount-model`
+    # would hand the loader a path it will try to resolve as a Hub repo id, so
+    # the default is to let the container download from the Hub. That is
+    # 65 GB per run on a 32B, which is exactly why C5 matters.
     env = {
-        "LLVQ_MODEL": args.model_mount,
+        "LLVQ_MODEL": args.model_mount if args.mount_model else args.model,
         "LLVQ_CALIB": args.calib,
-        "LLVQ_ARTIFACT": f"{args.out_mount}/{args.name}.llvq",
         "LLVQ_THREADS": str(FLAVORS[args.flavor]["vcpu"]),
     }
+    if args.bucket:
+        env["LLVQ_ARTIFACT"] = f"{args.out_mount}/{args.name}.llvq"
+    else:
+        # No bucket: the artifact still gets written and round-trip verified
+        # in-process, it just dies with the container. Fine for a plumbing
+        # test, useless for a real run.
+        env["LLVQ_ARTIFACT"] = f"/scratch/{args.name}.llvq"
+        print("  ⚠️  sans --bucket, l'artefact ne survit pas au conteneur")
     for var, val in (("LLVQ_DAMPING", args.damping),
                      ("LLVQ_CALIB_SEED", args.calib_seed),
                      ("LLVQ_DTYPE", args.dtype)):
@@ -277,10 +287,10 @@ def cmd_launch(args) -> int:
         "rot" if args.rotation else "norot",
     ]
 
-    volumes = [
-        Volume(type="model", source=args.model, mount_path=args.model_mount,
-               read_only=True),
-    ]
+    volumes = []
+    if args.mount_model:
+        volumes.append(Volume(type="model", source=args.model,
+                              mount_path=args.model_mount, read_only=True))
     if args.bucket:
         volumes.append(Volume(type="bucket", source=args.bucket,
                               mount_path=args.out_mount, read_only=False))
@@ -299,6 +309,80 @@ def cmd_launch(args) -> int:
     )
     print(f"\nlancé : {job.url}\n  id {job.id}")
     print(f"  suivi : uv run ops/run.py watch {job.id}")
+    return 0
+
+
+SPACE_CARD = """---
+title: LLVQ runner
+emoji: 🧊
+colorFrom: blue
+colorTo: gray
+sdk: docker
+pinned: false
+---
+
+# LLVQ runner
+
+**Ce Space ne sert rien.** C'est un *constructeur d'image* : Hugging Face
+compile ici les binaires Rust de la quantification LLVQ, et
+[HF Jobs](https://huggingface.co/docs/hub/jobs-overview) réutilise l'image
+produite pour lancer les runs sur du matériel adapté.
+
+Passer par un Space évite de pousser plusieurs gigaoctets d'image depuis un
+poste de dev : c'est HF qui construit, à partir des sources.
+
+Binaires : `smoke` (quantification), `ppl`, `mmlu`, `run`, `seal`, `oracle`.
+
+Lancé depuis `ops/run.py` du dépôt LLVQ.
+"""
+
+
+def cmd_publish(args) -> int:
+    """Publish the workspace as a Docker Space, which HF then builds for us.
+
+    A Space is used here purely as a build service: pushing a multi-gigabyte
+    image from a laptop is slow, and HF will build from source for free.
+    `run_job(image="hf.co/spaces/<user>/<name>")` then reuses the result.
+
+    Private by default. This is someone's research repository, and making it
+    public is a decision they take, not one a script takes for them.
+    """
+    from huggingface_hub import create_repo, upload_file, upload_folder
+
+    repo_id = args.space
+    create_repo(repo_id, repo_type="space", space_sdk="docker",
+                private=not args.public, exist_ok=True)
+    print(f"space {repo_id} ({'public' if args.public else 'privé'})")
+
+    # Allow-list, not deny-list: `COPY . .` copies whatever ends up here, so a
+    # forgotten exclusion means a slower build, and `target/` alone is tens of
+    # gigabytes.
+    upload_folder(
+        repo_id=repo_id,
+        repo_type="space",
+        folder_path=str(args.root),
+        allow_patterns=["Cargo.toml", "llvq-*/**"],
+        ignore_patterns=["**/target/**", "**/*.log"],
+        commit_message="LLVQ workspace",
+    )
+    # A Space builds its Dockerfile as written, so the CPU/CUDA choice is made
+    # by *which file* we upload — `--build-arg` never reaches the Hub builder.
+    recipe = "Dockerfile.cuda" if args.cuda else "Dockerfile"
+    upload_file(
+        path_or_fileobj=str(args.root / "ops" / recipe),
+        path_in_repo="Dockerfile",
+        repo_id=repo_id, repo_type="space",
+        commit_message=f"build recipe ({recipe})",
+    )
+    upload_file(
+        path_or_fileobj=SPACE_CARD.encode(),
+        path_in_repo="README.md",
+        repo_id=repo_id, repo_type="space",
+        commit_message="space card",
+    )
+    print(f"\nimage : hf.co/spaces/{repo_id}")
+    print(f"build : https://huggingface.co/spaces/{repo_id}  (suivre les logs)")
+    print("\nAttendre que le build passe en RUNNING avant de lancer un Job.")
     return 0
 
 
@@ -332,6 +416,8 @@ def main() -> int:
     l.add_argument("--namespace", default=None, help="facturer à une organisation")
     l.add_argument("--bucket", default=None, help="Storage Bucket pour la sortie")
     l.add_argument("--model-mount", default="/model")
+    l.add_argument("--mount-model", action="store_true",
+                   help="monter le checkpoint en volume — exige C5")
     l.add_argument("--out-mount", default="/out")
     l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"])
     l.add_argument("--blocks", type=int, default=None)
@@ -349,6 +435,15 @@ def main() -> int:
     l.add_argument("--max-usd", type=float, default=60.0)
     l.add_argument("--yes", action="store_true", help="passer outre le plafond")
     l.set_defaults(fn=cmd_launch)
+
+    pu = sub.add_parser("publish", help="publier le workspace en Space docker")
+    pu.add_argument("space", help="ex. Pier-Jean/llvq-runner")
+    pu.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
+    pu.add_argument("--public", action="store_true",
+                    help="par défaut le Space est privé")
+    pu.add_argument("--cuda", action="store_true",
+                    help="image CUDA (compute cap figée, cf. ops/Dockerfile.cuda)")
+    pu.set_defaults(fn=cmd_publish)
 
     w = sub.add_parser("watch", help="statut et logs d'un Job")
     w.add_argument("job_id")

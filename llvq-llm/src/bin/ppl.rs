@@ -30,7 +30,7 @@
 //! result, so "these two numbers describe the same thing" is checkable rather
 //! than assumed.
 
-use candle_core::{DType, Device};
+use candle_core::DType;
 use llvq_llm::corpus::{c4_validation, wikitext2_test};
 use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let ctx: usize = a.first().and_then(|s| s.parse().ok()).unwrap_or(2048);
     let max_windows: usize = a.get(1).and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
-    let want_metal = a.get(2).map(|s| s == "metal").unwrap_or(false);
+    let device_arg = a.get(2).map(String::as_str).unwrap_or("cpu");
     // A quantized model to score: a safetensors overlay of reconstructions, or
     // the sealed artifact itself. See the module note.
     let quantized = a.get(3).filter(|s| !s.is_empty() && *s != "none").cloned();
@@ -47,11 +47,7 @@ fn main() -> anyhow::Result<()> {
     // wikitext-2, the corpus our calibration set is drawn from.
     let corpus = a.get(4).cloned().unwrap_or_else(|| "wikitext2".into());
 
-    let device = if want_metal {
-        Device::new_metal(0).unwrap_or(Device::Cpu)
-    } else {
-        Device::Cpu
-    };
+    let device = llvq_llm::eval::device(device_arg)?;
     let dtype = llvq_llm::eval::dtype(DType::F32)?;
     eprintln!(
         "device: {device:?}, context {ctx}, dtype {}",

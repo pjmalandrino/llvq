@@ -11,7 +11,7 @@
 //! Greedy decoding on both sides, so any difference is the codebook and not
 //! sampling noise.
 
-use candle_core::{DType, Device};
+use candle_core::DType;
 use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
 
@@ -29,11 +29,7 @@ fn main() -> anyhow::Result<()> {
         .first()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("give the path to a quantized safetensors"))?;
-    let device = if a.get(1).map(|s| s == "metal").unwrap_or(false) {
-        Device::new_metal(0).unwrap_or(Device::Cpu)
-    } else {
-        Device::Cpu
-    };
+    let device = llvq_llm::eval::device(a.get(1).map(String::as_str).unwrap_or("cpu"))?;
     let n_new: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(24);
 
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());

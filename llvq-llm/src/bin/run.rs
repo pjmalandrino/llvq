@@ -13,7 +13,7 @@
 //! it, rather than silently reaching for the checkpoint. That refusal lives in
 //! [`llvq_llm::sealed`], shared with `bin/mmlu` and `bin/ppl`.
 
-use candle_core::{DType, Device};
+use candle_core::DType;
 use llvq_llm::model::NoCapture;
 
 const PROMPTS: &[&str] = &[
@@ -29,11 +29,7 @@ fn main() -> anyhow::Result<()> {
         .first()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("give the path to a .llvq model"))?;
-    let device = if a.get(1).map(|s| s == "metal").unwrap_or(false) {
-        Device::new_metal(0).unwrap_or(Device::Cpu)
-    } else {
-        Device::Cpu
-    };
+    let device = llvq_llm::eval::device(a.get(1).map(String::as_str).unwrap_or("cpu"))?;
     let n_new: usize = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(24);
     // f16 rather than f32: the model ran at half precision anyway, and the
     // difference is 7 GB of RAM against 15 on a 4B. `LLVQ_DTYPE=f32` puts the
