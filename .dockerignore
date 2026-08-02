@@ -1,0 +1,6 @@
+# `docker build -f ops/Dockerfile .` sends the build context to the daemon, and
+# `target/` is tens of gigabytes of build artifacts that the image rebuilds from
+# scratch anyway.
+target/
+.git/
+docs/*.log
