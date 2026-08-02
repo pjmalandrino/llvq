@@ -17,17 +17,21 @@ not decoration: it is checked against the real Qwen3-4B run (`selftest`), and
 
 ## What the estimate is built on
 
-Two measured constants, both from this repo's own benches on an M3 Max:
+End-to-end constants from two real jobs — the *same* 3-block Qwen3-0.6B
+configuration, run once on `cpu-upgrade` and once on `l4x1`. Not a model of
+the parts, which was wrong twice:
 
-* the Leech encoder runs at 1469 blocks/s/core (`bin/encbench`,
-  `nearest_angular` — the path Phase 5 calls);
-* `GptqFactor::new` reaches ~110 G mult-add/s (`bin/cholbench` at n = 4096,
-  still climbing, so this is conservative).
+* the first version assumed the Cholesky dominated. `bin/cholbench` says it is
+  1.5 % of a run since `faer`;
+* the second assumed the Leech encoder was the whole cost and concluded that a
+  GPU flavor pays for an idle accelerator. **Also wrong.** The GPU run is
+  3.8× cheaper *in core-seconds*, because the forward passes fall from 88 % of
+  the work to 0.2 %.
 
-The second one is the reason the flavor advice changed: the factorization is
-**1.5 % of a run**, not the dominant term it was before `faer`. What costs is
-the Leech encoding, which is pure CPU — so a GPU flavor is mostly paying for an
-idle accelerator.
+What survives both corrections: the encoder is CPU-bound, and on a GPU flavor
+it is **97.6 %** of the run. So the accelerator's job is to get the forward
+passes out of the way, after which the only thing that buys speed is vCPU
+count and a faster encoder.
 """
 
 from __future__ import annotations
@@ -61,6 +65,21 @@ FLAVORS: dict[str, dict] = {
 BLOCKS_PER_SEC_PER_CORE = 1469.0
 CHOLESKY_MACS_PER_SEC = 110e9
 DIM = 24
+
+# Core-seconds per quantized weight, measured end to end on Qwen3-0.6B,
+# 3 blocks, 16×2048 calibration windows — the same configuration on both.
+#
+#   cpu-upgrade, 8 vCPU, --device cpu   47 185 920 poids en 1421 s → 2.41e-4
+#   l4x1,        8 vCPU, --device cuda  47 185 920 poids en  371 s → 6.29e-5
+#
+# The GPU is 3.8× cheaper *in core-seconds*, and the phase breakdown says why:
+# the forward passes fall from 88 % of the work to 0.2 %. What is left is the
+# encoder, which is CPU-bound either way.
+#
+# These supersede a Leech-only estimate, which undercounted by ~2.2× — the
+# quantization phase is not just the lattice search but the error feedback,
+# the triangular solves and the retraction around it.
+QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 6.29e-5}
 
 # The published Qwen3-4B rate. Used to size the artifact, nothing else.
 BITS_PER_WEIGHT = 2.1696
@@ -146,22 +165,31 @@ def estimate(cfg: dict, blocks: int | None = None) -> dict:
 def cost_table(est: dict) -> list[tuple[str, float, float, str]]:
     """`(flavor, wall_hours, usd, warning)` for every flavor.
 
-    The forward passes are deliberately **not** modelled. On a GPU they are
-    ~10 minutes for a 32B; on CPU they are hours, and the spread of candle's
-    CPU gemm throughput is a factor of 3. That unknown is exactly what the 8B
-    step is for, so guessing it here would dress a guess up as an estimate.
+    Built on the end-to-end measured constants, not on a model of the parts:
+    a GPU flavor is charged the `cuda` rate because its forward passes are
+    free, a CPU flavor the `cpu` rate because they are not. Both numbers come
+    from the same 3-block Qwen3-0.6B run.
+
+    ⚠️ Extrapolating a 0.6B to a 32B assumes the cost stays linear in weight
+    count. It will not, exactly — memory bandwidth and cache behave differently
+    at 50× the size — so treat these as the right order of magnitude and let
+    the 8B step correct them.
     """
     rows = []
-    parallel_h = est["leech_core_h"] + est["chol_core_h"]
     for name, f in FLAVORS.items():
-        wall = parallel_h / f["vcpu"]
+        gpu = f["vram"] > 0
+        rate = QUANT_CORE_SEC_PER_WEIGHT["cuda" if gpu else "cpu"]
+        wall = est["quantized"] * rate / f["vcpu"] / 3600.0
         warn = ""
-        if f["vram"] == 0:
-            warn = "CPU forward not counted — hours, not minutes"
-        elif f["vram"] < est["checkpoint_gb"]:
-            warn = f"VRAM {f['vram']} Go < modèle {est['checkpoint_gb']:.0f} Go"
-        if f["ram"] < est["checkpoint_gb"]:
-            warn = (warn + "; " if warn else "") + f"RAM {f['ram']} Go serrée"
+        # The model has to sit somewhere: VRAM on a GPU flavor, host RAM
+        # otherwise. `smoke` loads in F32 today, which is 2× the bf16 figure —
+        # that is what code item C3 would fix, and it is what decides whether
+        # an 8B fits on the cheapest card.
+        need = est["checkpoint_gb"] * 2
+        if gpu and f["vram"] < need:
+            warn = f"VRAM {f['vram']} Go < {need:.0f} Go en f32 (C3 le règlerait)"
+        if not gpu and f["ram"] < need:
+            warn = f"RAM {f['ram']} Go < {need:.0f} Go en f32"
         rows.append((name, wall, wall * f["usd_h"], warn))
     return rows
 
@@ -188,8 +216,8 @@ def cmd_estimate(args) -> int:
     print("  " + "-" * 72)
     for name, wall, usd, warn in sorted(cost_table(est), key=lambda r: r[2]):
         print(f"  {name:<18}{wall:>10.1f}{usd:>9.2f}   {warn}")
-    print("\n  Les passes avant ne sont PAS comptées : ~10 min sur GPU, plusieurs")
-    print("  heures sur CPU. C'est l'étape 8B qui tranche entre les deux colonnes.")
+    print("\n  Constantes mesurées de bout en bout sur un run 0,6B (CPU et CUDA). Les")
+    print("  flavors GPU paient le tarif cuda, les autres le tarif cpu.")
     return 0
 
 
@@ -386,6 +414,31 @@ def cmd_publish(args) -> int:
     return 0
 
 
+def cmd_oracle(args) -> int:
+    """Run `bin/oracle` on a rented device — the gate before paying for more.
+
+    The hand-written forward pass exists to expose linear-layer inputs, and
+    every Hessian is built from it. If it diverges from `candle-transformers`'
+    own Qwen3 on this backend, every number that follows is wrong and the
+    failure would surface hours later as an unexplained perplexity.
+
+    It is the cheapest job in this file — a 0.6B and 64 tokens — and it is the
+    one that must never be skipped when the hardware changes.
+    """
+    from huggingface_hub import run_job
+
+    job = run_job(
+        image=args.image,
+        command=["oracle", args.model, str(args.tokens), args.device],
+        flavor=args.flavor,
+        timeout="20m",
+        name=f"oracle-{args.device}",
+        namespace=args.namespace,
+    )
+    print(f"oracle sur {args.flavor}/{args.device} : {job.url}\n  id {job.id}")
+    return 0
+
+
 def cmd_watch(args) -> int:
     from huggingface_hub import fetch_job_logs, inspect_job
 
@@ -444,6 +497,15 @@ def main() -> int:
     pu.add_argument("--cuda", action="store_true",
                     help="image CUDA (compute cap figée, cf. ops/Dockerfile.cuda)")
     pu.set_defaults(fn=cmd_publish)
+
+    o = sub.add_parser("oracle", help="valider la passe avant sur le backend cible")
+    o.add_argument("--image", required=True)
+    o.add_argument("--flavor", default="l4x1", choices=sorted(FLAVORS))
+    o.add_argument("--device", default="cuda", choices=["cpu", "cuda", "metal"])
+    o.add_argument("--model", default="Qwen/Qwen3-0.6B")
+    o.add_argument("--tokens", type=int, default=64)
+    o.add_argument("--namespace", default=None)
+    o.set_defaults(fn=cmd_oracle)
 
     w = sub.add_parser("watch", help="statut et logs d'un Job")
     w.add_argument("job_id")
