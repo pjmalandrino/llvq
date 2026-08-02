@@ -319,7 +319,18 @@ def cmd_launch(args) -> int:
     if args.mount_model:
         volumes.append(Volume(type="model", source=args.model,
                               mount_path=args.model_mount, read_only=True))
-    if args.bucket:
+    if args.bucket == "auto":
+        # `sync_job_volume` creates the `jobs-artifacts` bucket on demand and
+        # returns a mountable, writable volume. Worth the two lines: the 8B
+        # artifact costs a full run to regenerate, so letting it die with the
+        # container would be paying twice for the same file.
+        from huggingface_hub import sync_job_volume
+        out = Path(args.root_out) / args.name
+        out.mkdir(parents=True, exist_ok=True)
+        vol = sync_job_volume(str(out), args.out_mount, read_only=False)
+        volumes.append(vol)
+        print(f"  bucket : hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
+    elif args.bucket:
         volumes.append(Volume(type="bucket", source=args.bucket,
                               mount_path=args.out_mount, read_only=False))
 
@@ -531,7 +542,10 @@ def main() -> int:
     l.add_argument("--image", required=True, help="ex. <user>/llvq:cpu")
     l.add_argument("--name", default="llvq")
     l.add_argument("--namespace", default=None, help="facturer à une organisation")
-    l.add_argument("--bucket", default=None, help="Storage Bucket pour la sortie")
+    l.add_argument("--bucket", default=None,
+                   help="Storage Bucket pour la sortie ; `auto` en crée un")
+    l.add_argument("--root-out", default="/tmp/llvq-out",
+                   help="dossier local synchronisé quand --bucket auto")
     l.add_argument("--model-mount", default="/model")
     l.add_argument("--mount-model", action="store_true",
                    help="monter le checkpoint en volume — exige C5")
