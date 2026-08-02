@@ -439,6 +439,70 @@ def cmd_oracle(args) -> int:
     return 0
 
 
+def cmd_monitor(args) -> int:
+    """Follow a running Job: stage, accrued cost, utilisation, new log lines.
+
+    Two things this shows that `watch` cannot.
+
+    **What it has cost so far.** Jobs bill by the minute while Starting or
+    Running, so the only honest progress bar on a rented run is a dollar
+    counter next to the ETA.
+
+    **Whether the accelerator is doing anything.** The phase breakdown says
+    97.6 % of a GPU run is the CPU-side encoder, which predicts a GPU sitting
+    near-idle for most of the run. If that prediction holds, the next run
+    should rent cores rather than a bigger card — and this is where it gets
+    confirmed or refuted, on the actual hardware.
+    """
+    import time as _time
+
+    from huggingface_hub import fetch_job_logs, fetch_job_metrics, inspect_job
+
+    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+    seen, started, stage = 0, None, None
+    while True:
+        info = inspect_job(job_id=args.job_id)
+        if started is None:
+            started = info.created_at
+        if info.status.stage != stage:
+            stage = info.status.stage
+            print(f"[stage] {stage} {info.status.message or ''}", flush=True)
+
+        lines = list(fetch_job_logs(job_id=args.job_id))
+        for line in lines[seen:]:
+            print(line, flush=True)
+        seen = len(lines)
+
+        if stage in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
+            break
+
+        # Utilisation, best effort — the shape of this payload is not
+        # guaranteed, and a monitor must never be the thing that fails.
+        util = ""
+        try:
+            m = list(fetch_job_metrics(job_id=args.job_id))[-1]
+            cpu = m.get("cpu_usage_pct")
+            mem = m.get("memory_used_bytes", 0) / 1e9
+            gpus = m.get("gpus") or {}
+            g = next(iter(gpus.values()), {}) if isinstance(gpus, dict) else {}
+            gpct = g.get("usage_pct") if isinstance(g, dict) else None
+            util = f"cpu {cpu}%  ram {mem:.1f} Go" + (
+                f"  gpu {gpct}%" if gpct is not None else "  gpu n/d"
+            )
+        except Exception:
+            util = "métriques indisponibles"
+
+        elapsed_h = (_time.time() - started.timestamp()) / 3600.0
+        cost = f"{elapsed_h * usd_h:.2f} $" if usd_h else "coût n/d"
+        print(f"[{elapsed_h * 60:.0f} min · {cost}] {util}", flush=True)
+        _time.sleep(args.every)
+
+    elapsed_h = (_time.time() - started.timestamp()) / 3600.0
+    print(f"\n[fin] {stage} après {elapsed_h:.2f} h"
+          + (f", ~{elapsed_h * usd_h:.2f} $" if usd_h else ""))
+    return 0 if stage == "COMPLETED" else 1
+
+
 def cmd_watch(args) -> int:
     from huggingface_hub import fetch_job_logs, inspect_job
 
@@ -506,6 +570,13 @@ def main() -> int:
     o.add_argument("--tokens", type=int, default=64)
     o.add_argument("--namespace", default=None)
     o.set_defaults(fn=cmd_oracle)
+
+    m = sub.add_parser("monitor", help="suivre un Job : coût, utilisation, logs")
+    m.add_argument("job_id")
+    m.add_argument("--flavor", default=None, choices=sorted(FLAVORS),
+                   help="pour chiffrer le coût accumulé")
+    m.add_argument("--every", type=int, default=120, help="secondes entre relevés")
+    m.set_defaults(fn=cmd_monitor)
 
     w = sub.add_parser("watch", help="statut et logs d'un Job")
     w.add_argument("job_id")

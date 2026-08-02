@@ -381,9 +381,24 @@ fn main() -> anyhow::Result<()> {
         limit,
         rotation_seed,
     };
-    let progress = |t: usize, n: usize, name: &str| {
+    // One line per transformer block, with an ETA. On a multi-hour rented job
+    // the question is never "did it start" but "is it on track", and a bare
+    // elapsed counter cannot answer that. `n` is the model's block count; the
+    // run may stop earlier under `limit`, so the projection uses the target.
+    let n_target = limit.min(model.blocks.len());
+    let progress = move |t: usize, _n: usize, name: &str| {
         if name == "mlp.down_proj" {
-            eprintln!("  block {:>2}/{n} done ({:.0}s)", t + 1, t0.elapsed().as_secs_f64());
+            let done = t + 1;
+            let el = t0.elapsed().as_secs_f64();
+            let per = el / done as f64;
+            let left = n_target.saturating_sub(done);
+            eprintln!(
+                "  bloc {done:>3}/{n_target}  {:.0} min écoulées  {per:.0} s/bloc  \
+                 reste ~{:.0} min  (fin estimée à +{:.1} h)",
+                el / 60.0,
+                per * left as f64 / 60.0,
+                (el + per * left as f64) / 3600.0
+            );
         }
     };
     let mut sink = match &artifact_path {
