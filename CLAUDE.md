@@ -117,7 +117,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G3 | Indexage bijectif 48 bits (format v1) | ✅ |
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
-| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
+| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000), fichier scellé **`leech1c12`** — cap 12, 47 bits d'index + 1 de gain = **48 bits/bloc**, 2,0702 b/poids effectifs (note de provenance dans la section G5). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
 | G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,07×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence — au prix de 5,51 b/poids en RAM (échelle mesurée : 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07×). Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : brancher le noyau dans `bin/run`, et reprendre des bits (L≤4 → ~4,4 b/poids).** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
@@ -603,6 +603,27 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 > 16,9617 de perplexité à 2,1696 bits/poids** (×1,386). Juste sous QTIP (17,04),
 > à 8,5 % de bits en plus, et 9 % au-dessus de la meilleure config du papier.
 >
+> **Ce fichier est `leech1c12`** (fin de `~/llvq-run-4b-artefact.log` :
+> « leech1c12, 36 blocks, rot on, calib c4 ») : recherche angulaire plafonnée
+> à la boule Λ₂₄(12), soit **47 bits d'index + 1 bit de gain = 48 bits/bloc**.
+> Le paragraphe « débit strictement égal » plus bas, qui présente cette
+> restriction comme une option future, décrit donc **le run déjà publié**.
+>
+> 🔎 **Note de provenance — trois chiffres, un seul objet** (même logique que
+> celle de [`docs/format-noyau.md`](docs/format-noyau.md)) :
+> **2,0702** = l'« effective rate » imprimé par `bin/smoke`
+> (`calib.rs::bits_per_weight`) — la comptabilité idéale du payload : 48 bits
+> par bloc, queue `KeepExact` à 16 bits, une échelle f16 par ligne de sortie,
+> le tout rapporté aux **3 633,3 M poids des linéaires, queue comprise**.
+> **2,1696** = les bits réellement écrits dans le fichier de 981 Mo —
+> en-têtes, échelles de ligne et centroïdes en f64, queue en pleine
+> précision — rapportés aux **3 616,4 M poids quantifiés seuls**. Deux
+> numérateurs *et* deux dénominateurs, pas deux mesures contradictoires :
+> le fichier pesé est cohérent avec les deux.
+> Les **2,1117** du tableau ci-dessous relèvent enfin d'une **autre config** —
+> cap 13, 48 bits d'index + 1 de gain = **49 bits/bloc** — et, comme dit
+> ci-dessus, valaient en réalité 2,7338 : rien à voir avec le fichier scellé.
+>
 > Diagnostic complet, les trois défauts et ce qui reste à décider :
 > [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
 
@@ -679,8 +700,10 @@ d'entrée seule là où ils utilisent « Input + Output ».
 **Pour un chiffre à débit strictement égal** : restreindre la recherche
 angulaire à `Λ₂₄(12)` fait tomber l'index à 47 bits, plus 1 bit de gain =
 48 bits par bloc — littéralement la meilleure ligne de leur Table 8
-(`norm(Λ₂₄(12))` + 1 bit de gain). Petit changement dans le quantifieur,
-run de 3,5 h.
+(`norm(Λ₂₄(12))` + 1 bit de gain). **✅ Fait : c'est exactement la config du
+fichier scellé `leech1c12`** (2,0702 b/poids effectifs — cf. la note de
+provenance en tête de section). Ce paragraphe précède le run et n'est
+conservé que pour la généalogie de la décision.
 
 > 🚨 **L'erreur de comptabilité, et ce qu'elle apprend.** Le premier run 4B a
 > été annoncé à 2,0653 bits/poids. Faux : `LeechDirection` stocke la
@@ -712,6 +735,8 @@ dans la mémoire unifiée d'un Mac. C'est la thèse du projet.
 ⚠️ **1,74 Go est un chiffre calculé, pas un fichier.** Ce qu'on écrit fait
 6,8 Go : des reconstructions en f16. Produire le vrai fichier demande de
 brancher l'indexeur 48 bits (G3, écrit et testé) et un décodeur.
+*(Depuis : fait — le fichier scellé `leech1c12` existe : 981 Mo de
+projections, 1,771 Go avec l'embedding f16, cf. §3bis.)*
 
 ### Qwen3-8B — le premier point d'échelle (2026-08-02, sur GPU loué)
 

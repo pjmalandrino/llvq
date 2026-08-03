@@ -91,6 +91,33 @@ pub fn dtype_name(d: DType) -> String {
     format!("{d:?}").to_ascii_lowercase()
 }
 
+/// Round an `f32` to what `dtype` can hold, then widen it back.
+///
+/// ## Why the artifact proof needs this
+///
+/// `verify_artifact` decodes the file and demands the evaluated weights back
+/// **bit for bit**. The decoder produces `f32`; the model holds its weights at
+/// the run's dtype. At F32 those are the same object and the comparison is
+/// exact — which is why the proof has always held and must keep holding.
+///
+/// At F16 or BF16 they are not the same object: the reconstruction is computed
+/// in f64, written to the model at the model's precision, and the file still
+/// decodes to the full-precision value. The honest statement becomes "the file
+/// decodes to the evaluated weights **at the precision the model stores
+/// them**" — the same claim, evaluated at the run's dtype, and still strong
+/// enough to catch a wrong codebook, a wrong rotation seed or a mis-ordered
+/// index.
+///
+/// This is the move `calib.rs` already makes on tail columns: narrow to the
+/// precision it is stored at, before anything else reads it.
+pub fn narrow(v: f32, dtype: DType) -> f32 {
+    match dtype {
+        DType::F16 => half::f16::from_f32(v).to_f32(),
+        DType::BF16 => half::bf16::from_f32(v).to_f32(),
+        _ => v,
+    }
+}
+
 /// A dependency-free fingerprint of a token stream (FNV-1a, 64 bits).
 ///
 /// Two perplexities are comparable only if they scored the *same tokens*. That
@@ -143,6 +170,46 @@ mod tests {
         for d in [DType::F16, DType::BF16, DType::F32] {
             assert_eq!(parse_dtype(&dtype_name(d)).unwrap(), d);
         }
+    }
+
+    /// At F32 the narrowing must be the identity, or every existing artifact
+    /// proof silently changes meaning.
+    #[test]
+    fn narrowing_is_a_no_op_at_f32() {
+        for v in [0.0f32, 1.0, -3.7e-9, 1.234_567_8, f32::MIN_POSITIVE] {
+            assert_eq!(narrow(v, DType::F32).to_bits(), v.to_bits(), "{v:e}");
+        }
+    }
+
+    /// And it must actually round at the half precisions — a no-op there would
+    /// make `verify_artifact` compare a full-precision decode against a
+    /// rounded model and fail for the wrong reason.
+    #[test]
+    fn narrowing_rounds_at_half_precision() {
+        let v = 1.234_567_8f32;
+        assert_ne!(narrow(v, DType::F16).to_bits(), v.to_bits());
+        assert_ne!(narrow(v, DType::BF16).to_bits(), v.to_bits());
+
+        // Idempotent: narrowing an already-narrowed value changes nothing.
+        // This is what makes the comparison in `verify_artifact` stable — the
+        // model's stored weight is already at `dtype`, so narrowing the decode
+        // has to land on it and stay there.
+        for d in [DType::F16, DType::BF16] {
+            assert_eq!(narrow(narrow(v, d), d).to_bits(), narrow(v, d).to_bits());
+        }
+
+        // bf16 keeps f32's exponent range but only 8 mantissa bits against
+        // f16's 11, so it is the coarser of the two — **on average**, not on
+        // every value. A number whose mantissa terminates early rounds
+        // identically in both, which is exactly what a single-value assertion
+        // here got wrong: 1.2345678 lands on 1.234375 in f16 *and* in bf16.
+        let (mut e16, mut ebf) = (0.0f64, 0.0f64);
+        for i in 1..2000 {
+            let v = i as f32 * 0.001_37;
+            e16 += f64::from((narrow(v, DType::F16) - v).abs());
+            ebf += f64::from((narrow(v, DType::BF16) - v).abs());
+        }
+        assert!(ebf > 4.0 * e16, "bf16 {ebf:e} devrait dominer f16 {e16:e}");
     }
 
     /// The fingerprint exists to catch two arms tokenizing differently, so it

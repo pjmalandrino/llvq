@@ -163,7 +163,7 @@ def estimate(cfg: dict, blocks: int | None = None) -> dict:
     )
 
 
-def cost_table(est: dict) -> list[tuple[str, float, float, str]]:
+def cost_table(est: dict, dtype: str = "f32") -> list[tuple[str, float, float, str]]:
     """`(flavor, wall_hours, usd, warning)` for every flavor.
 
     Built on the end-to-end measured constants, not on a model of the parts:
@@ -186,11 +186,15 @@ def cost_table(est: dict) -> list[tuple[str, float, float, str]]:
         # otherwise. `smoke` loads in F32 today, which is 2× the bf16 figure —
         # that is what code item C3 would fix, and it is what decides whether
         # an 8B fits on the cheapest card.
-        need = est["checkpoint_gb"] * 2
+        # `est["checkpoint_gb"]` is the bf16 size. Code item C3 landed, so the
+        # run can hold the model at the checkpoint's own precision instead of
+        # upcasting it: `LLVQ_DTYPE=bf16` halves this, and on a 32B that is the
+        # difference between one 96 GB card and a two-card flavor.
+        need = est["checkpoint_gb"] * (2 if dtype == "f32" else 1)
         if gpu and f["vram"] < need:
-            warn = f"VRAM {f['vram']} Go < {need:.0f} Go en f32 (C3 le règlerait)"
+            warn = f"VRAM {f['vram']} Go < {need:.0f} Go en {dtype}"
         if not gpu and f["ram"] < need:
-            warn = f"RAM {f['ram']} Go < {need:.0f} Go en f32"
+            warn = f"RAM {f['ram']} Go < {need:.0f} Go en {dtype}"
         rows.append((name, wall, wall * f["usd_h"], warn))
     return rows
 
@@ -215,7 +219,7 @@ def cmd_estimate(args) -> int:
           f"   ({100 * est['chol_core_h'] / (est['leech_core_h'] + est['chol_core_h']):.1f} %)")
     print(f"\n  {'flavor':<18}{'h (CPU)':>10}{'$':>9}   remarque")
     print("  " + "-" * 72)
-    for name, wall, usd, warn in sorted(cost_table(est), key=lambda r: r[2]):
+    for name, wall, usd, warn in sorted(cost_table(est, args.dtype), key=lambda r: r[2]):
         print(f"  {name:<18}{wall:>10.1f}{usd:>9.2f}   {warn}")
     print("\n  Constantes mesurées de bout en bout sur un run 0,6B (CPU et CUDA). Les")
     print("  flavors GPU paient le tarif cuda, les autres le tarif cpu.")
@@ -264,7 +268,7 @@ def cmd_launch(args) -> int:
 
     cfg = fetch_config(args.model)
     est = estimate(cfg, args.blocks)
-    rows = {name: (wall, usd) for name, wall, usd, _ in cost_table(est)}
+    rows = {name: (wall, usd) for name, wall, usd, _ in cost_table(est, args.dtype or "f32")}
     if args.flavor not in rows:
         print(f"flavor inconnu: {args.flavor}", file=sys.stderr)
         return 2
@@ -525,6 +529,8 @@ def main() -> int:
     e = sub.add_parser("estimate", help="cœur-heures et coût, sans rien lancer")
     e.add_argument("model", nargs="?", default="Qwen/Qwen3-32B")
     e.add_argument("--blocks", type=int, default=None, help="limiter aux N premiers blocs")
+    e.add_argument("--dtype", default="f32", choices=["f32", "bf16", "f16"],
+                   help="precision du modele resident (C3)")
     e.set_defaults(fn=cmd_estimate)
 
     s = sub.add_parser("selftest", help="confronter l'estimateur au run 4B réel")

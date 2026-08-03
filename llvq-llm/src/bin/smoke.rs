@@ -123,8 +123,7 @@ impl llvq_llm::calib::MatrixSink for FileSink {
 /// This is the whole point of writing a file rather than reporting a number:
 /// a rate you cannot decode is a claim, not a measurement. Done one matrix at
 /// a time — decoding Qwen3-4B in one go would be 14 GB.
-fn verify_artifact(path: &str, model: &Qwen3) -> anyhow::Result<()> {
-    use candle_core::DType;
+fn verify_artifact(path: &str, model: &Qwen3, dtype: DType) -> anyhow::Result<()> {
     let f = std::fs::File::open(path)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = llvq_llm::artifact2::read_header(&mut r)?;
@@ -155,6 +154,12 @@ fn verify_artifact(path: &str, model: &Qwen3) -> anyhow::Result<()> {
             want.len()
         );
         for (k, (g, e)) in decoded.iter().zip(want.iter()).enumerate() {
+            // The decoder works in f32; the model holds its weights at the
+            // run's dtype. At F32 this narrowing is the identity and the
+            // comparison is the one this proof has always made. At a half
+            // precision it becomes "the file decodes to the evaluated weights
+            // at the precision the model stores them" — see `eval::narrow`.
+            let g = llvq_llm::eval::narrow(*g, dtype);
             anyhow::ensure!(
                 g.to_bits() == e.to_bits(),
                 "{name} weight {k}: artifact decodes {g:e}, model holds {e:e} \
@@ -166,7 +171,10 @@ fn verify_artifact(path: &str, model: &Qwen3) -> anyhow::Result<()> {
         }
         checked += decoded.len();
     }
-    eprintln!("  ✓ {checked} weights identical, bit for bit");
+    eprintln!(
+        "  ✓ {checked} weights identical, bit for bit (à {})",
+        llvq_llm::eval::dtype_name(dtype)
+    );
     Ok(())
 }
 
@@ -206,14 +214,20 @@ fn main() -> anyhow::Result<()> {
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
-    // F32, and deliberately **not** wired to `LLVQ_DTYPE`. `verify_artifact`
-    // demands the decoded file back bit for bit from the weights this model
-    // holds; at F16 the model would hand back rounded weights and the proof
-    // would fail for a reason that has nothing to do with the codebook. The
-    // quantized weights only exist at full precision here — which is exactly
-    // why the F16 object `bin/mmlu` and `bin/run` score is outside the
-    // round-trip proof. See `llvq_llm::eval`.
-    let vb = ck.var_builder(DType::F32, &device)?;
+    // F32 by default — every published run used it, and the identity control
+    // depends on it. `LLVQ_DTYPE=bf16` halves the resident model, which is
+    // what makes a 32B fit: 131 GB in f32 exceeds every single-card flavor,
+    // 65.5 GB in bf16 sits comfortably on a 96 GB one. That is a $130
+    // difference on one run.
+    //
+    // The round-trip proof follows the dtype rather than being weakened by it:
+    // `verify_artifact` narrows the decode to the model's precision, so the
+    // claim stays "the file decodes to the weights that were evaluated".
+    // The Hessian accumulator is F32 regardless (see `Hessian::new`), so
+    // calibration precision does not ride on this.
+    let dtype = llvq_llm::eval::dtype(DType::F32)?;
+    eprintln!("model dtype {}", llvq_llm::eval::dtype_name(dtype));
+    let vb = ck.var_builder(dtype, &device)?;
     let mut model = Qwen3::new(&ck.config, vb)?;
 
     // ---- evaluation windows (fixed, used before and after) ----
@@ -425,7 +439,7 @@ fn main() -> anyhow::Result<()> {
             bits as f64 / (report.weights - report.tail_weights) as f64,
             report.weights - report.tail_weights,
         );
-        verify_artifact(&path, &model)?;
+        verify_artifact(&path, &model, dtype)?;
     }
 
     eprintln!(
