@@ -39,6 +39,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -79,7 +80,7 @@ DIM = 24
 # These supersede a Leech-only estimate, which undercounted by ~2.2× — the
 # quantization phase is not just the lattice search but the error feedback,
 # the triangular solves and the retraction around it.
-QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 6.29e-5}
+QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 4.77e-5}
 
 # The published Qwen3-4B rate. Used to size the artifact, nothing else.
 BITS_PER_WEIGHT = 2.1696
@@ -465,52 +466,45 @@ def cmd_monitor(args) -> int:
     should rent cores rather than a bigger card — and this is where it gets
     confirmed or refuted, on the actual hardware.
     """
-    import time as _time
+    import threading
 
-    from huggingface_hub import fetch_job_logs, fetch_job_metrics, inspect_job
+    from huggingface_hub import fetch_job_logs, inspect_job
 
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
-    seen, started, stage = 0, None, None
+
+    # `fetch_job_logs` is a **live stream**: on a running Job it never ends, so
+    # `list(...)` on it blocks forever. That is what silenced the first version
+    # of this monitor for two hours. Consume it on a thread instead and let the
+    # main loop poll status.
+    def tail():
+        try:
+            for line in fetch_job_logs(job_id=args.job_id):
+                print(line, flush=True)
+        except Exception as e:  # a dead stream must not kill the monitor
+            print(f"[logs interrompus: {e}]", flush=True)
+
+    threading.Thread(target=tail, daemon=True).start()
+
+    stage = None
     while True:
         info = inspect_job(job_id=args.job_id)
-        if started is None:
-            started = info.created_at
         if info.status.stage != stage:
             stage = info.status.stage
             print(f"[stage] {stage} {info.status.message or ''}", flush=True)
-
-        lines = list(fetch_job_logs(job_id=args.job_id))
-        for line in lines[seen:]:
-            print(line, flush=True)
-        seen = len(lines)
-
+        # `durations.running_secs` is the **billed** time. Wall clock since
+        # `created_at` is not: it keeps counting after the Job ends, and it
+        # counts scheduling. Using it reported $35.80 for a run that cost
+        # $11.48.
+        d = getattr(info, "durations", None)
+        secs = getattr(d, "running_secs", 0) if d else 0
+        cost = f"{secs / 3600 * usd_h:.2f} $" if usd_h else "coût n/d"
+        print(f"[{secs / 60:.0f} min facturées · {cost}]", flush=True)
         if stage in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
             break
+        time.sleep(args.every)
 
-        # Utilisation, best effort — the shape of this payload is not
-        # guaranteed, and a monitor must never be the thing that fails.
-        util = ""
-        try:
-            m = list(fetch_job_metrics(job_id=args.job_id))[-1]
-            cpu = m.get("cpu_usage_pct")
-            mem = m.get("memory_used_bytes", 0) / 1e9
-            gpus = m.get("gpus") or {}
-            g = next(iter(gpus.values()), {}) if isinstance(gpus, dict) else {}
-            gpct = g.get("usage_pct") if isinstance(g, dict) else None
-            util = f"cpu {cpu}%  ram {mem:.1f} Go" + (
-                f"  gpu {gpct}%" if gpct is not None else "  gpu n/d"
-            )
-        except Exception:
-            util = "métriques indisponibles"
-
-        elapsed_h = (_time.time() - started.timestamp()) / 3600.0
-        cost = f"{elapsed_h * usd_h:.2f} $" if usd_h else "coût n/d"
-        print(f"[{elapsed_h * 60:.0f} min · {cost}] {util}", flush=True)
-        _time.sleep(args.every)
-
-    elapsed_h = (_time.time() - started.timestamp()) / 3600.0
-    print(f"\n[fin] {stage} après {elapsed_h:.2f} h"
-          + (f", ~{elapsed_h * usd_h:.2f} $" if usd_h else ""))
+    print(f"\n[fin] {stage} — {secs / 3600:.2f} h facturées"
+          + (f", {secs / 3600 * usd_h:.2f} $" if usd_h else ""))
     return 0 if stage == "COMPLETED" else 1
 
 

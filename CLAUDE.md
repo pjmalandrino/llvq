@@ -713,6 +713,55 @@ dans la mémoire unifiée d'un Mac. C'est la thèse du projet.
 6,8 Go : des reconstructions en f16. Produire le vrai fichier demande de
 brancher l'indexeur 48 bits (G3, écrit et testé) et un décodeur.
 
+### Qwen3-8B — le premier point d'échelle (2026-08-02, sur GPU loué)
+
+Premier run hors du Mac : HF Jobs, `rtx-pro-6000` (23 vCPU, 96 Go), CUDA,
+`leech1c12L3`, calibration C4 131 k tokens, 36 blocs. **4,18 h facturées,
+11,48 $.** 399 s/bloc, stable au dixième sur les 36 — aucune dérive.
+`verify_artifact` repasse : 6 945 767 424 poids identiques bit pour bit.
+
+| | Qwen3-4B | **Qwen3-8B** |
+|---|---|---|
+| bits/poids | 2,1696 | **2,0436** |
+| baseline (ctx 4096, 12 fen.) | 12,2336 | 8,9893 |
+| LLVQ 2 bits | 16,9617 | 11,3934 |
+| **dégradation** | ×1,386 | **×1,267** |
+
+**Le 8B se dégrade moins que le 4B, à moins de bits.** C'est le signal
+d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
+
+Le débit plus bas n'est pas un progrès de méthode, c'est un alignement :
+`intermediate_size = 12288 = 24 × 512` exactement, donc `down_proj` — un tiers
+des poids — n'a **aucune queue**. Sur le 4B, `9728 = 24 × 405 + 8` en a une.
+
+⚠️ **Ne pas publier le ratio de compression du 8B.** `tie_word_embeddings` y
+est `false` avec un `hidden` de 4096 seulement : l'embedding pèse 15,2 % des
+poids et **57 % de l'artefact scellé**, pour un ratio de ×3,7 — moins bon que
+le 4B (×4,63) à méthode identique. L'artefact écrit ici fait 1,823 Go, mais
+c'est un fichier **projections seules** (format v1) ; scellé il ferait ~4,3 Go.
+
+**Profil par phase à cette échelle** (GPU) :
+
+| phase | s | % |
+|---|---|---|
+| quantification (encodeur) | 12 951 | **90,3 %** |
+| factorisation | 783 | 5,5 % |
+| écriture artefact | 255 | 1,8 % |
+| capture (passe 1) | 174 | 1,2 % |
+| transfert f64 | 118 | 0,8 % |
+| advance (passe 2) | 66 | 0,5 % |
+
+L'accélérateur sert à évacuer les passes avant (1,2 %) ; tout le reste est
+l'encodeur, qui est CPU. Donc **sur GPU, seuls comptent le nombre de vCPU et
+la vitesse de l'encodeur.** La factorisation remonte de 1,6 % (0,6B) à 5,5 %
+— le `n³` commence à se voir, et il pèsera plus à 25 600.
+
+**Projection 32B** sur base mesurée (4,77·10⁻⁵ cœur-s/poids) : **≈ 18 h**.
+`rtx-pro-6000` **49 $** — mais 131 Go en f32 ne tiennent pas dans 96 Go de
+VRAM, donc **C3 (chargement bf16) est un prérequis**, pas une optimisation.
+Sans lui il faut un `h200x2` à 10 $/h, soit **~180 $**. C3 vaut donc ~130 $
+sur ce seul run.
+
 ### ⚠️ Le piège du « x bits/poids » sur un petit modèle
 
 2,1531 bits/poids ne concerne que les **196 matrices linéaires**. Sur
