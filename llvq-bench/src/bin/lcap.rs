@@ -24,6 +24,12 @@
 //! the covering radius by just `4.5^(1/24) ≈ 6.6 %`. High dimension is why
 //! codebook size buys so little resolution, and why this may be nearly free.
 //!
+//! The gain code rounds the block **norm**, as `LeechShapeGain` does. Earlier
+//! versions of this bench rounded the projection `⟨x, v̂⟩` instead, which is
+//! the optimum at fixed direction and therefore reported a quantizer strictly
+//! better than the one that produced the artifact — about 2 % of block MSE,
+//! 0.7 points of retention, on tables that decide format policy.
+//!
 //! ⚠️ Gaussian source, one seed, no GPTQ. Real weights are not Gaussian and
 //! the GPTQ loop reshapes their distribution — this indicates, it does not
 //! decide. A 3-block A/B on the real model is what settles it.
@@ -87,6 +93,16 @@ fn main() {
     );
     println!("  {}", "-".repeat(88));
 
+    // The gain centroids are fitted on block **norms**, the scalar
+    // `LeechShapeGain` rounds — not on projections, which would measure a
+    // quantizer that never ran on a model. Norms do not depend on the cap, so
+    // one fit serves every row.
+    let norms: Vec<f64> = train
+        .iter()
+        .map(|x| x.iter().map(|v| v * v).sum::<f64>().sqrt())
+        .collect();
+    let centroids = lloyd_max(&norms, GAIN_BITS, 60);
+
     let mut baseline = None;
     for cap in 2..=MAX_LEVELS_ANY {
         let n = codebook_size(cap);
@@ -100,17 +116,11 @@ fn main() {
         let n_classes = even.iter().filter(|c| c.n_levels() <= cap).count()
             + odd.iter().filter(|c| c.n_levels() <= cap).count();
         let mut ball = BallSearcher::with_level_cap(cap);
-        let t_train: Vec<f64> = train
-            .iter()
-            .map(|x| project(&s, &mut ball, x).0)
-            .collect();
-        let centroids = lloyd_max(&t_train, GAIN_BITS, 60);
-
         let mse: f64 = eval
             .iter()
             .map(|x| {
                 let (t, xx) = project(&s, &mut ball, x);
-                let g = centroids[nearest_centroid(&centroids, t)];
+                let g = centroids[nearest_centroid(&centroids, xx.sqrt())];
                 xx - 2.0 * g * t + g * g
             })
             .sum::<f64>()

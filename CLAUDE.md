@@ -93,6 +93,17 @@ cargo run --release -p llvq-metal --bin decreal       # coût du décodage seul,
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
+# ⚠️ ppl tourne en f32 par défaut, mmlu et run en f16. Chaque métrique est
+# cohérente en interne ; les COMPARER exige le même dtype des deux côtés :
+#   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal
+# ppl sait scorer le FICHIER SCELLÉ (4ᵉ arg), donc exactement l'objet que mmlu
+# score. Les deux bras ne sont comparables que si l'EMPREINTE DE TOKENS
+# imprimée sur la ligne de résultat est la même :
+#   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal ~/qwen3-4b-llvq.bin
+
+# A/B à faire tourner (3 blocs = ~8 min chacun, une seule variable à la fois)
+#   LLVQ_CALIB_SEED={1,2,3}  → la barre d'erreur qui manque au projet
+#   LLVQ_DAMPING={3e-3,1e-2,3e-2}  → jamais balayé ; résultat nul attendu
 cargo clippy --all-targets                   # doit rester à zéro warning
 ```
 
@@ -106,7 +117,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G3 | Indexage bijectif 48 bits (format v1) | ✅ |
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
-| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
+| G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000), fichier scellé **`leech1c12`** — cap 12, 47 bits d'index + 1 de gain = **48 bits/bloc**, 2,0702 b/poids effectifs (note de provenance dans la section G5). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
 | G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,07×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence — au prix de 5,51 b/poids en RAM (échelle mesurée : 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07×). Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : brancher le noyau dans `bin/run`, et reprendre des bits (L≤4 → ~4,4 b/poids).** Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
@@ -117,14 +128,25 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 | papier, spherical shaping | `Λ₂₄(13)` | 2,000 | 0,084 | 89,37 % |
 | papier, shape–gain 0 bit de gain | `norm(Λ₂₄(13))` | 2,000 | 0,085 | 89,12 % |
 | papier, shape–gain 1 bit de gain | `norm(Λ₂₄(12))` | 2,000 | 0,078 | 92,14 % |
-| **notre shape–gain 0 bit de gain** | `norm(Λ₂₄(13))` | 1,9999 | 0,0840 | **89,36 %** |
+| **notre shape–gain 0 bit de gain** | `norm(Λ₂₄(13))` | 1,9999 | 0,0850 | **88,90 %** |
 | **notre spherical shaping (β\* = 0,350)** | `Λ₂₄(13)` | 1,9999 | 0,0775 | **92,23 %** |
 | Shannon | — | 2,000 | 0,0625 | 100 % |
 
+> ⚠️ **Les lignes shape–gain ont bougé le 2026-08-01 (§A5).** Le banc codait
+> le gain sur la **projection** `⟨x,v̂⟩` — l'optimum à direction fixée — alors
+> que `LeechShapeGain` code la **norme** du bloc. Même reconstruction, même
+> formule d'erreur, scalaire différent : le banc mesurait un quantifieur
+> strictement meilleur que celui qui a produit l'artefact, de `2/(1+cos θ)`
+> par bloc. Les chiffres ci-dessus sont ceux du quantifieur **livré** ; la
+> borne à gain optimal reste imprimée en dessous de chaque ligne par le banc.
+> `tests/bench_matches_production.rs` épingle désormais le banc sur
+> `LeechShapeGain::quantize`, bloc par bloc. Le spherical shaping n'a pas de
+> code de gain, donc ses 92,23 % sont inchangés.
+>
 > 🔎 **L'écart sur le spherical shaping s'explique par β, pas par le
 > codebook — ne pas le revendiquer comme une victoire.** Notre shape–gain
-> 0 bit reproduit le papier au millième (89,36 vs 89,12), donc protocole et
-> codebook sont bons. Mais notre spherical shaping le dépasse de presque
+> 0 bit reproduit le papier à 0,2 point près (88,90 vs 89,12), donc protocole
+> et codebook sont bons. Mais notre spherical shaping le dépasse de presque
 > 3 points (92,23 vs 89,37). Le balayage
 > (`cargo run --release -p llvq-bench --bin betasweep`) montre un optimum
 > **étroit** :
@@ -138,24 +160,74 @@ relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
 > de boule ne semble pas optimisé. **Conclusion : à iso-réglage, on reproduit
 > le papier ; notre avance est un artefact de réglage, pas un meilleur code.**
 
-## 3ter. MMLU — ce que la perplexité cachait (2026-08-01)
+## 3ter. MMLU — ce que la perplexité cachait (2026-08-01, remesuré le 08-02)
+
+> 🚨 **Les deux chiffres de cette section sont des moyennes MACRO ; le papier
+> rapporte du MICRO. Ils ne sont pas comparables et il faut les remesurer.**
+> Corrigé dans le harnais le 2026-08-01 (§A1).
+>
+> `bin/mmlu` tirait `limit` questions **par matière** puis divisait
+> `Σright / Σtotal` globalement. Avec 40 par matière et 57 matières, chaque
+> terme pèse pareil : la division est algébriquement la moyenne **non
+> pondérée** des 57 taux. Or le split MMLU est très déséquilibré —
+> `professional_law` 1 534 questions, `abstract_algebra` 100 — donc le macro
+> sur-pondère les petites matières STEM d'un facteur ~2,5.
+>
+> **C'est exactement là que le 2 bits fait ses dégâts** (voir le profil par
+> matière ci-dessous), donc le biais frappe beaucoup plus fort le bras
+> quantifié que la baseline. Conséquence directe : l'argument « les deux
+> écarts pointent en sens opposés, donc ce n'est pas un décalage de protocole
+> qui s'annulerait » **est faux** — un échange macro/micro produit
+> précisément cette signature-là.
+>
+> ✅ **Le second facteur de confusion suspecté — ppl en F32, MMLU en F16 — a
+> été mesuré et il est nul** (§A2, 0,1 % d'écart). L'agrégation était donc bien
+> la seule piste restante.
+
+**Remesuré en micro le 2026-08-02** (§A1), f16 des deux côtés, mêmes 2 280
+questions et même graine que le run publié. Log par matière conservé cette
+fois : [`docs/mmlu-micro-2026-08-02.log`](docs/mmlu-micro-2026-08-02.log).
 
 Harnais maison (`bin/mmlu`), **dans notre pipeline, sur le fichier scellé** —
 pas un checkpoint déquantifié dans le moteur d'un tiers, parce que MLX et
-notre `bin/run` divergent au 5ᵉ token sur les mêmes poids. Hendrycks 5-shot,
-2 280 questions tirées à graine fixe, ±1 pp.
+notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 
-| | nous | papier |
-|---|---|---|
-| FP16 | **72,85** | 70,2 |
-| LLVQ 2 bits | **57,59** | 60,7 |
-| **chute** | **−15,3 pp** (79,1 % retenus) | −9,5 pp (86,5 %) |
+| | micro (= papier) | macro | papier |
+|---|---|---|---|
+| FP16 | **70,42 ± 1,28** | 72,85 | 70,2 |
+| LLVQ 2 bits | **56,09 ± 1,36** | 57,59 | 60,7 |
+| **chute** | **−14,33 pp** (79,7 % retenus) | −15,26 pp | −9,5 pp (86,5 %) |
 
-**On égale le papier en perplexité et on perd nettement plus en capacités.**
-Les deux écarts pointent en sens *opposés* (baseline +2,8σ, quantifié −3,0σ),
-donc ce n'est pas un décalage de protocole qui s'annulerait. Cause la plus
-probable : le volume de calibration — ~131 k tokens contre leurs 6 100
-séquences, ~100× moins.
+> ✅ **Le contrôle passe sur les deux bras** : les macros ressortent à 72,85 et
+> 57,59, *exactement* les chiffres publiés la veille. La seule différence entre
+> les deux colonnes est l'agrégation, sans autre variable.
+
+**Ce que la correction change, et ce qu'elle ne change pas.**
+
+1. **Sur la baseline, elle explique tout.** 72,85 → **70,42 contre 70,2 au
+   papier : +0,22 pp, soit 0,17 σ.** L'écart de +2,65 pp qu'on mettait sur le
+   compte de vagues différences de protocole était *entièrement* l'échange
+   macro/micro. **Le harnais maison est validé** à un niveau jamais atteint.
+2. **Sur le bras quantifié, elle ne change presque rien.** La chute passe de
+   −15,26 à −14,33 pp : l'agrégation n'en valait que **0,93 pp**. Face aux
+   −9,5 pp du papier il reste **−4,8 pp**, et notre 56,09 est à 3,4 σ de leur
+   60,7.
+
+> ⚠️ **La prédiction de l'audit était fausse sur ce point, et il faut le dire.**
+> Il annonçait « chute ~−10 pp, c'est-à-dire au niveau du papier ». Le
+> *diagnostic* du bug était juste ; l'*ordre de grandeur* de son effet ne
+> l'était pas. Le macro/micro pesait ~1 pp, pas ~6.
+
+**Donc la conclusion de fond tient, et elle est mieux fondée qu'avant** :
+notre quantification perd nettement plus en capacités que la leur. L'argument
+est même plus propre — puisque la baseline reproduit le papier à 0,22 pp, le
+déficit du bras quantifié ne peut plus être imputé au harnais. Cause la plus
+probable, inchangée : le volume de calibration (~131 k tokens contre 6 100
+séquences, ~100× moins).
+
+⚠️ Ce qui **est** mort : l'argument « les deux écarts pointent en sens opposés,
+donc ce n'est pas un décalage de protocole qui s'annulerait ». Il ne reste
+qu'un seul écart, du côté quantifié.
 
 > 🔎 **Le profil par matière montre le mécanisme** : algèbre abstraite et
 > comptabilité tombent à **25 %, exactement le hasard**, pendant qu'histoire,
@@ -531,8 +603,49 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 > 16,9617 de perplexité à 2,1696 bits/poids** (×1,386). Juste sous QTIP (17,04),
 > à 8,5 % de bits en plus, et 9 % au-dessus de la meilleure config du papier.
 >
+> **Ce fichier est `leech1c12`** (fin de `~/llvq-run-4b-artefact.log` :
+> « leech1c12, 36 blocks, rot on, calib c4 ») : recherche angulaire plafonnée
+> à la boule Λ₂₄(12), soit **47 bits d'index + 1 bit de gain = 48 bits/bloc**.
+> Le paragraphe « débit strictement égal » plus bas, qui présente cette
+> restriction comme une option future, décrit donc **le run déjà publié**.
+>
+> 🔎 **Note de provenance — trois chiffres, un seul objet** (même logique que
+> celle de [`docs/format-noyau.md`](docs/format-noyau.md)) :
+> **2,0702** = l'« effective rate » imprimé par `bin/smoke`
+> (`calib.rs::bits_per_weight`) — la comptabilité idéale du payload : 48 bits
+> par bloc, queue `KeepExact` à 16 bits, une échelle f16 par ligne de sortie,
+> le tout rapporté aux **3 633,3 M poids des linéaires, queue comprise**.
+> **2,1696** = les bits réellement écrits dans le fichier de 981 Mo —
+> en-têtes, échelles de ligne et centroïdes en f64, queue en pleine
+> précision — rapportés aux **3 616,4 M poids quantifiés seuls**. Deux
+> numérateurs *et* deux dénominateurs, pas deux mesures contradictoires :
+> le fichier pesé est cohérent avec les deux.
+> Les **2,1117** du tableau ci-dessous relèvent enfin d'une **autre config** —
+> cap 13, 48 bits d'index + 1 de gain = **49 bits/bloc** — et, comme dit
+> ci-dessus, valaient en réalité 2,7338 : rien à voir avec le fichier scellé.
+>
 > Diagnostic complet, les trois défauts et ce qui reste à décider :
 > [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
+
+> ✅ **Le 16,9617 est confirmé sur le fichier lui-même (2026-08-01, §A2).**
+> Il avait été mesuré par la boucle interne de `smoke`, en F32, sur le modèle
+> encore en mémoire. `bin/ppl` sait désormais charger l'artefact scellé, donc
+> on peut scorer les octets livrés plutôt qu'une reconstruction :
+>
+> | bras | dtype | source | ppl |
+> |---|---|---|---|
+> | baseline | f32 | checkpoint | 12,2336 |
+> | baseline | **f16** | checkpoint | **12,2361** |
+> | LLVQ 2 bits | f32 | modèle en mémoire | 16,9617 |
+> | **LLVQ 2 bits** | **f16** | **`~/qwen3-4b-llvq.bin` décodé** | **16,9415** |
+>
+> Dégradation **×1,3846** en f16 contre ×1,3865 en f32. **Le confondant
+> F32/MMLU-F16 est donc nul à 0,1 % près** : il ne reste que l'agrégation
+> macro/micro (§3ter) pour expliquer l'écart au papier sur MMLU.
+>
+> Les deux bras impriment la même empreinte de tokens `3f1baca9033bf251` — 12
+> fenêtres de 4096 identiques des deux côtés, donc le rapport a un sens. C'est
+> la condition qu'on supposait sans la vérifier.
 
 Protocole : shape–gain, rétraction sphérique, rotation d'entrée, `faer`,
 131 k tokens de calibration, `TailPolicy::KeepExact`. Évaluation wikitext-2
@@ -587,8 +700,10 @@ d'entrée seule là où ils utilisent « Input + Output ».
 **Pour un chiffre à débit strictement égal** : restreindre la recherche
 angulaire à `Λ₂₄(12)` fait tomber l'index à 47 bits, plus 1 bit de gain =
 48 bits par bloc — littéralement la meilleure ligne de leur Table 8
-(`norm(Λ₂₄(12))` + 1 bit de gain). Petit changement dans le quantifieur,
-run de 3,5 h.
+(`norm(Λ₂₄(12))` + 1 bit de gain). **✅ Fait : c'est exactement la config du
+fichier scellé `leech1c12`** (2,0702 b/poids effectifs — cf. la note de
+provenance en tête de section). Ce paragraphe précède le run et n'est
+conservé que pour la généalogie de la décision.
 
 > 🚨 **L'erreur de comptabilité, et ce qu'elle apprend.** Le premier run 4B a
 > été annoncé à 2,0653 bits/poids. Faux : `LeechDirection` stocke la
@@ -620,6 +735,120 @@ dans la mémoire unifiée d'un Mac. C'est la thèse du projet.
 ⚠️ **1,74 Go est un chiffre calculé, pas un fichier.** Ce qu'on écrit fait
 6,8 Go : des reconstructions en f16. Produire le vrai fichier demande de
 brancher l'indexeur 48 bits (G3, écrit et testé) et un décodeur.
+*(Depuis : fait — le fichier scellé `leech1c12` existe : 981 Mo de
+projections, 1,771 Go avec l'embedding f16, cf. §3bis.)*
+
+### Qwen3-8B — le premier point d'échelle (2026-08-02, sur GPU loué)
+
+Premier run hors du Mac : HF Jobs, `rtx-pro-6000` (23 vCPU, 96 Go), CUDA,
+`leech1c12L3`, calibration C4 131 k tokens, 36 blocs. **4,18 h facturées,
+11,48 $.** 399 s/bloc, stable au dixième sur les 36 — aucune dérive.
+`verify_artifact` repasse : 6 945 767 424 poids identiques bit pour bit.
+
+| | Qwen3-4B | **Qwen3-8B** |
+|---|---|---|
+| bits/poids | 2,1696 | **2,0436** |
+| baseline (ctx 4096, 12 fen.) | 12,2336 | 8,9893 |
+| LLVQ 2 bits | 16,9617 | 11,3934 |
+| **dégradation** | ×1,386 | **×1,267** |
+
+**Le 8B se dégrade moins que le 4B, à moins de bits.** C'est le signal
+d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
+
+Le débit plus bas n'est pas un progrès de méthode, c'est un alignement :
+`intermediate_size = 12288 = 24 × 512` exactement, donc `down_proj` — un tiers
+des poids — n'a **aucune queue**. Sur le 4B, `9728 = 24 × 405 + 8` en a une.
+
+⚠️ **Ne pas publier le ratio de compression du 8B.** `tie_word_embeddings` y
+est `false` avec un `hidden` de 4096 seulement : l'embedding pèse 15,2 % des
+poids et **57 % de l'artefact scellé**, pour un ratio de ×3,7 — moins bon que
+le 4B (×4,63) à méthode identique. L'artefact écrit ici fait 1,823 Go, mais
+c'est un fichier **projections seules** (format v1) ; scellé il ferait ~4,3 Go.
+
+**Profil par phase à cette échelle** (GPU) :
+
+| phase | s | % |
+|---|---|---|
+| quantification (encodeur) | 12 951 | **90,3 %** |
+| factorisation | 783 | 5,5 % |
+| écriture artefact | 255 | 1,8 % |
+| capture (passe 1) | 174 | 1,2 % |
+| transfert f64 | 118 | 0,8 % |
+| advance (passe 2) | 66 | 0,5 % |
+
+L'accélérateur sert à évacuer les passes avant (1,2 %) ; tout le reste est
+l'encodeur, qui est CPU. Donc **sur GPU, seuls comptent le nombre de vCPU et
+la vitesse de l'encodeur.** La factorisation remonte de 1,6 % (0,6B) à 5,5 %
+— le `n³` commence à se voir, et il pèsera plus à 25 600.
+
+**Projection 32B** sur base mesurée (4,77·10⁻⁵ cœur-s/poids) : **≈ 18 h**.
+`rtx-pro-6000` **49 $** — mais 131 Go en f32 ne tiennent pas dans 96 Go de
+VRAM, donc **C3 (chargement bf16) est un prérequis**, pas une optimisation.
+Sans lui il faut un `h200x2` à 10 $/h, soit **~180 $**. C3 vaut donc ~130 $
+sur ce seul run.
+
+### Qwen3-32B — dé-risqué sur 4 blocs, pas encore lancé (2026-08-03)
+
+4 blocs sur 64, `rtx-pro-6000x2`, **bf16** (C3), 59 min, **5,43 $**. Le but
+n'était pas un chiffre de qualité — 4 blocs sur 64 donnent ×1,002, ça
+n'apprend rien — mais de lever trois inconnues avant d'engager 11 h.
+
+| inconnue | verdict |
+|---|---|
+| pic mémoire de `faer` à n=25600 | ✅ 70,6 Go hôte / 512, et 77,4 Go VRAM / 97 |
+| bf16 à cette échelle | ✅ `verify_artifact` repasse, 1 950 351 360 poids bit pour bit |
+| s/bloc réel | ⚠️ **621 s**, contre ~500 prédits |
+
+**L'estimation était 25 % basse.** Le run complet fait **~11,4 h et ~62 $**,
+pas 9 h et 49 $. Le dé-risquage a coûté 5,43 $ et corrigé une erreur de 13 $
+avant engagement.
+
+**Le profil par phase explique l'écart, et il bouge avec la largeur :**
+
+| phase | 0,6B | 8B | **32B** |
+|---|---|---|---|
+| quantification (encodeur) | 97,6 % | 90,3 % | **71,8 %** |
+| **factorisation** | 1,6 % | 5,5 % | **16,5 %** |
+
+Le terme en `n³` remonte exactement comme `cholbench` le prédisait (~1,9 h sur
+le run complet). Conséquence méthodologique : **le coût par poids n'est pas
+linéaire** — 4,77·10⁻⁵ cœur-s à 8B, **6,36·10⁻⁵ à 32B**. Ne plus extrapoler
+une largeur depuis une autre sans marge.
+
+Reste à décider avant de payer les 62 $ : l'encodeur pèse encore 71,8 %, et
+§2c liste deux optimisations jamais tentées (complément d'octade, SIMD `pulp`).
+Un facteur 1,5 ramènerait le run à ~40 $, et ça composerait sur tous les runs
+suivants.
+
+### Faire tourner ailleurs — [`ops/`](ops/README.md)
+
+Le Mac de dev fait 69 Go ; Qwen3-32B en pèse 65,5 en bf16. Tout ce qui dépasse
+le 8B tourne sur **HF Jobs**, piloté par `ops/run.py` (Python, hors du
+workspace Rust qui reste sans dépendance).
+
+```bash
+uv run ops/run.py estimate Qwen/Qwen3-32B --dtype bf16   # cœur-heures et coût
+uv run ops/run.py selftest                                # l'estimateur vs le run 4B réel
+uv run ops/run.py publish <user>/llvq-runner-cuda --cuda  # HF construit l'image
+uv run ops/run.py oracle --image hf.co/spaces/…           # ⚠️ le verrou, à chaque backend
+uv run ops/run.py launch --model … --flavor … --bucket auto
+uv run ops/run.py monitor <job_id> --flavor …             # coût facturé + logs
+```
+
+Quatre choses apprises en s'en servant, qui coûtent cher à redécouvrir :
+
+- **`oracle` d'abord, toujours.** Sur CUDA il rend `max |Δhidden| = 0.000e0`,
+  exactement comme en Metal. 42 s et ~1 centime pour savoir si les hessiennes
+  construites sur ce backend valent quelque chose.
+- **`fast-linalg` n'est pas optionnel en pratique.** Sans lui la factorisation
+  est **40× plus lente** pour une perplexité bit-identique. `smoke` avertit
+  bruyamment quand la feature manque.
+- **Le builder d'un Space n'a pas de GPU**, donc `CUDA_COMPUTE_CAP` doit être
+  figée dans l'image (89 = Ada). Et le profil `lto = "thin"` +
+  `codegen-units = 1` tue le build par OOM : `ops/Dockerfile.cuda` relève les
+  codegen units et limite les jobs cargo.
+- **Sans C5, le conteneur retélécharge le checkpoint** : 26 min sur 65,5 Go,
+  soit 45 % d'un run court.
 
 ### ⚠️ Le piège du « x bits/poids » sur un petit modèle
 
@@ -760,14 +989,20 @@ train — `cargo run --release -p llvq-bench --bin llvq-bench`) :
 | code | bits/dim | MSE | rétention | classes |
 |---|---|---|---|---|
 | papier, union `norm(Λ₂₄(12))` + 1 bit de gain | 2,0000 | 0,078 | 92,14 % | 383 |
-| notre union `norm(Λ₂₄(13))` + 0 bit | 1,9999 | 0,0840 | 89,36 % | 383 |
-| **coquille 12 seule + 1 bit de gain** | **1,9584** | 0,0805 | **92,81 %** | **79** |
-| **coquille 13 seule + 1 bit de gain** | 2,0113 | 0,0751 | **92,83 %** | **82** |
+| notre union `norm(Λ₂₄(13))` + 0 bit | 1,9999 | 0,0850 | 88,90 % | 383 |
+| **coquille 12 seule + 1 bit de gain** | **1,9584** | 0,0817 | **92,24 %** | **79** |
+| **coquille 13 seule + 1 bit de gain** | 2,0113 | 0,0762 | **92,33 %** | **82** |
 
-La coquille 12 seule bat la meilleure configuration union du papier **à la
-fois en débit et en rétention**, avec **4,8× moins de classes** et une norme
-constante. Structure des coquilles (vérifiée par la même formule de
-cardinalité que la série thêta) :
+> ⚠️ **Chiffres révisés le 2026-08-01 (§A5)** : le banc codait le gain sur la
+> projection, la production le code sur la norme du bloc. Les rétentions
+> perdent ~0,5 point (12 seule : 92,81 → **92,24** ; 13 seule : 92,83 →
+> **92,33**). **La marge sur le papier passe de 0,67 point à 0,10** — c'est
+> maintenant un ex æquo, pas une victoire.
+
+La coquille 12 seule **égale** la meilleure configuration union du papier en
+rétention (92,24 contre 92,14, dans le bruit) tout en la battant en débit, avec
+**4,8× moins de classes** et une norme constante. Structure des coquilles
+(vérifiée par la même formule de cardinalité que la série thêta) :
 
 | m | \|Shell(m)\| | bits/dim | classes |
 |---|---|---|---|

@@ -1,0 +1,68 @@
+# CUDA build of the quantization binaries, for HF Jobs GPU flavors.
+#
+# Separate from `ops/Dockerfile` rather than parameterized by build args,
+# because a Space builds its Dockerfile **as written** — `--build-arg` is a
+# local-docker concept and does not reach the Hub builder.
+#
+# ## The compute capability has to be pinned
+#
+# `candle`'s CUDA build detects the target architecture by running
+# `nvidia-smi`. The Space builder has **no GPU**, so detection fails and the
+# build dies unless `CUDA_COMPUTE_CAP` is set. That makes the image
+# architecture-specific, so the flavor is chosen here and not at launch:
+#
+#   89 → Ada        : `l4x1` (24 GB), `l40sx1` (48 GB)
+#   90 → Hopper     : `h200`
+#   80 → Ampere     : `a100-large`
+#
+# 89 covers the two cheapest GPU flavors, which is what the 0.6B validation and
+# the 8B run need. Change it here, and rebuild, to move to H200 for a 32B.
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build
+ARG FEATURES=cuda,fast-linalg
+ENV CUDA_COMPUTE_CAP=89
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates build-essential pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH=/root/.cargo/bin:$PATH
+WORKDIR /src
+COPY . .
+# The workspace release profile is `lto = "thin"` with `codegen-units = 1`,
+# which is right for a laptop and too greedy for the Hub's Space builder: the
+# first attempt died mid-`llvq-llm` with no `error:` line at all — the
+# signature of a SIGKILL, not a compile failure. Linking six candle+CUDA
+# binaries under full LTO in one codegen unit is the peak.
+#
+# Raising the codegen units and capping parallel rustc processes brings the
+# peak down. Thin LTO is kept: this image exists to make paid hardware go
+# fast, so trading the optimizer away to save a few build minutes would be the
+# wrong side of that deal.
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+ENV CARGO_BUILD_JOBS=2
+# `fast-linalg` is not optional in practice: without it the GPTQ factorization
+# runs the reference Cholesky, measured at 28.4 s against 0.7 s with `faer` on
+# one block of Qwen3-0.6B — 40× slower, for a bit-identical perplexity. On
+# rented hardware that is a 40× bill on that phase.
+RUN cargo build --release -p llvq-llm --features ${FEATURES} \
+      --bin smoke --bin ppl --bin oracle
+
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates libssl3 \
+ && rm -rf /var/lib/apt/lists/*
+# Only the three binaries the GPU path needs: `oracle` proves the forward pass
+# on this backend, `smoke` quantizes, `ppl` scores. `mmlu`, `seal` and `run`
+# come back when there is an artifact worth sealing — each one is another LTO
+# link at build time, which is exactly what killed the first attempt.
+COPY --from=build \
+      /src/target/release/smoke \
+      /src/target/release/ppl \
+      /src/target/release/oracle \
+      /usr/local/bin/
+ENV HF_HOME=/scratch/hf
+WORKDIR /scratch
+# Space runtime only — a Job always overrides the command.
+CMD ["sleep", "infinity"]

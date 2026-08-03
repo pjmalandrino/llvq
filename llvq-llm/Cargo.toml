@@ -24,4 +24,8 @@ parquet = { version = "55", default-features = false, features = ["snap", "zstd"
 
 [features]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+# The remote target. `cudnn` is separate because it needs the cuDNN libraries
+# present at build time, which the plain CUDA base images do not all carry.
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+cudnn = ["cuda", "candle-core/cudnn"]
 fast-linalg = ["llvq-quant/fast-linalg"]

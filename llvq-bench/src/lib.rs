@@ -50,6 +50,12 @@ impl BlockDots {
         (self.d2 / N2.sqrt()).max(self.d3 / N3.sqrt())
     }
 
+    /// The block norm `‖x‖` — the scalar the shipped gain code rounds.
+    #[inline]
+    pub fn norm(&self) -> f64 {
+        self.xx.sqrt()
+    }
+
     /// Squared quantization error of spherical shaping at scale `beta`
     /// (codebook `β·(Λ₂₄(3) ∪ {0})`).
     #[inline]
@@ -162,14 +168,30 @@ pub fn nearest_centroid(centroids: &[f64], t: f64) -> usize {
     best.1
 }
 
-/// Mean squared error per weight of shape–gain with the given gain
-/// centroids: `‖x − ĝ·v̂‖² = ‖x‖² − 2ĝt + ĝ²`.
-pub fn shape_gain_mse(dots: &[BlockDots], centroids: &[f64]) -> f64 {
+/// Mean squared error per weight of shape–gain when the gain code rounds the
+/// **projection** `t = ⟨x, v̂⟩`: `‖x − ĝ·v̂‖² = ‖x‖² − 2ĝt + ĝ²`.
+///
+/// This is the *lower bound* of the family, not what ships — see
+/// [`shape_gain_mse13_shipped`] for the distinction and why it matters.
+pub fn shape_gain_mse_projected(dots: &[BlockDots], centroids: &[f64]) -> f64 {
     dots.iter()
         .map(|d| {
             let t = d.t();
             let g = centroids[nearest_centroid(centroids, t)];
             d.xx - 2.0 * g * t + g * g
+        })
+        .sum::<f64>()
+        / (DIM * dots.len()) as f64
+}
+
+/// Same error formula, but the gain code rounds the block **norm** `‖x‖` —
+/// which is what `LeechShapeGain` actually does. See
+/// [`shape_gain_mse13_shipped`].
+pub fn shape_gain_mse_shipped(dots: &[BlockDots], centroids: &[f64]) -> f64 {
+    dots.iter()
+        .map(|d| {
+            let g = centroids[nearest_centroid(centroids, d.norm())];
+            d.xx - 2.0 * g * d.t() + g * g
         })
         .sum::<f64>()
         / (DIM * dots.len()) as f64
@@ -226,6 +248,12 @@ impl BlockDots13 {
             .enumerate()
             .map(|(i, &d)| d / ((16 * (i + 2)) as f64).sqrt())
             .fold(f64::NEG_INFINITY, f64::max)
+    }
+
+    /// The block norm `‖x‖` — the scalar the shipped gain code rounds.
+    #[inline]
+    pub fn norm(&self) -> f64 {
+        self.xx.sqrt()
     }
 
     /// Squared error of spherical shaping at scale `beta`
@@ -292,13 +320,60 @@ pub fn optimize_beta13(train: &[BlockDots13], lo: f64, hi: f64, steps: usize) ->
     best.1
 }
 
-/// Shape–gain MSE per weight over the ball's directions.
-pub fn shape_gain_mse13(dots: &[BlockDots13], centroids: &[f64]) -> f64 {
+/// Shape–gain MSE per weight when the gain code rounds the **projection**
+/// `t = ⟨x, v̂⟩`.
+///
+/// `min_g ‖x − g·v̂‖²` is attained at `g = t`, so this is the best any gain
+/// code can do for a given direction — a **bound**, and the quantity Appendix
+/// F.1 solves for (`β* = qᵀw/qᵀq`). It is *not* what this project ships; see
+/// [`shape_gain_mse13_shipped`].
+pub fn shape_gain_mse13_projected(dots: &[BlockDots13], centroids: &[f64]) -> f64 {
     dots.iter()
         .map(|d| {
             let t = d.t();
             let g = centroids[nearest_centroid(centroids, t)];
             d.xx - 2.0 * g * t + g * g
+        })
+        .sum::<f64>()
+        / (DIM * dots.len()) as f64
+}
+
+/// Shape–gain MSE per weight **as `LeechShapeGain` computes it** — the gain
+/// code rounds the block norm `‖x‖`, not the projection.
+///
+/// ## Why the distinction is not cosmetic
+///
+/// The two differ by exactly one substitution, and it is the substitution that
+/// decides whether a bench number describes the shipped encoder:
+///
+/// * production (`quantizer.rs`) takes `g = ‖x‖ / row_scale`, rounds *that* to
+///   a level, and fits its centroids on block norms;
+/// * this bench took `t = ⟨x, v̂⟩`, rounded *that*, and fitted on projections.
+///
+/// The reconstruction is `ĝ·v̂` either way, so the error is `‖x‖² − 2ĝt + ĝ²`
+/// in both — but `t = ‖x‖·cos θ ≤ ‖x‖`, so rounding `t` lands on the optimum
+/// and rounding `‖x‖` overshoots it. With the optimal gain the block error is
+/// `‖x‖²(1 − cos²θ)`; with the norm it is `2‖x‖²(1 − cos θ)`, a ratio of
+/// `2/(1 + cos θ)` — about +2 % of block MSE at the `cos θ ≈ 0.96` this
+/// codebook achieves.
+///
+/// Small in size, and structural in kind: every retention figure in `docs/`,
+/// gate G4 included, was describing a quantizer strictly better than the one
+/// that produced the 981 MB artifact, and format decisions are taken off those
+/// tables. `tests/bench_matches_production.rs` now pins this function to
+/// `LeechShapeGain` itself so the two cannot drift again.
+///
+/// ⚠️ This is **not** an argument for switching production to the projection.
+/// Coding `t` shrinks every block by `cos θ ≈ 0.96`, and that uniform radial
+/// drift is precisely the failure mode the spherical retraction exists to kill
+/// (paper Table 9: 91.90 → 6.90). It is a fourth design next to the three in
+/// `docs/retraction-et-gain.md`, of unknown sign, and it is a 3-block A/B on
+/// the real model that settles it — not this bench.
+pub fn shape_gain_mse13_shipped(dots: &[BlockDots13], centroids: &[f64]) -> f64 {
+    dots.iter()
+        .map(|d| {
+            let g = centroids[nearest_centroid(centroids, d.norm())];
+            d.xx - 2.0 * g * d.t() + g * g
         })
         .sum::<f64>()
         / (DIM * dots.len()) as f64
@@ -333,13 +408,13 @@ pub fn t_single(d: &BlockDots13, shell: u32) -> f64 {
     d.d[(shell - 2) as usize] / ((16 * shell) as f64).sqrt()
 }
 
-/// Shape–gain MSE per weight using only shell `m` as the direction code.
+/// Shape–gain MSE per weight using only shell `m`, gain rounding the block
+/// norm — the shipped rule. See [`shape_gain_mse13_shipped`].
 pub fn shape_gain_mse13_single(dots: &[BlockDots13], centroids: &[f64], shell: u32) -> f64 {
     dots.iter()
         .map(|d| {
-            let t = t_single(d, shell);
-            let g = centroids[nearest_centroid(centroids, t)];
-            d.xx - 2.0 * g * t + g * g
+            let g = centroids[nearest_centroid(centroids, d.norm())];
+            d.xx - 2.0 * g * t_single(d, shell) + g * g
         })
         .sum::<f64>()
         / (DIM * dots.len()) as f64

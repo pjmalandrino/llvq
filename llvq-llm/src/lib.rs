@@ -13,5 +13,7 @@ pub mod artifact;
 pub mod artifact2;
 pub mod calib;
 pub mod corpus;
+pub mod eval;
 pub mod loader;
 pub mod model;
+pub mod sealed;
