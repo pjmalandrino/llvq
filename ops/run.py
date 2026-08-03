@@ -55,10 +55,18 @@ FLAVORS: dict[str, dict] = {
     "cpu-upgrade":     dict(vcpu=8,   ram=32,   vram=0,   usd_h=0.03),
     "cpu-xl":          dict(vcpu=16,  ram=124,  vram=0,   usd_h=1.00),
     "cpu-performance": dict(vcpu=32,  ram=256,  vram=0,   usd_h=1.90),
+    "t4-medium":       dict(vcpu=8,   ram=30,   vram=16,  usd_h=0.60),
     "l4x1":            dict(vcpu=8,   ram=30,   vram=24,  usd_h=0.80),
+    # Multi-card flavors are listed for their **vCPU**, not their VRAM: candle
+    # drives one device, so the extra cards sit idle. What they buy is host
+    # cores at the same or better price per core-hour, and the run is 90 %
+    # CPU-side encoder. `rtx-pro-6000x2` costs exactly what the x1 costs for
+    # the same job, in half the wall clock.
+    "l4x4":            dict(vcpu=48,  ram=186,  vram=24,  usd_h=3.80),
     "l40sx1":          dict(vcpu=8,   ram=62,   vram=48,  usd_h=1.80),
     "a100-large":      dict(vcpu=12,  ram=142,  vram=80,  usd_h=2.50),
     "rtx-pro-6000":    dict(vcpu=23,  ram=256,  vram=96,  usd_h=2.75),
+    "rtx-pro-6000x2":  dict(vcpu=46,  ram=512,  vram=96,  usd_h=5.50),
     "h200":            dict(vcpu=23,  ram=256,  vram=141, usd_h=5.00),
 }
 
@@ -143,15 +151,20 @@ def estimate(cfg: dict, blocks: int | None = None) -> dict:
     """Core-hours and artifact size, per term."""
     layers = blocks if blocks is not None else cfg["num_hidden_layers"]
     frac = layers / cfg["num_hidden_layers"]
-    quantized, carried = weight_counts(cfg)
-    quantized = int(quantized * frac)
+    all_quantized, carried = weight_counts(cfg)
+    quantized = int(all_quantized * frac)
 
     leech_h = (quantized / DIM) / BLOCKS_PER_SEC_PER_CORE / 3600.0
     macs = sum(2.0 / 3.0 * n**3 for n in act_widths(cfg)) * layers
     chol_h = macs / CHOLESKY_MACS_PER_SEC / 3600.0
 
     artifact_gb = (quantized * BITS_PER_WEIGHT / 8 + carried * 2) / 1e9
-    checkpoint_gb = (quantized + carried) * 2 / 1e9
+    # **Every** weight, not the fraction being quantized. The whole model has
+    # to be resident whatever `--blocks` says: calibration is sequential, so
+    # the run still loads all 64 layers and forwards through the ones it is not
+    # quantizing. Scaling this with `frac` made a 4-block 32B look like it fit
+    # on a 16 GB card — it needs 65.5 GB in bf16, same as the full run.
+    checkpoint_gb = (all_quantized + carried) * 2 / 1e9
     return dict(
         layers=layers,
         quantized=quantized,
