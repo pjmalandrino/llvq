@@ -787,6 +787,69 @@ VRAM, donc **C3 (chargement bf16) est un prérequis**, pas une optimisation.
 Sans lui il faut un `h200x2` à 10 $/h, soit **~180 $**. C3 vaut donc ~130 $
 sur ce seul run.
 
+### Qwen3-32B — dé-risqué sur 4 blocs, pas encore lancé (2026-08-03)
+
+4 blocs sur 64, `rtx-pro-6000x2`, **bf16** (C3), 59 min, **5,43 $**. Le but
+n'était pas un chiffre de qualité — 4 blocs sur 64 donnent ×1,002, ça
+n'apprend rien — mais de lever trois inconnues avant d'engager 11 h.
+
+| inconnue | verdict |
+|---|---|
+| pic mémoire de `faer` à n=25600 | ✅ 70,6 Go hôte / 512, et 77,4 Go VRAM / 97 |
+| bf16 à cette échelle | ✅ `verify_artifact` repasse, 1 950 351 360 poids bit pour bit |
+| s/bloc réel | ⚠️ **621 s**, contre ~500 prédits |
+
+**L'estimation était 25 % basse.** Le run complet fait **~11,4 h et ~62 $**,
+pas 9 h et 49 $. Le dé-risquage a coûté 5,43 $ et corrigé une erreur de 13 $
+avant engagement.
+
+**Le profil par phase explique l'écart, et il bouge avec la largeur :**
+
+| phase | 0,6B | 8B | **32B** |
+|---|---|---|---|
+| quantification (encodeur) | 97,6 % | 90,3 % | **71,8 %** |
+| **factorisation** | 1,6 % | 5,5 % | **16,5 %** |
+
+Le terme en `n³` remonte exactement comme `cholbench` le prédisait (~1,9 h sur
+le run complet). Conséquence méthodologique : **le coût par poids n'est pas
+linéaire** — 4,77·10⁻⁵ cœur-s à 8B, **6,36·10⁻⁵ à 32B**. Ne plus extrapoler
+une largeur depuis une autre sans marge.
+
+Reste à décider avant de payer les 62 $ : l'encodeur pèse encore 71,8 %, et
+§2c liste deux optimisations jamais tentées (complément d'octade, SIMD `pulp`).
+Un facteur 1,5 ramènerait le run à ~40 $, et ça composerait sur tous les runs
+suivants.
+
+### Faire tourner ailleurs — [`ops/`](ops/README.md)
+
+Le Mac de dev fait 69 Go ; Qwen3-32B en pèse 65,5 en bf16. Tout ce qui dépasse
+le 8B tourne sur **HF Jobs**, piloté par `ops/run.py` (Python, hors du
+workspace Rust qui reste sans dépendance).
+
+```bash
+uv run ops/run.py estimate Qwen/Qwen3-32B --dtype bf16   # cœur-heures et coût
+uv run ops/run.py selftest                                # l'estimateur vs le run 4B réel
+uv run ops/run.py publish <user>/llvq-runner-cuda --cuda  # HF construit l'image
+uv run ops/run.py oracle --image hf.co/spaces/…           # ⚠️ le verrou, à chaque backend
+uv run ops/run.py launch --model … --flavor … --bucket auto
+uv run ops/run.py monitor <job_id> --flavor …             # coût facturé + logs
+```
+
+Quatre choses apprises en s'en servant, qui coûtent cher à redécouvrir :
+
+- **`oracle` d'abord, toujours.** Sur CUDA il rend `max |Δhidden| = 0.000e0`,
+  exactement comme en Metal. 42 s et ~1 centime pour savoir si les hessiennes
+  construites sur ce backend valent quelque chose.
+- **`fast-linalg` n'est pas optionnel en pratique.** Sans lui la factorisation
+  est **40× plus lente** pour une perplexité bit-identique. `smoke` avertit
+  bruyamment quand la feature manque.
+- **Le builder d'un Space n'a pas de GPU**, donc `CUDA_COMPUTE_CAP` doit être
+  figée dans l'image (89 = Ada). Et le profil `lto = "thin"` +
+  `codegen-units = 1` tue le build par OOM : `ops/Dockerfile.cuda` relève les
+  codegen units et limite les jobs cargo.
+- **Sans C5, le conteneur retélécharge le checkpoint** : 26 min sur 65,5 Go,
+  soit 45 % d'un run court.
+
 ### ⚠️ Le piège du « x bits/poids » sur un petit modèle
 
 2,1531 bits/poids ne concerne que les **196 matrices linéaires**. Sur

@@ -17,21 +17,25 @@ not decoration: it is checked against the real Qwen3-4B run (`selftest`), and
 
 ## What the estimate is built on
 
-End-to-end constants from two real jobs — the *same* 3-block Qwen3-0.6B
-configuration, run once on `cpu-upgrade` and once on `l4x1`. Not a model of
-the parts, which was wrong twice:
+End-to-end constants from four real jobs, at 0.6B, 8B and 32B. Not a model of
+the parts, which was wrong three times:
 
 * the first version assumed the Cholesky dominated. `bin/cholbench` says it is
-  1.5 % of a run since `faer`;
-* the second assumed the Leech encoder was the whole cost and concluded that a
-  GPU flavor pays for an idle accelerator. **Also wrong.** The GPU run is
-  3.8× cheaper *in core-seconds*, because the forward passes fall from 88 % of
-  the work to 0.2 %.
+  1.5 % of a 4B run since `faer`;
+* the second assumed the Leech encoder was the whole cost and concluded a GPU
+  flavor pays for an idle accelerator. **Wrong**: the GPU run is ~4× cheaper
+  in core-seconds, because the forward passes fall from 88 % to 1–2 %;
+* the third assumed the cost per weight was width-independent. **Wrong too**:
+  the n³ factorization is 1.6 % of a run at 0.6B, 5.5 % at 8B and 16.5 % at
+  32B, and extrapolating the 8B constant undershot the 32B by 25 %.
 
-What survives both corrections: the encoder is CPU-bound, and on a GPU flavor
-it is **97.6 %** of the run. So the accelerator's job is to get the forward
-passes out of the way, after which the only thing that buys speed is vCPU
-count and a faster encoder.
+What survives all three: the encoder is CPU-bound and dominates. The
+accelerator's job is to get the forward passes out of the way; after that only
+vCPU count and encoder speed buy anything — which is why a two-card flavor is
+rented for its 46 cores and leaves the second GPU idle.
+
+**De-risk before committing.** Four blocks of a 32B cost $5.43 and corrected a
+25 % underestimate on a run that would have cost $62.
 """
 
 from __future__ import annotations
@@ -75,20 +79,23 @@ BLOCKS_PER_SEC_PER_CORE = 1469.0
 CHOLESKY_MACS_PER_SEC = 110e9
 DIM = 24
 
-# Core-seconds per quantized weight, measured end to end on Qwen3-0.6B,
-# 3 blocks, 16×2048 calibration windows — the same configuration on both.
+# Core-seconds per quantized weight, measured end to end on real jobs:
 #
-#   cpu-upgrade, 8 vCPU, --device cpu   47 185 920 poids en 1421 s → 2.41e-4
-#   l4x1,        8 vCPU, --device cuda  47 185 920 poids en  371 s → 6.29e-5
+#   0.6B  cpu-upgrade      8 vCPU  cpu    47 185 920 poids en  1421 s → 2.41e-4
+#   0.6B  l4x1             8 vCPU  cuda   47 185 920 poids en   371 s → 6.29e-5
+#   8B    rtx-pro-6000    23 vCPU  cuda 6 925 713 408 poids en 14356 s → 4.77e-5
+#   32B   rtx-pro-6000x2  46 vCPU  cuda 1 947 893 760 poids en  2694 s → 6.36e-5
 #
-# The GPU is 3.8× cheaper *in core-seconds*, and the phase breakdown says why:
-# the forward passes fall from 88 % of the work to 0.2 %. What is left is the
-# encoder, which is CPU-bound either way.
+# The GPU is ~4× cheaper *in core-seconds*: the forward passes fall from 88 %
+# of the work to 1–2 %. What is left is the encoder, which is CPU-bound either
+# way — so on a GPU flavor only vCPU count and encoder speed buy anything.
 #
-# These supersede a Leech-only estimate, which undercounted by ~2.2× — the
-# quantization phase is not just the lattice search but the error feedback,
-# the triangular solves and the retraction around it.
-QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 4.77e-5}
+# ⚠️ The `cuda` figure is **not** width-independent. It dips at 8B and climbs
+# again at 32B, because the n³ factorization goes from 1.6 % of a run (0.6B) to
+# 5.5 % (8B) to 16.5 % (32B). The **largest** constant is used so that a
+# projection errs high rather than low: extrapolating the 8B number to the 32B
+# undershot by 25 %, which a 5.43 $ de-risking run caught before a 62 $ commit.
+QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 6.36e-5}
 
 # The published Qwen3-4B rate. Used to size the artifact, nothing else.
 BITS_PER_WEIGHT = 2.1696

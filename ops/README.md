@@ -81,11 +81,22 @@ C'est l'étape 8B qui tranche, pour ~20 $ sur les deux flavors.
 
 ## Progression
 
-| étape | flavor | coût | ce que ça valide |
+| étape | flavor | coût | statut |
 |---|---|---|---|
-| 1. 4B, contrôle CUDA | `l4x1` | ~7 $ | doit **redonner 16,94** |
-| 2. 8B ×2 | `cpu-performance` + `rtx-pro-6000` | ~20 $ | l'arbitrage ci-dessus, et la sensibilité par couche à l'échelle |
-| 3. **32B** | le gagnant | **~15–30 $** | la thèse |
+| 0. `oracle` sur CUDA | `l4x1` | 0,01 $ | ✅ `max \|Δhidden\| = 0.000e0` |
+| 1. 0,6B, 3 blocs, CPU puis CUDA | `cpu-upgrade`, `l4x1` | 0,11 $ | ✅ chaîne validée, `verify_artifact` OK |
+| 2. **8B complet** | `rtx-pro-6000` | **11,48 $** | ✅ **×1,267 à 2,0436 b/poids** |
+| 3. 32B, 4 blocs (dé-risquage) | `rtx-pro-6000x2` | 5,43 $ | ✅ mémoire et bf16 OK, **621 s/bloc** |
+| 4. **32B complet** | `rtx-pro-6000x2` | **~62 $ / ~11,4 h** | ⏸ en attente |
+
+**Le dé-risquage a payé.** Il annonçait 9 h / 49 $ par extrapolation depuis le
+8B ; la mesure à `d_in = 25600` donne **621 s/bloc contre ~500 prédits**, donc
+11,4 h et ~62 $. 5,43 $ pour corriger une erreur de 13 $ avant engagement.
+
+**Pourquoi l'extrapolation a raté** : le coût par poids n'est pas indépendant
+de la largeur. La factorisation en `n³` passe de 1,6 % d'un run (0,6B) à 5,5 %
+(8B) à **16,5 %** (32B). L'estimateur utilise désormais la plus grande des
+constantes mesurées, pour se tromper par excès plutôt que par défaut.
 
 Ne pas sauter à l'étape 3 : lancer un run sur un chemin CUDA jamais exécuté,
 c'est le genre de job qui meurt à la 10ᵉ heure sur une divergence de backend
