@@ -614,7 +614,12 @@ def cmd_monitor(args) -> int:
         # counts scheduling. Using it reported $35.80 for a run that cost
         # $11.48.
         d = getattr(info, "durations", None)
-        secs = getattr(d, "running_secs", 0) if d else 0
+        # `or 0`, not a `getattr` default: while a Job sits in SCHEDULING the
+        # attribute **exists and is None**, so the default never fires and the
+        # next division raises. That killed the monitor of the first pilot
+        # before the metrics stream had produced a single sample — and the
+        # stream is live, so a monitor that dies is an axis that is lost.
+        secs = (getattr(d, "running_secs", None) or 0) if d else 0
         cost = f"{secs / 3600 * usd_h:.2f} $" if usd_h else "coût n/d"
         print(f"[{secs / 60:.0f} min facturées · {cost}]", flush=True)
         if stage in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
