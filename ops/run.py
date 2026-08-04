@@ -467,11 +467,17 @@ def cmd_publish(args) -> int:
     # Allow-list, not deny-list: `COPY . .` copies whatever ends up here, so a
     # forgotten exclusion means a slower build, and `target/` alone is tens of
     # gigabytes.
+    #
+    # `Cargo.lock` is in the list on purpose. Without it the builder resolves
+    # dependencies fresh, so the image would not be built from the tree that
+    # was committed — and every number the image produces would be traceable to
+    # a commit that does not describe it. That is exactly the provenance gap
+    # this campaign exists to close.
     upload_folder(
         repo_id=repo_id,
         repo_type="space",
         folder_path=str(args.root),
-        allow_patterns=["Cargo.toml", "llvq-*/**"],
+        allow_patterns=["Cargo.toml", "Cargo.lock", "llvq-*/**"],
         ignore_patterns=["**/target/**", "**/*.log"],
         commit_message="LLVQ workspace",
     )
