@@ -46,21 +46,28 @@ ENV CARGO_BUILD_JOBS=2
 # one block of Qwen3-0.6B — 40× slower, for a bit-identical perplexity. On
 # rented hardware that is a 40× bill on that phase.
 RUN cargo build --release -p llvq-llm --features ${FEATURES} \
-      --bin smoke --bin ppl --bin oracle
+      --bin smoke --bin ppl --bin oracle --bin mmlu
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libssl3 \
  && rm -rf /var/lib/apt/lists/*
-# Only the three binaries the GPU path needs: `oracle` proves the forward pass
-# on this backend, `smoke` quantizes, `ppl` scores. `mmlu`, `seal` and `run`
-# come back when there is an artifact worth sealing — each one is another LTO
-# link at build time, which is exactly what killed the first attempt.
+# Only the four binaries the GPU path needs: `oracle` proves the forward pass
+# on this backend, `smoke` quantizes, `ppl` scores perplexity, `mmlu` scores
+# capability. `seal` and `run` stay out — each one is another LTO link at
+# build time, which is exactly what killed the first attempt, and neither is
+# on the measurement path.
+#
+# `mmlu` was added on 2026-08-04: the measurement campaign compares three arms
+# on MMLU, and the axis carries the best-founded argument in the dossier (the
+# baseline reproduces the paper to 0.17 σ). Without this line it is simply not
+# executable on the target.
 COPY --from=build \
       /src/target/release/smoke \
       /src/target/release/ppl \
       /src/target/release/oracle \
+      /src/target/release/mmlu \
       /usr/local/bin/
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch

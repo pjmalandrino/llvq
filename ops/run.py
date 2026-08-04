@@ -54,25 +54,53 @@ from pathlib import Path
 #
 # `usd_per_core_hour` is the number that actually decides, because the run is
 # CPU-bound. Sorted worst to best on that metric in the comments below.
+#
+# ⚠️ `cap` is the CUDA compute capability, and it is a **hard filter, not a
+# preference**. `ops/Dockerfile.cuda` pins `CUDA_COMPUTE_CAP=89` because the
+# Hub's Space builder has no GPU, and `candle-kernels` therefore ships PTX.
+# PTX is forward-compatible only: the driver can JIT it for any sm ≥ 89, and
+# for nothing below. A flavor whose `cap` is under 89 will start, bill, pull
+# the image, download the checkpoint — and then fail to load a single kernel.
+#
+# `a100-large` is the trap: 80 GB of VRAM at a fair price is exactly what one
+# reaches for, and it is sm_80. Marked here so the choice is refused rather
+# than regretted.
+MIN_COMPUTE_CAP = 89
+
 FLAVORS: dict[str, dict] = {
-    #                       vCPU  RAM Go  VRAM Go  $/h
-    "cpu-upgrade":     dict(vcpu=8,   ram=32,   vram=0,   usd_h=0.03),
-    "cpu-xl":          dict(vcpu=16,  ram=124,  vram=0,   usd_h=1.00),
-    "cpu-performance": dict(vcpu=32,  ram=256,  vram=0,   usd_h=1.90),
-    "t4-medium":       dict(vcpu=8,   ram=30,   vram=16,  usd_h=0.60),
-    "l4x1":            dict(vcpu=8,   ram=30,   vram=24,  usd_h=0.80),
+    #                       vCPU  RAM Go  VRAM Go  $/h        compute cap
+    "cpu-upgrade":     dict(vcpu=8,   ram=32,   vram=0,   usd_h=0.03, cap=None),
+    "cpu-xl":          dict(vcpu=16,  ram=124,  vram=0,   usd_h=1.00, cap=None),
+    "cpu-performance": dict(vcpu=32,  ram=256,  vram=0,   usd_h=1.90, cap=None),
+    "t4-medium":       dict(vcpu=8,   ram=30,   vram=16,  usd_h=0.60, cap=75),
+    "l4x1":            dict(vcpu=8,   ram=30,   vram=24,  usd_h=0.80, cap=89),
     # Multi-card flavors are listed for their **vCPU**, not their VRAM: candle
     # drives one device, so the extra cards sit idle. What they buy is host
     # cores at the same or better price per core-hour, and the run is 90 %
     # CPU-side encoder. `rtx-pro-6000x2` costs exactly what the x1 costs for
     # the same job, in half the wall clock.
-    "l4x4":            dict(vcpu=48,  ram=186,  vram=24,  usd_h=3.80),
-    "l40sx1":          dict(vcpu=8,   ram=62,   vram=48,  usd_h=1.80),
-    "a100-large":      dict(vcpu=12,  ram=142,  vram=80,  usd_h=2.50),
-    "rtx-pro-6000":    dict(vcpu=23,  ram=256,  vram=96,  usd_h=2.75),
-    "rtx-pro-6000x2":  dict(vcpu=46,  ram=512,  vram=96,  usd_h=5.50),
-    "h200":            dict(vcpu=23,  ram=256,  vram=141, usd_h=5.00),
+    "l4x4":            dict(vcpu=48,  ram=186,  vram=24,  usd_h=3.80, cap=89),
+    "l40sx1":          dict(vcpu=8,   ram=62,   vram=48,  usd_h=1.80, cap=89),
+    "a100-large":      dict(vcpu=12,  ram=142,  vram=80,  usd_h=2.50, cap=80),
+    "rtx-pro-6000":    dict(vcpu=23,  ram=256,  vram=96,  usd_h=2.75, cap=120),
+    "rtx-pro-6000x2":  dict(vcpu=46,  ram=512,  vram=96,  usd_h=5.50, cap=120),
+    "h200":            dict(vcpu=23,  ram=256,  vram=141, usd_h=5.00, cap=90),
 }
+
+
+def cap_ok(flavor: str) -> tuple[bool, str]:
+    """`(usable, why)` for the image this repo builds.
+
+    CPU flavors are always fine — they never load a CUDA kernel.
+    """
+    cap = FLAVORS.get(flavor, {}).get("cap")
+    if cap is None:
+        return True, "CPU"
+    if cap < MIN_COMPUTE_CAP:
+        return False, f"sm_{cap} < sm_{MIN_COMPUTE_CAP} — l'image ne peut y charger aucun noyau"
+    if cap > MIN_COMPUTE_CAP:
+        return True, f"sm_{cap}, par JIT PTX depuis sm_{MIN_COMPUTE_CAP}"
+    return True, f"sm_{cap} natif"
 
 # Measured, see the module docstring. Change these only with a bench to back it.
 BLOCKS_PER_SEC_PER_CORE = 1469.0
@@ -240,9 +268,19 @@ def cmd_estimate(args) -> int:
     print(f"\n  {'flavor':<18}{'h (CPU)':>10}{'$':>9}   remarque")
     print("  " + "-" * 72)
     for name, wall, usd, warn in sorted(cost_table(est, args.dtype), key=lambda r: r[2]):
-        print(f"  {name:<18}{wall:>10.1f}{usd:>9.2f}   {warn}")
+        usable, why = cap_ok(name)
+        mark = "" if usable else "  ⛔ "
+        print(f"  {name:<18}{wall:>10.1f}{usd:>9.2f}   {mark}{warn if usable else why}")
     print("\n  Constantes mesurées de bout en bout sur un run 0,6B (CPU et CUDA). Les")
     print("  flavors GPU paient le tarif cuda, les autres le tarif cpu.")
+    print("  ⛔ = l'image de ce dépôt n'y charge aucun noyau CUDA.")
+    print("\n  ⚠️  Ce devis modélise une QUANTIFICATION, et rien d'autre : il multiplie")
+    print("      un nombre de poids par un coût mesuré de l'encodeur Leech et de la")
+    print("      factorisation. Un job de MESURE (ppl, mmlu, oracle) n'exécute ni")
+    print("      l'un ni l'autre — sur Qwen3-4B ce devis annonce ~8 h pour ce qui en")
+    print("      prend 30 à 90 min. Ne pas s'en servir pour la campagne de mesure, ni")
+    print("      de --max-usd comme garde : le plafond utile y est le `timeout` du job,")
+    print("      qui est exact et connu avant lancement.")
     return 0
 
 
@@ -291,6 +329,14 @@ def cmd_launch(args) -> int:
     rows = {name: (wall, usd) for name, wall, usd, _ in cost_table(est, args.dtype or "f32")}
     if args.flavor not in rows:
         print(f"flavor inconnu: {args.flavor}", file=sys.stderr)
+        return 2
+    usable, why = cap_ok(args.flavor)
+    if not usable:
+        print(f"refus : {args.flavor} — {why}.\n"
+              f"L'image fige CUDA_COMPUTE_CAP={MIN_COMPUTE_CAP} (le builder d'un Space n'a pas\n"
+              f"de GPU, donc candle-kernels n'embarque que du PTX, compatible vers l'avant\n"
+              f"seulement). Le job démarrerait, serait facturé, téléchargerait le checkpoint,\n"
+              f"puis échouerait à charger le premier noyau.", file=sys.stderr)
         return 2
     wall, usd = rows[args.flavor]
 
@@ -490,11 +536,53 @@ def cmd_monitor(args) -> int:
     should rent cores rather than a bigger card — and this is where it gets
     confirmed or refuted, on the actual hardware.
     """
+    import json
     import threading
 
     from huggingface_hub import fetch_job_logs, inspect_job
 
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+
+    # --- VRAM: peak, mean, and the samples behind them ----------------------
+    #
+    # `fetch_job_metrics` emits roughly one event per second carrying per-GPU
+    # `memory_used_bytes`. It is a **live** stream and only a live one: the
+    # library passes `tolerated_status_codes=(500,)` because the endpoint 500s
+    # once a Job has finished. A detached job inspected afterwards therefore
+    # has **no** metrics at all — which is why this lives in `monitor` and not
+    # in a post-mortem command, and why `--detach` costs you the memory axis.
+    #
+    # Two things the published numbers must carry, and this records both:
+    #
+    #   * the **time-weighted** mean, not the arithmetic one. The stream has
+    #     keep-alives and reconnections, so samples are not equally spaced and
+    #     averaging them as if they were would weight a stall like a second.
+    #   * the sample count and period, because a peak shorter than the sampling
+    #     interval is invisible. 1 Hz is the resolution of the instrument, and
+    #     a peak is only ever a lower bound on the true one.
+    #
+    # And what it measures is what the CUDA context has **reserved**, allocator
+    # included — the "does it fit" quantity. It is not a count of live tensor
+    # bytes, and it must never be compared against one.
+    samples: list[tuple[float, int]] = []
+
+    def meter():
+        try:
+            from huggingface_hub import fetch_job_metrics
+        except ImportError:
+            print("[metrics] fetch_job_metrics absent de huggingface_hub — "
+                  "axe mémoire perdu pour ce job", flush=True)
+            return
+        try:
+            for ev in fetch_job_metrics(job_id=args.job_id):
+                gpus = (ev or {}).get("gpus") or {}
+                used = max((g.get("memory_used_bytes", 0) for g in gpus.values()), default=0)
+                if used:
+                    samples.append((time.time(), int(used)))
+        except Exception as e:
+            print(f"[metrics interrompues: {e}]", flush=True)
+
+    threading.Thread(target=meter, daemon=True).start()
 
     # `fetch_job_logs` is a **live stream**: on a running Job it never ends, so
     # `list(...)` on it blocks forever. That is what silenced the first version
@@ -529,6 +617,55 @@ def cmd_monitor(args) -> int:
 
     print(f"\n[fin] {stage} — {secs / 3600:.2f} h facturées"
           + (f", {secs / 3600 * usd_h:.2f} $" if usd_h else ""))
+
+    if samples:
+        vals = [v for _, v in samples]
+        peak = max(vals)
+        # Time-weighted mean: each sample holds until the next one.
+        span = samples[-1][0] - samples[0][0]
+        if span > 0 and len(samples) > 1:
+            area = sum(
+                samples[i][1] * (samples[i + 1][0] - samples[i][0])
+                for i in range(len(samples) - 1)
+            )
+            mean = area / span
+        else:
+            mean = float(vals[0])
+        ordered = sorted(vals)
+        p50 = ordered[len(ordered) // 2]
+        p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
+        gb = 1e9
+        print(f"\n[VRAM] pic {peak / gb:.3f} Go · moyenne {mean / gb:.3f} Go "
+              f"· p50 {p50 / gb:.3f} · p95 {p95 / gb:.3f}")
+        print(f"       {len(samples)} échantillons sur {span:.0f} s "
+              f"({span / max(1, len(samples) - 1):.2f} s entre deux)")
+        if peak > 0 and (peak - min(vals)) / peak < 0.02:
+            # The control the protocol demands before promising two numbers: if
+            # the allocator never returns memory, "peak" and "mean" are two
+            # names for one measurement and publishing both is false precision.
+            print("       ⚠️  la série ne redescend jamais (< 2 % d'amplitude) : "
+                  "pic et moyenne\n           décrivent la même chose, ne pas "
+                  "les publier comme deux mesures")
+        if args.metrics_out:
+            with open(args.metrics_out, "w") as f:
+                json.dump({
+                    "job_id": args.job_id,
+                    "flavor": args.flavor,
+                    "billed_secs": secs,
+                    "vram_peak_bytes": peak,
+                    "vram_mean_bytes": mean,
+                    "vram_p50_bytes": p50,
+                    "vram_p95_bytes": p95,
+                    "samples": len(samples),
+                    "span_secs": span,
+                    "series": samples,
+                }, f, indent=2)
+            print(f"       série écrite dans {args.metrics_out}")
+    else:
+        print("\n[VRAM] aucune métrique reçue — un Job lancé en --detach puis "
+              "observé après coup\n       n'en a pas : le flux est live et "
+              "l'endpoint 500 une fois le Job fini.")
+
     return 0 if stage == "COMPLETED" else 1
 
 
@@ -610,6 +747,8 @@ def main() -> int:
     m.add_argument("--flavor", default=None, choices=sorted(FLAVORS),
                    help="pour chiffrer le coût accumulé")
     m.add_argument("--every", type=int, default=120, help="secondes entre relevés")
+    m.add_argument("--metrics-out", default=None, metavar="FICHIER.json",
+                   help="écrire la série VRAM complète (pic, moyenne pondérée, série brute)")
     m.set_defaults(fn=cmd_monitor)
 
     w = sub.add_parser("watch", help="statut et logs d'un Job")

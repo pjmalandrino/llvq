@@ -50,10 +50,34 @@ use candle_core::{DType, IndexOp, Tensor};
 use llvq_llm::corpus::{mmlu_split, MmluItem};
 use llvq_llm::model::NoCapture;
 use std::collections::BTreeMap;
+use std::io::Write;
 
 /// `underscored_subject` → `underscored subject`, as the standard prompt wants.
 fn pretty(subject: &str) -> String {
     subject.replace('_', " ")
+}
+
+/// Which questions of a subject get scored, and **where they came from**.
+///
+/// The parquet index is zipped in *before* the shuffle because [`MmluItem`]
+/// carries no identifier: once Fisher–Yates has run, the only stable key to a
+/// question is its position in the parquet order, and that is precisely what
+/// the shuffle destroys. Without this, a per-question dump cannot be joined
+/// across two runs — and joining across arms is the entire point of a paired
+/// test, which is the statistic this campaign publishes.
+///
+/// The seed depends only on the *length* of the subject name, so the sample is
+/// identical across models by construction rather than by convention.
+fn select<'a>(items: &[&'a MmluItem], subject: &str, limit: usize) -> Vec<(usize, &'a MmluItem)> {
+    let mut picked: Vec<(usize, &'a MmluItem)> = items.iter().copied().enumerate().collect();
+    if limit < picked.len() {
+        let mut rng = llvq_core::SplitMix64::new(0x6_11B0 ^ subject.len() as u64);
+        for i in (1..picked.len()).rev() {
+            picked.swap(i, (rng.next() % (i as u64 + 1)) as usize);
+        }
+        picked.truncate(limit);
+    }
+    picked
 }
 
 /// One worked example, or the scored question when `answer` is `None`.
@@ -245,6 +269,25 @@ fn main() -> anyhow::Result<()> {
     );
 
     // ---- score ----
+    //
+    // `LLVQ_MMLU_DUMP` writes one line per question. Without it, comparing two
+    // arms question by question means re-running both — 0.8 h at limit=40 and
+    // 16.5 h at census. The paired bootstrap the campaign publishes needs this
+    // file, and it costs one `writeln!` per forward pass.
+    let mut dump = match std::env::var("LLVQ_MMLU_DUMP") {
+        Ok(p) if !p.is_empty() => {
+            let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
+            writeln!(w, "subject,index,answer,pick,correct")?;
+            eprintln!("dumping per-question results to {p}");
+            Some(w)
+        }
+        _ => None,
+    };
+    // Every token actually put to the model, in order. Two arms that print the
+    // same fingerprint were asked the same questions in the same words — the
+    // one thing that made `bin/ppl` comparable and that this harness has so far
+    // established by reading the code rather than by reading a result line.
+    let mut scored_ids: Vec<u32> = Vec::new();
     let t0 = std::time::Instant::now();
     let mut total = 0usize;
     let mut per_subject: Vec<SubjectScore> = Vec::new();
@@ -261,22 +304,16 @@ fn main() -> anyhow::Result<()> {
         };
         // Seeded shuffle, then take: reproducible, and unbiased in a way
         // that `take(limit)` on an ordered corpus is not.
-        let mut picked: Vec<&MmluItem> = items.clone();
-        if limit < picked.len() {
-            let mut rng = llvq_core::SplitMix64::new(0x6_11B0 ^ subject.len() as u64);
-            for i in (1..picked.len()).rev() {
-                picked.swap(i, (rng.next() % (i as u64 + 1)) as usize);
-            }
-            picked.truncate(limit);
-        }
+        let picked = select(items, subject, limit);
         let (mut sr, mut st) = (0usize, 0usize);
-        for it in picked.iter() {
+        for (index, it) in picked.iter() {
             let prompt = format!("{prefix}{}", block(it, None));
             let ids = tok
                 .encode(prompt.as_str(), false)
                 .map_err(|e| anyhow::anyhow!("{e}"))?
                 .get_ids()
                 .to_vec();
+            scored_ids.extend_from_slice(&ids);
             let input = Tensor::new(ids.as_slice(), &device)?.unsqueeze(0)?;
             let logits = model.logits(&input, &mut NoCapture)?;
             // Last position, as f32 — the comparison is between four values
@@ -294,6 +331,14 @@ fn main() -> anyhow::Result<()> {
                 .expect("four options");
             sr += usize::from(pick == it.answer);
             st += 1;
+            if let Some(w) = dump.as_mut() {
+                writeln!(
+                    w,
+                    "{subject},{index},{},{pick},{}",
+                    it.answer,
+                    u8::from(pick == it.answer)
+                )?;
+            }
         }
         total += st;
         per_subject.push(SubjectScore {
@@ -311,6 +356,11 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    if let Some(w) = dump.as_mut() {
+        w.flush()?;
+    }
+    let fingerprint = llvq_llm::eval::token_fingerprint(&scored_ids);
+
     let population: usize = per_subject.iter().map(|s| s.population).sum();
     let (mic, mac, se) = (
         micro(&per_subject),
@@ -321,7 +371,7 @@ fn main() -> anyhow::Result<()> {
     per_subject.sort_by(|a, b| b.rate().total_cmp(&a.rate()));
     println!("\n{label}");
     println!(
-        "MMLU 5-shot — {total} questions scorées sur {population}, {} matières, dtype {}",
+        "MMLU 5-shot — {total} questions scorées sur {population}, {} matières, dtype {}, tokens {fingerprint:016x}",
         per_subject.len(),
         llvq_llm::eval::dtype_name(dtype)
     );
@@ -421,6 +471,75 @@ mod tests {
         let (few, many) = (micro_stderr(&unbalanced(20)), micro_stderr(&unbalanced(80)));
         assert!(few > many, "{few} should exceed {many}");
         assert!(many > 0.0, "80 scored out of 1 500 is still a sample");
+    }
+
+    fn corpus(n: usize) -> Vec<MmluItem> {
+        (0..n)
+            .map(|i| MmluItem {
+                subject: "professional_law".into(),
+                question: format!("q{i}"),
+                choices: ["a".into(), "b".into(), "c".into(), "d".into()],
+                answer: i % 4,
+            })
+            .collect()
+    }
+
+    /// Two arms must be asked the *same* questions, or the paired test they
+    /// feed is meaningless. The sample depends only on the subject name's
+    /// length and the limit — never on the model, the device or the dtype — so
+    /// this holds by construction. This test is what keeps it that way.
+    #[test]
+    fn the_sample_is_identical_across_arms_and_moves_with_the_limit() {
+        let items = corpus(500);
+        let refs: Vec<&MmluItem> = items.iter().collect();
+
+        let a = select(&refs, "professional_law", 40);
+        let b = select(&refs, "professional_law", 40);
+        let ka: Vec<usize> = a.iter().map(|(i, _)| *i).collect();
+        let kb: Vec<usize> = b.iter().map(|(i, _)| *i).collect();
+        assert_eq!(ka, kb, "two runs of one subject must draw the same questions");
+        assert_eq!(ka.len(), 40);
+
+        // The shuffle runs over the whole subject and *then* truncates, so the
+        // samples are **nested**: a deeper run contains a shallower one as a
+        // prefix. That is worth pinning — it means limit=40 and limit=100 can
+        // be compared question by question, and that re-running deeper never
+        // invalidates what was already scored.
+        assert_eq!(
+            ka,
+            select(&refs, "professional_law", 100)
+                .iter()
+                .take(40)
+                .map(|(i, _)| *i)
+                .collect::<Vec<_>>(),
+            "samples must nest — limit is a depth, not a different draw"
+        );
+
+        // And the sample must never be the head of the corpus: MMLU's test
+        // split is not shuffled, so `take(limit)` would be a biased sample of
+        // whatever the subject happens to open with.
+        let census: Vec<usize> = select(&refs, "professional_law", usize::MAX)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        assert_eq!(census, (0..500).collect::<Vec<_>>(), "a census keeps parquet order");
+        assert_ne!(ka, census[..40].to_vec(), "the sample must not be the head");
+    }
+
+    /// The index must survive the shuffle. It is the only stable key to a
+    /// question — `MmluItem` has no identifier — and the per-question dump is
+    /// useless without it.
+    #[test]
+    fn the_parquet_index_survives_the_shuffle() {
+        let items = corpus(200);
+        let refs: Vec<&MmluItem> = items.iter().collect();
+        for (index, it) in select(&refs, "abstract_algebra", 25) {
+            assert_eq!(
+                it.question,
+                format!("q{index}"),
+                "index {index} no longer points at its question"
+            );
+        }
     }
 
     /// One stratum, so the weight is 1 whatever the population and the *only*

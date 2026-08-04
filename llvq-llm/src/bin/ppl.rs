@@ -113,9 +113,19 @@ fn main() -> anyhow::Result<()> {
         let (n, c) = model.window_nll(&ids[s..e], &mut NoCapture)?;
         nll += n;
         count += c;
+        // The per-window mean NLL, at full precision, is the whole error bar:
+        // the windows are the sampling unit, and two arms scored on the same
+        // token stream pair up window by window. A paired t interval over
+        // these deltas divides the standard deviation by ~6 against treating
+        // the arms as independent — and it costs one extra number per line.
+        //
+        // Nine significant digits, not four: the deltas between two arms are
+        // ~1e-2 nats against a mean of ~2.5, and a printed value is the only
+        // form in which this survives the run.
         eprintln!(
-            "  window {:>3}/{nwin}  running ppl {:>8.3}  ({:.1}s)",
+            "  window {:>3}/{nwin}  nll {:.9}  n {c}  running ppl {:>8.3}  ({:.1}s)",
             w + 1,
+            n / c as f64,
             (nll / count as f64).exp(),
             t0.elapsed().as_secs_f64()
         );
