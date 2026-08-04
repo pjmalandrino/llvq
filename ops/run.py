@@ -574,19 +574,44 @@ def cmd_monitor(args) -> int:
 
     def meter():
         try:
-            from huggingface_hub import fetch_job_metrics
+            from huggingface_hub import fetch_job_metrics, inspect_job as _inspect
         except ImportError:
             print("[metrics] fetch_job_metrics absent de huggingface_hub — "
                   "axe mémoire perdu pour ce job", flush=True)
             return
-        try:
-            for ev in fetch_job_metrics(job_id=args.job_id):
-                gpus = (ev or {}).get("gpus") or {}
-                used = max((g.get("memory_used_bytes", 0) for g in gpus.values()), default=0)
-                if used:
-                    samples.append((time.time(), int(used)))
-        except Exception as e:
-            print(f"[metrics interrompues: {e}]", flush=True)
+        # **Re-subscribe in a loop, and it is not defensive coding.** The first
+        # pilot subscribed while the Job was still SCHEDULING; the endpoint has
+        # nothing to stream for a Job that is not running, so the generator
+        # returned immediately, the thread exited, and by the time the card was
+        # allocated nobody was listening. The job produced its numbers and the
+        # memory axis was simply absent from the result.
+        #
+        # So: subscribing too EARLY loses the stream exactly as subscribing too
+        # late does. Keep re-attaching until the Job reaches a terminal stage.
+        attached = False
+        while True:
+            try:
+                st = _inspect(job_id=args.job_id).status.stage
+            except Exception:
+                st = "UNKNOWN"
+            if st in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
+                if not attached:
+                    print("[metrics] le Job s'est terminé sans qu'aucun "
+                          "échantillon n'ait pu être lu", flush=True)
+                return
+            try:
+                for ev in fetch_job_metrics(job_id=args.job_id):
+                    gpus = (ev or {}).get("gpus") or {}
+                    used = max((g.get("memory_used_bytes", 0) for g in gpus.values()),
+                               default=0)
+                    if used:
+                        if not attached:
+                            print("[metrics] flux attaché", flush=True)
+                            attached = True
+                        samples.append((time.time(), int(used)))
+            except Exception as e:
+                print(f"[metrics interrompues: {e}]", flush=True)
+            time.sleep(2)
 
     threading.Thread(target=meter, daemon=True).start()
 
