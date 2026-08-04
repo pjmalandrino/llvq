@@ -45,13 +45,20 @@ output channels **in packets of 8**, which loads, runs, and produces numbers.
   noise. Measured on this file: 0.105 when the order is right, **0.97** without
   `AWQ_REVERSE_ORDER`, 0.33 with the spurious `-1` on the zeros, and a plain
   broadcast failure on a wrong group size. The wrong-order failure even has a
-  signature: cosine stays at 0.99 exactly for output rows `= 0` and `= 7 (mod
+  signature: cosine stays near 1 exactly for output rows `= 0` and `= 7 (mod
   8)`, the two fixed points of the permutation, and collapses to ~0 for the
-  other six.
+  other six. L1 also closes something L2 traverses without noticing: `scales`
+  are stored **unpermuted** while `qweight` and `qzeros` are permuted, and
+  re-packing divides by the same scales it multiplied by.
 * **L4 (narrowing budget)** — that we publish AWQ's error and not our own f16
   cast. Measured margin x557 to x577, criterion x100.
 * **Iso-perimeter** — 74 identical / 72 different. Any other split means the
   upstream repository moved and the campaign's premises need re-reading.
+* **`selftest`** — all of the above, offline, in a second, against a synthetic
+  projection whose ground truth we chose. It is the only place where the
+  controls are ever *seen to fail*: seven named mutants, each of which has to
+  die at a named net. A control that has never rejected anything is a control
+  whose failure mode is unknown.
 
 The quantization error used as L4's yardstick is derived from the scales alone,
 `sqrt(gs)*||scales||_F / sqrt(12) / ||W||_F`, so it needs no second
@@ -143,41 +150,74 @@ EXPECTED: dict[str, dict] = {
         tokenizer_sha256=(
             "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
         ),
-        # bf16 -> f16 on the embedding, as measured in `docs/fiche-4b.md` §4.2
-        # on the base checkpoint — whose embedding bytes this file verifies to
-        # be identical to AWQ's. bf16 has 8 mantissa bits against f16's 11, so
-        # the narrowing is **exact** over f16's normal range; only the subnormal
-        # zone loses anything, which is why the count is this small.
+        # bf16 -> f16 on the embedding. `docs/fiche-4b.md` §4.2 measured these
+        # on the **base** checkpoint; they have since been recounted on **AWQ's
+        # own 777 912 320 bytes**, streamed by Range: 77 045 changed
+        # (1.981e-4), 451 flushed, largest touched value 7.5996e-6, largest
+        # absolute error 2.9802e-8 = 2^-25, max |v| 0.250000. Every figure
+        # identical, which does more than confirm the constants: it says the two
+        # embeddings agree far beyond the three probes the perimeter control
+        # affords.
+        #
+        # bf16 carries 8 significand bits against f16's 11, so the narrowing is
+        # **exact** wherever f16 is normal; a bf16 at 2^e is a multiple of
+        # 2^(e-7) and f16's subnormal grid is 2^-24, so everything at or above
+        # 2^-17 survives untouched. That is why the count is this small, and why
+        # the largest touched value sits just under 2^-17 = 7.6294e-6.
         embed_narrowed=77_045,
         embed_flushed=451,
     ),
 }
 
-# L1's thresholds, calibrated on five projections spread across the model
-# (`layers.{0,5,17,30,35}`, four projection kinds), each measured correct and
-# against three mutants — the table every number below comes from:
+# L1's thresholds. The cosine is measured against the **fitted** reference
+# `W_base * s`, not against `W_base` — see `control_l1_base` for why, and
+# `selftest_pipeline` for the mutant that forced the change.
 #
-#   statistic       correct          no-REV         zeros-1        REV<->ORD
-#   cosine floor    0.958 – 0.999    -0.014 – 0.00  0.958 – 0.999  -0.014 – 0.00
-#   cosine spread   0.0013 – 0.003   ~1.0           ~ as correct   ~1.0
-#   ratio           0.999 – 1.441    9.51 – 10.45   3.60 – 3.75    9.53 – 10.45
+# Calibrated on nine projections spread across the model (`layers.{0,4,9,13,18,
+# 22,26,31,35}`, three projection kinds, salience spreads from 1.0 to 4 421)
+# plus ten synthetic ones, each measured correct and against three mutants.
+# Every number below comes from that table (`selftest_pipeline` rebuilds the
+# three mutant columns on every run):
 #
-# The two statistics are complementary, and that is the point: the cosine
-# signature catches a permutation and is blind to a zero-point shift, the ratio
-# catches a zero-point shift. Neither alone would pass this table.
+#   statistic      correct real   correct synth   no-REV   scales perm  zeros-1
+#   cosine floor   0.9930-0.9950  0.9934-0.9941   0.0099   0.9866       0.9262
+#   cosine spread  0.0001-0.0007  0.0007-0.0015   0.8936   0.0021       0.0126
+#   ratio          0.998 -1.441   0.972 -0.994    8.787    5.534        3.550
+#   L2             pass           pass            pass     pass         FAIL
 #
-# L1's sharp criterion: a row permutation leaves two populations of cosines,
-# ~1 at slots 0 and 7 and ~0 at the other six. Anything short of that split is
-# not a permutation, whatever the residual says.
-L1_COSINE_FLOOR = 0.80   # worst slot measured on a correct read: 0.958
-L1_COSINE_SPREAD = 0.15  # worst spread measured on a correct read: 0.003
-# The blunt net behind it. Loose on purpose: AutoAWQ does not only rescale, it
+# Read the mutant columns downward, because each one dies at a different net and
+# no net catches all three:
+#   * **no-REV** — the permutation L2 provably cannot see — dies at the
+#     **spread**, 89x over threshold. Two populations, ~1 at slots 0 and 7 (the
+#     fixed points of `AWQ_REVERSE_ORDER`) and ~0 at the other six.
+#   * **scales permuted** dies at the **ratio**, and only there: it leaves no
+#     split (spread 0.0021) and barely dents the floor (0.9866). L2 round-trips
+#     it, because both sides divide by the same wrong scales.
+#   * **zeros-1** dies at **L2**, outright.
+# The floor is the net that survives a corrupted yardstick: `ratio` divides by
+# `quantization_error`, which is itself computed from `scales`, so a defect that
+# corrupts the scales corrupts the denominator too. The floor has no denominator.
+#
+# ⚠️ **The floor is the one threshold no mutant in the suite exercises**, and
+# that is stated rather than hidden: every mutant built so far dies at the
+# spread, at the ratio or at L2 first, so widening the floor to -1 fails
+# nothing. It is kept as the denominator-free backstop described above, not
+# claimed as a lock. Anyone tightening it should build the mutant first.
+L1_COSINE_FLOOR = 0.95   # worst correct: 0.9930. no-REV sits at 0.0099
+L1_COSINE_SPREAD = 0.010  # worst correct: 0.0015. no-REV sits at 0.8936
+# The blunt net behind them. Loose on purpose: AutoAWQ does not only rescale, it
 # also searches a per-group **clipping** factor, so the residual legitimately
 # exceeds pure round-off — most on the layers whose scales spread widest.
 # Measured up to 1.441 on `layers.17.mlp.up_proj`, which is a correct
 # reconstruction. The ceiling sits 1.7x above that and 1.4x below the closest
 # mutant; an earlier 1.60, calibrated on the 1.18 of `layers.35.mlp.down_proj`
 # alone, left 11 % of headroom and would have failed a correct full run.
+#
+# ⚠️ The ceiling and the floor bound the same quantity from two sides: a
+# residual `r` puts the fitted cosine near `sqrt(1 - r^2)`. At `q_err ~ 0.105`,
+# ratio 2.5 means `r ~ 0.26`, i.e. a cosine of ~0.965. The floor is set *below*
+# that on purpose, so the ratio net fires first and the report never blames a
+# permutation for what is only a large residual.
 L1_RATIO_CEILING = 2.5
 L4_MIN_MARGIN = 100.0  # narrowing must be this far below the arm's own error
 
@@ -618,6 +658,29 @@ def control_l2(p: Projection) -> dict:
 
     Closes the group size, the zero-point convention and the nibble arithmetic.
     Does **not** close the permutation — see the module docstring, and L1.
+
+    🕳️ **No single field below can be killed by mutation, and it is worth
+    knowing why** (CLAUDE.md §5: a surviving mutant means either a weak test or
+    dead code — here it means neither, it means *equivalent* code).
+    `selftest_packing` proves `repack o unpack = id`, and from that:
+
+    * `qweight_identical` and `mismatched == 0` are the same statement. Given
+      `rec` in range, `repack(rec) == qweight` iff `rec == unpack(qweight) ==
+      iweights`. Neutralise either and the other still fails the run — but
+      neutralise **both** and `selftest_pipeline`'s displaced-nibble mutant
+      dies here, which is what proves the pair is not decoration.
+    * `qzeros_identical` is a **tautology**: `izeros` *is* `unpack(qzeros)`, so
+      re-packing it always returns `qzeros`. It can never fire. It is reported
+      because it is a true and cheap statement about the round-trip, not
+      because it guards anything — do not count it as a control.
+    * `in_range` is implied by the pair whenever the run is correct, and on its
+      own it is weaker than it looks: it catches the spurious `-1` only because
+      AWQ's min/max grid uses the full 0..15 range, so some nibble overflows.
+      A defect that stays inside the range would walk straight through it.
+
+    What actually guards the zero-point convention is `mismatched`: a spurious
+    `-1` shifts every recovered integer by one, and `selftest_pipeline` kills
+    that mutant here.
     """
     sc = p.scales[:, None, :]
     grouped = p.w_in_major.reshape(p.groups, p.group_size, p.d_out)
@@ -668,6 +731,20 @@ def control_l1_base(p: Projection, base_weight: np.ndarray) -> dict:
     The residual is still reported, and still bounded — loosely, at a level a
     real formula error could not survive — because it costs nothing to keep a
     second, blunter net behind the sharp one.
+
+    🕳️ **The cosine is taken against `W_base * s`, not against `W_base`, and
+    the first version of this file got that wrong.** Comparing raw rows makes
+    the statistic a function of how widely `s` spreads inside the layer, which
+    is a property of the *layer*, not of our reading: measured on the real file,
+    the floor tracks the spread from 0.9950 at spread 1.0 to 0.9583 at spread
+    26.5, and `layers.9.self_attn.q_proj` spreads by **4 421**. On a synthetic
+    projection with that much spread a *correct* reconstruction floors at
+    **0.4307** — the old threshold of 0.80 would have called it permuted. The
+    same defect the docstring above describes, one level up: a criterion whose
+    model omits the very term the method is built on. Dividing `s` back out
+    makes the statistic invariant (0.9915 – 0.9950 measured across spreads from
+    1.0 to 4 421) and sharpens the permutation gap from ~75x to ~1 400x.
+    Pinned offline by `selftest_pipeline`.
     """
     if base_weight.shape != p.weight.shape:
         raise Fatal(f"{p.prefix}: base {base_weight.shape} contre AWQ {p.weight.shape}")
@@ -675,31 +752,40 @@ def control_l1_base(p: Projection, base_weight: np.ndarray) -> dict:
     b = np.asarray(base_weight, dtype=np.float32)
     den = (b * b).sum(axis=0)
     s = np.divide((w * b).sum(axis=0), den, out=np.zeros_like(den), where=den > 0)
-    residual = float(np.linalg.norm(w - b * s) / np.linalg.norm(w))
+    fit = b * s
+    residual = float(np.linalg.norm(w - fit) / np.linalg.norm(w))
     q_err = p.quantization_error()
     ratio = residual / q_err if 0 < q_err < math.inf else float("inf")
 
-    num = (w * b).sum(axis=1)
-    dn = np.sqrt((w * w).sum(axis=1) * (b * b).sum(axis=1))
+    num = (w * fit).sum(axis=1)
+    dn = np.sqrt((w * w).sum(axis=1) * (fit * fit).sum(axis=1))
     cos = np.divide(num, dn, out=np.zeros_like(num), where=dn > 0)
     by_slot = [float(x) for x in cos.reshape(-1, 8).mean(axis=0)]
     lo, hi = min(by_slot), max(by_slot)
-    # A row permutation splits the slots into two populations; nothing else
-    # does. Both halves of this are load-bearing: the floor alone would pass a
-    # uniformly-degraded fit, the spread alone would pass a uniformly-broken
-    # one.
-    permuted = lo < L1_COSINE_FLOOR or (hi - lo) > L1_COSINE_SPREAD
+    # Two verdicts, deliberately separate, because they accuse different things.
+    # A nibble permutation splits the slots into two populations and nothing
+    # else does — that is the spread, and it is the *only* thing entitled to
+    # print the word "permutation". A uniform loss of alignment across all eight
+    # slots is a different crime with different suspects — that is the floor.
+    # Folding them into one flag is how a run whose scales moved gets reported
+    # as an `AWQ_REVERSE_ORDER` bug and sends the reader to the wrong file.
+    permuted = (hi - lo) > L1_COSINE_SPREAD
+    degraded = lo < L1_COSINE_FLOOR
+    smin = float(s.min())
 
     return dict(
-        ok=bool(not permuted and s.min() > 0.0 and ratio <= L1_RATIO_CEILING),
+        ok=bool(not permuted and not degraded and smin > 0.0
+                and ratio <= L1_RATIO_CEILING),
         permuted=permuted,
+        degraded=degraded,
         residual=residual,
         quantization_error=q_err,
         ratio=ratio,
         cosine_floor=lo,
         cosine_spread=hi - lo,
-        scale_min=float(s.min()),
+        scale_min=smin,
         scale_max=float(s.max()),
+        salience_spread=float(s.max() / smin) if smin > 0 else float("inf"),
         cosine_by_slot=[round(x, 4) for x in by_slot],
     )
 
@@ -1004,10 +1090,12 @@ def report_embedding(res: dict, exp: dict | None, say) -> bool:
         res["changed"] == exp["embed_narrowed"]
         and res["flushed_to_zero"] == exp["embed_flushed"]
     ):
-        say("  ok    reproduit fiche-4b §4.2 au comptage près")
+        say("  ok    reproduit fiche-4b §4.2 au comptage près, sur les octets "
+            "d'AWQ")
         return True
-    say(f"  FAIL  fiche-4b §4.2 mesure {exp['embed_narrowed']} changées et "
-        f"{exp['embed_flushed']} à zéro.")
+    say(f"  FAIL  attendu {exp['embed_narrowed']} changées et "
+        f"{exp['embed_flushed']} à zéro (fiche-4b §4.2, recompté sur les octets "
+        "d'AWQ).")
     say("        Soit le dépôt amont a bougé, soit la référence est à revoir : "
         "un humain tranche, ce script ne devine pas.")
     return False
@@ -1022,15 +1110,380 @@ def sample_indices(total: int, k: int) -> list[int]:
     return sorted({round(i * (total - 1) / (k - 1)) for i in range(k)})
 
 
+# --- the offline lock -------------------------------------------------------
+#
+# `selftest_packing` pins the bit arithmetic and nothing else. Everything the
+# reconstruction actually rests on — the group reshape, the zero-point
+# convention, the transpose, the fact that `scales` are stored **unpermuted**
+# while `qweight` and `qzeros` are permuted — was, until this section existed,
+# asserted only by a comment and by controls nobody had ever seen fail.
+#
+# A control that has never rejected anything is a control whose failure mode is
+# unknown (CLAUDE.md §5). So: synthesize a projection whose ground truth we
+# chose, run the real controls on the real code, and demand that each named
+# mutant dies at the named control. No network, no model, deterministic.
+
+
+class _MemoryTensors:
+    """A `SafeTensors` stand-in over arrays already in memory.
+
+    `Projection` touches its source through `tensor(name)` and nothing else, so
+    the selftest exercises the production class rather than a copy of it.
+    """
+
+    def __init__(self, tensors: dict[str, np.ndarray]):
+        self._t = tensors
+
+    def tensor(self, name: str) -> np.ndarray:
+        return self._t[name]
+
+
+def _pack_with(mat: np.ndarray, order: np.ndarray) -> np.ndarray:
+    """Pack nibbles under an arbitrary intra-word order, for building mutants."""
+    rows, n = mat.shape
+    g = mat.reshape(rows, n // 8, 8)[:, :, order].astype(np.uint32)
+    out = np.zeros((rows, n // 8), dtype=np.uint32)
+    for i in range(8):
+        out |= (g[:, :, i] & np.uint32(0xF)) << np.uint32(4 * i)
+    return out.view(np.int32)
+
+
+def _synthetic_awq(
+    d_out: int = 64,
+    d_in: int = 512,
+    group_size: int = 128,
+    seed: int = 7,
+    *,
+    order: np.ndarray | None = None,
+    scale_order: np.ndarray | None = None,
+) -> tuple[_MemoryTensors, np.ndarray]:
+    """AWQ tensors for a projection whose unquantized weight we know.
+
+    Reproduces what AutoAWQ writes: scale the input channels by a salience
+    profile `s`, quantize `(W*s)^T` asymmetrically per group of `group_size`
+    input channels, then pack `qweight`/`qzeros` under `AWQ_ORDER` while leaving
+    `scales` in natural order.
+
+    The salience spread is deliberately brutal — ~3 000x end to end — because
+    the real file carries a layer at **4 421** (`layers.9.self_attn.q_proj`) and
+    a threshold that survives only mild spreads is a threshold that fails in
+    production, not in the selftest.
+
+    It is built per **group**, with mild jitter inside, and that shape is not
+    cosmetic. A salience that swings by 3 000x *within* one group of 128 input
+    channels lets the loud channel set the group's scale and quantizes the quiet
+    ones to a constant; the least-squares `s` of the quiet channels then comes
+    back exactly 0, and L1 rejects a reconstruction that is in fact correct.
+    Real salience comes from activation magnitudes and is channel-structured,
+    which is why the measured `scale_min` is 0.19 and 0.66, not 0. Keeping the
+    global spread and dropping the intra-group one reproduces what stresses the
+    statistic without manufacturing a degeneracy the file will never see.
+
+    Output rows are given a magnitude of their own, and that is not cosmetic
+    either: it is what a permutation of the **scales** damages. Rows of iid
+    gaussians all have the same dynamic range, so swapping the scales of eight
+    neighbouring output channels costs almost nothing and that mutant survives
+    with a cosine spread of 0.0099 against a threshold of 0.010 — passing by
+    luck. Measured on the real checkpoint, row norms spread by 7.6x on
+    `layers.0.self_attn.k_proj` and 9.7x on `layers.18.self_attn.q_proj`; the
+    `exp(U(-1.1, 1.1))` below reproduces that 9x.
+
+    `order` / `scale_order` are the mutation handles: they change what the
+    *file* contains, not what our reader does, which is the only honest way to
+    ask "would we notice?".
+    """
+    order = AWQ_ORDER if order is None else order
+    rng = np.random.default_rng(seed)
+    base = rng.standard_normal((d_out, d_in)).astype(np.float32)
+    base *= np.exp(rng.uniform(-1.1, 1.1, size=(d_out, 1))).astype(np.float32)
+    groups_of_s = np.repeat(
+        rng.uniform(-4.0, 4.0, size=d_in // group_size), group_size
+    )
+    s = np.exp(groups_of_s + rng.uniform(-0.35, 0.35, size=d_in)).astype(np.float32)
+    target = np.ascontiguousarray((base * s).T)  # [d_in, d_out], what AWQ sees
+    groups = d_in // group_size
+    g = target.reshape(groups, group_size, d_out)
+    lo, hi = g.min(axis=1), g.max(axis=1)
+    # f16 round-trip on the scales, as the file stores them.
+    sc = ((hi - lo) / 15.0).astype(np.float16).astype(np.float32)
+    izeros = np.rint(-lo / sc).astype(np.int32).clip(0, 15)
+    iweights = (
+        np.rint(g / sc[:, None, :]).astype(np.int32) + izeros[:, None, :]
+    ).clip(0, 15).reshape(d_in, d_out)
+
+    scales = sc.astype(np.float16)
+    if scale_order is not None:
+        scales = scales.reshape(groups, d_out // 8, 8)[:, :, scale_order].reshape(
+            groups, d_out
+        )
+    return _MemoryTensors({
+        "t.qweight": _pack_with(iweights, order),
+        "t.qzeros": _pack_with(izeros, order),
+        "t.scales": scales,
+    }), base
+
+
+def selftest_pipeline() -> list[str]:
+    """The reconstruction and its controls, against four named mutants."""
+    fail: list[str] = []
+    gs = 128
+
+    src, base = _synthetic_awq(group_size=gs)
+    p = Projection(src, "t", gs)
+    # The reconstruction must be the transpose, [d_out, d_in]. Checked first:
+    # every control below would raise on a mismatched shape, and a stack trace
+    # is a worse report than a sentence.
+    if p.weight.shape != base.shape:
+        return [f"forme reconstruite {p.weight.shape}, attendu {base.shape} — "
+                "la transposition finale a sauté"]
+    l2, l4 = control_l2(p), control_l4(p)
+    l1 = control_l1_base(p, base)
+    if not l2["ok"]:
+        fail.append(f"L2 rejette une reconstruction correcte : {l2}")
+    if not l4["ok"]:
+        fail.append(f"L4 rejette une reconstruction correcte : marge {l4['margin']}")
+    if not l1["ok"]:
+        fail.append(
+            f"L1 rejette une reconstruction correcte (plancher {l1['cosine_floor']:.4f},"
+            f" écart {l1['cosine_spread']:.4f}, ratio {l1['ratio']:.3f}) — c'est la"
+            f" faute que le seuil brut avait déjà commise, cf. control_l1_base"
+        )
+    # The reconstruction must be the transpose: [d_out, d_in], not [d_in, d_out].
+    if p.weight.shape != base.shape:
+        fail.append(f"forme reconstruite {p.weight.shape}, attendu {base.shape}")
+
+    # Mutant 1 — the file packed WITHOUT `AWQ_ORDER`, i.e. our reverse gather is
+    # spurious. This is the exact failure the module docstring forbids, and the
+    # exact one L2 cannot see: it must round-trip, and L1 must catch it.
+    src2, base2 = _synthetic_awq(group_size=gs, order=np.arange(8))
+    p2 = Projection(src2, "t", gs)
+    if not control_l2(p2)["ok"]:
+        fail.append("L2 voit la permutation de quartets — l'énoncé du fichier, "
+                    "qui affirme qu'il ne peut pas la voir, est faux")
+    m = control_l1_base(p2, base2)
+    if m["ok"] or not m["permuted"]:
+        fail.append(
+            f"L1 laisse passer un AWQ_REVERSE_ORDER non appliqué "
+            f"(plancher {m['cosine_floor']:.4f}, écart {m['cosine_spread']:.4f})"
+        )
+
+    # Mutant 2 — `scales` permuted like `qweight`. Nothing else pins the fact
+    # that AutoAWQ's `apply_order` skips the scales: L2 round-trips it, because
+    # both sides divide by the same wrong scales. It must be caught, and it must
+    # NOT be reported as a nibble permutation — it leaves no split (0.0021).
+    src3, base3 = _synthetic_awq(group_size=gs, scale_order=AWQ_ORDER)
+    p3 = Projection(src3, "t", gs)
+    if not control_l2(p3)["ok"]:
+        fail.append("L2 voit des échelles permutées — l'énoncé selon lequel il "
+                    "les traverse est faux, et le rôle du ratio est à revoir")
+    m = control_l1_base(p3, base3)
+    if m["ok"]:
+        fail.append(f"L1 laisse passer des échelles permutées : ratio {m['ratio']:.3f}")
+    if m["permuted"]:
+        fail.append("L1 impute des échelles permutées à AWQ_REVERSE_ORDER : le "
+                    "rapport enverrait le lecteur dans le mauvais fichier")
+
+    # Mutant 3 — the spurious `-1` on the zeros: `(iw - (iz-1))*s = w + s`.
+    p4 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
+    p4.w_in_major = p4.w_in_major + np.repeat(p4.scales, gs, axis=0)
+    p4.weight = np.ascontiguousarray(p4.w_in_major.T)
+    p4._f16 = None
+    if control_l2(p4)["ok"]:
+        fail.append("L2 laisse passer le -1 parasite sur les zéros")
+
+    # Mutant 3b — two input rows of the same group swapped. Nibbles all legal,
+    # simply not the ones the file holds.
+    #
+    # 🕳️ Without this one, `mismatched` and `qweight_identical` are BOTH
+    # unkillable: neutralise the pair and mutant 3 still dies, because a `-1`
+    # on the zeros pushes some nibble past 15 and `in_range` catches it. That
+    # is luck of the data, not a proof — AWQ's min/max grid happens to use the
+    # full 0..15 range. A defect that stays inside the range would walk through
+    # an L2 whose only live field is `in_range`.
+    p4b = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
+    p4b.w_in_major = p4b.w_in_major.copy()
+    p4b.w_in_major[[0, 1]] = p4b.w_in_major[[1, 0]]
+    p4b.weight = np.ascontiguousarray(p4b.w_in_major.T)
+    p4b._f16 = None
+    r = control_l2(p4b)
+    if r["ok"]:
+        fail.append("L2 laisse passer des quartets déplacés dans [0, 15]")
+    if not r["in_range"]:
+        fail.append("le mutant de quartets déplacés sort de [0, 15] : il ne "
+                    "teste plus `mismatched`, il teste `in_range`")
+
+    # The output dtype is a campaign requirement, not a preference (plan §2.6:
+    # "calculer en float32, un seul .astype(float16) en sortie"). Nothing else
+    # in this file would notice an f32 output: L4 would report a relative error
+    # of 0 and an infinite margin, the weight count is a count of weights, and
+    # step [7] re-reads names. The checkpoint would simply be twice the size and
+    # perfectly plausible.
+    if p.f16.dtype != np.float16:
+        fail.append(f"la sortie est en {p.f16.dtype}, f16 imposé par le protocole")
+
+    # Mutant 4 — an f16 overflow, and mutant 5 — one rounding too many (a bf16
+    # detour). Without these two, `L4_MIN_MARGIN` and the overflow test are
+    # decoration: every correct projection clears them by x500, so loosening
+    # either threshold to zero fails nothing.
+    p6 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
+    p6.weight = p6.weight * np.float32(1e5)  # past f16's 65 504
+    p6.scales = p6.scales * np.float32(1e5)  # keep the yardstick consistent
+    p6._f16 = None
+    # The overflow is the point of this mutant, so numpy's warning about it is
+    # not news. Silenced here and nowhere else: a real run must still shout.
+    with np.errstate(over="ignore", invalid="ignore"):
+        r = control_l4(p6)
+    if r["ok"] or r["overflow"] == 0:
+        fail.append(f"L4 accepte un débordement f16 : {r['overflow']} valeurs")
+    p7 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
+    p7._f16 = (
+        (p7.weight.view(np.uint32) & np.uint32(0xFFFF0000)).view(np.float32)
+    ).astype(np.float16)
+    r = control_l4(p7)
+    if r["ok"]:
+        fail.append(f"L4 accepte un arrondi supplémentaire : marge {r['margin']:.1f}")
+
+    # Mutant 6 — the transpose dropped, and mutant 7 — the wrong group size.
+    # Both must be structural refusals, not silent degradations.
+    p5 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
+    p5.weight = p5.w_in_major
+    try:
+        control_l1_base(p5, base)
+        fail.append("L1 accepte une reconstruction non transposée")
+    except Fatal:
+        pass
+    try:
+        Projection(_synthetic_awq(group_size=gs)[0], "t", gs // 2)
+        fail.append("Projection accepte un group_size faux")
+    except Fatal:
+        pass
+    return fail
+
+
+def selftest_narrowing() -> list[str]:
+    """bf16 -> f16: exact above 2^-17, and rounding below it.
+
+    `control_embedding_narrowing` reports a count the campaign compares to a
+    reference. If the cast were exact everywhere the count would be 0 and the
+    comparison would look like agreement, so the mechanism is pinned here.
+    """
+    fail: list[str] = []
+    # Every bf16 (8-bit significand) at or above 2^-17 lands on f16's grid.
+    e = np.arange(-17, 8)
+    k = np.arange(128)
+    v = ((128 + k[None, :]) * np.float64(2.0) ** (e[:, None] - 7)).astype(np.float32)
+    r = control_embedding_narrowing(v.reshape(-1))
+    if r["changed"] != 0:
+        fail.append(f"{r['changed']} valeurs bf16 >= 2^-17 changent au cast f16")
+    # One exponent lower, the odd significands need a bit f16 does not have.
+    v2 = ((128 + k) * np.float64(2.0) ** -25).astype(np.float32)
+    r2 = control_embedding_narrowing(v2)
+    if r2["changed"] != 64:
+        fail.append(f"{r2['changed']} valeurs changent à 2^-18, 64 attendues")
+    if abs(r2["abs_error_max"] - 2.0**-25) > 1e-12:
+        fail.append(f"erreur max {r2['abs_error_max']}, 2^-25 attendu")
+    if control_embedding_narrowing(np.zeros(4, np.float32))["flushed_to_zero"]:
+        fail.append("des zéros exacts sont comptés comme écrasés à zéro")
+    return fail
+
+
+def selftest_weight_count() -> list[str]:
+    """`expected_weight_count` against the number the campaign publishes."""
+    fail: list[str] = []
+    qwen3_4b = dict(
+        num_hidden_layers=36, hidden_size=2560, intermediate_size=9728,
+        head_dim=128, num_attention_heads=32, num_key_value_heads=8,
+        vocab_size=151936, tie_word_embeddings=True,
+    )
+    got = expected_weight_count(qwen3_4b)
+    if got != 4_022_468_096:
+        fail.append(f"Qwen3-4B compté à {got}, 4 022 468 096 attendus (plan §2.1)")
+    # The 252 projections alone, the homogeneous denominator of the same table.
+    if got - 151936 * 2560 - 2560 - 36 * (2 * 2560 + 2 * 128) != 3_633_315_840:
+        fail.append("les projections seules ne retombent pas sur 3 633 315 840")
+    untied = expected_weight_count(dict(qwen3_4b, tie_word_embeddings=False))
+    if untied - got != 151936 * 2560:
+        fail.append("un lm_head délié ne coûte pas une embedding de plus")
+    return fail
+
+
+def selftest_writer() -> list[str]:
+    """`ShardWriter` round-trip: shard split, index, and values re-read."""
+    import shutil
+    import tempfile
+
+    fail: list[str] = []
+    tmp = Path(tempfile.mkdtemp(prefix="llvq-awq-selftest-"))
+    try:
+        rng = np.random.default_rng(3)
+        want = {f"t{i}": rng.standard_normal((64, 32)).astype(np.float16)
+                for i in range(5)}
+        # 8 KB each, so a 20 KB limit must produce more than one shard.
+        w = ShardWriter(tmp, 20_000)
+        for k, v in want.items():
+            w.add(k, v)
+        files, index = w.finish()
+        if len(files) < 2:
+            fail.append(f"{len(files)} shard(s) pour 5 tenseurs sous une limite "
+                        "de 20 000 o : le découpage ne se déclenche pas")
+        if w.weights != sum(v.size for v in want.values()):
+            fail.append(f"{w.weights} poids comptés, {sum(v.size for v in want.values())} écrits")
+        if set(index["weight_map"]) != set(want):
+            fail.append("l'index n'annonce pas les tenseurs écrits")
+        if len(files) > 1 and not (tmp / "model.safetensors.index.json").exists():
+            fail.append("index.json absent d'un checkpoint multi-shard")
+        seen: dict[str, np.ndarray] = {}
+        for f in files:
+            if not (tmp / f).exists():
+                fail.append(f"shard annoncé mais absent : {f}")
+                continue
+            with SafeTensors(tmp / f) as st:
+                for n in st.header:
+                    seen[n] = st.tensor(n)
+        for k, v in want.items():
+            if k not in seen or not np.array_equal(seen[k], v):
+                fail.append(f"{k} ne se relit pas à l'identique")
+        if any(p.name.startswith(".shard-") for p in tmp.iterdir()):
+            fail.append("des shards temporaires survivent à finish()")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return fail
+
+
+SELFTESTS = (
+    ("arithmétique d'empaquetage", selftest_packing,
+     "ordres mutuellement inverses, pack/unpack contre référence naïve, "
+     "empaquetage non permuté rejeté"),
+    ("reconstruction et contrôles", selftest_pipeline,
+     "L2/L1/L4 acceptent une projection correcte à saillance extrême et tuent "
+     "7 mutants (quartets, échelles, zéros, débordement f16, arrondi de trop, "
+     "transposée, group_size) ; la sortie est bien en f16"),
+    ("narrowing bf16 -> f16", selftest_narrowing,
+     "exact au-dessus de 2^-17, arrondi de 2^-25 en dessous"),
+    ("comptabilité des poids", selftest_weight_count,
+     "Qwen3-4B retombe sur 4 022 468 096 et 3 633 315 840"),
+    ("écriture des shards", selftest_writer,
+     "découpage, index et relecture bit pour bit"),
+)
+
+
 def run_selftest(say) -> bool:
-    say("\n[0] arithmétique d'empaquetage (aucun octet lu)")
-    failures = selftest_packing()
-    for line in failures:
-        say(f"  FAIL  {line}")
-    if not failures:
-        say("  ok    ordres mutuellement inverses, pack/unpack contre référence "
-            "naïve, empaquetage non permuté rejeté")
-    return not failures
+    """Every offline lock. No network, no model, no bytes read."""
+    say("\n[0] verrous hors ligne (aucun octet lu)")
+    ok = True
+    for name, fn, blurb in SELFTESTS:
+        failures = fn()
+        for line in failures:
+            say(f"  FAIL  {name} : {line}")
+        if not failures:
+            say(f"  ok    {name} — {blurb}")
+        ok &= not failures
+    return ok
+
+
+def selftest_failures() -> dict[str, list[str]]:
+    """The same locks, as data for the reconstruction report."""
+    return {name: fn() for name, fn, _ in SELFTESTS}
 
 
 def resolve_expectations(repo: str, allow_unknown: bool, say) -> tuple[dict | None, bool]:
@@ -1045,6 +1498,17 @@ def resolve_expectations(repo: str, allow_unknown: bool, say) -> tuple[dict | No
 
 
 # --- commands ---------------------------------------------------------------
+
+
+def cmd_selftest(args) -> int:
+    """Every offline lock, in about a second. No network, no model, no bytes.
+
+    Same role as `ops/run.py selftest`: the thing you run before believing any
+    other output of this file, and the thing to run after touching it.
+    """
+    ok = run_selftest(print)
+    print("\n" + ("TOUS LES VERROUS TIENNENT" if ok else "AU MOINS UN VERROU CÈDE"))
+    return 0 if ok else 1
 
 
 def cmd_check(args) -> int:
@@ -1097,17 +1561,19 @@ def cmd_check(args) -> int:
                 f"{l1['quantization_error']:.5f}, ratio {l1['ratio']:.3f}"
                 f"  (> 1 attendu : AWQ écrête)")
             say(f"          s dans [{l1['scale_min']:.4f}, {l1['scale_max']:.4f}]"
+                f" (étendue x{l1['salience_spread']:,.0f})"
                 f"  cosinus par position mod 8 {l1['cosine_by_slot']}")
             if l1["permuted"]:
                 say("          les positions se séparent en deux populations : "
                     "c'est la signature\n          d'un AWQ_REVERSE_ORDER non "
                     "appliqué, et rien d'autre ne la produit")
             elif not l1["ok"]:
-                say(f"          résidu au-delà du plafond {L1_RATIO_CEILING:.2f} "
-                    "sans signature de permutation —\n          la lecture du "
-                    "format est probablement juste (voir L2), mais quelque chose\n"
-                    "          d'autre a bougé chez l'adversaire : à examiner "
-                    "avant de mesurer")
+                say("          pas de signature de permutation : les huit "
+                    "positions bougent ensemble.\n          La lecture des "
+                    "quartets est donc probablement juste (voir L2), mais\n"
+                    "          l'alignement avec le checkpoint de base ne tient "
+                    "plus — échelles\n          déplacées, révision amont "
+                    "différente. À examiner avant de mesurer.")
             ok &= l1["ok"]
         else:
             say("      L1  ignoré : tenseur absent du checkpoint de base")
@@ -1146,9 +1612,9 @@ def cmd_dequant(args) -> int:
     )
 
     ok = run_selftest(say)
-    report["controls"]["packing"] = dict(ok=ok, failures=selftest_packing())
+    report["controls"]["selftest"] = dict(ok=ok, failures=selftest_failures())
     if not ok:
-        say("\nabandon : la couche d'empaquetage est fausse, rien d'autre n'a de sens")
+        say("\nabandon : un verrou hors ligne cède, rien de ce qui suit n'a de sens")
         return 1
 
     cfg = hub_json(args.awq_repo, "config.json", args.awq_revision)
@@ -1157,6 +1623,44 @@ def cmd_dequant(args) -> int:
     exp, allowed = resolve_expectations(args.awq_repo, args.allow_unknown_repo, say)
     if not allowed:
         return 2
+
+    # Everything `config.json` alone can settle is settled now, before an hour
+    # of arithmetic. `expected_weight_count` reads keys this file does not
+    # otherwise touch; discovering at step [6] that one is missing would throw
+    # away the whole run.
+    want_weights = expected_weight_count(cfg)
+    say(f"\n  cible : {want_weights} poids d'après config.json")
+
+    # Stale outputs are the quiet way to publish the wrong model, and there are
+    # two of them.
+    #
+    # 1. A previous run that produced a single `model.safetensors` leaves it
+    #    behind when this one produces three shards. `Checkpoint::fetch` tries
+    #    `model.safetensors` first and only then the index, so the campaign
+    #    would score the *old* weights while every control printed below passed
+    #    on the new ones — and `upload_folder` would push both.
+    # 2. A `RECONSTRUCTION.json` from a run that passed outlives a run that
+    #    crashes halfway. `push` reads that file and nothing else, so it would
+    #    green-light a directory of half-written shards.
+    #
+    # Both are cleared here rather than at the end, because the failure mode is
+    # a run that never reaches the end.
+    stale = sorted(
+        p
+        for p in out.iterdir()
+        if p.is_file()
+        and (
+            (p.name.startswith("model") and p.suffix in (".safetensors", ".json"))
+            or p.name.startswith(".shard-")
+            or p.name in ("RECONSTRUCTION.json", "README.md")
+        )
+    )
+    for p in stale:
+        p.unlink()
+    if stale:
+        say(f"  {len(stale)} fichier(s) d'un run précédent effacé(s) : "
+            f"{', '.join(p.name for p in stale[:4])}"
+            + (" …" if len(stale) > 4 else ""))
 
     if args.awq_file:
         src = Path(args.awq_file)
@@ -1219,6 +1723,11 @@ def cmd_dequant(args) -> int:
             say(line)
             if not l1["ok"]:
                 say(f"      cosinus par position mod 8 : {l1['cosine_by_slot']}")
+                say("      deux populations = AWQ_REVERSE_ORDER non appliqué"
+                    if l1["permuted"]
+                    else "      les huit positions bougent ensemble : ce n'est pas "
+                         "une permutation de quartets, mais l'alignement avec le "
+                         "checkpoint de base ne tient plus")
         else:
             say(line)
         ok &= l2["ok"] and l4["ok"]
@@ -1266,7 +1775,6 @@ def cmd_dequant(args) -> int:
 
     say(f"\n[6] écriture dans {out}")
     files, index = writer.finish()
-    want_weights = expected_weight_count(cfg)
     say(f"  {len(index['weight_map'])} tenseurs · {writer.weights} poids "
         f"· {writer.total} octets · {len(files)} fichier(s)")
     if writer.weights != want_weights:
@@ -1299,14 +1807,32 @@ def cmd_dequant(args) -> int:
     # lands exactly on the file" check on every shard.
     say("\n[7] relecture des fichiers écrits")
     seen: set[str] = set()
+    dtypes: dict[str, int] = {}
     for f in files:
         with SafeTensors(out / f) as st:
             seen |= set(st.header)
-    reread_ok = seen == set(index["weight_map"])
-    say(f"  {'ok   ' if reread_ok else 'FAIL '} {len(seen)} tenseurs relus sur "
+            for n, e in st.header.items():
+                dtypes[e["dtype"]] = dtypes.get(e["dtype"], 0) + 1
+    names_ok = seen == set(index["weight_map"])
+    # f16 is a protocol requirement (plan §2.6), and it is the one property no
+    # control upstream can see: an f32 output would give L4 a relative error of
+    # 0 and an infinite margin, and the weight count counts weights. Two bytes
+    # per weight, over the whole checkpoint, says it in one line.
+    dtype_ok = set(dtypes) == {"F16"}
+    size_ok = writer.total == 2 * writer.weights
+    reread_ok = names_ok and dtype_ok and size_ok
+    say(f"  {'ok   ' if names_ok else 'FAIL '} {len(seen)} tenseurs relus sur "
         f"{len(index['weight_map'])} annoncés par l'index")
+    say(f"  {'ok   ' if dtype_ok else 'FAIL '} dtypes écrits : "
+        f"{dict(sorted(dtypes.items()))} (F16 seul exigé)")
+    say(f"  {'ok   ' if size_ok else 'FAIL '} {writer.total} octets pour "
+        f"{writer.weights} poids, soit {writer.total / max(writer.weights, 1):.3f} "
+        "o/poids (2,000 exigés)")
     ok &= reread_ok
-    report["controls"]["reread"] = dict(ok=reread_ok, tensors=len(seen))
+    report["controls"]["reread"] = dict(
+        ok=reread_ok, tensors=len(seen), dtypes=dict(sorted(dtypes.items())),
+        bytes_per_weight=writer.total / max(writer.weights, 1),
+    )
 
     report["ok"] = bool(ok)
     report["output"] = dict(
@@ -1431,6 +1957,45 @@ def cmd_push(args) -> int:
               "\nUn objet qu'on ne sait pas juste ne se publie pas.", file=sys.stderr)
         return 1
 
+    # The report certifies bytes, not a directory. Between `dequant` and here a
+    # shard can have been re-written, truncated by a full disk, or replaced by a
+    # run against another repository — and every one of those leaves a green
+    # report sitting next to different weights. Re-hash before uploading: the
+    # controls above are only worth what the files still are.
+    print(f"\nvérification des octets contre {rpath.name}")
+    drift: list[str] = []
+    listed = report.get("output", {}).get("files", [])
+    if not listed:
+        drift.append("le rapport ne liste aucun fichier")
+    for entry in listed:
+        f = out / entry["name"]
+        if not f.exists():
+            drift.append(f"{entry['name']} : absent")
+            continue
+        if f.stat().st_size != entry["bytes"]:
+            drift.append(
+                f"{entry['name']} : {f.stat().st_size} o, {entry['bytes']} certifiés"
+            )
+            continue
+        if sha256_file(f) != entry["sha256"]:
+            drift.append(f"{entry['name']} : sha256 différent")
+    extra = sorted(
+        p.name
+        for p in out.iterdir()
+        if p.is_file()
+        and p.suffix == ".safetensors"
+        and p.name not in {e["name"] for e in listed}
+    )
+    if extra:
+        drift.append(f"poids non certifiés dans le répertoire : {extra}")
+    if drift:
+        print("refus : le répertoire ne correspond plus au rapport."
+              "\n  " + "\n  ".join(drift)
+              + "\nRelance `dequant` : on ne publie pas des octets qu'aucun "
+                "contrôle n'a vus.", file=sys.stderr)
+        return 1
+    print(f"  ok    {len(listed)} fichiers, sha256 et tailles conformes")
+
     margin = report["controls"]["l4"]["worst_margin"]
     card = MODEL_CARD.format(
         repo=args.repo,
@@ -1488,6 +2053,9 @@ def main() -> int:
                              "trois sondages")
         sp.add_argument("--allow-unknown-repo", action="store_true",
                         help="accepter un dépôt sans attentes enregistrées")
+
+    s = sub.add_parser("selftest", help="les verrous hors ligne, ~1 s, sans réseau")
+    s.set_defaults(fn=cmd_selftest)
 
     c = sub.add_parser("check", help="L2/L1/L4 par requêtes Range, sans téléchargement")
     common(c)

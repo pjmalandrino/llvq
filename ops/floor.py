@@ -41,7 +41,24 @@ cosmetic:
   abscissa of the main figure should carry the homogeneous number;
 * the same §2.3 spells the decomposition `2 + 20/128 + g_idx` while its own
   total requires `18/128` (scales f16 + zeros packed at `bits`). The prose is
-  wrong, the total is right.
+  wrong, the total is right;
+* the 70B recap of `docs/fiche-4b.md` §5.6 mixes the two metrics **inside one
+  table row**: its Slot32 (51,35 Go) is the broad metric of §6.7, its Grouped32
+  (32,87 Go) is the narrow one — the broad metric gives 34,14. Everything here
+  is broad, and `selftest` pins all three layouts to the Go figures §6.7
+  publishes so the choice cannot drift back.
+
+## What holds it up
+
+`selftest` is the lock, and it is meant to be lethal: 33 of 34 hand-written
+mutants die on it (the survivor is documented in `group_terms`, and it is an
+equivalence on these widths, not a hole). Two habits earn most of that. First,
+no assertion is taken on a **neutral** value — `ratio_vs_dense` is pinned on
+Slot32 and on the sealed file, never on `a1_loaded` alone, where the ratio is
+1,00 and `1/x = x` would swallow an inverted formula (CLAUDE.md §5, the λ = 0
+motif). Second, the arithmetic is confronted with **four widths**, three of
+them offline: Qwen3-8B, Qwen3-32B and Llama-3.1-70B each land on an integer a
+real run reported. One model cannot tell a formula from a coincidence.
 
 ## What it establishes / what it does not
 
