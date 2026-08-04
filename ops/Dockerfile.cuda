@@ -45,7 +45,11 @@ ENV CARGO_BUILD_JOBS=2
 # runs the reference Cholesky, measured at 28.4 s against 0.7 s with `faer` on
 # one block of Qwen3-0.6B — 40× slower, for a bit-identical perplexity. On
 # rented hardware that is a 40× bill on that phase.
-RUN cargo build --release -p llvq-llm --features ${FEATURES} \
+# `--locked` : sans lui cargo re-résout les dépendances au build, donc l'image
+# n'est pas construite depuis l'arbre commité et un chiffre qu'elle produit
+# n'est rattachable à aucun commit. Pour un noyau chronométré, c'est la
+# différence entre une mesure et une anecdote.
+RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
