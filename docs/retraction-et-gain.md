@@ -176,7 +176,7 @@ devient un **no-op** — elle vise le niveau que `quantize` a déjà produit. Le
 quantifieur.
 
 Ça peut être sans conséquence, ou coûter cher : la Table 9 du papier montre
-que le GPTQ euclidien sans rotation s'effondre à 91,90 de perplexité là où le
+que le GPTQ euclidien sans rotation s'effondre à 191,90 de perplexité là où le
 Spherical GPTQ tient à 6,90. **On ne sait pas** quelle part de ce gain vient
 de la rétraction elle-même et quelle part de la rétroaction d'erreur.
 

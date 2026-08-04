@@ -219,19 +219,43 @@ que l'on implémente sans inverse via le Cholesky de `H⁻¹` (forme GPTQ).
 
 ## Ablation Hadamard (Annexe I.2, Table 9 — Llama-2 7B, sans FT)
 
-| Code | Hadamard | Correction | Wiki ↓ | MMLU ↑ | CSR ↑ |
+> ✅ **Re-transcrite intégralement par rendu image le 2026-08-04.** La version
+> précédente, partielle, portait **six cellules fausses** (signalées ci-dessous)
+> et omettait les lignes `Input`, dont l'absence a produit un contresens sur la
+> rotation de sortie. Baseline Llama-2 7B : 5,12 / 45,7 / 70,4.
+
+| Code | Correction | Hadamard | Wiki ↓ | MMLU ↑ | CSR ↑ |
 |---|---|---|---|---|---|
-| LLVQ [spherical shaping] | aucune | GPTQ | 91,90 | 24,0 | 37,7 |
-| LLVQ [spherical shaping] | Input | GPTQ | 6,80 | 35,1 | 65,4 |
-| LLVQ [spherical shaping] | aucune | **Spherical GPTQ** | **6,90** | 37,4 | 65,9 |
-| LLVQ [shape-gain 2 bit] | aucune | GPTQ | 13,17 | 26,3 | 56,5 |
-| LLVQ [shape-gain 2 bit] | aucune | **Spherical GPTQ** | **7,27** | 29,3 | 61,5 |
-| LLVQ [shape-gain 2 bit] | Input+Output | Spherical GPTQ | 6,83 | 34,9 | 64,6 |
+| LLVQ [spherical shaping] | GPTQ | aucune | **191,90** ⚠️ | 24,0 | **53,5** ⚠️ |
+| LLVQ [spherical shaping] | GPTQ | Input | 6,80 | 35,1 | 65,4 |
+| LLVQ [spherical shaping] | GPTQ | Input+Output | 7,61 | 33,4 | 62,1 |
+| LLVQ [sph. shaping] (forced ang.) | **Spherical GPTQ** | aucune | **6,90** | 37,4 | **63,8** ⚠️ |
+| LLVQ [sph. shaping] (forced ang.) | Spherical GPTQ | Input | 6,70 | 35,1 | 65,4 |
+| LLVQ [sph. shaping] (forced ang.) | Spherical GPTQ | Input+Output | 6,75 | 36,9 | 63,8 |
+| LLVQ [shape-gain 2 bit] (forced eucl.) | GPTQ | aucune | 13,17 | **26,5** ⚠️ | **58,5** ⚠️ |
+| LLVQ [shape-gain 2 bit] (forced eucl.) | GPTQ | Input | 7,28 | 34,1 | 62,8 |
+| LLVQ [shape-gain 2 bit] (forced eucl.) | GPTQ | Input+Output | 7,31 | 35,3 | 62,8 |
+| LLVQ [shape-gain 2 bit] | **Spherical GPTQ** | aucune | **7,27** | **29,8** ⚠️ | 61,5 |
+| LLVQ [shape-gain 2 bit] | Spherical GPTQ | Input | 6,90 | 36,0 | 63,6 |
+| LLVQ [shape-gain 2 bit] | Spherical GPTQ | Input+Output | 6,83 | 34,9 | 64,6 |
+
+⚠️ = cellule corrigée le 2026-08-04. Anciennes valeurs fausses : Wiki 91,90
+(un `1` initial perdu par l'extraction texte), CSR 37,7 · 65,9 · 56,5, MMLU
+26,3 · 29,3.
 
 **Le résultat le plus spectaculaire du papier** : sans rotation, le GPTQ
-euclidien s'effondre (91,90 de perplexité) alors que le Spherical GPTQ tient
-(6,90). La dérive radiale est le mode de défaillance dominant, et la
+euclidien s'effondre (**191,90** de perplexité) alors que le Spherical GPTQ
+tient (6,90). La dérive radiale est le mode de défaillance dominant, et la
 préservation de norme l'élimine — d'où le PTQ *Hadamard-free*.
+
+> 🕳️ **Ce que l'absence des lignes `Input` a coûté.** On a longtemps cité
+> « la rotation Input+Output vaut +5,6 pp de MMLU » en comparant 29,3 (aucune
+> rotation) à 34,9 (Input+Output). Ce n'est pas l'étage de sortie qu'on mesure
+> ainsi, c'est **toute** la rotation. À `Input` fixé — notre configuration —
+> l'étage de sortie vaut, sur les quatre familles :
+> −1,7 · **+1,8** · **+1,2** · −1,1 pp. **Moyenne ≈ 0.**
+> La rotation de sortie ne peut donc pas expliquer notre déficit de 4,8 pp sur
+> MMLU. Retiré du README et de la carte HF le 2026-08-04.
 
 Conclusions de l'annexe :
 1. Le Spherical GPTQ améliore le GPTQ euclidien, sans toucher au codebook.
@@ -247,13 +271,41 @@ Conclusions de l'annexe :
 
 ## Coquille unique vs union (Annexe G)
 
-- **Constat 1** : l'union de coquilles donne une distorsion angulaire
-  légèrement plus faible que la coquille unique. C'est ce qu'ils adoptent.
-- **Constat 2** : la coquille unique donne un algorithme plus simple, et
-  surtout un **argument matériel** — une norme constante implique un facteur
-  d'échelle fixe entre produits scalaires, ce qui supprime le rééchelonnage
-  des produits scalaires intermédiaires avant agrégation. À garder en tête
-  pour le noyau G6.
+> ✅ **Relu par rendu image le 2026-08-04**, et il faut être précis ici :
+> c'est la section sur laquelle on interroge les auteurs.
+
+**Ce qu'ils mesurent** : la distance angulaire au plus proche voisin,
+`D(x, q(x)) = arccos(xᵀq(x))/π`, sur une source **radialement uniforme**
+(gaussienne normalisée), en fonction de `log₂(N)/d`. Figure 6, violons.
+
+- **Key finding 1 — « Union of shells provide lowest angular distortion »** :
+  l'union donne « a slightly better **Gaussian rate–distortion curves** »
+  comparée aux coquilles individuelles. Citation exacte de la dernière phrase :
+  > « We therefore adopt this approach **in our method** and recommend doing
+  > the same. »
+- **Key finding 2 — « Single shell provides a simpler algorithm »** : l'écart
+  est **petit**, et « from a hardware perspective, using a single shell offers
+  significant advantages. In particular, a constant norm implies a fixed
+  scaling between dot products, eliminating the need to rescale intermediate
+  dot product results before aggregation (as in group-wise or block
+  quantization), along with its associated complications. »
+
+> 🚨 **Deux erreurs de notre côté, corrigées le 2026-08-04.**
+> 1. On citait la phrase **sans « in our method »**, et sans points de
+>    suspension. À ne pas envoyer telle quelle à ses auteurs.
+> 2. On répétait que « le papier mesure une distorsion angulaire, pas une
+>    rétention MSE — donc deux métriques différentes ». **Le Key finding 1
+>    nomme explicitement les courbes débit–distorsion gaussiennes.** C'est
+>    notre métrique. Leur affirmation couvre donc bien ce qu'on mesurait, et
+>    notre mesure corrigée (union gagnante à débit égal) **les confirme** au
+>    lieu de les contredire.
+>
+> L'argument matériel n'est pas non plus « à eux de le découvrir » : le Key
+> finding 2 le pose plus complètement qu'on ne le leur créditait. La seule
+> question qui reste vraiment ouverte est donc : **ils nomment l'avantage
+> matériel et adoptent quand même l'union — est-ce sur la seule courbe de
+> distorsion, ou ont-ils mesuré le coût du rééchelonnage dans un noyau
+> multi-coquilles ?** C'est ce qu'il faut leur demander.
 
 ## Table 7 (Annexe C) — noyau CUDA fusé
 

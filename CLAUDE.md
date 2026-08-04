@@ -571,7 +571,10 @@ parallélisé sur 12 cœurs).
    configuration qui manquait, pas un défaut de la chaîne.
 
 **On est dans le régime du papier.** Repère : leur Llama-3.2 1B sans
-fine-tuning est à **×1,76** (Table 10) ; on est à **×1,811** sur un modèle
+fine-tuning est à **×1,76** (Table 10, vérifiée par rendu image le 2026-08-04 :
+21,36 sur une baseline de 12,14, **variante shape–gain 0 bit + Spherical
+GPTQ**, c'est-à-dire leur meilleure ligne 1B sans FT — leur spherical shaping
+y est à ×1,96) ; on est à **×1,811** sur un modèle
 **40 % plus petit**, avec **beaucoup moins** de calibration, et avec la
 rotation d'entrée seule là où ils utilisent « Input + Output ».
 
@@ -945,7 +948,7 @@ qui découple la validation de la rétroaction d'erreur de celle du codebook.
 Ordre de bataille suggéré : d'abord reproduire **LLVQ shape–gain 0 bit +
 Spherical GPTQ sans rotation Hadamard**. C'est le résultat le plus
 spectaculaire du papier (Table 9, Llama-2 7B : GPTQ euclidien sans rotation
-s'effondre à 91,90 de perplexité, le Spherical GPTQ tient à 6,90) et c'est
+s'effondre à 191,90 de perplexité, le Spherical GPTQ tient à 6,90) et c'est
 aussi le moins coûteux à implémenter — pas de transformée Hadamard en ligne,
 pas de quantifieur de gain.
 
@@ -986,6 +989,48 @@ des accumulations intermédiaires dans un noyau fusé.
 Mesuré chez nous (20 000 blocs, seed figée, centroïdes de gain ajustés sur le
 train — `cargo run --release -p llvq-bench --bin llvq-bench`) :
 
+> 🚨 **RENVERSÉ le 2026-08-04. La coquille unique ne bat pas l'union : elle
+> perd.** Ce qui suit est la version corrigée ; l'ancienne table est conservée
+> plus bas pour la généalogie. Table publiable :
+> [`README.md`](README.md#an-open-question-for-the-authors).
+
+| code | bits/**bloc** | MSE | rétention | classes |
+|---|---|---|---|---|
+| papier, union `norm(Λ₂₄(12))` + 1 bit de gain | 48 | 0,078 | **92,14 %** (le sien, MSE non arrondie) | **301** |
+| **coquille 12 seule + 1 bit de gain** | **48** | 0,0817 | **90,34 %** | **79** |
+| coquille 13 seule + 1 bit de gain | 49 | 0,0762 | 90,96 % | 82 |
+| notre union `norm(Λ₂₄(13))` + 1 bit de gain | 49 | **0,0725** | **92,72 %** | 383 |
+| notre union `norm(Λ₂₄(13))` + 0 bit | 48 | 0,0850 | 88,90 % | 383 |
+
+**À débit empaqueté identique, l'union gagne.** `ceil(log₂ 70 486 236 999 360)
+= 47` pour la coquille et `ceil(log₂ 111 043 117 458 000) = 47` pour la boule du
+papier : les deux coûtent 48 bits/bloc. Les lignes 3 et 4 le montrent dans un
+seul harnais, à 49 bits des deux côtés : 0,0725 contre 0,0762.
+
+> 🕳️ **Le défaut, et il est instructif.** La table publiée jusqu'ici donnait
+> 92,24 % à la coquille 12 contre 92,14 % au papier. Elle divisait la MSE par le
+> débit **fractionnaire** `log₂|Shell(12)|/24 = 1,9584` — qu'aucun fichier ne
+> paie — et comparait le résultat à un chiffre du papier cité à 2,000. La
+> colonne **débit** avait été corrigée le 2026-08-03 ; la colonne **rétention**,
+> calculée à partir d'elle, ne l'avait pas été. Une correction partielle est
+> pire qu'aucune : elle donnait au tableau l'air d'avoir été vérifié.
+>
+> Signature repérable à l'œil, sans recalcul : le papier y avait à la fois une
+> **meilleure MSE** (0,078 contre 0,0817) et une **rétention pire** — impossible
+> à débit fixé, la rétention étant une fonction monotone de la MSE.
+>
+> Second défaut, indépendant : les **383 classes** attribuées au codebook du
+> papier sont le compte de `Λ₂₄(13)`. `Λ₂₄(12)` en a **301** (180 paires + 121
+> impaires, `enumerate_classes`). Le gain structurel est ×3,8, pas ×4,8.
+
+**Ce qui survit** n'est pas un résultat de distorsion mais un arbitrage
+d'ingénierie : **79 classes contre 301, et une norme constante** — l'argument
+matériel que l'annexe G soulève elle-même sans le mesurer. Et le fichier livré
+utilise la **boule** `Λ₂₄(12)`, c'est-à-dire le codebook du papier, pas une
+coquille unique.
+
+<details><summary>Table périmée (avant le 2026-08-04)</summary>
+
 | code | bits/dim | MSE | rétention | classes |
 |---|---|---|---|---|
 | papier, union `norm(Λ₂₄(12))` + 1 bit de gain | 2,0000 | 0,078 | 92,14 % | 383 |
@@ -993,16 +1038,13 @@ train — `cargo run --release -p llvq-bench --bin llvq-bench`) :
 | **coquille 12 seule + 1 bit de gain** | **1,9584** | 0,0817 | **92,24 %** | **79** |
 | **coquille 13 seule + 1 bit de gain** | 2,0113 | 0,0762 | **92,33 %** | **82** |
 
-> ⚠️ **Chiffres révisés le 2026-08-01 (§A5)** : le banc codait le gain sur la
-> projection, la production le code sur la norme du bloc. Les rétentions
-> perdent ~0,5 point (12 seule : 92,81 → **92,24** ; 13 seule : 92,83 →
-> **92,33**). **La marge sur le papier passe de 0,67 point à 0,10** — c'est
-> maintenant un ex æquo, pas une victoire.
+Chiffres déjà révisés une fois le 2026-08-01 (§A5, le banc codait le gain sur
+la projection) : 12 seule 92,81 → 92,24, 13 seule 92,83 → 92,33.
 
-La coquille 12 seule **égale** la meilleure configuration union du papier en
-rétention (92,24 contre 92,14, dans le bruit) tout en la battant en débit, avec
-**4,8× moins de classes** et une norme constante. Structure des coquilles
-(vérifiée par la même formule de cardinalité que la série thêta) :
+</details>
+
+Structure des coquilles (vérifiée par la même formule de cardinalité que la
+série thêta) :
 
 | m | \|Shell(m)\| | bits/dim | classes |
 |---|---|---|---|
@@ -1011,20 +1053,21 @@ rétention (92,24 contre 92,14, dans le bruit) tout en la battant en débit, ave
 | 14 | 384 163 586 352 000 | 2,019 | 115 |
 | union m ≤ 13 | 280 974 212 784 720 | 2,000 | 383 |
 
-⚠️ **Ne pas surinterpréter.** C'est une source gaussienne i.i.d., un seul
-harnais, une seule seed. Le papier mesurait une *distance angulaire au plus
-proche voisin* sur une source radialement uniforme, pas une rétention MSE
-après quantifieur de gain — deux métriques peuvent classer différemment, donc
-ce n'est pas une contradiction frontale. Mais ça contredit la conclusion
-pratique qu'il en tire (« we therefore adopt this approach and recommend
-doing the same »). **À revérifier sur de vrais poids après la boucle GPTQ
-avant d'engager un noyau dessus** — les poids ne sont pas gaussiens et le
-GPTQ déforme leur distribution.
+⚠️ **Ne rien surinterpréter dans l'autre sens non plus.** C'est une source
+gaussienne i.i.d., un seul harnais, une seule seed. Le papier mesurait une
+*distance angulaire au plus proche voisin* sur une source radialement
+uniforme, pas une rétention MSE après quantifieur de gain — donc nos chiffres
+ne le confirment pas plus qu'ils ne le contredisaient. Ce qui est acquis,
+c'est qu'**on ne conteste plus sa conclusion sur la distorsion** : à débit
+égal l'union est le meilleur code, dans notre propre harnais. **À revérifier
+sur de vrais poids après la boucle GPTQ** — les poids ne sont pas gaussiens et
+le GPTQ déforme leur distribution.
 
-Si ça tient, ça simplifie énormément le noyau G6 *et* accélère l'encodeur
-(4,8× moins de classes à balayer). Le format d'index v1 et le moteur de
-recherche sont en revanche épinglés sur la boule m ≤ 13 : passer à une
-coquille unique casse la compatibilité des fichiers quantifiés (§4).
+L'intérêt d'une coquille unique n'est donc plus la qualité mais la structure :
+**79 classes contre 301** (encodeur plus rapide, noyau sans rééchelonnage entre
+coquilles), au prix de ~5 % de MSE. Le format d'index v1 et le moteur de
+recherche sont épinglés sur la boule m ≤ 13 : passer à une coquille unique
+casse la compatibilité des fichiers quantifiés (§4).
 
 ⚠️ Décision matérielle à trancher avec l'utilisateur avant d'écrire une ligne :
 CUDA (cible serveur NVIDIA) ou Metal/`wgpu` (Mac de dev, portabilité AMD/Intel,

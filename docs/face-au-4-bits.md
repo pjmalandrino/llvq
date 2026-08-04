@@ -22,6 +22,21 @@ GGUF aurait exigé un script Python absent de l'installation Homebrew.
 
 ## Le verdict
 
+> 🚨 **Trois lignes de ce tableau ont été mesurées depuis, et elles étaient
+> fausses — toutes dans le sens qui nous flattait.** Le tableau corrigé est
+> celui du [`README.md`](../README.md#against-4-bit) ; la version ci-dessous est
+> conservée pour la généalogie.
+>
+> | ligne | ce qui était écrit | mesuré le 2026-08-03/04 |
+> |---|---|---|
+> | RAM | 3,28 Go *(calculé)* | **9,79 Go de pic RSS en CPU, 17,41 Go en Metal** — 3,28 décrivait `Slot32`, que `bin/run` ne charge jamais |
+> | débit | ~78,5 tok/s *(projeté)*, ×1,65 contre nous | **2,2 à 7,6 tok/s mesurés**, soit **×17 à ×58** contre nous : `bin/run` n'a pas de cache KV |
+> | qualité du q4 | « ~1-2 % de dégradation » | **jamais mesurée**, ni ici ni ailleurs. La case est **vide, pas faible** |
+>
+> Les 2,39 Go et les 129,8 tok/s du bras MLX n'ont eux non plus **aucune trace**
+> conservée (le 2,39 est un pic d'allocateur MLX, pas un RSS). Seule la ligne
+> **disque** est mesurée des deux côtés.
+
 | | MLX 4 bits | LLVQ 2 bits | |
 |---|---|---|---|
 | **disque** | 2,263 Go | **1,771 Go** | **×1,28** pour nous |
