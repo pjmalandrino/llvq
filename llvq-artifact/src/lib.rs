@@ -38,9 +38,12 @@ mod sealed;
 pub use error::Error;
 pub use format::{
     decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, split_name, write_matrix,
-    ArtifactWriter, Header, QuantizedMatrix, RawMatrix, MAGIC, MAGIC_V1,
+    write_matrix_raw, ArtifactWriter, Header, QuantizedMatrix, RawMatrix, MAGIC, MAGIC_V1,
+    MAGIC_V2,
 };
-pub use sealed::{read_blob, read_raw, write_blob, write_raw, Blob, RawTensor};
+pub use sealed::{
+    f16_to_f32, read_blob, read_raw, write_blob, write_raw, Blob, QuantData, RawData, RawTensor,
+};
 
 /// Result alias for this crate.
 pub type Result<T> = core::result::Result<T, Error>;

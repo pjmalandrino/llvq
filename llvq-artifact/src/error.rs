@@ -30,6 +30,8 @@ pub enum Error {
     },
     /// An index read back from the stream is not a codebook member.
     IndexOutOfRange { name: String, index: u64 },
+    /// A raw tensor record carries an encoding tag this reader does not know.
+    BadRawEncoding { tag: u32 },
     /// Underlying I/O failure.
     Io(std::io::Error),
 }
@@ -58,6 +60,11 @@ impl fmt::Display for Error {
             Error::IndexOutOfRange { name, index } => {
                 write!(f, "{name}: index {index} is not a codebook member")
             }
+            Error::BadRawEncoding { tag } => write!(
+                f,
+                "raw tensor encoding tag {tag} is unknown — file written by a \
+                 newer writer, or corrupted"
+            ),
             Error::Io(e) => write!(f, "i/o: {e}"),
         }
     }

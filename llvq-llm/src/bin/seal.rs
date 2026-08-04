@@ -66,7 +66,11 @@ fn main() -> anyhow::Result<()> {
                 .map(|v| v.to_bits())
                 .collect();
             carried += data.len();
-            raws.push(RawTensor { name, dims, data });
+            raws.push(RawTensor {
+                name,
+                dims,
+                data: llvq_artifact::RawData::F16(data),
+            });
         }
     }
     raws.sort_by(|a, b| a.name.cmp(&b.name));

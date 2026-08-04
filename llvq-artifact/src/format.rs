@@ -34,9 +34,12 @@ use std::io::{Read, Write};
 ///
 /// `LVQ1` held quantized projections and nothing else, so a file needed the
 /// original checkpoint beside it to run. `LVQ2` adds the raw tensors and the
-/// blobs that make it self-contained. Both are readable; only `LVQ2` is
-/// written.
-pub const MAGIC: &[u8; 4] = b"LVQ2";
+/// blobs that make it self-contained. `LVQ3` tags each raw tensor with its
+/// encoding so the embedding can be carried group-affine quantized instead of
+/// f16 (see [`crate::sealed`]). All three are readable; only `LVQ3` is
+/// written. The matrix records themselves are identical across versions.
+pub const MAGIC: &[u8; 4] = b"LVQ3";
+pub const MAGIC_V2: &[u8; 4] = b"LVQ2";
 pub const MAGIC_V1: &[u8; 4] = b"LVQ1";
 
 /// One quantized matrix, everything a decoder needs.
@@ -186,6 +189,75 @@ pub struct RawMatrix {
     pub rotation_seed: Option<u64>,
     pub shell_cap: u32,
     pub tail: Vec<f64>,
+}
+
+/// Serialize one matrix from its undecoded `(index, gain)` pairs.
+///
+/// This is [`write_matrix`] minus the lattice: a matrix read with
+/// [`read_matrix_raw`] and written back through here must produce the same
+/// bytes, which is what lets a tool rewrite a sealed file's raw-tensor section
+/// without paying (or trusting) a decode/re-encode of 150 M blocks. The
+/// byte-identity is pinned by `raw_passthrough_is_byte_identical`.
+pub fn write_matrix_raw(w: &mut impl Write, m: &RawMatrix) -> Result<u64> {
+    let nblocks = m.d_in / DIM;
+    if m.indices.len() != m.d_out * nblocks || m.gains.len() != m.indices.len() {
+        return Err(Error::Inconsistent {
+            name: m.name.clone(),
+            detail: format!(
+                "{} indices / {} gains for {} blocks",
+                m.indices.len(),
+                m.gains.len(),
+                m.d_out * nblocks
+            ),
+        });
+    }
+    if m.row_scales.len() != m.d_out {
+        return Err(Error::Inconsistent {
+            name: m.name.clone(),
+            detail: format!("{} row scales for {} rows", m.row_scales.len(), m.d_out),
+        });
+    }
+
+    let name = m.name.as_bytes();
+    put_u32(w, name.len() as u32)?;
+    w.write_all(name)?;
+    put_u32(w, m.d_out as u32)?;
+    put_u32(w, m.d_in as u32)?;
+    put_u32(w, m.shell_cap)?;
+    put_u32(w, m.centroids.len() as u32)?;
+    put_u64(w, m.rotation_seed.unwrap_or(0))?;
+    put_u32(w, m.rotation_seed.is_some() as u32)?;
+    for c in &m.centroids {
+        put_u64(w, c.to_bits())?;
+    }
+    for s in &m.row_scales {
+        put_u64(w, s.to_bits())?;
+    }
+    for t in &m.tail {
+        put_u32(w, (*t as f32).to_bits())?;
+    }
+
+    let ib = llvq_quant::quantizer::index_bits(m.shell_cap);
+    let gb = m.centroids.len().next_power_of_two().trailing_zeros();
+    let mut bw = BitWriter::with_capacity(m.indices.len() as u64 * (ib + gb) as u64);
+    for (&idx, &gain) in m.indices.iter().zip(&m.gains) {
+        if idx >= (1u64 << ib) {
+            return Err(Error::IndexTooWide {
+                name: m.name.clone(),
+                index: idx,
+                bits: ib,
+            });
+        }
+        bw.push(idx, ib);
+        bw.push(gain as u64, gb);
+    }
+    let bytes = bw.finish();
+    put_u64(w, bytes.len() as u64)?;
+    w.write_all(&bytes)?;
+    Ok(m.indices.len() as u64 * (ib + gb) as u64
+        + m.row_scales.len() as u64 * 64
+        + m.centroids.len() as u64 * 64
+        + m.tail.len() as u64 * 32)
 }
 
 /// Read one matrix without decoding its indices.
@@ -344,6 +416,14 @@ impl<W: Write> ArtifactWriter<W> {
         Ok(())
     }
 
+    /// Push a matrix straight from its undecoded codes — see
+    /// [`write_matrix_raw`].
+    pub fn push_raw(&mut self, m: &RawMatrix) -> Result<()> {
+        self.payload_bits += write_matrix_raw(&mut self.out, m)?;
+        self.matrices += 1;
+        Ok(())
+    }
+
     /// Close the file with the sections that make it self-contained.
     ///
     /// Taking them here rather than streaming them is deliberate: the counts
@@ -382,7 +462,8 @@ impl<W: Write> ArtifactWriter<W> {
 
 /// What a file's header says: which version, and how many matrices follow.
 pub struct Header {
-    /// 2 for a self-contained file, 1 for projections only.
+    /// 1 for projections only; 2+ for a self-contained file. 3 adds tagged
+    /// raw-tensor encodings.
     pub version: u32,
     pub matrices: u32,
 }
@@ -405,6 +486,8 @@ pub fn read_header(r: &mut impl Read) -> Result<Header> {
     r.read_exact(&mut magic)
         .map_err(|_| Error::Truncated { reading: "magic" })?;
     let version = if &magic == MAGIC {
+        3
+    } else if &magic == MAGIC_V2 {
         2
     } else if &magic == MAGIC_V1 {
         1

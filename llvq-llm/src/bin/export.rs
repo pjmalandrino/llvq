@@ -87,10 +87,19 @@ fn main() -> anyhow::Result<()> {
     let n_raw = read_u32(&mut r)?;
     let mut carried = 0usize;
     for _ in 0..n_raw {
-        let t = llvq_artifact::read_raw(&mut r)?;
-        carried += t.data.len();
-        let vals: Vec<half::f16> = t.data.iter().map(|b| half::f16::from_bits(*b)).collect();
-        let tensor = Tensor::from_vec(vals, t.dims.clone(), &device)?;
+        let t = llvq_artifact::read_raw(&mut r, head.version)?;
+        carried += t.len();
+        // Exported checkpoints are f16 whatever the stored encoding: a
+        // quantized embedding is dequantized through the format's own decoder.
+        let tensor = match &t.data {
+            llvq_artifact::RawData::F16(d) => {
+                let vals: Vec<half::f16> = d.iter().map(|b| half::f16::from_bits(*b)).collect();
+                Tensor::from_vec(vals, t.dims.clone(), &device)?
+            }
+            llvq_artifact::RawData::Quant(_) => {
+                Tensor::from_vec(t.to_f32(), t.dims.clone(), &device)?.to_dtype(DType::F16)?
+            }
+        };
         tensors.insert(t.name, tensor);
     }
 

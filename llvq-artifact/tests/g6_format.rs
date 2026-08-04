@@ -12,7 +12,8 @@
 
 use llvq_core::{SplitMix64, DIM};
 use llvq_artifact::{
-    decode_matrix, read_all, write_matrix, ArtifactWriter, QuantizedMatrix,
+    decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, QuantizedMatrix,
+    RawData, RawTensor,
 };
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::index::Indexer;
@@ -220,4 +221,92 @@ fn a_point_above_the_shell_cap_is_refused() {
         err.contains("does not fit") || err.contains("shell cap"),
         "expected a refusal about the index width, got: {err}"
     );
+}
+
+/// A matrix read undecoded and written back must produce the same bytes.
+///
+/// This is the contract that lets `embedq` rewrite a sealed file's raw-tensor
+/// section while copying 150 M blocks through untouched: no decode, no
+/// re-encode, no trust required. Any drift in field order or width between
+/// `write_matrix` and `write_matrix_raw` fails here.
+#[test]
+fn raw_passthrough_is_byte_identical() {
+    let ix = Indexer::new();
+    let mut rng = SplitMix64::new(0x6_F005);
+    let mats = [
+        // A tail, a rotation, cap 13 — every optional part present.
+        synthetic(&ix, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, 13, 2, Some(7)),
+        synthetic(&ix, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, 12, 2, None),
+    ];
+    let mut original: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::new(&mut original, mats.len() as u32).expect("header");
+        for m in &mats {
+            w.push(m).expect("write");
+        }
+        w.finish().expect("flush");
+    }
+
+    let mut r = std::io::Cursor::new(&original);
+    let head = llvq_artifact::read_header(&mut r).expect("header");
+    let mut copied: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::new(&mut copied, head.matrices).expect("header");
+        for _ in 0..head.matrices {
+            let raw = llvq_artifact::read_matrix_raw(&mut r).expect("read raw");
+            w.push_raw(&raw).expect("write raw");
+        }
+        w.finish().expect("flush");
+    }
+    assert_eq!(original, copied, "passthrough must not change a single byte");
+}
+
+/// The file published on Hugging Face is `LVQ2`; the writer now emits `LVQ3`.
+/// Backward compatibility is therefore **load-bearing**: 1.77 GB of published
+/// artifact depend on `read_raw` still understanding an untagged record, and
+/// nothing tested it.
+///
+/// The second assertion is the lethal one. `LVQ3` prefixes every raw tensor
+/// with a 4-byte encoding tag and `LVQ2` does not, so if `read_raw` ignored
+/// its `version` argument and always consumed a tag, a v2 record would be
+/// parsed with its **name length** mistaken for the tag. Reading v2 bytes as
+/// v3 must fail; a version argument that changes nothing is dead code, and a
+/// dead version argument here silently breaks every published file.
+#[test]
+fn an_untagged_v2_raw_tensor_still_reads() {
+    let t = RawTensor {
+        name: "model.embed_tokens.weight".into(),
+        dims: vec![3, 4],
+        // 1.0, -1.0, the smallest subnormal, the largest finite, then filler.
+        data: RawData::F16(vec![0x3C00, 0xBC00, 0x0001, 0x7BFF, 5, 6, 7, 8, 9, 10, 11, 12]),
+    };
+
+    let mut v3: Vec<u8> = Vec::new();
+    write_raw(&mut v3, &t).expect("write");
+
+    // `LVQ2` framing is exactly `LVQ3` minus the leading encoding tag.
+    let v2 = &v3[4..];
+
+    let mut r = std::io::Cursor::new(v2);
+    let back = read_raw(&mut r, 2).expect("a v2 record must still read");
+    assert_eq!(back.name, t.name);
+    assert_eq!(back.dims, t.dims);
+    match (&back.data, &t.data) {
+        (RawData::F16(a), RawData::F16(b)) => assert_eq!(a, b, "v2 values must survive"),
+        _ => panic!("an untagged record must decode as f16"),
+    }
+
+    let mut r = std::io::Cursor::new(v2);
+    assert!(
+        read_raw(&mut r, 3).is_err(),
+        "reading a v2 record as v3 must fail — if it succeeds, the tag is not \
+         being consumed and the version argument is dead code"
+    );
+
+    // And the converse: a v3 record read as v2 must not silently pass either.
+    let mut r = std::io::Cursor::new(&v3);
+    match read_raw(&mut r, 2) {
+        Err(_) => {}
+        Ok(bad) => assert_ne!(bad.name, t.name, "a tagged record must not read as untagged"),
+    }
 }

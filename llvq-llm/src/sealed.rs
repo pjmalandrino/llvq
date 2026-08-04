@@ -97,10 +97,20 @@ pub fn load(path: &str, dtype: DType, device: &Device) -> anyhow::Result<SealedM
     let n_raw = read_u32(&mut r)?;
     let mut carried_weights = 0usize;
     for _ in 0..n_raw {
-        let t = llvq_artifact::read_raw(&mut r)?;
-        carried_weights += t.data.len();
-        let vals: Vec<half::f16> = t.data.iter().map(|b| half::f16::from_bits(*b)).collect();
-        let tensor = Tensor::from_vec(vals, t.dims.clone(), device)?.to_dtype(dtype)?;
+        let t = llvq_artifact::read_raw(&mut r, head.version)?;
+        carried_weights += t.len();
+        // f16 stays on the narrow path (no f32 blow-up of a 778 MB embedding);
+        // a quantized tensor goes through the format's own decoder, so what is
+        // evaluated is what the file stores.
+        let tensor = match &t.data {
+            llvq_artifact::RawData::F16(d) => {
+                let vals: Vec<half::f16> = d.iter().map(|b| half::f16::from_bits(*b)).collect();
+                Tensor::from_vec(vals, t.dims.clone(), device)?.to_dtype(dtype)?
+            }
+            llvq_artifact::RawData::Quant(_) => {
+                Tensor::from_vec(t.to_f32(), t.dims.clone(), device)?.to_dtype(dtype)?
+            }
+        };
         tensors.insert(t.name, tensor);
     }
 
