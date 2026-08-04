@@ -192,6 +192,40 @@ Le format supporte g = 2 (`two_bit_gains_roundtrip`, `runtime_format.rs:147-163`
 
 ---
 
+> ## ✅ Inventaire vérifié sur la carte le 2026-08-04 — job `6a724dfba00abefd4b292856`
+>
+> Un mini-job de trente secondes a tranché les questions ouvertes de ce
+> document. **Toutes vont dans le bon sens.**
+>
+> ```
+> NVIDIA L40S, compute_cap 8.9, 46068 MiB, driver 580.159.03
+> libnvrtc.so.12      → /usr/local/cuda/targets/x86_64-linux/lib/
+> libcublas.so.12     → idem
+> libcublasLt.so.12   → idem
+> libcuda.so.1        → /usr/lib64/
+> nvcc                → absent (attendu, image runtime — sans importance)
+> ```
+>
+> - **`libnvrtc` est présente dans l'image d'EXÉCUTION**, pas seulement dans
+>   celle de build. La voie A est donc praticable telle quelle : une seule
+>   reconstruction d'image pour ajouter le binaire, puis toute la mise au point
+>   du noyau se fait par mini-jobs sans jamais y retoucher.
+> - **cuBLAS est présente**, et `ldd` montre que nos binaires actuels la lient
+>   déjà — candle l'apporte. La baseline défendable de §4.5 ne demande aucune
+>   installation.
+> - **La carte annonce `compute_cap 8.9`**, exactement ce que fige
+>   `CUDA_COMPUTE_CAP=89`. Code natif, pas de JIT PTX.
+>
+> ⚠️ **Correction de cadrage de ce document.** Le §2.4 justifie la voie NVRTC
+> par « aucune itération locale n'est possible, donc chaque essai est un job
+> distant coûteux ». La seconde moitié est fausse : un mini-job coûte quelques
+> centimes et quelques minutes — le pilote complet en a coûté 0,08 $ pour six
+> minutes. **On mesure au lieu de raisonner**, et l'estimation de 10,5 à 18,5
+> jours du §5 est à réviser vers **4 à 7 jours** : une bonne part des lots
+> était de la précaution contre une contrainte qui n'existe pas. Ce qui reste
+> vrai, et qui suffit à retenir NVRTC : le binaire Rust, lui, doit être dans
+> l'image, donc son premier ajout coûte une reconstruction.
+
 ## 2. La route technique retenue
 
 ### 2.1 La voie : crate autonome `llvq-cuda` + NVRTC à l'exécution
