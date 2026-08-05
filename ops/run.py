@@ -454,6 +454,16 @@ def cmd_publish(args) -> int:
     image from a laptop is slow, and HF will build from source for free.
     `run_job(image="hf.co/spaces/<user>/<name>")` then reuses the result.
 
+    **The Space itself will settle into `RUNTIME_ERROR`, and that is normal.**
+    Its own container runs on CPU hardware with no GPU, so a CUDA runtime
+    image has nothing to attach to and the app exits. Only the *build* matters
+    here, and a built image stays usable by `run_job` regardless — verified on
+    2026-08-05, when `llvq-preflight` completed on `l40sx1` against a Space
+    sitting in `RUNTIME_ERROR`. Wait for `APP_STARTING` or `RUNNING`, which is
+    what says the build passed; do not wait for the app to stay up, and do not
+    read `RUNTIME_ERROR` as a failed build. A real build failure shows as
+    `BUILD_ERROR`.
+
     Private by default. This is someone's research repository, and making it
     public is a decision they take, not one a script takes for them.
     """

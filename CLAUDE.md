@@ -4,7 +4,11 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
-> 🧭 **Reprise de session** : [`docs/format-noyau.md`](docs/format-noyau.md)
+> 🧭 **Reprise de session** :
+> [`docs/passation-2026-08-05.md`](docs/passation-2026-08-05.md) — le lot K−1
+> est passé, le décodeur Leech tourne sur CUDA et décide juste, et il ne reste
+> que le matvec fusé tuilé avant un chiffre de vitesse. Puis
+> [`docs/format-noyau.md`](docs/format-noyau.md)
 > — l'état du noyau, les quatre pièges de mesure GPU chèrement acquis, et
 > l'échelle bits↔vitesse. Le modèle est publié et démarre seul ; le noyau fusé
 > existe et bat le FP16 de 2,07× sur le modèle entier, mais **n'est pas encore
