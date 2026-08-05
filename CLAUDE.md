@@ -11,7 +11,8 @@
 > [`docs/format-noyau.md`](docs/format-noyau.md)
 > — l'état du noyau, les quatre pièges de mesure GPU chèrement acquis, et
 > l'échelle bits↔vitesse. Le modèle est publié et démarre seul ; le noyau fusé
-> existe et bat le FP16 de 2,07× sur le modèle entier, mais **n'est pas encore
+> existe et bat le FP16 de **2,03–2,09×** sur le modèle entier (une plage, pas
+> un point : six invocations, cf. §3), mais **n'est pas encore
 > branché dans `bin/run`** — c'est le chantier ouvert.
 > Historique antérieur : [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md).
 
