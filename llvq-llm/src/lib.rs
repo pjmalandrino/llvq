@@ -15,6 +15,9 @@ pub mod calib;
 pub mod corpus;
 pub mod embedquant;
 pub mod eval;
+pub mod fused;
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+pub mod fused_cuda;
 pub mod loader;
 pub mod model;
 pub mod sealed;

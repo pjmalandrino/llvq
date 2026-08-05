@@ -161,14 +161,71 @@ impl KvCache {
 }
 
 /// One transformer block, with its seven projections reachable by name.
+/// A projection: dense weights, or the fused kernel reading encoded ones.
+///
+/// The dense arm is what every published perplexity refers to and what the
+/// quantizer operates on. The fused arm exists only after a model is loaded
+/// from a sealed artifact by `fused::load`, and only on a CUDA build — the
+/// kernels live in `llvq-cuda`, which does not compile anywhere else.
+///
+/// The two are *not* interchangeable in both directions: `Proj::dense` panics
+/// on a fused projection rather than returning something plausible, because
+/// every caller of it is a quantization path and quantizing an already
+/// quantized model is a bug, not a use case.
+pub enum Proj {
+    Dense(Linear),
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    Fused {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        proj: std::sync::Arc<crate::fused_cuda::FusedProj>,
+    },
+}
+
+impl Proj {
+    pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        match self {
+            Proj::Dense(l) => l.forward(x),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, proj } => rt.forward(proj, x),
+        }
+    }
+
+    /// The dense weights, for the quantizer.
+    ///
+    /// Panics on a fused projection. That is the intended behaviour: the
+    /// alternative is an `Option` every caller would `unwrap`, at five sites
+    /// that can none of them proceed without it.
+    pub fn dense(&self) -> &Linear {
+        match self {
+            Proj::Dense(l) => l,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { proj, .. } => panic!(
+                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                proj.name
+            ),
+        }
+    }
+
+    pub fn dense_mut(&mut self) -> &mut Linear {
+        match self {
+            Proj::Dense(l) => l,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { proj, .. } => panic!(
+                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                proj.name
+            ),
+        }
+    }
+}
+
 pub struct Block {
-    pub q_proj: Linear,
-    pub k_proj: Linear,
-    pub v_proj: Linear,
-    pub o_proj: Linear,
-    pub gate_proj: Linear,
-    pub up_proj: Linear,
-    pub down_proj: Linear,
+    pub q_proj: Proj,
+    pub k_proj: Proj,
+    pub v_proj: Proj,
+    pub o_proj: Proj,
+    pub gate_proj: Proj,
+    pub up_proj: Proj,
+    pub down_proj: Proj,
     q_norm: RmsNorm,
     k_norm: RmsNorm,
     ln1: RmsNorm,
@@ -189,25 +246,25 @@ impl Block {
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
         Ok(Self {
-            q_proj: candle_nn::linear_no_bias(cfg.hidden_size, nh * hd, a.pp("q_proj"))?,
-            k_proj: candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("k_proj"))?,
-            v_proj: candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("v_proj"))?,
-            o_proj: candle_nn::linear_no_bias(nh * hd, cfg.hidden_size, a.pp("o_proj"))?,
-            gate_proj: candle_nn::linear_no_bias(
+            q_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nh * hd, a.pp("q_proj"))?),
+            k_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("k_proj"))?),
+            v_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("v_proj"))?),
+            o_proj: Proj::Dense(candle_nn::linear_no_bias(nh * hd, cfg.hidden_size, a.pp("o_proj"))?),
+            gate_proj: Proj::Dense(candle_nn::linear_no_bias(
                 cfg.hidden_size,
                 cfg.intermediate_size,
                 m.pp("gate_proj"),
-            )?,
-            up_proj: candle_nn::linear_no_bias(
+            )?),
+            up_proj: Proj::Dense(candle_nn::linear_no_bias(
                 cfg.hidden_size,
                 cfg.intermediate_size,
                 m.pp("up_proj"),
-            )?,
-            down_proj: candle_nn::linear_no_bias(
+            )?),
+            down_proj: Proj::Dense(candle_nn::linear_no_bias(
                 cfg.intermediate_size,
                 cfg.hidden_size,
                 m.pp("down_proj"),
-            )?,
+            )?),
             q_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("q_norm"))?,
             k_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("k_norm"))?,
             ln1: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
@@ -225,6 +282,11 @@ impl Block {
 
     /// Read-only view of a projection, by checkpoint name.
     pub fn linear(&self, name: &str) -> &Linear {
+        self.proj(name).dense()
+    }
+
+    /// The projection itself, dense or fused.
+    pub fn proj(&self, name: &str) -> &Proj {
         match name {
             "self_attn.q_proj" => &self.q_proj,
             "self_attn.k_proj" => &self.k_proj,
@@ -237,11 +299,20 @@ impl Block {
         }
     }
 
+    /// Replace one projection — how a fused runtime is installed.
+    pub fn set_proj(&mut self, name: &str, p: Proj) {
+        *self.proj_mut(name) = p;
+    }
+
     /// The projection a safetensors name suffix refers to.
     ///
     /// The quantizer walks activations, not fields, so it needs to reach
     /// matrices by the name the checkpoint uses.
     pub fn linear_mut(&mut self, name: &str) -> &mut Linear {
+        self.proj_mut(name).dense_mut()
+    }
+
+    pub fn proj_mut(&mut self, name: &str) -> &mut Proj {
         match name {
             "self_attn.q_proj" => &mut self.q_proj,
             "self_attn.k_proj" => &mut self.k_proj,

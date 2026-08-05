@@ -22,10 +22,16 @@ anyhow = "1"
 flate2 = "1"
 parquet = { version = "55", default-features = false, features = ["snap", "zstd", "brotli", "flate2"] }
 
+# The fused kernels. Target-gated *and* optional: `llvq-cuda` pulls cudarc,
+# which cannot build on macOS whichever way it is asked, and there is no point
+# pulling it on a Linux CPU build either.
+[target.'cfg(target_os = "linux")'.dependencies]
+llvq-cuda = { path = "../llvq-cuda", optional = true }
+
 [features]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 # The remote target. `cudnn` is separate because it needs the cuDNN libraries
 # present at build time, which the plain CUDA base images do not all carry.
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "dep:llvq-cuda"]
 cudnn = ["cuda", "candle-core/cudnn"]
 fast-linalg = ["llvq-quant/fast-linalg"]
