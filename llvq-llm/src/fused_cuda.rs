@@ -194,18 +194,44 @@ impl FusedRuntime {
             candle_core::bail!("{} attend d_in={}, reçu {d_in}", proj.name, proj.d_in);
         }
         let rows: usize = dims[..dims.len() - 1].iter().product();
-        if rows != 1 {
-            // Deliberately an error and not a loop: a silent per-token loop
-            // inside a scoring pass would turn a twelve-minute perplexity into
-            // an overnight one and look like a hang. The caller decides.
+
+        // More than one vector: loop.
+        //
+        // This is not an optimization gap that can be papered over — `tv_slot`
+        // is a matrix–*vector* product, one warp per output row with a single
+        // activation staged in shared memory, so `l` tokens cost `l` launches.
+        // The first version of this refused outright, which was wrong for a
+        // reason the very first run found: **generation always begins by
+        // running the whole prompt through**, so every `generate` call hits
+        // `rows > 1` before it ever decodes a token.
+        //
+        // The cap survives that correction, because the danger it guarded
+        // against is real: a 2048-token scoring window would issue half a
+        // million launches and look like a hang. Prompts stay well under it,
+        // and `bin/ppl` keeps the dense path.
+        const MAX_ROWS: usize = 256;
+        if rows > MAX_ROWS {
             candle_core::bail!(
-                "{} : le noyau fusé est un matvec ({rows} vecteurs demandés). \
-                 La passe de score garde le chemin dense.",
+                "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau fusé est \
+                 un matvec — il boucle, donc le coût est linéaire. La passe de score garde \
+                 le chemin dense.",
                 proj.name
             );
         }
 
         let x = x.contiguous()?.to_dtype(DType::F16)?;
+        if rows > 1 {
+            let flat = x.reshape((rows, d_in))?;
+            let mut out = Vec::with_capacity(rows);
+            for r in 0..rows {
+                // `narrow` yields a view at an offset into the same buffer —
+                // which is exactly why `rot_apply` takes `x_off`.
+                out.push(self.forward(proj, &flat.narrow(0, r, 1)?)?);
+            }
+            let mut d = dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = proj.d_out;
+            return Tensor::cat(&out, 0)?.reshape(d);
+        }
         let out_shape = {
             let mut d = dims.to_vec();
             *d.last_mut().expect("rank >= 1") = proj.d_out;
