@@ -527,6 +527,82 @@ def cmd_oracle(args) -> int:
     return 0
 
 
+# Cards this repo will run a kernel bench on, and why the list is short.
+#
+# `cap_ok` only says a card *can load* the image's code; it accepts anything
+# from sm_89 up. That is the wrong question for a bench. An `l4x1` runs at
+# roughly 300 GB/s — **below** the M3 Max the Metal figure was taken on — so a
+# ratio measured there would be structurally pessimistic and uninterpretable,
+# and the money would be spent producing a number nobody could use. The
+# `rtx-pro-6000` and `h200` are the opposite problem: faster, more expensive,
+# and not the class of card the paper's readers rent.
+BENCH_FLAVORS = ("l40sx1",)
+
+
+def cmd_bench(args) -> int:
+    """Run an arbitrary binary from the image on a rented card.
+
+    The generic launcher this file did not have. `cmd_launch` hard-codes
+    `smoke` and `cmd_oracle` hard-codes `oracle`, so anything else had to be
+    smuggled in as a fake quantization — and the cost estimator that gates
+    `launch` does not apply here at all: it multiplies a weight count by a
+    Leech encoder cost, and on a measurement job it is wrong by a factor ~8.
+    The useful ceiling is the job timeout, which is why it is mandatory and
+    has no silent default.
+
+    Two guards the other subcommands lack:
+
+    * the card whitelist above, checked *before* anything is billed;
+    * `set -euo pipefail` around the command. Without it a bench that dies
+      leaves the rest of the line running and the job finishes COMPLETED with
+      no result — which reads as a pass.
+    """
+    from huggingface_hub import run_job
+
+    ok, why = cap_ok(args.flavor)
+    if not ok:
+        print(f"refus : {args.flavor} — {why}")
+        return 2
+    if args.flavor not in BENCH_FLAVORS and not args.any_flavor:
+        print(
+            f"refus : {args.flavor} n'est pas dans {BENCH_FLAVORS}.\n"
+            "  Un rapport mesuré ailleurs n'est pas comparable au chiffre Metal —\n"
+            "  voir docs/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
+            "  et alors le dire dans tout chiffre publié."
+        )
+        return 2
+
+    script = "set -euo pipefail\n" + "\n".join(args.cmd)
+    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+    if usd_h:
+        mins = _timeout_minutes(args.timeout)
+        print(
+            f"{args.flavor} à {usd_h:.2f} $/h = {usd_h / 60:.4f} $/min ; "
+            f"plafond {args.timeout} → au pire {usd_h * mins / 60:.2f} $"
+        )
+    job = run_job(
+        image=args.image,
+        command=["bash", "-lc", script],
+        flavor=args.flavor,
+        timeout=args.timeout,
+        name=args.name,
+        namespace=args.namespace,
+    )
+    print(f"{args.name} sur {args.flavor} : {job.url}\n  id {job.id}")
+    print(f"suivre : uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
+    return 0
+
+
+def _timeout_minutes(t: str) -> float:
+    """`30m`, `2h`, `90s` → minutes. Used only to print a worst-case cost."""
+    unit, n = t[-1], t[:-1]
+    try:
+        v = float(n)
+    except ValueError:
+        return 0.0
+    return {"s": v / 60, "m": v, "h": v * 60}.get(unit, 0.0)
+
+
 def cmd_monitor(args) -> int:
     """Follow a running Job: stage, accrued cost, utilisation, new log lines.
 
@@ -777,6 +853,18 @@ def main() -> int:
     o.add_argument("--tokens", type=int, default=64)
     o.add_argument("--namespace", default=None)
     o.set_defaults(fn=cmd_oracle)
+
+    b = sub.add_parser("bench", help="lancer une commande quelconque de l'image sur une carte")
+    b.add_argument("cmd", nargs="+", help="lignes de shell, exécutées sous set -euo pipefail")
+    b.add_argument("--image", required=True)
+    b.add_argument("--flavor", default="l40sx1")
+    b.add_argument("--any-flavor", action="store_true",
+                   help="passer outre la liste blanche — à déclarer dans tout chiffre publié")
+    b.add_argument("--timeout", default="20m",
+                   help="plafond réel du coût : l'estimateur ne vaut que pour une quantification")
+    b.add_argument("--name", default="llvq-bench")
+    b.add_argument("--namespace", default=None)
+    b.set_defaults(fn=cmd_bench)
 
     m = sub.add_parser("monitor", help="suivre un Job : coût, utilisation, logs")
     m.add_argument("job_id")

@@ -280,7 +280,7 @@ Dénominateur = les 4 022 468 096 poids du modèle ; embedding + normes = 389 15
 | A1 **si** Slot32 (non branché, Metal seulement) | 3 280 750 672 | 6,525 | CALCULE, layout MESURE |
 | A1 **si** Grouped32 (1,589 Go proj. + 0,778) | 2 367 000 000 | 4,708 | CALCULE, layout MESURE |
 
-> ⚠️ Les lignes `L≤4` (4,667 b/poids) et `L≤3` (3,667) de `docs/face-au-4-bits.md:108-113` sont dérivées d'un **banc sur source gaussienne**, et le même banc donne 5,667 pour L=5 là où `format-noyau.md:345` mesure **5,51** sur le 4B entier — il est 2,8 % haut. **Ne pas les mettre dans cette table sans étiquette.** L'énoncé de §7.2 doit reposer sur `Grouped32` (mesuré), pas sur `L≤3`.
+> ⚠️ Les lignes `L≤4` (4,667 b/poids) et `L≤3` (3,667) de `docs/face-au-4-bits.md` § « La sortie n° 2, mesurée : plafonner les niveaux » (la table `lcap`) sont dérivées d'un **banc sur source gaussienne**, et le même banc donne 5,667 pour L=5 là où `format-noyau.md` § « Le prix en RAM, et que c'est un cadran » mesure **5,51** sur le 4B entier — il est 2,8 % haut. **Ne pas les mettre dans cette table sans étiquette.** L'énoncé de §7.2 doit reposer sur `Grouped32` (mesuré), pas sur `L≤3`.
 
 **L'énoncé à publier nous‑mêmes, en section et pas en note :**
 

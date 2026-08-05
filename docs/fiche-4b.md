@@ -428,16 +428,29 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 
 ### 6.4 Les chiffres et leur dispersion
 
+> 🏷️ **Section historique depuis le 2026-08-05 — ne plus y puiser un chiffre à
+> publier.** Les trois lignes ci-dessous sont les runs du **banc à deux bras**
+> (2026-08-01 et 2026-08-03), dont aucun n'a laissé de journal. Le chiffre
+> courant vient du run archivé à sept bras : **`Slot32` 5,510 b/poids,
+> 2,09× [2,05–2,11]** sur les mêmes 252 projections, journal
+> [`docs/mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt).
+> Ce rapport-là est la **médiane du rapport formé round par round**, avec sa
+> plage sur les 5 rounds gardés — pas le quotient de deux minima, qui mêlerait
+> deux rounds n'ayant jamais coexisté. Et **les millisecondes dérivent d'un run
+> à l'autre** (c'est précisément ce que cette section a établi) là où les
+> b/poids et les octets reproduisent au chiffre : citer le b/poids et le
+> rapport avec sa plage, renvoyer au journal pour les ms.
+
 | | FP16 | LLVQ Slot32 | rapport |
 |---|---|---|---|
 | 2026-08-01 | **21,691 ms** · 7,27 Go · 335,0 Go/s | **10,460 ms** · 2,50 Go · 239,2 Go/s | **2,0737×** |
 | 2026-08-01, 2ᵉ passe | — | — | 2,08× |
 | 2026-08-03 (rejeu, fichier scellé) | 22,675 ms | 11,021 ms | 2,0574× |
 
-`SUSPECT` sur les décimales, `MESURE` sur l'ordre de grandeur. **Aucun fichier de log n'existe** : les valeurs ne vivent que recopiées dans README.md:147-155, CLAUDE.md:121 et docs/format-noyau.md:317. Écarts entre exécutions : FP16 +4,5 %, LLVQ +5,4 %, **rapport −0,8 %**.
+`SUSPECT` sur les décimales, `MESURE` sur l'ordre de grandeur. **Aucun fichier de log n'existe pour ces trois lignes-là** : leurs valeurs ne vivent que recopiées dans README.md:147-155, CLAUDE.md:121 et la table de tête de `docs/format-noyau.md` § « La thèse, sur le modèle entier ». *(Le reproche est levé pour le banc courant : `docs/mesures/` existe depuis le 2026-08-05 et archive le run à sept bras ainsi que les trois invocations témoins du banc à deux bras.)* Écarts entre exécutions : FP16 +4,5 %, LLVQ +5,4 %, **rapport −0,8 %**.
 
-> **À publier en fourchette** : FP16 21,7–22,7 ms · LLVQ 10,5–11,0 ms · 320–335 et 227–239 Go/s.
-> **À publier au chiffre près** : le rapport **2,06–2,08×**, les 1 105 920 lignes, la pire erreur 3,4·10⁻⁸, les 7,27 et 2,50 Go, les 5,51 b/poids.
+> **Ce qui se publie aujourd'hui** vient du run archivé du 2026-08-05, pas de cette table : `Slot32` **5,510 b/poids**, **2,09× [2,05–2,11]** (médiane du rapport formé round par round sur les 5 rounds gardés), les 1 105 920 lignes, la pire erreur 3,4·10⁻⁸, les 7,27 et 2,50 Go. Millisecondes : `docs/mesures/k1-metal-2026-08-05.txt`.
+> **Ce qui ne se publie plus** : le « 2,06–2,08× (n=2) » de cette section. Deux raisons cumulées — il agrège deux invocations distinctes du binaire, ce que §4.6bis de `docs/portage-noyau-cuda.md` disqualifie ; et sa fourchette est plus étroite que la dispersion réellement mesurée depuis, [2,029 ; 2,080] sur trois runs témoins.
 > **Les trois décimales de « 21,691 » ne survivent pas au rejeu et ne doivent pas être publiées.**
 
 **Reproduction** : `cargo run --release -p llvq-metal --bin thesis -- /Users/pjmalandrino/qwen3-4b-llvq.bin`
@@ -459,7 +472,7 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 >
 > Comme chaque terme exclu est ≥ 0 et qu'au moins un (les 144 rotations) n'est payé que par LLVQ : **41,6 et 78,2 sont des BORNES SUPÉRIEURES, et 1,88× est un MAJORANT du rapport de bout en bout.**
 
-**Formulation défendable** : « projections seules, 2,07× ; en ajoutant analytiquement le lm_head f16 non quantifié (778 Mo au débit f16 de la machine, 2,32 ms — calculé, jamais exécuté), le rapport plafonne à **1,88×** ; 78,2 tok/s n'est le débit mesuré de rien. » Le README titre 2,07× sans jamais poser le 1,88× à côté, alors que `format-noyau.md:319-321` l'écrit correctement.
+**Formulation défendable** : « projections seules, 2,07× ; en ajoutant analytiquement le lm_head f16 non quantifié (778 Mo au débit f16 de la machine, 2,32 ms — calculé, jamais exécuté), le rapport plafonne à **1,88×** ; 78,2 tok/s n'est le débit mesuré de rien. » Le README titre 2,07× sans jamais poser le 1,88× à côté, alors que `format-noyau.md` § « La thèse, sur le modèle entier » l'écrit correctement, dans le paragraphe qui suit sa table de tête.
 
 ### 6.7 L'échelle bits ↔ vitesse — **le point le plus attaquable, et il se répare**
 
@@ -471,7 +484,9 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 | Fixed96 | 4,000 (structurel) | — | — | jamais en matvec |
 | **Slot32** | **5,376** (modèle) / 5,375 (gate_proj) | **5,51** (modèle) / 5,554 (gate_proj) → **2,50 Go** | **2,07×** | **modèle entier** |
 
-> **Correction majeure.** L'écart 5,51 vs 5,375 n'est **pas** un écart d'objet, c'est un écart de **métrique** : `RuntimeBlocks::bits_per_weight()` (payload + adressage / poids quantifiés) contre le calcul de `thesis` (payload + adressage + **queue f32** + **échelles de ligne f32** / **tous** les poids). Converti : le modèle entier vaut **5,376** contre 5,375 sur gate_proj — **identiques à 0,02 % près**. L'explication publiée dans `format-noyau.md:345` (« autres distributions de classes ») est fausse.
+> **Correction majeure.** L'écart 5,51 vs 5,375 n'est **pas** un écart d'objet, c'est un écart de **métrique** : `RuntimeBlocks::bits_per_weight()` (payload + adressage / poids quantifiés) contre le calcul de `thesis` (payload + adressage + **queue f32** + **échelles de ligne f32** / **tous** les poids). Converti : le modèle entier vaut **5,376** contre 5,375 sur gate_proj — **identiques à 0,02 % près**.
+>
+> ✅ **Le reproche est soldé, et il reste écrit ici pour la généalogie.** L'explication publiée dans `format-noyau.md` § « Le prix en RAM, et que c'est un cadran » — « les autres formes ont d'autres distributions de classes et d'autres arrondis de stride » — **était** fausse. Elle **a été corrigée le 2026-08-05 par le lot K-1(a)** : cette section porte désormais le même diagnostic de comptabilité que le paragraphe ci-dessus, et l'appuie sur un recoupement par deux chemins de code indépendants — `bin/rtbits` rend **5,3756** sur le modèle **entier**, `bin/matvec` rend **5,375** sur **gate_proj seule**. Si l'écart tenait à la forme des matrices, ces deux-là ne coïncideraient pas.
 >
 > **Ce qui mélange réellement deux protocoles, c'est la colonne VITESSE** : 0,68× et 0,90× sont mesurés sur `gate_proj` par `bin/matvec` (32 dispatches, R=4 copies rotatives pour forcer le froid, surcoût **soustrait**, best-of-15) ; 2,07× est le modèle entier par `bin/thesis`. `thesis` ne compile que deux kernels — **Grouped32 et Flat32 n'ont jamais tourné sur le modèle entier.**
 >
@@ -481,7 +496,7 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 
 ### 6.8 « 335 Go/s ≈ 93 % du pic » — **RETRACTE**
 
-Le « 93 % » appartient à un **autre banc** : `format-noyau.md:199+203` l'attache aux **370 Go/s de gate_proj** (`bin/matvec`), et 370/400 = 92,5 %. Il a été transplanté sur le 335-336 Go/s du modèle entier, où il vaut **83,8 %** — contre un pic constructeur de 400 Go/s qui est lui-même `SUPPOSE`. Conséquence : l'argument « le FP16 est au mur, il n'y a rien à en tirer » est plus faible qu'annoncé.
+Le « 93 % » appartient à un **autre banc** : `format-noyau.md` § « Le matvec fusé, et le layout qu'il a imposé » l'attache aux **370 Go/s de gate_proj** (`bin/matvec`), dans sa table et dans la phrase « le baseline est honnête » qui la suit, et 370/400 = 92,5 %. Il a été transplanté sur le 335-336 Go/s du modèle entier, où il vaut **83,8 %** — contre un pic constructeur de 400 Go/s qui est lui-même `SUPPOSE`. Conséquence : l'argument « le FP16 est au mur, il n'y a rien à en tirer » est plus faible qu'annoncé.
 
 ### 6.9 Transcodage au chargement
 
@@ -544,7 +559,7 @@ Par ordre de dureté :
 
 4. **L'heure de fin du run de nuit** : mtime du log 02:30, `docs/retraction-et-gain.md:85` dit 04:26. Sans conséquence — dans les deux cas le démarrage précède le correctif `60068db` (01:12).
 
-5. **`format-noyau.md:215` ne boucle pas** : « 4,54 b/poids sur cette couche (16,5 Mo …) ». 4,54 en métrique large donne **14,8 Mo** ; 16,5 Mo implique 5,12 b/poids étroits. L'un des deux est périmé (la phrase et la table datent de sessions différentes). À trancher avant qu'un lecteur le fasse.
+5. **`format-noyau.md` § « Le matvec fusé, et le layout qu'il a imposé » ne boucle pas**, dans le paragraphe sur `Layout::Flat32` : « 4,54 b/poids sur cette couche (16,5 Mo …) ». 4,54 en métrique large donne **14,8 Mo** ; 16,5 Mo implique 5,12 b/poids étroits. L'un des deux est périmé (la phrase et la table datent de sessions différentes). À trancher avant qu'un lecteur le fasse.
 
 6. **Le gain incrémental de la rotation de sortie.** La Table 9 du papier chiffre **29,3 → 34,9 = aucune rotation → Input+Output**, pas *Input seule → Input+Output*. Notre configuration a **déjà** l'étage Input. Le gain incrémental de l'étage Output **n'est chiffré nulle part dans le papier**, et la seule ligne « Input seule » disponible (spherical shaping, 24,0 → 35,1) suggère que l'étage Input capte l'essentiel. **La phrase « +5,6 pp, plus que notre déficit de 4,8 pp » doit être retirée du README et de l'audit §Q4.** Le levier reste plausible ; son ampleur est inconnue. Note technique rassurante : l'objectif GPTQ est invariant par mélange orthogonal des lignes, donc la machinerie hessienne ne bouge pas — seule l'isotropie vue par un code 24-dimensionnel change. Côté code, **rien n'existe** (`rotation.rs` n'a que `rotate_weight_rows`), et l'ajouter impose un bump de MAGIC, ce qui entre en collision avec le travail LVQ3 non commité.
 
@@ -567,5 +582,5 @@ Par ordre de dureté :
 > Qwen3-4B, 252 projections quantifiées sur le réseau de Leech Λ₂₄ plafonné à la coquille 12 : **47 bits d'index + 1 bit de gain = 48 bits par bloc de 24 poids, soit exactement 2,000 bit/poids de code**. Le fichier livré pèse **2,1595 b/poids** sur ses 3 633 315 840 poids de projection (2,1696 hors queue au dénominateur), l'excès de 8 % étant entièrement de la sérialisation : queue `KeepExact` en f32 (+0,150) et échelles de ligne en f64 (+0,020, dont aucune n'est représentable en f32 — c'est le prix d'une preuve de décodage bit-pour-bit sur les 3 633 315 840 poids). Modèle entier, embedding f16 compris : **1,771 Go contre 8,045 Go en FP16, ×4,54**.
 > **Perplexité** wikitext-2, ctx 4096, 12 fenêtres, f16, sur les octets publiés : **16,9415 contre une baseline f16 de 12,2361, ×1,385** — soit **+3,1 % de surcoût de log-vraisemblance par rapport à QTIP** sur sa propre baseline. **MMLU** 5-shot, micro pondéré par population, 2 280 questions sur 14 042 : **56,09 ± 1,36 contre 70,42 ± 1,28**, une chute de **14,3 pp** là où le papier annonce 9,5. Le harnais reproduit la baseline du papier à **0,22 pp (0,17 σ)**, donc le déficit n'est pas imputable au harnais ; la cause la plus probable reste le volume de calibration (131 072 tokens contre ~100× plus).
 > **Le projet n'a pas de barre d'erreur** : sa seule observation de dispersion vaut ~7 % sur deux configurations dont un test démontre qu'elles étaient le même quantifieur, et la cause n'est pas tranchée. Aucune marge inférieure à cela n'est revendiquée.
-> **Noyau fusé**, 252 projections, un token, batch 1, M3 Max, mémoire froide par construction : **10,5–11,0 ms contre 21,7–22,7 ms en FP16, 2,06–2,08×** (n=2 exécutions), **1 105 920 lignes de sortie vérifiées contre une référence CPU f64 avant toute mesure, pire erreur 3,4·10⁻⁸·Σ|w·x|**. Hors attention, normes, lm_head, échantillonnage, et **hors rotation d'entrée, que seul le bras quantifié paierait** (144 transformées par token, 0,2 % d'arithmétique, latence non mesurée). En y ajoutant analytiquement le lm_head f16, le rapport de bout en bout plafonne à **1,88×**. **Le noyau n'est pas branché dans le runner**, qui n'a même pas de cache KV : le fichier publié n'en gagne rien aujourd'hui.
+> **Noyau fusé**, 252 projections, un token, batch 1, M3 Max, mémoire froide par construction : `Slot32` à **5,510 b/poids en RAM**, **2,09× le FP16, plage [2,05–2,11]** — 7 rounds dont 2 jetés, les sept bras dispatchés à chaque round dans le même ordre, le rapport formé **round par round** puis résumé par sa médiane et sa plage (ce n'est pas un quotient de deux minima ; les millisecondes sont dans le journal `docs/mesures/k1-metal-2026-08-05.txt` et dérivent d'un run à l'autre, là où les b/poids reproduisent au chiffre). **1 105 920 lignes de sortie vérifiées contre une référence CPU f64 avant toute mesure, pire erreur 3,4·10⁻⁸·Σ|w·x|**. Hors attention, normes, lm_head, échantillonnage, et **hors rotation d'entrée, que seul le bras quantifié paierait** (144 transformées par token, 0,2 % d'arithmétique, latence non mesurée). En y ajoutant analytiquement le lm_head f16, le rapport de bout en bout plafonne à **1,88×**. **Le noyau n'est pas branché dans le runner**, qui n'a même pas de cache KV : le fichier publié n'en gagne rien aujourd'hui.
 > **La recette livrée est l'Algorithme 1 (shape–gain, reset de gain) plus une rotation d'incohérence en entrée** — pas du Spherical GPTQ : avec un code de gain fini, la rétraction de l'Eq. 17 est un no-op, et le raffinement d'échelles de l'Algorithme 3 est désactivé.

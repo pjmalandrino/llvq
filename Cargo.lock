@@ -1834,6 +1834,16 @@ name = "llvq-core"
 version = "0.1.0"
 
 [[package]]
+name = "llvq-cuda"
+version = "0.1.0"
+dependencies = [
+ "cudarc 0.19.8",
+ "llvq-artifact",
+ "llvq-core",
+ "llvq-search",
+]
+
+[[package]]
 name = "llvq-llm"
 version = "0.1.0"
 dependencies = [

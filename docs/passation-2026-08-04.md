@@ -36,7 +36,10 @@ Pourquoi c'est la priorité et pas la campagne de mesure : le papier LLVQ
 déclare lui-même son noyau CUDA **mono-coquille (M = 3), mono-couche, « pour
 la simplicité », et plus lent que QTIP** (annexe C). Le décodeur Leech
 **multi-coquilles** qu'exige le régime 2 bits n'existe nulle part. Le nôtre
-existe, bat le FP16 de 2,06-2,08× sur les 252 projections du modèle entier —
+existe, bat le FP16 de 2,06-2,08× sur les 252 projections du modèle entier
+*(chiffre du banc à deux bras, à la date de cette passation ; remesuré le
+2026-08-05 à **2,09× [2,05–2,11]**, médiane du rapport formé round par round —
+journal `docs/mesures/k1-metal-2026-08-05.txt`)* —
 mais uniquement en Metal, donc sur un matériel que le lecteur du papier ne
 possède pas et sur lequel il ne peut rien rejouer.
 

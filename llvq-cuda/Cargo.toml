@@ -1,0 +1,71 @@
+[package]
+name = "llvq-cuda"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CUDA port of the LLVQ fused kernel: the same Leech decoder, measured on an NVIDIA GPU."
+
+# Portable dependencies go here, unconditionally, exactly as in llvq-metal.
+# The shell has none yet: the shared host-side pieces (class table, f64
+# reference, transcoding) still live in llvq-metal and only move out at K0.
+[dependencies]
+
+# NVIDIA-only by construction, and target-gated rather than feature-gated on
+# purpose: cudarc cannot build on macOS at all, whichever way it is asked.
+# Read in cudarc-0.19.8/build.rs, three distinct walls:
+#
+#   * with the default features declared below, no CUDA version is pinned, so
+#     :118 panics with "Must specify one of the following features" unless
+#     $CUDARC_CUDA_VERSION is set (:56);
+#   * once `cuda-version-from-build-system` unifies in — candle enables it —
+#     the script shells out to `nvcc --version` and panics at :168 without it;
+#   * and `dynamic_linking` emits `-l dylib=cuda/nvrtc/cublas` (:186-213),
+#     libraries no Mac has.
+#
+# A Cargo feature would not help, because features are resolved on the host
+# too: the dependency has to be invisible to the build resolver anywhere but
+# Linux. Under this cfg it is — `cargo tree -p llvq-cuda` on the dev Mac shows
+# a single node, and the same command `--target x86_64-unknown-linux-gnu`
+# shows cudarc 0.19.8 (already in Cargo.lock via candle, so no new resolution).
+#
+# The feature list is candle's, verbatim (candle-core-0.9.2/Cargo.toml:159-172,
+# minus `f8` which nothing here uses). Not a preference — a constraint. Cargo
+# unifies the features of a shared dependency across workspace members built
+# together, and cudarc's build.rs panics outright on the pairs
+# {dynamic-loading, dynamic-linking}, {dynamic-loading, static-linking} and
+# {dynamic-linking, static-linking} (build.rs:81-93). Declaring the same set
+# candle already declares is the only choice that cannot produce such a pair,
+# and it is the set the 8B and 32B runs have already built successfully in
+# `nvidia/cuda:12.4.1-devel` — which is stronger evidence than reasoning,
+# since none of it can be compiled on the dev Mac.
+#
+# `cuda-version-from-build-system` shells out to `nvcc --version`; nvcc is
+# present in the *devel* build stage and absent from the runtime stage, which
+# is fine because the probe happens at build time. Pinning `cuda-12040`
+# instead would remove the probe and match the image exactly; it is the more
+# reproducible choice and the one to revisit at K3, but it would then differ
+# from candle's and risk the unification above.
+[target.'cfg(target_os = "linux")'.dependencies]
+cudarc = { version = "0.19", default-features = false, features = [
+    "std",
+    "driver",
+    "nvrtc",
+    "cublas",
+    "cublaslt",
+    "f16",
+    "cuda-version-from-build-system",
+    "dynamic-linking",
+] }
+llvq-core = { path = "../llvq-core" }
+llvq-search = { path = "../llvq-search" }
+llvq-artifact = { path = "../llvq-artifact" }
+
+# Portable, and unconditional on purpose: the CUDA sources are checked against
+# the Rust decoder by compiling them as host C++ with `clang++`, and that test
+# has to run on the development machine — which is exactly the machine with no
+# CUDA. None of these three crates pulls in an external dependency.
+[dev-dependencies]
+llvq-core = { path = "../llvq-core" }
+llvq-search = { path = "../llvq-search" }
+llvq-artifact = { path = "../llvq-artifact" }

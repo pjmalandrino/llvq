@@ -91,6 +91,17 @@ problème à résoudre — pas un détail d'optimisation.
    utile battrait le 4 bits sur la place *et* tiendrait la route en débit. Le
    passage `Flat32` → `Slot32` a montré qu'un changement de format bien choisi
    vaut 2,4× ; il reste peut-être une forme intermédiaire.
+   🏷️ Le 3,35 est en comptabilité `rtbits` (payload + bases) ; le même layout
+   pèse **3,498** en métrique thesis, et `bin/thesis` le mesure à **0,69×
+   [0,69–0,69]** le FP16 sur les 252 projections du modèle entier
+   (`docs/mesures/k1-metal-2026-08-05.txt`, 2026-08-05). Ne pas aligner les deux
+   comptabilités.
+   ⚠️ **Le rapport est formé round par round**, puis résumé en médiane et plage
+   sur les 5 rounds gardés (7 rounds, 2 jetés, tous les bras dispatchés à chaque
+   round dans le même ordre). Ce **n'est pas** le quotient des colonnes « min
+   ms » du journal : diviser un minimum par un minimum mêlerait deux rounds qui
+   n'ont jamais coexisté. Le 3,498 b/poids, lui, est exact et se reproduit au
+   chiffre ; les millisecondes dérivent d'un run à l'autre.
 3. **Assumer le créneau.** Le 2 bits ne sert que là où le 4 bits **ne rentre
    pas** : 70B sur 32 Go, 405B sur 128 Go. Sur ces points-là, `Grouped32` gagne
    même lent, parce que l'alternative est *ne pas charger le modèle*.
@@ -98,7 +109,7 @@ problème à résoudre — pas un détail d'optimisation.
 Aucune de ces trois n'est acquise. La comparaison a coûté une heure et vaut
 plus que la journée de noyau qui l'a précédée.
 
-## La sortie n° 2, mesurée : plafonner les niveaux (`bin/lcap`)
+## La sortie n° 2, mesurée : plafonner les niveaux (`bin/lcap`, puis `bin/rtbits`)
 
 La largeur du payload runtime est `34 + 24(L−1)` bits, où L est le nombre de
 magnitudes distinctes du bloc — **zéro compris**. Donc L *est* le coût mémoire,
@@ -106,7 +117,7 @@ et le plafonner est le seul bouton qui échange directement distorsion contre
 RAM. Mesuré sur source gaussienne, 20 000 blocs d'entraînement + 20 000
 d'évaluation, shape–gain 1 bit, centroïdes ajustés sur le train :
 
-| L max | codebook | index | b/dim | MSE | rétention | **RAM b/poids** |
+| L max | codebook | index | b/dim | MSE | rétention | RAM b/poids *(compta `lcap`)* |
 |---|---|---|---|---|---|---|
 | 5 *(actuel)* | 2,81·10¹⁴ | 48 b | 2,0417 | 0,0725 | 92,72 % | 5,667 |
 | **4** | 2,61·10¹⁴ *(93 %)* | 48 b | 2,0417 | 0,0730 | **92,46 %** | **4,667** |
@@ -120,32 +131,124 @@ d'évaluation, shape–gain 1 bit, centroïdes ajustés sur le train :
 > `L ≤ 3` reste sous les 4,50 b/poids du 4 bits. Ce qui change, c'est que la
 > table décrit enfin le quantifieur qui a produit l'artefact.
 
-**`L ≤ 4` est quasi gratuit** : −0,26 point de rétention pour **−1 bit/poids**
-de RAM. On jette 7 % du codebook et on ne perd presque rien — la prédiction
-haute dimension se vérifie. À prendre sans discuter.
+> 🚨 **La colonne « RAM b/poids » ci-dessus n'est PAS comparable aux colonnes de
+> RAM des autres documents** (corrigé le 2026-08-05, jalon K-1(a)). C'est la
+> comptabilité de `bin/lcap`, qui facture à **chaque bloc la largeur du
+> plafond** au lieu de celle du max de son groupe, et qui **ne compte pas les
+> bases**. Elle majore donc le format actuel et minore les plafonds. Elle reste
+> ici parce que c'est elle qui a produit les colonnes MSE/rétention, qui sont
+> bonnes ; ne la sortez pas de son tableau.
 
-**`L ≤ 3` est un vrai arbitrage** : −2,52 points de rétention pour −2 bits/poids.
-Mais il fait passer le format **sous le 4 bits** (3,667 contre 4,50), et il
-baisse aussi le débit disque (1,958 b/dim contre 2,042).
+### Les mêmes chiffres, mesurés sur l'artefact réel (`bin/rtbits`, 2026-08-05)
 
-Bénéfice de bord : sous plafond, **tous les blocs ont la même largeur**, donc
-le stride devient fixe — plus de table de bases, plus de padding par groupe, et
-un décodage plus court (2 masques au lieu de 4 à `L ≤ 3`). Le noyau devrait
-être *plus* rapide, pas moins.
+Compté sur `~/llvq-q4b.llvq` — 981 Mo, projections seules du Qwen3-4B publié —
+soit **4 708 800 groupes de 32 blocs, 150 681 600 blocs**. Comptabilité :
+**payload + une base `u32` par groupe, stride arrondi à l'octet**, c'est-à-dire
+ce qu'une lane lit réellement, rapporté aux poids quantifiés.
+*(Corrigé le 2026-08-05, deuxième passe : la première rédaction écrivait
+« 113 011 200 blocs », soit 4 708 800 × **24** — un nombre de groupes multiplié
+par la taille d'un bloc au lieu de celle d'un groupe. 4 708 800 × 32 =
+150 681 600, chiffre imprimé par `rtbits`, cf.
+`docs/mesures/k1c-rtbits-2026-08-05.txt`.)*
+
+| | RAM b/poids *(compta `rtbits`)* |
+|---|---|
+| `Slot32` aujourd'hui | **5,3756** |
+| sous plafond `L ≤ 4` | **≤ 4,7083** |
+| **gain** | **0,667 b/poids, soit 12,4 %** |
+
+Distribution mesurée des max de niveaux par groupe :
+
+| max du groupe | groupes | part | stride |
+|---|---|---|---|
+| L = 3 | **1** | — | — |
+| L = 4 | 1 566 710 | 33,272 % | 14 o |
+| L = 5 | 3 142 089 | 66,728 % | 17 o |
+
+Moyenne des max par groupe : **4,667 niveaux** ; moyenne par bloc : **3,726**.
+
+> ⚠️ **Coïncidence numérique à ne pas lire comme une égalité.** Les 4,667
+> ci-dessus sont des **niveaux**, la ligne `L max = 4` du tableau `lcap` porte
+> 4,667 **b/poids**. Deux quantités sans rapport qui tombent sur le même
+> chiffre.
+
+> **Le statut logique du 4,7083 est un majorant inconditionnel, pas une
+> simulation.** `L ≤ 4` implique `width_slot ≤ 9 + 1 + 24·4 = 106 bits =
+> 14 octets`, donc **tout** groupe a un stride ≤ 14 o. Et il est *atteint* dès
+> qu'un groupe porte un bloc à 4 niveaux, parce qu'un bloc déjà à `L ≤ 4` garde
+> sa classe sous le plafond — son mot de code est l'argmin sur la boule
+> entière, il reste l'argmin sur un sous-ensemble qui le contient encore.
+> Mesure : **4 708 799 groupes sur 4 708 800** portent un tel bloc. Ce n'est donc
+> ni une hypothèse d'indépendance ni une probabilité : c'est un **compte**.
+
+⚠️ **Aucune mesure `rtbits` n'existe pour `L ≤ 3` ni pour `L ≤ 2`.** Ces deux
+lignes restent dans l'ancienne comptabilité `lcap` (3,667 et 2,667) et n'ont
+**pas** été remesurées sur l'artefact. Tout ce qui s'appuie dessus plus bas est
+à lire comme une indication, pas comme un chiffre.
+
+> 🔎 **Recoupement indépendant.** `bin/matvec`, qui compte par un autre chemin de
+> code et sur une seule couche (`gate_proj`), rend **5,375 b/poids**, soit les
+> 5,3756 que `rtbits` obtient sur le modèle entier. Deux implémentations, un
+> seul chiffre.
+
+**`L ≤ 4` est quasi gratuit** : −0,26 point de rétention sur source gaussienne
+pour **−0,667 b/poids** de RAM mesurés sur l'artefact. On jette 7 % du codebook
+et on ne perd presque rien — la prédiction haute dimension se vérifie. À prendre
+sans discuter. *(La lecture « −1 bit/poids » qui figurait ici était la différence
+5,667 − 4,667 de la table `lcap`, qui facture le plafond à tous les blocs ; le
+gain mesuré est 0,667.)*
+
+**`L ≤ 3` est un vrai arbitrage** : −2,52 points de rétention sur source
+gaussienne, pour −2 bits/poids **en comptabilité `lcap` uniquement**. Il ferait
+passer le format sous le 4 bits (3,667 contre 4,50), et il baisse aussi le débit
+disque (1,958 b/dim contre 2,042).
+⚠️ Le 3,667 n'a **pas** d'équivalent mesuré : le plafond `L ≤ 3` n'a pas été
+passé sur l'artefact, ni en comptabilité `rtbits` ni en métrique thesis. Et il
+mord bien plus fort que `L ≤ 4` — **un seul groupe sur 4 708 800 a aujourd'hui un
+max ≤ 3**, là où `L ≤ 4` laisse déjà 33,272 % des groupes inchangés.
+
+Bénéfice de bord : sous plafond, **le stride de groupe devient uniforme** — plus
+de table de bases, plus de padding par groupe, et un décodage plus court.
+⚠️ Ce n'est *pas* parce que les blocs auraient tous la même largeur : sous
+`L ≤ 4` un bloc a `L ∈ {1,2,3,4}`, donc **34, 58, 82 ou 106 bits — quatre
+largeurs, pas une**. Ce qui devient uniforme, c'est le **stride**, parce que le
+groupe est dimensionné sur son max et que la mesure ci-dessus montre que
+4 708 799 groupes sur 4 708 800 portent déjà un bloc à 4 niveaux : sous plafond
+ils prendraient donc tous 14 octets. La conclusion — plus de table de bases —
+tient, mais elle repose sur la statistique des groupes, pas sur la largeur des
+blocs. Le noyau devrait être *plus* rapide, pas moins.
 
 ### Ce que ça change à 70B
 
-| en RAM | taille | tient sur |
-|---|---|---|
-| FP16 | 140 Go | rien |
-| `Slot32` actuel | 48,2 Go | Mac 64 Go |
-| `L ≤ 4` | 40,8 Go | Mac 64 Go |
-| MLX 4 bits | 39,4 Go | Mac 48 Go |
-| **`L ≤ 3`** | **32,1 Go** | **Mac 48 Go** |
+> 🚨 **Ce tableau mélange deux comptabilités, et c'est la faute exacte que le
+> jalon K-1(a) existait pour supprimer** (signalé le 2026-08-05).
+> `Slot32 actuel = 48,2 Go` est en métrique **thesis** (5,51 b/poids : payload +
+> bases + queue f32 + échelles de ligne f32) ; `L ≤ 4 = 40,8 Go` et
+> `L ≤ 3 = 32,1 Go` sont en métrique **`lcap`** (4,667 et 3,667 : plafond
+> facturé à tous les blocs, bases non comptées). Les lignes **ne sont pas
+> commensurables entre elles** et le tableau n'a pas été recalculé, faute des
+> chiffres pour le faire proprement.
 
-`L ≤ 3` reprend l'avantage mémoire perdu — 18 % sous le 4 bits — tout en
-gardant la vitesse. **La question « petit ET rapide » a une réponse
-affirmative.**
+| en RAM | taille | comptabilité | tient sur |
+|---|---|---|---|
+| FP16 | 140 Go | — | rien |
+| `Slot32` actuel | 48,2 Go | **thesis** (5,51) | Mac 64 Go |
+| `L ≤ 4` | 40,8 Go | **`lcap`** (4,667) | Mac 64 Go |
+| MLX 4 bits | 39,4 Go | 4,50 b/poids | Mac 48 Go |
+| `L ≤ 3` | 32,1 Go | **`lcap`** (3,667) | Mac 48 Go |
+
+Le seul report que ces mesures permettent, la queue et les échelles de ligne ne
+bougeant pas sous le plafond : **en métrique thesis,
+`L ≤ 4` vaut `5,510 − 0,667 = 4,843 b/poids`.** Soit **au-dessus** des 4,50 du
+4 bits, et non en dessous. La conversion en Go à 70B n'est pas refaite ici : ce
+serait dériver un chiffre qui n'a pas été mesuré.
+
+⚠️ **La conclusion « `L ≤ 3` reprend l'avantage mémoire, donc petit ET rapide »
+n'est plus soutenue par ces chiffres.** Elle reposait sur le 3,667 de `lcap`,
+comptabilité qui ne compte pas les bases et qui n'a pas été passée sur
+l'artefact pour ce plafond. Ce qui est mesuré, c'est `L ≤ 4` : 4,7083 b/poids en
+comptabilité `rtbits`, 4,843 en métrique thesis — dans les deux cas **au-dessus
+du 4 bits**. La question « petit ET rapide » reste **ouverte**.
 
 ⚠️ Source gaussienne, une seule graine, pas de GPTQ. Les vrais poids ne sont
 pas gaussiens et la boucle GPTQ déforme leur distribution : ceci **indique**,

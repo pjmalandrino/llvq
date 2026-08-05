@@ -118,6 +118,66 @@ fn the_table_is_bounded_by_the_fixed_layout() {
     assert_eq!(table.worst_width_flat(), 130);
 }
 
+/// The inequality the fused kernel's five-word read rests on, written down.
+///
+/// `slot_dot` loads `words[w ..= w+4]` starting at `byte >> 2`, so a record
+/// must satisfy `8·(byte & 3) + width_slot <= 160`. Every group base is a
+/// multiple of 32 (`transcode`), so the shift is at most 24 and the bound is
+/// `24 + worst_width_slot() <= 160`. Until now that lived in a comment in
+/// `llvq-metal/src/lib.rs` and in no assertion anywhere.
+///
+/// The gain width is swept because a parameter exercised only at its
+/// production value tests nothing — the lesson CLAUDE.md §5 draws three
+/// times. `width_slot = 9 + gain_bits + 24·L`, so the three answers must
+/// differ by exactly one.
+#[test]
+fn the_slot_layout_fits_the_kernels_five_word_window() {
+    let fd = FastDecoder::new();
+    for (gain_bits, want) in [(0, 129), (1, 130), (2, 131)] {
+        let table = ClassTable::new(&fd, gain_bits);
+        assert_eq!(
+            table.worst_width_slot(),
+            want,
+            "worst width_slot at {gain_bits} gain bits"
+        );
+        assert!(
+            24 + table.worst_width_slot() <= 160,
+            "slot_dot's five-word window no longer holds at {gain_bits} gain bits"
+        );
+    }
+
+    // And the accessor is not `worst_width_flat` under another name. The two
+    // maxima coincide (both 130) only because the widest record is an odd
+    // 5-level class, where `nonzero == 24` makes `width_slot == width_flat`.
+    // Somewhere in the table the slot layout must genuinely cost more, or
+    // the coincidence is the whole story and the separate bound is unearned.
+    let table = ClassTable::new(&fd, 1);
+    let wider = (0..table.n_entries())
+        .filter(|&id| {
+            let r = table.record(id);
+            r.width_slot > r.width_flat
+        })
+        .count();
+    assert!(
+        wider > 0,
+        "no record where the slot layout costs more than the flat one — \
+         the two bounds are the same function"
+    );
+    // Every record: the difference is exactly the signs traded for a full
+    // slot mask, `24 − nonzero`, and it is never negative.
+    for id in 0..table.n_entries() {
+        let r = table.record(id);
+        if id == 0 {
+            continue; // the origin carries neither field
+        }
+        assert_eq!(
+            i32::from(r.width_slot) - i32::from(r.width_flat),
+            24 - i32::from(r.nonzero),
+            "record {id}: slot − flat is not the sign/mask trade"
+        );
+    }
+}
+
 /// Grouped strides divide by 32 even when the trailing group is partial, and
 /// the base table's last entry closes the stream.
 #[test]

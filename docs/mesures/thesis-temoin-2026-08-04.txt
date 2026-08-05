@@ -1,0 +1,67 @@
+08bce78b59c052d38ca354350d8140da883661a8
+cc6dd92a7277393d2e3e4df06c995b30ad1ec09e02a4a80636cb61808b6fcf79  llvq-metal/src/lib.rs
+c93e261984656308f908eaa04392084b97c26e706c3ff15e0d1c867eb0b0d4e8  llvq-metal/src/bin/thesis.rs
+macOS 26.5.2
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running `target/release/thesis /Users/pjmalandrino/llvq-q4b.llvq`
+GPU : Apple M3 Max
+
+Chargement et transcodage des 252 matrices…
+    0/252  model.layers.0.self_attn.q_proj.weight (4096×2560)
+   36/252  model.layers.5.self_attn.k_proj.weight (1024×2560)
+   72/252  model.layers.10.self_attn.v_proj.weight (1024×2560)
+  108/252  model.layers.15.self_attn.o_proj.weight (2560×4096)
+  144/252  model.layers.20.mlp.gate_proj.weight (9728×2560)
+  180/252  model.layers.25.mlp.up_proj.weight (9728×2560)
+  216/252  model.layers.30.mlp.down_proj.weight (2560×9728)
+  252 matrices, 3.63 Md de poids, transcodées en 120 s
+
+Vérification des 252 matrices contre la référence CPU f64…
+  1105920 lignes sur 252 matrices — pire erreur LLVQ 3.4e-8·Σ|w·x| (model.layers.1.mlp.gate_proj.weight),
+  pire erreur FP16 2.8e-8·Σ|w·x|
+
+UN TOKEN — les 252 projections, un command buffer, mémoire froide
+  ------------------------------------------------------------------------
+  format                            ms      Go lus        Go/s   vs FP16
+  FP16                          21.983        7.27         331     1.00×
+  LLVQ fusé (Slot32)            10.832        2.50         231     2.03×
+  ------------------------------------------------------------------------
+
+  poids : 3.63 Md à 5.510 b/poids — 2.50 Go contre 7.27 Go en FP16 (×2.90)
+
+  Débit d'un pas de décodage (projections + lm_head f16 non quantifié) :
+  ------------------------------------------------------------------------
+  FP16                         24.34 ms      41.1 tok/s(dont lm_head 2.35 ms)
+  LLVQ                         13.19 ms      75.8 tok/s(dont lm_head 2.35 ms)
+
+  Le lm_head lié (389 M poids, f16) n'est pas quantifié dans cet artefact
+  et coûte la même chose aux deux côtés : c'est lui qui plafonne le rapport
+  de bout en bout. Attention, normes et activations ne sont pas mesurées ici.
+
+================================================================================
+DISPERSION INTER-PROCESSUS — trois invocations consecutives, code IDENTIQUE
+================================================================================
+  run   FP16 ms   LLVQ ms   rapport
+    1    21.983    10.832    2.029
+    2    21.783    10.627    2.050
+    3    21.680    10.421    2.080
+  publie 21.690    10.460    2.074   (docs/format-noyau.md)
+
+Les deux bras accelerent de facon MONOTONE d'un processus au suivant : ce n'est
+pas du bruit symetrique, c'est un rechauffement que le warm-up interne de
+`pass()` (7 passes, reps 0 et 1 jetees, minimum des 5) ne peut pas couvrir,
+puisqu'il vit ENTRE les processus — cache de fichier sur les 981 Mo d'artefact,
+etat d'horloge du GPU, residence des 9,8 Go de buffers.
+
+Ce qui est identique aux trois runs, au chiffre pres :
+  pire erreur LLVQ 3.4e-8, pire erreur FP16 2.8e-8, 7.27 / 2.50 Go, 5.510 b/poids.
+Donc l'arithmetique n'a pas bouge ; seuls les temps bougent.
+
+CONSEQUENCE DE PROTOCOLE, a appliquer avant K-1(a) et K-1(b) :
+  * le 2,07x publie est reproduit — au TROISIEME run consecutif. Un premier run
+    a froid rend 2,03x. La valeur publiee est le HAUT de la plage observee, pas
+    son centre : la plage est [2,029 ; 2,080], soit +/- 1,3 % autour de 2,055.
+  * une experience qui attend un effet de quelques pour cent NE PEUT PAS etre
+    tranchee en comparant deux invocations distinctes du binaire. Les bras
+    doivent etre entrelaces DANS UN MEME PROCESSUS, et leur dispersion imprimee.
+  * a publier avec une dispersion, jamais en valeur ponctuelle.

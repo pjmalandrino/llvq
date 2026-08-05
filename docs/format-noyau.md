@@ -1,9 +1,18 @@
 # Format de noyau — mesures, impasses, architecture (2026-07-31)
 
 > Branche `g6-format-noyau`. Tout chiffre ci-dessous est mesuré par un banc
-> reproductible (`decbench`, `decprofile`, `classprofile`, `arrbits`,
-> `decfast`, `decfull`), et l'ensemble a été passé au crible d'un audit
-> adversarial de 5 agents (lecture seule) dont les corrections sont intégrées.
+> reproductible (`decbench`, `decprofile`, `classprofile`, `arrbits`, `rtbits`,
+> `decfast`, `decfull`, `matvec`, `thesis`), et l'ensemble a été passé au crible
+> d'un audit adversarial de 5 agents (lecture seule) dont les corrections sont
+> intégrées.
+>
+> ⚠️ **Trois chiffres de ce document ont été corrigés le 2026-08-05 par le lot
+> K-1** (mesures locales, journaux dans `docs/mesures/`) : le « ~4,4 b/poids »
+> du plafond L ≤ 4, l'échelle bits↔vitesse qui mélangeait trois protocoles, et
+> la cause attribuée à l'écart 5,375 / 5,51. Les anciennes valeurs sont
+> conservées dans les notes 🕳️, pas effacées. Le document publie désormais une
+> **plage** pour le 2,07×, et **étiquette** la comptabilité de chaque colonne
+> `b/poids` — voir la note de provenance en fin de fichier.
 
 ## La question
 
@@ -286,20 +295,130 @@ sur 4 runs :
 | LLVQ fusé Flat32 | 156 | 105 | 0,90× | 4,54 |
 | LLVQ fusé nested G32 | 208 | 53 | 0,68× | 3,35 |
 
+🏷️ **Comptabilité de cette table** : payload + bases, sur **une seule couche**,
+protocole froid à 4 copies rotatives. Ce n'est **pas** celle du modèle entier
+plus bas, qui ajoute la queue f32 et les échelles de ligne f32 — les deux
+colonnes `b/poids` ne sont pas commensurables, et c'est exactement ce que la
+correction du 2026-08-05 est venue démêler.
+
+Contrôle de non-régression rejoué le 2026-08-05, même binaire, même protocole :
+**0,69×** (G32), **0,90×** (Flat32), **2,20×** (Slot32), **5,375 b/poids** sur
+cette couche.
+
+⚠️ Ne pas écrire « rien n'a bougé » : le contrôle rend **0,69×** là où la table
+écrit 0,68×, et **2,20×** là où elle écrit une fourchette 2,20-2,26×. Le
+dernier chiffre bouge, comme attendu d'un banc dont la dispersion est
+documentée plus bas. Ce que le contrôle établit est plus modeste et suffit :
+**aucun des trois rapports ne change d'ordre ni de conclusion**, et le
+5,375 b/poids est reproduit à l'identique.
+
 Le décodage Slot32 coûte **12 µs au-dessus du sol** — il se glisse dans les
-bulles de latence mémoire, ce qu'un noyau fusé doit faire. L'échelle des
-échanges bits↔vitesse est maintenant mesurée de bout en bout : 2,16 b/poids
-(archive, indécodable) → 3,35 (nested, 0,68×) → 4,54 (Flat32, 0,90×) →
-**5,375 (Slot32, 2,21×)**. Sur le 4B : ~2,44 Go de linéaires + 0,78 de
-lm_head ≈ 3,2 Go/token → plafond ~124 tok/s, ~2,5× le FP16 — cohérent avec
-le 2,2× mesuré sur la couche.
+bulles de latence mémoire, ce qu'un noyau fusé doit faire.
 
-⚠️ Piste ouverte pour reprendre des bits sans perdre la vitesse : les blocs
-à 5 niveaux (3,4 %) fixent le stride de ~2/3 des groupes à 17 octets ;
-plafonner le quantifieur à L ≤ 4 (ou isoler les blocs L=5) ramènerait le
-stride typique à 14 octets, ~4,4 b/poids, sans toucher au décodeur.
+> 🕳️ **L'échelle bits↔vitesse publiée ici mélangeait trois protocoles et deux
+> comptabilités. Corrigée le 2026-08-05 (lot K-1(a)).** Elle s'écrivait
+> « 2,16 b/poids (archive, indécodable) → 3,35 (nested, 0,68×) → 4,54
+> (Flat32, 0,90×) → **5,375 (Slot32, 2,21×)** », et se présentait comme
+> « mesurée de bout en bout ». Elle ne l'était pas : les b/poids venaient de
+> `rtbits`/`arrbits`, dont la comptabilité s'arrête au payload et aux bases ;
+> les vitesses venaient de `matvec`, sur **une seule** couche (gate_proj) ; et
+> le 2,16 de tête est le **fichier scellé**, qui n'est pas un layout runtime et
+> qu'aucun noyau ne lit. Trois objets alignés comme s'ils étaient
+> commensurables.
+>
+> Refaite dans **un seul run**, sur le **modèle entier**, avec la **même**
+> comptabilité d'octets pour les quatre bras (`bin/thesis`, sept bras,
+> 2026-08-05) :
+>
+> **3,498 b/poids → 0,69× [0,69–0,69]** (Grouped32) ·
+> **5,256 → 0,91× [0,90–0,92]** (Flat32) ·
+> **5,510 → 2,09× [2,05–2,11]** (Slot32), contre **16,000 → 1,00×** en FP16.
+> Chaque rapport est la **médiane du rapport formé round par round**, avec sa
+> plage sur les 5 rounds gardés — pas un quotient de deux minima. Journal :
+> [`docs/mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt).
+>
+> La table complète, avec sa comptabilité étiquetée, est en section
+> « Le prix en RAM, et que c'est un cadran ». Ce que la correction change au
+> fond : Flat32 ne coûte pas 4,54 b/poids mais **5,256**, à comparer aux
+> **5,510** de Slot32. Les deux layouts sont bien plus proches en bits que la
+> vieille échelle ne le laissait croire, et restent à **0,91× contre 2,09×**
+> en vitesse — Flat32 n'est donc pas le compromis qu'il paraissait : il coûte
+> presque autant de RAM que Slot32 sans en avoir la vitesse.
+>
+> ⚠️ **En revanche, la projection qui suivait — « ~3,2 Go/token → plafond
+> ~124 tok/s » — n'est PAS caduque, et une première rédaction de cette note
+> l'avait déclarée telle à tort.** `rtbits` l'imprime encore le 2026-08-05
+> (« 5.376 b/p — 3.22 Go — 124 tok/s »,
+> `docs/mesures/k1c-rtbits-2026-08-05.txt`). C'est un **plafond de bande
+> passante**, pas un débit : il dit ce que le trafic d'octets autorise au
+> mieux. `bin/thesis`, lui, **mesure** le pas de décodage. Deux quantités
+> différentes qui ne se remplacent pas — et ne pas les confondre est le même
+> réflexe que ne pas mélanger deux comptabilités.
 
-## La thèse, sur le modèle entier (2026-08-01)
+### Reprendre des bits sans perdre la vitesse : le plafond L ≤ 4, compté
+
+Mesuré par `rtbits` sur l'artefact réel `~/llvq-q4b.llvq` (981 Mo, projections
+seules du 4B publié) — **4 708 800 groupes de 32 blocs, soit 150 681 600
+blocs**. Comptabilité : payload + une base u32 par groupe, stride arrondi à
+l'octet, c'est-à-dire ce qu'une lane lit réellement, rapporté aux poids
+quantifiés.
+
+> 🕳️ **Corrigé le 2026-08-05, deuxième passe.** La première rédaction de ce
+> paragraphe écrivait « 113 011 200 blocs ». C'est faux de construction :
+> 4 708 800 groupes de 32 blocs font 150 681 600 blocs, et ce document écrit
+> déjà ce chiffre plus haut (section `rtbits`) — le fichier se contredisait
+> donc lui-même à deux sections d'écart. Le 113 011 200 est
+> `4 708 800 × 24`, c'est-à-dire un nombre de groupes multiplié par la taille
+> d'un **bloc** au lieu de celle d'un **groupe** : deux unités confondues.
+> Valeur mesurée : `docs/mesures/k1c-rtbits-2026-08-05.txt`, ligne
+> « 150681600 blocs ».
+
+| max de niveaux dans le groupe | groupes | part | stride |
+|---|---|---|---|
+| L = 3 | **1** | — | — |
+| L = 4 | 1 566 710 | 33,272 % | 14 o |
+| L = 5 | 3 142 089 | **66,728 %** | 17 o |
+
+Moyenne des max par groupe : **4,667 niveaux** (moyenne par bloc : 3,726).
+Le « ~2/3 des groupes à 17 octets » annoncé de mémoire est donc juste, et il
+vaut **66,728 %**.
+
+> ⚠️ **Coïncidence numérique, à ne surtout pas lire comme une égalité.** Les
+> 4,667 ci-dessus sont des **niveaux** ; le 4,667 qui apparaît plus bas dans
+> la note 🕳️ (et dans la table `lcap` de `docs/face-au-4-bits.md`) est un
+> **b/poids**. Deux quantités sans rapport qui tombent sur le même chiffre.
+
+| | b/poids |
+|---|---|
+| `Slot32` aujourd'hui | **5,3756** |
+| sous plafond L ≤ 4 | **≤ 4,7083** |
+| gain | **0,667, soit 12,4 %** |
+
+**Ce 4,7083 est un majorant inconditionnel, pas une simulation.** `L ≤ 4`
+implique `width_slot ≤ 9 + 1 + 24×4 = 106 bits = 14 octets`, donc **tout**
+groupe a un stride ≤ 14 o — aucune distribution ne peut faire mentir cette
+ligne. Et le majorant est **atteint** dès qu'un groupe porte un bloc à
+4 niveaux, parce qu'un bloc déjà à L ≤ 4 garde sa classe sous le plafond : son
+mot de code est l'argmin sur la boule entière, il reste l'argmin sur un
+sous-ensemble qui le contient encore. Compté sur l'artefact :
+**4 708 799 groupes sur 4 708 800** portent un tel bloc. Ce n'est donc ni une
+hypothèse d'indépendance ni une probabilité, c'est un compte.
+
+Ce que le plafond ne dit **pas** : ce que deviennent les blocs L = 5. Les
+re-quantifier change leur classe, et le coût en distorsion n'est pas mesuré
+ici. Le gain en bits, lui, est acquis.
+
+> 🕳️ **Le « ~4,4 b/poids » écrit ici jusqu'au 2026-08-04 était faux.** 4,4167
+> est `106/24` : la largeur **brute** du bloc, ni arrondie à l'octet, ni
+> chargée de la base u32 du groupe. Dans la comptabilité que le noyau paie
+> réellement, la valeur est **4,7083** — 4,667 de payload à 14 octets, plus
+> 0,042 d'adressage. Le paragraphe se contredisait d'ailleurs tout seul : il
+> écrivait « 14 octets » deux lignes plus haut, et 14 octets font 4,667
+> b/poids à eux seuls, donc le total ne pouvait pas être inférieur. Même
+> motif que les autres prises du dossier — un chiffre annoncé dans une
+> comptabilité et lu dans une autre.
+
+## La thèse, sur le modèle entier (2026-08-01, complétée le 2026-08-05)
 
 `bin/thesis` mesure la revendication elle-même : **un token de projections**,
 les 252 matrices du 4B publié, un command buffer par format.
@@ -321,8 +440,12 @@ côtés, 2,32 ms) : **41,6 → 78,2 tok/s**, ×1,88. C'est lui qui plafonne le
 rapport de bout en bout, et c'est le levier suivant identifié depuis juillet.
 
 **1 105 920 lignes vérifiées** contre une référence CPU f64 avant toute mesure
-— pire erreur LLVQ 3,4·10⁻⁸·Σ|w·x|, FP16 2,8·10⁻⁸. Reproductible : 2,07× et
-2,08× sur deux passes.
+— pire erreur LLVQ 3,4·10⁻⁸·Σ|w·x|, FP16 2,8·10⁻⁸.
+
+⚠️ **Ce 2,07× est le haut d'une plage, pas une valeur ponctuelle** — voir
+juste en dessous. Il a été publié comme un point, et l'affirmation
+« reproductible : 2,07× et 2,08× sur deux passes » qui figurait ici décrivait
+en réalité deux runs déjà réchauffés.
 
 🔎 **Le fusé n'est pas encore limité par la mémoire, et c'est une marge.** Le
 FP16 tire 336 Go/s (93 % du pic) : il est au mur de la bande passante, il n'y
@@ -330,6 +453,36 @@ a rien à en tirer de plus. Le LLVQ n'en tire que **240** — donc il reste
 borné par le calcul du décodage. Au même débit mémoire que le FP16, ses
 2,50 Go passeraient en **7,5 ms**, soit **2,9×** au lieu de 2,07. C'est le
 plafond de la forme actuelle, et il se prend sans changer un bit du format.
+
+### La dispersion inter-processus, et ce qu'elle interdit (2026-08-05)
+
+Le banc à deux bras, **strictement non modifié**, lancé trois fois de suite :
+
+| run | FP16 ms | LLVQ ms | rapport |
+|---|---|---|---|
+| 1 | 21,983 | 10,832 | **2,029** |
+| 2 | 21,783 | 10,627 | **2,050** |
+| 3 | 21,680 | 10,421 | **2,080** |
+
+Les erreurs (3,4·10⁻⁸ LLVQ, 2,8·10⁻⁸ FP16) et les octets lus sont identiques
+aux trois runs : l'arithmétique n'a pas bougé, seuls les temps bougent. Et ils
+bougent **monotonement**, les deux bras accélérant ensemble — ce n'est pas du
+bruit symétrique autour d'une valeur vraie, c'est un réchauffement qui vit
+**entre** les processus, là où le warm-up interne (7 passes, 2 jetées, minimum
+des 5) ne peut rien : cache de fichier sur les 981 Mo d'artefact, état
+d'horloge du GPU, résidence des buffers.
+
+**Donc le 2,07× publié est le haut de la plage [2,029 ; 2,080]**, reproduit au
+**troisième** run consécutif, pas son centre.
+
+**Ce que ça interdit est le vrai résultat de la mesure** : un effet de
+quelques pour cent ne peut pas être tranché en comparant deux invocations
+distinctes du binaire. Les bras doivent être entrelacés **dans un même
+processus**, tous dispatchés à chaque round dans le même ordre, et leur
+dispersion imprimée. C'est le protocole du run à sept bras plus bas, et c'est
+ce qui rend lisible son verdict sur le padding, où l'écart mesuré est de
+**1,7 %** (10,091 contre 9,925 — grandeur dérivée de la table du run à sept
+bras, pas une ligne lue).
 
 ### Le trou de couverture que ça a fermé
 
@@ -342,18 +495,106 @@ même code.
 
 ### Le prix en RAM, et que c'est un cadran
 
-Sur le modèle entier `Slot32` coûte **5,51 b/poids** (contre 5,375 sur
-gate_proj : les autres formes ont d'autres distributions de classes et
-d'autres arrondis de stride). Le fichier, lui, ne bouge pas — 2,1696 b/poids.
-D'un même `.llvq` on charge le format qu'on veut :
+Sur le modèle entier, `Slot32` coûte **5,510 b/poids** dans la comptabilité de
+`bin/thesis` et **5,3756** dans celle de `rtbits`. Le fichier, lui, ne bouge
+pas — 2,1696 b/poids. D'un même `.llvq` on charge le format qu'on veut.
 
-| en RAM | b/poids | projections | vitesse |
-|---|---|---|---|
-| `Grouped32` | 3,35 | 1,52 Go | 0,68× |
-| `Flat32` | 4,54 | 2,06 Go | 0,90× |
-| **`Slot32`** | **5,51** | **2,50 Go** | **2,07×** |
+> 🕳️ **L'écart 5,375 / 5,51 était imputé ici aux « autres formes de matrices,
+> autres distributions de classes et autres arrondis de stride ». C'est faux —
+> corrigé le 2026-08-05.** L'écart est une différence de **comptabilité**, pas
+> de matrice : `rtbits` compte le payload plus une base u32 par groupe ;
+> `bin/thesis` y ajoute la queue f32 et les échelles de ligne f32. Deux
+> numérateurs pour le même objet, pas deux mesures contradictoires.
+>
+> Preuve directe, sans recalcul : `rtbits` sur le modèle **entier** rend
+> **5,3756**, et `bin/matvec` sur **gate_proj seule** rend **5,375**. Si
+> c'était un effet de forme de matrice, ces deux-là ne coïncideraient pas.
+
+**Les quatre layouts, un seul run, une seule comptabilité** (`bin/thesis`,
+sept bras, 2026-08-05, journal
+[`docs/mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt) ;
+252 projections du 4B publié, un command buffer par
+bras, mémoire froide par construction ; 7 rounds dont 2 jetés, **tous** les
+bras dispatchés à chaque round dans le même ordre ; colonne ms = min des
+5 rounds gardés ; comptabilité d'octets **identique aux quatre bras** =
+payload + bases + queue f32 + échelles de ligne f32 ; 1 105 920 lignes
+vérifiées contre une référence CPU f64, seuil 1e-5) :
+
+| en RAM | b/poids | projections | ms/token (min) | Go/s | vs FP16 (méd) [plage] |
+|---|---|---|---|---|---|
+| FP16 (half4, scalaire) | 16,000 | 7,27 Go | 21,775 | 334 | 1,00× [1,00–1,00] |
+| `Grouped32` | 3,498 | 1,59 Go | 31,494 | 50 | 0,69× [0,69–0,69] |
+| `Flat32` | 5,256 | 2,39 Go | 24,009 | 99 | 0,91× [0,90–0,92] |
+| **`Slot32` (scalaire@24)** | **5,510** | **2,50 Go** | **10,401** | 241 | **2,09× [2,05–2,11]** |
+
+⚠️ **La colonne « vs FP16 » n'est pas le quotient des deux colonnes de gauche.**
+C'est la **médiane du rapport formé round par round**, avec sa plage sur les
+5 rounds gardés. Diviser un minimum par un minimum mêlerait deux rounds qui
+n'ont jamais coexisté : un lecteur qui pose 21,775 / 10,401 trouve 2,09 ici,
+mais 21,775 / 9,925 trouve 2,19 pour la variante `float4` plus bas, là où le
+rapport round par round donne 2,15. C'est la même précaution que la section
+sur la dispersion : ce sont les **rapports**, pas les millisecondes, qui se
+comparent.
+
+Les millisecondes **dérivent d'un run à l'autre** — c'est le fait même que ce
+lot a établi. Les `b/poids` et les octets, eux, sont **exacts** et se
+reproduisent au chiffre.
+
+Le bras `Slot32` est le noyau de la table de tête de cette section, remesuré :
+**2,09× [2,05–2,11]** ici contre **2,07×** là. Les deux plages se recouvrent —
+[2,05–2,11] contient le 2,07× de la table de tête —, et le 2,09× déborde par
+le haut la plage inter-processus [2,029 ; 2,080] documentée ci-dessus. Les
+deux rapports ne sont d'ailleurs pas formés de la même façon : ici round par
+round dans un même processus, là par quotient de deux minima. Ne pas les
+soustraire.
 
 Même au plus large, le modèle chargé fait ~3,3 Go contre 8,045 en FP16.
+
+#### Expérience : le conflit de bancs (K-1(b))
+
+`docs/portage-noyau-cuda.md` §3.2 prédisait, en transposant l'arithmétique
+NVIDIA (32 bancs de 4 octets), un conflit à 8 voies sur chacune des 24 lectures
+de tuile, et prescrivait un **pas de 28 flottants** avec chargements `float4`
+pour le supprimer. Trois bras de plus, dans le **même** run et la **même**
+comptabilité que la table ci-dessus, l'ont testé. Le « vs FP16 » reste rapporté
+au FP16 scalaire.
+
+| bras (expérience) | b/poids | ms/token (min) | Go/s | vs FP16 (méd) [plage] |
+|---|---|---|---|---|
+| FP16 (half4, **float4**) | 16,000 | 20,709 | 351 | 1,05× [1,05–1,05] |
+| `Slot32` (**float4**@24) | 5,510 | 9,925 | 252 | **2,15× [2,12–2,19]** |
+| `Slot32` (float4@**28**) | 5,510 | 10,091 | 248 | 2,13× [2,06–2,17] |
+
+Même convention que la table précédente : le « vs FP16 » est la **médiane du
+rapport formé round par round**, avec sa plage sur les 5 rounds gardés, et non
+le quotient des colonnes `ms` — 21,775 / 9,925 donnerait 2,19, borne haute de
+la plage, pas sa médiane.
+
+**Le modèle de bancs NVIDIA n'est pas valide sur Apple.** Les trois points
+ci-dessous sont des grandeurs **dérivées** de la table — licites parce que
+leurs deux termes viennent du même run et de la même comptabilité, mais
+dérivées, pas lues :
+
+1. Passer du scalaire au `float4` gagne **4,6 %** sur LLVQ (10,401 → 9,925)
+   **et 4,9 %** sur FP16 (21,775 → 20,709). Les deux bras, presque autant.
+2. Le **padding à 28 ne gagne rien** : 10,091 contre 9,925, soit **1,7 %**
+   *plus lent*, et sa plage de rapport [2,06–2,17] recouvre par le haut celle
+   du dense [2,12–2,19]. Rien ne le distingue — et un tel écart, la section
+   sur la dispersion le dit, n'est pas tranchable.
+3. À bras comparables, le rapport ne bouge pas : `float4` contre `float4`
+   donne **2,05×** (2,15 / 1,05), contre **2,09×** en scalaire contre
+   scalaire. Les deux sont dans la dispersion l'un de l'autre.
+
+Ce qui paie n'est donc pas la suppression d'un conflit de bancs, c'est la
+**largeur de chargement** — un load 128 bits au lieu de quatre loads 32 — et
+elle paie des deux côtés, donc elle ne change pas le rapport.
+
+⚠️ **Le confondant, déclaré :** les deux variantes `float4` de `Slot32` sont
+identiques **au bit près** au noyau scalaire sur les 1 105 920 lignes (une
+assertion du code l'exige). La variante `float4` du bras FP16 ne l'est pas —
+3,1·10⁻⁸ d'écart — parce que sa somme est écrite en `+`/`*` et non en `fma`
+explicites, donc le compilateur contracte comme il veut. Les 4,9 % gagnés
+côté FP16 ne sont pas garantis à arithmétique constante.
 
 ### Ce que ce chiffre ne couvre pas
 
@@ -364,12 +605,27 @@ matvec ordinaire. C'est le dernier chantier.
 
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai
-plancher adressable est 3,35 ; les plafonds deviennent 174/154 tok/s, toujours
-~3,1-3,5× le FP16, et le lm_head pèse toujours le tiers du trafic.
+plancher adressable est 3,35 **dans la comptabilité `rtbits`** (payload +
+bases ; 3,498 dans celle de `bin/thesis`, qui ajoute queue et échelles de
+ligne) ; les plafonds deviennent 174/154 tok/s, toujours ~3,1-3,5× le FP16, et
+le lm_head pèse toujours le tiers du trafic.
 
 ## Note de provenance
 
-« 2,1595 b/poids » = bits de payload / *tous* les poids (queue comprise),
-imprimé par `bin/seal` ; « 2,1696 » = mêmes bits / poids *quantifiés* seuls,
-imprimé par `bin/smoke`. Deux dénominateurs, pas deux mesures. Le chiffre
-du fichier pesé (981 Mo) est cohérent avec les deux.
+**Le fichier.** « 2,1595 b/poids » = bits de payload / *tous* les poids (queue
+comprise), imprimé par `bin/seal` ; « 2,1696 » = mêmes bits / poids
+*quantifiés* seuls, imprimé par `bin/smoke`. Deux dénominateurs, pas deux
+mesures. Le chiffre du fichier pesé (981 Mo) est cohérent avec les deux.
+
+**La RAM — trois comptabilités, à ne jamais aligner sans étiquette.** C'est
+la faute que le lot K-1(a) est venu supprimer, et qu'on peut refaire :
+
+| comptabilité | ce qu'elle compte | `Slot32` sur le 4B |
+|---|---|---|
+| `rtbits` / `arrbits` | payload + une base u32 par groupe, stride arrondi à l'octet | **5,3756** |
+| `bin/matvec` (une couche) | idem, sur gate_proj seule | **5,375** |
+| `bin/thesis` (modèle entier) | idem **+ queue f32 + échelles de ligne f32** | **5,510** |
+
+Les deux premières lignes coïncident parce que c'est la même comptabilité ; la
+troisième diffère parce que son numérateur est plus large. Aucune n'est
+fausse — c'est de les mélanger dans une seule échelle qui l'était.

@@ -1,0 +1,58 @@
+# K-1(a) et K-1(b) — sept bras, un seul protocole, un seul objet
+# Qwen3-4B, 252 projections, Apple M3 Max, 2026-08-05
+
+08bce78b59c052d38ca354350d8140da883661a8
+10fe5b828500fb5672e335aa54f636406563676071cfc4e30583581fa7625031  llvq-metal/src/lib.rs
+ae00c97f82539ce40901f7af95ec09a6883a1933b7d077fd62b6c011730746b2  llvq-metal/src/bin/thesis.rs
+
+GPU : Apple M3 Max
+
+Chargement et transcodage des 252 matrices…
+    0/252  model.layers.0.self_attn.q_proj.weight (4096×2560)
+   36/252  model.layers.5.self_attn.k_proj.weight (1024×2560)
+   72/252  model.layers.10.self_attn.v_proj.weight (1024×2560)
+  108/252  model.layers.15.self_attn.o_proj.weight (2560×4096)
+  144/252  model.layers.20.mlp.gate_proj.weight (9728×2560)
+  180/252  model.layers.25.mlp.up_proj.weight (9728×2560)
+  216/252  model.layers.30.mlp.down_proj.weight (2560×9728)
+  252 matrices, 3.63 Md de poids, transcodées (3 layouts) en 295 s
+
+Vérification des 252 matrices contre la référence CPU f64…
+  1105920 lignes sur 252 matrices, seuil 1e-5 :
+    FP16 (half4, scalaire)     pire erreur 2.8e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)
+    LLVQ Slot32 (scalaire@24)  pire erreur 3.4e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)
+    LLVQ Flat32                pire erreur 3.2e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)
+    LLVQ Grouped32             pire erreur 2.8e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)
+    FP16 (half4, float4)       pire erreur 2.8e-8·Σ|w·x|  (model.layers.14.mlp.gate_proj.weight)  — vs FP16 (half4, scalaire) : 3.1e-8·Σ|w·x| (contraction FMA, non épinglée)
+    LLVQ Slot32 (float4@24)    pire erreur 3.4e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)  — identique à LLVQ Slot32 (scalaire@24) au bit près
+    LLVQ Slot32 (float4@28)    pire erreur 3.4e-8·Σ|w·x|  (model.layers.1.mlp.gate_proj.weight)  — identique à LLVQ Slot32 (scalaire@24) au bit près
+
+UN TOKEN — les 252 projections, un command buffer par bras, mémoire froide
+  7 rounds, 2 jetés, TOUS les bras à chaque round, même ordre
+  -----------------------------------------------------------------------------------------
+  format                        min ms   méd ms   max ms   Go lus  b/poids     Go/s  vs FP16 méd [min–max]
+  FP16 (half4, scalaire)        21.775   21.892   21.972     7.27   16.000      334      1.00× [1.00–1.00]
+  LLVQ Slot32 (scalaire@24)     10.401   10.535   10.599     2.50    5.510      241      2.09× [2.05–2.11]
+  LLVQ Flat32                   24.009   24.080   24.339     2.39    5.256       99      0.91× [0.90–0.92]
+  LLVQ Grouped32                31.494   31.699   31.756     1.59    3.498       50      0.69× [0.69–0.69]
+  FP16 (half4, float4)          20.709   20.815   20.958     7.27   16.000      351      1.05× [1.05–1.05]
+  LLVQ Slot32 (float4@24)        9.925   10.163   10.305     2.50    5.510      252      2.15× [2.12–2.19]
+  LLVQ Slot32 (float4@28)       10.091   10.264   10.593     2.50    5.510      248      2.13× [2.06–2.17]
+  -----------------------------------------------------------------------------------------
+  Le rapport est formé round par round puis résumé : médiane, puis plage
+  sur les 5 rounds gardés. Un min divisé par un min mêlerait deux rounds
+  qui n'ont jamais coexisté.
+
+  Débit d'un pas de décodage (projections + lm_head f16 non quantifié) :
+  -----------------------------------------------------------------------------------------
+  FP16 (half4, scalaire)        24.11 ms      41.5 tok/s(dont lm_head 2.33 ms)
+  LLVQ Slot32 (scalaire@24)     12.73 ms      78.5 tok/s(dont lm_head 2.33 ms)
+  LLVQ Flat32                   26.34 ms      38.0 tok/s(dont lm_head 2.33 ms)
+  LLVQ Grouped32                33.83 ms      29.6 tok/s(dont lm_head 2.33 ms)
+  FP16 (half4, float4)          23.04 ms      43.4 tok/s(dont lm_head 2.33 ms)
+  LLVQ Slot32 (float4@24)       12.26 ms      81.6 tok/s(dont lm_head 2.33 ms)
+  LLVQ Slot32 (float4@28)       12.42 ms      80.5 tok/s(dont lm_head 2.33 ms)
+
+  Le lm_head lié (389 M poids, f16) n'est pas quantifié dans cet artefact
+  et coûte la même chose à tous les bras : c'est lui qui plafonne le rapport
+  de bout en bout. Attention, normes et activations ne sont pas mesurées ici.

@@ -155,6 +155,24 @@ impl ClassTable {
     pub fn worst_width_flat(&self) -> u32 {
         self.recs.iter().map(|r| r.width_flat as u32).max().unwrap_or(0)
     }
+
+    /// Widest [`Layout::Slot32`] payload — 130 bits on the cap-13 table with
+    /// a 1-bit gain, since `width_slot = 9 + gain_bits + 24·L`.
+    ///
+    /// This is the bound the fused kernel's read window rests on. `slot_dot`
+    /// loads five consecutive `u32` from `byte >> 2`, so every record must
+    /// satisfy `8·(byte & 3) + worst_width_slot() <= 160`; with a byte shift
+    /// of at most 24 that is `24 + 130 = 154`, six bits of margin.
+    ///
+    /// [`Self::worst_width_flat`] does **not** imply it. `width_slot −
+    /// width_flat = 24 − nonzero >= 0`, and the two coincide here only
+    /// because the widest flat record happens to be an odd 5-level class,
+    /// where `nonzero == 24`. Cap the shell differently and the coincidence
+    /// breaks without breaking a single existing assertion — which is why
+    /// this accessor exists rather than reusing the flat one.
+    pub fn worst_width_slot(&self) -> u32 {
+        self.recs.iter().map(|r| r.width_slot as u32).max().unwrap_or(0)
+    }
 }
 
 /// How blocks are addressed in the stream — and, for [`Layout::Flat32`],

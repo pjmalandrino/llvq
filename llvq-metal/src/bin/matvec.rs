@@ -32,6 +32,24 @@
 //! * Weights and scales are the real ones from the artifact — real centroids,
 //!   real row scales, real tail — not synthetic stand-ins.
 //!
+//! ## Two decoders that used to live here, and where they went
+//!
+//! `g32_dot` and `flat_dot` now come from `PAYLOAD_MSL`, so this bench and
+//! the whole-model bench read the same bytes through the same code — the
+//! contract that source states, and which two copies would have voided the
+//! moment either was touched. Verified by non-regression: 0.69× (G32),
+//! 0.90× (Flat32), 2.20× (Slot32) on `gate_proj`, unmoved by the move.
+//!
+//! A third decoder was deleted rather than moved. `decode_dot_ilp` was a
+//! branchless rewrite of the nested-mask walk — every slot unconditional,
+//! three prefix popcounts and four mask tests instead of a divergent level
+//! chain, two accumulators splitting the FMA chain. It was written because
+//! the naive form loses to FP16 (205 µs against 129), it was measured, and
+//! then `Slot32` made the whole question moot by putting every field at a
+//! fixed offset. No kernel had called it for a long time. Recorded here
+//! because a measurement that cost something should outlive the code that
+//! produced it.
+//!
 //! Run: `cargo run --release -p llvq-metal --bin matvec [model.llvq] [name-substring]`
 
 use llvq_artifact::runtime::{transcode, ClassTable, Layout};
@@ -45,72 +63,6 @@ const K: usize = 32;
 
 const SRC: &str = r#"
 struct Params { uint d_in; uint d_out; uint nblocks; uint tail_w; };
-
-// ---------------------------------------------------------------------------
-// Branchless variant of the payload decode. The naive form loses to FP16
-// (205 µs vs 129): its per-slot level chain diverges — lanes decode different
-// classes, so under predication every slot costs the deepest path any lane
-// takes — and its running sign counter serializes the walk. Here every slot
-// is unconditional and independent: three prefix popcounts, four mask tests,
-// selects, and the sign bit found by a prefix popcount of the nonzero mask —
-// which is just "not the zero level's mask in slot space", built on the fly.
-// Two accumulators split the FMA chain.
-// ---------------------------------------------------------------------------
-static inline float decode_dot_ilp(Cursor c,
-                                   constant ClassRec* tab,
-                                   constant float* gscale,
-                                   threadgroup const float* xs)
-{
-    uint id   = take(c, 9);
-    uint gain = take(c, 1);
-    constant ClassRec &r = tab[id];
-    uint len = r.len;
-    uint signs = take(c, r.nz);
-
-    uint left = DIM;
-    uint m0 = 0xffffffu, m1 = 0xffffffu, m2 = 0xffffffu, m3 = 0xffffffu;
-    if (len > 1) { m0 = take(c, left); left -= r.counts[0];
-        if (len > 2) { m1 = take(c, left); left -= r.counts[1];
-            if (len > 3) { m2 = take(c, left); left -= r.counts[2];
-                if (len > 4) { m3 = take(c, left); }
-                else m3 = 0xffffffu;
-            } else { m2 = 0xffffffu; }
-        } else { m1 = 0xffffffu; }
-    } else { m0 = 0xffffffu; }
-
-    float v0 = r.vals[0], v1 = r.vals[1], v2 = r.vals[2],
-          v3 = r.vals[3], v4 = r.vals[4];
-    // Signed variants, picked by the slot's sign bit with one select.
-    float n0 = -v0, n1 = -v1, n2 = -v2, n3 = -v3, n4 = -v4;
-
-    float d0 = 0.0f, d1 = 0.0f;
-    uint nzm = 0;   // nonzero mask over slots walked so far
-    uint zlev = r.zlev;
-    for (uint i = 0; i < DIM; ++i) {
-        uint b0 = 1u << i;
-        // Unconditional level resolution: prefix popcounts and tests.
-        uint p1 = popcount(~m0 & (b0 - 1u));
-        uint b1 = 1u << p1;
-        uint p2 = popcount(~m1 & (b1 - 1u));
-        uint b2 = 1u << p2;
-        uint p3 = popcount(~m2 & (b2 - 1u));
-        uint b3 = 1u << p3;
-        bool t0 = m0 & b0, t1 = m1 & b1, t2 = m2 & b2, t3 = m3 & b3;
-        uint lev = t0 ? 0u : t1 ? 1u : t2 ? 2u : t3 ? 3u : 4u;
-
-        bool nzb = lev != zlev;
-        bool neg = (signs >> popcount(nzm & (b0 - 1u))) & 1u;
-        nzm |= uint(nzb) << i;
-        neg = neg && nzb;
-        float v = t0 ? (neg ? n0 : v0)
-                : t1 ? (neg ? n1 : v1)
-                : t2 ? (neg ? n2 : v2)
-                : t3 ? (neg ? n3 : v3)
-                :      (neg ? n4 : v4);
-        if (i & 1) d1 = fma(v, xs[i], d1); else d0 = fma(v, xs[i], d0);
-    }
-    return (d0 + d1) * gscale[gain];
-}
 
 // ---------------------------------------------------------------------------
 // FP16 baseline: one SIMD group per row, half4 loads, coalesced.
@@ -201,8 +153,8 @@ kernel void matvec_g32(device const uint*   words  [[buffer(0)]],
     uint row = gid >> 5;
     float acc = 0.0f;
     for (uint j = lane; j < P.nblocks; j += 32) {
-        Cursor c = cursor_g32(words, bases, row * P.nblocks + j);
-        acc += decode_payload(c, tab, gscale, xs + j * DIM);
+        acc += g32_dot(words, bases, tab, gscale,
+                       row * P.nblocks + j, xs + j * DIM);
     }
     acc = simd_sum(acc);
     if (lane == 0) {
@@ -221,30 +173,6 @@ kernel void matvec_g32(device const uint*   words  [[buffer(0)]],
 // (level 0 implicit), signs level-major. A level's slots come off its word
 // with ctz, signs shift out sequentially, zero slots are never touched.
 // ---------------------------------------------------------------------------
-
-// 160-bit cursor: the flat worst case is 130 payload bits + a byte shift.
-struct Cur5 { ulong lo; ulong hi; uint xt; };
-
-static inline uint take5(thread Cur5 &c, uint width) {
-    if (width == 0) return 0u;
-    uint v = uint(c.lo & ((1ul << width) - 1ul));
-    c.lo = (c.lo >> width) | (c.hi << (64u - width));
-    c.hi = (c.hi >> width) | (ulong(c.xt) << (64u - width));
-    c.xt = c.xt >> width;
-    return v;
-}
-
-// One level's contribution: iterate its set bits, shift signs out as we go.
-static inline float lrun(uint m, float v, uint s, threadgroup const float* xb) {
-    float d = 0.0f;
-    while (m) {
-        uint i = ctz(m);
-        m &= m - 1u;
-        d = fma((s & 1u) ? -v : v, xb[i], d);
-        s >>= 1u;
-    }
-    return d;
-}
 
 kernel void matvec_flat(device const uint*   words  [[buffer(0)]],
                         device const uint*   bases  [[buffer(1)]],
@@ -267,47 +195,8 @@ kernel void matvec_flat(device const uint*   words  [[buffer(0)]],
     uint row = gid >> 5;
     float acc = 0.0f;
     for (uint j = lane; j < P.nblocks; j += 32) {
-        uint b = row * P.nblocks + j;
-        uint g = b >> 5;
-        uint base = bases[g];
-        uint stride = (bases[g + 1] - base) >> 5;
-        uint byte = base + (b & 31u) * stride;
-
-        uint w = byte >> 2;
-        uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
-             w3 = words[w + 3], w4 = words[w + 4];
-        uint sh = (byte & 3u) * 8u;
-        ulong lo = (ulong(w1) << 32) | ulong(w0);
-        ulong hi = (ulong(w3) << 32) | ulong(w2);
-        uint xt = w4;
-        if (sh != 0) {
-            lo = (lo >> sh) | (hi << (64u - sh));
-            hi = (hi >> sh) | (ulong(xt) << (64u - sh));
-            xt >>= sh;
-        }
-        Cur5 c = { lo, hi, xt };
-
-        uint id   = take5(c, 9);
-        uint gain = take5(c, 1);
-        constant ClassRec &r = tab[id];
-        uint nlev = r.len;
-        uint signs = take5(c, r.nz);
-        uint m1 = 0, m2 = 0, m3 = 0, m4 = 0;
-        if (nlev > 1) { m1 = take5(c, 24);
-            if (nlev > 2) { m2 = take5(c, 24);
-                if (nlev > 3) { m3 = take5(c, 24);
-                    if (nlev > 4) { m4 = take5(c, 24); } } } }
-        uint m0 = ~(m1 | m2 | m3 | m4) & 0xffffffu;
-
-        threadgroup const float* xb = xs + j * DIM;
-        uint zl = r.zlev;
-        float d = 0.0f;
-        if (zl != 0u) d += lrun(m0, r.vals[0], signs >> r.sbase[0], xb);
-        if (nlev > 1 && zl != 1u) d += lrun(m1, r.vals[1], signs >> r.sbase[1], xb);
-        if (nlev > 2 && zl != 2u) d += lrun(m2, r.vals[2], signs >> r.sbase[2], xb);
-        if (nlev > 3 && zl != 3u) d += lrun(m3, r.vals[3], signs >> r.sbase[3], xb);
-        if (nlev > 4 && zl != 4u) d += lrun(m4, r.vals[4], signs >> r.sbase[4], xb);
-        acc = fma(d, gscale[gain], acc);
+        acc += flat_dot(words, bases, tab, gscale,
+                        row * P.nblocks + j, xs + j * DIM);
     }
     acc = simd_sum(acc);
     if (lane == 0) {

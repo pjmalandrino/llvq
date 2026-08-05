@@ -29,6 +29,12 @@
 //!     what level 0 left free, … Compact, but decode chains popcounts.
 //!   - **champ fixe 128** — 24 sign+3-bit-level nibbles + class + gain in a
 //!     uint4. One aligned load, zero divergence, 5.33 b/w flat.
+//!   - **Slot32** — the layout the fused kernel actually reads: one 24-bit
+//!     mask per level *in slot space*, level 0 implicit, signs indexed by
+//!     slot rather than by nonzero rank. Costs `9 + gain + 24·L` bits, so it
+//!     spends `24 − nonzero` bits more than the flat layout to buy a fixed
+//!     field offset. Nothing priced it here before; the two figures the
+//!     dossier publishes for it come from two other benches.
 //! * addressing: a variable-width stream needs to say where block `i` starts.
 //!   Charged two ways: +16 bits/block (a u16 offset each), and **grouped-32**
 //!   (all 32 lanes of a SIMD group read the group's max width, one u32 base
@@ -74,13 +80,21 @@ fn mask_bits(lv: &ClassLevels) -> u64 {
     bits
 }
 
-/// Per-block widths of the two variable candidates, everything included
+/// Per-block widths of the variable candidates, everything included
 /// except addressing.
 #[derive(Clone, Copy)]
 struct Widths {
     mask: u64,
     pos: u64,
+    /// `Layout::Slot32`, the production layout — mirrors `width_slot` in
+    /// `llvq_artifact::runtime::ClassTable::new`. The sign field there is
+    /// one bit per **slot**, not per nonzero, so `nonzero` cancels out of
+    /// `common` and must not appear.
+    slot: u64,
     levels: usize,
+    /// The all-zero block, whose record stops after the header and so does
+    /// not follow the `9 + gain + 24·L` rule.
+    origin: bool,
 }
 
 fn widths(lv: &ClassLevels, gain_bits: u64) -> Widths {
@@ -88,8 +102,16 @@ fn widths(lv: &ClassLevels, gain_bits: u64) -> Widths {
     Widths {
         mask: mask_bits(lv) + common,
         pos: lg_ceil(lv.len) * DIM as u64 + common,
+        slot: CLASS_BITS + gain_bits + DIM as u64 * lv.len as u64,
         levels: lv.len,
+        origin: false,
     }
+}
+
+/// `Slot32` stride, in bits, of a group whose widest block has `levels`
+/// levels — the byte-rounded field every lane of the group then reads.
+fn slot_stride_bits(levels: usize, gain_bits: u64) -> u64 {
+    (CLASS_BITS + gain_bits + DIM as u64 * levels as u64).div_ceil(8) * 8
 }
 
 #[derive(Default)]
@@ -120,7 +142,15 @@ struct Grouped {
     filled: usize,
     max_mask: u64,
     max_pos: u64,
+    max_slot: u64,
     max_levels: usize,
+    /// Does this group hold a block of exactly 4 levels? Under an `L ≤ 4`
+    /// cap such a group's stride is *exactly* 14 bytes — see `close`.
+    has_four: bool,
+    /// Origin blocks seen in the group. When every lane is the origin the
+    /// group's max width is the 10-bit header, which the general
+    /// `9 + gain + 24·L` rule does not describe.
+    origins: usize,
     sum_levels: u64,
     /// Totals over closed groups.
     mask_bits: u64,
@@ -128,7 +158,16 @@ struct Grouped {
     /// Same stride, rounded up to a whole byte — what lanes can actually
     /// address.
     mask_bits_byte: u64,
+    /// `Slot32`, byte-rounded stride: the production format's real cost.
+    slot_bits_byte: u64,
     max_levels_sum: u64,
+    /// Groups by their widest block's level count — the distribution the
+    /// mean of maxima hides, and what decides the capped rate.
+    maxl_hist: [u64; MAX_LEVELS + 1],
+    groups_with_four: u64,
+    /// Groups in which every lane is the origin, excluded from `maxl_hist`
+    /// so the histogram cross-check stays a closed identity.
+    origin_only_groups: u64,
     groups: u64,
 }
 
@@ -137,7 +176,10 @@ impl Grouped {
         self.filled += 1;
         self.max_mask = self.max_mask.max(w.mask);
         self.max_pos = self.max_pos.max(w.pos);
+        self.max_slot = self.max_slot.max(w.slot);
         self.max_levels = self.max_levels.max(w.levels);
+        self.has_four |= w.levels == 4;
+        self.origins += usize::from(w.origin);
         self.sum_levels += w.levels as u64;
         if self.filled == GROUP {
             self.close();
@@ -152,12 +194,22 @@ impl Grouped {
         self.mask_bits += GROUP as u64 * self.max_mask + 32;
         self.pos_bits += GROUP as u64 * self.max_pos + 32;
         self.mask_bits_byte += GROUP as u64 * self.max_mask.div_ceil(8) * 8 + 32;
+        self.slot_bits_byte += GROUP as u64 * self.max_slot.div_ceil(8) * 8 + 32;
         self.max_levels_sum += self.max_levels as u64;
+        if self.origins == self.filled {
+            self.origin_only_groups += 1;
+        } else {
+            self.maxl_hist[self.max_levels] += 1;
+        }
+        self.groups_with_four += u64::from(self.has_four);
         self.groups += 1;
         self.filled = 0;
         self.max_mask = 0;
         self.max_pos = 0;
+        self.max_slot = 0;
         self.max_levels = 0;
+        self.has_four = false;
+        self.origins = 0;
     }
 }
 
@@ -237,7 +289,12 @@ fn main() {
                     let w = Widths {
                         mask: CLASS_BITS + gain_bits,
                         pos: CLASS_BITS + gain_bits,
+                        // Mirrors the origin record of `ClassTable::new`:
+                        // no sign field and no masks, so the general
+                        // `9 + gain + 24·L` does not apply.
+                        slot: CLASS_BITS + gain_bits,
                         levels: 1,
+                        origin: true,
                     };
                     even.push(&w);
                     grouped.push(&w);
@@ -385,6 +442,84 @@ fn main() {
         );
     }
 
+    // ---- Slot32: the layout the fused kernel reads, and what a level cap
+    // would do to it ----
+    //
+    // `Slot32` is a third assignment encoding, not a variant of the two
+    // above: one 24-bit mask per level in **slot** space, level 0 implicit,
+    // signs indexed by slot. It buys fixed field offsets — the whole reason
+    // the fused kernel has no popcount chain and no serial state — and pays
+    // `24 − nonzero` bits per block for them.
+    if grouped.groups > 0 {
+        // Same total by a second, independent route: from the histogram of
+        // per-group maxima, through the closed-form stride. If the running
+        // accumulator and this disagree, one of the two is wrong and no
+        // figure below can be believed.
+        let from_hist: u64 = (1..=MAX_LEVELS)
+            .map(|l| grouped.maxl_hist[l] * GROUP as u64 * slot_stride_bits(l, gain_bits))
+            .sum::<u64>()
+            + grouped.origin_only_groups
+                * GROUP as u64
+                * (CLASS_BITS + gain_bits).div_ceil(8)
+                * 8
+            + 32 * grouped.groups;
+        assert_eq!(
+            from_hist, grouped.slot_bits_byte,
+            "l'histogramme des max et l'accumulateur de strides divergent"
+        );
+
+        println!("\n  Slot32 — le layout que le noyau fusé lit réellement");
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  groupé 32, stride octet, base u32 : {:.4} b/poids",
+            bpw(grouped.slot_bits_byte, total)
+        );
+        println!("  {} groupes, max de niveaux :", grouped.groups);
+        for l in 1..=MAX_LEVELS {
+            if grouped.maxl_hist[l] > 0 {
+                println!(
+                    "    L = {l}{:>14} groupes{:>9.4} %   stride {} o",
+                    grouped.maxl_hist[l],
+                    100.0 * grouped.maxl_hist[l] as f64 / grouped.groups as f64,
+                    slot_stride_bits(l, gain_bits) / 8
+                );
+            }
+        }
+        if grouped.origin_only_groups > 0 {
+            println!(
+                "    origine seule{:>13} groupes",
+                grouped.origin_only_groups
+            );
+        }
+
+        // What an L ≤ 4 encoder cap would cost. This is a **bound**, not a
+        // simulation: capping re-quantizes, so the classes of the L = 5
+        // blocks would change and cannot be predicted here. What can be
+        // stated exactly:
+        //
+        //  * `L ≤ 4 ⇒ width_slot ≤ 9 + gain + 96 = 106 b ⇒ stride ≤ 14 o`,
+        //    so 14 bytes is an unconditional majorant of every group;
+        //  * a block already at `L ≤ 4` keeps its class under the cap — its
+        //    codeword is the argmin over the full ball and stays the argmin
+        //    over a subset that still contains it — so a group holding an
+        //    L = 4 block reaches exactly 14 o, majorant attained.
+        let capped_bits = grouped.groups * (GROUP as u64 * slot_stride_bits(4, gain_bits) + 32);
+        println!(
+            "  sous plafond L ≤ 4 : ≤ {:.4} b/poids ({} o de stride, majorant inconditionnel)",
+            bpw(capped_bits, total),
+            slot_stride_bits(4, gain_bits) / 8
+        );
+        println!(
+            "  majorant ATTEINT sur {} groupes sur {} ({:.4} %) : ceux qui portent déjà un\n  \
+             bloc L = 4, dont la classe est inchangée par le plafond. Gain {:.3} b/poids ({:.1} %).",
+            grouped.groups_with_four,
+            grouped.groups,
+            100.0 * grouped.groups_with_four as f64 / grouped.groups as f64,
+            bpw(grouped.slot_bits_byte, total) - bpw(capped_bits, total),
+            100.0 * (1.0 - bpw(capped_bits, total) / bpw(grouped.slot_bits_byte, total))
+        );
+    }
+
     // ---- what each rate means for a 4B token ----
     let linear_w = 3_633_315_840f64;
     let lm_head_gb = 0.778; // tied embedding read once per token for logits
@@ -410,5 +545,18 @@ fn main() {
     show("champ fixe au pire cas (masques, u32)", bpw(fixed_mask * total, total));
     show("champ fixe au pire cas (pos., u32)", bpw(fixed_pos * total, total));
     show("champ fixe 128", 128.0 / 24.0);
+    if grouped.groups > 0 {
+        show(
+            "groupé 32, Slot32 — CE QUI TOURNE AUJOURD'HUI",
+            bpw(grouped.slot_bits_byte, total),
+        );
+        show(
+            "groupé 32, Slot32, plafond L ≤ 4 (majorant)",
+            bpw(
+                grouped.groups * (GROUP as u64 * slot_stride_bits(4, gain_bits) + 32),
+                total,
+            ),
+        );
+    }
     println!("\n  plafond FP16 : ~50 tok/s ; plafond lm_head seul : ~514 tok/s");
 }

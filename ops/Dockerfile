@@ -7,7 +7,9 @@
 #   CPU (works today):
 #     docker build -f ops/Dockerfile -t <user>/llvq:cpu .
 #
-#   CUDA (needs code item C1 — the `cuda` feature does not exist yet):
+#   CUDA, local docker only — the `cuda` feature exists
+#   (`llvq-llm/Cargo.toml`), but a Space builds its Dockerfile **as written**
+#   and never sees `--build-arg`, so the Hub path is `ops/Dockerfile.cuda`:
 #     docker build -f ops/Dockerfile -t <user>/llvq:cuda \
 #       --build-arg BUILD_BASE=nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04 \
 #       --build-arg RUNTIME_BASE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 \
@@ -16,10 +18,9 @@
 # Build the context from the repo root, not from `ops/` — the Dockerfile needs
 # the whole workspace.
 #
-# ⚠️ `Cargo.lock` is in `.gitignore`, so this build resolves dependencies fresh
-# and is **not** bit-reproducible across time. For a project whose stated frame
-# is sovereignty and reproducible builds, that is worth fixing before the first
-# real run: commit the lockfile.
+# `Cargo.lock` is tracked by git — `.gitignore` holds two lines, `target/` and
+# `__pycache__/` — and the build below is pinned to it with `--locked`, so the
+# image is built from the dependency set the committed tree records.
 
 ARG BUILD_BASE=debian:bookworm-slim
 ARG RUNTIME_BASE=debian:bookworm-slim
@@ -35,7 +36,11 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
 ENV PATH=/root/.cargo/bin:$PATH
 WORKDIR /src
 COPY . .
-RUN cargo build --release -p llvq-llm --features ${FEATURES} \
+# `--locked`: without it cargo re-resolves dependencies at build time, so the
+# image is not built from the committed tree and a number it produces is
+# traceable to no commit. For a timed kernel, that is the difference between a
+# measurement and an anecdote.
+RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin mmlu --bin seal --bin run --bin oracle
 
 FROM ${RUNTIME_BASE}

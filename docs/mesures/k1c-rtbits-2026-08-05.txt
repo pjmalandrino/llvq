@@ -1,0 +1,64 @@
+# K-1(c) — Slot32 et le plafond L <= 4, sur l'artefact reel
+
+08bce78b59c052d38ca354350d8140da883661a8
+1144b58df05895423d14e801b8d2ec22338cae8b01dc1390f66227e1f44b168e  llvq-bench/src/bin/rtbits.rs
+
+source : /Users/pjmalandrino/llvq-q4b.llvq — 252 matrices
+150681600 blocs — impair 50.0 %, pair 50.0 %
+286 classes recoupées point décodé ↔ table
+
+  niveaux de magnitude par bloc
+  --------------------------------------------------------
+  1 niveaux              65 blocs    0.00 %
+  2 niveaux           94308 blocs    0.06 %
+  3 niveaux        46262562 blocs   30.70 %
+  4 niveaux        99227977 blocs   65.85 %
+  5 niveaux         5096688 blocs    3.38 %
+
+  bits/poids en RAM, comptabilité complète
+  (assignation + signes + classe 9 b + gain 1 b + adressage)
+  ------------------------------------------------------------------------
+  layout                                         masquespositionnel
+  variable, adressage gratuit (borne inf.)        2.9243    3.3095
+  variable + offset u16 par bloc                  3.5910    3.9761
+  groupé 32 (stride = max du groupe + base u32)    3.1019    3.9086
+  groupé 32, stride arrondi à l'octet             3.3548         —
+  champ fixe au pire cas (74/106 b → u32)         4.0000    5.3333
+  champ fixe 128 (uint4, nibbles)                      —    5.3333
+
+  par coset (variable, adressage gratuit)
+  ------------------------------------------------------------------------
+  impair         50.0 %   masques 2.9364   positionnel 3.4163   pire 73/106 b
+  pair           50.0 %   masques 2.9122   positionnel 3.2027   pire 74/101 b
+
+  divergence sur groupes de 32 lanes consécutives
+  ------------------------------------------------------------------------
+  niveaux : moyenne 3.726, moyenne des max par groupe 4.667 (×1.253)
+  padding groupé 32 : masques ×1.061, positionnel ×1.181 vs adressage gratuit
+
+  Slot32 — le layout que le noyau fusé lit réellement
+  ------------------------------------------------------------------------
+  groupé 32, stride octet, base u32 : 5.3756 b/poids
+  4708800 groupes, max de niveaux :
+    L = 3             1 groupes   0.0000 %   stride 11 o
+    L = 4       1566710 groupes  33.2720 %   stride 14 o
+    L = 5       3142089 groupes  66.7280 %   stride 17 o
+  sous plafond L ≤ 4 : ≤ 4.7083 b/poids (14 o de stride, majorant inconditionnel)
+  majorant ATTEINT sur 4708799 groupes sur 4708800 (100.0000 %) : ceux qui portent déjà un
+  bloc L = 4, dont la classe est inchangée par le plafond. Gain 0.667 b/poids (12.4 %).
+
+  trafic par token, Qwen3-4B (linéaires + lm_head f16 0.778 Go)
+  ------------------------------------------------------------------------
+  archive v1, 48 b/bloc (indécodable en fusé)   2.000 b/p     1.69 Go      237 tok/s
+  variable masques + u16                        3.591 b/p     2.41 Go      166 tok/s
+  variable positionnel + u16                    3.976 b/p     2.58 Go      155 tok/s
+  groupé 32, masques                            3.102 b/p     2.19 Go      183 tok/s
+  groupé 32, masques, stride octet              3.355 b/p     2.30 Go      174 tok/s
+  groupé 32, positionnel                        3.909 b/p     2.55 Go      157 tok/s
+  champ fixe au pire cas (masques, u32)         4.000 b/p     2.59 Go      154 tok/s
+  champ fixe au pire cas (pos., u32)            5.333 b/p     3.20 Go      125 tok/s
+  champ fixe 128                                5.333 b/p     3.20 Go      125 tok/s
+  groupé 32, Slot32 — CE QUI TOURNE AUJOURD'HUI  5.376 b/p     3.22 Go      124 tok/s
+  groupé 32, Slot32, plafond L ≤ 4 (majorant)   4.708 b/p     2.92 Go      137 tok/s
+
+  plafond FP16 : ~50 tok/s ; plafond lm_head seul : ~514 tok/s

@@ -51,6 +51,12 @@ ENV CARGO_BUILD_JOBS=2
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
       --bin smoke --bin ppl --bin oracle --bin mmlu
+# The CUDA kernel bench. A separate `cargo build` on purpose: `llvq-cuda`
+# links neither candle nor `faer`, so it costs one small LTO link rather than
+# joining the one that has already been SIGKILLed once. Its kernels are not
+# compiled here at all — they ship as text and NVRTC compiles them at startup,
+# so tuning a tile size or a register cap never touches this image again.
+RUN cargo build --release --locked -p llvq-cuda --bin preflight
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -72,6 +78,7 @@ COPY --from=build \
       /src/target/release/ppl \
       /src/target/release/oracle \
       /src/target/release/mmlu \
+      /src/target/release/preflight \
       /usr/local/bin/
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch

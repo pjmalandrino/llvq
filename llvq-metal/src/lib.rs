@@ -626,6 +626,102 @@ static inline Cursor cursor_g32(device const uint* words,
     }
     return Cursor { lo, hi };
 }
+
+// ---------------------------------------------------------------------------
+// Grouped32 — one block, block-local activations. Same shape as `slot_dot`,
+// so a caller can swap layouts without touching its tiling: `xb` points at
+// this block's 24 floats and nothing else is read from shared memory.
+// ---------------------------------------------------------------------------
+static inline float g32_dot(device const uint* words,
+                            device const uint* bases,
+                            constant ClassRec* tab,
+                            constant float* gscale,
+                            uint b,
+                            threadgroup const float* xb)
+{
+    return decode_payload(cursor_g32(words, bases, b), tab, gscale, xb);
+}
+
+// ---------------------------------------------------------------------------
+// A 160-bit cursor: the Flat32 worst case is a 130-bit payload plus a byte
+// shift of up to 24.
+// ---------------------------------------------------------------------------
+struct Cur5 { ulong lo; ulong hi; uint xt; };
+
+static inline uint take5(thread Cur5 &c, uint width) {
+    if (width == 0) return 0u;
+    uint v = uint(c.lo & ((1ul << width) - 1ul));
+    c.lo = (c.lo >> width) | (c.hi << (64u - width));
+    c.hi = (c.hi >> width) | (ulong(c.xt) << (64u - width));
+    c.xt = c.xt >> width;
+    return v;
+}
+
+// One level's contribution: walk its set bits, shifting signs out as we go.
+static inline float lrun(uint m, float v, uint s, threadgroup const float* xb) {
+    float d = 0.0f;
+    while (m) {
+        uint i = ctz(m);
+        m &= m - 1u;
+        d = fma((s & 1u) ? -v : v, xb[i], d);
+        s >>= 1u;
+    }
+    return d;
+}
+
+// ---------------------------------------------------------------------------
+// Flat32 — slot-space masks (level 0 implicit) with a level-major sign field.
+// The nested payload pays a prefix popcount per slot; this one comes off its
+// word with ctz, signs shift out sequentially, and zero slots are never
+// touched. Block-local `xb`, like the two above.
+// ---------------------------------------------------------------------------
+static inline float flat_dot(device const uint* words,
+                             device const uint* bases,
+                             constant ClassRec* tab,
+                             constant float* gscale,
+                             uint b,
+                             threadgroup const float* xb)
+{
+    uint g = b >> 5;
+    uint base = bases[g];
+    uint stride = (bases[g + 1] - base) >> 5;
+    uint byte = base + (b & 31u) * stride;
+
+    uint w = byte >> 2;
+    uint w0 = words[w], w1 = words[w + 1], w2 = words[w + 2],
+         w3 = words[w + 3], w4 = words[w + 4];
+    uint sh = (byte & 3u) * 8u;
+    ulong lo = (ulong(w1) << 32) | ulong(w0);
+    ulong hi = (ulong(w3) << 32) | ulong(w2);
+    uint xt = w4;
+    if (sh != 0) {
+        lo = (lo >> sh) | (hi << (64u - sh));
+        hi = (hi >> sh) | (ulong(xt) << (64u - sh));
+        xt >>= sh;
+    }
+    Cur5 c = { lo, hi, xt };
+
+    uint id   = take5(c, 9);
+    uint gain = take5(c, 1);
+    constant ClassRec &r = tab[id];
+    uint nlev = r.len;
+    uint signs = take5(c, r.nz);
+    uint m1 = 0, m2 = 0, m3 = 0, m4 = 0;
+    if (nlev > 1) { m1 = take5(c, 24);
+        if (nlev > 2) { m2 = take5(c, 24);
+            if (nlev > 3) { m3 = take5(c, 24);
+                if (nlev > 4) { m4 = take5(c, 24); } } } }
+    uint m0 = ~(m1 | m2 | m3 | m4) & 0xffffffu;
+
+    uint zl = r.zlev;
+    float d = 0.0f;
+    if (zl != 0u) d += lrun(m0, r.vals[0], signs >> r.sbase[0], xb);
+    if (nlev > 1 && zl != 1u) d += lrun(m1, r.vals[1], signs >> r.sbase[1], xb);
+    if (nlev > 2 && zl != 2u) d += lrun(m2, r.vals[2], signs >> r.sbase[2], xb);
+    if (nlev > 3 && zl != 3u) d += lrun(m3, r.vals[3], signs >> r.sbase[3], xb);
+    if (nlev > 4 && zl != 4u) d += lrun(m4, r.vals[4], signs >> r.sbase[4], xb);
+    return d * gscale[gain];
+}
 "#;
 
 #[cfg(not(target_os = "macos"))]

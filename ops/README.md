@@ -119,8 +119,8 @@ Le squelette est complet ; le binaire qu'il lance ne l'est pas.
 
 | item | ce que ça bloque | statut |
 |---|---|---|
-| **C1** feature `cuda` | `--device cuda`. `llvq-llm/Cargo.toml` n'a que `metal`, zéro occurrence de `cuda` dans le dépôt | ❌ |
-| **C2** `bin/oracle` sur CUDA | toute la Phase 5 repose sur `max\|Δhidden\| = 0` contre candle. Backend différent = preuve à refaire | ❌ |
+| **C1** feature `cuda` | `--device cuda`. `llvq-llm/Cargo.toml:29` déclare `cuda` (et `cudnn` ligne 30), `eval.rs:52` route vers `Device::new_cuda`, `ops/Dockerfile.cuda` la construit | ✅ |
+| **C2** `bin/oracle` sur CUDA | la preuve **a été refaite sur ce backend** : l'étape 0 ci-dessus (`l4x1`, 0,01 $) rend `max \|Δhidden\| = 0.000e0`, comme en Metal. Reste à rejouer à chaque changement de backend — c'est ce que `cmd_oracle` (`ops/run.py:505`) existe pour faire | ✅ |
 | **C4** reprise sur checkpoint | les runs longs. Le timeout par défaut d'un Job est **30 min** ; la durée max n'est pas documentée | ❌ |
 | **C5** chemin local pour `LLVQ_MODEL` | le montage `Volume(type="model")`. Sans lui le conteneur retélécharge 65 Go à chaque run | ❌ |
 | **C6** mémoire du quantifieur | 12,4 Go de facteurs coexistent à 32B, dont 6,2 jamais lus quand `group_scales` est off | ❌ |
@@ -144,16 +144,29 @@ docker build -f ops/Dockerfile -t <user>/llvq:cpu .
 docker push <user>/llvq:cpu
 ```
 
-La variante CUDA attend C1 :
+La variante CUDA a sa propre recette, `ops/Dockerfile.cuda`. Un Space construit
+son Dockerfile **tel quel** : `--build-arg` n'atteint jamais le builder du Hub,
+donc le choix CPU/CUDA se fait par *quel fichier* on téléverse, et c'est
+`publish --cuda` qui le fait (`cmd_publish` dans `ops/run.py`) :
 
 ```bash
-docker build -f ops/Dockerfile -t <user>/llvq:cuda --build-arg BUILD_BASE=nvidia/cuda:12.4.1-cudnn-devel-ubuntu22.04 --build-arg RUNTIME_BASE=nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 --build-arg FEATURES=cuda,fast-linalg .
+uv run ops/run.py publish <user>/llvq-runner-cuda --cuda
 ```
 
-> ⚠️ `Cargo.lock` est dans `.gitignore`, donc l'image résout ses dépendances à
-> chaque build et **n'est pas reproductible dans le temps**. Pour un projet dont
-> le cadre affiché est la souveraineté et le build reproductible, c'est à
-> corriger avant le premier vrai run : committer le lockfile.
+En local, la même image se construit directement, toujours depuis la racine :
+
+```bash
+docker build -f ops/Dockerfile.cuda -t <user>/llvq:cuda .
+```
+
+La compute capability y est figée à `89` (Ada) : le builder d'un Space n'a pas
+de GPU, donc la détection par `nvidia-smi` de `candle` échoue et le build meurt
+sans elle. Changer la ligne et rebâtir pour viser un H200.
+
+> `Cargo.lock` est suivi par git — `.gitignore` ne fait que deux lignes,
+> `target/` et `__pycache__/` — et les deux Dockerfiles bâtissent avec
+> `--locked`. L'image est donc construite depuis l'arbre commité, et un chiffre
+> qu'elle produit est rattachable à un commit.
 
 ## Lancer
 
