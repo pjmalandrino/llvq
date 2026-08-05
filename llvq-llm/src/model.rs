@@ -127,6 +127,39 @@ impl Rotary {
     }
 }
 
+/// One block's keys and values, for every position already seen.
+///
+/// Stored **before** `repeat_kv`: the grouped-query expansion is a view over
+/// `n_kv` heads, so caching the expanded form would hold `n_heads / n_kv`
+/// times the bytes for nothing. On Qwen3-4B that is a factor 4.
+#[derive(Default)]
+pub struct KvCache {
+    k: Option<Tensor>,
+    v: Option<Tensor>,
+}
+
+impl KvCache {
+    /// Append this step's keys and values, and return the whole history.
+    ///
+    /// Concatenation, not a preallocated ring: a ring needs a maximum length
+    /// decided in advance, and every length in this repository is a property
+    /// of the corpus rather than of the model. The copy is `O(context)` per
+    /// step against the `O(context²)` full re-run it replaces.
+    fn append(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        let k = match &self.k {
+            None => k.clone(),
+            Some(p) => Tensor::cat(&[p, k], 2)?.contiguous()?,
+        };
+        let v = match &self.v {
+            None => v.clone(),
+            Some(p) => Tensor::cat(&[p, v], 2)?.contiguous()?,
+        };
+        self.k = Some(k.clone());
+        self.v = Some(v.clone());
+        Ok((k, v))
+    }
+}
+
 /// One transformer block, with its seven projections reachable by name.
 pub struct Block {
     pub q_proj: Linear,
@@ -221,12 +254,32 @@ impl Block {
         }
     }
 
-    /// Full-sequence forward, no KV cache — scoring, not generation.
+    /// Full-sequence forward, scoring. A cached forward whose cache is empty
+    /// and whose offset is zero — the *same code*, so the two paths cannot
+    /// drift. `bin/oracle` pins this against `candle_transformers::qwen3` at
+    /// `max |Δhidden| = 0`, and that gate covers both.
     pub fn forward(
         &self,
         x: &Tensor,
         rotary: &Rotary,
         mask: &Tensor,
+        idx: usize,
+        cap: &mut dyn Capture,
+    ) -> Result<Tensor> {
+        let mut fresh = KvCache::default();
+        self.forward_cached(x, rotary, mask, 0, &mut fresh, idx, cap)
+    }
+
+    /// Forward over `l` new positions starting at absolute position `offset`,
+    /// attending over everything in `cache` plus what this call adds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn forward_cached(
+        &self,
+        x: &Tensor,
+        rotary: &Rotary,
+        mask: &Tensor,
+        offset: usize,
+        cache: &mut KvCache,
         idx: usize,
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
@@ -262,7 +315,10 @@ impl Block {
             .forward(&k.flatten(0, 2)?)?
             .reshape((b, self.n_kv, l, self.head_dim))?;
 
-        let (q, k) = rotary.apply(&q, &k, 0)?;
+        // RoPE at the *absolute* position. `Rotary::apply` has taken an
+        // offset since it was written; nothing had ever passed one but zero.
+        let (q, k) = rotary.apply(&q, &k, offset)?;
+        let (k, v) = cache.append(&k, &v)?;
         let groups = self.n_heads / self.n_kv;
         let k = candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?;
         let v = candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?;
@@ -322,10 +378,49 @@ impl Qwen3 {
     }
 
     fn causal_mask(&self, b: usize, l: usize) -> Result<Tensor> {
+        self.causal_mask_offset(b, l, 0)
+    }
+
+    /// Mask for `l` new positions starting at absolute position `offset`,
+    /// against the `offset + l` positions now visible.
+    ///
+    /// At `offset = 0` this is the plain lower triangle. At `l = 1` — one new
+    /// token, everything before it already in the cache — every entry is zero:
+    /// the token sees the whole history and itself, and nothing is in its
+    /// future. That degenerate row is the entire attention arithmetic of a
+    /// decode step.
+    fn causal_mask_offset(&self, b: usize, l: usize, offset: usize) -> Result<Tensor> {
+        let total = offset + l;
         let m: Vec<f32> = (0..l)
-            .flat_map(|i| (0..l).map(move |j| if j <= i { 0.0 } else { f32::NEG_INFINITY }))
+            .flat_map(|i| {
+                (0..total).map(move |j| {
+                    if j <= offset + i { 0.0 } else { f32::NEG_INFINITY }
+                })
+            })
             .collect();
-        Tensor::from_slice(&m, (b, 1, l, l), &self.device)?.to_dtype(self.dtype)
+        Tensor::from_slice(&m, (b, 1, l, total), &self.device)?.to_dtype(self.dtype)
+    }
+
+    /// One `KvCache` per block, empty.
+    pub fn fresh_caches(&self) -> Vec<KvCache> {
+        (0..self.blocks.len()).map(|_| KvCache::default()).collect()
+    }
+
+    /// Hidden states for `l` new positions, attending over `caches`.
+    pub fn hidden_cached(
+        &self,
+        input: &Tensor,
+        offset: usize,
+        caches: &mut [KvCache],
+        cap: &mut dyn Capture,
+    ) -> Result<Tensor> {
+        let (b, l) = input.dims2()?;
+        let mask = self.causal_mask_offset(b, l, offset)?;
+        let mut h = self.embed.forward(input)?;
+        for (i, blk) in self.blocks.iter().enumerate() {
+            h = blk.forward_cached(&h, &self.rotary, &mask, offset, &mut caches[i], i, cap)?;
+        }
+        self.norm.forward(&h)
     }
 
     /// Hidden states after the final norm, for every position.
@@ -374,13 +469,50 @@ impl Qwen3 {
         self.dtype
     }
 
-    /// Greedy continuation of `prompt`, `max_new` tokens.
+    /// Greedy continuation of `prompt`, `max_new` tokens, with a KV cache.
     ///
-    /// No KV cache: each step re-runs the whole prefix. That is quadratic and
-    /// entirely adequate for a probe of a few dozen tokens — and it reuses
-    /// exactly the scoring path the perplexity numbers come from, so what is
-    /// generated is what was measured.
+    /// One prefill over the prompt, then one token at a time. What that buys
+    /// is not only speed: a decode step becomes a **matvec** — a single
+    /// activation vector against each projection — which is the shape the
+    /// fused kernel implements. Without the cache each step is a GEMM over
+    /// the whole prefix, and the kernel has no call site at all.
+    ///
+    /// [`Self::generate_uncached`] keeps the old quadratic path as a witness.
+    /// The two must return the same tokens; `bin/run` checks it under
+    /// `LLVQ_VERIFY_CACHE=1`.
     pub fn generate(
+        &self,
+        tokens: &[u32],
+        max_new: usize,
+        cap: &mut dyn Capture,
+    ) -> Result<Vec<u32>> {
+        let mut caches = self.fresh_caches();
+        let mut out = Vec::with_capacity(max_new);
+        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
+        let mut h = self.hidden_cached(&input, 0, &mut caches, cap)?;
+        let mut offset = tokens.len();
+        loop {
+            let l = h.dim(1)?;
+            let last = h.narrow(1, l - 1, 1)?;
+            let logits = last.broadcast_matmul(&self.head.t()?)?.to_dtype(DType::F32)?;
+            let next = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+            out.push(next);
+            if out.len() == max_new {
+                return Ok(out);
+            }
+            let input = Tensor::from_slice(&[next], (1, 1), &self.device)?;
+            h = self.hidden_cached(&input, offset, &mut caches, cap)?;
+            offset += 1;
+        }
+    }
+
+    /// The pre-cache path: re-run the whole prefix at every step.
+    ///
+    /// Quadratic, and kept on purpose. It is the only independent answer to
+    /// "did the cache change what the model says" — a cache bug shifts RoPE
+    /// positions or drops a mask entry, and both produce fluent, plausible,
+    /// different text that no threshold would catch.
+    pub fn generate_uncached(
         &self,
         tokens: &[u32],
         max_new: usize,

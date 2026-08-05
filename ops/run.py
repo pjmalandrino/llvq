@@ -567,7 +567,7 @@ def cmd_bench(args) -> int:
       leaves the rest of the line running and the job finishes COMPLETED with
       no result — which reads as a pass.
     """
-    from huggingface_hub import run_job
+    from huggingface_hub import run_job, Volume
 
     ok, why = cap_ok(args.flavor)
     if not ok:
@@ -581,6 +581,15 @@ def cmd_bench(args) -> int:
             "  et alors le dire dans tout chiffre publié."
         )
         return 2
+
+    # A read-only model volume rather than a download inside the job: the
+    # sealed 4B is 1.77 GB and a job is billed by the minute. `hf download`
+    # would charge the transfer at the card's rate.
+    volumes = []
+    if args.mount_model:
+        volumes.append(Volume(type="model", source=args.mount_model,
+                              mount_path=args.model_mount, read_only=True))
+        print(f"montage {args.mount_model} en lecture seule sur {args.model_mount}")
 
     script = "set -euo pipefail\n" + "\n".join(args.cmd)
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
@@ -597,6 +606,7 @@ def cmd_bench(args) -> int:
         timeout=args.timeout,
         name=args.name,
         namespace=args.namespace,
+        volumes=volumes or None,
     )
     print(f"{args.name} sur {args.flavor} : {job.url}\n  id {job.id}")
     print(f"suivre : uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
@@ -872,6 +882,9 @@ def main() -> int:
                    help="passer outre la liste blanche — à déclarer dans tout chiffre publié")
     b.add_argument("--timeout", default="20m",
                    help="plafond réel du coût : l'estimateur ne vaut que pour une quantification")
+    b.add_argument("--mount-model", default=None,
+                   help="dépôt du Hub à monter en lecture seule (ex. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
+    b.add_argument("--model-mount", default="/model")
     b.add_argument("--name", default="llvq-bench")
     b.add_argument("--namespace", default=None)
     b.set_defaults(fn=cmd_bench)

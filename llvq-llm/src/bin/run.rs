@@ -1,5 +1,10 @@
-//! Load a sealed `.llvq` model and generate from it — no checkpoint, no cache,
-//! no network.
+//! Load a sealed `.llvq` model and generate from it — no checkpoint, no
+//! network.
+//!
+//! Set `LLVQ_VERIFY_CACHE=1` to run each prompt a second time through the
+//! pre-cache quadratic path and require the **same tokens**. That is the KV
+//! cache's only real gate: a cache bug produces fluent, plausible, different
+//! text, which no threshold can catch.
 //!
 //! Usage:
 //!   `cargo run --release -p llvq-llm --features metal --bin run -- model.llvq [device] [n_new]`
@@ -63,12 +68,39 @@ fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .get_ids()
             .to_vec();
+        let t = std::time::Instant::now();
         let out = s.model.generate(&ids, n_new, &mut NoCapture)?;
+        let secs = t.elapsed().as_secs_f64();
         let text = s
             .tokenizer
             .decode(&out, false)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-        println!("── {p:?}\n   →{text}");
+        println!(
+            "── {p:?}\n   →{text}\n   {n_new} tokens en {secs:.2} s — {:.1} tok/s",
+            n_new as f64 / secs
+        );
+
+        // The cache's only honest gate.
+        //
+        // A KV-cache bug does not crash and does not overflow a threshold: it
+        // shifts a RoPE position or drops a mask entry, and the model goes on
+        // producing fluent, plausible, *different* text. The pre-cache path is
+        // kept for exactly this — an independent answer to "did the cache
+        // change what the model says". Greedy decoding is deterministic, so
+        // the two token sequences must be equal, not close.
+        if std::env::var("LLVQ_VERIFY_CACHE").is_ok() {
+            let t = std::time::Instant::now();
+            let want = s.model.generate_uncached(&ids, n_new, &mut NoCapture)?;
+            let slow = t.elapsed().as_secs_f64();
+            anyhow::ensure!(
+                out == want,
+                "le cache KV change ce que le modèle dit :\n  avec  {out:?}\n  sans  {want:?}"
+            );
+            println!(
+                "   ✓ identique au chemin sans cache ({slow:.2} s, ×{:.1} plus lent)",
+                slow / secs
+            );
+        }
     }
     Ok(())
 }

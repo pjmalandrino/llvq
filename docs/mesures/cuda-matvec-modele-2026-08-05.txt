@@ -1,0 +1,50 @@
+# Noyau fusé CUDA sur LE MODÈLE PUBLIÉ — job 6a7327ac6b79c09949c22ff7, l40sx1, 2026-08-05
+835a3a6673fb751c9f182a7f9bc71ba591d19ac3
+004b30f88cc4096430d486202a9d53f370b34a3433f1757a72c0be8bea1c1ebc  llvq-cuda/kernels/llvq_slot.cuh
+331cdf4d0f207bd50e7c707181a780f96737b952a215b2b281570ca84e68e713  llvq-cuda/kernels/matvec.cu
+
+total 1729054
+dr-xr-xr-x. 2 nobody nogroup          0 Aug  4 10:43 .
+drwxr-xr-x. 1 root   root            74 Aug  5 12:13 ..
+-r--r--r--. 1 nobody nogroup       1519 Aug  4 10:43 .gitattributes
+-r--r--r--. 1 nobody nogroup      11343 Aug  4 10:43 LICENSE
+-r--r--r--. 1 nobody nogroup       9440 Aug  4 10:43 README.md
+-r--r--r--. 1 nobody nogroup 1770527533 Aug  4 10:43 qwen3-4b-llvq.bin
+
+========== MATVEC — LE MODELE PUBLIE ==========
+source NVRTC : 14066 octets, sha256 b01fc0d38dfa3ca719320976794359b89f02c6164741654236ea1dbabb63716c
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+
+3 répétitions des 7 formes : 209 Mo de poids LLVQ distincts par passe,
+soit 2.1× la L2. En dessous de 1× on mesurerait le cache, pas la DRAM —
+le piège qui a rendu optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+Construction et transcodage…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  252 matrices, 3.63 Md de poids, en 141 s
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pire erreur LLVQ 2.2e-8, FP16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, bras entrelacés
+  7 rounds, 2 jetés ; le rapport est formé ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.975   10.978   10.980     7.27   16.000      662
+  LLVQ fusé (Slot32)        5.805    5.813    5.816     2.50    5.510      431
+  --------------------------------------------------------------------------------
+  vs FP16 : 1.89× [1.89–1.89]
+
+  🕳️ AVERTISSEMENT ERRONÉ, CONSERVÉ ET ANNOTÉ. Le binaire imprimait la mise en
+  garde « blocs synthétiques » INCONDITIONNELLEMENT, y compris — comme ici —
+  quand le chemin d'un .llvq réel lui est passé. Ce run porte bien sur LE
+  MODÈLE PUBLIÉ : 252 matrices lues dans /model/qwen3-4b-llvq.bin, 3,63 Md de
+  poids, 5,510 b/poids (exactement la comptabilité du banc Metal). Corrigé le
+  jour même : l'avertissement suit désormais la donnée, pas le binaire.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions
+  somment dans des ordres différents et les deux compilateurs contractent les FMA
+  selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs.

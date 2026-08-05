@@ -1,22 +1,27 @@
 //! The fused kernel against its FP16 witness, on NVIDIA.
 //!
-//! One token's worth of linear algebra over the seven projection shapes of
-//! Qwen3-4B, repeated until a pass exceeds the card's L2 — which the card
-//! itself reports, and which turned out to be 100.7 MB, not the 48 or 96 that
-//! third-party sources give. Getting that wrong is the trap this repository
-//! already fell into once: 11-17 MB buffers replayed 576 times inside a 48 MB
-//! system cache made every earlier LLVQ figure optimistic.
+//! `matvec <model.llvq>` measures **the published model**: one token's worth
+//! of linear algebra over its 252 projections. With no argument it falls back
+//! to synthetic blocks over the seven shapes of Qwen3-4B, repeated until a
+//! pass exceeds the card's L2 — useful for iterating on the kernel without
+//! moving 1.77 GB, and nothing else.
 //!
-//! ## Why synthetic blocks, and what it costs
+//! The two paths share every line downstream of the input, so a difference
+//! between them can only come from the data. And it does: uniform draws over
+//! the cap-13 ball give a wider class mix than a real quantization (65.85 % of
+//! the artifact's blocks have exactly 4 levels), hence wider group strides —
+//! 5.742 b/weight synthetic against 5.510 measured on the file. **The
+//! synthetic run reads more bytes per weight than the model does**, so it is
+//! the pessimistic one; only the run with a path is the headline.
 //!
-//! The indices are uniform draws over the cap-13 ball rather than a real
-//! quantization of real weights. That is honest for a *kernel* measurement —
-//! the decode path, the five-word read, the group strides and the tiling are
-//! all exercised identically — but it is **not** the published model, so the
-//! ratio here is not the headline figure. The class mix of a real artifact is
-//! not uniform (65.85 % of its blocks have 4 levels), so its group strides,
-//! and therefore its byte traffic, differ. Wiring the sealed file in is the
-//! next step and it changes only the input, not this code.
+//! ## The cache the measurement has to defeat
+//!
+//! The card reports its L2, and it turned out to be 100.7 MB — not the 48 or
+//! 96 that third-party sources give. Getting that wrong is a trap this
+//! repository already fell into: 11-17 MB buffers replayed 576 times inside a
+//! 48 MB system cache made every earlier LLVQ figure optimistic. On the real
+//! model a pass touches 2.5 GB of distinct weights and the question does not
+//! arise; the synthetic path sizes itself against the value it read.
 //!
 //! ## Verification before timing
 //!
@@ -70,6 +75,23 @@ mod linux {
         ("down_proj", 2560, 9728),
     ];
 
+    /// One matrix's inputs, whatever they came from.
+    ///
+    /// The synthetic path and the artifact path differ only here; everything
+    /// downstream — the f64 reference, the f16 rounding, the upload — is the
+    /// same code, so a difference between the two runs can only come from the
+    /// data.
+    struct Src {
+        name: String,
+        d_out: usize,
+        d_in: usize,
+        indices: Vec<u64>,
+        gains: Vec<u32>,
+        centroids: [f32; 2],
+        rscale: Vec<f32>,
+        tail: Vec<f32>,
+    }
+
     struct Mat {
         name: String,
         d_out: usize,
@@ -78,6 +100,7 @@ mod linux {
         tail_w: usize,
         words: cudarc::driver::CudaSlice<u32>,
         bases: cudarc::driver::CudaSlice<u32>,
+        gscale: cudarc::driver::CudaSlice<f32>,
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
         w16: cudarc::driver::CudaSlice<u16>,
@@ -219,120 +242,173 @@ mod linux {
             tab[base + REC_WORDS - 1] = lv.len as u32;
         }
         let d_tab = cuda.up_u32(&tab)?;
-        let d_gscale = cuda.up_f32(&GSCALE)?;
 
         let mut rng = SplitMix64::new(0x6_D07);
-        let max_din = SHAPES.iter().map(|&(_, _, i)| i).max().unwrap();
-        let x: Vec<f32> = (0..max_din).map(|_| rng.next_gaussian() as f32).collect();
+        let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
-        let max_dout = SHAPES.iter().map(|&(_, o, _)| o).max().unwrap();
-        let mut d_y = cuda.zeros_f32(max_dout)?;
+
+        // Everything downstream of `Src` is shared, so the synthetic run and
+        // the artifact run differ only in their input.
+        let build = |s: Src| -> Result<Mat, String> {
+            let (d_out, d_in) = (s.d_out, s.d_in);
+            let nblocks = d_in / DIM;
+            let tail_w = d_in % DIM;
+            assert_eq!(d_out % 8, 0, "{}: CUDA lance des blocs entiers", s.name);
+            assert!(d_in <= x.len(), "{}: d_in {d_in} dépasse l'activation", s.name);
+            let rt = transcode(&fd, &table, &s.indices, &s.gains, Layout::Slot32)
+                .map_err(|e| e.to_string())?;
+
+            let mut w16 = vec![0u16; d_out * d_in];
+            let mut y_ref = vec![0.0f64; d_out];
+            let mut y16_ref = vec![0.0f64; d_out];
+            let mut scale = vec![0.0f64; d_out];
+            let nthreads = std::thread::available_parallelism().map_or(8, |n| n.get());
+            let chunk = d_out.div_ceil(nthreads);
+            std::thread::scope(|sc| {
+                for (ci, (((w16c, yc), y16c), scc)) in w16
+                    .chunks_mut(chunk * d_in)
+                    .zip(y_ref.chunks_mut(chunk))
+                    .zip(y16_ref.chunks_mut(chunk))
+                    .zip(scale.chunks_mut(chunk))
+                    .enumerate()
+                {
+                    let (rt, table, x, src) = (&rt, &table, &x, &s);
+                    sc.spawn(move || {
+                        let mut wrow = vec![0.0f64; d_in];
+                        for lr in 0..yc.len() {
+                            let row = ci * chunk + lr;
+                            wrow.fill(0.0);
+                            for p in 0..nblocks {
+                                let (pt, gain) = rt.decode_block(table, row * nblocks + p);
+                                if let Some(shell) =
+                                    llvq_core::Leech::shell_index(&pt).filter(|&s| s > 0)
+                                {
+                                    let k = src.centroids[gain as usize] as f64
+                                        * src.rscale[row] as f64
+                                        / ((16 * shell) as f64).sqrt();
+                                    for (i, &v) in pt.iter().enumerate() {
+                                        wrow[p * DIM + i] = v as f64 * k;
+                                    }
+                                }
+                            }
+                            for t in 0..tail_w {
+                                wrow[nblocks * DIM + t] = src.tail[row * tail_w + t] as f64;
+                            }
+                            let (mut a, mut b, mut ss) = (0.0, 0.0, 0.0);
+                            for c in 0..d_in {
+                                let xv = x[c] as f64;
+                                let wv = wrow[c];
+                                let hb = f16_bits(wv as f32);
+                                w16c[lr * d_in + c] = hb;
+                                a += wv * xv;
+                                b += f16_to_f64(hb) * xv;
+                                ss += (wv * xv).abs();
+                            }
+                            yc[lr] = a;
+                            y16c[lr] = b;
+                            scc[lr] = ss;
+                        }
+                    });
+                }
+            });
+
+            let mut bytes = rt.data.clone();
+            bytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
+            while !bytes.len().is_multiple_of(4) {
+                bytes.push(0);
+            }
+            let words: Vec<u32> = bytes
+                .chunks_exact(4)
+                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+            Ok(Mat {
+                name: s.name,
+                d_out,
+                d_in,
+                nblocks,
+                tail_w,
+                words: cuda.up_u32(&words)?,
+                bases: cuda.up_u32(&rt.bases)?,
+                gscale: cuda.up_f32(&s.centroids)?,
+                rscale: cuda.up_f32(&s.rscale)?,
+                tail: cuda.up_f32(if s.tail.is_empty() { &[0.0f32] } else { &s.tail })?,
+                w16: cuda.up_u16(&w16)?,
+                slot_bytes: rt.data.len() as u64
+                    + rt.bases.len() as u64 * 4
+                    + (d_out * tail_w) as u64 * 4
+                    + d_out as u64 * 4,
+                f16_bytes: (d_out * d_in * 2) as u64,
+                y_ref,
+                y16_ref,
+                scale,
+            })
+        };
 
         println!("\nConstruction et transcodage…");
         let t0 = Instant::now();
         let mut mats = Vec::new();
         let mut n_weights = 0u64;
-        for r in 0..reps {
-            for &(name, d_out, d_in) in &SHAPES {
-                let nblocks = d_in / DIM;
-                let tail_w = d_in % DIM;
-                assert_eq!(d_out % 8, 0, "{name}: CUDA lance des blocs entiers");
-                let n = d_out * nblocks;
-                let indices: Vec<u64> = (0..n).map(|_| 1 + rng.next() % N13).collect();
-                let gains: Vec<u32> = (0..n).map(|_| (rng.next() & 1) as u32).collect();
-                let rt = transcode(&fd, &table, &indices, &gains, Layout::Slot32)
-                    .map_err(|e| e.to_string())?;
+        let source;
 
-                let mut w16 = vec![0u16; d_out * d_in];
-                let mut y_ref = vec![0.0f64; d_out];
-                let mut y16_ref = vec![0.0f64; d_out];
-                let mut scale = vec![0.0f64; d_out];
-                let rscale: Vec<f32> =
-                    (0..d_out).map(|_| 0.5 + rng.next_gaussian().abs() as f32).collect();
-                let tailf: Vec<f32> =
-                    (0..d_out * tail_w).map(|_| rng.next_gaussian() as f32).collect();
-
-                let threads = std::thread::available_parallelism().map_or(8, |n| n.get());
-                let chunk = d_out.div_ceil(threads);
-                std::thread::scope(|s| {
-                    for (ci, (((w16c, yc), y16c), sc)) in w16
-                        .chunks_mut(chunk * d_in)
-                        .zip(y_ref.chunks_mut(chunk))
-                        .zip(y16_ref.chunks_mut(chunk))
-                        .zip(scale.chunks_mut(chunk))
-                        .enumerate()
-                    {
-                        let (rt, table, x, rscale, tailf) = (&rt, &table, &x, &rscale, &tailf);
-                        s.spawn(move || {
-                            let mut wrow = vec![0.0f64; d_in];
-                            for lr in 0..yc.len() {
-                                let row = ci * chunk + lr;
-                                wrow.fill(0.0);
-                                for p in 0..nblocks {
-                                    let (pt, gain) = rt.decode_block(table, row * nblocks + p);
-                                    let id = llvq_core::Leech::shell_index(&pt).filter(|&s| s > 0);
-                                    if let Some(shell) = id {
-                                        let s = GSCALE[gain as usize] as f64
-                                            * rscale[row] as f64
-                                            / ((16 * shell) as f64).sqrt();
-                                        for (i, &v) in pt.iter().enumerate() {
-                                            wrow[p * DIM + i] = v as f64 * s;
-                                        }
-                                    }
-                                }
-                                for t in 0..tail_w {
-                                    wrow[nblocks * DIM + t] = tailf[row * tail_w + t] as f64;
-                                }
-                                let (mut a, mut b, mut ss) = (0.0, 0.0, 0.0);
-                                for c in 0..d_in {
-                                    let xv = x[c] as f64;
-                                    let wv = wrow[c];
-                                    let hb = f16_bits(wv as f32);
-                                    w16c[lr * d_in + c] = hb;
-                                    a += wv * xv;
-                                    b += f16_to_f64(hb) * xv;
-                                    ss += (wv * xv).abs();
-                                }
-                                yc[lr] = a;
-                                y16c[lr] = b;
-                                sc[lr] = ss;
-                            }
-                        });
-                    }
-                });
-
-                let mut bytes = rt.data.clone();
-                bytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
-                while !bytes.len().is_multiple_of(4) {
-                    bytes.push(0);
+        match std::env::args().nth(1) {
+            // ---- the published model ----
+            Some(path) => {
+                let f = std::fs::File::open(&path).map_err(|e| format!("open {path}: {e}"))?;
+                let mut r = std::io::BufReader::new(f);
+                let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+                println!("  {path} — {} matrices", h.matrices);
+                source = format!("le modèle publié ({path})");
+                for _ in 0..h.matrices {
+                    let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+                    // Every decoder hard-codes one gain bit (`hdr >> 9`).
+                    // A file with a different gain width would transcode into
+                    // a coherent stream and decode into garbage.
+                    assert_eq!(
+                        m.centroids.len(),
+                        2,
+                        "{}: les noyaux codent 1 bit de gain en dur",
+                        m.name
+                    );
+                    n_weights += (m.d_out * m.d_in) as u64;
+                    mats.push(build(Src {
+                        name: m.name.clone(),
+                        d_out: m.d_out,
+                        d_in: m.d_in,
+                        indices: m.indices,
+                        gains: m.gains,
+                        centroids: [m.centroids[0] as f32, m.centroids[1] as f32],
+                        rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
+                        tail: m.tail.iter().map(|&v| v as f32).collect(),
+                    })?);
                 }
-                let words: Vec<u32> = bytes
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
-                mats.push(Mat {
-                    name: format!("{name}#{r}"),
-                    d_out,
-                    d_in,
-                    nblocks,
-                    tail_w,
-                    words: cuda.up_u32(&words)?,
-                    bases: cuda.up_u32(&rt.bases)?,
-                    rscale: cuda.up_f32(&rscale)?,
-                    tail: cuda.up_f32(if tailf.is_empty() { &[0.0f32] } else { &tailf })?,
-                    w16: cuda.up_u16(&w16)?,
-                    slot_bytes: rt.data.len() as u64
-                        + rt.bases.len() as u64 * 4
-                        + (d_out * tail_w) as u64 * 4
-                        + d_out as u64 * 4,
-                    f16_bytes: (d_out * d_in * 2) as u64,
-                    y_ref,
-                    y16_ref,
-                    scale,
-                });
-                n_weights += (d_out * d_in) as u64;
+            }
+            // ---- synthetic, real shapes, repeated past the L2 ----
+            None => {
+                source = format!("{reps} répétitions synthétiques des 7 formes");
+                for r in 0..reps {
+                    for &(name, d_out, d_in) in &SHAPES {
+                        let n = d_out * (d_in / DIM);
+                        n_weights += (d_out * d_in) as u64;
+                        mats.push(build(Src {
+                            name: format!("{name}#{r}"),
+                            d_out,
+                            d_in,
+                            indices: (0..n).map(|_| 1 + rng.next() % N13).collect(),
+                            gains: (0..n).map(|_| (rng.next() & 1) as u32).collect(),
+                            centroids: GSCALE,
+                            rscale: (0..d_out)
+                                .map(|_| 0.5 + rng.next_gaussian().abs() as f32)
+                                .collect(),
+                            tail: (0..d_out * (d_in % DIM))
+                                .map(|_| rng.next_gaussian() as f32)
+                                .collect(),
+                        })?);
+                    }
+                }
             }
         }
+        let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
+        let mut d_y = cuda.zeros_f32(max_dout)?;
         println!(
             "  {} matrices, {:.2} Md de poids, en {:.0} s",
             mats.len(),
@@ -346,7 +422,7 @@ mod linux {
 
         let run_slot = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_slot(
-                &f_slot, &m.words, &m.bases, &d_tab, &d_gscale, &m.rscale, &m.tail, &d_x, y,
+                &f_slot, &m.words, &m.bases, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
                 m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
@@ -434,12 +510,21 @@ mod linux {
         }
         println!("  {}", "-".repeat(80));
         println!("  vs FP16 : {rmd:.2}× [{rlo:.2}–{rhi:.2}]");
+        println!("\n  source : {source}");
+        // The warning has to follow the data, not the binary. Printing it
+        // unconditionally is how a run on the published model ends up filed
+        // under "synthetic" by whoever reads the log six months later.
+        if std::env::args().nth(1).is_none() {
+            println!(
+                "  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le chemin de\n  \
+                 décodage est exercé à l'identique, mais le mélange de classes d'un vrai\n  \
+                 artefact ne l'est pas, donc ses strides de groupe et son trafic d'octets\n  \
+                 diffèrent. Ce rapport mesure le NOYAU, pas le modèle publié — passer le\n  \
+                 chemin du .llvq en argument pour cela."
+            );
+        }
         println!(
-            "\n  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le chemin de\n  \
-             décodage est exercé à l'identique, mais le mélange de classes d'un vrai artefact\n  \
-             ne l'est pas, donc ses strides de groupe et son trafic d'octets diffèrent.\n  \
-             Ce rapport mesure le NOYAU, ce n'est pas encore le chiffre du modèle publié.\n\
-             \n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions\n  \
+            "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions\n  \
              somment dans des ordres différents et les deux compilateurs contractent les FMA\n  \
              selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs."
         );
