@@ -106,6 +106,23 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n  {:<10}{:>8}{:>12}{:>12}", "prompt", "tokens", "s", "tok/s");
     println!("  {}", "-".repeat(44));
+    // One discarded generation before anything is believed.
+    //
+    // The miniature run of 2026-08-05 measured 3.7 tok/s then 42.7 tok/s for
+    // the *same* 32 tokens: the first generation on CUDA pays kernel
+    // selection, allocator growth and clock ramp. Without this the first
+    // prompt in the list is charged for all of it and reads as a result.
+    {
+        let ids = tok
+            .encode(PROMPTS[0], false)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .get_ids()
+            .to_vec();
+        phase("warmup-start");
+        model.generate(&ids, n_new, &mut NoCapture)?;
+        phase("warmup-end");
+    }
+
     let mut best = 0.0f64;
     for p in PROMPTS {
         let ids = tok

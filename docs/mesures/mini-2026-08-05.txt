@@ -1,0 +1,115 @@
+# Protocole MINIATURE — job 6a7342e5a00abefd4b293c0f, l40sx1, 2026-08-05
+515c23c1a178120ab5b6e237aa529a4fe23e14e0
+
+=== identite de l objet mesure ===
+9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0  /model/qwen3-4b-llvq.bin
+NVIDIA L40S, 46068 MiB
+
+########## BRAS 3 — LLVQ 2 bits, dense, scelle ##########
+--- vitesse ---
+device Cuda(CudaDevice(DeviceId(1))), dtype f16, 32 nouveaux tokens
+[phase] 1785938942808 load-start
+sealed /model/qwen3-4b-llvq.bin: 252 matrices quantifiées, 1.771 Go sur disque
+[phase] 1785939151508 load-end
+modèle : /model/qwen3-4b-llvq.bin [LLVQ 2 bits, scellé]
+  chargé en 208.7 s
+
+  prompt      tokens           s       tok/s
+  --------------------------------------------
+[phase] 1785939151508 gen-start-5
+[phase] 1785939160191 gen-end-5
+  5               32        8.68         3.7
+[phase] 1785939160192 gen-start-41
+[phase] 1785939160941 gen-end-41
+  41              32        0.75        42.7
+  --------------------------------------------
+  meilleur : 42.7 tok/s
+
+  ⚠️ génération gloutonne, batch 1, avec cache KV. Le prompt est court et le
+  contexte le reste : le débit d'un contexte long est plus bas, parce que le coût
+  du cache croît avec lui. Ce chiffre n'est comparable qu'à un autre pris ici.
+  Les marqueurs `[phase] <epoch_ms>` sur stderr servent à recaler la série de
+  métriques du job : un pic de VRAM pendant `load` ne dit pas la même chose
+  qu'un pic pendant `gen`.
+--- perplexite ---
+device: Cuda(CudaDevice(DeviceId(1))), context 2048, dtype f16
+sealed /model/qwen3-4b-llvq.bin: 252 quantized matrices, 1.771 GB on disk
+loading corpus wikitext2…
+299078 tokens → 2 windows of 2048 (fingerprint 5e7c9d0950fb98b9)
+  window   1/2  nll 2.624656510  n 2047  running ppl   13.800  (0.4s)
+  window   2/2  nll 3.104651529  n 2047  running ppl   17.543  (0.8s)
+
+/model/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 2048, 2 windows, dtype f16, tokens 5e7c9d0950fb98b9
+ppl = 17.5430
+
+########## BRAS 1 — f16 ##########
+--- vitesse ---
+device Cuda(CudaDevice(DeviceId(1))), dtype f16, 32 nouveaux tokens
+[phase] 1785939369584 load-start
+[phase] 1785939465814 load-end
+modèle : Qwen/Qwen3-4B [f16]
+  chargé en 96.2 s
+
+  prompt      tokens           s       tok/s
+  --------------------------------------------
+[phase] 1785939465814 gen-start-5
+  5               32        0.91        35.3
+[phase] 1785939466721 gen-end-5
+[phase] 1785939466721 gen-start-41
+[phase] 1785939467469 gen-end-41
+  41              32        0.75        42.8
+  --------------------------------------------
+  meilleur : 42.8 tok/s
+
+  ⚠️ génération gloutonne, batch 1, avec cache KV. Le prompt est court et le
+  contexte le reste : le débit d'un contexte long est plus bas, parce que le coût
+  du cache croît avec lui. Ce chiffre n'est comparable qu'à un autre pris ici.
+  Les marqueurs `[phase] <epoch_ms>` sur stderr servent à recaler la série de
+  métriques du job : un pic de VRAM pendant `load` ne dit pas la même chose
+  qu'un pic pendant `gen`.
+--- perplexite ---
+device: Cuda(CudaDevice(DeviceId(1))), context 2048, dtype f16
+loading corpus wikitext2…
+299078 tokens → 2 windows of 2048 (fingerprint 5e7c9d0950fb98b9)
+  window   1/2  nll 2.315149886  n 2047  running ppl   10.126  (0.4s)
+  window   2/2  nll 2.832620670  n 2047  running ppl   13.117  (0.7s)
+
+Qwen/Qwen3-4B [baseline] — wikitext2, ctx 2048, 2 windows, dtype f16, tokens 5e7c9d0950fb98b9
+ppl = 13.1167
+
+########## BRAS 4 — LLVQ + noyau fuse ##########
+source NVRTC : 14066 octets, sha256 b01fc0d38dfa3ca719320976794359b89f02c6164741654236ea1dbabb63716c
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+
+Construction et transcodage…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  252 matrices, 3.63 Md de poids, en 139 s
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pire erreur LLVQ 2.2e-8, FP16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, bras entrelacés
+  7 rounds, 2 jetés ; le rapport est formé ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.987   10.993   11.002     7.27   16.000      661
+  LLVQ fusé (Slot32)        5.797    5.808    5.812     2.50    5.510      432
+  --------------------------------------------------------------------------------
+  vs FP16 : 1.89× [1.89–1.90]
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2502 Mo de poids LLVQ distincts par passe, soit 24.9× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms sur les deux
+  bras au débit mesuré) : 1.74× au lieu de 1.89×. C'est lui qui plafonne
+  le rapport, et attention — normes, activations, attention et rotation ne
+  sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions
+  somment dans des ordres différents et les deux compilateurs contractent les FMA
+  selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs.
