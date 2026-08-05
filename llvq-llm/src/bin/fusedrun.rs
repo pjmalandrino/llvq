@@ -62,35 +62,13 @@ fn main() -> anyhow::Result<()> {
         let dtype = DType::F16;
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
-        // ---- dense arm, then dropped ----
+        // ---- fused arm, first ----
         //
-        // Dropped before the fused arm loads on purpose: holding both would
-        // need 8.04 GB plus the encoded copy, and the point of the exercise is
-        // to report what each one costs, not to prove a card can hold both.
-        let (dense_tokens, dense_load, dense_rate, dense_bytes) = {
-            let t = Instant::now();
-            let m = llvq_llm::sealed::load(&path, dtype, &device)?;
-            let load = t.elapsed().as_secs_f64();
-            let ids = m
-                .tokenizer
-                .encode(PROMPT, false)
-                .map_err(|e| anyhow::anyhow!("{e}"))?
-                .get_ids()
-                .to_vec();
-            // One discarded generation: the first on CUDA pays kernel
-            // selection, allocator growth and clock ramp. Without it the
-            // measurement is of the warm-up.
-            m.model.generate(&ids, n_new, &mut NoCapture)?;
-            let t = Instant::now();
-            let out = m.model.generate(&ids, n_new, &mut NoCapture)?;
-            let rate = n_new as f64 / t.elapsed().as_secs_f64();
-            let bytes = (m.quantized_weights + m.carried_weights) as u64 * 2;
-            println!("dense  : chargé en {load:6.1} s, {rate:6.1} tok/s, {:.2} Go sur la carte",
-                     bytes as f64 / 1e9);
-            (out, load, rate, bytes)
-        };
-
-        // ---- fused arm ----
+        // Deliberately before the dense arm: this is the path that can fail,
+        // and it loads in ~145 s against the dense arm's ~209. Two runs died
+        // here on 2026-08-05 — a refused prefill, then a length read off a
+        // range — and each one had already paid for a dense load it never
+        // used. Order is not neutral when a job is billed by the minute.
         let t = Instant::now();
         let f = llvq_llm::fused_cuda::load(&path, &device, dtype)?;
         let fused_load = t.elapsed().as_secs_f64();
@@ -105,10 +83,41 @@ fn main() -> anyhow::Result<()> {
         let fused_tokens = f.model.generate(&ids, n_new, &mut NoCapture)?;
         let fused_rate = n_new as f64 / t.elapsed().as_secs_f64();
         let fused_bytes = f.runtime_bytes + f.carried_weights as u64 * 2;
+        let (fused_rt_bits, fused_file) = (
+            f.runtime_bytes as f64 * 8.0 / f.quantized_weights as f64,
+            f.file_bytes as f64 / 1e9,
+        );
         println!(
             "fusé   : chargé en {fused_load:6.1} s, {fused_rate:6.1} tok/s, {:.2} Go sur la carte",
             fused_bytes as f64 / 1e9
         );
+        let tok = f.tokenizer.clone();
+        // Released before the dense arm loads: the point is to report what each
+        // one costs, not to prove a card can hold both.
+        drop(f);
+
+        // ---- dense arm ----
+        let (dense_tokens, dense_load, dense_rate, dense_bytes) = {
+            let t = Instant::now();
+            let m = llvq_llm::sealed::load(&path, dtype, &device)?;
+            let load = t.elapsed().as_secs_f64();
+            let ids = m
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            // One discarded generation: the first on CUDA pays kernel
+            // selection, allocator growth and clock ramp.
+            m.model.generate(&ids, n_new, &mut NoCapture)?;
+            let t = Instant::now();
+            let out = m.model.generate(&ids, n_new, &mut NoCapture)?;
+            let rate = n_new as f64 / t.elapsed().as_secs_f64();
+            let bytes = (m.quantized_weights + m.carried_weights) as u64 * 2;
+            println!("dense  : chargé en {load:6.1} s, {rate:6.1} tok/s, {:.2} Go sur la carte",
+                     bytes as f64 / 1e9);
+            (out, load, rate, bytes)
+        };
 
         // ---- the comparison ----
         println!("\n--- les deux bras ---");
@@ -128,8 +137,8 @@ fn main() -> anyhow::Result<()> {
                 );
             }
         }
-        println!("  dense : {}", f.tokenizer.decode(&dense_tokens, true).unwrap_or_default());
-        println!("  fusé  : {}", f.tokenizer.decode(&fused_tokens, true).unwrap_or_default());
+        println!("  dense : {}", tok.decode(&dense_tokens, true).unwrap_or_default());
+        println!("  fusé  : {}", tok.decode(&fused_tokens, true).unwrap_or_default());
 
         println!("\n--- ce que ça coûte ---");
         println!(
@@ -151,8 +160,8 @@ fn main() -> anyhow::Result<()> {
             "\n  projections : {:.3} b/poids sur la carte, fichier {:.2} Go sur disque.\n  \
              ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index\n  \
              compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.",
-            f.runtime_bytes as f64 * 8.0 / f.quantized_weights as f64,
-            f.file_bytes as f64 / 1e9
+            fused_rt_bits,
+            fused_file
         );
         Ok(())
     }

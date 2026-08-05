@@ -264,6 +264,12 @@ fn main() -> anyhow::Result<()> {
         // A different shard from the one `bin/ppl` evaluates on — otherwise
         // calibrating on C4 and scoring on C4 is the same text twice.
         llvq_llm::corpus::c4_calibration(8_000_000)?
+    } else if calib_kind == "wikitext2-test" {
+        // The calibration *oracle* (pistes-battre-q4.md P3): deliberate
+        // contamination — calibrate on the very text the eval windows score.
+        // Not a config anyone ships; it bounds the ceiling of the whole
+        // calibration family (volume, corpus, length) in one 3-block run.
+        wikitext2_test()?
     } else {
         hf_parquet_text(
             "Salesforce/wikitext",

@@ -315,13 +315,18 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         layout: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
         let all = storage.as_cuda_slice::<f16>()?;
-        let (offset, len) = layout
+        // `(start, start + elem_count)` — a *range*, not `(offset, length)`.
+        // Taking the second field for a length is silent at offset 0 and wrong
+        // everywhere else, which is exactly how it survived the first run and
+        // died on the second vector of the prompt.
+        let (start, end) = layout
             .contiguous_offsets()
             .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+        let len = end - start;
         if len != self.proj.d_in {
             candle_core::bail!("activation de {len} valeurs pour d_in={}", self.proj.d_in);
         }
-        let xr = self.rt.rotate(self.proj, all, offset as u32)?;
+        let xr = self.rt.rotate(self.proj, all, start as u32)?;
         let mut y = self.rt.device.alloc_zeros::<f32>(self.proj.d_out)?;
         let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
         self.rt
