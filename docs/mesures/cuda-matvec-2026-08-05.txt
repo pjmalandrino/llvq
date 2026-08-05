@@ -1,0 +1,42 @@
+# Noyau fusé CUDA — job 6a73220ca00abefd4b293866, l40sx1, 2026-08-05
+0072a90854ae265ffc47576c171508ee8cea4af5
+004b30f88cc4096430d486202a9d53f370b34a3433f1757a72c0be8bea1c1ebc  llvq-cuda/kernels/llvq_slot.cuh
+331cdf4d0f207bd50e7c707181a780f96737b952a215b2b281570ca84e68e713  llvq-cuda/kernels/matvec.cu
+
+name, compute_cap, memory.total [MiB]
+NVIDIA L40S, 8.9, 46068 MiB
+
+================ MATVEC FUSE ================
+source NVRTC : 14066 octets, sha256 b01fc0d38dfa3ca719320976794359b89f02c6164741654236ea1dbabb63716c
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+
+3 répétitions des 7 formes : 209 Mo de poids LLVQ distincts par passe,
+soit 2.1× la L2. En dessous de 1× on mesurerait le cache, pas la DRAM —
+le piège qui a rendu optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+Construction et transcodage…
+  21 matrices, 0.30 Md de poids, en 12 s
+
+Vérification de chaque ligne contre la référence f64…
+  92160 lignes, seuil 1e-5 — pire erreur LLVQ 2.3e-8, FP16 2.7e-8 ·Σ|w·x|
+
+UN TOKEN — 21 matrices, un stream, bras entrelacés
+  7 rounds, 2 jetés ; le rapport est formé ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)           0.918    0.919    0.920     0.61   16.000      659
+  LLVQ fusé (Slot32)        0.495    0.497    0.497     0.22    5.742      439
+  --------------------------------------------------------------------------------
+  vs FP16 : 1.85× [1.85–1.86]
+
+  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le chemin de
+  décodage est exercé à l'identique, mais le mélange de classes d'un vrai artefact
+  ne l'est pas, donc ses strides de groupe et son trafic d'octets diffèrent.
+  Ce rapport mesure le NOYAU, ce n'est pas encore le chiffre du modèle publié.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions
+  somment dans des ordres différents et les deux compilateurs contractent les FMA
+  selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs.
