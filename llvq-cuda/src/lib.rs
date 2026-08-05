@@ -35,12 +35,57 @@
 pub mod gpu;
 
 /// The CUDA sources, embedded so a run is reproducible from the binary alone.
-///
-/// `include_str!` and not a runtime read: a kernel loaded from a mounted
-/// directory could differ from the one in the commit, and then the sha256 the
-/// harness prints would describe a file nobody can retrieve. An override path
-/// for iteration is a separate, explicit switch — not the default.
 #[cfg(target_os = "linux")]
 pub const SLOT_CUH: &str = include_str!("../kernels/llvq_slot.cuh");
 #[cfg(target_os = "linux")]
 pub const PREFLIGHT_CU: &str = include_str!("../kernels/preflight.cu");
+
+/// Where the two sources come from, and whether that was the committed copy.
+#[cfg(target_os = "linux")]
+pub struct Sources {
+    pub slot: String,
+    pub cu: String,
+    /// `None` when the embedded copies were used.
+    pub overridden_from: Option<String>,
+}
+
+/// Load the kernel sources, honouring `LLVQ_KERNEL_DIR`.
+///
+/// This switch is what makes the campaign affordable, and it is worth being
+/// precise about why. The kernels are `include_str!`'d, so *by default* a run
+/// is reproducible from the binary alone — which is the property a published
+/// number needs. But it also means a one-line kernel edit would rebuild the
+/// image: forty to seventy minutes, on a step with a documented history of
+/// dying to SIGKILL. That is not a tuning loop, it is a dare.
+///
+/// With the variable set, the binary reads the two files from a directory the
+/// job wrote a moment earlier — a heredoc in the job command is enough, the
+/// sources are a few kilobytes. Editing a tile size or a register cap then
+/// costs one mini-job and no rebuild.
+///
+/// The safeguard is disclosure, not prohibition: when the override is used the
+/// harness says so, loudly, and prints the sha256 of the exact string handed to
+/// NVRTC. A figure taken from an overridden run is traceable to that hash and
+/// to nothing else — which is the honest position, and a stricter one than
+/// silently trusting a path.
+#[cfg(target_os = "linux")]
+pub fn load_sources() -> Result<Sources, String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok(Sources {
+            slot: SLOT_CUH.to_string(),
+            cu: PREFLIGHT_CU.to_string(),
+            overridden_from: None,
+        }),
+        Ok(dir) => {
+            let read = |n: &str| {
+                std::fs::read_to_string(std::path::Path::new(&dir).join(n))
+                    .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+            };
+            Ok(Sources {
+                slot: read("llvq_slot.cuh")?,
+                cu: read("preflight.cu")?,
+                overridden_from: Some(dir),
+            })
+        }
+    }
+}

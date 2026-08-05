@@ -43,7 +43,19 @@ GGUF aurait exigé un script Python absent de l'installation Homebrew.
 | **RAM** (mesuré / calculé) | **2,39 Go** | 3,28 Go | ×1,37 **contre** nous |
 | **débit** (bout en bout, mesuré) | **129,8 tok/s** | ~78,5 tok/s *(projeté)* | ×1,65 **contre** nous |
 | **qualité** | ~1-2 % de dégradation | **×1,386** | franchement contre nous |
-| **bits/poids effectifs** | 4,50 | 3,52 disque / **5,51 RAM** | |
+| **bits/poids effectifs** | 4,50 | 3,52 disque / **5,51 RAM** | ⚠️ voir ci-dessous |
+
+> ⚠️ **La dernière ligne ne se lit pas comme un rapport : « 5,51 contre 4,50 »
+> mélange deux comptabilités**, et le dossier l'a déjà corrigé une fois
+> (`docs/cheatsheet-defense.md` § « Les chiffres à connaître par cœur »,
+> `docs/portage-noyau-cuda.md` §0.3). Le 5,51 est la comptabilité `thesis` des
+> **projections seules** (payload + bases + queue f32 + échelles de ligne f32) ;
+> le 4,50 est le q4 sur **tous** ses poids, embedding quantifié compris. À
+> convention identique **poids seuls**, `docs/fiche-4b.md` §5.3 donne
+> **6,5245 contre 4,5006, soit ×1,45 contre nous**. Le 5,51 reste juste pour
+> **décrire notre format** — il n'est pas un terme de comparaison. *(La
+> correction va dans le sens de cette section : à convention homogène l'écart
+> est plus large, pas plus étroit.)*
 
 **Sur un 4B, le 4 bits nous domine sur tous les axes sauf le disque, et de peu.**
 Les 129,8 tok/s sont stables à 0,5 % près sur trois runs, mesurés de bout en
@@ -53,8 +65,12 @@ qui exclut tout ça : l'écart réel est au moins ×1,65, probablement pire.
 ## La leçon, et elle est structurelle
 
 Le gain de place de LLVQ est **sur le disque** (3,52 b/poids). Mais le format
-que le noyau rapide lit en RAM coûte **5,51 b/poids** — *plus* que les 4,50 du
-4 bits. La vitesse a été achetée avec les bits mêmes qui justifiaient le 2 bits.
+que le noyau rapide lit en RAM coûte **5,51 b/poids** dans la comptabilité
+`thesis` — et à convention homogène poids seuls, **6,5245 contre 4,5006 au q4,
+×1,45 contre nous** (`docs/fiche-4b.md` §5.3). Dans les deux comptabilités le
+sens est le même, et c'est ce qui compte ici : la forme rapide est **plus
+grosse** que du 4 bits. La vitesse a été achetée avec les bits mêmes qui
+justifiaient le 2 bits.
 
 C'est visible en extrapolant à 70B, là où la thèse est censée vivre :
 

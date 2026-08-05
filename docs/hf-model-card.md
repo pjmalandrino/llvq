@@ -157,8 +157,12 @@ costs on disk. Measured peak RSS: **9.79 GB on CPU, 17.41 GB on Metal**. A
   cache** — it re-runs the whole prefix at every step, which is quadratic.
   Measured: **2.2 to 7.6 tok/s**, decreasing with length. A fused
   dequantize+matvec kernel **does exist** in this
-  project (`llvq-metal`, `bin/thesis`: 2.06–2.08× FP16 over all 252 projections
-  of this file, every output row verified against an f64 reference) but it is
+  project (`llvq-metal`, `bin/thesis`: **2.03–2.09× FP16 over three invocations** over
+  all 252 projections of this file, at 5.510 bits/weight in RAM; the ratio is
+  formed **round by round** and reported as the median and range over the 5
+  kept rounds — it is not the quotient of two best-of times; every output row
+  verified against an f64 reference; log in
+  `docs/mesures/k1-metal-2026-08-05.txt`) but it is
   **not wired into the runner**, so this file gains nothing from it today.
 * **A plain 4-bit quantization beats this model on most axes.** On the same
   machine, `mlx_lm` q4 group-64 is 2.263 GB on disk, generates far faster, and

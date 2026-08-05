@@ -14,7 +14,16 @@
 //
 // The last one is the one that cannot be faked. Everything else is plumbing.
 
+// Guarded, because this file is consumed two ways and only one of them has a
+// filesystem. NVRTC is handed the two sources **concatenated** — there is no
+// include path, on purpose: an include resolved from a mounted directory makes
+// the compiled text open-ended, and the sha256 the harness prints would then
+// describe something nobody can retrieve. The header's own guard is already
+// defined by then, so this directive is skipped. `clang++`, compiling this
+// file alone for the host test, sees it undefined and includes normally.
+#ifndef LLVQ_SLOT_CUH
 #include "llvq_slot.cuh"
+#endif
 
 // Decode probe: one thread per block, writes what the decoder *decided*.
 //

@@ -118,7 +118,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000), fichier scellé **`leech1c12`** — cap 12, 47 bits d'index + 1 de gain = **48 bits/bloc**, 2,0702 b/poids effectifs (note de provenance dans la section G5). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,07×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. ⚠️ ce 2,07× est le **haut** d'une plage [2,029 ; 2,080] (dispersion inter-processus, cf. Phase 6), et ces deux temps sont ceux du **run publié le 2026-08-01** : le run à sept bras du 2026-08-05 cité plus bas rend 21,775 / 10,401 ms **sur les mêmes deux bras**, soit **2,09× [2,05–2,11]**. Deux invocations du même objet, pas deux mesures contradictoires — ne pas les soustraire. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence. **Échelle bits↔vitesse, un seul protocole et une seule comptabilité d'octets** (`bin/thesis` du 2026-08-05, 7 rounds dont 2 jetés, tous les bras dispatchés à chaque round dans le même ordre ; payload + bases + queue f32 + échelles de ligne f32 ; le « vs FP16 » est la **médiane du rapport formé round par round** avec sa plage sur les 5 rounds gardés — surtout pas un quotient de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté ; millisecondes dans [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) : FP16 16,000 b/poids, 1,00× · **`Slot32` 5,510, 2,09× [2,05–2,11]** · `Flat32` 5,256, 0,91× [0,90–0,92] · `Grouped32` 3,498, 0,69× [0,69–0,69]. (L'ancienne échelle « 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07× » mélangeait plusieurs comptabilités d'octets dans une même liste — la faute que ce run supprime.) Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : brancher le noyau dans `bin/run`, et reprendre des bits** — plafond L ≤ 4 → **≤ 4,7083 b/poids**, majorant inconditionnel, dans la comptabilité **`rtbits`** (payload + une base u32 par groupe, stride arrondi à l'octet, rapporté aux poids quantifiés ; `Slot32` y pèse 5,3756 aujourd'hui, soit 0,667 b/poids de gain, 12,4 %) — **à ne pas comparer aux 5,510 ci-dessus, comptabilité différente**. Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
+| G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,03–2,09×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. ⚠️ **une plage, pas un point.** Le 2,07× publié le 2026-08-01 est le haut d'une plage [2,029 ; 2,080] mesurée sur trois invocations du banc à deux bras ; le banc à sept bras en rend 2,03× · 2,06× · 2,09× sur trois autres. Les octets, les b/poids et les pires erreurs sont identiques au chiffre à chacune — seuls les temps bougent, et ils bougent ensemble sur les deux bras. Une troisième décimale sur ce rapport n'a donc pas de contenu ([`docs/mesures/thesis-temoin-2026-08-04.txt`](docs/mesures/thesis-temoin-2026-08-04.txt)), et ces deux temps sont ceux du **run publié le 2026-08-01** : le run à sept bras du 2026-08-05 cité plus bas rend 21,728 / 10,496 ms **sur les mêmes deux bras**, soit **2,03× [2,03–2,10]**. Deux invocations du même objet, pas deux mesures contradictoires — ne pas les soustraire. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence. **Échelle bits↔vitesse, un seul protocole et une seule comptabilité d'octets** (`bin/thesis` du 2026-08-05, 7 rounds dont 2 jetés, tous les bras dispatchés à chaque round dans le même ordre ; payload + bases + queue f32 + échelles de ligne f32 ; le « vs FP16 » est la **médiane du rapport formé round par round** avec sa plage sur les 5 rounds gardés — surtout pas un quotient de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté ; millisecondes dans [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) : FP16 16,000 b/poids, 1,00× · **`Slot32` 5,510, 2,03× [2,03–2,10]** · `Flat32` 5,256, 0,91× [0,91–0,91] · `Grouped32` 3,498, 0,69× [0,68–0,69]. (L'ancienne échelle « 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07× » mélangeait plusieurs comptabilités d'octets dans une même liste — la faute que ce run supprime.) Transcodeur 5 layouts bit-exacts, ~25 mutants tués. **Reste : brancher le noyau dans `bin/run`, et reprendre des bits** — plafond L ≤ 4 → **≤ 4,7083 b/poids**, majorant inconditionnel, dans la comptabilité **`rtbits`** (payload + une base u32 par groupe, stride arrondi à l'octet, rapporté aux poids quantifiés ; `Slot32` y pèse 5,3756 aujourd'hui, soit 0,667 b/poids de gain, 12,4 %) — **à ne pas comparer aux 5,510 ci-dessus, comptabilité différente**. Voir [`docs/format-noyau.md`](docs/format-noyau.md) |
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
@@ -973,16 +973,16 @@ auteurs déclarent que l'optimisation bas niveau est « largement orthogonale »
    (`bin/thesis`, 7 bras, 7 rounds dont 2 jetés, tous dispatchés à chaque
    round dans le même ordre ; journal
    [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) :
-   FP16 16,000 b/poids → 1,00× ; `Slot32` 5,510 → **2,09× [2,05–2,11]** ;
-   `Flat32` 5,256 → 0,91× [0,90–0,92] ; `Grouped32` 3,498 → 0,69×
+   FP16 16,000 b/poids → 1,00× ; `Slot32` 5,510 → **2,03× [2,03–2,10]** ;
+   `Flat32` 5,256 → 0,91× [0,91–0,91] ; `Grouped32` 3,498 → 0,69×
    [0,69–0,69]. ⚠️ Chaque rapport est la **médiane du rapport formé round par
    round**, avec sa plage sur les 5 rounds gardés : ce n'est pas le quotient
    de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté. Les
    millisecondes dérivent d'un run à l'autre — c'est le fait même que ce lot
    a établi — là où les b/poids sont exacts et se reproduisent au chiffre.
    **La courbe est brutalement non linéaire** : `Flat32` n'économise que
-   0,254 b/poids sur `Slot32` et coûte 2,31× le temps ; `Grouped32` économise
-   2,012 b/poids et coûte 3,03×. *(Différences et quotients de valeurs du même
+   0,254 b/poids sur `Slot32` et coûte 2,27× le temps ; `Grouped32` économise
+   2,012 b/poids et coûte 3,01×. *(Différences et quotients de valeurs du même
    run, du même processus et de la même comptabilité — grandeurs dérivées,
    pas des mesures séparées.)* Donc **reprendre des bits se fait
    *dans* `Slot32`** (plafond
@@ -995,11 +995,11 @@ auteurs déclarent que l'optimisation bas niveau est « largement orthogonale »
    **4 708 799 groupes sur 4 708 800** en portent un. Un compte, pas une
    probabilité.
 3. **Le conflit de bancs prédit en §3.2 de `docs/portage-noyau-cuda.md`
-   n'existe pas ici.** Le pas de 28 flottants ne gagne rien (10,091 contre
-   9,925, soit 1,7 % *plus lent*, et sa plage de rapport [2,06–2,17] recouvre
+   n'existe pas ici.** Le pas de 28 flottants ne gagne rien (10,081 contre
+   10,126, soit 0,4 % *plus lent*, et sa plage de rapport [2,06–2,17] recouvre
    par le haut celle du dense [2,12–2,19] : rien ne le distingue). Ce qui paie
-   est la **largeur de chargement** : `float4` rend 4,6 % sur LLVQ et 4,9 % sur
-   FP16 — des deux côtés, donc le rapport ne bouge pas (2,05× float4/float4
+   est la **largeur de chargement** : `float4` rend 3,5 % sur LLVQ et 5,1 % sur
+   FP16 — des deux côtés, donc le rapport ne bouge pas (2,04× float4/float4
    contre 2,09× scalaire/scalaire, chacun dans la dispersion de l'autre).
    *(Ces pourcentages et ces quotients sont dérivés de la table du journal, pas
    lus dedans.)* Le modèle NVIDIA (32 bancs de 4 octets)

@@ -35,7 +35,7 @@ demande, tout ce que tu as dit avant devient suspect.
 | Débit bout en bout | MLX q4 **129,8 tok/s** · nous **~78,5** (projeté) |
 | Lignes vérifiées contre référence f64 | **1 105 920**, pire erreur 3,4·10⁻⁸ |
 
-Si tu ne dois en retenir que trois : **16,9617 / 2,09× [2,05–2,11] / 6,5245 contre
+Si tu ne dois en retenir que trois : **16,9617 / 2,03× [2,03–2,10] / 6,5245 contre
 4,5006.**
 
 > ⚠️ **Deux précautions attachées à ces deux lignes, à ne jamais laisser tomber.**
@@ -220,16 +220,16 @@ référence CPU f64, seuil 1e-5. Journal : `docs/mesures/k1-metal-2026-08-05.txt
 
 | bras | b/poids | min ms | Go lus | Go/s | vs FP16 méd [plage] |
 |---|---|---|---|---|---|
-| FP16 (half4, scalaire) | 16,000 | 21,775 | 7,27 | 334 | 1,00× [1,00–1,00] |
-| **LLVQ `Slot32` (scalaire@24)** | **5,510** | **10,401** | 2,50 | 241 | **2,09× [2,05–2,11]** |
-| LLVQ `Flat32` | 5,256 | 24,009 | 2,39 | 99 | 0,91× [0,90–0,92] |
-| LLVQ `Grouped32` | 3,498 | 31,494 | 1,59 | 50 | 0,69× [0,69–0,69] |
-| FP16 (half4, float4) | 16,000 | 20,709 | 7,27 | 351 | 1,05× [1,05–1,05] |
-| **LLVQ `Slot32` (float4@24)** | **5,510** | **9,925** | 2,50 | 252 | **2,15× [2,12–2,19]** |
-| LLVQ `Slot32` (float4@28) | 5,510 | 10,091 | 2,50 | 248 | 2,13× [2,06–2,17] |
+| FP16 (half4, scalaire) | 16,000 | 21,728 | 7,27 | 334 | 1,00× [1,00–1,00] |
+| **LLVQ `Slot32` (scalaire@24)** | **5,510** | **10,496** | 2,50 | 241 | **2,03× [2,03–2,10]** |
+| LLVQ `Flat32` | 5,256 | 23,807 | 2,39 | 99 | 0,91× [0,91–0,91] |
+| LLVQ `Grouped32` | 3,498 | 31,634 | 1,59 | 50 | 0,69× [0,68–0,69] |
+| FP16 (half4, float4) | 16,000 | 20,612 | 7,27 | 351 | 1,05× [1,04–1,07] |
+| **LLVQ `Slot32` (float4@24)** | **5,510** | **10,126** | 2,50 | 252 | **2,14× [2,10–2,16]** |
+| LLVQ `Slot32` (float4@28) | 5,510 | 10,081 | 2,50 | 248 | 2,13× [2,07–2,17] |
 
 > ⚠️ **Si on divise les colonnes, on ne retrouve pas la dernière — et c'est
-> voulu.** 21,775 / 9,925 fait 2,19 quand la colonne dit 2,15 : un minimum
+> voulu.** 21,728 / 10,126 fait 2,19 quand la colonne dit 2,15 : un minimum
 > divisé par un minimum mêle deux rounds qui n'ont jamais coexisté. Le rapport
 > est calculé à chaque round sur des mesures simultanées, puis médiané.
 > **Dis-le avant qu'on te le demande.** Et rappelle que les ms dérivent d'un run
@@ -237,14 +237,14 @@ référence CPU f64, seuil 1e-5. Journal : `docs/mesures/k1-metal-2026-08-05.txt
 > chiffre à citer de mémoire est le b/poids et le rapport avec sa plage.
 
 *Pourquoi trois variantes de `Slot32` : le passage du scalaire au `float4` gagne
-4,6 % sur LLVQ (10,401 → 9,925) **et 4,9 % sur FP16** (21,775 → 20,709). Ce qui
+3,5 % sur LLVQ (10,496 → 10,126) **et 5,1 % sur FP16** (21,728 → 20,612). Ce qui
 paie, c'est la largeur de chargement — un load de 128 bits au lieu de quatre de
-32 — et elle paie **des deux côtés**, donc le rapport ne bouge pas : 2,05× en
+32 — et elle paie **des deux côtés**, donc le rapport ne bouge pas : 2,04× en
 float4 contre float4 (2,15 / 1,05), 2,09× en scalaire contre scalaire, chacun
 dans la dispersion de l'autre. Le padding à 28 flottants, lui, ne gagne rien :
-1,7 % plus lent que le `float4` dense, et sa plage [2,06–2,17] recouvre
+0,4 % plus lent que le `float4` dense, et sa plage [2,06–2,17] recouvre
 entièrement celle du dense [2,12–2,19] par le haut — rien ne l'en distingue.
-(Ces pourcentages et ce 2,05× sont des grandeurs **dérivées** de la table, pas
+(Ces pourcentages et ce 2,04× sont des grandeurs **dérivées** de la table, pas
 des lignes lues ; c'est licite parce que les deux termes viennent du même run et
 de la même comptabilité.) Les deux variantes `float4` de `Slot32` sont
 identiques au bit près au noyau scalaire sur les 1 105 920 lignes ; la variante
@@ -266,7 +266,7 @@ identiques au bit près au noyau scalaire sur les 1 105 920 lignes ; la variante
 > 2,080×**, monotone, les deux bras accélérant ensemble, erreurs et octets
 > identiques aux trois runs (`docs/mesures/thesis-temoin-2026-08-04.txt`). Le
 > 2,07× publié est le **haut** d'une plage `[2,029 ; 2,080]`, reproduit au
-> troisième run consécutif ; le 2,09× [2,05–2,11] du banc à sept bras est la
+> troisième run consécutif ; le 2,03× [2,03–2,10] du banc à sept bras est la
 > même quantité mesurée avec la dispersion **incluse dans le protocole**. Les
 > deux se recouvrent. Conséquence de protocole : **un effet de quelques pour
 > cent ne peut pas être tranché en comparant deux invocations distinctes du
@@ -391,7 +391,7 @@ une réponse. Personne n'attend de toi que tu récites la théorie des réseaux.
 | « On bat le papier » | « On reproduit le papier à iso-réglage ; notre avance sur β est un artefact de réglage » |
 | « 2 bits par poids » | « 2,17 sur le disque, 5,51 en RAM — et c'est tout le problème » |
 | « 5,51 contre 4,50 en RAM » | « à convention identique poids seuls, 6,5245 contre 4,5006, soit ×1,45 contre nous — le 5,51 décrit notre format, il ne se compare pas au q4 » |
-| « 2,07× plus rapide » | « 2,09× [2,05–2,11] le FP16 sur les projections seules, rapport formé round par round ; contre du q4 bien réglé on est encore derrière — de combien, le dépôt ne le tranche pas, cf. `fiche-4b.md` §5.4 » |
+| « 2,07× plus rapide » | « 2,03× [2,03–2,10] le FP16 sur les projections seules, rapport formé round par round ; contre du q4 bien réglé on est encore derrière — de combien, le dépôt ne le tranche pas, cf. `fiche-4b.md` §5.4 » |
 | « ×4,63 de compression » | « ×4,63 sur le fichier, dont 44 % est un embedding non quantifié sur un 4B » |
 | « Le noyau est fini » | « Le noyau est mesuré et vérifié, il n'est pas encore branché dans le runner » |
 

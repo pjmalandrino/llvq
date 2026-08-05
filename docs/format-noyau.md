@@ -330,9 +330,9 @@ bulles de latence mémoire, ce qu'un noyau fusé doit faire.
 > comptabilité d'octets pour les quatre bras (`bin/thesis`, sept bras,
 > 2026-08-05) :
 >
-> **3,498 b/poids → 0,69× [0,69–0,69]** (Grouped32) ·
-> **5,256 → 0,91× [0,90–0,92]** (Flat32) ·
-> **5,510 → 2,09× [2,05–2,11]** (Slot32), contre **16,000 → 1,00×** en FP16.
+> **3,498 b/poids → 0,69× [0,68–0,69]** (Grouped32) ·
+> **5,256 → 0,91× [0,91–0,91]** (Flat32) ·
+> **5,510 → 2,03× [2,03–2,10]** (Slot32), contre **16,000 → 1,00×** en FP16.
 > Chaque rapport est la **médiane du rapport formé round par round**, avec sa
 > plage sur les 5 rounds gardés — pas un quotient de deux minima. Journal :
 > [`docs/mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt).
@@ -481,7 +481,7 @@ distinctes du binaire. Les bras doivent être entrelacés **dans un même
 processus**, tous dispatchés à chaque round dans le même ordre, et leur
 dispersion imprimée. C'est le protocole du run à sept bras plus bas, et c'est
 ce qui rend lisible son verdict sur le padding, où l'écart mesuré est de
-**1,7 %** (10,091 contre 9,925 — grandeur dérivée de la table du run à sept
+**0,4 %** (10,081 contre 10,126 — grandeur dérivée de la table du run à sept
 bras, pas une ligne lue).
 
 ### Le trou de couverture que ça a fermé
@@ -522,16 +522,16 @@ vérifiées contre une référence CPU f64, seuil 1e-5) :
 
 | en RAM | b/poids | projections | ms/token (min) | Go/s | vs FP16 (méd) [plage] |
 |---|---|---|---|---|---|
-| FP16 (half4, scalaire) | 16,000 | 7,27 Go | 21,775 | 334 | 1,00× [1,00–1,00] |
-| `Grouped32` | 3,498 | 1,59 Go | 31,494 | 50 | 0,69× [0,69–0,69] |
-| `Flat32` | 5,256 | 2,39 Go | 24,009 | 99 | 0,91× [0,90–0,92] |
-| **`Slot32` (scalaire@24)** | **5,510** | **2,50 Go** | **10,401** | 241 | **2,09× [2,05–2,11]** |
+| FP16 (half4, scalaire) | 16,000 | 7,27 Go | 21,728 | 334 | 1,00× [1,00–1,00] |
+| `Grouped32` | 3,498 | 1,59 Go | 31,634 | 50 | 0,69× [0,68–0,69] |
+| `Flat32` | 5,256 | 2,39 Go | 23,807 | 99 | 0,91× [0,91–0,91] |
+| **`Slot32` (scalaire@24)** | **5,510** | **2,50 Go** | **10,496** | 241 | **2,03× [2,03–2,10]** |
 
 ⚠️ **La colonne « vs FP16 » n'est pas le quotient des deux colonnes de gauche.**
 C'est la **médiane du rapport formé round par round**, avec sa plage sur les
 5 rounds gardés. Diviser un minimum par un minimum mêlerait deux rounds qui
-n'ont jamais coexisté : un lecteur qui pose 21,775 / 10,401 trouve 2,09 ici,
-mais 21,775 / 9,925 trouve 2,19 pour la variante `float4` plus bas, là où le
+n'ont jamais coexisté : un lecteur qui pose 21,728 / 10,496 trouve 2,09 ici,
+mais 21,728 / 10,126 trouve 2,19 pour la variante `float4` plus bas, là où le
 rapport round par round donne 2,15. C'est la même précaution que la section
 sur la dispersion : ce sont les **rapports**, pas les millisecondes, qui se
 comparent.
@@ -541,7 +541,7 @@ lot a établi. Les `b/poids` et les octets, eux, sont **exacts** et se
 reproduisent au chiffre.
 
 Le bras `Slot32` est le noyau de la table de tête de cette section, remesuré :
-**2,09× [2,05–2,11]** ici contre **2,07×** là. Les deux plages se recouvrent —
+**2,03× [2,03–2,10]** ici contre **2,07×** là. Les deux plages se recouvrent —
 [2,05–2,11] contient le 2,07× de la table de tête —, et le 2,09× déborde par
 le haut la plage inter-processus [2,029 ; 2,080] documentée ci-dessus. Les
 deux rapports ne sont d'ailleurs pas formés de la même façon : ici round par
@@ -561,13 +561,13 @@ au FP16 scalaire.
 
 | bras (expérience) | b/poids | ms/token (min) | Go/s | vs FP16 (méd) [plage] |
 |---|---|---|---|---|
-| FP16 (half4, **float4**) | 16,000 | 20,709 | 351 | 1,05× [1,05–1,05] |
-| `Slot32` (**float4**@24) | 5,510 | 9,925 | 252 | **2,15× [2,12–2,19]** |
-| `Slot32` (float4@**28**) | 5,510 | 10,091 | 248 | 2,13× [2,06–2,17] |
+| FP16 (half4, **float4**) | 16,000 | 20,612 | 351 | 1,05× [1,04–1,07] |
+| `Slot32` (**float4**@24) | 5,510 | 10,126 | 252 | **2,14× [2,10–2,16]** |
+| `Slot32` (float4@**28**) | 5,510 | 10,081 | 248 | 2,13× [2,07–2,17] |
 
 Même convention que la table précédente : le « vs FP16 » est la **médiane du
 rapport formé round par round**, avec sa plage sur les 5 rounds gardés, et non
-le quotient des colonnes `ms` — 21,775 / 9,925 donnerait 2,19, borne haute de
+le quotient des colonnes `ms` — 21,728 / 10,126 donnerait 2,19, borne haute de
 la plage, pas sa médiane.
 
 **Le modèle de bancs NVIDIA n'est pas valide sur Apple.** Les trois points
@@ -575,14 +575,14 @@ ci-dessous sont des grandeurs **dérivées** de la table — licites parce que
 leurs deux termes viennent du même run et de la même comptabilité, mais
 dérivées, pas lues :
 
-1. Passer du scalaire au `float4` gagne **4,6 %** sur LLVQ (10,401 → 9,925)
-   **et 4,9 %** sur FP16 (21,775 → 20,709). Les deux bras, presque autant.
-2. Le **padding à 28 ne gagne rien** : 10,091 contre 9,925, soit **1,7 %**
+1. Passer du scalaire au `float4` gagne **3,5 %** sur LLVQ (10,496 → 10,126)
+   **et 5,1 %** sur FP16 (21,728 → 20,612). Les deux bras, presque autant.
+2. Le **padding à 28 ne gagne rien** : 10,081 contre 10,126, soit **0,4 %**
    *plus lent*, et sa plage de rapport [2,06–2,17] recouvre par le haut celle
    du dense [2,12–2,19]. Rien ne le distingue — et un tel écart, la section
    sur la dispersion le dit, n'est pas tranchable.
 3. À bras comparables, le rapport ne bouge pas : `float4` contre `float4`
-   donne **2,05×** (2,15 / 1,05), contre **2,09×** en scalaire contre
+   donne **2,04×** (2,15 / 1,05), contre **2,09×** en scalaire contre
    scalaire. Les deux sont dans la dispersion l'un de l'autre.
 
 Ce qui paie n'est donc pas la suppression d'un conflit de bancs, c'est la
@@ -593,7 +593,7 @@ elle paie des deux côtés, donc elle ne change pas le rapport.
 identiques **au bit près** au noyau scalaire sur les 1 105 920 lignes (une
 assertion du code l'exige). La variante `float4` du bras FP16 ne l'est pas —
 3,1·10⁻⁸ d'écart — parce que sa somme est écrite en `+`/`*` et non en `fma`
-explicites, donc le compilateur contracte comme il veut. Les 4,9 % gagnés
+explicites, donc le compilateur contracte comme il veut. Les 5,1 % gagnés
 côté FP16 ne sont pas garantis à arithmétique constante.
 
 ### Ce que ce chiffre ne couvre pas

@@ -65,8 +65,15 @@ mod linux {
     const REC_WORDS: usize = 6;
 
     pub fn run() -> Result<(), String> {
-        let src = KernelSource::new(&[llvq_cuda::SLOT_CUH, llvq_cuda::PREFLIGHT_CU]);
+        let sources = llvq_cuda::load_sources()?;
+        let src = KernelSource::new(&[&sources.slot, &sources.cu]);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        match &sources.overridden_from {
+            None => println!("  sources embarquées (celles du commit)"),
+            Some(d) => println!(
+                "  ⚠️ SOURCES SURCHARGÉES depuis {d} — tout chiffre issu de ce run se \n                   rattache au sha256 ci-dessus et à rien d'autre."
+            ),
+        }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;

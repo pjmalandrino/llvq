@@ -65,3 +65,31 @@ CONSEQUENCE DE PROTOCOLE, a appliquer avant K-1(a) et K-1(b) :
     tranchee en comparant deux invocations distinctes du binaire. Les bras
     doivent etre entrelaces DANS UN MEME PROCESSUS, et leur dispersion imprimee.
   * a publier avec une dispersion, jamais en valeur ponctuelle.
+
+================================================================================
+LE BANC A SEPT BRAS DERIVE AUSSI — trois invocations, code IDENTIQUE
+================================================================================
+Meme constat sur le banc de K-1, entrelace et a rapport forme round par round.
+La MEDIANE du rapport Slot32/FP16 sur cinq rounds gardes vaut, selon
+l'invocation :
+
+  2,03x  [2,03-2,10]   <- run archive, docs/mesures/k1-metal-2026-08-05.txt
+  2,06x
+  2,09x  [2,05-2,11]
+
+Les b/poids (5,510 / 5,256 / 3,498 / 16,000) et les octets lus sont IDENTIQUES
+aux trois, au chiffre. Les pires erreurs aussi. Seuls les temps bougent.
+
+CE QUE CA CHANGE A CE QU'ON PUBLIE :
+
+  * l'entrelacement des bras corrige la derive DANS un processus — il empeche
+    qu'un bras soit mesure au point le plus chaud — mais il ne peut rien
+    contre la derive ENTRE processus, qui deplace les deux bras ensemble et
+    donc leur rapport de quelques pour cent.
+  * une troisieme decimale sur ce rapport n'a pas de contenu. Le chiffre
+    defendable est une PLAGE : sur le banc a sept bras, Slot32 tient
+    2,03x a 2,09x contre le FP16 scalaire ; le banc a deux bras donnait
+    2,029x a 2,080x. Les deux plages se recouvrent largement.
+  * corollaire pour le portage CUDA : le protocole y devra faire la meme
+    chose, et un ecart CUDA/Metal inferieur a ~5 % ne sera pas
+    interpretable sans repeter les invocations.

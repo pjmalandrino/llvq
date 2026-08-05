@@ -14,7 +14,7 @@ L'annexe C du papier déclare l'inverse de trois façons : leur noyau CUDA ne tr
 
 Le nôtre existe. Il bat le FP16 de **2,09×, plage [2,05–2,11]**, sur les 252 projections du modèle entier — `Slot32` à 5,510 b/poids, 1 105 920 lignes vérifiées contre une référence f64 avant toute mesure (§3.2, §6.1, journal `docs/mesures/k1-metal-2026-08-05.txt`). Il tourne sur du Metal.
 
-⚠️ **Le rapport est formé round par round**, puis résumé par sa médiane et sa plage sur les 5 rounds gardés — jamais en divisant deux minima, qui mêleraient deux rounds n'ayant jamais coexisté. Toute revendication qui s'appuie sur ce nombre doit citer la plage, pas le point. En `float4` le même banc rend **2,15× [2,12–2,19]**. C'est ce run-là, et lui seul, qui a un journal dans le dépôt.
+⚠️ **Le rapport est formé round par round**, puis résumé par sa médiane et sa plage sur les 5 rounds gardés — jamais en divisant deux minima, qui mêleraient deux rounds n'ayant jamais coexisté. Toute revendication qui s'appuie sur ce nombre doit citer la plage, pas le point. En `float4` le même banc rend **2,14× [2,10–2,16]**. C'est ce run-là, et lui seul, qui a un journal dans le dépôt.
 
 🏷️ **Le « 2,06–2,08× » qui figurait ici est antérieur et n'est plus le chiffre à citer.** Il vient du banc **à deux bras** (`docs/fiche-4b.md` §6.4, désormais étiquetée section historique), agrège deux invocations distinctes du binaire — ce que §4.6bis disqualifie — et sa fourchette est plus étroite que la dispersion mesurée depuis : trois invocations consécutives du banc **non modifié** rendent 2,029× puis 2,050× puis 2,080×.
 
@@ -348,23 +348,23 @@ Nuance de calibrage, pour ne pas surdimensionner le risque : la traduction *naï
 
 | bras | b/poids | min ms | vs FP16 (half4, scalaire) [plage] |
 |---|---|---|---|
-| FP16 (half4, scalaire) | 16,000 | 21,775 | 1,00× [1,00–1,00] |
-| FP16 (half4, `float4`) | 16,000 | 20,709 | 1,05× [1,05–1,05] |
-| LLVQ Slot32 (scalaire@24) | 5,510 | 10,401 | 2,09× [2,05–2,11] |
-| **LLVQ Slot32 (`float4`@24)** | **5,510** | **9,925** | **2,15× [2,12–2,19]** |
-| LLVQ Slot32 (`float4`@28 — *le padding prescrit ici*) | 5,510 | 10,091 | 2,13× [2,06–2,17] |
+| FP16 (half4, scalaire) | 16,000 | 21,728 | 1,00× [1,00–1,00] |
+| FP16 (half4, `float4`) | 16,000 | 20,612 | 1,05× [1,04–1,07] |
+| LLVQ Slot32 (scalaire@24) | 5,510 | 10,496 | 2,03× [2,03–2,10] |
+| **LLVQ Slot32 (`float4`@24)** | **5,510** | **10,126** | **2,14× [2,10–2,16]** |
+| LLVQ Slot32 (`float4`@28 — *le padding prescrit ici*) | 5,510 | 10,081 | 2,13× [2,07–2,17] |
 
-> **Comment le rapport est formé, et pourquoi il ne se retrouve pas en divisant les colonnes** : le rapport est calculé **round par round**, puis résumé par sa **médiane** et sa plage sur les 5 rounds gardés. Diviser la colonne « min ms » d'un bras par celle d'un autre mêlerait deux rounds qui n'ont jamais coexisté — un lecteur qui fait 21,775 / 9,925 trouve 2,19 et non 2,15. Les ms sont là pour l'ordre de grandeur ; le rapport et sa plage sont le résultat.
+> **Comment le rapport est formé, et pourquoi il ne se retrouve pas en divisant les colonnes** : le rapport est calculé **round par round**, puis résumé par sa **médiane** et sa plage sur les 5 rounds gardés. Diviser la colonne « min ms » d'un bras par celle d'un autre mêlerait deux rounds qui n'ont jamais coexisté — un lecteur qui fait 21,728 / 10,126 trouve 2,19 et non 2,15. Les ms sont là pour l'ordre de grandeur ; le rapport et sa plage sont le résultat.
 
 Trois lectures, dans l'ordre :
 
-1. **Le padding ne paie pas.** 10,091 contre 9,925, soit **1,7 % plus lent**, et sa plage de rapport [2,06–2,17] **recouvre entièrement** celle du `float4` dense [2,12–2,19] par le haut : rien ne le distingue (§4.6bis). Il coûte pourtant +2 048 octets de mémoire partagée par bloc et une division entière par thread et par itération dans la boucle de remplissage.
-2. **La largeur de chargement paie, et des deux côtés.** +4,6 % sur LLVQ (10,401 → 9,925) et +4,9 % sur FP16 (21,775 → 20,709). Ce qui paie n'est donc pas la géométrie des bancs mais **un load 128 bits au lieu de quatre 32 bits**.
-3. **Donc le rapport ne bouge pas.** À bras comparables : **2,05×** en `float4` contre `float4` (2,15 / 1,05), contre **2,09×** en scalaire contre scalaire. Les deux sont dans la dispersion l'un de l'autre. **Prendre le gain d'un seul côté truquerait le rapport** — la règle « traiter les deux bras ou aucun » écrite plus bas vient d'être exercée pour de vrai.
+1. **Le padding ne paie pas.** 10,081 contre 10,126, soit **0,4 % plus lent**, et sa plage de rapport [2,06–2,17] **recouvre entièrement** celle du `float4` dense [2,12–2,19] par le haut : rien ne le distingue (§4.6bis). Il coûte pourtant +2 048 octets de mémoire partagée par bloc et une division entière par thread et par itération dans la boucle de remplissage.
+2. **La largeur de chargement paie, et des deux côtés.** +3,5 % sur LLVQ (10,496 → 10,126) et +5,1 % sur FP16 (21,728 → 20,612). Ce qui paie n'est donc pas la géométrie des bancs mais **un load 128 bits au lieu de quatre 32 bits**.
+3. **Donc le rapport ne bouge pas.** À bras comparables : **2,04×** en `float4` contre `float4` (2,15 / 1,05), contre **2,09×** en scalaire contre scalaire. Les deux sont dans la dispersion l'un de l'autre. **Prendre le gain d'un seul côté truquerait le rapport** — la règle « traiter les deux bras ou aucun » écrite plus bas vient d'être exercée pour de vrai.
 
-*(Les pourcentages du point 2 et le 2,05× du point 3 sont des grandeurs **dérivées** de la table ci-dessus, pas des lignes lues : `(10,401 − 9,925)/10,401`, `(21,775 − 20,709)/21,775`, `2,15 / 1,05`. Ils sont licites parce que les deux termes viennent du même run, du même processus et de la même comptabilité — ce que le protocole entrelacé de §4.6bis rend permis.)*
+*(Les pourcentages du point 2 et le 2,04× du point 3 sont des grandeurs **dérivées** de la table ci-dessus, pas des lignes lues : `(10,496 − 10,126)/10,496`, `(21,728 − 20,612)/21,728`, `2,15 / 1,05`. Ils sont licites parce que les deux termes viennent du même run, du même processus et de la même comptabilité — ce que le protocole entrelacé de §4.6bis rend permis.)*
 
-**Un confondant, déclaré et non caché.** Les deux variantes `float4` de `Slot32` sont **identiques au bit près** au noyau scalaire sur les 1 105 920 lignes (assertion dans le code, pire erreur 3,4e-8 des trois côtés). La variante `float4` du bras FP16 ne l'est pas : 3,1e-8 d'écart avec le bras FP16 scalaire, parce que sa somme est écrite en `+`/`*` et non en `fma` explicites, donc le compilateur contracte comme il veut. Les +4,9 % du bras témoin portent cette réserve ; les +4,6 % du bras LLVQ ne la portent pas.
+**Un confondant, déclaré et non caché.** Les deux variantes `float4` de `Slot32` sont **identiques au bit près** au noyau scalaire sur les 1 105 920 lignes (assertion dans le code, pire erreur 3,4e-8 des trois côtés). La variante `float4` du bras FP16 ne l'est pas : 3,1e-8 d'écart avec le bras FP16 scalaire, parce que sa somme est écrite en `+`/`*` et non en `fma` explicites, donc le compilateur contracte comme il veut. Les +5,1 % du bras témoin portent cette réserve ; les +3,5 % du bras LLVQ ne la portent pas.
 
 **Ce qui reste de l'arithmétique NVIDIA — une transposition, pas un fait de ce matériel.** Dans `tv_slot`, la lane *L* traite le bloc `j = jlo + 32t + L` et lit `xb = xs + (j−jlo)·24` (thesis.rs:133-134, lib.rs:593-596). La banque NVIDIA est `adresse_en_mots mod 32`. Pour un slot *j* fixé, l'adresse vaut `24L + j`, et `24L mod 32` ne prend que **4 valeurs distinctes** sur 32 lanes (0, 24, 16, 8 — période 4, car 24×4 = 96 ≡ 0 mod 32) : conflit 8 voies sur chacune des 24 lectures, en accès scalaire.
 
@@ -540,7 +540,7 @@ Détail à épingler : cudarc force `CUBLAS_COMPUTE_32F` pour f16 (`gemm.rs:63-9
 | froid par construction (2,50 / 7,27 Go distincts) | conservé : les deux bras résidents font 9,8 Go sur 48 |
 | sérialisation par hazard WAW sur `y` unique | **ne pas recopier le raisonnement** : sur CUDA c'est l'ordre du stream qui sérialise. Garder `y` unique par honnêteté (mêmes octets écrits), mais dire pourquoi |
 
-**Le rapport se forme round par round, jamais en divisant deux minima.** C'est le point de méthode que K−1 a dû corriger sur son propre banc : chaque round mesure tous les bras, on en tire un rapport par round, puis on publie la **médiane** et la **plage**. Un quotient de minima mêle deux rounds qui n'ont jamais coexisté, et il ne se retrouve pas à partir des colonnes publiées — sur le run archivé, 21,775 / 9,925 donne 2,19 quand le rapport round par round donne 2,15. **Partout où la table est reproduite, la phrase qui dit comment le rapport est formé doit l'accompagner**, sinon l'écart passe pour une erreur d'arithmétique.
+**Le rapport se forme round par round, jamais en divisant deux minima.** C'est le point de méthode que K−1 a dû corriger sur son propre banc : chaque round mesure tous les bras, on en tire un rapport par round, puis on publie la **médiane** et la **plage**. Un quotient de minima mêle deux rounds qui n'ont jamais coexisté, et il ne se retrouve pas à partir des colonnes publiées — sur le run archivé, 21,728 / 10,126 donne 2,19 quand le rapport round par round donne 2,15. **Partout où la table est reproduite, la phrase qui dit comment le rapport est formé doit l'accompagner**, sinon l'écart passe pour une erreur d'arithmétique.
 
 **Quatre choses à ne PAS faire** : streams multiples, noyau persistant, `cudaLaunchHostFunc`, ou une sortie par dispatch — toutes laisseraient se recouvrir les 252 matrices, ce que la chaîne de dépendance d'un transformeur interdit. C'est l'avertissement déjà écrit dans `llvq-metal/src/lib.rs:146-153` et :195-198, à re-libeller mais pas à supprimer.
 
@@ -632,12 +632,12 @@ Chaque étape a un livrable vérifiable. **La première est la plus petite chose
 
 | jalon | ce qu'il a rendu | où |
 |---|---|---|
-| **(a)** ✅ | La courbe bits↔vitesse sur **un seul protocole et un seul objet** : Slot32 2,09× [2,05–2,11], Flat32 0,91× [0,90–0,92], Grouped32 0,69× [0,69–0,69], aux 252 projections du modèle entier — rapports formés round par round, pas en divisant des minima. Elle est **brutalement non linéaire**, et ça tranche une décision de conception. | §6.1 |
-| **(b)** ✅ | La prescription de §3.2 est **infirmée** : le padding à 28 flottants rend 2,13× [2,06–2,17] contre 2,15× [2,12–2,19] en `float4`@24, soit 1,7 % plus lent avec des plages qui se recouvrent. Le gain réel est la **largeur de chargement**, +4,6 % sur LLVQ et +4,9 % sur FP16 — donc à prendre des deux côtés, et le rapport ne bouge pas (2,05× float4/float4 contre 2,09× scalaire/scalaire). | §3.2 |
+| **(a)** ✅ | La courbe bits↔vitesse sur **un seul protocole et un seul objet** : Slot32 2,03× [2,03–2,10], Flat32 0,91× [0,91–0,91], Grouped32 0,69× [0,68–0,69], aux 252 projections du modèle entier — rapports formés round par round, pas en divisant des minima. Elle est **brutalement non linéaire**, et ça tranche une décision de conception. | §6.1 |
+| **(b)** ✅ | La prescription de §3.2 est **infirmée** : le padding à 28 flottants rend 2,13× [2,07–2,17] contre 2,14× [2,10–2,16] en `float4`@24, soit 0,4 % plus lent avec des plages qui se recouvrent. Le gain réel est la **largeur de chargement**, +3,5 % sur LLVQ et +5,1 % sur FP16 — donc à prendre des deux côtés, et le rapport ne bouge pas (2,04× float4/float4 contre 2,09× scalaire/scalaire). | §3.2 |
 | **(c)** ✅ | `Slot32` à **5,3756 b/poids** et le plafond `L ≤ 4` à **≤ 4,7083** (0,667 b/poids, 12,4 %) — l'arithmétique de §3.7 confirmée au quatrième chiffre, et sa justification probabiliste remplacée par un compte exhaustif sur 4 708 800 groupes. | §3.7 |
 | *(hors livrable)* ✅ | La **dispersion inter-processus** : trois invocations du banc non modifié rendent 2,029× / 2,050× / 2,080×. Le protocole de §4.6 est nécessaire mais pas suffisant. | §4.6bis |
 
-**Effort réel : nettement plus que les ~0,5 j budgetés** — le budget ne comptait que le temps de run. Ce qu'il ne comptait pas : le banc à sept bras entrelacés (sans lequel le verdict (b), à 1,7 % d'écart, n'aurait pas été lisible), la comptabilité d'octets rendue identique entre les quatre layouts, l'assertion d'identité bit-à-bit des variantes `float4`, la vérification des 1 105 920 lignes contre la référence f64 sur **chaque** bras, et l'instrumentation de `rtbits` pour `Slot32`. Autrement dit : les contrôles et les mutants que `CLAUDE.md` §5 rend **obligatoires** ne sont budgetés dans aucun lot de ce plan. Le même écart est à attendre sur K1, K4 et K6, qui en portent au moins autant.
+**Effort réel : nettement plus que les ~0,5 j budgetés** — le budget ne comptait que le temps de run. Ce qu'il ne comptait pas : le banc à sept bras entrelacés (sans lequel le verdict (b), à 0,4 % d'écart, n'aurait pas été lisible), la comptabilité d'octets rendue identique entre les quatre layouts, l'assertion d'identité bit-à-bit des variantes `float4`, la vérification des 1 105 920 lignes contre la référence f64 sur **chaque** bras, et l'instrumentation de `rtbits` pour `Slot32`. Autrement dit : les contrôles et les mutants que `CLAUDE.md` §5 rend **obligatoires** ne sont budgetés dans aucun lot de ce plan. Le même écart est à attendre sur K1, K4 et K6, qui en portent au moins autant.
 
 ### K0 — le crate partagé `llvq-kernel`
 
@@ -726,7 +726,7 @@ Classé par ce qu'il faudrait faire pour le savoir.
 
 | question | réponse |
 |---|---|
-| Le noyau Metal paie-t-il déjà le conflit de bancs 8 voies ? | **Question non tranchée telle quelle, et devenue sans objet : le correctif prescrit ne gagne rien** — 2,13× [2,06–2,17] contre 2,15× [2,12–2,19] pour le `float4` dense, soit 1,7 % plus lent avec des plages qui se recouvrent. Ce qui gagne est la largeur de chargement, sur les deux bras (§3.2). |
+| Le noyau Metal paie-t-il déjà le conflit de bancs 8 voies ? | **Question non tranchée telle quelle, et devenue sans objet : le correctif prescrit ne gagne rien** — 2,13× [2,07–2,17] contre 2,14× [2,10–2,16] pour le `float4` dense, soit 0,4 % plus lent avec des plages qui se recouvrent. Ce qui gagne est la largeur de chargement, sur les deux bras (§3.2). |
 | Que valent Grouped32 et Flat32 sur le modèle entier ? | **0,69× et 0,91×** — voir la courbe ci-dessous, qui est le vrai résultat du jalon. |
 | Quelle est la vraie moyenne des strides sous plafond L ≤ 4 ? | **4,667 niveaux de max par groupe**, `Slot32` à 5,3756 b/poids, plafond à ≤ 4,7083 (§3.7). |
 
@@ -736,15 +736,15 @@ Les 252 projections du modèle entier, un seul protocole, un seul objet, sept br
 
 | bras | b/poids | min ms | Go lus | Go/s | vs FP16 méd [plage] |
 |---|---|---|---|---|---|
-| FP16 (half4, scalaire) | 16,000 | 21,775 | 7,27 | 334 | 1,00× [1,00–1,00] |
-| **LLVQ Slot32 (scalaire@24)** | **5,510** | **10,401** | 2,50 | 241 | **2,09× [2,05–2,11]** |
-| LLVQ Flat32 | 5,256 | 24,009 | 2,39 | 99 | 0,91× [0,90–0,92] |
-| LLVQ Grouped32 | 3,498 | 31,494 | 1,59 | 50 | 0,69× [0,69–0,69] |
-| FP16 (half4, `float4`) | 16,000 | 20,709 | 7,27 | 351 | 1,05× [1,05–1,05] |
-| LLVQ Slot32 (`float4`@24) | 5,510 | 9,925 | 2,50 | 252 | 2,15× [2,12–2,19] |
-| LLVQ Slot32 (`float4`@28) | 5,510 | 10,091 | 2,50 | 248 | 2,13× [2,06–2,17] |
+| FP16 (half4, scalaire) | 16,000 | 21,728 | 7,27 | 334 | 1,00× [1,00–1,00] |
+| **LLVQ Slot32 (scalaire@24)** | **5,510** | **10,496** | 2,50 | 241 | **2,03× [2,03–2,10]** |
+| LLVQ Flat32 | 5,256 | 23,807 | 2,39 | 99 | 0,91× [0,91–0,91] |
+| LLVQ Grouped32 | 3,498 | 31,634 | 1,59 | 50 | 0,69× [0,68–0,69] |
+| FP16 (half4, `float4`) | 16,000 | 20,612 | 7,27 | 351 | 1,05× [1,04–1,07] |
+| LLVQ Slot32 (`float4`@24) | 5,510 | 10,126 | 2,50 | 252 | 2,14× [2,10–2,16] |
+| LLVQ Slot32 (`float4`@28) | 5,510 | 10,081 | 2,50 | 248 | 2,13× [2,07–2,17] |
 
-> **La colonne « vs FP16 » n'est pas le quotient des colonnes « min ms ».** Le rapport est formé **round par round**, puis résumé par sa **médiane** et sa plage sur les 5 rounds gardés ; un minimum divisé par un minimum mêlerait deux rounds qui n'ont jamais coexisté. 21,775 / 9,925 donne 2,19, la colonne dit 2,15 — l'écart est la définition, pas une erreur. Et **les ms dérivent d'un run à l'autre** (c'est le fait même qu'établit §4.6bis) là où les b/poids et les octets reproduisent au chiffre : citer de préférence le b/poids et le rapport avec sa plage, et renvoyer à `docs/mesures/k1-metal-2026-08-05.txt` pour les ms.
+> **La colonne « vs FP16 » n'est pas le quotient des colonnes « min ms ».** Le rapport est formé **round par round**, puis résumé par sa **médiane** et sa plage sur les 5 rounds gardés ; un minimum divisé par un minimum mêlerait deux rounds qui n'ont jamais coexisté. 21,728 / 10,126 donne 2,19, la colonne dit 2,15 — l'écart est la définition, pas une erreur. Et **les ms dérivent d'un run à l'autre** (c'est le fait même qu'établit §4.6bis) là où les b/poids et les octets reproduisent au chiffre : citer de préférence le b/poids et le rapport avec sa plage, et renvoyer à `docs/mesures/k1-metal-2026-08-05.txt` pour les ms.
 
 Lue en bits contre temps, la courbe n'a rien de progressif :
 
@@ -759,7 +759,7 @@ d'octets** — c'est exactement ce que le protocole entrelacé de §4.6bis rend
 permis, et ce qu'une comparaison entre deux invocations distinctes ne
 permettrait pas. Ce sont des grandeurs **dérivées**, à étiqueter comme telles.)*
 
-Le débit effondré le dit autrement : 241 Go/s pour Slot32, 99 pour Flat32, 50 pour Grouped32. Les trois lisent **moins** d'octets que le FP16 et deux des trois sont plus lents que lui.
+Le débit effondré le dit autrement : 238 Go/s pour Slot32, 99 pour Flat32, 50 pour Grouped32. Les trois lisent **moins** d'octets que le FP16 et deux des trois sont plus lents que lui.
 
 > **Conclusion de conception, et elle est ferme : reprendre des bits doit se faire DANS `Slot32`, jamais en changeant de layout.** Les deux layouts plus compacts ne sont pas des points d'un compromis réglable — ce sont des impasses mesurées sur le modèle entier.
 

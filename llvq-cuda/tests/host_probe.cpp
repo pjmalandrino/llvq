@@ -12,6 +12,12 @@
 //        f32[nblocks] floor
 
 #include "host_shim.h"
+// Deliberately in the order NVRTC sees them, and with the header first, so
+// that the `#ifndef` guard in the `.cu` takes the same branch here as it does
+// on the device. Including only the `.cu` would let clang resolve the include
+// itself and leave the concatenated form — the one that actually ships —
+// untested. It cost one failed job to learn that.
+#include "../kernels/llvq_slot.cuh"
 #include "../kernels/preflight.cu"
 
 #include <cstdio>

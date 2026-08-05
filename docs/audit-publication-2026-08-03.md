@@ -459,7 +459,7 @@ widget d'inférence s'affichera et échouera. Ajouter `library_name` custom et
 répertoire vierge, compile (`cargo check --all-targets`, exit 0), passe
 `clippy` à zéro warning, passe **128/128 tests**, et fait tourner `bin/run`,
 `bin/thesis` (2,06× — la valeur rejouée pendant cet audit, cf. B4 ; le chiffre
-courant est 2,09× [2,05–2,11], run archivé du 2026-08-05) et `llvq-bench`. **Aucune surface publique ne référence le
+courant est 2,03× [2,03–2,10], run archivé du 2026-08-05) et `llvq-bench`. **Aucune surface publique ne référence le
 travail non commité** (grep `embedq|embedquant|LVQ3|raw_tensors` : zéro). Le
 dépôt publié se suffit à lui-même.
 

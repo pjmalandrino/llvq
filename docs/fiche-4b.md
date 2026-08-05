@@ -432,7 +432,7 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 > publier.** Les trois lignes ci-dessous sont les runs du **banc à deux bras**
 > (2026-08-01 et 2026-08-03), dont aucun n'a laissé de journal. Le chiffre
 > courant vient du run archivé à sept bras : **`Slot32` 5,510 b/poids,
-> 2,09× [2,05–2,11]** sur les mêmes 252 projections, journal
+> 2,03× [2,03–2,10]** sur les mêmes 252 projections, journal
 > [`docs/mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt).
 > Ce rapport-là est la **médiane du rapport formé round par round**, avec sa
 > plage sur les 5 rounds gardés — pas le quotient de deux minima, qui mêlerait
@@ -449,7 +449,7 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 
 `SUSPECT` sur les décimales, `MESURE` sur l'ordre de grandeur. **Aucun fichier de log n'existe pour ces trois lignes-là** : leurs valeurs ne vivent que recopiées dans README.md:147-155, CLAUDE.md:121 et la table de tête de `docs/format-noyau.md` § « La thèse, sur le modèle entier ». *(Le reproche est levé pour le banc courant : `docs/mesures/` existe depuis le 2026-08-05 et archive le run à sept bras ainsi que les trois invocations témoins du banc à deux bras.)* Écarts entre exécutions : FP16 +4,5 %, LLVQ +5,4 %, **rapport −0,8 %**.
 
-> **Ce qui se publie aujourd'hui** vient du run archivé du 2026-08-05, pas de cette table : `Slot32` **5,510 b/poids**, **2,09× [2,05–2,11]** (médiane du rapport formé round par round sur les 5 rounds gardés), les 1 105 920 lignes, la pire erreur 3,4·10⁻⁸, les 7,27 et 2,50 Go. Millisecondes : `docs/mesures/k1-metal-2026-08-05.txt`.
+> **Ce qui se publie aujourd'hui** vient du run archivé du 2026-08-05, pas de cette table : `Slot32` **5,510 b/poids**, **2,03× [2,03–2,10]** (médiane du rapport formé round par round sur les 5 rounds gardés), les 1 105 920 lignes, la pire erreur 3,4·10⁻⁸, les 7,27 et 2,50 Go. Millisecondes : `docs/mesures/k1-metal-2026-08-05.txt`.
 > **Ce qui ne se publie plus** : le « 2,06–2,08× (n=2) » de cette section. Deux raisons cumulées — il agrège deux invocations distinctes du binaire, ce que §4.6bis de `docs/portage-noyau-cuda.md` disqualifie ; et sa fourchette est plus étroite que la dispersion réellement mesurée depuis, [2,029 ; 2,080] sur trois runs témoins.
 > **Les trois décimales de « 21,691 » ne survivent pas au rejeu et ne doivent pas être publiées.**
 

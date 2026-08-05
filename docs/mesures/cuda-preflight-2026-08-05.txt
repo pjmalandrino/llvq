@@ -1,0 +1,56 @@
+Field "driver.version" is not a valid field to query.
+
+--- nvrtc + builtins (la voie NVRTC en depend) ---
+lrwxrwxrwx. 1 root root       29 Mar 15  2024 /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc-builtins.so.12.4 -> libnvrtc-builtins.so.12.4.127
+-rw-r--r--. 1 root root  5343112 Mar 15  2024 /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc-builtins.so.12.4.127
+lrwxrwxrwx. 1 root root       20 Mar 15  2024 /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc.so.12 -> libnvrtc.so.12.4.127
+-rw-r--r--. 1 root root 60409520 Mar 15  2024 /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc.so.12.4.127
+--- en-tetes CUDA (pronostic de la spec : absents) ---
+nvToolsExt.h
+nvToolsExtCuda.h
+nvToolsExtCudaRt.h
+--- ncu (pronostic : refuse en conteneur) ---
+bash: line 8: ncu: command not found
+ncu absent ou refuse
+--- ce que le binaire lie ---
+	libcuda.so.1 => /usr/lib64/libcuda.so.1 (0x00007fd7e0000000)
+	libnvrtc.so.12 => /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc.so.12 (0x00007fd7dc200000)
+
+================ PREFLIGHT ================
+source NVRTC : 12351 octets, sha256 b0b50cafef7a34179d50ddb226c08ffe474f3301209aa3c7154c6c2071876b4b
+  sources embarquées (celles du commit)
+
+carte
+  ----------------------------------------------------------------------
+  nom                    NVIDIA L40S
+  compute capability     8.9
+  SM                     142
+  L2                     100663296 octets (100.7 Mo) — LU, jamais supposé
+  mémoire partagée       49152 o/bloc, 102400 o/SM
+  bande passante fiche   864 Go/s (384 bits à 9001 MHz, DDR)
+  ⚠️ ce dernier chiffre est une plaque signalétique, pas une mesure : l'ECC est
+  active par défaut et en consomme une part. Tout « x % du pic » doit passer par le
+  noyau sol, jamais par lui.
+
+noyaux chargés
+  ----------------------------------------------------------------------
+  noyau               regs   local o  shared o       sm_  thr/bloc
+  decode_probe          26         0         0        89      1024
+  dot_probe             38         0         0        89      1024
+  floor_probe           12         0         0        89      1024
+
+fixture : 20767 blocs — les deux bornes de chacune des 383 classes, 20000 tirages uniformes
+  sur la boule m ≤ 13, plus l'origine. Plus large que le fichier scellé, qui est plafonné à Λ₂₄(12).
+
+vérification
+  ----------------------------------------------------------------------
+  20767 blocs, 498408 slots — classe, gain et niveau EXACTS
+  1 bloc origine, dont le champ de signes n'existe pas
+  produit scalaire : pire erreur 1.15e-7·Σ|w·x|
+
+✓ le décodeur porté décide exactement ce que décide le décodeur Rust.
+
+# job 6a72e0b76b79c09949c22d74, l40sx1, 2026-08-05
+4b9bc7829e322dd1d4b6561074c28901415bb885
+004b30f88cc4096430d486202a9d53f370b34a3433f1757a72c0be8bea1c1ebc  llvq-cuda/kernels/llvq_slot.cuh
+f1b8a62f68d701194d6235d272c56c2299d4d51a18f1b74f704b184dc2109269  llvq-cuda/kernels/preflight.cu
