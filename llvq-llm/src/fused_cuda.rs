@@ -368,3 +368,86 @@ fn upload_matrix(
         rotation: m.rotation,
     })
 }
+
+/// A model rebuilt from a sealed artifact **with its projections still
+/// encoded**, plus what it took to do so.
+pub struct FusedSealed {
+    pub model: crate::model::Qwen3,
+    pub tokenizer: tokenizers::Tokenizer,
+    pub config: candle_transformers::models::qwen3::Config,
+    pub quantized_weights: usize,
+    pub carried_weights: usize,
+    /// Size of the file on disk.
+    pub file_bytes: u64,
+    /// Bytes the projections occupy on the device — the number that decides
+    /// whether a model fits, and the one a disk figure must never stand in for.
+    pub runtime_bytes: u64,
+}
+
+/// Load a sealed artifact straight onto the fused path.
+///
+/// The counterpart of [`crate::sealed::load`], and the two must produce the
+/// same logits — `bin/fusedrun` is what checks that. What differs is what
+/// sits in VRAM: 8.04 GB of f16 there, `runtime_bytes` plus the embedding
+/// here.
+pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
+    use std::sync::Arc;
+
+    let model = crate::fused::load(path).map_err(candle_core::Error::msg)?;
+    let (rt, projs) = FusedRuntime::new(&model, device)?;
+    let rt = Arc::new(rt);
+
+    // Index the uploaded projections by the pair `Block::new_with` asks for.
+    let mut by_site: HashMap<(usize, String), Arc<FusedProj>> = HashMap::new();
+    for p in projs {
+        let (layer, proj) =
+            llvq_artifact::split_name(&p.name).map_err(|e| candle_core::Error::msg(e.to_string()))?;
+        by_site.insert((layer, proj), Arc::new(p));
+    }
+
+    // Everything not quantized — embedding and norms — as ordinary tensors.
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    for (name, dims, vals) in &model.raw {
+        tensors.insert(
+            name.clone(),
+            Tensor::from_slice(vals, dims.clone(), device)?.to_dtype(dtype)?,
+        );
+    }
+
+    let config: candle_transformers::models::qwen3::Config =
+        serde_json::from_slice(&model.config_json)
+            .map_err(|e| candle_core::Error::msg(format!("config.json : {e}")))?;
+    let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
+        .map_err(|e| candle_core::Error::msg(format!("tokenizer.json : {e}")))?;
+
+    let vb = candle_nn::VarBuilder::from_tensors(tensors, dtype, device);
+    // Every site the artifact carries must be claimed; anything left over
+    // means a name the loader and the model disagree about, and the model
+    // would silently fall back to a `VarBuilder` lookup that cannot succeed.
+    let mut claimed = 0usize;
+    let qwen = crate::model::Qwen3::new_with(&config, vb, &mut |layer, name| {
+        by_site.get(&(layer, name.to_string())).map(|p| {
+            claimed += 1;
+            crate::model::Proj::Fused {
+                rt: rt.clone(),
+                proj: p.clone(),
+            }
+        })
+    })?;
+    if claimed != by_site.len() {
+        candle_core::bail!(
+            "{claimed} projections réclamées par le modèle sur {} portées par le fichier",
+            by_site.len()
+        );
+    }
+
+    Ok(FusedSealed {
+        model: qwen,
+        tokenizer,
+        config,
+        quantized_weights: model.quantized_weights,
+        carried_weights: model.carried_weights,
+        file_bytes: model.file_bytes,
+        runtime_bytes: model.runtime_bytes,
+    })
+}

@@ -236,8 +236,34 @@ pub struct Block {
     head_dim: usize,
 }
 
+/// Take the supplied projection, or build the dense one.
+///
+/// The closure is only *called* when nothing was supplied — that laziness is
+/// the mechanism, not a style choice: `candle_nn::linear_no_bias` reads a
+/// tensor out of the `VarBuilder`, and in fused mode that tensor is not in the
+/// file at all. Building it to overwrite it a line later would allocate the
+/// eight gigabytes the encoded format exists to avoid.
+fn pick(
+    take: &mut ProjSource,
+    layer: usize,
+    name: &str,
+    dense: impl FnOnce() -> Result<Linear>,
+) -> Result<Proj> {
+    match take(layer, name) {
+        Some(p) => Ok(p),
+        None => Ok(Proj::Dense(dense()?)),
+    }
+}
+
 impl Block {
-    fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+    /// `idx` names the layer, so a caller can hand over projections it has
+    /// already built rather than have them read out of the `VarBuilder`.
+    fn new_with(
+        cfg: &Config,
+        vb: VarBuilder,
+        idx: usize,
+        take: &mut ProjSource,
+    ) -> Result<Self> {
         let (nh, nkv, hd) = (
             cfg.num_attention_heads,
             cfg.num_key_value_heads,
@@ -246,25 +272,27 @@ impl Block {
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
         Ok(Self {
-            q_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nh * hd, a.pp("q_proj"))?),
-            k_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("k_proj"))?),
-            v_proj: Proj::Dense(candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("v_proj"))?),
-            o_proj: Proj::Dense(candle_nn::linear_no_bias(nh * hd, cfg.hidden_size, a.pp("o_proj"))?),
-            gate_proj: Proj::Dense(candle_nn::linear_no_bias(
-                cfg.hidden_size,
-                cfg.intermediate_size,
-                m.pp("gate_proj"),
-            )?),
-            up_proj: Proj::Dense(candle_nn::linear_no_bias(
-                cfg.hidden_size,
-                cfg.intermediate_size,
-                m.pp("up_proj"),
-            )?),
-            down_proj: Proj::Dense(candle_nn::linear_no_bias(
-                cfg.intermediate_size,
-                cfg.hidden_size,
-                m.pp("down_proj"),
-            )?),
+            q_proj: pick(take, idx, "self_attn.q_proj", || {
+                candle_nn::linear_no_bias(cfg.hidden_size, nh * hd, a.pp("q_proj"))
+            })?,
+            k_proj: pick(take, idx, "self_attn.k_proj", || {
+                candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("k_proj"))
+            })?,
+            v_proj: pick(take, idx, "self_attn.v_proj", || {
+                candle_nn::linear_no_bias(cfg.hidden_size, nkv * hd, a.pp("v_proj"))
+            })?,
+            o_proj: pick(take, idx, "self_attn.o_proj", || {
+                candle_nn::linear_no_bias(nh * hd, cfg.hidden_size, a.pp("o_proj"))
+            })?,
+            gate_proj: pick(take, idx, "mlp.gate_proj", || {
+                candle_nn::linear_no_bias(cfg.hidden_size, cfg.intermediate_size, m.pp("gate_proj"))
+            })?,
+            up_proj: pick(take, idx, "mlp.up_proj", || {
+                candle_nn::linear_no_bias(cfg.hidden_size, cfg.intermediate_size, m.pp("up_proj"))
+            })?,
+            down_proj: pick(take, idx, "mlp.down_proj", || {
+                candle_nn::linear_no_bias(cfg.intermediate_size, cfg.hidden_size, m.pp("down_proj"))
+            })?,
             q_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("q_norm"))?,
             k_norm: candle_nn::rms_norm(hd, cfg.rms_norm_eps, a.pp("k_norm"))?,
             ln1: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("input_layernorm"))?,
@@ -424,8 +452,22 @@ pub struct Qwen3 {
     dtype: DType,
 }
 
+/// Where a caller may hand over an already-built projection.
+///
+/// Called once per `(layer, "self_attn.q_proj")` pair. Returning `Some` means
+/// the `VarBuilder` is **not** consulted for that weight — which is the whole
+/// point: in fused mode the dense weights do not exist anywhere, and building
+/// them to overwrite them a line later would allocate the eight gigabytes the
+/// format exists to avoid.
+pub type ProjSource<'a> = dyn FnMut(usize, &str) -> Option<Proj> + 'a;
+
 impl Qwen3 {
     pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
+        Self::new_with(cfg, vb, &mut |_, _| None)
+    }
+
+    /// [`Self::new`], with projections optionally supplied rather than loaded.
+    pub fn new_with(cfg: &Config, vb: VarBuilder, take: &mut ProjSource) -> Result<Self> {
         let embed = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
         let head = if cfg.tie_word_embeddings {
             embed.embeddings().clone()
@@ -434,7 +476,7 @@ impl Qwen3 {
         };
         let vb_l = vb.pp("model.layers");
         let blocks = (0..cfg.num_hidden_layers)
-            .map(|i| Block::new(cfg, vb_l.pp(i)))
+            .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take))
             .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             cfg: cfg.clone(),

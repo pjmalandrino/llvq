@@ -50,7 +50,7 @@ ENV CARGO_BUILD_JOBS=2
 # n'est rattachable à aucun commit. Pour un noyau chronométré, c'est la
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
-      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench
+      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun
 # The CUDA kernel bench. A separate `cargo build` on purpose: `llvq-cuda`
 # links neither candle nor `faer`, so it costs one small LTO link rather than
 # joining the one that has already been SIGKILLed once. Its kernels are not
@@ -79,6 +79,7 @@ COPY --from=build \
       /src/target/release/oracle \
       /src/target/release/mmlu \
       /src/target/release/gbench \
+      /src/target/release/fusedrun \
       /src/target/release/preflight \
       /src/target/release/matvec \
       /src/target/release/rotbench \
