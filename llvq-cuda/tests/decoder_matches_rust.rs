@@ -64,6 +64,19 @@ fn the_cuda_decoder_decides_what_the_rust_decoder_decides() {
         .expect("clang++ is on PATH");
     assert!(st.success(), "the CUDA sources do not compile as host C++");
 
+    // The fused matvec, compile-only. It cannot run here — a single-threaded
+    // driver reproduces neither `__syncthreads` nor a warp shuffle — but a
+    // syntax or type error in it costs a fifty-minute image rebuild to find,
+    // and this costs a second.
+    let st = Command::new("clang++")
+        .args(["-std=c++17", "-O1", "-Wall", "-Wextra", "-Werror", "-c"])
+        .arg(dir.join("host_matvec.cpp"))
+        .arg("-o")
+        .arg(std::env::temp_dir().join("llvq_host_matvec.o"))
+        .status()
+        .expect("clang++ is on PATH");
+    assert!(st.success(), "the fused matvec kernels do not compile");
+
     // ---- fixture ----
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);

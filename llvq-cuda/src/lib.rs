@@ -39,6 +39,8 @@ pub mod gpu;
 pub const SLOT_CUH: &str = include_str!("../kernels/llvq_slot.cuh");
 #[cfg(target_os = "linux")]
 pub const PREFLIGHT_CU: &str = include_str!("../kernels/preflight.cu");
+#[cfg(target_os = "linux")]
+pub const MATVEC_CU: &str = include_str!("../kernels/matvec.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -70,10 +72,22 @@ pub struct Sources {
 /// silently trusting a path.
 #[cfg(target_os = "linux")]
 pub fn load_sources() -> Result<Sources, String> {
+    load_sources_named(&["llvq_slot.cuh", "preflight.cu"])
+}
+
+/// [`load_sources`] for a binary whose second file is not `preflight.cu`.
+#[cfg(target_os = "linux")]
+pub fn load_sources_named(names: &[&str; 2]) -> Result<Sources, String> {
+    let embedded = |n: &str| match n {
+        "llvq_slot.cuh" => Ok(SLOT_CUH),
+        "preflight.cu" => Ok(PREFLIGHT_CU),
+        "matvec.cu" => Ok(MATVEC_CU),
+        other => Err(format!("no embedded copy of {other}")),
+    };
     match std::env::var("LLVQ_KERNEL_DIR") {
         Err(_) => Ok(Sources {
-            slot: SLOT_CUH.to_string(),
-            cu: PREFLIGHT_CU.to_string(),
+            slot: embedded(names[0])?.to_string(),
+            cu: embedded(names[1])?.to_string(),
             overridden_from: None,
         }),
         Ok(dir) => {
@@ -82,8 +96,8 @@ pub fn load_sources() -> Result<Sources, String> {
                     .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
             };
             Ok(Sources {
-                slot: read("llvq_slot.cuh")?,
-                cu: read("preflight.cu")?,
+                slot: read(names[0])?,
+                cu: read(names[1])?,
                 overridden_from: Some(dir),
             })
         }

@@ -247,6 +247,10 @@ impl Cuda {
         self.stream.clone_htod(v).map_err(|e| format!("H2D f32: {e}"))
     }
 
+    pub fn up_u16(&self, v: &[u16]) -> Result<CudaSlice<u16>, String> {
+        self.stream.clone_htod(v).map_err(|e| format!("H2D u16: {e}"))
+    }
+
     pub fn zeros_u32(&self, n: usize) -> Result<CudaSlice<u32>, String> {
         self.stream.alloc_zeros(n).map_err(|e| format!("alloc u32: {e}"))
     }
@@ -339,4 +343,65 @@ pub fn launch_dot_probe(
         .arg(out);
     unsafe { b.launch(cfg) }.map_err(|e| format!("dot_probe: {e}"))?;
     Ok(())
+}
+
+/// One warp per output row, eight rows per block.
+///
+/// The grid is exact and there is no bounds guard in the kernel: a `return`
+/// before `__syncthreads()` deadlocks, and it would break the full-warp mask
+/// the reduction relies on. `d_out % 8 == 0` is asserted host-side instead.
+impl Cuda {
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_slot(
+        &self,
+        f: &CudaFunction,
+        words: &CudaSlice<u32>,
+        bases: &CudaSlice<u32>,
+        tab: &CudaSlice<u32>,
+        gscale: &CudaSlice<f32>,
+        rscale: &CudaSlice<f32>,
+        tail: &CudaSlice<f32>,
+        x: &CudaSlice<f32>,
+        y: &mut CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = self.stream.launch_builder(f);
+        b.arg(words).arg(bases).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot: {e}"))?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_f16(
+        &self,
+        f: &CudaFunction,
+        w: &CudaSlice<u16>,
+        x: &CudaSlice<f32>,
+        y: &mut CudaSlice<f32>,
+        d_in: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = self.stream.launch_builder(f);
+        b.arg(w).arg(x).arg(y).arg(&d_in);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_f16: {e}"))?;
+        Ok(())
+    }
+}
+
+fn row_grid(d_out: u32, threads: u32, shared: u32) -> LaunchConfig {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    }
 }

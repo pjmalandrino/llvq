@@ -30,6 +30,17 @@
 // can only come from something else.
 static inline float __fmaf_rn(float a, float b, float c) { return std::fma(a, b, c); }
 
+// Enough to *type-check* the fused matvec. These are not semantics: a
+// single-threaded driver cannot reproduce a barrier or a warp shuffle, and
+// the matvec test below is compile-only for that reason. What it does catch
+// is every syntax and type error — which is what a fifty-minute image rebuild
+// would otherwise charge for.
+#define __shared__
+#define LLVQ_HOST_BUILD 1
+static inline void __syncthreads() {}
+static inline float __shfl_xor_sync(unsigned, float v, int) { return v; }
+struct uint4 { unsigned x, y, z, w; };
+
 struct Dim3 { unsigned x, y, z; };
 extern Dim3 blockIdx;
 extern Dim3 threadIdx;

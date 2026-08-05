@@ -56,7 +56,7 @@ RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
 # joining the one that has already been SIGKILLed once. Its kernels are not
 # compiled here at all — they ship as text and NVRTC compiles them at startup,
 # so tuning a tile size or a register cap never touches this image again.
-RUN cargo build --release --locked -p llvq-cuda --bin preflight
+RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -79,6 +79,7 @@ COPY --from=build \
       /src/target/release/oracle \
       /src/target/release/mmlu \
       /src/target/release/preflight \
+      /src/target/release/matvec \
       /usr/local/bin/
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
