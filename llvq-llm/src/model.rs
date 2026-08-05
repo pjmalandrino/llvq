@@ -486,6 +486,14 @@ impl Qwen3 {
         max_new: usize,
         cap: &mut dyn Capture,
     ) -> Result<Vec<u32>> {
+        // The stop test is after the push, so `out.len() == 0` is never
+        // true: at `max_new = 0` the loop would run until RoPE walks off
+        // `max_position_embeddings` — 40 960 decode steps and an opaque
+        // candle error. The witness returns `[]` immediately, so the two
+        // paths diverged at the very first edge case.
+        if max_new == 0 {
+            return Ok(Vec::new());
+        }
         let mut caches = self.fresh_caches();
         let mut out = Vec::with_capacity(max_new);
         let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;

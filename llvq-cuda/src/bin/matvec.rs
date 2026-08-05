@@ -216,13 +216,6 @@ mod linux {
             .map(|&(_, o, i)| (o * i) as u64 * 551 / 100 / 8)
             .sum();
         let reps = (2 * dev.l2_bytes as u64 / one_pass + 1).max(2) as usize;
-        println!(
-            "\n{reps} répétitions des 7 formes : {:.0} Mo de poids LLVQ distincts par passe,\n\
-             soit {:.1}× la L2. En dessous de 1× on mesurerait le cache, pas la DRAM —\n\
-             le piège qui a rendu optimiste toute mesure LLVQ antérieure au 2026-07-31.",
-            (one_pass * reps as u64) as f64 / 1e6,
-            (one_pass * reps as u64) as f64 / dev.l2_bytes as f64
-        );
 
         let fd = FastDecoder::new();
         let table = ClassTable::new(&fd, 1);
@@ -510,7 +503,15 @@ mod linux {
         }
         println!("  {}", "-".repeat(80));
         println!("  vs FP16 : {rmd:.2}× [{rlo:.2}–{rhi:.2}]");
+        let read_per_pass: u64 = mats.iter().map(|m| m.slot_bytes).sum();
         println!("\n  source : {source}");
+        println!(
+            "  {:.0} Mo de poids LLVQ distincts par passe, soit {:.1}× la L2 lue.\n  \
+             Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu\n  \
+             optimiste toute mesure LLVQ antérieure au 2026-07-31.",
+            read_per_pass as f64 / 1e6,
+            read_per_pass as f64 / dev.l2_bytes as f64
+        );
         // The warning has to follow the data, not the binary. Printing it
         // unconditionally is how a run on the published model ends up filed
         // under "synthetic" by whoever reads the log six months later.
@@ -523,6 +524,23 @@ mod linux {
                  chemin du .llvq en argument pour cela."
             );
         }
+        // The tied lm_head is unquantized and read once per token by both
+        // arms — the same constant added to each, and what caps the ratio.
+        // The Metal bench prints this; without it a projections-only ratio
+        // gets read as an end-to-end one, which is the risk this dossier
+        // names first.
+        let head_bytes = 389_070_848f64 * 2.0;
+        let bw = fb as f64 / flo;
+        let head_s = head_bytes / bw;
+        println!(
+            "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms sur les deux\n  \
+             bras au débit mesuré) : {:.2}× au lieu de {rmd:.2}×. C'est lui qui plafonne\n  \
+             le rapport, et attention — normes, activations, attention et rotation ne\n  \
+             sont mesurées ni ici ni là.",
+            389_070_848f64 / 1e6,
+            head_s * 1e3,
+            (flo + head_s) / (slo + head_s)
+        );
         println!(
             "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions\n  \
              somment dans des ordres différents et les deux compilateurs contractent les FMA\n  \

@@ -89,6 +89,15 @@ fn main() -> anyhow::Result<()> {
         // change what the model says". Greedy decoding is deterministic, so
         // the two token sequences must be equal, not close.
         if std::env::var("LLVQ_VERIFY_CACHE").is_ok() {
+            // Below three tokens the cache is never read: `generate` returns
+            // right after the prefill, so `append` never sees a non-empty
+            // cache and the mask never sees a nonzero offset. The check would
+            // compare a code path with itself and print a green tick — the
+            // exact motif CLAUDE.md §5 documents three times.
+            anyhow::ensure!(
+                n_new >= 3,
+                "LLVQ_VERIFY_CACHE n'exerce rien sous 3 tokens (n_new = {n_new})"
+            );
             let t = std::time::Instant::now();
             let want = s.model.generate_uncached(&ids, n_new, &mut NoCapture)?;
             let slow = t.elapsed().as_secs_f64();

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -607,6 +608,11 @@ def cmd_bench(args) -> int:
         name=args.name,
         namespace=args.namespace,
         volumes=volumes or None,
+        # Without this a private repo is simply unreachable: `hf-hub` reads its
+        # token from `$HF_HOME/token` and nothing writes that file inside a
+        # job. Passed as a secret rather than inlined in the script, which
+        # would put it in the logs.
+        secrets={"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else None,
     )
     print(f"{args.name} sur {args.flavor} : {job.url}\n  id {job.id}")
     print(f"suivre : uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
@@ -880,7 +886,7 @@ def main() -> int:
     b.add_argument("--flavor", default="l40sx1")
     b.add_argument("--any-flavor", action="store_true",
                    help="passer outre la liste blanche — à déclarer dans tout chiffre publié")
-    b.add_argument("--timeout", default="20m",
+    b.add_argument("--timeout", default="30m",
                    help="plafond réel du coût : l'estimateur ne vaut que pour une quantification")
     b.add_argument("--mount-model", default=None,
                    help="dépôt du Hub à monter en lecture seule (ex. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
