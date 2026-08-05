@@ -1840,6 +1840,7 @@ dependencies = [
  "cudarc 0.19.8",
  "llvq-artifact",
  "llvq-core",
+ "llvq-quant",
  "llvq-search",
 ]
 
@@ -1856,6 +1857,7 @@ dependencies = [
  "hf-hub",
  "llvq-artifact",
  "llvq-core",
+ "llvq-cuda",
  "llvq-quant",
  "llvq-search",
  "parquet",

@@ -1,0 +1,102 @@
+# Noyau de rotation CUDA — job 6a7369a06b79c09949c23471, l40sx1, 2026-08-05
+# arbre non commité (rotate.cu / llvq_rot.cuh / rotbench.rs), image
+# hf.co/spaces/Pier-Jean/llvq-runner-cuda reconstruite en 12 min
+# facturé 0,01 $
+
+source NVRTC : 13198 octets, sha256 2b6ba0930c50ea899a61095eb1c49d9c69aa2ce64311c590286adf5411fc2431
+
+NVIDIA L40S — 142 SM, 49152 o de partagée par bloc
+  rot_apply   47 registres, 0 o locaux, sm_89, 1024 threads max
+
+Vérification contre la référence f64
+  forme                                   n    m   k         rel  pire coord
+  --------------------------------------------------------------------------
+  Qwen3-4B hidden — q/k/v/gate/up      2560  512   5    6.620e-8    4.258e-7
+  Qwen3-4B o_proj — k=1, no mix        4096 4096   1    4.994e-8    3.415e-7
+  Qwen3-4B down_proj — k=19, widest    9728  512  19    9.523e-8    6.234e-7
+  Qwen3-8B intermediate               12288 4096   3    6.775e-8    3.996e-7
+  Qwen3-0.6B intermediate              3072 1024   3    6.733e-8    3.384e-7
+  narrow, k=1                          1024 1024   1    4.351e-8    2.659e-7
+  small                                  96   32   3    4.267e-8    1.351e-7
+  one Leech block                        24    8   3    4.557e-8    1.351e-7
+  --------------------------------------------------------------------------
+  pire sur 8 formes : rel 9.523e-8, coord 6.234e-7
+
+Coût — 200 lancements enchaînés, 20 jetés
+  ⚠️ un lancement à la fois, sur un stream vide : c'est la latence isolée,
+     pas ce que coûtera la même rotation intercalée entre deux matvecs.
+        n          µs
+  -------------------
+     2560        8.05
+     4096        6.72
+     9728       19.30
+    12288       26.23
+     3072        8.79
+     1024        3.44
+       96        3.48
+       24        3.33
+
+  Projection Qwen3-4B : 36 blocs × (2×2560 + 4096 + 9728) = 1517 µs/token
+  À rapporter aux ~23 400 µs d'un token f16 mesuré sur L40S le 2026-08-05.
+
+
+=== CE QUE LE JOB ÉTABLIT, ET CE QU'IL NE DIT PAS ===
+
+1. LES TROIS INCONNUES DU HARNAIS HÔTE SONT LEVÉES.
+   * registres : 47, ZÉRO octet local. `col`, le tableau de 32 flottants de
+     `rot_mix`, est resté en registres — les deux boucles déroulées ont tenu.
+     C'était la question que la vérification sur Mac ne pouvait pas poser.
+   * barrières : justes à 1024 threads. À un seul thread une barrière est
+     vacue, donc le harnais hôte ne distinguait pas un `__syncthreads()`
+     correct d'un absent.
+   * coût : mesuré, cf. point 4.
+
+2. LA CARTE REND EXACTEMENT LES CHIFFRES DU MAC — 9.523e-8 et 6.234e-7 sur la
+   pire forme, à la décimale imprimée près. Ce n'est pas une coïncidence et
+   c'est vérifiable a priori : chaque coordonnée de sortie est calculée par un
+   seul thread, dans le même ordre, sans réduction inter-thread ni `shfl`.
+   Contrairement au matvec — dont les sommes Metal et CUDA divergent par
+   construction (§ tête de `matvec.cu`) — la rotation N'A PAS de réduction, donc
+   rien ne peut réassocier. Le harnais hôte est donc fidèle, et pas seulement
+   « proche ».
+
+3. LE PLANCHER DE LANCEMENT EST MESURÉ : ~3,3 µs.
+   `n = 24` et `n = 96` rendent 3,33 et 3,48 µs pour un travail qui n'existe
+   pas (24 flottants, 32 threads). C'est le coût d'enchaîner un noyau sur un
+   stream où le suivant dépend du précédent — le `g` que
+   `portage-noyau-cuda.md` §6.3 laissait dans [1 ; 4] µs et que l'audit du
+   2026-08-05 refuse de trancher.
+   ⚠️ C'est un MAJORANT de `g` : le protocole enchaîne 200 lancements avant un
+   seul `sync`, donc la soumission est pipelinée, mais les buffers sont
+   partagés d'un lancement à l'autre et la carte sérialise. Un `g` propre se
+   mesure avec `t_submit` (instrument 3 de l'audit), pas ici.
+   Conséquence directe pour le banc matvec : ε = 252 × 3,3 ≈ 0,83 ms sur
+   CHAQUE bras — le haut de la fourchette de l'audit, pas le bas.
+
+4. LA ROTATION COÛTE 1,52 ms/TOKEN, ET ELLE MANGE UN TIERS DU GAIN.
+   Le noyau fusé économise 10,99 − 5,81 = 5,18 ms sur les 252 projections ;
+   la rotation en reprend 1,52. Bout en bout, sur le décode f16 mesuré à
+   23,36 ms/token :
+       sans rotation : 23,36 − 5,18 = 18,18 ms → 55,0 tok/s → 1,28×
+       avec rotation : 18,18 + 1,52 = 19,70 ms → 50,8 tok/s → 1,19×
+   La prédiction posée avant le job (« ~55 → ~50 tok/s ») tient.
+
+5. CE NOYAU EST TRÈS LOIN DE SON PROPRE PLAFOND, ET ON SAIT POURQUOI.
+   `n = 9728` lit 39 Ko en 19,3 µs, soit 2,0 Go/s sur une carte qui en sert
+   864. Deux causes, toutes deux voulues par la conception actuelle :
+     a) UN SEUL BLOC. Le WHT est log₂(m) barrières et CUDA n'a pas de barrière
+        inter-blocs, donc 1 SM sur 142 travaille. Assumé et documenté dans
+        `rotate.cu` ; c'est le bon arbitrage tant que le vecteur est petit
+        devant les 2,5 Go du matvec, et ça cesse de l'être ici.
+     b) LE REMBOURRAGE KMAX. À k = 19 le mix fait 32 multiplications-additions
+        par ligne au lieu de 19 — 68 % de gaspillage, le prix payé pour garder
+        `col` en registres sans templater le noyau par largeur. À k = 5
+        (2560, la forme la plus fréquente) c'est 32 contre 5, soit 6,4×.
+   Ni l'une ni l'autre n'invalide un chiffre ci-dessus : ce sont des leviers,
+   pas des défauts.
+
+6. CE QUE LE JOB NE DIT PAS. Les 1,52 ms sont mesurées sur un stream VIDE, un
+   lancement à la fois. Dans un décode réel la rotation est intercalée entre
+   des matvecs qui saturent la carte : son temps propre pourrait se recouvrir
+   en partie, ou au contraire s'allonger. Seule une passe instrumentée dans
+   `bin/run` tranchera — et c'est le même instrument que l'audit réclame au §5.

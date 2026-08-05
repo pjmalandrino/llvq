@@ -1,0 +1,74 @@
+# Fusion q+k+v / gate+up — job 6a737a6e6b79c09949c236b4, l40sx1, 2026-08-05
+# Levier §3.6 de l'audit de perf. Facturé 0,11 $.
+
+  Fusion — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près
+
+  Coût — 7 rounds, 2 jetés, bras entrelacés
+  LLVQ, matrices séparées          5.835 ms   252 lancements
+  LLVQ, q+k+v et gate+up fusés     5.032 ms   144 lancements
+  gain 0.803 ms (13.8 %), soit 39 % du gisement de 2,039 ms
+  octets lus : 2.502 Go fusé contre 2.502 Go séparé (-0.00 %)
+
+  (rappel du même run : FP16 10.985 ms, LLVQ séparé 5.835, soit 1.89×)
+
+
+=== CE QUE LE JOB ÉTABLIT ===
+
+1. LA FUSION EST JUSTE, ET LA PREUVE EST EXACTE.
+   921 600 lignes — 36 blocs × (6144 + 19456) — identiques **au bit près**
+   entre le noyau fusé et les matrices séparées. Pas une tolérance : une
+   ligne fusée exécute les mêmes blocs, dans le même ordre, avec les mêmes
+   centroïdes, donc rien n'est réassocié et l'égalité exacte est exigible.
+   C'est ce qui rend le test létal contre un `gs_off` faux — échanger les
+   centroïdes de deux segments déplace certaines lignes d'un facteur ~2 et en
+   laisse d'autres intactes, ce qu'un epsilon global laisserait passer.
+
+2. LE GAIN DÉPASSE LA PRÉDICTION : 0,803 ms CONTRE ~0,55 ATTENDUS.
+   La prédiction venait du seul poste k/v (72 matrices à 157 Go/s, portées à
+   469). Le supplément vient de gate+up, dont l'audit ne parlait que pour les
+   lancements : 320 blocs chacune, fusionnées en 640.
+
+3. LE CONFONDANT EST MESURÉ ET IL EST NUL.
+   2,502 Go des deux côtés, à 0,00 % près. Re-transcoder un flux concaténé
+   change les strides de groupe aux frontières de segment, et un gain
+   d'octets aurait crédité la géométrie de ce qui revenait au format. Il n'y
+   en a pas : **le gain est purement géométrique** — occupation et nombre de
+   lancements.
+
+4. CE QUE ÇA APPREND SUR L'ATTRIBUTION PRÉCÉDENTE, ET C'EST SUBTIL.
+   La fusion ne supprime AUCUN travail arithmétique : les mêmes 3,63 Md de
+   poids sont décodés, avec les mêmes instructions. Elle ne change que le
+   nombre de warps en vol. Donc les 0,803 ms qu'elle récupère n'étaient pas du
+   calcul mais de la **latence non masquée** — et ils étaient comptés dans les
+   1,199 ms que la décomposition du job précédent attribuait au « décodage ».
+
+   Correction à porter sur `attribution-cuda-2026-08-05.txt` : l'étage
+   `tv_slot − tv_floor_xs` mesure « décodage ET latence que le décodage ne
+   masque pas ». Les deux ne se séparent pas par un sol ; il faut faire varier
+   l'occupation, ce que ce job vient de faire. Répartition corrigée du
+   gisement de 2,039 ms :
+
+     latence non masquée / occupation   0,803 ms   39 %   (mesuré, ce job)
+     flux Slot32                        0,681 ms   33 %
+     décodage résiduel                 ~0,396 ms   19 %   (1,199 − 0,803)
+     24 lectures xs (bancs)             0,118 ms    6 %
+     gather tab                         0,041 ms    2 %
+
+   L'audit avait donc raison de lister « latence non masquée » et « ALU »
+   comme deux bornes qui **se recouvrent**, et raison d'écrire qu'elles ne
+   s'additionnent pas. Ce qu'il n'avait pas prévu, c'est laquelle domine.
+
+5. CE QUE LE JOB NE DIT PAS : LE RAPPORT.
+   10,985 / 5,032 = 2,18× serait malhonnête. Le bras FP16 souffre lui aussi
+   du sous-remplissage — ses k/v rendent 432 Go/s contre 688 pour une forme
+   pleine — donc il gagnerait aussi à la fusion. Ordre de grandeur, à partir
+   des temps par forme du même run : ~0,3–0,4 ms côté FP16, ce qui placerait
+   le rapport honnête autour de **2,1×** contre 1,89× aujourd'hui.
+
+   ⚠️ C'EST UNE ESTIMATION, PAS UNE MESURE. Le bras FP16 fusionné n'existe
+   pas : il demande une seconde copie de 7,27 Go de poids f16 en VRAM. Aucun
+   chiffre de rapport ne doit sortir de ce job — seulement le delta
+   LLVQ → LLVQ de 0,803 ms, qui lui est mesuré des deux côtés.
+
+VRAM : pic 11,25 Go (contre 9,71 sans la fusion), moyenne 6,76.

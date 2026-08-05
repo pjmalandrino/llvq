@@ -180,9 +180,16 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
-        let sources = llvq_cuda::load_sources_named(&["llvq_slot.cuh", "matvec.cu"])?;
+        // Three parts, concatenated in dependency order: `llvq_floor.cuh` uses
+        // `warp_sum` and `TILE_BLOCKS`, both of which `matvec.cu` defines.
+        // NVRTC has no filesystem, so the host does the including.
+        let sources =
+            llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "llvq_floor.cuh"])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
-        let src = KernelSource::new(&[&defines, &sources.slot, &sources.cu]);
+        let parts: Vec<&str> = std::iter::once(defines.as_str())
+            .chain(sources.parts.iter().map(String::as_str))
+            .collect();
+        let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &sources.overridden_from {
             println!("  ⚠️ SOURCES SURCHARGÉES depuis {d}");
@@ -197,7 +204,10 @@ mod linux {
             dev.l2_bytes as f64 / 1e6,
             dev.shared_per_block
         );
-        for name in ["tv_slot", "tv_f16"] {
+        // `tv_slot` and `tv_f16` first, and their line is the one to compare
+        // against earlier logs: adding the floor probes to the same NVRTC
+        // translation unit must not change what the compiler does to them.
+        for name in ["tv_slot", "tv_f16", "tv_floor_stream", "tv_floor_tab", "tv_floor_xs"] {
             let r = cuda.report(name)?;
             println!(
                 "  {:<10} {:>3} registres, {} o locaux, sm_{}",
@@ -242,7 +252,11 @@ mod linux {
 
         // Everything downstream of `Src` is shared, so the synthetic run and
         // the artifact run differ only in their input.
-        let build = |s: Src| -> Result<Mat, String> {
+        //
+        // Takes `&Src` rather than `Src` since 2026-08-05: the fusion arm
+        // re-reads the same indices to transcode a concatenated stream, so
+        // the sources have to outlive the matrices built from them.
+        let build = |s: &Src| -> Result<Mat, String> {
             let (d_out, d_in) = (s.d_out, s.d_in);
             let nblocks = d_in / DIM;
             let tail_w = d_in % DIM;
@@ -315,7 +329,7 @@ mod linux {
                 .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                 .collect();
             Ok(Mat {
-                name: s.name,
+                name: s.name.clone(),
                 d_out,
                 d_in,
                 nblocks,
@@ -340,6 +354,10 @@ mod linux {
         println!("\nConstruction et transcodage…");
         let t0 = Instant::now();
         let mut mats = Vec::new();
+        // Kept alive past `build`: the fusion arm re-transcodes a
+        // concatenation of these. Empty on the synthetic path, which has no
+        // layer names to group by.
+        let mut srcs: Vec<Src> = Vec::new();
         let mut n_weights = 0u64;
         let source;
 
@@ -363,7 +381,7 @@ mod linux {
                         m.name
                     );
                     n_weights += (m.d_out * m.d_in) as u64;
-                    mats.push(build(Src {
+                    srcs.push(Src {
                         name: m.name.clone(),
                         d_out: m.d_out,
                         d_in: m.d_in,
@@ -372,7 +390,10 @@ mod linux {
                         centroids: [m.centroids[0] as f32, m.centroids[1] as f32],
                         rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
                         tail: m.tail.iter().map(|&v| v as f32).collect(),
-                    })?);
+                    });
+                }
+                for s in &srcs {
+                    mats.push(build(s)?);
                 }
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
@@ -382,7 +403,7 @@ mod linux {
                     for &(name, d_out, d_in) in &SHAPES {
                         let n = d_out * (d_in / DIM);
                         n_weights += (d_out * d_in) as u64;
-                        mats.push(build(Src {
+                        mats.push(build(&Src {
                             name: format!("{name}#{r}"),
                             d_out,
                             d_in,
@@ -400,7 +421,142 @@ mod linux {
                 }
             }
         }
-        let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
+        // ---- the fusion arm ----
+        //
+        // q/k/v share an activation, and so do gate/up. Row-concatenating them
+        // turns three grids of 512/128/128 blocks into one of 768, which is
+        // what the 2026-08-05 attribution job says k_proj and v_proj are dying
+        // of: 128 blocks against 852 resident slots, 157 GB/s, and a ratio
+        // against FP16 of 1.06×.
+        //
+        // The concatenation is done on the *indices*, before transcoding, so
+        // the fused matrix is one ordinary Slot32 stream — its groups of 32
+        // simply straddle the segment boundaries, which the addressing has
+        // always tolerated since they already straddle rows. Only the gain
+        // centroids do not concatenate, and `gs_off` names each row's pair.
+        struct Fused {
+            name: String,
+            d_out: usize,
+            nblocks: usize,
+            tail_w: usize,
+            words: cudarc::driver::CudaSlice<u32>,
+            bases: cudarc::driver::CudaSlice<u32>,
+            gscale: cudarc::driver::CudaSlice<f32>,
+            gs_off: cudarc::driver::CudaSlice<u32>,
+            rscale: cudarc::driver::CudaSlice<f32>,
+            tail: cudarc::driver::CudaSlice<f32>,
+            slot_bytes: u64,
+            /// Indices into `mats` of the matrices this one replaces, in row
+            /// order — the fused output must equal their outputs concatenated.
+            parts: Vec<usize>,
+        }
+
+        // `None` for anything that is not fusible; the rank fixes the row
+        // order inside a group, so the concatenation is deterministic and the
+        // per-part comparison below lines up.
+        fn family(n: &str) -> Option<(&'static str, usize)> {
+            for (i, p) in ["q_proj", "k_proj", "v_proj"].iter().enumerate() {
+                if n.contains(p) {
+                    return Some(("qkv", i));
+                }
+            }
+            for (i, p) in ["gate_proj", "up_proj"].iter().enumerate() {
+                if n.contains(p) {
+                    return Some(("gateup", i));
+                }
+            }
+            None
+        }
+
+        let mut fused: Vec<Fused> = Vec::new();
+        if !srcs.is_empty() {
+            let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+            for (i, s) in srcs.iter().enumerate() {
+                if let Some((fam, _)) = family(&s.name) {
+                    let (layer, _) =
+                        llvq_artifact::split_name(&s.name).map_err(|e| e.to_string())?;
+                    let key = format!("{layer:03}.{fam}");
+                    match groups.iter_mut().find(|(k, _)| *k == key) {
+                        Some((_, v)) => v.push(i),
+                        None => groups.push((key, vec![i])),
+                    }
+                }
+            }
+            for (_, v) in groups.iter_mut() {
+                v.sort_by_key(|&i| family(&srcs[i].name).map_or(usize::MAX, |(_, r)| r));
+            }
+
+            let t_fuse = Instant::now();
+            for (key, idx) in &groups {
+                let d_in = srcs[idx[0]].d_in;
+                assert!(
+                    idx.iter().all(|&i| srcs[i].d_in == d_in),
+                    "{key}: fusion exige un d_in commun"
+                );
+                let nblocks = d_in / DIM;
+                let tail_w = d_in % DIM;
+                let d_out: usize = idx.iter().map(|&i| srcs[i].d_out).sum();
+                assert_eq!(d_out % 8, 0, "{key}: CUDA lance des blocs entiers");
+
+                let mut indices = Vec::with_capacity(d_out * nblocks);
+                let mut gains = Vec::with_capacity(d_out * nblocks);
+                let mut rscale = Vec::with_capacity(d_out);
+                let mut tail = Vec::with_capacity(d_out * tail_w);
+                let mut gscale = Vec::with_capacity(2 * idx.len());
+                let mut gs_off = Vec::with_capacity(d_out);
+                for (seg, &i) in idx.iter().enumerate() {
+                    let s = &srcs[i];
+                    indices.extend_from_slice(&s.indices);
+                    gains.extend_from_slice(&s.gains);
+                    rscale.extend_from_slice(&s.rscale);
+                    tail.extend_from_slice(&s.tail);
+                    gscale.extend_from_slice(&s.centroids);
+                    gs_off.extend(std::iter::repeat_n(2 * seg as u32, s.d_out));
+                }
+                let rt = transcode(&fd, &table, &indices, &gains, Layout::Slot32)
+                    .map_err(|e| e.to_string())?;
+                let mut bytes = rt.data.clone();
+                bytes.extend_from_slice(&[0u8; 20]);
+                while !bytes.len().is_multiple_of(4) {
+                    bytes.push(0);
+                }
+                let words: Vec<u32> = bytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                fused.push(Fused {
+                    name: key.clone(),
+                    d_out,
+                    nblocks,
+                    tail_w,
+                    words: cuda.up_u32(&words)?,
+                    bases: cuda.up_u32(&rt.bases)?,
+                    gscale: cuda.up_f32(&gscale)?,
+                    gs_off: cuda.up_u32(&gs_off)?,
+                    rscale: cuda.up_f32(&rscale)?,
+                    tail: cuda.up_f32(if tail.is_empty() { &[0.0f32] } else { &tail })?,
+                    slot_bytes: rt.data.len() as u64
+                        + rt.bases.len() as u64 * 4
+                        + (d_out * tail_w) as u64 * 4
+                        + d_out as u64 * 4,
+                    parts: idx.clone(),
+                });
+            }
+            println!(
+                "  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
+                fused.len(),
+                fused.iter().map(|f| f.parts.len()).sum::<usize>(),
+                fused.len(),
+                t_fuse.elapsed().as_secs_f64()
+            );
+        }
+
+        let max_dout = mats
+            .iter()
+            .map(|m| m.d_out)
+            .chain(fused.iter().map(|f| f.d_out))
+            .max()
+            .unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
         println!(
             "  {} matrices, {:.2} Md de poids, en {:.0} s",
@@ -546,6 +702,325 @@ mod linux {
              somment dans des ordres différents et les deux compilateurs contractent les FMA\n  \
              selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs."
         );
+
+        // ================= ATTRIBUTION =================
+        //
+        // Everything above is the published protocol, untouched. What follows
+        // runs in *additional* rounds and answers a different question: the
+        // aggregate says the LLVQ arm reads 2.50 GB at 431 GB/s where FP16
+        // reads 7.27 at 662, but it cannot say which of the four candidates
+        // the perf audit lists holds the ~2 ms between 3.78 and 5.805.
+        //
+        // Two instruments, and their costs are declared:
+        //
+        //   * the floor probes, timed exactly like the two arms — same rounds,
+        //     same warmup, same wall-clock-around-a-pass. Their *differences*
+        //     are the attribution; their absolute values are not baselines.
+        //   * per-matrix CUDA events, which add a `cuEventRecord` between
+        //     consecutive launches. That is not free, so these rounds are
+        //     separate and their totals are NOT the published milliseconds.
+        println!("\n\n================= ATTRIBUTION (hors protocole publié) =================");
+
+        let floors = [
+            ("sol — bases + 5 mots", cuda.func("tv_floor_stream")?),
+            ("sol — + gather tab", cuda.func("tv_floor_tab")?),
+            ("sol — + 24 lectures xs", cuda.func("tv_floor_xs")?),
+        ];
+        let run_floor = |f: &cudarc::driver::CudaFunction,
+                         m: &Mat,
+                         y: &mut cudarc::driver::CudaSlice<f32>|
+         -> Result<(), String> {
+            cuda.launch_floor(
+                f, &m.words, &m.bases, &d_tab, &d_x, y, m.nblocks as u32, m.d_out as u32,
+                THREADS, shared,
+            )
+        };
+
+        // `t_submit` is read on the same passes: the CPU time of the launch
+        // loop alone, before the synchronize. If it approaches the wall clock,
+        // the card is starved and every kernel-level number is a red herring.
+        let mut submit_slot = Vec::new();
+        let mut floor_ms: Vec<Vec<f64>> = vec![Vec::new(); floors.len()];
+        for rep in 0..ROUNDS {
+            let t = Instant::now();
+            for m in &mats {
+                run_slot(m, &mut d_y)?;
+            }
+            let sub = t.elapsed().as_secs_f64();
+            cuda.sync()?;
+            if rep >= WARMUP {
+                submit_slot.push(sub);
+            }
+            for (fi, (_, f)) in floors.iter().enumerate() {
+                let t = Instant::now();
+                for m in &mats {
+                    run_floor(f, m, &mut d_y)?;
+                }
+                cuda.sync()?;
+                let s = t.elapsed().as_secs_f64();
+                if rep >= WARMUP {
+                    floor_ms[fi].push(s);
+                }
+            }
+        }
+
+        let (_, sub_md, _) = spread(submit_slot.clone());
+        println!(
+            "\n  t_submit (LLVQ) : {:.3} ms de CPU pour {} lancements, soit {:.1} % du mur\n  \
+             et {:.2} µs par lancement — le gap `g` que le dossier laissait dans [1 ; 4] µs.",
+            sub_md * 1e3,
+            mats.len(),
+            100.0 * sub_md / smd,
+            sub_md * 1e6 / mats.len() as f64
+        );
+
+        println!("\n  Décomposition — chaque étage ajoute UNE chose que `tv_slot` fait");
+        println!("  {}", "-".repeat(72));
+        println!("  {:<26}{:>10}{:>12}{:>12}", "étage", "méd ms", "Δ ms", "part des ~2 ms");
+        println!("  {}", "-".repeat(72));
+        let dram_floor = sb as f64 / (fb as f64 / flo) * 1e3; // 2.50 GB at the FP16 arm's rate
+        let gisement = smd * 1e3 - dram_floor;
+        let mut prev = dram_floor;
+        println!("  {:<26}{:>10.3}{:>12}{:>12}", "plancher DRAM (calculé)", dram_floor, "—", "—");
+        for (fi, (name, _)) in floors.iter().enumerate() {
+            let (_, md, _) = spread(floor_ms[fi].clone());
+            let md = md * 1e3;
+            println!(
+                "  {name:<26}{md:>10.3}{:>12.3}{:>11.0} %",
+                md - prev,
+                100.0 * (md - prev) / gisement
+            );
+            prev = md;
+        }
+        let smd_ms = smd * 1e3;
+        println!(
+            "  {:<26}{smd_ms:>10.3}{:>12.3}{:>11.0} %",
+            "tv_slot (décodage)",
+            smd_ms - prev,
+            100.0 * (smd_ms - prev) / gisement
+        );
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  gisement total {gisement:.3} ms au-dessus du plancher DRAM.\n  \
+             ⚠️ les sols ne calculent AUCUN produit : ce sont des diagnostics, jamais\n  \
+             des références. Aucun rapport ne doit être cité contre eux."
+        );
+
+        // ---- per-shape timing, by CUDA events ----
+        //
+        // One event after each launch; matrix i costs `elapsed(ev[i], ev[i+1])`.
+        // Half the records of a start/stop pair, and the same information.
+        let evs: Vec<cudarc::driver::CudaEvent> = (0..=mats.len())
+            .map(|_| cuda.new_event())
+            .collect::<Result<_, String>>()?;
+        let mut shape_us: Vec<[f64; 2]> = vec![[0.0; 2]; mats.len()];
+        let ev_rounds = 3usize;
+        for rep in 0..(ev_rounds + 1) {
+            // `[0, 1]` rather than `0..2`: `arm` indexes the *second* axis of
+            // `shape_us`, which clippy's `needless_range_loop` reads as the
+            // first and suggests iterating away.
+            for arm in [0usize, 1] {
+                evs[0].record(cuda.stream()).map_err(|e| format!("event: {e}"))?;
+                for (i, m) in mats.iter().enumerate() {
+                    if arm == 0 {
+                        run_slot(m, &mut d_y)?;
+                    } else {
+                        run_f16(m, &mut d_y)?;
+                    }
+                    evs[i + 1].record(cuda.stream()).map_err(|e| format!("event: {e}"))?;
+                }
+                cuda.sync()?;
+                if rep == 0 {
+                    continue; // warmup
+                }
+                for i in 0..mats.len() {
+                    let dt = evs[i]
+                        .elapsed_ms(&evs[i + 1])
+                        .map_err(|e| format!("elapsed: {e}"))?;
+                    shape_us[i][arm] += dt as f64 * 1e3 / ev_rounds as f64;
+                }
+            }
+        }
+
+        // Aggregate by shape. Order of first appearance, which is the order of
+        // the model — so a reader can line the table up against a block.
+        let mut shapes: Vec<(usize, usize)> = Vec::new();
+        for m in &mats {
+            if !shapes.contains(&(m.d_out, m.d_in)) {
+                shapes.push((m.d_out, m.d_in));
+            }
+        }
+        println!("\n  Temps par forme — {ev_rounds} rounds, events CUDA");
+        println!(
+            "  ⚠️ un `cuEventRecord` entre deux lancements n'est pas gratuit : ces\n  \
+             millisecondes ne sont PAS celles du tableau publié. Les lire en relatif."
+        );
+        println!("  {}", "-".repeat(86));
+        println!(
+            "  {:<8}{:>7}{:>7}{:>6}{:>11}{:>11}{:>10}{:>10}{:>9}",
+            "forme", "d_out", "d_in", "n", "LLVQ µs", "FP16 µs", "LLVQ Go/s", "FP16 Go/s", "blocs"
+        );
+        println!("  {}", "-".repeat(86));
+        for (d_out, d_in) in &shapes {
+            let idx: Vec<usize> = mats
+                .iter()
+                .enumerate()
+                .filter(|(_, m)| m.d_out == *d_out && m.d_in == *d_in)
+                .map(|(i, _)| i)
+                .collect();
+            let n = idx.len();
+            let us_q: f64 = idx.iter().map(|&i| shape_us[i][0]).sum::<f64>() / n as f64;
+            let us_f: f64 = idx.iter().map(|&i| shape_us[i][1]).sum::<f64>() / n as f64;
+            let sbytes = mats[idx[0]].slot_bytes as f64;
+            let fbytes = mats[idx[0]].f16_bytes as f64;
+            // Blocks resident: the grid this shape launches, against the
+            // card's capacity. Underfill is the audit's third candidate and
+            // this column is what confirms or kills it.
+            let blocks = *d_out as u32 * 32 / THREADS;
+            println!(
+                "  {:<8}{d_out:>7}{d_in:>7}{n:>6}{us_q:>11.1}{us_f:>11.1}{:>10.0}{:>10.0}{blocks:>9}",
+                "",
+                sbytes / (us_q * 1e-6) / 1e9,
+                fbytes / (us_f * 1e-6) / 1e9
+            );
+        }
+        println!("  {}", "-".repeat(86));
+        println!(
+            "  capacité ≈ {} blocs résidents ({} SM × 6). Une forme très en dessous\n  \
+             et lente désigne le sous-remplissage ; toutes à ~430 Go/s désigne le\n  \
+             motif d'accès. C'est la lecture qui réécrit l'ordre de K7.",
+            dev.sm_count * 6,
+            dev.sm_count
+        );
+
+        // ---- fusion: correctness first, then cost ----
+        if !fused.is_empty() {
+            let f_seg = cuda.func("tv_slot_seg")?;
+            let run_seg = |f: &Fused,
+                           y: &mut cudarc::driver::CudaSlice<f32>|
+             -> Result<(), String> {
+                cuda.launch_slot_seg(
+                    &f_seg, &f.words, &f.bases, &d_tab, &f.gscale, &f.gs_off, &f.rscale,
+                    &f.tail, &d_x, y, f.nblocks as u32, f.tail_w as u32, f.d_out as u32,
+                    THREADS, shared,
+                )
+            };
+
+            // The fused row `r` runs the same blocks, in the same order, with
+            // the same centroids as the unfused row it came from — nothing is
+            // reassociated. So the outputs must agree BIT FOR BIT, and a
+            // tolerance here would let a wrong `gs_off` through: swapping two
+            // segments' centroids moves a result by ~2×, but an epsilon-based
+            // check on a different row would still pass.
+            println!("\n  Fusion — sortie contre les matrices non fusionnées");
+            for f in &fused {
+                run_seg(f, &mut d_y)?;
+                cuda.sync()?;
+                let got = cuda.down_f32(&d_y)?;
+                let mut at = 0usize;
+                for &pi in &f.parts {
+                    let m = &mats[pi];
+                    run_slot(m, &mut d_y)?;
+                    cuda.sync()?;
+                    let want = cuda.down_f32(&d_y)?;
+                    if got[at..at + m.d_out] != want[..m.d_out] {
+                        let bad = (0..m.d_out)
+                            .find(|&r| got[at + r] != want[r])
+                            .unwrap_or(0);
+                        return Err(format!(
+                            "{} / {} : ligne {bad} vaut {} fusionnée contre {} séparée",
+                            f.name, m.name, got[at + bad], want[bad]
+                        ));
+                    }
+                    at += m.d_out;
+                }
+            }
+            println!(
+                "  {} groupes, {} lignes — identiques AU BIT près",
+                fused.len(),
+                fused.iter().map(|f| f.d_out).sum::<usize>()
+            );
+
+            // Cost. The comparison is LLVQ against LLVQ: the same 252
+            // matrices' worth of weights, launched as 252 kernels or as 144.
+            //
+            // ⚠️ No ratio against FP16 is formed here, and that is deliberate.
+            // Fusing the FP16 arm too would mean rebuilding and holding a
+            // second copy of 7.27 GB of f16 weights; until that is done, a
+            // fused-LLVQ / unfused-FP16 ratio would credit the format for a
+            // geometry change. The number below is a delta, not a ratio.
+            let mut t_fused = Vec::new();
+            let mut t_ref = Vec::new();
+            for rep in 0..ROUNDS {
+                for arm in 0..2 {
+                    let t = Instant::now();
+                    if arm == 0 {
+                        for m in &mats {
+                            run_slot(m, &mut d_y)?;
+                        }
+                    } else {
+                        // The fusible matrices, fused; everything else — o_proj
+                        // and down_proj — exactly as before.
+                        for f in &fused {
+                            run_seg(f, &mut d_y)?;
+                        }
+                        for (i, m) in mats.iter().enumerate() {
+                            if !fused.iter().any(|f| f.parts.contains(&i)) {
+                                run_slot(m, &mut d_y)?;
+                            }
+                        }
+                    }
+                    cuda.sync()?;
+                    let s = t.elapsed().as_secs_f64();
+                    if rep >= WARMUP {
+                        if arm == 0 {
+                            t_ref.push(s)
+                        } else {
+                            t_fused.push(s)
+                        }
+                    }
+                }
+            }
+            let (_, rmd_ms, _) = spread(t_ref.clone());
+            let (_, fmd_ms, _) = spread(t_fused.clone());
+            let n_launch = fused.len()
+                + mats
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !fused.iter().any(|f| f.parts.contains(i)))
+                    .count();
+            println!(
+                "\n  Coût — {ROUNDS} rounds, {WARMUP} jetés, bras entrelacés\n  \
+                 {:<28}{:>10.3} ms   {} lancements\n  \
+                 {:<28}{:>10.3} ms   {} lancements\n  \
+                 gain {:.3} ms ({:.1} %), soit {:.0} % du gisement de 2,039 ms",
+                "LLVQ, matrices séparées",
+                rmd_ms * 1e3,
+                mats.len(),
+                "LLVQ, q+k+v et gate+up fusés",
+                fmd_ms * 1e3,
+                n_launch,
+                (rmd_ms - fmd_ms) * 1e3,
+                100.0 * (rmd_ms - fmd_ms) / rmd_ms,
+                100.0 * (rmd_ms - fmd_ms) * 1e3 / 2.039
+            );
+            let fb_slot: u64 = fused.iter().map(|f| f.slot_bytes).sum::<u64>()
+                + mats
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !fused.iter().any(|f| f.parts.contains(i)))
+                    .map(|(_, m)| m.slot_bytes)
+                    .sum::<u64>();
+            println!(
+                "  octets lus : {:.3} Go fusé contre {:.3} Go séparé ({:+.2} %) — la\n  \
+                 fusion re-transcode le flux, donc les strides de groupe changent aux\n  \
+                 frontières de segment. Un gain d'octets serait un confondant, pas un\n  \
+                 bonus : il est imprimé pour pouvoir le retrancher.",
+                fb_slot as f64 / 1e9,
+                sb as f64 / 1e9,
+                100.0 * (fb_slot as f64 - sb as f64) / sb as f64
+            );
+        }
         Ok(())
     }
 }

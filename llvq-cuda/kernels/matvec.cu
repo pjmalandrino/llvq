@@ -109,6 +109,77 @@ extern "C" __global__ void tv_slot(const u32* __restrict__ words,
     }
 }
 
+// `tv_slot` over a row-concatenation of several matrices sharing one input.
+//
+// ## Why this exists
+//
+// q/k/v consume the same activation, and so do gate/up. Launched separately,
+// `k_proj` and `v_proj` are 1024 rows = 128 blocks against the 852 a L40S
+// holds resident — 15 % occupancy — and the 2026-08-05 attribution job
+// measured them at 157 GB/s against 469 for a well-filled shape, for a ratio
+// against FP16 of 1.06×, i.e. nothing. Concatenating q+k+v by rows launches
+// 768 blocks instead of three grids of 512/128/128, and the same geometry
+// removes 108 launches per token.
+//
+// ## The one thing that is not shared: the gain centroids
+//
+// Every matrix carries its own two centroids, and `slot_dot` ends on
+// `gscale[gain]`. They cannot be folded into `rscale` — `gscale` is selected
+// by the *block's* gain bit, `rscale` is per row — so the segment has to be
+// resolved somewhere. It is resolved here, once per row, by an offset table:
+// `gs_off[row]` names where that row's pair starts in `gscale`. The read is
+// uniform across the warp (one warp owns one row), so it broadcasts.
+//
+// Everything else concatenates without a special case: `nblocks` and `tail_w`
+// are equal by construction (same `d_in`), `rscale` and `tail` are indexed by
+// row already, and the block stream is transcoded from the concatenated
+// indices, so its groups of 32 simply straddle the segment boundaries — which
+// the addressing has always tolerated, since they already straddle rows.
+//
+// ⚠️ `tv_slot` is left untouched on purpose. It is the object every published
+// millisecond refers to; this is a second kernel measured beside it, not a
+// replacement, until a job says the fusion is worth adopting.
+extern "C" __global__ void tv_slot_seg(const u32* __restrict__ words,
+                                       const u32* __restrict__ bases,
+                                       const ClassRec* __restrict__ tab,
+                                       const float* __restrict__ gscale,
+                                       const u32* __restrict__ gs_off,
+                                       const float* __restrict__ rscale,
+                                       const float* __restrict__ tail,
+                                       const float* __restrict__ x,
+                                       float* __restrict__ y,
+                                       u32 nblocks,
+                                       u32 tail_w)
+{
+    extern __shared__ float xs[];
+    u32 lane = threadIdx.x & 31u;
+    u32 row  = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+    u32 b0r  = row * nblocks;
+    const float* gs = gscale + gs_off[row];
+    float acc = 0.0f;
+
+    u32 ntiles = (nblocks + TILE_BLOCKS - 1u) / TILE_BLOCKS;
+    for (u32 t = 0; t < ntiles; ++t) {
+        u32 jlo = t * TILE_BLOCKS;
+        u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;
+        u32 n   = (jhi - jlo) * LLVQ_DIM;
+        __syncthreads();
+        for (u32 i = threadIdx.x; i < n; i += blockDim.x) xs[i] = x[jlo * LLVQ_DIM + i];
+        __syncthreads();
+
+        for (u32 j = jlo + lane; j < jhi; j += 32u)
+            acc += slot_dot(words, bases, tab, gs, b0r + j, xs + (j - jlo) * LLVQ_DIM);
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0) {
+        float tv = 0.0f;
+        u32 tc0 = nblocks * LLVQ_DIM;
+        for (u32 i = 0; i < tail_w; ++i) tv += tail[row * tail_w + i] * x[tc0 + i];
+        y[row] = acc * rscale[row] + tv;
+    }
+}
+
 // The FP16 witness. Same shape, same tiling, 128-bit loads on both sides.
 //
 // Loading eight halves per lane rather than one is not a courtesy to the

@@ -189,6 +189,31 @@ impl Cuda {
         Ok(Self { ctx, stream, module })
     }
 
+    /// Compile `src` onto an **existing** stream — candle's, in practice.
+    ///
+    /// [`Self::new`] opens device 0 and takes `ctx.default_stream()`, which is
+    /// the right thing for a bench that owns the card. Inside an inference
+    /// runtime it is not: candle allocates its tensors on its own stream, and
+    /// launching our kernels on a different one would order them against
+    /// candle's work only by accident. Sharing the stream makes the ordering
+    /// the stream's own guarantee rather than something we have to remember.
+    ///
+    /// (Both end up on the same primary context, so the pointers would have
+    /// been valid either way — it is the *ordering* this buys, not validity.)
+    pub fn on_stream(stream: Arc<CudaStream>, src: &KernelSource) -> Result<Self, String> {
+        let ctx = stream.context().clone();
+        let opts = CompileOptions {
+            arch: Some(ARCH),
+            ..Default::default()
+        };
+        let ptx = compile_ptx_with_opts(&src.text, opts)
+            .map_err(|e| format!("NVRTC refused the kernel source:\n{e}"))?;
+        let module = ctx
+            .load_module(ptx)
+            .map_err(|e| format!("the driver refused the PTX: {e}"))?;
+        Ok(Self { ctx, stream, module })
+    }
+
     pub fn device(&self) -> Result<DeviceReport, String> {
         let a = |x: Attr| self.ctx.attribute(x).map_err(|e| format!("attribute: {e}"));
         Ok(DeviceReport {
@@ -374,6 +399,113 @@ impl Cuda {
         b.arg(words).arg(bases).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_slot_seg` — the same kernel over a row-concatenation of matrices
+    /// that share an input, with one extra table naming each row's centroid
+    /// pair.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_slot_seg(
+        &self,
+        f: &CudaFunction,
+        words: &CudaSlice<u32>,
+        bases: &CudaSlice<u32>,
+        tab: &CudaSlice<u32>,
+        gscale: &CudaSlice<f32>,
+        gs_off: &CudaSlice<u32>,
+        rscale: &CudaSlice<f32>,
+        tail: &CudaSlice<f32>,
+        x: &CudaSlice<f32>,
+        y: &mut CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = self.stream.launch_builder(f);
+        b.arg(words).arg(bases).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail)
+            .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot_seg: {e}"))?;
+        Ok(())
+    }
+
+    /// A timing event on this context.
+    ///
+    /// `new_event(None)` would create it with `CU_EVENT_DISABLE_TIMING`, which
+    /// records fine and then fails at `elapsed_ms` — a mistake that costs a
+    /// billed job to find, so the flag is passed explicitly here and nowhere
+    /// else.
+    pub fn new_event(&self) -> Result<cudarc::driver::CudaEvent, String> {
+        self.ctx
+            .new_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .map_err(|e| format!("event: {e}"))
+    }
+
+    /// One of the three floor probes — same shell as `tv_slot`, less work.
+    ///
+    /// Diagnostics only: none of them computes a matvec, so no ratio may be
+    /// quoted against them.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_floor(
+        &self,
+        f: &CudaFunction,
+        words: &CudaSlice<u32>,
+        bases: &CudaSlice<u32>,
+        tab: &CudaSlice<u32>,
+        x: &CudaSlice<f32>,
+        y: &mut CudaSlice<f32>,
+        nblocks: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = self.stream.launch_builder(f);
+        b.arg(words).arg(bases).arg(tab).arg(x).arg(y).arg(&nblocks);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("floor probe: {e}"))?;
+        Ok(())
+    }
+
+    /// `rot_apply` — one block, the whole activation in shared memory.
+    ///
+    /// The grid is fixed at one block by the kernel's design (a Walsh–Hadamard
+    /// transform is `log₂ m` barriers, and CUDA has no barrier across blocks),
+    /// so the only launch knob is the thread count. Shared memory is `n`
+    /// floats, and the caller is what keeps it under the device limit — the
+    /// kernel has no way to check and would simply corrupt.
+    ///
+    /// `xin` is generic over its element type so an inference runtime can hand
+    /// over candle's own `CudaSlice<f16>` without a copy: the kernel reads it
+    /// as `unsigned short` and widens with `cvt.f32.f16`, which is exactly
+    /// what those bits are. A `u16` staging buffer would be the same bytes,
+    /// one allocation and one device-to-device copy later.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_rot<T: cudarc::driver::DeviceRepr>(
+        &self,
+        f: &CudaFunction,
+        xin: &CudaSlice<T>,
+        signbits: &CudaSlice<u32>,
+        small: &CudaSlice<f32>,
+        xout: &mut CudaSlice<f32>,
+        n: u32,
+        m: u32,
+        k: u32,
+        inv: f32,
+        x_off: u32,
+        threads: u32,
+    ) -> Result<(), String> {
+        let cfg = LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: n * 4,
+        };
+        let mut b = self.stream.launch_builder(f);
+        b.arg(xin).arg(signbits).arg(small).arg(xout).arg(&n).arg(&m).arg(&k).arg(&inv)
+            .arg(&x_off);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply: {e}"))?;
         Ok(())
     }
 

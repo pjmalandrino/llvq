@@ -10,6 +10,10 @@
 #include "../kernels/llvq_slot.cuh"
 #define TILE_BLOCKS 128u
 #include "../kernels/matvec.cu"
+// The floor probes, same treatment: they use `warp_sum` and `TILE_BLOCKS` from
+// the file above, so they are included after it — the same order the host
+// concatenates them in for NVRTC.
+#include "../kernels/llvq_floor.cuh"
 
 // The `extern __shared__` both kernels declare. `__shared__` expands to
 // nothing under the shim, so this is an ordinary external array.

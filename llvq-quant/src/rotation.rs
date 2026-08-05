@@ -69,6 +69,30 @@ impl Rotation {
         self.n
     }
 
+    /// Power-of-two factor — the width of one Walsh–Hadamard group.
+    pub fn pow2(&self) -> usize {
+        self.m
+    }
+
+    /// Odd factor — the side of the dense block, and the number of groups.
+    pub fn odd(&self) -> usize {
+        self.k
+    }
+
+    /// The `±1` diagonal, in coordinate order.
+    ///
+    /// Exposed for the GPU port: a kernel cannot rebuild these from the seed,
+    /// since that would mean porting `SplitMix64` and Gram–Schmidt as well.
+    /// The host builds the rotation and hands the kernel its three tables.
+    pub fn signs(&self) -> &[f64] {
+        &self.signs
+    }
+
+    /// `Q_odd`, `k × k` row-major.
+    pub fn small(&self) -> &[f64] {
+        &self.small
+    }
+
     /// `v ← Q v`.
     pub fn apply(&self, v: &mut [f64]) {
         assert_eq!(v.len(), self.n);

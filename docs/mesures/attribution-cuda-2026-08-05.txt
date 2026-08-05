@@ -1,0 +1,127 @@
+# Attribution du gisement — job 6a7370766b79c09949c23569, l40sx1, 2026-08-05
+# Job A du plan de l'audit de perf du même jour. Facturé 0,07 $.
+# Instruments : 3 noyaux « sol », temps par forme (events CUDA), t_submit.
+
+source NVRTC : 21368 octets, sha256 a9082c25286ca4b9cffd88e5bd194566b7cc1ebf692f4f94c32911eb9cc60568
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_floor_stream  37 registres, 0 o locaux, sm_89
+  tv_floor_tab  23 registres, 0 o locaux, sm_89
+  tv_floor_xs  34 registres, 0 o locaux, sm_89
+
+  ✅ CONTRÔLE : tv_slot 40 / tv_f16 42, identiques au run du 2026-08-05 sans
+  les sols. Ajouter trois noyaux à la même unité NVRTC n'a rien changé aux
+  deux bras publiés.
+
+UN TOKEN — 252 matrices, un stream, bras entrelacés
+  FP16 (128 bits)          10.984 min / 10.985 méd    7.27 Go   662 Go/s
+  LLVQ fusé (Slot32)        5.815 min /  5.822 méd    2.50 Go   430 Go/s
+  vs FP16 : 1.89× [1.88–1.89]
+  (run du même jour sans instruments : 10.975 / 5.805, 1.89×. Reproduit.)
+
+
+================= CE QUE LE JOB ÉTABLIT =================
+
+1. LE GPU N'EST PAS AFFAMÉ, ET `g` VAUT 1,85 µs.
+   t_submit = 0,465 ms de CPU pour 252 lancements, soit 8,0 % du mur.
+   `portage-noyau-cuda.md` §6.3 laissait `g` dans [1 ; 4] µs et l'audit a
+   propagé cette incertitude dans toutes ses bornes : c'est le BAS de la
+   fourchette. ε = 252 × 1,85 = 0,47 ms au pire — et comme la soumission
+   représente 8 % du mur, elle se recouvre largement.
+   ⚠️ Ne pas confondre avec les 3,3 µs de `rotbench` : là c'était le temps GPU
+   bout-à-bout d'un noyau minuscule (soumission + latence + exécution), ici
+   c'est le temps CPU de la soumission seule. Les deux sont compatibles.
+
+2. LA DÉCOMPOSITION — CHAQUE ÉTAGE AJOUTE UNE CHOSE
+
+   étage                         méd ms      Δ ms   part du gisement
+   ---------------------------------------------------------------
+   plancher DRAM (calculé)        3.782         —          —
+   sol — bases + 5 mots           4.463     0.681        33 %
+   sol — + gather tab             4.504     0.041         2 %
+   sol — + 24 lectures xs         4.622     0.118         6 %
+   tv_slot (décodage)             5.822     1.199        59 %
+   ---------------------------------------------------------------
+   gisement 2.039 ms au-dessus du plancher DRAM
+
+   ⚠️ Le « plancher DRAM » = 2,50 Go au débit que le bras FP16 obtient
+   (662 Go/s). C'est une CIBLE, pas un droit : les deux motifs d'accès
+   diffèrent (FP16 lit 128 bits contigus par lane, Slot32 une fenêtre de
+   5 mots à stride variable), donc une part des 0,681 ms de l'étage « flux »
+   est structurelle et non récupérable.
+
+   ⚠️ Les sols ne calculent AUCUN produit. Diagnostics, jamais références.
+
+3. TROIS PRÉDICTIONS DE L'AUDIT SONT RENVERSÉES PAR LA MESURE.
+
+   a) LES CONFLITS DE BANCS COÛTENT 0,118 ms, PAS 0,3–2,9 ms.
+      L'audit les plaçait en tête, trouvés par deux auditeurs indépendants,
+      et remontait le padding de tuile « de dernier à premier ». Le modèle
+      NVIDIA (32 bancs × 4 o, stride 24 → conflit 8 voies) prédisait le haut
+      de la fourchette ; la mesure donne 6 % du gisement. Le padding à 28
+      redescend, exactement comme la réfutation Metal de K−1(b) le suggérait
+      — et que l'audit avait écartée au motif qu'elle « ne se transporte pas ».
+      Elle se transporte.
+
+   b) LE GATHER `tab` COÛTE 0,041 ms, PAS ~0,5 ms. Surestimé d'un facteur 12.
+      La table est résidente en L1, comme l'audit le supposait — mais il
+      facturait quand même l'émission des 6 LDG.
+
+   c) L'ALU N'EST PAS HORS DE CAUSE : C'EST LE PREMIER POSTE, 1,199 ms (59 %).
+      L'audit écrivait « aucun pipe saturé ; les micro-optimisations
+      d'instructions valent ~0 ms observable et ne redeviendront pertinentes
+      qu'une fois le noyau proche de 3,78 ms ». La mesure dit l'inverse : le
+      décodage lui-même — sélections de masques, 24 FMA, `gscale[gain]` — est
+      le plus gros terme. Le compte « ~32 % d'occupation des pipes INT »
+      était un compte niveau source à ±30-50 %, sans SASS ; il a sous-estimé.
+
+      Réserve honnête : `tv_slot − tv_floor_xs` n'isole pas *que* l'ALU. Le
+      sol lit `vals[0]` et `len` là où `slot_dot` lit les cinq valeurs, et il
+      ne lit pas `gscale`. Ces deux lectures tombent dans des lignes déjà
+      chaudes, donc l'essentiel de la différence est bien du calcul — mais
+      « 1,199 ms d'ALU » est un majorant, pas une mesure de pipe.
+
+4. LE SOUS-REMPLISSAGE EST CONFIRMÉ, ET IL EST MASSIF SUR k/v.
+
+   d_out  d_in    n  LLVQ µs  FP16 µs  LLVQ Go/s  FP16 Go/s  blocs  rapport
+   -------------------------------------------------------------------------
+    4096  2560   36     20.0     33.9        363        618    512   1.70×
+    1024  2560   72     11.5     12.2        157        429    128   1.06×   ← k/v
+    2560  4096   36     20.3     34.1        355        615    320   1.68×
+    9728  2560   72     36.8     72.4        469        688   1216   1.97×
+    2560  9728   36     37.1     80.4        453        619    320   2.17×
+   -------------------------------------------------------------------------
+   capacité ≈ 852 blocs résidents (142 SM × 6)
+
+   k_proj et v_proj lancent 128 blocs sur 852 emplacements — 15 % — et
+   rendent 157 Go/s contre 469 pour la forme bien remplie : un facteur 3.
+   Leur rapport contre FP16 est **1,06×**, c'est-à-dire RIEN. Elles pèsent
+   828 µs sur les ~6 265 µs de la somme des formes, soit 13 % du temps pour
+   un gain nul.
+
+   Portées à 469 Go/s elles tomberaient à ~3,8 µs : **0,55 ms économisés,
+   27 % du gisement**, sans toucher au noyau ni au format. C'est très
+   exactement le levier §3.6 de l'audit (fusionner q+k+v et gate+up), et
+   c'est le seul geste de ce dossier qui paie deux fois — il supprime aussi
+   108 lancements et c'est la structure que `bin/run` exigera.
+
+
+================= CE QUE ÇA DONNE COMME ORDRE =================
+
+L'audit demandait que le Job A « réécrive l'ordre de K7 sur mesure ». Il le
+réécrit ainsi :
+
+  1. FUSION q+k+v ET gate+up          ~0,55 ms, mesuré, et sert au produit
+  2. DÉCODAGE (le poste à 1,199 ms)   à instrumenter au SASS avant de toucher
+  3. FLUX Slot32 (0,681 ms)           en partie structurel ; c'est là que le
+                                      plafond L ≤ 4 agirait
+  4. bancs / padding (0,118 ms)       réfuté comme priorité
+  5. gather tab (0,041 ms)            clos
+  6. gaps (≤ 0,47 ms, recouverts)     CUDA Graph reste utile pour le produit,
+                                      pas pour le banc
+
+Ce que le job NE dit pas : pourquoi le décodage coûte 1,2 ms. Aucun SASS
+n'existe dans le dépôt, et le compte niveau source vient de se tromper d'un
+facteur ~2. Le prochain instrument est un désassemblage, pas une hypothèse.
