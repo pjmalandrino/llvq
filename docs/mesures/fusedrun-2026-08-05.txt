@@ -1,0 +1,96 @@
+# Le noyau fusé dans le modèle — job 6a73af53a00abefd4b294889, l40sx1
+# Première exécution du chemin fusé en inférence. Facturé 0,16 $
+# (deux essais morts avant, 0,34 $ : prefill refusé, puis une longueur lue
+#  sur une plage — les deux dans la couture avec candle, aucun sur le noyau)
+
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+fusé   : chargé en  129.5 s,   41.7 tok/s, 3.28 Go sur la carte
+dense  : chargé en  184.4 s,   43.5 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  32 tokens identiques
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**.
+**Explanation:**
+Paris is the capital of
+  fusé  : (identique)
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           184.4 s        43.5        8.04
+  fusé            129.5 s        41.7        3.28
+  ----------------------------------------------
+  vitesse ×0.96, mémoire ÷2.45
+
+  projections : 5.510 b/poids sur la carte, fichier 1.77 Go sur disque.
+
+
+=== CE QUE LE JOB ÉTABLIT ===
+
+1. LE CHEMIN FUSÉ EST JUSTE, EN COMPOSITION.
+   32 tokens identiques au chemin dense — 252 projections enchaînées sur 36
+   couches, deux fois par token, avec un cache KV entre les deux. C'est la
+   seule question qu'aucun test unitaire ne pouvait poser : `slot_dot` était
+   épinglé contre une référence f64, la rotation contre `Rotation`, l'identité
+   `W·x = W'·(Q·x)` sur une matrice au CPU. Aucun des trois ne dit ce qui
+   arrive quand on les compose 9 072 fois.
+
+   ⚠️ 32 tokens sur un prompt, pas une preuve d'équivalence. Un décodage
+   glouton est une chaîne d'argmax : sur une génération plus longue les deux
+   finiront par diverger sur une égalité serrée, et ce ne sera pas un défaut.
+   Ce qui compte est qu'ils ne divergent pas TÔT.
+
+2. LA MÉMOIRE EST DIVISÉE PAR 2,45, ET C'EST LE RÉSULTAT PRINCIPAL.
+   8,04 Go → 3,28 Go. Le chiffre était calculé depuis le début du projet ; il
+   est maintenant mesuré sur la carte, et il retombe exactement dessus
+   (2,50 Go de projections Slot32 + 0,78 d'embedding f16).
+
+   ⚠️ 3,28 Go est ce que les POIDS occupent, calculé depuis les tailles
+   allouées. Le pic VRAM du job (9,574 Go) couvre les deux bras et le dense y
+   domine ; la moyenne, 3,642 Go, décrit surtout la phase fusée.
+
+3. LE CHARGEMENT EST 1,42× PLUS RAPIDE : 129,5 s contre 184,4.
+   Transcoder vers Slot32 coûte moins que décoder 3,63 Md de poids vers f16.
+   Prévu ~145 s, mesuré 129,5.
+
+4. LA VITESSE EST PLUS BASSE — 41,7 CONTRE 43,5, SOIT ×0,96.
+   La prédiction était ~52 tok/s. L'écart est de +4,6 ms par token contre le
+   modèle, et il n'est PAS dans le noyau : le banc `matvec` mesure les mêmes
+   252 projections à 5,84 ms contre 10,99 en f16, et ce gain-là est réel.
+
+   Le surcoût est dans la couture, et il est identifié sans mesure
+   supplémentaire — il suffit de compter les lancements par token :
+
+     * `alloc_zeros` deux fois par projection (l'activation tournée, la
+       sortie) = **504 allocations ET 504 memsets par token**, pour des
+       tampons que les deux noyaux écrivent intégralement. Aucun des deux
+       zéros n'est lu.
+     * la sortie du noyau est f32 et le modèle attend f16 = **252 conversions
+       par token**.
+     * `contiguous()` + `to_dtype` en entrée, même compte.
+     * la rotation elle-même, mesurée à 1,52 ms/token.
+
+   Soit de l'ordre de 1 000 lancements ajoutés à un décode qui en comptait
+   déjà ~1 000, sur un budget où la moitié du temps est déjà de la latence de
+   lancement (attribution du 2026-08-05). Le noyau gagne 5 ms et la plomberie
+   en rend 4,6.
+
+   Aucun de ces quatre postes n'est structurel :
+     - `alloc` au lieu d'`alloc_zeros` supprime 504 memsets ;
+     - des tampons réutilisés par forme suppriment 504 allocations ;
+     - faire écrire `tv_slot` en f16 supprime 252 conversions ;
+     - `tv_slot_seg` (déjà écrit et mesuré, 0,803 ms au banc) supprime 108
+       lancements et n'est pas encore branché ici.
+
+=== CE QUE ÇA VAUT, SANS ENJOLIVER ===
+
+Le produit fait aujourd'hui : même texte, **2,45× moins de mémoire**, 4 % plus
+lent, et il charge 1,4× plus vite. Le gain mémoire est acquis et mesuré ; le
+déficit de vitesse est de la plomberie non optimisée, pas une propriété du
+format.
+
+Et le mur ne bouge pas : 5,510 b/poids en VRAM contre 4,50 pour du 4 bits.
+Sur un 70B ce chemin demanderait 48 Go là où le 4 bits en demande 39.
+Cf. docs/pistes-format-vram-2026-08-05.md.
