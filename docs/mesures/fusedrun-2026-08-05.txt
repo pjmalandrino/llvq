@@ -94,3 +94,36 @@ format.
 Et le mur ne bouge pas : 5,510 b/poids en VRAM contre 4,50 pour du 4 bits.
 Sur un 70B ce chemin demanderait 48 Go là où le 4 bits en demande 39.
 Cf. docs/pistes-format-vram-2026-08-05.md.
+
+
+=== APRÈS LE TAMPON PARTAGÉ — job 6a74268fa00abefd4b295134, 0,16 $ ===
+
+  bras        chargement       tok/s    Go carte
+  dense           184.4 s        43.6        8.04
+  fusé            129.1 s        44.0        3.28
+  vitesse ×1.01, mémoire ÷2.45      (32 tokens toujours identiques)
+
+Un seul changement depuis le run précédent : le tampon de l'activation
+tournée est alloué une fois par largeur au lieu d'une fois par projection, et
+plus rien n'est mis à zéro. 252 allocations et 504 `memset` de moins par
+token, zéro ligne de noyau touchée.
+
+  41,7 → 44,0 tok/s, soit 23,98 → 22,73 ms par token : **−1,25 ms**.
+
+LE CHEMIN FUSÉ N'EST PLUS UN COMPROMIS SUR LA VITESSE. Même texte, 2,45× moins
+de mémoire, 1,43× plus rapide à charger, et désormais très légèrement devant
+en débit. ×1,01 n'est pas un gain — c'est la parité — mais c'est la première
+fois que le format compressé ne coûte rien en vitesse.
+
+CE QUI RESTE, ET LE COMPTE TOMBE JUSTE. Le modèle prévoyait ~52 tok/s si toute
+la plomberie disparaissait ; on est à 44,0, donc ~3,3 ms encore dans la
+couture. Les trois postes connus les expliquent entièrement :
+
+  252 conversions f32 → f16 en sortie      ~1,3 ms
+  252 `contiguous` + `to_dtype` en entrée  ~1,3 ms
+  108 lancements que `tv_slot_seg` retire   0,8 ms  (mesuré au banc)
+  ------------------------------------------------
+                                           ~3,4 ms
+
+Aucun n'est structurel. Les deux premiers demandent que `tv_slot` écrive en
+f16 et que l'entrée soit acceptée telle quelle ; le troisième est déjà écrit.
