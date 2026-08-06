@@ -218,6 +218,56 @@ impl Proj {
     }
 }
 
+/// The token embedding: a dense f16 table, or the int8 g64 payload the fused
+/// runtime keeps on the device (`LLVQ_EMBED=q8`).
+///
+/// Same design as [`Proj`]: an enum, not a trait object, and the quantized
+/// arm exists only on a CUDA build — the gather kernel lives beside the fused
+/// matvec and compiles nowhere else. The dense arm is byte-for-byte the code
+/// that produced every published number.
+pub enum Embed {
+    Dense(Embedding),
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    Q8 {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        q: std::sync::Arc<crate::fused_cuda::QuantEmbed>,
+    },
+}
+
+impl Embed {
+    /// Token ids `(.., l)` → hidden states `(.., l, d)`.
+    pub fn forward(&self, ids: &Tensor) -> Result<Tensor> {
+        match self {
+            Embed::Dense(e) => e.forward(ids),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Embed::Q8 { rt, q } => rt.embed(q, ids),
+        }
+    }
+}
+
+/// The `lm_head`: a dense tensor multiplied through candle, or the same int8
+/// g64 buffer as [`Embed::Q8`] read by a dedicated matvec — Qwen3-4B ties the
+/// two, so one payload serves both ends of the model.
+pub enum Head {
+    Dense(Tensor),
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    Q8 {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        q: std::sync::Arc<crate::fused_cuda::QuantEmbed>,
+    },
+}
+
+impl Head {
+    /// `h · Wᵀ` — logits from hidden states, in the model dtype.
+    pub fn project(&self, h: &Tensor) -> Result<Tensor> {
+        match self {
+            Head::Dense(t) => h.broadcast_matmul(&t.t()?),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Head::Q8 { rt, q } => rt.lm_head(q, h),
+        }
+    }
+}
+
 pub struct Block {
     pub q_proj: Proj,
     pub k_proj: Proj,
@@ -442,11 +492,11 @@ impl Block {
 /// Qwen3, loaded for scoring.
 pub struct Qwen3 {
     cfg: Config,
-    embed: Embedding,
+    embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
-    /// `lm_head`; Qwen3-0.6B ties it to the embedding matrix.
-    head: Tensor,
+    /// `lm_head`; Qwen3-0.6B and -4B tie it to the embedding matrix.
+    head: Head,
     rotary: Rotary,
     device: Device,
     dtype: DType,
@@ -470,10 +520,36 @@ impl Qwen3 {
     pub fn new_with(cfg: &Config, vb: VarBuilder, take: &mut ProjSource) -> Result<Self> {
         let embed = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
         let head = if cfg.tie_word_embeddings {
-            embed.embeddings().clone()
+            Head::Dense(embed.embeddings().clone())
         } else {
-            vb.get((cfg.vocab_size, cfg.hidden_size), "lm_head.weight")?
+            Head::Dense(vb.get((cfg.vocab_size, cfg.hidden_size), "lm_head.weight")?)
         };
+        Self::assemble(cfg, vb, take, Embed::Dense(embed), head)
+    }
+
+    /// [`Self::new_with`], with the embedding and head supplied rather than
+    /// read out of the `VarBuilder` — the q8 path. Same laziness argument as
+    /// [`pick`]: in that mode the f16 embedding tensor exists nowhere, and
+    /// `candle_nn::embedding` would fail looking it up (or worse, force the
+    /// 778 MB the mode exists to avoid).
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    pub fn new_with_embed(
+        cfg: &Config,
+        vb: VarBuilder,
+        take: &mut ProjSource,
+        embed: Embed,
+        head: Head,
+    ) -> Result<Self> {
+        Self::assemble(cfg, vb, take, embed, head)
+    }
+
+    fn assemble(
+        cfg: &Config,
+        vb: VarBuilder,
+        take: &mut ProjSource,
+        embed: Embed,
+        head: Head,
+    ) -> Result<Self> {
         let vb_l = vb.pp("model.layers");
         let blocks = (0..cfg.num_hidden_layers)
             .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take))
@@ -549,8 +625,8 @@ impl Qwen3 {
 
     /// Logits for every position: `(batch, seq, vocab)`.
     pub fn logits(&self, input: &Tensor, cap: &mut dyn Capture) -> Result<Tensor> {
-        self.hidden(input, cap)?
-            .broadcast_matmul(&self.head.t()?)
+        let h = self.hidden(input, cap)?;
+        self.head.project(&h)
     }
 
     /// Mean next-token negative log-likelihood over one window, in nats.
@@ -615,7 +691,7 @@ impl Qwen3 {
         loop {
             let l = h.dim(1)?;
             let last = h.narrow(1, l - 1, 1)?;
-            let logits = last.broadcast_matmul(&self.head.t()?)?.to_dtype(DType::F32)?;
+            let logits = self.head.project(&last)?.to_dtype(DType::F32)?;
             let next = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
             out.push(next);
             if out.len() == max_new {
@@ -664,7 +740,8 @@ impl Qwen3 {
     /// Hidden states through the final norm, starting from block 0's input.
     /// Used to score a model whose blocks were replaced in place.
     pub fn head_from_hidden(&self, h: &Tensor) -> Result<Tensor> {
-        self.norm.forward(h)?.broadcast_matmul(&self.head.t()?)
+        let h = self.norm.forward(h)?;
+        self.head.project(&h)
     }
 
     /// The causal mask matching a `(batch, seq, _)` hidden-state tensor.

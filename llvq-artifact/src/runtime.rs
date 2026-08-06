@@ -55,6 +55,11 @@
 use crate::{Error, Result};
 use llvq_core::{Point, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
+// Planes12x only: the L = 5 swap re-encodes a block's direction, which needs
+// the exact nearest-neighbour machinery `lswap` uses — nothing external.
+use llvq_search::generic::BallSearcher;
+use llvq_search::index::Indexer;
+use llvq_search::Searcher;
 
 /// Bits of the class field: 383 classes plus the origin fit in 9.
 pub const CLASS_BITS: u32 = 9;
@@ -812,6 +817,377 @@ fn encode_block(
         "class {id}: encoded width disagrees with the table"
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Planes12x — M2: the sparse-overlay layout (main stream + exact exceptions)
+// ---------------------------------------------------------------------------
+
+/// Bytes per block of the [`Planes12xBlocks`] **main stream** — a frozen
+/// constant of the format. `12·b` is always a multiple of 4, so every record
+/// is an aligned three-word window with a zero bit shift.
+pub const PLANES12X_BYTES: usize = 12;
+/// First bit of the sign mask in a Planes12x main-stream record.
+pub const PLANES12X_SMASK_BIT: u64 = 10;
+/// First bit of each of the two level bit-planes.
+pub const PLANES12X_PLANE_BIT: [u64; 2] = [34, 58];
+/// First padding bit; bits `82..96` must be written zero.
+pub const PLANES12X_PAD_BIT: u64 = 82;
+/// Bytes one exception costs: a `u32` block index plus a full
+/// [`PLANES14_BYTES`] record of the exact block — 144 bits.
+pub const PLANES12X_EXC_BYTES: usize = 4 + PLANES14_BYTES;
+/// The magnitude-level cap of the main stream: two bit-planes address levels
+/// `0..4`, so a block whose class holds 5 distinct magnitudes cannot be
+/// stored exactly and becomes an exception.
+pub const PLANES12X_LEVEL_CAP: usize = 4;
+/// The ball the L = 5 swap searches — the published file is `leech1c12`, so
+/// every representative's index stays inside the stream's 47-bit width.
+pub const PLANES12X_SHELL_CAP: u32 = 12;
+
+/// The `Planes12x` block stream: a **12-byte main stream** holding every
+/// block at ≤ 4 magnitude levels, plus a sorted **exception table** carrying
+/// the exact [`PLANES14_BYTES`] record of every 5-level block.
+///
+/// Main-stream record, bit offsets fixed for every class:
+///
+/// ```text
+/// [class : 9][gain : 1][sign mask : 24][plane0 : 24][plane1 : 24][0 : 14]
+/// ```
+///
+/// The level of slot `j` is `p0[j] | p1[j]<<1` — two planes, four leaves.
+/// Blocks whose class has ≤ 4 levels are stored **exactly** (same semantics
+/// as [`PlanesBlocks`], the third plane dropped because it is identically
+/// zero). A 5-level block stores its **best L ≤ 4 direction** instead — the
+/// `lswap` machinery: `nearest_angular` over the m ≤ [`PLANES12X_SHELL_CAP`]
+/// ball with a level cap of [`PLANES12X_LEVEL_CAP`] — with the gain bit
+/// **copied**, and contributes one entry to the exception table:
+///
+/// * `exc_idx[e]` — the block's index in the matrix, strictly ascending;
+/// * `exc_data[e·14 .. e·14+14]` — the exact block's Planes14 record.
+///
+/// [`Self::decode_block`] resolves exceptions first, so the reconstruction
+/// is **identical** to [`PlanesBlocks`] / [`Layout::Slot32`], bit for bit —
+/// the approximation exists only in the main stream, where a consumer that
+/// applies the exceptions (the fused kernel's correction pass) cancels it
+/// exactly. Payload: `96/24 = 4` b/w plus `144/24 = 6` b/w × the L = 5
+/// fraction — ~4.20 b/w on the published 4B (3.3824 % of blocks).
+pub struct Planes12xBlocks {
+    pub n_blocks: usize,
+    /// The bit-packed main stream, LSB-first within each byte,
+    /// `12·n_blocks` bytes exactly.
+    pub data: Vec<u8>,
+    /// Matrix-wide block index of each exception, strictly ascending.
+    pub exc_idx: Vec<u32>,
+    /// One [`PLANES14_BYTES`] record per exception — the **exact** block.
+    pub exc_data: Vec<u8>,
+}
+
+impl Planes12xBlocks {
+    /// Exceptions carried — the number of 5-level blocks of the input.
+    pub fn n_exceptions(&self) -> usize {
+        self.exc_idx.len()
+    }
+
+    /// Bits the layout spends per weight, exception table included:
+    /// `(96·n + 144·n_exc) / (24·n)` exactly.
+    pub fn bits_per_weight(&self) -> f64 {
+        let bits = self.data.len() as u64 * 8
+            + self.exc_idx.len() as u64 * 32
+            + self.exc_data.len() as u64 * 8;
+        bits as f64 / (self.n_blocks * DIM) as f64
+    }
+
+    /// Decode block `b` to its **exact** lattice point and gain rank —
+    /// exceptions resolved from their Planes14 record, so the result equals
+    /// [`PlanesBlocks::decode_block`] on the same input, bit for bit. This
+    /// is the CPU reference the GPU overlay (main kernel + correction pass)
+    /// is checked against.
+    pub fn decode_block(&self, table: &ClassTable, b: usize) -> (Point, u32) {
+        assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
+        assert_eq!(
+            table.gain_bits(),
+            1,
+            "Planes12x freezes the gain field at bit 9, one bit wide"
+        );
+        if let Ok(e) = self.exc_idx.binary_search(&(b as u32)) {
+            let rec = &self.exc_data[e * PLANES14_BYTES..(e + 1) * PLANES14_BYTES];
+            let (p, gain, id) = decode_planes14_record(rec, table, b);
+            // An exception exists *because* its class has 5 levels; anything
+            // else in the table is a transcoder bug, not a valid stream.
+            assert_eq!(
+                table.record(id).len,
+                5,
+                "block {b}: exception record is not a 5-level class"
+            );
+            return (p, gain);
+        }
+        self.decode_approx_block(table, b)
+    }
+
+    /// Decode what the **main stream** says about block `b` — exact for
+    /// ≤ 4-level blocks, the swapped L ≤ 4 representative for exceptions.
+    /// This is what the GPU's row pass computes before the correction pass
+    /// subtracts it back out on exception blocks.
+    pub fn decode_approx_block(&self, table: &ClassTable, b: usize) -> (Point, u32) {
+        assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
+        let bit0 = b as u64 * (PLANES12X_BYTES as u64 * 8);
+        let mut cur = BitCursor::new(&self.data, bit0);
+        let id = cur.read(CLASS_BITS) as usize;
+        let gain = cur.read(1) as u32;
+        let rec = table.record(id);
+        if id == 0 {
+            assert_eq!(
+                cur.read(86),
+                0,
+                "block {b}: origin record carries bits past the header"
+            );
+            return ([0; DIM], gain);
+        }
+        let smask = cur.read(DIM as u32) as u32;
+        let p0 = cur.read(DIM as u32) as u32;
+        let p1 = cur.read(DIM as u32) as u32;
+        assert_eq!(cur.read(14), 0, "block {b}: padding bits 82..96 must be zero");
+        let mut p = [0i32; DIM];
+        for (i, pi) in p.iter_mut().enumerate() {
+            let lvl = (p0 >> i & 1) | (p1 >> i & 1) << 1;
+            assert!(
+                (lvl as usize) < rec.len as usize,
+                "block {b}, slot {i}: level {lvl} outside class {id} (len {})",
+                rec.len
+            );
+            let v = rec.values[lvl as usize];
+            *pi = if smask >> i & 1 == 1 { -v } else { v };
+        }
+        (p, gain)
+    }
+}
+
+/// Decode one [`PLANES14_BYTES`] record from a byte slice — the exception
+/// table's entry format, identical to a [`PlanesBlocks`] record. Returns the
+/// class-field value too, so the caller can assert exception invariants.
+///
+/// Lethal on purpose, like every decoder here: a level at or past the
+/// class's `len`, or a bit among the six trailing zeros, panics rather than
+/// producing plausible weights.
+fn decode_planes14_record(rec_bytes: &[u8], table: &ClassTable, b: usize) -> (Point, u32, usize) {
+    let mut buf = [0u8; 16];
+    buf[..PLANES14_BYTES].copy_from_slice(rec_bytes);
+    let r = u128::from_le_bytes(buf);
+    assert_eq!(
+        r >> PLANES14_PAD_BIT,
+        0,
+        "block {b}: exception padding bits 106..112 must be zero"
+    );
+    let id = (r & 0x1ff) as usize;
+    let gain = ((r >> 9) & 1) as u32;
+    let rec = table.record(id);
+    if id == 0 {
+        assert_eq!(r >> 10, 0, "block {b}: origin record carries payload bits");
+        return ([0; DIM], gain, id);
+    }
+    let smask = ((r >> PLANES14_SMASK_BIT) & 0xff_ffff) as u32;
+    let p0 = ((r >> PLANES14_PLANE_BIT[0]) & 0xff_ffff) as u32;
+    let p1 = ((r >> PLANES14_PLANE_BIT[1]) & 0xff_ffff) as u32;
+    let p2 = ((r >> PLANES14_PLANE_BIT[2]) & 0xff_ffff) as u32;
+    let mut p = [0i32; DIM];
+    for (j, pj) in p.iter_mut().enumerate() {
+        let lvl = (p0 >> j & 1) | (p1 >> j & 1) << 1 | (p2 >> j & 1) << 2;
+        assert!(
+            (lvl as usize) < rec.len as usize,
+            "block {b}, slot {j}: level {lvl} outside class {id} (len {})",
+            rec.len
+        );
+        let v = rec.values[lvl as usize];
+        *pj = if smask >> j & 1 == 1 { -v } else { v };
+    }
+    (p, gain, id)
+}
+
+/// Encode one bit-plane record — class, 1-bit gain, slot-space sign mask,
+/// `nplanes` level bit-planes — the shared shape of a Planes14 record
+/// (3 planes) and a Planes12x main-stream record (2 planes). The buffer must
+/// be pre-zeroed; padding canonicity follows, as in [`transcode_planes14`].
+fn encode_plane_record(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    idx: u64,
+    gain: u32,
+    nplanes: u32,
+    data: &mut [u8],
+    bit0: u64,
+) -> Result<()> {
+    assert!(gain < 2, "gain {gain} overflows the 1-bit field");
+    let id = class_id(fd, idx)?;
+    let rec = *table.record(id);
+    assert!(
+        u32::from(rec.len) <= 1 << nplanes,
+        "class {id} has {} levels: {nplanes} bit-planes cannot hold it",
+        rec.len
+    );
+    let mut w = BitSink::new(data, bit0);
+    w.push(id as u64, CLASS_BITS);
+    w.push(u64::from(gain), 1);
+    if id == 0 {
+        // Origin: every slot at level 0 = value 0; the pre-zeroed record is
+        // already exactly right past the header.
+        return Ok(());
+    }
+    let p = fd.decode(idx).expect("class_id validated the index");
+    // Level of each slot: |value| matched against the class's levels —
+    // distinct by construction, so the match is unambiguous.
+    let mut level = [0u8; DIM];
+    for (i, &v) in p.iter().enumerate() {
+        let a = v.abs();
+        level[i] = rec.values[..rec.len as usize]
+            .iter()
+            .position(|&u| u == a)
+            .expect("decoded value belongs to its class") as u8;
+    }
+    // Sign mask in slot space — zero slots contribute 0 bits, written 0.
+    let mut smask = 0u64;
+    for (i, &v) in p.iter().enumerate() {
+        if v < 0 {
+            smask |= 1 << i;
+        }
+    }
+    w.push(smask, DIM as u32);
+    // The bit-planes of the per-slot level index.
+    for plane in 0..nplanes as u8 {
+        let mut m = 0u64;
+        for (i, &l) in level.iter().enumerate() {
+            if l >> plane & 1 == 1 {
+                m |= 1 << i;
+            }
+        }
+        w.push(m, DIM as u32);
+    }
+    assert_eq!(
+        w.pos - bit0,
+        10 + u64::from(DIM as u32) * (1 + u64::from(nplanes)),
+        "class {id}: record is not header + {} 24-bit fields",
+        1 + nplanes
+    );
+    Ok(())
+}
+
+/// One transcoding chunk's output: main-stream bytes, exception indices
+/// (matrix-wide, ascending) and exception records.
+type Planes12xChunk = (Vec<u8>, Vec<u32>, Vec<u8>);
+
+/// Transcode one chunk of blocks; `b0` is the matrix-wide index of the first.
+fn planes12x_chunk(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    s: &Searcher,
+    ix: &Indexer,
+    indices: &[u64],
+    gains: &[u32],
+    b0: usize,
+) -> Result<Planes12xChunk> {
+    let mut ball = BallSearcher::with_level_cap(PLANES12X_LEVEL_CAP);
+    ball.set_shell_cap(PLANES12X_SHELL_CAP);
+    let mut data = vec![0u8; indices.len() * PLANES12X_BYTES];
+    let mut exc_idx: Vec<u32> = Vec::new();
+    let mut exc_data: Vec<u8> = Vec::new();
+    for (l, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
+        let id = class_id(fd, idx)?;
+        let bit0 = l as u64 * (PLANES12X_BYTES as u64 * 8);
+        if usize::from(table.record(id).len) <= PLANES12X_LEVEL_CAP {
+            // Exact: two planes hold levels 0..4.
+            encode_plane_record(fd, table, idx, gain, 2, &mut data, bit0)?;
+            continue;
+        }
+        // L = 5: the exact block goes to the exception table (3 planes),
+        // the main stream takes its best L ≤ 4 direction — the `lswap`
+        // machinery, block for block — with the gain bit copied.
+        exc_idx.push((b0 + l) as u32);
+        let e0 = exc_data.len();
+        exc_data.resize(e0 + PLANES14_BYTES, 0);
+        encode_plane_record(fd, table, idx, gain, 3, &mut exc_data, e0 as u64 * 8)?;
+        let p = fd.decode(idx).expect("class_id validated the index");
+        let x: [f64; DIM] = core::array::from_fn(|i| f64::from(p[i]));
+        let f = ball.nearest_angular(s, &x);
+        assert!(
+            (2..=PLANES12X_SHELL_CAP).contains(&f.shell),
+            "block {}: representative left the m ≤ {PLANES12X_SHELL_CAP} ball",
+            b0 + l
+        );
+        let q = ix.encode(&f.point).expect("searched point is a codebook member");
+        assert_eq!(
+            fd.decode(q).as_ref(),
+            Some(&f.point),
+            "block {}: index round-trip diverged",
+            b0 + l
+        );
+        // `encode_plane_record` at 2 planes re-asserts the level cap: a
+        // 5-level representative would die here, not decode approximately.
+        encode_plane_record(fd, table, q, gain, 2, &mut data, bit0)?;
+    }
+    Ok((data, exc_idx, exc_data))
+}
+
+/// Transcode raw `(index, gain)` codes into a [`Planes12xBlocks`] stream.
+///
+/// Same contract as [`transcode_planes14`] — one fast decode per block, an
+/// out-of-range index is an error, canonical zero padding — plus one
+/// `nearest_angular` search per 5-level block (the expensive part: ~0.7 ms
+/// per exception per core, threaded across all cores here). The result's
+/// [`Planes12xBlocks::decode_block`] equals the archive decoder bit for bit
+/// on **every** block; only [`Planes12xBlocks::decode_approx_block`] sees
+/// the swapped directions.
+pub fn transcode_planes12x(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    s: &Searcher,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<Planes12xBlocks> {
+    assert_eq!(indices.len(), gains.len(), "one gain per block");
+    assert_eq!(
+        table.gain_bits(),
+        1,
+        "Planes12x freezes the gain field at bit 9, one bit wide"
+    );
+    let n = indices.len();
+    assert!(
+        u32::try_from(n).is_ok(),
+        "{n} blocks: exception indices must fit u32"
+    );
+    let ix = Indexer::new();
+    let nthreads = std::thread::available_parallelism().map_or(8, |t| t.get());
+    let chunk = n.div_ceil(nthreads).max(1);
+    let outs: Vec<Result<Planes12xChunk>> = std::thread::scope(|sc| {
+        let handles: Vec<_> = indices
+            .chunks(chunk)
+            .zip(gains.chunks(chunk))
+            .enumerate()
+            .map(|(t, (ic, gc))| {
+                let ix = &ix;
+                sc.spawn(move || planes12x_chunk(fd, table, s, ix, ic, gc, t * chunk))
+            })
+            .collect();
+        handles
+            .into_iter()
+            // Re-raise a chunk's panic with its original message: the
+            // lethal asserts above are part of the API's contract, and a
+            // wrapped `Any` would hide which one fired.
+            .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    });
+    let mut out = Planes12xBlocks {
+        n_blocks: n,
+        data: Vec::with_capacity(n * PLANES12X_BYTES),
+        exc_idx: Vec::new(),
+        exc_data: Vec::new(),
+    };
+    for r in outs {
+        let (d, ei, ed) = r?;
+        out.data.extend_from_slice(&d);
+        out.exc_idx.extend_from_slice(&ei);
+        out.exc_data.extend_from_slice(&ed);
+    }
+    debug_assert!(out.exc_idx.windows(2).all(|w| w[0] < w[1]));
+    Ok(out)
 }
 
 /// LSB-first bit writer over a pre-zeroed slice.

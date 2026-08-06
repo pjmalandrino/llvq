@@ -88,6 +88,91 @@ impl FusedLayout {
     }
 }
 
+/// How the carried embedding (and the tied `lm_head`) sits on the device.
+///
+/// Resolved once, from `LLVQ_EMBED`, and printed next to the bytes it
+/// decides. `F16` is the shipped behaviour — the embedding decoded to an f16
+/// tensor, 778.1 MB on the 4B. `Q8` keeps it as the int8 g64 payload lot B
+/// validated (ppl 16.9379 identical, MMLU within sigma): 388.96 MB of int8
+/// plus 24.31 MB of f16 scales and biases, read by two dedicated kernels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EmbedMode {
+    F16,
+    Q8,
+}
+
+impl EmbedMode {
+    /// Parse the value of `LLVQ_EMBED`. Same contract as [`FusedLayout`]:
+    /// unset and empty mean the default, anything else must name a mode
+    /// exactly — a typo silently falling back would make an A/B lie.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("") => Ok(Self::F16),
+            Some("f16") => Ok(Self::F16),
+            Some("q8") => Ok(Self::Q8),
+            Some(other) => Err(format!(
+                "LLVQ_EMBED={other} : valeurs admises « f16 » (défaut) et « q8 »"
+            )),
+        }
+    }
+
+    /// Resolve from the environment.
+    pub fn from_env() -> Result<Self, String> {
+        let v = std::env::var("LLVQ_EMBED").ok();
+        Self::parse(v.as_deref())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::F16 => "f16",
+            Self::Q8 => "q8",
+        }
+    }
+}
+
+/// The group width of the q8 embedding path — MLX's scheme, and the one
+/// `bin/embedq` wrote into the artifact lot B scored. The kernels hard-code
+/// it (`c >> 6`), so it is a constant, not a knob.
+pub const EMBED_GROUP: usize = 64;
+
+/// Turn a carried tensor into the int8 g64 payload the embedding kernels read.
+///
+/// Two accepted inputs, one output:
+///
+///  * an f16 tensor is quantized **by the same function `bin/embedq` calls**
+///    (`embedquant::quantize_affine`, bits = 8, group = 64) — that call, not a
+///    reimplementation, is what transfers lot B's quality verdict to this
+///    path;
+///  * a tensor already stored as int8 g64 (an artifact `embedq` produced) is
+///    passed through byte-identical;
+///  * anything else — int4, another group — is refused rather than silently
+///    requantized: the validated object is q8 g64 and nothing next to it.
+pub fn embed_q8(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor, String> {
+    match &t.data {
+        llvq_artifact::RawData::F16(_) => {
+            crate::embedquant::quantize_affine(&t, 8, EMBED_GROUP).map_err(|e| e.to_string())
+        }
+        llvq_artifact::RawData::Quant(q) if q.bits == 8 && q.group == EMBED_GROUP => Ok(t),
+        llvq_artifact::RawData::Quant(q) => Err(format!(
+            "{} : int{} g{} porté par le fichier — le chemin q8 ne lit que int8 g{EMBED_GROUP}",
+            t.name, q.bits, q.group
+        )),
+    }
+}
+
+/// Device bytes of the q8 embedding: `(packed, scales + biases)`.
+///
+/// Pure arithmetic on the dims, so the announced footprint is testable
+/// without a card: on `[151936, 2560]` this is 388 956 160 + 24 309 760
+/// bytes — the 413.3 MB the mission statement quotes.
+pub fn q8_device_bytes(dims: &[usize]) -> (u64, u64) {
+    let row_len = dims.last().copied().unwrap_or(1).max(1);
+    let n: usize = dims.iter().product();
+    let rows = n / row_len;
+    let gpr = row_len.div_ceil(EMBED_GROUP);
+    (n as u64, (rows * gpr) as u64 * 4)
+}
+
 /// Mirrors `LLVQ_ROT_KMAX` in `llvq-cuda/kernels/llvq_rot.cuh`.
 ///
 /// Duplicated across a language boundary on purpose — the kernel is in another
@@ -196,8 +281,12 @@ pub struct FusedModel {
     pub layout: FusedLayout,
     pub matrices: Vec<FusedMatrix>,
     pub rotations: HashMap<RotKey, RotationTables>,
-    /// Embedding and norms, carried verbatim — name → (dims, f32 values).
-    pub raw: Vec<(String, Vec<usize>, Vec<f32>)>,
+    /// Embedding and norms, carried verbatim, **still in the file's own
+    /// encoding** — f16 bits, or int8 g64 for an `embedq` output. Decoding is
+    /// the consumer's decision: the f16 path widens, the q8 path keeps the
+    /// bytes. Holding the encoded form also halves what this struct weighs
+    /// (the 778 MB embedding would be 1.5 GB as f32).
+    pub raw: Vec<llvq_artifact::RawTensor>,
     pub config_json: Vec<u8>,
     pub tokenizer_json: Vec<u8>,
     pub quantized_weights: usize,
@@ -389,7 +478,7 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     for _ in 0..n_raw {
         let t = llvq_artifact::read_raw(&mut r, head.version).map_err(|e| e.to_string())?;
         carried_weights += t.len();
-        raw.push((t.name.clone(), t.dims.clone(), t.to_f32()));
+        raw.push(t);
     }
 
     let n_blob = read_u32(&mut r)?;

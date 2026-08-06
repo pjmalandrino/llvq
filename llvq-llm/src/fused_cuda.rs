@@ -42,7 +42,10 @@ use candle_core::cuda_backend::cudarc::driver::{
 use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
 use half::f16;
 
-use crate::fused::{FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables};
+use crate::fused::{
+    EmbedMode, FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables,
+    EMBED_GROUP,
+};
 
 /// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
 /// bench has always measured.
@@ -63,6 +66,24 @@ const REC_WORDS: usize = 6;
 const PLANES_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes.cuh");
 const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
 const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
+/// The q8 embedding kernels — appended only under `LLVQ_EMBED=q8`, so the
+/// translation unit of both f16-embedding arms stays byte-identical to what
+/// every published number compiled.
+const EMB_Q8_CU_EMBED: &str = include_str!("../kernels/emb_q8.cu");
+
+/// The q8 embedding kernel source, honouring `LLVQ_KERNEL_DIR` with the same
+/// contract as [`load_planes_sources`].
+fn load_emb_sources() -> Result<(String, Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((EMB_Q8_CU_EMBED.to_string(), None)),
+        Ok(dir) => {
+            let p = std::path::Path::new(&dir).join("emb_q8.cu");
+            let s = std::fs::read_to_string(&p)
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : emb_q8.cu : {e}"))?;
+            Ok((s, Some(dir)))
+        }
+    }
+}
 
 /// The three Planes14 parts, honouring `LLVQ_KERNEL_DIR` with the same
 /// contract as `load_sources_many`: without the variable, the embedded text;
@@ -141,6 +162,13 @@ pub struct FusedRuntime {
     f_matvec: CudaFunction,
     tab: CudaSlice<u32>,
     rotations: HashMap<RotKey, RotBuffers>,
+    /// The q8 embedding kernels, `(gather, lm_head matvec)` — present exactly
+    /// when the runtime was built with [`EmbedMode::Q8`], which is when their
+    /// source was in the translation unit.
+    f_emb: Option<(CudaFunction, CudaFunction)>,
+    /// Dynamic shared memory the card allows one block, read at startup —
+    /// `tv_q8_h` stages the whole activation and must be refused past it.
+    shared_limit: usize,
     device: candle_core::CudaDevice,
     /// Largest `d_in` any projection takes — the staging bound the rotation
     /// kernel needs in shared memory.
@@ -168,7 +196,16 @@ pub struct FusedRuntime {
 
 impl FusedRuntime {
     /// Upload a loaded model and compile the kernels onto candle's stream.
-    pub fn new(model: &FusedModel, device: &Device) -> candle_core::Result<(Self, Vec<FusedProj>)> {
+    ///
+    /// `emode` decides whether the q8 embedding kernels join the translation
+    /// unit; it must match how the caller intends to build the model, and is
+    /// taken here rather than re-read from the environment so a runtime and
+    /// its loader cannot resolve the variable twice differently.
+    pub fn new(
+        model: &FusedModel,
+        device: &Device,
+        emode: EmbedMode,
+    ) -> candle_core::Result<(Self, Vec<FusedProj>)> {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
 
@@ -186,6 +223,10 @@ impl FusedRuntime {
                 Some(load_planes_sources().map_err(candle_core::Error::msg)?)
             }
         };
+        let emb = match emode {
+            EmbedMode::F16 => None,
+            EmbedMode::Q8 => Some(load_emb_sources().map_err(candle_core::Error::msg)?),
+        };
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
@@ -194,6 +235,12 @@ impl FusedRuntime {
             parts.extend(pp.iter().map(String::as_str));
             if let Some(d) = overridden {
                 eprintln!("⚠️ SOURCES Planes14 SURCHARGÉES depuis {d}");
+            }
+        }
+        if let Some((es, overridden)) = &emb {
+            parts.push(es.as_str());
+            if let Some(d) = overridden {
+                eprintln!("⚠️ SOURCE emb_q8 SURCHARGÉE depuis {d}");
             }
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
@@ -207,7 +254,11 @@ impl FusedRuntime {
             FusedLayout::Planes14 => "tv_planes_h",
             FusedLayout::Slot32 => "tv_slot_h",
         };
-        for name in [matvec_name, "rot_apply"] {
+        let mut spill_checked = vec![matvec_name, "rot_apply"];
+        if emb.is_some() {
+            spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
+        }
+        for name in spill_checked {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
                 candle_core::bail!("{name} : {} octets de spill", r.local_bytes);
@@ -215,6 +266,13 @@ impl FusedRuntime {
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
         let f_rot = cuda.func("rot_apply").map_err(candle_core::Error::msg)?;
+        let f_emb = match emb {
+            None => None,
+            Some(_) => Some((
+                cuda.func("emb_q8_gather").map_err(candle_core::Error::msg)?,
+                cuda.func("tv_q8_h").map_err(candle_core::Error::msg)?,
+            )),
+        };
 
         // The 384-entry class table both sides of the format share, laid out
         // as the kernel's `ClassRec { float vals[5]; u32 len; }`.
@@ -262,6 +320,8 @@ impl FusedRuntime {
                 f_matvec,
                 tab,
                 rotations,
+                f_emb,
+                shared_limit,
                 device: dev,
                 max_d_in,
                 scratch: Mutex::new(HashMap::new()),
@@ -345,6 +405,260 @@ impl FusedRuntime {
         x.apply_op1_no_bwd(&op)
     }
 
+    /// Upload an int8 g64 tensor — the embedding — for the two q8 kernels.
+    ///
+    /// Every assumption the kernels compile in is asserted here rather than
+    /// trusted: 8 bits, group 64, `d % 4 == 0` (rows on word boundaries),
+    /// `vocab % 8 == 0` (whole warps, no bounds guard), and the staged
+    /// activation within the card's shared memory.
+    pub fn upload_embed_q8(
+        &self,
+        t: &llvq_artifact::RawTensor,
+    ) -> candle_core::Result<QuantEmbed> {
+        if self.f_emb.is_none() {
+            candle_core::bail!("runtime construit sans les noyaux q8 (LLVQ_EMBED=f16)");
+        }
+        let llvq_artifact::RawData::Quant(q) = &t.data else {
+            candle_core::bail!("{} : pas un tenseur quantifié", t.name);
+        };
+        if q.bits != 8 || q.group != EMBED_GROUP {
+            candle_core::bail!(
+                "{} : int{} g{} — les noyaux codent int8 g{EMBED_GROUP} en dur",
+                t.name, q.bits, q.group
+            );
+        }
+        if t.dims.len() != 2 {
+            candle_core::bail!("{} : dims {:?}, un embedding est 2-D", t.name, t.dims);
+        }
+        let (vocab, d) = (t.dims[0], t.dims[1]);
+        if !d.is_multiple_of(4) {
+            candle_core::bail!("{} : d={d} n'est pas un multiple de 4", t.name);
+        }
+        if !vocab.is_multiple_of(8) {
+            candle_core::bail!("{} : vocab={vocab} n'est pas un multiple de 8", t.name);
+        }
+        if d * 4 > self.shared_limit {
+            candle_core::bail!(
+                "{} : {} o de partagée demandés par tv_q8_h, la carte en offre {}",
+                t.name, d * 4, self.shared_limit
+            );
+        }
+        let gpr = d.div_ceil(EMBED_GROUP);
+        if q.packed.len() != vocab * d
+            || q.scales.len() != vocab * gpr
+            || q.biases.len() != q.scales.len()
+        {
+            candle_core::bail!(
+                "{} : payload incohérent ({} octets, {} échelles, {} biais pour {vocab}×{d})",
+                t.name, q.packed.len(), q.scales.len(), q.biases.len()
+            );
+        }
+        let words: Vec<u32> = q
+            .packed
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let bytes =
+            q.packed.len() as u64 + (q.scales.len() as u64 + q.biases.len() as u64) * 2;
+        Ok(QuantEmbed {
+            vocab,
+            d,
+            gpr: gpr as u32,
+            words: self.cuda.up_u32(&words).map_err(candle_core::Error::msg)?,
+            scales: self.cuda.up_u16(&q.scales).map_err(candle_core::Error::msg)?,
+            biases: self.cuda.up_u16(&q.biases).map_err(candle_core::Error::msg)?,
+            bytes,
+        })
+    }
+
+    /// Token ids `(.., l)` in u32 → embeddings `(.., l, d)` in f16, one
+    /// gather launch for the whole call, rows dequantized on the device.
+    pub fn embed(&self, q: &QuantEmbed, ids: &Tensor) -> candle_core::Result<Tensor> {
+        let ids = ids.contiguous()?;
+        let mut dims = ids.dims().to_vec();
+        dims.push(q.d);
+        let op = EmbedOp {
+            rt: self,
+            q,
+            out_shape: Shape::from(dims),
+        };
+        ids.apply_op1_no_bwd(&op)
+    }
+
+    /// `logits = W_q8 · h` for hidden states `(.., d)` in f16 — the tied
+    /// `lm_head`, one matvec launch per row, all rows into one buffer.
+    pub fn lm_head(&self, q: &QuantEmbed, h: &Tensor) -> candle_core::Result<Tensor> {
+        let dims = h.dims();
+        let d_in = *dims.last().expect("rank >= 1");
+        if d_in != q.d {
+            candle_core::bail!("lm_head q8 attend d={}, reçu {d_in}", q.d);
+        }
+        let h = h.contiguous()?.to_dtype(DType::F16)?;
+        let out_shape = {
+            let mut d = dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = q.vocab;
+            Shape::from(d)
+        };
+        let op = HeadOp {
+            rt: self,
+            q,
+            out_shape,
+        };
+        h.apply_op1_no_bwd(&op)
+    }
+}
+
+/// The embedding's int8 g64 payload, resident on the device.
+///
+/// One buffer serves both ends of the model — the gather at the input and
+/// the tied `lm_head` at the output — which is the point: the −365 MB lot B
+/// validated exist only if no f16 copy is ever materialized beside this.
+pub struct QuantEmbed {
+    pub vocab: usize,
+    pub d: usize,
+    gpr: u32,
+    /// Packed int8 rows as `u32` words (`d % 4 == 0`, rows word-aligned).
+    words: CudaSlice<u32>,
+    scales: CudaSlice<u16>,
+    biases: CudaSlice<u16>,
+    /// Device bytes: payload + scales + biases.
+    pub bytes: u64,
+}
+
+/// The gather: token ids in, f16 rows out.
+struct EmbedOp<'a> {
+    rt: &'a FusedRuntime,
+    q: &'a QuantEmbed,
+    out_shape: Shape,
+}
+
+impl candle_core::CustomOp1 for EmbedOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-emb-q8-gather"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("le gather q8 n'a pas de chemin CPU")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let ids = storage.as_cuda_slice::<u32>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("ids non contigus"))?;
+        let ntok = end - start;
+        if ntok == 0 {
+            candle_core::bail!("gather q8 : zéro token");
+        }
+        let mut y = unsafe {
+            self.rt
+                .device
+                .cuda_stream()
+                .alloc::<f16>(ntok * self.q.d)
+        }
+        .map_err(|e| candle_core::Error::msg(format!("alloc emb: {e}")))?;
+        let (f_gather, _) = self.rt.f_emb.as_ref().expect("checked at upload");
+        let cfg = LaunchConfig {
+            grid_dim: (ntok as u32, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let (d, gpr, ids_off) = (self.q.d as u32, self.q.gpr, start as u32);
+        let mut b = self.rt.cuda.stream().launch_builder(f_gather);
+        b.arg(&self.q.words)
+            .arg(&self.q.scales)
+            .arg(&self.q.biases)
+            .arg(ids)
+            .arg(&mut y)
+            .arg(&d)
+            .arg(&gpr)
+            .arg(&ids_off);
+        unsafe { b.launch(cfg) }
+            .map_err(|e| candle_core::Error::msg(format!("emb_q8_gather: {e}")))?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
+            self.out_shape.clone(),
+        ))
+    }
+}
+
+/// The tied `lm_head`: f16 hidden states in, f16 logits out.
+struct HeadOp<'a> {
+    rt: &'a FusedRuntime,
+    q: &'a QuantEmbed,
+    out_shape: Shape,
+}
+
+impl candle_core::CustomOp1 for HeadOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-lmhead-q8"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("le lm_head q8 n'a pas de chemin CPU")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let x = storage.as_cuda_slice::<f16>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+        let len = end - start;
+        if len == 0 || !len.is_multiple_of(self.q.d) {
+            candle_core::bail!("lm_head q8 : {len} valeurs pour d={}", self.q.d);
+        }
+        let rows = len / self.q.d;
+        let mut y = unsafe {
+            self.rt
+                .device
+                .cuda_stream()
+                .alloc::<f16>(rows * self.q.vocab)
+        }
+        .map_err(|e| candle_core::Error::msg(format!("alloc logits: {e}")))?;
+        let (_, f_head) = self.rt.f_emb.as_ref().expect("checked at upload");
+        let cfg = LaunchConfig {
+            grid_dim: (self.q.vocab as u32 * 32 / THREADS, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: (self.q.d * 4) as u32,
+        };
+        let (d, gpr) = (self.q.d as u32, self.q.gpr);
+        for r in 0..rows {
+            let x_off = (start + r * self.q.d) as u32;
+            let y_off = (r * self.q.vocab) as u32;
+            let mut b = self.rt.cuda.stream().launch_builder(f_head);
+            b.arg(&self.q.words)
+                .arg(&self.q.scales)
+                .arg(&self.q.biases)
+                .arg(x)
+                .arg(&mut y)
+                .arg(&d)
+                .arg(&gpr)
+                .arg(&x_off)
+                .arg(&y_off);
+            unsafe { b.launch(cfg) }
+                .map_err(|e| candle_core::Error::msg(format!("tv_q8_h: {e}")))?;
+        }
+        Ok((
+            CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
+            self.out_shape.clone(),
+        ))
+    }
 }
 
 /// The `CustomOp1` candle needs to let us at the tensor's storage.
@@ -591,6 +905,8 @@ pub struct FusedSealed {
     pub config: candle_transformers::models::qwen3::Config,
     /// The runtime layout the projections were transcoded to.
     pub layout: FusedLayout,
+    /// How the embedding and tied `lm_head` sit on the device.
+    pub embed_mode: EmbedMode,
     pub quantized_weights: usize,
     pub carried_weights: usize,
     /// Size of the file on disk.
@@ -598,6 +914,11 @@ pub struct FusedSealed {
     /// Bytes the projections occupy on the device — the number that decides
     /// whether a model fits, and the one a disk figure must never stand in for.
     pub runtime_bytes: u64,
+    /// Bytes the carried tensors occupy on the device: `2 · carried_weights`
+    /// under `LLVQ_EMBED=f16`, the int8 payload plus f16 norms under `q8`.
+    /// `carried_weights · 2` must no longer stand in for this — that identity
+    /// is exactly what the q8 mode breaks, by −365 MB.
+    pub carried_bytes: u64,
 }
 
 /// Load a sealed artifact straight onto the fused path.
@@ -609,11 +930,12 @@ pub struct FusedSealed {
 pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
 
-    // The layout is resolved once, before any transcoding, and printed next
-    // to the device bytes it decides — an A/B where the arm has to be
-    // inferred from a byte count is not an A/B.
+    // The layout and the embedding mode are resolved once, before any
+    // transcoding, and printed next to the device bytes they decide — an A/B
+    // where the arm has to be inferred from a byte count is not an A/B.
     let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
-    let model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
+    let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
+    let mut model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
     println!(
         "layout fusé : {} (LLVQ_FUSED_LAYOUT) — projections {:.2} Go sur la carte, \
          {:.3} b/poids",
@@ -621,7 +943,41 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         model.runtime_bytes as f64 / 1e9,
         model.runtime_bits_per_weight()
     );
-    let (rt, projs) = FusedRuntime::new(&model, device)?;
+
+    let config: candle_transformers::models::qwen3::Config =
+        serde_json::from_slice(&model.config_json)
+            .map_err(|e| candle_core::Error::msg(format!("config.json : {e}")))?;
+    let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
+        .map_err(|e| candle_core::Error::msg(format!("tokenizer.json : {e}")))?;
+
+    const EMBED_NAME: &str = "model.embed_tokens.weight";
+    // Under q8, the embedding leaves the carried list before any tensor is
+    // built: nothing downstream may materialize an f16 copy of it.
+    let embed_raw = match emode {
+        EmbedMode::F16 => None,
+        EmbedMode::Q8 => {
+            if !config.tie_word_embeddings {
+                candle_core::bail!(
+                    "LLVQ_EMBED=q8 exige tie_word_embeddings : un seul buffer sert \
+                     l'embedding et le lm_head, et ce modèle les délie"
+                );
+            }
+            let i = model
+                .raw
+                .iter()
+                .position(|t| t.name == EMBED_NAME)
+                .ok_or_else(|| {
+                    candle_core::Error::msg(format!("{path} ne porte pas {EMBED_NAME}"))
+                })?;
+            let t = model.raw.swap_remove(i);
+            // The exact `bin/embedq` arithmetic (same function), or the file's
+            // own q8 bytes passed through — either way, the object lot B
+            // scored.
+            Some(crate::fused::embed_q8(t).map_err(candle_core::Error::msg)?)
+        }
+    };
+
+    let (rt, projs) = FusedRuntime::new(&model, device, emode)?;
     let rt = Arc::new(rt);
 
     // Index the uploaded projections by the pair `Block::new_with` asks for.
@@ -632,27 +988,60 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         by_site.insert((layer, proj), Arc::new(p));
     }
 
-    // Everything not quantized — embedding and norms — as ordinary tensors.
+    // Everything still carried — norms, and the embedding in f16 mode — as
+    // ordinary tensors. Whatever encoding the file used, the device holds f16
+    // here, so each costs `2 · len` bytes on the card.
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
-    for (name, dims, vals) in &model.raw {
+    let mut carried_bytes = 0u64;
+    let mut embed_f16_bytes = 0u64;
+    for t in &model.raw {
+        carried_bytes += t.len() as u64 * 2;
+        if t.name == EMBED_NAME {
+            embed_f16_bytes = t.len() as u64 * 2;
+        }
         tensors.insert(
-            name.clone(),
-            Tensor::from_slice(vals, dims.clone(), device)?.to_dtype(dtype)?,
+            t.name.clone(),
+            Tensor::from_vec(t.to_f32(), t.dims.clone(), device)?.to_dtype(dtype)?,
         );
     }
 
-    let config: candle_transformers::models::qwen3::Config =
-        serde_json::from_slice(&model.config_json)
-            .map_err(|e| candle_core::Error::msg(format!("config.json : {e}")))?;
-    let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
-        .map_err(|e| candle_core::Error::msg(format!("tokenizer.json : {e}")))?;
+    // The announced footprint, mode by mode, before the first launch.
+    let quant_embed = match &embed_raw {
+        None => {
+            println!(
+                "embedding : f16 (LLVQ_EMBED) — {:.1} Mo sur la carte",
+                embed_f16_bytes as f64 / 1e6
+            );
+            None
+        }
+        Some(t) => {
+            let q = rt.upload_embed_q8(t)?;
+            let (packed, sb) = crate::fused::q8_device_bytes(&t.dims);
+            debug_assert_eq!(q.bytes, packed + sb);
+            println!(
+                "embedding : q8 g64 (LLVQ_EMBED) — {:.1} Mo sur la carte \
+                 (int8 {:.1} + échelles/biais {:.1}), lm_head lié sur le même buffer",
+                q.bytes as f64 / 1e6,
+                packed as f64 / 1e6,
+                sb as f64 / 1e6
+            );
+            carried_bytes += q.bytes;
+            Some(Arc::new(q))
+        }
+    };
+    println!(
+        "total attendu sur la carte : {:.2} Go (projections {:.2} + portés {:.2})",
+        (model.runtime_bytes + carried_bytes) as f64 / 1e9,
+        model.runtime_bytes as f64 / 1e9,
+        carried_bytes as f64 / 1e9
+    );
 
     let vb = candle_nn::VarBuilder::from_tensors(tensors, dtype, device);
     // Every site the artifact carries must be claimed; anything left over
     // means a name the loader and the model disagree about, and the model
     // would silently fall back to a `VarBuilder` lookup that cannot succeed.
     let mut claimed = 0usize;
-    let qwen = crate::model::Qwen3::new_with(&config, vb, &mut |layer, name| {
+    let mut take = |layer: usize, name: &str| {
         by_site.get(&(layer, name.to_string())).map(|p| {
             claimed += 1;
             crate::model::Proj::Fused {
@@ -660,7 +1049,23 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
                 proj: p.clone(),
             }
         })
-    })?;
+    };
+    let qwen = match &quant_embed {
+        None => crate::model::Qwen3::new_with(&config, vb, &mut take)?,
+        Some(q) => crate::model::Qwen3::new_with_embed(
+            &config,
+            vb,
+            &mut take,
+            crate::model::Embed::Q8 {
+                rt: rt.clone(),
+                q: q.clone(),
+            },
+            crate::model::Head::Q8 {
+                rt: rt.clone(),
+                q: q.clone(),
+            },
+        )?,
+    };
     if claimed != by_site.len() {
         candle_core::bail!(
             "{claimed} projections réclamées par le modèle sur {} portées par le fichier",
@@ -673,9 +1078,13 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         tokenizer,
         config,
         layout,
+        embed_mode: emode,
         quantized_weights: model.quantized_weights,
+        // Counted at read time in `fused::load`, embedding included — the q8
+        // extraction changes where those weights sit, not how many there are.
         carried_weights: model.carried_weights,
         file_bytes: model.file_bytes,
         runtime_bytes: model.runtime_bytes,
+        carried_bytes,
     })
 }

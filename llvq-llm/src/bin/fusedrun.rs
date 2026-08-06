@@ -82,7 +82,10 @@ fn main() -> anyhow::Result<()> {
         let t = Instant::now();
         let fused_tokens = f.model.generate(&ids, n_new, &mut NoCapture)?;
         let fused_rate = n_new as f64 / t.elapsed().as_secs_f64();
-        let fused_bytes = f.runtime_bytes + f.carried_weights as u64 * 2;
+        // `carried_bytes`, not `carried_weights * 2`: under LLVQ_EMBED=q8 the
+        // embedding sits on the card as int8 + f16 scales, and the old
+        // identity would over-report by ~365 MB.
+        let fused_bytes = f.runtime_bytes + f.carried_bytes;
         let (fused_rt_bits, fused_file) = (
             f.runtime_bytes as f64 * 8.0 / f.quantized_weights as f64,
             f.file_bytes as f64 / 1e9,
