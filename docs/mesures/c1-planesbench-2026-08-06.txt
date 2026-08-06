@@ -1,0 +1,44 @@
+# C1 — planesbench, job 6a7484636b79c09949c2406c, l40sx1, 0,08 $ (3 min facturées)
+# Image hf.co/spaces/Pier-Jean/llvq-runner-cuda (commit b7ee730), modèle monté depuis Pier-Jean/Qwen3-4B-LLVQ-2bit
+
+6a7484636b79c09949c2406c  COMPLETED  l40sx1
+source NVRTC : 28710 octets, sha256 b2f2e2c034654db27915a2a8a8f8e48482e192e514aa1cc53953c26829891c28
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+
+Construction, transcodage Slot32 et Planes14, preuve de bijection…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  252 matrices, 3.63 Md de poids, en 150 s — bijection Planes14 vérifiée bloc par bloc
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pires erreurs Slot32 2.2e-8, Planes14 2.2e-8, FP16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, trois bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.989   10.990   10.999     7.27   16.000      661
+  LLVQ Slot32               5.809    5.815    5.816     2.50    5.510      431
+  LLVQ Planes14             5.079    5.089    5.090     2.18    4.804      430
+  --------------------------------------------------------------------------------
+  Slot32   vs FP16   : 1.89× [1.89–1.89]
+  Planes14 vs FP16   : 2.16× [2.16–2.16]
+  Planes14 vs Slot32 : 1.14× [1.14–1.15]  (>1 = Planes14 plus rapide, même contenu décodé)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2182 Mo distincts par passe sur le bras le plus léger (Planes14), soit 21.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux trois bras) : Slot32 1.74×, Planes14 1.94× au lieu de
+  1.89× / 2.16×. Normes, activations, attention et rotation ne sont
+  mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.

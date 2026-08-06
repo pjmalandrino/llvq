@@ -1,9 +1,21 @@
 # C1 prêt à tirer — layout Planes14, préparation du 2026-08-06
 
-> État : **tout le code de C1 est écrit, testé et passé en revue adversariale
-> sur le Mac ; il ne manque que le run sur carte (~0,2 $)**. Ce doc est la
-> passation pour la session qui le lancera. Spec, verdicts et généalogie :
-> [`pistes-format-vram-2026-08-05.md`](pistes-format-vram-2026-08-05.md)
+> ✅ **TIRÉ ET GAGNÉ le 2026-08-06** (job `6a7484636b79c09949c2406c`, l40sx1,
+> **0,08 $**, [`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt)) :
+> **Planes14 rend 1,14× [1,14–1,15] contre Slot32 — plus rapide À CONTENU
+> DÉCODÉ IDENTIQUE — à 4,804 b/poids contre 5,510**, et 2,16× contre le FP16
+> là où Slot32 fait 1,89×. 40 registres, zéro octet local, bijection vérifiée
+> bloc par bloc sur carte, pires erreurs 2,2e-8 sur les deux bras. Le
+> mécanisme est limpide : 430-431 Go/s constants sur les deux bras — le temps
+> tombe exactement comme les octets (5,815 × 2,18/2,50 = 5,07 ≈ 5,089 mesuré).
+> Le critère était ≥ 0,95× ; au-dessus de 1,0×, la spec faisait de Planes14
+> le layout de référence : **c'est fait.** La suite de l'échelle (overlay
+> ~4,36, E2 ~3,3) s'ouvre, et le chantier d'intégration est de brancher
+> Planes14 dans `fused_cuda` à la place de Slot32.
+>
+> État antérieur (préparation, conservé pour la généalogie) :
+> tout le code de C1 écrit, testé et passé en revue adversariale sur le Mac.
+> Spec, verdicts : [`pistes-format-vram-2026-08-05.md`](pistes-format-vram-2026-08-05.md)
 > (barreau E1a) et [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md).
 
 ## Ce qui existe (fichiers neufs, non commités, aucun conflit avec le lot A)
