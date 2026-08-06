@@ -127,3 +127,47 @@ couture. Les trois postes connus les expliquent entièrement :
 
 Aucun n'est structurel. Les deux premiers demandent que `tv_slot` écrive en
 f16 et que l'entrée soit acceptée telle quelle ; le troisième est déjà écrit.
+
+
+=== APRÈS LA SORTIE f16 — job 6a742e85a00abefd4b29518e, 0,16 $ ===
+
+  bras        chargement       tok/s    Go carte
+  dense           187.8 s        43.6        8.04
+  fusé            127.4 s        45.6        3.28
+  vitesse ×1.04, mémoire ÷2.45      (32 tokens toujours identiques)
+
+  44,0 → 45,6 tok/s, soit 22,73 → 21,93 ms : **−0,80 ms**.
+
+Un seul changement : `tv_slot_h` stocke des demi-flottants, donc candle ne
+lance plus un noyau de conversion par projection. 252 lancements de moins.
+Prévu ~1,3 ms, mesuré 0,80 — soit ~3,2 µs par conversion, cohérent avec le
+`t_submit` de 1,85 µs plus l'exécution.
+
+=== BILAN DE LA PLOMBERIE ===
+
+  départ                     41,7 tok/s   23,98 ms
+  tampon partagé, sans memset 44,0        22,73    −1,25 ms
+  sortie f16                  45,6        21,93    −0,80 ms
+  ---------------------------------------------------------
+  récupéré                                         −2,05 ms
+
+  dense, même run            43,6 tok/s   22,94 ms
+
+**Le chemin fusé est maintenant devant de 4,6 %**, avec le même texte, 2,45×
+moins de mémoire et un chargement 1,47× plus rapide.
+
+CE QUI RESTE, ET CE N'EST PLUS DE LA PLOMBERIE. Le modèle prévoyait ~52 tok/s
+sans surcoût ; on est à 45,6, donc 2,7 ms encore. Deux postes, et aucun n'est
+du gaspillage :
+
+  * la rotation, 1,52 ms mesurés isolément (`rotbench`). Ce n'est pas un
+    défaut d'implémentation mais le prix du format : les poids sont stockés
+    dans une base tournée, l'activation doit y entrer. La seule façon de la
+    supprimer est de la FUSIONNER dans les opérations qui produisent déjà les
+    quatre activations (deux RMSNorm, la sortie d'attention, `silu(gate)*up`)
+    — zéro lancement de plus, mais quatre noyaux à écrire.
+  * `tv_slot_seg`, 0,803 ms au banc, qui demande de regrouper q/k/v dans
+    `forward_cached` : un appel au lieu de trois puis découper la sortie. Ce
+    n'est plus de la plomberie, c'est un changement du modèle.
+
+Plafond réaliste si les deux sont faits : ~19,6 ms, soit **~51 tok/s (×1,17)**.
