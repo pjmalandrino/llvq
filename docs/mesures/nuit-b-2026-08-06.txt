@@ -1,0 +1,49 @@
+
+##### Nuit lot B — départ 2026-08-05 23:21:56 #####
+=== build — 2026-08-05 23:21:56 — batterie: 55%; discharging
+    OK en 0 min
+=== b1-anchor — 2026-08-05 23:22:21 — batterie: 54%; discharging
+    OK en 4 min
+=== b1-seed1 — 2026-08-05 23:26:26 — batterie: 52%; charging
+    OK en 4 min
+=== b1-seed2 — 2026-08-05 23:30:56 — batterie: 57%; charging
+    OK en 4 min
+=== b1-seed3 — 2026-08-05 23:35:22 — batterie: 62%; charging
+    OK en 4 min
+=== b1-damp-3e-3 — 2026-08-05 23:39:41 — batterie: 66%; charging
+    OK en 4 min
+=== b1-damp-3e-2 — 2026-08-05 23:44:04 — batterie: 71%; charging
+    OK en 4 min
+=== b2-oracle — 2026-08-05 23:48:28 — batterie: 75%; charging
+    OK en 4 min
+=== b4-ppl-e8 — 2026-08-05 23:52:49 — batterie: 79%; charging
+    OK en 5 min
+=== b4-ppl-e4 — 2026-08-05 23:57:58 — batterie: 80%; AC attached
+    OK en 5 min
+=== b3-c4-64 — 2026-08-06 00:03:15 — batterie: 80%; AC attached
+    OK en 5 min
+=== b3-c4-244 — 2026-08-06 00:09:06 — batterie: 80%; AC attached
+    OK en 9 min
+=== b3-c4-977 — 2026-08-06 00:19:01 — batterie: 80%; AC attached
+    OK en 26 min
+=== b4-mmlu-e8 — 2026-08-06 00:46:00 — batterie: 80%; AC attached
+    OK en 55 min
+=== b4-mmlu-e4 — 2026-08-06 01:41:12 — batterie: 80%; AC attached
+    OK en 54 min
+
+##### Fin de la file — 2026-08-06 02:35:55 #####
+Extraits (ppl quantifiée par run) :
+  b1-anchor: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.6643 
+  b1-damp-3e-2: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.6014 
+  b1-damp-3e-3: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.6740 
+  b1-seed1: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.6239 
+  b1-seed2: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.4709 
+  b1-seed3: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.7687 
+  b2-oracle: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.3289 
+  b3-c4-244: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.9564 
+  b3-c4-64: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.9818 
+  b3-c4-977: baseline (FP32)      ppl = 19.5038 LLVQ 2-bit           ppl = 20.7254 
+  b4-ppl-e4:  /Users/pjmalandrino/q4b-e4.llvq [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251 ppl = 17.1986 
+  b4-ppl-e8:  /Users/pjmalandrino/q4b-e8.llvq [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251 ppl = 16.9379 
+  b4-mmlu-e4:   world religions                           21/40     52.5 %   (micro 55.74 %, 3131s)   MMLU (micro, = papier) = 55.74 % ± 1.35   MMLU (macro, par matière) = 57.19 % 
+  b4-mmlu-e8:   world religions                           20/40     50.0 %   (micro 55.44 %, 3161s)   MMLU (micro, = papier) = 55.44 % ± 1.35   MMLU (macro, par matière) = 57.32 % 

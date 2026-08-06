@@ -180,6 +180,74 @@ extern "C" __global__ void tv_slot_seg(const u32* __restrict__ words,
     }
 }
 
+// f32 → f16, round to nearest even. The inverse of `h2f`, same reasoning: no
+// `cuda_fp16.h` in the runtime image, and `cvt.rn.f16.f32` is the instruction
+// `__float2half` compiles to.
+__device__ __forceinline__ unsigned short f2h(float f)
+{
+#ifdef LLVQ_HOST_BUILD
+    (void)f;
+    return 0;
+#else
+    unsigned short r;
+    asm("cvt.rn.f16.f32 %0, %1;" : "=h"(r) : "f"(f));
+    return r;
+#endif
+}
+
+// `tv_slot` writing f16 — the shape an inference runtime needs.
+//
+// The model is f16 end to end, so a f32 result costs one conversion kernel per
+// projection: 252 launches a token, on a decode already dominated by launch
+// latency. Writing the half directly removes them.
+//
+// A separate kernel rather than a flag on `tv_slot`, for the same reason
+// `tv_slot_seg` is separate: `tv_slot` is the object every published
+// millisecond refers to, and its register allocation must not move because an
+// inference path wanted a different store.
+//
+// The accumulation is unchanged — f32 throughout, same association, same
+// `warp_sum`. Only the final store narrows, exactly where candle's conversion
+// kernel would have narrowed it.
+extern "C" __global__ void tv_slot_h(const u32* __restrict__ words,
+                                     const u32* __restrict__ bases,
+                                     const ClassRec* __restrict__ tab,
+                                     const float* __restrict__ gscale,
+                                     const float* __restrict__ rscale,
+                                     const float* __restrict__ tail,
+                                     const float* __restrict__ x,
+                                     unsigned short* __restrict__ y,
+                                     u32 nblocks,
+                                     u32 tail_w)
+{
+    extern __shared__ float xs[];
+    u32 lane = threadIdx.x & 31u;
+    u32 row  = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+    u32 b0r  = row * nblocks;
+    float acc = 0.0f;
+
+    u32 ntiles = (nblocks + TILE_BLOCKS - 1u) / TILE_BLOCKS;
+    for (u32 t = 0; t < ntiles; ++t) {
+        u32 jlo = t * TILE_BLOCKS;
+        u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;
+        u32 n   = (jhi - jlo) * LLVQ_DIM;
+        __syncthreads();
+        for (u32 i = threadIdx.x; i < n; i += blockDim.x) xs[i] = x[jlo * LLVQ_DIM + i];
+        __syncthreads();
+
+        for (u32 j = jlo + lane; j < jhi; j += 32u)
+            acc += slot_dot(words, bases, tab, gscale, b0r + j, xs + (j - jlo) * LLVQ_DIM);
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0) {
+        float tv = 0.0f;
+        u32 tc0 = nblocks * LLVQ_DIM;
+        for (u32 i = 0; i < tail_w; ++i) tv += tail[row * tail_w + i] * x[tc0 + i];
+        y[row] = f2h(acc * rscale[row] + tv);
+    }
+}
+
 // The FP16 witness. Same shape, same tiling, 128-bit loads on both sides.
 //
 // Loading eight halves per lane rather than one is not a courtesy to the

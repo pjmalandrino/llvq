@@ -129,13 +129,13 @@ impl FusedRuntime {
         // The register report is a contract, not a diagnostic: `slot_dot`
         // keeps a four-accumulator array and `rot_mix` a KMAX-wide column in
         // registers, and a spill costs occupancy without changing a result.
-        for name in ["tv_slot", "rot_apply"] {
+        for name in ["tv_slot_h", "rot_apply"] {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
                 candle_core::bail!("{name} : {} octets de spill", r.local_bytes);
             }
         }
-        let f_slot = cuda.func("tv_slot").map_err(candle_core::Error::msg)?;
+        let f_slot = cuda.func("tv_slot_h").map_err(candle_core::Error::msg)?;
         let f_rot = cuda.func("rot_apply").map_err(candle_core::Error::msg)?;
 
         // The 384-entry class table both sides of the format share, laid out
@@ -263,7 +263,8 @@ impl FusedRuntime {
             proj,
             out_shape,
         };
-        x.apply_op1_no_bwd(&op)?.to_dtype(DType::F16)
+        // No `to_dtype` here: the kernel already stored halves.
+        x.apply_op1_no_bwd(&op)
     }
 
 }
@@ -323,10 +324,14 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                 .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
         };
 
-        // Uninitialised on purpose. `tv_slot` writes `y[row]` for every row —
-        // the grid is exact and there is no bounds guard — so zeroing it first
-        // is a `memset` of 252 buffers a token that nothing ever reads.
-        let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_out) }
+        // f16, and uninitialised. Two things at once:
+        //
+        //  * `tv_slot_h` stores halves, so candle no longer needs a conversion
+        //    kernel per projection — 252 launches a token, on a decode whose
+        //    budget is half launch latency;
+        //  * nothing zeroes it: the kernel writes `y[row]` for every row, the
+        //    grid is exact and there is no bounds guard.
+        let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
 
@@ -355,7 +360,7 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                 .map_err(candle_core::Error::msg)?;
             self.rt
                 .cuda
-                .launch_slot(
+                .launch_slot_h(
                     &self.rt.f_slot,
                     &self.proj.words,
                     &self.proj.bases,

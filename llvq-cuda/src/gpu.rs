@@ -402,6 +402,42 @@ impl Cuda {
         Ok(())
     }
 
+    /// `tv_slot_h` — `tv_slot` storing f16.
+    ///
+    /// Diagnostics aside, this is the one an inference runtime calls: the
+    /// model is f16 end to end, and a f32 result costs a conversion kernel per
+    /// projection.
+    ///
+    /// `y` is generic over its element type for the same reason `launch_rot`'s
+    /// input is: an inference runtime hands over candle's own
+    /// `CudaSlice<half::f16>`, and this crate has no `half` dependency to name
+    /// that type with. The kernel writes `unsigned short`, which is those bits.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_slot_h<T: cudarc::driver::DeviceRepr>(
+        &self,
+        f: &CudaFunction,
+        words: &CudaSlice<u32>,
+        bases: &CudaSlice<u32>,
+        tab: &CudaSlice<u32>,
+        gscale: &CudaSlice<f32>,
+        rscale: &CudaSlice<f32>,
+        tail: &CudaSlice<f32>,
+        x: &CudaSlice<f32>,
+        y: &mut CudaSlice<T>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = self.stream.launch_builder(f);
+        b.arg(words).arg(bases).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_slot_h: {e}"))?;
+        Ok(())
+    }
+
     /// `tv_slot_seg` — the same kernel over a row-concatenation of matrices
     /// that share an input, with one extra table naming each row's centroid
     /// pair.
