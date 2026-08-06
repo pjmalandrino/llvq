@@ -1,0 +1,94 @@
+# Nuit du 06→07 — planesbench 4 bras + fusedrun q8, job 6a751120da2af92a634edd8c, l40sx1, 0,90 $ (30 min)
+# Image hf.co/spaces/Pier-Jean/llvq-runner-cuda (commit 1fc39e7)
+
+6a751120da2af92a634edd8c  COMPLETED  l40sx1
+source NVRTC : 40826 octets, sha256 c6bccf46c6327b920c1888e8da401ddf1f1219837840f5d8c90af45bc5dd2f7b
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+
+Construction, transcodage Slot32, Planes14 et Planes12x (swap L = 5 → L ≤ 4 inclus), preuves de bijection et d'overlay…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  252 matrices, 3.63 Md de poids, en 1459 s — bijection Planes14 vérifiée bloc par bloc
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pires erreurs Slot32 2.2e-8, Planes14 2.2e-8, Planes12x 2.9e-8 (overlay exact), FP16 3.0e-8 ·Σ|w·x|
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+
+UN TOKEN — 252 matrices, un stream, quatre bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.990   10.996   10.999     7.27   16.000      661
+  LLVQ Slot32               5.816    5.818    5.825     2.50    5.510      430
+  LLVQ Planes14             5.091    5.094    5.096     2.18    4.804      429
+  LLVQ Planes12x            5.475    5.476    5.483     1.97    4.342      360
+  --------------------------------------------------------------------------------
+  Slot32    vs FP16     : 1.89× [1.89–1.89]
+  Planes14  vs FP16     : 2.16× [2.16–2.16]
+  Planes12x vs FP16     : 2.01× [2.01–2.01]
+  Planes14  vs Slot32   : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  Planes12x vs Planes14 : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  1972 Mo distincts par passe sur le bras le plus léger (Planes12x), soit 19.6× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux quatre bras) : Slot32 1.74×, Planes14 1.94×, Planes12x 1.83×
+  au lieu de 1.89× / 2.16× / 2.01×. Normes, activations, attention et
+  rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+===== FUSEDRUN Q8 =====
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.18 Go sur la carte, 4.804 b/poids
+embedding : q8 g64 (LLVQ_EMBED) — 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3), lm_head lié sur le même buffer
+total attendu sur la carte : 2.60 Go (projections 2.18 + portés 0.41)
+fusé   : chargé en  128.6 s,   88.5 tok/s, 2.60 Go sur la carte
+dense  : chargé en  187.4 s,   43.5 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           187.4 s        43.5        8.04
+  fusé            128.6 s        88.5        2.60
+  ----------------------------------------------
+  vitesse ×2.03, mémoire ÷3.10
+
+  projections : 4.804 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
