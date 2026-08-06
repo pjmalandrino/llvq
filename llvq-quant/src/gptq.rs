@@ -72,7 +72,36 @@ pub struct GptqConfig {
     pub retract: bool,
     /// Run the closed-form per-row block-scale refinement of Algorithm 3
     /// after all blocks are quantized. Expensive; see the module note.
+    ///
+    /// ⚠️ The refined scales are free floats, so the result cannot be
+    /// described by block codes — capturing refuses it. For a sealable
+    /// variant of the same idea, see [`Self::design_c`].
     pub group_scales: bool,
+    /// **Design C** of `docs/retraction-et-gain.md`: Algorithm 3 to the
+    /// letter, then a re-projection that makes the result sealable.
+    ///
+    /// Three steps, in order:
+    /// 1. During the block loop the retraction restores each row block's
+    ///    **exact** pre-quantization norm (Eq. 17 as written), overriding
+    ///    whatever sphere the quantizer would name. The magnitude stays a
+    ///    free float for the whole loop, so the error feedback only ever
+    ///    carries angular error.
+    /// 2. At the end of the layer, the closed-form per-row scale solve of
+    ///    Algorithm 3 lines 11–18 (the same algebra as
+    ///    [`Self::group_scales`]) picks the magnitudes in the Hessian
+    ///    metric.
+    /// 3. Each full block is then re-projected onto the quantizer's gain
+    ///    grid ([`BlockQuantizer::reproject`]), rebuilt **exactly as a
+    ///    decoder would**, and its code's gain rank updated. This step is
+    ///    not in the paper — Algorithm 3 stops at free scales — but it is
+    ///    what makes the result expressible in `47+k` bits per block
+    ///    instead of `47+16`.
+    ///
+    /// Requires [`Self::retract`] and the layer Hessian. Mutually exclusive
+    /// with [`Self::group_scales`], which is the unsealable fragment of the
+    /// same algorithm. Off by default: the published path is bit-identical
+    /// with this flag false.
+    pub design_c: bool,
     /// Ridge term for that refinement's normal equations, **relative** to
     /// the mean diagonal of the system (like the Hessian damping).
     pub lambda: f64,
@@ -86,6 +115,7 @@ impl Default for GptqConfig {
             block: llvq_core::DIM,
             retract: true,
             group_scales: false,
+            design_c: false,
             lambda: 1e-2,
             tail: TailPolicy::Reject,
         }
@@ -156,7 +186,7 @@ pub fn quantize_layer_capturing(
     h: Option<&[f64]>,
     quant: &mut dyn BlockQuantizer,
     cfg: &GptqConfig,
-    mut codes: Option<&mut [Option<BlockCode>]>,
+    codes: Option<&mut [Option<BlockCode>]>,
 ) {
     let (d_out, d_in) = (weights.d_out, weights.d_in);
     let nblocks = d_in / cfg.block;
@@ -177,14 +207,36 @@ pub fn quantize_layer_capturing(
     }
     assert_eq!(factor.dim(), d_in, "factor must match the input dimension");
     assert!(cfg.block > 0);
-    if cfg.group_scales {
+    assert!(
+        !(cfg.group_scales && cfg.design_c),
+        "group_scales is the unsealable fragment of design C; enabling both \
+         would run the closed-form solve twice"
+    );
+    assert!(
+        !cfg.design_c || cfg.retract,
+        "design C is a reading of *Spherical* GPTQ: without the retraction \
+         there is no free-magnitude loop to resolve at the end of the layer"
+    );
+    if cfg.group_scales || cfg.design_c {
         assert!(
             h.is_some_and(|m| m.len() == d_in * d_in),
-            "group-scale refinement needs the d_in × d_in Hessian"
+            "the closed-form scale solve needs the d_in × d_in Hessian"
         );
     }
 
-    let original = cfg.group_scales.then(|| weights.w.clone());
+    let original = (cfg.group_scales || cfg.design_c).then(|| weights.w.clone());
+
+    // Design C's re-projection rebuilds every block from its code, so the
+    // codes are needed even when the caller did not ask for them.
+    let mut internal_codes: Vec<Option<BlockCode>>;
+    let mut codes: Option<&mut [Option<BlockCode>]> = match codes {
+        Some(c) => Some(c),
+        None if cfg.design_c => {
+            internal_codes = vec![None; d_out * nblocks];
+            Some(&mut internal_codes)
+        }
+        None => None,
+    };
 
     let mut qbuf = vec![0.0f64; cfg.block];
     // Error of the current block, d_out × b, row-major.
@@ -232,7 +284,17 @@ pub fn quantize_layer_capturing(
                 // must be a sphere the code can express, or the retraction
                 // would hand the magnitude back as a free float and cancel the
                 // gain entirely. `None` means it is already there.
-                if let Some(target) = quant.retraction_target(norm_before) {
+                //
+                // Design C overrides that choice: the magnitude is *meant* to
+                // stay a free float during the loop — Eq. 17 to the letter —
+                // because the closed-form solve and the re-projection resolve
+                // it after the last block.
+                let target = if cfg.design_c {
+                    Some(norm_before)
+                } else {
+                    quant.retraction_target(norm_before)
+                };
+                if let Some(target) = target {
                     let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();
                     if n > 0.0 {
                         let k = target / n;
@@ -275,9 +337,50 @@ pub fn quantize_layer_capturing(
         s = r0;
     }
 
-    if cfg.group_scales {
-        let orig = original.expect("cloned when group_scales is set");
+    if cfg.group_scales || cfg.design_c {
+        let orig = original.expect("cloned when either flag is set");
         refine_group_scales(weights, h.expect("checked above"), &orig, cfg);
+    }
+    if cfg.design_c {
+        let c = codes.expect("allocated when design_c is set");
+        reproject_onto_gain_grid(weights, quant, &row_scales, c, cfg.block);
+    }
+}
+
+/// Design C, step 3: put every full block back on the quantizer's magnitude
+/// grid after the closed-form solve has rescaled it freely.
+///
+/// Each block is rebuilt from its code **exactly as a decoder would rebuild
+/// it** — [`BlockQuantizer::reproject`] mirrors the reconstruction operation
+/// for operation — because a result that is merely close to what the artifact
+/// decodes to is a different model from the one measured. The code's gain
+/// rank is updated to the level actually chosen.
+///
+/// Blocks whose quantizer emitted no code (identity, scalar grids) are left
+/// as the solve produced them: they carry no magnitude grid to project onto,
+/// and no sealing claim either.
+fn reproject_onto_gain_grid(
+    weights: &mut Weights,
+    quant: &mut dyn BlockQuantizer,
+    row_scales: &[f64],
+    codes: &mut [Option<BlockCode>],
+    block: usize,
+) {
+    let (d_out, d_in) = (weights.d_out, weights.d_in);
+    let nblocks = d_in / block;
+    for i in 0..d_out {
+        quant.set_row_scale(row_scales[i]);
+        let row = weights.row_mut(i);
+        for p in 0..nblocks {
+            let Some(code) = codes[i * nblocks + p] else {
+                continue;
+            };
+            let blk = &mut row[p * block..(p + 1) * block];
+            let norm = blk.iter().map(|a| a * a).sum::<f64>().sqrt();
+            if let Some(new) = quant.reproject(&code, norm, blk) {
+                codes[i * nblocks + p] = Some(new);
+            }
+        }
     }
 }
 

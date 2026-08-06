@@ -87,6 +87,27 @@ pub trait BlockQuantizer {
     fn retraction_target(&self, norm_before: f64) -> Option<f64> {
         Some(norm_before)
     }
+
+    /// Re-project a block onto the finite magnitude grid this code can
+    /// express, after design C's closed-form solve has rescaled it to an
+    /// arbitrary norm.
+    ///
+    /// `code` is the block's code as the loop captured it (the lattice point
+    /// is still valid — every rescale since was a positive scalar), `norm`
+    /// its current free magnitude. The implementation must pick the nearest
+    /// expressible magnitude, rewrite `out` **exactly as a decoder
+    /// reconstructing from the returned code would** — operation for
+    /// operation, not merely to a few ulps — and return the updated code.
+    /// Rescaling the block in place instead would leave the stored weights
+    /// an ulp away from what the artifact decodes to, which is a different
+    /// model from the one measured.
+    ///
+    /// `None` means the quantizer has no magnitude grid (identity, scalar
+    /// grids, free-magnitude direction codes); the block is left as the
+    /// solve produced it, and no sealing claim is made.
+    fn reproject(&self, _code: &BlockCode, _norm: f64, _out: &mut [f64]) -> Option<BlockCode> {
+        None
+    }
 }
 
 /// Shape only, with the block magnitude kept in **full precision**.
@@ -423,6 +444,40 @@ impl BlockQuantizer for LeechShapeGain {
 
     fn last_code(&self) -> Option<BlockCode> {
         self.last
+    }
+
+    /// The magnitude the solve chose, snapped to the nearest gain level, and
+    /// the block rebuilt through [`Self::reconstruct`] — the same routine an
+    /// artifact decoder runs, so sealing this block is exact by construction.
+    ///
+    /// The closed-form solve is free to pick a **negative** scale; the block
+    /// then points along `−point`, and Λ₂₄ is centrally symmetric (the
+    /// complement of a Golay codeword is a codeword), so the flipped point is
+    /// exactly as representable. Snapping back onto the old orientation would
+    /// stay sealable and bit-exact while silently discarding the solve's
+    /// decision — the one defect a round-trip test cannot see. `out` still
+    /// holds the solve's block here, so its sign against the code's point is
+    /// the orientation.
+    fn reproject(&self, code: &BlockCode, norm: f64, out: &mut [f64]) -> Option<BlockCode> {
+        let flipped = out
+            .iter()
+            .zip(code.point.iter())
+            .map(|(o, &p)| o * p as f64)
+            .sum::<f64>()
+            < 0.0;
+        let mut point = code.point;
+        if flipped {
+            for c in point.iter_mut() {
+                *c = -*c;
+            }
+        }
+        let level = nearest_level_index(&self.centroids, norm / self.row_scale);
+        let new = BlockCode {
+            point,
+            gain: level as u32,
+        };
+        self.reconstruct(&new, self.row_scale, out);
+        Some(new)
     }
 }
 

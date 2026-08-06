@@ -479,7 +479,10 @@ pub fn quantize_model_capturing(
                 llvq_quant::gptq::quantize_layer_parallel_capturing(
                     &mut weights,
                     factor,
-                    cfg.group_scales.then_some(hmat.as_slice()),
+                    // The Hessian feeds the end-of-layer closed-form scale
+                    // solve, which both flags run (design C then re-projects
+                    // its result back onto the gain grid).
+                    (cfg.group_scales || cfg.design_c).then_some(hmat.as_slice()),
                     &make,
                     cfg,
                     threads,

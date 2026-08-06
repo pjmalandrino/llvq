@@ -52,6 +52,7 @@ fn cfg(retract: bool) -> GptqConfig {
         block: DIM,
         retract,
         group_scales: false,
+        design_c: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     }

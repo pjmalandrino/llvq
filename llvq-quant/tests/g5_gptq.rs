@@ -196,6 +196,7 @@ fn correction_is_the_analytic_minimizer() {
         block: b,
         retract: false,
         group_scales: false,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -293,6 +294,7 @@ fn identity_quantizer_leaves_the_layer_untouched() {
         block: b,
         retract: true,
         group_scales: false,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -328,6 +330,7 @@ fn gptq_beats_round_to_nearest_on_the_proxy() {
             block: b,
             retract: false,
             group_scales: false,
+            design_c: false,
             lambda: 0.0,
             tail: TailPolicy::Reject,
         };
@@ -396,6 +399,7 @@ fn retraction_preserves_every_row_block_norm() {
         block: b,
         retract: true,
         group_scales: false,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -459,6 +463,7 @@ fn group_scales_are_unity_when_the_directions_are_exact() {
         block: b,
         retract: true,
         group_scales: true,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -501,6 +506,7 @@ fn group_scales_strictly_lower_the_proxy() {
                 block: b,
                 retract: true,
                 group_scales: gs,
+                design_c: false,
                 lambda: 0.0,
                 tail: TailPolicy::Reject,
             };
@@ -597,6 +603,7 @@ fn spherical_gptq_beats_feedback_free_leech_on_the_proxy() {
             block: DIM,
             retract: true,
             group_scales: false,
+            design_c: false,
             lambda: 0.0,
             tail: TailPolicy::Reject,
         };
@@ -649,6 +656,7 @@ fn keep_exact_tail_is_never_snapped_to_the_grid() {
         block: b,
         retract: false,
         group_scales: false,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::KeepExact,
     };
@@ -691,6 +699,7 @@ fn reject_tail_panics() {
         block: b,
         retract: false,
         group_scales: false,
+        design_c: false,
         lambda: 0.0,
         tail: TailPolicy::Reject,
     };
@@ -711,6 +720,7 @@ fn parallel_matches_serial_exactly() {
         block: b,
         retract: true,
         group_scales: true,
+        design_c: false,
         lambda: 1e-3,
         tail: TailPolicy::KeepExact,
     };
@@ -766,6 +776,7 @@ fn group_scale_ridge_is_scale_invariant() {
             block: b,
             retract: true,
             group_scales: true,
+            design_c: false,
             lambda,
             tail: TailPolicy::KeepExact,
         };

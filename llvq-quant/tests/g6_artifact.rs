@@ -62,6 +62,7 @@ fn round_trip(d_in: usize, cap: u32, gain_bits: u32, seed: u64) {
         block: DIM,
         retract: true,
         group_scales: false,
+        design_c: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -159,6 +160,7 @@ fn parallel_capture_matches_serial_capture() {
         block: DIM,
         retract: true,
         group_scales: false,
+        design_c: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -210,6 +212,7 @@ fn the_free_magnitude_variant_cannot_round_trip() {
         block: DIM,
         retract: true,
         group_scales: false,
+        design_c: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };

@@ -186,8 +186,14 @@ fn main() -> anyhow::Result<()> {
     let eval_ctx: usize = arg(&a, 3, 2048);
     let device = llvq_llm::eval::device(a.get(4).map(String::as_str).unwrap_or("cpu"))?;
     // Algorithm 3's closed-form gain refinement. Appendix I treats it as part
-    // of the 0-gain-bit configuration, not as an extra.
-    let group_scales = a.get(5).map(|s| s == "gs").unwrap_or(false);
+    // of the 0-gain-bit configuration, not as an extra. `gs` is the raw
+    // (unsealable) refinement; `dc` is design C — free magnitude during the
+    // loop, the same closed-form solve at the end of the layer, then a
+    // re-projection onto the gain grid so the result stays sealable at the
+    // advertised rate (docs/retraction-et-gain.md, design C).
+    let mode = a.get(5).map(String::as_str).unwrap_or("nogs");
+    let group_scales = mode == "gs";
+    let design_c = mode == "dc";
     // Diagnostics: which codebook, and how many blocks to touch.
     let kind = a.get(6).cloned().unwrap_or_else(|| "leech".into());
     let limit: usize = arg(&a, 7, usize::MAX);
@@ -311,14 +317,16 @@ fn main() -> anyhow::Result<()> {
         block: llvq_core::DIM,
         retract: true, // Spherical GPTQ
         group_scales,
+        design_c,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
     eprintln!(
         "quantizing {} blocks of {repo} (shape–gain, 0 gain bits, spherical \
-         retraction, group scales {}, input rotation {})…",
+         retraction, group scales {}, design C {}, input rotation {})…",
         model.blocks.len(),
         if group_scales { "on" } else { "off" },
+        if design_c { "on" } else { "off" },
         if rotation_seed.is_some() { "on" } else { "off" }
     );
     let codebook = match kind.as_str() {
