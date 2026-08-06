@@ -33,6 +33,7 @@
 //! that reproduces once in a hundred runs, on the card, in a billed job.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice};
 use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
@@ -89,6 +90,25 @@ pub struct FusedRuntime {
     /// Largest `d_in` any projection takes — the staging bound the rotation
     /// kernel needs in shared memory.
     max_d_in: usize,
+    /// One scratch buffer per distinct activation width, for the rotated
+    /// activation that only ever lives between the two launches.
+    ///
+    /// The first version allocated it fresh on every projection: 252 `cudaMalloc`
+    /// **and** 252 `memset` per token, for a buffer `rot_apply` overwrites in
+    /// full and nothing ever reads before it does. Measured cost of that
+    /// naivety: the fused path came out 4 % *slower* than dense despite the
+    /// kernel itself being 1.9× faster.
+    ///
+    /// ## Why sharing one buffer across calls is safe
+    ///
+    /// Not because of the mutex — that only orders the Rust side, and the
+    /// launches are asynchronous, so the lock is long released by the time
+    /// either kernel runs. It is safe because **both launches go on the same
+    /// stream**, which executes in issue order: call *n*'s `tv_slot` has
+    /// finished reading the scratch before call *n+1*'s `rot_apply` starts
+    /// writing it. Put the two kernels on different streams and this becomes
+    /// a race that reproduces once in a hundred runs.
+    scratch: Mutex<HashMap<usize, CudaSlice<f32>>>,
 }
 
 impl FusedRuntime {
@@ -166,6 +186,7 @@ impl FusedRuntime {
                 rotations,
                 device: dev,
                 max_d_in,
+                scratch: Mutex::new(HashMap::new()),
             },
             projs,
         ))
@@ -245,42 +266,6 @@ impl FusedRuntime {
         x.apply_op1_no_bwd(&op)?.to_dtype(DType::F16)
     }
 
-    /// Rotate `x` into the basis the stored weights live in.
-    ///
-    /// Returns the activation itself when the matrix was quantized in the
-    /// natural basis — every projection of the published 4B carries a
-    /// rotation, so that branch is for artifacts produced with `rot off`.
-    fn rotate(
-        &self,
-        proj: &FusedProj,
-        x: &CudaSlice<f16>,
-        x_off: u32,
-    ) -> candle_core::Result<CudaSlice<f32>> {
-        let mut out = self.device.alloc_zeros::<f32>(proj.d_in)?;
-        match proj.rotation {
-            None => {
-                // Widening only. Reusing `rot_apply` with an identity would
-                // mean shipping a table of ones; a dtype cast is candle's job.
-                candle_core::bail!(
-                    "{} : artefact sans rotation — chemin non couvert, cf. fused_cuda.rs",
-                    proj.name
-                )
-            }
-            Some(key) => {
-                let r = self
-                    .rotations
-                    .get(&key)
-                    .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?;
-                self.cuda
-                    .launch_rot(
-                        &self.f_rot, x, &r.signbits, &r.small, &mut out, r.n, r.m, r.k, r.inv,
-                        x_off, r.threads,
-                    )
-                    .map_err(candle_core::Error::msg)?;
-            }
-        }
-        Ok(out)
-    }
 }
 
 /// The `CustomOp1` candle needs to let us at the tensor's storage.
@@ -326,28 +311,68 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         if len != self.proj.d_in {
             candle_core::bail!("activation de {len} valeurs pour d_in={}", self.proj.d_in);
         }
-        let xr = self.rt.rotate(self.proj, all, start as u32)?;
-        let mut y = self.rt.device.alloc_zeros::<f32>(self.proj.d_out)?;
+        let rot = match self.proj.rotation {
+            None => candle_core::bail!(
+                "{} : artefact sans rotation — chemin non couvert, cf. fused_cuda.rs",
+                self.proj.name
+            ),
+            Some(key) => self
+                .rt
+                .rotations
+                .get(&key)
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
+        };
+
+        // Uninitialised on purpose. `tv_slot` writes `y[row]` for every row —
+        // the grid is exact and there is no bounds guard — so zeroing it first
+        // is a `memset` of 252 buffers a token that nothing ever reads.
+        let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_out) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
-        self.rt
-            .cuda
-            .launch_slot(
-                &self.rt.f_slot,
-                &self.proj.words,
-                &self.proj.bases,
-                &self.rt.tab,
-                &self.proj.gscale,
-                &self.proj.rscale,
-                &self.proj.tail,
-                &xr,
-                &mut y,
-                self.proj.nblocks,
-                self.proj.tail_w,
-                self.proj.d_out as u32,
-                THREADS,
-                shared,
-            )
-            .map_err(candle_core::Error::msg)?;
+
+        // Both launches under one lock, so the scratch cannot be handed to a
+        // second caller between them. See `FusedRuntime::scratch` for why the
+        // *stream* is what makes the sharing sound, not this lock.
+        {
+            let mut pool = self
+                .rt
+                .scratch
+                .lock()
+                .map_err(|_| candle_core::Error::msg("scratch empoisonné"))?;
+            let xr = match pool.entry(self.proj.d_in) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => e.insert(
+                    unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
+                        .map_err(|er| candle_core::Error::msg(format!("alloc scratch: {er}")))?,
+                ),
+            };
+            self.rt
+                .cuda
+                .launch_rot(
+                    &self.rt.f_rot, all, &rot.signbits, &rot.small, xr, rot.n, rot.m, rot.k,
+                    rot.inv, start as u32, rot.threads,
+                )
+                .map_err(candle_core::Error::msg)?;
+            self.rt
+                .cuda
+                .launch_slot(
+                    &self.rt.f_slot,
+                    &self.proj.words,
+                    &self.proj.bases,
+                    &self.rt.tab,
+                    &self.proj.gscale,
+                    &self.proj.rscale,
+                    &self.proj.tail,
+                    xr,
+                    &mut y,
+                    self.proj.nblocks,
+                    self.proj.tail_w,
+                    self.proj.d_out as u32,
+                    THREADS,
+                    shared,
+                )
+                .map_err(candle_core::Error::msg)?;
+        }
 
         Ok((
             CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
