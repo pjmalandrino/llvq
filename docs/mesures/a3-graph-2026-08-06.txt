@@ -1,0 +1,57 @@
+# Lot A / A3(a) — ce qu'un CUDA Graph rend, en trois bras
+# job 6a746c196b79c09949c23fa8, l40sx1. Deux jobs au total (~0,13 $),
+# le premier ayant échoué sur le bras graph — cause en fin de fichier.
+
+NVIDIA L40S — 142 SM
+  stream legacy (défaut)        3.63 µs/lancement  [3.63–3.64]
+  stream frais                  3.67 µs/lancement  [3.67–3.68]
+  frais + graph                 2.97 µs/lancement  [2.97–2.97]
+
+  Sur 252 lancements — un token de projections :
+    legacy          0.915 ms
+    frais           0.926 ms
+    frais + graph   0.748 ms
+
+=== LES TROIS CHOSES QUE ÇA ÉTABLIT ===
+
+1. `g` VAUT 3,63 µs, ET TROIS MESURES INDÉPENDANTES CONCORDENT.
+   `bin/matvec` donne 1,85 µs de soumission CPU, `rotbench` 3,3 µs en
+   bout-à-bout GPU sur un noyau minuscule, celui-ci 3,63 µs sur 252
+   lancements enchaînés. La fourchette [1 ; 4] µs que
+   `portage-noyau-cuda.md` §6.3 refusait de trancher est fermée par le haut.
+
+   ε = 252 × 3,63 = **0,915 ms**, soit 15,8 % des 5,8 ms du bras LLVQ. Le
+   terme est réel, et l'audit avait raison de dire qu'il contamine tout A/B.
+
+2. LE CUDA GRAPH N'EN RÉCUPÈRE QUE 18 %. 0,167 ms contre le legacy, sur les
+   0,915 de ε. Le reste du coût de lancement n'est pas de la soumission : le
+   graph supprime le trafic pilote, pas la mise en route et l'arrêt des blocs
+   sur les SM.
+
+   Rapporté à ce qui compte : 0,167 ms sur les 5,8 ms de projections = **2,9 %**,
+   et sur les 21,9 ms d'un token = **0,8 %**.
+
+   ⚠️ Et c'est un PLAFOND. Ce noyau ne fait presque rien, donc son temps est
+   presque tout du lancement ; sur `tv_slot`, dont le travail masque une part
+   du coût fixe, l'économie réelle est plus faible.
+
+3. CHANGER DE STREAM COÛTE AU LIEU DE RAPPORTER : 3,67 contre 3,63 µs. La
+   cause est mesurée, pas supposée — créer un second stream fait passer cudarc
+   en multi-stream mode, où chaque `arg()` pousse un `cuStreamWaitEvent` et un
+   `cuEventRecord` autour du lancement (`launch.rs:100-135`). Les événements
+   sont la seule différence entre les deux bras.
+
+   C'est aussi ce qui a fait échouer le premier job : enregistrer un événement
+   étranger au graph invalide la capture. `disable_event_tracking()` avant
+   toute allocation lève les deux, et n'est sûr que parce que ce contexte
+   pilote un seul stream.
+
+=== VERDICT : A3(b) NE SE FAIT PAS ===
+
+La spec conditionne A3(b) — le graph dans `fusedrun` — à ce que (a) soit
+concluant. Il ne l'est pas : 0,8 % d'un token, plafond optimiste, contre un
+chantier qui exige de préallouer le cache KV pour lui donner des formes fixes
+(un graph statique ne capture pas un `Tensor::cat` qui grandit à chaque token).
+
+Le sujet est clos, pas reporté. Et l'audit avait raison sur le diagnostic — ε
+existe et vaut 15,8 % — mais son remède ne le rend pas.
