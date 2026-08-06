@@ -372,6 +372,173 @@ impl RuntimeBlocks {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Planes14 — E1a of docs/pistes-format-vram-2026-08-05.md
+// ---------------------------------------------------------------------------
+
+/// Bytes per block of the [`PlanesBlocks`] layout — a frozen constant of the
+/// format, not a computed stride.
+pub const PLANES14_BYTES: usize = 14;
+/// First bit of the sign mask in a Planes14 record.
+pub const PLANES14_SMASK_BIT: u64 = 10;
+/// First bit of each of the three level bit-planes.
+pub const PLANES14_PLANE_BIT: [u64; 3] = [34, 58, 82];
+/// First padding bit; bits `106..112` must be written zero.
+pub const PLANES14_PAD_BIT: u64 = 106;
+
+/// The `Planes14` block stream: one record per block, **uniform 14-byte
+/// stride**, no base table. Bit offsets are fixed for every class:
+///
+/// ```text
+/// [class : 9][gain : 1][sign mask : 24][plane0 : 24][plane1 : 24][plane2 : 24][0 : 6]
+/// ```
+///
+/// The level of slot `j` is `p0[j] | p1[j]<<1 | p2[j]<<2` — an explicit
+/// 3-bit index into the *same* [`ClassRecord`] values [`Layout::Slot32`]
+/// uses (`len <= 5`, so 3 bits always suffice). Level 0 is no longer
+/// implicit: a slot at level 0 simply has its three plane bits zero, so an
+/// `L = 1` block (the origin included) carries three all-zero planes. The
+/// sign mask keeps Slot32's exact semantics: bit `j` is the sign of slot
+/// `j`, and zero slots have their bit **written 0** so equal inputs
+/// transcode to equal bytes.
+///
+/// The payload is a bijection of the Slot32 content — same class id, same
+/// gain, same signs, same per-slot levels — re-arranged so a decoder needs
+/// neither a base table nor per-class widths: `offset = 14·b`, always.
+/// 112 bits over 24 weights is 4.6667 b/w, between `Fixed96`'s 4.000 and
+/// `Slot32`'s byte-rounded group strides.
+///
+/// The gain field is **frozen at bit 9, one bit wide** — the offsets above
+/// are the format, so a table with `gain_bits != 1` is refused outright
+/// rather than silently shifting every field.
+pub struct PlanesBlocks {
+    pub n_blocks: usize,
+    /// The bit-packed records, LSB-first within each byte, `14·n_blocks`
+    /// bytes exactly.
+    pub data: Vec<u8>,
+}
+
+impl PlanesBlocks {
+    /// Bits the stream spends per weight — addressing included, which for
+    /// this layout is nothing: `112 / 24` exactly.
+    pub fn bits_per_weight(&self) -> f64 {
+        (self.data.len() as u64 * 8) as f64 / (self.n_blocks * DIM) as f64
+    }
+
+    /// Decode block `b` back to its lattice point and gain rank — the CPU
+    /// reference every GPU reading of these bytes is checked against, same
+    /// signature as [`RuntimeBlocks::decode_block`].
+    pub fn decode_block(&self, table: &ClassTable, b: usize) -> (Point, u32) {
+        assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
+        assert_eq!(
+            table.gain_bits(),
+            1,
+            "Planes14 freezes the gain field at bit 9, one bit wide"
+        );
+        let bit0 = b as u64 * (PLANES14_BYTES as u64 * 8);
+        let mut cur = BitCursor::new(&self.data, bit0);
+        let id = cur.read(CLASS_BITS) as usize;
+        let gain = cur.read(1) as u32;
+        let rec = table.record(id);
+        if id == 0 {
+            return ([0; DIM], gain);
+        }
+        let smask = cur.read(DIM as u32) as u32;
+        let p0 = cur.read(DIM as u32) as u32;
+        let p1 = cur.read(DIM as u32) as u32;
+        let p2 = cur.read(DIM as u32) as u32;
+        let mut p = [0i32; DIM];
+        for (i, pi) in p.iter_mut().enumerate() {
+            let lvl = (p0 >> i & 1) | (p1 >> i & 1) << 1 | (p2 >> i & 1) << 2;
+            assert!(
+                (lvl as usize) < rec.len as usize,
+                "block {b}, slot {i}: level {lvl} outside class {id} (len {})",
+                rec.len
+            );
+            let v = rec.values[lvl as usize];
+            *pi = if smask >> i & 1 == 1 { -v } else { v };
+        }
+        (p, gain)
+    }
+}
+
+/// Transcode raw `(index, gain)` codes into a [`PlanesBlocks`] stream.
+///
+/// Same contract as [`transcode`]: one fast decode per block, an
+/// out-of-range index is an error, and the result decodes bit-for-bit to
+/// what `Indexer::decode` gives. Padding bits `106..112` of every record
+/// are written zero — canonicity is part of the format, as it is for
+/// [`Layout::Slot32`]'s zero-slot sign bits.
+pub fn transcode_planes14(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<PlanesBlocks> {
+    assert_eq!(indices.len(), gains.len(), "one gain per block");
+    assert_eq!(
+        table.gain_bits(),
+        1,
+        "Planes14 freezes the gain field at bit 9, one bit wide"
+    );
+    let n = indices.len();
+    let mut data = vec![0u8; n * PLANES14_BYTES];
+    for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
+        assert!(gain < 2, "block {b}: gain {gain} overflows the 1-bit field");
+        let id = class_id(fd, idx)?;
+        let rec = *table.record(id);
+        let bit0 = b as u64 * (PLANES14_BYTES as u64 * 8);
+        let mut w = BitSink::new(&mut data, bit0);
+        w.push(id as u64, CLASS_BITS);
+        w.push(gain as u64, 1);
+        if id == 0 {
+            // Origin: every slot is at level 0 = value 0, so the sign mask
+            // and all three planes are zero — the pre-zeroed record is
+            // already exactly right.
+            continue;
+        }
+        let p = fd.decode(idx).expect("class_id validated the index");
+        // Level of each slot: |value| matched against the class's levels —
+        // distinct by construction, so the match is unambiguous. Same
+        // level indices Slot32 encodes through its masks.
+        let mut level = [0u8; DIM];
+        for (i, &v) in p.iter().enumerate() {
+            let a = v.abs();
+            level[i] = rec.values[..rec.len as usize]
+                .iter()
+                .position(|&u| u == a)
+                .expect("decoded value belongs to its class") as u8;
+        }
+        // Sign mask in slot space — zero slots contribute 0 bits, written 0.
+        let mut smask = 0u64;
+        for (i, &v) in p.iter().enumerate() {
+            if v < 0 {
+                smask |= 1 << i;
+            }
+        }
+        w.push(smask, DIM as u32);
+        // The three bit-planes of the per-slot 3-bit level.
+        for plane in 0..3u8 {
+            let mut m = 0u64;
+            for (i, &l) in level.iter().enumerate() {
+                if l >> plane & 1 == 1 {
+                    m |= 1 << i;
+                }
+            }
+            w.push(m, DIM as u32);
+        }
+        // Nothing writes past bit 105 and the buffer was pre-zeroed, so
+        // bits 106..112 are zero by construction; the assert makes the
+        // frozen geometry a checked fact rather than a comment.
+        assert_eq!(
+            w.pos - bit0,
+            PLANES14_PAD_BIT,
+            "class {id}: Planes14 record is not 106 payload bits"
+        );
+    }
+    Ok(PlanesBlocks { n_blocks: n, data })
+}
+
 /// Transcode one matrix's raw `(index, gain)` codes into a runtime stream.
 ///
 /// Cost is one fast decode per block (243 ns): ~37 s single-core for a 4B,

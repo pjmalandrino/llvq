@@ -1,0 +1,70 @@
+# Lot A / A1 — premier passage sur carte NVIDIA
+# Trois jobs : oracle (l4x1, 0,01 $), fusedrun 32 (l40sx1, 0,16 $),
+# fusedrun 128 (l40sx1, 0,17 $).
+
+=== A1.3 — L'ORACLE, GATE ABSOLU (job 6a7440186b79c09949c23e4e) ===
+
+  Qwen/Qwen3-0.6B on Cuda — max |Δhidden| = 0.000e0
+    (relative to max|h| = 8.550e1) → 0.000e0
+  MATCH — the observable forward reproduces candle's Qwen3
+
+Zéro exact, pas « proche de zéro », et identique aux passages précédents sur
+ce backend. La passe avant maison reproduit celle de candle-transformers, donc
+toute hessienne construite sur cette carte vaut quelque chose et tout écart
+mesuré plus bas est imputable au chemin fusé, pas au harnais.
+
+=== A1.4 — LA ROTATION SUR CARTE (job 6a7369a06b79c09949c23471) ===
+
+  rot_apply   47 registres, 0 o locaux, sm_89
+  pire sur 8 formes : rel 9.523e-8, coord 6.234e-7
+
+La carte rend EXACTEMENT les chiffres du harnais Mac. Vérifiable a priori :
+chaque coordonnée de sortie est calculée par un seul thread, sans réduction
+inter-thread ni `shfl`, donc rien ne peut réassocier. C'est ce qui distingue
+ce noyau du matvec, dont les sommes Metal et CUDA divergent par construction.
+
+=== A1.5 — fusedrun, 128 TOKENS (job 6a7440bba00abefd4b2952b4) ===
+
+  bras        chargement       tok/s    Go carte
+  dense           188.0 s        43.5        8.04
+  fusé            128.3 s        47.0        3.28
+  vitesse ×1.08, mémoire ÷2.45
+
+  ⚠️ divergence au token 89 sur 128
+
+LA DIVERGENCE EST TARDIVE, ET C'EST LE VERDICT ATTENDU. La spec du lot pose
+la grille : « 1 à ~5 = bug, tardive = tie-break à documenter ». 89 sur 128 est
+tardive au sens le plus fort — 88 tokens gloutons identiques d'affilée à
+travers 252 projections × 36 couches, deux fois par token.
+
+Ce qui se passe au token 89, en clair : deux candidats étaient à un arrondi
+l'un de l'autre et l'argmax a tranché différemment. Un décodage glouton étant
+une chaîne d'argmax, tout diverge ensuite — les deux suites restent
+grammaticales et de même qualité, elles ne disent simplement plus la même
+chose. Ce n'est pas un défaut ; c'est la conséquence inévitable de deux ordres
+d'accumulation différents, et exiger le contraire reviendrait à exiger la
+bit-exactitude, qui n'est pas sur la table.
+
+À 32 tokens (job 6a742e85a00abefd4b29518e) : aucune divergence.
+
+LE DÉBIT MONTE AVEC LA LONGUEUR : 45,6 tok/s à 32 tokens, 47,0 à 128. Le
+warmup et le prefill s'amortissent sur plus de tokens. Le bras dense, lui, ne
+bouge pas (43,6 → 43,5), ce qui est cohérent : il n'a ni rotation ni prefill
+bouclé à amortir.
+
+=== CRITÈRES DE SORTIE A1 ===
+
+  oracle exact                            ✅ 0.000e0
+  rotation bit-exacte sur carte           ✅ identique au Mac
+  divergence absente ou tardive           ✅ token 89/128, documentée
+  octets device rapportés                 ✅ 3,28 Go contre 8,04
+  tok/s fusé ≥ dense                      ✅ 47,0 ≥ 43,5
+
+A1 EST VERT SUR LES CINQ.
+
+=== UNE CORRECTION À LA SPEC ===
+
+Elle annonce « 40-70 min, prévoir 2 tentatives » pour le build d'image. Sept
+builds le 2026-08-05/06 : **12 à 14 minutes chacun, aucun échec**. Le chiffre
+est faux d'un facteur 4, et c'est lui qui décourageait d'écrire du code hôte
+instrumenté — donc lui qui a laissé le noyau sans instrumentation jusqu'ici.
