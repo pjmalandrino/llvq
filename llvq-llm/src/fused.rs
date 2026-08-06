@@ -11,9 +11,10 @@
 //! 2026-08-05 miniature run measured that plainly — 42.7 tok/s against 42.8.
 //!
 //! This module keeps the weights encoded. It transcodes each matrix to the
-//! `Slot32` runtime layout the fused matvec reads, and hands the host tables
-//! over. Nothing here touches a GPU: this is the portable half, and it is
-//! testable without a card.
+//! runtime layout the fused matvec reads — `Planes14` by default, `Slot32`
+//! under `LLVQ_FUSED_LAYOUT=slot32` (see [`FusedLayout`]) — and hands the
+//! host tables over. Nothing here touches a GPU: this is the portable half,
+//! and it is testable without a card.
 //!
 //! ## The rotation tables, and why they are here
 //!
@@ -36,9 +37,56 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use llvq_artifact::runtime::{transcode, ClassTable, Layout, RuntimeBlocks};
+use llvq_artifact::runtime::{
+    transcode, transcode_planes14, ClassTable, Layout, PlanesBlocks, RuntimeBlocks,
+};
 use llvq_quant::rotation::Rotation;
 use llvq_search::fastdec::FastDecoder;
+
+/// Which runtime layout the fused path reads.
+///
+/// Resolved once, from `LLVQ_FUSED_LAYOUT`, before any transcoding: the whole
+/// model is one layout, the kernel is chosen by it, and the two cannot drift
+/// apart because every [`HostStream`] carries its variant with it.
+///
+/// `Planes14` is the default — the reference layout since C1 (2026-08-06,
+/// 1.14× over `Slot32` at identical decoded content, 4.804 against 5.510
+/// b/weight on the published 4B). `Slot32` stays as the comparison arm and
+/// the fallback, bit-identical to what shipped before the switch existed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FusedLayout {
+    Planes14,
+    Slot32,
+}
+
+impl FusedLayout {
+    /// Parse the value of `LLVQ_FUSED_LAYOUT`. `None` (unset) and the empty
+    /// string mean the default; anything else must name a layout exactly —
+    /// a typo silently falling back to a default would make an A/B lie.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("") => Ok(Self::Planes14),
+            Some("planes14") => Ok(Self::Planes14),
+            Some("slot32") => Ok(Self::Slot32),
+            Some(other) => Err(format!(
+                "LLVQ_FUSED_LAYOUT={other} : valeurs admises « planes14 » (défaut) et « slot32 »"
+            )),
+        }
+    }
+
+    /// Resolve from the environment.
+    pub fn from_env() -> Result<Self, String> {
+        let v = std::env::var("LLVQ_FUSED_LAYOUT").ok();
+        Self::parse(v.as_deref())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Planes14 => "planes14",
+            Self::Slot32 => "slot32",
+        }
+    }
+}
 
 /// Mirrors `LLVQ_ROT_KMAX` in `llvq-cuda/kernels/llvq_rot.cuh`.
 ///
@@ -47,6 +95,27 @@ use llvq_search::fastdec::FastDecoder;
 /// `the_kmax_constant_matches_the_kernel` on the CUDA side.
 pub const ROT_KMAX: usize = 32;
 
+/// One matrix's payload in one runtime layout, as the words a kernel indexes.
+///
+/// An enum rather than optional fields, and that is the guarantee: a
+/// `Planes14` stream **has no bases** — not an empty vector, no field at all —
+/// so no code path can upload or launch with a bases array on the planes path.
+/// The compiler enforces what a review would otherwise have to.
+pub enum HostStream {
+    Slot32 {
+        /// `Slot32` payload as `u32` words, padded for the kernel's five-word
+        /// read window past the last block.
+        words: Vec<u32>,
+        /// Byte offset of each group of 32 blocks, plus a final sentinel.
+        bases: Vec<u32>,
+    },
+    Planes14 {
+        /// The uniform 14-byte records as `u32` words, padded for the
+        /// kernel's four-word read window past the last block.
+        words: Vec<u32>,
+    },
+}
+
 /// One projection, transcoded and ready to upload.
 pub struct FusedMatrix {
     pub name: String,
@@ -54,11 +123,8 @@ pub struct FusedMatrix {
     pub d_in: usize,
     pub nblocks: usize,
     pub tail_w: usize,
-    /// `Slot32` payload as `u32` words, padded for the kernel's five-word read
-    /// window past the last block.
-    pub words: Vec<u32>,
-    /// Byte offset of each group of 32 blocks, plus a final sentinel.
-    pub bases: Vec<u32>,
+    /// The payload, in the layout [`FusedModel::layout`] names.
+    pub stream: HostStream,
     /// The two gain centroids. One bit of gain is hard-coded in every decoder.
     pub gscale: [f32; 2],
     pub rscale: Vec<f32>,
@@ -126,6 +192,8 @@ impl RotationTables {
 
 /// Everything a fused runtime needs, still on the host.
 pub struct FusedModel {
+    /// The runtime layout every matrix was transcoded to.
+    pub layout: FusedLayout,
     pub matrices: Vec<FusedMatrix>,
     pub rotations: HashMap<RotKey, RotationTables>,
     /// Embedding and norms, carried verbatim — name → (dims, f32 values).
@@ -136,17 +204,18 @@ pub struct FusedModel {
     pub carried_weights: usize,
     /// Size of the file on disk.
     pub file_bytes: u64,
-    /// Bytes the projections occupy at runtime, in the `Slot32` layout.
+    /// Bytes the projections occupy at runtime, in the chosen layout.
     pub runtime_bytes: u64,
 }
 
 impl FusedModel {
     /// Bits per weight the runtime actually spends on quantized projections.
     ///
-    /// Not the same accounting as the file's: the runtime layout pays a byte-
-    /// rounded stride per group of 32 and a `u32` base per group, where the
-    /// file packs 48 bits per block exactly. `Slot32` measured 5.510 b/weight
-    /// on the published 4B against 2.0702 effective in the file.
+    /// Not the same accounting as the file's: the runtime layout pays its
+    /// addressing where the file packs 48 bits per block exactly. On the
+    /// published 4B: `Slot32` (byte-rounded group strides plus a `u32` base
+    /// per group) measured 5.510 b/weight, `Planes14` (uniform 14-byte
+    /// records, no bases) 4.804, against 2.0702 effective in the file.
     pub fn runtime_bits_per_weight(&self) -> f64 {
         self.runtime_bytes as f64 * 8.0 / self.quantized_weights as f64
     }
@@ -177,12 +246,64 @@ fn pack_words(rt: &RuntimeBlocks) -> Vec<u32> {
         .collect()
 }
 
-/// Load a sealed artifact in encoded form.
+/// [`pack_words`] for a Planes14 stream — the four-word window's padding.
+///
+/// `planes_fields` reads four consecutive words from `(14·b) >> 2`, so the
+/// last block's window reaches up to 2 bytes past the `14·n` payload. Four
+/// spare bytes plus word alignment keep that read in bounds — the same
+/// arithmetic as planesbench's upload, and skipping it is an illegal address
+/// on CUDA, in the middle of a billed job.
+fn pack_planes_words(pb: &PlanesBlocks) -> Vec<u32> {
+    let mut bytes = pb.data.clone();
+    bytes.extend_from_slice(&[0u8; 4]);
+    while !bytes.len().is_multiple_of(4) {
+        bytes.push(0);
+    }
+    bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Transcode one matrix's raw codes into the words of the chosen layout.
+///
+/// Returns the stream and its **payload** bytes — the accounting the runtime
+/// reports, so `Slot32` counts its bases and `Planes14` has none to count.
+/// (The read-window padding is deliberately excluded, as it always was for
+/// `Slot32`: it is upload slack, not format.)
+///
+/// Public so the tests on this machine can pin, without a card, that the
+/// packed words decode to exactly the `Slot32` content — the same bijection
+/// planesbench proves block by block on the device path.
+pub fn transcode_stream(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    indices: &[u64],
+    gains: &[u32],
+    layout: FusedLayout,
+) -> Result<(HostStream, u64), String> {
+    match layout {
+        FusedLayout::Slot32 => {
+            let rt = transcode(fd, table, indices, gains, Layout::Slot32)
+                .map_err(|e| e.to_string())?;
+            let bytes = rt.data.len() as u64 + rt.bases.len() as u64 * 4;
+            let words = pack_words(&rt);
+            Ok((HostStream::Slot32 { words, bases: rt.bases }, bytes))
+        }
+        FusedLayout::Planes14 => {
+            let pb = transcode_planes14(fd, table, indices, gains).map_err(|e| e.to_string())?;
+            let bytes = pb.data.len() as u64;
+            Ok((HostStream::Planes14 { words: pack_planes_words(&pb) }, bytes))
+        }
+    }
+}
+
+/// Load a sealed artifact in encoded form, transcoded to `layout`.
 ///
 /// Costs one transcode of every matrix — 142 s for the 4B on eight cores,
 /// measured 2026-08-05 — against `sealed::load`'s full decode, which took
 /// 208.7 s on the same file and produced eight gigabytes of f16.
-pub fn load(path: &str) -> Result<FusedModel, String> {
+pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     let file_bytes = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
     let f = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
@@ -197,6 +318,16 @@ pub fn load(path: &str) -> Result<FusedModel, String> {
 
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);
+    if layout == FusedLayout::Planes14 {
+        // Three bit-planes address eight levels; the layout is only a
+        // bijection of the Slot32 content while every class stays within
+        // five. True of the v1 table, asserted rather than assumed — the
+        // same guard planesbench re-asserts before any timing.
+        assert!(
+            (0..table.n_entries()).all(|e| table.record(e).len <= 5),
+            "une classe dépasse 5 niveaux : Planes14 ne peut pas la porter"
+        );
+    }
     let mut matrices = Vec::with_capacity(head.matrices as usize);
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
@@ -233,12 +364,8 @@ pub fn load(path: &str) -> Result<FusedModel, String> {
             }
         };
 
-        let rt = transcode(&fd, &table, &m.indices, &m.gains, Layout::Slot32)
-            .map_err(|e| e.to_string())?;
-        let bytes = rt.data.len() as u64
-            + rt.bases.len() as u64 * 4
-            + (m.d_out * tail_w) as u64 * 4
-            + m.d_out as u64 * 4;
+        let (stream, payload) = transcode_stream(&fd, &table, &m.indices, &m.gains, layout)?;
+        let bytes = payload + (m.d_out * tail_w) as u64 * 4 + m.d_out as u64 * 4;
         runtime_bytes += bytes;
 
         matrices.push(FusedMatrix {
@@ -247,8 +374,7 @@ pub fn load(path: &str) -> Result<FusedModel, String> {
             d_in: m.d_in,
             nblocks,
             tail_w,
-            words: pack_words(&rt),
-            bases: rt.bases,
+            stream,
             gscale: [m.centroids[0] as f32, m.centroids[1] as f32],
             rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
             tail: m.tail.iter().map(|&v| v as f32).collect(),
@@ -274,6 +400,7 @@ pub fn load(path: &str) -> Result<FusedModel, String> {
     }
 
     Ok(FusedModel {
+        layout,
         matrices,
         rotations,
         raw,

@@ -1,11 +1,12 @@
 //! The fused projections, running inside candle.
 //!
 //! This is where the kernel stops being a bench and starts being inference.
-//! It holds the `Slot32` streams on the device, and replaces one linear layer
+//! It holds the encoded streams on the device — `Planes14` by default,
+//! `Slot32` under `LLVQ_FUSED_LAYOUT=slot32` — and replaces one linear layer
 //! with two launches:
 //!
 //! ```text
-//! x (f16) ──rot_apply──▶ x' (f32, rotated basis) ──tv_slot──▶ y (f32)
+//! x (f16) ──rot_apply──▶ x' (f32, rotated basis) ──tv_planes_h / tv_slot_h──▶ y (f16)
 //! ```
 //!
 //! ## Three things it does not do, on purpose
@@ -35,11 +36,13 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use candle_core::cuda_backend::cudarc::driver::{CudaFunction, CudaSlice};
+use candle_core::cuda_backend::cudarc::driver::{
+    CudaFunction, CudaSlice, LaunchConfig, PushKernelArg,
+};
 use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
 use half::f16;
 
-use crate::fused::{FusedMatrix, FusedModel, RotKey, RotationTables};
+use crate::fused::{FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables};
 
 /// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
 /// bench has always measured.
@@ -51,6 +54,43 @@ const TILE_BLOCKS: usize = 128;
 /// or corrupt index cannot address out of bounds.
 const TABLE_ENTRIES: usize = 512;
 const REC_WORDS: usize = 6;
+
+/// The Planes14 kernel sources, embedded like every other kernel so a run is
+/// reproducible from the binary alone. The two committed files are reused
+/// verbatim from `llvq-cuda` (they belong to the C1 lot and are pinned by
+/// planesbench); `tv_planes_h.cu` is this crate's own — the half-storing
+/// entry point only the inference path needs.
+const PLANES_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes.cuh");
+const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
+const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
+
+/// The three Planes14 parts, honouring `LLVQ_KERNEL_DIR` with the same
+/// contract as `load_sources_many`: without the variable, the embedded text;
+/// with it, **all** the files from the directory, disclosed loudly by the
+/// caller — mixing embedded and overridden parts would make the printed
+/// sha256 untraceable.
+fn load_planes_sources() -> Result<([String; 3], Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((
+            [
+                PLANES_CUH_EMBED.to_string(),
+                PLANES_CU_EMBED.to_string(),
+                PLANES_H_CU_EMBED.to_string(),
+            ],
+            None,
+        )),
+        Ok(dir) => {
+            let rd = |n: &str| {
+                std::fs::read_to_string(std::path::Path::new(&dir).join(n))
+                    .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+            };
+            Ok((
+                [rd("llvq_planes.cuh")?, rd("planes.cu")?, rd("tv_planes_h.cu")?],
+                Some(dir),
+            ))
+        }
+    }
+}
 
 /// The rotation tables, on the device.
 struct RotBuffers {
@@ -64,6 +104,19 @@ struct RotBuffers {
     threads: u32,
 }
 
+/// A matrix's payload on the device, mirroring [`HostStream`] variant for
+/// variant. The `Planes14` arm carries **no bases slice at all** — reading or
+/// launching with one on the planes path is a compile error, not a bug class.
+enum DeviceStream {
+    Slot32 {
+        words: CudaSlice<u32>,
+        bases: CudaSlice<u32>,
+    },
+    Planes14 {
+        words: CudaSlice<u32>,
+    },
+}
+
 /// One projection's weights, on the device.
 pub struct FusedProj {
     pub name: String,
@@ -71,8 +124,7 @@ pub struct FusedProj {
     pub d_in: usize,
     nblocks: u32,
     tail_w: u32,
-    words: CudaSlice<u32>,
-    bases: CudaSlice<u32>,
+    stream: DeviceStream,
     gscale: CudaSlice<f32>,
     rscale: CudaSlice<f32>,
     tail: CudaSlice<f32>,
@@ -83,7 +135,10 @@ pub struct FusedProj {
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
     f_rot: CudaFunction,
-    f_slot: CudaFunction,
+    /// `tv_planes_h` or `tv_slot_h`, whichever [`FusedLayout`] named — one
+    /// kernel per runtime, chosen with the layout, so a stream and a kernel
+    /// of different layouts cannot meet.
+    f_matvec: CudaFunction,
     tab: CudaSlice<u32>,
     rotations: HashMap<RotKey, RotBuffers>,
     device: candle_core::CudaDevice,
@@ -117,25 +172,48 @@ impl FusedRuntime {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
 
+        // The Slot32 translation unit is bit-identical to what shipped before
+        // the layout switch existed — that arm is the comparison and the
+        // fallback, and its register allocation must not move because a new
+        // layout joined the build. Planes14 appends its three parts (in
+        // planesbench's proven order: llvq_planes.cuh needs llvq_slot.cuh,
+        // planes.cu needs matvec.cu) plus the half-storing entry point.
         let sources = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "llvq_rot.cuh", "rotate.cu"])
             .map_err(candle_core::Error::msg)?;
+        let planes = match model.layout {
+            FusedLayout::Slot32 => None,
+            FusedLayout::Planes14 => {
+                Some(load_planes_sources().map_err(candle_core::Error::msg)?)
+            }
+        };
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
-        let parts: Vec<&str> = std::iter::once(defines.as_str())
+        let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
+        if let Some((pp, overridden)) = &planes {
+            parts.extend(pp.iter().map(String::as_str));
+            if let Some(d) = overridden {
+                eprintln!("⚠️ SOURCES Planes14 SURCHARGÉES depuis {d}");
+            }
+        }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
         let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
 
-        // The register report is a contract, not a diagnostic: `slot_dot`
-        // keeps a four-accumulator array and `rot_mix` a KMAX-wide column in
-        // registers, and a spill costs occupancy without changing a result.
-        for name in ["tv_slot_h", "rot_apply"] {
+        // The register report is a contract, not a diagnostic: the block
+        // decoders keep their accumulators and `rot_mix` a KMAX-wide column
+        // in registers, and a spill costs occupancy without changing a
+        // result. Checked on the kernel this runtime will actually launch.
+        let matvec_name = match model.layout {
+            FusedLayout::Planes14 => "tv_planes_h",
+            FusedLayout::Slot32 => "tv_slot_h",
+        };
+        for name in [matvec_name, "rot_apply"] {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
                 candle_core::bail!("{name} : {} octets de spill", r.local_bytes);
             }
         }
-        let f_slot = cuda.func("tv_slot_h").map_err(candle_core::Error::msg)?;
+        let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
         let f_rot = cuda.func("rot_apply").map_err(candle_core::Error::msg)?;
 
         // The 384-entry class table both sides of the format share, laid out
@@ -174,14 +252,14 @@ impl FusedRuntime {
         let max_d_in = model.matrices.iter().map(|m| m.d_in).max().unwrap_or(0);
         let mut projs = Vec::with_capacity(model.matrices.len());
         for m in &model.matrices {
-            projs.push(upload_matrix(&cuda, m)?);
+            projs.push(upload_matrix(&cuda, m, model.layout)?);
         }
 
         Ok((
             Self {
                 cuda,
                 f_rot,
-                f_slot,
+                f_matvec,
                 tab,
                 rotations,
                 device: dev,
@@ -358,12 +436,34 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                     rot.inv, start as u32, rot.threads,
                 )
                 .map_err(candle_core::Error::msg)?;
-            self.rt
-                .cuda
-                .launch_slot_h(
-                    &self.rt.f_slot,
-                    &self.proj.words,
-                    &self.proj.bases,
+            // One arm per layout. The Planes14 arm has no bases to pass —
+            // the variant carries none — and the Slot32 arm is the exact
+            // call that shipped before the switch existed.
+            match &self.proj.stream {
+                DeviceStream::Slot32 { words, bases } => self
+                    .rt
+                    .cuda
+                    .launch_slot_h(
+                        &self.rt.f_matvec,
+                        words,
+                        bases,
+                        &self.rt.tab,
+                        &self.proj.gscale,
+                        &self.proj.rscale,
+                        &self.proj.tail,
+                        xr,
+                        &mut y,
+                        self.proj.nblocks,
+                        self.proj.tail_w,
+                        self.proj.d_out as u32,
+                        THREADS,
+                        shared,
+                    )
+                    .map_err(candle_core::Error::msg)?,
+                DeviceStream::Planes14 { words } => launch_planes_h(
+                    &self.rt.cuda,
+                    &self.rt.f_matvec,
+                    words,
                     &self.rt.tab,
                     &self.proj.gscale,
                     &self.proj.rscale,
@@ -376,7 +476,8 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                     THREADS,
                     shared,
                 )
-                .map_err(candle_core::Error::msg)?;
+                .map_err(candle_core::Error::msg)?,
+            }
         }
 
         Ok((
@@ -403,9 +504,45 @@ fn upload_rotation(
     })
 }
 
+/// The Planes14 twin of `Cuda::launch_slot_h` — `tv_slot_h`'s argument list
+/// minus the bases array, which Planes14 does not have. Local to this crate
+/// because `llvq-cuda` belongs to another lot; same grid (one warp per row,
+/// whole blocks only, no bounds guard in the kernel), same generic `y` so
+/// candle's `CudaSlice<half::f16>` can be handed over.
+#[allow(clippy::too_many_arguments)]
+fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaSlice<u32>,
+    tab: &CudaSlice<u32>,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<f32>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+        .arg(&nblocks).arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_h: {e}"))?;
+    Ok(())
+}
+
 fn upload_matrix(
     cuda: &llvq_cuda::gpu::Cuda,
     m: &FusedMatrix,
+    layout: FusedLayout,
 ) -> candle_core::Result<FusedProj> {
     if !m.d_out.is_multiple_of(8) {
         // `tv_slot` has no bounds guard: a `return` before `__syncthreads()`
@@ -413,14 +550,30 @@ fn upload_matrix(
         // relies on. The grid is exact, so the host asserts instead.
         candle_core::bail!("{} : d_out={} n'est pas un multiple de 8", m.name, m.d_out);
     }
+    // A stream in the wrong layout would be read by the wrong kernel into
+    // finite, plausible, wrong numbers — refused here, matrix by matrix,
+    // rather than trusted to have been built consistently.
+    let stream = match (&m.stream, layout) {
+        (HostStream::Slot32 { words, bases }, FusedLayout::Slot32) => DeviceStream::Slot32 {
+            words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+            bases: cuda.up_u32(bases).map_err(candle_core::Error::msg)?,
+        },
+        (HostStream::Planes14 { words }, FusedLayout::Planes14) => DeviceStream::Planes14 {
+            words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+        },
+        _ => candle_core::bail!(
+            "{} : flux hôte et layout du runtime ({}) en désaccord",
+            m.name,
+            layout.name()
+        ),
+    };
     Ok(FusedProj {
         name: m.name.clone(),
         d_out: m.d_out,
         d_in: m.d_in,
         nblocks: m.nblocks as u32,
         tail_w: m.tail_w as u32,
-        words: cuda.up_u32(&m.words).map_err(candle_core::Error::msg)?,
-        bases: cuda.up_u32(&m.bases).map_err(candle_core::Error::msg)?,
+        stream,
         gscale: cuda.up_f32(&m.gscale).map_err(candle_core::Error::msg)?,
         rscale: cuda.up_f32(&m.rscale).map_err(candle_core::Error::msg)?,
         tail: cuda
@@ -436,6 +589,8 @@ pub struct FusedSealed {
     pub model: crate::model::Qwen3,
     pub tokenizer: tokenizers::Tokenizer,
     pub config: candle_transformers::models::qwen3::Config,
+    /// The runtime layout the projections were transcoded to.
+    pub layout: FusedLayout,
     pub quantized_weights: usize,
     pub carried_weights: usize,
     /// Size of the file on disk.
@@ -454,7 +609,18 @@ pub struct FusedSealed {
 pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
 
-    let model = crate::fused::load(path).map_err(candle_core::Error::msg)?;
+    // The layout is resolved once, before any transcoding, and printed next
+    // to the device bytes it decides — an A/B where the arm has to be
+    // inferred from a byte count is not an A/B.
+    let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
+    let model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
+    println!(
+        "layout fusé : {} (LLVQ_FUSED_LAYOUT) — projections {:.2} Go sur la carte, \
+         {:.3} b/poids",
+        layout.name(),
+        model.runtime_bytes as f64 / 1e9,
+        model.runtime_bits_per_weight()
+    );
     let (rt, projs) = FusedRuntime::new(&model, device)?;
     let rt = Arc::new(rt);
 
@@ -506,6 +672,7 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         model: qwen,
         tokenizer,
         config,
+        layout,
         quantized_weights: model.quantized_weights,
         carried_weights: model.carried_weights,
         file_bytes: model.file_bytes,
