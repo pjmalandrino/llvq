@@ -204,6 +204,33 @@ impl Cuda {
     /// whatever the stream change is worth.
     pub fn new_on_fresh_stream(src: &KernelSource) -> Result<Self, String> {
         let ctx = CudaContext::new(0).map_err(|e| format!("no CUDA device: {e}"))?;
+        // Event tracking OFF, and before a single allocation.
+        //
+        // Creating a second stream puts cudarc in *multi-stream mode*, where
+        // every `arg()` on a `CudaSlice` pushes a `cuStreamWaitEvent` and a
+        // `cuEventRecord` around the launch to order accesses for you
+        // (`launch.rs:100-135`). Two consequences, both measured on the L40S on
+        // 2026-08-06:
+        //
+        //  * it costs — the fresh-stream arm came out at 3.66 µs/launch against
+        //    3.61 for the legacy one, slower, and those events are the only
+        //    difference;
+        //  * it makes a graph uncapturable — recording an event that is not
+        //    part of the graph invalidates the capture, which surfaces as
+        //    `CUDA_ERROR_STREAM_CAPTURE_INVALIDATED` at `end_capture` with the
+        //    real cause already swallowed.
+        //
+        // Turning it off hands stream synchronisation back to us. That is safe
+        // here and only here: this context drives **one** stream, so there is
+        // no cross-stream ordering left to get wrong. Anything that later
+        // creates a second stream on this context must revisit it.
+        //
+        // The call must precede every allocation — cudarc only skips the event
+        // pair for slices *created after* it.
+        // `unsafe` because cudarc can no longer prove accesses are ordered:
+        // the caller takes that on. Here the proof is structural — one stream,
+        // and the driver orders a single stream by issue.
+        unsafe { ctx.disable_event_tracking() };
         let stream = ctx
             .new_stream()
             .map_err(|e| format!("new_stream: {e}"))?;
@@ -228,11 +255,15 @@ impl Cuda {
         // A failure inside `body` leaves the stream in capture mode, so the
         // capture is closed on both paths before the error is returned.
         let r = body();
-        let g = self
+        let ended = self
             .stream
-            .end_capture(cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH)
-            .map_err(|e| format!("end_capture: {e}"))?;
+            .end_capture(cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH);
+        // The body's error first. `end_capture` fails *because* of it —
+        // `CUDA_ERROR_STREAM_CAPTURE_INVALIDATED` means "a previous operation
+        // failed", and reporting that instead swallows the cause. Cost of
+        // getting this wrong: one billed job that says nothing useful.
         r?;
+        let g = ended.map_err(|e| format!("end_capture: {e}"))?;
         let g = g.ok_or_else(|| {
             "le driver n'a rien capturé — stream NULL legacy ? (cf. new_on_fresh_stream)"
                 .to_string()
