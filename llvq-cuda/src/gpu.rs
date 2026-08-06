@@ -189,6 +189,58 @@ impl Cuda {
         Ok(Self { ctx, stream, module })
     }
 
+    /// Open device 0 on a **fresh, non-default** stream.
+    ///
+    /// [`Self::new`] takes `ctx.default_stream()`, which is the legacy NULL
+    /// stream — and the driver refuses to capture that one into a graph
+    /// (`CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED`). So a graph arm needs this,
+    /// and switching streams **changes the object being measured**: the NULL
+    /// stream has implicit synchronisation semantics against every other
+    /// stream in the context, a fresh one does not.
+    ///
+    /// Hence the three-arm control the audit asks for — legacy, fresh, fresh +
+    /// graph — in one job. Comparing a graph arm on a fresh stream against a
+    /// published number taken on the legacy one would credit the graph with
+    /// whatever the stream change is worth.
+    pub fn new_on_fresh_stream(src: &KernelSource) -> Result<Self, String> {
+        let ctx = CudaContext::new(0).map_err(|e| format!("no CUDA device: {e}"))?;
+        let stream = ctx
+            .new_stream()
+            .map_err(|e| format!("new_stream: {e}"))?;
+        Self::on_stream(stream, src)
+    }
+
+    /// Capture whatever `body` launches into a replayable graph.
+    ///
+    /// The capture is `Relaxed`: `ThreadLocal` would refuse any launch this
+    /// thread did not make, and nothing here launches from elsewhere.
+    ///
+    /// Returns `None` when the driver captured nothing — which is what a
+    /// legacy NULL stream produces rather than an error, and is exactly the
+    /// silent failure this wrapper exists to surface.
+    pub fn capture(
+        &self,
+        body: impl FnOnce() -> Result<(), String>,
+    ) -> Result<cudarc::driver::CudaGraph, String> {
+        self.stream
+            .begin_capture(cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_RELAXED)
+            .map_err(|e| format!("begin_capture: {e}"))?;
+        // A failure inside `body` leaves the stream in capture mode, so the
+        // capture is closed on both paths before the error is returned.
+        let r = body();
+        let g = self
+            .stream
+            .end_capture(cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH)
+            .map_err(|e| format!("end_capture: {e}"))?;
+        r?;
+        let g = g.ok_or_else(|| {
+            "le driver n'a rien capturé — stream NULL legacy ? (cf. new_on_fresh_stream)"
+                .to_string()
+        })?;
+        g.upload().map_err(|e| format!("graph upload: {e}"))?;
+        Ok(g)
+    }
+
     /// Compile `src` onto an **existing** stream — candle's, in practice.
     ///
     /// [`Self::new`] opens device 0 and takes `ctx.default_stream()`, which is
