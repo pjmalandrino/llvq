@@ -241,4 +241,83 @@ fn main() {
         "  parmi les blocs L ≤ 4 seulement  : {viol_blocks_le4} / {blocks_le4} = {:.4} %",
         100.0 * viol_blocks_le4 as f64 / blocks_le4 as f64
     );
+
+    // ---- 5. E2 exceptions — the rule the Golay/GF(2) stage actually needs ----
+    //
+    // Section 3's VIOLATION flag counts >2 values per residue for *every*
+    // class. The E2 design only escapes when the 2-bit in-class level code
+    // cannot work:
+    //   * even class with >2 distinct |values| in some residue mod 4 (zero
+    //     counted in r0): the residue is fixed by codeword membership, so one
+    //     discriminator bit must pick among ≤2 values — 3 breaks it;
+    //   * any 5-level class, either coset: the level itself no longer fits
+    //     2 direct bits.
+    // An odd class at L ≤ 4 is NOT an exception even with 3 values in a
+    // residue: its level is coded in 2 direct bits, residues play no role.
+    let mut exc_even_viol_le4 = 0u64; // even, L ≤ 4, residue violation
+    let mut exc_l5_even = 0u64;
+    let mut exc_l5_odd = 0u64;
+    let mut exc_classes = 0u64;
+    let mut l5_even_also_viol = 0u64; // informational overlap
+    for &ci in &ball {
+        let lv = fd.levels(ci);
+        let v = violates(&residue_profile(lv));
+        let exc = (lv.len == 5) || (!lv.odd && v);
+        if !exc {
+            continue;
+        }
+        if counts[ci] > 0 {
+            exc_classes += 1;
+        }
+        if lv.len == 5 {
+            if lv.odd {
+                exc_l5_odd += counts[ci];
+            } else {
+                exc_l5_even += counts[ci];
+                if v {
+                    l5_even_also_viol += counts[ci];
+                }
+            }
+        } else {
+            exc_even_viol_le4 += counts[ci];
+        }
+    }
+    let exc_blocks = exc_even_viol_le4 + exc_l5_even + exc_l5_odd;
+    // Cross-checks against this run's own tallies: the three buckets are
+    // disjoint by construction, L=5 buckets must tile the L=5 histogram bar,
+    // and the even violating-L≤4 bucket is a subset of section 3's
+    // both-coset violating-L≤4 count.
+    assert_eq!(
+        exc_l5_even + exc_l5_odd,
+        level_hist[5],
+        "L=5 buckets must tile the L=5 histogram bar"
+    );
+    assert!(
+        exc_even_viol_le4 <= viol_blocks_le4,
+        "even violating L≤4 blocks exceed the both-coset count"
+    );
+
+    let frac = exc_blocks as f64 / total as f64;
+    println!("\n  exceptions E2 (pair violant, ou L = 5 quel que soit le coset)");
+    println!("  {}", "-".repeat(76));
+    println!(
+        "  pairs violants (L ≤ 4)   : {exc_even_viol_le4:>12} blocs{:>9.4} %",
+        pct(exc_even_viol_le4)
+    );
+    println!(
+        "  L = 5 pairs              : {exc_l5_even:>12} blocs{:>9.4} %  (dont violants : {l5_even_also_viol})",
+        pct(exc_l5_even)
+    );
+    println!(
+        "  L = 5 impairs            : {exc_l5_odd:>12} blocs{:>9.4} %",
+        pct(exc_l5_odd)
+    );
+    println!(
+        "  TOTAL exceptions         : {exc_blocks:>12} blocs{:>9.4} %  ({exc_classes} classes peuplées)",
+        pct(exc_blocks)
+    );
+    println!(
+        "  payload E2 = 3,0 + 6·fraction = {:.4} b/poids  (144 bits/exception ; Planes12x : 4,342)",
+        3.0 + 6.0 * frac
+    );
 }

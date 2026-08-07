@@ -2,13 +2,17 @@
 //! M2 arm: `tv_planes12x`, the sparse overlay.
 //!
 //! `planesbench <model.llvq>` measures the published model: one token's worth
-//! of linear algebra over its 252 projections, four arms interleaved in every
+//! of linear algebra over its 252 projections, five arms interleaved in every
 //! round — `tv_slot` (the published kernel, untouched), `tv_planes` (layout
 //! E1a: uniform 14-byte records, no bases array, explicit bit-plane levels),
 //! `tv_planes12x` (M2: a 12-byte main stream capped at 4 levels, the 5-level
 //! blocks swapped for their best L ≤ 4 direction and corrected **exactly**
 //! by an exception pass in the same launch — one memset + one atomicAdd per
-//! row and per exception is the price, timed inside the arm) and `tv_f16`.
+//! row and per exception is the price, timed inside the arm), `tv_golay70`
+//! (E2: a 9-byte main stream whose per-slot decode goes through the Golay
+//! codeword rank — the residue-mod-4 plane of every block is a codeword —
+//! with the E2 exception blocks holed to the origin and added back exactly
+//! by the same-launch correction pass) and `tv_f16`.
 //! With no argument it falls back to the synthetic seven-shape path, sized
 //! past the card's L2 — for iterating on the kernel, nothing else.
 //!
@@ -47,6 +51,7 @@ mod linux {
     use std::time::Instant;
 
     include!("../planes14_host.rs");
+    include!("../golay70_host.rs");
 
     /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
     /// source by the host so the staging size and the tiling are one constant.
@@ -58,8 +63,9 @@ mod linux {
     const TOL: f64 = 1e-5;
     const ROUNDS: usize = 7;
     const WARMUP: usize = 2;
-    /// Arm order inside a round, fixed: Slot32, Planes14, Planes12x, FP16.
-    const ARMS: usize = 4;
+    /// Arm order inside a round, fixed: Slot32, Planes14, Planes12x,
+    /// Golay70, FP16.
+    const ARMS: usize = 5;
 
     /// The seven projection shapes of Qwen3-4B, `(name, d_out, d_in)`.
     const SHAPES: [(&str, usize, usize); 7] = [
@@ -81,6 +87,8 @@ mod linux {
     const PLANES_CU_EMBED: &str = include_str!("../../kernels/planes.cu");
     const PLANES12_CUH_EMBED: &str = include_str!("../../kernels/llvq_planes12.cuh");
     const PLANES12_CU_EMBED: &str = include_str!("../../kernels/planes12.cu");
+    const GOLAY_CUH_EMBED: &str = include_str!("../../kernels/llvq_golay.cuh");
+    const GOLAY_CU_EMBED: &str = include_str!("../../kernels/golay70.cu");
 
     fn load_planes_sources() -> Result<(String, String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
@@ -117,6 +125,22 @@ mod linux {
         }
     }
 
+    /// Same contract for the two Golay70 sources — the E2 arm's kernel.
+    fn load_golay_sources() -> Result<(String, String, Option<String>), String> {
+        match std::env::var("LLVQ_KERNEL_DIR") {
+            Err(_) => Ok((GOLAY_CUH_EMBED.to_string(), GOLAY_CU_EMBED.to_string(), None)),
+            Ok(dir) => {
+                let rd = |n: &str| {
+                    std::fs::read_to_string(std::path::Path::new(&dir).join(n))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+                };
+                let cuh = rd("llvq_golay.cuh")?;
+                let cu = rd("golay70.cu")?;
+                Ok((cuh, cu, Some(dir)))
+            }
+        }
+    }
+
     /// One matrix's inputs, whatever they came from — same split as
     /// `bin/matvec`: everything downstream of `Src` is shared, so the
     /// synthetic and artifact runs differ only in their data.
@@ -144,6 +168,10 @@ mod linux {
         exc_idx: cudarc::driver::CudaSlice<u32>,
         exc_words: cudarc::driver::CudaSlice<u32>,
         n_exc: usize,
+        gwords: cudarc::driver::CudaSlice<u32>,
+        gexc_idx: cudarc::driver::CudaSlice<u32>,
+        gexc_words: cudarc::driver::CudaSlice<u32>,
+        n_gexc: usize,
         gscale: cudarc::driver::CudaSlice<f32>,
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
@@ -151,6 +179,7 @@ mod linux {
         slot_bytes: u64,
         planes_bytes: u64,
         p12_bytes: u64,
+        g70_bytes: u64,
         f16_bytes: u64,
         y_ref: Vec<f64>,
         y16_ref: Vec<f64>,
@@ -253,6 +282,53 @@ mod linux {
         Ok(())
     }
 
+    /// `tv_golay70(words, exc_idx, exc_words, cwtab, gtab, tab, gscale,
+    /// rscale, tail, x, y, nblocks, tail_w, row_cta, n_exc)` — the E2 arm:
+    /// same two-region grid and same zeroed-y protocol as `tv_planes12x`,
+    /// with the codeword table and the dedicated class table added, and an
+    /// exact-only correction (the main stream holds the origin at every
+    /// exception). The memset is deliberately inside the timed arm.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_golay70(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        exc_idx: &cudarc::driver::CudaSlice<u32>,
+        exc_words: &cudarc::driver::CudaSlice<u32>,
+        cwtab: &cudarc::driver::CudaSlice<u32>,
+        gtab: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        n_exc: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+        let row_cta = d_out * 32 / threads;
+        let exc_cta = n_exc.div_ceil(threads / 32);
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (row_cta + exc_cta, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: shared,
+        };
+        cuda.stream()
+            .memset_zeros(y)
+            .map_err(|e| format!("memset y: {e}"))?;
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(exc_idx).arg(exc_words).arg(cwtab).arg(gtab).arg(tab)
+            .arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w).arg(&row_cta).arg(&n_exc);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_golay70: {e}"))?;
+        Ok(())
+    }
+
     pub fn run() -> Result<(), String> {
         // Five parts, concatenated in dependency order: llvq_planes.cuh needs
         // llvq_slot.cuh (ClassRec, ext24), planes.cu needs matvec.cu
@@ -263,6 +339,7 @@ mod linux {
         let base = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu"])?;
         let (pcuh, pcu, planes_overridden) = load_planes_sources()?;
         let (p12cuh, p12cu, planes12_overridden) = load_planes12_sources()?;
+        let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -272,6 +349,8 @@ mod linux {
             pcu.as_str(),
             p12cuh.as_str(),
             p12cu.as_str(),
+            gcuh.as_str(),
+            gcu.as_str(),
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -284,6 +363,9 @@ mod linux {
         if let Some(d) = &planes12_overridden {
             println!("  ⚠️ SOURCES Planes12x SURCHARGÉES depuis {d}");
         }
+        if let Some(d) = &golay_overridden {
+            println!("  ⚠️ SOURCES Golay70 SURCHARGÉES depuis {d}");
+        }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
@@ -294,7 +376,7 @@ mod linux {
             dev.l2_bytes as f64 / 1e6,
             dev.shared_per_block
         );
-        for name in ["tv_slot", "tv_f16", "tv_planes", "tv_planes12x"] {
+        for name in ["tv_slot", "tv_f16", "tv_planes", "tv_planes12x", "tv_golay70"] {
             let r = cuda.report(name)?;
             println!(
                 "  {:<10} {:>3} registres, {} o locaux, sm_{}",
@@ -307,11 +389,11 @@ mod linux {
 
         // Enough repetitions that the LIGHTEST arm streams past the L2 twice
         // over. Sizing on a heavier arm would let the light one replay from
-        // cache. With the M2 arm the lower bound is Planes12x's 12-byte main
-        // stream (its exceptions only add bytes), so size on 12, not 14.
+        // cache. With the E2 arm the lower bound is Golay70's 9-byte main
+        // stream (its exceptions only add bytes), so size on 9, not 12.
         let one_pass: u64 = SHAPES
             .iter()
-            .map(|&(_, o, i)| (o * (i / DIM)) as u64 * 12)
+            .map(|&(_, o, i)| (o * (i / DIM)) as u64 * 9)
             .sum();
         let reps = (2 * dev.l2_bytes as u64 / one_pass + 1).max(2) as usize;
 
@@ -342,6 +424,15 @@ mod linux {
         }
         let d_tab = cuda.up_u32(&tab)?;
 
+        // The Golay70 arm's two constant tables: the dedicated class table
+        // (residue pairs / level values + mod-4 flags + coset flag) and the
+        // canonical 4096-codeword table (16 KiB) the 12-bit rank resolves
+        // through. Uploaded once, shared by every matrix.
+        let golay = llvq_core::Golay::new();
+        let g70cls = golay70_classes(&fd);
+        let d_gtab = cuda.up_u32(&golay70_gpu_table(&g70cls))?;
+        let d_cw = cuda.up_u32(&golay70_gpu_codewords(&golay))?;
+
         let mut rng = SplitMix64::new(0x6_D07);
         let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
@@ -366,6 +457,10 @@ mod linux {
             // swap searches inside, threaded — the expensive build step.
             let p12 = transcode_planes12x(&fd, &table, &searcher, &s.indices, &s.gains)
                 .map_err(|e| e.to_string())?;
+            // The E2 arm: 9-byte main stream (exception blocks holed to the
+            // origin) + exact exception records — pure table lookups plus a
+            // Golay rank per block, no search.
+            let g70 = golay70_transcode(&fd, &golay, &g70cls, &table, &s.indices, &s.gains);
 
             let mut w16 = vec![0u16; d_out * d_in];
             let mut y_ref = vec![0.0f64; d_out];
@@ -383,6 +478,7 @@ mod linux {
                 {
                     let (rt, table, x, src, planes) = (&rt, &table, &x, &s, &planes_data);
                     let p12 = &p12;
+                    let (g70, g70cls, golay) = (&g70, &g70cls, &golay);
                     sc.spawn(move || {
                         let mut wrow = vec![0.0f64; d_in];
                         for lr in 0..yc.len() {
@@ -411,6 +507,19 @@ mod linux {
                                     (xpt, xgain),
                                     "{}: bloc {} — l'overlay Planes12x ne reconstruit pas \
                                      l'exact",
+                                    src.name,
+                                    row * nblocks + p
+                                );
+                                // The E2 proof: main stream + exception
+                                // records reconstruct the exact block, and
+                                // the origin-holing is invisible here.
+                                let (gpt, ggain) = golay70_decode_block(
+                                    g70, g70cls, golay, table, row * nblocks + p,
+                                );
+                                assert_eq!(
+                                    (pt, gain),
+                                    (gpt, ggain),
+                                    "{}: bloc {} — Golay70 ne reconstruit pas l'exact",
                                     src.name,
                                     row * nblocks + p
                                 );
@@ -503,6 +612,23 @@ mod linux {
                 p12.exc_idx
             };
 
+            // The E2 arm's three device arrays and its byte accounting:
+            // 72 bits per block + 144 per exception + the same tail/rscale
+            // terms as every LLVQ arm; upload paddings NOT billed — the
+            // unified rule.
+            let n_gexc = g70.exc_idx.len();
+            let g70_bytes = g70.data.len() as u64
+                + n_gexc as u64 * GOLAY70_EXC_BYTES as u64
+                + (d_out * tail_w) as u64 * 4
+                + d_out as u64 * 4;
+            let gwords: Vec<u32> = pad12(g70.data);
+            let gexcwords: Vec<u32> = pad12(g70.exc_data);
+            let gexc_idx_up: Vec<u32> = if g70.exc_idx.is_empty() {
+                vec![0]
+            } else {
+                g70.exc_idx
+            };
+
             Ok(Mat {
                 name: s.name.clone(),
                 d_out,
@@ -516,6 +642,10 @@ mod linux {
                 exc_idx: cuda.up_u32(&exc_idx_up)?,
                 exc_words: cuda.up_u32(&excwords)?,
                 n_exc,
+                gwords: cuda.up_u32(&gwords)?,
+                gexc_idx: cuda.up_u32(&gexc_idx_up)?,
+                gexc_words: cuda.up_u32(&gexcwords)?,
+                n_gexc,
                 gscale: cuda.up_f32(&s.centroids)?,
                 rscale: cuda.up_f32(&s.rscale)?,
                 tail: cuda.up_f32(if s.tail.is_empty() { &[0.0f32] } else { &s.tail })?,
@@ -526,6 +656,7 @@ mod linux {
                     + d_out as u64 * 4,
                 planes_bytes,
                 p12_bytes,
+                g70_bytes,
                 f16_bytes: (d_out * d_in * 2) as u64,
                 y_ref,
                 y16_ref,
@@ -534,8 +665,9 @@ mod linux {
         };
 
         println!(
-            "\nConstruction, transcodage Slot32, Planes14 et Planes12x (swap L = 5 → \
-             L ≤ 4 inclus), preuves de bijection et d'overlay…"
+            "\nConstruction, transcodage Slot32, Planes14, Planes12x (swap L = 5 → \
+             L ≤ 4 inclus) et Golay70 (trous origine + exceptions E2), preuves de \
+             bijection, d'overlay et de reconstruction exacte…"
         );
         let t0 = Instant::now();
         let mut mats = Vec::new();
@@ -610,6 +742,7 @@ mod linux {
         let f_slot = cuda.func("tv_slot")?;
         let f_planes = cuda.func("tv_planes")?;
         let f_planes12x = cuda.func("tv_planes12x")?;
+        let f_golay70 = cuda.func("tv_golay70")?;
         let f_f16 = cuda.func("tv_f16")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
 
@@ -633,12 +766,22 @@ mod linux {
                     m.tail_w as u32, m.n_exc as u32, m.d_out as u32, THREADS, shared,
                 )
             };
+        let run_golay70 =
+            |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+                launch_golay70(
+                    &cuda, &f_golay70, &m.gwords, &m.gexc_idx, &m.gexc_words, &d_cw,
+                    &d_gtab, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
+                    m.nblocks as u32, m.tail_w as u32, m.n_gexc as u32, m.d_out as u32,
+                    THREADS, shared,
+                )
+            };
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
 
         println!("\nVérification de chaque ligne contre la référence f64…");
-        let (mut ws, mut wp, mut wx, mut wf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let (mut ws, mut wp, mut wx, mut wg, mut wf) =
+            (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
         for m in &mats {
             run_slot(m, &mut d_y)?;
             cuda.sync()?;
@@ -665,6 +808,16 @@ mod linux {
             assert!(e < TOL, "{} / Planes12x : {e:.2e}·Σ|w·x|", m.name);
             wx = wx.max(e);
 
+            // Same exact reference again: this passes only if the E2
+            // correction pass restores every origin-holed exception block
+            // exactly — the proof of the arm, before a single timing.
+            run_golay70(m, &mut d_y)?;
+            cuda.sync()?;
+            let got = cuda.down_f32(&d_y)?;
+            let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
+            assert!(e < TOL, "{} / Golay70 : {e:.2e}·Σ|w·x|", m.name);
+            wg = wg.max(e);
+
             run_f16(m, &mut d_y)?;
             cuda.sync()?;
             let got = cuda.down_f32(&d_y)?;
@@ -674,23 +827,30 @@ mod linux {
         }
         let rows: usize = mats.iter().map(|m| m.d_out).sum();
         let total_exc: u64 = mats.iter().map(|m| m.n_exc as u64).sum();
+        let total_gexc: u64 = mats.iter().map(|m| m.n_gexc as u64).sum();
         let total_blocks: u64 = mats.iter().map(|m| (m.d_out * m.nblocks) as u64).sum();
         println!(
             "  {rows} lignes, seuil {TOL:.0e} — pires erreurs Slot32 {ws:.1e}, \
-             Planes14 {wp:.1e}, Planes12x {wx:.1e} (overlay exact), FP16 {wf:.1e} ·Σ|w·x|"
+             Planes14 {wp:.1e}, Planes12x {wx:.1e} (overlay exact), \
+             Golay70 {wg:.1e} (E2 exact), FP16 {wf:.1e} ·Σ|w·x|"
         );
         println!(
             "  exceptions L = 5 : {total_exc} sur {total_blocks} blocs \
              ({:.4} %), corrigées dans le même lancement",
             total_exc as f64 * 100.0 / total_blocks as f64
         );
+        println!(
+            "  exceptions E2 (pair violant ou L = 5) : {total_gexc} sur {total_blocks} \
+             blocs ({:.4} %), corrigées dans le même lancement",
+            total_gexc as f64 * 100.0 / total_blocks as f64
+        );
 
         // One pass = all matrices, one stream, in order — the layers' real
         // dependency. Wall clock around the pass plus a synchronize; the
-        // four arms interleave inside each round. The Planes12x arm's pass
+        // five arms interleave inside each round. The Planes12x arm's pass
         // includes its per-matrix memset — part of what the layout costs.
         let mut times: [Vec<f64>; ARMS] =
-            [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         for rep in 0..ROUNDS {
             for (arm, t_arm) in times.iter_mut().enumerate() {
                 let t = Instant::now();
@@ -699,6 +859,7 @@ mod linux {
                         0 => run_slot(m, &mut d_y)?,
                         1 => run_planes(m, &mut d_y)?,
                         2 => run_planes12x(m, &mut d_y)?,
+                        3 => run_golay70(m, &mut d_y)?,
                         _ => run_f16(m, &mut d_y)?,
                     }
                 }
@@ -709,25 +870,29 @@ mod linux {
                 }
             }
         }
-        let [t_slot, t_planes, t_p12, t_f16] = times;
+        let [t_slot, t_planes, t_p12, t_g70, t_f16] = times;
         let per_round = |num: &[f64], den: &[f64]| -> Vec<f64> {
             num.iter().zip(den).map(|(a, b)| a / b).collect()
         };
         let (s_lo, s_md, s_hi) = spread(t_slot.clone());
         let (p_lo, p_md, p_hi) = spread(t_planes.clone());
         let (x_lo, x_md, x_hi) = spread(t_p12.clone());
+        let (g_lo, g_md, g_hi) = spread(t_g70.clone());
         let (f_lo, f_md, f_hi) = spread(t_f16.clone());
         let (rs_lo, rs_md, rs_hi) = spread(per_round(&t_f16, &t_slot));
         let (rp_lo, rp_md, rp_hi) = spread(per_round(&t_f16, &t_planes));
         let (rx_lo, rx_md, rx_hi) = spread(per_round(&t_f16, &t_p12));
+        let (rg_lo, rg_md, rg_hi) = spread(per_round(&t_f16, &t_g70));
         let (sp_lo, sp_md, sp_hi) = spread(per_round(&t_slot, &t_planes));
         let (px_lo, px_md, px_hi) = spread(per_round(&t_planes, &t_p12));
+        let (xg_lo, xg_md, xg_hi) = spread(per_round(&t_p12, &t_g70));
         let sb: u64 = mats.iter().map(|m| m.slot_bytes).sum();
         let pb: u64 = mats.iter().map(|m| m.planes_bytes).sum();
         let xb: u64 = mats.iter().map(|m| m.p12_bytes).sum();
+        let gb: u64 = mats.iter().map(|m| m.g70_bytes).sum();
         let fb: u64 = mats.iter().map(|m| m.f16_bytes).sum();
 
-        println!("\nUN TOKEN — {} matrices, un stream, quatre bras entrelacés", mats.len());
+        println!("\nUN TOKEN — {} matrices, un stream, cinq bras entrelacés", mats.len());
         println!("  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND");
         println!("  {}", "-".repeat(80));
         println!(
@@ -739,6 +904,7 @@ mod linux {
             ("LLVQ Slot32", (s_lo, s_md, s_hi), sb),
             ("LLVQ Planes14", (p_lo, p_md, p_hi), pb),
             ("LLVQ Planes12x", (x_lo, x_md, x_hi), xb),
+            ("LLVQ Golay70", (g_lo, g_md, g_hi), gb),
         ] {
             println!(
                 "  {n:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
@@ -754,6 +920,7 @@ mod linux {
         println!("  Slot32    vs FP16     : {rs_md:.2}× [{rs_lo:.2}–{rs_hi:.2}]");
         println!("  Planes14  vs FP16     : {rp_md:.2}× [{rp_lo:.2}–{rp_hi:.2}]");
         println!("  Planes12x vs FP16     : {rx_md:.2}× [{rx_lo:.2}–{rx_hi:.2}]");
+        println!("  Golay70   vs FP16     : {rg_md:.2}× [{rg_lo:.2}–{rg_hi:.2}]");
         println!(
             "  Planes14  vs Slot32   : {sp_md:.2}× [{sp_lo:.2}–{sp_hi:.2}]  (>1 = Planes14 \
              plus rapide, même contenu décodé)"
@@ -762,14 +929,24 @@ mod linux {
             "  Planes12x vs Planes14 : {px_md:.2}× [{px_lo:.2}–{px_hi:.2}]  (>1 = Planes12x \
              plus rapide ; memset + correction inclus, même y exact)"
         );
+        println!(
+            "  Golay70   vs Planes12x: {xg_md:.2}× [{xg_lo:.2}–{xg_hi:.2}]  (>1 = Golay70 \
+             plus rapide ; memset + correction inclus, même y exact)"
+        );
         println!("\n  source : {source}");
-        let light = pb.min(xb);
+        let light = pb.min(xb).min(gb);
         println!(
             "  {:.0} Mo distincts par passe sur le bras le plus léger ({}), soit \
              {:.1}× la L2 lue.\n  Sous 1× on mesurerait le cache et pas la DRAM — le piège \
              qui a rendu\n  optimiste toute mesure LLVQ antérieure au 2026-07-31.",
             light as f64 / 1e6,
-            if xb <= pb { "Planes12x" } else { "Planes14" },
+            if gb <= pb.min(xb) {
+                "Golay70"
+            } else if xb <= pb {
+                "Planes12x"
+            } else {
+                "Planes14"
+            },
             light as f64 / dev.l2_bytes as f64
         );
         if std::env::args().nth(1).is_none() {
@@ -786,14 +963,16 @@ mod linux {
         let head_s = head_bytes / (fb as f64 / f_lo);
         println!(
             "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms au débit FP16\n  \
-             mesuré, ajouté aux quatre bras) : Slot32 {:.2}×, Planes14 {:.2}×, \
-             Planes12x {:.2}×\n  au lieu de {rs_md:.2}× / {rp_md:.2}× / {rx_md:.2}×. Normes, \
-             activations, attention et\n  rotation ne sont mesurées ni ici ni là.",
+             mesuré, ajouté aux cinq bras) : Slot32 {:.2}×, Planes14 {:.2}×, \
+             Planes12x {:.2}×, Golay70 {:.2}×\n  au lieu de {rs_md:.2}× / {rp_md:.2}× / \
+             {rx_md:.2}× / {rg_md:.2}×. Normes, activations, attention et\n  rotation ne \
+             sont mesurées ni ici ni là.",
             389_070_848f64 / 1e6,
             head_s * 1e3,
             (f_lo + head_s) / (s_lo + head_s),
             (f_lo + head_s) / (p_lo + head_s),
-            (f_lo + head_s) / (x_lo + head_s)
+            (f_lo + head_s) / (x_lo + head_s),
+            (f_lo + head_s) / (g_lo + head_s)
         );
         println!(
             "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un\n  \

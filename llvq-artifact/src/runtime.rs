@@ -53,7 +53,7 @@
 //! only — the part whose format the kernel is married to.
 
 use crate::{Error, Result};
-use llvq_core::{Point, DIM};
+use llvq_core::{Golay, Point, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 // Planes12x only: the L = 5 swap re-encodes a block's direction, which needs
 // the exact nearest-neighbour machinery `lswap` uses — nothing external.
@@ -1188,6 +1188,445 @@ pub fn transcode_planes12x(
     }
     debug_assert!(out.exc_idx.windows(2).all(|w| w[0] < w[1]));
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Golay70 — E2 of docs/pistes-format-vram-2026-08-05.md
+// ---------------------------------------------------------------------------
+
+/// Bytes per block of the [`Golay70Blocks`] **main stream** — a frozen
+/// constant of the format. 72 bits per record, 70 of payload.
+pub const GOLAY70_BYTES: usize = 9;
+/// Bits of the Golay field: the rank of a codeword among all 4096.
+pub const GOLAY70_RANK_BITS: u32 = 12;
+/// First bit of the Golay rank in a Golay70 main-stream record.
+pub const GOLAY70_RANK_BIT: u64 = 10;
+/// First bit of the A plane (refinement bit / level low bit).
+pub const GOLAY70_A_BIT: u64 = 22;
+/// First bit of the B plane (sign mask / level high bit).
+pub const GOLAY70_B_BIT: u64 = 46;
+/// First padding bit; bits `70..72` must be written zero.
+pub const GOLAY70_PAD_BIT: u64 = 70;
+/// Bytes one exception costs: a `u32` block index plus a full
+/// [`PLANES14_BYTES`] record of the exact block — 144 bits.
+pub const GOLAY70_EXC_BYTES: usize = 4 + PLANES14_BYTES;
+
+/// What the Golay70 decoder knows about a class before reading any block
+/// bits — the arm's own table, deliberately separate from [`ClassRecord`]:
+/// this layout resolves magnitudes through the mod-4 structure the Golay
+/// stage exposes, not through level masks.
+///
+/// * **Odd class** (`odd`): `values[0..len]` are the class's distinct
+///   |values| in the canonical level order; bit `k` of `flags` is set when
+///   `values[k] ≡ 3 (mod 4)` — the flag the computed-sign rule compares the
+///   codeword bit against.
+/// * **Even class**: `pairs[r]` holds the ≤ 2 distinct |values| of mod-4
+///   residue `2r` (index 0 = residue 0 with zero included, 1 = residue 2),
+///   in canonical level order, single-value residues **duplicated** so the
+///   kernel's `pairs[r][a]` load is branchless; `distinct[r]` keeps the true
+///   count, which is the transcoder's canonical-A rule and the decoder's
+///   lethality.
+/// * `exception` — the class cannot ride the main stream: an even class
+///   with more than 2 distinct |values| in some residue (one refinement bit
+///   cannot pick among 3), or any 5-level class of either coset (the level
+///   no longer fits 2 direct bits). Odd classes at L ≤ 4 are **never**
+///   exceptions — their level is 2 direct bits, residues play no role.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Golay70Class {
+    pub odd: bool,
+    pub exception: bool,
+    pub len: u8,
+    /// Odd side: distinct |values|, canonical order; slots ≥ `len` unused.
+    pub values: [i8; 4],
+    /// Odd side: bit `k` set iff `values[k] ≡ 3 (mod 4)`.
+    pub flags: u8,
+    /// Even side: `pairs[r][a]`, the |values| of residue `2r`.
+    pub pairs: [[i8; 2]; 2],
+    /// Even side: distinct |values| per residue, before duplication.
+    pub distinct: [u8; 2],
+}
+
+// The kernel keeps this table resident; 384 entries must stay small. The
+// assert freezes the budget the spec allots (≤ 32 bytes per class).
+const _: () = assert!(core::mem::size_of::<Golay70Class>() <= 32);
+
+/// The Golay70 arm's constant tables: one [`Golay70Class`] per
+/// [`ClassTable`] entry (entry 0 is the origin), plus the canonical 4096-word
+/// Golay codeword table the 12-bit rank field indexes.
+pub struct Golay70Table {
+    classes: Vec<Golay70Class>,
+    golay: Golay,
+}
+
+impl Golay70Table {
+    pub fn new(fd: &FastDecoder) -> Self {
+        let mut classes = Vec::with_capacity(fd.n_classes() + 1);
+        // The origin: even coset, one level, value 0 in residue 0. Its main
+        // record is all-zero past the header, so none of this is ever read,
+        // but the entry stays consistent with the class it describes.
+        classes.push(Golay70Class {
+            len: 1,
+            pairs: [[0, 0], [0, 0]],
+            distinct: [1, 0],
+            ..Default::default()
+        });
+        for ci in 0..fd.n_classes() {
+            let lv = fd.levels(ci);
+            let mut cls = Golay70Class {
+                odd: lv.odd,
+                len: lv.len as u8,
+                ..Default::default()
+            };
+            // Distinct |values| per mod-4 residue — class values are
+            // distinct by construction, so counting slots counts values.
+            let mut residues = [0u8; 4];
+            for &v in &lv.values[..lv.len] {
+                assert_eq!(
+                    v.rem_euclid(2),
+                    i32::from(lv.odd),
+                    "class {ci}: |value| {v} contradicts the coset"
+                );
+                residues[(v % 4) as usize] += 1;
+            }
+            cls.exception =
+                lv.len == 5 || (!lv.odd && residues.iter().any(|&n| n > 2));
+            if cls.exception {
+                // Exception classes never decode through this table: their
+                // blocks live in the exception stream as Planes14 records.
+                classes.push(cls);
+                continue;
+            }
+            if lv.odd {
+                for (k, &v) in lv.values[..lv.len].iter().enumerate() {
+                    cls.values[k] = i8::try_from(v).expect("|value| fits i8");
+                    if v % 4 == 3 {
+                        cls.flags |= 1 << k;
+                    }
+                }
+            } else {
+                // Residue pairs in canonical level order; duplicate a
+                // single-value residue so `pairs[r][a]` is total.
+                for &v in &lv.values[..lv.len] {
+                    let r = usize::from(v % 4 == 2);
+                    let d = usize::from(cls.distinct[r]);
+                    cls.pairs[r][d] = i8::try_from(v).expect("|value| fits i8");
+                    cls.distinct[r] += 1;
+                }
+                for r in 0..2 {
+                    if cls.distinct[r] == 1 {
+                        cls.pairs[r][1] = cls.pairs[r][0];
+                    }
+                }
+            }
+            classes.push(cls);
+        }
+        Self {
+            classes,
+            golay: Golay::new(),
+        }
+    }
+
+    /// Class entry `id` — [`ClassTable`]'s numbering (0 = origin).
+    pub fn class(&self, id: usize) -> &Golay70Class {
+        &self.classes[id]
+    }
+
+    pub fn n_entries(&self) -> usize {
+        self.classes.len()
+    }
+
+    /// The canonical codeword table the 12-bit rank field indexes.
+    pub fn golay(&self) -> &Golay {
+        &self.golay
+    }
+}
+
+/// The `Golay70` block stream: a **9-byte main stream** resolving magnitudes
+/// through the Golay codeword every v1 index already carries, plus a sorted
+/// **exception table** with the exact [`PLANES14_BYTES`] record of every
+/// block the 70-bit record cannot hold.
+///
+/// Main-stream record, bit offsets fixed for every class, LSB-first:
+///
+/// ```text
+/// [class : 9][gain : 1][golay : 12][A : 24][B : 24][0 : 2]
+/// ```
+///
+/// * **golay** — the codeword's rank in the canonical table of all 4096
+///   ([`Golay::codewords`], weight-major ascending — the v1 order). For an
+///   **even** class the codeword is `{i : |x_i| ≡ 2 (mod 4)}`; for an
+///   **odd** class it is `{i : x_i ≡ 3 (mod 4)}` — both are the membership
+///   planes of §4 of the project notes, codewords by construction.
+/// * **Even class**: the codeword bit fixes the slot's mod-4 residue; bit
+///   `i` of **A** picks which of the residue's ≤ 2 |values| the slot holds
+///   ([`Golay70Class::pairs`]; written 0 on single-value residues); bit `i`
+///   of **B** is the sign, [`Layout::Slot32`]'s exact semantics — zero slots
+///   written 0.
+/// * **Odd class**: **A** and **B** are two level bit-planes — the slot's
+///   level is `A_i | B_i << 1`, a direct index into
+///   [`Golay70Class::values`]. Signs are **computed, not stored**:
+///   `x_i` is positive iff the codeword bit equals the level's mod-4 flag —
+///   the "signs carry no information" rule the v1 index rests on.
+///
+/// Blocks of exception classes ([`Golay70Class::exception`]) put the
+/// **origin record** in the main stream — class 0, gain copied, zero
+/// contribution — and their exact block in the exception table, so a GPU
+/// correction pass adds the exact contribution with no approximation to
+/// cancel. [`Self::decode_block`] resolves exceptions first; the
+/// reconstruction is **identical** to [`PlanesBlocks`] / [`Layout::Slot32`],
+/// bit for bit.
+///
+/// The main stream is padded to a word boundary plus 4 bytes, all zero: the
+/// kernel reads a record as three u32 words from `(9b) >> 2` (last bit read
+/// `≤ 93 < 96`), so the final block's window must exist.
+///
+/// Payload: `72/24 = 3` b/w plus `144/24 = 6` b/w × the exception fraction —
+/// 3.4461 b/w on the sealed 4B (7.4357 % of blocks, the classhist census).
+pub struct Golay70Blocks {
+    pub n_blocks: usize,
+    /// The bit-packed main stream, LSB-first within each byte:
+    /// `9·n_blocks` bytes rounded up to a word, plus one zero word.
+    pub data: Vec<u8>,
+    /// Matrix-wide block index of each exception, strictly ascending.
+    pub exc_idx: Vec<u32>,
+    /// One [`PLANES14_BYTES`] record per exception — the **exact** block.
+    pub exc_data: Vec<u8>,
+}
+
+impl Golay70Blocks {
+    /// Exceptions carried — blocks whose class the 70-bit record cannot hold.
+    pub fn n_exceptions(&self) -> usize {
+        self.exc_idx.len()
+    }
+
+    /// Bits the layout spends per weight, exception table and tail padding
+    /// included: `(72·n + pad) + 144·n_exc` over `24·n`.
+    pub fn bits_per_weight(&self) -> f64 {
+        let bits = self.data.len() as u64 * 8
+            + self.exc_idx.len() as u64 * 32
+            + self.exc_data.len() as u64 * 8;
+        bits as f64 / (self.n_blocks * DIM) as f64
+    }
+
+    /// Decode block `b` to its **exact** lattice point and gain rank —
+    /// exceptions resolved from their Planes14 record, so the result equals
+    /// [`PlanesBlocks::decode_block`] on the same input, bit for bit. This
+    /// is the CPU reference the GPU (main kernel + correction pass) is
+    /// checked against.
+    pub fn decode_block(&self, table: &ClassTable, g70: &Golay70Table, b: usize) -> (Point, u32) {
+        assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
+        assert_eq!(
+            table.gain_bits(),
+            1,
+            "Golay70 freezes the gain field at bit 9, one bit wide"
+        );
+        if let Ok(e) = self.exc_idx.binary_search(&(b as u32)) {
+            let rec = &self.exc_data[e * PLANES14_BYTES..(e + 1) * PLANES14_BYTES];
+            let (p, gain, id) = decode_planes14_record(rec, table, b);
+            // An exception exists *because* its class cannot ride the main
+            // stream; anything else in the table is a transcoder bug.
+            assert!(
+                g70.class(id).exception,
+                "block {b}: exception record's class {id} is not an exception class"
+            );
+            return (p, gain);
+        }
+        self.decode_main_block(table, g70, b)
+    }
+
+    /// Decode what the **main stream** says about block `b` — exact for
+    /// blocks of non-exception classes, the zero-contribution origin record
+    /// for exceptions. This is what the GPU's row pass computes before the
+    /// correction pass adds the exact exception contributions.
+    pub fn decode_main_block(
+        &self,
+        table: &ClassTable,
+        g70: &Golay70Table,
+        b: usize,
+    ) -> (Point, u32) {
+        assert!(b < self.n_blocks, "block {b} of {}", self.n_blocks);
+        assert_eq!(
+            table.gain_bits(),
+            1,
+            "Golay70 freezes the gain field at bit 9, one bit wide"
+        );
+        let bit0 = b as u64 * (GOLAY70_BYTES as u64 * 8);
+        let mut cur = BitCursor::new(&self.data, bit0);
+        let id = cur.read(CLASS_BITS) as usize;
+        let gain = cur.read(1) as u32;
+        if id == 0 {
+            assert_eq!(
+                cur.read(62),
+                0,
+                "block {b}: origin record carries bits past the header"
+            );
+            return ([0; DIM], gain);
+        }
+        let cls = g70.class(id);
+        // A populated main record of an exception class is a transcoder bug:
+        // exceptions must leave the origin record behind, nothing else.
+        assert!(
+            !cls.exception,
+            "block {b}: main stream carries exception class {id}"
+        );
+        let grank = cur.read(GOLAY70_RANK_BITS) as usize;
+        let c = g70.golay().codewords()[grank];
+        let a = cur.read(DIM as u32) as u32;
+        let bm = cur.read(DIM as u32) as u32;
+        assert_eq!(cur.read(2), 0, "block {b}: padding bits 70..72 must be zero");
+        let mut p = [0i32; DIM];
+        if cls.odd {
+            for (i, pi) in p.iter_mut().enumerate() {
+                let lvl = ((a >> i & 1) | (bm >> i & 1) << 1) as usize;
+                assert!(
+                    lvl < cls.len as usize,
+                    "block {b}, slot {i}: level {lvl} outside class {id} (len {})",
+                    cls.len
+                );
+                let v = i32::from(cls.values[lvl]);
+                let flag = u32::from(cls.flags >> lvl & 1);
+                // Signs carry no information: positive iff the codeword bit
+                // equals the value's mod-4 flag (1 when value ≡ 3 mod 4).
+                *pi = if c >> i & 1 == flag { v } else { -v };
+            }
+        } else {
+            for (i, pi) in p.iter_mut().enumerate() {
+                let r = (c >> i & 1) as usize;
+                assert!(
+                    cls.distinct[r] > 0,
+                    "block {b}, slot {i}: codeword puts the slot in an empty residue of class {id}"
+                );
+                let ai = (a >> i & 1) as usize;
+                assert!(
+                    cls.distinct[r] == 2 || ai == 0,
+                    "block {b}, slot {i}: non-canonical A bit on a single-value residue"
+                );
+                let v = i32::from(cls.pairs[r][ai]);
+                let neg = bm >> i & 1 == 1;
+                assert!(
+                    v != 0 || !neg,
+                    "block {b}, slot {i}: sign bit set on a zero slot"
+                );
+                *pi = if neg { -v } else { v };
+            }
+        }
+        (p, gain)
+    }
+}
+
+/// Transcode raw `(index, gain)` codes into a [`Golay70Blocks`] stream.
+///
+/// Same contract as [`transcode_planes14`] — one fast decode per block, an
+/// out-of-range index is an error, canonical zero padding — plus one Golay
+/// rank lookup per block. No re-encoding search: unlike
+/// [`transcode_planes12x`], the main stream never approximates — exception
+/// blocks contribute **zero** there and exactly through the table, so the
+/// result's [`Golay70Blocks::decode_block`] equals the archive decoder bit
+/// for bit on every block by construction.
+pub fn transcode_golay70(
+    fd: &FastDecoder,
+    table: &ClassTable,
+    g70: &Golay70Table,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<Golay70Blocks> {
+    assert_eq!(indices.len(), gains.len(), "one gain per block");
+    assert_eq!(
+        table.gain_bits(),
+        1,
+        "Golay70 freezes the gain field at bit 9, one bit wide"
+    );
+    let n = indices.len();
+    assert!(
+        u32::try_from(n).is_ok(),
+        "{n} blocks: exception indices must fit u32"
+    );
+    // Main stream plus the frozen tail: word-aligned, one extra zero word,
+    // so the kernel's three-word window exists for the last block.
+    let mut data = vec![0u8; (n * GOLAY70_BYTES).div_ceil(4) * 4 + 4];
+    let mut exc_idx: Vec<u32> = Vec::new();
+    let mut exc_data: Vec<u8> = Vec::new();
+    for (b, (&idx, &gain)) in indices.iter().zip(gains).enumerate() {
+        assert!(gain < 2, "block {b}: gain {gain} overflows the 1-bit field");
+        let id = class_id(fd, idx)?;
+        let bit0 = b as u64 * (GOLAY70_BYTES as u64 * 8);
+        let mut w = BitSink::new(&mut data, bit0);
+        let cls = *g70.class(id);
+        if id == 0 || cls.exception {
+            // Origin, or an exception leaving the zero-contribution origin
+            // record behind: class 0, gain copied, all other bits zero.
+            w.push(0, CLASS_BITS);
+            w.push(u64::from(gain), 1);
+            if id == 0 {
+                continue;
+            }
+            exc_idx.push(b as u32);
+            let e0 = exc_data.len();
+            exc_data.resize(e0 + PLANES14_BYTES, 0);
+            encode_plane_record(fd, table, idx, gain, 3, &mut exc_data, e0 as u64 * 8)?;
+            continue;
+        }
+        w.push(id as u64, CLASS_BITS);
+        w.push(u64::from(gain), 1);
+        let p = fd.decode(idx).expect("class_id validated the index");
+        // The membership plane — a Golay codeword by construction. Even
+        // coset: |x_i| ≡ 2 (mod 4) (−2 ≡ 2, so signed and absolute agree);
+        // odd coset: x_i ≡ 3 (mod 4), the signed rule of the v1 index.
+        let residue = if cls.odd { 3 } else { 2 };
+        let mut c = 0u32;
+        for (i, &v) in p.iter().enumerate() {
+            if v.rem_euclid(4) == residue {
+                c |= 1 << i;
+            }
+        }
+        let grank = g70
+            .golay()
+            .rank(c)
+            .expect("membership plane of a member is a codeword");
+        w.push(grank as u64, GOLAY70_RANK_BITS);
+        let (mut a, mut bm) = (0u64, 0u64);
+        if cls.odd {
+            for (i, &v) in p.iter().enumerate() {
+                let av = i8::try_from(v.abs()).expect("|value| fits i8");
+                let lvl = cls.values[..cls.len as usize]
+                    .iter()
+                    .position(|&u| u == av)
+                    .expect("decoded value belongs to its class") as u64;
+                a |= (lvl & 1) << i;
+                bm |= (lvl >> 1 & 1) << i;
+            }
+        } else {
+            for (i, &v) in p.iter().enumerate() {
+                let av = i8::try_from(v.abs()).expect("|value| fits i8");
+                let r = usize::from(v.rem_euclid(4) == 2);
+                // Canonical A: the value's position among the residue's
+                // *distinct* values — 0 on single-value residues, and a
+                // value outside its residue pair is lethal, not canonical.
+                let ai = cls.pairs[r][..usize::from(cls.distinct[r])]
+                    .iter()
+                    .position(|&u| u == av)
+                    .expect("decoded value belongs to its residue pair")
+                    as u64;
+                a |= ai << i;
+                if v < 0 {
+                    bm |= 1 << i;
+                }
+            }
+        }
+        w.push(a, DIM as u32);
+        w.push(bm, DIM as u32);
+        assert_eq!(
+            w.pos - bit0,
+            GOLAY70_PAD_BIT,
+            "class {id}: Golay70 record is not 70 payload bits"
+        );
+    }
+    Ok(Golay70Blocks {
+        n_blocks: n,
+        data,
+        exc_idx,
+        exc_data,
+    })
 }
 
 /// LSB-first bit writer over a pre-zeroed slice.
