@@ -1,0 +1,305 @@
+# Campagne 8B qualité — job 6a7649063e1f34a7e32bdcc1, l40sx1, 1,01 $ (34 min)
+# 3 bras (f16 / AWQ deq / LLVQ scellé leech1c12), ppl empreinte 3f1baca9033bf251, MMLU empreinte 65dcd53655e8bfa5
+
+6a7649063e1f34a7e32bdcc1  COMPLETED  l40sx1
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.167849989  n 4095  running ppl    8.739  (8.9s)
+  window   2/12  nll 2.484214505  n 4095  running ppl   10.237  (10.0s)
+  window   3/12  nll 1.915492645  n 4095  running ppl    8.928  (11.2s)
+  window   4/12  nll 1.767394140  n 4095  running ppl    8.034  (12.3s)
+  window   5/12  nll 2.273520013  n 4095  running ppl    8.345  (13.4s)
+  window   6/12  nll 2.238075683  n 4095  running ppl    8.509  (14.6s)
+  window   7/12  nll 2.296767208  n 4095  running ppl    8.700  (15.7s)
+  window   8/12  nll 2.317855235  n 4095  running ppl    8.870  (16.9s)
+  window   9/12  nll 2.419854148  n 4095  running ppl    9.107  (18.0s)
+  window  10/12  nll 1.947217691  n 4095  running ppl    8.871  (19.2s)
+  window  11/12  nll 2.317269536  n 4095  running ppl    8.980  (20.3s)
+  window  12/12  nll 2.207771720  n 4095  running ppl    8.990  (21.4s)
+
+Qwen/Qwen3-8B [baseline] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 8.9899
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.210911268  n 4095  running ppl    9.124  (1.2s)
+  window   2/12  nll 2.545368304  n 4095  running ppl   10.785  (2.4s)
+  window   3/12  nll 1.956990232  n 4095  running ppl    9.372  (3.6s)
+  window   4/12  nll 1.811528446  n 4095  running ppl    8.425  (4.8s)
+  window   5/12  nll 2.332853041  n 4095  running ppl    8.772  (5.9s)
+  window   6/12  nll 2.277221411  n 4095  running ppl    8.928  (7.1s)
+  window   7/12  nll 2.339166237  n 4095  running ppl    9.121  (8.3s)
+  window   8/12  nll 2.371724760  n 4095  running ppl    9.307  (9.5s)
+  window   9/12  nll 2.460400927  n 4095  running ppl    9.547  (10.6s)
+  window  10/12  nll 1.982975976  n 4095  running ppl    9.290  (11.8s)
+  window  11/12  nll 2.372128501  n 4095  running ppl    9.412  (13.0s)
+  window  12/12  nll 2.254121118  n 4095  running ppl    9.421  (14.2s)
+
+Pier-Jean/qwen3-8b-awq-deq [baseline] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 9.4211
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /model/qwen3-8b-llvq.bin: 252 quantized matrices, 4.324 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.346050109  n 4095  running ppl   10.444  (1.3s)
+  window   2/12  nll 2.735679945  n 4095  running ppl   12.691  (2.4s)
+  window   3/12  nll 2.176069091  n 4095  running ppl   11.238  (3.6s)
+  window   4/12  nll 1.981194673  n 4095  running ppl   10.072  (4.8s)
+  window   5/12  nll 2.498913738  n 4095  running ppl   10.460  (6.0s)
+  window   6/12  nll 2.397369124  n 4095  running ppl   10.547  (7.2s)
+  window   7/12  nll 2.474311994  n 4095  running ppl   10.727  (8.4s)
+  window   8/12  nll 2.490074596  n 4095  running ppl   10.886  (9.5s)
+  window   9/12  nll 2.603909827  n 4095  running ppl   11.151  (10.7s)
+  window  10/12  nll 2.101983650  n 4095  running ppl   10.811  (11.9s)
+  window  11/12  nll 2.529871127  n 4095  running ppl   10.959  (13.1s)
+  window  12/12  nll 2.404583763  n 4095  running ppl   10.968  (14.3s)
+
+/model/qwen3-8b-llvq.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 10.9682
+model: Qwen/Qwen3-8B [reference checkpoint]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+  abstract algebra                          21/40     52.5 %   (micro 52.50 %, 3s)
+  anatomy                                   28/40     70.0 %   (micro 62.55 %, 5s)
+  astronomy                                 37/40     92.5 %   (micro 74.32 %, 9s)
+  business ethics                           30/40     75.0 %   (micro 74.46 %, 12s)
+  clinical knowledge                        30/40     75.0 %   (micro 74.65 %, 15s)
+  college biology                           33/40     82.5 %   (micro 75.91 %, 18s)
+  college chemistry                         22/40     55.0 %   (micro 73.81 %, 22s)
+  college computer science                  30/40     75.0 %   (micro 73.92 %, 27s)
+  college mathematics                       24/40     60.0 %   (micro 72.76 %, 31s)
+  college medicine                          32/40     80.0 %   (micro 73.67 %, 34s)
+  college physics                           25/40     62.5 %   (micro 72.90 %, 37s)
+  computer security                         35/40     87.5 %   (micro 73.83 %, 40s)
+  conceptual physics                        30/40     75.0 %   (micro 73.98 %, 42s)
+  econometrics                              27/40     67.5 %   (micro 73.59 %, 46s)
+  electrical engineering                    30/40     75.0 %   (micro 73.69 %, 50s)
+  elementary mathematics                    30/40     75.0 %   (micro 73.89 %, 53s)
+  formal logic                              26/40     65.0 %   (micro 73.46 %, 57s)
+  global facts                              20/40     50.0 %   (micro 72.58 %, 60s)
+  high school biology                       38/40     95.0 %   (micro 74.91 %, 63s)
+  high school chemistry                     31/40     77.5 %   (micro 75.08 %, 66s)
+  high school computer science              34/40     85.0 %   (micro 75.38 %, 72s)
+  high school european history              34/40     85.0 %   (micro 75.84 %, 98s)
+  high school geography                     34/40     85.0 %   (micro 76.34 %, 100s)
+  high school government and politics       38/40     95.0 %   (micro 77.28 %, 103s)
+  high school macroeconomics                29/40     72.5 %   (micro 76.84 %, 106s)
+  high school mathematics                   20/40     50.0 %   (micro 75.23 %, 110s)
+  high school microeconomics                38/40     95.0 %   (micro 76.22 %, 112s)
+  high school physics                       28/40     70.0 %   (micro 76.03 %, 116s)
+  high school psychology                    39/40     97.5 %   (micro 78.18 %, 119s)
+  high school statistics                    32/40     80.0 %   (micro 78.25 %, 124s)
+  high school us history                    38/40     95.0 %   (micro 78.83 %, 143s)
+  high school world history                 39/40     97.5 %   (micro 79.56 %, 153s)
+  human aging                               28/40     70.0 %   (micro 79.22 %, 155s)
+  human sexuality                           32/40     80.0 %   (micro 79.24 %, 158s)
+  international law                         29/40     72.5 %   (micro 79.11 %, 162s)
+  jurisprudence                             31/40     77.5 %   (micro 79.09 %, 165s)
+  logical fallacies                         33/40     82.5 %   (micro 79.17 %, 168s)
+  machine learning                          22/40     55.0 %   (micro 78.78 %, 172s)
+  management                                33/40     82.5 %   (micro 78.83 %, 174s)
+  marketing                                 38/40     95.0 %   (micro 79.35 %, 177s)
+  medical genetics                          34/40     85.0 %   (micro 79.43 %, 180s)
+  miscellaneous                             37/40     92.5 %   (micro 80.68 %, 182s)
+  moral disputes                            31/40     77.5 %   (micro 80.55 %, 185s)
+  moral scenarios                           23/40     57.5 %   (micro 78.36 %, 190s)
+  nutrition                                 35/40     87.5 %   (micro 78.65 %, 193s)
+  philosophy                                32/40     80.0 %   (micro 78.69 %, 196s)
+  prehistory                                35/40     87.5 %   (micro 78.97 %, 199s)
+  professional accounting                   23/40     57.5 %   (micro 78.40 %, 204s)
+  professional law                          24/40     60.0 %   (micro 76.08 %, 216s)
+  professional medicine                     32/40     80.0 %   (micro 76.16 %, 223s)
+  professional psychology                   29/40     72.5 %   (micro 75.99 %, 227s)
+  public relations                          25/40     62.5 %   (micro 75.88 %, 230s)
+  security studies                          34/40     85.0 %   (micro 76.05 %, 238s)
+  sociology                                 33/40     82.5 %   (micro 76.14 %, 240s)
+  us foreign policy                         32/40     80.0 %   (micro 76.17 %, 243s)
+  virology                                  26/40     65.0 %   (micro 76.04 %, 246s)
+  world religions                           32/40     80.0 %   (micro 76.08 %, 248s)
+
+Qwen/Qwen3-8B [reference checkpoint]
+MMLU 5-shot — 2280 questions scorées sur 14042, 57 matières, dtype f16, tokens 65dcd53655e8bfa5
+  --------------------------------------------------------
+  meilleures :
+    high school psychology                    97.5 %
+    high school world history                 97.5 %
+    high school biology                       95.0 %
+  pires :
+    high school mathematics                   50.0 %
+    global facts                              50.0 %
+    abstract algebra                          52.5 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 76.08 % ± 1.21
+  MMLU (macro, par matière) = 76.54 %
+  échantillon : 2280/14042 questions, 16.2 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+model: Pier-Jean/qwen3-8b-awq-deq [reference checkpoint]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+  abstract algebra                          18/40     45.0 %   (micro 45.00 %, 3s)
+  anatomy                                   28/40     70.0 %   (micro 59.36 %, 5s)
+  astronomy                                 38/40     95.0 %   (micro 73.36 %, 9s)
+  business ethics                           31/40     77.5 %   (micro 74.21 %, 13s)
+  clinical knowledge                        28/40     70.0 %   (micro 72.73 %, 15s)
+  college biology                           34/40     85.0 %   (micro 74.70 %, 18s)
+  college chemistry                         22/40     55.0 %   (micro 72.72 %, 22s)
+  college computer science                  30/40     75.0 %   (micro 72.93 %, 27s)
+  college mathematics                       24/40     60.0 %   (micro 71.85 %, 31s)
+  college medicine                          31/40     77.5 %   (micro 72.56 %, 34s)
+  college physics                           19/40     47.5 %   (micro 70.82 %, 38s)
+  computer security                         36/40     90.0 %   (micro 72.04 %, 40s)
+  conceptual physics                        30/40     75.0 %   (micro 72.43 %, 43s)
+  econometrics                              29/40     72.5 %   (micro 72.43 %, 47s)
+  electrical engineering                    29/40     72.5 %   (micro 72.44 %, 50s)
+  elementary mathematics                    31/40     77.5 %   (micro 73.22 %, 53s)
+  formal logic                              25/40     62.5 %   (micro 72.70 %, 57s)
+  global facts                              17/40     42.5 %   (micro 71.56 %, 60s)
+  high school biology                       39/40     97.5 %   (micro 74.26 %, 63s)
+  high school chemistry                     31/40     77.5 %   (micro 74.47 %, 66s)
+  high school computer science              35/40     87.5 %   (micro 74.87 %, 72s)
+  high school european history              33/40     82.5 %   (micro 75.23 %, 98s)
+  high school geography                     33/40     82.5 %   (micro 75.63 %, 100s)
+  high school government and politics       38/40     95.0 %   (micro 76.60 %, 103s)
+  high school macroeconomics                31/40     77.5 %   (micro 76.68 %, 106s)
+  high school mathematics                   20/40     50.0 %   (micro 75.08 %, 110s)
+  high school microeconomics                37/40     92.5 %   (micro 75.96 %, 112s)
+  high school physics                       27/40     67.5 %   (micro 75.70 %, 116s)
+  high school psychology                    38/40     95.0 %   (micro 77.63 %, 119s)
+  high school statistics                    30/40     75.0 %   (micro 77.53 %, 124s)
+  high school us history                    36/40     90.0 %   (micro 77.97 %, 143s)
+  high school world history                 39/40     97.5 %   (micro 78.73 %, 153s)
+  human aging                               27/40     67.5 %   (micro 78.33 %, 156s)
+  human sexuality                           33/40     82.5 %   (micro 78.42 %, 158s)
+  international law                         32/40     80.0 %   (micro 78.44 %, 162s)
+  jurisprudence                             33/40     82.5 %   (micro 78.51 %, 165s)
+  logical fallacies                         36/40     90.0 %   (micro 78.78 %, 168s)
+  machine learning                          20/40     50.0 %   (micro 78.32 %, 172s)
+  management                                32/40     80.0 %   (micro 78.34 %, 174s)
+  marketing                                 38/40     95.0 %   (micro 78.88 %, 177s)
+  medical genetics                          35/40     87.5 %   (micro 79.00 %, 180s)
+  miscellaneous                             33/40     82.5 %   (micro 79.33 %, 182s)
+  moral disputes                            31/40     77.5 %   (micro 79.26 %, 185s)
+  moral scenarios                           20/40     50.0 %   (micro 76.47 %, 190s)
+  nutrition                                 34/40     85.0 %   (micro 76.74 %, 193s)
+  philosophy                                31/40     77.5 %   (micro 76.77 %, 196s)
+  prehistory                                33/40     82.5 %   (micro 76.95 %, 199s)
+  professional accounting                   21/40     52.5 %   (micro 76.30 %, 204s)
+  professional law                          20/40     50.0 %   (micro 72.98 %, 216s)
+  professional medicine                     30/40     75.0 %   (micro 73.03 %, 223s)
+  professional psychology                   27/40     67.5 %   (micro 72.77 %, 227s)
+  public relations                          26/40     65.0 %   (micro 72.70 %, 230s)
+  security studies                          35/40     87.5 %   (micro 72.97 %, 238s)
+  sociology                                 32/40     80.0 %   (micro 73.08 %, 241s)
+  us foreign policy                         33/40     82.5 %   (micro 73.14 %, 243s)
+  virology                                  25/40     62.5 %   (micro 73.02 %, 246s)
+  world religions                           29/40     72.5 %   (micro 73.01 %, 248s)
+
+Pier-Jean/qwen3-8b-awq-deq [reference checkpoint]
+MMLU 5-shot — 2280 questions scorées sur 14042, 57 matières, dtype f16, tokens 65dcd53655e8bfa5
+  --------------------------------------------------------
+  meilleures :
+    high school biology                       97.5 %
+    high school world history                 97.5 %
+    astronomy                                 95.0 %
+  pires :
+    global facts                              42.5 %
+    abstract algebra                          45.0 %
+    college physics                           47.5 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 73.01 % ± 1.26
+  MMLU (macro, par matière) = 75.13 %
+  échantillon : 2280/14042 questions, 16.2 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+model: /model/qwen3-8b-llvq.bin [LLVQ 2-bit, sealed]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+  abstract algebra                          11/40     27.5 %   (micro 27.50 %, 3s)
+  anatomy                                   22/40     55.0 %   (micro 43.30 %, 5s)
+  astronomy                                 31/40     77.5 %   (micro 56.73 %, 9s)
+  business ethics                           29/40     72.5 %   (micro 59.97 %, 13s)
+  clinical knowledge                        29/40     72.5 %   (micro 64.38 %, 16s)
+  college biology                           32/40     80.0 %   (micro 66.89 %, 19s)
+  college chemistry                         24/40     60.0 %   (micro 66.20 %, 22s)
+  college computer science                  26/40     65.0 %   (micro 66.09 %, 28s)
+  college mathematics                       18/40     45.0 %   (micro 64.33 %, 32s)
+  college medicine                          22/40     55.0 %   (micro 63.15 %, 35s)
+  college physics                           22/40     55.0 %   (micro 62.58 %, 39s)
+  computer security                         33/40     82.5 %   (micro 63.85 %, 41s)
+  conceptual physics                        25/40     62.5 %   (micro 63.68 %, 44s)
+  econometrics                              25/40     62.5 %   (micro 63.61 %, 48s)
+  electrical engineering                    24/40     60.0 %   (micro 63.35 %, 51s)
+  elementary mathematics                    26/40     65.0 %   (micro 63.61 %, 55s)
+  formal logic                              18/40     45.0 %   (micro 62.70 %, 59s)
+  global facts                              15/40     37.5 %   (micro 61.75 %, 61s)
+  high school biology                       36/40     90.0 %   (micro 64.69 %, 65s)
+  high school chemistry                     21/40     52.5 %   (micro 63.91 %, 68s)
+  high school computer science              30/40     75.0 %   (micro 64.25 %, 74s)
+  high school european history              31/40     77.5 %   (micro 64.89 %, 100s)
+  high school geography                     31/40     77.5 %   (micro 65.57 %, 102s)
+  high school government and politics       37/40     92.5 %   (micro 66.92 %, 105s)
+  high school macroeconomics                29/40     72.5 %   (micro 67.44 %, 108s)
+  high school mathematics                   16/40     40.0 %   (micro 65.79 %, 112s)
+  high school microeconomics                31/40     77.5 %   (micro 66.38 %, 115s)
+  high school physics                       21/40     52.5 %   (micro 65.95 %, 118s)
+  high school psychology                    35/40     87.5 %   (micro 68.11 %, 122s)
+  high school statistics                    29/40     72.5 %   (micro 68.28 %, 127s)
+  high school us history                    37/40     92.5 %   (micro 69.13 %, 146s)
+  high school world history                 34/40     85.0 %   (micro 69.74 %, 156s)
+  human aging                               27/40     67.5 %   (micro 69.66 %, 159s)
+  human sexuality                           29/40     72.5 %   (micro 69.72 %, 161s)
+  international law                         31/40     77.5 %   (micro 69.87 %, 165s)
+  jurisprudence                             30/40     75.0 %   (micro 69.95 %, 168s)
+  logical fallacies                         30/40     75.0 %   (micro 70.07 %, 171s)
+  machine learning                          17/40     42.5 %   (micro 69.62 %, 175s)
+  management                                30/40     75.0 %   (micro 69.70 %, 178s)
+  marketing                                 33/40     82.5 %   (micro 70.11 %, 180s)
+  medical genetics                          28/40     70.0 %   (micro 70.11 %, 183s)
+  miscellaneous                             28/40     70.0 %   (micro 70.10 %, 186s)
+  moral disputes                            28/40     70.0 %   (micro 70.10 %, 189s)
+  moral scenarios                           14/40     35.0 %   (micro 66.76 %, 193s)
+  nutrition                                 31/40     77.5 %   (micro 67.10 %, 197s)
+  philosophy                                25/40     62.5 %   (micro 66.95 %, 199s)
+  prehistory                                26/40     65.0 %   (micro 66.89 %, 203s)
+  professional accounting                   18/40     45.0 %   (micro 66.31 %, 207s)
+  professional law                          23/40     57.5 %   (micro 65.20 %, 219s)
+  professional medicine                     24/40     60.0 %   (micro 65.09 %, 227s)
+  professional psychology                   25/40     62.5 %   (micro 64.97 %, 231s)
+  public relations                          28/40     70.0 %   (micro 65.01 %, 234s)
+  security studies                          31/40     77.5 %   (micro 65.24 %, 242s)
+  sociology                                 33/40     82.5 %   (micro 65.49 %, 245s)
+  us foreign policy                         30/40     75.0 %   (micro 65.56 %, 248s)
+  virology                                  26/40     65.0 %   (micro 65.55 %, 251s)
+  world religions                           25/40     62.5 %   (micro 65.52 %, 253s)
+
+/model/qwen3-8b-llvq.bin [LLVQ 2-bit, sealed]
+MMLU 5-shot — 2280 questions scorées sur 14042, 57 matières, dtype f16, tokens 65dcd53655e8bfa5
+  --------------------------------------------------------
+  meilleures :
+    high school government and politics       92.5 %
+    high school us history                    92.5 %
+    high school biology                       90.0 %
+  pires :
+    abstract algebra                          27.5 %
+    moral scenarios                           35.0 %
+    global facts                              37.5 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 65.52 % ± 1.31
+  MMLU (macro, par matière) = 66.67 %
+  échantillon : 2280/14042 questions, 16.2 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
