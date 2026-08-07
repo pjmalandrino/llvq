@@ -1,0 +1,22 @@
+# M3 — gate design C, 0.6B pleine profondeur, nuit du 06→07 (Mac M3 Max, 0 $)
+# Deux bras, une variable, 28 blocs, 131k tokens wikitext-train, rot on, protocole du run publié ×1,811
+
+== bras A (chemin publié) ==
+  baseline ppl = 19.5038
+quantizing 28 blocks of Qwen/Qwen3-0.6B (shape–gain, 0 gain bits, spherical retraction, group scales off, design C off, input rotation on)…
+quantized 196 matrices, 440401920 weights in 2005s (2.2068 bits/weight)
+baseline (FP32)      ppl = 19.5038
+LLVQ 2-bit           ppl = 35.9806
+effective rate           = 2.2068 bits/weight
+
+== bras B (design C) ==
+  baseline ppl = 19.5038
+quantizing 28 blocks of Qwen/Qwen3-0.6B (shape–gain, 0 gain bits, spherical retraction, group scales off, design C on, input rotation on)…
+quantized 196 matrices, 440401920 weights in 2047s (2.2068 bits/weight)
+baseline (FP32)      ppl = 19.5038
+LLVQ 2-bit           ppl = 71.4249
+effective rate           = 2.2068 bits/weight
+
+== verdict du script ==
+  gate : publié 35.9806 — design C 71.4249
+  GATE ROUGE : design C > publié×1,02 à pleine profondeur — le 4B ne part pas.
