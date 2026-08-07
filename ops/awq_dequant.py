@@ -1788,6 +1788,10 @@ def cmd_dequant(args) -> int:
 
     names = projection_names(n_layers)
     picks = {names[i] for i in sample_indices(len(names), args.l1_samples)}
+    waive_l1 = {n for n in (args.waive_l1 or "").split(",") if n}
+    # A waiver names a tensor the sampler might not draw: force-draw it, so
+    # the derogation is measured and written down rather than silently unused.
+    picks |= waive_l1
     writer = ShardWriter(out, int(args.shard_gb * 1e9))
 
     say(f"\n[4] reconstruction des {len(names)} projections "
@@ -1809,9 +1813,13 @@ def cmd_dequant(args) -> int:
         )
         if prefix in picks and base.has(prefix + ".weight"):
             l1 = control_l1_base(p, base.tensor(prefix + ".weight"))
-            l1_all.append(dict(name=prefix, **l1))
-            line += f"  L1 {l1['ratio']:.3f} {'ok' if l1['ok'] else 'FAIL'}"
-            ok &= l1["ok"]
+            waived = (not l1["ok"]) and prefix in waive_l1 and l2["ok"]
+            l1_all.append(dict(name=prefix, waived=waived, **l1))
+            line += (
+                f"  L1 {l1['ratio']:.3f} "
+                + ("DÉROGÉ (--waive-l1)" if waived else ("ok" if l1["ok"] else "FAIL"))
+            )
+            ok &= l1["ok"] or waived
             say(line)
             if not l1["ok"]:
                 say(f"      cosinus par position mod 8 : {l1['cosine_by_slot']}")
@@ -1835,8 +1843,9 @@ def cmd_dequant(args) -> int:
         ok=all(r["ok"] for r in l2_all), tested=len(l2_all), detail=l2_all
     )
     report["controls"]["l1"] = dict(
-        ok=bool(l1_all) and all(r["ok"] for r in l1_all),
+        ok=bool(l1_all) and all(r["ok"] or r.get("waived") for r in l1_all),
         tested=len(l1_all),
+        waived=[r["name"] for r in l1_all if r.get("waived")],
         detail=l1_all,
     )
     report["controls"]["l4"] = dict(
@@ -2054,6 +2063,15 @@ def cmd_push(args) -> int:
     # run against another repository — and every one of those leaves a green
     # report sitting next to different weights. Re-hash before uploading: the
     # controls above are only worth what the files still are.
+    waived = report.get("controls", {}).get("l1", {}).get("waived", [])
+    if waived:
+        print("\n⚠️  DÉROGATION L1 — à reproduire dans toute publication de ces poids :")
+        for w in waived:
+            row = next((r for r in report["controls"]["l1"]["detail"]
+                        if r["name"] == w), {})
+            print(f"    {w} : ratio {row.get('ratio')}, L2 identique au fichier AWQ —"
+                  "\n    l'alignement au checkpoint de base ne tient pas sur ce tenseur"
+                  " (propriété de l'export amont).")
     print(f"\nvérification des octets contre {rpath.name}")
     drift: list[str] = []
     listed = report.get("output", {}).get("files", [])
@@ -2162,6 +2180,13 @@ def main() -> int:
                    help="model.safetensors déjà local, au lieu de le retélécharger")
     d.add_argument("--l1-samples", type=int, default=6,
                    help="projections recoupées avec le checkpoint de base")
+    d.add_argument("--waive-l1", default="",
+                   help="tenseurs (séparés par des virgules) dont un échec L1 "
+                        "est DÉROGÉ : le L2 (octets du fichier AWQ) doit rester "
+                        "identique, la dérogation est écrite dans le rapport et "
+                        "criée par `push` — pour un export amont dont "
+                        "l'alignement au checkpoint de base ne tient pas sur un "
+                        "tenseur isolé")
     d.add_argument("--shard-gb", type=float, default=4.0,
                    help="taille max d'un shard, en Go décimaux")
     d.set_defaults(fn=cmd_dequant)
