@@ -814,6 +814,84 @@ def control_l4(p: Projection) -> dict:
     )
 
 
+
+class ShardedSafeTensors:
+    """`SafeTensors`'s interface over a sharded export, one parser underneath.
+
+    The 4B AWQ ships a single `model.safetensors`; the 8B ships
+    `model-0000X-of-0000Y.safetensors` plus an index. This class only routes
+    each tensor to its shard, so every downstream lock (structure, L2 repack,
+    L1 against the base) exercises the exact bytes it always did.
+
+    `read_at` is deliberately NOT provided: absolute offsets are meaningless
+    across shards, and a caller that wants raw ranges must route through
+    `shard_for(name)` — a mistake fails loudly instead of reading the wrong
+    file.
+    """
+
+    def __init__(self, shards: "dict[str, SafeTensors]", weight_map: "dict[str, str]"):
+        self._shards = shards
+        self._map = weight_map
+        self.header: dict = {}
+        self.metadata = None
+        for st in shards.values():
+            self.header.update(st.header)
+            if self.metadata is None:
+                self.metadata = st.metadata
+        self.header_bytes = sum(st.header_bytes for st in shards.values())
+        self.total = sum((st.total or 0) for st in shards.values()) or None
+
+    def shard_for(self, name: str) -> "SafeTensors":
+        try:
+            return self._shards[self._map[name]]
+        except KeyError:
+            raise Fatal(f"tenseur absent de l'index : {name}") from None
+
+    def entry(self, name: str) -> dict:
+        return self.shard_for(name).entry(name)
+
+    def span(self, name: str) -> tuple[int, int]:
+        return self.shard_for(name).span(name)
+
+    def declared_bytes(self, name: str) -> int:
+        return self.shard_for(name).declared_bytes(name)
+
+    def tensor(self, name: str):
+        return self.shard_for(name).tensor(name)
+
+    def raw(self, name: str) -> bytes:
+        return self.shard_for(name).raw(name)
+
+    def raw_many(self, names, budget: int = 64_000_000) -> dict[str, bytes]:
+        by_shard: dict[str, list] = {}
+        for n in names:
+            by_shard.setdefault(self._map[n], []).append(n)
+        out: dict[str, bytes] = {}
+        for group in by_shard.values():
+            out.update(self.shard_for(group[0]).raw_many(group, budget))
+        return out
+
+    def close(self) -> None:
+        for st in self._shards.values():
+            st.close()
+
+
+def open_awq_remote(repo: str, revision: str):
+    """The AWQ file over HTTP Range — single-file first, sharded fallback."""
+    try:
+        return SafeTensors(hub_url(repo, "model.safetensors", revision))
+    except Exception as e:
+        if "404" not in str(e):
+            raise
+    idx = hub_json(repo, "model.safetensors.index.json", revision)
+    wmap = idx["weight_map"]
+    shards = {
+        f: SafeTensors(hub_url(repo, f, revision))
+        for f in sorted(set(wmap.values()))
+    }
+    return ShardedSafeTensors(shards, wmap)
+
+
 class BaseCheckpoint:
     """The unquantized checkpoint, read tensor by tensor over HTTP Range."""
 
@@ -901,13 +979,14 @@ def control_perimeter(
     for n in small:
         (same if a_small[n] == b_small[n] else diff).append(n)
     for n in big:
-        off0, span = awq.span(n)
+        st = awq.shard_for(n) if hasattr(awq, "shard_for") else awq
+        off0, span = st.span(n)
         ok = True
         for frac in (0.0, 0.5, 1.0):
             off = min(int(span * frac), max(0, span - probe_bytes))
             off -= off % 2
             n_read = min(probe_bytes, span - off)
-            ok &= awq.read_at(off0 + off, n_read) == base.slice_bytes(n, off, n_read)
+            ok &= st.read_at(off0 + off, n_read) == base.slice_bytes(n, off, n_read)
         probed.append(n)
         (same if ok else diff).append(n)
     return dict(
@@ -1525,7 +1604,7 @@ def cmd_check(args) -> int:
 
     say(f"\n[1] structure de {args.awq_repo}@{args.awq_revision[:8]} "
         f"({bits} bits, group_size {gs}, {n_layers} couches)")
-    awq = SafeTensors(hub_url(args.awq_repo, "model.safetensors", args.awq_revision))
+    awq = open_awq_remote(args.awq_repo, args.awq_revision)
     ok &= check_structure(awq, exp, say)
 
     say("\n[2] tokenizer")
@@ -1663,20 +1742,33 @@ def cmd_dequant(args) -> int:
             + (" …" if len(stale) > 4 else ""))
 
     if args.awq_file:
-        src = Path(args.awq_file)
+        awq = SafeTensors(Path(args.awq_file))
     else:
         from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import EntryNotFoundError
 
-        say(f"\n[1] téléchargement de {args.awq_repo}/model.safetensors "
+        say(f"\n[1] téléchargement de {args.awq_repo} "
             f"(~{(exp or {}).get('bytes', 0) / 1e9:.2f} Go)")
-        src = Path(
-            hf_hub_download(
+        try:
+            awq = SafeTensors(Path(hf_hub_download(
                 repo_id=args.awq_repo,
                 filename="model.safetensors",
                 revision=args.awq_revision,
-            )
-        )
-    awq = SafeTensors(src)
+            )))
+        except EntryNotFoundError:
+            # Sharded export (the 8B): pull the index, then every shard, and
+            # route through the same parser — the locks below do the proving.
+            idx = hub_json(args.awq_repo, "model.safetensors.index.json",
+                           args.awq_revision)
+            wmap = idx["weight_map"]
+            shards = {
+                f: SafeTensors(Path(hf_hub_download(
+                    repo_id=args.awq_repo, filename=f,
+                    revision=args.awq_revision,
+                )))
+                for f in sorted(set(wmap.values()))
+            }
+            awq = ShardedSafeTensors(shards, wmap)
     say(f"\n[1] structure ({bits} bits, group_size {gs}, {n_layers} couches)")
     st_ok = check_structure(awq, exp, say)
     ok &= st_ok
