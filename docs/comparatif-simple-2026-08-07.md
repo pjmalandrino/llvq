@@ -64,13 +64,24 @@ de tout ce qui précède.
   le modèle est gros, moins le 2 bits perd, et c'est là que 2,6 Go contre
   8 change ce qui rentre sur une machine. »
 
-## ⚠️ La réserve en cours de vérification
+## ✅ La réserve est levée — le mécanisme est mesuré (2026-08-07 matin)
 
-Le doublement de vitesse de cette nuit (48,7 → 88,5 tok/s) dépasse ce que
-le seul embedding peut expliquer : notre noyau a probablement remplacé un
-chemin *inefficace* du moteur de référence (une copie transposée du
-vocabulaire à chaque mot généré). Si c'est confirmé, la baseline dense
-elle-même pourrait être accélérée — et le « ×2,03 » deviendrait « ×2,03
-contre le moteur de référence tel quel, ×1,4-1,5 contre ce moteur corrigé ».
-L'instrumentation est en cours ; d'ici là, la formulation sûre est :
-**« 88,5 tok/s mesurés, contre 43,5 pour le chemin de référence ».**
+L'instrumentation par phases ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt),
+0,33 $) a tranché : la phase « vocabulaire » (lm_head) d'un token coûte
+**25,9 ms en tête f16 et 0,598 ms en tête q8** — et le moteur de référence
+paie la même chose (26,7 ms). La cause, confirmée d'abord dans le code de
+candle puis au chronomètre : son chemin `broadcast_matmul` **recopie les
+778 Mo du vocabulaire à chaque mot généré** (le `TODO: Avoid concretising`
+est dans leur source). Notre noyau lit les 413 Mo compressés une fois, sans
+copie.
+
+Les deux formulations honnêtes, chiffres en main :
+- **×2,02 contre le moteur de référence tel que tout le monde l'utilise**
+  (87,7 contre 43,4 tok/s, mesuré dans le même job) ;
+- **~×1,4 contre ce même moteur si on lui corrigeait sa copie** (estimé par
+  recomposition des phases mesurées — le corriger réellement est possible
+  et le chiffre deviendrait alors une mesure).
+
+Le gain n'est pas un artefact de comparaison : il vient d'avoir écrit le
+chemin que le moteur de référence n'a pas écrit — c'est précisément le
+métier du projet.

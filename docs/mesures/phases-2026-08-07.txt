@@ -1,0 +1,137 @@
+# Instrumentation par phases — job 6a7586d2da2af92a634ee78a, l40sx1, 0,33 $ (11 min facturées)
+# Image commit e77+ (instrumentation LLVQ_TIME_PHASES), 2 invocations : tête f16 puis tête q8
+
+6a7586d2da2af92a634ee78a  COMPLETED  l40sx1
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.18 Go sur la carte, 4.804 b/poids
+embedding : f16 (LLVQ_EMBED) — 777.9 Mo sur la carte
+total attendu sur la carte : 2.96 Go (projections 2.18 + portés 0.78)
+fusé   : chargé en  128.3 s,   48.6 tok/s, 2.96 Go sur la carte
+
+--- phases, bras fusé (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.025  [0.023–0.043]  (31 éch.)
+  blocs+norme        10.439  [10.387–11.890]  (31 éch.)
+  lm_head            25.886  [25.819–27.198]  (32 éch.)
+  argmax+divers       0.097  [0.091–0.127]  (32 éch.)
+  total fencé        36.447  (somme des médianes, fences comprises)
+dense  : chargé en  185.1 s,   43.5 tok/s, 8.04 Go sur la carte
+
+--- phases, bras dense (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.026  [0.024–0.029]  (31 éch.)
+  blocs+norme        13.291  [13.249–13.407]  (31 éch.)
+  lm_head            26.672  [26.535–26.844]  (32 éch.)
+  argmax+divers       0.101  [0.098–0.107]  (32 éch.)
+  total fencé        40.090  (somme des médianes, fences comprises)
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           185.1 s        43.5        8.04
+  fusé            128.3 s        48.6        2.96
+  ----------------------------------------------
+  vitesse ×1.12, mémoire ÷2.72
+
+  projections : 4.804 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
+===== BRAS Q8 =====
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.18 Go sur la carte, 4.804 b/poids
+embedding : q8 g64 (LLVQ_EMBED) — 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3), lm_head lié sur le même buffer
+total attendu sur la carte : 2.60 Go (projections 2.18 + portés 0.41)
+fusé   : chargé en  124.1 s,   87.7 tok/s, 2.60 Go sur la carte
+
+--- phases, bras fusé (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.017  [0.016–0.026]  (31 éch.)
+  blocs+norme        10.432  [10.380–10.542]  (31 éch.)
+  lm_head             0.598  [0.596–0.602]  (32 éch.)
+  argmax+divers       0.078  [0.076–0.095]  (32 éch.)
+  total fencé        11.125  (somme des médianes, fences comprises)
+dense  : chargé en  184.5 s,   43.4 tok/s, 8.04 Go sur la carte
+
+--- phases, bras dense (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.026  [0.023–0.029]  (31 éch.)
+  blocs+norme        13.300  [13.248–13.388]  (31 éch.)
+  lm_head            25.856  [25.804–33.383]  (32 éch.)
+  argmax+divers       0.100  [0.097–0.104]  (32 éch.)
+  total fencé        39.282  (somme des médianes, fences comprises)
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           184.5 s        43.4        8.04
+  fusé            124.1 s        87.7        2.60
+  ----------------------------------------------
+  vitesse ×2.02, mémoire ÷3.10
+
+  projections : 4.804 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
