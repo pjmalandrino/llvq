@@ -1,0 +1,28 @@
+# Campagne 8B vitesse — job 6a7651413e1f34a7e32bdd37, l40sx1, 0,31 $ (10 min)
+# planes14 + embedding f16 (têtes non liées : le chemin q8 refuse proprement)
+
+6a7651413e1f34a7e32bdd37  COMPLETED  l40sx1
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 4.13 Go sur la carte, 4.752 b/poids
+embedding : f16 (LLVQ_EMBED) — 1244.7 Mo sur la carte
+total attendu sur la carte : 6.62 Go (projections 4.13 + portés 2.49)
+fusé   : chargé en  248.3 s,   34.4 tok/s, 6.62 Go sur la carte
+dense  : chargé en  352.3 s,   26.5 tok/s, 16.38 Go sur la carte
+
+--- les deux bras ---
+  128 tokens identiques
+  dense :  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+  fusé  :  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           352.3 s        26.5       16.38
+  fusé            248.3 s        34.4        6.62
+  ----------------------------------------------
+  vitesse ×1.30, mémoire ÷2.48
+
+  projections : 4.752 b/poids sur la carte, fichier 4.32 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
