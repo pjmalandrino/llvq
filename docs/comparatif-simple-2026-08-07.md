@@ -1,0 +1,76 @@
+# Le modèle, avant / après — comparatif simple (2026-08-07)
+
+> Une page, sans jargon, pour expliquer où on en est. Tous les chiffres sont
+> mesurés sur la même carte (L40S), le même modèle (Qwen3-4B), le même
+> harnais. Sources : `docs/mesures/`.
+
+## L'histoire en trois phrases
+
+Un modèle de 4 milliards de paramètres pèse **8 Go** en pleine précision et
+tourne à **43,5 mots/seconde**. Notre version compressée à 2 bits tourne
+maintenant dans **2,6 Go** à **88,5 mots/seconde** — trois fois moins de
+mémoire, deux fois plus vite — **sans avoir changé un seul bit du modèle
+publié** : toute l'amélioration de la semaine est dans la façon de *ranger*
+et de *lire* les poids, pas dans leur contenu.
+
+## Le tableau
+
+| | pleine précision (f16) | 4 bits (AWQ officiel) | **nous, lundi** | **nous, aujourd'hui** |
+|---|---|---|---|---|
+| fichier sur disque | 8,04 Go | 2,67 Go | **1,77 Go** | **1,77 Go** (inchangé) |
+| mémoire carte (VRAM) | 8,04 Go | ~2,7 Go¹ | 8,04 Go² | **2,60 Go** |
+| vitesse | 43,5 tok/s | non mesurée¹ | 43,5 tok/s² | **88,5 tok/s³** |
+| qualité (perplexité) | 12,24 | 13,52 | 16,94 | **16,94** (inchangée) |
+| qualité (MMLU) | 70,3 % | 70,0 % | 55,6 % | **55,6 %** (inchangée) |
+
+¹ L'AWQ n'a jamais tourné dans notre moteur : sa VRAM est celle de son
+propre moteur (5,30 bits par poids), sa vitesse n'est pas comparable ici.
+² Lundi, le noyau rapide existait mais n'était branché nulle part : le
+modèle se décomprimait au chargement et tournait comme du f16.
+³ Chiffre mesuré, mais son *mécanisme* est en cours d'instrumentation —
+voir la réserve en bas de page.
+
+## Ce qui a changé cette semaine (et ce qui n'a pas changé)
+
+**Trois améliorations, toutes dans le « rangement » :**
+
+1. **Le noyau a été branché** (mercredi) : le modèle lit enfin ses poids
+   compressés au lieu de les décompresser au chargement. 8,04 → 3,28 Go.
+2. **Le rangement one-hot a été remplacé par des plans binaires** (jeudi,
+   « Planes14 ») : la même information tenait dans moins d'octets ET se
+   lisait plus vite — c'était du gaspillage pur, prouvé identique au bit
+   près sur les 150 millions de blocs. 3,28 → 2,96 Go, +4 % de vitesse.
+3. **L'embedding est passé en entiers 8 bits** (cette nuit) : la grosse
+   table de vocabulaire, jusque-là gardée en pleine précision « par
+   prudence », a été validée sans aucune perte mesurable puis branchée.
+   2,96 → 2,60 Go, et la vitesse a doublé (voir réserve).
+
+**Ce qui n'a pas changé : la qualité.** Chaque étape est prouvée sans effet
+sur le modèle (reconstruction identique au bit près, ou validée sur les deux
+métriques). Le point faible reste le même qu'avant : à taille 4B, le 4 bits
+ne perd presque rien en capacités (70,0 % de MMLU) alors que le 2 bits perd
+gros (55,6 %). C'est le front qualité, il est ouvert, et il est indépendant
+de tout ce qui précède.
+
+## Comment le dire en une phrase selon l'interlocuteur
+
+- **Version produit** : « le modèle tient maintenant dans 2,6 Go au lieu de
+  8, et va deux fois plus vite — fichier et qualité inchangés. »
+- **Version technique** : « à qualité strictement égale, on est passé de
+  6,5 à 5,15 bits par poids en mémoire (4,69 possible), sous l'empreinte de
+  l'AWQ 4 bits réel (5,30), à ×2,03 du débit dense. »
+- **Version honnête complète** : ajouter « le 4 bits reste devant en
+  capacités sur un modèle de cette taille ; notre pari est l'échelle — plus
+  le modèle est gros, moins le 2 bits perd, et c'est là que 2,6 Go contre
+  8 change ce qui rentre sur une machine. »
+
+## ⚠️ La réserve en cours de vérification
+
+Le doublement de vitesse de cette nuit (48,7 → 88,5 tok/s) dépasse ce que
+le seul embedding peut expliquer : notre noyau a probablement remplacé un
+chemin *inefficace* du moteur de référence (une copie transposée du
+vocabulaire à chaque mot généré). Si c'est confirmé, la baseline dense
+elle-même pourrait être accélérée — et le « ×2,03 » deviendrait « ×2,03
+contre le moteur de référence tel quel, ×1,4-1,5 contre ce moteur corrigé ».
+L'instrumentation est en cours ; d'ici là, la formulation sûre est :
+**« 88,5 tok/s mesurés, contre 43,5 pour le chemin de référence ».**

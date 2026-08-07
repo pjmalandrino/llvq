@@ -42,6 +42,40 @@ use llvq_llm::model::NoCapture;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 const PROMPT: &str = "The capital of France is";
 
+/// Decode steps of the extra, fenced pass under `LLVQ_TIME_PHASES=1`.
+///
+/// Not cfg-gated like the rest of this binary, on purpose: the call sites
+/// only exist on linux+cuda, but a Mac cannot type-check gated code, and an
+/// error here would otherwise surface in a paid image build. Compiling it
+/// everywhere keeps `cargo check` on the dev machine load-bearing.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const PHASE_TOKENS: usize = 32;
+
+/// The per-phase table of one arm's fenced pass. Additive diagnostics: this
+/// runs *after* the arm's published measurement and prints below it, so the
+/// published lines stay byte-identical.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
+    use llvq_llm::model::PhaseReport;
+    println!("\n--- phases, bras {arm} (LLVQ_TIME_PHASES, {PHASE_TOKENS} tokens, hors protocole) ---");
+    println!("  ⚠️ chaque phase est bornée par une synchronisation device : les phases");
+    println!("     s'attribuent, mais les fences sérialisent ce que le chemin normal");
+    println!("     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.");
+    println!("  {:<15}{:>10}  plage (ms/token)", "phase", "médiane");
+    let mut total = 0.0;
+    for (name, samples) in [
+        ("embed", &r.embed_ms),
+        ("blocs+norme", &r.blocks_ms),
+        ("lm_head", &r.head_ms),
+        ("argmax+divers", &r.rest_ms),
+    ] {
+        let (med, lo, hi) = PhaseReport::stats(samples);
+        total += med;
+        println!("  {name:<15}{med:>10.3}  [{lo:.3}–{hi:.3}]  ({} éch.)", samples.len());
+    }
+    println!("  {:<15}{total:>10.3}  (somme des médianes, fences comprises)", "total fencé");
+}
+
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let path = args
@@ -61,6 +95,14 @@ fn main() -> anyhow::Result<()> {
         let device = Device::new_cuda(0)?;
         let dtype = DType::F16;
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
+
+        // Whether to run the extra fenced pass after each arm's published
+        // measurement. With the variable unset (or anything but "1") this
+        // binary is byte-identical to the published protocol: the gate is the
+        // only reference to it, and no fence exists outside the gated calls.
+        let time_phases = llvq_llm::model::time_phases_enabled(
+            std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
+        );
 
         // ---- fused arm, first ----
         //
@@ -95,6 +137,10 @@ fn main() -> anyhow::Result<()> {
             fused_bytes as f64 / 1e9
         );
         let tok = f.tokenizer.clone();
+        if time_phases {
+            let (_, report) = f.model.generate_phased(&ids, PHASE_TOKENS)?;
+            print_phases("fusé", &report);
+        }
         // Released before the dense arm loads: the point is to report what each
         // one costs, not to prove a card can hold both.
         drop(f);
@@ -119,6 +165,10 @@ fn main() -> anyhow::Result<()> {
             let bytes = (m.quantized_weights + m.carried_weights) as u64 * 2;
             println!("dense  : chargé en {load:6.1} s, {rate:6.1} tok/s, {:.2} Go sur la carte",
                      bytes as f64 / 1e9);
+            if time_phases {
+                let (_, report) = m.model.generate_phased(&ids, PHASE_TOKENS)?;
+                print_phases("dense", &report);
+            }
             (out, load, rate, bytes)
         };
 

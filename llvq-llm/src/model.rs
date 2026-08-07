@@ -92,6 +92,64 @@ impl Capture for NoCapture {
     }
 }
 
+/// Per-phase wall time of a fenced greedy decode, milliseconds.
+///
+/// Produced by [`Qwen3::generate_phased`]; see its contract. A decode of `n`
+/// tokens yields `n` samples for the head-side phases and `n − 1` for the
+/// forward-side ones — the last emitted token needs no further forward.
+#[derive(Default)]
+pub struct PhaseReport {
+    /// Token id → hidden state (`Embed::forward` plus the host→device id copy).
+    pub embed_ms: Vec<f64>,
+    /// The transformer blocks — attention, MLP, rotation if fused — plus the
+    /// causal mask and the final norm.
+    pub blocks_ms: Vec<f64>,
+    /// `Head::project` plus the f32 upcast of the logits.
+    pub head_ms: Vec<f64>,
+    /// Argmax, device→host readback of the winning id, bookkeeping.
+    pub rest_ms: Vec<f64>,
+    /// Device fences issued. Pinned by a test: a fence dropped between two
+    /// phases would silently charge one phase's work to the next, and no
+    /// timing assertion could catch that on a fast host.
+    pub fences: usize,
+}
+
+impl PhaseReport {
+    /// `(median, min, max)` of one phase's samples. Even counts take the mean
+    /// of the two central samples.
+    pub fn stats(samples: &[f64]) -> (f64, f64, f64) {
+        assert!(!samples.is_empty(), "no samples to summarise");
+        let mut s = samples.to_vec();
+        s.sort_by(|a, b| a.partial_cmp(b).expect("phase times are finite"));
+        let n = s.len();
+        let median = if n % 2 == 1 {
+            s[n / 2]
+        } else {
+            (s[n / 2 - 1] + s[n / 2]) / 2.0
+        };
+        (median, s[0], s[n - 1])
+    }
+}
+
+/// The `LLVQ_TIME_PHASES` gate: exactly `"1"` opts in. Anything else — unset
+/// included — leaves the caller byte-identical to the published protocol.
+pub fn time_phases_enabled(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+/// One phase boundary: a device fence, counted.
+///
+/// The synchronize and the count share these two lines on purpose — the test
+/// that pins `fences` can then vouch that every boundary reached the device.
+/// (A mutant keeping the count but dropping the sync is invisible on a
+/// synchronous backend, where the sync is a no-op anyway; on CUDA it is the
+/// pairing below that the count certifies.)
+fn fence(dev: &Device, n: &mut usize) -> Result<()> {
+    dev.synchronize()?;
+    *n += 1;
+    Ok(())
+}
+
 pub struct Rotary {
     sin: Tensor,
     cos: Tensor,
@@ -726,6 +784,71 @@ impl Qwen3 {
             out.push(next);
         }
         Ok(out)
+    }
+
+    /// Greedy decode with every phase bracketed by device fences — diagnostics
+    /// only, never on the published path.
+    ///
+    /// `bin/fusedrun` calls this behind `LLVQ_TIME_PHASES=1`, *after* the
+    /// published measurement. Each phase boundary is a [`Device::synchronize`],
+    /// so the wall time between two fences belongs to the phase between them
+    /// and to nothing else. The price of that attribution is the attribution
+    /// itself: the fences serialise work the normal path overlaps, so the
+    /// fenced per-token total is **not** the published rate and must never be
+    /// compared to it. Phases attribute; the unfenced run is the number.
+    ///
+    /// The prefill is not phased — the question this answers is where a
+    /// *decode* token's time goes.
+    ///
+    /// Returns the tokens (they must match [`Self::generate`]; a test pins it)
+    /// and one sample per phase per decode step.
+    pub fn generate_phased(&self, tokens: &[u32], max_new: usize) -> Result<(Vec<u32>, PhaseReport)> {
+        let mut report = PhaseReport::default();
+        if max_new == 0 {
+            return Ok((Vec::new(), report));
+        }
+        let mut caches = self.fresh_caches();
+        let mut out = Vec::with_capacity(max_new);
+        let input = Tensor::from_slice(tokens, (1, tokens.len()), &self.device)?;
+        let mut h = self.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+        let mut offset = tokens.len();
+        // Close the prefill before the first timed phase, or its tail would be
+        // charged to the first lm_head sample.
+        fence(&self.device, &mut report.fences)?;
+        loop {
+            let t = std::time::Instant::now();
+            let l = h.dim(1)?;
+            let last = h.narrow(1, l - 1, 1)?;
+            let logits = self.head.project(&last)?.to_dtype(DType::F32)?;
+            fence(&self.device, &mut report.fences)?;
+            report.head_ms.push(t.elapsed().as_secs_f64() * 1e3);
+
+            let t = std::time::Instant::now();
+            let next = logits.i((0, 0))?.argmax(D::Minus1)?.to_scalar::<u32>()?;
+            fence(&self.device, &mut report.fences)?;
+            report.rest_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            out.push(next);
+            if out.len() == max_new {
+                return Ok((out, report));
+            }
+
+            let t = std::time::Instant::now();
+            let input = Tensor::from_slice(&[next], (1, 1), &self.device)?;
+            let e = self.embed.forward(&input)?;
+            fence(&self.device, &mut report.fences)?;
+            report.embed_ms.push(t.elapsed().as_secs_f64() * 1e3);
+
+            let t = std::time::Instant::now();
+            let mask = self.causal_mask_offset(1, 1, offset)?;
+            let mut hh = e;
+            for (i, blk) in self.blocks.iter().enumerate() {
+                hh = blk.forward_cached(&hh, &self.rotary, &mask, offset, &mut caches[i], i, &mut NoCapture)?;
+            }
+            h = self.norm.forward(&hh)?;
+            fence(&self.device, &mut report.fences)?;
+            report.blocks_ms.push(t.elapsed().as_secs_f64() * 1e3);
+            offset += 1;
+        }
     }
 
     pub fn rotary(&self) -> &Rotary {
