@@ -47,7 +47,7 @@ corrigé (estimé des phases).
 | Slot32 (ancien) | 5,510 | 1,89× | remplacé, conservé en repli |
 | **Planes14** | 4,804 | **2,16×** | **en production** (défaut) |
 | **Planes12x** (overlay) | **4,342** | 2,01× | validé au banc, qualité exacte |
-| E2 Golay | ~3,2-3,5 visé | à mesurer | **chantier ouvert** |
+| Golay70 (E2) | 3,589 | 1,31× | **mesuré, écarté comme point produit** — sous le critère de 1,6× posé d'avance : le décodage à double coset borne le noyau en calcul (195 Go/s effectifs). Le résultat de *format* tient (l'information Golay est recomputable à qualité exacte, prouvé sur les 150,7 M blocs) ; le point de fonctionnement, non ([`mesures/e2-golay70-bench-2026-08-07.txt`](mesures/e2-golay70-bench-2026-08-07.txt)) |
 
 La découverte fondatrice de la semaine : le one-hot de Slot32 ne payait
 rien, il coûtait — le recodage binaire a rendu le format **plus petit ET
@@ -93,12 +93,12 @@ avait coûté 2,19. Tout est commité, poussé, et consigné dans
 
 ## 6. Ce qui reste, par ordre
 
-1. **E2 Golay** (en cours) : exploiter la linéarité du code — stocker 12
-   bits d'information Golay au lieu de 24, recalculer par XOR en noyau.
-   Visé ~3,2-3,5 b/poids payload à qualité exacte (exceptions comprises) ;
-   à 4B avec embedding q8 : **~4,0 b/param — sous le MLX q4 (4,50)**.
-   Risque assumé : le surcoût ALU du décodage à deux cosets — le banc
-   tranchera comme pour C1.
+1. ~~E2 Golay~~ **tranché le jour même** : 3,589 b/poids réels et
+   reconstruction exacte, mais **1,31× vs FP16** — sous le critère (1,6×).
+   Le coût ALU du double coset l'emporte ; l'échelle s'arrête proprement à
+   Planes14/Planes12x. Pistes si quelqu'un veut rouvrir un jour :
+   spécialiser les warps par coset, ou payer le XOR seulement côté pair —
+   notées, non poursuivies.
 2. **Choix produit** : Planes14 (vitesse) ou Planes12x (bits) comme défaut
    — décision à prendre sur les besoins réels, les deux sont prêts.
 3. **Qualité** : reprendre par les suspects survivants — à décider à la fin,
