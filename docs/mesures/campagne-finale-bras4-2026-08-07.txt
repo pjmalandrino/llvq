@@ -1,0 +1,149 @@
+# Campagne finale bras 4 — ppl+MMLU q8 sur L40S + contrôle fusedrun, job 6a75eb76da2af92a634eec80, 0,47 $
+# ppl 16,9358 (empreinte 3f1baca9033bf251) · MMLU 55,70 ± 1,35 (empreinte 65dcd53655e8bfa5) · fusé 88,4 tok/s / 2,60 Go
+
+6a75eb76da2af92a634eec80  COMPLETED  l40sx1
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /model/q4b-e8.llvq: 252 quantized matrices, 1.406 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.790219589  n 4095  running ppl   16.285  (8.7s)
+  window   2/12  nll 3.221312433  n 4095  running ppl   20.202  (9.7s)
+  window   3/12  nll 2.618292125  n 4095  running ppl   17.754  (10.7s)
+  window   4/12  nll 2.319650011  n 4095  running ppl   15.446  (11.7s)
+  window   5/12  nll 2.938733402  n 4095  running ppl   16.081  (12.7s)
+  window   6/12  nll 2.811597842  n 4095  running ppl   16.172  (13.6s)
+  window   7/12  nll 2.887000391  n 4095  running ppl   16.414  (14.6s)
+  window   8/12  nll 2.818242521  n 4095  running ppl   16.455  (15.6s)
+  window   9/12  nll 3.061375820  n 4095  running ppl   16.939  (16.6s)
+  window  10/12  nll 2.531969485  n 4095  running ppl   16.442  (17.6s)
+  window  11/12  nll 3.071615060  n 4095  running ppl   16.853  (18.6s)
+  window  12/12  nll 2.883144460  n 4095  running ppl   16.936  (19.6s)
+
+/model/q4b-e8.llvq [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 16.9358
+model: /model/q4b-e8.llvq [LLVQ 2-bit, sealed]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+  abstract algebra                          10/40     25.0 %   (micro 25.00 %, 2s)
+  anatomy                                   24/40     60.0 %   (micro 45.11 %, 3s)
+  astronomy                                 30/40     75.0 %   (micro 56.85 %, 6s)
+  business ethics                           22/40     55.0 %   (micro 56.47 %, 8s)
+  clinical knowledge                        21/40     52.5 %   (micro 55.07 %, 10s)
+  college biology                           24/40     60.0 %   (micro 55.86 %, 12s)
+  college chemistry                         16/40     40.0 %   (micro 54.27 %, 15s)
+  college computer science                  25/40     62.5 %   (micro 55.02 %, 18s)
+  college mathematics                       15/40     37.5 %   (micro 53.56 %, 21s)
+  college medicine                          22/40     55.0 %   (micro 53.74 %, 23s)
+  college physics                           15/40     37.5 %   (micro 52.61 %, 25s)
+  computer security                         28/40     70.0 %   (micro 53.72 %, 27s)
+  conceptual physics                        21/40     52.5 %   (micro 53.56 %, 28s)
+  econometrics                              18/40     45.0 %   (micro 53.05 %, 31s)
+  electrical engineering                    23/40     57.5 %   (micro 53.36 %, 33s)
+  elementary mathematics                    23/40     57.5 %   (micro 54.00 %, 36s)
+  formal logic                              19/40     47.5 %   (micro 53.69 %, 38s)
+  global facts                              12/40     30.0 %   (micro 52.80 %, 40s)
+  high school biology                       27/40     67.5 %   (micro 54.33 %, 42s)
+  high school chemistry                     25/40     62.5 %   (micro 54.85 %, 45s)
+  high school computer science              28/40     70.0 %   (micro 55.31 %, 48s)
+  high school european history              33/40     82.5 %   (micro 56.61 %, 70s)
+  high school geography                     30/40     75.0 %   (micro 57.61 %, 72s)
+  high school government and politics       29/40     72.5 %   (micro 58.36 %, 74s)
+  high school macroeconomics                23/40     57.5 %   (micro 58.28 %, 75s)
+  high school mathematics                   17/40     42.5 %   (micro 57.33 %, 78s)
+  high school microeconomics                22/40     55.0 %   (micro 57.22 %, 80s)
+  high school physics                       17/40     42.5 %   (micro 56.76 %, 82s)
+  high school psychology                    32/40     80.0 %   (micro 59.09 %, 84s)
+  high school statistics                    25/40     62.5 %   (micro 59.22 %, 88s)
+  high school us history                    29/40     72.5 %   (micro 59.69 %, 103s)
+  high school world history                 32/40     80.0 %   (micro 60.48 %, 110s)
+  human aging                               20/40     50.0 %   (micro 60.11 %, 112s)
+  human sexuality                           27/40     67.5 %   (micro 60.26 %, 114s)
+  international law                         32/40     80.0 %   (micro 60.62 %, 116s)
+  jurisprudence                             24/40     60.0 %   (micro 60.61 %, 118s)
+  logical fallacies                         22/40     55.0 %   (micro 60.48 %, 120s)
+  machine learning                          12/40     30.0 %   (micro 59.99 %, 123s)
+  management                                30/40     75.0 %   (micro 60.20 %, 124s)
+  marketing                                 26/40     65.0 %   (micro 60.36 %, 126s)
+  medical genetics                          26/40     65.0 %   (micro 60.42 %, 128s)
+  miscellaneous                             21/40     52.5 %   (micro 59.66 %, 129s)
+  moral disputes                            27/40     67.5 %   (micro 59.98 %, 131s)
+  moral scenarios                           13/40     32.5 %   (micro 57.37 %, 134s)
+  nutrition                                 28/40     70.0 %   (micro 57.76 %, 137s)
+  philosophy                                26/40     65.0 %   (micro 57.99 %, 139s)
+  prehistory                                21/40     52.5 %   (micro 57.82 %, 141s)
+  professional accounting                   10/40     25.0 %   (micro 56.95 %, 144s)
+  professional law                          18/40     45.0 %   (micro 55.44 %, 153s)
+  professional medicine                     24/40     60.0 %   (micro 55.54 %, 159s)
+  professional psychology                   19/40     47.5 %   (micro 55.16 %, 162s)
+  public relations                          20/40     50.0 %   (micro 55.12 %, 164s)
+  security studies                          26/40     65.0 %   (micro 55.30 %, 169s)
+  sociology                                 29/40     72.5 %   (micro 55.55 %, 172s)
+  us foreign policy                         28/40     70.0 %   (micro 55.66 %, 174s)
+  virology                                  26/40     65.0 %   (micro 55.77 %, 175s)
+  world religions                           20/40     50.0 %   (micro 55.70 %, 177s)
+
+/model/q4b-e8.llvq [LLVQ 2-bit, sealed]
+MMLU 5-shot — 2280 questions scorées sur 14042, 57 matières, dtype f16, tokens 65dcd53655e8bfa5
+  --------------------------------------------------------
+  meilleures :
+    high school european history              82.5 %
+    high school psychology                    80.0 %
+    high school world history                 80.0 %
+  pires :
+    professional accounting                   25.0 %
+    abstract algebra                          25.0 %
+    machine learning                          30.0 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 55.70 % ± 1.35
+  MMLU (macro, par matière) = 57.54 %
+  échantillon : 2280/14042 questions, 16.2 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.18 Go sur la carte, 4.804 b/poids
+embedding : q8 g64 (LLVQ_EMBED) — 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3), lm_head lié sur le même buffer
+total attendu sur la carte : 2.60 Go (projections 2.18 + portés 0.41)
+fusé   : chargé en  126.3 s,   88.4 tok/s, 2.60 Go sur la carte
+dense  : chargé en  184.3 s,   43.5 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           184.3 s        43.5        8.04
+  fusé            126.3 s        88.4        2.60
+  ----------------------------------------------
+  vitesse ×2.03, mémoire ÷3.10
+
+  projections : 4.804 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
