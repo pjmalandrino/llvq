@@ -1,0 +1,33 @@
+\section{Related Work}
+\label{sec:related}
+
+\textbf{Extreme low-bit weight quantization.} GPTQ~\citep{gptq2023}
+established the second-order, error-propagating framework that most
+post-training methods refine. At 2 bits, vector and trellis codes replaced
+scalar grids: QuIP~\citep{quip2023} introduced incoherence processing,
+QuIP\#~\citep{quipsharp2024} added E8-lattice codebooks, and
+QTIP~\citep{qtip2024} reached the previous state of the art with trellis
+quantization and hardware-friendly decoders. LLVQ~\citep{llvq2026} improved
+on QTIP's quality by quantizing on the Leech lattice with a spherical
+variant of GPTQ; our work implements its quantizer independently in Rust
+and supplies the systems half the paper leaves open --- its kernel decodes
+one shell, is slower than QTIP's, and no multi-shell decoder existed prior
+to this work. The lattice itself, its Golay-code construction and its
+optimality properties are classical~\citep{conway1999sphere,cohn2017}; the
+nearest-neighbor literature for Leech-based spherical codes goes back to
+\citet{adoul1988}.
+
+\textbf{4-bit systems.} AWQ~\citep{awq2024} is the deployed 4-bit
+reference we compare against; Marlin~\citep{marlin2024} demonstrates what a
+mature mixed-precision kernel achieves at 4 bits, including in batched
+regimes we do not address. Our layout study is complementary: it asks how
+far below 4 bits the \emph{in-VRAM} rate can be pushed before decode cost
+overtakes bandwidth savings, and finds the knee near 4.3~b/weight for
+lattice codes.
+
+\textbf{Serving engines.} Our integration is built on
+\texttt{candle}~\citep{candle2023}. The output-head materialization of
+\S\ref{sec:integration} is, to our knowledge, unreported; similar
+transpose-materialization taxes have been folklore in other engines, which
+is precisely why per-phase attribution with synchronization barriers ---
+rather than end-to-end numbers alone --- belongs in systems evaluations.

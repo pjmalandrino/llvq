@@ -1,0 +1,93 @@
+\section{VRAM Layouts: Decoupling the Disk Rate from the Memory Rate}
+\label{sec:layouts}
+
+The rate that determines which models fit on a GPU is not the artifact's
+on-disk rate but the rate of the format the kernel actually reads. This
+section is an experimentally mapped scale of that trade-off: five layouts,
+one benchmark harness, one byte-accounting convention.
+
+\textbf{Methodology.} All five arms run in a single process on an NVIDIA
+L40S, interleaved within every round in a fixed dispatch order; 7 rounds,
+the first 2 discarded. Each reported speedup is the \emph{median of the
+per-round ratios} with its range over the kept rounds --- never a quotient
+of two minima, which would compare rounds that did not coexist. Byte
+accounting includes payload, per-class tables, the full-precision tail
+columns, and per-row scales. All kernels use zero bytes of local memory.
+Every row of every arm is verified against f64 before timing
+(\S\ref{sec:decoder}). Data: \texttt{docs/data/echelle-formats.csv};
+raw logs in \texttt{docs/mesures/}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrrrl}
+\toprule
+Layout & b/weight & median ms & GB read & vs FP16 & verdict \\
+\midrule
+FP16 (control) & 16.000 & 11.025 & 7.27 & 1.00$\times$ & --- \\
+\textsc{Slot32} & 5.510 & 5.883 & 2.50 & 1.87$\times$ [1.86--1.88] & first working layout \\
+\textsc{Planes14} & 4.804 & 5.156 & 2.18 & \textbf{2.14$\times$} [2.11--2.15] & \textbf{in production} \\
+\textsc{Planes12x} & 4.342 & 5.563 & 1.97 & 1.98$\times$ [1.95--1.99] & best rate, exact \\
+\textsc{Golay70} & 3.589 & 8.410 & 1.63 & 1.31$\times$ [1.29--1.32] & discarded (compute-bound) \\
+\bottomrule
+\end{tabular}
+\caption{The five-arm layout scale: one token's worth of the 252 model
+projections, single L40S, median of per-round ratios with ranges.
+Payload rates; whole-model rates appear in \S\ref{sec:evaluation}.}
+\label{tab:layouts}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\linewidth]{fig1_layout_scale.pdf}
+\caption{Speedup over FP16 versus in-VRAM rate for the five layouts.
+Error bars are min--max over kept rounds. Down to
+$\sim$4.3~b/weight, time falls with bytes at near-constant achieved
+bandwidth (memory-bound regime); \textsc{Golay70}'s double-coset decode
+drops achieved bandwidth from ${\sim}425$ to 195~GB/s and the kernel
+becomes compute-bound.}
+\label{fig:layouts}
+\end{figure}
+
+\textbf{\textsc{Slot32}} stores the decoded fields at fixed offsets in a
+32-byte slot per block:
+\begin{center}
+$[\,\text{class: }9\,]\;[\,\text{gain: }1\,]\;[\,\text{signs: }24\,]\;
+[\,m_1\,..\,m_4\text{: }4\times24\,]$ bits.
+\end{center}
+It is the simplest divergence-free format and our
+first to beat FP16 ($1.87\times$), but at 5.510~b/weight it is
+\emph{more} memory than a 4-bit format --- fast and pointless at scale.
+
+\textbf{\textsc{Planes14}} is the observation that the four one-hot level
+masks $m_1..m_4$ waste bits: at most 4 magnitude levels occur per block, so
+2 binary bit-planes suffice to name each coordinate's level. With a uniform
+14-byte stride and no per-group base pointers, the block shrinks to
+4.804~b/weight and, because the kernel was memory-bound, runs
+\emph{faster}: $1.14\times$ [1.14--1.15] over \textsc{Slot32} at
+bit-identical decoded content, $2.14\times$ over FP16. Achieved bandwidth is
+unchanged (${\sim}425$~GB/s): the time falls exactly as the bytes do.
+
+\textbf{\textsc{Planes12x}} pushes further with a sparse overlay: blocks
+that fit a stricter level budget take a 12-byte fast path, and the rare
+violators carry an exact side-channel correction. Reconstruction is
+bit-exact --- this matters, because the obvious alternative is not free:
+\emph{hard-capping} the level count at 4 (which would allow a dry 12-byte
+format at $\le 4.71$~b/weight) was measured to cost $+4.75\%$ perplexity,
+enough to fall back behind QTIP. The overlay gets 4.342~b/weight at
+$1.98\times$ with zero quality change.
+
+\textbf{\textsc{Golay70} --- a measured negative result.} The sign mask is
+redundant: signs on the codeword support are determined up to the Golay
+coset, so storing 12 code bits instead of 24 sign bits yields
+3.589~b/weight, real and reconstruction-exact. But recovering the signs
+requires a double-coset decode per block, and the kernel stops being
+memory-bound: achieved bandwidth drops to 195~GB/s and the speedup to
+$1.31\times$, below our $1.6\times$ acceptance criterion. We report it
+because it locates the floor of this design space: below
+${\sim}4.3$~b/weight, further rate is no longer free --- the decode work
+itself becomes the bottleneck.
+
+The scale is brutally nonlinear, and its lesson generalizes: \emph{on a
+memory-bound kernel, bits saved are speed gained --- until the decode that
+saves them stops being shifts and masks.}

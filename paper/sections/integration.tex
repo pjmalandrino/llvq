@@ -1,0 +1,99 @@
+\section{End-to-End Integration, and a Finding About the Reference Engine}
+\label{sec:integration}
+
+A kernel benchmark is not a serving number. This section takes the
+\textsc{Planes14} kernel into a full autoregressive decode loop (greedy,
+Qwen3-4B, single L40S) and attributes where the time actually goes.
+
+\textbf{Setup.} The serving stack is \texttt{candle}~0.9.2
+\citep{candle2023}, a widely used Rust inference engine, with our fused
+kernel replacing the 252 linear projections. Weights are stored in the
+incoherence-rotated basis required by the quantizer, so activations pass
+through a dedicated rotation kernel (verified bit-exact on device) before
+each projection. The embedding table --- 9.7\% of the model, untouched by
+the 2-bit format --- is stored int8 with per-row scales, validated lossless
+against the f16 table on both evaluation metrics. Correctness gate: the
+fused and dense engines emit identical greedy tokens until a
+tie-break-level divergence (token 89), on top of the row-level f64
+verification of \S\ref{sec:decoder}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Phase (ms/token, median) & dense f16 & fused, f16 head & fused, q8 head \\
+\midrule
+embedding & 0.026 & 0.025 & 0.017 \\
+transformer blocks & 13.291 & 10.439 & 10.432 \\
+\texttt{lm\_head} & 26.672 & 25.886 & \textbf{0.598} \\
+argmax + misc & 0.101 & 0.097 & 0.078 \\
+\bottomrule
+\end{tabular}
+\caption{Per-token phase attribution (sync-bounded medians; phases
+attribute time but their sum is not a throughput). The reference engine
+spends twice as long producing logits as running all 36 transformer
+blocks. Data: \texttt{docs/data/phases.csv}.}
+\label{tab:phases}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{fig2_phase_attribution.pdf}
+\caption{Where a token's time goes. The fused kernel wins its phase
+(13.3~$\to$~10.4~ms across the transformer blocks), but the decode loop
+was dominated by an output-head pathology in the reference engine: a
+778~MB transposed copy of the vocabulary projection, materialized every
+token. Our q8 head reads 413~MB in place, once.}
+\label{fig:phases}
+\end{figure}
+
+\textbf{The finding.} Table~\ref{tab:phases} shows the reference engine
+spending 26.7~ms per token in the output head --- twice the cost of all 36
+transformer blocks. The cause is in the engine's source: for this matmul
+shape, \texttt{candle}~0.9.2 takes a
+$\texttt{broadcast\_matmul}\to\texttt{contiguous()}$ path that materializes
+a 778~MB transposed copy of the vocabulary matrix \emph{on every token}
+(the file carries its own \texttt{TODO:\ Avoid concretising} at the site,
+\texttt{tensor.rs:1550}). Replacing the head with an int8 kernel that reads
+its 413~MB in place collapses the phase from 25.9 to 0.6~ms. We believe
+this finding is of independent interest to \texttt{candle} users: it taxes
+every model served through this path, quantized or not.
+
+\textbf{The double formulation.} End-to-end, the fused engine reaches
+88.4~tok/s against the dense engine's 43.5 --- $2.03\times$. Honesty
+requires splitting that number: roughly half of it is the head fix, which a
+dense engine could adopt too. Recomposing phases, against a
+\emph{corrected} dense engine the kernel-plus-format contribution is worth
+${\sim}1.4\times$. We report both, always together: $2.03\times$ against
+the engine as everyone runs it today, ${\sim}1.4\times$ against that engine
+with its copy fixed.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+Date & Step & VRAM & tok/s & b/param \\
+\midrule
+Aug 5 & no kernel (decoded to f16 at load) & 8.04 GB & 43.5 & 16.00 \\
+Aug 6 & fused kernel wired (\textsc{Slot32}) & 3.28 GB & 47.0 & 6.52 \\
+Aug 6 & \textsc{Planes14} layout & 2.96 GB & 48.7 & 5.89 \\
+Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.15} \\
+\bottomrule
+\end{tabular}
+\caption{The integration, step by step. The on-disk file (1.77~GB) and
+measured quality never changed; each step passed adversarial review
+(replayed mutants, independent probes) and a gated measurement before
+landing. Data: \texttt{docs/data/progression.csv}.}
+\label{tab:progression}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\linewidth]{fig3_progression.pdf}
+\caption{Serving footprint and throughput across the four integration
+steps. The jump in throughput at the last step is the output-head fix
+riding along with the int8 embedding work, not the embedding itself.}
+\label{fig:progression}
+\end{figure}

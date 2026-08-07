@@ -1,0 +1,76 @@
+% Fused multi-shell Leech decoder — arXiv-style preprint.
+% Build: make (generates figures from ../docs/data/*.csv, then latexmk).
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+
+\graphicspath{{figures/}}
+
+% Repo-relative provenance pointers, printed as footnotes in draft mode.
+\newcommand{\provenance}[1]{\footnote{\texttt{#1}}}
+
+\title{Decoding the Leech Lattice at Matvec Speed:\\
+Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
+
+\author{%
+  Pier-Jean Malandrino\\
+  Scub\\
+  \texttt{pierjean.malandrino@scub.net}%
+}
+
+\date{August 2026 --- draft}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Leech-lattice vector quantization (LLVQ) is the state of the art for 2-bit
+LLM weight compression, but its published kernel decodes a single lattice
+shell, is slower than the trellis-based competition, and leaves the
+multi-shell decoder --- the one the 2-bit operating point actually requires ---
+unwritten. We present that decoder: a fused dequantize-plus-matvec CUDA kernel
+for the full multi-shell codebook --- 301 coordinate-permutation classes
+spanning 12 lattice shells in the shipped configuration --- together with a family of VRAM
+layouts that decouple the on-disk rate from the in-memory rate. Our best
+layout, \textsc{Planes14}, replaces one-hot coordinate masks with binary bit
+planes at a uniform 14-byte stride and reaches $2.14\times$ the throughput of
+an FP16 matvec while reading 4.80 bits per weight; a sparse-overlay variant
+reaches 4.34 bits per weight with bit-exact reconstruction. Integrated
+end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s in 2.60~GB of VRAM ---
+$2.03\times$ the throughput and $3.09\times$ less memory than the FP16
+reference engine, at quality identical to the published artifact. We report
+the comparison honestly: half of the end-to-end speedup comes from fixing a
+per-token 778~MB transposed copy in the reference engine's output head, and
+against the corrected engine the kernel is worth ${\sim}1.4\times$. We also
+report what 2 bits costs --- $\times 1.384$ perplexity and $-14.6$ points of
+MMLU on a 4B model, a deficit concentrated in reasoning-heavy subjects ---
+and a measured negative result: a Golay-payload layout at 3.59 bits per
+weight whose double-coset decode makes the kernel compute-bound. Every number
+in this paper regenerates from CSV files committed alongside the code; the
+entire measurement campaign cost \$5.04 of GPU time.
+\end{abstract}
+
+\input{sections/intro}
+\input{sections/decoder}
+\input{sections/layouts}
+\input{sections/integration}
+\input{sections/evaluation}
+\input{sections/limitations}
+\input{sections/related}
+\input{sections/conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

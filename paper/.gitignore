@@ -1,0 +1,12 @@
+# latexmk build artifacts — the PDF is a build product, not a source.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+main.pdf
+# figures are generated from docs/data/*.csv by scripts/make_figures.py
+figures/
