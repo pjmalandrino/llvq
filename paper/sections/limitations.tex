@@ -3,31 +3,54 @@
 
 We list these in the order a skeptical reader should weigh them.
 
-\textbf{The MMLU deficit is real, reproduced, and unresolved.} $-14.6$
-points against FP16, reproduced three times across two machines. The
-per-subject profile shows the mechanism: abstract algebra and accounting
-fall to 25\% --- exactly chance --- while history, law and psychology hold
-above 80\%. Two-bit quantization damages \emph{reasoning} far more than
-\emph{recall}, and a perplexity corpus mostly measures recall; perplexity
-alone should never be presented as evidence of quality at this rate. The
-leading surviving suspect is calibration volume (${\sim}131$k tokens versus
-the original paper's 6\,100 sequences, roughly $100\times$ less); the
-original paper reports a $-9.5$-point drop under its protocol, so part of
-our deficit may be recoverable, but we have not closed the gap and do not
-claim we will.
+\textbf{The MMLU deficit is real, reproduced, and its leading suspects are
+eliminated rather than confirmed.} $-14.6$ points against FP16, reproduced
+three times across two machines. The per-subject profile shows the
+mechanism: abstract algebra and accounting fall to 25\% --- exactly chance
+--- while history, law and psychology hold above 80\%. Two-bit quantization
+damages \emph{reasoning} far more than \emph{recall}, and a perplexity
+corpus mostly measures recall; perplexity alone should never be presented as
+evidence of quality at this rate.
+
+The obvious suspect is calibration volume: we use ${\sim}131$k tokens against
+the original paper's 6\,100 sequences, roughly $100\times$ less, and they
+report a $-9.5$-point drop where we see $-14.6$. We tested the ceiling of
+that family instead of paying for the run. Calibrating on the evaluation
+corpus itself --- deliberate contamination, an upper bound on anything
+volume, corpus or sequence length can buy --- recovers $1.6\%$ of perplexity
+($2.3\sigma$, closing 29\% of the quantization gap), and an honest
+$\times 13$ volume curve recovers $1.2\%$. A $\times 100$ calibration run is
+therefore not the answer, and we did not commission it.
+
+Two caveats on that bound, which is why the deficit is open rather than
+closed: it was measured on perplexity, at 3 blocks, on a 0.6B model, and a
+perplexity oracle does not bound MMLU at all. Calibration \emph{composition}
+--- reasoning-heavy data, which targets the failing subjects specifically ---
+is untested and is the surviving suspect. We prefer to state that the cause
+is unknown than to name a suspect our own measurements have bounded.
+
+\textbf{We do not measure QTIP.} Our motivation rests on the original
+paper's report that its kernel is slower than QTIP's; we inherit that claim
+rather than reproducing it, and no QTIP arm ran on our machine. A kernel
+comparison at matching matvec shapes is the single most valuable missing
+measurement in this paper. The same holds, less centrally, for Marlin at
+4 bits and for the other 2-bit vector-quantized systems cited in
+\S\ref{sec:related}.
 
 \textbf{One model, one GPU, greedy decoding.} Everything end-to-end is
 Qwen3-4B on a single L40S with batch size 1 and greedy decode. Batched
-serving changes the arithmetic-intensity regime that makes the kernel
-memory-bound; larger models change the embedding share and the tail-column
-overhead. We measured one scale point (8B, quality only), not a scaling
+serving changes the arithmetic-intensity regime that makes bytes read the
+dominant term at all --- and \S\ref{sec:attribution} shows the kernel is
+already only two thirds of the way to its own bandwidth floor at batch 1;
+larger models change the embedding share and the tail-column overhead. We measured one scale point (8B, quality only), not a scaling
 law.
 
-\textbf{The scale argument is a bet, not a result.} On the 4B itself, the
-honest summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
-every axis except disk. The case for the 2-bit point is the model class
-that does not otherwise fit --- and that case rests on the single 8B
-degradation point and on extrapolation.
+\textbf{The scale argument is a bet, not a result.} On the 4B itself,
+Table~\ref{tab:campaign} says 4-bit AWQ dominates on every axis except disk,
+and our served footprint beats its 5.30~b/param by 3\% --- a margin that
+does not, on its own, justify a 14.6-point MMLU loss. The case for the 2-bit
+point is the model class that does not otherwise fit, and that case rests on
+the single 8B degradation point and on extrapolation.
 
 \textbf{AWQ speed is not comparable.} The AWQ arm was never executed in our
 engine (its quality was, under matching fingerprints). Cross-engine

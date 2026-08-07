@@ -3,12 +3,15 @@
 
 The missing piece of Leech-lattice LLM quantization was never the math ---
 it was the decoder. We showed that the full multi-shell codebook can be
-decoded inside a matvec at memory-bound speed, that the in-VRAM rate is a
-design axis of its own (5.51~$\to$~4.80~$\to$~4.34~b/weight, with the floor
-mapped by a measured negative result at 3.59), and that the integrated
-system serves a 2-bit 4B model from 2.60~GB at twice the reference engine's
-throughput --- with the caveat, stated wherever the number appears, that
-half of that factor is a fix to the reference engine's own output head.
+decoded inside a matvec faster than the FP16 matvec it replaces; that the
+in-VRAM rate is a design axis of its own, independent of the disk rate
+(5.51~$\to$~4.80~$\to$~4.34~b/weight at bit-exact decoded content, with the
+knee located by a measured negative result at 3.59); that the remaining
+2.04~ms between our kernel and its own DRAM floor is latency and decode
+rather than bandwidth, of which launch fusion has already recovered 39\%;
+and that the integrated system serves a 2-bit 4B model from 2.60~GB at
+${\sim}1.4\times$ a corrected reference engine, $2.03\times$ the engine as
+it ships.
 
 What we did not show is that 2 bits is the right operating point for a 4B
 model; it is not, and our own measurements say so. The open questions that

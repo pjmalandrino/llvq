@@ -5,12 +5,20 @@
 
 LLVQ quantizes weights in blocks of 24. Each block is normalized and its
 direction snapped to the nearest point of the Leech lattice $\Lambda_{24}$,
-restricted to the ball $\Lambda_{24}(12)$ (all points of squared norm
-$\le 2\cdot 12$ in the standard scaling). The ball contains
-$70\,486\,236\,999\,360$ points, so a direction index costs
-$\lceil\log_2\cdot\rceil = 47$ bits; one gain bit selects between two
-per-tensor magnitude centroids, for 48 bits per 24-weight block --- exactly
-2 bits per weight of payload.
+restricted to the ball $\Lambda_{24}(12)$ --- the union of the twelve
+innermost shells, a shell being the set of lattice points of one common norm.
+The ball contains
+$111\,043\,117\,458\,000$ points (its outermost shell alone holds
+$70\,486\,236\,999\,360$), so a direction index costs
+$\lceil \log_2 111\,043\,117\,458\,000 \rceil = 47$ bits; one gain bit
+selects between two per-tensor magnitude centroids, for 48 bits per
+24-weight block --- exactly 2 bits per weight of payload.
+
+The 47 bits are close to tight. Measuring the empirical entropy of the index
+over the shipped model's $150$M blocks gives $46.6536$ bits per block against
+47 paid: a $0.74\%$ margin, or $0.015$ bits per weight. Entropy-coding the
+index rank --- an obvious-looking saving --- is therefore closed by the
+structure of the format itself, not merely by our failure to compress it.
 
 In the integer coordinate system $\sqrt{8}\,\Lambda_{24}\subset\mathbb{Z}^{24}$,
 lattice points are characterized by three simultaneous conditions tied to the
@@ -28,7 +36,7 @@ pinned by tests down to its mixed-radix composition orders.
 \subsection{The encoder/decoder asymmetry}
 
 Everything about making this practical follows from one asymmetry: the
-\emph{encoder} (nearest-neighbor search over $7\times10^{13}$ points) runs
+\emph{encoder} (nearest-neighbor search over $1.1\times10^{14}$ points) runs
 offline, once per model, and may cost hours; the \emph{decoder}
 (index~$\to$~vector) runs inside every matvec and must cost shifts and
 masks. The original paper's kernel sidesteps the problem by decoding a
@@ -56,8 +64,7 @@ one multiply per block.
 
 Lattice decoders fail silently: a wrong sign convention or a swapped
 enumeration order produces plausible-looking weights and a quietly ruined
-model. Three layers of defense are in place, and we consider them as much a
-contribution as the kernel:
+model. Three layers of defense are in place:
 
 \begin{itemize}
 \item \textbf{Bit-exact transcoding.} The transcoder that expands format~v1
