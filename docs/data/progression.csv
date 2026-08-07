@@ -1,0 +1,5 @@
+date,etape,source,vram_gb,tokps,bits_per_param_modele_entier
+2026-08-05,sans noyau (etat initial),mesures/mini-2026-08-05.txt,8.04,43.5,16.00
+2026-08-06,noyau fuse branche (Slot32),mesures/a1-lot-a-2026-08-06.txt,3.28,47.0,6.52
+2026-08-06,layout Planes14 (C1),mesures/planes14-fusedrun-2026-08-06.txt,2.96,48.7,5.89
+2026-08-07,embedding q8 (M1),mesures/nuit-planes12x-q8-2026-08-07.txt,2.60,88.5,5.15

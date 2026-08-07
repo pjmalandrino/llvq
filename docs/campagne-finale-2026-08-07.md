@@ -68,4 +68,5 @@ moteur si on lui corrigeait sa copie** (estimé des phases mesurées).
 
 Campagne A4 (bras 1-3) : 0,71 $. Bras 4 : 0,47 $. Toute la séquence
 C1 → campagne finale (layouts, branchement, embedding, phases, E2, cette
-campagne) : **3,33 $** de GPU.
+campagne) : **2,85 $** de GPU (détail job par job :
+[`data/jobs.csv`](data/jobs.csv)).

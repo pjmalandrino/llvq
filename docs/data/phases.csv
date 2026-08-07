@@ -1,0 +1,17 @@
+invocation,arm,head,phase,median_ms,min_ms,max_ms
+f16,fused,f16,embed,0.025,0.023,0.043
+f16,fused,f16,blocks_norm,10.439,10.387,11.890
+f16,fused,f16,lm_head,25.886,25.819,27.198
+f16,fused,f16,argmax_misc,0.097,0.091,0.127
+f16,dense,f16,embed,0.026,0.024,0.029
+f16,dense,f16,blocks_norm,13.291,13.249,13.407
+f16,dense,f16,lm_head,26.672,26.535,26.844
+f16,dense,f16,argmax_misc,0.101,0.098,0.107
+q8,fused,q8,embed,0.017,0.016,0.026
+q8,fused,q8,blocks_norm,10.432,10.380,10.542
+q8,fused,q8,lm_head,0.598,0.596,0.602
+q8,fused,q8,argmax_misc,0.078,0.076,0.095
+q8,dense,f16,embed,0.026,0.023,0.029
+q8,dense,f16,blocks_norm,13.300,13.248,13.388
+q8,dense,f16,lm_head,25.856,25.804,33.383
+q8,dense,f16,argmax_misc,0.100,0.097,0.104

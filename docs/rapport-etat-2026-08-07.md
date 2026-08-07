@@ -86,9 +86,9 @@ d'échelle perdu à la re-projection, deux nits de comptabilité, une erreur
 grave dans le rapport du lot A (deux quatre-bits confondus). Les gates ont
 bloqué un run 4B de 4 h sur un design réfuté.
 
-**Coût GPU total de la séquence C1 → aujourd'hui : 2,05 $** (C1 0,08 ·
-A/B branchement 0,33 · nuit 0,90 · phases 0,33 · essais 0,41). Le lot A en
-avait coûté 2,19. Tout est commité, poussé, et consigné dans
+**Coût GPU de la séquence C1 → phases : 1,64 $** (C1 0,08 · A/B
+branchement 0,33 · nuit 0,90 · phases 0,33 ; un essai d'invocation à
+0,00 $). Le lot A en avait coûté 2,19. Tout est commité, poussé, et consigné dans
 `docs/mesures/`.
 
 ## 6. Ce qui reste, par ordre
