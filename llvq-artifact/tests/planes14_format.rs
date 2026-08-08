@@ -25,6 +25,8 @@ use llvq_core::{SplitMix64, DIM};
 use llvq_search::fastdec::FastDecoder;
 use llvq_search::index::{Indexer, N13};
 
+mod common;
+
 /// LSB-first bit read straight off a byte slice — the spec's definition of
 /// the stream, restated independently of the implementation under test.
 fn read_bits(data: &[u8], bit0: u64, width: u32) -> u64 {
@@ -230,24 +232,15 @@ fn planes14_refuses_an_out_of_range_index() {
 
 /// The integral proof on the sealed 4B artifact: every block of every matrix,
 /// decoded through Planes14 and through Slot32, must equal the archive
-/// decoder bit for bit. Skipped (loudly) when the file is not on this
-/// machine; ignored in debug like every heavy sweep in this repo.
+/// decoder bit for bit. ~50 s over a 981 MB file, so it is out of the default
+/// run; asked for explicitly, a missing archive is an error, never a green
+/// skip (see `common::sealed_artifact_path`).
 #[test]
-#[cfg_attr(debug_assertions, ignore = "full 150 M-block artifact, run in release")]
+#[ignore = "~50 s over the sealed 150 M-block archive, which must be present (--include-ignored)"]
 fn the_sealed_artifact_decodes_identically_in_both_layouts() {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-    let path = match std::env::var_os("HOME") {
-        Some(h) => std::path::Path::new(&h).join("llvq-q4b.llvq"),
-        None => {
-            eprintln!("SKIP: no $HOME to find the sealed artifact");
-            return;
-        }
-    };
-    if !path.exists() {
-        eprintln!("SKIP: {} not present on this machine", path.display());
-        return;
-    }
+    let path = common::sealed_artifact_path();
 
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);

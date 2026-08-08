@@ -32,6 +32,8 @@ use llvq_core::{Golay, Point, SplitMix64, DIM};
 use llvq_search::fastdec::{ClassLevels, FastDecoder};
 use llvq_search::index::{Indexer, N13};
 
+mod common;
+
 /// LSB-first bit read straight off a byte slice — the spec's definition of
 /// the stream, restated independently of the implementation under test.
 fn read_bits(data: &[u8], bit0: u64, width: u32) -> u64 {
@@ -368,26 +370,19 @@ fn golay70_refuses_an_out_of_range_index() {
 /// The integral proof on the sealed 4B artifact: every block of every matrix
 /// reconstructs bit-identically through the Golay70 overlay and through
 /// Planes14, and the exception count is the classhist census of the E2 rule:
-/// **11 204 181** exactly. Skipped (loudly) when the file is not on this
-/// machine. No per-exception search here — this sweep is decode-bound.
+/// **11 204 181** exactly. No per-exception search here — this sweep is
+/// decode-bound, ~50 s over a 981 MB file — but that is still three orders of
+/// magnitude past the rest of this crate, so it is out of the default run;
+/// asked for explicitly, a missing archive is an error, never a green skip
+/// (see `common::sealed_artifact_path`).
 #[test]
-#[cfg_attr(debug_assertions, ignore = "full 150 M-block artifact, run in release")]
+#[ignore = "~50 s over the sealed 150 M-block archive, which must be present (--include-ignored)"]
 fn the_sealed_artifact_golay70_overlay_is_exact() {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     const EXPECTED_EXCEPTIONS: u64 = 11_204_181;
 
-    let path = match std::env::var_os("HOME") {
-        Some(h) => std::path::Path::new(&h).join("llvq-q4b.llvq"),
-        None => {
-            eprintln!("SKIP: no $HOME to find the sealed artifact");
-            return;
-        }
-    };
-    if !path.exists() {
-        eprintln!("SKIP: {} not present on this machine", path.display());
-        return;
-    }
+    let path = common::sealed_artifact_path();
 
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);

@@ -27,6 +27,8 @@ use llvq_search::fastdec::FastDecoder;
 use llvq_search::index::{Indexer, N13};
 use llvq_search::Searcher;
 
+mod common;
+
 /// LSB-first bit read straight off a byte slice — the spec's definition of
 /// the stream, restated independently of the implementation under test.
 fn read_bits(data: &[u8], bit0: u64, width: u32) -> u64 {
@@ -292,27 +294,19 @@ fn planes12x_refuses_an_out_of_range_index() {
 /// The integral proof on the sealed 4B artifact: every block of every matrix
 /// reconstructs bit-identically through the Planes12x overlay and through
 /// Planes14, and the exception count is the `rtbits` census of L = 5 blocks:
-/// **5 096 688** exactly. Skipped (loudly) when the file is not on this
-/// machine. ⚠️ This runs one `nearest_angular` search per L = 5 block —
-/// several minutes of all-core work, the same bill `lswap` paid.
+/// **5 096 688** exactly. ⚠️ This runs one `nearest_angular` search per L = 5
+/// block — the longest test in this crate by two orders of magnitude, ~574 s
+/// of all-core work, the same bill `lswap` paid. Out of the default run for
+/// that reason; asked for explicitly, a missing archive is an error, never a
+/// green skip (see `common::sealed_artifact_path`).
 #[test]
-#[cfg_attr(debug_assertions, ignore = "full 150 M-block artifact + 5.1 M searches, run in release")]
+#[ignore = "~10 min of searches over the sealed archive, which must be present (--include-ignored)"]
 fn the_sealed_artifact_planes12x_overlay_is_exact() {
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     const EXPECTED_EXCEPTIONS: u64 = 5_096_688;
 
-    let path = match std::env::var_os("HOME") {
-        Some(h) => std::path::Path::new(&h).join("llvq-q4b.llvq"),
-        None => {
-            eprintln!("SKIP: no $HOME to find the sealed artifact");
-            return;
-        }
-    };
-    if !path.exists() {
-        eprintln!("SKIP: {} not present on this machine", path.display());
-        return;
-    }
+    let path = common::sealed_artifact_path();
 
     let fd = FastDecoder::new();
     let s = Searcher::new();

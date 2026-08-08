@@ -29,6 +29,12 @@
 //! embedding is 389 M weights at f16 — 9.7 % of the model, and the reason the
 //! end-to-end ratio is ~4.6× rather than the ~7.6× the linear layers alone
 //! would suggest.
+//!
+//! The `unsafe` ban below is the machine-checkable half of that argument: a
+//! reader auditing the decoder should not have to also audit our pointer
+//! arithmetic, and the compiler is a cheaper reviewer than they are.
+
+#![forbid(unsafe_code)]
 
 mod error;
 mod format;
