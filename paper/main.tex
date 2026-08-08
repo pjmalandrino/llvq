@@ -17,9 +17,6 @@
 
 \graphicspath{{figures/}}
 
-% Repo-relative provenance pointers, printed as footnotes in draft mode.
-\newcommand{\provenance}[1]{\footnote{\texttt{#1}}}
-
 \title{Decoding the Leech Lattice at Matvec Speed:\\
 Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
 
@@ -29,7 +26,7 @@ Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
   \texttt{pierjean.malandrino@scub.net}%
 }
 
-\date{August 2026 --- draft}
+\date{August 2026 (draft)}
 
 \begin{document}
 \maketitle
@@ -38,32 +35,35 @@ Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
 Leech-lattice vector quantization (LLVQ) is the state of the art for 2-bit
 LLM weight compression, but its published kernel decodes a single lattice
 shell, is slower than the trellis-based competition, and leaves the
-multi-shell decoder --- the one the 2-bit operating point actually requires ---
-unwritten. We present that decoder: a fused dequantize-plus-matvec CUDA kernel
-for the full multi-shell codebook (301 coordinate-permutation classes in the
-shipped configuration), and we use it to make a second point: \emph{the rate a
-weight format costs in VRAM is a design axis independent of the rate it costs
-on disk}, with a measurable knee. Three layouts map that axis at fixed decoded
-content and bit-exact reconstruction --- one-hot masks at 5.51 bits per
-weight, binary bit planes at 4.80, a sparse overlay at 4.34 --- and a fourth
-locates the floor as a measured negative result: a Golay-payload format real
-at 3.59 bits per weight whose double-coset decode drops achieved bandwidth
-from 425 to 195~GB/s. Against an FP16 matvec the bit-plane layout is worth
-$2.14\times$; we also report where the remaining factor goes, attributing the
-2.04~ms between our kernel and its own DRAM floor to unmasked latency (39\%),
-payload streaming (33\%) and residual decode (19\%) with an instrumented job,
-rather than asserting that the kernel is memory-bound. Integrated end-to-end,
-a 2-bit Qwen3-4B serves from 2.60~GB of VRAM at ${\sim}1.4\times$ the
-throughput of a corrected reference engine, and $2.03\times$ that of the
-engine as it ships today --- the difference being a per-token 778~MB
-transposed copy in its output head, which we characterize and which taxes
-unquantized models equally. Quality is unchanged from our own sealed 2-bit
-artifact, and we state what 2 bits costs against full precision:
-$\times 1.384$ perplexity and $-14.6$ points of MMLU on a 4B model, a deficit
-concentrated in reasoning-heavy subjects whose leading suspects we have
-eliminated rather than explained. Every number regenerates from CSV files
-committed alongside the code; the entire measurement campaign cost \$5.04 of
-GPU time.
+multi-shell decoder that the 2-bit operating point actually requires
+unwritten. We present that decoder: a fused dequantize-plus-matvec CUDA
+kernel for the full multi-shell codebook (301 coordinate-permutation classes
+spanning eleven lattice shells in the shipped configuration), together with a
+family of VRAM layouts that decouple the on-disk rate from the in-memory
+rate. Our best layout, \textsc{Planes14}, replaces the 5.51-bit-per-weight
+one-hot coordinate masks with binary bit planes at a uniform 14-byte stride
+and reaches $2.14\times$ the throughput of an FP16 matvec while reading
+4.80 bits per weight; a
+sparse-overlay variant reaches 4.34 bits per weight with bit-exact
+reconstruction. Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
+in 2.60~GB of VRAM: $2.03\times$ the throughput of the FP16 reference
+engine in $3.09\times$ less memory, with the serving stack adding no
+measurable quality cost on top of the quantized artifact. Much of that
+speedup comes from replacing a per-token 778~MB transposed copy in the
+reference engine's output head; with that head path held identical in both
+arms, the measured kernel-plus-format gain is $1.12\times$ on the 4B and
+$1.29\times$ on the 8B. On Qwen3-8B the served model takes 5.45~GB versus
+6.10~GB for the official AWQ 4-bit checkpoint, at $2.61\times$ the
+reference engine's throughput, and its pre-baked int8 file is 3.16~GB,
+roughly half of AWQ's. The quality gap to 4-bit shrinks from 14.5 to 7.5
+MMLU points as the model doubles. We also report what 2 bits
+costs ($\times 1.384$ perplexity and $-14.6$ points of MMLU on the 4B,
+a deficit concentrated in reasoning-heavy subjects whose leading suspects we
+have eliminated rather than explained) and a measured negative
+result: a Golay-payload layout at 3.59 bits per weight whose double-coset
+decode makes the kernel compute-bound. Every number in this paper
+regenerates from CSV files committed alongside the code; the full
+measurement campaign billed \$19.82 of GPU time.
 \end{abstract}
 
 \input{sections/intro}

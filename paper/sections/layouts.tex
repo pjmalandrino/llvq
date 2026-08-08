@@ -9,7 +9,7 @@ one benchmark harness, one byte-accounting convention.
 \textbf{Methodology.} All five arms run in a single process on an NVIDIA
 L40S, interleaved within every round in a fixed dispatch order; 7 rounds,
 the first 2 discarded. Each reported speedup is the \emph{median of the
-per-round ratios} with its range over the kept rounds --- never a quotient
+per-round ratios} with its range over the kept rounds, never a quotient
 of two minima, which would compare rounds that did not coexist. Byte
 accounting includes payload, per-class tables, the full-precision tail
 columns, and per-row scales. All kernels use zero bytes of local memory.
@@ -24,11 +24,11 @@ raw logs in \texttt{docs/mesures/}.
 \toprule
 Layout & b/weight & median ms & GB read & vs FP16 & verdict \\
 \midrule
-FP16 (control) & 16.000 & 11.025 & 7.27 & 1.00$\times$ & --- \\
+FP16 (control) & 16.000 & 11.025 & 7.27 & 1.00$\times$ & \\
 \textsc{Slot32} & 5.510 & 5.883 & 2.50 & 1.87$\times$ [1.86--1.88] & first working layout \\
 \textsc{Planes14} & 4.804 & 5.156 & 2.18 & \textbf{2.14$\times$} [2.11--2.15] & \textbf{in production} \\
 \textsc{Planes12x} & 4.342 & 5.563 & 1.97 & 1.98$\times$ [1.95--1.99] & best rate, exact \\
-\textsc{Golay70} & 3.589 & 8.410 & 1.63 & 1.31$\times$ [1.29--1.32] & discarded (decode-bound) \\
+\textsc{Golay70} & 3.589 & 8.410 & 1.63 & 1.31$\times$ [1.29--1.32] & discarded (compute-bound) \\
 \bottomrule
 \end{tabular}
 \caption{The five-arm layout scale: one token's worth of the 252 model
@@ -42,72 +42,77 @@ Payload rates; whole-model rates appear in \S\ref{sec:evaluation}.}
 \includegraphics[width=0.78\linewidth]{fig1_layout_scale.pdf}
 \caption{Speedup over FP16 versus in-VRAM rate for the five layouts.
 Error bars are min--max over kept rounds. Achieved bandwidth holds from
-\textsc{Slot32} to \textsc{Planes14} (428 to 425~GB/s: time falls exactly
-as bytes do), then degrades --- 356~GB/s at \textsc{Planes12x}, 195 at
-\textsc{Golay70}. The knee is at \textsc{Planes12x}, not at
-\textsc{Golay70}; \textsc{Golay70} has fallen off it entirely.}
+\textsc{Slot32} to \textsc{Planes14} (428 to 425~GB/s: time falls exactly as
+bytes do), then degrades: 356~GB/s at \textsc{Planes12x}, 195 at
+\textsc{Golay70}, whose double-coset decode leaves the kernel compute-bound.
+The knee is at \textsc{Planes12x}, not at \textsc{Golay70}, which has fallen
+off it entirely.}
 \label{fig:layouts}
 \end{figure}
 
 \textbf{\textsc{Slot32}} stores the decoded fields at fixed offsets inside a
-bit-packed, byte-aligned record whose width is
-$9 + g + 24L$ bits --- a 9-bit class identifier, $g=1$ gain bit, and $L$
-24-bit one-hot masks naming which coordinates carry each magnitude level ---
-so 130 bits at the widest class. The kernel addresses a record by its byte
-offset and reads a fixed five-word (20~B) window, an alignment bound the
-format guarantees rather than checks. It is the simplest divergence-free
-format and our first to beat FP16 ($1.87\times$), but at 5.510~b/weight ---
-records plus per-class tables, full-precision tail columns and row scales ---
-it is \emph{more} memory than a 4-bit format: fast and pointless at scale.
+bit-packed, byte-aligned record whose width is $9 + g + 24L$ bits: a 9-bit
+class identifier, $g=1$ gain bit, a 24-bit sign mask, and one 24-bit one-hot
+mask per non-zero magnitude level naming which coordinates carry it. That is
+130 bits at the widest class ($L=5$) and 106 at $L=4$. The kernel addresses a
+record by its byte offset and reads a fixed five-word (20~B) window, an
+alignment bound the format guarantees rather than checks. It is the simplest
+divergence-free format and our first to beat FP16 ($1.87\times$), but at
+5.510~b/weight, records plus per-class tables, full-precision tail columns
+and per-row scales, it is \emph{more} memory than a 4-bit format: fast and
+pointless at scale.
 
 \textbf{\textsc{Planes14}} is the observation that the four one-hot level
-masks $m_1..m_4$ waste bits: at most 4 magnitude levels occur per block, so
-2 binary bit-planes suffice to name each coordinate's level. With a uniform
-14-byte stride and no per-group base pointers, the block shrinks to
-4.804~b/weight and runs \emph{faster}: $1.14\times$ [1.14--1.15] over
-\textsc{Slot32} at bit-identical decoded content, $2.14\times$ over FP16.
-Achieved bandwidth is unchanged (428 to 425~GB/s): the time falls exactly as
-the bytes do. That invariance is also evidence about \emph{why} the kernel
-sits where it does --- a uniform 14-byte stride and a bit-packed five-word
-window are very different access geometries, and they achieve the same
-bandwidth, so record geometry is not what binds in this range
-(\S\ref{sec:attribution}).
+masks $m_1..m_4$ waste bits: blocks carry between three and five magnitude
+levels, so three binary bit planes name each coordinate's level where the
+one-hot encoding spent up to four 24-bit masks. With a uniform 14-byte
+stride, no level cap, and no per-group base pointers, the block shrinks to
+4.804~b/weight and, because the kernel was memory-bound, runs
+\emph{faster}: $1.14\times$ over \textsc{Slot32} (ranges 1.13--1.15 across two
+independent runs) at bit-identical decoded content, $2.14\times$ over FP16. Achieved bandwidth is
+unchanged (428 to 425~GB/s): the time falls exactly as the bytes do. That
+invariance is also evidence about \emph{why} the kernel sits where it does:
+a uniform 14-byte stride and a bit-packed five-word window are very different
+access geometries, and they achieve the same bandwidth, so record geometry is
+not what binds in this range (\S\ref{sec:attribution}).
 
 \textbf{\textsc{Planes12x}} pushes further with a sparse overlay: blocks
 that fit a stricter level budget take a 12-byte fast path, and the rare
 violators carry an exact side-channel correction. Reconstruction is
-bit-exact --- this matters, because the obvious alternative is not free:
-\emph{hard-capping} the level count at 4 (which would allow a dry 12-byte
-format at $\le 4.71$~b/weight) was measured to cost $+4.75\%$ perplexity,
-enough to fall back behind QTIP. The overlay gets 4.342~b/weight at
+bit-exact, and this matters because the obvious alternative is not free:
+\emph{hard-capping} the level count at four (which would allow a plain
+two-plane 12-byte format at about 4.1~b/weight) was measured to cost
+$+4.75\%$ perplexity, enough to fall behind QTIP. The overlay gets 4.342~b/weight at
 $1.98\times$ with zero quality change.
 
-\textbf{\textsc{Golay70} --- a measured negative result.} The sign mask is
+\textbf{\textsc{Golay70}: a measured negative result.} The sign mask is
 redundant: signs on the codeword support are determined up to the Golay
 coset, so storing 12 code bits instead of 24 sign bits yields
 3.589~b/weight, real and reconstruction-exact. But recovering the signs
-requires a double-coset decode per block, achieved bandwidth drops to
-195~GB/s, and the speedup falls to $1.31\times$ --- below our $1.6\times$
-acceptance criterion, fixed before the measurement. We report it because it
-locates the floor of this design space: past the knee, further rate is no
-longer free, because the decode that buys it stops being shifts and masks.
+requires a double-coset decode per block, and the kernel stops being
+memory-bound: achieved bandwidth drops to 195~GB/s and the speedup to
+$1.31\times$, below our $1.6\times$ acceptance criterion, fixed before the
+measurement. We report it because it locates the floor of this design space:
+past the knee, further rate reduction is no longer free; the decode
+work itself becomes the bottleneck.
 
-The scale is brutally nonlinear, and its lesson generalizes: \emph{while a
-kernel's time is dominated by the bytes it reads, bits saved are speed
-gained --- and the interesting engineering question is where that stops
-being true.} For lattice codes on this hardware, it stops between 4.8 and
-4.3~b/weight.
+The scale is brutally nonlinear: \emph{on a
+memory-bound kernel, bits saved are speed gained, until the decode that
+saves them stops being shifts and masks.} For lattice codes on this
+hardware, that stops between 4.8 and 4.3~b/weight.
 
 \subsection{How close to the floor? A measured attribution}
 \label{sec:attribution}
 
 ``Bandwidth-dominated'' is a claim about a kernel, and we measured it rather
-than asserting it. The FP16 control reads 7.27~GB at 660~GB/s on this shape;
-\textsc{Slot32} reads 2.50~GB at 431. Its own DRAM floor is therefore
-$2.50/0.660 = 3.78$~ms against 5.82~ms measured --- a gap of \textbf{2.04~ms}
-that belongs to the kernel, not to the memory system. A separate instrumented
-job (three ``floor'' kernels each adding one stage, per-shape CUDA events,
-submission timing; \$0.07) attributes it:
+than asserting it. The FP16 control reads 7.27~GB at 660~GB/s on this shape,
+so the 2.50~GB that \textsc{Slot32} reads put its own DRAM floor at
+$2.50/0.660 = 3.78$~ms. A separately instrumented run of the same two arms
+takes 5.82~ms on the \textsc{Slot32} side (Table~\ref{tab:layouts} reports
+5.883~ms and 428~GB/s for the uninstrumented one): a gap of
+\textbf{2.04~ms} that belongs to the kernel, not to the memory system. Three
+``floor'' kernels, each adding one stage, with per-shape CUDA events and
+submission timing, attribute it:
 
 \begin{table}[h]
 \centering
@@ -118,14 +123,16 @@ Stage & $\Delta$ ms & share of gap \\
 \midrule
 unmasked latency / occupancy & 0.803 & 39\% \\
 payload streaming (group bases $+$ five-word window) & 0.681 & 33\% \\
-residual decode & 0.396 & 19\% \\
+residual decode & ${\sim}0.396$ & 19\% \\
 24 shared-memory reads of $x$ (bank conflicts) & 0.118 & 6\% \\
 class-table gather & 0.041 & 2\% \\
 \bottomrule
 \end{tabular}
 \caption{Attribution of the 2.04~ms between \textsc{Slot32} and its DRAM
-floor. Launch submission costs 1.85~$\mu$s per kernel, 8\% of the wall.
-Data: \texttt{docs/mesures/attribution-cuda-2026-08-05.txt}.}
+floor. Launch submission costs 1.85~$\mu$s per kernel, 8\% of the wall. The
+residual-decode line is a difference, not a direct measurement. Data:
+\texttt{docs/mesures/attribution-cuda-2026-08-05.txt} and
+\texttt{docs/mesures/fusion-qkv-cuda-2026-08-05.txt}.}
 \label{tab:attribution}
 \end{table}
 
@@ -134,22 +141,25 @@ instruction counts: it put bank conflicts at 0.3--2.9~ms (they are 0.118),
 overestimated the table gather twelvefold, and declared arithmetic ``out of
 the picture'' when decode and the latency it fails to hide are in fact the
 largest recoverable terms. \emph{A source-level count without SASS was wrong
-by a factor of two on the one item it was most confident about} --- which is
-why the table above comes from a \$0.07 job and not from reasoning.
+by a factor of two on the one item it was most confident about}, which is why
+the table above comes from an instrumented job and not from reasoning.
 
-One term is already recovered. Fusing $q/k/v$ and $\textit{gate}/\textit{up}$
-into row-concatenated launches takes the model from 252 kernels to 144 and
-returns \textbf{0.803~ms}, 39\% of the gap, with output bit-identical on
-921\,600 rows and bytes read identical to 0.00\% --- a purely geometric gain.
-We deliberately do not publish the resulting cross-arm ratio: the FP16 arm
-has no fused counterpart (building one costs 7.27~GB of additional VRAM), so
-the comparison would credit our arm with an optimization the baseline was
-denied. The fused kernel is \textsc{Slot32}-only and is not on the served
-path of \S\ref{sec:integration}; $k/v$ fused alone are worthless anyway
-(128 resident blocks out of a 852-block capacity, 157~GB/s against 469,
-$1.06\times$).
+One term is already recovered. Fusing $q/k/v$ and
+$\textit{gate}/\textit{up}$ into row-concatenated launches takes the model
+from 252 kernels to 144 and returns \textbf{0.803~ms}, 39\% of the gap, with
+output bit-identical on $921\,600$ rows and bytes read identical to 0.00\%:
+a purely geometric gain. We deliberately do not publish the resulting
+cross-arm ratio, because the FP16 arm has no fused counterpart (building one
+costs 7.27~GB of additional VRAM), so the comparison would credit our arm
+with an optimization the baseline was denied. The fused kernel is
+\textsc{Slot32}-only and is not on the served path of
+\S\ref{sec:integration}; as separate launches, $k/v$ are worth nothing
+anyway (128 resident blocks out of an 852-block capacity, 157~GB/s against
+469, $1.06\times$).
 
-The consequence for the rest of this paper is that $2.14\times$ is not a
-ceiling imposed by the format. Rate reduction and launch geometry are
-independent levers, and roughly a third of the remaining gap has never been
-attacked.
+The consequence for the rest of this paper is that the $2.14\times$ of
+Table~\ref{tab:layouts} is not a ceiling imposed by the format. The
+attribution above is measured on \textsc{Slot32}, but its largest term is
+launch geometry, which is orthogonal to the record format: rate reduction and
+launch geometry are independent levers, and roughly a third of the remaining
+gap has never been attacked.

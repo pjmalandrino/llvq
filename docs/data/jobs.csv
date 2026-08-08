@@ -3,7 +3,7 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-06,6a7369a06b79c09949c23471,rotation (lot A),l40sx1,,,a1-lot-a-2026-08-06.txt,rotation bit-exacte sur carte
 2026-08-06,6a746d8f6b79c09949c23fb4,campagne A4 ppl (lot A),l40sx1,8,0.24,a4-campagne-2026-08-06.txt,ppl des bras f16/AWQ/LLVQ - empreinte 3f1baca9033bf251
 2026-08-06,6a746f9ea00abefd4b2955ce,campagne A4 MMLU (lot A),l40sx1,16,0.47,a4-campagne-2026-08-06.txt,MMLU des 3 bras - empreinte 65dcd53655e8bfa5
-2026-08-06,,lot A complet (12 jobs),l40sx1+l4x1,,2.19,passation-lot-a-2026-08-06.md,branchement + plomberie + A3 graph + campagne
+2026-08-06,,lot A - les 9 autres jobs,l40sx1+l4x1,,1.47,passation-lot-a-2026-08-06.md,branchement + plomberie + A3 graph (le lot A complet = 2.19 avec les 3 jobs listes ci-dessus)
 2026-08-06,6a74800a6b79c09949c2403e,c1-planesbench (nom d image invalide),l40sx1,0,0.00,,echec avant facturation
 2026-08-06,6a7484636b79c09949c2406c,c1-planesbench,l40sx1,3,0.08,c1-planesbench-2026-08-06.txt,C1 : Planes14 1.14x vs Slot32 a contenu identique
 2026-08-06,6a7492bcda2af92a634ed324,planes14-fusedrun-ab,l40sx1,11,0.33,planes14-fusedrun-2026-08-06.txt,branchement Planes14 : 48.7 tok/s 2.96 Go + controle slot32
@@ -11,3 +11,9 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-07,6a7586d2da2af92a634ee78a,llvq-phases,l40sx1,11,0.33,phases-2026-08-07.txt,attribution par phases : lm_head 25.9 ms f16 vs 0.6 ms q8
 2026-08-07,6a759c003e1f34a7e32bcf14,e2-golay70-bench,l40sx1,25,0.74,e2-golay70-bench-2026-08-07.txt,E2 : 3.589 b/poids a 1.31x - ecarte (critere 1.6x)
 2026-08-07,6a75eb76da2af92a634eec80,campagne-finale-bras4,l40sx1,16,0.47,campagne-finale-bras4-2026-08-07.txt,bras 4 : ppl 16.9358 + MMLU 55.70 + controle fusedrun
+2026-08-07,6a76002f3e1f34a7e32bd74a,oracle 8B,l4x1,1,0.01,,oracle forward exact avant la requantification
+2026-08-07,6a76008a3e1f34a7e32bd74c,qwen3-8b-c12 quant,rtx-pro-6000,275,12.61,,requantification 8B leech1c12 (confondant L3 purge) - ppl 10.9672 en run
+2026-08-08,6a7647d9da2af92a634eef99,campagne-8b-qualite (invocation ppl fausse),l40sx1,1,0.02,,mort a la premiere ligne - ppl attend un chemin
+2026-08-08,6a7649063e1f34a7e32bdcc1,campagne-8b-qualite,l40sx1,34,1.01,campagne-8b-qualite-2026-08-08.txt,ppl+MMLU des 3 bras 8B - le MMLU 2 bits a l echelle
+2026-08-08,6a7651413e1f34a7e32bdd37,campagne-8b-vitesse,l40sx1,10,0.31,campagne-8b-vitesse-2026-08-08.txt,fusedrun 8B planes14+embed f16 : 34.4 tok/s 6.62 Go
+2026-08-08,6a76d9433e1f34a7e32be65d,campagne-8b-q8,l40sx1,28,0.82,campagne-8b-q8-2026-08-08.txt,tetes deliees : 69.3 tok/s 5.45 Go + ppl/MMLU du pre-cuit

@@ -1,23 +1,26 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The missing piece of Leech-lattice LLM quantization was never the math ---
-it was the decoder. We showed that the full multi-shell codebook can be
-decoded inside a matvec faster than the FP16 matvec it replaces; that the
-in-VRAM rate is a design axis of its own, independent of the disk rate
-(5.51~$\to$~4.80~$\to$~4.34~b/weight at bit-exact decoded content, with the
-knee located by a measured negative result at 3.59); that the remaining
-2.04~ms between our kernel and its own DRAM floor is latency and decode
-rather than bandwidth, of which launch fusion has already recovered 39\%;
-and that the integrated system serves a 2-bit 4B model from 2.60~GB at
-${\sim}1.4\times$ a corrected reference engine, $2.03\times$ the engine as
-it ships.
+The missing piece of Leech-lattice LLM quantization was the decoder, not
+the math. We showed that the full multi-shell codebook can be
+decoded inside a matvec at memory-bound speed, that the in-VRAM rate is a
+design axis of its own (5.51 to 4.80 to 4.34~b/weight at bit-exact decoded
+content, with the floor
+mapped by a measured negative result at 3.59), and that the integrated
+system serves a 2-bit 4B model from 2.60~GB at twice the reference
+engine's throughput, with the caveat, stated wherever the number appears,
+that much of that factor is a fix to the reference engine's own output
+head. At 8B the same stack serves 5.45~GB against the official 4-bit
+checkpoint's 6.10, from a file half the size, and the quality gap to
+4-bit halves as the model doubles.
 
 What we did not show is that 2 bits is the right operating point for a 4B
 model; it is not, and our own measurements say so. The open questions that
-matter are whether the 8B scale signal ($\times1.267$ at fewer bits) holds
-to 70B, and whether the reasoning-concentrated MMLU deficit closes with
-paper-scale calibration. Both are measurable with the methodology used
-here --- interleaved arms, matching token fingerprints, per-job cost
-accounting --- and the entire evidence base of this paper regenerates from
-committed CSVs for \$5.04 of GPU time.
+matter are whether the 4B-to-8B trend (quality gap halving while the
+memory verdict flips) holds to the 70B class, and which of the untested
+quality levers (calibration composition, learned column scales, low-rank
+compensation) closes the reasoning-concentrated MMLU deficit that scaling
+calibration alone is unlikely to close. Both are measurable with the
+methodology used here: interleaved arms, matching token fingerprints,
+pre-registered gates, per-job cost accounting. The entire evidence base of
+this paper regenerates from committed CSVs and billed \$19.82 of GPU time.

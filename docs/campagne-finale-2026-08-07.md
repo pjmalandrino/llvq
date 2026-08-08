@@ -17,7 +17,7 @@
 
 | | FP16 | Q4 (AWQ officiel) | LLVQ sans noyau | **LLVQ planes14 + noyau fusé + embed q8** |
 |---|---|---|---|---|
-| **disque** | 8,04 Go | 2,67 Go | **1,77 Go** | **1,77 Go** |
+| **disque** | 8,04 Go | 2,67 Go | **1,77 Go** | **1,41 Go**⁴ |
 | **VRAM** | 8,04 Go | 5,30 b/param¹ | 8,04 Go² | **2,60 Go (5,15 b/param)** |
 | **vitesse** | 43,5 tok/s³ | non comparable¹ | 43,5 tok/s | **88,4-88,5 tok/s** |
 | **perplexité** (wikitext) | 12,2369 | 13,5207 (×1,105) | 16,9422 (×1,384) | **16,9358 (×1,384)** |
@@ -32,10 +32,19 @@ du FP16 — c'était l'état du projet lundi.
 formes, mêmes noyaux) : vitesse et VRAM identiques par construction,
 recoupé par le protocole miniature (42,8 tok/s sur le checkpoint).
 
+⁴ **Deux fichiers, un seul contenu — à ne pas confondre.** La qualité de la
+colonne 4 est mesurée sur `q4b-e8.llvq` (**1,406 Go**), qui porte
+l'embedding int8 pré-cuit ; sa vitesse et sa VRAM sont mesurées sur
+`qwen3-4b-llvq.bin` (1,770 Go) avec `LLVQ_EMBED=q8`, qui quantifie le même
+embedding au chargement. Les deux produisent un contenu **bit-identique**
+(vérifié contre les octets d'`embedq` sur des lignes réelles), mais ce ne
+sont pas les mêmes octets sur disque — une version antérieure de ce document
+écrivait « un seul et même fichier de 1,77 Go », c'était faux.
+
 ## Les trois lectures du tableau
 
 **1. Le noyau et le format valent ×2,03 et ÷3,09 — gratuits en qualité.**
-Entre les colonnes 3 et 4, un seul et même fichier de 1,77 Go : le passage
+Entre les colonnes 3 et 4, le même modèle au bit près⁴ : le passage
 au noyau fusé + Planes14 + embedding q8 double la vitesse et divise la
 mémoire par trois, pendant que la perplexité et le MMLU restent dans le
 bruit d'échantillonnage (16,9358 contre 16,9422 ; 55,70 contre 55,59 —

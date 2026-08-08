@@ -10,7 +10,7 @@ QTIP~\citep{qtip2024} reached the previous state of the art with trellis
 quantization and hardware-friendly decoders. LLVQ~\citep{llvq2026} improved
 on QTIP's quality by quantizing on the Leech lattice with a spherical
 variant of GPTQ; our work implements its quantizer independently in Rust
-and supplies the systems half the paper leaves open --- its kernel decodes
+and supplies the systems half the paper leaves open: its kernel decodes
 one shell, is slower than QTIP's, and no multi-shell decoder existed prior
 to this work. The lattice itself, its Golay-code construction and its
 optimality properties are classical~\citep{conway1999sphere,cohn2017}; the
@@ -37,5 +37,5 @@ lattice codes.
 \texttt{candle}~\citep{candle2023}. The output-head materialization of
 \S\ref{sec:integration} is, to our knowledge, unreported; similar
 transpose-materialization taxes have been folklore in other engines, which
-is precisely why per-phase attribution with synchronization barriers ---
-rather than end-to-end numbers alone --- belongs in systems evaluations.
+is why per-phase attribution with synchronization barriers,
+rather than end-to-end numbers alone, belongs in systems evaluations.

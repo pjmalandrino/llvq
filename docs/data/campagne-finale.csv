@@ -2,4 +2,4 @@ arm,label,disk_gb,vram_gb,vram_bits_per_param,speed_tokps,ppl,ppl_ratio_vs_fp16,
 fp16,FP16 (reference),8.04,8.04,16.00,43.5,12.2369,1.000,70.32,1.28,vitesse/VRAM = moteur dense (identique au bras llvq_dense par construction; checkpoint mesure a 42.8 au protocole miniature)
 awq,AWQ 4 bits (Qwen officiel),2.67,2.67,5.30,,13.5207,1.105,70.04,1.25,VRAM = son propre moteur (5.302 b/param); vitesse jamais mesuree dans notre harnais - non comparable
 llvq_dense,LLVQ 2 bits sans noyau,1.77,8.04,16.00,43.5,16.9422,1.384,55.59,1.35,decode en f16 au chargement - l etat du projet avant le branchement
-llvq_fused,LLVQ planes14 + noyau fuse + embed q8,1.77,2.60,5.15,88.4,16.9358,1.384,55.70,1.35,meme fichier que llvq_dense; qualite dans le bruit (memes empreintes de tokens)
+llvq_fused,LLVQ planes14 + noyau fuse + embed q8,1.41,2.60,5.15,88.4,16.9358,1.384,55.70,1.35,disque = q4b-e8.llvq (1.406 Go) qui porte l embedding int8 pre-cuit; vitesse/VRAM mesurees sur qwen3-4b-llvq.bin (1.770 Go) + LLVQ_EMBED=q8 qui quantifie au chargement - contenu bit-identique (verifie contre les octets d embedq) mais DEUX FICHIERS, pas un

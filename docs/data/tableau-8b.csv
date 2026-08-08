@@ -1,0 +1,5 @@
+arm,label,disk_gb,vram_gb,vram_bits_per_param,speed_tokps,ppl,ppl_ratio_vs_f16,mmlu_micro_pct,mmlu_stderr_pp,notes
+fp16,FP16 (reference),16.382,16.38,15.999,26.6,8.9899,1.0000,76.08,1.21,vitesse/VRAM du moteur dense
+awq,AWQ 4 bits (Qwen officiel),6.099,6.10,5.956,,9.4211,1.0480,73.01,1.26,VRAM = calcul valide sur la taille du depot Qwen (6.099 Go); vitesse jamais mesuree dans notre harnais
+llvq_f16emb,LLVQ 2 bits + planes14 + embedding f16,4.324,6.62,6.461,34.4,10.9682,1.2201,65.52,1.31,configuration intermediaire; perd la VRAM face a l AWQ
+llvq_q8,LLVQ 2 bits + planes14 + embedding q8 (2 tables),3.157,5.45,5.323,69.3,10.9682,1.2201,65.63,1.31,tetes deliees: deux buffers int8 g64; ppl identique a 4 decimales au bras f16-embedding

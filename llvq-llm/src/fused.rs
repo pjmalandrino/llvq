@@ -88,7 +88,8 @@ impl FusedLayout {
     }
 }
 
-/// How the carried embedding (and the tied `lm_head`) sits on the device.
+/// How the carried embedding tables — the input table, and the `lm_head` when
+/// the model unties it — sit on the device.
 ///
 /// Resolved once, from `LLVQ_EMBED`, and printed next to the bytes it
 /// decides. `F16` is the shipped behaviour — the embedding decoded to an f16
@@ -171,6 +172,174 @@ pub fn q8_device_bytes(dims: &[usize]) -> (u64, u64) {
     let rows = n / row_len;
     let gpr = row_len.div_ceil(EMBED_GROUP);
     (n as u64, (rows * gpr) as u64 * 4)
+}
+
+/// The carried tensor holding the input embedding.
+pub const EMBED_NAME: &str = "model.embed_tokens.weight";
+/// The carried tensor holding the output projection. Present only when the
+/// model unties its two ends — Qwen3-4B has `tie_word_embeddings = true` and
+/// carries no such tensor, Qwen3-8B has it `false` and carries a second table
+/// of the same shape and different values.
+pub const HEAD_NAME: &str = "lm_head.weight";
+
+/// The embedding tables the q8 path takes off the carried list, quantized.
+///
+/// One table when the model ties its two ends: a single device buffer feeds
+/// the gather at the input and the `lm_head` at the output, which is the −365
+/// MB lot B validated on the 4B. Two tables when it unties them: they are
+/// different weights, so they are different buffers, and nothing in this path
+/// may substitute one for the other.
+pub struct EmbedTables {
+    /// [`EMBED_NAME`], int8 g64.
+    pub embed: llvq_artifact::RawTensor,
+    /// [`HEAD_NAME`], int8 g64 — `None` exactly when the two ends are tied.
+    pub head: Option<llvq_artifact::RawTensor>,
+}
+
+impl EmbedTables {
+    /// The distinct payloads to upload, in buffer order.
+    pub fn buffers(&self) -> Vec<&llvq_artifact::RawTensor> {
+        let mut v = vec![&self.embed];
+        v.extend(self.head.iter());
+        v
+    }
+
+    /// Which uploaded buffer each end of the model reads: `(embedding, head)`.
+    ///
+    /// The wiring is returned as a **value** rather than decided at the call
+    /// site, and that is deliberate. The call site sits behind
+    /// `cfg(target_os = "linux", feature = "cuda")` and compiles on no machine
+    /// this suite runs on, so an `lm_head` pointed at the embedding's buffer
+    /// would be caught by nothing until a billed job produced plausible wrong
+    /// logits. As data, it is pinned by a test that runs anywhere.
+    pub fn wiring(&self) -> (usize, usize) {
+        match self.head {
+            None => (0, 0),
+            Some(_) => (0, 1),
+        }
+    }
+}
+
+/// Take the embedding tables off the carried list and turn them into the int8
+/// g64 payload the embedding kernels read.
+///
+/// `tie` is the model's `tie_word_embeddings`. Under `false` the file must
+/// carry [`HEAD_NAME`] too, and its absence is an error that names it — never
+/// a silent fall back on the embedding, which would produce a model that runs
+/// and is wrong.
+///
+/// Both tables go through [`embed_q8`], so both accept either an f16 tensor
+/// (quantized by the very function `bin/embedq` calls) or bytes `embedq`
+/// already wrote, passed through byte-identical.
+pub fn take_embed_tables(
+    raw: &mut Vec<llvq_artifact::RawTensor>,
+    tie: bool,
+) -> Result<EmbedTables, String> {
+    fn take(
+        raw: &mut Vec<llvq_artifact::RawTensor>,
+        name: &str,
+    ) -> Option<llvq_artifact::RawTensor> {
+        // `swap_remove` reorders what is left, so the second lookup below
+        // searches the mutated vector by name rather than reusing an index.
+        let i = raw.iter().position(|t| t.name == name)?;
+        Some(raw.swap_remove(i))
+    }
+    let embed = take(raw, EMBED_NAME).ok_or_else(|| format!("ne porte pas {EMBED_NAME}"))?;
+    let embed = embed_q8(embed)?;
+    let head = if tie {
+        None
+    } else {
+        let t = take(raw, HEAD_NAME).ok_or_else(|| {
+            format!(
+                "tie_word_embeddings=false, mais le fichier ne porte pas {HEAD_NAME} — \
+                 les deux extrémités sont déliées, et le chemin q8 ne remplace jamais \
+                 un lm_head manquant par l'embedding"
+            )
+        })?;
+        Some(embed_q8(t)?)
+    };
+    Ok(EmbedTables { embed, head })
+}
+
+/// The embedding tables still carried as ordinary tensors, embedding first and
+/// `lm_head` second whatever order the file wrote them in.
+pub fn carried_embed_tables(raw: &[llvq_artifact::RawTensor]) -> Vec<&llvq_artifact::RawTensor> {
+    [EMBED_NAME, HEAD_NAME]
+        .iter()
+        .filter_map(|n| raw.iter().find(|t| t.name == *n))
+        .collect()
+}
+
+/// What the embedding tables cost on the device, and the line that says so.
+///
+/// Arithmetic on dims alone, so the announced footprint is checkable without a
+/// card. It exists because the line it replaces announced **one** table's
+/// bytes on a model carrying two: with the ends untied it under-reported by a
+/// whole table — 1.24 GB on the 8B — while the total printed just below it was
+/// right. Half-true is the worst kind of wrong in a footprint report, because
+/// the two lines then contradict each other and neither is obviously the liar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbedReport {
+    pub mode: EmbedMode,
+    /// One entry per table resident on the device, in buffer order:
+    /// `(name, payload bytes, scale/bias bytes)`. The last is zero at f16.
+    pub tables: Vec<(String, u64, u64)>,
+}
+
+impl EmbedReport {
+    /// Build the report for the tables the device will actually hold.
+    pub fn new(mode: EmbedMode, tables: &[&llvq_artifact::RawTensor]) -> Self {
+        let tables = tables
+            .iter()
+            .map(|t| match mode {
+                EmbedMode::F16 => (t.name.clone(), t.len() as u64 * 2, 0),
+                EmbedMode::Q8 => {
+                    let (packed, sb) = q8_device_bytes(&t.dims);
+                    (t.name.clone(), packed, sb)
+                }
+            })
+            .collect();
+        Self { mode, tables }
+    }
+
+    /// Payload bytes over every table.
+    pub fn packed(&self) -> u64 {
+        self.tables.iter().map(|&(_, p, _)| p).sum()
+    }
+
+    /// Scale and bias bytes over every table; zero at f16.
+    pub fn meta(&self) -> u64 {
+        self.tables.iter().map(|&(_, _, s)| s).sum()
+    }
+
+    /// Device bytes of every embedding table together.
+    pub fn total(&self) -> u64 {
+        self.packed() + self.meta()
+    }
+
+    /// The load-time line — it names how many tables it is counting, so a
+    /// reader can tell a tied model from an untied one without doing division.
+    pub fn line(&self) -> String {
+        let names: Vec<&str> = self.tables.iter().map(|(n, ..)| n.as_str()).collect();
+        let which = if names.len() == 1 {
+            format!("1 table ({}, lm_head lié dessus)", names[0])
+        } else {
+            format!("{} tables ({})", names.len(), names.join(" + "))
+        };
+        match self.mode {
+            EmbedMode::F16 => format!(
+                "embedding : f16 (LLVQ_EMBED) — {which}, {:.1} Mo sur la carte",
+                self.total() as f64 / 1e6
+            ),
+            EmbedMode::Q8 => format!(
+                "embedding : q8 g64 (LLVQ_EMBED) — {which}, {:.1} Mo sur la carte \
+                 (int8 {:.1} + échelles/biais {:.1})",
+                self.total() as f64 / 1e6,
+                self.packed() as f64 / 1e6,
+                self.meta() as f64 / 1e6
+            ),
+        }
+    }
 }
 
 /// Mirrors `LLVQ_ROT_KMAX` in `llvq-cuda/kernels/llvq_rot.cuh`.

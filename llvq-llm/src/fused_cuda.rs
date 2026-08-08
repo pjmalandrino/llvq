@@ -508,11 +508,13 @@ impl FusedRuntime {
     }
 }
 
-/// The embedding's int8 g64 payload, resident on the device.
+/// One int8 g64 embedding table, resident on the device.
 ///
-/// One buffer serves both ends of the model — the gather at the input and
-/// the tied `lm_head` at the output — which is the point: the −365 MB lot B
-/// validated exist only if no f16 copy is ever materialized beside this.
+/// When the model ties its two ends (Qwen3-4B) a single instance serves both
+/// the gather at the input and the `lm_head` at the output — which is the
+/// point: the −365 MB lot B validated exist only if no f16 copy is ever
+/// materialized beside this. When they are untied (Qwen3-8B) there are two
+/// instances, one per table, and `EmbedTables::wiring` says which is which.
 pub struct QuantEmbed {
     pub vocab: usize,
     pub d: usize,
@@ -915,9 +917,11 @@ pub struct FusedSealed {
     /// whether a model fits, and the one a disk figure must never stand in for.
     pub runtime_bytes: u64,
     /// Bytes the carried tensors occupy on the device: `2 · carried_weights`
-    /// under `LLVQ_EMBED=f16`, the int8 payload plus f16 norms under `q8`.
-    /// `carried_weights · 2` must no longer stand in for this — that identity
-    /// is exactly what the q8 mode breaks, by −365 MB.
+    /// under `LLVQ_EMBED=f16`, the int8 payload of **every** embedding table
+    /// plus the f16 norms under `q8` — one table when the model ties its two
+    /// ends, two when it unties them. `carried_weights · 2` must no longer
+    /// stand in for this: that identity is exactly what q8 breaks, by −365 MB
+    /// on the tied 4B and −1.17 GB on the untied 8B.
     pub carried_bytes: u64,
 }
 
@@ -950,31 +954,18 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
         .map_err(|e| candle_core::Error::msg(format!("tokenizer.json : {e}")))?;
 
-    const EMBED_NAME: &str = "model.embed_tokens.weight";
-    // Under q8, the embedding leaves the carried list before any tensor is
-    // built: nothing downstream may materialize an f16 copy of it.
-    let embed_raw = match emode {
+    // Under q8, the embedding tables leave the carried list before any tensor
+    // is built: nothing downstream may materialize an f16 copy of them. One
+    // table when the ends are tied (4B), two when they are not (8B) — the
+    // second is `lm_head.weight`, a different weight that gets a different
+    // buffer. Both go through the exact `bin/embedq` arithmetic (same
+    // function), or carry the file's own q8 bytes through untouched.
+    let embed_tables = match emode {
         EmbedMode::F16 => None,
-        EmbedMode::Q8 => {
-            if !config.tie_word_embeddings {
-                candle_core::bail!(
-                    "LLVQ_EMBED=q8 exige tie_word_embeddings : un seul buffer sert \
-                     l'embedding et le lm_head, et ce modèle les délie"
-                );
-            }
-            let i = model
-                .raw
-                .iter()
-                .position(|t| t.name == EMBED_NAME)
-                .ok_or_else(|| {
-                    candle_core::Error::msg(format!("{path} ne porte pas {EMBED_NAME}"))
-                })?;
-            let t = model.raw.swap_remove(i);
-            // The exact `bin/embedq` arithmetic (same function), or the file's
-            // own q8 bytes passed through — either way, the object lot B
-            // scored.
-            Some(crate::fused::embed_q8(t).map_err(candle_core::Error::msg)?)
-        }
+        EmbedMode::Q8 => Some(
+            crate::fused::take_embed_tables(&mut model.raw, config.tie_word_embeddings)
+                .map_err(|e| candle_core::Error::msg(format!("{path} : {e}")))?,
+        ),
     };
 
     let (rt, projs) = FusedRuntime::new(&model, device, emode)?;
@@ -993,40 +984,49 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     // here, so each costs `2 · len` bytes on the card.
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
     let mut carried_bytes = 0u64;
-    let mut embed_f16_bytes = 0u64;
     for t in &model.raw {
         carried_bytes += t.len() as u64 * 2;
-        if t.name == EMBED_NAME {
-            embed_f16_bytes = t.len() as u64 * 2;
-        }
         tensors.insert(
             t.name.clone(),
             Tensor::from_vec(t.to_f32(), t.dims.clone(), device)?.to_dtype(dtype)?,
         );
     }
 
-    // The announced footprint, mode by mode, before the first launch.
-    let quant_embed = match &embed_raw {
+    // The announced footprint, mode by mode, before the first launch. Both
+    // modes count **every** embedding table the device holds: with the ends
+    // untied there are two, and reporting one of them beside a correct total
+    // is how a footprint line ends up contradicting the one below it.
+    let quant_embed = match &embed_tables {
         None => {
+            let carried = crate::fused::carried_embed_tables(&model.raw);
             println!(
-                "embedding : f16 (LLVQ_EMBED) — {:.1} Mo sur la carte",
-                embed_f16_bytes as f64 / 1e6
+                "{}",
+                crate::fused::EmbedReport::new(EmbedMode::F16, &carried).line()
             );
             None
         }
-        Some(t) => {
-            let q = rt.upload_embed_q8(t)?;
-            let (packed, sb) = crate::fused::q8_device_bytes(&t.dims);
-            debug_assert_eq!(q.bytes, packed + sb);
-            println!(
-                "embedding : q8 g64 (LLVQ_EMBED) — {:.1} Mo sur la carte \
-                 (int8 {:.1} + échelles/biais {:.1}), lm_head lié sur le même buffer",
-                q.bytes as f64 / 1e6,
-                packed as f64 / 1e6,
-                sb as f64 / 1e6
-            );
-            carried_bytes += q.bytes;
-            Some(Arc::new(q))
+        Some(tables) => {
+            let to_upload = tables.buffers();
+            let report = crate::fused::EmbedReport::new(EmbedMode::Q8, &to_upload);
+            println!("{}", report.line());
+            let mut uploaded: Vec<Arc<QuantEmbed>> = Vec::with_capacity(to_upload.len());
+            for (t, (_, packed, sb)) in to_upload.iter().zip(&report.tables) {
+                let q = rt.upload_embed_q8(t)?;
+                // A hard check, not a `debug_assert!`: release is the only
+                // profile that runs on a card, and the whole point of this lot
+                // is that the printed line cannot contradict the total below
+                // it. Comparing what was announced to what was uploaded costs
+                // nothing and closes exactly the defect being fixed.
+                if q.bytes != *packed + *sb {
+                    candle_core::bail!(
+                        "table portée {} : {} octets annoncés, {} uploadés",
+                        t.name, *packed + *sb, q.bytes
+                    );
+                }
+                carried_bytes += q.bytes;
+                uploaded.push(Arc::new(q));
+            }
+            Some((uploaded, tables.wiring()))
         }
     };
     println!(
@@ -1050,19 +1050,36 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             }
         })
     };
+    // `(ie, ih)` is `(0, 0)` when the ends are tied — two clones of one `Arc`,
+    // exactly what shipped — and `(0, 1)` when they are not. The choice is
+    // `EmbedTables::wiring`'s, tested on any machine; here it is only indexed.
+    // The two indexing expressions below are the only lines of this path no
+    // test on a developer machine can reach, and a one-character slip there
+    // (`ie` twice) yields a model that runs and lies. This check is their
+    // self-verification, on the card, at zero cost.
+    if let Some((bufs, (ie, ih))) = &quant_embed {
+        if Arc::ptr_eq(&bufs[*ie], &bufs[*ih]) != config.tie_word_embeddings {
+            candle_core::bail!(
+                "câblage q8 incohérent : embedding et lm_head {} le même buffer \
+                 alors que tie_word_embeddings = {}",
+                if Arc::ptr_eq(&bufs[*ie], &bufs[*ih]) { "partagent" } else { "ne partagent pas" },
+                config.tie_word_embeddings
+            );
+        }
+    }
     let qwen = match &quant_embed {
         None => crate::model::Qwen3::new_with(&config, vb, &mut take)?,
-        Some(q) => crate::model::Qwen3::new_with_embed(
+        Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(
             &config,
             vb,
             &mut take,
             crate::model::Embed::Q8 {
                 rt: rt.clone(),
-                q: q.clone(),
+                q: bufs[*ie].clone(),
             },
             crate::model::Head::Q8 {
                 rt: rt.clone(),
-                q: q.clone(),
+                q: bufs[*ih].clone(),
             },
         )?,
     };
