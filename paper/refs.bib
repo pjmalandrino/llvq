@@ -57,10 +57,17 @@
 }
 
 % ---------------------------------------------------------------------------
-% TODO(user): the three entries below were added on a reviewer's remark and
-% are written from memory — verify venue, year and author list before
-% submission. (The llvq2026 entry above no longer carries this caveat: it was
-% checked against the PDF on 2026-08-08.)
+% The three entries below were checked against the papers' title pages on
+% 2026-08-08 (arXiv 2401.06118v4, 2402.15319v2, 2409.17066v2). Titles, author
+% lists and arXiv identifiers are now verbatim from the PDFs; gptvq2024 was
+% wrong on three counts (Koryakovskiy missing, Nagel placed 3rd instead of
+% 8th, Bastoul/Couperus swapped) and is corrected.
+%
+% STILL UNVERIFIED: the two `booktitle` fields. An arXiv title page does not
+% carry the venue, so ICML-2024 for aqlm2024 and EMNLP-2024 for vptq2024 rest
+% on memory alone. For vptq2024 the live risk is Main vs Findings: the
+% booktitle below names the Main proceedings. Settle both against DBLP or the
+% ACL Anthology before submission, or demote both to arXiv preprints.
 % ---------------------------------------------------------------------------
 @inproceedings{aqlm2024,
   title     = {Extreme Compression of Large Language Models via Additive Quantization},
@@ -80,7 +87,7 @@
 
 @article{gptvq2024,
   title   = {{GPTVQ}: The Blessing of Dimensionality for {LLM} Quantization},
-  author  = {van Baalen, Mart and Kuzmin, Andrey and Nagel, Markus and Couperus, Peter and Bastoul, Cedric and Mahurin, Eric and Blankevoort, Tijmen and Whatmough, Paul},
+  author  = {van Baalen, Mart and Kuzmin, Andrey and Koryakovskiy, Ivan and Bastoul, Cedric and Couperus, Peter and Mahurin, Eric and Blankevoort, Tijmen and Nagel, Markus and Whatmough, Paul},
   journal = {arXiv preprint arXiv:2402.15319},
   year    = {2024}
 }
