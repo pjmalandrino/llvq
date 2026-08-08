@@ -1,75 +1,195 @@
-# Brouillon de mail aux auteurs — À RELIRE ET RÉÉCRIRE AVANT ENVOI
+# Brouillon de mail aux auteurs — RELIRE AVANT ENVOI
 
-> Ce n'est qu'un point de départ. Le ton d'un premier contact qui engage
-> professionnellement doit être le tien. Adresses en première page du papier :
+> Version du 2026-08-08, **écrite sur la structure et le ton de l'utilisateur**
+> (courte, directe, première personne). Les versions antérieures sont mortes :
+> elles revendiquaient sur l'annexe G l'inverse de ce qu'on sait (92,81 % à
+> 1,958 bit/dim, obtenus en divisant la MSE par un débit fractionnaire
+> qu'aucun fichier ne paie), donnaient la perplexité d'avant la découverte que
+> la rétraction annulait le code de gain, présentaient le noyau comme un
+> projet et non comme une mesure, et annonçaient une cible **Apple Metal** que
+> le papier déclare inexistante.
+>
+> Adresses en première page du papier :
 > `{touderaa, mart, pwhatmou, markusn}@qti.qualcomm.com`.
 >
-> Trois principes tenus dans le brouillon : **court** (les chercheurs reçoivent
-> beaucoup), **les réserves posées d'emblée** (c'est ce qui distingue du bruit),
-> et **une question précise** plutôt qu'une annonce (on répond bien plus
-> volontiers à une question sur son propre travail).
+> **Claude n'envoie rien.** L'envoi est ton geste.
+>
+> **Pas de pièce jointe, et pas besoin** : `paper/` est dans le dépôt public,
+> donc pointer le lien suffit. Un PDF de treize pages non sollicité dans une
+> boîte de chercheur se lit « je lirai ça » ; un lien se clique.
+>
+> **Pas de demande d'endorsement arXiv ici** — mais il en faudra une, et
+> ailleurs dans ce fichier on a d'abord écrit une bêtise là-dessus : arXiv
+> fournit le *mécanisme* (un code à six caractères et un lien à transmettre),
+> **pas l'endosseur**. Le demandeur doit trouver un humain qualifié lui-même.
+>
+> Et depuis le **21 janvier 2026**, l'adresse institutionnelle ne suffit plus
+> comme unique qualificatif : il faut soit une adresse académique **et** un
+> papier déjà accepté dans le même domaine d'endorsement, soit l'endorsement
+> personnel d'un auteur arXiv établi. Avec une adresse `scub.net` et aucune
+> publication antérieure, seule la seconde voie est ouverte
+> (https://info.arxiv.org/help/endorsement.html, et le billet de politique du
+> 2026-01-21 sur `blog.arxiv.org`).
+>
+> Ça ne change pas la consigne pour CE mail : demander un jugement d'abord, un
+> service ensuite. Deux choses à retenir pour le second message : la charge
+> pour l'endosseur est faible (« We do not expect you to read the paper in
+> detail, or verify that the work is correct, but you should check that the
+> paper is appropriate for the subject area »), et arXiv recommande
+> explicitement de **joindre le papier à la demande d'endorsement** — donc la
+> règle « pas de pièce jointe » ci-dessus vaut pour le premier contact, pas
+> pour la demande elle-même.
 
 ---
 
-**Objet :** Independent Rust reimplementation of LLVQ — reproduction, and a
-question on Appendix G
+**Objet :** Rust reimplementation of LLVQ — reproduction, and Appendix C
 
-Dear Dr. van der Ouderaa and colleagues,
+Hello,
 
-I have reimplemented LLVQ from scratch in Rust and would like to submit the
-results to your scrutiny. The lattice, the exact nearest-neighbour search, the
-bijective indexing and Spherical GPTQ are all there, with the mathematical
-core kept dependency-free so it can be audited end to end:
-[link]
+I read your LLVQ paper a few months ago and ended up reimplementing it in
+Rust. The repository is public: https://github.com/pjmalandrino/llvq. It
+covers the lattice, the exact nearest-neighbour search, the bijective 48-bit
+indexing and Spherical GPTQ. The mathematical core has no external
+dependencies, so it can be read on its own.
 
-**Reproduction.** On Qwen3-4B, 2 bits, no fine-tuning, WikiText-2 at 4096
-context, calibrating out of domain (C4) as you do: 12.2336 → 14.9104, a ×1.219
-degradation, at 2.1117 bits/weight. For reference my FP32 baseline lands 1.4 %
-under yours (12.2336 vs 12.41), which I attribute to evaluating on 12 windows
-rather than the full test set.
+My first goal was to reproduce your numbers. The second one, which took most
+of the time, was Appendix C. Your kernel decodes a single shell, and you say
+the low-level work is orthogonal to your contribution. I could not find the
+multi-shell version anywhere, so I wrote it: a fused dequantize-plus-matvec
+over the full 301-class codebook. It runs at 2.14× an FP16 matvec while
+reading 4.80 bits per weight, and every output row is checked against an f64
+reference. CUDA only for now. The measurements are in the repository, with a
+draft paper I would like to publish.
 
-Two caveats I would rather state than have you find: my rate is 5.6 % above
-2.000, of which roughly 0.1 bit/weight is the tail policy — layer widths are
-not multiples of 24 and I leave the remainder at full precision. I could not
-find what your implementation does with that remainder. Conversely I use about
-100× fewer calibration tokens than you and only input-side rotation, which
-works the other way.
+Where I differ from you is the part I would like your opinion on. My
+perplexity matches yours. My MMLU does not.
 
-**A question on Appendix G.** You compare single shells against unions on
-angular separation and adopt the union. Measuring rate–distortion retention
-instead, on an i.i.d. Gaussian source, I find a single shell ahead on both
-axes: shell 12 alone with one gain bit gives 92.81 % retention at 1.958
-bits/dim, against 92.14 % at 2.000 for `norm(Λ₂₄(12))` + 1 gain bit — with 4.8×
-fewer equivalence classes and the constant norm your own appendix notes as the
-hardware-friendly property.
+The FP16 baseline is fine: MMLU 70.32 ± 1.28 against your 70.2, WikiText-2
+12.2369 against your 12.41. At 2 bits I use norm(Λ₂₄(12)) with one gain bit,
+48 bits per block. Perplexity degrades by ×1.384, close to the ×1.374 of your
+0-gain-bit line. But MMLU drops to 55.59, below both of your shape-gain
+configurations. That is −14.6 points where you report −9.5 without
+fine-tuning, on a baseline that agrees with yours.
 
-I am aware these are different quantities and that mine is one source, one
-seed, and not yet verified on real weights after the GPTQ loop. I would value
-knowing what I am missing.
+I tried the obvious explanations and none of them held: output-side rotation,
+the free-magnitude variant with the closed-form scale solve, and calibration
+volume, which I bounded with a deliberate-contamination oracle. The main
+difference I know of is that I calibrate on about 100× fewer tokens. On 8B
+the gap narrows to −10.6 points.
 
-**What I would like to work on.** Appendix C notes that your fused kernel
-handles a single shell for simplicity and that low-level optimization is
-largely orthogonal to your contribution. The multi-shell kernel the 2-bit
-regime needs does not appear to exist anywhere, and that is the piece I would
-like to build — targeting Apple Metal, where unified memory removes the VRAM
-ceiling that makes a 2-bit 70B interesting in the first place. I would be glad
-to share results as they come, and equally glad to be told the idea is a dead
-end and why.
+Two smaller things. My rate is 2.07 bits per weight of payload instead of
+2.000. About 0.1 bit of that is the tail: layer widths are not multiples of
+24 and I keep the remainder in full precision. I could not find what you do
+there, and I would like to know. Also, I redid the single-shell versus union
+comparison from Appendix G on a Gaussian source. At equal packed rate it
+agrees with your choice, 92.14 % retention against 90.34 % for shell 12
+alone. I had assumed the opposite before I measured it.
 
-Thank you for the paper — the geometric reading of scale correction as a
-retraction is the part that made the rest click.
+I would be glad to hear what you think, about the implementation as much as
+about the MMLU gap.
+
+Thank you for the paper. Reading the scale correction as a retraction is the
+part that made everything else make sense to me.
 
 Best regards,
 Pier-Jean Malandrino
 
 ---
 
-## Points à vérifier avant d'envoyer
+## À vérifier avant d'envoyer
 
-- [ ] Le dépôt est public et le lien fonctionne
-- [ ] `LICENSE` présent (MIT + Apache-2.0, annoncés dans les `Cargo.toml`)
+- [x] Le dépôt est public — vérifié le 2026-08-08, `github.com/pjmalandrino/llvq`
+- [x] `LICENSE-MIT` et `LICENSE-APACHE` présents, cohérents avec le
+      `license = "MIT OR Apache-2.0"` des `Cargo.toml`
 - [ ] Le README affiche le tableau de reproduction **et** la section
       « what is not here » — c'est cette dernière qui rend le reste crédible
-- [ ] Aucun chiffre du mail ne diverge du README
-- [ ] Relu à voix haute : si une phrase sonne comme une revendication plutôt
-      qu'un rapport, la réécrire
+- [ ] Aucun chiffre du mail ne diverge du README ni du papier
+- [ ] Relu à voix haute : c'est ton mail, il doit sonner comme toi
+
+### Destinataires
+
+Note de première page de `2603.11021v2` (7 juillet 2026) : « Correspondence to:
+`{touderaa, mart, pwhatmou, markusn}@qti.qualcomm.com` ».
+
+| adresse | auteur |
+|---|---|
+| `touderaa@qti.qualcomm.com` | Tycho F. A. van der Ouderaa — destinataire principal |
+| `mart@qti.qualcomm.com` | Mart van Baalen |
+| `pwhatmou@qti.qualcomm.com` | Paul Whatmough |
+| `markusn@qti.qualcomm.com` | Markus Nagel |
+
+---
+
+# Mail séparé — demande d'endorsement arXiv
+
+> **À n'envoyer qu'après avoir démarré la soumission sur arXiv et récupéré le
+> code à six caractères.** Une demande accompagnée du code et du lien est un
+> clic ; une demande de principe est une charge mentale.
+>
+> Cible : quelqu'un que tu connais réellement. arXiv préfère explicitement ça
+> (« You should know the person that you endorse »).
+>
+> **Le domaine d'endorsement pour l'informatique est l'archive `cs` entière**,
+> donc un dossier `cs.SE` vaut pour `cs.LG`. Fondé sur la phrase d'arXiv
+> « most high-level subject areas are currently endorsement domains, with the
+> notable exception of physics » : l'informatique n'y est pas nommée, mais la
+> physique est donnée comme la seule exception. Inférence solide, pas
+> citation — le lien d'endorsement tranche définitivement et gratuitement.
+>
+> Second critère, celui-là explicite : les papiers de l'endosseur doivent
+> avoir été déposés **entre 3 mois et 5 ans**. Sa page auteur arXiv le dit.
+>
+> Le registre ci-dessous suppose une relation professionnelle cordiale mais
+> pas intime — ajuste l'ouverture si vous êtes plus proches.
+
+**Objet :** Un coup de main pour un endorsement arXiv (cs.LG) ?
+
+Bonjour Romain,
+
+J'espère que tu vas bien. Je me permets de te solliciter pour quelque chose de
+très ponctuel.
+
+J'ai passé les derniers mois à réimplémenter en Rust un papier de Qualcomm AI
+Research sur la quantification de LLM à 2 bits, et à écrire le noyau GPU que
+leur papier laissait explicitement de côté. Le dépôt est public
+(https://github.com/pjmalandrino/llvq) et j'aimerais déposer le papier qui en
+sort sur arXiv, en cs.LG.
+
+Problème : arXiv demande un endorsement pour un premier dépôt, et depuis leur
+changement de politique de janvier 2026 une adresse d'entreprise ne suffit
+plus. Il me faut donc l'endorsement d'un auteur arXiv établi du domaine.
+
+Est-ce que ce serait quelque chose que tu pourrais faire, ou que quelqu'un de
+ton entourage pourrait faire ? Je précise, parce que la catégorie peut faire
+hésiter : chez arXiv le domaine d'endorsement pour l'informatique est
+l'archive `cs` dans son ensemble, pas la sous-catégorie. Un dossier en
+`cs.SE` compte donc pour `cs.LG`, et le lien confirme de toute façon la
+qualification dans un sens ou dans l'autre.
+
+Concrètement c'est un lien à ouvrir avec un code à six caractères. Leur
+consigne est explicite : il ne s'agit pas d'une relecture, juste de confirmer
+que le papier relève bien de la catégorie.
+
+Mon code est : `XXXXXX`
+Le lien : https://arxiv.org/auth/endorse?x=XXXXXX
+
+Le papier est dans le dépôt, dans `paper/`, si tu veux y jeter un œil avant —
+et si ce n'est pas quelque chose que tu souhaites faire, aucun souci, dis-le
+moi simplement et je chercherai ailleurs.
+
+Merci d'avance, et bonne continuation,
+Pier-Jean
+
+---
+
+### Provenance des chiffres cités
+
+| chiffre | source |
+|---|---|
+| 70,32 ± 1,28 · 55,59 · ×1,384 · 12,2369 | `paper/sections/evaluation.tex`, table du 4B |
+| −14,6 points, −10,6 au 8B | idem, et l'abstract du papier |
+| leurs 70,2 · 12,41 · 17,05 · 60,7 · 59,3 · −9,5 | `CLAUDE.md` §6, Table 6 du papier relue au rendu image |
+| ×1,374 pour leur ligne 0 bit de gain | dérivé : 17,05 / 12,41 |
+| 92,14 % contre 90,34 % à 48 bits/bloc | `CLAUDE.md` §6, table révisée le 2026-08-04 |
+| 2,14× · 4,80 b/poids · 301 classes | `paper/sections/layouts.tex` et `tab:layouts` |
+| 2,07 b/poids de payload | `calib.rs::bits_per_weight`, note de provenance `CLAUDE.md` §G5 |
