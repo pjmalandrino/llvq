@@ -1,8 +1,8 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The missing piece of Leech-lattice LLM quantization was never the math. It
-was the decoder. We showed that the full multi-shell codebook can be
+The missing piece of Leech-lattice LLM quantization was the decoder, not
+the math. We showed that the full multi-shell codebook can be
 decoded inside a matvec at memory-bound speed, that the in-VRAM rate is a
 design axis of its own (5.51 to 4.80 to 4.34~b/weight, with the floor
 mapped by a measured negative result at 3.59), and that the integrated

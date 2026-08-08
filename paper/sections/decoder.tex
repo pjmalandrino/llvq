@@ -7,7 +7,7 @@ LLVQ quantizes weights in blocks of 24. Each block is normalized and its
 direction snapped to the nearest point of the Leech lattice $\Lambda_{24}$,
 restricted to the ball $\Lambda_{24}(12)$ (all points of squared norm
 $\le 2\cdot 12$ in the standard scaling). The ball contains
-$70\,486\,236\,999\,360$ points, so a direction index costs
+$111\,043\,117\,458\,000$ points, so a direction index costs
 $\lceil\log_2\cdot\rceil = 47$ bits; one gain bit selects between two
 per-tensor magnitude centroids. The total is 48 bits per 24-weight
 block: exactly 2 bits per weight of payload.
@@ -32,7 +32,8 @@ Everything about making this practical follows from one asymmetry: the
 offline, once per model, and may cost hours; the \emph{decoder}
 (index~$\to$~vector) runs inside every matvec and must cost shifts and
 masks. The original paper's kernel sidesteps the problem by decoding a
-single shell ($m=3$); at the 2-bit rate the codebook spans 12 shells and
+single shell ($m=3$); at the 2-bit rate the codebook spans eleven shells
+and
 301 classes, and a naive per-class branch would diverge across every warp.
 
 Our kernel never decodes the 47-bit index at inference time at all. An
@@ -57,8 +58,7 @@ one multiply per block.
 
 Lattice decoders fail silently: a wrong sign convention or a swapped
 enumeration order produces plausible-looking weights and a quietly ruined
-model. Three layers of defense are in place, and we consider them as much a
-contribution as the kernel:
+model. Three layers of defense are in place:
 
 \begin{itemize}
 \item \textbf{Bit-exact transcoding.} The transcoder that expands format~v1

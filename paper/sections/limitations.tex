@@ -11,26 +11,31 @@ psychology hold above 80\%. Two-bit quantization damages \emph{reasoning}
 far more than \emph{recall}, and a perplexity corpus mostly measures
 recall; perplexity alone should never be presented as evidence of quality
 at this rate. We measured and eliminated the obvious suspects rather than
-leaving them open. Output-side rotation: the original paper's own ablation
-puts its marginal effect near zero once input rotation is present. A
-free-magnitude variant with a closed-form scale solve (the configuration
-the original paper's appendix recommends, as we read it): $\times1.99$
-perplexity at full depth, killed by a pre-registered gate. Calibration
-volume and corpus: a deliberate-contamination oracle (calibrating on the
-evaluation text itself) recovers at most $1.6\%$ of perplexity on a
-proxy, so scaling calibration cannot close the gap by itself. What remains
+leaving them open:
+\begin{itemize}
+\item \textbf{Output-side rotation.} The original paper's own ablation
+puts its marginal effect near zero once input rotation is present.
+\item \textbf{A free-magnitude variant with a closed-form scale solve}
+(the configuration the original paper's appendix recommends, as we read
+it): $\times1.99$ perplexity at full depth on the 0.6B proxy, killed by a
+pre-registered gate.
+\item \textbf{Calibration volume and corpus.} A deliberate-contamination
+oracle (calibrating on the evaluation text itself) recovers at most
+$1.6\%$ of perplexity on a proxy, so scaling calibration cannot close the
+gap by itself.
+\end{itemize} What remains
 untested: reasoning-weighted calibration composition, learned per-column
-scales (the original paper's fine-tuning, which reports $-9.5$ points
-under its protocol), and low-rank compensation adapters.
+scales (the original paper's fine-tuning, which recovers about two MMLU
+points under its protocol), and low-rank compensation adapters.
 
 \textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
 Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
 decode. Batched serving changes the arithmetic-intensity regime that makes
 the kernel memory-bound; larger models change the embedding share and the
-tail-column overhead. Two scale points are not a scaling law.
+tail-column overhead.
 
 \textbf{The scale argument is two points, not a law.} On the 4B, the
-honest summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
+summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
 every axis except disk. The 8B moves every relevant number in the 2-bit
 direction (Table~\ref{tab:campaign8b}): the quality gap halves and the
 memory verdict flips. Whether the trend continues to the 70B class, the

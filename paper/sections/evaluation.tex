@@ -9,7 +9,7 @@ test~\citep{wikitext2016}, context 4096, 12 windows), MMLU
 fingerprint \texttt{65dcd53655e8bfa5} (2\,280 questions sampled 40 per
 subject from a fixed seed~\citep{mmlu2021}, micro-averaged, the original
 paper's convention; macro-averaging inflates the quantized arm's deficit
-and is reported nowhere here). The harness is validated by its FP16 arm:
+and is not reported here). The harness is validated by its FP16 arm:
 MMLU $70.32 \pm 1.28$ against the original paper's 70.2 for the same
 model~\citep{qwen3_2025}. The quantized weights are the sealed artifact
 (47-bit indices $+$ 1 gain bit, produced by Spherical GPTQ with input
@@ -67,8 +67,8 @@ AWQ 4-bit checkpoint's 5.30 in its own engine.
 perplexity and $-14.6$ points of MMLU. The AWQ arm makes the comparison
 sharp: at 4 bits on this model, quality is essentially free
 ($\times1.105$, $-0.3$~points). On a 4B, 4-bit dominates 2-bit on every
-axis except disk; we say so plainly, and \S\ref{sec:limitations} discusses
-where the 2-bit point can still win.
+axis except disk; \S\ref{sec:limitations} discusses where the 2-bit point
+can still win.
 
 \begin{table}[t]
 \centering
@@ -89,8 +89,8 @@ and calibration configuration as the 4B, so that model size is the only
 variable. $^{\dagger}$Same caveats as Table~\ref{tab:campaign}; the AWQ
 VRAM figure is validated against the size of the official checkpoint
 (6.099~GB). Qwen3-8B unties its embedding from its output head, so the
-serving path quantizes both tables to int8 (two device buffers); the cost
-is a perplexity change in the fourth decimal. Data:
+serving path quantizes both tables to int8 (two device buffers); perplexity
+is identical to four decimal places. Data:
 \texttt{docs/data/tableau-8b.csv}.}
 \label{tab:campaign8b}
 \end{table}
@@ -98,13 +98,14 @@ is a perplexity change in the fourth decimal. Data:
 \textbf{The scale point.} Table~\ref{tab:campaign8b} is the paper's second
 model, requantized under the exact 4B configuration. Three movements
 matter, and they all point the same way. The 2-bit degradation falls with
-scale, on both axes: $\times1.385 \to \times1.220$ perplexity,
-$-14.7 \to -10.6$ MMLU points. The 4-bit baseline starts paying:
+scale, on both axes: $\times1.384 \to \times1.220$ perplexity,
+$-14.7 \to -10.6$ MMLU points (sealed-artifact arms at both sizes; the
+served int8 arms give $-14.6$ and $-10.5$). The 4-bit baseline starts paying:
 indistinguishable from FP16 at 4B ($-0.3$ points), it loses $3.1$ points
 at 8B. And the quality gap between the two quantizations halves, from
 14.5 to 7.5 points, while the 2-bit model overtakes AWQ on the memory
-axes it lost at 4B-scale accounting: 5.45~GB served versus 6.10, and a
-file $1.9\times$ smaller. At 8B the choice between 4 and 2 bits is no
+axes it lost at the 4B scale: 5.45~GB served versus 6.10, and a file
+$1.9\times$ smaller. At 8B the choice between 4 and 2 bits is no
 longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
 disk. Data: \texttt{docs/data/echelle-4b-8b.csv}.
 

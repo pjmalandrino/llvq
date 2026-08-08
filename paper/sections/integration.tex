@@ -11,8 +11,8 @@ kernel replacing the 252 linear projections. Weights are stored in the
 incoherence-rotated basis required by the quantizer, so activations pass
 through a dedicated rotation kernel (verified bit-exact on device) before
 each projection. The embedding table (9.7\% of the model, untouched by
-the 2-bit format) is stored int8 with per-row scales, validated lossless
-against the f16 table on both evaluation metrics. Correctness gate: the
+the 2-bit format) is stored int8 with per-group scales and offsets
+(groups of 64), a change measured to be free on both evaluation metrics. Correctness gate: the
 fused and dense engines emit identical greedy tokens until a
 tie-break-level divergence (token 89), on top of the row-level f64
 verification of \S\ref{sec:decoder}.
@@ -42,7 +42,7 @@ blocks. Data: \texttt{docs/data/phases.csv}.}
 \includegraphics[width=0.85\linewidth]{fig2_phase_attribution.pdf}
 \caption{Where a token's time goes. The fused kernel wins its phase
 (13.3 to 10.4~ms across the transformer blocks), but the decode loop
-was dominated by an output-head pathology in the reference engine: a
+is dominated by an output-head pathology in the reference engine: a
 778~MB transposed copy of the vocabulary projection, materialized every
 token. Our q8 head reads 413~MB in place, once.}
 \label{fig:phases}
@@ -58,8 +58,8 @@ a 778~MB transposed copy of the vocabulary matrix \emph{on every token}
 \texttt{tensor.rs:1550}). Replacing the head with an int8 kernel that reads
 its 413~MB in place collapses the phase from 25.9 to 0.6~ms. The copy
 scales with the vocabulary projection: on the 8B (hidden size 4096, untied
-head) it is 1.24~GB per token, and the same replacement alone doubles
-end-to-end throughput (34.4 to 69.3~tok/s). We believe this finding is of
+head) it is 1.24~GB per token, and the same replacement doubles
+end-to-end throughput there (34.4 to 69.3~tok/s). We believe this finding is of
 independent interest to \texttt{candle} users: it taxes every model served
 through this path, quantized or not.
 
@@ -93,7 +93,8 @@ Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.15} \\
 \bottomrule
 \end{tabular}
 \caption{The integration, step by step. The on-disk file (1.77~GB) and
-measured quality never changed; each step passed adversarial review
+measured quality stayed within sampling noise; each step passed
+adversarial review
 (replayed mutants, independent probes) and a gated measurement before
 landing. Data: \texttt{docs/data/progression.csv}.}
 \label{tab:progression}
