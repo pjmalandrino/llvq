@@ -10,6 +10,34 @@
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::Field;
 
+/// The revision every corpus here is read at.
+///
+/// All three call sites used to hard-code `main`, and `main` is a *branch*: a
+/// Hugging Face dataset repo is mutable, so the same command two months later
+/// can score other bytes and nothing in the log would say so. For a project
+/// whose argument is reproducibility that is a hole, and it is a cheap one to
+/// close — `LLVQ_DATASET_REV` pins a commit sha, a tag, any revision the Hub
+/// resolves.
+///
+/// One variable for the three corpora, not one each: they are read by the same
+/// harness within one run, and a per-dataset pin would let a figure be half
+/// reproducible — worse than an unpinned one, because it looks pinned.
+///
+/// Unset or blank means `main`, i.e. exactly the previous behaviour. Nobody
+/// has to change a command.
+pub fn dataset_revision() -> String {
+    revision_or_main(std::env::var("LLVQ_DATASET_REV").ok().as_deref())
+}
+
+/// The decision [`dataset_revision`] makes, separated from the environment so
+/// it can be tested without mutating a process-wide variable.
+fn revision_or_main(v: Option<&str>) -> String {
+    match v {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => "main".to_string(),
+    }
+}
+
 /// Fetch a split of a Hugging Face dataset stored as a single parquet shard
 /// and return its text column, row by row.
 pub fn hf_parquet_text(repo: &str, path: &str) -> anyhow::Result<Vec<String>> {
@@ -18,7 +46,7 @@ pub fn hf_parquet_text(repo: &str, path: &str) -> anyhow::Result<Vec<String>> {
         .repo(hf_hub::Repo::with_revision(
             repo.to_string(),
             hf_hub::RepoType::Dataset,
-            "main".to_string(),
+            dataset_revision(),
         ))
         .get(path)?;
     let reader = SerializedFileReader::new(std::fs::File::open(file)?)?;
@@ -58,7 +86,7 @@ pub fn mmlu_split(split: &str) -> anyhow::Result<Vec<MmluItem>> {
         .repo(hf_hub::Repo::with_revision(
             "cais/mmlu".to_string(),
             hf_hub::RepoType::Dataset,
-            "main".to_string(),
+            dataset_revision(),
         ))
         .get(&format!("all/{split}-00000-of-00001.parquet"))?;
     let reader = SerializedFileReader::new(std::fs::File::open(file)?)?;
@@ -192,7 +220,7 @@ fn c4_text(role: C4Role, max_chars: usize) -> anyhow::Result<String> {
         .repo(hf_hub::Repo::with_revision(
             "allenai/c4".to_string(),
             hf_hub::RepoType::Dataset,
-            "main".to_string(),
+            dataset_revision(),
         ))
         .get(&c4_shard_path(role))?;
     let mut gz = flate2::read::GzDecoder::new(std::fs::File::open(file)?);
@@ -247,6 +275,24 @@ mod tests {
             c4_shard_path(C4Role::Evaluation),
             "en/c4-validation.00000-of-00008.json.gz"
         );
+    }
+
+    /// The default has to stay `main`, byte for byte with the three hard-coded
+    /// strings it replaced: every published perplexity was measured there, and
+    /// a default that drifted would restate them without touching a number.
+    #[test]
+    fn an_unset_pin_means_main() {
+        for v in [None, Some(""), Some("   ")] {
+            assert_eq!(revision_or_main(v), "main", "{v:?}");
+        }
+    }
+
+    /// And a set one must actually be carried — a pin that is read and dropped
+    /// is worse than none, because the command line claims a revision.
+    #[test]
+    fn a_set_pin_is_carried() {
+        assert_eq!(revision_or_main(Some("b3a7f01")), "b3a7f01");
+        assert_eq!(revision_or_main(Some("  b3a7f01 ")), "b3a7f01");
     }
 
     /// Both paths have to be shards that exist. A formatting slip — a missing
