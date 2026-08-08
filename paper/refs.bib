@@ -14,20 +14,31 @@
 %     aclanthology.org/2024.emnlp-main.467 for vptq2024.
 %   - Cargo.lock, for candle2023's version field (candle-core 0.9.2).
 %
-% The three corrections: llvq2026 carried an invented title; gptvq2024 was
-% missing an author, had another placed 3rd instead of 8th and two swapped;
-% quip2023 mis-cased "With Guarantees".
+%   - Publishers' records for the entries whose venue was in doubt:
+%     proceedings.mlsys.org for awq2024, dblp/ACM for marlin2024,
+%     projecteuclid for cohn2017, and the IEEE record for adoul1988.
 %
-% STILL UNVERIFIED, and none of it settled by the PDFs on hand:
-%   - conway1999sphere, cohn2017, adoul1988: no primary source consulted, so
-%     edition, volume, issue and page ranges still rest on memory.
-%   - marlin2024 and wikitext2016 are cited from their arXiv v1, which carries
-%     no venue. Whether either has been published since is unchecked.
-%   - awq2024's title. Its arXiv v6 (2026) reads "for On-Device LLM
-%     Compression and Acceleration"; the entry below keeps the shorter title,
-%     which is what the MLSys 2024 camera-ready is believed to use. The MLSys
-%     proceedings record has not been consulted, so this is unresolved and
-%     the entry may be citing a title the proceedings do not carry.
+% Six entries were wrong:
+%   - llvq2026 carried an invented title.
+%   - gptvq2024 was missing an author (Koryakovskiy), had another placed 3rd
+%     instead of 8th, and two swapped.
+%   - awq2024 dropped "On-Device" from its title. The MLSys 6 proceedings
+%     carry it; the shorter form belongs to the paper's early arXiv versions.
+%   - marlin2024 was cited as an arXiv preprint. It appeared at PPoPP 2025.
+%   - wikitext2016 was cited as an arXiv preprint. It appeared at ICLR 2017;
+%     the key keeps its 2016 name, the year field does not.
+%   - quip2023 mis-cased "With Guarantees" (invisible under natbib, which
+%     sentence-cases titles, but wrong at the source).
+%
+% Two soft spots remain, both narrow and both stated rather than hidden:
+%   - adoul1988: title, volume, issue and pages come from the IEEE record
+%     (doi 10.1109/18.21247), which prints only a digital-library upload date
+%     of 2006. The 1988 year rests on the volume-to-year correspondence for
+%     IEEE Trans. Inf. Theory vol. 34, and the authors' full first names are
+%     expansions of the record's "J.-P." and "M.".
+%   - conway1999sphere: Springer's book page demands authentication, so
+%     edition, publisher and year were never read from a primary source. No
+%     field was added on the strength of a search summary.
 % ---------------------------------------------------------------------------
 @article{llvq2026,
   title   = {Leech Lattice Vector Quantization for Efficient {LLM} Compression},
@@ -69,18 +80,22 @@
 }
 
 @inproceedings{awq2024,
-  title     = {{AWQ}: Activation-aware Weight Quantization for {LLM} Compression and Acceleration},
+  title     = {{AWQ}: Activation-aware Weight Quantization for On-Device {LLM} Compression and Acceleration},
   author    = {Lin, Ji and Tang, Jiaming and Tang, Haotian and Yang, Shang and Chen, Wei-Ming and Wang, Wei-Chen and Xiao, Guangxuan and Dang, Xingyu and Gan, Chuang and Han, Song},
   booktitle = {Proceedings of Machine Learning and Systems (MLSys)},
+  volume    = {6},
+  pages     = {87--100},
   year      = {2024},
   note      = {arXiv:2306.00978}
 }
 
-@article{marlin2024,
-  title   = {{MARLIN}: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models},
-  author  = {Frantar, Elias and Castro, Roberto L. and Chen, Jiale and Hoefler, Torsten and Alistarh, Dan},
-  journal = {arXiv preprint arXiv:2408.11743},
-  year    = {2024}
+@inproceedings{marlin2024,
+  title     = {{MARLIN}: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models},
+  author    = {Frantar, Elias and Castro, Roberto L. and Chen, Jiale and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {Proceedings of the 30th {ACM} {SIGPLAN} Annual Symposium on Principles and Practice of Parallel Programming (PPoPP)},
+  pages     = {239--251},
+  year      = {2025},
+  note      = {arXiv:2408.11743}
 }
 
 @inproceedings{aqlm2024,
@@ -159,9 +174,10 @@
   note      = {arXiv:2009.03300}
 }
 
-@article{wikitext2016,
-  title   = {Pointer Sentinel Mixture Models},
-  author  = {Merity, Stephen and Xiong, Caiming and Bradbury, James and Socher, Richard},
-  journal = {arXiv preprint arXiv:1609.07843},
-  year    = {2016}
+@inproceedings{wikitext2016,
+  title     = {Pointer Sentinel Mixture Models},
+  author    = {Merity, Stephen and Xiong, Caiming and Bradbury, James and Socher, Richard},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017},
+  note      = {arXiv:1609.07843}
 }
