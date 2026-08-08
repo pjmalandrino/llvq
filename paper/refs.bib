@@ -63,16 +63,20 @@
 % wrong on three counts (Koryakovskiy missing, Nagel placed 3rd instead of
 % 8th, Bastoul/Couperus swapped) and is corrected.
 %
-% STILL UNVERIFIED: the two `booktitle` fields. An arXiv title page does not
-% carry the venue, so ICML-2024 for aqlm2024 and EMNLP-2024 for vptq2024 rest
-% on memory alone. For vptq2024 the live risk is Main vs Findings: the
-% booktitle below names the Main proceedings. Settle both against DBLP or the
-% ACL Anthology before submission, or demote both to arXiv preprints.
+% Venues settled the same day against the publishers' own records, which an
+% arXiv title page does not carry: aqlm2024 is PMLR 235:12284-12303
+% (proceedings.mlr.press/v235/egiazarian24a.html), and vptq2024 is
+% 2024.emnlp-main.467, pages 8181-8196 -- the EMNLP 2024 MAIN proceedings,
+% not Findings. Page ranges below come from those two records.
+%
+% These three and llvq2026 are the only verified entries in this file; the
+% remaining thirteen have never been checked against a primary source.
 % ---------------------------------------------------------------------------
 @inproceedings{aqlm2024,
   title     = {Extreme Compression of Large Language Models via Additive Quantization},
   author    = {Egiazarian, Vage and Panferov, Andrei and Kuznedelev, Denis and Frantar, Elias and Babenko, Artem and Alistarh, Dan},
   booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  pages     = {12284--12303},
   year      = {2024},
   note      = {arXiv:2401.06118}
 }
@@ -81,6 +85,7 @@
   title     = {{VPTQ}: Extreme Low-bit Vector Post-Training Quantization for Large Language Models},
   author    = {Liu, Yifei and Wen, Jicheng and Wang, Yang and Ye, Shengyu and Zhang, Li Lyna and Cao, Ting and Li, Cheng and Yang, Mao},
   booktitle = {Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  pages     = {8181--8196},
   year      = {2024},
   note      = {arXiv:2409.17066}
 }
