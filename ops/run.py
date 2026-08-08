@@ -1072,7 +1072,13 @@ def main() -> int:
     l.add_argument("--codebook", default="leech1c12",
                    help="défaut leech1c12, le protocole de tous les chiffres publiés ; "
                         "un suffixe L<n> plafonne les niveaux et coûte +4,75 %% de ppl")
-    l.add_argument("--calib", default="c4")
+    # Mirrors `CalibCorpus` in `llvq-llm/src/bin/smoke.rs`. The binary now
+    # refuses an unknown corpus, but it does so **inside the container** —
+    # i.e. after the job has started, been billed and pulled the image. The
+    # same typo caught here costs nothing. Keep the two lists in step: a
+    # corpus added there and not here is simply unreachable from `launch`.
+    l.add_argument("--calib", default="c4",
+                   choices=["c4", "wikitext2", "wikitext2-test"])
     l.add_argument("--calib-windows", type=int, default=64)
     l.add_argument("--calib-len", type=int, default=2048)
     l.add_argument("--eval-windows", type=int, default=12)

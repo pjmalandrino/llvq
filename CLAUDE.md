@@ -1623,9 +1623,30 @@ casse la compatibilité des fichiers quantifiés (§4).
   crates du cœur portent `#![forbid(unsafe_code)]` et doivent le garder
   (cf. §2 pour le compte exact, crate par crate).
 - Zéro warning clippy.
-- Les tests coûteux sont `#[cfg_attr(debug_assertions, ignore = "...")]` :
-  rapides en debug, exhaustifs en release. ⚠️ La suite complète se compte en
-  dizaines de minutes, pas en secondes (cf. §2).
+- **Deux paliers d'`ignore`, à ne pas confondre.** `#[cfg_attr(debug_assertions,
+  ignore = "...")]` — rapide en debug, exhaustif en release — pour les tests
+  purement calculatoires. Et `#[ignore]` **inconditionnel** pour les tests qui
+  lisent une archive scellée de plusieurs centaines de Mo : ils coûtent des
+  minutes *même en release* et exigent un fichier absent du dépôt. Mesuré le
+  2026-08-08 sur `llvq-artifact` : 11 min 26 s avant, **2,3 s** après, et 45
+  tests verts en 10 min 51 s sous `--include-ignored`. ⚠️ La suite complète se
+  compte toujours en dizaines de minutes (cf. §2).
+- **Un test qui saute quand son fichier manque doit ÉCHOUER, pas passer.**
+  Huit sites faisaient `eprintln!("SKIP"); return;` et passaient donc au vert
+  sur toute machine sans l'archive — dont la seconde copie du dépôt. La forme
+  juste est celle de `llvq-artifact/tests/common/mod.rs` : `#[ignore]` pour
+  déclarer l'absence dans la boucle rapide, échec franc et nominatif dès
+  qu'on invoque le test explicitement. Une variable d'environnement peut
+  *déplacer* la recherche du fichier, jamais la satisfaire.
+- ⚠️ **`#![forbid(unsafe_code)]` dans un `lib.rs` ne couvre PAS les tests
+  d'intégration** — ce sont des crates séparés. Vérifié par mutation le
+  2026-08-08 : un `unsafe` dans `src/` casse la compilation, le même dans
+  `tests/` passe. Les cinq crates du cœur ont ce trou. Le fermer demande
+  `[lints.rust] unsafe_code = "forbid"` en `[workspace.lints]`, donc une
+  décision de workspace — pas un patch sur un crate, qui serait exactement la
+  correction partielle que la §5 dit être pire que rien. **Ne pas écrire que
+  le cœur interdit `unsafe` sans cette réserve** : le papier en fait un
+  argument d'auditabilité.
 - Commentaires et docs en anglais dans le code, échanges en français.
 
 **Trois règles de chiffres, chacune payée par une erreur publiée :**
