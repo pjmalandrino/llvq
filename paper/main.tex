@@ -17,9 +17,6 @@
 
 \graphicspath{{figures/}}
 
-% Repo-relative provenance pointers, printed as footnotes in draft mode.
-\newcommand{\provenance}[1]{\footnote{\texttt{#1}}}
-
 \title{Decoding the Leech Lattice at Matvec Speed:\\
 Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
 
@@ -29,7 +26,7 @@ Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
   \texttt{pierjean.malandrino@scub.net}%
 }
 
-\date{August 2026 --- draft}
+\date{August 2026 (draft)}
 
 \begin{document}
 \maketitle
@@ -38,27 +35,32 @@ Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
 Leech-lattice vector quantization (LLVQ) is the state of the art for 2-bit
 LLM weight compression, but its published kernel decodes a single lattice
 shell, is slower than the trellis-based competition, and leaves the
-multi-shell decoder --- the one the 2-bit operating point actually requires ---
-unwritten. We present that decoder: a fused dequantize-plus-matvec CUDA kernel
-for the full multi-shell codebook --- 301 coordinate-permutation classes
-spanning 12 lattice shells in the shipped configuration --- together with a family of VRAM
-layouts that decouple the on-disk rate from the in-memory rate. Our best
-layout, \textsc{Planes14}, replaces one-hot coordinate masks with binary bit
-planes at a uniform 14-byte stride and reaches $2.14\times$ the throughput of
-an FP16 matvec while reading 4.80 bits per weight; a sparse-overlay variant
-reaches 4.34 bits per weight with bit-exact reconstruction. Integrated
-end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s in 2.60~GB of VRAM ---
-$2.03\times$ the throughput and $3.09\times$ less memory than the FP16
-reference engine, at quality identical to the published artifact. We report
-the comparison honestly: half of the end-to-end speedup comes from fixing a
-per-token 778~MB transposed copy in the reference engine's output head, and
-against the corrected engine the kernel is worth ${\sim}1.4\times$. We also
-report what 2 bits costs --- $\times 1.384$ perplexity and $-14.6$ points of
-MMLU on a 4B model, a deficit concentrated in reasoning-heavy subjects ---
-and a measured negative result: a Golay-payload layout at 3.59 bits per
-weight whose double-coset decode makes the kernel compute-bound. Every number
-in this paper regenerates from CSV files committed alongside the code; the
-entire measurement campaign cost \$5.04 of GPU time.
+multi-shell decoder that the 2-bit operating point actually requires
+unwritten. We present that decoder: a fused dequantize-plus-matvec CUDA
+kernel for the full multi-shell codebook (301 coordinate-permutation classes
+spanning 12 lattice shells in the shipped configuration), together with a
+family of VRAM layouts that decouple the on-disk rate from the in-memory
+rate. Our best layout, \textsc{Planes14}, replaces one-hot coordinate masks
+with binary bit planes at a uniform 14-byte stride and reaches $2.14\times$
+the throughput of an FP16 matvec while reading 4.80 bits per weight; a
+sparse-overlay variant reaches 4.34 bits per weight with bit-exact
+reconstruction. Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
+in 2.60~GB of VRAM: $2.03\times$ the throughput of the FP16 reference
+engine in $3.09\times$ less memory, at quality unchanged within sampling
+noise. We report the speedup honestly. Much of it comes from replacing a
+per-token 778~MB transposed copy in the reference engine's output head;
+with that head path held identical in both arms, the measured
+kernel-plus-format gain is $1.12\times$ on the 4B and $1.29\times$ on the
+8B. On Qwen3-8B the served model takes 5.45~GB versus 6.10~GB for the
+official AWQ 4-bit checkpoint, from a 3.16~GB file, at $2.61\times$ the
+reference engine's throughput, and the quality gap to 4-bit shrinks from
+14.5 to 7.5 MMLU points as the model doubles. We also report what 2 bits
+costs ($\times 1.384$ perplexity and $-14.6$ points of MMLU on the 4B,
+a deficit concentrated in reasoning-heavy subjects) and a measured negative
+result: a Golay-payload layout at 3.59 bits per weight whose double-coset
+decode makes the kernel compute-bound. Every number in this paper
+regenerates from CSV files committed alongside the code; the full
+measurement campaign billed \$19.82 of GPU time.
 \end{abstract}
 
 \input{sections/intro}

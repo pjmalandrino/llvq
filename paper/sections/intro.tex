@@ -4,9 +4,9 @@
 The number of bits per weight is the only knob that changes the \emph{class}
 of model a given machine can load. At 16 bits a 70B-parameter model needs
 140~GB; at 2 bits it needs ${\sim}20$~GB and fits in the unified memory of a
-workstation. For anyone whose constraint is sovereignty --- running capable
-models on hardware they own --- the 2-bit operating point is not an
-optimization, it is the difference between possible and impossible.
+workstation. For anyone whose constraint is sovereignty, meaning capable
+models on hardware they own, the 2-bit operating point is not an
+optimization. It is the difference between possible and impossible.
 
 The best published quality at 2 bits comes from Leech-lattice vector
 quantization (LLVQ)~\citep{llvq2026}: weights are grouped into blocks of 24,
@@ -17,9 +17,9 @@ own systems story stops short. Its CUDA kernel decodes a single lattice shell
 ($m=3$, ``for simplicity''), is reported slower than QTIP's
 kernel~\citep{qtip2024}, and the authors explicitly defer low-level
 optimization as ``largely orthogonal'' to their contribution. The decoder the
-2-bit rate actually requires --- a union of lattice shells with hundreds of
+2-bit rate actually requires, a union of lattice shells with hundreds of
 distinct coordinate-permutation classes (301 for the paper's best
-configuration, the ball $\Lambda_{24}(12)$) --- exists nowhere, including in
+configuration, the ball $\Lambda_{24}(12)$), exists nowhere, including in
 the original work.
 
 This paper is about that decoder, and about what it takes to make
@@ -29,13 +29,13 @@ Three problems have to be solved together:
 \begin{enumerate}
 \item \textbf{The decode itself} (\S\ref{sec:decoder}). A $\Lambda_{24}$
 index is 47 bits naming one of $7\times10^{13}$ lattice points. Decoding it
-inside a matvec inner loop must cost shifts and masks, not arithmetic ---
-and must not diverge across a warp whose 32 lanes hold different classes.
+inside a matvec inner loop must cost shifts and masks, not arithmetic, and
+must not diverge across a warp whose 32 lanes hold different classes.
 
 \item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
 determines what fits on a GPU is not the on-disk rate (2.07 bits per weight
 for our artifact) but the rate of whatever format the kernel reads. Our
-first working layout cost 5.51 bits per weight in VRAM --- \emph{more} than
+first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
 bits per weight while \emph{increasing} throughput, and one measured dead
@@ -44,28 +44,33 @@ end (3.59 bits per weight, compute-bound) that maps the floor.
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and
 worked around a per-token 778~MB transposed materialization in the output
-head of a widely used Rust inference engine --- a finding we believe is of
-independent interest --- and we report our speedup in a double formulation
+head of a widely used Rust inference engine, a finding we believe is of
+independent interest, and we report our speedup in a double formulation
 that separates the kernel's contribution from the engine fix.
 \end{enumerate}
 
-The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served from a 1.77~GB
-file at 88.4~tok/s in 2.60~GB of VRAM, versus 43.5~tok/s in 8.04~GB for the
-FP16 reference --- with perplexity and MMLU statistically identical to the
-sealed artifact, verified by matching token-level evaluation fingerprints.
-In whole-model bits per parameter the served footprint, 5.15~b/param, is
-below the official AWQ 4-bit checkpoint's 5.30~b/param.
+The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 88.4~tok/s
+in 2.60~GB of VRAM, versus 43.5~tok/s in 8.04~GB for the FP16 reference,
+with perplexity and MMLU unchanged within sampling noise and verified by
+matching token-level evaluation fingerprints. In whole-model bits per
+parameter the served footprint, 5.15~b/param, is below the official AWQ
+4-bit checkpoint's 5.30~b/param. On Qwen3-8B, requantized under the exact
+4B configuration so that model size is the only variable, the served model
+takes 5.45~GB against AWQ's 6.10, from a file $1.9\times$ smaller than
+AWQ's, at $2.61\times$ the reference engine's throughput.
 
 We are equally explicit about what this does not buy
 (\S\ref{sec:limitations}). On a 4B model, 2-bit quantization costs
 $\times1.384$ perplexity and $-14.6$ percentage points of MMLU against
 FP16, a deficit three times reproduced and concentrated in reasoning-heavy
 subjects; the 4-bit AWQ baseline keeps essentially full quality. The case
-for 2 bits rests on scale --- our single 8B data point degrades less
-($\times1.267$) at fewer bits --- and on workloads where the memory class,
-not per-parameter quality, is binding.
+for 2 bits rests on scale, and the paper's second data point measures it:
+at 8B the degradation falls to $\times1.220$ and the MMLU gap to the 4-bit
+baseline halves, from 14.5 to 7.5 points, while AWQ itself starts paying
+($-0.3$ points at 4B, $-3.1$ at 8B). Two points are not a law; they are the
+direction the 2-bit thesis needs.
 
 Everything in this paper is reproducible by construction: every table and
 figure regenerates from CSV files committed in the repository, each number
 traces to a dated, per-job-costed GPU run, and the full measurement campaign
-cost \$5.04.
+billed \$19.82.

@@ -9,8 +9,8 @@ restricted to the ball $\Lambda_{24}(12)$ (all points of squared norm
 $\le 2\cdot 12$ in the standard scaling). The ball contains
 $70\,486\,236\,999\,360$ points, so a direction index costs
 $\lceil\log_2\cdot\rceil = 47$ bits; one gain bit selects between two
-per-tensor magnitude centroids, for 48 bits per 24-weight block --- exactly
-2 bits per weight of payload.
+per-tensor magnitude centroids. The total is 48 bits per 24-weight
+block: exactly 2 bits per weight of payload.
 
 In the integer coordinate system $\sqrt{8}\,\Lambda_{24}\subset\mathbb{Z}^{24}$,
 lattice points are characterized by three simultaneous conditions tied to the
@@ -18,8 +18,8 @@ binary Golay code $\mathcal{G}_{24}$ \citep{conway1999sphere}: a parity
 condition (all coordinates even, or all odd), a Golay condition (the support
 of coordinates in a fixed residue class mod~4 must be a codeword), and a sum
 condition mod~8. The practical consequence is that every lattice point in
-the ball belongs to one of 301 \emph{classes} --- orbits under coordinate
-permutation and admissible sign changes --- each defined by a Golay codeword
+the ball belongs to one of 301 \emph{classes}, orbits under coordinate
+permutation and admissible sign changes, each defined by a Golay codeword
 weight, a multiset of coordinate magnitudes, and a coset (even/odd). The
 index format enumerates classes and, within a class, arrangements and signs,
 in a fixed order; the resulting 48-bit-per-block format~v1 is bijective and
@@ -42,8 +42,9 @@ a decoded-field representation that the kernel reads directly
 a 9-bit class identifier, the gain bit, a 24-bit sign mask, and four 24-bit
 coordinate masks selecting which coordinates carry each magnitude level.
 Reconstruction of coordinate $i$ is then a table lookup of the class's level
-values, a mask test per level, and a sign flip --- identical instruction
-sequences for every lane regardless of class, hence zero warp divergence.
+values, a mask test per level, and a sign flip. The instruction sequence
+is identical for every lane regardless of class, hence zero warp
+divergence.
 The per-class tables (level values, shell norms, arrangement counts) total a
 few kilobytes and live in constant memory. Because every point of a given
 shell has the same norm, the normalization factor between the lattice
@@ -68,13 +69,13 @@ either a weak test or dead code; both stop the line.
 
 \item \textbf{Line-by-line numerical verification before any timing.} Every
 benchmark first checks every output row of every arm against an independent
-f64 reference --- $1\,105\,920$ rows for the full-model benchmark --- with
+f64 reference ($1\,105\,920$ rows for the full-model benchmark), with
 worst-case errors of $2.2$--$3.0\times10^{-8}$, consistent with f32
 accumulation. No arm is timed until it is proven to compute the right thing.
 
 \item \textbf{Invariant locks upstream.} The lattice code itself is pinned
-by exact combinatorial invariants --- the kissing number $196\,560$, the
+by exact combinatorial invariants: the kissing number $196\,560$, the
 theta-series coefficients, and the exact class-cardinality sum
-$N(13)=280\,974\,212\,784\,720$ --- which no incorrect enumeration constraint
+$N(13)=280\,974\,212\,784\,720$, which no incorrect enumeration constraint
 can reproduce.
 \end{itemize}

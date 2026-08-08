@@ -4,15 +4,17 @@
 \textbf{Protocol.} All quality numbers come from one harness on one machine
 (NVIDIA L40S), f16 on both sides of every comparison, with token-level
 fingerprints printed on each result line and required to match across arms:
-perplexity fingerprint \texttt{3f1baca9033bf251} (WikiText-2 test, context
-4096, 12 windows), MMLU fingerprint \texttt{65dcd53655e8bfa5} (2\,280
-questions, micro-averaged --- the paper convention; macro-averaging inflates
-the quantized arm's deficit and is reported nowhere here). The harness is
-validated by its FP16 arm: MMLU $70.32 \pm 1.28$ against the original
-paper's 70.2 for the same model. The quantized artifact is the sealed
-1.77~GB file --- 47-bit indices $+$ 1 gain bit, produced by Spherical GPTQ
-with input rotation and 131k tokens of C4 calibration --- and the evaluation
-scores the file's bytes, not an in-memory reconstruction.
+perplexity fingerprint \texttt{3f1baca9033bf251} (WikiText-2
+test~\citep{wikitext2016}, context 4096, 12 windows), MMLU
+fingerprint \texttt{65dcd53655e8bfa5} (2\,280 questions sampled 40 per
+subject from a fixed seed~\citep{mmlu2021}, micro-averaged, the original
+paper's convention; macro-averaging inflates the quantized arm's deficit
+and is reported nowhere here). The harness is validated by its FP16 arm:
+MMLU $70.32 \pm 1.28$ against the original paper's 70.2 for the same
+model~\citep{qwen3_2025}. The quantized weights are the sealed artifact
+(47-bit indices $+$ 1 gain bit, produced by Spherical GPTQ with input
+rotation and 131k tokens of C4 calibration), and the evaluation scores
+files, not in-memory reconstructions.
 
 \begin{table}[t]
 \centering
@@ -21,50 +23,92 @@ scores the file's bytes, not an in-memory reconstruction.
 \toprule
  & FP16 & AWQ 4-bit & LLVQ (no kernel) & LLVQ fused (ours) \\
 \midrule
-disk & 8.04 GB & 2.67 GB & \textbf{1.77 GB} & \textbf{1.77 GB} \\
+disk & 8.04 GB & 2.67 GB & 1.77 GB & \textbf{1.41 GB}$^{\ddagger}$ \\
 VRAM & 8.04 GB & 5.30 b/param$^{\dagger}$ & 8.04 GB & \textbf{2.60 GB / 5.15 b/param} \\
 throughput & 43.5 tok/s & ---$^{\dagger}$ & 43.5 tok/s & \textbf{88.4 tok/s} \\
 ppl (WikiText-2) & 12.2369 & 13.5207 ($\times$1.105) & 16.9422 ($\times$1.384) & 16.9358 ($\times$1.384) \\
 MMLU micro (\%) & 70.32 $\pm$ 1.28 & 70.04 $\pm$ 1.25 & 55.59 $\pm$ 1.35 & 55.70 $\pm$ 1.35 \\
 \bottomrule
 \end{tabular}
-\caption{The final campaign, Qwen3-4B, single harness, matching token
-fingerprints across arms. $^{\dagger}$AWQ runs in its own engine: its
-quality is directly comparable (same harness, same fingerprints), its
-speed is not, and its VRAM figure is its own engine's accounting.
-Data: \texttt{docs/data/campagne-finale.csv}.}
+\caption{The 4B campaign, single harness, matching token fingerprints
+across arms. $^{\dagger}$AWQ runs in its own engine: its quality is
+directly comparable (same harness, same fingerprints), its speed is not,
+and its VRAM figure is its own engine's accounting. $^{\ddagger}$Column 4's
+quality is scored on the 1.41~GB file with the int8 embedding pre-baked;
+its speed and VRAM are measured from the 1.77~GB sealed file with the same
+int8 quantization applied at load. The two paths produce bit-identical
+tensors (verified against the pre-baked bytes on real rows); they are not
+the same bytes on disk. Data: \texttt{docs/data/campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
 
-\textbf{The kernel and format are quality-free.} Columns 3 and 4 of
-Table~\ref{tab:campaign} serve the \emph{same file}: perplexity 16.9358 vs
-16.9422 and MMLU $55.70$ vs $55.59$ (same questions, same windows, same
-fingerprints) are within noise. The $2.03\times$ throughput and
-$3.09\times$ VRAM reduction cost nothing in quality --- they are pure
-systems work.
+\textbf{What the serving stack does and does not change.} Columns 3 and 4
+serve the same quantized linears. The layout transcoding is proved a
+bijection of the decoded content on all 150{,}681{,}600 blocks of the
+artifact, every row of every arm is verified against an f64 reference
+before any timing (\S\ref{sec:decoder}), and the fused and dense engines
+emit identical greedy tokens up to a tie-break-level divergence. The
+quality scores themselves run through the dense evaluation path; what the
+table shows directly is the cost of the int8 embedding, the one lossy
+change on the serving path: 16.9358 versus 16.9422 perplexity and $55.70$
+versus $55.59$ MMLU, both within sampling noise. The $2.03\times$
+throughput and $3.09\times$ VRAM reduction ride on content proved
+bit-identical plus an embedding change measured to be free.
 
 \textbf{Memory accounting, stated once and used everywhere.} Comparisons
 are in bits per parameter over the \emph{whole model, embedding included}.
 Per-weight rates over the quantized linears alone overstate compression
 badly on small models (the 4B's embedding is 9.7\% of its parameters), and
 they silently mix denominators when set against other methods' figures. On
-this accounting the served footprint is 5.15~b/param --- below the official
+this accounting the served footprint is 5.15~b/param, below the official
 AWQ 4-bit checkpoint's 5.30 in its own engine.
 
 \textbf{What 2 bits costs.} Against FP16 the price is $\times1.384$
 perplexity and $-14.6$ points of MMLU. The AWQ arm makes the comparison
-sharp: at 4 bits, quality is essentially free ($\times1.105$,
-$-0.3$~points). On a 4B model, 4-bit dominates 2-bit on every axis except
-disk; we say so plainly, and \S\ref{sec:limitations} discusses where the
-2-bit point can still win.
+sharp: at 4 bits on this model, quality is essentially free
+($\times1.105$, $-0.3$~points). On a 4B, 4-bit dominates 2-bit on every
+axis except disk; we say so plainly, and \S\ref{sec:limitations} discusses
+where the 2-bit point can still win.
 
-\textbf{One scale data point.} The same protocol on Qwen3-8B yields
-$\times1.267$ perplexity degradation at 2.0436 b/weight --- less degradation
-than the 4B at fewer bits. One point is not a law, but it moves in the
-direction the 2-bit thesis needs: the target regime is the 70B-class model
-that 4 bits cannot fit into a given memory class at all.
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+ & FP16 & AWQ 4-bit & LLVQ fused, int8 heads (ours) \\
+\midrule
+disk & 16.38 GB & 6.10 GB & \textbf{3.16 GB} \\
+VRAM & 16.38 GB & 6.10 GB / 5.96 b/param$^{\dagger}$ & \textbf{5.45 GB / 5.32 b/param} \\
+throughput & 26.6 tok/s & ---$^{\dagger}$ & \textbf{69.3 tok/s} \\
+ppl (WikiText-2) & 8.9899 & 9.4211 ($\times$1.048) & 10.9682 ($\times$1.220) \\
+MMLU micro (\%) & 76.08 $\pm$ 1.21 & 73.01 $\pm$ 1.26 & 65.63 $\pm$ 1.31 \\
+\bottomrule
+\end{tabular}
+\caption{The 8B campaign, same harness, same fingerprints, same codebook
+and calibration configuration as the 4B, so that model size is the only
+variable. $^{\dagger}$Same caveats as Table~\ref{tab:campaign}; the AWQ
+VRAM figure is validated against the size of the official checkpoint
+(6.099~GB). Qwen3-8B unties its embedding from its output head, so the
+serving path quantizes both tables to int8 (two device buffers); the cost
+is a perplexity change in the fourth decimal. Data:
+\texttt{docs/data/tableau-8b.csv}.}
+\label{tab:campaign8b}
+\end{table}
+
+\textbf{The scale point.} Table~\ref{tab:campaign8b} is the paper's second
+model, requantized under the exact 4B configuration. Three movements
+matter, and they all point the same way. The 2-bit degradation falls with
+scale, on both axes: $\times1.385 \to \times1.220$ perplexity,
+$-14.7 \to -10.6$ MMLU points. The 4-bit baseline starts paying:
+indistinguishable from FP16 at 4B ($-0.3$ points), it loses $3.1$ points
+at 8B. And the quality gap between the two quantizations halves, from
+14.5 to 7.5 points, while the 2-bit model overtakes AWQ on the memory
+axes it lost at 4B-scale accounting: 5.45~GB served versus 6.10, and a
+file $1.9\times$ smaller. At 8B the choice between 4 and 2 bits is no
+longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
+disk. Data: \texttt{docs/data/echelle-4b-8b.csv}.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
-its billed cost (\texttt{docs/data/jobs.csv}); the entire measurement
-campaign --- integration, ablations, negative results included --- billed
-\$5.04.
+its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind
+this paper (integration, ablations, negative results, both models) billed
+\$19.82, of which \$12.61 is the 8B requantization.

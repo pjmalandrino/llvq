@@ -4,30 +4,38 @@
 We list these in the order a skeptical reader should weigh them.
 
 \textbf{The MMLU deficit is real, reproduced, and unresolved.} $-14.6$
-points against FP16, reproduced three times across two machines. The
-per-subject profile shows the mechanism: abstract algebra and accounting
-fall to 25\% --- exactly chance --- while history, law and psychology hold
-above 80\%. Two-bit quantization damages \emph{reasoning} far more than
-\emph{recall}, and a perplexity corpus mostly measures recall; perplexity
-alone should never be presented as evidence of quality at this rate. The
-leading surviving suspect is calibration volume (${\sim}131$k tokens versus
-the original paper's 6\,100 sequences, roughly $100\times$ less); the
-original paper reports a $-9.5$-point drop under its protocol, so part of
-our deficit may be recoverable, but we have not closed the gap and do not
-claim we will.
+points against FP16 on the 4B, reproduced three times across two machines
+($-10.6$ on the 8B). The per-subject profile shows the mechanism: abstract
+algebra and accounting fall to 25\%, exactly chance, while history, law and
+psychology hold above 80\%. Two-bit quantization damages \emph{reasoning}
+far more than \emph{recall}, and a perplexity corpus mostly measures
+recall; perplexity alone should never be presented as evidence of quality
+at this rate. We measured and eliminated the obvious suspects rather than
+leaving them open. Output-side rotation: the original paper's own ablation
+puts its marginal effect near zero once input rotation is present. A
+free-magnitude variant with a closed-form scale solve (the configuration
+the original paper's appendix recommends, as we read it): $\times1.99$
+perplexity at full depth, killed by a pre-registered gate. Calibration
+volume and corpus: a deliberate-contamination oracle (calibrating on the
+evaluation text itself) recovers at most $1.6\%$ of perplexity on a
+proxy, so scaling calibration cannot close the gap by itself. What remains
+untested: reasoning-weighted calibration composition, learned per-column
+scales (the original paper's fine-tuning, which reports $-9.5$ points
+under its protocol), and low-rank compensation adapters.
 
-\textbf{One model, one GPU, greedy decoding.} Everything end-to-end is
-Qwen3-4B on a single L40S with batch size 1 and greedy decode. Batched
-serving changes the arithmetic-intensity regime that makes the kernel
-memory-bound; larger models change the embedding share and the tail-column
-overhead. We measured one scale point (8B, quality only), not a scaling
-law.
+\textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
+Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
+decode. Batched serving changes the arithmetic-intensity regime that makes
+the kernel memory-bound; larger models change the embedding share and the
+tail-column overhead. Two scale points are not a scaling law.
 
-\textbf{The scale argument is a bet, not a result.} On the 4B itself, the
+\textbf{The scale argument is two points, not a law.} On the 4B, the
 honest summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
-every axis except disk. The case for the 2-bit point is the model class
-that does not otherwise fit --- and that case rests on the single 8B
-degradation point and on extrapolation.
+every axis except disk. The 8B moves every relevant number in the 2-bit
+direction (Table~\ref{tab:campaign8b}): the quality gap halves and the
+memory verdict flips. Whether the trend continues to the 70B class, the
+regime the sovereignty argument actually cares about, is measurable with
+this methodology and is not measured here.
 
 \textbf{AWQ speed is not comparable.} The AWQ arm was never executed in our
 engine (its quality was, under matching fingerprints). Cross-engine
