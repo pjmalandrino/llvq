@@ -20,6 +20,11 @@
 //! window pre-scaled by `1/N` so the running sum stays O(1) instead of
 //! growing with the sample count; the conversion to f64 happens once, at the
 //! factorization.
+//!
+//! ## What survives a factorization, and what does not
+//!
+//! `H` itself — as opposed to its factor — is read in exactly one place: the
+//! end-of-layer closed-form scale solve. See [`needs_dense_hessian`].
 
 use crate::model::{Act, Capture, Qwen3};
 use candle_core::{DType, Device, Tensor};
@@ -153,6 +158,16 @@ pub struct Report {
     pub seconds: f64,
     /// Where the time went. See [`Phases`].
     pub phases: Phases,
+    /// Bytes of **dense Hessian** held past its own factorization, for one
+    /// transformer block — the largest such total over the blocks of the run.
+    ///
+    /// Zero on the published path, and that is the point: see
+    /// [`needs_dense_hessian`]. It is reported rather than merely asserted
+    /// because it is the one memory figure in this loop that is *exact* —
+    /// `8·n²` per activation, no allocator, no estimate — and because a run
+    /// that starts keeping them again should say so in its own log rather
+    /// than be discovered by a machine that runs out of RAM.
+    pub dense_hessian_bytes: u64,
 }
 
 impl Report {
@@ -271,6 +286,52 @@ pub fn effective_rotation_seed(base: u64, block: usize, act: Act) -> u64 {
     base ^ ((block as u64) << 32) ^ (act.index() << 16)
 }
 
+/// Whether the dense Hessian has to outlive its own factorization.
+///
+/// The GPTQ loop reads `H` itself — as opposed to [`GptqFactor`], which is
+/// what the block loop actually consumes — in exactly **one** place: the
+/// end-of-layer closed-form scale solve of Algorithm 3, which runs under
+/// [`GptqConfig::group_scales`] or [`GptqConfig::design_c`]. Everywhere else
+/// the factor is sufficient, so keeping `H` alive buys nothing.
+///
+/// It is not free. One copy is `8·n²` bytes, and the four activations of a
+/// Qwen3-32B block are `n = 5120, 8192, 5120, 25600`, i.e. **6.2 GB** — as
+/// much again as the four factors that were computed from them. Both flags
+/// are off on the published path.
+///
+/// **One source of truth on purpose**, the same discipline as
+/// [`effective_rotation_seed`]: the site that decides to *keep* `H` and the
+/// site that decides to *read* it must not be able to disagree. A `None`
+/// handed to a solve that needs it would not corrupt anything — the assertion
+/// in `quantize_layer` refuses it — but a `Some` the solve never reads is
+/// silent, which is the direction that had gone unnoticed. Consulting the
+/// flags once, here, and letting the read site pass the `Option` straight
+/// through makes both directions unwriteable.
+///
+/// ⚠️ This trims the *plateau*, not the *peak*. The factorization's own
+/// transients (`faer` holds `H`, its `L`, the inverse, and a second `L` at
+/// once) are what set the high-water mark of a block, and they need `H` by
+/// construction.
+pub fn needs_dense_hessian(cfg: &GptqConfig) -> bool {
+    cfg.group_scales || cfg.design_c
+}
+
+/// What one activation contributes to the quantization of a block.
+///
+/// The matrices sharing that activation — q/k/v, and gate/up — all read this
+/// one entry, which is the whole point of factoring per activation rather
+/// than per matrix.
+struct ActFactor {
+    /// What the block loop consumes.
+    factor: GptqFactor,
+    /// The dense `n × n` Hessian, `Some` **exactly** when
+    /// [`needs_dense_hessian`] is true.
+    hessian: Option<Vec<f64>>,
+    /// The basis `factor` and `hessian` were built in, `None` for the natural
+    /// one. The weights are rotated into it and back out again per matrix.
+    rotation: Option<Rotation>,
+}
+
 /// Receives each matrix's codes as it is quantized, so a whole model never has
 /// to be held in memory at once — 151 M blocks of Qwen3-4B would be 14 GB of
 /// lattice points.
@@ -369,10 +430,21 @@ pub fn quantize_model_capturing(
 
         // ---- factor once per activation, not once per matrix ----
         let tp = std::time::Instant::now();
-        let mut factors: HashMap<Act, (GptqFactor, Vec<f64>, Option<Rotation>)> =
-            HashMap::new();
+        let keep_hessian = needs_dense_hessian(cfg);
+        let mut kept_bytes = 0u64;
+        let mut factors: HashMap<Act, ActFactor> = HashMap::new();
         for act in Act::ALL {
-            let mut h = cap.acc[&act].to_f64()?;
+            // Taken out of the capture map, not borrowed from it: the device
+            // accumulator is `n × n` f32 (2.6 GB for `down_proj` at 32B) and
+            // is dead the instant it has been read out. Holding all four of
+            // them until the end of the block, as indexing did, keeps that
+            // memory alive across the factorizations — the moment the block
+            // needs it most.
+            let mut h = cap
+                .acc
+                .remove(&act)
+                .expect("every activation is inserted once, above")
+                .to_f64()?;
             let n = act.width(model.config());
             // Quantizing in a rotated basis means the Hessian has to move
             // with it: H' = Q H Qᵀ, since x' = Q x.
@@ -382,16 +454,37 @@ pub fn quantize_model_capturing(
             if let Some(q) = &rot {
                 q.rotate_hessian(&mut h);
             }
-            let f = GptqFactor::new(&h, n, damping)
+            let factor = GptqFactor::new(&h, n, damping)
                 .map_err(|e| anyhow::anyhow!("block {t}, {act:?}: {e}"))?;
-            factors.insert(act, (f, h, rot));
+            // `h` is dropped here unless a downstream reader exists — the
+            // decision is taken from the flags, so re-enabling `group_scales`
+            // or `design_c` restores it with no other change.
+            let hessian = if keep_hessian {
+                kept_bytes += (n as u64) * (n as u64) * std::mem::size_of::<f64>() as u64;
+                Some(h)
+            } else {
+                None
+            };
+            factors.insert(
+                act,
+                ActFactor {
+                    factor,
+                    hessian,
+                    rotation: rot,
+                },
+            );
         }
+        report.dense_hessian_bytes = report.dense_hessian_bytes.max(kept_bytes);
 
         report.phases.factor += tp.elapsed().as_secs_f64();
 
         // ---- quantize the seven matrices ----
         for act in Act::ALL {
-            let (factor, hmat, rot) = &factors[&act];
+            let ActFactor {
+                factor,
+                hessian,
+                rotation: rot,
+            } = &factors[&act];
             for name in act.consumers() {
                 let tp = std::time::Instant::now();
                 let lin = model.blocks[t].linear_mut(name);
@@ -481,8 +574,11 @@ pub fn quantize_model_capturing(
                     factor,
                     // The Hessian feeds the end-of-layer closed-form scale
                     // solve, which both flags run (design C then re-projects
-                    // its result back onto the gain grid).
-                    (cfg.group_scales || cfg.design_c).then_some(hmat.as_slice()),
+                    // its result back onto the gain grid). It is `Some`
+                    // exactly when [`needs_dense_hessian`] said to keep it —
+                    // the flags are consulted there and nowhere else, so the
+                    // two sites cannot drift apart.
+                    hessian.as_deref(),
                     &make,
                     cfg,
                     threads,

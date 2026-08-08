@@ -123,7 +123,7 @@ Le squelette est complet ; le binaire qu'il lance ne l'est pas.
 | **C2** `bin/oracle` sur CUDA | la preuve **a été refaite sur ce backend** : l'étape 0 ci-dessus (`l4x1`, 0,01 $) rend `max \|Δhidden\| = 0.000e0`, comme en Metal. Reste à rejouer à chaque changement de backend — c'est ce que `cmd_oracle` (`ops/run.py:505`) existe pour faire | ✅ |
 | **C4** reprise sur checkpoint | les runs longs. Le timeout par défaut d'un Job est **30 min** ; la durée max n'est pas documentée | ❌ |
 | **C5** chemin local pour `LLVQ_MODEL` | le montage `Volume(type="model")`. **Fait le 2026-08-08** : `Checkpoint::fetch` tranche *syntaxiquement* entre répertoire et dépôt (`/`, `./`, `../`, `~/` en tête), donc `--mount-model` fonctionne — sans une ligne de Python | ✅ |
-| **C6** mémoire du quantifieur | 12,4 Go de facteurs coexistent à 32B, dont 6,2 jamais lus quand `group_scales` est off | ❌ |
+| **C6** mémoire du quantifieur | 12,4 Go de facteurs coexistent à 32B, dont 6,2 jamais lus quand `group_scales` est off. **Fait le 2026-08-08**, mais l'énoncé était trompeur : ces 6,2 Go sont sur le **plateau**, pas sur le pic. Mesuré sur 0,6B, −166 Mio de plancher et **pic inchangé** — au 32B, ~0,96 Go de pic hôte (1,4 %), et non « 70,6 → 64,4 ». Le vrai gain est ailleurs, trouvé en chemin : les accumulateurs f32 libérés dès `to_f64()`, soit **3,10 Go de VRAM** au 32B, sur la ressource qui était à 80 % au dé-risquage | ✅ |
 | C3 chargement bf16 | *devenu optionnel* : `cpu-performance` a 256 Go de RAM, le modèle tient en f32 | — |
 
 **C4 est le plus structurant.** La calibration est séquentielle — le bloc *t*
