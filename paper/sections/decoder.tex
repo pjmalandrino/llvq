@@ -53,13 +53,22 @@ Reconstruction of coordinate $i$ is then a table lookup of the class's level
 values, a mask test per level, and a sign flip. The instruction sequence
 is identical for every lane regardless of class, hence zero warp
 divergence.
-The per-class tables (level values, shell norms, arrangement counts) total a
-few kilobytes and live in constant memory. Because every point of a given
-shell has the same norm, the normalization factor between the lattice
-integer coordinates and the unit direction is a per-class constant folded
-into the same table; the union-of-shells rescaling that the original paper's
-Appendix~G flags as the hardware cost of the multi-shell codebook reduces to
-one multiply per block.
+The per-class table is small: 512 records of 24 bytes---five level values
+and a level count---so 12~KB, sized at 512 rather than at the class count so
+that a 9-bit class field cannot index out of bounds. It is passed as an
+ordinary \texttt{const}-qualified global pointer and read through L1, not
+placed in CUDA constant memory. That is a deliberate choice rather than an
+omission: constant memory is optimized for broadcast and serializes distinct
+addresses issued by one warp, and here the 32 lanes of a warp hold 32
+different classes by construction, which is the worst case for that bank.
+The instrumented attribution of \S\ref{sec:attribution} bears the choice
+out: the table gather costs 0.041~ms, 2\% of the kernel's gap to its DRAM
+floor and the smallest term measured. Because every point of a given shell
+has the same norm, the normalization factor between the lattice integer
+coordinates and the unit direction is a per-class constant folded into the
+stored level values themselves; the union-of-shells rescaling that the
+original paper's Appendix~G flags as the hardware cost of the multi-shell
+codebook reduces to one multiply per block.
 
 \subsection{Verification discipline}
 

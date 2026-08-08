@@ -9,9 +9,10 @@ test~\citep{wikitext2016}, context 4096, 12 windows), MMLU
 fingerprint \texttt{65dcd53655e8bfa5} (2\,280 questions sampled 40 per
 subject from a fixed seed~\citep{mmlu2021}, micro-averaged, the original
 paper's convention; macro-averaging inflates the quantized arm's deficit
-and is not reported here). The harness is validated by its FP16 arm:
-MMLU $70.32 \pm 1.28$ against the original paper's 70.2 for the same
-model~\citep{qwen3_2025}. The quantized weights are the sealed artifact
+and is not reported here). The harness is validated by its FP16 arm: MMLU
+$70.32 \pm 1.28$ on Qwen3-4B~\citep{qwen3_2025} against the 70.2 that the
+original paper's Table~6 reports for the same
+model~\citep{llvq2026}. The quantized weights are the sealed artifact
 (47-bit indices $+$ 1 gain bit, produced by Spherical GPTQ with input
 rotation and 131k tokens of C4 calibration), and the evaluation scores
 files, not in-memory reconstructions.
@@ -108,6 +109,83 @@ axes it lost at the 4B scale: 5.45~GB served versus 6.10, and a file
 $1.9\times$ smaller. At 8B the choice between 4 and 2 bits is no
 longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
 disk. Data: \texttt{docs/data/echelle-4b-8b.csv}.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lcrrrrr}
+\toprule
+ & payload & \multicolumn{3}{c}{Qwen3-4B} & \multicolumn{2}{c}{Qwen3-8B} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}
+Method, no fine-tuning & b/weight & ppl & $\times$ & MMLU & ppl & $\times$ \\
+\midrule
+FP16 baseline, original paper & 16 & 12.41 & --- & 70.2 & 8.99 & --- \\
+FP16 baseline, our harness & 16 & 12.2369 & --- & 70.32 & 8.9899 & --- \\
+\midrule
+QuIP\#/E8P12 & 2.000 & 21.15 & 1.70 & 48.6 & --- & --- \\
+QTIP (3INST) & 2.000 & 17.04 & 1.37 & 57.4 & 11.17 & 1.24 \\
+LLVQ shape--gain, 0 gain bits & 2.000 & 17.05 & 1.37 & 60.7 & 10.19 & 1.13 \\
+LLVQ shape--gain, 2 gain bits & 2.000 & 15.54 & 1.25 & 59.3 & 10.82 & 1.20 \\
+\midrule
+Ours: $\Lambda_{24}(12)$, 1 gain bit & 2.000 & 16.9422 & 1.38 & 55.59 & 10.9682 & 1.22 \\
+\bottomrule
+\end{tabular}
+\caption{Our sealed-artifact arms next to the 2-bit results the original
+paper reports for the same two models: WikiText-2 at 4096 context, no
+fine-tuning. Rows 1 and 3--6 are transcribed from its Table~6; rows 2 and 7
+are the FP16 and LLVQ arms of Tables~\ref{tab:campaign}
+and~\ref{tab:campaign8b}. \emph{Payload} is code rate only: 48 bits per
+24-weight block on every 2-bit row, per its Table~8. Each $\times$ is the
+ratio to its own harness's FP16 baseline, at two decimals --- the published
+perplexities carry four significant figures, so a third decimal would be
+false precision. The original paper reports no MMLU for the 8B, and no
+error bars anywhere.}
+\label{tab:lit}
+\end{table}
+
+\textbf{Against the published 2-bit methods.} Tables~\ref{tab:campaign}
+and~\ref{tab:campaign8b} compare against FP16 and against a deployed 4-bit
+checkpoint. Table~\ref{tab:lit} adds the comparison a reader of the original
+paper will make anyway. Rate is matched exactly rather than approximately:
+every 2-bit row spends 48 bits per 24-weight block, and the configurations
+differ only in how those bits split between direction index and gain
+($48+0$, $47+1$ and $46+2$ in the original paper's Table~8). Ours is that
+table's $47+1$ line, the one its own distortion study ranks first, while its
+LLM results use the $48+0$ and $46+2$ variants. What our sealed file adds on
+top of that payload --- full-precision tail columns and per-row scales,
+about 8\% on the 4B and less on the 8B, whose \texttt{down\_proj} is exactly
+block-aligned and carries no tail --- sits outside this comparison: the
+original paper never states its own tail policy, so the two artifacts cannot
+be set against each other at that level. The code rate can be, and it is
+equal.
+
+Absolute perplexities do not cross harnesses, so the ratio to each harness's
+own FP16 baseline is the comparable quantity. The two baselines differ by
+1.4\% on the 4B (12.41 against our 12.2369) and agree on the 8B to the two
+decimals the original paper prints (8.99 against our 8.9899). The verdict is
+split, and the second half of it is not in our favour. At 4B we sit level
+with the configurations nearest ours: $\times1.38$ against $\times1.37$ for
+the 0-gain-bit variant and $\times1.37$ for QTIP, behind the 2-gain-bit
+variant at $\times1.25$. At 8B we are behind both LLVQ variants ---
+$\times1.22$ against $\times1.13$, which on a shared baseline is 0.78
+perplexity points --- and we improve on QTIP alone. On MMLU, where only the
+4B has published points, the shortfall is wider than perplexity suggests:
+55.59 against the 60.7 of the 0-gain-bit configuration, on a baseline our
+harness reproduces to 0.12 points.
+
+We claim nothing about the statistical significance of these differences.
+The original paper publishes no error bars; the $\pm$ in
+Tables~\ref{tab:campaign} and~\ref{tab:campaign8b} is single-arm sampling
+error on 2\,280 questions, not a paired test; and across papers no paired
+test is available at all, the question samples being different. What the
+matched payload does establish is that the 8B shortfall is not bought back
+by a rate advantage, and that the excess our file carries on disk is
+smallest exactly where the shortfall is largest. We do not explain it. The
+suspect that looks most natural --- roughly $100\times$ less calibration
+data --- is the one \S\ref{sec:limitations} bounds, on a perplexity proxy,
+at an effect too small to be the whole story, and that bound does not
+transfer to MMLU at all.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
 its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind

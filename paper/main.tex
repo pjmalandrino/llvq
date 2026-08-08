@@ -14,6 +14,9 @@
 \usepackage{xcolor}
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+% Long URLs in the availability statement must wrap; hyperref alone breaks
+% them only at a few characters and overfills the line.
+\usepackage{xurl}
 
 \graphicspath{{figures/}}
 
@@ -74,6 +77,7 @@ measurement campaign billed \$19.82 of GPU time.
 \input{sections/limitations}
 \input{sections/related}
 \input{sections/conclusion}
+\input{sections/availability}
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

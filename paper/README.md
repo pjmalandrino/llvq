@@ -37,8 +37,9 @@ The paper rebuilds from the measurements, like everything else in the repo:
 ```
 main.tex            preamble, title, abstract
 sections/*.tex      one file per section
-refs.bib            bibliography (TODO inside: verify the LLVQ entry's
-                    exact title against the PDF)
+refs.bib            bibliography (provenance header inside: every field
+                    checked 2026-08-08, six entries were wrong, two soft
+                    spots named rather than hidden)
 scripts/make_figures.py
 figures/            generated — not committed
 ```

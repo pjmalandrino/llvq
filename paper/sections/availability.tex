@@ -1,0 +1,51 @@
+\section{Availability}
+\label{sec:availability}
+
+The implementation, the CSV files behind every table and figure in this
+paper, and the source of the paper itself are at
+\url{https://github.com/pjmalandrino/llvq}, dual-licensed MIT or
+Apache-2.0. The numbers reported here are those of commit \texttt{469e843}.
+The lattice core, the exact nearest-neighbour search and the artifact format
+are dependency-free Rust and can be read end to end; \texttt{candle} and
+\texttt{cudarc} enter only through the model-side and kernel crates.
+
+The quantized Qwen3-4B artifact is published at
+\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit}, as both files
+behind columns 3 and 4 of Table~\ref{tab:campaign}: the sealed 1.77~GB
+\texttt{qwen3-4b-llvq.bin} and the 1.41~GB \texttt{q4b-e8.llvq} with the
+int8 embedding pre-baked. \emph{The Qwen3-8B artifact is not published}; it
+is reproducible from the repository at the cost recorded in
+\texttt{docs/data/jobs.csv} (\$12.61 of GPU time). The format is neither
+GGUF nor AWQ nor safetensors: no third-party runtime reads it, and the only
+reader that exists is the \texttt{llvq-artifact} crate in this repository.
+Serving additionally requires the rotation kernel of
+\S\ref{sec:limitations}, which is CUDA-only.
+
+An artifact carries its own tokenizer and configuration, so on an NVIDIA GPU
+the served configuration of Table~\ref{tab:campaign} and the two evaluations
+replay from the file alone, with no checkpoint and no network:
+
+{\small
+\begin{verbatim}
+LLVQ_FUSED_LAYOUT=planes14 LLVQ_EMBED=q8 cargo run --release \
+  -p llvq-llm --features cuda --bin fusedrun -- <artifact>
+
+LLVQ_DTYPE=f16 cargo run --release \
+  -p llvq-llm --features cuda --bin ppl -- 4096 12 cuda <artifact>
+
+cargo run --release \
+  -p llvq-llm --features cuda --bin mmlu -- <artifact> cuda 40
+\end{verbatim}
+}
+
+\noindent
+\texttt{LLVQ\_FUSED\_LAYOUT} selects the VRAM layout of \S\ref{sec:layouts}
+(\texttt{planes14}, the default, or \texttt{slot32});
+\texttt{LLVQ\_EMBED} selects the embedding precision (\texttt{f16}, the
+default, or \texttt{q8}); \texttt{LLVQ\_DTYPE} pins the evaluation dtype,
+which has to be set because \texttt{ppl} defaults to f32 and \texttt{mmlu}
+to f16, so the two compare different objects unless it is. Each binary
+prints its resolved configuration, and the two evaluations print a
+fingerprint of the scored token stream: numbers from different runs are
+comparable only when those fingerprints match, which is the discipline every
+table in this paper is held to.
