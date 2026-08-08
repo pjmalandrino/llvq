@@ -32,6 +32,15 @@ du FP16 — c'était l'état du projet lundi.
 formes, mêmes noyaux) : vitesse et VRAM identiques par construction,
 recoupé par le protocole miniature (42,8 tok/s sur le checkpoint).
 
+⁴ **Deux fichiers, un seul contenu — à ne pas confondre.** La qualité de la
+colonne 4 est mesurée sur `q4b-e8.llvq` (**1,406 Go**), qui porte
+l'embedding int8 pré-cuit ; sa vitesse et sa VRAM sont mesurées sur
+`qwen3-4b-llvq.bin` (1,770 Go) avec `LLVQ_EMBED=q8`, qui quantifie le même
+embedding au chargement. Les deux produisent un contenu **bit-identique**
+(vérifié contre les octets d'`embedq` sur des lignes réelles), mais ce ne
+sont pas les mêmes octets sur disque — une version antérieure de ce document
+écrivait « un seul et même fichier de 1,77 Go », c'était faux.
+
 ## Les trois lectures du tableau
 
 **1. Le noyau et le format valent ×2,03 et ÷3,09 — gratuits en qualité.**

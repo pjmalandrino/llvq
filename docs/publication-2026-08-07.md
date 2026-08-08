@@ -20,7 +20,7 @@ contre 5,30**.
 
 | | FP16 | AWQ 4 bits | LLVQ sans noyau | **LLVQ planes14+noyau+q8** |
 |---|---|---|---|---|
-| disque | 8,04 Go | 2,67 Go | **1,77 Go** | **1,77 Go** |
+| disque | 8,04 Go | 2,67 Go | **1,77 Go** | **1,41 Go**² |
 | VRAM | 8,04 Go | 5,30 b/param¹ | 8,04 Go | **2,60 Go · 5,15 b/param** |
 | vitesse | 43,5 tok/s | —¹ | 43,5 tok/s | **88,4 tok/s** |
 | ppl wikitext | 12,2369 | 13,5207 (×1,105) | 16,9422 (×1,384) | **16,9358 (×1,384)** |
@@ -28,6 +28,10 @@ contre 5,30**.
 
 ¹ Dans son propre moteur ; jamais exécuté dans le nôtre — vitesse non
 comparable, VRAM = sa propre comptabilité (5,302 b/param).
+² Disque de la colonne 4 = `q4b-e8.llvq` (1,406 Go, embedding int8
+pré-cuit), le fichier sur lequel sa qualité est mesurée ; sa vitesse et sa
+VRAM viennent de `qwen3-4b-llvq.bin` + `LLVQ_EMBED=q8` (quantification au
+chargement, contenu bit-identique). Deux fichiers, un contenu.
 Données : [`data/campagne-finale.csv`](data/campagne-finale.csv).
 
 **La lecture honnête en trois axes** : le noyau+format+embedding valent
