@@ -1,9 +1,38 @@
-# L'expérience de mesure — prête à lancer, non lancée
+# L'expérience de mesure — ~~prête à lancer, non lancée~~ **lancée et close**
 
-> **État au 2026-08-04.** Le code est écrit, l'image est construite, le pilote a
-> tourné et a recalé les estimations. **L'expérience elle-même n'est pas
-> lancée** : la priorité est passée au portage CUDA du noyau fusé, qui est la
-> contribution du projet et qui est aujourd'hui prisonnier d'Apple.
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. L'expérience a été
+> lancée les 06, 07 et 08, sur les quatre bras, et elle est close.** Résultats :
+> [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md) (4B, seize
+> cellules) et [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md)
+> (le point d'échelle). Journaux :
+> [`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt),
+> [`mesures/campagne-finale-bras4-2026-08-07.txt`](mesures/campagne-finale-bras4-2026-08-07.txt),
+> [`mesures/campagne-8b-qualite-2026-08-08.txt`](mesures/campagne-8b-qualite-2026-08-08.txt).
+>
+> **Ce que ce protocole avait bien anticipé** : l'asymétrie du bras 4 (il ne
+> s'ajoutait que sur la vitesse), la nécessité d'un checkpoint AWQ complet à
+> cause des 72 tenseurs portés dont AWQ replie les échelles, et la réserve
+> « on mesure la reconstruction d'AWQ, pas son arithmétique fusionnée » — qui
+> est restée telle quelle jusqu'à la campagne finale.
+>
+> **Ce qu'il faut corriger dans le corps** : la case « mémoire » du bras 4,
+> déclarée **vide et incalculable** au §2, **a été remplie par une mesure** —
+> le noyau ayant été branché le 06, le bras fusé occupe **2,96 Go** de carte
+> (2,60 avec l'embedding q8) contre 8,04 pour le bras dense, sur les mêmes
+> octets et à texte identique. La phrase « l'écart entre le ×4,54 de disque et
+> le ×1,00 de mémoire est, à l'octet près, le noyau qui n'est pas branché »
+> décrit donc un état révolu : cet écart est refermé.
+>
+> **Le verdict de l'expérience** : le 4 bits (AWQ officiel) ne perd rien en
+> capacités sur un 4B (−0,28 pp de MMLU) et nous en perdons 14,7. Nous gagnons
+> le disque et, depuis l'embedding int8, la VRAM. À 8B le déficit fond de
+> moitié.
+
+> **État au 2026-08-04, conservé pour la généalogie.** Le code est écrit, l'image
+> est construite, le pilote a tourné et a recalé les estimations.
+> **L'expérience elle-même n'est pas lancée** : la priorité est passée au
+> portage CUDA du noyau fusé, qui est la contribution du projet et qui est
+> aujourd'hui prisonnier d'Apple.
 >
 > **Mise à jour du 2026-08-05 : le protocole passe de trois bras à quatre.** Le
 > quatrième est le noyau fusé lui-même, et il est **conditionné à l'achèvement
@@ -112,6 +141,15 @@ tableau.
 > mais **un plancher calculé n'est pas un pic mesuré** et n'a rien à faire dans
 > la même colonne. L'écart entre le ×4,54 de disque et le ×1,00 de mémoire est,
 > à l'octet près, le noyau qui n'est pas branché.
+>
+> ✅ **Levé le 2026-08-06 : la case a été remplie par une mesure, pas par un
+> calcul.** Le noyau ayant été branché, le bras 4 occupe **2,96 Go de carte
+> contre 8,04 pour le bras dense** — ÷2,72, sur les mêmes octets, à texte
+> identique jusqu'à un tie-break au token 89 ; **2,60 Go** avec l'embedding
+> int8 au chargement. La règle qui a produit cette réserve était la bonne et
+> elle a tenu : on a attendu d'avoir un pic **mesuré**.
+> Sources : [`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt),
+> [`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt).
 
 ### Taille sur disque
 

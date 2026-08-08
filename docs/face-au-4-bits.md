@@ -1,5 +1,52 @@
 # Face au 4 bits — la comparaison qui manquait (2026-08-01)
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce document a été
+> remplacé sur ses deux conclusions par des mesures faites depuis. Le lire
+> comme une généalogie, pas comme un état des lieux.** Référence à jour :
+> [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md) et
+> [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md).
+>
+> 1. **« Le 4 bits nous domine partout sauf le disque » : à moitié vrai
+>    aujourd'hui.** Confirmé et durci sur la **qualité** — l'adversaire mesuré
+>    n'est plus un q4 MLX supposé mais **l'AWQ officiel de Qwen**, passé dans
+>    notre propre harnais : **70,04 ± 1,25 de MMLU contre 55,70 ± 1,35**, et
+>    ×1,105 de perplexité contre notre ×1,384
+>    ([`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt)).
+>    Mais **renversé sur la VRAM** depuis le 07 : **5,15 b/param contre 5,30**
+>    pour l'AWQ réel, modèle entier, embedding compris. La ligne « ~1-2 % de
+>    dégradation » du tableau ci-dessous était une supposition ; la vraie
+>    valeur est **−0,28 pp de MMLU**, c'est-à-dire encore pire pour nous.
+> 2. **« Le format qui va vite ne rentre pas mieux que du 4 bits ; le format
+>    qui rentre mieux ne va pas vite » : ❌ RÉSOLU, et par une voie qu'aucune
+>    des trois sorties de ce document ne proposait.** Ce n'était pas un mur de
+>    physique mais de représentation : les masques *one-hot* de `Slot32` ne
+>    payaient rien, ils coûtaient. Recodés en **plans de bits binaires**
+>    (`Planes14`), le format est **plus petit ET plus rapide** — 4,804 b/poids
+>    contre 5,510, et **1,14× plus vite à contenu décodé identique**
+>    ([`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt)).
+>
+> **Statut des trois sorties proposées en fin de document :**
+> **n°1 (fermer l'écart de RAM par le lm_head) ✅ faite** — embedding int8 en
+> production, −0,37 Go, aucune perte mesurable.
+> **n°2 (rendre `Grouped32` rapide) ⬜ jamais tentée et sans objet** :
+> `Grouped32` n'a pas été accéléré, il a été **contourné** par `Planes14`/
+> `Planes12x`, qui atteignent 4,804 et 4,342 b/poids **au-dessus de 2× le
+> FP16** là où `Grouped32` plafonnait à 0,69×. L'échelle s'est arrêtée à
+> `Golay70` (3,589 b/poids, **1,31× — écarté**, sous le critère de 1,6×).
+> **n°3 (assumer le créneau) ⬜ toujours ouverte**, et c'est là que le dossier
+> a bougé : à 8B le déficit de qualité fond (−10,56 pp contre −14,73) et
+> l'écart au 4 bits est divisé par deux
+> ([`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md)).
+>
+> ⚠️ **Les tableaux 70B de ce document sont périmés en plus d'être
+> hétérogènes** (le document le dit déjà de lui-même plus bas) : ils sont
+> écrits sur `Slot32` et sur des plafonds `lcap` jamais passés sur
+> l'artefact. Le plafond **L≤4 sec est mort en qualité** (+4,75 % de
+> perplexité mesurés au swap,
+> [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B6), donc
+> **toutes les lignes `L ≤ 4` et `L ≤ 3` ci-dessous sont sans débouché
+> produit** — l'overlay épars les remplace, à qualité exacte.
+
 > Tout ce qui précède comparait LLVQ au **FP16**. C'est la mauvaise référence :
 > personne ne déploie du FP16 en local. La vraie question est *contre du 4 bits*,
 > et elle n'avait jamais été posée. Voici la réponse, mesurée sur la même
@@ -31,7 +78,7 @@ GGUF aurait exigé un script Python absent de l'installation Homebrew.
 > |---|---|---|
 > | RAM | 3,28 Go *(calculé)* | **9,79 Go de pic RSS en CPU, 17,41 Go en Metal** — 3,28 décrivait `Slot32`, que `bin/run` ne charge jamais |
 > | débit | ~78,5 tok/s *(projeté)*, ×1,65 contre nous | **2,2 à 7,6 tok/s mesurés**, soit **×17 à ×58** contre nous : `bin/run` n'a pas de cache KV |
-> | qualité du q4 | « ~1-2 % de dégradation » | **jamais mesurée**, ni ici ni ailleurs. La case est **vide, pas faible** |
+> | qualité du q4 | « ~1-2 % de dégradation » | **jamais mesurée** au 2026-08-04, ni ici ni ailleurs. La case est **vide, pas faible**. ✅ **Remplie le 2026-08-06** — et pas par le q4 MLX, par l'**AWQ officiel de Qwen** dans notre propre harnais : **ppl ×1,105 et MMLU 70,04 ± 1,25**, contre ×1,384 et 55,59 chez nous. Le « ~1-2 % » supposé valait en réalité **−0,28 pp de MMLU**, sous sa propre erreur d'échantillonnage : l'adversaire ne perd rien ([`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt)) |
 >
 > Les 2,39 Go et les 129,8 tok/s du bras MLX n'ont eux non plus **aucune trace**
 > conservée (le 2,39 est un pic d'allocateur MLX, pas un RSS). Seule la ligne
@@ -89,13 +136,26 @@ problème à résoudre — pas un détail d'optimisation.
 ## Ce que ça ne dit pas
 
 - **Le noyau reste une contribution réelle.** Un décodeur Leech multi-coquilles
-  fusé qui bat le FP16 de 2,07× n'existe nulle part ailleurs, le papier compris
-  (mono-coquille, plus lent que QTIP). Ce qui est réfuté, c'est le *produit* sur
-  un 4B, pas l'ingénierie.
-- **La qualité n'est pas mesurée sur des tâches.** ×1,386 de perplexité contre
-  ~1-2 % pour le 4 bits est un écart massif, mais aucun MMLU n'a été passé, ni
-  chez nous ni sur le 4 bits de cette machine.
-- **Le régime batché n'est pas testé** — et c'est celui d'un cloud.
+  fusé qui bat le FP16 de **2,03–2,09×** (Metal, plage inter-processus mesurée ;
+  1,87–2,16× sur L40S selon le layout) n'existe nulle part ailleurs, le papier
+  compris (mono-coquille, plus lent que QTIP). Ce qui est réfuté, c'est le
+  *produit* sur un 4B, pas l'ingénierie.
+  🕳️ *Ce point disait « 2,07× », valeur ponctuelle. Trois invocations
+  consécutives du banc non modifié rendent 2,029× · 2,050× · 2,080× à octets et
+  erreurs identiques : une valeur ponctuelle n'a pas de contenu ici*
+  ([`mesures/thesis-temoin-2026-08-04.txt`](mesures/thesis-temoin-2026-08-04.txt)).
+- ~~**La qualité n'est pas mesurée sur des tâches.**~~ ✅ **Elle l'est depuis le
+  2026-08-06, des deux côtés, dans un seul harnais** : MMLU 5-shot micro,
+  2 280 questions, empreinte de tokens `65dcd53655e8bfa5` identique sur les
+  trois bras — f16 **70,32 ± 1,28**, AWQ 4 bits **70,04 ± 1,25**, nous
+  **55,59 ± 1,35**. Le « ~1-2 % » supposé pour le 4 bits valait en réalité
+  **−0,28 pp**, sous sa propre erreur d'échantillonnage
+  ([`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt)).
+  L'écart n'est donc pas « massif », il est **écrasant**, et dans le sens que
+  ce document redoutait.
+- **Le régime batché n'est pas testé** — et c'est celui d'un cloud. *(Toujours
+  vrai au 2026-08-08 : `tv_slot` et `tv_planes` sont des matvecs, un token à la
+  fois ; la perplexité passe d'ailleurs par le chemin dense pour cette raison.)*
 
 ## Les trois sorties possibles
 

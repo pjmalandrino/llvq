@@ -1,5 +1,43 @@
 # Pistes sur les cinq facteurs — verdicts d'exploration (2026-08-05)
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Les quatre expériences
+> gratuites de §6 ont toutes été faites, et le suspect n°1 que cette note
+> promeut a été réfuté.**
+>
+> - **§1 « ce qui est mort » tient toujours**, et s'allonge : la rotation de
+>   sortie et le décodage spéculatif restent morts ; le **codage entropique**
+>   est désormais clos une seconde fois, par la structure et non par zstd —
+>   l'entropie de l'index vaut **46,6536 bits/bloc contre 47 payés**
+>   ([`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B5). Le
+>   « lm_head int8 surdimensionné » a été mesuré et c'est l'inverse : le gain
+>   bout-en-bout est **énorme** (48,7 → 88,5 tok/s), mais **pas pour la raison
+>   annoncée** — le noyau q8 remplace un chemin candle qui recopiait 778 Mo de
+>   vocabulaire par token, ce que ni cette note ni le P5 du dépôt n'avaient vu
+>   ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+> - **§2, suspect n°1 (design C) : ❌ RÉFUTÉ à pleine profondeur** — 0,6B,
+>   28 blocs, une variable : **×1,99 de perplexité** contre le chemin publié.
+>   Deuxième occurrence du motif « proxy local meilleur, composition
+>   désastreuse » après `group_scales`
+>   ([`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M3).
+>   Réserve maintenue : c'est *notre lecture* du design C qui est réfutée.
+> - **§2, suspect n°2 (calibration) : ❌ plafonné.** L'oracle ne rend que
+>   −1,6 %, la courbe de volume −1,2 % pour ×13. Le run ×100 est enterré
+>   ([`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B2/B3).
+> - **§4, e4/e8 : ✅ mesurés.** int8 **gratuit** (−0,02 % de ppl, −365 Mo) et
+>   **en production** depuis le 07 ; int4 **écarté sur le 4B** (+1,52 % de ppl).
+>   Le « chaînon manquant » — un chemin d'exécution int8 — **existe** : deux
+>   noyaux, un seul buffer, zéro spill (§M1 des verdicts de nuit).
+> - **§6, l'ordre par dollar : les quatre premières lignes sont faites**, la
+>   cinquième est tranchée (design C réfuté, calibration enterrée). Ce qui
+>   reste des suspects du déficit MMLU : la config de gain, la composition du
+>   corpus, la compensation post-hoc, le FT des échelles — et **l'axe
+>   d'échelle**, qui est le seul à avoir bougé : à 8B le déficit tombe à
+>   −10,56 pp et l'écart au 4 bits est divisé par deux
+>   ([`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md)).
+> - **§5, VRAM** : réglé ailleurs — `Planes14` en production à 4,804 b/poids,
+>   `Planes12x` mesuré à 4,342 mais **non branché**, `Golay70` mesuré et
+>   **écarté** à 1,31× ([`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md) §3).
+
 > Deuxième exercice d'exploration (après
 > [`pistes-format-vram-2026-08-05.md`](pistes-format-vram-2026-08-05.md) qui
 > couvre le format VRAM). Méthode : 4 lecteurs + 3 vérificateurs adversariaux

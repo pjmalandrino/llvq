@@ -1,5 +1,21 @@
 # LLVQ en Rust — plan d'implémentation
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan est exécuté
+> jusqu'à la Phase 6 comprise.** G1 à G6 sont verts ; la Phase 6 est faite sur
+> Metal **et** sur CUDA, et son gate est franchi : le noyau multi-coquilles
+> m ≤ 12 est fonctionnel, exact ligne à ligne contre la référence f64 sur les
+> 1 105 920 lignes du modèle, et il rend **2,03–2,09× le FP16** sur Metal,
+> **2,14×** sur L40S avec le layout binaire `Planes14`. Il est **branché** dans
+> le modèle (`fused_cuda` + `bin/fusedrun`) : 48,7 tok/s dans 2,96 Go contre
+> 43,6 dans 8,04. Le point 1 du gate (« reproduire le mono-couche à ≥ 1,36× »)
+> a été sauté : on est parti directement sur le multi-coquilles.
+> État complet : [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md).
+> ⚠️ Les phrases « le noyau multi-couches n'existe pas / n'existe nulle part »
+> décrivaient l'**état de l'art publié**, pas le nôtre, et c'est toujours ainsi
+> qu'il faut les lire — mais chez nous, il existe. Ce qui reste ouvert du plan
+> est l'**étape 5 de la Phase 5** : le benchmark métier d'extraction
+> documentaire, jamais construit.
+
 > **Papier : [Leech Lattice Vector Quantization for Efficient LLM Compression — arXiv:2603.11021](https://arxiv.org/abs/2603.11021)** (v2, 7 juillet 2026)
 > van der Ouderaa, van Baalen, Whatmough, Nagel — Qualcomm AI Research.
 

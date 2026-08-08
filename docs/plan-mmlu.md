@@ -1,5 +1,27 @@
 # Plan MMLU — ce qu'il faut faire, et pourquoi dans cet ordre
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan est exécuté, et
+> trois fois plutôt qu'une.** Résultats, tous en agrégation **micro** (celle du
+> papier), 2 280 questions sur 14 042, empreinte de tokens imprimée :
+>
+> | | f16 | AWQ 4 bits | LLVQ 2 bits |
+> |---|---|---|---|
+> | Qwen3-4B (L40S, 08-06) | 70,32 ± 1,28 | **70,04 ± 1,25** | **55,59 ± 1,35** |
+> | Qwen3-8B (L40S, 08-08) | 76,08 ± 1,21 | 73,01 ± 1,26 | **65,52 ± 1,31** |
+>
+> Le premier run (Mac, 08-02) rendait 70,42 ± 1,28 et 56,09 ± 1,36 : la
+> baseline se reproduit à 0,10 pp entre deux machines et deux sessions, ce qui
+> **certifie le harnais**. Le piège que ce plan existait pour éviter — publier
+> du **macro** en croyant faire du **micro** — a bien été commis une fois, puis
+> corrigé le 08-02 ; il ne s'est pas reproduit.
+>
+> **Le verdict** : le déficit est de −14,73 pp à 4B et de **−10,56 pp à 8B**,
+> et l'écart au 4 bits est **divisé par deux** (14,45 → 7,49 pp) — le déficit
+> fond avec l'échelle, sur les deux métriques.
+> Sources : [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md),
+> [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md),
+> [`mmlu-micro-2026-08-02.log`](mmlu-micro-2026-08-02.log).
+
 > La perplexité mesure la surprise moyenne sur du texte brut. Elle ne dit
 > **rien** de ce qu'un modèle sait encore faire. Notre ×1,386 de perplexité est
 > un chiffre honnête et une information incomplète : on ne sait pas si le

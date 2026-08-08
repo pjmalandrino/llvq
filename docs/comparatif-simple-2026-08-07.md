@@ -75,12 +75,22 @@ candle puis au chronomètre : son chemin `broadcast_matmul` **recopie les
 est dans leur source). Notre noyau lit les 413 Mo compressés une fois, sans
 copie.
 
-Les deux formulations honnêtes, chiffres en main :
+Les **trois** formulations honnêtes, chiffres en main :
 - **×2,02 contre le moteur de référence tel que tout le monde l'utilise**
   (87,7 contre 43,4 tok/s, mesuré dans le même job) ;
 - **~×1,4 contre ce même moteur si on lui corrigeait sa copie** (estimé par
   recomposition des phases mesurées — le corriger réellement est possible
-  et le chiffre deviendrait alors une mesure).
+  et le chiffre deviendrait alors une mesure) ;
+- **×1,12 à tête identique** — f16 des deux côtés, donc la copie de candle
+  payée par les deux bras : **48,6 contre 43,5 tok/s**, relevé dans le même
+  job. C'est le seul des trois qui soit **à la fois mesuré bout-en-bout et
+  attribuable au noyau Leech seul**, et c'est celui qu'un relecteur exigera.
+
+⚠️ **Règle de publication : ne jamais donner le ×2,03 sans le ×1,12.** Le
+premier mesure ce que gagne un utilisateur ; le second mesure ce que vaut
+notre contribution. Les confondre est la faute que cette section existe pour
+empêcher. *(La « version technique » ci-dessus dit « ×2,03 du débit dense » :
+c'est vrai et incomplet — y ajouter « dont ×1,12 imputable au noyau ».)*
 
 Le gain n'est pas un artefact de comparaison : il vient d'avoir écrit le
 chemin que le moteur de référence n'a pas écrit — c'est précisément le

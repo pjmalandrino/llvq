@@ -5,7 +5,35 @@
 > atteins ta limite. Cette dernière n'est pas un aveu de faiblesse — c'est ce qui
 > rend le reste croyable.
 >
-> ⚠️ Chiffres à resynchroniser après le run MMLU.
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Le « chiffres à
+> resynchroniser après le run MMLU » de la version précédente est levé : le
+> MMLU est mesuré, et bien d'autres choses avec.** Trois répliques de cette
+> fiche sont désormais fausses ou incomplètes, et un interlocuteur qui a lu le
+> dépôt les corrigera à ta place :
+>
+> 1. **« Le 4 bits nous domine partout sauf le disque »** — vrai jusqu'au
+>    2026-08-06, à moitié faux depuis. La **VRAM est passée de notre côté** :
+>    **5,15 b/param contre 5,30** pour l'AWQ réel, modèle entier. La bonne
+>    ouverture est désormais : *« on gagne le disque et la mémoire, on perd la
+>    qualité, et on la perd largement — 55,7 contre 70,0 de MMLU sur un 4B. »*
+>    ([`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md))
+> 2. **Le noyau est branché**, sur CUDA, depuis le 06 : **48,7 tok/s dans
+>    2,96 Go contre 43,6 dans 8,04**, mêmes tokens. Le « ~78,5 projeté » de la
+>    table ci-dessous est mort — il ne se cite plus.
+>    ⚠️ **Le ×2,03 souvent entendu n'est pas le noyau** : ~25 ms/token viennent
+>    du remplacement du chemin `lm_head` de candle. **Le chiffre du noyau est
+>    ×1,12, à tête identique.** Ne jamais donner l'un sans l'autre —
+>    ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+> 3. **`Slot32` n'est plus le layout de référence** : c'est **`Planes14`**,
+>    4,804 b/poids, 1,14× plus rapide à contenu décodé identique. `Planes12x`
+>    (4,342) est mesuré mais **non branché** ; `Golay70` (3,589) est **mesuré et
+>    écarté**, 1,31×, sous le critère de 1,6×.
+>
+> Et **la meilleure réplique du dossier est nouvelle** : *« le déficit fond avec
+> l'échelle. À 8B on perd 10,6 points de MMLU au lieu de 14,7, et l'écart au
+> 4 bits est divisé par deux — 14,45 → 7,49. Deux points ne font pas une loi,
+> et je ne l'extrapolerai pas à 70B. »*
+> ([`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md))
 
 ---
 
@@ -14,9 +42,17 @@
 **Ne laisse jamais quelqu'un d'autre sortir la comparaison au 4 bits.** Sors-la
 toi, en premier, dans les deux premières minutes :
 
-> « Sur un 4B, le 4 bits nous domine partout sauf le disque. C'est mesuré, même
-> machine, même jour. Ce qui tient, c'est le noyau et le taux de change
-> bits↔vitesse — pas le produit sur cette taille de modèle. »
+> « Sur un 4B, le 4 bits nous écrase en qualité : 70,0 contre 55,7 de MMLU,
+> mesuré côte à côte dans notre propre harnais, mêmes questions, même
+> empreinte de tokens. On gagne le disque et, depuis le layout binaire et
+> l'embedding int8, la mémoire — 5,15 contre 5,30 bits par paramètre. Ce qui
+> tient, c'est le noyau et le taux de change bits↔vitesse ; le produit sur
+> cette taille de modèle, non. »
+
+*(Formulation d'avant le 2026-08-06, à ne plus utiliser : « le 4 bits nous
+domine partout sauf le disque ». Elle était vraie, elle ne l'est plus sur
+l'axe mémoire, et se faire corriger sur sa propre phrase d'ouverture coûte
+exactement ce que cette règle zéro cherche à acheter.)*
 
 Tout ce que tu diras après sera lu comme crédible. Si tu attends qu'on te le
 demande, tout ce que tu as dit avant devient suspect.
@@ -30,13 +66,27 @@ demande, tout ce que tu as dit avant devient suspect.
 | Baseline Qwen3-4B FP32, wiki, ctx 4096 | **12,2336** |
 | Notre 4B quantifié | **16,9617** à **2,1696** b/poids (**×1,386**) |
 | QTIP — le seuil à battre | **17,04** à 2,000 b/poids |
-| Le noyau, 252 matrices, un token | `Slot32` à **5,510** b/poids : **2,09× le FP16**, plage **[2,05–2,11]** |
-| RAM face au q4, **à convention identique poids seuls** | nous (`Slot32` + lm_head f16) **6,5245** b/poids · le q4 **4,5006** → **×1,45 contre nous** |
-| Débit bout en bout | MLX q4 **129,8 tok/s** · nous **~78,5** (projeté) |
+| MMLU, micro, 2 280 questions | f16 **70,32 ± 1,28** · AWQ 4 bits **70,04 ± 1,25** · nous **55,59 ± 1,35** |
+| Le noyau au banc, 252 matrices, un token | Metal `Slot32` **5,510** b/poids, **2,03–2,09×** selon l'invocation · L40S **`Planes14` 4,804 b/poids, 2,14×** |
+| VRAM face au 4 bits, **b/param modèle entier** | nous (`Planes14` + embedding int8) **5,15** · AWQ réel **5,30** → **nous devant, de 3 %** |
+| Débit bout en bout, L40S, mêmes octets | dense **43,6** · fusé **48,7 (×1,12)** · fusé + embedding q8 **88,4-88,5 (×2,03, dont ~25 ms de `lm_head` candle)** |
 | Lignes vérifiées contre référence f64 | **1 105 920**, pire erreur 3,4·10⁻⁸ |
+| Le point d'échelle (8B) | ppl **×1,220** et MMLU **−10,56 pp**, contre ×1,385 et −14,73 au 4B |
 
-Si tu ne dois en retenir que trois : **16,9617 / 2,03× [2,03–2,10] / 6,5245 contre
-4,5006.**
+Si tu ne dois en retenir que trois : **55,6 contre 70,0 de MMLU (notre
+faiblesse, à dire en premier) / ×1,12 et ÷2,72 bout-en-bout (le noyau) / 5,15
+contre 5,30 b/param (la VRAM, gagnée depuis le 07).**
+
+> 🕳️ **Ce que cette table disait avant le 2026-08-08, et pourquoi c'était
+> devenu faux.** Elle donnait « `Slot32` 2,09× [2,05–2,11] » comme *le* chiffre
+> du noyau (une invocation parmi trois, cf. précaution 1), « RAM 6,5245 contre
+> 4,5006, ×1,45 contre nous » (comptabilité poids seuls, avant l'embedding
+> int8 et avant `Planes14`) et « débit ~78,5 projeté » (une projection qui n'a
+> jamais existé comme mesure). Les trois sont remplacés ci-dessus par des
+> chiffres bout-en-bout mesurés sur les mêmes octets. La **précaution 2**
+> ci-dessous reste valable dans sa forme corrigée : la comparaison VRAM se dit
+> en **b/param modèle entier**, jamais « 5,51 contre 4,50 »
+> ([`errata-rapport-lot-a-2026-08-06.md`](errata-rapport-lot-a-2026-08-06.md)).
 
 > ⚠️ **Deux précautions attachées à ces deux lignes, à ne jamais laisser tomber.**
 >
@@ -49,14 +99,19 @@ Si tu ne dois en retenir que trois : **16,9617 / 2,03× [2,03–2,10] / 6,5245 c
 >    chiffre — cite le b/poids et le rapport, renvoie au journal pour les ms :
 >    `docs/mesures/k1-metal-2026-08-05.txt`.
 > 2. **Ne jamais reposer « 5,51 contre 4,50 ».** C'est un mélange de métriques
->    que le dossier a déjà corrigé une fois : 5,51 est la comptabilité `thesis`
->    des **projections** (payload + bases + queue f32 + échelles de ligne f32),
->    4,50 est le q4 sur **tous** ses poids, embedding quantifié compris. La
->    forme homogène est celle du tableau : **6,5245 contre 4,5006, ×1,45 contre
->    nous** (`docs/fiche-4b.md` §5.3), et la fourchette selon le `group_size` et
->    le périmètre retenus est **×1,16 à ×1,53** (`docs/plan-de-test-v2-cuda.md`
->    §4). Le 5,51 reste juste **pour décrire notre format** (§4) ; il n'est pas
->    un terme de comparaison.
+>    que le dossier a déjà corrigé deux fois : 5,51 est la comptabilité
+>    `thesis` des **projections** (payload + bases + queue f32 + échelles de
+>    ligne f32), et le 4,50 n'est même pas le bon adversaire — c'est le MLX q4,
+>    absent de la campagne. **La seule forme publiable est le b/param modèle
+>    entier, embedding compris : 5,15 (nous, `Planes14` + embedding int8)
+>    contre 5,30 (l'AWQ mesuré, dans son propre moteur)**
+>    ([`errata-rapport-lot-a-2026-08-06.md`](errata-rapport-lot-a-2026-08-06.md)).
+>    Les 4,804 et 5,510 b/poids restent justes **pour décrire nos layouts** ;
+>    ce ne sont pas des termes de comparaison.
+>    ⚠️ **Et ce verdict ne se transporte pas au 8B tel quel** : les têtes n'y
+>    sont pas liées, l'embedding pèse 15,2 % du modèle, et il a fallu étendre
+>    le q8 aux têtes déliées pour repasser devant — **5,323 contre 5,956**
+>    ([`tableau-8b-2026-08-07.md`](tableau-8b-2026-08-07.md)).
 
 ---
 

@@ -1,6 +1,13 @@
 # Protocole de mesure v2 — LLVQ 2 bits contre 4 bits contre FP16, Qwen3‑4B, sur HF Jobs / GPU NVIDIA
 
-**Statut : plan. Aucun chiffre de résultat ci‑dessous n'est une mesure de cette campagne.** Les valeurs citées sont soit des octets relevés sur disque ou sur le Hub, soit des mesures antérieures datées et sourcées, soit de l'arithmétique exacte sur des formes lues dans `config.json`, soit des coûts extrapolés de traces existantes et étiquetés comme tels.
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan a été exécuté : la campagne a eu lieu les 06, 07 et 08.** Résultats et non ce plan :
+> [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md) (4B, quatre bras, seize cellules),
+> [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md) (le point d'échelle) et
+> [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md) (photographie d'ensemble).
+> Verdict en une ligne : l'AWQ officiel est **indiscernable du f16** sur un 4B (−0,28 pp de MMLU) et nous perdons 14,7 pp ; nous gagnons le disque et, depuis l'embedding int8, la **VRAM** (5,15 contre 5,30 b/param). Le bras 4 (noyau fusé) n'est plus un bras « vitesse seulement » : il a été **branché**, donc il a une VRAM mesurée — 2,96 Go, ou 2,60 avec l'embedding q8.
+> ⚠️ Le §4.4 de ce plan exigeait de faire tourner `Grouped32` et `Flat32` **sur le modèle entier** : c'est fait depuis le 2026-08-05, dans un seul processus et une seule comptabilité ([`mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt)). La courbe bits↔vitesse existe, et elle est brutalement non linéaire.
+
+**Statut à la date de rédaction (2026-08-04) : plan. Aucun chiffre de résultat ci‑dessous n'est une mesure de cette campagne.** Les valeurs citées sont soit des octets relevés sur disque ou sur le Hub, soit des mesures antérieures datées et sourcées, soit de l'arithmétique exacte sur des formes lues dans `config.json`, soit des coûts extrapolés de traces existantes et étiquetés comme tels.
 
 Ce document **remplace** le plan v1 (`docs/plan-de-test-papier.md`) sur trois points : la cible matérielle, le bras adverse, et l'axe vitesse. Il **reprend** le reste en le citant.
 

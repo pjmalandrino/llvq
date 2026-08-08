@@ -10,8 +10,27 @@
 > ⚠️ **Toutes les attributions en millisecondes de ce document sont des
 > MODÈLES** (arithmétique posée sur les agrégats mesurés du
 > 2026-08-05), pas des mesures. C'est précisément le déficit que §5 corrige :
-> l'instrumentation qui transformerait ces bornes en chiffres n'existe pas
-> encore. Un modèle contredit par le premier job instrumenté doit céder.
+> l'instrumentation qui transformerait ces bornes en chiffres n'existait pas
+> encore *à la date de rédaction*. Un modèle contredit par le premier job
+> instrumenté doit céder.
+>
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. L'instrumentation existe
+> depuis le 06-07, et deux modèles de ce document ont dû céder.**
+> 1. **ε, le coût de lancement, est mesuré : 3,63 µs** — 252 × 3,63 = 0,915 ms,
+>    soit 15,8 % du bras LLVQ. Trois mesures indépendantes concordent
+>    (`bin/matvec` 1,85 µs de soumission CPU, `rotbench` 3,3 µs, `graphbench`
+>    3,63 µs). Et **le CUDA Graph n'en récupère que 18 %** : le coût de
+>    lancement n'est pas de la soumission, c'est la mise en route des blocs sur
+>    les SM ([`mesures/a3-graph-2026-08-06.txt`](mesures/a3-graph-2026-08-06.txt)).
+> 2. **Le premier poste du token n'était dans aucune des six dimensions
+>    auditées** : le `lm_head` de candle, **25,9 ms/token**, une copie
+>    transposée de 778 Mo du vocabulaire à chaque pas. Les blocs transformer
+>    entiers en pèsent 10,4. L'audit modélisait finement un poste qui n'était
+>    pas le goulot ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+> 3. Et le gisement principal n'a pas été pris par des coupes ALU mais par un
+>    **changement de représentation** : one-hot → plans de bits, `Planes14`,
+>    −0,706 b/poids et 1,14× à contenu décodé identique
+>    ([`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt)).
 >
 > ⚠️ Pendant l'audit, un chantier parallèle a écrit `rotate.cu`,
 > `llvq_rot.cuh`, `rotbench.rs` et modifié `gpu.rs`/`lib.rs` (fichiers non

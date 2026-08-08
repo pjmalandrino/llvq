@@ -1,5 +1,31 @@
 # Run de nuit — `Λ₂₄(12)` + 1 bit de gain sur Qwen3-4B
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce run a été lancé, il
+> est terminé, et c'est lui qui a produit le fichier publié.** Cette page est
+> désormais une fiche de préparation historique : les sections « Ce qu'on
+> attend », « Au réveil » et « Précautions » décrivent une action passée.
+>
+> **Ce qui est sorti** : le fichier scellé `leech1c12` — cap 12, 47 bits
+> d'index + 1 bit de gain = 48 bits/bloc — soit **981 Mo de projections,
+> 1,771 Go scellé**, et **16,9617 de perplexité à 2,1696 b/poids** (2,0702 en
+> comptabilité idéale de payload, 2,1595 sur tous les poids de projection : un
+> seul objet, trois dénominateurs). C'est le modèle publié sur Hugging Face.
+>
+> ⚠️ **L'attendu « ≈ 14,9 » de la section *Ce qu'on attend* n'était pas une
+> prédiction valide, et il ne faut pas lire son échec comme un défaut du
+> plafond.** Le 14,9104 servant de repère avait été mesuré à « 2,1117
+> b/poids » — un débit faux : la rétraction sphérique annulait le code de gain
+> et la magnitude était un flottant libre par bloc, soit **2,7338 b/poids
+> réels**. La comparaison opposait donc un modèle à 2,73 bits à un modèle à
+> 2,17. Diagnostic complet :
+> [`retraction-et-gain.md`](retraction-et-gain.md).
+> Le garde-fou écrit ici — « une dégradation franche signalerait un problème
+> dans l'application du cap » — n'a **pas** été déclenché : le cap fonctionne,
+> c'est le repère qui était faux.
+>
+> ✅ Les trois mises à jour demandées en fin de page (README, CLAUDE.md,
+> `mail-qualcomm-draft.md`) ont été faites, et le mail est parti.
+
 ## La commande
 
 ```bash

@@ -1,5 +1,34 @@
 # Battre le q4 — les pistes, notées (2026-08-03)
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Le « Rappel du score »
+> ci-dessous est périmé sur trois axes sur quatre, et le tier 0 est intégralement
+> mesuré.** Ce tableau remplace les statuts ; le corps est conservé pour la
+> généalogie des décisions.
+>
+> | piste | statut | source |
+> |---|---|---|
+> | **P1 mesurer l'adversaire** | ✅ **fait le 06.** Et le pari de la correction n°2 est **perdu** : l'adversaire mesuré n'est pas du RTN MLX mais **l'AWQ officiel de Qwen**, qui rend **70,04 ± 1,25 de MMLU** — indiscernable du f16 (−0,28 pp), pas ~63. Notre écart réel est **−14,45 pp**, pas −7 | [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md), [`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt) |
+> | **P2 barre d'erreur + damping** | ✅ **fait.** σ(graines) ≈ **0,15 ppl ≈ 0,7 %** sur 3 blocs de 0,6B ; damping **nul** sur 3e-3..3e-2. ⚠️ Ce σ ne se transfère pas au chiffre publié du 4B — autre modèle, 3 blocs contre 36 | [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B1 |
+> | **P3 oracle calibration** | ✅ **fait** : −1,6 % seulement, soit 29 % de l'écart. **La famille calibration est plafonnée** | idem §B2 |
+> | **P4 profil GPU** | ✅ **fait sur CUDA** : ε = 3,63 µs/lancement × 252 = 0,915 ms, 15,8 % du bras LLVQ ; le CUDA Graph n'en récupère que 18 % | [`mesures/a3-graph-2026-08-06.txt`](mesures/a3-graph-2026-08-06.txt) |
+> | **P5 embedding/lm_head int8 puis int4** | ✅ **int8 EN PRODUCTION** (`LLVQ_EMBED=q8`), sans perte mesurable. ❌ **int4 mort sur le 4B** : +1,52 % de perplexité. Le 8B, têtes déliées, tourne aussi en q8 | [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B4, [`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M1 |
+> | **P6 plafond L≤4** | ❌ **MORT en qualité** : +4,75 % de ppl au swap mesuré, repasse au-dessus de QTIP. Remplacé par l'overlay épars, qui est exact | idem §B6 |
+> | **P7 coupes ALU** | ⬜ non tentées telles quelles. Ce qui a payé à la place est le **changement de représentation** (one-hot → plans de bits), pas les coupes | — |
+> | **P8 brancher le noyau** | ✅ **fait le 06**, sur CUDA, via `bin/fusedrun`. **×1,12 à tête identique**, ÷2,72 en mémoire | [`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt) |
+> | **P10 calibration ×100** | ❌ **enterré par P3** (~25 $ économisés) | §B2 |
+> | **P12 rotation Input+Output** | ❌ morte : effet ≈ 0 à Input fixé (Table 9 relue) | [`pistes-facteurs-cles-2026-08-05.md`](pistes-facteurs-cles-2026-08-05.md) §1 |
+> | **P14 design C** | ❌ **RÉFUTÉ à pleine profondeur** : ×1,99 de perplexité sur 28 blocs. Le suspect n°1 du déficit MMLU est mort tel qu'implémenté | [`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M3 |
+> | **P20 le point 8B** | ✅ **fait le 08.** ×1,220 de ppl et **−10,56 pp de MMLU** contre −14,73 au 4B : le déficit fond, et l'écart au 4 bits est **divisé par deux** (14,45 → 7,49 pp) | [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md) |
+> | **P9 prefill hybride · P11 EoRA · P13 2 bits de gain · P15-P19 · P21-P24** | ⬜ non entamés | — |
+> | *Écartées* : leech2c11, lm_head Slot32, mixte, transcodage à la volée, spéculatif, colonnes saillantes | ✅ toujours écartées ; le **codage entropique** l'est désormais aussi *par la structure* (46,6536 bits d'entropie contre 47 payés) | §B5 |
+>
+> **Le score, remesuré (4B, un seul harnais L40S)** : disque **gagné** (1,41–1,77
+> contre 2,67 Go) · VRAM **gagnée depuis le 07** (5,15 contre 5,30 b/param) ·
+> vitesse **non comparable** (deux moteurs) · qualité **perdue largement**
+> (55,70 contre 70,04 de MMLU). L'« addition honnête » en fin de note visait
+> « parité plausible » en qualité : elle est **infirmée** — l'adversaire ne perd
+> rien à 4 bits sur un 4B.
+
 > Produit par une exploration multi-agents (7 explorateurs par axe + 2 critiques
 > adversariaux ; le 3ᵉ critique est tombé sur une limite de budget — la lentille
 > « faisabilité vs code » a été refaite à la main sur les points porteurs).

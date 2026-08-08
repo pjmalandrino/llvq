@@ -1,5 +1,38 @@
 # Plan d'action — bilan de ce qui est implémentable (2026-08-05)
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan a été exécuté :
+> 15 des 20 lignes sont tranchées, aucune n'est en cours.** Les colonnes
+> « apport » ci-dessous sont des *prévisions* du 05 ; la colonne ci-dessous est
+> ce que la mesure a rendu.
+>
+> | # | statut, et ce que la mesure a rendu | source |
+> |---|---|---|
+> | A1 | ✅ **fait le 06** : ×1,12 bout-en-bout à tête identique (48,7 vs 43,6 tok/s), ÷2,72 en mémoire — **pas** les +19-23 % annoncés, mais avec un gain mémoire qui n'était pas au tableau | [`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt) |
+> | A2 | ❌ **bloqué par candle** : la recopie 4× du cache KV est structurelle en 0.9 ; chiffrée, aucun code écrit | [`verdict-a2-repeat-kv-2026-08-06.md`](verdict-a2-repeat-kv-2026-08-06.md) |
+> | A3 | ⚠️ **mesuré, gain marginal** : ε = 3,63 µs × 252 = 0,915 ms (15,8 % du bras LLVQ), le graph n'en récupère que **18 %** — le reste n'est pas de la soumission | [`mesures/a3-graph-2026-08-06.txt`](mesures/a3-graph-2026-08-06.txt) |
+> | A4 | ✅ **fait le 06**, puis étendue à 4 bras le 07 et au 8B le 08 | [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md), [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md) |
+> | B1 | ✅ σ ≈ 0,15 ppl (0,7 %) sur 3 blocs ; damping nul | [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) |
+> | B2 | ✅ oracle = −1,6 % → **famille calibration plafonnée** | idem |
+> | B3 | ✅ −1,2 % pour ×13 de volume | idem |
+> | B4 | ✅ int8 gratuit, int4 à +1,52 % de ppl | idem |
+> | B5 | ✅ 8,7234 % de blocs violants (branche **haute**) ; entropie 46,6536 b/bloc | idem |
+> | B6 | ❌ **plafond L≤4 MORT** : +4,75 % de ppl | idem |
+> | C1 | ✅ **gagné ET branché** : `Planes14`, 4,804 b/poids, 2,14–2,16× | [`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt) |
+> | C2 | ⚠️ **mesuré au banc, NON branché** : `Planes12x`, 4,342 b/poids, 1,98×, overlay exact | [`mesures/e2-golay70-bench-2026-08-07.txt`](mesures/e2-golay70-bench-2026-08-07.txt) |
+> | C3 | ❌ **mesuré et écarté** : `Golay70`, 3,589 b/poids réels (pas ~3,06), **1,31×** — sous le critère de 1,6× | idem |
+> | D1 | ❌ **RÉFUTÉ à pleine profondeur** : ×1,99 de ppl sur 28 blocs. Le gate automatique a bloqué le run 4B de 4 h | [`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M3 |
+> | D2 | ❌ **enterré** par B2 (~25 $ économisés) | [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) |
+> | D3, D4 | ⬜ non entamés | — |
+> | E1 | ✅ **en production** : `LLVQ_EMBED=q8`, deux noyaux, zéro spill ; 5,15 b/param modèle entier au 4B, 5,323 au 8B avec têtes déliées | [`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M1, [`tableau-8b-2026-08-07.md`](tableau-8b-2026-08-07.md) |
+> | E2 (KV int8) | ⬜ non entamé | — |
+>
+> **Ce que le plan n'avait pas prévu, et qui a le plus payé** : le remplacement
+> du chemin `lm_head` de candle. Il vaut ~25 ms/token à lui seul — bien plus
+> que tout le reste du tableau réuni — et il a été trouvé en instrumentant,
+> pas en planifiant ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+> ⚠️ D'où la règle : le **×2,03** bout-en-bout ne se publie jamais sans le
+> **×1,12** à tête identique, qui est ce que le noyau Leech vaut seul.
+
 > Consolidation des deux notes d'exploration vérifiées
 > ([`pistes-format-vram-2026-08-05.md`](pistes-format-vram-2026-08-05.md) et
 > [`pistes-facteurs-cles-2026-08-05.md`](pistes-facteurs-cles-2026-08-05.md))

@@ -72,6 +72,16 @@ sans copie. D'où la formulation double : **×2,03 contre le moteur tel que
 tout le monde l'utilise ; ~×1,4 contre ce moteur corrigé de sa copie**
 (recomposition des phases). Phases bornées par synchronisation — elles
 s'attribuent, leur somme n'est pas un tok/s.
+
+> ⚠️ **Il existe un troisième chiffre, et c'est le seul qui soit à la fois
+> mesuré bout-en-bout et attribuable au noyau Leech : ×1,12.** C'est le rapport
+> **à tête identique** — f16 des deux côtés, la colonne « fusé tête f16 » du
+> tableau ci-dessus contre la colonne « dense f16 » — soit 48,6 contre
+> 43,5 tok/s dans le même job. Le ~×1,4 est une *recomposition* de phases
+> fencées ; le ×1,12 est un tok/s relevé. **Ne jamais publier le ×2,03 sans
+> lui.** Source : [`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt),
+> recoupé par [`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt)
+> (48,7 contre 43,6 dans un autre job).
 Données : [`data/phases.csv`](data/phases.csv).
 
 ## 4. La progression de la semaine

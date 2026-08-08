@@ -6,6 +6,21 @@
 > 36 divergences trouvées, 12 revérifiées, 1 réfutée, 1 partiellement vraie.
 >
 > **Ce document décrit l'état au 2026-08-03. Il périme dès qu'on corrige.**
+>
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Il a périmé, et c'est un
+> bon signe.** Ce qui a été refermé depuis, avec sa source :
+> le **mail est parti** (réécrit, chiffres rétractés purgés) ·
+> le **MMLU micro** est mesuré et la baseline reproduit le papier à 0,10 pp ·
+> la **qualité du 4 bits** n'est plus « vide, pas faible » : l'AWQ officiel
+> rend **70,04 ± 1,25** contre nos 55,59 ([`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md)) ·
+> la **barre d'erreur** existe (σ ≈ 0,15 ppl, mais sur 3 blocs de 0,6B, pas sur
+> le chiffre publié) · l'**oracle de calibration** a tourné et **plafonne** la
+> famille à −1,6 % ([`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md)) ·
+> **Grouped32 et Flat32 ont tourné sur le modèle entier** ([`mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt)) ·
+> et le **noyau fusé est branché** sur CUDA, ce que ce document listait comme
+> l'écart central entre le discours et l'objet
+> ([`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt)).
+> Restent ouverts : le benchmark métier, le CSR, et un σ sur le chiffre publié.
 
 **Verdict en une phrase :** le mail ne peut pas partir en l'état — il porte les
 quatre chiffres rétractés, sa question centrale repose sur une comparaison de

@@ -25,6 +25,17 @@ manifestement bien plus que les 1,18 ms du banc. **À instrumenter avant d'en
 faire un titre** ; le chiffre, lui, est mesuré (même job, bras dense en
 contrôle). En b/param modèle entier : **~5,15 — sous les 5,30 de l'AWQ réel**.
 
+> ✅ **Instrumenté le jour même (2026-08-07), et l'attribution est confirmée.**
+> Phases par token, fences device : `lm_head` **25,886 ms** sur le bras fusé à
+> tête f16 et 26,672 ms sur le bras dense, contre 10,439 ms pour tous les
+> blocs + normes. Candle recopie les 778 Mo du vocabulaire à chaque token — le
+> `TODO` est dans son propre code. Le noyau q8 ramène ce poste à ~0,6 ms.
+> **Conséquence de publication, et elle est contraignante : le ×2,03 mesure
+> une correction du moteur de référence, pas le noyau Leech.** À tête
+> identique — f16 des deux côtés — le même job rend **×1,12** (48,6 contre
+> 43,5 tok/s). **Ne jamais publier le ×2,03 sans le ×1,12 à côté.**
+> Source : [`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt).
+
 ## M2 ✅ — L'overlay épars tient : 4,342 b/poids à qualité exacte, 2,01×
 
 Banc à 4 bras, overlay prouvé exact sur les 1 105 920 lignes (pire erreur
@@ -41,6 +52,11 @@ devant l'ancien Slot32 **sur les deux axes**. L'échelle a deux points de
 fonctionnement : **Planes14 pour la vitesse, Planes12x pour les bits** —
 qualité identique par construction dans les deux cas. (Le memset large et la
 correction sont facturés au bras 12x ; comptabilité des pads unifiée.)
+
+⚠️ **Statut au 2026-08-08 : `Planes14` est le layout par défaut et il est
+branché ; `Planes12x` est validé au banc et n'est PAS branché.** Le choix
+produit entre les deux reste à prendre. Ne pas écrire « Planes12x est en
+production » — aucune mesure bout-en-bout ne l'a jamais exercé.
 
 ## M3 ❌ — Le design C est RÉFUTÉ à pleine profondeur : ×1,99 de dégradation
 
@@ -87,5 +103,20 @@ Le 4B n'est **pas parti** — le gate automatique l'a bloqué, comme prévu.
 | MLX q4 (repère) | — | 4,50 | — |
 
 **Planes12x + embedding q8 = 4,69 b/param : sous l'AWQ réel, à 4 % du MLX
-q4 — à qualité LLVQ strictement identique au fichier publié.** La marche
-suivante de l'échelle reste E2 (Golay, ~3,3 payload), non commencée.
+q4 — à qualité LLVQ strictement identique au fichier publié.**
+
+> 🕳️ **Correction du 2026-08-08 — cette section se terminait par « la marche
+> suivante de l'échelle reste E2 (Golay, ~3,3 payload), non commencée ».
+> C'était faux au moment même où c'était écrit** : E2 a été implémenté et
+> mesuré **le jour même**, et il est **écarté**. Le format tient — la
+> reconstruction est exacte sur les 150,7 M blocs, l'information Golay est bien
+> recomputable — mais le payload réel est **3,589 b/poids** (pas ~3,3 : la
+> fourchette venait de la branche haute de l'histogramme B5, et même elle était
+> optimiste) et le noyau ne rend que **1,31× vs FP16**, sous le critère de 1,6×
+> posé d'avance. Le décodage à double coset borne le noyau en ALU : 195 Go/s
+> effectifs, contre 425 pour `Planes14`.
+> **L'échelle s'arrête donc proprement à `Planes14` / `Planes12x`.** Pistes
+> notées et non poursuivies : spécialiser les warps par coset, ou ne payer le
+> XOR que côté pair.
+> Sources : [`mesures/e2-golay70-bench-2026-08-07.txt`](mesures/e2-golay70-bench-2026-08-07.txt),
+> [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md) §3 et §6.

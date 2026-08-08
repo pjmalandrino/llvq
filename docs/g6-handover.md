@@ -4,9 +4,17 @@
 > (G1–G5) est acquis et n'a pas besoin d'être relu : voir `CLAUDE.md` si un
 > détail manque.
 
-> **Un run tourne peut-être encore** : voir `docs/run-de-nuit.md`
-> (`Λ₂₄(12)` + 1 bit de gain sur Qwen3-4B, ~3,5 h). Son résultat n'est pas
-> bloquant pour G6 — il affine le débit publié, il ne change pas le noyau.
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. G6 est franchi et
+> dépassé.** Le noyau existe sur Metal (banc) **et sur CUDA** (branché dans le
+> modèle, `bin/fusedrun`), le layout de référence est `Planes14` et non
+> `Slot32`, et le run mentionné ci-dessous est terminé depuis le 2026-07-31.
+> Ce document reste utile pour son exposé du problème, pas pour son état.
+> À jour : [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md).
+
+> ~~**Un run tourne peut-être encore**~~ *(terminé)* : voir
+> `docs/run-de-nuit.md` (`Λ₂₄(12)` + 1 bit de gain sur Qwen3-4B, ~3,5 h). Son
+> résultat n'était pas bloquant pour G6 — il a affiné le débit publié, il n'a
+> pas changé le noyau. C'est lui qui a produit le fichier scellé publié.
 
 ## Où en est le projet
 

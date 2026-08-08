@@ -1,7 +1,35 @@
 # La rétraction annulait le code de gain — 2026-07-31
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Le diagnostic de ce
+> document tient intégralement ; sa question de conception ouverte a été
+> tranchée, et par la négative.**
+>
+> Le **design C** — rétraction libre + résolution close des échelles en fin de
+> couche, la sortie que ce document recommandait et que
+> [`pistes-facteurs-cles-2026-08-05.md`](pistes-facteurs-cles-2026-08-05.md)
+> avait promu **suspect n°1 du déficit MMLU** — a été implémenté, revu
+> adversarialement point par point, puis **mesuré à pleine profondeur : ×1,99
+> de perplexité** (0,6B, 28 blocs, une seule variable, 71,4249 contre 35,9806
+> au chemin publié). Le gate automatique a bloqué le run 4B de 4 h qui devait
+> suivre. Source :
+> [`verdicts-nuit-2026-08-07.md`](verdicts-nuit-2026-08-07.md) §M3, journal
+> [`mesures/m3-gate-design-c-2026-08-07.txt`](mesures/m3-gate-design-c-2026-08-07.txt).
+>
+> **Réserve honnête, et elle compte** : c'est *notre lecture* du design C qui
+> est réfutée. Le papier n'en donne pas le pseudo-code, et la fidélité au
+> présent document a été vérifiée en revue avant le run.
+>
+> **Ce que ce rouge apprend, et qui dépasse le design C** : c'est la **deuxième
+> occurrence** du motif « proxy local strictement meilleur, composition à
+> 28 couches désastreuse » — après `group_scales` (21,24 → 21,17 sur 3 blocs,
+> 44,66 → 53,60 sur 28). **La rigidité de norme de la rétraction sphérique est
+> porteuse à profondeur.** Ce n'est plus une anecdote, c'est un fait de méthode
+> du pipeline, et il condamne d'avance toute variante qui rend la magnitude
+> libre couche par couche.
+
 > Trouvé en préparant l'écriture de l'artefact 2 bits. Deux défauts de
-> comptabilité, corrigés ; une question de conception ouverte, **non tranchée**.
+> comptabilité, corrigés ; une question de conception ouverte, **non tranchée**
+> *(à la date de rédaction — tranchée le 2026-08-07, cf. bandeau)*.
 > Branche `g6-artefact`, rien n'est mergé.
 
 ## Résumé

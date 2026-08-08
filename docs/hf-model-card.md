@@ -15,6 +15,27 @@ tags:
   - llvq
 ---
 
+<!--
+  ÉTAT — revu le 2026-08-08.
+
+  Cette carte décrit `qwen3-4b-llvq.bin`, l'artefact EN LIGNE : embedding f16,
+  1,771 Go, sha256 9db213ef…c84b0. Les chiffres de vitesse et de VRAM de la
+  section Limitations sont mesurés SUR CES OCTETS, chemin fusé CUDA, layout
+  Planes14 par défaut : 48,7 tok/s dans 2,96 Go (5,89 b/param).
+
+  `LLVQ_EMBED=q8` (88,4-88,5 tok/s, 2,60 Go, 5,15 b/param) est un DRAPEAU DE
+  CHARGEMENT appliqué aux mêmes octets — pas un autre fichier — et il est
+  mentionné comme tel. En revanche la qualité de cette configuration a été
+  mesurée sur `q4b-e8.llvq` (1,406 Go, embedding int8 pré-cuit), qui n'est PAS
+  publié : contenu bit-identique vérifié, octets différents.
+
+  DÉCISION UTILISATEUR EN ATTENTE, à ne pas prendre en éditant ce fichier :
+  faut-il republier l'artefact HF en variante q8 pré-cuite ? Si oui, les
+  chiffres de tête de cette carte changent de dénominateur (1,406 Go, 5,15
+  b/param) et le sha256 ci-dessus devient faux. Tant que ce n'est pas tranché,
+  la carte reste écrite sur le fichier f16 réellement en ligne.
+-->
+
 # Qwen3-4B — LLVQ 2-bit
 
 Qwen3-4B quantized to **2.16 bits per weight** with Leech lattice vector
@@ -145,38 +166,69 @@ cache, no network. Verified with an empty environment:
 env -i HOME=/nonexistent PATH=/usr/bin:/bin ./target/release/run qwen3-4b-llvq.bin cpu 14
 ```
 
-**Budget the RAM before you download.** The reader decodes every weight into
+**Budget the RAM before you download.** `bin/run` decodes every weight into
 memory, so the resident model is 8.045 GB of f16 regardless of what the file
 costs on disk. Measured peak RSS: **9.79 GB on CPU, 17.41 GB on Metal**. A
-16 GB machine will swap on the Metal path. The size win here is on disk.
+16 GB machine will swap on the Metal path. On these two commands the size win
+is on disk only.
+
+The CUDA runner is the exception — it keeps the weights encoded and holds the
+same model in 2.96 GB of card memory (2.60 with `LLVQ_EMBED=q8`). It needs a
+Linux host with an NVIDIA card:
+
+```bash
+cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.bin 128
+```
 
 ## Limitations
 
-* **No inference speedup, and generation is slow.** The reader decodes weights
-  into memory and then does an ordinary matvec, and the runner has **no KV
-  cache** — it re-runs the whole prefix at every step, which is quadratic.
-  Measured: **2.2 to 7.6 tok/s**, decreasing with length. A fused
-  dequantize+matvec kernel **does exist** in this
-  project (`llvq-metal`, `bin/thesis`: **2.03–2.09× FP16 over three invocations** over
-  all 252 projections of this file, at 5.510 bits/weight in RAM; the ratio is
-  formed **round by round** and reported as the median and range over the 5
-  kept rounds — it is not the quotient of two best-of times; every output row
-  verified against an f64 reference; log in
-  `docs/mesures/k1-metal-2026-08-05.txt`) but it is
-  **not wired into the runner**, so this file gains nothing from it today.
-* **A plain 4-bit quantization beats this model on most axes.** On the same
-  machine, `mlx_lm` q4 group-64 is 2.263 GB on disk, generates far faster, and
-  its quality has never been measured against this one. This artifact wins on
-  disk size — ×1.28, i.e. 22 % smaller — and that is the claim.
+* **No speedup and no memory win on `bin/run`, whatever the backend.** The
+  portable runner decodes every weight into memory and then does an ordinary
+  matvec, so on CPU and on Metal this file costs 8.045 GB resident and buys
+  only disk. It does have a KV cache (an earlier version of this card said it
+  did not); on an L40S the sealed file generates at 42.7 tok/s through that
+  path.
+* **There is a fused path, and it is CUDA-only.** A fused
+  dequantize + matvec kernel decodes the Leech blocks on the card without ever
+  materialising f16 weights. It is wired into the model and driven by
+  `bin/fusedrun` (Linux + `--features cuda`). On these exact bytes, L40S,
+  128 tokens, default `Planes14` layout: **48.7 tok/s in 2.96 GB of card
+  memory against 43.6 tok/s in 8.04 GB** for the dense arm — that is **×1.12
+  in speed and ÷2.72 in memory**, 5.89 bits/param over the whole model — and
+  the same greedy tokens up to a tie-break at token 89. Setting
+  `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the same
+  bytes to **88.4–88.5 tok/s in 2.60 GB** (5.15 bits/param); that ×2.03 is
+  mostly a replacement of candle's `lm_head` path, which recopies 778 MB of
+  vocabulary per token, and **not** the Leech kernel — whose own contribution
+  is the ×1.12. The two are never quoted apart. **On Apple
+  silicon none of this applies**: `llvq-metal` is a benchmark
+  (2.03–2.09× FP16 on the 252 projections, every output row verified against
+  an f64 reference) with no runner behind it. Logs:
+  `docs/mesures/planes14-fusedrun-2026-08-06.txt`,
+  `docs/mesures/phases-2026-08-07.txt`,
+  `docs/mesures/k1-metal-2026-08-05.txt`.
+* **A 4-bit quantization beats this model on capabilities, and that is now
+  measured rather than assumed.** Qwen's own AWQ 4-bit checkpoint, run through
+  this project's harness on the same card with the same questions and the same
+  token fingerprint, scores **70.04 ± 1.25 on MMLU against this file's 55.59 ±
+  1.35**, and ×1.105 perplexity against ×1.384. It is statistically
+  indistinguishable from f16. This artifact wins disk size, and — with the
+  fused path and an int8 embedding — card memory (5.15 against 5.30 bits/param
+  in AWQ's own engine). It loses quality, by 14 points.
+  Log: `docs/mesures/a4-campagne-2026-08-06.txt`.
 * **The format is not portable.** About 1 400 lines of dependency-free Rust
   (`llvq-artifact`) define the container, of which ~425 are the on-disk format
   itself — but *decoding* also needs `llvq-search` and `llvq-core` for the
   Leech index, some 6 500 dependency-free lines in all. A reader in another
   language is tractable, not trivial, and does not exist yet.
-* **No commonsense-reasoning or task-specific evaluation**, and no error bar on
-  perplexity: the only dispersion this pipeline has shown is ~7 % between two
-  configurations that a test proves were the same quantizer — one observation,
-  n = 2, cause unresolved, no σ.
+* **No commonsense-reasoning or task-specific evaluation, and no error bar on
+  *this* perplexity.** A dispersion has since been measured, but on another
+  object: three calibration seeds on a 3-block Qwen3-0.6B run give σ ≈ 0.15
+  perplexity (≈ 0.7 %) around ~20.66. That does not transfer to the 16.9415
+  above — different model, 3 blocks against 36, different scale — and no σ has
+  ever been measured on the full-model number. The older and cruder
+  observation also stands: ~7 % between two configurations that a test proves
+  were the same quantizer, n = 2, cause unresolved.
 * **Determinism is uneven.** The Leech encoder is exactly deterministic and
   pinned by a test, but the calibration Hessians accumulate `AᵀA` in f32 on the
   accelerator, so re-running the recipe on another backend does not reproduce

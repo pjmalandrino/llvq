@@ -1,5 +1,26 @@
 # Format de noyau — mesures, impasses, architecture (2026-07-31)
 
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08.** Ce document décrit
+> l'état **Metal / `Slot32`** du noyau, qui n'est plus l'état de référence.
+> Trois choses ont changé depuis, toutes mesurées :
+>
+> 1. **`Slot32` a été remplacé.** Le layout de production est **`Planes14`** —
+>    plans de bits binaires au lieu des masques one-hot, stride uniforme 14 o,
+>    plus de table de bases : **4,804 b/poids contre 5,510, et 1,14× plus
+>    rapide à contenu décodé identique**
+>    ([`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt)).
+>    Deux points de fonctionnement supplémentaires existent : `Planes12x`
+>    (4,342 b/poids, overlay exact, **mesuré non branché**) et `Golay70`
+>    (3,589 b/poids, **1,31× — mesuré et écarté**, sous le critère de 1,6×).
+> 2. **Le noyau est branché.** Voir la correction en fin de section « Ce que ce
+>    chiffre ne couvre pas ».
+> 3. **Le 2,07× se publie en plage.** Trois invocations du banc non modifié
+>    rendent 2,029× · 2,050× · 2,080× à octets et erreurs identiques
+>    ([`mesures/thesis-temoin-2026-08-04.txt`](mesures/thesis-temoin-2026-08-04.txt)).
+>
+> La note de provenance des trois comptabilités RAM, en fin de fichier, reste
+> valable et reste la référence du dépôt sur ce point.
+
 > Branche `g6-format-noyau`. Tout chiffre ci-dessous est mesuré par un banc
 > reproductible (`decbench`, `decprofile`, `classprofile`, `arrbits`, `rtbits`,
 > `decfast`, `decfull`, `matvec`, `thesis`), et l'ensemble a été passé au crible
@@ -599,9 +620,29 @@ côté FP16 ne sont pas garantis à arithmétique constante.
 ### Ce que ce chiffre ne couvre pas
 
 Attention, normes, activations et la rotation de `x` ne sont pas mesurées —
-seulement la part que la quantification change. Et **le noyau n'est pas branché
-dans `bin/run`** : le runner livré décode toujours en mémoire puis fait un
-matvec ordinaire. C'est le dernier chantier.
+seulement la part que la quantification change.
+
+> ✅ **Corrigé le 2026-08-08 : « le noyau n'est pas branché dans `bin/run` …
+> c'est le dernier chantier » n'est plus vrai depuis le 2026-08-06.** Le noyau
+> est branché **sur CUDA** : `fused_cuda` remplace les 252 `Linear` par deux
+> lancements chacun (rotation puis matvec fusé), et son appelant est
+> `bin/fusedrun`. Mesuré sur L40S, 128 tokens, sur les octets publiés :
+> **48,7 tok/s dans 2,96 Go contre 43,6 dans 8,04**, mêmes tokens gloutons
+> jusqu'à un tie-break au token 89
+> ([`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt)).
+> Avec l'embedding int8 au chargement : **88,4–88,5 tok/s dans 2,60 Go**.
+> ⚠️ **Le ×2,03 de ce second chiffre n'est pas le noyau Leech** — ~25 ms/token
+> viennent du remplacement du chemin `lm_head` de candle. **Le rapport à tête
+> identique est ×1,12**, et c'est celui qui mesure le noyau
+> ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+>
+> Deux réserves qui, elles, tiennent. **Sur Metal, rien n'est branché** :
+> `llvq-metal` reste un banc, `bin/run` décode en mémoire sur CPU comme sur
+> Metal. Et la **rotation de `x`**, non mesurée ici, l'est désormais sur
+> CUDA — `rot_apply`, vérifié contre une référence f64 sur huit formes, 8,05 µs
+> à n = 2560 en isolation
+> ([`mesures/rotation-cuda-2026-08-05.txt`](mesures/rotation-cuda-2026-08-05.txt))
+> — et le bout-en-bout ci-dessus la paie déjà.
 
 ⚠️ Correction au passage : l'estimation « ~2,6-3,0 b/poids » de la table
 d'architecture ci-dessus ne comptait ni la classe, ni l'adressage. Le vrai

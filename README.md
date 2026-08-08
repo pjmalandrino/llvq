@@ -12,12 +12,21 @@ end. Only the model side pulls in `candle`.
 > **Want to just run it?** → [`LAUNCH_ME.md`](LAUNCH_ME.md). The model is at
 > [Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit).
 >
-> ⚠️ **It is not GGUF, AWQ or safetensors, and the size win is on disk only.**
-> `transformers`, `llama.cpp`, vLLM and TGI do not read this file — the only
-> reader that exists is `llvq-artifact`, in this repository. The runner decodes
-> every weight into memory, so it needs ~10 GB of RAM on CPU and ~17 GB on
-> Metal. And the speed chapter below is Apple-only: `llvq-metal` is gated on
-> macOS and there is no CUDA kernel.
+> ⚠️ **It is not GGUF, AWQ or safetensors.** `transformers`, `llama.cpp`, vLLM
+> and TGI do not read this file — the only reader that exists is
+> `llvq-artifact`, in this repository. `bin/run`, the portable runner, decodes
+> every weight into memory: on **that** path the size win is on disk only, and
+> it needs ~10 GB of RAM on CPU and ~17 GB on Metal.
+>
+> **Since 2026-08-06 there is a second path, and it does win memory.** A CUDA
+> kernel (`llvq-cuda`) keeps the weights encoded on the card; it is wired into
+> the model and its caller is `bin/fusedrun` (Linux + `--features cuda`).
+> Running the *published bytes* on an L40S: **2.96 GB on the card against 8.04,
+> 48.7 tok/s against 43.6**, same greedy tokens as the dense arm up to a
+> tie-break at token 89
+> ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)).
+> On macOS the fused kernel is still a bench and nothing else: `llvq-metal` is
+> gated on macOS and has no runner.
 >
 > Every number below is tabulated with its provenance — the command that
 > produces it, the object it scores, the dtype, the protocol, and whether it
@@ -122,6 +131,10 @@ on the Metal path. Drop `--features metal` *and* change the third argument to
 `cpu` for the portable path — the feature and the argument are separate, and
 asking for `metal` without the feature is an error.
 
+That is true of `bin/run`, on every backend. It is **not** true of the CUDA
+fused runner, which keeps the weights encoded and holds the same model in
+**2.96 GB** of card memory — see *Speed: the fused kernel*.
+
 ### MMLU — what the perplexity was hiding
 
 Perplexity measures average surprise on running text. It says nothing about
@@ -146,10 +159,30 @@ version of this file published them as if they were.
 
 **Our baseline reproduces the paper's to within +0.22 pp (0.17 σ).** That
 validates the harness, and it means the quantized arm's shortfall cannot be
-blamed on the protocol. We do not currently know what causes the remaining
-4.8 pp. Candidates we have **not** measured: calibration volume (131 072
-tokens against their 6 100 sequences, whose length the paper does not state),
-the magnitude path (see *Naming*, below), and our 1-gain-bit configuration,
+blamed on the protocol. **It has since reproduced itself too**: rerun four days
+later on a different machine (L40S) in a different session, the same harness
+gives 70.32 ± 1.28 and 55.59 ± 1.35 — 0.10 pp and 0.50 pp from the figures
+above, both inside one σ. The table here keeps the original M3 Max run; the
+*Against 4-bit* section uses the L40S one, because that is the run in which the
+4-bit arm was scored under the same fingerprint.
+
+We do not currently know what causes the remaining
+4.8 pp, but the list of candidates is shorter than it was. **Two have been
+tested and eliminated.** Calibration is *bounded*: deliberately calibrating on
+the evaluation corpus itself — the maximum any volume, corpus or length choice
+could ever buy — returns only −1.6 % of perplexity, closing 29 % of the gap,
+and a ×13 volume increase returns −1.2 %. And the magnitude path (see *Naming*,
+below) was implemented as the paper's Algorithm 3 reads to us, and **refuted at
+full depth: ×1.99 perplexity** on a 28-block 0.6B run against the shipped
+recipe — the second time in this project that a strictly better per-layer proxy
+composed into a disaster over 28 layers
+([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md),
+[`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md)).
+**What moved instead was scale**: at 8B the drop is −10.56 pp rather than
+−14.73, and the gap to 4-bit halves. Candidates still open and unmeasured:
+calibration *composition* (the failure is concentrated in reasoning subjects,
+which no corpus we use exercises), post-hoc compensation, per-column scale
+fine-tuning, and our 1-gain-bit configuration,
 which has no counterpart in the paper's Table 6 — it reports 0 and 2 gain bits,
 1.4 pp apart.
 
@@ -192,61 +225,102 @@ Note also that the configuration line printed in the run logs
 reflects neither the real gain-bit count (1) nor the state of the retraction.
 Only the result line is trustworthy.
 
-## Against 4-bit — the comparison that matters
+## Against 4-bit — the comparison that matters, and we lose it
 
 Nobody deploys FP16 locally. The honest reference is an ordinary 4-bit
-quantization, produced on the same machine from the same checkpoint
-(`mlx_lm.convert -q --q-bits 4 --q-group-size 64`):
+quantization. **It was an empty column in this file until 2026-08-06; it is
+measured now, and it does not go our way.**
 
-| | **LLVQ 2-bit** *(this model)* | **MLX q4** *(group 64)* | **FP16 baseline** |
-|---|---|---|---|
-| **Cold storage** | **1.771 GB** — 3.52 bits/param | **2.263 GB** — 4.50 bits/param | 8.045 GB — 16 bits/param *(computed)* |
-| **Peak memory while generating** | **9.79 GB** (CPU) · **17.41 GB** (Metal) | *2.39 GB — MLX allocator peak, not an RSS; no trace kept* | *never measured* |
-| **Generation throughput** | **2.2 – 7.6 tok/s** *(no KV cache — a floor)* | *129.8 tok/s — no trace kept* | *never measured* |
-| **WikiText-2 perplexity** *(f16, ctx 4096, 12 windows)* | **16.9415** | *never measured* | **12.2361** |
-| **MMLU** *(5-shot, micro, 2 280 q)* | **56.09 ± 1.36** | *never measured* | **70.42 ± 1.28** |
+Four arms, one L40S, one harness, the same windows and the same questions,
+token fingerprints printed and identical on every quality row (perplexity
+`3f1baca9033bf251`, MMLU `65dcd53655e8bfa5`). The 4-bit arm is **Qwen's own
+official AWQ checkpoint**, not one we produced:
 
-**Bold** = measured here, and a command under *Reproducing* reproduces it.
-*Italic* = computed, unverified or absent, with the reason stated.
+| | FP16 | **AWQ 4-bit** *(official)* | LLVQ 2-bit, dense | **LLVQ 2-bit + fused kernel** |
+|---|---|---|---|---|
+| **Cold storage** | 8.04 GB | 2.67 GB | **1.77 GB** | **1.41 GB**¹ |
+| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.15 bits/param** |
+| **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **88.4 – 88.5 tok/s**⁴ |
+| **WikiText-2 perplexity** | 12.2369 | **13.5207** *(×1.105)* | 16.9422 *(×1.384)* | **16.9358** *(×1.384)* |
+| **MMLU** *(5-shot, micro, 2 280 q)* | 70.32 ± 1.28 | **70.04 ± 1.25** *(−0.28)* | 55.59 ± 1.35 | **55.70 ± 1.35** *(−14.6)* |
 
-**Only one row is measured across all three columns — cold storage — and it is
-the only one we win.** Four things to read with the table:
+Sources: [`docs/campagne-finale-2026-08-07.md`](docs/campagne-finale-2026-08-07.md),
+raw logs [`docs/mesures/a4-campagne-2026-08-06.txt`](docs/mesures/a4-campagne-2026-08-06.txt)
+and [`docs/mesures/campagne-finale-bras4-2026-08-07.txt`](docs/mesures/campagne-finale-bras4-2026-08-07.txt).
 
-* **The two quality rows are strictly iso-conditions between LLVQ and FP16**:
-  the same token fingerprint `3f1baca9033bf251` for perplexity, the same log,
-  session and seed for MMLU. **The q4 column is empty**, and that is the
-  comparison that would decide whether any of this is worth it.
-* **The three memory cells are not the same quantity.** Ours is peak RSS; MLX's
-  2.39 GB is `mx.get_peak_memory()`, an allocator high-water mark. They cannot
-  be subtracted from one another.
-* **Our throughput is a floor, not a regime.** `bin/run` has no KV cache and
-  re-runs the whole prefix at every step, which is quadratic and documented as
-  such in the code. The fused kernel below reaches 2.06–2.08× FP16 on the
-  projections, but it is not wired in, so it does not belong in this table.
-* MLX also quantizes the embedding, which we leave at f16. On projections alone
-  the rate gap is 2.1595 against 4.5000, **×2.08**; the ×1.28 on disk is that
-  gap diluted by the embedding.
+¹ **Two files, one content.** Quality for column 4 is measured on
+`q4b-e8.llvq` (1.406 GB, int8 embedding baked in); its speed and card memory
+are measured on the published `qwen3-4b-llvq.bin` (1.770 GB) with
+`LLVQ_EMBED=q8`, which quantizes the same embedding at load. Bit-identical
+content, different bytes on disk.
+² The AWQ has never run in *our* engine — loaded there it is dequantized to
+f16, so any memory or speed number we could print for it would be meaningless.
+Its 5.30 bits/param is its own engine's, whole model, embedding included.
+³ Without the kernel the file decodes to f16 at load and runs exactly like
+FP16 — that was the state of this project on 2026-08-04.
+⁴ 88.4 in the final campaign, 88.5 in the integration run. Two protocols, one
+object; the repo prints both rather than picking one.
 
-**The empty column is the honest headline.** No perplexity and no MMLU has ever
-been run on the 4-bit arm, here or anywhere else in this repo. Any claim that
-4-bit loses "1-2 %" is unsupported, and we do not make it — but neither can we
-claim to beat it on anything except disk.
+**Read the speed number with its companion.** The ×2.03 against the dense arm
+is *not* the kernel alone: ~25 ms/token of it comes from replacing candle's
+`lm_head` path, which recopies 778 MB of vocabulary per token (the `TODO` is in
+its code). **At identical head — f16 on both arms — the same measurement gives
+×1.12** (48.7 against 43.6 tok/s), and that is the honest figure for what the
+Leech kernel itself buys end to end
+([`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
+Never quote the ×2.03 without the ×1.12.
+
+**What the table says, in order.** We win cold storage (1.41–1.77 GB against
+2.67) and, since Planes14 + int8 embedding, **card memory** (5.15 against 5.30
+bits/param — the axis we were losing three days earlier). We lose quality, and
+not marginally: **70.04 against 55.70 on MMLU, a 14.3-point gap**, while
+4-bit is statistically indistinguishable from f16 (−0.28 pp, inside its own
+±1.25). Speed does not compare honestly across two engines.
+
+**On a 4B, 4-bit dominates us on capabilities and that is the verdict.** The
+bet is scale, and it now has two points rather than one: at 8B the LLVQ
+degradation falls to ×1.220 perplexity and −10.56 pp MMLU while the AWQ starts
+to pay (−3.07 pp), so **the gap to 4-bit halves, 14.45 pp → 7.49 pp** — dense
+LLVQ arm on both sides, which is why it reads 14.45 and not the 14.3 above
+([`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
+Two points are not a scaling law and this file will not extrapolate one to 70B.
+
+<details><summary>The earlier MLX q4 comparison, on the Mac, kept for genealogy</summary>
+
+Before the campaign above, the only 4-bit reference here was one produced
+locally with `mlx_lm.convert -q --q-bits 4 --q-group-size 64`, on an M3 Max:
+2.263 GB on disk (4.50 bits/param), 2.39 GB of MLX allocator peak (not an RSS),
+129.8 tok/s end to end — none of it with a kept trace, and **its quality was
+never measured**. That column stayed empty until Qwen's AWQ was run in our own
+harness, which is what the table above does. The MLX figures are not comparable
+to the L40S campaign and are not used anywhere in this file.
+
+</details>
 
 The structural niche for 2-bit is the memory window where 4-bit does not fit
-and we do: 12 % to 21 % wide, depending on the runtime layout. Whether that
-window is worth anything at 70B is **untested** — no 70B has ever been
-quantized here, and the KV cache (320 KiB/token in f16) is not budgeted in any
-of our projections. Full analysis: [`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+and we do. Whether it is worth anything at 70B is **untested** — no 70B has
+ever been quantized here, and the KV cache (320 KiB/token in f16) is not
+budgeted in any of our projections. Full analysis:
+[`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
 
 ## Read this before quoting the number
 
 * **We are at QTIP's level, marginally worse.** 16.96 against 17.04 looks like
   a win and is not: our baseline is lower, and normalised on each side's own
   baseline we are 3.1 % worse.
-* **The 0.08 perplexity margin is not defensible.** The only dispersion this
-  pipeline has ever shown is ~7 % between two configurations that a test proves
-  were the same quantizer. One observation, n = 2, cause unresolved, **no σ**.
-  Any margin below that is noise.
+* **The 0.08 perplexity margin is still not defensible, but the reason has
+  improved.** There is now a measured dispersion — and it is measured on a
+  *different object*. Three calibration seeds on a 3-block Qwen3-0.6B run give
+  **σ ≈ 0.15 perplexity, ≈ 0.7 %**, around a quantized perplexity of ~20.66, so
+  the working rule on such a run is that anything under ~1.5 % (2 σ) is noise
+  ([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md), §B1;
+  n = 3, a coarse estimate and the project's first).
+  **That σ does not transfer to the 16.9415 published here**: different model,
+  3 blocks against 36, different perplexity scale. **No σ has ever been measured
+  on the full-model number**, and a 0.5 % margin over QTIP sits well inside the
+  only dispersion we can point at. The older and cruder observation still
+  stands too: ~7 % between two configurations that a test proves were the same
+  quantizer, n = 2, cause unresolved.
 * **We are 9 % above the paper's best configuration**, which reaches 15.54 at a
   true 2.000.
 * **Evaluated on 12 windows, not the full 73.** Our FP32 baseline lands 1.4 %
@@ -271,7 +345,9 @@ of our projections. Full analysis: [`docs/face-au-4-bits.md`](docs/face-au-4-bit
 | `llvq-search` | Exact NN search over shells m ≤ 13, bijective 48-bit index, bit packing | none |
 | `llvq-quant` | GPTQ (Alg. 1), dense linear algebra, incoherence rotation | none (`faer` optional) |
 | `llvq-artifact` | The `.llvq` format: writer, reader, decoder | **none** |
-| `llvq-llm` | Observable Qwen3 forward, Hessians, perplexity, generation | `candle` |
+| `llvq-metal` | Metal micro-benchmarks: decode cost, `bin/thesis` | macOS only |
+| `llvq-cuda` | The CUDA kernels: `Slot32`, `Planes14`, `Planes12x`, `Golay70`, rotation | `cudarc`, Linux + NVIDIA only |
+| `llvq-llm` | Observable Qwen3 forward, Hessians, perplexity, generation, fused runtime | `candle` |
 | `llvq-bench` | Rate–distortion, encoder throughput, decode cost | none |
 
 `llvq-artifact` has no external dependencies **on purpose**: reading a
@@ -300,21 +376,34 @@ distinct weights — three orders of magnitude past any system cache, so nothing
 can be re-read), every one of the 1 105 920 output rows verified against an f64
 CPU reference *before* timing:
 
-| | ms/token | GB read | vs FP16 |
-|---|---|---|---|
-| FP16 (half4) | 21.7 – 22.7 | 7.27 | 1.00× |
-| **LLVQ fused (Slot32)** | **10.5 – 11.0** | 2.50 | **2.06 – 2.08×** |
+| | ms/token (min – max) | GB read | bits/weight | vs FP16 |
+|---|---|---|---|---|
+| FP16 (half4) | 21.73 – 22.00 | 7.27 | 16.000 | 1.00× |
+| **LLVQ fused (Slot32)** | **10.50 – 10.81** | 2.50 | 5.510 | **2.03× [2.03–2.10]** |
 
-Ranges, not point values: two runs on the same machine differ by 4–5 % from
-thermal drift, while the **ratio** moves by 0.8 %. What is reproducible to the
-digit is the ratio, the 1 105 920 verified rows and the worst observed error,
-**3.4·10⁻⁸ · Σ|wᵢxᵢ|**.
+Ranges, not point values, and the ratio is formed **round by round** — 7 rounds,
+2 discarded, both arms dispatched every round in the same order — then reported
+as the median and range over the 5 kept rounds. It is never a quotient of two
+best-of times, which would mix rounds that never coexisted. Log:
+[`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt).
+
+**The ratio drifts between processes, and the repo measured how much.** Three
+consecutive invocations of the unmodified two-arm bench give 2.029×, 2.050×,
+2.080×; three of the seven-arm bench give medians of 2.03×, 2.06×, 2.09×. The
+bytes read, the bits/weight and the worst errors are identical to the digit in
+all of them — **only the times move, and they move together on both arms**
+([`docs/mesures/thesis-temoin-2026-08-04.txt`](docs/mesures/thesis-temoin-2026-08-04.txt)).
+So the defensible statement is **2.03× to 2.09×**, a third decimal on this
+ratio has no content, and an earlier version of this file claiming the ratio
+moved by only 0.8 % was understating its own dispersion by a factor of four.
+What *is* reproducible to the digit is the 1 105 920 verified rows and the worst
+observed error, **3.4·10⁻⁸ · Σ|wᵢxᵢ|**.
 
 ```bash
 cargo run --release -p llvq-metal --bin thesis -- qwen3-4b-llvq.bin
 ```
 
-**What the 2.07× is, and is not.** It times 252 fused matvecs on an M3 Max at
+**What this ratio is, and is not.** It times 252 fused matvecs on an M3 Max at
 batch 1 in unified memory — not comparable to the paper's Table 7 on different
 hardware, where a single-shell (M = 3) kernel reaches 1.36–1.48×. No fused
 **multi-shell Leech** decoder appears to have been published before this one;
@@ -335,63 +424,130 @@ Every measured asymmetry in the harness runs **against** the LLVQ arm or is
 negligible: FP16 is timed first, so thermal drift penalises LLVQ; submission
 overhead is not subtracted; the LLVQ arm reads its tail in f32 where FP16 reads
 f16; 9 buffer binds against 4. And any *common* additive term compresses the
-ratio. **So 2.07× is a floor on the projection-arithmetic ratio, while the
+ratio. **So 2.03–2.09× is a floor on the projection-arithmetic ratio, while the
 1.88× below is a ceiling on anything end-to-end.**
 
-It **excludes** attention, RMSNorm, SwiGLU, residuals, sampling, prefill, the
-load-time transcode, and — the asymmetric one — **the incoherence rotation
-applied to the activations, which only the quantized arm would pay**: 144
-transforms per token, 0.2 % of the arithmetic, latency unmeasured because no
-GPU implementation exists yet. Adding the f16 `lm_head` analytically (it is
-never executed) brings the end-to-end ceiling to **1.88×**; the 78.2 tok/s that
-follows from it is an upper bound, not a measurement of anything. **What the
-shipped file actually generates today is 2.2–7.6 tok/s** — the kernel has no
-caller in `bin/run`.
+It **excludes** attention, RMSNorm, SwiGLU, residuals, sampling, prefill and the
+load-time transcode. It also excludes the asymmetric term — **the incoherence
+rotation applied to the activations, which only the quantized arm pays**: 144
+transforms per token, 0.2 % of the arithmetic. That one is no longer
+unmeasured. A CUDA `rot_apply` exists, is verified against an f64 reference on
+eight shapes (worst relative error 9.5·10⁻⁸) and costs 8.05 µs at n = 2560 in
+isolation
+([`docs/mesures/rotation-cuda-2026-08-05.txt`](docs/mesures/rotation-cuda-2026-08-05.txt));
+it runs inside the fused path, one launch per projection ahead of the matvec, so
+the end-to-end CUDA figures further down already pay for it. **There is still no
+Metal implementation**, so the Metal ratio above does not.
+
+Adding the f16 `lm_head` analytically (it is never executed in this bench)
+brings the Metal end-to-end ceiling to **1.88×**; the 78.2 tok/s that follows
+from it is an upper bound, not a measurement of anything. For what the shipped
+file actually generates, see *End to end, on a card* below.
 
 **What this costs in memory**, counted the way `bin/thesis` counts what it
 reads — payload, addressing, f32 tail and f32 row scales, over every projection
-weight:
+weight. All three layouts are from the **same run, same protocol, same byte
+accounting**, timed on the whole model:
 
-| layout | bits/weight | loaded | speed | timed on |
-|---|---|---|---|---|
-| **Slot32** | **5.51** | **2.50 GB** | **2.06–2.08×** | the whole model |
-| Flat32 | 4.68 | 2.12 GB | 0.90× | `gate_proj` only |
-| Grouped32 | 3.50 | 1.59 GB | 0.68× | `gate_proj` only |
+| layout | bits/weight | loaded | vs FP16 |
+|---|---|---|---|
+| **Slot32** | **5.510** | **2.50 GB** | **2.03× [2.03–2.10]** |
+| Flat32 | 5.256 | 2.39 GB | 0.91× [0.91–0.91] |
+| Grouped32 | 3.498 | 1.59 GB | 0.69× [0.68–0.69] |
 
-Fixed offsets are what buy the speed, and 5.51 b/w is *more* than an ordinary
-4-bit format holds. Loading `Grouped32` gives up the speed for the space; both
-come from the same file. Two caveats: only `Slot32` has ever been timed on the
-whole model, so the 0.68× and 0.90× are single-layer figures under a different
-harness; and `RuntimeBlocks::bits_per_weight()` reports a **narrower** metric
+Source: [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt),
+seven arms, seven rounds, two discarded. **An earlier version of this file gave
+Flat32 as 4.68 bits/weight over 2.12 GB and called the two slow rows
+single-layer figures from a different harness.** Both were wrong: 4.68 came from
+a different byte accounting than the 5.51 printed next to it — exactly the fault
+this run existed to remove — and all seven arms were timed on the whole model,
+interleaved, in one process.
+
+The curve is brutally non-linear. Flat32 saves 0.254 bits/weight over Slot32 and
+costs 2.27× the time; Grouped32 saves 2.012 and costs 3.01×. **Fixed offsets are
+what buy the speed**, and 5.51 b/w is *more* than an ordinary 4-bit format holds
+— which is why the next step was to take bits back *inside* a fixed-offset
+layout rather than to change layout family.
+
+Note also that `RuntimeBlocks::bits_per_weight()` reports a **narrower** metric
 (payload and addressing over quantized weights only) that gives 5.38 for the
-same `Slot32` — the two differ by convention, not by object.
+same `Slot32` — the two differ by convention, not by object. And the kernel
+reads the tail in **f32** where the FP16 arm reads the same columns in f16 —
+2.7 % of the LLVQ traffic, which would bring `Slot32` to 5.44 b/w.
 
-An immediate reserve: the kernel reads the tail in **f32** where the FP16 arm
-reads the same columns in f16 — 2.7 % of the LLVQ traffic, which would bring
-`Slot32` to 5.44 b/w.
+### The layout scale on CUDA, and end to end on a card
+
+`Slot32` is no longer the reference layout. **`Planes14`** replaces the one-hot
+slot masks with binary bit-planes at a uniform 14-byte stride and no base table:
+same decoded content, bit for bit, smaller *and* faster. Measured on an L40S,
+five arms, one stream, ratios formed round by round
+([`docs/mesures/e2-golay70-bench-2026-08-07.txt`](docs/mesures/e2-golay70-bench-2026-08-07.txt)):
+
+| layout | bits/weight | GB read | vs FP16 |
+|---|---|---|---|
+| Slot32 | 5.510 | 2.50 | 1.87× [1.86–1.88] |
+| **Planes14** *(default)* | **4.804** | 2.18 | **2.14× [2.11–2.15]** |
+| Planes12x *(sparse overlay)* | **4.342** | 1.97 | 1.98× [1.95–1.99] |
+| Golay70 | 3.589 | 1.63 | 1.31× [1.29–1.32] |
+
+Planes12x reaches 4.342 b/w at **exactly identical quality** — the capped blocks
+are corrected by a sparse exception pass in the same launch, and every one of the
+1 105 920 rows still matches the f64 reference. Golay70 recomputes the Golay
+codeword by XOR instead of storing it, reaches a real 3.589 b/w, and was
+**measured and rejected**: 1.31× is below the 1.6× criterion set before the run,
+because the double-coset decode makes it ALU-bound (195 GB/s effective).
+
+**End to end, on a card.** `bin/fusedrun` loads the published artifact twice —
+once dense, once with the projections left encoded — and requires the same
+greedy tokens out. On an L40S, 128 tokens, `Planes14`:
+
+| | dense f16 | fused |
+|---|---|---|
+| tok/s | 43.6 | **48.7 (×1.12)** |
+| GB on the card | 8.04 | **2.96 (÷2.72)** |
+| tokens | reference | identical to a tie-break at token 89 |
+
+With the tied embedding also quantized to int8 at load (`LLVQ_EMBED=q8`) the
+same run reaches **88.4–88.5 tok/s in 2.60 GB**. That ×2.03 is *not* the Leech
+kernel: ~25 ms/token of it is candle's `lm_head` path being replaced. **×1.12 is
+the kernel's own end-to-end contribution and the two must be quoted together**
+([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt),
+[`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
+Half a token's time is attention, norms and launch overhead, which the fused
+path does not touch — that is what bounds ×1.12, and it is why the memory
+column, not the speed column, is the result here.
 
 ## What is *not* here
 
-* **The kernel is not wired into the runner**, and the obstacle is not
-  plumbing: `bin/run` has no KV cache, so it re-runs the whole prefix as a GEMM
-  at every step, while `tv_slot` is a matvec. **The kernel has no caller.** The
-  shipped model therefore gains no speed, and generates at 2.2–7.6 tok/s.
+* **No fused path on Apple silicon.** The kernel now has a caller — but only
+  one, and only on CUDA: `bin/fusedrun`, gated on `linux` + `--features cuda`.
+  `bin/run`, the portable runner used in every command in this file, still
+  decodes to dense f16 at load on both CPU and Metal. So on a Mac the shipped
+  model gains no memory and no speed from any of this. Two obstacles that used
+  to be listed here are gone: `bin/run` has had a KV cache since commit
+  `9c24d26`, and a GPU implementation of the incoherence rotation exists on
+  CUDA.
 * **No CSR, and no domain-specific benchmark.** MMLU is measured above, on a
   2 280-question sample (16.2 % of the split), not the full suite.
-* **No error bar on perplexity.** See *Read this before quoting the number*.
-* **No measured quality for the 4-bit arm**, which leaves the most important
-  column of the comparison empty.
+* **No error bar on the published perplexity.** A σ exists — three calibration
+  seeds, but on a 3-block 0.6B run, which is a different object. See *Read this
+  before quoting the number*.
+* **No 4-bit arm inside the fused runner.** The 4-bit quality column is no
+  longer empty (see *Against 4-bit*), but the AWQ is only ever loaded
+  dequantized in our engine, so its memory and speed have never been measured
+  here and the comparison on those two axes remains cross-engine.
 * **The published command reproduces the method, not the bytes.** The C4
   calibration shard moved from `00000` to `00001` after the run, and the
   container format gained a magic bump; a re-run today produces a different,
   equally valid file. There is no CI.
-* **The fused kernel implements exactly one point of the design space.** The
-  `Slot32` shader reads a fixed 10-bit header — 9 bits of class, **1 gain
-  bit** — and offsets every following field by it. The Rust transcoder is
-  parameterised on the gain width; the shader is not. The paper's best
-  no-fine-tuning configuration (2 gain bits) cannot be decoded by this kernel
-  as written. The 2.07× is a result about this file's format, not about LLVQ
-  layouts in general.
+* **Every fused kernel implements exactly one point of the design space.** Both
+  the `Slot32` shader and the `Planes14` one read a fixed 10-bit header — 9 bits
+  of class, **1 gain bit** — and offset every following field by it. The Rust
+  transcoder is parameterised on the gain width; the kernels are not, and
+  `planes14_host.rs:113` asserts `gain_bits == 1` rather than degrade quietly.
+  The paper's best no-fine-tuning configuration (2 gain bits) cannot be decoded
+  by any of them as written. These ratios are results about this file's format,
+  not about LLVQ layouts in general.
 * **Determinism is uneven.** The Leech encoder is exactly deterministic and
   pinned by a test, but the calibration Hessians accumulate `AᵀA` in f32 on the
   accelerator, so re-running the recipe on another backend does not reproduce
@@ -504,6 +660,18 @@ What decoding costs in each candidate layout, which is what gated the kernel:
 ```bash
 cargo run --release -p llvq-bench --bin decbench
 cargo run --release -p llvq-metal --bin decreal -- qwen3-4b-llvq.bin
+```
+
+On an NVIDIA card (Linux only), the layout bench and the end-to-end A/B — the
+second loads the same artifact twice, dense and fused, and requires the same
+greedy tokens out. `LLVQ_FUSED_LAYOUT=slot32` and `LLVQ_EMBED=q8` are the two
+switches the measurements above use:
+
+```bash
+cargo run --release -p llvq-cuda --bin planesbench -- qwen3-4b-llvq.bin
+```
+```bash
+cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.bin 128
 ```
 
 ## Notes on method

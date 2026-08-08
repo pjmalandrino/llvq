@@ -1,6 +1,9 @@
 # Protocole de mesure — LLVQ 2 bits contre MLX q4 contre FP16, Qwen3‑4B
 
-**Statut : plan. Aucun chiffre de résultat ci‑dessous n'est une mesure de cette campagne.** Les valeurs citées sont soit des octets relevés sur disque, soit des mesures antérieures explicitement datées et sourcées, soit des coûts extrapolés de traces existantes. Machine : MacBook Pro M3 Max, 16 cœurs CPU / 40 cœurs GPU, `hw.memsize` = 68 719 476 736 o (68,72 Go décimaux), `max_recommended_working_set_size` = 55 662 788 608 o (mesuré). 66 GiB libres au disque, capacité 93 % — c'est le facteur limitant du plan.
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan v1 est mort deux fois :** remplacé par [`plan-de-test-v2-cuda.md`](plan-de-test-v2-cuda.md) (autre matériel, autre adversaire, autre axe vitesse), lui-même **exécuté** les 06-08. La campagne réelle n'a pas opposé LLVQ au **q4 MLX** de ce plan mais à l'**AWQ officiel de Qwen**, sur une **L40S** et non sur le Mac. Résultats : [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md).
+> La position tenue ici — « le q4 MLX est déclaré comme la **borne basse** de la famille 4 bits ; le battre serait nécessaire, pas suffisant » — a été mise à l'épreuve et **elle était prudente à raison** : l'adversaire calibré ne perd rien du tout (−0,28 pp de MMLU), là où ce plan supposait un RTN affaibli. Ce document garde sa valeur pour sa **méthode de périmètre** (les quatre cellules embedding, les conventions de b/poids appariées), pas pour ses statuts.
+
+**Statut à la date de rédaction : plan. Aucun chiffre de résultat ci‑dessous n'est une mesure de cette campagne.** Les valeurs citées sont soit des octets relevés sur disque, soit des mesures antérieures explicitement datées et sourcées, soit des coûts extrapolés de traces existantes. Machine : MacBook Pro M3 Max, 16 cœurs CPU / 40 cœurs GPU, `hw.memsize` = 68 719 476 736 o (68,72 Go décimaux), `max_recommended_working_set_size` = 55 662 788 608 o (mesuré). 66 GiB libres au disque, capacité 93 % — c'est le facteur limitant du plan.
 
 ---
 
