@@ -1,0 +1,129 @@
+# Campagne 8B q8 (têtes déliées) — job 6a76d9433e1f34a7e32be65d, l40sx1, 0,82 $ (28 min)
+# fusedrun q8 + ppl + MMLU sur q8b-e8.llvq ; empreintes 3f1baca9033bf251 / 65dcd53655e8bfa5
+
+6a76d9433e1f34a7e32be65d  COMPLETED  l40sx1
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 4.13 Go sur la carte, 4.752 b/poids
+embedding : q8 g64 (LLVQ_EMBED) — 2 tables (model.embed_tokens.weight + lm_head.weight), 1322.5 Mo sur la carte (int8 1244.7 + échelles/biais 77.8)
+total attendu sur la carte : 5.45 Go (projections 4.13 + portés 1.32)
+fusé   : chargé en  255.8 s,   69.3 tok/s, 5.45 Go sur la carte
+dense  : chargé en  353.3 s,   26.6 tok/s, 16.38 Go sur la carte
+
+--- les deux bras ---
+  128 tokens identiques
+  dense :  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+  fusé  :  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris.
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           353.3 s        26.6       16.38
+  fusé            255.8 s        69.3        5.45
+  ----------------------------------------------
+  vitesse ×2.61, mémoire ÷3.01
+
+  projections : 4.752 b/poids sur la carte, fichier 4.32 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /model/q8b-e8.llvq: 252 quantized matrices, 3.157 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.346261638  n 4095  running ppl   10.446  (1.3s)
+  window   2/12  nll 2.735784875  n 4095  running ppl   12.693  (2.4s)
+  window   3/12  nll 2.175509386  n 4095  running ppl   11.237  (3.6s)
+  window   4/12  nll 1.981353618  n 4095  running ppl   10.072  (4.8s)
+  window   5/12  nll 2.499177255  n 4095  running ppl   10.461  (6.0s)
+  window   6/12  nll 2.397260379  n 4095  running ppl   10.548  (7.2s)
+  window   7/12  nll 2.474491567  n 4095  running ppl   10.728  (8.4s)
+  window   8/12  nll 2.489397083  n 4095  running ppl   10.885  (9.6s)
+  window   9/12  nll 2.603625801  n 4095  running ppl   11.150  (10.7s)
+  window  10/12  nll 2.101883013  n 4095  running ppl   10.810  (11.9s)
+  window  11/12  nll 2.530734890  n 4095  running ppl   10.959  (13.1s)
+  window  12/12  nll 2.404575177  n 4095  running ppl   10.968  (14.3s)
+
+/model/q8b-e8.llvq [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 10.9682
+model: /model/q8b-e8.llvq [LLVQ 2-bit, sealed]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+  abstract algebra                          11/40     27.5 %   (micro 27.50 %, 3s)
+  anatomy                                   23/40     57.5 %   (micro 44.73 %, 5s)
+  astronomy                                 31/40     77.5 %   (micro 57.60 %, 9s)
+  business ethics                           29/40     72.5 %   (micro 60.66 %, 12s)
+  clinical knowledge                        29/40     72.5 %   (micro 64.83 %, 15s)
+  college biology                           32/40     80.0 %   (micro 67.27 %, 18s)
+  college chemistry                         23/40     57.5 %   (micro 66.29 %, 22s)
+  college computer science                  26/40     65.0 %   (micro 66.17 %, 27s)
+  college mathematics                       17/40     42.5 %   (micro 64.19 %, 31s)
+  college medicine                          22/40     55.0 %   (micro 63.03 %, 34s)
+  college physics                           22/40     55.0 %   (micro 62.47 %, 37s)
+  computer security                         33/40     82.5 %   (micro 63.75 %, 40s)
+  conceptual physics                        25/40     62.5 %   (micro 63.59 %, 42s)
+  econometrics                              25/40     62.5 %   (micro 63.52 %, 46s)
+  electrical engineering                    24/40     60.0 %   (micro 63.27 %, 49s)
+  elementary mathematics                    26/40     65.0 %   (micro 63.54 %, 53s)
+  formal logic                              18/40     45.0 %   (micro 62.63 %, 57s)
+  global facts                              15/40     37.5 %   (micro 61.69 %, 60s)
+  high school biology                       36/40     90.0 %   (micro 64.64 %, 63s)
+  high school chemistry                     21/40     52.5 %   (micro 63.86 %, 66s)
+  high school computer science              30/40     75.0 %   (micro 64.20 %, 72s)
+  high school european history              31/40     77.5 %   (micro 64.84 %, 98s)
+  high school geography                     31/40     77.5 %   (micro 65.53 %, 101s)
+  high school government and politics       37/40     92.5 %   (micro 66.88 %, 104s)
+  high school macroeconomics                29/40     72.5 %   (micro 67.40 %, 107s)
+  high school mathematics                   17/40     42.5 %   (micro 65.91 %, 110s)
+  high school microeconomics                31/40     77.5 %   (micro 66.49 %, 113s)
+  high school physics                       21/40     52.5 %   (micro 66.06 %, 117s)
+  high school psychology                    35/40     87.5 %   (micro 68.21 %, 120s)
+  high school statistics                    29/40     72.5 %   (micro 68.37 %, 125s)
+  high school us history                    37/40     92.5 %   (micro 69.21 %, 144s)
+  high school world history                 34/40     85.0 %   (micro 69.83 %, 154s)
+  human aging                               27/40     67.5 %   (micro 69.75 %, 156s)
+  human sexuality                           29/40     72.5 %   (micro 69.80 %, 159s)
+  international law                         31/40     77.5 %   (micro 69.94 %, 163s)
+  jurisprudence                             30/40     75.0 %   (micro 70.03 %, 166s)
+  logical fallacies                         30/40     75.0 %   (micro 70.14 %, 169s)
+  machine learning                          17/40     42.5 %   (micro 69.70 %, 173s)
+  management                                30/40     75.0 %   (micro 69.78 %, 175s)
+  marketing                                 33/40     82.5 %   (micro 70.18 %, 178s)
+  medical genetics                          28/40     70.0 %   (micro 70.18 %, 181s)
+  miscellaneous                             28/40     70.0 %   (micro 70.16 %, 183s)
+  moral disputes                            28/40     70.0 %   (micro 70.16 %, 186s)
+  moral scenarios                           14/40     35.0 %   (micro 66.81 %, 191s)
+  nutrition                                 31/40     77.5 %   (micro 67.15 %, 194s)
+  philosophy                                25/40     62.5 %   (micro 67.01 %, 197s)
+  prehistory                                26/40     65.0 %   (micro 66.94 %, 200s)
+  professional accounting                   19/40     47.5 %   (micro 66.43 %, 205s)
+  professional law                          23/40     57.5 %   (micro 65.30 %, 217s)
+  professional medicine                     24/40     60.0 %   (micro 65.19 %, 225s)
+  professional psychology                   25/40     62.5 %   (micro 65.06 %, 229s)
+  public relations                          28/40     70.0 %   (micro 65.10 %, 231s)
+  security studies                          31/40     77.5 %   (micro 65.33 %, 239s)
+  sociology                                 33/40     82.5 %   (micro 65.58 %, 243s)
+  us foreign policy                         30/40     75.0 %   (micro 65.65 %, 245s)
+  virology                                  27/40     67.5 %   (micro 65.67 %, 248s)
+  world religions                           25/40     62.5 %   (micro 65.63 %, 250s)
+
+/model/q8b-e8.llvq [LLVQ 2-bit, sealed]
+MMLU 5-shot — 2280 questions scorées sur 14042, 57 matières, dtype f16, tokens 65dcd53655e8bfa5
+  --------------------------------------------------------
+  meilleures :
+    high school government and politics       92.5 %
+    high school us history                    92.5 %
+    high school biology                       90.0 %
+  pires :
+    abstract algebra                          27.5 %
+    moral scenarios                           35.0 %
+    global facts                              37.5 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 65.63 % ± 1.31
+  MMLU (macro, par matière) = 66.75 %
+  échantillon : 2280/14042 questions, 16.2 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
