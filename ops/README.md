@@ -122,7 +122,7 @@ Le squelette est complet ; le binaire qu'il lance ne l'est pas.
 | **C1** feature `cuda` | `--device cuda`. `llvq-llm/Cargo.toml:29` déclare `cuda` (et `cudnn` ligne 30), `eval.rs:52` route vers `Device::new_cuda`, `ops/Dockerfile.cuda` la construit | ✅ |
 | **C2** `bin/oracle` sur CUDA | la preuve **a été refaite sur ce backend** : l'étape 0 ci-dessus (`l4x1`, 0,01 $) rend `max \|Δhidden\| = 0.000e0`, comme en Metal. Reste à rejouer à chaque changement de backend — c'est ce que `cmd_oracle` (`ops/run.py:505`) existe pour faire | ✅ |
 | **C4** reprise sur checkpoint | les runs longs. Le timeout par défaut d'un Job est **30 min** ; la durée max n'est pas documentée | ❌ |
-| **C5** chemin local pour `LLVQ_MODEL` | le montage `Volume(type="model")`. Sans lui le conteneur retélécharge 65 Go à chaque run | ❌ |
+| **C5** chemin local pour `LLVQ_MODEL` | le montage `Volume(type="model")`. **Fait le 2026-08-08** : `Checkpoint::fetch` tranche *syntaxiquement* entre répertoire et dépôt (`/`, `./`, `../`, `~/` en tête), donc `--mount-model` fonctionne — sans une ligne de Python | ✅ |
 | **C6** mémoire du quantifieur | 12,4 Go de facteurs coexistent à 32B, dont 6,2 jamais lus quand `group_scales` est off | ❌ |
 | C3 chargement bf16 | *devenu optionnel* : `cpu-performance` a 256 Go de RAM, le modèle tient en f32 | — |
 
@@ -181,7 +181,7 @@ tous les runs réels.
 Deux volumes règlent le téléchargement et la sortie :
 
 - `Volume(type="model", …, read_only=True)` monte le repo du checkpoint, donc
-  65 Go ne sont pas retéléchargés à chaque relance (dépend de **C5**) ;
+  65 Go ne sont pas retéléchargés à chaque relance (**C5**, fait le 2026-08-08) ;
 - `Volume(type="bucket", …, read_only=False)` reçoit l'artefact — et recevra
   les checkpoints de reprise de **C4**.
 

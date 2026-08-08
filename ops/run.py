@@ -419,11 +419,15 @@ def cmd_launch(args) -> int:
               f"\nRelance avec --yes, ou --max-usd plus haut.", file=sys.stderr)
         return 1
 
-    # Mounting the checkpoint as a volume is only useful once `LLVQ_MODEL`
-    # accepts a local directory — code item C5. Until it lands, `--mount-model`
-    # would hand the loader a path it will try to resolve as a Hub repo id, so
-    # the default is to let the container download from the Hub. That is
-    # 65 GB per run on a 32B, which is exactly why C5 matters.
+    # `--mount-model` works as of 2026-08-08: `Checkpoint::fetch` now decides
+    # local-directory versus Hub repo **syntactically** (a leading `/`, `./`,
+    # `../` or `~/` means a directory), so the `/model` this passes resolves to
+    # the mounted volume instead of being tried as a repo id. Code item C5,
+    # closed with no Python change.
+    #
+    # Still off by default: the volume has to exist and hold a full checkpoint,
+    # and a mount that silently lacks a shard is a worse failure than a
+    # download. Opt in when you know the volume is there.
     env = {
         "LLVQ_MODEL": args.model_mount if args.mount_model else args.model,
         "LLVQ_CALIB": args.calib,
@@ -1049,7 +1053,7 @@ def main() -> int:
                    help="dossier local synchronisé quand --bucket auto")
     l.add_argument("--model-mount", default="/model")
     l.add_argument("--mount-model", action="store_true",
-                   help="monter le checkpoint en volume — exige C5")
+                   help="monter le checkpoint en volume plutôt que le retélécharger")
     l.add_argument("--out-mount", default="/out")
     l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"],
                    help="doit s'accorder à la flavor — croisé par `device_ok`")

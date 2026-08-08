@@ -1,0 +1,174 @@
+# Continuous integration for the CPU half of the workspace.
+#
+# The repo advertises two properties a reviewer can check mechanically: "zéro
+# warning clippy" (CLAUDE.md §7) and a doctrine of lethal tests (§5). Neither
+# was enforced anywhere until now, and the first machine to compile a pushed
+# tree was a *paid* Hugging Face Space builder. This moves that first compile
+# onto a free runner — and no further. Nothing here publishes, deploys, or
+# spends.
+#
+# ============================================================================
+# WHAT A GREEN CHECK HERE DOES **NOT** MEAN
+# ============================================================================
+# It covers 6 of the 8 crates. A GitHub-hosted runner has no GPU and no CUDA
+# toolkit, so the two GPU crates cannot be *compiled* here at all. That is a
+# structural limit, not a policy choice, and it was measured on 2026-08-08 on
+# the dev Mac (which has the Linux std target installed) rather than assumed:
+#
+#   cargo check --target x86_64-unknown-linux-gnu -p llvq-metal --all-targets
+#     -> exit 101, llvq-metal/src/lib.rs:728
+#        compile_error!("llvq-metal targets Apple GPUs; there is nothing to
+#        measure elsewhere")
+#
+#   cargo check --target x86_64-unknown-linux-gnu -p llvq-cuda
+#     -> exit 101, cudarc-0.19.8/build.rs:168, "`nvcc --version` failed".
+#        llvq-cuda/Cargo.toml documents at length why cudarc is *target*-gated
+#        and not feature-gated: features resolve on the host too, so no flag
+#        can hide it from the resolver on Linux.
+#
+# So this workflow says nothing whatsoever about:
+#
+#   * the fused kernel — `Slot32`, `Planes14`, the 2,03-2,09x and the 4,804
+#     b/weight — on either backend;
+#   * llvq-llm's `metal`, `cuda` and `cudnn` features, i.e. every code path
+#     `bin/fusedrun` actually takes;
+#   * llvq-cuda/tests/*, the CUDA-vs-Rust decoder equivalence sweeps. Those
+#     need no GPU *by design* — K1 of docs/portage-noyau-cuda.md has clang++
+#     compile the .cu text as host C++ — but building the package drags cudarc
+#     in, so they are unreachable on Linux. They run on the macOS dev machine
+#     and nowhere else. The CUDA decoder's correctness tests are precisely the
+#     ones this CI cannot run.
+#
+# Covering them needs a self-hosted GPU runner, or a macos-* runner for the
+# clang++ half (10x minute multiplier on private repos). That is a spending
+# decision, not a technical one, so it is left to a human. K2 of
+# docs/portage-noyau-cuda.md already scopes the compile-only NVRTC job.
+#
+# Treating this badge as "everything is checked" would be the same defect
+# CLAUDE.md §5 is about: an assertion that does not exercise what it appears
+# to cover.
+# ============================================================================
+
+name: CI
+
+# Docs churn hard here (CLAUDE.md alone is ~100 kB, plus docs/ and paper/) and
+# none of it can change what rustc thinks. Skipping those paths keeps the
+# runner off a large share of the commits.
+on:
+  push:
+    paths-ignore: ['**.md', 'docs/**', 'paper/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'paper/**']
+
+# Read-only, explicitly. This workflow needs no secret and no write scope; it
+# builds and tests, and there is deliberately no step that could push, publish
+# or bill anything.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cpu:
+    # ubuntu-latest, single job, no matrix. Development happens on macOS, but
+    # every batch run ships as a Linux container (ops/Dockerfile is
+    # debian:bookworm-slim, ops/Dockerfile.cuda is nvidia/cuda:*-ubuntu22.04),
+    # so Linux is the platform that actually executes this code in anger. A
+    # macOS leg would add the llvq-metal and llvq-cuda coverage described
+    # above, and bill 10x per minute on a private repo; see the block at the
+    # top before adding one.
+    name: clippy + tests (CPU crates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned, like Cargo.lock and like CUDA_COMPUTE_CAP in
+      # ops/Dockerfile.cuda. `-D warnings` on a floating toolchain means a new
+      # clippy release turns the tree red overnight on code nobody touched,
+      # which is how a gate stops being taken seriously. 1.95.0 is the version
+      # the workspace is developed and measured on. Bump deliberately.
+      - name: Install pinned Rust 1.95.0
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy
+          rustup default 1.95.0
+          rustc --version && cargo --version
+
+      # Cold, this job is ~270 s on a 16-core M3 Max (23 s clippy + 247 s
+      # tests) and leaves a 1.3 GB target/. A 4-vCPU hosted runner is several
+      # times slower, and ~250 of those seconds are candle/parquet/tokenizers,
+      # which change only when Cargo.lock does — exactly what a cache is for.
+      # actions/cache is GitHub's own; no third-party action is used anywhere
+      # in this file, on purpose.
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: cargo-1.95.0-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-1.95.0-
+
+      # The convention, enforced. Verified to pass at HEAD on 2026-08-08:
+      # exit 0, zero warnings. `--locked` matches how ops/Dockerfile builds the
+      # shipped image, so a lockfile that drifted from Cargo.toml fails here
+      # rather than in a paid job.
+      - name: clippy (zero warnings is the convention)
+        run: >
+          cargo clippy --locked
+          --workspace --exclude llvq-cuda --exclude llvq-metal
+          --all-targets -- -D warnings
+
+      # --release is load-bearing, not a performance preference.
+      #
+      # The heavy tests are gated `#[cfg_attr(debug_assertions, ignore = ...)]`,
+      # so in a *debug* run they are all skipped and the suite proves close to
+      # nothing — a green check that means "it compiled". In release the
+      # attribute vanishes and they run: measured 212 passed, 0 failed at HEAD.
+      #
+      # And --include-ignored is deliberately NOT passed. Exactly 3 tests carry
+      # an unconditional #[ignore] (planes12x_format, planes14_format,
+      # golay70_format): they sweep the sealed ~981 MB Qwen3-4B archive, which
+      # is not in the repo and never will be. llvq-artifact/tests/common/mod.rs
+      # makes a missing archive a hard failure rather than a silent skip, on
+      # purpose — so asking for them here would turn CI red on every run, for a
+      # file no runner can have. Reported as `ignored`, they are a declaration;
+      # that is the honest state, not a gap being hidden.
+      - name: tests (release; the debug-gated suite only runs here)
+        run: >
+          cargo test --locked
+          --workspace --exclude llvq-cuda --exclude llvq-metal
+          --release
+
+      # CLAUDE.md §2 makes a load-bearing claim: llvq-core, llvq-search,
+      # llvq-quant, llvq-artifact and llvq-bench have zero external
+      # dependencies, so that reading a quantized model never requires a tensor
+      # runtime and the mathematical core stays auditable. Nothing enforced it,
+      # and a single `cargo add` in the wrong crate would retire the claim
+      # silently. Path dependencies render as `name vX (/abs/path)`; anything
+      # from crates.io has no path, so any surviving line is a violation.
+      #
+      # Lethal by the §5 standard: run against llvq-llm the same check reports
+      # 249 external crates, so it does detect what it is meant to detect.
+      - name: the dependency-free crates must stay dependency-free
+        run: |
+          set -euo pipefail
+          status=0
+          for p in llvq-core llvq-search llvq-quant llvq-artifact llvq-bench; do
+            ext=$(cargo tree --locked -p "$p" --edges normal --prefix none \
+                  | sed '/^$/d; s/ (\*)$//' | sort -u | grep -v ' (/' || true)
+            if [ -n "$ext" ]; then
+              echo "::error::$p gained an external dependency:"
+              echo "$ext"
+              status=1
+            fi
+          done
+          exit $status

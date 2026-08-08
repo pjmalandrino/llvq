@@ -1335,8 +1335,17 @@ Quatre choses apprises en s'en servant, qui coûtent cher à redécouvrir :
   figée dans l'image (89 = Ada). Et le profil `lto = "thin"` +
   `codegen-units = 1` tue le build par OOM : `ops/Dockerfile.cuda` relève les
   codegen units et limite les jobs cargo.
-- **Sans C5, le conteneur retélécharge le checkpoint** : 26 min sur 65,5 Go,
-  soit 45 % d'un run court.
+- **Le conteneur retéléchargeait le checkpoint à chaque run** — corrigé le
+  2026-08-08 (C5) : `Checkpoint::fetch` accepte un répertoire local, donc
+  `--mount-model` sert enfin à quelque chose.
+  🚨 **Les « 26 min sur 65,5 Go » qui circulaient ici étaient un nombre
+  circulaire** : c'est exactement 65,5 Go ÷ 42 Mo/s, et les 42 Mo/s dérivent
+  du même couple — aucun des deux bouts n'est une mesure indépendante. Les
+  seules mesures qui bornent vraiment le hors-boucle sont les 59 min
+  facturées du dé-risquage 32B moins ses 2 694 s de quantification, soit
+  **≤ 846 s pour pull d'image + téléchargement + chargement + factorisation +
+  écriture + vérification** — donc ≥ 77 Mo/s, et un téléchargement de 26 min
+  n'y tient pas. Ne pas republier le 26 min.
 
 ### ⚠️ Le piège du « x bits/poids » sur un petit modèle
 

@@ -325,18 +325,40 @@ fn read_raws(path: &std::path::Path) -> Option<Vec<RawTensor>> {
 /// the artifact lot B scored. Row-independent by construction (groups never
 /// cross rows), so a sample proves what a full pass would.
 ///
-/// Skipped silently when either artifact is not on this machine.
+/// Needs two ~1 GB artifacts that are not in the repository, so it is
+/// `#[ignore]`d unconditionally and fails loudly when asked for by name.
+///
+/// It used to be `cfg_attr(debug_assertions, ignore)` with an
+/// `eprintln!("… sauté"); return;` inside — which means it *ran* in release
+/// and reported `ok` on every machine without the files. That is the defect
+/// CLAUDE.md §5 is about, and it sat inside the suite CI runs: a green that
+/// described the filesystem, not the format. `llvq-artifact` had the same
+/// pattern in three files; this one was missed because it lives in another
+/// crate.
 #[test]
-#[cfg_attr(debug_assertions, ignore = "reads two ~1 GB artifacts, run in release")]
+#[ignore = "reads ~/qwen3-4b-llvq.bin and ~/q4b-e8.llvq, two ~1 GB artifacts absent from the repo"]
 fn real_rows_match_the_sealed_q8_file() {
-    let home = match std::env::var("HOME") {
-        Ok(h) => std::path::PathBuf::from(h),
-        Err(_) => return,
-    };
+    const HOWTO: &str = "\
+This test compares the embedding of the sealed 4B artifact against its int8
+variant, row by row. It is #[ignore]d, so being here means it was asked for by
+name or with --include-ignored — it therefore fails rather than printing SKIP
+and reporting `ok`.
+
+Both files are produced locally: see README.md for the `bin/smoke` invocation
+that writes the sealed artifact, and `bin/embedq` for the int8 variant. To
+leave it out deliberately, drop --include-ignored: it is then reported as
+`ignored`, which is a declaration rather than a silent pass.";
+
+    let home = std::env::var("HOME")
+        .unwrap_or_else(|_| panic!("$HOME is not set, so there is no path to try.\n\n{HOWTO}"));
+    let home = std::path::PathBuf::from(home);
     let (src, e8) = (home.join("qwen3-4b-llvq.bin"), home.join("q4b-e8.llvq"));
-    if !src.exists() || !e8.exists() {
-        eprintln!("artefacts absents ({src:?}, {e8:?}) — test sauté");
-        return;
+    for p in [&src, &e8] {
+        assert!(
+            p.exists(),
+            "artifact not on this machine: {}\n\n{HOWTO}",
+            p.display()
+        );
     }
     let find = |raws: Vec<RawTensor>| {
         raws.into_iter().find(|t| t.name == "model.embed_tokens.weight")
