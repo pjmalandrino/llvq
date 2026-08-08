@@ -103,6 +103,69 @@ def cap_ok(flavor: str) -> tuple[bool, str]:
         return True, f"sm_{cap}, par JIT PTX depuis sm_{MIN_COMPUTE_CAP}"
     return True, f"sm_{cap} natif"
 
+
+def device_ok(flavor: str, device: str) -> tuple[bool, str]:
+    """`(coherent, why)` for a `--flavor` / `--device` pair, before it is billed.
+
+    Nothing else crosses these two, and they are the pair the whole estimate
+    rests on. `cost_table` charges a flavor with VRAM the `cuda` rate
+    (6.36e-5 core-s/weight) **because** the forward passes fall to 1–2 % of the
+    run there; ask that same flavor for `--device cpu` and the forwards come
+    back at 88 %, i.e. the `cpu` rate (2.41e-4). The estimate is then 3.8× low
+    on a machine billed by the minute.
+
+    What turns that overspend into a total loss is the `timeout`: `cmd_launch`
+    sets it to 1.5× the estimate, so a run 3.8× slower than estimated is killed
+    at ~40 % of its blocks — every minute billed, and no artifact.
+
+    The reverse, `--device cuda` on a CPU flavor, is the cheap half but still a
+    paid failure: since `eval.rs::device` stopped falling back to CPU it fails
+    loudly, and it does so *after* the job has started, pulled the image and
+    downloaded the checkpoint (65 GB on a 32B, ~26 min without code item C5).
+
+    ⚠️ Deliberately **not** overridable by `--yes`. That flag means "I accept
+    the bill" and the README hands it to every run above the ceiling — which is
+    exactly the 32B, the one run where a 3.8× miss costs the most. A guard that
+    switches itself off on the expensive run is not a guard.
+
+    Pure on purpose: it is the only launch check that can be exercised without
+    a network, a token, or a billed minute.
+    """
+    spec = FLAVORS.get(flavor)
+    if spec is None:
+        # Not this function's refusal — `cmd_launch` already rejects an unknown
+        # flavor by name, and inventing a second message for it would send the
+        # operator looking for a device problem they do not have.
+        return True, ""
+    gpu = spec["vram"] > 0
+    if device == "metal":
+        return False, (
+            f"--device metal sur {flavor} : aucune flavor HF Jobs n'est un Mac, et\n"
+            f"l'image de ce dépôt n'est pas construite avec `--features metal`.\n"
+            f"Le job démarrerait, serait facturé, téléchargerait le checkpoint, puis\n"
+            f"`eval.rs::device` échouerait au premier appel.\n"
+            f"Relance avec --device {'cuda' if gpu else 'cpu'}.")
+    if gpu and device != "cuda":
+        return False, (
+            f"--device {device} sur {flavor}, qui a {spec['vram']} Go de VRAM.\n"
+            f"Le devis facture à cette flavor le tarif `cuda` "
+            f"({QUANT_CORE_SEC_PER_WEIGHT['cuda']:.2e} cœur-s/poids) parce que les passes\n"
+            f"avant y tombent à 1–2 % du run. En `{device}` elles reviennent à 88 %, soit\n"
+            f"{QUANT_CORE_SEC_PER_WEIGHT['cpu']:.2e} : ×"
+            + f"{QUANT_CORE_SEC_PER_WEIGHT['cpu'] / QUANT_CORE_SEC_PER_WEIGHT['cuda']:.1f}".replace(".", ",")
+            + " le devis. Et le `timeout` est posé à 1,5× ce devis,\n"
+            f"donc le job serait tué vers 40 % des blocs — facturé plein, sans artefact.\n"
+            f"Relance avec --device cuda, ou prends une flavor sans VRAM.")
+    if not gpu and device != "cpu":
+        return False, (
+            f"--device {device} sur {flavor}, qui n'a aucun GPU.\n"
+            f"`eval.rs::device` ne retombe plus sur le CPU en silence : il échoue en\n"
+            f"nommant la feature manquante — mais après démarrage, pull de l'image et\n"
+            f"téléchargement du checkpoint, tous facturés.\n"
+            f"Relance avec --device cpu, ou prends une flavor avec de la VRAM.")
+    return True, f"{device} sur {flavor} ({spec['vram']} Go de VRAM)"
+
+
 # Measured, see the module docstring. Change these only with a bench to back it.
 BLOCKS_PER_SEC_PER_CORE = 1469.0
 CHOLESKY_MACS_PER_SEC = 110e9
@@ -339,6 +402,10 @@ def cmd_launch(args) -> int:
               f"seulement). Le job démarrerait, serait facturé, téléchargerait le checkpoint,\n"
               f"puis échouerait à charger le premier noyau.", file=sys.stderr)
         return 2
+    coherent, why = device_ok(args.flavor, args.device)
+    if not coherent:
+        print(f"refus : {why}", file=sys.stderr)
+        return 2
     wall, usd = rows[args.flavor]
 
     print(f"{args.model} sur {args.flavor} — {wall:.1f} h estimées, ~{usd:.2f} $")
@@ -447,6 +514,61 @@ Binaires : `smoke` (quantification), `ppl`, `mmlu`, `run`, `seal`, `oracle`.
 Lancé depuis `ops/run.py` du dépôt LLVQ.
 """
 
+# What `publish` uploads, as one pair of lists used **twice**: to filter the
+# upload, and to decide whether the tree is clean where it matters. Two copies
+# of this would be the exact bug the guard below exists to prevent — a
+# perimeter that drifts from the payload checks the wrong files, and a
+# provenance check that checks the wrong files is worse than none, because it
+# reassures.
+#
+# Allow-list, not deny-list: `COPY . .` copies whatever ends up in the Space,
+# so a forgotten exclusion means a slower build, and `target/` alone is tens of
+# gigabytes.
+#
+# `Cargo.lock` is in the list on purpose. Without it the builder resolves
+# dependencies fresh, so the image would not be built from the tree that was
+# committed — and every number the image produces would be traceable to a
+# commit that does not describe it. That is exactly the provenance gap this
+# campaign exists to close.
+UPLOAD_ALLOW = ("Cargo.toml", "Cargo.lock", "llvq-*/**")
+UPLOAD_IGNORE = ("**/target/**", "**/*.log")
+
+
+def dirty_in_upload_perimeter(dirty_files, recipe: str) -> list[str]:
+    """The modified paths that would actually change the image being built.
+
+    `manifest.git_state` looks at the **whole** tree, and applying that verdict
+    verbatim here would make `publish` refuse whenever `docs/` moves — that is,
+    in this repository's ordinary working state. A guard that fires on every
+    invocation is a guard the operator learns to bypass, after which it
+    protects nothing. So the question is narrowed to the only one that has an
+    answer: *would this change the bytes the builder compiles?*
+
+    In scope: the allow list above, minus its ignores, plus the Dockerfile
+    actually uploaded. The recipe is not a detail — `--cuda` selects it and it
+    pins `CUDA_COMPUTE_CAP=89`, i.e. which cards the image can load a kernel
+    on at all.
+
+    Deliberately out of scope: `ops/run.py` itself. It picks the command a Job
+    runs, but it is never compiled into the image, and a launcher edit must not
+    block a rebuild of unchanged sources.
+
+    ⚠️ `git status --porcelain` quotes paths holding non-ASCII bytes and spells
+    a rename `old -> new`. Both make a path *fail* to match a pattern here, so
+    the residual risk is under-reporting on exotic filenames; every crate path
+    in this workspace is plain ASCII.
+    """
+    from fnmatch import fnmatchcase          # case-sensitive, like git
+
+    blocking = []
+    for path in dirty_files:
+        if path == recipe:
+            blocking.append(path)
+        elif (any(fnmatchcase(path, p) for p in UPLOAD_ALLOW)
+              and not any(fnmatchcase(path, p) for p in UPLOAD_IGNORE)):
+            blocking.append(path)
+    return blocking
+
 
 def cmd_publish(args) -> int:
     """Publish the workspace as a Docker Space, which HF then builds for us.
@@ -467,34 +589,109 @@ def cmd_publish(args) -> int:
 
     Private by default. This is someone's research repository, and making it
     public is a decision they take, not one a script takes for them.
+
+    ## And it uploads a commit, or refuses
+
+    `ops/README.md` and this module both promise that "un chiffre qu'elle
+    produit est rattachable à un commit" — on the strength of `--locked` alone,
+    which pins the *dependencies* and says nothing about the workspace itself.
+    Nothing checked that the workspace being uploaded was committed at all, so
+    the promise held only by habit. It is checked now, over the perimeter that
+    is actually uploaded (see `dirty_in_upload_perimeter`), and the commit is
+    shipped alongside the sources as `COMMIT` so the claim is verifiable rather
+    than asserted.
     """
     from huggingface_hub import create_repo, upload_file, upload_folder
+
+    # `ops/manifest.py` already asks git this exact question and already
+    # refuses a dirty tree; reusing it keeps one definition of "clean" for the
+    # whole `ops/` directory. (Sibling module: `uv run ops/run.py` puts `ops/`
+    # on `sys.path[0]`.)
+    from manifest import ManifestError, git_state, now_utc
+
+    # A Space builds its Dockerfile as written, so the CPU/CUDA choice is made
+    # by *which file* we upload — `--build-arg` never reaches the Hub builder.
+    # Resolved here rather than at the upload below because the recipe is part
+    # of what has to be committed.
+    recipe = "Dockerfile.cuda" if args.cuda else "Dockerfile"
+    try:
+        git_st = git_state(args.root)
+    except ManifestError as exc:
+        # No git, no provenance — and `--allow-dirty` cannot rescue this one:
+        # there is no revision to write into COMMIT, so publishing would ship
+        # sources nobody can situate. A refusal the operator can act on, rather
+        # than the traceback `git_out` would otherwise raise here.
+        print(f"refus : git est muet sur {args.root} — {exc}\n"
+              "Sans état git, `publish` ne peut rattacher l'image à aucun commit, et\n"
+              "c'est toute la promesse de ops/README.md.", file=sys.stderr)
+        return 1
+    blocking = dirty_in_upload_perimeter(git_st.dirty_files, f"ops/{recipe}")
+    if blocking and not args.allow_dirty:
+        listing = "\n".join(f"    {f}" for f in blocking[:20])
+        more = f"\n    … et {len(blocking) - 20} autres" if len(blocking) > 20 else ""
+        print(f"refus : {len(blocking)} fichier(s) non commité(s) dans ce que "
+              f"`publish` téléverse :\n{listing}{more}\n"
+              "Le Space compile l'image depuis ces octets-là, et les deux recettes bâtissent\n"
+              "avec `--locked` précisément pour qu'un chiffre produit par l'image soit\n"
+              "rattachable à un commit. Téléverser un arbre sale rompt la promesse en\n"
+              "silence : l'image existe, elle tourne, et le commit qu'elle annonce ne la\n"
+              "décrit pas — c'est la panne de provenance que `ops/manifest.py` existe pour\n"
+              "empêcher côté mesures.\n"
+              "Le contrôle ne regarde QUE le périmètre téléversé "
+              f"({', '.join(UPLOAD_ALLOW)}, ops/{recipe}) :\n"
+              "`docs/` et `ops/run.py` peuvent bouger librement.\n"
+              "Commite, ou `--allow-dirty` — et le fichier COMMIT dira alors que l'arbre\n"
+              "était sale, plutôt que de laisser croire le contraire.", file=sys.stderr)
+        return 1
 
     repo_id = args.space
     create_repo(repo_id, repo_type="space", space_sdk="docker",
                 private=not args.public, exist_ok=True)
     print(f"space {repo_id} ({'public' if args.public else 'privé'})")
+    print(f"commit {git_st.commit[:12]}"
+          + (f"  ⚠️ {len(blocking)} fichier(s) sale(s) dans le périmètre" if blocking
+             else "  (périmètre téléversé propre)"))
 
-    # Allow-list, not deny-list: `COPY . .` copies whatever ends up here, so a
-    # forgotten exclusion means a slower build, and `target/` alone is tens of
-    # gigabytes.
-    #
-    # `Cargo.lock` is in the list on purpose. Without it the builder resolves
-    # dependencies fresh, so the image would not be built from the tree that
-    # was committed — and every number the image produces would be traceable to
-    # a commit that does not describe it. That is exactly the provenance gap
-    # this campaign exists to close.
     upload_folder(
         repo_id=repo_id,
         repo_type="space",
         folder_path=str(args.root),
-        allow_patterns=["Cargo.toml", "Cargo.lock", "llvq-*/**"],
-        ignore_patterns=["**/target/**", "**/*.log"],
+        allow_patterns=list(UPLOAD_ALLOW),
+        ignore_patterns=list(UPLOAD_IGNORE),
         commit_message="LLVQ workspace",
     )
-    # A Space builds its Dockerfile as written, so the CPU/CUDA choice is made
-    # by *which file* we upload — `--build-arg` never reaches the Hub builder.
-    recipe = "Dockerfile.cuda" if args.cuda else "Dockerfile"
+    # The commit these sources came from, shipped with them. Without it the
+    # Space holds a copy of the workspace and no way to say which revision it
+    # is: `git log` on the Space only dates the upload, and two publishes of
+    # different commits look identical from the Hub side.
+    #
+    # It lands in the **build context** — `COPY . .` puts it at `/src/COMMIT` —
+    # but not in the runtime layer, whose `COPY --from=build` names the
+    # binaries one by one. Carrying it into the running container is a one-line
+    # addition to each recipe, and would let a Job print the revision it is.
+    #
+    # ⚠️ Under `--allow-dirty` this file says so, in as many words. A COMMIT
+    # naming a revision the uploaded bytes do not match would be worse than no
+    # COMMIT at all — same rule as `manifest.py`, where a dirty entry is
+    # recorded, marked, and refused by `verify`.
+    lines = [f"{git_st.commit}\n",
+             "# Commit du dépôt LLVQ dont proviennent Cargo.lock et llvq-*/**.\n",
+             f"# recette : ops/{recipe}\n",
+             f"# téléversé : {now_utc()}\n"]
+    if blocking:
+        lines.append(f"# ⚠️ ARBRE SALE dans le périmètre téléversé — "
+                     f"{len(blocking)} fichier(s), image NON rattachable à ce commit :\n")
+        lines += [f"#     {f}\n" for f in blocking[:20]]
+    else:
+        lines.append("# Périmètre téléversé propre au moment du téléversement.\n")
+    commit_note = "".join(lines)
+    upload_file(
+        path_or_fileobj=commit_note.encode(),
+        path_in_repo="COMMIT",
+        repo_id=repo_id, repo_type="space",
+        commit_message=f"commit {git_st.commit[:12]}"
+                       + (" (ARBRE SALE)" if blocking else ""),
+    )
     upload_file(
         path_or_fileobj=str(args.root / "ops" / recipe),
         path_in_repo="Dockerfile",
@@ -525,6 +722,15 @@ def cmd_oracle(args) -> int:
     one that must never be skipped when the hardware changes.
     """
     from huggingface_hub import run_job
+
+    # Same cross-check as `launch`, and it belongs here too: the whole point of
+    # this command is to prove the forward pass on **the backend the next run
+    # will use**, so a `(flavor, device)` pair that cannot run is not a cheap
+    # mistake — it is a proof that was never taken while looking taken.
+    coherent, why = device_ok(args.flavor, args.device)
+    if not coherent:
+        print(f"refus : {why}", file=sys.stderr)
+        return 2
 
     job = run_job(
         image=args.image,
@@ -845,9 +1051,27 @@ def main() -> int:
     l.add_argument("--mount-model", action="store_true",
                    help="monter le checkpoint en volume — exige C5")
     l.add_argument("--out-mount", default="/out")
-    l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"])
+    l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"],
+                   help="doit s'accorder à la flavor — croisé par `device_ok`")
     l.add_argument("--blocks", type=int, default=None)
-    l.add_argument("--codebook", default="leech1c12L3")
+    # `leech1c12` — ball m ≤ 12, 47 index bits + 1 gain bit — is the protocol
+    # every published number of this project was measured under, 4B and 8B
+    # alike (docs/echelle-4b-8b-2026-08-08.md).
+    #
+    # The default here used to be `leech1c12L3`, and that trailing `L3` is not
+    # a detail: it caps a block at three distinct magnitudes, which is what
+    # sets the fused kernel's RAM width. It is **dead on quality** — the L ≤ 4
+    # swap measured on the sealed 4B costs +4.75 % of perplexity (16.9415 →
+    # 17.7459), which puts the file back ABOVE QTIP's 17.04 and loses the one
+    # comparison the paper rests on (docs/verdicts-lot-b-2026-08-06.md §B6).
+    #
+    # And it has already been paid for once as a default: the 8B had to be
+    # requantized at $12.61 to purge it (docs/data/jobs.csv, 2026-08-07,
+    # « confondant L3 purge »). A VRAM experiment that wants the cap again
+    # asks for it by name; it must never be what a bare `launch` produces.
+    l.add_argument("--codebook", default="leech1c12",
+                   help="défaut leech1c12, le protocole de tous les chiffres publiés ; "
+                        "un suffixe L<n> plafonne les niveaux et coûte +4,75 %% de ppl")
     l.add_argument("--calib", default="c4")
     l.add_argument("--calib-windows", type=int, default=64)
     l.add_argument("--calib-len", type=int, default=2048)
@@ -857,7 +1081,16 @@ def main() -> int:
     l.add_argument("--damping", default=None)
     l.add_argument("--dtype", default=None, choices=[None, "f16", "bf16", "f32"])
     l.add_argument("--group-scales", action="store_true")
-    l.add_argument("--rotation", action="store_true", default=True)
+    # `action="store_true"` **with** `default=True` was a contradiction, and it
+    # was silent: the flag stores True and the default is True, so `norot` was
+    # unreachable from the command line and every `launch` shipped `rot`
+    # whatever was typed. That is the one arm nobody could afford to lose — the
+    # input rotation is the largest quality lever ever measured here (×2.290 →
+    # ×1.811 on the 0.6B, 21 % of perplexity in one step, CLAUDE.md §6), so its
+    # control arm has to stay dialable to attribute anything to it.
+    l.add_argument("--rotation", action=argparse.BooleanOptionalAction, default=True,
+                   help="rotation d'incohérence en entrée (défaut) ; "
+                        "--no-rotation pour le bras de contrôle")
     l.add_argument("--max-usd", type=float, default=60.0)
     l.add_argument("--yes", action="store_true", help="passer outre le plafond")
     l.set_defaults(fn=cmd_launch)
@@ -869,6 +1102,8 @@ def main() -> int:
                     help="par défaut le Space est privé")
     pu.add_argument("--cuda", action="store_true",
                     help="image CUDA (compute cap figée, cf. ops/Dockerfile.cuda)")
+    pu.add_argument("--allow-dirty", action="store_true",
+                    help="téléverser un périmètre non commité ; COMMIT le déclarera")
     pu.set_defaults(fn=cmd_publish)
 
     o = sub.add_parser("oracle", help="valider la passe avant sur le backend cible")
