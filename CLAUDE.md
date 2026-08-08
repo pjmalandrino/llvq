@@ -740,6 +740,24 @@ Golay `0xC75` + l'ordre des codewords (weight-major, croissant dans un poids)
 + l'ordre d'énumération des classes + les ordres de composition mixed-radix.
 Toute modification casse la compatibilité des fichiers quantifiés.
 
+✅ **Ce contrat est vérifié par la machine depuis le 2026-08-08**, alors qu'il
+n'était que de la prose. `llvq_artifact::codebook_fingerprint()` digère la
+**carte elle-même** — pas la liste de ses paramètres, qui ne couvrirait que
+ceux dont on se souvient : disposition des classes, `Indexer::decode` évalué
+sur des sondes déterministes par classe, la table Golay entière, et les
+bornes. `the_index_map_is_the_published_one` l'épingle à
+**`0x338f_420f_1186_6319`** : toucher à l'un des quatre ingrédients fait
+tomber le test **avant** qu'un fichier soit écrit ou lu, donc la protection
+est rétroactive et couvre l'artefact déjà publié.
+Le format `LVQ4` la stocke en plus, pour le cas qu'aucun test ne peut voir —
+un fichier venu d'un autre build. Les magies v1 à v3 restent lisibles sans
+empreinte : vérifié sur les quatre archives réelles de la machine, dont le
+fichier publié.
+⚠️ **Ce qu'un lecteur ne détectait pas** — et c'est pourquoi il fallait une
+empreinte : une *permutation* de la carte laisse tous les index dans la
+boule, tous les points décodés sont des points du réseau, le fichier s'ouvre
+et le modèle tourne. Seuls les index hors boule étaient attrapés.
+
 ## 5. Leçon de méthode : les tests doivent être létaux
 
 Un audit adversarial (mutation testing) a montré que la première suite G1

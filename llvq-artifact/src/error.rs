@@ -32,6 +32,14 @@ pub enum Error {
     IndexOutOfRange { name: String, index: u64 },
     /// A raw tensor record carries an encoding tag this reader does not know.
     BadRawEncoding { tag: u32 },
+    /// The file was written against a different codebook than this build's.
+    ///
+    /// The one failure that has no visible symptom: every index would still be
+    /// in range, every point it decodes to would still be a lattice point, and
+    /// the weights would be wrong.
+    CodebookMismatch { stored: u64, computed: u64 },
+    /// A header version this writer cannot emit.
+    UnknownVersion { version: u32 },
     /// Underlying I/O failure.
     Io(std::io::Error),
 }
@@ -65,6 +73,17 @@ impl fmt::Display for Error {
                 "raw tensor encoding tag {tag} is unknown — file written by a \
                  newer writer, or corrupted"
             ),
+            Error::CodebookMismatch { stored, computed } => write!(
+                f,
+                "codebook fingerprint {stored:#018x} does not match this \
+                 build's {computed:#018x} — the file's indices were assigned \
+                 by a different index map (Golay order, class order or \
+                 mixed-radix composition), so decoding them here would yield \
+                 valid lattice points that are not the ones written"
+            ),
+            Error::UnknownVersion { version } => {
+                write!(f, "no artifact format version {version} to write")
+            }
             Error::Io(e) => write!(f, "i/o: {e}"),
         }
     }

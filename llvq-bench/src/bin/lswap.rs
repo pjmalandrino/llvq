@@ -14,9 +14,7 @@
 //!
 //! Run: `cargo run --release -p llvq-bench --bin lswap -- in.llvq out.llvq`
 
-use llvq_artifact::{
-    read_header, read_matrix_raw, write_matrix_raw, RawMatrix, MAGIC, MAGIC_V1, MAGIC_V2,
-};
+use llvq_artifact::{read_header, read_matrix_raw, write_header, write_matrix_raw, RawMatrix};
 use llvq_core::{Point, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 use llvq_search::generic::BallSearcher;
@@ -182,11 +180,6 @@ fn main() {
         panic!("open {src}: {e}");
     }));
     let h = read_header(&mut r).expect("valid artifact header");
-    let magic: &[u8; 4] = match h.version {
-        1 => MAGIC_V1,
-        2 => MAGIC_V2,
-        _ => MAGIC,
-    };
     // Write to a temporary path and rename only after `verify()` has passed:
     // an interrupted run must never leave a plausible-looking file at `dst`
     // (a truncated artifact opens fine and scores wrong).
@@ -195,8 +188,13 @@ fn main() {
         1 << 20,
         File::create(&tmp).unwrap_or_else(|e| panic!("create {tmp}: {e}")),
     );
-    w.write_all(magic).expect("write magic");
-    w.write_all(&h.matrices.to_le_bytes()).expect("write count");
+    // Through `write_header`, never by hand: as of the v4 codebook fingerprint
+    // the header is no longer `magic | count`, and a hand-rolled one would emit
+    // an LVQ4 magic with no fingerprint field. That failure is loud rather than
+    // silent — `read_header` would take the first eight bytes of the matrix
+    // record as a fingerprint and refuse — but it is a failure all the same,
+    // and one copy of the layout is one that cannot drift.
+    write_header(&mut w, h.version, h.matrices).expect("write header");
 
     println!(
         "{src} : format v{}, {} matrices — swap L = 5 → L ≤ {LEVEL_CAP}, \

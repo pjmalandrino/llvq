@@ -15,12 +15,17 @@
 //!
 //! ## The format, in one paragraph
 //!
-//! A file is `"LVQ1"`, a matrix count, then that many matrices. Each matrix
-//! carries its name, dimensions, shell cap, gain centroids, one scale per
-//! output row, the trailing columns that were left unquantized, and finally a
-//! dense bit stream of `(index, gain)` pairs — 47 or 48 bits for the index,
-//! `log2(centroids)` for the gain, packed back to back with no padding except
-//! at the very end.
+//! A file is a magic word, a matrix count, the writer's codebook fingerprint,
+//! then that many matrices. Each matrix carries its name, dimensions, shell
+//! cap, gain centroids, one scale per output row, the trailing columns that
+//! were left unquantized, and finally a dense bit stream of `(index, gain)`
+//! pairs — 47 or 48 bits for the index, `log2(centroids)` for the gain, packed
+//! back to back with no padding except at the very end.
+//!
+//! The fingerprint is the newest field and the only one that is not a
+//! dimension: the matrix record says how *wide* an index is, never what it
+//! *means*, and a reader whose codebook disagrees with the writer's would
+//! decode plausible, wrong weights without an error. See [`codebook`].
 //!
 //! ## What it does not carry
 //!
@@ -36,16 +41,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod codebook;
 mod error;
 mod format;
 pub mod runtime;
 mod sealed;
 
+pub use codebook::codebook_fingerprint;
 pub use error::Error;
 pub use format::{
-    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, split_name, write_matrix,
-    write_matrix_raw, ArtifactWriter, Header, QuantizedMatrix, RawMatrix, MAGIC, MAGIC_V1,
-    MAGIC_V2,
+    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, split_name, write_header,
+    write_matrix, write_matrix_raw, ArtifactWriter, Header, QuantizedMatrix, RawMatrix,
+    FIRST_FINGERPRINTED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2, MAGIC_V3, VERSION,
 };
 pub use sealed::{
     f16_to_f32, read_blob, read_raw, write_blob, write_raw, Blob, QuantData, RawData, RawTensor,

@@ -36,11 +36,28 @@ use std::io::{Read, Write};
 /// original checkpoint beside it to run. `LVQ2` adds the raw tensors and the
 /// blobs that make it self-contained. `LVQ3` tags each raw tensor with its
 /// encoding so the embedding can be carried group-affine quantized instead of
-/// f16 (see [`crate::sealed`]). All three are readable; only `LVQ3` is
-/// written. The matrix records themselves are identical across versions.
-pub const MAGIC: &[u8; 4] = b"LVQ3";
+/// f16 (see [`crate::sealed`]). `LVQ4` appends the writer's codebook
+/// fingerprint to the header (see [`crate::codebook`]), which is the only
+/// field of the whole format that describes what an index *means* rather than
+/// how wide it is. All four are readable; only `LVQ4` is written. The matrix
+/// records themselves are identical across versions — which is what lets a
+/// tool copy them between two files of different versions untouched.
+pub const MAGIC: &[u8; 4] = b"LVQ4";
+pub const MAGIC_V3: &[u8; 4] = b"LVQ3";
 pub const MAGIC_V2: &[u8; 4] = b"LVQ2";
 pub const MAGIC_V1: &[u8; 4] = b"LVQ1";
+
+/// The version [`ArtifactWriter`] emits.
+pub const VERSION: u32 = 4;
+
+/// First version whose header carries a codebook fingerprint.
+///
+/// Files below it were written before the field existed and are read without
+/// the check — grandfathered deliberately: the published Qwen3-4B artifact is
+/// `LVQ2`, and a reader that refused it would be worse than the hole it
+/// closes. What protects *those* files is the pinned fingerprint in the test
+/// suite, not a field they cannot have.
+pub const FIRST_FINGERPRINTED_VERSION: u32 = 4;
 
 /// One quantized matrix, everything a decoder needs.
 pub struct QuantizedMatrix {
@@ -399,9 +416,14 @@ pub struct ArtifactWriter<W: Write> {
 
 impl<W: Write> ArtifactWriter<W> {
     /// `n_matrices` is written up front so the reader can size itself.
-    pub fn new(mut out: W, n_matrices: u32) -> Result<Self> {
-        out.write_all(MAGIC)?;
-        put_u32(&mut out, n_matrices)?;
+    pub fn new(out: W, n_matrices: u32) -> Result<Self> {
+        Self::with_version(out, VERSION, n_matrices)
+    }
+
+    /// Same, at a chosen format version — for a tool that rewrites an existing
+    /// file and must not silently upgrade it.
+    pub fn with_version(mut out: W, version: u32, n_matrices: u32) -> Result<Self> {
+        write_header(&mut out, version, n_matrices)?;
         Ok(Self {
             out,
             ix: Indexer::new(),
@@ -460,12 +482,21 @@ impl<W: Write> ArtifactWriter<W> {
     }
 }
 
-/// What a file's header says: which version, and how many matrices follow.
+/// What a file's header says: which version, how many matrices follow, and —
+/// from [`FIRST_FINGERPRINTED_VERSION`] on — which codebook wrote it.
 pub struct Header {
     /// 1 for projections only; 2+ for a self-contained file. 3 adds tagged
-    /// raw-tensor encodings.
+    /// raw-tensor encodings; 4 adds the codebook fingerprint.
     pub version: u32,
     pub matrices: u32,
+    /// The writer's codebook fingerprint, or `None` for a legacy file that
+    /// predates the field.
+    ///
+    /// A `Some` here has already been checked against
+    /// [`crate::codebook_fingerprint`]: [`read_header`] refuses a file whose
+    /// codebook is not this build's, so reaching a `Header` at all means the
+    /// indices about to be read mean what the writer meant.
+    pub codebook: Option<u64>,
 }
 
 impl Header {
@@ -476,16 +507,45 @@ impl Header {
     }
 }
 
-/// Read the file header.
+/// Write a file header for `version`.
+///
+/// Exposed because the header is no longer `magic + count`: from
+/// [`FIRST_FINGERPRINTED_VERSION`] on it also carries the fingerprint, and a
+/// tool that rewrites a file's matrix section byte for byte has to reproduce
+/// the whole of it. Hand-rolling the two writes is exactly how a `LVQ4` magic
+/// ends up over a `LVQ3` body.
+pub fn write_header(w: &mut impl Write, version: u32, matrices: u32) -> Result<()> {
+    let magic = match version {
+        1 => MAGIC_V1,
+        2 => MAGIC_V2,
+        3 => MAGIC_V3,
+        4 => MAGIC,
+        v => return Err(Error::UnknownVersion { version: v }),
+    };
+    w.write_all(magic)?;
+    put_u32(w, matrices)?;
+    if version >= FIRST_FINGERPRINTED_VERSION {
+        put_u64(w, crate::codebook_fingerprint())?;
+    }
+    Ok(())
+}
+
+/// Read the file header, refusing a file this build cannot interpret.
 ///
 /// Separate from [`read_all`] because a 4B model's codes are 14 GB of lattice
 /// points: anything that walks a real artifact has to do it one matrix at a
 /// time, and holding them all was never an option.
+///
+/// The fingerprint is checked here rather than at first decode so that a
+/// codebook disagreement costs sixteen bytes of I/O instead of a gigabyte, and
+/// so that every caller gets the check without asking for it.
 pub fn read_header(r: &mut impl Read) -> Result<Header> {
     let mut magic = [0u8; 4];
     r.read_exact(&mut magic)
         .map_err(|_| Error::Truncated { reading: "magic" })?;
     let version = if &magic == MAGIC {
+        4
+    } else if &magic == MAGIC_V3 {
         3
     } else if &magic == MAGIC_V2 {
         2
@@ -494,9 +554,21 @@ pub fn read_header(r: &mut impl Read) -> Result<Header> {
     } else {
         return Err(Error::NotAnArtifact { got: magic });
     };
+    let matrices = get_u32(r, "matrix count")?;
+    let codebook = if version >= FIRST_FINGERPRINTED_VERSION {
+        let stored = get_u64(r, "codebook fingerprint")?;
+        let computed = crate::codebook_fingerprint();
+        if stored != computed {
+            return Err(Error::CodebookMismatch { stored, computed });
+        }
+        Some(stored)
+    } else {
+        None
+    };
     Ok(Header {
         version,
-        matrices: get_u32(r, "matrix count")?,
+        matrices,
+        codebook,
     })
 }
 
