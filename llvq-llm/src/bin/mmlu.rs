@@ -45,6 +45,23 @@
 //! this harness does not land there, the protocol is wrong and no other number
 //! it produces means anything. That is the same discipline as the identity
 //! control of Phase 5: the test you re-run first when a result looks odd.
+//!
+//! ## The per-question dump, and why it is not optional
+//!
+//! Set `LLVQ_MMLU_DUMP=<path>` and every scored question lands in a CSV. Two
+//! arms are always scored on the *same* questions — the sample depends only on
+//! the subject name's length — so their results are **paired data**, and every
+//! error bar this project has published so far is the unpaired one, which is
+//! the wrong test and the conservative one. The paired statistics live in
+//! `bin/mmlupair`; they need this file and nothing else.
+//!
+//! The asymmetry is what makes it mandatory rather than nice: writing the file
+//! costs one `writeln!` per forward pass, and *not* writing it costs the whole
+//! run again — 0.8 h per arm at `limit=40`, 16.5 h at census on the Mac, or
+//! 0.75–1.35 $ per arm on a rented L40S. The three-arm campaigns of 2026-08-06
+//! and 2026-08-08 were run without it: their per-question answers are gone, and
+//! the −0.28 pp that carries "4-bit is indistinguishable from f16 at 4B" cannot
+//! be tested without paying for those runs a second time.
 
 use candle_core::{DType, IndexOp, Tensor};
 use llvq_llm::corpus::{mmlu_split, MmluItem};
@@ -185,6 +202,74 @@ fn micro_stderr(scores: &[SubjectScore]) -> f64 {
         .sqrt()
 }
 
+/// First line of a dump. `bin/mmlupair` refuses a file that does not open with
+/// it — the version is what lets the format change later without silently
+/// feeding an old file to a reader that expects a new column.
+const DUMP_VERSION: &str = "# llvq-mmlu-dump v1";
+
+/// The column line. **The reader resolves columns by name, never by
+/// position**, because the writer lives here and the parser lives in another
+/// binary: two files that cannot share code cannot share a struct either, and
+/// a positional contract between them would break silently the first time
+/// someone inserts a column. Names make that a loud error instead.
+const DUMP_COLUMNS: &str =
+    "subject,index,population,qhash,answer,pick,correct,logit_a,logit_b,logit_c,logit_d";
+
+/// One dump line.
+///
+/// Three fields are here for reasons that are not obvious from the name:
+///
+/// * `population` — the subject's size in the *test* split, not the number of
+///   questions asked. The published figure is the **stratified** micro (see
+///   [`micro`]), so the stratum weight is part of the datum. A dump without it
+///   can only reproduce the pooled rate, which is a different statistic — the
+///   exact confusion §3ter of `CLAUDE.md` cost this project a session to
+///   untangle, and re-introducing it in the dump would let it back in through
+///   the analysis tool.
+/// * `qhash` — [`llvq_llm::eval::token_fingerprint`] over the tokens of *this*
+///   prompt. The run-level fingerprint on the result line proves two arms saw
+///   the same stream; a per-question hash proves it question by question,
+///   which is what a paired join actually needs. It also survives the one case
+///   the run-level fingerprint cannot express: a census and a `limit=40` run
+///   share 2 280 questions but necessarily print different run fingerprints,
+///   so only the per-question hash can certify the overlap.
+/// * the four logits, verbatim. `pick` is an argmax and throws away the
+///   margin: a question missed by 1e-4 and one missed by 8 are the same row
+///   otherwise. `{}` on an `f32` is the shortest round-tripping form, so the
+///   file re-reads bit for bit and a later analysis can rank confidence,
+///   compute a margin, or re-derive the pick without a second forward pass.
+#[allow(clippy::too_many_arguments)]
+fn dump_row(
+    subject: &str,
+    index: usize,
+    population: usize,
+    qhash: u64,
+    answer: usize,
+    pick: usize,
+    logits: [f32; 4],
+) -> String {
+    format!(
+        "{subject},{index},{population},{qhash:016x},{answer},{pick},{},{},{},{},{}",
+        u8::from(pick == answer),
+        logits[0],
+        logits[1],
+        logits[2],
+        logits[3]
+    )
+}
+
+/// The trailer, written once the loop is over.
+///
+/// It carries the run fingerprint — which is only known at the end, so it
+/// cannot be a header — and it doubles as a **completion marker**. A job killed
+/// at a platform timeout (the HF Jobs default is 30 min, and a census needs
+/// hours) leaves a dump that parses, scores, and is short by however many
+/// subjects never ran. Requiring this line turns that silent truncation into a
+/// refusal.
+fn dump_trailer(fingerprint: u64, questions: usize) -> String {
+    format!("# end fingerprint={fingerprint:016x} questions={questions}")
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let model_arg = a
@@ -270,14 +355,26 @@ fn main() -> anyhow::Result<()> {
 
     // ---- score ----
     //
-    // `LLVQ_MMLU_DUMP` writes one line per question. Without it, comparing two
-    // arms question by question means re-running both — 0.8 h at limit=40 and
-    // 16.5 h at census. The paired bootstrap the campaign publishes needs this
-    // file, and it costs one `writeln!` per forward pass.
+    // `LLVQ_MMLU_DUMP` writes one line per question — see [`dump_row`] for what
+    // is on it and why. The header block carries what is known before the first
+    // forward pass; the fingerprint is only known after the last one, so it
+    // goes in the trailer.
     let mut dump = match std::env::var("LLVQ_MMLU_DUMP") {
         Ok(p) if !p.is_empty() => {
             let mut w = std::io::BufWriter::new(std::fs::File::create(&p)?);
-            writeln!(w, "subject,index,answer,pick,correct")?;
+            writeln!(w, "{DUMP_VERSION}")?;
+            writeln!(w, "# model={label}")?;
+            writeln!(w, "# dtype={}", llvq_llm::eval::dtype_name(dtype))?;
+            writeln!(
+                w,
+                "# limit={}",
+                if limit == usize::MAX {
+                    "census".to_string()
+                } else {
+                    limit.to_string()
+                }
+            )?;
+            writeln!(w, "{DUMP_COLUMNS}")?;
             eprintln!("dumping per-question results to {p}");
             Some(w)
         }
@@ -323,20 +420,30 @@ fn main() -> anyhow::Result<()> {
                 .i((0, last))?
                 .to_dtype(DType::F32)?
                 .to_vec1()?;
+            let options = [
+                row[answer_ids[0] as usize],
+                row[answer_ids[1] as usize],
+                row[answer_ids[2] as usize],
+                row[answer_ids[3] as usize],
+            ];
             let pick = (0..4)
-                .max_by(|&x, &y| {
-                    row[answer_ids[x] as usize]
-                        .total_cmp(&row[answer_ids[y] as usize])
-                })
+                .max_by(|&x, &y| options[x].total_cmp(&options[y]))
                 .expect("four options");
             sr += usize::from(pick == it.answer);
             st += 1;
             if let Some(w) = dump.as_mut() {
                 writeln!(
                     w,
-                    "{subject},{index},{},{pick},{}",
-                    it.answer,
-                    u8::from(pick == it.answer)
+                    "{}",
+                    dump_row(
+                        subject,
+                        *index,
+                        items.len(),
+                        llvq_llm::eval::token_fingerprint(&ids),
+                        it.answer,
+                        pick,
+                        options,
+                    )
                 )?;
             }
         }
@@ -356,10 +463,11 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
+    let fingerprint = llvq_llm::eval::token_fingerprint(&scored_ids);
     if let Some(w) = dump.as_mut() {
+        writeln!(w, "{}", dump_trailer(fingerprint, total))?;
         w.flush()?;
     }
-    let fingerprint = llvq_llm::eval::token_fingerprint(&scored_ids);
 
     let population: usize = per_subject.iter().map(|s| s.population).sum();
     let (mic, mac, se) = (
@@ -396,6 +504,12 @@ fn main() -> anyhow::Result<()> {
             "  échantillon : {total}/{population} questions, {:.1} % — \
              ± est l'erreur d'échantillonnage seule",
             100.0 * total as f64 / population as f64
+        );
+    }
+    if dump.is_some() {
+        println!(
+            "\n  Dump écrit. La comparaison de deux bras se fait sur les dumps, pas sur\n  \
+             ces deux lignes : `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`."
         );
     }
     println!(
@@ -540,6 +654,71 @@ mod tests {
                 "index {index} no longer points at its question"
             );
         }
+    }
+
+    /// The dump has to carry everything the paired analysis needs, and the
+    /// analysis lives in another binary that cannot import this one. What
+    /// stands between the two is this column line, so it is pinned here: drop
+    /// `population` and the stratified micro is no longer reconstructible;
+    /// drop `qhash` and two dumps can no longer be certified as the same
+    /// questions. Either loss is silent at the CSV level and fatal at the
+    /// statistics level.
+    #[test]
+    fn the_dump_carries_what_the_paired_analysis_needs() {
+        for column in [
+            "subject",
+            "index",
+            "population",
+            "qhash",
+            "answer",
+            "pick",
+            "correct",
+        ] {
+            assert!(
+                DUMP_COLUMNS.split(',').any(|c| c == column),
+                "the dump lost its {column} column"
+            );
+        }
+        let row = dump_row("abstract_algebra", 17, 100, 0xdead_beef, 2, 2, [1.0, 2.0, 9.5, -0.5]);
+        let fields: Vec<&str> = row.split(',').collect();
+        assert_eq!(
+            fields.len(),
+            DUMP_COLUMNS.split(',').count(),
+            "row and header disagree on arity: {row}"
+        );
+        // Position of each field, read through the header exactly as the
+        // reader does it.
+        let at = |name: &str| fields[DUMP_COLUMNS.split(',').position(|c| c == name).unwrap()];
+        assert_eq!(at("subject"), "abstract_algebra");
+        assert_eq!(at("index"), "17");
+        assert_eq!(at("population"), "100");
+        assert_eq!(at("qhash"), "00000000deadbeef");
+        assert_eq!(at("correct"), "1", "pick 2 == answer 2");
+        // The logits must round-trip: they exist to let a later analysis rank
+        // confidence without a second forward pass, and a lossy print would
+        // make that analysis quietly wrong rather than impossible.
+        assert_eq!(at("logit_c").parse::<f32>().unwrap(), 9.5_f32);
+        assert_eq!(at("logit_d").parse::<f32>().unwrap(), -0.5_f32);
+    }
+
+    /// A miss must be recorded as a miss. The `correct` column is derived, and
+    /// a derived column that never disagrees with its inputs is a column that
+    /// was never computed.
+    #[test]
+    fn a_wrong_pick_is_written_as_wrong() {
+        let miss = dump_row("us_history", 3, 204, 1, 0, 3, [0.0; 4]);
+        assert!(miss.ends_with("0,0,0,0,0"), "{miss}");
+        assert!(miss.contains(",0,3,0,"), "answer 0, pick 3, correct 0: {miss}");
+    }
+
+    /// The trailer is what tells a reader the run finished. A census on a
+    /// rented card runs for hours against a 30-minute platform default, so
+    /// "the file exists and parses" is not evidence that all 57 subjects ran.
+    #[test]
+    fn the_trailer_carries_the_fingerprint_and_the_count() {
+        let t = dump_trailer(0x65dc_d536_55e8_bfa5, 2_280);
+        assert_eq!(t, "# end fingerprint=65dcd53655e8bfa5 questions=2280");
+        assert!(t.starts_with('#'), "the trailer must not parse as a data row");
     }
 
     /// One stratum, so the weight is 1 whatever the population and the *only*
