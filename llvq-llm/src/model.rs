@@ -303,9 +303,10 @@ impl Embed {
     }
 }
 
-/// The `lm_head`: a dense tensor multiplied through candle, or the same int8
-/// g64 buffer as [`Embed::Q8`] read by a dedicated matvec — Qwen3-4B ties the
-/// two, so one payload serves both ends of the model.
+/// The `lm_head`: a dense tensor multiplied through candle, or an int8 g64
+/// buffer read by a dedicated matvec. Qwen3-4B ties the two ends, so that
+/// buffer *is* [`Embed::Q8`]'s and one payload serves both; Qwen3-8B unties
+/// them, and this is then its own table with its own values.
 pub enum Head {
     Dense(Tensor),
     #[cfg(all(target_os = "linux", feature = "cuda"))]
