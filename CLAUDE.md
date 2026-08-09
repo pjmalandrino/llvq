@@ -315,15 +315,34 @@ lignes** du modèle publié. Journal :
 | **`Planes12x`** (overlay épars) | **4,342** | 1,98× [1,95–1,99] | 356 | ✅ validé au banc, qualité **exacte** — ⚠️ **pas dans le modèle** (voir ci-dessous) |
 | `Golay70` (E2) | 3,589 | **1,31× [1,29–1,32]** | 195 | ❌ **écarté** — sous le critère de 1,6× posé d'avance |
 
-⚠️ **« Validé au banc » n'est pas « livré », et la différence est vérifiable
-en une commande.** `Planes12x` et `Golay70` ont leur transcodeur
-(`llvq-artifact/src/runtime.rs`) et leur noyau (`llvq-cuda`), mais l'énum
-`FusedLayout` que lit le modèle n'expose que **`Planes14` et `Slot32`**
-(`llvq-llm/src/fused.rs:58-73` — et elle **refuse** toute autre valeur plutôt
-que de retomber en silence sur le défaut, parce qu'un A/B qui se trompe de
-bras en silence est pire qu'un A/B qui échoue). `grep -rn planes12x llvq-llm`
-rend zéro. Passer `Planes12x` en production est donc du travail restant, pas
-un réglage.
+✅ **`Planes12x` est câblé dans le modèle depuis le 2026-08-09** :
+`LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x` et `slot32`**, et
+il **refuse** toute autre valeur plutôt que de retomber en silence sur le
+défaut — un A/B qui se trompe de bras en silence est pire qu'un A/B qui
+échoue. `Golay70`, lui, reste hors du modèle (écarté à 1,31×).
+
+⚠️ **Mais « câblé » n'est toujours pas « mesuré », et c'est la distinction qui
+compte maintenant.** Le flux hôte est prouvé — balayage bloc à bloc du 4B
+scellé, **252 matrices, 150 681 600 blocs**, overlay résolu, contenu décodé
+identique à `Planes14`, et **5 096 688 exceptions (3,3824 %)**, exactement le
+recensement de `rtbits`. Le **noyau f16**, lui, n'est que *compilé* : grille,
+`__syncthreads`, `warp_sum` et absence de spill ne s'établissent que sur
+carte. La seule preuve de correction qui existera jamais est la comparaison
+des tokens gloutons de `fusedrun` contre le bras dense.
+
+🔎 **Ce que le câblage a coûté, et qu'il faut savoir avant de l'activer** : le
+transcodage de `Planes12x` prend **404 s contre 84 s** pour `Planes14` sur le
+4B (M3 Max, 16 threads) — ×4,8, parce qu'il refait une recherche réseau par
+bloc à 5 niveaux. Sur carte louée c'est du temps facturé.
+
+⚠️ **Et la mesure du 2026-08-09 dit que ça ne paie pas au 8B**
+([`docs/mesures/rtbits-planes-8b-2026-08-09.txt`](docs/mesures/rtbits-planes-8b-2026-08-09.txt)) :
+la VRAM y est **déjà gagnée** par `Planes14` + embedding q8 — 5,322 b/param
+contre 5,956 pour l'AWQ. `Planes12x` porterait l'avance à 17 % sur un axe
+déjà acquis, en dépensant ~7 % de débit, pendant que l'axe perdant (MMLU,
+65,5 contre 73,0) resterait intact. Il est câblé pour être **mesurable** et
+pour servir au 14B et au 32B, où la part portée retombe à ~10 % puis ~5 % et
+où il reprend son gain plein — pas pour être le défaut à 8B.
 
 **Trois choses que cette échelle établit.**
 

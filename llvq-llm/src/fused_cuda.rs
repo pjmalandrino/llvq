@@ -2,11 +2,11 @@
 //!
 //! This is where the kernel stops being a bench and starts being inference.
 //! It holds the encoded streams on the device — `Planes14` by default,
-//! `Slot32` under `LLVQ_FUSED_LAYOUT=slot32` — and replaces one linear layer
-//! with two launches:
+//! `Planes12x` or `Slot32` under `LLVQ_FUSED_LAYOUT` — and replaces one
+//! linear layer with two launches:
 //!
 //! ```text
-//! x (f16) ──rot_apply──▶ x' (f32, rotated basis) ──tv_planes_h / tv_slot_h──▶ y (f16)
+//! x (f16) ──rot_apply──▶ x' (f32, rotated basis) ──tv_*_h──▶ y (f16)
 //! ```
 //!
 //! ## Three things it does not do, on purpose
@@ -43,8 +43,8 @@ use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
 use half::f16;
 
 use crate::fused::{
-    EmbedMode, FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables,
-    EMBED_GROUP,
+    load_planes_sources, matvec_kernel_name, EmbedMode, FusedLayout, FusedMatrix, FusedModel,
+    HostStream, RotKey, RotationTables, EMBED_GROUP,
 };
 
 /// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
@@ -58,21 +58,13 @@ const TILE_BLOCKS: usize = 128;
 const TABLE_ENTRIES: usize = 512;
 const REC_WORDS: usize = 6;
 
-/// The Planes14 kernel sources, embedded like every other kernel so a run is
-/// reproducible from the binary alone. The two committed files are reused
-/// verbatim from `llvq-cuda` (they belong to the C1 lot and are pinned by
-/// planesbench); `tv_planes_h.cu` is this crate's own — the half-storing
-/// entry point only the inference path needs.
-const PLANES_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes.cuh");
-const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
-const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
 /// The q8 embedding kernels — appended only under `LLVQ_EMBED=q8`, so the
 /// translation unit of both f16-embedding arms stays byte-identical to what
 /// every published number compiled.
 const EMB_Q8_CU_EMBED: &str = include_str!("../kernels/emb_q8.cu");
 
 /// The q8 embedding kernel source, honouring `LLVQ_KERNEL_DIR` with the same
-/// contract as [`load_planes_sources`].
+/// contract as [`crate::fused::load_planes_sources`].
 fn load_emb_sources() -> Result<(String, Option<String>), String> {
     match std::env::var("LLVQ_KERNEL_DIR") {
         Err(_) => Ok((EMB_Q8_CU_EMBED.to_string(), None)),
@@ -81,34 +73,6 @@ fn load_emb_sources() -> Result<(String, Option<String>), String> {
             let s = std::fs::read_to_string(&p)
                 .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : emb_q8.cu : {e}"))?;
             Ok((s, Some(dir)))
-        }
-    }
-}
-
-/// The three Planes14 parts, honouring `LLVQ_KERNEL_DIR` with the same
-/// contract as `load_sources_many`: without the variable, the embedded text;
-/// with it, **all** the files from the directory, disclosed loudly by the
-/// caller — mixing embedded and overridden parts would make the printed
-/// sha256 untraceable.
-fn load_planes_sources() -> Result<([String; 3], Option<String>), String> {
-    match std::env::var("LLVQ_KERNEL_DIR") {
-        Err(_) => Ok((
-            [
-                PLANES_CUH_EMBED.to_string(),
-                PLANES_CU_EMBED.to_string(),
-                PLANES_H_CU_EMBED.to_string(),
-            ],
-            None,
-        )),
-        Ok(dir) => {
-            let rd = |n: &str| {
-                std::fs::read_to_string(std::path::Path::new(&dir).join(n))
-                    .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
-            };
-            Ok((
-                [rd("llvq_planes.cuh")?, rd("planes.cu")?, rd("tv_planes_h.cu")?],
-                Some(dir),
-            ))
         }
     }
 }
@@ -127,7 +91,9 @@ struct RotBuffers {
 
 /// A matrix's payload on the device, mirroring [`HostStream`] variant for
 /// variant. The `Planes14` arm carries **no bases slice at all** — reading or
-/// launching with one on the planes path is a compile error, not a bug class.
+/// launching with one on the planes path is a compile error, not a bug class —
+/// and, symmetrically, only the `Planes12x` arm can name an exception table,
+/// so no other layout's launch can be handed one.
 enum DeviceStream {
     Slot32 {
         words: CudaSlice<u32>,
@@ -135,6 +101,12 @@ enum DeviceStream {
     },
     Planes14 {
         words: CudaSlice<u32>,
+    },
+    Planes12x {
+        words: CudaSlice<u32>,
+        exc_idx: CudaSlice<u32>,
+        exc_words: CudaSlice<u32>,
+        row_exc: CudaSlice<u32>,
     },
 }
 
@@ -156,7 +128,7 @@ pub struct FusedProj {
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
     f_rot: CudaFunction,
-    /// `tv_planes_h` or `tv_slot_h`, whichever [`FusedLayout`] named — one
+    /// Whichever entry point [`matvec_kernel_name`] gave for the layout — one
     /// kernel per runtime, chosen with the layout, so a stream and a kernel
     /// of different layouts cannot meet.
     f_matvec: CudaFunction,
@@ -219,9 +191,7 @@ impl FusedRuntime {
             .map_err(candle_core::Error::msg)?;
         let planes = match model.layout {
             FusedLayout::Slot32 => None,
-            FusedLayout::Planes14 => {
-                Some(load_planes_sources().map_err(candle_core::Error::msg)?)
-            }
+            layout => Some(load_planes_sources(layout).map_err(candle_core::Error::msg)?),
         };
         let emb = match emode {
             EmbedMode::F16 => None,
@@ -234,7 +204,7 @@ impl FusedRuntime {
         if let Some((pp, overridden)) = &planes {
             parts.extend(pp.iter().map(String::as_str));
             if let Some(d) = overridden {
-                eprintln!("⚠️ SOURCES Planes14 SURCHARGÉES depuis {d}");
+                eprintln!("⚠️ SOURCES {} SURCHARGÉES depuis {d}", model.layout.name());
             }
         }
         if let Some((es, overridden)) = &emb {
@@ -250,10 +220,7 @@ impl FusedRuntime {
         // decoders keep their accumulators and `rot_mix` a KMAX-wide column
         // in registers, and a spill costs occupancy without changing a
         // result. Checked on the kernel this runtime will actually launch.
-        let matvec_name = match model.layout {
-            FusedLayout::Planes14 => "tv_planes_h",
-            FusedLayout::Slot32 => "tv_slot_h",
-        };
+        let matvec_name = matvec_kernel_name(model.layout);
         let mut spill_checked = vec![matvec_name, "rot_apply"];
         if emb.is_some() {
             spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
@@ -793,6 +760,28 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                     shared,
                 )
                 .map_err(candle_core::Error::msg)?,
+                DeviceStream::Planes12x {
+                    words,
+                    exc_idx,
+                    exc_words,
+                    row_exc,
+                } => launch_planes12x_h(
+                    &self.rt.cuda,
+                    &self.rt.f_matvec,
+                    &[words, exc_idx, exc_words, row_exc],
+                    &self.rt.tab,
+                    &self.proj.gscale,
+                    &self.proj.rscale,
+                    &self.proj.tail,
+                    xr,
+                    &mut y,
+                    self.proj.nblocks,
+                    self.proj.tail_w,
+                    self.proj.d_out as u32,
+                    THREADS,
+                    shared,
+                )
+                .map_err(candle_core::Error::msg)?,
             }
         }
 
@@ -855,6 +844,64 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     Ok(())
 }
 
+/// The Planes12x twin of [`launch_planes_h`] — same grid, four stream arrays
+/// instead of one.
+///
+/// 🚨 **Read the grid, because it is the whole design decision.** It is
+/// `tv_planes_h`'s grid, unchanged: `d_out·32/threads` CTAs, one warp per
+/// output row, and *no* exception region. planesbench's `tv_planes12x` adds
+/// `ceil(n_exc/8)` CTAs that `atomicAdd` into a `y` it memsets first; this
+/// path instead hands each row its own slice of the exception table
+/// (`row_exc`) so the corrections happen inside the row's warp. Consequences,
+/// in the order they matter here:
+///
+///  * **`y` is not zeroed, and must not be.** `FusedOp::cuda_fwd` allocates
+///    it uninitialised. That is sound for exactly the reason it is sound for
+///    `tv_planes_h` — the grid is exact and every row is *stored*, never
+///    accumulated into — and it stays sound here only because no CTA outside
+///    a row's own warp writes that row. If anyone ever reintroduces an
+///    exception region, the allocation upstream has to become a memset in the
+///    same commit.
+///  * **no atomic, so no `atomicAdd` on `__half`.** The accumulation is f32
+///    from the first block to the last correction; the single narrowing to
+///    binary16 is the final store, where candle would have narrowed anyway.
+///    An `atomicAdd(__half*)` would have rounded every partial sum instead,
+///    which is not the arithmetic the `Planes14` arm this replaces performs.
+///
+/// `arrays` is `[words, exc_idx, exc_words, row_exc]` in kernel order, taken
+/// as one slice so a caller cannot silently transpose two `CudaSlice<u32>`
+/// arguments of identical type — the one mistake here that compiles.
+#[allow(clippy::too_many_arguments)]
+fn launch_planes12x_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    arrays: &[&CudaSlice<u32>; 4],
+    tab: &CudaSlice<u32>,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<f32>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(arrays[0]).arg(arrays[1]).arg(arrays[2]).arg(arrays[3])
+        .arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+        .arg(&nblocks).arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes12x_h: {e}"))?;
+    Ok(())
+}
+
 fn upload_matrix(
     cuda: &llvq_cuda::gpu::Cuda,
     m: &FusedMatrix,
@@ -877,6 +924,26 @@ fn upload_matrix(
         (HostStream::Planes14 { words }, FusedLayout::Planes14) => DeviceStream::Planes14 {
             words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
         },
+        (
+            HostStream::Planes12x { words, exc_idx, exc_words, row_exc },
+            FusedLayout::Planes12x,
+        ) => {
+            // cudarc refuses a zero-length upload. A matrix with no 5-level
+            // block still needs a bound pointer, so it gets a one-word dummy
+            // the kernel never dereferences: every row's slice is empty, so
+            // `planes12x_row_correction`'s loop never runs. `exc_words` is
+            // never empty — `pack_plane_bytes` appends the read-window pad —
+            // and `row_exc` has `d_out + 1` entries, so only `exc_idx` needs
+            // this.
+            let dummy = [0u32];
+            let idx: &[u32] = if exc_idx.is_empty() { &dummy } else { exc_idx };
+            DeviceStream::Planes12x {
+                words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+                exc_idx: cuda.up_u32(idx).map_err(candle_core::Error::msg)?,
+                exc_words: cuda.up_u32(exc_words).map_err(candle_core::Error::msg)?,
+                row_exc: cuda.up_u32(row_exc).map_err(candle_core::Error::msg)?,
+            }
+        }
         _ => candle_core::bail!(
             "{} : flux hôte et layout du runtime ({}) en désaccord",
             m.name,

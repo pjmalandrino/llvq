@@ -11,7 +11,7 @@
 
 use llvq_artifact::runtime::{transcode, ClassTable, Layout, PLANES14_BYTES};
 use llvq_core::{SplitMix64, DIM};
-use llvq_llm::fused::{transcode_stream, FusedLayout, HostStream};
+use llvq_llm::fused::{FusedLayout, HostStream, Transcoder};
 use llvq_search::fastdec::FastDecoder;
 use llvq_search::index::N13;
 
@@ -69,13 +69,13 @@ fn planes_fields(words: &[u32], b: usize) -> (usize, u32, u32, [u32; 3]) {
 fn planes_words_decode_to_the_slot_content() {
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     for &(n, seed) in &[(33usize, 0xA1u64), (40, 0xB2)] {
         let (idx, gains) = synthetic(n, seed);
-        let (stream, _) = transcode_stream(&fd, &table, &idx, &gains, FusedLayout::Planes14)
-            .expect("transcode planes14");
+        let (stream, _) = tr.stream(&idx, &gains, 1, n).expect("transcode planes14");
         let words = match &stream {
             HostStream::Planes14 { words } => words,
-            HostStream::Slot32 { .. } => panic!("layout planes14 demandé, flux slot32 rendu"),
+            _ => panic!("layout planes14 demandé, autre flux rendu"),
         };
         // The last block's window must sit inside the buffer — the invariant
         // the end-of-stream padding exists to provide.
@@ -116,11 +116,29 @@ fn the_layout_switch_is_honoured() {
         FusedLayout::Planes14
     );
     assert_eq!(
+        FusedLayout::parse(Some("planes12x")).unwrap(),
+        FusedLayout::Planes12x
+    );
+    assert_eq!(
         FusedLayout::parse(Some("slot32")).unwrap(),
         FusedLayout::Slot32
     );
     assert!(FusedLayout::parse(Some("Slot32")).is_err());
     assert!(FusedLayout::parse(Some("grouped32")).is_err());
+    // Near-misses of the name that joined the switch last: a layout that
+    // exists at the bench but not here (`golay70`), and two spellings of the
+    // one that does. Refusing beats falling back — an A/B whose arm silently
+    // reverts to the default reports the default's numbers under the other
+    // arm's name.
+    assert!(FusedLayout::parse(Some("golay70")).is_err());
+    assert!(FusedLayout::parse(Some("planes12")).is_err());
+    assert!(FusedLayout::parse(Some("Planes12x")).is_err());
+    // And the refusal must *name* what it will accept, or the operator's next
+    // move is a source dive.
+    let msg = FusedLayout::parse(Some("planes12")).unwrap_err();
+    for expected in ["planes14", "planes12x", "slot32"] {
+        assert!(msg.contains(expected), "le refus ne cite pas « {expected} » : {msg}");
+    }
 }
 
 /// The payload accounting follows the layout: Planes14 is exactly 14 bytes a
@@ -133,14 +151,16 @@ fn payload_accounting_matches_the_layout() {
     let n = 50usize;
     let (idx, gains) = synthetic(n, 0xC3);
 
-    let (s, bytes) = transcode_stream(&fd, &table, &idx, &gains, FusedLayout::Planes14).unwrap();
+    let tr = Transcoder::new(FusedLayout::Planes14).unwrap();
+    let (s, bytes) = tr.stream(&idx, &gains, 1, n).unwrap();
     match s {
         HostStream::Planes14 { .. } => {}
-        HostStream::Slot32 { .. } => panic!("des bases sur le chemin planes14"),
+        _ => panic!("des bases sur le chemin planes14"),
     }
     assert_eq!(bytes, (n * PLANES14_BYTES) as u64);
 
-    let (s, bytes) = transcode_stream(&fd, &table, &idx, &gains, FusedLayout::Slot32).unwrap();
+    let tr = Transcoder::new(FusedLayout::Slot32).unwrap();
+    let (s, bytes) = tr.stream(&idx, &gains, 1, n).unwrap();
     let rt = transcode(&fd, &table, &idx, &gains, Layout::Slot32).unwrap();
     match s {
         HostStream::Slot32 { words, bases } => {
@@ -149,6 +169,25 @@ fn payload_accounting_matches_the_layout() {
             // The five-word window's 20-byte pad, still there.
             assert!(words.len() * 4 >= rt.data.len() + 20);
         }
-        HostStream::Planes14 { .. } => panic!("layout slot32 demandé, flux planes14 rendu"),
+        _ => panic!("layout slot32 demandé, autre flux rendu"),
+    }
+}
+
+/// The row structure is part of the call, and a mismatch is refused.
+///
+/// `Planes12x` is the first layout whose kernel needs to know where an output
+/// row ends; the shape check runs on every arm so that a caller that gets
+/// `d_out` or `nblocks` wrong fails on the layout it happens to be testing,
+/// not only on the one that reads them.
+#[test]
+fn a_mismatched_row_shape_is_refused() {
+    let (idx, gains) = synthetic(48, 0xD4);
+    for layout in [FusedLayout::Planes14, FusedLayout::Slot32] {
+        let tr = Transcoder::new(layout).unwrap();
+        assert!(tr.stream(&idx, &gains, 6, 8).is_ok(), "{layout:?} : 6 × 8 = 48");
+        assert!(
+            tr.stream(&idx, &gains, 6, 9).is_err(),
+            "{layout:?} : 6 × 9 ≠ 48, et le flux ne doit pas se construire"
+        );
     }
 }

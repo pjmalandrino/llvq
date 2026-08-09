@@ -11,10 +11,10 @@
 //! 2026-08-05 miniature run measured that plainly — 42.7 tok/s against 42.8.
 //!
 //! This module keeps the weights encoded. It transcodes each matrix to the
-//! runtime layout the fused matvec reads — `Planes14` by default, `Slot32`
-//! under `LLVQ_FUSED_LAYOUT=slot32` (see [`FusedLayout`]) — and hands the
-//! host tables over. Nothing here touches a GPU: this is the portable half,
-//! and it is testable without a card.
+//! runtime layout the fused matvec reads — `Planes14` by default, `Planes12x`
+//! or `Slot32` under `LLVQ_FUSED_LAYOUT` (see [`FusedLayout`]) — and hands
+//! the host tables over. Nothing here touches a GPU: this is the portable
+//! half, and it is testable without a card.
 //!
 //! ## The rotation tables, and why they are here
 //!
@@ -38,10 +38,12 @@ use std::collections::HashMap;
 use std::io::Read;
 
 use llvq_artifact::runtime::{
-    transcode, transcode_planes14, ClassTable, Layout, PlanesBlocks, RuntimeBlocks,
+    transcode, transcode_planes12x, transcode_planes14, ClassTable, Layout, Planes12xBlocks,
+    PlanesBlocks, RuntimeBlocks,
 };
 use llvq_quant::rotation::Rotation;
 use llvq_search::fastdec::FastDecoder;
+use llvq_search::Searcher;
 
 /// Which runtime layout the fused path reads.
 ///
@@ -51,11 +53,19 @@ use llvq_search::fastdec::FastDecoder;
 ///
 /// `Planes14` is the default — the reference layout since C1 (2026-08-06,
 /// 1.14× over `Slot32` at identical decoded content, 4.804 against 5.510
-/// b/weight on the published 4B). `Slot32` stays as the comparison arm and
-/// the fallback, bit-identical to what shipped before the switch existed.
+/// b/weight on the published 4B). `Planes12x` is the sparse overlay measured
+/// at the bench on 2026-08-07 (4.342 b/weight, 1.98× against FP16, exact
+/// reconstruction) and wired here so it can be measured *in the model*;
+/// ⚠️ on the 8B it does not pay — `Planes14` + a q8 embedding already sits
+/// under the AWQ 4-bit at 5.322 b/param — and the reason it is here anyway is
+/// the 14B, where the carried share falls back to ~10.5 %
+/// (`docs/mesures/rtbits-planes-8b-2026-08-09.txt`). `Slot32` stays as the
+/// comparison arm and the fallback, bit-identical to what shipped before the
+/// switch existed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FusedLayout {
     Planes14,
+    Planes12x,
     Slot32,
 }
 
@@ -67,9 +77,11 @@ impl FusedLayout {
         match v {
             None | Some("") => Ok(Self::Planes14),
             Some("planes14") => Ok(Self::Planes14),
+            Some("planes12x") => Ok(Self::Planes12x),
             Some("slot32") => Ok(Self::Slot32),
             Some(other) => Err(format!(
-                "LLVQ_FUSED_LAYOUT={other} : valeurs admises « planes14 » (défaut) et « slot32 »"
+                "LLVQ_FUSED_LAYOUT={other} : valeurs admises « planes14 » (défaut), \
+                 « planes12x » et « slot32 »"
             )),
         }
     }
@@ -83,6 +95,7 @@ impl FusedLayout {
     pub fn name(&self) -> &'static str {
         match self {
             Self::Planes14 => "planes14",
+            Self::Planes12x => "planes12x",
             Self::Slot32 => "slot32",
         }
     }
@@ -342,6 +355,112 @@ impl EmbedReport {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The kernel sources a layout needs
+// ---------------------------------------------------------------------------
+//
+// These live here rather than next to their only caller (`fused_cuda`) for one
+// reason, and it is the same reason `EmbedTables::wiring` returns a value: on
+// this workspace's development machine, `fused_cuda` **compiles on no target**
+// — it is behind `cfg(all(target_os = "linux", feature = "cuda"))`, and
+// `candle-kernels` needs a real `nvcc` to build, so `--target
+// x86_64-unknown-linux-gnu` does not reach it either. Anything left in that
+// file is unchecked until a billed job. The source list is a real contract —
+// NVRTC receives one concatenated string and the order of the parts decides
+// whether it compiles — so it belongs on the side of the boundary a test can
+// reach.
+
+/// The bit-plane kernel sources, embedded like every other kernel so a run is
+/// reproducible from the binary alone. The files from `llvq-cuda` are reused
+/// verbatim (they belong to the C1 and M2 lots and are pinned by planesbench);
+/// the `tv_*_h.cu` files are this crate's own — the half-storing entry points
+/// only the inference path needs.
+const PLANES_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes.cuh");
+const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
+const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
+const PLANES12_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes12.cuh");
+const PLANES12X_H_CU_EMBED: &str = include_str!("../kernels/tv_planes12x_h.cu");
+
+/// The bit-plane sources a layout needs, **in NVRTC concatenation order**.
+///
+/// The order is not cosmetic: NVRTC has no filesystem, the host hands it one
+/// string, and each part's `#ifndef` guard keys on a macro an earlier part
+/// defines. `llvq_planes.cuh` needs `llvq_slot.cuh`, `planes.cu` needs
+/// `matvec.cu` (both come from `load_sources_many` ahead of these),
+/// `llvq_planes12.cuh` needs `llvq_planes.cuh`, and `tv_planes12x_h.cu` needs
+/// both.
+///
+/// `Planes12x` is `Planes14`'s list plus two files, not a list of its own, and
+/// that is deliberate: the two arms then share one translation-unit shape, so
+/// the register report of `tv_planes_h` stays a drift detector on the
+/// `Planes12x` build too. `Slot32` takes none of them, so its translation unit
+/// is bit-identical to what shipped before any of this existed.
+pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
+    match layout {
+        FusedLayout::Slot32 => &[],
+        FusedLayout::Planes14 => &["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu"],
+        FusedLayout::Planes12x => &[
+            "llvq_planes.cuh",
+            "planes.cu",
+            "tv_planes_h.cu",
+            "llvq_planes12.cuh",
+            "tv_planes12x_h.cu",
+        ],
+    }
+}
+
+/// The `extern "C"` matvec entry point `layout` launches.
+pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
+    match layout {
+        FusedLayout::Planes14 => "tv_planes_h",
+        FusedLayout::Planes12x => "tv_planes12x_h",
+        FusedLayout::Slot32 => "tv_slot_h",
+    }
+}
+
+/// The bit-plane parts of `layout`, honouring `LLVQ_KERNEL_DIR` with the same
+/// contract as `llvq_cuda::load_sources_many`: without the variable, the
+/// embedded text; with it, **all** the files from the directory, disclosed
+/// loudly by the caller — mixing embedded and overridden parts would make the
+/// printed sha256 untraceable.
+///
+/// The override reads every name from one directory even though the embedded
+/// copies come from two crates. That is the existing contract and it is the
+/// right one: a bench that overrides the kernels must present a complete,
+/// self-consistent set, not a merge of a directory and a binary.
+pub fn load_planes_sources(
+    layout: FusedLayout,
+) -> Result<(Vec<String>, Option<String>), String> {
+    let names = planes_source_names(layout);
+    let embedded = |n: &str| match n {
+        "llvq_planes.cuh" => Ok(PLANES_CUH_EMBED),
+        "planes.cu" => Ok(PLANES_CU_EMBED),
+        "tv_planes_h.cu" => Ok(PLANES_H_CU_EMBED),
+        "llvq_planes12.cuh" => Ok(PLANES12_CUH_EMBED),
+        "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
+        other => Err(format!("pas de copie embarquée de {other}")),
+    };
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((
+            names
+                .iter()
+                .map(|n| embedded(n).map(str::to_string))
+                .collect::<Result<_, _>>()?,
+            None,
+        )),
+        Ok(dir) => Ok((
+            names
+                .iter()
+                .map(|n| {
+                    std::fs::read_to_string(std::path::Path::new(&dir).join(n))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+                })
+                .collect::<Result<_, _>>()?,
+            Some(dir),
+        )),
+    }
+}
+
 /// Mirrors `LLVQ_ROT_KMAX` in `llvq-cuda/kernels/llvq_rot.cuh`.
 ///
 /// Duplicated across a language boundary on purpose — the kernel is in another
@@ -368,6 +487,30 @@ pub enum HostStream {
         /// kernel's four-word read window past the last block.
         words: Vec<u32>,
     },
+    Planes12x {
+        /// The uniform 12-byte main-stream records as `u32` words. `12·b` is
+        /// always word-aligned, so the three-word window needs no padding at
+        /// all; the four spare bytes are packing symmetry with the other
+        /// streams, not a correctness need.
+        words: Vec<u32>,
+        /// Matrix-wide block index of each exception, strictly ascending.
+        exc_idx: Vec<u32>,
+        /// One exact 14-byte `Planes14` record per exception, as `u32` words,
+        /// padded for the four-word window `planes_fields` reads on it.
+        exc_words: Vec<u32>,
+        /// `d_out + 1` prefix offsets into `exc_idx`: output row `r` owns
+        /// exceptions `row_exc[r] .. row_exc[r+1]`.
+        ///
+        /// This table is what lets the inference kernel keep one warp per
+        /// output row and drop the bench kernel's memset-and-atomicAdd
+        /// protocol — see `kernels/tv_planes12x_h.cu`. It exists because
+        /// `exc_idx` is ascending and blocks are row-major, so a row's
+        /// exceptions are contiguous; [`row_offsets`] asserts that rather
+        /// than assuming it, since the kernel derives an exception's column
+        /// as `b − row·nblocks` and a wrong row would read the wrong
+        /// activation slice and produce finite, plausible, wrong numbers.
+        row_exc: Vec<u32>,
+    },
 }
 
 /// One projection, transcoded and ready to upload.
@@ -386,7 +529,10 @@ pub struct FusedMatrix {
     pub tail: Vec<f32>,
     /// Key into [`FusedModel::rotations`], or `None` in the natural basis.
     pub rotation: Option<RotKey>,
-    /// Bytes this matrix costs at runtime — payload, bases, tail, row scales.
+    /// Bytes this matrix costs at runtime — every device array the kernel
+    /// reads: the payload, whatever addressing the layout carries beside it
+    /// (`Slot32`'s bases, `Planes12x`'s exception table and row offsets), the
+    /// tail and the row scales.
     pub bytes: u64,
 }
 
@@ -473,7 +619,16 @@ impl FusedModel {
     /// addressing where the file packs 48 bits per block exactly. On the
     /// published 4B: `Slot32` (byte-rounded group strides plus a `u32` base
     /// per group) measured 5.510 b/weight, `Planes14` (uniform 14-byte
-    /// records, no bases) 4.804, against 2.0702 effective in the file.
+    /// records, no bases) 4.804, `Planes12x` (12-byte records plus the
+    /// exception table) 4.342 at the bench, against 2.0702 effective in the
+    /// file.
+    ///
+    /// ⚠️ This crate's `Planes12x` figure sits marginally *above* the bench's,
+    /// on purpose: it also bills the `d_out + 1` row-offset table the
+    /// inference kernel reads, which the bench arm has no equivalent of
+    /// (32/`d_in` b/weight — 0.0125 at `d_in = 2560`). Under-reporting a
+    /// device array is exactly the accounting sin the K-1 lot spent a dossier
+    /// removing.
     pub fn runtime_bits_per_weight(&self) -> f64 {
         self.runtime_bytes as f64 * 8.0 / self.quantized_weights as f64
     }
@@ -504,15 +659,35 @@ fn pack_words(rt: &RuntimeBlocks) -> Vec<u32> {
         .collect()
 }
 
-/// [`pack_words`] for a Planes14 stream — the four-word window's padding.
+/// [`pack_words`] for a bit-plane stream — the four-word window's padding.
 ///
 /// `planes_fields` reads four consecutive words from `(14·b) >> 2`, so the
-/// last block's window reaches up to 2 bytes past the `14·n` payload. Four
+/// last record's window reaches up to 2 bytes past the `14·n` payload. Four
 /// spare bytes plus word alignment keep that read in bounds — the same
 /// arithmetic as planesbench's upload, and skipping it is an illegal address
 /// on CUDA, in the middle of a billed job.
-fn pack_planes_words(pb: &PlanesBlocks) -> Vec<u32> {
-    let mut bytes = pb.data.clone();
+///
+/// Used for the `Planes14` stream *and* for the `Planes12x` exception table,
+/// which is a `Planes14` record array read through the very same window. The
+/// `Planes12x` main stream is word-aligned by construction (12 bytes a
+/// record) and needs none of this; it goes through here anyway so one
+/// function owns the packing.
+///
+/// 🕳️ **Mutation, 2026-08-09: deleting the four bytes kills no test, and the
+/// reason is arithmetic, not a weak test.** For a 14-byte stride the
+/// word-alignment step alone already supplies exactly what the window needs.
+/// Write `L = ceil(14n/4)·4` for the padless length and `T = 4·⌊14(n−1)/4⌋ +
+/// 16` for the far end of the last record's four-word window. `14(n−1) ≡ 0
+/// (mod 4)` exactly when `n` is odd, and then `T = 14n + 2` while `14n ≡ 2
+/// (mod 4)`, so `L = 14n + 2 = T`; when `n` is even, `T = 14n` and `14n ≡ 0
+/// (mod 4)`, so `L = 14n = T`. Equal in both cases — never short, never
+/// spare. The pad is therefore an *equivalent* mutant in the §5 sense (dead
+/// code, not an untested branch), and it stays: it costs four bytes per
+/// matrix, it is what planesbench uploads, and the identity above holds for
+/// this stride and this window width only. A layout whose record size and
+/// window stop coinciding this way would need it, and would get no warning.
+fn pack_plane_bytes(bytes: &[u8]) -> Vec<u32> {
+    let mut bytes = bytes.to_vec();
     bytes.extend_from_slice(&[0u8; 4]);
     while !bytes.len().is_multiple_of(4) {
         bytes.push(0);
@@ -523,35 +698,185 @@ fn pack_planes_words(pb: &PlanesBlocks) -> Vec<u32> {
         .collect()
 }
 
-/// Transcode one matrix's raw codes into the words of the chosen layout.
+/// The `d_out + 1` prefix offsets of each output row's slice of `exc_idx`.
 ///
-/// Returns the stream and its **payload** bytes — the accounting the runtime
-/// reports, so `Slot32` counts its bases and `Planes14` has none to count.
-/// (The read-window padding is deliberately excluded, as it always was for
-/// `Slot32`: it is upload slack, not format.)
+/// Blocks are row-major (`b = row·nblocks + col`) and `exc_idx` is strictly
+/// ascending, so each row's exceptions form a contiguous, ascending run and a
+/// single pass finds every boundary.
 ///
-/// Public so the tests on this machine can pin, without a card, that the
-/// packed words decode to exactly the `Slot32` content — the same bijection
-/// planesbench proves block by block on the device path.
-pub fn transcode_stream(
-    fd: &FastDecoder,
-    table: &ClassTable,
-    indices: &[u64],
-    gains: &[u32],
-    layout: FusedLayout,
-) -> Result<(HostStream, u64), String> {
-    match layout {
-        FusedLayout::Slot32 => {
-            let rt = transcode(fd, table, indices, gains, Layout::Slot32)
-                .map_err(|e| e.to_string())?;
-            let bytes = rt.data.len() as u64 + rt.bases.len() as u64 * 4;
-            let words = pack_words(&rt);
-            Ok((HostStream::Slot32 { words, bases: rt.bases }, bytes))
+/// Why this is a function of its own rather than a loop inlined into
+/// [`Transcoder::stream`]: `tv_planes12x_h` recovers an exception's column as
+/// `b − row·nblocks`, using the row it already owns rather than the division
+/// `planes12x_locate` pays to recover one. If a block were filed under the
+/// wrong row, that subtraction would index a valid-looking slice of the
+/// activation and the kernel would return finite, plausible, wrong numbers
+/// with no error anywhere. So the two things the kernel actually depends on
+/// are **checked**, not assumed:
+///
+///  * the table is strictly ascending — the premise of the single pass;
+///  * every exception lands in some row — nothing past the last block.
+///
+/// 🕳️ **A third check used to sit here and mutation testing removed it
+/// (2026-08-09).** It read `if (exc_idx[e] as usize) < r * nblocks { … }` —
+/// "this block is below the row it is being filed under" — and deleting it
+/// killed no test, because it is **unreachable**: row `r−1`'s `while` consumed
+/// every entry below `r·nblocks`, and the ascending check above it (which runs
+/// first in the same iteration) forbids going back. Row 0 is the trivial case,
+/// `b < 0`. That is the §5 verdict "the code is dead", not "the test is weak" —
+/// and the distinction was checked, not assumed: shifting the row boundary
+/// **with the guard also deleted** still fails three tests
+/// (`the_row_offsets_partition_the_exception_table`,
+/// `planes12x_words_rebuild_the_planes14_content`,
+/// `the_planes12x_half_kernel_decides_what_rust_decides`). The row attribution
+/// is held by the assertions, so a guard that can never fire was buying
+/// nothing but the appearance of care.
+fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>, String> {
+    let mut off = Vec::with_capacity(d_out + 1);
+    off.push(0u32);
+    let mut e = 0usize;
+    for r in 0..d_out {
+        let hi = ((r + 1) * nblocks) as u32;
+        while e < exc_idx.len() && exc_idx[e] < hi {
+            if e > 0 && exc_idx[e] <= exc_idx[e - 1] {
+                return Err(format!(
+                    "table d'exceptions non strictement croissante en {e} \
+                     ({} après {})",
+                    exc_idx[e],
+                    exc_idx[e - 1]
+                ));
+            }
+            e += 1;
         }
-        FusedLayout::Planes14 => {
-            let pb = transcode_planes14(fd, table, indices, gains).map_err(|e| e.to_string())?;
-            let bytes = pb.data.len() as u64;
-            Ok((HostStream::Planes14 { words: pack_planes_words(&pb) }, bytes))
+        off.push(e as u32);
+    }
+    if e != exc_idx.len() {
+        return Err(format!(
+            "{} exceptions au-delà du dernier bloc de la matrice ({} lignes × {nblocks})",
+            exc_idx.len() - e,
+            d_out
+        ));
+    }
+    Ok(off)
+}
+
+/// Everything a transcoding pass needs, built once for a whole model.
+///
+/// The searcher is here rather than at the call site because of what it costs
+/// and what it means. `Planes12x` re-encodes every 5-level block — one exact
+/// `nearest_angular` over the m ≤ 12 ball, ~0.7 ms of one core each, 5 096 688
+/// of them on the published 4B — and the searcher carries the lattice tables
+/// that search needs. Holding it in a struct whose constructor knows the
+/// layout makes "the searcher exists exactly when the layout needs one" an
+/// invariant of the type rather than a rule a caller has to remember: there is
+/// no way to reach [`Self::stream`] for `Planes12x` without one, and no way to
+/// build 252 of them by accident.
+pub struct Transcoder {
+    layout: FusedLayout,
+    fd: FastDecoder,
+    table: ClassTable,
+    /// `Some` exactly for [`FusedLayout::Planes12x`].
+    searcher: Option<Searcher>,
+}
+
+impl Transcoder {
+    /// Build the tables for `layout`, checking up front what the layout needs
+    /// from the class table.
+    pub fn new(layout: FusedLayout) -> Result<Self, String> {
+        let fd = FastDecoder::new();
+        let table = ClassTable::new(&fd, 1);
+        if matches!(layout, FusedLayout::Planes14 | FusedLayout::Planes12x) {
+            // Three bit-planes address eight levels; both plane layouts are
+            // only a bijection of the Slot32 content while every class stays
+            // within five — `Planes12x` needs it for its exception records,
+            // which are Planes14 records. True of the v1 table, asserted
+            // rather than assumed — the same guard planesbench re-asserts
+            // before any timing.
+            if !(0..table.n_entries()).all(|e| table.record(e).len <= 5) {
+                return Err("une classe dépasse 5 niveaux : les plans de bits ne \
+                            peuvent pas la porter"
+                    .into());
+            }
+        }
+        let searcher = matches!(layout, FusedLayout::Planes12x).then(Searcher::new);
+        Ok(Self { layout, fd, table, searcher })
+    }
+
+    pub fn layout(&self) -> FusedLayout {
+        self.layout
+    }
+
+    pub fn decoder(&self) -> &FastDecoder {
+        &self.fd
+    }
+
+    pub fn class_table(&self) -> &ClassTable {
+        &self.table
+    }
+
+    /// Transcode one matrix's raw codes into the words of the chosen layout.
+    ///
+    /// Returns the stream and its **payload** bytes — the accounting the
+    /// runtime reports, so `Slot32` counts its bases, `Planes14` has none to
+    /// count, and `Planes12x` counts its exception table *and* the row-offset
+    /// table it adds, because both are device arrays the kernel reads. (The
+    /// read-window padding is deliberately excluded, as it always was for
+    /// `Slot32`: it is upload slack, not format.)
+    ///
+    /// `d_out` and `nblocks` describe the row structure `indices` is laid out
+    /// in. Only `Planes12x` reads them — it is the only layout whose kernel
+    /// needs to know where a row ends — but they are required of every arm so
+    /// the shape check below runs on all of them.
+    pub fn stream(
+        &self,
+        indices: &[u64],
+        gains: &[u32],
+        d_out: usize,
+        nblocks: usize,
+    ) -> Result<(HostStream, u64), String> {
+        if indices.len() != d_out * nblocks {
+            return Err(format!(
+                "{} codes pour {d_out} lignes × {nblocks} blocs",
+                indices.len()
+            ));
+        }
+        match self.layout {
+            FusedLayout::Slot32 => {
+                let rt = transcode(&self.fd, &self.table, indices, gains, Layout::Slot32)
+                    .map_err(|e| e.to_string())?;
+                let bytes = rt.data.len() as u64 + rt.bases.len() as u64 * 4;
+                let words = pack_words(&rt);
+                Ok((HostStream::Slot32 { words, bases: rt.bases }, bytes))
+            }
+            FusedLayout::Planes14 => {
+                let pb: PlanesBlocks =
+                    transcode_planes14(&self.fd, &self.table, indices, gains)
+                        .map_err(|e| e.to_string())?;
+                let bytes = pb.data.len() as u64;
+                Ok((HostStream::Planes14 { words: pack_plane_bytes(&pb.data) }, bytes))
+            }
+            FusedLayout::Planes12x => {
+                let s = self
+                    .searcher
+                    .as_ref()
+                    .ok_or("Transcoder::new n'a pas construit de chercheur pour planes12x")?;
+                let pb: Planes12xBlocks =
+                    transcode_planes12x(&self.fd, &self.table, s, indices, gains)
+                        .map_err(|e| e.to_string())?;
+                let row_exc = row_offsets(&pb.exc_idx, d_out, nblocks)?;
+                let bytes = pb.data.len() as u64
+                    + pb.exc_idx.len() as u64 * 4
+                    + pb.exc_data.len() as u64
+                    + row_exc.len() as u64 * 4;
+                Ok((
+                    HostStream::Planes12x {
+                        words: pack_plane_bytes(&pb.data),
+                        exc_idx: pb.exc_idx,
+                        exc_words: pack_plane_bytes(&pb.exc_data),
+                        row_exc,
+                    },
+                    bytes,
+                ))
+            }
         }
     }
 }
@@ -561,6 +886,11 @@ pub fn transcode_stream(
 /// Costs one transcode of every matrix — 142 s for the 4B on eight cores,
 /// measured 2026-08-05 — against `sealed::load`'s full decode, which took
 /// 208.7 s on the same file and produced eight gigabytes of f16.
+///
+/// ⚠️ `Planes12x` is a different order of magnitude and it is not a defect:
+/// it runs one exact lattice search per 5-level block on top of the same
+/// work. Measured on this machine (M3 Max, 12 performance cores), see
+/// `tests/fused_planes12x.rs::transcode_of_the_sealed_model_matches_planes14`.
 pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     let file_bytes = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
     let f = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
@@ -574,18 +904,7 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
         ));
     }
 
-    let fd = FastDecoder::new();
-    let table = ClassTable::new(&fd, 1);
-    if layout == FusedLayout::Planes14 {
-        // Three bit-planes address eight levels; the layout is only a
-        // bijection of the Slot32 content while every class stays within
-        // five. True of the v1 table, asserted rather than assumed — the
-        // same guard planesbench re-asserts before any timing.
-        assert!(
-            (0..table.n_entries()).all(|e| table.record(e).len <= 5),
-            "une classe dépasse 5 niveaux : Planes14 ne peut pas la porter"
-        );
-    }
+    let tr = Transcoder::new(layout)?;
     let mut matrices = Vec::with_capacity(head.matrices as usize);
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
@@ -622,7 +941,9 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
             }
         };
 
-        let (stream, payload) = transcode_stream(&fd, &table, &m.indices, &m.gains, layout)?;
+        let (stream, payload) = tr
+            .stream(&m.indices, &m.gains, m.d_out, nblocks)
+            .map_err(|e| format!("{} : {e}", m.name))?;
         let bytes = payload + (m.d_out * tail_w) as u64 * 4 + m.d_out as u64 * 4;
         runtime_bytes += bytes;
 
