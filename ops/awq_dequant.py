@@ -125,8 +125,16 @@ ANNEX_FILES = (
 
 # Structural expectations, per repository. Without an entry the structural
 # controls cannot run, and a silently degraded run is worse than no run.
+#
+# Each entry also carries the two **revisions** it was measured at. A revision
+# is a fact about a repository, not about an invocation: pinning the 4B's SHA as
+# the command line's default made every other repository 404 before reading a
+# byte — see `resolve_revision`.
 EXPECTED: dict[str, dict] = {
     AWQ_REPO: dict(
+        awq_revision=AWQ_REVISION,
+        base_repo=BASE_REPO,
+        base_revision=BASE_REVISION,
         # `model.safetensors`, content-length on the Hub.
         bytes=2_666_027_672,
         tensors=902,
@@ -166,6 +174,104 @@ EXPECTED: dict[str, dict] = {
         # the largest touched value sits just under 2^-17 = 7.6294e-6.
         embed_narrowed=77_045,
         embed_flushed=451,
+    ),
+    # --- the 14B, measured 2026-08-09 by `check --allow-unknown-repo` ---------
+    #
+    # Every figure below was read off the tool itself at those two revisions —
+    # `check` for the structure, the tokenizer and the perimeter, and a Range
+    # stream through `control_embedding_narrowing` for the last two. Nothing
+    # here is a 4B constant rescaled by 40/36.
+    "Qwen/Qwen3-14B-AWQ": dict(
+        awq_revision="31c69efc29464b6bb0aee1398b5a7b50a99340c3",
+        base_repo="Qwen/Qwen3-14B",
+        base_revision="40c069824f4251a91eefaf281ebe4c544efd3e18",
+        # **Sharded**, unlike the 4B: `model-00001-of-00002` (4 988 339 832) +
+        # `model-00002-of-00002` (4 988 350 408), which is the sum
+        # `ShardedSafeTensors.total` forms and therefore what `check_structure`
+        # compares against. The field needs no generalisation — the class
+        # already presents a sharded export as one header and one size.
+        #
+        # ⚠️ This is **not** `metadata.total_size` of `model.safetensors.index
+        # .json`, which announces 9 989 683 200 — 13 107 200 bytes above the
+        # payload the shards actually carry. The served bytes are the ones the
+        # parser proves: `SafeTensors.__init__` checks, per shard, that the
+        # header lands exactly on that shard's own length. Sourcing this field
+        # from the index instead would fail the control on a correct repository.
+        bytes=9_976_690_240,
+        tensors=1_003,
+        # 280 x (qweight, qzeros, scales) + 163 carried, and 280 = 40 layers x 7
+        # projections where the 4B has 36 x 7 = 252.
+        #
+        # ⚠️ `scales` are **BF16** here, F16 on the 4B — same publisher, same
+        # `quant_method`/`version`, different storage dtype. Read off the
+        # aggregated header, not deduced. It is not cosmetic: `Projection` reads
+        # them through `SafeTensors.tensor`, which widens BF16 to float32
+        # exactly, so the reconstruction is unaffected — but L4's margins are.
+        # A bf16 significand is 8 bits and `q - z` spans [-15, 15], i.e. 4 bits,
+        # so the product needs at most 12 significant bits against f16's 11;
+        # with F16 scales it needs up to 15. Measured: the narrowing costs
+        # 1.6e-5 to 2.3e-5 relative here (margins x4 486 to x6 361) against
+        # 1.7e-4 to 1.9e-4 on the 4B (x538 to x625) — the ~8x = 2^3 the three
+        # extra significand bits predict.
+        by_suffix={
+            ("qweight", "I32"): 280,
+            ("qzeros", "I32"): 280,
+            ("scales", "BF16"): 280,
+            ("weight", "BF16"): 163,
+        },
+        # Iso-perimeter against the base checkpoint.
+        # 163 = 40 x (input_layernorm, post_attention_layernorm, q_norm, k_norm)
+        #       + model.norm + model.embed_tokens + lm_head.
+        # The 80 that differ were checked **by name**, not by count:
+        # {'input_layernorm': 40, 'post_attention_layernorm': 40} — exactly the
+        # two RMSNorm of each block, the same AWQ fold the 4B shows. The 83
+        # identical are the 80 q_norm/k_norm plus those three carried tensors.
+        #
+        # ⚠️ `tie_word_embeddings` is **false** here and true on the 4B, so the
+        # head is a carried tensor in its own right: two 1.556 GB bf16 tables
+        # instead of one, both copied and cast by `dequant`. That is why 163 is
+        # 40*4 + **3** and not 40*4 + 2, and it is the same untied shape that
+        # made `LLVQ_EMBED=q8` decisive on the 8B (CLAUDE.md §3ter).
+        carried=163,
+        carried_same=83,
+        carried_diff=80,
+        # sha256 of `tokenizer.json`, measured on all three repositories:
+        # **byte-identical** to `Qwen/Qwen3-14B`'s and to the 4B entry's above,
+        # 11 422 654 bytes each. So the token fingerprint is common to the 4B
+        # arms and the 14B arms by construction, not by luck — the property the
+        # campaign assumes when it compares a ppl across models, and the one
+        # whose failure would have invalidated the comparison outright.
+        tokenizer_sha256=(
+            "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        ),
+        # bf16 -> f16 on `model.embed_tokens.weight`, which is the only tensor
+        # `control_embedding_narrowing` is ever called on. Counted by streaming
+        # that tensor's 1 555 824 640 bytes by Range in 64 MB chunks **through
+        # that same function**, never touching the disk: 777 912 320 values,
+        # 212 296 changed (2.729e-4), 1 228 flushed, largest touched value
+        # 7.5996e-6, largest absolute error 2.9802e-8 = 2^-25, max |v| 1.015625.
+        #
+        # The mechanism is the 4B's and the numbers obey it: bf16 carries 8
+        # significand bits against f16's 11, so the narrowing is exact wherever
+        # f16 is normal, and only values under 2^-17 = 7.6294e-6 can move —
+        # which is where `touched_max` lands. The **rate** differs from the 4B's
+        # (2.729e-4 against 1.981e-4), which is what tells you this was measured
+        # and not copied.
+        #
+        # ⚠️ Two reservations, both of which weaken this lock relative to the
+        # 4B's, and neither of which is a reason to leave it out.
+        #  1. It has **no independent reference**. `docs/fiche-4b.md` §4.2
+        #     measured the 4B's embedding on the base checkpoint, so reproducing
+        #     it there tied the cast to a number nobody in this file chose.
+        #     Nothing measured this one. What it pins is that the upstream bytes
+        #     have not moved — with full coverage, where the perimeter control
+        #     only probes 3 MB of the 1.556 GB. It does not corroborate the cast.
+        #  2. `lm_head.weight` gets **no** count, because the control looks at
+        #     `model.embed_tokens.weight` alone. On this untied model that
+        #     leaves half the large carried mass — another 1.556 GB — covered by
+        #     three 1 MB probes and nothing else.
+        embed_narrowed=212_296,
+        embed_flushed=1_228,
     ),
 }
 
@@ -1565,6 +1671,36 @@ def selftest_failures() -> dict[str, list[str]]:
     return {name: fn() for name, fn, _ in SELFTESTS}
 
 
+def resolve_revision(args) -> list[str]:
+    """Fill in the revisions the command line left out, from `EXPECTED`.
+
+    A revision belongs to a repository, not to an invocation. While the 4B's
+    SHA was the argparse default, `check --awq-repo Qwen/Qwen3-14B-AWQ` asked
+    the Hub for a commit that repository has never had and died on a bare 404 —
+    before printing a single control. That failure has a bad shape: the obvious
+    reaction is to reach for `--allow-unknown-repo`, which turns *off* the
+    structure, tokenizer and perimeter controls. So the pin travels with the
+    entry, and the fallback for a repository we know nothing about is `main`,
+    reported rather than assumed.
+    """
+    exp = EXPECTED.get(args.awq_repo)
+    unpinned: list[str] = []
+    if args.awq_revision is None:
+        args.awq_revision = exp["awq_revision"] if exp else "main"
+        if exp is None:
+            unpinned.append("--awq-revision")
+    if args.base_revision is None:
+        # Only when the entry names *this* base repository: an entry pins a
+        # pair, and lending the 14B's base SHA to `Qwen/Qwen3-4B` would resolve
+        # to a commit of the wrong model.
+        if exp is not None and args.base_repo == exp["base_repo"]:
+            args.base_revision = exp["base_revision"]
+        else:
+            args.base_revision = "main"
+            unpinned.append("--base-revision")
+    return unpinned
+
+
 def resolve_expectations(repo: str, allow_unknown: bool, say) -> tuple[dict | None, bool]:
     exp = EXPECTED.get(repo)
     if exp is not None:
@@ -2155,9 +2291,13 @@ def main() -> int:
 
     def common(sp):
         sp.add_argument("--awq-repo", default=AWQ_REPO)
-        sp.add_argument("--awq-revision", default=AWQ_REVISION)
+        sp.add_argument("--awq-revision", default=None,
+                        help="défaut : la révision épinglée dans EXPECTED pour "
+                             "ce dépôt, `main` s'il n'y en a pas")
         sp.add_argument("--base-repo", default=BASE_REPO)
-        sp.add_argument("--base-revision", default=BASE_REVISION)
+        sp.add_argument("--base-revision", default=None,
+                        help="défaut : la révision de base épinglée par la même "
+                             "entrée, `main` si elle ne nomme pas ce dépôt")
         sp.add_argument("--full-embed", action="store_true",
                         help="comparer l'embedding en entier (778 Mo) au lieu de "
                              "trois sondages")
@@ -2200,6 +2340,10 @@ def main() -> int:
     u.set_defaults(fn=cmd_push)
 
     args = p.parse_args()
+    if hasattr(args, "awq_repo"):  # `push` reads its revisions from the report
+        for flag in resolve_revision(args):
+            print(f"⚠️  {flag} non épinglé : lecture sur `main`, donc ce run "
+                  "n'est pas reproductible dans le temps")
     try:
         return args.fn(args)
     except Fatal as e:
