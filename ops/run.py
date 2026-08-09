@@ -925,6 +925,35 @@ def cmd_bench(args) -> int:
                               mount_path=args.model_mount, read_only=True))
         print(f"montage {args.mount_model} en lecture seule sur {args.model_mount}")
 
+    # 🕳️ Un volume de SORTIE, que cette sous-commande n'avait pas — et son
+    # absence était une facture différée, pas un manque cosmétique.
+    #
+    # `cmd_launch` en a un depuis toujours parce qu'il produit un artefact.
+    # `bench` produisait, lui, des chiffres qu'on lisait dans les logs, ce qui
+    # suffit pour un tableau de banc. Ça ne suffit plus depuis que `bin/mmlu`
+    # sait écrire `LLVQ_MMLU_DUMP` : un dump par question est le seul objet
+    # qui rende un écart MMLU testable en appariement, il pèse quelques Mo, et
+    # sans chemin de retour il meurt avec le conteneur. On aurait donc payé un
+    # rejeu pour découvrir qu'il faut le repayer.
+    #
+    # Même mécanique que `launch --bucket auto` : `sync_job_volume` crée le
+    # bucket à la demande et rend un volume montable en écriture, de sorte que
+    # ce qui atterrit sous `--out-mount` survit au job. Rien en local, ce qui
+    # est aussi la consigne d'exploitation.
+    if args.bucket == "auto":
+        from huggingface_hub import sync_job_volume
+        out = Path(args.root_out) / args.name
+        out.mkdir(parents=True, exist_ok=True)
+        vol = sync_job_volume(str(out), args.out_mount, read_only=False)
+        volumes.append(vol)
+        print(f"  bucket : hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
+    elif args.bucket:
+        volumes.append(Volume(type="bucket", source=args.bucket,
+                              mount_path=args.out_mount, read_only=False))
+        print(f"  bucket : {args.bucket} → {args.out_mount}")
+    else:
+        print("  ⚠️  sans --bucket, rien de ce que le job écrit ne survit au conteneur")
+
     script = "set -euo pipefail\n" + "\n".join(args.cmd)
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
     if usd_h:
@@ -1274,6 +1303,14 @@ def main() -> int:
     b.add_argument("--mount-model", default=None,
                    help="dépôt du Hub à monter en lecture seule (ex. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
     b.add_argument("--model-mount", default="/model")
+    # Mêmes noms que sur `launch`, à dessein : une campagne enchaîne les deux
+    # sous-commandes et un opérateur ne doit pas avoir à se rappeler laquelle
+    # appelle sa sortie autrement.
+    b.add_argument("--bucket", default=None,
+                   help="'auto' crée/synchronise un bucket, ou un nom de bucket existant")
+    b.add_argument("--root-out", default="/tmp/llvq-out",
+                   help="dossier local synchronisé quand --bucket auto")
+    b.add_argument("--out-mount", default="/out")
     b.add_argument("--name", default="llvq-bench")
     b.add_argument("--namespace", default=None)
     b.set_defaults(fn=cmd_bench)
