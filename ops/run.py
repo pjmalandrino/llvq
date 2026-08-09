@@ -981,6 +981,107 @@ def cmd_bench(args) -> int:
     return 0
 
 
+def cmd_dequant(args) -> int:
+    """Rebuild an AWQ repository into dense f16, in a Job, straight into a bucket.
+
+    Three constraints meet here and only one arrangement satisfies all three.
+
+    * `ops/awq_dequant.py` is **Python**, and the image this file publishes is
+      Rust-only — deliberately, it is a runtime layer with `ca-certificates`
+      and `libssl3` and nothing else. So the reconstruction cannot run in it.
+    * It cannot run on the dev machine either: ~10 GB of AWQ shards plus a
+      dense f16 output that is 29.5 GB on a 14B, against 22 GiB free. The
+      operator's rule — everything on the Hub, nothing local — says the same
+      thing from the other side.
+    * And the output must not be pushed to a model repository afterwards. It
+      used to have to be; since `Checkpoint::fetch` learned to accept a local
+      directory (code item C5), `bin/ppl` and `bin/mmlu` read it **from the
+      mounted bucket**, so a 29.5 GB upload disappears from the campaign.
+
+    `run_uv_job` resolves all three: it ships this repository's own script to a
+    `uv` image, which reads the PEP 723 header for its dependencies. No image
+    rebuild, no local disk, no intermediate repository.
+
+    ⚠️ The controls are the point, not the reconstruction. Without an entry in
+    `EXPECTED`, `awq_dequant` turns off structure, iso-perimeter and tokenizer
+    checking, and the failure it exists to catch — an `unpack_cols` that skips
+    `AWQ_REVERSE_ORDER`, permuting output channels in packets of 8 — produces
+    weights that load, run and give numbers. So the repository is refused here
+    unless it is known, rather than degraded silently.
+    """
+    from huggingface_hub import Volume, run_uv_job
+
+    script = Path(__file__).resolve().parent / "awq_dequant.py"
+    if args.awq_repo not in _expected_repos():
+        print(
+            f"refus : {args.awq_repo} n'a pas d'entrée EXPECTED dans {script.name}.\n"
+            "Sans elle, structure, iso-périmètre et tokenizer ne sont PAS vérifiés,\n"
+            "et une reconstruction fausse est indiscernable d'une bonne : elle charge,\n"
+            "elle tourne, elle produit des nombres. Ajouter l'entrée d'abord — voir\n"
+            "celle de Qwen/Qwen3-14B-AWQ, chaque constante y porte sa source.",
+            file=sys.stderr,
+        )
+        return 2
+
+    out_dir = f"{args.out_mount}/{args.name}"
+    job = run_uv_job(
+        script=str(script),
+        script_args=[
+            "dequant",
+            "--awq-repo", args.awq_repo,
+            "--base-repo", args.base_repo,
+            "--out", out_dir,
+        ],
+        flavor=args.flavor,
+        timeout=args.timeout,
+        volumes=[Volume(type="bucket", source=args.bucket,
+                        mount_path=args.out_mount, read_only=False)],
+        # Same reason as `bench`: without it a private bucket or repo is simply
+        # unreachable, and a secret rather than an inlined value keeps it out
+        # of the logs.
+        secrets={"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else None,
+        namespace=args.namespace,
+    )
+    usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
+    if usd_h:
+        mins = _timeout_minutes(args.timeout)
+        print(f"{args.flavor} à {usd_h:.2f} $/h ; plafond {args.timeout} → "
+              f"au pire {usd_h * mins / 60:.2f} $")
+    print(f"  sortie : hf://buckets/{args.bucket}/{args.name} → {out_dir}")
+    print(f"dequant {args.awq_repo} : {job.url}\n  id {job.id}")
+    return 0
+
+
+def _expected_repos() -> set[str]:
+    """Repository ids `ops/awq_dequant.py` knows how to check.
+
+    Parsed rather than imported: that file declares PEP 723 dependencies this
+    one does not have, so importing it would drag numpy and safetensors into a
+    launcher that needs neither.
+
+    ⚠️ Keys come in two shapes and reading only one is a refusal of legitimate
+    work. The 4B entry is keyed by the module constant `AWQ_REPO`, the 14B by a
+    string literal — so a regex over literals alone finds the 14B, declares the
+    4B unknown, and blocks a reconstruction the checks would have covered.
+    Found the moment this was first run, which is the argument for running it.
+    """
+    import ast
+    import re
+
+    src = (Path(__file__).resolve().parent / "awq_dequant.py").read_text()
+    body = src.split("EXPECTED: dict[str, dict] = {", 1)
+    if len(body) < 2:
+        return set()
+    repos = set(re.findall(r'"([\w.-]+/[\w.-]+)"\s*:\s*dict\(', body[1]))
+    # Constant-keyed entries: resolve the identifier against its own top-level
+    # assignment rather than hard-coding a value that would drift.
+    for ident in re.findall(r"^\s{4}([A-Z_][A-Z0-9_]*)\s*:\s*dict\(", body[1], re.M):
+        m = re.search(rf"^{ident}\s*=\s*(['\"][^'\"]+['\"])", src, re.M)
+        if m:
+            repos.add(ast.literal_eval(m.group(1)))
+    return repos
+
+
 def _timeout_minutes(t: str) -> float:
     """`30m`, `2h`, `90s` → minutes. Used only to print a worst-case cost."""
     unit, n = t[-1], t[:-1]
@@ -1314,6 +1415,21 @@ def main() -> int:
     b.add_argument("--name", default="llvq-bench")
     b.add_argument("--namespace", default=None)
     b.set_defaults(fn=cmd_bench)
+
+    dq = sub.add_parser("dequant",
+                        help="reconstruire un dépôt AWQ en f16 dense, dans un bucket")
+    dq.add_argument("--awq-repo", required=True, help="ex. Qwen/Qwen3-14B-AWQ")
+    dq.add_argument("--base-repo", required=True, help="ex. Qwen/Qwen3-14B")
+    dq.add_argument("--bucket", required=True, help="ex. Pier-Jean/jobs-artifacts")
+    dq.add_argument("--name", required=True,
+                    help="sous-dossier du bucket, ex. qwen3-14b-awq-deq")
+    dq.add_argument("--out-mount", default="/out")
+    # CPU pur : la reconstruction est du déballage de quartets et de l'écriture
+    # de shards. Une carte n'y sert à rien et coûterait 27× le cœur-heure.
+    dq.add_argument("--flavor", default="cpu-upgrade", choices=sorted(FLAVORS))
+    dq.add_argument("--timeout", default="4h")
+    dq.add_argument("--namespace", default=None)
+    dq.set_defaults(fn=cmd_dequant)
 
     m = sub.add_parser("monitor", help="suivre un Job : coût, utilisation, logs")
     m.add_argument("job_id")
