@@ -35,10 +35,54 @@
 //!     spends `24 − nonzero` bits more than the flat layout to buy a fixed
 //!     field offset. Nothing priced it here before; the two figures the
 //!     dossier publishes for it come from two other benches.
+//!   - **Planes14** — today's production layout ([`PlanesBlocks`]): the same
+//!     decoded content as `Slot32`, re-arranged as *bit-planes*. The level of
+//!     a slot stops being a one-hot over `L` masks and becomes an explicit
+//!     3-bit index spread over three 24-bit planes, so the record no longer
+//!     grows with `L`: `9 + 1 + 24 + 3·24 = 106` bits of payload in a frozen
+//!     [`PLANES14_BYTES`]-byte stride, padding included. Flat, class-blind,
+//!     **and with no base table at all** — the addressing line below simply
+//!     does not apply to it.
+//!   - **Planes12x** — [`Planes12xBlocks`], `Planes14` minus its third plane:
+//!     two planes address levels `0..4`, so the main record is
+//!     `9 + 1 + 24 + 2·24 = 82` bits in a frozen [`PLANES12X_BYTES`]-byte
+//!     stride. A block whose class carries five magnitudes cannot be said in
+//!     two planes; the main stream takes its best `L ≤ 4` neighbour and the
+//!     block is repeated **exactly** in an exception table, at
+//!     [`PLANES12X_EXC_BYTES`] bytes each (a `u32` block index plus a full
+//!     `Planes14` record). Cost is therefore `96·n + 144·n_exc` bits, and
+//!     `n_exc` is a *count of five-level classes* — which this bench knows
+//!     per block without decoding anything.
 //! * addressing: a variable-width stream needs to say where block `i` starts.
 //!   Charged two ways: +16 bits/block (a u16 offset each), and **grouped-32**
 //!   (all 32 lanes of a SIMD group read the group's max width, one u32 base
-//!   per group — padding traded against offsets).
+//!   per group — padding traded against offsets). The two `Planes*` layouts
+//!   have a constant stride and pay nothing here.
+//!
+//! ## ⚠️ Two accountings, and they are not interchangeable
+//!
+//! The dossier has been bitten three times by mixing byte accountings in one
+//! list, so this bench states both and never blends them.
+//!
+//! * **payload** (`b/poids payload`, the historical column of this bench):
+//!   numerator = the per-block stream and its base table, nothing else;
+//!   denominator = **quantized weights only**, `24 × blocks`. Tails and row
+//!   scales are excluded from both ends. This is the number that answers
+//!   "what does one block cost", and it is what `Slot32 = 5.3756` means here.
+//! * **kernel** (`b/poids noyau`), the accounting of the CUDA bench
+//!   (`llvq-cuda/src/bin/planesbench.rs`, `docs/mesures/e2-golay70-*.txt`):
+//!   numerator = the same stream **plus** the `f32` tail block and the `f32`
+//!   row-scale vector every arm uploads; denominator = **every weight of the
+//!   matrix**, `d_out · d_in`, tail columns included. This is what a matvec
+//!   actually streams per weight, and it is what `Slot32 = 5.510`,
+//!   `Planes14 = 4.804`, `Planes12x = 4.342` mean. Reproducing those three
+//!   numbers from real blocks, on the CPU, is this bench's acceptance test —
+//!   see `published_4b_kernel_rates_are_reproduced`.
+//!
+//! Neither is `b/param modèle entier`: that third grandeur divides by the
+//! whole model, embedding included, and is the only one comparable to an
+//! AWQ figure. It is printed only when the file is self-contained, so the
+//! carried parameters are **counted from the file** rather than assumed.
 //!
 //! ## Run
 //!
@@ -47,18 +91,33 @@
 //! Without a path: 20 000 gaussian blocks through `nearest_angular`, the
 //! same source as `classprofile`/`arrbits`. With one: every block of the
 //! artifact, exhaustively.
+//!
+//! [`PlanesBlocks`]: llvq_artifact::runtime::PlanesBlocks
+//! [`Planes12xBlocks`]: llvq_artifact::runtime::Planes12xBlocks
 
+use llvq_artifact::runtime::{
+    PLANES12X_BYTES, PLANES12X_EXC_BYTES, PLANES12X_LEVEL_CAP, PLANES12X_PLANE_BIT, PLANES14_BYTES,
+};
 use llvq_core::{SplitMix64, DIM};
 use llvq_search::fastdec::{ClassLevels, FastDecoder, MAX_LEVELS};
 use llvq_search::generic::BallSearcher;
 use llvq_search::Searcher;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 
 /// Bits for the class id: 383 classes plus the origin fit in 9.
 const CLASS_BITS: u64 = 9;
 /// SIMD group width the grouped layout is sized for.
 const GROUP: usize = 32;
+/// Bits an `f32` costs. The kernel accounting stores the tail block and the
+/// row-scale vector in single precision — not `f16`, not the `f64` the
+/// archive keeps them in — because that is what every arm of the CUDA bench
+/// uploads. Naming it once keeps the three layouts on one convention.
+const F32_BITS: u64 = 32;
+/// Values per scale/bias pair on the `q8` embedding path
+/// (`llvq_llm::fused::EMBED_GROUP`), and the 32 bits that pair costs.
+const EMBED_GROUP: f64 = 64.0;
+const EMBED_GROUP_BITS: f64 = 32.0;
 
 /// ⌈log₂ L⌉ — bits per slot of the positional encoding.
 fn lg_ceil(l: usize) -> u64 {
@@ -112,6 +171,136 @@ fn widths(lv: &ClassLevels, gain_bits: u64) -> Widths {
 /// levels — the byte-rounded field every lane of the group then reads.
 fn slot_stride_bits(levels: usize, gain_bits: u64) -> u64 {
     (CLASS_BITS + gain_bits + DIM as u64 * levels as u64).div_ceil(8) * 8
+}
+
+// ---------------------------------------------------------------------------
+// The two bit-plane layouts, priced post by post
+// ---------------------------------------------------------------------------
+//
+// Both are **frozen strides**, not computed ones: `transcode_planes14` and
+// `transcode_planes12x` write a constant number of bytes per block whatever
+// the class, so the constants come from `llvq_artifact::runtime` rather than
+// from a local literal. If the format moves, this bench moves with it or
+// fails to compile — the drift that a hard-coded `14` would hide.
+
+/// `Planes14` block stream, in bits. Post by post, per block:
+///
+/// * class 9 + gain 1 — the header, same two fields every layout pays;
+/// * sign mask 24 — one bit per **slot**, not per nonzero: zero slots carry
+///   a bit written 0, which is what buys the fixed field offsets;
+/// * three 24-bit planes — the slot's level as an explicit 3-bit index
+///   (`len <= 5`, so 3 planes always suffice), instead of `L−1` one-hot
+///   masks. This is the whole trade: `Slot32` pays `24·L` and needs a
+///   per-group stride, `Planes14` pays a flat `72` and needs none;
+/// * 6 padding bits to close the [`PLANES14_BYTES`]-byte record.
+///
+/// Sums to `9 + 1 + 24 + 72 + 6 = 112` bits — and the origin block, whose
+/// planes and sign mask are all zero, pays the same 112: the stride is the
+/// format. **No base table**, so there is no addressing term to add.
+fn planes14_bits(blocks: u64) -> u64 {
+    blocks * PLANES14_BYTES as u64 * 8
+}
+
+/// `Planes12x` main stream **plus** its exception table, in bits.
+///
+/// Main record: class 9 + gain 1 + sign mask 24 + **two** 24-bit planes + 14
+/// padding bits = [`PLANES12X_BYTES`] bytes. Two planes address levels
+/// `0..4`, so this record is exact for every block whose class holds at most
+/// [`PLANES12X_LEVEL_CAP`] magnitudes.
+///
+/// A five-level block cannot be said in two planes. The transcoder puts its
+/// best `L ≤ 4` neighbour in the main stream and repeats the block exactly in
+/// the exception table, at [`PLANES12X_EXC_BYTES`] bytes: a `u32` block index
+/// (4 o, so the correction pass can find it) plus a full [`PLANES14_BYTES`]
+/// record of the exact block. The exception is an **addition**, never a
+/// replacement — the main record is written either way, which is why the
+/// two terms add rather than trade.
+///
+/// So the count of exceptions is a count of five-level classes, and nothing
+/// else: no lattice search, no decoding, no probability. `n_exc` here is the
+/// same number `transcode_planes12x` will push onto `exc_idx`.
+fn planes12x_bits(blocks: u64, exceptions: u64) -> u64 {
+    blocks * PLANES12X_BYTES as u64 * 8 + exceptions * PLANES12X_EXC_BYTES as u64 * 8
+}
+
+/// A block is an exception of `Planes12x` exactly when its class carries more
+/// than [`PLANES12X_LEVEL_CAP`] magnitude levels — the predicate
+/// `planes12x_chunk` tests, written once so a test can mutate it.
+///
+/// The origin (one level, every coordinate zero) is never an exception.
+fn is_planes12x_exception(levels: usize) -> bool {
+    levels > PLANES12X_LEVEL_CAP
+}
+
+/// The same predicate read off the **record geometry** instead of the named
+/// cap: `k` bit-planes address `2^k` levels, and a `Planes12x` main record
+/// holds [`PLANES12X_PLANE_BIT`]`.len()` of them.
+///
+/// Two routes to one number, on purpose. A cross-check whose two sides call
+/// the same function is a tautology and proves nothing; this one would
+/// survive only if the cap constant and the number of planes moved together,
+/// which is the only way they *may* move.
+fn exceeds_planes12x_geometry(levels: usize) -> bool {
+    levels > 1 << PLANES12X_PLANE_BIT.len()
+}
+
+/// The shape counts one matrix contributes to the **kernel** accounting.
+///
+/// Named for shapes, not for the carried tensors: `carried_params` below is
+/// a different thing entirely (the embedding), and confusing the two is how
+/// a b/param figure goes wrong.
+///
+/// Mirrors `Mat`'s three counts in `llvq-cuda/src/bin/planesbench.rs`:
+/// `nblocks = d_out · (d_in / 24)`, `tail_w = d_in % 24` columns kept in
+/// full precision on every row, and `d_out` row scales.
+#[derive(Default, Clone, Copy)]
+struct Shapes {
+    /// `Σ d_out · d_in` — every weight, tail columns included. **This** is
+    /// the kernel accounting's denominator, and it is larger than
+    /// `24 · blocks`; swapping the two is the mistake that turns 4.804 into
+    /// 4.827.
+    weights: u64,
+    /// `Σ d_out · (d_in mod 24)` — the `TailPolicy::KeepExact` columns, one
+    /// `f32` each on the device.
+    tail_weights: u64,
+    /// `Σ d_out` — one `f32` row scale each.
+    rows: u64,
+}
+
+impl Shapes {
+    fn push(&mut self, d_out: usize, d_in: usize) {
+        self.weights += (d_out * d_in) as u64;
+        self.tail_weights += (d_out * (d_in % DIM)) as u64;
+        self.rows += d_out as u64;
+    }
+
+    /// Bits the kernel accounting adds to a block stream: the `f32` tail and
+    /// the `f32` row scales, uploaded identically by every LLVQ arm.
+    fn side_bits(&self) -> u64 {
+        (self.tail_weights + self.rows) * F32_BITS
+    }
+
+    /// Bits per weight in the kernel accounting: stream + side data over
+    /// **all** weights.
+    fn kernel_bpw(&self, stream_bits: u64) -> f64 {
+        (stream_bits + self.side_bits()) as f64 / self.weights as f64
+    }
+}
+
+/// Bits per parameter of the **whole model**: a weighted mean of `(count,
+/// bits per parameter)` groups over their total count.
+///
+/// The only grandeur comparable to an AWQ figure, and the one the dossier
+/// got wrong twice by quoting a payload rate against a whole-model one. It
+/// takes a list rather than two arguments because a real model has three
+/// groups, not two — quantized linears, embedding tables, and the norms that
+/// stay `f16` whatever is done to the embedding. Every count is printed
+/// beside the result so the division is auditable.
+fn model_bpw(groups: &[(u64, f64)]) -> f64 {
+    let (bits, n) = groups
+        .iter()
+        .fold((0.0, 0u64), |(b, n), &(c, r)| (b + c as f64 * r, n + c));
+    bits / n as f64
 }
 
 #[derive(Default)]
@@ -255,6 +444,30 @@ fn main() {
     let mut arch_bits = 49u64;
     let source: String;
 
+    // ---- kernel-accounting bookkeeping (file mode only) ----
+    // Shapes, so the tail and row-scale terms are the file's own and not a
+    // remembered constant; and the exception count of `Planes12x`, which is
+    // a plain count of five-level classes.
+    let mut carried = Shapes::default();
+    let mut exceptions = 0u64;
+    // Parameters the file carries unquantized (embedding, lm_head). Counted
+    // from the raw-tensor section when the file is self-contained, left at 0
+    // otherwise — a projections-only file cannot know them, and guessing
+    // them is exactly how a b/param figure goes wrong.
+    let mut carried_params = 0u64;
+    // Of those, the ones the `LLVQ_EMBED=q8` path actually replaces. The
+    // names are `llvq_llm::fused::{EMBED_NAME, HEAD_NAME}`, repeated here
+    // rather than depended on: `llvq-bench` stays dependency-free, and a
+    // 690-crate tree to learn two strings is not a trade. Everything else
+    // carried (the norms) stays f16 on both lines — charging norms at 8.5
+    // would be inventing a quantizer that does not exist.
+    let mut carried_embed = 0u64;
+    // And what those tensors actually weigh in the file, encoding included.
+    // The `f16 = 16` / `q8 = 8.5` rows below are a *model* of the carried
+    // side; this is the file's own answer, and printing both is how the
+    // model gets audited instead of trusted.
+    let mut carried_bits = 0u64;
+
     // Per-class cross-check bookkeeping: the first block seen of each class
     // is decoded and its point-derived levels compared to the class table.
     let mut verified = vec![false; fd.n_classes()];
@@ -280,6 +493,17 @@ fn main() {
                 m.centroids.len().next_power_of_two().trailing_zeros() as u64;
             arch_bits =
                 llvq_quant::quantizer::index_bits(m.shell_cap) as u64 + gain_bits;
+            // The two bit-plane layouts freeze the gain field at bit 9, one
+            // bit wide (`transcode_planes14` refuses anything else). Pricing
+            // them on a file they could not encode would be a number about
+            // nothing, so refuse here rather than print it.
+            assert_eq!(
+                gain_bits, 1,
+                "{}: {} gain bits — Planes14/Planes12x freeze the field at 1",
+                m.name,
+                gain_bits
+            );
+            carried.push(m.d_out, m.d_in);
             for &idx in &m.indices {
                 let Some(ci) = fd.class_of(idx) else {
                     assert_eq!(idx, 0, "{}: index {idx} outside the ball", m.name);
@@ -311,9 +535,31 @@ fn main() {
                     verified[ci] = true;
                     verified_classes += 1;
                 }
+                exceptions += u64::from(is_planes12x_exception(lv.len));
                 let w = widths(lv, gain_bits);
                 if lv.odd { &mut odd } else { &mut even }.push(&w);
                 grouped.push(&w);
+            }
+        }
+        // ---- carried tensors, counted rather than assumed ----
+        // A self-contained file lists its raw tensors right after the
+        // matrices: a u32 count, then one framed tensor each. Reading them
+        // costs one transient allocation per tensor and turns "b/param
+        // modèle entier" from a figure with a remembered vocabulary size
+        // into one the file itself answers for.
+        if h.is_self_contained() {
+            let mut b = [0u8; 4];
+            r.read_exact(&mut b).expect("raw-tensor count");
+            for _ in 0..u32::from_le_bytes(b) {
+                let t = llvq_artifact::read_raw(&mut r, h.version).expect("valid raw tensor");
+                carried_params += t.len() as u64;
+                carried_bits += t.bytes() * 8;
+                if matches!(
+                    t.name.as_str(),
+                    "model.embed_tokens.weight" | "lm_head.weight"
+                ) {
+                    carried_embed += t.len() as u64;
+                }
             }
         }
     } else {
@@ -327,6 +573,7 @@ fn main() {
             let x: [f64; DIM] = core::array::from_fn(|_| rng.next_gaussian());
             let f = ball.nearest_angular(&s, &x);
             let lv = levels_of_point(&f.point);
+            exceptions += u64::from(is_planes12x_exception(lv.len));
             let w = widths(&lv, gain_bits);
             if lv.odd { &mut odd } else { &mut even }.push(&w);
             grouped.push(&w);
@@ -520,10 +767,155 @@ fn main() {
         );
     }
 
-    // ---- what each rate means for a 4B token ----
-    let linear_w = 3_633_315_840f64;
-    let lm_head_gb = 0.778; // tied embedding read once per token for logits
-    println!("\n  trafic par token, Qwen3-4B (linéaires + lm_head f16 {lm_head_gb} Go)");
+    // ---- Planes14 / Planes12x: the bit-plane layouts ----
+    //
+    // Neither is grouped and neither has a base table, so both are priced by
+    // a stride times a block count — plus, for Planes12x, a table whose size
+    // is a *count of five-level classes*. Payload accounting: the stream
+    // alone, over `24 · blocks`, exactly like every column above.
+    let p14_bits = planes14_bits(total);
+    let p12_bits = planes12x_bits(total, exceptions);
+    let exc_pct = 100.0 * exceptions as f64 / total as f64;
+    println!("\n  Planes14 et Planes12x — les plans binaires (b/poids payload)");
+    println!("  {}", "-".repeat(72));
+    println!(
+        "  Planes14   stride {PLANES14_BYTES} o fixe, sans base ni exception : {:.4} b/poids",
+        bpw(p14_bits, total)
+    );
+    println!(
+        "  Planes12x  stride {PLANES12X_BYTES} o + {} exceptions à {PLANES12X_EXC_BYTES} o \
+         ({exc_pct:.4} % des blocs)",
+        exceptions
+    );
+    println!(
+        "             = {:.4} b/poids, dont {:.4} de stream et {:.4} d'exceptions",
+        bpw(p12_bits, total),
+        bpw(total * PLANES12X_BYTES as u64 * 8, total),
+        bpw(exceptions * PLANES12X_EXC_BYTES as u64 * 8, total)
+    );
+    // The exception count is a histogram identity, not a second measurement:
+    // a block is an exception iff its class has more than PLANES12X_LEVEL_CAP
+    // levels. Stating it as an assert makes a drift between the predicate and
+    // the level histogram impossible to publish.
+    let from_hist: u64 = (1..=MAX_LEVELS)
+        .filter(|&l| exceeds_planes12x_geometry(l))
+        .map(|l| odd.levels[l] + even.levels[l])
+        .sum();
+    assert_eq!(
+        from_hist, exceptions,
+        "le compte d'exceptions et l'histogramme de niveaux divergent"
+    );
+    println!(
+        "  seuil : L > {PLANES12X_LEVEL_CAP} — {} blocs à {} niveaux, recoupés sur l'histogramme",
+        exceptions,
+        MAX_LEVELS
+    );
+
+    // ---- the kernel accounting, the one the CUDA bench publishes ----
+    //
+    // Same streams, two changes and only two: the `f32` tail block and the
+    // `f32` row-scale vector join the numerator, and the denominator becomes
+    // every weight of every matrix instead of `24 · blocks`. Both changes are
+    // *inflationary on the numerator* and *inflationary on the denominator*,
+    // and they do not cancel — which is precisely why the two columns must
+    // never be quoted in one list.
+    if carried.weights > 0 {
+        let tail_w = carried.weights - total * DIM as u64;
+        println!("\n  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)");
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  numérateur += queue f32 ({tail_w} poids) + échelles de ligne f32 ({} lignes)",
+            carried.rows
+        );
+        println!(
+            "  dénominateur = {} poids (Σ d_out·d_in, queue comprise), et non {} quantifiés",
+            carried.weights,
+            total * DIM as u64
+        );
+        assert_eq!(
+            tail_w, carried.tail_weights,
+            "les poids de queue comptés par forme et par différence divergent"
+        );
+        for (name, bits) in [
+            ("Slot32", grouped.slot_bits_byte),
+            ("Planes14", p14_bits),
+            ("Planes12x", p12_bits),
+        ] {
+            println!(
+                "  {name:<12}{:>10.4} b/poids noyau  ({:.4} payload, {:.2} Go de stream)",
+                carried.kernel_bpw(bits),
+                bpw(bits, total),
+                (bits + carried.side_bits()) as f64 / 8.0 / 1e9
+            );
+        }
+    }
+
+    // ---- b/param modèle entier: the only figure comparable to an AWQ one ----
+    //
+    // Printed only when the file carries its embedding, so both counts of the
+    // division come from the same bytes. `q8` is the `LLVQ_EMBED=q8` path:
+    // int8 plus one f16 scale and one f16 bias per group of 64, i.e. exactly
+    // 8 + 32/64 = 8.5 bits per parameter when the row length is a multiple of
+    // 64 (2560 and 4096 both are).
+    if carried_params > 0 && carried.weights > 0 {
+        let embed_q8 = 8.0 + EMBED_GROUP_BITS / EMBED_GROUP;
+        let other = carried_params - carried_embed;
+        println!("\n  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ");
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  {} poids quantifiés + {} d'embedding + {other} portés en f16 = {} paramètres",
+            carried.weights,
+            carried_embed,
+            carried.weights + carried_params
+        );
+        println!(
+            "  embedding f16 = 16,000 b/param ; q8 g{:.0} = {embed_q8:.3} b/param \
+             (int8 + f16 échelle et biais par groupe)",
+            EMBED_GROUP
+        );
+        // The third column is not a model: it is the carried section's own
+        // byte count, so the row that matches this file's encoding must
+        // reproduce one of the two modelled columns. If it does not, the
+        // model is wrong and the modelled columns are not publishable.
+        let carried_measured = carried_bits as f64 / carried_params as f64;
+        println!(
+            "  porté MESURÉ dans le fichier : {carried_measured:.3} b/param \
+             ({:.2} Go sur {carried_params} paramètres)",
+            carried_bits as f64 / 8.0 / 1e9
+        );
+        println!(
+            "  {:<12}{:>14}{:>14}{:>14}",
+            "layout", "embed f16", "embed q8", "porté mesuré"
+        );
+        for (name, bits) in [
+            ("Slot32", grouped.slot_bits_byte),
+            ("Planes14", p14_bits),
+            ("Planes12x", p12_bits),
+        ] {
+            let lin = (carried.weights, carried.kernel_bpw(bits));
+            println!(
+                "  {name:<12}{:>14.3}{:>14.3}{:>14.3}",
+                model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
+                model_bpw(&[lin, (carried_embed, embed_q8), (other, 16.0)]),
+                model_bpw(&[lin, (carried_params, carried_measured)])
+            );
+        }
+    }
+
+    // ---- what each rate means for one token ----
+    //
+    // Both terms used to be Qwen3-4B constants. They are now taken from the
+    // file when there is one — a 4B file reproduces the old numbers exactly
+    // (3 633 315 840 weights, 0.778 GB of tied embedding), and an 8B file no
+    // longer gets a 4B's head silently charged to it.
+    let (linear_w, lm_head_gb, head_src) = match (carried.weights, carried_params) {
+        (0, _) => (3_633_315_840f64, 0.778, "constantes Qwen3-4B"),
+        (w, 0) => (w as f64, 0.778, "⚠️ lm_head SUPPOSÉ (fichier projections seules)"),
+        (w, c) => (w as f64, c as f64 * 2.0 / 1e9, "mesurés sur le fichier"),
+    };
+    println!(
+        "\n  trafic par token — linéaires + embedding f16 {lm_head_gb:.3} Go ({head_src})"
+    );
     println!("  {}", "-".repeat(72));
     let show = |name: &str, b: f64| {
         let gb = linear_w * b / 8.0 / 1e9 + lm_head_gb;
@@ -547,7 +939,7 @@ fn main() {
     show("champ fixe 128", 128.0 / 24.0);
     if grouped.groups > 0 {
         show(
-            "groupé 32, Slot32 — CE QUI TOURNE AUJOURD'HUI",
+            "groupé 32, Slot32",
             bpw(grouped.slot_bits_byte, total),
         );
         show(
@@ -558,5 +950,272 @@ fn main() {
             ),
         );
     }
-    println!("\n  plafond FP16 : ~50 tok/s ; plafond lm_head seul : ~514 tok/s");
+    show("Planes14 — CE QUI TOURNE AUJOURD'HUI", bpw(p14_bits, total));
+    show(
+        &format!("Planes12x ({exc_pct:.2} % d'exceptions)"),
+        bpw(p12_bits, total),
+    );
+    let fp16_gb = linear_w * 2.0 / 1e9 + lm_head_gb;
+    println!(
+        "\n  plafond FP16 : ~{:.0} tok/s ; plafond embedding seul : ~{:.0} tok/s",
+        400.0 / fp16_gb,
+        400.0 / lm_head_gb
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    // The frozen bit offsets of the two records, walked field by field
+    // below. Test-only: the accounting itself needs the strides, not the
+    // geometry — which is exactly why the geometry has to be pinned here.
+    use llvq_artifact::runtime::{
+        PLANES12X_PAD_BIT, PLANES12X_SMASK_BIT, PLANES14_PAD_BIT, PLANES14_PLANE_BIT,
+        PLANES14_SMASK_BIT,
+    };
+
+    /// Qwen3-4B, the published `leech1c12` file — the shape the CUDA bench
+    /// measured on an L40S. Every number here is a *count*, taken either from
+    /// the architecture (36 layers × 7 projections) or from this bench's own
+    /// earlier run, never from a rate.
+    mod qwen3_4b {
+        /// `Σ d_out · d_in` over the 252 linear matrices.
+        pub const WEIGHTS: u64 = 3_633_315_840;
+        /// `Σ d_out · (d_in / 24)`.
+        pub const BLOCKS: u64 = 150_681_600;
+        /// `Σ d_out · (d_in mod 24)` — 16 columns on the 2560/4096 inputs,
+        /// 8 on the 9728 one.
+        pub const TAIL_WEIGHTS: u64 = 16_957_440;
+        /// `Σ d_out`, i.e. the 1 105 920 rows the CUDA bench verifies.
+        pub const ROWS: u64 = 1_105_920;
+        /// Five-level blocks, from `docs/mesures/k1c-rtbits-2026-08-05.txt`
+        /// and reproduced by the CUDA bench as its exception count.
+        pub const EXCEPTIONS: u64 = 5_096_688;
+    }
+
+    /// The `q8` embedding rate, derived the way the binary derives it.
+    ///
+    /// It exists because a first version of these tests hard-coded `8.5` on
+    /// both sides of the 8B check, so zeroing the group-scale term left the
+    /// suite green — the §5 pattern exactly: an assertion that never
+    /// exercises the parameter it is meant to cover.
+    fn embed_q8_bpw() -> f64 {
+        8.0 + EMBED_GROUP_BITS / EMBED_GROUP
+    }
+
+    /// `q8 g64` is int8 **plus** one f16 scale and one f16 bias per group of
+    /// 64 values — 32 bits per 64 weights, i.e. half a bit each. Forgetting
+    /// that half-bit is a 6 % error on the carried tables and 1 % on the 8B
+    /// model figure, which is more than the margin the AWQ comparison has.
+    #[test]
+    fn q8_embedding_is_eight_bits_plus_its_group_scales() {
+        assert_eq!(EMBED_GROUP, 64.0, "llvq_llm::fused::EMBED_GROUP");
+        assert_eq!(EMBED_GROUP_BITS, 32.0, "f16 échelle + f16 biais");
+        assert!(
+            (embed_q8_bpw() - 8.5).abs() < 1e-12,
+            "q8 g64 vaut 8,5 b/param, pas {}",
+            embed_q8_bpw()
+        );
+        // The 4B's tied table: 388 956 160 values, 40 groups per row of
+        // 2560, 4 bytes per group — the 413.3 MB `q8_device_bytes` announces.
+        let (packed, scales) = (388_956_160u64, 151_936u64 * 40 * 4);
+        assert!(
+            ((packed + scales) as f64 * 8.0 / packed as f64 - embed_q8_bpw()).abs() < 1e-9,
+            "le taux et les octets annoncés par le chemin q8 divergent"
+        );
+    }
+
+    fn carried_4b() -> Shapes {
+        Shapes {
+            weights: qwen3_4b::WEIGHTS,
+            tail_weights: qwen3_4b::TAIL_WEIGHTS,
+            rows: qwen3_4b::ROWS,
+        }
+    }
+
+    /// Walk one record's fields at the offsets the format froze, and check
+    /// that the posts add up to the stride this bench bills.
+    ///
+    /// Asserting `112` alone would survive a format that moved a field; this
+    /// walks `PLANES14_SMASK_BIT`, `PLANES14_PLANE_BIT` and
+    /// `PLANES14_PAD_BIT` from `llvq_artifact::runtime` and demands they be
+    /// consistent with `class 9 | gain 1 | signes 24 | 3 × plan 24 | 6 de
+    /// bourrage`. Any field that moves, widens or disappears lands here.
+    #[test]
+    fn one_planes14_record_is_112_bits_field_by_field() {
+        // Header: class then a one-bit gain — the field the two Planes
+        // layouts freeze, and the reason they refuse a file with more.
+        assert_eq!(PLANES14_SMASK_BIT, CLASS_BITS + 1, "classe 9 b + gain 1 b");
+        // Sign mask in slot space: 24 bits, not `nonzero`.
+        assert_eq!(PLANES14_PLANE_BIT[0], PLANES14_SMASK_BIT + DIM as u64);
+        // Three contiguous 24-bit planes.
+        assert_eq!(PLANES14_PLANE_BIT.len(), 3);
+        for w in PLANES14_PLANE_BIT.windows(2) {
+            assert_eq!(w[1] - w[0], DIM as u64, "un plan fait 24 bits");
+        }
+        let last = PLANES14_PLANE_BIT[PLANES14_PLANE_BIT.len() - 1];
+        assert_eq!(PLANES14_PAD_BIT, last + DIM as u64);
+        assert_eq!(PLANES14_PAD_BIT, 106, "9 + 1 + 24 + 72");
+        // And the stride closes the record to a whole number of bytes.
+        let stride = PLANES14_BYTES as u64 * 8;
+        assert_eq!(stride - PLANES14_PAD_BIT, 6, "6 bits de bourrage");
+        assert_eq!(planes14_bits(1), stride);
+        // Class-blind by construction: a thousand blocks cost a thousand
+        // strides whatever they hold, origin included.
+        assert_eq!(planes14_bits(1_000), 112_000);
+    }
+
+    /// Same walk for `Planes12x`: `9 + 1 + 24 + 2·24 = 82` payload bits, 14
+    /// of padding, `12·8 = 96`; one exception adds `4 + 14 = 18` bytes.
+    #[test]
+    fn one_planes12x_record_is_96_bits_and_one_exception_144_field_by_field() {
+        assert_eq!(PLANES12X_SMASK_BIT, CLASS_BITS + 1, "classe 9 b + gain 1 b");
+        assert_eq!(PLANES12X_PLANE_BIT[0], PLANES12X_SMASK_BIT + DIM as u64);
+        // **Two** planes, not three — the whole difference with Planes14.
+        assert_eq!(PLANES12X_PLANE_BIT.len(), PLANES14_PLANE_BIT.len() - 1);
+        for w in PLANES12X_PLANE_BIT.windows(2) {
+            assert_eq!(w[1] - w[0], DIM as u64);
+        }
+        let last = PLANES12X_PLANE_BIT[PLANES12X_PLANE_BIT.len() - 1];
+        assert_eq!(PLANES12X_PAD_BIT, last + DIM as u64);
+        assert_eq!(PLANES12X_PAD_BIT, 82, "9 + 1 + 24 + 48");
+        let stride = PLANES12X_BYTES as u64 * 8;
+        assert_eq!(stride - PLANES12X_PAD_BIT, 14, "14 bits de bourrage");
+        // An exception is a u32 block index plus a full Planes14 record.
+        assert_eq!(PLANES12X_EXC_BYTES as u64 * 8, 32 + PLANES14_BYTES as u64 * 8);
+        assert_eq!(planes12x_bits(1, 0), 96);
+        // The exception is an ADDITION: the main record is written anyway,
+        // with a swapped L ≤ 4 direction in it.
+        assert_eq!(planes12x_bits(1, 1), 96 + 144);
+        assert_eq!(planes12x_bits(1_000, 10), 96_000 + 1_440);
+    }
+
+    /// The exception predicate, at its two boundaries, by both routes.
+    /// `PLANES12X_LEVEL_CAP` is the last level two bit-planes can address, so
+    /// 4 is in and 5 is out; the origin (one level) is never an exception.
+    #[test]
+    fn only_five_level_classes_are_exceptions() {
+        assert!(!is_planes12x_exception(1), "l'origine n'est pas une exception");
+        for l in 2..=PLANES12X_LEVEL_CAP {
+            assert!(!is_planes12x_exception(l), "L = {l} tient en deux plans");
+        }
+        assert!(is_planes12x_exception(PLANES12X_LEVEL_CAP + 1));
+        assert!(is_planes12x_exception(MAX_LEVELS));
+        // The cap is not a free parameter: `k` planes address `2^k` levels.
+        // The bench's run-time cross-check leans on this, so it is pinned
+        // here rather than assumed there.
+        assert_eq!(PLANES12X_LEVEL_CAP, 1 << PLANES12X_PLANE_BIT.len());
+        for l in 1..=MAX_LEVELS {
+            assert_eq!(
+                is_planes12x_exception(l),
+                exceeds_planes12x_geometry(l),
+                "les deux routes divergent à L = {l}"
+            );
+        }
+    }
+
+    /// **The acceptance test.** Two instruments, one object, one number.
+    ///
+    /// The CUDA bench on an L40S
+    /// (`docs/mesures/e2-golay70-bench-2026-08-07.txt`) reports 5.510 /
+    /// 4.804 / 4.342 b/weight for `Slot32` / `Planes14` / `Planes12x` on the
+    /// published Qwen3-4B. Those figures are *measured GPU uploads*; what
+    /// follows rebuilds them from block counts alone. If this test ever
+    /// fails, one of the two instruments has drifted and neither figure may
+    /// be published until it is known which.
+    #[test]
+    fn published_4b_kernel_rates_are_reproduced() {
+        let c = carried_4b();
+        // The shape counts must close on themselves first: quantized weights
+        // plus tail weights are all the weights there are.
+        assert_eq!(qwen3_4b::BLOCKS * DIM as u64 + qwen3_4b::TAIL_WEIGHTS, c.weights);
+
+        let p14 = c.kernel_bpw(planes14_bits(qwen3_4b::BLOCKS));
+        let p12 = c.kernel_bpw(planes12x_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
+        assert!(
+            (p14 - 4.804).abs() < 5e-4,
+            "Planes14 : {p14:.4} contre 4.804 au banc CUDA"
+        );
+        assert!(
+            (p12 - 4.342).abs() < 5e-4,
+            "Planes12x : {p12:.4} contre 4.342 au banc CUDA"
+        );
+        // And the exception rate the arbitration rests on.
+        let rate = 100.0 * qwen3_4b::EXCEPTIONS as f64 / qwen3_4b::BLOCKS as f64;
+        assert!((rate - 3.3824).abs() < 5e-4, "taux d'exceptions {rate:.4} %");
+    }
+
+    /// The two accountings must **not** agree — and the gap must be the two
+    /// terms that separate them, nothing else. A test that only checked the
+    /// kernel figure would pass on a build that quietly used one denominator
+    /// for both.
+    #[test]
+    fn payload_and_kernel_accountings_differ_by_exactly_the_side_data() {
+        let c = carried_4b();
+        let bits = planes14_bits(qwen3_4b::BLOCKS);
+        let payload = bits as f64 / (qwen3_4b::BLOCKS * DIM as u64) as f64;
+        assert!(
+            (payload - 14.0 * 8.0 / 24.0).abs() < 1e-12,
+            "le payload de Planes14 est 112/24 exactement, pas {payload}"
+        );
+        // Same numerator, whole-matrix denominator: strictly smaller.
+        assert!(bits as f64 / (c.weights as f64) < payload);
+        // Side data restores it and overshoots — the 4.804 above.
+        assert_eq!(
+            c.side_bits(),
+            (qwen3_4b::TAIL_WEIGHTS + qwen3_4b::ROWS) * 32,
+            "queue f32 + échelles de ligne f32, rien d'autre"
+        );
+        assert!(c.kernel_bpw(bits) > payload);
+    }
+
+    /// `Shapes` must derive its three counts the way
+    /// `planesbench` does, or every kernel figure is off by the tail.
+    #[test]
+    fn carried_counts_shapes_like_the_cuda_bench() {
+        let mut c = Shapes::default();
+        // Qwen3-4B `down_proj`: 9728 = 24·405 + 8.
+        c.push(2560, 9728);
+        assert_eq!(c.weights, 2560 * 9728);
+        assert_eq!(c.tail_weights, 2560 * 8);
+        assert_eq!(c.rows, 2560);
+        // Qwen3-8B `down_proj`: 12288 = 24·512, no tail at all — the reason
+        // the 8B's kernel rate sits below the 4B's at identical payload.
+        let mut d = Shapes::default();
+        d.push(4096, 12288);
+        assert_eq!(d.tail_weights, 0);
+        assert_eq!(d.side_bits(), 4096 * 32);
+    }
+
+    /// The whole-model conversion, pinned on the two published Qwen3-8B
+    /// cells (`docs/tableau-8b-2026-08-07.md` §2–3): 6.461 b/param with an
+    /// f16 embedding and 5.323 with `q8`, both measured in the engine.
+    ///
+    /// This is the step the dossier got wrong twice, so it is checked
+    /// against numbers produced by a third instrument entirely — the model
+    /// loader's own VRAM report, not this bench and not the CUDA bench.
+    #[test]
+    fn whole_model_conversion_matches_the_published_8b_cells() {
+        // Qwen3-8B: 36 layers, hidden 4096, 8 kv heads, intermediate 12288;
+        // `tie_word_embeddings = false`, so two 151936×4096 tables.
+        const LIN: u64 = 6_945_767_424;
+        const EMBED: u64 = 2 * 151_936 * 4_096;
+        // Planes14 on the 8B shapes: 288 571 392 blocks, 20 054 016 tail
+        // weights, 1 400 832 rows.
+        let c = Shapes {
+            weights: LIN,
+            tail_weights: 20_054_016,
+            rows: 1_400_832,
+        };
+        assert_eq!((LIN - c.tail_weights) % DIM as u64, 0);
+        let lin = c.kernel_bpw(planes14_bits((LIN - c.tail_weights) / DIM as u64));
+
+        let f16 = model_bpw(&[(LIN, lin), (EMBED, 16.0)]);
+        let q8 = model_bpw(&[(LIN, lin), (EMBED, embed_q8_bpw())]);
+        assert!((f16 - 6.461).abs() < 1e-3, "embed f16 : {f16:.3} contre 6.461");
+        assert!((q8 - 5.323).abs() < 2e-3, "embed q8 : {q8:.3} contre 5.323");
+        // Sanity on the direction: carrying 15.2 % of the model in f16 costs
+        // more per parameter than the linears do.
+        assert!(f16 > lin && q8 > lin);
+    }
 }

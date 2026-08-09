@@ -1,0 +1,504 @@
+# rtbits — Planes14 / Planes12x facturés bloc par bloc, 4B (validation) puis 8B
+#
+# Commande : cargo run --release -p llvq-bench --bin rtbits -- <artefact>
+# Machine  : Apple M3 Max, 16 cœurs, macOS 26.5.2 — CPU seul, ~9 s par artefact, 0 $
+# Date     : 2026-08-09, branche verrous-et-coherence, arbre à f2bb4ea
+#            (llvq-cuda a bougé depuis en 2d56cce ; sans effet ici, rtbits
+#            ne dépend que de llvq-core/search/quant/artifact)
+# rtbits.rs: sha256 7e69a0ae7fdd032a5930fb87b198b9c27778bcd071fa1a71303bfb6c209718e7
+#
+# VERDICT EN UNE LIGNE
+#   Le taux d'exceptions de Planes12x TRANSFÈRE d'une largeur à l'autre :
+#   3,3824 % au 4B, 3,3722 % au 8B — 0,010 pp d'écart, 0,3 % en relatif.
+#   L'arbitrage de Planes12x tient donc identiquement au 8B : il rend
+#   -0,462 b/poids noyau au 4B et -0,463 au 8B, contre le même -7 % de débit.
+#
+# CE QUE CE FICHIER ÉTABLIT, ET CE QU'IL N'ÉTABLIT PAS
+#   ÉTABLI  : les octets. rtbits facture les vrais blocs des vrais artefacts,
+#             en CPU, sans carte et sans dépense. Sa comptabilité NOYAU
+#             reproduit le banc CUDA L40S du 07-08 au millième sur les trois
+#             layouts (5,510 / 4,804 / 4,342) — deux instruments, un objet,
+#             un nombre.
+#   NON ÉTABLI : la VITESSE à 8B. Le -7 % de Planes12x contre Planes14 est un
+#             chiffre 4B (banc E2, L40S). Rien ici ne le mesure, et le 8B a
+#             des formes différentes (down_proj sans queue).
+#
+# ⚠️ TROIS COMPTABILITÉS, JAMAIS DANS LA MÊME LISTE
+#   payload : stream + tables de base, sur 24·blocs (poids quantifiés seuls).
+#   noyau   : + queue f32 + échelles de ligne f32, sur Σ d_out·d_in (queue
+#             comprise). C'est la comptabilité du banc CUDA.
+#   b/param modèle entier : + l'embedding, sur tous les paramètres. La seule
+#             grandeur comparable à un chiffre AWQ.
+#   Les trois diffèrent, elles ne se convertissent pas de tête, et le dossier
+#   s'est déjà trompé deux fois en mélangeant deux d'entre elles.
+
+================================================================================
+1. VALIDATION SUR LE 4B — deux instruments, le même objet
+================================================================================
+
+  banc CUDA L40S (docs/mesures/e2-golay70-bench-2026-08-07.txt) :
+    Slot32 5.510   Planes14 4.804   Planes12x 4.342   exceptions 3.3824 %
+  rtbits, CPU, mêmes octets :
+    Slot32 5.5096  Planes14 4.8040  Planes12x 4.3424  exceptions 3.3824 %
+
+  CONCORDANCE AU MILLIÈME SUR LES TROIS. Le compte d'exceptions est identique
+  au bloc près : 5 096 688 sur 150 681 600.
+
+  Et les lignes historiques de rtbits sont inchangées : le fichier de sortie
+  est identique à docs/mesures/k1c-rtbits-2026-08-05.txt sur toutes ses
+  lignes préexistantes (Slot32 payload 5.3756, plafond L≤4 4.7083, etc.).
+
+--- sortie complète, /Users/pjmalandrino/qwen3-4b-llvq.bin -------------------
+
+source : /Users/pjmalandrino/qwen3-4b-llvq.bin — 252 matrices
+150681600 blocs — impair 50.0 %, pair 50.0 %
+286 classes recoupées point décodé ↔ table
+
+  niveaux de magnitude par bloc
+  --------------------------------------------------------
+  1 niveaux              65 blocs    0.00 %
+  2 niveaux           94308 blocs    0.06 %
+  3 niveaux        46262562 blocs   30.70 %
+  4 niveaux        99227977 blocs   65.85 %
+  5 niveaux         5096688 blocs    3.38 %
+
+  bits/poids en RAM, comptabilité complète
+  (assignation + signes + classe 9 b + gain 1 b + adressage)
+  ------------------------------------------------------------------------
+  layout                                         masquespositionnel
+  variable, adressage gratuit (borne inf.)        2.9243    3.3095
+  variable + offset u16 par bloc                  3.5910    3.9761
+  groupé 32 (stride = max du groupe + base u32)    3.1019    3.9086
+  groupé 32, stride arrondi à l'octet             3.3548         —
+  champ fixe au pire cas (74/106 b → u32)         4.0000    5.3333
+  champ fixe 128 (uint4, nibbles)                      —    5.3333
+
+  par coset (variable, adressage gratuit)
+  ------------------------------------------------------------------------
+  impair         50.0 %   masques 2.9364   positionnel 3.4163   pire 73/106 b
+  pair           50.0 %   masques 2.9122   positionnel 3.2027   pire 74/101 b
+
+  divergence sur groupes de 32 lanes consécutives
+  ------------------------------------------------------------------------
+  niveaux : moyenne 3.726, moyenne des max par groupe 4.667 (×1.253)
+  padding groupé 32 : masques ×1.061, positionnel ×1.181 vs adressage gratuit
+
+  Slot32 — le layout que le noyau fusé lit réellement
+  ------------------------------------------------------------------------
+  groupé 32, stride octet, base u32 : 5.3756 b/poids
+  4708800 groupes, max de niveaux :
+    L = 3             1 groupes   0.0000 %   stride 11 o
+    L = 4       1566710 groupes  33.2720 %   stride 14 o
+    L = 5       3142089 groupes  66.7280 %   stride 17 o
+  sous plafond L ≤ 4 : ≤ 4.7083 b/poids (14 o de stride, majorant inconditionnel)
+  majorant ATTEINT sur 4708799 groupes sur 4708800 (100.0000 %) : ceux qui portent déjà un
+  bloc L = 4, dont la classe est inchangée par le plafond. Gain 0.667 b/poids (12.4 %).
+
+  Planes14 et Planes12x — les plans binaires (b/poids payload)
+  ------------------------------------------------------------------------
+  Planes14   stride 14 o fixe, sans base ni exception : 4.6667 b/poids
+  Planes12x  stride 12 o + 5096688 exceptions à 18 o (3.3824 % des blocs)
+             = 4.2029 b/poids, dont 4.0000 de stream et 0.2029 d'exceptions
+  seuil : L > 4 — 5096688 blocs à 5 niveaux, recoupés sur l'histogramme
+
+  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)
+  ------------------------------------------------------------------------
+  numérateur += queue f32 (16957440 poids) + échelles de ligne f32 (1105920 lignes)
+  dénominateur = 3633315840 poids (Σ d_out·d_in, queue comprise), et non 3616358400 quantifiés
+  Slot32          5.5096 b/poids noyau  (5.3756 payload, 2.50 Go de stream)
+  Planes14        4.8040 b/poids noyau  (4.6667 payload, 2.18 Go de stream)
+  Planes12x       4.3424 b/poids noyau  (4.2029 payload, 1.97 Go de stream)
+
+  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ
+  ------------------------------------------------------------------------
+  3633315840 poids quantifiés + 388956160 d'embedding + 196096 portés en f16 = 4022468096 paramètres
+  embedding f16 = 16,000 b/param ; q8 g64 = 8.500 b/param (int8 + f16 échelle et biais par groupe)
+  porté MESURÉ dans le fichier : 16.000 b/param (0.78 Go sur 389152256 paramètres)
+  layout           embed f16      embed q8  porté mesuré
+  Slot32               6.525         5.799         6.525
+  Planes14             5.887         5.162         5.887
+  Planes12x            5.470         4.745         5.470
+
+  trafic par token — linéaires + embedding f16 0.778 Go (mesurés sur le fichier)
+  ------------------------------------------------------------------------
+  archive v1, 48 b/bloc (indécodable en fusé)   2.000 b/p     1.69 Go      237 tok/s
+  variable masques + u16                        3.591 b/p     2.41 Go      166 tok/s
+  variable positionnel + u16                    3.976 b/p     2.58 Go      155 tok/s
+  groupé 32, masques                            3.102 b/p     2.19 Go      183 tok/s
+  groupé 32, masques, stride octet              3.355 b/p     2.30 Go      174 tok/s
+  groupé 32, positionnel                        3.909 b/p     2.55 Go      157 tok/s
+  champ fixe au pire cas (masques, u32)         4.000 b/p     2.59 Go      154 tok/s
+  champ fixe au pire cas (pos., u32)            5.333 b/p     3.20 Go      125 tok/s
+  champ fixe 128                                5.333 b/p     3.20 Go      125 tok/s
+  groupé 32, Slot32                             5.376 b/p     3.22 Go      124 tok/s
+  groupé 32, Slot32, plafond L ≤ 4 (majorant)   4.708 b/p     2.92 Go      137 tok/s
+  Planes14 — CE QUI TOURNE AUJOURD'HUI          4.667 b/p     2.90 Go      138 tok/s
+  Planes12x (3.38 % d'exceptions)               4.203 b/p     2.69 Go      149 tok/s
+
+  plafond FP16 : ~50 tok/s ; plafond embedding seul : ~514 tok/s
+
+================================================================================
+2. LA MESURE — Qwen3-8B, le taux d'exceptions qu'on n'avait jamais eu
+================================================================================
+
+  Fichier : /Users/pjmalandrino/qwen3-8b-llvq.bin (scellé, leech1c12,
+  embedding f16, 252 matrices, 288 571 392 blocs, 6 945 767 424 poids).
+
+  b/poids NOYAU (comptabilité du banc CUDA)      4B        8B      écart
+  ----------------------------------------------------------------------
+  Slot32                                      5.5096    5.4574    -0.052
+  Planes14                                    4.8040    4.7520    -0.052
+  Planes12x                                   4.3424    4.2890    -0.053
+  ----------------------------------------------------------------------
+  Planes12x - Planes14                        -0.462    -0.463    +0.001
+
+  b/poids PAYLOAD (stream seul, sur 24·blocs)    4B        8B
+  ----------------------------------------------------------------------
+  Slot32                                      5.3756    5.3741
+  Planes14                                    4.6667    4.6667   (exact, 112/24)
+  Planes12x                                   4.2029    4.2023
+
+  TAUX D'EXCEPTIONS DE PLANES12X — le chiffre qui décide
+  ----------------------------------------------------------------------
+              blocs L = 5          blocs totaux        taux
+  4B            5 096 688         150 681 600        3.3824 %
+  8B            9 731 159         288 571 392        3.3722 %
+  ----------------------------------------------------------------------
+  Écart : 0.0102 pp, soit 0.30 % en relatif.
+
+  Repère, avec sa réserve : la même mesure sur 20 000 blocs gaussiens donne
+  6.6850 % — le double. ⚠️ Ce n'est PAS une comparaison à une variable : le
+  mode gaussien de rtbits cherche dans la boule m ≤ 13 alors que les deux
+  artefacts sont en `leech1c12` (m ≤ 12), et la coquille 13 apporte des
+  classes à 5 niveaux. On ne peut donc pas attribuer les 3,3 points d'écart
+  aux poids plutôt qu'au plafond. Ce que la ligne établit tout de même :
+  3,4 % n'est pas une constante du réseau de Leech, donc le fait qu'elle se
+  reproduise au 8B est une mesure, pas une conséquence de la géométrie.
+
+  L'histogramme complet transfère aussi, pas seulement sa queue :
+        niveaux      4B          8B
+        1          0.00 %      0.00 %
+        2          0.06 %      0.06 %
+        3         30.70 %     30.74 %
+        4         65.85 %     65.83 %
+        5          3.38 %      3.37 %
+
+  POURQUOI LE 8B EST PARTOUT 0.052 b/poids SOUS LE 4B, à payload identique
+  ----------------------------------------------------------------------
+  Ce n'est ni la méthode ni la qualité : c'est la QUEUE. Les deux modèles
+  ont le même payload par bloc, mais pas la même proportion de colonnes
+  hors bloc.
+      4B : d_in ∈ {2560, 4096, 9728} → queues de 16, 16 et 8 colonnes.
+           16 957 440 poids de queue sur 3 633 315 840 = 0.467 %.
+      8B : d_in ∈ {4096, 12288} → 12288 = 24·512 EXACTEMENT, donc down_proj
+           (26 % des poids) n'a aucune queue.
+           20 054 016 poids de queue sur 6 945 767 424 = 0.289 %.
+  Une queue coûte 32 bits par poids là où un bloc en coûte 4,667. En forme
+  close, pour Planes14 :
+      b/poids noyau = 112/24 + (32 - 112/24)·f + 32·(lignes/poids)
+  avec f la fraction de poids en queue. Poste par poste :
+      4B : 4.66667 + 27.3333·0.0046672 + 32·3.0438e-4 = 4.80398
+      8B : 4.66667 + 27.3333·0.0028873 + 32·2.0168e-4 = 4.75204
+  soit 0.0487 de queue et 0.0033 d'échelles de ligne : 0.052 au total. Le
+  même écart tombe sur les trois layouts à la fois — la signature d'une cause
+  commune, et non de trois coïncidences.
+
+  ⚠️ Conséquence directe pour le dossier : le 4,804 du 4B N'EST PAS
+  transposable au 8B. Le tableau 8B du 07-08 prédisait 6,505 b/param en
+  reportant 4,804, et mesurait 6,461. L'écart de 0,044 est exactement ce
+  0,052 b/poids de queue rapporté à la part des linéaires :
+      0,052 × 6 945 767 424 / 8 190 735 360 = 0,0441.
+  rtbits rend 6,462 — la prédiction corrigée, et à 0,001 de la mesure moteur.
+
+--- sortie complète, /Users/pjmalandrino/qwen3-8b-llvq.bin ------------------
+
+source : /Users/pjmalandrino/qwen3-8b-llvq.bin — 252 matrices
+288571392 blocs — impair 50.0 %, pair 50.0 %
+288 classes recoupées point décodé ↔ table
+
+  niveaux de magnitude par bloc
+  --------------------------------------------------------
+  1 niveaux              21 blocs    0.00 %
+  2 niveaux          180268 blocs    0.06 %
+  3 niveaux        88696013 blocs   30.74 %
+  4 niveaux       189963931 blocs   65.83 %
+  5 niveaux         9731159 blocs    3.37 %
+
+  bits/poids en RAM, comptabilité complète
+  (assignation + signes + classe 9 b + gain 1 b + adressage)
+  ------------------------------------------------------------------------
+  layout                                         masquespositionnel
+  variable, adressage gratuit (borne inf.)        2.9243    3.3094
+  variable + offset u16 par bloc                  3.5910    3.9761
+  groupé 32 (stride = max du groupe + base u32)    3.1019    3.9076
+  groupé 32, stride arrondi à l'octet             3.3548         —
+  champ fixe au pire cas (74/106 b → u32)         4.0000    5.3333
+  champ fixe 128 (uint4, nibbles)                      —    5.3333
+
+  par coset (variable, adressage gratuit)
+  ------------------------------------------------------------------------
+  impair         50.0 %   masques 2.9364   positionnel 3.4163   pire 73/106 b
+  pair           50.0 %   masques 2.9122   positionnel 3.2025   pire 74/101 b
+
+  divergence sur groupes de 32 lanes consécutives
+  ------------------------------------------------------------------------
+  niveaux : moyenne 3.725, moyenne des max par groupe 4.666 (×1.253)
+  padding groupé 32 : masques ×1.061, positionnel ×1.181 vs adressage gratuit
+
+  Slot32 — le layout que le noyau fusé lit réellement
+  ------------------------------------------------------------------------
+  groupé 32, stride octet, base u32 : 5.3741 b/poids
+  9017856 groupes, max de niveaux :
+    L = 4       3013957 groupes  33.4221 %   stride 14 o
+    L = 5       6003899 groupes  66.5779 %   stride 17 o
+  sous plafond L ≤ 4 : ≤ 4.7083 b/poids (14 o de stride, majorant inconditionnel)
+  majorant ATTEINT sur 9017856 groupes sur 9017856 (100.0000 %) : ceux qui portent déjà un
+  bloc L = 4, dont la classe est inchangée par le plafond. Gain 0.666 b/poids (12.4 %).
+
+  Planes14 et Planes12x — les plans binaires (b/poids payload)
+  ------------------------------------------------------------------------
+  Planes14   stride 14 o fixe, sans base ni exception : 4.6667 b/poids
+  Planes12x  stride 12 o + 9731159 exceptions à 18 o (3.3722 % des blocs)
+             = 4.2023 b/poids, dont 4.0000 de stream et 0.2023 d'exceptions
+  seuil : L > 4 — 9731159 blocs à 5 niveaux, recoupés sur l'histogramme
+
+  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)
+  ------------------------------------------------------------------------
+  numérateur += queue f32 (20054016 poids) + échelles de ligne f32 (1400832 lignes)
+  dénominateur = 6945767424 poids (Σ d_out·d_in, queue comprise), et non 6925713408 quantifiés
+  Slot32          5.4574 b/poids noyau  (5.3741 payload, 4.74 Go de stream)
+  Planes14        4.7520 b/poids noyau  (4.6667 payload, 4.13 Go de stream)
+  Planes12x       4.2890 b/poids noyau  (4.2023 payload, 3.72 Go de stream)
+
+  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ
+  ------------------------------------------------------------------------
+  6945767424 poids quantifiés + 1244659712 d'embedding + 308224 portés en f16 = 8190735360 paramètres
+  embedding f16 = 16,000 b/param ; q8 g64 = 8.500 b/param (int8 + f16 échelle et biais par groupe)
+  porté MESURÉ dans le fichier : 16.000 b/param (2.49 Go sur 1244967936 paramètres)
+  layout           embed f16      embed q8  porté mesuré
+  Slot32               7.060         5.920         7.060
+  Planes14             6.462         5.322         6.462
+  Planes12x            6.069         4.929         6.069
+
+  trafic par token — linéaires + embedding f16 2.490 Go (mesurés sur le fichier)
+  ------------------------------------------------------------------------
+  archive v1, 48 b/bloc (indécodable en fusé)   2.000 b/p     4.23 Go       95 tok/s
+  variable masques + u16                        3.591 b/p     5.61 Go       71 tok/s
+  variable positionnel + u16                    3.976 b/p     5.94 Go       67 tok/s
+  groupé 32, masques                            3.102 b/p     5.18 Go       77 tok/s
+  groupé 32, masques, stride octet              3.355 b/p     5.40 Go       74 tok/s
+  groupé 32, positionnel                        3.908 b/p     5.88 Go       68 tok/s
+  champ fixe au pire cas (masques, u32)         4.000 b/p     5.96 Go       67 tok/s
+  champ fixe au pire cas (pos., u32)            5.333 b/p     7.12 Go       56 tok/s
+  champ fixe 128                                5.333 b/p     7.12 Go       56 tok/s
+  groupé 32, Slot32                             5.374 b/p     7.16 Go       56 tok/s
+  groupé 32, Slot32, plafond L ≤ 4 (majorant)   4.708 b/p     6.58 Go       61 tok/s
+  Planes14 — CE QUI TOURNE AUJOURD'HUI          4.667 b/p     6.54 Go       61 tok/s
+  Planes12x (3.37 % d'exceptions)               4.202 b/p     6.14 Go       65 tok/s
+
+  plafond FP16 : ~24 tok/s ; plafond embedding seul : ~161 tok/s
+
+================================================================================
+3. PAYLOAD → B/PARAM MODÈLE ENTIER — le pas où le dossier s'est déjà trompé
+================================================================================
+
+  LA FORMULE, ET SES TROIS GROUPES (pas deux)
+
+      b/param = (N_lin·r_lin + N_emb·r_emb + N_norm·16) / (N_lin + N_emb + N_norm)
+
+  avec r_lin le b/poids NOYAU (pas le payload : la queue et les échelles de
+  ligne sont dans la VRAM), r_emb = 16 en f16 ou 8,5 en q8 g64.
+
+  ⚠️ q8 g64 vaut 8,5 b/param, pas 8. Le chemin `LLVQ_EMBED=q8` stocke int8
+  PLUS une échelle f16 et un biais f16 par groupe de 64, soit 32 bits pour
+  64 poids = 0,5 b/poids. L'errata du 06-08 annonce 5,11 pour le 4B : c'est
+  la valeur qu'on obtient en facturant l'embedding à 8 bits pile. Le chiffre
+  correct est 5,162.
+
+  LES COMPTES, LUS DANS LES FICHIERS EUX-MÊMES (pas de vocabulaire supposé)
+
+                                  Qwen3-4B          Qwen3-8B
+      linéaires quantifiés    3 633 315 840     6 945 767 424
+      embedding (+ lm_head)     388 956 160     1 244 659 712
+        1 table (têtes liées)   2 tables (têtes déliées, tie_word_embeddings=false)
+      normes, portées en f16        196 096           308 224
+      -------------------------------------------------------
+      total                   4 022 468 096     8 190 735 360
+      part portée                     9,68 %           15,20 %
+
+  LE CALCUL, POSTE PAR POSTE, POUR LE 8B EN PLANES14 + q8 — en BITS ENTIERS,
+  parce qu'aucun de ces postes n'est un taux : ce sont des octets comptés.
+
+      stream Planes14   288 571 392 blocs × 112 b  = 32 319 995 904 b
+      queue f32          20 054 016 poids  ×  32 b =    641 728 512 b
+      échelles de ligne   1 400 832 lignes ×  32 b =     44 826 624 b
+      ---------------------------------------------------------------
+      linéaires                                     33 006 551 040 b
+        (÷ 6 945 767 424 poids = 4,752043 b/poids noyau)
+      embedding q8      1 244 659 712 × 8,5 b      = 10 579 607 552 b
+      normes f16              308 224 × 16 b       =      4 931 584 b
+      ---------------------------------------------------------------
+      total                                         43 591 090 176 b
+      ÷ 8 190 735 360 paramètres                   = 5,3220 b/param
+
+  Le même calcul avec l'embedding en f16 (× 16 au lieu de × 8,5) :
+      33 006 551 040 + 19 914 555 392 + 4 931 584 = 52 926 038 016 b
+      ÷ 8 190 735 360                              = 6,4617 b/param
+
+  Et le 4B en Planes14 + q8, pour la vérification de la ligne suivante :
+      16 876 339 200 + 578 027 520                 = 17 454 366 720 b
+        (÷ 3 633 315 840 = 4,803977 b/poids noyau)
+      + 388 956 160 × 8,5 + 196 096 × 16           = 20 763 631 616 b
+      ÷ 4 022 468 096                              = 5,1619 b/param
+
+  LE TABLEAU (rtbits, mesuré sur les fichiers)
+
+                        4B                        8B
+                  f16       q8            f16       q8
+      Slot32     6.525    5.799          7.060    5.920
+      Planes14   5.887    5.162          6.462    5.322
+      Planes12x  5.470    4.745          6.069    4.929
+      -----------------------------------------------------
+      AWQ réel     — 5,302 —               — 5,956 —
+
+  VÉRIFICATION CONTRE DES VALEURS CONNUES — la partie qui rend le reste
+  croyable, parce qu'elle vient d'un TROISIÈME instrument (le rapport VRAM
+  du moteur, ni rtbits ni le banc CUDA) :
+
+      cellule publiée                    source          rtbits    verdict
+      4B Planes14 + f16   5,89     CLAUDE.md §3          5.887     ✅
+      8B Planes14 + f16   6,461    tableau-8b §2 (mesuré) 6.462    ✅ à 0,001
+      8B Planes14 + q8    5,323    tableau-8b §2 (mesuré) 5.322    ✅ à 0,001
+      4B Planes14 + q8    ~5,15    verdicts-nuit (prose)  5.162    ⚠️ voir ci-dessous
+      4B Planes14 + q8    5,11     errata lot A           5.162    ❌ embedding à 8 b
+
+  Les deux cellules 8B — les seules du dossier à avoir été CALCULÉES puis
+  MESURÉES dans le moteur — sont reproduites au millième. Le 4B f16 aussi.
+  Les deux valeurs 4B q8 qui circulent sont toutes deux SOUS la bonne, pour
+  deux raisons différentes et identifiées : 5,11 facture l'embedding à 8 bits
+  nus (oubli des 0,5 b/param d'échelles de groupe — vérifié : refaire le
+  calcul à 8,0 rend 5,1136) ; ~5,15 est une citation en prose de l'affichage
+  carte « 2,60 Go », alors que le calcul exact rend 2,595 Go.
+  LE CHIFFRE 4B q8 À PUBLIER EST 5,162, et le 8B 5,322.
+
+  CONTRÔLE DE BOUCLE FERMÉE — la colonne « porté mesuré » de rtbits ne
+  modélise rien : elle divise les octets réels de la section portée du
+  fichier par son nombre de paramètres. Elle doit reproduire la colonne
+  modélisée correspondant à l'encodage du fichier, et elle le fait :
+
+      qwen3-4b-llvq.bin (embed f16)  porté mesuré 16.000 → colonne f16, exact
+      qwen3-8b-llvq.bin (embed f16)  porté mesuré 16.000 → colonne f16, exact
+      q8b-e8.llvq       (embed int8) porté mesuré  8.502 → colonne q8, exact
+                                                            (8,502 et non 8,500
+                                                            : les normes restent
+                                                            en f16)
+
+--- sortie complète, /Users/pjmalandrino/q8b-e8.llvq (8B à embedding int8) --
+
+  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ
+  ------------------------------------------------------------------------
+  6945767424 poids quantifiés + 1244659712 d'embedding + 308224 portés en f16 = 8190735360 paramètres
+  embedding f16 = 16,000 b/param ; q8 g64 = 8.500 b/param (int8 + f16 échelle et biais par groupe)
+  porté MESURÉ dans le fichier : 8.502 b/param (1.32 Go sur 1244967936 paramètres)
+  layout           embed f16      embed q8  porté mesuré
+  Slot32               7.060         5.920         5.920
+  Planes14             6.462         5.322         5.322
+  Planes12x            6.069         4.929         4.929
+
+
+================================================================================
+4. VERDICT — Planes12x vaut-il le câblage à 8B ?
+================================================================================
+
+  CE QUE LA MESURE TRANCHE
+
+  1. Le taux d'exceptions transfère. 3,3824 % au 4B, 3,3722 % au 8B. C'était
+     la seule inconnue que ce lot devait lever, et elle est levée par un
+     compte, pas par une extrapolation. L'histogramme de niveaux entier
+     transfère avec lui (30,7 / 65,8 / 3,4 % des deux côtés), donc ce n'est
+     pas une coïncidence sur la queue de distribution.
+
+  2. L'extrapolation « ≈ 4,9 b/poids à 8B » qui circulait est FAUSSE, et
+     dans le mauvais sens : Planes12x au 8B pèse 4,2890 b/poids noyau, pas
+     4,9. L'erreur venait d'un report du 4,342 du 4B majoré d'une marge ; en
+     réalité le 8B est MOINS cher que le 4B, parce que son down_proj n'a pas
+     de queue.
+
+  3. Le gain de Planes12x sur Planes14 est stable EN B/POIDS : -0,462 au 4B,
+     -0,463 au 8B. Il ne l'est PAS en b/param modèle entier, et c'est le
+     point qui compte pour la décision :
+         4B (embed q8) : 5,162 → 4,745, soit -0,417
+         8B (embed q8) : 5,322 → 4,929, soit -0,393
+     L'embedding dilue le gain, et il dilue d'autant plus qu'il est gros :
+     -0,462 × 90,3 % = -0,417 au 4B, -0,463 × 84,8 % = -0,393 au 8B. Passer
+     du 4B au 8B fait donc PERDRE 6 % de l'intérêt de Planes12x, pas gagner.
+
+  CE QUE LA MESURE NE TRANCHE PAS
+
+     La vitesse. Le -7 % du banc E2 est une mesure 4B sur L40S. Les formes
+     du 8B diffèrent (down_proj sans queue, d_in ∈ {4096, 12288}), et le
+     coût de la passe de correction dépend du nombre d'exceptions PAR
+     MATRICE, pas seulement de leur taux global. Personne n'a mesuré ça.
+
+  VERDICT : NON, PAS AU 8B — et pour une raison qui n'est pas la nôtre.
+
+     Le câblage de Planes12x achète 0,393 b/param contre ~7 % de débit
+     noyau. Or à 8B, ce qui tourne déjà — Planes14 + embedding q8, mesuré
+     le 07-08 — est à 5,322 contre 5,956 pour l'AWQ : la VRAM est gagnée
+     de 10,6 % avant même d'ouvrir le chantier. Passer à 4,929 porte
+     l'avance à 17 %, mais l'axe où nous perdons à 8B n'est plus
+     la VRAM — c'est MMLU (65,5 contre 73,0). Dépenser 7 % de débit pour
+     élargir une avance déjà acquise, sur un axe déjà gagné, pendant que
+     l'axe perdant reste intact, est un mauvais échange.
+
+     Il y a de plus un coût de transcodage propre au 8B : Planes12x exige un
+     `nearest_angular` par exception, soit 9 731 159 recherches (contre
+     5 096 688 au 4B) à ~0,7 ms/cœur — de l'ordre de 7 min sur 16 cœurs, à
+     chaque chargement tant qu'il n'est pas mis en cache. Planes14 se
+     transcode sans aucune recherche.
+
+     CE QUI FERAIT BASCULER LE VERDICT, et qui se mesure sans carte :
+     un modèle où l'embedding est petit devant les linéaires (un 32B :
+     l'embedding tombe à ~5 %), où l'écart de VRAM redevient l'argument
+     principal. À cette échelle Planes12x reprendrait presque tout son
+     -0,46 b/poids en b/param, au lieu des 85 % qu'il en garde à 8B.
+
+  RECOMMANDATION : garder Planes12x écrit, testé et transcodable — il l'est
+  — mais laisser Planes14 en défaut. Le rebrancher si et seulement si une
+  campagne 32B est décidée, et alors mesurer sa vitesse À CETTE LARGEUR
+  avant de publier quoi que ce soit.
+
+================================================================================
+5. OUTILLAGE — ce que ce lot a ajouté à rtbits, et comment il est tenu
+================================================================================
+
+  Ajouté : deux layouts à la comptabilité (Planes14, Planes12x), la
+  comptabilité NOYAU du banc CUDA, la conversion b/param modèle entier, et
+  le comptage des paramètres portés lu dans le fichier.
+
+  Inchangé : toutes les lignes préexistantes, au chiffre près, sur le 4B.
+
+  Tenu par 8 tests unitaires (`cargo test -p llvq-bench --bin rtbits`) et
+  14 mutants tués :
+     M1  exceptions retirées de Planes12x
+     M2  stride Planes14 14 → 13 o
+     M3  stride Planes12x 12 → 11 o
+     M4  index u32 d'exception oublié (18 → 14 o)
+     M5  seuil d'exception > devient >=
+     M6  géométrie : 2 plans deviennent 3
+     M7  queue f32 retirée du numérateur noyau
+     M8  échelles de ligne retirées du numérateur noyau
+     M9  queue et échelles facturées en f16 au lieu de f32
+     M10 dénominateur noyau = poids quantifiés au lieu de tous
+     M11 queue comptée d_in/24 au lieu de d_in%24
+     M12 embedding q8 sans ses échelles de groupe (8,5 → 8,0)
+     M13 b/param divisé par les seuls linéaires
+     M14 bit de gain disparu du format (PLANES14_SMASK_BIT 10 → 9)
+
+  🕳️ M12 a SURVÉCU au premier passage : les tests codaient 8,5 en dur des
+  deux côtés, donc annuler le terme d'échelles de groupe ne cassait rien.
+  C'est le motif du §5 de CLAUDE.md, à la lettre — une assertion qui
+  n'exerce pas le paramètre qu'elle couvre. Corrigé par
+  `q8_embedding_is_eight_bits_plus_its_group_scales`, qui dérive 8,5 de la
+  géométrie du groupe et le recoupe contre les octets qu'annonce
+  `q8_device_bytes`. Le mutant meurt maintenant sur deux tests.
