@@ -20,12 +20,47 @@
 //!     so Eq. 17's retraction is a no-op (`docs/fiche-4b.md` §2.3).
 //!
 //! Environment knobs: `LLVQ_MODEL`, `LLVQ_CALIB` (`c4` for the paper's
-//! out-of-domain setup), `LLVQ_ARTIFACT`, `LLVQ_THREADS`, `LLVQ_DAMPING`,
-//! `LLVQ_DTYPE`, and `LLVQ_CALIB_SEED` — the last one draws the calibration
-//! windows at random offsets instead of taking a prefix, which is how a
-//! **run-to-run error bar** gets measured. Three seeds on 3 blocks is the
-//! cheapest thing in this repo that turns a 3 % difference from an anecdote
-//! into a result.
+//! out-of-domain setup), `LLVQ_ARTIFACT`, `LLVQ_RESUME`, `LLVQ_THREADS`,
+//! `LLVQ_DAMPING`, `LLVQ_DTYPE`, and `LLVQ_CALIB_SEED` — the last one draws
+//! the calibration windows at random offsets instead of taking a prefix, which
+//! is how a **run-to-run error bar** gets measured. Three seeds on 3 blocks is
+//! the cheapest thing in this repo that turns a 3 % difference from an
+//! anecdote into a result.
+//!
+//! ## Running in segments (`LLVQ_RESUME`)
+//!
+//! A 32B run is ~11.4 h of rented card, and an incident in the tenth hour used
+//! to lose the ten hours and the bill both — which is why that run kept not
+//! being launched. A run can now be cut in two:
+//!
+//! ```text
+//! LLVQ_ARTIFACT=/out/seg1.llvq  smoke … <codebook> 32 rot
+//! LLVQ_RESUME=/out/seg1.llvq LLVQ_ARTIFACT=/out/seg2.llvq  smoke … <codebook> 64 rot
+//! ```
+//!
+//! and `seg2.llvq` is the **whole** artifact — a resumed segment copies its
+//! shard forward, so there is no merge step to get wrong. Measured on
+//! Qwen3-0.6B, 28 blocks, CPU: the two-segment file is byte-identical to the
+//! single run's (`tests/resume.rs`).
+//!
+//! Three things to know before using it:
+//!
+//! * **`blocks` is an absolute bound, not a count.** It always was — the loop
+//!   tests `t >= limit` — and with a resume the difference becomes visible: a
+//!   second segment of a 64-layer model is `64`, never `32`. A bound at or
+//!   below the shard's last block is refused rather than silently doing
+//!   nothing.
+//! * **The restart block is read off the shard**, never passed. One source of
+//!   truth: a run that could be told two different things would produce an
+//!   artifact with a hole or an overlap, and nothing downstream detects either.
+//! * **The hidden states are recomputed, not restored.** On CPU and Metal that
+//!   is exact — the test above demands it. On a backend that is not
+//!   deterministic between processes (cuBLAS picks algorithms per launch), two
+//!   segments are not *guaranteed* to reproduce a single run to the last bit.
+//!   The residual is far below the ±0.7 % run-to-run spread this project has
+//!   measured across calibration seeds
+//!   (`docs/verdicts-lot-b-2026-08-06.md`), but it is a real caveat and the
+//!   result line prints it rather than leaving it to a shell history.
 //!
 //! ## Why every knob here refuses instead of falling back
 //!
@@ -430,6 +465,13 @@ impl FileSink {
             path: path.to_string(),
         })
     }
+    /// The raw writer, for the resume path — which copies its input shard's
+    /// records straight through rather than pushing decoded matrices.
+    fn writer(
+        &mut self,
+    ) -> &mut llvq_llm::artifact2::ArtifactWriter<std::io::BufWriter<std::fs::File>> {
+        &mut self.w
+    }
     fn finish(self) -> anyhow::Result<(u64, String)> {
         let bits = self.w.finish()?;
         Ok((bits, self.path))
@@ -621,6 +663,68 @@ fn main() -> anyhow::Result<()> {
         .ok()
         .filter(|p| !p.is_empty());
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
+    // `LLVQ_RESUME=<shard>` continues an earlier segment. Unset — the default
+    // — is the behaviour every published run had, byte for byte.
+    //
+    // The block to restart at is **not** a second knob: it is read off the
+    // shard (`artifact2::shard_extent`). A run told both where to resume from
+    // *and* where to restart would be a run that can be told two different
+    // things, and the artifact it produced would have a hole or an overlap
+    // that nothing downstream detects.
+    let resume_path = std::env::var("LLVQ_RESUME").ok().filter(|p| !p.is_empty());
+    if let Some(r) = &resume_path {
+        // A resume that writes nothing throws away the copy of the shard it
+        // just made *and* the blocks it just paid for.
+        let Some(a) = &artifact_path else {
+            anyhow::bail!(
+                "LLVQ_RESUME={r} sans LLVQ_ARTIFACT : une reprise recopie son shard \
+                 dans sa propre sortie, donc sans fichier de sortie elle jette à la \
+                 fois le shard et les blocs qu'elle vient de calculer."
+            );
+        };
+        anyhow::ensure!(
+            a != r,
+            "LLVQ_RESUME et LLVQ_ARTIFACT désignent le même fichier ({r}) : la \
+             sortie est ouverte en création, donc le shard serait tronqué avant \
+             d'être lu."
+        );
+    }
+    // What a shard cannot record about the run that wrote it, and what a
+    // resume therefore has to be handed separately. See `RunState`.
+    //
+    // Deliberately **not** in here: the eval windows (they do not touch the
+    // artifact), the thread count (`parallel_matches_serial_exactly` pins the
+    // loop bit-exact whatever it is, and `ops/run.py` sets it from the
+    // flavor's vCPU count — refusing a resume on a wider machine would defeat
+    // the point), and the block bound (that is the segment, not the run).
+    let mut state = llvq_llm::artifact2::RunState::new();
+    state
+        .set("model", &repo)
+        .set("codebook", codebook_line(&kind, &codebook))
+        .set("calibration", calib.name())
+        .set("calib_windows", n_calib)
+        .set("calib_len", calib_len)
+        .set(
+            "calib_seed",
+            match calib_seed {
+                Some(s) => s.to_string(),
+                None => "prefix".into(),
+            },
+        )
+        .set(
+            "rotation",
+            match rotation_seed {
+                Some(s) => format!("{s:#x}"),
+                None => "off".into(),
+            },
+        )
+        .set("mode", mode.name())
+        .set("damping", format!("{damping:e}"))
+        .set("dtype", llvq_llm::eval::dtype_name(dtype))
+        // The device *as asked for*, not as candle prints it: `Metal(…
+        // DeviceId(1))` is not stable across processes. Two backends do not
+        // produce the same hidden states, so this one is load-bearing.
+        .set("device", a.get(4).map(String::as_str).unwrap_or("cpu"));
 
     // ---- the journal header ----
     //
@@ -671,7 +775,67 @@ fn main() -> anyhow::Result<()> {
         "  artifact     {}",
         artifact_path.as_deref().unwrap_or("(aucun)")
     );
+    eprintln!(
+        "  reprise      {}",
+        resume_path.as_deref().unwrap_or("(non — départ au bloc 0)")
+    );
     eprintln!("=====================");
+
+    // ---- the resume is refused here, before anything is downloaded ----
+    //
+    // Everything a resume can be wrong about that does not need the model:
+    // the shard's extent, and the half of the configuration the shard cannot
+    // record. Both cost milliseconds. The per-matrix checks — dimensions,
+    // shell cap, centroid count, rotation seed, record order — need the model
+    // and happen in `resume_from_shard`.
+    let start = match &resume_path {
+        None => 0usize,
+        Some(p) => {
+            let (matrices, blocks) = llvq_llm::artifact2::shard_extent(p)?;
+            let prev = llvq_llm::artifact2::RunState::read(p)?;
+            let diffs = prev.diff(&state);
+            anyhow::ensure!(
+                diffs.is_empty(),
+                "reprise refusée : {p} a été produit sous une autre configuration.\n  \
+                 {}\n\nUn artefact dont les moitiés ne partagent pas la même \
+                 calibration est valide en apparence et faux : rien en aval ne le \
+                 détecte, et la perplexité qui en sort n'est explicable par personne.",
+                diffs.join("\n  ")
+            );
+            // The sidecar's own claim about the shard, against the file's. Two
+            // independent witnesses, which is what catches a `.state` left
+            // over from a *different* shard at the same path.
+            if let Some(claim) = prev
+                .get(llvq_llm::artifact2::RunState::BLOCKS)
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                anyhow::ensure!(
+                    blocks <= claim,
+                    "reprise refusée : {p} porte {blocks} blocs entiers mais son \
+                     état en annonce {claim}. Le fichier et l'état ne décrivent pas \
+                     le même objet."
+                );
+                if blocks < claim {
+                    eprintln!(
+                        "  ⚠️  le shard visait {claim} blocs et en a {blocks} : run \
+                         interrompu, la reprise repart du bloc {blocks}."
+                    );
+                }
+            }
+            eprintln!(
+                "reprise depuis {p} : {matrices} matrices, blocs 0..{} déjà \
+                 quantifiés — la quantification repart au bloc {blocks}.",
+                blocks.saturating_sub(1)
+            );
+            blocks
+        }
+    };
+    anyhow::ensure!(
+        limit > start,
+        "blocks = {limit} et la reprise démarre au bloc {start} : ce run ne \
+         quantifierait aucun bloc. « blocks » est une borne absolue, pas un \
+         nombre de blocs à faire."
+    );
 
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
@@ -762,9 +926,17 @@ fn main() -> anyhow::Result<()> {
     // will actually touch, and printing the model's total instead is how a log
     // ends up describing a 36-block run as a 36-block run *whatever* was asked.
     let n_target = limit.min(model.blocks.len());
+    anyhow::ensure!(
+        n_target > start,
+        "la reprise démarre au bloc {start} et le modèle n'a que {} blocs sous \
+         la borne demandée : rien à quantifier",
+        n_target
+    );
+    let per_block = llvq_llm::calib::matrices_per_block();
     eprintln!(
-        "quantizing {n_target} of {} blocks of {repo} — {}, retract {}, \
+        "quantizing blocks {start}..{} of {} of {repo} — {}, retract {}, \
          group scales {}, design C {}, input rotation {}…",
+        n_target - 1,
         model.blocks.len(),
         codebook_line(&kind, &codebook),
         if cfg.retract { "on" } else { "off" },
@@ -773,29 +945,37 @@ fn main() -> anyhow::Result<()> {
         if rotation_seed.is_some() { "on" } else { "off" }
     );
 
-    let n_matrices = 7 * n_target;
+    // The output carries the shard's records *and* this segment's, because a
+    // resumed run copies its input forward — see `artifact2`'s module header.
+    // The count goes in the header before a byte of payload, so it has to be
+    // right here and not be discovered later.
+    let n_total = per_block * n_target;
     let t0 = std::time::Instant::now();
     let run = llvq_llm::calib::RunConfig {
         gptq: cfg,
         damping,
         codebook,
         threads,
+        start,
         limit,
         rotation_seed,
     };
     // One line per transformer block, with an ETA. On a multi-hour rented job
     // the question is never "did it start" but "is it on track", and a bare
-    // elapsed counter cannot answer that. `n` is the model's block count; the
-    // run may stop earlier under `limit`, so the projection uses `n_target`.
+    // elapsed counter cannot answer that. `t` is the **absolute** block index,
+    // so the rate is measured over the blocks this segment actually did —
+    // dividing the elapsed time by `t + 1` on a segment starting at block 18
+    // would report roughly half the true cost per block and an ETA to match.
     let progress = move |t: usize, _n: usize, name: &str| {
         if name == "mlp.down_proj" {
-            let done = t + 1;
+            let done = t + 1 - start;
             let el = t0.elapsed().as_secs_f64();
             let per = el / done as f64;
-            let left = n_target.saturating_sub(done);
+            let left = n_target.saturating_sub(t + 1);
             eprintln!(
-                "  bloc {done:>3}/{n_target}  {:.0} min écoulées  {per:.0} s/bloc  \
+                "  bloc {:>3}/{n_target}  {:.0} min écoulées  {per:.0} s/bloc  \
                  reste ~{:.0} min  (fin estimée à +{:.1} h)",
+                t + 1,
                 el / 60.0,
                 per * left as f64 / 60.0,
                 (el + per * left as f64) / 3600.0
@@ -805,11 +985,56 @@ fn main() -> anyhow::Result<()> {
     let mut sink = match &artifact_path {
         Some(p) => {
             eprintln!("writing the compressed artifact to {p}");
-            Some(FileSink::create(p, n_matrices as u32)?)
+            let s = FileSink::create(p, n_total as u32)?;
+            // Written **now**, not at the end: it describes the file being
+            // produced, and a run killed at hour ten must leave a state that
+            // names its own configuration rather than the previous run's at
+            // the same path. `blocks_done` is the target here, and a resume
+            // treats it as an upper bound (see the refusal above).
+            let mut st = state.clone();
+            st.set(llvq_llm::artifact2::RunState::BLOCKS, n_target);
+            let sp = st.write(p)?;
+            eprintln!("  état du run écrit dans {sp}");
+            Some(s)
         }
         None => None,
     };
-    let report = llvq_llm::calib::quantize_model_capturing(
+
+    // ---- the resume: copy the shard forward, and load it back ----
+    //
+    // One pass over the shard's bytes does all three jobs (validate, copy,
+    // load). It has to happen after the baseline perplexity — the baseline is
+    // the *unquantized* model — and before the loop, which starts at `start`
+    // assuming blocks below it already hold their quantized weights.
+    let resumed = match (&resume_path, sink.as_mut()) {
+        (Some(p), Some(s)) => {
+            let (max_shell, gain_bits) = match codebook {
+                Codebook::ShapeGain {
+                    max_shell,
+                    gain_bits,
+                    ..
+                } => (max_shell, gain_bits),
+                _ => anyhow::bail!(
+                    "reprise refusée : seul un codebook shape–gain écrit un \
+                     artefact, donc seul lui peut en reprendre un"
+                ),
+            };
+            let expect = llvq_llm::artifact2::ShardExpect {
+                shell_cap: max_shell,
+                centroids: 1usize << gain_bits,
+                rotation_seed,
+            };
+            let scan =
+                llvq_llm::artifact2::resume_from_shard(&mut model, p, s.writer(), &expect, &device)?;
+            eprintln!(
+                "  ✓ {} matrices recopiées et rechargées ({} poids, {} blocs) en {:.1} s",
+                scan.matrices, scan.weights, scan.blocks, scan.seconds
+            );
+            scan
+        }
+        _ => llvq_llm::artifact2::ShardScan::default(),
+    };
+    let mut report = llvq_llm::calib::quantize_model_capturing(
         &mut model,
         &mut hidden,
         &run,
@@ -817,6 +1042,19 @@ fn main() -> anyhow::Result<()> {
         sink.as_mut()
             .map(|s| s as &mut dyn llvq_llm::calib::MatrixSink),
     )?;
+    // The loop reports the **segment**; the file holds the model up to
+    // `n_target`. Fold the copied section in, or the bits/weight line divides
+    // the whole file's payload by the tail of the model's weights and reports
+    // a rate no configuration has — which is the shape of the accounting error
+    // of 2026-07-31, in the other direction.
+    //
+    // The phases and the wall clock are deliberately **not** folded: they
+    // measure what this segment did, and the resume's own cost is printed on
+    // its own line above.
+    report.matrices += resumed.matrices;
+    report.weights += resumed.weights;
+    report.tail_weights += resumed.tail_weights;
+    report.rows += resumed.rows;
     if let Some(s) = sink {
         let (bits, path) = s.finish()?;
         let bytes = std::fs::metadata(&path)?.len();
@@ -831,11 +1069,20 @@ fn main() -> anyhow::Result<()> {
     }
 
     eprintln!(
-        "quantized {} matrices, {} weights in {:.0}s ({:.4} bits/weight)",
+        "quantized {} matrices, {} weights ({:.4} bits/weight){}; \
+         ce segment a tourné {:.0}s",
         report.matrices,
         report.weights,
-        report.seconds,
-        report.bits_per_weight()
+        report.bits_per_weight(),
+        if resumed.matrices > 0 {
+            format!(
+                ", dont {} matrices reprises du shard",
+                resumed.matrices
+            )
+        } else {
+            String::new()
+        },
+        report.seconds
     );
     // Where the time went, largest first. Which phase dominates flips with the
     // backend — Leech encoding on Metal, forward passes on a CPU-only job — so
@@ -872,8 +1119,13 @@ fn main() -> anyhow::Result<()> {
     // these two numbers, without the stderr stream and without the shell
     // history that launched it.
     println!(
-        "\n=== {repo} [{kind}, {n_target} blocks, rot {}, mode {}, calib {}/{}], \
+        "\n=== {repo} [{kind}, {n_target} blocks{}, rot {}, mode {}, calib {}/{}], \
          wikitext-2, ctx {eval_ctx}, {n_eval} windows ===",
+        if start > 0 {
+            format!(" ({start} repris)")
+        } else {
+            String::new()
+        },
         if rotation_seed.is_some() { "on" } else { "off" },
         mode.name(),
         calib.name(),
@@ -891,6 +1143,19 @@ fn main() -> anyhow::Result<()> {
         n_calib,
         n_calib * calib_len
     );
+    // A segmented run is a fact about the object, not about the invocation:
+    // its hidden states were recomputed rather than carried, so on a backend
+    // that is not deterministic between processes it is not *guaranteed* to be
+    // the same object as a single run. Small next to the ±0.7 % inter-seed
+    // spread (docs/verdicts-lot-b-2026-08-06.md), and never to be discovered
+    // from a shell history six weeks later.
+    if resumed.blocks > 0 {
+        println!(
+            "segments                 = repris au bloc {start} depuis {} \
+             (états cachés recalculés, pas restaurés)",
+            resume_path.as_deref().unwrap_or("?")
+        );
+    }
     let dt = llvq_llm::eval::dtype_name(dtype);
     // Not "FP32": that literal was printed on every run whatever `LLVQ_DTYPE`
     // said, including the bf16 32B pass.

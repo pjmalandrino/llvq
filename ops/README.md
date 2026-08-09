@@ -121,16 +121,60 @@ Le squelette est complet ; le binaire qu'il lance ne l'est pas.
 |---|---|---|
 | **C1** feature `cuda` | `--device cuda`. `llvq-llm/Cargo.toml:29` déclare `cuda` (et `cudnn` ligne 30), `eval.rs:52` route vers `Device::new_cuda`, `ops/Dockerfile.cuda` la construit | ✅ |
 | **C2** `bin/oracle` sur CUDA | la preuve **a été refaite sur ce backend** : l'étape 0 ci-dessus (`l4x1`, 0,01 $) rend `max \|Δhidden\| = 0.000e0`, comme en Metal. Reste à rejouer à chaque changement de backend — c'est ce que `cmd_oracle` (`ops/run.py:505`) existe pour faire | ✅ |
-| **C4** reprise sur checkpoint | les runs longs. Le timeout par défaut d'un Job est **30 min** ; la durée max n'est pas documentée | ❌ |
+| **C4** reprise sur checkpoint | les runs longs. Le timeout par défaut d'un Job est **30 min** ; la durée max n'est pas documentée. **Fait le 2026-08-09** : `LLVQ_RESUME=<shard>` reprend derrière un segment, et le fichier du dernier segment **est** l'artefact complet — il recopie son shard, donc il n'y a pas d'étape de fusion. Prouvé, pas affirmé : sur Qwen3-0,6B **complet (28 blocs, CPU)**, un run d'un seul tenant et un run coupé 14/14 rendent le **même fichier au SHA-256** (`6c8ba465…`, 130 934 618 o) et la même perplexité au dix-millième (58,4879). Et c'était **gratuit dans le bruit** : 1 747 s d'un seul tenant contre 1 730 s pour les deux segments bout en bout. `llvq-llm/tests/resume.rs` exige la même propriété en continu sur un modèle miniature, en 0,9 s | ✅ |
 | **C5** chemin local pour `LLVQ_MODEL` | le montage `Volume(type="model")`. **Fait le 2026-08-08** : `Checkpoint::fetch` tranche *syntaxiquement* entre répertoire et dépôt (`/`, `./`, `../`, `~/` en tête), donc `--mount-model` fonctionne — sans une ligne de Python | ✅ |
 | **C6** mémoire du quantifieur | 12,4 Go de facteurs coexistent à 32B, dont 6,2 jamais lus quand `group_scales` est off. **Fait le 2026-08-08**, mais l'énoncé était trompeur : ces 6,2 Go sont sur le **plateau**, pas sur le pic. Mesuré sur 0,6B, −166 Mio de plancher et **pic inchangé** — au 32B, ~0,96 Go de pic hôte (1,4 %), et non « 70,6 → 64,4 ». Le vrai gain est ailleurs, trouvé en chemin : les accumulateurs f32 libérés dès `to_f64()`, soit **3,10 Go de VRAM** au 32B, sur la ressource qui était à 80 % au dé-risquage | ✅ |
 | C3 chargement bf16 | *devenu optionnel* : `cpu-performance` a 256 Go de RAM, le modèle tient en f32 | — |
 
-**C4 est le plus structurant.** La calibration est séquentielle — le bloc *t*
-est quantifié contre les activations qui ont traversé les blocs 0..*t*−1 **déjà
-quantifiés** — donc reprendre veut dire : recharger le checkpoint de base,
-ré-appliquer les matrices déjà écrites dans l'artefact (`decode_matrix` les
-rend bit pour bit), et repartir au bloc *k*. C'est du design, pas un drapeau.
+**C4 était le plus structurant, et c'est ce qui a été fait.** La calibration
+est séquentielle — le bloc *t* est quantifié contre les activations qui ont
+traversé les blocs 0..*t*−1 **déjà quantifiés** — donc reprendre veut dire :
+recharger le checkpoint de base, ré-appliquer les matrices déjà écrites dans
+l'artefact, et repartir au bloc *k*.
+
+Ce qui rend la chose possible sans sérialiser quoi que ce soit de plus : le
+shard **est** l'état. `verify_artifact` exige à chaque run que `decode_matrix`
+rende les poids évalués **bit pour bit** (6 945 767 424 poids sur le 8B), donc
+les matrices déjà écrites sont un instantané sans perte de tout ce que la
+boucle a changé. Il ne reste que les états cachés, qu'on **recalcule** en
+rejouant les passes avant sur les blocs hérités.
+
+```bash
+# segment 1 — blocs 0..31
+uv run ops/run.py launch --model Qwen/Qwen3-32B --blocks 32 \
+    --bucket auto --name qwen3-32b-s1 …
+# segment 2 — blocs 32..63. « blocks » est une borne ABSOLUE, pas un compte.
+uv run ops/run.py launch --model Qwen/Qwen3-32B --blocks 64 \
+    --resume /out/qwen3-32b-s1.llvq --bucket auto --name qwen3-32b-s2 …
+```
+
+Le bloc de reprise n'est **pas** passé : `smoke` le lit dans le shard. Une
+seule source de vérité — un run à qui on peut dire deux choses différentes
+produit un artefact avec un trou ou un recouvrement, et rien en aval ne
+détecte ni l'un ni l'autre.
+
+Ce qui est refusé avant qu'un octet soit téléchargé : un shard écrit sous un
+autre codebook, une autre rotation, un autre modèle, dans un autre ordre
+d'enregistrements — et, via le fichier `<artefact>.state` écrit à côté, sous
+une autre calibration, un autre amortissement, un autre dtype ou un autre
+backend. **Un artefact dont les deux moitiés ne partagent pas la même
+configuration est valide en apparence et faux** ; c'est le seul mode de
+défaillance que ce chemin peut avoir, donc c'est celui contre lequel il est
+construit.
+
+Combien de segments : `uv run ops/run.py estimate <modèle> --segments N`
+chiffre le plan. Le surcoût est **linéaire en (N−1)** — avec des parts égales,
+chaque point de découpage supplémentaire fait relire en moyenne **la moitié du
+modèle** — pendant que la perte maximale ne tombe qu'en 1/N. Deux segments est
+là où l'échange est le meilleur : la perte passe de 11,4 h à ~6 h contre une
+relecture d'une demi-modèle.
+
+⚠️ **Les états cachés sont recalculés, pas restaurés.** Sur CPU et Metal
+l'égalité est exacte et la suite de tests l'exige. Sur un backend qui n'est pas
+déterministe d'un processus à l'autre (cuBLAS choisit ses algorithmes par
+lancement), deux segments ne sont pas *garantis* bit-identiques à un run
+unique. L'écart est très en dessous du ±0,7 % de dispersion inter-graines déjà
+mesuré ici — mais il est réel, il se déclare, et la ligne de résultat l'imprime.
 
 ## Construire l'image
 

@@ -267,6 +267,7 @@ fn run(map: &VarMap, dev: &Device, k: Knobs) -> (Report, Vec<f32>) {
         damping: 1e-2,
         codebook: k.codebook,
         threads: 1,
+        start: 0,
         limit: usize::MAX,
         rotation_seed: k.rotation_seed,
     };

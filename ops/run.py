@@ -192,6 +192,36 @@ QUANT_CORE_SEC_PER_WEIGHT = {"cpu": 2.41e-4, "cuda": 6.36e-5}
 # The published Qwen3-4B rate. Used to size the artifact, nothing else.
 BITS_PER_WEIGHT = 2.1696
 
+# What one already-quantized weight costs to bring back when a run resumes:
+# read the shard's record, decode its Leech indices, copy the record into the
+# new artifact, and hand the reconstruction to the model. Measured on
+# Qwen3-0.6B, single-threaded, on the run that resumed at block 14 of 28 —
+# 220 200 960 weights in 8.1 s, i.e. 27.2 M/s. (A 2-block shard gave 26.2 M/s,
+# so the rate does not depend on how much is being reloaded.)
+#
+# 🔎 On that run the whole segmentation was **free within the noise**: 1747 s
+# for one 28-block run against 1730 s for the two segments end to end, wall
+# clock, same machine. The reload is 8 s of it; what the estimate below cannot
+# see — a second checkpoint load, a second baseline perplexity, and the forward
+# passes replayed over the inherited blocks — was under 20 s at this size. It
+# will not stay that small: at 32B the replayed forwards run on 131 k
+# calibration tokens instead of 2 048, and the reload is 488 M weights per
+# block instead of 15.7 M.
+#
+# ⚠️ **This is the only new constant here, and it is an extrapolation.** It was
+# measured on a 0.6B on an M3 Max, and the repo has already been taught what
+# extrapolating a width costs: the 32B de-risking pass came in 25 % over the
+# projection from the 8B. It is used below for *one* purpose — telling an
+# operator roughly what an extra segmentation point costs — and never as a
+# billing guard.
+#
+# What it deliberately does **not** cover, on the same doctrine as the rest of
+# this estimator: the forward passes the resumed segment re-runs over the
+# blocks it inherited. Dressing a guess up as an estimate is worse than
+# omitting it, so the segmentation plan prints the decode term and says the
+# forwards are missing.
+RESUME_SEC_PER_WEIGHT = 3.8e-8
+
 
 def fetch_config(repo: str) -> dict:
     """A model's `config.json`, straight from the Hub — no token, no download."""
@@ -314,6 +344,70 @@ def cost_table(est: dict, dtype: str = "f32") -> list[tuple[str, float, float, s
 # --- commands ---------------------------------------------------------------
 
 
+def print_segment_plan(cfg: dict, est: dict, n: int, flavor: str) -> None:
+    """What cutting a run into `n` segments costs, and what it buys.
+
+    The question this answers is the one that has kept the 32B unlaunched: a
+    single job is ~11.4 h with nothing to show for it if it dies at hour ten.
+    Segmenting bounds the loss to one segment — the whole point of code item
+    C4 — and the price is that every segment after the first re-reads what its
+    predecessors wrote.
+
+    ## The arithmetic, and why more segments get expensive faster than they look
+    Segment `i` (0-based, equal shares) restarts at block `i·L/n` and therefore
+    reloads `i·L/n` blocks. Summed over the `n-1` resumed segments that is
+    `L·(n-1)/2` block-reloads — i.e. **half the model re-read per extra
+    segmentation point**, on average. Doubling `n` roughly doubles the total
+    reload, and it does *not* halve the exposure again in the same proportion:
+    the worst-case loss falls as `1/n` while the overhead climbs as `n-1`.
+
+    Two segments is where that trade is best, and it is a bound worth stating
+    rather than a taste: it caps the loss at half a run for one reload of half
+    a model.
+    """
+    layers = cfg["num_hidden_layers"]
+    per_weight = est["quantized"] / max(layers, 1)
+    vcpu = FLAVORS[flavor]["vcpu"]
+    gpu = FLAVORS[flavor]["vram"] > 0
+    rate = QUANT_CORE_SEC_PER_WEIGHT["cuda" if gpu else "cpu"]
+    usd_h = FLAVORS[flavor]["usd_h"]
+
+    cuts = [round(i * layers / n) for i in range(n + 1)]
+    print(f"\n  découpage en {n} segments sur {flavor}")
+    print(f"  {'segment':<9}{'blocs':<12}{'quantifie':>12}{'recharge':>12}"
+          f"{'h':>8}{'$':>8}")
+    print("  " + "-" * 62)
+    total_h = 0.0
+    reload_h = 0.0
+    for i in range(n):
+        lo, hi = cuts[i], cuts[i + 1]
+        quant = (hi - lo) * per_weight
+        back = lo * per_weight
+        h_quant = quant * rate / vcpu / 3600.0
+        h_back = back * RESUME_SEC_PER_WEIGHT / 3600.0
+        total_h += h_quant + h_back
+        reload_h += h_back
+        print(f"  {i + 1:<9}{f'{lo}..{hi - 1}':<12}{quant / 1e9:>10.2f} Md"
+              f"{back / 1e9:>10.2f} Md{h_quant + h_back:>8.1f}{(h_quant + h_back) * usd_h:>8.2f}")
+    base_h = est["quantized"] * rate / vcpu / 3600.0
+    longest = max(
+        (cuts[i + 1] - cuts[i]) * per_weight * rate / vcpu / 3600.0
+        + cuts[i] * per_weight * RESUME_SEC_PER_WEIGHT / 3600.0
+        for i in range(n)
+    )
+    print(f"\n  job le plus long   {longest:8.1f} h   (contre {base_h:.1f} h d'un seul tenant)")
+    print(f"  surcoût total      {reload_h:8.1f} h   soit +{100 * reload_h / max(base_h, 1e-9):.1f} %,"
+          f" ~{reload_h * usd_h:.2f} $")
+    print(f"  perte maximale     {longest:8.1f} h   au lieu de {base_h:.1f} h"
+          f"  ← ce que le découpage achète")
+    print("\n  ⚠️  Le terme « recharge » ne compte que le DÉCODAGE du shard (constante")
+    print("      mesurée sur un 0,6B, mono-thread). Il ne modélise ni le rechargement")
+    print("      du checkpoint, ni la perplexité de référence que chaque segment")
+    print("      remesure, ni les passes avant que le segment repris rejoue sur les")
+    print("      blocs hérités — comme le reste de ce devis, qui ne modélise pas les")
+    print("      passes avant. Le surcoût réel est donc PLUS GRAND que celui affiché.")
+
+
 def cmd_estimate(args) -> int:
     cfg = fetch_config(args.model)
     est = estimate(cfg, args.blocks)
@@ -338,6 +432,8 @@ def cmd_estimate(args) -> int:
     print("\n  Constantes mesurées de bout en bout sur un run 0,6B (CPU et CUDA). Les")
     print("  flavors GPU paient le tarif cuda, les autres le tarif cpu.")
     print("  ⛔ = l'image de ce dépôt n'y charge aucun noyau CUDA.")
+    if args.segments and args.segments > 1:
+        print_segment_plan(cfg, est, args.segments, args.flavor)
     print("\n  ⚠️  Ce devis modélise une QUANTIFICATION, et rien d'autre : il multiplie")
     print("      un nombre de poids par un coût mesuré de l'encodeur Leech et de la")
     print("      factorisation. Un job de MESURE (ppl, mmlu, oracle) n'exécute ni")
@@ -446,6 +542,33 @@ def cmd_launch(args) -> int:
                      ("LLVQ_DTYPE", args.dtype)):
         if val is not None:
             env[var] = str(val)
+    # Code item C4. The block this restarts at is **not** passed: `smoke` reads
+    # it off the shard, so there is one source of truth and no way to hand the
+    # job a start that disagrees with the file. What is passed is the shard,
+    # and the guarantee is upstream of this script — `resume_from_shard`
+    # refuses a shard whose codebook, dimensions, rotation or record order are
+    # not this run's, and the `.state` file beside it carries the rest of the
+    # configuration (calibration, damping, dtype, device) so that a hybrid
+    # artifact cannot be assembled by accident.
+    if args.resume:
+        if not args.bucket:
+            print("refus : --resume sans --bucket. Le shard vit sur le volume de "
+                  "sortie ;\nsans lui il n'y a rien à reprendre et rien où écrire.",
+                  file=sys.stderr)
+            return 2
+        env["LLVQ_RESUME"] = args.resume
+        if args.resume == env["LLVQ_ARTIFACT"]:
+            print(f"refus : --resume et la sortie désignent {args.resume}.\n"
+                  f"La sortie est ouverte en création : le shard serait tronqué "
+                  f"avant d'être lu.\nDonne un --name différent de celui du segment "
+                  f"précédent.", file=sys.stderr)
+            return 2
+        print(f"  reprise depuis {args.resume}"
+              f" → {env['LLVQ_ARTIFACT']}")
+        print("  ⚠️  le devis ci-dessus chiffre TOUS les blocs, pas le reste à faire :")
+        print("      il ne sait pas où s'arrête le shard, qui n'est lisible que dans")
+        print("      le conteneur. Il majore donc, ce qui est le bon sens d'erreur")
+        print("      pour un plafond de coût et pour un timeout.")
 
     command = [
         "smoke",
@@ -1036,6 +1159,14 @@ def main() -> int:
     e.add_argument("--blocks", type=int, default=None, help="limiter aux N premiers blocs")
     e.add_argument("--dtype", default="f32", choices=["f32", "bf16", "f16"],
                    help="precision du modele resident (C3)")
+    # The C4 planner. A single 32B job is ~11.4 h and, if it dies at hour ten,
+    # ten hours are billed for nothing — which is the reason that run keeps not
+    # being launched. This prints what cutting it costs and what it bounds the
+    # loss to.
+    e.add_argument("--segments", type=int, default=None,
+                   help="afficher le plan de découpage en N segments (reprise, C4)")
+    e.add_argument("--flavor", default="rtx-pro-6000x2", choices=sorted(FLAVORS),
+                   help="flavor sur laquelle chiffrer le plan de découpage")
     e.set_defaults(fn=cmd_estimate)
 
     s = sub.add_parser("selftest", help="confronter l'estimateur au run 4B réel")
@@ -1058,6 +1189,13 @@ def main() -> int:
     l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"],
                    help="doit s'accorder à la flavor — croisé par `device_ok`")
     l.add_argument("--blocks", type=int, default=None)
+    # Code item C4. `--blocks` is an **absolute bound**, not a count, so a
+    # second segment of a 64-layer model is `--resume <shard> --blocks 64`,
+    # never `--blocks 32`. `smoke` refuses a bound at or below the block the
+    # shard stops at rather than quantizing nothing.
+    l.add_argument("--resume", default=None, metavar="PATH",
+                   help="reprendre derrière un shard, ex. /out/qwen3-32b-seg1.llvq "
+                        "(le bloc de reprise est lu dans le shard, pas passé ici)")
     # `leech1c12` — ball m ≤ 12, 47 index bits + 1 gain bit — is the protocol
     # every published number of this project was measured under, 4B and 8B
     # alike (docs/echelle-4b-8b-2026-08-08.md).

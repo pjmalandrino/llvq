@@ -258,8 +258,19 @@ pub struct RunConfig {
     pub damping: f64,
     pub codebook: Codebook,
     pub threads: usize,
-    /// Quantize only the first `limit` blocks; later ones are left untouched
-    /// but still advanced. Diagnostics only — `usize::MAX` for a real run.
+    /// First block to quantize. Blocks below it are **advanced only** — they
+    /// are assumed to already hold their quantized weights, which is what
+    /// makes resuming a killed run possible (see the module header of
+    /// [`crate::artifact2`]). `0` for a run that starts from scratch, which is
+    /// every run that does not resume.
+    pub start: usize,
+    /// One past the last block to quantize; later ones are left untouched but
+    /// still advanced. `usize::MAX` for a real run.
+    ///
+    /// ⚠️ An **absolute bound**, not a count. It has always been one — the
+    /// loop tests `t >= limit` — and with [`RunConfig::start`] the difference
+    /// becomes visible: a segment resuming at block 18 of a 36-block model
+    /// runs with `start = 18, limit = 36`, not `limit = 18`.
     pub limit: usize,
     /// Seed for the incoherence rotation applied to each linear's **input**
     /// basis, or `None` to quantize in the natural basis.
@@ -284,6 +295,45 @@ pub struct RunConfig {
 /// mutation test caught that nothing forbade it; this makes it unwriteable.
 pub fn effective_rotation_seed(base: u64, block: usize, act: Act) -> u64 {
     base ^ ((block as u64) << 32) ^ (act.index() << 16)
+}
+
+/// What one transformer block contributes to the artifact stream: each
+/// projection with the activation it was quantized against, **in the exact
+/// order [`quantize_model_capturing`] pushes them**.
+///
+/// **One source of truth on purpose**, the third instance of the discipline
+/// behind [`effective_rotation_seed`] and [`needs_dense_hessian`]. The loop
+/// that *writes* the stream and the resume path that *validates* a shard
+/// against it must not be able to disagree about the order. A shard whose
+/// records sit in a different order is not a prefix of anything, and a resume
+/// that accepted it would happily append the rest of the model behind matrices
+/// the decoder then hands to the wrong projections — a file that opens, runs,
+/// and is wrong.
+///
+/// The activation comes back alongside the name because it is what the
+/// rotation seed is derived from: checking a shard's stored seed means
+/// recomputing `effective_rotation_seed(base, block, act)`, and recovering
+/// `act` from the name would be a second source of truth.
+///
+/// Block-independent by construction — every block emits the same seven
+/// projections — so a caller pairs it with [`crate::artifact::key`].
+pub fn block_matrix_plan() -> Vec<(Act, &'static str)> {
+    Act::ALL
+        .iter()
+        .flat_map(|a| a.consumers().iter().map(move |n| (*a, *n)))
+        .collect()
+}
+
+/// How many matrices one transformer block contributes — 7 on Qwen3: q/k/v,
+/// o, gate/up, down.
+///
+/// Computed rather than written down, because the resume path divides a
+/// shard's record count by it to recover the block that shard stops at. A
+/// hard-coded 7 that drifted from [`Act::consumers`] would make a resume start
+/// at the wrong block, which is the one failure this whole path has to make
+/// impossible.
+pub fn matrices_per_block() -> usize {
+    block_matrix_plan().len()
 }
 
 /// Whether the dense Hessian has to outlive its own factorization.
@@ -366,12 +416,17 @@ pub fn quantize_model_capturing(
         damping,
         codebook,
         threads,
+        start,
         limit,
         rotation_seed,
     } = run;
     let codebook = *codebook;
-    let (damping, threads, limit) = (*damping, *threads, *limit);
+    let (damping, threads, start, limit) = (*damping, *threads, *start, *limit);
     let rotation_seed = *rotation_seed;
+    anyhow::ensure!(
+        start < limit,
+        "start = {start} et limit = {limit} : ce run ne quantifierait aucun bloc"
+    );
     // Only shape–gain with a load-bearing gain code is describable by codes.
     let capturing = sink.is_some();
     if capturing {
@@ -401,7 +456,16 @@ pub fn quantize_model_capturing(
     anyhow::ensure!(total_rows > 0, "no calibration data");
 
     for t in 0..nblocks {
-        if t >= limit {
+        // Blocks outside `[start, limit)` are pushed through untouched.
+        //
+        // `t >= limit` is the diagnostic truncation — the four-block de-risking
+        // pass. `t < start` is the **resume** case, and it is the whole reason
+        // a killed run can be restarted: those blocks were quantized by an
+        // earlier segment, their weights have already been loaded back from
+        // that segment's shard, and all this pass does is reproduce the hidden
+        // states a single run would have carried into block `start`. Nothing
+        // else of the sequential state exists — see [`crate::artifact2`].
+        if t < start || t >= limit {
             let mut none = crate::model::NoCapture;
             let mask = model.causal_mask_for(&hidden[0])?;
             let tp = std::time::Instant::now();
