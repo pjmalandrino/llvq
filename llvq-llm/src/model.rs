@@ -26,6 +26,9 @@ use candle_core::{DType, Device, IndexOp, Module, Result, Tensor, D};
 use candle_nn::{Activation, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config;
 
+use crate::fused::RotKey;
+use crate::rotplan::{check_key, drive_rows, RotShare};
+
 /// Which activation a capture callback is being handed.
 ///
 /// Named after the tensor, not the matrix: `Attn` feeds `q_proj`, `k_proj`
@@ -239,12 +242,142 @@ pub enum Proj {
     },
 }
 
+/// An activation, in the basis the projections that consume it were quantized
+/// in.
+///
+/// **A value, not a cache entry** — that distinction is the whole correctness
+/// argument of lot A4 and [`crate::rotplan`] spells it out. It is produced by
+/// [`Proj::prepare`] and consumed by [`Proj::forward_with`] in the same
+/// lexical scope, so the property that has to hold is *positive and local* —
+/// "computed from this activation, two lines up" — rather than *negative and
+/// global*, which is what every keying scheme would have needed.
+///
+/// ⚠️ **What that argument does and does not buy, stated exactly**, because an
+/// earlier draft of this comment claimed more than the type delivers. What is
+/// enforced: [`Proj::forward_with`] refuses a `Rotated` whose key is not its
+/// own, so a projection can never consume an activation rotated in another
+/// basis. What is *not* enforced: this value carries no trace of **which**
+/// vector was rotated. Two projections of the same `(layer, act)` share a key
+/// by construction, so handing one of them a `Rotated` built from a different
+/// activation of that same site would be accepted, and the fused arm — which
+/// reads only the rotated buffer — would silently compute on the wrong input.
+///
+/// Nothing reaches that today: [`Proj::group_forward`] takes a single `x` for
+/// the whole group, and the two call sites in [`Block::forward_cached`] cannot
+/// diverge. But `prepare` and `forward_with` are `pub`, so the guarantee is
+/// held by the caller's shape, not by the type. A lifetime would not fix it —
+/// it would tie the value to *a* borrow, not to *the* activation. Closing it
+/// properly means carrying the source identity, and that is a design change,
+/// not a comment.
+///
+/// The fields are private on purpose: the only way to obtain one is to rotate
+/// an activation, and the only thing that can be done with it is to hand it to
+/// a projection that then checks it belongs to it.
+pub struct Rotated {
+    key: Option<RotKey>,
+    /// Read only by the fused arm of [`Proj::forward_with`], which exists on
+    /// no target this workspace's development machine can build — hence the
+    /// `allow` off CUDA. The dense arm deliberately multiplies the caller's
+    /// own `x` instead, so that it stays the call `bin/oracle` certifies.
+    #[cfg_attr(
+        not(all(target_os = "linux", feature = "cuda")),
+        allow(dead_code)
+    )]
+    t: Tensor,
+}
+
+impl Rotated {
+    /// Which rotation produced it — `None` in the natural basis, which is
+    /// every dense projection.
+    pub fn key(&self) -> Option<RotKey> {
+        self.key
+    }
+}
+
+/// Most rows a single fused call may loop over.
+///
+/// Not an optimization gap that can be papered over: the fused kernel is a
+/// matrix–*vector* product, so `l` tokens cost `l` launches. Generation always
+/// begins by running the whole prompt through, so `rows > 1` is a live path
+/// and refusing it outright was wrong (the very first run found that). The cap
+/// survives because a 2048-token scoring window would issue half a million
+/// launches and look like a hang; `bin/ppl` keeps the dense path.
+pub const MAX_ROWS: usize = 256;
+
 impl Proj {
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        // A group of one: `Off` and `On` coincide, so the mode is not a
+        // parameter here and no caller has to learn about it.
+        Ok(group_forward(&[self], x, RotShare::Off)?
+            .pop()
+            .expect("a group of one yields one result"))
+    }
+
+    /// The rotation this projection's weights were quantized under, or `None`
+    /// in the natural basis — which is every dense projection.
+    pub fn rot_key(&self) -> Option<RotKey> {
+        match self {
+            Proj::Dense(_) => None,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { proj, .. } => proj.rotation(),
+        }
+    }
+
+    /// The name the artifact stores, for error messages. Dense projections
+    /// come out of a `VarBuilder` and carry none.
+    pub fn site_name(&self) -> &str {
+        match self {
+            Proj::Dense(_) => "(projection dense)",
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { proj, .. } => &proj.name,
+        }
+    }
+
+    /// Output width.
+    pub fn d_out(&self) -> Result<usize> {
+        match self {
+            Proj::Dense(l) => l.weight().dim(0),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { proj, .. } => Ok(proj.d_out),
+        }
+    }
+
+    /// Rotate `x` into the basis this projection was quantized in.
+    ///
+    /// Dense: a strict no-op — the tensor itself, no launch, no allocation
+    /// beyond candle's refcount. That arm is what `bin/oracle` certifies at
+    /// `max |Δhidden| = 0` and it must stay untouched.
+    ///
+    /// Fused: one `rot_apply`, one f32 `[1, d_in]` result. The output is a
+    /// tensor of full standing rather than a scratch buffer, which is what
+    /// lets the caller keep it alive across the group's uses without any
+    /// aliasing argument.
+    pub fn prepare(&self, x: &Tensor) -> Result<Rotated> {
+        match self {
+            Proj::Dense(_) => Ok(Rotated { key: None, t: x.clone() }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, proj } => Ok(Rotated {
+                key: proj.rotation(),
+                t: rt.rotate(proj, x)?,
+            }),
+        }
+    }
+
+    /// `y = W x`, given `x` already rotated by [`Self::prepare`].
+    ///
+    /// `x` is passed beside the rotated form and is **not** redundant: it
+    /// carries the caller's shape, so the result comes out with the rank the
+    /// caller handed in, and on the dense arm it is the tensor the `Linear`
+    /// multiplies — literally today's call.
+    ///
+    /// Refuses a rotation that is not this projection's, naming it. See
+    /// [`check_key`].
+    pub fn forward_with(&self, r: &Rotated, x: &Tensor) -> Result<Tensor> {
+        check_key(self.site_name(), self.rot_key(), r.key).map_err(candle_core::Error::msg)?;
         match self {
             Proj::Dense(l) => l.forward(x),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
-            Proj::Fused { rt, proj } => rt.forward(proj, x),
+            Proj::Fused { rt, proj } => rt.forward_rotated(proj, &r.t, x.dims()),
         }
     }
 
@@ -274,6 +407,103 @@ impl Proj {
             ),
         }
     }
+}
+
+/// The single-row views of an activation, in row order.
+///
+/// One contiguity pass for the whole group, then `narrow` along dim 0 — which
+/// yields a view at an *offset* into one allocation, and that is exactly what
+/// `rot_apply`'s `x_off` argument exists for. Re-materializing each row would
+/// be a copy per row per projection.
+///
+/// Extracted from [`group_forward`] with [`regroup`] because that function's
+/// rotated branch is reachable only with a fused projection, i.e. on no
+/// machine this test suite runs on. The shape bookkeeping is the part of it
+/// that can be silently wrong — a transposed row order returns finite,
+/// plausible, wrong tokens — so it lives in two functions that a CPU tensor
+/// can exercise.
+pub fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
+    let dims = x.dims();
+    let d_in = *dims.last().expect("rank >= 1");
+    let rows: usize = dims[..dims.len() - 1].iter().product();
+    let flat = x.contiguous()?.reshape((rows, d_in))?;
+    (0..rows).map(|r| flat.narrow(0, r, 1)).collect()
+}
+
+/// Reassemble one projection's per-row results into the caller's shape.
+///
+/// `dims` is the shape the caller handed to [`group_forward`]; the result is
+/// that shape with `d_out` as its last axis. Inverse of [`row_views`] up to
+/// the change of width.
+pub fn regroup(rows: &[Tensor], dims: &[usize], d_out: usize) -> Result<Tensor> {
+    let mut d = dims.to_vec();
+    *d.last_mut().expect("rank >= 1") = d_out;
+    Tensor::cat(rows, 0)?.reshape(d)
+}
+
+/// Run projections that share one activation.
+///
+/// This is the call site lot A4 turns on. `Block::forward_cached` hands q/k/v
+/// one group and gate/up another; o_proj and down_proj are groups of one. Under
+/// [`RotShare::On`] the group's activation is rotated **once**, and every
+/// projection is handed that value; under [`RotShare::Off`] each rotates its
+/// own, which is launch for launch what shipped before this lot.
+///
+/// ## Two branches, and the first one is the one that must not move
+///
+/// When no projection of the group carries a rotation — every dense model, so
+/// every path `bin/oracle`, `bin/ppl`, `bin/mmlu` and the quantizer take —
+/// there is nothing to hoist, and the group degenerates to `prepare` (a clone)
+/// then `forward_with` (the `Linear`'s own `forward`) on the **whole** tensor,
+/// in declaration order. No reshape, no row loop, no mode dependence. The
+/// forward pass certified at `max |Δhidden| = 0` is unchanged, and
+/// `the_restructured_block_is_the_same_calls_in_the_same_order` requires token
+/// equality rather than a tolerance to say so.
+///
+/// The rotated branch does split rows, because the fused kernel is a matvec:
+/// the row loop that used to live inside `FusedRuntime::forward` moves up one
+/// level, so that a prefill row is rotated once for its whole group instead of
+/// once per projection. Under `Off` the resulting order is still
+/// rot/matvec/rot/matvec projection by projection — the old order exactly.
+pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec<Tensor>> {
+    if projs.is_empty() {
+        return Ok(Vec::new());
+    }
+    if projs.iter().all(|p| p.rot_key().is_none()) {
+        return projs
+            .iter()
+            .map(|p| {
+                let r = p.prepare(x)?;
+                p.forward_with(&r, x)
+            })
+            .collect();
+    }
+
+    let dims = x.dims();
+    let rows: usize = dims[..dims.len() - 1].iter().product();
+    if rows > MAX_ROWS {
+        candle_core::bail!(
+            "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau fusé est un \
+             matvec — il boucle, donc le coût est linéaire. La passe de score garde le \
+             chemin dense.",
+            projs[0].site_name()
+        );
+    }
+    let slices = row_views(x)?;
+
+    let per_site = drive_rows(
+        share,
+        projs,
+        rows,
+        |p: &&Proj, row: usize| p.prepare(&slices[row]),
+        |p: &&Proj, r: &Rotated, row: usize| p.forward_with(r, &slices[row]),
+    )?;
+
+    per_site
+        .into_iter()
+        .zip(projs)
+        .map(|(rows_of_site, p)| regroup(&rows_of_site, dims, p.d_out()?))
+        .collect()
 }
 
 /// The token embedding: a dense f16 table, or the int8 g64 payload the fused
@@ -343,6 +573,15 @@ pub struct Block {
     n_heads: usize,
     n_kv: usize,
     head_dim: usize,
+    /// Whether a shared activation is rotated once for its group.
+    ///
+    /// **Not read from the environment here.** Every block built by
+    /// `Qwen3::new` — the quantizer, `bin/oracle`, `bin/ppl`, `bin/mmlu` —
+    /// gets [`RotShare::Off`], so those paths cannot change behaviour because
+    /// a variable was exported in a shell. `fused_cuda::load` resolves
+    /// `LLVQ_ROT_SHARE` and calls [`Qwen3::set_rot_share`] explicitly, on the
+    /// one path where it means something.
+    rot_share: RotShare,
 }
 
 /// Take the supplied projection, or build the dense one.
@@ -414,7 +653,17 @@ impl Block {
             n_heads: nh,
             n_kv: nkv,
             head_dim: hd,
+            rot_share: RotShare::Off,
         })
+    }
+
+    /// Whether this block hoists the rotation of a shared activation.
+    pub fn set_rot_share(&mut self, share: RotShare) {
+        self.rot_share = share;
+    }
+
+    pub fn rot_share(&self) -> RotShare {
+        self.rot_share
     }
 
     /// Read-only view of a projection, by checkpoint name.
@@ -496,19 +745,22 @@ impl Block {
         let h = self.ln1.forward(x)?;
         cap.on_activation(idx, Act::Attn, &h)?;
 
-        let q = self
-            .q_proj
-            .forward(&h)?
+        // q, k and v consume `h` — one activation, one rotation, three uses.
+        // The group is named here, at the site, rather than recovered from a
+        // key at launch time: see `crate::rotplan` for why every key that
+        // could have been used is a liar.
+        let qkv = group_forward(
+            &[&self.q_proj, &self.k_proj, &self.v_proj],
+            &h,
+            self.rot_share,
+        )?;
+        let q = qkv[0]
             .reshape((b, l, self.n_heads, self.head_dim))?
             .transpose(1, 2)?;
-        let k = self
-            .k_proj
-            .forward(&h)?
+        let k = qkv[1]
             .reshape((b, l, self.n_kv, self.head_dim))?
             .transpose(1, 2)?;
-        let v = self
-            .v_proj
-            .forward(&h)?
+        let v = qkv[2]
             .reshape((b, l, self.n_kv, self.head_dim))?
             .transpose(1, 2)?;
 
@@ -542,7 +794,9 @@ impl Block {
 
         let h = self.ln2.forward(&x)?;
         cap.on_activation(idx, Act::Mlp, &h)?;
-        let gated = (self.gate_proj.forward(&h)?.apply(&self.act)? * self.up_proj.forward(&h)?)?;
+        // The second shared activation: gate and up both read `h`.
+        let gu = group_forward(&[&self.gate_proj, &self.up_proj], &h, self.rot_share)?;
+        let gated = gu[0].apply(&self.act)?.mul(&gu[1])?;
         cap.on_activation(idx, Act::MlpOut, &gated)?;
         x + self.down_proj.forward(&gated)?
     }
@@ -623,6 +877,18 @@ impl Qwen3 {
             device: vb.device().clone(),
             dtype: vb.dtype(),
         })
+    }
+
+    /// Turn rotation hoisting on or off for every block.
+    ///
+    /// Called by `fused_cuda::load` after resolving `LLVQ_ROT_SHARE`, and by
+    /// nothing else: a model built any other way keeps [`RotShare::Off`], so
+    /// the paths every published number comes from cannot change because a
+    /// variable was exported.
+    pub fn set_rot_share(&mut self, share: RotShare) {
+        for b in &mut self.blocks {
+            b.set_rot_share(share);
+        }
     }
 
     fn causal_mask(&self, b: usize, l: usize) -> Result<Tensor> {
@@ -872,5 +1138,156 @@ impl Qwen3 {
     pub fn causal_mask_for(&self, h: &Tensor) -> Result<Tensor> {
         let (b, l, _) = h.dims3()?;
         self.causal_mask(b, l)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dense(d_out: usize, d_in: usize) -> Proj {
+        let w = Tensor::zeros((d_out, d_in), DType::F32, &Device::Cpu).expect("weights");
+        Proj::Dense(Linear::new(w, None))
+    }
+
+    /// **T6.** A projection handed a rotation that is not its own refuses,
+    /// naming itself.
+    ///
+    /// This is the one wiring mistake the value-based design leaves open, and
+    /// it is three lines wide in `forward_cached`: the q/k/v group and the
+    /// gate/up group both take a `hidden_size`-wide activation, so passing one
+    /// group's [`Rotated`] to the other type-checks, runs, and returns finite
+    /// plausible wrong numbers. Lives in the crate rather than in
+    /// `tests/rotplan.rs` because [`Rotated`]'s fields are private — which is
+    /// the point: outside this module the only way to get one is to rotate an
+    /// activation.
+    #[test]
+    fn a_rotated_activation_of_the_wrong_key_is_refused() {
+        let p = dense(4, 3);
+        let x = Tensor::zeros((1usize, 3usize), DType::F32, &Device::Cpu).expect("x");
+        let foreign = Rotated {
+            key: Some((2560, 0xdead_beef)),
+            t: x.clone(),
+        };
+        let e = p
+            .forward_with(&foreign, &x)
+            .expect_err("une rotation étrangère doit être refusée");
+        let msg = format!("{e}");
+        assert!(msg.contains("2560"), "le message doit citer la clé : {msg}");
+        assert!(
+            msg.contains("projection dense"),
+            "le message doit nommer le site : {msg}"
+        );
+    }
+
+    /// `prepare` on a dense projection is a strict no-op: the same tensor, no
+    /// key, no allocation. Every path that is not the fused one goes through
+    /// it, including the forward pass `bin/oracle` pins at `|Δhidden| = 0`.
+    #[test]
+    fn preparing_a_dense_projection_moves_nothing() {
+        let p = dense(4, 3);
+        let x = Tensor::arange(0f32, 3f32, &Device::Cpu)
+            .expect("x")
+            .reshape((1usize, 3usize))
+            .expect("shape");
+        let r = p.prepare(&x).expect("dense prepare");
+        assert_eq!(r.key(), None);
+        assert_eq!(
+            x.id(),
+            r.t.id(),
+            "la préparation dense doit rendre le tenseur lui-même, pas une copie"
+        );
+        assert!(p.forward_with(&r, &x).is_ok());
+    }
+
+    /// The row split and its inverse, on shapes a CPU tensor can carry.
+    ///
+    /// `group_forward`'s rotated branch is reachable only with a fused
+    /// projection, so no test on this machine runs it end to end. Its shape
+    /// bookkeeping — which row goes where, and what rank comes back — is the
+    /// part that can be silently wrong, and it is pinned here: a transposed
+    /// row order or a `reshape` on the wrong dims would return finite,
+    /// plausible, wrong tokens on a card, with nothing red anywhere.
+    #[test]
+    fn the_row_split_is_undone_by_the_regroup() {
+        for dims in [vec![1usize, 4], vec![1, 3, 4], vec![2, 3, 4]] {
+            let n: usize = dims.iter().product();
+            let x = Tensor::arange(0f32, n as f32, &Device::Cpu)
+                .expect("x")
+                .reshape(dims.clone())
+                .expect("shape");
+            let rows = row_views(&x).expect("split");
+            let expected_rows: usize = dims[..dims.len() - 1].iter().product();
+            assert_eq!(rows.len(), expected_rows);
+            for r in &rows {
+                assert_eq!(r.dims(), &[1, *dims.last().expect("rank >= 1")]);
+            }
+            let back = regroup(&rows, &dims, *dims.last().expect("rank >= 1")).expect("regroup");
+            assert_eq!(back.dims(), dims.as_slice());
+            assert_eq!(
+                back.flatten_all().expect("flat").to_vec1::<f32>().expect("vals"),
+                x.flatten_all().expect("flat").to_vec1::<f32>().expect("vals"),
+                "dims {dims:?} : le découpage en lignes n'est pas rendu à l'identique"
+            );
+
+            // The order is load-bearing, and this says so: reversing the rows
+            // must change the answer whenever there is more than one.
+            if expected_rows > 1 {
+                let mut rev = rows.clone();
+                rev.reverse();
+                let other =
+                    regroup(&rev, &dims, *dims.last().expect("rank >= 1")).expect("regroup");
+                assert_ne!(
+                    other.flatten_all().expect("f").to_vec1::<f32>().expect("v"),
+                    back.flatten_all().expect("f").to_vec1::<f32>().expect("v"),
+                    "dims {dims:?} : l'ordre des lignes ne change rien, le test ne prouve rien"
+                );
+            }
+        }
+    }
+
+    /// The width changes between the two halves: `d_in` in, `d_out` out.
+    #[test]
+    fn the_regroup_carries_the_output_width() {
+        let rows: Vec<Tensor> = (0..3)
+            .map(|r| {
+                Tensor::arange(0f32, 5f32, &Device::Cpu)
+                    .expect("row")
+                    .affine(1.0, r as f64)
+                    .expect("offset")
+                    .reshape((1usize, 5usize))
+                    .expect("shape")
+            })
+            .collect();
+        let out = regroup(&rows, &[1, 3, 7], 5).expect("regroup");
+        assert_eq!(out.dims(), &[1, 3, 5]);
+    }
+
+    /// A group of projections in the natural basis is driven identically in
+    /// both modes — the branch that keeps every dense path byte-identical.
+    #[test]
+    fn a_group_without_rotation_ignores_the_mode() {
+        let a = dense(2, 3);
+        let b = dense(5, 3);
+        let x = Tensor::arange(0f32, 6f32, &Device::Cpu)
+            .expect("x")
+            .reshape((1usize, 2usize, 3usize))
+            .expect("shape");
+        for share in [RotShare::Off, RotShare::On] {
+            let out = group_forward(&[&a, &b], &x, share).expect("group");
+            assert_eq!(out.len(), 2);
+            assert_eq!(out[0].dims(), &[1, 2, 2]);
+            assert_eq!(out[1].dims(), &[1, 2, 5]);
+        }
+
+        // And it does not go through the row loop at all — observable, because
+        // the row loop carries `MAX_ROWS`, which a dense `Linear` has no reason
+        // to obey. A refactor that routed dense projections through the rotated
+        // branch "for uniformity" would break scoring on any window wider than
+        // 256, and would otherwise be invisible: the numbers would be right.
+        let wide = Tensor::zeros((1usize, MAX_ROWS + 44, 3usize), DType::F32, &Device::Cpu)
+            .expect("wide");
+        let out = group_forward(&[&a], &wide, RotShare::On).expect("dense sur une fenêtre large");
+        assert_eq!(out[0].dims(), &[1, MAX_ROWS + 44, 2]);
     }
 }

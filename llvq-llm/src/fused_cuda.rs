@@ -34,7 +34,6 @@
 //! that reproduces once in a hundred runs, on the card, in a billed job.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 
 use candle_core::cuda_backend::cudarc::driver::{
     CudaFunction, CudaSlice, LaunchConfig, PushKernelArg,
@@ -128,6 +127,14 @@ pub struct FusedProj {
     rotation: Option<RotKey>,
 }
 
+impl FusedProj {
+    /// The rotation this matrix was quantized under. Read by `model::Proj` to
+    /// tag the activation it prepares, and by nothing else.
+    pub fn rotation(&self) -> Option<RotKey> {
+        self.rotation
+    }
+}
+
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
@@ -149,25 +156,6 @@ pub struct FusedRuntime {
     /// Largest `d_in` any projection takes — the staging bound the rotation
     /// kernel needs in shared memory.
     max_d_in: usize,
-    /// One scratch buffer per distinct activation width, for the rotated
-    /// activation that only ever lives between the two launches.
-    ///
-    /// The first version allocated it fresh on every projection: 252 `cudaMalloc`
-    /// **and** 252 `memset` per token, for a buffer `rot_apply` overwrites in
-    /// full and nothing ever reads before it does. Measured cost of that
-    /// naivety: the fused path came out 4 % *slower* than dense despite the
-    /// kernel itself being 1.9× faster.
-    ///
-    /// ## Why sharing one buffer across calls is safe
-    ///
-    /// Not because of the mutex — that only orders the Rust side, and the
-    /// launches are asynchronous, so the lock is long released by the time
-    /// either kernel runs. It is safe because **both launches go on the same
-    /// stream**, which executes in issue order: call *n*'s `tv_slot` has
-    /// finished reading the scratch before call *n+1*'s `rot_apply` starts
-    /// writing it. Put the two kernels on different streams and this becomes
-    /// a race that reproduces once in a hundred runs.
-    scratch: Mutex<HashMap<usize, CudaSlice<f32>>>,
 }
 
 impl FusedRuntime {
@@ -295,7 +283,6 @@ impl FusedRuntime {
                 shared_limit,
                 device: dev,
                 max_d_in,
-                scratch: Mutex::new(HashMap::new()),
             },
             projs,
         ))
@@ -310,60 +297,40 @@ impl FusedRuntime {
         self.max_d_in
     }
 
-    /// `y = W x` for one activation, through the fused path.
-    ///
-    /// `x` is `[.., d_in]` in f16; the result is `[.., d_out]` in f16, so the
-    /// caller sees exactly what a `Linear` would have returned. The two
-    /// conversions that costs are the price of a kernel that reads f16 and
-    /// accumulates in f32 — the same arithmetic the dense path does, in the
-    /// same order.
-    pub fn forward(&self, proj: &FusedProj, x: &Tensor) -> candle_core::Result<Tensor> {
+    /// One activation `[1, d_in]` in f16 → the same activation in the rotated
+    /// basis, `[1, d_in]` in f32. Half of what `forward` used to do in one
+    /// call; `crate::rotplan` says why it was split and why nothing is cached.
+    /// The row loop lives in `model::group_forward` now, hence the one row.
+    pub fn rotate(&self, proj: &FusedProj, x: &Tensor) -> candle_core::Result<Tensor> {
         let dims = x.dims();
         let d_in = *dims.last().expect("rank >= 1");
         if d_in != proj.d_in {
             candle_core::bail!("{} attend d_in={}, reçu {d_in}", proj.name, proj.d_in);
         }
         let rows: usize = dims[..dims.len() - 1].iter().product();
-
-        // More than one vector: loop.
-        //
-        // This is not an optimization gap that can be papered over — `tv_slot`
-        // is a matrix–*vector* product, one warp per output row with a single
-        // activation staged in shared memory, so `l` tokens cost `l` launches.
-        // The first version of this refused outright, which was wrong for a
-        // reason the very first run found: **generation always begins by
-        // running the whole prompt through**, so every `generate` call hits
-        // `rows > 1` before it ever decodes a token.
-        //
-        // The cap survives that correction, because the danger it guarded
-        // against is real: a 2048-token scoring window would issue half a
-        // million launches and look like a hang. Prompts stay well under it,
-        // and `bin/ppl` keeps the dense path.
-        const MAX_ROWS: usize = 256;
-        if rows > MAX_ROWS {
+        if rows != 1 {
             candle_core::bail!(
-                "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau fusé est \
-                 un matvec — il boucle, donc le coût est linéaire. La passe de score garde \
-                 le chemin dense.",
+                "{} : rotation demandée sur {rows} vecteurs. La boucle de lignes appartient \
+                 à model::group_forward, qui la partage entre les projections d'un groupe.",
                 proj.name
             );
         }
+        let x = x.to_dtype(DType::F16)?;
+        let op = RotOp { rt: self, proj };
+        x.apply_op1_no_bwd(&op)
+    }
 
-        let x = x.contiguous()?.to_dtype(DType::F16)?;
-        if rows > 1 {
-            let flat = x.reshape((rows, d_in))?;
-            let mut out = Vec::with_capacity(rows);
-            for r in 0..rows {
-                // `narrow` yields a view at an offset into the same buffer —
-                // which is exactly why `rot_apply` takes `x_off`.
-                out.push(self.forward(proj, &flat.narrow(0, r, 1)?)?);
-            }
-            let mut d = dims.to_vec();
-            *d.last_mut().expect("rank >= 1") = proj.d_out;
-            return Tensor::cat(&out, 0)?.reshape(d);
-        }
+    /// `y = W' xr` for one activation already in the rotated basis. `xr` is
+    /// [`Self::rotate`]'s f32 output; `out_dims` is the *caller's* shape, so
+    /// the result keeps the caller's rank, exactly as a `Linear` would.
+    pub fn forward_rotated(
+        &self,
+        proj: &FusedProj,
+        xr: &Tensor,
+        out_dims: &[usize],
+    ) -> candle_core::Result<Tensor> {
         let out_shape = {
-            let mut d = dims.to_vec();
+            let mut d = out_dims.to_vec();
             *d.last_mut().expect("rank >= 1") = proj.d_out;
             Shape::from(d)
         };
@@ -372,8 +339,8 @@ impl FusedRuntime {
             proj,
             out_shape,
         };
-        // No `to_dtype` here: the kernel already stored halves.
-        x.apply_op1_no_bwd(&op)
+        // No `to_dtype` on the result: the kernel already stored halves.
+        xr.apply_op1_no_bwd(&op)
     }
 
     /// Upload an int8 g64 tensor — the embedding — for the two q8 kernels.
@@ -634,6 +601,73 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
     }
 }
 
+/// `rot_apply` as a candle op: f16 activation in, f32 rotated activation out.
+///
+/// The rotated activation used to be a scratch buffer keyed on `d_in` and held
+/// between two launches under one lock; it is a tensor now, owned by the group
+/// that shares it. `crate::rotplan` carries the argument. Output uninitialised
+/// on purpose: `rot_apply` writes every coordinate of `[0, n)`.
+struct RotOp<'a> {
+    rt: &'a FusedRuntime,
+    proj: &'a FusedProj,
+}
+
+impl candle_core::CustomOp1 for RotOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-rot-apply"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("la rotation LLVQ n'a pas de chemin CPU")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let all = storage.as_cuda_slice::<f16>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+        if end - start != self.proj.d_in {
+            candle_core::bail!(
+                "activation de {} valeurs pour d_in={}",
+                end - start,
+                self.proj.d_in
+            );
+        }
+        let rot = match self.proj.rotation {
+            None => candle_core::bail!(
+                "{} : artefact sans rotation — chemin non couvert, cf. fused_cuda.rs",
+                self.proj.name
+            ),
+            Some(key) => self
+                .rt
+                .rotations
+                .get(&key)
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
+        };
+        let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
+        self.rt
+            .cuda
+            .launch_rot(
+                &self.rt.f_rot, all, &rot.signbits, &rot.small, &mut xr, rot.n, rot.m, rot.k,
+                rot.inv, start as u32, rot.threads,
+            )
+            .map_err(candle_core::Error::msg)?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
+            Shape::from(vec![1, self.proj.d_in]),
+        ))
+    }
+}
+
 /// The `CustomOp1` candle needs to let us at the tensor's storage.
 ///
 /// There is no public way to reach a `Tensor`'s device pointer other than this
@@ -641,6 +675,9 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
 /// require contiguity rather than honouring arbitrary strides — the kernel
 /// stages 24 consecutive floats per block and a strided activation would be
 /// silently wrong.
+///
+/// Since lot A4 it reads [`RotOp`]'s f32 output and launches nothing but the
+/// matvec: it no longer rotates, and no longer decides anything.
 struct FusedOp<'a> {
     rt: &'a FusedRuntime,
     proj: &'a FusedProj,
@@ -665,7 +702,7 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         storage: &CudaStorage,
         layout: &Layout,
     ) -> candle_core::Result<(CudaStorage, Shape)> {
-        let all = storage.as_cuda_slice::<f16>()?;
+        let xr = storage.as_cuda_slice::<f32>()?;
         // `(start, start + elem_count)` — a *range*, not `(offset, length)`.
         // Taking the second field for a length is silent at offset 0 and wrong
         // everywhere else, which is exactly how it survived the first run and
@@ -675,19 +712,21 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
             .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
         let len = end - start;
         if len != self.proj.d_in {
-            candle_core::bail!("activation de {len} valeurs pour d_in={}", self.proj.d_in);
+            candle_core::bail!(
+                "activation tournée de {len} valeurs pour d_in={}",
+                self.proj.d_in
+            );
         }
-        let rot = match self.proj.rotation {
-            None => candle_core::bail!(
-                "{} : artefact sans rotation — chemin non couvert, cf. fused_cuda.rs",
+        // The matvec kernels index `x` from the base pointer and take no
+        // offset, so a nonzero start would read the wrong slice and return
+        // finite, plausible, wrong numbers. Asserted, not assumed.
+        if start != 0 {
+            candle_core::bail!(
+                "{} : activation tournée à l'offset {start}, alors que les noyaux matvec \
+                 indexent depuis la base",
                 self.proj.name
-            ),
-            Some(key) => self
-                .rt
-                .rotations
-                .get(&key)
-                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
-        };
+            );
+        }
 
         // f16, and uninitialised. Two things at once:
         //
@@ -700,57 +739,17 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
         let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
 
-        // Both launches under one lock, so the scratch cannot be handed to a
-        // second caller between them. See `FusedRuntime::scratch` for why the
-        // *stream* is what makes the sharing sound, not this lock.
-        {
-            let mut pool = self
+        // One arm per layout. The Planes14 arm has no bases to pass — the
+        // variant carries none — and the Slot32 arm is the exact call that
+        // shipped before the switch existed.
+        match &self.proj.stream {
+            DeviceStream::Slot32 { words, bases } => self
                 .rt
-                .scratch
-                .lock()
-                .map_err(|_| candle_core::Error::msg("scratch empoisonné"))?;
-            let xr = match pool.entry(self.proj.d_in) {
-                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-                std::collections::hash_map::Entry::Vacant(e) => e.insert(
-                    unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
-                        .map_err(|er| candle_core::Error::msg(format!("alloc scratch: {er}")))?,
-                ),
-            };
-            self.rt
                 .cuda
-                .launch_rot(
-                    &self.rt.f_rot, all, &rot.signbits, &rot.small, xr, rot.n, rot.m, rot.k,
-                    rot.inv, start as u32, rot.threads,
-                )
-                .map_err(candle_core::Error::msg)?;
-            // One arm per layout. The Planes14 arm has no bases to pass —
-            // the variant carries none — and the Slot32 arm is the exact
-            // call that shipped before the switch existed.
-            match &self.proj.stream {
-                DeviceStream::Slot32 { words, bases } => self
-                    .rt
-                    .cuda
-                    .launch_slot_h(
-                        &self.rt.f_matvec,
-                        words,
-                        bases,
-                        &self.rt.tab,
-                        &self.proj.gscale,
-                        &self.proj.rscale,
-                        &self.proj.tail,
-                        xr,
-                        &mut y,
-                        self.proj.nblocks,
-                        self.proj.tail_w,
-                        self.proj.d_out as u32,
-                        THREADS,
-                        shared,
-                    )
-                    .map_err(candle_core::Error::msg)?,
-                DeviceStream::Planes14 { words } => launch_planes_h(
-                    &self.rt.cuda,
+                .launch_slot_h(
                     &self.rt.f_matvec,
                     words,
+                    bases,
                     &self.rt.tab,
                     &self.proj.gscale,
                     &self.proj.rscale,
@@ -764,29 +763,45 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                     shared,
                 )
                 .map_err(candle_core::Error::msg)?,
-                DeviceStream::Planes12x {
-                    words,
-                    exc_idx,
-                    exc_words,
-                    row_exc,
-                } => launch_planes12x_h(
-                    &self.rt.cuda,
-                    &self.rt.f_matvec,
-                    &[words, exc_idx, exc_words, row_exc],
-                    &self.rt.tab,
-                    &self.proj.gscale,
-                    &self.proj.rscale,
-                    &self.proj.tail,
-                    xr,
-                    &mut y,
-                    self.proj.nblocks,
-                    self.proj.tail_w,
-                    self.proj.d_out as u32,
-                    THREADS,
-                    shared,
-                )
-                .map_err(candle_core::Error::msg)?,
-            }
+            DeviceStream::Planes14 { words } => launch_planes_h(
+                &self.rt.cuda,
+                &self.rt.f_matvec,
+                words,
+                &self.rt.tab,
+                &self.proj.gscale,
+                &self.proj.rscale,
+                &self.proj.tail,
+                xr,
+                &mut y,
+                self.proj.nblocks,
+                self.proj.tail_w,
+                self.proj.d_out as u32,
+                THREADS,
+                shared,
+            )
+            .map_err(candle_core::Error::msg)?,
+            DeviceStream::Planes12x {
+                words,
+                exc_idx,
+                exc_words,
+                row_exc,
+            } => launch_planes12x_h(
+                &self.rt.cuda,
+                &self.rt.f_matvec,
+                &[words, exc_idx, exc_words, row_exc],
+                &self.rt.tab,
+                &self.proj.gscale,
+                &self.proj.rscale,
+                &self.proj.tail,
+                xr,
+                &mut y,
+                self.proj.nblocks,
+                self.proj.tail_w,
+                self.proj.d_out as u32,
+                THREADS,
+                shared,
+            )
+            .map_err(candle_core::Error::msg)?,
         }
 
         Ok((
@@ -985,6 +1000,11 @@ pub struct FusedSealed {
     pub layout: FusedLayout,
     /// How the embedding and tied `lm_head` sit on the device.
     pub embed_mode: EmbedMode,
+    /// Whether a shared activation is rotated once per group (`LLVQ_ROT_SHARE`).
+    pub rot_share: crate::rotplan::RotShare,
+    /// `rot_apply` launches one decode token costs. Printed on both arms: a
+    /// gate showing identical tokens at 252 launches each proves nothing.
+    pub rot_launches: usize,
     pub quantized_weights: usize,
     pub carried_weights: usize,
     /// Size of the file on disk.
@@ -1010,7 +1030,7 @@ pub struct FusedSealed {
 ///
 /// ## `dtype` must be F16, and this now says so out loud
 ///
-/// It always was, in fact: `FusedRuntime::forward` casts its input with
+/// It always was, in fact: [`FusedRuntime::rotate`] casts its input with
 /// `to_dtype(DType::F16)` and the kernels *store* halves, so a model built at
 /// F32 would have taken f16 tensors out of every projection. What changed on
 /// 2026-08-09 is that the assumption acquired a consequence — the `KeepExact`
@@ -1036,7 +1056,18 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     // where the arm has to be inferred from a byte count is not an A/B.
     let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
     let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
+    let share = crate::rotplan::RotShare::from_env().map_err(candle_core::Error::msg)?;
     let mut model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
+    // The partition is checked inside `fused::load`; this is only its count,
+    // printed because `LLVQ_ROT_SHARE=1` reporting 252 launches would be a lot
+    // that did nothing while looking green.
+    let rot_launches = crate::rotplan::rot_launches_per_token(share, &model.matrices);
+    println!(
+        "rotation partagée : {} (LLVQ_ROT_SHARE) — {rot_launches} rot_lancements/token \
+         pour {} projections",
+        share.name(),
+        model.matrices.len()
+    );
     // The accounting is named on the line, because since lot A7a this number
     // is deliberately *not* the bench's: the tail is resident at binary16
     // here and at f32 in `planesbench`/`rtbits`, worth 0.075 b/weight on the
@@ -1170,7 +1201,7 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             );
         }
     }
-    let qwen = match &quant_embed {
+    let mut qwen = match &quant_embed {
         None => crate::model::Qwen3::new_with(&config, vb, &mut take)?,
         Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(
             &config,
@@ -1192,6 +1223,9 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             by_site.len()
         );
     }
+    // The one place `LLVQ_ROT_SHARE` reaches a model: every other `Qwen3` keeps
+    // `RotShare::Off` and cannot be moved by an exported variable.
+    qwen.set_rot_share(share);
 
     Ok(FusedSealed {
         model: qwen,
@@ -1199,6 +1233,8 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         config,
         layout,
         embed_mode: emode,
+        rot_share: share,
+        rot_launches,
         quantized_weights: model.quantized_weights,
         // Counted at read time in `fused::load`, embedding included — the q8
         // extraction changes where those weights sit, not how many there are.

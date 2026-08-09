@@ -18,10 +18,14 @@
 //! sees a nonzero offset, and the test would compare a code path with itself.
 //! That is the failure mode CLAUDE.md §5 documents three times.
 
+use std::collections::HashMap;
+
 use candle_core::{DType, Device, Tensor};
 use candle_nn::{Activation, VarBuilder, VarMap};
 use candle_transformers::models::qwen3::Config;
+use llvq_core::SplitMix64;
 use llvq_llm::model::{NoCapture, Qwen3};
+use llvq_llm::rotplan::RotShare;
 
 /// Small enough to build in milliseconds, wide enough to exercise everything
 /// that matters: grouped-query attention (4 heads over 2 kv heads), more than
@@ -52,6 +56,123 @@ fn model(dev: &Device) -> (Qwen3, VarMap) {
     let vb = VarBuilder::from_varmap(&map, DType::F32, dev);
     let m = Qwen3::new(&tiny(), vb).expect("tiny model builds");
     (m, map)
+}
+
+/// The same tiny model, with weights that do not depend on a random seed —
+/// so a *token sequence* can be pinned rather than a shape.
+///
+/// `swap_kv` writes `v_proj`'s weights into `k_proj` and vice versa. It exists
+/// to prove the golden below is sensitive to exactly the restructuring mistake
+/// lot A4 could make: on Qwen3-4B `k_proj` and `v_proj` have the *same*
+/// `d_out`, so permuting them inside `forward_cached` type-checks, reshapes
+/// cleanly, and changes nothing observable except the answer.
+fn deterministic(dev: &Device, swap_kv: bool) -> Qwen3 {
+    let cfg = tiny();
+    let mut rng = SplitMix64::new(0xA4_C0DE);
+    let mut t = HashMap::new();
+    let put = |t: &mut HashMap<String, Tensor>, name: &str, r: usize, c: usize, rng: &mut SplitMix64| {
+        let v: Vec<f32> = (0..r * c).map(|_| (rng.next_gaussian() * 0.3) as f32).collect();
+        t.insert(name.to_string(), Tensor::from_vec(v, (r, c), dev).expect("tensor"));
+    };
+    let put1 = |t: &mut HashMap<String, Tensor>, name: &str, n: usize| {
+        t.insert(
+            name.to_string(),
+            Tensor::ones(n, DType::F32, dev).expect("ones"),
+        );
+    };
+    let (h, i, nh, nkv, hd) = (
+        cfg.hidden_size,
+        cfg.intermediate_size,
+        cfg.num_attention_heads,
+        cfg.num_key_value_heads,
+        cfg.head_dim,
+    );
+    put(&mut t, "model.embed_tokens.weight", cfg.vocab_size, h, &mut rng);
+    for l in 0..cfg.num_hidden_layers {
+        let p = format!("model.layers.{l}");
+        put(&mut t, &format!("{p}.self_attn.q_proj.weight"), nh * hd, h, &mut rng);
+        let (kn, vn) = if swap_kv {
+            ("v_proj", "k_proj")
+        } else {
+            ("k_proj", "v_proj")
+        };
+        put(&mut t, &format!("{p}.self_attn.{kn}.weight"), nkv * hd, h, &mut rng);
+        put(&mut t, &format!("{p}.self_attn.{vn}.weight"), nkv * hd, h, &mut rng);
+        put(&mut t, &format!("{p}.self_attn.o_proj.weight"), h, nh * hd, &mut rng);
+        put(&mut t, &format!("{p}.mlp.gate_proj.weight"), i, h, &mut rng);
+        put(&mut t, &format!("{p}.mlp.up_proj.weight"), i, h, &mut rng);
+        put(&mut t, &format!("{p}.mlp.down_proj.weight"), h, i, &mut rng);
+        put1(&mut t, &format!("{p}.self_attn.q_norm.weight"), hd);
+        put1(&mut t, &format!("{p}.self_attn.k_norm.weight"), hd);
+        put1(&mut t, &format!("{p}.input_layernorm.weight"), h);
+        put1(&mut t, &format!("{p}.post_attention_layernorm.weight"), h);
+    }
+    put1(&mut t, "model.norm.weight", h);
+    let vb = VarBuilder::from_tensors(t, DType::F32, dev);
+    Qwen3::new(&cfg, vb).expect("deterministic model builds")
+}
+
+/// **T7.** The restructured block issues the same calls, in the same order.
+///
+/// Lot A4 rewrote the middle of `Block::forward_cached`: q/k/v and gate/up now
+/// go through `model::group_forward` instead of three and two `Proj::forward`
+/// calls. On a dense model that must be a *no-op*, because `forward_cached` is
+/// the function `bin/oracle` certifies at `max |Δhidden| = 0` and every Hessian
+/// in this project is built on it.
+///
+/// Three assertions, and each covers what the others cannot:
+///
+///  1. **the golden token sequence** — the only thing that pins the *order* of
+///     q, k and v. A permutation of k and v is invisible to every shape in the
+///     tiny config (both are `n_kv · head_dim` wide) and to every tolerance;
+///  2. **the swap actually moves it** — otherwise the golden would be a
+///     constant that happens to be true, and the test would be certifying its
+///     own insensitivity. This is the §5 discipline applied to a golden:
+///     a fixture that no mutation can move tests nothing;
+///  3. **both `RotShare` modes agree**, exactly. On a dense model
+///     `group_forward` takes its no-rotation branch and the mode must not
+///     reach the arithmetic at all.
+///
+/// The no-op-ness of `Proj::prepare` on a dense projection is pinned beside it,
+/// in `model.rs`'s own test module, where `Rotated`'s private fields are
+/// reachable.
+#[test]
+fn the_restructured_block_is_the_same_calls_in_the_same_order() {
+    let dev = Device::Cpu;
+    let m = deterministic(&dev, false);
+    let prompt = [3u32, 1, 4, 1, 5, 9, 2, 6];
+
+    // (1) The golden. Recompute with `cargo test -- --nocapture` and read the
+    // panic message if a legitimate change to the toy config moves it; do not
+    // "refresh" it to make a red test green without saying why.
+    const GOLDEN: [u32; 8] = [107, 90, 2, 35, 35, 35, 35, 35];
+    let got = m.generate(&prompt, GOLDEN.len(), &mut NoCapture).expect("generate");
+    assert_eq!(
+        got.as_slice(),
+        &GOLDEN,
+        "la restructuration de forward_cached a changé ce que le modèle dit"
+    );
+
+    // (2) The golden is sensitive to a k/v permutation.
+    let swapped = deterministic(&dev, true)
+        .generate(&prompt, GOLDEN.len(), &mut NoCapture)
+        .expect("generate");
+    assert_ne!(
+        swapped.as_slice(),
+        &GOLDEN,
+        "échanger k et v ne change pas la sortie : le golden ne prouve rien sur l'ordre"
+    );
+
+    // (3) The mode does not reach a dense model.
+    for share in [RotShare::Off, RotShare::On] {
+        let mut m = deterministic(&dev, false);
+        m.set_rot_share(share);
+        assert_eq!(
+            m.generate(&prompt, GOLDEN.len(), &mut NoCapture).expect("generate"),
+            GOLDEN.to_vec(),
+            "{share:?} a changé un modèle dense"
+        );
+    }
 }
 
 /// Greedy decoding is deterministic, so the cached and uncached paths must

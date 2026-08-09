@@ -20,4 +20,5 @@ pub mod fused;
 pub mod fused_cuda;
 pub mod loader;
 pub mod model;
+pub mod rotplan;
 pub mod sealed;

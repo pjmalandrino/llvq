@@ -120,6 +120,21 @@ fn main() -> anyhow::Result<()> {
             .map_err(|e| anyhow::anyhow!("{e}"))?
             .get_ids()
             .to_vec();
+        // The guard clause of the card gate. The threshold lives in
+        // `rotplan::arms_are_discriminating`, where a test can reach it — this
+        // whole block compiles on no developer machine, and a mutant that
+        // weakened the bound to zero survived the entire suite while the
+        // comparison was written out here.
+        if !llvq_llm::rotplan::arms_are_discriminating(ids.len(), n_new) {
+            anyhow::bail!(
+                "prompt de {} token(s), {n_new} nouveau(x) : les deux bras LLVQ_ROT_SHARE \
+                 parcourent alors le même chemin, et la comparaison de tokens imprimerait \
+                 un vert qui ne dit rien.",
+                ids.len()
+            );
+        }
+        let rot_share = f.rot_share;
+        let rot_launches = f.rot_launches;
         f.model.generate(&ids, n_new, &mut NoCapture)?;
         let t = Instant::now();
         let fused_tokens = f.model.generate(&ids, n_new, &mut NoCapture)?;
@@ -135,6 +150,13 @@ fn main() -> anyhow::Result<()> {
         println!(
             "fusé   : chargé en {fused_load:6.1} s, {fused_rate:6.1} tok/s, {:.2} Go sur la carte",
             fused_bytes as f64 / 1e9
+        );
+        // On the arm line, not only in the loader's log: an A/B whose two runs
+        // are told apart by scrolling back to a load-time message is an A/B
+        // waiting to be misread.
+        println!(
+            "         LLVQ_ROT_SHARE={}, {rot_launches} rot_lancements/token",
+            rot_share.name()
         );
         let tok = f.tokenizer.clone();
         if time_phases {

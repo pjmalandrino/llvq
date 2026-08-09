@@ -1059,6 +1059,15 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
         });
     }
 
+    // The rotation keys must partition the activation sites *before* anything
+    // is uploaded: lot A4 hoists one rotation per site, and a file where two
+    // consumers of one activation carry different rotations — or where two
+    // activations share one — would make that hoist hand a projection the
+    // wrong basis. Refused by name here rather than degraded silently, and
+    // checked on every load so the `LLVQ_ROT_SHARE=0` arm rests on the same
+    // premise as the `=1` arm.
+    crate::rotplan::check_rotation_partition(&matrices)?;
+
     let n_raw = read_u32(&mut r)?;
     let mut raw = Vec::with_capacity(n_raw as usize);
     let mut carried_weights = 0usize;
