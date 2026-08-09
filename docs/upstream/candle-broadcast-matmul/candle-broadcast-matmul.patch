@@ -1,0 +1,80 @@
+diff --git a/candle-core/src/tensor.rs b/candle-core/src/tensor.rs
+index 7070a00..e9eb310 100644
+--- a/candle-core/src/tensor.rs
++++ b/candle-core/src/tensor.rs
+@@ -1562,6 +1562,22 @@ impl Tensor {
+                 .broadcast_as(&l_shape)?
+                 .contiguous()?
+                 .matmul(&rhs.broadcast_as(&r_shape)?.contiguous()?),
++            // A rank-2 rhs is only broadcast over the batch dimensions, so the
++            // whole product is one 2D matmul once the leading dims of lhs are
++            // folded into its row dimension. Broadcasting the rhs instead would
++            // copy it `batch` times -- for an lm_head that is the entire
++            // vocabulary matrix, per call. Same trick, and same contiguity
++            // guard, as `candle_nn::Linear::forward`.
++            (false, true) if rhs.rank() == 2 && lhs.is_contiguous() => {
++                let (lhs_dims, rhs_dims) = (lhs.dims(), rhs.dims());
++                let (m, k) = (lhs_dims[lhs.rank() - 2], lhs_dims[lhs.rank() - 1]);
++                let n = rhs_dims[1];
++                let batch: usize = lhs_dims[..lhs.rank() - 2].iter().product();
++                let mut out_dims = lhs_dims.to_vec();
++                out_dims.pop();
++                out_dims.push(n);
++                lhs.reshape((batch * m, k))?.matmul(rhs)?.reshape(out_dims)
++            }
+             (false, true) => lhs.matmul(&rhs.broadcast_as(&r_shape)?.contiguous()?),
+             (true, false) => lhs.broadcast_as(&l_shape)?.contiguous()?.matmul(rhs),
+             (false, false) => lhs.matmul(rhs),
+diff --git a/candle-core/tests/matmul_tests.rs b/candle-core/tests/matmul_tests.rs
+index c6b3e59..c3e7371 100644
+--- a/candle-core/tests/matmul_tests.rs
++++ b/candle-core/tests/matmul_tests.rs
+@@ -149,6 +149,36 @@ fn zero_matmul_device_validation(device: &Device) -> Result<()> {
+     Ok(())
+ }
+ 
++// A rank-2 rhs is broadcast over the batch dims only, which `broadcast_matmul`
++// folds into a single 2D matmul instead of copying the rhs. Check the folded
++// path against the per-batch products it stands for, contiguous lhs (folded)
++// and non-contiguous lhs (fallback) alike.
++fn broadcast_matmul_rank2_rhs(device: &Device) -> Result<()> {
++    let rhs = Tensor::randn(0f32, 1f32, (5, 2), device)?;
++    for lhs in [
++        Tensor::randn(0f32, 1f32, (3, 4, 5), device)?,
++        Tensor::randn(0f32, 1f32, (3, 6, 4, 5), device)?,
++        Tensor::randn(0f32, 1f32, (1, 1, 5), device)?,
++        Tensor::randn(0f32, 1f32, (3, 5, 4), device)?.transpose(1, 2)?,
++    ] {
++        let out = lhs.broadcast_matmul(&rhs)?;
++        let mut dims = lhs.dims().to_vec();
++        let n = dims.len();
++        dims[n - 1] = 2;
++        assert_eq!(out.dims(), dims.as_slice());
++        // Same product, computed the way the doc comment describes it.
++        let batch: usize = lhs.dims()[..n - 2].iter().product();
++        let (m, k) = (lhs.dims()[n - 2], lhs.dims()[n - 1]);
++        let flat = lhs.reshape((batch, m, k))?;
++        let out = out.reshape((batch, m, 2))?;
++        for b in 0..batch {
++            let diff = (out.i(b)? - flat.i(b)?.matmul(&rhs)?)?.sqr()?.sum_all()?;
++            assert!(diff.to_vec0::<f32>()? < 1e-6);
++        }
++    }
++    Ok(())
++}
++
+ #[test]
+ fn tensor_dot() -> Result<()> {
+     let lhs = Tensor::new(&[1., 2., 3.], &Device::Cpu)?;
+@@ -227,5 +257,11 @@ test_device!(
+     zero_matmul_device_validation_gpu,
+     zero_matmul_device_validation_metal
+ );
++test_device!(
++    broadcast_matmul_rank2_rhs,
++    broadcast_matmul_rank2_rhs_cpu,
++    broadcast_matmul_rank2_rhs_gpu,
++    broadcast_matmul_rank2_rhs_metal
++);
+ test_device!(squeeze_mm, squeeze_mm_cpu, squeeze_mm_gpu, squeeze_mm_metal);
+ test_device!(mm_layout, mm_layout_cpu, mm_layout_gpu, mm_layout_metal);

@@ -1,0 +1,20 @@
+# Its own workspace root, on purpose. This crate sits inside the llvq repo but
+# is not a member of it: it exists to be run here or copied anywhere else
+# verbatim, and it pulls candle, which nothing in the workspace should.
+# Without this table cargo refuses to build it at all, since the root manifest
+# neither lists nor excludes it.
+[workspace]
+
+[package]
+name = "bmm-repro"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Released crate. To measure against a checkout instead, replace with:
+#   candle-core = { path = "/path/to/candle/candle-core" }
+candle-core = "=0.9.2"
+
+[profile.release]
+opt-level = 3
