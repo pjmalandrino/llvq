@@ -391,13 +391,26 @@ sur `q4b-e8.llvq`, `fusedrun` sur le fichier à embedding f16).
 > ⚠️ **Le saut de débit qui l'accompagne n'est pas ce qu'il paraît, et il ne
 > faut pas en faire un titre.** Passer à q8 fait bondir le modèle de 48,7 à
 > 88,4–88,5 tok/s, très au-delà du trafic du `lm_head` (~0,6 ms attendus). Le
-> mécanisme est attribué : le noyau q8 remplace un chemin candle qui recopiait
+> mécanisme est attribué : le noyau q8 remplace un chemin qui recopiait
 > les **778 Mo du vocabulaire à chaque token** (~26 ms/token, le `TODO` est
 > dans le code de candle et la copie est chronométrée,
 > [`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
-> **Donc deux formulations, et il faut donner les deux** : ×2,03 contre le
-> moteur de référence tel quel, **~×1,4 contre ce moteur corrigé**. Seuls
+> **Donc deux formulations, et il faut donner les deux** : ×2,03 contre notre
+> bras dense tel quel, **~×1,4 contre ce même bras corrigé**. Seuls
 > ~2,9 ms/token viennent réellement du noyau Leech.
+>
+> 🚨 **« Un chemin candle » était une mauvaise étiquette, et elle a survécu
+> jusqu'au 2026-08-09.** Le chemin est **le nôtre** : `Head::project`
+> (`llvq-llm/src/model.rs:553`) appelle `Tensor::broadcast_matmul`, dont le
+> bras à rhs de rang 2 matérialise le poids transposé à chaque appel.
+> `candle_nn::Linear::forward` replie les dimensions de tête exprès pour
+> éviter ce chemin, et **les modèles de `candle_transformers` passent par
+> `Linear`** : ils ne paient pas cette copie. Le piège est dans la primitive,
+> pas dans les modèles de candle. Conséquence qui compte pour tout ce dossier :
+> **la baseline handicapée est la nôtre**, donc le ×2,03 ne se publie jamais
+> seul — c'est le ×1,12 à tête identique qui mesure le noyau. Remonté amont
+> avec repro et patch :
+> [huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871).
 
 Résultat G4 mesuré (20 000 blocs, seed figée), face aux chiffres du papier
 relus sur le PDF (Table 8, annexe H — celle qui nomme le codebook) :
@@ -639,10 +652,11 @@ VRAM peuvent citer le q8 sans casser la colonne qualité.
    §3). Ce que le §3bis d'origine décrivait comme structurellement perdu ne
    l'était pas : c'était le one-hot de `Slot32`, pas la méthode.
 3. **Débit : renversé contre notre propre chemin dense** (×2,03), mais
-   ⚠️ **à formuler deux fois** : l'essentiel du gain vient d'un défaut du
-   moteur de référence (candle recopie 778 Mo de vocabulaire par token), donc
-   ~×1,4 contre ce moteur corrigé (§3). Contre l'AWQ **dans son moteur à
-   lui**, on n'a toujours aucune mesure.
+   ⚠️ **à formuler deux fois** : l'essentiel du gain vient d'un défaut de
+   **notre** bras dense, qui appelle `broadcast_matmul` et recopie 778 Mo de
+   vocabulaire par token (pas les modèles de candle, qui passent par `Linear`
+   — cf. le 🚨 du §3), donc ~×1,4 contre ce même bras corrigé. Contre l'AWQ
+   **dans son moteur à lui**, on n'a toujours aucune mesure.
 4. **Qualité : pas renversé, et c'est le point dur.** −14,73 pp de MMLU au 4B
    contre −0,28 pour le 4 bits. Sur un 4B, **le 4 bits domine sans
    discussion**.

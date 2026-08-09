@@ -33,12 +33,17 @@ son suspect n°1 a été réfuté proprement cette nuit.
 
 **Le ×2,02 de débit est attribué phase par phase**
 ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)) : ~26 ms
-par token viennent d'un défaut du moteur de référence (candle recopie les
-778 Mo du vocabulaire à chaque token — le `TODO` est dans son code, la
-copie est chronométrée), que notre noyau q8 ramène à 0,6 ms ; ~2,9 ms
-viennent du noyau Leech sur les projections. Formulation double au
-comparatif : ×2,02 contre le moteur tel quel, ~×1,4 contre ce moteur
-corrigé (estimé des phases).
+par token viennent d'un défaut de **notre bras dense** — `Head::project`
+appelle `broadcast_matmul`, qui recopie les 778 Mo du vocabulaire à chaque
+token (le `TODO` est dans le code de candle, la copie est chronométrée) —
+que notre noyau q8 ramène à 0,6 ms ; ~2,9 ms viennent du noyau Leech sur les
+projections. 🚨 **Le défaut est dans la primitive, pas dans les modèles de
+candle**, qui atteignent leur tête par `Linear` et évitent ce chemin
+([candle#3871](https://github.com/huggingface/candle/issues/3871)) : la
+baseline handicapée est la nôtre, donc le ×2,02 ne porte pas seul.
+Formulation double au comparatif : ×2,02 contre notre bras dense tel quel,
+~×1,4 contre ce même bras corrigé (estimé des phases), et ×1,12 à tête
+identique pour le noyau seul.
 
 ## 3. L'échelle des formats — trois points de fonctionnement, tous vérifiés
 

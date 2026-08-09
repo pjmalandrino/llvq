@@ -52,10 +52,11 @@ reconstruction. Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
 in 2.60~GB of VRAM: $2.03\times$ the throughput of the FP16 reference
 engine in $3.09\times$ less memory, with the serving stack adding no
 measurable quality cost on top of the quantized artifact. Much of that
-speedup comes from replacing a per-token 778~MB transposed copy in the
-reference engine's output head; with that head path held identical in both
+speedup comes from replacing a per-token 778~MB transposed copy in our own
+dense arm's output head, a tensor-primitive trap that stock
+\texttt{candle} models avoid; with that head path held identical in both
 arms, the measured kernel-plus-format gain is $1.12\times$ on the 4B and
-$1.29\times$ on the 8B. On Qwen3-8B the served model takes 5.45~GB versus
+$1.29\times$ on the 8B, and that is the number we claim. On Qwen3-8B the served model takes 5.45~GB versus
 6.10~GB for the official AWQ 4-bit checkpoint, at $2.61\times$ the
 reference engine's throughput, and its pre-baked int8 file is 3.16~GB,
 roughly half of AWQ's. The quality gap to 4-bit shrinks from 14.5 to 7.5

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="434" viewBox="0 0 680 434" role="img" font-family="Helvetica, Arial, sans-serif">
+<title>How broadcast_matmul copies the whole rhs</title>
+<desc>A single call, h times w transposed, forks into two paths. The current path broadcasts the right-hand side and calls contiguous, copying 778 MB on every call, and takes 8104 ms on the CPU reproducer. The proposed path reshapes the left-hand side instead and runs one 2D matmul on the transposed view with zero bytes copied, taking 76.6 ms for the same result.</desc>
+
+<defs>
+  <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M0 1 L9 5 L0 9" fill="none" stroke="#5F5E5A" stroke-width="1.5"/>
+  </marker>
+</defs>
+
+<rect x="0" y="0" width="680" height="434" fill="#FFFFFF"/>
+
+<g fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#head)">
+  <path d="M340 82 V92 H180 V114"/>
+  <path d="M340 82 V92 H500 V114"/>
+  <path d="M180 148 V166"/>
+  <path d="M500 148 V166"/>
+  <path d="M180 224 V242"/>
+  <path d="M500 224 V242"/>
+  <path d="M180 300 V318"/>
+  <path d="M500 300 V318"/>
+</g>
+
+<rect x="170" y="30" width="340" height="52" rx="4" fill="#FFFFFF" stroke="#B4B2A9"/>
+<text x="340" y="52" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">h.broadcast_matmul(&amp;w.t())</text>
+<text x="340" y="70" text-anchor="middle" font-size="12" fill="#5F5E5A">h (1, 1, 2560) f16 · w (151936, 2560) f16</text>
+
+<rect x="40" y="116" width="280" height="30" rx="4" fill="#FFFFFF" stroke="#B4B2A9"/>
+<text x="180" y="135" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">current path</text>
+<rect x="360" y="116" width="280" height="30" rx="4" fill="#FFFFFF" stroke="#B4B2A9"/>
+<text x="500" y="135" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">with the fold</text>
+
+<rect x="40" y="168" width="280" height="54" rx="4" fill="#FCEBEB" stroke="#A32D2D"/>
+<text x="180" y="191" text-anchor="middle" font-size="14" font-weight="500" fill="#501313">broadcast_as + contiguous()</text>
+<text x="180" y="209" text-anchor="middle" font-size="12" fill="#A32D2D">778 MB copied on every call</text>
+
+<rect x="360" y="168" width="280" height="54" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="500" y="191" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">reshape lhs to (1, 2560)</text>
+<text x="500" y="209" text-anchor="middle" font-size="12" fill="#5F5E5A">free, lhs is contiguous</text>
+
+<rect x="40" y="244" width="280" height="54" rx="4" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="180" y="267" text-anchor="middle" font-size="14" font-weight="500" fill="#2C2C2A">batched matmul</text>
+<text x="180" y="285" text-anchor="middle" font-size="12" fill="#5F5E5A">(1, 2560, 151936) as rhs</text>
+
+<rect x="360" y="244" width="280" height="54" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+<text x="500" y="267" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C">matmul on the view</text>
+<text x="500" y="285" text-anchor="middle" font-size="12" fill="#0F6E56">0 bytes copied</text>
+
+<rect x="40" y="320" width="280" height="48" rx="4" fill="#FCEBEB" stroke="#A32D2D"/>
+<text x="180" y="343" text-anchor="middle" font-size="14" font-weight="500" fill="#501313">8 104 ms</text>
+<text x="180" y="361" text-anchor="middle" font-size="12" fill="#A32D2D">cpu repro, f16, best of 5</text>
+
+<rect x="360" y="320" width="280" height="48" rx="4" fill="#E1F5EE" stroke="#0F6E56"/>
+<text x="500" y="343" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C">76.6 ms</text>
+<text x="500" y="361" text-anchor="middle" font-size="12" fill="#0F6E56">same tensors, same result</text>
+
+<text x="340" y="396" text-anchor="middle" font-size="12" fill="#5F5E5A">the rhs is a transposed view, so the copy is a strided gather, not a memcpy</text>
+<text x="340" y="414" text-anchor="middle" font-size="12" fill="#5F5E5A">on an L40S it costs 26.7 ms per decoded token, twice all 36 transformer blocks</text>
+</svg>

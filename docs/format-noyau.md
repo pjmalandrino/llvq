@@ -632,7 +632,11 @@ seulement la part que la quantification change.
 > ([`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt)).
 > Avec l'embedding int8 au chargement : **88,4–88,5 tok/s dans 2,60 Go**.
 > ⚠️ **Le ×2,03 de ce second chiffre n'est pas le noyau Leech** — ~25 ms/token
-> viennent du remplacement du chemin `lm_head` de candle. **Le rapport à tête
+> viennent du remplacement de **notre** chemin `lm_head` dense, qui appelle
+> `broadcast_matmul` et recopie 778 Mo par token. Les modèles de
+> `candle_transformers` passent par `Linear` et ne paient pas cette copie
+> ([candle#3871](https://github.com/huggingface/candle/issues/3871)) : la
+> baseline handicapée est la nôtre. **Le rapport à tête
 > identique est ×1,12**, et c'est celui qui mesure le noyau
 > ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
 >

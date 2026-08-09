@@ -21,9 +21,14 @@
 >    2,96 Go contre 43,6 dans 8,04**, mêmes tokens. Le « ~78,5 projeté » de la
 >    table ci-dessous est mort — il ne se cite plus.
 >    ⚠️ **Le ×2,03 souvent entendu n'est pas le noyau** : ~25 ms/token viennent
->    du remplacement du chemin `lm_head` de candle. **Le chiffre du noyau est
->    ×1,12, à tête identique.** Ne jamais donner l'un sans l'autre —
->    ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+>    du remplacement de **notre propre** chemin `lm_head` dense, qui appelle
+>    `broadcast_matmul` et recopie 778 Mo par token. **Ce n'est pas ce que fait
+>    candle** : ses modèles passent par `Linear`, qui évite ce chemin. Si on
+>    vous oppose « vous comparez à une baseline que vous avez cassée
+>    vous-mêmes », la réponse est oui, et c'est pour ça que **le chiffre du
+>    noyau est ×1,12, à tête identique.** Ne jamais donner l'un sans l'autre —
+>    ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt),
+>    [candle#3871](https://github.com/huggingface/candle/issues/3871)).
 > 3. **`Slot32` n'est plus le layout de référence** : c'est **`Planes14`**,
 >    4,804 b/poids, 1,14× plus rapide à contenu décodé identique. `Planes12x`
 >    (4,342) est mesuré mais **non branché** ; `Golay70` (3,589) est **mesuré et
@@ -69,7 +74,7 @@ demande, tout ce que tu as dit avant devient suspect.
 | MMLU, micro, 2 280 questions | f16 **70,32 ± 1,28** · AWQ 4 bits **70,04 ± 1,25** · nous **55,59 ± 1,35** |
 | Le noyau au banc, 252 matrices, un token | Metal `Slot32` **5,510** b/poids, **2,03–2,09×** selon l'invocation · L40S **`Planes14` 4,804 b/poids, 2,14×** |
 | VRAM face au 4 bits, **b/param modèle entier** | nous (`Planes14` + embedding int8) **5,15** · AWQ réel **5,30** → **nous devant, de 3 %** |
-| Débit bout en bout, L40S, mêmes octets | dense **43,6** · fusé **48,7 (×1,12)** · fusé + embedding q8 **88,4-88,5 (×2,03, dont ~25 ms de `lm_head` candle)** |
+| Débit bout en bout, L40S, mêmes octets | dense **43,6** · fusé **48,7 (×1,12)** · fusé + embedding q8 **88,4-88,5 (×2,03, dont ~25 ms de notre propre `lm_head` dense, pas de candle)** |
 | Lignes vérifiées contre référence f64 | **1 105 920**, pire erreur 3,4·10⁻⁸ |
 | Le point d'échelle (8B) | ppl **×1,220** et MMLU **−10,56 pp**, contre ×1,385 et −14,73 au 4B |
 

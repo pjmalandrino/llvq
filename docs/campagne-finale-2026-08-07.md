@@ -68,10 +68,14 @@ d'A4 reste vrai sur l'axe capacités ; le pari du 2 bits reste l'échelle
 
 Attribution par phases ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)) :
 ~2,9 ms/token viennent du noyau Leech sur les projections, ~25 ms du
-remplacement du chemin lm_head de candle (qui recopie 778 Mo par token —
-le `TODO` est dans son code). Formulation double : **×2,03 contre le
-moteur de référence tel que tout le monde l'utilise ; ~×1,4 contre ce
-moteur si on lui corrigeait sa copie** (estimé des phases mesurées).
+remplacement de **notre** chemin lm_head dense, qui recopie 778 Mo par token
+(`Head::project` → `broadcast_matmul` ; le `TODO` est dans le code de
+candle, mais l'appel est le nôtre, et les modèles de `candle_transformers`
+passent par `Linear` et ne paient pas cette copie —
+[huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871)).
+Formulation double : **×2,03 contre notre bras dense tel que mesuré ;
+~×1,4 contre ce même bras corrigé de sa copie** (estimé des phases
+mesurées). Le chiffre du noyau reste le ×1,12 à tête identique.
 
 ## Coût de l'ensemble
 

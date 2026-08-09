@@ -198,9 +198,15 @@ cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.
   the same greedy tokens up to a tie-break at token 89. Setting
   `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the same
   bytes to **88.4–88.5 tok/s in 2.60 GB** (5.15 bits/param); that ×2.03 is
-  mostly a replacement of candle's `lm_head` path, which recopies 778 MB of
-  vocabulary per token, and **not** the Leech kernel — whose own contribution
-  is the ×1.12. The two are never quoted apart. **On Apple
+  mostly a replacement of an output head that recopies 778 MB of vocabulary
+  per token, and **not** the Leech kernel — whose own contribution is the
+  ×1.12. The two are never quoted apart. That copy is on *our* side: our
+  dense arm calls `Tensor::broadcast_matmul`, whose rank-2-rhs path
+  materializes the transposed weight every call. Models built on
+  `candle_nn::Linear`, including candle's own, fold the batch dimensions and
+  never pay it, so this is a trap in the primitive rather than a defect of
+  candle's models ([reported
+  upstream](https://github.com/huggingface/candle/issues/3871)). **On Apple
   silicon none of this applies**: `llvq-metal` is a benchmark
   (2.03–2.09× FP16 on the 252 projections, every output row verified against
   an f64 reference) with no runner behind it. Logs:

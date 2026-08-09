@@ -27,7 +27,10 @@
 > | E2 (KV int8) | ⬜ non entamé | — |
 >
 > **Ce que le plan n'avait pas prévu, et qui a le plus payé** : le remplacement
-> du chemin `lm_head` de candle. Il vaut ~25 ms/token à lui seul — bien plus
+> de notre chemin `lm_head` dense, qui appelle `broadcast_matmul` et recopie
+> 778 Mo par token (défaut de la primitive, pas des modèles de candle, qui
+> passent par `Linear` — [candle#3871](https://github.com/huggingface/candle/issues/3871)).
+> Il vaut ~25 ms/token à lui seul — bien plus
 > que tout le reste du tableau réuni — et il a été trouvé en instrumentant,
 > pas en planifiant ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
 > ⚠️ D'où la règle : le **×2,03** bout-en-bout ne se publie jamais sans le

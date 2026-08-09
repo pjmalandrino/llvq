@@ -31,7 +31,7 @@ argmax + misc & 0.101 & 0.097 & 0.078 \\
 \bottomrule
 \end{tabular}
 \caption{Per-token phase attribution (sync-bounded medians; phases
-attribute time but their sum is not a throughput). The reference engine
+attribute time but their sum is not a throughput). Our dense arm
 spends twice as long producing logits as running all 36 transformer
 blocks. Data: \texttt{docs/data/phases.csv}.}
 \label{tab:phases}
@@ -42,31 +42,47 @@ blocks. Data: \texttt{docs/data/phases.csv}.}
 \includegraphics[width=0.85\linewidth]{fig2_phase_attribution.pdf}
 \caption{Where a token's time goes. The fused kernel wins its phase
 (13.3 to 10.4~ms across the transformer blocks), but the decode loop
-is dominated by an output-head pathology in the reference engine: a
+is dominated by an output-head pathology in our dense reference arm: a
 778~MB transposed copy of the vocabulary projection, materialized every
-token. Our q8 head reads 413~MB in place, once.}
+token by \texttt{broadcast\_matmul}. Our q8 head reads 413~MB in place,
+once. Stock \texttt{candle} models go through \texttt{Linear} and avoid
+this path, which is why the headline number is the one measured with the
+same head on both arms.}
 \label{fig:phases}
 \end{figure}
 
-\textbf{The finding.} Table~\ref{tab:phases} shows the reference engine
+\textbf{The finding.} Table~\ref{tab:phases} shows our dense reference arm
 spending 26.7~ms per token in the output head, twice the cost of all 36
-transformer blocks. The cause is in the engine's source: for this matmul
-shape, \texttt{candle}~0.9.2 takes a
-$\texttt{broadcast\_matmul}\to\texttt{contiguous()}$ path that materializes
-a 778~MB transposed copy of the vocabulary matrix \emph{on every token}
-(the file carries its own \texttt{TODO:\ Avoid concretising} at the site,
-\texttt{tensor.rs:1550}). Replacing the head with an int8 kernel that reads
-its 413~MB in place collapses the phase from 25.9 to 0.6~ms. The copy
-scales with the vocabulary projection: on the 8B (hidden size 4096, untied
-head) it is 1.24~GB per token, and the same replacement doubles
-end-to-end throughput there (34.4 to 69.3~tok/s). We believe this finding is of
-independent interest to \texttt{candle} users: it taxes every model served
-through this path, quantized or not.
+transformer blocks. The cause is a tensor primitive: the head applies
+$h W^{\top}$ through \texttt{Tensor::broadcast\_matmul}, whose rank-2-rhs
+path materializes a 778~MB transposed copy of the vocabulary matrix
+\emph{on every token} (\texttt{candle}~0.9.2 carries its own
+\texttt{TODO:\ Avoid concretising} at the site, \texttt{tensor.rs:1550}).
+Replacing the head with an int8 kernel that reads its 413~MB in place
+collapses the phase from 25.9 to 0.6~ms. The copy scales with the
+vocabulary projection: on the 8B (hidden size 4096, untied head) it is
+1.24~GB per token, and the same replacement doubles end-to-end throughput
+there (34.4 to 69.3~tok/s).
+
+\textbf{Whose defect this is.} It is a trap in the primitive, not a defect
+of \texttt{candle}'s models, and the distinction matters because the
+defective arm is ours. \texttt{candle\_nn::Linear::forward} deliberately
+folds the leading dimensions of its input into the row dimension to avoid
+the broadcast path, so models built on \texttt{Linear}, including
+\texttt{candle\_transformers}' own, never pay this copy. Our head calls the
+primitive directly, which is why our dense baseline pays it and a stock
+\texttt{candle} deployment would not. That is precisely why the number we
+put forward below is the one measured with the \emph{same} head on both
+arms: a baseline we handicapped ourselves cannot carry a speedup claim. We
+reported the primitive upstream with a reproducer and a patch that moves the
+same fold one level
+down.\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
 
 \textbf{The double formulation.} End-to-end, the fused engine reaches
 88.4~tok/s against the dense engine's 43.5, a factor of $2.03\times$.
 Honesty requires splitting that number, because much of it is the head fix,
-which a dense engine could adopt too. We do not derive the split from the
+which the dense arm could adopt too and which a stock \texttt{candle}
+deployment never needed. We do not derive the split from the
 fenced phases: synchronization serializes work the real decode overlaps,
 so phase sums attribute time but do not compose into a throughput. Instead
 we report the measured lower bound: with the defective f16 head path held
@@ -75,9 +91,9 @@ identical in both arms, the fused engine gains $1.12\times$ on the 4B
 Both numbers understate the kernel, whose own phase runs $1.27\times$
 faster (13.3 to 10.4~ms across the transformer blocks) and whose projection
 benchmark runs $2.14\times$ over FP16; the giant head phase dilutes them.
-We report both formulations, always together: $2.03\times$ against the
-engine as everyone runs it today, at least $1.12\times$ against that
-engine with its copy fixed.\footnote{88.4~tok/s is the final-campaign run;
+We report both formulations, always together: $2.03\times$ against our
+dense arm as measured, at least $1.12\times$ against that arm with its head
+copy removed. Only the second is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;
 the integration run of Table~\ref{tab:progression} reports 88.5 on the same
 configuration. The difference is inter-run dispersion, not a change of
 object.}

@@ -35,7 +35,13 @@ lattice codes.
 
 \textbf{Serving engines.} Our integration is built on
 \texttt{candle}~\citep{candle2023}. The output-head materialization of
-\S\ref{sec:integration} is, to our knowledge, unreported; similar
+\S\ref{sec:integration} is a property of the \texttt{broadcast\_matmul}
+primitive, which we found unreported and have since reported
+upstream;\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
+it is not a property of \texttt{candle}'s served models, which reach their
+heads through \texttt{Linear} and avoid the path. Similar
 transpose-materialization taxes have been folklore in other engines, which
 is why per-phase attribution with synchronization barriers,
-rather than end-to-end numbers alone, belongs in systems evaluations.
+rather than end-to-end numbers alone, belongs in systems evaluations, and
+why a speedup measured against one's own baseline has to be restated
+against a baseline free of the defect.

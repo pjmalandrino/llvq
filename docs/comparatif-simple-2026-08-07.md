@@ -68,20 +68,27 @@ de tout ce qui précède.
 
 L'instrumentation par phases ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt),
 0,33 $) a tranché : la phase « vocabulaire » (lm_head) d'un token coûte
-**25,9 ms en tête f16 et 0,598 ms en tête q8** — et le moteur de référence
-paie la même chose (26,7 ms). La cause, confirmée d'abord dans le code de
-candle puis au chronomètre : son chemin `broadcast_matmul` **recopie les
-778 Mo du vocabulaire à chaque mot généré** (le `TODO: Avoid concretising`
-est dans leur source). Notre noyau lit les 413 Mo compressés une fois, sans
-copie.
+**25,9 ms en tête f16 et 0,598 ms en tête q8** — et notre bras dense paie la
+même chose (26,7 ms). La cause, confirmée d'abord dans le code puis au
+chronomètre : `Head::project` (`llvq-llm/src/model.rs:553`) passe par
+`broadcast_matmul`, qui **recopie les 778 Mo du vocabulaire à chaque mot
+généré** (le `TODO: Avoid concretising` est dans le source de candle). Notre
+noyau lit les 413 Mo compressés une fois, sans copie.
+
+🚨 **La copie est la nôtre.** `candle_nn::Linear::forward` évite ce chemin
+exprès, et les modèles de `candle_transformers` passent par `Linear` : **ils
+ne la paient pas.** Le défaut est dans la primitive, et nous sommes ceux qui
+l'appelons. Remonté amont :
+[huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871).
 
 Les **trois** formulations honnêtes, chiffres en main :
-- **×2,02 contre le moteur de référence tel que tout le monde l'utilise**
-  (87,7 contre 43,4 tok/s, mesuré dans le même job) ;
-- **~×1,4 contre ce même moteur si on lui corrigeait sa copie** (estimé par
-  recomposition des phases mesurées — le corriger réellement est possible
-  et le chiffre deviendrait alors une mesure) ;
-- **×1,12 à tête identique** — f16 des deux côtés, donc la copie de candle
+- **×2,02 contre notre bras dense tel que mesuré**
+  (87,7 contre 43,4 tok/s, mesuré dans le même job) — ⚠️ ce bras porte notre
+  propre copie, donc ce chiffre ne se publie pas seul ;
+- **~×1,4 contre ce même bras si on lui corrigeait sa copie** (estimé par
+  recomposition des phases mesurées — le corriger réellement est possible,
+  c'est une ligne, et le chiffre deviendrait alors une mesure) ;
+- **×1,12 à tête identique** — f16 des deux côtés, donc la même copie
   payée par les deux bras : **48,6 contre 43,5 tok/s**, relevé dans le même
   job. C'est le seul des trois qui soit **à la fois mesuré bout-en-bout et
   attribuable au noyau Leech seul**, et c'est celui qu'un relecteur exigera.

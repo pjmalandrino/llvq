@@ -262,9 +262,16 @@ FP16 — that was the state of this project on 2026-08-04.
 object; the repo prints both rather than picking one.
 
 **Read the speed number with its companion.** The ×2.03 against the dense arm
-is *not* the kernel alone: ~25 ms/token of it comes from replacing candle's
-`lm_head` path, which recopies 778 MB of vocabulary per token (the `TODO` is in
-its code). **At identical head — f16 on both arms — the same measurement gives
+is *not* the kernel alone: ~25 ms/token of it comes from replacing an output
+head that recopies 778 MB of vocabulary per token. **That copy is ours, not
+candle's.** Our dense arm calls `Tensor::broadcast_matmul`
+([`llvq-llm/src/model.rs:553`](llvq-llm/src/model.rs)), whose rank-2-rhs path
+materializes the transposed weight on every call (the `TODO` is in candle's
+code). Models built on `candle_nn::Linear` fold the batch dimensions instead
+and never pay it, so the trap is in the primitive, not in candle's models.
+Reported upstream:
+[huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871).
+**At identical head — f16 on both arms — the same measurement gives
 ×1.12** (48.7 against 43.6 tok/s), and that is the honest figure for what the
 Leech kernel itself buys end to end
 ([`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
@@ -509,7 +516,9 @@ greedy tokens out. On an L40S, 128 tokens, `Planes14`:
 
 With the tied embedding also quantized to int8 at load (`LLVQ_EMBED=q8`) the
 same run reaches **88.4–88.5 tok/s in 2.60 GB**. That ×2.03 is *not* the Leech
-kernel: ~25 ms/token of it is candle's `lm_head` path being replaced. **×1.12 is
+kernel: ~25 ms/token of it is *our own* dense `lm_head` path being replaced, the
+`broadcast_matmul` copy described above, not something candle's models do.
+**×1.12 is
 the kernel's own end-to-end contribution and the two must be quoted together**
 ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt),
 [`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).

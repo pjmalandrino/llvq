@@ -64,13 +64,24 @@ Données : [`data/echelle-formats.csv`](data/echelle-formats.csv).
 | **lm_head** | **26,672** | **25,886** | **0,598** |
 | argmax + divers | 0,101 | 0,097 | 0,078 |
 
-Le moteur de référence (candle 0.9.2) matérialise une copie transposée de
-778 Mo du vocabulaire **à chaque token** (`broadcast_matmul` →
-`contiguous()` → gather `ucopy_f16` ; le `TODO: Avoid concretising` est
-dans son source, `tensor.rs:1550`). Notre noyau q8 lit 413 Mo une fois,
-sans copie. D'où la formulation double : **×2,03 contre le moteur tel que
-tout le monde l'utilise ; ~×1,4 contre ce moteur corrigé de sa copie**
-(recomposition des phases). Phases bornées par synchronisation — elles
+Notre bras dense matérialise une copie transposée de 778 Mo du vocabulaire
+**à chaque token** : `Head::project` (`llvq-llm/src/model.rs:553`) appelle
+`broadcast_matmul`, dont le chemin à rhs de rang 2 fait
+`contiguous()` → gather `ucopy_f16` (le `TODO: Avoid concretising` est dans
+le source de candle, `tensor.rs:1550`). Notre noyau q8 lit 413 Mo une fois,
+sans copie.
+
+🚨 **La copie est la nôtre, pas celle de candle.**
+`candle_nn::Linear::forward` replie délibérément les dimensions de tête pour
+éviter ce chemin, et les modèles de `candle_transformers` passent par là :
+**ils ne paient pas cette copie**. Le piège est dans la primitive, pas dans
+les modèles de candle. Remonté amont avec repro et patch :
+[huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871).
+Conséquence directe sur ce qu'on peut publier : un bras dense qu'on a
+handicapé soi-même ne porte pas une revendication de vitesse. D'où la
+formulation double : **×2,03 contre notre bras dense tel que mesuré ;
+~×1,4 contre ce même bras corrigé de sa copie** (recomposition des phases),
+et c'est le ×1,12 à tête identique qui reste le seul chiffre du noyau. Phases bornées par synchronisation — elles
 s'attribuent, leur somme n'est pas un tok/s.
 
 > ⚠️ **Il existe un troisième chiffre, et c'est le seul qui soit à la fois

@@ -25,6 +25,14 @@ manifestement bien plus que les 1,18 ms du banc. **À instrumenter avant d'en
 faire un titre** ; le chiffre, lui, est mesuré (même job, bras dense en
 contrôle). En b/param modèle entier : **~5,15 — sous les 5,30 de l'AWQ réel**.
 
+> 🚨 **Errata du 2026-08-09 sur l'étiquette « le chemin candle ».** Le chemin
+> est le nôtre : `Head::project` (`llvq-llm/src/model.rs:553`) appelle
+> `broadcast_matmul`. Les modèles de `candle_transformers` passent par
+> `Linear`, qui replie les dimensions de tête et évite ce chemin : ils ne
+> paient pas la copie. Le défaut est dans la primitive, remonté amont
+> ([candle#3871](https://github.com/huggingface/candle/issues/3871)). Les
+> chiffres de ce document sont inchangés ; seule l'attribution l'est.
+
 > ✅ **Instrumenté le jour même (2026-08-07), et l'attribution est confirmée.**
 > Phases par token, fences device : `lm_head` **25,886 ms** sur le bras fusé à
 > tête f16 et 26,672 ms sur le bras dense, contre 10,439 ms pour tous les

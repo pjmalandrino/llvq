@@ -7,10 +7,10 @@ decoded inside a matvec at memory-bound speed, that the in-VRAM rate is a
 design axis of its own (5.51 to 4.80 to 4.34~b/weight at bit-exact decoded
 content, with the floor
 mapped by a measured negative result at 3.59), and that the integrated
-system serves a 2-bit 4B model from 2.60~GB at twice the reference
-engine's throughput, with the caveat, stated wherever the number appears,
-that much of that factor is a fix to the reference engine's own output
-head. At 8B the same stack serves 5.45~GB against the official 4-bit
+system serves a 2-bit 4B model from 2.60~GB at twice our dense arm's
+throughput, with the caveat, stated wherever the number appears, that much
+of that factor is a fix to that arm's own output head rather than a
+property of the kernel. At 8B the same stack serves 5.45~GB against the official 4-bit
 checkpoint's 6.10, from a file half the size, and the quality gap to
 4-bit halves as the model doubles.
 

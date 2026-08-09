@@ -11,9 +11,12 @@
 >   ([`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B5). Le
 >   « lm_head int8 surdimensionné » a été mesuré et c'est l'inverse : le gain
 >   bout-en-bout est **énorme** (48,7 → 88,5 tok/s), mais **pas pour la raison
->   annoncée** — le noyau q8 remplace un chemin candle qui recopiait 778 Mo de
->   vocabulaire par token, ce que ni cette note ni le P5 du dépôt n'avaient vu
->   ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)).
+>   annoncée** — le noyau q8 remplace **notre** chemin dense, qui appelle
+>   `broadcast_matmul` et recopiait 778 Mo de vocabulaire par token, ce que ni
+>   cette note ni le P5 du dépôt n'avaient vu
+>   ([`mesures/phases-2026-08-07.txt`](mesures/phases-2026-08-07.txt)). ⚠️ Ce
+>   n'est pas ce que fait candle : ses modèles passent par `Linear` et évitent
+>   ce chemin ([candle#3871](https://github.com/huggingface/candle/issues/3871)).
 > - **§2, suspect n°1 (design C) : ❌ RÉFUTÉ à pleine profondeur** — 0,6B,
 >   28 blocs, une variable : **×1,99 de perplexité** contre le chemin publié.
 >   Deuxième occurrence du motif « proxy local meilleur, composition
