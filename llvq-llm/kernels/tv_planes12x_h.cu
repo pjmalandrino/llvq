@@ -63,7 +63,8 @@
 // There is no CUDA card here. `planes12_dot` and `planes12x_row_correction`
 // are scalar register arithmetic and are **executed** by
 // `tests/host_planes12x_h.cpp`, lane by lane, against an f64 reference — that
-// part is checked. The kernel body below — the grid, the two barriers,
+// part is checked, and so is `tail_dot_h`, by `tests/host_tail_h.cpp`. The
+// kernel body below — the grid, the two barriers,
 // `warp_sum`, the f16 store — is **compile-only** there, exactly as
 // `llvq-cuda/tests/host_matvec.cpp` says of `tv_slot`: "a single-threaded
 // driver cannot reproduce a barrier or a warp shuffle". Nothing on this
@@ -73,7 +74,7 @@
 // NVRTC has no filesystem, so the host concatenates the sources; the guards
 // below only resolve from disk under a host clang++ syntax check. Order is
 // the caller's contract (`fused_cuda::planes_source_names`): llvq_slot.cuh,
-// matvec.cu (TILE_COLS, warp_sum, f2h), llvq_rot.cuh, rotate.cu,
+// matvec.cu (TILE_COLS, warp_sum, f2h, tail_dot_h), llvq_rot.cuh, rotate.cu,
 // llvq_planes.cuh (planes_fields), planes.cu, llvq_planes12.cuh
 // (planes12_fields, planes12_dot, planes12x_lane_terms, planes12x_combine),
 // then this file.
@@ -163,7 +164,7 @@ extern "C" __global__ void tv_planes12x_h(const u32* __restrict__ words,
                                           const ClassRec* __restrict__ tab,
                                           const float* __restrict__ gscale,
                                           const float* __restrict__ rscale,
-                                          const float* __restrict__ tail,
+                                          const unsigned short* __restrict__ tail,
                                           const float* __restrict__ x,
                                           unsigned short* __restrict__ y,
                                           u32 nblocks,
@@ -197,9 +198,7 @@ extern "C" __global__ void tv_planes12x_h(const u32* __restrict__ words,
 
     acc = warp_sum(acc);
     if (lane == 0) {
-        float tv = 0.0f;
-        u32 tc0 = nblocks * LLVQ_DIM;
-        for (u32 i = 0; i < tail_w; ++i) tv += tail[row * tail_w + i] * x[tc0 + i];
+        float tv = tail_dot_h(tail, x + nblocks * LLVQ_DIM, row, tail_w);
         y[row] = f2h(acc * rscale[row] + tv);
     }
 }

@@ -495,6 +495,14 @@ impl Cuda {
     /// input is: an inference runtime hands over candle's own
     /// `CudaSlice<half::f16>`, and this crate has no `half` dependency to name
     /// that type with. The kernel writes `unsigned short`, which is those bits.
+    ///
+    /// `tail` is `u16` for the same reason and the same encoding: since lot
+    /// A7a the f16-storing entry points hold the `KeepExact` tail as binary16,
+    /// which is what the dense arm they are diffed against holds it at. The
+    /// *bench* arms — `launch_slot`, `launch_slot_seg`, and planesbench's —
+    /// keep `f32`, because their published `b/poids noyau` bills 32 bits
+    /// there. Two residencies, two accountings, and the type keeps a caller
+    /// from handing one to the other.
     #[allow(clippy::too_many_arguments)]
     pub fn launch_slot_h<T: cudarc::driver::DeviceRepr>(
         &self,
@@ -504,7 +512,7 @@ impl Cuda {
         tab: &CudaSlice<u32>,
         gscale: &CudaSlice<f32>,
         rscale: &CudaSlice<f32>,
-        tail: &CudaSlice<f32>,
+        tail: &CudaSlice<u16>,
         x: &CudaSlice<f32>,
         y: &mut CudaSlice<T>,
         nblocks: u32,

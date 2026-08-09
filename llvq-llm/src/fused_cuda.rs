@@ -120,7 +120,11 @@ pub struct FusedProj {
     stream: DeviceStream,
     gscale: CudaSlice<f32>,
     rscale: CudaSlice<f32>,
-    tail: CudaSlice<f32>,
+    /// The `KeepExact` tail as binary16 bits — the precision the dense arm
+    /// holds these same columns at. See [`crate::fused::tail_f16_bits`], which
+    /// owns the conversion, the argument and the accounting; `load` below
+    /// refuses any dtype under which that argument would not hold.
+    tail: CudaSlice<u16>,
     rotation: Option<RotKey>,
 }
 
@@ -822,7 +826,7 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     tab: &CudaSlice<u32>,
     gscale: &CudaSlice<f32>,
     rscale: &CudaSlice<f32>,
-    tail: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
     x: &CudaSlice<f32>,
     y: &mut CudaSlice<T>,
     nblocks: u32,
@@ -879,7 +883,7 @@ fn launch_planes12x_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     tab: &CudaSlice<u32>,
     gscale: &CudaSlice<f32>,
     rscale: &CudaSlice<f32>,
-    tail: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
     x: &CudaSlice<f32>,
     y: &mut CudaSlice<T>,
     nblocks: u32,
@@ -959,8 +963,13 @@ fn upload_matrix(
         stream,
         gscale: cuda.up_f32(&m.gscale).map_err(candle_core::Error::msg)?,
         rscale: cuda.up_f32(&m.rscale).map_err(candle_core::Error::msg)?,
+        // Binary16 bits, narrowed on the host by `fused::tail_f16_bits`.
+        // cudarc refuses a zero-length upload, so a matrix whose `d_in` is a
+        // multiple of 24 gets a one-element dummy the kernel never reads
+        // (`tail_w == 0` makes `tail_dot_h`'s loop empty) — the same shape the
+        // `Planes12x` exception index uses above.
         tail: cuda
-            .up_f32(if m.tail.is_empty() { &[0.0f32] } else { &m.tail })
+            .up_u16(if m.tail.is_empty() { &[0u16] } else { &m.tail })
             .map_err(candle_core::Error::msg)?,
         rotation: m.rotation,
     })
@@ -998,8 +1007,29 @@ pub struct FusedSealed {
 /// same logits — `bin/fusedrun` is what checks that. What differs is what
 /// sits in VRAM: 8.04 GB of f16 there, `runtime_bytes` plus the embedding
 /// here.
+///
+/// ## `dtype` must be F16, and this now says so out loud
+///
+/// It always was, in fact: `FusedRuntime::forward` casts its input with
+/// `to_dtype(DType::F16)` and the kernels *store* halves, so a model built at
+/// F32 would have taken f16 tensors out of every projection. What changed on
+/// 2026-08-09 is that the assumption acquired a consequence — the `KeepExact`
+/// tail is now resident as binary16, and the argument that this costs nothing
+/// (see [`crate::fused::tail_f16_bits`]) is *entirely* the fact that the dense
+/// arm narrows the same columns to the run's dtype. At F32 that argument is
+/// false and the tail would be the one place the fused path is coarser than
+/// its reference. Refusing beats carrying a silently weaker claim.
 pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
+
+    if dtype != DType::F16 {
+        candle_core::bail!(
+            "chemin fusé demandé en {dtype:?} : il est f16 de bout en bout (activations \
+             converties, noyaux stockant des demis, queue KeepExact résidente en binaire16 \
+             pour s'aligner sur ce que `sealed::load` narrow au même dtype). Un autre dtype \
+             ne rendrait pas un modèle plus précis, il rendrait une comparaison fausse."
+        );
+    }
 
     // The layout and the embedding mode are resolved once, before any
     // transcoding, and printed next to the device bytes they decide — an A/B
@@ -1007,9 +1037,15 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
     let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
     let mut model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
+    // The accounting is named on the line, because since lot A7a this number
+    // is deliberately *not* the bench's: the tail is resident at binary16
+    // here and at f32 in `planesbench`/`rtbits`, worth 0.075 b/weight on the
+    // 4B. A reader comparing 4.729 to a published 4.804 must be able to see
+    // from the log itself that they are two residencies, not a regression.
     println!(
         "layout fusé : {} (LLVQ_FUSED_LAYOUT) — projections {:.2} Go sur la carte, \
-         {:.3} b/poids",
+         {:.3} b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; \
+         le banc facture la sienne en f32)",
         layout.name(),
         model.runtime_bytes as f64 / 1e9,
         model.runtime_bits_per_weight()

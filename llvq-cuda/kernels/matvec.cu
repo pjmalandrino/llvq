@@ -27,14 +27,48 @@
 // charge the FP16 arm for work the hardware does for free, and flatter the
 // ratio this file exists to measure. `cvt.f32.f16` is exactly what
 // `__half2float` compiles to.
+//
+// 🕳️ **The host branch used to return 0, and that stopped being acceptable on
+// 2026-08-09.** Its licence was one sentence — "nothing executes it; only the
+// surrounding code is being type-checked" — and `tail_dot_h` below broke it:
+// the tail epilogue is scalar register arithmetic, so the clang++ harness
+// *runs* it, and a stubbed widening would have made that probe pass on any
+// tail whatsoever. This is now the same exact software widening `rot_h2f`
+// (llvq_rot.cuh) already carries for the same reason, and it costs the device
+// nothing: the `#else` arm is what NVRTC compiles, unchanged.
+//
+// Widening binary16 to binary32 is exact, so a correct software conversion is
+// bit-identical to `cvt.f32.f16`. There is nothing to approximate and nothing
+// to flatter — the "rigged baseline" argument above is about the *device*
+// path, which this branch never reaches.
 __device__ __forceinline__ float h2f(unsigned short h)
 {
 #ifdef LLVQ_HOST_BUILD
-    // The host syntax check has no PTX assembler. Correctness of this branch
-    // does not matter — nothing executes it; only the surrounding code is
-    // being type-checked.
-    (void)h;
-    return 0.0f;
+    u32 sign = (u32)(h & 0x8000u) << 16;
+    u32 exp = (h >> 10) & 0x1fu;
+    u32 man = h & 0x3ffu;
+    u32 bits;
+    if (exp == 0u) {
+        if (man == 0u) {
+            bits = sign;  // ±0
+        } else {
+            // Subnormal binary16 is normal in binary32: shift the mantissa up
+            // until its leading 1 falls off, and charge the exponent for it.
+            u32 e = 127u - 15u + 1u;
+            while ((man & 0x400u) == 0u) {
+                man <<= 1;
+                --e;
+            }
+            bits = sign | (e << 23) | ((man & 0x3ffu) << 13);
+        }
+    } else if (exp == 31u) {
+        bits = sign | 0x7f800000u | (man << 13);  // inf / NaN, payload kept
+    } else {
+        bits = sign | ((exp + 127u - 15u) << 23) | (man << 13);
+    }
+    float r;
+    __builtin_memcpy(&r, &bits, sizeof r);
+    return r;
 #else
     float r;
     asm("cvt.f32.f16 %0, %1;" : "=f"(r) : "h"(h));
@@ -195,6 +229,56 @@ __device__ __forceinline__ unsigned short f2h(float f)
 #endif
 }
 
+// The `TailPolicy::KeepExact` epilogue of every **f16-storing** entry point,
+// with the tail resident as binary16.
+//
+// ## Why the tail is halves here and floats in the bench arms
+//
+// A column that is not a multiple of 24 wide leaves `d_in mod 24` columns
+// unquantized. The file stores them as `f32` (`calib.rs` narrows them there on
+// purpose, so the file and the evaluated model are one object), and the fused
+// loader used to carry that width straight onto the card. That was inherited
+// storage, never a precision decision: **the arm this path is compared
+// against holds those same columns at binary16**, because `sealed::load`
+// narrows the whole decoded matrix — tail included — to the run's dtype, and
+// `bin/fusedrun` runs both arms at `DType::F16`. Keeping 24 mantissa bits on
+// the card bought precision the reference does not have, at 2 bytes a weight.
+//
+// So this is an *alignment*, not a saving taken out of quality: 16 957 440
+// tail weights on the published 4B, 33.9 MB, −0.067 b/param whole-model. The
+// rounding it introduces lands ~12× (4B `q/k/v/o/gate/up`) to ~34× (4B
+// `down_proj`) under the binary16 rounding `f2h` already applies to `y` two
+// lines later — see `llvq_llm::fused::tail_f16_bits`, which owns the host half
+// and is where that arithmetic is pinned.
+//
+// The bench kernels (`tv_slot`, `tv_slot_seg`, `tv_planes`, `tv_planes12x`,
+// `tv_golay70`) keep `const float*`, deliberately: they are the objects every
+// published millisecond and every published `b/poids noyau` refer to, and
+// `rtbits` bills their tail at 32 bits. Moving them would move numbers that
+// are already in the dossier. A future `tv_*_seg_h` — the A4 wiring — belongs
+// on *this* side of that line and should call this function.
+//
+// ## What this function is for, beyond deduplication
+//
+// It contains no barrier, no shuffle and no atomic, so unlike the kernels
+// that call it a single-threaded host *can* execute it — which is why the
+// epilogue was lifted out of the three call sites at all.
+// `llvq-llm/tests/host_tail_h.cpp` runs it against an f64 reference. The
+// kernels around it stay compile-only.
+__device__ __forceinline__ float tail_dot_h(const unsigned short* __restrict__ tail,
+                                            const float* __restrict__ xt,
+                                            u32 row,
+                                            u32 tail_w)
+{
+    float tv = 0.0f;
+    // Multiply-then-add, not `__fmaf_rn`: this is the association the f32
+    // epilogue had, and the only intended change is the stored width of the
+    // weight. Widening happens before the multiply, so the product and the
+    // sum stay f32 exactly as before.
+    for (u32 i = 0; i < tail_w; ++i) tv += h2f(tail[row * tail_w + i]) * xt[i];
+    return tv;
+}
+
 // `tv_slot` writing f16 — the shape an inference runtime needs.
 //
 // The model is f16 end to end, so a f32 result costs one conversion kernel per
@@ -214,7 +298,7 @@ extern "C" __global__ void tv_slot_h(const u32* __restrict__ words,
                                      const ClassRec* __restrict__ tab,
                                      const float* __restrict__ gscale,
                                      const float* __restrict__ rscale,
-                                     const float* __restrict__ tail,
+                                     const unsigned short* __restrict__ tail,
                                      const float* __restrict__ x,
                                      unsigned short* __restrict__ y,
                                      u32 nblocks,
@@ -241,9 +325,9 @@ extern "C" __global__ void tv_slot_h(const u32* __restrict__ words,
 
     acc = warp_sum(acc);
     if (lane == 0) {
-        float tv = 0.0f;
-        u32 tc0 = nblocks * LLVQ_DIM;
-        for (u32 i = 0; i < tail_w; ++i) tv += tail[row * tail_w + i] * x[tc0 + i];
+        // `x + tc0`, from **global** memory: under tiling the tail columns sit
+        // past the last staged window.
+        float tv = tail_dot_h(tail, x + nblocks * LLVQ_DIM, row, tail_w);
         y[row] = f2h(acc * rscale[row] + tv);
     }
 }

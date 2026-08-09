@@ -525,15 +525,100 @@ pub struct FusedMatrix {
     /// The two gain centroids. One bit of gain is hard-coded in every decoder.
     pub gscale: [f32; 2],
     pub rscale: Vec<f32>,
-    /// `d_out × tail_w`, row-major, in the rotated basis.
-    pub tail: Vec<f32>,
+    /// `d_out × tail_w`, row-major, in the rotated basis, as **binary16
+    /// bits** — see [`tail_f16_bits`] for why the width changed and what it
+    /// is aligned to.
+    pub tail: Vec<u16>,
     /// Key into [`FusedModel::rotations`], or `None` in the natural basis.
     pub rotation: Option<RotKey>,
     /// Bytes this matrix costs at runtime — every device array the kernel
     /// reads: the payload, whatever addressing the layout carries beside it
-    /// (`Slot32`'s bases, `Planes12x`'s exception table and row offsets), the
-    /// tail and the row scales.
+    /// (`Slot32`'s bases, `Planes12x`'s exception table and row offsets), and
+    /// [`matrix_side_bytes`] for the tail and the row scales.
     pub bytes: u64,
+}
+
+/// Bytes one `TailPolicy::KeepExact` weight costs on the device.
+///
+/// Two since 2026-08-09 (lot A7a), four before it. Named rather than spelled
+/// so [`matrix_side_bytes`] and the tail upload cannot drift apart, and so a
+/// mutation of the width has exactly one site.
+pub const TAIL_BYTES: u64 = 2;
+
+/// Bytes one row scale costs on the device. Still `f32`, and deliberately:
+/// `rscale[row]` multiplies the whole accumulated block sum, so its rounding
+/// is a *relative* error on every quantized weight of the row at once, where
+/// the tail's is an absolute error on `d_in mod 24` of them. Different
+/// exposure, different decision — and 1 105 920 rows on the 4B is 4.4 MB, a
+/// tenth of what the tail was costing.
+pub const ROW_SCALE_BYTES: u64 = 4;
+
+/// Narrow a `KeepExact` tail to the precision the **reference** model holds it
+/// at, and return its binary16 bits.
+///
+/// ## The only question that mattered here, and its answer in the code
+///
+/// The tail is full precision *by design*: `TailPolicy::KeepExact` leaves the
+/// `d_in mod 24` unquantized columns alone so that they never contribute an
+/// error of their own. Rounding them looks, at first sight, like spending
+/// quality for bytes — which this dossier has refused for much better trades.
+/// It is not, and the reason is that the arm the fused path is *compared to*
+/// already rounds them:
+///
+/// * `bin/fusedrun` runs both arms at `DType::F16` (`bin/fusedrun.rs`, the
+///   `let dtype` beside the device);
+/// * its dense arm is `crate::sealed::load(path, dtype, device)`, which takes
+///   `llvq_artifact::decode_matrix`'s `Vec<f32>` — tail columns restored into
+///   it, then un-rotated — and calls `.to_dtype(dtype)` on the whole matrix
+///   (`crate::sealed`). Nothing exempts the tail: it is a column range of a
+///   tensor that gets narrowed to binary16 in one move;
+/// * `bin/mmlu` defaults to F16 and `bin/ppl` prints the dtype it used, and
+///   **both score through `sealed::load`** — the fused path is a matvec and
+///   `bin/ppl` keeps the dense path for scoring. So no published perplexity
+///   or MMLU figure reads this array at all; what it can move is
+///   `bin/fusedrun`'s token agreement, and nothing else.
+///
+/// The `f32` that was here before was never a precision decision for the
+/// card. It is the *file's* storage width — `calib.rs` narrows the tail to
+/// `f32` before writing it, precisely so the file and the evaluated model are
+/// one object, and `llvq_artifact::format` reads it back from 32 bits — and
+/// the loader carried that width forward because it had no reason not to.
+/// Keeping 24 mantissa bits resident bought precision the reference does not
+/// have, at 2 bytes a weight.
+///
+/// ## Size of the rounding, against the rounding already there
+///
+/// Half an ulp of binary16 is `2⁻¹¹ ≈ 4.9e-4` relative. If tail and block
+/// columns carry comparable energy, the tail's share of a row's dot product
+/// scales as `√(tail_w / d_in)`, so the perturbation on `y` is about
+/// `4.9e-4 · √(tail_w/d_in)`: **7.9 %** of it on the 4B's `d_in = 2560`
+/// (tail 16), **2.9 %** on its `down_proj` (`d_in = 9728`, tail 8). The
+/// kernel then narrows `y` itself to binary16 — a `4.9e-4` relative rounding,
+/// i.e. 12× to 34× *larger*. ⚠️ Labelled honestly: that is an **estimate**
+/// under an energy assumption, not a measurement, and the only thing that
+/// settles it is a card diffing `fusedrun`'s two arms.
+///
+/// ## Why the double rounding is not one
+///
+/// `v` comes from the file, where the tail is stored as 32 bits and widened
+/// to `f64` on read, so `v as f32` is exact and `f64 → f32 → f16` rounds
+/// once. That is asserted by `narrowing_the_tail_rounds_once`.
+pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
+    tail.iter()
+        .map(|&v| half::f16::from_f32(v as f32).to_bits())
+        .collect()
+}
+
+/// Device bytes a matrix costs **beside** its block stream: the narrowed tail
+/// and the row scales.
+///
+/// Extracted from `load` so the accounting is a function with a name and a
+/// test rather than an expression inside a loop — `runtime_bytes` is the
+/// number `fusedrun` prints as "Go sur la carte" and that
+/// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
+/// here is published, not caught.
+pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
+    (d_out * tail_w) as u64 * TAIL_BYTES + d_out as u64 * ROW_SCALE_BYTES
 }
 
 /// A rotation is determined by its width and its seed, and shared by every
@@ -623,12 +708,24 @@ impl FusedModel {
     /// exception table) 4.342 at the bench, against 2.0702 effective in the
     /// file.
     ///
-    /// ⚠️ This crate's `Planes12x` figure sits marginally *above* the bench's,
-    /// on purpose: it also bills the `d_out + 1` row-offset table the
-    /// inference kernel reads, which the bench arm has no equivalent of
-    /// (32/`d_in` b/weight — 0.0125 at `d_in = 2560`). Under-reporting a
-    /// device array is exactly the accounting sin the K-1 lot spent a dossier
-    /// removing.
+    /// 🚨 **This function no longer reproduces those three bench numbers, and
+    /// the gap is a real difference of objects, not a drift.** Since lot A7a
+    /// the inference path holds the `KeepExact` tail as binary16 while every
+    /// bench arm (`planesbench`, and `rtbits`'s "b/poids noyau" column which
+    /// models it) still uploads `f32`. The whole difference is
+    /// `16 · tail_weights / weights`: **−0.0747 b/weight on the published 4B**
+    /// (16 957 440 tail weights of 3 633 315 840) and **−0.0462 on the 8B**
+    /// (20 054 016 of 6 945 767 424), so `Planes14` reads 4.729 here against
+    /// the bench's 4.804 at 4B, and 4.706 against 4.752 at 8B. Two
+    /// accountings of two different residencies — never subtract one from the
+    /// other and call it a measurement.
+    ///
+    /// ⚠️ This crate's `Planes12x` figure additionally sits marginally *above*
+    /// the bench's for an unrelated reason: it also bills the `d_out + 1`
+    /// row-offset table the inference kernel reads, which the bench arm has no
+    /// equivalent of (32/`d_in` b/weight — 0.0125 at `d_in = 2560`).
+    /// Under-reporting a device array is exactly the accounting sin the K-1
+    /// lot spent a dossier removing.
     pub fn runtime_bits_per_weight(&self) -> f64 {
         self.runtime_bytes as f64 * 8.0 / self.quantized_weights as f64
     }
@@ -944,7 +1041,7 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
         let (stream, payload) = tr
             .stream(&m.indices, &m.gains, m.d_out, nblocks)
             .map_err(|e| format!("{} : {e}", m.name))?;
-        let bytes = payload + (m.d_out * tail_w) as u64 * 4 + m.d_out as u64 * 4;
+        let bytes = payload + matrix_side_bytes(m.d_out, tail_w);
         runtime_bytes += bytes;
 
         matrices.push(FusedMatrix {
@@ -956,7 +1053,7 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
             stream,
             gscale: [m.centroids[0] as f32, m.centroids[1] as f32],
             rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
-            tail: m.tail.iter().map(|&v| v as f32).collect(),
+            tail: tail_f16_bits(&m.tail),
             rotation,
             bytes,
         });

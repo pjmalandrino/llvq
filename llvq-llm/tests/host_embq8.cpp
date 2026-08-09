@@ -20,12 +20,19 @@
 // shuffle reduction) so it is compile-checked only; its dequant IS `q8_deq`
 // and its accumulation is mirrored by the driver below, lane by lane.
 //
-// matvec.cu is deliberately NOT included: under the host shim its h2f/f2h
-// stubs return 0, which would nullify the executed mirror. TILE_COLS is
+// matvec.cu is deliberately NOT included: under the host shim its `f2h` is a
+// stub returning 0, which would nullify the executed mirror. TILE_COLS is
 // pre-defined so emb_q8.cu's include guard skips it, and real conversions are
 // supplied via _Float16 — clang's native IEEE binary16, exact widening and
 // round-to-nearest-even narrowing, i.e. precisely what cvt.f32.f16 /
 // cvt.rn.f16.f32 do on the device.
+//
+// ⚠️ Half of that sentence went stale on 2026-08-09: matvec.cu's `h2f` is no
+// longer a stub — `tail_dot_h` executes it in host_tail_h.cpp, so its host
+// branch became the exact software widening. Only `f2h` still returns 0 there.
+// This file keeps its own pair regardless: `_Float16` is the sharper check of
+// the two (it is the compiler's own binary16, not our arithmetic checking our
+// arithmetic), and it is what the q8 lot was validated with.
 
 #include "../../llvq-cuda/tests/host_shim.h"
 #include "../../llvq-cuda/kernels/llvq_slot.cuh"  // u32, LLVQ_DIM

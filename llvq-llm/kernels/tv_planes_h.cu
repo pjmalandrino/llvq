@@ -2,9 +2,15 @@
 //
 // The exact counterpart of matvec.cu's tv_slot_h: same grid (one warp per row,
 // 8 rows per 256-thread block), same tiling, same two barriers, same shared
-// staging, same tail epilogue, f32 accumulation throughout — only the block
-// decode is planes_dot instead of slot_dot, and only the final store narrows
-// to f16, exactly where candle's conversion kernel would have narrowed it.
+// staging, same tail epilogue — literally the same, `tail_dot_h`, shared with
+// the other two f16-storing entry points — and f32 accumulation throughout.
+// Only the block decode is planes_dot instead of slot_dot, and only the final
+// store narrows to f16, exactly where candle's conversion kernel would have
+// narrowed it.
+//
+// The tail is resident as binary16, which is the precision the dense arm this
+// path is diffed against holds those same columns at. `tail_dot_h`'s comment
+// in matvec.cu carries the argument and the accounting.
 //
 // This file lives in llvq-llm, not llvq-cuda, on purpose: the committed
 // Planes14 kernels (llvq_planes.cuh + planes.cu) belong to the C1 lot and are
@@ -19,8 +25,8 @@
 //
 // NVRTC has no filesystem, so the host concatenates the sources; the guards
 // below only resolve from disk under a host clang++ syntax check. Order is the
-// caller's contract: llvq_slot.cuh, matvec.cu (TILE_COLS, warp_sum, f2h),
-// llvq_planes.cuh (planes_dot), planes.cu, then this file.
+// caller's contract: llvq_slot.cuh, matvec.cu (TILE_COLS, warp_sum, f2h,
+// tail_dot_h), llvq_planes.cuh (planes_dot), planes.cu, then this file.
 
 #ifndef TILE_COLS
 #include "../../llvq-cuda/kernels/matvec.cu"
@@ -33,7 +39,7 @@ extern "C" __global__ void tv_planes_h(const u32* __restrict__ words,
                                        const ClassRec* __restrict__ tab,
                                        const float* __restrict__ gscale,
                                        const float* __restrict__ rscale,
-                                       const float* __restrict__ tail,
+                                       const unsigned short* __restrict__ tail,
                                        const float* __restrict__ x,
                                        unsigned short* __restrict__ y,
                                        u32 nblocks,
@@ -60,9 +66,7 @@ extern "C" __global__ void tv_planes_h(const u32* __restrict__ words,
 
     acc = warp_sum(acc);
     if (lane == 0) {
-        float tv = 0.0f;
-        u32 tc0 = nblocks * LLVQ_DIM;
-        for (u32 i = 0; i < tail_w; ++i) tv += tail[row * tail_w + i] * x[tc0 + i];
+        float tv = tail_dot_h(tail, x + nblocks * LLVQ_DIM, row, tail_w);
         y[row] = f2h(acc * rscale[row] + tv);
     }
 }
