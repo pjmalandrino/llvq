@@ -14,10 +14,16 @@
 //
 // `planes_fields` and `planes_dot` are scalar register arithmetic — no warp
 // primitive, no shared memory — so they are *executed* here, exactly as
-// host_probe.cpp executes slot_dot. `tv_planes` itself is compile-only (a
-// single-threaded driver reproduces neither `__syncthreads` nor a shuffle);
-// including planes.cu still catches every syntax and type error in it before
-// one costs a billed job.
+// host_probe.cpp executes slot_dot. `tv_planes` and `tv_planes_seg` are
+// compile-only (a single-threaded driver reproduces neither `__syncthreads`
+// nor a shuffle); including planes.cu and planes_seg.cu still catches every
+// syntax and type error in them before one costs a billed job.
+//
+// ⚠️ Read that literally for `tv_planes_seg`: nothing below establishes that
+// the segmented kernel is correct. What the development machine *can* prove
+// about the fusion is the host side of it — row order, `gs_off`, the
+// concatenated block stream — and that lives in
+// `tests/planes_segment_matches_unfused.rs`, which runs.
 
 #include "host_shim.h"
 // Deliberately in the order the host concatenates for NVRTC, so every
@@ -29,6 +35,11 @@
 #include "../kernels/matvec.cu"
 #include "../kernels/llvq_planes.cuh"
 #include "../kernels/planes.cu"
+// The segmented variant, in the order a bench concatenates it: after planes.cu,
+// because it uses `planes_dot` and `TILE_COLS`. It is NOT part of the shipped
+// inference translation unit (llvq-llm concatenates llvq_planes.cuh + planes.cu
+// + tv_planes_h.cu and nothing else), which is why it is a separate file.
+#include "../kernels/planes_seg.cu"
 
 #include <cstdio>
 #include <cstdlib>

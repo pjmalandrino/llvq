@@ -27,6 +27,24 @@
 //! `src/planes14_host.rs`): a pure bit-level transcoding of the Slot32
 //! stream, and the **single point to re-plug** once `llvq-artifact` grows the
 //! layout.
+//!
+//! ## The A4 section, after the table: fusing what shares an input
+//!
+//! With a model path, a sixth and seventh arm run *after* the five-arm table,
+//! in their own interleaved rounds: `tv_slot_seg` and `tv_planes_seg` over the
+//! row-concatenation of q+k+v and of gate+up — 144 launches where there were
+//! 252, and 768-block grids where k/v alone were 128. The published Slot32
+//! delta is 0.803 ms (`docs/mesures/fusion-qkv-cuda-2026-08-05.txt`); the
+//! Planes14 one is unknown, which is why **both** are re-timed here rather than
+//! one being compared against a number from another job. Correctness first, and
+//! bit-exact: a fused row runs the same blocks in the same order with the same
+//! centroids, so nothing is reassociated and a tolerance would let a wrong
+//! `gs_off` through. The concatenation itself (`src/seg_host.rs`) is proved on
+//! the development machine by `tests/planes_segment_matches_unfused.rs`.
+//!
+//! Cost of the section: one extra transcode of the fusible matrices, and about
+//! 4 GB of VRAM for the two fused streams on top of the ~15 GB the five arms
+//! already hold. It is skipped entirely on the synthetic path.
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -52,6 +70,7 @@ mod linux {
 
     include!("../planes14_host.rs");
     include!("../golay70_host.rs");
+    include!("../seg_host.rs");
 
     /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
     /// source by the host so the staging size and the tiling are one constant.
@@ -89,6 +108,13 @@ mod linux {
     const PLANES12_CU_EMBED: &str = include_str!("../../kernels/planes12.cu");
     const GOLAY_CUH_EMBED: &str = include_str!("../../kernels/llvq_golay.cuh");
     const GOLAY_CU_EMBED: &str = include_str!("../../kernels/golay70.cu");
+    /// The segmented Planes14 kernel — item A4. One file, no header of its
+    /// own: it reuses `llvq_planes.cuh`'s `planes_dot`. It lives apart from
+    /// `planes.cu` on purpose — `llvq-llm/src/fused_cuda.rs` concatenates
+    /// `llvq_planes.cuh` + `planes.cu` + `tv_planes_h.cu` as the *shipped*
+    /// inference kernel, and appending to `planes.cu` would change that
+    /// string's bytes and its sha256 for a bench's convenience.
+    const PLANES_SEG_CU_EMBED: &str = include_str!("../../kernels/planes_seg.cu");
 
     fn load_planes_sources() -> Result<(String, String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
@@ -137,6 +163,20 @@ mod linux {
                 let cuh = rd("llvq_golay.cuh")?;
                 let cu = rd("golay70.cu")?;
                 Ok((cuh, cu, Some(dir)))
+            }
+        }
+    }
+
+    /// Same contract for the one segmented source — the A4 arm's kernel.
+    fn load_planes_seg_source() -> Result<(String, Option<String>), String> {
+        match std::env::var("LLVQ_KERNEL_DIR") {
+            Err(_) => Ok((PLANES_SEG_CU_EMBED.to_string(), None)),
+            Ok(dir) => {
+                let cu = std::fs::read_to_string(
+                    std::path::Path::new(&dir).join("planes_seg.cu"),
+                )
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : planes_seg.cu : {e}"))?;
+                Ok((cu, Some(dir)))
             }
         }
     }
@@ -235,6 +275,40 @@ mod linux {
         b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_planes_seg(words, tab, gscale, gs_off, rscale, tail, x, y, nblocks,
+    /// tail_w)` — `tv_planes` over a row-concatenation of projections sharing
+    /// an input, with one extra table naming each row's centroid pair.
+    ///
+    /// Same grid function as the unfused arm, on the *summed* `d_out`: a
+    /// segmented matrix is one matrix, and the only thing the launch knows
+    /// about the segments is `gs_off`. No memset, no atomic — rows partition
+    /// the output, and `kernels/planes_seg.cu` argues that at length.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_planes_seg(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_seg: {e}"))?;
         Ok(())
     }
 
@@ -340,6 +414,7 @@ mod linux {
         let (pcuh, pcu, planes_overridden) = load_planes_sources()?;
         let (p12cuh, p12cu, planes12_overridden) = load_planes12_sources()?;
         let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
+        let (segcu, seg_overridden) = load_planes_seg_source()?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -347,6 +422,9 @@ mod linux {
             base.parts[1].as_str(),
             pcuh.as_str(),
             pcu.as_str(),
+            // After planes.cu: it uses `planes_dot` and `TILE_COLS`, and this
+            // is the order `tests/host_planes.cpp` compiles them in.
+            segcu.as_str(),
             p12cuh.as_str(),
             p12cu.as_str(),
             gcuh.as_str(),
@@ -366,6 +444,9 @@ mod linux {
         if let Some(d) = &golay_overridden {
             println!("  ⚠️ SOURCES Golay70 SURCHARGÉES depuis {d}");
         }
+        if let Some(d) = &seg_overridden {
+            println!("  ⚠️ SOURCE Planes14 segmentée SURCHARGÉE depuis {d}");
+        }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
@@ -376,7 +457,20 @@ mod linux {
             dev.l2_bytes as f64 / 1e6,
             dev.shared_per_block
         );
-        for name in ["tv_slot", "tv_f16", "tv_planes", "tv_planes12x", "tv_golay70"] {
+        // The segmented kernels sit in the same translation unit as the five
+        // measured ones, so their register reports are part of the same drift
+        // detector: `tv_planes_seg` differs from `tv_planes` by one warp-uniform
+        // load, and anything more than a register or two between them means the
+        // compiler did something the source does not say.
+        for name in [
+            "tv_slot",
+            "tv_slot_seg",
+            "tv_f16",
+            "tv_planes",
+            "tv_planes_seg",
+            "tv_planes12x",
+            "tv_golay70",
+        ] {
             let r = cuda.report(name)?;
             println!(
                 "  {:<10} {:>3} registres, {} o locaux, sm_{}",
@@ -671,6 +765,14 @@ mod linux {
         );
         let t0 = Instant::now();
         let mut mats = Vec::new();
+        // Kept alive past `build` for the A4 fusion arm, which concatenates the
+        // *indices* of q/k/v (and gate/up) before transcoding, not their
+        // transcoded streams. Empty on the synthetic path, which is what turns
+        // the fusion arm off there: `q_proj#0` and `q_proj#1` are different
+        // repetitions, not a layer, and fusing them would be meaningless.
+        // Costs ~1.8 GB of host RAM on the 4B — the same price `bin/matvec`
+        // already pays for the Slot32 fusion arm.
+        let mut srcs: Vec<Src> = Vec::new();
         let mut n_weights = 0u64;
         let source;
 
@@ -692,7 +794,7 @@ mod linux {
                         m.name
                     );
                     n_weights += (m.d_out * m.d_in) as u64;
-                    mats.push(build(&Src {
+                    srcs.push(Src {
                         name: m.name.clone(),
                         d_out: m.d_out,
                         d_in: m.d_in,
@@ -701,7 +803,10 @@ mod linux {
                         centroids: [m.centroids[0] as f32, m.centroids[1] as f32],
                         rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
                         tail: m.tail.iter().map(|&v| v as f32).collect(),
-                    })?);
+                    });
+                }
+                for s in &srcs {
+                    mats.push(build(s)?);
                 }
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
@@ -729,7 +834,140 @@ mod linux {
                 }
             }
         }
-        let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
+        // ---- the fusion arm (item A4) ----
+        //
+        // q/k/v share an activation, and so do gate/up. Row-concatenating them
+        // turns three grids of 512/128/128 blocks into one of 768 and removes
+        // 108 launches a token (252 → 144). On **Slot32** that was measured at
+        // 0.803 ms (`docs/mesures/fusion-qkv-cuda-2026-08-05.txt`); this arm
+        // exists because that number does not transfer to Planes14 and cannot
+        // be rescaled into it — see `kernels/planes_seg.cu`.
+        //
+        // Both layouts are fused here, and both are timed in the same process
+        // and the same rounds. That is the whole methodological point: a
+        // Planes14 delta compared against a Slot32 delta from another job would
+        // be exactly the inter-process subtraction this repository has already
+        // had to retract once.
+        //
+        // The concatenation is on the *indices*, before transcoding, so a fused
+        // matrix is one ordinary stream — and `seg_concat` is proved on the
+        // development machine by `tests/planes_segment_matches_unfused.rs`,
+        // nine mutants deep.
+        struct FusedMat {
+            name: String,
+            d_out: usize,
+            nblocks: usize,
+            tail_w: usize,
+            words: cudarc::driver::CudaSlice<u32>,
+            bases: cudarc::driver::CudaSlice<u32>,
+            pwords: cudarc::driver::CudaSlice<u32>,
+            gscale: cudarc::driver::CudaSlice<f32>,
+            gs_off: cudarc::driver::CudaSlice<u32>,
+            rscale: cudarc::driver::CudaSlice<f32>,
+            tail: cudarc::driver::CudaSlice<f32>,
+            slot_bytes: u64,
+            planes_bytes: u64,
+            /// Indices into `mats` of the matrices this one replaces, in row
+            /// order — the fused output must equal their outputs concatenated.
+            parts: Vec<usize>,
+        }
+
+        let mut fused: Vec<FusedMat> = Vec::new();
+        if !srcs.is_empty() {
+            let names: Vec<&str> = srcs.iter().map(|s| s.name.as_str()).collect();
+            let groups = seg_groups(&names)?;
+            let t_fuse = Instant::now();
+            for (key, idx) in &groups {
+                let sp: Vec<SegPart<'_>> = idx
+                    .iter()
+                    .map(|&i| {
+                        let s = &srcs[i];
+                        SegPart {
+                            d_out: s.d_out,
+                            d_in: s.d_in,
+                            indices: &s.indices,
+                            gains: &s.gains,
+                            centroids: s.centroids,
+                            rscale: &s.rscale,
+                            tail: &s.tail,
+                        }
+                    })
+                    .collect();
+                let seg = seg_concat(&sp);
+                // The twin of `build`'s guard: a fused matrix reads the same
+                // shared activation, and nothing else would notice it reading
+                // past the end of it.
+                assert!(
+                    seg.d_in <= x.len(),
+                    "{key}: d_in {} dépasse l'activation",
+                    seg.d_in
+                );
+                // Slot32 first, then Planes14 off it — the same two-step every
+                // unfused matrix goes through, so the two arms differ in
+                // geometry and in nothing else.
+                let rt = transcode(&fd, &table, &seg.indices, &seg.gains, Layout::Slot32)
+                    .map_err(|e| e.to_string())?;
+                let pdata = planes14_from_slot32(&rt, &table);
+                let slot_bytes = rt.data.len() as u64
+                    + rt.bases.len() as u64 * 4
+                    + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4;
+                let planes_bytes = pdata.len() as u64
+                    + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4;
+
+                let mut sbytes = rt.data.clone();
+                sbytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
+                while !sbytes.len().is_multiple_of(4) {
+                    sbytes.push(0);
+                }
+                let swords: Vec<u32> = sbytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                let mut pbytes = pdata;
+                pbytes.extend_from_slice(&[0u8; 4]); // the four-word read of the last block
+                while !pbytes.len().is_multiple_of(4) {
+                    pbytes.push(0);
+                }
+                let pwords: Vec<u32> = pbytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+
+                fused.push(FusedMat {
+                    name: key.clone(),
+                    d_out: seg.d_out,
+                    nblocks: seg.nblocks,
+                    tail_w: seg.tail_w,
+                    words: cuda.up_u32(&swords)?,
+                    bases: cuda.up_u32(&rt.bases)?,
+                    pwords: cuda.up_u32(&pwords)?,
+                    gscale: cuda.up_f32(&seg.centroids)?,
+                    gs_off: cuda.up_u32(&seg.gs_off)?,
+                    rscale: cuda.up_f32(&seg.rscale)?,
+                    tail: cuda
+                        .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
+                    slot_bytes,
+                    planes_bytes,
+                    parts: idx.clone(),
+                });
+            }
+            println!(
+                "  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
+                fused.len(),
+                fused.iter().map(|f| f.parts.len()).sum::<usize>(),
+                fused.len(),
+                t_fuse.elapsed().as_secs_f64()
+            );
+        }
+
+        let max_dout = mats
+            .iter()
+            .map(|m| m.d_out)
+            .chain(fused.iter().map(|f| f.d_out))
+            .max()
+            .unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
         println!(
             "  {} matrices, {:.2} Md de poids, en {:.0} s — bijection Planes14 vérifiée \
@@ -740,7 +978,9 @@ mod linux {
         );
 
         let f_slot = cuda.func("tv_slot")?;
+        let f_slot_seg = cuda.func("tv_slot_seg")?;
         let f_planes = cuda.func("tv_planes")?;
+        let f_planes_seg = cuda.func("tv_planes_seg")?;
         let f_planes12x = cuda.func("tv_planes12x")?;
         let f_golay70 = cuda.func("tv_golay70")?;
         let f_f16 = cuda.func("tv_f16")?;
@@ -778,6 +1018,22 @@ mod linux {
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
+        let run_slot_seg =
+            |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+                cuda.launch_slot_seg(
+                    &f_slot_seg, &fm.words, &fm.bases, &d_tab, &fm.gscale, &fm.gs_off,
+                    &fm.rscale, &fm.tail, &d_x, y, fm.nblocks as u32, fm.tail_w as u32,
+                    fm.d_out as u32, THREADS, shared,
+                )
+            };
+        let run_planes_seg =
+            |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+                launch_planes_seg(
+                    &cuda, &f_planes_seg, &fm.pwords, &d_tab, &fm.gscale, &fm.gs_off,
+                    &fm.rscale, &fm.tail, &d_x, y, fm.nblocks as u32, fm.tail_w as u32,
+                    fm.d_out as u32, THREADS, shared,
+                )
+            };
 
         println!("\nVérification de chaque ligne contre la référence f64…");
         let (mut ws, mut wp, mut wx, mut wg, mut wf) =
@@ -980,6 +1236,222 @@ mod linux {
              bras contre sa référence f64 ; les rapports se forment round par round,\n  \
              dans un même processus."
         );
+
+        // ---- A4 : la fusion q+k+v et gate+up, justesse d'abord, coût ensuite ----
+        if !fused.is_empty() {
+            // A fused row runs the same blocks, in the same order, with the
+            // same centroids as the unfused row it came from — nothing is
+            // reassociated — so the outputs must agree BIT FOR BIT. A tolerance
+            // here would let a wrong `gs_off` through: swapping two segments'
+            // centroids moves some rows by ~2× and leaves the rest untouched,
+            // which a global epsilon on a different row still passes. The
+            // Slot32 arm established that this equality is achievable on this
+            // card and this compiler (921 600 rows, 2026-08-05); the Planes14
+            // arm is the same claim about `tv_planes_seg` and is *not*
+            // established until this block runs.
+            println!("\n  Fusion (A4) — sortie contre les matrices non fusionnées");
+            for fm in &fused {
+                for layout in 0..2 {
+                    if layout == 0 {
+                        run_slot_seg(fm, &mut d_y)?
+                    } else {
+                        run_planes_seg(fm, &mut d_y)?
+                    }
+                    cuda.sync()?;
+                    let got = cuda.down_f32(&d_y)?;
+                    let mut at = 0usize;
+                    for &pi in &fm.parts {
+                        let m = &mats[pi];
+                        if layout == 0 {
+                            run_slot(m, &mut d_y)?
+                        } else {
+                            run_planes(m, &mut d_y)?
+                        }
+                        cuda.sync()?;
+                        let want = cuda.down_f32(&d_y)?;
+                        if got[at..at + m.d_out] != want[..m.d_out] {
+                            let bad =
+                                (0..m.d_out).find(|&r| got[at + r] != want[r]).unwrap_or(0);
+                            return Err(format!(
+                                "{} / {} / {} : ligne {bad} vaut {} fusionnée contre {} \
+                                 séparée",
+                                fm.name,
+                                m.name,
+                                if layout == 0 { "Slot32" } else { "Planes14" },
+                                got[at + bad],
+                                want[bad]
+                            ));
+                        }
+                        at += m.d_out;
+                    }
+                }
+            }
+            println!(
+                "  {} groupes, {} lignes — identiques AU BIT près, sur Slot32 ET sur Planes14",
+                fused.len(),
+                fused.iter().map(|f| f.d_out).sum::<usize>()
+            );
+
+            // Cost. Four arms, interleaved in every round, same process: LLVQ
+            // against LLVQ on each layout, and the two layouts against each
+            // other. No FP16 arm, deliberately — fusing the FP16 witness would
+            // mean holding a second copy of 7.27 GB of f16 weights, so a
+            // fused-LLVQ / unfused-FP16 ratio would credit the format for a
+            // geometry change. Every number below is a DELTA, not a ratio.
+            let mut tf: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            for rep in 0..ROUNDS {
+                for (arm, ta) in tf.iter_mut().enumerate() {
+                    let tin = Instant::now();
+                    match arm {
+                        // 0/2: everything separate. 1/3: the fusible groups
+                        // fused, o_proj and down_proj exactly as before.
+                        0 => {
+                            for m in &mats {
+                                run_slot(m, &mut d_y)?;
+                            }
+                        }
+                        1 => {
+                            for fm in &fused {
+                                run_slot_seg(fm, &mut d_y)?;
+                            }
+                            for (i, m) in mats.iter().enumerate() {
+                                if !fused.iter().any(|f| f.parts.contains(&i)) {
+                                    run_slot(m, &mut d_y)?;
+                                }
+                            }
+                        }
+                        2 => {
+                            for m in &mats {
+                                run_planes(m, &mut d_y)?;
+                            }
+                        }
+                        _ => {
+                            for fm in &fused {
+                                run_planes_seg(fm, &mut d_y)?;
+                            }
+                            for (i, m) in mats.iter().enumerate() {
+                                if !fused.iter().any(|f| f.parts.contains(&i)) {
+                                    run_planes(m, &mut d_y)?;
+                                }
+                            }
+                        }
+                    }
+                    cuda.sync()?;
+                    let s = tin.elapsed().as_secs_f64();
+                    if rep >= WARMUP {
+                        ta.push(s);
+                    }
+                }
+            }
+            let [ts, tss, tp, tps] = tf;
+            // Deltas formed ROUND BY ROUND, exactly as the ratios are: a
+            // difference of two minima taken from rounds that never coexisted
+            // is the mistake this repository documents.
+            let ds: Vec<f64> = ts.iter().zip(&tss).map(|(a, b)| (a - b) * 1e3).collect();
+            let dp: Vec<f64> = tp.iter().zip(&tps).map(|(a, b)| (a - b) * 1e3).collect();
+            let rr: Vec<f64> = dp.iter().zip(&ds).map(|(a, b)| a / b).collect();
+            let (_, s_sep, _) = spread(ts);
+            let (_, s_fus, _) = spread(tss);
+            let (_, p_sep, _) = spread(tp);
+            let (_, p_fus, _) = spread(tps);
+            let (ds_lo, ds_md, ds_hi) = spread(ds);
+            let (dp_lo, dp_md, dp_hi) = spread(dp);
+            let (rr_lo, rr_md, rr_hi) = spread(rr);
+
+            let n_sep = mats.len();
+            let n_fus = fused.len()
+                + mats
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !fused.iter().any(|f| f.parts.contains(i)))
+                    .count();
+            let unfused_bytes = |sel: fn(&Mat) -> u64| -> u64 {
+                mats.iter().map(sel).sum::<u64>()
+            };
+            let fused_bytes = |fsel: fn(&FusedMat) -> u64, sel: fn(&Mat) -> u64| -> u64 {
+                fused.iter().map(fsel).sum::<u64>()
+                    + mats
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| !fused.iter().any(|f| f.parts.contains(i)))
+                        .map(|(_, m)| sel(m))
+                        .sum::<u64>()
+            };
+            let sb_sep = unfused_bytes(|m| m.slot_bytes);
+            let sb_fus = fused_bytes(|f| f.slot_bytes, |m| m.slot_bytes);
+            let pb_sep = unfused_bytes(|m| m.planes_bytes);
+            let pb_fus = fused_bytes(|f| f.planes_bytes, |m| m.planes_bytes);
+
+            println!(
+                "\n  Coût — {ROUNDS} rounds, {WARMUP} jetés, QUATRE bras entrelacés, \
+                 médianes\n  {}",
+                "-".repeat(78)
+            );
+            println!(
+                "  {:<34}{:>10.3} ms   {n_sep} lancements",
+                "Slot32, matrices séparées",
+                s_sep * 1e3
+            );
+            println!(
+                "  {:<34}{:>10.3} ms   {n_fus} lancements",
+                "Slot32, q+k+v et gate+up fusés",
+                s_fus * 1e3
+            );
+            println!(
+                "  {:<34}{:>10.3} ms   {n_sep} lancements",
+                "Planes14, matrices séparées",
+                p_sep * 1e3
+            );
+            println!(
+                "  {:<34}{:>10.3} ms   {n_fus} lancements",
+                "Planes14, q+k+v et gate+up fusés",
+                p_fus * 1e3
+            );
+            println!("  {}", "-".repeat(78));
+            println!(
+                "  gain Slot32   : {ds_md:.3} ms [{ds_lo:.3}–{ds_hi:.3}]  ({:.1} %)",
+                100.0 * ds_md / (s_sep * 1e3)
+            );
+            println!(
+                "  gain Planes14 : {dp_md:.3} ms [{dp_lo:.3}–{dp_hi:.3}]  ({:.1} %)",
+                100.0 * dp_md / (p_sep * 1e3)
+            );
+            println!(
+                "  Planes14 / Slot32 sur le gain : {rr_md:.2}× [{rr_lo:.2}–{rr_hi:.2}]\n  \
+                 ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux \
+                 numérateurs\n  cumulée, donc bien plus large que celle des rapports du \
+                 tableau ci-dessus. Le\n  lire comme un ordre de grandeur, jamais à deux \
+                 décimales. Ce sont les deux\n  lignes « gain » qui portent le résultat."
+            );
+            println!(
+                "  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)\n  \
+                 = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation."
+            );
+            println!(
+                "  octets lus — Slot32   : {:.3} Go fusé contre {:.3} séparé ({:+.2} %)\n  \
+                 octets lus — Planes14 : {:.3} Go fusé contre {:.3} séparé ({:+.2} %)",
+                sb_fus as f64 / 1e9,
+                sb_sep as f64 / 1e9,
+                100.0 * (sb_fus as f64 - sb_sep as f64) / sb_sep as f64,
+                pb_fus as f64 / 1e9,
+                pb_sep as f64 / 1e9,
+                100.0 * (pb_fus as f64 - pb_sep as f64) / pb_sep as f64
+            );
+            println!(
+                "  Slot32 peut bouger : son stride est le plus large enregistrement d'un\n  \
+                 groupe de 32, et la concaténation regroupe aux frontières de segment. \
+                 Planes14\n  ne le peut pas — 14 octets par bloc, sans table de bases — et \
+                 le +0,00 % ci-dessus\n  est donc une vérification, pas une mesure \
+                 (tests/planes_segment_matches_unfused.rs).\n  Un gain d'octets serait un \
+                 confondant, pas un bonus."
+            );
+            println!(
+                "\n  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise\n  \
+                 aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et \
+                 gagnerait\n  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ \
+                 ci-dessus sont mesurés."
+            );
+        }
         Ok(())
     }
 }
