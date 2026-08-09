@@ -50,8 +50,19 @@ ENV CARGO_BUILD_JOBS=2
 # n'est rattachable à aucun commit. Pour un noyau chronométré, c'est la
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
-      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
-      --bin seal
+      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun
+# 🕳️ `seal` se construit SANS `cuda`, et ça se paie sinon.
+#
+# Bâti avec la feature comme les autres, il se lie à `libcuda.so.1` — que seule
+# une flavor GPU fournit. Or `seal.rs` code `Device::Cpu` en dur : il ne fait
+# que relire un artefact, recopier les tenseurs que le quantifieur n'a pas
+# touchés et convertir en f16. La feature était du bagage, et elle a coûté un
+# job mort en une minute le 2026-08-09 sur `cpu-upgrade` (0,001 $, la bonne
+# façon d'apprendre : la flavor la moins chère d'abord).
+#
+# Sans elle, le scellement tourne à 0,03 $/h au lieu de 0,80 sur la plus petite
+# carte — un facteur 27 sur une étape qui n'a rien à calculer.
+RUN cargo build --release --locked -p llvq-llm --bin seal
 # The CUDA kernel bench. A separate `cargo build` on purpose: `llvq-cuda`
 # links neither candle nor `faer`, so it costs one small LTO link rather than
 # joining the one that has already been SIGKILLed once. Its kernels are not
