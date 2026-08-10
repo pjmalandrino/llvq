@@ -217,11 +217,72 @@ extern "C" __global__ void tv_slot_seg(const u32* __restrict__ words,
 // f32 → f16, round to nearest even. The inverse of `h2f`, same reasoning: no
 // `cuda_fp16.h` in the runtime image, and `cvt.rn.f16.f32` is the instruction
 // `__float2half` compiles to.
+// 🕳️ **La branche hôte rendait 0, et c'est le même défaut que `h2f` portait
+// jusqu'au 2026-08-09 — corrigé là-bas, laissé ici.** Sa licence était la
+// même phrase : « rien ne l'exécute, seul le code alentour est type-vérifié ».
+// Elle a cessé de tenir le 2026-08-10, quand le bras AWQ est arrivé : son
+// noyau écrit sa sortie par `f2h`, donc un test C++ hôte de `awq_gemv_g128`
+// aurait lu des zéros et serait passé au vert sur n'importe quel noyau — y
+// compris un noyau vide. C'est exactement le motif du §5 de CLAUDE.md : un
+// paramètre à valeur neutre qui rend le test aveugle à ce qu'il prétend
+// couvrir.
+//
+// L'arrondi au plus proche pair est reproduit ici en logiciel. Contrairement à
+// l'élargissement de `h2f`, la CONTRACTION n'est pas exacte : elle arrondit,
+// et un arrondi mal fait passerait la plupart des tests en n'échouant qu'aux
+// demi-ulps. D'où les trois cas explicites — débordement vers l'infini,
+// sous-normal, et le demi-cas pair — plutôt qu'un décalage naïf.
+//
+// ⚠️ Le `#else` que NVRTC compile est INCHANGÉ. Le texte de l'unité de
+// traduction grossit, donc son sha256 bouge ; le PTX, lui, ne bouge pas. C'est
+// précisément pourquoi il faudrait imprimer le sha256 du PTX à côté de celui
+// de la source — le second détecte des changements que le premier ne voit pas,
+// et réciproquement.
 __device__ __forceinline__ unsigned short f2h(float f)
 {
 #ifdef LLVQ_HOST_BUILD
-    (void)f;
-    return 0;
+    u32 bits;
+    __builtin_memcpy(&bits, &f, 4);
+    u32 sign = (bits >> 16) & 0x8000u;
+    int exp = (int)((bits >> 23) & 0xffu) - 127 + 15;
+    u32 man = bits & 0x7fffffu;
+
+    if (((bits >> 23) & 0xffu) == 0xffu) {
+        // NaN garde un mantisse non nul ; l'infini la perd.
+        return (unsigned short)(sign | 0x7c00u | (man ? 0x0200u : 0u));
+    }
+    if (exp >= 0x1f) {
+        return (unsigned short)(sign | 0x7c00u);  // déborde → ±inf
+    }
+    if (exp <= 0) {
+        // Sous-normal binary16, ou zéro. Le bit implicite redevient explicite,
+        // puis on décale de ce qui manque à l'exposant.
+        if (exp < -10) {
+            return (unsigned short)sign;
+        }
+        man |= 0x800000u;
+        u32 shift = (u32)(14 - exp);
+        u32 r = man >> shift;
+        u32 rem = man & ((1u << shift) - 1u);
+        u32 half = 1u << (shift - 1);
+        if (rem > half || (rem == half && (r & 1u))) {
+            ++r;
+        }
+        return (unsigned short)(sign | r);
+    }
+    u32 r = man >> 13;
+    u32 rem = man & 0x1fffu;
+    if (rem > 0x1000u || (rem == 0x1000u && (r & 1u))) {
+        ++r;
+        if (r == 0x400u) {  // la mantisse a débordé dans l'exposant
+            r = 0;
+            ++exp;
+            if (exp >= 0x1f) {
+                return (unsigned short)(sign | 0x7c00u);
+            }
+        }
+    }
+    return (unsigned short)(sign | ((u32)exp << 10) | r);
 #else
     unsigned short r;
     asm("cvt.rn.f16.f32 %0, %1;" : "=h"(r) : "f"(f));
