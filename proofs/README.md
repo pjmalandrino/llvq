@@ -35,13 +35,28 @@ Manquent, dans l'ordre où ça compte :
    vérifiable sans nous faire confiance. **Actions de l'opérateur** — elles
    demandent une clé privée. Sans elles, l'antériorité repose sur une date de
    commit, qui est ré-éditable.
-2. **`manifest.jsonl`** — une ligne par run, *y compris les runs ratés*.
-3. **`verify.py`** — la règle porteuse : tout nombre du papier marqué
-   `[[claim:ID]]`, et un échec de build si l'ID n'a pas de ligne, si un hash ne
-   retombe pas, si `git_dirty` est vrai, ou si la valeur du papier diffère du
-   JSON. **Un nombre sans trace doit devenir une erreur de build, pas un
-   oubli.**
+2. 🕳️ **Le manifeste et son `verify` — CORRECTION du 2026-08-10.** Une version
+   antérieure de ce fichier disait qu'ils « restent à écrire ». **C'est faux, et
+   l'erreur aurait envoyé quelqu'un réécrire un outil qui existe** :
+   [`ops/manifest.py`](../ops/manifest.py) implémente déjà `record`, `verify`,
+   `report` et `selftest`, avec exactement la règle porteuse — hachage du log et
+   de l'objet mesuré, commit et propreté de l'arbre, identifiant
+   `[[claim:ID]]`, et surtout `value_evidence()`, qui exige que **la valeur
+   déclarée se retrouve littéralement dans son log**. Son message d'échec
+   nomme la falsification que le hachage seul ne voit pas : « une valeur a
+   quitté son log alors que le log, lui, est intact — l'entrée a été éditée à
+   la main après l'enregistrement, et c'est celle qui atteint directement le
+   papier ».
 
-Tant que 2 et 3 n'existent pas, ce répertoire documente une intention pour la
-partie manifeste, et tient réellement pour la partie pré-enregistrement. Le
+   **Ce qui manque n'est donc pas l'outil, c'est son usage :
+   `ops/manifest.jsonl` n'existe pas.** Zéro entrée, alors que le papier porte
+   une centaine de nombres. L'instrument est bâti, le registre est vide — le
+   motif que ce dossier connaît par cœur : un garde-fou écrit et jamais armé.
+
+   ⚠️ Et il vit dans `ops/`, pas ici, alors que §6.3 le range dans `proofs/`.
+   Décider **une fois** lequel des deux emplacements fait foi, plutôt que de
+   laisser deux conventions coexister.
+
+Tant que le registre est vide, ce répertoire tient pour la partie
+pré-enregistrement et documente une intention pour la partie provenance. Le
 dire est moins coûteux que de laisser croire l'inverse.
