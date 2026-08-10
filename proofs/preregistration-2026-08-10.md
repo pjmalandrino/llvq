@@ -156,6 +156,57 @@ et l'abstract, pas la décision.
 
 ---
 
+## 5bis. 🚨 Le bras AWQ lira MOINS d'octets que tous nos layouts, et il faut le dire maintenant
+
+Écrit le 2026-08-10, **avant** le premier chronométrage du bras AWQ, à partir de
+la seule lecture du noyau — donc sans qu'aucune mesure ne puisse l'avoir
+inspiré.
+
+Le noyau `awq_gemv_g128` lit, par ligne de sortie : `IC/8` mots de 32 bits de
+quartets, `ceil((IC/128)/8)` mots de zéros, et `ceil((IC/128)/8)·8` demi-mots
+d'échelles. Soit, en b/poids :
+
+```
+4  (quartets)  +  16/128 (échelle)  +  4/128 (zéro)  =  4,15625
+```
+
+et **4,16 à 4,19 selon la forme** une fois le rembourrage structurel des
+échelles compté. À confronter à nos cinq bras dans la **même** comptabilité :
+
+| bras | b/poids noyau |
+|---|---|
+| FP16 | 16,000 |
+| Slot32 | 5,510 |
+| Planes14 | 4,804 |
+| Planes12x | 4,342 |
+| **AWQ w4g128** | **≈ 4,17** |
+| Golay70 | 3,589 |
+
+**Le 4 bits lit donc moins que quatre de nos cinq bras.** Sur un noyau
+memory-bound, il est prévisible qu'il aille vite, et ce ne sera **ni une
+surprise ni une défaite** : c'est de l'arithmétique de format, pas un résultat.
+
+🚨 **Et il ne faut surtout pas le confondre avec l'avantage mémoire publié.**
+Le papier écrit 5,15 b/param contre 5,30 pour l'AWQ, et c'est vrai — mais c'est
+un **b/param modèle entier, embedding compris**, et l'avantage y vient de notre
+embedding q8 face à un embedding AWQ resté en bf16, **pas** de la charge utile
+des projections. Mélanger les deux axes serait exactement la faute grave de
+l'errata du lot A, dans l'autre sens.
+
+**Ce que le bras AWQ mesure donc, et rien d'autre** : à quelle fraction de sa
+borne de bande passante un noyau 4 bits déployé tourne, sur les mêmes formes,
+dans les mêmes rounds. La grandeur comparable n'est pas le rapport contre FP16
+— elle favorise mécaniquement qui lit le moins — mais les **Go/s effectifs**,
+qui disent si un décodeur atteint sa borne mémoire ou s'il en est loin.
+
+⚠️ **Réserve de périmètre, à porter dans la légende de toute table où ce bras
+apparaît** : la charge utile est **synthétisée** — nos poids reconstruits,
+re-quantifiés en w4g128 — et non le checkpoint `Qwen/Qwen3-4B-AWQ`. C'est
+légitime pour un temps, parce que le noyau n'a **aucune branche dépendante des
+données** : boucles à `#pragma unroll` fixe, pas de stride variable, pas
+d'exception, donc son trafic et son temps ne dépendent que de `(OC, IC)`. Ça ne
+l'est pas pour une phrase de qualité, et ce bras n'en portera aucune.
+
 ## 6. Comptabilité d'octets, figée avant de mesurer
 
 Toute comparaison mémoire de cette campagne se dit en **comptabilité noyau** :
