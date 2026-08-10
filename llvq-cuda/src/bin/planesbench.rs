@@ -80,11 +80,24 @@ mod linux {
     const TABLE_ENTRIES: usize = 512;
     const REC_WORDS: usize = 6;
     const TOL: f64 = 1e-5;
+    /// Le seuil du bras concurrent, plus lâche d'un facteur ~100, et pour une
+    /// raison de format et non de complaisance : `awq_gemv_g128` écrit sa
+    /// sortie en **binary16** (`f2h`, dernière ligne de `awq_gemv.cu`) là où
+    /// les cinq bras maison rendent du f32. Une sortie binary16 porte ~2⁻¹¹
+    /// d'erreur relative par construction, donc exiger 1e-5 ici ferait échouer
+    /// un noyau parfaitement juste. Sa RÉFÉRENCE, elle, reste exacte :
+    /// `scale·(q − zero)` est ce que le noyau reconstruit au bit près.
+    const AWQ_TOL: f64 = 1e-3;
     const ROUNDS: usize = 7;
     const WARMUP: usize = 2;
     /// Arm order inside a round, fixed: Slot32, Planes14, Planes12x,
-    /// Golay70, FP16.
-    const ARMS: usize = 5;
+    /// Golay70, FP16, AWQ.
+    ///
+    /// ⚠️ L'ordre est celui de l'ENREGISTREMENT, et le bras concurrent est
+    /// ajouté EN DERNIER — insérer AWQ au milieu changerait l'ordre de
+    /// dispatch des cinq bras maison dans chaque round, donc l'objet que la
+    /// table publiée mesure.
+    const ARMS: usize = 6;
 
     /// The seven projection shapes of Qwen3-4B, `(name, d_out, d_in)`.
     const SHAPES: [(&str, usize, usize); 7] = [
@@ -115,6 +128,10 @@ mod linux {
     /// inference kernel, and appending to `planes.cu` would change that
     /// string's bytes and its sha256 for a bench's convenience.
     const PLANES_SEG_CU_EMBED: &str = include_str!("../../kernels/planes_seg.cu");
+    /// Le bras concurrent. Il dépend de `h2f`/`f2h`, donc de `matvec.cu`,
+    /// donc il est concaténé APRÈS lui — et en dernier, pour qu'ajouter un
+    /// concurrent ne réordonne jamais les fragments des bras maison.
+    const AWQ_CU_EMBED: &str = include_str!("../../kernels/awq_gemv.cu");
 
     fn load_planes_sources() -> Result<(String, String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
@@ -168,6 +185,22 @@ mod linux {
     }
 
     /// Same contract for the one segmented source — the A4 arm's kernel.
+    /// Même contrat que les autres : sans la variable, le texte embarqué ;
+    /// avec, le fichier du répertoire, annoncé bruyamment. C'est aussi le
+    /// chemin par lequel un noyau qu'on ne peut pas vendoriser — QTIP est en
+    /// GPL-3 — entrerait sans être commité.
+    fn load_awq_source() -> Result<(String, Option<String>), String> {
+        match std::env::var("LLVQ_KERNEL_DIR") {
+            Err(_) => Ok((AWQ_CU_EMBED.to_string(), None)),
+            Ok(dir) => {
+                let cu =
+                    std::fs::read_to_string(std::path::Path::new(&dir).join("awq_gemv.cu"))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : awq_gemv.cu : {e}"))?;
+                Ok((cu, Some(dir)))
+            }
+        }
+    }
+
     fn load_planes_seg_source() -> Result<(String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
             Err(_) => Ok((PLANES_SEG_CU_EMBED.to_string(), None)),
@@ -224,6 +257,21 @@ mod linux {
         y_ref: Vec<f64>,
         y16_ref: Vec<f64>,
         scale: Vec<f64>,
+        // ---- le bras concurrent (AWQ w4g128) ----
+        //
+        // Trois tampons et sa propre référence : son contenu n'est celui
+        // d'aucun autre bras, donc ni `y_ref` (le contenu LLVQ) ni `y16_ref`
+        // (les mêmes poids en binary16) ne le décrivent. Même situation que le
+        // bras FP16, même réponse.
+        awq_w: cudarc::driver::CudaSlice<u32>,
+        awq_z: cudarc::driver::CudaSlice<u32>,
+        awq_s: cudarc::driver::CudaSlice<u16>,
+        awq_bytes: u64,
+        y_awq_ref: Vec<f64>,
+        /// Le dénominateur d'erreur PROPRE au bras : `Σ|w·x|` sur ses poids à
+        /// lui. Réutiliser `scale`, calculé sur les poids LLVQ, mesurerait
+        /// l'erreur d'AWQ avec la règle d'un autre format.
+        awq_scale: Vec<f64>,
     }
 
     fn worst_error(got: &[f32], want: &[f64], scale: &[f64]) -> f64 {
@@ -535,6 +583,7 @@ mod linux {
         let (p12cuh, p12cu, planes12_overridden) = load_planes12_sources()?;
         let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
         let (segcu, seg_overridden) = load_planes_seg_source()?;
+        let (awqcu, awq_overridden) = load_awq_source()?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -549,6 +598,9 @@ mod linux {
             p12cu.as_str(),
             gcuh.as_str(),
             gcu.as_str(),
+            // Le concurrent en dernier : ajouter un bras ne doit jamais
+            // réordonner les fragments des bras maison.
+            awqcu.as_str(),
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -560,6 +612,9 @@ mod linux {
         }
         if let Some(d) = &planes12_overridden {
             println!("  ⚠️ SOURCES Planes12x SURCHARGÉES depuis {d}");
+        }
+        if let Some(d) = &awq_overridden {
+            println!("  ⚠️ SOURCE AWQ SURCHARGÉE depuis {d}");
         }
         if let Some(d) = &golay_overridden {
             println!("  ⚠️ SOURCES Golay70 SURCHARGÉES depuis {d}");
@@ -590,6 +645,7 @@ mod linux {
             "tv_planes_seg",
             "tv_planes12x",
             "tv_golay70",
+            "awq_gemv_g128",
         ] {
             let r = cuda.report(name)?;
             println!(
@@ -650,6 +706,11 @@ mod linux {
         let mut rng = SplitMix64::new(0x6_D07);
         let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
+        // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
+        // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
+        // format entre concurrents, pas un réglage, et elle se déclare.
+        let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
+        let d_xh = cuda.up_u16(&xh)?;
 
         // The L = 5 swap of the Planes12x arm needs the exact searcher the
         // artifact was encoded with; built once, shared by every transcode.
@@ -680,19 +741,54 @@ mod linux {
             let mut y_ref = vec![0.0f64; d_out];
             let mut y16_ref = vec![0.0f64; d_out];
             let mut scale = vec![0.0f64; d_out];
+            // ---- les trois tampons du bras AWQ ----
+            //
+            // 🚨 Le tampon de poids porte une QUEUE D'ALLOCATION, et l'oublier
+            // est une `illegal memory access` après vingt minutes de
+            // transcodage. Le chargement `float4` des poids est
+            // INCONDITIONNEL dans leur noyau (`awq_gemv.cu`), alors que la
+            // garde `inputs_ptr_delta + ic_0 < IC/8` ne protège que l'entrée
+            // et l'accumulation. L'indice u32 le plus haut atteint vaut donc
+            // `(OC-1)*weight_w + NPG*128 - 1`, au-delà de `OC*weight_w` quand
+            // `IC/8` n'est pas multiple de `NPG*128`. Les débordements des
+            // lignes intérieures retombent dans la ligne suivante — seule la
+            // dernière sort, d'où une queue unique et non un pas élargi.
+            let (aww, awz, aws) = awq_strides(d_in);
+            // ⚠️ La queue N'EST PAS allouée ici mais au téléversement. Si elle
+            // l'était, `chunks_mut(chunk * aww)` pourrait rendre une tranche de
+            // plus que `y_ref.chunks_mut(chunk)`, et `zip` s'arrête sur la plus
+            // courte — donc des lignes entières seraient silencieusement non
+            // quantifiées, et le bras passerait au vert sur un tampon à trous.
+            let awq_tail = (awz * 128).saturating_sub(aww);
+            let mut awq_w = vec![0u32; d_out * aww];
+            let mut awq_z = vec![0u32; d_out * awz];
+            let mut awq_s = vec![0u16; d_out * aws];
+            let mut y_awq_ref = vec![0.0f64; d_out];
+            let mut awq_scale = vec![0.0f64; d_out];
+            // L'activation telle que le noyau AWQ la voit : binary16, lue par
+            // `float4` de huit. La référence doit être calculée contre
+            // celle-ci, pas contre la f32, sinon on facture au bras un écart
+            // qui n'est pas le sien.
+            let xh_f64: Vec<f64> = x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect();
             let nthreads = std::thread::available_parallelism().map_or(8, |n| n.get());
             let chunk = d_out.div_ceil(nthreads);
             std::thread::scope(|sc| {
-                for (ci, (((w16c, yc), y16c), scc)) in w16
+                for (ci, ((((((((w16c, yc), y16c), scc), awc), azc), asc), yawc), asqc)) in w16
                     .chunks_mut(chunk * d_in)
                     .zip(y_ref.chunks_mut(chunk))
                     .zip(y16_ref.chunks_mut(chunk))
                     .zip(scale.chunks_mut(chunk))
+                    .zip(awq_w.chunks_mut(chunk * aww))
+                    .zip(awq_z.chunks_mut(chunk * awz))
+                    .zip(awq_s.chunks_mut(chunk * aws))
+                    .zip(y_awq_ref.chunks_mut(chunk))
+                    .zip(awq_scale.chunks_mut(chunk))
                     .enumerate()
                 {
                     let (rt, table, x, src, planes) = (&rt, &table, &x, &s, &planes_data);
                     let p12 = &p12;
                     let (g70, g70cls, golay) = (&g70, &g70cls, &golay);
+                    let xh = &xh_f64;
                     sc.spawn(move || {
                         let mut wrow = vec![0.0f64; d_in];
                         for lr in 0..yc.len() {
@@ -764,6 +860,26 @@ mod linux {
                             yc[lr] = a;
                             y16c[lr] = b;
                             scc[lr] = ss;
+                            // Le bras concurrent, sur les MÊMES poids : w4g128
+                            // appliqué à ce que LLVQ a reconstruit. Ce n'est
+                            // pas le checkpoint AWQ de Qwen — c'est un w4g128
+                            // fidèle en TEMPS (le noyau n'a aucune branche
+                            // dépendante des données) et exact en RÉFÉRENCE,
+                            // et il ne portera aucune phrase de qualité.
+                            yawc[lr] = awq_quant_row(
+                                &wrow,
+                                xh,
+                                d_in,
+                                &mut awc[lr * aww..(lr + 1) * aww],
+                                &mut azc[lr * awz..(lr + 1) * awz],
+                                &mut asc[lr * aws..(lr + 1) * aws],
+                            );
+                            // Son dénominateur d'erreur, sur ses poids à lui.
+                            let mut sa = 0.0f64;
+                            for c in 0..d_in {
+                                sa += (wrow[c] * xh[c]).abs();
+                            }
+                            asqc[lr] = sa;
                         }
                     });
                 }
@@ -875,6 +991,23 @@ mod linux {
                 y_ref,
                 y16_ref,
                 scale,
+                awq_w: {
+                    // La queue d'allocation, ajoutée ICI et nulle part
+                    // ailleurs : le noyau lit jusqu'à `NPG*128` mots au-delà
+                    // du début de la dernière ligne, et ces mots doivent
+                    // exister. Ils ne sont PAS facturés — c'est une marge
+                    // d'adressage, pas un octet que l'algorithme transporte,
+                    // et la facturer gonflerait le bras concurrent d'un poids
+                    // qu'il ne porte pas.
+                    let mut wup = awq_w;
+                    wup.resize(d_out * aww + awq_tail, 0);
+                    cuda.up_u32(&wup)?
+                },
+                awq_z: cuda.up_u32(&awq_z)?,
+                awq_s: cuda.up_u16(&awq_s)?,
+                awq_bytes: awq_bytes(d_out, d_in),
+                y_awq_ref,
+                awq_scale,
             })
         };
 
@@ -1015,9 +1148,13 @@ mod linux {
         // publiée**, et c'est la seule chose que cette table doit garantir.
         let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
+        // Le bras AWQ écrit une sortie binary16 — c'est ce que fait leur
+        // noyau. Un tampon séparé plutôt qu'une réinterprétation de `d_y` :
+        // deux types, deux tampons, et rien qui puisse se recouvrir.
+        let mut d_yh = cuda.zeros_u16(max_dout)?;
         // Imprimé parce qu'il ne l'était pas : c'est ce silence qui a laissé
         // `d_y` doubler sans que personne ne puisse le lire dans un log.
-        println!("  d_y : {max_dout} f32 — la table des cinq bras, et rien d'autre");
+        println!("  d_y : {max_dout} f32 — la table, et rien d'autre (la section A4 a le sien)");
         println!(
             "  {} matrices, {:.2} Md de poids, en {:.0} s — bijection Planes14 vérifiée \
              bloc par bloc",
@@ -1033,6 +1170,7 @@ mod linux {
         let f_planes12x = cuda.func("tv_planes12x")?;
         let f_golay70 = cuda.func("tv_golay70")?;
         let f_f16 = cuda.func("tv_f16")?;
+        let f_awq = cuda.func("awq_gemv_g128")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
 
         let run_slot = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
@@ -1064,6 +1202,13 @@ mod linux {
                     THREADS, shared,
                 )
             };
+        let run_awq =
+            |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
+                launch_awq(
+                    &cuda, &f_awq, &d_xh, &m.awq_w, &m.awq_z, &m.awq_s, y,
+                    m.d_in as u32, m.d_out as u32,
+                )
+            };
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
@@ -1087,6 +1232,7 @@ mod linux {
         println!("\nVérification de chaque ligne contre la référence f64…");
         let (mut ws, mut wp, mut wx, mut wg, mut wf) =
             (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        let mut wa = 0.0f64;
         for m in &mats {
             run_slot(m, &mut d_y)?;
             cuda.sync()?;
@@ -1129,6 +1275,26 @@ mod linux {
             let e = worst_error(&got[..m.d_out], &m.y16_ref, &m.scale);
             assert!(e < TOL, "{} / FP16 : {e:.2e}·Σ|w·x|", m.name);
             wf = wf.max(e);
+
+            // Le bras concurrent, contre SA référence et SON dénominateur.
+            //
+            // ⚠️ Sa tolérance est la sienne, et elle est plus lâche — d'un
+            // facteur ~100. Ce n'est pas un relâchement : sa sortie est
+            // arrondie en binary16 par le noyau (`f2h`, dernière ligne de
+            // `awq_gemv.cu`), là où les cinq autres bras rendent du f32. Une
+            // sortie binary16 porte ~2^-11 d'erreur relative par construction,
+            // donc exiger 1e-5 ici échouerait sur un noyau parfaitement juste.
+            // La référence, elle, reste EXACTE : `scale·(q − zero)` est ce que
+            // le noyau reconstruit au bit près, il n'y a rien d'approché du
+            // côté attendu.
+            run_awq(m, &mut d_yh)?;
+            cuda.sync()?;
+            let goth = cuda.down_u16(&d_yh)?;
+            let gotf: Vec<f32> =
+                goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
+            let e = worst_error(&gotf, &m.y_awq_ref, &m.awq_scale);
+            assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
+            wa = wa.max(e);
         }
         let rows: usize = mats.iter().map(|m| m.d_out).sum();
         let total_exc: u64 = mats.iter().map(|m| m.n_exc as u64).sum();
@@ -1137,7 +1303,8 @@ mod linux {
         println!(
             "  {rows} lignes, seuil {TOL:.0e} — pires erreurs Slot32 {ws:.1e}, \
              Planes14 {wp:.1e}, Planes12x {wx:.1e} (overlay exact), \
-             Golay70 {wg:.1e} (E2 exact), FP16 {wf:.1e} ·Σ|w·x|"
+             Golay70 {wg:.1e} (E2 exact), FP16 {wf:.1e}, AWQ {wa:.1e} (seuil {AWQ_TOL:.0e}, \
+             sortie binary16) ·Σ|w·x|"
         );
         println!(
             "  exceptions L = 5 : {total_exc} sur {total_blocks} blocs \
@@ -1155,7 +1322,7 @@ mod linux {
         // five arms interleave inside each round. The Planes12x arm's pass
         // includes its per-matrix memset — part of what the layout costs.
         let mut times: [Vec<f64>; ARMS] =
-            [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         for rep in 0..ROUNDS {
             for (arm, t_arm) in times.iter_mut().enumerate() {
                 let t = Instant::now();
@@ -1165,7 +1332,8 @@ mod linux {
                         1 => run_planes(m, &mut d_y)?,
                         2 => run_planes12x(m, &mut d_y)?,
                         3 => run_golay70(m, &mut d_y)?,
-                        _ => run_f16(m, &mut d_y)?,
+                        4 => run_f16(m, &mut d_y)?,
+                        _ => run_awq(m, &mut d_yh)?,
                     }
                 }
                 cuda.sync()?;
@@ -1175,7 +1343,7 @@ mod linux {
                 }
             }
         }
-        let [t_slot, t_planes, t_p12, t_g70, t_f16] = times;
+        let [t_slot, t_planes, t_p12, t_g70, t_f16, t_awq] = times;
         let per_round = |num: &[f64], den: &[f64]| -> Vec<f64> {
             num.iter().zip(den).map(|(a, b)| a / b).collect()
         };
@@ -1184,10 +1352,12 @@ mod linux {
         let (x_lo, x_md, x_hi) = spread(t_p12.clone());
         let (g_lo, g_md, g_hi) = spread(t_g70.clone());
         let (f_lo, f_md, f_hi) = spread(t_f16.clone());
+        let (a_lo, a_md, a_hi) = spread(t_awq.clone());
         let (rs_lo, rs_md, rs_hi) = spread(per_round(&t_f16, &t_slot));
         let (rp_lo, rp_md, rp_hi) = spread(per_round(&t_f16, &t_planes));
         let (rx_lo, rx_md, rx_hi) = spread(per_round(&t_f16, &t_p12));
         let (rg_lo, rg_md, rg_hi) = spread(per_round(&t_f16, &t_g70));
+        let (ra_lo, ra_md, ra_hi) = spread(per_round(&t_f16, &t_awq));
         let (sp_lo, sp_md, sp_hi) = spread(per_round(&t_slot, &t_planes));
         let (px_lo, px_md, px_hi) = spread(per_round(&t_planes, &t_p12));
         let (xg_lo, xg_md, xg_hi) = spread(per_round(&t_p12, &t_g70));
@@ -1196,8 +1366,12 @@ mod linux {
         let xb: u64 = mats.iter().map(|m| m.p12_bytes).sum();
         let gb: u64 = mats.iter().map(|m| m.g70_bytes).sum();
         let fb: u64 = mats.iter().map(|m| m.f16_bytes).sum();
+        let ab: u64 = mats.iter().map(|m| m.awq_bytes).sum();
 
-        println!("\nUN TOKEN — {} matrices, un stream, cinq bras entrelacés", mats.len());
+        println!(
+            "\nUN TOKEN — {} matrices, un stream, SIX bras entrelacés (cinq maison + AWQ)",
+            mats.len()
+        );
         println!("  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND");
         println!("  {}", "-".repeat(80));
         println!(
@@ -1210,6 +1384,7 @@ mod linux {
             ("LLVQ Planes14", (p_lo, p_md, p_hi), pb),
             ("LLVQ Planes12x", (x_lo, x_md, x_hi), xb),
             ("LLVQ Golay70", (g_lo, g_md, g_hi), gb),
+            ("AWQ w4g128", (a_lo, a_md, a_hi), ab),
         ] {
             println!(
                 "  {n:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
@@ -1226,6 +1401,12 @@ mod linux {
         println!("  Planes14  vs FP16     : {rp_md:.2}× [{rp_lo:.2}–{rp_hi:.2}]");
         println!("  Planes12x vs FP16     : {rx_md:.2}× [{rx_lo:.2}–{rx_hi:.2}]");
         println!("  Golay70   vs FP16     : {rg_md:.2}× [{rg_lo:.2}–{rg_hi:.2}]");
+        println!(
+            "  AWQ w4g128 vs FP16    : {ra_md:.2}× [{ra_lo:.2}–{ra_hi:.2}]  \
+             (CONCURRENT — lit {:.3} b/poids, moins que quatre de nos cinq bras ;\n  \
+             la grandeur comparable est les Go/s, pas ce rapport)",
+            ab as f64 * 8.0 / n_weights as f64
+        );
         println!(
             "  Planes14  vs Slot32   : {sp_md:.2}× [{sp_lo:.2}–{sp_hi:.2}]  (>1 = Planes14 \
              plus rapide, même contenu décodé)"
