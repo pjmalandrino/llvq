@@ -1031,6 +1031,18 @@ def cmd_dequant(args) -> int:
             "--awq-repo", args.awq_repo,
             "--base-repo", args.base_repo,
             "--out", out_dir,
+            # 🕳️ Le défaut de `awq_dequant.py` est 4 Go, et il n'était pas
+            # transmis — donc pas réglable depuis ici, donc subi. Il l'a été
+            # le 2026-08-10 : sur le 14B, le shard 6 sur 8 est ressorti
+            # **tronqué** (2 642 414 752 o là où ses pairs font 3 963 622 136),
+            # le `rename` interne de `safetensors.save_file` n'a rien produit,
+            # et `finish()` est mort sur un `FileNotFoundError` après dix
+            # minutes de reconstruction déjà validée par ses cinq contrôles.
+            # Le montage de bucket a donc accepté une écriture courte SANS
+            # lever d'erreur — c'est une propriété de l'environnement, pas un
+            # défaut du reconstructeur. Des shards plus petits réduisent la
+            # taille de chaque écriture et le coût d'une reprise.
+            "--shard-gb", str(args.shard_gb),
         ],
         flavor=args.flavor,
         timeout=args.timeout,
@@ -1429,6 +1441,14 @@ def main() -> int:
     dq.add_argument("--flavor", default="cpu-upgrade", choices=sorted(FLAVORS))
     dq.add_argument("--timeout", default="4h")
     dq.add_argument("--namespace", default=None)
+    # 1 Go, pas les 4 de `awq_dequant.py` : la sortie va sur un montage de
+    # bucket, et un 4 Go y est ressorti tronqué sans erreur (voir le long
+    # commentaire de `cmd_dequant`). Le défaut de l'outil reste 4 pour un
+    # disque local ; celui d'ICI vise le seul support que cette sous-commande
+    # sache écrire.
+    dq.add_argument("--shard-gb", type=float, default=1.0,
+                    help="taille max d'un shard, en Go décimaux (défaut 1.0 : "
+                         "un bucket a tronqué un 4 Go en silence)")
     dq.set_defaults(fn=cmd_dequant)
 
     m = sub.add_parser("monitor", help="suivre un Job : coût, utilisation, logs")
