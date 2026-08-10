@@ -233,6 +233,52 @@ Deux volumes règlent le téléchargement et la sortie :
 uv run ops/run.py watch <job_id>
 ```
 
+## 🚨 Le montage de bucket échoue en silence — trois façons, mesurées le 2026-08-10
+
+Trois tentatives de la même reconstruction AWQ du 14B, trois échecs, **aucun
+dans le code de reconstruction** : ses cinq contrôles étaient verts à chaque
+fois (L2 par matrice, marge L4 la pire ×658 pour un critère de ×100, L1 0,998,
+embedding reproduit à la valeur près, 163 tenseurs). Les trois sont dans la
+couche d'écriture, et **aucun des trois ne lève d'erreur au moment où il se
+produit**.
+
+1. **Deux jobs qui écrivent dans le même bucket ne montent pas.** Le second
+   meurt sur `Volume mount failed: init container exhausted retries`, avant de
+   démarrer, donc sans facturer. **Sérialiser les jobs qui écrivent au même
+   bucket** — le scellement et la déquantification ne peuvent pas être
+   parallélisés, contrairement à ce que la note de reprise du 14B annonçait.
+2. **Une écriture de 4 Go peut être tronquée sans erreur.** Le 7ᵉ shard sur 8
+   est ressorti à 2 642 414 752 o là où ses pairs faisaient 3 963 622 136, et
+   le `rename` interne de `safetensors.save_file` n'a plus rien trouvé à
+   renommer. D'où le défaut de **1 Go** de `dequant --shard-gb` ici, contre les
+   4 Go de `awq_dequant.py`, qui restent bons pour un disque local.
+3. **`os.rename` peut retourner un succès sans renommer.** Avec des shards de
+   1 Go, les 33 fichiers ont été écrits, `finish()` a exécuté ses 33
+   renommages, **n'a rien levé**, a écrit son `index.json` — et trois fichiers
+   sont restés sous leur nom temporaire. Ce n'est pas une latence : dix minutes
+   plus tard ils y étaient toujours.
+
+**Ce qui marche, et c'est la parade** : `hf cp` bucket→bucket est une copie
+côté serveur, instantanée (2 s pour 1,5 Go) et fiable. Réparer coûte donc
+quelques secondes une fois qu'on sait quel fichier manque.
+
+**Comment savoir que les données sont complètes** — une somme qui ne pardonne
+pas : additionner les tailles des fichiers de poids et retrancher le nombre
+d'octets de tenseurs que le job annonce. Le reste doit valoir quelques
+centaines à quelques milliers d'octets par fichier, soit les en-têtes JSON de
+`safetensors`. Un seul fichier tronqué et l'écart devient énorme.
+
+```bash
+hf buckets ls hf://buckets/<user>/<bucket>/<dir>/ \
+ | awk '$1 ~ /^[0-9]+$/ && $NF ~ /model-000/ {s+=$1; n++} \
+        END {printf "%d fichiers, somme %d\n", n, s}'
+```
+
+⚠️ **`get_bucket_file_metadata` ne rend PAS la taille du contenu.** Elle rend
+~1100 o pour tous les fichiers, y compris un `index.json` de 36 514 o
+téléchargé et parsé avec succès : c'est la taille du pointeur Xet. **Les
+tailles de `hf buckets ls` font foi.**
+
 ## Sur le découpage entre machines
 
 `cpu-upgrade` ressort à **0,93 $** pour les 246 cœur-heures du 32B, contre
