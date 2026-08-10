@@ -403,6 +403,126 @@ mod linux {
         Ok(())
     }
 
+    // ================= le bras concurrent : AWQ 4 bits, w4g128 =================
+    //
+    // Groupe de 128 canaux d'entrée, un facteur d'échelle binary16 et un zéro
+    // de 4 bits par groupe, quatre bits par poids. C'est la configuration des
+    // checkpoints AWQ officiels de Qwen3, et donc la seule que ce bras porte.
+    const AWQ_GROUP: usize = 128;
+
+    /// Les trois pas de ligne que `awq_gemv_g128` calcule lui-même. Recopiés
+    /// ici parce que l'hôte doit allouer et remplir exactement ce que le noyau
+    /// va lire — et deux d'entre eux sont **rembourrés**, ce qui n'est ni
+    /// cosmétique ni devinable depuis les formes.
+    fn awq_strides(d_in: usize) -> (usize, usize, usize) {
+        let g = d_in / AWQ_GROUP; // groupes réels
+        let npg = g.div_ceil(8); // `num_groups_packed`
+        (d_in / 8, npg, npg * 8) // weight_w, zeros_w, sf_w
+    }
+
+    /// Octets qu'un bras AWQ lit pour une matrice, **dans la comptabilité du
+    /// banc** : le flux et rien d'autre, rembourrage structurel compris parce
+    /// que le noyau l'indexe vraiment.
+    ///
+    /// Pas de queue ni d'échelle de ligne ici, contrairement aux bras LLVQ :
+    /// w4g128 quantifie *toutes* les colonnes, il n'a pas de politique de
+    /// queue. C'est une différence réelle entre les formats, pas un oubli de
+    /// facturation — et elle joue en faveur d'AWQ, donc elle se déclare.
+    fn awq_bytes(d_out: usize, d_in: usize) -> u64 {
+        let (ww, zw, sw) = awq_strides(d_in);
+        (d_out * ww * 4 + d_out * zw * 4 + d_out * sw * 2) as u64
+    }
+
+    /// Quantifie une ligne de poids en w4g128, l'empaquette dans les trois
+    /// tampons du noyau, et rend le produit scalaire EXACT en f64 de ce que le
+    /// noyau va décoder contre l'activation **telle qu'il la voit**.
+    ///
+    /// ## Pourquoi la référence se calcule ici et pas ailleurs
+    ///
+    /// Le bras AWQ décode un contenu qui n'est celui d'aucun autre bras : ni
+    /// `y_ref` (le contenu LLVQ) ni `y16_ref` (les mêmes poids en binary16) ne
+    /// le décrivent. Il lui faut la sienne, sur le modèle du bras FP16 — et
+    /// elle est **exacte par construction** : on connaît `q`, `scale` et
+    /// `zero`, donc `scale·(q − zero)` est le poids que le noyau reconstruira,
+    /// au bit près, sans approximation à borner.
+    ///
+    /// ⚠️ `xf` est l'activation **arrondie en binary16 puis réélargie**, parce
+    /// que c'est ce que le noyau lit : ses entrées sont des `float4` de huit
+    /// binary16. Utiliser l'activation f32 ici gonflerait l'erreur mesurée d'un
+    /// écart qui n'est pas celui du bras.
+    fn awq_quant_row(
+        wrow: &[f64],
+        xf: &[f64],
+        d_in: usize,
+        w_out: &mut [u32],
+        z_out: &mut [u32],
+        s_out: &mut [u16],
+    ) -> f64 {
+        let (ww, zw, sw) = awq_strides(d_in);
+        let g = d_in / AWQ_GROUP;
+        w_out[..ww].fill(0);
+        z_out[..zw].fill(0);
+        s_out[..sw].fill(0);
+        let mut acc = 0.0f64;
+        for gi in 0..g {
+            let c0 = gi * AWQ_GROUP;
+            let seg = &wrow[c0..c0 + AWQ_GROUP];
+            let (lo, hi) = seg.iter().fold((f64::MAX, f64::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+            // Échelle et zéro asymétriques sur 4 bits, la convention d'AWQ :
+            // `w ≈ scale·(q − zero)` avec `q ∈ [0, 15]`. Une échelle nulle
+            // n'arrive que sur un groupe constant ; on la force non nulle pour
+            // que la division existe, et le zéro absorbe alors la valeur.
+            let mut scale = (hi - lo) / 15.0;
+            if !(scale > 0.0) {
+                scale = 1.0;
+            }
+            // L'échelle traverse un aller-retour binary16 AVANT de servir de
+            // référence : c'est celle-là que le noyau lira, pas la f64.
+            let scale = f16_to_f64(f16_bits(scale as f32));
+            let zero = (-lo / scale).round().clamp(0.0, 15.0);
+            s_out[gi] = f16_bits(scale as f32);
+            let zq = zero as u32;
+            z_out[gi / 8] |= (zq & 0xF) << (4 * (gi % 8));
+            for (k, &w) in seg.iter().enumerate() {
+                let q = (w / scale + zero).round().clamp(0.0, 15.0);
+                let c = c0 + k;
+                w_out[c / 8] |= ((q as u32) & 0xF) << (4 * (c % 8));
+                acc += scale * (q - zero) * xf[c];
+            }
+        }
+        acc
+    }
+
+    /// `awq_gemv_g128(inputs, weight, zeros, scaling_factors, outputs, IC, OC)`.
+    ///
+    /// La géométrie est **la leur**, recopiée de `gemv_forward_cuda` :
+    /// `dim3 num_blocks(1, OC/4, B)` et `dim3 num_threads(32, 4)`, soit un warp
+    /// par canal de sortie et quatre canaux par bloc. La changer ferait de ce
+    /// bras une mesure de notre réglage, pas de leur noyau.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_awq(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        xh: &cudarc::driver::CudaSlice<u16>,
+        w: &cudarc::driver::CudaSlice<u32>,
+        z: &cudarc::driver::CudaSlice<u32>,
+        s: &cudarc::driver::CudaSlice<u16>,
+        y: &mut cudarc::driver::CudaSlice<u16>,
+        d_in: u32,
+        d_out: u32,
+    ) -> Result<(), String> {
+        assert_eq!(d_out % 4, 0, "AWQ : OC/4 blocs, OC doit être multiple de 4");
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (1, d_out / 4, 1),
+            block_dim: (32, 4, 1),
+            shared_mem_bytes: 0,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(xh).arg(w).arg(z).arg(s).arg(y).arg(&d_in).arg(&d_out);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("awq_gemv_g128: {e}"))?;
+        Ok(())
+    }
+
     pub fn run() -> Result<(), String> {
         // Five parts, concatenated in dependency order: llvq_planes.cuh needs
         // llvq_slot.cuh (ClassRec, ext24), planes.cu needs matvec.cu

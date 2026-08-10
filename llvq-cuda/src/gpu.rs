@@ -367,12 +367,26 @@ impl Cuda {
         self.stream.alloc_zeros(n).map_err(|e| format!("alloc f32: {e}"))
     }
 
+    /// Sortie en binary16, pour les noyaux qui en écrivent une.
+    ///
+    /// Aucun bras LLVQ n'en a besoin — ils écrivent tous `float* y`. Le bras
+    /// AWQ, lui, écrit `unsigned short* outputs`, parce que c'est ce que fait
+    /// le noyau amont et qu'on ne le modifie pas.
+    pub fn zeros_u16(&self, n: usize) -> Result<CudaSlice<u16>, String> {
+        self.stream.alloc_zeros(n).map_err(|e| format!("alloc u16: {e}"))
+    }
+
     pub fn down_u32(&self, d: &CudaSlice<u32>) -> Result<Vec<u32>, String> {
         self.stream.clone_dtoh(d).map_err(|e| format!("D2H u32: {e}"))
     }
 
     pub fn down_f32(&self, d: &CudaSlice<f32>) -> Result<Vec<f32>, String> {
         self.stream.clone_dtoh(d).map_err(|e| format!("D2H f32: {e}"))
+    }
+
+    /// Le pendant de [`Self::zeros_u16`] : relire une sortie binary16.
+    pub fn down_u16(&self, d: &CudaSlice<u16>) -> Result<Vec<u16>, String> {
+        self.stream.clone_dtoh(d).map_err(|e| format!("D2H u16: {e}"))
     }
 
     pub fn stream(&self) -> &Arc<CudaStream> {
