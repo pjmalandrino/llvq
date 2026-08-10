@@ -87,7 +87,15 @@ C'est l'étape 8B qui tranche, pour ~20 $ sur les deux flavors.
 | 1. 0,6B, 3 blocs, CPU puis CUDA | `cpu-upgrade`, `l4x1` | 0,11 $ | ✅ chaîne validée, `verify_artifact` OK |
 | 2. **8B complet** | `rtx-pro-6000` | **11,48 $** | ✅ **×1,267 à 2,0436 b/poids** |
 | 3. 32B, 4 blocs (dé-risquage) | `rtx-pro-6000x2` | 5,43 $ | ✅ mémoire et bf16 OK, **621 s/bloc** |
-| 4. **32B complet** | `rtx-pro-6000x2` | **~62 $ / ~11,4 h** | ⏸ en attente |
+| 4. **14B complet** | `rtx-pro-6000x2` | **27,67 $ / 5,03 h** | ✅ **×1,1894 à 2,0481 b/poids**, scellé 6,506 Go (×4,54) |
+| 5. **32B complet** | `rtx-pro-6000x2` | **~62 $ / ~11,4 h** | ⏸ en attente |
+
+> 🕳️ **L'étape 4 a coûté quatre jobs de plus que prévu, tous à l'écriture.**
+> La quantification et le scellement se sont bien passés — 163 tenseurs
+> portés, les deux critères posés d'avance atteints. Ce qui a résisté, c'est
+> de **faire sortir 29,5 Go d'un job** : trois échecs de bucket puis un SIGBUS.
+> Voir la section « Le montage de bucket échoue en silence » plus bas ; elle
+> existe parce que ces quatre jobs ont coûté 0,86 $ pour zéro mesure.
 
 **Le dé-risquage a payé.** Il annonçait 9 h / 49 $ par extrapolation depuis le
 8B ; la mesure à `d_in = 25600` donne **621 s/bloc contre ~500 prédits**, donc
