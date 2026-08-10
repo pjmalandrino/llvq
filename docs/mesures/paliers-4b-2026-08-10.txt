@@ -1,0 +1,155 @@
+# Paliers 4B — job 6a7982abda2af92a634f0e5c, l40sx1
+# Les quatre mécanismes qui n'avaient jamais tourné ensemble sur carte :
+#   queue f16 (A7a, non débrayable) · rotation hissée · overlay Planes12x
+# Artefact : Pier-Jean/Qwen3-4B-LLVQ-2bit monté en lecture seule, LLVQ_EMBED=q8, 128 tokens.
+#
+# ⚠️ Un premier job (6a797fca3e1f34a7e32c1c82) a été ANNULÉ avant facturation :
+#   lancé au défaut de 32 tokens, il n'aurait jamais atteint la divergence connue
+#   du token 89 et aurait rendu quatre paliers verts et vides de sens.
+#
+# VÉRIFICATION HORS LOG : les textes décodés des trois paliers sont
+#   byte-identiques (567 caractères, bras fusé ET bras dense). La position de
+#   divergence identique ne suffisait pas — deux flux distincts pourraient
+#   diverger du dense au même endroit.
+
+########## PALIER 1+2 : temoin planes14, queue f16 (A7a, non debrayable) ##########
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 0 (LLVQ_ROT_SHARE) — 252 rot_lancements/token pour 252 projections
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.729 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.56 Go (projections 2.15 + portés 0.41)
+fusé   : chargé en  128.1 s,   86.9 tok/s, 2.56 Go sur la carte
+         LLVQ_ROT_SHARE=0, 252 rot_lancements/token
+dense  : chargé en  184.4 s,   43.7 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           184.4 s        43.7        8.04
+  fusé            128.1 s        86.9        2.56
+  ----------------------------------------------
+  vitesse ×1.99, mémoire ÷3.14
+
+  projections : 4.729 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
+########## PALIER 3 : rotation hissee LLVQ_ROT_SHARE=1 ##########
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.729 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.56 Go (projections 2.15 + portés 0.41)
+fusé   : chargé en  123.4 s,   94.0 tok/s, 2.56 Go sur la carte
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token
+dense  : chargé en  183.4 s,   43.6 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           183.4 s        43.6        8.04
+  fusé            123.4 s        94.0        2.56
+  ----------------------------------------------
+  vitesse ×2.16, mémoire ÷3.14
+
+  projections : 4.729 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
+########## PALIER 4 : overlay Planes12x ##########
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 0 (LLVQ_ROT_SHARE) — 252 rot_lancements/token pour 252 projections
+layout fusé : planes12x (LLVQ_FUSED_LAYOUT) — projections 1.94 Go sur la carte, 4.277 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.36 Go (projections 1.94 + portés 0.41)
+fusé   : chargé en 1308.2 s,   84.8 tok/s, 2.36 Go sur la carte
+         LLVQ_ROT_SHARE=0, 252 rot_lancements/token
+dense  : chargé en  195.0 s,   43.3 tok/s, 8.04 Go sur la carte
+
+--- les deux bras ---
+  ⚠️ divergence au token 89 sur 128
+     dense [22023, 311, 279, 6722, 315, 264, 3146, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 21340, 47182, 1576, 330, 59604, 1, 374, 279, 6722, 315, 9625, 11, 537, 279, 3639, 4180, 13, 576, 6722, 315, 279]
+     fusé  [22023, 311, 2155, 5837, 13, 4710, 334, 33092, 21806, 66963, 3557, 13, 4710, 334, 9112, 66963, 576, 5114, 374, 3070, 1866, 334, 421, 279, 3405, 374, 911, 9625, 11, 714, 279, 5114, 374, 3070, 3849, 334, 1576, 432, 374, 537, 830]
+     un décodage glouton est une chaîne d'argmax : un token retourné
+     change tous les suivants. Seule la POSITION du premier écart informe.
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to the capital of a country. 
+
+**Correct Answer:** False. 
+
+**Note:** The confusion arises because "Paris" is the capital of France, not the United States. The capital of the
+  fusé  :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           195.0 s        43.3        8.04
+  fusé           1308.2 s        84.8        2.36
+  ----------------------------------------------
+  vitesse ×1.96, mémoire ÷3.41
+
+  projections : 4.277 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
