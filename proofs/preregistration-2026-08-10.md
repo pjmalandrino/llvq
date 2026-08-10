@@ -253,6 +253,46 @@ Repris du protocole existant, sans dérogation :
 
 ---
 
+## 7bis. Écarts au protocole — journal, tenu à chaud
+
+Un pré-enregistrement qui ne consigne pas ses propres entorses ne vaut rien :
+il devient une déclaration d'intention qu'on relit après coup en se félicitant.
+Chaque écart s'écrit ici **le jour où il est commis**, avec sa raison et son
+coût, qu'il ait ou non changé le résultat.
+
+### É1 — 2026-08-10, job `6a7a11d32ed17c71070fda7f` (six bras, ajout d'AWQ)
+
+**Règle enfreinte** : §4, « tout job qui ajoute un bras exécute, *dans le même
+processus*, le banc à N bras **et** un contrôle à 5 bras ».
+
+**Ce qui a été fait** : le job ne porte que le run à six bras. Le contrôle à
+cinq est celui du job `6a79b9913e1f34a7e32c203a`, pris deux heures plus tôt sur
+une image dont l'unité de traduction **ne contenait pas encore** le noyau AWQ.
+
+**Raison** : `planesbench` n'a pas de sélecteur de bras. En ajouter un
+proprement, c'est-à-dire de sorte qu'un bras écarté ne construise pas ses
+tampons — sans quoi le contrôle ne restitue pas la résidence VRAM qu'il est
+censé mesurer — demande la même abstraction que le lot 1. Une version bricolée
+aurait été jetée à la première ligne du trait.
+
+**Ce que ça coûte, précisément** : la résidence passe de ~15,3 à ~17,2 Go avec
+le sixième bras. Les cinq bras incumbents vont donc bouger, et ce mouvement ne
+sera attribuable qu'à un contrôle pris sur une **autre** image et un **autre**
+job — exactement la soustraction inter-processus que ce dossier a déjà dû
+retirer une fois.
+
+**Ce que ça ne coûte pas** : (a) les b/poids, qui sont des compteurs hôte sans
+dispersion — si les cinq anciens ne retombent pas au chiffre, c'est une
+régression réelle et le job échoue son propre critère ; (b) le point AWQ
+lui-même, qui est mesuré dans les mêmes rounds, le même processus et le même
+chronomètre que les cinq autres. La stratégie A est respectée pour le
+concurrent ; c'est la comparaison des incumbents à eux-mêmes qui est affaiblie.
+
+**Conséquence portée au lot 1** : son critère de sortie gagne une clause — *un
+run de contrôle doit être à une variable d'environnement près*. Tant que ce
+n'est pas vrai, chaque nouveau concurrent rejouera cet écart, et une règle
+enfreinte deux fois cesse d'être une règle.
+
 ## 8. Ce qui invaliderait ce pré-enregistrement
 
 À dire maintenant, pour qu'on ne puisse pas le dire après :
