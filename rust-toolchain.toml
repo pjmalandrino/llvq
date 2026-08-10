@@ -1,0 +1,23 @@
+# Le compilateur est un paramètre de mesure, et il ne l'était pas.
+#
+# `ops/Dockerfile.cuda:28` installe `rustup ... --profile minimal` SANS nommer de
+# toolchain : chaque reconstruction d'image embarquait le stable du jour. Tant
+# que le dépôt ne publiait que des octets, ça n'avait pas d'importance — les
+# octets sont des compteurs hôte et ne bougent pas d'une version de rustc à
+# l'autre. Mais le banc publie des RAPPORTS DE TEMPS, et son chemin d'enqueue
+# coûte 1,85 µs par lancement contre ~22 µs de travail GPU par matrice : une
+# marge de ×12 qui masque, qui n'est pas infinie, et qui n'a jamais été
+# confrontée à un changement de compilateur.
+#
+# ⚠️ **Ceci épingle vers l'AVANT, pas vers l'arrière.** La version du run publié
+# du 2026-08-07 est inconnaissable — le Dockerfile ne la nommait pas et le log
+# ne l'imprime pas. 1.95.0 est simplement la version de la machine de dev au
+# moment où on épingle, donc la seule qu'on puisse vérifier. Ce que ce fichier
+# garantit, c'est que les mesures À VENIR partagent un compilateur, pas qu'elles
+# retrouvent celui d'hier.
+#
+# Posé le 2026-08-10, au début de la campagne de comparaison kernel.
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

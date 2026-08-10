@@ -872,103 +872,32 @@ mod linux {
             parts: Vec<usize>,
         }
 
-        let mut fused: Vec<FusedMat> = Vec::new();
-        if !srcs.is_empty() {
-            let names: Vec<&str> = srcs.iter().map(|s| s.name.as_str()).collect();
-            let groups = seg_groups(&names)?;
-            let t_fuse = Instant::now();
-            for (key, idx) in &groups {
-                let sp: Vec<SegPart<'_>> = idx
-                    .iter()
-                    .map(|&i| {
-                        let s = &srcs[i];
-                        SegPart {
-                            d_out: s.d_out,
-                            d_in: s.d_in,
-                            indices: &s.indices,
-                            gains: &s.gains,
-                            centroids: s.centroids,
-                            rscale: &s.rscale,
-                            tail: &s.tail,
-                        }
-                    })
-                    .collect();
-                let seg = seg_concat(&sp);
-                // The twin of `build`'s guard: a fused matrix reads the same
-                // shared activation, and nothing else would notice it reading
-                // past the end of it.
-                assert!(
-                    seg.d_in <= x.len(),
-                    "{key}: d_in {} dépasse l'activation",
-                    seg.d_in
-                );
-                // Slot32 first, then Planes14 off it — the same two-step every
-                // unfused matrix goes through, so the two arms differ in
-                // geometry and in nothing else.
-                let rt = transcode(&fd, &table, &seg.indices, &seg.gains, Layout::Slot32)
-                    .map_err(|e| e.to_string())?;
-                let pdata = planes14_from_slot32(&rt, &table);
-                let slot_bytes = rt.data.len() as u64
-                    + rt.bases.len() as u64 * 4
-                    + (seg.d_out * seg.tail_w) as u64 * 4
-                    + seg.d_out as u64 * 4;
-                let planes_bytes = pdata.len() as u64
-                    + (seg.d_out * seg.tail_w) as u64 * 4
-                    + seg.d_out as u64 * 4;
-
-                let mut sbytes = rt.data.clone();
-                sbytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
-                while !sbytes.len().is_multiple_of(4) {
-                    sbytes.push(0);
-                }
-                let swords: Vec<u32> = sbytes
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
-                let mut pbytes = pdata;
-                pbytes.extend_from_slice(&[0u8; 4]); // the four-word read of the last block
-                while !pbytes.len().is_multiple_of(4) {
-                    pbytes.push(0);
-                }
-                let pwords: Vec<u32> = pbytes
-                    .chunks_exact(4)
-                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                    .collect();
-
-                fused.push(FusedMat {
-                    name: key.clone(),
-                    d_out: seg.d_out,
-                    nblocks: seg.nblocks,
-                    tail_w: seg.tail_w,
-                    words: cuda.up_u32(&swords)?,
-                    bases: cuda.up_u32(&rt.bases)?,
-                    pwords: cuda.up_u32(&pwords)?,
-                    gscale: cuda.up_f32(&seg.centroids)?,
-                    gs_off: cuda.up_u32(&seg.gs_off)?,
-                    rscale: cuda.up_f32(&seg.rscale)?,
-                    tail: cuda
-                        .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
-                    slot_bytes,
-                    planes_bytes,
-                    parts: idx.clone(),
-                });
-            }
-            println!(
-                "  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
-                fused.len(),
-                fused.iter().map(|f| f.parts.len()).sum::<usize>(),
-                fused.len(),
-                t_fuse.elapsed().as_secs_f64()
-            );
-        }
-
-        let max_dout = mats
-            .iter()
-            .map(|m| m.d_out)
-            .chain(fused.iter().map(|f| f.d_out))
-            .max()
-            .unwrap();
+        // 🕳️ **Le bras de fusion (A4) se construit APRÈS la table des cinq
+        // bras, et non plus ici.** Il y était, et il déplaçait deux fois
+        // l'objet que la table mesure — sans qu'aucune ligne de log le dise :
+        //
+        //   * `max_dout` chaînait les `d_out` fusionnés, donc `d_y` passait de
+        //     9 728 à 19 456. Or `Planes12x` et `Golay70` font leur
+        //     `memset_zeros(y)` sur **tout** le slice et **dans le
+        //     chronomètre** (choix revendiqué, cf. `launch_planes12x`). Les
+        //     deux bras à correction payaient donc ~9,8 Mo de plus par passe,
+        //     ~+0,4 %, que dans le run qui a publié leurs chiffres — un biais
+        //     systématique et unidirectionnel, sur exactement les deux bras
+        //     dont on veut savoir s'ils ont dérivé.
+        //   * ses ~2,9 Go de flux fusés restaient résidents pendant le
+        //     chronométrage des cinq bras, portant l'occupation de ~15,3 à
+        //     ~18,4 Go. La pression VRAM est le suspect nommé de la dispersion
+        //     ×20 observée au passage de quatre à cinq bras.
+        //
+        // Aucun des deux n'est un bug : ce sont des effets de bord d'un lot
+        // ajouté après coup (A4, commit 2d56cce, 2026-08-09). Mais ils
+        // rendaient la table des cinq bras **incomparable au run qui l'a
+        // publiée**, et c'est la seule chose que cette table doit garantir.
+        let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
+        // Imprimé parce qu'il ne l'était pas : c'est ce silence qui a laissé
+        // `d_y` doubler sans que personne ne puisse le lire dans un log.
+        println!("  d_y : {max_dout} f32 — la table des cinq bras, et rien d'autre");
         println!(
             "  {} matrices, {:.2} Md de poids, en {:.0} s — bijection Planes14 vérifiée \
              bloc par bloc",
@@ -1238,6 +1167,112 @@ mod linux {
         );
 
         // ---- A4 : la fusion q+k+v et gate+up, justesse d'abord, coût ensuite ----
+        //
+        // Construite ICI, après la table des cinq bras : ni ses ~2,9 Go ni son
+        // `d_out` doublé ne doivent exister pendant que la table se mesure
+        // (voir le long commentaire au-dessus de `max_dout`).
+        let mut fused: Vec<FusedMat> = Vec::new();
+        if !srcs.is_empty() {
+            let names: Vec<&str> = srcs.iter().map(|s| s.name.as_str()).collect();
+            let groups = seg_groups(&names)?;
+            let t_fuse = Instant::now();
+            for (key, idx) in &groups {
+                let sp: Vec<SegPart<'_>> = idx
+                    .iter()
+                    .map(|&i| {
+                        let s = &srcs[i];
+                        SegPart {
+                            d_out: s.d_out,
+                            d_in: s.d_in,
+                            indices: &s.indices,
+                            gains: &s.gains,
+                            centroids: s.centroids,
+                            rscale: &s.rscale,
+                            tail: &s.tail,
+                        }
+                    })
+                    .collect();
+                let seg = seg_concat(&sp);
+                // The twin of `build`'s guard: a fused matrix reads the same
+                // shared activation, and nothing else would notice it reading
+                // past the end of it.
+                assert!(
+                    seg.d_in <= x.len(),
+                    "{key}: d_in {} dépasse l'activation",
+                    seg.d_in
+                );
+                // Slot32 first, then Planes14 off it — the same two-step every
+                // unfused matrix goes through, so the two arms differ in
+                // geometry and in nothing else.
+                let rt = transcode(&fd, &table, &seg.indices, &seg.gains, Layout::Slot32)
+                    .map_err(|e| e.to_string())?;
+                let pdata = planes14_from_slot32(&rt, &table);
+                let slot_bytes = rt.data.len() as u64
+                    + rt.bases.len() as u64 * 4
+                    + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4;
+                let planes_bytes = pdata.len() as u64
+                    + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4;
+
+                let mut sbytes = rt.data.clone();
+                sbytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
+                while !sbytes.len().is_multiple_of(4) {
+                    sbytes.push(0);
+                }
+                let swords: Vec<u32> = sbytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                let mut pbytes = pdata;
+                pbytes.extend_from_slice(&[0u8; 4]); // the four-word read of the last block
+                while !pbytes.len().is_multiple_of(4) {
+                    pbytes.push(0);
+                }
+                let pwords: Vec<u32> = pbytes
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+
+                fused.push(FusedMat {
+                    name: key.clone(),
+                    d_out: seg.d_out,
+                    nblocks: seg.nblocks,
+                    tail_w: seg.tail_w,
+                    words: cuda.up_u32(&swords)?,
+                    bases: cuda.up_u32(&rt.bases)?,
+                    pwords: cuda.up_u32(&pwords)?,
+                    gscale: cuda.up_f32(&seg.centroids)?,
+                    gs_off: cuda.up_u32(&seg.gs_off)?,
+                    rscale: cuda.up_f32(&seg.rscale)?,
+                    tail: cuda
+                        .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
+                    slot_bytes,
+                    planes_bytes,
+                    parts: idx.clone(),
+                });
+            }
+            println!(
+                "\n  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
+                fused.len(),
+                fused.iter().map(|f| f.parts.len()).sum::<usize>(),
+                fused.len(),
+                t_fuse.elapsed().as_secs_f64()
+            );
+        }
+
+        // Un tampon de sortie propre à cette section : un bras fusionné écrit
+        // jusqu'à 19 456 lignes, et c'est précisément ce qu'on refuse d'imposer
+        // au `d_y` de la table. Les deux sections ne partagent plus rien.
+        let a4_dout = fused
+            .iter()
+            .map(|f| f.d_out)
+            .chain(std::iter::once(max_dout))
+            .max()
+            .expect("la chaîne porte au moins max_dout");
+        drop(d_y);
+        let mut d_y = cuda.zeros_f32(a4_dout)?;
+
         if !fused.is_empty() {
             // A fused row runs the same blocks, in the same order, with the
             // same centroids as the unfused row it came from — nothing is
