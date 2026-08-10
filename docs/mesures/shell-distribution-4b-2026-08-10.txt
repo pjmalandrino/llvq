@@ -1,0 +1,405 @@
+# Distribution des blocs du 4B publié par coquille — local, CPU, 0 $
+# cargo run --release -p llvq-bench --bin classhist -- ~/llvq-q4b.llvq
+# Fichier : llvq-q4b.llvq (980 790 202 o), 150 681 600 blocs, boule Λ₂₄(12), 301 classes.
+#
+# POURQUOI CETTE MESURE EXISTE
+# Elle a été faite pour une seule question — quelle fraction des blocs est DÉJÀ sur la
+# coquille 12, donc combien le bras Shell12 déplacerait. Réponse : 59,94 % y sont déjà,
+# 40,06 % bougeraient. Le bras a de quoi mesurer.
+#
+# 🔎 MAIS LE RÉSULTAT QUI COMPTE EST AILLEURS, ET IL N'ÉTAIT DANS AUCUN JOURNAL.
+# La boule à 301 classes est, en pratique, une boule à TROIS coquilles.
+
+  coquille  classes           blocs      part
+  ---------------------------------------------
+         2        3               0    0.000 %   ← le nombre de baisers, jamais atteint
+         3        4               6    0.000 %
+         4        8             274    0.000 %
+         5        9           6 326    0.004 %
+         6       17          31 034    0.021 %
+         7       17         180 626    0.120 %
+         8       30       1 040 297    0.690 %
+         9       33       4 510 488    2.993 %
+        10       47      14 927 638    9.907 %
+        11       54      39 668 940   26.326 %
+        12       79      90 315 971   59.938 %
+  ---------------------------------------------
+     TOTAL      301     150 681 600
+
+  coquilles 10+11+12 : 180 classes, 144 912 549 blocs, 96,17 %
+  coquilles 2..8     :  88 classes,   1 258 563 blocs,  0,84 %
+
+# CE QUE ÇA CHANGE À LA LECTURE
+# « 79 classes contre 301 » décrit le CODEBOOK. Ce qu'une mesure Shell12 compare est plus
+# proche de « 79 contre les ~180 qui sont chaudes ». Et ça se retourne en argument : le
+# décodeur multi-coquilles porte 301 entrées de table pour une distribution qui en concentre
+# 96 % sur 180 — donc la table chaude tient dans le L1 dans les deux cas, et c'est pourquoi
+# la prédiction « mêmes Go/s » du pré-enregistrement est robuste : le seul canal physique par
+# lequel Shell12 pourrait gagner est une empreinte de table déjà minuscule des deux côtés.
+# (79 × 24 = 1 896 o contre ≤ 301 × 24 = 7 224 o.)
+
+# ⚠️ Ce que cette mesure NE dit PAS : rien sur la qualité. Elle compte des blocs, pas des
+# erreurs. Et elle décrit le fichier publié, produit par Spherical GPTQ sur la boule — pas
+# ce que donnerait une quantification contrainte à la coquille 12.
+
+================================ sortie brute ================================
+source : /Users/pjmalandrino/llvq-q4b.llvq — 252 matrices, cap 12
+150681600 blocs, 0 origine, 286 classes observées
+
+  top 20 classes par population (valeurs v^count, ordre canonique)
+  ----------------------------------------------------------------------------
+   1. c247 pair m=12 L=4 2^10 0^7 4^5 6^2              11310169 blocs   7.506 %  cum   7.51 %
+   2. c273 imp. m=12 L=3 1^11 3^9 5^4                   9378381 blocs   6.224 %  cum  13.73 %
+   3. c279 imp. m=12 L=4 1^12 3^9 5^2 7^1               9359156 blocs   6.211 %  cum  19.94 %
+   4. c280 imp. m=12 L=4 1^14 3^6 5^3 7^1               8643708 blocs   5.736 %  cum  25.68 %
+   5. c241 pair m=12 L=4 2^11 4^7 0^5 6^1               8228475 blocs   5.461 %  cum  31.14 %
+   6. c274 imp. m=12 L=3 1^13 3^6 5^5                   6053991 blocs   4.018 %  cum  35.16 %
+   7. c179 pair m=11 L=4 2^11 4^6 0^6 6^1               5495958 blocs   3.647 %  cum  38.80 %
+   8. c202 imp. m=11 L=3 1^13 3^7 5^4                   4947674 blocs   3.284 %  cum  42.09 %
+   9. c201 imp. m=11 L=3 1^11 3^10 5^3                  4293387 blocs   2.849 %  cum  44.94 %
+  10. c249 pair m=12 L=4 2^14 4^4 0^4 6^2               4283018 blocs   2.842 %  cum  47.78 %
+  11. c207 imp. m=11 L=4 1^14 3^7 5^2 7^1               4235334 blocs   2.811 %  cum  50.59 %
+  12. c185 pair m=11 L=4 2^10 0^8 4^4 6^2               4044455 blocs   2.684 %  cum  53.27 %
+  13. c238 pair m=12 L=4 4^8 0^8 2^7 6^1                3280094 blocs   2.177 %  cum  55.45 %
+  14. c272 imp. m=12 L=3 3^12 1^9 5^3                   3120144 blocs   2.071 %  cum  57.52 %
+  15. c154 imp. m=10 L=3 1^13 3^8 5^3                   2655374 blocs   1.762 %  cum  59.28 %
+  16. c253 pair m=12 L=4 2^9 0^9 6^3 4^3                2615844 blocs   1.736 %  cum  61.02 %
+  17. c242 pair m=12 L=5 2^11 0^8 4^3 8^1 6^1           2568806 blocs   1.705 %  cum  62.72 %
+  18. c134 pair m=10 L=4 2^11 0^7 4^5 6^1               2528433 blocs   1.678 %  cum  64.40 %
+  19. c232 pair m=12 L=4 2^12 0^6 4^5 8^1               2396312 blocs   1.590 %  cum  65.99 %
+  20. c206 imp. m=11 L=4 1^12 3^10 7^1 5^1              2141751 blocs   1.421 %  cum  67.41 %
+  … 266 autres classes, 49101136 blocs (32.586 %)
+
+  entropie de l'index (arrangement uniforme dans la classe)
+  ----------------------------------------------------------------------------
+  H(classe)                :   5.6782 bits/bloc
+  Σ p·log₂|classe|         :  40.9755 bits/bloc
+  H(index) = somme         :  46.6536 bits/bloc — payés 47 (0.3464 de marge)
+
+  les classes de la boule m ≤ 12 — résidus mod 4 (zéro compté)
+  ----------------------------------------------------------------------------
+  c0   pair m=2  L=2 0^22 4^2                   r0=2                              0 blocs
+  c1   pair m=2  L=2 0^16 2^8                   r0=1 r2=1                         0 blocs
+  c2   imp. m=2  L=2 1^23 3^1                   r1=1 r3=1                         0 blocs
+  c3   pair m=3  L=3 0^15 2^8 4^1               r0=2 r2=1                         0 blocs
+  c4   pair m=3  L=2 2^12 0^12                  r0=1 r2=1                         0 blocs
+  c5   imp. m=3  L=2 1^21 3^3                   r1=1 r3=1                         6 blocs
+  c6   imp. m=3  L=2 1^23 5^1                   r1=2                              0 blocs
+  c7   pair m=4  L=2 0^20 4^4                   r0=2                              2 blocs
+  c8   pair m=4  L=2 0^23 8^1                   r0=2                              0 blocs
+  c9   pair m=4  L=3 0^14 2^8 4^2               r0=2 r2=1                        32 blocs
+  c10  pair m=4  L=3 2^12 0^11 4^1              r0=2 r2=1                        93 blocs
+  c11  pair m=4  L=2 2^16 0^8                   r0=1 r2=1                        15 blocs
+  c12  pair m=4  L=3 0^16 2^7 6^1               r0=1 r2=2                         0 blocs
+  c13  imp. m=4  L=2 1^19 3^5                   r1=1 r3=1                       121 blocs
+  c14  imp. m=4  L=3 1^21 3^2 5^1               r1=2 r3=1                        11 blocs
+  c15  pair m=5  L=3 0^13 2^8 4^3               r0=2 r2=1                       596 blocs
+  c16  pair m=5  L=3 2^12 0^10 4^2              r0=2 r2=1                      1800 blocs
+  c17  pair m=5  L=3 2^16 0^7 4^1               r0=2 r2=1                       571 blocs
+  c18  pair m=5  L=4 0^15 2^7 6^1 4^1           r0=2 r2=2                        36 blocs
+  c19  pair m=5  L=3 0^12 2^11 6^1              r0=1 r2=2                        97 blocs
+  c20  imp. m=5  L=2 1^17 3^7                   r1=1 r3=1                      2004 blocs
+  c21  imp. m=5  L=3 1^19 3^4 5^1               r1=2 r3=1                      1190 blocs
+  c22  imp. m=5  L=3 1^21 5^2 3^1               r1=2 r3=1                        29 blocs
+  c23  imp. m=5  L=3 1^22 7^1 3^1               r1=1 r3=2                         3 blocs
+  c24  pair m=6  L=2 0^18 4^6                   r0=2                              2 blocs
+  c25  pair m=6  L=3 0^21 4^2 8^1               r0=3        VIOLATION             0 blocs
+  c26  pair m=6  L=3 0^12 2^8 4^4               r0=2 r2=1                      2545 blocs
+  c27  pair m=6  L=3 0^15 2^8 8^1               r0=2 r2=1                         4 blocs
+  c28  pair m=6  L=3 2^12 0^9 4^3               r0=2 r2=1                      8375 blocs
+  c29  pair m=6  L=3 2^16 0^6 4^2               r0=2 r2=1                      2559 blocs
+  c30  pair m=6  L=1 2^24                       r2=1                             65 blocs
+  c31  pair m=6  L=4 0^14 2^7 4^2 6^1           r0=2 r2=2                       339 blocs
+  c32  pair m=6  L=4 2^11 0^11 6^1 4^1          r0=2 r2=2                      1320 blocs
+  c33  pair m=6  L=3 2^15 0^8 6^1               r0=1 r2=2                       332 blocs
+  c34  pair m=6  L=3 0^16 2^6 6^2               r0=1 r2=2                         0 blocs
+  c35  imp. m=6  L=2 1^15 3^9                   r1=1 r3=1                      4866 blocs
+  c36  imp. m=6  L=3 1^17 3^6 5^1               r1=2 r3=1                      8994 blocs
+  c37  imp. m=6  L=3 1^19 3^3 5^2               r1=2 r3=1                      1482 blocs
+  c38  imp. m=6  L=2 1^21 5^3                   r1=2                              8 blocs
+  c39  imp. m=6  L=3 1^20 3^3 7^1               r1=1 r3=2                       142 blocs
+  c40  imp. m=6  L=3 1^22 7^1 5^1               r1=2 r3=1                         1 blocs
+  c41  pair m=7  L=3 0^11 2^8 4^5               r0=2 r2=1                     13194 blocs
+  c42  pair m=7  L=4 0^14 2^8 8^1 4^1           r0=3 r2=1   VIOLATION            71 blocs
+  c43  pair m=7  L=3 2^12 0^8 4^4               r0=2 r2=1                     40778 blocs
+  c44  pair m=7  L=3 2^12 0^11 8^1              r0=2 r2=1                       121 blocs
+  c45  pair m=7  L=3 2^16 0^5 4^3               r0=2 r2=1                     10707 blocs
+  c46  pair m=7  L=4 0^13 2^7 4^3 6^1           r0=2 r2=2                      3271 blocs
+  c47  pair m=7  L=4 2^11 0^10 4^2 6^1          r0=2 r2=2                     16044 blocs
+  c48  pair m=7  L=4 2^15 0^7 6^1 4^1           r0=2 r2=2                      6157 blocs
+  c49  pair m=7  L=4 0^15 2^6 6^2 4^1           r0=2 r2=2                        74 blocs
+  c50  pair m=7  L=3 0^12 2^10 6^2              r0=1 r2=2                       339 blocs
+  c51  imp. m=7  L=2 1^13 3^11                  r1=1 r3=1                      9728 blocs
+  c52  imp. m=7  L=3 1^15 3^8 5^1               r1=2 r3=1                     46595 blocs
+  c53  imp. m=7  L=3 1^17 3^5 5^2               r1=2 r3=1                     28310 blocs
+  c54  imp. m=7  L=3 1^19 5^3 3^2               r1=2 r3=1                      1598 blocs
+  c55  imp. m=7  L=3 1^18 3^5 7^1               r1=1 r3=2                      3186 blocs
+  c56  imp. m=7  L=4 1^20 3^2 7^1 5^1           r1=2 r3=2                       451 blocs
+  c57  imp. m=7  L=3 1^22 9^1 3^1               r1=2 r3=1                         2 blocs
+  c58  pair m=8  L=2 0^16 4^8                   r0=2                            252 blocs
+  c59  pair m=8  L=3 0^19 4^4 8^1               r0=3        VIOLATION            24 blocs
+  c60  pair m=8  L=2 0^22 8^2                   r0=2                              0 blocs
+  c61  pair m=8  L=3 0^10 2^8 4^6               r0=2 r2=1                     63777 blocs
+  c62  pair m=8  L=4 0^13 2^8 4^2 8^1           r0=3 r2=1   VIOLATION          1706 blocs
+  c63  pair m=8  L=3 2^12 0^7 4^5               r0=2 r2=1                    170791 blocs
+  c64  pair m=8  L=4 2^12 0^10 8^1 4^1          r0=3 r2=1   VIOLATION          3555 blocs
+  c65  pair m=8  L=3 2^16 4^4 0^4               r0=2 r2=1                     35606 blocs
+  c66  pair m=8  L=3 2^16 0^7 8^1               r0=2 r2=1                       479 blocs
+  c67  pair m=8  L=4 0^12 2^7 4^4 6^1           r0=2 r2=2                     28936 blocs
+  c68  pair m=8  L=4 0^15 2^7 8^1 6^1           r0=2 r2=2                        33 blocs
+  c69  pair m=8  L=4 2^11 0^9 4^3 6^1           r0=2 r2=2                    142013 blocs
+  c70  pair m=8  L=4 2^15 0^6 4^2 6^1           r0=2 r2=2                     56662 blocs
+  c71  pair m=8  L=2 2^23 6^1                   r2=2                            224 blocs
+  c72  pair m=8  L=4 0^14 2^6 6^2 4^2           r0=2 r2=2                      1659 blocs
+  c73  pair m=8  L=4 0^11 2^10 6^2 4^1          r0=2 r2=2                     10593 blocs
+  c74  pair m=8  L=3 2^14 0^8 6^2               r0=1 r2=2                      3771 blocs
+  c75  pair m=8  L=3 0^16 2^5 6^3               r0=1 r2=2                         3 blocs
+  c76  pair m=8  L=3 0^16 2^7 10^1              r0=1 r2=2                         1 blocs
+  c77  imp. m=8  L=2 3^13 1^11                  r1=1 r3=1                     13080 blocs
+  c78  imp. m=8  L=3 1^13 3^10 5^1              r1=2 r3=1                    143350 blocs
+  c79  imp. m=8  L=3 1^15 3^7 5^2               r1=2 r3=1                    246498 blocs
+  c80  imp. m=8  L=3 1^17 3^4 5^3               r1=2 r3=1                     63227 blocs
+  c81  imp. m=8  L=3 1^19 5^4 3^1               r1=2 r3=1                      1081 blocs
+  c82  imp. m=8  L=3 1^16 3^7 7^1               r1=1 r3=2                     30672 blocs
+  c83  imp. m=8  L=4 1^18 3^4 7^1 5^1           r1=2 r3=2                     21430 blocs
+  c84  imp. m=8  L=4 1^20 5^2 7^1 3^1           r1=2 r3=2                       625 blocs
+  c85  imp. m=8  L=3 1^21 7^2 3^1               r1=1 r3=2                        34 blocs
+  c86  imp. m=8  L=3 1^20 3^3 9^1               r1=2 r3=1                       211 blocs
+  c87  imp. m=8  L=3 1^22 9^1 5^1               r1=3        VIOLATION             4 blocs
+  c88  pair m=9  L=3 0^9 2^8 4^7                r0=2 r2=1                    216119 blocs
+  c89  pair m=9  L=4 0^12 2^8 4^3 8^1           r0=3 r2=1   VIOLATION         17140 blocs
+  c90  pair m=9  L=3 2^12 4^6 0^6               r0=2 r2=1                    472506 blocs
+  c91  pair m=9  L=4 2^12 0^9 4^2 8^1           r0=3 r2=1   VIOLATION         42072 blocs
+  c92  pair m=9  L=3 2^16 4^5 0^3               r0=2 r2=1                     67314 blocs
+  c93  pair m=9  L=4 2^16 0^6 8^1 4^1           r0=3 r2=1   VIOLATION          8350 blocs
+  c94  pair m=9  L=4 0^11 2^7 4^5 6^1           r0=2 r2=2                    164380 blocs
+  c95  pair m=9  L=5 0^14 2^7 8^1 6^1 4^1       r0=3 r2=2   VIOLATION          1142 blocs
+  c96  pair m=9  L=4 2^11 0^8 4^4 6^1           r0=2 r2=2                    764399 blocs
+  c97  pair m=9  L=4 2^11 0^11 8^1 6^1          r0=2 r2=2                      2213 blocs
+  c98  pair m=9  L=4 2^15 0^5 4^3 6^1           r0=2 r2=2                    269112 blocs
+  c99  pair m=9  L=4 0^13 2^6 4^3 6^2           r0=2 r2=2                     18631 blocs
+  c100 pair m=9  L=4 2^10 0^10 6^2 4^2          r0=2 r2=2                    139565 blocs
+  c101 pair m=9  L=4 2^14 0^7 6^2 4^1           r0=2 r2=2                     71812 blocs
+  c102 pair m=9  L=4 0^15 2^5 6^3 4^1           r0=2 r2=2                       243 blocs
+  c103 pair m=9  L=3 0^12 2^9 6^3               r0=1 r2=2                      1691 blocs
+  c104 pair m=9  L=4 0^15 2^7 10^1 4^1          r0=2 r2=2                        43 blocs
+  c105 pair m=9  L=3 0^12 2^11 10^1             r0=1 r2=2                       113 blocs
+  c106 imp. m=9  L=2 3^15 1^9                   r1=1 r3=1                      8282 blocs
+  c107 imp. m=9  L=3 3^12 1^11 5^1              r1=2 r3=1                    201997 blocs
+  c108 imp. m=9  L=3 1^13 3^9 5^2               r1=2 r3=1                    852132 blocs
+  c109 imp. m=9  L=3 1^15 3^6 5^3               r1=2 r3=1                    680535 blocs
+  c110 imp. m=9  L=3 1^17 5^4 3^3               r1=2 r3=1                     74968 blocs
+  c111 imp. m=9  L=2 1^19 5^5                   r1=2                            263 blocs
+  c112 imp. m=9  L=3 1^14 3^9 7^1               r1=1 r3=2                    121264 blocs
+  c113 imp. m=9  L=4 1^16 3^6 7^1 5^1           r1=2 r3=2                    255482 blocs
+  c114 imp. m=9  L=4 1^18 3^3 5^2 7^1           r1=2 r3=2                     50079 blocs
+  c115 imp. m=9  L=3 1^20 5^3 7^1               r1=2 r3=1                       251 blocs
+  c116 imp. m=9  L=3 1^19 3^3 7^2               r1=1 r3=2                      2589 blocs
+  c117 imp. m=9  L=3 1^21 7^2 5^1               r1=2 r3=1                        47 blocs
+  c118 imp. m=9  L=3 1^18 3^5 9^1               r1=2 r3=1                      4980 blocs
+  c119 imp. m=9  L=4 1^20 3^2 9^1 5^1           r1=3 r3=1   VIOLATION           774 blocs
+  c120 imp. m=9  L=2 1^23 11^1                  r1=1 r3=1                         0 blocs
+  c121 pair m=10 L=2 0^14 4^10                  r0=2                           3221 blocs
+  c122 pair m=10 L=3 0^17 4^6 8^1               r0=3        VIOLATION           499 blocs
+  c123 pair m=10 L=3 0^20 8^2 4^2               r0=3        VIOLATION             1 blocs
+  c124 pair m=10 L=3 0^22 12^1 4^1              r0=3        VIOLATION             0 blocs
+  c125 pair m=10 L=3 4^8 2^8 0^8                r0=2 r2=1                    504211 blocs
+  c126 pair m=10 L=4 0^11 2^8 4^4 8^1           r0=3 r2=1   VIOLATION        106839 blocs
+  c127 pair m=10 L=3 0^14 2^8 8^2               r0=2 r2=1                        78 blocs
+  c128 pair m=10 L=3 2^12 4^7 0^5               r0=2 r2=1                    841977 blocs
+  c129 pair m=10 L=4 2^12 0^8 4^3 8^1           r0=3 r2=1   VIOLATION        262116 blocs
+  c130 pair m=10 L=3 2^16 4^6 0^2               r0=2 r2=1                     69855 blocs
+  c131 pair m=10 L=4 2^16 0^5 4^2 8^1           r0=3 r2=1   VIOLATION         52357 blocs
+  c132 pair m=10 L=4 0^10 2^7 4^6 6^1           r0=2 r2=2                    624680 blocs
+  c133 pair m=10 L=5 0^13 2^7 4^2 8^1 6^1       r0=3 r2=2   VIOLATION         16515 blocs
+  c134 pair m=10 L=4 2^11 0^7 4^5 6^1           r0=2 r2=2                   2528433 blocs
+  c135 pair m=10 L=5 2^11 0^10 8^1 6^1 4^1      r0=3 r2=2   VIOLATION         53313 blocs
+  c136 pair m=10 L=4 2^15 4^4 0^4 6^1           r0=2 r2=2                    701590 blocs
+  c137 pair m=10 L=4 2^15 0^7 8^1 6^1           r0=2 r2=2                     10003 blocs
+  c138 pair m=10 L=4 0^12 2^6 4^4 6^2           r0=2 r2=2                    124841 blocs
+  c139 pair m=10 L=4 0^15 2^6 6^2 8^1           r0=2 r2=2                       141 blocs
+  c140 pair m=10 L=4 2^10 0^9 4^3 6^2           r0=2 r2=2                    962891 blocs
+  c141 pair m=10 L=4 2^14 0^6 6^2 4^2           r0=2 r2=2                    526137 blocs
+  c142 pair m=10 L=2 2^22 6^2                   r2=2                           3643 blocs
+  c143 pair m=10 L=4 0^14 2^5 6^3 4^2           r0=2 r2=2                      4042 blocs
+  c144 pair m=10 L=4 0^11 2^9 6^3 4^1           r0=2 r2=2                     43565 blocs
+  c145 pair m=10 L=3 2^13 0^8 6^3               r0=1 r2=2                     21608 blocs
+  c146 pair m=10 L=3 0^16 6^4 2^4               r0=1 r2=2                         6 blocs
+  c147 pair m=10 L=4 0^14 2^7 4^2 10^1          r0=2 r2=2                       581 blocs
+  c148 pair m=10 L=4 2^11 0^11 10^1 4^1         r0=2 r2=2                      2452 blocs
+  c149 pair m=10 L=3 2^15 0^8 10^1              r0=1 r2=2                       657 blocs
+  c150 pair m=10 L=4 0^16 2^6 10^1 6^1          r0=1 r2=3   VIOLATION            14 blocs
+  c151 imp. m=10 L=2 3^17 1^7                   r1=1 r3=1                      2130 blocs
+  c152 imp. m=10 L=3 3^14 1^9 5^1               r1=2 r3=1                    126628 blocs
+  c153 imp. m=10 L=3 3^11 1^11 5^2              r1=2 r3=1                   1256408 blocs
+  c154 imp. m=10 L=3 1^13 3^8 5^3               r1=2 r3=1                   2655374 blocs
+  c155 imp. m=10 L=3 1^15 3^5 5^4               r1=2 r3=1                   1060862 blocs
+  c156 imp. m=10 L=3 1^17 5^5 3^2               r1=2 r3=1                     46567 blocs
+  c157 imp. m=10 L=3 1^12 3^11 7^1              r1=1 r3=2                    208574 blocs
+  c158 imp. m=10 L=4 1^14 3^8 7^1 5^1           r1=2 r3=2                   1137528 blocs
+  c159 imp. m=10 L=4 1^16 3^5 5^2 7^1           r1=2 r3=2                    795665 blocs
+  c160 imp. m=10 L=4 1^18 5^3 3^2 7^1           r1=2 r3=2                     51919 blocs
+  c161 imp. m=10 L=3 1^17 3^5 7^2               r1=1 r3=2                     46713 blocs
+  c162 imp. m=10 L=4 1^19 7^2 3^2 5^1           r1=2 r3=2                      8312 blocs
+  c163 imp. m=10 L=3 1^16 3^7 9^1               r1=2 r3=1                     37840 blocs
+  c164 imp. m=10 L=4 1^18 3^4 9^1 5^1           r1=3 r3=1   VIOLATION         25884 blocs
+  c165 imp. m=10 L=4 1^20 5^2 9^1 3^1           r1=3 r3=1   VIOLATION           852 blocs
+  c166 imp. m=10 L=4 1^21 9^1 7^1 3^1           r1=2 r3=2                        75 blocs
+  c167 imp. m=10 L=3 1^21 3^2 11^1              r1=1 r3=2                        41 blocs
+  c168 pair m=11 L=3 4^9 2^8 0^7                r0=2 r2=1                    834446 blocs
+  c169 pair m=11 L=4 0^10 2^8 4^5 8^1           r0=3 r2=1   VIOLATION        435879 blocs
+  c170 pair m=11 L=4 0^13 2^8 8^2 4^1           r0=3 r2=1   VIOLATION          1924 blocs
+  c171 pair m=11 L=3 0^15 2^8 12^1              r0=2 r2=1                         2 blocs
+  c172 pair m=11 L=3 2^12 4^8 0^4               r0=2 r2=1                    981399 blocs
+  c173 pair m=11 L=4 2^12 0^7 4^4 8^1           r0=3 r2=1   VIOLATION        980175 blocs
+  c174 pair m=11 L=3 2^12 0^10 8^2              r0=2 r2=1                      2075 blocs
+  c175 pair m=11 L=3 2^16 4^7 0^1               r0=2 r2=1                     37528 blocs
+  c176 pair m=11 L=4 2^16 0^4 4^3 8^1           r0=3 r2=1   VIOLATION        163655 blocs
+  c177 pair m=11 L=4 0^9 4^7 2^7 6^1            r0=2 r2=2                   1668906 blocs
+  c178 pair m=11 L=5 0^12 2^7 4^3 8^1 6^1       r0=3 r2=2   VIOLATION        133174 blocs
+  c179 pair m=11 L=4 2^11 4^6 0^6 6^1           r0=2 r2=2                   5495958 blocs
+  c180 pair m=11 L=5 2^11 0^9 4^2 8^1 6^1       r0=3 r2=2   VIOLATION        488550 blocs
+  c181 pair m=11 L=4 2^15 4^5 0^3 6^1           r0=2 r2=2                   1046801 blocs
+  c182 pair m=11 L=5 2^15 0^6 8^1 6^1 4^1       r0=3 r2=2   VIOLATION        131644 blocs
+  c183 pair m=11 L=4 0^11 2^6 4^5 6^2           r0=2 r2=2                    557165 blocs
+  c184 pair m=11 L=5 0^14 2^6 6^2 8^1 4^1       r0=3 r2=2   VIOLATION          3798 blocs
+  c185 pair m=11 L=4 2^10 0^8 4^4 6^2           r0=2 r2=2                   4044455 blocs
+  c186 pair m=11 L=4 0^11 2^10 6^2 8^1          r0=2 r2=2                     12188 blocs
+  c187 pair m=11 L=4 2^14 0^5 4^3 6^2           r0=2 r2=2                   1958512 blocs
+  c188 pair m=11 L=4 0^13 2^5 6^3 4^3           r0=2 r2=2                     35526 blocs
+  c189 pair m=11 L=4 0^10 2^9 6^3 4^2           r0=2 r2=2                    448635 blocs
+  c190 pair m=11 L=4 2^13 0^7 6^3 4^1           r0=2 r2=2                    326856 blocs
+  c191 pair m=11 L=4 0^15 6^4 2^4 4^1           r0=2 r2=2                       309 blocs
+  c192 pair m=11 L=3 0^12 2^8 6^4               r0=1 r2=2                      3843 blocs
+  c193 pair m=11 L=4 0^13 2^7 4^3 10^1          r0=2 r2=2                      5025 blocs
+  c194 pair m=11 L=4 2^11 0^10 4^2 10^1         r0=2 r2=2                     24344 blocs
+  c195 pair m=11 L=4 2^15 0^7 10^1 4^1          r0=2 r2=2                      9243 blocs
+  c196 pair m=11 L=5 0^15 2^6 10^1 6^1 4^1      r0=2 r2=3   VIOLATION           299 blocs
+  c197 pair m=11 L=4 0^12 2^10 10^1 6^1         r0=1 r2=3   VIOLATION          1026 blocs
+  c198 imp. m=11 L=2 3^19 1^5                   r1=1 r3=1                       257 blocs
+  c199 imp. m=11 L=3 3^16 1^7 5^1               r1=2 r3=1                     35271 blocs
+  c200 imp. m=11 L=3 3^13 1^9 5^2               r1=2 r3=1                    826076 blocs
+  c201 imp. m=11 L=3 1^11 3^10 5^3              r1=2 r3=1                   4293387 blocs
+  c202 imp. m=11 L=3 1^13 3^7 5^4               r1=2 r3=1                   4947674 blocs
+  c203 imp. m=11 L=3 1^15 5^5 3^4               r1=2 r3=1                    988350 blocs
+  c204 imp. m=11 L=3 1^17 5^6 3^1               r1=2 r3=1                     14478 blocs
+  c205 imp. m=11 L=3 3^13 1^10 7^1              r1=1 r3=2                    164422 blocs
+  c206 imp. m=11 L=4 1^12 3^10 7^1 5^1          r1=2 r3=2                   2141751 blocs
+  c207 imp. m=11 L=4 1^14 3^7 5^2 7^1           r1=2 r3=2                   4235334 blocs
+  c208 imp. m=11 L=4 1^16 3^4 5^3 7^1           r1=2 r3=2                   1233236 blocs
+  c209 imp. m=11 L=4 1^18 5^4 7^1 3^1           r1=2 r3=2                     25084 blocs
+  c210 imp. m=11 L=3 1^15 3^7 7^2               r1=1 r3=2                    282953 blocs
+  c211 imp. m=11 L=4 1^17 3^4 7^2 5^1           r1=2 r3=2                    218777 blocs
+  c212 imp. m=11 L=4 1^19 7^2 5^2 3^1           r1=2 r3=2                      7584 blocs
+  c213 imp. m=11 L=3 1^20 7^3 3^1               r1=1 r3=2                       251 blocs
+  c214 imp. m=11 L=3 1^14 3^9 9^1               r1=2 r3=1                    117407 blocs
+  c215 imp. m=11 L=4 1^16 3^6 9^1 5^1           r1=3 r3=1   VIOLATION        247122 blocs
+  c216 imp. m=11 L=4 1^18 3^3 5^2 9^1           r1=3 r3=1   VIOLATION         49207 blocs
+  c217 imp. m=11 L=3 1^20 5^3 9^1               r1=3        VIOLATION           241 blocs
+  c218 imp. m=11 L=4 1^19 3^3 9^1 7^1           r1=2 r3=2                      5258 blocs
+  c219 imp. m=11 L=4 1^21 9^1 7^1 5^1           r1=3 r3=1   VIOLATION            66 blocs
+  c220 imp. m=11 L=3 1^19 3^4 11^1              r1=1 r3=2                      1343 blocs
+  c221 imp. m=11 L=4 1^21 11^1 5^1 3^1          r1=2 r3=2                        71 blocs
+  c222 pair m=12 L=2 4^12 0^12                  r0=2                          14082 blocs
+  c223 pair m=12 L=3 0^15 4^8 8^1               r0=3        VIOLATION          7604 blocs
+  c224 pair m=12 L=3 0^18 4^4 8^2               r0=3        VIOLATION           219 blocs
+  c225 pair m=12 L=2 0^21 8^3                   r0=2                              0 blocs
+  c226 pair m=12 L=3 0^20 4^3 12^1              r0=3        VIOLATION             0 blocs
+  c227 pair m=12 L=3 4^10 2^8 0^6               r0=2 r2=1                   1022093 blocs
+  c228 pair m=12 L=4 0^9 2^8 4^6 8^1            r0=3 r2=1   VIOLATION       1274855 blocs
+  c229 pair m=12 L=4 0^12 2^8 8^2 4^2           r0=3 r2=1   VIOLATION         21849 blocs
+  c230 pair m=12 L=4 0^14 2^8 12^1 4^1          r0=3 r2=1   VIOLATION           120 blocs
+  c231 pair m=12 L=3 2^12 4^9 0^3               r0=2 r2=1                    764968 blocs
+  c232 pair m=12 L=4 2^12 0^6 4^5 8^1           r0=3 r2=1   VIOLATION       2396312 blocs
+  c233 pair m=12 L=4 2^12 0^9 8^2 4^1           r0=3 r2=1   VIOLATION         35649 blocs
+  c234 pair m=12 L=3 2^12 0^11 12^1             r0=2 r2=1                       166 blocs
+  c235 pair m=12 L=2 2^16 4^8                   r0=1 r2=1                      8190 blocs
+  c236 pair m=12 L=4 2^16 4^4 0^3 8^1           r0=3 r2=1   VIOLATION        285747 blocs
+  c237 pair m=12 L=3 2^16 0^6 8^2               r0=2 r2=1                      3599 blocs
+  c238 pair m=12 L=4 4^8 0^8 2^7 6^1            r0=2 r2=2                   3280094 blocs
+  c239 pair m=12 L=5 0^11 2^7 4^4 8^1 6^1       r0=3 r2=2   VIOLATION        694725 blocs
+  c240 pair m=12 L=4 0^14 2^7 8^2 6^1           r0=2 r2=2                       459 blocs
+  c241 pair m=12 L=4 2^11 4^7 0^5 6^1           r0=2 r2=2                   8228475 blocs
+  c242 pair m=12 L=5 2^11 0^8 4^3 8^1 6^1       r0=3 r2=2   VIOLATION       2568806 blocs
+  c243 pair m=12 L=4 2^15 4^6 0^2 6^1           r0=2 r2=2                    913369 blocs
+  c244 pair m=12 L=5 2^15 0^5 4^2 8^1 6^1       r0=3 r2=2   VIOLATION        683631 blocs
+  c245 pair m=12 L=4 0^10 4^6 2^6 6^2           r0=2 r2=2                   1786384 blocs
+  c246 pair m=12 L=5 0^13 2^6 6^2 4^2 8^1       r0=3 r2=2   VIOLATION         46755 blocs
+  c247 pair m=12 L=4 2^10 0^7 4^5 6^2           r0=2 r2=2                  11310169 blocs
+  c248 pair m=12 L=5 2^10 0^10 6^2 8^1 4^1      r0=3 r2=2   VIOLATION        235937 blocs
+  c249 pair m=12 L=4 2^14 4^4 0^4 6^2           r0=2 r2=2                   4283018 blocs
+  c250 pair m=12 L=4 2^14 0^7 6^2 8^1           r0=2 r2=2                     61767 blocs
+  c251 pair m=12 L=4 0^12 2^5 4^4 6^3           r0=2 r2=2                    202304 blocs
+  c252 pair m=12 L=4 0^15 2^5 6^3 8^1           r0=2 r2=2                       226 blocs
+  c253 pair m=12 L=4 2^9 0^9 6^3 4^3            r0=2 r2=2                   2615844 blocs
+  c254 pair m=12 L=4 2^13 0^6 6^3 4^2           r0=2 r2=2                   1997690 blocs
+  c255 pair m=12 L=2 2^21 6^3                   r2=2                          21812 blocs
+  c256 pair m=12 L=4 0^14 6^4 2^4 4^2           r0=2 r2=2                      4175 blocs
+  c257 pair m=12 L=4 0^11 2^8 6^4 4^1           r0=2 r2=2                     80340 blocs
+  c258 pair m=12 L=3 2^12 0^8 6^4               r0=1 r2=2                     57805 blocs
+  c259 pair m=12 L=3 0^16 6^5 2^3               r0=1 r2=2                         7 blocs
+  c260 pair m=12 L=4 0^12 2^7 4^4 10^1          r0=2 r2=2                     29120 blocs
+  c261 pair m=12 L=4 0^15 2^7 10^1 8^1          r0=2 r2=2                        27 blocs
+  c262 pair m=12 L=4 2^11 0^9 4^3 10^1          r0=2 r2=2                    143032 blocs
+  c263 pair m=12 L=4 2^15 0^6 4^2 10^1          r0=2 r2=2                     57267 blocs
+  c264 pair m=12 L=2 2^23 10^1                  r2=2                            285 blocs
+  c265 pair m=12 L=5 0^14 2^6 4^2 10^1 6^1      r0=2 r2=3   VIOLATION          3376 blocs
+  c266 pair m=12 L=5 0^11 2^10 10^1 6^1 4^1     r0=2 r2=3   VIOLATION         21403 blocs
+  c267 pair m=12 L=4 2^14 0^8 10^1 6^1          r0=1 r2=3   VIOLATION          7707 blocs
+  c268 pair m=12 L=4 0^16 2^5 6^2 10^1          r0=1 r2=3   VIOLATION            28 blocs
+  c269 imp. m=12 L=2 3^21 1^3                   r1=1 r3=1                         8 blocs
+  c270 imp. m=12 L=3 3^18 1^5 5^1               r1=2 r3=1                      4320 blocs
+  c271 imp. m=12 L=3 3^15 1^7 5^2               r1=2 r3=1                    247241 blocs
+  c272 imp. m=12 L=3 3^12 1^9 5^3               r1=2 r3=1                   3120144 blocs
+  c273 imp. m=12 L=3 1^11 3^9 5^4               r1=2 r3=1                   9378381 blocs
+  c274 imp. m=12 L=3 1^13 3^6 5^5               r1=2 r3=1                   6053991 blocs
+  c275 imp. m=12 L=3 1^15 5^6 3^3               r1=2 r3=1                    575850 blocs
+  c276 imp. m=12 L=2 1^17 5^7                   r1=2                           1825 blocs
+  c277 imp. m=12 L=3 3^15 1^8 7^1               r1=1 r3=2                     62040 blocs
+  c278 imp. m=12 L=4 3^12 1^10 7^1 5^1          r1=2 r3=2                   1870521 blocs
+  c279 imp. m=12 L=4 1^12 3^9 5^2 7^1           r1=2 r3=2                   9359156 blocs
+  c280 imp. m=12 L=4 1^14 3^6 5^3 7^1           r1=2 r3=2                   8643708 blocs
+  c281 imp. m=12 L=4 1^16 5^4 3^3 7^1           r1=2 r3=2                   1079354 blocs
+  c282 imp. m=12 L=3 1^18 5^5 7^1               r1=2 r3=1                      4225 blocs
+  c283 imp. m=12 L=3 1^13 3^9 7^2               r1=1 r3=2                    720818 blocs
+  c284 imp. m=12 L=4 1^15 3^6 7^2 5^1           r1=2 r3=2                   1728822 blocs
+  c285 imp. m=12 L=4 1^17 3^3 7^2 5^2           r1=2 r3=2                    382616 blocs
+  c286 imp. m=12 L=3 1^19 5^3 7^2               r1=2 r3=1                      2325 blocs
+  c287 imp. m=12 L=3 1^18 7^3 3^3               r1=1 r3=2                     14002 blocs
+  c288 imp. m=12 L=3 1^20 7^3 5^1               r1=2 r3=1                       219 blocs
+  c289 imp. m=12 L=3 1^12 3^11 9^1              r1=2 r3=1                    170955 blocs
+  c290 imp. m=12 L=4 1^14 3^8 9^1 5^1           r1=3 r3=1   VIOLATION        925424 blocs
+  c291 imp. m=12 L=4 1^16 3^5 5^2 9^1           r1=3 r3=1   VIOLATION        648691 blocs
+  c292 imp. m=12 L=4 1^18 5^3 3^2 9^1           r1=3 r3=1   VIOLATION         42085 blocs
+  c293 imp. m=12 L=4 1^17 3^5 9^1 7^1           r1=2 r3=2                     76927 blocs
+  c294 imp. m=12 L=5 1^19 3^2 9^1 7^1 5^1       r1=3 r3=2   VIOLATION         13620 blocs
+  c295 imp. m=12 L=3 1^21 9^2 3^1               r1=2 r3=1                        33 blocs
+  c296 imp. m=12 L=3 1^17 3^6 11^1              r1=1 r3=2                     12764 blocs
+  c297 imp. m=12 L=4 1^19 3^3 11^1 5^1          r1=2 r3=2                      4387 blocs
+  c298 imp. m=12 L=3 1^21 5^2 11^1              r1=2 r3=1                        24 blocs
+  c299 imp. m=12 L=3 1^22 11^1 7^1              r1=1 r3=2                         3 blocs
+  c300 imp. m=12 L=2 1^23 13^1                  r1=2                              2 blocs
+
+  totaux
+  ----------------------------------------------------------------------------
+  boule m ≤ 12 : 301 classes (180 paires + 121 impaires)
+  classes violantes (>2 valeurs dans un résidu) : 58 (46 paires + 12 impaires)
+  max de valeurs distinctes dans un résidu : 3 ; classes à ≥3 dans les deux résidus : 0
+
+  niveaux par bloc (recoupement rtbits)
+    L = 1              65 blocs   0.0000 %
+    L = 2           94308 blocs   0.0626 %
+    L = 3        46262562 blocs  30.7022 %
+    L = 4        99227977 blocs  65.8527 %
+    L = 5         5096688 blocs   3.3824 %
+
+  BLOCS dans des classes violantes : 13144531 / 150681600 = 8.7234 %
+  parmi les blocs L ≤ 4 seulement  : 8047843 / 145584912 = 5.5279 %
+
+  exceptions E2 (pair violant, ou L = 5 quel que soit le coset)
+  ----------------------------------------------------------------------------
+  pairs violants (L ≤ 4)   :      6107493 blocs   4.0532 %
+  L = 5 pairs              :      5083068 blocs   3.3734 %  (dont violants : 5083068)
+  L = 5 impairs            :        13620 blocs   0.0090 %
+  TOTAL exceptions         :     11204181 blocs   7.4357 %  (44 classes peuplées)
+  payload E2 = 3,0 + 6·fraction = 3.4461 b/poids  (144 bits/exception ; Planes12x : 4,342)
