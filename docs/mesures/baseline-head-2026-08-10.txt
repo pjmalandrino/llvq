@@ -1,0 +1,126 @@
+# Ligne de base — banc 5 bras sur main CORRIGÉ, job 6a79b9913e1f34a7e32c203a, l40sx1, 0,78 $ (1535 s)
+#
+# POURQUOI CE RUN EXISTE
+# Le run qui portait les chiffres publiés (e2-golay70-bench-2026-08-07.txt) compilait une
+# unité NVRTC de 55 949 octets, sha256 539f37b9…, et cinq noyaux. Depuis, deux commits l'ont
+# fait grossir sans qu'aucune mesure ne suive : 2d56cce (A4) y insère planes_seg.cu, 993cf4a
+# (A7a) grossit matvec.cu. Au HEAD : 70 420 octets, sha256 5a0edf84…, sept noyaux — +25,9 %.
+# Le critère de sortie du lot 1 (« les rapports retombent dans les plages publiées ») était
+# donc INDÉCIDABLE : une dérive après refactor n'aurait pas été attribuable.
+#
+# CE QUE CE RUN CORRIGE D'ABORD (commit 64eb2e8)
+# La section A4 se construisait AVANT la table des cinq bras, et déplaçait deux fois son objet :
+#   * max_dout chaînait les d_out fusionnés → d_y passait de 9 728 à 19 456, or Planes12x et
+#     Golay70 remettent tout le slice à zéro DANS le chronomètre (~9,8 Mo/passe de trop) ;
+#   * ses ~2,9 Go de flux fusés restaient résidents pendant le chronométrage (~15,3 → ~18,4 Go).
+# Elle se construit désormais après, avec son propre tampon. d_y est imprimé : c'est ce silence
+# qui avait laissé sa taille doubler.
+#
+# CONFRONTATION AU RUN PUBLIÉ
+#   b/poids : 16,000 / 5,510 / 4,804 / 4,342 / 3,589 — IDENTIQUES AU CHIFFRE (compteurs hôte)
+#   rapports : les quatre plages RECOUVRENT les publiées
+#     Slot32   1,87 [1,86–1,88] → 1,88 [1,86–1,89]
+#     Planes14 2,14 [2,11–2,15] → 2,15 [2,11–2,16]
+#     Planes12x 1,98 [1,95–1,99] → 2,00 [1,97–2,01]
+#     Golay70  1,31 [1,29–1,32] → 1,33 [1,31–1,33]
+#   registres : 40/42, 0 o locaux, inchangés sur les sept noyaux
+#
+# ⚠️ UN RÉSIDU NON ATTRIBUÉ, ET IL FAUT LE DIRE
+# Les deux bras à correction gagnent ~1,1-1,3 %, les trois autres bougent de moins de 0,25 %.
+# C'est la direction que j'avais prédite AVANT le run — mais le mécanisme que j'avais donné ne
+# s'y applique pas : le run publié date de caef2ac, où la section A4 N'EXISTAIT PAS. Mes
+# corrections restaurent la parité avec cet état, elles auraient donc dû rendre l'égalité.
+# La formulation juste est : la ligne de base reproduit le run publié à ~1,3 % près, et le
+# résidu n'est pas expliqué. Une prédiction qui tombe juste pour un mauvais motif n'est pas
+# une prédiction qui tient.
+#
+# ✅ ET UN PREMIER : tv_planes_seg est prouvé sur carte. Le code disait « not established
+# until this block runs » — 72 groupes, 921 600 lignes, identiques AU BIT sur Slot32 ET Planes14.
+
+rustc absent du runtime (normal : image multi-etage)
+source NVRTC : 70420 octets, sha256 5a0edf843653415f3efa90b1407d769a771d34a89ebec752d7c8cdbf66df25e0
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+
+Construction, transcodage Slot32, Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus) et Golay70 (trous origine + exceptions E2), preuves de bijection, d'overlay et de reconstruction exacte…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table des cinq bras, et rien d'autre
+  252 matrices, 3.63 Md de poids, en 1449 s — bijection Planes14 vérifiée bloc par bloc
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pires erreurs Slot32 2.2e-8, Planes14 2.2e-8, Planes12x 2.9e-8 (overlay exact), Golay70 3.4e-8 (E2 exact), FP16 3.0e-8 ·Σ|w·x|
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+UN TOKEN — 252 matrices, un stream, cinq bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          11.019   11.036   11.039     7.27   16.000      659
+  LLVQ Slot32               5.849    5.886    5.927     2.50    5.510      428
+  LLVQ Planes14             5.108    5.144    5.217     2.18    4.804      427
+  LLVQ Planes12x            5.485    5.504    5.585     1.97    4.342      360
+  LLVQ Golay70              8.286    8.297    8.397     1.63    3.589      197
+  --------------------------------------------------------------------------------
+  Slot32    vs FP16     : 1.88× [1.86–1.89]
+  Planes14  vs FP16     : 2.15× [2.11–2.16]
+  Planes12x vs FP16     : 2.00× [1.97–2.01]
+  Golay70   vs FP16     : 1.33× [1.31–1.33]
+  Planes14  vs Slot32   : 1.14× [1.14–1.15]  (>1 = Planes14 plus rapide, même contenu décodé)
+  Planes12x vs Planes14 : 0.93× [0.93–0.94]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  Golay70   vs Planes12x: 0.66× [0.66–0.67]  (>1 = Golay70 plus rapide ; memset + correction inclus, même y exact)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  1630 Mo distincts par passe sur le bras le plus léger (Golay70), soit 16.2× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux cinq bras) : Slot32 1.74×, Planes14 1.94×, Planes12x 1.83×, Golay70 1.29×
+  au lieu de 1.88× / 2.15× / 2.00× / 1.33×. Normes, activations, attention et
+  rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 81 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.945 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.111 ms   144 lancements
+  Planes14, matrices séparées            5.254 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.616 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.833 ms [0.800–0.837]  (14.0 %)
+  gain Planes14 : 0.632 ms [0.624–0.647]  (12.0 %)
+  Planes14 / Slot32 sur le gain : 0.77× [0.75–0.78]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.

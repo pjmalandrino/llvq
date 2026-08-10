@@ -25,3 +25,4 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-10,6a796e083e1f34a7e32c1b32,campagne-14b-qualite SIGBUS [14B],l40sx1,14,0.43,,mmap d un checkpoint safetensors depuis un bucket monte = bus error
 2026-08-10,6a7971c33e1f34a7e32c1b6d,campagne-14b-qualite [14B],l40sx1,56,1.68,campagne-14b-qualite-2026-08-10.txt,ppl+MMLU des 3 bras 14B - LLVQ x1.1894 et -6.85 pp apparie
 2026-08-10,6a7982abda2af92a634f0e5c,paliers-4b-128 [14B],l40sx1,42,1.26,paliers-4b-2026-08-10.txt,4 paliers verts : queue f16 + rotation hissee 252->144 + Planes12x - textes decodes identiques
+2026-08-10,6a79b9913e1f34a7e32c203a,baseline-head 5 bras [kernel],l40sx1,26,0.78,baseline-head-2026-08-10.txt,reference du lot 1 : b/poids au chiffre, plages recouvrantes, tv_planes_seg prouve sur carte
