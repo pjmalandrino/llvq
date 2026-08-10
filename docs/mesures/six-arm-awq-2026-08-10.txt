@@ -1,0 +1,133 @@
+# Banc SIX bras — job 6a7a11d32ed17c71070fda7f, l40sx1, 0,78 $ (1564 s de run, 7806 s de file non facturés)
+# Premier bras CONCURRENT du projet : le noyau AWQ w4g128 de mit-han-lab/llm-awq (MIT),
+# dans NOTRE banc — même processus, mêmes rounds, même chronomètre. Stratégie A.
+#
+# CE QUI EST ÉTABLI
+#   * les cinq b/poids incumbents retombent AU CHIFFRE (16,000/5,510/4,804/4,342/3,589) ;
+#   * le port AWQ est correct : erreur f64 5,8e-5 sous son seuil de 1e-3 ;
+#   * awq_gemv_g128 : 32 registres, 0 octet local — il compile sous NVRTC et ne spille pas.
+#
+# 🚨 LE RÉSULTAT, ET IL NE VA PAS DANS NOTRE SENS
+# Lire les Go/s, pas le rapport contre FP16 — c'est ce que le pré-enregistrement du jour
+# demandait, AVANT la mesure, parce qu'un rapport favorise mécaniquement qui lit le moins.
+#
+#   bras        b/poids   Go/s   borne d'octets   fraction de sa borne atteinte
+#   Slot32       5,510     430       2,90x                65 %
+#   Planes14     4,804     428       3,33x                65 %
+#   Planes12x    4,342     358       3,69x                54 %
+#   Golay70      3,589     198       4,46x                30 %
+#   AWQ w4g128   4,179     584       3,83x                88 %   <---
+#
+# Un noyau 4 bits déployé atteint 584 Go/s là où notre meilleur layout plafonne à 428.
+# Nos layouts convertissent 65 % de leur avantage d'octets en vitesse ; AWQ en convertit 88 %.
+# Ça confirme PAR L'EXTÉRIEUR ce que l'attribution du papier avait trouvé de l'intérieur :
+# les 2,04 ms d'écart à la borne DRAM « appartiennent au noyau, pas au système mémoire ».
+#
+# ✅ LA RÉSERVE QUE J'AVAIS POSÉE EST FERMÉE, ET ELLE SE FERME CONTRE NOUS
+# J'avais écrit que la colonne « Go lus » ne facture que les poids, et que le trafic
+# d'activation, différent entre les deux familles, pourrait rendre l'écart fictif. Calculé :
+#   nous : 1,82 Go d'activation (une mise en scène par bloc de 8 lignes, f32)  → +83 %
+#   AWQ  : 7,27 Go              (une relecture par canal de sortie, binary16)  → +382 %
+# AWQ relit l'activation QUATRE FOIS PLUS que nous. Et une activation entière pèse 39 Ko
+# au maximum contre 100,7 Mo de L2 : les relectures sortent du L2, pas de la DRAM.
+# L'écart 428/584 n'est donc pas un artefact de comptabilité. Il est réel.
+#
+# ⚠️ ÉCART AU PROTOCOLE, consigné dans proofs/preregistration-2026-08-10.md §7bis É1 :
+# ce job ne porte PAS son contrôle à cinq bras dans le même processus, faute de sélecteur
+# de bras dans planesbench. Le contrôle est le job 6a79b9913e1f34a7e32c203a, pris deux
+# heures plus tôt sur une image dont l'unité de traduction ne portait pas encore AWQ.
+#
+# ⚠️ CE BRAS NE PORTE AUCUNE PHRASE DE QUALITÉ. Sa charge utile est SYNTHÉTIQUE — nos poids
+# reconstruits, re-quantifiés en w4g128 — et non le checkpoint Qwen/Qwen3-4B-AWQ. C'est
+# fidèle en TEMPS (le noyau n'a aucune branche dépendante des données) et rien de plus.
+
+source NVRTC : 81758 octets, sha256 1677028c3c528da6c81258555acc0e2f7560c42b391919c407da1423be2280d7
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+
+Construction, transcodage Slot32, Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus) et Golay70 (trous origine + exceptions E2), preuves de bijection, d'overlay et de reconstruction exacte…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 1481 s — bijection Planes14 vérifiée bloc par bloc
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 — pires erreurs Slot32 2.2e-8, Planes14 2.2e-8, Planes12x 2.9e-8 (overlay exact), Golay70 3.8e-8 (E2 exact), FP16 3.0e-8, AWQ 5.8e-5 (seuil 1e-3, sortie binary16) ·Σ|w·x|
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+UN TOKEN — 252 matrices, un stream, SIX bras entrelacés (cinq maison + AWQ)
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          11.011   11.016   11.017     7.27   16.000      660
+  LLVQ Slot32               5.825    5.829    5.837     2.50    5.510      430
+  LLVQ Planes14             5.104    5.111    5.118     2.18    4.804      428
+  LLVQ Planes12x            5.508    5.510    5.519     1.97    4.342      358
+  LLVQ Golay70              8.218    8.223    8.228     1.63    3.589      198
+  AWQ w4g128                3.252    3.256    3.259     1.90    4.179      584
+  --------------------------------------------------------------------------------
+  Slot32    vs FP16     : 1.89× [1.89–1.89]
+  Planes14  vs FP16     : 2.16× [2.15–2.16]
+  Planes12x vs FP16     : 2.00× [2.00–2.00]
+  Golay70   vs FP16     : 1.34× [1.34–1.34]
+  AWQ w4g128 vs FP16    : 3.38× [3.38–3.39]  (CONCURRENT — lit 4.179 b/poids, moins que quatre de nos cinq bras ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  Planes14  vs Slot32   : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  Planes12x vs Planes14 : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  Golay70   vs Planes12x: 0.67× [0.67–0.67]  (>1 = Golay70 plus rapide ; memset + correction inclus, même y exact)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  1630 Mo distincts par passe sur le bras le plus léger (Golay70), soit 16.2× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux cinq bras) : Slot32 1.74×, Planes14 1.94×, Planes12x 1.82×, Golay70 1.30×
+  au lieu de 1.89× / 2.16× / 2.00× / 1.34×. Normes, activations, attention et
+  rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 79 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.853 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.054 ms   144 lancements
+  Planes14, matrices séparées            5.144 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.544 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.802 ms [0.791–0.807]  (13.7 %)
+  gain Planes14 : 0.607 ms [0.591–0.618]  (11.8 %)
+  Planes14 / Slot32 sur le gain : 0.76× [0.73–0.78]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.
