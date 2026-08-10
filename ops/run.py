@@ -657,7 +657,14 @@ Lancé depuis `ops/run.py` du dépôt LLVQ.
 # committed — and every number the image produces would be traceable to a
 # commit that does not describe it. That is exactly the provenance gap this
 # campaign exists to close.
-UPLOAD_ALLOW = ("Cargo.toml", "Cargo.lock", "llvq-*/**")
+# 🕳️ `rust-toolchain.toml` a manqué à cette liste le jour où il a été écrit, et
+# l'oubli était silencieux dans les deux sens : `publish` ne s'en plaint pas
+# (l'allow-list ignore ce qu'elle ne nomme pas) et le Dockerfile non plus
+# (`rustup ... -y` sans toolchain installe le stable du jour et réussit). Le
+# fichier existait donc dans le dépôt, disait épingler le compilateur, et
+# n'atteignait pas la seule machine où ça compte. Un garde-fou écrit et non
+# armé — le motif que ce dossier a déjà documenté trois fois.
+UPLOAD_ALLOW = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "llvq-*/**")
 UPLOAD_IGNORE = ("**/target/**", "**/*.log")
 
 
