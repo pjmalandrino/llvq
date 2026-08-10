@@ -17,3 +17,6 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-08,6a7649063e1f34a7e32bdcc1,campagne-8b-qualite,l40sx1,34,1.01,campagne-8b-qualite-2026-08-08.txt,ppl+MMLU des 3 bras 8B - le MMLU 2 bits a l echelle
 2026-08-08,6a7651413e1f34a7e32bdd37,campagne-8b-vitesse,l40sx1,10,0.31,campagne-8b-vitesse-2026-08-08.txt,fusedrun 8B planes14+embed f16 : 34.4 tok/s 6.62 Go
 2026-08-08,6a76d9433e1f34a7e32be65d,campagne-8b-q8,l40sx1,28,0.82,campagne-8b-q8-2026-08-08.txt,tetes deliees : 69.3 tok/s 5.45 Go + ppl/MMLU du pre-cuit
+2026-08-09,6a7882a83e1f34a7e32c06c2,qwen3-14b-c12 quant [14B],rtx-pro-6000x2,302,27.67,reprise-14b-2026-08-09.md,quantification 14B - 13212057600 poids bit pour bit a bf16
+2026-08-10,6a7960eeda2af92a634f0d5e,seal-14b [14B],cpu-xl,24,0.40,,scellement 14B : 163 tenseurs portes 6.506 Go x4.54 - les deux criteres poses d avance tombent
+2026-08-10,6a7960f9da2af92a634f0d60,qwen3-14b-awq-deq echec montage [14B],cpu-upgrade,0,0.00,,bucket monte deux fois pendant que seal le tenait - jamais demarre donc non facture
