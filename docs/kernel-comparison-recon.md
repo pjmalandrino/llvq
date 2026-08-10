@@ -51,9 +51,17 @@ Résultat identique, et la réserve peut être retirée :
 `openreview.net/forum?id=HFk5TQ2ILj`, derrière un mur de vérification de
 navigateur. Non vérifiable par outil.
 
-> 💡 Le chemin le moins cher vers l'Annexe C reste `docs/mail-qualcomm-draft.md`,
-> **rédigé et jamais envoyé**, qui pose déjà la question. Décision et action de
-> l'utilisateur.
+> ✅ **Le mail aux auteurs est parti** (confirmé par l'utilisateur le
+> 2026-08-10). `docs/mail-qualcomm-draft.md` en garde le texte, et il pose déjà
+> la question de l'Annexe C. L'angle mort n'est donc plus « faut-il
+> demander » mais **« la réponse arrive-t-elle avant la soumission »** — une
+> variable qu'on ne contrôle pas.
+>
+> ⚠️ **Ne pas planifier le lot 2 en supposant qu'elle arrivera.** Le bras
+> mono-shell est une réimplémentation clean-room de bout en bout, et il doit le
+> rester : c'est ce qui le rend faisable sans dépendre de personne. Une réponse
+> des auteurs serait un contrôle bienvenu — elle ne doit pas être un
+> prérequis.
 
 ### Ce que « M = 3 » veut dire, chiffré
 
