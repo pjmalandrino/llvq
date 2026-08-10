@@ -21,3 +21,6 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-10,6a7960eeda2af92a634f0d5e,seal-14b [14B],cpu-xl,24,0.40,,scellement 14B : 163 tenseurs portes 6.506 Go x4.54 - les deux criteres poses d avance tombent
 2026-08-10,6a7960f9da2af92a634f0d60,qwen3-14b-awq-deq echec montage [14B],cpu-upgrade,0,0.00,,bucket monte deux fois pendant que seal le tenait - jamais demarre donc non facture
 2026-08-10,6a7966ae3e1f34a7e32c1a55,qwen3-14b-awq-deq shard 4 Go tronque [14B],cpu-upgrade,11,0.01,,cinq controles verts marge L4 x658 - mort a l ecriture : le bucket a accepte une ecriture courte sans erreur
+2026-08-10,6a7969d4da2af92a634f0da5,qwen3-14b-awq-deq shards 1 Go [14B],cpu-upgrade,11,0.01,,33 fichiers ecrits mais 3 renames sans effet - repares a la main par hf cp
+2026-08-10,6a796e083e1f34a7e32c1b32,campagne-14b-qualite SIGBUS [14B],l40sx1,14,0.43,,mmap d un checkpoint safetensors depuis un bucket monte = bus error
+2026-08-10,6a7971c33e1f34a7e32c1b6d,campagne-14b-qualite [14B],l40sx1,56,1.68,campagne-14b-qualite-2026-08-10.txt,ppl+MMLU des 3 bras 14B - LLVQ x1.1894 et -6.85 pp apparie
