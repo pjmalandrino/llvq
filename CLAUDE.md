@@ -315,11 +315,26 @@ lignes** du modèle publié. Journal :
 | **`Planes12x`** (overlay épars) | **4,342** | 1,98× [1,95–1,99] | 356 | ✅ validé au banc, qualité **exacte** — ⚠️ **pas dans le modèle** (voir ci-dessous) |
 | `Golay70` (E2) | 3,589 | **1,31× [1,29–1,32]** | 195 | ❌ **écarté** — sous le critère de 1,6× posé d'avance |
 
+> 🚨 **E2 a été ROUVERT le 2026-08-10, remesuré en v2 le 2026-08-11, et
+> re-fermé par un critère neuf — la ligne ci-dessus est l'histoire, pas le
+> dernier mot.** La mesure AWQ (584 Go/s, 3,38×) a périmé le critère de
+> vitesse et rouvert E2 sur l'axe mémoire (`Golay70` est le seul layout sous
+> l'AWQ déployé en b/param à toutes les échelles) ; un décodeur **v2**
+> (logique de coset hissée au niveau bloc, format inchangé) a été prouvé
+> bit-exact puis mesuré à sept bras avec contrôle :
+> **1,77× [1,76–1,78], 263 Go/s** — 1,32× sur la v1 dans les mêmes rounds,
+> mais **sous le seuil pré-enregistré de 2,0×** (`proofs/preregistration-2026-08-11.md`) :
+> **non adopté**, point de la courbe débit↔taux. Chaîne complète :
+> `docs/spec-apres-awq-2026-08-10.md` → `docs/projections-golay70-2026-08-11.md`
+> → `docs/passation-golay70-2026-08-11.md` →
+> [`docs/mesures/golay70-v2-sept-bras-2026-08-11.txt`](docs/mesures/golay70-v2-sept-bras-2026-08-11.txt).
+
 ✅ **`Planes12x` est câblé dans le modèle depuis le 2026-08-09** :
-`LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x` et `slot32`**, et
-il **refuse** toute autre valeur plutôt que de retomber en silence sur le
-défaut — un A/B qui se trompe de bras en silence est pire qu'un A/B qui
-échoue. `Golay70`, lui, reste hors du modèle (écarté à 1,31×).
+`LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x`, `slot32` et —
+depuis le 2026-08-11 — `golay70`** (câblé pour être mesurable ; le verdict
+ci-dessus dit qu'il n'est **pas servi**), et il **refuse** toute autre valeur
+plutôt que de retomber en silence sur le défaut — un A/B qui se trompe de
+bras en silence est pire qu'un A/B qui échoue.
 
 ⚠️ **Mais « câblé » n'est toujours pas « mesuré », et c'est la distinction qui
 compte maintenant.** Le flux hôte est prouvé — balayage bloc à bloc du 4B
@@ -363,6 +378,16 @@ où il reprend son gain plein — pas pour être le défaut à 8B.
    qui permet de l'écarter sans discussion. ⚠️ Ne pas rouvrir E2 sans idée
    neuve sur le coût ALU (pistes notées, non poursuivies : spécialiser les
    warps par coset, payer le XOR seulement côté pair).
+   > 🚨 **L'idée neuve a existé, elle a été mesurée, et elle ne suffit pas
+   > (2026-08-11).** Le hissage de la logique de coset au niveau bloc (v2)
+   > subsume les deux pistes notées ci-dessus et rend 1,32× sur la v1 —
+   > 1,77× vs FP16, 263 Go/s, 40 % de la borne d'octets — sous le seuil
+   > pré-enregistré de 2,0×. **Il n'y a plus de piste connue à format
+   > inchangé** : le slot v2 est déjà un slot `Planes14` à trois masques ;
+   > l'écart restant vit donc dans le travail PAR BLOC — fenêtre non alignée
+   > du record de 9 o, prologue, deux tables — *attribution de lecture, pas
+   > un profil* (le profileur n'a toujours jamais servi, §2c). Cf. le 🚨
+   > sous la table ci-dessus.
 
 En **b/param modèle entier** — la seule comptabilité dans laquelle une
 comparaison mémoire a un sens, cf. l'errata cité en G6 :

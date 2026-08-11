@@ -317,6 +317,16 @@ INT/FP32 se partage les ports sur Ada. Le critère pré-enregistré du spec
 (≥ 2,0× **et** marge mémoire ≥ 20 %) est donc **plausible mais pas acquis**
 — ce qui est précisément la situation pour laquelle on pré-enregistre.
 
+> 🚨 **Mesuré le 2026-08-11, et la fourchette était OPTIMISTE : 1,77×
+> [1,76–1,78]** (`mesures/golay70-v2-sept-bras-2026-08-11.txt`) — sous son
+> propre bas de 1,9×, et sous le seuil de 2,0× : **non adopté**. La v2
+> gagne 1,32× sur la v1 dans les mêmes rounds (199 → 263 Go/s, 30 % → 40 %
+> de la borne d'octets) : le hissage a rendu exactement sa part, et la
+> réserve écrite trois lignes plus haut — les ports d'émission partagés —
+> était le facteur dominant. La ligne « ALU ÷ (14/7) → ~2,1–2,4× » du
+> tableau ci-dessus se lit donc comme la borne d'un modèle où l'entier est
+> seul au monde ; il ne l'est pas.
+
 Deux pistes secondaires, examinées et fermées d'avance :
 
 - **Réduire les exceptions « pair violant »** (4,05 % des 7,44 %) : il

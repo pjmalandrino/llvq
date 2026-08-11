@@ -123,6 +123,22 @@ Dans l'ordre, chaque étape débloquant la suivante :
    > phase 1 = le jeu du run publié du 08-10 (contrôle), phase 2 = + la v2.
    > À l'arrivée : consigner le coût dans `docs/data/jobs.csv` et ouvrir
    > `ops/manifest.jsonl` (piège n°5).
+   >
+   > 🚨 **TOURNÉ ET TRANCHÉ le 2026-08-11** — job `6a7adf552ed17c71070ff410`,
+   > 0,77 $, journal
+   > [`mesures/golay70-v2-sept-bras-2026-08-11.txt`](mesures/golay70-v2-sept-bras-2026-08-11.txt) :
+   > **v2 = 1,77× [1,76–1,78] — NON ADOPTÉ** (seuil pré-enregistré 2,0× ;
+   > la fourchette estimée 1,9–2,4× était elle-même optimiste). La v2 est
+   > réelle — **1,32× sur la v1 dans les mêmes rounds**, 199 → 263 Go/s,
+   > 30 % → 40 % de sa borne d'octets, exactitude f64 intacte, 40 registres
+   > sans spill — mais le noyau reste borné par l'émission entière. Contrôle
+   > impeccable : v1 gelé reproduit le publié à 8,205 ms contre 8,223,
+   > Δ_contrôle 0,24 % < R 0,56 %. Par la table des issues du
+   > pré-enregistrement : **point de la courbe débit↔taux, E2 clos pour le
+   > chemin servi, pas de fusedrun** (le câblage de l'étape 5 reste
+   > mesurable, pas servi). Aucune piste connue à format inchangé ne
+   > subsiste — rouvrir exigerait une idée neuve sur l'émission entière par
+   > slot, et le 2,0× resterait le juge.
 5. **Si adopté** : `fusedrun` avec un layout `golay70` (câblage
    `LLVQ_FUSED_LAYOUT` **non écrit** à ce jour — `fused.rs` n'admet que
    `planes14|planes12x|slot32`), tokens gloutons contre le bras dense, et

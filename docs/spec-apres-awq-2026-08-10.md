@@ -198,6 +198,18 @@ contrôle**. Verdict par le critère du lot A.
 > lot C : le sweep de l'artefact scellé sur le Mac de dev, puis **le job à
 > sept bras avec son contrôle** (bloqué par le lot B, le sélecteur de bras).
 > Détail et commandes : [`passation-golay70-2026-08-11.md`](passation-golay70-2026-08-11.md).
+>
+> 🚨 **Le job a tourné le jour même et le critère du §3 a tranché : NON
+> ADOPTÉ.** v2 = **1,77× [1,76–1,78]** contre un seuil de 2,0× — dans la
+> tranche « point de la courbe débit↔taux », E2 clos pour le chemin servi.
+> La v2 gagne 1,32× sur la v1 dans les mêmes rounds (199 → 263 Go/s) mais le
+> décodage reste borné par l'émission entière, pas par la mémoire. Contrôle
+> à six bras indiscernable (Δ 0,24 % < R 0,56 %), témoin v1 gelé au chiffre
+> publié. Journal :
+> [`mesures/golay70-v2-sept-bras-2026-08-11.txt`](mesures/golay70-v2-sept-bras-2026-08-11.txt).
+> Conséquence pour le §7 : l'arbitrage produit ne s'ouvre pas — et le lot D
+> (la conséquence papier de la mesure AWQ) reste dû, avec ce point de courbe
+> en plus.
 
 ### Lot D — la conséquence papier, quel que soit le verdict · 0 $ · 2 jours
 Elle est due **même si Golay70 échoue**, parce qu'elle vient de la mesure AWQ :
