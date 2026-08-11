@@ -212,6 +212,25 @@ contrôle**. Verdict par le critère du lot A.
 > en plus.
 
 ### Lot D — la conséquence papier, quel que soit le verdict · 0 $ · 2 jours
+
+> ✅ **Fait le 2026-08-11** (tag `paper-v1`). Les cinq items ci-dessous sont
+> traités ; le papier compile en 17 pages sans débordement. Ce que le lot a
+> ajouté au-delà du programme : Table 1 passe au **run à sept bras** (le seul
+> qui porte concurrent et incumbents dans un même processus, avec son
+> contrôle), la Figure 1 gagne une **hyperbole de plafond sur axe log** où la
+> distance verticale vaut vraiment −log(fraction de borne), et le résultat
+> négatif devient **à deux attaques**. Puis une revue adversariale à cinq
+> réfutateurs a trouvé quatre blocants — dont une légende de figure qui
+> inversait le résultat de sa propre section — tous corrigés dans le commit
+> suivant. Deux garde-fous en sortent : `paper/scripts/check_tables.py`
+> (confronte la Table 1 à son CSV, câblé au `make`, 3 mutants tués) et un
+> refus de tracer une figure amputée d'un bras.
+>
+> ⚠️ Deux dettes ouvertes que le lot a mises au jour sans les solder : le
+> **total GPU reste manuel** dans quatre sites (aucun script ne le régénère),
+> et il est désormais déclaré **plancher** — cinq jobs du 2026-08-05 sont
+> journalisés sans montant.
+
 Elle est due **même si Golay70 échoue**, parce qu'elle vient de la mesure AWQ :
 
 - l'abstract ne peut plus dire « notre noyau est rapide » sans dire à côté
