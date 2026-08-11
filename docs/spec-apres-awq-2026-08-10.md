@@ -123,6 +123,21 @@ poursuivies faute de raison de le faire :
 ⚠️ Aucune des deux n'est chiffrée. Elles peuvent ne rien rendre. C'est
 exactement pourquoi le critère est posé d'avance.
 
+> 🚨 **Ce paragraphe est périmé depuis le 2026-08-11 — les deux pistes
+> ci-dessus ne sont PAS celle qui a été retenue, et l'une est fausse.**
+> L'analyse ([`projections-golay70-2026-08-11.md`](projections-golay70-2026-08-11.md)
+> §3) a montré : (a) le goulot n'est pas la divergence — tout est déjà
+> prédiqué — mais le **compte d'ops entières par slot** (~14 contre ~9 pour
+> `Planes14`, cohérent avec le ×1,61 mesuré) ; (b) la piste 2 est **caduque**
+> — le noyau livré ne ré-encode aucun XOR, il lit `cwtab` (16 Kio, L1),
+> requis sur les deux cosets ; (c) une piste **neuve** les subsume : hisser
+> la logique de coset au niveau bloc en mots de 24 bits, à format inchangé.
+> **Elle est implémentée** (v2 de `llvq_golay.cuh`, branche
+> `claude/golay70-memory-performance-ksbbzs`), identité prouvée sur le
+> harnais hôte, 3 mutants tués. Ce qui manque : la vitesse sur carte —
+> c'est le lot C, jugé par le critère du §3 ci-dessus, qui reste inchangé.
+> Reprise : [`passation-golay70-2026-08-11.md`](passation-golay70-2026-08-11.md).
+
 ---
 
 ## 5. Ce qui est déjà fait, à ne pas refaire
@@ -170,6 +185,13 @@ Warps spécialisés par coset, XOR côté pair seulement. Chaque piste vérifié
 localement contre le décodeur Rust (`tests/golay70_decoder_matches_rust.rs`
 existe et tourne sur macOS via clang++), puis un job à sept bras **avec son
 contrôle**. Verdict par le critère du lot A.
+
+> ✅ **La moitié locale de ce lot est faite (2026-08-11), par une autre piste
+> que les deux nommées** — voir le 🚨 du §4. Le décodeur v2 est écrit,
+> l'identité est prouvée, la vérification locale est passée. Ce qui reste du
+> lot C : le sweep de l'artefact scellé sur le Mac de dev, puis **le job à
+> sept bras avec son contrôle** (bloqué par le lot B, le sélecteur de bras).
+> Détail et commandes : [`passation-golay70-2026-08-11.md`](passation-golay70-2026-08-11.md).
 
 ### Lot D — la conséquence papier, quel que soit le verdict · 0 $ · 2 jours
 Elle est due **même si Golay70 échoue**, parce qu'elle vient de la mesure AWQ :

@@ -13,6 +13,13 @@ des calculs sur des mesures existantes plus une hypothèse de transfert
 explicitée en §2.3 ; l'analyse perf est un audit du source CUDA plus un
 compte d'instructions, pas un profil.
 
+> 🧭 **Reprise** : la piste A du §3.2 est implémentée depuis (v2 de
+> `llvq_golay.cuh`, même branche) — l'état exact, les commandes et ce qui
+> reste sont dans [`passation-golay70-2026-08-11.md`](passation-golay70-2026-08-11.md),
+> qui fait foi sur le statut. Ce document-ci reste la référence pour les
+> **chiffres** (projections §2, audit §3.1, algèbre §3.2) — la passation ne
+> les recopie pas.
+
 ---
 
 ## 1. Relecture du spec — ce qui tient, et quatre corrections
