@@ -168,6 +168,17 @@ raison que la correction n°1 : embedding à 8,5, pas 8,0.)*
   la plage plausible.** À trancher pour ~0 $ : `rtbits` sait déjà compter
   les classes violantes — une passe sur `qwen3-8b-llvq.bin` clôt la
   question avant tout engagement.
+
+  > ✅ **Tranché le 2026-08-11, par un compte**
+  > ([`mesures/classhist-e2-8b-2026-08-11.txt`](mesures/classhist-e2-8b-2026-08-11.txt) ;
+  > le compteur E2 vit dans `classhist`, pas `rtbits` — imprécision d'outil
+  > de la phrase ci-dessus, signalée plutôt que corrigée en silence) :
+  > sur les 288 571 392 blocs du 8B, **7,4116 %** d'exceptions E2 totales
+  > contre 7,4357 % au 4B, et la composante « pair violant » — celle qui
+  > manquait — transfère à **4,0394 %** contre 4,05 %. Payload E2 8B :
+  > 3,4447 b/poids. La sensibilité 6→9 % envisagée ci-dessus était hors
+  > sujet : le taux réel bouge de 0,3 % relatif entre les deux échelles.
+  > L'hypothèse de transfert n'est plus une hypothèse.
 - **14B/32B : les artefacts n'existent pas encore** ; les lignes suivent
   l'histogramme mesuré, pas un fichier. **70B : autre famille (Llama)**,
   distribution de classes jamais observée hors Qwen3 — c'est la ligne la
