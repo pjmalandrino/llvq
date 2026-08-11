@@ -293,6 +293,15 @@ run de contrôle doit être à une variable d'environnement près*. Tant que ce
 n'est pas vrai, chaque nouveau concurrent rejouera cet écart, et une règle
 enfreinte deux fois cesse d'être une règle.
 
+> ✅ **La clause est satisfaite depuis le 2026-08-11** : `planesbench` porte
+> `LLVQ_BENCH_ARMS` (`llvq_cuda::arms`, lot B du spec post-AWQ) — des phases
+> dans un même processus, un bras écarté ne construisant ni transcode ni
+> tampon device (la résidence VRAM d'une phase est exactement celle de ses
+> bras), l'unité de traduction NVRTC invariante à la sélection, les noms
+> inconnus refusés, et `Δ_contrôle` imprimé par le banc entre phases. É1 ne
+> peut plus se rejouer par absence d'outillage ; s'il se rejoue, ce sera un
+> choix, et il se consignera ici.
+
 ## 8. Ce qui invaliderait ce pré-enregistrement
 
 À dire maintenant, pour qu'on ne puisse pas le dire après :

@@ -58,6 +58,13 @@ Dans l'ordre, chaque étape débloquant la suivante :
    ```
    ⚠️ Un « ok » en ~1 s = le fichier manque, pas une preuve (le piège du §2
    de `CLAUDE.md`, à la lettre).
+   > ✅ **Passé le 2026-08-11 sur le Mac de dev, preuve positive à l'appui**
+   > (relancé en `--nocapture` pour lire le compte, pas seulement le vert) :
+   > `sealed sweep: 150681600 blocks verified identical in Golay70 and
+   > Slot32, 11204181 exceptions (7.4357 %), payload 3.4461 b/w`, en ~44 s —
+   > le « plusieurs minutes » ci-dessus était une estimation prudente, le
+   > balayage est parallélisé. Les trois chiffres recoupent le doc de
+   > projections au chiffre près.
 2. **Lot A — pré-enregistrer le critère dans `proofs/`**, avant tout job.
    Le §3 du spec, plus les deux corrections du doc de projections : la
    comparaison mémoire à l'embedding q8 se facture à **8,5** b/param (pas
@@ -65,10 +72,33 @@ Dans l'ordre, chaque étape débloquant la suivante :
    l'invariant transposable est la **marge ≥ 20 % vs l'AWQ déployé du même
    modèle**, pas le 4,1 absolu (le 8B projeté le viole à 4,29 avec la
    meilleure marge du tableau). Signer et horodater comme le précédent.
+   > ✅ **Fait le 2026-08-11** : `proofs/preregistration-2026-08-11.md`,
+   > horodaté OpenTimestamps (`.ots` commité) ; la signature GPG reste à
+   > l'opérateur. Il acte aussi que la condition MÉMOIRE est déjà un compte
+   > (4,065 contre une borne de 4,241) : le job du lot C ne tranche que la
+   > vitesse. Et la réserve §2.4 des projections est close le même jour par
+   > le recensement E2 du 8B — 7,4116 % contre 7,4357 % au 4B, « pair
+   > violant » 4,0394 % contre 4,05
+   > ([`mesures/classhist-e2-8b-2026-08-11.txt`](mesures/classhist-e2-8b-2026-08-11.txt)).
 3. **Lot B — le sélecteur de bras** (`planesbench`). Dette É1 du
    pré-enregistrement du 08-10, toujours ouverte : sans lui, le job v2
    rejouera l'entorse « pas de contrôle dans le même processus ». Un bras
    écarté ne doit pas construire ses tampons.
+   > ✅ **Fait le 2026-08-11** : `LLVQ_BENCH_ARMS` — phases monotones dans un
+   > même processus (contrôle puis table), bras écarté sans transcode ni
+   > tampon device, TU NVRTC invariante à la sélection, noms inconnus
+   > refusés (« golay70 » nu est refusé comme ambigu : nommer `golay70v1`
+   > ou `golay70v2`), ordre de dispatch inchangé, `Δ_contrôle` imprimé.
+   > Parseur portable testé sur le Mac (`llvq-cuda/src/arms.rs`, 11 tests) ;
+   > le module linux entier est type-checké et clippé à zéro warning depuis
+   > le Mac via `CUDARC_CUDA_VERSION=12040 cargo clippy -p llvq-cuda
+   > --target x86_64-unknown-linux-gnu --all-targets`.
+   > **Et le bras témoin v1 est câblé** : `kernels/golay70_v1.cu`, copie
+   > gelée du décodeur publié (trois symboles renommés, tout le reste
+   > partagé), tampons partagés avec la v2 (zéro VRAM ajoutée), prouvé
+   > **bit à bit égal à la v2** par le harnais hôte sur toutes les classes —
+   > le rapport v2/v1 du lot C se formera dans les mêmes rounds, comme le
+   > §4 du pré-enregistrement l'exige.
 4. **Lot C, moitié carte — LE job**, sept bras avec contrôle, L40S, même
    protocole que `six-arm-awq` (7 rounds, 2 jetés, rapports round par
    round). À lire au démarrage : registres et `local_size_bytes == 0` pour
@@ -77,6 +107,16 @@ Dans l'ordre, chaque étape débloquant la suivante :
    Verdict par le critère du lot A, pas par enthousiasme : la fourchette
    estimée est 1,9–2,4× pour un seuil à 2,0× — ça peut échouer, c'est prévu
    pour.
+   > 🧭 **Prêt à lancer depuis le 2026-08-11 — il ne manque que le go** (et
+   > le go est à l'opérateur : coût ~1 $, campagne kernel à 1,56 $ dépensés
+   > sur 15 $ de plafond). La sélection exacte du job, protocole du
+   > pré-enregistrement du 08-11 §4 :
+   > ```
+   > LLVQ_BENCH_ARMS="slot32,planes14,planes12x,golay70v1,fp16,awq;slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2"
+   > ```
+   > phase 1 = le jeu du run publié du 08-10 (contrôle), phase 2 = + la v2.
+   > À l'arrivée : consigner le coût dans `docs/data/jobs.csv` et ouvrir
+   > `ops/manifest.jsonl` (piège n°5).
 5. **Si adopté** : `fusedrun` avec un layout `golay70` (câblage
    `LLVQ_FUSED_LAYOUT` **non écrit** à ce jour — `fused.rs` n'admet que
    `planes14|planes12x|slot32`), tokens gloutons contre le bras dense, et

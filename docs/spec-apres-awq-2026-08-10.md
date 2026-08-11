@@ -161,6 +161,12 @@ exactement pourquoi le critère est posé d'avance.
   pas, chaque nouveau bras rejouera l'entorse**, et une règle enfreinte deux
   fois cesse d'être une règle. C'est la clause que le lot 1 doit gagner : *un
   run de contrôle doit être à une variable d'environnement près*.
+  > ✅ **Soldée le 2026-08-11 (lot B)** : `LLVQ_BENCH_ARMS` dans
+  > `planesbench` — phases dans un même processus, bras écarté sans tampons,
+  > TU NVRTC invariante, noms inconnus refusés, `Δ_contrôle` imprimé. Et le
+  > bras témoin `golay70v1` (copie gelée du décodeur publié,
+  > `kernels/golay70_v1.cu`, tampons partagés avec la v2) est câblé pour que
+  > le rapport v2/v1 du lot C se forme dans les mêmes rounds.
 - **`ops/manifest.jsonl` n'existe pas.** L'outil de provenance (`ops/manifest.py`,
   `record`/`verify`/`report`) est écrit et n'a **jamais servi** : zéro entrée
   pour une centaine de nombres publiés.
