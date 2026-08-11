@@ -211,6 +211,16 @@ loin sur la même courbe ALU.
 
 ### 3.2 Piste A (neuve) : hisser la logique de coset au niveau bloc, en mots de 24 bits
 
+> ✅ **Implémentée le jour même** (v2 de `llvq_golay.cuh`, ce commit) : zéro
+> octet de format changé, identité prouvée par les trois verrous du harnais
+> (probe hôte slot par slot, référence Rust bloc par bloc, records
+> hand-packed), **3 mutants tués sur le prologue** (XOR du mot de signe, mux
+> de flags croisé, mot haut croisé — chacun fait échouer la suite, le code
+> restauré la repasse). ⚠️ Le balayage de l'artefact scellé a **sauté** sur
+> la machine du port (fichier absent) — à repasser sur le Mac de dev — et
+> **rien ici n'est une vitesse** : registres, spill et millisecondes restent
+> au lot C, sur carte.
+
 L'observation : **tout ce qui distingue les cosets par slot peut se calculer
 une fois par bloc, sous forme de trois mots de 24 bits.** Le slot devient
 alors exactement un slot `Planes14` — à trois masques au lieu de quatre.

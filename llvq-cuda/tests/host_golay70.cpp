@@ -16,9 +16,9 @@
 //        u32[d_out*nblocks*3] cls (class id, gain, golay rank),
 //        f32[d_out] y (row pass + exception corrections)
 //
-// `golay70_fields`, `golay70_slot_value`, `golay70_dot`, `planes12x_locate`,
-// `golay70_exc_lane_term` and `golay70_exc_combine` are scalar register
-// arithmetic and are *executed* here. The warp of the correction pass is
+// `golay70_fields`, `golay70_prologue`, `golay70_slot_value`, `golay70_dot`,
+// `planes12x_locate`, `golay70_exc_lane_term` and `golay70_exc_combine` are
+// scalar register arithmetic and are *executed* here. The warp of the correction pass is
 // emulated by a serial loop over the 32 lanes accumulating what warp_sum
 // would reduce; atomicAdd by a plain `+=` — a single thread is the one
 // schedule where that is equivalent, which is why the true atomicity can
@@ -97,15 +97,17 @@ int main() {
     std::vector<float> y(d_out, 0.0f);
 
     // ---- the main-stream fields and per-slot values, block by block ----
+    // Prologue once per block, then the coset-blind slot decode — the exact
+    // shape of golay70_dot's hot path (the v2 decoder).
     for (std::size_t b = 0; b < ntotal; ++b) {
         Golay70Fields f = golay70_fields(words.data(), static_cast<u32>(b));
         const GolayClassRec r = gtab[f.id];
-        u32 c = cw[f.g];
+        Golay70Dec d = golay70_prologue(r, cw[f.g], f);
         cls[b * 3]     = f.id;
         cls[b * 3 + 1] = f.gain;
         cls[b * 3 + 2] = f.g;
         for (u32 j = 0; j < LLVQ_DIM; ++j)
-            slots[b * LLVQ_DIM + j] = golay70_slot_value(r, c, f, j);
+            slots[b * LLVQ_DIM + j] = golay70_slot_value(d, j);
     }
 
     // ---- the row pass: what tv_golay70's row CTAs compute ----
