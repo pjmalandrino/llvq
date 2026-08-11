@@ -3,27 +3,43 @@
 
 The rate that determines which models fit on a GPU is not the artifact's
 on-disk rate but the rate of the format the kernel actually reads. This
-section is an experimentally mapped scale of that trade-off: five layouts of
-ours, one deployed 4-bit competitor, one benchmark harness, one
+section is an experimentally mapped scale of that trade-off: four byte
+formats of ours read by five kernels (one format gets two decoders), a
+deployed 4-bit competitor, an FP16 control, one benchmark harness, one
 byte-accounting convention.
 
 \textbf{Methodology.} All arms run in a single process on an NVIDIA
 L40S, interleaved within every round in a fixed dispatch order; 7 rounds,
 the first 2 discarded. Each reported speedup is the \emph{median of the
 per-round ratios} with its range over the kept rounds, never a quotient
-of two minima, which would compare rounds that did not coexist. Byte
-accounting is the kernel's: payload, per-class tables, the full-precision
-tail columns, and per-row scales --- not the artifact's disk rate. All
+of two minima, which would compare rounds that did not coexist. All
 kernels use zero bytes of local memory. Every row of every arm is verified
 against f64 before timing (\S\ref{sec:decoder}).
+
+Byte accounting is the kernel's, and its three asymmetries are disclosed
+rather than corrected: it counts what each arm streams \emph{per matrix} ---
+payload, exception side-channels, the full-precision tail columns and the
+per-row scales --- so it excludes the per-class tables, which are resident
+constants of a few kilobytes against gigabytes of stream and which
+\textsc{Golay70} alone loads two of; the FP16 control bills its tail columns
+at f16 where our arms bill theirs at f32; and the 4-bit competitor bills no
+tail at all, since w4g128 quantizes every column and has no tail policy. The
+second and third run against us. The bandwidth column is the bench's own
+convention, computed from each arm's \emph{fastest} kept round rather than
+its median; recomputing it on medians moves no reported percentage
+(100/65/65/54/30/40/88 either way), and we say it because the two columns
+sit side by side.
 
 Adding an arm perturbs the ones already there, so the run reported here is
 two phases of one process: the six previously published arms, then the same
 six \emph{plus} the seventh, uploaded between phases. The six common arms
 move by at most 0.24\% in their ratio to the control across the two phases,
-against a worst intra-run half-range of 0.56\%, so the addition is not
-resolvable at this bench's resolution and the incumbents' numbers are the
-same object before and after. We report that check because an earlier
+against a worst intra-run half-range of 0.30\% among those same six arms, so
+the addition is not resolvable at this bench's resolution and the
+incumbents' numbers are the same object before and after. (The added arm is
+the most dispersed of the seven at 0.56\%; taking its half-range as the
+yardstick would flatter the check, so we use the population being compared.)
+We report that check because an earlier
 six-arm job could not run it --- the harness had no way to leave an arm out,
 so its control came from a different process --- and a rule broken twice
 stops being a rule. Data: \texttt{docs/data/echelle-formats.csv}; raw log
@@ -64,14 +80,16 @@ denominator.}
 \caption{Speedup over FP16 against in-VRAM rate. Error bars are min--max
 over kept rounds. The dashed hyperbola is the ceiling: what an arm reading
 that many bits per weight would reach at the bandwidth the FP16 control
-achieves on the same shapes. Vertical distance to it is the arm's fraction
-of its own byte bound. Achieved bandwidth holds from \textsc{Slot32} to
-\textsc{Planes14} (429 to 427~GB/s: time falls exactly as bytes do), then
-degrades. The arrow is the second attack on \textsc{Golay70}: hoisting the
-per-slot coset decode to a per-block prologue, at zero change to the stored
-bytes, moves it from 199 to 263~GB/s and leaves it short anyway. The 4-bit
-competitor converts 88\% of its byte advantage where our best layout
-converts 65\%.}
+achieves on the same shapes. An arm's fraction of its own byte bound is its
+height as a \emph{proportion} of that curve, which is why the vertical axis
+is logarithmic --- in log space equal fractions are equal gaps, so
+\textsc{Slot32} and \textsc{Planes14}, both at 65\%, sit the same distance
+below the ceiling at very different rates. Achieved bandwidth holds between
+them (429 to 427~GB/s: time falls exactly as bytes do), then degrades. The
+arrow is the second attack on \textsc{Golay70}: hoisting the per-slot coset
+decode to a per-block prologue, at zero change to the stored bytes, moves it
+from 199 to 263~GB/s and leaves it short anyway. The 4-bit competitor
+converts 88\% of its byte advantage where our best layout converts 65\%.}
 \label{fig:layouts}
 \end{figure}
 
@@ -93,9 +111,10 @@ levels, so three binary bit planes name each coordinate's level where the
 one-hot encoding spent up to four 24-bit masks. With a uniform 14-byte
 stride, no level cap, and no per-group base pointers, the block shrinks to
 4.804~b/weight and, because the kernel was memory-bound, runs
-\emph{faster}: $1.14\times$ over \textsc{Slot32} (ranges 1.13--1.15 across
-three independent runs) at bit-identical decoded content, $2.15\times$ over
-FP16. Achieved bandwidth is
+\emph{faster}: $1.14\times$ over \textsc{Slot32} at bit-identical decoded
+content --- the most reproduced ratio in this paper, $1.14\times$ in each of
+five independent jobs spanning six days, with per-job ranges whose union is
+1.13--1.15 --- and $2.15\times$ over FP16. Achieved bandwidth is
 unchanged (429 to 427~GB/s): the time falls exactly as the bytes do. That
 invariance is also evidence about \emph{why} the kernel sits where it does:
 a uniform 14-byte stride and a bit-packed five-word window are very different
@@ -129,11 +148,23 @@ of four --- no variable shift, no coset select --- and \emph{not one stored
 byte changes}. The identity is proved slot by slot against the original
 decode and block by block against the artifact. The repair works, and it is
 not enough: 199 to 263~GB/s, 30\% to 40\% of the bound, $1.34\times$ to
-$1.77\times$. It confirms the diagnosis (halving the decode work moved the
-achieved bandwidth by exactly the amount a decode-bound kernel should move)
-while leaving the layout below the bar --- and it exhausts the obvious
-repairs, since the per-slot path is now identical to that of a layout we
-already ship.
+$1.77\times$. It confirms the diagnosis --- the kernel was decode-bound, and
+halving the per-slot decode returned 1.99~ms of the 5.74 by which the layout
+missed its own DRAM floor --- without reaching the bar.
+
+It also relocates what is left, and the table says where. Take each arm's
+gap to its own DRAM floor (bytes over the control's 661~GB/s):
+\textsc{Planes14}, which has no correction pass, is 1.82~ms above its floor;
+\textsc{Planes12x} is 2.52 and \textsc{Golay70} hoisted is 3.75. The excess
+over \textsc{Planes14}'s gap is thus 0.70~ms at a 3.4\% exception rate and
+1.93~ms at 7.4\% --- growing with the correction pass, and faster than in
+proportion to it. That pass is outside the per-slot path this repair
+attacked, and it has never been attacked itself; neither has the per-block
+work the 9-byte stride imposes (a four-case variable shift where
+\textsc{Planes14} has two, plus a gather into the 4096-entry codeword
+table). We stopped because the layout had missed a pre-registered bar
+twice, not because the design space was empty, and saying otherwise would
+overclaim a negative result.
 
 We report both attempts, and we report that the second was judged by a
 criterion committed before it ran. The original $1.6\times$ was a
@@ -141,9 +172,11 @@ criterion committed before it ran. The original $1.6\times$ was a
 smaller than our production layout (below), speed stopped being the question
 this format was competing on, and a speed threshold could no longer settle a
 memory argument. So we retired that criterion for cause, published a
-replacement --- adoption requires $\geq 2.0\times$ (the speed of a layout we
-already serve) \emph{and} a whole-model memory margin of $\geq 20\%$ over
-the deployed 4-bit checkpoint --- and timestamped it before the measurement.
+replacement --- adoption requires $\geq 2.0\times$ (the speed of
+\textsc{Planes12x}, a layout we had already built, measured and wired into
+the serving path, so not a threshold invented for the occasion) \emph{and} a
+whole-model memory margin of $\geq 20\%$ over the deployed 4-bit checkpoint
+--- and timestamped it before the measurement.
 The memory condition was already satisfied by arithmetic; the speed
 condition missed, at $1.77\times$ against $2.0\times$. Our own pre-measurement
 estimate had been $1.9$--$2.4\times$, from an instruction count: it was
@@ -160,8 +193,10 @@ of Table~\ref{tab:layouts} is not one of our layouts: it is the AWQ
 w4g128 GEMV kernel~\citep{awq2024}, ported into our harness unchanged --- its
 own grid, its own binary16 output --- and timed in the same rounds, the same
 process and the same chronometer as ours. It reads 4.179~b/weight, less than
-four of our five layouts, so a ratio against FP16 flatters it by
-construction and we do not lean on the $3.37\times$. The number that
+three of our four byte formats, so a ratio against FP16 flatters it by
+construction and we do not lean on the $3.37\times$ --- and note that
+against the two \textsc{Golay70} rows, which read \emph{less} than it does,
+the flattery runs the other way and they lose anyway. The number that
 compares is the fraction of the byte bound, and it is the result of this
 section: \textbf{88\% for the 4-bit kernel against 65\% for our best
 layout}. Both kernels are reading a compressed format from DRAM on the same
@@ -175,21 +210,35 @@ Two reserves, stated where the number is. The AWQ arm's payload is
 because the kernel has no data-dependent branch (fixed \texttt{\#pragma
 unroll} bounds, no variable stride, no exception path), so its traffic and
 its time depend only on the shapes; it is not legitimate for a quality
-statement, and this arm carries none. And the byte columns are not
-symmetric: w4g128 quantizes every column, so it has no tail policy and pays
-no tail, where our arms carry full-precision tail columns in their rate.
-That asymmetry runs against us, which is why it is disclosed rather than
-corrected away.
+statement, and this arm carries none.
+
+The byte columns are also not symmetric, and the asymmetry cuts different
+ways in the two columns. w4g128 quantizes every column, so it has no tail
+policy and pays no tail, where our arms carry full-precision tail columns in
+their rate: that inflates our b/weight against it. But on the fraction of
+the bound --- the figure this section leans on --- it runs in \emph{our}
+favour, and we would rather say so than let a reader find it. Tail and row
+scales are 0.137 of \textsc{Planes14}'s 4.804~b/weight; strip them and the
+arm reads 2.12~GB in the same 5.116~ms, which is 414~GB/s and \textbf{63\%}
+of its bound rather than 65\%. Compared like for like against a competitor
+that carries no tail, the gap this section reports is 25 points, not 23. We
+keep 65\% in the table because it is what the shipped format actually
+streams, and we put the corrected figure here because the honest version of
+our own headline is the one slightly worse for us.
 
 \subsection{How close to the floor? A measured attribution}
 \label{sec:attribution}
 
 ``Bandwidth-dominated'' is a claim about a kernel, and we measured it rather
-than asserting it. The FP16 control reads 7.27~GB at 661~GB/s on this shape,
-so the 2.50~GB that \textsc{Slot32} reads put its own DRAM floor at
-$2.50/0.661 = 3.78$~ms. A separately instrumented run of the same two arms
-takes 5.82~ms on the \textsc{Slot32} side (Table~\ref{tab:layouts} reports
-5.834~ms and 429~GB/s for the uninstrumented one): a gap of
+than asserting it. The instrumented job carries its own FP16 control ---
+7.27~GB at 662~GB/s, within a rounding step of the 661 of
+Table~\ref{tab:layouts}, and it is that job's own control we use, since a
+floor derived from one process and a time measured in another is exactly the
+subtraction this section's methodology forbids. Against it, the 2.50~GB that
+\textsc{Slot32} reads put its DRAM floor at $2.50/0.662 = 3.78$~ms, and the
+instrumented arm takes 5.82~ms (Table~\ref{tab:layouts}'s uninstrumented run
+reports 5.834~ms and 429~GB/s, so the instrumentation costs nothing
+measurable): a gap of
 \textbf{2.04~ms} that belongs to the kernel, not to the memory system. Three
 ``floor'' kernels, each adding one stage, with per-shape CUDA events and
 submission timing, attribute it:

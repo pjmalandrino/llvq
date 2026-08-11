@@ -50,11 +50,15 @@ and reaches $2.15\times$ the throughput of an FP16 matvec while reading
 sparse-overlay variant reaches 4.34 bits per weight with bit-exact
 reconstruction. We also run the comparison such papers usually omit: a
 deployed 4-bit kernel, ported unchanged into the same process and the same
-rounds, is both faster and smaller than our best layout ($3.37\times$ at
-4.18 bits per weight). Read as fractions of each kernel's own byte bound
-the result is sharper and more useful --- the 4-bit kernel converts 88\% of
-its byte advantage into time where ours converts 65\% --- and it relocates
-the remaining work from the format to the decode.
+rounds, is faster than our best layout and reads fewer bytes per projection
+weight ($3.37\times$ at 4.18 against 4.80). That is \emph{kernel}
+accounting over the quantized projections; on the whole-model bits per
+parameter reported below the verdict runs the other way, and the two
+denominators are never mixed. Read instead as fractions of each kernel's own
+byte bound, the result is sharper and does not depend on which denominator
+one picks --- the 4-bit kernel converts 88\% of its byte advantage into time
+where ours converts 65\% --- and it relocates the remaining work from the
+format to the decode.
 Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
 in 2.60~GB of VRAM: $2.03\times$ the throughput of the FP16 reference
 engine in $3.09\times$ less memory, with the serving stack adding no
@@ -75,9 +79,10 @@ twice: a Golay-payload layout at 3.59 bits per weight whose per-slot coset
 decode leaves the kernel compute-bound at 30\% of its byte bound, and which
 hoisting that decode to a per-block prologue --- at zero change to the
 stored bytes --- lifts only to 40\%, short of a replacement acceptance
-criterion we published and timestamped before measuring it. Every number in
-this paper regenerates from CSV files committed alongside the code; the full
-measurement campaign billed \$22.15 of GPU time.
+criterion we published and timestamped before measuring it. Every figure in
+this paper regenerates from CSV files committed alongside the code and the
+layout table is checked against its CSV by the build; the full measurement
+campaign billed \$22.83 of recorded GPU time.
 \end{abstract}
 
 \input{sections/intro}

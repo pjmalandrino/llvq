@@ -56,13 +56,25 @@ versus $55.59$ MMLU, both within sampling noise. The $2.03\times$
 throughput and $3.09\times$ VRAM reduction ride on content proved
 bit-identical plus an embedding change measured to be free.
 
-\textbf{Memory accounting, stated once and used everywhere.} Comparisons
-are in bits per parameter over the \emph{whole model, embedding included}.
-Per-weight rates over the quantized linears alone overstate compression
-badly on small models (the 4B's embedding is 9.7\% of its parameters), and
-they silently mix denominators when set against other methods' figures. On
-this accounting the served footprint is 5.15~b/param, below the official
-AWQ 4-bit checkpoint's 5.30 in its own engine.
+\textbf{Memory accounting: two denominators, always labelled.} Every
+\emph{model-level} comparison --- this section, the abstract's serving
+figures, the limitations --- is in bits per parameter over the \emph{whole
+model, embedding included}. Per-weight rates over the quantized linears
+alone overstate compression badly on small models (the 4B's embedding is
+9.7\% of its parameters), and they silently mix denominators when set
+against other methods' figures. On this accounting the served footprint is
+5.15~b/param, below the official AWQ 4-bit checkpoint's 5.30 in its own
+engine.
+
+\S\ref{sec:layouts} necessarily uses the other denominator --- what the
+kernel reads per quantized projection weight, which is the quantity a
+bandwidth argument is about --- and on that one the same 4-bit competitor
+reads \emph{less} than our production layout (4.18 against 4.80). Both
+verdicts are true, of different questions: what fits on the card, and what
+the matvec streams. They are reported apart, each labelled where it appears,
+and never subtracted from one another. The figure that needs no denominator,
+and therefore the one we lean on, is the fraction of its own byte bound each
+kernel converts into time.
 
 \textbf{What 2 bits costs.} Against FP16 the price is $\times1.384$
 perplexity and $-14.6$ points of MMLU. The AWQ arm makes the comparison
@@ -190,9 +202,14 @@ transfer to MMLU at all.
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
 its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind
 this paper (integration, ablations, negative results, both models) billed
-\$22.15, of which \$12.61 is the 8B requantization and \$2.33 the kernel
+\$22.83, of which \$12.61 is the 8B requantization and \$2.33 the kernel
 comparison campaign of \S\ref{sec:layouts} (its five-, six- and seven-arm
-runs). The negative result that section reports cost \$1.51 across the two
-campaigns --- \$0.74 to find it and \$0.77 to fail to repair it --- which is
-roughly what it is worth: the alternative was shipping a layout on an
-instruction count.
+runs). Two honest qualifications. Five short jobs from the CUDA porting day
+are journaled without a recorded amount, so \$22.83 is a floor rather than a
+total. And the negative result of \S\ref{sec:layouts} cannot be costed
+separately: the two jobs that produced it, \$0.74 and \$0.77, each timed
+five or seven arms at once and are the source of Table~\ref{tab:layouts}
+itself, so the marginal cost of carrying \textsc{Golay70} through both is
+cents, not dollars. Adding an arm to an existing run is nearly free; that is
+why the negative results in this paper were affordable, and why there was no
+excuse for settling one on an instruction count.

@@ -487,22 +487,51 @@ reads the tail in **f32** where the FP16 arm reads the same columns in f16 —
 `Slot32` is no longer the reference layout. **`Planes14`** replaces the one-hot
 slot masks with binary bit-planes at a uniform 14-byte stride and no base table:
 same decoded content, bit for bit, smaller *and* faster. Measured on an L40S,
-five arms, one stream, ratios formed round by round
-([`docs/mesures/e2-golay70-bench-2026-08-07.txt`](docs/mesures/e2-golay70-bench-2026-08-07.txt)):
+**seven arms in one process** (six, then the same six plus one — the incumbents
+move by at most 0.24 % between the two phases), ratios formed round by round
+([`docs/mesures/golay70-v2-sept-bras-2026-08-11.txt`](docs/mesures/golay70-v2-sept-bras-2026-08-11.txt)):
 
-| layout | bits/weight | GB read | vs FP16 |
-|---|---|---|---|
-| Slot32 | 5.510 | 2.50 | 1.87× [1.86–1.88] |
-| **Planes14** *(default)* | **4.804** | 2.18 | **2.14× [2.11–2.15]** |
-| Planes12x *(sparse overlay)* | **4.342** | 1.97 | 1.98× [1.95–1.99] |
-| Golay70 | 3.589 | 1.63 | 1.31× [1.29–1.32] |
+| kernel | bits/weight | GB read | GB/s | of byte bound | vs FP16 |
+|---|---|---|---|---|---|
+| Slot32 | 5.510 | 2.50 | 429 | 65 % | 1.89× [1.88–1.89] |
+| **Planes14** *(default)* | **4.804** | 2.18 | 427 | 65 % | **2.15× [2.15–2.16]** |
+| Planes12x *(sparse overlay)* | **4.342** | 1.97 | 360 | 54 % | 2.00× [2.00–2.01] |
+| Golay70 | 3.589 | 1.63 | 199 | 30 % | 1.34× [1.34–1.34] |
+| Golay70, hoisted decode | 3.589 | 1.63 | 263 | 40 % | 1.77× [1.76–1.78] |
+| **AWQ w4g128** *(competitor)* | 4.179 | 1.90 | 583 | **88 %** | 3.37× [3.36–3.38] |
+
+🚨 **Read the "of byte bound" column, not the "vs FP16" one.** A ratio against
+FP16 mechanically rewards whoever reads least; the comparable quantity is what
+fraction of its own byte advantage a kernel converts into time, taking the
+661 GB/s the FP16 control reaches on these shapes as the reference. A deployed
+4-bit kernel converts 88 % where our best layout converts 65 % — **that gap is
+the honest statement of what is left to do**, and it is not in the format.
+
+⚠️ Deux asymétries de comptabilité, dans les deux sens. Notre queue en pleine
+précision est facturée dans notre b/poids et AWQ n'en a pas — ça nous
+défavorise sur cette colonne. Mais sur la colonne « of byte bound », qui porte
+le résultat, elle nous **flatte** : queue et échelles de ligne retirées,
+`Planes14` lirait 2,12 Go dans les mêmes 5,116 ms, soit 414 Go/s et **63 %**,
+et l'écart au 4 bits serait de 25 points, pas 23.
 
 Planes12x reaches 4.342 b/w at **exactly identical quality** — the capped blocks
 are corrected by a sparse exception pass in the same launch, and every one of the
-1 105 920 rows still matches the f64 reference. Golay70 recomputes the Golay
-codeword by XOR instead of storing it, reaches a real 3.589 b/w, and was
-**measured and rejected**: 1.31× is below the 1.6× criterion set before the run,
-because the double-coset decode makes it ALU-bound (195 GB/s effective).
+1 105 920 rows still matches the f64 reference.
+
+**Golay70 is a negative result, attacked twice.** It stores a 12-bit *rank* of
+the block's Golay codeword instead of a 24-bit sign mask — the kernel resolves
+that rank through a resident 16 KiB codeword table; it does **not** re-encode
+anything by XOR, and an earlier version of this section said it did. The format
+result is real (3.589 b/w, reconstruction-exact on all 150 681 600 blocks); the
+kernel result is not. Resolving the coset *per slot* left it ALU-bound at
+199 GB/s and 1.34×, under the 1.6× criterion set before the run. Hoisting that
+decode to a per-block prologue — **zero stored bytes changed**, identity proved
+slot by slot and block by block — moved it to 263 GB/s and 1.77×, and that is
+still under the replacement criterion (≥ 2.0× *and* ≥ 20 % whole-model memory
+margin) which was committed and timestamped *before* the measurement
+([`proofs/preregistration-2026-08-11.md`](proofs/preregistration-2026-08-11.md)).
+Not adopted. The per-slot path is now identical to a layout we already ship, so
+there is no obvious repair left.
 
 **End to end, on a card.** `bin/fusedrun` loads the published artifact twice —
 once dense, once with the projections left encoded — and requires the same

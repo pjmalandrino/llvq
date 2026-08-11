@@ -428,6 +428,20 @@ Deux réserves de comptabilité :
   jamais ce fichier. La dépense réelle est ~47,5 $ une fois les ~27,69 $ du 14B
   ajoutés (`docs/reprise-14b-2026-08-09.md:23`). Les quatre sites et
   `docs/data/README.md:13` devront bouger **ensemble**.
+
+  > 🕳️ **Périmé le 2026-08-11, et sur les trois points** (relevé par la revue
+  > adversariale du lot D) : (i) `jobs.csv` va maintenant au 2026-08-11 et
+  > **contient** le 14B, sous tag `[14B]` ; (ii) sa somme de colonne fait
+  > **54,29 $**, le papier cite **22,83 $** (campagne papier + campagne
+  > kernel, hors 14B) et deux des quatre ancres ont changé de ligne ; (iii)
+  > la journée de portage CUDA du **2026-08-05 manquait entièrement** au
+  > registre — sept jobs, dont trois facturés dans leur propre journal et
+  > quatre sans montant — ajoutés depuis, ce qui est précisément ce qui fait
+  > passer le total de 22,15 à 22,83 et le rend un **plancher**, pas un
+  > total. La leçon tient et elle est celle de cette note : un chiffre
+  > recopié à la main dans quatre sites dérive. Depuis, `make` refuse de
+  > construire le papier si sa Table 1 s'écarte du CSV
+  > (`paper/scripts/check_tables.py`) — le total GPU, lui, reste manuel.
 - **L'image de run ne contient que des binaires Rust**
   (`ops/Dockerfile.cuda:73-77` = `ca-certificates` + `libssl3`). **Aucun moteur
   Python n'y tourne** : une stratégie B demanderait une image neuve ou la route

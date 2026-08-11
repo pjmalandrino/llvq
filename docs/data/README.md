@@ -2,7 +2,17 @@
 
 Fichiers CSV prêts pour tracer, décimales en points, unités dans les
 en-têtes. Chaque valeur provient d'un fichier de `docs/mesures/` (colonne
-source ou README du fichier) ; rien n'est recalculé ni lissé.
+source ou README du fichier) ; rien n'est lissé.
+
+⚠️ **Une seule colonne est DÉRIVÉE, et il faut la nommer** :
+`echelle-formats.csv::pct_byte_bound` n'existe dans aucun journal. C'est
+`round(gbps / 661 × 100)`, où 661 Go/s est le bras FP16 du même run —
+autrement dit la fraction de sa borne d'octets qu'un noyau convertit en
+temps. Elle est stable au choix de round : recalculée sur les **médianes**
+plutôt que sur les minima du banc, elle rend les mêmes entiers
+(100/65/65/54/30/40/88). `paper/scripts/check_tables.py` la recalcule à
+chaque `make` et refuse le build si le CSV et le tableau du papier
+divergent.
 
 | fichier | contenu | source |
 |---|---|---|

@@ -29,12 +29,34 @@ Format et raison d'être : [`docs/plan-de-test-v2-cuda.md`](../docs/plan-de-test
 ⚠️ Il vient d'être créé et il est **incomplet par rapport à ce que §6 décrit**.
 Manquent, dans l'ordre où ça compte :
 
-1. **La signature et l'horodatage.** §6.5 exige un tag annoté signé GPG *et* un
-   `ots stamp` (OpenTimestamps) sur chaque pré-enregistrement. Un commit signé
-   prouve *qui*, pas *quand* ; seul OpenTimestamps rend l'antériorité
-   vérifiable sans nous faire confiance. **Actions de l'opérateur** — elles
-   demandent une clé privée. Sans elles, l'antériorité repose sur une date de
-   commit, qui est ré-éditable.
+1. **L'horodatage est fait ; la signature reste due.** §6.5 exige un tag
+   annoté signé GPG *et* un `ots stamp` (OpenTimestamps) sur chaque
+   pré-enregistrement. **Les deux pré-enregistrements portent leur `.ots`**
+   (`preregistration-2026-08-10.md.ots`, `preregistration-2026-08-11.md.ots`,
+   ce dernier ré-ancré après sa correction É0 et avant le job qu'il jugeait),
+   donc l'antériorité ne repose plus sur une date de commit ré-éditable et se
+   vérifie sans nous faire confiance :
+   ```bash
+   ots verify proofs/preregistration-2026-08-11.md.ots
+   ```
+   ⚠️ **La signature GPG, elle, n'est pas faite** — elle prouverait *qui* et
+   demande une clé privée : action de l'opérateur.
+
+   🚨 **Les deux pré-enregistrements sont désormais GELÉS, et leur en-tête
+   ment sciemment.** Chacun s'ouvre sur « ni signé GPG ni horodaté … » :
+   c'était vrai à la seconde où il a été écrit, et ça ne l'est plus. Cette
+   phrase **ne sera pas corrigée**, parce que corriger le fichier
+   changerait son empreinte et invaliderait le `.ots` — et le ré-ancrer
+   maintenant produirait un horodatage *postérieur* à la mesure qu'il
+   juge, c'est-à-dire exactement l'objet sans valeur qu'on cherchait à
+   éviter. **Un pré-enregistrement horodaté est en lecture seule pour
+   toujours.** La seule exception jamais consentie est celle du 2026-08-11
+   (correction É0), faite le jour même, **avant** le job, et suivie d'un
+   ré-ancrage — le §7bis du fichier la consigne, et l'ancien `.ots` reste
+   opposable dans l'historique git (`f56ae30`).
+
+   Corollaire pour toute session future : les mises à jour d'état vont
+   **ici**, jamais dans un fichier scellé.
 2. 🕳️ **Le manifeste et son `verify` — CORRECTION du 2026-08-10.** Une version
    antérieure de ce fichier disait qu'ils « restent à écrire ». **C'est faux, et
    l'erreur aurait envoyé quelqu'un réécrire un outil qui existe** :

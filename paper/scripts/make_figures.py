@@ -55,12 +55,21 @@ def read_csv(name: str) -> list[dict]:
 def fig1_layout_scale() -> None:
     """Speedup vs FP16 against in-VRAM rate, six kernels plus the ceiling.
 
-    The dashed hyperbola is the whole point of the figure: an arm that read
-    `x` bits per weight at the bandwidth the FP16 control achieves on these
-    same shapes would run `16/x` times faster than it. Every marker's
-    vertical distance to that curve is therefore the arm's *fraction of its
-    own byte bound* — the quantity the campaign compares, since a ratio
-    against FP16 mechanically favours whoever reads least.
+    The dashed hyperbola is the whole point of the figure: an arm reading `x`
+    bits per weight at the bandwidth the FP16 control achieves on these same
+    shapes would run `16/x` times faster than it, since
+    speedup = (16/x)·(B/B_fp16). An arm's *fraction of its own byte bound* is
+    therefore y ÷ (16/x) — a RATIO, not a gap.
+
+    ⚠️ Which is why the y axis is logarithmic, and that is not a cosmetic
+    choice. On a linear axis the distance to the hyperbola is
+    (16/x)·(1−f): it shrinks as the rate grows even at constant f, so the
+    eye reads the wrong ordering — AWQ, the arm converting the MOST of its
+    bound, sits closest to the curve and would look worst. In log space the
+    gap becomes log(16/x) − log(y) = −log(f), so equal fractions are equal
+    distances and the figure finally shows what the caption claims. The
+    first version of this figure carried the linear axis and the ratio
+    wording together, which inverted its own section's headline.
     """
     rows = read_csv("echelle-formats.csv")
     styles = {
@@ -131,10 +140,28 @@ def fig1_layout_scale() -> None:
                                     linewidth=0.9, shrinkA=0, shrinkB=0),
                     zorder=2)
 
+    # A CSV row renamed out from under `styles` would otherwise vanish from
+    # the figure with exit code 0 — a plot missing an arm, silently. The
+    # control is deliberately absent (x = 16 is off the axis), so it is the
+    # one row allowed to be skipped.
+    expected = {r["layout"] for r in rows} - {"FP16"}
+    missing = expected - set(pts)
+    if missing:
+        raise SystemExit(
+            f"fig1: {sorted(missing)} in echelle-formats.csv but not plotted — "
+            "add them to `styles`/`shown`/`label_offsets` or drop them from the CSV"
+        )
+
     ax.set_xlabel("in-VRAM rate (bits per weight, kernel accounting)")
-    ax.set_ylabel("speedup vs FP16 matvec")
+    ax.set_ylabel("speedup vs FP16 matvec (log)")
     ax.set_xlim(3.2, 6.3)
-    ax.set_ylim(0.8, 4.9)
+    ax.set_yscale("log")
+    ax.set_ylim(0.9, 5.2)
+    # Explicit ticks: a log axis with default minor labels reads as a
+    # measurement instrument rather than a comparison.
+    ticks = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+    ax.set_yticks(ticks, [f"{t:g}×" for t in ticks])
+    ax.set_yticks([], minor=True)
     ax.grid(axis="y", zorder=0)
     fig.savefig(OUT / "fig1_layout_scale.pdf")
     plt.close(fig)
