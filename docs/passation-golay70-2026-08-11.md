@@ -127,6 +127,26 @@ Dans l'ordre, chaque étape débloquant la suivante :
    `LLVQ_FUSED_LAYOUT` **non écrit** à ce jour — `fused.rs` n'admet que
    `planes14|planes12x|slot32`), tokens gloutons contre le bras dense, et
    la mesure tok/s qui tranchera l'additivité (piège n°4).
+   > ✅ **Le câblage est écrit le 2026-08-11, en avance sur le verdict** —
+   > être sélectionnable est ce qui rend mesurable, et le critère décide de
+   > SERVIR, pas de câbler. `LLVQ_FUSED_LAYOUT=golay70` : noyau modèle
+   > `tv_golay70_h` (`llvq-llm/kernels/tv_golay70_h.cu`, le motif row_exc de
+   > `tv_planes12x_h` — pas de memset, pas d'atomic, corrections par tranche
+   > de ligne ; en PLUS simple : rien à soustraire, le flux principal porte
+   > l'origine aux exceptions), transcodage par `transcode_golay70` de
+   > `llvq_artifact::runtime` (celui que le sweep scellé prouve), tables GPU
+   > construites de la même dérivation (`fused::golay70_gpu_class_table`).
+   > Verrous locaux : harnais `tests/host_golay70_h.cpp` (le décodeur v2 et
+   > la correction EXÉCUTÉS contre une référence f64 depuis les indices
+   > sources — reconstruction exacte, pas d'algèbre d'overlay) + test de
+   > l'unité de traduction (golay70 prolonge planes12x ; ni `tv_golay70` de
+   > banc ni `tv_golay70_v1` dans l'unité d'inférence). ⚠️ Le noyau lui-même
+   > reste **compile-only** localement : grille, barrières, `warp_sum`, store
+   > f16 ne s'établissent que sur carte — le premier `fusedrun` diffe ses
+   > tokens gloutons contre le bras dense, comme pour `Planes12x`. À noter
+   > pour le 8B : `down_proj` y porte ~38 exceptions par ligne, au-delà des
+   > 32 voies — une seconde passe série, pas un mur, mais le nombre à
+   > surveiller (commentaire d'en-tête du noyau).
 
 ## 4. Les pièges de reprise
 

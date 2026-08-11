@@ -38,8 +38,8 @@ use std::collections::HashMap;
 use std::io::Read;
 
 use llvq_artifact::runtime::{
-    transcode, transcode_planes12x, transcode_planes14, ClassTable, Layout, Planes12xBlocks,
-    PlanesBlocks, RuntimeBlocks,
+    transcode, transcode_golay70, transcode_planes12x, transcode_planes14, ClassTable,
+    Golay70Blocks, Golay70Table, Layout, Planes12xBlocks, PlanesBlocks, RuntimeBlocks,
 };
 use llvq_quant::rotation::Rotation;
 use llvq_search::fastdec::FastDecoder;
@@ -62,11 +62,22 @@ use llvq_search::Searcher;
 /// (`docs/mesures/rtbits-planes-8b-2026-08-09.txt`). `Slot32` stays as the
 /// comparison arm and the fallback, bit-identical to what shipped before the
 /// switch existed.
+///
+/// `Golay70` is the E2 layout, wired 2026-08-11 as step 5 of the v2 campaign
+/// (`docs/passation-golay70-2026-08-11.md`): the 9-byte main stream whose
+/// per-slot decode goes through the Golay codeword rank, plus the exact
+/// exception records — 3.589 b/weight at the bench, the only layout whose
+/// whole-model b/param beats the deployed AWQ at every scale
+/// (`docs/projections-golay70-2026-08-11.md` §2). Its kernel is the v2
+/// block-prologue decoder; whether it is SERVED is decided by the
+/// pre-registered criterion of `proofs/preregistration-2026-08-11.md`, not
+/// by this wiring — being selectable is what makes it measurable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FusedLayout {
     Planes14,
     Planes12x,
     Slot32,
+    Golay70,
 }
 
 impl FusedLayout {
@@ -79,9 +90,10 @@ impl FusedLayout {
             Some("planes14") => Ok(Self::Planes14),
             Some("planes12x") => Ok(Self::Planes12x),
             Some("slot32") => Ok(Self::Slot32),
+            Some("golay70") => Ok(Self::Golay70),
             Some(other) => Err(format!(
                 "LLVQ_FUSED_LAYOUT={other} : valeurs admises « planes14 » (défaut), \
-                 « planes12x » et « slot32 »"
+                 « planes12x », « slot32 » et « golay70 »"
             )),
         }
     }
@@ -97,6 +109,7 @@ impl FusedLayout {
             Self::Planes14 => "planes14",
             Self::Planes12x => "planes12x",
             Self::Slot32 => "slot32",
+            Self::Golay70 => "golay70",
         }
     }
 }
@@ -380,6 +393,8 @@ const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
 const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
 const PLANES12_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes12.cuh");
 const PLANES12X_H_CU_EMBED: &str = include_str!("../kernels/tv_planes12x_h.cu");
+const GOLAY_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_golay.cuh");
+const GOLAY70_H_CU_EMBED: &str = include_str!("../kernels/tv_golay70_h.cu");
 
 /// The bit-plane sources a layout needs, **in NVRTC concatenation order**.
 ///
@@ -406,6 +421,20 @@ pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
             "llvq_planes12.cuh",
             "tv_planes12x_h.cu",
         ],
+        // Planes12x's list plus two files, not a list of its own — the same
+        // deliberate sharing of translation-unit shape as Planes12x itself:
+        // the register report of `tv_planes_h` stays a drift detector on the
+        // Golay70 build, and `llvq_golay.cuh` (the v2 decoder) finds every
+        // guard of `llvq_planes12.cuh` already taken.
+        FusedLayout::Golay70 => &[
+            "llvq_planes.cuh",
+            "planes.cu",
+            "tv_planes_h.cu",
+            "llvq_planes12.cuh",
+            "tv_planes12x_h.cu",
+            "llvq_golay.cuh",
+            "tv_golay70_h.cu",
+        ],
     }
 }
 
@@ -415,6 +444,7 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
         FusedLayout::Planes14 => "tv_planes_h",
         FusedLayout::Planes12x => "tv_planes12x_h",
         FusedLayout::Slot32 => "tv_slot_h",
+        FusedLayout::Golay70 => "tv_golay70_h",
     }
 }
 
@@ -438,6 +468,8 @@ pub fn load_planes_sources(
         "tv_planes_h.cu" => Ok(PLANES_H_CU_EMBED),
         "llvq_planes12.cuh" => Ok(PLANES12_CUH_EMBED),
         "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
+        "llvq_golay.cuh" => Ok(GOLAY_CUH_EMBED),
+        "tv_golay70_h.cu" => Ok(GOLAY70_H_CU_EMBED),
         other => Err(format!("pas de copie embarquée de {other}")),
     };
     match std::env::var("LLVQ_KERNEL_DIR") {
@@ -509,6 +541,23 @@ pub enum HostStream {
         /// than assuming it, since the kernel derives an exception's column
         /// as `b − row·nblocks` and a wrong row would read the wrong
         /// activation slice and produce finite, plausible, wrong numbers.
+        row_exc: Vec<u32>,
+    },
+    Golay70 {
+        /// The 9-byte main-stream records as `u32` words. The transcoder
+        /// itself word-aligns the stream and appends one zero word so the
+        /// kernel's three-word window exists for the last block — no extra
+        /// packing pad here, unlike the plane streams.
+        words: Vec<u32>,
+        /// Matrix-wide block index of each exception, strictly ascending.
+        exc_idx: Vec<u32>,
+        /// One exact 14-byte `Planes14` record per exception, as `u32` words,
+        /// padded for the four-word window `planes_fields` reads on it —
+        /// the exception machinery is Planes12x's, verbatim.
+        exc_words: Vec<u32>,
+        /// `d_out + 1` prefix offsets into `exc_idx` — same contract, same
+        /// [`row_offsets`] check, same reason as the `Planes12x` field: one
+        /// warp per row, no memset, no atomic (`kernels/tv_golay70_h.cu`).
         row_exc: Vec<u32>,
     },
 }
@@ -795,6 +844,71 @@ fn pack_plane_bytes(bytes: &[u8]) -> Vec<u32> {
         .collect()
 }
 
+/// A byte stream the transcoder already word-aligned and padded — the
+/// Golay70 main stream — as `u32` words, verbatim. `pack_plane_bytes` would
+/// add a second pad; harmless zeros, but the byte accounting then no longer
+/// reads off the vector's length.
+fn pack_aligned_bytes(bytes: &[u8]) -> Vec<u32> {
+    assert!(bytes.len().is_multiple_of(4), "le transcodeur aligne son flux");
+    bytes
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// `u32` words per entry of the Golay70 GPU class table — the kernel's
+/// `GolayClassRec { float v[4]; u32 flags; u32 is_odd; u32 pad0, pad1; }`.
+pub const GOLAY70_REC_WORDS: usize = 8;
+/// Entries of that table — 512 so the 9-bit class field cannot index out of
+/// bounds even from a corrupt stream (the `ClassRec` reasoning, unchanged).
+pub const GOLAY70_TABLE_ENTRIES: usize = 512;
+
+/// The 512-entry Golay70 GPU class table, 8 `u32` words per entry, matching
+/// `GolayClassRec` of `llvq_golay.cuh` field for field — values divided by
+/// `sqrt(16·shell)` like every other arm's table, exception classes and the
+/// origin left all-zero (the main stream never names an exception class, and
+/// the origin decodes to zero through a zero entry).
+///
+/// Built from [`Golay70Table`] — the table [`transcode_golay70`] encodes
+/// against — so encoder and decoder read one derivation, not two: the even
+/// side takes `pairs` (residue pairs in canonical level order, single-value
+/// residues already duplicated), the odd side `values` and `flags`. The
+/// shell norm is the one thing the class entry does not carry; it comes from
+/// the same [`FastDecoder`] the table was built from.
+pub fn golay70_gpu_class_table(fd: &FastDecoder, g70: &Golay70Table) -> Vec<u32> {
+    assert!(g70.n_entries() <= GOLAY70_TABLE_ENTRIES);
+    let mut tab = vec![0u32; GOLAY70_TABLE_ENTRIES * GOLAY70_REC_WORDS];
+    for ci in 0..fd.n_classes() {
+        let id = 1 + ci;
+        let cls = g70.class(id);
+        if cls.exception {
+            continue;
+        }
+        let lv = fd.levels(ci);
+        let norm = f64::from(16 * lv.shell).sqrt();
+        let vals: [i8; 4] = if cls.odd {
+            cls.values
+        } else {
+            [cls.pairs[0][0], cls.pairs[0][1], cls.pairs[1][0], cls.pairs[1][1]]
+        };
+        let base = id * GOLAY70_REC_WORDS;
+        for (k, &v) in vals.iter().enumerate() {
+            tab[base + k] = ((f64::from(v) / norm) as f32).to_bits();
+        }
+        tab[base + 4] = u32::from(cls.flags);
+        tab[base + 5] = u32::from(cls.odd);
+    }
+    tab
+}
+
+/// The canonical 4096-codeword table the kernel resolves the 12-bit rank
+/// through — `Golay::codewords()` order, the order frozen by format v1.
+pub fn golay70_gpu_codewords(g70: &Golay70Table) -> Vec<u32> {
+    let cw = g70.golay().codewords();
+    assert_eq!(cw.len(), 4096, "the canonical Golay table has 4096 codewords");
+    cw.to_vec()
+}
+
 /// The `d_out + 1` prefix offsets of each output row's slice of `exc_idx`.
 ///
 /// Blocks are row-major (`b = row·nblocks + col`) and `exc_idx` is strictly
@@ -873,6 +987,10 @@ pub struct Transcoder {
     table: ClassTable,
     /// `Some` exactly for [`FusedLayout::Planes12x`].
     searcher: Option<Searcher>,
+    /// `Some` exactly for [`FusedLayout::Golay70`] — the class table
+    /// [`transcode_golay70`] encodes against, and the source of the GPU
+    /// tables ([`golay70_gpu_class_table`], [`golay70_gpu_codewords`]).
+    g70: Option<Golay70Table>,
 }
 
 impl Transcoder {
@@ -881,13 +999,17 @@ impl Transcoder {
     pub fn new(layout: FusedLayout) -> Result<Self, String> {
         let fd = FastDecoder::new();
         let table = ClassTable::new(&fd, 1);
-        if matches!(layout, FusedLayout::Planes14 | FusedLayout::Planes12x) {
+        if matches!(
+            layout,
+            FusedLayout::Planes14 | FusedLayout::Planes12x | FusedLayout::Golay70
+        ) {
             // Three bit-planes address eight levels; both plane layouts are
             // only a bijection of the Slot32 content while every class stays
             // within five — `Planes12x` needs it for its exception records,
             // which are Planes14 records. True of the v1 table, asserted
             // rather than assumed — the same guard planesbench re-asserts
-            // before any timing.
+            // before any timing. `Golay70` inherits the need: its exception
+            // records are the same Planes14 records.
             if !(0..table.n_entries()).all(|e| table.record(e).len <= 5) {
                 return Err("une classe dépasse 5 niveaux : les plans de bits ne \
                             peuvent pas la porter"
@@ -895,7 +1017,14 @@ impl Transcoder {
             }
         }
         let searcher = matches!(layout, FusedLayout::Planes12x).then(Searcher::new);
-        Ok(Self { layout, fd, table, searcher })
+        let g70 = matches!(layout, FusedLayout::Golay70).then(|| Golay70Table::new(&fd));
+        Ok(Self { layout, fd, table, searcher, g70 })
+    }
+
+    /// The Golay70 class table — `Some` exactly when the layout is
+    /// [`FusedLayout::Golay70`], like `searcher` for `Planes12x`.
+    pub fn golay70_table(&self) -> Option<&Golay70Table> {
+        self.g70.as_ref()
     }
 
     pub fn layout(&self) -> FusedLayout {
@@ -969,6 +1098,33 @@ impl Transcoder {
                         words: pack_plane_bytes(&pb.data),
                         exc_idx: pb.exc_idx,
                         exc_words: pack_plane_bytes(&pb.exc_data),
+                        row_exc,
+                    },
+                    bytes,
+                ))
+            }
+            FusedLayout::Golay70 => {
+                let g70 = self
+                    .g70
+                    .as_ref()
+                    .ok_or("Transcoder::new n'a pas construit de table pour golay70")?;
+                let gb: Golay70Blocks =
+                    transcode_golay70(&self.fd, &self.table, g70, indices, gains)
+                        .map_err(|e| e.to_string())?;
+                let row_exc = row_offsets(&gb.exc_idx, d_out, nblocks)?;
+                // Same accounting rule as every arm: what the vectors hold,
+                // the transcoder's own tail padding included (it is read —
+                // the last block's three-word window lands in it), never a
+                // packing pad added here.
+                let bytes = gb.data.len() as u64
+                    + gb.exc_idx.len() as u64 * 4
+                    + gb.exc_data.len() as u64
+                    + row_exc.len() as u64 * 4;
+                Ok((
+                    HostStream::Golay70 {
+                        words: pack_aligned_bytes(&gb.data),
+                        exc_idx: gb.exc_idx,
+                        exc_words: pack_plane_bytes(&gb.exc_data),
                         row_exc,
                     },
                     bytes,
