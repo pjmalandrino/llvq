@@ -45,10 +45,17 @@ spanning eleven lattice shells in the shipped configuration), together with a
 family of VRAM layouts that decouple the on-disk rate from the in-memory
 rate. Our best layout, \textsc{Planes14}, replaces the 5.51-bit-per-weight
 one-hot coordinate masks with binary bit planes at a uniform 14-byte stride
-and reaches $2.14\times$ the throughput of an FP16 matvec while reading
+and reaches $2.15\times$ the throughput of an FP16 matvec while reading
 4.80 bits per weight; a
 sparse-overlay variant reaches 4.34 bits per weight with bit-exact
-reconstruction. Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
+reconstruction. We also run the comparison such papers usually omit: a
+deployed 4-bit kernel, ported unchanged into the same process and the same
+rounds, is both faster and smaller than our best layout ($3.37\times$ at
+4.18 bits per weight). Read as fractions of each kernel's own byte bound
+the result is sharper and more useful --- the 4-bit kernel converts 88\% of
+its byte advantage into time where ours converts 65\% --- and it relocates
+the remaining work from the format to the decode.
+Integrated end-to-end, a 2-bit Qwen3-4B runs at 88.4~tok/s
 in 2.60~GB of VRAM: $2.03\times$ the throughput of the FP16 reference
 engine in $3.09\times$ less memory, with the serving stack adding no
 measurable quality cost on top of the quantized artifact. Much of that
@@ -63,11 +70,14 @@ roughly half of AWQ's. The quality gap to 4-bit shrinks from 14.5 to 7.5
 MMLU points as the model doubles. We also report what 2 bits
 costs ($\times 1.384$ perplexity and $-14.6$ points of MMLU on the 4B,
 a deficit concentrated in reasoning-heavy subjects whose leading suspects we
-have eliminated rather than explained) and a measured negative
-result: a Golay-payload layout at 3.59 bits per weight whose double-coset
-decode makes the kernel compute-bound. Every number in this paper
-regenerates from CSV files committed alongside the code; the full
-measurement campaign billed \$19.82 of GPU time.
+have eliminated rather than explained) and a negative result we attacked
+twice: a Golay-payload layout at 3.59 bits per weight whose per-slot coset
+decode leaves the kernel compute-bound at 30\% of its byte bound, and which
+hoisting that decode to a per-block prologue --- at zero change to the
+stored bytes --- lifts only to 40\%, short of a replacement acceptance
+criterion we published and timestamped before measuring it. Every number in
+this paper regenerates from CSV files committed alongside the code; the full
+measurement campaign billed \$22.15 of GPU time.
 \end{abstract}
 
 \input{sections/intro}

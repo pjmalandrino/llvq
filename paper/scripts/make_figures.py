@@ -53,42 +53,88 @@ def read_csv(name: str) -> list[dict]:
 
 
 def fig1_layout_scale() -> None:
-    """Speedup vs FP16 against in-VRAM payload rate, five layouts."""
+    """Speedup vs FP16 against in-VRAM rate, six kernels plus the ceiling.
+
+    The dashed hyperbola is the whole point of the figure: an arm that read
+    `x` bits per weight at the bandwidth the FP16 control achieves on these
+    same shapes would run `16/x` times faster than it. Every marker's
+    vertical distance to that curve is therefore the arm's *fraction of its
+    own byte bound* — the quantity the campaign compares, since a ratio
+    against FP16 mechanically favours whoever reads least.
+    """
     rows = read_csv("echelle-formats.csv")
     styles = {
-        "Slot32": (GRAY, "first working layout"),
-        "Planes14": (BLUE, "in production"),
-        "Planes12x": (SKY, "best rate, exact"),
-        "Golay70": (VERMILLION, "discarded: compute-bound"),
+        "Slot32": (GRAY, "o"),
+        "Planes14": (BLUE, "o"),
+        "Planes12x": (SKY, "o"),
+        "Golay70v1": (VERMILLION, "o"),
+        "Golay70v2": (VERMILLION, "o"),
+        # The competitor: a different marker, because it is not one of ours.
+        "AWQ": (GREEN, "s"),
     }
-    fig, ax = plt.subplots(figsize=(4.8, 3.1), layout="constrained")
-    ax.axhline(1.0, color=GRAY, linewidth=0.8, linestyle="--", zorder=1)
-    ax.annotate("FP16 baseline (16 b/weight)", xy=(5.62, 1.0),
+    shown = {
+        "Slot32": "Slot32", "Planes14": "Planes14", "Planes12x": "Planes12x",
+        "Golay70v1": "Golay70", "Golay70v2": "Golay70, hoisted",
+        "AWQ": "AWQ w4g128 (4-bit)",
+    }
+    # (dx, dy, horizontal alignment) — hand-placed so no two labels overlap
+    # at this figure size; the two Golay70 points share an x, so theirs go
+    # right and the arrow between them carries no text of its own.
+    label_offsets = {
+        "Slot32": (0, -17, "center"), "Planes14": (9, 8, "left"),
+        "Planes12x": (-9, 11, "right"), "Golay70v1": (9, -5, "left"),
+        # AWQ's label goes LEFT: to its right it would cross the ceiling
+        # curve, and a label lying on the line it is being compared to is
+        # exactly the wrong place for it.
+        "Golay70v2": (9, 5, "left"), "AWQ": (-9, 0, "right"),
+    }
+    fig, ax = plt.subplots(figsize=(4.8, 3.4), layout="constrained")
+
+    # The memory-bound ceiling, and the FP16 control it is anchored on.
+    xs = [3.2 + 0.02 * i for i in range(156)]
+    ax.plot(xs, [16.0 / x for x in xs], linestyle="--", linewidth=0.9,
+            color=GRAY, zorder=1)
+    ax.annotate("ceiling: this rate at the FP16 arm's bandwidth",
+                xy=(3.75, 16.0 / 3.75), xytext=(4, 7),
+                textcoords="offset points", fontsize=7, color=GRAY)
+    ax.axhline(1.0, color=GRAY, linewidth=0.8, linestyle=":", zorder=1)
+    ax.annotate("FP16 control (16 b/weight)", xy=(6.25, 1.0),
                 xytext=(0, 4), textcoords="offset points",
                 ha="right", fontsize=7.5, color=GRAY)
-    label_offsets = {
-        "Slot32": (8, -3), "Planes14": (8, 0),
-        "Planes12x": (8, -4), "Golay70": (8, 0),
-    }
+
+    pts = {}
     for r in rows:
         name = r["layout"]
         if name not in styles:
             continue
-        color, _ = styles[name]
-        x = float(r["bpw_payload"])
+        color, marker = styles[name]
+        x = float(r["bpw_kernel"])
         y = float(r["ratio_vs_fp16"])
         lo, hi = float(r["ratio_lo"]), float(r["ratio_hi"])
-        ax.errorbar(x, y, yerr=[[y - lo], [hi - y]], fmt="o",
+        pts[name] = (x, y)
+        ax.errorbar(x, y, yerr=[[y - lo], [hi - y]], fmt=marker,
                     color=color, markersize=6, capsize=3,
                     elinewidth=1, capthick=1, zorder=3)
-        dx, dy = label_offsets[name]
-        ax.annotate(f"{name}\n{x:.2f} b/w · {y:.2f}×",
+        dx, dy, ha = label_offsets[name]
+        ax.annotate(f"{shown[name]}\n{x:.2f} b/w · {y:.2f}× · "
+                    f"{r['pct_byte_bound']}%",
                     xy=(x, y), xytext=(dx, dy), textcoords="offset points",
-                    fontsize=7.5, va="center", color=INK)
-    ax.set_xlabel("in-VRAM rate (bits per weight, payload accounting)")
+                    fontsize=7.5, va="center", ha=ha, color=INK)
+
+    # The second attack on the same format: same bytes, hoisted decode. The
+    # arrow needs no label — two markers of one colour at one rate, joined,
+    # is the statement, and the caption says what moved.
+    if "Golay70v1" in pts and "Golay70v2" in pts:
+        (x1, y1), (x2, y2) = pts["Golay70v1"], pts["Golay70v2"]
+        ax.annotate("", xy=(x2, y2 - 0.07), xytext=(x1, y1 + 0.07),
+                    arrowprops=dict(arrowstyle="->", color=VERMILLION,
+                                    linewidth=0.9, shrinkA=0, shrinkB=0),
+                    zorder=2)
+
+    ax.set_xlabel("in-VRAM rate (bits per weight, kernel accounting)")
     ax.set_ylabel("speedup vs FP16 matvec")
     ax.set_xlim(3.2, 6.3)
-    ax.set_ylim(0.85, 2.35)
+    ax.set_ylim(0.8, 4.9)
     ax.grid(axis="y", zorder=0)
     fig.savefig(OUT / "fig1_layout_scale.pdf")
     plt.close(fig)

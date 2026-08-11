@@ -38,11 +38,18 @@ all.
 
 \textbf{We do not measure QTIP.} Our motivation rests on the original
 paper's report that its kernel is slower than QTIP's; we inherit that claim
-rather than reproducing it, and no QTIP arm ran on our machine. A kernel
-comparison at matching matvec shapes is the single most valuable missing
-measurement in this paper. The same holds, less centrally, for Marlin at
-4 bits and for the other 2-bit vector-quantized systems cited in
-\S\ref{sec:related}.
+rather than reproducing it, and no QTIP arm ran on our machine. A 2-bit
+kernel comparison at matching matvec shapes is the single most valuable
+missing measurement in this paper --- the 4-bit arm of
+Table~\ref{tab:layouts} is the same experiment run against a different
+class of competitor, and it is the one that changed our reading of our own
+result. The same gap remains for Marlin's batched 4-bit GEMM and for the
+other 2-bit vector-quantized systems cited in \S\ref{sec:related}. Two
+exclusions were fixed in advance and we keep them: QTIP's kernel hard-codes
+a batch of one, so it cannot enter a batch sweep, and at batch 1 every
+4-bit kernel converges toward the same bandwidth bound, so a single-point
+4-bit citation would say more about the operating point than about the
+kernel.
 
 \textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
 Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
@@ -60,9 +67,22 @@ memory verdict flips. Whether the trend continues to the 70B class, the
 regime the sovereignty argument actually cares about, is measurable with
 this methodology and is not measured here.
 
-\textbf{AWQ speed is not comparable.} The AWQ arm was never executed in our
-engine (its quality was, under matching fingerprints). Cross-engine
-throughput comparisons are meaningless and we make none.
+\textbf{Our speedups are over FP16, not over the 4-bit state of the
+practice.} Every $\times$ in \S\ref{sec:layouts} and
+\S\ref{sec:integration} is against an FP16 baseline, and an earlier version
+of this section claimed AWQ's speed was not comparable to ours at all. At
+the \emph{kernel} level that is no longer true and the comparison went
+against us: their GEMV, run unchanged in our harness and our rounds, reaches
+$3.37\times$ the FP16 control where our production layout reaches
+$2.15\times$ (Table~\ref{tab:layouts}), roughly a factor 1.6 between them
+--- a quotient of two medians from shared rounds, not a ratio formed round
+by round like the others, and read as one significant figure for that
+reason. What is still not measured is their
+\emph{engine}: we have never run an end-to-end AWQ serving stack, so the
+tok/s of Tables~\ref{tab:campaign} and~\ref{tab:campaign8b} have no 4-bit
+column and we make no end-to-end throughput claim against it. Nor does the
+kernel arm carry any quality statement --- its payload is synthesized from
+our own weights, which is faithful in time and meaningless for accuracy.
 
 \textbf{Speedups carry ranges, not third decimals.} Inter-process
 dispersion on identical binaries spans several percent; all ratios are

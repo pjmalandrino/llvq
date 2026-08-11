@@ -90,7 +90,7 @@ identical in both arms, the fused engine gains $1.12\times$ on the 4B
 (48.7 versus 43.5~tok/s) and $1.29\times$ on the 8B (34.4 versus 26.6).
 Both numbers understate the kernel, whose own phase runs $1.27\times$
 faster (13.3 to 10.4~ms across the transformer blocks) and whose projection
-benchmark runs $2.14\times$ over FP16; the giant head phase dilutes them.
+benchmark runs $2.15\times$ over FP16; the giant head phase dilutes them.
 We report both formulations, always together: $2.03\times$ against our
 dense arm as measured, at least $1.12\times$ against that arm with its head
 copy removed. Only the second is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;

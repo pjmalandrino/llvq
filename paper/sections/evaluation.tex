@@ -190,4 +190,9 @@ transfer to MMLU at all.
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
 its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind
 this paper (integration, ablations, negative results, both models) billed
-\$19.82, of which \$12.61 is the 8B requantization.
+\$22.15, of which \$12.61 is the 8B requantization and \$2.33 the kernel
+comparison campaign of \S\ref{sec:layouts} (its five-, six- and seven-arm
+runs). The negative result that section reports cost \$1.51 across the two
+campaigns --- \$0.74 to find it and \$0.77 to fail to repair it --- which is
+roughly what it is worth: the alternative was shipping a layout on an
+instruction count.
