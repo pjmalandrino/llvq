@@ -40,9 +40,13 @@ remesurer. (Texte long : spec §3, écrit le 2026-08-10, avant la v2.)
 ## 2. Le critère de remplacement
 
 Deux conditions, une par axe. Les seuils sont ceux du spec §3 (2026-08-10),
-**avec deux corrections de comptabilité** issues de
+**avec deux corrections** issues de
 [`docs/projections-golay70-2026-08-11.md`](../docs/projections-golay70-2026-08-11.md)
-§1–2, consignées ici parce qu'elles changent les nombres, pas le critère :
+§1–2, consignées ici parce qu'elles ne sont pas du même ordre : la première
+change **les nombres** (une comptabilité), la seconde change **la forme du
+critère** — l'absolu devient une marge relative, ce qui élargit la borne 4B
+de 4,1 à 4,2416 b/param. C'est un changement de critère, il se divulgue
+comme tel, et il est fait **avant** toute mesure :
 
 1. **L'embedding q8 se facture à 8,5 b/param, pas 8,0** (int8 + échelle et
    biais f16 par groupe de 64 — la formule de `rtbits`, validée au millième
@@ -50,9 +54,12 @@ Deux conditions, une par axe. Les seuils sont ceux du spec §3 (2026-08-10),
    donc **4,065** (calculé), pas 4,016.
 2. **L'invariant est la marge relative, pas le 4,1 absolu.** Le « ≤ 4,1 »
    du spec encode « ≥ 20 % de marge vs l'AWQ déployé » *au 4B* (AWQ 4B =
-   5,302 b/param, mesuré). Le 8B projeté (4,290) viole le 4,1 absolu tout en
-   portant la meilleure marge du tableau (−28,0 %) : c'est la marge qui est
-   transposable, le 4,1 n'en est que l'instance 4B.
+   5,302 b/param — **calculé sur octets mesurés** : 4,15625 b/poids × N_lin
+   plus embedding et normes, validé contre les 2 666 027 672 octets du dépôt
+   `Qwen/Qwen3-4B-AWQ`, cf. `docs/plan-de-test-v2-cuda.md` §B0 ; l'étiqueter
+   « mesuré » sur-revendiquerait). Le 8B projeté (4,290) viole le 4,1 absolu
+   tout en portant la meilleure marge du tableau (−28,0 %) : c'est la marge
+   qui est transposable, le 4,1 n'en est que l'instance 4B.
 
 | condition | verdict |
 |---|---|
@@ -62,14 +69,17 @@ Deux conditions, une par axe. Les seuils sont ceux du spec §3 (2026-08-10),
 
 **Pourquoi 2,0×** : la vitesse de `Planes12x` au même banc — un seuil déjà
 atteint par un layout servi, pas un chiffre inventé. **Pourquoi 20 %** : la
-marge qui survit à l'objection MMLU, celle que les 3,5 % de `Planes14` ne
-survivaient pas (spec §3).
+marge qui survit à l'objection MMLU, celle que la marge de `Planes14` ne
+survivait pas — 3,5 % dans la comptabilité du spec (embedding à 8,0),
+**2,6 %** une fois corrigée à 8,5 : plus mince encore, l'argument ne fait
+que se renforcer, mais les deux chiffres ne se citent pas dans la même
+phrase sans dire lequel est dans quelle comptabilité.
 
 ### Ce qui est déjà tranché, et ce qui reste ouvert
 
 **La condition mémoire est déjà connue satisfaite au 4B** — c'est un compte,
 pas un chronométrage : 4,065 contre une borne d'adoption de
-0,8 × 5,302 = **4,241** b/param, soit une marge de **23,3 %**. La v2 ne
+0,8 × 5,302 = **4,2416** b/param, soit une marge de **23,3 %**. La v2 ne
 change pas un octet du format, donc ce compte ne bougera pas.
 
 **Tout le verdict pend donc à la seule condition de vitesse.** Le job du
@@ -115,7 +125,11 @@ renommés (`tv_golay70_v1`) : le rapport v2/v1 se forme dans les mêmes rounds
 
 `Δ_contrôle` (§4 du 08-10) se lit entre les deux phases, sur les six bras
 communs ; la règle de décision `R = max(Δ_contrôle, demi-étendue intra-run)`
-s'applique telle quelle au rapport v2/v1 comme au v2/FP16.
+s'applique telle quelle au rapport v2/v1 comme au v2/FP16. **Précision
+d'interprétation, posée d'avance** : la demi-étendue intra-run de la règle
+est prise sur la phase de **mesure** (la table à sept bras), pas sur le
+contrôle — c'est le run où `Δ_mesuré` existe. Le banc imprime les deux
+composantes, donc un lecteur peut refaire le calcul avec l'autre lecture.
 
 **Gardes propres à ce job, à lire avant les rounds :**
 
@@ -179,5 +193,29 @@ la mesure AWQ), qui est dû quel que soit le verdict.
 
 ## 7bis. Écarts au protocole — journal, tenu à chaud
 
-*(Vide à la signature. Chaque entorse s'écrit ici le jour où elle est
-commise, avec sa raison et son coût — la règle du 08-10.)*
+*(Chaque entorse s'écrit ici le jour où elle est commise, avec sa raison et
+son coût — la règle du 08-10.)*
+
+### É0 — 2026-08-11, correction du jour même, avant tout job
+
+**Ce qui s'est passé** : la première version de ce document (commit
+`9402e4e`, horodatée par `f56ae30`) a été passée en revue adversariale
+quelques heures après son ancrage — l'ordre aurait dû être inverse, et
+c'est la leçon. La revue a trouvé : « 0,8 × 5,302 = 4,241 », une
+**troncature présentée comme une égalité** (le produit est 4,2416) ; une
+étiquette « mesuré » sur le 5,302 AWQ que sa source classe *calculé sur
+octets mesurés* ; un « 3,5 % de `Planes14` » cité dans la comptabilité
+que la correction n°1 du même document remplace (2,6 % à 8,5) ; et une
+phrase d'introduction disant que les corrections « ne changent pas le
+critère » alors que la n°2 en change la forme (absolu → marge relative,
+borne 4B 4,1 → 4,2416).
+
+**Ce qui a été fait** : les quatre points corrigés dans le texte, le jour
+même, **avant toute mesure de vitesse de la v2** — aucun chiffre de
+vitesse n'existait ni n'existe à l'heure de la correction. Le fichier est
+ré-horodaté (`.ots` régénéré) ; la version initiale et son empreinte
+restent opposables dans l'historique git (`9402e4e`, `f56ae30`).
+
+**Ce que ça ne change pas** : aucun verdict. La borne tronquée (4,241)
+était plus stricte que la vraie (4,2416), et 4,065 passe sous les deux ;
+les seuils de vitesse (2,0×/1,6×) sont intacts.

@@ -15,12 +15,16 @@ références, dans l'ordre de lecture d'une session neuve :
 
 ---
 
-## 1. État de la branche (2 commits au-dessus de `main`)
+## 1. État de la branche
 
 | commit | contenu |
 |---|---|
 | `e66e4ad` | `docs/projections-golay70-2026-08-11.md` — projections + analyse |
 | `b41a476` | **la v2** : `llvq-cuda/kernels/llvq_golay.cuh` (prologue par bloc `hw`/`aw`/`nw`, slot à 3 masques), `llvq-cuda/tests/host_golay70.cpp` (le harnais exécute le même texte), note ✅ dans le doc de projections |
+| `07eb969` | ce document |
+| `9402e4e` | **lot A** : `proofs/preregistration-2026-08-11.md` + recensement E2 du 8B |
+| `f56ae30` | ancrage OpenTimestamps du pré-enregistrement |
+| `38ff87c` et suivants | **lot B** : sélecteur `LLVQ_BENCH_ARMS`, bras témoin `golay70_v1.cu`, corrections de la revue adversariale |
 
 **Ce que la v2 est** : une réécriture du décodage seul. Zéro octet de format
 changé — `golay70_fields`, le flux 9 o, les exceptions, `GolayClassRec`, la
@@ -73,10 +77,12 @@ Dans l'ordre, chaque étape débloquant la suivante :
    modèle**, pas le 4,1 absolu (le 8B projeté le viole à 4,29 avec la
    meilleure marge du tableau). Signer et horodater comme le précédent.
    > ✅ **Fait le 2026-08-11** : `proofs/preregistration-2026-08-11.md`,
-   > horodaté OpenTimestamps (`.ots` commité) ; la signature GPG reste à
-   > l'opérateur. Il acte aussi que la condition MÉMOIRE est déjà un compte
-   > (4,065 contre une borne de 4,241) : le job du lot C ne tranche que la
-   > vitesse. Et la réserve §2.4 des projections est close le même jour par
+   > horodaté OpenTimestamps (`.ots` commité), puis **corrigé et
+   > ré-horodaté le jour même** après revue adversariale (quatre défauts de
+   > présentation des nombres, consignés dans son §7bis É0 — aucun verdict
+   > ne bouge) ; la signature GPG reste à l'opérateur. Il acte aussi que la
+   > condition MÉMOIRE est déjà un compte (4,065 contre une borne de
+   > 4,2416) : le job du lot C ne tranche que la vitesse. Et la réserve §2.4 des projections est close le même jour par
    > le recensement E2 du 8B — 7,4116 % contre 7,4357 % au 4B, « pair
    > violant » 4,0394 % contre 4,05
    > ([`mesures/classhist-e2-8b-2026-08-11.txt`](mesures/classhist-e2-8b-2026-08-11.txt)).
@@ -155,7 +161,12 @@ Dans l'ordre, chaque étape débloquant la suivante :
 ## 5. Vérification rapide d'arrivée
 
 ```bash
-git log --oneline -3        # b41a476, e66e4ad au-dessus de main
-git diff main --stat        # 4 fichiers : .cuh, .cpp, 2 docs
+git log --oneline main..HEAD   # e66e4ad → lot B, cf. la table du §1
 cargo test -p llvq-cuda --release --test golay70_decoder_matches_rust   # Mac dev
+cargo test -p llvq-cuda --lib                                            # parseur LLVQ_BENCH_ARMS
 ```
+
+*(La première version de ce bloc figeait « 2 commits, 4 fichiers » — périmé
+dès le commit suivant, exactement le motif que ce dépôt documente. Un compte
+de commits ne se met pas dans un document de passation ; la table du §1
+liste les contenus, `git log` donne le compte du jour.)*

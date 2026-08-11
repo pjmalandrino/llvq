@@ -273,9 +273,17 @@ mod linux {
     /// octets sont préparés une seule fois à la construction (le travail
     /// hôte — références, transcodes — ne se refait pas entre phases), mais
     /// ils ne montent sur la carte qu'au début de la première phase qui
-    /// chronomètre le bras. Pendant une phase, la VRAM porte donc EXACTEMENT
-    /// les bras de cette phase — l'invariant de résidence que le contrôle
-    /// du §4 du pré-enregistrement doit restituer.
+    /// chronomètre le bras. Pendant une phase, les FLUX résidents (les Go)
+    /// sont donc exactement ceux des bras de cette phase — l'invariant de
+    /// résidence que le contrôle du §4 du pré-enregistrement doit restituer.
+    ///
+    /// ⚠️ Périmètre exact, pour que l'énoncé ne sur-revendique pas : quatre
+    /// tampons CONSTANTS suivent l'UNION des phases et non la phase
+    /// courante — `d_gtab`/`d_cw` (~32 Kio, dès qu'un bras golay70 est
+    /// sélectionné quelque part), `d_xh` (32 Kio) et `d_yh` (~19 Kio, dès
+    /// qu'awq l'est). Ils ne passent pas par cet étage : ~83 Kio au total
+    /// contre ~15 Go de flux, en deçà de toute résolution du banc, et
+    /// déclarés ici plutôt que niés.
     enum Staged<T> {
         Host(Vec<T>),
         Dev(cudarc::driver::CudaSlice<T>),
@@ -858,20 +866,39 @@ mod linux {
         // The Golay70 arm's two constant tables: the dedicated class table
         // (residue pairs / level values + mod-4 flags + coset flag) and the
         // canonical 4096-codeword table (16 KiB) the 12-bit rank resolves
-        // through. Uploaded once, shared by every matrix.
+        // through. Uploaded once, shared by every matrix and by BOTH golay70
+        // arms — and not at all when neither is selected. ⚠️ Conditionnels à
+        // l'UNION des phases, pas à la phase courante : contrairement aux
+        // flux (Staged), ces ~32 Kio résident dès le départ quand un bras
+        // golay70 n'entre qu'en phase 2 — divulgué dans le commentaire de
+        // `Staged`, avec les trois autres tampons de niveau union.
+        // (`golay`/`g70cls`, côté hôte, servent aussi le transcode
+        // conditionnel de `build`.)
         let golay = llvq_core::Golay::new();
         let g70cls = golay70_classes(&fd);
-        let d_gtab = cuda.up_u32(&golay70_gpu_table(&g70cls))?;
-        let d_cw = cuda.up_u32(&golay70_gpu_codewords(&golay))?;
+        let d_gtab = match g70_needed {
+            true => Some(cuda.up_u32(&golay70_gpu_table(&g70cls))?),
+            false => None,
+        };
+        let d_cw = match g70_needed {
+            true => Some(cuda.up_u32(&golay70_gpu_codewords(&golay))?),
+            false => None,
+        };
 
         let mut rng = SplitMix64::new(0x6_D07);
         let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
         // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
         // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
-        // format entre concurrents, pas un réglage, et elle se déclare.
-        let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
-        let d_xh = cuda.up_u16(&xh)?;
+        // format entre concurrents, pas un réglage, et elle se déclare. Elle
+        // n'existe que si le bras concurrent tourne.
+        let d_xh = match union.has(arms::AWQ) {
+            true => {
+                let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
+                Some(cuda.up_u16(&xh)?)
+            }
+            false => None,
+        };
 
         // The L = 5 swap of the Planes12x arm needs the exact searcher the
         // artifact was encoded with; built once, shared by every transcode.
@@ -1503,8 +1530,10 @@ mod linux {
          -> Result<(), String> {
             let a = m.g70.as_ref().expect("bras golay70 non construit");
             launch_golay70(
-                &cuda, f, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(), &d_cw,
-                &d_gtab, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
+                &cuda, f, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(),
+                d_cw.as_ref().expect("tables golay70 non téléversées"),
+                d_gtab.as_ref().expect("tables golay70 non téléversées"),
+                &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
                 m.nblocks as u32, m.tail_w as u32, a.n_exc as u32, m.d_out as u32,
                 THREADS, shared,
             )
@@ -1513,7 +1542,9 @@ mod linux {
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
                 let a = m.awq.as_ref().expect("bras awq non construit");
                 launch_awq(
-                    &cuda, &f_awq, &d_xh, a.w.dev(), a.z.dev(), a.s.dev(), y,
+                    &cuda, &f_awq,
+                    d_xh.as_ref().expect("activation binary16 non téléversée"),
+                    a.w.dev(), a.z.dev(), a.s.dev(), y,
                     m.d_in as u32, m.d_out as u32,
                 )
             };

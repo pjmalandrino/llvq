@@ -11,12 +11,21 @@
 //
 // ## The freeze contract
 //
-// Exactly THREE symbols are renamed from the published text, nothing else may
-// differ by one character:
+// Exactly THREE symbols are renamed from the published text:
 //
 //   golay70_slot_value  ->  golay70_slot_value_v1
 //   golay70_dot         ->  golay70_dot_v1        (+ its call site)
 //   tv_golay70          ->  tv_golay70_v1         (+ its call to the dot)
+//
+// The 3-character suffix shifts the alignment of the continuation lines of
+// the renamed signatures and call sites; NOTHING else may differ. The
+// replayable check: apply the renames above to golay70_slot_value +
+// golay70_dot of `git show 777d106:llvq-cuda/kernels/llvq_golay.cuh` and to
+// tv_golay70 of `git show 777d106:llvq-cuda/kernels/golay70.cu`, then
+// `diff -b` (whitespace-blind) each against the matching region below —
+// both diffs must come back EMPTY. (No line anchors here on purpose: they
+// would rot with this very comment.) And the freeze is not only textual:
+// the host harness executes both texts and compares them bit for bit.
 //
 // Everything both versions share IS shared, not duplicated: `GolayClassRec`,
 // `Golay70Fields`, `golay70_fields`, the exception helpers and the stream

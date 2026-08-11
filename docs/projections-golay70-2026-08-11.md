@@ -114,7 +114,7 @@ artefact non encore quantifié* ; 70B (Llama-3.3) : *estimé, autre famille*.
 | `Golay70` b/poids noyau | **3,589 (mesuré)** | 3,535 | 3,487 | 3,487 | 3,474 |
 | `Golay70` b/param | **4,065** | 4,290 | 4,016 | **3,725** | **3,624** |
 | `Planes14` b/param | 5,162 ✓rtbits | 5,322 ✓rtbits | 5,106 | 4,886 | 4,807 |
-| `Planes12x` b/param | 4,744 ✓rtbits | 4,929 ✓rtbits | 4,691 | 4,444 | 4,357 |
+| `Planes12x` b/param | 4,745 ✓rtbits | 4,929 ✓rtbits | 4,691 | 4,444 | 4,357 |
 | AWQ déployé b/param | **5,302 (mesuré)** | **5,956 (mesuré)** | 5,404 | 4,719 | 4,509 |
 | **marge `Golay70` vs AWQ** | **−23,3 %** | **−28,0 %** | **−25,7 %** | **−21,1 %** | **−19,6 %** |
 | marge `Planes14` vs AWQ | −2,6 % | −10,6 % | −5,5 % | **+3,6 %** | **+6,6 %** |
@@ -126,6 +126,17 @@ artefact non encore quantifié* ; 70B (Llama-3.3) : *estimé, autre famille*.
 
 *(La marge 4B `Planes14` −2,6 % diffère du −3,5 % du spec pour la même
 raison que la correction n°1 : embedding à 8,5, pas 8,0.)*
+
+> ⚠️ **Deux corrections d'étiquette du 2026-08-11** (revue adversariale du
+> lot B, signalées plutôt que réécrites en silence) : (1) la cellule
+> `Planes12x` 4B portait 4,744 alors que le journal cité imprime **4,745**
+> (`mesures/rtbits-planes-8b-2026-08-09.txt`) — corrigée ; sur cette
+> cellule la « validation au millième » était donc à *un* millième d'écart,
+> pas au millième près. (2) Les deux cellules AWQ « (mesuré) » sont en
+> réalité **calculées sur octets mesurés** — 4,15625 b/poids × N_lin +
+> embedding + normes, validé contre les octets des dépôts AWQ
+> (`plan-de-test-v2-cuda.md` §B0) — l'étiquette « mesuré » sur-revendiquait
+> la provenance, règle n°3 du §7 de `CLAUDE.md`.
 
 ### 2.3 Les trois lectures
 

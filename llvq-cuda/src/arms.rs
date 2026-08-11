@@ -14,9 +14,13 @@
 //! comma-separated set of arm names. Unset means one phase, every arm.
 //!
 //! * A deselected arm **builds none of its buffers** — no transcode, no
-//!   device upload, no verification, no timing, no table row. VRAM residency
-//!   during a phase is that phase's arms and nothing else; that is the whole
-//!   point (the control must restitute the residency it claims to measure).
+//!   device upload, no verification, no timing, no table row. The resident
+//!   STREAMS during a phase are that phase's arms' and nothing else; that
+//!   is the whole point (the control must restitute the residency it claims
+//!   to measure). Four constant micro-buffers (~83 KiB total: the golay70
+//!   tables, the AWQ binary16 activation and its output buffer) follow the
+//!   UNION of the phases rather than the current phase — disclosed in
+//!   `planesbench`'s `Staged` comment rather than hidden in "exactly".
 //! * The NVRTC translation unit **never changes with the selection** — every
 //!   kernel is always compiled, and the register/spill report still covers
 //!   all of them. Selecting arms by editing the source would make the
