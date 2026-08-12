@@ -1,6 +1,6 @@
 //! `E1c` — the bit-sliced twin of [`PlanesBlocks`] and [`Planes12xBlocks`],
-//! barreau E1c of `docs/pistes-format-vram-2026-08-05.md` and item X1/X2 of
-//! `docs/spec-memoire-extreme-2026-08-12.md`.
+//! barreau E1c of `docs/archive/pistes-format-vram-2026-08-05.md` and item X1/X2 of
+//! `docs/archive/spec-memoire-extreme-2026-08-12.md`.
 //!
 //! ## What it is, in one sentence
 //!

@@ -2,7 +2,7 @@
 //! would cost, priced exactly on the 384 classes and, when an artifact is
 //! given, weighted by the real blocks of the published 4B.
 //!
-//! `docs/spec-memoire-extreme-2026-08-12.md` opens the E3 chantier only if a
+//! `docs/archive/spec-memoire-extreme-2026-08-12.md` opens the E3 chantier only if a
 //! decomposition exists that is **both**
 //!
 //! * ≤ **2.6 b/weight** in the kernel accounting, and
@@ -44,7 +44,7 @@
 //! ## What is deliberately NOT in the menu
 //!
 //! * **Entropy coding of the rank.** Closed by measurement: the index's
-//!   entropy is 46.6536 bits against 47 paid (`verdicts-lot-b-2026-08-06.md`
+//!   entropy is 46.6536 bits against 47 paid (`archive/verdicts-lot-b-2026-08-06.md`
 //!   §B5). There is nothing there.
 //! * **The 46-bit odd-coset variant.** Proposed and *refuted*: the codeword
 //!   bit gives the residue of the **signed** value, not of `|x|`, so it cannot

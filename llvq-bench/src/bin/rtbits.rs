@@ -226,7 +226,7 @@ fn planes12x_bits(blocks: u64, exceptions: u64) -> u64 {
 
 // ---------------------------------------------------------------------------
 // E1c — the same two streams, transposed over the warp (item X1/X2 of
-// docs/spec-memoire-extreme-2026-08-12.md)
+// docs/archive/spec-memoire-extreme-2026-08-12.md)
 // ---------------------------------------------------------------------------
 //
 // `Planes14` and `Planes12x` each close their record on a byte boundary and
@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     /// **The E1c acceptance test.** Both variants priced from block counts
-    /// alone, against the values `docs/spec-memoire-extreme-2026-08-12.md`
+    /// alone, against the values `docs/archive/spec-memoire-extreme-2026-08-12.md`
     /// predicted before a line of the layout existed (4.56 and 3.76 in the
     /// kernel accounting).
     ///

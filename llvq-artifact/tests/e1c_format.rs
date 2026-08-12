@@ -1,5 +1,5 @@
 //! The `E1c` transposed layouts' contract — item X1/X2 of
-//! `docs/spec-memoire-extreme-2026-08-12.md`.
+//! `docs/archive/spec-memoire-extreme-2026-08-12.md`.
 //!
 //! 1. **The repack is exact.** `E1c14Blocks::decode_block` must equal
 //!    `PlanesBlocks::decode_block` and the archive decoder bit for bit, and
