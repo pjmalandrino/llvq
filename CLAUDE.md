@@ -297,7 +297,7 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000), fichier scellé **`leech1c12`** — cap 12, 47 bits d'index + 1 de gain = **48 bits/bloc**, 2,0702 b/poids effectifs (note de provenance dans la section G5). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
 | G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,03–2,09×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. ⚠️ **une plage, pas un point.** Le 2,07× publié le 2026-08-01 est le haut d'une plage [2,029 ; 2,080] mesurée sur trois invocations du banc à deux bras ; le banc à sept bras en rend 2,03× · 2,06× · 2,09× sur trois autres. Les octets, les b/poids et les pires erreurs sont identiques au chiffre à chacune — seuls les temps bougent, et ils bougent ensemble sur les deux bras. Une troisième décimale sur ce rapport n'a donc pas de contenu ([`docs/mesures/thesis-temoin-2026-08-04.txt`](docs/mesures/thesis-temoin-2026-08-04.txt)), et ces deux temps sont ceux du **run publié le 2026-08-01** : le run à sept bras du 2026-08-05 cité plus bas rend 21,728 / 10,496 ms **sur les mêmes deux bras**, soit **2,03× [2,03–2,10]**. Deux invocations du même objet, pas deux mesures contradictoires — ne pas les soustraire. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence. **Échelle bits↔vitesse, un seul protocole et une seule comptabilité d'octets** (`bin/thesis` du 2026-08-05, 7 rounds dont 2 jetés, tous les bras dispatchés à chaque round dans le même ordre ; payload + bases + queue f32 + échelles de ligne f32 ; le « vs FP16 » est la **médiane du rapport formé round par round** avec sa plage sur les 5 rounds gardés — surtout pas un quotient de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté ; millisecondes dans [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) : FP16 16,000 b/poids, 1,00× · **`Slot32` 5,510, 2,03× [2,03–2,10]** · `Flat32` 5,256, 0,91× [0,91–0,91] · `Grouped32` 3,498, 0,69× [0,68–0,69]. (L'ancienne échelle « 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07× » mélangeait plusieurs comptabilités d'octets dans une même liste — la faute que ce run supprime.) Transcodeur 5 layouts bit-exacts, ~25 mutants tués. ✅ **BRANCHÉ ET MESURÉ le 2026-08-06** (lot A, [`docs/archive/passation-lot-a-2026-08-06.md`](docs/archive/passation-lot-a-2026-08-06.md)) : `bin/fusedrun` sur L40S rend **47,0 tok/s contre 43,5 dense, 3,28 Go contre 8,04 (÷2,45)**, 88 tokens gloutons identiques avant un tie-break. Et la campagne à quatre bras a tranché : **sur un 4B le 4 bits nous domine partout sauf le disque** — MMLU 70,04 % pour l'AWQ officiel contre 55,59 % pour nous, ppl ×1,105 contre ×1,384 ([`docs/mesures/a4-campagne-2026-08-06.txt`](docs/mesures/a4-campagne-2026-08-06.txt)). ⚠️ La comparaison VRAM se dit en **b/param modèle entier, embedding compris** — jamais « 5,51 contre 4,50 » (deux dénominateurs, et deux quatre-bits confondus : l'AWQ mesuré pèse **5,30** dans son moteur, le 4,50 est le MLX q4 absent de la campagne) — [`docs/archive/errata-rapport-lot-a-2026-08-06.md`](docs/archive/errata-rapport-lot-a-2026-08-06.md). ✅ **C1 GAGNÉ ET BRANCHÉ le même jour** : le layout VRAM de référence est **`Planes14`** — plans de bits binaires au lieu du one-hot, stride uniforme 14 o, sans bases — **1,14× [1,14–1,15] plus rapide que `Slot32` à contenu décodé identique, 4,804 b/poids contre 5,510** au banc 3 bras (2,16× vs FP16 ; Go/s constants : le temps tombe exactement comme les octets ; [`docs/mesures/c1-planesbench-2026-08-06.txt`](docs/mesures/c1-planesbench-2026-08-06.txt)), et dans le modèle : **48,7 tok/s / 2,96 Go (÷2,72)**, bascule `LLVQ_FUSED_LAYOUT`, contrôle slot32 reproduit à l'identique — 47,0/3,28, divergence au même token 89 ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)). En modèle entier : **5,88 b/param projeté avec l'embedding f16, 5,11 avec l'embedding int8** (errata du lot A) — puis **5,15 mesuré en production** une fois `LLVQ_EMBED=q8` livré, **sous les 5,30 de l'AWQ réel** dans les deux comptabilités. ⚠️ Le plafond L ≤ 4 sec est **mort en qualité** (swap mesuré : **+4,75 % de ppl**, repasse au-dessus de QTIP — lot B) ; il est remplacé par l'**overlay épars**, qui atteint le même point de bits à **qualité exacte**. **L'échelle des formats est close depuis le 2026-08-07 — voir le tableau juste sous celui-ci.** Détail : [`docs/format-noyau.md`](docs/format-noyau.md), [`docs/archive/pistes-format-vram-2026-08-05.md`](docs/archive/pistes-format-vram-2026-08-05.md), [`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md) |
 
-### L'échelle des formats runtime — quatre points mesurés, un écarté (2026-08-07)
+### L'échelle des formats runtime — quatre points mesurés, un écarté, deux comptés (2026-08-07, complété le 08-12)
 
 Le format que le noyau lit en VRAM n'est pas celui du fichier. Quatre layouts
 ont été portés sur CUDA et mesurés **dans un seul processus, un seul
@@ -327,6 +327,46 @@ lignes** du modèle publié. Journal :
 > `docs/archive/spec-apres-awq-2026-08-10.md` → `docs/archive/projections-golay70-2026-08-11.md`
 > → `docs/archive/passation-golay70-2026-08-11.md` →
 > [`docs/mesures/golay70-v2-sept-bras-2026-08-11.txt`](docs/mesures/golay70-v2-sept-bras-2026-08-11.txt).
+
+🆕 **Deux points de plus, et AUCUN n'est mesuré : `E1c14` et `E1c12`
+(2026-08-12).** Ce sont les deux flux ci-dessus **transposés sur le groupe de
+32 blocs** — le warp. Même contenu décodé au bit près, moins les bits de
+bourrage : `Planes14` en dépense 6 par bloc pour fermer son stride de 14 o et
+`Planes12x` en dépense 14, alors qu'un groupe de 32 tombe ici sur un nombre
+entier de mots de 32 bits. La transposition **ne coûte que le bourrage**, et
+c'est vérifiable : le terme d'exceptions d'`E1c12` est identique à celui de
+`Planes12x`, table pour table.
+
+| layout | b/poids payload | b/poids noyau | vs FP16 | statut |
+|---|---|---|---|---|
+| `E1c14` (`Planes14` transposé) | 4,4167 | 4,5551 | **jamais mesuré** | ✅ exact, ❔ vitesse inconnue |
+| `E1c12` (`Planes12x` transposé) | **3,6196** | **3,7618** | **jamais mesuré** | ✅ exact, ❔ vitesse inconnue |
+
+⚠️ **La colonne « vs FP16 » est vide et doit le rester jusqu'à la carte.** Le
+code livré compte des bits et prouve une bijection — rien d'autre. La question
+« le transposé va-t-il aussi vite » est entière : le noyau lirait 82 ou 106
+mots par groupe là où `Planes14` en lit 4-5 par lane, et **un compte niveau
+source a déjà été faux d'un facteur 2 sur ce noyau**. Critères posés d'avance
+(spec §X3) : ≥ 1,9× pour remplacer `Planes12x`, ≥ 2,05× pour remplacer
+`Planes14`, sous 1,6× l'échelle se referme côté transposition.
+
+**L'exactitude, elle, est acquise** : sweep intégral du 4B scellé, 150 681 600
+blocs, les deux variantes contre le décodeur d'archive et le flux principal
+d'`E1c12` contre celui de `Planes12x`
+([`docs/mesures/e1c-sweep-4b-2026-08-12.txt`](docs/mesures/e1c-sweep-4b-2026-08-12.txt)).
+Le bras de banc CUDA devient donc un **pur** test de vitesse à ~0,2 $.
+
+❌ **Et E3 est enterré sur papier le même jour, pour 0 $** — le barreau qui
+visait le 24-32 Go en décodant (presque) l'index du fichier dans le noyau.
+`bin/radixstudy` prix chaque décomposition shift-only sur les blocs réels : le
+meilleur point vaut **3,0444 b/poids noyau contre un critère de 2,60 posé
+d'avance**, soit 17 % au-dessus, et il est rouge dans les deux comptabilités
+comme sur les deux bras. La raison est arithmétique et ne se contourne pas :
+sur les blocs réels, le point *dans* sa classe coûte déjà **41,50 des 47 bits**
+d'index, il ne reste ~5,5 bits pour le choix de classe, et toute variante à
+champ de classe explicite les repaie en 10 bits d'en-tête
+([`docs/mesures/radixstudy-x4-2026-08-12.txt`](docs/mesures/radixstudy-x4-2026-08-12.txt)).
+**Le plafond mémoire du projet est donc `E1c`**, sous réserve de sa vitesse.
 
 ✅ **`Planes12x` est câblé dans le modèle depuis le 2026-08-09** :
 `LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x`, `slot32` et —

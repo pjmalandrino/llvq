@@ -203,3 +203,60 @@ jugé publiable (MLSys) et **pas verbeux**. Ce qui ne tient pas :
 ✅ Refonte documentaire : 36 documents de session déplacés vers
 [`archive/`](archive/), ce fichier créé comme unique historique, tous les
 renvois (docs, README, `CLAUDE.md`, commentaires de code) mis à jour.
+
+## 2026-08-12 (suite) — Lot X sur le Mac : E1c prouvé exact, E3 enterré sur papier
+
+Trois verdicts, **0 $ et aucune carte** — le lot X livrait du code la veille
+au soir ([`archive/spec-memoire-extreme-2026-08-12.md`](archive/spec-memoire-extreme-2026-08-12.md),
+[`archive/runbook-lot-x-mac.md`](archive/runbook-lot-x-mac.md)), il fallait le
+lancer.
+
+✅ **X1/X2 — `E1c` est exact.** Les flux `Planes14`/`Planes12x` transposés sur
+le groupe de 32 (le warp), ce qui fait disparaître le bourrage de stride :
+**4,5551 et 3,7618 b/poids noyau** contre 4,8040 et 4,3424. Sweep intégral du
+4B scellé, **150 681 600 blocs**, les deux variantes contre le décodeur
+d'archive, 401 s
+([`mesures/e1c-sweep-4b-2026-08-12.txt`](mesures/e1c-sweep-4b-2026-08-12.txt),
+[`mesures/rtbits-e1c-4b-2026-08-12.txt`](mesures/rtbits-e1c-4b-2026-08-12.txt)).
+Le terme d'exceptions d'`E1c12` est **identique** à celui de `Planes12x` :
+l'écart entre les deux layouts *est* le bourrage, rien d'autre.
+⚠️ **Aucune vitesse n'est mesurée** et la colonne doit rester vide jusqu'à la
+carte — le noyau lirait 82 ou 106 mots par groupe là où `Planes14` en lit 4-5
+par lane. Le banc X3 (~0,2 $) est désormais un **pur** test de vitesse.
+
+❌ **X4 — E3 est enterré sur papier.** Le barreau qui visait le 24-32 Go en
+décodant l'index dans le noyau : `bin/radixstudy` prix chaque décomposition
+shift-only sur les blocs réels, le meilleur point vaut **3,0444 b/poids noyau
+contre un critère de 2,60 posé d'avance** (+17 %), rouge dans les deux
+comptabilités et sur les deux bras
+([`mesures/radixstudy-x4-2026-08-12.txt`](mesures/radixstudy-x4-2026-08-12.txt)).
+La raison ne se contourne pas : le point *dans* sa classe coûte déjà **41,50
+des 47 bits** d'index, il ne reste ~5,5 bits pour le choix de classe, et toute
+variante à champ explicite les repaie en 10 bits d'en-tête. **Le plafond
+mémoire du projet est `E1c`**, et la ligne « K2.6 sur un poste » de l'étude
+MoE tombe avec E3. Troisième barreau fermé par un critère écrit d'avance,
+après E2 au banc et Golay70 v2 au pré-enregistrement.
+
+⚠️ **Le devis MoE recalé, et l'estimateur avoue son biais.** Son selftest ne
+rend compte que de **59 %** du run 4B réel ; `Qwen3-30B-A3B` est devisé à
+5,74 $ sur `rtx-pro-6000`, donc ~10 $ au même ratio — un bras du gate X5-MoE
+annoncé à 25-55 $, pas son total. Sur ce MoE, **63 % de l'artefact** est porté
+en 16 bits : le piège d'embedding du 8B, en pire.
+
+⚠️ **Le routage MoE mesuré, et il ouvre une question que le pipeline n'a
+jamais posée.** `gpt-oss-20b`, 131 k tokens de C4, unité = la cellule
+`(couche, expert)` puisque chaque expert a sa propre hessienne : **31,4 % des
+768 cellules sont sous le rang plein**, et **une est morte** — zéro routage,
+qu'aucun corpus ne ressuscite. Couvrir 90 % des cellules demanderait ×12 de
+calibration (~+13 % de run seulement, l'encodeur étant proportionnel aux
+poids), 99 % en demanderait ×166. **Le devis X5-MoE n'explose donc pas ; c'est
+la politique « expert mort » qui manque**, notre pipeline supposant partout
+une hessienne inversible. ⚠️ `gpt-oss` active 12,5 % de ses experts quand
+`Qwen3-30B-A3B` en active 6,3 % et K2.6 2,1 % : ce tableau est un **plancher**
+de difficulté ([`mesures/moe-routing-gptoss20b-2026-08-12.txt`](mesures/moe-routing-gptoss20b-2026-08-12.txt)).
+
+⚠️ Dette de prose relevée : le runbook jugeait E3 sur la colonne *b/p moyen*
+(2,73) quand le bin juge sur la colonne *groupé 32* (3,19) — même verdict des
+deux côtés, mais deux nombres pour un seul critère.
+
+Verdicts détaillés : [`archive/passation-lot-x-2026-08-12.md`](archive/passation-lot-x-2026-08-12.md).

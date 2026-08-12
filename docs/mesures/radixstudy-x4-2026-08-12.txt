@@ -1,0 +1,80 @@
+# radixstudy — étude X4 (E3), lancé le 2026-08-12 sur M3 Max
+# bras 1 : les 383 classes à poids égal
+
+source : les 383 classes à poids égal (⚠️ PAS la distribution réelle)
+383 blocs, 383 classes
+
+  bits par bloc, et ce que ça vaut en b/poids NOYAU sur le 4B
+  (critère d'ouverture E3 : ≤ 2.6 b/poids ET shift-only à profondeur bornée)
+  ----------------------------------------------------------------------------------------------
+  variante                    moy  pire    grp32    b/p moy    b/p GRP  shift  prof.
+  archive (le fichier)      48.00    48    49.13     2.1498     2.1965    NON  sér.
+  radix2                    43.68    56    55.81     1.9708     2.4737    NON  sér.
+  radix2 + golay 12 b       45.08    56    56.48     2.0288     2.5015    NON  sér.
+  golay_tight               62.03    94    81.21     2.7317     3.5271    oui  24
+  golay70 (mesuré, écarté)  70.00    70    73.19     3.0621     3.1945    oui  24
+  perslot (= Planes)        65.80   102    95.25     2.8878     4.1092    oui  24
+  ----------------------------------------------------------------------------------------------
+  archive (le fichier)    ~509 ops sérielles, 8,27 ns/bloc mesuré — 75× un layout à masques
+  radix2                  champs extraits par shift, rangs de multiensemble encore sériels
+  radix2 + golay 12 b     idem, champ de codeword uniforme (offset indépendant de la classe)
+  golay_tight             plans A et signes réduits à ce que la classe exige — largeur variable
+  golay70 (mesuré, écarté)3,589 b/poids et 1,31× vs FP16, sous le critère de 1,6×
+  perslot (= Planes)      la géométrie de production
+
+  ⚠️ la colonne « groupé32 » est OPTIMISTE : les blocs sont balayés classe par classe
+  ici, alors qu'un flux réel entrelace les classes et paie donc un stride plus large.
+
+  où passent les 47 bits de l'archive
+  ----------------------------------------------------------------------------------------------
+  point DANS sa classe, moyenne de ⌈log₂ |classe|⌉ : 33.40 bits
+  choix de la classe : 47 − 33.40 ≈ 13.60 bits, que toute variante à champ
+  de classe explicite repaie en 10 bits d'en-tête
+
+  VERDICT X4
+  ----------------------------------------------------------------------------------------------
+  ❌ AUCUNE décomposition shift-only ne passe sous 2.6 b/poids noyau.
+  Le meilleur point shift-only vaut 3.1945 b/poids, soit 23 % au-dessus du seuil.
+  Le critère d'ouverture du chantier E3 n'est PAS atteint : E3 s'enterre sur papier,
+  pour 0 $, comme E2 s'est enterré au banc. La marche suivante de l'échelle mémoire
+  reste E1c (X1/X2), et le plancher pratique du projet est le layout mesuré.
+
+# bras 2 : pondéré par les blocs réels du 4B scellé (celui qui fait foi)
+
+source : /Users/pjmalandrino/llvq-q4b.llvq — 252 matrices, blocs réels
+150681600 blocs, 383 classes
+
+  bits par bloc, et ce que ça vaut en b/poids NOYAU sur le 4B
+  (critère d'ouverture E3 : ≤ 2.6 b/poids ET shift-only à profondeur bornée)
+  ----------------------------------------------------------------------------------------------
+  variante                    moy  pire    grp32    b/p moy    b/p GRP  shift  prof.
+  archive (le fichier)      48.00    48    49.00     2.1498     2.1912    NON  sér.
+  radix2                    51.87    55    56.61     2.3102     2.5066    NON  sér.
+  radix2 + golay 12 b       52.24    56    56.69     2.3257     2.5101    NON  sér.
+  golay_tight               66.17    94    69.57     2.9034     3.0444    oui  24
+  golay70 (mesuré, écarté)  70.00    70    73.00     3.0621     3.1866    oui  24
+  perslot (= Planes)        67.43   101    73.47     2.9556     3.2060    oui  24
+  ----------------------------------------------------------------------------------------------
+  archive (le fichier)    ~509 ops sérielles, 8,27 ns/bloc mesuré — 75× un layout à masques
+  radix2                  champs extraits par shift, rangs de multiensemble encore sériels
+  radix2 + golay 12 b     idem, champ de codeword uniforme (offset indépendant de la classe)
+  golay_tight             plans A et signes réduits à ce que la classe exige — largeur variable
+  golay70 (mesuré, écarté)3,589 b/poids et 1,31× vs FP16, sous le critère de 1,6×
+  perslot (= Planes)      la géométrie de production
+
+  ⚠️ la colonne « groupé32 » est OPTIMISTE : les blocs sont balayés classe par classe
+  ici, alors qu'un flux réel entrelace les classes et paie donc un stride plus large.
+
+  où passent les 47 bits de l'archive
+  ----------------------------------------------------------------------------------------------
+  point DANS sa classe, moyenne de ⌈log₂ |classe|⌉ : 41.50 bits
+  choix de la classe : 47 − 41.50 ≈ 5.50 bits, que toute variante à champ
+  de classe explicite repaie en 10 bits d'en-tête
+
+  VERDICT X4
+  ----------------------------------------------------------------------------------------------
+  ❌ AUCUNE décomposition shift-only ne passe sous 2.6 b/poids noyau.
+  Le meilleur point shift-only vaut 3.0444 b/poids, soit 17 % au-dessus du seuil.
+  Le critère d'ouverture du chantier E3 n'est PAS atteint : E3 s'enterre sur papier,
+  pour 0 $, comme E2 s'est enterré au banc. La marche suivante de l'échelle mémoire
+  reste E1c (X1/X2), et le plancher pratique du projet est le layout mesuré.

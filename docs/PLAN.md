@@ -19,6 +19,21 @@
 >   bras (scellé/servi), et sa comptabilité (b/poids payload vs b/param
 >   modèle entier).
 
+> 🗓️ **Note du 2026-08-12 au soir — l'axe MÉMOIRE, à ne pas confondre avec
+> l'axe noyau que ce plan arrête.** Une spec parallèle (le « lot X », née de
+> la mesure AWQ) visait les b/poids et non la vitesse. Sa partie gratuite a
+> été lancée le jour même :
+> **`E1c` est prouvé exact** (3,7618 b/poids noyau contre 4,3424, sweep de
+> 150 681 600 blocs) et **E3 est enterré sur papier** (3,0444 contre un
+> critère de 2,60 posé d'avance). Verdicts :
+> [`archive/passation-lot-x-2026-08-12.md`](archive/passation-lot-x-2026-08-12.md).
+>
+> **Ce plan ne s'en trouve pas modifié**, et c'est délibéré : il ne reste du
+> lot X qu'un **banc de vitesse à ~0,2 $** (X3), qui est bien un item d'axe
+> noyau — donc arrêté par la décision ci-dessus jusqu'à arbitrage explicite.
+> Consigné ici pour qu'une session future ne le redécouvre pas comme un
+> chantier ouvert : il est **fini côté gratuit, en attente côté carte**.
+
 ---
 
 ## Phase 1 — Papier v2 et solde des dettes de cohérence
