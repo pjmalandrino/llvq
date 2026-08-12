@@ -34,6 +34,12 @@
 #[cfg(target_os = "linux")]
 pub mod gpu;
 
+// Portable on purpose, like `f16_bits` below: the parsing rules of
+// `LLVQ_BENCH_ARMS` — unknown names refused, witness required, phases
+// monotone — are exactly the kind of logic a mutation can silently break,
+// and the development machine has no CUDA, so the tests must run here.
+pub mod arms;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation

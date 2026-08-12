@@ -4,7 +4,7 @@
 # ///
 """Rebuild dense f16 weights from `Qwen/Qwen3-4B-AWQ` into a loadable checkpoint.
 
-Arm B0 of the measurement campaign (`docs/plan-de-test-v2-cuda.md`) is the 4-bit
+Arm B0 of the measurement campaign (`docs/archive/plan-de-test-v2-cuda.md`) is the 4-bit
 quantization published by the model's own author. Our harness cannot read AWQ,
 so the only way to score it under *our* forward pass, *our* tokenizer and *our*
 perplexity definition is to reconstruct the weights and write a checkpoint that

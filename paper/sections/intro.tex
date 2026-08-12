@@ -39,9 +39,13 @@ first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
 bits per weight at bit-exact decoded content while \emph{increasing}
-throughput, and one measured dead end (3.59 bits per weight, compute-bound)
-that maps the floor. We also attribute what the kernel is actually waiting
-on, with an instrumented job rather than an assertion.
+throughput, and one dead end (3.59 bits per weight, compute-bound) that maps
+the floor and survives a second attack on its own diagnosed cause. We
+attribute what the kernel is actually waiting on with an instrumented job
+rather than an assertion, and we place a deployed 4-bit kernel on the same
+axis in the same process: it converts 88\% of its byte advantage into time
+where our best layout converts 65\%, which locates the remaining work in
+the decode rather than the format.
 
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and
@@ -52,28 +56,16 @@ that separates the kernel's contribution from the engine fix.
 \end{enumerate}
 
 The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 88.4~tok/s
-in 2.60~GB of VRAM, versus 43.5~tok/s in 8.04~GB for the FP16 reference,
-with the serving stack changing perplexity and MMLU only within sampling
-noise of the sealed artifact, verified by matching token-level
-fingerprints. In whole-model bits per
-parameter the served footprint (5.15) is below the official AWQ 4-bit
-checkpoint's 5.30. On Qwen3-8B, requantized under the exact
-4B configuration so that model size is the only variable, the served model
-takes 5.45~GB against AWQ's 6.10 and runs at $2.61\times$ the reference
-engine's throughput, from a file $1.9\times$ smaller.
-
-We are equally explicit about what this does not buy
-(\S\ref{sec:limitations}). On a 4B model, 2-bit quantization costs
-$\times1.384$ perplexity and $-14.6$ percentage points of MMLU against
-FP16, a deficit reproduced three times and concentrated in reasoning-heavy
-subjects; the 4-bit AWQ baseline keeps essentially full quality. The case
-for 2 bits rests on scale, and the paper's second data point measures it:
-at 8B the degradation falls to $\times1.220$ and the MMLU gap to the 4-bit
-baseline halves, from 14.5 to 7.5 points, while AWQ itself starts paying
-($-0.3$ points at 4B, $-3.1$ at 8B). Two points are not a law; they are the
+in 2.60~GB against 43.5~tok/s in 8.04~GB for the FP16 reference, with the
+serving stack costing nothing measurable on top of the quantized artifact. We
+are equally explicit about what this does not buy (\S\ref{sec:limitations}).
+At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points, a deficit
+concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
+essentially full quality: on that model, 4 bits wins. The case for 2 bits rests on scale, and our second model measures it
+--- at 8B the degradation falls to $\times1.220$ and the gap to 4-bit halves,
+from 14.5 to 7.5 MMLU points. Two points are not a law; they are the
 direction the 2-bit thesis needs.
 
-Everything in this paper is reproducible by construction: every table and
-figure regenerates from CSV files committed in the repository, each number
-traces to a dated, per-job-costed GPU run, and the full measurement campaign
-billed \$19.82.
+Every figure regenerates from CSV files committed in the repository, the
+layout table is checked against its CSV on every build, and each number
+traces to a dated GPU job with its billed cost.

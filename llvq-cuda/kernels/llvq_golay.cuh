@@ -38,6 +38,39 @@
 // 50/50 diverge in ALU predication only — the assumed cost of E2, and what
 // the bench's 5th arm exists to measure.
 //
+// ## v2 (2026-08-11): the coset logic is hoisted to block level
+//
+// The E2 bench answered: the assumed cost was the whole story. The v1
+// decoder resolved the coset per SLOT — two `odd ?` selects plus the odd
+// sign chain `flag = (flags >> ((hi<<1)|abit)) & 1; neg = cbit ^ flag`, a
+// serial ~14 integer ops per slot against ~9 for a Planes14 slot — and the
+// measured 198 GB/s (30 % of the byte bound, ×1.61 the Planes14 time, vs a
+// ~1.56 instruction-count ratio) is attributed to exactly that count
+// (docs/projections-golay70-2026-08-11.md §3.1).
+//
+// Everything that distinguishes the cosets is a function of the block's
+// three 24-bit words, so it hoists into a per-block prologue:
+//
+//   fw = flag[(bbit<<1)|abit] per bit — three mask muxes over m0..m3, the
+//        24-bit broadcasts of the class's flag bits (even classes have
+//        flags = 0, so fw = 0 with no branch);
+//   hw = odd ? B : c        — the high select bit of every slot;
+//   nw = odd ? (c ^ fw) : B — the sign bit of every slot.
+//
+// after which a slot is exactly a Planes14 slot with three masks instead of
+// four: three immediate mask tests, the same predicated value tree, one
+// negation — no variable shift, no coset select left on the per-slot path.
+// Identity with v1, coset by coset:
+//
+//   even: hi  = cbit = c_j  = hw_j ;  neg = bbit = B_j = nw_j.
+//   odd:  hi  = bbit = B_j  = hw_j ;  neg = cbit ^ flag[(bbit<<1)|abit]
+//                                         = (c ^ fw)_j.
+//
+// The identity is asserted slot by slot by the host probe, block by block
+// by the Rust reference (tests/golay70_decoder_matches_rust.rs), and class
+// by class by the hand-packed record probe — the format itself is
+// unchanged: not one stored byte moves.
+//
 // ## The read window
 //
 // The byte offset 9·b is ≡ 0, 1, 2 or 3 (mod 4), so the in-word shift is
@@ -111,29 +144,50 @@ __device__ __forceinline__ Golay70Fields golay70_fields(const u32* __restrict__ 
     return f;
 }
 
-// One slot's signed value — the unified even/odd formula, fully predicated.
+// The per-block decode plan — the v2 prologue (see the header comment).
 //
-// The low select bit is A on both cosets; the high bit is the codeword bit
-// (even: residue) or the B bit (odd: level high bit). The sign is the B bit
-// (even: smask) or `cbit ^ flag(selected value)` (odd: the forced-sign rule).
-// `flags >> sel` is a register shift of a scalar — no memory, no divergence.
-__device__ __forceinline__ float golay70_slot_value(const GolayClassRec& r,
-                                                    u32 cw,
-                                                    const Golay70Fields& f,
-                                                    u32 j)
-{
-    u32 bj   = 1u << j;
-    u32 cbit = (cw & bj) ? 1u : 0u;
-    u32 abit = (f.a & bj) ? 1u : 0u;
-    u32 bbit = (f.bm & bj) ? 1u : 0u;
-    bool odd = r.is_odd != 0u;
+// Four value registers plus three 24-bit words: after this, no slot needs
+// to know which coset it is on. ~12 integer ops, amortized over 24 slots.
+struct Golay70Dec {
+    float v0, v1, v2, v3;
+    u32 hw, aw, nw;
+};
 
-    u32 hi   = odd ? bbit : cbit;
-    float v  = hi ? (abit ? r.v[3] : r.v[2]) : (abit ? r.v[1] : r.v[0]);
-    u32 sel  = (hi << 1) | abit;
-    u32 flag = (r.flags >> sel) & 1u;
-    u32 neg  = odd ? (cbit ^ flag) : bbit;
-    return neg ? -v : v;
+__device__ __forceinline__ Golay70Dec golay70_prologue(const GolayClassRec& r,
+                                                       u32 cw,
+                                                       const Golay70Fields& f)
+{
+    // m_k: 24-bit broadcast of flag bit k. Even classes have flags = 0, so
+    // every mask — and fw with them — collapses to zero without a branch.
+    u32 m0 = (r.flags & 1u) ? 0xffffffu : 0u;
+    u32 m1 = (r.flags & 2u) ? 0xffffffu : 0u;
+    u32 m2 = (r.flags & 4u) ? 0xffffffu : 0u;
+    u32 m3 = (r.flags & 8u) ? 0xffffffu : 0u;
+    u32 t_lo = (m1 & f.a) | (m0 & ~f.a);      // flag[(0<<1)|abit], per bit
+    u32 t_hi = (m3 & f.a) | (m2 & ~f.a);      // flag[(1<<1)|abit], per bit
+    u32 fw   = (t_hi & f.bm) | (t_lo & ~f.bm); // flag[sel_j] at every j
+
+    bool odd = r.is_odd != 0u;
+    Golay70Dec d;
+    d.v0 = r.v[0];
+    d.v1 = r.v[1];
+    d.v2 = r.v[2];
+    d.v3 = r.v[3];
+    d.hw = odd ? f.bm : cw;
+    d.aw = f.a;
+    d.nw = odd ? (cw ^ fw) : f.bm;
+    return d;
+}
+
+// One slot's signed value — three immediate mask tests, the Planes14
+// predicated tree, one negation. No memory access, no variable shift, no
+// coset select: the per-slot path is coset-blind by construction.
+__device__ __forceinline__ float golay70_slot_value(const Golay70Dec& d, u32 j)
+{
+    u32 bj  = 1u << j;
+    float v = (d.hw & bj) ? ((d.aw & bj) ? d.v3 : d.v2)
+                          : ((d.aw & bj) ? d.v1 : d.v0);
+    return (d.nw & bj) ? -v : v;
 }
 
 // One main-stream block's contribution to a dot product — the Golay70 twin of
@@ -154,7 +208,7 @@ __device__ __forceinline__ float golay70_dot(const u32* __restrict__ words,
 {
     Golay70Fields f = golay70_fields(words, b);
     const GolayClassRec r = gtab[f.id];
-    u32 cw = cwtab[f.g];
+    Golay70Dec dec = golay70_prologue(r, cwtab[f.g], f);
 
     float d0 = 0.0f, d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
 #pragma unroll
@@ -162,7 +216,7 @@ __device__ __forceinline__ float golay70_dot(const u32* __restrict__ words,
 #pragma unroll
         for (u32 k = 0; k < 4; ++k) {
             u32 j   = i + k;
-            float v = golay70_slot_value(r, cw, f, j);
+            float v = golay70_slot_value(dec, j);
             if (k == 0)      d0 = __fmaf_rn(v, xb[j], d0);
             else if (k == 1) d1 = __fmaf_rn(v, xb[j], d1);
             else if (k == 2) d2 = __fmaf_rn(v, xb[j], d2);

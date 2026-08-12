@@ -192,7 +192,7 @@ kernel void tv_g32 (TV_LLVQ_ARGS) { TV_LLVQ_BODY(g32_dot)  }
 // The bank-conflict experiment. Everything below exists to answer one
 // question and must not leak into the production path until it is answered.
 //
-// The claim under test (docs/portage-noyau-cuda.md §3.2) is NVIDIA
+// The claim under test (docs/archive/portage-noyau-cuda.md §3.2) is NVIDIA
 // arithmetic transposed to Apple: with 32 banks of 4 bytes, lane L reading
 // `xs[24·L + j]` hits bank `(24L + j) mod 32`, and `24L mod 32` takes only
 // four distinct values over 32 lanes — an 8-way conflict on each of the 24

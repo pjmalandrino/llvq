@@ -16,6 +16,25 @@
 //! With no argument it falls back to the synthetic seven-shape path, sized
 //! past the card's L2 — for iterating on the kernel, nothing else.
 //!
+//! Since the v2 campaign the bench carries SEVEN arms: the six above (where
+//! `tv_golay70` is the v2 decoder) plus `tv_golay70_v1`, the frozen witness
+//! copy of the published Golay70 decode (`kernels/golay70_v1.cu`), which
+//! shares the v2's device buffers — not one stored byte differs between the
+//! two, so the witness arm costs zero VRAM.
+//!
+//! ## `LLVQ_BENCH_ARMS` — the arm selector (lot B, écart É1)
+//!
+//! Semicolon-separated phases of comma-separated arm names (see
+//! `llvq_cuda::arms` for the whole contract). One process can therefore run
+//! a control table and a full table back to back — the §4 rule of
+//! `proofs/preregistration-2026-08-10.md` — with, during each phase, ONLY
+//! that phase's buffers resident: a deselected arm builds no transcode, no
+//! device buffer, no verification, no timing, no table row. The NVRTC
+//! translation unit and the register report never change with the
+//! selection; only buffers and dispatch do. After a multi-phase run the
+//! bench prints `Δ_contrôle` — the largest relative drift of the common
+//! arms between consecutive phases, the number §4's decision rule needs.
+//!
 //! The protocol is `bin/matvec`'s, reproduced rather than referenced: rounds
 //! with warmup discarded, all arms dispatched every round in the same order,
 //! ratios formed **round by round** and reported as median with range — never
@@ -61,6 +80,7 @@ mod linux {
     use cudarc::driver::PushKernelArg;
     use llvq_artifact::runtime::{transcode, transcode_planes12x, ClassTable, Layout};
     use llvq_core::{SplitMix64, DIM};
+    use llvq_cuda::arms::{self, ArmSet};
     use llvq_cuda::gpu::{Cuda, KernelSource};
     use llvq_cuda::{f16_bits, f16_to_f64};
     use llvq_search::fastdec::FastDecoder;
@@ -90,14 +110,15 @@ mod linux {
     const AWQ_TOL: f64 = 1e-3;
     const ROUNDS: usize = 7;
     const WARMUP: usize = 2;
-    /// Arm order inside a round, fixed: Slot32, Planes14, Planes12x,
-    /// Golay70, FP16, AWQ.
-    ///
-    /// ⚠️ L'ordre est celui de l'ENREGISTREMENT, et le bras concurrent est
-    /// ajouté EN DERNIER — insérer AWQ au milieu changerait l'ordre de
-    /// dispatch des cinq bras maison dans chaque round, donc l'objet que la
-    /// table publiée mesure.
-    const ARMS: usize = 6;
+    // Arm order inside a round: `arms::ARM_NAMES`, the registration order —
+    // Slot32, Planes14, Planes12x, Golay70 v1, FP16, AWQ, Golay70 v2.
+    //
+    // ⚠️ L'ordre est celui de l'ENREGISTREMENT, et un bras ajouté l'est
+    // TOUJOURS EN DERNIER — insérer un bras au milieu changerait l'ordre de
+    // dispatch des bras existants dans chaque round, donc l'objet que la
+    // table publiée mesure. AWQ (2026-08-10) puis Golay70 v2 (2026-08-11)
+    // suivent tous deux cette règle. Une sélection `LLVQ_BENCH_ARMS` ne
+    // change jamais cet ordre : elle saute des bras, elle n'en déplace pas.
 
     /// The seven projection shapes of Qwen3-4B, `(name, d_out, d_in)`.
     const SHAPES: [(&str, usize, usize); 7] = [
@@ -132,6 +153,10 @@ mod linux {
     /// donc il est concaténé APRÈS lui — et en dernier, pour qu'ajouter un
     /// concurrent ne réordonne jamais les fragments des bras maison.
     const AWQ_CU_EMBED: &str = include_str!("../../kernels/awq_gemv.cu");
+    /// Le bras témoin : la copie GELÉE du décodeur Golay70 publié (v1),
+    /// symboles renommés, tampons partagés avec la v2. Concaténé après AWQ —
+    /// le bras ajouté en dernier ne réordonne aucun fragment existant.
+    const GOLAY_V1_CU_EMBED: &str = include_str!("../../kernels/golay70_v1.cu");
 
     fn load_planes_sources() -> Result<(String, String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
@@ -214,6 +239,22 @@ mod linux {
         }
     }
 
+    /// Même contrat pour la copie gelée v1 — surcharger le TÉMOIN est
+    /// possible mais annoncé aussi bruyamment que les autres : un témoin
+    /// silencieusement remplacé ne témoigne plus de rien.
+    fn load_golay_v1_source() -> Result<(String, Option<String>), String> {
+        match std::env::var("LLVQ_KERNEL_DIR") {
+            Err(_) => Ok((GOLAY_V1_CU_EMBED.to_string(), None)),
+            Ok(dir) => {
+                let cu = std::fs::read_to_string(
+                    std::path::Path::new(&dir).join("golay70_v1.cu"),
+                )
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : golay70_v1.cu : {e}"))?;
+                Ok((cu, Some(dir)))
+            }
+        }
+    }
+
     /// One matrix's inputs, whatever they came from — same split as
     /// `bin/matvec`: everything downstream of `Src` is shared, so the
     /// synthetic and artifact runs differ only in their data.
@@ -228,50 +269,143 @@ mod linux {
         tail: Vec<f32>,
     }
 
+    /// Un tampon dont le bras peut n'entrer qu'à une phase ultérieure : les
+    /// octets sont préparés une seule fois à la construction (le travail
+    /// hôte — références, transcodes — ne se refait pas entre phases), mais
+    /// ils ne montent sur la carte qu'au début de la première phase qui
+    /// chronomètre le bras. Pendant une phase, les FLUX résidents (les Go)
+    /// sont donc exactement ceux des bras de cette phase — l'invariant de
+    /// résidence que le contrôle du §4 du pré-enregistrement doit restituer.
+    ///
+    /// ⚠️ Périmètre exact, pour que l'énoncé ne sur-revendique pas : quatre
+    /// tampons CONSTANTS suivent l'UNION des phases et non la phase
+    /// courante — `d_gtab`/`d_cw` (~32 Kio, dès qu'un bras golay70 est
+    /// sélectionné quelque part), `d_xh` (32 Kio) et `d_yh` (~19 Kio, dès
+    /// qu'awq l'est). Ils ne passent pas par cet étage : ~83 Kio au total
+    /// contre ~15 Go de flux, en deçà de toute résolution du banc, et
+    /// déclarés ici plutôt que niés.
+    enum Staged<T> {
+        Host(Vec<T>),
+        Dev(cudarc::driver::CudaSlice<T>),
+    }
+
+    impl<T> Staged<T> {
+        /// Le tampon device — panique nominative si le bras n'a pas été
+        /// téléversé : un lancement sur un bras non monté est un bug de
+        /// séquencement des phases, jamais un cas à rattraper en silence.
+        fn dev(&self) -> &cudarc::driver::CudaSlice<T> {
+            match self {
+                Staged::Dev(d) => d,
+                Staged::Host(_) => panic!("bras non téléversé — bug de phase"),
+            }
+        }
+    }
+
+    fn stage_up_u32(cuda: &Cuda, s: &mut Staged<u32>) -> Result<(), String> {
+        if let Staged::Host(v) = s {
+            *s = Staged::Dev(cuda.up_u32(v)?);
+        }
+        Ok(())
+    }
+
+    fn stage_up_u16(cuda: &Cuda, s: &mut Staged<u16>) -> Result<(), String> {
+        if let Staged::Host(v) = s {
+            *s = Staged::Dev(cuda.up_u16(v)?);
+        }
+        Ok(())
+    }
+
+    // ---- un bras sélectionné = une Option construite, et rien d'autre ----
+    //
+    // Chaque bras porte ses tampons ET sa comptabilité d'octets : un bras
+    // écarté n'a ni les uns ni l'autre, donc aucune ligne de table ne peut
+    // citer un bras qui n'a pas tourné.
+
+    struct SlotArm {
+        words: Staged<u32>,
+        bases: Staged<u32>,
+        bytes: u64,
+    }
+
+    struct PlanesArm {
+        pwords: Staged<u32>,
+        bytes: u64,
+    }
+
+    struct P12Arm {
+        words: Staged<u32>,
+        exc_idx: Staged<u32>,
+        exc_words: Staged<u32>,
+        n_exc: usize,
+        bytes: u64,
+    }
+
+    /// PARTAGÉ par les bras golay70v1 et golay70v2 : zéro octet de format ne
+    /// les distingue, donc un seul jeu de tampons sert les deux — le bras
+    /// témoin v1 ne coûte aucune VRAM.
+    struct G70Arm {
+        words: Staged<u32>,
+        exc_idx: Staged<u32>,
+        exc_words: Staged<u32>,
+        n_exc: usize,
+        bytes: u64,
+    }
+
+    // ---- le bras concurrent (AWQ w4g128) ----
+    //
+    // Trois tampons et sa propre référence : son contenu n'est celui
+    // d'aucun autre bras, donc ni `y_ref` (le contenu LLVQ) ni `y16_ref`
+    // (les mêmes poids en binary16) ne le décrivent. Même situation que le
+    // bras FP16, même réponse.
+    struct AwqArm {
+        w: Staged<u32>,
+        z: Staged<u32>,
+        s: Staged<u16>,
+        bytes: u64,
+        y_ref: Vec<f64>,
+        /// Le dénominateur d'erreur PROPRE au bras : `Σ|w·x|` sur ses poids à
+        /// lui. Réutiliser `scale`, calculé sur les poids LLVQ, mesurerait
+        /// l'erreur d'AWQ avec la règle d'un autre format.
+        scale: Vec<f64>,
+    }
+
     struct Mat {
         name: String,
         d_out: usize,
         d_in: usize,
         nblocks: usize,
         tail_w: usize,
-        words: cudarc::driver::CudaSlice<u32>,
-        bases: cudarc::driver::CudaSlice<u32>,
-        pwords: cudarc::driver::CudaSlice<u32>,
-        p12words: cudarc::driver::CudaSlice<u32>,
-        exc_idx: cudarc::driver::CudaSlice<u32>,
-        exc_words: cudarc::driver::CudaSlice<u32>,
-        n_exc: usize,
-        gwords: cudarc::driver::CudaSlice<u32>,
-        gexc_idx: cudarc::driver::CudaSlice<u32>,
-        gexc_words: cudarc::driver::CudaSlice<u32>,
-        n_gexc: usize,
+        slot: Option<SlotArm>,
+        planes: Option<PlanesArm>,
+        p12: Option<P12Arm>,
+        g70: Option<G70Arm>,
+        awq: Option<AwqArm>,
+        // Le témoin FP16 et les entrées partagées, toujours construits :
+        // fp16 n'est pas désélectionnable (arms::parse_phases le refuse).
         gscale: cudarc::driver::CudaSlice<f32>,
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
         w16: cudarc::driver::CudaSlice<u16>,
-        slot_bytes: u64,
-        planes_bytes: u64,
-        p12_bytes: u64,
-        g70_bytes: u64,
         f16_bytes: u64,
         y_ref: Vec<f64>,
         y16_ref: Vec<f64>,
         scale: Vec<f64>,
-        // ---- le bras concurrent (AWQ w4g128) ----
-        //
-        // Trois tampons et sa propre référence : son contenu n'est celui
-        // d'aucun autre bras, donc ni `y_ref` (le contenu LLVQ) ni `y16_ref`
-        // (les mêmes poids en binary16) ne le décrivent. Même situation que le
-        // bras FP16, même réponse.
-        awq_w: cudarc::driver::CudaSlice<u32>,
-        awq_z: cudarc::driver::CudaSlice<u32>,
-        awq_s: cudarc::driver::CudaSlice<u16>,
-        awq_bytes: u64,
-        y_awq_ref: Vec<f64>,
-        /// Le dénominateur d'erreur PROPRE au bras : `Σ|w·x|` sur ses poids à
-        /// lui. Réutiliser `scale`, calculé sur les poids LLVQ, mesurerait
-        /// l'erreur d'AWQ avec la règle d'un autre format.
-        awq_scale: Vec<f64>,
+    }
+
+    /// Les octets qu'un bras lit pour une matrice, dans la comptabilité du
+    /// banc — 0 pour un bras non construit, qui n'a de toute façon aucune
+    /// ligne de table où l'imprimer. v1 et v2 partagent la ligne golay70 :
+    /// mêmes tampons, mêmes octets, par construction.
+    fn arm_bytes(m: &Mat, a: usize) -> u64 {
+        match a {
+            arms::SLOT32 => m.slot.as_ref().map_or(0, |x| x.bytes),
+            arms::PLANES14 => m.planes.as_ref().map_or(0, |x| x.bytes),
+            arms::PLANES12X => m.p12.as_ref().map_or(0, |x| x.bytes),
+            arms::GOLAY70V1 | arms::GOLAY70V2 => m.g70.as_ref().map_or(0, |x| x.bytes),
+            arms::FP16 => m.f16_bytes,
+            arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
+            _ => unreachable!("bras inconnu"),
+        }
     }
 
     fn worst_error(got: &[f32], want: &[f64], scale: &[f64]) -> f64 {
@@ -521,6 +655,10 @@ mod linux {
             // n'arrive que sur un groupe constant ; on la force non nulle pour
             // que la division existe, et le zéro absorbe alors la valeur.
             let mut scale = (hi - lo) / 15.0;
+            // `!(scale > 0.0)` et non `scale <= 0.0` : la forme négée attrape
+            // aussi un NaN (poids NaN en amont), que la forme positive
+            // laisserait passer dans la division.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
             if !(scale > 0.0) {
                 scale = 1.0;
             }
@@ -572,7 +710,31 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
-        // Five parts, concatenated in dependency order: llvq_planes.cuh needs
+        // La sélection de bras, AVANT toute construction : une valeur
+        // invalide doit échouer ici, pas après vingt minutes de transcodage.
+        // ⚠️ Elle ne touche PAS l'unité de traduction NVRTC ci-dessous — la
+        // sélection change les tampons et le dispatch, jamais le texte
+        // compilé ni le rapport de registres (le contraire referait É1).
+        let arms_var = std::env::var("LLVQ_BENCH_ARMS").ok();
+        let phases = arms::parse_phases(arms_var.as_deref())?;
+        let union: ArmSet = {
+            let mut u = ArmSet::empty();
+            for p in &phases {
+                for a in p.iter() {
+                    u.insert(a);
+                }
+            }
+            u
+        };
+        if arms_var.is_some() {
+            println!("sélection LLVQ_BENCH_ARMS :");
+            for (k, p) in phases.iter().enumerate() {
+                println!("  phase {}/{} : {}", k + 1, phases.len(), p.label());
+            }
+        }
+        let g70_needed = union.has(arms::GOLAY70V1) || union.has(arms::GOLAY70V2);
+
+        // Parts concatenated in dependency order: llvq_planes.cuh needs
         // llvq_slot.cuh (ClassRec, ext24), planes.cu needs matvec.cu
         // (warp_sum, TILE_COLS). NVRTC has no filesystem, the host includes.
         //
@@ -584,6 +746,7 @@ mod linux {
         let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
         let (segcu, seg_overridden) = load_planes_seg_source()?;
         let (awqcu, awq_overridden) = load_awq_source()?;
+        let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -601,6 +764,8 @@ mod linux {
             // Le concurrent en dernier : ajouter un bras ne doit jamais
             // réordonner les fragments des bras maison.
             awqcu.as_str(),
+            // Puis le témoin v1 (2026-08-11), dernier arrivé — même règle.
+            gv1cu.as_str(),
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -618,6 +783,9 @@ mod linux {
         }
         if let Some(d) = &golay_overridden {
             println!("  ⚠️ SOURCES Golay70 SURCHARGÉES depuis {d}");
+        }
+        if let Some(d) = &golay_v1_overridden {
+            println!("  ⚠️ SOURCE TÉMOIN Golay70 v1 SURCHARGÉE depuis {d}");
         }
         if let Some(d) = &seg_overridden {
             println!("  ⚠️ SOURCE Planes14 segmentée SURCHARGÉE depuis {d}");
@@ -645,6 +813,7 @@ mod linux {
             "tv_planes_seg",
             "tv_planes12x",
             "tv_golay70",
+            "tv_golay70_v1",
             "awq_gemv_g128",
         ] {
             let r = cuda.report(name)?;
@@ -697,45 +866,78 @@ mod linux {
         // The Golay70 arm's two constant tables: the dedicated class table
         // (residue pairs / level values + mod-4 flags + coset flag) and the
         // canonical 4096-codeword table (16 KiB) the 12-bit rank resolves
-        // through. Uploaded once, shared by every matrix.
+        // through. Uploaded once, shared by every matrix and by BOTH golay70
+        // arms — and not at all when neither is selected. ⚠️ Conditionnels à
+        // l'UNION des phases, pas à la phase courante : contrairement aux
+        // flux (Staged), ces ~32 Kio résident dès le départ quand un bras
+        // golay70 n'entre qu'en phase 2 — divulgué dans le commentaire de
+        // `Staged`, avec les trois autres tampons de niveau union.
+        // (`golay`/`g70cls`, côté hôte, servent aussi le transcode
+        // conditionnel de `build`.)
         let golay = llvq_core::Golay::new();
         let g70cls = golay70_classes(&fd);
-        let d_gtab = cuda.up_u32(&golay70_gpu_table(&g70cls))?;
-        let d_cw = cuda.up_u32(&golay70_gpu_codewords(&golay))?;
+        let d_gtab = match g70_needed {
+            true => Some(cuda.up_u32(&golay70_gpu_table(&g70cls))?),
+            false => None,
+        };
+        let d_cw = match g70_needed {
+            true => Some(cuda.up_u32(&golay70_gpu_codewords(&golay))?),
+            false => None,
+        };
 
         let mut rng = SplitMix64::new(0x6_D07);
         let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
         // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
         // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
-        // format entre concurrents, pas un réglage, et elle se déclare.
-        let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
-        let d_xh = cuda.up_u16(&xh)?;
+        // format entre concurrents, pas un réglage, et elle se déclare. Elle
+        // n'existe que si le bras concurrent tourne.
+        let d_xh = match union.has(arms::AWQ) {
+            true => {
+                let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
+                Some(cuda.up_u16(&xh)?)
+            }
+            false => None,
+        };
 
         // The L = 5 swap of the Planes12x arm needs the exact searcher the
         // artifact was encoded with; built once, shared by every transcode.
         let searcher = Searcher::new();
 
+        let phase0 = phases[0];
         let build = |s: &Src| -> Result<Mat, String> {
             let (d_out, d_in) = (s.d_out, s.d_in);
             let nblocks = d_in / DIM;
             let tail_w = d_in % DIM;
             assert_eq!(d_out % 8, 0, "{}: CUDA lance des blocs entiers", s.name);
             assert!(d_in <= x.len(), "{}: d_in {d_in} dépasse l'activation", s.name);
+            // The Slot32 host transcode is NOT conditional: it is the exact
+            // content every LLVQ arm is proved against, and the reference
+            // loop below decodes it row by row. What the selection spares is
+            // its DEVICE buffers, not this.
             let rt = transcode(&fd, &table, &s.indices, &s.gains, Layout::Slot32)
                 .map_err(|e| e.to_string())?;
             // The Planes14 stream: a bit-level bijection of the Slot32
             // content, proved block by block in the reference loop below.
-            let planes_data = planes14_from_slot32(&rt, &table);
+            let planes_data = union
+                .has(arms::PLANES14)
+                .then(|| planes14_from_slot32(&rt, &table));
             // The M2 overlay: 12-byte main stream (L = 5 blocks swapped for
             // their best L ≤ 4 direction) + exact exception records. The
-            // swap searches inside, threaded — the expensive build step.
-            let p12 = transcode_planes12x(&fd, &table, &searcher, &s.indices, &s.gains)
-                .map_err(|e| e.to_string())?;
+            // swap searches inside, threaded — the expensive build step, and
+            // the selection's biggest saving when the arm is out.
+            let p12 = match union.has(arms::PLANES12X) {
+                true => Some(
+                    transcode_planes12x(&fd, &table, &searcher, &s.indices, &s.gains)
+                        .map_err(|e| e.to_string())?,
+                ),
+                false => None,
+            };
             // The E2 arm: 9-byte main stream (exception blocks holed to the
             // origin) + exact exception records — pure table lookups plus a
-            // Golay rank per block, no search.
-            let g70 = golay70_transcode(&fd, &golay, &g70cls, &table, &s.indices, &s.gains);
+            // Golay rank per block, no search. ONE stream for v1 and v2.
+            let g70 = g70_needed
+                .then(|| golay70_transcode(&fd, &golay, &g70cls, &table, &s.indices, &s.gains));
 
             let mut w16 = vec![0u16; d_out * d_in];
             let mut y_ref = vec![0.0f64; d_out];
@@ -760,29 +962,58 @@ mod linux {
             // courte — donc des lignes entières seraient silencieusement non
             // quantifiées, et le bras passerait au vert sur un tampon à trous.
             let awq_tail = (awz * 128).saturating_sub(aww);
-            let mut awq_w = vec![0u32; d_out * aww];
-            let mut awq_z = vec![0u32; d_out * awz];
-            let mut awq_s = vec![0u16; d_out * aws];
-            let mut y_awq_ref = vec![0.0f64; d_out];
-            let mut awq_scale = vec![0.0f64; d_out];
+            let awq_on = union.has(arms::AWQ);
+            let mut awq_w = awq_on.then(|| vec![0u32; d_out * aww]);
+            let mut awq_z = awq_on.then(|| vec![0u32; d_out * awz]);
+            let mut awq_s = awq_on.then(|| vec![0u16; d_out * aws]);
+            let mut y_awq_ref = awq_on.then(|| vec![0.0f64; d_out]);
+            let mut awq_scale = awq_on.then(|| vec![0.0f64; d_out]);
             // L'activation telle que le noyau AWQ la voit : binary16, lue par
             // `float4` de huit. La référence doit être calculée contre
             // celle-ci, pas contre la f32, sinon on facture au bras un écart
             // qui n'est pas le sien.
-            let xh_f64: Vec<f64> = x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect();
+            let xh_f64: Option<Vec<f64>> = awq_on
+                .then(|| x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect());
             let nthreads = std::thread::available_parallelism().map_or(8, |n| n.get());
             let chunk = d_out.div_ceil(nthreads);
+            let n_chunks = d_out.div_ceil(chunk);
+            // Les tranches par thread des tampons optionnels. ⚠️ Le piège que
+            // cette forme évite : `chunks_mut` sur un Vec VIDE rend zéro
+            // tranche, et le `zip` du pilote s'arrêterait à la plus courte —
+            // toute la boucle de référence sauterait en silence. D'où des
+            // `Vec<Option<&mut [T]>>` de longueur n_chunks EXACTEMENT, dans
+            // tous les cas.
+            fn opt_chunks<T>(
+                v: &mut Option<Vec<T>>,
+                chunk: usize,
+                n: usize,
+            ) -> Vec<Option<&mut [T]>> {
+                match v.as_mut() {
+                    Some(v) => {
+                        let out: Vec<Option<&mut [T]>> =
+                            v.chunks_mut(chunk).map(Some).collect();
+                        assert_eq!(out.len(), n, "tranches optionnelles désalignées");
+                        out
+                    }
+                    None => (0..n).map(|_| None).collect(),
+                }
+            }
+            let awc_v = opt_chunks(&mut awq_w, chunk * aww, n_chunks);
+            let azc_v = opt_chunks(&mut awq_z, chunk * awz, n_chunks);
+            let asc_v = opt_chunks(&mut awq_s, chunk * aws, n_chunks);
+            let yawc_v = opt_chunks(&mut y_awq_ref, chunk, n_chunks);
+            let asqc_v = opt_chunks(&mut awq_scale, chunk, n_chunks);
             std::thread::scope(|sc| {
                 for (ci, ((((((((w16c, yc), y16c), scc), awc), azc), asc), yawc), asqc)) in w16
                     .chunks_mut(chunk * d_in)
                     .zip(y_ref.chunks_mut(chunk))
                     .zip(y16_ref.chunks_mut(chunk))
                     .zip(scale.chunks_mut(chunk))
-                    .zip(awq_w.chunks_mut(chunk * aww))
-                    .zip(awq_z.chunks_mut(chunk * awz))
-                    .zip(awq_s.chunks_mut(chunk * aws))
-                    .zip(y_awq_ref.chunks_mut(chunk))
-                    .zip(awq_scale.chunks_mut(chunk))
+                    .zip(awc_v)
+                    .zip(azc_v)
+                    .zip(asc_v)
+                    .zip(yawc_v)
+                    .zip(asqc_v)
                     .enumerate()
                 {
                     let (rt, table, x, src, planes) = (&rt, &table, &x, &s, &planes_data);
@@ -790,6 +1021,8 @@ mod linux {
                     let (g70, g70cls, golay) = (&g70, &g70cls, &golay);
                     let xh = &xh_f64;
                     sc.spawn(move || {
+                        let (mut awc, mut azc, mut asc, mut yawc, mut asqc) =
+                            (awc, azc, asc, yawc, asqc);
                         let mut wrow = vec![0.0f64; d_in];
                         for lr in 0..yc.len() {
                             let row = ci * chunk + lr;
@@ -799,40 +1032,51 @@ mod linux {
                                 // The bijection proof: every block of the
                                 // Planes14 stream decodes to exactly the
                                 // point and gain the Slot32 stream carries.
-                                let (ppt, pgain) =
-                                    planes14_decode_block(planes, table, row * nblocks + p);
-                                assert_eq!(
-                                    (pt, gain),
-                                    (ppt, pgain),
-                                    "{}: bloc {} — Planes14 n'est pas une bijection de Slot32",
-                                    src.name,
-                                    row * nblocks + p
-                                );
+                                // Each proof runs iff its arm is selected —
+                                // it is part of that arm's build, and the
+                                // published five/six-arm runs all ran it.
+                                if let Some(planes) = planes {
+                                    let (ppt, pgain) =
+                                        planes14_decode_block(planes, table, row * nblocks + p);
+                                    assert_eq!(
+                                        (pt, gain),
+                                        (ppt, pgain),
+                                        "{}: bloc {} — Planes14 n'est pas une bijection de \
+                                         Slot32",
+                                        src.name,
+                                        row * nblocks + p
+                                    );
+                                }
                                 // The overlay proof: main stream + exception
                                 // records reconstruct the exact block — the
                                 // approximation must be invisible here.
-                                let (xpt, xgain) = p12.decode_block(table, row * nblocks + p);
-                                assert_eq!(
-                                    (pt, gain),
-                                    (xpt, xgain),
-                                    "{}: bloc {} — l'overlay Planes12x ne reconstruit pas \
-                                     l'exact",
-                                    src.name,
-                                    row * nblocks + p
-                                );
+                                if let Some(p12) = p12 {
+                                    let (xpt, xgain) =
+                                        p12.decode_block(table, row * nblocks + p);
+                                    assert_eq!(
+                                        (pt, gain),
+                                        (xpt, xgain),
+                                        "{}: bloc {} — l'overlay Planes12x ne reconstruit pas \
+                                         l'exact",
+                                        src.name,
+                                        row * nblocks + p
+                                    );
+                                }
                                 // The E2 proof: main stream + exception
                                 // records reconstruct the exact block, and
                                 // the origin-holing is invisible here.
-                                let (gpt, ggain) = golay70_decode_block(
-                                    g70, g70cls, golay, table, row * nblocks + p,
-                                );
-                                assert_eq!(
-                                    (pt, gain),
-                                    (gpt, ggain),
-                                    "{}: bloc {} — Golay70 ne reconstruit pas l'exact",
-                                    src.name,
-                                    row * nblocks + p
-                                );
+                                if let Some(g70) = g70 {
+                                    let (gpt, ggain) = golay70_decode_block(
+                                        g70, g70cls, golay, table, row * nblocks + p,
+                                    );
+                                    assert_eq!(
+                                        (pt, gain),
+                                        (gpt, ggain),
+                                        "{}: bloc {} — Golay70 ne reconstruit pas l'exact",
+                                        src.name,
+                                        row * nblocks + p
+                                    );
+                                }
                                 if let Some(shell) =
                                     llvq_core::Leech::shell_index(&pt).filter(|&s| s > 0)
                                 {
@@ -866,62 +1110,91 @@ mod linux {
                             // fidèle en TEMPS (le noyau n'a aucune branche
                             // dépendante des données) et exact en RÉFÉRENCE,
                             // et il ne portera aucune phrase de qualité.
-                            yawc[lr] = awq_quant_row(
-                                &wrow,
-                                xh,
-                                d_in,
-                                &mut awc[lr * aww..(lr + 1) * aww],
-                                &mut azc[lr * awz..(lr + 1) * awz],
-                                &mut asc[lr * aws..(lr + 1) * aws],
-                            );
-                            // Son dénominateur d'erreur, sur ses poids à lui.
-                            let mut sa = 0.0f64;
-                            for c in 0..d_in {
-                                sa += (wrow[c] * xh[c]).abs();
+                            if let (Some(awc), Some(azc), Some(asc), Some(yawc), Some(asqc)) = (
+                                awc.as_deref_mut(),
+                                azc.as_deref_mut(),
+                                asc.as_deref_mut(),
+                                yawc.as_deref_mut(),
+                                asqc.as_deref_mut(),
+                            ) {
+                                let xh = xh.as_ref().expect("xh_f64 construit avec le bras");
+                                yawc[lr] = awq_quant_row(
+                                    &wrow,
+                                    xh,
+                                    d_in,
+                                    &mut awc[lr * aww..(lr + 1) * aww],
+                                    &mut azc[lr * awz..(lr + 1) * awz],
+                                    &mut asc[lr * aws..(lr + 1) * aws],
+                                );
+                                // Son dénominateur d'erreur, sur ses poids à lui.
+                                let mut sa = 0.0f64;
+                                for c in 0..d_in {
+                                    sa += (wrow[c] * xh[c]).abs();
+                                }
+                                asqc[lr] = sa;
                             }
-                            asqc[lr] = sa;
                         }
                     });
                 }
             });
 
-            let mut bytes = rt.data.clone();
-            bytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
-            while !bytes.len().is_multiple_of(4) {
-                bytes.push(0);
-            }
-            let words: Vec<u32> = bytes
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            // ---- l'étage : Dev pour la phase 1, Host pour les suivantes ----
+            let up_or_hold_u32 = |v: Vec<u32>, in_p0: bool| -> Result<Staged<u32>, String> {
+                Ok(if in_p0 { Staged::Dev(cuda.up_u32(&v)?) } else { Staged::Host(v) })
+            };
+            let up_or_hold_u16 = |v: Vec<u16>, in_p0: bool| -> Result<Staged<u16>, String> {
+                Ok(if in_p0 { Staged::Dev(cuda.up_u16(&v)?) } else { Staged::Host(v) })
+            };
 
-            let planes_bytes = planes_data.len() as u64
-                + (d_out * tail_w) as u64 * 4
-                + d_out as u64 * 4;
-            let mut pbytes = planes_data;
-            // The last block's four-word window reaches at most 2 bytes past
-            // the stream; pad 4 and align, mirroring the slot padding.
-            pbytes.extend_from_slice(&[0u8; 4]);
-            while !pbytes.len().is_multiple_of(4) {
-                pbytes.push(0);
-            }
-            let pwords: Vec<u32> = pbytes
-                .chunks_exact(4)
-                .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
+            let slot = match union.has(arms::SLOT32) {
+                true => {
+                    let mut bytes = rt.data.clone();
+                    bytes.extend_from_slice(&[0u8; 20]); // the five-word read of the last block
+                    while !bytes.len().is_multiple_of(4) {
+                        bytes.push(0);
+                    }
+                    let words: Vec<u32> = bytes
+                        .chunks_exact(4)
+                        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect();
+                    let in0 = phase0.has(arms::SLOT32);
+                    Some(SlotArm {
+                        words: up_or_hold_u32(words, in0)?,
+                        bases: up_or_hold_u32(rt.bases.clone(), in0)?,
+                        bytes: rt.data.len() as u64
+                            + rt.bases.len() as u64 * 4
+                            + (d_out * tail_w) as u64 * 4
+                            + d_out as u64 * 4,
+                    })
+                }
+                false => None,
+            };
 
-            // The M2 arm's three device arrays and its byte accounting:
-            // main stream + exception indices + exception records + the two
-            // Same tail/rscale terms as the other LLVQ arms. Upload paddings
-            // are NOT billed: the slot arm ignores its 20-byte pad and the
-            // planes arm its 4-byte pad, so billing ours here would mix two
-            // byte accountings — the exact mistake the K-1 lot eliminated.
-            let n_exc = p12.exc_idx.len();
-            let p12_bytes = p12.data.len() as u64
-                + n_exc as u64 * 4
-                + p12.exc_data.len() as u64
-                + (d_out * tail_w) as u64 * 4
-                + d_out as u64 * 4;
+            let planes = match planes_data {
+                Some(pdata) => {
+                    let bytes_acc = pdata.len() as u64
+                        + (d_out * tail_w) as u64 * 4
+                        + d_out as u64 * 4;
+                    let mut pbytes = pdata;
+                    // The last block's four-word window reaches at most 2
+                    // bytes past the stream; pad 4 and align, mirroring the
+                    // slot padding.
+                    pbytes.extend_from_slice(&[0u8; 4]);
+                    while !pbytes.len().is_multiple_of(4) {
+                        pbytes.push(0);
+                    }
+                    let pwords: Vec<u32> = pbytes
+                        .chunks_exact(4)
+                        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect();
+                    Some(PlanesArm {
+                        pwords: up_or_hold_u32(pwords, phase0.has(arms::PLANES14))?,
+                        bytes: bytes_acc,
+                    })
+                }
+                None => None,
+            };
+
             let pad12 = |mut b: Vec<u8>| -> Vec<u32> {
                 b.extend_from_slice(&[0u8; 4]);
                 while !b.len().is_multiple_of(4) {
@@ -931,32 +1204,99 @@ mod linux {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect()
             };
-            let p12words: Vec<u32> = pad12(p12.data);
-            let excwords: Vec<u32> = pad12(p12.exc_data);
-            // cudarc refuses a zero-length upload; a matrix without any
-            // L = 5 block gets a one-word dummy the kernel never reads
-            // (n_exc == 0 spawns no correction CTA).
-            let exc_idx_up: Vec<u32> = if p12.exc_idx.is_empty() {
-                vec![0]
-            } else {
-                p12.exc_idx
+
+            // The M2 arm's three device arrays and its byte accounting:
+            // main stream + exception indices + exception records + the
+            // same tail/rscale terms as the other LLVQ arms. Upload paddings
+            // are NOT billed: the slot arm ignores its 20-byte pad and the
+            // planes arm its 4-byte pad, so billing ours here would mix two
+            // byte accountings — the exact mistake the K-1 lot eliminated.
+            let p12 = match p12 {
+                Some(p12) => {
+                    let n_exc = p12.exc_idx.len();
+                    let bytes_acc = p12.data.len() as u64
+                        + n_exc as u64 * 4
+                        + p12.exc_data.len() as u64
+                        + (d_out * tail_w) as u64 * 4
+                        + d_out as u64 * 4;
+                    let p12words: Vec<u32> = pad12(p12.data);
+                    let excwords: Vec<u32> = pad12(p12.exc_data);
+                    // cudarc refuses a zero-length upload; a matrix without
+                    // any L = 5 block gets a one-word dummy the kernel never
+                    // reads (n_exc == 0 spawns no correction CTA).
+                    let exc_idx_up: Vec<u32> = if p12.exc_idx.is_empty() {
+                        vec![0]
+                    } else {
+                        p12.exc_idx
+                    };
+                    let in0 = phase0.has(arms::PLANES12X);
+                    Some(P12Arm {
+                        words: up_or_hold_u32(p12words, in0)?,
+                        exc_idx: up_or_hold_u32(exc_idx_up, in0)?,
+                        exc_words: up_or_hold_u32(excwords, in0)?,
+                        n_exc,
+                        bytes: bytes_acc,
+                    })
+                }
+                None => None,
             };
 
             // The E2 arm's three device arrays and its byte accounting:
             // 72 bits per block + 144 per exception + the same tail/rscale
             // terms as every LLVQ arm; upload paddings NOT billed — the
-            // unified rule.
-            let n_gexc = g70.exc_idx.len();
-            let g70_bytes = g70.data.len() as u64
-                + n_gexc as u64 * GOLAY70_EXC_BYTES as u64
-                + (d_out * tail_w) as u64 * 4
-                + d_out as u64 * 4;
-            let gwords: Vec<u32> = pad12(g70.data);
-            let gexcwords: Vec<u32> = pad12(g70.exc_data);
-            let gexc_idx_up: Vec<u32> = if g70.exc_idx.is_empty() {
-                vec![0]
-            } else {
-                g70.exc_idx
+            // unified rule. One set of buffers for BOTH golay70 arms.
+            let g70 = match g70 {
+                Some(g70) => {
+                    let n_gexc = g70.exc_idx.len();
+                    let bytes_acc = g70.data.len() as u64
+                        + n_gexc as u64 * GOLAY70_EXC_BYTES as u64
+                        + (d_out * tail_w) as u64 * 4
+                        + d_out as u64 * 4;
+                    let gwords: Vec<u32> = pad12(g70.data);
+                    let gexcwords: Vec<u32> = pad12(g70.exc_data);
+                    let gexc_idx_up: Vec<u32> = if g70.exc_idx.is_empty() {
+                        vec![0]
+                    } else {
+                        g70.exc_idx
+                    };
+                    let in0 =
+                        phase0.has(arms::GOLAY70V1) || phase0.has(arms::GOLAY70V2);
+                    Some(G70Arm {
+                        words: up_or_hold_u32(gwords, in0)?,
+                        exc_idx: up_or_hold_u32(gexc_idx_up, in0)?,
+                        exc_words: up_or_hold_u32(gexcwords, in0)?,
+                        n_exc: n_gexc,
+                        bytes: bytes_acc,
+                    })
+                }
+                None => None,
+            };
+
+            let awq = match (awq_w, awq_z, awq_s, y_awq_ref, awq_scale) {
+                (Some(awq_w), Some(awq_z), Some(awq_s), Some(y_awq), Some(a_scale)) => {
+                    let in0 = phase0.has(arms::AWQ);
+                    Some(AwqArm {
+                        w: {
+                            // La queue d'allocation, ajoutée ICI et nulle part
+                            // ailleurs : le noyau lit jusqu'à `NPG*128` mots
+                            // au-delà du début de la dernière ligne, et ces
+                            // mots doivent exister. Ils ne sont PAS facturés —
+                            // c'est une marge d'adressage, pas un octet que
+                            // l'algorithme transporte, et la facturer
+                            // gonflerait le bras concurrent d'un poids qu'il
+                            // ne porte pas.
+                            let mut wup = awq_w;
+                            wup.resize(d_out * aww + awq_tail, 0);
+                            up_or_hold_u32(wup, in0)?
+                        },
+                        z: up_or_hold_u32(awq_z, in0)?,
+                        s: up_or_hold_u16(awq_s, in0)?,
+                        bytes: awq_bytes(d_out, d_in),
+                        y_ref: y_awq,
+                        scale: a_scale,
+                    })
+                }
+                _ => None,
             };
 
             Ok(Mat {
@@ -965,56 +1305,33 @@ mod linux {
                 d_in,
                 nblocks,
                 tail_w,
-                words: cuda.up_u32(&words)?,
-                bases: cuda.up_u32(&rt.bases)?,
-                pwords: cuda.up_u32(&pwords)?,
-                p12words: cuda.up_u32(&p12words)?,
-                exc_idx: cuda.up_u32(&exc_idx_up)?,
-                exc_words: cuda.up_u32(&excwords)?,
-                n_exc,
-                gwords: cuda.up_u32(&gwords)?,
-                gexc_idx: cuda.up_u32(&gexc_idx_up)?,
-                gexc_words: cuda.up_u32(&gexcwords)?,
-                n_gexc,
+                slot,
+                planes,
+                p12,
+                g70,
+                awq,
                 gscale: cuda.up_f32(&s.centroids)?,
                 rscale: cuda.up_f32(&s.rscale)?,
                 tail: cuda.up_f32(if s.tail.is_empty() { &[0.0f32] } else { &s.tail })?,
                 w16: cuda.up_u16(&w16)?,
-                slot_bytes: rt.data.len() as u64
-                    + rt.bases.len() as u64 * 4
-                    + (d_out * tail_w) as u64 * 4
-                    + d_out as u64 * 4,
-                planes_bytes,
-                p12_bytes,
-                g70_bytes,
                 f16_bytes: (d_out * d_in * 2) as u64,
                 y_ref,
                 y16_ref,
                 scale,
-                awq_w: {
-                    // La queue d'allocation, ajoutée ICI et nulle part
-                    // ailleurs : le noyau lit jusqu'à `NPG*128` mots au-delà
-                    // du début de la dernière ligne, et ces mots doivent
-                    // exister. Ils ne sont PAS facturés — c'est une marge
-                    // d'adressage, pas un octet que l'algorithme transporte,
-                    // et la facturer gonflerait le bras concurrent d'un poids
-                    // qu'il ne porte pas.
-                    let mut wup = awq_w;
-                    wup.resize(d_out * aww + awq_tail, 0);
-                    cuda.up_u32(&wup)?
-                },
-                awq_z: cuda.up_u32(&awq_z)?,
-                awq_s: cuda.up_u16(&awq_s)?,
-                awq_bytes: awq_bytes(d_out, d_in),
-                y_awq_ref,
-                awq_scale,
             })
         };
 
         println!(
-            "\nConstruction, transcodage Slot32, Planes14, Planes12x (swap L = 5 → \
-             L ≤ 4 inclus) et Golay70 (trous origine + exceptions E2), preuves de \
-             bijection, d'overlay et de reconstruction exacte…"
+            "\nConstruction — transcodage Slot32 (référence, toujours){}{}{}{}, preuves \
+             de reconstruction exacte des bras construits…",
+            if union.has(arms::PLANES14) { ", Planes14" } else { "" },
+            if union.has(arms::PLANES12X) {
+                ", Planes12x (swap L = 5 → L ≤ 4 inclus)"
+            } else {
+                ""
+            },
+            if g70_needed { ", Golay70 (trous origine + exceptions E2)" } else { "" },
+            if union.has(arms::AWQ) { ", AWQ w4g128" } else { "" },
         );
         let t0 = Instant::now();
         let mut mats = Vec::new();
@@ -1150,14 +1467,18 @@ mod linux {
         let mut d_y = cuda.zeros_f32(max_dout)?;
         // Le bras AWQ écrit une sortie binary16 — c'est ce que fait leur
         // noyau. Un tampon séparé plutôt qu'une réinterprétation de `d_y` :
-        // deux types, deux tampons, et rien qui puisse se recouvrir.
-        let mut d_yh = cuda.zeros_u16(max_dout)?;
+        // deux types, deux tampons, et rien qui puisse se recouvrir — et
+        // pas de tampon du tout quand le bras n'est pas sélectionné.
+        let mut d_yh = match union.has(arms::AWQ) {
+            true => Some(cuda.zeros_u16(max_dout)?),
+            false => None,
+        };
         // Imprimé parce qu'il ne l'était pas : c'est ce silence qui a laissé
         // `d_y` doubler sans que personne ne puisse le lire dans un log.
         println!("  d_y : {max_dout} f32 — la table, et rien d'autre (la section A4 a le sien)");
         println!(
-            "  {} matrices, {:.2} Md de poids, en {:.0} s — bijection Planes14 vérifiée \
-             bloc par bloc",
+            "  {} matrices, {:.2} Md de poids, en {:.0} s — preuves bloc par bloc des \
+             bras construits",
             mats.len(),
             n_weights as f64 / 1e9,
             t0.elapsed().as_secs_f64()
@@ -1169,43 +1490,61 @@ mod linux {
         let f_planes_seg = cuda.func("tv_planes_seg")?;
         let f_planes12x = cuda.func("tv_planes12x")?;
         let f_golay70 = cuda.func("tv_golay70")?;
+        let f_golay70_v1 = cuda.func("tv_golay70_v1")?;
         let f_f16 = cuda.func("tv_f16")?;
         let f_awq = cuda.func("awq_gemv_g128")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
 
+        // Chaque fermeture n'est appelée que si son bras est dans la phase
+        // courante ; le `expect` nominatif transforme toute erreur de
+        // séquencement en panique lisible plutôt qu'en mesure d'un bras vide.
         let run_slot = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+            let a = m.slot.as_ref().expect("bras slot32 non construit");
             cuda.launch_slot(
-                &f_slot, &m.words, &m.bases, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
-                m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
+                &f_slot, a.words.dev(), a.bases.dev(), &d_tab, &m.gscale, &m.rscale,
+                &m.tail, &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32,
+                THREADS, shared,
             )
         };
         let run_planes = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+            let a = m.planes.as_ref().expect("bras planes14 non construit");
             launch_planes(
-                &cuda, &f_planes, &m.pwords, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
-                m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
+                &cuda, &f_planes, a.pwords.dev(), &d_tab, &m.gscale, &m.rscale, &m.tail,
+                &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
         let run_planes12x =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+                let a = m.p12.as_ref().expect("bras planes12x non construit");
                 launch_planes12x(
-                    &cuda, &f_planes12x, &m.p12words, &m.exc_idx, &m.exc_words, &d_tab,
-                    &m.gscale, &m.rscale, &m.tail, &d_x, y, m.nblocks as u32,
-                    m.tail_w as u32, m.n_exc as u32, m.d_out as u32, THREADS, shared,
+                    &cuda, &f_planes12x, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(),
+                    &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y, m.nblocks as u32,
+                    m.tail_w as u32, a.n_exc as u32, m.d_out as u32, THREADS, shared,
                 )
             };
-        let run_golay70 =
-            |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-                launch_golay70(
-                    &cuda, &f_golay70, &m.gwords, &m.gexc_idx, &m.gexc_words, &d_cw,
-                    &d_gtab, &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
-                    m.nblocks as u32, m.tail_w as u32, m.n_gexc as u32, m.d_out as u32,
-                    THREADS, shared,
-                )
-            };
+        // v1 et v2 : mêmes tampons, même grille, même protocole memset —
+        // seul le NOYAU change. C'est toute la comparaison.
+        let run_g70 = |m: &Mat,
+                       f: &cudarc::driver::CudaFunction,
+                       y: &mut cudarc::driver::CudaSlice<f32>|
+         -> Result<(), String> {
+            let a = m.g70.as_ref().expect("bras golay70 non construit");
+            launch_golay70(
+                &cuda, f, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(),
+                d_cw.as_ref().expect("tables golay70 non téléversées"),
+                d_gtab.as_ref().expect("tables golay70 non téléversées"),
+                &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
+                m.nblocks as u32, m.tail_w as u32, a.n_exc as u32, m.d_out as u32,
+                THREADS, shared,
+            )
+        };
         let run_awq =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
+                let a = m.awq.as_ref().expect("bras awq non construit");
                 launch_awq(
-                    &cuda, &f_awq, &d_xh, &m.awq_w, &m.awq_z, &m.awq_s, y,
+                    &cuda, &f_awq,
+                    d_xh.as_ref().expect("activation binary16 non téléversée"),
+                    a.w.dev(), a.z.dev(), a.s.dev(), y,
                     m.d_in as u32, m.d_out as u32,
                 )
             };
@@ -1229,243 +1568,453 @@ mod linux {
                 )
             };
 
-        println!("\nVérification de chaque ligne contre la référence f64…");
-        let (mut ws, mut wp, mut wx, mut wg, mut wf) =
-            (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64);
-        let mut wa = 0.0f64;
-        for m in &mats {
-            run_slot(m, &mut d_y)?;
-            cuda.sync()?;
-            let got = cuda.down_f32(&d_y)?;
-            let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
-            assert!(e < TOL, "{} / Slot32 : {e:.2e}·Σ|w·x|", m.name);
-            ws = ws.max(e);
+        // ---- vérification f64, PAR BRAS — au plus tard avant la première
+        // phase qui chronomètre le bras (la garde du §7 du
+        // pré-enregistrement : jamais un chronométrage avant sa preuve).
+        //
+        // Les commentaires de fond des six vérifications d'origine tiennent
+        // inchangés : même référence exacte pour tous les bras LLVQ (la
+        // preuve de l'overlay Planes12x et de la correction E2 est justement
+        // qu'ils l'atteignent), y16_ref pour le témoin FP16, et pour AWQ SA
+        // référence, SON dénominateur et SA tolérance — plus lâche d'un
+        // facteur ~100 parce que sa sortie est arrondie en binary16 par le
+        // noyau (`f2h`), pas parce qu'on lui pardonne quoi que ce soit : sa
+        // référence `scale·(q − zero)` reste exacte au bit près.
+        let verify_arm = |a: usize,
+                          mats: &[Mat],
+                          d_y: &mut cudarc::driver::CudaSlice<f32>,
+                          d_yh: &mut Option<cudarc::driver::CudaSlice<u16>>|
+         -> Result<f64, String> {
+            let mut worst = 0.0f64;
+            for m in mats {
+                let e = match a {
+                    arms::AWQ => {
+                        let yh = d_yh.as_mut().expect("d_yh du bras awq");
+                        run_awq(m, yh)?;
+                        cuda.sync()?;
+                        let goth = cuda.down_u16(yh)?;
+                        let gotf: Vec<f32> =
+                            goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
+                        let aw = m.awq.as_ref().expect("bras awq non construit");
+                        let e = worst_error(&gotf, &aw.y_ref, &aw.scale);
+                        assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
+                        e
+                    }
+                    _ => {
+                        match a {
+                            arms::SLOT32 => run_slot(m, d_y)?,
+                            arms::PLANES14 => run_planes(m, d_y)?,
+                            arms::PLANES12X => run_planes12x(m, d_y)?,
+                            arms::GOLAY70V1 => run_g70(m, &f_golay70_v1, d_y)?,
+                            arms::GOLAY70V2 => run_g70(m, &f_golay70, d_y)?,
+                            arms::FP16 => run_f16(m, d_y)?,
+                            _ => unreachable!("bras inconnu"),
+                        }
+                        cuda.sync()?;
+                        let got = cuda.down_f32(d_y)?;
+                        let want = if a == arms::FP16 { &m.y16_ref } else { &m.y_ref };
+                        let e = worst_error(&got[..m.d_out], want, &m.scale);
+                        assert!(
+                            e < TOL,
+                            "{} / {} : {e:.2e}·Σ|w·x|",
+                            m.name,
+                            arms::ARM_NAMES[a]
+                        );
+                        e
+                    }
+                };
+                worst = worst.max(e);
+            }
+            Ok(worst)
+        };
 
-            run_planes(m, &mut d_y)?;
-            cuda.sync()?;
-            let got = cuda.down_f32(&d_y)?;
-            let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
-            assert!(e < TOL, "{} / Planes14 : {e:.2e}·Σ|w·x|", m.name);
-            wp = wp.max(e);
+        // La vague de téléversement d'une phase : les tampons des bras qui
+        // entrent montent sur la carte, ceux des bras déjà montés ne bougent
+        // pas (stage_up_* est idempotent — v1 et v2 partagent le groupe
+        // golay70, le second des deux ne re-téléverse rien).
+        let upload_added = |mats: &mut [Mat], added: ArmSet| -> Result<(), String> {
+            for m in mats.iter_mut() {
+                if added.has(arms::SLOT32) {
+                    let a = m.slot.as_mut().expect("bras slot32 non construit");
+                    stage_up_u32(&cuda, &mut a.words)?;
+                    stage_up_u32(&cuda, &mut a.bases)?;
+                }
+                if added.has(arms::PLANES14) {
+                    let a = m.planes.as_mut().expect("bras planes14 non construit");
+                    stage_up_u32(&cuda, &mut a.pwords)?;
+                }
+                if added.has(arms::PLANES12X) {
+                    let a = m.p12.as_mut().expect("bras planes12x non construit");
+                    stage_up_u32(&cuda, &mut a.words)?;
+                    stage_up_u32(&cuda, &mut a.exc_idx)?;
+                    stage_up_u32(&cuda, &mut a.exc_words)?;
+                }
+                if added.has(arms::GOLAY70V1) || added.has(arms::GOLAY70V2) {
+                    let a = m.g70.as_mut().expect("bras golay70 non construit");
+                    stage_up_u32(&cuda, &mut a.words)?;
+                    stage_up_u32(&cuda, &mut a.exc_idx)?;
+                    stage_up_u32(&cuda, &mut a.exc_words)?;
+                }
+                if added.has(arms::AWQ) {
+                    let a = m.awq.as_mut().expect("bras awq non construit");
+                    stage_up_u32(&cuda, &mut a.w)?;
+                    stage_up_u32(&cuda, &mut a.z)?;
+                    stage_up_u16(&cuda, &mut a.s)?;
+                }
+            }
+            Ok(())
+        };
 
-            // Against the SAME exact reference as the other LLVQ arms: this
-            // passes only if the correction pass cancels the main stream's
-            // L = 5 approximation on every one of the model's rows — the
-            // proof of the overlay, before a single timing.
-            run_planes12x(m, &mut d_y)?;
-            cuda.sync()?;
-            let got = cuda.down_f32(&d_y)?;
-            let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
-            assert!(e < TOL, "{} / Planes12x : {e:.2e}·Σ|w·x|", m.name);
-            wx = wx.max(e);
-
-            // Same exact reference again: this passes only if the E2
-            // correction pass restores every origin-holed exception block
-            // exactly — the proof of the arm, before a single timing.
-            run_golay70(m, &mut d_y)?;
-            cuda.sync()?;
-            let got = cuda.down_f32(&d_y)?;
-            let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
-            assert!(e < TOL, "{} / Golay70 : {e:.2e}·Σ|w·x|", m.name);
-            wg = wg.max(e);
-
-            run_f16(m, &mut d_y)?;
-            cuda.sync()?;
-            let got = cuda.down_f32(&d_y)?;
-            let e = worst_error(&got[..m.d_out], &m.y16_ref, &m.scale);
-            assert!(e < TOL, "{} / FP16 : {e:.2e}·Σ|w·x|", m.name);
-            wf = wf.max(e);
-
-            // Le bras concurrent, contre SA référence et SON dénominateur.
-            //
-            // ⚠️ Sa tolérance est la sienne, et elle est plus lâche — d'un
-            // facteur ~100. Ce n'est pas un relâchement : sa sortie est
-            // arrondie en binary16 par le noyau (`f2h`, dernière ligne de
-            // `awq_gemv.cu`), là où les cinq autres bras rendent du f32. Une
-            // sortie binary16 porte ~2^-11 d'erreur relative par construction,
-            // donc exiger 1e-5 ici échouerait sur un noyau parfaitement juste.
-            // La référence, elle, reste EXACTE : `scale·(q − zero)` est ce que
-            // le noyau reconstruit au bit près, il n'y a rien d'approché du
-            // côté attendu.
-            run_awq(m, &mut d_yh)?;
-            cuda.sync()?;
-            let goth = cuda.down_u16(&d_yh)?;
-            let gotf: Vec<f32> =
-                goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
-            let e = worst_error(&gotf, &m.y_awq_ref, &m.awq_scale);
-            assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
-            wa = wa.max(e);
-        }
         let rows: usize = mats.iter().map(|m| m.d_out).sum();
-        let total_exc: u64 = mats.iter().map(|m| m.n_exc as u64).sum();
-        let total_gexc: u64 = mats.iter().map(|m| m.n_gexc as u64).sum();
         let total_blocks: u64 = mats.iter().map(|m| (m.d_out * m.nblocks) as u64).sum();
-        println!(
-            "  {rows} lignes, seuil {TOL:.0e} — pires erreurs Slot32 {ws:.1e}, \
-             Planes14 {wp:.1e}, Planes12x {wx:.1e} (overlay exact), \
-             Golay70 {wg:.1e} (E2 exact), FP16 {wf:.1e}, AWQ {wa:.1e} (seuil {AWQ_TOL:.0e}, \
-             sortie binary16) ·Σ|w·x|"
-        );
-        println!(
-            "  exceptions L = 5 : {total_exc} sur {total_blocks} blocs \
-             ({:.4} %), corrigées dans le même lancement",
-            total_exc as f64 * 100.0 / total_blocks as f64
-        );
-        println!(
-            "  exceptions E2 (pair violant ou L = 5) : {total_gexc} sur {total_blocks} \
-             blocs ({:.4} %), corrigées dans le même lancement",
-            total_gexc as f64 * 100.0 / total_blocks as f64
-        );
+        if union.has(arms::PLANES12X) {
+            let total_exc: u64 = mats
+                .iter()
+                .map(|m| m.p12.as_ref().expect("bras planes12x non construit").n_exc as u64)
+                .sum();
+            println!(
+                "  exceptions L = 5 : {total_exc} sur {total_blocks} blocs \
+                 ({:.4} %), corrigées dans le même lancement",
+                total_exc as f64 * 100.0 / total_blocks as f64
+            );
+        }
+        if g70_needed {
+            let total_gexc: u64 = mats
+                .iter()
+                .map(|m| m.g70.as_ref().expect("bras golay70 non construit").n_exc as u64)
+                .sum();
+            println!(
+                "  exceptions E2 (pair violant ou L = 5) : {total_gexc} sur {total_blocks} \
+                 blocs ({:.4} %), corrigées dans le même lancement",
+                total_gexc as f64 * 100.0 / total_blocks as f64
+            );
+        }
 
         // One pass = all matrices, one stream, in order — the layers' real
         // dependency. Wall clock around the pass plus a synchronize; the
-        // five arms interleave inside each round. The Planes12x arm's pass
-        // includes its per-matrix memset — part of what the layout costs.
-        let mut times: [Vec<f64>; ARMS] =
-            [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-        for rep in 0..ROUNDS {
-            for (arm, t_arm) in times.iter_mut().enumerate() {
-                let t = Instant::now();
-                for m in &mats {
-                    match arm {
-                        0 => run_slot(m, &mut d_y)?,
-                        1 => run_planes(m, &mut d_y)?,
-                        2 => run_planes12x(m, &mut d_y)?,
-                        3 => run_golay70(m, &mut d_y)?,
-                        4 => run_f16(m, &mut d_y)?,
-                        _ => run_awq(m, &mut d_yh)?,
-                    }
-                }
-                cuda.sync()?;
-                let s = t.elapsed().as_secs_f64();
-                if rep >= WARMUP {
-                    t_arm.push(s);
-                }
-            }
-        }
-        let [t_slot, t_planes, t_p12, t_g70, t_f16, t_awq] = times;
+        // phase's arms interleave inside each round, in REGISTRATION order
+        // (a selection skips arms, it never moves one). The correction arms'
+        // passes include their per-matrix memset — part of what those
+        // layouts cost.
         let per_round = |num: &[f64], den: &[f64]| -> Vec<f64> {
             num.iter().zip(den).map(|(a, b)| a / b).collect()
         };
-        let (s_lo, s_md, s_hi) = spread(t_slot.clone());
-        let (p_lo, p_md, p_hi) = spread(t_planes.clone());
-        let (x_lo, x_md, x_hi) = spread(t_p12.clone());
-        let (g_lo, g_md, g_hi) = spread(t_g70.clone());
-        let (f_lo, f_md, f_hi) = spread(t_f16.clone());
-        let (a_lo, a_md, a_hi) = spread(t_awq.clone());
-        let (rs_lo, rs_md, rs_hi) = spread(per_round(&t_f16, &t_slot));
-        let (rp_lo, rp_md, rp_hi) = spread(per_round(&t_f16, &t_planes));
-        let (rx_lo, rx_md, rx_hi) = spread(per_round(&t_f16, &t_p12));
-        let (rg_lo, rg_md, rg_hi) = spread(per_round(&t_f16, &t_g70));
-        let (ra_lo, ra_md, ra_hi) = spread(per_round(&t_f16, &t_awq));
-        let (sp_lo, sp_md, sp_hi) = spread(per_round(&t_slot, &t_planes));
-        let (px_lo, px_md, px_hi) = spread(per_round(&t_planes, &t_p12));
-        let (xg_lo, xg_md, xg_hi) = spread(per_round(&t_p12, &t_g70));
-        let sb: u64 = mats.iter().map(|m| m.slot_bytes).sum();
-        let pb: u64 = mats.iter().map(|m| m.planes_bytes).sum();
-        let xb: u64 = mats.iter().map(|m| m.p12_bytes).sum();
-        let gb: u64 = mats.iter().map(|m| m.g70_bytes).sum();
-        let fb: u64 = mats.iter().map(|m| m.f16_bytes).sum();
-        let ab: u64 = mats.iter().map(|m| m.awq_bytes).sum();
-
-        println!(
-            "\nUN TOKEN — {} matrices, un stream, SIX bras entrelacés (cinq maison + AWQ)",
-            mats.len()
-        );
-        println!("  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND");
-        println!("  {}", "-".repeat(80));
-        println!(
-            "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}",
-            "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s"
-        );
-        for (n, (lo, md, hi), b) in [
-            ("FP16 (128 bits)", (f_lo, f_md, f_hi), fb),
-            ("LLVQ Slot32", (s_lo, s_md, s_hi), sb),
-            ("LLVQ Planes14", (p_lo, p_md, p_hi), pb),
-            ("LLVQ Planes12x", (x_lo, x_md, x_hi), xb),
-            ("LLVQ Golay70", (g_lo, g_md, g_hi), gb),
-            ("AWQ w4g128", (a_lo, a_md, a_hi), ab),
-        ] {
-            println!(
-                "  {n:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
-                lo * 1e3,
-                md * 1e3,
-                hi * 1e3,
-                b as f64 / 1e9,
-                b as f64 * 8.0 / n_weights as f64,
-                b as f64 / lo / 1e9
-            );
-        }
-        println!("  {}", "-".repeat(80));
-        println!("  Slot32    vs FP16     : {rs_md:.2}× [{rs_lo:.2}–{rs_hi:.2}]");
-        println!("  Planes14  vs FP16     : {rp_md:.2}× [{rp_lo:.2}–{rp_hi:.2}]");
-        println!("  Planes12x vs FP16     : {rx_md:.2}× [{rx_lo:.2}–{rx_hi:.2}]");
-        println!("  Golay70   vs FP16     : {rg_md:.2}× [{rg_lo:.2}–{rg_hi:.2}]");
-        println!(
-            "  AWQ w4g128 vs FP16    : {ra_md:.2}× [{ra_lo:.2}–{ra_hi:.2}]  \
-             (CONCURRENT — lit {:.3} b/poids, moins que quatre de nos cinq bras ;\n  \
-             la grandeur comparable est les Go/s, pas ce rapport)",
-            ab as f64 * 8.0 / n_weights as f64
-        );
-        println!(
-            "  Planes14  vs Slot32   : {sp_md:.2}× [{sp_lo:.2}–{sp_hi:.2}]  (>1 = Planes14 \
-             plus rapide, même contenu décodé)"
-        );
-        println!(
-            "  Planes12x vs Planes14 : {px_md:.2}× [{px_lo:.2}–{px_hi:.2}]  (>1 = Planes12x \
-             plus rapide ; memset + correction inclus, même y exact)"
-        );
-        println!(
-            "  Golay70   vs Planes12x: {xg_md:.2}× [{xg_lo:.2}–{xg_hi:.2}]  (>1 = Golay70 \
-             plus rapide ; memset + correction inclus, même y exact)"
-        );
-        println!("\n  source : {source}");
-        let light = pb.min(xb).min(gb);
-        println!(
-            "  {:.0} Mo distincts par passe sur le bras le plus léger ({}), soit \
-             {:.1}× la L2 lue.\n  Sous 1× on mesurerait le cache et pas la DRAM — le piège \
-             qui a rendu\n  optimiste toute mesure LLVQ antérieure au 2026-07-31.",
-            light as f64 / 1e6,
-            if gb <= pb.min(xb) {
-                "Golay70"
-            } else if xb <= pb {
-                "Planes12x"
+        // L'ordre d'AFFICHAGE — cosmétique, distinct de l'ordre de dispatch :
+        // le témoin d'abord, v2 sous v1, le concurrent en dernier — la forme
+        // des tables publiées.
+        const DISPLAY: [usize; arms::N_ARMS] = [
+            arms::FP16,
+            arms::SLOT32,
+            arms::PLANES14,
+            arms::PLANES12X,
+            arms::GOLAY70V1,
+            arms::GOLAY70V2,
+            arms::AWQ,
+        ];
+        const ROW_NAMES: [&str; arms::N_ARMS] = [
+            "LLVQ Slot32",
+            "LLVQ Planes14",
+            "LLVQ Planes12x",
+            "LLVQ Golay70 v1",
+            "FP16 (128 bits)",
+            "AWQ w4g128",
+            "LLVQ Golay70 v2",
+        ];
+        let n_phases = phases.len();
+        let report = |mats: &[Mat],
+                      pi: usize,
+                      phase: ArmSet,
+                      times: &[Vec<f64>; arms::N_ARMS]| {
+            let bytes_of = |a: usize| -> u64 { mats.iter().map(|m| arm_bytes(m, a)).sum() };
+            let t_f16 = &times[arms::FP16];
+            let phase_tag = if n_phases > 1 {
+                format!("  [phase {}/{} : {}]", pi + 1, n_phases, phase.label())
             } else {
-                "Planes14"
-            },
-            light as f64 / dev.l2_bytes as f64
-        );
-        if std::env::args().nth(1).is_none() {
+                String::new()
+            };
             println!(
-                "  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le mélange\n  \
-                 de classes d'un vrai artefact n'est pas exercé, donc les strides de groupe\n  \
-                 du bras Slot32 et le trafic d'octets diffèrent du modèle publié. Ce rapport\n  \
-                 mesure les NOYAUX — passer le chemin du .llvq en argument pour le modèle."
+                "\nUN TOKEN — {} matrices, un stream, {} bras entrelacés{}",
+                mats.len(),
+                phase.len(),
+                phase_tag
             );
+            println!(
+                "  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND"
+            );
+            println!("  {}", "-".repeat(80));
+            println!(
+                "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}",
+                "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s"
+            );
+            for a in DISPLAY {
+                if !phase.has(a) {
+                    continue;
+                }
+                let (lo, md, hi) = spread(times[a].clone());
+                let b = bytes_of(a);
+                println!(
+                    "  {:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
+                    ROW_NAMES[a],
+                    lo * 1e3,
+                    md * 1e3,
+                    hi * 1e3,
+                    b as f64 / 1e9,
+                    b as f64 * 8.0 / n_weights as f64,
+                    b as f64 / lo / 1e9
+                );
+            }
+            println!("  {}", "-".repeat(80));
+            for a in DISPLAY {
+                if a == arms::FP16 || !phase.has(a) {
+                    continue;
+                }
+                let (lo, md, hi) = spread(per_round(t_f16, &times[a]));
+                if a == arms::AWQ {
+                    println!(
+                        "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                         (CONCURRENT — lit {:.3} b/poids ;\n  la grandeur comparable est \
+                         les Go/s, pas ce rapport)",
+                        ROW_NAMES[a],
+                        bytes_of(a) as f64 * 8.0 / n_weights as f64
+                    );
+                } else {
+                    println!(
+                        "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]",
+                        ROW_NAMES[a]
+                    );
+                }
+            }
+            // Les rapports entre bras : `num` contre `den`, formés round par
+            // round — >1 = `num` plus rapide. N'existent que si les DEUX
+            // bras ont tourné dans cette phase.
+            let pair = |num: usize, den: usize, note: &str| {
+                if phase.has(num) && phase.has(den) {
+                    let (lo, md, hi) = spread(per_round(&times[den], &times[num]));
+                    println!(
+                        "  {:<10} vs {:<10}: {md:.2}× [{lo:.2}–{hi:.2}]  {note}",
+                        arms::ARM_NAMES[num],
+                        arms::ARM_NAMES[den]
+                    );
+                }
+            };
+            pair(
+                arms::PLANES14,
+                arms::SLOT32,
+                "(>1 = Planes14 plus rapide, même contenu décodé)",
+            );
+            pair(
+                arms::PLANES12X,
+                arms::PLANES14,
+                "(>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)",
+            );
+            pair(
+                arms::GOLAY70V1,
+                arms::PLANES12X,
+                "(>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)",
+            );
+            pair(
+                arms::GOLAY70V2,
+                arms::GOLAY70V1,
+                "(>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la \
+                 campagne v2)",
+            );
+            println!("\n  source : {source}");
+            let light = DISPLAY
+                .into_iter()
+                .filter(|&a| {
+                    a != arms::FP16 && a != arms::AWQ && phase.has(a)
+                })
+                .min_by_key(|&a| bytes_of(a));
+            if let Some(la) = light {
+                let light = bytes_of(la);
+                println!(
+                    "  {:.0} Mo distincts par passe sur le bras le plus léger ({}), soit \
+                     {:.1}× la L2 lue.\n  Sous 1× on mesurerait le cache et pas la DRAM — le piège \
+                     qui a rendu\n  optimiste toute mesure LLVQ antérieure au 2026-07-31.",
+                    light as f64 / 1e6,
+                    ROW_NAMES[la],
+                    light as f64 / dev.l2_bytes as f64
+                );
+            }
+            if std::env::args().nth(1).is_none() {
+                println!(
+                    "  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le mélange\n  \
+                     de classes d'un vrai artefact n'est pas exercé, donc les strides de groupe\n  \
+                     du bras Slot32 et le trafic d'octets diffèrent du modèle publié. Ce rapport\n  \
+                     mesure les NOYAUX — passer le chemin du .llvq en argument pour le modèle."
+                );
+            }
+            // The tied lm_head, read once per token by every arm at the FP16
+            // arm's measured rate — the constant that caps every ratio.
+            let head_bytes = 389_070_848f64 * 2.0;
+            let fb = bytes_of(arms::FP16) as f64;
+            let (f_lo, _, _) = spread(t_f16.clone());
+            let head_s = head_bytes / (fb / f_lo);
+            let with_head: Vec<String> = DISPLAY
+                .into_iter()
+                .filter(|&a| a != arms::FP16 && a != arms::AWQ && phase.has(a))
+                .map(|a| {
+                    let (lo, _, _) = spread(times[a].clone());
+                    format!("{} {:.2}×", ROW_NAMES[a], (f_lo + head_s) / (lo + head_s))
+                })
+                .collect();
+            if !with_head.is_empty() {
+                println!(
+                    "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms au débit FP16\n  \
+                     mesuré, ajouté aux bras LLVQ) : {}.\n  Normes, activations, attention et \
+                     rotation ne sont mesurées ni ici ni là.",
+                    389_070_848f64 / 1e6,
+                    head_s * 1e3,
+                    with_head.join(", ")
+                );
+            }
+            println!(
+                "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un\n  \
+                 run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque\n  \
+                 bras contre sa référence f64 ; les rapports se forment round par round,\n  \
+                 dans un même processus."
+            );
+        };
+
+        // ---- les phases : téléversement, vérification, rounds, rapport ----
+        let mut verified = [false; arms::N_ARMS];
+        let mut phase_times: Vec<[Vec<f64>; arms::N_ARMS]> = Vec::new();
+        for pi in 0..n_phases {
+            let phase = phases[pi];
+            if pi > 0 {
+                let added = phase.minus(phases[pi - 1]);
+                if !added.is_empty() {
+                    println!(
+                        "\n— phase {}/{n_phases} : téléversement des bras ajoutés ({}) —",
+                        pi + 1,
+                        added.label()
+                    );
+                    upload_added(&mut mats, added)?;
+                }
+            }
+            let mut worsts: Vec<String> = Vec::new();
+            for a in phase.iter() {
+                if !verified[a] {
+                    if worsts.is_empty() {
+                        println!("\nVérification de chaque ligne contre la référence f64…");
+                    }
+                    let w = verify_arm(a, &mats, &mut d_y, &mut d_yh)?;
+                    worsts.push(format!("{} {w:.1e}", arms::ARM_NAMES[a]));
+                    verified[a] = true;
+                }
+            }
+            if !worsts.is_empty() {
+                println!(
+                    "  {rows} lignes, seuil {TOL:.0e} (AWQ : {AWQ_TOL:.0e}, sortie \
+                     binary16) — pires erreurs {} ·Σ|w·x|",
+                    worsts.join(", ")
+                );
+            }
+            let mut times: [Vec<f64>; arms::N_ARMS] = Default::default();
+            for rep in 0..ROUNDS {
+                for (arm, t_arm) in times.iter_mut().enumerate() {
+                    if !phase.has(arm) {
+                        continue;
+                    }
+                    let t = Instant::now();
+                    for m in &mats {
+                        match arm {
+                            arms::SLOT32 => run_slot(m, &mut d_y)?,
+                            arms::PLANES14 => run_planes(m, &mut d_y)?,
+                            arms::PLANES12X => run_planes12x(m, &mut d_y)?,
+                            arms::GOLAY70V1 => run_g70(m, &f_golay70_v1, &mut d_y)?,
+                            arms::FP16 => run_f16(m, &mut d_y)?,
+                            arms::AWQ => {
+                                run_awq(m, d_yh.as_mut().expect("d_yh du bras awq"))?
+                            }
+                            arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
+                            _ => unreachable!("bras inconnu"),
+                        }
+                    }
+                    cuda.sync()?;
+                    let s = t.elapsed().as_secs_f64();
+                    if rep >= WARMUP {
+                        t_arm.push(s);
+                    }
+                }
+            }
+            report(&mats, pi, phase, &times);
+            phase_times.push(times);
         }
-        // The tied lm_head, read once per token by every arm at the FP16
-        // arm's measured rate — the constant that caps every ratio.
-        let head_bytes = 389_070_848f64 * 2.0;
-        let head_s = head_bytes / (fb as f64 / f_lo);
-        println!(
-            "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms au débit FP16\n  \
-             mesuré, ajouté aux cinq bras) : Slot32 {:.2}×, Planes14 {:.2}×, \
-             Planes12x {:.2}×, Golay70 {:.2}×\n  au lieu de {rs_md:.2}× / {rp_md:.2}× / \
-             {rx_md:.2}× / {rg_md:.2}×. Normes, activations, attention et\n  rotation ne \
-             sont mesurées ni ici ni là.",
-            389_070_848f64 / 1e6,
-            head_s * 1e3,
-            (f_lo + head_s) / (s_lo + head_s),
-            (f_lo + head_s) / (p_lo + head_s),
-            (f_lo + head_s) / (x_lo + head_s),
-            (f_lo + head_s) / (g_lo + head_s)
-        );
-        println!(
-            "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un\n  \
-             run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque\n  \
-             bras contre sa référence f64 ; les rapports se forment round par round,\n  \
-             dans un même processus."
-        );
+
+        // ---- Δ_contrôle : la dérive des bras communs entre phases ----
+        //
+        // Le chiffre que la règle §4 du pré-enregistrement du 2026-08-10
+        // demande au job de rapporter, imprimé par le banc lui-même pour
+        // qu'aucun rapport ne se fasse entre deux processus : R =
+        // max(Δ_contrôle, demi-étendue intra-run du bras le plus dispersé) ;
+        // |Δ| > 2R sépare, |Δ| < R est indiscernable à cette résolution,
+        // entre les deux : non résolu, publié comme tel.
+        if n_phases > 1 {
+            println!("\nΔ_contrôle — dérive des bras communs entre phases consécutives");
+            let med = |v: &[f64]| -> f64 {
+                let mut s = v.to_vec();
+                s.sort_by(f64::total_cmp);
+                s[s.len() / 2]
+            };
+            for k in 1..n_phases {
+                let (prev, cur) = (&phase_times[k - 1], &phase_times[k]);
+                let common = phases[k - 1]; // ⊆ phases[k], garanti au parsing
+                let mut delta_ctrl = 0.0f64;
+                for a in common.iter() {
+                    let (m0, m1) = (med(&prev[a]), med(&cur[a]));
+                    let dms = (m1 - m0) / m0;
+                    if a == arms::FP16 {
+                        println!(
+                            "  phases {k}→{} {:<10} méd {:>8.3} → {:>8.3} ms ({:+.2} %)",
+                            k + 1,
+                            arms::ARM_NAMES[a],
+                            m0 * 1e3,
+                            m1 * 1e3,
+                            dms * 100.0
+                        );
+                    } else {
+                        let r0 = med(&per_round(&prev[arms::FP16], &prev[a]));
+                        let r1 = med(&per_round(&cur[arms::FP16], &cur[a]));
+                        let dr = (r1 - r0) / r0;
+                        delta_ctrl = delta_ctrl.max(dr.abs());
+                        println!(
+                            "  phases {k}→{} {:<10} méd {:>8.3} → {:>8.3} ms ({:+.2} %), \
+                             vs FP16 {:.3} → {:.3} ({:+.2} %)",
+                            k + 1,
+                            arms::ARM_NAMES[a],
+                            m0 * 1e3,
+                            m1 * 1e3,
+                            dms * 100.0,
+                            r0,
+                            r1,
+                            dr * 100.0
+                        );
+                    }
+                }
+                let mut half = 0.0f64;
+                let mut half_name = "";
+                for a in phases[k].iter() {
+                    if a == arms::FP16 {
+                        continue;
+                    }
+                    let (lo, md, hi) = spread(per_round(&cur[arms::FP16], &cur[a]));
+                    let h = (hi - lo) / 2.0 / md;
+                    if h > half {
+                        half = h;
+                        half_name = arms::ARM_NAMES[a];
+                    }
+                }
+                let r = delta_ctrl.max(half);
+                println!(
+                    "  Δ_contrôle (max |Δ| des rapports vs FP16) = {:.2} % ; demi-étendue \
+                     max intra-run = {:.2} % ({half_name}) ; R = {:.2} %",
+                    delta_ctrl * 100.0,
+                    half * 100.0,
+                    r * 100.0
+                );
+            }
+        }
 
         // ---- A4 : la fusion q+k+v et gate+up, justesse d'abord, coût ensuite ----
         //
@@ -1473,7 +2022,17 @@ mod linux {
         // `d_out` doublé ne doivent exister pendant que la table se mesure
         // (voir le long commentaire au-dessus de `max_dout`).
         let mut fused: Vec<FusedMat> = Vec::new();
-        if !srcs.is_empty() {
+        // La section exige les DEUX bras qu'elle fusionne : sur une
+        // sélection sans slot32 ou sans planes14, elle n'a ni flux à
+        // concaténer ni bras séparé à qui comparer — elle saute, et le dit.
+        let a4_on = union.has(arms::SLOT32) && union.has(arms::PLANES14);
+        if !srcs.is_empty() && !a4_on {
+            println!(
+                "\n  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la \
+                 sélection LLVQ_BENCH_ARMS"
+            );
+        }
+        if !srcs.is_empty() && a4_on {
             let names: Vec<&str> = srcs.iter().map(|s| s.name.as_str()).collect();
             let groups = seg_groups(&names)?;
             let t_fuse = Instant::now();
@@ -1713,10 +2272,10 @@ mod linux {
                         .map(|(_, m)| sel(m))
                         .sum::<u64>()
             };
-            let sb_sep = unfused_bytes(|m| m.slot_bytes);
-            let sb_fus = fused_bytes(|f| f.slot_bytes, |m| m.slot_bytes);
-            let pb_sep = unfused_bytes(|m| m.planes_bytes);
-            let pb_fus = fused_bytes(|f| f.planes_bytes, |m| m.planes_bytes);
+            let sb_sep = unfused_bytes(|m| arm_bytes(m, arms::SLOT32));
+            let sb_fus = fused_bytes(|f| f.slot_bytes, |m| arm_bytes(m, arms::SLOT32));
+            let pb_sep = unfused_bytes(|m| arm_bytes(m, arms::PLANES14));
+            let pb_fus = fused_bytes(|f| f.planes_bytes, |m| arm_bytes(m, arms::PLANES14));
 
             println!(
                 "\n  Coût — {ROUNDS} rounds, {WARMUP} jetés, QUATRE bras entrelacés, \

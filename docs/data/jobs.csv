@@ -1,4 +1,11 @@
 date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
+2026-08-05,6a72e0b76b79c09949c22d74,cuda-preflight,l40sx1,,,cuda-preflight-2026-08-05.txt,premier contact carte : SM registres spill L2 - montant non journalise
+2026-08-05,6a73220ca00abefd4b293866,cuda-matvec,l40sx1,,,cuda-matvec-2026-08-05.txt,portage du noyau fuse sur CUDA - montant non journalise
+2026-08-05,6a7327ac6b79c09949c22ff7,cuda-matvec-modele,l40sx1,,,cuda-matvec-modele-2026-08-05.txt,le noyau sur le modele publie - montant non journalise
+2026-08-05,6a7342e5a00abefd4b293c0f,mini,l40sx1,,,mini-2026-08-05.txt,protocole miniature - source de la ligne 08-05 de progression.csv - montant non journalise
+2026-08-05,6a7370766b79c09949c23569,attribution du gisement,l40sx1,,0.07,attribution-cuda-2026-08-05.txt,les 2.04 ms decoupes - source de la table d attribution du papier
+2026-08-05,6a737a6e6b79c09949c236b4,fusion-qkv,l40sx1,,0.11,fusion-qkv-cuda-2026-08-05.txt,fusion q+k+v et gate+up : 0.803 ms - source de la table d attribution
+2026-08-05,6a73af53a00abefd4b294889,fusedrun (premiere execution),l40sx1,,0.50,fusedrun-2026-08-05.txt,premier chemin fuse en inference : 0.16 + 0.34 de deux essais morts dans la couture candle
 2026-08-06,6a7440186b79c09949c23e4e,oracle (lot A),l4x1,1,0.01,a1-lot-a-2026-08-06.txt,oracle forward exact sur CUDA
 2026-08-06,6a7369a06b79c09949c23471,rotation (lot A),l40sx1,,,a1-lot-a-2026-08-06.txt,rotation bit-exacte sur carte
 2026-08-06,6a746d8f6b79c09949c23fb4,campagne A4 ppl (lot A),l40sx1,8,0.24,a4-campagne-2026-08-06.txt,ppl des bras f16/AWQ/LLVQ - empreinte 3f1baca9033bf251
@@ -24,6 +31,7 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-10,6a7969d4da2af92a634f0da5,qwen3-14b-awq-deq shards 1 Go [14B],cpu-upgrade,11,0.01,,33 fichiers ecrits mais 3 renames sans effet - repares a la main par hf cp
 2026-08-10,6a796e083e1f34a7e32c1b32,campagne-14b-qualite SIGBUS [14B],l40sx1,14,0.43,,mmap d un checkpoint safetensors depuis un bucket monte = bus error
 2026-08-10,6a7971c33e1f34a7e32c1b6d,campagne-14b-qualite [14B],l40sx1,56,1.68,campagne-14b-qualite-2026-08-10.txt,ppl+MMLU des 3 bras 14B - LLVQ x1.1894 et -6.85 pp apparie
-2026-08-10,6a7982abda2af92a634f0e5c,paliers-4b-128 [14B],l40sx1,42,1.26,paliers-4b-2026-08-10.txt,4 paliers verts : queue f16 + rotation hissee 252->144 + Planes12x - textes decodes identiques
+2026-08-10,6a7982abda2af92a634f0e5c,paliers-4b-128 [14B campagne - mesure 4B],l40sx1,42,1.26,paliers-4b-2026-08-10.txt,4 paliers verts : queue f16 + rotation hissee 252->144 + Planes12x - textes decodes identiques - le TAG nomme la campagne qui paie pas le modele mesure ; aucun chiffre du papier n en depend
 2026-08-10,6a79b9913e1f34a7e32c203a,baseline-head 5 bras [kernel],l40sx1,26,0.78,baseline-head-2026-08-10.txt,reference du lot 1 : b/poids au chiffre, plages recouvrantes, tv_planes_seg prouve sur carte
 2026-08-10,6a7a11d32ed17c71070fda7f,six-arm-awq [kernel],l40sx1,26,0.78,six-arm-awq-2026-08-10.txt,premier bras concurrent : AWQ w4g128 a 584 Go/s contre 428 pour Planes14 - 88 % de sa borne contre 65 %
+2026-08-11,6a7adf552ed17c71070ff410,golay70-v2-sept-bras [kernel],l40sx1,26,0.77,golay70-v2-sept-bras-2026-08-11.txt,verdict v2 : 1.77x [1.76-1.78] - NON ADOPTE (seuil pre-enregistre 2.0x) - v2/v1 1.32x memes rounds - controle 6 bras indiscernable (delta 0.24% < R 0.56%)

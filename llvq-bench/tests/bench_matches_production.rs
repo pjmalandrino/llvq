@@ -10,7 +10,7 @@
 //! quantizer, by `2/(1 + cos θ)` per block.
 //!
 //! So gate G4's 92.23 %, the whole G4 table, and every level-cap row in
-//! `docs/face-au-4-bits.md` described a codebook that never ran on a model,
+//! `docs/archive/face-au-4-bits.md` described a codebook that never ran on a model,
 //! while format decisions were being taken off those tables. The gap is small
 //! — about 2 % of block MSE, 0.7 points of retention — and it is exactly the
 //! class of defect this repo has been bitten by three times: a property

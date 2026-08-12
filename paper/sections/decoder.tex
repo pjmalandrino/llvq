@@ -16,8 +16,7 @@ block: exactly 2 bits per weight of payload.
 The 47 bits are close to tight. Measuring the empirical entropy of the index
 over the shipped model's $150$M blocks gives $46.6536$ bits per block against
 47 paid: a $0.74\%$ margin, or $0.015$ bits per weight. Entropy-coding the
-index rank, an obvious-looking saving, is therefore closed by the structure
-of the format itself, not merely by our failure to compress it.
+index rank is therefore closed by the structure of the format itself.
 
 In the integer coordinate system $\sqrt{8}\,\Lambda_{24}\subset\mathbb{Z}^{24}$,
 lattice points are characterized by three simultaneous conditions tied to the
@@ -57,9 +56,8 @@ The per-class table is small: 512 records of 24 bytes---five level values
 and a level count---so 12~KB, sized at 512 rather than at the class count so
 that a 9-bit class field cannot index out of bounds. It is passed as an
 ordinary \texttt{const}-qualified global pointer and read through L1, not
-placed in CUDA constant memory. That is a deliberate choice rather than an
-omission: constant memory is optimized for broadcast and serializes distinct
-addresses issued by one warp, and here the 32 lanes of a warp hold 32
+placed in CUDA constant memory: constant memory is optimized for broadcast
+and serializes distinct addresses issued by one warp, and here the 32 lanes of a warp hold 32
 different classes by construction, which is the worst case for that bank.
 The instrumented attribution of \S\ref{sec:attribution} bears the choice
 out: the table gather costs 0.041~ms, 2\% of the kernel's gap to its DRAM
@@ -78,16 +76,25 @@ model. Three layers of defense are in place:
 
 \begin{itemize}
 \item \textbf{Bit-exact transcoding.} The transcoder that expands format~v1
-into each of the five VRAM layouts of \S\ref{sec:layouts} is verified
+into each of the four distinct byte formats of \S\ref{sec:layouts} (the two
+\textsc{Golay70} rows share one, differing only in how the kernel decodes
+it) is verified
 bit-exact across all layouts, and its test suite has been hardened by
 mutation testing (${\sim}25$ mutants killed). A mutant that survives means
 either a weak test or dead code; both stop the line.
 
 \item \textbf{Line-by-line numerical verification before any timing.} Every
 benchmark first checks every output row of every arm against an independent
-f64 reference ($1\,105\,920$ rows for the full-model benchmark), with
-worst-case errors of $2.2$--$3.0\times10^{-8}$, consistent with f32
-accumulation. No arm is timed until it is proven to compute the right thing.
+f64 reference ($1\,105\,920$ rows for the full-model benchmark), against a
+threshold of $10^{-5}\cdot\sum|w\cdot x|$. Our six arms come in at
+$2.2$--$3.4\times10^{-8}$, consistent with f32 accumulation. The 4-bit
+competitor is held to its own, looser threshold of $10^{-3}$ and lands at
+$5.8\times10^{-5}$: its kernel stores a binary16 output where ours store
+f32, so $2^{-11}$ of relative error is structural and demanding $10^{-5}$
+of it would fail a correct kernel. Its \emph{reference} is exact --- we
+know its quantized value, scale and zero, so we know the weight it will
+reconstruct, bit for bit. No arm is timed until it is proven to compute the
+right thing.
 
 \item \textbf{Invariant locks upstream.} The lattice code itself is pinned
 by exact combinatorial invariants: the kissing number $196\,560$, the

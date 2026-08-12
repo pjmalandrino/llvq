@@ -15,7 +15,7 @@
 //!
 //! ⚠️ **The cost of that is not the "26 min" the docs repeat.** 65.5 GB ÷
 //! 42 MB/s = 26.0 min: the two figures are each other, and neither end was
-//! measured — `docs/plan-de-test-v2-cuda.md` presents the rate as "mesurés sur
+//! measured — `docs/archive/plan-de-test-v2-cuda.md` presents the rate as "mesurés sur
 //! le run 32B" while `CLAUDE.md` and `ops/run.py` present the duration as the
 //! measurement. What the 32B de-risking run actually bounds: it billed 59 min
 //! (5.43 $ at 5.50 $/h on `rtx-pro-6000x2`), of which 2694 s are the

@@ -378,7 +378,7 @@ impl RuntimeBlocks {
 }
 
 // ---------------------------------------------------------------------------
-// Planes14 — E1a of docs/pistes-format-vram-2026-08-05.md
+// Planes14 — E1a of docs/archive/pistes-format-vram-2026-08-05.md
 // ---------------------------------------------------------------------------
 
 /// Bytes per block of the [`PlanesBlocks`] layout — a frozen constant of the
@@ -1190,7 +1190,7 @@ pub fn transcode_planes12x(
 }
 
 // ---------------------------------------------------------------------------
-// Golay70 — E2 of docs/pistes-format-vram-2026-08-05.md
+// Golay70 — E2 of docs/archive/pistes-format-vram-2026-08-05.md
 // ---------------------------------------------------------------------------
 
 /// Bytes per block of the [`Golay70Blocks`] **main stream** — a frozen

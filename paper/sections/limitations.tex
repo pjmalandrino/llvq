@@ -25,8 +25,7 @@ less, and it reports a $-9.5$-point drop without fine-tuning where we see
 $-14.6$. A deliberate-contamination oracle (calibrating on the evaluation
 text itself, an upper bound on anything volume, corpus or sequence length can
 buy) recovers $1.6\%$ of perplexity on a proxy, $2.3\sigma$, closing 29\% of
-that proxy's quantization gap; an honest $\times 13$ volume curve recovers
-$1.2\%$ at ${\sim}1.7\sigma$. A $\times 100$ calibration run is therefore
+that proxy's quantization gap; a $\times 13$ volume curve recovers $1.2\%$ at ${\sim}1.7\sigma$. A $\times 100$ calibration run is therefore
 unlikely to be the answer, and we did not commission it.
 \end{itemize} What remains
 untested: reasoning-weighted calibration composition, learned per-column
@@ -38,11 +37,12 @@ all.
 
 \textbf{We do not measure QTIP.} Our motivation rests on the original
 paper's report that its kernel is slower than QTIP's; we inherit that claim
-rather than reproducing it, and no QTIP arm ran on our machine. A kernel
-comparison at matching matvec shapes is the single most valuable missing
-measurement in this paper. The same holds, less centrally, for Marlin at
-4 bits and for the other 2-bit vector-quantized systems cited in
-\S\ref{sec:related}.
+rather than reproducing it. A 2-bit kernel comparison at matching shapes is
+the single most valuable missing measurement in this paper --- the 4-bit arm
+of Table~\ref{tab:layouts} is the same experiment against a different class
+of competitor, and it is the one that changed our reading of our own result.
+The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
+vector-quantized systems of \S\ref{sec:related}.
 
 \textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
 Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
@@ -60,9 +60,16 @@ memory verdict flips. Whether the trend continues to the 70B class, the
 regime the sovereignty argument actually cares about, is measurable with
 this methodology and is not measured here.
 
-\textbf{AWQ speed is not comparable.} The AWQ arm was never executed in our
-engine (its quality was, under matching fingerprints). Cross-engine
-throughput comparisons are meaningless and we make none.
+\textbf{Our speedups are over FP16, not over the 4-bit state of the
+practice.} Every $\times$ in \S\ref{sec:layouts} and
+\S\ref{sec:integration} is against an FP16 baseline. At the \emph{kernel}
+level the 4-bit comparison exists and goes against us: their GEMV reaches
+$3.37\times$ the control where our production layout reaches $2.15\times$,
+roughly a factor 1.6 --- a quotient of two medians from shared rounds rather
+than a ratio formed round by round, so one significant figure. Their
+\emph{engine} we have never run, so Tables~\ref{tab:campaign}
+and~\ref{tab:campaign8b} carry no 4-bit throughput column and we claim
+none.
 
 \textbf{Speedups carry ranges, not third decimals.} Inter-process
 dispersion on identical binaries spans several percent; all ratios are

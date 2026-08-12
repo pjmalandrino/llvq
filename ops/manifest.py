@@ -6,7 +6,7 @@
 
 Why this file exists: three headline figures of this repository (2.39 GB of
 resident memory, 129.8 tok/s, the three decimals of 21.691 ms) are carried by
-**no log at all** — `docs/plan-de-test-papier.md` §5, point 12 names them. They were
+**no log at all** — `docs/archive/plan-de-test-papier.md` §5, point 12 names them. They were
 typed into a table from a terminal that has since scrolled away. Nobody can
 say today which command produced them, on which object, from which commit.
 
@@ -72,7 +72,7 @@ So this file does the same: the id is stored verbatim, and the URL is either
 resolved through `inspect_job` (recorded as `api`) or supplied by hand
 (recorded as `declare`). Never assembled.
 
-⚠️ And per `docs/plan-de-test-v2-cuda.md` §6.1, a job URL redirects an
+⚠️ And per `docs/archive/plan-de-test-v2-cuda.md` §6.1, a job URL redirects an
 anonymous visitor to a login form. It is a pointer for an auditor who has been
 granted access, **not** a proof opposable to a reader. The proof is the log,
 and what makes the log a proof is its hash sitting in a committed file.
@@ -99,7 +99,7 @@ MANIFEST = ROOT / "ops" / "manifest.jsonl"
 # bump it: `verify` requires a known set and tolerates extras.
 SCHEMA = 1
 
-# The three arms of the campaign (`docs/plan-de-test-v2-cuda.md` §2.1), plus
+# The three arms of the campaign (`docs/archive/plan-de-test-v2-cuda.md` §2.1), plus
 # the ones its arbitration n°2 dropped — kept so that an old entry still reads,
 # and so that a typo (`A` for `A1`) is rejected instead of silently splitting a
 # comparison in two.

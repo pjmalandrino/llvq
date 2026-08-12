@@ -15,7 +15,7 @@
 //! stream: **8.05 µs** (`docs/mesures/rotation-cuda-2026-08-05.txt`). That
 //! figure is wall-clock per chained launch, so the 3.63 µs launch floor is
 //! **inside** it — adding the two would double-count, which
-//! `docs/audit-perf-noyau-cuda-2026-08-05.md` §1 forbids explicitly. The
+//! `docs/archive/audit-perf-noyau-cuda-2026-08-05.md` §1 forbids explicitly. The
 //! honest bracket is therefore
 //!
 //!  * upper bound (whole launches removed): `108 × 8.05 µs ≈ 0.87 ms/token`;

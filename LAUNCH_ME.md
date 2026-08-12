@@ -144,7 +144,7 @@ checkpoint) fait 2,263 Go sur disque : notre fichier est **×1,28 plus petit,
 soit 22 % de disque en moins — et rien d'autre qui soit mesuré en notre
 faveur**. Il génère bien plus vite, et sa qualité n'a jamais été mesurée face à
 la nôtre : cette case-là est **vide, pas faible**. Analyse :
-[`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+[`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
 **On gagne de la vitesse, mais pas encore dans le runner** : le noyau fusé est
 écrit, vérifié et mesuré à ×2,06–2,08 sur les projections du modèle entier ; il

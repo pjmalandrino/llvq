@@ -9,7 +9,7 @@
 > le modèle (`fused_cuda` + `bin/fusedrun`) : 48,7 tok/s dans 2,96 Go contre
 > 43,6 dans 8,04. Le point 1 du gate (« reproduire le mono-couche à ≥ 1,36× »)
 > a été sauté : on est parti directement sur le multi-coquilles.
-> État complet : [`rapport-etat-2026-08-07.md`](rapport-etat-2026-08-07.md).
+> État complet : [`rapport-etat-2026-08-07.md`](archive/rapport-etat-2026-08-07.md).
 > ⚠️ Les phrases « le noyau multi-couches n'existe pas / n'existe nulle part »
 > décrivaient l'**état de l'art publié**, pas le nôtre, et c'est toujours ainsi
 > qu'il faut les lire — mais chez nous, il existe. Ce qui reste ouvert du plan

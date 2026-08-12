@@ -70,19 +70,17 @@ defective arm is ours. \texttt{candle\_nn::Linear::forward} deliberately
 folds the leading dimensions of its input into the row dimension to avoid
 the broadcast path, so models built on \texttt{Linear}, including
 \texttt{candle\_transformers}' own, never pay this copy. Our head calls the
-primitive directly, which is why our dense baseline pays it and a stock
-\texttt{candle} deployment would not. That is precisely why the number we
-put forward below is the one measured with the \emph{same} head on both
-arms: a baseline we handicapped ourselves cannot carry a speedup claim. We
+primitive directly, so our dense baseline pays it where a stock
+\texttt{candle} deployment would not --- hence the number we put forward
+below, measured with the \emph{same} head on both arms. We
 reported the primitive upstream with a reproducer and a patch that moves the
 same fold one level
 down.\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
 
 \textbf{The double formulation.} End-to-end, the fused engine reaches
 88.4~tok/s against the dense engine's 43.5, a factor of $2.03\times$.
-Honesty requires splitting that number, because much of it is the head fix,
-which the dense arm could adopt too and which a stock \texttt{candle}
-deployment never needed. We do not derive the split from the
+That factor has to be split: most of it is the head fix, which the dense arm
+could adopt too and which a stock \texttt{candle} deployment never needed. We do not derive the split from the
 fenced phases: synchronization serializes work the real decode overlaps,
 so phase sums attribute time but do not compose into a throughput. Instead
 we report the measured lower bound: with the defective f16 head path held
@@ -90,10 +88,8 @@ identical in both arms, the fused engine gains $1.12\times$ on the 4B
 (48.7 versus 43.5~tok/s) and $1.29\times$ on the 8B (34.4 versus 26.6).
 Both numbers understate the kernel, whose own phase runs $1.27\times$
 faster (13.3 to 10.4~ms across the transformer blocks) and whose projection
-benchmark runs $2.14\times$ over FP16; the giant head phase dilutes them.
-We report both formulations, always together: $2.03\times$ against our
-dense arm as measured, at least $1.12\times$ against that arm with its head
-copy removed. Only the second is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;
+benchmark runs $2.15\times$ over FP16; the giant head phase dilutes them.
+Only the $1.12\times$ is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;
 the integration run of Table~\ref{tab:progression} reports 88.5 on the same
 configuration. The difference is inter-run dispersion, not a change of
 object.}
