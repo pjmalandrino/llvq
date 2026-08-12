@@ -13,7 +13,7 @@
 > | §6.7 « **Grouped32 et Flat32 n'ont jamais tourné sur le modèle entier** » — que §6.7 annonçait déjà comme réparable | **Réparé le 05** : ils ont tourné dans le même processus que `Slot32`, une seule comptabilité, sept bras entrelacés. Flat32 **5,256 b/poids / 0,91×**, Grouped32 **3,498 / 0,69×** | [`mesures/k1-metal-2026-08-05.txt`](mesures/k1-metal-2026-08-05.txt) |
 > | §5.4 « 2,2 – 7,6 tok/s … **sans cache KV** » | `bin/run` **a un cache KV** depuis le commit `9c24d26`, épinglé par un test qui exige les mêmes tokens que le chemin non caché. Sur L40S le fichier scellé rend **42,7 tok/s** | [`mesures/mini-2026-08-05.txt`](mesures/mini-2026-08-05.txt) |
 > | §5.5 « La colonne qualité : **vide, pas faible** » | **Remplie le 06** — et l'adversaire retenu n'est pas le q4 MLX mais **l'AWQ officiel de Qwen** : **70,04 ± 1,25 de MMLU** contre 55,59 chez nous, ppl ×1,105 contre ×1,384. La conclusion de §5.5 est confirmée dans le pire sens : le 4 bits ne perd **rien** | [`mesures/a4-campagne-2026-08-06.txt`](mesures/a4-campagne-2026-08-06.txt) |
-> | §5.6 « e4/e8 : qualité **ABSENT**, interdit de publication » | **Mesurée le 06** : e8 (int8) **gratuit** (−0,02 % de ppl, MMLU sous le σ), e4 (int4) **+1,52 %**. L'interdit est **levé pour e8**, maintenu pour e4 | [`verdicts-lot-b-2026-08-06.md`](verdicts-lot-b-2026-08-06.md) §B4 |
+> | §5.6 « e4/e8 : qualité **ABSENT**, interdit de publication » | **Mesurée le 06** : e8 (int8) **gratuit** (−0,02 % de ppl, MMLU sous le σ), e4 (int4) **+1,52 %**. L'interdit est **levé pour e8**, maintenu pour e4 | [`verdicts-lot-b-2026-08-06.md`](archive/verdicts-lot-b-2026-08-06.md) §B4 |
 > | §6.4 « 2,09× [2,05–2,11] » comme chiffre du noyau | Le layout de référence n'est plus `Slot32` mais **`Planes14`** : 4,804 b/poids, 2,14–2,16× sur L40S, **1,14× plus rapide que `Slot32` à contenu décodé identique** | [`mesures/c1-planesbench-2026-08-06.txt`](mesures/c1-planesbench-2026-08-06.txt) |
 >
 > ⚠️ Ce qui **n'a pas** changé et reste la référence du dépôt : la note de
@@ -472,7 +472,7 @@ Trois réserves : granularité **ligne**, pas bloc (des erreurs qui se compensen
 `SUSPECT` sur les décimales, `MESURE` sur l'ordre de grandeur. **Aucun fichier de log n'existe pour ces trois lignes-là** : leurs valeurs ne vivent que recopiées dans README.md:147-155, CLAUDE.md:121 et la table de tête de `docs/format-noyau.md` § « La thèse, sur le modèle entier ». *(Le reproche est levé pour le banc courant : `docs/mesures/` existe depuis le 2026-08-05 et archive le run à sept bras ainsi que les trois invocations témoins du banc à deux bras.)* Écarts entre exécutions : FP16 +4,5 %, LLVQ +5,4 %, **rapport −0,8 %**.
 
 > **Ce qui se publie aujourd'hui** vient du run archivé du 2026-08-05, pas de cette table : `Slot32` **5,510 b/poids**, **2,03× [2,03–2,10]** (médiane du rapport formé round par round sur les 5 rounds gardés), les 1 105 920 lignes, la pire erreur 3,4·10⁻⁸, les 7,27 et 2,50 Go. Millisecondes : `docs/mesures/k1-metal-2026-08-05.txt`.
-> **Ce qui ne se publie plus** : le « 2,06–2,08× (n=2) » de cette section. Deux raisons cumulées — il agrège deux invocations distinctes du binaire, ce que §4.6bis de `docs/portage-noyau-cuda.md` disqualifie ; et sa fourchette est plus étroite que la dispersion réellement mesurée depuis, [2,029 ; 2,080] sur trois runs témoins.
+> **Ce qui ne se publie plus** : le « 2,06–2,08× (n=2) » de cette section. Deux raisons cumulées — il agrège deux invocations distinctes du binaire, ce que §4.6bis de `docs/archive/portage-noyau-cuda.md` disqualifie ; et sa fourchette est plus étroite que la dispersion réellement mesurée depuis, [2,029 ; 2,080] sur trois runs témoins.
 > **Les trois décimales de « 21,691 » ne survivent pas au rejeu et ne doivent pas être publiées.**
 
 **Reproduction** : `cargo run --release -p llvq-metal --bin thesis -- /Users/pjmalandrino/qwen3-4b-llvq.bin`
@@ -581,7 +581,7 @@ Par ordre de dureté :
 
 3. **Le mécanisme du pic RAM Metal à 17,41 Go.** Le nombre est mesuré et reproductible ; la cause (double résidence hôte/buffer en mémoire unifiée, ou pool de tampons candle-metal) est `SUPPOSE`. Réserve honnête : en mémoire unifiée, la RSS peut ne pas comptabiliser les `MTLBuffer` de la même façon selon le chemin.
 
-4. **L'heure de fin du run de nuit** : mtime du log 02:30, `docs/retraction-et-gain.md:85` dit 04:26. Sans conséquence — dans les deux cas le démarrage précède le correctif `60068db` (01:12).
+4. **L'heure de fin du run de nuit** : mtime du log 02:30, `docs/archive/retraction-et-gain.md:85` dit 04:26. Sans conséquence — dans les deux cas le démarrage précède le correctif `60068db` (01:12).
 
 5. **`format-noyau.md` § « Le matvec fusé, et le layout qu'il a imposé » ne boucle pas**, dans le paragraphe sur `Layout::Flat32` : « 4,54 b/poids sur cette couche (16,5 Mo …) ». 4,54 en métrique large donne **14,8 Mo** ; 16,5 Mo implique 5,12 b/poids étroits. L'un des deux est périmé (la phrase et la table datent de sessions différentes). À trancher avant qu'un lecteur le fasse.
 

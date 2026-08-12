@@ -1,7 +1,7 @@
 //! cudarc plumbing: compile, load, upload, launch, and read back what the
 //! card says about the kernel it just loaded.
 //!
-//! Four API traps are documented in `docs/portage-noyau-cuda.md` §2.2, and
+//! Four API traps are documented in `docs/archive/portage-noyau-cuda.md` §2.2, and
 //! two of them are load-bearing here:
 //!
 //! * without an explicit `arch`, NVRTC compiles for `compute_75` by default,

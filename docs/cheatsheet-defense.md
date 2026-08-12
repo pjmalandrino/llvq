@@ -91,7 +91,7 @@ contre 5,30 b/param (la VRAM, gagnée depuis le 07).**
 > chiffres bout-en-bout mesurés sur les mêmes octets. La **précaution 2**
 > ci-dessous reste valable dans sa forme corrigée : la comparaison VRAM se dit
 > en **b/param modèle entier**, jamais « 5,51 contre 4,50 »
-> ([`errata-rapport-lot-a-2026-08-06.md`](errata-rapport-lot-a-2026-08-06.md)).
+> ([`errata-rapport-lot-a-2026-08-06.md`](archive/errata-rapport-lot-a-2026-08-06.md)).
 
 > ⚠️ **Deux précautions attachées à ces deux lignes, à ne jamais laisser tomber.**
 >
@@ -110,13 +110,13 @@ contre 5,30 b/param (la VRAM, gagnée depuis le 07).**
 >    absent de la campagne. **La seule forme publiable est le b/param modèle
 >    entier, embedding compris : 5,15 (nous, `Planes14` + embedding int8)
 >    contre 5,30 (l'AWQ mesuré, dans son propre moteur)**
->    ([`errata-rapport-lot-a-2026-08-06.md`](errata-rapport-lot-a-2026-08-06.md)).
+>    ([`errata-rapport-lot-a-2026-08-06.md`](archive/errata-rapport-lot-a-2026-08-06.md)).
 >    Les 4,804 et 5,510 b/poids restent justes **pour décrire nos layouts** ;
 >    ce ne sont pas des termes de comparaison.
 >    ⚠️ **Et ce verdict ne se transporte pas au 8B tel quel** : les têtes n'y
 >    sont pas liées, l'embedding pèse 15,2 % du modèle, et il a fallu étendre
 >    le q8 aux têtes déliées pour repasser devant — **5,323 contre 5,956**
->    ([`tableau-8b-2026-08-07.md`](tableau-8b-2026-08-07.md)).
+>    ([`tableau-8b-2026-08-07.md`](archive/tableau-8b-2026-08-07.md)).
 
 ---
 
@@ -336,7 +336,7 @@ identiques au bit près au noyau scalaire sur les 1 105 920 lignes ; la variante
 **poids seuls**, nous (`Slot32` + lm_head f16) pesons **6,5245 b/poids** contre
 **4,5006** au q4, soit **×1,45 contre nous** (`docs/fiche-4b.md` §5.3) ; selon
 le `group_size` et le périmètre retenus la fourchette va de **×1,16 à ×1,53**
-(`docs/plan-de-test-v2-cuda.md` §4). Et même en descendant à **4,7083 b/poids**
+(`docs/archive/plan-de-test-v2-cuda.md` §4). Et même en descendant à **4,7083 b/poids**
 avec `L ≤ 4` — mesuré le 2026-08-05 sur l'artefact réel par `bin/rtbits`,
 comptabilité étroite payload + bases sur les **projections seules**, donc le
 chiffre le plus favorable qu'on sache produire — on reste au-dessus des 4,5006
@@ -353,7 +353,7 @@ rentre pas du tout — 70B sur 32 Go.
 
 > 🕳️ **D'où venait le « 4,5 », et pourquoi il fallait le tuer.** Avant le
 > 2026-08-05, le dépôt portait **trois chiffres pour la même quantité**, aucun
-> mesuré : 4,5 dans cette fiche, 4,667 dans `docs/face-au-4-bits.md`, ~4,4 dans
+> mesuré : 4,5 dans cette fiche, 4,667 dans `docs/archive/face-au-4-bits.md`, ~4,4 dans
 > `docs/format-noyau.md`. Le 4,667 vient de `bin/lcap`, comptabilité qui
 > facture à chaque bloc la largeur du plafond et **ne compte pas les bases** ;
 > le ~4,4 était `106/24`, la largeur brute du bloc, ni arrondie à l'octet ni

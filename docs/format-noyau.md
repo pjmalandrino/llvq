@@ -406,7 +406,7 @@ vaut **66,728 %**.
 
 > ⚠️ **Coïncidence numérique, à ne surtout pas lire comme une égalité.** Les
 > 4,667 ci-dessus sont des **niveaux** ; le 4,667 qui apparaît plus bas dans
-> la note 🕳️ (et dans la table `lcap` de `docs/face-au-4-bits.md`) est un
+> la note 🕳️ (et dans la table `lcap` de `docs/archive/face-au-4-bits.md`) est un
 > **b/poids**. Deux quantités sans rapport qui tombent sur le même chiffre.
 
 | | b/poids |
@@ -573,7 +573,7 @@ Même au plus large, le modèle chargé fait ~3,3 Go contre 8,045 en FP16.
 
 #### Expérience : le conflit de bancs (K-1(b))
 
-`docs/portage-noyau-cuda.md` §3.2 prédisait, en transposant l'arithmétique
+`docs/archive/portage-noyau-cuda.md` §3.2 prédisait, en transposant l'arithmétique
 NVIDIA (32 bancs de 4 octets), un conflit à 8 voies sur chacune des 24 lectures
 de tuile, et prescrivait un **pas de 28 flottants** avec chargements `float4`
 pour le supprimer. Trois bras de plus, dans le **même** run et la **même**

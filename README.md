@@ -176,8 +176,8 @@ below) was implemented as the paper's Algorithm 3 reads to us, and **refuted at
 full depth: ×1.99 perplexity** on a 28-block 0.6B run against the shipped
 recipe — the second time in this project that a strictly better per-layer proxy
 composed into a disaster over 28 layers
-([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md),
-[`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md)).
+([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md),
+[`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md)).
 **What moved instead was scale**: at 8B the drop is −10.56 pp rather than
 −14.73, and the gap to 4-bit halves. Candidates still open and unmeasured:
 calibration *composition* (the failure is concentrated in reasoning subjects,
@@ -308,7 +308,7 @@ The structural niche for 2-bit is the memory window where 4-bit does not fit
 and we do. Whether it is worth anything at 70B is **untested** — no 70B has
 ever been quantized here, and the KV cache (320 KiB/token in f16) is not
 budgeted in any of our projections. Full analysis:
-[`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+[`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
 ## Read this before quoting the number
 
@@ -320,7 +320,7 @@ budgeted in any of our projections. Full analysis:
   *different object*. Three calibration seeds on a 3-block Qwen3-0.6B run give
   **σ ≈ 0.15 perplexity, ≈ 0.7 %**, around a quantized perplexity of ~20.66, so
   the working rule on such a run is that anything under ~1.5 % (2 σ) is noise
-  ([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md), §B1;
+  ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md), §B1;
   n = 3, a coarse estimate and the project's first).
   **That σ does not transfer to the 16.9415 published here**: different model,
   3 blocks against 36, different perplexity scale. **No σ has ever been measured
@@ -341,7 +341,7 @@ budgeted in any of our projections. Full analysis:
 > cancelling the gain code, so the stored magnitude was a free float per block
 > — 16 bits nothing charged for, and a true rate of 2.73. Two further
 > accounting defects are described in
-> [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md). All three were
+> [`docs/archive/retraction-et-gain.md`](docs/archive/retraction-et-gain.md). All three were
 > found by trying to *write the file* rather than compute its size.
 
 ## What is here

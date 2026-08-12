@@ -1,7 +1,7 @@
 //! The Golay70 inference path, checked as far as a machine without a CUDA
 //! card can check it — the exact locks `fused_planes12x.rs` holds on the
 //! Planes12x path, applied to the layout the v2 campaign wires (step 5 of
-//! `docs/passation-golay70-2026-08-11.md`):
+//! `docs/archive/passation-golay70-2026-08-11.md`):
 //!
 //! 1. the translation unit: source list, concatenation order, entry point —
 //!    the one piece of `fused_cuda`'s plumbing checkable here, since that

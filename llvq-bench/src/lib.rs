@@ -367,7 +367,7 @@ pub fn shape_gain_mse13_projected(dots: &[BlockDots13], centroids: &[f64]) -> f6
 /// Coding `t` shrinks every block by `cos θ ≈ 0.96`, and that uniform radial
 /// drift is precisely the failure mode the spherical retraction exists to kill
 /// (paper Table 9: 91.90 → 6.90). It is a fourth design next to the three in
-/// `docs/retraction-et-gain.md`, of unknown sign, and it is a 3-block A/B on
+/// `docs/archive/retraction-et-gain.md`, of unknown sign, and it is a 3-block A/B on
 /// the real model that settles it — not this bench.
 pub fn shape_gain_mse13_shipped(dots: &[BlockDots13], centroids: &[f64]) -> f64 {
     dots.iter()

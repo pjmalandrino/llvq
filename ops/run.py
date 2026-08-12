@@ -918,7 +918,7 @@ def cmd_bench(args) -> int:
         print(
             f"refus : {args.flavor} n'est pas dans {BENCH_FLAVORS}.\n"
             "  Un rapport mesuré ailleurs n'est pas comparable au chiffre Metal —\n"
-            "  voir docs/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
+            "  voir docs/archive/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
             "  et alors le dire dans tout chiffre publié."
         )
         return 2
@@ -1354,7 +1354,7 @@ def main() -> int:
     # sets the fused kernel's RAM width. It is **dead on quality** — the L ≤ 4
     # swap measured on the sealed 4B costs +4.75 % of perplexity (16.9415 →
     # 17.7459), which puts the file back ABOVE QTIP's 17.04 and loses the one
-    # comparison the paper rests on (docs/verdicts-lot-b-2026-08-06.md §B6).
+    # comparison the paper rests on (docs/archive/verdicts-lot-b-2026-08-06.md §B6).
     #
     # And it has already been paid for once as a default: the 8B had to be
     # requantized at $12.61 to purge it (docs/data/jobs.csv, 2026-08-07,

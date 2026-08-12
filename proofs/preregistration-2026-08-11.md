@@ -7,7 +7,7 @@ au banc du 2026-08-10. Le dernier banc en date est
 [`docs/mesures/six-arm-awq-2026-08-10.txt`](../docs/mesures/six-arm-awq-2026-08-10.txt).
 
 > Ce document est le **lot A** de
-> [`docs/spec-apres-awq-2026-08-10.md`](../docs/spec-apres-awq-2026-08-10.md) §6 :
+> [`docs/archive/spec-apres-awq-2026-08-10.md`](../docs/archive/spec-apres-awq-2026-08-10.md) §6 :
 > le critère de remplacement du 1,6×, posé avant le job qui s'y mesurera.
 > Il complète le pré-enregistrement du
 > [2026-08-10](preregistration-2026-08-10.md), dont il **hérite sans
@@ -41,7 +41,7 @@ remesurer. (Texte long : spec §3, écrit le 2026-08-10, avant la v2.)
 
 Deux conditions, une par axe. Les seuils sont ceux du spec §3 (2026-08-10),
 **avec deux corrections** issues de
-[`docs/projections-golay70-2026-08-11.md`](../docs/projections-golay70-2026-08-11.md)
+[`docs/archive/projections-golay70-2026-08-11.md`](../docs/archive/projections-golay70-2026-08-11.md)
 §1–2, consignées ici parce qu'elles ne sont pas du même ordre : la première
 change **les nombres** (une comptabilité), la seconde change **la forme du
 critère** — l'absolu devient une marge relative, ce qui élargit la borne 4B
@@ -56,7 +56,7 @@ comme tel, et il est fait **avant** toute mesure :
    du spec encode « ≥ 20 % de marge vs l'AWQ déployé » *au 4B* (AWQ 4B =
    5,302 b/param — **calculé sur octets mesurés** : 4,15625 b/poids × N_lin
    plus embedding et normes, validé contre les 2 666 027 672 octets du dépôt
-   `Qwen/Qwen3-4B-AWQ`, cf. `docs/plan-de-test-v2-cuda.md` §B0 ; l'étiqueter
+   `Qwen/Qwen3-4B-AWQ`, cf. `docs/archive/plan-de-test-v2-cuda.md` §B0 ; l'étiqueter
    « mesuré » sur-revendiquerait). Le 8B projeté (4,290) viole le 4,1 absolu
    tout en portant la meilleure marge du tableau (−28,0 %) : c'est la marge
    qui est transposable, le 4,1 n'en est que l'instance 4B.

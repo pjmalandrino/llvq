@@ -1,7 +1,7 @@
 //! The first thing this port asks of a rented card, and the cheapest.
 //!
 //! It answers, in one job of a few minutes, every question
-//! `docs/portage-noyau-cuda.md` §6.2 files under "answered at the first job,
+//! `docs/archive/portage-noyau-cuda.md` §6.2 files under "answered at the first job,
 //! for a few cents" — and one the document does not ask, which is the only
 //! one that matters: **does the ported decoder decide the same thing as the
 //! Rust decoder, on a real GPU?**

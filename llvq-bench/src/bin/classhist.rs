@@ -1,5 +1,5 @@
 //! Per-class histogram of a sealed artifact — experiment #0 of
-//! `docs/pistes-format-vram-2026-08-05.md`.
+//! `docs/archive/pistes-format-vram-2026-08-05.md`.
 //!
 //! `classprofile` profiles a gaussian source; `rtbits` prices layouts and
 //! histograms blocks by **level count**. What neither produces is the

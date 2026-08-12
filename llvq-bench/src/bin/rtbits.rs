@@ -1188,7 +1188,7 @@ mod tests {
     }
 
     /// The whole-model conversion, pinned on the two published Qwen3-8B
-    /// cells (`docs/tableau-8b-2026-08-07.md` §2–3): 6.461 b/param with an
+    /// cells (`docs/archive/tableau-8b-2026-08-07.md` §2–3): 6.461 b/param with an
     /// f16 embedding and 5.323 with `q8`, both measured in the engine.
     ///
     /// This is the step the dossier got wrong twice, so it is checked

@@ -2,7 +2,7 @@
 
 Ce répertoire porte le **petit, le diffable, le porteur** : ce qu'un auditeur
 peut lire, hasher et confronter sans accès à notre compte Hugging Face.
-Format et raison d'être : [`docs/plan-de-test-v2-cuda.md`](../docs/plan-de-test-v2-cuda.md) §6.
+Format et raison d'être : [`docs/archive/plan-de-test-v2-cuda.md`](../docs/archive/plan-de-test-v2-cuda.md) §6.
 
 > **Un identifiant de job n'est pas une preuve opposable.**
 > `https://huggingface.co/jobs/<user>/<id>` redirige un visiteur anonyme vers

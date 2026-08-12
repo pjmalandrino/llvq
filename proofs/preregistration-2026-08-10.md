@@ -9,7 +9,7 @@ bras concurrent n'a encore tourné ; le dernier banc en date est
 > `Golay70`. Ce critère-là avait bien été posé d'avance, mais il vivait dans
 > une conversation. Celui-ci vit dans un commit.
 >
-> Emplacement et format : `docs/plan-de-test-v2-cuda.md` §6.3.
+> Emplacement et format : `docs/archive/plan-de-test-v2-cuda.md` §6.3.
 > *(⚠️ Ce même document nomme le fichier `docs/attentes-<date>.md` en §6.5 et
 > `proofs/preregistration-<date>.md` en §6.3. On retient §6.3, qui est la
 > section « où déposer ». La divergence est signalée plutôt que tranchée en

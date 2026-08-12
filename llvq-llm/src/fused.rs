@@ -64,11 +64,11 @@ use llvq_search::Searcher;
 /// switch existed.
 ///
 /// `Golay70` is the E2 layout, wired 2026-08-11 as step 5 of the v2 campaign
-/// (`docs/passation-golay70-2026-08-11.md`): the 9-byte main stream whose
+/// (`docs/archive/passation-golay70-2026-08-11.md`): the 9-byte main stream whose
 /// per-slot decode goes through the Golay codeword rank, plus the exact
 /// exception records — 3.589 b/weight at the bench, the only layout whose
 /// whole-model b/param beats the deployed AWQ at every scale
-/// (`docs/projections-golay70-2026-08-11.md` §2). Its kernel is the v2
+/// (`docs/archive/projections-golay70-2026-08-11.md` §2). Its kernel is the v2
 /// block-prologue decoder; whether it is SERVED is decided by the
 /// pre-registered criterion of `proofs/preregistration-2026-08-11.md`, not
 /// by this wiring — being selectable is what makes it measurable.

@@ -1,6 +1,6 @@
 //! # Design C — Algorithm 3 to the letter, made sealable
 //!
-//! `docs/retraction-et-gain.md` names three coherent readings of Spherical
+//! `docs/archive/retraction-et-gain.md` names three coherent readings of Spherical
 //! GPTQ composed with a gain code. Design C is the paper's own: the
 //! retraction keeps every block on its **exact** pre-quantization norm during
 //! the loop (Eq. 17 as written), and the magnitudes are resolved once, at the
