@@ -1,5 +1,17 @@
 # Spec — Lot X : les pistes mémoire extrême (2026-08-12)
 
+> 🗓️ **ADDENDUM du même jour — la cible MoE change les critères.** L'étude
+> [`etude-moe-memoire-extreme-2026-08-12.md`](etude-moe-memoire-extreme-2026-08-12.md)
+> établit que sur un MoE (actifs/totaux = 2-5 %), le trafic par token est
+> proportionnel aux *actifs* pendant que la VRAM se paie sur les *totaux* :
+> le critère 1,6× de ce lot est un critère **dense** et ne s'applique pas à
+> cette cible. Conséquences : `Golay70` (3,589 ᵐ, exact) est admis de fait
+> pour le MoE ; X2 reste le finaliste *dense* 70B/40 Go ; X4 (E3) devient
+> l'enjeu unique de l'extrême ; et le gate le moins cher du lot devient
+> **X5-MoE** (Qwen3-30B-A3B contre 32B dense, ~25-55 $ — le déficit 2 bits
+> suit-il les totaux ou les actifs ?). Les critères X3 restent inchangés
+> pour la cible dense.
+
 > Spec d'exécution autonome : une session neuve doit pouvoir dérouler ce lot
 > sans autre contexte. Objectif stratégique : **ouvrir la classe de machine
 > que le q4 ne peut pas atteindre** — un 70B sur 40 Go (X1/X2), puis la cible
