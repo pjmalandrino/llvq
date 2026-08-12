@@ -16,8 +16,7 @@ block: exactly 2 bits per weight of payload.
 The 47 bits are close to tight. Measuring the empirical entropy of the index
 over the shipped model's $150$M blocks gives $46.6536$ bits per block against
 47 paid: a $0.74\%$ margin, or $0.015$ bits per weight. Entropy-coding the
-index rank, an obvious-looking saving, is therefore closed by the structure
-of the format itself, not merely by our failure to compress it.
+index rank is therefore closed by the structure of the format itself.
 
 In the integer coordinate system $\sqrt{8}\,\Lambda_{24}\subset\mathbb{Z}^{24}$,
 lattice points are characterized by three simultaneous conditions tied to the
@@ -57,9 +56,8 @@ The per-class table is small: 512 records of 24 bytes---five level values
 and a level count---so 12~KB, sized at 512 rather than at the class count so
 that a 9-bit class field cannot index out of bounds. It is passed as an
 ordinary \texttt{const}-qualified global pointer and read through L1, not
-placed in CUDA constant memory. That is a deliberate choice rather than an
-omission: constant memory is optimized for broadcast and serializes distinct
-addresses issued by one warp, and here the 32 lanes of a warp hold 32
+placed in CUDA constant memory: constant memory is optimized for broadcast
+and serializes distinct addresses issued by one warp, and here the 32 lanes of a warp hold 32
 different classes by construction, which is the worst case for that bank.
 The instrumented attribution of \S\ref{sec:attribution} bears the choice
 out: the table gather costs 0.041~ms, 2\% of the kernel's gap to its DRAM

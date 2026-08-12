@@ -56,25 +56,19 @@ versus $55.59$ MMLU, both within sampling noise. The $2.03\times$
 throughput and $3.09\times$ VRAM reduction ride on content proved
 bit-identical plus an embedding change measured to be free.
 
-\textbf{Memory accounting: two denominators, always labelled.} Every
-\emph{model-level} comparison --- this section, the abstract's serving
-figures, the limitations --- is in bits per parameter over the \emph{whole
-model, embedding included}. Per-weight rates over the quantized linears
-alone overstate compression badly on small models (the 4B's embedding is
-9.7\% of its parameters), and they silently mix denominators when set
-against other methods' figures. On this accounting the served footprint is
-5.15~b/param, below the official AWQ 4-bit checkpoint's 5.30 in its own
-engine.
-
-\S\ref{sec:layouts} necessarily uses the other denominator --- what the
-kernel reads per quantized projection weight, which is the quantity a
-bandwidth argument is about --- and on that one the same 4-bit competitor
-reads \emph{less} than our production layout (4.18 against 4.80). Both
-verdicts are true, of different questions: what fits on the card, and what
-the matvec streams. They are reported apart, each labelled where it appears,
-and never subtracted from one another. The figure that needs no denominator,
-and therefore the one we lean on, is the fraction of its own byte bound each
-kernel converts into time.
+\textbf{Memory accounting: two denominators, always labelled.} Model-level
+comparisons --- this section, the abstract's serving figures, the limitations
+--- are in bits per parameter over the \emph{whole model, embedding
+included}. Per-weight rates over the quantized linears alone overstate
+compression badly on small models (the 4B's embedding is 9.7\% of its
+parameters) and silently mix denominators against other methods' figures. On
+this accounting the served footprint is 5.15~b/param, below the official AWQ
+4-bit checkpoint's 5.30 in its own engine. \S\ref{sec:layouts} necessarily
+uses the other denominator --- what the kernel reads per quantized projection
+weight, the quantity a bandwidth argument is about --- and there the same
+competitor reads \emph{less} than we do (4.18 against 4.80). Both are true of
+different questions: what fits on the card, and what the matvec streams. They
+are never subtracted from one another.
 
 \textbf{What 2 bits costs.} Against FP16 the price is $\times1.384$
 perplexity and $-14.6$ points of MMLU. The AWQ arm makes the comparison
@@ -175,41 +169,31 @@ equal.
 Absolute perplexities do not cross harnesses, so the ratio to each harness's
 own FP16 baseline is the comparable quantity. The two baselines differ by
 1.4\% on the 4B (12.41 against our 12.2369) and agree on the 8B to the two
-decimals the original paper prints (8.99 against our 8.9899). The verdict is
-split, and the second half of it is not in our favour. At 4B we sit level
-with the configurations nearest ours: $\times1.38$ against $\times1.37$ for
-the 0-gain-bit variant and $\times1.37$ for QTIP, behind the 2-gain-bit
-variant at $\times1.25$. At 8B we are behind both LLVQ variants ---
-$\times1.22$ against $\times1.13$, which on a shared baseline is 0.78
-perplexity points --- and we improve on QTIP alone. On MMLU, where only the
-4B has published points, the shortfall is wider than perplexity suggests:
-55.59 against the 60.7 of the 0-gain-bit configuration, on a baseline our
-harness reproduces to 0.12 points.
+decimals the original paper prints. The verdict is split. At 4B we sit level with the configurations nearest
+ours: $\times1.38$ against $\times1.37$ for the 0-gain-bit variant and for
+QTIP, behind the 2-gain-bit variant at $\times1.25$. At 8B we are behind both
+LLVQ variants ($\times1.22$ against $\times1.13$, 0.78 perplexity points on a
+shared baseline) and improve on QTIP alone. On MMLU, where only the 4B has
+published points, the shortfall is wider: 55.59 against 60.7, on a baseline
+our harness reproduces to 0.12 points.
 
-We claim nothing about the statistical significance of these differences.
-The original paper publishes no error bars; the $\pm$ in
-Tables~\ref{tab:campaign} and~\ref{tab:campaign8b} is single-arm sampling
-error on 2\,280 questions, not a paired test; and across papers no paired
-test is available at all, the question samples being different. What the
-matched payload does establish is that the 8B shortfall is not bought back
-by a rate advantage, and that the excess our file carries on disk is
-smallest exactly where the shortfall is largest. We do not explain it. The
-suspect that looks most natural --- roughly $100\times$ less calibration
-data --- is the one \S\ref{sec:limitations} bounds, on a perplexity proxy,
-at an effect too small to be the whole story, and that bound does not
-transfer to MMLU at all.
+We claim no statistical significance for these differences: the original
+paper publishes no error bars, our $\pm$ is single-arm sampling error rather
+than a paired test, and across papers the question samples differ. What the
+matched payload does establish is that the 8B shortfall is not bought back by
+a rate advantage, and that the excess our file carries on disk is smallest
+exactly where the shortfall is largest. We do not explain it. The natural
+suspect, roughly $100\times$ less calibration data, is bounded in
+\S\ref{sec:limitations} at an effect too small to be the whole story --- and
+that bound is measured on perplexity, which does not constrain MMLU.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
 its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind
 this paper (integration, ablations, negative results, both models) billed
 \$22.83, of which \$12.61 is the 8B requantization and \$2.33 the kernel
-comparison campaign of \S\ref{sec:layouts} (its five-, six- and seven-arm
-runs). Two honest qualifications. Five short jobs from the CUDA porting day
-are journaled without a recorded amount, so \$22.83 is a floor rather than a
-total. And the negative result of \S\ref{sec:layouts} cannot be costed
-separately: the two jobs that produced it, \$0.74 and \$0.77, each timed
+campaign of \S\ref{sec:layouts}. Five short jobs from the CUDA porting day
+are journaled without an amount, so that figure is a floor. The negative
+result cannot be costed separately: both jobs that produced it (\$0.74 and \$0.77) timed
 five or seven arms at once and are the source of Table~\ref{tab:layouts}
-itself, so the marginal cost of carrying \textsc{Golay70} through both is
-cents, not dollars. Adding an arm to an existing run is nearly free; that is
-why the negative results in this paper were affordable, and why there was no
-excuse for settling one on an instruction count.
+itself, so carrying \textsc{Golay70} through them cost cents. Adding an arm
+to an existing run is nearly free.
