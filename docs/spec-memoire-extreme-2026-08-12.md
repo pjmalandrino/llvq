@@ -1,5 +1,19 @@
 # Spec — Lot X : les pistes mémoire extrême (2026-08-12)
 
+> ✅ **X0, X1/X2 et X4 sont ÉCRITS le jour même** — `llvq-artifact/src/e1c.rs`
+> (repack + inverse, 9 tests, 3 mutants tués), `tests/e1c_format.rs` (word map
+> à la main + sweep intégral `#[ignore]`), le bras E1c de `bin/rtbits`
+> (3 tests d'acceptation) et `bin/radixstudy` (l'étude E3, verdict
+> automatique). **X3 — le bras de banc CUDA et le noyau — n'est pas écrit** :
+> il attend les verdicts Mac. Ce qu'il faut lancer, et dans quel ordre :
+> [`runbook-lot-x-mac.md`](runbook-lot-x-mac.md).
+>
+> 🔎 **Deux chiffres de cette spec sont déjà corrigés par le code.** X2 vaut
+> **3,7618** b/poids noyau (pas 3,758) et X1 **4,5551** (pas 4,556) — écarts
+> de rounding, sans effet sur les verdicts. Et `radixstudy` sort **rouge** sur
+> les classes à poids égal : la meilleure décomposition shift-only est à
+> 2,73 contre un critère de 2,60. À confirmer sur les blocs réels.
+
 > 🗓️ **ADDENDUM du même jour — la cible MoE change les critères.** L'étude
 > [`etude-moe-memoire-extreme-2026-08-12.md`](etude-moe-memoire-extreme-2026-08-12.md)
 > établit que sur un MoE (actifs/totaux = 2-5 %), le trafic par token est
