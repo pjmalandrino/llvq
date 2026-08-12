@@ -1,0 +1,512 @@
+<title>L'échelle des formats runtime</title>
+<style>
+  /* ---------- tokens : light (défaut), dark système, dark forcé ---------- */
+  :root {
+    --paper: #fafbfc;
+    --surface: #ffffff;
+    --ink: #1c2733;
+    --muted: #5a6879;
+    --faint: #8b98a8;
+    --line: #dde3ea;
+    --line-strong: #c3ccd6;
+    --accent: #2e6bd6;
+
+    --c-s32: #a06e14;   /* Slot32 — l'ancien */
+    --c-p14: #2e6bd6;   /* Planes14 — production */
+    --c-p12: #1f8a70;   /* Planes12x — les bits */
+    --c-g70: #c2542e;   /* Golay70 — écarté */
+
+    --t-s32: #f3ecdd;
+    --t-p14: #e3ecfa;
+    --t-p12: #dff0eb;
+    --t-g70: #f7e6de;
+
+    --chip-ok-bg: #e2f2e8;    --chip-ok-ink: #1a6b3c;
+    --chip-warn-bg: #fbeedb;  --chip-warn-ink: #8a5a10;
+    --chip-off-bg: #eef1f5;   --chip-off-ink: #4d5a68;
+    --chip-dead-bg: #f8e5e0;  --chip-dead-ink: #a03a20;
+
+    --code-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181f;
+      --surface: #1b212b;
+      --ink: #e3e8ef;
+      --muted: #93a0b0;
+      --faint: #6c7887;
+      --line: #2b333f;
+      --line-strong: #3c4654;
+      --accent: #4a80e0;
+
+      --c-s32: #b8842a;
+      --c-p14: #4a80e0;
+      --c-p12: #2a9d80;
+      --c-g70: #d0653f;
+
+      --t-s32: #2a2416;
+      --t-p14: #1a2637;
+      --t-p12: #16292f;
+      --t-g70: #2e1d16;
+
+      --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
+      --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
+      --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
+      --chip-dead-bg: #341a14; --chip-dead-ink: #e08a6a;
+
+      --code-bg: #232a35;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181f;
+    --surface: #1b212b;
+    --ink: #e3e8ef;
+    --muted: #93a0b0;
+    --faint: #6c7887;
+    --line: #2b333f;
+    --line-strong: #3c4654;
+    --accent: #4a80e0;
+
+    --c-s32: #b8842a;
+    --c-p14: #4a80e0;
+    --c-p12: #2a9d80;
+    --c-g70: #d0653f;
+
+    --t-s32: #2a2416;
+    --t-p14: #1a2637;
+    --t-p12: #16292f;
+    --t-g70: #2e1d16;
+
+    --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
+    --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
+    --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
+    --chip-dead-bg: #341a14; --chip-dead-ink: #e08a6a;
+
+    --code-bg: #232a35;
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    font-size: 17px;
+    line-height: 1.62;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.25rem 5rem; }
+  .wide { max-width: 56rem; margin-left: auto; margin-right: auto; }
+
+  h1, h2, h3, .sans {
+    font-family: "Avenir Next", "Segoe UI", -apple-system, system-ui, sans-serif;
+  }
+  h1 { font-size: 2.1rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; margin: 0.4rem 0 0.9rem; text-wrap: balance; }
+  h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; margin: 3rem 0 0.8rem; text-wrap: balance; }
+  h3 { font-size: 1.05rem; font-weight: 600; margin: 1.8rem 0 0.5rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  .eyebrow {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .lede { font-size: 1.12rem; color: var(--muted); margin-bottom: 0.4rem; }
+  .meta { font-size: 0.85rem; color: var(--faint); }
+
+  .secnum { color: var(--faint); font-weight: 500; margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
+
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+
+  .num { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; font-variant-numeric: tabular-nums; }
+
+  /* provenance tags */
+  .prov {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.66rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--faint); border: 1px solid var(--line-strong); border-radius: 3px;
+    padding: 0.05rem 0.3rem; white-space: nowrap; vertical-align: 0.12em;
+  }
+
+  /* callouts */
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 0.9rem 1.1rem;
+    margin: 1.4rem 0;
+    font-size: 0.95rem;
+  }
+  .callout.warn { border-left-color: var(--c-s32); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* ---------- cartes layout ---------- */
+  .layout-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.3rem 1.4rem 1.1rem;
+    margin: 1.6rem 0;
+  }
+  .layout-card > h3 { margin-top: 0; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 1.15rem; }
+  .dot { width: 0.72em; height: 0.72em; border-radius: 50%; display: inline-block; flex: none; }
+  .chip {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    border-radius: 99px; padding: 0.14rem 0.6rem; white-space: nowrap;
+  }
+  .chip.ok   { background: var(--chip-ok-bg);   color: var(--chip-ok-ink); }
+  .chip.warn { background: var(--chip-warn-bg); color: var(--chip-warn-ink); }
+  .chip.off  { background: var(--chip-off-bg);  color: var(--chip-off-ink); }
+  .chip.dead { background: var(--chip-dead-bg); color: var(--chip-dead-ink); }
+
+  .facts {
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-size: 0.85rem; color: var(--muted);
+    margin: 0.2rem 0 0.9rem;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  }
+  .facts b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- diagrammes de bits ---------- */
+  .bits-scroll { overflow-x: auto; padding-bottom: 0.4rem; margin: 0.6rem 0 0.8rem; }
+  .bits { display: flex; align-items: stretch; --bit: 5.1px; min-width: max-content; }
+  .field {
+    border: 1px solid var(--line-strong);
+    border-right-width: 0;
+    padding: 0.32rem 0.15rem 0.26rem;
+    text-align: center;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    color: var(--ink);
+    background: var(--surface);
+    overflow: hidden; white-space: nowrap;
+  }
+  .field:first-child { border-radius: 6px 0 0 6px; }
+  .field:last-child { border-right-width: 1px; border-radius: 0 6px 6px 0; }
+  .field small { display: block; color: var(--muted); font-size: 0.62rem; }
+  .f-hdr  { background: var(--code-bg); }
+  .f-pad  { background: transparent; border-style: dashed; color: var(--faint); }
+  .bits-note { font-size: 0.8rem; color: var(--faint); margin-top: 0.3rem; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+
+  .card-s32 .f-data { background: var(--t-s32); }
+  .card-p14 .f-data { background: var(--t-p14); }
+  .card-p12 .f-data { background: var(--t-p12); }
+  .card-g70 .f-data { background: var(--t-g70); }
+
+  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.35rem; }
+
+  /* ---------- tables ---------- */
+  .tbl-scroll { overflow-x: auto; margin: 1.2rem 0; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font-size: 0.9rem;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  }
+  th, td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid var(--line); }
+  th {
+    font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line-strong);
+  }
+  td.n, th.n { text-align: right; }
+  td.n { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  tr.hl td { background: var(--surface); font-weight: 600; }
+  .swatch { width: 0.6em; height: 0.6em; border-radius: 2px; display: inline-block; margin-right: 0.45em; vertical-align: baseline; }
+
+  /* ---------- chart ---------- */
+  figure { margin: 1.6rem 0; }
+  figcaption { font-size: 0.82rem; color: var(--faint); margin-top: 0.5rem; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+  .chart-scroll { overflow-x: auto; }
+  .chart-scroll svg { min-width: 620px; width: 100%; height: auto; display: block; }
+  .grid-line { stroke: var(--line); stroke-width: 1; }
+  .axis-line { stroke: var(--line-strong); stroke-width: 1; }
+  .tick-label, .axis-title { fill: var(--muted); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 11px; }
+  .axis-title { font-size: 11.5px; font-weight: 600; }
+  .ref-line { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 5 4; }
+  .ref-label { fill: var(--faint); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 10.5px; }
+  .pt-label { fill: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 12px; font-weight: 600; }
+  .pt-value { fill: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.5px; }
+  .whisker { stroke-width: 2; stroke-linecap: round; }
+  .pt { stroke: var(--paper); stroke-width: 2; }
+
+  footer { margin-top: 4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); font-size: 0.82rem; color: var(--faint); }
+  footer ul { padding-left: 1.1rem; }
+  footer li { margin-bottom: 0.15rem; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">LLVQ · noyau fusé · mini-cours</div>
+  <h1>L'échelle des formats runtime</h1>
+  <p class="lede">Slot32, Planes14, Planes12x, Golay70 : quatre façons de poser les mêmes 24 poids en VRAM, quatre points mesurés sur une seule échelle — et ce qu'il reste comme alternatives.</p>
+  <p class="meta">Rédigé le 2026-08-12 · chiffres issus des bancs L40S des 2026-08-06/07 (rapports formés round par round) · qualité identique au bit près entre tous les layouts, par construction.</p>
+</header>
+
+<h2><span class="secnum">1</span>Pourquoi deux formats</h2>
+
+<p>Le fichier scellé <code>.llvq</code> stocke chaque bloc de 24 poids comme un <em>rang</em> de 48 bits — l'index bijectif dans la boule Λ₂₄(12). C'est optimal en bits (2,07 b/poids <span class="prov">mesuré</span>) et <strong>indécodable dans un noyau fusé</strong> : dérouler le rang coûte ~106× le plancher, contre 1,43× pour un format à masques. L'écart entre les deux est de <span class="num">75×</span> — la séparation archive / runtime n'est pas un raffinement, c'est la condition d'existence du noyau.</p>
+
+<p>Donc : le fichier ne bouge jamais, et au chargement on <em>transcode</em> le rang vers un layout que le GPU sait lire dans les bulles de latence mémoire. Tous les layouts de ce cours sont des <strong>bijections exactes du même contenu</strong> — mêmes classes, mêmes gains, mêmes signes, mêmes niveaux — et rendent des poids identiques au bit près. Ce qui change, c'est uniquement le <em>prix</em> : des octets en VRAM contre de l'ALU de décodage.</p>
+
+<div class="callout">
+  <p><strong>La question du format runtime tient en une phrase :</strong> combien de bits par poids en VRAM, contre quel débit du matvec fusé ? Chaque layout est un point sur cette courbe — et la courbe finit par se retourner.</p>
+</div>
+
+<h2><span class="secnum">2</span>Ce qu'un bloc doit encoder</h2>
+
+<p>Chaque bloc de 24 poids est un point du réseau de Leech, décrit par quatre informations :</p>
+
+<ul>
+  <li><strong>la classe</strong> — laquelle des 384 classes de la boule (9 bits). Elle fixe les <em>valeurs</em> de magnitude du bloc via une table constante (<code>ClassRec</code>, ≤ 5 valeurs) ;</li>
+  <li><strong>le gain</strong> — 1 bit, choisit entre deux centroïdes de norme par matrice ;</li>
+  <li><strong>les signes</strong> — un par coordonnée non nulle ;</li>
+  <li><strong>l'assignation</strong> — quel niveau de magnitude occupe chaque slot. C'est <em>elle</em> que les quatre layouts encodent différemment, et c'est là que tout se joue.</li>
+</ul>
+
+<p>Distribution réelle sur les 150 681 600 blocs du 4B publié <span class="prov">mesuré</span> : 3 à 5 niveaux par bloc, 4 pour 65,9 % d'entre eux, jamais 2 ; cosets pair/impair à 50/50. Les blocs à 5 niveaux — <span class="num">3,3824 %</span> — sont la clé de <code>Planes12x</code>.</p>
+
+<h2><span class="secnum">3</span>Les quatre layouts</h2>
+
+<!-- ================= SLOT32 ================= -->
+<div class="layout-card card-s32">
+  <h3><span class="dot" style="background:var(--c-s32)"></span>Slot32 — le one-hot <span class="chip off">Repli · <code>slot32</code></span></h3>
+  <div class="facts">
+    <span><b class="num">5,510</b> b/poids (thesis)</span>
+    <span><b class="num">1,87×</b> vs FP16 [1,86–1,88]</span>
+    <span><b class="num">428</b> Go/s</span>
+    <span>stride <b>11 / 14 / 17 o</b> + base u32 par groupe de 32</span>
+  </div>
+  <div class="bits-scroll"><div class="bits">
+    <div class="field f-hdr" style="width:calc(var(--bit)*9)">classe<small>9</small></div>
+    <div class="field f-hdr" style="width:calc(var(--bit)*3);min-width:2rem">g<small>1</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">smask<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">m₁<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">m₂<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">m₃<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">m₄<small>24</small></div>
+  </div>
+  <p class="bits-note">Pire cas L = 5 : 130 bits → 17 octets. L = 4 → 14 o, L = 3 → 11 o. Le stride varie, d'où la base u32 par groupe.</p></div>
+  <p>L'assignation est stockée en <strong>masques one-hot</strong> : un mot de 24 bits par niveau de magnitude (le niveau 0 est implicite, complément de l'union). Le décodeur lit tout à offsets fixes : 24 tours, le niveau d'un slot par 4 tests de masque, le signe par un bit — <strong>zéro divergence, zéro état sériel</strong>. C'est le layout qui a fait la percée du 2026-08-01 (2,2× sur une couche) : la première preuve que le décodage Leech pouvait se glisser sous la latence mémoire.</p>
+  <p>Son défaut a mis une semaine à être vu : le one-hot dépense jusqu'à 4 × 24 bits pour une information qui en vaut 2 à 3 par coordonnée. <strong>Rien dans le décodeur ne consomme le one-hot</strong> — c'était la dé-sérialisation la plus simple de l'archive, pas un choix d'optimalité.</p>
+</div>
+
+<!-- ================= PLANES14 ================= -->
+<div class="layout-card card-p14">
+  <h3><span class="dot" style="background:var(--c-p14)"></span>Planes14 — les plans de bits <span class="chip ok">En production · défaut</span></h3>
+  <div class="facts">
+    <span><b class="num">4,804</b> b/poids (thesis)</span>
+    <span><b class="num">2,14×</b> vs FP16 [2,11–2,15]</span>
+    <span><b class="num">425</b> Go/s</span>
+    <span>stride <b>uniforme 14 o</b>, sans bases</span>
+  </div>
+  <div class="bits-scroll"><div class="bits">
+    <div class="field f-hdr" style="width:calc(var(--bit)*9)">classe<small>9</small></div>
+    <div class="field f-hdr" style="width:calc(var(--bit)*3);min-width:2rem">g<small>1</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">smask<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">p₀<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">p₁<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">p₂<small>24</small></div>
+    <div class="field f-pad" style="width:calc(var(--bit)*6)">0<small>6</small></div>
+  </div>
+  <p class="bits-note">112 bits pour <em>tous</em> les blocs. Le niveau du slot j = p₀[j] | p₁[j]≪1 | p₂[j]≪2 — un index binaire explicite.</p></div>
+  <p>Même contenu, recodé en <strong>binaire</strong> : trois plans de bits couvrent jusqu'à 8 niveaux, le codebook plafonne à 5 — donc <em>aucun</em> plafond nécessaire, zéro perte, et le niveau 0 devient trois bits à zéro au lieu d'être implicite. Le stride devient uniforme : plus de table de bases, l'offset est <code>14·b</code>, et la fenêtre de lecture tombe à <strong>4 mots contre 5</strong> pour Slot32 (borne structurelle, pas dépendante de la table). Les valeurs sortent d'un arbre de sélections prédiquées — jamais <code>vals[idx]</code>, qui enverrait le tableau en mémoire locale.</p>
+  <p><strong>La découverte de la semaine du 08-06 :</strong> ce recodage rend le format <em>plus petit et plus rapide</em> à la fois — les Go/s restent constants (428 → 425), donc le temps tombe exactement comme les octets. Dans le modèle : 48,7 tok/s / 2,96 Go, et <strong>88,4–88,5 tok/s dans 2,60 Go</strong> avec l'embedding q8 <span class="prov">mesuré</span> — en gardant à côté le rapport honnête : ×1,12 à tête <code>lm_head</code> identique, le ×2,03 incluant la correction de notre propre bras dense.</p>
+</div>
+
+<!-- ================= PLANES12X ================= -->
+<div class="layout-card card-p12">
+  <h3><span class="dot" style="background:var(--c-p12)"></span>Planes12x — l'overlay épars <span class="chip warn">Câblé · jamais mesuré dans le modèle</span></h3>
+  <div class="facts">
+    <span><b class="num">4,342</b> b/poids (thesis)</span>
+    <span><b class="num">1,98×</b> vs FP16 [1,95–1,99]</span>
+    <span><b class="num">356</b> Go/s</span>
+    <span>stride <b>12 o alignés</b> + table d'exceptions</span>
+  </div>
+  <div class="bits-scroll"><div class="bits">
+    <div class="field f-hdr" style="width:calc(var(--bit)*9)">classe<small>9</small></div>
+    <div class="field f-hdr" style="width:calc(var(--bit)*3);min-width:2rem">g<small>1</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">smask<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">p₀<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">p₁<small>24</small></div>
+    <div class="field f-pad" style="width:calc(var(--bit)*14)">0<small>14</small></div>
+  </div>
+  <p class="bits-note">96 bits = exactement 3 mots u32 alignés, <em>zéro shift</em>. + une table d'exceptions par matrice : le record Planes14 exact (14 o) de chaque bloc à 5 niveaux.</p></div>
+  <p>L'idée : deux plans suffisent à 4 niveaux, et seuls <span class="num">3,38 %</span> des blocs en ont 5. Le flux principal plafonne donc à L ≤ 4 — un bloc à 5 niveaux y stocke sa meilleure direction à 4 niveaux — et une <strong>table d'exceptions</strong> (5 096 688 blocs sur le 4B <span class="prov">mesuré</span>) porte le record exact. La passe de correction ajoute <code>(exact − approx)·x·rscale</code> par exception, <em>dans le même lancement</em> (CTAs supplémentaires, correction atomique) : la sortie est <strong>exacte</strong>, prouvée identique sur les 1 105 920 lignes du modèle.</p>
+  <p>Attention au piège d'histoire : le plafond L ≤ 4 <em>sans</em> overlay avait l'air gratuit sur proxy gaussien (« −0,26 pt ») et a coûté <strong>+4,75 % de perplexité</strong> sur le fichier réel — mort. L'overlay atteint le même point de bits à qualité exacte : c'est toute sa raison d'être.</p>
+  <p>Coûts à connaître avant de l'activer : 7 % de débit contre Planes14 (0,93×), et un transcodage à <span class="num">404 s</span> contre 84 s sur le 4B (il refait une recherche réseau par bloc). Au 8B, la mesure du 08-09 dit que ça ne paie pas — la VRAM y est déjà gagnée par Planes14 + q8. Il est câblé (<code>LLVQ_FUSED_LAYOUT=planes12x</code>) pour être mesurable et pour le 14B/32B, où la part de l'embedding retombe et où son gain redevient plein.</p>
+</div>
+
+<!-- ================= GOLAY70 ================= -->
+<div class="layout-card card-g70">
+  <h3><span class="dot" style="background:var(--c-g70)"></span>Golay70 — l'étage algébrique <span class="chip dead">Écarté · sous le critère 1,6×</span></h3>
+  <div class="facts">
+    <span><b class="num">3,589</b> b/poids (thesis)</span>
+    <span><b class="num">1,31×</b> vs FP16 [1,29–1,32]</span>
+    <span><b class="num">195</b> Go/s</span>
+    <span>stride <b>9 o</b> + exceptions (7,44 % des blocs)</span>
+  </div>
+  <div class="bits-scroll"><div class="bits">
+    <div class="field f-hdr" style="width:calc(var(--bit)*9)">classe<small>9</small></div>
+    <div class="field f-hdr" style="width:calc(var(--bit)*3);min-width:2rem">g<small>1</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*12)">golay<small>12</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">A<small>24</small></div>
+    <div class="field f-data" style="width:calc(var(--bit)*24)">B<small>24</small></div>
+    <div class="field f-pad" style="width:calc(var(--bit)*2);min-width:1.4rem">0<small>2</small></div>
+  </div>
+  <p class="bits-note">70 bits utiles. <code>golay</code> = le rang du codeword dans la table canonique de 4096 (résolu via 16 Kio en L1). A et B changent de sens selon le coset.</p></div>
+  <p>Le pari le plus profond de l'échelle : Λ₂₄ est <em>construit</em> sur le code de Golay, qui est linéaire — le plan « résidu mod 4 » de chaque bloc <strong>est</strong> un codeword. Douze bits de rang remplacent donc ce que les plans de bits dépensent en indices explicites. Coset pair : le bit de codeword fixe le résidu du slot, A choisit entre les ≤ 2 valeurs de ce résidu, B est le signe. Coset impair : A et B sont deux plans de niveaux, et le signe est <em>calculé</em>, pas stocké (<code>neg = c_i ^ flag</code> — la règle « les signes ne portent aucun bit » du format v1).</p>
+  <p><strong>Le format tient, le noyau non.</strong> Reconstruction exacte prouvée sur les 150,7 M blocs — mais le décodage à double coset borne le noyau <em>en calcul</em> : 195 Go/s effectifs, 1,31× vs FP16, sous le critère de 1,6× posé <em>avant</em> la mesure. C'est ce qui permet de l'écarter sans discussion — et la prédiction de bits (2,92–3,05) était optimiste de ~0,5 b/poids : 7,4357 % de blocs violants ou L = 5 à corriger dans le même lancement. Ne pas rouvrir sans idée neuve sur le coût ALU.</p>
+</div>
+
+<h2><span class="secnum">4</span>La mesure — un banc, une comptabilité</h2>
+
+<p>Les quatre points viennent d'<strong>un seul processus</strong> (banc à 5 bras du 2026-08-07), avec la même comptabilité d'octets pour tous — payload + bases + queue f32 + échelles de ligne, dite « thesis » — et chaque bras vérifié ligne à ligne contre une référence f64. Le « vs FP16 » est la <em>médiane du rapport formé round par round</em>, avec sa plage : une plage, pas un point.</p>
+
+<figure class="wide">
+  <div class="chart-scroll">
+  <svg viewBox="0 0 720 410" role="img" aria-label="Nuage de points : bits par poids contre débit relatif au FP16 pour les quatre layouts">
+    <!-- grid -->
+    <line class="grid-line" x1="80" y1="338" x2="660" y2="338"/>
+    <line class="grid-line" x1="80" y1="294" x2="660" y2="294"/>
+    <line class="grid-line" x1="80" y1="250" x2="660" y2="250"/>
+    <line class="grid-line" x1="80" y1="206" x2="660" y2="206"/>
+    <line class="grid-line" x1="80" y1="162" x2="660" y2="162"/>
+    <line class="grid-line" x1="80" y1="118" x2="660" y2="118"/>
+    <line class="grid-line" x1="80" y1="74"  x2="660" y2="74"/>
+    <line class="grid-line" x1="80" y1="30"  x2="660" y2="30"/>
+    <!-- axes -->
+    <line class="axis-line" x1="80" y1="30" x2="80" y2="360"/>
+    <line class="axis-line" x1="80" y1="360" x2="660" y2="360"/>
+    <!-- y ticks -->
+    <text class="tick-label" x="72" y="342" text-anchor="end">1,0×</text>
+    <text class="tick-label" x="72" y="298" text-anchor="end">1,2×</text>
+    <text class="tick-label" x="72" y="254" text-anchor="end">1,4×</text>
+    <text class="tick-label" x="72" y="210" text-anchor="end">1,6×</text>
+    <text class="tick-label" x="72" y="166" text-anchor="end">1,8×</text>
+    <text class="tick-label" x="72" y="122" text-anchor="end">2,0×</text>
+    <text class="tick-label" x="72" y="78"  text-anchor="end">2,2×</text>
+    <text class="tick-label" x="72" y="34"  text-anchor="end">2,4×</text>
+    <!-- x ticks -->
+    <text class="tick-label" x="80"    y="376" text-anchor="middle">3,0</text>
+    <text class="tick-label" x="176.7" y="376" text-anchor="middle">3,5</text>
+    <text class="tick-label" x="273.3" y="376" text-anchor="middle">4,0</text>
+    <text class="tick-label" x="370"   y="376" text-anchor="middle">4,5</text>
+    <text class="tick-label" x="466.7" y="376" text-anchor="middle">5,0</text>
+    <text class="tick-label" x="563.3" y="376" text-anchor="middle">5,5</text>
+    <text class="tick-label" x="660"   y="376" text-anchor="middle">6,0</text>
+    <text class="axis-title" x="370" y="401" text-anchor="middle">b/poids en VRAM (comptabilité thesis) — ← moins est mieux</text>
+    <text class="axis-title" x="20" y="195" transform="rotate(-90 20 195)" text-anchor="middle">débit vs FP16 (médiane round par round)</text>
+    <!-- reference lines -->
+    <line class="ref-line" x1="80" y1="338" x2="660" y2="338"/>
+    <text class="ref-label" x="656" y="332" text-anchor="end">FP16 : 1,00× à 16,0 b/poids (hors cadre)</text>
+    <line class="ref-line" x1="80" y1="206" x2="660" y2="206"/>
+    <text class="ref-label" x="656" y="200" text-anchor="end">critère d'admission 1,6× — posé avant la mesure</text>
+    <!-- Golay70 : x=193.9  y=269.8  whisker 267.6–274.2 -->
+    <line class="whisker" x1="193.9" y1="267.6" x2="193.9" y2="274.2" stroke="var(--c-g70)"/>
+    <circle class="pt" cx="193.9" cy="269.8" r="7" fill="var(--c-g70)"><title>Golay70 — 3,589 b/poids · 1,31× [1,29–1,32] · 195 Go/s · écarté</title></circle>
+    <text class="pt-label" x="208" y="266">Golay70</text>
+    <text class="pt-value" x="208" y="280">3,589 · 1,31× — écarté</text>
+    <!-- Planes12x : x=339.5 y=122.4 whisker 120.2–129 -->
+    <line class="whisker" x1="339.5" y1="120.2" x2="339.5" y2="129" stroke="var(--c-p12)"/>
+    <circle class="pt" cx="339.5" cy="122.4" r="7" fill="var(--c-p12)"><title>Planes12x — 4,342 b/poids · 1,98× [1,95–1,99] · 356 Go/s · câblé, non mesuré dans le modèle</title></circle>
+    <text class="pt-label" x="330" y="152" text-anchor="middle">Planes12x</text>
+    <text class="pt-value" x="330" y="166" text-anchor="middle">4,342 · 1,98×</text>
+    <!-- Planes14 : x=428.8 y=87.2 whisker 85–93.8 -->
+    <line class="whisker" x1="428.8" y1="85" x2="428.8" y2="93.8" stroke="var(--c-p14)"/>
+    <circle class="pt" cx="428.8" cy="87.2" r="7" fill="var(--c-p14)"><title>Planes14 — 4,804 b/poids · 2,14× [2,11–2,15] · 425 Go/s · production</title></circle>
+    <text class="pt-label" x="443" y="83">Planes14 — production</text>
+    <text class="pt-value" x="443" y="97">4,804 · 2,14×</text>
+    <!-- Slot32 : x=565.3 y=146.6 whisker 144.4–148.8 -->
+    <line class="whisker" x1="565.3" y1="144.4" x2="565.3" y2="148.8" stroke="var(--c-s32)"/>
+    <circle class="pt" cx="565.3" cy="146.6" r="7" fill="var(--c-s32)"><title>Slot32 — 5,510 b/poids · 1,87× [1,86–1,88] · 428 Go/s · repli</title></circle>
+    <text class="pt-label" x="580" y="143">Slot32</text>
+    <text class="pt-value" x="580" y="157">5,510 · 1,87×</text>
+  </svg>
+  </div>
+  <figcaption>Banc 5 bras, L40S, 2026-08-07 (<span class="mono">e2-golay70-bench</span>). Moustaches = plage des rapports sur les rounds gardés. L'idéal est en haut à gauche ; Planes14 et Planes12x dominent Slot32 sur les deux axes à la fois, Golay70 tombe sous le critère.</figcaption>
+</figure>
+
+<div class="tbl-scroll wide">
+<table>
+  <tr><th>Layout</th><th>Assignation encodée par</th><th class="n">b/poids</th><th class="n">vs FP16</th><th class="n">Go/s</th><th>Statut</th></tr>
+  <tr><td><span class="swatch" style="background:var(--c-s32)"></span>Slot32</td><td>masques one-hot, niveau 0 implicite</td><td class="n">5,510</td><td class="n">1,87× [1,86–1,88]</td><td class="n">428</td><td>repli (<code>slot32</code>)</td></tr>
+  <tr class="hl"><td><span class="swatch" style="background:var(--c-p14)"></span>Planes14</td><td>3 plans de bits binaires</td><td class="n">4,804</td><td class="n">2,14× [2,11–2,15]</td><td class="n">425</td><td>production, défaut</td></tr>
+  <tr><td><span class="swatch" style="background:var(--c-p12)"></span>Planes12x</td><td>2 plans + overlay d'exceptions</td><td class="n">4,342</td><td class="n">1,98× [1,95–1,99]</td><td class="n">356</td><td>câblé, non mesuré en modèle</td></tr>
+  <tr><td><span class="swatch" style="background:var(--c-g70)"></span>Golay70</td><td>rang Golay + 2 bits/slot contextuels</td><td class="n">3,589</td><td class="n">1,31× [1,29–1,32]</td><td class="n">195</td><td>écarté</td></tr>
+</table>
+</div>
+
+<h3>Et en modèle entier — la seule comptabilité qui permet de comparer au 4 bits</h3>
+
+<div class="tbl-scroll">
+<table>
+  <tr><th>Point de fonctionnement (Qwen3-4B)</th><th class="n">b/param, embedding compris</th></tr>
+  <tr><td>Slot32 + embedding f16 (avant C1)</td><td class="n">6,52</td></tr>
+  <tr><td>Planes14 + embedding f16</td><td class="n">5,88</td></tr>
+  <tr class="hl"><td>Planes14 + embedding q8</td><td class="n">≈ 5,15 <span class="prov">mesuré</span></td></tr>
+  <tr><td>Planes12x + embedding q8</td><td class="n">4,69 <span class="prov">calculé</span></td></tr>
+  <tr><td>repère : AWQ w4 g128 réel (dans son moteur)</td><td class="n">5,30</td></tr>
+  <tr><td>repère : MLX q4 g64</td><td class="n">4,50</td></tr>
+</table>
+</div>
+
+<p>Le renversement que l'échelle a produit : <strong>Planes14 + q8 passe sous l'AWQ 4 bits réel</strong> (5,15 contre 5,30), et Planes12x descendrait à 4 % du MLX q4 — à qualité LLVQ strictement identique au fichier publié. Jamais comparer un b/poids de projections seules à un b/param modèle entier : c'est l'erreur grave de l'errata du lot A.</p>
+
+<h2><span class="secnum">5</span>Ce que l'échelle enseigne</h2>
+
+<ul>
+  <li><strong>Le one-hot ne payait rien, il coûtait.</strong> Planes14 est plus petit <em>et</em> plus rapide que Slot32, à Go/s constants : le temps tombe exactement comme les octets. L'intuition « on achète de la vitesse avec des bits » qui avait fait choisir Slot32 était fausse.</li>
+  <li><strong>Le dilemme central est levé.</strong> « Le format qui va vite ne rentre pas mieux que du 4 bits ; le format qui rentre mieux ne va pas vite » était vrai sur Slot32/Flat32/Grouped32 — Planes14 et Planes12x sont devant Slot32 <em>sur les deux axes à la fois</em>.</li>
+  <li><strong>Mais la courbe se retourne, et Golay70 le prouve.</strong> Descendre encore en bits finit par borner le noyau en calcul (195 Go/s effectifs). Le critère de 1,6× posé <em>avant</em> la mesure est ce qui a permis de l'écarter sans débat — la méthode compte autant que le résultat.</li>
+</ul>
+
+<h2><span class="secnum">6</span>D'autres alternatives ? L'état honnête du terrain</h2>
+
+<h3>Les deux barreaux jamais tentés</h3>
+
+<p><strong>E1c — SoA bit-slicé ×32</strong> (<span class="num">3,417</span> b/poids payload, ~3,56 thesis <span class="prov">calculé</span>). Empaqueter les plans par groupe de 32 blocs transposés, sans aucun arrondi à l'octet. C'est <em>le seul point non mesuré</em> entre 4,34 et 3,59, et le seul qui pourrait battre Golay70 en bits sans payer son double coset. Risque connu : +30–40 % d'ALU d'extraction estimés — or l'ALU est précisément le poste qui a tué Golay70. À tester au banc (~0,2 $) avant toute conviction, dans un sens ou dans l'autre.</p>
+
+<p><strong>E3 — l'unranking en noyau</strong> (~2,3–2,5 b/poids <span class="prov">estimé</span>). Décoder l'index disque directement dans le noyau. Réintroduit du séquentiel dépendant des données — exactement ce qui fait les 0,69× de Grouped32 — donc admissible seulement sous une forme co-designée : rang Golay stocké + rang intra-classe à radices choisies pour le shift, façon QTIP. C'est le chantier que « 70B sur 24 Go » exigerait ; c'est aussi le plus gros.</p>
+
+<h3>Rouvrir Golay70 — seulement avec une idée neuve</h3>
+
+<p>Deux pistes notées et non poursuivies : <strong>spécialiser les warps par coset</strong> (supprimer la prédication double en triant les blocs pair/impair côté transcodeur), et <strong>ne payer le XOR que côté pair</strong>. L'une ou l'autre devrait rendre ~30 % d'ALU pour repasser le critère — c'est plausible mais non chiffré, et la règle du dépôt tient : pas de réouverture sans idée neuve sur le coût ALU.</p>
+
+<h3>Ce qui est fermé — ne pas re-creuser</h3>
+
+<ul>
+  <li><strong>Codage entropique du rang</strong> : l'entropie mesurée de l'index vaut 46,6536 bits contre 47 payés — il n'y a <em>rien</em> à gagner. Clos définitivement.</li>
+  <li><strong>Plafond L ≤ 4 sans overlay</strong> : +4,75 % de perplexité mesurés sur le fichier scellé, repasse au-dessus de QTIP. Mort en qualité.</li>
+  <li><strong>Positionnel</strong> (+0,598 b/poids), <strong>rangs groupés</strong> (+0,45 à +0,77), <strong>Fixed128 en nibbles</strong> (5,33) : tous dominés à la mesure.</li>
+</ul>
+
+<h3>Repères extérieurs</h3>
+
+<p>Chaque idée de l'échelle a un précédent dans la littérature — utile pour situer, à revérifier avant de citer : <strong>QuIP#/E8P</strong> reconstruit les signes E8 par calcul (l'analogue du XOR Golay), <strong>QTIP</strong> décode par calcul un trellis « bitshift » (le précédent d'E3 et l'étalon du coût de décode), <strong>SpQR / SqueezeLLM</strong> font dense + épars (le précédent mesuré de l'overlay Planes12x), <strong>Marlin</strong> co-designe layout et pipeline. Le noyau Leech multi-coquilles fusé, lui, reste sans précédent.</p>
+
+<div class="callout warn">
+  <p><strong>Le verdict produit, pour ne pas se raconter d'histoire :</strong> l'échelle des formats est <em>close</em>, et elle a été fermée proprement — chaque barreau mesuré ou écarté sur critère posé d'avance. Au 8B, la VRAM est déjà gagnée par Planes14 + q8 (5,32 contre 5,96 b/param pour l'AWQ) : descendre encore en bits dépenserait du débit sur un axe déjà acquis. Le chantier ouvert du projet n'est plus le format, c'est la <strong>qualité</strong> (−10,56 pp de MMLU au 8B). Les alternatives ci-dessus ne redeviennent intéressantes qu'au 14B/32B — où la part portée par l'embedding retombe à ~10 puis ~5 % et où Planes12x, déjà câblé, reprend son gain plein — ou si E1c s'avérait tenir ses 3,42 b/poids à ≥ 1,6×.</p>
+</div>
+
+<footer>
+  <p><strong>Sources</strong> — toutes dans le dépôt :</p>
+  <ul class="mono">
+    <li>docs/mesures/e2-golay70-bench-2026-08-07.txt — le banc 5 bras, les quatre points</li>
+    <li>docs/mesures/c1-planesbench-2026-08-06.txt — Planes14 vs Slot32</li>
+    <li>docs/mesures/nuit-planes12x-q8-2026-08-07.txt · verdicts-nuit-2026-08-07.md — overlay + q8</li>
+    <li>docs/pistes-format-vram-2026-08-05.md — l'échelle prédite, barreau par barreau, et son bilan</li>
+    <li>docs/format-noyau.md — les pièges de mesure et la note de provenance des comptabilités</li>
+    <li>llvq-cuda/kernels/llvq_{slot,planes,planes12,golay}.cuh — les décodeurs, avec leurs invariants en tête de fichier</li>
+  </ul>
+  <p>Qualité identique au bit près entre layouts par construction (transcodage bijectif, round-trips vérifiés). Les b/poids sont exacts et reproductibles au chiffre ; les millisecondes dérivent — d'où les plages.</p>
+</footer>
+
+</div>
