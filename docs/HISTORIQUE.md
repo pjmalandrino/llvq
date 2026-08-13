@@ -260,3 +260,44 @@ de difficulté ([`mesures/moe-routing-gptoss20b-2026-08-12.txt`](mesures/moe-rou
 deux côtés, mais deux nombres pour un seul critère.
 
 Verdicts détaillés : [`archive/passation-lot-x-2026-08-12.md`](archive/passation-lot-x-2026-08-12.md).
+
+## 2026-08-13 — Le rejeu apparié : la phrase du papier tient, mais pas dans les deux comptabilités
+
+Phase 1.2 du plan, **1,30 $** (`oracle` 0,01 + 4B 0,49 + 8B 0,80, `l40sx1`).
+Six bras MMLU rejoués avec dumps par question, **empreinte
+`65dcd53655e8bfa5` sur les six** — et les six micros reproduisent les chiffres
+publiés **au centième** (70,32 / 70,04 / 55,59 et 76,08 / 73,01 / 65,52). Le
+harnais traverse trois mois sans dériver ; c'est le contrôle qui rend le reste
+lisible ([`mesures/mmlupair-4b-8b-2026-08-13.txt`](mesures/mmlupair-4b-8b-2026-08-13.txt),
+dumps dans [`data/mmlu-dumps/`](data/mmlu-dumps/)).
+
+| paire (Δ = A − B) | 4B | 8B |
+|---|---|---|
+| f16 − AWQ | **+0,27 pp [−1,63 ; +2,13] NON RÉSOLU** | **+3,07 pp [+1,61 ; +4,69] résolu** |
+| f16 − LLVQ | +14,73 pp [+11,98 ; +17,47] | +10,57 pp [+8,58 ; +12,57] |
+| AWQ − LLVQ | +14,45 pp [+11,60 ; +17,27] | **+7,49 pp [+5,28 ; +9,70]** |
+
+✅ **« The 4-bit baseline starts paying » est testé, et il tient.** À 4B
+l'écart f16↔AWQ n'est pas résolu ; à 8B il l'est. C'est exactement la phrase,
+et `echelle-4b-8b` §1bis peut lever sa réserve.
+
+⚠️ **Mais elle dépend de la comptabilité, et il faut le dire.** À 4B, le
+contrôle **non pondéré** résout ce que le micro stratifié ne résout pas
+(+1,97 pp [+0,92 ; +3,02]). Le désaccord est porté par `professional law`
+(poids 10,9 %, −10,0 pp) : dans la comptabilité publiée l'AWQ est
+indiscernable du f16 à 4B, dans l'autre il perd déjà. Écrire la phrase **avec
+son statistique**, pas comme un fait nu.
+
+✅ **Le resserrement de l'écart au 4 bits est mieux fondé qu'avant** :
+14,45 → 7,49 pp, et les deux IC95 **ne se recouvrent pas**. « The gap halves »
+sort renforcé de son premier test.
+
+⚠️ **L'axe f16, lui, ne suit pas** : les IC de f16 − LLVQ **se recouvrent**
+(14,73 [11,98 ; 17,47] contre 10,57 [8,58 ; 12,57], recouvrement
+[11,98 ; 12,57]). La fonte du déficit est donc solide **face au 4 bits** et
+non résolue **face au f16** — asymétrie à porter dans le papier plutôt qu'à
+lisser.
+
+⚠️ Aucun de ces intervalles ne teste la *différence des différences* entre
+échelles : `mmlupair` apparie deux bras sur les mêmes questions, il n'apparie
+pas deux tailles de modèle. Non-recouvrement d'IC ≠ test formel.

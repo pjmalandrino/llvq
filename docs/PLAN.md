@@ -54,18 +54,49 @@ Le 14B est mesuré ([`mesures/campagne-14b-qualite-2026-08-10.txt`](mesures/camp
       ppl −43 % puis −14 % ; écart AWQ 14,45 → 7,49 → 6,09 pp) ; « two
       points, not a law » → « three points, a knee, not a law ». La
       direction tient toujours ; la forme de la courbe change.
-- [ ] Remplacer « the 4-bit baseline starts paying » par le résultat apparié :
-      au 14B, f16−AWQ = +0,76 pp, IC95 [−0,65 ; +2,17], **non résolu** ; les
-      écarts 4B/8B n'ont jamais été testés en appariement.
+- [ ] Remplacer « the 4-bit baseline starts paying » par le résultat apparié.
+      **Les trois échelles sont désormais testées** (1.2 faite le 2026-08-13),
+      et la phrase **tient**, à condition de citer sa statistique :
+
+      | f16 − AWQ, micro stratifié | verdict |
+      |---|---|
+      | 4B : +0,27 pp, IC95 [−1,63 ; +2,13] | **non résolu** |
+      | 8B : +3,07 pp, IC95 [+1,61 ; +4,69] | **résolu** |
+      | 14B : +0,76 pp, IC95 [−0,65 ; +2,17] | non résolu |
+
+      ⚠️ Deux réserves à porter dans le texte, pas à lisser. (i) À 4B, le
+      contrôle **non pondéré** résout (+1,97 [+0,92 ; +3,02]) ce que le micro
+      stratifié ne résout pas — désaccord porté par `professional law`
+      (poids 10,9 %). (ii) Le 14B **non résolu** après un 8B **résolu** n'est
+      pas monotone : « starts paying » décrit le 8B, pas une tendance.
 - [ ] Mettre à jour « Cost of evidence » (le total intègre les jobs 14B) et
       réconcilier les deux totaux 14B qui circulent (30,20 $ vs 31,46 $).
 
-### 1.2 Option : rejeu apparié 4B/8B (~3 $)
+### 1.2 ✅ FAIT le 2026-08-13 — rejeu apparié 4B/8B (1,30 $, pas 3)
 
-`echelle-4b-8b` § 1bis pose ce rejeu comme condition pour toute phrase sur
-l'écart AWQ à ces tailles. Relancer les MMLU 4B/8B avec dumps par question
-(`mmlupair`), mêmes empreintes. Si non fait : l'écrire comme non testé dans
-le papier — c'est la formulation par défaut de 1.1.
+`echelle-4b-8b` § 1bis posait ce rejeu comme condition pour toute phrase sur
+l'écart AWQ à ces tailles : **la réserve est levée**. Six bras MMLU rejoués
+avec dumps par question, **empreinte `65dcd53655e8bfa5` sur les six**, et les
+six micros reproduisent les chiffres publiés **au centième** — le harnais
+traverse trois mois sans dériver.
+[`mesures/mmlupair-4b-8b-2026-08-13.txt`](mesures/mmlupair-4b-8b-2026-08-13.txt),
+dumps dans [`data/mmlu-dumps/`](data/mmlu-dumps/).
+
+| Δ = A − B, micro stratifié | 4B | 8B |
+|---|---|---|
+| f16 − AWQ | +0,27 [−1,63 ; +2,13] **non résolu** | +3,07 [+1,61 ; +4,69] résolu |
+| f16 − LLVQ | +14,73 [+11,98 ; +17,47] | +10,57 [+8,58 ; +12,57] |
+| **AWQ − LLVQ** | **+14,45 [+11,60 ; +17,27]** | **+7,49 [+5,28 ; +9,70]** |
+
+✅ **« The gap halves » sort renforcé** : sur l'axe qui porte la thèse
+(AWQ − LLVQ), les deux IC95 **ne se recouvrent pas**.
+⚠️ **L'axe f16 ne suit pas** : les IC de f16 − LLVQ **se recouvrent**
+([11,98 ; 12,57]). La fonte est solide face au 4 bits, non résolue face au
+f16 — asymétrie à écrire, pas à lisser.
+⚠️ **Aucun de ces intervalles ne teste la différence des différences entre
+échelles.** `mmlupair` apparie deux bras sur les mêmes questions ; il
+n'apparie pas deux tailles de modèle. Non-recouvrement d'IC ≠ test formel, et
+le papier ne doit pas laisser croire le contraire.
 
 ### 1.3 Corrections de chiffres et d'étiquetage (papier)
 
