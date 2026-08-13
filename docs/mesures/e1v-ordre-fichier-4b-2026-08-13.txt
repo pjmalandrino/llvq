@@ -1,0 +1,320 @@
+================================================================================
+T1 + T2 + T3 — le menu radixstudy en ORDRE-FICHIER RÉEL, deux modes d'adressage
+Qwen3-4B scellé — 2026-08-13
+================================================================================
+
+CE QUI JUGE CE RUN
+  proofs/preregistration-2026-08-13.md — écrit AVANT toute mesure, jamais modifié.
+  Seuils figés par lui : S_spec = 2,60 b/poids noyau ⇔ 58,86 bits/bloc
+                         S_alt  = 3,09 b/poids noyau ⇔ 70,66 bits/bloc
+  ⚠️ S_alt n'existe qu'à contexte 8k figé et N'EST PAS le seuil du projet : il ne
+     devient opposable que si la note produit du §5 retient le triplet
+     (32 Go ; 2 Go de marge ; KV q8 ; 8k), et cette note N'EXISTE PAS.
+  Interdit de citation (§1) : la colonne CM (classe-majeur) est OPTIMISTE par
+     construction et ne se cite dans AUCUN verdict. Elle est ici comme contrôle.
+  Et le critère d'ouverture d'E3 lui-même, celui que le VERDICT applique :
+     spec-memoire-extreme-2026-08-12.md:185-188 — une CONJONCTION,
+     « ≤ 2,6 b/poids thesis projeté ET un décodeur à profondeur fixe ≤ 24 étapes
+       sans état sériel inter-slot ».
+
+RÉÉMISSION DU 2026-08-13 — CE QUI A CHANGÉ, ET CE QUI N'A PAS BOUGÉ
+  Une première version de ce journal a été produite par un binaire qui prenait
+  son verdict sur `shift_only` SEUL : le champ `depth` n'entrait dans AUCUNE
+  décision. Elle imprimait « Le chantier E3 est ouvert au sens de la spec » sur
+  e1v-séparé, dont la profondeur déclarée est 96 — donc sur un point qui viole
+  la seconde moitié du critère. Trois autres défauts l'accompagnaient (des ✅
+  dans la bande interdite ]S_spec ; S_alt], un test de frontière de matrice non
+  létal, et deux chiffres à 3 décimales qu'aucune commande ne rendait).
+  CE QUI A CHANGÉ : le VERDICT (conjonction appliquée), les MARQUEURS de la
+    colonne S_alt (⊘ au lieu de ✅ dans la bande), une table de bits/bloc à
+    3 décimales ajoutée, et l'étiquette « perslot (= Planes) » → « perslot (PAS
+    Planes14) ».
+  CE QUI N'A PAS BOUGÉ : les 87 valeurs numériques des tables, vérifiées une à
+    une contre la première émission — aucune ne diffère d'un chiffre. Les
+    corrections portent sur des verdicts, des marqueurs et des précisions
+    d'affichage, jamais sur une comptabilité.
+
+QUAND / OÙ / QUOI
+  date (UTC)      2026-08-13T13:16:18Z
+  machine         Apple M3 Max, 16 cœurs, 64 Gio, macOS 26.5.2
+  rustc           1.95.0 (59807616e 2026-04-14)
+  commit          f8840b309bee5f8157f3e65b687534a58c08aeb1
+                  (+ llvq-bench/src/bin/radixstudy.rs modifié, non commité)
+  commande        cargo build --release -p llvq-bench --bin radixstudy
+                  ./target/release/radixstudy ~/llvq-q4b.llvq
+  durée           4,34 s réelles (mesuré) — 42 385 408 octets de RSS crête
+                  Sortie reproduite AU CARACTÈRE sur deux invocations
+                  consécutives : ce binaire ne compte que des bits, il ne
+                  chronomètre rien, donc il n'a pas de dispersion.
+  artefact        /Users/pjmalandrino/llvq-q4b.llvq
+                  980 790 202 octets
+                  sha256 94f60e86da9e29abe1911309aad35e8dff5ba984e030f68533b886d031045bdc
+                  NON modifié par ce run (lecture seule)
+
+CONTRÔLE DE NON-RÉGRESSION §4 — PASSÉ, ET PAR LA MACHINE
+  cargo test -p llvq-bench                      → 39 passés, 0 échec, 6 ignorés
+    dont le binaire radixstudy seul             → 28 passés, 0 échec, 2 ignorés
+  cargo test --release -p llvq-bench --bin radixstudy -- --ignored
+                                                → 2 passés, 0 échec (4,65 s)
+    · kernel_conversion_reproduces_planes14                  112 b/bloc → 4,8040
+    · the_sealed_4b_reproduces_the_published_class_major_verdict
+        golay_tight CM/max = 3,0444 b/poids   (radixstudy-x4-2026-08-12.txt)
+        ⌈log₂|classe|⌉ moyen = 41,50 bits
+  Les deux chiffres que le §4 exige RETOMBENT. Le reste du lot est lisible.
+  cargo clippy -p llvq-bench --all-targets      → zéro warning
+
+PROVENANCE DE CHAQUE NOMBRE (§1, règle 4)
+  MESURÉ   : l'histogramme des classes, l'ORDRE des blocs, le nombre de groupes,
+             les formes de la comptabilité noyau — tous LUS dans le fichier scellé.
+  CALCULÉ  : toutes les largeurs de champ (⌈log₂⌉ des cardinalités de classe),
+             donc toutes les colonnes bits/bloc et b/poids.
+  ESTIMÉ   : rien dans ce journal.
+  ⚠️ Et depuis cette réémission, TOUT chiffre cité dans les sections de décision
+     ci-dessous est une SORTIE de la commande, à la décimale près — plus aucune
+     transcription, plus aucune inversion de comptabilité faite à la main. La
+     table « les MÊMES bits/bloc à 3 décimales » n'existe que pour ça.
+
+================================================================================
+SORTIE BRUTE, NON RETOUCHÉE
+================================================================================
+
+source : /Users/pjmalandrino/llvq-q4b.llvq — 252 matrices, blocs réels
+150681600 blocs, 383 classes
+4708800 groupes de 32 en ordre-fichier, dont 0 partiels (fermés en fin de matrice)
+252/252 matrices ont blocs/ligne non multiple de 32 : un groupe y enjambe deux lignes
+comptabilité noyau LUE DANS LE FICHIER : 3633315840 poids, 16957440 de queue, 1105920 lignes, 150681600 blocs
+
+  géométrie du groupe (vérifiée, pas supposée) : 32 blocs CONSÉCUTIFS de m.indices,
+  row-major d_out × (d_in/24) — e1c.rs:204, runtime.rs:491, format.rs:199. Un groupe ne
+  franchit JAMAIS une matrice ; il franchit les lignes dès que (d_in/24) mod 32 ≠ 0.
+
+  bits par bloc — les 4 combinaisons (ordre de balayage × adressage)
+  --------------------------------------------------------------------------------------------------
+  variante                    moy  pire   CM/max  CM/scan   FO/max  FO/scan  shift  prof.
+  archive (le fichier)      48.00    48    49.00    49.00    49.00    49.00    NON  sér.
+  radix2                    51.87    55    56.61    52.87    57.00    53.33    NON  sér.
+  radix2 + golay 12 b       52.24    56    56.69    53.24    57.00    53.77    NON  sér.
+  golay_tight               66.17    94    69.57    67.17    77.21    67.66    oui  24
+  golay70 (mesuré, écarté)  70.00    70    73.00    71.00    73.00    71.00    oui  24
+  perslot (PAS Planes14)    67.43   101    73.47    68.43    96.21    68.91    oui  24
+  e1v-packé                 51.50    54    56.55    52.50    57.00    52.98    NON  96
+  e1v-séparé                51.87    55    56.61    52.87    57.00    53.33    oui  96
+  golay_signs               72.93   100    77.06    73.93    95.81    74.41    oui  24
+  --------------------------------------------------------------------------------------------------
+  CM = classe-majeur — CONTRÔLE de non-régression, optimiste par construction :
+  un groupe y est presque toujours d'une seule classe. Interdit de citation (pré-enr. §1).
+  FO = ordre du fichier — ce qu'un noyau lit. max = stride uniforme au plus large du
+  groupe ; scan = largeurs exactes, offsets par somme préfixe de warp.
+
+  les MÊMES bits/bloc à 3 décimales — la table ci-dessus arrondit à 2, et un
+  chiffre à 3 décimales ne s'en déduit pas. Δ = le coût de l'ordre réel.
+  --------------------------------------------------------------------------------------------------
+  variante                    CM/max   CM/scan    FO/max   FO/scan   Δ FO−CM max
+  archive (le fichier)        49.000    49.000    49.000    49.000        +0.000
+  radix2                      56.606    52.869    57.000    53.332        +0.394
+  radix2 + golay 12 b         56.689    53.243    57.000    53.769        +0.311
+  golay_tight                 69.572    67.173    77.207    67.657        +7.635
+  golay70 (mesuré, écarté)    73.000    71.000    73.000    71.000        +0.000
+  perslot (PAS Planes14)      73.469    68.430    96.213    68.914       +22.745
+  e1v-packé                   56.553    52.498    57.000    52.975        +0.447
+  e1v-séparé                  56.606    52.869    57.000    53.332        +0.394
+  golay_signs                 77.062    73.929    95.809    74.411       +18.747
+  --------------------------------------------------------------------------------------------------
+
+  b/poids NOYAU — mêmes 4 combinaisons, et les deux seuils du pré-enregistrement
+  S_spec = 2.60 b/poids ⇔ 58.86 bits/bloc (pré-enr. : 58.86)   ·   S_alt = 3.09 ⇔ 70.67 (pré-enr. : 70.66)
+  --------------------------------------------------------------------------------------------------
+  variante                   CM/max  CM/scan   FO/max  FO/scan   FO vs S_spec  FO vs S_alt
+  archive (le fichier)       2.1912   2.1912   2.1912   2.1912   ✅ max  ✅ scan ✅ max  ✅ scan
+  radix2                     2.5066   2.3517   2.5230   2.3709   ✅ max  ✅ scan ✅ max  ✅ scan
+  radix2 + golay 12 b        2.5101   2.3672   2.5230   2.3890   ✅ max  ✅ scan ✅ max  ✅ scan
+  golay_tight                3.0444   2.9449   3.3610   2.9650   ❌ max  ❌ scan ❌ max  ⊘ scan
+  golay70 (mesuré, écarté)   3.1866   3.1036   3.1866   3.1036   ❌ max  ❌ scan ❌ max  ❌ scan
+  perslot (PAS Planes14)     3.2060   2.9970   4.1493   3.0171   ❌ max  ❌ scan ❌ max  ⊘ scan
+  e1v-packé                  2.5045   2.3363   2.5230   2.3561   ✅ max  ✅ scan ✅ max  ✅ scan
+  e1v-séparé                 2.5066   2.3517   2.5230   2.3709   ✅ max  ✅ scan ✅ max  ✅ scan
+  golay_signs                3.3550   3.2251   4.1325   3.2451   ❌ max  ❌ scan ❌ max  ❌ scan
+  --------------------------------------------------------------------------------------------------
+  archive (le fichier)      ~509 ops sérielles, 8,27 ns/bloc mesuré — 75× un layout à masques
+  radix2                    champs extraits par shift, rangs de multiensemble encore sériels
+  radix2 + golay 12 b       idem, champ de codeword uniforme (offset indépendant de la classe)
+  golay_tight               plans A et signes réduits à ce que la classe exige — largeur variable
+  golay70 (mesuré, écarté)  3,589 b/poids et 1,31× vs FP16, sous le critère de 1,6×
+  perslot (PAS Planes14)    GÉOMÉTRIE des plans, PAS le layout servi : Planes14 est le 112 b/bloc plat (4,804 b/poids) ⚠️ et perslot sous-facture 12 b sur les 157 classes impaires
+  e1v-packé                 un seul champ : extraire les sous-rangs exige des divmod par constantes magiques
+  e1v-séparé                largeur = radix2 au bit près ; marche binomiale à compte fixe, 48-96 pas — ⚠️ RÉOUVERTURE de la clause ≤ 24 du spec, pas une variante qui la respecte
+  golay_signs               plans perslot + signes au tarif de la classe : message Golay 12 b (impair), 2^(w−1)·2^free_n (pair)
+
+  LÉGENDE DES MARQUEURS — et le ⊘ est la moitié qui compte :
+  ✅ = sous S_spec (2.60), le seul seuil du projet. C'est le seul marqueur
+  qui veuille dire « ça passe », et il ne s'imprime que là.
+  ⊘ = sous S_alt SEULEMENT, donc dans la bande ]2.60 ; 3.09]. NE SE CITE
+  JAMAIS SEUL : S_alt n'est pas le seuil du projet, il n'existe qu'à contexte 8k figé
+  et ne deviendrait opposable que si la note produit du pré-enregistrement §5 retenait
+  le triplet (32 Go ; 2 Go ; KV q8 ; 8k). CETTE NOTE N'EXISTE PAS. Un ⊘ se publie
+  « ça passerait si et seulement si ce triplet était retenu », jamais « ça passe ».
+  ❌ = au-dessus des deux.
+
+  où passent les 47 bits de l'archive
+  --------------------------------------------------------------------------------------------------
+  point DANS sa classe, moyenne de ⌈log₂ |classe|⌉ : 41.50 bits
+  choix de la classe : 47 − 41.50 ≈ 5.50 bits, que toute variante à champ
+  de classe explicite repaie en 10 bits d'en-tête
+  e1v-packé paie donc 41.50 + 10 bits par bloc, hors adressage
+
+  ce que le champ de signes de golay_signs coûte
+  --------------------------------------------------------------------------------------------------
+  moyenne du champ : 14.13 bits contre les 24 du masque plat que les layouts
+  servis dépensent, soit 9.87 bits/bloc d'espérance gagnée (prédiction du pré-enr. §3 T3 : −9,85).
+  ⚠️ Espérance ≠ ce qu'un flux paie : les colonnes max ci-dessus facturent le plus large
+  du groupe, et c'est là que se juge T3.
+
+  VERDICT X4
+  --------------------------------------------------------------------------------------------------
+  ❌ AUCUNE décomposition ADMISSIBLE — shift-only ET profondeur fixe ≤ 24 étapes,
+     la CONJONCTION que le spec exige — ne passe sous 2.6 b/poids noyau EN ORDRE-FICHIER,
+     ni en grp32-max ni en warp-scan.
+  Le meilleur point ADMISSIBLE vaut 2.9650 b/poids, soit 14 % au-dessus du seuil.
+  Le critère d'ouverture du chantier E3 n'est PAS atteint : E3 s'enterre sur papier,
+  pour 0 $, comme E2 s'est enterré au banc. La marche suivante de l'échelle mémoire
+  reste E1c (X1/X2), et le plancher pratique du projet est le layout mesuré.
+
+  ⚠️ SOUS LE CRITÈRE DE BITS, MAIS HORS DE LA CLAUSE DE PROFONDEUR ≤ 24 :
+     e1v-séparé              max   2.5230 b/poids noyau   (profondeur 96)
+     e1v-séparé              scan  2.3709 b/poids noyau   (profondeur 96)
+  Ces points ne sont PAS admis : le critère d'ouverture d'E3
+  (spec-memoire-extreme-2026-08-12.md:186-187) est une CONJONCTION — ≤ 2.6 b/poids
+  ET un décodeur à profondeur fixe ≤ 24 étapes sans état sériel inter-slot.
+  Ils constituent une RÉOUVERTURE DE LA CLAUSE DE PROFONDEUR, qui est une décision de
+  passation et non un résultat de ce banc. Les publier comme une admission serait la
+  sur-revendication que ce bloc existe pour empêcher.
+
+================================================================================
+LECTURE SELON LES RÈGLES DE DÉCISION PRÉ-ENREGISTRÉES (§3)
+Rien ici n'ajoute de conclusion : chaque ligne applique une règle écrite d'avance.
+Chaque chiffre cité est repris TEL QUEL de la table « 3 décimales » ci-dessus.
+================================================================================
+
+T1 — golay_tight et le menu, en ordre-fichier réel
+  prédiction §3 T1 : grp32-max ordre-réel 3,40–3,62 b/p ; warp-scan 2,90–3,00
+  MESURE (calculée sur blocs mesurés) :
+      golay_tight  FO/max  = 77,207 bits/bloc → 3,3610 b/poids noyau
+      golay_tight  FO/scan = 67,657 bits/bloc → 2,9650 b/poids noyau
+  ⚠️ Le bras max atterrit à 3,3610, SOUS sa fourchette prédite [3,40 ; 3,62].
+     Le bras scan (2,9650) est DANS la sienne [2,90 ; 3,00]. Écart de prédiction
+     à consigner, pas à expliquer ici.
+  RÈGLE : « grp32-max ordre-réel > S_spec ⇒ le verdict E3 du 08-12 est confirmé
+     et durci ; > S_alt aussi ⇒ le barreau 32 Go est fermé à cette famille même
+     au seuil le plus permissif défendable. »
+  APPLICATION : 3,3610 > 2,60  ET  3,3610 > 3,09.
+     ⇒ les DEUX branches de la règle sont déclenchées. Le chiffre optimiste de
+       3,0444 devient 3,3610 une fois l'ordre rendu réel : +0,3166 b/poids
+       (grandeur DÉRIVÉE de deux colonnes du même run : 3,3610 − 3,0444).
+  ⚠️ Le bras scan de golay_tight (2,9650) porte un ⊘, pas un ✅ : il est dans la
+     bande ]2,60 ; 3,09] que le §2 interdit de publier comme « ça passe ». Il ne
+     passerait QUE si la note produit retenait le triplet (32 Go ; 2 Go ; KV q8 ;
+     8k). Cette note n'existe pas. Même remarque pour perslot FO/scan (3,0171).
+  Coût de l'ordre réel, variante par variante (Δ FO−CM max, colonne imprimée) :
+      golay_tight  69,572 → 77,207   (+7,635)
+      perslot      73,469 → 96,213   (+22,745)
+      golay_signs  77,062 → 95,809   (+18,747)
+      e1v-séparé   56,606 → 57,000   (+0,394)
+     Le mode max punit exactement les variantes à largeur très dispersée ; les
+     variantes à largeur resserrée (pire ≤ 56) y sont quasi insensibles.
+
+T2 — E1v, le rang exact par classe (la décision porte sur e1v-séparé/warp-scan/FO)
+  prédiction §3 T2 : séparé ≈ 54,5 bits/bloc → 2,42 ; packé ≈ 53 → 2,36
+                     sans warp-scan (grp32-max) : 58–62 bits → 2,56–2,73
+  MESURE :
+      e1v-séparé  FO/scan = 53,332 bits/bloc → 2,3709 b/poids noyau  ← FAIT FOI
+      e1v-séparé  FO/max  = 57,000 bits/bloc → 2,5230 b/poids noyau
+      e1v-packé   FO/scan = 52,975 bits/bloc → 2,3561  (NON shift-only, hors décision)
+  ⚠️ Les deux bras atterrissent SOUS leur fourchette prédite (53,332 contre ~54,5 ;
+     57,000 contre 58–62). Écart de prédiction à consigner.
+  RÈGLE : « ≤ 58,86 bits/bloc ⇒ vert, et l'axe bits rouvre avec une dette
+     explicite (la vitesse de la marche binomiale, non jugée ici) ;
+     > 58,86 ⇒ l'axe des formats se ferme définitivement. »
+  APPLICATION : 53,332 ≤ 58,86 ⇒ VERT SUR L'AXE DES BITS, avec la dette de
+     vitesse inscrite. Marge : 5,528 bits/bloc sous le seuil (DÉRIVÉE :
+     58,86 − 53,332).
+  🚨 CE VERT N'EST PAS UNE OUVERTURE DU CHANTIER E3, ET LA PREMIÈRE ÉMISSION DE
+     CE JOURNAL LES A CONFONDUS. Ce sont deux questions distinctes, jugées par
+     deux documents distincts :
+       · la règle T2 ci-dessus est une règle DE BITS, écrite dans le
+         pré-enregistrement §3, et elle est verte ;
+       · le critère d'ouverture d'E3 est une CONJONCTION, écrite dans
+         spec-memoire-extreme-2026-08-12.md:185-188 : ≤ 2,6 b/poids ET une
+         profondeur fixe ≤ 24 étapes. e1v-séparé déclare 96. Il échoue la
+         seconde moitié, donc la conjonction, donc l'ouverture.
+     Le VERDICT X4 ci-dessus le classe désormais en RÉOUVERTURE DE LA CLAUSE DE
+     PROFONDEUR, catégorie distincte et nommée, et la phrase « ouvert au sens de
+     la spec » ne peut plus s'imprimer pour un point de profondeur > 24 (test
+     a_depth_reopening_never_prints_the_spec_admission_sentence).
+  ⚠️ Réserve inscrite dans la variante elle-même, PAS un ajout : e1v-séparé
+     suppose une marche binomiale de 48–96 pas. Accorder ou non cette réouverture
+     est une décision de PASSATION ; ni le pré-enregistrement ni ce banc ne la
+     prennent.
+  ⚠️ Le plancher que le §3 T2 nomme — 40,98 (entropie) + 10 + adressage ≈ 52,5
+     bits — est à 0,83 bit sous la mesure. Il n'y a pas de marche en dessous.
+
+T3 — golay_signs, les signes reconstruits par le mot de Golay
+  prédiction §3 T3 : gain d'espérance −9,85 bits/bloc ; ≈ 3,60 b/p en transposé
+  MESURE :
+      champ de signes moyen = 14,13 bits contre 24 du masque plat
+        ⇒ −9,87 bits/bloc d'espérance gagnée  (prédiction −9,85 : touchée)
+      golay_signs FO/max  = 95,809 bits/bloc → 4,1325 b/poids noyau
+      golay_signs FO/scan = 74,411 bits/bloc → 3,2451 b/poids noyau
+  ⚠️ L'ESPÉRANCE est touchée à 0,02 bit près ; la forme TRANSPOSÉE atterrit à
+     4,1325 contre ≈ 3,60 prédits. C'est le mécanisme que le pré-enregistrement
+     avait lui-même nommé : « un flux transposé paie le MAX du groupe et non
+     l'espérance ». Il le paie plus cher que prévu.
+  RÈGLE : « la forme transposée doit rendre ≤ 3,45 b/poids noyau ET améliorer
+     E1c12 d'au moins 6 bits/bloc net. Sinon la piste est morte comme layout et
+     ne survit que comme brique d'E1v. »
+  APPLICATION : 4,1325 > 3,45 ⇒ la première condition échoue ; la conjonction
+     échoue donc sans qu'il soit besoin de la seconde.
+     ⇒ golay_signs est MORT COMME LAYOUT. Il ne survit que comme brique d'E1v,
+       où ses bits sont déjà comptés dans les largeurs exactes de classe.
+  Comparaison chiffre contre chiffre à golay_tight, exigée par le §3 T3 :
+      golay_tight FO/max 77,207 bits  ·  golay_signs FO/max 95,809 bits
+      golay_signs est 18,602 bits/bloc PLUS CHER (DÉRIVÉE : 95,809 − 77,207).
+      Rien ne le ferait préférer.
+
+VERDICT D'ENSEMBLE — CE QUE LE LOT TRANCHE
+  · Aucune décomposition ADMISSIBLE au sens du spec (shift-only ET profondeur
+    ≤ 24) ne passe sous 2,60 b/poids en ordre-fichier. Le meilleur point
+    admissible est golay_tight FO/scan à 2,9650 b/poids, 14 % au-dessus du
+    seuil — et lui-même dans la bande interdite de publication.
+    ⇒ Le critère d'ouverture d'E3 n'est PAS atteint. Le verdict du 08-12 est
+      confirmé et durci : il l'était sur 3,0444, chiffre optimiste ; il l'est
+      maintenant sur 3,3610, ordre réel.
+  · e1v-séparé passe le critère de BITS (2,3709 en warp-scan) avec une
+    profondeur de 96. C'est une RÉOUVERTURE DE LA CLAUSE DE PROFONDEUR, pas une
+    admission. Elle est mise sur la table de la passation, chiffrée ; elle n'est
+    accordée par personne ici.
+  · golay_signs est mort comme layout.
+
+CE QUE CE RUN NE TRANCHE PAS (§5, recopié pour qu'aucun lecteur ne l'oublie)
+  1. La vitesse. Aucune milliseconde ici. La marche binomiale d'E1v n'est pas
+     jugée. Golay70 rappelle qu'un format juste et compact peut mourir en ALU
+     (195 Go/s contre 425, 1,31× vs FP16 sous le critère de 1,6×).
+  2. La note produit du barreau. Sans elle S_alt n'a pas de statut, et les DEUX
+     ⊘ de ce journal (golay_tight FO/scan, perslot FO/scan) n'en ont pas non plus.
+  3. Le budget GPU. Aucun job n'est autorisé par le pré-enregistrement.
+  4. La clause de profondeur elle-même : l'accorder ou non est une décision de
+     passation. Ce banc compte des bits et refuse de la trancher à sa place.
+
+DEUX DETTES CONNUES, INSCRITES ICI PARCE QU'ELLES NE SONT PAS CORRIGÉES
+  · Tarif du bloc origine : WidthTable::build facture 10 bits à toute variante
+    sur un bloc hors boule, ce qui est FAUX pour une variante à largeur FIXE
+    (golay70 y vaut 70 bits, pas 10). Les deux artefacts scellés contiennent
+    ZÉRO bloc origine — asserté, pas supposé — donc aucun chiffre publié n'en
+    dépend. Le binaire REFUSE désormais de prixer un fichier qui en contiendrait,
+    par une assertion nominative qui dit quoi corriger.
+  · perslot sous-facture 12 bits sur les 157 classes impaires (les signes y sont
+    forcés PAR LE CODEWORD, que les plans de niveaux ne portent pas). Gelé comme
+    publié, épinglé avec son signe. La ligne est renommée « perslot (PAS
+    Planes14) » : Planes14 est le 112 b/bloc PLAT, soit 4,804 b/poids, et aucune
+    ligne de cette colonne n'est le prix d'un layout servi.
+
+AUCUN JOB GPU, AUCUN APPEL RÉSEAU, AUCUNE DÉPENSE. 0 $.
