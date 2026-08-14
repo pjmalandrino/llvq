@@ -263,13 +263,24 @@ décodeurs rend ≤ 0,45 ns/bloc.** Trois régimes, décidés d'avance :
 - **Si les deux bras sont rouges** : le **package C meurt** (le 70B de poche
   n'a pas de décodeur), et le **package B se réduit au prefill pur**, où le
   décodage s'amortit sur le nombre de tokens du lot.
-- **L'étalon `cascade-archive` peut fermer la ligne par le haut, et c'est
-  posé d'avance** : si la cascade d'archive telle quelle passe la tolérance
-  d'un cadre capacity-first, **E1v est mort-né** — l'archive existe déjà, elle
-  fait 2,19 b/poids contre 2,37 pour E1v, et un décodeur qu'on n'a pas à
-  écrire bat un décodeur qu'on doit prouver sur 150,7 M blocs. Ce bras n'est
-  pas un contrôle décoratif : c'est le seul du lot qui puisse rendre tout le
-  reste inutile.
+- **L'étalon `cascade-archive` peut fermer la ligne par le haut, et le
+  critère est un nombre déjà posé dans ce document** : si
+  **`cascade-archive` rend ≤ 2,0 ns/bloc** — le seuil de la cascade
+  uniformisée, §4.1 — alors **E1v est mort-né**. Le raisonnement tient en une
+  ligne : l'archive **existe**, elle est **prouvée**, elle est **plus petite**
+  (2,19 b/poids noyau contre 2,3709 pour E1v), et elle vient de franchir la
+  barre qu'on impose aux décodeurs neufs. Un décodeur qu'on n'a pas à écrire,
+  qui pèse moins et qui passe le même seuil ne laisse aucun argument à un
+  décodeur qu'il faudrait écrire, prouver sur 150,7 M blocs et transcoder.
+  Ce bras n'est pas un contrôle décoratif : c'est le seul du lot qui puisse
+  rendre tout le reste inutile.
+  > 🚨 **La première version de cette clause disait « si elle passe la
+  > tolérance d'un cadre capacity-first » — et cette tolérance n'est chiffrée
+  > NULLE PART** (trois occurrences de l'expression dans `docs/` et `proofs/`,
+  > aucune avec un nombre). Après la mesure, qui voulait ouvrir P5 aurait dit
+  > qu'elle ne passe pas, qui voulait le fermer aurait dit l'inverse, et rien
+  > n'aurait départagé. C'était la porte de sortie la plus large du document.
+  > Corrigée en É1 (§7bis) — sans inventer de nombre : celui-ci était déjà là.
 
 ## 5. La prédiction, et ce qui ne la fonde pas
 
@@ -312,7 +323,8 @@ compilateur faute d'être observable, ancres non reproduites.
 | marche binomiale > 1,5 ns | **E1v est mort comme format servi** ; sa largeur de 2,3709 reste un résultat de comptage, rien de plus |
 | cascade uniformisée ≤ 2,0 ns | la famille cascade reste candidate pour le chemin d'archive |
 | cascade uniformisée > 2,0 ns | la famille cascade se referme sur Metal |
-| `cascade-archive` acceptable en cadre capacity-first | **E1v mort-né** (§4.3) — l'archive fait mieux en b/poids et existe |
+| `cascade-archive` ≤ **2,0 ns/bloc** | **E1v mort-né** (§4.3) — l'archive existe, est prouvée, pèse moins (2,19 contre 2,3709) et vient de passer la barre des décodeurs neufs ; P5 ne s'ouvre pas, quel que soit le résultat de la marche binomiale |
+| `cascade-archive` > **2,0 ns/bloc** | l'archive reste un décodeur de chargement, pas un décodeur servi ; les deux bras neufs gardent leur raison d'être et leurs seuils du §4.1 s'appliquent tels quels |
 | les deux neufs rouges | package C mort, package B réduit au prefill pur (§4.3) |
 
 **Aucune de ces issues ne bloque P2 ni P3**, qui sont dus quel que soit le
@@ -381,6 +393,38 @@ ouvrir P5 — il était déductible des §4.2 et §6 pris ensemble, il est maint
 cette heure comme la veille : ils n'ont toujours aucune ligne de code. La
 correction est donc faite **avant toute mesure**, et la version initiale reste
 opposable dans l'historique git (`09e9654`).
+
+### É1 — 2026-08-14, même jour : la clause qui pouvait tout annuler n'avait pas de nombre
+
+**Ce qui s'est passé.** La revue adversariale des pré-enregistrements P2→P5 a
+retourné une trouvaille sur **celui-ci** : le §4.3 et le §6 faisaient dépendre
+la mort d'E1v de ce que `cascade-archive` « passe la tolérance d'un cadre
+capacity-first ». Cette tolérance n'est chiffrée **nulle part** — trois
+occurrences de l'expression dans `docs/` et `proofs/`, aucune ne porte de
+nombre. Une issue capable d'annuler tout un chantier reposait donc sur un
+jugement libre rendu **après** la mesure : celui qui voulait ouvrir P5 aurait
+dit qu'elle ne passe pas, celui qui voulait le fermer aurait dit l'inverse.
+
+**Ce qui a été fait.** La clause est chiffrée, **sans introduire de nombre
+neuf** : `cascade-archive` ≤ **2,0 ns/bloc**, c'est-à-dire exactement le seuil
+que le §4.1 impose déjà à la cascade uniformisée. L'argument est symétrique et
+tient en une ligne — un décodeur qui existe, qui est prouvé, qui pèse moins
+(2,19 contre 2,3709 b/poids noyau) et qui franchit la barre des décodeurs
+neufs ne laisse rien à défendre à un décodeur qu'il faudrait écrire. Le §6
+porte désormais **les deux branches**, la haute comme la basse : l'issue
+« > 2,0 ns » avait elle aussi été laissée sans action.
+
+**Ce que ça ne change pas.** Aucun autre seuil, et pas davantage la valeur de
+2,0 ns, qui était déjà dans le document. Ce qui change est qu'une issue
+qualitative devient une issue chiffrée, décidée d'avance, par un nombre que le
+document portait déjà.
+
+**Pourquoi ne pas avoir chiffré la tolérance elle-même.** Parce qu'inventer
+ici un seuil « capacity-first » aurait été poser un critère produit dans un
+document technique, alors que le triplet dont il dépend (carte, contexte,
+marge, format KV) n'est pas arbitré — la note produit du 2026-08-13 a ses
+cases vides, et sa table §B ne se reproduit d'ailleurs pas. Un seuil hérité
+d'un document non arbitré aurait déplacé la porte de sortie, pas fermée.
 
 ## 8. Ce qui est connu à la signature — divulgation datée
 
