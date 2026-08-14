@@ -207,12 +207,39 @@ Dans cet ordre :
 1. **Référence CPU écrite indépendamment du shader**, comme
    `decode_masks_cpu` l'est aujourd'hui — pour qu'un malentendu partagé ne
    passe pas.
-2. **Bloc à bloc contre `FastDecoder::decode`** (`llvq-search/src/fastdec.rs:243`)
-   sur un échantillon large et couvrant toutes les classes du tirage, **plus la
-   fixture synthétique du §1.6** pour l'origine et la coquille 13, qu'aucun
-   tirage réel n'atteint.
+2. **Bloc à bloc**, sur un échantillon large couvrant toutes les classes du
+   tirage, **plus la fixture synthétique du §1.6** pour l'origine et la
+   coquille 13, qu'aucun tirage réel n'atteint. ⚠️ **L'étalon n'est pas le
+   même pour les deux bras neufs** — voir le 🚨 ci-dessous.
 3. **Sweep intégral des 150 681 600 blocs** du 4B scellé, harnais du sweep
    E1c (`llvq-artifact/tests/`), compte de blocs imprimé — pas un skip.
+
+🚨 **La marche binomiale ne décode PAS l'ordre d'archive, et exiger d'elle une
+égalité avec `FastDecoder::decode` était une impossibilité déguisée en
+rigueur.** Le rang d'archive est un **rang de permutation de multiensemble**
+(mixed-radix, lexicographique sur les suites de créneaux) ; une marche
+binomiale unranke en **ordre combinatoire** sur des sous-ensembles. Passer de
+l'un à l'autre *est* la ré-bijection CNS — c'est-à-dire **P5**, que ce banc est
+censé conditionner. Un bras `marche-binomiale` vérifié contre `fd.decode`
+exigerait donc le transcodeur qu'il gate : une dépendance circulaire, et un
+V0 que le bras ne pourrait jamais franchir. Les deux étalons, fixés ici :
+
+| bras | étalon de V0 | pourquoi |
+|---|---|---|
+| `cascade-archive`, `cascade-uniformisée` | **égalité point à point avec `FastDecoder::decode`** (`llvq-search/src/fastdec.rs:321`), sweep intégral compris | ces deux-là décodent **l'ordre d'archive** : même entrée, même sortie exigée |
+| `marche-binomiale` | **aller-retour sur sa propre bijection** — `rank → arrangement → rank` sur **tous** les rangs de chaque classe assez petite, et sur un échantillon large des autres — **plus** la preuve de bijection : les arrangements produits sur `0..cardinalité` sont **deux à deux distincts** et leur compte égale `⌈cardinalité⌉` de la classe | elle définit **son** ordre ; ce qu'il faut prouver n'est pas qu'elle rend le même rang, c'est qu'elle est **une bijection sur le même ensemble** |
+
+⚠️ **Conséquence sur ce que le bras `marche-binomiale` mesure, à écrire dans le
+journal.** N'ayant pas de transcodeur, il est alimenté par des rangs **tirés
+uniformément dans `0..cardinalité`** de la classe **réelle** de chaque bloc
+réel du tirage §1.5. Le coût du décodage ne dépend des données que par la
+**classe** (ses comptes, ses radices) et par la **magnitude du rang** : ces
+deux-là sont donc exercés à leur distribution réelle. Ce qui n'est **pas**
+exercé, c'est la corrélation éventuelle entre un bloc et son rang CNS
+particulier — et rien n'indique qu'une telle corrélation existe, la marche
+étant à compte fixe. **Le bras reste une mesure de vitesse honnête ; il n'est
+pas une preuve que le format E1v décode le modèle publié.** Cette preuve-là est
+`C2` de P5, et elle exige la ré-bijection.
 
 🔎 **Le point 2 est un ajout, pas un acquis, et il faut le dire.** Aucun banc
 Metal du dépôt ne vérifie aujourd'hui contre `FastDecoder::decode` : `decreal`
@@ -425,6 +452,37 @@ document technique, alors que le triplet dont il dépend (carte, contexte,
 marge, format KV) n'est pas arbitré — la note produit du 2026-08-13 a ses
 cases vides, et sa table §B ne se reproduit d'ailleurs pas. Un seuil hérité
 d'un document non arbitré aurait déplacé la porte de sortie, pas fermée.
+
+### É2 — 2026-08-14, avant la première ligne du banc : un V0 que le bras ne pouvait pas franchir
+
+**Ce qui s'est passé.** En préparant l'écriture des références CPU, la question
+« contre quoi chaque bras se vérifie » a été reprise à la lettre. Le §3.2
+exigeait des **deux** décodeurs neufs une égalité bloc à bloc avec
+`FastDecoder::decode`. C'est juste pour la cascade uniformisée, qui décode
+l'ordre d'archive. C'est **impossible** pour la marche binomiale, qui décode
+un ordre combinatoire : les relier, c'est la ré-bijection CNS, c'est-à-dire
+P5 — que ce banc conditionne. Le V0 du bras exigeait donc l'existence de ce
+que son propre verdict autorise.
+
+**Ce qui a été fait.** Deux étalons distincts, tabulés au §3 : égalité point à
+point avec `fd.decode` pour les deux cascades ; aller-retour sur sa propre
+bijection **plus** preuve de bijection (distinction deux à deux, compte égal à
+la cardinalité de la classe) pour la marche binomiale. Et la réserve qui va
+avec : n'ayant pas de transcodeur, ce bras est alimenté par des rangs tirés
+uniformément dans la cardinalité de la classe **réelle** de chaque bloc réel —
+donc classe et magnitude de rang sont exercées à leur distribution vraie, mais
+le bras **ne prouve pas** que le format E1v décode le modèle publié. Cette
+preuve est `C2` de P5.
+
+**Ce que ça ne change pas.** Aucun seuil. Aucune issue. Ce qui change est
+qu'un des deux bras jugés avait un V0 infranchissable, donc un seuil
+inatteignable par un chemin qui n'était pas le sien.
+
+**Ce que ça apprend.** Le défaut n'était pas dans un chiffre mais dans une
+**phrase qui paraissait plus rigoureuse que la bonne** : exiger le même étalon
+des deux bras semblait plus strict, et c'était en réalité une confusion entre
+deux objets — un rang de permutation et un rang combinatoire. La rigueur
+uniforme n'est pas la rigueur.
 
 ## 8. Ce qui est connu à la signature — divulgation datée
 
