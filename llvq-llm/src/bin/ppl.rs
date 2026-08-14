@@ -138,8 +138,9 @@ fn main() -> anyhow::Result<()> {
     // one goes on the result line: what was scored, at what precision, over
     // which tokens.
     println!(
-        "\n{label} — {corpus}, ctx {ctx}, {nwin} windows, dtype {}, tokens {fingerprint:016x}\nppl = {:.4}",
+        "\n{label} — {corpus}, ctx {ctx}, {nwin} windows, dtype {}, kv {}, tokens {fingerprint:016x}\nppl = {:.4}",
         llvq_llm::eval::dtype_name(dtype),
+        kv_mode.name(),
         (nll / count as f64).exp()
     );
     Ok(())

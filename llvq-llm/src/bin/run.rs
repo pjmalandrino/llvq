@@ -53,7 +53,11 @@ fn main() -> anyhow::Result<()> {
         s.matrices, s.raw_tensors
     );
     println!("── model");
-    println!("   running at dtype {}", llvq_llm::eval::dtype_name(dtype));
+    println!(
+        "   running at dtype {}, kv {}",
+        llvq_llm::eval::dtype_name(dtype),
+        kv_mode.name()
+    );
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",
         s.bytes as f64 / 1e9,

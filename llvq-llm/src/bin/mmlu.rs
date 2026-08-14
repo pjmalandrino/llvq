@@ -501,7 +501,12 @@ fn main() -> anyhow::Result<()> {
     // 60.7 are. The macro is printed next to it because the gap between them
     // is a property of MMLU, not noise, and a reader who sees only one number
     // cannot tell which they are holding.
-    println!("  MMLU (micro, = papier) = {:.2} % ± {:.2}", 100.0 * mic, 100.0 * se);
+    println!(
+        "  MMLU (micro, = papier) = {:.2} % ± {:.2}  [kv {}]",
+        100.0 * mic,
+        100.0 * se,
+        kv_mode.name()
+    );
     println!("  MMLU (macro, par matière) = {:.2} %", 100.0 * mac);
     if total < population {
         println!(

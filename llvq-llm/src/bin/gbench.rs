@@ -145,7 +145,7 @@ fn main() -> anyhow::Result<()> {
         println!("  {:<10}{:>8}{:>12.2}{:>12.1}", ids.len(), n_new, s, rate);
     }
     println!("  {}", "-".repeat(44));
-    println!("  meilleur : {best:.1} tok/s");
+    println!("  meilleur : {best:.1} tok/s  [kv {}]", kv_mode.name());
     println!(
         "\n  ⚠️ génération gloutonne, batch 1, avec cache KV. Le prompt est court et le\n  \
          contexte le reste : le débit d'un contexte long est plus bas, parce que le coût\n  \
