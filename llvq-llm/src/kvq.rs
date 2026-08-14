@@ -184,7 +184,8 @@ mod tests {
         // Deterministic, and deliberately not uniform: real keys and values
         // have very different spreads per head, which is what a per-group
         // scale exists to track.
-        let n = 1 * 8 * t * 128;
+        // batch 1 × 8 KV heads × t tokens × head_dim 128.
+        let n = 8 * t * 128;
         let v: Vec<f32> = (0..n)
             .map(|i| {
                 let head = (i / (t * 128)) % 8;
