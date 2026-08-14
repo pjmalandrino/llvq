@@ -68,7 +68,12 @@ fn read_u32(r: &mut impl Read) -> anyhow::Result<u32> {
 
 /// Rebuild a model from a sealed artifact — no checkpoint, no cache, no
 /// network.
-pub fn load(path: &str, dtype: DType, device: &Device) -> anyhow::Result<SealedModel> {
+pub fn load(
+    path: &str,
+    dtype: DType,
+    device: &Device,
+    kv: crate::kvq::KvMode,
+) -> anyhow::Result<SealedModel> {
     let bytes = std::fs::metadata(path)?.len();
     let f = std::fs::File::open(path)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
@@ -134,7 +139,7 @@ pub fn load(path: &str, dtype: DType, device: &Device) -> anyhow::Result<SealedM
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let vb = VarBuilder::from_tensors(tensors, dtype, device);
-    let model = Qwen3::new(&config, vb)?;
+    let model = Qwen3::new(&config, vb, kv)?;
     Ok(SealedModel {
         model,
         tokenizer,

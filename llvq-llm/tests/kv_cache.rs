@@ -54,7 +54,7 @@ fn tiny() -> Config {
 fn model(dev: &Device) -> (Qwen3, VarMap) {
     let map = VarMap::new();
     let vb = VarBuilder::from_varmap(&map, DType::F32, dev);
-    let m = Qwen3::new(&tiny(), vb).expect("tiny model builds");
+    let m = Qwen3::new(&tiny(), vb, llvq_llm::kvq::KvMode::F16).expect("tiny model builds");
     (m, map)
 }
 
@@ -109,7 +109,7 @@ fn deterministic(dev: &Device, swap_kv: bool) -> Qwen3 {
     }
     put1(&mut t, "model.norm.weight", h);
     let vb = VarBuilder::from_tensors(t, DType::F32, dev);
-    Qwen3::new(&cfg, vb).expect("deterministic model builds")
+    Qwen3::new(&cfg, vb, llvq_llm::kvq::KvMode::F16).expect("deterministic model builds")
 }
 
 /// **T7.** The restructured block issues the same calls, in the same order.
@@ -279,4 +279,79 @@ fn zero_new_tokens_returns_nothing_on_both_paths() {
         .generate_uncached(&[1, 2, 3], 0, &mut NoCapture)
         .unwrap()
         .is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Le contrôle positif du §3.6 de proofs/preregistration-p3-2026-08-14.md.
+// ---------------------------------------------------------------------------
+
+/// Qwen3-4B's KV geometry, which is what the quantizer groups over: 36 layers,
+/// 8 KV heads, head_dim 128. Everything else is shrunk — `hidden_size` and
+/// `intermediate_size` play no part in how a cache is grouped, and keeping them
+/// at 4096 would buy nothing but seconds.
+fn kv_geometry_of_4b() -> Config {
+    Config {
+        vocab_size: 128,
+        hidden_size: 64,
+        intermediate_size: 64,
+        num_hidden_layers: 36,
+        num_attention_heads: 32,
+        head_dim: 128,
+        attention_bias: false,
+        num_key_value_heads: 8,
+        max_position_embeddings: 64,
+        sliding_window: None,
+        max_window_layers: 0,
+        tie_word_embeddings: true,
+        rope_theta: 10_000.0,
+        rms_norm_eps: 1e-6,
+        use_sliding_window: false,
+        hidden_act: Activation::Silu,
+    }
+}
+
+/// **The gate of P3.** `KvMode::Q8` must change what a block computes.
+///
+/// Without it, an unwired arm reports Δppl = 0.000 %, ΔMMLU = 0.00 pp and
+/// 1.00× throughput — and `LLVQ_VERIFY_CACHE=1` goes green too, since both of
+/// its arms would then be f16. Three greens that say nothing. This test is the
+/// only thing standing between that and a published "P3 acquis".
+///
+/// It asserts the *presence* of an effect, not its size: a quantizer that
+/// changed nothing would be either unwired or a no-op, and both are the same
+/// failure from here.
+#[test]
+fn q8_actually_changes_what_a_block_computes() {
+    let dev = Device::Cpu;
+    let cfg = kv_geometry_of_4b();
+
+    // Same weights on both arms — a VarMap built once, read twice.
+    let map = VarMap::new();
+    let vb = VarBuilder::from_varmap(&map, DType::F32, &dev);
+    let f16_arm = Qwen3::new(&cfg, vb.clone(), llvq_llm::kvq::KvMode::F16).expect("builds");
+    let q8_arm = Qwen3::new(&cfg, vb, llvq_llm::kvq::KvMode::Q8).expect("builds");
+
+    let ids = Tensor::from_vec(vec![3u32, 17, 42, 8, 61, 5], (1, 6), &dev).expect("ids");
+    let a = f16_arm
+        .logits(&ids, &mut NoCapture)
+        .expect("f16 arm runs");
+    let b = q8_arm.logits(&ids, &mut NoCapture).expect("q8 arm runs");
+
+    let d = (a.to_dtype(DType::F32).unwrap() - b.to_dtype(DType::F32).unwrap())
+        .expect("same shape")
+        .abs()
+        .expect("abs")
+        .max_all()
+        .expect("max")
+        .to_scalar::<f32>()
+        .expect("scalar");
+
+    assert!(
+        d > 0.0,
+        "KvMode::Q8 produced bit-identical logits to F16 on the 4B KV geometry \
+         (36 × 8 × 128). The arm is NOT wired: a run in this state would report \
+         Δppl = 0, ΔMMLU = 0 and 1.00× throughput, and every one of those greens \
+         would be empty. Vérifier les deux sites de construction de KvCache \
+         (model.rs : Block::forward et fresh_caches)."
+    );
 }

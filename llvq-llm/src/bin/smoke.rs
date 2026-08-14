@@ -840,7 +840,7 @@ fn main() -> anyhow::Result<()> {
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
     let vb = ck.var_builder(dtype, &device)?;
-    let mut model = Qwen3::new(&ck.config, vb)?;
+    let mut model = Qwen3::new(&ck.config, vb, llvq_llm::kvq::KvMode::F16)?;
 
     // ---- evaluation windows (fixed, used before and after) ----
     let test_ids = tok

@@ -37,8 +37,8 @@ fn main() -> anyhow::Result<()> {
     let tok = ck.tokenizer()?;
 
     let vb = ck.var_builder(DType::F32, &device)?;
-    let base = Qwen3::new(&ck.config, vb.clone())?;
-    let mut quant = Qwen3::new(&ck.config, vb)?;
+    let base = Qwen3::new(&ck.config, vb.clone(), llvq_llm::kvq::KvMode::F16)?;
+    let mut quant = Qwen3::new(&ck.config, vb, llvq_llm::kvq::KvMode::F16)?;
     let n = llvq_llm::artifact::load(&mut quant, &path, &device)?;
     eprintln!("loaded {n} quantized projections from {path}\n");
 

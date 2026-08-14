@@ -170,7 +170,7 @@ fn main() -> anyhow::Result<()> {
         // ---- dense arm ----
         let (dense_tokens, dense_load, dense_rate, dense_bytes) = {
             let t = Instant::now();
-            let m = llvq_llm::sealed::load(&path, dtype, &device)?;
+            let m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
             let load = t.elapsed().as_secs_f64();
             let ids = m
                 .tokenizer

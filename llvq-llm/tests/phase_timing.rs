@@ -51,7 +51,7 @@ fn tiny() -> Config {
 fn model(dev: &Device) -> (Qwen3, VarMap) {
     let map = VarMap::new();
     let vb = VarBuilder::from_varmap(&map, DType::F32, dev);
-    let m = Qwen3::new(&tiny(), vb).expect("tiny model builds");
+    let m = Qwen3::new(&tiny(), vb, llvq_llm::kvq::KvMode::F16).expect("tiny model builds");
     (m, map)
 }
 
