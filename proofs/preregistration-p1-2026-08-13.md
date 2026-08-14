@@ -61,10 +61,25 @@ déjà câblée dans `llvq-metal` (`lib.rs:263-296`) : **le minimum, pas la
 moyenne** — un GPU partagé avec un compositeur a un plancher de bruit
 au-dessus de lui, jamais en dessous.
 
-**1.2 — `N = 2^24` est un minimum, pas un choix libre.** À 2 M blocs le
-surcoût de soumission valait le travail mesuré ; c'est l'un des trois défauts
-qui faisaient dire « 25 tok/s, c'est mort » avant correction. Tout bras
-mesuré sur moins de `2^24` blocs est nul et non avenu.
+**1.2 — `N = 2^24` est un minimum, pas un choix libre, et le surcoût n'y est
+PAS du bruit.** À 2 M blocs le surcoût de soumission valait le travail mesuré ;
+c'est l'un des trois défauts qui faisaient dire « 25 tok/s, c'est mort » avant
+correction. Tout bras mesuré sur moins de `2^24` blocs est nul et non avenu.
+
+🚨 **Mais `2^24` ne le rend pas négligeable : le dépôt le chiffre lui-même à
+12 %** (« À 2 M blocs, le surcoût de soumission (~0,18 ms) valait le travail
+mesuré. 16,7 M blocs le ramènent à **12 %** » — `docs/format-noyau.md:136-137`).
+Recoupement : au bras `sol` mesuré à 0,084 ns/bloc, 2^24 blocs font 1,41 ms de
+travail, et 0,18 ms de surcoût en font 12,8 % (calculé). Un bras qui rendrait
+0,20 ns/bloc verrait donc **un huitième de son chiffre venir d'une
+soustraction**. Conséquences, posées ici :
+
+- l'`overhead` est mesuré **à chaque round**, pas une fois au début ;
+- **sa dispersion est imprimée** (min, médiane, max sur les rounds gardés), au
+  même titre que celle des bras ;
+- si l'étendue du surcoût dépasse **la moitié** de l'écart entre deux bras que
+  le verdict sépare, **ce verdict n'est pas rendu** : on ne tranche pas un
+  écart plus petit que le bruit de la correction qui le produit.
 
 **1.3 — Tous les bras dans un seul processus, un ordre de dispatch fixe,
 tous dispatchés à chaque round.** Rapports formés **round par round**, jamais
@@ -73,10 +88,31 @@ de maison n°2). Un bras ajouté ne réordonne jamais les bras existants.
 
 **1.4 — Les ancres se remesurent dans le même run, et les seuils se lisent
 contre elles.** `sol` et `masques` sont redispatchés à chaque round. **Aucun
-seuil, aucun rapport, aucune conclusion ne se lit contre les 0,08 / 0,11 /
-8,27 ns du 2026-07-31** — un run sans journal, sur une autre distribution,
-sur une machine dont l'état de trois mois plus tôt n'est pas reconstituable.
-Ces trois nombres ne sont dans ce document que comme contexte historique.
+seuil, aucun rapport, aucune conclusion ne se lit contre un chiffre d'un autre
+run.** Deux jeux historiques tombent sous cette règle, et il faut les nommer
+tous les deux — la première version de ce document n'en nommait qu'un.
+
+| run | chiffres | ce qu'ils valent ici |
+|---|---|---|
+| **2026-07-31**, `bin/decode` | sol 0,08 · masques 0,11 · rang-cascade 8,27 ns/bloc | contexte historique, rien de plus : **codes synthétiques à 4 magnitudes uniformes**, donc aucune divergence entre lanes |
+| **2026-08-01**, `bin/decreal` | sol **0,084** · Fixed96 **0,152** (1,81× le sol) · Grouped32 **0,158** (1,89×) ns/bloc | **le vrai prior**, parce que ce run est déjà sur **blocs réels** du 4B publié — mais il ne fait pas seuil pour autant |
+
+🚨 **Le second jeu est le plus dangereux des deux, et c'est celui que ce
+document oubliait.** `decreal` a tourné le 2026-08-01 sur **16,7 M blocs réels
+du 4B publié**, préfixes contigus des 252 matrices, chaque sortie vérifiée
+(`docs/format-noyau.md:190-205`) : c'est la distribution même que P1 veut
+mesurer, donc l'ancrage naturel — et l'ancrage naturel est exactement ce qui se
+glisse dans un verdict sans qu'on s'en aperçoive. Or **il souffre de la même
+dette de provenance que le jeu de juillet** : `grep -rln "decreal\|0,152\|0,158"
+docs/mesures/` ne rend **rien**. Ces trois nombres ne vivent que dans la prose
+de `format-noyau.md`, sans journal de run, sans machine nommée, sans
+reproductibilité.
+
+**Règle, donc :** les cinq bras de P1 se lisent **les uns contre les autres
+dans le même run**, jamais contre 0,084 / 0,152 / 0,158 ni contre 0,08 / 0,11 /
+8,27. Si le `sol` remesuré s'écarte notablement du 0,084 du 08-01, ce n'est
+**pas** un résultat de P1 : c'est un signal qu'il faut expliquer avant de
+publier quoi que ce soit (cf. §7).
 
 **1.5 — La distribution est réelle, et le fichier est nommé.** Les blocs sont
 tirés de l'artefact 4B scellé `~/llvq-q4b.llvq` (980 790 202 octets, celui
@@ -92,6 +128,20 @@ journal, et l'histogramme de classes du tirage imprimé à côté de celui du
 fichier entier. Un tirage qui s'écarte de la distribution source invalide le
 run avant tout chronométrage.
 
+⚠️ **Et la couverture d'un tirage réel est bornée par le fichier, pas par le
+codebook — à écrire dans le journal, jamais à sous-entendre.** Le 4B publié
+porte **286 classes observées** et **zéro bloc origine**
+(`docs/mesures/shell-distribution-4b-2026-08-10.txt:47`, produit par
+`bin/classhist`). La table GPU en compte **384** (383 classes cap-13 +
+l'origine, `llvq-metal/src/lib.rs:377-419`). Un tirage réel n'exerce donc
+**ni la branche origine, ni les 82 classes de la coquille 13, ni les 15 classes
+vides de la boule cap-12** — 98 entrées sur 384. Écrire « toutes les classes
+sont couvertes » serait faux. Ces trois chemins se testent **séparément, sur
+fixture synthétique**, comme le fait déjà `fixture_indices`
+(`llvq-artifact/tests/e1c_format.rs:81-96`, qui ajoute explicitement l'origine
+et les deux bornes de chaque classe) — et cette fixture fait partie de V0,
+pas du banc.
+
 ## 2. Les bras, figés ici
 
 Cinq, tous dans le même processus :
@@ -99,16 +149,55 @@ Cinq, tous dans le même processus :
 | bras | rôle | existe ? |
 |---|---|---|
 | `sol` | aucun décodage — lit les octets, accumule un produit scalaire | ✅ ancre |
-| `masques` | masques imbriqués, le chemin servi | ✅ ancre |
+| `masques` | masques imbriqués (`decode_payload`) — **l'ancre historique, PAS le chemin servi** ⚠️ | ✅ ancre |
 | `cascade-archive` | l'unranking du format d'archive tel quel (récurrence u64 `M' = M·c/n`) | ✅ **étalon, pas décoration** — voir §4.3 |
 | `cascade-uniformisée` | 24 itérations identiques pour toute classe, réciproques magiques par (classe, étage) en table, candidats en ILP, sélection branchless, **zéro indexation dynamique** | ❌ à écrire |
 | `marche-binomiale` | le décodeur d'E1v : unranking par table `C(n≤24, k≤12)` tenue en L1, pas à compte fixe, **zéro division** | ❌ à écrire |
+
+⚠️ **`masques` n'est le chemin servi d'aucune production, et la première
+version de ce document l'écrivait.** Le layout servi est `Planes14`, sur CUDA
+(`llvq-llm/src/fused.rs:68`). Côté Metal il n'existe pas :
+`grep -rn "Planes" llvq-metal/src/` ne rend **rien**, et le MSL du dépôt ne
+connaît que Fixed96, Grouped32, Flat32, Sorted32 et Slot32
+(`llvq-metal/src/lib.rs:451-724`). Un journal qui dirait « on mesure la
+production » sur ce bras mentirait. `masques` est ici pour une seule raison :
+c'est le décodeur le plus rapide que la machine ait jamais exécuté, donc le
+plancher pratique contre lequel un décodeur de rang se juge.
+
+⚠️ **Le bras `cascade-archive` a une dette d'API à payer avant d'exister.** La
+récurrence qu'il doit porter est écrite (`unrank_fast`,
+`llvq-search/src/fastdec.rs:104`) mais elle est **privée** (`fn`, pas
+`pub fn`), comme `struct FastClass` (:64-87) et le champ `classes` (:129) qui
+portent la factorisation par classe dont elle a besoin. Deux issues, et le
+choix se fait **avant** d'écrire : exporter (modification d'API sur un crate
+`forbid(unsafe_code)` et sans dépendance), ou réécrire — et alors deux copies
+de la même récurrence dans deux crates, c'est-à-dire précisément le
+« malentendu partagé » que le §3.1 interdit. **La première issue est retenue** :
+on exporte, et la référence reste unique.
 
 Chaque bras **accumule un produit scalaire et écrit un float par bloc** — la
 forme d'un noyau fusé. Aucun bras n'écrit les 24 poids décodés : c'est le
 défaut n°1 du banc de 2026-07-31, qui mesurait ses propres écritures non
 coalescées (« un banc mémoire déguisé en décodeur »). L'activation est chargée
 une fois par threadgroup, jamais relue par itération (défaut n°2).
+
+⚠️ **`Kernel::time` ne peut pas satisfaire le §1.3, et il ne faut pas
+l'utiliser.** Il exécute warmup + reps d'un **seul** bras avant de rendre la
+main (`llvq-metal/src/lib.rs:277-296`) : un banc écrit comme `decreal`
+(trois `time()` successifs) produit des minima issus de rounds n'ayant jamais
+coexisté. Le seul gabarit conforme du dépôt est la boucle manuelle de
+`thesis.rs:871-901`. Le banc P1 écrit la sienne autour de `Kernel::dispatch`.
+À savoir avant de l'écrire : **`Kernel::new` crée un `Device` ET une command
+queue par bras** (`lib.rs:51`, `:61`), donc cinq bras entrelacés soumettent sur
+**cinq files distinctes**, pas sur une file ordonnée. `thesis` vit avec et son
+protocole tient ; c'est un fait à connaître, pas un obstacle.
+
+⚠️ **Ne pas reprendre le pied de sortie de `decreal`.** Il imprime le repère
+synthétique « 0,11 ns/bloc » (`decreal.rs:277-281`) que le §1.4 interdit
+d'utiliser comme seuil, et il code en dur **400 Go/s** pour en dériver des
+« plafond N tok/s » (`decreal.rs:274`) qu'un lecteur prendra pour des mesures —
+défaut déjà relevé dans `docs/archive/plan-de-test-papier.md:194`. Le journal
+de P1 n'imprime aucun tok/s dérivé d'une bande passante non mesurée.
 
 ## 3. V0 avant V1 — l'exactitude d'abord, sans exception
 
@@ -119,9 +208,29 @@ Dans cet ordre :
    `decode_masks_cpu` l'est aujourd'hui — pour qu'un malentendu partagé ne
    passe pas.
 2. **Bloc à bloc contre `FastDecoder::decode`** (`llvq-search/src/fastdec.rs:243`)
-   sur un échantillon large et couvrant toutes les classes du tirage.
+   sur un échantillon large et couvrant toutes les classes du tirage, **plus la
+   fixture synthétique du §1.6** pour l'origine et la coquille 13, qu'aucun
+   tirage réel n'atteint.
 3. **Sweep intégral des 150 681 600 blocs** du 4B scellé, harnais du sweep
    E1c (`llvq-artifact/tests/`), compte de blocs imprimé — pas un skip.
+
+🔎 **Le point 2 est un ajout, pas un acquis, et il faut le dire.** Aucun banc
+Metal du dépôt ne vérifie aujourd'hui contre `FastDecoder::decode` : `decreal`
+et `thesis` vérifient contre le **transcodeur** (`RuntimeBlocks::decode_block`),
+ce que le dépôt documente lui-même
+(`docs/archive/portage-noyau-cuda.md:513`). La chaîne existe — ce décodeur
+d'exécution est épinglé bit pour bit sur `Indexer::decode`, 10 mutants tués
+(`docs/format-noyau.md:192-193`) — mais elle est **transitive**. P1 exige la
+comparaison **directe**, qui est plus forte et qui n'a pas de précédent côté
+Metal.
+
+📍 **Placement du code, contraint par le graphe de dépendances et fixé ici** :
+référence CPU des décodeurs neufs dans **`llvq-search`** (visible du banc *et*
+du sweep), shader dans `llvq-metal`, sweep dans **`llvq-artifact/tests/`** —
+seul endroit d'où l'on peut ouvrir un `.llvq`, `llvq-search` n'ayant aucune
+dev-dependency. Écrire la référence CPU dans un bin de `llvq-metal` rendrait le
+sweep du point 3 impossible sans dupliquer le code, c'est-à-dire sans créer le
+malentendu partagé que le point 1 interdit.
 
 **Tout écart enterre le bras sans banc.** On ne chronomètre pas un décodeur
 dont la reconstruction n'est pas prouvée (règle héritée du 08-11).
@@ -198,6 +307,7 @@ compilateur faute d'être observable, ancres non reproduites.
 | issue mesurée | conséquence, décidée d'avance |
 |---|---|
 | marche binomiale ≤ 0,45 ns | **P5 s'ouvre** (re-bijection CNS) et le bras CUDA de P4 est autorisé ; le package C reste vivant |
+| cascade uniformisée ≤ 0,45 ns **mais** marche binomiale > 0,45 | le bras CUDA de P4 est autorisé (§4.2, « le meilleur des deux ») et **P5 ne s'ouvre PAS** — les deux règles sont distinctes, et c'est le seul cas où elles divergent |
 | marche binomiale ∈ ]0,45 ; 1,5] ns | E1v survit en largeur et **reste sans chemin d'exécution** ; ni P5 ni bras CUDA — la publication le dit comme point de courbe |
 | marche binomiale > 1,5 ns | **E1v est mort comme format servi** ; sa largeur de 2,3709 reste un résultat de comptage, rien de plus |
 | cascade uniformisée ≤ 2,0 ns | la famille cascade reste candidate pour le chemin d'archive |
@@ -230,7 +340,47 @@ verdict et ne dépendent d'aucun décodeur.
 *(Chaque entorse s'écrit ici le jour où elle est commise, avec sa raison et
 son coût — la règle du 08-10.)*
 
-*Aucun à ce jour.*
+### É0 — 2026-08-14, correction du lendemain, avant toute ligne de banc
+
+**Ce qui s'est passé.** La version initiale de ce document (commit `09e9654`) a
+été soumise à une reconnaissance vérifiée du dépôt — cinq relevés de faits,
+chacun repassé par un sceptique indépendant. Elle a trouvé six défauts. Comme
+pour l'É0 du [2026-08-11](preregistration-2026-08-11.md), l'ordre aurait dû
+être l'inverse : vérifier le dépôt **puis** ancrer. C'est la leçon, et elle se
+répète.
+
+**Le défaut principal, et c'est le motif même que ce document dénonçait.** Le
+§1.4 interdisait de lire un seuil contre les ancres du **2026-07-31** — et
+était **muet sur celles du 2026-08-01**, alors que ce second run (`bin/decreal`,
+sol 0,084 · Fixed96 0,152 · Grouped32 0,158 ns/bloc) a tourné sur **blocs
+réels du 4B publié**, souffre de la **même** absence de journal dans
+`docs/mesures/`, et constitue l'ancrage naturel du banc. J'ai écrit une
+interdiction contre un ancrage douteux en en laissant un autre, plus tentant,
+grand ouvert à côté.
+
+**Les cinq autres**, tous corrigés dans le texte le même jour :
+
+| § | ce qui était écrit | ce qui est vrai |
+|---|---|---|
+| 1.2 | le surcoût de soumission traité comme négligeable à 2^24 | le dépôt le chiffre à **12 %** (`format-noyau.md:136-137`) ; il est désormais mesuré par round, sa dispersion imprimée, et il peut suspendre un verdict |
+| 1.6 | couverture du tirage non bornée | **286 classes observées**, 0 origine ; 98 des 384 entrées de table jamais exercées par un tirage réel |
+| 2 | `masques` = « le chemin servi » | **faux sur Metal** : `grep -rn "Planes" llvq-metal/src/` ne rend rien ; c'est l'ancre historique |
+| 2 | bras `cascade-archive` supposé disponible | `unrank_fast` est **privée** (`fastdec.rs:104`) — décision prise ici : on exporte, on ne duplique pas |
+| 3.2 | vérification contre `FastDecoder::decode` présentée comme acquise | **strictement nouvelle** côté Metal ; l'existant vérifie contre le transcodeur, chaîne transitive |
+
+**Ce que ça ne change pas.** **Aucun seuil.** Les 1,5 / 2,0 / 0,45 ns sont
+intacts, et le régime intermédiaire aussi. Ce qui change est la **discipline de
+lecture** (deux jeux d'ancres interdits au lieu d'un, dispersion du surcoût
+opposable, couverture déclarée) et deux **décisions de placement** prises
+d'avance plutôt que découvertes en codant. Une ligne a été ajoutée à la table
+des issues du §6 : le cas où la cascade uniformisée passe le gate CUDA sans
+ouvrir P5 — il était déductible des §4.2 et §6 pris ensemble, il est maintenant
+écrit.
+
+**Antériorité.** Aucune milliseconde n'existe pour les deux décodeurs neufs, à
+cette heure comme la veille : ils n'ont toujours aucune ligne de code. La
+correction est donc faite **avant toute mesure**, et la version initiale reste
+opposable dans l'historique git (`09e9654`).
 
 ## 8. Ce qui est connu à la signature — divulgation datée
 
@@ -246,4 +396,11 @@ son coût — la règle du 08-10.)*
   le concurrent que tout bras neuf doit battre, et il est dans le banc.
 - Le seuil de profondeur ≤ 24 du spec X4 **n'est pas rouvert par ce
   document** : c'est une décision de passation, prise en P5, et P5 ne s'ouvre
-  que si ce banc est vert.
+  que si la **marche binomiale** passe 0,45 ns — pas « si le banc est vert »,
+  cf. la table du §6.
+- **Divulgué au titre de l'É0 (2026-08-14)** : les trois chiffres du run
+  `decreal` du 2026-08-01 sont connus de l'auteur — sol 0,084 · Fixed96 0,152 ·
+  Grouped32 0,158 ns/bloc, sur blocs réels. Ils sont **écrits ici** précisément
+  pour qu'on ne puisse pas dire après coup qu'ils ont inspiré un seuil : les
+  seuils datent du 2026-08-13 et ne bougent pas, et le §1.4 interdit de les
+  lire contre ces trois nombres.
