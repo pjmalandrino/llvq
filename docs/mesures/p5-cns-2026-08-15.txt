@@ -97,13 +97,33 @@ C3 — FORME DU DÉCODEUR                                        VERT (3 clauses
      avec un bug que son original n'avait pas, et il est retiré.
 
 ================================================================================
-C4 — TRANSCODAGE                                                     NON MESURÉ
+C4 — TRANSCODAGE                                                          VERT
 ================================================================================
 
-  T(E1v) ≤ 2 × T(Planes14), mono-thread, même run. Il faut pour cela un
-  EMPAQUETEUR — la CNS produit des champs, pas un tampon d'octets — et il
-  n'est pas écrit. C4 est un critère d'ADOPTION, jamais d'enterrement (§4) :
-  son absence ne change aucun des trois verdicts ci-dessus.
+  L'empaqueteur existe (llvq-artifact/src/e1v.rs) : 32 en-têtes à pas fixe de
+  10 bits, charges utiles à offsets de warp-scan, bourrage au mot, un mot de
+  base par groupe. Son flux est prouvé avant d'être chronométré — sweep scellé
+  des 150 681 600 blocs, aller-retour contre FastDecoder::decode, zéro écart,
+  plus un test de carte des mots qui reconstruit les en-têtes depuis les
+  octets bruts sans passer par le lecteur du module.
+
+  Et les OCTETS ÉCRITS rendent 53,7370 bits/bloc — exactement ce que le modèle
+  d'adressage prédisait sans en écrire un. La comptabilité et l'empaqueteur
+  décrivent le même flux, et le test le refuse s'ils divergent de plus de 5e-3.
+
+  Mesure, mono-thread, matrice `model.layers.0.mlp.down_proj.weight`
+  (1 036 800 blocs, la plus grosse du fichier), 3 passes, bras alternés dans
+  chaque passe, rapport formé PASSE PAR PASSE :
+
+    Planes14 : 0,580 / 0,571 / 0,571 s   (4,6667 b/poids)
+    E1v      : 0,632 / 0,621 / 0,621 s   (2,2391 b/poids, adressage compris)
+    rapport  : médiane 1,088× [plage 1,087–1,090]   contre un seuil de 2,0
+
+  ⚠️ L'ancre Planes14 mono-thread est établie ICI : elle n'avait jamais été
+     mesurée dans un modèle de threads défini (§4). Un rapport entre un nombre
+     mesuré aujourd'hui et un souvenir sans compte de threads ne vaudrait rien.
+  ⚠️ C4 reste un critère d'ADOPTION, jamais d'enterrement. Son vert autorise le
+     chemin servi ; il ne change rien à ce que C1, C2 et C3 ont décidé.
 
 ================================================================================
 CE QUE ÇA DÉCIDE
@@ -111,7 +131,7 @@ CE QUE ÇA DÉCIDE
 
   Le critère neuf qui remplace la clause « profondeur ≤ 24 » du spec X4 pour
   le seul point `e1v-séparé` est la conjonction C1 ∧ C2 ∧ C3. Les trois sont
-  verts. La réouverture est ACQUISE, avec les trois réserves du §2.1 :
+  verts, et C4 l'est aussi — les QUATRE critères de P5 sont verts. La réouverture est ACQUISE, avec les trois réserves du §2.1 :
     (a) nominative — tout autre point du menu exige un pré-enregistrement neuf ;
     (b) provisoire — révoquée de plein droit si la mesure carte de P4 sort de
         la fourchette que C3 supposait ;
