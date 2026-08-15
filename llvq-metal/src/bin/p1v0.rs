@@ -2,9 +2,9 @@
 //!
 //! `proofs/preregistration-p1-2026-08-13.md` §3: *aucune milliseconde n'est
 //! chronométrée avant que le décodeur soit prouvé*. This binary is that proof
-//! for the two new arms, on real blocks of the sealed 4B. It prints no timing,
-//! no throughput and no derived tok/s — deliberately. A number of that kind
-//! here would be read as a P1 result, and P1 has not run.
+//! for the two new arms. It prints no timing, no throughput and no derived
+//! tok/s — deliberately. A number of that kind here would be read as a P1
+//! result, and P1 has not run.
 //!
 //! ## The two arms do not have the same standard, and confusing them is the
 //! ## trap this file exists to avoid
@@ -19,27 +19,39 @@
 //! CNS re-bijection, which is P5, which this bench gates. Checking the walk
 //! against `fd.decode` would demand the transcoder its own verdict authorises
 //! — a circularity, and a V0 it could never pass. So the walk arm is fed
-//! ranks drawn uniformly inside the **real class of each real block**, and the
-//! GPU is required to agree with the Rust on those ranks. It is a round trip
-//! across the CPU/GPU boundary on one bijection, not a comparison to the
-//! archive.
+//! ranks the host draws, and the GPU is required to agree with the Rust on
+//! those ranks. It is a round trip across the CPU/GPU boundary on one
+//! bijection, not a comparison to the archive.
 //!
-//! ## What this run does NOT cover, and must not be read as covering
+//! ## Two passes, and the second cannot replace the first
 //!
-//! A real draw is bounded by the file, not by the codebook: the whole
-//! published 4B touches 286 of the table's 384 entries — **no origin block**
-//! and no shell-13 class — and a prefix draw of a few million blocks touches
-//! fewer still. The count of untouched entries is printed for the draw that
-//! actually ran, and this binary says nothing about them. The synthetic
-//! fixture that would (pre-registration §1.6) is a separate obligation and it
-//! is **ABSENT** here.
+//! **Pass 1 — the synthetic fixture (pre-registration §1.6).** A real draw's
+//! coverage is bounded by the *file*, not by the codebook: the whole published
+//! 4B touches 286 of the table's 384 entries, holds **no origin block** and no
+//! shell-13 class. 98 entries — the origin branch, the 82 classes of shell 13
+//! and the 15 classes of the cap-12 ball the file never uses — are therefore
+//! unreachable from any prefix of any matrix, however long. They are covered
+//! here instead, on indices built from the class table itself: both ends and
+//! the middle of **every** class, the origin, and for the walk every entry at
+//! rank zero, at its last rank, and on random draws. The coverage is
+//! **asserted**, not printed — a fixture that quietly missed shell 13 would
+//! print a green line while covering nothing, which is the §5 pattern of the
+//! dossier.
+//!
+//! **Pass 2 — the real draw.** Class *mix*: the proportions of the published
+//! model, which no fixture reproduces and which is the whole reason P1 exists
+//! (§1.5). It reaches fewer entries and it reaches them at their real
+//! frequencies.
+//!
+//! Neither pass is redundant: the fixture covers what the file cannot reach,
+//! the draw covers the distribution a fixture cannot imitate.
 //!
 //! Run: `cargo run --release -p llvq-metal --bin p1v0 [N] [model.llvq]`
 
 use llvq_core::{Golay, Leech, SplitMix64, DIM};
 use llvq_metal::p1host::{
     binom_table, cascade_ends, cascade_records, div_table, pack_walk_block, walk_radix_table,
-    walk_records, GpuWalkRec,
+    walk_records, GpuCascadeRec, GpuDivTab, GpuWalkRec,
 };
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
 use llvq_search::rankdec::binomial_walk;
@@ -47,18 +59,24 @@ use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::BufReader;
 
-/// Blocks drawn by default. V0 is an exactness gate, not a measurement: the
-/// pre-registration's `2^24` is a floor on a *timed* arm (§1.2), and it buys
-/// nothing here. Overridable in argv.
+/// Blocks drawn by default from the archive. V0 is an exactness gate, not a
+/// measurement: the pre-registration's `2^24` is a floor on a *timed* arm
+/// (§1.2), and it buys nothing here. Overridable in argv.
 const N_DEFAULT: usize = 1 << 20;
 
 /// Threads per threadgroup. Both shaders stage the 24 activations with
 /// `if (tid < DIM)` and a barrier, so a final threadgroup narrower than 24
-/// would read an unwritten `xs`. The draw is truncated to a multiple of this.
+/// would read an unwritten `xs`. Every draw is truncated to a multiple of this.
 const GROUP: usize = 256;
 
-/// Deterministic feed for the walk arm — printed, so the run is replayable.
+/// Deterministic feed for the walk arm on the real draw — printed, so the run
+/// is replayable.
 const SEED: u64 = 0x0000_B1A0_5EED;
+
+/// Deterministic feed for the fixture, kept **apart** from [`SEED`]: the two
+/// passes must not share a stream, or lengthening one would silently change
+/// what the other covers.
+const FIXTURE_SEED: u64 = 0x0000_F1C7_5EED;
 
 /// Gain centroids. **Not the artifact's**: the published matrices each carry
 /// their own pair, and this bench mixes 252 of them. The gain scale is a
@@ -80,6 +98,292 @@ fn xvec() -> Vec<f32> {
     // Same activation as `decreal`.
     (0..DIM).map(|i| 1.0 + i as f32 * 0.125).collect()
 }
+
+// ---------------------------------------------------------------------------
+// The two arms, each holding its constant tables on the device
+// ---------------------------------------------------------------------------
+
+/// The `cascade-uniformisée` arm: archive index in, one dot product out.
+struct CascadeArm {
+    k: llvq_metal::Kernel,
+    b_ends: metal::Buffer,
+    b_recs: metal::Buffer,
+    b_golay: metal::Buffer,
+    b_dv: metal::Buffer,
+    b_gs: metal::Buffer,
+    b_x: metal::Buffer,
+}
+
+impl CascadeArm {
+    fn new(
+        ends: &[u64],
+        recs: &[GpuCascadeRec],
+        golay: &Golay,
+        dv: &GpuDivTab,
+        x: &[f32],
+    ) -> Result<Self, String> {
+        let src = include_str!("../../shaders/cascade_uniform.metal");
+        let k = llvq_metal::Kernel::new(src, "cascade_uniform")?;
+        Ok(Self {
+            b_ends: k.buffer(ends),
+            b_recs: k.buffer(recs),
+            b_golay: k.buffer(golay.codewords()),
+            b_dv: k.buffer(std::slice::from_ref(dv)),
+            b_gs: k.buffer(&GSCALE),
+            b_x: k.buffer(x),
+            k,
+        })
+    }
+
+    fn run(&self, idx: &[u64], gains: &[u8]) -> Vec<f32> {
+        let n = idx.len();
+        assert_eq!(n, gains.len(), "un gain par bloc");
+        assert!(
+            n > 0 && n.is_multiple_of(GROUP),
+            "{n} blocs n'est pas un multiple de {GROUP} : le dernier threadgroup \
+             lirait un `xs` non écrit"
+        );
+        let b_idx = self.k.buffer(idx);
+        let b_gain = self.k.buffer(gains);
+        let b_out = self.k.empty::<f32>(n);
+        self.k.dispatch(n as u64, GROUP as u64, |enc| {
+            enc.set_buffer(0, Some(&b_idx), 0);
+            enc.set_buffer(1, Some(&b_gain), 0);
+            enc.set_buffer(2, Some(&self.b_ends), 0);
+            enc.set_buffer(3, Some(&self.b_recs), 0);
+            enc.set_buffer(4, Some(&self.b_golay), 0);
+            enc.set_buffer(5, Some(&self.b_dv), 0);
+            enc.set_buffer(6, Some(&self.b_gs), 0);
+            enc.set_buffer(7, Some(&self.b_x), 0);
+            enc.set_buffer(8, Some(&b_out), 0);
+        });
+        // SAFETY: the dispatch above completed and wrote n floats into b_out.
+        unsafe { self.k.read(&b_out, n) }
+    }
+}
+
+/// The `marche-binomiale` arm: a packed 96-bit record in, one dot product out.
+struct WalkArm {
+    k: llvq_metal::Kernel,
+    b_tab: metal::Buffer,
+    b_binom: metal::Buffer,
+    b_gs: metal::Buffer,
+    b_x: metal::Buffer,
+}
+
+impl WalkArm {
+    fn new(walk: &[GpuWalkRec], binom: &[u32], x: &[f32]) -> Result<Self, String> {
+        let src = include_str!("../../shaders/binomial_walk.metal");
+        let k = llvq_metal::Kernel::new(src, "decode_walk")?;
+        Ok(Self {
+            b_tab: k.buffer(walk),
+            b_binom: k.buffer(binom),
+            b_gs: k.buffer(&GSCALE),
+            b_x: k.buffer(x),
+            k,
+        })
+    }
+
+    fn run(&self, words: &[u32]) -> Vec<f32> {
+        assert_eq!(words.len() % 3, 0, "trois mots par bloc");
+        let n = words.len() / 3;
+        assert!(
+            n > 0 && n.is_multiple_of(GROUP),
+            "{n} blocs n'est pas un multiple de {GROUP}"
+        );
+        let b_words = self.k.buffer(words);
+        let b_out = self.k.empty::<f32>(n);
+        self.k.dispatch(n as u64, GROUP as u64, |enc| {
+            enc.set_buffer(0, Some(&b_words), 0);
+            enc.set_buffer(1, Some(&self.b_tab), 0);
+            enc.set_buffer(2, Some(&self.b_binom), 0);
+            enc.set_buffer(3, Some(&self.b_gs), 0);
+            enc.set_buffer(4, Some(&self.b_x), 0);
+            enc.set_buffer(5, Some(&b_out), 0);
+        });
+        // SAFETY: the dispatch above completed and wrote n floats into b_out.
+        unsafe { self.k.read(&b_out, n) }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The two etalons
+// ---------------------------------------------------------------------------
+
+/// The archive decoder's own point, dotted in f64 — the cascade's etalon.
+///
+/// `Leech::shell_index` recomputes ‖p‖²/16 from the decoded point, so a wrong
+/// `inv_norm` in the host table cannot cancel against itself here. The origin
+/// has no shell, and its dot is zero rather than an error: `decode(0)` is a
+/// legitimate point of the codebook and the fixture feeds it on purpose.
+fn etalon_cascade(
+    fd: &FastDecoder,
+    idx: &[u64],
+    gains: &[u8],
+    x: &[f32],
+) -> Result<Vec<(f64, f64)>, String> {
+    let mut want = Vec::with_capacity(idx.len());
+    for (b, &i) in idx.iter().enumerate() {
+        let p = fd
+            .decode(i)
+            .ok_or_else(|| format!("index {i} hors de la boule"))?;
+        let (mut dot, mut mag) = (0.0f64, 0.0f64);
+        if let Some(m) = Leech::shell_index(&p).filter(|&m| m > 0) {
+            let s = GSCALE[gains[b] as usize] as f64 / ((16 * m) as f64).sqrt();
+            for (&v, &xi) in p.iter().zip(x) {
+                let t = v as f64 * s * xi as f64;
+                dot += t;
+                mag += t.abs();
+            }
+        }
+        want.push((dot, mag));
+    }
+    Ok(want)
+}
+
+/// Pack the walk's feed and compute its etalon in one pass — the CPU walk on
+/// the very ranks the GPU is handed (É2).
+///
+/// Deliberately one function: a feed built in one place and an etalon built in
+/// another can drift, and the drift would read as a decode divergence.
+fn walk_feed(
+    walk: &[GpuWalkRec],
+    ids: &[u32],
+    gains: &[u8],
+    ranks: &[[u64; MAX_KINDS]],
+    smasks: &[u32],
+    x: &[f32],
+) -> (Vec<u32>, Vec<(f64, f64)>) {
+    let n = ids.len();
+    assert_eq!(n, gains.len());
+    assert_eq!(n, ranks.len());
+    assert_eq!(n, smasks.len());
+    let mut words = Vec::with_capacity(3 * n);
+    let mut want = Vec::with_capacity(n);
+    let mut kinds = [0u8; DIM];
+    for b in 0..n {
+        let rec: &GpuWalkRec = &walk[ids[b] as usize];
+        let k = rec.k as usize;
+        words.extend_from_slice(&pack_walk_block(
+            rec,
+            ids[b],
+            gains[b] as u32,
+            smasks[b],
+            &ranks[b],
+        ));
+
+        binomial_walk(&ranks[b], &rec.counts, k, &mut kinds);
+        let g = GSCALE[gains[b] as usize] as f64;
+        let (mut dot, mut mag) = (0.0f64, 0.0f64);
+        for (i, &kd) in kinds.iter().enumerate() {
+            let v = rec.vals[kd as usize] as f64;
+            let v = if (smasks[b] >> i) & 1 == 1 { -v } else { v };
+            let t = v * g * x[i] as f64;
+            dot += t;
+            mag += t.abs();
+        }
+        want.push((dot, mag));
+    }
+    (words, want)
+}
+
+// ---------------------------------------------------------------------------
+// The synthetic fixture — pre-registration §1.6
+// ---------------------------------------------------------------------------
+
+/// Cascade side: both ends and the middle of **every** class, one uniform draw
+/// inside each, and the origin.
+///
+/// The two ends are not decoration. A class boundary off by one — an `ends`
+/// table shifted, a `partition_point` convention flipped — sends a block to its
+/// neighbour, and only the first and last index of a class can see it: any
+/// interior index survives a shift of one. `cascade_ends` asserts the two host
+/// accessors agree; this asserts the *kernel* agrees with them.
+///
+/// Shape borrowed from `llvq-artifact/tests/e1c_format.rs:81` (`fixture_indices`),
+/// which is the repo's precedent for "every class at both ends, plus the
+/// origin mid-stream".
+fn fixture_cascade(fd: &FastDecoder, rng: &mut SplitMix64) -> Vec<u64> {
+    let mut v: Vec<u64> = Vec::new();
+    for ci in 0..fd.n_classes() {
+        let (first, last) = fd.class_range(ci);
+        v.push(first);
+        v.push(last);
+        v.push(first + (last - first) / 2);
+        v.push(first + rng.next() % (last - first + 1));
+    }
+    // The origin, which no real block is: the kernel takes it through the same
+    // nine-step class search and zeroes the scale at the end
+    // (`cascade_uniform.metal`, step 0). Padded with more of it, so the draw is
+    // a whole number of threadgroups without inventing a distribution.
+    while !v.len().is_multiple_of(GROUP) {
+        v.push(0);
+    }
+    v
+}
+
+/// Walk side: **every** table entry — the origin included — at rank zero, at
+/// its last rank, and on two random draws, with the sign mask at 0, all-ones
+/// and random.
+///
+/// The last rank is the load-bearing one: it is the only draw that fills every
+/// rank field to its declared width, so a `wbits` off by one, or a field packed
+/// at the wrong offset, has nowhere to hide. Rank zero is its opposite — every
+/// field empty — and a packer that dropped a field entirely would agree with
+/// the reference on it.
+fn fixture_walk(
+    walk: &[GpuWalkRec],
+    radices: &[[u64; MAX_KINDS]],
+    rng: &mut SplitMix64,
+) -> (Vec<u32>, Vec<[u64; MAX_KINDS]>, Vec<u32>) {
+    let mut ids = Vec::new();
+    let mut ranks = Vec::new();
+    let mut smasks = Vec::new();
+    let full = (1u32 << DIM) - 1;
+    for (id, rec) in walk.iter().enumerate() {
+        let k = rec.k as usize;
+        let rad = &radices[id];
+        let zero = [0u64; MAX_KINDS];
+        let mut max = [0u64; MAX_KINDS];
+        for (j, m) in max.iter_mut().enumerate().take(k) {
+            *m = rad[j] - 1;
+        }
+        // Four blocks per entry: the two extreme ranks with the two extreme
+        // sign masks, then two interior draws.
+        let rnd = |rng: &mut SplitMix64| {
+            let mut r = [0u64; MAX_KINDS];
+            for (j, rj) in r.iter_mut().enumerate().take(k) {
+                *rj = if rad[j] > 1 { rng.next() % rad[j] } else { 0 };
+            }
+            r
+        };
+        let r1 = rnd(rng);
+        let r2 = rnd(rng);
+        for (r, s) in [
+            (zero, 0u32),
+            (max, full),
+            (r1, (rng.next() as u32) & full),
+            (r2, (rng.next() as u32) & full),
+        ] {
+            ids.push(id as u32);
+            ranks.push(r);
+            smasks.push(s);
+        }
+    }
+    // Whole threadgroups, padded with the origin at rank zero — the one entry
+    // whose dot is zero whatever the sign mask, so the padding cannot flatter
+    // the worst error of a real entry.
+    while !ids.len().is_multiple_of(GROUP) {
+        ids.push(0);
+        ranks.push([0u64; MAX_KINDS]);
+        smasks.push(0);
+    }
+    (ids, ranks, smasks)
+}
+
+// ---------------------------------------------------------------------------
+// Verification
+// ---------------------------------------------------------------------------
 
 /// Worst deviation seen over an arm, and where.
 struct Worst {
@@ -170,14 +474,111 @@ fn main() -> Result<(), String> {
         }
     }
 
-    // ---- the archive, or a loud failure -----------------------------------
-    //
+    println!("P1 — V0 : exactitude seule. Aucun chronométrage dans ce binaire.\n");
+
+    // ---- host tables ------------------------------------------------------
+    let fd = FastDecoder::new();
+    let golay = Golay::new();
+    let ends = cascade_ends(&fd);
+    let recs = cascade_records(&fd, &golay);
+    let dv = div_table();
+    let walk = walk_records(&fd);
+    let radices = walk_radix_table(&walk);
+    let binom = binom_table();
+    println!(
+        "tables hôtes : {} classes cascade (88 o), {} entrées marche (52 o), \
+         DivTab 600 o, binomiaux {}×{}, Golay {} mots",
+        recs.len(),
+        walk.len(),
+        DIM + 1,
+        DIM + 1,
+        golay.codewords().len()
+    );
+
+    let x = xvec();
+    let cascade = CascadeArm::new(&ends, &recs, &golay, &dv, &x)?;
+    let walk_arm = WalkArm::new(&walk, &binom, &x)?;
+    println!("GPU : {}", cascade.k.device_name());
+
+    // =======================================================================
+    // PASSE 1 — la fixture synthétique (§1.6)
+    // =======================================================================
+    println!("\n{}", "=".repeat(78));
+    println!("PASSE 1 — fixture synthétique : ce qu'aucun tirage réel n'atteint");
+    println!("{}", "=".repeat(78));
+
+    let mut frng = SplitMix64::new(FIXTURE_SEED);
+    let fidx = fixture_cascade(&fd, &mut frng);
+    let fgains: Vec<u8> = (0..fidx.len()).map(|i| (i % 2) as u8).collect();
+
+    // 🚨 The coverage is ASSERTED. This fixture's entire reason to exist is the
+    // 98 table entries a real draw cannot reach; a fixture that missed them
+    // would print exactly the same green line as one that did not.
+    let fseen: BTreeSet<Option<usize>> = fidx.iter().map(|&i| fd.class_of(i)).collect();
+    assert!(
+        fseen.contains(&None),
+        "la fixture ne contient pas l'origine, qui est la moitié de sa raison d'être"
+    );
+    for ci in 0..fd.n_classes() {
+        assert!(
+            fseen.contains(&Some(ci)),
+            "classe {ci} absente de la fixture cascade"
+        );
+    }
+    let s13 = (0..fd.n_classes())
+        .filter(|&ci| fd.levels(ci).shell == 13)
+        .count();
+    println!(
+        "\n{} blocs synthétiques — {} classes sur {} (TOUTES), origine comprise ; \
+         dont {s13} classes de coquille 13, qu'aucun bloc du 4B publié n'habite",
+        fidx.len(),
+        fseen.len() - 1,
+        fd.n_classes()
+    );
+    println!("  graine de la fixture : {FIXTURE_SEED:#x}");
+
+    println!("\nbras CASCADE — étalon : produit scalaire f64 de FastDecoder::decode");
+    let fc = verify(
+        "cascade_uniform",
+        &cascade.run(&fidx, &fgains),
+        &etalon_cascade(&fd, &fidx, &fgains, &x)?,
+    );
+
+    let (fids, franks, fsmasks) = fixture_walk(&walk, &radices, &mut frng);
+    let fwgains: Vec<u8> = (0..fids.len()).map(|i| (i % 2) as u8).collect();
+    let wseen: BTreeSet<u32> = fids.iter().copied().collect();
+    assert_eq!(
+        wseen.len(),
+        walk.len(),
+        "la fixture marche doit toucher les {} entrées de la table",
+        walk.len()
+    );
+    let (fwords, fwant) = walk_feed(&walk, &fids, &fwgains, &franks, &fsmasks, &x);
+    println!(
+        "\n{} blocs synthétiques — {} entrées de marche sur {} (TOUTES), origine comprise ; \
+         rang 0, dernier rang, et deux tirages par entrée",
+        fids.len(),
+        wseen.len(),
+        walk.len()
+    );
+    println!("bras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
+    let fw = verify("decode_walk", &walk_arm.run(&fwords), &fwant);
+
+    // =======================================================================
+    // PASSE 2 — le tirage réel (§1.5)
+    // =======================================================================
+    println!("\n{}", "=".repeat(78));
+    println!("PASSE 2 — tirage réel : le mélange de classes du modèle publié");
+    println!("{}", "=".repeat(78));
+
     // House rule: a test that skips when its file is missing must FAIL. P1's
     // whole reason to exist is the real class mix (pre-registration §1.5);
     // there is no substitute draw and no degraded mode.
     let f = File::open(&path).map_err(|e| {
         format!(
             "l'archive scellée du 4B n'est pas sur cette machine : {path} ({e})\n\n\
+             La fixture ci-dessus est passée, mais elle ne remplace RIEN : elle couvre les \
+             entrées de table, pas la distribution.\n\
              P1 se mesure sur le mélange de classes RÉEL du modèle publié — il n'y a ni \
              substitut ni saut (pré-enregistrement §1.5).\n\
              La récupérer :\n\n    \
@@ -189,8 +590,6 @@ fn main() -> Result<(), String> {
         )
     })?;
 
-    let fd = FastDecoder::new();
-    let golay = Golay::new();
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     let per_matrix = n_req.div_ceil(h.matrices as usize).max(1);
@@ -227,13 +626,11 @@ fn main() -> Result<(), String> {
     indices.truncate(n);
     gains.truncate(n);
 
-    println!("P1 — V0 : exactitude seule. Aucun chronométrage dans ce binaire.\n");
     println!(
-        "{n} blocs réels ({} matrices, préfixes contigus) — {path}",
+        "\n{n} blocs réels ({} matrices, préfixes contigus) — {path}",
         h.matrices
     );
 
-    // ---- what the draw covers, and what it cannot -------------------------
     let mut classes = Vec::with_capacity(n);
     for &idx in &indices {
         classes.push(
@@ -245,170 +642,64 @@ fn main() -> Result<(), String> {
     let origin = indices.iter().filter(|&&i| i == 0).count();
     println!(
         "  {} classes distinctes sur {} de la table, {origin} bloc(s) origine — \
-         les entrées non touchées ne sont PAS couvertes par ce run",
+         les entrées non touchées ici le sont par la passe 1",
         seen.len(),
         fd.n_classes()
     );
-    println!("  graine du tirage de rangs (bras marche) : {SEED:#x}\n");
+    println!("  graine du tirage de rangs (bras marche) : {SEED:#x}");
 
-    // ---- host tables ------------------------------------------------------
-    let ends = cascade_ends(&fd);
-    let recs = cascade_records(&fd, &golay);
-    let dv = div_table();
-    let walk = walk_records(&fd);
-    let radices = walk_radix_table(&walk);
-    let binom = binom_table();
-    println!(
-        "tables hôtes : {} classes cascade (88 o), {} entrées marche (52 o), \
-         DivTab 600 o, binomiaux {}×{}, Golay {} mots",
-        recs.len(),
-        walk.len(),
-        DIM + 1,
-        DIM + 1,
-        golay.codewords().len()
+    println!("\nbras CASCADE — étalon : produit scalaire f64 de FastDecoder::decode");
+    let wc = verify(
+        "cascade_uniform",
+        &cascade.run(&indices, &gains),
+        &etalon_cascade(&fd, &indices, &gains, &x)?,
     );
 
-    let x = xvec();
-
-    // =======================================================================
-    // ARM 1 — cascade uniformisée, against FastDecoder::decode
-    // =======================================================================
-    let src_cascade = include_str!("../../shaders/cascade_uniform.metal");
-    let kc = llvq_metal::Kernel::new(src_cascade, "cascade_uniform")?;
-    println!("\nGPU : {}\n", kc.device_name());
-
-    let b_idx = kc.buffer(&indices);
-    let b_gain = kc.buffer(&gains);
-    let b_ends = kc.buffer(&ends);
-    let b_recs = kc.buffer(&recs);
-    let b_golay = kc.buffer(golay.codewords());
-    let b_dv = kc.buffer(std::slice::from_ref(&dv));
-    let b_gs = kc.buffer(&GSCALE);
-    let b_x = kc.buffer(&x);
-    let b_out = kc.empty::<f32>(n);
-
-    kc.dispatch(n as u64, GROUP as u64, |enc| {
-        enc.set_buffer(0, Some(&b_idx), 0);
-        enc.set_buffer(1, Some(&b_gain), 0);
-        enc.set_buffer(2, Some(&b_ends), 0);
-        enc.set_buffer(3, Some(&b_recs), 0);
-        enc.set_buffer(4, Some(&b_golay), 0);
-        enc.set_buffer(5, Some(&b_dv), 0);
-        enc.set_buffer(6, Some(&b_gs), 0);
-        enc.set_buffer(7, Some(&b_x), 0);
-        enc.set_buffer(8, Some(&b_out), 0);
-    });
-    // SAFETY: the dispatch above completed and wrote n floats into b_out.
-    let got_cascade: Vec<f32> = unsafe { kc.read(&b_out, n) };
-
-    // The etalon: the archive decoder's own point, scaled in f64. `Leech::
-    // shell_index` recomputes ‖p‖²/16 from the decoded point, so a wrong
-    // `inv_norm` in the host table cannot cancel against itself here.
-    let mut want_cascade = Vec::with_capacity(n);
-    for b in 0..n {
-        let p = fd
-            .decode(indices[b])
-            .ok_or_else(|| format!("index {} hors de la boule", indices[b]))?;
-        let (mut want, mut mag) = (0.0f64, 0.0f64);
-        if let Some(m) = Leech::shell_index(&p).filter(|&m| m > 0) {
-            let s = GSCALE[gains[b] as usize] as f64 / ((16 * m) as f64).sqrt();
-            for (&v, &xi) in p.iter().zip(&x) {
-                let t = v as f64 * s * xi as f64;
-                want += t;
-                mag += t.abs();
-            }
-        }
-        want_cascade.push((want, mag));
-    }
-    println!("bras CASCADE — étalon : produit scalaire f64 de FastDecoder::decode");
-    let wc = verify("cascade_uniform", &got_cascade, &want_cascade);
-
-    // =======================================================================
-    // ARM 2 — marche binomiale, against binomial_walk on the SAME ranks
-    // =======================================================================
-    //
     // No transcoder exists (amendment É2), so the feed is: for the REAL class
     // of each real block, ranks drawn uniformly in `walk_radices`. The etalon
     // is the CPU walk on those very ranks — NOT `fd.decode`, which decodes
     // another order entirely.
     let mut rng = SplitMix64::new(SEED);
-    let mut words: Vec<u32> = Vec::with_capacity(3 * n);
-    let mut want_walk = Vec::with_capacity(n);
-    let mut kinds = [0u8; DIM];
-    for b in 0..n {
-        let id = 1 + classes[b];
-        let rec: &GpuWalkRec = &walk[id];
-        let k = rec.k as usize;
-        let mut ranks = [0u64; MAX_KINDS];
-        for j in 0..k {
+    let mut ids = Vec::with_capacity(n);
+    let mut ranks = Vec::with_capacity(n);
+    let mut smasks = Vec::with_capacity(n);
+    for &ci in &classes {
+        let id = 1 + ci;
+        let k = walk[id].k as usize;
+        let mut r = [0u64; MAX_KINDS];
+        for (j, rj) in r.iter_mut().enumerate().take(k) {
             let radix = radices[id][j];
-            ranks[j] = if radix > 1 { rng.next() % radix } else { 0 };
+            *rj = if radix > 1 { rng.next() % radix } else { 0 };
         }
-        let smask = (rng.next() as u32) & ((1 << DIM) - 1);
-        words.extend_from_slice(&pack_walk_block(
-            rec,
-            id as u32,
-            gains[b] as u32,
-            smask,
-            &ranks,
-        ));
-
-        binomial_walk(&ranks, &rec.counts, k, &mut kinds);
-        let g = GSCALE[gains[b] as usize] as f64;
-        let (mut want, mut mag) = (0.0f64, 0.0f64);
-        for (i, &kd) in kinds.iter().enumerate() {
-            let v = rec.vals[kd as usize] as f64;
-            let v = if (smask >> i) & 1 == 1 { -v } else { v };
-            let t = v * g * x[i] as f64;
-            want += t;
-            mag += t.abs();
-        }
-        want_walk.push((want, mag));
+        ids.push(id as u32);
+        ranks.push(r);
+        smasks.push((rng.next() as u32) & ((1 << DIM) - 1));
     }
+    let (words, want_walk) = walk_feed(&walk, &ids, &gains, &ranks, &smasks, &x);
 
-    let src_walk = include_str!("../../shaders/binomial_walk.metal");
-    let kw = llvq_metal::Kernel::new(src_walk, "decode_walk")?;
-    let b_words = kw.buffer(&words);
-    let b_tab = kw.buffer(&walk);
-    let b_binom = kw.buffer(&binom);
-    let b_gs2 = kw.buffer(&GSCALE);
-    let b_x2 = kw.buffer(&x);
-    let b_out2 = kw.empty::<f32>(n);
-
-    kw.dispatch(n as u64, GROUP as u64, |enc| {
-        enc.set_buffer(0, Some(&b_words), 0);
-        enc.set_buffer(1, Some(&b_tab), 0);
-        enc.set_buffer(2, Some(&b_binom), 0);
-        enc.set_buffer(3, Some(&b_gs2), 0);
-        enc.set_buffer(4, Some(&b_x2), 0);
-        enc.set_buffer(5, Some(&b_out2), 0);
-    });
-    // SAFETY: the dispatch above completed and wrote n floats into b_out2.
-    let got_walk: Vec<f32> = unsafe { kw.read(&b_out2, n) };
-
-    println!(
-        "\nbras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode"
-    );
-    let ww = verify("decode_walk", &got_walk, &want_walk);
+    println!("\nbras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
+    let ww = verify("decode_walk", &walk_arm.run(&words), &want_walk);
 
     // ---- verdict ----------------------------------------------------------
     println!("\n{}", "-".repeat(78));
-    let ok = wc.bad == 0 && ww.bad == 0;
+    let ok = fc.bad == 0 && fw.bad == 0 && wc.bad == 0 && ww.bad == 0;
     if ok {
         println!(
-            "V0 VERT sur les deux bras : {n} blocs réels chacun, tolérance {REL:.0e}·Σ|w·x|.\n\
+            "V0 VERT sur les deux bras, aux deux passes — fixture {} blocs (toutes les \
+             {} entrées de table),\ntirage réel {n} blocs, tolérance {REL:.0e}·Σ|w·x|.\n\n\
              Ce que ça autorise : rien d'autre que d'écrire le banc. Restent dus avant \
-             tout chronométrage —\n  · la fixture synthétique (origine, coquille 13, \
-             {} entrées de table que CE tirage n'atteint pas) ;\n  · le sweep intégral \
-             des 150 681 600 blocs ;\n  · pour la marche, l'aller-retour rang → \
-             arrangement → rang sur toutes les petites classes.",
-            fd.n_classes() + 1 - seen.len()
+             tout chronométrage —\n  · le sweep intégral des 150 681 600 blocs ;\n  \
+             · pour la marche, l'aller-retour rang → arrangement → rang CÔTÉ GPU : il \
+             existe côté CPU\n    (`the_walk_round_trips_on_its_own_bijection`) et ne borne \
+             rien sur le shader.",
+            fidx.len().max(fids.len()),
+            walk.len()
         );
     } else {
         println!(
-            "V0 ROUGE — cascade {} bloc(s) hors tolérance, marche {} bloc(s). \
-             Aucun chronométrage n'est autorisé.",
-            wc.bad, ww.bad
+            "V0 ROUGE — fixture : cascade {} bloc(s) hors tolérance, marche {} ; \
+             tirage réel : cascade {}, marche {}. Aucun chronométrage n'est autorisé.",
+            fc.bad, fw.bad, wc.bad, ww.bad
         );
     }
     if !ok {
