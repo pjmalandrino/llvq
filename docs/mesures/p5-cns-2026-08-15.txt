@@ -140,3 +140,32 @@ CE QUE ÇA DÉCIDE
   E1v pèse 2,3877 b/poids noyau contre 2,1912 pour l'archive, dont le décodeur
   existe et est prouvé. E1v reste le PLUS GROS des deux. Ce que la réouverture
   achète est le droit de le porter sur carte avec le reste, pas une adoption.
+
+================================================================================
+E1v ET L'ALIGNEMENT WARP — il survit là où E1c14 meurt (2026-08-15, soir)
+================================================================================
+
+  Le même piège que X3 : le matvec servi met un warp par LIGNE, le groupe est
+  32 blocs, et `nblocks mod 32` vaut 10 ou 21 sur les cinq formes du 4B — donc
+  aucun warp ne lit un seul groupe. Aligner demande de grouper par 32 blocs
+  D'UNE LIGNE, avec un dernier groupe partiel par ligne.
+
+  E1v, 150 681 600 blocs                        bits/bloc    b/poids noyau
+    groupes de 32 blocs GLOBAUX (format actuel)   53,7370        2,3877
+    groupes ALIGNÉS SUR LE WARP                   53,9941        2,3983
+    surcoût de l'alignement                       +0,2571        +0,48 %
+
+  Contre E1c14, même géométrie, même remède : +15,47 %, 4,5551 → 5,2354, ce
+  qui l'enterre.
+
+  🔎 LA RAISON, ET ELLE EST STRUCTURELLE. Un groupe E1c coûte
+  24·(1+plans) mots QUELLE QUE SOIT la lane occupée : un groupe partiel de 10
+  blocs coûte le prix de 32. Un groupe E1v coûte 32 bits de mot de base plus la
+  SOMME de ses records, arrondie au mot : un groupe partiel coûte ce que ses
+  records coûtent, plus un arrondi. La largeur variable, qui est ce qu'E1v
+  paie en complexité de décodage, est exactement ce qui le sauve ici.
+
+  ⚠️ Ce chiffre est une comptabilité, pas une mesure de temps. Il dit que
+  l'alignement ne coûte pas de bits ; il ne dit rien du coût de lire deux mots
+  de base et de scanner deux régions d'en-têtes, qui est un coût de NOYAU et
+  qu'aucun noyau n'a payé, E1v n'en ayant aucun.
