@@ -140,5 +140,82 @@ remesurent dans le même processus et servent de contrôle.
 
 *(Chaque entorse s'écrit ici le jour où elle est commise.)*
 
-**Aucune entorse à ce jour.** Ce document est écrit avant la première ligne du
-shader neuf.
+### É1 — 2026-08-15, après la mesure de `marche-bloc` : le bras mesurait peut-être un débordement
+
+> ❌ **MESURÉ ET RÉFUTÉ le même soir.** `marche-bloc-plat` rend **0,8346 ns/bloc**
+> contre **0,6704** pour le bras qu'il devait battre : **24 % plus lent**. Le
+> débordement n'explique pas le ×2,17, et ce qui l'a remplacé coûte davantage.
+> La règle de restitution ci-dessous **ne tire pas** : le meilleur décodeur de
+> bloc reste à 0,6704 > 0,45, et **l'autorisation du bras CUDA de P4 reste
+> retirée**. Journal :
+> [`p1b-marche-bloc-2026-08-15.txt`](../docs/mesures/p1b-marche-bloc-2026-08-15.txt).
+
+**Ce qui s'est passé.** `marche-bloc` rend **0,6735 ns/bloc**, soit **×2,17** le
+bras marche là où le compte de pas prédisait ×1,002. L'écart a été attribué en
+prose — Golay, second appel, parité, règles de signe — sans être décomposé.
+En relisant le shader neuf contre `cascade_uniform.metal` §1(d), une cause bien
+plus précise apparaît, et elle était **écrite dans le dépôt avant que j'écrive
+le bras** :
+
+> « **No dynamic indexing of registers.** […] On a GPU a dynamically indexed
+> register array is spilled to thread-local memory; this arm would be measuring
+> a spill. »
+
+`binomial_block.metal` porte **deux** tableaux de 24 octets indexés
+dynamiquement — `kinds_on[s]` et `kinds_off[s]`, écrits par les marches et relus
+par la boucle de dépôt. `decode_walk`, lui, n'en a **aucun** : il dépose
+directement depuis le masque `taken` (`dep_slots`) et ne matérialise jamais un
+genre par créneau. **La différence structurelle entre les deux bras n'est donc
+pas seulement le travail supplémentaire du bloc — c'est aussi un débordement en
+mémoire thread-local que le bras marche ne paie pas.**
+
+**Ce qui est proposé : un bras de plus, `marche-bloc-plat`**, même sortie, même
+record, même stride, dont l'état par créneau tombe de **48 octets indexés par le
+créneau** à **8 mots indexés par un compteur de boucle**. Les rangs de signe s'y
+calculent par popcount plutôt que par lecture indexée :
+
+- rang d'un créneau **dans le support** : `popcount(cw & ((1<<s) − 1))` ;
+- rang d'un créneau **parmi les non-nuls hors support** : même popcount sur le
+  masque des genres non nuls, réunion de leurs masques `taken`.
+
+🚨 **Et une promesse est retirée avant d'être mesurée.** La première rédaction
+de cet É1 disait « sans **aucun** tableau indexé dynamiquement ». C'est
+**impossible** et il vaut mieux l'écrire que le découvrir après : le rang de
+signe hors support est le nombre de créneaux non nuls **précédents**, donc il
+exige le masque complet des genres non nuls, donc il exige d'avoir parcouru
+**tous** les genres avant de déposer le premier. Un dépôt genre par genre au fil
+de la marche ne peut pas le connaître. Il reste donc **un** tableau — les
+masques `taken`, `MAX_KINDS = 8` mots — mais il est indexé par le **compteur de
+boucle**, pas par une donnée, là où le bras mesuré indexe 48 octets par le
+**créneau**. C'est une réduction, pas une suppression, et le journal dira
+« réduction ».
+
+⚠️ **Un second point d'implémentation, décidé ici plutôt que découvert** : les
+deux champs de signes vivent **à la fin** du record, après les deux
+arrangements, donc un dépôt au fil de la marche ne les a pas encore lus. Ils
+sont extraits d'avance à un décalage que le record connaît
+(`10 + wb_golay + Σ wb_on + Σ wb_off`), sans changer le format d'un bit — la
+largeur ne bouge pas, donc C1 de P5 n'est pas touché, et le flux empaqueté non
+plus.
+
+**Les seuils ne bougent pas**, et la règle de restitution est écrite **avant** la
+mesure du bras neuf, symétrique de celle qui a retiré :
+
+> **Si le meilleur décodeur de BLOC du run rend ≤ 0,45 ns, l'autorisation du
+> bras CUDA de P4 est RÉTABLIE.**
+
+⚠️ **Pourquoi cette symétrie est nécessaire et non une complaisance.** Le §3 de
+ce document a retiré une autorisation parce que le gate porte sur un **bloc** et
+qu'aucun décodeur de bloc ne le franchissait. Si un décodeur de bloc le
+franchit, le gate est franchi — c'est la règle du §4.2 de P1, inchangée,
+appliquée à la même quantité. Une règle qui ne saurait que **retirer** serait
+aussi arbitraire qu'une règle qui ne saurait que **donner** ; ce qui la rend
+opposable est qu'elle est écrite avant de voir le chiffre, dans les deux sens.
+
+⚠️ **Et ce qui ne change pas** : `marche-bloc` garde son verdict, 0,6735 ns,
+publié. Un bras plus rapide ne le rétracte pas — il ajoute un point à la courbe
+et dit ce que coûtait le débordement. Les deux tournent dans le même run.
+
+**Antériorité.** Écrit avant la première ligne de `binomial_block_flat.metal`,
+et avant toute milliseconde le concernant. Ce document n'est toujours pas
+horodaté ; la dette est déclarée en tête du journal de P1b.

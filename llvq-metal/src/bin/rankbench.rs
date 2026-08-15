@@ -249,12 +249,13 @@ enum Arm {
     Marche,
     SolRang,
     MarcheBloc,
+    MarcheBlocPlat,
 }
 
 impl Arm {
     /// The frozen order of §2. **An arm added never reorders the existing
     /// ones** (§1.3), so anything new goes at the end of this list.
-    const ALL: [Arm; 7] = [
+    const ALL: [Arm; 8] = [
         Arm::Sol,
         Arm::Masques,
         Arm::CascadeArchive,
@@ -269,6 +270,10 @@ impl Arm {
         // even block needs TWO, plus the codeword and the parity repair. This
         // is the cost of a BLOCK, which is the quantity P1's thresholds name.
         Arm::MarcheBloc,
+        // É1 of P1b, added LAST again. Same output, same record, same stride;
+        // 48 slot-indexed bytes of per-slot state become 8 counter-indexed
+        // words. The gap between it and `marche-bloc` is what the spill cost.
+        Arm::MarcheBlocPlat,
     ];
 
     fn name(self) -> &'static str {
@@ -280,6 +285,7 @@ impl Arm {
             Arm::Marche => "marche-binomiale",
             Arm::SolRang => "sol-rang",
             Arm::MarcheBloc => "marche-bloc",
+            Arm::MarcheBlocPlat => "marche-bloc-plat",
         }
     }
 
@@ -292,7 +298,7 @@ impl Arm {
             Arm::CascadeArchive | Arm::CascadeUniform => 8,
             Arm::Marche => 12,
             Arm::SolRang => 8,
-            Arm::MarcheBloc => 12,
+            Arm::MarcheBloc | Arm::MarcheBlocPlat => 12,
         }
     }
 
@@ -310,7 +316,7 @@ impl Arm {
             // P1b keeps P1's thresholds without amending them: the kill at 1,5
             // and the CUDA gate at 0,45, read on the BLOCK rather than on a
             // walk.
-            Arm::MarcheBloc => Some(KILL_WALK_NS),
+            Arm::MarcheBloc | Arm::MarcheBlocPlat => Some(KILL_WALK_NS),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         }
     }
@@ -584,6 +590,10 @@ fn run() -> Result<(), String> {
             include_str!("../../shaders/binomial_block.metal"),
             "decode_block",
         )?,
+        llvq_metal::Kernel::new(
+            include_str!("../../shaders/binomial_block_flat.metal"),
+            "decode_block_flat",
+        )?,
     ];
     let group = GROUP.min(kernels[0].max_threads_per_group() as usize);
     println!(
@@ -635,6 +645,10 @@ fn run() -> Result<(), String> {
     let b_btab = kernels[6].buffer(&brecs);
     let b_bbinom = kernels[6].buffer(&binom);
     let b_bgolay = kernels[6].buffer(golay.codewords());
+    let b_fwords = kernels[7].buffer(&block_words);
+    let b_ftab = kernels[7].buffer(&brecs);
+    let b_fbinom = kernels[7].buffer(&binom);
+    let b_fgolay = kernels[7].buffer(golay.codewords());
     let b_walktab = kernels[4].buffer(&walk);
     let b_binom = kernels[4].buffer(&binom);
 
@@ -684,6 +698,15 @@ fn run() -> Result<(), String> {
             enc.set_buffer(1, Some(&b_x[5]), 0);
             enc.set_buffer(2, Some(&b_out[5]), 0);
         }
+        Arm::MarcheBlocPlat => {
+            enc.set_buffer(0, Some(&b_fwords), 0);
+            enc.set_buffer(1, Some(&b_ftab), 0);
+            enc.set_buffer(2, Some(&b_fbinom), 0);
+            enc.set_buffer(3, Some(&b_fgolay), 0);
+            enc.set_buffer(4, Some(&b_gs[7]), 0);
+            enc.set_buffer(5, Some(&b_x[7]), 0);
+            enc.set_buffer(6, Some(&b_out[7]), 0);
+        }
         Arm::MarcheBloc => {
             enc.set_buffer(0, Some(&b_bwords), 0);
             enc.set_buffer(1, Some(&b_btab), 0);
@@ -711,7 +734,8 @@ fn run() -> Result<(), String> {
         // that the output was WRITTEN — a kernel the compiler emptied for want
         // of an observable result would time beautifully and mean nothing (§7).
         let etalon: Option<&[(f64, f64)]> = match Arm::ALL[ai] {
-            Arm::CascadeArchive | Arm::CascadeUniform | Arm::MarcheBloc => Some(&want_cascade),
+            Arm::CascadeArchive | Arm::CascadeUniform | Arm::MarcheBloc
+            | Arm::MarcheBlocPlat => Some(&want_cascade),
             Arm::Marche => Some(&walk_want),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         };
@@ -952,11 +976,12 @@ fn run() -> Result<(), String> {
     );
 
     println!(
-        "\n          P1b — le même gate lu sur un BLOC : marche-bloc rend {:.4} ns contre \
+        "\n          P1b — le même gate lu sur un BLOC : le meilleur décodeur de bloc rend \
+         {:.4} ns contre \
          {CUDA_GATE_NS:.2}\n          {}",
-        ns[6],
-        if ns[6] <= CUDA_GATE_NS {
-            "l'autorisation du bras CUDA de P4 TIENT : le coût d'un bloc franchit le même seuil"
+        ns[6].min(ns[7]),
+        if ns[6].min(ns[7]) <= CUDA_GATE_NS {
+            "l'autorisation du bras CUDA de P4 est RÉTABLIE (É1) : un décodeur de bloc franchit le seuil"
         } else {
             "🚨 l'autorisation du bras CUDA de P4 est RETIRÉE : le gate avait été franchi \
              par un nombre\n          qui décrivait une marche, pas un bloc"
