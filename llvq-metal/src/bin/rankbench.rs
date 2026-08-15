@@ -166,27 +166,26 @@ impl Reservoir {
     }
 }
 
-/// É3(c) — the draw's acceptance criterion, chiffré.
+/// How far the draw's class histogram sits from the file's — **described, not
+/// judged**.
 ///
 /// §7 says a draw whose histogram departs from the file's does not answer the
 /// question the run poses; it puts no figure on "departs", and the bench plan
-/// refused to invent one. É3(c) does, **before** the first measurement, because
-/// after it the figure becomes an interpretation.
+/// refused to invent one. A chiffré criterion was proposed as É3(c) — `|z| ≤ 4`
+/// over the classes of expected ≥ 25, refusal on an empty class of expected ≥ 5
+/// — and **the operator declined it on 2026-08-15**. So this function reports
+/// and returns; nothing here refuses a run.
 ///
-/// * `z = (observed − expected)/√expected`, `expected = f·N/total`;
-/// * the maximum is taken over classes whose expected count is **≥ 25** —
-///   below that the normal approximation does not hold and the `z` means
-///   nothing. The number of classes set aside on that ground is returned, never
-///   absorbed;
-/// * the draw is refused if `max |z| > 4,0`, or if a class of expected ≥ 5 comes
-///   out **empty**.
+/// `z = (observed − expected)/√expected`, `expected = f·N/total`. The counts of
+/// classes too small for that `z` to mean anything, and of classes that came out
+/// empty, are returned alongside — a number that cannot be judged should at
+/// least not be invisible.
 ///
 /// ⚠️ The draw is **without replacement**, so the exact law is hypergeometric,
 /// whose σ is `√(expected·(1 − N/total))`. Dividing by `√expected` therefore
-/// **understates** the true deviation by a factor ≈ 0,94: the test is ~6 % less
-/// sensitive than nominal, and its false-alarm budget over ~286 classes is under
-/// 1 %. Stated rather than corrected, so the printed `z` stays the simple
-/// quantity a reader can recompute.
+/// **understates** the true deviation by a factor ≈ 0,94. Stated rather than
+/// corrected, so the printed `z` stays the simple quantity a reader can
+/// recompute from the two histograms.
 struct DrawCheck {
     max_z: f64,
     at: usize,
@@ -199,8 +198,6 @@ struct DrawCheck {
 const Z_MIN_EXPECTED: f64 = 25.0;
 /// Expected count below which an empty class is not evidence of anything.
 const EMPTY_MIN_EXPECTED: f64 = 5.0;
-/// The refusal threshold on `max |z|`.
-const Z_REFUSE: f64 = 4.0;
 
 fn check_draw(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> DrawCheck {
     let p = n_draw as f64 / n_file as f64;
@@ -221,9 +218,9 @@ fn check_draw(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> DrawCheck
         }
         if exp < Z_MIN_EXPECTED {
             c.too_small += 1;
-            continue;
+        } else {
+            c.judged += 1;
         }
-        c.judged += 1;
         let z = ((d as f64 - exp) / exp.sqrt()).abs();
         if z > c.max_z {
             c.max_z = z;
@@ -433,25 +430,20 @@ fn run() -> Result<(), String> {
         dc.max_z, dc.at
     );
     println!(
-        "          critère É3(c) : |z| ≤ {Z_REFUSE:.1} sur les {} classes d'attendu ≥ {Z_MIN_EXPECTED:.0} \
-         — {} écartées comme trop petites,\n             {} classe(s) d'attendu ≥ {EMPTY_MIN_EXPECTED:.0} \
-         ressortie(s) vide(s). Le z divise par √attendu, pas par le σ\n             \
-         hypergéométrique : il SOUS-ESTIME l'écart vrai d'un facteur ≈ 0,94.",
+        "          {} classes d'attendu ≥ {Z_MIN_EXPECTED:.0}, {} en dessous (le z n'y a pas de \
+         sens), {} vide(s) d'attendu ≥ {EMPTY_MIN_EXPECTED:.0}.\n             Le z divise par \
+         √attendu, pas par le σ hypergéométrique : sans remise, il SOUS-ESTIME l'écart\n     \
+         vrai d'un facteur ≈ 0,94.",
         dc.judged,
         dc.too_small,
         dc.empty.len()
     );
-    if dc.max_z > Z_REFUSE || !dc.empty.is_empty() {
-        return Err(format!(
-            "le tirage est REFUSÉ (É3c) : max |z| = {:.2} contre {Z_REFUSE:.1}, {} classe(s) \
-             vide(s).\nUn tirage qui ne suit pas le fichier ne teste pas la distribution \
-             réelle, et le run ne répond\npas à la question qu'il pose (§7). Changer de graine \
-             est un ÉCART : il s'écrit au §7bis\navant de relancer, sinon c'est du tirage \
-             jusqu'à ce que ça passe.",
-            dc.max_z,
-            dc.empty.len()
-        ));
-    }
+    println!(
+        "          ⚠️ AUCUN SEUIL n'est appliqué à ce |z|. Le §7 exige que le tirage suive le \
+         fichier, il ne\n             chiffre pas « suit » ; un critère chiffré a été PROPOSÉ \
+         (É3c) et ÉCARTÉ. Le tirage est\n             donc décrit, pas jugé, et l'accepter \
+         revient à l'opérateur."
+    );
     println!(
         "          ⚠️ couverture : {} des {} entrées de table ne sont atteignables depuis \
          AUCUN fichier\n             cap 12 (origine, coquille 13, classes inutilisées). \
@@ -828,16 +820,7 @@ fn run() -> Result<(), String> {
             continue;
         };
         let dist = (ns[ai] - seuil).abs();
-        // É3(b): the §1.2 rule, same form and same constant, transposed to a
-        // comparison against a constant. It can only SUSPEND a verdict, never
-        // manufacture one — conservative by construction.
-        let verdict = if oh_span_ns[ai] > dist / 2.0 {
-            "VERDICT SUSPENDU (É3b)"
-        } else if ns[ai] <= seuil {
-            "VERT"
-        } else {
-            "ROUGE"
-        };
+        let verdict = if ns[ai] <= seuil { "VERT" } else { "ROUGE" };
         println!(
             "          {:<22} {:.4} ns/bloc contre {seuil:.2} — {verdict} (distance {dist:.4}, \
              étendue du surcoût {:.4} ns)",
@@ -846,6 +829,16 @@ fn run() -> Result<(), String> {
             oh_span_ns[ai]
         );
     }
+    // É3(b) proposed transposing §1.2's suspension rule to these absolute
+    // thresholds; the operator declined it on 2026-08-15. The rule therefore
+    // covers arm-vs-arm gaps only, the two quantities are printed side by side,
+    // and the binary does not conclude in the operator's place.
+    println!(
+        "          ⚠️ la règle de suspension du §1.2 porte sur un écart ENTRE DEUX BRAS ; \
+         sa transposition\n             à un seuil ABSOLU a été PROPOSÉE (É3b) et ÉCARTÉE. \
+         Les deux quantités sont imprimées,\n             la conclusion revient à \
+         l'opérateur."
+    );
 
     // The arm-vs-arm comparison the rule does cover.
     let (a, b) = (3usize, 4usize); // cascade-uniformisée contre marche

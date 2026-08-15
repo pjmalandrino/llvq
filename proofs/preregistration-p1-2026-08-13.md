@@ -486,10 +486,20 @@ uniforme n'est pas la rigueur.
 
 ### É3 — 2026-08-15, le banc est écrit et n'a pas tourné : les trois arbitrages que le plan refusait d'inventer
 
-> 🚨 **PROPOSITION, non acquise. Elle attend l'arbitrage de l'opérateur, et le
-> tampon doit venir APRÈS lui.** Une fois `ots stamp` posé, ce document est en
-> lecture seule pour toujours : un É3 stampé est un engagement, un É3 écrit
-> après la première milliseconde n'est plus un pré-enregistrement.
+> ✅ **ARBITRÉ par l'opérateur le 2026-08-15, avant le tampon et avant la
+> première milliseconde : (a) RETENU, (b) et (c) ÉCARTÉS.** Les trois avaient
+> été proposées ensemble et implémentées ensemble ; les deux écartées ont été
+> retirées du code le jour même, et ce qu'elles disaient est conservé ci-dessous
+> parce qu'un pré-enregistrement qui n'garde que ses propositions acceptées
+> raconte une délibération qui n'a pas eu lieu.
+>
+> **Ce que l'arbitrage laisse en place, et il faut le lire comme un choix et non
+> comme un oubli** : les seuils absolus du §4 se lisent **sans** règle de
+> suspension — le banc imprime la distance au seuil *et* l'étendue du surcoût
+> côte à côte, et c'est l'opérateur qui tranche — et le tirage est **décrit sans
+> être jugé** : `max |z|`, le compte des classes trop petites pour qu'un `z` y
+> ait un sens, et le compte des classes ressorties vides, sans qu'aucun de ces
+> nombres ne refuse un run.
 
 **Ce qui s'est passé.** Le plan d'implémentation du banc a relevé **trois
 décisions qui ne sont dans aucun pré-enregistrement** et a refusé de les
@@ -499,7 +509,7 @@ parce qu'après elles deviennent négociables**. Le banc est écrit et n'a pas
 tourné ; c'est le dernier moment où elles sont encore des règles plutôt que
 des interprétations.
 
-#### (a) Un sixième bras, `sol-rang` — **proposé : oui**
+#### (a) Un sixième bras, `sol-rang` — ✅ **RETENU**
 
 Le §2 fixe **cinq** bras. En ajouter un est un écart, et c'est pourquoi il
 s'écrit ici.
@@ -525,7 +535,7 @@ plancher : quelques millisecondes sur les 18 rounds. Zéro dollar. **Ce que ça
 ne coûte pas : aucun seuil ne bouge.** Les 1,5 / 2,0 / 0,45 ns restent lus
 contre les mêmes bras.
 
-#### (b) La règle de suspension appliquée aux seuils absolus — **proposé : oui, à l'identique**
+#### (b) La règle de suspension appliquée aux seuils absolus — ❌ **ÉCARTÉ**
 
 Le §1.2 amendé dit : *si l'étendue du surcoût dépasse la moitié de l'écart
 entre deux bras que le verdict sépare, ce verdict n'est pas rendu.* Il parle
@@ -545,7 +555,7 @@ défaut, à un autre endroit du même document.
 verdict, jamais en fabriquer un. Elle est donc conservatrice par construction,
 et elle coûte un run de plus quand elle mord.
 
-#### (c) Un critère chiffré d'acceptation du tirage — **proposé**
+#### (c) Un critère chiffré d'acceptation du tirage — ❌ **ÉCARTÉ**
 
 Le §7 dit qu'un tirage dont l'histogramme *s'écarte* de celui du fichier ne
 répond pas à la question posée. Il ne chiffre pas « s'écarte ».
@@ -572,10 +582,20 @@ Réserve n°2 : ce critère juge la **composition en classes** du tirage, et rie
 d'autre — il ne dit rien de la corrélation entre blocs voisins, qu'un
 échantillonnage par réservoir ne peut de toute façon pas introduire.
 
-**Ce que ça ne change pas.** Aucun seuil du §4, aucune issue du §6, aucun bras.
-Ce sont trois règles de **lecture**, et les trois vont dans le sens qui coûte
-au banc : un bras de plus à battre, un verdict qui peut être suspendu, un
-tirage qui peut être refusé.
+**Ce que l'arbitrage change, et ce qu'il ne change pas.** Aucun seuil du §4,
+aucune issue du §6. Le bras retenu ajoute un plancher mesuré là où il n'y avait
+qu'une réserve en prose ; les deux écartés auraient ajouté deux façons pour le
+banc de **refuser de conclure**, et l'opérateur a préféré que le banc rende ses
+nombres et que la conclusion reste chez lui. C'est cohérent avec le §6.2 du plan
+de banc, qui demandait déjà d'imprimer les deux quantités sans conclure à la
+place de l'opérateur — (b) et (c) allaient plus loin que ça, pas dans une autre
+direction.
+
+⚠️ **La conséquence à ne pas perdre de vue quand les chiffres tomberont** : un
+bras à 0,44 ns devant le gate à 0,45, avec un surcoût dont l'étendue vaut
+0,10 ns, sera un verdict **rendu** par ce banc. La distance au seuil et
+l'étendue du surcoût sont imprimées sur la même ligne exprès. De même, un
+tirage à `max |z| = 6` passera : c'est à la lecture qu'il faut le voir.
 
 **Antériorité.** Aucune milliseconde n'existe pour aucun des cinq bras au
 moment où ceci est écrit : `bin/rankbench` refuse de démarrer tant que
