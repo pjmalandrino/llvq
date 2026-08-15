@@ -268,6 +268,25 @@ pub fn binomial_walk(
         // lanes exactly where the cascade already does, which is what it exists
         // to avoid. When `c` reaches zero the threshold is set out of reach
         // instead, so the remaining positions are scanned and never taken.
+        //
+        // 🕳️ **The `u64::MAX` itself is inert on well-formed input, and a
+        // surviving mutant is what says so.** Replacing it with plain
+        // `binom(p, c)` passes the integral sweep — 150 681 600 real blocks,
+        // `llvq-artifact/tests/p1_rank_sweep.rs` — because colex unranking
+        // consumes its rank exactly: when `c` reaches zero the residual `r` is
+        // zero, and `binom(p, 0) == 1 > 0` is already out of reach. So this is
+        // not the line that buys the fixed step count; the absence of a `break`
+        // is, and the mutant preserves that too.
+        //
+        // It is kept because it is **not** inert on malformed input, which the
+        // *format* admits: a rank field is `ceil(log2 radix)` bits wide, so
+        // every value in `[radix, 2^wbits)` is representable in `e1v-séparé`
+        // and none of them leaves `r` at zero. Without the guard `c` would
+        // underflow and the walk would run off the class. `binomial_walk.metal`
+        // carries the same guard as `&& (cnt != 0u)`, for the same reason and
+        // at the same cost — one compare and one AND per step, in the arm's hot
+        // loop. Whether the timed arm should pay it is a question for the bench
+        // brief, not something to settle by deleting the line here.
         for p in (0..n_free).rev() {
             let b = if c > 0 { binom(p, c) } else { u64::MAX };
             let take = r >= b;
