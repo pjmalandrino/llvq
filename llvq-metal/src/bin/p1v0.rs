@@ -54,7 +54,7 @@ use llvq_metal::p1host::{
     walk_records, GpuCascadeRec, GpuDivTab, GpuWalkRec,
 };
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
-use llvq_search::rankdec::binomial_walk;
+use llvq_search::rankdec::{binomial_rank, binomial_walk, walk_cardinality};
 use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::BufReader;
@@ -78,6 +78,17 @@ const SEED: u64 = 0x0000_B1A0_5EED;
 /// what the other covers.
 const FIXTURE_SEED: u64 = 0x0000_F1C7_5EED;
 
+/// Largest class cardinality the bijection check enumerates in full, and the
+/// total block budget it may spend doing so.
+///
+/// Both are arbitrary and both are printed: a class of cardinality 2 704 156
+/// cannot be enumerated at any budget this binary is willing to hold, so the
+/// bijection is established **where enumeration is affordable** and the round
+/// trip carries the rest. Saying which is which is the point of printing the
+/// count of entries covered.
+const EXHAUSTIVE_CARD: u64 = 1 << 16;
+const EXHAUSTIVE_BUDGET: usize = 1 << 21;
+
 /// Gain centroids. **Not the artifact's**: the published matrices each carry
 /// their own pair, and this bench mixes 252 of them. The gain scale is a
 /// scalar applied *after* the decode, identical on both sides of every
@@ -92,6 +103,11 @@ const GSCALE: [f32; 2] = [0.9, 1.1];
 /// reason: an absolute floor that coarse cannot see a flipped sign bit on a
 /// small dot, and "a fire alarm is not a guard".
 const REL: f64 = 2e-3;
+
+/// Counts, level values in f64, and kind count — one entry per walk-table id,
+/// the origin first. Built by [`walk_levels`] from `FastDecoder::levels`, never
+/// from the table under test.
+type Levels = Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usize)>;
 
 fn xvec() -> Vec<f32> {
     // Distinct magnitudes per slot, so a *permuted* arrangement moves the dot.
@@ -162,35 +178,59 @@ impl CascadeArm {
     }
 }
 
-/// The `marche-binomiale` arm: a packed 96-bit record in, one dot product out.
+/// The `marche-binomiale` arm, and its instrumented twin.
+///
+/// Two entry points of **one** source: `decode_walk`, which writes one float
+/// per block and is the arm the bench will time, and `walk_arrangement`
+/// (`binomial_walk.metal` §11), which writes the 24 kind indices instead. The
+/// twin exists because a dot product is a sum, and a sum is not injective: É2's
+/// standard is `rank → arrangement → rank`, and the arrangement never leaves
+/// the lane in the timed kernel. Adding a store to `decode_walk` to get at it
+/// would change the thing being measured — defect n°1 of the 2026-07-31 bench,
+/// turned into a rule.
 struct WalkArm {
     k: llvq_metal::Kernel,
+    k_arr: llvq_metal::Kernel,
     b_tab: metal::Buffer,
     b_binom: metal::Buffer,
     b_gs: metal::Buffer,
     b_x: metal::Buffer,
+    b_tab_arr: metal::Buffer,
+    b_binom_arr: metal::Buffer,
 }
 
 impl WalkArm {
     fn new(walk: &[GpuWalkRec], binom: &[u32], x: &[f32]) -> Result<Self, String> {
         let src = include_str!("../../shaders/binomial_walk.metal");
         let k = llvq_metal::Kernel::new(src, "decode_walk")?;
+        let k_arr = llvq_metal::Kernel::new(src, "walk_arrangement")?;
         Ok(Self {
             b_tab: k.buffer(walk),
             b_binom: k.buffer(binom),
             b_gs: k.buffer(&GSCALE),
             b_x: k.buffer(x),
+            // Each `Kernel` owns its device and queue, so a buffer belongs to
+            // the one that made it. Two pipelines, two copies of the tables —
+            // 22 KB, and nothing here is timed.
+            b_tab_arr: k_arr.buffer(walk),
+            b_binom_arr: k_arr.buffer(binom),
             k,
+            k_arr,
         })
     }
 
-    fn run(&self, words: &[u32]) -> Vec<f32> {
+    fn nblocks(words: &[u32]) -> usize {
         assert_eq!(words.len() % 3, 0, "trois mots par bloc");
         let n = words.len() / 3;
         assert!(
             n > 0 && n.is_multiple_of(GROUP),
             "{n} blocs n'est pas un multiple de {GROUP}"
         );
+        n
+    }
+
+    fn run(&self, words: &[u32]) -> Vec<f32> {
+        let n = Self::nblocks(words);
         let b_words = self.k.buffer(words);
         let b_out = self.k.empty::<f32>(n);
         self.k.dispatch(n as u64, GROUP as u64, |enc| {
@@ -203,6 +243,21 @@ impl WalkArm {
         });
         // SAFETY: the dispatch above completed and wrote n floats into b_out.
         unsafe { self.k.read(&b_out, n) }
+    }
+
+    /// The twin: `DIM` kind indices per block, slot-major.
+    fn run_arrangement(&self, words: &[u32]) -> Vec<u8> {
+        let n = Self::nblocks(words);
+        let b_words = self.k_arr.buffer(words);
+        let b_out = self.k_arr.empty::<u8>(n * DIM);
+        self.k_arr.dispatch(n as u64, GROUP as u64, |enc| {
+            enc.set_buffer(0, Some(&b_words), 0);
+            enc.set_buffer(1, Some(&self.b_tab_arr), 0);
+            enc.set_buffer(2, Some(&self.b_binom_arr), 0);
+            enc.set_buffer(3, Some(&b_out), 0);
+        });
+        // SAFETY: the dispatch above completed and wrote n*DIM bytes into b_out.
+        unsafe { self.k_arr.read(&b_out, n * DIM) }
     }
 }
 
@@ -261,7 +316,7 @@ fn etalon_cascade(
 ///
 /// Entry 0 is the origin — one kind, 24 slots, value zero — matching
 /// [`walk_records`]'s own convention, restated rather than imported.
-fn walk_levels(fd: &FastDecoder) -> Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usize)> {
+fn walk_levels(fd: &FastDecoder) -> Levels {
     let mut out = Vec::with_capacity(fd.n_classes() + 1);
     let mut origin = [0u8; MAX_KINDS];
     origin[0] = DIM as u8;
@@ -279,6 +334,39 @@ fn walk_levels(fd: &FastDecoder) -> Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usiz
     out
 }
 
+/// What the host packed into the records — and therefore exactly what the GPU
+/// has to give back.
+#[derive(Default)]
+struct WalkFeed {
+    ids: Vec<u32>,
+    gains: Vec<u8>,
+    ranks: Vec<[u64; MAX_KINDS]>,
+    smasks: Vec<u32>,
+}
+
+impl WalkFeed {
+    fn push(&mut self, id: u32, gain: u8, ranks: [u64; MAX_KINDS], smask: u32) {
+        self.ids.push(id);
+        self.gains.push(gain);
+        self.ranks.push(ranks);
+        self.smasks.push(smask);
+    }
+
+    fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    /// Pad with the origin at rank zero, to a whole number of threadgroups.
+    ///
+    /// The origin is the one entry whose dot is zero whatever the sign mask, so
+    /// the padding cannot flatter the worst error of a real entry.
+    fn pad(&mut self) {
+        while !self.len().is_multiple_of(GROUP) {
+            self.push(0, 0, [0u64; MAX_KINDS], 0);
+        }
+    }
+}
+
 /// Pack the walk's feed and compute its etalon in one pass — the CPU walk on
 /// the very ranks the GPU is handed (É2).
 ///
@@ -288,46 +376,46 @@ fn walk_levels(fd: &FastDecoder) -> Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usiz
 /// tested — while the *etalon* reads `lev`, which owes it nothing.
 fn walk_feed(
     walk: &[GpuWalkRec],
-    lev: &[([u8; MAX_KINDS], [f64; MAX_KINDS], usize)],
-    ids: &[u32],
-    gains: &[u8],
-    ranks: &[[u64; MAX_KINDS]],
-    smasks: &[u32],
+    lev: &Levels,
+    feed: &WalkFeed,
     x: &[f32],
 ) -> (Vec<u32>, Vec<(f64, f64)>) {
-    let n = ids.len();
-    assert_eq!(n, gains.len());
-    assert_eq!(n, ranks.len());
-    assert_eq!(n, smasks.len());
     assert_eq!(walk.len(), lev.len());
+    let n = feed.len();
     let mut words = Vec::with_capacity(3 * n);
     let mut want = Vec::with_capacity(n);
     let mut kinds = [0u8; DIM];
     for b in 0..n {
-        let id = ids[b] as usize;
+        let id = feed.ids[b] as usize;
         let rec: &GpuWalkRec = &walk[id];
         words.extend_from_slice(&pack_walk_block(
             rec,
-            ids[b],
-            gains[b] as u32,
-            smasks[b],
-            &ranks[b],
+            feed.ids[b],
+            feed.gains[b] as u32,
+            feed.smasks[b],
+            &feed.ranks[b],
         ));
 
         let (counts, vals, k) = &lev[id];
-        binomial_walk(&ranks[b], counts, *k, &mut kinds);
-        let g = GSCALE[gains[b] as usize] as f64;
-        let (mut dot, mut mag) = (0.0f64, 0.0f64);
-        for (i, &kd) in kinds.iter().enumerate() {
-            let v = vals[kd as usize];
-            let v = if (smasks[b] >> i) & 1 == 1 { -v } else { v };
-            let t = v * g * x[i] as f64;
-            dot += t;
-            mag += t.abs();
-        }
-        want.push((dot, mag));
+        binomial_walk(&feed.ranks[b], counts, *k, &mut kinds);
+        want.push(dot_of(&kinds, vals, feed.smasks[b], feed.gains[b], x));
     }
     (words, want)
+}
+
+/// `(Σ wᵢxᵢ, Σ|wᵢxᵢ|)` for one arrangement — the dot and the magnitude the
+/// accumulation ran at, which is what a tolerance has to be relative to.
+fn dot_of(kinds: &[u8; DIM], vals: &[f64; MAX_KINDS], smask: u32, gain: u8, x: &[f32]) -> (f64, f64) {
+    let g = GSCALE[gain as usize] as f64;
+    let (mut dot, mut mag) = (0.0f64, 0.0f64);
+    for (i, &kd) in kinds.iter().enumerate() {
+        let v = vals[kd as usize];
+        let v = if (smask >> i) & 1 == 1 { -v } else { v };
+        let t = v * g * x[i] as f64;
+        dot += t;
+        mag += t.abs();
+    }
+    (dot, mag)
 }
 
 // ---------------------------------------------------------------------------
@@ -378,10 +466,8 @@ fn fixture_walk(
     walk: &[GpuWalkRec],
     radices: &[[u64; MAX_KINDS]],
     rng: &mut SplitMix64,
-) -> (Vec<u32>, Vec<[u64; MAX_KINDS]>, Vec<u32>) {
-    let mut ids = Vec::new();
-    let mut ranks = Vec::new();
-    let mut smasks = Vec::new();
+) -> WalkFeed {
+    let mut feed = WalkFeed::default();
     let full = (1u32 << DIM) - 1;
     for (id, rec) in walk.iter().enumerate() {
         let k = rec.k as usize;
@@ -402,26 +488,202 @@ fn fixture_walk(
         };
         let r1 = rnd(rng);
         let r2 = rnd(rng);
-        for (r, s) in [
+        for (i, (r, s)) in [
             (zero, 0u32),
             (max, full),
             (r1, (rng.next() as u32) & full),
             (r2, (rng.next() as u32) & full),
-        ] {
-            ids.push(id as u32);
-            ranks.push(r);
-            smasks.push(s);
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            feed.push(id as u32, (i % 2) as u8, r, s);
         }
     }
-    // Whole threadgroups, padded with the origin at rank zero — the one entry
-    // whose dot is zero whatever the sign mask, so the padding cannot flatter
-    // the worst error of a real entry.
-    while !ids.len().is_multiple_of(GROUP) {
-        ids.push(0);
-        ranks.push([0u64; MAX_KINDS]);
-        smasks.push(0);
+    feed.pad();
+    feed
+}
+
+/// **Every rank of every class small enough to enumerate**, for the bijection
+/// half of É2: pairwise distinct arrangements, and exactly as many as the
+/// class holds.
+///
+/// This is the check a round trip cannot make. `rank → arrangement → rank`
+/// closing says the map is injective *where it was probed*; it says nothing
+/// about the map's image, and nothing at all about a rank never probed.
+/// `the_walk_spans_exactly_the_class` makes it on the CPU by full enumeration;
+/// this makes it on the GPU, over the same classes.
+///
+/// `walk_cardinality` is the walk's own product of radices, so enumerating
+/// `0..cardinality` through the odometer visits each rank tuple exactly once by
+/// construction — the count assertion downstream is about what the *shader*
+/// produced, not about the loop that fed it.
+fn exhaustive_walk(
+    walk: &[GpuWalkRec],
+    radices: &[[u64; MAX_KINDS]],
+    max_card: u64,
+    budget: usize,
+) -> (WalkFeed, Vec<usize>) {
+    let mut feed = WalkFeed::default();
+    let mut picked = Vec::new();
+    for (id, rec) in walk.iter().enumerate() {
+        let k = rec.k as usize;
+        let card = walk_cardinality(&rec.counts, k, DIM);
+        // Entry 0 is skipped on purpose: it is what the feed pads with, and a
+        // padded block is an extra arrangement for whichever id it carries.
+        // Its own bijection is trivial (cardinality 1) and the fixture already
+        // decodes it four times.
+        if id == 0 || card > max_card || feed.len() + card as usize > budget {
+            continue;
+        }
+        picked.push(id);
+        let rad = &radices[id];
+        let mut idx = [0u64; MAX_KINDS];
+        loop {
+            // The sign mask varies with the rank so the arrangements are not
+            // all read through the same signs; it plays no part in the
+            // bijection, which is about slots.
+            feed.push(id as u32, 0, idx, (feed.len() as u32) & ((1 << DIM) - 1));
+            let mut j = 0;
+            while j < k {
+                idx[j] += 1;
+                if idx[j] < rad[j] {
+                    break;
+                }
+                idx[j] = 0;
+                j += 1;
+            }
+            if j >= k {
+                break;
+            }
+        }
     }
-    (ids, ranks, smasks)
+    feed.pad();
+    (feed, picked)
+}
+
+// ---------------------------------------------------------------------------
+// É2's standard, on the GPU's own arrangement
+// ---------------------------------------------------------------------------
+
+/// `rank → arrangement → rank`, on the arrangement the **GPU** produced.
+///
+/// Four assertions per block, and none of them subsumes another:
+///
+/// 1. **The round trip closes.** `binomial_rank` of the GPU's arrangement is
+///    the rank the host packed. This is É2's standard, and until now it existed
+///    only on the CPU: `p1v0` compared *dot products*, and a dot is a sum, so
+///    two different arrangements can share one.
+/// 2. **The arrangement realises the class's multiset.** The round trip cannot
+///    see this: `binomial_rank` walks `0..k-1`, the final kind having no rank
+///    of its own, so a walk that misplaced the last kind closes the trip
+///    anyway. Exactly the mutation that survived five tests in `rankdec.rs`.
+/// 3. **The GPU's arrangement equals the CPU's**, slot for slot — the exact
+///    equality the dot could only approximate.
+/// 4. **The dot rebuilt from the GPU's arrangement equals what `decode_walk`
+///    wrote.** This is the only thread tying the instrumented twin to the arm
+///    that will actually be timed (`binomial_walk.metal` §11). Without it, 1-3
+///    would be a complete proof about a kernel nobody runs.
+fn verify_arrangements(
+    lev: &Levels,
+    feed: &WalkFeed,
+    arr: &[u8],
+    dots: &[f32],
+    x: &[f32],
+    label: &str,
+) -> usize {
+    let n = feed.len();
+    assert_eq!(arr.len(), n * DIM, "{label}: DIM octets par bloc");
+    assert_eq!(dots.len(), n, "{label}: un flottant par bloc");
+    let mut bad = 0usize;
+    let mut cpu = [0u8; DIM];
+    let mut worst_dot = 0.0f64;
+    for b in 0..n {
+        let id = feed.ids[b] as usize;
+        let (counts, vals, k) = &lev[id];
+        let gpu: &[u8; DIM] = arr[b * DIM..(b + 1) * DIM].try_into().expect("DIM octets");
+
+        // 2 — the multiset, before anything else: a slot carrying a symbol
+        // outside `0..k` would index `vals` out of range below.
+        let mut ok = gpu.iter().all(|&s| (s as usize) < *k);
+        if ok {
+            for (j, &c) in counts.iter().enumerate().take(*k) {
+                ok &= gpu.iter().filter(|&&s| s == j as u8).count() == c as usize;
+            }
+        }
+        // 1 — the round trip.
+        if ok {
+            let back = binomial_rank(gpu, counts, *k);
+            for (j, &want) in feed.ranks[b].iter().enumerate().take(k.saturating_sub(1)) {
+                ok &= back[j] == want;
+            }
+        }
+        // 3 — against the CPU walk, slot for slot.
+        if ok {
+            binomial_walk(&feed.ranks[b], counts, *k, &mut cpu);
+            ok &= &cpu == gpu;
+        }
+        // 4 — the pin to the timed kernel.
+        if ok {
+            let (dot, mag) = dot_of(gpu, vals, feed.smasks[b], feed.gains[b], x);
+            let d = (dots[b] as f64 - dot).abs();
+            let rel = if mag > 0.0 { d / mag } else { d };
+            worst_dot = worst_dot.max(rel);
+            ok &= !d.is_nan() && d <= (REL * mag).max(REL * dot.abs());
+        }
+        if !ok {
+            bad += 1;
+        }
+    }
+    println!(
+        "  {label:<18} {n} arrangements — aller-retour fermé, multiensemble réalisé, \
+         égalité au CPU slot par slot,\n  {:<18} épinglé sur decode_walk à {worst_dot:.3e} \
+         relatif à Σ|w·x|",
+        ""
+    );
+    if bad > 0 {
+        println!("  {:<18} ROUGE — {bad} bloc(s) sur {n}", "");
+    }
+    bad
+}
+
+/// The bijection half: over `0..cardinality` of a class, the arrangements the
+/// GPU produces are **pairwise distinct** and there are **exactly as many as
+/// the class holds**.
+///
+/// Injectivity plus a matching count is surjectivity onto a set of that size —
+/// which, with `verify_arrangements`'s multiset check placing every arrangement
+/// *inside* the class, is the bijection. Neither half alone is: a map that
+/// collapsed two ranks and invented an arrangement outside the class would pass
+/// a count, and a map onto half the class would pass distinctness.
+fn verify_bijection(lev: &Levels, feed: &WalkFeed, arr: &[u8], picked: &[usize]) -> usize {
+    use std::collections::HashSet;
+    let mut bad = 0usize;
+    for &id in picked {
+        let (counts, _, k) = &lev[id];
+        let card = walk_cardinality(counts, *k, DIM);
+        let mut seen: HashSet<&[u8]> = HashSet::new();
+        let mut n = 0u64;
+        for (b, &fid) in feed.ids.iter().enumerate() {
+            if fid as usize != id {
+                continue;
+            }
+            n += 1;
+            if !seen.insert(&arr[b * DIM..(b + 1) * DIM]) {
+                bad += 1;
+            }
+        }
+        if n != card || seen.len() as u64 != card {
+            bad += 1;
+            println!(
+                "  {:<18} ROUGE — entrée {id} : {n} rangs fournis, {} arrangements \
+                 distincts, cardinalité {card}",
+                "",
+                seen.len()
+            );
+        }
+    }
+    bad
 }
 
 // ---------------------------------------------------------------------------
@@ -588,25 +850,62 @@ fn main() -> Result<(), String> {
         &etalon_cascade(&fd, &fidx, &fgains, &x)?,
     );
 
-    let (fids, franks, fsmasks) = fixture_walk(&walk, &radices, &mut frng);
-    let fwgains: Vec<u8> = (0..fids.len()).map(|i| (i % 2) as u8).collect();
-    let wseen: BTreeSet<u32> = fids.iter().copied().collect();
+    let ffeed = fixture_walk(&walk, &radices, &mut frng);
+    let wseen: BTreeSet<u32> = ffeed.ids.iter().copied().collect();
     assert_eq!(
         wseen.len(),
         walk.len(),
         "la fixture marche doit toucher les {} entrées de la table",
         walk.len()
     );
-    let (fwords, fwant) = walk_feed(&walk, &lev, &fids, &fwgains, &franks, &fsmasks, &x);
+    let (fwords, fwant) = walk_feed(&walk, &lev, &ffeed, &x);
     println!(
         "\n{} blocs synthétiques — {} entrées de marche sur {} (TOUTES), origine comprise ; \
          rang 0, dernier rang, et deux tirages par entrée",
-        fids.len(),
+        ffeed.len(),
         wseen.len(),
         walk.len()
     );
     println!("bras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
-    let fw = verify("decode_walk", &walk_arm.run(&fwords), &fwant);
+    let fdots = walk_arm.run(&fwords);
+    let fw = verify("decode_walk", &fdots, &fwant);
+    let fwa = verify_arrangements(
+        &lev,
+        &ffeed,
+        &walk_arm.run_arrangement(&fwords),
+        &fdots,
+        &x,
+        "walk_arrangement",
+    );
+
+    // =======================================================================
+    // PASSE 1bis — la bijection, par énumération exhaustive (É2)
+    // =======================================================================
+    println!("\n{}", "-".repeat(78));
+    let (efeed, picked) = exhaustive_walk(&walk, &radices, EXHAUSTIVE_CARD, EXHAUSTIVE_BUDGET);
+    let (ewords, _) = walk_feed(&walk, &lev, &efeed, &x);
+    let earr = walk_arm.run_arrangement(&ewords);
+    let ecard: u64 = picked
+        .iter()
+        .map(|&id| walk_cardinality(&lev[id].0, lev[id].2, DIM))
+        .sum();
+    println!(
+        "bijection — {} entrées de cardinalité ≤ {EXHAUSTIVE_CARD} énumérées ENTIÈREMENT \
+         : {ecard} rangs,\n  {} blocs avec le bourrage origine, sur les {} entrées de la \
+         table. Les autres sont hors\n  de portée d'une énumération et restent bornées par \
+         l'aller-retour seul.",
+        picked.len(),
+        efeed.len(),
+        walk.len()
+    );
+    let eb = verify_bijection(&lev, &efeed, &earr, &picked);
+    let ea = verify_arrangements(&lev, &efeed, &earr, &walk_arm.run(&ewords), &x, "exhaustif");
+    if eb == 0 {
+        println!(
+            "  {:<18} arrangements deux à deux distincts, compte égal à la cardinalité",
+            ""
+        );
+    }
 
     // =======================================================================
     // PASSE 2 — le tirage réel (§1.5)
@@ -704,10 +1003,8 @@ fn main() -> Result<(), String> {
     // is the CPU walk on those very ranks — NOT `fd.decode`, which decodes
     // another order entirely.
     let mut rng = SplitMix64::new(SEED);
-    let mut ids = Vec::with_capacity(n);
-    let mut ranks = Vec::with_capacity(n);
-    let mut smasks = Vec::with_capacity(n);
-    for &ci in &classes {
+    let mut rfeed = WalkFeed::default();
+    for (b, &ci) in classes.iter().enumerate() {
         let id = 1 + ci;
         let k = walk[id].k as usize;
         let mut r = [0u64; MAX_KINDS];
@@ -715,34 +1012,51 @@ fn main() -> Result<(), String> {
             let radix = radices[id][j];
             *rj = if radix > 1 { rng.next() % radix } else { 0 };
         }
-        ids.push(id as u32);
-        ranks.push(r);
-        smasks.push((rng.next() as u32) & ((1 << DIM) - 1));
+        rfeed.push(id as u32, gains[b], r, (rng.next() as u32) & ((1 << DIM) - 1));
     }
-    let (words, want_walk) = walk_feed(&walk, &lev, &ids, &gains, &ranks, &smasks, &x);
+    let (words, want_walk) = walk_feed(&walk, &lev, &rfeed, &x);
 
     println!("\nbras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
-    let ww = verify("decode_walk", &walk_arm.run(&words), &want_walk);
+    let dots = walk_arm.run(&words);
+    let ww = verify("decode_walk", &dots, &want_walk);
+    let wwa = verify_arrangements(
+        &lev,
+        &rfeed,
+        &walk_arm.run_arrangement(&words),
+        &dots,
+        &x,
+        "walk_arrangement",
+    );
 
     // ---- verdict ----------------------------------------------------------
     println!("\n{}", "-".repeat(78));
-    let ok = fc.bad == 0 && fw.bad == 0 && wc.bad == 0 && ww.bad == 0;
+    let ok = fc.bad == 0 && fw.bad == 0 && fwa == 0 && ea == 0 && eb == 0 && wc.bad == 0
+        && ww.bad == 0
+        && wwa == 0;
     if ok {
         println!(
-            "V0 VERT sur les deux bras, aux deux passes — fixture {} blocs (toutes les \
-             {} entrées de table),\ntirage réel {n} blocs, tolérance {REL:.0e}·Σ|w·x|.\n\n\
-             Ce que ça autorise : rien d'autre que d'écrire le banc. Restent dus avant \
-             tout chronométrage —\n  · le sweep intégral des 150 681 600 blocs ;\n  \
-             · pour la marche, l'aller-retour rang → arrangement → rang CÔTÉ GPU : il \
-             existe côté CPU\n    (`the_walk_round_trips_on_its_own_bijection`) et ne borne \
-             rien sur le shader.",
-            fidx.len().max(fids.len()),
-            walk.len()
+            "V0 VERT — les deux bras, aux deux passes, plus la bijection.\n\n  \
+             cascade : {} blocs de fixture (toutes les {} classes, origine comprise) \
+             + {n} blocs réels,\n            point pour point contre FastDecoder::decode\n  \
+             marche  : {} blocs de fixture + {n} blocs réels, aller-retour rang → \
+             arrangement → rang\n            FERMÉ SUR L'ARRANGEMENT DU GPU, multiensemble \
+             réalisé, égalité au CPU slot par slot\n  bijection : {} entrées énumérées \
+             entièrement ({ecard} rangs), arrangements distincts\n\n\
+             Tolérance {REL:.0e}·Σ|w·x|. Ce que ça autorise : écrire le banc, et rien \
+             d'autre.\n⚠️ L'arrangement sort du jumeau instrumenté `walk_arrangement`, pas \
+             de `decode_walk`,\n   qui n'émet qu'une somme — le lien entre les deux est le \
+             produit scalaire, pas\n   l'arrangement (binomial_walk.metal §11).",
+            fidx.len(),
+            fd.n_classes(),
+            ffeed.len(),
+            picked.len(),
         );
     } else {
         println!(
-            "V0 ROUGE — fixture : cascade {} bloc(s) hors tolérance, marche {} ; \
-             tirage réel : cascade {}, marche {}. Aucun chronométrage n'est autorisé.",
+            "V0 ROUGE — fixture : cascade {} bloc(s) hors tolérance, marche {}, \
+             arrangements {fwa} ;\n  bijection : {eb} entrée(s), arrangements {ea} ; \
+             tirage réel : cascade {}, marche {}, arrangements {wwa}.\n\
+             Aucun chronométrage n'est autorisé.",
             fc.bad, fw.bad, wc.bad, ww.bad
         );
     }

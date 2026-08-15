@@ -12,7 +12,7 @@
 //! Run: `cargo run --release -p llvq-metal --bin mslcheck`
 
 fn main() {
-    let cases: [(&str, &str, &str); 2] = [
+    let cases: [(&str, &str, &str); 3] = [
         (
             "cascade_uniform",
             include_str!("../../shaders/cascade_uniform.metal"),
@@ -22,6 +22,15 @@ fn main() {
             "binomial_walk",
             include_str!("../../shaders/binomial_walk.metal"),
             "decode_walk",
+        ),
+        // The instrumented twin (§11) is a separate entry point of the same
+        // source, so a library that builds says nothing about it: an entry
+        // point that fails to compile is reported per entry point, not per
+        // file. Listed here so it cannot rot unnoticed.
+        (
+            "binomial_walk (twin)",
+            include_str!("../../shaders/binomial_walk.metal"),
+            "walk_arrangement",
         ),
     ];
 

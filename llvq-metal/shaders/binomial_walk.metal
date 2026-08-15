@@ -293,17 +293,27 @@
 // attempt at that mutant XORed the mask twice and failed; a mutant that fails
 // unexpectedly is a broken mutant until proven otherwise.)
 //
-// NOT RUN, and none of it is optional — this check is a smoke test, not V0:
+// MEASURED SINCE, 2026-08-15, same machine, by `bin/p1v0` — the list below was
+// its to-do and is kept as the record of what closed it:
 //   * the real 383 classes of `FastDecoder`, with the real `walk_radices`
-//     widths. Everything above used synthetic shapes;
-//   * the round-trip standard of pre-registration §3 (`rank → arrangement →
-//     rank` over every rank of the small classes, plus pairwise distinctness
-//     and a count equal to the cardinality) — that is the arm's actual V0;
+//     widths — the synthetic shapes above are superseded;
+//   * real blocks from `~/llvq-q4b.llvq`: 1 048 576 of them, so the real class
+//     mix and the real inter-lane divergence, the whole reason P1 exists;
 //   * the fixture for the origin and the shell-13 classes, which no real draw
-//     reaches (98 of 384 table entries);
-//   * the integral sweep of the 150 681 600 blocks;
-//   * real blocks from `~/llvq-q4b.llvq`, and therefore the real class mix and
-//     the real inter-lane divergence — the whole reason P1 exists;
+//     reaches — all 384 table entries at rank 0, at the last rank and on two
+//     draws each (pre-registration §1.6);
+//   * the round-trip standard of pre-registration §3 / É2, on the arrangement
+//     the GPU itself produced (§11 below): `rank → arrangement → rank` closes,
+//     the multiset is realised, and the arrangement equals `binomial_walk`'s
+//     slot for slot. Plus the bijection by full enumeration over the 49 table
+//     entries of cardinality ≤ 65 536 — 653 531 ranks, arrangements pairwise
+//     distinct and exactly as many as the class holds.
+//
+// STILL NOT RUN:
+//   * the integral sweep of the 150 681 600 blocks *through this shader*.
+//     `llvq-artifact/tests/p1_rank_sweep.rs` sweeps them through the CPU
+//     references, which is a different statement and must not be read as this
+//     one: no GPU runs in that harness;
 //   * one nanosecond of timing.
 // ===========================================================================
 
@@ -446,4 +456,99 @@ kernel void decode_walk(device const uint*   words  [[buffer(0)]],
     d += dep_slots(freem, r.vals[k - 1u], smask, xs);
 
     out[gid] = d * gscale[gain];
+}
+
+// ===========================================================================
+// 11. THE INSTRUMENTED TWIN — `walk_arrangement`
+// ===========================================================================
+// `decode_walk` writes one float. That is deliberate and it is defect n°1 of
+// the 2026-07-31 bench turned into a rule (§1): a kernel that stores 24 decoded
+// weights measures its own uncoalesced stores. But it also means the arm's
+// actual V0 — pre-registration §3, amendment É2: `rank → arrangement → rank`
+// closes, the arrangement realises the class's multiset, and the arrangements
+// over `0..cardinality` are pairwise distinct and exactly that many — cannot be
+// checked against it, because the arrangement never leaves the lane. A dot
+// product is a sum, and a sum is not injective.
+//
+// So the arrangement comes out of a SECOND kernel, and `decode_walk` above is
+// untouched — not one register, not one instruction. This one is never timed
+// and must never be: it stores 24 bytes per block, and its addressing is chosen
+// for the host's convenience rather than for the machine's.
+//
+// ⚠️ **It is a copy of the loop above, and a copy is exactly what §3.1 of the
+// pre-registration warns about.** `rankdec.rs:556` has the precedent and the
+// scar: its instrumented twin `steps_of` was written with the read-before-clear
+// bug its original does not have, and a twin that drifts from its original
+// tests the twin. The copy is therefore PINNED, in the same run, on the same
+// blocks, by three checks that form a triangle:
+//
+//   (a) this kernel's arrangement equals `binomial_walk`'s, slot for slot;
+//   (b) the dot rebuilt on the host from this arrangement equals what
+//       `decode_walk` wrote for the same block — the only thread tying the twin
+//       to the timed arm;
+//   (c) `decode_walk`'s float equals the CPU walk's, which V0 already asserts.
+//
+// What none of the three establishes: `decode_walk`'s *arrangement*, exactly.
+// It emits a sum, so a sum is all that can be compared to it, and the journal
+// has to say so rather than let (a) be read as a statement about the timed
+// kernel.
+// ---------------------------------------------------------------------------
+
+// Write `kind` into every slot of `mask`. The mirror of `dep_slots`, with a
+// store where the FMA is.
+static inline void mark_slots(uint mask, uchar kind, device uchar* arr) {
+    while (mask != 0u) {
+        uint s = ctz(mask);
+        mask &= mask - 1u;
+        arr[s] = kind;
+    }
+}
+
+kernel void walk_arrangement(device const uint* words [[buffer(0)]],
+                             constant WalkRec*  tab   [[buffer(1)]],
+                             constant uint*     binom [[buffer(2)]],
+                             device uchar*      arr   [[buffer(3)]],
+                             uint gid [[thread_position_in_grid]])
+{
+    // No activation, no threadgroup staging, no barrier: nothing here is
+    // timed, and staging would only invite someone to time it.
+    uint w0 = words[3u * gid], w1 = words[3u * gid + 1u], w2 = words[3u * gid + 2u];
+    Cursor cur = { (ulong(w1) << 32) | ulong(w0), w2 };
+
+    uint id = take(cur, 9u);
+    take(cur, 1u);                     // the gain bit: not used here, but the
+    take(cur, DIM);                    // cursor must advance exactly as above,
+    constant WalkRec &r = tab[id];     // or every rank field is read shifted
+
+    uint k     = r.k;
+    uint freem = (1u << DIM) - 1u;
+    device uchar* out = arr + DIM * gid;
+
+    for (uint j = 0u; j + 1u < k; ++j) {
+        uint rank = take(cur, r.wbits[j]);
+        uint cnt  = r.counts[j];
+        if (cnt == 0u) continue;
+
+        constant uint* row = binom + cnt * BINOM_STRIDE;
+        uint taken = 0u;
+        uint p = popcount(freem);
+        uint m = freem;
+        while (m != 0u) {
+            uint s = 31u - clz(m);
+            m ^= 1u << s;
+            --p;
+
+            uint b = row[p];
+            bool hit = (rank >= b) && (cnt != 0u);
+            uint one = hit ? 1u : 0u;
+
+            rank  -= hit ? b : 0u;
+            row   -= one * BINOM_STRIDE;
+            cnt   -= one;
+            taken |= hit ? (1u << s) : 0u;
+        }
+        freem ^= taken;
+        mark_slots(taken, uchar(j), out);
+    }
+    mark_slots(freem, uchar(k - 1u), out);
 }
