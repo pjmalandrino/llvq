@@ -301,3 +301,63 @@ lisser.
 ⚠️ Aucun de ces intervalles ne teste la *différence des différences* entre
 échelles : `mmlupair` apparie deux bras sur les mêmes questions, il n'apparie
 pas deux tailles de modèle. Non-recouvrement d'IC ≠ test formel.
+
+## 2026-08-14/15 — Le cache KV à 8,5 bits ne coûte pas de qualité, et il n'est pas servi pour autant
+
+P3 du plan d'exécution, **0 $, ~2 h 45 de Mac**. Cinq pré-enregistrements
+posés dans la journée (P1 amendé trois fois, P2 à P5 écrits puis réécrits
+contre une revue adversariale qui avait trouvé 18 bloquants), puis P3 mesuré
+de bout en bout. Journal :
+[`mesures/kvq8-4b-2026-08-15.txt`](mesures/kvq8-4b-2026-08-15.txt).
+
+Le contrôle d'abord, parce qu'il rend le reste lisible : le bras f16 rend
+**ppl 16,9415** sur l'empreinte `3f1baca9033bf251` et **MMLU 56,09 %** sur
+`65dcd53655e8bfa5` — le premier au dix-millième du chiffre publié, le second
+à l'identique de la valeur Metal du 08-02. Le fichier est vérifié par sha256
+avant toute mesure, et le refactor de `KvCache` qu'a demandé ce lot ne déplace
+rien sur le chemin f16.
+
+| axe | Δ (q8 − f16) | intervalle apparié | verdict |
+|---|---|---|---|
+| perplexité | **+0,049 %** | [−0,071 ; +0,170] % | ✅ |
+| MMLU micro | **+0,33 pp** | [−0,45 ; +1,22] pp | ✅ |
+| débit, `n_new` = 128 | **0,927× et 0,945×** | E ne recouvre ni 0,80 ni 0,90 | ⚠️ 2 séries sur 4 |
+
+**Les deux axes de qualité contiennent zéro.** Un cache à 8,5 bits — int8 plus
+échelle et biais f16 par groupe de 64, soit ÷1,882 et non ÷2 — ne se distingue
+pas du f16 sur 12 fenêtres de perplexité ni sur 2 280 questions de MMLU
+(1,3 % de discordance, McNemar p = 1,0000).
+
+🚨 **Et pourtant le q8 n'est pas servi par défaut**, parce que la série
+`n_new = 1024` a été **abandonnée en entier** : sa première invocation f16 a
+mis **661 s** contre un seuil de 600 posé d'avance. La règle du §2.5 interdit
+de la réduire — « réduire après avoir vu l'horloge, c'est choisir le point le
+plus favorable après coup » — et le §4.3 exige le vert **sur les quatre
+séries**. Le verdict s'étiquette donc « contexte court seulement », ce qui
+interdit le défaut quelle que soit la valeur mesurée. **661 s, c'est 10 %
+au-dessus du seuil** : exactement le dépassement qu'on négocie après coup.
+
+⚠️ **Ce que le lot n'a pas mesuré est la question produit.** À `n_new = 1024`
+le bras f16 tombe à 5,6 tok/s contre 9,6 à 128 : le coût du cache domine, donc
+c'est là que le q8 devrait payer — et c'est la seule région inaccessible. Le
+pré-enregistrement l'avait nommé d'avance : *le débit ainsi mesuré est un coût
+sans son bénéfice*. On a mesuré la facture, pas la recette.
+
+🔎 **Deux seuils hérités étaient faux, et la mesure le montre.** Le « ppl
+0,7 % » est du bruit de graine de calibration entre fichiers *différents* :
+l'intervalle apparié réel vaut ±0,12 %, quatorze fois plus serré. Le « σ
+McNemar 0,4-0,6 pp » n'avait jamais été calculé : la SE appariée mesurée ici
+est **0,43 pp**, contre 0,79-1,44 pp au 08-13 — l'écart n'est pas du bruit, ce
+sont deux objets différents (modèles différents, 7-28 % de discordance, contre
+le même fichier à deux précisions de cache, 1,3 %).
+
+🔎 **Un cadeau sur une dette ouverte** : le 56,09 % reproduit la valeur Metal
+du 08-02 à trois mois d'écart. L'errata du lot A relève un écart non expliqué
+entre ce 56,09 (Metal) et 55,59 (CUDA), « 5× le glissement de la baseline ».
+Cette mesure ne le referme pas — il faudrait un rejeu CUDA — mais elle établit
+que le harnais Metal ne dérive pas : l'écart est Metal ↔ CUDA, pas temporel.
+
+Le chantier MoE (P2, P6) est mis en pause par l'opérateur le 2026-08-14, plan
+conservé, **modèle tranché** : Qwen3-30B-A3B, gpt-oss écarté sur le critère de
+référence f16. L'estimateur de `ops/run.py` est corrigé au passage — il rendait
+3,34 Md pour un modèle de 30,5, sans lever d'exception.

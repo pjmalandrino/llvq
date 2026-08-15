@@ -1,0 +1,174 @@
+P3 — cache KV int8 sur le 4B scellé : trois axes, deux verts, un tronqué
+================================================================================
+date        : 2026-08-14 22:37 → 2026-08-15 01:32 (Europe/Paris)
+machine     : MacBook Pro M3 Max, Metal, 0 $ — aucun job GPU loué
+protocole   : proofs/preregistration-p3-2026-08-14.md (É0 compris)
+binaires    : commit 113c2c3, cargo --release --features metal
+temps total : ~2 h 45 de mesure, sous le plafond de 4 h du §2.6
+
+FICHIER DE RÉFÉRENCE — condition d'entrée du §2.1, vérifiée avant toute mesure
+--------------------------------------------------------------------------------
+  ~/qwen3-4b-llvq.bin
+  1 770 527 533 octets
+  sha256 9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0   CONFORME
+
+  Récupéré par `hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin`.
+  ⚠️ Le piège du §2.1 est bien sur la machine : ~/qwen3-4b-llvq-L4swap.bin fait
+     1 770 528 117 o — 584 octets de plus, invisible sur une ligne de `ls` — et
+     sa perplexité est 17,7459. Le sha256 est la seule identification qui vaille.
+
+V0 — LES SIX PORTES, franchies avant la première milliseconde
+--------------------------------------------------------------------------------
+  1. aller-retour vs référence indépendante       vert   (llvq-llm/src/kvq.rs, 5 tests)
+  2. branche dégénérée exercée                    vert   groupe constant + groupe gradué
+                                                         dans le même tenseur
+  3. round() porteur — MUTATION EXIGÉE            vert   mutant posé (round() retiré) :
+                                                         le test tombe, et lui seul.
+                                                         Biais tronqué −1,49e-3, égal au
+                                                         biais « arrondi » sous mutant.
+  4. identité préfill ↔ décodage au bit près      vert   4 positions d'une fenêtre de 16,
+                                                         écart exactement 0
+  5. LLVQ_VERIFY_CACHE=1, LES DEUX BRAS           vert   4 prompts identiques au chemin
+                                                         sans cache, en f16 comme en q8
+  6. CONTRÔLE POSITIF — MUTATION EXIGÉE           vert   mutant posé (append ignorant le
+                                                         mode) : le gate tombe, et les
+                                                         4 autres tests de kv_cache.rs
+                                                         restent VERTS. C'est la preuve
+                                                         littérale que la suite existante
+                                                         est aveugle à un bras q8 muet.
+
+  Contrat d'environnement vérifié sur le binaire : LLVQ_KV=bogus refuse de tourner
+  au lieu de retomber en silence sur f16.
+
+AXE 1 — PERPLEXITÉ                                                        [VERT]
+--------------------------------------------------------------------------------
+  wikitext2, ctx 4096, 12 fenêtres, dtype f16 des deux côtés
+  empreinte de tokens 3f1baca9033bf251 — IDENTIQUE sur les deux bras
+
+    KV f16   ppl = 16,9415      (4 min 58)
+    KV q8    ppl = 16,9499      (5 min 43)
+
+  Δ apparié fenêtre par fenêtre (les NLL à 9 décimales, stderr) :
+    Δ ppl relatif = +0,0494 %
+    IC95 apparié  = [−0,0713 ; +0,1703] %        t_{0,975 ; 11} = 2,201
+    8 fenêtres sur 12 défavorables au q8 ; |Δ| max 0,003001 nat
+
+  §4.1 exigeait Δ ≤ +0,5 % ET borne haute IC95 ≤ +1,0 %. Les deux tiennent, la
+  borne haute est six fois sous le seuil, et L'INTERVALLE CONTIENT ZÉRO.
+
+  ✅ CONTRÔLE : le bras f16 reproduit le chiffre publié AU DIX-MILLIÈME sur
+     l'empreinte historique. Le fichier, le harnais et le refactor de KvCache
+     (retrait de derive(Default), mode par constructeur) sont tous hors de cause.
+
+AXE 2 — CAPACITÉS, MMLU micro stratifié                                   [VERT]
+--------------------------------------------------------------------------------
+  2 280 questions sur 14 042, 57 matières, 5-shot, limit 40, dtype f16
+  empreinte 65dcd53655e8bfa5 — IDENTIQUE sur les deux bras
+  dumps par question écrits DES DEUX CÔTÉS dès le premier run (§2.4)
+
+    KV f16   micro 56,09 % ± 1,36     macro 57,59 %     (60 min 55)
+    KV q8    micro 55,76 % ± 1,35     macro 57,54 %     (63 min 06)
+
+  Apparié (bin/mmlupair, sans --intersect) :
+    Δ micro stratifié   = +0,33 pp   IC95 [−0,45 ; +1,22]   SE 0,43 pp
+    Δ non pondéré       = +0,04 pp   IC95 [−0,36 ; +0,46]   SE 0,21 pp
+    McNemar exact : A✓B✗ = 15, A✗B✓ = 14, concordantes 2 251
+                    p = 1,0000 — 1,3 % de questions discordantes
+
+  §4.2 exigeait |Δ| ≤ 1,0 pp ET IC95 entièrement dans [−2,0 ; +2,0]. Les deux
+  tiennent, et l'intervalle contient zéro.
+
+  Matières qui portent l'écart (contribution au Δ stratifié) :
+    professional law         +2,5 pp × 10,9 % = +0,273
+    moral scenarios          +2,5 pp ×  6,4 % = +0,159
+    professional psychology  −2,5 pp ×  4,4 % = −0,109
+    high school mathematics  +5,0 pp ×  1,9 % = +0,096
+    marketing                −5,0 pp ×  1,7 % = −0,083
+
+  🔎 LA SE MESURÉE VALIDE LA CORRECTION DES SEUILS. Elle vaut 0,43 pp ici contre
+     0,79-1,44 pp à la campagne du 08-13. L'écart n'est pas du bruit : celle-là
+     comparait des MODÈLES DIFFÉRENTS (7 à 28 % de discordance), celle-ci compare
+     le MÊME FICHIER à deux précisions de cache — 1,3 %. Le « σ McNemar 0,4-0,6 pp »
+     hérité, jamais calculé, aurait été PLUS LARGE que la SE réelle.
+
+  🔎 ET LE BRAS f16 REPRODUIT 56,09 %, la valeur Metal du 2026-08-02, à trois mois
+     d'écart et sur le même fichier. Le dossier porte depuis le lot A une dette non
+     expliquée : ce bras rendait 56,09 en Metal et 55,59 en CUDA, « 5× le glissement
+     de la baseline », sans empreinte pour trancher (errata du lot A, mineur n°2).
+     Cette mesure NE REFERME PAS la dette — il faudrait un rejeu CUDA — mais elle la
+     déplace : le harnais Metal ne dérive pas, donc l'écart est bien Metal ↔ CUDA et
+     non une dérive temporelle.
+
+AXE 3 — DÉBIT                                        [TRONQUÉ — 2 SÉRIES SUR 4]
+--------------------------------------------------------------------------------
+  bin/gbench, Metal, 3 paires alternées f16/q8 par série, jamais deux runs du
+  même bras à la suite. Rapports formés PAIRE PAR PAIRE (rang i contre rang i).
+
+  série n_new = 128, prompt court (5 tokens)      f16  9,6 · 9,6 · 9,6 tok/s
+                                                  q8   8,9 · 9,0 · 8,9
+      rapports  0,9271 · 0,9375 · 0,9271    médiane 0,9271   E [0,9271 ; 0,9375]
+
+  série n_new = 128, prompt long (41 tokens)      f16  9,2 · 9,1 · 9,3 tok/s
+                                                  q8   8,6 · 8,6 · 8,8
+      rapports  0,9348 · 0,9451 · 0,9462    médiane 0,9451   E [0,9348 ; 0,9462]
+
+  Aucune étendue ne recouvre 0,80 ni 0,90 : les deux verdicts sont RENDUS, pas
+  « non résolus ». Les deux séries mesurées sont ≥ 0,90 — le q8 coûte 5 à 7 % de
+  débit à contexte court.
+
+  🚨 SÉRIE n_new = 1024 : ABANDONNÉE EN ENTIER.
+     Première invocation f16 : 661 s > 600 s (§2.5). Elle rend 5,6 tok/s contre
+     9,6 à n_new = 128.
+     La règle était posée d'avance et n'admet pas de réduction : « abandonnée en
+     entier, pas réduite — réduire après avoir vu l'horloge, c'est choisir le
+     point le plus favorable après coup ». 661 s, c'est 10 % au-dessus du seuil,
+     c'est-à-dire exactement le dépassement qu'on négocie après coup.
+
+  ⚠️ Le §4.3 exige « ≥ 0,90× SUR LES QUATRE SÉRIES ». Deux n'existent pas : le
+     vert de débit n'est pas atteignable sur ce lot, quelle que soit la valeur
+     des deux séries mesurées.
+
+VERDICT — §4.4 et §6
+--------------------------------------------------------------------------------
+  qualité VERTE · capacités VERTES · débit rendu sur la SEULE série 128
+
+  Ligne du §6 : « verdict de débit rendu sur la seule série 128 ⇒ étiqueté
+  CONTEXTE COURT SEULEMENT : q8 JAMAIS servi par défaut, quelle que soit sa
+  valeur. »
+
+  ⇒ P3 N'EST PAS ACQUIS. LLVQ_KV=q8 est livré, testé, câblé par constructeur,
+    et N'EST PAS le défaut.
+
+  Ce qui EST acquis : un cache KV à 8,5 bits coûte 0,05 % de perplexité et
+  0,33 pp de MMLU — les deux dans le bruit, les deux intervalles contenant zéro —
+  et 5 à 7 % de débit à contexte court.
+
+CE QUE CE LOT N'A PAS MESURÉ, ET QUI EST LA QUESTION PRODUIT
+--------------------------------------------------------------------------------
+  · LE CONTEXTE LONG. À n_new = 1024 le bras f16 tombe à 5,6 tok/s contre 9,6 à
+    128 : le coût du cache domine, c'est-à-dire précisément la région où le q8
+    devrait payer. C'est la seule qu'on n'a pas pu mesurer. Le §2.5 l'avait
+    nommé : « le débit ainsi mesuré est un COÛT SANS SON BÉNÉFICE ». On a mesuré
+    la facture, pas la recette.
+
+  · LE GAIN MÉMOIRE. ppl et mmlu créent un KvCache frais par bloc (model.rs:726)
+    et tiennent 16,8 Mo — une couche — pas 0,604 Go. Ils établissent la QUALITÉ
+    et rien d'autre. Le gain est un COMPTE, rapporté et non jugé (§4) :
+      147 456 o/token en f16  →  78 336 en q8 g64 (échelle+biais f16, 8,5 b/valeur)
+      soit ÷1,882 — PAS ÷2 : les échelles et les biais ne sont pas gratuits.
+      Géométrie : 36 couches × 8 têtes KV × head_dim 128, batch 1.
+    ⚠️ Ce nombre se cite en octets/token avec sa géométrie, jamais en b/param :
+       un cache n'est pas un paramètre.
+
+  · L'INSTRUMENT LUI-MÊME. gbench charge un modèle par processus, donc tout
+    rapport de débit est inter-processus — le maillon faible nommé au §2.5,
+    atténué par l'alternance, jamais éliminé.
+
+ENTORSE
+--------------------------------------------------------------------------------
+  Aucune au protocole. Un incident d'outillage : la première tentative de la
+  série de débit (00:58) est morte à sa première ligne sur un bug du pilote
+  — `local n=$1 out="…${n}…"`, bash développe les arguments de `local` AVANT
+  d'assigner, donc `${n}` lisait la portée externe et `set -u` a tué le script.
+  Corrigé, invocation de fumée passée, série relancée à 01:01. Aucun chiffre
+  produit par la tentative morte, donc rien à écarter.

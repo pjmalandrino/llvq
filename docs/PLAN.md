@@ -243,3 +243,36 @@ mesurés, bf16/C3 validé) ; budget avec marge : 80 $. Une nuit.**
 Courbe d'échelle à 4 points, verdict produit final documenté dans
 [`HISTORIQUE.md`](HISTORIQUE.md), et la décision de soumission (MLSys) prise
 sur pièces.
+
+---
+
+## Ouvert par P3 (2026-08-15) — le KV q8 à contexte long
+
+**Ce qui est acquis** : un cache KV à 8,5 bits (int8 + échelle et biais f16 par
+groupe de 64, ÷1,882) ne coûte **rien en qualité** sur le 4B — +0,049 % de
+perplexité, +0,33 pp de MMLU, les deux intervalles appariés contenant zéro — et
+**5 à 7 % de débit à contexte court**. `LLVQ_KV=q8` est livré, testé, câblé par
+constructeur, et **n'est pas le défaut**
+([`mesures/kvq8-4b-2026-08-15.txt`](mesures/kvq8-4b-2026-08-15.txt)).
+
+**Ce qui reste ouvert, et c'est la question produit** : le comportement à
+contexte long. La série `n_new = 1024` a été abandonnée par la règle du §2.5 du
+pré-enregistrement (première invocation 661 s > 600 s), donc le verdict est
+étiqueté « contexte court seulement » — ce qui interdit le défaut quelle que
+soit la valeur mesurée.
+
+C'est précisément la région qui décide : à `n_new = 1024` le bras f16 tombe à
+**5,6 tok/s contre 9,6** à 128, donc le coût du cache y domine, donc c'est là
+que l'allègement devrait payer. Le lot a mesuré **le coût sans son bénéfice**.
+
+**Ce qu'il faudrait, et ce que ça n'est pas.** Ce n'est pas une relance de
+`gbench` à budget plus large : l'instrument charge un modèle par processus, ses
+rapports sont inter-processus par construction, et sa série longue dépasse à
+elle seule le plafond d'un lot. Il faut soit un banc qui garde le modèle
+résident entre les deux bras, soit la mesure sur carte en P4 — où la colonne
+« Go carte » de `fusedrun` donnerait le **gain mémoire**, que ce lot n'a pas
+mesuré non plus (ppl et mmlu tiennent 16,8 Mo de cache, pas 0,604 Go).
+
+⚠️ **Ne pas rouvrir en relisant le même run.** Les deux séries `n_new = 128`
+sont rendues et vertes ; le manque n'est pas une imprécision, c'est une région
+non visitée. Toute réouverture demande un instrument, pas une relecture.
