@@ -4,11 +4,22 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
+> 🚨 **REPRISE, 2026-08-15 — commencer par
+> [`docs/archive/passation-exec-2026-08-15.md`](docs/archive/passation-exec-2026-08-15.md).**
+> Il est autonome et il **remplace** la passation du 08-13, dont **trois seuils
+> sont faux** (dont un arithmétiquement impassable). En bref : les cinq
+> chantiers P1→P5 ont leur pré-enregistrement dans `proofs/` ; **P3 est mesuré
+> et clos** (le cache KV q8 ne coûte pas de qualité et n'est **pas** servi par
+> défaut) ; **P1 a ses deux décodeurs, ses deux shaders, et V0 est vert** — il
+> reste le banc ; le chantier **MoE est en pause**, modèle tranché
+> Qwen3-30B-A3B. ⚠️ **L'axe noyau n'est plus arrêté** : le plan d'exécution
+> P1→P7 l'a rouvert, et c'est l'arbitrage de l'opérateur qui le porte.
+>
 > 🧭 **Reprise de session** — le système documentaire a été refondu le
 > 2026-08-12 : **[`docs/HISTORIQUE.md`](docs/HISTORIQUE.md)** est l'unique
 > fil chronologique (état courant en tête, une entrée par période, verdicts
-> étiquetés), **[`docs/PLAN.md`](docs/PLAN.md)** est la suite en trois phases
-> (papier v2 → qualité → point 32B ; l'axe noyau est formellement arrêté).
+> étiquetés), **[`docs/PLAN.md`](docs/PLAN.md)** est la suite (papier v2 →
+> qualité → point 32B, plus le contexte long ouvert par P3).
 > Les documents de session d'époque (passations, rapports, verdicts, specs,
 > audits) vivent dans **[`docs/archive/`](docs/archive/)** — conservés
 > intégralement, plus jamais édités, et pouvant contenir des affirmations
@@ -89,9 +100,11 @@ sans raison, et **ne jamais** faire confiance à `pdftotext` dessus.
 ```
 llvq-core/     Golay [24,12,8] + Λ₂₄ + couches. ZÉRO dépendance, forbid(unsafe).
 llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage, packing.
+               + `rankdec` (2026-08-15) : les deux décodeurs de rang que P1 juge.
 llvq-quant/    Spherical GPTQ : algèbre dense, boucle par blocs, quantifieurs.
 llvq-artifact/ Le format .llvq : writer, reader, décodeur. ZÉRO dépendance.
 llvq-metal/    Micro-bancs GPU (macOS) : plomberie Metal, coût du décodage.
+               + `shaders/` et `p1host` (2026-08-15) : les deux bras de P1.
 llvq-cuda/     Le noyau fusé sur NVIDIA : source CUDA compilée par NVRTC au
                démarrage, bancs matvec/planes/rotation. (cudarc, cfg(linux) seul)
 llvq-llm/      Côté modèle : passe avant observable, corpus, perplexité,
@@ -211,6 +224,11 @@ cargo run --release -p llvq-llm  --features cuda --bin fusedrun     # LE noyau D
 #   LLVQ_EMBED=f16|q8                   (défaut f16 ; q8 = l'embedding int8 en prod)
 #   LLVQ_TIME_PHASES=1                  (profil par phase, hors protocole publié)
 
+# P1 — les deux bras de rang (macOS, 0 $)
+cargo run --release -p llvq-metal --bin mslcheck   # les shaders compilent-ils ? 3 s
+cargo run --release -p llvq-metal --bin p1v0       # V0 : exactitude, 2 bras, blocs réels
+#   ⚠️ le banc lui-même n'est PAS écrit — V0 n'autorise que de l'écrire.
+
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
@@ -226,9 +244,20 @@ cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
 # au 06 — docs/archive/verdicts-lot-b-2026-08-06.md §B1). Ne pas les redemander.
 #   LLVQ_CALIB_SEED={1,2,3} → 20,6239 / 20,4709 / 20,7687 sur 3 blocs :
 #     σ ≈ 0,15 ppl ≈ 0,7 %. C'est la première barre d'erreur du projet.
+#     🚨 ET ELLE NE S'APPLIQUE PAS À UN A/B À FICHIER CONSTANT — cf. le bloc
+#     sous ce tableau.
 #   LLVQ_DAMPING={3e-3,1e-2,3e-2} → 20,6740 / 20,6643 / 20,6014 : écart
 #     0,35 %, SOUS 1σ. Effet nul — exactement ce que le code prédisait.
 cargo clippy --all-targets                   # doit rester à zéro warning
+#   ⚠️ `cargo test -p llvq-search --test g6_pack` ÉCHOUE EN DEBUG et passe en
+#   release — antérieur au 2026-08-15, vérifié au commit 3879cde. Motif d'un
+#   décalage de 64 bits que la release absorbe. Ne pas le lire comme une
+#   régression de la session en cours.
+
+# LLVQ_KV=f16|q8  (défaut f16) — le cache KV int8, livré le 2026-08-15 et
+#   DÉLIBÉRÉMENT PAS le défaut : qualité verte (ppl +0,049 %, MMLU +0,33 pp,
+#   les deux IC contenant zéro), mais verdict de débit rendu sur la seule
+#   série courte, donc « contexte court seulement ».
 ```
 
 > 🚨 **« Suite complète, ~45 s » était faux d'un ordre de grandeur, et ça se
@@ -267,6 +296,16 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 > deux variables à la fois, avait un angle mort — il donnait un Δ sans
 > savoir ce qu'un Δ vaut. Il le sait maintenant. Ne plus publier ni décider
 > sur un écart de 3 blocs sans le confronter à ce seuil.
+>
+> 🚨 **QUATRIÈME RÉSERVE, ET ELLE PRIME : CE σ N'A RIEN À FAIRE DANS UN A/B À
+> FICHIER CONSTANT** (KV q8, layouts runtime, embedding q8 — tout ce qui ne
+> retouche pas la quantification). Il mesure du bruit de **graine de
+> calibration entre fichiers DIFFÉRENTS** ; un A/B qui compare le même fichier
+> à la même empreinte est **déterministe**. Mesuré le 2026-08-15 sur le KV q8 :
+> l'intervalle t **apparié fenêtre par fenêtre** vaut **±0,12 %**, soit
+> **quatorze fois plus serré** que ce σ — qui n'aurait donc rien mesuré. La
+> bonne barre est cet intervalle apparié ; `bin/ppl` imprime les NLL par
+> fenêtre à 9 décimales exprès, **sur stderr**, donc perdus sans `2>`.
 >
 > ⚠️ Trois réserves, parce qu'un σ mal cité est pire que pas de σ. (1) Il est
 > estimé sur **3 points** — c'est un ordre de grandeur, pas un écart-type de
@@ -598,7 +637,9 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 > plusieurs fois : les questions étant **appariées**, l'écart-type pertinent
 > pour une *différence* est celui des paires discordantes (McNemar), pas le
 > ± d'échantillonnage imprimé sur chaque ligne. À 3-8 % de discordance,
-> σ ≈ 0,4-0,6 pp. Les écarts de 4 à 15 pp dépassent toute correction
+> σ ≈ 0,4-0,6 pp — 🚨 **estimation JAMAIS CALCULÉE, et fausse en pratique :
+> mesurée le 2026-08-15 sur un A/B à fichier constant, la SE appariée vaut
+> 0,43 pp ; entre modèles différents elle vaut 0,79 à 1,44 pp.** Les écarts de 4 à 15 pp dépassent toute correction
 > plausible ; les petits (−0,28 pp du 4 bits au 4B) ne doivent pas être
 > sur-interprétés.
 
