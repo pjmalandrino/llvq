@@ -31,15 +31,20 @@
 > entrées passées — si un verdict se retourne, on l'écrit dans une entrée
 > nouvelle qui cite l'ancienne.
 
-## État courant (au 2026-08-12)
+## État courant (au 2026-08-15)
 
 Le noyau fusé sert un Qwen3-4B 2 bits à **88,4–88,5 tok/s dans 2,60 Go**
 (×2,03 brut contre notre bras dense, **×1,12 à tête identique** — la seule
 formulation qui mesure le noyau). Layout de production **`Planes14`**
 (4,804 b/poids, 2,15× vs FP16), embedding **q8**. Qualité : le point dur —
 −14,7 pp de MMLU au 4B, −10,6 au 8B, **−6,85 au 14B (apparié)** ; la courbe
-d'échelle a un **genou**. L'axe noyau est épuisé proprement (Golay70 v2 :
-1,77× < seuil pré-enregistré 2,0×, non adopté). La suite : [`PLAN.md`](PLAN.md).
+d'échelle a un **genou**. L'axe noyau **avait** été épuisé proprement sur les layouts (Golay70 v2 :
+1,77× < seuil pré-enregistré 2,0×, non adopté) ; le plan d'exécution P1→P7 l'a
+rouvert sur un autre axe — le **décodage du rang** — et P1 y a rendu son
+verdict le 2026-08-15 : la marche binomiale à **0,3101 ns/bloc** franchit le
+gate CUDA de P4 et ouvre P5, l'archive à 10,81 ns ne ferme pas la ligne. La
+suite : [`PLAN.md`](PLAN.md), et le plan d'exécution
+[`archive/passation-exec-2026-08-15.md`](archive/passation-exec-2026-08-15.md).
 
 ---
 
@@ -361,3 +366,86 @@ Le chantier MoE (P2, P6) est mis en pause par l'opérateur le 2026-08-14, plan
 conservé, **modèle tranché** : Qwen3-30B-A3B, gpt-oss écarté sur le critère de
 référence f16. L'estimateur de `ops/run.py` est corrigé au passage — il rendait
 3,34 Md pour un modèle de 30,5, sans lever d'exception.
+
+## 2026-08-15 — P1 mesuré : uniformiser la boucle vaut un ordre de grandeur
+
+P1 du plan d'exécution, **0 $, une journée de Mac**. Le pré-enregistrement
+[`p1-2026-08-13`](../proofs/preregistration-p1-2026-08-13.md) est **horodaté
+avant le run** (SHA256 `5109b35f…`, quatre calendriers OpenTimestamps) — la
+première fois du projet qu'un seuil est ancré avant la mesure qu'il juge, et
+non après. Journal :
+[`mesures/p1-rankbench-2026-08-15.txt`](mesures/p1-rankbench-2026-08-15.txt).
+
+16 777 216 blocs réels **tirés au réservoir** (algorithme R, graine imprimée)
+dans le 4B scellé — et non des préfixes contigus, qui sont un début de fichier
+et pas un tirage. 18 rounds dont 3 jetés, tous les bras à chaque round, surcoût
+de soumission mesuré **par round** avec sa dispersion.
+
+| bras | o/bloc | ns/bloc | × le sol, méd [min–max] |
+|---|---|---|---|
+| `sol` | 12 | 0,0777 | 1,00× |
+| `masques` | 12 | 0,1486 | 1,92× [1,39–2,30] |
+| `cascade-archive` | 8 | **10,8115** | 131,31× [100,29–139,32] |
+| `cascade-uniformisée` | 8 | **1,7809** | 21,90× [16,79–23,32] |
+| **`marche-binomiale`** | 12 | **0,3101** | **3,84× [2,99–4,20]** |
+| `sol-rang` (É3a) | 8 | 0,0796 | 0,99× [0,78–1,19] |
+
+✅ **`marche-binomiale` 0,3101 contre 1,50 — VERT.**
+✅ **`cascade-uniformisée` 1,7809 contre 2,00 — VERT**, 0,22 ns de marge.
+❌ **`cascade-archive` 10,8115 contre 2,00 — ROUGE.**
+
+**Le résultat que rien ne prédisait : uniformiser la boucle vaut un ordre de
+grandeur.** 10,81 → 1,78 ns sur les **mêmes bits, la même table et la même
+recherche de classe** — le seul écart entre les deux bras est la forme du
+travail (24 pas identiques, sélection branchless, réciproques magiques, zéro
+indexation dynamique de registres). Et la marche binomiale, qui ne divise
+jamais, tombe à **3,84× le plancher de la machine**, soit environ deux fois le
+décodeur le plus rapide qu'elle ait jamais exécuté.
+
+**Trois conséquences, toutes pré-enregistrées.** Le **gate CUDA de P4 est
+franchi** (0,3101 ≤ 0,45) : le bras cascade/marche du job carte est autorisé,
+sous réserve du go de dépense. **P5 s'ouvre** — la règle du §4.2 est « si et
+seulement si la MARCHE passe 0,45 », et c'est bien elle. **E1v n'est pas
+mort-né** : le §4.3 fermait la ligne si l'archive passait 2,00 ns ; elle en
+rend 10,81.
+
+🔎 **Le 6ᵉ bras a servi le jour même.** L'É3(a), arbitré avant le tampon,
+ajoutait `sol-rang` — le plancher du flux de rang, 8 o/bloc. Il rend 0,0796
+contre 0,0777 pour `sol` : les deux planchers sont indiscernables, donc
+l'adressage ne discrimine rien à cette échelle et les 0,3101 de la marche sont
+du **décodage**. Sans ce bras, c'était une conjecture. Deux autres propositions
+du même amendement — transposer la règle de suspension aux seuils absolus,
+chiffrer l'acceptation du tirage — ont été **écartées** par l'opérateur : le
+banc rend ses nombres, la conclusion reste chez lui.
+
+⚠️ **V0 a coupé le premier run**, et c'est ce pour quoi il existe :
+`cascade-archive` échouait sur **883 blocs sur 16 777 216** (5·10⁻⁵), le shader
+retrouvant le rang de zéros par un scan de `counts_b` — faux quand ce rang a un
+compte nul. Un échantillon l'aurait manqué ; le sweep intégral CPU ne pouvait
+pas le voir, la composition Rust lisant `c.n_off` directement. Aucun
+chronométrage n'a eu lieu sur ce run-là.
+
+⚠️ **Les bras ne lisent pas le même nombre d'octets et aucun ns/bloc n'est
+corrigé du trafic.** Et l'étendue de la colonne « × le sol » est dominée par
+son dénominateur : le sol tourne en 1,3 ms là où une soumission coûte 0,14. Le
+ns/bloc, formé sur le minimum propre à chaque bras, est la quantité stable.
+
+🔎 **Les deux ancres se reproduisent** : `sol` 0,0777 contre 0,084 au run
+`decreal` du 08-01, `masques` 0,1486 contre 0,152 — −7,5 % et −2,3 % après
+quatre mois, un autre binaire et un autre tirage. Le §1.4 interdit d'y lire un
+seuil ; le §7 demandait d'expliquer un écart notable, et il n'y en a pas.
+
+**V0, dans la journée qui a précédé** : la fixture synthétique ferme les 98
+entrées de table qu'aucun fichier cap 12 n'atteint (origine, 82 classes de
+coquille 13, 15 classes inutilisées) ; le sweep intégral passe les deux
+décodeurs sur les 150 681 600 blocs ; l'aller-retour rang → arrangement → rang
+ferme **sur l'arrangement du GPU**, via un jumeau instrumenté épinglé au bras
+chronométré par le produit scalaire ; et la bijection est établie par
+énumération exhaustive des 49 entrées de cardinalité ≤ 65 536.
+
+🕳️ **Un vert vide trouvé par mutation, et il vaut d'être retenu** : l'étalon du
+bras marche lisait `rec.vals` — la table qu'il vérifiait. Une mutation donnant
+aux classes de coquille 13 la norme de la coquille 12 a été tuée par la cascade
+et **survécue** par la marche, à neuf décimales. C'est le « malentendu partagé »
+que le §3.1 des pré-enregistrements existe pour écarter, et il était dans le
+harnais.

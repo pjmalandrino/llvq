@@ -3,9 +3,16 @@
 > Issu de l'audit externe du 2026-08-12 (voir la dernière entrée de
 > [`HISTORIQUE.md`](HISTORIQUE.md)). Trois phases **ordonnées par ratio
 > information/coût**, chacune avec ses tâches, ses critères écrits d'avance
-> et son coût. L'axe noyau est **formellement arrêté** (Golay70 v2 :
-> 1,77× < 2,0× pré-enregistré, plus de piste à format inchangé) — il ne
-> figure dans aucune phase.
+> et son coût.
+>
+> 🚨 **L'axe noyau n'est plus arrêté, et ce chapeau disait le contraire.** Il
+> l'était sur les **layouts** (Golay70 v2 : 1,77× < 2,0× pré-enregistré, plus
+> de piste à format inchangé), et il ne figure toujours dans aucune des trois
+> phases ci-dessous. Mais le plan d'exécution P1→P7, validé par l'opérateur le
+> 2026-08-13, l'a rouvert sur un **autre axe — le décodage du rang** — et P1 y
+> a rendu son verdict le 2026-08-15 (voir la section en fin de fichier). Les
+> trois phases restent la ligne principale ; P1→P7 est une ligne parallèle,
+> avec ses propres pré-enregistrements dans [`../proofs/`](../proofs/).
 >
 > **Règles transverses, non négociables** (elles ont chacune été payées) :
 > - Rien ne se lance sur GPU payant, rien ne se publie, sans **go explicite**.
@@ -276,3 +283,48 @@ mesuré non plus (ppl et mmlu tiennent 16,8 Mo de cache, pas 0,604 Go).
 ⚠️ **Ne pas rouvrir en relisant le même run.** Les deux séries `n_new = 128`
 sont rendues et vertes ; le manque n'est pas une imprécision, c'est une région
 non visitée. Toute réouverture demande un instrument, pas une relecture.
+
+---
+
+## Ouvert par P1 (2026-08-15) — le bras CUDA de P4, et P5
+
+**Ce qui est acquis**, sur pré-enregistrement horodaté avant la mesure
+([`mesures/p1-rankbench-2026-08-15.txt`](mesures/p1-rankbench-2026-08-15.txt)) :
+`marche-binomiale` **0,3101 ns/bloc** ✅ (seuil 1,50), `cascade-uniformisée`
+**1,7809** ✅ (seuil 2,00), `cascade-archive` **10,8115** ❌ (seuil 2,00).
+Ancres `sol` 0,0777 et `masques` 0,1486, reproduites à quelques pour cent du
+run `decreal` du 08-01.
+
+**Les deux portes que ça ouvre, et elles ne s'ouvrent pas ensemble par hasard :**
+
+- **Le bras cascade/marche de P4 est autorisé** — 0,3101 ≤ 0,45, le gate du
+  §4.2. ⚠️ *Autorisé* n'est pas *lancé* : le job carte reste soumis au go de
+  dépense, et son budget réel est **0,8-1,0 $** et non les 0,3-0,5 annoncés
+  (tout job `planesbench` à 5 bras ou plus paie 1 468-1 481 s de transcodage
+  hôte avant le premier round). ⚠️ Et **trois bras de P4 n'ont toujours aucune
+  ligne de code** : cuBLAS (le dénominateur publiable — `tv_f16` est maison et
+  ne peut pas l'être), le noyau **E1c CUDA**, et le **support k colonnes** ;
+  plus le chronométrage par forme via events CUDA, sans lequel K2 n'est
+  attribuable à rien.
+- **P5 s'ouvre** — la règle est « si et seulement si la **marche** passe
+  0,45 », et c'est bien elle qui rend 0,3101. La cascade uniformisée, verte,
+  n'y aurait pas suffi : c'est le seul cas où les deux règles divergent, et il
+  s'est présenté à l'endroit prévu.
+
+**Ce que P5 demande maintenant, dans l'ordre** : d'abord la **décision de
+passation** de rouvrir la clause « profondeur ≤ 24 » du spec X4 — le binaire
+classe déjà e1v en réouverture, pas en résultat de banc ; puis la
+**ré-bijection CNS** au transcodage (champs séparés par étage, 53,332
+bits/bloc) ; puis le sweep intégral contre le décodeur d'archive, et le
+chronométrage du transcodage (attendu côté 84 s de `Planes14` plutôt que 404 s
+de `Planes12x`, E1v étant un re-rangement sans recherche réseau — **à
+vérifier, pas à affirmer**).
+
+**Ce que P1 ne dit pas, et qu'il ne faut pas lui faire dire.** Il mesure un
+décodage **seul**, sur **Metal**, **un bloc par lane**, sans matvec, sans
+réduction inter-lanes, sans tuilage. Le 0,45 ns du gate est une **inférence
+inter-matériel** — un chiffre Metal qui autorise une dépense CUDA — et le §5 du
+pré-enregistrement dit lui-même que c'est la partie la plus faible du
+document : une marge de sécurité ×2 sur un jugement d'ingénierie, prise sur une
+machine qui n'est pas la cible. Elle peut tuer un décodeur qui passerait sur
+carte ; c'est le sens qu'on préfère.

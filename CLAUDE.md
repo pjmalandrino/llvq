@@ -4,16 +4,34 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
-> 🚨 **REPRISE, 2026-08-15 — commencer par
-> [`docs/archive/passation-exec-2026-08-15.md`](docs/archive/passation-exec-2026-08-15.md).**
-> Il est autonome et il **remplace** la passation du 08-13, dont **trois seuils
-> sont faux** (dont un arithmétiquement impassable). En bref : les cinq
-> chantiers P1→P5 ont leur pré-enregistrement dans `proofs/` ; **P3 est mesuré
-> et clos** (le cache KV q8 ne coûte pas de qualité et n'est **pas** servi par
-> défaut) ; **P1 a ses deux décodeurs, ses deux shaders, et V0 est vert** — il
-> reste le banc ; le chantier **MoE est en pause**, modèle tranché
-> Qwen3-30B-A3B. ⚠️ **L'axe noyau n'est plus arrêté** : le plan d'exécution
-> P1→P7 l'a rouvert, et c'est l'arbitrage de l'opérateur qui le porte.
+> 🚨 **REPRISE, 2026-08-15 (soir) — P1 EST MESURÉ, et deux portes se sont
+> ouvertes.** Sur pré-enregistrement **horodaté avant le run** (une première
+> pour ce projet) : `marche-binomiale` **0,3101 ns/bloc** ✅ contre un seuil de
+> 1,50 · `cascade-uniformisée` **1,7809** ✅ contre 2,00 · `cascade-archive`
+> **10,8115** ❌ contre 2,00. Journal
+> [`docs/mesures/p1-rankbench-2026-08-15.txt`](docs/mesures/p1-rankbench-2026-08-15.txt).
+>
+> **Ce que ça décide, et c'était écrit d'avance** : le **bras cascade/marche du
+> job carte P4 est AUTORISÉ** (0,3101 ≤ 0,45 — *autorisé*, pas *lancé* : go de
+> dépense requis, budget réel **0,8-1,0 $**) ; **P5 s'ouvre**, la règle étant
+> « si et seulement si la **marche** passe 0,45 » et non « si le banc est
+> vert » ; et **E1v n'est pas mort-né**, l'archive rendant 10,81 là où 2,00
+> aurait fermé la ligne.
+>
+> **Le résultat de fond** : uniformiser la boucle vaut **un ordre de grandeur**
+> — 10,81 → 1,78 ns sur les mêmes bits, la même table et la même recherche de
+> classe. Et la marche binomiale, qui ne divise jamais, rend **3,84× le
+> plancher de la machine**.
+>
+> Pour la suite : **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
+> P1 ») et le plan d'exécution
+> [`docs/archive/passation-exec-2026-08-15.md`](docs/archive/passation-exec-2026-08-15.md),
+> **dont le §2 est périmé sur P1 seulement** — ce qu'il donne comme restant
+> (fixture, sweep, aller-retour GPU, banc) est fait. Le reste tient : P2 et P6
+> **en pause** (modèle tranché Qwen3-30B-A3B), **P3 clos**, **P4 sans code sur
+> trois de ses bras**, P7 non ouvert. ⚠️ **L'axe noyau n'est plus arrêté** : le
+> plan d'exécution P1→P7 l'a rouvert, et c'est l'arbitrage de l'opérateur qui
+> le porte.
 >
 > 🧭 **Reprise de session** — le système documentaire a été refondu le
 > 2026-08-12 : **[`docs/HISTORIQUE.md`](docs/HISTORIQUE.md)** est l'unique
@@ -100,11 +118,12 @@ sans raison, et **ne jamais** faire confiance à `pdftotext` dessus.
 ```
 llvq-core/     Golay [24,12,8] + Λ₂₄ + couches. ZÉRO dépendance, forbid(unsafe).
 llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage, packing.
-               + `rankdec` (2026-08-15) : les deux décodeurs de rang que P1 juge.
+               + `rankdec` (2026-08-15) : les deux décodeurs de rang que P1 a jugés.
 llvq-quant/    Spherical GPTQ : algèbre dense, boucle par blocs, quantifieurs.
 llvq-artifact/ Le format .llvq : writer, reader, décodeur. ZÉRO dépendance.
 llvq-metal/    Micro-bancs GPU (macOS) : plomberie Metal, coût du décodage.
-               + `shaders/` et `p1host` (2026-08-15) : les deux bras de P1.
+               + `shaders/`, `p1host` et `bin/rankbench` (2026-08-15) : les six bras de P1,
+               mesurés — 4 fichiers MSL, 7 points d'entrée, tous listés par `bin/mslcheck`.
 llvq-cuda/     Le noyau fusé sur NVIDIA : source CUDA compilée par NVRTC au
                démarrage, bancs matvec/planes/rotation. (cudarc, cfg(linux) seul)
 llvq-llm/      Côté modèle : passe avant observable, corpus, perplexité,
@@ -224,10 +243,16 @@ cargo run --release -p llvq-llm  --features cuda --bin fusedrun     # LE noyau D
 #   LLVQ_EMBED=f16|q8                   (défaut f16 ; q8 = l'embedding int8 en prod)
 #   LLVQ_TIME_PHASES=1                  (profil par phase, hors protocole publié)
 
-# P1 — les deux bras de rang (macOS, 0 $)
-cargo run --release -p llvq-metal --bin mslcheck   # les shaders compilent-ils ? 3 s
-cargo run --release -p llvq-metal --bin p1v0       # V0 : exactitude, 2 bras, blocs réels
-#   ⚠️ le banc lui-même n'est PAS écrit — V0 n'autorise que de l'écrire.
+# P1 — les décodeurs de rang (macOS, 0 $) — MESURÉ le 2026-08-15
+cargo run --release -p llvq-metal --bin mslcheck   # les 7 points d'entrée MSL compilent ? 3 s
+cargo run --release -p llvq-metal --bin p1v0       # V0 : exactitude, 2 bras, fixture + blocs réels
+cargo run --release -p llvq-metal --bin rankbench  # LE BANC : 6 bras, 2^24 blocs, ~4 min
+#   ⚠️ `rankbench` REFUSE de démarrer sans `proofs/preregistration-p1-2026-08-13.md.ots`.
+#      Ce n'est pas de la cérémonie : le §3 du pré-enregistrement demande le tampon avant
+#      la première milliseconde, et une règle qui ne vit que dans la prose se saute le soir
+#      où quelqu'un veut un chiffre. Le tampon est posé (SHA256 5109b35f…), le garde s'ouvre.
+#   ⚠️ Le sweep intégral des deux décodeurs est ailleurs, et il est #[ignore]d :
+#      cargo test --release -p llvq-artifact --test p1_rank_sweep -- --include-ignored   # 69 s
 
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
