@@ -551,8 +551,84 @@ la vitesse — et P5 n'en mesure aucune.
 *(Chaque entorse s'écrit ici le jour où elle est commise, avec sa raison et son coût
 — la règle du 08-10.)*
 
-**Aucune entorse à ce jour.** Ce document est écrit avant la première ligne de code
-E1v, et avant que le verdict qui l'ouvrirait existe.
+### É0 — 2026-08-15, avant la première ligne de code E1v : **C1 et C3 ne peuvent pas être vrais ensemble**
+
+> 🚨 **PROPOSITION, non acquise.** Elle attend l'arbitrage de l'opérateur, et le
+> tampon doit venir après lui. Aucune ligne de CNS n'est écrite, aucune seconde
+> n'est chronométrée.
+
+**Ce qui s'est passé.** P1 a rendu son verdict le 2026-08-15 et P5 s'est ouvert
+(marche binomiale 0,3101 ns ≤ 0,45). Avant d'écrire la CNS, une vérification de
+routine — *que dit le dépôt de la forme exacte d'`e1v-séparé` ?* — a trouvé que
+**deux documents le décrivent différemment, et que la différence est
+structurelle**.
+
+| source | ce qu'elle dit qu'est `e1v-séparé` |
+|---|---|
+| `radixstudy.rs:619-621` + `e1v_split_is_radix2_bit_for_bit` + §8 de ce document | **`radix2` au bit près** : un `⌈log₂⌉ ` par **étage de composition** — 5 pour le coset pair (mot de Golay, arrangement support, arrangement hors-support, signes de mot, signes libres) |
+| `llvq-search/src/rankdec.rs:32-36` | des **champs de rang PAR GENRE**, « *and it is why it costs 53,332 bits/block* » |
+
+**Ce sont deux objets différents, et ce n'est pas une nuance de rédaction.**
+Mesuré sur les 383 classes réelles, puis pondéré par les 150 681 600 blocs du 4B
+scellé [mesuré, sonde jetable, modèle validé ci-dessous] :
+
+| granularité | bits/bloc nus, ordre fichier | classes où les deux diffèrent |
+|---|---|---|
+| par **étage** (`Widths::radix2`) | **51,8689** | — |
+| par **genre** (ce qu'une marche binomiale lit) | **52,2206** | **101 / 383**, jusqu'à **+2 bits** |
+| écart | **+0,3516 bit/bloc** | jamais négatif |
+
+**Le modèle est validé avant d'être cru** : sa colonne par étage rend
+**51,8689** là où le §8 de ce document publie **51,87**. C'est la même quantité,
+et c'est ce qui autorise à croire la seconde colonne, qui n'avait jamais été
+calculée.
+
+**Pourquoi c'est structurel et non un détail d'implémentation.** Un champ par
+étage porte le rang d'arrangement **empaqueté** ; l'extraire genre par genre est
+un pelage à radix mixte, donc **une division par le produit des radices
+suivantes**. Le seul moyen de peler par décalage est que chaque radice de genre
+soit **une puissance de deux**, c'est-à-dire exactement d'arrondir **par genre** —
+et c'est la colonne large. Donc :
+
+> **largeur `radix2` ⟺ pelage empaqueté ⟺ division.**
+> **zéro division ⟺ champs par genre ⟺ +0,3516 bit/bloc.**
+
+**Conséquence sur les critères tels qu'ils sont écrits.** C1 exige que la largeur
+dérivée de la CNS égale `Widths::radix2` **au bit près** ; C3.2 exige **zéro
+division** dans la fonction de décodage. **Aucun objet ne satisfait les deux.**
+Un décodeur qui passe C1 échoue C3, un décodeur qui passe C3 échoue C1 — et C1
+rouge **retire le 2,3709** qui est l'argument d'ouverture de toute la ligne.
+
+**Ce que ça ne change pas, et il faut le dire tout de suite** : le **C0 tient
+dans les deux cas**. La variante décodable pèserait ≈ **53,68 bits/bloc** adressés
+FO et ≈ **2,386 b/poids noyau** [calculé, l'écart appliqué au 53,332 publié ;
+l'adressage warp-scan n'est pas rigoureusement additif, donc ce report est un
+ordre de grandeur, pas une mesure], contre un critère de **2,60**. E1v survit sur
+les bits. Il reste **plus gros que l'archive**, qui pèse 2,1912 et dont le
+décodeur existe.
+
+**Ce qui est proposé, et ce qui ne l'est pas.** Proposé : que C1 cesse de
+demander l'égalité avec `Widths::radix2` et demande l'égalité avec une **référence
+par genre**, recalculée depuis la table de binomiaux de la CNS seule — la clause
+d'indépendance du §4 est *renforcée*, pas relâchée, puisque `radix2` cesse d'être
+la cible. Et que le **2,3709 soit remplacé par le chiffre par genre partout où il
+sert d'argument d'ouverture**, le 2,3709 restant publié comme la largeur d'une
+variante **dont le décodeur divise**.
+
+⚠️ **Ce n'est pas un déplacement de poteau, et voici pourquoi on peut le
+vérifier** : l'amendement rend E1v **plus gros**, jamais plus petit. Il ne fait
+passer aucun critère qui échouait ; il constate qu'un critère était
+**contradictoire avec un autre**, et il choisit lequel des deux décrit l'objet
+que P1 vient de mesurer — la marche binomiale, qui ne divise pas. Le sens de
+l'erreur est le seul garde-fou disponible ici, et il est du bon côté.
+
+🕳️ **Et la leçon, qui est celle du dossier** : `rankdec.rs` attribuait 53,332 à
+un format par genre alors que ce nombre est celui du format par étage. Une phrase
+juste sur la *forme* (les champs séparés évitent la division) et fausse sur le
+*chiffre* (ce n'est pas ce que coûte 53,332), écrite le jour où le décodeur a été
+codé, et jamais confrontée à la table de largeurs qui vit dans un autre crate.
+**La largeur par genre n'avait jamais été calculée** — ni le 08-12, ni le 08-13,
+ni en écrivant ce pré-enregistrement.
 
 ## 8. Ce qui est connu à la signature — divulgation datée
 
