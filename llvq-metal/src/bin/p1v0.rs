@@ -12,7 +12,7 @@
 //! | arm | etalon |
 //! |---|---|
 //! | `cascade_uniform` | the dot product of `FastDecoder::decode`'s point, in f64 — it decodes the **archive's** order, so equality is the requirement |
-//! | `decode_walk` | the dot product `binomial_walk` (the CPU reference) gives **on the same ranks** — it decodes **its own** combinatorial order |
+//! | `decode_walk` | the dot product `binomial_walk` (the CPU reference) gives **on the same ranks**, over levels re-derived from `FastDecoder::levels` — it decodes **its own** combinatorial order |
 //!
 //! Amendment É2 of the pre-registration settles the second: relating a
 //! binomial walk's order to the archive's multiset-permutation order *is* the
@@ -241,13 +241,54 @@ fn etalon_cascade(
     Ok(want)
 }
 
+/// The etalon's **own** reading of the codebook: counts and level values,
+/// derived from [`FastDecoder::levels`] in f64 — never read back out of
+/// [`GpuWalkRec`].
+///
+/// 🚨 **This is not redundancy, it is the point.** The first version of this
+/// file built the walk's etalon from `rec.counts` and `rec.vals`, i.e. from the
+/// very table it was supposed to check, and a mutation that gave every
+/// shell-13 class the norm of shell 12 **survived**: the shader read the wrong
+/// value, the CPU reference read the same wrong value, and the two agreed to
+/// nine decimals. The cascade arm caught it at once, because its etalon is
+/// `FastDecoder::decode`. That is exactly the "malentendu partagé" §3.1 of the
+/// pre-registration asks the reference to be written independently of the
+/// shader to avoid — and the walk arm had it.
+///
+/// What É2 exempts the walk from is comparing its *order* to the archive's. It
+/// does not exempt it from checking that the level values are the codebook's:
+/// that half has an independent source, and this is it.
+///
+/// Entry 0 is the origin — one kind, 24 slots, value zero — matching
+/// [`walk_records`]'s own convention, restated rather than imported.
+fn walk_levels(fd: &FastDecoder) -> Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usize)> {
+    let mut out = Vec::with_capacity(fd.n_classes() + 1);
+    let mut origin = [0u8; MAX_KINDS];
+    origin[0] = DIM as u8;
+    out.push((origin, [0.0f64; MAX_KINDS], 1));
+    for ci in 0..fd.n_classes() {
+        let lv = fd.levels(ci);
+        let norm = ((16 * lv.shell) as f64).sqrt();
+        let (mut counts, mut vals) = ([0u8; MAX_KINDS], [0.0f64; MAX_KINDS]);
+        for j in 0..lv.len {
+            counts[j] = lv.counts[j];
+            vals[j] = lv.values[j] as f64 / norm;
+        }
+        out.push((counts, vals, lv.len));
+    }
+    out
+}
+
 /// Pack the walk's feed and compute its etalon in one pass — the CPU walk on
 /// the very ranks the GPU is handed (É2).
 ///
 /// Deliberately one function: a feed built in one place and an etalon built in
-/// another can drift, and the drift would read as a decode divergence.
+/// another can drift, and the drift would read as a decode divergence. The
+/// *packing* reads `walk` — it is the record's own field widths that are being
+/// tested — while the *etalon* reads `lev`, which owes it nothing.
 fn walk_feed(
     walk: &[GpuWalkRec],
+    lev: &[([u8; MAX_KINDS], [f64; MAX_KINDS], usize)],
     ids: &[u32],
     gains: &[u8],
     ranks: &[[u64; MAX_KINDS]],
@@ -258,12 +299,13 @@ fn walk_feed(
     assert_eq!(n, gains.len());
     assert_eq!(n, ranks.len());
     assert_eq!(n, smasks.len());
+    assert_eq!(walk.len(), lev.len());
     let mut words = Vec::with_capacity(3 * n);
     let mut want = Vec::with_capacity(n);
     let mut kinds = [0u8; DIM];
     for b in 0..n {
-        let rec: &GpuWalkRec = &walk[ids[b] as usize];
-        let k = rec.k as usize;
+        let id = ids[b] as usize;
+        let rec: &GpuWalkRec = &walk[id];
         words.extend_from_slice(&pack_walk_block(
             rec,
             ids[b],
@@ -272,11 +314,12 @@ fn walk_feed(
             &ranks[b],
         ));
 
-        binomial_walk(&ranks[b], &rec.counts, k, &mut kinds);
+        let (counts, vals, k) = &lev[id];
+        binomial_walk(&ranks[b], counts, *k, &mut kinds);
         let g = GSCALE[gains[b] as usize] as f64;
         let (mut dot, mut mag) = (0.0f64, 0.0f64);
         for (i, &kd) in kinds.iter().enumerate() {
-            let v = rec.vals[kd as usize] as f64;
+            let v = vals[kd as usize];
             let v = if (smasks[b] >> i) & 1 == 1 { -v } else { v };
             let t = v * g * x[i] as f64;
             dot += t;
@@ -484,6 +527,7 @@ fn main() -> Result<(), String> {
     let dv = div_table();
     let walk = walk_records(&fd);
     let radices = walk_radix_table(&walk);
+    let lev = walk_levels(&fd);
     let binom = binom_table();
     println!(
         "tables hôtes : {} classes cascade (88 o), {} entrées marche (52 o), \
@@ -553,7 +597,7 @@ fn main() -> Result<(), String> {
         "la fixture marche doit toucher les {} entrées de la table",
         walk.len()
     );
-    let (fwords, fwant) = walk_feed(&walk, &fids, &fwgains, &franks, &fsmasks, &x);
+    let (fwords, fwant) = walk_feed(&walk, &lev, &fids, &fwgains, &franks, &fsmasks, &x);
     println!(
         "\n{} blocs synthétiques — {} entrées de marche sur {} (TOUTES), origine comprise ; \
          rang 0, dernier rang, et deux tirages par entrée",
@@ -675,7 +719,7 @@ fn main() -> Result<(), String> {
         ranks.push(r);
         smasks.push((rng.next() as u32) & ((1 << DIM) - 1));
     }
-    let (words, want_walk) = walk_feed(&walk, &ids, &gains, &ranks, &smasks, &x);
+    let (words, want_walk) = walk_feed(&walk, &lev, &ids, &gains, &ranks, &smasks, &x);
 
     println!("\nbras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
     let ww = verify("decode_walk", &walk_arm.run(&words), &want_walk);
