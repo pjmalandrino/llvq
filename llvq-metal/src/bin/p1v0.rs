@@ -128,10 +128,11 @@ fn verify(name: &str, got: &[f32], want: &[(f64, f64)]) -> Worst {
             w.want = exp;
         }
         w.abs = w.abs.max(d);
-        // Negation of a true predicate, not a direct comparison: `d > tol` is
-        // FALSE when `d` is NaN, so the block would escape the count. `!(d <=
-        // tol)` catches it.
-        if !(d <= tol) {
+        // NaN is named, not implied. `d > tol` alone is FALSE when `d` is
+        // NaN, so the block would escape the count entirely; writing the NaN
+        // case out says so, and reads better than the `!(d <= tol)` that
+        // clippy rightly calls hard to refactor.
+        if d.is_nan() || d > tol {
             w.bad += 1;
         }
     }
