@@ -181,8 +181,8 @@ pub fn binom(n: usize, k: usize) -> u64 {
 /// cardinality for the same class: the two orders differ, the *set* does not.
 /// That equality is what makes a re-bijection possible at all, and
 /// `the_walk_spans_exactly_the_class` checks it rather than assuming it.
-pub fn walk_cardinality(counts: &[u8; MAX_KINDS], k: usize) -> u64 {
-    let mut free = DIM;
+pub fn walk_cardinality(counts: &[u8; MAX_KINDS], k: usize, n_slots: usize) -> u64 {
+    let mut free = n_slots;
     let mut total = 1u64;
     for &c in counts.iter().take(k) {
         total *= binom(free, c as usize);
@@ -197,9 +197,9 @@ pub fn walk_cardinality(counts: &[u8; MAX_KINDS], k: usize) -> u64 {
 ///
 /// The last kind has radix 1: it takes what is left, and storing a rank for it
 /// would be storing a constant.
-pub fn walk_radices(counts: &[u8; MAX_KINDS], k: usize) -> [u64; MAX_KINDS] {
+pub fn walk_radices(counts: &[u8; MAX_KINDS], k: usize, n_slots: usize) -> [u64; MAX_KINDS] {
     let mut r = [1u64; MAX_KINDS];
-    let mut free = DIM;
+    let mut free = n_slots;
     for j in 0..k {
         let c = counts[j] as usize;
         r[j] = binom(free, c);
@@ -223,12 +223,19 @@ pub fn binomial_walk(
     ranks: &[u64; MAX_KINDS],
     counts: &[u8; MAX_KINDS],
     k: usize,
-    out: &mut [u8; DIM],
+    out: &mut [u8],
 ) {
     debug_assert!(k <= MAX_KINDS);
-    // Bit `i` set ⇒ slot `i` still free. 24 bits used.
-    let mut free_mask: u32 = if DIM == 32 { u32::MAX } else { (1u32 << DIM) - 1 };
-    *out = [0u8; DIM];
+    let n_slots = out.len();
+    debug_assert!(n_slots <= DIM);
+    debug_assert_eq!(
+        counts.iter().take(k).map(|&c| c as usize).sum::<usize>(),
+        n_slots,
+        "the counts must fill exactly the slots on offer"
+    );
+    // Bit `i` set ⇒ slot `i` still free.
+    let mut free_mask: u32 = if n_slots == 32 { u32::MAX } else { (1u32 << n_slots) - 1 };
+    out.fill(0);
 
     for j in 0..k {
         let c_total = counts[j] as usize;
@@ -255,12 +262,16 @@ pub fn binomial_walk(
         let mut r = ranks[j];
         let mut c = c_total;
         let mut taken: u32 = 0;
+        // ⚠️ NO early exit. The whole justification of this arm is that its
+        // step count is a function of the class and never of the rank — a walk
+        // that stopped as soon as its last unit was placed would diverge across
+        // lanes exactly where the cascade already does, which is what it exists
+        // to avoid. When `c` reaches zero the threshold is set out of reach
+        // instead, so the remaining positions are scanned and never taken.
         for p in (0..n_free).rev() {
-            if c == 0 {
-                break;
-            }
-            let b = binom(p, c);
-            if r >= b {
+            let b = if c > 0 { binom(p, c) } else { u64::MAX };
+            let take = r >= b;
+            if take {
                 r -= b;
                 taken |= 1 << p;
                 c -= 1;
@@ -303,12 +314,13 @@ fn nth_set_bit(mut x: u32, n: usize) -> usize {
 /// itself proves nothing, `rank → walk → rank` over every rank of a class
 /// proves the map is injective on that class.
 pub fn binomial_rank(
-    arrangement: &[u8; DIM],
+    arrangement: &[u8],
     counts: &[u8; MAX_KINDS],
     k: usize,
 ) -> [u64; MAX_KINDS] {
+    let n_slots = arrangement.len();
     let mut ranks = [0u64; MAX_KINDS];
-    let mut free_mask: u32 = (1u32 << DIM) - 1;
+    let mut free_mask: u32 = if n_slots == 32 { u32::MAX } else { (1u32 << n_slots) - 1 };
 
     for j in 0..k.saturating_sub(1) {
         let c_total = counts[j] as usize;
@@ -406,26 +418,29 @@ mod tests {
     fn the_walk_spans_exactly_the_class() {
         use std::collections::HashSet;
         for (counts, k, m0, n_slots) in real_classes() {
-            if n_slots != DIM || m0 == 0 || m0 > 200_000 {
+            if m0 == 0 || m0 > 200_000 {
                 continue; // full enumeration only where it is affordable
             }
             assert_eq!(
-                walk_cardinality(&counts, k),
+                walk_cardinality(&counts, k, n_slots),
                 m0,
                 "the walk must span the same set as the archive: counts {counts:?}"
             );
-            let radices = walk_radices(&counts, k);
+            let radices = walk_radices(&counts, k, n_slots);
             let mut seen = HashSet::new();
             let mut idx = [0u64; MAX_KINDS];
             let mut n = 0u64;
             loop {
                 let mut out = [0u8; DIM];
-                binomial_walk(&idx, &counts, k, &mut out);
-                assert!(seen.insert(out), "collision: the walk is not injective");
+                binomial_walk(&idx, &counts, k, &mut out[..n_slots]);
+                assert!(
+                    seen.insert(out),
+                    "collision: the walk is not injective"
+                );
                 // Also: the arrangement must realise the class's multiset.
                 for (j, &c) in counts.iter().enumerate().take(k) {
                     assert_eq!(
-                        out.iter().filter(|&&x| x == j as u8).count(),
+                        out[..n_slots].iter().filter(|&&x| x == j as u8).count(),
                         c as usize,
                         "kind {j} misplaced"
                     );
@@ -458,18 +473,42 @@ mod tests {
     fn the_walk_round_trips_on_its_own_bijection() {
         let mut rng = SplitMix64::new(0x0_B1_A0);
         for (counts, k, m0, n_slots) in real_classes() {
-            if n_slots != DIM || m0 == 0 {
+            if m0 == 0 {
                 continue;
             }
-            let radices = walk_radices(&counts, k);
+            let radices = walk_radices(&counts, k, n_slots);
             for _ in 0..200 {
                 let mut idx = [0u64; MAX_KINDS];
                 for j in 0..k {
                     idx[j] = if radices[j] > 1 { rng.next() % radices[j] } else { 0 };
                 }
                 let mut out = [0u8; DIM];
-                binomial_walk(&idx, &counts, k, &mut out);
-                let back = binomial_rank(&out, &counts, k);
+                binomial_walk(&idx, &counts, k, &mut out[..n_slots]);
+
+                // 🚨 The output must BE an arrangement of the class — every
+                // kind present in its exact count, the LAST ONE INCLUDED, and
+                // no symbol outside `0..k`.
+                //
+                // This lives here, not in the enumeration test, because the
+                // round trip cannot see it: `binomial_rank` walks `0..k-1`,
+                // the last kind having no rank of its own. A mutation that
+                // wrote `j + 1` for the last kind survived all five tests
+                // before this assertion existed — it produced arrangements
+                // where the last kind was absent and 17 to 19 slots carried a
+                // symbol out of range, on 0,11 % of the codebook.
+                for (j, &c) in counts.iter().enumerate().take(k) {
+                    assert_eq!(
+                        out[..n_slots].iter().filter(|&&x| x == j as u8).count(),
+                        c as usize,
+                        "kind {j} misplaced: counts {counts:?}, idx {idx:?}"
+                    );
+                }
+                assert!(
+                    out[..n_slots].iter().all(|&x| (x as usize) < k),
+                    "a slot carries a symbol outside 0..{k}: counts {counts:?}"
+                );
+
+                let back = binomial_rank(&out[..n_slots], &counts, k);
                 for j in 0..k.saturating_sub(1) {
                     assert_eq!(back[j], idx[j], "kind {j}: counts {counts:?}, idx {idx:?}");
                 }
@@ -485,27 +524,27 @@ mod tests {
     fn the_step_count_depends_only_on_the_class() {
         let mut rng = SplitMix64::new(0x0_57E7);
         for (counts, k, m0, n_slots) in real_classes() {
-            if n_slots != DIM || m0 == 0 {
+            if m0 == 0 {
                 continue;
             }
             // Steps the walk takes: for each non-final kind, the number of free
             // slots it scans. No rank enters this expression — that IS the test.
             let mut want = 0usize;
-            let mut free = DIM;
+            let mut free = n_slots;
             for &c in counts.iter().take(k.saturating_sub(1)) {
                 if c > 0 {
                     want += free;
                     free -= c as usize;
                 }
             }
-            let radices = walk_radices(&counts, k);
+            let radices = walk_radices(&counts, k, n_slots);
             for _ in 0..20 {
                 let mut idx = [0u64; MAX_KINDS];
                 for j in 0..k {
                     idx[j] = if radices[j] > 1 { rng.next() % radices[j] } else { 0 };
                 }
                 assert_eq!(
-                    steps_of(&idx, &counts, k),
+                    steps_of(&idx, &counts, k, n_slots),
                     want,
                     "step count moved with the rank: counts {counts:?}"
                 );
@@ -514,8 +553,13 @@ mod tests {
     }
 
     /// Instrumented twin of [`binomial_walk`]: counts outer scan iterations.
-    fn steps_of(ranks: &[u64; MAX_KINDS], counts: &[u8; MAX_KINDS], k: usize) -> usize {
-        let mut free_mask: u32 = (1u32 << DIM) - 1;
+    fn steps_of(
+        ranks: &[u64; MAX_KINDS],
+        counts: &[u8; MAX_KINDS],
+        k: usize,
+        n_slots: usize,
+    ) -> usize {
+        let mut free_mask: u32 = if n_slots == 32 { u32::MAX } else { (1u32 << n_slots) - 1 };
         let mut steps = 0usize;
         for j in 0..k.saturating_sub(1) {
             let c_total = counts[j] as usize;
@@ -523,15 +567,18 @@ mod tests {
                 continue;
             }
             let n_free = free_mask.count_ones() as usize;
-            steps += n_free;
             let mut r = ranks[j];
             let mut c = c_total;
             let mut taken: u32 = 0;
+            // ⚠️ Counted INSIDE the loop, one per iteration actually executed.
+            // The first version added `n_free` before the loop, so it reported
+            // the count the walk *should* have had rather than the one it had —
+            // and the test could not fail on the very property it names. That
+            // is the §5 pattern of the dossier: an assertion that does not
+            // exercise the parameter it claims to cover.
             for p in (0..n_free).rev() {
-                if c == 0 {
-                    break;
-                }
-                let b = binom(p, c);
+                steps += 1;
+                let b = if c > 0 { binom(p, c) } else { u64::MAX };
                 if r >= b {
                     r -= b;
                     taken |= 1 << p;
