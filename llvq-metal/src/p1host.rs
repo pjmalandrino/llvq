@@ -574,6 +574,184 @@ pub fn pack_walk_block(
     [acc as u32, (acc >> 32) as u32, (acc >> 64) as u32]
 }
 
+// ---------------------------------------------------------------------------
+// V0's etalons — shared by `bin/p1v0` and `bin/rankbench`
+// ---------------------------------------------------------------------------
+//
+// These live in the library and not in a bin for one reason: the bench has to
+// verify every arm before timing it (pre-registration §3, §7), and a bench that
+// carried its own copy of the etalons would be checking its copy. Two bins, one
+// yardstick.
+
+/// Counts, level values in f64, and kind count — one entry per walk-table id,
+/// the origin first. Built by [`walk_levels`] from [`FastDecoder::levels`],
+/// **never** read back out of [`GpuWalkRec`].
+pub type Levels = Vec<([u8; MAX_KINDS], [f64; MAX_KINDS], usize)>;
+
+/// The etalon's own reading of the codebook.
+///
+/// 🚨 **This is not redundancy, it is the point.** The first version of `p1v0`
+/// built the walk's etalon from `rec.counts` and `rec.vals`, i.e. from the very
+/// table it was supposed to check, and a mutation that gave every shell-13
+/// class the norm of shell 12 **survived**: the shader read the wrong value, the
+/// CPU reference read the same wrong value, and the two agreed to nine
+/// decimals. That is the "malentendu partagé" §3.1 of the pre-registration asks
+/// the reference to be written independently of the shader to avoid.
+///
+/// Entry 0 is the origin — one kind, 24 slots, value zero — matching
+/// [`walk_records`]'s convention, restated rather than imported.
+pub fn walk_levels(fd: &FastDecoder) -> Levels {
+    let mut out = Vec::with_capacity(fd.n_classes() + 1);
+    let mut origin = [0u8; MAX_KINDS];
+    origin[0] = DIM as u8;
+    out.push((origin, [0.0f64; MAX_KINDS], 1));
+    for ci in 0..fd.n_classes() {
+        let lv = fd.levels(ci);
+        let norm = ((16 * lv.shell) as f64).sqrt();
+        let (mut counts, mut vals) = ([0u8; MAX_KINDS], [0.0f64; MAX_KINDS]);
+        for j in 0..lv.len {
+            counts[j] = lv.counts[j];
+            vals[j] = lv.values[j] as f64 / norm;
+        }
+        out.push((counts, vals, lv.len));
+    }
+    out
+}
+
+/// What the host packed into the walk's records — and therefore exactly what
+/// the GPU has to give back.
+#[derive(Default)]
+pub struct WalkFeed {
+    pub ids: Vec<u32>,
+    pub gains: Vec<u8>,
+    pub ranks: Vec<[u64; MAX_KINDS]>,
+    pub smasks: Vec<u32>,
+}
+
+impl WalkFeed {
+    pub fn push(&mut self, id: u32, gain: u8, ranks: [u64; MAX_KINDS], smask: u32) {
+        self.ids.push(id);
+        self.gains.push(gain);
+        self.ranks.push(ranks);
+        self.smasks.push(smask);
+    }
+
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    /// Pad with the origin at rank zero, to a whole number of `group` blocks.
+    ///
+    /// The origin is the one entry whose dot is zero whatever the sign mask, so
+    /// the padding cannot flatter the worst error of a real entry.
+    pub fn pad(&mut self, group: usize) {
+        while !self.len().is_multiple_of(group) {
+            self.push(0, 0, [0u64; MAX_KINDS], 0);
+        }
+    }
+}
+
+/// `(Σ wᵢxᵢ, Σ|wᵢxᵢ|)` for one arrangement — the dot, and the magnitude the
+/// accumulation ran at, which is what a tolerance on a dot product has to be
+/// relative to.
+pub fn dot_of(
+    kinds: &[u8; DIM],
+    vals: &[f64; MAX_KINDS],
+    smask: u32,
+    gain: f64,
+    x: &[f32],
+) -> (f64, f64) {
+    let (mut dot, mut mag) = (0.0f64, 0.0f64);
+    for (i, &kd) in kinds.iter().enumerate() {
+        let v = vals[kd as usize];
+        let v = if (smask >> i) & 1 == 1 { -v } else { v };
+        let t = v * gain * x[i] as f64;
+        dot += t;
+        mag += t.abs();
+    }
+    (dot, mag)
+}
+
+/// Pack the walk's feed and compute its etalon in one pass — the CPU walk on
+/// the very ranks the GPU is handed (amendment É2).
+///
+/// Deliberately one function: a feed built in one place and an etalon built in
+/// another can drift, and the drift would read as a decode divergence. The
+/// *packing* reads `walk` — it is the record's own field widths that are under
+/// test — while the *etalon* reads `lev`, which owes it nothing.
+pub fn walk_feed(
+    walk: &[GpuWalkRec],
+    lev: &Levels,
+    feed: &WalkFeed,
+    gscale: &[f32; 2],
+    x: &[f32],
+) -> (Vec<u32>, Vec<(f64, f64)>) {
+    assert_eq!(walk.len(), lev.len());
+    let n = feed.len();
+    let mut words = Vec::with_capacity(3 * n);
+    let mut want = Vec::with_capacity(n);
+    let mut kinds = [0u8; DIM];
+    for b in 0..n {
+        let id = feed.ids[b] as usize;
+        words.extend_from_slice(&pack_walk_block(
+            &walk[id],
+            feed.ids[b],
+            feed.gains[b] as u32,
+            feed.smasks[b],
+            &feed.ranks[b],
+        ));
+        let (counts, vals, k) = &lev[id];
+        llvq_search::rankdec::binomial_walk(&feed.ranks[b], counts, *k, &mut kinds);
+        want.push(dot_of(
+            &kinds,
+            vals,
+            feed.smasks[b],
+            gscale[feed.gains[b] as usize] as f64,
+            x,
+        ));
+    }
+    (words, want)
+}
+
+/// The archive decoder's own point, dotted in f64 — the etalon of **both**
+/// cascade arms, which decode the archive's order and therefore owe it exact
+/// equality.
+///
+/// [`llvq_core::Leech::shell_index`] recomputes ‖p‖²/16 from the decoded point,
+/// so a wrong `inv_norm` in the host table cannot cancel against itself here.
+/// The origin has no shell, and its dot is zero rather than an error:
+/// `decode(0)` is a legitimate point of the codebook and the §1.6 fixture feeds
+/// it on purpose.
+pub fn etalon_cascade(
+    fd: &FastDecoder,
+    idx: &[u64],
+    gains: &[u8],
+    gscale: &[f32; 2],
+    x: &[f32],
+) -> Result<Vec<(f64, f64)>, String> {
+    let mut want = Vec::with_capacity(idx.len());
+    for (b, &i) in idx.iter().enumerate() {
+        let p = fd
+            .decode(i)
+            .ok_or_else(|| format!("index {i} hors de la boule"))?;
+        let (mut dot, mut mag) = (0.0f64, 0.0f64);
+        if let Some(m) = llvq_core::Leech::shell_index(&p).filter(|&m| m > 0) {
+            let s = gscale[gains[b] as usize] as f64 / ((16 * m) as f64).sqrt();
+            for (&v, &xi) in p.iter().zip(x) {
+                let t = v as f64 * s * xi as f64;
+                dot += t;
+                mag += t.abs();
+            }
+        }
+        want.push((dot, mag));
+    }
+    Ok(want)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

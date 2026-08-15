@@ -12,11 +12,16 @@
 //! Run: `cargo run --release -p llvq-metal --bin mslcheck`
 
 fn main() {
-    let cases: [(&str, &str, &str); 3] = [
+    let cases: [(&str, &str, &str); 4] = [
         (
             "cascade_uniform",
             include_str!("../../shaders/cascade_uniform.metal"),
             "cascade_uniform",
+        ),
+        (
+            "cascade_archive",
+            include_str!("../../shaders/cascade_archive.metal"),
+            "cascade_archive",
         ),
         (
             "binomial_walk",
