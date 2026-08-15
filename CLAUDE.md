@@ -39,7 +39,15 @@
 > classe. Et la marche binomiale, qui ne divise jamais, rend **3,84× le
 > plancher de la machine**.
 >
-> Pour la suite : **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
+> 🧭 **Reprise : commencer par
+> [`docs/archive/passation-e1v-2026-08-15.md`](docs/archive/passation-e1v-2026-08-15.md)**
+> — autonome, il porte le RAF de toutes les phases et qualifie **E1v**, la
+> branche la plus intéressante : 2,3877 b/poids noyau (1,50 Go sur le 4B contre
+> 2,60 servi), bijection prouvée sur 150 681 600 blocs, décodeur sans division,
+> **qualité inchangée par preuve** — et **aucun noyau GPU**. Le même piège de
+> géométrie qui a enterré `e1c14` (+15,47 %) ne lui coûte que **+0,48 %**.
+>
+> Puis **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
 > P1 ») et le plan d'exécution
 > [`docs/archive/passation-exec-2026-08-15.md`](docs/archive/passation-exec-2026-08-15.md),
 > **dont le §2 est périmé sur P1 seulement** — ce qu'il donne comme restant
