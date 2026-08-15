@@ -225,6 +225,29 @@ pub fn binomial_walk(
     k: usize,
     out: &mut [u8],
 ) {
+    let mut steps = 0u32;
+    binomial_walk_counted(ranks, counts, k, out, &mut steps);
+}
+
+/// [`binomial_walk`], plus the count of **outer scan iterations** it took.
+///
+/// This is P5's C3.1 instrument, and it is the *same code path* as the walk —
+/// not a twin. `rankdec`'s previous instrumented twin, `steps_of`, was written
+/// with the read-before-clear bug its original does not have, and the lesson
+/// recorded then was that *a twin that drifts from its original tests the
+/// twin*. So there is no twin: one implementation, two entry points, and the
+/// counter cannot describe a walk that did not happen.
+///
+/// A "step" is one iteration of the scan over free positions, summed over every
+/// kind of the arrangement. It is a function of the **class** and never of the
+/// rank — the property [`crate::cns`] turns into an opposable criterion.
+pub fn binomial_walk_counted(
+    ranks: &[u64; MAX_KINDS],
+    counts: &[u8; MAX_KINDS],
+    k: usize,
+    out: &mut [u8],
+    steps: &mut u32,
+) {
     debug_assert!(k <= MAX_KINDS);
     let n_slots = out.len();
     debug_assert!(n_slots <= DIM);
@@ -288,6 +311,7 @@ pub fn binomial_walk(
         // loop. Whether the timed arm should pay it is a question for the bench
         // brief, not something to settle by deleting the line here.
         for p in (0..n_free).rev() {
+            *steps += 1;
             let b = if c > 0 { binom(p, c) } else { u64::MAX };
             let take = r >= b;
             if take {
@@ -562,62 +586,21 @@ mod tests {
                 for j in 0..k {
                     idx[j] = if radices[j] > 1 { rng.next() % radices[j] } else { 0 };
                 }
+                // 🚨 Counted by the WALK ITSELF, not by a twin. The first
+                // version of this test called an instrumented copy
+                // (`steps_of`), which was written with a bug the original does
+                // not have and had to be debugged against it — so the test
+                // measured the copy. `binomial_walk_counted` is the same code
+                // path as `binomial_walk`; there is nothing left to drift.
+                let mut out = [0u8; DIM];
+                let mut steps = 0u32;
+                binomial_walk_counted(&idx, &counts, k, &mut out[..n_slots], &mut steps);
                 assert_eq!(
-                    steps_of(&idx, &counts, k, n_slots),
-                    want,
+                    steps as usize, want,
                     "step count moved with the rank: counts {counts:?}"
                 );
             }
         }
     }
 
-    /// Instrumented twin of [`binomial_walk`]: counts outer scan iterations.
-    fn steps_of(
-        ranks: &[u64; MAX_KINDS],
-        counts: &[u8; MAX_KINDS],
-        k: usize,
-        n_slots: usize,
-    ) -> usize {
-        let mut free_mask: u32 = if n_slots == 32 { u32::MAX } else { (1u32 << n_slots) - 1 };
-        let mut steps = 0usize;
-        for j in 0..k.saturating_sub(1) {
-            let c_total = counts[j] as usize;
-            if c_total == 0 {
-                continue;
-            }
-            let n_free = free_mask.count_ones() as usize;
-            let mut r = ranks[j];
-            let mut c = c_total;
-            let mut taken: u32 = 0;
-            // ⚠️ Counted INSIDE the loop, one per iteration actually executed.
-            // The first version added `n_free` before the loop, so it reported
-            // the count the walk *should* have had rather than the one it had —
-            // and the test could not fail on the very property it names. That
-            // is the §5 pattern of the dossier: an assertion that does not
-            // exercise the parameter it claims to cover.
-            for p in (0..n_free).rev() {
-                steps += 1;
-                let b = if c > 0 { binom(p, c) } else { u64::MAX };
-                if r >= b {
-                    r -= b;
-                    taken |= 1 << p;
-                    c -= 1;
-                }
-            }
-            // Same discipline as the real walk: map against the mask as it was
-            // BEFORE this kind ran. Reading it while clearing shifts every
-            // later index by one — and this twin was written with that bug,
-            // which is how `the_step_count_depends_only_on_the_class` first
-            // failed. A twin that drifts from its original tests the twin.
-            let before = free_mask;
-            let mut mask = taken;
-            while mask != 0 {
-                let want = mask.trailing_zeros() as usize;
-                let slot = nth_set_bit(before, want);
-                free_mask &= !(1u32 << slot);
-                mask &= mask - 1;
-            }
-        }
-        steps
-    }
 }
