@@ -300,6 +300,13 @@ mod gpu {
 #[cfg(target_os = "macos")]
 pub use gpu::{Kernel, Timing};
 
+/// Host tables for the two P1 arms — the `#[repr(C)]` mirrors and class
+/// tables `shaders/cascade_uniform.metal` and `shaders/binomial_walk.metal`
+/// assume. They live in this crate, beside [`PAYLOAD_MSL`] and
+/// [`gpu_class_table`], so a mirror and the struct it mirrors cannot drift
+/// apart in two crates.
+pub mod p1host;
+
 /// f32 → IEEE 754 binary16 bits, round to nearest even. No `half` crate —
 /// this crate stays at two dependencies.
 pub fn f16_bits(x: f32) -> u16 {
