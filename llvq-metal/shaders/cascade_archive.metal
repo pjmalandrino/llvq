@@ -183,14 +183,23 @@ static inline float archive_block(ulong idx,
         unrank_archive(r_on,  on_counts,  MAX_KINDS, r.d_on,  on_kinds,  w);
         unrank_archive(r_off, off_counts, MAX_KINDS, r.d_off, off_kinds, DIM - w);
 
-        // The zero run is the last off-support kind, and it is marked by its
-        // value byte being zero — the same convention `cascade_uniform` reads.
-        uint n_off = 0u;
-        for (uint j = 0u; j < MAX_KINDS; ++j) {
-            if (((r.counts_b >> (8u * j)) & 0xfful) != 0ul) n_off = j + 1u;
-        }
-        uint zero_kind = n_off - 1u;
-
+        // 🚨 The zero run is identified by its VALUE byte being zero, never by
+        // its index. The first version of this file recovered `n_off` by
+        // scanning `counts_b` for its last nonzero byte and took
+        // `zero_kind = n_off − 1` — and that is wrong exactly when the zero run
+        // has **count zero**, i.e. on a class whose off-support carries no zero
+        // coordinate at all. The scan then lands on a real kind, and every
+        // coordinate of that kind is written as a zero.
+        //
+        // It failed V0 on **883 blocks out of 16 777 216** (5·10⁻⁵) — rare
+        // enough that a sampled check would have missed it, which is why V0
+        // verifies every block of the draw. `p1_rank_sweep.rs` did not catch it
+        // because the Rust composition reads `c.n_off` from the class record;
+        // the field is simply not in `CascadeRec`, and recovering it was the
+        // mistake. `cascade_uniform.metal` never had the bug: it tests
+        // `nzv = (v != 0u)`, which is the convention `p1host` asserts
+        // (`the_tables_satisfy_the_shaders_contracts`: the zero run's value byte
+        // is zero). This file now reads the same thing.
         uint s_on = 0u, s_off = 0u, par = 0u, fbit = 0u;
         for (uint s = 0u; s < DIM; ++s) {
             float wv = 0.0f;
@@ -208,8 +217,8 @@ static inline float archive_block(ulong idx,
                 s_on += 1u;
             } else {
                 uint kd = uint(off_kinds[s_off]);
-                if (kd != zero_kind) {
-                    uint v   = uint((r.vals_b >> (8u * kd)) & 0xfful);
+                uint v  = uint((r.vals_b >> (8u * kd)) & 0xfful);
+                if (v != 0u) {
                     uint neg = (r_sf >> fbit) & 1u;
                     wv = as_type<float>(as_type<uint>(float(v)) ^ (neg << 31u));
                     fbit += 1u;

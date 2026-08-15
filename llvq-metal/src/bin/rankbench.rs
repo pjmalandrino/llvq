@@ -444,12 +444,28 @@ fn run() -> Result<(), String> {
          (É3c) et ÉCARTÉ. Le tirage est\n             donc décrit, pas jugé, et l'accepter \
          revient à l'opérateur."
     );
+    // §1.6's coverage declaration, and it has to separate three things a single
+    // subtraction would merge. `384 − drawn` is NOT the count of entries a file
+    // cannot reach: it also swallows the classes this draw simply missed
+    // because they are rare, which is a fact about the draw and not about the
+    // codebook.
+    let shell13 = (0..fd.n_classes())
+        .filter(|&ci| fd.levels(ci).shell == 13)
+        .count();
+    let entries = fd.n_classes() + 1;
     println!(
-        "          ⚠️ couverture : {} des {} entrées de table ne sont atteignables depuis \
-         AUCUN fichier\n             cap 12 (origine, coquille 13, classes inutilisées). \
-         Elles sont couvertes par la\n             fixture de `bin/p1v0`, pas ici.",
-        fd.n_classes() + 1 - drawn,
-        fd.n_classes() + 1
+        "          couverture, en trois termes qui ne se confondent pas :\n            \
+         · {entries} entrées de table (383 classes cap 13 + l'origine) ;\n            \
+         · {observed} touchées par LE FICHIER — les {} autres se décomposent en 1 origine, \
+         {shell13} classes\n              de coquille 13 (hors d'atteinte de tout fichier \
+         cap 12) et {} classes cap 12 que ce\n              modèle n'utilise pas ;\n            \
+         · {drawn} touchées par CE TIRAGE — les {} restantes sont des classes trop rares \
+         pour\n              survivre à un tirage de 1 bloc sur 9, ce qui est un fait sur le \
+         tirage, pas sur le codebook.\n          Les entrées hors fichier sont couvertes par \
+         la fixture de `bin/p1v0`, jamais ici.",
+        entries - observed,
+        entries - observed - 1 - shell13,
+        observed - drawn
     );
 
     // =======================================================================
