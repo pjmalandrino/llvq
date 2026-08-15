@@ -484,6 +484,103 @@ des deux bras semblait plus strict, et c'était en réalité une confusion entre
 deux objets — un rang de permutation et un rang combinatoire. La rigueur
 uniforme n'est pas la rigueur.
 
+### É3 — 2026-08-15, le banc est écrit et n'a pas tourné : les trois arbitrages que le plan refusait d'inventer
+
+> 🚨 **PROPOSITION, non acquise. Elle attend l'arbitrage de l'opérateur, et le
+> tampon doit venir APRÈS lui.** Une fois `ots stamp` posé, ce document est en
+> lecture seule pour toujours : un É3 stampé est un engagement, un É3 écrit
+> après la première milliseconde n'est plus un pré-enregistrement.
+
+**Ce qui s'est passé.** Le plan d'implémentation du banc a relevé **trois
+décisions qui ne sont dans aucun pré-enregistrement** et a refusé de les
+prendre : *« aucun ne s'invente ici »*. Il avait raison, et il avait aussi
+raison de dire quand elles doivent se prendre — **avant la première mesure,
+parce qu'après elles deviennent négociables**. Le banc est écrit et n'a pas
+tourné ; c'est le dernier moment où elles sont encore des règles plutôt que
+des interprétations.
+
+#### (a) Un sixième bras, `sol-rang` — **proposé : oui**
+
+Le §2 fixe **cinq** bras. En ajouter un est un écart, et c'est pourquoi il
+s'écrit ici.
+
+**Le défaut qu'il corrige.** Les bras ne lisent pas le même nombre d'octets :
+`sol` et `masques` lisent les 12 octets de `Fixed96`, les deux cascades en
+lisent 8, la marche 12. **`sol` est donc le plancher de `masques` et de
+personne d'autre.** Sans sixième bras, le journal doit porter une réserve en
+prose — *« un décodeur de rang qui bat le sol sur le temps ne bat pas le sol
+sur le travail »* — et une réserve en prose est ce qui disparaît d'une citation
+au troisième réemploi. C'est le motif que ce dossier documente partout ailleurs.
+
+**Ce qu'il est.** Il lit les 8 octets du flux de rang — **le même buffer que
+les bras 2 et 3** — et ne décode rien. Le plancher des bras de rang, mesuré au
+lieu d'être supposé.
+
+**Où il se place.** **En dernière position**, index 5, pour ne réordonner aucun
+bras existant (§1.3). Le rapport `× le sol` reste formé contre le bras 0, qui
+ne bouge pas ; le bras 5 s'y lit comme les autres.
+
+**Ce que ça coûte.** Un dispatch de plus par round, sur un noyau de vitesse
+plancher : quelques millisecondes sur les 18 rounds. Zéro dollar. **Ce que ça
+ne coûte pas : aucun seuil ne bouge.** Les 1,5 / 2,0 / 0,45 ns restent lus
+contre les mêmes bras.
+
+#### (b) La règle de suspension appliquée aux seuils absolus — **proposé : oui, à l'identique**
+
+Le §1.2 amendé dit : *si l'étendue du surcoût dépasse la moitié de l'écart
+entre deux bras que le verdict sépare, ce verdict n'est pas rendu.* Il parle
+d'un écart **entre deux bras**. Or les trois seuils du §4 sont des
+comparaisons **à une constante**, et le §1.2 est muet sur ce cas.
+
+**Proposition : même forme, même constante.** Un verdict de seuil n'est pas
+rendu si `étendue_ns > |ns_bras − seuil| / 2`.
+
+**Pourquoi maintenant et pas après.** Sans cette ligne, un bras à 0,44 ns
+devant un gate à 0,45 avec un surcoût dont l'étendue vaut 0,10 ns se discute
+après coup, et il se discutera dans le sens que voudra celui qui parle. C'est
+exactement la porte de sortie que l'É1 a fermée sur la clause E1v — le même
+défaut, à un autre endroit du même document.
+
+**Le sens de l'erreur est assumé** : la règle ne peut que **suspendre** un
+verdict, jamais en fabriquer un. Elle est donc conservatrice par construction,
+et elle coûte un run de plus quand elle mord.
+
+#### (c) Un critère chiffré d'acceptation du tirage — **proposé**
+
+Le §7 dit qu'un tirage dont l'histogramme *s'écarte* de celui du fichier ne
+répond pas à la question posée. Il ne chiffre pas « s'écarte ».
+
+**Proposition, en trois clauses :**
+
+1. **Le `z` par classe** est `(observé − attendu)/√attendu`, avec
+   `attendu = f_classe · N / total`.
+2. **Le maximum est pris sur les classes dont l'attendu est ≥ 25** — en
+   dessous, l'approximation normale ne tient pas et le `z` n'a pas de sens. Le
+   nombre de classes écartées à ce titre est **imprimé**, jamais absorbé.
+3. **Le tirage est refusé si `max |z| > 4,0`**, ou si une classe d'attendu ≥ 5
+   ressort **vide** du tirage.
+
+**D'où sort le 4,0**, et ses deux réserves, parce qu'un seuil sans dérivation
+est un seuil qu'on déplacera : sur ~286 classes, `P(|Z| > 4)` vaut 6,3·10⁻⁵ par
+classe, soit **moins de 2 % de fausse alarme** sur l'ensemble — un budget
+acceptable pour un garde qui doit rester vert sur un bon tirage. Réserve n°1 :
+le tirage étant **sans remise**, la loi exacte est hypergéométrique, dont
+l'écart-type vaut `√(attendu·(1−N/total))` — le `z` imprimé, qui divise par
+`√attendu`, **sous-estime donc l'écart vrai d'un facteur ≈ 0,94**. Le test est
+~6 % moins sensible que son nominal, et sa fausse alarme réelle est sous 1 %.
+Réserve n°2 : ce critère juge la **composition en classes** du tirage, et rien
+d'autre — il ne dit rien de la corrélation entre blocs voisins, qu'un
+échantillonnage par réservoir ne peut de toute façon pas introduire.
+
+**Ce que ça ne change pas.** Aucun seuil du §4, aucune issue du §6, aucun bras.
+Ce sont trois règles de **lecture**, et les trois vont dans le sens qui coûte
+au banc : un bras de plus à battre, un verdict qui peut être suspendu, un
+tirage qui peut être refusé.
+
+**Antériorité.** Aucune milliseconde n'existe pour aucun des cinq bras au
+moment où ceci est écrit : `bin/rankbench` refuse de démarrer tant que
+`proofs/preregistration-p1-2026-08-13.md.ots` est absent, et il l'est.
+
 ## 8. Ce qui est connu à la signature — divulgation datée
 
 - **Aucune milliseconde n'existe** pour la cascade uniformisée ni pour la

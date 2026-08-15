@@ -6,42 +6,45 @@
 //! syntax and semantics verdict in seconds rather than discovering it inside a
 //! bench that also allocates 200 MB and sweeps a 981 MB file.
 //!
+//! **Every entry point is listed, not every file.** A library that builds says
+//! nothing about a kernel it contains: a failure is reported per entry point.
+//! `binomial_walk.metal` carries two (the arm and its instrumented twin) and
+//! `anchors.metal` three, so the list is longer than the directory.
+//!
+//! `anchors.metal` is not self-contained — it is appended to
+//! `llvq_metal::PAYLOAD_MSL`, which defines `DIM`, the cursor, `ClassRec` and
+//! `decode_payload`. It is assembled here exactly as `bin/rankbench` assembles
+//! it, from the same two pieces, so a check that passed here and failed there
+//! would mean the two assemblies had drifted.
+//!
 //! It proves nothing about correctness. A shader that compiles can still
 //! decode garbage; that is what V0 is for.
 //!
 //! Run: `cargo run --release -p llvq-metal --bin mslcheck`
 
 fn main() {
-    let cases: [(&str, &str, &str); 4] = [
-        (
-            "cascade_uniform",
-            include_str!("../../shaders/cascade_uniform.metal"),
-            "cascade_uniform",
-        ),
-        (
-            "cascade_archive",
-            include_str!("../../shaders/cascade_archive.metal"),
-            "cascade_archive",
-        ),
-        (
-            "binomial_walk",
-            include_str!("../../shaders/binomial_walk.metal"),
-            "decode_walk",
-        ),
-        // The instrumented twin (§11) is a separate entry point of the same
-        // source, so a library that builds says nothing about it: an entry
-        // point that fails to compile is reported per entry point, not per
-        // file. Listed here so it cannot rot unnoticed.
-        (
-            "binomial_walk (twin)",
-            include_str!("../../shaders/binomial_walk.metal"),
-            "walk_arrangement",
-        ),
+    let anchors = format!(
+        "{}{}",
+        llvq_metal::PAYLOAD_MSL,
+        include_str!("../../shaders/anchors.metal")
+    );
+    let cascade_uniform = include_str!("../../shaders/cascade_uniform.metal");
+    let cascade_archive = include_str!("../../shaders/cascade_archive.metal");
+    let binomial_walk = include_str!("../../shaders/binomial_walk.metal");
+
+    let cases: [(&str, &str, &str); 7] = [
+        ("sol", &anchors, "floor96"),
+        ("sol-rang (É3a)", &anchors, "floor_rank"),
+        ("masques", &anchors, "decode_f96"),
+        ("cascade_archive", cascade_archive, "cascade_archive"),
+        ("cascade_uniform", cascade_uniform, "cascade_uniform"),
+        ("binomial_walk", binomial_walk, "decode_walk"),
+        ("binomial_walk (twin)", binomial_walk, "walk_arrangement"),
     ];
 
     let mut bad = 0;
     for (name, src, entry) in cases {
-        print!("  {name:<18} ");
+        print!("  {name:<22} ");
         match llvq_metal::Kernel::new(src, entry) {
             Ok(k) => println!(
                 "compile — {} , simd {} , max group {}",

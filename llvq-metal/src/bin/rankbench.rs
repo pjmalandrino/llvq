@@ -166,28 +166,71 @@ impl Reservoir {
     }
 }
 
-/// The largest `|z|` between the draw's class histogram and the file's, over
-/// the classes the file holds — `z = (observed − expected)/√expected` under the
-/// binomial the draw would follow if it were uniform.
+/// É3(c) — the draw's acceptance criterion, chiffré.
 ///
-/// ⚠️ **No threshold is applied to this number, and none may be invented here.**
 /// §7 says a draw whose histogram departs from the file's does not answer the
-/// question the run poses, but it puts no figure on "departs". Chiffrer it is
-/// an É3 written *before* a run, not a judgement made after seeing it.
-fn max_abs_z(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> (f64, usize) {
+/// question the run poses; it puts no figure on "departs", and the bench plan
+/// refused to invent one. É3(c) does, **before** the first measurement, because
+/// after it the figure becomes an interpretation.
+///
+/// * `z = (observed − expected)/√expected`, `expected = f·N/total`;
+/// * the maximum is taken over classes whose expected count is **≥ 25** —
+///   below that the normal approximation does not hold and the `z` means
+///   nothing. The number of classes set aside on that ground is returned, never
+///   absorbed;
+/// * the draw is refused if `max |z| > 4,0`, or if a class of expected ≥ 5 comes
+///   out **empty**.
+///
+/// ⚠️ The draw is **without replacement**, so the exact law is hypergeometric,
+/// whose σ is `√(expected·(1 − N/total))`. Dividing by `√expected` therefore
+/// **understates** the true deviation by a factor ≈ 0,94: the test is ~6 % less
+/// sensitive than nominal, and its false-alarm budget over ~286 classes is under
+/// 1 %. Stated rather than corrected, so the printed `z` stays the simple
+/// quantity a reader can recompute.
+struct DrawCheck {
+    max_z: f64,
+    at: usize,
+    judged: usize,
+    too_small: usize,
+    empty: Vec<usize>,
+}
+
+/// Expected count below which a class is reported but not judged.
+const Z_MIN_EXPECTED: f64 = 25.0;
+/// Expected count below which an empty class is not evidence of anything.
+const EMPTY_MIN_EXPECTED: f64 = 5.0;
+/// The refusal threshold on `max |z|`.
+const Z_REFUSE: f64 = 4.0;
+
+fn check_draw(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> DrawCheck {
     let p = n_draw as f64 / n_file as f64;
-    let mut worst = (0.0f64, usize::MAX);
+    let mut c = DrawCheck {
+        max_z: 0.0,
+        at: usize::MAX,
+        judged: 0,
+        too_small: 0,
+        empty: Vec::new(),
+    };
     for (ci, (&d, &f)) in draw.iter().zip(file).enumerate() {
         if f == 0 {
             continue;
         }
         let exp = f as f64 * p;
-        let z = (d as f64 - exp) / exp.sqrt();
-        if z.abs() > worst.0 {
-            worst = (z.abs(), ci);
+        if exp >= EMPTY_MIN_EXPECTED && d == 0 {
+            c.empty.push(ci);
+        }
+        if exp < Z_MIN_EXPECTED {
+            c.too_small += 1;
+            continue;
+        }
+        c.judged += 1;
+        let z = ((d as f64 - exp) / exp.sqrt()).abs();
+        if z > c.max_z {
+            c.max_z = z;
+            c.at = ci;
         }
     }
-    worst
+    c
 }
 
 // ---------------------------------------------------------------------------
@@ -198,43 +241,7 @@ fn max_abs_z(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> (f64, usiz
 /// cursor, `ClassRec` and `decode_payload` — the same source `matvec` and
 /// `decreal` use. Copied from `decreal.rs:41-78` unchanged: arms 0 and 1 are
 /// anchors, and an anchor that drifted would make the run unreadable.
-const ANCHOR_MSL: &str = r#"
-kernel void floor96(device const uint*  words [[buffer(0)]],
-                    device const float* x     [[buffer(1)]],
-                    device float*       out   [[buffer(2)]],
-                    uint gid [[thread_position_in_grid]],
-                    uint tid [[thread_index_in_threadgroup]])
-{
-    threadgroup float xs[DIM];
-    if (tid < DIM) xs[tid] = x[tid];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    uint acc = words[3*gid] ^ words[3*gid + 1] ^ words[3*gid + 2];
-    float dot = 0.0f;
-    for (uint i = 0; i < DIM; ++i) {
-        dot += float(char((acc >> (i & 7)) & 0x7f)) * xs[i];
-    }
-    out[gid] = dot;
-}
-
-kernel void decode_f96(device const uint*     words  [[buffer(0)]],
-                       constant ClassRec*     tab    [[buffer(1)]],
-                       constant float*        gscale [[buffer(2)]],
-                       device const float*    x      [[buffer(3)]],
-                       device float*          out    [[buffer(4)]],
-                       uint gid [[thread_position_in_grid]],
-                       uint tid [[thread_index_in_threadgroup]])
-{
-    threadgroup float xs[DIM];
-    if (tid < DIM) xs[tid] = x[tid];
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    uint w0 = words[3*gid], w1 = words[3*gid + 1], w2 = words[3*gid + 2];
-    Cursor c = { (ulong(w1) << 32) | ulong(w0), w2 };
-    out[gid] = decode_payload(c, tab, gscale, xs);
-}
-"#;
-
+const ANCHOR_MSL: &str = include_str!("../../shaders/anchors.metal");
 #[derive(Clone, Copy, PartialEq)]
 enum Arm {
     Sol,
@@ -242,17 +249,22 @@ enum Arm {
     CascadeArchive,
     CascadeUniform,
     Marche,
+    SolRang,
 }
 
 impl Arm {
     /// The frozen order of §2. **An arm added never reorders the existing
     /// ones** (§1.3), so anything new goes at the end of this list.
-    const ALL: [Arm; 5] = [
+    const ALL: [Arm; 6] = [
         Arm::Sol,
         Arm::Masques,
         Arm::CascadeArchive,
         Arm::CascadeUniform,
         Arm::Marche,
+        // É3(a): added LAST so no existing arm is reordered (§1.3). It reads
+        // the 8 bytes of the rank stream and decodes nothing — the floor the
+        // rank arms actually have, `sol` being the floor of `masques` alone.
+        Arm::SolRang,
     ];
 
     fn name(self) -> &'static str {
@@ -262,6 +274,7 @@ impl Arm {
             Arm::CascadeArchive => "cascade-archive",
             Arm::CascadeUniform => "cascade-uniformisée",
             Arm::Marche => "marche-binomiale",
+            Arm::SolRang => "sol-rang",
         }
     }
 
@@ -273,6 +286,7 @@ impl Arm {
             Arm::Sol | Arm::Masques => 12,
             Arm::CascadeArchive | Arm::CascadeUniform => 8,
             Arm::Marche => 12,
+            Arm::SolRang => 8,
         }
     }
 
@@ -284,7 +298,7 @@ impl Arm {
             // §4.3: the incumbent is judged against the *uniformised cascade's*
             // threshold, and passing it kills E1v rather than the arm.
             Arm::CascadeArchive => Some(KILL_CASCADE_NS),
-            Arm::Sol | Arm::Masques => None,
+            Arm::Sol | Arm::Masques | Arm::SolRang => None,
         }
     }
 }
@@ -411,17 +425,33 @@ fn run() -> Result<(), String> {
         }
     }
     let drawn = draw_hist.iter().filter(|&&c| c > 0).count();
-    let (z, z_at) = max_abs_z(&draw_hist, &file_hist, N as u64, total);
+    let dc = check_draw(&draw_hist, &file_hist, N as u64, total);
     println!("\nTIRAGE    réservoir (algorithme R), graine {SEED:#018x}, N = {N}");
     println!(
         "          {drawn} classes tirées sur {observed} observées au fichier, \
-         max |z| = {z:.2} (classe {z_at})"
+         max |z| = {:.2} (classe {})",
+        dc.max_z, dc.at
     );
     println!(
-        "          ⚠️ aucun seuil n'est appliqué à ce |z| : le §7 exige que le tirage \
-         suive le fichier,\n             il ne chiffre pas « suit ». Le chiffrer serait un \
-         É3 écrit AVANT le run, pas un\n             jugement rendu après l'avoir vu."
+        "          critère É3(c) : |z| ≤ {Z_REFUSE:.1} sur les {} classes d'attendu ≥ {Z_MIN_EXPECTED:.0} \
+         — {} écartées comme trop petites,\n             {} classe(s) d'attendu ≥ {EMPTY_MIN_EXPECTED:.0} \
+         ressortie(s) vide(s). Le z divise par √attendu, pas par le σ\n             \
+         hypergéométrique : il SOUS-ESTIME l'écart vrai d'un facteur ≈ 0,94.",
+        dc.judged,
+        dc.too_small,
+        dc.empty.len()
     );
+    if dc.max_z > Z_REFUSE || !dc.empty.is_empty() {
+        return Err(format!(
+            "le tirage est REFUSÉ (É3c) : max |z| = {:.2} contre {Z_REFUSE:.1}, {} classe(s) \
+             vide(s).\nUn tirage qui ne suit pas le fichier ne teste pas la distribution \
+             réelle, et le run ne répond\npas à la question qu'il pose (§7). Changer de graine \
+             est un ÉCART : il s'écrit au §7bis\navant de relancer, sinon c'est du tirage \
+             jusqu'à ce que ça passe.",
+            dc.max_z,
+            dc.empty.len()
+        ));
+    }
     println!(
         "          ⚠️ couverture : {} des {} entrées de table ne sont atteignables depuis \
          AUCUN fichier\n             cap 12 (origine, coquille 13, classes inutilisées). \
@@ -507,6 +537,7 @@ fn run() -> Result<(), String> {
             include_str!("../../shaders/binomial_walk.metal"),
             "decode_walk",
         )?,
+        llvq_metal::Kernel::new(&anchor_src, "floor_rank")?,
     ];
     let group = GROUP.min(kernels[0].max_threads_per_group() as usize);
     println!(
@@ -537,7 +568,10 @@ fn run() -> Result<(), String> {
     let b_gs: Vec<_> = kernels.iter().map(|k| k.buffer(&gscale)).collect();
     let b_out: Vec<_> = kernels.iter().map(|k| k.empty::<f32>(N)).collect();
     let b_tab = kernels[1].buffer(&class_recs);
+    // Arms 2, 3 and 5 read THE SAME bits; each holds its own copy because a
+    // buffer belongs to the queue that made it.
     let b_rank: Vec<_> = kernels[2..4].iter().map(|k| k.buffer(&rank_words)).collect();
+    let b_rank5 = kernels[5].buffer(&rank_words);
     let b_ends: Vec<_> = kernels[2..4].iter().map(|k| k.buffer(&ends)).collect();
     let b_recs: Vec<_> = kernels[2..4].iter().map(|k| k.buffer(&recs)).collect();
     let b_golay: Vec<_> = kernels[2..4]
@@ -595,6 +629,11 @@ fn run() -> Result<(), String> {
             enc.set_buffer(4, Some(&b_x[4]), 0);
             enc.set_buffer(5, Some(&b_out[4]), 0);
         }
+        Arm::SolRang => {
+            enc.set_buffer(0, Some(&b_rank5), 0);
+            enc.set_buffer(1, Some(&b_x[5]), 0);
+            enc.set_buffer(2, Some(&b_out[5]), 0);
+        }
     };
 
     // =======================================================================
@@ -615,7 +654,7 @@ fn run() -> Result<(), String> {
         let etalon: Option<&[(f64, f64)]> = match Arm::ALL[ai] {
             Arm::CascadeArchive | Arm::CascadeUniform => Some(&want_cascade),
             Arm::Marche => Some(&walk_want),
-            Arm::Sol | Arm::Masques => None,
+            Arm::Sol | Arm::Masques | Arm::SolRang => None,
         };
         match etalon {
             Some(want) => {
@@ -789,7 +828,16 @@ fn run() -> Result<(), String> {
             continue;
         };
         let dist = (ns[ai] - seuil).abs();
-        let verdict = if ns[ai] <= seuil { "VERT" } else { "ROUGE" };
+        // É3(b): the §1.2 rule, same form and same constant, transposed to a
+        // comparison against a constant. It can only SUSPEND a verdict, never
+        // manufacture one — conservative by construction.
+        let verdict = if oh_span_ns[ai] > dist / 2.0 {
+            "VERDICT SUSPENDU (É3b)"
+        } else if ns[ai] <= seuil {
+            "VERT"
+        } else {
+            "ROUGE"
+        };
         println!(
             "          {:<22} {:.4} ns/bloc contre {seuil:.2} — {verdict} (distance {dist:.4}, \
              étendue du surcoût {:.4} ns)",
@@ -798,11 +846,6 @@ fn run() -> Result<(), String> {
             oh_span_ns[ai]
         );
     }
-    println!(
-        "          ⚠️ la règle de suspension du §1.2 porte sur un écart ENTRE DEUX BRAS ; \
-         sa transposition\n             à un seuil ABSOLU n'est pas pré-enregistrée. Les deux \
-         quantités sont imprimées,\n             la conclusion revient à l'opérateur."
-    );
 
     // The arm-vs-arm comparison the rule does cover.
     let (a, b) = (3usize, 4usize); // cascade-uniformisée contre marche
