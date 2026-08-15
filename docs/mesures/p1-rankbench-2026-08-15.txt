@@ -42,6 +42,35 @@ L'ALARME DU §5 A TIRÉ, ET VOICI CE QUI A ÉTÉ VÉRIFIÉ
                             quatre mois, un autre binaire et un autre tirage :
                             c'est une reproduction, pas une dérive.
 
+RÉSERVE AJOUTÉE LE 2026-08-15 AU SOIR — CE QUE LE BRAS MARCHE A MESURÉ
+  `binomial_walk.metal` §9 exige que le journal dise si le coût rendu est celui
+  d'UNE MARCHE ou d'UN BLOC, et « la lecture conservatrice est celle qui coûte
+  le plus au bras ». La première émission de ce journal ne le disait pas. Elle
+  aurait dû.
+
+  Le bras décode UNE MARCHE de 24 créneaux par bloc. Un bloc de classe PAIRE en
+  demande DEUX — support de w créneaux et hors-support de 24−w — plus le mot de
+  Golay et la réparation de parité. Le bras ne mesure donc pas un bloc.
+
+  Chiffré depuis le compteur de pas de la CNS (P5), pondéré par les 150 681 600
+  blocs du 4B, sur les 286 classes du fichier [mesuré] :
+
+    une marche de 24 créneaux  : moyenne 39,55 pas, max 48
+    un bloc complet            : moyenne 39,64 pas, max 90
+    rapport des moyennes       : ×1,002
+
+  En MOYENNE le bras est un proxy fidèle : le travail total est conservé, w et
+  24−w se recomposant en 24. En QUEUE il ne l'est pas — le maximum double. Sur
+  GPU c'est le max dans le warp qui décide du temps, pas la moyenne, donc
+  ⚠️ le 0,3101 ns/bloc est une borne INFÉRIEURE du coût d'un bloc E1v, et de
+  combien reste inconnu. Le seul moyen de le savoir est un bras qui décode le
+  bloc ; il n'existe pas.
+
+  Ce que ça ne change pas : le verdict du bras tel qu'il est défini, ni les
+  seuils, qui portent sur ce bras. Ce que ça change : la lecture du gate CUDA,
+  qui est à 0,45 ns et que ce bras franchit à 0,3101 — avec 0,14 ns de marge
+  pour une différence dont on ne connaît que la moyenne.
+
 ================================================================================
 SORTIE BRUTE
 ================================================================================
