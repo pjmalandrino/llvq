@@ -31,8 +31,9 @@ fn main() {
     let cascade_uniform = include_str!("../../shaders/cascade_uniform.metal");
     let cascade_archive = include_str!("../../shaders/cascade_archive.metal");
     let binomial_walk = include_str!("../../shaders/binomial_walk.metal");
+    let binomial_block = include_str!("../../shaders/binomial_block.metal");
 
-    let cases: [(&str, &str, &str); 7] = [
+    let cases: [(&str, &str, &str); 8] = [
         ("sol", &anchors, "floor96"),
         ("sol-rang (É3a)", &anchors, "floor_rank"),
         ("masques", &anchors, "decode_f96"),
@@ -40,6 +41,7 @@ fn main() {
         ("cascade_uniform", cascade_uniform, "cascade_uniform"),
         ("binomial_walk", binomial_walk, "decode_walk"),
         ("binomial_walk (twin)", binomial_walk, "walk_arrangement"),
+        ("marche-bloc (P1b)", binomial_block, "decode_block"),
     ];
 
     let mut bad = 0;

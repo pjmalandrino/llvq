@@ -43,9 +43,10 @@
 use llvq_artifact::runtime::{transcode, ClassTable, Layout};
 use llvq_core::{Golay, SplitMix64, DIM};
 use llvq_metal::p1host::{
-    binom_table, cascade_ends, cascade_records, div_table, etalon_cascade, walk_feed, walk_levels,
-    walk_radix_table, walk_records, WalkFeed,
+    binom_table, block_records, cascade_ends, cascade_records, div_table, etalon_cascade,
+    pack_block, walk_feed, walk_levels, walk_radix_table, walk_records, WalkFeed,
 };
+use llvq_search::cns::cns_encode;
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
 use std::fs::File;
 use std::io::BufReader;
@@ -247,12 +248,13 @@ enum Arm {
     CascadeUniform,
     Marche,
     SolRang,
+    MarcheBloc,
 }
 
 impl Arm {
     /// The frozen order of §2. **An arm added never reorders the existing
     /// ones** (§1.3), so anything new goes at the end of this list.
-    const ALL: [Arm; 6] = [
+    const ALL: [Arm; 7] = [
         Arm::Sol,
         Arm::Masques,
         Arm::CascadeArchive,
@@ -262,6 +264,11 @@ impl Arm {
         // the 8 bytes of the rank stream and decodes nothing — the floor the
         // rank arms actually have, `sol` being the floor of `masques` alone.
         Arm::SolRang,
+        // P1b (proofs/preregistration-p1b-2026-08-15.md), added LAST again for
+        // the same reason. `marche-binomiale` decodes ONE 24-slot walk; a real
+        // even block needs TWO, plus the codeword and the parity repair. This
+        // is the cost of a BLOCK, which is the quantity P1's thresholds name.
+        Arm::MarcheBloc,
     ];
 
     fn name(self) -> &'static str {
@@ -272,6 +279,7 @@ impl Arm {
             Arm::CascadeUniform => "cascade-uniformisée",
             Arm::Marche => "marche-binomiale",
             Arm::SolRang => "sol-rang",
+            Arm::MarcheBloc => "marche-bloc",
         }
     }
 
@@ -284,6 +292,7 @@ impl Arm {
             Arm::CascadeArchive | Arm::CascadeUniform => 8,
             Arm::Marche => 12,
             Arm::SolRang => 8,
+            Arm::MarcheBloc => 12,
         }
     }
 
@@ -295,6 +304,13 @@ impl Arm {
             // §4.3: the incumbent is judged against the *uniformised cascade's*
             // threshold, and passing it kills E1v rather than the arm.
             Arm::CascadeArchive => Some(KILL_CASCADE_NS),
+            // P1b keeps P1's thresholds without amending them: the kill at 1,5
+            // and the CUDA gate at 0,45, read on the block rather than on a
+            // walk.
+            // P1b keeps P1's thresholds without amending them: the kill at 1,5
+            // and the CUDA gate at 0,45, read on the BLOCK rather than on a
+            // walk.
+            Arm::MarcheBloc => Some(KILL_WALK_NS),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         }
     }
@@ -519,6 +535,24 @@ fn run() -> Result<(), String> {
     }
     let x = xvec();
     let (walk_words, walk_want) = walk_feed(&walk, &lev, &wfeed, &gscale, &x);
+
+    // P1b's feed: the CNS record of each REAL block, packed at the same 12-byte
+    // stride as the walk arm so the two differ only in what they decode. Its
+    // etalon is `want_cascade` — the block arm rebuilds the archive's point, so
+    // it owes the archive exact equality, like the two cascades.
+    let brecs = block_records(&fd, &golay);
+    let mut block_words: Vec<u32> = Vec::with_capacity(3 * N);
+    for (b, &idx) in indices.iter().enumerate() {
+        let ci = fd.class_of(idx).expect("index dans la boule");
+        let rec = cns_encode(&fd, idx, gains[b]).expect("index dans la boule");
+        block_words.extend_from_slice(&pack_block(
+            &brecs[1 + ci],
+            (1 + ci) as u32,
+            u32::from(gains[b]),
+            rec.golay,
+            &rec,
+        ));
+    }
     println!(
         "          marche (bras 4) : {} bits d'enregistrement, stride 12 o — \
          l'adressage des ancres,\n            pour que le bras ne soit pas prix contre elles \
@@ -546,6 +580,10 @@ fn run() -> Result<(), String> {
             "decode_walk",
         )?,
         llvq_metal::Kernel::new(&anchor_src, "floor_rank")?,
+        llvq_metal::Kernel::new(
+            include_str!("../../shaders/binomial_block.metal"),
+            "decode_block",
+        )?,
     ];
     let group = GROUP.min(kernels[0].max_threads_per_group() as usize);
     println!(
@@ -593,6 +631,10 @@ fn run() -> Result<(), String> {
     let b_gain = kernels[3].buffer(&gains);
     let b_idx_u = kernels[3].buffer(&indices);
     let b_words = kernels[4].buffer(&walk_words);
+    let b_bwords = kernels[6].buffer(&block_words);
+    let b_btab = kernels[6].buffer(&brecs);
+    let b_bbinom = kernels[6].buffer(&binom);
+    let b_bgolay = kernels[6].buffer(golay.codewords());
     let b_walktab = kernels[4].buffer(&walk);
     let b_binom = kernels[4].buffer(&binom);
 
@@ -642,6 +684,15 @@ fn run() -> Result<(), String> {
             enc.set_buffer(1, Some(&b_x[5]), 0);
             enc.set_buffer(2, Some(&b_out[5]), 0);
         }
+        Arm::MarcheBloc => {
+            enc.set_buffer(0, Some(&b_bwords), 0);
+            enc.set_buffer(1, Some(&b_btab), 0);
+            enc.set_buffer(2, Some(&b_bbinom), 0);
+            enc.set_buffer(3, Some(&b_bgolay), 0);
+            enc.set_buffer(4, Some(&b_gs[6]), 0);
+            enc.set_buffer(5, Some(&b_x[6]), 0);
+            enc.set_buffer(6, Some(&b_out[6]), 0);
+        }
     };
 
     // =======================================================================
@@ -660,7 +711,7 @@ fn run() -> Result<(), String> {
         // that the output was WRITTEN — a kernel the compiler emptied for want
         // of an observable result would time beautifully and mean nothing (§7).
         let etalon: Option<&[(f64, f64)]> = match Arm::ALL[ai] {
-            Arm::CascadeArchive | Arm::CascadeUniform => Some(&want_cascade),
+            Arm::CascadeArchive | Arm::CascadeUniform | Arm::MarcheBloc => Some(&want_cascade),
             Arm::Marche => Some(&walk_want),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         };
@@ -871,6 +922,8 @@ fn run() -> Result<(), String> {
     );
 
     let best = ns[3].min(ns[4]);
+    // P1b: the gate read on a BLOCK rather than on a walk. Written before the
+    // measurement, in its own document, and it can only withdraw — never grant.
     println!(
         "\n          gate CUDA de P4 (§4.2) : meilleur des deux décodeurs = {best:.4} ns \
          contre {CUDA_GATE_NS:.2}"
@@ -898,6 +951,17 @@ fn run() -> Result<(), String> {
         }
     );
 
+    println!(
+        "\n          P1b — le même gate lu sur un BLOC : marche-bloc rend {:.4} ns contre \
+         {CUDA_GATE_NS:.2}\n          {}",
+        ns[6],
+        if ns[6] <= CUDA_GATE_NS {
+            "l'autorisation du bras CUDA de P4 TIENT : le coût d'un bloc franchit le même seuil"
+        } else {
+            "🚨 l'autorisation du bras CUDA de P4 est RETIRÉE : le gate avait été franchi \
+             par un nombre\n          qui décrivait une marche, pas un bloc"
+        }
+    );
     if ns.iter().any(|&v| v < SUSPICIOUS_NS) {
         println!(
             "\n🚨 un bras rend mieux que {SUSPICIOUS_NS} ns/bloc. Le §5 demande de CHERCHER \

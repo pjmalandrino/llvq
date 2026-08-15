@@ -297,9 +297,14 @@ run `decreal` du 08-01.
 
 **Les deux portes que ça ouvre, et elles ne s'ouvrent pas ensemble par hasard :**
 
-- **Le bras cascade/marche de P4 est autorisé** — 0,3101 ≤ 0,45, le gate du
-  §4.2. ⚠️ *Autorisé* n'est pas *lancé* : le job carte reste soumis au go de
-  dépense, et son budget réel est **0,8-1,0 $** et non les 0,3-0,5 annoncés
+- 🚨 **Le bras cascade/marche de P4 N'EST PAS autorisé — retiré le soir même
+  par P1b.** Le 0,3101 ≤ 0,45 décrivait **une marche de 24 créneaux, pas un
+  bloc** ; un bloc rend **0,6735 ns** et le gate est à 0,45. Régime
+  intermédiaire du §4.2 : *le bras survit comme point de la courbe et n'achète
+  AUCUN bras CUDA — il faut une idée neuve, pas un job.* Ce qui suit reste vrai
+  du jour où le gate serait franchi : ⚠️ *autorisé* ne serait pas *lancé*, le
+  job carte restant soumis au go de dépense, et son budget réel est
+  **0,8-1,0 $** et non les 0,3-0,5 annoncés
   (tout job `planesbench` à 5 bras ou plus paie 1 468-1 481 s de transcodage
   hôte avant le premier round). ⚠️ Et **trois bras de P4 n'ont toujours aucune
   ligne de code** : cuBLAS (le dénominateur publiable — `tv_f16` est maison et

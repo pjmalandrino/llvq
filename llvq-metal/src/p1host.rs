@@ -34,6 +34,7 @@
 
 use llvq_core::{Golay, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
+use llvq_search::cns::{cns_layout, CnsRecord};
 use llvq_search::rankdec::{binom, walk_radices};
 
 /// Classes of the cap-13 ball — `FastDecoder::n_classes()`, restated so a
@@ -571,6 +572,159 @@ pub fn pack_walk_block(
         push(rank, rec.wbits[j] as u32);
     }
     assert!(pos <= WALK_RECORD_BITS, "the record overflows 96 bits");
+    [acc as u32, (acc >> 32) as u32, (acc >> 64) as u32]
+}
+
+// ---------------------------------------------------------------------------
+// P1b — the full-block arm's table
+// ---------------------------------------------------------------------------
+
+/// Mirror of `binomial_block.metal`'s `struct BlockRec`, 108 bytes.
+///
+/// One per class plus the origin at entry 0, the id convention of every table
+/// in this crate. It carries what a **block** decode needs and the walk arm's
+/// record does not: the off-support kinds, the Golay bucket, the parity
+/// requirement, and the widths of the three fields that are not per-kind.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GpuBlockRec {
+    /// Support values (even) or the class's values (odd), **already divided by**
+    /// `sqrt(16·m)`.
+    ///
+    /// 🚨 On the **odd** coset the float's **sign bit carries bit 1 of the
+    /// integer |value|**, which is the whole forced-sign rule: a value ≡ 3
+    /// (mod 4) is positive on the support and negative off it, and bit 1 of an
+    /// odd |value| is set exactly when it is ≡ 3. The shader recovers the
+    /// magnitude with `fabs` and the flag with a shift, so the rule costs one
+    /// XOR. Pinned by `the_odd_sign_flag_rides_in_the_sign_bit`.
+    pub vals_on: [f32; MAX_KINDS],
+    /// Off-support values; the zero run's is `0.0`, and that zero is what marks
+    /// it — never its index. Reconstructing the index from counts is what
+    /// failed V0 on 883 blocks in P1.
+    pub vals_off: [f32; MAX_KINDS],
+    pub cnt_on: [u8; MAX_KINDS],
+    pub cnt_off: [u8; MAX_KINDS],
+    /// `⌈log₂ radix⌉` per kind; 0 for the last, whose radix is 1.
+    pub wb_on: [u8; MAX_KINDS],
+    pub wb_off: [u8; MAX_KINDS],
+    pub k_on: u8,
+    pub k_off: u8,
+    /// Support weight; 24 on the odd coset, whose single walk spans all slots.
+    pub w: u8,
+    /// `p_req | odd << 1`.
+    pub geom: u8,
+    /// Offset of the class's weight bucket in the flat Golay table.
+    pub golay_base: u32,
+    pub wb_golay: u8,
+    pub wb_sw: u8,
+    pub wb_sf: u8,
+    pub pad: u8,
+}
+
+const _: () = assert!(std::mem::size_of::<GpuBlockRec>() == 108);
+const _: () = assert!(std::mem::align_of::<GpuBlockRec>() == 4);
+
+/// The 384 block records — entry 0 the origin, entry `1 + ci` class `ci`.
+///
+/// Everything is read from [`FastDecoder::cascade_class`], [`FastDecoder::levels`]
+/// and [`llvq_search::cns::cns_layout`] — the same three sources the CPU
+/// reference reads, so there is no fourth derivation to drift from.
+pub fn block_records(fd: &FastDecoder, golay: &Golay) -> Vec<GpuBlockRec> {
+    let goff = golay_offsets(golay);
+    let mut out = Vec::with_capacity(WALK_ENTRIES);
+    // The origin: no kind, no field, and a dot of zero whatever the gain.
+    out.push(GpuBlockRec {
+        k_on: 1,
+        k_off: 0,
+        w: DIM as u8,
+        geom: 0b10, // odd, so the sign path never reads `vals_off`
+        ..GpuBlockRec::default()
+    });
+
+    for ci in 0..fd.n_classes() {
+        let c = fd.cascade_class(ci);
+        let lay = cns_layout(fd, golay, ci);
+        let shell = fd.levels(ci).shell;
+        let norm = ((16 * shell) as f64).sqrt();
+        let mut r = GpuBlockRec {
+            k_on: lay.n_on.max(1) as u8,
+            k_off: lay.n_off as u8,
+            w: if c.odd { DIM as u8 } else { c.w as u8 },
+            geom: (c.p_req as u8) | (u8::from(c.odd) << 1),
+            golay_base: if c.odd { 0 } else { goff[c.w as usize] },
+            wb_golay: ceil_log2(lay.golay_radix) as u8,
+            wb_sw: ceil_log2(lay.s_w) as u8,
+            wb_sf: ceil_log2(lay.s_f) as u8,
+            ..GpuBlockRec::default()
+        };
+        for j in 0..lay.n_on {
+            r.wb_on[j] = ceil_log2(lay.on_radices[j]) as u8;
+        }
+        for j in 0..lay.n_off {
+            r.wb_off[j] = ceil_log2(lay.off_radices[j]) as u8;
+        }
+        if c.odd {
+            for j in 0..c.n_kinds {
+                r.cnt_on[j] = c.counts[j];
+                let v = (c.vals[j] as f64 / norm) as f32;
+                // The forced-sign flag rides in the sign bit; see the field's
+                // doc. `vals[j]` is odd on this coset, so bit 1 is the whole
+                // rule.
+                let flag = (c.vals[j] as u32 >> 1) & 1;
+                r.vals_on[j] = f32::from_bits(v.to_bits() | (flag << 31));
+            }
+        } else {
+            for j in 0..c.n_word {
+                r.cnt_on[j] = c.word_counts[j];
+                r.vals_on[j] = (c.word_vals[j] as f64 / norm) as f32;
+            }
+            for j in 0..c.n_off {
+                r.cnt_off[j] = c.off_counts[j];
+                // `free_vals` holds the nonzero magnitudes; the zero run's
+                // entry stays 0.0, which is what marks it.
+                r.vals_off[j] = (c.free_vals[j] as f64 / norm) as f32;
+            }
+        }
+        out.push(r);
+    }
+    out
+}
+
+/// Pack one block record's 96 bits: `[class 9][gain 1][golay][on…][off…][sw][sf]`,
+/// LSB-first, into the three little-endian words the shader loads.
+///
+/// The field **order** is the CNS's, and the widths come from the same
+/// [`CnsLayout`] the shader reads through `GpuBlockRec`. A host that packed a
+/// different order would decode a different block and the two would never
+/// agree — which is what V0 is for.
+pub fn pack_block(
+    rec: &GpuBlockRec,
+    id: u32,
+    gain: u32,
+    golay_idx: u32,
+    cns: &CnsRecord,
+) -> [u32; 3] {
+    assert!(id < 512, "the class field is 9 bits");
+    assert!(gain < 2, "one gain bit is hardcoded in every MSL of this repo");
+    let mut acc: u128 = 0;
+    let mut pos: u32 = 0;
+    let mut push = |v: u64, w: u32| {
+        assert!(w == 0 || v < (1u64 << w), "a field overflows its width");
+        acc |= (v as u128) << pos;
+        pos += w;
+    };
+    push(u64::from(id), 9);
+    push(u64::from(gain), 1);
+    push(u64::from(golay_idx), u32::from(rec.wb_golay));
+    for j in 0..rec.k_on as usize {
+        push(cns.on[j], u32::from(rec.wb_on[j]));
+    }
+    for j in 0..rec.k_off as usize {
+        push(cns.off[j], u32::from(rec.wb_off[j]));
+    }
+    push(cns.sw, u32::from(rec.wb_sw));
+    push(cns.sf, u32::from(rec.wb_sf));
+    assert!(pos <= 96, "the block record overflows 96 bits: {pos}");
     [acc as u32, (acc >> 32) as u32, (acc >> 64) as u32]
 }
 

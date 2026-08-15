@@ -11,12 +11,28 @@
 > **10,8115** ❌ contre 2,00. Journal
 > [`docs/mesures/p1-rankbench-2026-08-15.txt`](docs/mesures/p1-rankbench-2026-08-15.txt).
 >
-> **Ce que ça décide, et c'était écrit d'avance** : le **bras cascade/marche du
-> job carte P4 est AUTORISÉ** (0,3101 ≤ 0,45 — *autorisé*, pas *lancé* : go de
-> dépense requis, budget réel **0,8-1,0 $**) ; **P5 s'ouvre**, la règle étant
-> « si et seulement si la **marche** passe 0,45 » et non « si le banc est
+> **Ce que ça décide, et c'était écrit d'avance** : **P5 s'ouvre**, la règle
+> étant « si et seulement si la **marche** passe 0,45 » et non « si le banc est
 > vert » ; et **E1v n'est pas mort-né**, l'archive rendant 10,81 là où 2,00
 > aurait fermé la ligne.
+>
+> 🚨 **MAIS le bras CUDA de P4 n'est PAS autorisé, et il l'a été pendant une
+> demi-journée.** Le bras `marche-binomiale` décode **une marche de 24
+> créneaux, pas un bloc** — un bloc pair en demande deux, plus le mot de Golay
+> et la réparation de parité. P1b l'a mesuré : **0,6735 ns/bloc**
+> ([`docs/mesures/p1b-marche-bloc-2026-08-15.txt`](docs/mesures/p1b-marche-bloc-2026-08-15.txt),
+> [pré-enregistrement](proofs/preregistration-p1b-2026-08-15.md) écrit avant la
+> mesure). Vert contre le kill de 1,50, **au-dessus du gate de 0,45**. On est
+> dans le **régime intermédiaire** du §4.2 de P1, mot pour mot : *le bras
+> survit comme point de la courbe et n'achète AUCUN bras CUDA — il faut une
+> idée neuve, pas un job.*
+>
+> 🕳️ Et la leçon, payée pour la **troisième** fois sur ce projet : le compte de
+> pas prédisait **×1,002** entre une marche et un bloc, la mesure rend
+> **×2,17**. Le compteur ne comptait que les balayages de marche, pas le Golay,
+> pas le second appel, pas la parité, pas les trois règles de signe. *Un compte
+> d'opérations n'est pas une prédiction de temps, même quand il porte sur la
+> boucle qu'on croit dominante.*
 >
 > **Le résultat de fond** : uniformiser la boucle vaut **un ordre de grandeur**
 > — 10,81 → 1,78 ns sur les mêmes bits, la même table et la même recherche de

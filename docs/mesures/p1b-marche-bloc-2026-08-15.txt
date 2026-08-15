@@ -1,0 +1,204 @@
+================================================================================
+P1b — ce qu'un BLOC coûte, et non une marche
+2026-08-15 au soir, Apple M3 Max. 0 $.
+================================================================================
+
+PROVENANCE
+  pré-enregistrement  proofs/preregistration-p1b-2026-08-15.md
+                      écrit AVANT la première ligne du shader neuf
+  🚨 DETTE DE PROVENANCE, DÉCLARÉE : ce document n'est PAS horodaté. P1 l'a
+     été avant sa mesure ; celui-ci demande le tampon et ne l'a pas reçu.
+     Son antériorité repose sur son commit git.
+  binaire             llvq-metal/src/bin/rankbench.rs (7 bras)
+  shader neuf         llvq-metal/shaders/binomial_block.metal
+  étalon              llvq_search::cns::cns_decode, déjà balayé sur les
+                      150 681 600 blocs contre FastDecoder::decode (P5 C2)
+
+CE QUI A PRÉCÉDÉ — V0 A COUPÉ LE PREMIER RUN
+  `marche-bloc` échouait sur 4 149 448 blocs sur 16 777 216 (24,7 %). Cause :
+  `par ^= last_on ? 0u : bfree;` s'exécutait sur TOUS les créneaux. La parité
+  n'accumule que sur le support, et comme `s_on` n'avance pas hors support, un
+  créneau hors support repliait LE MÊME BIT une seconde fois. D'où exactement
+  la moitié des blocs pairs. Corrigé en `par ^= (on && !last_on) ? bfree : 0u`.
+  Aucun chronométrage n'a eu lieu sur ce run-là.
+
+================================================================================
+LE CHIFFRE
+================================================================================
+
+  bras                   o/bloc   ns/bloc   × le sol méd [min–max]
+  sol                        12    0,0819   1,00×
+  masques                    12    0,1489   1,79× [1,64–2,13]
+  cascade-archive             8   10,4533   121,34× [115,13–127,80]
+  cascade-uniformisée         8    1,7443   20,29× [19,23–21,41]
+  marche-binomiale           12    0,3097   3,64× [3,42–3,80]
+  sol-rang                    8    0,0780   0,94× [0,88–1,05]
+  marche-bloc                12    0,6735   7,89× [7,42–8,25]
+
+  Les six bras de P1 se remesurent dans ce run et se reproduisent : marche
+  0,3097 contre 0,3101, masques 0,1489 contre 0,1486, sol 0,0819 contre
+  0,0777. Les deux cascades bougent de 2-3 %. C'est la dispersion
+  inter-processus que la règle de maison n°2 documente.
+
+================================================================================
+LES VERDICTS
+================================================================================
+
+  marche-bloc contre le kill de 1,50 ns          VERT (distance 0,8265)
+  marche-bloc contre le gate CUDA de 0,45 ns     DÉPASSÉ
+
+  🚨 L'AUTORISATION DU BRAS CUDA DE P4 EST RETIRÉE.
+
+  C'est la règle du §3 de ce document, écrite avant la mesure : le §4.2 de P1
+  pose son gate en ns/BLOC, le bras qui l'avait franchi décodait une MARCHE,
+  et un bloc coûte 0,6735. Le gate avait donc été franchi par un nombre qui ne
+  décrivait pas ce qu'il prétendait décrire.
+
+  Ce n'est pas rouvrir le seuil de P1 : le seuil est le sien, inchangé, et il
+  datait du 2026-08-13. C'est l'appliquer à la quantité qu'il nomme.
+
+  Le RÉGIME INTERMÉDIAIRE de P1 §4.2 s'applique mot pour mot :
+    « entre 0,45 ns et son seuil de kill : le bras SURVIT comme point de la
+      courbe et n'achète AUCUN bras CUDA — il faut une idée neuve, pas un job. »
+
+  Ce qui N'EST PAS touché :
+    · l'ouverture de P5, dont la condition est énoncée sur `marche-binomiale`
+      (P1 §6, §0bis de P5) et qui reste franchie à 0,3097 ;
+    · les quatre critères de P5, tous verts ;
+    · le verdict d'E1v par le haut : `cascade-archive` rend 10,4533 contre
+      2,00, elle ne ferme pas la ligne ;
+    · les seuils, qu'aucun document ne rouvre.
+
+================================================================================
+CE QUE ÇA APPREND, ET QUI VAUT AU-DELÀ DE CE RUN
+================================================================================
+
+  Le compte de pas prédisait ×1,002. La mesure rend ×2,17.
+
+  Pondéré par le fichier, une marche de 24 créneaux coûte 39,55 pas en moyenne
+  et un bloc complet 39,64 — d'où la prédiction que les deux coûteraient la
+  même chose, écrite dans le §1 du pré-enregistrement AVANT la mesure. Le
+  rapport mesuré des deux bras est de 2,17 [dérivé des deux médianes « × le
+  sol » du même run : 7,89 / 3,64 ; ce n'est pas un rapport formé round par
+  round, et il n'a pas de troisième décimale].
+
+  Le compteur ne comptait que les balayages de marche. Il ne comptait pas la
+  recherche du mot de Golay, ni le second appel de marche, ni la réparation de
+  parité, ni les trois règles de signe sélectionnées par arithmétique — tout
+  ce que le §2 du pré-enregistrement listait comme « ce que le bras neuf paie
+  en plus », sans le chiffrer.
+
+  🕳️ C'est la TROISIÈME fois sur ce projet qu'un compte niveau source se
+  trompe d'un facteur ~2 sur un noyau : Golay70 (1,9-2,4× promis, 1,77×
+  rendu), E1c (facteur 2 sur un compte de mots), et ici. La règle qui en sort
+  est celle qui était déjà écrite et qu'on vient de re-payer : un compte
+  d'opérations n'est pas une prédiction de temps, même quand il porte sur la
+  boucle qu'on croit dominante.
+
+================================================================================
+RÉSERVES
+================================================================================
+
+  ⚠️ Le banc imprime les deux lignes de gate — celle de P1 sur ses propres
+     bras et celle de P1b sur le bloc. La seconde est l'OPÉRATIVE ; l'ordre
+     d'impression a été corrigé APRÈS ce run, et la correction est cosmétique :
+     aucun nombre de ce journal n'en dépend.
+  ⚠️ L'alarme du §5 tire sur les deux ancres, qui ne décodent rien. Même
+     vérification que pour P1 : chaque bloc des quatre bras jugés vérifié,
+     16,7 M sorties relues sur chaque ancre, tirage à max |z| = 2,40.
+  ⚠️ Un décodage seul, sur Metal, un bloc par lane, sans matvec ni réduction
+     inter-lanes ni tuilage. Ce n'est pas le noyau servi.
+P1 — banc à 5 bras. Pré-enregistrement : proofs/preregistration-p1-2026-08-13.md (horodaté).
+
+FICHIER   /Users/pjmalandrino/llvq-q4b.llvq
+          980790202 octets
+          252 matrices, 150681600 blocs, 0 origine
+          286 classes observées sur 383 — lu en 3.2 s
+
+TIRAGE    réservoir (algorithme R), graine 0x00000000ba1c5eed, N = 16777216
+          271 classes tirées sur 286 observées au fichier, max |z| = 2.40 (classe 199)
+          232 classes d'attendu ≥ 25, 54 en dessous (le z n'y a pas de sens), 0 vide(s) d'attendu ≥ 5.
+             Le z divise par √attendu, pas par le σ hypergéométrique : sans remise, il SOUS-ESTIME l'écart
+     vrai d'un facteur ≈ 0,94.
+          ⚠️ AUCUN SEUIL n'est appliqué à ce |z|. Le §7 exige que le tirage suive le fichier, il ne
+             chiffre pas « suit » ; un critère chiffré a été PROPOSÉ (É3c) et ÉCARTÉ. Le tirage est
+             donc décrit, pas jugé, et l'accepter revient à l'opérateur.
+          couverture, en trois termes qui ne se confondent pas :
+            · 384 entrées de table (383 classes cap 13 + l'origine) ;
+            · 286 touchées par LE FICHIER — les 98 autres se décomposent en 1 origine, 82 classes
+              de coquille 13 (hors d'atteinte de tout fichier cap 12) et 15 classes cap 12 que ce
+              modèle n'utilise pas ;
+            · 271 touchées par CE TIRAGE — les 15 restantes sont des classes trop rares pour
+              survivre à un tirage de 1 bloc sur 9, ce qui est un fait sur le tirage, pas sur le codebook.
+          Les entrées hors fichier sont couvertes par la fixture de `bin/p1v0`, jamais ici.
+
+FLUX      centroïdes de gain RÉELS de la 1re matrice : [0.876794, 1.108245]
+          Fixed96 (bras 0-1) : 12 o/bloc, 4.0000 b/poids, transcodé en 10.8 s
+          rang d'archive (bras 2-3) : 8 o/bloc, le contenu du fichier tel quel
+          marche (bras 4) : 96 bits d'enregistrement, stride 12 o — l'adressage des ancres,
+            pour que le bras ne soit pas prix contre elles en payant une autre facture d'adresses
+
+GPU       Apple M3 Max — simd 32 (lu), max group 1024, GROUP effectif 256
+          18 rounds dont 3 jetés, 3 soumissions par mesure de surcoût
+          ⚠️ aucun horodatage GPU : metal-rs 0.29 n'expose pas GPUStartTime. Tout est du wall-clock
+             autour de commit()/wait_until_completed(), moins un surcoût MESURÉ — il n'existe aucun
+             autre moyen de séparer temps GPU et temps de soumission dans cet outillage.
+
+V0        aucune milliseconde n'est crue avant ce bloc
+          sol                    16777216 blocs, 16776007 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          masques                16777216 blocs, 16777119 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          cascade-archive        16777216 blocs, pire erreur 1.1e-7·Σ|w·x|
+          cascade-uniformisée    16777216 blocs, pire erreur 1.1e-7·Σ|w·x|
+          marche-binomiale       16777216 blocs, pire erreur 1.7e-7·Σ|w·x|
+          sol-rang               16777216 blocs, 16776217 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          marche-bloc            16777216 blocs, pire erreur 2.2e-7·Σ|w·x|
+
+SURCOÛT   par bras, min / méd / max sur les 15 rounds gardés
+          sol                    0.1608 / 0.1734 / 0.1924 ms   =  0.0096 / 0.0103 / 0.0115 ns/bloc
+          masques                0.1715 / 0.1830 / 0.1923 ms   =  0.0102 / 0.0109 / 0.0115 ns/bloc
+          cascade-archive        0.1830 / 0.2011 / 0.2098 ms   =  0.0109 / 0.0120 / 0.0125 ns/bloc
+          cascade-uniformisée    0.1979 / 0.2048 / 0.2335 ms   =  0.0118 / 0.0122 / 0.0139 ns/bloc
+          marche-binomiale       0.1634 / 0.1848 / 0.2150 ms   =  0.0097 / 0.0110 / 0.0128 ns/bloc
+          sol-rang               0.1686 / 0.1825 / 0.2253 ms   =  0.0100 / 0.0109 / 0.0134 ns/bloc
+          marche-bloc            0.1678 / 0.1929 / 0.2205 ms   =  0.0100 / 0.0115 / 0.0131 ns/bloc
+
+MESURE    N = 16777216 blocs, minimum sur 15 rounds gardés
+  bras                   o/bloc    min ms    méd ms    max ms    ns/bloc   × le sol méd [min–max]
+  sol                        12     1.374     1.446     1.526     0.0819   1.00× [1.00–1.00]
+  masques                    12     2.498     2.564     2.933     0.1489   1.79× [1.64–2.13]
+  cascade-archive             8   175.378   175.663   175.804    10.4533   121.34× [115.13–127.80]
+  cascade-uniformisée         8    29.265    29.326    29.407     1.7443   20.29× [19.23–21.41]
+  marche-binomiale           12     5.196     5.222     5.273     0.3097   3.64× [3.42–3.80]
+  sol-rang                    8     1.309     1.352     1.454     0.0780   0.94× [0.88–1.05]
+  marche-bloc                12    11.299    11.323    11.447     0.6735   7.89× [7.42–8.25]
+  ⚠️ les bras 2-4 lisent moins d'octets que le sol ; leur ns/bloc n'est PAS corrigé du trafic,
+     et un décodeur de rang qui bat le sol sur le temps ne bat pas le sol sur le travail.
+
+VERDICTS  seuils du §4, posés avant la première mesure
+          cascade-archive        10.4533 ns/bloc contre 2.00 — ROUGE (distance 8.4533, étendue du surcoût 0.0016 ns)
+          cascade-uniformisée    1.7443 ns/bloc contre 2.00 — VERT (distance 0.2557, étendue du surcoût 0.0021 ns)
+          marche-binomiale       0.3097 ns/bloc contre 1.50 — VERT (distance 1.1903, étendue du surcoût 0.0031 ns)
+          marche-bloc            0.6735 ns/bloc contre 1.50 — VERT (distance 0.8265, étendue du surcoût 0.0031 ns)
+          ⚠️ la règle de suspension du §1.2 porte sur un écart ENTRE DEUX BRAS ; sa transposition
+             à un seuil ABSOLU a été PROPOSÉE (É3b) et ÉCARTÉE. Les deux quantités sont imprimées,
+             la conclusion revient à l'opérateur.
+          cascade-uniformisée contre marche : écart 1.4347 ns, étendue du surcoût 0.0031 ns — VERDICT RENDU
+
+          P1b — le même gate lu sur un BLOC : marche-bloc rend 0.6735 ns contre 0.45
+          🚨 l'autorisation du bras CUDA de P4 est RETIRÉE : le gate avait été franchi par un nombre
+          qui décrivait une marche, pas un bloc
+
+          gate CUDA de P4 (§4.2) : meilleur des deux décodeurs = 0.3097 ns contre 0.45
+          le bras CUDA de P4 est AUTORISÉ (il reste soumis au go de dépense)
+          E1v (§4.3) : cascade-archive rend 10.4533 ns contre 2.00 — l'archive ne franchit pas la barre — elle ne ferme pas la ligne
+
+🚨 un bras rend mieux que 0.2 ns/bloc. Le §5 demande de CHERCHER L'ERREUR avant
+   d'en faire un titre : bras dégradé, tirage non représentatif, boucle éliminée faute d'être
+   observable, ancres non reproduites. Les sorties ont été relues (bloc V0) ; le reste est
+   à vérifier à la main avant publication.
+
+⚠️ Aucun repère d'un autre run n'apparaît ci-dessus, et aucun ne doit y être ajouté : ni les
+   0,084 / 0,152 / 0,158 de `decreal` (08-01), ni les 0,08 / 0,11 / 8,27 de `decode` (07-31).
+   Les cinq bras se lisent les uns contre les autres DANS CE RUN (§1.4). Si le sol s'écarte
+   notablement du 0,084 du 08-01, ce n'est pas un résultat de P1 : c'est un signal à expliquer.
+⚠️ Aucun tok/s n'est dérivé ici : ce banc ne mesure aucune bande passante.
