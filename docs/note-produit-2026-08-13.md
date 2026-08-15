@@ -2,6 +2,15 @@
 
 > **STATUT : BROUILLON, soumis à relecture.** Rien ici n'est opposable tant que
 > les cases du §A ne sont pas arbitrées par l'opérateur et le fichier commité.
+>
+> 🗓️ **2026-08-15 — arbitrage partiel.** L'opérateur a tranché « suis le
+> recommandé » : **A1** (RTX 5090 32 Go), **A3** (KV q8) et **A5** (≤ 60 s/doc,
+> ≥ 20 tok/s) sont arbitrés, ce sont les trois seules cases pour lesquelles
+> cette note portait une recommandation. **A2, A4 et A6 restent ouvertes** — la
+> note n'en recommandait aucune, et les inventer serait choisir la cible produit
+> à la place de l'opérateur. Chacune porte désormais sa conséquence chiffrée.
+> ⚠️ **Le §B ne fait donc TOUJOURS PAS foi** : il lui faut le triplet complet
+> (A2 et A4), plus l'unité de « 32 Go ».
 > Une fois arbitrée, cette note devient la référence que les
 > pré-enregistrements de `proofs/` citent — c'est elle qui donne un statut aux
 > seuils (le `S_alt` du pré-enregistrement du 2026-08-13 n'en a aucun sans
@@ -22,8 +31,15 @@ fige.
 **A1. Carte cible du barreau principal** *(une seule ; les autres deviennent
 des segments secondaires)* :
 
-- [ ] **RTX 5090 32 Go, PCIe gen5** *(recommandé : la carte grand public
-  haut de gamme 2026, bande passante ~1,8 To/s, celle que l'étude MoE nomme)*
+- [x] **RTX 5090 32 Go, PCIe gen5** ✅ **ARBITRÉ 2026-08-15** *(la carte grand
+  public haut de gamme 2026, bande passante ~1,8 To/s, celle que l'étude MoE
+  nomme)*
+  > ⚠️ **L'unité de « 32 Go » reste à confirmer, et elle vaut ±0,28 b/poids.**
+  > La 5090 porte **32 GiB** et `nvidia-smi` en rapporte 32 768 MiB, donc la
+  > lecture naturelle est **GiB** — mais aucune ligne de cette note ne le disait,
+  > et le §B multiplie par 8 un nombre dont l'unité n'est pas écrite. C'est plus
+  > que ce que le passage KV f16→q8 achète. **À confirmer avant que le §B fasse
+  > foi.**
 - [ ] 24 Go (3090/4090 d'occasion — le segment le plus « souveraineté », mais
   zéro marge opérationnelle sur tout ce qu'on sait faire)
 - [ ] Mac à mémoire unifiée 64-128 Go (exige le portage Metal de la rotation,
@@ -33,28 +49,62 @@ des segments secondaires)* :
 
 - [ ] 8k  - [ ] 16k  - [ ] 32k
 
+> ⏳ **NON ARBITRÉ, et cette note ne porte aucune recommandation pour lui.**
+> Avec A3 = q8, la table §B donne 3,09 (8k) · 2,93 (16k) · 2,61 (32k) à marge
+> 2 Go, et 2,74 · 2,58 · 2,26 à marge 5 Go.
+> 🚨 **Ne pas le choisir pour retomber sur le 2,60 historique.** Le §B note que
+> ce 2,60 se relit comme « 32k, KV q8, 2 Go » — choisir A2 et A4 *pour* que le
+> seuil reproduise un nombre déjà publié serait fixer la cible sur la réponse,
+> ce que ce dossier appelle un déplacement de poteaux. Le triplet se choisit sur
+> le produit, et le seuil en découle.
+
 **A3. Format du cache KV** :
 
 - [ ] f16 (existant)
-- [ ] **q8 (à construire — chantier P3, levier transversal : ~1,35 Go au lieu
-  de 2,7 à 8k sur un 70B)**
+- [x] **q8** ✅ **ARBITRÉ 2026-08-15** — levier transversal, ~1,35 Go au lieu de
+  2,7 à 8k sur un 70B
+  > 🕳️ **« à construire » est périmé** : P3 l'a construit, mesuré et livré le
+  > 2026-08-15. `LLVQ_KV=q8`, cache à **8,5 bits** (int8 + échelle et biais f16
+  > par groupe de 64, soit **÷1,882 et non ÷2**), qualité verte — ppl +0,049 %,
+  > MMLU +0,33 pp, les deux intervalles appariés contenant zéro
+  > ([`mesures/kvq8-4b-2026-08-15.txt`](mesures/kvq8-4b-2026-08-15.txt)).
+  > ⚠️ **Il n'est pas le défaut** et son verdict est étiqueté « contexte court
+  > seulement » : la série `n_new = 1024` a été abandonnée (661 s > 600 s posés
+  > d'avance). L'arbitrer ici, c'est décider qu'on le sert — pas constater qu'il
+  > est validé à tout contexte, ce qu'il n'est pas. **Et c'est A2 qui décide si
+  > la région non mesurée est la région servie.**
 
 **A4. Marge opérationnelle réservée** (contexte CUDA, activations, jitter) :
 
 - [ ] 2 Go  - [ ] 5 Go
 
+> ⏳ **NON ARBITRÉ, aucune recommandation dans cette note.** L'écart entre les
+> deux vaut **0,35 b/poids** à contexte fixé (table §B) — plus que tout ce que
+> l'axe noyau a jamais gagné en une session. 2 Go est le pari tendu, 5 Go la
+> marge confortable ; rien dans le dépôt ne mesure ce que consomme réellement
+> un contexte CUDA sur 5090, donc le choix est un jugement d'exploitation et
+> non une grandeur dérivée.
+
 **A5. Plancher de vitesse, par segment** *(sans lui, aucun banc n'a de
 critère d'admission)* :
 
-- Extraction par lots (package B) : débit cible ______ documents/heure, ou
-  secondes/document max ______ *(proposition : ≤ 60 s/doc en lot de 8)*
-- Chat/agent local (packages A et C) : ______ tok/s minimum
-  *(proposition : ≥ 20 — la lecture humaine confortable)*
+- Extraction par lots (package B) : ✅ **ARBITRÉ 2026-08-15 — ≤ 60 s/document
+  en lot de 8** (la proposition de cette note)
+- Chat/agent local (packages A et C) : ✅ **ARBITRÉ 2026-08-15 — ≥ 20 tok/s**
+  (la proposition de cette note ; repère : le 4B publié rend 88,4-88,5 tok/s
+  sur L40S, le 8B 69,3 — mesurés, mais sur une autre carte que A1)
 
 **A6. L'offload PCIe est-il admis comme solution de référence** (ce qu'on
 doit battre) **ou comme solution servie** (ce qu'on livre) ?
 
 - [ ] référence seulement  - [ ] servi aussi (package A en dépend)
+
+> ⏳ **NON ARBITRÉ, aucune recommandation dans cette note.** Et c'est le plus
+> lourd des trois restants : « servi aussi » engage le package A, donc le
+> chantier MoE — aujourd'hui **en pause** — et le tier froid. « Référence
+> seulement » le laisse comme la chose à battre. Aucune mesure du dépôt ne
+> tranche : le coût d'un miss PCIe est **estimé** (0,35-0,75 ms), jamais
+> mesuré.
 
 ## B. Les seuils qui découlent du triplet (barreau 32 Go, 70B dense)
 
