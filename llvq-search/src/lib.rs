@@ -38,6 +38,7 @@
 #![forbid(unsafe_code)]
 
 pub mod classes;
+pub mod cns;
 pub mod fastdec;
 pub mod generic;
 pub mod generic_ref;

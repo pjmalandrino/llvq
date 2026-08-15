@@ -553,9 +553,16 @@ la vitesse — et P5 n'en mesure aucune.
 
 ### É0 — 2026-08-15, avant la première ligne de code E1v : **C1 et C3 ne peuvent pas être vrais ensemble**
 
-> 🚨 **PROPOSITION, non acquise.** Elle attend l'arbitrage de l'opérateur, et le
-> tampon doit venir après lui. Aucune ligne de CNS n'est écrite, aucune seconde
-> n'est chronométrée.
+> ✅ **RETENU par l'opérateur le 2026-08-15**, avant la première ligne de CNS et
+> avant toute seconde chronométrée. **C1 vise désormais une référence PAR GENRE**,
+> recalculée depuis la table de binomiaux de la CNS seule ; `Widths::radix2`
+> cesse d'être la cible, ce qui *renforce* la clause d'indépendance du §4 au lieu
+> de la relâcher. Le **2,3709 est remplacé par le chiffre par genre partout où il
+> sert d'argument d'ouverture**, et reste publié comme la largeur d'une variante
+> **dont le décodeur divise**.
+>
+> ⚠️ Le tampon de ce document doit venir avant la première mesure de P5 (C1
+> compris), pas avant l'écriture du code. Il n'est pas encore posé.
 
 **Ce qui s'est passé.** P1 a rendu son verdict le 2026-08-15 et P5 s'est ouvert
 (marche binomiale 0,3101 ns ≤ 0,45). Avant d'écrire la CNS, une vérification de
