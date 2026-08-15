@@ -1,0 +1,93 @@
+================================================================================
+X3 — l'argument de diffusion d'E1c ne tient pas sous la décomposition servie
+2026-08-15, calculé sur le 4B scellé. 0 $, aucun accélérateur.
+================================================================================
+
+CE QUE LE LAYOUT PROMET
+  `llvq-artifact/src/e1c.rs`, en tête : « Because that is the CUDA warp. The
+  transposition puts bit `l` of a word at lane `l`: every lane of the warp
+  reads the SAME word address, so the load is a broadcast out of L1 rather
+  than 32 scattered strided reads. That is the whole argument for the layout. »
+
+CE QUE LA DÉCOMPOSITION IMPOSE
+  Le matvec servi met un warp par LIGNE de sortie (`planes.cu:38-52`) :
+    row  = (blockIdx.x·blockDim.x + threadIdx.x) >> 5
+    b0r  = row · nblocks
+    for (j = jlo + lane; j < jhi; j += 32)  → bloc global b0r + j
+  Le groupe E1c est 32 indices de blocs GLOBAUX consécutifs. La lane `l` d'un
+  warp traite donc le rang de groupe
+
+    (row·nblocks + jlo + lane) mod 32  =  (row·nblocks + lane) mod 32
+
+  puisque `jlo` est un multiple de 32. C'est une ROTATION de 0..31 par
+  `row·nblocks mod 32`. Elle vaut zéro — donc les 32 lanes tombent dans UN seul
+  groupe — si et seulement si `nblocks ≡ 0 (mod 32)`.
+
+CE QUE LE MODÈLE PUBLIÉ REND                                         [mesuré]
+
+  forme (blocs/ligne × lignes)   matrices   nblocks mod 32
+    106 × 1024                      72          10        enjambe deux groupes
+    106 × 4096                      36          10        enjambe deux groupes
+    106 × 9728                      72          10        enjambe deux groupes
+    170 × 2560                      36          10        enjambe deux groupes
+    405 × 2560                      36          21        enjambe deux groupes
+
+  Blocs dans une matrice alignée : 0 sur 150 681 600, soit 0,00 %.
+
+  🚨 AUCUN warp du modèle publié ne lit un seul groupe. Chacun en lit DEUX, et
+  la diffusion promise devient deux demi-diffusions. Les chargements de mots
+  de la région transposée DOUBLENT — exactement le coût que le layout existe
+  pour éviter.
+
+CE QUE COÛTERAIT DE L'ALIGNER                                        [calculé]
+
+  Le seul remède compatible avec le matvec servi est de bourrer chaque LIGNE
+  à un multiple de 32 blocs. Il n'y en a pas d'autre, et il faut dire pourquoi :
+
+  · un groupe partiel ne coûte pas moins qu'un groupe plein — la région
+    transposée est 24·(1+plans) mots QUELLE QUE SOIT la lane occupée, donc un
+    groupe de 10 blocs coûte le prix de 32 ;
+  · réordonner les blocs pour que les groupes tombent sur les warps revient au
+    même bourrage : le warp lit 32 j consécutifs D'UNE LIGNE, donc le groupe
+    doit être 32 j consécutifs d'une ligne, donc les fins de ligne se bourrent ;
+  · faire lire un groupe entier à un warp casserait l'accumulation par ligne —
+    un groupe enjambe les lignes, les lanes accumuleraient dans des sorties
+    différentes. Ce n'est plus porter un layout, c'est écrire un autre matvec.
+
+  bourrage par forme :
+    106 blocs/ligne → 128 : +20,75 %   (97 689 600 blocs réels)
+    170 blocs/ligne → 192 : +12,94 %   (15 667 200)
+    405 blocs/ligne → 416 :  +2,72 %   (37 324 800)
+  global : 150 681 600 → 173 998 080 blocs, +15,47 %
+
+LE VERDICT SUR e1c14                                                 [calculé]
+
+  Comptabilité b/poids noyau, §1.2 de P5, modèle validé le même jour (il
+  reproduit Planes14 à 4,8040 contre 4,804 publié, et E1v par étage à 2,3709
+  contre 2,3709).
+
+    Planes14, servi, 112 bits/bloc               4,8040
+    E1c14 non aligné, 106 bits/bloc              4,5551     −5,2 %
+    E1c14 ALIGNÉ (bourrage +15,47 %)             5,2354     +9,0 %
+
+  ❌ E1c14 est ENTERRÉ pour le chemin servi. Aligné il est PLUS GROS que le
+  layout qu'il remplace ; non aligné il est privé de son propre argument, et
+  un banc qui le mesurerait ainsi publierait « E1c est lent » alors qu'il
+  aurait mesuré un désalignement.
+
+  Le mécanisme en une phrase : E1c supprime 6 bits de bourrage PAR BLOC et en
+  réintroduit jusqu'à 22 blocs PAR LIGNE.
+
+CE QUI N'EST PAS TRANCHÉ ICI
+
+  ⚠️ e1c12 n'a PAS de verdict dans ce document. Le couple Planes12x/E1c12
+  porte une table d'exceptions (3,3824 % des blocs) que le modèle ci-dessus
+  n'inclut pas — il rend 4,1404 pour Planes12x là où le dépôt publie 4,342.
+  Les deux côtés du rapport en dépendent, et un verdict rendu sans ce terme
+  serait rendu dans la mauvaise comptabilité, ce que ce dossier interdit.
+  À reprendre avec le terme d'exceptions avant toute conclusion.
+
+  ⚠️ Et rien ici ne mesure une nanoseconde. C'est une identité de comptage sur
+  les formes réelles du modèle publié, du même genre que celle qui a enterré
+  E3 le 2026-08-12 : elle ne dépend d'aucun matériel, et elle ne se contourne
+  pas par un meilleur noyau.
