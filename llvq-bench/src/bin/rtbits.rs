@@ -304,6 +304,16 @@ struct Shapes {
     tail_weights: u64,
     /// `Σ d_out` — one `f32` row scale each.
     rows: u64,
+    /// `Σ d_out · ceil((d_in/24)/32)·32` — the blocks an E1c stream holds once
+    /// every ROW is padded to a whole number of warp groups.
+    ///
+    /// 🚨 **It adds bits and NOT ONE weight**, and that asymmetry is the whole
+    /// verdict: the padded blocks are synthetic, so they inflate the numerator
+    /// of a b/weight while [`Self::weights`] stays put. X3 measured the block
+    /// inflation at +15,47 % on the shapes of the published 4B; what it did
+    /// not do is carry it through the exception term, which is why `e1c12` was
+    /// left without a verdict.
+    padded_blocks: u64,
 }
 
 impl Shapes {
@@ -311,6 +321,12 @@ impl Shapes {
         self.weights += (d_out * d_in) as u64;
         self.tail_weights += (d_out * (d_in % DIM)) as u64;
         self.rows += d_out as u64;
+        // The remedy X3 showed to be the only one compatible with the served
+        // matvec: pad each ROW out to a multiple of 32 blocks. A partial E1c
+        // group costs a full one whatever the occupancy, so there is nothing
+        // cheaper to do.
+        let row_blocks = d_in / DIM;
+        self.padded_blocks += (d_out * row_blocks.div_ceil(32) * 32) as u64;
     }
 
     /// Bits the kernel accounting adds to a block stream: the `f32` tail and
@@ -916,6 +932,46 @@ fn main() {
                 (bits + carried.side_bits()) as f64 / 8.0 / 1e9
             );
         }
+
+        // ---- E1c ALIGNÉ : le verdict qui manquait à e1c12 ----
+        //
+        // X3 (2026-08-15) a montré qu'aucun warp du modèle publié ne lit un
+        // seul groupe E1c — `nblocks mod 32` vaut 10 ou 21 sur les cinq formes
+        // — et que le seul remède est de bourrer chaque ligne. Il a rendu son
+        // verdict sur `e1c14` (5,2354, plus gros que le Planes14 qu'il
+        // remplace) et s'est ARRÊTÉ sur `e1c12`, faute du terme d'exceptions :
+        // son modèle rendait 4,1404 pour Planes12x là où le dépôt publie
+        // 4,342, et les deux côtés du rapport en dépendent.
+        //
+        // Ici les deux côtés viennent du même balayage, exceptions comprises.
+        // Le terme d'exceptions ne bouge PAS avec le bourrage : un bloc de
+        // bourrage est synthétique, il n'a pas de classe à cinq niveaux.
+        let pad = carried.padded_blocks;
+        println!("
+  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32");
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  {total} blocs → {pad} ({:+.2} %), et ces blocs ne portent AUCUN poids :
+               le numérateur enfle, le dénominateur ne bouge pas",
+            (pad as f64 / total as f64 - 1.0) * 100.0
+        );
+        for (name, aligned, served, served_name) in [
+            ("E1c14", e1c14_bits(pad), p14_bits, "Planes14"),
+            ("E1c12", e1c12_bits(pad, exceptions), p12_bits, "Planes12x"),
+        ] {
+            let a = carried.kernel_bpw(aligned);
+            let s = carried.kernel_bpw(served);
+            println!(
+                "  {name:<12}{a:>10.4} b/poids noyau aligné  contre {s:.4} pour {served_name}                  — {:+.1} %  {}",
+                (a / s - 1.0) * 100.0,
+                if a < s { "✅" } else { "❌ PLUS GROS que le layout qu'il remplace" }
+            );
+        }
+        println!(
+            "  ⚠️ Aucun de ces deux chiffres n'est une vitesse. C'est une identité de
+               comptage sur les formes réelles, du genre qui a enterré E3 — elle ne dépend
+               d'aucun matériel et ne se contourne pas par un meilleur noyau."
+        );
     }
 
     // ---- b/param modèle entier: the only figure comparable to an AWQ one ----
@@ -1102,6 +1158,10 @@ mod tests {
             weights: qwen3_4b::WEIGHTS,
             tail_weights: qwen3_4b::TAIL_WEIGHTS,
             rows: qwen3_4b::ROWS,
+            // Ces fixtures épinglent la comptabilité NOYAU, qui ne lit pas ce
+            // champ ; un zéro explicite plutôt qu'un `..Default::default()`,
+            // pour qu'un futur test qui s'en servirait le voie faux.
+            padded_blocks: 0,
         }
     }
 
@@ -1345,6 +1405,7 @@ mod tests {
             weights: LIN,
             tail_weights: 20_054_016,
             rows: 1_400_832,
+            padded_blocks: 0, // non lu par ce test, cf. `carried_4b`
         };
         assert_eq!((LIN - c.tail_weights) % DIM as u64, 0);
         let lin = c.kernel_bpw(planes14_bits((LIN - c.tail_weights) / DIM as u64));

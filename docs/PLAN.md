@@ -308,10 +308,24 @@ CUDA donne latence/occupation **39 %**, flux **33 %**, décodage **19 %**. Cette
 ligne attaquait les 33 % en gonflant les 19 %. Le poste majoritaire n'a jamais
 été touché.
 
-**Ce qui reste ouvert de ce côté** : `e1c12` n'a **aucun verdict** — refaire son
-calcul d'alignement **avec le terme d'exceptions** (3,38 % des blocs), 0 $, une
-heure. Ses chances sont faibles après 0,25× et 1,77×, mais un bras sans verdict
-est le pire des états.
+**✅ `e1c12` a son verdict depuis le 2026-08-16, et il n'est pas celui qu'on
+attendait** ([`mesures/e1c12-aligne-2026-08-16.txt`](mesures/e1c12-aligne-2026-08-16.txt),
+0 $). Avec le terme d'exceptions des deux côtés : **E1c12 aligné = 4,2880 b/poids
+noyau contre 4,3424 pour `Planes12x`, soit −1,3 % — il SURVIT.** Le modèle se
+valide au passage sur le cas déjà tranché : `e1c14` aligné rend 5,2354, le
+chiffre exact d'X3.
+
+🔎 **Mais ce que ça change n'est pas ce que ça mesure.** L'argument d'E1c était
+de supprimer le bourrage ; aligné, il en rend presque tout. Il reste 1,3 %
+contre un layout qui n'est lui-même pas servi. **La question d'E1c12 cesse donc
+d'être une question de bits** : elle devient « la transposition rend-elle le
+décodage plus rapide que `Planes12x` ? », ce qui était son argument d'origine —
+32 lanes lisant le même mot, une diffusion L1 au lieu de 32 lectures dispersées.
+
+⚠️ Et cette question **n'hérite pas du verdict d'E1v**. E1v est mort d'être borné
+en CALCUL. E1c décode le même contenu que `Planes12x` — des sélections sur des
+plans de bits — et sa transposition est un problème de motif de lecture, pas
+d'ALU. Le pronostic ne se transporte pas.
 
 ## Ouvert par P1 (2026-08-15) — le bras CUDA de P4, et P5
 
