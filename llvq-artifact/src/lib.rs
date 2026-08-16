@@ -41,6 +41,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blockrec;
 pub mod codebook;
 mod error;
 mod format;

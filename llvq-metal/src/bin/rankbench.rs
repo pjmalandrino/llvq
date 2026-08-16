@@ -1,11 +1,13 @@
-//! **P1 — the five-arm bench.** What a rank decode costs on real blocks.
+//! **P1 — the rank-decode bench.** What a rank decode costs on real blocks.
 //!
 //! Pre-registration: `proofs/preregistration-p1-2026-08-13.md`, whose §1 fixes
 //! the accounting, §2 the five arms, §3 the exactness gate, §4 the thresholds
 //! and §7 what would invalidate the whole thing. Nothing here is decided at
-//! run time; this file is the pre-registration executed.
+//! run time; this file is the pre-registration executed. Two later documents
+//! add arms to it without amending a threshold: `…-p1b-2026-08-15.md` (the
+//! block arms) and `…-p1c-2026-08-15.md` (the E1v stream's addressing).
 //!
-//! ## The five arms, in the frozen order of §2
+//! ## The arms, in the frozen order of §2 — an arm added never reorders one
 //!
 //! | # | arm | reads | what it costs |
 //! |---|---|---|---|
@@ -13,7 +15,16 @@
 //! | 1 | `masques` | 12 o | nested masks, `Fixed96` — the fastest decoder this machine has ever run |
 //! | 2 | `cascade-archive` | 8 o | the incumbent's unranking, as it is |
 //! | 3 | `cascade-uniformisée` | 8 o | 24 identical steps, branchless, magic reciprocals |
-//! | 4 | `marche-binomiale` | 12 o | the E1v decoder: table lookups, no division |
+//! | 4 | `marche-binomiale` | 12 o | one 24-slot walk: table lookups, no division |
+//! | 5 | `sol-rang` | 8 o | the rank stream's own floor (É3a) |
+//! | 6 | `marche-bloc` | 12 o | a whole BLOCK, at a fixed stride (P1b) |
+//! | 7 | `marche-bloc-plat` | 12 o | the same, without the register spill (É1) |
+//! | 8 | `e1v-flux` | variable | the same decode, on the REAL E1v stream (P1c) |
+//!
+//! 🚨 **Arms 6 and 8 decode the same thing and differ only in how they find
+//! it.** That is the point of running them together: their gap is the price of
+//! E1v's addressing — base word, fixed-stride header, warp-scan over 32 widths,
+//! a field read at an arbitrary bit offset — and of nothing else.
 //!
 //! 🚨 **The bytes per block are NOT the same across arms, and no ns/bloc here is
 //! corrected for traffic.** `sol` reads the 12 bytes of `Fixed96`; the rank arms
@@ -43,11 +54,13 @@
 use llvq_artifact::runtime::{transcode, ClassTable, Layout};
 use llvq_core::{Golay, SplitMix64, DIM};
 use llvq_metal::p1host::{
-    binom_table, block_records, cascade_ends, cascade_records, div_table, etalon_cascade,
-    pack_block, walk_feed, walk_levels, walk_radix_table, walk_records, WalkFeed,
+    binom_table, block_records, cascade_ends, cascade_records, div_table, e1v_fixture,
+    e1v_payload_bits, etalon_cascade, etalon_cns, pack_block, walk_feed, walk_levels,
+    walk_radix_table, walk_records, WalkFeed,
 };
 use llvq_search::cns::cns_encode;
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
+use std::collections::BTreeSet;
 use std::fs::File;
 use std::io::BufReader;
 
@@ -105,7 +118,17 @@ const CUDA_GATE_NS: f64 = 0.45;
 /// dont l'antériorité ne repose que sur un mtime". A rule that lives only in
 /// prose gets skipped on the evening someone wants a number; a rule the binary
 /// enforces does not.
-const STAMPED: &str = "proofs/preregistration-p1-2026-08-13.md";
+///
+/// P1c is on the list for the same reason and by its own §0: it asks for the
+/// stamp *before the first millisecond*, "comme P1", precisely because P5 and
+/// P1b were stamped after theirs and their journals carry that debt. Adding an
+/// arm to this bench therefore adds a document to this gate — which is what
+/// stops the arm from being timed on the strength of a file's mtime.
+const STAMPED: [&str; 3] = [
+    "proofs/preregistration-p1-2026-08-13.md",
+    "proofs/preregistration-p1b-2026-08-15.md",
+    "proofs/preregistration-p1c-2026-08-15.md",
+];
 
 fn xvec() -> Vec<f32> {
     // Distinct magnitudes per slot, so a *permuted* arrangement moves the dot.
@@ -231,6 +254,25 @@ fn check_draw(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> DrawCheck
     c
 }
 
+/// Worst deviation relative to `Σ|wᵢxᵢ|`, and how many blocks are out of
+/// [`TOL`] — the same reading the V0 loop makes of a timed arm, factored out
+/// because the fixture makes it too.
+fn worst_rel(got: &[f32], want: &[(f64, f64)]) -> (f64, usize) {
+    assert_eq!(got.len(), want.len(), "un flottant par bloc");
+    let (mut worst, mut bad) = (0.0f64, 0usize);
+    for (&g, &(exp, mag)) in got.iter().zip(want) {
+        let d = (g as f64 - exp).abs();
+        let rel = if mag > 0.0 { d / mag } else { d };
+        if rel > worst {
+            worst = rel;
+        }
+        if d.is_nan() || rel > TOL {
+            bad += 1;
+        }
+    }
+    (worst, bad)
+}
+
 // ---------------------------------------------------------------------------
 // The arms
 // ---------------------------------------------------------------------------
@@ -250,12 +292,13 @@ enum Arm {
     SolRang,
     MarcheBloc,
     MarcheBlocPlat,
+    E1vFlux,
 }
 
 impl Arm {
     /// The frozen order of §2. **An arm added never reorders the existing
     /// ones** (§1.3), so anything new goes at the end of this list.
-    const ALL: [Arm; 8] = [
+    const ALL: [Arm; 9] = [
         Arm::Sol,
         Arm::Masques,
         Arm::CascadeArchive,
@@ -274,6 +317,12 @@ impl Arm {
         // 48 slot-indexed bytes of per-slot state become 8 counter-indexed
         // words. The gap between it and `marche-bloc` is what the spill cost.
         Arm::MarcheBlocPlat,
+        // P1c (proofs/preregistration-p1c-2026-08-15.md), added LAST again.
+        // `marche-bloc` decodes a block out of a FIXED 12-byte stride; the real
+        // E1v stream has variable widths and a warp-scan. Same decode body, to
+        // the byte — only the way the record is found changes, so the gap is
+        // the price of the addressing.
+        Arm::E1vFlux,
     ];
 
     fn name(self) -> &'static str {
@@ -286,19 +335,29 @@ impl Arm {
             Arm::SolRang => "sol-rang",
             Arm::MarcheBloc => "marche-bloc",
             Arm::MarcheBlocPlat => "marche-bloc-plat",
+            Arm::E1vFlux => "e1v-flux",
         }
     }
 
-    /// Bytes of payload the arm reads per block. Padding added so a windowed
-    /// read cannot run off the end of the buffer is **not** counted — the
-    /// repo's convention (`thesis.rs:731`).
-    fn bytes_per_block(self) -> usize {
+    /// Bytes of payload the arm reads per block, when that is a *number*.
+    ///
+    /// Padding added so a windowed read cannot run off the end of the buffer is
+    /// **not** counted — the repo's convention (`thesis.rs:731`).
+    ///
+    /// `None` for `e1v-flux`, and the `None` is the result rather than a gap in
+    /// the table: E1v's whole shape is that a record's width depends on its
+    /// class. Printing a rounded average in this column would put a fixed
+    /// stride next to a variable one under the same heading, which is exactly
+    /// the kind of comparison the dossier's errata are made of. The average is
+    /// printed once, in the feed section, next to the b/poids it comes from.
+    fn bytes_per_block(self) -> Option<usize> {
         match self {
-            Arm::Sol | Arm::Masques => 12,
-            Arm::CascadeArchive | Arm::CascadeUniform => 8,
-            Arm::Marche => 12,
-            Arm::SolRang => 8,
-            Arm::MarcheBloc | Arm::MarcheBlocPlat => 12,
+            Arm::Sol | Arm::Masques => Some(12),
+            Arm::CascadeArchive | Arm::CascadeUniform => Some(8),
+            Arm::Marche => Some(12),
+            Arm::SolRang => Some(8),
+            Arm::MarcheBloc | Arm::MarcheBlocPlat => Some(12),
+            Arm::E1vFlux => None,
         }
     }
 
@@ -317,6 +376,12 @@ impl Arm {
             // and the CUDA gate at 0,45, read on the BLOCK rather than on a
             // walk.
             Arm::MarcheBloc | Arm::MarcheBlocPlat => Some(KILL_WALK_NS),
+            // P1c §3 keeps P1's thresholds without amending them either: above
+            // 1,5 ns/bloc the decoder of E1v is dead. The CUDA gate at 0,45 is
+            // NOT read on this arm but on the best block decoder of the run —
+            // see the verdict block, where that is spelled out rather than
+            // assumed.
+            Arm::E1vFlux => Some(KILL_WALK_NS),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         }
     }
@@ -339,21 +404,37 @@ fn run() -> Result<(), String> {
     // =======================================================================
     // The stamp gate — before anything, and deliberately not overridable
     // =======================================================================
-    let ots = format!("{STAMPED}.ots");
-    if !std::path::Path::new(&ots).exists() {
-        return Err(format!(
-            "le pré-enregistrement de P1 n'est pas horodaté : {ots} est absent.\n\n\
-             Ce banc produit la PREMIÈRE MILLISECONDE de P1. Son §3 demande le tampon \
-             AVANT elle,\nprécisément pour ne pas hériter de la dette de provenance qu'il \
-             reproche au lot du 13,\ndont l'antériorité ne repose que sur un mtime.\n\n\
-             Le poser (l'opérateur, pas ce binaire) :\n\n    \
-             ots stamp {STAMPED}\n\n\
-             Les quatre autres pré-enregistrements (p2..p5) le méritent aussi ; celui-ci \
-             est le seul\nque ce banc peut vérifier, parce que c'est le seul qui le lie.\n\n\
-             Ce garde n'a pas de dérogation. Une règle qui ne vit que dans la prose se \
-             saute le soir\noù quelqu'un veut un chiffre ; une règle que le binaire tient \
-             ne se saute pas."
-        ));
+    for doc in STAMPED {
+        let ots = format!("{doc}.ots");
+        if !std::path::Path::new(&ots).exists() {
+            return Err(format!(
+                "un pré-enregistrement qui lie ce run n'est pas horodaté : {ots} est \
+                 absent.\n\n\
+                 Ce banc produit la PREMIÈRE MILLISECONDE de chacun des trois documents \
+                 ci-dessous.\nLe §3 de P1 demande le tampon AVANT elle, précisément pour ne \
+                 pas hériter de la dette de\nprovenance qu'il reproche au lot du 13, dont \
+                 l'antériorité ne repose que sur un mtime ;\nle §0 de P1c le redemande pour \
+                 son propre bras, P5 et P1b ayant été tamponnés APRÈS.\n\n\
+                 Le poser (l'opérateur, pas ce binaire) :\n\n    \
+                 ots stamp {doc}\n\n\
+                 Les documents que ce banc exige :\n{}\n\n\
+                 Ce garde n'a pas de dérogation. Une règle qui ne vit que dans la prose se \
+                 saute le soir\noù quelqu'un veut un chiffre ; une règle que le binaire tient \
+                 ne se saute pas.",
+                STAMPED
+                    .iter()
+                    .map(|d| format!(
+                        "    {} {d}",
+                        if std::path::Path::new(&format!("{d}.ots")).exists() {
+                            "✅"
+                        } else {
+                            "❌"
+                        }
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
     }
 
     let path = std::env::args()
@@ -363,7 +444,32 @@ fn run() -> Result<(), String> {
     // =======================================================================
     // 1. PROVENANCE
     // =======================================================================
-    println!("P1 — banc à 5 bras. Pré-enregistrement : {STAMPED} (horodaté).\n");
+    println!(
+        "P1 — banc à {} bras. Pré-enregistrements, tous horodatés :",
+        Arm::ALL.len()
+    );
+    for doc in STAMPED {
+        println!("          {doc}");
+    }
+
+    // =======================================================================
+    // LA RÉSERVE — en tête, et pas en note de bas de page (P1c §4)
+    // =======================================================================
+    //
+    // Elle est imprimée AVANT le premier chiffre, et par le binaire plutôt que
+    // par la prose du journal, pour une raison mécanique : un journal se
+    // fabrique en redirigeant cette sortie, donc une réserve imprimée ici est
+    // dans son en-tête quoi qu'il arrive, tandis qu'une réserve qu'il faut
+    // penser à recopier finit sous les tableaux — ou nulle part.
+    println!(
+        "\n🚨 RÉSERVE, EN TÊTE — le bras `e1v-flux` mesure le MEILLEUR CAS de l'adressage E1v.\n   \
+         Ici `gid` EST l'indice de bloc : un SIMD group de 32 lanes consécutives EST exactement\n   \
+         un groupe E1v, et l'alignement est donc vrai PAR CONSTRUCTION. Le matvec servi met un\n   \
+         warp par LIGNE, et `nblocks mod 32` vaut 10 ou 21 sur les cinq formes du 4B — aucun warp\n   \
+         n'y lit un seul groupe : il lirait deux mots de base et scannerait deux régions d'en-têtes.\n   \
+         Ce banc ne mesure pas non plus le coût EN BITS de cet alignement, acquis ailleurs à +0,48 %.\n   \
+         (`docs/mesures/x3-alignement-warp-2026-08-15.txt`, et §4 du pré-enregistrement de P1c.)"
+    );
     let meta = std::fs::metadata(&path).map_err(|e| {
         format!(
             "l'archive scellée du 4B n'est pas sur cette machine : {path} ({e})\n\n\
@@ -484,14 +590,16 @@ fn run() -> Result<(), String> {
          · {drawn} touchées par CE TIRAGE — les {} restantes sont des classes trop rares \
          pour\n              survivre à un tirage de 1 bloc sur 9, ce qui est un fait sur le \
          tirage, pas sur le codebook.\n          Les entrées hors fichier sont couvertes par \
-         la fixture de `bin/p1v0`, jamais ici.",
+         la fixture de `bin/p1v0` pour les bras 3 et 4, et\n          par celle du bras 8, \
+         qui tourne ici même — parce que l'origine y est un CAS D'ADRESSAGE\n          \
+         (charge utile vide, entrée de table 0) et pas seulement une classe de plus.",
         entries - observed,
         entries - observed - 1 - shell13,
         observed - drawn
     );
 
     // =======================================================================
-    // 4. THE THREE FEEDS
+    // 4. THE FOUR FEEDS
     // =======================================================================
     let gscale = centroids.expect("au moins une matrice");
     println!(
@@ -566,6 +674,63 @@ fn run() -> Result<(), String> {
         llvq_metal::p1host::WALK_RECORD_BITS
     );
 
+    // P1c's feed: the REAL E1v stream over the SAME draw. The writer is
+    // `llvq_artifact::e1v::transcode_e1v` — the one whose round trip is proved
+    // over the 150 681 600 blocks of the 4B (P5) — not a re-implementation, so
+    // what is new in this arm is the reading and nothing else.
+    //
+    // 🕳️ Two assertions stood here, pinning `p1host`'s restatement of E1V_GROUP
+    // and E1V_ORIGIN_ID against the writer's. They are gone because the
+    // restatement is gone: the table moved to `llvq_artifact::blockrec`, which
+    // reads the format's own constants. A pin between a value and itself is not
+    // a weaker guard, it is a guard about nothing.
+    let pay = e1v_payload_bits(&fd, &golay, &brecs);
+    let t = std::time::Instant::now();
+    let e1v = llvq_artifact::e1v::transcode_e1v(&fd, &golay, &indices, &gains32)
+        .map_err(|e| e.to_string())?;
+    let e1v_secs = t.elapsed().as_secs_f64();
+    let e1v_bpw = e1v.bits_per_weight();
+    let e1v_bytes = (e1v.data.len() + 4 * e1v.bases.len()) as f64 / N as f64;
+    let pay_max = pay.iter().copied().max().expect("la table n'est pas vide");
+    println!(
+        "          E1v (bras 8) : le VRAI flux, {} o + {} o de mots de base, transcodé en \
+         {e1v_secs:.1} s\n            largeur variable — {e1v_bytes:.3} o/bloc en moyenne, \
+         {e1v_bpw:.4} b/poids adressage compris ; en-têtes 10 bits\n            à stride fixe, \
+         somme préfixe SIMD sur les 32 largeurs du groupe, charge utile au pire\n            \
+         {pay_max} bits — le §1 en divulgue 56, mais 56 est un RECORD, en-tête compris, et \
+         c'est la\n            charge utile que la somme préfixe additionne",
+        e1v.data.len(),
+        4 * e1v.bases.len()
+    );
+    println!(
+        "          ⚠️ ce {e1v_bpw:.4} est celui du TIRAGE, pas du fichier : les 32 blocs d'un \
+         groupe sont ici\n            des blocs sans voisinage, et le terme d'arrondi au mot ne \
+         tombe donc pas comme en\n            ordre de fichier, où la mesure publiée est 2,3877 \
+         b/poids noyau."
+    );
+    // Two words of padding so the three-word window of the last lane cannot run
+    // off the end. Not counted in the arm's bytes — `thesis.rs:731`.
+    let mut e1v_data = e1v.data;
+    e1v_data.extend_from_slice(&[0u8; 8]);
+    let e1v_bases = e1v.bases;
+
+    // The fixture, and it is not decoration: the published 4B carries ZERO
+    // origin block (asserted above), so the draw never exercises the one header
+    // value whose payload is empty — the id that maps to table entry 0 and
+    // contributes nothing to the warp-scan. It also reaches the 97 classes the
+    // file never uses, and one group made entirely of the widest class, which is
+    // the largest prefix sum the addressing can ever be asked for.
+    let (fix_idx, fix_gain) = e1v_fixture(&fd, &pay, GROUP);
+    let fix = llvq_artifact::e1v::transcode_e1v(
+        &fd,
+        &golay,
+        &fix_idx,
+        &fix_gain.iter().map(|&g| u32::from(g)).collect::<Vec<_>>(),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut fix_data = fix.data;
+    fix_data.extend_from_slice(&[0u8; 8]);
+
     // =======================================================================
     // 5. GPU SETUP
     // =======================================================================
@@ -594,6 +759,7 @@ fn run() -> Result<(), String> {
             include_str!("../../shaders/binomial_block_flat.metal"),
             "decode_block_flat",
         )?,
+        llvq_metal::Kernel::new(include_str!("../../shaders/e1v_flux.metal"), "decode_e1v")?,
     ];
     let group = GROUP.min(kernels[0].max_threads_per_group() as usize);
     println!(
@@ -651,6 +817,15 @@ fn run() -> Result<(), String> {
     let b_fgolay = kernels[7].buffer(golay.codewords());
     let b_walktab = kernels[4].buffer(&walk);
     let b_binom = kernels[4].buffer(&binom);
+    // Arm 8. Its `tab`, `binom` and `golay` are the SAME tables arms 6 and 7
+    // read, copied onto its own queue — so a divergence between it and
+    // `marche-bloc` cannot come from a table.
+    let b_edata = kernels[8].buffer(&e1v_data);
+    let b_ebases = kernels[8].buffer(&e1v_bases);
+    let b_etab = kernels[8].buffer(&brecs);
+    let b_epay = kernels[8].buffer(&pay);
+    let b_ebinom = kernels[8].buffer(&binom);
+    let b_egolay = kernels[8].buffer(golay.codewords());
 
     let bind = |enc: &metal::ComputeCommandEncoderRef, ai: usize| match Arm::ALL[ai] {
         Arm::Sol => {
@@ -716,13 +891,111 @@ fn run() -> Result<(), String> {
             enc.set_buffer(5, Some(&b_x[6]), 0);
             enc.set_buffer(6, Some(&b_out[6]), 0);
         }
+        Arm::E1vFlux => {
+            enc.set_buffer(0, Some(&b_edata), 0);
+            enc.set_buffer(1, Some(&b_ebases), 0);
+            enc.set_buffer(2, Some(&b_etab), 0);
+            enc.set_buffer(3, Some(&b_epay), 0);
+            enc.set_buffer(4, Some(&b_ebinom), 0);
+            enc.set_buffer(5, Some(&b_egolay), 0);
+            enc.set_buffer(6, Some(&b_gs[8]), 0);
+            enc.set_buffer(7, Some(&b_x[8]), 0);
+            enc.set_buffer(8, Some(&b_out[8]), 0);
+        }
     };
 
     // =======================================================================
     // 6. V0 — every arm verified before one millisecond is believed (§3, §7)
     // =======================================================================
     println!("\nV0        aucune milliseconde n'est crue avant ce bloc");
+
+    // ---- V0(a) : la fixture E1v, ce que le tirage ne peut pas atteindre ----
+    //
+    // Elle passe AVANT le tirage : si le décodeur est faux sur l'origine ou sur
+    // une classe que le fichier n'habite pas, le tirage ne le dira jamais, et
+    // un bras vert sur 2^24 blocs serait vert pour la mauvaise raison.
+    let nf = fix_idx.len();
+    assert!(
+        nf.is_multiple_of(group),
+        "{nf} blocs de fixture ne font pas un nombre entier de threadgroups de {group}"
+    );
+    // La couverture est ASSERTÉE, pas imprimée : une fixture qui raterait
+    // l'origine imprimerait exactement la même ligne verte qu'une fixture qui
+    // l'atteint (§5 du dossier).
+    let fseen: BTreeSet<Option<usize>> = fix_idx.iter().map(|&i| fd.class_of(i)).collect();
+    assert!(
+        fseen.contains(&None),
+        "la fixture ne contient pas l'origine, qui est la moitié de sa raison d'être"
+    );
+    for ci in 0..fd.n_classes() {
+        assert!(fseen.contains(&Some(ci)), "classe {ci} absente de la fixture E1v");
+    }
+    let fb_data = kernels[8].buffer(&fix_data);
+    let fb_bases = kernels[8].buffer(&fix.bases);
+    let fb_out = kernels[8].empty::<f32>(nf);
+    kernels[8].dispatch(nf as u64, group as u64, |enc| {
+        enc.set_buffer(0, Some(&fb_data), 0);
+        enc.set_buffer(1, Some(&fb_bases), 0);
+        enc.set_buffer(2, Some(&b_etab), 0);
+        enc.set_buffer(3, Some(&b_epay), 0);
+        enc.set_buffer(4, Some(&b_ebinom), 0);
+        enc.set_buffer(5, Some(&b_egolay), 0);
+        enc.set_buffer(6, Some(&b_gs[8]), 0);
+        enc.set_buffer(7, Some(&b_x[8]), 0);
+        enc.set_buffer(8, Some(&fb_out), 0);
+    });
+    // SAFETY: the dispatch above completed and wrote nf floats into fb_out.
+    let fix_got: Vec<f32> = unsafe { kernels[8].read(&fb_out, nf) };
+    let fix_want = etalon_cns(&fd, &golay, &fix_idx, &fix_gain, &gscale, &x)?;
+    let (fix_worst, fix_bad) = worst_rel(&fix_got, &fix_want);
+    println!(
+        "          {:<22} {nf} blocs de FIXTURE — les {} classes (toutes), l'origine que le \
+         4B ne\n          {:<22} porte pas, et un groupe entier de la classe la plus large. \
+         Pire erreur {fix_worst:.1e}·Σ|w·x|{}",
+        Arm::E1vFlux.name(),
+        fd.n_classes(),
+        "",
+        if fix_bad > 0 {
+            format!("\n          ROUGE, {fix_bad} blocs > {TOL:.0e}")
+        } else {
+            String::new()
+        }
+    );
+    if fix_bad > 0 {
+        return Err(format!(
+            "{} échoue V0 sur la fixture : le bras n'existe pas, il n'est pas chronométré \
+             (§5 du pré-enregistrement de P1c). Correction d'abord.",
+            Arm::E1vFlux.name()
+        ));
+    }
+
+    // ---- V0(b) : le tirage, et ses deux étalons ----------------------------
     let want_cascade = etalon_cascade(&fd, &indices, &gains, &gscale, &x)?;
+    // L'étalon que P1c nomme (§2) : `cns_decode`, sur les mêmes blocs. Il n'est
+    // pas neuf — P5 C2 l'a balayé contre `FastDecoder::decode` sur les
+    // 150 681 600 blocs du 4B — et il n'est pas non plus le même chemin de code
+    // que `etalon_cascade`. Les deux sont donc calculés et leur égalité EXIGÉE :
+    // pour le prix d'une passe CPU, C2 est rétabli sur les blocs mêmes qu'on
+    // s'apprête à chronométrer, au lieu d'être cité.
+    let want_cns = etalon_cns(&fd, &golay, &indices, &gains, &gscale, &x)?;
+    let disagree = want_cns
+        .iter()
+        .zip(&want_cascade)
+        .filter(|(a, b)| a.0 != b.0 || a.1 != b.1)
+        .count();
+    assert_eq!(
+        disagree, 0,
+        "les deux étalons divergent sur {disagree} blocs : la re-bijection de P5 (C2) ne \
+         tient pas sur ce tirage, et aucun bras n'est chronométrable avant d'en connaître \
+         la cause"
+    );
+    println!(
+        "          {:<22} les deux étalons — `cns_decode` (nommé par P1c) et \
+         `FastDecoder::decode` — coïncident\n          {:<22} au bit près sur les {N} blocs : \
+         C2 de P5 refait sur le tirage, pas cité.",
+        "étalons", ""
+    );
+
     let mut worst = vec![0.0f64; Arm::ALL.len()];
     for (ai, k) in kernels.iter().enumerate() {
         k.dispatch(N as u64, group as u64, |enc| bind(enc, ai));
@@ -736,6 +1009,9 @@ fn run() -> Result<(), String> {
         let etalon: Option<&[(f64, f64)]> = match Arm::ALL[ai] {
             Arm::CascadeArchive | Arm::CascadeUniform | Arm::MarcheBloc
             | Arm::MarcheBlocPlat => Some(&want_cascade),
+            // §2 of P1c names `cns_decode`, and the block above has just shown
+            // it to be the same numbers as the archive's on this draw.
+            Arm::E1vFlux => Some(&want_cns),
             Arm::Marche => Some(&walk_want),
             Arm::Sol | Arm::Masques | Arm::SolRang => None,
         };
@@ -886,7 +1162,8 @@ fn run() -> Result<(), String> {
         println!(
             "  {:<22}{:>7}{:>10.3}{:>10.3}{:>10.3}{:>11.4}   {:.2}× [{:.2}–{:.2}]",
             arm.name(),
-            arm.bytes_per_block(),
+            arm.bytes_per_block()
+                .map_or_else(|| "var".to_string(), |b| b.to_string()),
             lo * 1e3,
             med * 1e3,
             hi * 1e3,
@@ -987,6 +1264,60 @@ fn run() -> Result<(), String> {
              par un nombre\n          qui décrivait une marche, pas un bloc"
         }
     );
+    // =======================================================================
+    // 9bis. P1c — le prix de l'adressage, et la règle de restitution
+    // =======================================================================
+    let (a8, a6) = (ns[8], ns[6]);
+    let addr = a8 - a6;
+    let span68 = oh_span_ns[6].max(oh_span_ns[8]);
+    println!(
+        "\n          P1c — le FLUX E1v, adressage compris : {a8:.4} ns/bloc contre \
+         {KILL_WALK_NS:.2} — {}",
+        if a8 <= KILL_WALK_NS { "VERT" } else { "ROUGE" }
+    );
+    println!(
+        "          prix de l'adressage = e1v-flux − marche-bloc = {addr:+.4} ns/bloc \
+         ({:+.1} %), étendue du surcoût {span68:.4} ns\n          {} — mot de base, en-tête à \
+         stride fixe, somme préfixe SIMD sur 32 largeurs, fenêtre à 3 mots",
+        100.0 * addr / a6,
+        if span68 > addr.abs() / 2.0 {
+            "VERDICT SUSPENDU (§1.2) : l'écart n'est pas grand devant le bruit du surcoût"
+        } else {
+            "VERDICT RENDU (§1.2)"
+        }
+    );
+    // §6 of P1c: this arm pays everything `marche-bloc` pays PLUS the
+    // addressing, so a faster figure is a reason to look for the error, not a
+    // headline. Named here rather than left to the generic suspicion below,
+    // because the generic one only fires under 0,20 ns.
+    if a8 < a6 {
+        println!(
+            "          🚨 e1v-flux est PLUS RAPIDE que marche-bloc, ce que le §6 du \
+             pré-enregistrement\n             désigne d'avance comme un signal d'erreur : ce \
+             bras paie tout ce que l'autre paie,\n             plus l'adressage. Chercher la \
+             cause avant d'en faire quoi que ce soit."
+        );
+    }
+
+    let (best_i, best_block) = [6usize, 7, 8]
+        .iter()
+        .map(|&i| (i, ns[i]))
+        .min_by(|x, y| x.1.total_cmp(&y.1))
+        .expect("trois bras décodent un bloc");
+    println!(
+        "\n          P1c §3 — RESTITUTION, écrite avant la mesure et symétrique de celle qui a \
+         retiré.\n          Elle porte sur le meilleur décodeur de BLOC du run, pas sur le bras \
+         neuf : c'est `{}`\n          à {best_block:.4} ns contre {CUDA_GATE_NS:.2} — {}",
+        Arm::ALL[best_i].name(),
+        if best_block <= CUDA_GATE_NS {
+            "l'autorisation du bras CUDA de P4 est RÉTABLIE"
+        } else {
+            "l'autorisation reste RETIRÉE (une règle qui ne saurait que retirer ne vaudrait \
+             pas mieux qu'une\n          règle qui ne saurait que donner ; celle-ci pouvait \
+             tirer, et elle ne tire pas)"
+        }
+    );
+
     if ns.iter().any(|&v| v < SUSPICIOUS_NS) {
         println!(
             "\n🚨 un bras rend mieux que {SUSPICIOUS_NS} ns/bloc. Le §5 demande de CHERCHER \

@@ -136,5 +136,88 @@ ailleurs et vaut +0,48 %.
 
 ## 7. Écarts au protocole — journal, tenu à chaud
 
-**Aucune entorse à ce jour.** Ce document est écrit avant la première ligne du
-shader neuf.
+**Aucune entorse.** Rien de ce qui suit ne déplace un seuil, n'ajoute un bras ni
+ne retire une vérification ; les six entrées sont des **précisions** et des
+**ajouts**, et elles sont écrites ici parce que le §7 existe pour ça.
+
+🚨 **Elles sont écrites AVANT le tampon, et c'est la seule fenêtre où elles
+pouvaient l'être.** Un pré-enregistrement horodaté est en lecture seule **pour
+toujours** — l'éditer change son SHA256 et invalide le `.ots`, et le ré-ancrer
+produirait un horodatage postérieur à la mesure qu'il juge, c'est-à-dire
+exactement l'objet sans valeur que le tampon existe pour éviter
+([`proofs/README.md`](README.md), qui donne la règle et sa seule exception
+jamais consentie).
+
+⚠️ **Donc ce §7 cesse d'être « tenu à chaud » à la seconde du `ots stamp`.** Tout
+écart constaté après le tampon va dans le **journal de mesure**
+(`docs/mesures/p1c-…`) et dans `proofs/README.md`, jamais ici. Une session
+future qui viendrait « compléter le §7 » d'un document scellé détruirait la
+seule chose qui fait sa valeur.
+
+**(a) L'inconnue nommée au §6 est levée, et dans le bon sens.**
+`simd_prefix_exclusive_sum` **existe** dans le MSL de ce runtime : le shader
+compile sur Apple M3 Max, simd 32, max group 1024
+(`cargo run --release -p llvq-metal --bin mslcheck`, 2026-08-15). Le bras mesure
+donc bien un **warp-scan matériel** et non une somme préfixe sérielle. Le
+journal du run doit le dire ; il le peut maintenant.
+
+**(b) Précision de vocabulaire sur un nombre divulgué au §1 — 56 est un
+RECORD, pas une charge utile.** Le §1 divulgue « la largeur maximale d'un
+record est 56 bits sur 8 champs (classe 323) », et c'est exact :
+`CnsLayout::bits()` compte l'en-tête. Mais ce que la somme préfixe additionne
+est la **charge utile**, en-tête exclu, donc **46 bits** sur cette même classe
+323. Dix bits séparent les deux quantités et seul leur nom les distingue ; une
+somme préfixe qui additionnerait des records mettrait dix bits de dérive dans
+chaque lane de chaque groupe. Le §1 n'est pas corrigé — il n'est pas faux —
+mais le shader, le banc et le test nomment désormais les deux séparément.
+*Trouvé par un test qui vérifiait le nombre divulgué au lieu de lui faire
+confiance.*
+
+**(c) Ajout au §5 : une passe de FIXTURE, en plus du tirage.** Le §5.2 demande
+les 2^24 blocs du tirage, et ils seront faits. Mais le 4B publié ne porte
+**aucun bloc origine** (le banc l'assertait déjà avant P1c) : l'id 511 — dont la
+charge utile est vide, dont l'entrée de table est 0 et non `1+ci`, et qui ne
+contribue rien à la somme préfixe — n'est donc atteignable par **aucun** tirage.
+S'y ajoutent les 97 entrées de table que le fichier n'habite pas. La fixture
+couvre les 383 classes aux deux bouts, l'origine, et **un groupe entier de la
+classe la plus large** — la plus grande somme préfixe que l'adressage puisse
+subir, qu'un mélange n'atteint jamais. Un ajout ne dispense de rien : le tirage
+reste exigé.
+
+**(d) V0 est établi AVANT que le tampon soit dépensé.** Un tampon est une porte
+à sens unique, et le §5.4 enterre un bras dont V0 échoue. La passe de fixture
+tourne donc dans **`bin/p1v0`** — le binaire dont c'est le rôle, sans garde de
+tampon et sans chronomètre — et elle est **verte le 2026-08-15** : 1 280 blocs,
+pire écart **2,194e-7** relatif à Σ|w·x|, sur les 383 classes, l'origine et le
+groupe le plus large. Le tirage de 2^24 blocs reste dans le banc, comme le §5.2
+le demande.
+
+**(e) Ajout au §2 : les DEUX étalons, et leur égalité exigée.** Le §2 nomme
+`cns_decode`. Le banc le calcule, calcule aussi `FastDecoder::decode`, et
+**exige l'égalité au bit près** sur les 2^24 blocs avant de chronométrer quoi
+que ce soit. Pour le prix d'une passe CPU, **C2 de P5 est refait sur les blocs
+mêmes qu'on s'apprête à chronométrer** au lieu d'être cité.
+
+**(f) Le garde de tampon du banc couvre désormais trois documents** — P1, P1b et
+P1c — au lieu du seul P1. Ajouter un bras ajoute son document au garde, sans
+quoi le §0 de ce document ne serait tenu que par la prose.
+
+**(g) Le tampon est posé par délégation, et il ne dit pas qui.** L'opérateur a
+délégué le `ots stamp` le 2026-08-15, le §0 le lui attribuant par défaut. Ça ne
+change rien à ce que le tampon établit — **l'antériorité du document, pas son
+auteur** — et il faut le dire ici plutôt que le laisser supposer : aucune
+signature GPG n'existe sur ce document, comme sur aucun autre de ce répertoire
+(`proofs/README.md`, point 1). Qui a écrit quoi repose sur git et sur la parole
+de l'opérateur ; ce que le `.ots` ajoute, c'est qu'aucune des deux ne peut
+antidater le fichier.
+
+### Ce que les mutants ont dit (§5 du dossier, appliqué aux gardes neufs)
+
+| mutant | effet attendu | observé |
+|---|---|---|
+| une dérive de **texte** dans la région partagée des deux shaders, sémantique inchangée | seul un test de texte peut la voir | `the_two_arms_share_their_helpers_byte_for_byte` **ROUGE** |
+| une largeur de charge utile fausse d'**un seul bit** sur une classe | V0 rouge, et la casse doit se propager au **reste du groupe** | **ROUGE, 30 blocs sur 1 280**, pire écart 9,36e-1 relatif — trois occurrences de la classe, chacune empoisonnant les lanes qui la suivent |
+
+Le second est le garde qui compte : il montre que la somme préfixe est
+réellement vérifiée par V0, et il en montre la **forme** — un bit de largeur
+fausse ne corrompt pas un champ, il désynchronise un groupe.

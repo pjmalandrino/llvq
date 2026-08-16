@@ -52,6 +52,35 @@ pub const E1V_GROUP: usize = 32;
 /// Bits of the class field. The gain takes the tenth bit of the header.
 pub const E1V_CLASS_BITS: u32 = 9;
 
+/// ## Two cuts of the same stream, and only one of them can be served
+///
+/// The groups above are cut **in file order**, 32 blocks at a time. X3
+/// (`docs/mesures/x3-alignement-warp-2026-08-15.txt`) showed that the served
+/// matvec cannot read that cut: it puts one warp per output **row**
+/// (`planes.cu`, `b0r = row · nblocks`, `j = jlo + lane`), so lane `l` handles
+/// group rank `(row·nblocks + lane) mod 32` — a rotation that vanishes only
+/// when `nblocks ≡ 0 (mod 32)`. On the five shapes of the published 4B it never
+/// does: **0 aligned blocks out of 150 681 600**. Every warp would straddle two
+/// groups, read two base words and scan two header regions.
+///
+/// So there is a second cut, [`transcode_e1v_rows`], where **a group never
+/// straddles a row**: the last group of each row is *partial*. It is the only
+/// one a warp can read, and it is what a CUDA arm must be measured on.
+///
+/// 🔎 **A partial group is cheap here, and that is not a detail — it is the
+/// whole reason E1v survives this where `E1c14` died.** An `E1c` group costs
+/// `24·(1+plans)` words whatever the occupancy, so a group of 10 blocks costs
+/// the price of 32 and alignment can only be bought by padding rows out to a
+/// multiple of 32 blocks: **+15,47 %**, which made `E1c14` bigger than the
+/// layout it replaces. An `E1v` group costs one base word plus the sum of its
+/// records, rounded to a word, so a partial group costs what its records cost.
+/// The variable width — everything E1v pays for in decode complexity — is
+/// exactly what saves it.
+///
+/// A partial group of `k` blocks writes `k` headers, not 32, so its payloads
+/// begin at `10·k` rather than at 320. `k` is **derived, never stored**:
+/// `min(32, nblocks − 32·g)`, which is what the kernel has in hand.
+///
 /// The `E1v` stream: fixed-stride headers, warp-scanned payloads, one base word
 /// per group.
 pub struct E1vBlocks {
@@ -61,6 +90,13 @@ pub struct E1vBlocks {
     pub data: Vec<u8>,
     /// Word offset of each group's start in `data`.
     pub bases: Vec<u32>,
+    /// Blocks per row when the stream is **row-aligned**; `None` in file order.
+    ///
+    /// One scalar per matrix, and deliberately not a per-group table: the
+    /// served kernel has `nblocks` and derives everything else, so a host that
+    /// consulted a stored table would be proving a property the kernel cannot
+    /// use. It costs no bits and [`Self::bits_per_weight`] counts none for it.
+    pub row_blocks: Option<usize>,
 }
 
 impl E1vBlocks {
@@ -158,14 +194,70 @@ pub fn transcode_e1v(
     indices: &[u64],
     gains: &[u32],
 ) -> Result<E1vBlocks> {
-    assert_eq!(indices.len(), gains.len(), "one gain per block");
     assert_eq!(
         indices.len() % E1V_GROUP,
         0,
         "E1v addresses whole groups of {E1V_GROUP}; the caller pads or splits"
     );
+    transcode_groups(fd, golay, indices, gains, None)
+}
+
+/// **The servable cut**: the same stream, cut so that a group never straddles a
+/// row.
+///
+/// `indices` is one matrix in row-major order and `row_blocks` its blocks per
+/// row (`d_in / 24`). Each row becomes `ceil(row_blocks / 32)` groups, the last
+/// of them partial — see the type's own documentation for why a partial group
+/// is cheap here and ruinous for `E1c`.
+///
+/// This is the cut a CUDA arm must be measured on. Measuring the file-order cut
+/// on a warp-per-row matvec would price a misalignment and call it a layout —
+/// the mistake X3 refused to let `E1c14` be judged by.
+pub fn transcode_e1v_rows(
+    fd: &FastDecoder,
+    golay: &Golay,
+    indices: &[u64],
+    gains: &[u32],
+    row_blocks: usize,
+) -> Result<E1vBlocks> {
+    assert!(row_blocks > 0, "a row holds at least one block");
+    assert_eq!(
+        indices.len() % row_blocks,
+        0,
+        "a row-aligned stream is cut into whole rows of {row_blocks} blocks"
+    );
+    transcode_groups(fd, golay, indices, gains, Some(row_blocks))
+}
+
+/// How many blocks each group holds, in stream order — the only thing the two
+/// cuts disagree about.
+fn group_lens(n: usize, row_blocks: Option<usize>) -> Vec<usize> {
+    match row_blocks {
+        None => vec![E1V_GROUP; n / E1V_GROUP],
+        Some(rb) => {
+            let per_row = rb.div_ceil(E1V_GROUP);
+            let mut v = Vec::with_capacity((n / rb) * per_row);
+            for _ in 0..n / rb {
+                for g in 0..per_row {
+                    v.push(E1V_GROUP.min(rb - g * E1V_GROUP));
+                }
+            }
+            v
+        }
+    }
+}
+
+fn transcode_groups(
+    fd: &FastDecoder,
+    golay: &Golay,
+    indices: &[u64],
+    gains: &[u32],
+    row_blocks: Option<usize>,
+) -> Result<E1vBlocks> {
+    assert_eq!(indices.len(), gains.len(), "one gain per block");
     let n = indices.len();
-    let n_groups = n / E1V_GROUP;
+    let lens = group_lens(n, row_blocks);
+    debug_assert_eq!(lens.iter().sum::<usize>(), n, "the groups partition the blocks");
 
     // One layout per class, built once. The origin has none: its record is the
     // header alone (P5 §2.2).
@@ -175,12 +267,15 @@ pub fn transcode_e1v(
 
     // Pass 1 — the sizes, so the buffer is allocated once rather than grown.
     let mut recs: Vec<CnsRecord> = Vec::with_capacity(n);
-    let mut group_words: Vec<u32> = Vec::with_capacity(n_groups);
     let mut total_words = 0u32;
-    let mut bases = Vec::with_capacity(n_groups);
-    for g in 0..n_groups {
-        let mut bits = HEADER_BITS * E1V_GROUP as u64;
-        for b in g * E1V_GROUP..(g + 1) * E1V_GROUP {
+    let mut bases = Vec::with_capacity(lens.len());
+    let mut first = 0usize;
+    for &len in &lens {
+        // A partial group writes `len` headers, not 32: the header region is
+        // what the payloads start after, so a group that reserved 32 of them
+        // would leave holes the scan does not account for.
+        let mut bits = HEADER_BITS * len as u64;
+        for b in first..first + len {
             let gain = u8::try_from(gains[b]).expect("one gain bit");
             let rec = cns_encode(fd, indices[b], gain)
                 .ok_or(crate::Error::IndexOutOfRange {
@@ -194,17 +289,18 @@ pub fn transcode_e1v(
         }
         let words = u32::try_from(bits.div_ceil(32)).expect("group fits u32 words");
         bases.push(total_words);
-        group_words.push(words);
         total_words += words;
+        first += len;
     }
 
     // Pass 2 — the bits.
     let mut data = vec![0u8; total_words as usize * 4];
-    for g in 0..n_groups {
+    let mut first = 0usize;
+    for (g, &len) in lens.iter().enumerate() {
         let base = u64::from(bases[g]) * 32;
-        let mut cursor = base + HEADER_BITS * E1V_GROUP as u64;
-        for l in 0..E1V_GROUP {
-            let rec = &recs[g * E1V_GROUP + l];
+        let mut cursor = base + HEADER_BITS * len as u64;
+        for l in 0..len {
+            let rec = &recs[first + l];
             // The header, at its fixed stride — the only field a lane can read
             // before it knows anything.
             let id = rec.class.map_or(u64::from((1u32 << E1V_CLASS_BITS) - 1), |ci| ci as u64);
@@ -224,12 +320,14 @@ pub fn transcode_e1v(
                 cursor += u64::from(widths[i]);
             }
         }
+        first += len;
     }
 
     Ok(E1vBlocks {
         n_blocks: n,
         data,
         bases,
+        row_blocks,
     })
 }
 
@@ -238,6 +336,29 @@ pub fn transcode_e1v(
 pub const E1V_ORIGIN_ID: u64 = (1 << E1V_CLASS_BITS) - 1;
 
 impl E1vBlocks {
+    /// Where block `b` lives: `(group, lane, blocks in that group)`.
+    ///
+    /// Derived from `row_blocks` alone — **never** from a stored per-group
+    /// table — because that is all a kernel has: it holds `nblocks`, its lane
+    /// index and its row, and everything else is arithmetic. A host reader that
+    /// consulted a table would prove a property no kernel can use.
+    pub fn locate(&self, b: usize) -> (usize, usize, usize) {
+        assert!(b < self.n_blocks, "block {b} is past the stream");
+        match self.row_blocks {
+            None => (b / E1V_GROUP, b % E1V_GROUP, E1V_GROUP),
+            Some(rb) => {
+                let per_row = rb.div_ceil(E1V_GROUP);
+                let (row, j) = (b / rb, b % rb);
+                let g = j / E1V_GROUP;
+                (
+                    row * per_row + g,
+                    j % E1V_GROUP,
+                    E1V_GROUP.min(rb - g * E1V_GROUP),
+                )
+            }
+        }
+    }
+
     /// Read block `b` back out of the bytes and decode it.
     ///
     /// The **only** reader of this stream, and it walks the map the way the
@@ -250,12 +371,12 @@ impl E1vBlocks {
         layouts: &[CnsLayout],
         b: usize,
     ) -> ([i32; DIM], u8) {
-        let (g, l) = (b / E1V_GROUP, b % E1V_GROUP);
+        let (g, l, len) = self.locate(b);
         let base = u64::from(self.bases[g]) * 32;
 
         // The warp-scan: every lane before this one contributes its payload
         // width, and each of those widths is read from that lane's own header.
-        let mut cursor = base + HEADER_BITS * E1V_GROUP as u64;
+        let mut cursor = base + HEADER_BITS * len as u64;
         let mut here = None;
         for i in 0..=l {
             let hb = base + HEADER_BITS * i as u64;

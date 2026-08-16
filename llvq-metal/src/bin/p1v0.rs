@@ -2,17 +2,18 @@
 //!
 //! `proofs/preregistration-p1-2026-08-13.md` §3: *aucune milliseconde n'est
 //! chronométrée avant que le décodeur soit prouvé*. This binary is that proof
-//! for the two new arms. It prints no timing, no throughput and no derived
+//! for the new arms. It prints no timing, no throughput and no derived
 //! tok/s — deliberately. A number of that kind here would be read as a P1
 //! result, and P1 has not run.
 //!
-//! ## The two arms do not have the same standard, and confusing them is the
-//! ## trap this file exists to avoid
+//! ## The arms do not have the same standard, and confusing them is the trap
+//! ## this file exists to avoid
 //!
 //! | arm | etalon |
 //! |---|---|
 //! | `cascade_uniform` | the dot product of `FastDecoder::decode`'s point, in f64 — it decodes the **archive's** order, so equality is the requirement |
 //! | `decode_walk` | the dot product `binomial_walk` (the CPU reference) gives **on the same ranks**, over levels re-derived from `FastDecoder::levels` — it decodes **its own** combinatorial order |
+//! | `decode_e1v` | the dot product of `cns_decode`'s point — the CNS is what the E1v stream numbers, and P5 C2 swept it against `FastDecoder::decode` over the 150 681 600 blocks of the 4B |
 //!
 //! Amendment É2 of the pre-registration settles the second: relating a
 //! binomial walk's order to the archive's multiset-permutation order *is* the
@@ -22,6 +23,14 @@
 //! ranks the host draws, and the GPU is required to agree with the Rust on
 //! those ranks. It is a round trip across the CPU/GPU boundary on one
 //! bijection, not a comparison to the archive.
+//!
+//! The **third** arm is here for a reason of *ordering* rather than of
+//! coverage. Its own pre-registration (P1c) puts the draw's V0 inside
+//! `bin/rankbench`, which is where the draw lives — but that bench refuses to
+//! start until three documents are stamped, and a stamp is a one-way door. This
+//! binary establishes the decode exact over the whole table *before* anyone is
+//! asked to spend one. It runs the fixture only; the 2^24 blocks stay the
+//! bench's job.
 //!
 //! ## Two passes, and the second cannot replace the first
 //!
@@ -48,11 +57,12 @@
 //!
 //! Run: `cargo run --release -p llvq-metal --bin p1v0 [N] [model.llvq]`
 
+use llvq_artifact::e1v::{transcode_e1v, E1vBlocks};
 use llvq_core::{Golay, SplitMix64, DIM};
 use llvq_metal::p1host::{
-    binom_table, cascade_ends, cascade_records, div_table, dot_of, etalon_cascade, walk_feed,
-    walk_levels, walk_radix_table, walk_records, GpuCascadeRec, GpuDivTab, GpuWalkRec, Levels,
-    WalkFeed,
+    binom_table, block_records, cascade_ends, cascade_records, div_table, dot_of, e1v_fixture,
+    e1v_payload_bits, etalon_cascade, etalon_cns, walk_feed, walk_levels, walk_radix_table,
+    walk_records, GpuBlockRec, GpuCascadeRec, GpuDivTab, GpuWalkRec, Levels, WalkFeed,
 };
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
 use llvq_search::rankdec::{binomial_rank, binomial_walk, walk_cardinality};
@@ -112,7 +122,7 @@ fn xvec() -> Vec<f32> {
 }
 
 // ---------------------------------------------------------------------------
-// The two arms, each holding its constant tables on the device
+// The arms, each holding its constant tables on the device
 // ---------------------------------------------------------------------------
 
 /// The `cascade-uniformisée` arm: archive index in, one dot product out.
@@ -254,6 +264,74 @@ impl WalkArm {
         });
         // SAFETY: the dispatch above completed and wrote n*DIM bytes into b_out.
         unsafe { self.k_arr.read(&b_out, n * DIM) }
+    }
+}
+
+/// The `e1v-flux` arm of P1c: the **real** E1v stream in, one dot product out.
+///
+/// It holds the same three tables `marche-bloc` reads — block records,
+/// binomials, Golay — plus the payload-width table the warp-scan sums. The
+/// stream itself is not a table and is handed to [`Self::run`], because the
+/// whole point of this arm is that where a record sits depends on what its
+/// neighbours are.
+struct E1vArm {
+    k: llvq_metal::Kernel,
+    b_tab: metal::Buffer,
+    b_pay: metal::Buffer,
+    b_binom: metal::Buffer,
+    b_golay: metal::Buffer,
+    b_gs: metal::Buffer,
+    b_x: metal::Buffer,
+}
+
+impl E1vArm {
+    fn new(
+        brecs: &[GpuBlockRec],
+        pay: &[u32],
+        binom: &[u32],
+        golay: &Golay,
+        x: &[f32],
+    ) -> Result<Self, String> {
+        let src = include_str!("../../shaders/e1v_flux.metal");
+        let k = llvq_metal::Kernel::new(src, "decode_e1v")?;
+        Ok(Self {
+            b_tab: k.buffer(brecs),
+            b_pay: k.buffer(pay),
+            b_binom: k.buffer(binom),
+            b_golay: k.buffer(golay.codewords()),
+            b_gs: k.buffer(&GSCALE),
+            b_x: k.buffer(x),
+            k,
+        })
+    }
+
+    fn run(&self, stream: &E1vBlocks) -> Vec<f32> {
+        let n = stream.n_blocks;
+        assert!(
+            n > 0 && n.is_multiple_of(GROUP),
+            "{n} blocs n'est pas un multiple de {GROUP}"
+        );
+        // Two words of padding so the three-word window of the last lane cannot
+        // run off the end. Not part of the stream, and never counted as bytes
+        // read (`thesis.rs:731`).
+        let mut data = stream.data.clone();
+        data.extend_from_slice(&[0u8; 8]);
+        let b_data = self.k.buffer(&data);
+        let b_bases = self.k.buffer(&stream.bases);
+        let b_out = self.k.empty::<f32>(n);
+        self.k.dispatch(n as u64, GROUP as u64, |enc| {
+            enc.set_buffer(0, Some(&b_data), 0);
+            enc.set_buffer(1, Some(&b_bases), 0);
+            enc.set_buffer(2, Some(&self.b_tab), 0);
+            enc.set_buffer(3, Some(&self.b_pay), 0);
+            enc.set_buffer(4, Some(&self.b_binom), 0);
+            enc.set_buffer(5, Some(&self.b_golay), 0);
+            enc.set_buffer(6, Some(&self.b_gs), 0);
+            enc.set_buffer(7, Some(&self.b_x), 0);
+            enc.set_buffer(8, Some(&b_out), 0);
+        });
+        // SAFETY: the dispatch above completed and wrote n floats into b_out.
+        unsafe { self.k.read(&b_out, n) }
     }
 }
 
@@ -630,6 +708,7 @@ fn main() -> Result<(), String> {
     let radices = walk_radix_table(&walk);
     let lev = walk_levels(&fd);
     let binom = binom_table();
+    let brecs = block_records(&fd, &golay);
     println!(
         "tables hôtes : {} classes cascade (88 o), {} entrées marche (52 o), \
          DivTab 600 o, binomiaux {}×{}, Golay {} mots",
@@ -715,6 +794,54 @@ fn main() -> Result<(), String> {
         &fdots,
         &x,
         "walk_arrangement",
+    );
+
+    // =======================================================================
+    // PASSE 1ter — le flux E1v, sur la même fixture (P1c)
+    // =======================================================================
+    //
+    // Ce bras ne décode rien que `marche-bloc` ne décode — son corps est le même
+    // texte, à l'octet près, et un test l'exige. Ce qu'il ajoute est l'ADRESSAGE :
+    // mot de base, en-tête à stride fixe, somme préfixe SIMD sur les 32 largeurs
+    // du groupe, fenêtre à trois mots. C'est donc l'adressage que cette passe
+    // vérifie, et la fixture est faite pour lui : l'origine (dont la charge utile
+    // est VIDE, donc qui ne contribue rien à la somme préfixe et dont l'entrée de
+    // table est 0 au lieu de 1+ci) et un groupe entier de la classe la plus
+    // large, qui est la plus grande somme préfixe que l'adressage puisse subir.
+    println!("\n{}", "-".repeat(78));
+    let pay = e1v_payload_bits(&fd, &golay, &brecs);
+    let (e1x, e1g) = e1v_fixture(&fd, &pay, GROUP);
+    let e1seen: BTreeSet<Option<usize>> = e1x.iter().map(|&i| fd.class_of(i)).collect();
+    assert!(
+        e1seen.contains(&None),
+        "la fixture E1v ne contient pas l'origine, que le 4B ne porte pas et qu'aucun \
+         tirage n'atteindra donc jamais"
+    );
+    for ci in 0..fd.n_classes() {
+        assert!(e1seen.contains(&Some(ci)), "classe {ci} absente de la fixture E1v");
+    }
+    let stream = transcode_e1v(
+        &fd,
+        &golay,
+        &e1x,
+        &e1g.iter().map(|&g| u32::from(g)).collect::<Vec<_>>(),
+    )
+    .map_err(|e| e.to_string())?;
+    println!(
+        "bras E1v — étalon : produit scalaire f64 de cns_decode (P1c §2), pas fd.decode\n  \
+         {} blocs, {} groupes, {} o de flux + {} o de mots de base, largeur de charge utile \
+         au pire {} bits",
+        stream.n_blocks,
+        stream.bases.len(),
+        stream.data.len(),
+        4 * stream.bases.len(),
+        pay.iter().max().expect("la table n'est pas vide")
+    );
+    let e1v_arm = E1vArm::new(&brecs, &pay, &binom, &golay, &x)?;
+    let fe = verify(
+        "decode_e1v",
+        &e1v_arm.run(&stream),
+        &etalon_cns(&fd, &golay, &e1x, &e1g, &GSCALE, &x)?,
     );
 
     // =======================================================================
@@ -869,34 +996,42 @@ fn main() -> Result<(), String> {
 
     // ---- verdict ----------------------------------------------------------
     println!("\n{}", "-".repeat(78));
-    let ok = fc.bad == 0 && fw.bad == 0 && fwa == 0 && ea == 0 && eb == 0 && wc.bad == 0
+    let ok = fc.bad == 0 && fw.bad == 0 && fwa == 0 && fe.bad == 0 && ea == 0 && eb == 0
+        && wc.bad == 0
         && ww.bad == 0
         && wwa == 0;
     if ok {
         println!(
-            "V0 VERT — les deux bras, aux deux passes, plus la bijection.\n\n  \
+            "V0 VERT — les trois bras, plus la bijection.\n\n  \
              cascade : {} blocs de fixture (toutes les {} classes, origine comprise) \
              + {n} blocs réels,\n            point pour point contre FastDecoder::decode\n  \
              marche  : {} blocs de fixture + {n} blocs réels, aller-retour rang → \
              arrangement → rang\n            FERMÉ SUR L'ARRANGEMENT DU GPU, multiensemble \
-             réalisé, égalité au CPU slot par slot\n  bijection : {} entrées énumérées \
+             réalisé, égalité au CPU slot par slot\n  E1v     : {} blocs de fixture — toutes \
+             les classes, l'origine que le 4B ne porte pas,\n            et un groupe entier \
+             de la classe la plus large, contre cns_decode\n  bijection : {} entrées énumérées \
              entièrement ({ecard} rangs), arrangements distincts\n\n\
              Tolérance {REL:.0e}·Σ|w·x|. Ce que ça autorise : écrire le banc, et rien \
-             d'autre.\n⚠️ L'arrangement sort du jumeau instrumenté `walk_arrangement`, pas \
-             de `decode_walk`,\n   qui n'émet qu'une somme — le lien entre les deux est le \
-             produit scalaire, pas\n   l'arrangement (binomial_walk.metal §11).",
+             d'autre.\n⚠️ Le bras E1v n'a PAS de passe sur tirage réel ici : son \
+             pré-enregistrement (P1c §5.2) la\n   place dans `bin/rankbench`, sur les 2^24 \
+             blocs du tirage. Ce qui est établi ici, c'est\n   l'exactitude sur les entrées de \
+             table — dont l'origine, qu'aucun tirage n'atteindra.\n⚠️ L'arrangement sort du \
+             jumeau instrumenté `walk_arrangement`, pas de `decode_walk`,\n   qui n'émet qu'une \
+             somme — le lien entre les deux est le produit scalaire, pas\n   l'arrangement \
+             (binomial_walk.metal §11).",
             fidx.len(),
             fd.n_classes(),
             ffeed.len(),
+            e1x.len(),
             picked.len(),
         );
     } else {
         println!(
             "V0 ROUGE — fixture : cascade {} bloc(s) hors tolérance, marche {}, \
-             arrangements {fwa} ;\n  bijection : {eb} entrée(s), arrangements {ea} ; \
+             arrangements {fwa}, E1v {} ;\n  bijection : {eb} entrée(s), arrangements {ea} ; \
              tirage réel : cascade {}, marche {}, arrangements {wwa}.\n\
              Aucun chronométrage n'est autorisé.",
-            fc.bad, fw.bad, wc.bad, ww.bad
+            fc.bad, fw.bad, fe.bad, wc.bad, ww.bad
         );
     }
     if !ok {

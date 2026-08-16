@@ -33,8 +33,9 @@ fn main() {
     let binomial_walk = include_str!("../../shaders/binomial_walk.metal");
     let binomial_block = include_str!("../../shaders/binomial_block.metal");
     let block_flat = include_str!("../../shaders/binomial_block_flat.metal");
+    let e1v_flux = include_str!("../../shaders/e1v_flux.metal");
 
-    let cases: [(&str, &str, &str); 9] = [
+    let cases: [(&str, &str, &str); 10] = [
         ("sol", &anchors, "floor96"),
         ("sol-rang (É3a)", &anchors, "floor_rank"),
         ("masques", &anchors, "decode_f96"),
@@ -44,6 +45,13 @@ fn main() {
         ("binomial_walk (twin)", binomial_walk, "walk_arrangement"),
         ("marche-bloc (P1b)", binomial_block, "decode_block"),
         ("marche-bloc-plat (É1)", block_flat, "decode_block_flat"),
+        // P1c. This one carries a named unknown: `simd_prefix_exclusive_sum`
+        // may not exist in the runtime's MSL, and if it does not the arm is
+        // written another way and MEASURES SOMETHING ELSE — a serial prefix sum
+        // is not a warp-scan (pre-registration §6). This binary is where that
+        // is found out, in three seconds rather than inside a bench that also
+        // sweeps a 981 MB file.
+        ("e1v-flux (P1c)", e1v_flux, "decode_e1v"),
     ];
 
     let mut bad = 0;
