@@ -61,10 +61,31 @@
 > attaqué**, et c'est là que vivent les bras d'attribution de P4 (`nullk`,
 > `mvkf16`, `cublasf16`).
 >
+> 🆕 **ET LE PLANCHER EST MESURÉ (2026-08-16), ce qui recadre tout le reste** :
+> une passe de projections qui ne lit AUCUN poids coûte **2,305 ms contre 5,102
+> pour `Planes14`**, soit **45,2 %**
+> ([`docs/mesures/nullk-plancher-2026-08-16.txt`](docs/mesures/nullk-plancher-2026-08-16.txt),
+> 0,77 $). Conséquences, toutes dérivées d'un seul run :
+>
+> | | |
+> |---|---|
+> | plafond absolu de tout travail de **format** | **4,77×** FP16 |
+> | où `Planes14` en est | **2,16×** |
+> | ce que le format achète **net** du plancher | **3,11×** |
+> | coût du décodage de `Planes14` | **~7 %** du temps de trafic |
+>
+> **Le format se dispute au plus 55 % du temps et `Planes14` en capture déjà
+> l'essentiel.** Les 45 % restants ne sont touchés par aucun format : c'est ce
+> que la famille `k` de P4 §2.6 existe pour amortir, et elle n'est pas écrite.
+> ⚠️ Ce 45 % n'est **pas** les 39 % de l'attribution du 08-05, qui portent sur
+> 2,04 ms par **token** — deux dénominateurs.
+>
 > 🧭 **Reprise : commencer par
-> [`docs/archive/passation-e1v-2026-08-15.md`](docs/archive/passation-e1v-2026-08-15.md)**
-> — autonome, il porte le RAF de toutes les phases. ⚠️ **Son §2 est périmé** :
-> il qualifie E1v comme la branche à suivre, ce que la ligne ci-dessus ferme.
+> [`docs/archive/passation-2026-08-16.md`](docs/archive/passation-2026-08-16.md)**
+> — autonome, il porte le RAF de toutes les phases, les dettes et ce que la nuit
+> apprend. ⚠️ Il **périme le §2** de
+> [`passation-e1v-2026-08-15.md`](docs/archive/passation-e1v-2026-08-15.md),
+> qui donne encore E1v comme la branche à suivre.
 >
 > Puis **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
 > P1 ») et le plan d'exécution
