@@ -39,13 +39,32 @@
 > classe. Et la marche binomiale, qui ne divise jamais, rend **3,84× le
 > plancher de la machine**.
 >
+> 🚨 **E1v EST FERMÉ POUR LE CHEMIN SERVI depuis le 2026-08-16 : 0,25× FP16,
+> 25 Go/s sur L40S** ([`docs/mesures/e1v-cuda-2026-08-16.txt`](docs/mesures/e1v-cuda-2026-08-16.txt),
+> 0,85 $, critères d'X3 posés d'avance, plancher à 1,60×). La passation du soir
+> le donnait comme « la branche la plus intéressante » ; ce n'était pas faux au
+> moment où elle l'écrivait, et ça l'est depuis. **Ne pas repartir dessus.**
+>
+> Ce que la mesure NE retire pas : le **format** tient exactement sa promesse —
+> 1,09 Go lus contre 2,18 pour `Planes14`, soit la moitié, **2,3983 b/poids
+> noyau mesurés sur les octets écrits** en coupe alignée ligne, bijection
+> prouvée sur 150 681 600 blocs, qualité inchangée par preuve. Ce qui est mort
+> est son **décodeur en ligne**, borné en calcul : deux marches binomiales, un
+> mot de Golay, une réparation de parité et trois règles de signe contre les
+> sélections de `Planes14`. Le format reste disponible hors boucle.
+>
+> 🔎 **Et le chiffre qui recadre les quatre tentatives de cette ligne** (E3,
+> `Golay70` v2, `e1c14`, E1v) : l'attribution du gisement CUDA découpe les
+> 2,04 ms/token en **latence/occupation 39 %, flux 33 %, décodage 19 %**.
+> Descendre sous `Planes14` attaque les 33 % en multipliant le poste à 19 % —
+> ×17 dans le cas d'E1v. **Le plus gros poste, les 39 %, n'a jamais été
+> attaqué**, et c'est là que vivent les bras d'attribution de P4 (`nullk`,
+> `mvkf16`, `cublasf16`).
+>
 > 🧭 **Reprise : commencer par
 > [`docs/archive/passation-e1v-2026-08-15.md`](docs/archive/passation-e1v-2026-08-15.md)**
-> — autonome, il porte le RAF de toutes les phases et qualifie **E1v**, la
-> branche la plus intéressante : 2,3877 b/poids noyau (1,50 Go sur le 4B contre
-> 2,60 servi), bijection prouvée sur 150 681 600 blocs, décodeur sans division,
-> **qualité inchangée par preuve** — et **aucun noyau GPU**. Le même piège de
-> géométrie qui a enterré `e1c14` (+15,47 %) ne lui coûte que **+0,48 %**.
+> — autonome, il porte le RAF de toutes les phases. ⚠️ **Son §2 est périmé** :
+> il qualifie E1v comme la branche à suivre, ce que la ligne ci-dessus ferme.
 >
 > Puis **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
 > P1 ») et le plan d'exécution

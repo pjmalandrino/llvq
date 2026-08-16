@@ -286,6 +286,33 @@ non visitée. Toute réouverture demande un instrument, pas une relecture.
 
 ---
 
+## 🚨 FERMÉ le 2026-08-16 — E1v sur le chemin servi
+
+`e1v` rend **0,25× FP16, 25 Go/s** sur L40S — contre un plancher de 1,60× posé
+d'avance (critères d'X3 du 2026-08-12, repris sans amendement). Journal :
+[`mesures/e1v-cuda-2026-08-16.txt`](mesures/e1v-cuda-2026-08-16.txt), job
+`6a814ba31f5885ae605bcb55`, **0,85 $**.
+
+**Le format a tenu, le décodeur non** : 1,09 Go lus contre 2,18 pour `Planes14`,
+la moitié au chiffre annoncé, exactitude 2,4e-8·Σ|w·x| sur 1 105 920 lignes, 79
+registres et zéro octet local. Ce qui plafonne est le calcul.
+
+**Ce que ça clôt, au-delà d'E1v.** Quatre routes sous `Planes14` ont été
+tentées — E3 (3,04 b/poids contre 2,60, sur papier), `Golay70` v2 (1,77× contre
+2,0×), `e1c14` (plus gros une fois aligné, sur papier), E1v (0,25×). Toutes
+bornées en **calcul**, aucune en octets. **Le plancher servi reste `Planes14` à
+4,804 b/poids**, et c'est un résultat, pas une collection d'échecs.
+
+🔎 **Et l'arithmétique qui aurait dû le prédire** : l'attribution du gisement
+CUDA donne latence/occupation **39 %**, flux **33 %**, décodage **19 %**. Cette
+ligne attaquait les 33 % en gonflant les 19 %. Le poste majoritaire n'a jamais
+été touché.
+
+**Ce qui reste ouvert de ce côté** : `e1c12` n'a **aucun verdict** — refaire son
+calcul d'alignement **avec le terme d'exceptions** (3,38 % des blocs), 0 $, une
+heure. Ses chances sont faibles après 0,25× et 1,77×, mais un bras sans verdict
+est le pire des états.
+
 ## Ouvert par P1 (2026-08-15) — le bras CUDA de P4, et P5
 
 **Ce qui est acquis**, sur pré-enregistrement horodaté avant la mesure
