@@ -91,6 +91,7 @@ mod linux {
     include!("../planes14_host.rs");
     include!("../golay70_host.rs");
     include!("../seg_host.rs");
+    include!("../e1v_host.rs");
 
     /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
     /// source by the host so the staging size and the tiling are one constant.
@@ -351,6 +352,16 @@ mod linux {
         bytes: u64,
     }
 
+    /// P1c. Le flux E1v aligné ligne, sa table de bases, et le nombre de blocs
+    /// par LIGNE sur lequel il a été coupé — le même que le `nblocks` du noyau,
+    /// porté ici plutôt que recalculé au lancement.
+    struct E1vArm {
+        data: Staged<u32>,
+        bases: Staged<u32>,
+        row_blocks: usize,
+        bytes: u64,
+    }
+
     // ---- le bras concurrent (AWQ w4g128) ----
     //
     // Trois tampons et sa propre référence : son contenu n'est celui
@@ -379,6 +390,7 @@ mod linux {
         planes: Option<PlanesArm>,
         p12: Option<P12Arm>,
         g70: Option<G70Arm>,
+        e1v: Option<E1vArm>,
         awq: Option<AwqArm>,
         // Le témoin FP16 et les entrées partagées, toujours construits :
         // fp16 n'est pas désélectionnable (arms::parse_phases le refuse).
@@ -402,6 +414,7 @@ mod linux {
             arms::PLANES14 => m.planes.as_ref().map_or(0, |x| x.bytes),
             arms::PLANES12X => m.p12.as_ref().map_or(0, |x| x.bytes),
             arms::GOLAY70V1 | arms::GOLAY70V2 => m.g70.as_ref().map_or(0, |x| x.bytes),
+            arms::E1V => m.e1v.as_ref().map_or(0, |x| x.bytes),
             arms::FP16 => m.f16_bytes,
             arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
             _ => unreachable!("bras inconnu"),
@@ -535,6 +548,44 @@ mod linux {
         b.arg(words).arg(exc_idx).arg(exc_words).arg(tab).arg(gscale).arg(rscale)
             .arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w).arg(&row_cta).arg(&n_exc);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes12x: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_e1v(data, bases, tab, pay, binom, golay, gscale, rscale, tail, x, y,
+    /// nblocks, tail_w)` — le bras P1c. Même grille et même épilogue que
+    /// `tv_planes`, un seul lancement, pas de région de corrections et pas de
+    /// `y` remis à zéro : E1v n'a pas d'exceptions, chaque ligne écrit la sienne.
+    ///
+    /// ⚠️ `nblocks` est le nombre de blocs par LIGNE, et c'est la valeur sur
+    /// laquelle le flux a été coupé. Elle vient de `E1vMat::row_blocks` et non
+    /// d'un second calcul : deux valeurs déplaceraient chaque frontière de
+    /// groupe et le décodage partirait faux dès la deuxième ligne.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_e1v(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        data: &cudarc::driver::CudaSlice<u32>,
+        bases: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        pay: &cudarc::driver::CudaSlice<u32>,
+        binom: &cudarc::driver::CudaSlice<u32>,
+        golay: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(data).arg(bases).arg(tab).arg(pay).arg(binom).arg(golay).arg(gscale)
+            .arg(rscale).arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_e1v: {e}"))?;
         Ok(())
     }
 
@@ -747,6 +798,9 @@ mod linux {
         let (segcu, seg_overridden) = load_planes_seg_source()?;
         let (awqcu, awq_overridden) = load_awq_source()?;
         let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
+        // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
+        // the same way and the override is reported below like every other.
+        let e1v = llvq_cuda::load_sources_many(&["llvq_e1v.cuh", "e1v.cu"])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -766,6 +820,11 @@ mod linux {
             awqcu.as_str(),
             // Puis le témoin v1 (2026-08-11), dernier arrivé — même règle.
             gv1cu.as_str(),
+            // Et E1v en dernier (P1c, 2026-08-16) : même règle encore, et
+            // `e1v.cu` a besoin de `matvec.cu` (warp_sum, TILE_BLOCKS), déjà
+            // concaténé en tête.
+            e1v.parts[0].as_str(),
+            e1v.parts[1].as_str(),
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -789,6 +848,9 @@ mod linux {
         }
         if let Some(d) = &seg_overridden {
             println!("  ⚠️ SOURCE Planes14 segmentée SURCHARGÉE depuis {d}");
+        }
+        if let Some(d) = &e1v.overridden_from {
+            println!("  ⚠️ SOURCES E1v SURCHARGÉES depuis {d}");
         }
 
         let cuda = Cuda::new(&src)?;
@@ -815,6 +877,12 @@ mod linux {
             "tv_golay70",
             "tv_golay70_v1",
             "awq_gemv_g128",
+            // 🚨 `tv_e1v` est ici pour la ligne `local_bytes != 0` juste en
+            // dessous, pas pour la table : le corps PLAT a été choisi contre un
+            // corps 24 % plus rapide sur Metal précisément pour ne rien
+            // déborder, et si ce noyau spille, ce choix était faux et le
+            // chiffre mesure autre chose (pré-enregistrement E1v-CUDA §5.4).
+            "tv_e1v",
         ] {
             let r = cuda.report(name)?;
             println!(
@@ -883,6 +951,29 @@ mod linux {
         let d_cw = match g70_needed {
             true => Some(cuda.up_u32(&golay70_gpu_codewords(&golay))?),
             false => None,
+        };
+
+        // Les trois tables constantes du bras E1v, plus les mots de Golay
+        // canoniques. Conditionnelles à l'UNION comme celles de golay70, et
+        // déclarées ici pour la même raison : ~54 Kio de records, 2 Kio de
+        // largeurs, 2,5 Kio de binomiaux et 16 Kio de mots de code résident dès
+        // le départ quand le bras n'entre qu'en phase 2.
+        //
+        // 🚨 Les mots de Golay sont ceux de `Golay::codewords()`, PAS la table
+        // remaniée de golay70 : `llvq_e1v.cuh` indexe `golay[golay_base + gi]`
+        // dans l'ordre canonique du format, et `golay70_gpu_codewords` en produit
+        // un autre. Deux tables qui se ressemblent, et une seule est la bonne.
+        let (d_e1vtab, d_e1vpay, d_e1vbinom, d_e1vcw) = match union.has(arms::E1V) {
+            true => {
+                let (tabw, pay, binom) = e1v_tables(&fd, &golay);
+                (
+                    Some(cuda.up_u32(&tabw)?),
+                    Some(cuda.up_u32(&pay)?),
+                    Some(cuda.up_u32(&binom)?),
+                    Some(cuda.up_u32(golay.codewords())?),
+                )
+            }
+            false => (None, None, None, None),
         };
 
         let mut rng = SplitMix64::new(0x6_D07);
@@ -1272,6 +1363,28 @@ mod linux {
                 None => None,
             };
 
+            // P1c. Le flux servable : `transcode_e1v_rows` via `e1v_host.rs`,
+            // coupé sur `d_in / 24` blocs par ligne pour qu'un groupe n'enjambe
+            // jamais une ligne — sans quoi aucun warp ne lirait un seul groupe
+            // (X3). Aucune recherche, aucune exception : un transcodage direct.
+            let e1v_arm = match union.has(arms::E1V) {
+                true => {
+                    let em = e1v_mat(&fd, &golay, &s.indices, &s.gains, d_in)?;
+                    let in0 = phase0.has(arms::E1V);
+                    Some(E1vArm {
+                        row_blocks: em.row_blocks,
+                        // La facture du bras : le flux et sa table de bases,
+                        // plus la queue f32 et les échelles de ligne que TOUT
+                        // bras LLVQ téléverse — la comptabilité `slot32` de
+                        // vingt lignes plus haut, à l'identique.
+                        bytes: em.bytes + (d_out * tail_w) as u64 * 4 + d_out as u64 * 4,
+                        data: up_or_hold_u32(em.data, in0)?,
+                        bases: up_or_hold_u32(em.bases, in0)?,
+                    })
+                }
+                false => None,
+            };
+
             let awq = match (awq_w, awq_z, awq_s, y_awq_ref, awq_scale) {
                 (Some(awq_w), Some(awq_z), Some(awq_s), Some(y_awq), Some(a_scale)) => {
                     let in0 = phase0.has(arms::AWQ);
@@ -1307,6 +1420,7 @@ mod linux {
                 tail_w,
                 slot,
                 planes,
+                e1v: e1v_arm,
                 p12,
                 g70,
                 awq,
@@ -1491,6 +1605,7 @@ mod linux {
         let f_planes12x = cuda.func("tv_planes12x")?;
         let f_golay70 = cuda.func("tv_golay70")?;
         let f_golay70_v1 = cuda.func("tv_golay70_v1")?;
+        let f_e1v = cuda.func("tv_e1v")?;
         let f_f16 = cuda.func("tv_f16")?;
         let f_awq = cuda.func("awq_gemv_g128")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
@@ -1511,6 +1626,27 @@ mod linux {
             launch_planes(
                 &cuda, &f_planes, a.pwords.dev(), &d_tab, &m.gscale, &m.rscale, &m.tail,
                 &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
+            )
+        };
+        let run_e1v = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+            let a = m.e1v.as_ref().expect("bras e1v non construit");
+            // 🚨 `a.row_blocks`, pas `m.nblocks` — ce sont le même nombre, et
+            // c'est justement pourquoi on prend celui que la COUPE a utilisé :
+            // le jour où ils divergeraient, le flux serait juste et le noyau
+            // lirait ailleurs. L'assertion le dit avant le lancement.
+            assert_eq!(
+                a.row_blocks, m.nblocks,
+                "{} : le flux est coupé sur {} blocs par ligne et le noyau en lirait {}",
+                m.name, a.row_blocks, m.nblocks
+            );
+            launch_e1v(
+                &cuda, &f_e1v, a.data.dev(), a.bases.dev(),
+                d_e1vtab.as_ref().expect("tables E1v non téléversées"),
+                d_e1vpay.as_ref().expect("tables E1v non téléversées"),
+                d_e1vbinom.as_ref().expect("tables E1v non téléversées"),
+                d_e1vcw.as_ref().expect("tables E1v non téléversées"),
+                &m.gscale, &m.rscale, &m.tail, &d_x, y,
+                a.row_blocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
         let run_planes12x =
@@ -1607,6 +1743,7 @@ mod linux {
                             arms::PLANES12X => run_planes12x(m, d_y)?,
                             arms::GOLAY70V1 => run_g70(m, &f_golay70_v1, d_y)?,
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, d_y)?,
+                            arms::E1V => run_e1v(m, d_y)?,
                             arms::FP16 => run_f16(m, d_y)?,
                             _ => unreachable!("bras inconnu"),
                         }
@@ -1654,6 +1791,11 @@ mod linux {
                     stage_up_u32(&cuda, &mut a.words)?;
                     stage_up_u32(&cuda, &mut a.exc_idx)?;
                     stage_up_u32(&cuda, &mut a.exc_words)?;
+                }
+                if added.has(arms::E1V) {
+                    let a = m.e1v.as_mut().expect("bras e1v non construit");
+                    stage_up_u32(&cuda, &mut a.data)?;
+                    stage_up_u32(&cuda, &mut a.bases)?;
                 }
                 if added.has(arms::AWQ) {
                     let a = m.awq.as_mut().expect("bras awq non construit");
@@ -1928,6 +2070,7 @@ mod linux {
                                 run_awq(m, d_yh.as_mut().expect("d_yh du bras awq"))?
                             }
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
+                            arms::E1V => run_e1v(m, &mut d_y)?,
                             _ => unreachable!("bras inconnu"),
                         }
                     }

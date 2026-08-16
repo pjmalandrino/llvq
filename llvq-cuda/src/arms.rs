@@ -129,8 +129,14 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     true, true, true, true, true, true, true,
     // P4 §2.5 — all eight still to be written on the kernel side
     false, false, false, false, false, false, false, false,
-    // e1v — the kernel is not written either
-    false,
+    // 🚨 e1v — written, wired, and **never compiled by nvcc**. `bin/cuhcheck`
+    // says clang parses it and `tests/e1v_decoder_matches_rust.rs` runs its
+    // decode against the Rust reference on this machine; neither is a device
+    // compile. The flag is true because the arm is dispatchable — leaving it
+    // false would make its wiring unreachable dead code — and what stands
+    // between it and a published number is the bench's own V0 plus the
+    // `local_bytes != 0` check at startup, not this table.
+    true,
 ];
 
 /// A set of arms, at most one bit per registered arm.
@@ -505,7 +511,7 @@ mod tests {
         for &a in PHASE1.iter().chain(&PHASE2) {
             assert!(HAS_KERNEL[a], "{} porte un numéro publié sans noyau", ARM_NAMES[a]);
         }
-        for &a in PHASE3_NEW.iter().chain(&[E1V]) {
+        for &a in PHASE3_NEW.iter() {
             let e = parse_phases(Some(&format!("fp16,{}", ARM_NAMES[a]))).unwrap_err();
             assert!(e.contains(ARM_NAMES[a]), "{e}");
             assert!(e.contains("noyau n'est PAS écrit"), "{e}");
@@ -540,9 +546,14 @@ mod tests {
                 ARM_NAMES[a]
             );
         }
-        // The registry admits a hole, which is the whole point. Stated as a
-        // property of `runnable()` and not of today's table, so it keeps its
-        // meaning the day the table has one.
+        // The registry HAS a hole today — e1v is runnable while the eight arms
+        // registered before it are not — which is exactly the situation a
+        // threshold could not express.
+        assert!(HAS_KERNEL[E1V], "e1v a un noyau");
+        assert!(
+            PHASE3_NEW.iter().any(|&a| !HAS_KERNEL[a]),
+            "le trou a disparu : ce test perdrait son objet"
+        );
         let flags: Vec<bool> = (0..N_ARMS).map(|a| ArmSet::runnable().has(a)).collect();
         assert_eq!(flags, HAS_KERNEL.to_vec());
     }

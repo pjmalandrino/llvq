@@ -126,6 +126,10 @@ pub const FLOOR_CUH: &str = include_str!("../kernels/llvq_floor.cuh");
 pub const ROT_CUH: &str = include_str!("../kernels/llvq_rot.cuh");
 #[cfg(target_os = "linux")]
 pub const ROTATE_CU: &str = include_str!("../kernels/rotate.cu");
+#[cfg(target_os = "linux")]
+pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
+#[cfg(target_os = "linux")]
+pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -193,6 +197,8 @@ pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
         "preflight.cu" => Ok(PREFLIGHT_CU),
         "matvec.cu" => Ok(MATVEC_CU),
         "llvq_floor.cuh" => Ok(FLOOR_CUH),
+        "llvq_e1v.cuh" => Ok(E1V_CUH),
+        "e1v.cu" => Ok(E1V_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),
