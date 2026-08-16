@@ -5,11 +5,21 @@ et avant l'écriture de son hôte. Le noyau (`llvq-cuda/kernels/llvq_e1v.cuh`)
 existe déjà et n'a jamais tourné ; ce document est écrit en le sachant, et le §1
 le divulgue.
 
-> ⚠️ Ni signé ni horodaté tant que l'opérateur ne l'a pas fait
-> (`ots stamp proofs/preregistration-e1v-cuda-2026-08-15.md`). Le tampon prouve
-> l'antériorité, pas l'auteur. Une fois posé, **ce document est en lecture seule
-> pour toujours**, §7 compris — c'est la règle de `proofs/README.md`, et les
-> écarts postérieurs vont au journal de mesure.
+> 🚨 **NON HORODATÉ, PAR DÉCISION DE L'OPÉRATEUR (2026-08-16), et il faut savoir
+> ce que ça coûte.** Son antériorité ne repose donc que sur la date de commit —
+> qu'un `git commit --date` fixe à volonté et qu'un rebase réécrit. C'est
+> exactement la faiblesse que `proofs/README.md` reproche au lot du 13, et que
+> P1 puis P1c avaient fermée. P5 et P1b sont déjà dans cet état pour une autre
+> raison (tamponnés après leur mesure) ; celui-ci l'est par choix.
+>
+> Ce qui reste vrai sans tampon : les seuils du §3 sont ceux d'X3, publiés le
+> 2026-08-12, donc antérieurs à ce document par un chemin qui ne dépend pas de
+> lui. Ce qui n'est plus opposable : que le §2 et le §6 aient été écrits avant
+> la mesure. Un lecteur devra nous croire sur ce point, et il n'a pas à le faire
+> sur les autres.
+>
+> Le document restant modifiable, il n'est pas en lecture seule : les écarts
+> peuvent revenir au §7 jusqu'à la mesure.
 
 ---
 
@@ -54,9 +64,9 @@ pas.
 
 ## 2. Le bras, figé ici
 
-Un seul bras neuf, **`e1v`**, déjà **enregistré en dernière position** de
-`llvq-cuda/src/arms.rs` (index 15) et refusé par nom tant que son drapeau
-`HAS_KERNEL` est faux.
+Un seul bras neuf, **`e1v`**, **enregistré en dernière position** de
+`llvq-cuda/src/arms.rs` (index 15) et désormais sélectionnable — son drapeau
+`HAS_KERNEL` est passé à vrai le 2026-08-16, quand son câblage a été écrit.
 
 | | |
 |---|---|
@@ -129,10 +139,30 @@ l'hôte du job, et son temps est un coût de préparation, pas un résultat.
 - 🚨 si le job tourne **en une seule phase**, il ne produit aucun Δ_contrôle et
   aucune de ces règles ne s'applique.
 
-## 7. Écarts au protocole — journal, tenu à chaud jusqu'au tampon
+## 7. Écarts au protocole — journal, tenu à chaud
 
-**Aucun.** Ce document est écrit avant l'hôte, avant le bras, et avant toute
-milliseconde CUDA.
+**(a) L'hôte et le câblage ont été écrits après ce document**, le 2026-08-16, et
+rien de ce qui précède n'a bougé pour eux : ni seuil, ni plan de phases, ni
+condition d'invalidation.
+
+**(b) 🚨 Le câblage de `planesbench` n'a JAMAIS été compilé.** Ce fichier est
+intégralement sous `cfg(target_os = "linux")` : sur la machine de développement,
+pas une ligne de son corps n'est typée. `rustfmt` le parse — donc la syntaxe
+tient, et c'est la classe d'erreur la plus probable d'une édition en aveugle —
+mais un nom de champ faux ou un type qui ne colle pas ne se verra qu'au premier
+`cargo build` sur une boîte Linux. **Le premier job est donc une CONSTRUCTION
+D'IMAGE, pas le banc**, et un échec de build à cette étape n'est pas un écart au
+protocole : c'est le protocole qui trouve ce qu'il devait trouver.
+
+**(c) La commande nue de `planesbench` inclut désormais `e1v`.** Le plan de
+phases du §2 passe par `LLVQ_BENCH_ARMS` et n'est pas concerné ; un run nu, si.
+
+**(d) Le V0 sur carte du §5.3 n'a pas d'implémentation dédiée.** Ce que le banc
+fait déjà, et qui le tient : chaque bras est vérifié ligne à ligne contre la
+référence f64 partagée avant d'être chronométré, `e1v` compris, et une divergence
+arrête le run. Il n'y a pas de `tests/e1v_decoder_matches_rust.rs` *sur carte* en
+plus de ça — le fichier de ce nom est la sonde HÔTE, qui tourne sur le Mac. Dit
+ici plutôt que laissé à supposer.
 
 ⚠️ Ce §7 cesse d'être modifiable à la seconde du `ots stamp`. Tout écart
 constaté ensuite va dans le journal de mesure et dans `proofs/README.md`, jamais
