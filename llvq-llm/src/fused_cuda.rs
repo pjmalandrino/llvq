@@ -1325,8 +1325,21 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             );
         }
     }
+    // 🕳️ **Le cache KV est F16 ici, et il l'est par ALIGNEMENT, pas par défaut.**
+    // `bin/fusedrun` charge son bras dense avec `KvMode::F16` en dur
+    // (`fusedrun.rs:173`) : sa question est le noyau fusé, pas le cache. Le bras
+    // fusé doit donc prendre le même, ou la comparaison gagnerait une seconde
+    // variable — exactement ce que ce dossier passe son temps à interdire.
+    //
+    // 🚨 Ces deux appels ne compilaient plus depuis que `KvMode` est arrivé
+    // (KV q8, 2026-08-15) : ce fichier est sous `cfg(cuda)`, donc AUCUNE machine
+    // de développement ne le type, et la casse n'est apparue qu'au premier build
+    // d'image — 255 s de CI, le 2026-08-16. Le `--features cuda` n'est pas
+    // couvert par `cargo clippy --all-targets` sur un Mac, et c'est la même
+    // classe d'angle mort que le câblage `planesbench` du même jour.
+    let kv = crate::kvq::KvMode::F16;
     let mut qwen = match &quant_embed {
-        None => crate::model::Qwen3::new_with(&config, vb, &mut take)?,
+        None => crate::model::Qwen3::new_with(&config, vb, &mut take, kv)?,
         Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(
             &config,
             vb,
@@ -1339,6 +1352,7 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
                 rt: rt.clone(),
                 q: bufs[*ih].clone(),
             },
+            kv,
         )?,
     };
     if claimed != by_site.len() {
