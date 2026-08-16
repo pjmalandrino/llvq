@@ -415,6 +415,12 @@ mod linux {
             arms::PLANES12X => m.p12.as_ref().map_or(0, |x| x.bytes),
             arms::GOLAY70V1 | arms::GOLAY70V2 => m.g70.as_ref().map_or(0, |x| x.bytes),
             arms::E1V => m.e1v.as_ref().map_or(0, |x| x.bytes),
+            // Le plancher ne lit AUCUN poids — c'est sa définition. Ce qui
+            // reste est ce que tout bras LLVQ téléverse de toute façon : la
+            // queue f32 et les échelles de ligne. Sa ligne de table montrera
+            // donc un b/poids quasi nul, et ce n'est pas une anomalie, c'est
+            // le point.
+            arms::NULLK => ((m.d_out * m.tail_w) as u64 + m.d_out as u64) * 4,
             arms::FP16 => m.f16_bytes,
             arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
             _ => unreachable!("bras inconnu"),
@@ -548,6 +554,30 @@ mod linux {
         b.arg(words).arg(exc_idx).arg(exc_words).arg(tab).arg(gscale).arg(rscale)
             .arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w).arg(&row_cta).arg(&n_exc);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes12x: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_nullk(rscale, tail, x, y, nblocks, tail_w)` — le plancher. Même
+    /// grille, même tuilage, même épilogue, aucun tampon de poids : il n'a donc
+    /// ni `Staged` ni structure de bras, seulement un lancement.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_nullk(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(rscale).arg(tail).arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_nullk: {e}"))?;
         Ok(())
     }
 
@@ -801,6 +831,9 @@ mod linux {
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
         // the same way and the override is reported below like every other.
         let e1v = llvq_cuda::load_sources_many(&["llvq_e1v.cuh", "e1v.cu"])?;
+        // Le plancher (P4 §2.5). Il n'a pas d'en-tête à lui : `matvec.cu` lui
+        // suffit, et il est concaténé après tout le reste comme tout arrivant.
+        let nullk = llvq_cuda::load_sources_many(&["nullk.cu"])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -825,6 +858,7 @@ mod linux {
             // concaténé en tête.
             e1v.parts[0].as_str(),
             e1v.parts[1].as_str(),
+            nullk.parts[0].as_str(),
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -851,6 +885,9 @@ mod linux {
         }
         if let Some(d) = &e1v.overridden_from {
             println!("  ⚠️ SOURCES E1v SURCHARGÉES depuis {d}");
+        }
+        if let Some(d) = &nullk.overridden_from {
+            println!("  ⚠️ SOURCE nullk SURCHARGÉE depuis {d}");
         }
 
         let cuda = Cuda::new(&src)?;
@@ -883,6 +920,7 @@ mod linux {
             // déborder, et si ce noyau spille, ce choix était faux et le
             // chiffre mesure autre chose (pré-enregistrement E1v-CUDA §5.4).
             "tv_e1v",
+            "tv_nullk",
         ] {
             let r = cuda.report(name)?;
             println!(
@@ -1606,6 +1644,7 @@ mod linux {
         let f_golay70 = cuda.func("tv_golay70")?;
         let f_golay70_v1 = cuda.func("tv_golay70_v1")?;
         let f_e1v = cuda.func("tv_e1v")?;
+        let f_nullk = cuda.func("tv_nullk")?;
         let f_f16 = cuda.func("tv_f16")?;
         let f_awq = cuda.func("awq_gemv_g128")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
@@ -1626,6 +1665,12 @@ mod linux {
             launch_planes(
                 &cuda, &f_planes, a.pwords.dev(), &d_tab, &m.gscale, &m.rscale, &m.tail,
                 &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
+            )
+        };
+        let run_nullk = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+            launch_nullk(
+                &cuda, &f_nullk, &m.rscale, &m.tail, &d_x, y,
+                m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
         let run_e1v = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
@@ -1735,6 +1780,23 @@ mod linux {
                         let e = worst_error(&gotf, &aw.y_ref, &aw.scale);
                         assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
                         e
+                    }
+                    // 🚨 Le plancher n'a AUCUN étalon, et ne peut pas en avoir :
+                    // il ne calcule pas le produit du modèle. Ce qu'on exige de
+                    // lui est ce que `bin/rankbench` exige de son ancre `sol` —
+                    // être OBSERVABLE. Un noyau que le compilateur aurait vidé
+                    // chronométrerait magnifiquement et ne mesurerait rien.
+                    arms::NULLK => {
+                        run_nullk(m, d_y)?;
+                        cuda.sync()?;
+                        let got = cuda.down_f32(d_y)?;
+                        let nz = got[..m.d_out].iter().filter(|v| **v != 0.0 && v.is_finite()).count();
+                        assert!(
+                            nz > m.d_out / 2,
+                            "{} / nullk : sortie majoritairement nulle — boucle éliminée ?",
+                            m.name
+                        );
+                        0.0
                     }
                     _ => {
                         match a {
@@ -2057,6 +2119,7 @@ mod linux {
                             }
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
                             arms::E1V => run_e1v(m, &mut d_y)?,
+                            arms::NULLK => run_nullk(m, &mut d_y)?,
                             _ => unreachable!("bras inconnu"),
                         }
                     }

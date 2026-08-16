@@ -127,8 +127,16 @@ pub const PHASE3_NEW: [usize; 8] = [
 pub const HAS_KERNEL: [bool; N_ARMS] = [
     // the six of the 2026-08-10 job, and the v2 campaign's seventh
     true, true, true, true, true, true, true,
-    // P4 §2.5 — all eight still to be written on the kernel side
-    false, false, false, false, false, false, false, false,
+    // P4 §2.5 — cublasf16, mvkf16 : à écrire
+    false, false,
+    // `nullk`, écrit le 2026-08-16. Il atterrit avant les sept autres bras de
+    // P4 pour une raison de fond : il ne remplace aucun layout et n'a aucun
+    // critère d'admission à satisfaire. Il MESURE — le reste que l'attribution
+    // du gisement CUDA obtient par soustraction — il ne candidate pas, donc il
+    // n'attend pas les arbitrages A2/A4/A6 de l'opérateur.
+    true,
+    // planes14k, planes12xk, golay70v2k, e1c14, e1c12 : à écrire
+    false, false, false, false, false,
     // 🚨 e1v — written, wired, and **never compiled by nvcc**. `bin/cuhcheck`
     // says clang parses it and `tests/e1v_decoder_matches_rust.rs` runs its
     // decode against the Rust reference on this machine; neither is a device
@@ -176,8 +184,10 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
 /// dispatch order: the witness first, v2 under v1, the competitor last.
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
-pub const DISPLAY_ORDER: [usize; 8] = [
-    FP16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
+pub const DISPLAY_ORDER: [usize; 9] = [
+    // Le plancher d'abord : c'est la quantité contre laquelle toutes les
+    // autres se lisent, et la mettre en tête évite d'avoir à la chercher.
+    NULLK, FP16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
 ];
 
 /// A set of arms, at most one bit per registered arm.
@@ -552,7 +562,12 @@ mod tests {
         for &a in PHASE1.iter().chain(&PHASE2) {
             assert!(HAS_KERNEL[a], "{} porte un numéro publié sans noyau", ARM_NAMES[a]);
         }
-        for &a in PHASE3_NEW.iter() {
+        // PHASE3_NEW n'est plus « les bras sans noyau » : `nullk` en fait
+        // partie et il en a un depuis le 2026-08-16. Le test lit le DRAPEAU,
+        // qui est la propriété qu'il vérifie, et non une liste qui se trouvait
+        // coïncider avec elle — le même glissement que `plan[2].len() ==
+        // N_ARMS` quinze lignes plus bas.
+        for a in (0..N_ARMS).filter(|&a| !HAS_KERNEL[a]) {
             let e = parse_phases(Some(&format!("fp16,{}", ARM_NAMES[a]))).unwrap_err();
             assert!(e.contains(ARM_NAMES[a]), "{e}");
             assert!(e.contains("noyau n'est PAS écrit"), "{e}");
