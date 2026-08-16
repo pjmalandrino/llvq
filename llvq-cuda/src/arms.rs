@@ -139,6 +139,47 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     true,
 ];
 
+/// The name each arm carries in a published table — prettier than
+/// [`ARM_NAMES`], which is the `LLVQ_BENCH_ARMS` vocabulary.
+///
+/// 🕳️ **This lived in `bin/planesbench.rs`, and that is why the CUDA image was
+/// un-buildable for a day without anyone knowing.** It is declared
+/// `[&str; N_ARMS]` and indexed by the arm, so it must grow with the registry —
+/// but `planesbench.rs` is entirely under `cfg(target_os = "linux")`, so the
+/// development machine never type-checked it. P4 took `N_ARMS` from 7 to 15 on
+/// 2026-08-15 and left seven literals behind; the error surfaced on
+/// 2026-08-16, in a build launched for something else entirely.
+///
+/// It is here now for the reason this module exists at all — its own header
+/// says it: *the development machine has no CUDA, so the tests must run here*.
+/// A length mismatch is a compile error on a Mac from this line on.
+pub const DISPLAY_NAMES: [&str; N_ARMS] = [
+    "LLVQ Slot32",
+    "LLVQ Planes14",
+    "LLVQ Planes12x",
+    "LLVQ Golay70 v1",
+    "FP16 (128 bits)",
+    "AWQ w4g128",
+    "LLVQ Golay70 v2",
+    "FP16 cuBLAS",
+    "FP16 matvec-k",
+    "plancher (nullk)",
+    "LLVQ Planes14-k",
+    "LLVQ Planes12x-k",
+    "LLVQ Golay70 v2-k",
+    "LLVQ E1c14",
+    "LLVQ E1c12",
+    "LLVQ E1v",
+];
+
+/// The order a table PRINTS its rows in — cosmetic, and deliberately not the
+/// dispatch order: the witness first, v2 under v1, the competitor last.
+///
+/// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
+pub const DISPLAY_ORDER: [usize; 8] = [
+    FP16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
+];
+
 /// A set of arms, at most one bit per registered arm.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ArmSet {
@@ -556,6 +597,35 @@ mod tests {
         );
         let flags: Vec<bool> = (0..N_ARMS).map(|a| ArmSet::runnable().has(a)).collect();
         assert_eq!(flags, HAS_KERNEL.to_vec());
+    }
+
+    /// The two display tables, checked where a Mac can check them.
+    ///
+    /// 🚨 The length of `DISPLAY_NAMES` is the whole point — it is what P4's
+    /// change silently violated for a day. The rest guards the other ways a
+    /// hand-kept parallel table goes wrong: a row printed twice, a row for an
+    /// arm that cannot run, an empty label.
+    #[test]
+    fn the_display_tables_cover_the_registry() {
+        assert_eq!(DISPLAY_NAMES.len(), N_ARMS);
+        for (a, n) in DISPLAY_NAMES.iter().enumerate() {
+            assert!(!n.is_empty(), "le bras {} n'a pas de libellé", ARM_NAMES[a]);
+        }
+        let mut seen = ArmSet::empty();
+        for &a in &DISPLAY_ORDER {
+            assert!(a < N_ARMS, "l'ordre d'affichage nomme un bras inexistant");
+            assert!(!seen.has(a), "{} est affiché deux fois", ARM_NAMES[a]);
+            assert!(
+                HAS_KERNEL[a],
+                "{} a une ligne de table mais pas de noyau — une ligne pour un bras \
+                 qui ne peut pas tourner",
+                ARM_NAMES[a]
+            );
+            seen.insert(a);
+        }
+        // Every runnable arm has a row: an arm that can be timed and has no row
+        // would be measured and never printed.
+        assert_eq!(seen, ArmSet::runnable(), "un bras exécutable n'a pas de ligne");
     }
 
     #[test]

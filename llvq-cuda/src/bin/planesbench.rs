@@ -1841,27 +1841,13 @@ mod linux {
         let per_round = |num: &[f64], den: &[f64]| -> Vec<f64> {
             num.iter().zip(den).map(|(a, b)| a / b).collect()
         };
-        // L'ordre d'AFFICHAGE — cosmétique, distinct de l'ordre de dispatch :
-        // le témoin d'abord, v2 sous v1, le concurrent en dernier — la forme
-        // des tables publiées.
-        const DISPLAY: [usize; arms::N_ARMS] = [
-            arms::FP16,
-            arms::SLOT32,
-            arms::PLANES14,
-            arms::PLANES12X,
-            arms::GOLAY70V1,
-            arms::GOLAY70V2,
-            arms::AWQ,
-        ];
-        const ROW_NAMES: [&str; arms::N_ARMS] = [
-            "LLVQ Slot32",
-            "LLVQ Planes14",
-            "LLVQ Planes12x",
-            "LLVQ Golay70 v1",
-            "FP16 (128 bits)",
-            "AWQ w4g128",
-            "LLVQ Golay70 v2",
-        ];
+        // 🕳️ Les deux tables vivaient ICI, dimensionnées sur `arms::N_ARMS`
+        // avec sept littéraux — et ce fichier n'est typé par aucune machine de
+        // développement. P4 a porté N_ARMS de 7 à 15 le 2026-08-15 sans les
+        // toucher, et l'image CUDA est restée incompilable une journée. Elles
+        // sont dans `arms.rs`, qui compile et se teste sur le Mac.
+        const DISPLAY: [usize; 8] = arms::DISPLAY_ORDER;
+        const ROW_NAMES: [&str; arms::N_ARMS] = arms::DISPLAY_NAMES;
         let n_phases = phases.len();
         let report = |mats: &[Mat],
                       pi: usize,
