@@ -1,0 +1,214 @@
+================================================================================
+E1v sur CUDA — job 6a814ba31f5885ae605bcb55, l40sx1, 0,85 $ (28 min facturées)
+2026-08-16. Image hf.co/spaces/Pier-Jean/llvq-runner-cuda, workspace au commit
+qui porte ce fichier. Modèle Pier-Jean/Qwen3-4B-LLVQ-2bit monté sur /model.
+Pré-enregistrement : proofs/preregistration-e1v-cuda-2026-08-15.md — ⚠️ NON
+HORODATÉ, par décision de l'opérateur : son antériorité ne repose que sur la
+date de commit. Les seuils du §3, eux, sont ceux d'X3 publiés le 2026-08-12.
+================================================================================
+
+🚨 LE VERDICT : E1v = 0,25× FP16, 25 Go/s. LA LIGNE SE REFERME.
+
+  Le §3 posait, avant la mesure et sans les amender, les critères d'X3 :
+    ≥ 2,05× → remplace Planes14        non
+    ≥ 1,90× → remplace Planes12x       non
+    < 1,60× → la ligne se referme      OUI, et de très loin
+
+  0,25× n'est pas « sous le seuil », c'est QUATRE FOIS PLUS LENT que le FP16
+  qu'on prétend remplacer, et 8,7× plus lent que le layout servi. Aucune marge
+  d'interprétation n'existe à cette distance.
+
+CE QUE LE FORMAT A TENU, EXACTEMENT                                   [mesuré]
+
+  E1v lit 1,09 Go là où Planes14 en lit 2,18 — 2,398 b/poids noyau contre
+  4,804, soit la MOITIÉ, au chiffre annoncé. La promesse mémoire n'est pas
+  entamée d'un bit : elle est vérifiée sur la carte, sur le modèle publié.
+
+  C'est le décodage qui paie : 25 Go/s contre 428 pour Planes14. Deux marches
+  binomiales, un mot de Golay, une réparation de parité et trois règles de
+  signe, là où Planes14 fait des sélections. Le même mécanisme qui a écarté E2
+  — borné en CALCUL, pas en octets — mais d'un ordre de grandeur plus violent :
+  Golay70 v2 rendait 1,77× à 263 Go/s.
+
+CE QUE LE NOYAU A RÉUSSI, ET QUI N'EST PAS RIEN                       [mesuré]
+
+  · exactitude : pires erreurs 2,4e-8·Σ|w·x| sur 1 105 920 lignes, contre un
+    seuil de 1e-5. Le décodeur, son adressage, sa somme préfixe de warp et ses
+    groupes partiels sont JUSTES sur la carte, du premier coup.
+  · 79 registres, ZÉRO octet local. Le corps plat avait été choisi contre un
+    corps 24 % plus rapide sur Metal précisément pour ça (§5.4) : le choix
+    était bon, et il ne sauve pas le bras.
+  · le câblage `planesbench`, écrit sans compilateur, a tenu.
+
+LA PHASE DE CONTRÔLE, ET UNE DÉRIVE À DÉCLARER                        [mesuré]
+
+  bras           ce run    publié            écart
+  Planes14        2,15×    2,14× [2,11–2,15]  dans la plage
+  Slot32          1,88×    1,87× [1,86–1,88]  dans la plage
+  AWQ             3,37×    3,38×              dans la plage
+  Planes12x       2,01×    1,98× [1,95–1,99]  +1,0 %, HORS plage
+  Golay70 v1      1,34×    1,31× [1,29–1,32]  +1,5 %, HORS plage
+
+  ⚠️ Deux bras du contrôle sortent de leur plage publiée, par le haut, de 1 à
+  1,5 %. Le §6 demande d'en connaître la cause avant de publier — donc ceci :
+  la dérive INTRA-run est de 0,13 % (Δ_contrôle) et la demi-étendue max de
+  0,46 %, donc l'écart est INTER-run, entre deux images et deux jours, pas un
+  bruit de ce run. Il ne déplace aucun verdict ici (0,25× contre 1,60×), et il
+  est écrit plutôt que lissé. Un run qui voudrait publier un chiffre à 1 % près
+  devrait d'abord l'expliquer.
+
+CE QUE CE RUN NE DIT PAS
+
+  · rien sur la qualité : inchangée par preuve, E1v est une re-bijection de
+    l'archive balayée sur 150 681 600 blocs (P5 C2). Aucun ppl, aucun MMLU.
+  · rien de bout en bout : ni tok/s, ni Go carte. E1v n'est câblé dans aucun
+    modèle et `fusedrun` ne le connaît pas.
+  · rien sur une autre carte : L40S, sm_89, un token, 252 matrices.
+
+================================================================================
+6a814ba31f5885ae605bcb55  COMPLETED  l40sx1
+sélection LLVQ_BENCH_ARMS :
+  phase 1/2 : slot32,planes14,planes12x,golay70v1,fp16,awq
+  phase 2/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,e1v
+source NVRTC : 117289 octets, sha256 adac90bc7c347d2b26e41ca082dbd6811476422aa9e74c70787b7acfd3ca6a48
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus), Golay70 (trous origine + exceptions E2), AWQ w4g128, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 1614 s — preuves bloc par bloc des bras construits
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, planes12x 2.9e-8, golay70v1 3.6e-8, fp16 3.0e-8, awq 5.8e-5 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 6 bras entrelacés  [phase 1/2 : slot32,planes14,planes12x,golay70v1,fp16,awq]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.981   10.985   10.989     7.27   16.000      662
+  LLVQ Slot32               5.809    5.825    5.835     2.50    5.510      431
+  LLVQ Planes14             5.092    5.099    5.103     2.18    4.804      428
+  LLVQ Planes12x            5.470    5.471    5.480     1.97    4.342      361
+  LLVQ Golay70 v1           8.200    8.202    8.214     1.63    3.589      199
+  AWQ w4g128                3.253    3.256    3.261     1.90    4.179      583
+  --------------------------------------------------------------------------------
+  LLVQ Slot32      vs FP16     : 1.89× [1.88–1.89]
+  LLVQ Planes14    vs FP16     : 2.15× [2.15–2.16]
+  LLVQ Planes12x   vs FP16     : 2.01× [2.01–2.01]
+  LLVQ Golay70 v1  vs FP16     : 1.34× [1.34–1.34]
+  AWQ w4g128       vs FP16     : 3.37× [3.37–3.38]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  1630 Mo distincts par passe sur le bras le plus léger (LLVQ Golay70 v1), soit 16.2× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Slot32 1.74×, LLVQ Planes14 1.94×, LLVQ Planes12x 1.83×, LLVQ Golay70 v1 1.30×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+— phase 2/2 : téléversement des bras ajoutés (e1v) —
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ : 1e-3, sortie binary16) — pires erreurs e1v 2.4e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 7 bras entrelacés  [phase 2/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,e1v]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.982   10.988   10.990     7.27   16.000      662
+  LLVQ Slot32               5.822    5.828    5.837     2.50    5.510      430
+  LLVQ Planes14             5.095    5.100    5.116     2.18    4.804      428
+  LLVQ Planes12x            5.474    5.479    5.481     1.97    4.342      360
+  LLVQ Golay70 v1           8.201    8.215    8.223     1.63    3.589      199
+  LLVQ E1v                 44.233   44.253   44.665     1.09    2.398       25
+  AWQ w4g128                3.254    3.260    3.272     1.90    4.179      583
+  --------------------------------------------------------------------------------
+  LLVQ Slot32      vs FP16     : 1.88× [1.88–1.89]
+  LLVQ Planes14    vs FP16     : 2.15× [2.15–2.16]
+  LLVQ Planes12x   vs FP16     : 2.01× [2.00–2.01]
+  LLVQ Golay70 v1  vs FP16     : 1.34× [1.34–1.34]
+  LLVQ E1v         vs FP16     : 0.25× [0.25–0.25]
+  AWQ w4g128       vs FP16     : 3.37× [3.36–3.38]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  1089 Mo distincts par passe sur le bras le plus léger (LLVQ E1v), soit 10.8× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Slot32 1.74×, LLVQ Planes14 1.94×, LLVQ Planes12x 1.83×, LLVQ Golay70 v1 1.30×, LLVQ E1v 0.27×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+Δ_contrôle — dérive des bras communs entre phases consécutives
+  phases 1→2 slot32     méd    5.825 →    5.828 ms (+0.05 %), vs FP16 1.886 → 1.884 (-0.07 %)
+  phases 1→2 planes14   méd    5.099 →    5.100 ms (+0.02 %), vs FP16 2.154 → 2.154 (-0.01 %)
+  phases 1→2 planes12x  méd    5.471 →    5.479 ms (+0.15 %), vs FP16 2.008 → 2.006 (-0.10 %)
+  phases 1→2 golay70v1  méd    8.202 →    8.215 ms (+0.16 %), vs FP16 1.339 → 1.338 (-0.13 %)
+  phases 1→2 fp16       méd   10.985 →   10.988 ms (+0.02 %)
+  phases 1→2 awq        méd    3.256 →    3.260 ms (+0.11 %), vs FP16 3.374 → 3.371 (-0.07 %)
+  Δ_contrôle (max |Δ| des rapports vs FP16) = 0.13 % ; demi-étendue max intra-run = 0.46 % (e1v) ; R = 0.46 %
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 77 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.886 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.066 ms   144 lancements
+  Planes14, matrices séparées            5.177 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.557 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.815 ms [0.805–0.829]  (13.9 %)
+  gain Planes14 : 0.608 ms [0.576–0.631]  (11.7 %)
+  Planes14 / Slot32 sur le gain : 0.73× [0.71–0.78]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.

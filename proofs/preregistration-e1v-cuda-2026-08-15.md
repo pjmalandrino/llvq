@@ -157,6 +157,16 @@ protocole : c'est le protocole qui trouve ce qu'il devait trouver.
 **(c) La commande nue de `planesbench` inclut désormais `e1v`.** Le plan de
 phases du §2 passe par `LLVQ_BENCH_ARMS` et n'est pas concerné ; un run nu, si.
 
+**(e) MESURÉ le 2026-08-16 — `e1v` rend 0,25× FP16, la ligne se referme.**
+Journal : [`docs/mesures/e1v-cuda-2026-08-16.txt`](../docs/mesures/e1v-cuda-2026-08-16.txt),
+job `6a814ba31f5885ae605bcb55`, l40sx1, **0,85 $**. Les cinq V0 du §5 sont passés,
+y compris `local_bytes == 0` (79 registres, zéro octet local) et l'exactitude sur
+la carte (2,4e-8·Σ|w·x| sur 1 105 920 lignes). Le format a tenu sa promesse
+mémoire au chiffre — 1,09 Go lus contre 2,18 pour `Planes14` — et le décodage
+plafonne à 25 Go/s contre 428. Deux bras du contrôle sortent de leur plage
+publiée par le haut de 1 à 1,5 % ; l'écart est inter-run et ne déplace aucun
+verdict à cette distance, mais il est écrit dans le journal.
+
 **(d) Le V0 sur carte du §5.3 n'a pas d'implémentation dédiée.** Ce que le banc
 fait déjà, et qui le tient : chaque bras est vérifié ligne à ligne contre la
 référence f64 partagée avant d'être chronométré, `e1v` compris, et une divergence
