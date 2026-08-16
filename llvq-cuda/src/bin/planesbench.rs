@@ -1796,7 +1796,14 @@ mod linux {
                             "{} / nullk : sortie majoritairement nulle — boucle éliminée ?",
                             m.name
                         );
-                        0.0
+                        // 🕳️ Rendre 0.0 ici met « pires erreurs nullk 0.0e0 »
+                        // dans la ligne V0, ce qui se lit comme un accord
+                        // PARFAIT avec la référence alors que ce bras n'est pas
+                        // comparé du tout. Un NaN serait pire (il propagerait).
+                        // f64::NEG_INFINITY est neutre pour le `max` qui agrège
+                        // et s'imprime `-inf`, que personne ne lit comme une
+                        // erreur mesurée.
+                        f64::NEG_INFINITY
                     }
                     _ => {
                         match a {

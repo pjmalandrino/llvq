@@ -327,6 +327,32 @@ en CALCUL. E1c décode le même contenu que `Planes12x` — des sélections sur 
 plans de bits — et sa transposition est un problème de motif de lecture, pas
 d'ALU. Le pronostic ne se transporte pas.
 
+## 🆕 MESURÉ le 2026-08-16 — le plancher, et ce qu'il plafonne
+
+`nullk` — même grille, même tuilage, même staging, même épilogue, **aucun poids
+lu** — rend **2,305 ms** contre 5,102 pour `Planes14` :
+[`mesures/nullk-plancher-2026-08-16.txt`](mesures/nullk-plancher-2026-08-16.txt),
+job `6a81b2b71f5885ae605bdcc9`, **0,77 $**.
+
+**Le plancher est 45,2 % du bras servi**, et il n'était jusqu'ici qu'un reste
+obtenu par soustraction.
+
+| | |
+|---|---|
+| plafond absolu de tout travail de **format** | **4,77×** FP16 (= FP16 / plancher) |
+| où `Planes14` en est | **2,16×** |
+| ce que le format achète, **net** du plancher | **3,11×** (8,691 ms de trafic contre 2,797) |
+| coût du décodage de `Planes14` | **~7 %** du temps de trafic (779 Go/s net contre 836 pour du FP16 pur) |
+
+🚨 **Ce que ça dit de quatre tentatives** : le format n'a que 55 % du temps à
+disputer, `Planes14` en capture déjà l'essentiel, et 45 % ne sont touchés par
+**aucun** format. Le plancher est le poste le plus gros et le seul jamais
+attaqué — c'est exactement ce que la famille **k** de P4 §2.6 existe pour
+amortir, et elle n'est pas écrite.
+
+⚠️ Ce n'est **pas** les « 39 % » de l'attribution du 05-08 : celle-ci découpe
+2,04 ms par **token**, normes et attention comprises. Deux dénominateurs.
+
 ## Ouvert par P1 (2026-08-15) — le bras CUDA de P4, et P5
 
 **Ce qui est acquis**, sur pré-enregistrement horodaté avant la mesure
