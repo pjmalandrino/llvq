@@ -1908,8 +1908,12 @@ mod linux {
         // développement. P4 a porté N_ARMS de 7 à 15 le 2026-08-15 sans les
         // toucher, et l'image CUDA est restée incompilable une journée. Elles
         // sont dans `arms.rs`, qui compile et se teste sur le Mac.
-        const DISPLAY: [usize; 8] = arms::DISPLAY_ORDER;
-        const ROW_NAMES: [&str; arms::N_ARMS] = arms::DISPLAY_NAMES;
+        //
+        // 🚨 Et il n'en reste PAS d'alias local, parce qu'un alias doit
+        // annoncer un type, donc restater une longueur — ce qui reproduit le
+        // défaut à trois lignes de sa correction. Ça a coûté un build : la
+        // première version écrivait `const DISPLAY: [usize; 8]`, et le
+        // plancher a porté `DISPLAY_ORDER` à neuf le lendemain.
         let n_phases = phases.len();
         let report = |mats: &[Mat],
                       pi: usize,
@@ -1936,7 +1940,7 @@ mod linux {
                 "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}",
                 "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s"
             );
-            for a in DISPLAY {
+            for a in arms::DISPLAY_ORDER {
                 if !phase.has(a) {
                     continue;
                 }
@@ -1944,7 +1948,7 @@ mod linux {
                 let b = bytes_of(a);
                 println!(
                     "  {:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
-                    ROW_NAMES[a],
+                    arms::DISPLAY_NAMES[a],
                     lo * 1e3,
                     md * 1e3,
                     hi * 1e3,
@@ -1954,7 +1958,7 @@ mod linux {
                 );
             }
             println!("  {}", "-".repeat(80));
-            for a in DISPLAY {
+            for a in arms::DISPLAY_ORDER {
                 if a == arms::FP16 || !phase.has(a) {
                     continue;
                 }
@@ -1964,13 +1968,13 @@ mod linux {
                         "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]  \
                          (CONCURRENT — lit {:.3} b/poids ;\n  la grandeur comparable est \
                          les Go/s, pas ce rapport)",
-                        ROW_NAMES[a],
+                        arms::DISPLAY_NAMES[a],
                         bytes_of(a) as f64 * 8.0 / n_weights as f64
                     );
                 } else {
                     println!(
                         "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]",
-                        ROW_NAMES[a]
+                        arms::DISPLAY_NAMES[a]
                     );
                 }
             }
@@ -2009,7 +2013,7 @@ mod linux {
                  campagne v2)",
             );
             println!("\n  source : {source}");
-            let light = DISPLAY
+            let light = arms::DISPLAY_ORDER
                 .into_iter()
                 .filter(|&a| {
                     a != arms::FP16 && a != arms::AWQ && phase.has(a)
@@ -2022,7 +2026,7 @@ mod linux {
                      {:.1}× la L2 lue.\n  Sous 1× on mesurerait le cache et pas la DRAM — le piège \
                      qui a rendu\n  optimiste toute mesure LLVQ antérieure au 2026-07-31.",
                     light as f64 / 1e6,
-                    ROW_NAMES[la],
+                    arms::DISPLAY_NAMES[la],
                     light as f64 / dev.l2_bytes as f64
                 );
             }
@@ -2040,12 +2044,12 @@ mod linux {
             let fb = bytes_of(arms::FP16) as f64;
             let (f_lo, _, _) = spread(t_f16.clone());
             let head_s = head_bytes / (fb / f_lo);
-            let with_head: Vec<String> = DISPLAY
+            let with_head: Vec<String> = arms::DISPLAY_ORDER
                 .into_iter()
                 .filter(|&a| a != arms::FP16 && a != arms::AWQ && phase.has(a))
                 .map(|a| {
                     let (lo, _, _) = spread(times[a].clone());
-                    format!("{} {:.2}×", ROW_NAMES[a], (f_lo + head_s) / (lo + head_s))
+                    format!("{} {:.2}×", arms::DISPLAY_NAMES[a], (f_lo + head_s) / (lo + head_s))
                 })
                 .collect();
             if !with_head.is_empty() {
