@@ -94,7 +94,7 @@ mod linux {
 
     /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
     /// source by the host so the staging size and the tiling are one constant.
-    const TILE_BLOCKS: usize = 128;
+    use llvq_cuda::TILE_BLOCKS;
     const THREADS: u32 = 256;
     const GSCALE: [f32; 2] = [0.625, 1.375];
     const TABLE_ENTRIES: usize = 512;

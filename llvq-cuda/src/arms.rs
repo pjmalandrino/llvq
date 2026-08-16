@@ -63,8 +63,12 @@ pub const ARM_NAMES: [&str; N_ARMS] = [
     "golay70v2k",
     "e1c14",
     "e1c12",
+    // P1c/E1v — registered last again, and for the same reason: the dispatch
+    // order of every arm that produced a published number must be fixed before
+    // a job, not while one runs.
+    "e1v",
 ];
-pub const N_ARMS: usize = 15;
+pub const N_ARMS: usize = 16;
 
 pub const SLOT32: usize = 0;
 pub const PLANES14: usize = 1;
@@ -86,6 +90,10 @@ pub const PLANES12XK: usize = 11;
 pub const GOLAY70V2K: usize = 12;
 pub const E1C14: usize = 13;
 pub const E1C12: usize = 14;
+/// The E1v stream, **row-aligned** — the only cut a warp-per-row matvec can
+/// read (`llvq_artifact::e1v`, and X3's rotation argument). Measured at
+/// **2,3983 b/poids noyau** on the sealed 4B's written bytes.
+pub const E1V: usize = 15;
 
 /// The six arms of the 2026-08-10 job — phase 1 of P4 §2.4, which reproduces
 /// the published run.
@@ -98,40 +106,61 @@ pub const PHASE3_NEW: [usize; 8] = [
     CUBLASF16, MVKF16, NULLK, PLANES14K, PLANES12XK, GOLAY70V2K, E1C14, E1C12,
 ];
 
-/// How many of [`ARM_NAMES`] have a kernel behind them.
+/// Which of [`ARM_NAMES`] have a kernel behind them.
 ///
 /// 🚨 **Registering a name is not implementing an arm.** P4 §2.3 wants the
 /// dispatch order fixed *before* the job — an added arm must never reorder the
-/// published ones — so the eight arms of §2.5 are registered now, in order,
-/// while their kernels are still to be written. Selecting one would dispatch a
-/// kernel that does not exist, on a rented card, after the buffers were built.
+/// published ones — so arms are registered while their kernels are still to be
+/// written. Selecting one would dispatch a kernel that does not exist, on a
+/// rented card, after the buffers were built. The parser therefore **refuses**
+/// any arm whose entry here is `false`, by name, and the bare command
+/// (`LLVQ_BENCH_ARMS` unset) selects only the ones that are `true`.
 ///
-/// So the parser **refuses** any arm at or above this index, by name, and the
-/// bare command (`LLVQ_BENCH_ARMS` unset) selects only the arms below it.
-/// Raise it by one as each kernel lands, and the test below will tell you if
-/// you raised it past what exists.
-pub const IMPLEMENTED: usize = 7;
+/// 🕳️ **This was a threshold, `IMPLEMENTED: usize`, and the threshold carried
+/// an assumption nobody had had to state: that kernels land in registration
+/// order.** The day a kernel landed out of order — E1v's, which has nothing to
+/// do with P4's eight — a single index could not express it: `e1v` sits at 15,
+/// so making it runnable would have declared the eight unwritten arms below it
+/// runnable too, and a bare `planesbench` would have dispatched a missing
+/// kernel on a rented card. Exactly what the threshold existed to prevent. One
+/// flag per arm says the same thing without the ordering assumption.
+pub const HAS_KERNEL: [bool; N_ARMS] = [
+    // the six of the 2026-08-10 job, and the v2 campaign's seventh
+    true, true, true, true, true, true, true,
+    // P4 §2.5 — all eight still to be written on the kernel side
+    false, false, false, false, false, false, false, false,
+    // e1v — the kernel is not written either
+    false,
+];
 
 /// A set of arms, at most one bit per registered arm.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ArmSet {
     /// One bit per registered arm. Widened from `u8` when P4 took the count
-    /// from 7 to 15 — a set that silently truncated would deselect an arm
-    /// without a word, which is the failure mode this whole module exists to
-    /// prevent. `the_set_holds_every_registered_arm` pins the width.
-    bits: u16,
+    /// from 7 to 15, then from `u16` when E1v took it to 16 — at 16 arms
+    /// `1u16 << N_ARMS` overflows the shift itself, so the old width could not
+    /// even build the full set. A set that silently truncated would deselect an
+    /// arm without a word, which is the failure mode this whole module exists
+    /// to prevent. `the_set_holds_every_registered_arm` pins the width.
+    bits: u32,
 }
 
 impl ArmSet {
     /// Every **registered** arm, implemented or not. Use [`Self::runnable`]
     /// for what a job may actually dispatch.
     pub fn all() -> Self {
-        ArmSet { bits: (1u16 << N_ARMS) - 1 }
+        ArmSet { bits: (1u32 << N_ARMS) - 1 }
     }
 
     /// Every arm that has a kernel — what the bare command runs.
     pub fn runnable() -> Self {
-        ArmSet { bits: (1u16 << IMPLEMENTED) - 1 }
+        let mut s = ArmSet::empty();
+        for (a, &ok) in HAS_KERNEL.iter().enumerate() {
+            if ok {
+                s.insert(a);
+            }
+        }
+        s
     }
 
     pub fn empty() -> Self {
@@ -140,12 +169,12 @@ impl ArmSet {
 
     pub fn has(self, arm: usize) -> bool {
         debug_assert!(arm < N_ARMS);
-        self.bits & (1u16 << arm) != 0
+        self.bits & (1u32 << arm) != 0
     }
 
     pub fn insert(&mut self, arm: usize) {
         debug_assert!(arm < N_ARMS);
-        self.bits |= 1u16 << arm;
+        self.bits |= 1u32 << arm;
     }
 
     pub fn is_superset_of(self, other: ArmSet) -> bool {
@@ -204,13 +233,13 @@ pub fn parse_phases(spec: Option<&str>) -> Result<Vec<ArmSet>, String> {
                 );
             }
             if let Some(arm) = ARM_NAMES.iter().position(|&n| n == name) {
-                if arm >= IMPLEMENTED {
+                if !HAS_KERNEL[arm] {
                     return Err(format!(
                         "LLVQ_BENCH_ARMS : «{name}» est enregistré pour figer l'ordre de \
                          dispatch (P4 §2.3) mais son noyau n'est PAS écrit — le \
                          sélectionner dispatcherait un noyau inexistant sur une carte \
                          louée. Bras exécutables : {}",
-                        ARM_NAMES[..IMPLEMENTED].join(", ")
+                        ArmSet::runnable().label()
                     ));
                 }
             }
@@ -305,7 +334,7 @@ mod tests {
         // launch a missing kernel on a rented card.
         let phases = parse_phases(None).unwrap();
         assert_eq!(phases, vec![ArmSet::runnable()]);
-        assert_eq!(phases[0].len(), IMPLEMENTED);
+        assert_eq!(phases[0].len(), HAS_KERNEL.iter().filter(|&&k| k).count());
     }
 
     #[test]
@@ -428,7 +457,14 @@ mod tests {
         assert_eq!(plan.len(), 3, "un job à une phase ne produit aucun Δ_contrôle (§2.2)");
         assert_eq!(plan[0].len(), 6);
         assert_eq!(plan[1].len(), 7);
-        assert_eq!(plan[2].len(), N_ARMS);
+        // 🕳️ This read `N_ARMS`, and it passed only because P4's phase 3 and
+        // "every registered arm" happened to be the same set — the very
+        // accident the comment fifteen lines above describes for the previous
+        // occurrence. E1v separated them: it is registered, and it is NOT part
+        // of P4's plan (its own document governs it). The plan's size is what
+        // the plan is made of.
+        assert_eq!(plan[2].len(), PHASE2.len() + PHASE3_NEW.len());
+        assert!(!plan[2].has(E1V), "e1v n'appartient pas au plan de phases de P4");
         for p in &plan {
             assert!(p.has(FP16), "le témoin n'est pas désélectionnable");
         }
@@ -459,21 +495,56 @@ mod tests {
     /// fails.
     #[test]
     fn an_arm_without_a_kernel_is_registered_but_not_runnable() {
-        const _: () = assert!(IMPLEMENTED <= N_ARMS);
         assert_eq!(parse_phases(None).unwrap(), vec![ArmSet::runnable()]);
-        assert_eq!(ArmSet::runnable().len(), IMPLEMENTED);
-        for &a in &PHASE3_NEW {
+        assert_eq!(
+            ArmSet::runnable().len(),
+            HAS_KERNEL.iter().filter(|&&k| k).count()
+        );
+        // Every arm of the published run and of the control phase must have a
+        // kernel, or the campaign those two phases reproduce could not run.
+        for &a in PHASE1.iter().chain(&PHASE2) {
+            assert!(HAS_KERNEL[a], "{} porte un numéro publié sans noyau", ARM_NAMES[a]);
+        }
+        for &a in PHASE3_NEW.iter().chain(&[E1V]) {
             let e = parse_phases(Some(&format!("fp16,{}", ARM_NAMES[a]))).unwrap_err();
             assert!(e.contains(ARM_NAMES[a]), "{e}");
             assert!(e.contains("noyau n'est PAS écrit"), "{e}");
         }
         // And every implemented arm still parses. `fp16` is the witness and
         // is already in the spec, so it is named once.
-        for name in &ARM_NAMES[..IMPLEMENTED] {
+        for name in ArmSet::runnable().iter().map(|a| ARM_NAMES[a]) {
+            let name = &name;
             let spec = if *name == "fp16" { name.to_string() } else { format!("fp16,{name}") };
             parse_phases(Some(&spec))
                 .unwrap_or_else(|e| panic!("{name} devrait être sélectionnable : {e}"));
         }
+    }
+
+    /// 🚨 **The property the threshold could not express.** `HAS_KERNEL` is a
+    /// flag per arm, so an arm may be runnable while an arm registered BEFORE it
+    /// is not — which is the situation E1v creates, its kernel having nothing to
+    /// do with P4's eight.
+    ///
+    /// A threshold would have had to declare those eight runnable to reach
+    /// index 15, and a bare `planesbench` would then have dispatched a missing
+    /// kernel on a rented card. This asserts the shape rather than the current
+    /// contents: `runnable()` is read off the flags and is not required to be a
+    /// prefix of the registration order.
+    #[test]
+    fn runnability_is_per_arm_and_not_a_prefix() {
+        for (a, &ok) in HAS_KERNEL.iter().enumerate() {
+            assert_eq!(
+                ArmSet::runnable().has(a),
+                ok,
+                "{} : le set exécutable ne suit pas son drapeau",
+                ARM_NAMES[a]
+            );
+        }
+        // The registry admits a hole, which is the whole point. Stated as a
+        // property of `runnable()` and not of today's table, so it keeps its
+        // meaning the day the table has one.
+        let flags: Vec<bool> = (0..N_ARMS).map(|a| ArmSet::runnable().has(a)).collect();
+        assert_eq!(flags, HAS_KERNEL.to_vec());
     }
 
     #[test]

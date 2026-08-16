@@ -98,6 +98,15 @@ pub fn f16_to_f64(h: u16) -> f64 {
     }
 }
 
+/// Blocks a tile stages in shared memory — the value the host must `#define`
+/// for `matvec.cu`, which `#error`s without it.
+///
+/// 🕳️ It lived in `bin/planesbench` alone, and `bin/cuhcheck` needed the same
+/// number to parse the same file. `matvec.cu`'s own header warns about exactly
+/// that shape of defect — *"the Metal side carried [it] for months (TILE_BLOCKS
+/// defined twice, unlinked)"* — so it is defined once here and read by both.
+pub const TILE_BLOCKS: usize = 128;
+
 /// Mirrors `LLVQ_ROT_KMAX` in `kernels/llvq_rot.cuh`.
 ///
 /// Duplicated across the language boundary, so it is pinned by
