@@ -966,7 +966,7 @@ d'avance (`docs/archive/portage-noyau-cuda.md:31`), enfreint quand même, relev�
 |---|---|---|---|
 | disque | 8,04 Go | 2,67 Go | **1,77 Go** — **1,41 avec l'embedding int8** |
 | VRAM, **b/param modèle entier** | 16,0 | 5,302 ¹ | **5,162** (`Planes14` + embedding q8) |
-| débit | 43,5 tok/s | jamais mesuré chez nous ¹ | **88,4–88,5 tok/s** |
+| débit | 43,5 tok/s | **200,5 tok/s dans vLLM** ³ — 🚨 **ne se compare pas à cette colonne** | **88,4–88,5 tok/s** |
 | ppl wikitext | 12,2369 | 13,5207 (×1,105) | 16,9422 (×1,385) ² |
 | MMLU micro | 70,32 % | 70,04 % (−0,28 pp) | 55,59 % (−14,73 pp) ² |
 
@@ -976,6 +976,21 @@ donc les octets qu'il occupe chez nous ne veulent rien dire — réserve qui jou
 ² Sur le fichier scellé à embedding f16. La variante à embedding int8 rend
 16,9358 et 55,70 % — dans le bruit des deux côtés, donc les lignes disque et
 VRAM peuvent citer le q8 sans casser la colonne qualité.
+³ 🕳️ **Cette cellule a porté « jamais mesuré chez nous » jusqu'au 2026-08-17 —
+c'était vrai, ça ne l'est plus, et ce qui l'entourait n'a pas bougé d'un mot.**
+Mesuré dans **vLLM 0.26.0** (image épinglée), L40S, batch 1, 128 tokens,
+prefill compris, médiane de 5 rounds : **200,49 tok/s [200,39 ; 200,61]**
+([`docs/mesures/awq-vllm-4b-2026-08-17.txt`](docs/mesures/awq-vllm-4b-2026-08-17.txt),
+job `6a830d53e55292eada79b600`, 0,11 $, pré-enregistrement commité avant le
+lancement). 🚨 **Ce nombre est dans une AUTRE PILE que les deux qui l'encadrent
+et ne se divise avec aucun d'eux** : le même job mesure le témoin **f16 de
+vLLM à 83,09 tok/s** là où le nôtre rend 43,6, donc l'écart bout-en-bout est
+dominé par **vLLM contre candle** — ordonnancement, graphes CUDA, attention
+paginée, chemin du `lm_head` — et non par le décodeur de poids. **La seule
+forme licite est intra-pile : ×2,413 [2,412 ; 2,414] pour le 4 bits chez lui,
+×1,12 pour nous chez nous** ; ces deux-là ne se soustraient ni ne se divisent.
+⚠️ Et M = 1 n'est pas le régime optimal d'une GEMM Marlin (plus petite tuile en
+M = 8) : **ce 200,5 ne majore pas** ce que l'AWQ sait faire.
 
 **Où on en est, ligne par ligne, et ce qui a changé depuis le 2026-08-01.**
 
@@ -990,8 +1005,22 @@ VRAM peuvent citer le q8 sans casser la colonne qualité.
    ⚠️ **à formuler deux fois** : l'essentiel du gain vient d'un défaut de
    **notre** bras dense, qui appelle `broadcast_matmul` et recopie 778 Mo de
    vocabulaire par token (pas les modèles de candle, qui passent par `Linear`
-   — cf. le 🚨 du §3), donc ~×1,4 contre ce même bras corrigé. Contre l'AWQ
-   **dans son moteur à lui**, on n'a toujours aucune mesure.
+   — cf. le 🚨 du §3), donc ~×1,4 contre ce même bras corrigé.
+   🕳️ **Cette ligne s'achevait sur « contre l'AWQ dans son moteur à lui, on n'a
+   toujours aucune mesure » : LEVÉ le 2026-08-17, et l'interdit qu'il portait
+   ne l'est PAS.** La mesure existe (200,49 tok/s dans vLLM, note ³ ci-dessus),
+   et elle **ne produit toujours aucune phrase de comparaison** : ce qu'on
+   publie est **deux rapports intra-pile côte à côte** — **×2,413** [2,412 ;
+   2,414] pour le 4 bits chez vLLM, **×1,12** pour nous chez nous — parce que
+   les deux moteurs diffèrent et que ce job **ne sépare pas** « qualité du
+   moteur » de « notre propre défaut ». 🚨 **Donc « nous sommes plus rapides
+   (ou plus lents) que le 4 bits » ne se dit à AUCUNE échelle** : ce n'est pas
+   une prudence en attendant un chiffre, c'est la conséquence permanente du
+   fait que les deux rapports **ne se divisent pas**. Ce qui change avec la
+   mesure, c'est qu'on peut désormais dire **combien** vaut chaque rapport et
+   **pourquoi** la case reste vide ; ce qui ne change pas, c'est qu'elle reste
+   vide. ⚠️ Et le sens du biais est connu : notre bras f16 handicapé est au
+   **dénominateur** du ×1,12, donc **nous sous-estimons notre propre avance**.
 4. **Qualité : pas renversé, et c'est le point dur.** −14,73 pp de MMLU au 4B
    contre −0,28 pour le 4 bits. Sur un 4B, **le 4 bits domine sans
    discussion**.

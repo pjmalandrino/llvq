@@ -85,6 +85,16 @@ l'AWQ officiel **aux trois tailles** — 5,162 vs 5,302 (4B) · 5,322 vs 5,956
 (8B) · **5,106 vs 5,404 (14B)**. ⚠️ Marge **non monotone**, mécanisme = part de
 l'embedding.
 
+🆕 **La ligne VITESSE de l'AWQ existe depuis le 2026-08-17 (soir), et elle ne
+remplit toujours aucune case de comparaison.** Premier tok/s vLLM du projet, au
+4B, batch 1 : **200,49** [200,39 ; 200,61] contre son propre témoin f16 à
+**83,09**, soit **×2,413** intra-pile pour 0,11 $ — contre **×1,12** pour nous
+chez nous. 🚨 **Les deux rapports ne se divisent pas** (deux moteurs, vLLM
+contre candle), la cellule vitesse AWQ des tables **reste vide**, et **le
+résultat est contre nous, publié tel quel**. ⚠️ Le bras `awq` forcé ayant lui
+aussi routé vers Marlin, la clause « M = 1 » du 2026-08-10 reste **non testée**.
+Voir l'entrée du 2026-08-17 (second lot du soir).
+
 🚨 **Ce que cet état remplace, et il faut le savoir** : l'« État courant (au
 2026-08-15) » affirmait que la marche binomiale à 0,3101 ns/bloc « franchit le
 gate CUDA de P4 ». **Cette autorisation a été retirée le jour même par P1b**
@@ -1000,3 +1010,137 @@ bougé pour autant : il devient un **sous-total** — aucune cellule du papier n
 repose sur ces deux jobs, donc les y fondre aurait gonflé « le coût de cette
 évidence » sans rien ajouter à ce qu'il paie. Détail et provenance des deux
 montants dans [`data/README.md`](data/README.md).
+
+## 2026-08-17 (second lot du soir) — Le bras AWQ a enfin un tok/s, dans SON moteur : ×2,41 chez vLLM contre ×1,12 chez nous, et le résultat est contre nous
+
+> ⚠️ **Cette entrée ne retourne aucun verdict antérieur.** Elle remplit une
+> cellule **vide depuis le premier jour** — la vitesse du bras AWQ — et laisse
+> intact l'interdit qui l'entourait : les deux rapports ne se divisent pas.
+
+✅ **1. LA PREMIÈRE MESURE DE VITESSE DE L'AWQ DANS SON PROPRE MOTEUR.** Aucun
+tok/s vLLM n'existait sur ce projet, sur aucun matériel, pour aucun modèle :
+`fusedrun` ne sait pas charger un checkpoint AWQ, et l'AWQ que le banc du
+2026-08-10 chronomètre est un **portage** de la GEMV de mit-han-lab dans notre
+harnais — une mesure de **noyau**, pas de **produit**. Job
+`6a830d53e55292eada79b600`, l40sx1, **226 s de running = 0,11 $** contre un
+plafond annoncé de 1,35 $ ; image **épinglée** `vllm/vllm-openai:v0.26.0`
+(digest `sha256:ffb2d59b1c059a5b…`) ; pré-enregistrement
+[`../proofs/preregistration-awq-vllm-2026-08-17.md`](../proofs/preregistration-awq-vllm-2026-08-17.md)
+**commité avant le lancement**. Trois bras **vivants simultanément dans un seul
+processus**, `prompt_token_ids` passé en dur (aucune re-tokenisation possible),
+128 tokens `ignore_eos`, `--dtype float16` forcé, `enable_prefix_caching`
+**relu à False** dans la config résolue et non supposé depuis le drapeau,
+2 générations jetées puis **5 chronométrées**, prefill compris :
+
+| bras (Qwen3-4B) | méd. tok/s | plage | étendue |
+|---|---|---|---|
+| f16 | **83,09** | [83,08 ; 83,11] | 0,03 % |
+| `awq_marlin` | **200,49** | [200,39 ; 200,61] | 0,11 % |
+| `awq` forcé | **200,69** | [200,54 ; 200,80] | 0,13 % |
+
+**Rapports intra-pile, formés round par round** (jamais un quotient de deux
+minima) : `awq_marlin`/f16 = **×2,413** [2,412 ; 2,414] · `awq`/f16 =
+**×2,415** [2,414 ; 2,417]. Contrôle de chargement : premier token
+`id 12095 ' Paris'`, identique à
+[`mesures/planes14-fusedrun-2026-08-06.txt`](mesures/planes14-fusedrun-2026-08-06.txt) ;
+la divergence **après** le premier token est attendue (deux moteurs, deux
+ordres d'accumulation) et n'invalide rien. Tous les gardes verts,
+`violations` vide.
+
+🚨 **2. LA LECTURE PUBLIABLE, ET C'EST LA SEULE : ce que la quantification
+achète DANS SA PROPRE PILE.** **×2,413** [2,412 ; 2,414] pour le 4 bits chez
+vLLM (médiane de 5 rapports) · **×1,12** pour nous chez nous (4B, à tête
+identique — 48,7 / 43,6, *quotient de deux points uniques, sans plage*). **Les
+deux moteurs diffèrent : 2,413 et 1,12 ne se soustraient ni ne se divisent.**
+🚨 **Le résultat est contre nous, et le §6 du pré-enregistrement l'a déclaré
+publiable tel quel avant de le connaître.** Il est cohérent avec ce que le
+dossier savait par un autre chemin : notre noyau atteint **65 %** de sa borne
+d'octets là où l'AWQ porté en atteint **88 %**
+([`mesures/six-arm-awq-2026-08-10.txt`](mesures/six-arm-awq-2026-08-10.txt)).
+Aucun titre, aucun abstract ne change — ils ne revendiquent aucun avantage de
+vitesse contre l'AWQ. ⚠️ Et la légende doit dire que **M = 1 n'est pas le
+régime optimal d'une GEMM Marlin** (plus petite tuile en M = 8) : ce ×2,413
+**ne majore pas** ce que l'AWQ sait faire — condition (c) de l'amendement du
+§5, posée d'avance.
+
+🚨 **3. LE ROUTAGE TRANCHE — ET IL TRANCHE CONTRE LA LECTURE ÉVIDENTE.** Le log
+du job porte deux fois, depuis deux processus moteur distincts (pids 501 et
+813), `[auto_awq.py:473] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod`,
+et la config résolue des **deux** bras AWQ lit `quantization=auto_awq` — alors
+que l'un a demandé `None` et l'autre `"awq"`. Dans vLLM 0.26.0, `"awq"` est
+normalisé en `auto_awq`, qui choisit Marlin sur Ada. **Donc le bras « awq
+forcé » n'a PAS isolé la GEMM AutoAWQ : les deux bras ont exécuté le même
+noyau.** Trois conséquences, toutes dans le sens du moins qu'on peut dire :
+
+- ❌ **Le lien avec le banc du 2026-08-10 n'est pas établi.** C'est l'issue
+  prévue au §6 (« le bras `awq` forcé refuse de démarrer → publier
+  `awq_marlin` seul, et écrire en toutes lettres que le GEMM AutoAWQ n'a pas
+  pu être isolé »), sous une forme que le §6 n'avait pas anticipée : le bras a
+  démarré, il n'était simplement **pas le bras demandé**.
+- 🕳️ **LES 0,10 % ENTRE LES DEUX BRAS NE CONFIRMENT PAS LA CLAUSE « M = 1 » DU
+  2026-08-10** (« à M = 1 tous les noyaux 4 bits convergent vers la même borne
+  de bande passante »). **La vérifier demande DEUX noyaux ; ici il n'y en a
+  qu'un, chargé deux fois.** 200,69 contre 200,49 mesure la **reproductibilité
+  d'un seul noyau** entre deux instanciations du moteur — un chiffre utile,
+  mais un **autre** chiffre. La clause reste **NON TESTÉE** par ce job, dans un
+  sens comme dans l'autre. ⚠️ Le journal signale avoir failli publier
+  l'inverse : « forcer `awq` ne change rien, donc les deux noyaux convergent »
+  est exactement ce que la table des débits suggère **quand on ne lit pas la
+  ligne de routage du log**. C'est le motif habituel du dossier — une
+  conclusion vraie de forme, tirée d'un instrument qui n'a pas mesuré ce qu'on
+  croit.
+- ✅ **Ce que les 0,10 % bornent, en revanche : la résolution de ce banc.**
+  Aucun effet sous ~0,1 % ne s'y tranche.
+
+🕳️ **4. UN DÉFAUT DE L'INSTRUMENT, RELEVÉ PLUTÔT QUE LAISSÉ.** Le JSON commité
+(`data/awq-speed-4b-2026-08-17.json`) porte un champ `kernel_log` par bras et
+**ne contient pas** les deux lignes Marlin : vLLM V1 exécute son EngineCore
+dans un **processus séparé** (`spawn`), donc le `LogTap` du parent ne voit pas
+les enregistrements des pids 501 et 813. **La preuve du routage n'existe que
+dans la sortie standard du job**, d'où sa recopie mot pour mot dans le journal.
+Le garde « aucune ligne de log sur le routage » **n'a pas tiré**, puisqu'une
+ligne — la mauvaise — avait bien été captée : **un garde vert sur une capture
+incomplète**.
+
+⚠️ **5. CE QUE LA MESURE AJOUTE, ET QU'IL NE FAUT PAS SUR-LIRE.** Le bras f16
+est le **même modèle dense, même dtype, même prompt, même carte** des deux
+côtés : vLLM **83,09** tok/s (*mesuré*) contre **43,6** chez nous (*mesuré le
+2026-08-06*), soit **×1,91** (*calculé*). C'est la première mesure du
+**confondant de moteur** sur un travail identique. 🚨 **Mais elle n'est pas
+décomposable** : notre bras dense porte le défaut connu de `broadcast_matmul`
+(778 Mo de vocabulaire recopiés par token), donc ce ×1,91 mélange « qualité du
+moteur » et « notre propre défaut », et **ce job ne les sépare pas**. Écrire
+« le moteur vaut ×1,9 » serait une **inférence**, pas une mesure.
+
+🚨 **6. LES CINQ INTERDITS DU §4, ÉCRITS AVANT LA MESURE ET TOUJOURS EN
+VIGUEUR.** (i) **aucune** phrase « notre noyau est plus rapide / plus lent que
+l'AWQ » — les deux rapports vivent dans des piles différentes et **ne se
+divisent pas** ; l'écart bout-en-bout est dominé par vLLM contre candle.
+(ii) **la cellule vitesse AWQ des tables du papier RESTE VIDE** — elle est
+désormais *expliquée*, pas *remplie* ; ce qui change est la note de bas de
+tableau. (iii) **aucun chiffre de VRAM ne sort de vLLM** (il préalloue : ce
+qu'il rapporte est une réservation, pas une occupation). (iv) le rapport maison
+cité en regard est **×1,12** (4B, à tête identique), jamais ×2,03 — ni ×2,61 au
+8B. (v) le biais de notre bras f16 est nommé **avec sa direction** : il porte
+des deux côtés à tête identique, donc il **tire nos rapports vers 1** — **nous
+sous-estimons notre propre avance**.
+
+⚠️ **7. DETTE CONCRÈTE ET SOLVABLE : LE 8B AWQ EST BLOQUÉ.** `ops/awq_speed.py`
+le porte en `pinned=False` et le **refuse** sans `--allow-unpinned-revision`,
+parce que ses deux révisions (`4da05a8e…` pour `Qwen3-8B-AWQ`, `b968826d…` pour
+`Qwen3-8B`) ont été **relevées au Hub le 2026-08-17 et n'ont aucune entrée
+`EXPECTED` nulle part dans le dépôt** — elles n'ont donc jamais passé les
+contrôles structurels d'`ops/awq_dequant.py`. **Une révision que personne n'a
+validée n'est pas un épinglage, c'est un instantané.** Ce n'est pas un mystère :
+la lever demande de faire passer `ops/awq_dequant.py check` sur ces deux
+révisions et d'écrire l'entrée dans `EXPECTED` — après quoi le bras 8B se
+mesure au même tarif que le 4B. ⏳ **Le 14B, lui, attend son vis-à-vis maison**
+(`fusedrun` 14B) ; **aucun de ses résultats n'existe au moment où ceci
+s'écrit, et rien ici n'en anticipe un.**
+
+**Coût du lot : 0,11 $** — le total du registre est à **57,56 $**
+([`data/README.md`](data/README.md), qui porte les quatre jobs du 08-17).
+📄 [`mesures/awq-vllm-4b-2026-08-17.txt`](mesures/awq-vllm-4b-2026-08-17.txt) ·
+[`data/awq-speed-4b-2026-08-17.json`](data/awq-speed-4b-2026-08-17.json) ·
+[`../proofs/preregistration-awq-vllm-2026-08-17.md`](../proofs/preregistration-awq-vllm-2026-08-17.md) ·
+[`../ops/awq_speed.py`](../ops/awq_speed.py)

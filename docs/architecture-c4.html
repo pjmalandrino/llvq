@@ -1,0 +1,1098 @@
+<title>Architecture LLVQ</title>
+
+<style>
+  :root {
+    --ground: #EFF2F1;
+    --surface: #FAFBFA;
+    --raise:  #E3E8E6;
+    --ink:    #111A19;
+    --muted:  #5D6C6A;
+    --faint:  #8A9795;
+    --rule:   #CDD5D2;
+    --ship:   #0A6656;
+    --ship-wash: #E2EFEB;
+    --bench:  #33549B;
+    --bench-wash: #E4EAF5;
+    --closed: #A03325;
+    --closed-wash: #F5E4E1;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "Cascadia Mono", "JetBrains Mono", monospace;
+    --serif: ui-serif, "Iowan Old Style", Charter, "Source Serif Pro", Georgia, serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0D1113;
+      --surface: #151B1D;
+      --raise:  #1D2528;
+      --ink:    #DFE7E5;
+      --muted:  #8D9C99;
+      --faint:  #6C7A78;
+      --rule:   #2B3437;
+      --ship:   #46C4A8;
+      --ship-wash: #16302B;
+      --bench:  #85A6EE;
+      --bench-wash: #1A2337;
+      --closed: #E38470;
+      --closed-wash: #33211D;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0D1113;
+    --surface: #151B1D;
+    --raise:  #1D2528;
+    --ink:    #DFE7E5;
+    --muted:  #8D9C99;
+    --faint:  #6C7A78;
+    --rule:   #2B3437;
+    --ship:   #46C4A8;
+    --ship-wash: #16302B;
+    --bench:  #85A6EE;
+    --bench-wash: #1A2337;
+    --closed: #E38470;
+    --closed-wash: #33211D;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  .prose { max-width: 68ch; }
+
+  /* ---- masthead ---------------------------------------------------- */
+
+  header.top {
+    border-bottom: 1px solid var(--rule);
+    padding: 56px 0 28px;
+    margin-bottom: 48px;
+  }
+  header.top h1 {
+    font-family: var(--mono);
+    font-size: 2.05rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  header.top p { margin: 0 0 12px; max-width: 68ch; }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--faint);
+    letter-spacing: 0.02em;
+  }
+
+  /* ---- sections ---------------------------------------------------- */
+
+  section { margin: 0 0 72px; }
+
+  .shead {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    border-top: 2px solid var(--ink);
+    padding-top: 14px;
+    margin-bottom: 22px;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--surface);
+    background: var(--ink);
+    padding: 3px 9px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .shead h2 {
+    font-family: var(--mono);
+    font-size: 1.28rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+  .shead .lvl {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    color: var(--muted);
+    margin-left: auto;
+    flex: none;
+  }
+
+  h3 {
+    font-family: var(--mono);
+    font-size: 0.98rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 40px 0 12px;
+  }
+
+  p { margin: 0 0 16px; }
+  .prose ul { max-width: 68ch; padding-left: 1.2em; margin: 0 0 16px; }
+  .prose li { margin-bottom: 7px; }
+
+  code, .m {
+    font-family: var(--mono);
+    font-size: 0.87em;
+    background: var(--raise);
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+  strong { font-weight: 600; }
+
+  /* ---- figures ----------------------------------------------------- */
+
+  figure {
+    margin: 24px 0 8px;
+    padding: 0;
+  }
+  .frame {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 20px;
+    overflow-x: auto;
+  }
+  figcaption {
+    font-size: 0.88rem;
+    color: var(--muted);
+    margin-top: 12px;
+    max-width: 74ch;
+  }
+
+  svg.d {
+    display: block;
+    width: 100%;
+    min-width: 720px;
+    height: auto;
+    color: var(--muted);
+  }
+  svg.d rect.n   { fill: var(--surface); stroke: var(--rule); stroke-width: 1.3; }
+  svg.d rect.ext { fill: var(--raise);   stroke: var(--rule); stroke-width: 1.3; }
+  svg.d rect.sys { fill: var(--ship-wash); stroke: var(--ship); stroke-width: 1.8; }
+  svg.d rect.dat { fill: var(--bench-wash); stroke: var(--bench); stroke-width: 1.3; }
+  svg.d rect.zone { fill: none; stroke: var(--faint); stroke-width: 1.1; stroke-dasharray: 5 4; }
+  svg.d line, svg.d path.e { stroke: currentColor; stroke-width: 1.3; fill: none; }
+  svg.d path.dash { stroke-dasharray: 5 4; }
+  svg.d text { font-family: var(--mono); fill: var(--ink); }
+  svg.d text.t  { font-size: 13px;   font-weight: 600; }
+  svg.d text.tS { font-size: 12.5px; font-weight: 600; fill: var(--ship); }
+  svg.d text.k  { font-size: 9px;    fill: var(--faint); letter-spacing: 0.12em; }
+  svg.d text.b  { font-size: 10.5px; fill: var(--muted); }
+  svg.d text.l  { font-size: 9.5px;  fill: var(--muted); }
+
+  /* ---- tables ------------------------------------------------------ */
+
+  .tw { overflow-x: auto; margin: 22px 0 8px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 640px;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.7rem;
+    letter-spacing: 0.11em;
+    color: var(--muted);
+    border-bottom: 1.5px solid var(--ink);
+    padding: 0 14px 7px 0;
+    vertical-align: bottom;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  td:last-child, th:last-child { padding-right: 0; }
+  td.p { font-family: var(--serif); font-size: 0.94rem; color: var(--ink); }
+  td.num { text-align: right; white-space: nowrap; }
+  tbody tr:hover td { background: var(--raise); }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    padding: 2px 7px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .pill.served { background: var(--ship-wash); color: var(--ship); border: 1px solid var(--ship); }
+  .pill.wired  { background: var(--bench-wash); color: var(--bench); border: 1px solid var(--bench); }
+  .pill.off    { background: var(--closed-wash); color: var(--closed); border: 1px solid var(--closed); }
+  .pill.none   { background: var(--raise); color: var(--muted); border: 1px solid var(--rule); }
+
+  .note {
+    border-left: 3px solid var(--ship);
+    background: var(--ship-wash);
+    padding: 14px 18px;
+    margin: 26px 0;
+    max-width: 74ch;
+    border-radius: 0 3px 3px 0;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note .h {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    color: var(--ship);
+    display: block;
+    margin-bottom: 7px;
+  }
+  .note.warn { border-left-color: var(--closed); background: var(--closed-wash); }
+  .note.warn .h { color: var(--closed); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 22px;
+    margin-top: 72px;
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--faint);
+    max-width: 74ch;
+  }
+
+  a { color: var(--ship); text-underline-offset: 2px; }
+  a:focus-visible, :focus-visible { outline: 2px solid var(--ship); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <p class="eyebrow">MODÈLE C4 — CONTEXTE · CONTENEURS · COMPOSANTS</p>
+  <h1>Architecture LLVQ</h1>
+  <p>Ce que le workspace contient réellement, et qui répond de quoi. Huit crates Rust,
+  un dossier d'orchestration Python hors workspace, et une règle de dépendance qui
+  n'est pas décorative : le cœur mathématique ignore l'existence des accélérateurs.</p>
+  <p class="stamp">Établi le 2026-08-17 par inventaire du dépôt (branche <code>claude/html-mini-cours-planes</code>).
+  Comptes de lignes et d'arbres de dépendances&nbsp;: <em>mesurés</em>. Chiffres de bits et de vitesse&nbsp;:
+  <em>repris des journaux de <code>docs/mesures/</code></em>, chacun cité.</p>
+</header>
+
+<!-- ================================================================= -->
+<!-- C1                                                                -->
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">C1</span>
+    <h2>Contexte</h2>
+    <span class="lvl">NIVEAU 1</span>
+  </div>
+
+  <div class="prose">
+    <p>Le système a un seul utilisateur — l'opérateur — et cinq systèmes externes, dont
+    deux sont des dépendances de <em>méthode</em> plutôt que de code : le papier, qui
+    fournit la spécification, et OpenTimestamps, qui horodate les critères posés avant
+    mesure. Ce dernier n'est pas symbolique : <code>bin/rankbench</code> refuse de
+    démarrer si le <code>.ots</code> du pré-enregistrement qui le lie n'existe pas
+    (<code>llvq-metal/src/bin/rankbench.rs:408</code>).</p>
+  </div>
+
+  <figure>
+    <div class="frame">
+      <svg class="d" viewBox="0 0 1100 540" role="img"
+           aria-label="Le système LLVQ au centre, l'opérateur au-dessus, le papier en dessous, le Hub et le Mac de développement à gauche, HF Jobs, son bucket monté et OpenTimestamps à droite.">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- opérateur -->
+        <rect class="ext" x="400" y="20" width="300" height="70" rx="3"/>
+        <text class="t" x="550" y="49" text-anchor="middle">L'opérateur</text>
+        <text class="b" x="550" y="70" text-anchor="middle">arbitre les branches, autorise la dépense</text>
+
+        <!-- système -->
+        <rect class="sys" x="400" y="180" width="300" height="170" rx="3"/>
+        <text class="k" x="550" y="206" text-anchor="middle">SYSTÈME</text>
+        <text class="tS" x="550" y="234" text-anchor="middle">LLVQ</text>
+        <text class="b" x="550" y="262" text-anchor="middle">Quantifier un LLM à ~2 bits/poids</text>
+        <text class="b" x="550" y="280" text-anchor="middle">sur le réseau de Leech Λ₂₄,</text>
+        <text class="b" x="550" y="298" text-anchor="middle">et le servir par un noyau fusé</text>
+        <text class="b" x="550" y="316" text-anchor="middle">décodage + matvec.</text>
+        <text class="k" x="550" y="338" text-anchor="middle">8 CRATES RUST + ops/ EN PYTHON</text>
+
+        <!-- papier -->
+        <rect class="ext" x="400" y="440" width="300" height="70" rx="3"/>
+        <text class="t" x="550" y="469" text-anchor="middle">Papier arXiv:2603.11021</text>
+        <text class="b" x="550" y="490" text-anchor="middle">Algorithme 1, Algorithme 3, tables de référence</text>
+
+        <!-- HF Hub -->
+        <rect class="ext" x="30" y="150" width="220" height="90" rx="3"/>
+        <text class="t" x="140" y="184" text-anchor="middle">Hugging Face Hub</text>
+        <text class="b" x="140" y="205" text-anchor="middle">checkpoints Qwen3, C4,</text>
+        <text class="b" x="140" y="223" text-anchor="middle">wikitext-2, MMLU, AWQ officiel</text>
+
+        <!-- Mac -->
+        <rect class="ext" x="30" y="290" width="220" height="90" rx="3"/>
+        <text class="t" x="140" y="324" text-anchor="middle">Mac M3 Max</text>
+        <text class="b" x="140" y="345" text-anchor="middle">69 Go, Metal — poste de dev</text>
+        <text class="b" x="140" y="363" text-anchor="middle">et banc GPU à 0 $</text>
+
+        <!-- HF Jobs -->
+        <rect class="ext" x="850" y="130" width="220" height="100" rx="3"/>
+        <text class="t" x="960" y="164" text-anchor="middle">Hugging Face Jobs</text>
+        <text class="b" x="960" y="185" text-anchor="middle">L40S · rtx-pro-6000 · h200</text>
+        <text class="b" x="960" y="203" text-anchor="middle">tout ce qui dépasse le 8B,</text>
+        <text class="b" x="960" y="221" text-anchor="middle">et tous les chiffres CUDA</text>
+
+        <!-- bucket -->
+        <rect class="dat" x="850" y="270" width="220" height="70" rx="3"/>
+        <text class="t" x="960" y="299" text-anchor="middle">Bucket monté</text>
+        <text class="b" x="960" y="320" text-anchor="middle">la seule rétention qui survit</text>
+
+        <!-- OTS -->
+        <rect class="ext" x="850" y="380" width="220" height="70" rx="3"/>
+        <text class="t" x="960" y="409" text-anchor="middle">OpenTimestamps</text>
+        <text class="b" x="960" y="430" text-anchor="middle">tampon des pré-enregistrements</text>
+
+        <!-- arrows -->
+        <line x1="550" y1="90" x2="550" y2="174" marker-end="url(#a1)"/>
+        <text class="l" x="562" y="140">estime · lance · arbitre</text>
+
+        <line x1="250" y1="196" x2="394" y2="196" marker-end="url(#a1)"/>
+        <text class="l" x="322" y="187" text-anchor="middle">checkpoints, corpus</text>
+
+        <line x1="400" y1="228" x2="256" y2="228" marker-end="url(#a1)"/>
+        <text class="l" x="328" y="247" text-anchor="middle">artefact + card</text>
+
+        <line x1="400" y1="320" x2="256" y2="320" marker-end="url(#a1)"/>
+        <text class="l" x="328" y="311" text-anchor="middle">dev · Metal</text>
+
+        <line x1="700" y1="180" x2="844" y2="180" marker-end="url(#a1)"/>
+        <text class="l" x="772" y="171" text-anchor="middle">image + job</text>
+
+        <line x1="960" y1="230" x2="960" y2="264" marker-end="url(#a1)"/>
+        <text class="l" x="972" y="252">sorties</text>
+
+        <line x1="844" y1="305" x2="700" y2="305" marker-end="url(#a1)"/>
+        <text class="l" x="772" y="296" text-anchor="middle">rétention</text>
+
+        <path class="e" d="M700,345 H790 V415 H844" marker-end="url(#a1)"/>
+        <text class="l" x="745" y="338" text-anchor="middle">horodate</text>
+
+        <line x1="550" y1="440" x2="550" y2="356" marker-end="url(#a1)"/>
+        <text class="l" x="562" y="402">spécifie</text>
+      </svg>
+    </div>
+    <figcaption><strong>Figure 1.</strong> Les deux flèches de droite qui comptent : le job écrit
+    dans le bucket, pas sur la machine — c'est pourquoi une sortie « perdue » mérite un
+    <code>hf buckets ls</code> avant qu'on chiffre un re-run. Et rien ne part vers la mesure sans
+    passer par le tampon.</figcaption>
+  </figure>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th style="width:20%">Système externe</th><th style="width:52%">Ce qu'il apporte</th><th>Ce qu'il coûte / contraint</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Hugging Face Hub</td><td class="p">Checkpoints Qwen3 (0,6B → 32B), corpus de calibration C4 et d'évaluation wikitext-2 / MMLU, artefacts AWQ officiels servant de repère.</td><td class="p">Réseau au chargement ; <code>--mount-model</code> évite le retéléchargement.</td></tr>
+        <tr><td>Hugging Face Jobs</td><td class="p">Les cartes. Tout modèle au-delà du 8B et <em>tous</em> les chiffres CUDA publiés.</td><td class="p">Facturé à l'heure. Le run est massivement CPU : seuls le nombre de vCPU et le coût du cœur-heure décident.</td></tr>
+        <tr><td>Bucket monté</td><td class="p">Rétention des sorties de job.</td><td class="p">69 fichiers, 46,7 Go — jamais inventorié depuis sa création.</td></tr>
+        <tr><td>Mac M3 Max</td><td class="p">Poste de dev, et banc GPU Metal gratuit où se trouvent les pièges de mesure avant de payer.</td><td class="p">69 Go : le 32B (65,5 Go bf16) n'y tournera jamais. Pas de CUDA.</td></tr>
+        <tr><td>OpenTimestamps</td><td class="p">Horodatage des critères posés avant mesure.</td><td class="p">Dépendance dure : <code>rankbench</code> refuse de démarrer sans le <code>.ots</code>.</td></tr>
+        <tr><td>Papier arXiv:2603.11021</td><td class="p">La spécification : Algorithme 1, Algorithme 3, tables de référence.</td><td class="p">Transcrit une fois dans <code>docs/llvq-paper-notes.md</code> — l'extraction texte du PDF est corrompue.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<!-- C2                                                                -->
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">C2</span>
+    <h2>Conteneurs</h2>
+    <span class="lvl">NIVEAU 2</span>
+  </div>
+
+  <div class="prose">
+    <p>La ligne du haut est la seule chaîne de production : un checkpoint entre, un
+    <code>.llvq</code> scellé en sort, un noyau fusé le sert. La ligne du bas n'en fait pas
+    partie — ce sont les <em>instruments</em>, et ils ont leur propre matériel, leur propre
+    coût, et une sortie qui n'est pas un modèle mais un journal.</p>
+
+    <p>La distinction porte l'essentiel de la discipline du projet : la chaîne du haut ne se
+    modifie que sur un verdict produit par la ligne du bas, et jamais l'inverse.</p>
+  </div>
+
+  <figure>
+    <div class="frame">
+      <svg class="d" viewBox="0 0 1200 720" role="img"
+           aria-label="Bande haute : checkpoint, chaîne hors ligne encadrée par HF Jobs, artefact .llvq, runtime fusé, génération. Bande médiane : quatre bancs. Bande basse : le dossier de preuve. À gauche, ops slash orchestre.">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- ops -->
+        <rect class="n" x="30" y="30" width="160" height="90" rx="3"/>
+        <text class="k" x="110" y="52" text-anchor="middle">CONTENEUR</text>
+        <text class="t" x="110" y="74" text-anchor="middle">ops/</text>
+        <text class="b" x="110" y="94" text-anchor="middle">Python, hors workspace</text>
+        <text class="b" x="110" y="111" text-anchor="middle">1 529 l. — run.py</text>
+
+        <path class="e" d="M190,75 H340 V128" marker-end="url(#a2)"/>
+        <text class="l" x="200" y="66">estime · lance · monitore</text>
+
+        <!-- zone HF Jobs -->
+        <rect class="zone" x="210" y="132" width="262" height="196" rx="4"/>
+        <text class="k" x="216" y="126">HF JOBS — CARTE LOUÉE, AU-DELÀ DU 8B</text>
+
+        <!-- N1 checkpoint -->
+        <rect class="ext" x="20" y="175" width="140" height="110" rx="3"/>
+        <text class="t" x="90" y="212" text-anchor="middle">checkpoint</text>
+        <text class="b" x="90" y="233" text-anchor="middle">safetensors</text>
+        <text class="b" x="90" y="251" text-anchor="middle">f32 / bf16</text>
+        <text class="b" x="90" y="269" text-anchor="middle">+ corpus</text>
+
+        <!-- N2 chaîne hors ligne -->
+        <rect class="n" x="220" y="150" width="240" height="160" rx="3"/>
+        <text class="k" x="340" y="172" text-anchor="middle">CONTENEUR · CPU</text>
+        <text class="t" x="340" y="196" text-anchor="middle">Chaîne hors ligne</text>
+        <text class="b" x="340" y="219" text-anchor="middle">bin/smoke · seal · embedq</text>
+        <text class="b" x="340" y="240" text-anchor="middle">quant + search + core</text>
+        <text class="b" x="340" y="264" text-anchor="middle">une fois par modèle</text>
+        <text class="b" x="340" y="285" text-anchor="middle">~90 % du temps = l'encodeur</text>
+
+        <!-- N3 artefact -->
+        <rect class="dat" x="520" y="175" width="140" height="110" rx="3"/>
+        <text class="k" x="590" y="197" text-anchor="middle">ARTEFACT</text>
+        <text class="t" x="590" y="222" text-anchor="middle">.llvq scellé</text>
+        <text class="b" x="590" y="244" text-anchor="middle">llvq-artifact</text>
+        <text class="b" x="590" y="262" text-anchor="middle">0 dépendance</text>
+        <text class="b" x="590" y="279" text-anchor="middle">externe</text>
+
+        <!-- N4 runtime -->
+        <rect class="sys" x="720" y="150" width="240" height="160" rx="3"/>
+        <text class="k" x="840" y="172" text-anchor="middle">CONTENEUR · GPU</text>
+        <text class="tS" x="840" y="196" text-anchor="middle">Runtime fusé</text>
+        <text class="b" x="840" y="219" text-anchor="middle">bin/fusedrun · bin/run</text>
+        <text class="b" x="840" y="240" text-anchor="middle">llvq-llm + llvq-cuda</text>
+        <text class="b" x="840" y="264" text-anchor="middle">candle + NVRTC</text>
+        <text class="b" x="840" y="285" text-anchor="middle">à chaque token</text>
+
+        <!-- N5 génération -->
+        <rect class="ext" x="1020" y="175" width="160" height="110" rx="3"/>
+        <text class="t" x="1100" y="212" text-anchor="middle">génération</text>
+        <text class="b" x="1100" y="234" text-anchor="middle">tokens gloutons</text>
+        <text class="b" x="1100" y="252" text-anchor="middle">identiques au</text>
+        <text class="b" x="1100" y="270" text-anchor="middle">bras dense</text>
+
+        <!-- band 1 arrows -->
+        <line x1="160" y1="230" x2="216" y2="230" marker-end="url(#a2)"/>
+        <text class="l" x="188" y="221" text-anchor="middle">poids</text>
+        <line x1="460" y1="230" x2="516" y2="230" marker-end="url(#a2)"/>
+        <text class="l" x="488" y="221" text-anchor="middle">écrit</text>
+        <line x1="660" y1="230" x2="716" y2="230" marker-end="url(#a2)"/>
+        <text class="l" x="688" y="221" text-anchor="middle">transcode</text>
+        <line x1="960" y1="230" x2="1016" y2="230" marker-end="url(#a2)"/>
+        <text class="l" x="988" y="221" text-anchor="middle">tokens</text>
+
+        <!-- band 2 : bancs -->
+        <text class="k" x="20" y="382">INSTRUMENTS — SORTENT DES JOURNAUX, PAS DES MODÈLES</text>
+
+        <rect class="n" x="220" y="400" width="240" height="120" rx="3"/>
+        <text class="t" x="340" y="428" text-anchor="middle">llvq-bench</text>
+        <text class="b" x="340" y="450" text-anchor="middle">débit–distorsion, β, rtbits,</text>
+        <text class="b" x="340" y="468" text-anchor="middle">radixstudy, classhist</text>
+        <text class="k" x="340" y="497" text-anchor="middle">CPU · 0 $</text>
+
+        <rect class="n" x="490" y="400" width="210" height="120" rx="3"/>
+        <text class="t" x="595" y="428" text-anchor="middle">llvq-metal</text>
+        <text class="b" x="595" y="450" text-anchor="middle">thesis, matvec, decreal,</text>
+        <text class="b" x="595" y="468" text-anchor="middle">rankbench (P1)</text>
+        <text class="k" x="595" y="497" text-anchor="middle">APPLE / METAL · 0 $</text>
+
+        <rect class="n" x="730" y="400" width="240" height="120" rx="3"/>
+        <text class="t" x="850" y="428" text-anchor="middle">llvq-cuda</text>
+        <text class="b" x="850" y="450" text-anchor="middle">planesbench, preflight,</text>
+        <text class="b" x="850" y="468" text-anchor="middle">matvec, rotbench, graphbench</text>
+        <text class="k" x="850" y="497" text-anchor="middle">NVIDIA · CARTE LOUÉE</text>
+
+        <rect class="n" x="1000" y="400" width="180" height="120" rx="3"/>
+        <text class="t" x="1090" y="428" text-anchor="middle">llvq-llm bins</text>
+        <text class="b" x="1090" y="450" text-anchor="middle">ppl, mmlu, mmlupair,</text>
+        <text class="b" x="1090" y="468" text-anchor="middle">gbench, oracle</text>
+        <text class="k" x="1090" y="497" text-anchor="middle">QUALITÉ · DÉBIT</text>
+
+        <!-- band1 -> band2 -->
+        <line x1="340" y1="310" x2="340" y2="396" marker-end="url(#a2)"/>
+        <text class="l" x="352" y="358">quantifieurs</text>
+        <line x1="590" y1="285" x2="590" y2="396" marker-end="url(#a2)"/>
+        <text class="l" x="602" y="348">blocs réels</text>
+        <line x1="850" y1="310" x2="850" y2="396" marker-end="url(#a2)"/>
+        <text class="l" x="862" y="358">layouts</text>
+        <line x1="1090" y1="285" x2="1090" y2="396" marker-end="url(#a2)"/>
+        <text class="l" x="1102" y="348">même fichier</text>
+
+        <!-- band 3 : preuve -->
+        <rect class="dat" x="220" y="590" width="960" height="100" rx="3"/>
+        <text class="k" x="700" y="614" text-anchor="middle">CONTENEUR · DOSSIER DE PREUVE</text>
+        <text class="t" x="700" y="640" text-anchor="middle">docs/mesures · proofs/*.ots · docs/data · paper/</text>
+        <text class="b" x="700" y="663" text-anchor="middle">journaux bruts (NLL par fenêtre, dumps MMLU), pré-enregistrements horodatés,</text>
+        <text class="b" x="700" y="681" text-anchor="middle">CSV appariés, et le papier LaTeX dont le Makefile refuse un tableau qui dérive de son CSV</text>
+
+        <line x1="340" y1="520" x2="340" y2="586" marker-end="url(#a2)"/>
+        <text class="l" x="352" y="558">journaux</text>
+        <line x1="595" y1="520" x2="595" y2="586" marker-end="url(#a2)"/>
+        <line x1="850" y1="520" x2="850" y2="586" marker-end="url(#a2)"/>
+        <line x1="1090" y1="520" x2="1090" y2="586" marker-end="url(#a2)"/>
+      </svg>
+    </div>
+    <figcaption><strong>Figure 2.</strong> Le cadre pointillé est ce qui coûte de l'argent : au-delà
+    du 8B, la chaîne hors ligne ne tourne pas sur le poste de dev. <code>ops/</code> n'entre
+    jamais dans la ligne de production — il l'emballe, la lance et la surveille.</figcaption>
+  </figure>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th style="width:19%">Conteneur</th><th style="width:12%">Techno</th><th style="width:38%">Responsabilité</th><th>Ce dont il ne répond pas</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Chaîne hors ligne</td><td>Rust, CPU</td>
+          <td class="p">Transformer un checkpoint en <code>.llvq</code> scellé : passe avant observable, hessiennes, boucle GPTQ sphérique, encodage Leech, écriture du flux.</td>
+          <td class="p">La vitesse d'inférence. Elle tourne une fois par modèle et peut coûter des heures.</td>
+        </tr>
+        <tr>
+          <td>Artefact <code>.llvq</code></td><td>Rust, 0 dép.</td>
+          <td class="p">Le format et son décodeur. Lisible de bout en bout sans runtime de tenseurs — c'est l'argument de souveraineté appliqué au format.</td>
+          <td class="p">Les embeddings, les RMSNorm et la config ne sont pas dans le flux quantifié : <code>seal</code> les ajoute.</td>
+        </tr>
+        <tr>
+          <td>Runtime fusé</td><td>Rust + candle + CUDA</td>
+          <td class="p">Servir le modèle : transcodage en layout VRAM, upload, dispatch du noyau décodage + matvec, passe avant Qwen3.</td>
+          <td class="p">La qualité. Elle est décidée en amont ; le runtime doit rendre les <em>mêmes</em> tokens que le bras dense.</td>
+        </tr>
+        <tr>
+          <td>Instruments</td><td>Rust, 4 crates</td>
+          <td class="p">Produire des chiffres opposables : bits, millisecondes, perplexité, MMLU appariée, planchers. Chaque banc écrit un journal daté.</td>
+          <td class="p">Rien n'est servi depuis un banc. Un layout mesuré n'est pas un layout branché.</td>
+        </tr>
+        <tr>
+          <td><code>ops/</code></td><td>Python, hors workspace</td>
+          <td class="p">Estimer le coût avant de lancer, publier l'image Docker CUDA, lancer et monitorer un job, rapatrier. Plus les études annexes (AWQ, plancher, MoE).</td>
+          <td class="p">Aucun résultat n'en sort : c'est de l'orchestration, et c'est pourquoi elle est hors du workspace auditable.</td>
+        </tr>
+        <tr>
+          <td>Dossier de preuve</td><td>Markdown, CSV, LaTeX</td>
+          <td class="p">Conserver la sortie <em>brute</em> (NLL par fenêtre, dumps MMLU), les critères horodatés avant mesure, et le papier.</td>
+          <td class="p">Ce n'est pas de la documentation : un journal de synthèse est une perte irréversible dès que le canal de rétention expire.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<!-- C3a                                                               -->
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">C3</span>
+    <h2>Composants — la chaîne hors ligne</h2>
+    <span class="lvl">NIVEAU 3 · ZOOM A</span>
+  </div>
+
+  <div class="prose">
+    <p>Quatre phases, et une boucle. La boucle est le mécanisme entier : la phase 3 tient
+    l'état GPTQ (le résidu, le facteur de Cholesky) et appelle la phase 4 une fois par bloc
+    de 24 canaux d'entrée, qui lui rend un point du réseau et son index. Sur le 4B c'est
+    <strong>150 681 600</strong> allers-retours, et c'est là que part l'essentiel du temps
+    d'un run.</p>
+  </div>
+
+  <figure>
+    <div class="frame">
+      <svg class="d" viewBox="0 0 1200 500" role="img"
+           aria-label="Quatre phases en ligne : capture, hessiennes, boucle GPTQ, encodage et écriture. Une flèche de retour va de la quatrième à la troisième, et llvq-core soutient les deux dernières.">
+        <defs>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- retour de boucle -->
+        <path class="e" d="M1070,120 V80 H760 V116" marker-end="url(#a3)"/>
+        <text class="l" x="915" y="72" text-anchor="middle">index 48 bits · résidu propagé sur les colonnes restantes</text>
+
+        <!-- 1 -->
+        <rect class="n" x="20" y="120" width="240" height="220" rx="3"/>
+        <text class="k" x="40" y="146">1 · llvq-llm</text>
+        <text class="t" x="40" y="172">Capture</text>
+        <text class="b" x="40" y="200">loader — mmap safetensors,</text>
+        <text class="b" x="40" y="217">fetch ou répertoire local</text>
+        <text class="b" x="40" y="242">model — passe avant Qwen3</text>
+        <text class="b" x="40" y="259">dont chaque entrée de linéaire</text>
+        <text class="b" x="40" y="276">est observable</text>
+        <text class="b" x="40" y="301">bin/oracle — verrou :</text>
+        <text class="b" x="40" y="318">max |Δhidden| = 0 vs candle</text>
+
+        <!-- 2 -->
+        <rect class="n" x="330" y="120" width="240" height="220" rx="3"/>
+        <text class="k" x="350" y="146">2 · llvq-llm</text>
+        <text class="t" x="350" y="172">Hessiennes</text>
+        <text class="b" x="350" y="200">calib — H = AᵀA/N,</text>
+        <text class="b" x="350" y="217">4 par bloc et non 7 :</text>
+        <text class="b" x="350" y="234">q/k/v et gate/up partagent</text>
+        <text class="b" x="350" y="251">leur activation</text>
+        <text class="b" x="350" y="276">corpus — C4, 131 k tokens</text>
+        <text class="b" x="350" y="301">calibration séquentielle :</text>
+        <text class="b" x="350" y="318">deux passes avant par bloc</text>
+
+        <!-- 3 -->
+        <rect class="n" x="640" y="120" width="240" height="220" rx="3"/>
+        <text class="k" x="660" y="146">3 · llvq-quant</text>
+        <text class="t" x="660" y="172">Boucle GPTQ</text>
+        <text class="b" x="660" y="200">rotation — incohérence,</text>
+        <text class="b" x="660" y="217">le plus gros levier mesuré</text>
+        <text class="b" x="660" y="242">gptq — Algorithme 1 et 3,</text>
+        <text class="b" x="660" y="259">rétraction sphérique,</text>
+        <text class="b" x="660" y="276">lignes en parallèle exact</text>
+        <text class="b" x="660" y="301">linalg — Cholesky, solve ;</text>
+        <text class="b" x="660" y="318">faer sous fast-linalg, ×40</text>
+
+        <!-- 4 -->
+        <rect class="n" x="950" y="120" width="240" height="220" rx="3"/>
+        <text class="k" x="970" y="146">4 · llvq-search + artifact</text>
+        <text class="t" x="970" y="172">Encodage, écriture</text>
+        <text class="b" x="970" y="200">quantizer — shape–gain,</text>
+        <text class="b" x="970" y="217">0 bit de gain, Q_dir</text>
+        <text class="b" x="970" y="242">generic — plus proche voisin</text>
+        <text class="b" x="970" y="259">EXACT sur m ≤ 13</text>
+        <text class="b" x="970" y="284">index · pack — bijection</text>
+        <text class="b" x="970" y="301">48 bits, flux dense</text>
+        <text class="b" x="970" y="322">format — LVQ4 + empreinte</text>
+
+        <!-- flow -->
+        <line x1="260" y1="230" x2="326" y2="230" marker-end="url(#a3)"/>
+        <text class="l" x="293" y="221" text-anchor="middle">activations</text>
+        <line x1="570" y1="230" x2="636" y2="230" marker-end="url(#a3)"/>
+        <text class="l" x="603" y="221" text-anchor="middle">H (4/bloc)</text>
+        <line x1="880" y1="230" x2="946" y2="230" marker-end="url(#a3)"/>
+        <text class="l" x="913" y="221" text-anchor="middle">bloc de 24</text>
+
+        <!-- core -->
+        <rect class="n" x="640" y="400" width="550" height="70" rx="3"/>
+        <text class="t" x="915" y="428" text-anchor="middle">llvq-core</text>
+        <text class="b" x="915" y="450" text-anchor="middle">Golay [24,12,8] · Λ₂₄ en coordonnées entières · coquilles — 572 l., zéro dépendance, forbid(unsafe)</text>
+
+        <line x1="760" y1="400" x2="760" y2="344" marker-end="url(#a3)"/>
+        <line x1="1070" y1="400" x2="1070" y2="344" marker-end="url(#a3)"/>
+        <text class="l" x="772" y="378">primitives exactes</text>
+      </svg>
+    </div>
+    <figcaption><strong>Figure 3.</strong> La flèche du bas et celle du haut sont le même appel vu
+    dans les deux sens. Retirer la boîte 4 ne ralentit pas la boîte 3 : elle n'a plus rien à
+    quantifier — et c'est pourquoi optimiser l'encodeur (phase 4) et optimiser le décodeur
+    (figure 4) sont deux chantiers qui ne se rencontrent jamais.</figcaption>
+  </figure>
+
+  <div class="note">
+    <span class="h">L'ASYMÉTRIE QUI REND LE PROJET VIABLE</span>
+    <p>L'encodeur de la phase 4 tourne <em>une fois par modèle</em> et peut coûter des minutes
+    par matrice. Le décodeur de la figure 4 tourne <em>à chaque GEMM</em> et n'est que du
+    décalage et du masquage. Ne jamais optimiser l'un en pensant à l'autre — ce sont deux
+    régimes de coût sans rapport, et les confondre est la première erreur qu'on fait sur ce
+    format.</p>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<!-- C3b                                                               -->
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">C3</span>
+    <h2>Composants — le chemin servi</h2>
+    <span class="lvl">NIVEAU 3 · ZOOM B</span>
+  </div>
+
+  <div class="prose">
+    <p>Deux régimes, et il faut les tenir séparés. Au chargement, une fois : le fichier est lu
+    <em>sans être décodé</em>, transcodé dans le layout que le noyau lit, et poussé sur la
+    carte. À chaque token : le noyau décode et multiplie dans le même appel, les poids ne
+    repassant jamais en f16 en mémoire.</p>
+  </div>
+
+  <figure>
+    <div class="frame">
+      <svg class="d" viewBox="0 0 1200 430" role="img"
+           aria-label="Rangée haute au chargement : fichier .llvq, fused, transcodeur runtime, fused_cuda, VRAM. Rangée basse à chaque token : model, rotplan, dispatch, kernel planes.cu, logits. Une flèche pointillée relie la VRAM au noyau.">
+        <defs>
+          <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="k" x="20" y="70">AU CHARGEMENT — UNE FOIS</text>
+
+        <rect class="dat" x="20" y="90" width="150" height="110" rx="3"/>
+        <text class="t" x="95" y="128" text-anchor="middle">.llvq scellé</text>
+        <text class="b" x="95" y="150" text-anchor="middle">sur disque</text>
+        <text class="b" x="95" y="168" text-anchor="middle">projections +</text>
+        <text class="b" x="95" y="186" text-anchor="middle">tenseurs portés</text>
+
+        <rect class="n" x="220" y="90" width="190" height="110" rx="3"/>
+        <text class="k" x="240" y="112">llvq-llm</text>
+        <text class="t" x="240" y="136">fused</text>
+        <text class="b" x="240" y="159">lit l'en-tête et les</text>
+        <text class="b" x="240" y="176">index — ne décode</text>
+        <text class="b" x="240" y="193">jamais en f16</text>
+
+        <rect class="n" x="460" y="90" width="220" height="110" rx="3"/>
+        <text class="k" x="480" y="112">llvq-artifact</text>
+        <text class="t" x="480" y="136">runtime</text>
+        <text class="b" x="480" y="159">transcodeur vers le</text>
+        <text class="b" x="480" y="176">layout VRAM — c'est ici</text>
+        <text class="b" x="480" y="193">que se choisit Planes14</text>
+
+        <rect class="n" x="730" y="90" width="190" height="110" rx="3"/>
+        <text class="k" x="750" y="112">llvq-llm + llvq-cuda</text>
+        <text class="t" x="750" y="136">fused_cuda · gpu</text>
+        <text class="b" x="750" y="159">NVRTC : .cuh + .cu</text>
+        <text class="b" x="750" y="176">concaténés en UNE</text>
+        <text class="b" x="750" y="193">string hachable</text>
+
+        <rect class="sys" x="970" y="90" width="210" height="110" rx="3"/>
+        <text class="k" x="1075" y="112" text-anchor="middle">CARTE</text>
+        <text class="tS" x="1075" y="138" text-anchor="middle">VRAM</text>
+        <text class="b" x="1075" y="162" text-anchor="middle">poids résidents dans</text>
+        <text class="b" x="1075" y="180" text-anchor="middle">le layout, jamais en f16</text>
+
+        <line x1="170" y1="145" x2="216" y2="145" marker-end="url(#a4)"/>
+        <text class="l" x="193" y="136" text-anchor="middle">octets</text>
+        <line x1="410" y1="145" x2="456" y2="145" marker-end="url(#a4)"/>
+        <text class="l" x="433" y="136" text-anchor="middle">blocs</text>
+        <line x1="680" y1="145" x2="726" y2="145" marker-end="url(#a4)"/>
+        <text class="l" x="703" y="136" text-anchor="middle">layout</text>
+        <line x1="920" y1="145" x2="966" y2="145" marker-end="url(#a4)"/>
+        <text class="l" x="943" y="136" text-anchor="middle">H→D</text>
+
+        <!-- lien VRAM -> kernel -->
+        <path class="e dash" d="M1075,200 V262 H850 V296" marker-end="url(#a4)"/>
+        <text class="l" x="962" y="254" text-anchor="middle">poids résidents, lus par le noyau</text>
+
+        <text class="k" x="20" y="282">À CHAQUE TOKEN</text>
+
+        <rect class="n" x="20" y="300" width="220" height="100" rx="3"/>
+        <text class="k" x="40" y="322">llvq-llm</text>
+        <text class="t" x="40" y="345">model</text>
+        <text class="b" x="40" y="367">attention, RoPE, RMSNorm</text>
+        <text class="b" x="40" y="384">PAR TÊTE (propre à Qwen3)</text>
+
+        <rect class="n" x="300" y="300" width="170" height="100" rx="3"/>
+        <text class="k" x="320" y="322">llvq-llm</text>
+        <text class="t" x="320" y="345">rotplan</text>
+        <text class="b" x="320" y="367">qui partage une</text>
+        <text class="b" x="320" y="384">activation tournée</text>
+
+        <rect class="n" x="520" y="300" width="180" height="100" rx="3"/>
+        <text class="k" x="540" y="322">llvq-llm</text>
+        <text class="t" x="540" y="345">fused_cuda</text>
+        <text class="b" x="540" y="367">dispatch dans la</text>
+        <text class="b" x="540" y="384">passe avant candle</text>
+
+        <rect class="sys" x="750" y="300" width="200" height="100" rx="3"/>
+        <text class="k" x="770" y="322">llvq-cuda/kernels</text>
+        <text class="tS" x="770" y="345">planes.cu</text>
+        <text class="b" x="770" y="367">décodage Leech ET</text>
+        <text class="b" x="770" y="384">matvec, même appel</text>
+
+        <rect class="n" x="1000" y="300" width="180" height="100" rx="3"/>
+        <text class="t" x="1020" y="333">accumulation f32</text>
+        <text class="b" x="1020" y="356">warp_sum → logits</text>
+        <text class="b" x="1020" y="378">lm_head : embedding q8</text>
+
+        <line x1="240" y1="350" x2="296" y2="350" marker-end="url(#a4)"/>
+        <text class="l" x="268" y="341" text-anchor="middle">activation</text>
+        <line x1="470" y1="350" x2="516" y2="350" marker-end="url(#a4)"/>
+        <text class="l" x="493" y="341" text-anchor="middle">x tourné</text>
+        <line x1="700" y1="350" x2="746" y2="350" marker-end="url(#a4)"/>
+        <text class="l" x="723" y="341" text-anchor="middle">grille</text>
+        <line x1="950" y1="350" x2="996" y2="350" marker-end="url(#a4)"/>
+        <text class="l" x="973" y="341" text-anchor="middle">y</text>
+      </svg>
+    </div>
+    <figcaption><strong>Figure 4.</strong> La flèche pointillée est ce que « fusé » veut dire :
+    les poids restent dans le layout compressé en VRAM et ne sont jamais matérialisés en f16.
+    Un chemin qui déquantifierait d'abord tracerait une boîte de plus entre la VRAM et le
+    noyau — et rendrait toute la thèse mémoire du projet nulle.</figcaption>
+  </figure>
+
+  <h3>L'état d'un layout — servi, câblé, absent</h3>
+
+  <div class="prose">
+    <p>C'est la distinction la plus coûteuse à perdre de vue sur ce dossier. Un layout peut
+    être <strong>servi</strong> (c'est le défaut, donc ce que rendent les chiffres publiés),
+    <strong>câblé</strong> (<code>LLVQ_FUSED_LAYOUT</code> l'accepte, donc il est <em>mesurable</em>,
+    mais rien ne le sert), ou <strong>absent</strong> du noyau. Un banc qui compare un layout
+    servi à un layout absent ne compare rien.</p>
+  </div>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th style="width:14%">Layout</th><th style="width:14%">État</th><th class="num" style="width:13%">b/poids noyau</th><th class="num" style="width:14%">vs FP16</th><th>Où il vit, et pourquoi</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Planes14</code></td><td><span class="pill served">SERVI</span></td>
+          <td class="num">4,804</td><td class="num">2,14× [2,11–2,15]</td>
+          <td class="p">Plans de bits, stride uniforme 14 o. Défaut de <code>LLVQ_FUSED_LAYOUT</code>. <code>kernels/planes.cu</code>.</td>
+        </tr>
+        <tr>
+          <td><code>Planes12x</code></td><td><span class="pill wired">CÂBLÉ</span></td>
+          <td class="num">4,342</td><td class="num">1,98× [1,95–1,99]</td>
+          <td class="p">Overlay épars, qualité <em>exacte</em>. Câblé pour servir au 14B/32B, pas au 8B où l'axe mémoire est déjà gagné.</td>
+        </tr>
+        <tr>
+          <td><code>Slot32</code></td><td><span class="pill wired">CÂBLÉ · repli</span></td>
+          <td class="num">5,510</td><td class="num">1,87× [1,86–1,88]</td>
+          <td class="p">Le one-hot d'origine. Remplacé : le recodage binaire est plus petit <em>et</em> plus rapide.</td>
+        </tr>
+        <tr>
+          <td><code>Golay70</code></td><td><span class="pill off">CÂBLÉ · ÉCARTÉ</span></td>
+          <td class="num">3,589</td><td class="num">1,31× v1 · 1,77× v2</td>
+          <td class="p">Format correct, décodeur borné en calcul. Sous le seuil de 2,0× posé d'avance. Plus de piste connue à format inchangé.</td>
+        </tr>
+        <tr>
+          <td><code>E1v</code></td><td><span class="pill off">NOYAU ÉCRIT · CLOS</span></td>
+          <td class="num">2,398</td><td class="num">0,25× (L40S)</td>
+          <td class="p">Le format tient sa promesse — moitié des octets de <code>Planes14</code>. Son décodeur en ligne, non : deux marches binomiales, un Golay, une parité. Clos pour le chemin servi.</td>
+        </tr>
+        <tr>
+          <td><code>E1c14</code> / <code>E1c12</code></td><td><span class="pill none">ABSENT DU NOYAU</span></td>
+          <td class="num">4,641 / 3,802</td><td class="num">jamais mesuré</td>
+          <td class="p">Exactitude prouvée sur les 150,7 M blocs ; aucun banc ne les a jamais dispatchés. Valeurs = 14B aligné warp. Au 4B, <code>E1c14</code> est <em>plus gros</em> que ce qu'il remplace.</td>
+        </tr>
+        <tr>
+          <td><code>nullk</code></td><td><span class="pill none">INSTRUMENT</span></td>
+          <td class="num">—</td><td class="num">plancher 45,2 %</td>
+          <td class="p">Ce n'est pas un layout : une passe de projections qui ne lit <em>aucun</em> poids. Elle borne tout travail de format à 4,77× FP16.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="stamp" style="margin-top:12px">Colonnes 3 et 4 <em>mesurées</em> — banc CUDA à 5 bras, un seul protocole et une seule
+  comptabilité d'octets (<code>docs/mesures/e2-golay70-bench-2026-08-07.txt</code>), sauf <code>E1v</code>
+  (<code>e1v-cuda-2026-08-16.txt</code>), <code>E1c</code> (<code>rtbits-14b-2026-08-17.txt</code>, bits seuls)
+  et <code>nullk</code> (<code>nullk-plancher-2026-08-16.txt</code>). Les rapports sont des <strong>plages</strong>,
+  formées round par round : les millisecondes dérivent d'une invocation à l'autre, les octets non.</p>
+
+  <div class="note warn">
+    <span class="h">CE QUE LA COLONNE « VS FP16 » NE DIT PAS</span>
+    <p>Elle plafonne. Une passe qui ne lit aucun poids coûte déjà <strong>45,2 %</strong> du bras
+    servi : le format se dispute au plus 55 % du temps, et <code>Planes14</code> en capture
+    déjà l'essentiel — son décodage ne pèse que ~7 % du temps de trafic. Descendre sous
+    <code>Planes14</code> attaque un poste presque épuisé. Le gisement non attaqué est ailleurs,
+    et aucun layout ne le touche.</p>
+  </div>
+</section>
+
+<!-- ================================================================= -->
+<!-- Dépendances                                                       -->
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">◇</span>
+    <h2>La règle de dépendance</h2>
+    <span class="lvl">CONTRAINTE STRUCTURELLE</span>
+  </div>
+
+  <div class="prose">
+    <p>C'est la seule contrainte d'architecture que le projet s'impose, et elle est
+    vérifiable par la machine. Cinq crates n'ont <em>aucune</em> dépendance externe et portent
+    <code>#![forbid(unsafe_code)]</code>. Les trois qui parlent à du matériel en ont, et
+    l'<code>unsafe</code> y est autorisé — mais toujours pour la même raison : franchir une
+    frontière que le compilateur ne peut pas prouver (mmap, lancement de noyau, lecture d'un
+    buffer device). Aucun ne met d'<code>unsafe</code> dans du code mathématique.</p>
+  </div>
+
+  <figure>
+    <div class="frame">
+      <svg class="d" viewBox="0 0 1000 440" role="img"
+           aria-label="À gauche, la pile des cinq crates sans dépendance externe. À droite, les trois crates de frontière matérielle. Trois flèches vont de la droite vers la gauche, aucune dans l'autre sens.">
+        <defs>
+          <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="k" x="60" y="42">ZÉRO DÉPENDANCE EXTERNE · forbid(unsafe_code)</text>
+        <text class="k" x="570" y="42">FRONTIÈRE MATÉRIELLE · unsafe AUTORISÉ</text>
+
+        <rect class="n" x="60" y="56" width="370" height="52" rx="3"/>
+        <text class="t" x="76" y="80">llvq-bench</text>
+        <text class="b" x="76" y="98">débit–distorsion, bits runtime — 6 385 l.</text>
+
+        <rect class="n" x="60" y="124" width="370" height="52" rx="3"/>
+        <text class="t" x="76" y="148">llvq-artifact</text>
+        <text class="b" x="76" y="166">format .llvq, décodeur, transcodeur — 4 432 l.</text>
+
+        <rect class="n" x="60" y="192" width="370" height="52" rx="3"/>
+        <text class="t" x="76" y="216">llvq-quant</text>
+        <text class="b" x="76" y="234">Spherical GPTQ — 1 691 l. · + faer (optionnel)</text>
+
+        <rect class="n" x="60" y="260" width="370" height="52" rx="3"/>
+        <text class="t" x="76" y="284">llvq-search</text>
+        <text class="b" x="76" y="302">plus proche voisin exact, indexage — 4 365 l.</text>
+
+        <rect class="n" x="60" y="328" width="370" height="52" rx="3"/>
+        <text class="t" x="76" y="352">llvq-core</text>
+        <text class="b" x="76" y="370">Golay, Λ₂₄, coquilles — 572 l.</text>
+
+        <path class="e dash" d="M500,50 V400" marker-end="none"/>
+
+        <rect class="n" x="570" y="56" width="390" height="94" rx="3"/>
+        <text class="t" x="588" y="82">llvq-llm</text>
+        <text class="b" x="588" y="103">candle · tokenizers · hf-hub · parquet</text>
+        <text class="b" x="588" y="121">261 paquets dans son arbre — 12 302 l.</text>
+        <text class="b" x="588" y="139">unsafe : mmap safetensors, alloc, launch</text>
+
+        <rect class="n" x="570" y="176" width="390" height="94" rx="3"/>
+        <text class="t" x="588" y="202">llvq-cuda</text>
+        <text class="b" x="588" y="223">cudarc, cfg(target_os = "linux") — 7 326 l.</text>
+        <text class="b" x="588" y="241">bibliothèque : AUCUNE dépendance workspace</text>
+        <text class="b" x="588" y="259">tests : core, search, quant, artifact</text>
+
+        <rect class="n" x="570" y="296" width="390" height="88" rx="3"/>
+        <text class="t" x="588" y="322">llvq-metal</text>
+        <text class="b" x="588" y="343">metal, cfg(target_os = "macos") — 6 626 l.</text>
+        <text class="b" x="588" y="361">unsafe : read&lt;T&gt; d'un buffer device</text>
+        <text class="b" x="588" y="379">dépend de core, search, artifact</text>
+
+        <line x1="566" y1="103" x2="436" y2="103" marker-end="url(#a5)"/>
+        <path class="e dash" d="M566,223 H436" marker-end="url(#a5)"/>
+        <line x1="566" y1="340" x2="436" y2="340" marker-end="url(#a5)"/>
+
+        <text class="k" x="60" y="418">──▶  DÉPEND DE          ┄┄▶  DÉPEND DE EN TESTS SEULEMENT</text>
+      </svg>
+    </div>
+    <figcaption><strong>Figure 5.</strong> Aucune flèche ne part de la gauche vers la droite :
+    le cœur mathématique ignore l'existence des accélérateurs, et c'est ce qui rend son audit
+    possible sans auditer candle. La flèche pointillée de <code>llvq-cuda</code> est le fait le
+    plus utile de la figure — sa bibliothèque ne dépend de rien, mais ses tests dépendent des
+    quatre crates du cœur, parce que ce sont eux la <em>référence</em> contre laquelle le texte
+    du noyau CUDA est exécuté.</figcaption>
+  </figure>
+
+  <div class="note warn">
+    <span class="h">LA RÉSERVE À NE PAS OMETTRE</span>
+    <p><code>#![forbid(unsafe_code)]</code> dans un <code>lib.rs</code> ne couvre <strong>pas</strong>
+    les tests d'intégration — ce sont des crates séparés. Vérifié par mutation : un
+    <code>unsafe</code> dans <code>src/</code> casse la compilation, le même dans
+    <code>tests/</code> passe. Les cinq crates du cœur ont ce trou. Le fermer demande
+    <code>[workspace.lints]</code>, donc une décision de workspace. Ne pas écrire que le cœur
+    interdit <code>unsafe</code> sans cette réserve : le papier en fait un argument
+    d'auditabilité.</p>
+  </div>
+
+  <h3>Poids du code, par crate</h3>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th style="width:15%">Crate</th><th class="num" style="width:10%">src (l.)</th><th class="num" style="width:10%">tests (l.)</th><th class="num" style="width:11%">paquets</th><th>Responsabilité en une phrase</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>llvq-core</code></td><td class="num">572</td><td class="num">569</td><td class="num">1</td><td class="p">Le code de Golay et le réseau Λ₂₄ en coordonnées entières, validés contre des constantes publiques (nombre de baisers 196 560, série thêta).</td></tr>
+        <tr><td><code>llvq-search</code></td><td class="num">4 365</td><td class="num">1 089</td><td class="num">2</td><td class="p">Le plus proche voisin <em>exact</em> sur les coquilles m ≤ 13, l'indexage bijectif 48 bits, et l'empaquetage. C'est l'encodeur, donc 90 % du temps d'un run.</td></tr>
+        <tr><td><code>llvq-quant</code></td><td class="num">1 691</td><td class="num">2 333</td><td class="num">3</td><td class="p">Spherical GPTQ : Algorithme 1 et 3, rétraction sphérique, rotation d'incohérence, et l'algèbre dense qui les porte.</td></tr>
+        <tr><td><code>llvq-artifact</code></td><td class="num">4 432</td><td class="num">4 912</td><td class="num">4</td><td class="p">Le format <code>.llvq</code>, son décodeur, l'empreinte de codebook, et le transcodeur qui produit les layouts VRAM.</td></tr>
+        <tr><td><code>llvq-llm</code></td><td class="num">12 302</td><td class="num">5 045</td><td class="num">261</td><td class="p">Tout le côté modèle : chargement, passe avant Qwen3 observable, hessiennes, scellement, chemin fusé dans candle, évaluation.</td></tr>
+        <tr><td><code>llvq-cuda</code></td><td class="num">7 326</td><td class="num">2 239</td><td class="num">1<span style="color:var(--faint)"> · 2 sur Linux</span></td><td class="p">Le noyau fusé sur NVIDIA : 19 fichiers CUDA compilés par NVRTC au démarrage, plus les bancs qui les mesurent.</td></tr>
+        <tr><td><code>llvq-metal</code></td><td class="num">6 626</td><td class="num">258</td><td class="num">4<span style="color:var(--faint)"> · 5 sur macOS</span></td><td class="p">Les bancs GPU Apple : 7 shaders MSL, le banc de thèse, et les six bras de P1. Aucun chiffre publié n'en sort depuis le passage sur carte.</td></tr>
+        <tr><td><code>llvq-bench</code></td><td class="num">6 385</td><td class="num">286</td><td class="num">5</td><td class="p">Débit–distorsion sur source gaussienne, sensibilité de β, et <code>rtbits</code> — ce que chaque layout coûte en bits sur les blocs réels.</td></tr>
+        <tr><td><code>ops/</code></td><td class="num">8 536</td><td class="num">—</td><td class="num">Python</td><td class="p">Estimer, publier l'image, lancer, monitorer. Plus les études annexes : AWQ, plancher, routage MoE.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="stamp" style="margin-top:12px">Lignes <em>mesurées</em> le 2026-08-17 (<code>find … -name '*.rs' | xargs wc -l</code>).
+  Paquets <em>mesurés</em> par <code>cargo tree --offline --no-dedupe</code>, nœuds distincts, le crate lui-même compris —
+  d'où 4 pour <code>llvq-artifact</code> (lui, <code>core</code>, <code>search</code>, <code>quant</code>). Les colonnes
+  <code>llvq-cuda</code> et <code>llvq-metal</code> dépendent de la cible : leurs dépendances externes sont invisibles au
+  résolveur ailleurs que sur leur plateforme.</p>
+</section>
+
+<!-- ================================================================= -->
+
+<section>
+  <div class="shead">
+    <span class="badge">!</span>
+    <h2>Ce que ce schéma ne dit pas</h2>
+    <span class="lvl">LIMITES</span>
+  </div>
+
+  <div class="prose">
+    <ul>
+      <li><strong>Il décrit le code, pas le plan.</strong> Plusieurs branches ont un crate, des
+      tests et un journal sans avoir de verdict favorable — <code>Golay70</code> et
+      <code>E1v</code> sont dans le dépôt <em>et</em> fermés. Une boîte sur ce schéma prouve
+      qu'un composant existe, jamais qu'il sert.</li>
+
+      <li><strong>Il ne dit rien de la qualité.</strong> Aucune flèche ne porte de perplexité ni
+      de MMLU. La chaîne du haut peut être architecturalement irréprochable et produire un
+      modèle qu'un 4 bits domine — c'est exactement la situation au 4B.</li>
+
+      <li><strong>Le débit n'y figure pas, délibérément.</strong> Le rapport de tokens/s du
+      chemin fusé se dit en deux formulations qu'on ne peut pas séparer d'un chiffre unique
+      dans une case, et une case qui n'en porterait qu'une serait fausse par omission.</li>
+
+      <li><strong><code>bin/run</code> n'est pas <code>bin/fusedrun</code>.</strong> La démo de
+      génération est encore sur le chemin dense (<code>sealed::load</code>) ; c'est
+      <code>fusedrun</code> qui charge le fichier par <code>fused_cuda::load</code> et qui
+      mesure le noyau. Confondre les deux, c'est confondre la démo et le produit.</li>
+
+      <li><strong>La ligne <code>ops/</code> est plus large que ce que la figure 2 montre.</strong>
+      Elle porte aussi <code>awq_dequant.py</code>, <code>floor.py</code>, <code>manifest.py</code>
+      et trois études MoE — 8 536 lignes au total, dont seule une partie est de
+      l'orchestration.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  Établi par inventaire du dépôt le 2026-08-17. Le modèle C4 (Simon Brown) est employé ici
+  à trois niveaux&nbsp;: contexte, conteneurs, composants. Le quatrième — le code — est déjà
+  couvert par les docs de module de chaque crate, qui sont la source de ce document.
+</footer>
+
+</div>

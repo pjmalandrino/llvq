@@ -160,9 +160,15 @@ level the 4-bit comparison exists and goes against us: their GEMV reaches
 $3.37\times$ the control where our production layout reaches $2.15\times$,
 roughly a factor 1.6 --- a quotient of two medians from shared rounds rather
 than a ratio formed round by round, so one significant figure. Their
-\emph{engine} we have never run, so Tables~\ref{tab:campaign}
-and~\ref{tab:campaign8b} carry no 4-bit throughput column and we claim
-none.
+\emph{engine} we have now run once, on the 4B
+(\S\ref{sec:integration}); this paragraph read ``we have never run'' until
+2026-08-17, and the run changes what the empty cells mean rather than
+filling them. Tables~\ref{tab:campaign} and~\ref{tab:campaign8b} still
+carry no 4-bit throughput column, because a vLLM tok/s and a
+\texttt{candle} tok/s are not the same measurement, and we still claim no
+throughput comparison against that arm. What the run supplies is a
+within-stack ratio to place beside ours --- $2.413\times$ against
+$1.12\times$ --- and that comparison goes against us too.
 
 \textbf{Speedups carry ranges, not third decimals.} Inter-process
 dispersion on identical binaries spans several percent. Every
@@ -174,7 +180,11 @@ no range: $2.03\times$, $1.12\times$ and $1.29\times$ are single-run
 quotients of tok/s, with no rounds to take a median over. Two of the three
 divide arms timed inside one job; the $1.29\times$ divides arms from two,
 and is $1.30\times$ when formed within the job that ran both. Their second
-decimal should be read as dispersion, not as measurement.
+decimal should be read as dispersion, not as measurement. This matters
+where the forms meet: the vLLM ratio of \S\ref{sec:integration} is of the
+first kind and the $1.12\times$ it is set beside is of the second, and that
+asymmetry is stated in the sentence that juxtaposes them rather than left
+to this one.
 
 \textbf{The rotated basis is a real serving constraint.} Weights are stored
 in the incoherence-rotated basis; any consumer of the artifact must apply

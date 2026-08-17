@@ -116,6 +116,7 @@ demande, tout ce que tu as dit avant devient suspect.
 | Lignes vérifiées contre référence f64 | **1 105 920**, pire erreur 3,4·10⁻⁸ |
 | Le point d'échelle (8B) | ppl **×1,220** et MMLU **−10,56 pp**, contre ×1,385 et −14,73 au 4B |
 | 🆕 **Les barres de la perplexité** (excès LLVQ/f16, t apparié fenêtre par fenêtre, f16 des deux côtés, empreinte `3f1baca9033bf251`) | 4B **+38,45 %** [+33,62 ; +43,45] · 8B **+22,01 %** [+19,37 ; +24,70] · 14B **+18,94 %** [+17,22 ; +20,68] — **les trois tailles barrées depuis le 2026-08-17**, aucun intervalle ne contient zéro, 36 fenêtres sur 36 dans le même sens. ⚠️ Ces barres portent la seule variabilité du **corpus** : le tirage de **calibration** n'y est pas |
+| 🆕 **La vitesse face au 4 bits — DEUX RAPPORTS, JAMAIS UNE DIVISION** | ce que la quantification achète **dans sa propre pile** : **×2,413** [2,412 ; 2,414] pour l'AWQ chez vLLM (200,49 contre son f16 à 83,09) · **×1,12** pour nous chez nous (48,7 contre 43,6). 🚨 **Les deux ne se divisent pas** — cf. §6, c'est la question piège du dossier |
 
 Si tu ne dois en retenir que trois : **55,6 contre 70,0 de MMLU (notre
 faiblesse, à dire en premier) / ×1,12 et ÷2,72 bout-en-bout (le noyau) / 5,162
@@ -457,6 +458,85 @@ meilleur ouvre-porte.
 
 ---
 
+## 6. « Et en vitesse, face au 4 bits ? » — la question qu'on te posera désormais
+
+🆕 **Depuis le 2026-08-17, cette question a un chiffre en face — et la réponse
+n'est toujours PAS une comparaison.** C'est le piège de la fiche : le
+relanceur croit demander un rapport, tu dois lui rendre **deux** rapports.
+
+**À dire, dans cet ordre, et sans sauter la deuxième phrase :**
+
+> « Chacun dans son moteur, ce que la quantification achète : le 4 bits
+> multiplie son témoin f16 par **2,41** chez vLLM ; nous, on multiplie le nôtre
+> par **1,12**. Ces deux nombres ne se divisent pas — ce sont deux piles
+> différentes, vLLM contre candle, et notre job ne sait pas séparer « leur
+> moteur est meilleur » de « notre bras dense est handicapé ». Le résultat est
+> **contre nous**, il était pré-enregistré comme publiable tel quel, et je le
+> publie. »
+
+**Les chiffres, si on te les demande** (*mesuré*, job
+`6a830d53e55292eada79b600`, L40S, batch 1, 128 tokens, prefill compris, image
+vLLM 0.26.0 épinglée, médiane de 5 rounds, rapports formés **round par round**,
+**0,11 $**) :
+
+| bras | tok/s | rapport intra-pile |
+|---|---|---|
+| Qwen3-4B f16 **dans vLLM** | **83,09** [83,08 ; 83,11] | 1,00 |
+| Qwen3-4B AWQ **dans vLLM** | **200,49** [200,39 ; 200,61] | **×2,413** [2,412 ; 2,414] |
+| Qwen3-4B f16 **chez nous** | 43,6 | 1,00 |
+| Qwen3-4B LLVQ **chez nous**, tête identique | 48,7 | **×1,12** |
+
+**Les quatre choses à ne jamais laisser tomber**, parce que ce sont elles qui
+transforment un aveu en crédibilité :
+
+1. 🚨 **« On est plus rapides / plus lents que le 4 bits » ne se dit à aucune
+   échelle.** Ce n'est pas une prudence en attendant un meilleur chiffre :
+   c'est permanent, parce que les deux rapports vivent dans des piles
+   différentes. **La cellule vitesse AWQ des tables du papier reste vide** —
+   elle est désormais *expliquée*, pas *remplie*.
+2. **Le confondant de moteur est mesuré, et il n'est pas décomposable.** Même
+   modèle dense, même dtype, même prompt, même carte : vLLM rend **83,09** là
+   où nous rendons **43,6**, soit ×1,91 (*calculé*). Ce ×1,91 mélange « qualité
+   du moteur » et **notre propre défaut** (`broadcast_matmul`, 778 Mo de
+   vocabulaire recopiés par token). Dire « le moteur vaut ×1,9 » serait une
+   inférence, pas une mesure — dis-le avant qu'on te le dise.
+3. **Le biais a un sens, et il joue contre nous.** Le bras f16 handicapé est au
+   **dénominateur** du ×1,12 : à tête identique le défaut porte des deux côtés,
+   donc il **tire notre rapport vers 1**. **Nous sous-estimons notre propre
+   avance.** Citer le ×1,12 sans ce sens est incomplet.
+4. **Le ×2,41 ne majore pas le 4 bits.** M = 1 n'est pas le régime optimal
+   d'une GEMM Marlin (plus petite tuile en M = 8) : batché, l'AWQ ferait mieux.
+   Le dire toi-même désarme la seule objection technique sérieuse qu'on puisse
+   opposer à ce tableau.
+
+**Si on te demande pourquoi le chiffre est contre nous** : parce qu'il l'est,
+et le dossier le savait déjà par un autre chemin — **notre noyau atteint 65 %
+de sa borne d'octets là où l'AWQ porté en atteint 88 %**
+([`mesures/six-arm-awq-2026-08-10.txt`](mesures/six-arm-awq-2026-08-10.txt)).
+Deux instruments indépendants, même direction.
+
+⚠️ **Et si on te demande « et le forçage `awq` alors ? »** — le job a lancé un
+bras `quantization="awq"` qui rend 200,69, à 0,10 % du bras par défaut. **N'en
+tire rien** : le log montre que vLLM 0.26.0 normalise `"awq"` en `auto_awq` et
+route **les deux bras vers Marlin**. C'est **un seul noyau chargé deux fois**,
+donc ces 0,10 % mesurent la **reproductibilité du banc**, pas la convergence
+des noyaux 4 bits à M = 1. **La clause « M = 1 » du 2026-08-10 reste non
+testée**, dans un sens comme dans l'autre — et le journal note qu'il a failli
+publier l'inverse.
+
+⚠️ **Rien de tout ceci ne touche la mémoire** : vLLM **préalloue**, donc ce
+qu'il rapporte est une *réservation*, pas une occupation. La ligne VRAM reste
+celle de `rtbits`, sur des octets comptés.
+
+⚠️ **Et rien au 8B ni au 14B.** Le 8B AWQ est **bloqué** — ses révisions n'ont
+aucune entrée `EXPECTED` dans `ops/awq_dequant.py`, donc `ops/awq_speed.py` les
+refuse (`pinned=False`) : *une révision que personne n'a validée n'est pas un
+épinglage, c'est un instantané*. Le 14B attend son vis-à-vis maison. Si on te
+pousse sur ces tailles, la bonne réponse est « pas mesuré », pas une
+extrapolation du 4B.
+
+---
+
 ## Trois règles de survie
 
 **1. Ne revendique jamais plus que ce que tu as mesuré.** Le projet documente
@@ -490,7 +570,9 @@ une réponse. Personne n'attend de toi que tu récites la théorie des réseaux.
 | « On bat le papier » | « On reproduit le papier à iso-réglage ; notre avance sur β est un artefact de réglage » |
 | « 2 bits par poids » | « 2,17 sur le disque, 5,51 en RAM — et c'est tout le problème » |
 | « 5,51 contre 4,50 en RAM » | « à convention identique poids seuls, 6,5245 contre 4,5006, soit ×1,45 contre nous — le 5,51 décrit notre format, il ne se compare pas au q4 » |
-| « 2,07× plus rapide » | « 2,03× [2,03–2,10] le FP16 sur les projections seules, rapport formé round par round ; contre du q4 bien réglé on est encore derrière — de combien, le dépôt ne le tranche pas, cf. `fiche-4b.md` §5.4 » |
+| « 2,07× plus rapide » | « 2,03× [2,03–2,10] le FP16 sur les projections seules, rapport formé round par round ; contre du q4 bien réglé on est encore derrière — de combien, le dépôt ne le tranche pas, cf. `fiche-4b.md` §5.4 » ⚠️ **toujours vrai après la mesure du 2026-08-17** : elle donne les deux rapports, elle ne donne pas le « de combien » (§6) |
+| « On va 2,4 fois moins vite que l'AWQ » *(ou l'inverse)* | « chacun dans sa pile : ×2,41 pour lui chez vLLM, ×1,12 pour nous chez nous — **les deux ne se divisent pas**, l'écart bout-en-bout est dominé par vLLM contre candle » (§6) |
+| « Forcer `awq` ne change rien, donc les noyaux 4 bits convergent à M = 1 » | « les deux bras ont routé vers Marlin : c'est **un noyau chargé deux fois**, donc 0,10 % mesure la reproductibilité du banc — la clause M = 1 reste **non testée** » |
 | « ×4,63 de compression » | « ×4,63 sur le fichier, dont 44 % est un embedding non quantifié sur un 4B » |
 | « Le noyau est fini » | « Le noyau est mesuré et vérifié, il n'est pas encore branché dans le runner » |
 

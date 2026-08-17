@@ -467,3 +467,36 @@ même fichier) :
 > décision explicite de l'opérateur — son antériorité ne repose que sur une date
 > de commit. Les **seuils**, eux, sont ceux d'X3 du 2026-08-12, antérieurs par
 > un chemin indépendant.
+
+### E bis. Ce que la vitesse du 4 bits, mesurée le 2026-08-17, fait aux trois verrous — **rien, et il faut savoir pourquoi**
+
+**Aucun des trois verrous ci-dessus ne portait « la vitesse du 4 bits est
+inconnue », et aucun ne bouge.** Ils sont écrits sur *notre* chemin — qualité
+2 bits sur MoE, chemin GEMM à écrire, décodeur E1v fermé — et un chiffre du
+concurrent ne les lève ni ne les durcit. La note est ici parce que les trois
+segments sont des régimes **batch 1**, exactement celui que la mesure vient de
+sonder pour la première fois côté concurrent.
+
+**Le fait, et sa comptabilité.** Qwen3-4B AWQ dans **vLLM 0.26.0** (image
+épinglée), L40S, batch 1, 128 tokens, prefill compris, médiane de 5 rounds :
+**200,49 tok/s** [200,39 ; 200,61], contre son propre témoin f16 à **83,09**
+([`mesures/awq-vllm-4b-2026-08-17.txt`](mesures/awq-vllm-4b-2026-08-17.txt),
+job `6a830d53e55292eada79b600`, **0,11 $**).
+
+🚨 **Ce chiffre ne se compare à AUCUN seuil de cette note, et surtout pas au
+« ≥ 20 tok/s » du §A5.** Trois raisons, et chacune suffit :
+
+1. **Il est dans une autre pile.** Le même job mesure le f16 de vLLM à
+   **83,09** là où le nôtre rend 43,6 : l'écart bout-en-bout est dominé par
+   **vLLM contre candle**, pas par le décodeur de poids. La seule forme licite
+   est **intra-pile** — ×2,413 pour le 4 bits chez lui, ×1,12 pour nous chez
+   nous — et **ces deux rapports ne se divisent pas**.
+2. **Il est sur un 4B**, pas sur les 70B denses et le MoE ~120B que les trois
+   segments servent. Rien dans ce dossier n'autorise à le transporter d'une
+   taille à l'autre.
+3. **Il ne majore pas** ce que l'AWQ sait faire : M = 1 n'est pas le régime
+   optimal d'une GEMM Marlin (plus petite tuile en M = 8).
+
+⚠️ **Et il n'ajoute rien à la colonne mémoire du §B** : vLLM **préalloue**, donc
+ce qu'il rapporte est une *réservation*, pas une occupation. Le barreau du §B
+reste dérivé de nos octets comptés.

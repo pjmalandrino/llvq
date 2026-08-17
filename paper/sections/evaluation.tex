@@ -34,7 +34,17 @@ MMLU micro (\%) & 70.32 $\pm$ 1.28 & 70.04 $\pm$ 1.25 & 55.59 $\pm$ 1.35 & 55.70
 \caption{The 4B campaign, single harness, matching token fingerprints
 across arms. $^{\dagger}$AWQ runs in its own engine: its quality is
 directly comparable (same harness, same fingerprints), its speed is not,
-and its VRAM figure is its own engine's accounting. $^{\ddagger}$Column 4's
+and its VRAM figure is its own engine's accounting. The empty throughput
+cell is no longer an unmeasured quantity, only an incomparable one: that
+arm was timed on 2026-08-17 in vLLM~0.26.0 (image pinned by tag and digest,
+same L40S, same prompt token ids, same 128 tokens) at 200.49~tok/s, against
+83.09 for the same dense model in that same engine. A vLLM tok/s does not
+divide against a \texttt{candle} tok/s, so that number does not fill this
+column; the quantity that does compare is the within-stack ratio, and it is
+in \S\ref{sec:integration}. Before that run this note said that the speed
+was not comparable and stopped there
+(\texttt{docs/mesures/awq-vllm-4b-2026-08-17.txt}).
+$^{\ddagger}$Column 4's
 quality is scored on the 1.41~GB file with the int8 embedding pre-baked;
 its speed and VRAM are measured from the 1.77~GB sealed file with the same
 int8 quantization applied at load. The two paths produce bit-identical
@@ -112,7 +122,11 @@ MMLU micro (\%) & 76.08 $\pm$ 1.21 & 73.01 $\pm$ 1.26 & 65.63 $\pm$ 1.31 \\
 \end{tabular}
 \caption{The 8B campaign, same harness, same fingerprints, same codebook
 and calibration configuration as the 4B, so that model size is the only
-variable. $^{\dagger}$Same caveats as Table~\ref{tab:campaign}; the AWQ
+variable. $^{\dagger}$Same caveats as Table~\ref{tab:campaign}, with one
+exception: the vLLM timing recorded there is the 4B's only. The 8B AWQ
+checkpoint has no revision pinned in our tooling, the runner refuses an
+unpinned one, and it was not run --- so this cell is empty for the older
+reason, that no throughput for that arm exists at all. The AWQ
 VRAM figure is validated against the size of the official checkpoint
 (6.099~GB). Qwen3-8B unties its embedding from its output head, so the
 serving path quantizes both tables to int8 (two device buffers); perplexity
@@ -468,14 +482,18 @@ suspect, roughly $100\times$ less calibration data, is bounded in
 that bound is measured on perplexity, which does not constrain MMLU.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
-its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$57.21, of
+its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$57.56, of
 which \$55.59 is the campaign behind this paper (integration, ablations,
 negative results, three models): \$27.67 the 14B quantization, \$12.61 the 8B
 requantization, \$2.33 the kernel campaign of \S\ref{sec:layouts} and \$1.30
 the paired MMLU replay that produced the intervals above. The remaining
-\$1.62 is two format jobs of 2026-08-16 --- a transposed layout measured on
-card and a no-weight floor kernel --- which \emph{no cell of this paper rests
-on}, and which are separated here rather than folded in, since a campaign
+\$1.97 is two format jobs of 2026-08-16 --- a transposed layout measured on
+card and a no-weight floor kernel --- and four speed jobs of 2026-08-17,
+among them the \$0.11 AWQ throughput run in vLLM that measures the 4-bit arm
+in its own engine and therefore fills no cell of Table~\ref{tab:campaign},
+whose throughput entry for that arm stays empty; \emph{no cell of this paper
+rests on} any of the six, and they are separated here rather than
+folded in, since a campaign
 total that quietly absorbs later work stops being the cost of this evidence.
 An earlier draft reported \$22.83; that figure was correct for everything
 preceding the 14B campaign and that replay, and is superseded rather than

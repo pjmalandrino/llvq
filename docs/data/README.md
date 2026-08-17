@@ -233,8 +233,10 @@ sont muettes, pas concluantes.
 > tient pas » nu l'est de l'autre moitié. La forme juste : *le ralentissement
 > est résolu en perplexité et ne l'est pas sur l'écart MMLU au 4 bits.*
 
-🚨 **`jobs.csv` couvre QUATRE campagnes depuis le 2026-08-17, et la somme de
+🚨 **`jobs.csv` couvre CINQ campagnes depuis le 2026-08-17, et la somme de
 la colonne n'est plus le chiffre que le papier revendique pour lui-même.**
+🕳️ Cette phrase a dit « QUATRE » pendant la même journée : la cinquième
+(`[vitesse]`) est arrivée quelques heures après l'écriture de la quatrième.
 
 | campagne | lignes | somme | dans le total du papier ? |
 |---|---|---|---|
@@ -242,7 +244,18 @@ la colonne n'est plus le chiffre que le papier revendique pour lui-même.**
 | **kernel** (bancs 5, 6 et 7 bras) | marquées `[kernel]` | **2,33 $** | ✅ **depuis le lot D (2026-08-11)** |
 | 14B | marquées `[14B]` | 30,20 $ | ✅ |
 | **`[phase 1.2]`** (rejeu MMLU apparié) | marquées `[phase 1.2]` | **1,30 $** | ✅ |
-| 🆕 **`[plancher]`** (E1v sur carte + `nullk`) | marquées `[plancher]` | **1,62 $** | ❌ **et délibérément pas** |
+| **`[plancher]`** (E1v sur carte + `nullk`) | marquées `[plancher]` | **1,62 $** | ❌ **et délibérément pas** |
+| 🆕 **`[vitesse]`** (lot de débit du 08-17) | marquées `[vitesse]` | **0,35 $** | ❌ **et délibérément pas** |
+
+🆕 **Pourquoi `[vitesse]` et pas `[14B]` pour le job `campagne-14b-vitesse`.**
+Le tag nomme la campagne qui paie, pas le modèle mesuré — c'est déjà la
+convention de la ligne `paliers-4b-128`. Mais ici le choix a une conséquence
+arithmétique qu'il faut dire : le papier cite **deux** sous-totaux 14B
+(31,46 $ « tout ce qui est facturé sous le tag 14B » et 30,20 $ « le même moins
+une mesure 4B »), et ranger ce job sous `[14B]` les aurait tous les deux
+déplacés de 0,24 $ — alors qu'il est mort sur un garde sans produire un token
+et qu'aucune cellule du papier n'en dépend. Les deux sous-totaux 14B sont donc
+**inchangés**, vérifiés après écriture.
 
 🆕 **Le total de la colonne passe de 55,59 à 57,21 $ le 2026-08-17**, en
 soldant une dette : `jobs.csv` s'arrêtait au 2026-08-13 et **manquait les deux
@@ -258,8 +271,31 @@ recoupés par le tarif l40sx1 qu'impliquent les lignes déjà présentes
 sous-total.** Aucune cellule du papier ne repose sur les deux jobs du 08-16 —
 E1v et le plancher `nullk` n'y apparaissent nulle part — donc les fondre dans
 « le coût de cette évidence » aurait gonflé le chiffre sans rien ajouter à ce
-qu'il paie. Le papier dit désormais les deux : **57,21 $ au registre, dont
+qu'il paie. Le papier dit désormais les deux : **57,56 $ au registre, dont
 55,59 $ derrière ses propres nombres.**
+
+🆕 **Le total a bougé une SECONDE fois le même jour : 57,21 → 57,56 $**, en
+soldant les **quatre jobs du 08-17** que `jobs.csv` n'avait pas encore
+(le fichier s'arrêtait au 08-16) :
+
+| job | nom | flavor | durée | coût |
+|---|---|---|---|---|
+| `6a82f40ce55292eada79b526` | campagne-14b-vitesse (échec garde de partagée) | l40sx1 | 488 s | 0,24 $ |
+| `6a830ce8cd3824960fcbb26a` | sonde-entrypoint-vllm | cpu-upgrade | non journalisée | 0,00 $ |
+| `6a8311e8cd3824960fcbb2ff` | sonde-image-llvq | cpu-upgrade | non journalisée | 0,00 $ |
+| `6a830d53e55292eada79b600` | awq-speed-4b | l40sx1 | 226 s | 0,11 $ |
+
+Durées et montants **rapportés par le moniteur du job** (*mesuré* côté
+plateforme, *cité* ici) ; recoupés par le tarif l40sx1 de 1,80 $/h — 226 s en
+rendent 0,113 $ et 488 s en rendent 0,244 $ — *calculé*, pas une seconde
+mesure. ⚠️ La colonne `billed_min` porte la minute arrondie (4 et 8) et les
+secondes exactes vivent dans `what` : arrondir puis remultiplier par le tarif
+ne referme donc pas au centime, et c'est voulu — mieux vaut une minute
+arrondie visible qu'une durée inventée à la seconde.
+
+⚠️ **Le job de vitesse 14B en cours au moment de cette écriture n'est PAS dans
+le tableau** : il n'a pas rendu, donc il n'a ni durée ni montant. Une ligne
+`jobs.csv` se pose quand le job est retombé, jamais en anticipation.
 
 🕳️ **« Le total vit dans quatre sites » était faux, et vérifié le
 2026-08-17 : il en vit DEUX.** `paper/main.tex` (abstract, l. 74-75) et
