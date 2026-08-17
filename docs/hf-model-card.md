@@ -122,10 +122,22 @@ exact file** through the project's own pipeline:
 
 | | FP16 baseline | this model |
 |---|---|---|
-| MMLU (micro, population-weighted) | **70.42 ± 1.28** | **56.09 ± 1.36** |
+| MMLU (micro), Metal / M3 Max | 70.42 ± 1.28 | 56.09 ± 1.36 |
+| **MMLU (micro), CUDA / L40S** — the campaign figure | **70.32 ± 1.28** | **55.59 ± 1.35** |
 
-**−14.33 points, 79.7 % retained.** The ± is a stratified standard error
-covering sampling only — 1 σ, not a 95 % interval.
+**−14.33 points on Metal, −14.73 on CUDA; 79.7 % and 79.1 % retained.** The ±
+is a stratified standard error covering sampling only — 1 σ, not a 95 %
+interval, and two of them do not subtract. For a *difference*, the paired test
+below is the right instrument.
+
+⚠️ **The two rows disagree by 0.50 pp on what should be the same file, and we
+do not know why.** The baseline moves by only 0.10 pp across the same backend
+change, so this is five times the drift of its own control. It is not
+verifiable by token fingerprint: the Metal run predates their printing. The
+deltas are consistent either way and no conclusion here depends on the choice,
+but it is an open provenance debt rather than a rounding difference — and the
+rest of this card quotes the CUDA row, because that is the one measured
+alongside the AWQ arm on the same card with the same fingerprint.
 
 The damage is not uniform. Abstract algebra and professional accounting fall to
 10/40 — indistinguishable from chance within a ±7 pp per-subject bar; European

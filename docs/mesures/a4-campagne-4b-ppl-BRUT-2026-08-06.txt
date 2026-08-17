@@ -1,0 +1,96 @@
+# Sortie BRUTE de la campagne ppl 4B du 2026-08-06 — récupérée le 2026-08-17
+#
+# CE QUE C'EST. Les 36 lignes `window i/12  nll …` (3 bras × 12 fenêtres, 9
+# décimales) du job `6a746d8f6b79c09949c23fb4`, celui que `docs/data/jobs.csv`
+# désigne comme la source de `a4-campagne-2026-08-06.txt`. Ce dernier est un
+# journal de SYNTHÈSE : il ne porte que les trois perplexités agrégées.
+#
+# POURQUOI IL EXISTE. `docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt` (§ 4B)
+# déclarait ces NLL IRRÉCUPÉRABLES sans rejeu sur carte, et chiffrait ce rejeu
+# à ~0,25 $ — la colonne perplexité du 4B était donc la seule des trois tailles
+# sans barre d'erreur. C'était faux : **les logs de Jobs HF ne sont pas purgés**,
+# et `hf jobs logs 6a746d8f6b79c09949c23fb4` les rend en deux secondes, 0 $.
+#
+# 🚨 ET C'EST POURQUOI CE FICHIER EST COMMITÉ. La rétention des logs HF n'est ni
+# documentée ni garantie. Elle couvre aujourd'hui les 62 jobs du projet depuis le
+# 2026-08-02 (vérifié sur le plus ancien, `6a72dd5e`) — elle peut cesser demain.
+# C'est exactement la leçon des dumps MMLU du 14B, sur un objet nouveau : une
+# sortie qui vit hors du dépôt est une sortie qu'on croira perdue.
+#
+# CONTRÔLE DE REPRODUCTION, exigé avant tout usage. Les moyennes de NLL
+# ci-dessous rendent, par exp(Σn·nll/Σn) :
+#     f16   2,504458264 -> 12,2369   (publié 12,2369)  OK
+#     AWQ   2,604223682 -> 13,5207   (publié 13,5207)  OK
+#     LLVQ  2,829810435 -> 16,9422   (publié 16,9422)  OK
+# Contrôle d'additivité des différences appariées : exactement 0,0 — un décalage
+# d'une fenêtre entre deux bras le casserait.
+#
+# INTÉGRITÉ. sha256 de la sortie brute telle que récupérée, hors cet en-tête :
+#     07bf4119d605f8c81be7c1d5e68115b731c225f10fcb0d2300db79a13caf7866
+# Empreinte de tokens `3f1baca9033bf251` imprimée sur les trois bras, dtype f16,
+# wikitext-2 test, ctx 4096, 12 fenêtres. Carte : l40sx1. Coût du job : 0,24 $.
+#
+# ⚠️ CE FICHIER N'EST PAS UNE MESURE NEUVE. C'est la sortie d'un run de 2026-08-06,
+# rapatriée sans être retouchée. Les intervalles qui en dérivent sont dans
+# `ppl-appariee-4b-2026-08-17.txt`.
+#
+# ---------------------------------------------------------------------------
+
+########## BRAS 1 — f16 ##########
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.507059152  n 4095  running ppl   12.269  (8.6s)
+  window   2/12  nll 2.801779275  n 4095  running ppl   14.217  (9.6s)
+  window   3/12  nll 2.309614908  n 4095  running ppl   12.673  (10.6s)
+  window   4/12  nll 1.988569568  n 4095  running ppl   11.043  (11.5s)
+  window   5/12  nll 2.600570198  n 4095  running ppl   11.490  (12.5s)
+  window   6/12  nll 2.547732324  n 4095  running ppl   11.696  (13.5s)
+  window   7/12  nll 2.608475227  n 4095  running ppl   11.948  (14.5s)
+  window   8/12  nll 2.557975141  n 4095  running ppl   12.064  (15.5s)
+  window   9/12  nll 2.761579480  n 4095  running ppl   12.433  (16.4s)
+  window  10/12  nll 2.208976028  n 4095  running ppl   12.052  (17.4s)
+  window  11/12  nll 2.642599349  n 4095  running ppl   12.221  (18.4s)
+  window  12/12  nll 2.518568519  n 4095  running ppl   12.237  (19.4s)
+
+Qwen/Qwen3-4B [baseline] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 12.2369
+########## BRAS 2 — AWQ 4 bits (officiel Qwen, reconstruit) ##########
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.596256630  n 4095  running ppl   13.413  (1.1s)
+  window   2/12  nll 2.921660371  n 4095  running ppl   15.783  (2.1s)
+  window   3/12  nll 2.386949357  n 4095  running ppl   13.943  (3.1s)
+  window   4/12  nll 2.074732429  n 4095  running ppl   12.121  (4.2s)
+  window   5/12  nll 2.705658339  n 4095  running ppl   12.642  (5.2s)
+  window   6/12  nll 2.645390720  n 4095  running ppl   12.873  (6.2s)
+  window   7/12  nll 2.703553304  n 4095  running ppl   13.149  (7.2s)
+  window   8/12  nll 2.671004560  n 4095  running ppl   13.305  (8.2s)
+  window   9/12  nll 2.933506706  n 4095  running ppl   13.826  (9.3s)
+  window  10/12  nll 2.312954298  n 4095  running ppl   13.399  (10.3s)
+  window  11/12  nll 2.713464400  n 4095  running ppl   13.544  (11.3s)
+  window  12/12  nll 2.585553075  n 4095  running ppl   13.521  (12.3s)
+
+Pier-Jean/qwen3-4b-awq-deq [baseline] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 13.5207
+########## BRAS 3 — LLVQ 2 bits scelle ##########
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /model/qwen3-4b-llvq.bin: 252 quantized matrices, 1.771 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.790933112  n 4095  running ppl   16.296  (1.1s)
+  window   2/12  nll 3.222362924  n 4095  running ppl   20.220  (2.1s)
+  window   3/12  nll 2.619059543  n 4095  running ppl   17.769  (3.1s)
+  window   4/12  nll 2.320397398  n 4095  running ppl   15.459  (4.2s)
+  window   5/12  nll 2.939001450  n 4095  running ppl   16.092  (5.2s)
+  window   6/12  nll 2.811922886  n 4095  running ppl   16.183  (6.2s)
+  window   7/12  nll 2.887606838  n 4095  running ppl   16.424  (7.2s)
+  window   8/12  nll 2.818192918  n 4095  running ppl   16.464  (8.2s)
+  window   9/12  nll 3.061212225  n 4095  running ppl   16.947  (9.3s)
+  window  10/12  nll 2.532528474  n 4095  running ppl   16.450  (10.3s)
+  window  11/12  nll 3.071756954  n 4095  running ppl   16.861  (11.3s)
+  window  12/12  nll 2.882750496  n 4095  running ppl   16.942  (12.3s)
+
+/model/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, tokens 3f1baca9033bf251
+ppl = 16.9422
