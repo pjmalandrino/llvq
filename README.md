@@ -178,8 +178,20 @@ recipe — the second time in this project that a strictly better per-layer prox
 composed into a disaster over 28 layers
 ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md),
 [`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md)).
-**What moved instead was scale**: at 8B the drop is −10.56 pp rather than
-−14.73, and the gap to 4-bit halves. Candidates still open and unmeasured:
+**What moved instead was scale**, and it now has three points rather than two:
+the MMLU drop against f16 reads −14.73 pp at 4B, −10.57 at 8B and −6.85 at 14B,
+each one *paired on the same questions* with a 95 % interval excluding zero.
+🚨 **This paragraph said "the perplexity excess flattens between the last two —
+a knee, not a law". The knee is withdrawn on 2026-08-17**: with all three
+AWQ − LLVQ gaps now paired, the step-to-step drop tests as **resolved from 4B to
+8B (p = 0.0001)** and **unresolved from 8B to 14B (p = 0.40)** — the slowdown is
+a property of the point estimates that the error bars do not separate. ⚠️ Nor
+does p = 0.40 prove equality: on that step the data are **silent**. What is
+tested is the closing itself, 4B to 14B (−8.36 pp, p ≈ 1e-5). **Three points,
+not a law** — see *Against 4-bit*, which carries the figures and the reserves.
+An earlier version of this paragraph said "the gap to 4-bit halves", which was
+true from 4B to 8B and is not the shape of the three-point curve. Candidates
+still open and unmeasured:
 calibration *composition* (the failure is concentrated in reasoning subjects,
 which no corpus we use exercises), post-hoc compensation, per-column scale
 fine-tuning, and our 1-gain-bit configuration,
@@ -239,7 +251,7 @@ official AWQ checkpoint**, not one we produced:
 | | FP16 | **AWQ 4-bit** *(official)* | LLVQ 2-bit, dense | **LLVQ 2-bit + fused kernel** |
 |---|---|---|---|---|
 | **Cold storage** | 8.04 GB | 2.67 GB | **1.77 GB** | **1.41 GB**¹ |
-| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.15 bits/param** |
+| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.162 bits/param**⁵ |
 | **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **88.4 – 88.5 tok/s**⁴ |
 | **WikiText-2 perplexity** | 12.2369 | **13.5207** *(×1.105)* | 16.9422 *(×1.384)* | **16.9358** *(×1.384)* |
 | **MMLU** *(5-shot, micro, 2 280 q)* | 70.32 ± 1.28 | **70.04 ± 1.25** *(−0.28)* | 55.59 ± 1.35 | **55.70 ± 1.35** *(−14.6)* |
@@ -260,6 +272,15 @@ Its 5.30 bits/param is its own engine's, whole model, embedding included.
 FP16 — that was the state of this project on 2026-08-04.
 ⁴ 88.4 in the final campaign, 88.5 in the integration run. Two protocols, one
 object; the repo prints both rather than picking one.
+⁵ **The two numbers in that cell do not divide into each other, and neither is
+derived from the other.** 2.60 GB is what the card reports (`nvidia-smi`,
+rounded to two digits); 5.162 bits/param is recomputed from the exact bytes
+and the exact parameter count, whole model with embedding included, by
+`rtbits` ([`docs/mesures/rtbits-planes-8b-2026-08-09.txt`](docs/mesures/rtbits-planes-8b-2026-08-09.txt),
+which states the published 4B q8 figure is 5.162). The exact footprint is
+2.595 GB, so dividing the displayed 2.60 GB gives **5.15** — the figure this
+file published until 2026-08-17 and which is now labelled for what it is: a
+quotation of the rounded card display, not a measurement of the object.
 
 **Read the speed number with its companion.** The ×2.03 against the dense arm
 is *not* the kernel alone: ~25 ms/token of it comes from replacing an output
@@ -278,19 +299,150 @@ Leech kernel itself buys end to end
 Never quote the ×2.03 without the ×1.12.
 
 **What the table says, in order.** We win cold storage (1.41–1.77 GB against
-2.67) and, since Planes14 + int8 embedding, **card memory** (5.15 against 5.30
+2.67) and, since Planes14 + int8 embedding, **card memory** (5.162 against 5.30
 bits/param — the axis we were losing three days earlier). We lose quality, and
 not marginally: **70.04 against 55.70 on MMLU, a 14.3-point gap**, while
 4-bit is statistically indistinguishable from f16 (−0.28 pp, inside its own
 ±1.25). Speed does not compare honestly across two engines.
 
 **On a 4B, 4-bit dominates us on capabilities and that is the verdict.** The
-bet is scale, and it now has two points rather than one: at 8B the LLVQ
-degradation falls to ×1.220 perplexity and −10.56 pp MMLU while the AWQ starts
-to pay (−3.07 pp), so **the gap to 4-bit halves, 14.45 pp → 7.49 pp** — dense
-LLVQ arm on both sides, which is why it reads 14.45 and not the 14.3 above
-([`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
-Two points are not a scaling law and this file will not extrapolate one to 70B.
+bet is scale, and it now has **three points — and three points are not a law.**
+🕳️ *This sentence read "three points, and they show a knee, not a law" until
+2026-08-17; the knee did not survive its own error bars — see the step tests
+below.*
+The LLVQ perplexity degradation reads ×1.3845 → ×1.2201 → ×1.1894 at 4B, 8B and
+14B *(measured, same codebook, same calibration, same harness, same card, same
+token fingerprints on all three)*; the excess over 1 therefore falls **42.8 %
+from 4B to 8B and then only 13.9 % from 8B to 14B** *(computed from those three
+ratios)*. ⚠️ **Those two percentages are not comparable as evidence**: the
+second now carries a paired interval (−13.9 %, 95 % CI [−22.8 ; −4.9] on the f16
+reference — real but loosely bounded, a factor 4.6 between the ends), while the
+first **cannot be given one at all** — the 4B campaign log is a *summary*, its
+per-window NLLs were never kept. On the AWQ reference, the one that carries the
+product argument, the same step reads **−1.58 %, 95 % CI [−3.14 ; −0.004]**,
+t = 2.2063 against a 2.200985 threshold: it clears zero **by 0.005**. **Never
+write that the gap closes significantly**. ⚠️ **And do not read −13.9 against
+−1.58 as a ninefold difference: they are two parameterizations.** −13.9 % is
+the fall of the **excess**, −1.58 % the fall of the **ratio** of perplexities,
+which is the only form the journal publishes on the AWQ reference. Ratio
+against ratio, the two references read **−2.51 % [−4.12 ; −0.88]** and
+**−1.58 % [−3.14 ; −0.004]**
+([`docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt`](docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt)).
+The MMLU drop against f16 falls −14.73 → −10.57 → −6.85 pp, each one
+**paired question by question** with a 95 % interval excluding zero — the 8B
+term reads 10.57 here and 10.56 in the table further up because one is
+`mmlupair`'s stratified estimate and the other the subtraction of two published
+micro rates; same measurement, last digit only —
+([`docs/mesures/mmlupair-4b-8b-2026-08-13.txt`](docs/mesures/mmlupair-4b-8b-2026-08-13.txt),
+[`docs/mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt),
+summary in [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
+**Three points are not a scaling law any more than two were**, and this file
+will not extrapolate one to 70B.
+
+The gap to 4-bit reads **14.45 → 7.49 → 6.09 pp** — dense LLVQ arm on both
+sides, which is why the first term reads 14.45 and not the 14.3 above. ✅ **All
+three are now the same species of number**, each a *paired* AWQ − LLVQ estimate
+with an interval: **+14.45 pp [+11.60 ; +17.27]** at 4B, **+7.49 pp
+[+5.28 ; +9.70]** at 8B, **+6.09 pp [+3.62 ; +8.52]** at 14B (SE 1.25 pp, exact
+McNemar p = 1.143e-11, 230/106 discordant pairs, stratified paired bootstrap,
+10 000 draws, seed `0xb0075eed`, fingerprint `65dcd53655e8bfa5` on both sides —
+[`docs/mesures/mmlupair-14b-2026-08-17.txt`](docs/mesures/mmlupair-14b-2026-08-17.txt)).
+All three are resolved.
+
+🕳️ **What this paragraph said until 2026-08-17, and why it was wrong.** It read:
+"**Those three numbers are not the same species** […] the third is a bare
+subtraction of two micro rates (78.21 − 72.12) — so **no AWQ − LLVQ pairing
+exists at 14B**: no interval, no McNemar. Recovering one means rerunning the 14B
+MMLU campaign, not recomputing something we hold. **Never quote 6.09 with an
+interval.** […] the scratch directory is gone." The caution was right; the fact
+was not. **The point estimate does not move by a hundredth** — this is not a new
+number, it is the same one ceasing to be bare.
+
+The dumps were never gone: the campaign job did not write to a machine, it wrote
+to the **mounted bucket**, which exists precisely so job output outlives the
+container. The 2026-08-16 check that declared them lost searched *the machine*.
+They had been sitting in the bucket since 2026-08-10; recovering them cost
+**579 kB of bandwidth and $0**, against a rebudgeted MMLU campaign. They are now
+committed into [`docs/data/mmlu-dumps/`](docs/data/mmlu-dumps/), so the loss
+cannot recur, and their authenticity was established *before* use: the three
+stratified micro rates replay 78.97 / 78.21 / 72.12, and the already-published
+`f16 − LLVQ` pair replays all four of its figures. **The standing rule this
+bought: any output declared lost deserves an `hf buckets ls` before anyone
+prices a re-run.**
+
+🚨 **And the step-to-step test, which the homogeneous line makes possible for the
+first time** (SEs composed in quadrature — *computed*; separate campaigns on
+different models, so no cross-model pairing, which would be meaningless):
+
+| step | drop in the gap | SE | z | p | verdict |
+|---|---|---|---|---|---|
+| 4B → 8B | 6.96 pp | 1.82 | 3.82 | 0.0001 | **resolved** |
+| **8B → 14B** | **1.40 pp** | **1.68** | **0.83** | **0.40** | **unresolved** |
+| 4B → 14B | 8.36 pp | 1.91 | 4.38 | ≈ 1e-5 | **resolved** |
+
+**The first closing is real; the second is inside the noise.** ⚠️ And p = 0.40
+does not prove equality either — on that step the data are **silent**, and both
+readings ("it is slowing" and "it keeps closing") remain compatible with three
+points. What this strengthens is what the file already said: **no scaling law on
+three points**, and the 32B point is what would settle it.
+
+Three reserves this file will not smooth over.
+
+* **"The 4-bit baseline starts paying" describes the 8B, not a trend.** It is
+  the only scale where f16 − AWQ is resolved: **+3.07 pp [+1.61 ; +4.69]**. At
+  4B it is unresolved (+0.27 [−1.63 ; +2.13]) and at 14B it is unresolved again
+  (+0.76 [−0.65 ; +2.17]). Not monotone.
+* **At 4B that verdict depends on the accounting.** The unweighted control
+  *does* resolve f16 − AWQ (+1.97 [+0.92 ; +3.02]) where the stratified micro
+  does not, and the disagreement is carried by `professional law`, 10.9 % of the
+  population.
+* 🕳️ **"None of these intervals tests the difference of differences between
+  scales" — true when written, no longer the whole story.** `mmlupair` still
+  pairs two arms on the same questions and never two model sizes, and
+  non-overlapping intervals are still not a test. But since 2026-08-17 the
+  step-to-step drop **is** tested, by composing the two campaign SEs in
+  quadrature (table above): resolved 4B→8B, **unresolved 8B→14B**. That is a
+  formal test, and it is the one that withdrew the knee.
+
+✅ **The memory reading reaches three points on 2026-08-17.**
+🕳️ *This paragraph read "still at two points, not three — no whole-model
+bits/param exists for the 14B, `rtbits` has never been run on a sealed 14B".
+That was exact and is now obsolete: the sealed 14B artifact had never been
+brought back after the campaign, but it was still in the bucket, and re-reading
+it cost bandwidth only —*
+[`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt).
+The axis now holds **5.162 against AWQ's 5.302 at 4B (−2.6 %), 5.322 against
+5.956 at 8B (−10.6 %), and 5.106 against 5.404 at 14B (−5.5 %)**
+*(`Planes14` + int8 embedding; our figures **computed on measured bytes** with
+the embedding **modelled** at 8.5 bits/param — the same status at all three
+sizes — against AWQ safetensors bytes read from the Hub API, whole model with
+embedding included, the only accounting in which the two compare)*. `params_total`
+for the 14B is **14,768,307,200**, read from the sealed file and cross-checked
+by the architecture's arithmetic. **We are under deployed 4-bit at all three
+sizes.**
+
+🚨 **The margin is not monotone and carries no trend.** It peaks at 8B and falls
+back. The mechanism is not the method but the **embedding's share** — 9.7 % at
+4B (tied heads), 15.2 % at 8B, 10.5 % at 14B — which AWQ leaves in f16 and we
+move to int8. Three points, one mechanism, **no law**. ⚠️ Neither speed nor card
+VRAM has ever been measured at 14B: no `fusedrun` has run at that width, so the
+14B lacks the third instrument (the engine's own VRAM report) that
+cross-checked the 4B and 8B cells.
+
+⚠️ The AWQ references are **three different models**: 5.302 is the 4B, 5.956 the
+8B, 5.404 the 14B — they are not one shared baseline. The table above now publishes **5.162**, the
+`rtbits` verdict on the exact bytes — settled 2026-08-17. The **5.15** it
+carried before is the same 4B object read off the rounded card display
+(2.60 GB shown for an exact 2.595 GB); it is kept here labelled rather than
+deleted, because a corrected claim says so.
+🕳️ *This paragraph ended "The 14B figure is **missing**, not omitted for
+brevity, and it is not to be extrapolated from the two that exist" — obsolete
+on 2026-08-17, and it survived the correction three paragraphs above that
+already publishes it.* The 14B figure is **5.106 against 5.404**, measured on
+the sealed artifact recovered from the bucket
+([`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt)).
+What still must not be extrapolated is the **margin**: it is not monotone, and
+nothing here licenses a fourth point.
 
 <details><summary>The earlier MLX q4 comparison, on the Mac, kept for genealogy</summary>
 

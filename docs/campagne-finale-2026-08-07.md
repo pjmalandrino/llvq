@@ -18,7 +18,7 @@
 | | FP16 | Q4 (AWQ officiel) | LLVQ sans noyau | **LLVQ planes14 + noyau fusé + embed q8** |
 |---|---|---|---|---|
 | **disque** | 8,04 Go | 2,67 Go | **1,77 Go** | **1,41 Go**⁴ |
-| **VRAM** | 8,04 Go | 5,30 b/param¹ | 8,04 Go² | **2,60 Go (5,15 b/param)** |
+| **VRAM** | 8,04 Go | 5,30 b/param¹ | 8,04 Go² | **2,60 Go · 5,162 b/param**⁵ |
 | **vitesse** | 43,5 tok/s³ | non comparable¹ | 43,5 tok/s | **88,4-88,5 tok/s** |
 | **perplexité** (wikitext) | 12,2369 | 13,5207 (×1,105) | 16,9422 (×1,384) | **16,9358 (×1,384)** |
 | **MMLU** (micro) | 70,32 ± 1,28 | 70,04 ± 1,25 | 55,59 ± 1,35 | **55,70 ± 1,35** |
@@ -41,6 +41,18 @@ embedding au chargement. Les deux produisent un contenu **bit-identique**
 sont pas les mêmes octets sur disque — une version antérieure de ce document
 écrivait « un seul et même fichier de 1,77 Go », c'était faux.
 
+⁵ **Les deux nombres de cette cellule ne se déduisent pas l'un de l'autre —
+ne pas faire la division, elle ne retombe pas.** Le **2,60 Go** est
+l'affichage carte (`nvidia-smi`, arrondi au centième) ; le **5,162 b/param**
+est recalculé sur les octets exacts et le compte exact de paramètres, modèle
+entier embedding compris, par `rtbits`
+([`mesures/rtbits-planes-8b-2026-08-09.txt`](mesures/rtbits-planes-8b-2026-08-09.txt),
+qui tranche lui-même « LE CHIFFRE 4B q8 À PUBLIER EST 5,162 »). L'empreinte
+exacte vaut 2,595 Go : diviser le 2,60 affiché rend **5,15**, qui est ce que
+ce document publiait jusqu'au 2026-08-17. Le 5,15 n'est pas supprimé, il est
+étiqueté — c'est une citation d'affichage carte arrondi, pas une mesure de
+l'objet.
+
 ## Les trois lectures du tableau
 
 **1. Le noyau et le format valent ×2,03 et ÷3,09 — gratuits en qualité.**
@@ -58,7 +70,7 @@ depuis le fichier publié.
 
 **3. Face au 4 bits : chaque axe a son vainqueur, et il faut les dire
 tous.** Nous gagnons le disque (1,77 contre 2,67) et désormais la **VRAM**
-(5,15 contre 5,30 b/param — c'était l'axe perdu il y a trois jours) ; la
+(5,162 contre 5,30 b/param — c'était l'axe perdu il y a trois jours) ; la
 vitesse ne se compare pas honnêtement (moteurs différents) ; l'AWQ gagne
 la qualité, largement (70,0 contre 55,7 de MMLU). Sur un 4B, le verdict
 d'A4 reste vrai sur l'axe capacités ; le pari du 2 bits reste l'échelle

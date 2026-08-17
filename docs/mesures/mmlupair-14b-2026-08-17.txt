@@ -1,0 +1,171 @@
+# mmlupair — la paire AWQ − LLVQ du 14B, que le dépôt donnait pour PERDUE
+#
+# Commande : target/release/mmlupair <a.csv> <b.csv>
+# Machine  : Apple M3 Max (Mac15,8), macOS 26.5.2 — CPU seul, < 1 s, 0 $
+# Date     : 2026-08-17, branche claude/html-mini-cours-planes-w9prvm, arbre à d3953a9
+#
+# 🚨 CE JOURNAL RETIRE UNE AFFIRMATION DU DÉPÔT, ET IL FAUT DIRE LAQUELLE
+#
+#   docs/data/README.md écrivait, et CLAUDE.md §3bis avec lui :
+#     « La paire AWQ − LLVQ n'existe pas au 14B […] ils sont perdus. La
+#       recalculer exige de REFAIRE LA CAMPAGNE MMLU 14B : ce n'est pas une
+#       correction à 0 $. »
+#   et, en note : « le répertoire de travail a depuis disparu (vérifié le
+#   2026-08-16 : plus aucune trace sur la machine) ».
+#
+#   La vérification du 08-16 est exacte, et c'est elle qui a induit en erreur :
+#   elle a cherché sur LA MACHINE. Or le job de campagne n'écrivait pas sur une
+#   machine — il écrivait dans le BUCKET MONTÉ, qui est justement le dispositif
+#   adopté pour que les sorties survivent au conteneur. Les trois dumps y sont
+#   restés depuis le 2026-08-10 :
+#
+#     hf buckets ls hf://buckets/Pier-Jean/jobs-artifacts/campagne-14b-qualite/
+#       mmlu-awq.csv    192 850 o   2026-08-10 06:49:16
+#       mmlu-f16.csv    192 902 o   2026-08-10 07:01:28
+#       mmlu-llvq.csv   193 086 o   2026-08-10 07:33:50
+#
+#   Coût de la récupération : 579 ko de bande passante. Pas de GPU, pas de
+#   campagne, pas de 1,68 $. La leçon est étroite et vaut d'être retenue :
+#   « perdu » avait été conclu d'une recherche à UN seul endroit, alors que le
+#   dépôt documente lui-même l'autre (ops/run.py, `--bucket`, « sans --bucket,
+#   rien de ce que le job écrit ne survit au conteneur »).
+#
+#   Les trois dumps sont désormais COMMITÉS dans docs/data/mmlu-dumps/ —
+#   mmlu-14b-{f16,awq,llvq}.csv — ce que la note du 08-13 dit qui aurait dû
+#   être fait pour le 4B et le 8B et qui n'avait pas été fait pour le 14B.
+#   La perte ne peut donc plus se reproduire.
+#     sha256 mmlu-14b-f16.csv   ad6acdeb15304c3fda16a3c811ad5dbf21ab85a4d110e58ba8b13ec5773dc787
+#     sha256 mmlu-14b-awq.csv   b3f8ea4dbbec130fa3642d923fa9e993b6315ef7396bb8f6690d2a4612489002
+#     sha256 mmlu-14b-llvq.csv  9421e665f9976a760c5c7091c0d31a2a40baeee7b63256f00f0a1c412bc4c0fd
+
+================================================================================
+1. AUTHENTICITÉ DES DUMPS — trois contrôles avant d'en tirer un chiffre
+================================================================================
+
+  Un CSV sorti d'un bucket n'est pas une mesure tant qu'on n'a pas montré que
+  c'est CELUI de la campagne publiée. Trois contrôles, tous verts.
+
+  ① Les trois micros stratifiés rejouent les cellules publiées, à 0,01 pp :
+
+        bras    recalculé   publié (campagne-14b-qualite-2026-08-10)
+        f16       78.97       78.97   ✅
+        AWQ       78.21       78.21   ✅
+        LLVQ      72.12       72.12   ✅
+
+     ⚠️ Le micro publié est PONDÉRÉ PAR LA POPULATION de chaque matière, pas
+     une moyenne des 2 280 questions tirées. La moyenne nue rend 80,53 / 79,74
+     / 74,30 — trois nombres qui ne sont dans aucun tableau du dossier et qu'il
+     ne faut pas confondre avec les micros. La formule de pondération a été
+     validée AVANT usage sur les six dumps déjà commités (4B et 8B) : elle y
+     rend 70,32 / 70,04 / 55,59 et 76,08 / 73,01 / 65,52, soit les six cellules
+     publiées, exactement.
+
+  ② L'empreinte de run est 65dcd53655e8bfa5 sur les trois — la même que sur le
+     4B et le 8B. Les 2 280 questions sont donc identiques d'un bras à l'autre
+     ET d'une taille à l'autre, ce qui est la condition de l'appariement.
+
+  ③ La paire DÉJÀ PUBLIÉE se rejoue au centième. `mmlupair f16 llvq` rend :
+        Δ = +6.85 pp   IC95 [+4.52 ; +9.12]   SE 1.16 pp   McNemar 8.666e-16
+     contre, au journal du 08-10 (l. 384-392) et dans CLAUDE.md :
+        Δ = +6,85 pp   IC95 [+4,52 ; +9,12]   SE 1,16 pp   McNemar 8,666e-16
+     Quatre grandeurs sur quatre. C'est le contrôle qui rend le §2 croyable :
+     le même binaire, sur les mêmes octets, refait le nombre déjà accepté.
+
+================================================================================
+2. LA PAIRE QUI MANQUAIT — AWQ 4 bits contre LLVQ 2 bits, au 14B
+================================================================================
+
+  A = /tmp/awq                                    (AWQ officiel déquantifié)
+  B = /out/…/qwen3-14b-llvq.bin                   (LLVQ 2 bits, scellé)
+  2280 questions appariées · 57 matières · f16 / f16 · empreinte identique
+
+  micro stratifié     A 78.21 %   B 72.12 %   Δ = +6.09 pp
+  non pondéré (poolé) A 79.74 %   B 74.30 %   Δ = +5.44 pp
+
+  McNemar exact (non pondéré)
+    A✓B✗ = 230   A✗B✓ = 106   concordantes = 1944   (14,7 % discordantes)
+    p = 1.143e-11   (z = +6.76)
+
+  bootstrap apparié stratifié par matière
+  (10 000 tirages, graine 0xb0075eed, correction de population finie)
+    Δ micro stratifié = +6.09 pp   IC95 [+3.62 ; +8.52]   SE 1.25 pp
+    contrôle non pondéré = +5.44 pp   IC95 [+4.12 ; +6.77]   SE 0.67 pp
+    → l'IC exclut zéro : l'écart est RÉSOLU par ce protocole.
+
+  matières qui portent l'écart (contribution au Δ stratifié)
+    moral scenarios              +17.5 pp × poids  6.4 % = +1.115 pp
+    professional law              +7.5 pp × poids 10.9 % = +0.819 pp
+    professional accounting      +25.0 pp × poids  2.0 % = +0.502 pp
+    moral disputes               +15.0 pp × poids  2.5 % = +0.370 pp
+    elementary mathematics       +12.5 pp × poids  2.7 % = +0.336 pp
+
+  🔎 LE POINT ESTIMÉ NE BOUGE PAS D'UN CENTIÈME. Le dossier citait déjà
+  « 6,09 pp » — obtenu par 78,21 − 72,12, une soustraction de deux micros — en
+  le marquant partout « DIFFÉRENCE NUE, ne jamais lui inventer d'IC ». Cette
+  prudence était la bonne, et elle est maintenant SATISFAITE plutôt que
+  contournée : le même 6,09 porte un intervalle, un appariement question par
+  question et un McNemar. Ce n'est pas un chiffre neuf, c'est le même chiffre
+  qui cesse d'être nu.
+
+================================================================================
+3. LA LIGNE À TROIS TAILLES DEVIENT HOMOGÈNE — et elle dit autre chose
+================================================================================
+
+  écart AWQ 4 bits − LLVQ 2 bits, MMLU micro stratifié, apparié :
+
+      taille   Δ         IC95                SE       McNemar     source
+      4B      +14.45 pp  [+11.60 ; +17.27]  1.44 pp  —           mmlupair-4b-8b-2026-08-13
+      8B       +7.49 pp  [ +5.28 ;  +9.70]  1.12 pp  —           mmlupair-4b-8b-2026-08-13
+      14B      +6.09 pp  [ +3.62 ;  +8.52]  1.25 pp  1.143e-11   CE JOURNAL
+
+  Les trois cellules sont désormais LA MÊME ESPÈCE DE NOMBRE. Le 🚨 de
+  CLAUDE.md §3bis — « les trois cellules de cette ligne ne sont pas la même
+  espèce de nombre » — est LEVÉ, et il l'est par la mesure qu'il réclamait.
+
+  🚨 ET LE « GENOU » NE SURVIT PAS À SA PROPRE BARRE D'ERREUR
+  --------------------------------------------------------------------------
+  Le dossier fait du ralentissement 4B→8B→14B un résultat : « il y a un
+  genou », « la décroissance ralentit », « une extrapolation linéaire aurait
+  sur-promis ». Ces phrases ont été écrites sur des points NUS. Avec les
+  barres, la chute de l'écart d'un palier au suivant se teste — les campagnes
+  étant distinctes et les modèles différents, les deux SE se composent en
+  quadrature (CALCULÉ, pas mesuré : ce n'est pas un appariement inter-modèles,
+  qui n'aurait aucun sens) :
+
+      palier      chute de l'écart   SE      z      p        verdict
+      4B  →  8B      6.96 pp        1.82   3.82   0.0001    ✅ RÉSOLU
+      8B  → 14B      1.40 pp        1.68   0.83   0.40      ❌ NON RÉSOLU
+      4B  → 14B      8.36 pp        1.91   4.38   0.00001   ✅ RÉSOLU
+
+  Autrement dit : **la première fermeture est réelle, la seconde est dans le
+  bruit.** Le genou est une propriété des points estimés que les données ne
+  résolvent pas. Ce qui reste vrai et testé, c'est que l'écart au 4 bits est
+  beaucoup plus petit à 14B qu'à 4B (8,36 pp, p ≈ 1e-5) ; ce qui n'est PAS
+  établi, c'est qu'il ait cessé de se refermer entre 8B et 14B.
+
+  ⚠️ Ce que ce test ne dit pas non plus : que la fermeture CONTINUE. p = 0,40
+  n'est pas une preuve d'égalité — les données sont simplement muettes sur ce
+  palier. Les deux lectures (« ça ralentit » et « ça continue ») sont
+  compatibles avec ces trois points. La conclusion opérationnelle est
+  inchangée et devient mieux fondée : **on ne publie pas de loi d'échelle sur
+  trois points**, et le point 32B reste ce qui trancherait.
+
+================================================================================
+4. CE QUE CE LOT COÛTE ET CE QU'IL LAISSE OUVERT
+================================================================================
+
+  Coût : 0 $. 579 ko de bande passante, < 1 s de CPU. Lecture seule sur le
+  Hub — rien publié, supprimé ni modifié côté bucket.
+
+  RESTE OUVERT, et non payable à 0 $ :
+  * la paire AWQ − LLVQ en PERPLEXITÉ au 14B n'est pas concernée ici (voir
+    ppl-appariee-8b-14b-2026-08-17.txt, qui traite les NLL par fenêtre) ;
+  * le point 32B, seul à pouvoir trancher la forme de la courbe ;
+  * aucune mesure de vitesse ni de VRAM carte à 14B (cf.
+    rtbits-14b-2026-08-17.txt §4).
+
+  ⚠️ ET UNE DETTE DE MÊME NATURE, À VÉRIFIER PLUTÔT QU'À SUPPOSER : si les
+  dumps 14B ont survécu dans le bucket alors que le dépôt les donnait perdus,
+  toute autre sortie déclarée perdue mérite un `hf buckets ls` avant qu'on
+  budgète un re-run. Le bucket contient 69 fichiers et 46,7 Go ; personne n'en
+  a fait l'inventaire depuis sa création le 2026-08-02.

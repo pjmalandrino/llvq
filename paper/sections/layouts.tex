@@ -92,8 +92,9 @@ mask per non-zero magnitude level naming which coordinates carry it. That is
 record by its byte offset and reads a fixed five-word (20~B) window, an
 alignment bound the format guarantees rather than checks. It is the simplest
 divergence-free format and our first to beat FP16 ($1.89\times$), but at
-5.510~b/weight, records plus per-class tables, full-precision tail columns
-and per-row scales, it is \emph{more} memory than a 4-bit format: fast and
+5.510~b/weight --- records, full-precision tail columns and per-row scales,
+per the byte accounting above, which excludes the resident per-class
+tables --- it is \emph{more} memory than a 4-bit format: fast and
 pointless at scale.
 
 \textbf{\textsc{Planes14}} is the observation that the four one-hot level
@@ -127,7 +128,13 @@ coset, so storing 12 code bits instead of 24 sign bits yields
 artifact. But recovering the signs requires resolving the coset \emph{per
 slot}, and the kernel stops being memory-bound: 199~GB/s, 30\% of its byte
 bound, $1.34\times$, below the $1.6\times$ criterion we had fixed before
-measuring.
+measuring. That criterion is recorded in the message of the commit that
+lands the layout (\texttt{caef2ac}, 7 August: ``$\geq 1.6\times$ vs FP16 =
+the bits point; $\geq 1.85\times$ = it dominates \textsc{Slot32}''), which
+predates the benchmark job. Its antecedence therefore rests on a commit
+date, not on a trusted timestamp --- unlike the replacement criterion below,
+which was stamped before measuring; we state the difference rather than let
+the two read alike.
 
 That failure had an identified cause, so we attacked it. Everything
 distinguishing the two

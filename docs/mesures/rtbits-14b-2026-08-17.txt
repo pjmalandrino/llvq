@@ -1,0 +1,435 @@
+# rtbits — Qwen3-14B scellé, facturé bloc par bloc : la ligne mémoire à trois tailles
+#
+# Commande : cargo run --release -p llvq-bench --bin rtbits -- <artefact 14B scellé>
+# Machine  : Apple M3 Max (Mac15,8), 16 cœurs, macOS 26.5.2 — CPU seul, 16,6 s, 0 $
+# Date     : 2026-08-17, branche claude/html-mini-cours-planes-w9prvm, arbre à d3953a9
+# rtbits.rs: sha256 202ad22199fe8d1cbe34bed791c5d7d8c5a4af151fd9fe49871e56e9c8394b2b
+#
+# ARTEFACT — d'où il vient, parce qu'il n'était PAS sur la machine
+#   Il n'a jamais été rapatrié après la campagne du 2026-08-10. Il vivait, et
+#   vit toujours, dans le bucket `Pier-Jean/jobs-artifacts` (privé, 46,7 Go,
+#   69 fichiers), sous-dossier `qwen3-14b-c12-3f21abde/` — l'emplacement que
+#   `docs/archive/reprise-14b-2026-08-09.md` §3 annonce et que le job de
+#   scellement `6a7960eeda2af92a634f0d5e` a rempli.
+#     hf buckets ls hf://buckets/Pier-Jean/jobs-artifacts/qwen3-14b-c12-3f21abde/
+#     → qwen3-14b-llvq.bin   6 506 354 741 o   2026-08-10 05:49:55
+#   Rapatrié par `hf buckets cp` (~9 min, bande passante seule, 0 $ de GPU).
+#   Taille locale 6 506 354 741 o — identique à l'octet, et identique aux
+#   « 6.506 GB on disk » que le journal de campagne imprime (l. 232).
+#   sha256 de l'objet mesuré :
+#     9df4d475d83698f0fd7ac0cc04dd91c0ab45445a970fca31e5a7c0e4d707334d
+#
+# VERDICT EN UNE LIGNE
+#   Le 14B servi (`Planes14` + embedding q8) pèse 5,106 b/param modèle entier
+#   contre 5,404 pour l'AWQ officiel — SOUS l'AWQ de 5,5 %. La ligne mémoire
+#   du comparatif existe donc aux TROIS tailles, et le projet passe sous le
+#   4 bits déployé aux trois.
+#
+# CE QUE CE FICHIER ÉTABLIT, ET CE QU'IL N'ÉTABLIT PAS
+#   ÉTABLI     : les octets, et le compte de paramètres. `params_total` du 14B
+#                vaut 14 768 307 200, lu dans le fichier et recoupé par
+#                l'arithmétique de l'architecture (§3). C'est la case vide que
+#                `docs/data/echelle-4b-8b.csv` portait sur ses trois lignes 14B.
+#   NON ÉTABLI : la VITESSE à 14B, et la VRAM CARTE à 14B. Aucun `fusedrun`
+#                n'a jamais tourné à cette largeur — la campagne du 08-10 était
+#                une campagne de QUALITÉ (ppl + MMLU), pas de débit. Le 4B et
+#                le 8B avaient un TROISIÈME instrument pour recouper leur
+#                b/param (le rapport VRAM du moteur) ; le 14B ne l'a pas, et
+#                rien ici ne le remplace.
+#
+# ⚠️ TROIS COMPTABILITÉS, JAMAIS DANS LA MÊME LISTE
+#   payload : stream + tables de base, sur 24·blocs (poids quantifiés seuls).
+#   noyau   : + queue f32 + échelles de ligne f32, sur Σ d_out·d_in (queue
+#             comprise). C'est la comptabilité du banc CUDA.
+#   b/param modèle entier : + l'embedding, sur TOUS les paramètres. La seule
+#             grandeur comparable à un chiffre AWQ.
+
+================================================================================
+1. LA MÉTHODE, VÉRIFIÉE AVANT DE LIRE LE 14B
+================================================================================
+
+  Règle du lot : si l'instrument ne rejoue pas une valeur publiée, on ne
+  publie rien de neuf avec. Deux contrôles, sur les deux fichiers présents
+  sur la machine.
+
+  ① 4B SCELLÉ — /Users/pjmalandrino/qwen3-4b-llvq.bin
+    Le contrôle qui compte, parce qu'il exerce la chaîne ENTIÈRE, jusqu'au
+    b/param modèle entier — exactement le chemin que le 14B va emprunter.
+
+        grandeur                       publié   rejoué   verdict
+        params_total              4022468096  4022468096  ✅ exact
+        Planes14 + embed q8            5,162     5.162    ✅
+        Planes14 + embed f16           5,887     5.887    ✅
+        Planes12x + embed q8           4,745     4.745    ✅
+        porté MESURÉ                  16,000    16.000    ✅
+
+    Source des valeurs publiées : docs/mesures/rtbits-planes-8b-2026-08-09.txt,
+    l. 114-120.
+
+  ② 8B — /Users/pjmalandrino/q8b-c12.llvq
+    🚨 CE CONTRÔLE NE PEUT PAS PORTER SUR LE b/param, ET IL FAUT LE DIRE.
+    Le fichier 8B présent sur la machine fait 1 822 874 562 o : c'est
+    `qwen3-8b-c12.llvq`, un fichier PROJECTIONS SEULES (format v1). Il ne
+    porte pas son embedding, donc `rtbits` n'imprime AUCUNE section « b/param
+    MODÈLE ENTIER » — vérifié, le compte d'occurrences est 0. Le 8B SCELLÉ
+    (`qwen3-8b-llvq.bin`, 4,32 Go), celui sur lequel les 5,322 et les
+    8 190 735 360 ont été mesurés le 08-09, n'est NI sur la machine NI dans
+    le bucket (qui n'héberge que la version projections seules). Il est perdu.
+    Rejouer « 5,322 et 8190735360 » à partir de ce qui existe est donc
+    IMPOSSIBLE, et le prétendre serait fabriquer.
+
+    Ce que le fichier présent recoupe quand même — la comptabilité NOYAU,
+    qui ne dépend pas de l'embedding :
+
+        grandeur                        publié    rejoué   verdict
+        Σ d_out·d_in              6945767424  6945767424  ✅ exact
+        queue                       20054016    20054016  ✅ exact
+        Slot32 noyau                  5,4574     5.4574   ✅
+        Planes14 noyau                4,7520     4.7520   ✅
+        Planes12x noyau               4,2890     4.2890   ✅
+
+    Source : même journal, l. 267-271.
+
+  CONCLUSION DES DEUX CONTRÔLES : la chaîne complète est rejouée sur le 4B
+  (jusqu'au b/param), la comptabilité noyau l'est en plus sur le 8B. Ce qui
+  est perdu au 8B, c'est le FICHIER, pas la méthode.
+
+================================================================================
+2. LA MESURE — Qwen3-14B, la case qui manquait
+================================================================================
+
+  Fichier : qwen3-14b-llvq.bin (scellé, leech1c12, embedding f16, 280
+  matrices, 549 806 080 blocs, 13 212 057 600 poids quantifiés).
+
+  b/poids NOYAU (comptabilité du banc CUDA)   4B        8B       14B
+  ----------------------------------------------------------------------
+  Slot32                                   5.5096    5.4574    5.4118
+  Planes14                                 4.8040    4.7520    4.7063
+  Planes12x                                4.3424    4.2890    4.2420
+  ----------------------------------------------------------------------
+  Planes12x - Planes14                     -0.462    -0.463    -0.464
+
+  b/poids PAYLOAD (stream seul, sur 24·blocs)  4B        8B       14B
+  ----------------------------------------------------------------------
+  Slot32                                   5.3756    5.3741    5.3730
+  Planes14                                 4.6667    4.6667    4.6667  (exact, 112/24)
+  Planes12x                                4.2029    4.2023    4.2018
+
+  TAUX D'EXCEPTIONS DE PLANES12X — il transfère une TROISIÈME fois
+  ----------------------------------------------------------------------
+              blocs L = 5          blocs totaux        taux
+  4B            5 096 688         150 681 600        3.3824 %
+  8B            9 731 159         288 571 392        3.3722 %
+  14B          18 493 258         549 806 080        3.3636 %
+  ----------------------------------------------------------------------
+  Étendue sur les trois tailles : 0,019 pp, soit 0,56 % en relatif. La
+  décroissance est monotone et minuscule ; l'histogramme entier transfère
+  avec elle (30,7 / 65,8 / 3,4 % partout).
+
+  POURQUOI LE 14B EST ENCORE 0,046 SOUS LE 8B — c'est toujours LA QUEUE
+  ----------------------------------------------------------------------
+      4B  : d_in ∈ {2560, 4096, 9728}  → 16 957 440 poids de queue = 0,467 %
+      8B  : d_in ∈ {4096, 12288}       → 20 054 016 poids de queue = 0,289 %
+      14B : d_in ∈ {5120, 17408}, les DEUX à 8 mod 24
+                                       → 16 711 680 poids de queue = 0,126 %
+  Le 14B a la plus petite fraction de queue des trois, donc le plus petit
+  b/poids noyau. Forme close, pour Planes14 :
+      b/poids noyau = 112/24 + (32 - 112/24)·f + 32·(lignes/poids)
+      14B : 4.66667 + 27.3333·0.00126490 + 32·1.58116e-4 = 4.70630   ✅
+  La même forme close rendait 4.80398 au 4B et 4.75204 au 8B. Un seul
+  mécanisme explique les trois écarts.
+
+  b/param MODÈLE ENTIER — LA LIGNE QUI MANQUAIT, ET SON REPÈRE AWQ
+  ----------------------------------------------------------------------
+                             4B          8B         14B
+      Planes14 + embed f16   5.887       6.462      5.896
+      Planes14 + embed q8    5.162       5.322      5.106
+      Planes12x + embed q8   4.745       4.929      4.691
+      ------------------------------------------------------
+      AWQ officiel           5.302       5.956 (*)  5.404
+      marge Planes14 vs AWQ  -2.6 %     -10.6 %     -5.5 %
+
+      (*) valeur PUBLIÉE du dossier, conservée telle quelle. Les octets du
+          dépôt rendent 5,9566 ; l'écart de 0,001 est expliqué juste dessous
+          et ne déplace aucune marge à la première décimale.
+
+  ⚠️ ÉTIQUETTES. Les lignes `embed q8` sont CALCULÉES sur octets mesurés :
+  le taux des linéaires est mesuré sur les octets du fichier, l'embedding y
+  est modélisé à 8,5 b/param (int8 + échelle et biais f16 par groupe de 64).
+  Les trois fichiers scellés portent leur embedding en f16 — la colonne
+  « porté MESURÉ » vaut 16,000 pour les trois — donc AUCUNE des trois
+  cellules q8 n'est mesurée sur un fichier q8. C'est le même statut qu'au 4B
+  et au 8B, pas une faiblesse propre au 14B ; le modèle à 8,5 a été validé le
+  08-09 contre un vrai fichier q8 (`q8b-e8.llvq`, porté mesuré 8,502).
+
+  ⚠️ LA LIGNE AWQ, ET COMMENT ELLE EST OBTENUE. b/param = octets safetensors
+  du dépôt officiel × 8 ÷ params_total. Les octets sont lus par l'API du Hub,
+  sans téléchargement (`files_metadata=True`), donc MESURÉS ; le quotient est
+  CALCULÉ. Cette recette rejoue le dossier exactement là où il a un chiffre :
+
+      Qwen/Qwen3-4B-AWQ    2 666 027 672 o  →  5,3023   (dossier : 5,302 ✅)
+      Qwen/Qwen3-8B-AWQ    6 098 581 864 o  →  5,9566   (dossier : 5,956 ⚠️ +0,001)
+      Qwen/Qwen3-14B-AWQ   9 976 690 240 o  →  5,4044   → LE REPÈRE 14B
+
+  Le 2 666 027 672 est, à l'octet, le nombre que
+  `proofs/preregistration-2026-08-11.md` l. 57-58 cite comme validation du
+  5,302. Le +0,001 du 8B vient de ce que le dossier l'a obtenu par la formule
+  de taux (4,15625 b/poids × N_lin + porté × 16) et non par les octets du
+  dépôt ; les deux routes donnent 5,9556 et 5,9566. Au 14B elles donnent
+  5,4043 et 5,4044 — indiscernables, donc le repère est robuste au choix de
+  route.
+
+  🔎 CE QUE CETTE CELLULE CONFIRME, ET C'EST UNE BOUCLE FERMÉE
+  ----------------------------------------------------------------------
+  `docs/archive/projections-golay70-2026-08-11.md` §2.2 PROJETAIT, six jours
+  avant que cette mesure existe et en s'étiquetant « calculé, artefact non
+  encore quantifié » :
+        Planes14 b/param 14B   5,106        mesuré ici : 5.106   ✅
+        Planes12x b/param 14B  4,691        mesuré ici : 4.691   ✅
+        AWQ b/param 14B        5,404        mesuré ici : 5.4044  ✅
+        marge Planes14 vs AWQ  -5,5 %       mesuré ici : -5,5 %  ✅
+  Les quatre cellules tombent. ⚠️ Ce n'est pas une prédiction miraculeuse :
+  la projection était de l'arithmétique exacte sur les formes du modèle, donc
+  elle DEVAIT tomber si les formes étaient bonnes. Ce que la mesure ajoute est
+  précisément ça — que les formes supposées sont les formes réelles du fichier
+  scellé, et que le fichier contient bien ce qu'on croyait. C'est un contrôle,
+  pas une découverte.
+
+  🆕 CE QUE LA MESURE APPREND ET QUE PERSONNE N'AVAIT PROJETÉ : E1c ALIGNÉ
+  ----------------------------------------------------------------------
+  Le bourrage d'alignement warp, que X3 (2026-08-15) a mesuré à +15,47 % de
+  blocs sur les formes du 4B, ne vaut que +4,18 % sur celles du 14B — les
+  lignes y sont plus longues (213 et 725 blocs, contre 106/170/405 au 4B),
+  donc l'arrondi au multiple de 32 coûte proportionnellement moins.
+  Conséquence, sur les blocs réels du 14B :
+
+      E1c14 aligné   4.6410  contre  4.7063 pour Planes14    -1,4 %   ✅
+      E1c12 aligné   3.8021  contre  4.2420 pour Planes12x  -10,4 %   ✅
+
+  🚨 `E1c14` a été ENTERRÉ le 2026-08-15 parce qu'aligné il était PLUS GROS
+  (5,2354 contre 4,8040) que le layout qu'il remplace. Ce verdict était un
+  verdict 4B, et il ne transfère pas : à 14B le même layout passe SOUS.
+  ⚠️ Cela ne le ressuscite pas. Le verdict d'enterrement portait sur le 4B et
+  reste juste POUR LE 4B ; et aucun de ces deux nombres n'est une vitesse —
+  E1c n'a jamais été dispatché par un banc, à aucune largeur. Ce que la ligne
+  établit est étroit et il faut s'y tenir : la pénalité d'alignement est une
+  fonction des FORMES, pas une constante du layout, et elle s'effondre quand
+  les lignes s'allongent. Une phrase qui dit « E1c14 est plus gros que
+  Planes14 » sans dire « au 4B » est fausse à 14B.
+
+================================================================================
+3. LE COMPTE DE PARAMÈTRES, RECOUPÉ PAR UNE SECONDE ROUTE
+================================================================================
+
+  `params_total` va dans une colonne de comptes EXACTS. Le lire dans le
+  fichier ne suffit pas : il faut qu'une route indépendante rende le même
+  entier. Architecture Qwen3-14B (40 couches, hidden 5120, intermediate
+  17408, 40 têtes Q, 8 têtes KV, head_dim 128, vocab 151936, têtes déliées) :
+
+      objet                       arithmétique              rtbits      ✓
+      -----------------------------------------------------------------
+      matrices                    40 × 7 = 280                 280      ✅
+      linéaires quantifiés        40 × 330 301 440    13 212 057 600    ✅
+      embedding (2 tables)        2 × 151936 × 5120    1 555 824 640    ✅
+      normes f16                  40 × 10496 + 5120          424 960    ✅
+      -----------------------------------------------------------------
+      TOTAL                                          14 768 307 200    ✅
+      blocs        Σ d_out·(d_in//24)                   549 806 080    ✅
+      queue        Σ d_out·(d_in mod 24)                 16 711 680    ✅
+      lignes       Σ d_out                                2 088 960    ✅
+
+  Les huit entiers tombent. Deux recoupements de plus, venus d'ailleurs :
+
+  * les 13 212 057 600 poids sont, au poids près, les « 13 212 057 600
+    weights identical, bit for bit » qu'imprime le job de QUANTIFICATION
+    `6a7882a83e1f34a7e32c06c2` (docs/archive/reprise-14b-2026-08-09.md l. 38)
+    — un autre job, une autre machine, un autre binaire ;
+  * les 163 tenseurs portés (40×4 normes + norme finale + embed + lm_head)
+    sont exactement le critère que la note de reprise avait POSÉ D'AVANCE
+    pour accepter le scellement (l. 88-91 : « À vérifier dans son log : 163
+    tenseurs portés »). Le fichier les porte, et leurs 424 960 paramètres de
+    normes tombent au paramètre.
+
+  🚨 CE QUI N'EST PAS DANS CETTE COLONNE, ET NE DOIT PAS Y ENTRER : les
+  13 212 057 600. C'est le numérateur des PROJECTIONS. Le mettre dans
+  `params_total` serait la confusion de dénominateurs que l'errata du lot A
+  qualifie de GRAVE — et c'est précisément le piège que
+  `docs/data/README.md` signalait en laissant la case vide.
+
+================================================================================
+4. VERDICT PRODUIT — le 14B passe-t-il sous le 4 bits déployé ?
+================================================================================
+
+  OUI, de 5,5 %. 5,106 b/param contre 5,404.
+
+  La ligne mémoire du comparatif 3 tailles × 3 bras est donc COMPLÈTE, et
+  elle dit la même chose aux trois tailles — nous sommes sous l'AWQ partout :
+
+      taille   LLVQ servi   AWQ officiel   marge
+      4B         5,162         5,302       -2,6 %
+      8B         5,322         5,956      -10,6 %
+      14B        5,106         5,404       -5,5 %
+
+  (Colonne AWQ : 4B et 8B sont les valeurs publiées du dossier ; seul le
+  5,404 du 14B est neuf. Les trois sont dans la même comptabilité — octets du
+  dépôt officiel ÷ params_total — et la recette rejoue le 4B à l'octet.)
+
+  ⚠️ ET LA MARGE N'EST PAS MONOTONE — ne pas raconter une tendance. Elle
+  monte de 4B à 8B puis redescend. Le mécanisme est identifié et n'a rien à
+  voir avec la méthode : c'est la PART DE L'EMBEDDING, que ni l'AWQ ni nous
+  ne quantifions de la même façon.
+      4B  : têtes LIÉES     → embedding 389 M =  9,7 % des paramètres
+      8B  : têtes DÉLIÉES   → embedding 1 245 M = 15,2 %  ← le pic
+      14B : têtes DÉLIÉES   → embedding 1 556 M = 10,5 %
+  L'AWQ laisse l'embedding en f16, nous le passons en q8 : notre avance
+  grandit avec la part portée. Le 8B est un maximum local d'embedding, donc
+  un maximum local de marge. Trois points, un mécanisme, AUCUNE loi.
+
+  CE QUE CE VERDICT NE DIT PAS
+     Rien sur la vitesse à 14B, jamais mesurée. Rien sur la VRAM carte à
+     14B, jamais mesurée. Et il ne renverse pas l'arbitrage produit : à 14B
+     l'écart de qualité au 4 bits reste de 6,09 pp de MMLU (différence NUE,
+     sans appariement ni IC — cf. docs/data/README.md). Gagner 5,5 % de
+     mémoire en perdant 6 points de MMLU reste le même échange qu'au 8B.
+
+================================================================================
+5. CE QUE CE LOT A COÛTÉ, ET CE QU'IL RESTE À NE PAS REFAIRE
+================================================================================
+
+  Coût : 0 $. Aucun GPU. Un `hf buckets cp` de 6,5 Go (bande passante) et
+  16,6 s de CPU sur le Mac de dev. La lecture du Hub est en LECTURE SEULE —
+  rien n'a été publié, supprimé ni modifié côté Hub ou côté bucket.
+
+  ⚠️ L'artefact rapatrié vit dans le scratchpad de session, donc il est
+  TEMPORAIRE. Il n'est pas commité (6,5 Go), et il redeviendra absent. La
+  recette de récupération est en tête de ce fichier et coûte ~9 min ; c'est
+  elle qu'il faut relire plutôt que de relancer quoi que ce soit.
+
+  🚨 CE QU'IL NE FAUT SURTOUT PAS FAIRE : requantifier le 14B pour obtenir
+  ces nombres. Le job `6a7882a83e1f34a7e32c06c2` a coûté 27,67 $ et 302 min
+  sur `rtx-pro-6000x2`. L'artefact existe, il est intact, et il se relit pour
+  le prix de sa bande passante.
+
+  DETTE QUI RESTE OUVERTE, et qui n'est pas payable à 0 $ :
+  * le 8B SCELLÉ est perdu (machine et bucket) — les 5,322 et 8 190 735 360
+    restent donc adossés au seul journal du 08-09. Rien ne les conteste ;
+    simplement, ils ne sont plus re-vérifiables sans re-sceller.
+  * la paire MMLU `AWQ − LLVQ` au 14B n'existe toujours pas, et exige de
+    refaire la campagne MMLU 14B (cf. docs/data/README.md).
+  * aucune mesure de VITESSE ni de VRAM carte à 14B.
+
+--- sortie complète, qwen3-14b-llvq.bin ---------------------------------------
+
+source : qwen3-14b-llvq.bin — 280 matrices
+549806080 blocs — impair 50.0 %, pair 50.0 %
+289 classes recoupées point décodé ↔ table
+
+  niveaux de magnitude par bloc
+  --------------------------------------------------------
+  1 niveaux            5300 blocs    0.00 %
+  2 niveaux          349218 blocs    0.06 %
+  3 niveaux       169459503 blocs   30.82 %
+  4 niveaux       361498801 blocs   65.75 %
+  5 niveaux        18493258 blocs    3.36 %
+
+  bits/poids en RAM, comptabilité complète
+  (assignation + signes + classe 9 b + gain 1 b + adressage)
+  ------------------------------------------------------------------------
+  layout                                         masquespositionnel
+  variable, adressage gratuit (borne inf.)        2.9242    3.3094
+  variable + offset u16 par bloc                  3.5909    3.9761
+  groupé 32 (stride = max du groupe + base u32)    3.1019    3.9069
+  groupé 32, stride arrondi à l'octet             3.3546         —
+  champ fixe au pire cas (74/106 b → u32)         4.0000    5.3333
+  champ fixe 128 (uint4, nibbles)                      —    5.3333
+
+  par coset (variable, adressage gratuit)
+  ------------------------------------------------------------------------
+  impair         50.0 %   masques 2.9363   positionnel 3.4163   pire 73/106 b
+  pair           50.0 %   masques 2.9121   positionnel 3.2025   pire 74/101 b
+
+  divergence sur groupes de 32 lanes consécutives
+  ------------------------------------------------------------------------
+  niveaux : moyenne 3.724, moyenne des max par groupe 4.665 (×1.253)
+  padding groupé 32 : masques ×1.061, positionnel ×1.181 vs adressage gratuit
+
+  Slot32 — le layout que le noyau fusé lit réellement
+  ------------------------------------------------------------------------
+  groupé 32, stride octet, base u32 : 5.3730 b/poids
+  17181440 groupes, max de niveaux :
+    L = 3            65 groupes   0.0004 %   stride 11 o
+    L = 4       5761162 groupes  33.5313 %   stride 14 o
+    L = 5      11420213 groupes  66.4683 %   stride 17 o
+  sous plafond L ≤ 4 : ≤ 4.7083 b/poids (14 o de stride, majorant inconditionnel)
+  majorant ATTEINT sur 17181375 groupes sur 17181440 (99.9996 %) : ceux qui portent déjà un
+  bloc L = 4, dont la classe est inchangée par le plafond. Gain 0.665 b/poids (12.4 %).
+
+  Planes14 et Planes12x — les plans binaires (b/poids payload)
+  ------------------------------------------------------------------------
+  Planes14   stride 14 o fixe, sans base ni exception : 4.6667 b/poids
+  Planes12x  stride 12 o + 18493258 exceptions à 18 o (3.3636 % des blocs)
+             = 4.2018 b/poids, dont 4.0000 de stream et 0.2018 d'exceptions
+  seuil : L > 4 — 18493258 blocs à 5 niveaux, recoupés sur l'histogramme
+
+  E1c — les mêmes flux transposés sur le warp (b/poids payload)
+  ------------------------------------------------------------------------
+  E1c14      106 mots par groupe de 32, sans bourrage : 4.4167 b/poids (-0.2500 vs Planes14)
+  E1c12      82 mots par groupe + les MÊMES 18493258 exceptions : 3.6185 b/poids (-0.5833 vs Planes12x)
+             dont 3.4167 de stream et 0.2018 d'exceptions — le terme d'exceptions
+  est identique à celui de Planes12x, donc l'écart entre les deux layouts EST le bourrage
+
+  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)
+  ------------------------------------------------------------------------
+  numérateur += queue f32 (16711680 poids) + échelles de ligne f32 (2088960 lignes)
+  dénominateur = 13212057600 poids (Σ d_out·d_in, queue comprise), et non 13195345920 quantifiés
+  Slot32          5.4118 b/poids noyau  (5.3730 payload, 8.94 Go de stream)
+  Planes14        4.7063 b/poids noyau  (4.6667 payload, 7.77 Go de stream)
+  Planes12x       4.2420 b/poids noyau  (4.2018 payload, 7.01 Go de stream)
+  E1c14           4.4566 b/poids noyau  (4.4167 payload, 7.36 Go de stream)
+  E1c12           3.6594 b/poids noyau  (3.6185 payload, 6.04 Go de stream)
+
+  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32
+  ------------------------------------------------------------------------
+  549806080 blocs → 572784640 (+4.18 %), et ces blocs ne portent AUCUN poids :
+               le numérateur enfle, le dénominateur ne bouge pas
+  E1c14           4.6410 b/poids noyau aligné  contre 4.7063 pour Planes14                  — -1.4 %  ✅
+  E1c12           3.8021 b/poids noyau aligné  contre 4.2420 pour Planes12x                  — -10.4 %  ✅
+  ⚠️ Aucun de ces deux chiffres n'est une vitesse. C'est une identité de
+               comptage sur les formes réelles, du genre qui a enterré E3 — elle ne dépend
+               d'aucun matériel et ne se contourne pas par un meilleur noyau.
+
+  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ
+  ------------------------------------------------------------------------
+  13212057600 poids quantifiés + 1555824640 d'embedding + 424960 portés en f16 = 14768307200 paramètres
+  embedding f16 = 16,000 b/param ; q8 g64 = 8.500 b/param (int8 + f16 échelle et biais par groupe)
+  porté MESURÉ dans le fichier : 16.000 b/param (3.11 Go sur 1556249600 paramètres)
+  layout           embed f16      embed q8  porté mesuré
+  Slot32               6.528         5.737         6.528
+  Planes14             5.896         5.106         5.896
+  Planes12x            5.481         4.691         5.481
+  E1c14                5.673         4.883         5.673
+  E1c12                4.960         4.170         4.960
+
+  trafic par token — linéaires + embedding f16 3.112 Go (mesurés sur le fichier)
+  ------------------------------------------------------------------------
+  archive v1, 48 b/bloc (indécodable en fusé)   2.000 b/p     6.42 Go       62 tok/s
+  variable masques + u16                        3.591 b/p     9.04 Go       44 tok/s
+  variable positionnel + u16                    3.976 b/p     9.68 Go       41 tok/s
+  groupé 32, masques                            3.102 b/p     8.24 Go       49 tok/s
+  groupé 32, masques, stride octet              3.355 b/p     8.65 Go       46 tok/s
+  groupé 32, positionnel                        3.907 b/p     9.56 Go       42 tok/s
+  champ fixe au pire cas (masques, u32)         4.000 b/p     9.72 Go       41 tok/s
+  champ fixe au pire cas (pos., u32)            5.333 b/p    11.92 Go       34 tok/s
+  champ fixe 128                                5.333 b/p    11.92 Go       34 tok/s
+  groupé 32, Slot32                             5.373 b/p    11.99 Go       33 tok/s
+  groupé 32, Slot32, plafond L ≤ 4 (majorant)   4.708 b/p    10.89 Go       37 tok/s
+  Planes14 — CE QUI TOURNE AUJOURD'HUI          4.667 b/p    10.82 Go       37 tok/s
+  Planes12x (3.36 % d'exceptions)               4.202 b/p    10.05 Go       40 tok/s
+  E1c14 — transposé, sans bourrage              4.417 b/p    10.41 Go       38 tok/s
+  E1c12 — transposé + overlay                   3.618 b/p     9.09 Go       44 tok/s
+
+  plafond FP16 : ~14 tok/s ; plafond embedding seul : ~129 tok/s
+
+  ⚠️ Les « tok/s » de ce dernier bloc sont un PLAFOND DE TRAFIC (400 Go/s
+  divisés par les octets lus), pas une mesure. Aucun `fusedrun` n'a tourné à
+  14B. Ne pas les citer comme un débit.

@@ -34,7 +34,11 @@ must not diverge across a warp whose 32 lanes hold different classes.
 
 \item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
 determines what fits on a GPU is not the on-disk rate (2.07 bits per weight
-for our artifact) but the rate of whatever format the kernel reads. Our
+for our artifact under the ideal payload accounting: 48 bits per block plus
+the full-precision tail and per-row scales, over all linear weights including
+the tail --- the bytes actually written are 2.17 over the quantized weights
+alone, the $+8\%$ of \S\ref{sec:evaluation}) but the rate of whatever format
+the kernel reads. Our
 first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
@@ -59,12 +63,24 @@ The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 88.4~tok/s
 in 2.60~GB against 43.5~tok/s in 8.04~GB for the FP16 reference, with the
 serving stack costing nothing measurable on top of the quantized artifact. We
 are equally explicit about what this does not buy (\S\ref{sec:limitations}).
-At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points, a deficit
+At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points (served
+arm; 14.73 on the sealed artifact), a deficit
 concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
-essentially full quality: on that model, 4 bits wins. The case for 2 bits rests on scale, and our second model measures it
---- at 8B the degradation falls to $\times1.220$ and the gap to 4-bit halves,
-from 14.5 to 7.5 MMLU points. Two points are not a law; they are the
-direction the 2-bit thesis needs.
+essentially full quality: on that model, 4 bits wins. The case for 2 bits
+rests on scale, and two further models measure it. The degradation does fall
+--- $\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
+and 14B --- and the MMLU gap to 4 bits goes 14.45, 7.49, 6.09 points, all
+three paired estimates with 95\% intervals (\S\ref{sec:evaluation}). On the
+point estimates it also flattens as it falls: the excess over FP16 loses
+42.8\% of itself from 4B to 8B and 13.9\% from 8B to 14B. But the flattening
+is the part the error bars decline to establish. Tested step by step, the
+first closing of the MMLU gap is resolved ($-6.96$ points, $p = 0.0001$) and
+the second is not ($-1.40$, $p = 0.40$); an unresolved step is not a flat one,
+so both readings survive these three points. Three points, no law; the
+direction is the one the 2-bit thesis needs, the curvature is not measured
+either way. On memory the three points do agree: the served model is below
+the 4-bit baseline at every size, by a margin that peaks in the middle
+because it tracks the embedding share.
 
 Every figure regenerates from CSV files committed in the repository, the
 layout table is checked against its CSV on every build, and each number

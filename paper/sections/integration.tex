@@ -86,6 +86,15 @@ so phase sums attribute time but do not compose into a throughput. Instead
 we report the measured lower bound: with the defective f16 head path held
 identical in both arms, the fused engine gains $1.12\times$ on the 4B
 (48.7 versus 43.5~tok/s) and $1.29\times$ on the 8B (34.4 versus 26.6).
+These are single-run quotients of end-to-end throughput, not the
+round-by-round medians of \S\ref{sec:layouts}, and one of them crosses
+invocations: the 8B's 34.4 comes from the f16-embedding job and the 26.6
+from the int8 job. Formed inside the single job that timed both arms it is
+$34.4/26.5 = 1.30\times$; the 4B ratio is insensitive to the same choice
+($48.7/43.6 = 1.12$ within its own job, $48.7/43.5 = 1.12$ against the
+tabulated dense arm). We keep 1.29 because 26.6 is the dense figure
+Table~\ref{tab:campaign8b} carries, and flag that the second decimal is
+inter-run dispersion.
 Both numbers understate the kernel, whose own phase runs $1.27\times$
 faster (13.3 to 10.4~ms across the transformer blocks) and whose projection
 benchmark runs $2.15\times$ over FP16; the giant head phase dilutes them.
@@ -104,14 +113,18 @@ Date & Step & VRAM & tok/s & b/param \\
 Aug 5 & no kernel (decoded to f16 at load) & 8.04 GB & 43.5 & 16.00 \\
 Aug 6 & fused kernel wired (\textsc{Slot32}) & 3.28 GB & 47.0 & 6.52 \\
 Aug 6 & \textsc{Planes14} layout & 2.96 GB & 48.7 & 5.89 \\
-Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.15} \\
+Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.162} \\
 \bottomrule
 \end{tabular}
 \caption{The integration, step by step. The on-disk file (1.77~GB) and
 measured quality stayed within sampling noise; each step passed
 adversarial review
 (replayed mutants, independent probes) and a gated measurement before
-landing. Data: \texttt{docs/data/progression.csv}.}
+landing. The VRAM column is the card's own rounded display and the b/param
+column is recomputed from the exact bytes, so the two do not divide into each
+other: the served 5.162 is the \texttt{rtbits} verdict, not 2.60~GB over the
+parameter count, which would give the 5.15 this table carried earlier. Data:
+\texttt{docs/data/progression.csv}.}
 \label{tab:progression}
 \end{table}
 

@@ -21,6 +21,45 @@
 > La note de provenance des trois comptabilités RAM, en fin de fichier, reste
 > valable et reste la référence du dépôt sur ce point.
 
+> 🗓️ **REVUE DU 2026-08-16 — un fait neuf recadre tout ce document.** Rien
+> ci-dessous n'est retiré : les comptabilités tiennent, les ns/bloc tiennent.
+> Ce qui change est le **dénominateur** contre lequel un gain de format se lit.
+>
+> 1. 🆕 **LE PLANCHER EST MESURÉ, et il vaut 45,2 % du bras servi.** Une passe
+>    de projections qui ne lit **aucun poids** coûte **2,305 ms** contre
+>    **5,102** pour `Planes14`. Donc **tout travail de format plafonne à 4,77×
+>    FP16**, là où `Planes14` est déjà à **2,16×**. Section
+>    « Le plancher », en fin de fichier — c'est le nouveau fait dominant sur le
+>    coût du décodage, et il vaut plus que toutes les lignes de ce document
+>    prises ensemble.
+> 2. ❌ **Quatre routes sous `Planes14` ont été tentées, toutes bornées en
+>    CALCUL, aucune en octets** — E3, `Golay70` v2, `e1c14`, **E1v** (0,25× FP16
+>    sur carte, 2026-08-16). Table « Les quatre routes », même section. Le point
+>    3 de la section « Trois choses que cette échelle établit » (`CLAUDE.md` §3)
+>    disait « la courbe finit par se retourner » ; le plancher dit **pourquoi**,
+>    et il dit surtout que c'était le mauvais front.
+> 3. ❔ **`e1c12` survit à l'alignement warp** — 4,2880 contre 4,3424 b/poids
+>    noyau pour `Planes12x`, soit **−1,3 %** — donc sa question **cesse d'être
+>    une question de bits** et devient une question de **vitesse de
+>    transposition**. Aucune nanoseconde ne l'a mesurée. Son jumeau `e1c14`, lui,
+>    est enterré **au 4B** : +9,0 % une fois aligné.
+>    🚨 **Sans « au 4B », cette phrase est fausse — corrigé le 2026-08-17.** La
+>    pénalité d'alignement warp vaut **+15,47 % de blocs sur les formes du 4B**
+>    mais **+4,18 % sur celles du 14B**, dont les lignes sont plus longues (213
+>    et 725 blocs contre 106/170/405). Sur les blocs réels du 14B, `e1c14`
+>    aligné rend **4,6410 contre 4,7063 pour `Planes14`, soit −1,4 %** — il
+>    passe **sous** ce qu'il remplace
+>    ([`mesures/rtbits-14b-2026-08-17.txt`](mesures/rtbits-14b-2026-08-17.txt)).
+>    ⚠️ **Cela ne le ressuscite pas** : aucun de ces nombres n'est une vitesse,
+>    et `e1c` n'a jamais été dispatché par un banc, à aucune largeur. Ce qui est
+>    établi est étroit — **la pénalité d'alignement est une fonction des FORMES,
+>    pas une constante du layout.**
+> 4. ⚠️ **Le bandeau du 08-08 ci-dessus dit `Planes12x` « mesuré non branché »**
+>    — il est **câblé** dans le modèle depuis le 2026-08-09
+>    (`LLVQ_FUSED_LAYOUT=planes12x`, `llvq-llm/src/fused.rs`), et il n'est
+>    toujours **pas servi** par défaut. « Câblé » n'est ni « servi » ni « non
+>    branché » : trois états, et ce document n'en nommait que deux.
+
 > Branche `g6-format-noyau`. Tout chiffre ci-dessous est mesuré par un banc
 > reproductible (`decbench`, `decprofile`, `classprofile`, `arrbits`, `rtbits`,
 > `decfast`, `decfull`, `matvec`, `thesis`), et l'ensemble a été passé au crible
@@ -654,6 +693,112 @@ plancher adressable est 3,35 **dans la comptabilité `rtbits`** (payload +
 bases ; 3,498 dans celle de `bin/thesis`, qui ajoute queue et échelles de
 ligne) ; les plafonds deviennent 174/154 tok/s, toujours ~3,1-3,5× le FP16, et
 le lm_head pèse toujours le tiers du trafic.
+
+## Le plancher — ce qu'aucun format ne touche (2026-08-16)
+
+Tout ce document mesure le **décodage** : ce qu'il coûte, ce qu'il économise, à
+quel prix en bits. Il lui manquait le **dénominateur** — ce que coûte le noyau
+quand il ne décode rien du tout. Ce reste n'avait jamais été qu'une
+**soustraction** (l'attribution du 2026-08-05, 39 % de « latence/occupation »).
+C'est un **chiffre** depuis le 2026-08-16.
+
+`tv_nullk` garde **la grille, le tuilage, les deux barrières, le staging de
+l'activation, `warp_sum`, l'épilogue de queue et l'écriture de `y`** — et
+retire la lecture et le décodage du bloc. 31 registres, 0 octet local. Même
+banc, même run, mêmes rounds que les bras servis
+([`mesures/nullk-plancher-2026-08-16.txt`](mesures/nullk-plancher-2026-08-16.txt),
+job `6a81b2b71f5885ae605bdcc9`, L40S, **0,77 $** ; 252 projections d'un token,
+7 rounds dont 2 jetés, rapports formés **round par round**).
+
+| bras | ms (médiane) | |
+|---|---|---|
+| **plancher (`nullk`) — aucun poids lu** | **2,305** | **45,2 % du bras servi** |
+| `Planes14` — le layout servi | 5,102 | |
+| FP16 | 10,996 | |
+
+**Ce que ça plafonne, et ce que le format achète vraiment** — toutes grandeurs
+du même run :
+
+| | |
+|---|---|
+| plafond absolu de tout travail de **format** | **4,77× FP16** [4,74–4,77] |
+| où `Planes14` en est | **2,16×** [2,15–2,16] |
+| ce que le format achète **net du plancher** | **3,11×** — 8,691 ms de trafic contre 2,797 |
+| coût du décodage de `Planes14` | **~7 %** du temps de trafic (779 Go/s nets contre 836) |
+
+**Le format se dispute au plus 55 % du temps, et `Planes14` en capture déjà
+l'essentiel.** C'est le renversement que ce document doit porter : pendant que
+quatre campagnes cherchaient à descendre sous `Planes14` **en bits**, le poste
+majoritaire n'avait jamais été attaqué. Le chiffre qui l'aurait dit coûtait
+0,77 $ et un noyau de trente lignes.
+
+Les débits **nets du plancher**, sur les bras qui partagent sa grille — la
+seule lecture qui isole le décodage :
+
+| bras | total ms | net ms | Go/s nets |
+|---|---|---|---|
+| FP16 | 10,996 | 8,691 | 836 |
+| **`Planes14`** | **5,102** | **2,797** | **779** |
+| `Slot32` | 5,824 | 3,519 | 710 |
+| `Planes12x` | 5,498 | 3,193 | 617 |
+| `Golay70` v1 | 8,223 | 5,918 | 275 |
+
+**275 Go/s nets pour `Golay70` v1 : c'est là qu'un décodeur lourd se voit**, et
+c'est la signature qu'E1v pousse à l'extrême — 25 Go/s, 0,25× FP16.
+
+### Les quatre routes fermées sous `Planes14` — et la cinquième, restée ouverte
+
+| route | ce qu'elle pesait | vitesse **mesurée** | verdict |
+|---|---|---|---|
+| **E3** (décoder l'index du fichier) | 3,0444 b/poids noyau contre un critère de 2,60 | jamais écrite | ❌ enterrée **sur papier**, 0 $ (2026-08-12) |
+| **`Golay70` v2** | 3,589 b/poids noyau | **1,77× [1,76–1,78]**, 263 Go/s | ❌ seuil pré-enregistré de **2,0×** (2026-08-11) |
+| **`e1c14`** aligné warp, **formes du 4B** | 5,2354 b/poids noyau contre 4,8040 — **+9,0 %** | jamais mesurée | ❌ **plus gros** que ce qu'il remplace **au 4B** (2026-08-16) ; ⚠️ **NE TRANSFÈRE PAS** — sur les formes du 14B il rend **4,6410 contre 4,7063, −1,4 %** (2026-08-17) |
+| **E1v** | 2,3877 b/poids noyau (2,3983 aligné) | **0,25× FP16 [0,25–0,25]**, 25 Go/s | ❌ plancher d'X3 de **1,60×**, manqué d'un facteur **6,4** (2026-08-16) |
+| `e1c12` aligné warp | **4,2880** contre 4,3424 pour `Planes12x` — **−1,3 %** *(formes du 4B ; **−10,4 %** sur celles du 14B, 3,8021 contre 4,2420)* | **jamais mesurée** | ❔ **ouvert**, et c'est désormais une question de **vitesse** |
+
+**Aucune n'est bornée en octets ; toutes le sont en calcul.** E1v le montre au
+plus net : il **tient sa promesse mémoire au bit près** — 1,09 Go lus contre
+2,18 pour `Planes14`, la moitié, sur carte et sur le modèle publié — et il
+**perd d'un facteur 8,7 sur le layout servi**, avec un noyau par ailleurs
+exact (2,4e-8·Σ|w·x| sur 1 105 920 lignes), à 79 registres et **zéro spill**
+([`mesures/e1v-cuda-2026-08-16.txt`](mesures/e1v-cuda-2026-08-16.txt),
+0,85 $). Ce qui est mort est le **décodeur en ligne**, pas le format : celui-ci
+reste disponible **hors boucle** (disque, transport).
+
+⚠️ **Et `e1c12` n'hérite PAS du verdict d'E1v.** E1v meurt de son ALU — deux
+marches binomiales, un mot de Golay, une réparation de parité, trois règles de
+signe. `e1c12` décode le **même contenu que `Planes12x`**, c'est-à-dire des
+sélections sur des plans de bits : sa question est un **motif de lecture**, pas
+une charge d'ALU
+([`mesures/e1c12-aligne-2026-08-16.txt`](mesures/e1c12-aligne-2026-08-16.txt),
+0 $). Le pronostic ne se transporte pas.
+
+### Quatre gardes, toutes dans le journal, aucune optionnelle
+
+1. **AWQ n'est pas dans le tableau des nets, et son absence est la garde.** Son
+   net donnerait **2 006 Go/s**, au-dessus de la HBM d'une L40S. Son noyau a sa
+   **propre grille** (`awq_gemv.cu`), donc ce plancher-ci ne s'en soustrait
+   pas. Un chiffre impossible qui dit exactement où la soustraction cesse
+   d'être licite.
+2. 🚨 **Ce 45,2 % n'est PAS les « 39 % » de l'attribution du 2026-08-05.**
+   Celle-ci découpe **2,04 ms par token**, normes, attention et rotation
+   comprises ; celui-ci mesure **252 projections d'un token**. Deux
+   dénominateurs — les rapprocher demande de **refaire l'attribution**, pas de
+   reporter un nombre. C'est la même faute que celle des trois comptabilités
+   RAM ci-dessous, sur un autre axe.
+3. **Le plancher n'est pas du gaspillage.** Staging, réduction, épilogue et
+   écriture sont du travail qu'un noyau réel doit faire. C'est un **plancher**,
+   pas une perte — mais c'est un **plafond** sur ce que le format peut gagner.
+4. ⏳ **Rien sur `k > 1`.** La famille `k` de P4 §2.6 est écrite pour amortir
+   exactement ce plancher, et **elle n'existe pas**. C'est le seul levier nommé
+   du dépôt qui vise ces 45 %, et personne ne l'a chiffré.
+
+🕳️ **Un défaut du journal, qu'il relève lui-même plutôt que de le laisser.** Sa
+ligne V0 imprime « pires erreurs nullk 0.0e0·Σ|w·x| », ce qui se lit comme un
+accord parfait avec la référence. **C'est faux** : ce bras n'a **aucun étalon**
+et n'est pas comparé — ce qui a tourné est un contrôle d'observabilité (sortie
+majoritairement non nulle). Corrigé dans le banc après le run ; qui lit ce
+fichier doit lire ce `0.0e0` comme « non comparé », jamais comme « exact ».
 
 ## Note de provenance
 

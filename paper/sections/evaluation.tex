@@ -25,7 +25,7 @@ files, not in-memory reconstructions.
  & FP16 & AWQ 4-bit & LLVQ (no kernel) & LLVQ fused (ours) \\
 \midrule
 disk & 8.04 GB & 2.67 GB & 1.77 GB & \textbf{1.41 GB}$^{\ddagger}$ \\
-VRAM & 8.04 GB & 5.30 b/param$^{\dagger}$ & 8.04 GB & \textbf{2.60 GB / 5.15 b/param} \\
+VRAM & 8.04 GB & 5.30 b/param$^{\dagger}$ & 8.04 GB & \textbf{2.60 GB / 5.162 b/param}$^{\S}$ \\
 throughput & 43.5 tok/s & ---$^{\dagger}$ & 43.5 tok/s & \textbf{88.4 tok/s} \\
 ppl (WikiText-2) & 12.2369 & 13.5207 ($\times$1.105) & 16.9422 ($\times$1.384) & 16.9358 ($\times$1.384) \\
 MMLU micro (\%) & 70.32 $\pm$ 1.28 & 70.04 $\pm$ 1.25 & 55.59 $\pm$ 1.35 & 55.70 $\pm$ 1.35 \\
@@ -39,7 +39,12 @@ quality is scored on the 1.41~GB file with the int8 embedding pre-baked;
 its speed and VRAM are measured from the 1.77~GB sealed file with the same
 int8 quantization applied at load. The two paths produce bit-identical
 tensors (verified against the pre-baked bytes on real rows); they are not
-the same bytes on disk. Data: \texttt{docs/data/campagne-finale.csv}.}
+the same bytes on disk. $^{\S}$The two numbers in that cell have two
+provenances and neither follows from the other: 2.60~GB is the card's own
+rounded display, 5.162~b/param is recomputed from the exact bytes and the
+exact parameter count. Dividing the displayed 2.60~GB yields 5.15, which is
+the rounded reading, not the measurement. Data:
+\texttt{docs/data/campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
 
@@ -62,8 +67,13 @@ comparisons --- this section, the abstract's serving figures, the limitations
 included}. Per-weight rates over the quantized linears alone overstate
 compression badly on small models (the 4B's embedding is 9.7\% of its
 parameters) and silently mix denominators against other methods' figures. On
-this accounting the served footprint is 5.15~b/param, below the official AWQ
-4-bit checkpoint's 5.30 in its own engine. \S\ref{sec:layouts} necessarily
+this accounting the served footprint is 5.162~b/param, recomputed from the
+exact bytes and the exact parameter count
+(\texttt{docs/mesures/rtbits-planes-8b-2026-08-09.txt}), and that is what the
+tables carry. The 5.15 this paper published earlier is the same object read
+off the card's rounded display (2.60~GB shown for an exact 2.595~GB) and is
+kept here only so the correction is visible. Either way it is below the official AWQ
+4-bit checkpoint's 5.30 (5.302) in its own engine. \S\ref{sec:layouts} necessarily
 uses the other denominator --- what the kernel reads per quantized projection
 weight, the quantity a bandwidth argument is about --- and there the same
 competitor reads \emph{less} than we do (4.18 against 4.80). Both are true of
@@ -71,11 +81,20 @@ different questions: what fits on the card, and what the matvec streams. They
 are never subtracted from one another.
 
 \textbf{What 2 bits costs.} Against FP16 the price is $\times1.384$
-perplexity and $-14.6$ points of MMLU. The AWQ arm makes the comparison
-sharp: at 4 bits on this model, quality is essentially free
-($\times1.105$, $-0.3$~points). On a 4B, 4-bit dominates 2-bit on every
-axis except disk; \S\ref{sec:limitations} discusses where the 2-bit point
-can still win.
+perplexity and $-14.6$ points of MMLU on the \emph{served} int8 arm; on the
+\emph{sealed} artifact it is $-14.73$, and the sealed arm is the one every
+paired statistic in this paper uses, since it is the one whose per-question
+dumps exist. The two differ by less than the sampling error of either. The
+AWQ arm makes the comparison sharp: at 4 bits on this model, quality is
+essentially free --- $\times1.105$ perplexity and 0.27 MMLU points below
+FP16. Every paired interval in this paper is oriented FP16 \emph{minus} the
+quantized arm, so a positive number is a loss for that arm: $+0.27$ with a
+95\% interval $[-1.63, +2.13]$, which contains zero, against $+14.73$ with
+$[+11.98, +17.47]$ for the 2-bit arm, which does not. Both intervals are
+subject-stratified paired bootstraps over the same 2\,280 questions
+(\texttt{docs/mesures/mmlupair-4b-8b-2026-08-13.txt}). On a 4B, 4-bit
+dominates 2-bit on every axis except disk; \S\ref{sec:limitations} discusses
+where the 2-bit point can still win.
 
 \begin{table}[t]
 \centering
@@ -102,19 +121,191 @@ is identical to four decimal places. Data:
 \label{tab:campaign8b}
 \end{table}
 
-\textbf{The scale point.} Table~\ref{tab:campaign8b} is the paper's second
-model, requantized under the exact 4B configuration. Three movements
-matter, and they all point the same way. The 2-bit degradation falls with
-scale, on both axes: $\times1.384 \to \times1.220$ perplexity,
-$-14.7 \to -10.6$ MMLU points (sealed-artifact arms at both sizes; the
-served int8 arms give $-14.6$ and $-10.5$). The 4-bit baseline starts paying:
-indistinguishable from FP16 at 4B ($-0.3$ points), it loses $3.1$ points
-at 8B. And the quality gap between the two quantizations halves, from
-14.5 to 7.5 points, while the 2-bit model overtakes AWQ on the memory
-axes it lost at the 4B scale: 5.45~GB served versus 6.10, and a file
-$1.9\times$ smaller. At 8B the choice between 4 and 2 bits is no
-longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
-disk. Data: \texttt{docs/data/echelle-4b-8b.csv}.
+\textbf{The scale point: three models, and what the bars separate.}
+Table~\ref{tab:campaign8b} is the paper's second model, requantized under the
+exact 4B configuration; a third, Qwen3-14B, was measured under the same one.
+Table~\ref{tab:scale} puts the three side by side.
+
+The direction holds on both axes. Perplexity: $\times1.3845 \to
+\times1.2201 \to \times1.1894$. MMLU, as a paired loss against FP16: 14.73,
+then 10.57, then 6.85 points --- all three paired and all three resolved
+(sealed-artifact arms at every size; the served int8 arms lose 14.6 and 10.5
+at 4B and 8B, and the 14B has no served arm). On the point estimates the
+\emph{rate} does not hold. Read as excess over FP16 --- the quantity that must
+go to zero for the 2-bit thesis to close --- the fall is 42.8\% from 4B to 8B
+and 13.9\% from 8B to 14B. A draft of this paper, with two points in hand,
+wrote that the gap \emph{halves}; the third point's estimate says it does not.
+Whether that slowdown is itself resolved is a further question, and the two
+paragraphs after next are what we can and cannot answer about it. We report
+the direction and refuse the extrapolation.
+
+\textbf{The MMLU gap to 4 bits, and a caveat that has been lifted.} The
+sequence is 14.45, 7.49, 6.09 points, and all three are subject-stratified
+paired bootstrap estimates with 95\% intervals and McNemar tests, computed
+question by question over the same 2\,280 questions with the same run
+fingerprint on both arms: $[11.60, 17.27]$, $[5.28, 9.70]$ and
+$[3.62, 8.52]$. Until 2026-08-17 the third was not, and this section said so
+at length: it printed $78.21 - 72.12$, a subtraction of two micro-averages
+with no pairing, no interval and no McNemar test, and stated that the 14B
+job's per-question dumps no longer existed, so that recovering the paired
+form would mean re-running the campaign. That was wrong about where the files
+were, not about what their absence cost. The dumps had been written to the
+job's mounted output bucket --- which is what a mounted bucket is for --- and
+the search that declared them lost had looked on the local machine.
+Retrieving them cost 579~kB of bandwidth and no GPU time; they are now
+committed in \texttt{docs/data/mmlu-dumps/} beside the 4B and 8B ones, so the
+loss cannot recur. \emph{The point estimate did not move by a hundredth}: it
+stopped being bare, which is a change of evidential status and not of value.
+Three authenticity checks ran before the recovered files were used for
+anything: the three stratified micro-averages replay 78.97 / 78.21 / 72.12,
+the run fingerprint matches the 4B and 8B campaigns, and the
+already-published FP16-minus-2-bit pair replays its point estimate, interval,
+standard error and McNemar $p$ to the digit
+(\texttt{docs/\allowbreak mesures/\allowbreak mmlupair-14b-2026-08-17.txt}).
+
+\textbf{Does the closing itself slow?} With the three gaps finally the same
+kind of number, the question the word \emph{knee} asks can be put to a test,
+and the answer is that one step is resolved and the other is not. Composing
+the two standard errors in quadrature --- the campaigns are independent, and
+no pairing across model sizes is available or would mean anything --- the gap
+falls by 6.96 points from 4B to 8B ($\mathrm{SE}$ 1.82, $z = 3.82$,
+$p = 0.0001$), by 1.40 from 8B to 14B ($\mathrm{SE}$ 1.68, $z = 0.83$,
+$p = 0.40$), and by 8.36 end to end ($\mathrm{SE}$ 1.91,
+$p \approx 10^{-5}$). The first closing is established and the total closing
+is established; the second step is not. \emph{And $p = 0.40$ is not evidence
+of constancy either.} On that step the data are silent, and both readings ---
+a curve that flattens, and a curve that keeps closing at a smaller pace ---
+remain compatible with three points. What this strengthens is the conclusion
+already written rather than a new one: we do not publish a scaling law from
+three models, and a 32B point is what would settle the shape. These are
+$z$-tests computed from the intervals of Table~\ref{tab:scale}, not a further
+measurement.
+
+\textbf{Perplexity gets error bars at 8B and 14B, and none at 4B.} Every
+perplexity ratio in this paper was a point estimate while the MMLU column
+carried intervals --- a comparison that tests its differences on one axis and
+not the other invites exactly the question it should close. Six paired
+intervals now exist, three per model on the 8B and the 14B, formed window by
+window over the 12 evaluation windows --- the same text in every arm, which is
+what the matching fingerprint guarantees --- as a Student $t$ interval on the mean
+per-window NLL difference, $n = 12$, 11 degrees of freedom, exponentiated to
+a perplexity ratio. The exponentiation is exact rather than a delta-method
+step, since every window scores the same token count. As excess over the
+stated reference: at 8B, AWQ over FP16 $+4.80\%$ $[+4.24, +5.35]$, 2-bit over
+FP16 $+22.01\%$ $[+19.37, +24.70]$, 2-bit over AWQ $+16.42\%$
+$[+14.17, +18.72]$; at 14B, $+3.81\%$ $[+3.27, +4.34]$, $+18.94\%$
+$[+17.22, +20.68]$ and $+14.58\%$ $[+13.10, +16.08]$. None contains zero, and
+all 72 window-level comparisons point the same way. The instrument returns a
+null when it should: the same 8B file scored with an f16 and with an int8
+embedding differs by $+0.0004\%$, interval $[-0.025, +0.026]$, which contains
+zero. \textbf{The 4B has no such interval and is given none here.} Its
+campaign log is a summary --- it recorded the three aggregate perplexities and
+not the per-window NLLs --- so none of its three pairs can be formed at all,
+and restoring them means re-running two arms. That absence is left visible.
+Two reservations bound the six intervals that do exist. They cover the
+sampling of the evaluation corpus and nothing else, in particular not the
+calibration draw, which is one seed per artifact and is unmeasured at these
+scales; they therefore condition on the two files we produced. And the large
+step, 4B to 8B --- the one carrying the whole force of the slowdown claim ---
+is precisely the one that cannot be barred this way, so on this axis the small
+step is measured and the decisive one is not: the
+8B-to-14B fall of the excess over FP16 is $-13.9\%$ with interval
+$[-22.8, -4.9]$. Against the AWQ reference --- the one the product argument
+rests on --- the same step reads $-1.58\%$ with interval $[-3.14, -0.004]$,
+$t = 2.2063$ against a threshold of 2.2010, and it clears zero by five
+thousandths, so it must not be described as a significant closing. \emph{Those
+two percentages are in different parameterizations and must not be read as a
+ninefold difference}: $-13.9\%$ is the fall of the \emph{excess}, $-1.58\%$ the
+fall of the \emph{ratio} of perplexities, which is the only form the journal
+publishes for the AWQ reference. In the ratio parameterization the two
+references read $-2.51\%$ $[-4.12, -0.88]$ and $-1.58\%$ $[-3.14, -0.004]$.
+Data: \texttt{docs/\allowbreak mesures/\allowbreak
+ppl-appariee-8b-14b-2026-08-17.txt}.
+
+\textbf{Does the 4-bit baseline start paying?} At 8B, yes, and it is the
+only size where the answer is clean. In the FP16-minus-arm orientation used
+throughout, the 4-bit loss is $+3.07$ points at 8B with paired interval
+$[+1.61, +4.69]$, which excludes zero. At 4B the same comparison is
+unresolved ($+0.27$, $[-1.63, +2.13]$), and at 14B it is unresolved again
+($+0.76$, $[-0.65, +2.17]$). So the sentence describes the 8B, not a
+monotone tendency: the sequence resolved/unresolved is not ordered by scale.
+Two further reservations. First, the 4B verdict depends on the accounting:
+the unweighted control over the same questions gives $+1.97$,
+$[+0.92, +3.02]$, which \emph{does} exclude zero, and the disagreement is
+carried by \texttt{professional law}, one subject with 10.9\% of the
+stratified weight. Second, none of \emph{these} intervals tests a difference
+\emph{between} scales. The paired bootstrap pairs two arms on the same
+questions; it does not pair two model sizes, and two intervals failing to
+overlap is not a test of the difference of differences. Such a test exists
+now, but it is a separate and weaker construction --- the quadrature
+composition two paragraphs above, which assumes only that the campaigns are
+independent --- and it resolves one of the two steps and not the other.
+
+\textbf{Memory, now at all three sizes.} The 8B verdict stands --- 5.45~GB
+served against 6.10, a file $1.9\times$ smaller --- and the reservation that
+accompanied it here is lifted. This section said the memory half of the
+argument was a two-point reading, because no \texttt{rtbits} pass had been run
+on a sealed 14B; that pass ran on 2026-08-17, on the sealed artifact recovered
+from the same mounted bucket as the dumps, for no GPU time. Whole-model
+b/param, embedding included, is 5.162, 5.322 and 5.106 against the official
+AWQ checkpoints' 5.302, 5.956 and 5.404: below at every size, by 2.6\%,
+10.6\% and 5.5\%. \emph{That margin is not monotone and no trend should be
+read into it.} It peaks at the 8B, and the mechanism has nothing to do with
+the method --- it is the share of the model the embedding occupies (9.7\% at
+4B, whose heads are tied, 15.2\% at 8B, 10.5\% at 14B), a table AWQ leaves in
+FP16 and we quantize to int8, so our advantage grows with the share carried.
+The 8B is a local maximum of embedding share and therefore a local maximum of
+margin. Three points, one mechanism, no law. The 14B pass also stops there:
+it says nothing about that model's throughput or on-card VRAM, neither of
+which has been measured. At 8B the choice between 4 and 2 bits is no longer
+one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the disk.
+Data: \texttt{docs/data/echelle-4b-8b.csv} and
+\texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}; the journals
+behind them are
+\texttt{docs/\allowbreak mesures/\allowbreak mmlupair-4b-8b-2026-08-13.txt}
+(4B, 8B),
+\texttt{docs/\allowbreak mesures/\allowbreak mmlupair-14b-2026-08-17.txt}
+(14B) and
+\texttt{docs/\allowbreak mesures/\allowbreak rtbits-14b-2026-08-17.txt}
+(14B memory).
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrrrrrl}
+\toprule
+ & \multicolumn{4}{c}{WikiText-2 perplexity} & \multicolumn{2}{c}{b/param} & MMLU, 4-bit $-$ 2-bit \\
+\cmidrule(lr){2-5}\cmidrule(lr){6-7}\cmidrule(lr){8-8}
+Model & FP16 & 2-bit $\times$ & excess & fall & 2-bit & 4-bit & gap, points \\
+\midrule
+Qwen3-4B  & 12.2369 & 1.3845 & 0.3845 & --- & 5.162 & 5.302 & 14.45 \ [11.60, 17.27] \\
+Qwen3-8B  & 8.9899  & 1.2201 & 0.2201 & $-42.8\%$ & 5.322 & 5.956 & 7.49 \ [5.28, 9.70] \\
+Qwen3-14B & 7.9820  & 1.1894 & 0.1894 & $-13.9\%$ & 5.106 & 5.404 & 6.09 \ [3.62, 8.52] \\
+\bottomrule
+\end{tabular}
+\caption{Three models, one configuration, one harness, matching token
+fingerprints on all nine arms. \emph{Excess} is the perplexity ratio minus
+one; \emph{fall} is its relative drop from the row above. Ratios are printed
+to four decimals here, unlike Tables~\ref{tab:campaign}
+and~\ref{tab:campaign8b}, because the result is a difference between them.
+\emph{b/param} is whole-model, embedding included --- the only accounting in
+which two methods' memory may be compared; the 2-bit column is the served
+configuration (\textsc{Planes14} plus an int8 embedding), the 4-bit column is
+the official AWQ repository's safetensors bytes over the same parameter
+count, and we are below it at all three sizes by 2.6\%, 10.6\% and 5.5\%.
+That margin is not monotone and we claim no trend from it: it tracks the
+share of the model the embedding occupies (9.7\%, 15.2\%, 10.5\%), which AWQ
+leaves in FP16 and we do not. All three gap cells are subject-stratified
+paired bootstrap estimates with 95\% intervals, computed question by question
+from the per-question dumps in \texttt{docs/data/mmlu-dumps/}. An earlier
+version of this table printed the 14B gap as a bare $78.21 - 72.12$ with no
+interval, on the belief that the run's dumps were lost; they were recovered
+from the job's mounted output bucket on 2026-08-17, and the point estimate
+did not move. Data: \texttt{docs/data/echelle-4b-8b.csv} and
+\texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}.}
+\label{tab:scale}
+\end{table}
 
 \begin{table}[t]
 \centering
@@ -189,10 +380,17 @@ that bound is measured on perplexity, which does not constrain MMLU.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
 its billed cost (\texttt{docs/data/jobs.csv}). The full campaign behind
-this paper (integration, ablations, negative results, both models) billed
-\$22.83, of which \$12.61 is the 8B requantization and \$2.33 the kernel
-campaign of \S\ref{sec:layouts}. Five short jobs from the CUDA porting day
-are journaled without an amount, so that figure is a floor. The negative
+this paper (integration, ablations, negative results, three models) billed
+\$55.59, of which \$27.67 is the 14B quantization, \$12.61 the 8B
+requantization, \$2.33 the kernel campaign of \S\ref{sec:layouts} and \$1.30
+the paired MMLU replay that produced the intervals above. An earlier draft
+reported \$22.83; that figure was correct for everything preceding the 14B
+campaign and that replay, and is superseded rather than corrected. Two 14B
+subtotals circulate and the ledger reconciles them: \$31.46 is everything
+billed under the 14B tag, \$30.20 is the same minus one 4B measurement
+(\$1.26) that happened to run under that tag. Five short jobs from the CUDA
+porting day are journaled without an amount, so every figure here is a
+floor. The negative
 result cannot be costed separately: both jobs that produced it (\$0.74 and \$0.77) timed
 five or seven arms at once and are the source of Table~\ref{tab:layouts}
 itself, so carrying \textsc{Golay70} through them cost cents. Adding an arm

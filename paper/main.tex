@@ -58,10 +58,21 @@ Qwen3-4B serves at 88.4~tok/s in 2.60~GB of VRAM; with the output head held
 identical in both arms (our dense arm materialized 778~MB per token;
 \S\ref{sec:integration} has the fix), the kernel-plus-format gain is
 $1.12\times$ on the 4B and $1.29\times$ on the 8B. Two bits costs $\times1.384$ perplexity
-and 14.6 MMLU points against FP16 at 4B; at 8B the perplexity cost falls to
-$\times1.220$, the gap to a 4-bit baseline halves from 14.5 to 7.5 points,
-and the served model takes 5.45~GB against that baseline's 6.10 from a file
-half the size. The campaign billed \$22.83 of recorded GPU time.
+and 14.6 MMLU points against FP16 at 4B (the served int8 arm; 14.73 on
+the sealed artifact). Scale helps: across 4B, 8B and 14B the excess perplexity
+over FP16 falls by 42.8\% and then by 13.9\%, while the MMLU gap to a 4-bit
+baseline goes 14.45, 7.49, 6.09 points --- all three subject-stratified paired
+bootstrap estimates with 95\% intervals, the last of which an earlier draft
+printed as an unpaired difference until that run's per-question dumps were
+recovered. Whether the closing itself slows is a separate question, and the
+bars decline to answer it: the first step of that gap is resolved ($-6.96$
+points, $p = 0.0001$), the second is not ($-1.40$, $p = 0.40$), and a $p$ of
+0.40 is silence rather than constancy. Three points, no law. On memory the
+served model is below that 4-bit baseline at all three sizes --- 5.162, 5.322
+and 5.106 b/param against 5.302, 5.956 and 5.404 --- by a margin that is not
+monotone, since it tracks the embedding share and not the method; at 8B that
+is 5.45~GB against 6.10 from a file half the size. The campaign billed
+\$55.59 of recorded GPU time.
 \end{abstract}
 
 \input{sections/intro}

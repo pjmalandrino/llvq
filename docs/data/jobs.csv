@@ -32,7 +32,7 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-10,6a796e083e1f34a7e32c1b32,campagne-14b-qualite SIGBUS [14B],l40sx1,14,0.43,,mmap d un checkpoint safetensors depuis un bucket monte = bus error
 2026-08-10,6a7971c33e1f34a7e32c1b6d,campagne-14b-qualite [14B],l40sx1,56,1.68,campagne-14b-qualite-2026-08-10.txt,ppl+MMLU des 3 bras 14B - LLVQ x1.1894 et -6.85 pp apparie
 2026-08-10,6a7982abda2af92a634f0e5c,paliers-4b-128 [14B campagne - mesure 4B],l40sx1,42,1.26,paliers-4b-2026-08-10.txt,4 paliers verts : queue f16 + rotation hissee 252->144 + Planes12x - textes decodes identiques - le TAG nomme la campagne qui paie pas le modele mesure ; aucun chiffre du papier n en depend
-2026-08-10,6a79b9913e1f34a7e32c203a,baseline-head 5 bras [kernel],l40sx1,26,0.78,baseline-head-2026-08-10.txt,reference du lot 1 : b/poids au chiffre, plages recouvrantes, tv_planes_seg prouve sur carte
+2026-08-10,6a79b9913e1f34a7e32c203a,baseline-head 5 bras [kernel],l40sx1,26,0.78,baseline-head-2026-08-10.txt,reference du lot 1 : b/poids au chiffre ; plages recouvrantes ; tv_planes_seg prouve sur carte
 2026-08-10,6a7a11d32ed17c71070fda7f,six-arm-awq [kernel],l40sx1,26,0.78,six-arm-awq-2026-08-10.txt,premier bras concurrent : AWQ w4g128 a 584 Go/s contre 428 pour Planes14 - 88 % de sa borne contre 65 %
 2026-08-11,6a7adf552ed17c71070ff410,golay70-v2-sept-bras [kernel],l40sx1,26,0.77,golay70-v2-sept-bras-2026-08-11.txt,verdict v2 : 1.77x [1.76-1.78] - NON ADOPTE (seuil pre-enregistre 2.0x) - v2/v1 1.32x memes rounds - controle 6 bras indiscernable (delta 0.24% < R 0.56%)
 2026-08-13,6a7ce5bc73ce7897b8937c2b,oracle-cuda [phase 1.2],l4x1,1,0.01,,verrou backend : max delta hidden = 0.000e0 MATCH avant la campagne appariee

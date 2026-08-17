@@ -4,8 +4,10 @@
 We list these in the order a skeptical reader should weigh them.
 
 \textbf{The MMLU deficit is real, reproduced, and unresolved.} $-14.6$
-points against FP16 on the 4B, reproduced three times across two machines
-($-10.6$ on the 8B). The per-subject profile shows the mechanism: abstract
+points against FP16 on the 4B served arm, reproduced three times across two
+machines; on the sealed artifact, the arm every paired statistic uses, the
+paired loss is 14.73 points, and it is 10.57 at 8B and 6.85 at 14B, all
+three resolved. The per-subject profile shows the mechanism: abstract
 algebra and accounting fall to 25\%, exactly chance, while history, law and
 psychology hold above 80\%. Two-bit quantization damages \emph{reasoning}
 far more than \emph{recall}, and a perplexity corpus mostly measures
@@ -44,21 +46,71 @@ of competitor, and it is the one that changed our reading of our own result.
 The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
 vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
-Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
-decode. Batched serving changes the arithmetic-intensity regime that makes
+\textbf{Two models end to end, one GPU, greedy decoding.} Everything
+end-to-end is Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and
+greedy decode. The third model, Qwen3-14B, was quantified, sealed and scored
+but never served: it contributes quality to Table~\ref{tab:scale}, and a
+b/param computed from its sealed bytes, but nothing measured on a card ---
+no throughput, no on-card VRAM. (This paragraph read ``a \emph{quality} point
+only \dots\ nothing about throughput or VRAM'' before the 2026-08-17
+\texttt{rtbits} pass on that artifact; the byte-level memory figure exists
+now, the card-level one still does not.) Batched
+serving changes the arithmetic-intensity regime that makes
 the kernel memory-bound; larger models change the embedding share and the
 tail-column overhead.
 
-\textbf{The scale argument is two points, not a law.} On the 4B, the
-summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
-every axis except disk and served footprint, where our 5.15~b/param beats
-its 5.30 by 3\%, a margin that does not, on its own, justify a 14.6-point
-MMLU loss. The 8B moves every relevant number in the 2-bit
-direction (Table~\ref{tab:campaign8b}): the quality gap halves and the
-memory verdict flips. Whether the trend continues to the 70B class, the
-regime the sovereignty argument actually cares about, is measurable with
-this methodology and is not measured here.
+\textbf{The scale argument is three points, and not a law.} On the 4B,
+the summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
+every axis except disk and served footprint, where our 5.162~b/param (the
+exact-byte figure; 5.15 was the rounded card display) beats its 5.30 (5.302)
+by about 3\%, a margin that does not, on its
+own, justify a 14.6-point MMLU loss. The 8B moves every relevant number in
+the 2-bit direction (Table~\ref{tab:campaign8b}): the quality gap narrows by
+half and the memory verdict flips. The 14B keeps the direction, and on the
+point estimates it \emph{loses the rate} (Table~\ref{tab:scale}): the excess
+perplexity falls 42.8\% from 4B to 8B and 13.9\% from 8B to 14B. Whether the
+trend continues to the 70B class, the regime the sovereignty argument
+actually cares about, is measurable with this methodology and is not measured
+here --- and the third point is exactly the reason not to extrapolate from
+the first two, as an earlier draft of this section did when it had only two.
+
+Three qualifications on how that curve may be read, two of which have changed
+since 2026-08-17 and are recorded as changed rather than quietly rewritten.
+
+First, the slowdown is a property of the point estimates that the intervals
+do not separate. This section previously said no test of a difference of
+differences existed at all: our paired bootstrap pairs two arms on one
+question set, never two model sizes, and two non-overlapping intervals are
+not such a test. That remains true of the bootstrap. A weaker test does now
+exist, composing the two campaigns' standard errors in quadrature, and it
+resolves the first step of the MMLU gap ($-6.96$ points, $p = 0.0001$) and
+not the second ($-1.40$, $p = 0.40$). \emph{Neither direction should be
+overclaimed}: $p = 0.40$ is silence about that step, not evidence that the
+gap has stopped closing, and a reader may hold either reading. What follows
+operationally is what this section already said --- no scaling law from three
+models --- now resting on a test rather than on caution alone. The test is
+computed from the published intervals, not separately measured.
+
+Second, the third gap in the MMLU sequence (6.09 points) \emph{is} a paired
+estimate, $[3.62, 8.52]$, McNemar $p = 1.1\times10^{-11}$. This section said
+the opposite until 2026-08-17: that it was an unpaired difference of
+micro-averages, that the 14B run's per-question dumps had never been
+committed and were gone, and that it had no interval and must not be given
+one. The dumps were not gone --- they were in the job's mounted output
+bucket, and only the local copy had been looked for --- and the recomputation
+cost no GPU time and did not move the point estimate.
+See \S\ref{sec:evaluation}.
+
+Third, the memory half of the argument now has all three points, not two.
+This section said no whole-model b/param existed for the 14B because no
+\texttt{rtbits} pass had been run on its sealed artifact; that pass has since
+run, on the artifact recovered from the same bucket. We are below the AWQ
+checkpoint at every size (5.162, 5.322, 5.106 against 5.302, 5.956, 5.404),
+but \emph{the margin is not monotone} --- 2.6\%, 10.6\%, 5.5\% --- and it
+should not be read as a tendency: it tracks the share of parameters the
+embedding occupies, which AWQ leaves in FP16 and we quantize, and which peaks
+at the 8B. What remains unmeasured above 8B is not memory but \emph{serving}:
+the 14B was never run, so it has no throughput and no on-card VRAM figure.
 
 \textbf{Our speedups are over FP16, not over the 4-bit state of the
 practice.} Every $\times$ in \S\ref{sec:layouts} and
@@ -72,9 +124,16 @@ and~\ref{tab:campaign8b} carry no 4-bit throughput column and we claim
 none.
 
 \textbf{Speedups carry ranges, not third decimals.} Inter-process
-dispersion on identical binaries spans several percent; all ratios are
-medians of per-round ratios with min--max ranges, and effects smaller than
-the range are treated as unresolved.
+dispersion on identical binaries spans several percent. Every
+\emph{bench} ratio --- \S\ref{sec:layouts}, Table~\ref{tab:layouts},
+Figure~\ref{fig:layouts} --- is a median of per-round ratios with a min--max
+range, and effects smaller than the range are treated as unresolved. The
+end-to-end ratios of \S\ref{sec:integration} are not of that kind and carry
+no range: $2.03\times$, $1.12\times$ and $1.29\times$ are single-run
+quotients of tok/s, with no rounds to take a median over. Two of the three
+divide arms timed inside one job; the $1.29\times$ divides arms from two,
+and is $1.30\times$ when formed within the job that ran both. Their second
+decimal should be read as dispersion, not as measurement.
 
 \textbf{The rotated basis is a real serving constraint.} Weights are stored
 in the incoherence-rotated basis; any consumer of the artifact must apply

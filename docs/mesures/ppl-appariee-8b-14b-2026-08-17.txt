@@ -1,0 +1,304 @@
+================================================================================
+Les barres d'erreur de la perplexité — 8B et 14B, trois bras, six paires
+2026-08-17, calculé sur les journaux existants. 0 $, aucun accélérateur, python3.
+================================================================================
+
+CE QUE CE JOURNAL PRODUIT, ET CE QU'IL NE PRODUIT PAS
+
+  🚨 AUCUNE MESURE NOUVELLE N'A ÉTÉ FAITE. Pas un token n'a été scoré, pas une
+  carte n'a été louée. Tout ce qui suit est CALCULÉ à partir de NLL par fenêtre
+  MESURÉES les 2026-08-08 et 2026-08-10, et déjà dans le dépôt. Ce journal ne
+  déplace aucun point : il lui pose une barre.
+
+  Le trou qu'il ferme : les neuf cellules de perplexité du comparatif 3 tailles
+  × 3 bras sont des points nus, alors que la colonne MMLU porte des intervalles
+  appariés depuis le 2026-08-13. Un comparatif qui teste ses écarts d'un côté et
+  pas de l'autre invite exactement la question qu'il devrait fermer.
+
+SOURCES — non modifiées, lues seules
+
+  docs/mesures/campagne-8b-qualite-2026-08-08.txt    3 bras × 12 fenêtres
+  docs/mesures/campagne-14b-qualite-2026-08-10.txt   3 bras × 12 fenêtres
+  docs/mesures/campagne-8b-q8-2026-08-08.txt         le 4ᵉ bras 8B (contrôle négatif)
+  docs/mesures/kvq8-4b-2026-08-15.txt                la MÉTHODE et sa mise en garde
+
+COMPTABILITÉ — une seule, et il faut la dire
+
+  NLL en nat par token scoré · wikitext-2 test · ctx 4096 · 12 fenêtres de 4095
+  tokens scorés · dtype f16 sur les six bras · empreinte de tokens
+  3f1baca9033bf251 IDENTIQUE sur les six. C'est cette identité d'empreinte qui
+  autorise l'appariement : la fenêtre i est le MÊME texte pour les trois bras
+  d'une taille.
+
+  ppl agrégée = exp( Σ nᵢ·nllᵢ / Σ nᵢ ). Tous les nᵢ valent 4095, donc c'est
+  exp(moyenne). Conséquence exploitée partout ici : le RAPPORT de deux ppl est
+  exp(moyenne des différences de NLL) — une identité, pas une approximation.
+  L'intervalle sur la moyenne des différences se transporte donc au rapport en
+  l'exponentiant, sans linéarisation ni delta-méthode.
+
+LA BONNE BARRE, ET CELLE QU'IL NE FAUT PAS PRENDRE
+
+  ✅ Intervalle t APPARIÉ fenêtre par fenêtre, n = 12, ddl = 11.
+     t(0,975 ; 11) = 2,200985160 — recalculé ici par la beta incomplète
+     régularisée, et CONCORDANT avec le 2,201 qu'annonce le journal kvq8.
+
+  ❌ PAS le σ inter-graines de 0,7 %. Il mesure du bruit de graine de
+     CALIBRATION entre fichiers DIFFÉRENTS, sur 3 blocs de Qwen3-0.6B. Le
+     journal kvq8 l'a établi le 2026-08-15 : sur un A/B à fichier constant
+     l'intervalle apparié vaut ±0,12 %, quatorze fois plus serré — ce σ
+     n'aurait rien mesuré.
+
+CONTRÔLE DE REPRODUCTION — la porte, franchie avant tout intervalle  [calculé]
+
+  Les NLL sont reparsées du journal, la ppl est RECALCULÉE, puis confrontée à la
+  ligne `ppl = …` du journal source. Six bras, six reproductions au dix-millième :
+
+    8B   f16   moyenne nll 2,196106876  →  8,9899   journal  8,9899   REPRODUIT
+    8B   AWQ   moyenne nll 2,242949185  →  9,4211   journal  9,4211   REPRODUIT
+    8B   LLVQ  moyenne nll 2,395000970  → 10,9682   journal 10,9682   REPRODUIT
+    14B  f16   moyenne nll 2,077191850  →  7,9820   journal  7,9820   REPRODUIT
+    14B  AWQ   moyenne nll 2,114540298  →  8,2858   journal  8,2858   REPRODUIT
+    14B  LLVQ  moyenne nll 2,250619573  →  9,4936   journal  9,4936   REPRODUIT
+
+  Deuxième contrôle, gratuit et létal sur une erreur d'appariement : les Δ̄ sont
+  additifs par construction, (f16→AWQ) + (AWQ→LLVQ) doit être (f16→LLVQ) à
+  l'arithmétique flottante près. Écart 2,78e-17 aux deux tailles. Un décalage
+  d'une fenêtre entre deux bras casserait cette identité.
+
+  ✅ Et le rapport LLVQ/f16 retombe sur ×1,2201 (8B) et ×1,1894 (14B), c'est-à-dire
+     AU CHIFFRE les valeurs que le dossier publie depuis le 08-08 et le 08-10.
+
+--------------------------------------------------------------------------------
+LES SIX INTERVALLES                                                   [calculé]
+--------------------------------------------------------------------------------
+
+  Lecture : « excès » = de combien la perplexité du bras cité dépasse celle de sa
+  référence, en %. C'est la forme dans laquelle ce dossier dit ses ratios (×1,2201
+  = +22,01 %).
+
+  Qwen3-8B
+  ------------------------------------------------------------------------
+    AWQ  contre f16    +4,80 %   IC95 [ +4,24 ;  +5,35]   t=+19,44   12/12 fen.
+    LLVQ contre f16   +22,01 %   IC95 [+19,37 ; +24,70]   t=+20,03   12/12 fen.
+    LLVQ contre AWQ   +16,42 %   IC95 [+14,17 ; +18,72]   t=+17,14   12/12 fen.
+
+  Qwen3-14B
+  ------------------------------------------------------------------------
+    AWQ  contre f16    +3,81 %   IC95 [ +3,27 ;  +4,34]   t=+15,91   12/12 fen.
+    LLVQ contre f16   +18,94 %   IC95 [+17,22 ; +20,68]   t=+26,31   12/12 fen.
+    LLVQ contre AWQ   +14,58 %   IC95 [+13,10 ; +16,08]   t=+23,00   12/12 fen.
+
+  AUCUN DES SIX INTERVALLES NE CONTIENT ZÉRO. Les six sont même très loin de le
+  contenir — le plus petit |t| vaut 15,9 contre un seuil de 2,20 — et la
+  direction est unanime : sur les 72 comparaisons fenêtre par fenêtre (6 paires
+  × 12), les 72 vont dans le même sens. Il n'existe pas une fenêtre de
+  wikitext-2 où le 2 bits batte le 4 bits, ni où le 4 bits batte le f16.
+
+  🔎 CE QUE ÇA APPREND, ET CE N'EST PAS « C'EST SIGNIFICATIF ». Que ces écarts
+     soient significatifs n'a jamais fait de doute : 22 % de perplexité ne sont
+     pas du bruit. Ce que l'intervalle apporte est sa LARGEUR — ±2,7 points de %
+     sur le +22,01 % du 8B, ±1,7 sur le +18,94 % du 14B. C'est l'ordre de
+     grandeur en dessous duquel une différence de perplexité entre deux modèles
+     ne se discute pas sur 12 fenêtres, et il est ~20× plus large que la barre
+     d'un A/B à fichier constant (±0,12 %). Les deux ne se substituent pas.
+
+--------------------------------------------------------------------------------
+CONTRÔLE NÉGATIF — l'instrument sait-il rendre un nul ?                [calculé]
+--------------------------------------------------------------------------------
+
+  Six intervalles sur six qui excluent zéro, c'est le profil d'un instrument
+  cassé autant que celui d'un effet réel. Il faut donc un cas où la réponse doit
+  être « rien », et le dépôt en contient un : le 8B LLVQ scellé mesuré deux fois,
+  embedding f16 (campagne qualité) et embedding q8 (campagne q8), même empreinte.
+
+    ppl embedding f16   10,9682        ppl embedding q8   10,9682
+    écart relatif      +0,0004 %       IC95 [−0,0254 ; +0,0261] %
+    t = +0,031    6 fenêtres sur 12 défavorables au q8    |Δ| max 0,000864 nat
+    L'INTERVALLE CONTIENT ZÉRO.
+
+  ✅ L'instrument rend un nul quand il doit. Et il le rend SERRÉ : ±0,026 %,
+     soit ×4,6 plus serré encore que le ±0,12 % du KV q8 au 4B — cohérent, le KV
+     q8 touche tout le contexte quand l'embedding q8 ne touche que deux tables.
+
+  🔎 Sous-produit non demandé mais acquis : l'embedding int8 au 8B coûte
+     +0,0004 % de perplexité, intervalle contenant zéro. Le dossier disait « dans
+     le bruit » sur la foi de deux ppl arrondies identiques ; c'est maintenant
+     une mesure d'écart avec sa barre, pas une coïncidence d'affichage.
+
+--------------------------------------------------------------------------------
+LE GENOU — la première barre sur une affirmation d'ÉCHELLE             [calculé]
+--------------------------------------------------------------------------------
+
+  Le dossier affirme que l'excès de perplexité fond de −43 % puis de −14 % d'un
+  palier à l'autre, et en tire « la courbe a un genou ». Les deux nombres sont
+  nus. Le second est calculable ici, parce que les 12 fenêtres du 8B et celles du
+  14B sont LE MÊME TEXTE (empreinte commune) : on peut apparier la différence de
+  différences, fenêtre par fenêtre.
+
+    excès LLVQ sur f16 :   8B +22,01 %   →   14B +18,94 %
+      facteur d'excès 14B/8B  ×0,974855   IC95 [×0,958819 ; ×0,991159]
+      soit −2,51 % de ratio   IC95 [−4,12 ; −0,88] %      t = −3,38
+      10 fenêtres sur 12 voient l'excès diminuer.  N'EXCLUT PAS ZÉRO : il l'exclut.
+
+      Traduit dans la paramétrisation du dossier (fonte de l'EXCÈS, excès_8B tenu
+      fixe à 22,01 %) :  −13,9 %   IC95 [−22,8 ; −4,9] %.
+
+  ✅ Le « −14 % » publié est reproduit à 0,1 point près, et il reçoit sa première
+     barre. LA FONTE EST RÉELLE — l'intervalle exclut zéro — mais elle est MAL
+     BORNÉE : entre −5 % et −23 %, un facteur 4,6 entre les deux bouts.
+
+    excès LLVQ sur AWQ :   8B +16,42 %   →   14B +14,58 %
+      facteur d'excès 14B/8B  ×0,984154   IC95 [×0,968597 ; ×0,999962]
+      soit −1,58 % de ratio   IC95 [−3,14 ; −0,004] %     t = −2,2063
+
+      🚨 CELUI-CI EXCLUT ZÉRO D'UN CHEVEU, ET IL NE FAUT PAS LE PRÉSENTER
+         AUTREMENT. t = 2,2063 contre un seuil de 2,200985 : il passe de 0,005.
+         La borne haute est −0,004 %, soit zéro à quatre décimales près. Sur la
+         référence AWQ — celle qui compte pour l'argument produit — le
+         rétrécissement de l'écart de 8B à 14B est À LA LIMITE DE LA DÉTECTION
+         sur 12 fenêtres. Ne pas écrire « l'écart se referme significativement ».
+
+  ⚠️ CE QUE CETTE BARRE COUVRE, ET CE QU'ELLE NE COUVRE PAS. L'appariement retire
+     la difficulté de la fenêtre, qui est le facteur de nuisance commun. Il ne
+     retire rien de ce qui sépare deux CAMPAGNES sur deux MODÈLES distincts :
+     l'intervalle conditionne sur les deux artefacts tels qu'ils ont été produits.
+     Ce n'est pas « le 14B fond de −14 % » comme loi, c'est « ces deux fichiers-là,
+     sur ce corpus-là, diffèrent de tant ».
+
+--------------------------------------------------------------------------------
+🚨 LA RÉSERVE PRINCIPALE — CE QUE CES INTERVALLES NE CONTIENNENT PAS
+--------------------------------------------------------------------------------
+
+  Ils mesurent UNE SEULE source de variabilité : l'échantillonnage du corpus
+  d'évaluation, 12 fenêtres de wikitext-2 test. Rien d'autre.
+
+  En particulier, ils ne contiennent PAS le tirage de CALIBRATION. Le fichier
+  LLVQ 8B et le fichier LLVQ 14B sont chacun UN tirage d'un processus qui
+  dépend d'une graine ; un autre tirage de la même recette rendrait une autre
+  perplexité. Cette composante est ABSENTE des six intervalles.
+
+  ⚠️ Et on ne peut pas la boucher en ajoutant le σ de 0,7 %. Ce σ est mesuré sur
+     3 blocs de Qwen3-0.6B, et le dossier dit lui-même qu'il n'est pas la barre
+     d'erreur de l'objet publié (un mécanisme qui pèse 0,04 % à 3 blocs peut
+     peser 7 % à 36). L'ajouter serait fabriquer un nombre.
+
+  ⇒ La composante de calibration est NON MESURÉE aux échelles 8B et 14B. Ce
+    n'est pas un trou de rédaction, c'est une mesure qui n'existe pas : elle
+    exigerait de requantifier à plusieurs graines, donc une carte louée. C'est
+    une information, pas un trou à boucher.
+
+  Distinction qui suit, et qui décide de la façon de citer chaque paire :
+    · f16 ↔ AWQ  — deux artefacts publiés par des tiers, aucun tirage de notre
+      fait. Pour cette paire, la barre corpus est l'essentiel de l'histoire.
+    · f16 ↔ LLVQ et AWQ ↔ LLVQ — un des deux côtés est NOTRE tirage.
+      L'intervalle conditionne dessus, et doit être cité ainsi.
+
+--------------------------------------------------------------------------------
+🚨 LE 4B N'A PAS DE BARRE, ET IL N'EN AURA PAS SANS REJEU
+--------------------------------------------------------------------------------
+
+  Les trois cellules du 4B — f16 12,2369 · AWQ 13,5207 · LLVQ 16,9422 — ne sont
+  PAS calculables. Vérifié, pas supposé :
+
+    · docs/mesures/a4-campagne-2026-08-06.txt, le journal de la campagne 4B, est
+      un journal de SYNTHÈSE : il porte les trois ppl agrégées et rien d'autre.
+      Aucune ligne `window i/12 nll …`.
+    · Recherche exhaustive des lignes de fenêtre dans tout docs/ : cinq fichiers
+      en portent. Trois concernent le 8B ou le 14B. Un (mini-2026-08-05.txt) est
+      le protocole MINIATURE — ctx 2048, 2 fenêtres, empreinte 5e7c9d0950fb98b9,
+      donc ni le contexte, ni la taille d'échantillon, ni les tokens du
+      comparatif. Le dernier (campagne-finale-bras4-2026-08-07.txt) est bien du
+      4B à la bonne empreinte, mais c'est le QUATRIÈME bras — LLVQ à embedding
+      q8, ppl 16,9358 — qui n'est aucun des trois du comparatif, et il est seul :
+      sans le f16 4B ni l'AWQ 4B, il ne forme aucune paire.
+
+  ⇒ AUCUNE des trois paires du 4B n'est formable. Ce n'est pas une des trois qui
+    manque, ce sont les trois. Les rétablir exige de rejouer les deux bras
+    manquants de la campagne 4B (bin/ppl imprime les NLL sur STDERR — c'est
+    précisément pour ne pas les perdre qu'il les imprime à 9 décimales, et
+    c'est en les laissant filer que le 4B s'est retrouvé sans elles).
+
+  ⚠️ CONSÉQUENCE POUR LE GENOU : le pas 4B→8B, celui qui porte le « −43 % » et
+     donc TOUTE la force de l'argument du genou, N'EST PAS BARRABLE. Ce journal
+     barre le petit pas et laisse le grand nu. Le genou reste donc une
+     affirmation à moitié testée, et il faut le dire quand on le cite.
+
+  🕳️ La leçon est celle du dossier, sur un nouvel objet : un journal de synthèse
+     est une perte irréversible. Les campagnes 8B et 14B ont gardé leur sortie
+     brute et sont barrables trois ans après ; la campagne 4B a gardé un tableau
+     et ne l'est pas. Le coût de la sortie brute est quelques kilo-octets.
+
+--------------------------------------------------------------------------------
+MÉTHODE — reproductible sans rien installer
+--------------------------------------------------------------------------------
+
+  Différences appariées dᵢ = nll_B(i) − nll_A(i), i = 1..12.
+  d̄ ; s = écart-type d'échantillon (ddl 11) ; SE = s/√12 ;
+  IC95 sur d̄ = d̄ ± t(0,975 ; 11)·SE ; puis rapport de ppl = exp(d̄) et son IC
+  par exponentiation des bornes (exact, cf. COMPTABILITÉ).
+
+  t(0,975 ; 11) obtenu en inversant la CDF de Student par bisection, la CDF
+  étant écrite sur la beta incomplète régularisée (fraction continue de Lentz).
+  Aucune dépendance : python3 de la machine, module `math` seul. Le workspace
+  Rust n'est pas touché.
+
+  Les NLL ne sont jamais transcrites à la main : elles sont parsées par
+  expression régulière depuis les journaux, et le contrôle de reproduction
+  ci-dessus est ce qui valide le parse ET la formule d'agrégation d'un coup.
+
+================================================================================
+ANNEXE — les NLL par fenêtre telles que parsées, et les trois différences
+(sortie machine, séparateur décimal point)
+================================================================================
+
+  8B — NLL par fenêtre (nat)
+  ------------------------------------------------------------------------
+   fen           f16          AWQ         LLVQ      AWQ-f16   LLVQ-f16   LLVQ-AWQ
+     1   2.167849989  2.210911268  2.346050109    +0.043061  +0.178200  +0.135139
+     2   2.484214505  2.545368304  2.735679945    +0.061154  +0.251465  +0.190312
+     3   1.915492645  1.956990232  2.176069091    +0.041498  +0.260576  +0.219079
+     4   1.767394140  1.811528446  1.981194673    +0.044134  +0.213801  +0.169666
+     5   2.273520013  2.332853041  2.498913738    +0.059333  +0.225394  +0.166061
+     6   2.238075683  2.277221411  2.397369124    +0.039146  +0.159293  +0.120148
+     7   2.296767208  2.339166237  2.474311994    +0.042399  +0.177545  +0.135146
+     8   2.317855235  2.371724760  2.490074596    +0.053870  +0.172219  +0.118350
+     9   2.419854148  2.460400927  2.603909827    +0.040547  +0.184056  +0.143509
+    10   1.947217691  1.982975976  2.101983650    +0.035758  +0.154766  +0.119008
+    11   2.317269536  2.372128501  2.529871127    +0.054859  +0.212602  +0.157743
+    12   2.207771720  2.254121118  2.404583763    +0.046349  +0.196812  +0.150463
+   moy   2.196106876  2.242949185  2.395000970    +0.046842  +0.198894  +0.152052
+   ppl        8.9899       9.4211      10.9682      = exp(moy), confronté au journal
+   sd                                              0.008346982 0.034399233 0.030730975
+   SE                                              0.002409566 0.009930203 0.008871268
+
+  14B — NLL par fenêtre (nat)
+  ------------------------------------------------------------------------
+   fen           f16          AWQ         LLVQ      AWQ-f16   LLVQ-f16   LLVQ-AWQ
+     1   2.042751259  2.083027606  2.229883528    +0.040276  +0.187132  +0.146856
+     2   2.370835480  2.425116377  2.601790484    +0.054281  +0.230955  +0.176674
+     3   1.807559476  1.836568748  1.978027225    +0.029009  +0.170468  +0.141458
+     4   1.581453063  1.614882264  1.763797314    +0.033429  +0.182344  +0.148915
+     5   2.142094971  2.184440343  2.329124456    +0.042345  +0.187029  +0.144684
+     6   2.133713465  2.177584850  2.270798039    +0.043871  +0.137085  +0.093213
+     7   2.192013173  2.224892924  2.348587263    +0.032880  +0.156574  +0.123694
+     8   2.189245412  2.218885693  2.359515224    +0.029640  +0.170270  +0.140630
+     9   2.305047361  2.347646949  2.467953726    +0.042600  +0.162906  +0.120307
+    10   1.834389070  1.869229577  1.995181457    +0.034841  +0.160792  +0.125952
+    11   2.223823832  2.248598949  2.394461615    +0.024775  +0.170638  +0.145863
+    12   2.103375639  2.143609299  2.268314541    +0.040234  +0.164939  +0.124705
+   moy   2.077191850  2.114540298  2.250619573    +0.037348  +0.173428  +0.136079
+   ppl        7.9820       8.2858       9.4936      = exp(moy), confronté au journal
+   sd                                              0.008131662 0.022834410 0.020493513
+   SE                                              0.002347409 0.006591726 0.005915968
+
+  Différence de différences 8B → 14B (le genou)
+  ------------------------------------------------------------------------
+   sur f16    d14 - d8   moyenne -0.025466371   SE 0.007535870   t -3.3794
+   sur AWQ    d14 - d8   moyenne -0.015972510   SE 0.007239642   t -2.2063
+   t(0.975 ; 11) = 2.200985160
+
+  Contrôle négatif — 8B LLVQ, embedding f16 vs embedding q8
+  ------------------------------------------------------------------------
+   moyenne des différences +0.000003587 nat   SE 0.000116893   t +0.031
+   rapport de ppl ×1.000004   IC95 [×0.999746 ; ×1.000261]
+================================================================================
