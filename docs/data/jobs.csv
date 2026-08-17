@@ -38,3 +38,5 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-13,6a7ce5bc73ce7897b8937c2b,oracle-cuda [phase 1.2],l4x1,1,0.01,,verrou backend : max delta hidden = 0.000e0 MATCH avant la campagne appariee
 2026-08-13,6a7ce71173ce7897b8937c53,mmlupair-4b [phase 1.2],l40sx1,16,0.49,mmlupair-4b-8b-2026-08-13.txt,MMLU 3 bras 4B avec dumps par question - les trois micros rejouent 70.32 / 70.04 / 55.59 au centieme
 2026-08-13,6a7ceb0f8747785b3ad5151f,mmlupair-8b [phase 1.2],l40sx1,27,0.80,mmlupair-4b-8b-2026-08-13.txt,MMLU 3 bras 8B avec dumps - 76.08 / 73.01 / 65.52 - empreinte 65dcd53655e8bfa5 partout
+2026-08-16,6a814ba31f5885ae605bcb55,llvq-e1v [plancher],l40sx1,28,0.85,e1v-cuda-2026-08-16.txt,E1v sur carte : 0.25x FP16 et 25 Go/s contre un plancher pre-enregistre de 1.60x - la ligne du format se referme cote transposition
+2026-08-16,6a81b2b71f5885ae605bdcc9,llvq-nullk [plancher],l40sx1,26,0.77,nullk-plancher-2026-08-16.txt,le plancher : une passe de projections qui ne lit aucun poids coute 2.305 ms contre 5.102 pour Planes14 - soit 45.2 % - donc tout travail de format plafonne a 4.77x FP16

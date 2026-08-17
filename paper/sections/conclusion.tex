@@ -12,12 +12,15 @@ factor against FP16 --- is what a successor should attack.
 
 What we did not show is that 2 bits is the right operating point for a 4B
 model; it is not. Scale moves every quality number the right way across 4B,
-8B and 14B, and on the point estimates it stops moving them at the same rate:
+8B and 14B, and it stops moving them at the same rate:
 the excess perplexity over FP16 falls 42.8\% and then 13.9\%, while the MMLU
-gap to a 4-bit baseline goes 14.45, 7.49, 6.09 points --- all three paired,
-each with a 95\% interval. The slowdown itself is not resolved: of the two
-steps in that gap only the first separates from zero ($p = 0.0001$ against
-$p = 0.40$), and an unresolved step is not a flat one. Three points, no law.
+gap to a 4-bit baseline goes 14.45, 7.49, 6.09 points --- all five paired,
+each with a 95\% interval. Whether that slowdown is resolved depends on the
+metric, and the answers differ: on perplexity it is, the two steps differing
+by $-0.1010$ in log perplexity ratio, $[-0.1377, -0.0643]$; on the MMLU gap it is not,
+only the first of its two steps separating from zero ($p = 0.0001$ against
+$p = 0.40$), and an unresolved step is not a flat one. Neither answer says
+where the curve flattens. Three points, no law.
 The open questions are
 whether the curve still reaches the 70B class, and which untested quality
 lever (calibration composition, learned column scales, low-rank compensation)

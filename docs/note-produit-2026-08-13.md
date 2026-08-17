@@ -348,15 +348,26 @@ même fichier) :
 > points.
 >
 > 🚨 **Cette note ajoutait « il plie la courbe » et « la tendance que le
-> troisième vient de ralentir » — RETIRÉ le 2026-08-17.** Les trois écarts au
-> 4 bits étant désormais appariés, la chute d'un palier au suivant se teste :
-> **4B→8B −6,96 pp, p = 0,0001, résolue** ; **8B→14B −1,40 pp, SE 1,68,
-> p = 0,40, NON résolue**. Le ralentissement n'est pas séparé par les barres, et
-> côté perplexité le pas 4B→8B qui porte le « −43 % » **n'est pas barrable** (le
-> journal de la campagne 4B est une synthèse). ⚠️ p = 0,40 ne prouve pas
-> l'égalité non plus : les données sont **muettes** sur ce palier. **Pour une
-> note produit, la conséquence est simple : ne pas extrapoler du tout, et
-> traiter le 32B comme la mesure qui tranche.**
+> troisième vient de ralentir » — RETIRÉ le 2026-08-17 (matin), et rendu le
+> soir SUR LA SEULE PERPLEXITÉ. 🚨 Le verdict dépend de la métrique, et une
+> note produit qui n'en nomme aucune se trompe de moitié.**
+> Sur l'**écart MMLU au 4 bits** — la métrique qui décrit ce qu'un client
+> perd — la chute d'un palier au suivant se teste depuis que les trois écarts
+> sont appariés : **4B→8B −6,96 pp, p = 0,0001, résolue** ; **8B→14B −1,40 pp,
+> SE 1,68, p = 0,40, NON résolue**. Le ralentissement n'y est pas séparé par les
+> barres, et p = 0,40 ne prouve pas l'égalité non plus : les données sont
+> **muettes** sur ce palier.
+> Sur la **perplexité**, il est **RÉSOLU** : pas 4B→8B ×0,881211
+> [0,856 ; 0,907], pas 8B→14B ×0,974855 [0,959 ; 0,991], différence appariée
+> **−0,100992 [−0,137670 ; −0,064313], t = −6,06**
+> ([`mesures/ppl-appariee-4b-2026-08-17.txt`](mesures/ppl-appariee-4b-2026-08-17.txt)).
+> 🕳️ La phrase « côté perplexité le pas 4B→8B n'est pas barrable, le journal de
+> la campagne 4B est une synthèse » était vraie le matin et **démentie le
+> soir** : les NLL par fenêtre vivaient dans les logs du job.
+> **Pour une note produit, la conséquence ne change pas : ne pas extrapoler du
+> tout, et traiter le 32B comme la mesure qui tranche.** Ce qu'un client achète
+> se juge sur les capacités, où le ralentissement reste non résolu — et un
+> genou de perplexité ne se transporte pas sur MMLU.
 >
 > ⚠️ **Ce qui reste vrai** : aucun chiffre de qualité au-delà du **14B**, et
 > **aucun sur un MoE** — c'est toujours le verrou du package A (gate X5).
@@ -374,6 +385,13 @@ même fichier) :
 > 15,2 % · 10,5 %), pas la méthode ; (ii) **ni la vitesse ni la VRAM carte n'ont
 > jamais été mesurées à 14B**, donc ce point n'a pas le troisième instrument qui
 > recoupait le 4B et le 8B.
+>
+> ✅ **Le DISQUE du 14B, lui, est acquis** — et il l'était sans qu'aucune surface
+> le dise : `qwen3-14b-llvq.bin` pèse **6 506 354 741 o = 6,506 Go** (*mesuré*,
+> confirmé à l'octet par `hf buckets ls` **et** par le log de scellement). Pour
+> une note produit c'est la cellule qui décide du **transport** et du stockage
+> client, et elle n'est pas vide. Le triptyque du 14B est donc **disque acquis,
+> vitesse manquante, VRAM carte manquante** : deux cellules à combler, pas trois.
 
 ## E. Les trois segments servis (détail : les trois packages de la passation)
 

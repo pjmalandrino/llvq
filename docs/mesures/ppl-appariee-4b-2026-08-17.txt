@@ -1,0 +1,426 @@
+================================================================================
+Les barres d'erreur de la perplexité — le 4B, et le GENOU qui devient testable
+2026-08-17, calculé sur une sortie brute RÉCUPÉRÉE. 0 $, aucun accélérateur.
+================================================================================
+
+CE QUE CE JOURNAL PRODUIT, ET CE QU'IL NE PRODUIT PAS
+
+  🚨 AUCUNE MESURE NOUVELLE N'A ÉTÉ FAITE. Pas un token n'a été scoré, pas une
+  carte n'a été louée, aucun job n'a été lancé. Tout ce qui suit est CALCULÉ à
+  partir de NLL par fenêtre MESURÉES le 2026-08-06 (4B), le 2026-08-08 (8B) et
+  le 2026-08-10 (14B). Ce journal ne déplace aucun point : il lui pose une
+  barre.
+
+  Il fait DEUX choses, et la seconde est la seule qui change une conclusion :
+
+    1. il barre les trois cellules de perplexité du 4B, les dernières qui
+       étaient nues — la colonne perplexité a donc désormais ses intervalles
+       aux TROIS tailles, comme la colonne MMLU depuis le 2026-08-13 ;
+    2. il rend le pas 4B→8B TESTABLE, donc le GENOU DE PERPLEXITÉ ENTIER.
+       C'est ce pas qui porte le « −43 % », c'est-à-dire toute la force de
+       l'argument de ralentissement — et il était jusqu'ici le seul des deux à
+       ne pas être barrable.
+
+  ⚠️ Et il oblige à une discipline nouvelle : LE VERDICT SUR LE RALENTISSEMENT
+  DIFFÈRE SELON LA MÉTRIQUE. Voir la section « DEUX MÉTRIQUES, DEUX VERDICTS »,
+  qui est la partie la plus importante de ce fichier.
+
+--------------------------------------------------------------------------------
+CE QUI A CHANGÉ DEPUIS CE MATIN — une affirmation de ce dépôt est DÉMENTIE
+--------------------------------------------------------------------------------
+
+  🚨 `docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt`, § « LE 4B N'A PAS DE
+  BARRE, ET IL N'EN AURA PAS SANS REJEU », écrit ce matin même, dit :
+
+     « AUCUNE des trois paires du 4B n'est formable. Ce n'est pas une des trois
+       qui manque, ce sont les trois. Les rétablir exige de rejouer les deux
+       bras manquants de la campagne 4B. »
+
+     « CONSÉQUENCE POUR LE GENOU : le pas 4B→8B, celui qui porte le « −43 % »
+       et donc TOUTE la force de l'argument du genou, N'EST PAS BARRABLE. »
+
+  LES DEUX SONT FAUX DEPUIS AUJOURD'HUI. ⚠️ Ce journal-là N'EST PAS ÉDITÉ — il
+  reste tel qu'il a été écrit, et il faut le lire en sachant que ce fichier-ci
+  le périme sur ce point précis. Le reste de son contenu (les six intervalles
+  8B/14B, le contrôle négatif, la réserve sur la calibration) tient intégralement
+  et est reproduit ici au chiffre.
+
+  Le mécanisme de l'erreur, et il vaut plus que l'erreur : la recherche s'était
+  faite dans `docs/` seul. Or les LOGS DE JOBS HF NE SONT PAS PURGÉS —
+  `hf jobs logs 6a746d8f6b79c09949c23fb4` rend les 36 lignes `window i/12 nll …`
+  en deux secondes, pour 0 $. La sortie est désormais commitée :
+
+     docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt
+
+  🕳️ DEUXIÈME FOIS EN DEUX JOURS qu'une sortie déclarée perdue vivait ailleurs.
+  La veille : les dumps MMLU du 14B, dans le bucket monté (579 ko de bande
+  passante contre une campagne rebudgétée). Aujourd'hui : les NLL du 4B, dans
+  les logs du job. La règle du 08-16 — « inventorier le bucket AVANT de budgéter
+  un re-run » — doit s'élargir : LE BUCKET *ET* LES LOGS DU JOB. Chiffrer un
+  rejeu avant d'avoir regardé aux deux endroits, c'est budgéter son ignorance.
+  ⚠️ La rétention des logs HF n'est NI documentée NI garantie ; c'est pourquoi
+  la sortie est commitée plutôt que citée par son identifiant de job.
+
+SOURCES — lues seules, aucune modifiée
+
+  docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt   3 bras × 12 fenêtres (4B)
+  docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt       annexe : 8B et 14B, 3×12
+  docs/data/mmlu-appariee.csv                           les SE MMLU, pour le §
+                                                        « deux métriques »
+
+COMPTABILITÉ — une seule, et c'est celle du journal 8B/14B
+
+  NLL en nat par token scoré · wikitext-2 test · ctx 4096 · 12 fenêtres de 4095
+  tokens scorés · dtype f16 sur les neuf bras · empreinte de tokens
+  3f1baca9033bf251 IDENTIQUE sur les neuf, et c'est elle qui autorise
+  l'appariement — la fenêtre i est LE MÊME TEXTE partout, y compris entre
+  tailles de modèle. (Vérifié ici sur les trois bras du 4B : l'empreinte est
+  imprimée sur chacun, elle est unique, et c'est la même que celle des
+  campagnes 8B et 14B.)
+
+  ppl agrégée = exp( Σ nᵢ·nllᵢ / Σ nᵢ ). Tous les nᵢ valent 4095 (vérifié : le
+  parse ne voit qu'une seule valeur de n sur les 36 lignes), donc c'est
+  exp(moyenne). Conséquence exploitée partout : le RAPPORT de deux ppl est
+  exp(moyenne des différences de NLL) — une IDENTITÉ, pas une approximation.
+  L'intervalle sur la moyenne des différences se transporte au rapport en
+  l'exponentiant, sans linéarisation ni delta-méthode.
+
+LA BONNE BARRE, ET CELLE QU'IL NE FAUT PAS PRENDRE
+
+  ✅ Intervalle t APPARIÉ fenêtre par fenêtre, n = 12, ddl = 11.
+     t(0,975 ; 11) = 2,200985160 — recalculé ici par inversion de la CDF de
+     Student (beta incomplète régularisée, fraction continue de Lentz), et
+     CONCORDANT au neuvième chiffre avec le journal 8B/14B.
+
+  ❌ PAS le σ inter-graines de 0,7 %. Il mesure du bruit de graine de
+     CALIBRATION entre fichiers DIFFÉRENTS, sur 3 blocs de Qwen3-0.6B.
+
+--------------------------------------------------------------------------------
+CONTRÔLE DE REPRODUCTION — la porte, franchie avant tout intervalle  [calculé]
+--------------------------------------------------------------------------------
+
+  Les NLL ne sont JAMAIS transcrites à la main : elles sont parsées par
+  expression régulière (`window\s+(\d+)/12\s+nll\s+([0-9.]+)\s+n\s+(\d+)`)
+  depuis la sortie brute. 36 lignes trouvées, 12 par bras, dans l'ordre des
+  trois en-têtes `BRAS`. Le contrôle ci-dessous valide le parse ET la formule
+  d'agrégation d'un coup — un décalage de bras, une ligne manquée ou une
+  mauvaise pondération le casseraient.
+
+    4B   f16   moyenne nll 2,504458264  →  12,2369   publié 12,2369   REPRODUIT
+    4B   AWQ   moyenne nll 2,604223682  →  13,5207   publié 13,5207   REPRODUIT
+    4B   LLVQ  moyenne nll 2,829810435  →  16,9422   publié 16,9422   REPRODUIT
+
+  Les trois valeurs publiées depuis le 2026-08-06 sont retrouvées au
+  dix-millième, c'est-à-dire à toute la précision à laquelle elles sont
+  publiées. (À six décimales : 12,236928 · 13,520725 · 16,942249.)
+
+  DEUXIÈME CONTRÔLE, gratuit et létal sur une erreur d'appariement : les
+  différences appariées doivent être additives, (f16→AWQ) + (AWQ→LLVQ) =
+  (f16→LLVQ). Vérifié FENÊTRE PAR FENÊTRE : les douze résidus valent
+  EXACTEMENT 0,0 en double précision, donc leur moyenne aussi.
+
+  ⚠️ Une nuance de flottant, dite parce que ce dépôt étiquette ses nombres :
+     la même identité calculée en passant par les trois MOYENNES au lieu des
+     douze fenêtres rend −5,551e−17 et non 0. Ce n'est pas un désaccord, c'est
+     l'ordre de sommation ; le journal 8B/14B rapporte 2,78e−17 pour le même
+     contrôle sur ses propres données. Le contrôle qui compte est celui par
+     fenêtre, et il est exact.
+
+  ✅ Et le rapport LLVQ/f16 retombe sur ×1,3845, c'est-à-dire AU CHIFFRE la
+     valeur que `docs/data/echelle-4b-8b.csv` et le papier publient depuis le
+     2026-08-06.
+
+  TROISIÈME CONTRÔLE — le seul qui teste ce journal-ci contre un autre. Les
+  annexes 8B et 14B du journal du matin sont reparsées par le même code, et
+  leurs six ppl sont recalculées : 8,9899 · 9,4211 · 10,9682 · 7,9820 ·
+  8,2858 · 9,4936. Les six intervalles qui en sortent sont IDENTIQUES à ceux
+  publiés ce matin (voir la table ci-dessous), et le pas 8B→14B rejoue
+  ×0,974855 [×0,958819 ; ×0,991159], t = −3,38, 10/12 — AU CHIFFRE. Deux
+  implémentations indépendantes du même calcul tombent d'accord.
+
+--------------------------------------------------------------------------------
+LES TROIS INTERVALLES DU 4B                                            [calculé]
+--------------------------------------------------------------------------------
+
+  Lecture : « excès » = de combien la perplexité du bras cité dépasse celle de
+  sa référence, en %. C'est la forme dans laquelle ce dossier dit ses ratios
+  (×1,3845 = +38,45 %).
+
+  Qwen3-4B
+  ------------------------------------------------------------------------
+    AWQ  contre f16   +10,49 %   IC95 [ +8,55 ; +12,47]   t=+12,38   12/12 fen.
+    LLVQ contre f16   +38,45 %   IC95 [+33,62 ; +43,45]   t=+20,18   12/12 fen.
+    LLVQ contre AWQ   +25,31 %   IC95 [+20,01 ; +30,84]   t=+11,50   12/12 fen.
+
+  LA COLONNE PERPLEXITÉ A DONC SES BARRES AUX TROIS TAILLES. Rappel des six
+  autres, reproduites ici par ce code (cf. troisième contrôle) :
+
+  Qwen3-8B
+    AWQ  contre f16    +4,80 %   IC95 [ +4,24 ;  +5,35]   t=+19,44   12/12 fen.
+    LLVQ contre f16   +22,01 %   IC95 [+19,37 ; +24,70]   t=+20,03   12/12 fen.
+    LLVQ contre AWQ   +16,42 %   IC95 [+14,17 ; +18,72]   t=+17,14   12/12 fen.
+
+  Qwen3-14B
+    AWQ  contre f16    +3,81 %   IC95 [ +3,27 ;  +4,34]   t=+15,91   12/12 fen.
+    LLVQ contre f16   +18,94 %   IC95 [+17,22 ; +20,68]   t=+26,31   12/12 fen.
+    LLVQ contre AWQ   +14,58 %   IC95 [+13,10 ; +16,08]   t=+23,00   12/12 fen.
+
+  AUCUN DES NEUF INTERVALLES NE CONTIENT ZÉRO, et les 108 comparaisons fenêtre
+  par fenêtre (9 paires × 12) vont TOUTES dans le même sens. Il n'existe pas une
+  fenêtre de wikitext-2, à aucune des trois tailles, où le 2 bits batte le
+  4 bits ou où le 4 bits batte le f16.
+
+  🔎 CE QUE ÇA APPREND, ET CE N'EST PAS « C'EST SIGNIFICATIF ». Que 38 % de
+     perplexité ne soient pas du bruit n'a jamais fait de doute. Ce que
+     l'intervalle apporte est sa LARGEUR : ±5 points de % sur le +38,45 % du 4B,
+     contre ±2,7 au 8B et ±1,7 au 14B. LES BARRES SE RESSERRENT AVEC L'ÉCHELLE,
+     et le mécanisme est visible dans l'annexe — l'écart-type des différences
+     appariées tombe de 0,0559 (4B) à 0,0344 (8B) puis 0,0228 (14B) nat. Les
+     gros modèles ne se dégradent pas seulement moins, ils se dégradent plus
+     UNIFORMÉMENT d'une fenêtre à l'autre.
+     ⚠️ Trois points, et cette observation-là n'a AUCUNE barre : c'est une
+     lecture de trois écarts-types, pas un test.
+
+--------------------------------------------------------------------------------
+🚨 LE GENOU DE PERPLEXITÉ — les DEUX pas, et il est RÉSOLU          [calculé]
+--------------------------------------------------------------------------------
+
+  Le dossier affirme depuis le 2026-08-10 que l'excès de perplexité fond de
+  −43 % puis de −14 % d'un palier à l'autre, et en tire « la courbe a un
+  genou ». Le second pas a reçu sa barre ce matin ; le premier était réputé
+  non barrable. Il l'est.
+
+  L'appariement est légitime ENTRE TAILLES parce que les 12 fenêtres sont le
+  même texte aux trois campagnes (empreinte commune) : on peut former, fenêtre
+  par fenêtre, la différence de différences.
+
+  LES DEUX PAS — facteur d'excès, référence f16
+  ------------------------------------------------------------------------
+    pas 4B→8B    ×0,881211   IC95 [×0,856093 ; ×0,907067]   t = −9,62   12/12
+    pas 8B→14B   ×0,974855   IC95 [×0,958819 ; ×0,991159]   t = −3,38   10/12
+
+    (12/12 et 10/12 = fenêtres où le facteur est < 1, c'est-à-dire où l'excès
+    diminue. Le second rejoue le journal du matin au chiffre.)
+
+  Traduit dans la paramétrisation du dossier — fonte de l'EXCÈS, l'excès du
+  palier de départ tenu fixe :
+
+    fonte 4B→8B    −42,8 %   IC95 [−51,8 ; −33,5] %
+    fonte 8B→14B   −13,9 %   IC95 [−22,8 ;  −4,9] %
+
+  ✅ Le « −43 % » publié reçoit enfin sa barre, et il est reproduit à 0,2 point
+     près (−42,8). 🕳️ Rappel utile : ce nombre a circulé comme « −42 % » dans
+     CLAUDE.md, ce qui était la TRONCATURE de −42,8 et non son arrondi. Les
+     deux journaux disent maintenant −42,8.
+
+  LE GENOU LUI-MÊME — la différence des deux pas, appariée
+  ------------------------------------------------------------------------
+  Le genou n'est PAS « les deux fontes diffèrent à vue ». C'est un test : la
+  différence des deux log-rapports, formée fenêtre par fenêtre, doit exclure
+  zéro. Elle l'exclut, largement.
+
+    pas1 − pas2 (log-rapport, référence f16)
+      point     −0,100992
+      IC95      [−0,137670 ; −0,064313]
+      t         −6,06   contre un seuil de 2,200985
+      sens      11 fenêtres sur 12 vont dans le sens du genou
+      ⇒ RÉSOLU. Le premier pas fait tomber l'excès STRICTEMENT PLUS FORT que le
+        second, et l'intervalle est loin de zéro (le bord le plus proche vaut
+        −0,0643, soit 3,9 SE).
+
+    même test sur la référence AWQ — celle qui porte l'argument produit
+      point     −0,057562   IC95 [−0,101127 ; −0,013997]   t = −2,91   10/12
+      ⇒ RÉSOLU AUSSI, mais plus serré : |t| = 2,91 contre 6,06, et la borne
+        haute est à −0,014. À ne pas présenter avec la même assurance que la
+        ligne f16.
+
+  Les deux pas sur la référence AWQ, pour mémoire :
+    pas 4B→8B    ×0,929104   IC95 [×0,894695 ; ×0,964836]   t = −4,29   11/12
+    pas 8B→14B   ×0,984154   IC95 [×0,968597 ; ×0,999962]   t = −2,21    9/12
+    ⚠️ Le second est celui dont le journal du matin dit qu'il « exclut zéro d'un
+       cheveu » (t = 2,2063 contre 2,200985, il passe de 0,005). Cette réserve
+       TIENT, et elle n'est pas affaiblie par ce journal : le GENOU est résolu
+       sur cette référence, le PAS 8B→14B y reste à la limite de la détection.
+       Deux énoncés différents sur la même colonne de chiffres.
+
+  ⚠️ CE QUE CETTE BARRE COUVRE, ET CE QU'ELLE NE COUVRE PAS. L'appariement
+     retire la difficulté de la fenêtre, qui est le facteur de nuisance commun
+     aux trois campagnes. Il ne retire RIEN de ce qui sépare trois campagnes sur
+     trois modèles distincts : l'intervalle conditionne sur les trois artefacts
+     tels qu'ils ont été produits, un tirage de calibration chacun. Ce n'est pas
+     « la fonte ralentit » comme loi d'échelle, c'est « ces trois fichiers-là,
+     sur ce corpus-là, se comportent ainsi ». TROIS POINTS NE FONT PAS UNE LOI,
+     et le genou résolu ne dit pas où la courbe s'aplatit.
+
+--------------------------------------------------------------------------------
+🚨🚨 DEUX MÉTRIQUES, DEUX VERDICTS — la partie qu'il ne faut pas rater
+--------------------------------------------------------------------------------
+
+  Le dossier a écrit partout ce matin, sur la foi de `mmlu-appariee.csv`, que
+  LE GENOU N'EST PAS RÉSOLU. Ce journal dit qu'il l'EST. LES DEUX SONT VRAIS,
+  parce qu'ils ne parlent pas de la même métrique.
+
+    métrique        pas 4B→8B          pas 8B→14B         le ralentissement
+    ------------------------------------------------------------------------
+    PERPLEXITÉ      ×0,881211          ×0,974855          RÉSOLU
+    (apparié,       [0,856 ; 0,907]    [0,959 ; 0,991]    pas1−pas2 = −0,1010
+     12 fenêtres)   t = −9,62          t = −3,38          [−0,1377 ; −0,0643]
+                                                          t = −6,06
+
+    MMLU            −6,96 pp           −1,40 pp           NON RÉSOLU
+    (écart au       SE 1,82            SE 1,68            p = 0,40
+     4 bits, pp)    z = 3,82           z = 0,83           sur le second pas
+                    p = 0,00014        p = 0,40
+
+  (Ligne MMLU : recalculée ici depuis `docs/data/mmlu-appariee.csv`, paire
+  `awq4_minus_llvq2`, SE composées en quadrature — les campagnes sont
+  indépendantes et aucun appariement entre tailles n'existe pour MMLU. 14,45 →
+  7,49 → 6,09 pp ; bout en bout −8,36 pp, SE 1,91, p ≈ 1,2e−5. Le calcul rejoue
+  au chiffre celui du papier et du README de `docs/data/`.)
+
+  🚨 CE N'EST PAS UNE CONTRADICTION, C'EST UNE INFORMATION. Trois raisons
+     suffisent à l'expliquer sans invoquer d'erreur nulle part :
+
+     · la perplexité est APPARIÉE ENTRE TAILLES (même texte, même fenêtre),
+       MMLU ne l'est pas (deux campagnes indépendantes, SE composées) — donc
+       la perplexité teste avec beaucoup plus de puissance ;
+     · les deux ne mesurent pas la même chose. Le §3ter du dossier le dit
+       depuis le 2026-08-02 : le 2 bits abîme le RAISONNEMENT bien plus que la
+       RESTITUTION, et c'est la restitution que mesure surtout un corpus de
+       perplexité. Une courbe peut plier sur l'une et pas sur l'autre ;
+     · les deux colonnes ne comparent même pas les mêmes bras : la ligne
+       perplexité ci-dessus est LLVQ contre f16, la ligne MMLU est LLVQ contre
+       AWQ. (Sur la référence AWQ la perplexité reste résolue — t = −2,91 —
+       donc le changement de référence n'explique pas l'écart à lui seul.)
+
+  🚨 CONSÉQUENCE DE RÉDACTION, ET ELLE EST IMPÉRATIVE :
+     TOUTE PHRASE SUR LE GENOU DOIT NOMMER SA MÉTRIQUE.
+     · « le genou tient » nu est FAUX de moitié ;
+     · « le genou ne tient pas » nu est FAUX de l'autre moitié.
+     La forme juste : « le ralentissement est résolu EN PERPLEXITÉ et ne l'est
+     pas SUR L'ÉCART MMLU AU 4 BITS ».
+
+  ⚠️ ET p = 0,40 NE PROUVE TOUJOURS PAS L'ÉGALITÉ SUR MMLU. Sur ce palier les
+     données sont MUETTES, pas concluantes : un ralentissement réel et une
+     décroissance régulière restent l'un et l'autre compatibles avec trois
+     points. Ce journal ne referme pas cette question, il ajoute une seconde
+     métrique qui, elle, répond.
+
+--------------------------------------------------------------------------------
+🚨 LA RÉSERVE PRINCIPALE — CE QUE CES INTERVALLES NE CONTIENNENT PAS
+--------------------------------------------------------------------------------
+
+  Elle est celle du journal 8B/14B, inchangée, et elle vaut maintenant pour
+  neuf intervalles au lieu de six.
+
+  Ils mesurent UNE SEULE source de variabilité : l'échantillonnage du corpus
+  d'évaluation, 12 fenêtres de wikitext-2 test. Rien d'autre. En particulier ils
+  ne contiennent PAS le tirage de CALIBRATION : chaque fichier LLVQ est UN
+  tirage d'un processus qui dépend d'une graine, et un autre tirage de la même
+  recette rendrait une autre perplexité. Cette composante est ABSENTE, aux trois
+  tailles, et on ne peut pas la boucher en ajoutant le σ de 0,7 % — mesuré sur
+  3 blocs de Qwen3-0.6B, et dont le dossier dit lui-même qu'il n'est pas la
+  barre d'erreur de l'objet publié. L'ajouter serait fabriquer un nombre.
+
+  ⇒ La composante de calibration est NON MESURÉE aux trois échelles. Ce n'est
+    pas un trou de rédaction : elle exigerait de requantifier à plusieurs
+    graines, donc une carte louée. C'est une information, pas un trou à boucher.
+
+  ⚠️ ET ELLE MORD PLUS FORT SUR LE GENOU QUE SUR LES NEUF PAIRES. Le genou
+     compare TROIS artefacts produits chacun une fois ; sa barre conditionne
+     donc sur trois tirages, pas un. Un test qui exclut zéro à t = −6,06 sur la
+     variabilité de corpus ne dit rien de ce que trois autres graines auraient
+     donné.
+
+  Distinction qui suit, et qui décide de la façon de citer chaque paire :
+    · f16 ↔ AWQ  — deux artefacts publiés par des tiers, aucun tirage de notre
+      fait. Pour cette paire, la barre corpus est l'essentiel de l'histoire.
+    · f16 ↔ LLVQ et AWQ ↔ LLVQ — un des deux côtés est NOTRE tirage.
+      L'intervalle conditionne dessus, et doit être cité ainsi.
+
+--------------------------------------------------------------------------------
+MÉTHODE — reproductible sans rien installer
+--------------------------------------------------------------------------------
+
+  Différences appariées dᵢ = nll_B(i) − nll_A(i), i = 1..12.
+  d̄ ; s = écart-type d'échantillon (ddl 11) ; SE = s/√12 ;
+  IC95 sur d̄ = d̄ ± t(0,975 ; 11)·SE ; rapport de ppl = exp(d̄) et son IC par
+  exponentiation des bornes (exact, cf. COMPTABILITÉ).
+
+  Le pas d'un palier au suivant est la différence appariée DES différences :
+  eᵢ = d_suivant(i) − d_précédent(i), traitée par la même formule. Le GENOU est
+  la différence appariée des DEUX pas, e¹ᵢ − e²ᵢ, encore par la même formule.
+  Trois niveaux d'appariement, une seule procédure — et à chaque niveau
+  l'appariement n'est légitime QUE parce que l'empreinte de tokens est commune.
+
+  t(0,975 ; 11) obtenu en inversant la CDF de Student par bisection, la CDF
+  étant écrite sur la beta incomplète régularisée (fraction continue de Lentz).
+  Aucune dépendance : python3 de la machine, module `math` seul. Le workspace
+  Rust n'est pas touché, aucun fichier de `docs/mesures/` n'est modifié.
+
+  Les NLL ne sont jamais transcrites à la main : elles sont parsées par
+  expression régulière depuis les journaux, et le contrôle de reproduction
+  ci-dessus est ce qui valide le parse ET la formule d'agrégation d'un coup.
+
+  COUCHE DONNÉES produite depuis ce journal :
+    docs/data/ppl-appariee.csv   les 9 paires (3 tailles × 3 paires)
+    docs/data/ppl-genou.csv      les 4 pas + les 2 tests de genou
+
+================================================================================
+ANNEXE — les NLL par fenêtre du 4B telles que parsées, et les trois différences
+(sortie machine, séparateur décimal point)
+================================================================================
+
+  4B — NLL par fenêtre (nat)
+  ------------------------------------------------------------------------
+   fen           f16          AWQ         LLVQ      AWQ-f16   LLVQ-f16   LLVQ-AWQ
+     1   2.507059152  2.596256630  2.790933112   +0.089197  +0.283874  +0.194676
+     2   2.801779275  2.921660371  3.222362924   +0.119881  +0.420584  +0.300703
+     3   2.309614908  2.386949357  2.619059543   +0.077334  +0.309445  +0.232110
+     4   1.988569568  2.074732429  2.320397398   +0.086163  +0.331828  +0.245665
+     5   2.600570198  2.705658339  2.939001450   +0.105088  +0.338431  +0.233343
+     6   2.547732324  2.645390720  2.811922886   +0.097658  +0.264191  +0.166532
+     7   2.608475227  2.703553304  2.887606838   +0.095078  +0.279132  +0.184054
+     8   2.557975141  2.671004560  2.818192918   +0.113029  +0.260218  +0.147188
+     9   2.761579480  2.933506706  3.061212225   +0.171927  +0.299633  +0.127706
+    10   2.208976028  2.312954298  2.532528474   +0.103978  +0.323552  +0.219574
+    11   2.642599349  2.713464400  3.071756954   +0.070865  +0.429158  +0.358293
+    12   2.518568519  2.585553075  2.882750496   +0.066985  +0.364182  +0.297197
+   moy   2.504458264  2.604223682  2.829810435   +0.099765  +0.325352  +0.225587
+   ppl       12.2369      13.5207      16.9422      = exp(moy), confronté au journal
+   sd                                              0.027912308 0.055859519 0.067969408
+   SE                                              0.008057589 0.016125254 0.019621078
+   IC95 lo                                         0.082030784 0.289860726 0.182401051
+   IC95 hi                                         0.117500053 0.360843616 0.268772454
+   t                                                 +12.3815    +20.1766    +11.4972
+
+  Les pas, en log-rapport (moyenne des différences de différences)
+  ------------------------------------------------------------------------
+   pas 4B->8B    ref f16    moyenne -0.126458077  sd 0.045514593  SE 0.013138931  t -9.6247
+   pas 8B->14B   ref f16    moyenne -0.025466371  sd 0.026105020  SE 0.007535870  t -3.3794
+   pas 4B->8B    ref AWQ    moyenne -0.073534968  sd 0.059394382  SE 0.017145681  t -4.2888
+   pas 8B->14B   ref AWQ    moyenne -0.015972510  sd 0.025078855  SE 0.007239642  t -2.2063
+   t(0.975 ; 11) = 2.200985160
+
+  Le genou (pas1 - pas2), apparié fenêtre par fenêtre
+  ------------------------------------------------------------------------
+   ref f16    moyenne -0.100991706  sd 0.057727429  SE 0.016664473  t -6.0603
+              IC95 [-0.137669965 ; -0.064313447]   11/12 fenetres negatives
+   ref AWQ    moyenne -0.057562458  sd 0.068566366  SE 0.019793405  t -2.9082
+              IC95 [-0.101127448 ; -0.013997467]   10/12 fenetres negatives
+
+  Termes par fenetre du genou, reference f16 (pas1, pas2, difference)
+  ------------------------------------------------------------------------
+     1   -0.105673840   +0.008932149   -0.114605989
+     2   -0.169118209   -0.020510436   -0.148607773
+     3   -0.048868189   -0.090108697   +0.041240508   <- la seule fenetre contraire
+     4   -0.118027297   -0.031456282   -0.086571015
+     5   -0.113037527   -0.038364240   -0.074673287
+     6   -0.104897121   -0.022208867   -0.082688254
+     7   -0.101586825   -0.020970696   -0.080616129
+     8   -0.087998416   -0.001949549   -0.086048867
+     9   -0.115577066   -0.021149314   -0.094427752
+    10   -0.168786487   +0.006026428   -0.174812915
+    11   -0.216556014   -0.041963808   -0.174592206
+    12   -0.167369934   -0.031873141   -0.135496793
+================================================================================

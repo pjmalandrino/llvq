@@ -182,13 +182,25 @@ composed into a disaster over 28 layers
 the MMLU drop against f16 reads −14.73 pp at 4B, −10.57 at 8B and −6.85 at 14B,
 each one *paired on the same questions* with a 95 % interval excluding zero.
 🚨 **This paragraph said "the perplexity excess flattens between the last two —
-a knee, not a law". The knee is withdrawn on 2026-08-17**: with all three
-AWQ − LLVQ gaps now paired, the step-to-step drop tests as **resolved from 4B to
-8B (p = 0.0001)** and **unresolved from 8B to 14B (p = 0.40)** — the slowdown is
-a property of the point estimates that the error bars do not separate. ⚠️ Nor
-does p = 0.40 prove equality: on that step the data are **silent**. What is
-tested is the closing itself, 4B to 14B (−8.36 pp, p ≈ 1e-5). **Three points,
-not a law** — see *Against 4-bit*, which carries the figures and the reserves.
+a knee, not a law". The knee was withdrawn on 2026-08-17 (morning) and half of
+it was handed back the same evening — so any sentence about it must now NAME
+ITS METRIC, because each bare form is half wrong.** On the **MMLU gap to
+4-bit**, with all three AWQ − LLVQ gaps paired, the step-to-step drop tests as
+**resolved from 4B to 8B (p = 0.0001)** and **unresolved from 8B to 14B
+(p = 0.40)** — that slowdown is a property of the point estimates which the
+error bars do not separate, and ⚠️ p = 0.40 does not prove equality either: on
+that step the data are **silent**. What is tested there is the closing itself,
+4B to 14B (−8.36 pp, p ≈ 1e-5). On **perplexity**, the slowdown **is resolved**:
+paired window by window on the same 12 windows at all three sizes, the two steps
+read ×0.881211 [0.856 ; 0.907] and ×0.974855 [0.959 ; 0.991], and their paired
+difference is **−0.100992, 95 % CI [−0.137670 ; −0.064313], t = −6.06**
+([`docs/mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt)).
+**Two metrics, two verdicts — this is information, not a contradiction**:
+perplexity is paired *across sizes* and weighs 49,140 scored tokens, MMLU
+composes two independent 2,280-question campaigns, and 2-bit damages
+**reasoning** far more than the **recall** a perplexity corpus mostly measures.
+**Three points, not a law** — see *Against 4-bit*, which carries the figures and
+the reserves.
 An earlier version of this paragraph said "the gap to 4-bit halves", which was
 true from 4B to 8B and is not the shape of the three-point curve. Candidates
 still open and unmeasured:
@@ -308,17 +320,25 @@ not marginally: **70.04 against 55.70 on MMLU, a 14.3-point gap**, while
 **On a 4B, 4-bit dominates us on capabilities and that is the verdict.** The
 bet is scale, and it now has **three points — and three points are not a law.**
 🕳️ *This sentence read "three points, and they show a knee, not a law" until
-2026-08-17; the knee did not survive its own error bars — see the step tests
-below.*
+2026-08-17; on the MMLU gap the knee did not survive its own error bars, while
+on perplexity it does — see the step tests below, and never state a knee without
+naming which metric it belongs to.*
 The LLVQ perplexity degradation reads ×1.3845 → ×1.2201 → ×1.1894 at 4B, 8B and
 14B *(measured, same codebook, same calibration, same harness, same card, same
 token fingerprints on all three)*; the excess over 1 therefore falls **42.8 %
 from 4B to 8B and then only 13.9 % from 8B to 14B** *(computed from those three
-ratios)*. ⚠️ **Those two percentages are not comparable as evidence**: the
-second now carries a paired interval (−13.9 %, 95 % CI [−22.8 ; −4.9] on the f16
-reference — real but loosely bounded, a factor 4.6 between the ends), while the
-first **cannot be given one at all** — the 4B campaign log is a *summary*, its
-per-window NLLs were never kept. On the AWQ reference, the one that carries the
+ratios)*. ✅ **Both percentages now carry a paired interval: −42.8 %, 95 % CI
+[−51.8 ; −33.5] and −13.9 %, 95 % CI [−22.8 ; −4.9], f16 reference** — and
+their difference, the knee itself, excludes zero at t = −6.06.
+🕳️ *This passage read "those two percentages are not comparable as evidence:
+the first **cannot be given one at all** — the 4B campaign log is a summary, its
+per-window NLLs were never kept." That was true for one day. The NLLs were in
+the job's logs, which HF does not purge; `hf jobs logs` returned all 36 lines in
+seconds, for $0, and the raw output is now committed
+([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt))
+because that retention is neither documented nor guaranteed.* The −13.9 % is
+still the **loosely bounded** one of the two, a factor 4.6 between its ends.
+On the AWQ reference, the one that carries the
 product argument, the same step reads **−1.58 %, 95 % CI [−3.14 ; −0.004]**,
 t = 2.2063 against a 2.200985 threshold: it clears zero **by 0.005**. **Never
 write that the gap closes significantly**. ⚠️ **And do not read −13.9 against
@@ -370,6 +390,19 @@ stratified micro rates replay 78.97 / 78.21 / 72.12, and the already-published
 bought: any output declared lost deserves an `hf buckets ls` before anyone
 prices a re-run.**
 
+🚨 **Widened the next day, because it happened twice and is therefore a pattern,
+not an incident: exhaust the retention channels — `hf buckets ls`,
+`hf jobs logs`, `hf jobs inspect` — before pricing a re-run.** On 2026-08-17 the
+4B per-window NLLs were declared unrecoverable without a ~$0.25 card replay;
+`hf jobs logs` returned all 36 of them in two seconds, for $0, and the raw
+output is now committed
+([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt)).
+Both times the verdict "lost" came from having looked in the wrong place, never
+from a channel queried and empty, and both times money had been budgeted against
+that absence. `hf jobs inspect` completes the set: it returns a past job's exact
+command line. ⚠️ HF log retention is **neither documented nor guaranteed** —
+which is why the raw output is committed rather than cited by job id.
+
 🚨 **And the step-to-step test, which the homogeneous line makes possible for the
 first time** (SEs composed in quadrature — *computed*; separate campaigns on
 different models, so no cross-model pairing, which would be meaningless):
@@ -380,11 +413,31 @@ different models, so no cross-model pairing, which would be meaningless):
 | **8B → 14B** | **1.40 pp** | **1.68** | **0.83** | **0.40** | **unresolved** |
 | 4B → 14B | 8.36 pp | 1.91 | 4.38 | ≈ 1e-5 | **resolved** |
 
-**The first closing is real; the second is inside the noise.** ⚠️ And p = 0.40
-does not prove equality either — on that step the data are **silent**, and both
-readings ("it is slowing" and "it keeps closing") remain compatible with three
-points. What this strengthens is what the file already said: **no scaling law on
-three points**, and the 32B point is what would settle it.
+**On MMLU, the first closing is real; the second is inside the noise.** ⚠️ And
+p = 0.40 does not prove equality either — on that step the data are **silent**,
+and both readings ("it is slowing" and "it keeps closing") remain compatible
+with three points. **The perplexity verdict does not lift that silence**: a
+second metric answering does not make the first one speak.
+
+🚨 **And on perplexity the same slowdown *is* resolved, which is why every
+sentence here names its metric.** Paired window by window on the same 12 windows
+at all three sizes, the excess against f16 falls by a factor **×0.881211
+[0.856 ; 0.907]** from 4B to 8B and **×0.974855 [0.959 ; 0.991]** from 8B to
+14B; the difference of the two steps, paired, is **−0.100992 [−0.137670 ;
+−0.064313], t = −6.06**, with 11 of 12 windows agreeing
+([`docs/mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt),
+[`docs/data/ppl-genou.csv`](docs/data/ppl-genou.csv)). The asymmetry has
+mechanisms, not mysteries: perplexity is paired *across sizes* and weighs 49,140
+scored tokens against 2,280 unpaired questions, and the two do not measure the
+same thing — 2-bit damages **reasoning** far more than the **recall** a
+perplexity corpus mostly probes. ⚠️ That interval carries corpus sampling only;
+the **calibration** draw is absent at all three scales, and the knee compares
+three artifacts each produced once.
+
+What this strengthens is what the file already said: **no scaling law on three
+points**, and the 32B point is what would settle it — the question it settles
+being whether the *capability* curve flattens, which perplexity cannot answer
+for it.
 
 Three reserves this file will not smooth over.
 
@@ -402,7 +455,11 @@ Three reserves this file will not smooth over.
   non-overlapping intervals are still not a test. But since 2026-08-17 the
   step-to-step drop **is** tested, by composing the two campaign SEs in
   quadrature (table above): resolved 4B→8B, **unresolved 8B→14B**. That is a
-  formal test, and it is the one that withdrew the knee.
+  formal test, and it is the one that withdrew the knee **on this metric**.
+  ⚠️ It says nothing about perplexity, which *is* paired across sizes — same 12
+  windows, same text, same token fingerprint at all three scales — and where the
+  knee is **resolved** (t = −6.06). Two metrics, two verdicts; a bare "the knee
+  holds" or "the knee does not hold" is half wrong either way.
 
 ✅ **The memory reading reaches three points on 2026-08-17.**
 🕳️ *This paragraph read "still at two points, not three — no whole-model
@@ -427,7 +484,10 @@ back. The mechanism is not the method but the **embedding's share** — 9.7 % at
 move to int8. Three points, one mechanism, **no law**. ⚠️ Neither speed nor card
 VRAM has ever been measured at 14B: no `fusedrun` has run at that width, so the
 14B lacks the third instrument (the engine's own VRAM report) that
-cross-checked the 4B and 8B cells.
+cross-checked the 4B and 8B cells. ✅ **Cold storage at 14B, on the other hand,
+is settled and was already**: `qwen3-14b-llvq.bin` is **6,506,354,741 bytes =
+6.506 GB**, *measured*, confirmed to the byte by `hf buckets ls` **and** by the
+sealing job's log — two independent routes. Two cells open at 14B, not three.
 
 ⚠️ The AWQ references are **three different models**: 5.302 is the 4B, 5.956 the
 8B, 5.404 the 14B — they are not one shared baseline. The table above now publishes **5.162**, the

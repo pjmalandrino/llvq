@@ -49,16 +49,28 @@
 > 🚨 **Deux pièges dans cette réplique, et il faut les tenir tous les deux.**
 > 🕳️ *Cette ligne s'arrêtait à « divisé par deux — 14,45 → 7,49. Deux points ne
 > font pas une loi » ; elle est à trois points depuis le 2026-08-10.*
-> 1. **Ne dis PAS « la décroissance ralentit » ni « la courbe a un genou ».**
->    Le dossier l'a écrit du 2026-08-10 au 08-16 et l'a **retiré le 08-17** : la
->    chute de l'écart d'un palier au suivant est **résolue de 4B à 8B
->    (p = 0,0001)** mais **NON résolue de 8B à 14B (1,40 pp, SE 1,68,
->    p = 0,40)**. Publier le ralentissement, c'est publier un point estimé que
->    les barres ne séparent pas.
-> 2. **Ne dis pas non plus « donc ça continue de se refermer ».** p = 0,40 ne
->    prouve pas l'égalité : sur ce palier **les données sont muettes**. La
->    formulation honnête est *« ça se referme du 4B au 14B, et je ne sais pas à
->    quel rythme — le 32B est ce qui trancherait »*.
+> 1. **Ne dis JAMAIS « la courbe a un genou » ni « la décroissance ralentit »
+>    sans NOMMER LA MÉTRIQUE — nue, la phrase est fausse de moitié, dans un
+>    sens ou dans l'autre.** Sur l'**écart MMLU au 4 bits**, la chute d'un
+>    palier au suivant est **résolue de 4B à 8B (p = 0,0001)** mais **NON
+>    résolue de 8B à 14B (1,40 pp, SE 1,68, p = 0,40)** : publier le
+>    ralentissement *sur cette métrique*, c'est publier un point estimé que les
+>    barres ne séparent pas. Sur la **perplexité**, il est **RÉSOLU**
+>    (pas1 − pas2 = −0,100992 [−0,137670 ; −0,064313], t = −6,06, apparié
+>    fenêtre par fenêtre sur les mêmes 12 fenêtres aux trois tailles).
+>    🕳️ *Le dossier a écrit le genou nu du 2026-08-10 au 08-16, l'a retiré nu le
+>    08-17 au matin, et n'a séparé les deux métriques que le soir.*
+>    **Si on te pousse** : *« deux métriques, deux verdicts, et ce n'est pas une
+>    contradiction — la perplexité est appariée entre tailles et pèse 49 140
+>    tokens, MMLU compose deux campagnes indépendantes de 2 280 questions ; et
+>    le 2 bits abîme le raisonnement bien plus que la restitution, que la
+>    perplexité mesure surtout. »*
+> 2. **Ne dis pas non plus « donc ça continue de se refermer » sur les
+>    capacités.** p = 0,40 ne prouve pas l'égalité : sur ce palier **les données
+>    sont muettes**, et le verdict de perplexité ne les rend pas bavardes. La
+>    formulation honnête est *« ça se referme du 4B au 14B ; en perplexité je
+>    sais que le rythme ralentit, en MMLU je ne le sais pas — le 32B est ce qui
+>    trancherait »*.
 >
 > Et si on t'attaque sur la mémoire : **nous sommes sous l'AWQ officiel aux
 > trois tailles** — 5,162 vs 5,302 · 5,322 vs 5,956 · 5,106 vs 5,404 b/param
@@ -103,6 +115,7 @@ demande, tout ce que tu as dit avant devient suspect.
 | Débit bout en bout, L40S, mêmes octets | dense **43,6** · fusé **48,7 (×1,12)** · fusé + embedding q8 **88,4-88,5 (×2,03, dont ~25 ms de notre propre `lm_head` dense, pas de candle)** |
 | Lignes vérifiées contre référence f64 | **1 105 920**, pire erreur 3,4·10⁻⁸ |
 | Le point d'échelle (8B) | ppl **×1,220** et MMLU **−10,56 pp**, contre ×1,385 et −14,73 au 4B |
+| 🆕 **Les barres de la perplexité** (excès LLVQ/f16, t apparié fenêtre par fenêtre, f16 des deux côtés, empreinte `3f1baca9033bf251`) | 4B **+38,45 %** [+33,62 ; +43,45] · 8B **+22,01 %** [+19,37 ; +24,70] · 14B **+18,94 %** [+17,22 ; +20,68] — **les trois tailles barrées depuis le 2026-08-17**, aucun intervalle ne contient zéro, 36 fenêtres sur 36 dans le même sens. ⚠️ Ces barres portent la seule variabilité du **corpus** : le tirage de **calibration** n'y est pas |
 
 Si tu ne dois en retenir que trois : **55,6 contre 70,0 de MMLU (notre
 faiblesse, à dire en premier) / ×1,12 et ÷2,72 bout-en-bout (le noyau) / 5,162

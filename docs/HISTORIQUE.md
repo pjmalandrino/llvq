@@ -61,10 +61,14 @@ que la famille `k` de P4 §2.6 existe pour amortir, **et elle n'est pas écrite*
 
 ⚠️ **Le point dur reste la QUALITÉ** : −14,73 pp de MMLU au 4B, −10,56 au 8B,
 **−6,85 au 14B (apparié)**. 🕳️ **Cette ligne ajoutait « la courbe d'échelle a
-un **genou** » — RETIRÉ le 2026-08-17** : la chute de l'écart au 4 bits est
-**résolue du 4B au 8B (p = 0,0001)** et **NON résolue du 8B au 14B
-(p = 0,40)** ; le ralentissement n'est pas séparé par les barres, et p = 0,40
-ne prouve pas l'égalité non plus. Voir l'entrée du 2026-08-17.
+un **genou** » — RETIRÉ le 2026-08-17 (matin), puis RENDU LE SOIR SUR UNE SEULE
+DES DEUX MÉTRIQUES.** 🚨 **Le genou n'a pas de verdict unique : il faut nommer
+la métrique.** Sur l'**écart MMLU au 4 bits**, la chute est **résolue du 4B au
+8B (p = 0,0001)** et **NON résolue du 8B au 14B (p = 0,40)** — le ralentissement
+n'y est pas séparé par les barres, et p = 0,40 ne prouve pas l'égalité non plus.
+Sur la **perplexité**, il est **RÉSOLU** (pas1 − pas2 = −0,100992
+[−0,137670 ; −0,064313], t = −6,06, apparié fenêtre par fenêtre). Voir les deux
+entrées du 2026-08-17.
 
 ✅ **Le papier N'EST PLUS BLOQUÉ.** Le point 14B y est intégré depuis le
 2026-08-16 (récit d'échelle, tables, `Cost of evidence`), et le 2026-08-17 lui
@@ -877,3 +881,122 @@ contradiction** : `rtbits-14b` §4 et §5 écrivent encore « la paire MMLU
 `AWQ − LLVQ` au 14B n'existe toujours pas ». Il a été **écrit avant**
 `mmlupair-14b` (12:14 contre 12:19) et les journaux ne se modifient jamais.
 C'est `mmlupair-14b` qui fait foi sur ce point.
+
+## 2026-08-17 (soir) — Les logs de Jobs HF ne sont pas purgés : la perplexité du 4B retrouve sa barre, et le genou se dédouble
+
+> ⚠️ **Cette entrée retourne deux verdicts de l'entrée du 2026-08-17 (matin),
+> qu'elle ne modifie pas** (règle d'entretien) : son §2 (« le genou ne tient
+> pas au test », « du côté perplexité le genou n'est pas même testable ») et
+> son §4 (« LE 4B N'A PAS D'INTERVALLE ET N'EN AURA PAS sans rejeu »). Les
+> passages visés sont cités mot pour mot ci-dessous. **Le §2 reste vrai sur
+> MMLU** ; c'est sa portée qu'il faut corriger, pas son calcul.
+
+🕳️ **LA CAUSE, ET C'EST DÉSORMAIS UN MOTIF, PLUS UN INCIDENT.** L'entrée du
+matin conclut « les NLL par fenêtre du 4B n'existent pas, son journal de
+campagne est une synthèse » et devise leur rétablissement à un rejeu carte de
+~0,25 $. **Faux : `hf jobs logs 6a746d8f6b79c09949c23fb4` rend les 36 lignes
+`window i/12 nll …` (3 bras × 12 fenêtres, 9 décimales) en deux secondes, pour
+0 $.** C'est la **deuxième fois en deux jours** qu'une sortie déclarée perdue
+vivait ailleurs — la veille, les dumps MMLU du 14B dans le **bucket monté** — et
+dans les deux cas une **dépense avait été devisée contre cette absence**. La
+cause est la même aux deux coups : la conclusion « perdu » venait d'avoir
+cherché **au mauvais endroit**, jamais d'un canal interrogé et vide.
+**Règle élargie en conventions ([`../CLAUDE.md`](../CLAUDE.md) §7)** : *avant de
+budgéter un re-run, épuiser les canaux de rétention — `hf buckets ls`,
+`hf jobs logs`, `hf jobs inspect`* (ce dernier rend la **ligne de commande
+exacte** d'un job passé). ⚠️ **La rétention des logs HF n'est NI documentée NI
+garantie** : elle couvre aujourd'hui les 62 jobs du projet depuis le 2026-08-02
+(vérifié sur le plus ancien), elle peut cesser demain — d'où le commit du brut
+([`mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt),
+sha256 `07bf4119…`), et non une citation par identifiant de job. Le corollaire
+posé hier en sort **renforcé, pas démenti** : un journal de synthèse est une
+perte irréversible **dès que le canal de rétention expire**.
+
+✅ **1. LES TROIS CELLULES DE PERPLEXITÉ DU 4B ONT LEUR BARRE — la colonne est
+complète aux TROIS tailles** ([`mesures/ppl-appariee-4b-2026-08-17.txt`](mesures/ppl-appariee-4b-2026-08-17.txt),
+intervalles t appariés fenêtre par fenêtre, n = 12, ddl 11, t = 2,200985160 ;
+*calculé* sur des NLL **mesurées le 2026-08-06**, aucun token rescoré) :
+
+| Qwen3-4B | excès | IC95 | t | fenêtres |
+|---|---|---|---|---|
+| AWQ / f16 | **+10,49 %** | [+8,55 ; +12,47] | +12,38 | 12/12 |
+| **LLVQ / f16** | **+38,45 %** | [+33,62 ; +43,45] | +20,18 | 12/12 |
+| LLVQ / AWQ | **+25,31 %** | [+20,01 ; +30,84] | +11,50 | 12/12 |
+
+🚨 **Ce que ça retire** : le §4 de l'entrée du matin écrit « **LE 4B N'A PAS
+D'INTERVALLE ET N'EN AURA PAS sans rejeu** […] ce n'est pas une des trois
+paires qui manque, ce sont les trois ». Authenticité établie **avant** usage,
+comme pour les dumps de la veille : les moyennes de NLL rendent
+12,2369 / 13,5207 / 16,9422 — les trois ppl publiées depuis le 2026-08-06, au
+dix-millième — et le contrôle d'additivité des différences appariées tombe
+**exactement à 0,0**, ce qu'un décalage d'une fenêtre entre deux bras
+casserait. Les six intervalles 8B/14B du matin sont **reparsés par le même
+code** et retombent au chiffre : deux implémentations indépendantes d'accord.
+
+🚨 **2. LE GENOU SE DÉDOUBLE — DEUX MÉTRIQUES, DEUX VERDICTS, ET C'EST UNE
+INFORMATION.** Le pas 4B→8B devient testable, donc le genou de perplexité
+entier — c'est ce pas qui porte le « −43 % », c'est-à-dire toute la force de
+l'argument de ralentissement.
+
+| métrique | pas 4B→8B | pas 8B→14B | le ralentissement |
+|---|---|---|---|
+| **perplexité** *(apparié, 12 fenêtres, même texte aux trois tailles)* | ×0,881211 [0,856 ; 0,907], t = −9,62, 12/12 | ×0,974855 [0,959 ; 0,991], t = −3,38, 10/12 | ✅ **RÉSOLU** — pas1 − pas2 = **−0,100992** [−0,137670 ; −0,064313], t = −6,06, 11/12 |
+| **écart MMLU au 4 bits** *(non apparié entre tailles, SE en quadrature)* | −6,96 pp, p = 0,0001 | −1,40 pp, p = 0,40 | ❌ **NON RÉSOLU** sur le second pas |
+
+Le « −43 % » publié depuis le 2026-08-10 reçoit enfin sa barre : la fonte de
+l'**excès** vaut **−42,8 %, IC95 [−51,8 ; −33,5]** du 4B au 8B, contre
+**−13,9 %, IC95 [−22,8 ; −4,9]** du 8B au 14B. 🕳️ Le point est reproduit à
+0,2 point près, et l'ancien « −42 % » de `CLAUDE.md` en était la **troncature**.
+
+🚨 **Ce que ça retire, et ce que ça NE retire PAS.** L'entrée du matin écrit
+« du côté **perplexité** le genou n'est pas même testable, pour une raison de
+conservation » — **démenti**. Elle écrit aussi « **le genou ne tient pas au
+test** » : **vrai, et toujours vrai, SUR MMLU** (8B→14B : −1,40 pp, SE 1,68,
+z 0,83, **p = 0,40**). Les deux tiennent ensemble parce qu'elles ne parlent pas
+de la même métrique. Trois mécanismes l'expliquent sans supposer d'erreur nulle
+part : **(1) la puissance** — la perplexité est appariée *entre tailles* (la
+fenêtre *i* est le même texte aux trois campagnes, empreinte
+`3f1baca9033bf251`) et pèse **49 140 tokens scorés**, là où MMLU compose deux
+campagnes indépendantes de **2 280 questions** sans appariement possible ;
+**(2)** les deux ne mesurent pas la même chose — le 2 bits abîme le
+**raisonnement** bien plus que la **restitution** (verdict du 2026-08-02), et
+c'est la restitution qu'un corpus de perplexité mesure surtout ; **(3)** les
+deux lignes ne comparent pas les mêmes bras, mais sur la référence AWQ la
+perplexité **reste résolue** (−0,057562 [−0,101127 ; −0,013997], t = −2,91),
+donc le changement de référence n'explique pas l'écart à lui seul.
+
+🚨 **RÈGLE DE RÉDACTION, IMPÉRATIVE ET APPLIQUÉE CE SOIR À TOUTES LES SURFACES
+VIVANTES** (`CLAUDE.md` §3ter/§3bis/§6, `echelle-4b-8b`, `PLAN.md`,
+`note-produit`, `cheatsheet-defense`, `README.md`, `data/README.md`) : **toute
+phrase sur le genou doit NOMMER SA MÉTRIQUE.** « Le genou tient » nu est faux
+de moitié ; « le genou ne tient pas » nu l'est de l'autre moitié. La forme
+juste : *le ralentissement est résolu en perplexité et ne l'est pas sur l'écart
+MMLU au 4 bits.* ⚠️ Et p = 0,40 ne prouve toujours pas l'égalité sur MMLU : les
+données y restent **muettes**, et une seconde métrique qui répond ne rend pas
+la première bavarde.
+
+⚠️ **LA RÉSERVE QUI VAUT POUR LES NEUF INTERVALLES ET MORD PLUS FORT SUR LE
+GENOU.** Ils portent **une seule** source de variabilité, l'échantillonnage des
+12 fenêtres de wikitext-2. Le tirage de **calibration** en est absent aux trois
+échelles, et l'y ajouter en empruntant le σ de 0,7 % (mesuré sur 3 blocs de
+Qwen3-0.6B) serait **fabriquer un nombre**. Le genou compare **trois artefacts
+produits chacun une fois** : un t = −6,06 sur la variabilité de corpus ne dit
+rien de ce que trois autres graines auraient donné. **Trois points ne font
+toujours pas une loi, et le genou résolu ne dit pas où la courbe s'aplatit.**
+
+✅ **3. LE DISQUE DU 14B EST ACQUIS, et il l'était sans qu'aucune surface le
+dise.** `qwen3-14b-llvq.bin` pèse **6 506 354 741 o = 6,506 Go** — *mesuré*,
+confirmé à l'octet par `hf buckets ls` **et** par le log de scellement, donc par
+deux routes indépendantes. Le triptyque du 14B est donc **disque acquis,
+vitesse manquante, VRAM carte manquante** : deux cellules vides, pas trois.
+⚠️ Aucune des deux n'est comblée par cette entrée, et rien ici n'anticipe une
+mesure qui n'existe pas.
+
+🕳️ **4. DETTE DE REGISTRE SOLDÉE : `jobs.csv` s'arrêtait au 2026-08-13** et
+manquait les deux jobs du 08-16 — `6a814ba31f5885ae605bcb55` (llvq-e1v, l40sx1,
+1 697 s, **0,85 $**) et `6a81b2b71f5885ae605bdcc9` (llvq-nullk, l40sx1, 1 544 s,
+**0,77 $**). **Le total facturé passe de 55,59 à 57,21 $.** ⚠️ Le 55,59 n'a pas
+bougé pour autant : il devient un **sous-total** — aucune cellule du papier ne
+repose sur ces deux jobs, donc les y fondre aurait gonflé « le coût de cette
+évidence » sans rien ajouter à ce qu'il paie. Détail et provenance des deux
+montants dans [`data/README.md`](data/README.md).

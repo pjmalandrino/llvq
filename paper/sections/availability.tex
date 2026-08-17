@@ -30,7 +30,13 @@ searched for. Retrieving them cost 579~kB and no GPU time, the paired
 estimate was recomputed from them, and the point estimate did not move.
 The sealed 14B artifact came back from the same bucket, which is what put a
 whole-model b/param in Table~\ref{tab:scale}; it is still not published here,
-for size. The format is neither
+for size. The 4B campaign's per-window NLLs came back the next day from a
+third place --- the job's own log, which the vendor had not purged --- and are
+committed as raw output in \texttt{docs/\allowbreak mesures/\allowbreak
+a4-campagne-4b-ppl-BRUT-2026-08-06.txt}; they are what gives
+Table~\ref{tab:scale} its \texttt{fall} intervals, and they are committed
+rather than cited by job id precisely because that retention is undocumented.
+The format is neither
 GGUF nor AWQ nor safetensors: no third-party runtime reads it, and the only
 reader that exists is the \texttt{llvq-artifact} crate in this repository.
 Serving additionally requires the rotation kernel of

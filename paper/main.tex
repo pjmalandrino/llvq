@@ -64,15 +64,19 @@ over FP16 falls by 42.8\% and then by 13.9\%, while the MMLU gap to a 4-bit
 baseline goes 14.45, 7.49, 6.09 points --- all three subject-stratified paired
 bootstrap estimates with 95\% intervals, the last of which an earlier draft
 printed as an unpaired difference until that run's per-question dumps were
-recovered. Whether the closing itself slows is a separate question, and the
-bars decline to answer it: the first step of that gap is resolved ($-6.96$
-points, $p = 0.0001$), the second is not ($-1.40$, $p = 0.40$), and a $p$ of
-0.40 is silence rather than constancy. Three points, no law. On memory the
+recovered. Whether the closing itself slows has two answers and we report
+both, each with its metric attached: paired window by window, the perplexity
+slowdown is resolved (the two steps differ by $-0.1010$ in log perplexity
+ratio, $[-0.1377, -0.0643]$, $t = -6.06$), while on the MMLU gap only the first step
+separates from zero ($-6.96$ points, $p = 0.0001$, against $-1.40$ and
+$p = 0.40$). The divergence is most likely power --- perplexity averages
+49\,140 paired tokens where MMLU rates 2\,280 unpaired questions --- and a $p$
+of 0.40 is silence rather than constancy. Three points, no law. On memory the
 served model is below that 4-bit baseline at all three sizes --- 5.162, 5.322
 and 5.106 b/param against 5.302, 5.956 and 5.404 --- by a margin that is not
 monotone, since it tracks the embedding share and not the method; at 8B that
-is 5.45~GB against 6.10 from a file half the size. The campaign billed
-\$55.59 of recorded GPU time.
+is 5.45~GB against 6.10 from a file half the size. The ledger bills \$57.21 of
+recorded GPU time, \$55.59 of it behind the numbers above.
 \end{abstract}
 
 \input{sections/intro}

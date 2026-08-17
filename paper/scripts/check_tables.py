@@ -20,9 +20,19 @@ including the derived excess, its fall and the memory margin, plus
 `tab:progression` (`progression.csv`). Two tables are *not* checked, for a
 reason each, and they are named at the bottom of this file rather than left
 implicit.
+
+Two CSVs are checked with no table behind them yet, added 2026-08-17:
+`ppl-appariee.csv` and `ppl-genou.csv` carry the paired perplexity intervals
+and the knee test. No tabular consumes them today -- the paper states those
+numbers in prose -- so they are pinned to their journals and, where the
+arithmetic allows, tied back to `echelle-4b-8b.csv`, which several checked
+cells of `tab:scale` do come from. A guard written before the table exists is
+the point: the numbers are in the repository now, and a table built on them
+later inherits the guard instead of needing one.
 """
 
 import csv
+import math
 import re
 import sys
 from pathlib import Path
@@ -396,6 +406,14 @@ SCALE_GAP = {
 # 6.85 above, and picking the wrong row is exactly the confusion to prevent.
 SCALE_GAP_PAIR = "awq4_minus_llvq2"
 
+# Which step of ppl-genou.csv supplies each tab:scale row's `fall` interval.
+# The first row has no predecessor and so has no step; its cell is a dash, and
+# that is checked too. Only the FP16 reference appears here -- `fall` is the
+# relative drop of the excess over FP16, and the same reparameterisation
+# against an AWQ reference would divide by an excess with no such meaning.
+SCALE_FALL_STEP = {"Qwen3-8B": "4B->8B", "Qwen3-14B": "8B->14B"}
+SCALE_FALL_REFERENCE = "f16"
+
 # The two b/param columns of tab:scale, as (CSV arm, decimals). Whole-model
 # accounting, embedding included -- the only one in which a memory number may
 # be compared across methods, and the one the lot-A errata calls out by name.
@@ -445,6 +463,13 @@ def check_scale() -> list[str]:
     `fall` is its relative drop from the row above, and it is the *fall* that
     the text calls a knee.
 
+    Since 2026-08-17 the `fall` cell also prints a 95% interval, from
+    `ppl-genou.csv`, and the check follows the same split as the gap column:
+    the point estimate is *derived* from the two ratios in this file, the
+    interval is *carried* from the paired journal, and a cell that drops its
+    brackets fails -- a paired estimate printed bare is how the knee lost its
+    metric in the first place.
+
     The two VRAM columns are whole-model b/param, embedding included. They
     are checked against the CSV, and the CSV is checked against itself: the
     recorded margin must follow from the two rates, or the CSV is internally
@@ -465,6 +490,9 @@ def check_scale() -> list[str]:
     paired = {}
     for r in csv.DictReader(open(DATA / "mmlu-appariee.csv")):
         paired[(r["model"], r["pair"])] = r
+    knee = {}
+    for r in csv.DictReader(open(DATA / "ppl-genou.csv")):
+        knee[(r["step"], r["reference"])] = r
     table = table_body((SEC / "evaluation.tex").read_text(), "scale")
     if not table:
         return ["tab:scale: no tabular with that label in evaluation.tex"]
@@ -498,8 +526,7 @@ def check_scale() -> list[str]:
         bad += cell_says(f"tab:scale / {model} / 2-bit ratio", [f"{ratio:.4f}"], cells[2])
         bad += cell_says(f"tab:scale / {model} / excess", [f"{excess:.4f}"], cells[3])
         # The first row has no predecessor, so its `fall` cell must be a dash.
-        want_fall = [] if prev_excess is None else [f"{(1 - excess / prev_excess) * 100:.1f}"]
-        bad += cell_says(f"tab:scale / {model} / fall", want_fall, cells[4])
+        bad += check_scale_fall(model, excess, prev_excess, knee, cells[4])
         prev_excess = excess
 
         bad += check_scale_vram(model, rows, cells)
@@ -534,6 +561,58 @@ def check_scale() -> list[str]:
                 "estimates since 2026-08-17; the \\dagger marker and its "
                 "caption note are retired and must not return"
             )
+    return bad
+
+
+def check_scale_fall(
+    model: str, excess: float, prev_excess, knee: dict, cell: str
+) -> list[str]:
+    """One tab:scale `fall` cell: derived point estimate, carried interval.
+
+    The point estimate is recomputed from the two ratios of
+    `echelle-4b-8b.csv`, so the cell cannot drift from the perplexities in its
+    own table. The interval is not derivable from anything in that file --- it
+    comes from pairing 12 windows across two campaigns --- so it is carried
+    from `ppl-genou.csv`, which `check_ppl_knee` in turn pins to its journal
+    and ties to its own log-ratio columns. Neither half alone would catch an
+    edit to the other.
+    """
+    if prev_excess is None:
+        # No predecessor: a dash, and nothing numeric. A number appearing here
+        # would be a fall computed against a row that does not exist.
+        return cell_says(f"tab:scale / {model} / fall", [], cell)
+    derived = f"{(1 - excess / prev_excess) * 100:.1f}"
+    key = (SCALE_FALL_STEP[model], SCALE_FALL_REFERENCE)
+    r = knee.get(key)
+    if r is None:
+        return [f"ppl-genou.csv has no '{key[0]}' row for reference {key[1]}"]
+    # The CSV records the fall as a signed percentage and the table prints the
+    # sign as a LaTeX minus, which `nums` drops; compare magnitudes, and check
+    # the CSV's own sign separately so a fall that turned into a rise fails.
+    recorded = [r["excess_fall_pct"], r["excess_fall_lo_pct"], r["excess_fall_hi_pct"]]
+    if not all(recorded):
+        return [f"ppl-genou.csv / {key[0]} / {key[1]}: no excess-fall interval"]
+    if f"-{derived.lstrip('-')}" != recorded[0]:
+        return [
+            f"tab:scale / {model} / fall: ppl-genou.csv records "
+            f"{recorded[0]}, {derived} implied by the excesses in "
+            "echelle-4b-8b.csv"
+        ]
+    if any(float(v) >= 0.0 for v in recorded):
+        return [
+            f"ppl-genou.csv / {key[0]} / {key[1]}: an excess-fall column is not "
+            "negative, so the excess did not fall and `fall` is the wrong word"
+        ]
+    bad = cell_says(
+        f"tab:scale / {model} / fall",
+        [v.lstrip("-") for v in recorded],
+        cell,
+    )
+    if not bad and "[" not in cell:
+        bad.append(
+            f"tab:scale / {model} / fall: {recorded[0]}\\% is a paired estimate "
+            "over 12 windows and must print its interval"
+        )
     return bad
 
 
@@ -572,6 +651,338 @@ def check_scale_vram(model: str, rows: dict, cells: list[str]) -> list[str]:
             f"echelle-4b-8b.csv / {model} / vram_margin_vs_awq_pct: "
             f"{recorded} recorded, {derived} implied by {ours} over {theirs}"
         )
+    return bad
+
+
+# The nine paired perplexity intervals, pinned LITERALLY to their journals --
+# same device as SCALE_GAP, and for the same reason: the CSV is the only copy
+# outside a .txt, so an edit to it must fail against something.
+#
+# 2026-08-17 -- the three 4B rows are the ones this pin exists for. Until that
+# morning the repository stated, in the 8B/14B journal's own words, that "none
+# of the 4B's three pairs can be formed at all" and that restoring them meant
+# re-running two arms of the campaign for about 0.25 USD. That was wrong about
+# where the data was, not about what its absence cost: Hugging Face job logs
+# are not purged, `hf jobs logs 6a746d8f...` returned the 36 per-window NLL
+# lines of the 2026-08-06 campaign, and the raw output is now committed as
+# docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt. The point estimates did
+# not move -- 12.2369 / 13.5207 / 16.9422 replay from the NLLs to the
+# ten-thousandth -- they stopped being bare.
+PPL_PAIRED = {
+    ("Qwen3-4B", "awq4_over_f16"): ["10.49", "8.55", "12.47"],
+    ("Qwen3-4B", "llvq2_over_f16"): ["38.45", "33.62", "43.45"],
+    ("Qwen3-4B", "llvq2_over_awq4"): ["25.31", "20.01", "30.84"],
+    ("Qwen3-8B", "awq4_over_f16"): ["4.80", "4.24", "5.35"],
+    ("Qwen3-8B", "llvq2_over_f16"): ["22.01", "19.37", "24.70"],
+    ("Qwen3-8B", "llvq2_over_awq4"): ["16.42", "14.17", "18.72"],
+    ("Qwen3-14B", "awq4_over_f16"): ["3.81", "3.27", "4.34"],
+    ("Qwen3-14B", "llvq2_over_f16"): ["18.94", "17.22", "20.68"],
+    ("Qwen3-14B", "llvq2_over_awq4"): ["14.58", "13.10", "16.08"],
+}
+
+# The pairs whose ratio is also recorded, per arm, in echelle-4b-8b.csv. Only
+# the two FP16-referenced ones are: `llvq2_over_awq4` is a quotient of two
+# already-rounded ratios there and differs in the fourth decimal at 14B
+# (1.1457 derived, 1.1458 measured), so deriving it would enforce a rounding
+# artefact rather than an agreement. It stays pinned and underived.
+PPL_PAIR_TO_ARM = {"awq4_over_f16": "awq4", "llvq2_over_f16": "llvq2"}
+
+# Slack for the two additivity identities below. They are exact in the
+# journals -- the per-window residuals are literally 0.0 in double precision --
+# but the CSV records the means rounded to nine decimals, so a sum of three
+# such values can miss by 1.5e-9 for that reason alone (the observed misses
+# are 1e-9). Set by the recorded precision, not by taste: the defect these
+# identities exist to catch is a one-window offset between two arms, which
+# moves a mean by ~1e-2 nat, seven orders of magnitude above this.
+ADDITIVITY_TOL = 5e-9
+
+
+def check_ppl_paired() -> list[str]:
+    """ppl-appariee.csv: nine paired intervals, pinned and cross-tied.
+
+    Two independent halves. The pin confronts the CSV with the journals. The
+    cross-tie confronts it with `echelle-4b-8b.csv`, whose `ppl_ratio_vs_f16`
+    is the same quantity reached by a different route -- aggregate ppl of two
+    arms, versus exp of the mean per-window NLL difference. They are equal by
+    an identity (every window scores the same token count), so any drift
+    between the two files is a real defect and not a rounding gap.
+    """
+    bad = []
+    rows = {}
+    for r in csv.DictReader(open(DATA / "ppl-appariee.csv")):
+        rows[(r["model"], r["pair"])] = r
+    scale = {}
+    for r in csv.DictReader(open(DATA / "echelle-4b-8b.csv")):
+        scale[(r["model"], r["arm"])] = r
+
+    for key, want in PPL_PAIRED.items():
+        if key not in rows:
+            bad.append(f"ppl-appariee.csv has no row for {key[0]} / {key[1]}")
+            continue
+        r = rows[key]
+        got = [r["excess_pct"], r["ci_lo_pct"], r["ci_hi_pct"]]
+        if got != want:
+            bad.append(
+                f"ppl-appariee.csv / {key[0]} / {key[1]}: the journals say "
+                f"{show(want)}, the CSV says {show(got)}"
+            )
+        for field in ("fingerprint", "source", "t_stat"):
+            if not r[field]:
+                bad.append(f"ppl-appariee.csv / {key[0]} / {key[1]}: no {field}")
+        # A paired interval that no longer excludes zero would be a different
+        # claim; the prose in evaluation.tex says all nine do.
+        if float(r["ci_lo_pct"]) <= 0.0:
+            bad.append(
+                f"ppl-appariee.csv / {key[0]} / {key[1]}: interval reaches zero, "
+                "which contradicts the claim that all nine exclude it"
+            )
+        arm = PPL_PAIR_TO_ARM.get(key[1])
+        if arm and (key[0], arm) in scale:
+            derived = f"{float(scale[(key[0], arm)]['ppl_ratio_vs_f16']):.4f}"
+            if derived != f"{float(r['ratio']):.4f}":
+                bad.append(
+                    f"ppl-appariee.csv / {key[0]} / {key[1]}: ratio {r['ratio']}, "
+                    f"echelle-4b-8b.csv records {derived} for arm {arm}"
+                )
+        bad += ppl_row_is_self_consistent(key, r)
+
+    # Additivity of the three paired means, which is exact: the per-window
+    # differences telescope, so (f16 to AWQ) + (AWQ to 2-bit) is (f16 to
+    # 2-bit) to floating point. Both journals run this as their second
+    # reproduction control, because a one-window offset between two arms
+    # breaks it and nothing else would show. Running it on the CSV catches a
+    # row edited in isolation.
+    for model in {m for m, _ in PPL_PAIRED}:
+        try:
+            a, b, c = (float(rows[(model, p)]["mean_nll_diff"]) for p in
+                       ("awq4_over_f16", "llvq2_over_awq4", "llvq2_over_f16"))
+        except KeyError:
+            continue
+        if abs(a + b - c) > ADDITIVITY_TOL:
+            bad.append(
+                f"ppl-appariee.csv / {model}: the three paired means are not "
+                f"additive ({a} + {b} != {c}); one of the rows is not from the "
+                "same 12 windows as the other two"
+            )
+
+    for key in rows:
+        if key not in PPL_PAIRED:
+            bad.append(f"ppl-appariee.csv row {key} is pinned to no journal value")
+    return bad
+
+
+def ppl_row_is_self_consistent(key: tuple, r: dict) -> list[str]:
+    """One ppl-appariee.csv row against its own columns.
+
+    The pin covers the three percentages; without this, `ratio`,
+    `mean_nll_diff`, `se_nll_diff` and `t_stat` are carried but unguarded, and
+    a mutation to any of them passes. Each is tied to the pinned columns by an
+    exact relation rather than a tolerance: the ratio is the exponential of
+    the mean difference (every window scores the same 4095 tokens, so the
+    aggregation is a plain mean and the exponentiation is an identity), the
+    excess is the ratio minus one, and t is the mean over its standard error.
+    """
+    bad = []
+    where = f"ppl-appariee.csv / {key[0]} / {key[1]}"
+    mean, se = float(r["mean_nll_diff"]), float(r["se_nll_diff"])
+    if f"{math.exp(mean):.4f}" != r["ratio"]:
+        bad.append(
+            f"{where}: ratio {r['ratio']}, {math.exp(mean):.4f} implied by the "
+            f"mean NLL difference {r['mean_nll_diff']}"
+        )
+    for pct, ratio, name in (
+        (r["excess_pct"], r["ratio"], "excess_pct"),
+        (r["ci_lo_pct"], r["ratio_lo"], "ci_lo_pct"),
+        (r["ci_hi_pct"], r["ratio_hi"], "ci_hi_pct"),
+    ):
+        derived = f"{(float(ratio) - 1) * 100:.2f}"
+        if derived != pct:
+            bad.append(f"{where}: {name} {pct}, {derived} implied by {ratio}")
+    if f"{mean / se:.2f}" != r["t_stat"]:
+        bad.append(
+            f"{where}: t {r['t_stat']}, {mean / se:.2f} implied by the mean "
+            "over its standard error"
+        )
+    return bad
+
+
+# The knee, pinned to docs/mesures/ppl-appariee-4b-2026-08-17.txt. Each row is
+# a paired difference of differences over the same 12 windows -- the token
+# fingerprint is common to all three campaigns, which is what makes pairing
+# across model sizes legitimate at all.
+#
+# 2026-08-17 -- READ THE `resolved` COLUMN WITH ITS METRIC ATTACHED. On
+# perplexity the slowdown is resolved: the two steps differ by -0.1010 in log
+# ratio, interval [-0.1377, -0.0643], t = -6.06. On the MMLU gap to 4 bits it
+# is NOT: 6.96 points then 1.40, p = 0.0001 then p = 0.40 (mmlu-appariee.csv,
+# standard errors composed in quadrature). Both statements are true and this
+# file only carries the first, so a sentence sourced from here must name
+# perplexity or it is half wrong.
+# 2026-08-17 -- AND READ `factor` IN THE RIGHT PARAMETERIZATION. It is the
+# ratio of two perplexity RATIOS (1.2201/1.3845 = 0.8813), not of two
+# EXCESSES (0.2201/0.3845 = 0.5724), which is the `excess_fall_pct` column and
+# the table's `fall`. The source journal's inline heading calls the step a
+# "facteur d'excès", which is the wrong label on a right number -- the same
+# journal gives the excess reading separately and correctly as -42.8%. The two
+# differ by a factor of 1.5 here, so a sentence that mixes them is not a
+# rounding matter; `knee_factor_is_a_ratio_of_ratios` below makes the
+# distinction fail loudly rather than rely on anyone reading this comment.
+PPL_KNEE = {
+    ("4B->8B", "f16"): ["0.881211", "0.856093", "0.907067"],
+    ("8B->14B", "f16"): ["0.974855", "0.958819", "0.991159"],
+    ("4B->8B", "awq4"): ["0.929104", "0.894695", "0.964836"],
+    ("8B->14B", "awq4"): ["0.984154", "0.968597", "0.999962"],
+    ("knee", "f16"): ["0.903941", "0.871386", "0.937711"],
+    ("knee", "awq4"): ["0.944063", "0.903818", "0.986100"],
+}
+
+# Which pair of models each step spans, for the derived `excess_fall_pct`.
+PPL_STEP_MODELS = {"4B->8B": ("Qwen3-4B", "Qwen3-8B"),
+                   "8B->14B": ("Qwen3-8B", "Qwen3-14B")}
+
+
+def check_ppl_knee() -> list[str]:
+    """ppl-genou.csv: four steps and two knee tests, pinned and derived.
+
+    `excess_fall_pct` is the column tab:scale prints as `fall` and the text
+    calls a knee, so it is recomputed from `echelle-4b-8b.csv` rather than
+    trusted -- exactly as check_scale recomputes the table's own cell. It is
+    filled for the FP16 reference only: excess over FP16 is the quantity that
+    must reach zero for the thesis to close, and the same reparameterisation
+    against an AWQ reference would divide by an excess that has no such
+    meaning. The empty cells are checked to stay empty.
+    """
+    bad = []
+    rows = {}
+    for r in csv.DictReader(open(DATA / "ppl-genou.csv")):
+        rows[(r["step"], r["reference"])] = r
+    scale = {}
+    for r in csv.DictReader(open(DATA / "echelle-4b-8b.csv")):
+        scale[(r["model"], r["arm"])] = r
+
+    for key, want in PPL_KNEE.items():
+        if key not in rows:
+            bad.append(f"ppl-genou.csv has no row for {key[0]} / {key[1]}")
+            continue
+        r = rows[key]
+        got = [r["factor"], r["factor_lo"], r["factor_hi"]]
+        if got != want:
+            bad.append(
+                f"ppl-genou.csv / {key[0]} / {key[1]}: the journal says "
+                f"{show(want)}, the CSV says {show(got)}"
+            )
+        if not r["source"]:
+            bad.append(f"ppl-genou.csv / {key[0]} / {key[1]}: no source")
+        mean, se = float(r["mean_logratio_diff"]), float(r["se_logratio_diff"])
+        if f"{math.exp(mean):.6f}" != r["factor"]:
+            bad.append(
+                f"ppl-genou.csv / {key[0]} / {key[1]}: factor {r['factor']}, "
+                f"{math.exp(mean):.6f} implied by {r['mean_logratio_diff']}"
+            )
+        if f"{mean / se:.2f}" != r["t_stat"]:
+            bad.append(
+                f"ppl-genou.csv / {key[0]} / {key[1]}: t {r['t_stat']}, "
+                f"{mean / se:.2f} implied by the mean over its standard error"
+            )
+        fall = [r["excess_fall_pct"], r["excess_fall_lo_pct"], r["excess_fall_hi_pct"]]
+        if key[0] == "knee" or key[1] != "f16":
+            if any(fall):
+                bad.append(
+                    f"ppl-genou.csv / {key[0]} / {key[1]}: excess-fall columns "
+                    "are for the FP16 reference of a single step only"
+                )
+            continue
+        old, new = PPL_STEP_MODELS[key[0]]
+        e_old = float(scale[(old, "llvq2")]["ppl_ratio_vs_f16"]) - 1.0
+        e_new = float(scale[(new, "llvq2")]["ppl_ratio_vs_f16"]) - 1.0
+        derived = f"{(e_new / e_old - 1) * 100:.1f}"
+        if derived != r["excess_fall_pct"]:
+            bad.append(
+                f"ppl-genou.csv / {key[0]} / f16: excess_fall_pct "
+                f"{r['excess_fall_pct']} recorded, {derived} implied by the "
+                f"{old} and {new} ratios in echelle-4b-8b.csv"
+            )
+        if not (float(r["excess_fall_lo_pct"]) < float(r["excess_fall_pct"])
+                < float(r["excess_fall_hi_pct"])):
+            bad.append(
+                f"ppl-genou.csv / {key[0]} / f16: the excess-fall point estimate "
+                "is not inside its own interval"
+            )
+    bad += knee_factor_is_a_ratio_of_ratios(rows, scale)
+
+    # The knee IS the difference of the two steps, so its mean must be their
+    # difference exactly -- the paired means are linear in the per-window
+    # terms. This is the one relation in the file that cannot hold by accident:
+    # a knee row computed from anything but these two steps fails it.
+    for ref in {r for _, r in PPL_KNEE}:
+        try:
+            s1 = float(rows[("4B->8B", ref)]["mean_logratio_diff"])
+            s2 = float(rows[("8B->14B", ref)]["mean_logratio_diff"])
+            k = float(rows[("knee", ref)]["mean_logratio_diff"])
+        except KeyError:
+            continue
+        if abs((s1 - s2) - k) > ADDITIVITY_TOL:
+            bad.append(
+                f"ppl-genou.csv / knee / {ref}: {k} recorded, {s1 - s2} implied "
+                "by the two steps it is the difference of"
+            )
+        # And the sign is the claim: a knee means the first step falls harder.
+        if k >= 0.0:
+            bad.append(
+                f"ppl-genou.csv / knee / {ref}: {k} is not negative, so the "
+                "first step does not fall harder and there is no knee to report"
+            )
+
+    for key in rows:
+        if key not in PPL_KNEE:
+            bad.append(f"ppl-genou.csv row {key} is pinned to no journal value")
+    return bad
+
+
+# A step's `factor` is a ratio of two four-decimal published ratios reached by
+# a different route (paired means recorded to nine decimals), so the two agree
+# to about 5e-5 and not exactly. This tolerance is 10x that and still four
+# orders of magnitude below the defect it exists to catch: reading `factor` in
+# the excess parameterization would put 0.5724 where 0.8813 belongs, a miss of
+# 0.31.
+KNEE_FACTOR_TOL = 5e-4
+
+
+def knee_factor_is_a_ratio_of_ratios(rows: dict, scale: dict) -> list[str]:
+    """The `factor` of each FP16 step, against the two ratios it spans.
+
+    Guards a parameterization, not a value. `factor` is the ratio of two
+    perplexity ratios; `excess_fall_pct` in the same row is the fall of the
+    excess, and tab:scale prints the second. They differ by half again at
+    these numbers, and the journal this file is pinned to labels the first
+    "facteur d'excès" -- a wrong label on a right number, which is exactly the
+    invitation to "fix" the number to match the label. Doing so fails here.
+    """
+    bad = []
+    for step, (old, new) in PPL_STEP_MODELS.items():
+        r = rows.get((step, "f16"))
+        if r is None:
+            continue
+        try:
+            r_old = float(scale[(old, "llvq2")]["ppl_ratio_vs_f16"])
+            r_new = float(scale[(new, "llvq2")]["ppl_ratio_vs_f16"])
+        except KeyError:
+            bad.append(f"echelle-4b-8b.csv lacks an llvq2 ratio for {old} or {new}")
+            continue
+        implied = r_new / r_old
+        if abs(float(r["factor"]) - implied) > KNEE_FACTOR_TOL:
+            excess = (r_new - 1.0) / (r_old - 1.0)
+            hint = (
+                " -- that is the ratio of the two EXCESSES, and this column is "
+                "the ratio of the two RATIOS"
+                if abs(float(r["factor"]) - excess) <= KNEE_FACTOR_TOL
+                else ""
+            )
+            bad.append(
+                f"ppl-genou.csv / {step} / f16: factor {r['factor']}, "
+                f"{implied:.6f} implied by the {old} and {new} perplexity "
+                f"ratios in echelle-4b-8b.csv{hint}"
+            )
     return bad
 
 
@@ -648,6 +1059,8 @@ def main() -> int:
     )
     bad += check_scale_gap_csv()
     bad += check_scale()
+    bad += check_ppl_paired()
+    bad += check_ppl_knee()
     bad += check_phases()
     bad += check_progression()
     if bad:
@@ -659,7 +1072,9 @@ def main() -> int:
         "tables agree with docs/data/*.csv "
         "(layouts 7 arms, campaign 4 arms, campaign8b 3 arms, scale 3 models "
         "x {ppl, b/param, paired MMLU gap}, phases 3 profiles, "
-        "progression 4 steps); all CSVs rectangular"
+        "progression 4 steps); paired-perplexity CSVs pinned to their journals "
+        "(9 intervals, 4 steps, 2 knee tests -- perplexity only, the MMLU "
+        "verdict on the same slowdown differs); all CSVs rectangular"
     )
     # Still not covered, and named rather than left implicit:
     #   tab:lit          — no CSV, and there should not be one: rows 1 and 3–6

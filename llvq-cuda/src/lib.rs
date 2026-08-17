@@ -40,6 +40,12 @@ pub mod gpu;
 // and the development machine has no CUDA, so the tests must run here.
 pub mod arms;
 
+// Portable for the same reason, and paid for the same way: the rotation
+// kernel's shared-memory bound lived as a `>` in a `cfg(linux)` file, against
+// the wrong one of the card's two limits, and the only thing that could have
+// noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
+pub mod shared;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation

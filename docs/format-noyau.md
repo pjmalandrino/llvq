@@ -800,6 +800,86 @@ et n'est pas comparé — ce qui a tourné est un contrôle d'observabilité (so
 majoritairement non nulle). Corrigé dans le banc après le run ; qui lit ce
 fichier doit lire ce `0.0e0` comme « non comparé », jamais comme « exact ».
 
+## Le mur de la partagée — la seule borne de ce document qu'aucun format ne déplace (2026-08-17)
+
+Tout ce qui précède oppose des **layouts**. Cette section n'en oppose aucun :
+elle porte sur le **noyau de rotation**, que tous les layouts appellent à
+l'identique, et elle dit à quelle taille de modèle le chemin fusé s'arrête —
+indépendamment du format des poids.
+
+**La raison est structurelle et tient en deux phrases.** Une transformée de
+Walsh–Hadamard est `log₂ m` étages séparés par des **barrières**, et CUDA n'a
+pas de barrière entre blocs. Donc `rot_apply` est un noyau à **un bloc**, qui
+met **toute l'activation en mémoire partagée** — une f32 par coordonnée, quel
+que soit le dtype d'entrée (le noyau élargit la f16 au chargement). La largeur
+du modèle devient une contrainte matérielle dure : `rotate.cu` l'assume et
+l'écrit depuis le premier jour, en nommant le 32B comme le cas qui ne rentre
+pas.
+
+Ce que personne n'avait vu, c'est qu'il y a **deux** bornes, pas une, et que
+le garde comparait à la mauvaise :
+
+| attribut CUDA | L40S | qui le lisait |
+|---|---|---|
+| `MAX_SHARED_MEMORY_PER_BLOCK` | **49 152 o** | le garde, et lui seul |
+| `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` | **101 376 o** *(fiche sm_89, pas encore lue sur carte)* | personne |
+| `MAX_SHARED_MEMORY_PER_MULTIPROCESSOR` | 102 400 o | le préflight, à l'affichage |
+
+La seconde s'obtient en posant `CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES`
+sur la **fonction**, une fois, avant tout lancement. Le noyau ne change pas
+d'une ligne.
+
+**Les quatre largeurs du délivrable** — `intermediate_size`, l'entrée de
+`down_proj`, la plus large activation que la rotation ait à mettre en partagée :
+
+| modèle | `intermediate_size` | partagée | défaut 49 152 | opt-in ~101 376 |
+|---|---|---|---|---|
+| 4B | 9 728 | 38 912 | ✅ | ✅ |
+| 8B | 12 288 | **49 152 — exactement la limite, à l'octet** | ✅ | ✅ |
+| **14B** | 17 408 | 69 632 | ❌ | ✅ |
+| 32B | 25 600 | 102 400 | ❌ | ❌ **de 1 024 o** |
+
+🚨 **Le 8B tenait pile sur la borne, et rien ne pouvait le dire.** Un garde ne
+parle que lorsqu'il refuse ; celui-ci a laissé passer 12 288 × 4 = 49 152 sans
+un mot, et le premier modèle plus large que le 8B est donc le premier à taper
+le mur — d'emblée, et sur un job facturé.
+
+**Le job, parce qu'un échec propre sur un garde est une mesure**
+([`mesures/rot-partagee-14b-2026-08-17.txt`](mesures/rot-partagee-14b-2026-08-17.txt)) :
+`6a82f40ce55292eada79b526`, L40S, **0,24 $**, exit 1 après 488 s, aucun token
+produit. Message : *« rotation de largeur 17408 : 69632 o de partagée demandés,
+la carte en offre 49152. Le noyau à un bloc ne convient pas à cette largeur
+(cf. rotate.cu). »* Le garde a fait ce qu'il annonçait — refuser plutôt que
+corrompre — sur une borne qui n'était pas la bonne.
+
+**Ce qui a été corrigé** : l'attribut d'opt-in est **lu** (jamais dérivé d'un
+`shared_per_sm − 1024`, qui est une supposition sur une réserve appartenant au
+driver), il est posé sur la fonction au chargement, et le garde compare aux
+**deux** bornes en nommant celle qui est franchie. L'arithmétique de la
+décision vit dans `llvq_cuda::shared`, **portable et testée sur le Mac** — ses
+deux appelants sont sous `cfg(linux)`, où seul un build d'image les compile
+(§3 de la passation du 2026-08-16, trois casses en deux jours).
+
+⚠️ **Le 32B reste refusé, et ce refus est le point critique** : il manque
+l'opt-in de **1 024 o**, la réserve du driver, et un garde qui le laisserait
+passer produirait la corruption silencieuse que `rotate.cu` annonce
+explicitement. La seule piste nommée — **et non tranchée, ni conçue ici** —
+est de stager l'activation en **f16** : 51 200 o, sous le défaut, opt-in même
+pas nécessaire. Son coût n'est pas une astuce mais un arbitrage numérique :
+à `n = 25 600` la transformée est `m = 1 024`, soit **10 barrières de
+Walsh–Hadamard**, suivies d'un mélange dense `k = 25` — 25 600 termes
+contribuent à chaque coordonnée, la profondeur d'accumulation d'une Hadamard
+de **~14,6 étages**, qui se ferait alors en demi-précision. `rotate.cu` nomme
+de son côté une autre issue, le découpage en deux noyaux, tout aussi non
+écrite.
+
+**Deux choses que ce mur n'est pas.** Ce n'est pas un mur de **format** : la
+rotation est identique sous `Planes14`, `Planes12x`, `Slot32`, `Golay70` et
+E1v, et aucun verdict des sections précédentes ne le déplace d'un octet. Et ce
+n'est pas une part du **plancher** du 2026-08-16, qui chronomètre 252
+projections d'un token, rotation exclue — deux dénominateurs, encore, et les
+rapprocher demanderait de refaire l'attribution.
+
 ## Note de provenance
 
 **Le fichier.** « 2,1595 b/poids » = bits de payload / *tous* les poids (queue

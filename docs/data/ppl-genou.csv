@@ -1,0 +1,7 @@
+step,reference,factor,factor_lo,factor_hi,mean_logratio_diff,se_logratio_diff,t_stat,n_windows,windows_agreeing,excess_fall_pct,excess_fall_lo_pct,excess_fall_hi_pct,resolved,source
+4B->8B,f16,0.881211,0.856093,0.907067,-0.126458077,0.013138931,-9.62,12,12,-42.8,-51.8,-33.5,yes,mesures/ppl-appariee-4b-2026-08-17.txt
+8B->14B,f16,0.974855,0.958819,0.991159,-0.025466371,0.007535870,-3.38,12,10,-13.9,-22.8,-4.9,yes,mesures/ppl-appariee-8b-14b-2026-08-17.txt + mesures/ppl-appariee-4b-2026-08-17.txt
+4B->8B,awq4,0.929104,0.894695,0.964836,-0.073534968,0.017145681,-4.29,12,11,,,,yes,mesures/ppl-appariee-4b-2026-08-17.txt
+8B->14B,awq4,0.984154,0.968597,0.999962,-0.015972510,0.007239642,-2.21,12,9,,,,marginal,mesures/ppl-appariee-8b-14b-2026-08-17.txt + mesures/ppl-appariee-4b-2026-08-17.txt
+knee,f16,0.903941,0.871386,0.937711,-0.100991706,0.016664473,-6.06,12,11,,,,yes,mesures/ppl-appariee-4b-2026-08-17.txt
+knee,awq4,0.944063,0.903818,0.986100,-0.057562458,0.019793405,-2.91,12,10,,,,yes,mesures/ppl-appariee-4b-2026-08-17.txt

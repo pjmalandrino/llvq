@@ -51,6 +51,7 @@ fn main() -> Result<(), String> {
 mod linux {
     use llvq_core::SplitMix64;
     use llvq_cuda::gpu::{Cuda, KernelSource};
+    use llvq_cuda::shared::{rot_bytes, rot_plan};
     use llvq_cuda::{f16_bits, f16_to_f64, ROT_KMAX};
     use llvq_quant::rotation::Rotation;
     use std::time::Instant;
@@ -63,11 +64,15 @@ mod linux {
 
     /// `(n, seed, what it is)`. The three widths of the published 4B first,
     /// then the shapes that exercise the branches around them.
-    const CASES: [(usize, u64, &str); 8] = [
+    const CASES: [(usize, u64, &str); 9] = [
         (2560, 0x5, "Qwen3-4B hidden — q/k/v/gate/up"),
         (4096, 0x6, "Qwen3-4B o_proj — k=1, no mix"),
         (9728, 0x7, "Qwen3-4B down_proj — k=19, widest"),
         (12288, 0x8, "Qwen3-8B intermediate"),
+        // 69 632 o of staging: over the default allowance, under the opt-in.
+        // The only shape here that exercises the opt-in path at all, and the
+        // width that a billed job refused on 2026-08-17 before it existed.
+        (17408, 0x9, "Qwen3-14B intermediate — opt-in de partagée"),
         (3072, 0x4, "Qwen3-0.6B intermediate"),
         (1024, 0x3, "narrow, k=1"),
         (96, 0x2, "small"),
@@ -88,8 +93,8 @@ mod linux {
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
         println!(
-            "\n{} — {} SM, {} o de partagée par bloc",
-            dev.name, dev.sm_count, dev.shared_per_block
+            "\n{} — {} SM, {} o de partagée par bloc ({} après opt-in)",
+            dev.name, dev.sm_count, dev.shared_per_block, dev.shared_per_block_optin
         );
 
         let rep = cuda.report("rot_apply")?;
@@ -106,7 +111,21 @@ mod linux {
                 rep.local_bytes
             ));
         }
-        let f = cuda.func("rot_apply")?;
+        // The opt-in is a property of the loaded function, so it is posed once
+        // here, for the widest case in the table — not per launch, and not per
+        // case: re-posing it between timed cases would make the narrow widths
+        // and the wide ones different objects inside one run.
+        //
+        // 🚨 And it makes this run a different object from every rotbench run
+        // before 2026-08-17. Raising a function's maximum dynamic shared size
+        // is what the driver reads to bound its occupancy, and the L1/shared
+        // carveout follows from it; whether it moves the microseconds of the
+        // *narrow* widths is not knowable from here, and this repository does
+        // not subtract numbers from runs that never coexisted. So: the
+        // correctness columns compare across the change, the µs column does
+        // not. A run that wants the old object drops the 17 408 line.
+        let widest = CASES.iter().map(|&(n, _, _)| rot_bytes(n)).max().unwrap_or(0);
+        let f = cuda.func_dynamic_shared("rot_apply", widest as u32)?;
 
         println!("\nVérification contre la référence f64");
         println!("  {:<34}{:>7}{:>5}{:>4}{:>12}{:>12}", "forme", "n", "m", "k", "rel", "pire coord");
@@ -122,13 +141,11 @@ mod linux {
             if k > ROT_KMAX {
                 return Err(format!("{what} : k={k} dépasse KMAX={ROT_KMAX}"));
             }
-            if n * 4 > dev.shared_per_block as usize {
-                return Err(format!(
-                    "{what} : {} o de partagée demandés, la carte en offre {}",
-                    n * 4,
-                    dev.shared_per_block
-                ));
-            }
+            // Both bounds, not just the default — and the same function the
+            // model path calls, so a width this bench accepts is a width the
+            // model accepts.
+            rot_plan(n, dev.shared_per_block as usize, dev.shared_per_block_optin as usize)
+                .map_err(|e| format!("{what} : {e}"))?;
 
             // Drawn in f32, narrowed to f16, widened for the reference — so
             // the kernel is compared against the vector it was handed, not

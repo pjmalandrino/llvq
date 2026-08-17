@@ -1,0 +1,10 @@
+model,pair,excess_pct,ci_lo_pct,ci_hi_pct,ratio,ratio_lo,ratio_hi,mean_nll_diff,se_nll_diff,t_stat,n_windows,windows_agreeing,fingerprint,source
+Qwen3-4B,awq4_over_f16,10.49,8.55,12.47,1.1049,1.0855,1.1247,0.099765418,0.008057589,12.38,12,12,3f1baca9033bf251,mesures/ppl-appariee-4b-2026-08-17.txt
+Qwen3-4B,llvq2_over_f16,38.45,33.62,43.45,1.3845,1.3362,1.4345,0.325352171,0.016125254,20.18,12,12,3f1baca9033bf251,mesures/ppl-appariee-4b-2026-08-17.txt
+Qwen3-4B,llvq2_over_awq4,25.31,20.01,30.84,1.2531,1.2001,1.3084,0.225586752,0.019621078,11.50,12,12,3f1baca9033bf251,mesures/ppl-appariee-4b-2026-08-17.txt
+Qwen3-8B,awq4_over_f16,4.80,4.24,5.35,1.0480,1.0424,1.0535,0.046842309,0.002409566,19.44,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt
+Qwen3-8B,llvq2_over_f16,22.01,19.37,24.70,1.2201,1.1937,1.2470,0.198894094,0.009930203,20.03,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt
+Qwen3-8B,llvq2_over_awq4,16.42,14.17,18.72,1.1642,1.1417,1.1872,0.152051785,0.008871268,17.14,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt
+Qwen3-14B,awq4_over_f16,3.81,3.27,4.34,1.0381,1.0327,1.0434,0.037348448,0.002347409,15.91,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt
+Qwen3-14B,llvq2_over_f16,18.94,17.22,20.68,1.1894,1.1722,1.2068,0.173427723,0.006591726,26.31,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt
+Qwen3-14B,llvq2_over_awq4,14.58,13.10,16.08,1.1458,1.1310,1.1608,0.136079274,0.005915968,23.00,12,12,3f1baca9033bf251,mesures/ppl-appariee-8b-14b-2026-08-17.txt

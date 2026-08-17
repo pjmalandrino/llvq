@@ -41,8 +41,53 @@ clauses par `;` ou ` - `, **jamais par une virgule**, et
 | `progression.csv` | l'arc de la semaine : VRAM/débit/b-param à chaque étape | mini, a1, planes14-fusedrun, nuit |
 | `echelle-4b-8b.csv` | l'échelle des modèles, 3 bras × 3 tailles (ppl, ratio, MMLU micro, **b/param modèle entier**) | a4-campagne + campagne-finale-bras4 (4B), campagne-8b-qualite (8B), campagne-14b-qualite (14B) ; `params_total` et les colonnes `vram_*` viennent d'ailleurs — rtbits-planes-8b (4B, 8B) et rtbits-14b-2026-08-17 (14B) |
 | **`mmlu-appariee.csv`** 🆕 | les **écarts APPARIÉS** de MMLU : 3 tailles × 3 paires, point + IC95 + SE + McNemar + taux de discordance | mmlupair-4b-8b-2026-08-13 (4B, 8B), campagne-14b-qualite (14B `f16 −` …) et **mmlupair-14b-2026-08-17** (14B `awq4 − llvq2`) |
+| **`ppl-appariee.csv`** 🆕 | les **intervalles APPARIÉS de perplexité** : 3 tailles × 3 paires, excès en % + IC95 + ratio + moyenne et SE des différences de NLL + t | ppl-appariee-4b-2026-08-17 (4B), ppl-appariee-8b-14b-2026-08-17 (8B et 14B) |
+| **`ppl-genou.csv`** 🆕 | le **ralentissement EN PERPLEXITÉ** : 2 pas × 2 références, plus les 2 tests de genou (la différence des deux pas) | ppl-appariee-4b-2026-08-17 |
 | `mmlu-dumps/` | les dumps MMLU **question par question**, 3 tailles × 3 bras — la matière première des paires ci-dessus | campagnes 4B/8B/14B ; les trois fichiers 14B commités le 2026-08-17 (cf. la leçon du bucket, plus bas) |
 | `jobs.csv` | chaque job GPU : id, durée, coût, ce qu'il a mesuré | moniteur ops/run.py |
+
+### 🆕 Pourquoi DEUX fichiers de perplexité, et pas une colonne de plus (2026-08-17)
+
+Les neuf intervalles de perplexité auraient pu s'écrire dans
+`echelle-4b-8b.csv`. **Ils n'y sont pas, et c'est le même dispositif que pour
+MMLU : la séparation physique.**
+
+1. **Le grain n'est pas le même.** `echelle-4b-8b.csv` est indexé par
+   *(modèle, bras)* — une ligne par artefact. Un intervalle apparié porte sur
+   une *(modèle, PAIRE)* : il n'appartient à aucun des deux bras, il est la
+   comparaison. Le loger dans un fichier par bras obligerait soit à le
+   dupliquer des deux côtés, soit à inventer des lignes hybrides bras-paire —
+   exactement la confusion que la note « aucune colonne appariée » plus bas
+   existe pour empêcher.
+2. **On ne peut pas soustraire par accident deux colonnes qui ne sont pas dans
+   le même fichier.** C'est l'argument littéral du 🚨 sur `mmlu-appariee.csv`,
+   et il vaut mot pour mot ici : soustraire deux `ppl` de `echelle-4b-8b.csv`
+   ne produit pas un écart testé, et le genou est précisément le nombre qu'on
+   serait tenté de fabriquer ainsi.
+3. **Le genou a encore un autre grain** — *(pas, référence)*, pas
+   *(modèle, paire)* — d'où le second fichier plutôt qu'une colonne
+   supplémentaire ou une clé en union. `ppl-genou.csv` porte les deux pas sur
+   chacune des deux références, plus les deux tests de genou, tous à la même
+   forme.
+
+⚠️ **Aucun tableau du papier ne les consomme aujourd'hui** : ces nombres y sont
+en prose (§ « Perplexity gets error bars »). Le filet les vérifie quand même,
+et de trois façons indépendantes — épinglage littéral sur les journaux
+(`PPL_PAIRED`, `PPL_KNEE`), **dérivations internes exactes** (ratio =
+exp(différence moyenne), excès = ratio − 1, t = moyenne / SE, additivité des
+trois paires d'une taille, et le genou = différence des deux pas), et
+**recoupement croisé** avec `echelle-4b-8b.csv`, dont `ppl_ratio_vs_f16` est
+la même grandeur atteinte par une autre route. 18 mutants tués sur 18 lors de
+l'écriture du garde. Un garde écrit avant le tableau est le but : le tableau
+qui viendra en héritera au lieu d'en réclamer un.
+
+🕳️ **Une colonne échappe volontairement à la dérivation** :
+`ppl-appariee.csv::ratio` de la paire `llvq2_over_awq4`. Elle vaut **1,1458**
+au 14B (exp de la différence moyenne, exact) alors que le quotient des deux
+ratios déjà arrondis de `echelle-4b-8b.csv` rend **1,1457**. Les deux sont
+justes dans leur comptabilité ; dériver celle-là imposerait un artefact
+d'arrondi au lieu de vérifier un accord. Elle est épinglée et tenue par
+l'identité d'additivité, pas par le quotient.
 
 ✅ **`echelle-4b-8b.csv::params_total` était VIDE sur les trois lignes 14B ;
 il est rempli depuis le 2026-08-17, et la consigne « il faut le laisser vide »
@@ -150,28 +195,81 @@ grandeurs publiées (+6,85 [+4,52 ; +9,12], SE 1,16, McNemar 8,666e-16).
 🚨 **Conséquence : la suite « 14,45 → 7,49 → 6,09 » ne mélange PLUS deux
 espèces de nombre** — les trois termes sont appariés et portent un IC. Mais
 elle perd autre chose, et c'est plus gênant : **le « genou » entre 8B et 14B
-n'est pas résolu.** La chute de l'écart vaut 6,96 pp du 4B au 8B (SE 1,82,
-p = 1e-4, **résolue**) et seulement 1,40 pp du 8B au 14B (SE 1,68, p = 0,40,
-**NON résolue** — SE composées en quadrature, *calculé*). Les phrases du
-dossier qui font du ralentissement un résultat — « il y a un genou », « la
-décroissance ralentit » — reposent donc sur des points estimés que les
-barres ne séparent pas. Ce qui reste testé : l'écart est bien plus petit à
-14B qu'à 4B (8,36 pp, p ≈ 1e-5). ⚠️ Et p = 0,40 ne prouve pas l'égalité non
-plus : sur ce palier les données sont muettes, pas concluantes.
+n'est pas résolu SUR MMLU.** La chute de l'écart vaut 6,96 pp du 4B au 8B
+(SE 1,82, p = 1e-4, **résolue**) et seulement 1,40 pp du 8B au 14B (SE 1,68,
+p = 0,40, **NON résolue** — SE composées en quadrature, *calculé*). Les
+phrases du dossier qui font du ralentissement un résultat — « il y a un
+genou », « la décroissance ralentit » — reposent donc, **sur cette
+métrique**, sur des points estimés que les barres ne séparent pas. Ce qui
+reste testé : l'écart est bien plus petit à 14B qu'à 4B (8,36 pp, p ≈ 1e-5).
+⚠️ Et p = 0,40 ne prouve pas l'égalité non plus : sur ce palier les données
+sont muettes, pas concluantes.
 
-🚨 **`jobs.csv` couvre TROIS campagnes, et la somme de la colonne n'est pas
-le chiffre du papier.** Le total cité par le papier est
-**19,82 + 2,33 = 22,15 $** :
+> 🚨🚨 **AMENDÉ LE 2026-08-17 (soir) — ET C'EST L'AMENDEMENT LE PLUS
+> IMPORTANT DE CE FICHIER.** Le paragraphe ci-dessus a été écrit ce matin, en
+> toute bonne foi sur l'état d'alors, et **il reste vrai — pour MMLU.** Il
+> était alors le seul verdict disponible, parce que la perplexité n'avait pas
+> de barre au 4B et que le pas 4B→8B n'était donc pas testable.
+> **Il l'est depuis** ([`ppl-genou.csv`](ppl-genou.csv),
+> [`mesures/ppl-appariee-4b-2026-08-17.txt`](../mesures/ppl-appariee-4b-2026-08-17.txt)),
+> et il répond l'inverse :
+>
+> | métrique | pas 4B→8B | pas 8B→14B | le ralentissement |
+> |---|---|---|---|
+> | **perplexité** *(apparié, 12 fenêtres, même texte aux trois tailles)* | ×0,881211 [0,856 ; 0,907] | ×0,974855 [0,959 ; 0,991] | ✅ **RÉSOLU** — pas1 − pas2 = −0,1010 [−0,1377 ; −0,0643], t = −6,06 |
+> | **écart MMLU au 4 bits** *(non apparié entre tailles, SE en quadrature)* | −6,96 pp, p = 1e-4 | −1,40 pp, p = 0,40 | ❌ **NON RÉSOLU** sur le second pas |
+>
+> **CE N'EST PAS UNE CONTRADICTION, C'EST UNE INFORMATION** : deux métriques,
+> deux verdicts. La perplexité est appariée *entre tailles* (même fenêtre,
+> même texte, empreinte commune) et teste donc avec beaucoup plus de
+> puissance ; MMLU compose deux campagnes indépendantes. Et les deux ne
+> mesurent pas la même chose — le §3ter du dossier établit depuis le
+> 2026-08-02 que le 2 bits abîme le **raisonnement** bien plus que la
+> **restitution**, et c'est la restitution qu'un corpus de perplexité mesure
+> surtout.
+>
+> 🚨 **RÈGLE DE RÉDACTION, IMPÉRATIVE : toute phrase sur le genou doit NOMMER
+> SA MÉTRIQUE.** « Le genou tient » nu est faux de moitié ; « le genou ne
+> tient pas » nu l'est de l'autre moitié. La forme juste : *le ralentissement
+> est résolu en perplexité et ne l'est pas sur l'écart MMLU au 4 bits.*
 
-| campagne | lignes | somme | dans le papier ? |
+🚨 **`jobs.csv` couvre QUATRE campagnes depuis le 2026-08-17, et la somme de
+la colonne n'est plus le chiffre que le papier revendique pour lui-même.**
+
+| campagne | lignes | somme | dans le total du papier ? |
 |---|---|---|---|
 | papier 4B + 8B | jusqu'au 2026-08-08 inclus | 19,82 $ | ✅ |
 | **kernel** (bancs 5, 6 et 7 bras) | marquées `[kernel]` | **2,33 $** | ✅ **depuis le lot D (2026-08-11)** |
-| 14B | marquées `[14B]` | — | ❌ pas encore |
+| 14B | marquées `[14B]` | 30,20 $ | ✅ |
+| **`[phase 1.2]`** (rejeu MMLU apparié) | marquées `[phase 1.2]` | **1,30 $** | ✅ |
+| 🆕 **`[plancher]`** (E1v sur carte + `nullk`) | marquées `[plancher]` | **1,62 $** | ❌ **et délibérément pas** |
 
-Le total vit dans **quatre sites**, à déplacer ensemble : `paper/main.tex`
-(abstract), `sections/intro.tex` (dernier §), `sections/evaluation.tex`
-(« Cost of evidence ») et `sections/conclusion.tex`.
+🆕 **Le total de la colonne passe de 55,59 à 57,21 $ le 2026-08-17**, en
+soldant une dette : `jobs.csv` s'arrêtait au 2026-08-13 et **manquait les deux
+jobs du 08-16** — `6a814ba31f5885ae605bcb55` (llvq-e1v, l40sx1, 28 min,
+0,85 $) et `6a81b2b71f5885ae605bdcc9` (llvq-nullk, l40sx1, 26 min, 0,77 $).
+Les deux durées et les deux montants sont **lus dans l'en-tête de leur propre
+journal** ([`e1v-cuda-2026-08-16`](../mesures/e1v-cuda-2026-08-16.txt),
+[`nullk-plancher-2026-08-16`](../mesures/nullk-plancher-2026-08-16.txt)), et
+recoupés par le tarif l40sx1 qu'impliquent les lignes déjà présentes
+(≈ 0,030 $/min : 0,0304 et 0,0296 ici) — *calculé*, pas une seconde mesure.
+
+⚠️ **Et le 55,59 n'a PAS bougé pour autant : c'est maintenant un
+sous-total.** Aucune cellule du papier ne repose sur les deux jobs du 08-16 —
+E1v et le plancher `nullk` n'y apparaissent nulle part — donc les fondre dans
+« le coût de cette évidence » aurait gonflé le chiffre sans rien ajouter à ce
+qu'il paie. Le papier dit désormais les deux : **57,21 $ au registre, dont
+55,59 $ derrière ses propres nombres.**
+
+🕳️ **« Le total vit dans quatre sites » était faux, et vérifié le
+2026-08-17 : il en vit DEUX.** `paper/main.tex` (abstract, l. 74-75) et
+`paper/sections/evaluation.tex` (« Cost of evidence »). `sections/intro.tex`
+mentionne la pratique — « every claim traces to a dated GPU job with its
+billed cost » — **sans citer de montant**, et `sections/conclusion.tex` n'en
+cite aucun non plus. Chercher un chiffre dans les deux sites fantômes faisait
+conclure à tort qu'il avait déjà été déplacé. Le total n'est régénéré par
+aucun script : `paper/scripts/make_figures.py` n'ouvre jamais ce fichier et
+`check_tables.py` ne vérifie pas cette phrase.
 
 ⚠️ Donc : ne jamais resommer la colonne entière, et **ne pas confondre les
 deux jobs Golay70** — `e2-golay70-bench` (0,74 $, 08-07, la découverte du

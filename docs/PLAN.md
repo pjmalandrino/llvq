@@ -126,21 +126,34 @@ Le point estimé ne bouge pas d'un centième ; il cesse d'être nu. **Les trois
       en entier.** Elle disait : « "the gap halves" → le **genou** (fonte de
       l'excès de ppl −43 % puis −14 % ; écart AWQ 14,45 → 7,49 → 6,09 pp) ;
       "two points, not a law" → "**three points, a knee, not a law**" ».
-      **Le genou ne survit pas au test** : la chute de l'écart vaut −6,96 pp du
-      4B au 8B (SE 1,82, p = 0,0001, **résolue**) et −1,40 pp du 8B au 14B
-      (SE 1,68, p = 0,40, **NON résolue**). Écrire « a knee » publierait comme
-      résultat un ralentissement que les barres ne séparent pas.
-      ⚠️ Et « no knee » serait tout aussi faux : p = 0,40 ne prouve pas
+      🚨 **AMENDÉE LE SOIR MÊME, et c'est l'amendement qui compte : LE VERDICT
+      DÉPEND DE LA MÉTRIQUE, donc la consigne aussi.** Le paragraphe ci-dessus
+      est **vrai sur MMLU** et **faux sur la perplexité**, qui a reçu ses barres
+      au 4B en fin de journée.
+      **Sur l'écart MMLU au 4 bits, le genou ne survit pas au test** : la chute
+      vaut −6,96 pp du 4B au 8B (SE 1,82, p = 0,0001, **résolue**) et −1,40 pp
+      du 8B au 14B (SE 1,68, p = 0,40, **NON résolue**). Écrire « a knee » sur
+      cette métrique publierait un ralentissement que les barres ne séparent
+      pas. ⚠️ Et « no knee » y serait tout aussi faux : p = 0,40 ne prouve pas
       l'égalité, les données sont **muettes** sur ce palier.
-      **La formule à écrire est « three points, not a law »**, avec les trois
-      IC et les deux tests de palier — la direction tient (4B→14B : −8,36 pp,
-      p ≈ 1e-5), sa *forme* reste indéterminée, et **le 32B est ce qui
-      trancherait**.
-      ⚠️ Côté perplexité, ne pas opposer « −43 % » et « −14 % » : le premier
-      **n'est pas barrable** (journal 4B de synthèse, pas de NLL par fenêtre),
-      le second vaut −13,9 % IC95 [−22,8 ; −4,9] sur f16 et **−1,58 %
-      [−3,14 ; −0,004]** sur AWQ — ce dernier exclut zéro **de 0,005**, donc
-      **ne jamais écrire « the gap closes significantly »**
+      **Sur la perplexité, le genou est RÉSOLU** : pas 4B→8B ×0,881211
+      [0,856 ; 0,907] · pas 8B→14B ×0,974855 [0,959 ; 0,991] · leur différence
+      appariée **−0,100992 [−0,137670 ; −0,064313], t = −6,06**
+      ([`mesures/ppl-appariee-4b-2026-08-17.txt`](mesures/ppl-appariee-4b-2026-08-17.txt)).
+      **La formule à écrire est « three points, not a law »**, avec les trois IC
+      et les tests de palier des **deux** métriques — la direction tient sur les
+      deux (MMLU 4B→14B : −8,36 pp, p ≈ 1e-5), la *forme* est mesurée en
+      perplexité et indéterminée sur les capacités, et **le 32B est ce qui
+      trancherait** cette seconde question. 🚨 **Ne jamais écrire « the knee »
+      ni « no knee » sans nommer la métrique** : chaque forme nue est fausse de
+      moitié.
+      ⚠️ Côté perplexité, « −43 % » contre « −14 % » **peut désormais s'écrire,
+      barré des deux côtés** — 🕳️ la consigne précédente disait « le premier
+      n'est pas barrable (journal 4B de synthèse, pas de NLL par fenêtre) », ce
+      que la récupération des logs du job a démenti : **−42,8 % IC95
+      [−51,8 ; −33,5]** contre **−13,9 % IC95 [−22,8 ; −4,9]** sur f16. Sur AWQ
+      le second pas vaut **−1,58 % [−3,14 ; −0,004]** et exclut zéro **de
+      0,005**, donc **ne jamais écrire « the gap closes significantly »**
       ([`mesures/ppl-appariee-8b-14b-2026-08-17.txt`](mesures/ppl-appariee-8b-14b-2026-08-17.txt)).
       ⚠️ **Ces deux nombres ne sont pas dans la même paramétrisation** et les
       juxtaposer tels quels suggère un rapport de 9 qui n'existe pas : −13,9 %
@@ -254,8 +267,8 @@ le papier ne doit pas laisser croire le contraire.
 - [x] ✅ **2026-08-16** — « l'écart au 4 bits fond deux fois plus vite »
       retiré, le 14B et le genou ajoutés aux tables de `CLAUDE.md` (§3ter,
       §3bis). ⏳ **Reste `README.md`** : « two points » → trois.
-- [x] 🚨 **2026-08-17 — le genou ajouté la veille est RETIRÉ**, et de toutes
-      les surfaces vivantes (`CLAUDE.md` §3ter/§3bis/§6, `HISTORIQUE.md`,
+- [x] 🚨 **2026-08-17 (matin) — le genou ajouté la veille est RETIRÉ**, et de
+      toutes les surfaces vivantes (`CLAUDE.md` §3ter/§3bis/§6, `HISTORIQUE.md`,
       `echelle-4b-8b`, ce fichier, `README.md`, `cheatsheet-defense`). Motif :
       les trois écarts AWQ − LLVQ étant enfin appariés, la chute d'un palier au
       suivant se teste — **4B→8B résolue (p = 0,0001), 8B→14B NON résolue
@@ -264,6 +277,17 @@ le papier ne doit pas laisser croire le contraire.
       🕳️ Illustration exacte de la règle du §5 de `CLAUDE.md` — la correction
       du 08-16 était juste sur ce qu'elle retirait et a introduit, dans le même
       geste, une affirmation non testée.
+- [x] 🚨 **2026-08-17 (soir) — la moitié PERPLEXITÉ du retrait ci-dessus est
+      elle-même RETIRÉE, et les mêmes surfaces repassées pour NOMMER LA
+      MÉTRIQUE.** Le retrait du matin portait sur le seul test alors disponible
+      (MMLU), où il **tient**. La perplexité a reçu ses barres au 4B le soir —
+      les NLL vivaient dans les logs du job, 0 $ — et son genou est **RÉSOLU**
+      (pas1 − pas2 = −0,100992 [−0,137670 ; −0,064313], t = −6,06).
+      **Deux métriques, deux verdicts** : ce n'est pas une contradiction, c'est
+      une différence de puissance (49 140 tokens appariés entre tailles contre
+      2 280 questions non appariées) et d'objet (raisonnement contre
+      restitution). 🚨 Toute phrase sur le genou **nomme désormais sa métrique**
+      — les deux formes nues sont fausses de moitié chacune.
 - [x] ✅ **2026-08-17** — « la paire `AWQ − LLVQ` n'existe pas au 14B / ne
       jamais citer 6,09 avec un intervalle / la recalculer exige de refaire la
       campagne » retiré partout : elle existe, pour 0 $
@@ -271,7 +295,11 @@ le papier ne doit pas laisser croire le contraire.
 - [x] ✅ **2026-08-17** — ligne mémoire du 14B ajoutée (**5,106 vs 5,404,
       −5,5 %**), avec la **non-monotonie** de la marge et son mécanisme (part de
       l'embedding), et intervalles de perplexité 8B/14B, le 4B **visiblement
-      sans**.
+      sans**. 🚨 **Cette dernière réserve est levée le soir même** : les trois
+      cellules 4B sont barrées (LLVQ/f16 **+38,45 %** [+33,62 ; +43,45] ·
+      AWQ/f16 +10,49 % [+8,55 ; +12,47] · LLVQ/AWQ +25,31 % [+20,01 ; +30,84]),
+      donc **la colonne perplexité porte ses barres aux trois tailles**.
+      Coût : 0 $ — les NLL étaient dans les logs du job, désormais commitées.
 - [x] ✅ **2026-08-17** — « `E1c14` est plus gros que `Planes14` une fois
       aligné » requalifié en **verdict 4B** : la pénalité d'alignement vaut
       +15,47 % au 4B mais +4,18 % au 14B, où `E1c14` aligné passe **sous**
@@ -378,14 +406,19 @@ un négatif publiable, et la décision produit devient explicite : attendre le
 
 ## Phase 3 — Le point 32B : le dernier point de courbe
 
-**Objectif** : trancher **si** la courbe d'échelle s'aplatit — c'est le point
-qui décide de la thèse d'échelle.
+**Objectif** : trancher **si** la courbe d'échelle **des capacités** s'aplatit
+— c'est le point qui décide de la thèse d'échelle.
 🕳️ **Cet objectif disait « trancher si le genou du 14B est un palier ou une
-pause », et il présupposait le genou.** Retiré le 2026-08-17 : la chute de
-l'écart au 4 bits est **non résolue** entre 8B et 14B (1,40 pp, SE 1,68,
-p = 0,40), donc il n'y a pas de genou établi à qualifier — et p = 0,40 ne dit
-pas non plus qu'il n'y en a pas. **Le 32B en devient plus décisif, pas moins** :
-il est le seul point qui puisse séparer les deux lectures.
+pause », et il présupposait le genou.** Retiré le 2026-08-17 : sur l'**écart
+MMLU au 4 bits**, la chute est **non résolue** entre 8B et 14B (1,40 pp,
+SE 1,68, p = 0,40), donc il n'y a pas de genou établi à qualifier — et p = 0,40
+ne dit pas non plus qu'il n'y en a pas. **Le 32B en devient plus décisif, pas
+moins** : il est le seul point qui puisse séparer les deux lectures.
+⚠️ **Et il ne faut pas croire la question réglée par la perplexité**, dont le
+genou est **résolu** depuis le soir du 2026-08-17 (−0,100992
+[−0,137670 ; −0,064313], t = −6,06). Les deux courbes sont distinctes, et c'est
+la courbe de **capacités** que ce point sert : « ne plus jamais présenter la
+perplexité seule comme preuve de qualité » (`CLAUDE.md` §3ter).
 **Coût : ~62 $ estimé le 08-03
 (621 s/bloc mesurés, bf16/C3 validé) ; budget avec marge : 80 $. Une nuit.**
 

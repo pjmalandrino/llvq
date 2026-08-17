@@ -159,8 +159,12 @@ pub struct FusedRuntime {
     /// when the runtime was built with [`EmbedMode::Q8`], which is when their
     /// source was in the translation unit.
     f_emb: Option<(CudaFunction, CudaFunction)>,
-    /// Dynamic shared memory the card allows one block, read at startup —
-    /// `tv_q8_h` stages the whole activation and must be refused past it.
+    /// Dynamic shared memory the card allows one block **without asking**,
+    /// read at startup — `tv_q8_h` stages the whole activation and must be
+    /// refused past it. This is the *default* allowance and not the opt-in
+    /// ceiling, because `tv_q8_h` is loaded through `func` and never opts in;
+    /// the rotation, which does, is bounded in `new` instead and against both
+    /// numbers (`llvq_cuda::shared`).
     shared_limit: usize,
     device: candle_core::CudaDevice,
     /// Largest `d_in` any projection takes — the staging bound the rotation
@@ -234,7 +238,9 @@ impl FusedRuntime {
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
-        let f_rot = cuda.func("rot_apply").map_err(candle_core::Error::msg)?;
+        // `f_rot` is loaded further down, once the widest rotation is known:
+        // staging past 48 KiB needs an opt-in posed on the *function*, and it
+        // has to name the number of bytes. See the shared-memory block below.
         let f_emb = match emb {
             None => None,
             Some(_) => Some((
@@ -279,18 +285,41 @@ impl FusedRuntime {
             _ => None,
         };
 
-        let shared_limit = cuda.device().map_err(candle_core::Error::msg)?.shared_per_block as usize;
+        let dev_report = cuda.device().map_err(candle_core::Error::msg)?;
+        // The DEFAULT allowance, and it stays the default on purpose: this
+        // bound belongs to `tv_q8_h`, which stages `d` floats and is launched
+        // through `func`, with no opt-in. Widening it here would loosen a
+        // guard on a kernel that never asked the driver for anything.
+        let shared_limit = dev_report.shared_per_block as usize;
+
+        // The rotation is the one staging that can exceed the default — and
+        // comparing it against `shared_limit` is what refused Qwen3-14B on
+        // 2026-08-17 (69 632 o wanted, 49 152 offered by default, 101 376
+        // available on request). Both bounds now, from `llvq_cuda::shared`,
+        // which is where this arithmetic is testable: this file compiles
+        // nowhere but inside an image build.
+        for t in model.rotations.values() {
+            llvq_cuda::shared::rot_plan(
+                t.n,
+                dev_report.shared_per_block as usize,
+                dev_report.shared_per_block_optin as usize,
+            )
+            .map_err(candle_core::Error::msg)?;
+        }
+        // Posed on the function, once, for the widest rotation this model has
+        // — before any launch, and never per token.
+        let rot_bytes = model
+            .rotations
+            .values()
+            .map(|t| llvq_cuda::shared::rot_bytes(t.n))
+            .max()
+            .unwrap_or(0);
+        let f_rot = cuda
+            .func_dynamic_shared("rot_apply", rot_bytes as u32)
+            .map_err(candle_core::Error::msg)?;
+
         let mut rotations = HashMap::new();
         for (&key, t) in &model.rotations {
-            if t.n * 4 > shared_limit {
-                candle_core::bail!(
-                    "rotation de largeur {} : {} o de partagée demandés, la carte en offre {}. \
-                     Le noyau à un bloc ne convient pas à cette largeur (cf. rotate.cu).",
-                    t.n,
-                    t.n * 4,
-                    shared_limit
-                );
-            }
             rotations.insert(key, upload_rotation(&cuda, t)?);
         }
 

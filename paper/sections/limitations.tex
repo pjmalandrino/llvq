@@ -66,30 +66,53 @@ exact-byte figure; 5.15 was the rounded card display) beats its 5.30 (5.302)
 by about 3\%, a margin that does not, on its
 own, justify a 14.6-point MMLU loss. The 8B moves every relevant number in
 the 2-bit direction (Table~\ref{tab:campaign8b}): the quality gap narrows by
-half and the memory verdict flips. The 14B keeps the direction, and on the
-point estimates it \emph{loses the rate} (Table~\ref{tab:scale}): the excess
-perplexity falls 42.8\% from 4B to 8B and 13.9\% from 8B to 14B. Whether the
+half and the memory verdict flips. The 14B keeps the direction and
+\emph{loses the rate} (Table~\ref{tab:scale}): the excess
+perplexity falls 42.8\% from 4B to 8B, $[-51.8, -33.5]$, and 13.9\% from 8B to
+14B, $[-22.8, -4.9]$. Whether the
 trend continues to the 70B class, the regime the sovereignty argument
 actually cares about, is measurable with this methodology and is not measured
 here --- and the third point is exactly the reason not to extrapolate from
 the first two, as an earlier draft of this section did when it had only two.
 
-Three qualifications on how that curve may be read, two of which have changed
-since 2026-08-17 and are recorded as changed rather than quietly rewritten.
+Four qualifications on how that curve may be read. Every one of them moved on
+2026-08-17, and each is recorded as changed rather than quietly rewritten.
 
-First, the slowdown is a property of the point estimates that the intervals
-do not separate. This section previously said no test of a difference of
-differences existed at all: our paired bootstrap pairs two arms on one
-question set, never two model sizes, and two non-overlapping intervals are
-not such a test. That remains true of the bootstrap. A weaker test does now
-exist, composing the two campaigns' standard errors in quadrature, and it
-resolves the first step of the MMLU gap ($-6.96$ points, $p = 0.0001$) and
-not the second ($-1.40$, $p = 0.40$). \emph{Neither direction should be
-overclaimed}: $p = 0.40$ is silence about that step, not evidence that the
-gap has stopped closing, and a reader may hold either reading. What follows
-operationally is what this section already said --- no scaling law from three
-models --- now resting on a test rather than on caution alone. The test is
-computed from the published intervals, not separately measured.
+First, the slowdown has \emph{two} verdicts, one per metric, and they must
+never be merged into one sentence. On perplexity it is resolved: the 12
+evaluation windows are the same text at every model size, so the two steps
+can be differenced window by window rather than by composing standard errors,
+and they differ by $-0.1010$ in log perplexity ratio (\emph{not} in the excess
+parameterization the \texttt{fall} column uses), $[-0.1377, -0.0643]$,
+$t = -6.06$,
+with 11 of 12 windows agreeing in sign. On the MMLU gap it is not: no pairing
+across sizes is available for a question set, so the test composes the two
+campaigns' standard errors in quadrature, and that resolves the first step
+($-6.96$ points, $p = 0.0001$) and not the second ($-1.40$, $p = 0.40$).
+\emph{Neither result should be overclaimed and neither should be dropped.}
+$p = 0.40$ is silence about that step, not evidence that the gap has stopped
+closing; and the resolved perplexity knee says the first step fell harder than
+the second, not where the curve flattens or that it reaches zero. The most
+likely explanation of the divergence is power, not disagreement --- perplexity
+averages the 49\,140 scored tokens of 12 paired windows where MMLU is a rate
+over 2\,280 unpaired questions --- with two further differences that are real
+and not disposable: the two metrics do not measure the same faculty, and the
+perplexity knee is 2-bit against FP16 where the MMLU knee is 2-bit against the
+4-bit baseline. That last one is checkable and does not carry the divergence
+alone: against an AWQ reference the perplexity knee still resolves, though far
+less comfortably ($-0.0576$, $[-0.1011, -0.0140]$, $t = -2.91$ against
+$-6.06$), and that line should not be quoted with the confidence of the FP16
+one. What follows operationally is what
+this section already said --- no scaling law from three models --- now resting
+on two tests that disagree about curvature rather than on caution alone. Both
+are computed from published intervals and per-window logs, not separately
+measured. This section previously said no test of a difference of differences
+existed at all, and then, for a few hours, that the only test available
+declined to resolve the slowdown --- a statement true of the MMLU gap, which
+was then the only metric with bars at all three sizes, and that stopped being
+the whole story the moment perplexity had them too. The first statement was
+retired when the 14B dumps were recovered, the second when the 4B per-window
+NLLs were.
 
 Second, the third gap in the MMLU sequence (6.09 points) \emph{is} a paired
 estimate, $[3.62, 8.52]$, McNemar $p = 1.1\times10^{-11}$. This section said
@@ -111,6 +134,24 @@ should not be read as a tendency: it tracks the share of parameters the
 embedding occupies, which AWQ leaves in FP16 and we quantize, and which peaks
 at the 8B. What remains unmeasured above 8B is not memory but \emph{serving}:
 the 14B was never run, so it has no throughput and no on-card VRAM figure.
+
+Fourth, the perplexity half of that curve carried no error bars at all before
+2026-08-17 and now carries them at all three sizes --- which is what made the
+perplexity verdict above possible, and it arrived in two steps on the same
+day. Six intervals came first, on the 8B and the 14B. The 4B's three were
+declared unformable in the same journal, on the ground that its campaign log
+had recorded aggregate perplexities and no per-window NLLs, with the cost of
+restoring them budgeted as a re-run of two arms. They were in the job's log,
+which the vendor had not purged, and they cost nothing. \emph{That is the
+second output this project declared lost and then found somewhere it had not
+looked, inside two days} --- the first being the 14B per-question dumps of the
+qualification above, which were in a mounted output bucket. Both recoveries
+changed a claim's evidential status without moving a point estimate, and both
+had been preceded by a price for re-measuring rather than by a search. The
+rule we now follow is to inventory a job's output bucket \emph{and} its logs
+before pricing any re-run. The practice we do \emph{not} rely on is log
+retention, which is neither documented nor guaranteed, which is why the
+recovered output is committed to the repository rather than cited by job id.
 
 \textbf{Our speedups are over FP16, not over the 4-bit state of the
 practice.} Every $\times$ in \S\ref{sec:layouts} and

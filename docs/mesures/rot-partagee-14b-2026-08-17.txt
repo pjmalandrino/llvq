@@ -1,0 +1,98 @@
+================================================================================
+LE MUR DE LA MÉMOIRE PARTAGÉE — un job qui échoue sur un garde est une mesure
+job 6a82f40ce55292eada79b526, l40sx1, 0,24 $, exit 1 après 488 s, 2026-08-17
+`fusedrun` au 14B. Aucun token produit, aucun chiffre de débit.
+================================================================================
+
+CE QUE LE JOB A IMPRIMÉ                                               [mesuré]
+
+    rotation de largeur 17408 : 69632 o de partagée demandés, la carte en
+    offre 49152. Le noyau à un bloc ne convient pas à cette largeur
+    (cf. rotate.cu).
+
+  Le garde a fait exactement ce qu'il annonce : refuser plutôt que corrompre.
+  `rotate.cu` promet qu'un dépassement corromprait en silence, et le §5 de
+  CLAUDE.md dit qu'une garantie qu'on croit tenue sans l'avoir réénoncée est
+  la classe d'erreur la plus chère du dépôt. Ici elle a coûté 0,24 $.
+
+CE QUE LE GARDE A CONFONDU                                            [corrigé]
+
+  Il comparait 17408 × 4 au DÉFAUT de la carte, en croyant comparer à sa
+  limite. Sur sm_70 et au-delà il y en a deux, et le préflight du 2026-08-05
+  n'en journalisait qu'une (`cuda-preflight-2026-08-05.txt:29`) :
+
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK          49 152 o  ← lue
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN   101 376 o  ← jamais lue
+    CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR 102 400 o  ← lue
+
+  La seconde s'obtient en posant CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES
+  sur la FONCTION, une fois, avant tout lancement. Le noyau ne change pas d'une
+  ligne : c'est l'arithmétique de l'hôte qui refusait le 14B.
+
+  ⚠️ Les 101 376 o de la ligne du milieu sont la valeur DOCUMENTÉE de sm_89
+  (100 Kio moins le kibioctet que le driver réserve). Elle n'a PAS encore été
+  lue sur cette carte — le code lit l'attribut, jamais `shared_per_sm − 1024`,
+  et le prochain `preflight` l'imprimera. Tant qu'il n'a pas tourné, ce nombre
+  est une valeur de fiche, pas une mesure.
+
+LES QUATRE LARGEURS DU DÉLIVRABLE                                     [calculé]
+
+  La largeur qui compte est `intermediate_size` : c'est l'activation d'entrée
+  de `down_proj`, la plus large que le noyau de rotation ait à mettre en
+  partagée (une f32 par coordonnée, quel que soit le dtype d'entrée).
+
+    modèle   intermediate_size   partagée   défaut 49 152   opt-in ~101 376
+    ------   -----------------   --------   -------------   ---------------
+    4B                   9 728     38 912         ✅               ✅
+    8B                  12 288     49 152         ✅ à l'octet     ✅
+    14B                 17 408     69 632         ❌               ✅
+    32B                 25 600    102 400         ❌               ❌ de 1 024 o
+
+  Le 8B tenait EXACTEMENT à la limite. Rien ne l'a jamais signalé, parce que
+  rien n'échouait : le premier modèle plus large que lui est le premier à
+  toucher le mur, et il le touche d'emblée.
+
+  Le 32B rate l'opt-in de 1 024 octets — un kibioctet sur cent. Ce n'est pas
+  une marge à gratter côté hôte : c'est la réserve du driver.
+
+CE QUE CE MUR N'EST PAS
+
+  Ce n'est pas un mur de FORMAT. La rotation est la même quel que soit le
+  layout — Planes14, Planes12x, Slot32, Golay70, E1v : tous décodent des poids
+  qui vivent dans la base tournée, et tous appellent le même `rot_apply`.
+  Aucun verdict de format de `format-noyau.md` n'est touché, et aucun ne
+  déplace ce mur.
+
+  Ce n'est pas non plus une part du PLANCHER du 2026-08-16 : celui-ci
+  chronomètre 252 projections d'un token, la rotation exclue. Les rapprocher
+  demande de refaire l'attribution, pas de reporter un nombre.
+
+CE QUI A ÉTÉ FAIT, ET CE QUI RESTE                                    [2026-08-17]
+
+  fait, 0 $ :
+    * `DeviceReport.shared_per_block_optin` — l'attribut est LU, pas dérivé
+    * `Cuda::func_dynamic_shared` — l'opt-in posé sur la fonction, au chargement
+    * `llvq_cuda::shared` — l'arithmétique de la borne, portable et testée sur
+      le Mac (5 tests, 7 mutants tués), parce que ses deux appelants vivent
+      sous cfg(linux) où rien ne les compile hors construction d'image
+    * le garde de `fused_cuda.rs` compare aux DEUX bornes et nomme celle qui
+      est franchie ; il refuse toujours le 32B
+    * `bin/rotbench` gagne le cas 17408 — le seul qui exerce l'opt-in, et le
+      seul moyen de le vérifier sur carte sans lancer un 14B entier
+      🚨 conséquence à connaître AVANT de le relancer : poser l'opt-in vaut
+      pour la FONCTION, donc pour tous les cas du run. Les colonnes
+      d'exactitude restent comparables aux journaux antérieurs, la colonne
+      des µs ne l'est pas — un run qui veut l'ancien objet retire la ligne
+      17 408. Le dépôt ne soustrait pas deux runs qui n'ont jamais coexisté.
+
+  reste :
+    * reconstruire l'image (le chemin CUDA n'a aucun filet local) puis
+      relancer `rotbench` avant `fusedrun` : quelques minutes contre 488 s
+    * rien pour le 32B. La seule piste nommée est une partagée en f16
+      (51 200 o, sous le DÉFAUT, donc même pas besoin de l'opt-in), et son
+      coût est numérique : à n = 25 600 la transformée est m = 1 024, soit
+      10 barrières de Walsh–Hadamard, suivies d'un mélange dense k = 25 —
+      25 600 termes contribuent à chaque coordonnée, la profondeur
+      d'accumulation d'une Hadamard de ~14,6 étages, et elle se ferait
+      alors en demi-précision. C'est un arbitrage numérique, pas une astuce.
+      Il n'est pas tranché, et il n'a pas été conçu ici.

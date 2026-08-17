@@ -91,8 +91,8 @@ mod linux {
             dev.l2_bytes as f64 / 1e6
         );
         println!(
-            "  mémoire partagée       {} o/bloc, {} o/SM",
-            dev.shared_per_block, dev.shared_per_sm
+            "  mémoire partagée       {} o/bloc par défaut, {} o/bloc après opt-in, {} o/SM",
+            dev.shared_per_block, dev.shared_per_block_optin, dev.shared_per_sm
         );
         println!(
             "  bande passante fiche   {:.0} Go/s ({} bits à {:.0} MHz, DDR)",

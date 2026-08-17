@@ -835,12 +835,21 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 >    capacités, et pas seulement de perplexité, sur l'axe d'échelle
 >    ([`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
 >    🕳️ **Ce point disait « mais en ralentissant » et « le point 14B plie la
->    courbe : voir le genou en §3bis » — les deux sont RETIRÉS le 2026-08-17.**
->    Le ralentissement de l'écart au 4 bits n'est **pas résolu** entre 8B et 14B
->    (1,40 pp, SE 1,68, p = 0,40), et du côté perplexité le pas 4B→8B qui porte
->    le « −43 % » **n'est pas barrable** (journal 4B de synthèse). Ce qui est
->    testé : la fonte 4B→14B (8,36 pp, p ≈ 1e-5) et la fonte 4B→8B (p = 0,0001).
->    ⚠️ Et p = 0,40 ne prouve pas l'égalité non plus. Cf. §3bis.
+>    courbe : voir le genou en §3bis » — les deux ont été RETIRÉS le 2026-08-17
+>    (matin), puis la moitié perplexité a été RENDUE le soir. 🚨 Le verdict
+>    DÉPEND DE LA MÉTRIQUE, et une phrase qui ne la nomme pas est fausse de
+>    moitié.** Sur l'**écart MMLU au 4 bits**, le ralentissement reste **non
+>    résolu** entre 8B et 14B (1,40 pp, SE 1,68, p = 0,40) ; ce qui y est testé
+>    est la fonte 4B→8B (p = 0,0001) et la fonte 4B→14B (8,36 pp, p ≈ 1e-5).
+>    Sur la **perplexité**, il est **RÉSOLU** — pas 4B→8B ×0,881211
+>    [0,856 ; 0,907], pas 8B→14B ×0,974855 [0,959 ; 0,991], et leur différence
+>    appariée vaut **−0,100992, IC95 [−0,137670 ; −0,064313], t = −6,06**
+>    ([`mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt)).
+>    🕳️ Ce qui a changé entre les deux, ce ne sont pas les données mais leur
+>    disponibilité : « le pas 4B→8B n'est pas barrable, journal 4B de synthèse »
+>    était vrai le matin et faux le soir, les NLL du 4B ayant été retrouvées
+>    dans les logs du job. ⚠️ Et p = 0,40 ne prouve toujours pas l'égalité sur
+>    MMLU. Cf. §3bis.
 >
 > ⚠️ **Un point non expliqué, et il faut le laisser visible.** Le bras
 > quantifié perd 0,50 pp entre le run Metal du 08-02 (56,09) et le run CUDA du
@@ -1038,16 +1047,48 @@ c'est le même qui cesse d'être nu.
 🚨 **« Il est divisé par deux en doublant la taille » et « l'écart fond deux
 fois plus vite que le déficit lui-même » restent RETIRÉS par le point 14B** —
 vrais sur les deux premiers points, faux sur le fil complet. Les nombres :
-l'excès de **perplexité** fond de **−43 %** de 4B à 8B puis de **−14 %** de 8B
-à 14B (×1,3845 → ×1,2201 → ×1,1894 — *calculé* sur les excès 0,3845 / 0,2201 /
-0,1894), et l'écart MMLU au 4 bits passe de 14,45 à 7,49 puis à 6,09 pp.
+l'excès de **perplexité** fond de **−42,8 %, IC95 [−51,8 ; −33,5]** de 4B à 8B
+puis de **−13,9 %, IC95 [−22,8 ; −4,9]** de 8B à 14B (×1,3845 → ×1,2201 →
+×1,1894 ; les points sont *calculés* sur les excès 0,3845 / 0,2201 / 0,1894,
+les intervalles sont appariés fenêtre par fenêtre depuis le 2026-08-17 — 🕳️ le
+premier a longtemps circulé en « −43 % », et en « −42 % » dans ce fichier, qui
+en était la **troncature**), et l'écart MMLU au 4 bits passe de 14,45 à 7,49
+puis à 6,09 pp.
 
-🚨 **MAIS « LA COURBE A UN GENOU » NE SURVIT PAS AU TEST, et cette phrase-là
-est RETIRÉE (2026-08-17).** Ce paragraphe affirmait « **la courbe a un genou** :
-elle ne se referme pas au même rythme, elle ralentit », et concluait « le genou
-est le premier signe que l'extrapolation linéaire aurait été fausse ». C'était
-écrit sur des points **nus**. Les trois écarts étant désormais homogènes, la
-chute d'un palier au suivant se teste (SE composées en quadrature — *calculé* ;
+🚨 **« LA COURBE A UN GENOU » NE SURVIT PAS AU TEST *SUR MMLU*, et cette
+phrase-là est RETIRÉE (2026-08-17) — mais elle survit EN PERPLEXITÉ, mesurée le
+soir même. 🚨 TOUTE PHRASE SUR LE GENOU DOIT DÉSORMAIS NOMMER SA MÉTRIQUE : un
+« le genou tient » nu est faux de moitié, un « le genou ne tient pas » nu l'est
+de l'autre moitié.** Ce paragraphe affirmait « **la courbe a un genou** : elle
+ne se referme pas au même rythme, elle ralentit », et concluait « le genou est
+le premier signe que l'extrapolation linéaire aurait été fausse » ; c'était
+écrit sur des points **nus**, et ce qui suit remplace l'assurance par deux
+verdicts distincts.
+
+| métrique | pas 4B→8B | pas 8B→14B | le ralentissement |
+|---|---|---|---|
+| **perplexité** *(apparié, 12 fenêtres, même texte aux trois tailles)* | ×0,881211 [0,856 ; 0,907], t = −9,62 | ×0,974855 [0,959 ; 0,991], t = −3,38 | ✅ **RÉSOLU** — pas1 − pas2 = **−0,100992** [−0,137670 ; −0,064313], t = −6,06, 11/12 fenêtres |
+| **écart MMLU au 4 bits** *(non apparié entre tailles, SE en quadrature)* | −6,96 pp, p = 0,0001 | −1,40 pp, p = 0,40 | ❌ **NON RÉSOLU** sur le second pas |
+
+🚨 **Ce n'est pas une contradiction, c'est une information : deux métriques,
+deux verdicts.** Trois mécanismes suffisent à l'expliquer sans supposer d'erreur
+nulle part. (1) **Puissance** : la perplexité est appariée *entre tailles* — la
+fenêtre *i* est le même texte aux trois campagnes, empreinte
+`3f1baca9033bf251` partout — et pèse **49 140 tokens scorés** ; MMLU compose
+deux campagnes indépendantes de **2 280 questions**, sans appariement possible.
+(2) **Elles ne mesurent pas la même chose** : le §3ter établit depuis le
+2026-08-02 que le 2 bits abîme le **raisonnement** bien plus que la
+**restitution**, et c'est la restitution qu'un corpus de perplexité mesure
+surtout — une courbe peut plier sur l'une et pas sur l'autre. (3) Les deux
+lignes ne comparent pas les mêmes bras (perplexité : LLVQ contre f16 ; MMLU :
+LLVQ contre AWQ) — mais sur la référence AWQ la perplexité **reste résolue**
+(−0,057562 [−0,101127 ; −0,013997], t = −2,91), donc le changement de référence
+n'explique pas l'écart à lui seul.
+Source : [`mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt),
+données dans [`docs/data/ppl-genou.csv`](docs/data/ppl-genou.csv).
+
+**Le détail du côté MMLU**, où la chute d'un palier au suivant se teste depuis
+que les trois écarts sont homogènes (SE composées en quadrature — *calculé* ;
 campagnes distinctes et modèles différents, donc pas d'appariement
 inter-modèles, qui n'aurait aucun sens) :
 
@@ -1057,20 +1098,35 @@ inter-modèles, qui n'aurait aucun sens) :
 | **8B → 14B** | **1,40 pp** | **1,68** | **0,83** | **0,40** | ❌ **NON RÉSOLU** |
 | 4B → 14B | 8,36 pp | 1,91 | 4,38 | ≈ 1e-5 | ✅ **RÉSOLU** |
 
-**La première fermeture est réelle, la seconde est dans le bruit.** Le
-ralentissement est une propriété des points estimés que les barres ne séparent
-pas. ⚠️ **Et p = 0,40 ne prouve pas l'égalité non plus** : sur ce palier les
-données sont **muettes**, pas concluantes — « ça ralentit » et « ça continue »
-restent toutes deux compatibles avec ces trois points.
+**Sur MMLU, la première fermeture est réelle, la seconde est dans le bruit.**
+Le ralentissement y est une propriété des points estimés que les barres ne
+séparent pas. ⚠️ **Et p = 0,40 ne prouve pas l'égalité non plus** : sur ce
+palier les données sont **muettes**, pas concluantes — « ça ralentit » et « ça
+continue » restent toutes deux compatibles avec ces trois points. **Ce
+non-verdict-là n'est pas levé par la perplexité** : une seconde métrique qui
+répond ne rend pas la première bavarde.
 
-⚠️ **Du côté perplexité, le genou n'est même pas testable**, et pour une raison
-de conservation, pas de statistique : le pas 8B→14B a maintenant sa barre
-(−13,9 %, IC95 [−22,8 ; −4,9] sur la référence f16 — réel mais **mal borné**,
-un facteur 4,6 entre les deux bouts), mais le pas 4B→8B qui porte le « −43 % »,
-et donc toute la force de l'argument, **n'est pas barrable** : le journal de la
-campagne 4B est une synthèse sans NLL par fenêtre (§3ter et
-[`mesures/ppl-appariee-8b-14b-2026-08-17.txt`](docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt)).
-**On compare un pas barré à un pas nu.**
+🚨 **Du côté perplexité, ce paragraphe a dit « le genou n'est même pas
+testable », et c'est DÉMENTI le soir du 2026-08-17.** Le motif invoqué était
+une raison de conservation, pas de statistique — « le pas 4B→8B qui porte le
+−43 % n'est pas barrable, le journal de la campagne 4B est une synthèse sans
+NLL par fenêtre » — et il est tombé avec la récupération des NLL du 4B dans les
+logs du job ([`mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt),
+0 $). **Les deux pas sont barrés, et le genou de perplexité est RÉSOLU** —
+table ci-dessus. La fonte de l'excès vaut **−42,8 %, IC95 [−51,8 ; −33,5] %**
+du 4B au 8B (le « −43 % » publié depuis le 2026-08-10 reçoit enfin sa barre, et
+il est reproduit à 0,2 point près) contre **−13,9 %, IC95 [−22,8 ; −4,9]** du
+8B au 14B.
+⚠️ **Ce que cette barre ne couvre pas** : elle porte la seule variabilité du
+corpus d'évaluation. Le genou compare **trois artefacts produits chacun une
+fois** ; le tirage de **calibration** est absent aux trois échelles, et
+l'ajouter en empruntant le σ de 0,7 % serait fabriquer un nombre. Un t = −6,06
+sur la variabilité de corpus ne dit rien de ce que trois autres graines
+auraient donné.
+⚠️ Et sur la référence **AWQ**, le pas 8B→14B reste à la limite de la détection
+(t = 2,2063 contre un seuil de 2,200985 : il exclut zéro **de 0,005**) — **ne
+jamais écrire « l'écart se referme significativement »**. Le *genou* y est
+résolu, le *pas* non : deux énoncés différents sur la même colonne de chiffres.
 
 **Ce qui sort RENFORCÉ de tout ceci est ce que le dossier écrivait déjà** : à
 4B le choix ne se discute pas ; à 8B c'est un arbitrage réel — 7,5 points de
@@ -1679,11 +1735,11 @@ d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 >
 > | | Qwen3-4B | **Qwen3-8B** | **Qwen3-14B** | le fil |
 > |---|---|---|---|---|
-> | ppl, dégradation | ×1,3845 | **×1,2201** | **×1,1894** | excès **−43 %** puis **−14 %** |
+> | ppl, dégradation | ×1,3845 | **×1,2201** | **×1,1894** | excès **−42,8 %** [−51,8 ; −33,5] puis **−13,9 %** [−22,8 ; −4,9] |
 > | MMLU micro, f16 → LLVQ | 70,32 → 55,59 | **76,08 → 65,52** | **78,97 → 72,12** | — |
 > | chute MMLU | −14,73 pp | **−10,56 pp** | **−6,85 pp** [+4,52 ; +9,12] | +7,0 puis +5,2 pp de rétention |
 > | **écart LLVQ ↔ AWQ 4 bits, MMLU** *(apparié aux trois)* | **14,45 pp** [+11,60 ; +17,27] | **7,49 pp** [+5,28 ; +9,70] | **6,09 pp** [+3,62 ; +8,52] | 14,45 → 7,49 → **6,09** — ✅ **même espèce de nombre depuis le 2026-08-17**, cf. §3bis |
-> | ppl, excès contre f16 *(IC apparié fenêtre par fenêtre)* | ⚠️ **AUCUN** — journal de synthèse | **+22,01 %** [+19,37 ; +24,70] | **+18,94 %** [+17,22 ; +20,68] | 4B non barrable sans rejeu |
+> | ppl, excès contre f16 *(IC apparié fenêtre par fenêtre)* | **+38,45 %** [+33,62 ; +43,45] | **+22,01 %** [+19,37 ; +24,70] | **+18,94 %** [+17,22 ; +20,68] | ✅ **barré aux trois tailles depuis le 2026-08-17 (soir)** — 🕳️ la cellule 4B portait « ⚠️ AUCUN — journal de synthèse, non barrable sans rejeu », démenti par la récupération des NLL dans les logs du job |
 >
 > 🚨 **« L'écart au 4 bits fond deux fois plus vite que le déficit lui-même »
 > est RETIRÉ par le point 14B.** C'était juste sur les deux premiers points —
@@ -1693,13 +1749,17 @@ d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 > et l'excès de perplexité ne fond plus que de **−14 %** contre **−43 %** au
 > palier précédent.
 > 🚨 **Cette ligne concluait « Il y a un genou, et une phrase qui décrit une
-> fonte régulière décrit une courbe qui n'existe pas » — la seconde moitié
-> tient, la PREMIÈRE est RETIRÉE le 2026-08-17.** La chute d'un palier au
-> suivant se teste maintenant que les trois écarts sont appariés :
-> **4B→8B −6,96 pp, p = 0,0001, résolu** ; **8B→14B −1,40 pp, p = 0,40, NON
-> résolu** ; 4B→14B −8,36 pp, p ≈ 1e-5, résolu. Le ralentissement n'est pas
-> séparé par les barres. ⚠️ Et p = 0,40 ne prouve pas l'égalité : les données
-> sont **muettes** sur ce palier. Détail et méthode au §3bis.
+> fonte régulière décrit une courbe qui n'existe pas ». La seconde moitié
+> tient ; la PREMIÈRE a été RETIRÉE le 2026-08-17 (matin) puis RENDUE le soir
+> — SUR UNE SEULE DES DEUX MÉTRIQUES, et c'est ça qu'il faut nommer.**
+> Sur l'**écart MMLU au 4 bits**, la chute d'un palier au suivant se teste
+> depuis que les trois écarts sont appariés : **4B→8B −6,96 pp, p = 0,0001,
+> résolu** ; **8B→14B −1,40 pp, p = 0,40, NON résolu** ; 4B→14B −8,36 pp,
+> p ≈ 1e-5, résolu — le ralentissement n'y est pas séparé par les barres, et
+> p = 0,40 ne prouve pas l'égalité, les données y sont **muettes**.
+> Sur la **perplexité**, il est **RÉSOLU** : pas1 − pas2 = **−0,100992**
+> [−0,137670 ; −0,064313], t = −6,06, apparié fenêtre par fenêtre.
+> Détail, mécanisme et règle de rédaction au §3bis.
 > Sources : [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md),
 > [`mesures/campagne-8b-qualite-2026-08-08.txt`](docs/mesures/campagne-8b-qualite-2026-08-08.txt),
 > [`mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt).
@@ -1767,12 +1827,18 @@ d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 > résolu**.
 > 🕳️ **En revanche « depuis le 14B on sait au moins qu'elle n'est pas droite »
 > et « ce que le genou dit, c'est qu'une extrapolation linéaire aurait
-> sur-promis » sont RETIRÉS le 2026-08-17 — c'est exactement ce que le test ne
-> donne pas.** Le second palier n'est **pas résolu** (1,40 pp, SE 1,68,
-> p = 0,40), donc on ne sait précisément **pas** que la courbe n'est pas droite ;
-> on sait qu'elle se referme du 4B au 14B (8,36 pp, p ≈ 1e-5) et que la première
-> moitié de cette fermeture est réelle (p = 0,0001). ⚠️ Symétriquement, p = 0,40
-> ne dit pas non plus que la fermeture continue — les données sont **muettes**.
+> sur-promis » ont été RETIRÉS le 2026-08-17 (matin) — et le soir la
+> perplexité les rend, SUR SA PROPRE COURBE.** ⚠️ Ce sont **deux courbes**, et
+> les confondre est la faute que ce paragraphe existe désormais pour empêcher.
+> Sur la courbe de l'**écart MMLU au 4 bits**, le second palier n'est **pas
+> résolu** (1,40 pp, SE 1,68, p = 0,40) : on ne sait précisément **pas** qu'elle
+> n'est pas droite ; on sait qu'elle se referme du 4B au 14B (8,36 pp,
+> p ≈ 1e-5) et que la première moitié de cette fermeture est réelle
+> (p = 0,0001). ⚠️ Symétriquement, p = 0,40 ne dit pas non plus que la
+> fermeture continue — les données y sont **muettes**. Sur la courbe de
+> **perplexité**, en revanche, la courbure est **mesurée** : pas1 − pas2 =
+> −0,100992 [−0,137670 ; −0,064313], t = −6,06 — cette courbe-là n'est pas
+> droite, et l'extrapolation linéaire y aurait bien sur-promis.
 > **La conclusion opérationnelle est inchangée et mieux fondée : on ne publie
 > pas de loi d'échelle sur trois points.** Le point 32B coûterait ~60 $ et une
 > nuit, et c'est lui qui trancherait — la question qu'il tranche étant
@@ -2254,15 +2320,43 @@ casse la compatibilité des fichiers quantifiés (§4).
   héberge que la version *projections seules*. `hf buckets ls` change ce qu'on
   sait, pas ce qui existe. ⚠️ Et le bucket (**69 fichiers, 46,7 Go**) n'a
   **jamais été inventorié** depuis sa création le 2026-08-02.
+- 🚨 **ÉLARGIE LE 2026-08-17 (soir), et ce n'est plus un incident mais un
+  MOTIF : avant de budgéter un re-run, ÉPUISER LES CANAUX DE RÉTENTION —
+  `hf buckets ls`, `hf jobs logs`, `hf jobs inspect`.** La règle ci-dessus
+  nommait **un** domicile de secours ; il y en a au moins **deux**, et la
+  deuxième prise est tombée le lendemain de la première. **Deux fois en deux
+  jours, une sortie déclarée perdue vivait ailleurs, et dans les deux cas une
+  dépense avait été devisée contre cette absence** : les dumps MMLU du 14B dans
+  le **bucket monté** (une campagne à refaire → 579 ko), puis les **NLL par
+  fenêtre du 4B dans les logs du job** (`hf jobs logs 6a746d8f6b79c09949c23fb4`,
+  devisé à ~0,25 $ de rejeu carte → 0 $ et deux secondes). La cause est la même
+  aux deux coups : la conclusion « perdu » venait d'avoir cherché **au mauvais
+  endroit**, jamais d'un canal interrogé et vide. `hf jobs inspect` complète le
+  jeu — il rend la **ligne de commande exacte** d'un job passé, donc l'argument
+  qu'on croit devoir redécouvrir en relançant. **Chiffrer un rejeu avant d'avoir
+  regardé aux trois endroits, c'est budgéter son ignorance.**
+  ⚠️ **Et la rétention des logs HF n'est NI documentée NI garantie** : elle
+  couvre aujourd'hui les 62 jobs du projet depuis le 2026-08-02 (vérifié sur le
+  plus ancien), elle peut cesser demain — d'où le commit du brut, cf. le point
+  suivant.
 - 🔎 **Un journal de SYNTHÈSE est une perte irréversible ; garder la sortie
   brute.** Les campagnes 8B et 14B ont conservé leurs **NLL par fenêtre**, donc
   leurs neuf cellules de perplexité ont reçu un intervalle apparié le
-  2026-08-17 — pour 0 $, sans rejouer un token. La campagne 4B a conservé un
-  **tableau de ppl agrégées** : ses trois cellules ne sont **pas barrables**, et
-  aucune des trois paires n'est formable. Ce n'est pas une des trois qui manque,
-  ce sont les trois. `bin/ppl` imprime les NLL à 9 décimales **sur stderr**
-  exprès ; c'est en les laissant filer que le 4B s'est retrouvé sans elles. Le
-  coût de la sortie brute est **quelques kilo-octets**.
+  2026-08-17 — pour 0 $, sans rejouer un token. `bin/ppl` imprime les NLL à
+  9 décimales **sur stderr** exprès. Le coût de la sortie brute est **quelques
+  kilo-octets**.
+  🚨 **Ce point disait « la campagne 4B a conservé un tableau de ppl agrégées :
+  ses trois cellules ne sont pas barrables, et aucune des trois paires n'est
+  formable — ce n'est pas une des trois qui manque, ce sont les trois ».
+  DÉMENTI le soir même** : les NLL du 4B vivaient dans les logs du job, elles
+  sont commitées
+  ([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt),
+  sha256 `07bf4119…`), et **les trois cellules du 4B ont leur barre**.
+  **Ce que le point garde, et qui est renforcé** : le raisonnement était juste,
+  seule sa prémisse était fausse — un journal de synthèse *est* une perte
+  irréversible **dès que le canal de rétention expire**, et c'est précisément
+  parce qu'aucune garantie ne couvre ce canal que le brut est désormais dans le
+  dépôt plutôt que cité par identifiant de job.
 
 **Trois règles de chiffres, chacune payée par une erreur publiée :**
 
