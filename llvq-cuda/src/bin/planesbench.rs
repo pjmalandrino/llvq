@@ -401,6 +401,9 @@ mod linux {
         f16_bytes: u64,
         y_ref: Vec<f64>,
         y16_ref: Vec<f64>,
+        /// La référence du bras cublasf16 : poids f16 × entrée binary16 —
+        /// construite seulement quand le bras l'est.
+        y16h_ref: Option<Vec<f64>>,
         scale: Vec<f64>,
     }
 
@@ -422,6 +425,8 @@ mod linux {
             // le point.
             arms::NULLK => ((m.d_out * m.tail_w) as u64 + m.d_out as u64) * 4,
             arms::FP16 => m.f16_bytes,
+            // Mêmes octets que le témoin : cublasf16 lit le MÊME w16.
+            arms::CUBLASF16 => m.f16_bytes,
             arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
             _ => unreachable!("bras inconnu"),
         }
@@ -1020,8 +1025,10 @@ mod linux {
         // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
         // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
         // format entre concurrents, pas un réglage, et elle se déclare. Elle
-        // n'existe que si le bras concurrent tourne.
-        let d_xh = match union.has(arms::AWQ) {
+        // n'existe que si un bras à entrée binary16 tourne — AWQ, et depuis
+        // le 2026-08-18 cublasf16 (GemmEx exige A et B du même type : x doit
+        // être en binary16 comme les poids).
+        let d_xh = match union.has(arms::AWQ) || union.has(arms::CUBLASF16) {
             true => {
                 let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
                 Some(cuda.up_u16(&xh)?)
@@ -1097,12 +1104,17 @@ mod linux {
             let mut awq_s = awq_on.then(|| vec![0u16; d_out * aws]);
             let mut y_awq_ref = awq_on.then(|| vec![0.0f64; d_out]);
             let mut awq_scale = awq_on.then(|| vec![0.0f64; d_out]);
-            // L'activation telle que le noyau AWQ la voit : binary16, lue par
-            // `float4` de huit. La référence doit être calculée contre
-            // celle-ci, pas contre la f32, sinon on facture au bras un écart
-            // qui n'est pas le sien.
-            let xh_f64: Option<Vec<f64>> = awq_on
+            // L'activation telle que le noyau AWQ — et cublasf16 — la voit :
+            // binary16. La référence doit être calculée contre celle-ci, pas
+            // contre la f32, sinon on facture au bras un écart qui n'est pas
+            // le sien.
+            let cublas_on = union.has(arms::CUBLASF16);
+            let xh_f64: Option<Vec<f64>> = (awq_on || cublas_on)
                 .then(|| x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect());
+            // La référence du bras cublasf16 : poids f16 × entrée binary16,
+            // accumulée en f64 — ni `y_ref` (poids exacts) ni `y16_ref`
+            // (poids f16 mais entrée f32) ne décrivent ce que GemmEx calcule.
+            let mut y16h_ref = cublas_on.then(|| vec![0.0f64; d_out]);
             let nthreads = std::thread::available_parallelism().map_or(8, |n| n.get());
             let chunk = d_out.div_ceil(nthreads);
             let n_chunks = d_out.div_ceil(chunk);
@@ -1132,26 +1144,28 @@ mod linux {
             let asc_v = opt_chunks(&mut awq_s, chunk * aws, n_chunks);
             let yawc_v = opt_chunks(&mut y_awq_ref, chunk, n_chunks);
             let asqc_v = opt_chunks(&mut awq_scale, chunk, n_chunks);
+            let y16hc_v = opt_chunks(&mut y16h_ref, chunk, n_chunks);
             std::thread::scope(|sc| {
-                for (ci, ((((((((w16c, yc), y16c), scc), awc), azc), asc), yawc), asqc)) in w16
-                    .chunks_mut(chunk * d_in)
-                    .zip(y_ref.chunks_mut(chunk))
-                    .zip(y16_ref.chunks_mut(chunk))
-                    .zip(scale.chunks_mut(chunk))
-                    .zip(awc_v)
-                    .zip(azc_v)
-                    .zip(asc_v)
-                    .zip(yawc_v)
-                    .zip(asqc_v)
-                    .enumerate()
+                for (ci, (((((((((w16c, yc), y16c), scc), awc), azc), asc), yawc), asqc), y16hc)) in
+                    w16.chunks_mut(chunk * d_in)
+                        .zip(y_ref.chunks_mut(chunk))
+                        .zip(y16_ref.chunks_mut(chunk))
+                        .zip(scale.chunks_mut(chunk))
+                        .zip(awc_v)
+                        .zip(azc_v)
+                        .zip(asc_v)
+                        .zip(yawc_v)
+                        .zip(asqc_v)
+                        .zip(y16hc_v)
+                        .enumerate()
                 {
                     let (rt, table, x, src, planes) = (&rt, &table, &x, &s, &planes_data);
                     let p12 = &p12;
                     let (g70, g70cls, golay) = (&g70, &g70cls, &golay);
                     let xh = &xh_f64;
                     sc.spawn(move || {
-                        let (mut awc, mut azc, mut asc, mut yawc, mut asqc) =
-                            (awc, azc, asc, yawc, asqc);
+                        let (mut awc, mut azc, mut asc, mut yawc, mut asqc, mut y16hc) =
+                            (awc, azc, asc, yawc, asqc, y16hc);
                         let mut wrow = vec![0.0f64; d_in];
                         for lr in 0..yc.len() {
                             let row = ci * chunk + lr;
@@ -1220,7 +1234,7 @@ mod linux {
                             for t in 0..tail_w {
                                 wrow[nblocks * DIM + t] = src.tail[row * tail_w + t] as f64;
                             }
-                            let (mut a, mut b, mut ss) = (0.0, 0.0, 0.0);
+                            let (mut a, mut b, mut bh, mut ss) = (0.0, 0.0, 0.0, 0.0);
                             for c in 0..d_in {
                                 let xv = x[c] as f64;
                                 let wv = wrow[c];
@@ -1228,10 +1242,17 @@ mod linux {
                                 w16c[lr * d_in + c] = hb;
                                 a += wv * xv;
                                 b += f16_to_f64(hb) * xv;
+                                // Entrée binary16 : la somme que GemmEx voit.
+                                if let Some(xhv) = xh.as_deref() {
+                                    bh += f16_to_f64(hb) * xhv[c];
+                                }
                                 ss += (wv * xv).abs();
                             }
                             yc[lr] = a;
                             y16c[lr] = b;
+                            if let Some(y16hc) = y16hc.as_deref_mut() {
+                                y16hc[lr] = bh;
+                            }
                             scc[lr] = ss;
                             // Le bras concurrent, sur les MÊMES poids : w4g128
                             // appliqué à ce que LLVQ a reconstruit. Ce n'est
@@ -1469,6 +1490,7 @@ mod linux {
                 f16_bytes: (d_out * d_in * 2) as u64,
                 y_ref,
                 y16_ref,
+                y16h_ref,
                 scale,
             })
         };
@@ -1621,7 +1643,7 @@ mod linux {
         // noyau. Un tampon séparé plutôt qu'une réinterprétation de `d_y` :
         // deux types, deux tampons, et rien qui puisse se recouvrir — et
         // pas de tampon du tout quand le bras n'est pas sélectionné.
-        let mut d_yh = match union.has(arms::AWQ) {
+        let mut d_yh = match union.has(arms::AWQ) || union.has(arms::CUBLASF16) {
             true => Some(cuda.zeros_u16(max_dout)?),
             false => None,
         };
@@ -1732,6 +1754,55 @@ mod linux {
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
+        // Le dénominateur cuBLAS (F1, 2026-08-18) : un handle lié au MÊME
+        // stream que tous les lancements, pour que `cuda.sync()` borne aussi
+        // ses appels — un handle sur un autre stream chronométrerait des
+        // enqueues, pas des exécutions.
+        let blas = match union.has(arms::CUBLASF16) {
+            true => Some(
+                cudarc::cublas::CudaBlas::new(cuda.stream().clone())
+                    .map_err(|e| format!("cublasCreate : {e:?}"))?,
+            ),
+            false => None,
+        };
+        let run_cublas = |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
+            use cudarc::cublas::{result as cbr, sys as cbs};
+            use cudarc::driver::{DevicePtr, DevicePtrMut};
+            let blas = blas.as_ref().expect("bras cublasf16 non construit");
+            let xh = d_xh.as_ref().expect("activation binary16 non téléversée");
+            // W est d_out×d_in row-major, donc (d_in, d_out) en colonne-major
+            // avec lda = d_in ; op(A) = T rend le (d_out, d_in) que veut le
+            // matvec y = W·x, n = 1. Tout en R_16F, accumulation 32F — le
+            // combo GemmEx standard, celui que candle emploie.
+            let (wp, _wg) = m.w16.device_ptr(cuda.stream());
+            let (xp, _xg) = xh.device_ptr(cuda.stream());
+            let (yp, _yg) = y.device_ptr_mut(cuda.stream());
+            let (alpha, beta) = (1.0f32, 0.0f32);
+            unsafe {
+                cbr::gemm_ex(
+                    *blas.handle(),
+                    cbs::cublasOperation_t::CUBLAS_OP_T,
+                    cbs::cublasOperation_t::CUBLAS_OP_N,
+                    m.d_out as i32,
+                    1,
+                    m.d_in as i32,
+                    &alpha as *const f32 as *const std::ffi::c_void,
+                    wp as *const std::ffi::c_void,
+                    cbs::cudaDataType_t::CUDA_R_16F,
+                    m.d_in as i32,
+                    xp as *const std::ffi::c_void,
+                    cbs::cudaDataType_t::CUDA_R_16F,
+                    m.d_in as i32,
+                    &beta as *const f32 as *const std::ffi::c_void,
+                    yp as *mut std::ffi::c_void,
+                    cbs::cudaDataType_t::CUDA_R_16F,
+                    m.d_out as i32,
+                    cbs::cublasComputeType_t::CUBLAS_COMPUTE_32F,
+                    cbs::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
+                )
+                .map_err(|e| format!("cublasGemmEx : {e:?}"))
+            }
+        };
         let run_slot_seg =
             |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
                 cuda.launch_slot_seg(
@@ -1779,6 +1850,23 @@ mod linux {
                         let aw = m.awq.as_ref().expect("bras awq non construit");
                         let e = worst_error(&gotf, &aw.y_ref, &aw.scale);
                         assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
+                        e
+                    }
+                    // cuBLAS : même tolérance qu'AWQ et pour la même raison —
+                    // la sortie est arrondie en binary16 par GemmEx (C en
+                    // R_16F), pas parce qu'on lui pardonne quoi que ce soit.
+                    // Sa référence est la sienne : poids f16 × entrée
+                    // binary16, accumulée en f64.
+                    arms::CUBLASF16 => {
+                        let yh = d_yh.as_mut().expect("d_yh du bras cublasf16");
+                        run_cublas(m, yh)?;
+                        cuda.sync()?;
+                        let goth = cuda.down_u16(yh)?;
+                        let gotf: Vec<f32> =
+                            goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
+                        let want = m.y16h_ref.as_ref().expect("référence cublasf16 non construite");
+                        let e = worst_error(&gotf, want, &m.scale);
+                        assert!(e < AWQ_TOL, "{} / cublasf16 : {e:.2e}·Σ|w·x|", m.name);
                         e
                     }
                     // 🚨 Le plancher n'a AUCUN étalon, et ne peut pas en avoir :
@@ -2106,8 +2194,8 @@ mod linux {
             }
             if !worsts.is_empty() {
                 println!(
-                    "  {rows} lignes, seuil {TOL:.0e} (AWQ : {AWQ_TOL:.0e}, sortie \
-                     binary16) — pires erreurs {} ·Σ|w·x|",
+                    "  {rows} lignes, seuil {TOL:.0e} (AWQ, cublasf16 : {AWQ_TOL:.0e}, \
+                     sortie binary16) — pires erreurs {} ·Σ|w·x|",
                     worsts.join(", ")
                 );
             }
@@ -2127,6 +2215,9 @@ mod linux {
                             arms::FP16 => run_f16(m, &mut d_y)?,
                             arms::AWQ => {
                                 run_awq(m, d_yh.as_mut().expect("d_yh du bras awq"))?
+                            }
+                            arms::CUBLASF16 => {
+                                run_cublas(m, d_yh.as_mut().expect("d_yh du bras cublasf16"))?
                             }
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
                             arms::E1V => run_e1v(m, &mut d_y)?,

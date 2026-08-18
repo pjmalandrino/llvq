@@ -127,8 +127,15 @@ pub const PHASE3_NEW: [usize; 8] = [
 pub const HAS_KERNEL: [bool; N_ARMS] = [
     // the six of the 2026-08-10 job, and the v2 campaign's seventh
     true, true, true, true, true, true, true,
-    // P4 §2.5 — cublasf16, mvkf16 : à écrire
-    false, false,
+    // cublasf16, écrit le 2026-08-18 (F1 du plan TACO) : pas un kernel à
+    // nous — un appel cublasGemmEx (16F/16F/16F, compute 32F, n = 1) sur le
+    // MÊME tampon w16 que le témoin fp16, vérifié contre sa propre référence
+    // f64 à entrée binary16. C'est le dénominateur que tout × publié
+    // attendait : si tv_f16 n'est pas au niveau de cuBLAS, c'est ici que ça
+    // se voit, avant qu'un rapporteur ne le fasse.
+    true,
+    // P4 §2.5 — mvkf16 : à écrire
+    false,
     // `nullk`, écrit le 2026-08-16. Il atterrit avant les sept autres bras de
     // P4 pour une raison de fond : il ne remplace aucun layout et n'a aucun
     // critère d'admission à satisfaire. Il MESURE — le reste que l'attribution
@@ -184,10 +191,12 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
 /// dispatch order: the witness first, v2 under v1, the competitor last.
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
-pub const DISPLAY_ORDER: [usize; 9] = [
+pub const DISPLAY_ORDER: [usize; 10] = [
     // Le plancher d'abord : c'est la quantité contre laquelle toutes les
     // autres se lisent, et la mettre en tête évite d'avoir à la chercher.
-    NULLK, FP16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
+    // cublasf16 juste après le témoin maison : les deux lignes que tout ×
+    // publié divise se lisent l'une sous l'autre.
+    NULLK, FP16, CUBLASF16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
 ];
 
 /// A set of arms, at most one bit per registered arm.

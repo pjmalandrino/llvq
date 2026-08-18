@@ -17,12 +17,41 @@ use cudarc::driver::PushKernelArg;
 use cudarc::nvrtc::{compile_ptx_with_opts, CompileOptions};
 use std::sync::Arc;
 
-/// Compute capability the image is built for, frozen in `ops/Dockerfile.cuda`
-/// as `CUDA_COMPUTE_CAP=89`. An L40S reports 8.9; `l4x1`, `a100`, `a10g` and
-/// `t4` cannot load code built for it, and `ops/run.py` refuses them before
-/// billing anything.
-pub const ARCH: &str = "compute_89";
-const ARCH_BINARY_VERSION: i32 = 89;
+/// Compute capability the NVRTC pass targets: `compute_89` (L40S, the only
+/// card every published number ran on) unless `LLVQ_NVRTC_ARCH` overrides
+/// it — added 2026-08-18 for the second-architecture point (F4 of the TACO
+/// plan). The value is pinned once per process, feeds both the compile and
+/// the `binary_version` assert below, and an unparseable value is refused
+/// by name rather than silently defaulted — the `LLVQ_FUSED_LAYOUT` rule.
+///
+/// `CompileOptions::arch` is `Option<&'static str>`, so the override leaks
+/// one small string per process, deliberately.
+pub fn arch() -> &'static str {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<&'static str> = OnceLock::new();
+    ONCE.get_or_init(|| match std::env::var("LLVQ_NVRTC_ARCH") {
+        Ok(s) => {
+            assert!(
+                s.strip_prefix("compute_")
+                    .and_then(|n| n.parse::<i32>().ok())
+                    .is_some(),
+                "LLVQ_NVRTC_ARCH={s} : attendu `compute_NN` (compute_80, compute_89, …)"
+            );
+            Box::leak(s.into_boxed_str())
+        }
+        Err(_) => "compute_89",
+    })
+}
+
+/// The sm the loaded function must report — derived from [`arch()`], never a
+/// second constant that could drift from it.
+fn arch_binary_version() -> i32 {
+    arch()
+        .strip_prefix("compute_")
+        .expect("arch() garantit le préfixe")
+        .parse()
+        .expect("arch() garantit le nombre")
+}
 
 /// What the card and the loaded kernel say about themselves.
 ///
@@ -177,7 +206,7 @@ pub struct Cuda {
 }
 
 impl Cuda {
-    /// Open device 0 and compile `src` for [`ARCH`].
+    /// Open device 0 and compile `src` for [`arch()`].
     pub fn new(src: &KernelSource) -> Result<Self, String> {
         let ctx = CudaContext::new(0).map_err(|e| format!("no CUDA device: {e}"))?;
         let stream = ctx.default_stream();
@@ -185,7 +214,7 @@ impl Cuda {
             // `arch` is `Option<&'static str>`; a value computed at runtime
             // would have to go through `options`, which NVRTC unrolls *after*
             // `--gpu-architecture=` and would therefore override it.
-            arch: Some(ARCH),
+            arch: Some(arch()),
             ..Default::default()
         };
         let ptx = compile_ptx_with_opts(&src.text, opts)
@@ -293,7 +322,7 @@ impl Cuda {
     pub fn on_stream(stream: Arc<CudaStream>, src: &KernelSource) -> Result<Self, String> {
         let ctx = stream.context().clone();
         let opts = CompileOptions {
-            arch: Some(ARCH),
+            arch: Some(arch()),
             ..Default::default()
         };
         let ptx = compile_ptx_with_opts(&src.text, opts)
@@ -394,12 +423,13 @@ impl Cuda {
             binary_version: g(f.binary_version())?,
             max_threads: g(f.max_threads_per_block())?,
         };
-        if rep.binary_version != ARCH_BINARY_VERSION {
+        if rep.binary_version != arch_binary_version() {
             return Err(format!(
-                "{name}: compiled for sm_{}, not sm_{ARCH_BINARY_VERSION}. NVRTC falls back to \
+                "{name}: compiled for sm_{}, not sm_{}. NVRTC falls back to \
                  compute_75 when no architecture is given, silently — nothing measured on this \
                  module would describe the card.",
-                rep.binary_version
+                rep.binary_version,
+                arch_binary_version()
             ));
         }
         Ok(rep)
