@@ -837,8 +837,17 @@ monotone** — elle culmine au 8B — et le mécanisme n'est pas la méthode mai
 **part de l'embedding** (9,7 % · 15,2 % · 10,5 %), que l'AWQ laisse en f16 et
 que nous passons en q8. *Trois points, un mécanisme, aucune loi.* ⚠️ Étiquettes :
 nos cellules sont *calculées* sur octets **mesurés**, embedding **modélisé** à
-8,5 b/param — même statut aux trois tailles. **Ni la vitesse ni la VRAM carte
-n'ont jamais été mesurées à 14B.**
+8,5 b/param — même statut aux trois tailles.
+🚨 **Cette entrée finissait sur « Ni la vitesse ni la VRAM carte n'ont jamais
+été mesurées à 14B » : DÉMENTI le soir même — le 14B est SERVI, 42,9 tok/s dans
+9,39 Go contre 17,0 dans 29,54 au bras dense, 128 tokens identiques**
+([`mesures/fusedrun-14b-2026-08-17.txt`](mesures/fusedrun-14b-2026-08-17.txt),
+job `6a83121be55292eada79b611`, 1,24 $). ⚠️ **Ce fil n'a pas encore son entrée
+pour ce run** — le journal fait foi en attendant.
+Le recoupement carte donne **5,0866 b/param** contre les
+5,106 de cette ligne, **−0,38 %**, dans une bande de ±0,5 % posée avant le run :
+c'est un **troisième instrument**, pas un remplacement (il divise un affichage
+arrondi au centième de Go).
 
 ✅ **4. LES NEUF CELLULES DE PERPLEXITÉ REÇOIVENT LEUR BARRE — sauf trois**
 ([`mesures/ppl-appariee-8b-14b-2026-08-17.txt`](mesures/ppl-appariee-8b-14b-2026-08-17.txt),
@@ -997,10 +1006,14 @@ toujours pas une loi, et le genou résolu ne dit pas où la courbe s'aplatit.**
 ✅ **3. LE DISQUE DU 14B EST ACQUIS, et il l'était sans qu'aucune surface le
 dise.** `qwen3-14b-llvq.bin` pèse **6 506 354 741 o = 6,506 Go** — *mesuré*,
 confirmé à l'octet par `hf buckets ls` **et** par le log de scellement, donc par
-deux routes indépendantes. Le triptyque du 14B est donc **disque acquis,
-vitesse manquante, VRAM carte manquante** : deux cellules vides, pas trois.
-⚠️ Aucune des deux n'est comblée par cette entrée, et rien ici n'anticipe une
-mesure qui n'existe pas.
+deux routes indépendantes. 🕳️ **Ce point disait « le triptyque du 14B est donc
+disque acquis, vitesse manquante, VRAM carte manquante : deux cellules vides,
+pas trois — aucune des deux n'est comblée par cette entrée » : c'était exact au
+moment où il a été écrit, et les DEUX cellules ont été comblées le soir même**
+(42,9 tok/s, 9,39 Go —
+[`mesures/fusedrun-14b-2026-08-17.txt`](mesures/fusedrun-14b-2026-08-17.txt)).
+La prudence de la dernière phrase était la bonne : elle n'anticipait pas la
+mesure, elle l'attendait.
 
 🕳️ **4. DETTE DE REGISTRE SOLDÉE : `jobs.csv` s'arrêtait au 2026-08-13** et
 manquait les deux jobs du 08-16 — `6a814ba31f5885ae605bcb55` (llvq-e1v, l40sx1,

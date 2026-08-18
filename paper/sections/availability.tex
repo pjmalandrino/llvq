@@ -40,7 +40,9 @@ The format is neither
 GGUF nor AWQ nor safetensors: no third-party runtime reads it, and the only
 reader that exists is the \texttt{llvq-artifact} crate in this repository.
 Serving additionally requires the rotation kernel of
-\S\ref{sec:limitations}, which is CUDA-only.
+\S\ref{sec:limitations}, which is CUDA-only and, on this hardware, caps the
+servable \texttt{intermediate\_size} at 25\,344 coordinates --- above the 14B,
+below the 32B.
 
 An artifact carries its own tokenizer and configuration, so on an NVIDIA GPU
 the served configuration of Table~\ref{tab:campaign} and the two evaluations

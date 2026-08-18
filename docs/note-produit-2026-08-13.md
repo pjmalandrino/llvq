@@ -382,16 +382,26 @@ même fichier) :
 > **Le 14B entre donc dans l'arbitrage VRAM du §B.** ⚠️ Deux réserves qui
 > comptent pour une note produit : (i) la marge **n'est pas monotone** — 4B
 > −2,6 %, 8B −10,6 %, 14B −5,5 % — et suit la **part de l'embedding** (9,7 % ·
-> 15,2 % · 10,5 %), pas la méthode ; (ii) **ni la vitesse ni la VRAM carte n'ont
-> jamais été mesurées à 14B**, donc ce point n'a pas le troisième instrument qui
-> recoupait le 4B et le 8B.
+> 15,2 % · 10,5 %), pas la méthode ; (ii) 🚨 **le point (ii) disait « ni la
+> vitesse ni la VRAM carte n'ont jamais été mesurées à 14B, donc ce point n'a
+> pas le troisième instrument » — DÉMENTI le 2026-08-17 (soir)** : le 14B est
+> servi, **42,9 tok/s dans 9,39 Go** contre **17,0 dans 29,54** au bras dense
+> ([`mesures/fusedrun-14b-2026-08-17.txt`](mesures/fusedrun-14b-2026-08-17.txt)),
+> et le troisième instrument rend **5,0866 b/param**, à **−0,38 %** du 5,106
+> ci-dessus. ⚠️ Pour une note produit, deux réserves demeurent : le brut ×2,53
+> **ne se cite jamais seul** (son dénominateur est notre bras dense handicapé,
+> et le handicap est maximal à cette taille), et **aucun rapport à tête
+> identique n'existe au 14B**.
 >
 > ✅ **Le DISQUE du 14B, lui, est acquis** — et il l'était sans qu'aucune surface
 > le dise : `qwen3-14b-llvq.bin` pèse **6 506 354 741 o = 6,506 Go** (*mesuré*,
 > confirmé à l'octet par `hf buckets ls` **et** par le log de scellement). Pour
 > une note produit c'est la cellule qui décide du **transport** et du stockage
-> client, et elle n'est pas vide. Le triptyque du 14B est donc **disque acquis,
-> vitesse manquante, VRAM carte manquante** : deux cellules à combler, pas trois.
+> client, et elle n'est pas vide. 🕳️ **Ce point finissait sur « le triptyque du
+> 14B est donc disque acquis, vitesse manquante, VRAM carte manquante : deux
+> cellules à combler, pas trois » — les deux ont été comblées le 2026-08-17
+> (soir)** (42,9 tok/s, 9,39 Go, cf. le 🚨 ci-dessus). **Le triptyque produit du
+> 14B est complet.**
 
 ## E. Les trois segments servis (détail : les trois packages de la passation)
 

@@ -46,15 +46,22 @@ of competitor, and it is the one that changed our reading of our own result.
 The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
 vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{Two models end to end, one GPU, greedy decoding.} Everything
-end-to-end is Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and
-greedy decode. The third model, Qwen3-14B, was quantified, sealed and scored
-but never served: it contributes quality to Table~\ref{tab:scale}, and a
-b/param computed from its sealed bytes, but nothing measured on a card ---
-no throughput, no on-card VRAM. (This paragraph read ``a \emph{quality} point
-only \dots\ nothing about throughput or VRAM'' before the 2026-08-17
-\texttt{rtbits} pass on that artifact; the byte-level memory figure exists
-now, the card-level one still does not.) Batched
+\textbf{Three models end to end, one GPU, greedy decoding.} Everything
+end-to-end is Qwen3-4B, Qwen3-8B and Qwen3-14B on a single L40S with batch
+size 1 and greedy decode. The 14B joined them on the evening of 2026-08-17
+(\S\ref{sec:integration}): 42.9~tok/s in 9.39~GB of card memory against
+17.0~tok/s in 29.54~GB for its dense arm, 128 identical greedy tokens. This
+paragraph carried the opposite claim twice over --- first that the 14B was
+``a \emph{quality} point only \dots\ nothing about throughput or VRAM'', then,
+once the 2026-08-17 \texttt{rtbits} pass had given it a byte-level memory
+figure, that it was ``never served \dots\ no throughput, no on-card VRAM''.
+What had kept it unserved was not the kernel but a host-side guard on the
+rotation kernel's shared memory; the paragraph below says what lifted that
+guard and what it still blocks. What the 14B does \emph{not} have is the
+same-head ratio the other two sizes carry: only the served, int8-head
+configuration was run at that size, and \S\ref{sec:integration} declines to
+reconstruct the missing arm from a phase profile rather than reporting a
+number of a different kind in the same column. Batched
 serving changes the arithmetic-intensity regime that makes
 the kernel memory-bound; larger models change the embedding share and the
 tail-column overhead.
@@ -132,8 +139,13 @@ checkpoint at every size (5.162, 5.322, 5.106 against 5.302, 5.956, 5.404),
 but \emph{the margin is not monotone} --- 2.6\%, 10.6\%, 5.5\% --- and it
 should not be read as a tendency: it tracks the share of parameters the
 embedding occupies, which AWQ leaves in FP16 and we quantize, and which peaks
-at the 8B. What remains unmeasured above 8B is not memory but \emph{serving}:
-the 14B was never run, so it has no throughput and no on-card VRAM figure.
+at the 8B. This qualification ended ``what remains unmeasured above 8B is not
+memory but \emph{serving}: the 14B was never run, so it has no throughput and
+no on-card VRAM figure'' until it was run, the same evening
+(\S\ref{sec:integration}). Its card memory is a third and independent route to
+the same b/param and lands $0.38\%$ from the byte-level one, inside a band
+fixed before the run --- a cross-check, not a replacement, since it divides a
+rounded card display.
 
 Fourth, the perplexity half of that curve carried no error bars at all before
 2026-08-17 and now carries them at all three sizes --- which is what made the
@@ -192,3 +204,55 @@ the activation rotation. Our rotation kernel is verified bit-exact on CUDA
 but exists nowhere else (no Metal port yet), so the served path is currently
 NVIDIA-only, which sits awkwardly with the sovereignty motivation and is
 first in line for future work.
+
+\textbf{That same rotation caps the width the served path can serve, one
+model class below the one the argument wants.} The rotation is a
+Walsh--Hadamard transform: a ladder of barriers, logarithmic in the transform
+length, each of which has to synchronize every participant. A barrier
+synchronizes one block, so the transform runs in one block, so the entire
+activation must be resident in that block's shared memory, one f32 per
+coordinate whatever the input dtype. The binding width is
+\texttt{intermediate\_size}, the input of \texttt{down\_proj} and the widest
+activation the kernel has to hold. The ceiling is therefore arithmetic, not
+empirical:
+
+\begin{center}\small
+\begin{tabular}{lrrll}
+\toprule
+Model & \texttt{intermediate\_size} & shared bytes & vs.\ 49\,152 default & vs.\ 101\,376 opt-in \\
+\midrule
+Qwen3-4B  &  9\,728 &  38\,912 & fits & fits \\
+Qwen3-8B  & 12\,288 &  49\,152 & fits \emph{exactly} & fits \\
+Qwen3-14B & 17\,408 &  69\,632 & does not fit & fits \\
+Qwen3-32B & 25\,600 & 102\,400 & does not fit & \textbf{short by 1\,024 bytes} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+This hardware exposes \emph{two} bounds and our host code knew one. A guard
+compared the 14B's 69\,632 bytes against the 49\,152-byte per-block default
+and refused to launch --- correctly, since an overrun would corrupt silently
+--- which cost one job (\$0.24, 488~s, no tokens produced) and is how the
+wall was found. The larger bound is opt-in, requested once per function, and
+it is now \emph{measured} on the card that served, 101\,376 bytes, where
+every argument of that day had been using a datasheet value; the kernel did
+not change a line, only the host arithmetic did. Two things follow that the
+table alone does not say. The 8B sat exactly on the default bound, to the
+byte, and nothing ever flagged it because nothing ever failed: the first
+model wider than it is the first to hit the wall, and it hits it at once.
+And the 32B misses the opt-in bound by 1\,024 bytes --- one kibibyte in a
+hundred, and it is the driver's reserve, not host slack to be shaved. This
+is a bound on what the served path can serve, and it is not a format bound:
+every layout of \S\ref{sec:layouts} decodes weights that live in the rotated
+basis and calls the same rotation, so no layout verdict moves it and none is
+touched by it. One escape is named here and deliberately \emph{not} designed:
+carrying the shared activation in half precision needs 51\,200 bytes, half
+the opt-in bound and so no longer capacity-limited --- though still 2\,048
+bytes above the 49\,152 default, which an earlier draft of this sentence had
+it fitting under --- but at $n = 25\,600$ the transform is a
+1\,024-point Walsh--Hadamard --- 10 barriers --- followed by a dense mix of
+$k = 25$, so all 25\,600 terms contribute to each output coordinate, an
+accumulation depth equivalent to a ${\sim}14.6$-stage Hadamard, and that
+accumulation would then be in half precision. It is a numerical trade, not a
+trick, and we have neither made it nor priced it.

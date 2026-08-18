@@ -349,9 +349,15 @@ the method --- it is the share of the model the embedding occupies (9.7\% at
 4B, whose heads are tied, 15.2\% at 8B, 10.5\% at 14B), a table AWQ leaves in
 FP16 and we quantize to int8, so our advantage grows with the share carried.
 The 8B is a local maximum of embedding share and therefore a local maximum of
-margin. Three points, one mechanism, no law. The 14B pass also stops there:
-it says nothing about that model's throughput or on-card VRAM, neither of
-which has been measured. At 8B the choice between 4 and 2 bits is no longer
+margin. Three points, one mechanism, no law. This paragraph added that the
+14B pass ``says nothing about that model's throughput or on-card VRAM,
+neither of which has been measured''; both were measured the same evening
+(\S\ref{sec:integration}). The card figure gives 5.0866~b/param against the
+5.106 above, $0.38\%$ apart and inside a band fixed before that run --- a
+third and independent route to the same quantity, not a replacement for it,
+since it divides a card display rounded to the hundredth of a gigabyte, which
+is the same route that once printed the 4B's 5.162 as 5.15.
+At 8B the choice between 4 and 2 bits is no longer
 one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the disk.
 Data: \texttt{docs/data/echelle-4b-8b.csv} and
 \texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}; the journals
@@ -492,11 +498,20 @@ card and a no-weight floor kernel --- and five speed jobs of 2026-08-17,
 among them the \$0.11 AWQ throughput run in vLLM that measures the 4-bit arm
 in its own engine and therefore fills no cell of Table~\ref{tab:campaign},
 whose throughput entry for that arm stays empty, and the \$1.24 run that
-serves the 14B through the fused kernel for the first time, whose throughput
-and card memory this paper reports nowhere; \emph{no cell of this paper
-rests on} any of the seven, and they are separated here rather than
-folded in, since a campaign
+serves the 14B through the fused kernel for the first time. \emph{No table
+cell of this paper rests on} any of the seven, and they are separated here
+rather than folded in, since a campaign
 total that quietly absorbs later work stops being the cost of this evidence.
+Two of them do now carry text, and the separation is kept rather than
+dissolved: that \$1.24 run supplies the 14B throughput and card memory of
+\S\ref{sec:integration}, and the \$0.24 job before it --- refused by a
+shared-memory guard after 488~s, no tokens produced --- is the measurement
+behind the width ceiling of \S\ref{sec:limitations}. With the \$0.11 vLLM
+run that is \$1.59 of the \$3.21 standing behind prose here, and \$1.62 ---
+the two format jobs --- standing behind none of it. This sentence said of the
+\$1.24 run that its throughput and card memory were reported nowhere in this
+paper; that was true when it was written, and this draft is what made it
+false.
 An earlier draft reported \$22.83; that figure was correct for everything
 preceding the 14B campaign and that replay, and is superseded rather than
 corrected. The \$55.59 that replaced it remains exactly the paper's own

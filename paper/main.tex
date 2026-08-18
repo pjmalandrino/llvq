@@ -57,7 +57,12 @@ lies in the decode, not in the format. Integrated end to end, a 2-bit
 Qwen3-4B serves at 88.4~tok/s in 2.60~GB of VRAM; with the output head held
 identical in both arms (our dense arm materialized 778~MB per token;
 \S\ref{sec:integration} has the fix), the kernel-plus-format gain is
-$1.12\times$ on the 4B and $1.29\times$ on the 8B. Two bits costs $\times1.384$ perplexity
+$1.12\times$ on the 4B and $1.29\times$ on the 8B; no such same-head arm was
+run at 14B, which serves at 42.9~tok/s in 9.39~GB against 17.0 and 29.54 for
+its dense arm, once an opt-in lifted the rotation kernel's shared-memory
+ceiling. That ceiling, now measured at 101\,376 bytes, is where the served
+path stops: the rotation is a Walsh--Hadamard, so one block holds the whole
+activation, and the 32B class overruns it by 1\,024 bytes. Two bits costs $\times1.384$ perplexity
 and 14.6 MMLU points against FP16 at 4B (the served int8 arm; 14.73 on
 the sealed artifact). Scale helps: across 4B, 8B and 14B the excess perplexity
 over FP16 falls by 42.8\% and then by 13.9\%, while the MMLU gap to a 4-bit
@@ -76,7 +81,8 @@ served model is below that 4-bit baseline at all three sizes --- 5.162, 5.322
 and 5.106 b/param against 5.302, 5.956 and 5.404 --- by a margin that is not
 monotone, since it tracks the embedding share and not the method; at 8B that
 is 5.45~GB against 6.10 from a file half the size. The ledger bills \$58.80 of
-recorded GPU time, \$55.59 of it behind the numbers above.
+recorded GPU time, \$55.59 of it behind the tables and \$1.48 more behind the
+14B serving figures and that ceiling.
 \end{abstract}
 
 \input{sections/intro}

@@ -3,7 +3,8 @@
 
 A kernel benchmark is not a serving number. This section takes the
 \textsc{Planes14} kernel into a full autoregressive decode loop (greedy,
-Qwen3-4B, single L40S) and attributes where the time actually goes.
+batch size 1, single L40S; Qwen3-4B unless another size is named) and
+attributes where the time actually goes.
 
 \textbf{Setup.} The serving stack is \texttt{candle}~0.9.2
 \citep{candle2023}, a widely used Rust inference engine, with our fused
@@ -102,6 +103,40 @@ Only the $1.12\times$ is a claim about the kernel.\footnote{88.4~tok/s is the fi
 the integration run of Table~\ref{tab:progression} reports 88.5 on the same
 configuration. The difference is inter-run dispersion, not a change of
 object.}
+
+\textbf{The third size, and the cell it leaves empty.} On 2026-08-17 the
+same binary served Qwen3-14B for the first time, which first required
+raising the rotation kernel's shared-memory ceiling by opt-in
+(\S\ref{sec:limitations}, where that ceiling is a result in its own right).
+It reaches 42.9~tok/s in 9.39~GB of card memory, against 17.0~tok/s in
+29.54~GB for the dense arm, with all 128 greedy tokens identical across the
+two arms --- the 4B arms diverge at a tie-break at token 89, the 8B and the
+14B do not diverge at all. The memory ratio is direct, $3.14\times$ less card
+memory: two readings of the same card by the same instrument, with no
+defective arm in the denominator. It is also a third route to that model's
+whole-model b/param, landing $0.38\%$ from the byte-level \texttt{rtbits}
+figure of \S\ref{sec:evaluation} against a $\pm0.5\%$ band fixed before the
+run. The throughput ratio is neither direct nor publishable on its own. Raw
+it is $2.53\times$, and its denominator is our defective head at the size
+where that defect is largest: the 14B unties its heads, so the dense arm
+copies a 1.56~GB vocabulary table every token, and the fenced profile prices
+that phase at 53.9~ms against the fused arm's 1.2. The number that would
+separate the kernel from the defect is exactly the one this size does not
+have: the same-head arm was not run, only the served int8-head configuration
+was, so \emph{no factor comparable to the $1.12\times$ and $1.29\times$
+above exists at 14B}. We do not manufacture one from the phase profile, and
+here that refusal is checkable rather than merely principled --- the fenced
+totals of that very invocation reconstruct $4.10\times$ where the same
+invocation measures $2.40\times$, a 71\% error on precisely the quantity we
+would be inventing, and the two directions of the head substitution disagree
+with each other by a factor 1.44. At 4B the same reconstruction happens to
+land within 1.5\% of the measured ratio, which is what would have made it
+look sound. Finally, the raw ratios do not grow with model size ---
+$2.03\times$, $2.61\times$ and $2.53\times$ at 4B, 8B and 14B, the 8B being
+the largest and not the 14B --- and we claim no mechanism for that ordering:
+three sizes, one timed generation each, and inter-run dispersion of about
+2\% on quotients of this kind. Data:
+\texttt{docs/\allowbreak mesures/\allowbreak fusedrun-14b-2026-08-17.txt}.
 
 \textbf{What quantization buys inside its own stack.} On 2026-08-17 we
 timed the official 4-bit checkpoint in the engine it is deployed in --- vLLM

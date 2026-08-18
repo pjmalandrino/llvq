@@ -1825,8 +1825,37 @@ d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 > ⚠️ Étiquettes : nos cellules sont *calculées* sur octets **mesurés**, avec
 > l'embedding **modélisé** à 8,5 b/param — le même statut aux trois tailles, pas
 > une faiblesse propre au 14B. L'AWQ est *calculé* sur les octets safetensors du
-> dépôt officiel, lus par l'API du Hub. **Ni la vitesse ni la VRAM carte n'ont
-> jamais été mesurées à 14B.**
+> dépôt officiel, lus par l'API du Hub.
+>
+> 🚨 **Cette ligne portait « Ni la vitesse ni la VRAM carte n'ont jamais été
+> mesurées à 14B » — DÉMENTI le 2026-08-17 (soir) : le 14B est SERVI**
+> ([`mesures/fusedrun-14b-2026-08-17.txt`](docs/mesures/fusedrun-14b-2026-08-17.txt),
+> job `6a83121be55292eada79b611`, 1,24 $, pré-enregistrement commité avant le
+> lancement). `Planes14` + `LLVQ_EMBED=q8`, 128 tokens **identiques** au bras
+> dense : **42,9 tok/s dans 9,39 Go** contre **17,0 tok/s dans 29,54 Go**
+> (*mesuré* ; les Go sont un **compte d'octets hôte** imprimé par `fusedrun`,
+> pas une lecture de `nvidia-smi`).
+> - **Mémoire ÷3,14** — direct, deux lectures de la même carte par le même
+>   instrument. ⚠️ Le binaire forme ses rapports sur ses valeurs internes ; la
+>   division des cellules **arrondies** rend ÷3,15 et ×2,52. **On publie ceux du
+>   binaire : ÷3,14 et ×2,53.**
+> - 🚨 **Le brut ×2,53 ne se publie JAMAIS seul** : son dénominateur est *notre*
+>   bras dense, handicapé, et le handicap est **maximal à cette taille** — têtes
+>   déliées, donc 1 555,8 Mo de vocabulaire recopiés par token (`Head::project`
+>   → `broadcast_matmul`), que le profil fencé price à 53,9 ms contre 1,2.
+> - ❌ **Le rapport « à tête identique » N'EXISTE PAS au 14B** : seul le bras q8
+>   a tourné. Il n'est pas dérivable du profil fencé — les deux sens du
+>   remplacement rendent ×1,78 et ×1,24 (facteur 1,44), et les totaux fencés
+>   ratent de **71 %** le rapport mesuré de leur propre invocation. Il se
+>   produirait par un **run** (`LLVQ_EMBED=f16`), pas par un calcul.
+> - 🕳️ **Et « ×2,53 est le plus élevé des trois tailles » est FAUX** : 4B ×2,03 ·
+>   **8B ×2,61** · 14B ×2,53. La suite n'est **pas monotone**, la part du
+>   `lm_head` décroît monotonement (9,67 % · 7,60 % · 5,27 %, *calculé*) et ne
+>   rend donc pas l'ordre observé — **aucun mécanisme n'est revendiqué**.
+> - ✅ **Recoupement en prime, posé d'avance** : 9,39 Go × 8 / 14 768 307 200 =
+>   **5,0866 b/param** contre **5,106** par `rtbits`, soit **−0,38 %** dans une
+>   bande de ±0,5 %. Le 14B a enfin son **troisième instrument**. ⚠️ Ni la
+>   qualité ni aucune **plage** n'ont été mesurées à cette taille.
 >
 > **Le bras vitesse, mesuré séparément** — et il illustre exactement le piège
 > d'embedding du ⚠️ ci-dessous : le 8B **délie ses têtes**, donc deux tables à

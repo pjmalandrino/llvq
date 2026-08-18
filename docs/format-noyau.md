@@ -822,17 +822,28 @@ le garde comparait à la mauvaise :
 | attribut CUDA | L40S | qui le lisait |
 |---|---|---|
 | `MAX_SHARED_MEMORY_PER_BLOCK` | **49 152 o** | le garde, et lui seul |
-| `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` | **101 376 o** *(fiche sm_89, pas encore lue sur carte)* | personne |
+| `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` | **101 376 o** *(mesuré)* | personne, jusqu'au préflight du 2026-08-17 (soir) |
 | `MAX_SHARED_MEMORY_PER_MULTIPROCESSOR` | 102 400 o | le préflight, à l'affichage |
 
 La seconde s'obtient en posant `CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES`
 sur la **fonction**, une fois, avant tout lancement. Le noyau ne change pas
 d'une ligne.
 
+> 🆕 **La ligne d'opt-in portait « fiche sm_89, pas encore lue sur carte » ;
+> c'était vrai le jour où elle a été écrite, et le préflight du soir même l'a
+> périmée.** Elle est **mesurée** sur la carte qui a servi le 14B — `101 376 o`,
+> soit exactement ce que la fiche annonçait
+> ([`mesures/fusedrun-14b-2026-08-17.txt`](mesures/fusedrun-14b-2026-08-17.txt),
+> étape 1, job `6a83121be55292eada79b611`). ⚠️ Le verdict du 32B **ne bouge pas
+> d'un octet** : 25 600 × 4 = 102 400 o demandés contre 101 376 offerts, il
+> manque **1 024 o** — ce qui change, c'est que ce « manque » cesse de reposer
+> sur une plaque signalétique. Les 102 400 o/SM ne le sauvent pas : c'est un
+> budget **par SM**, pas la limite d'un **bloc**.
+
 **Les quatre largeurs du délivrable** — `intermediate_size`, l'entrée de
 `down_proj`, la plus large activation que la rotation ait à mettre en partagée :
 
-| modèle | `intermediate_size` | partagée | défaut 49 152 | opt-in ~101 376 |
+| modèle | `intermediate_size` | partagée | défaut 49 152 | opt-in 101 376 *(mesuré)* |
 |---|---|---|---|---|
 | 4B | 9 728 | 38 912 | ✅ | ✅ |
 | 8B | 12 288 | **49 152 — exactement la limite, à l'octet** | ✅ | ✅ |
