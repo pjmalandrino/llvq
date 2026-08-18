@@ -1,0 +1,10 @@
+model,pair,delta_pp,ci_lo_pp,ci_hi_pp,se_pp,mcnemar_p,discordant_pct,resolved,n_questions,fingerprint,source
+Qwen3-4B,f16_minus_awq4,0.27,-1.63,2.13,0.96,0.0019,8.9,no,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-4B,f16_minus_llvq2,14.73,11.98,17.47,1.41,4.581e-46,27.7,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-4B,awq4_minus_llvq2,14.45,11.60,17.27,1.44,3.213e-36,26.7,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-8B,f16_minus_awq4,3.07,1.61,4.69,0.79,0.0140,7.0,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-8B,f16_minus_llvq2,10.57,8.58,12.57,1.02,5.128e-28,19.2,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-8B,awq4_minus_llvq2,7.49,5.28,9.70,1.12,3.907e-21,18.8,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-4b-8b-2026-08-13.txt
+Qwen3-14B,f16_minus_awq4,0.76,-0.65,2.17,0.71,0.0886,4.4,no,2280,65dcd53655e8bfa5,mesures/campagne-14b-qualite-2026-08-10.txt
+Qwen3-14B,f16_minus_llvq2,6.85,4.52,9.12,1.16,8.666e-16,13.9,yes,2280,65dcd53655e8bfa5,mesures/campagne-14b-qualite-2026-08-10.txt
+Qwen3-14B,awq4_minus_llvq2,6.09,3.62,8.52,1.25,1.143e-11,14.7,yes,2280,65dcd53655e8bfa5,mesures/mmlupair-14b-2026-08-17.txt

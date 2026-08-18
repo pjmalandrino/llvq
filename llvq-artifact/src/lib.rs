@@ -41,9 +41,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod blockrec;
 pub mod codebook;
 mod error;
 mod format;
+pub mod e1c;
+pub mod e1v;
 pub mod runtime;
 mod sealed;
 

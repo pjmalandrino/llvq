@@ -27,6 +27,7 @@ use candle_nn::{Activation, Embedding, Linear, RmsNorm, VarBuilder};
 use candle_transformers::models::qwen3::Config;
 
 use crate::fused::RotKey;
+use crate::kvq::KvMode;
 use crate::rotplan::{check_key, drive_rows, RotShare};
 
 /// Which activation a capture callback is being handed.
@@ -193,27 +194,55 @@ impl Rotary {
 /// Stored **before** `repeat_kv`: the grouped-query expansion is a view over
 /// `n_kv` heads, so caching the expanded form would hold `n_heads / n_kv`
 /// times the bytes for nothing. On Qwen3-4B that is a factor 4.
-#[derive(Default)]
+/// ⚠️ **No `Default`, deliberately.** Every construction site must name the
+/// mode it caches in. With a `Default`, an incomplete wiring compiles and an
+/// unwired arm reports Δppl = 0, ΔMMLU = 0 and 1.00× throughput — three greens
+/// that mean nothing. The compiler is the cheapest place to catch that.
 pub struct KvCache {
     k: Option<Tensor>,
     v: Option<Tensor>,
+    mode: KvMode,
 }
 
 impl KvCache {
+    /// An empty cache, in the named mode.
+    pub fn new(mode: KvMode) -> Self {
+        Self {
+            k: None,
+            v: None,
+            mode,
+        }
+    }
+
     /// Append this step's keys and values, and return the whole history.
     ///
     /// Concatenation, not a preallocated ring: a ring needs a maximum length
     /// decided in advance, and every length in this repository is a property
     /// of the corpus rather than of the model. The copy is `O(context)` per
     /// step against the `O(context²)` full re-run it replaces.
+    ///
+    /// Under [`KvMode::Q8`] the **new** keys and values are quantized on the
+    /// way in, once, and the history is kept in its reconstructed form —
+    /// requantizing the whole history at every step would be `O(context)` of
+    /// pointless work and, worse, would make a token's bytes depend on when it
+    /// was read. What this function returns is therefore exactly what it
+    /// stores, which is what `repeat_kv` and the attention matmul consume:
+    /// there is no separate read path that could disagree with the write path.
     fn append(&mut self, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        let (k, v) = match self.mode {
+            KvMode::F16 => (k.clone(), v.clone()),
+            KvMode::Q8 => (
+                crate::kvq::quantize_dequantize(k)?,
+                crate::kvq::quantize_dequantize(v)?,
+            ),
+        };
         let k = match &self.k {
-            None => k.clone(),
-            Some(p) => Tensor::cat(&[p, k], 2)?.contiguous()?,
+            None => k,
+            Some(p) => Tensor::cat(&[p, &k], 2)?.contiguous()?,
         };
         let v = match &self.v {
-            None => v.clone(),
-            Some(p) => Tensor::cat(&[p, v], 2)?.contiguous()?,
+            None => v,
+            Some(p) => Tensor::cat(&[p, &v], 2)?.contiguous()?,
         };
         self.k = Some(k.clone());
         self.v = Some(v.clone());
@@ -558,6 +587,8 @@ impl Head {
 }
 
 pub struct Block {
+    /// Cache mode this block's `forward` builds its scratch cache in.
+    kv: KvMode,
     pub q_proj: Proj,
     pub k_proj: Proj,
     pub v_proj: Proj,
@@ -611,6 +642,7 @@ impl Block {
         vb: VarBuilder,
         idx: usize,
         take: &mut ProjSource,
+        kv: KvMode,
     ) -> Result<Self> {
         let (nh, nkv, hd) = (
             cfg.num_attention_heads,
@@ -620,6 +652,7 @@ impl Block {
         let a = vb.pp("self_attn");
         let m = vb.pp("mlp");
         Ok(Self {
+            kv,
             q_proj: pick(take, idx, "self_attn.q_proj", || {
                 candle_nn::linear_no_bias(cfg.hidden_size, nh * hd, a.pp("q_proj"))
             })?,
@@ -723,7 +756,7 @@ impl Block {
         idx: usize,
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
-        let mut fresh = KvCache::default();
+        let mut fresh = KvCache::new(self.kv);
         self.forward_cached(x, rotary, mask, 0, &mut fresh, idx, cap)
     }
 
@@ -805,6 +838,9 @@ impl Block {
 /// Qwen3, loaded for scoring.
 pub struct Qwen3 {
     cfg: Config,
+    /// Cache mode, named by the caller at construction. `model.rs` reads no
+    /// environment variable; the binaries resolve `LLVQ_KV` and pass it here.
+    kv: KvMode,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -825,19 +861,24 @@ pub struct Qwen3 {
 pub type ProjSource<'a> = dyn FnMut(usize, &str) -> Option<Proj> + 'a;
 
 impl Qwen3 {
-    pub fn new(cfg: &Config, vb: VarBuilder) -> Result<Self> {
-        Self::new_with(cfg, vb, &mut |_, _| None)
+    pub fn new(cfg: &Config, vb: VarBuilder, kv: KvMode) -> Result<Self> {
+        Self::new_with(cfg, vb, &mut |_, _| None, kv)
     }
 
     /// [`Self::new`], with projections optionally supplied rather than loaded.
-    pub fn new_with(cfg: &Config, vb: VarBuilder, take: &mut ProjSource) -> Result<Self> {
+    pub fn new_with(
+        cfg: &Config,
+        vb: VarBuilder,
+        take: &mut ProjSource,
+        kv: KvMode,
+    ) -> Result<Self> {
         let embed = candle_nn::embedding(cfg.vocab_size, cfg.hidden_size, vb.pp("model.embed_tokens"))?;
         let head = if cfg.tie_word_embeddings {
             Head::Dense(embed.embeddings().clone())
         } else {
             Head::Dense(vb.get((cfg.vocab_size, cfg.hidden_size), "lm_head.weight")?)
         };
-        Self::assemble(cfg, vb, take, Embed::Dense(embed), head)
+        Self::assemble(cfg, vb, take, Embed::Dense(embed), head, kv)
     }
 
     /// [`Self::new_with`], with the embedding and head supplied rather than
@@ -852,8 +893,9 @@ impl Qwen3 {
         take: &mut ProjSource,
         embed: Embed,
         head: Head,
+        kv: KvMode,
     ) -> Result<Self> {
-        Self::assemble(cfg, vb, take, embed, head)
+        Self::assemble(cfg, vb, take, embed, head, kv)
     }
 
     fn assemble(
@@ -862,13 +904,15 @@ impl Qwen3 {
         take: &mut ProjSource,
         embed: Embed,
         head: Head,
+        kv: KvMode,
     ) -> Result<Self> {
         let vb_l = vb.pp("model.layers");
         let blocks = (0..cfg.num_hidden_layers)
-            .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take))
+            .map(|i| Block::new_with(cfg, vb_l.pp(i), i, take, kv))
             .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             cfg: cfg.clone(),
+            kv,
             embed,
             blocks,
             norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
@@ -917,7 +961,7 @@ impl Qwen3 {
 
     /// One `KvCache` per block, empty.
     pub fn fresh_caches(&self) -> Vec<KvCache> {
-        (0..self.blocks.len()).map(|_| KvCache::default()).collect()
+        (0..self.blocks.len()).map(|_| KvCache::new(self.kv)).collect()
     }
 
     /// Hidden states for `l` new positions, attending over `caches`.

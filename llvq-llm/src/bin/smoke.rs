@@ -59,7 +59,7 @@
 //!   segments are not *guaranteed* to reproduce a single run to the last bit.
 //!   The residual is far below the ±0.7 % run-to-run spread this project has
 //!   measured across calibration seeds
-//!   (`docs/verdicts-lot-b-2026-08-06.md`), but it is a real caveat and the
+//!   (`docs/archive/verdicts-lot-b-2026-08-06.md`), but it is a real caveat and the
 //!   result line prints it rather than leaving it to a shell history.
 //!
 //! ## Why every knob here refuses instead of falling back
@@ -139,7 +139,7 @@ enum Mode {
     Gs,
     /// Design C: free magnitude during the loop, the same closed-form solve at
     /// the end of the layer, then a re-projection onto the gain grid
-    /// (`docs/retraction-et-gain.md`).
+    /// (`docs/archive/retraction-et-gain.md`).
     DesignC,
 }
 
@@ -568,7 +568,7 @@ fn main() -> anyhow::Result<()> {
     // (unsealable) refinement; `dc` is design C — free magnitude during the
     // loop, the same closed-form solve at the end of the layer, then a
     // re-projection onto the gain grid so the result stays sealable at the
-    // advertised rate (docs/retraction-et-gain.md, design C).
+    // advertised rate (docs/archive/retraction-et-gain.md, design C).
     let mode = Mode::parse(a.get(5).map(String::as_str)).map_err(|e| anyhow::anyhow!(e))?;
     let group_scales = mode == Mode::Gs;
     let design_c = mode == Mode::DesignC;
@@ -840,7 +840,7 @@ fn main() -> anyhow::Result<()> {
     let ck = Checkpoint::fetch(&repo)?;
     let tok = ck.tokenizer()?;
     let vb = ck.var_builder(dtype, &device)?;
-    let mut model = Qwen3::new(&ck.config, vb)?;
+    let mut model = Qwen3::new(&ck.config, vb, llvq_llm::kvq::KvMode::F16)?;
 
     // ---- evaluation windows (fixed, used before and after) ----
     let test_ids = tok
@@ -1147,7 +1147,7 @@ fn main() -> anyhow::Result<()> {
     // its hidden states were recomputed rather than carried, so on a backend
     // that is not deterministic between processes it is not *guaranteed* to be
     // the same object as a single run. Small next to the ±0.7 % inter-seed
-    // spread (docs/verdicts-lot-b-2026-08-06.md), and never to be discovered
+    // spread (docs/archive/verdicts-lot-b-2026-08-06.md), and never to be discovered
     // from a shell history six weeks later.
     if resumed.blocks > 0 {
         println!(
@@ -1206,7 +1206,7 @@ mod tests {
         assert_eq!(shape_gain("leech1c12"), (1, 12, false, 5));
         // The 8B run.
         assert_eq!(shape_gain("leech1c12L3"), (1, 12, false, 3));
-        // The free-magnitude arm of docs/retraction-et-gain.md.
+        // The free-magnitude arm of docs/archive/retraction-et-gain.md.
         assert_eq!(shape_gain("leech1c12f"), (1, 12, true, 5));
         assert_eq!(shape_gain("leech0"), (0, 13, false, 5));
         assert_eq!(shape_gain("leech2c12"), (2, 12, false, 5));

@@ -3,7 +3,8 @@
 
 A kernel benchmark is not a serving number. This section takes the
 \textsc{Planes14} kernel into a full autoregressive decode loop (greedy,
-Qwen3-4B, single L40S) and attributes where the time actually goes.
+batch size 1, single L40S; Qwen3-4B unless another size is named) and
+attributes where the time actually goes.
 
 \textbf{Setup.} The serving stack is \texttt{candle}~0.9.2
 \citep{candle2023}, a widely used Rust inference engine, with our fused
@@ -70,33 +71,104 @@ defective arm is ours. \texttt{candle\_nn::Linear::forward} deliberately
 folds the leading dimensions of its input into the row dimension to avoid
 the broadcast path, so models built on \texttt{Linear}, including
 \texttt{candle\_transformers}' own, never pay this copy. Our head calls the
-primitive directly, which is why our dense baseline pays it and a stock
-\texttt{candle} deployment would not. That is precisely why the number we
-put forward below is the one measured with the \emph{same} head on both
-arms: a baseline we handicapped ourselves cannot carry a speedup claim. We
+primitive directly, so our dense baseline pays it where a stock
+\texttt{candle} deployment would not --- hence the number we put forward
+below, measured with the \emph{same} head on both arms. We
 reported the primitive upstream with a reproducer and a patch that moves the
 same fold one level
 down.\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
 
 \textbf{The double formulation.} End-to-end, the fused engine reaches
 88.4~tok/s against the dense engine's 43.5, a factor of $2.03\times$.
-Honesty requires splitting that number, because much of it is the head fix,
-which the dense arm could adopt too and which a stock \texttt{candle}
-deployment never needed. We do not derive the split from the
+That factor has to be split: most of it is the head fix, which the dense arm
+could adopt too and which a stock \texttt{candle} deployment never needed. We do not derive the split from the
 fenced phases: synchronization serializes work the real decode overlaps,
 so phase sums attribute time but do not compose into a throughput. Instead
 we report the measured lower bound: with the defective f16 head path held
 identical in both arms, the fused engine gains $1.12\times$ on the 4B
 (48.7 versus 43.5~tok/s) and $1.29\times$ on the 8B (34.4 versus 26.6).
+These are single-run quotients of end-to-end throughput, not the
+round-by-round medians of \S\ref{sec:layouts}, and one of them crosses
+invocations: the 8B's 34.4 comes from the f16-embedding job and the 26.6
+from the int8 job. Formed inside the single job that timed both arms it is
+$34.4/26.5 = 1.30\times$; the 4B ratio is insensitive to the same choice
+($48.7/43.6 = 1.12$ within its own job, $48.7/43.5 = 1.12$ against the
+tabulated dense arm). We keep 1.29 because 26.6 is the dense figure
+Table~\ref{tab:campaign8b} carries, and flag that the second decimal is
+inter-run dispersion.
 Both numbers understate the kernel, whose own phase runs $1.27\times$
 faster (13.3 to 10.4~ms across the transformer blocks) and whose projection
-benchmark runs $2.14\times$ over FP16; the giant head phase dilutes them.
-We report both formulations, always together: $2.03\times$ against our
-dense arm as measured, at least $1.12\times$ against that arm with its head
-copy removed. Only the second is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;
+benchmark runs $2.15\times$ over FP16; the giant head phase dilutes them.
+Only the $1.12\times$ is a claim about the kernel.\footnote{88.4~tok/s is the final-campaign run;
 the integration run of Table~\ref{tab:progression} reports 88.5 on the same
 configuration. The difference is inter-run dispersion, not a change of
 object.}
+
+\textbf{The third size, and the cell it leaves empty.} On 2026-08-17 the
+same binary served Qwen3-14B for the first time, which first required
+raising the rotation kernel's shared-memory ceiling by opt-in
+(\S\ref{sec:limitations}, where that ceiling is a result in its own right).
+It reaches 42.9~tok/s in 9.39~GB of card memory, against 17.0~tok/s in
+29.54~GB for the dense arm, with all 128 greedy tokens identical across the
+two arms --- the 4B arms diverge at a tie-break at token 89, the 8B and the
+14B do not diverge at all. The memory ratio is direct, $3.14\times$ less card
+memory: two readings of the same card by the same instrument, with no
+defective arm in the denominator. It is also a third route to that model's
+whole-model b/param, landing $0.38\%$ from the byte-level \texttt{rtbits}
+figure of \S\ref{sec:evaluation} against a $\pm0.5\%$ band fixed before the
+run. The throughput ratio is neither direct nor publishable on its own. Raw
+it is $2.53\times$, and its denominator is our defective head at the size
+where that defect is largest: the 14B unties its heads, so the dense arm
+copies a 1.56~GB vocabulary table every token, and the fenced profile prices
+that phase at 53.9~ms against the fused arm's 1.2. The number that would
+separate the kernel from the defect is exactly the one this size does not
+have: the same-head arm was not run, only the served int8-head configuration
+was, so \emph{no factor comparable to the $1.12\times$ and $1.29\times$
+above exists at 14B}. We do not manufacture one from the phase profile, and
+here that refusal is checkable rather than merely principled --- the fenced
+totals of that very invocation reconstruct $4.10\times$ where the same
+invocation measures $2.40\times$, a 71\% error on precisely the quantity we
+would be inventing, and the two directions of the head substitution disagree
+with each other by a factor 1.44. At 4B the same reconstruction happens to
+land within 1.5\% of the measured ratio, which is what would have made it
+look sound. Finally, the raw ratios do not grow with model size ---
+$2.03\times$, $2.61\times$ and $2.53\times$ at 4B, 8B and 14B, the 8B being
+the largest and not the 14B --- and we claim no mechanism for that ordering:
+three sizes, one timed generation each, and inter-run dispersion of about
+2\% on quotients of this kind. Data:
+\texttt{docs/\allowbreak mesures/\allowbreak fusedrun-14b-2026-08-17.txt}.
+
+\textbf{What quantization buys inside its own stack.} On 2026-08-17 we
+timed the official 4-bit checkpoint in the engine it is deployed in --- vLLM
+0.26.0, image pinned by tag and digest, same L40S, the same five prompt
+token ids passed as ids so no template can enter, 128 tokens with
+\texttt{ignore\_eos}, prefix caching read back as disabled, two discarded
+generations then five timed --- alongside the same dense model in that same
+engine as its own control. Quantization buys $2.413\times$ there,
+$[2.412, 2.414]$, against $1.12\times$ here. Those are two
+\emph{within-stack} ratios set side by side, which is the only licit form:
+they do not divide, and neither do the two f16 controls behind them
+(83.09~tok/s in vLLM against our 43.6), a gap that mixes engine quality with
+our own \texttt{broadcast\_matmul} defect and separates neither. Three
+qualifications, and they do not all point the same way. The two ratios are
+not the same kind of number: theirs is a median of five ratios formed round
+by round with a min--max range, ours a single-run quotient of two points
+with no range at all (\S\ref{sec:limitations}). Our denominator carries the
+defective head on \emph{both} arms, so the defect pulls our ratio toward 1
+and $1.12\times$ understates our own kernel --- that bias runs against us.
+And $M = 1$ is not where a Marlin GEMM is at its best --- its smallest M
+tile is 8 --- so $2.413\times$ does not upper-bound 4-bit either, which
+runs against them. Neither correction is applied, and neither closes a
+comparison that does not exist. What ran is settled by the
+engine's own log, \texttt{Using MarlinLinearKernel for
+AutoAWQMarlinLinearMethod}: on Ada, vLLM repacks the AWQ checkpoint into
+Marlin. A second arm that explicitly requested the \texttt{awq} kernel
+resolved to that same path --- same resolved quantization string,
+character-identical output, $0.10\%$ apart --- so those two arms bound this
+bench's own resolution and not the convergence of two kernels; the
+pre-registered clause that at $M = 1$ all 4-bit kernels meet the same
+bandwidth bound is untested by this run, in either direction. Data:
+\texttt{docs/mesures/awq-vllm-4b-2026-08-17.txt}.
 
 \begin{table}[t]
 \centering
@@ -108,14 +180,18 @@ Date & Step & VRAM & tok/s & b/param \\
 Aug 5 & no kernel (decoded to f16 at load) & 8.04 GB & 43.5 & 16.00 \\
 Aug 6 & fused kernel wired (\textsc{Slot32}) & 3.28 GB & 47.0 & 6.52 \\
 Aug 6 & \textsc{Planes14} layout & 2.96 GB & 48.7 & 5.89 \\
-Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.15} \\
+Aug 7 & int8 embedding & \textbf{2.60 GB} & \textbf{88.5} & \textbf{5.162} \\
 \bottomrule
 \end{tabular}
 \caption{The integration, step by step. The on-disk file (1.77~GB) and
 measured quality stayed within sampling noise; each step passed
 adversarial review
 (replayed mutants, independent probes) and a gated measurement before
-landing. Data: \texttt{docs/data/progression.csv}.}
+landing. The VRAM column is the card's own rounded display and the b/param
+column is recomputed from the exact bytes, so the two do not divide into each
+other: the served 5.162 is the \texttt{rtbits} verdict, not 2.60~GB over the
+parameter count, which would give the 5.15 this table carried earlier. Data:
+\texttt{docs/data/progression.csv}.}
 \label{tab:progression}
 \end{table}
 

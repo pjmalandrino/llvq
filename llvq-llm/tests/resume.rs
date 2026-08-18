@@ -82,7 +82,7 @@ fn tiny() -> Config {
 /// run untouched and this hands back the pristine checkpoint.
 fn fresh(map: &VarMap, dev: &Device) -> Qwen3 {
     let vb = VarBuilder::from_varmap(map, DType::F32, dev);
-    Qwen3::new(&tiny(), vb).expect("tiny model builds")
+    Qwen3::new(&tiny(), vb, llvq_llm::kvq::KvMode::F16).expect("tiny model builds")
 }
 
 fn windows(dev: &Device) -> Vec<Tensor> {

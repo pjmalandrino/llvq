@@ -62,7 +62,7 @@ fn main() -> anyhow::Result<()> {
     let input = Tensor::from_slice(&ids, (1, ids.len()), &device)?;
 
     let vb = ck.var_builder(dtype, &device)?;
-    let ours = Qwen3::new(&ck.config, vb.clone())?;
+    let ours = Qwen3::new(&ck.config, vb.clone(), llvq_llm::kvq::KvMode::F16)?;
     let mine = ours.hidden(&input, &mut NoCapture)?;
 
     let mut theirs_model =

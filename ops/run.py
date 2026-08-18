@@ -248,15 +248,40 @@ def weight_counts(cfg: dict) -> tuple[int, int]:
     n_kv = cfg["num_key_value_heads"]
 
     attn_out = head_dim * n_heads
-    per_layer = (
+    attn = (
         hidden * attn_out          # q_proj
         + hidden * head_dim * n_kv  # k_proj
         + hidden * head_dim * n_kv  # v_proj
         + attn_out * hidden        # o_proj
-        + hidden * inter           # gate_proj
-        + hidden * inter           # up_proj
-        + inter * hidden           # down_proj
     )
+
+    # The MLP half, dense **or** mixture-of-experts.
+    #
+    # This formula was dense-only until 2026-08-14, and it did not fail on a
+    # MoE config — it answered. Every key it reads (`intermediate_size`,
+    # `hidden_size`, …) exists in a Qwen3-MoE config, so it quietly returned
+    # the weights of ONE expert's worth of MLP and called it the model. On
+    # Qwen3-30B-A3B that is 3.34 G against 30.5 G: wrong by an order of
+    # magnitude, silently, on the number that decides whether a run is
+    # affordable. A quote is not a small error when it is off by 9×.
+    #
+    # `num_experts` names the total; `moe_intermediate_size` the per-expert
+    # width, which is far narrower than a dense `intermediate_size` — that
+    # narrowness is why the encoder's superlinear term hurts a MoE **less**
+    # than a dense model of the same total.
+    n_exp = cfg.get("num_experts", cfg.get("n_routed_experts", 0))
+    if n_exp:
+        moe_inter = cfg.get("moe_intermediate_size", inter)
+        mlp = n_exp * 3 * hidden * moe_inter
+        # A shared expert, when the architecture has one, is dense per token
+        # and its width is its own.
+        shared = cfg.get("n_shared_experts", cfg.get("num_shared_experts", 0))
+        if shared:
+            mlp += shared * 3 * hidden * cfg.get("shared_expert_intermediate_size", moe_inter)
+    else:
+        mlp = 3 * hidden * inter   # gate_proj + up_proj + down_proj
+
+    per_layer = attn + mlp
     embed = cfg["vocab_size"] * hidden
     carried = embed if cfg.get("tie_word_embeddings", False) else 2 * embed
     return layers * per_layer, carried
@@ -451,9 +476,34 @@ def cmd_selftest(args) -> int:
     one is pinned to `~/llvq-run-4b-artefact.log`: 3 633 315 840 weights, and
     14 447 s of wall clock on 12 M3 Max performance cores with Metal.
     """
+    ok = True
+
+    # A MoE geometry, checked WITHOUT the network: until 2026-08-14 this
+    # function was dense-only and answered 3.34 G for a 30.5 G model — silently,
+    # because every key it read exists in a MoE config too. The check is offline
+    # on purpose: a estimator that only proves itself when the Hub answers is an
+    # estimator nobody runs.
+    #
+    # ⚠️ Provenance: this geometry is the public Qwen3-30B-A3B one, NOT read from
+    # a config.json in this repository. What corroborates it is the total —
+    # 30.52 G against the 30.5 G of the MoE study — not an authority.
+    moe = dict(
+        num_hidden_layers=48, hidden_size=2048, intermediate_size=6144,
+        head_dim=128, num_attention_heads=32, num_key_value_heads=4,
+        vocab_size=151936, tie_word_embeddings=False,
+        num_experts=128, moe_intermediate_size=768,
+    )
+    mq, mc = weight_counts(moe)
+    total = (mq + mc) / 1e9
+    if not (30.0 <= total <= 31.0):
+        print(f"FAIL  MoE 30B-A3B estimé à {total:.2f} G, la fiche donne 30,5 G")
+        print("      (une formule dense rendrait ~3,3 G — faux d'un ordre de grandeur)")
+        ok = False
+    else:
+        print(f"ok    MoE 30B-A3B : {total:.2f} G au total, dont {mq/1e9:.2f} G quantifiés")
+
     cfg = fetch_config("Qwen/Qwen3-4B")
     quantized, carried = weight_counts(cfg)
-    ok = True
 
     if quantized != 3_633_315_840:
         print(f"FAIL  poids quantifiés {quantized}, le run en rapporte 3 633 315 840")
@@ -918,7 +968,7 @@ def cmd_bench(args) -> int:
         print(
             f"refus : {args.flavor} n'est pas dans {BENCH_FLAVORS}.\n"
             "  Un rapport mesuré ailleurs n'est pas comparable au chiffre Metal —\n"
-            "  voir docs/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
+            "  voir docs/archive/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
             "  et alors le dire dans tout chiffre publié."
         )
         return 2
@@ -1354,7 +1404,7 @@ def main() -> int:
     # sets the fused kernel's RAM width. It is **dead on quality** — the L ≤ 4
     # swap measured on the sealed 4B costs +4.75 % of perplexity (16.9415 →
     # 17.7459), which puts the file back ABOVE QTIP's 17.04 and loses the one
-    # comparison the paper rests on (docs/verdicts-lot-b-2026-08-06.md §B6).
+    # comparison the paper rests on (docs/archive/verdicts-lot-b-2026-08-06.md §B6).
     #
     # And it has already been paid for once as a default: the 8B had to be
     # requantized at $12.61 to purge it (docs/data/jobs.csv, 2026-08-07,

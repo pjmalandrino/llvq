@@ -18,6 +18,7 @@ pub mod eval;
 pub mod fused;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod fused_cuda;
+pub mod kvq;
 pub mod loader;
 pub mod model;
 pub mod rotplan;

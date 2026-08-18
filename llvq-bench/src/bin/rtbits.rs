@@ -95,6 +95,7 @@
 //! [`PlanesBlocks`]: llvq_artifact::runtime::PlanesBlocks
 //! [`Planes12xBlocks`]: llvq_artifact::runtime::Planes12xBlocks
 
+use llvq_artifact::e1c::{group_words, E1C12_PLANES, E1C14_PLANES, E1C_GROUP};
 use llvq_artifact::runtime::{
     PLANES12X_BYTES, PLANES12X_EXC_BYTES, PLANES12X_LEVEL_CAP, PLANES12X_PLANE_BIT, PLANES14_BYTES,
 };
@@ -223,6 +224,44 @@ fn planes12x_bits(blocks: u64, exceptions: u64) -> u64 {
     blocks * PLANES12X_BYTES as u64 * 8 + exceptions * PLANES12X_EXC_BYTES as u64 * 8
 }
 
+// ---------------------------------------------------------------------------
+// E1c — the same two streams, transposed over the warp (item X1/X2 of
+// docs/archive/spec-memoire-extreme-2026-08-12.md)
+// ---------------------------------------------------------------------------
+//
+// `Planes14` and `Planes12x` each close their record on a byte boundary and
+// pay for it: 6 padding bits per block and 14 respectively. Transposing the
+// per-slot bits over a group of [`E1C_GROUP`] blocks removes that rounding
+// entirely — a group is a whole number of 32-bit words, because the group *is*
+// the word width — so E1c costs exactly the source's **payload** bits and
+// nothing more.
+//
+// This is a pricing arm, not a claim about speed. The layout trades 82 or 106
+// broadcast loads per group against 3 or 4 per lane, and which side wins is
+// the question `bin/planesbench` exists to answer (spec X3: ≥ 1.9× to replace
+// `Planes12x`, ≥ 2.05× to replace `Planes14`). What this bench can settle, and
+// what it settles exactly, is the byte count.
+
+/// `E1c14` stream, in bits: whole groups of [`E1C_GROUP`] blocks, each
+/// [`group_words`]`(3)` words. The trailing group is padded with origin
+/// blocks and **is charged** — a matrix whose block count is not a multiple
+/// of 32 really does upload those words.
+fn e1c14_bits(blocks: u64) -> u64 {
+    blocks.div_ceil(E1C_GROUP as u64) * group_words(E1C14_PLANES) as u64 * 32
+}
+
+/// `E1c12` main stream plus the **same** exception table as `Planes12x` —
+/// same predicate, same records, carried verbatim by
+/// [`E1c12Blocks::from_planes12x`]. The two layouts therefore differ by
+/// exactly the main stream's padding, which is what makes the comparison
+/// below a single-variable one.
+///
+/// [`E1c12Blocks::from_planes12x`]: llvq_artifact::e1c::E1c12Blocks::from_planes12x
+fn e1c12_bits(blocks: u64, exceptions: u64) -> u64 {
+    blocks.div_ceil(E1C_GROUP as u64) * group_words(E1C12_PLANES) as u64 * 32
+        + exceptions * PLANES12X_EXC_BYTES as u64 * 8
+}
+
 /// A block is an exception of `Planes12x` exactly when its class carries more
 /// than [`PLANES12X_LEVEL_CAP`] magnitude levels — the predicate
 /// `planes12x_chunk` tests, written once so a test can mutate it.
@@ -265,6 +304,16 @@ struct Shapes {
     tail_weights: u64,
     /// `Σ d_out` — one `f32` row scale each.
     rows: u64,
+    /// `Σ d_out · ceil((d_in/24)/32)·32` — the blocks an E1c stream holds once
+    /// every ROW is padded to a whole number of warp groups.
+    ///
+    /// 🚨 **It adds bits and NOT ONE weight**, and that asymmetry is the whole
+    /// verdict: the padded blocks are synthetic, so they inflate the numerator
+    /// of a b/weight while [`Self::weights`] stays put. X3 measured the block
+    /// inflation at +15,47 % on the shapes of the published 4B; what it did
+    /// not do is carry it through the exception term, which is why `e1c12` was
+    /// left without a verdict.
+    padded_blocks: u64,
 }
 
 impl Shapes {
@@ -272,6 +321,12 @@ impl Shapes {
         self.weights += (d_out * d_in) as u64;
         self.tail_weights += (d_out * (d_in % DIM)) as u64;
         self.rows += d_out as u64;
+        // The remedy X3 showed to be the only one compatible with the served
+        // matvec: pad each ROW out to a multiple of 32 blocks. A partial E1c
+        // group costs a full one whatever the occupancy, so there is nothing
+        // cheaper to do.
+        let row_blocks = d_in / DIM;
+        self.padded_blocks += (d_out * row_blocks.div_ceil(32) * 32) as u64;
     }
 
     /// Bits the kernel accounting adds to a block stream: the `f32` tail and
@@ -811,6 +866,33 @@ fn main() {
         MAX_LEVELS
     );
 
+    // ---- E1c: the same two streams with the byte rounding removed ----
+    let e14_bits = e1c14_bits(total);
+    let e12_bits = e1c12_bits(total, exceptions);
+    println!("\n  E1c — les mêmes flux transposés sur le warp (b/poids payload)");
+    println!("  {}", "-".repeat(72));
+    println!(
+        "  E1c14      {} mots par groupe de {E1C_GROUP}, sans bourrage : {:.4} b/poids \
+         ({:+.4} vs Planes14)",
+        group_words(E1C14_PLANES),
+        bpw(e14_bits, total),
+        bpw(e14_bits, total) - bpw(p14_bits, total)
+    );
+    println!(
+        "  E1c12      {} mots par groupe + les MÊMES {} exceptions : {:.4} b/poids \
+         ({:+.4} vs Planes12x)",
+        group_words(E1C12_PLANES),
+        exceptions,
+        bpw(e12_bits, total),
+        bpw(e12_bits, total) - bpw(p12_bits, total)
+    );
+    println!(
+        "             dont {:.4} de stream et {:.4} d'exceptions — le terme d'exceptions\n  \
+         est identique à celui de Planes12x, donc l'écart entre les deux layouts EST le bourrage",
+        bpw(e12_bits - exceptions * PLANES12X_EXC_BYTES as u64 * 8, total),
+        bpw(exceptions * PLANES12X_EXC_BYTES as u64 * 8, total)
+    );
+
     // ---- the kernel accounting, the one the CUDA bench publishes ----
     //
     // Same streams, two changes and only two: the `f32` tail block and the
@@ -840,6 +922,8 @@ fn main() {
             ("Slot32", grouped.slot_bits_byte),
             ("Planes14", p14_bits),
             ("Planes12x", p12_bits),
+            ("E1c14", e14_bits),
+            ("E1c12", e12_bits),
         ] {
             println!(
                 "  {name:<12}{:>10.4} b/poids noyau  ({:.4} payload, {:.2} Go de stream)",
@@ -848,6 +932,46 @@ fn main() {
                 (bits + carried.side_bits()) as f64 / 8.0 / 1e9
             );
         }
+
+        // ---- E1c ALIGNÉ : le verdict qui manquait à e1c12 ----
+        //
+        // X3 (2026-08-15) a montré qu'aucun warp du modèle publié ne lit un
+        // seul groupe E1c — `nblocks mod 32` vaut 10 ou 21 sur les cinq formes
+        // — et que le seul remède est de bourrer chaque ligne. Il a rendu son
+        // verdict sur `e1c14` (5,2354, plus gros que le Planes14 qu'il
+        // remplace) et s'est ARRÊTÉ sur `e1c12`, faute du terme d'exceptions :
+        // son modèle rendait 4,1404 pour Planes12x là où le dépôt publie
+        // 4,342, et les deux côtés du rapport en dépendent.
+        //
+        // Ici les deux côtés viennent du même balayage, exceptions comprises.
+        // Le terme d'exceptions ne bouge PAS avec le bourrage : un bloc de
+        // bourrage est synthétique, il n'a pas de classe à cinq niveaux.
+        let pad = carried.padded_blocks;
+        println!("
+  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32");
+        println!("  {}", "-".repeat(72));
+        println!(
+            "  {total} blocs → {pad} ({:+.2} %), et ces blocs ne portent AUCUN poids :
+               le numérateur enfle, le dénominateur ne bouge pas",
+            (pad as f64 / total as f64 - 1.0) * 100.0
+        );
+        for (name, aligned, served, served_name) in [
+            ("E1c14", e1c14_bits(pad), p14_bits, "Planes14"),
+            ("E1c12", e1c12_bits(pad, exceptions), p12_bits, "Planes12x"),
+        ] {
+            let a = carried.kernel_bpw(aligned);
+            let s = carried.kernel_bpw(served);
+            println!(
+                "  {name:<12}{a:>10.4} b/poids noyau aligné  contre {s:.4} pour {served_name}                  — {:+.1} %  {}",
+                (a / s - 1.0) * 100.0,
+                if a < s { "✅" } else { "❌ PLUS GROS que le layout qu'il remplace" }
+            );
+        }
+        println!(
+            "  ⚠️ Aucun de ces deux chiffres n'est une vitesse. C'est une identité de
+               comptage sur les formes réelles, du genre qui a enterré E3 — elle ne dépend
+               d'aucun matériel et ne se contourne pas par un meilleur noyau."
+        );
     }
 
     // ---- b/param modèle entier: the only figure comparable to an AWQ one ----
@@ -891,6 +1015,8 @@ fn main() {
             ("Slot32", grouped.slot_bits_byte),
             ("Planes14", p14_bits),
             ("Planes12x", p12_bits),
+            ("E1c14", e14_bits),
+            ("E1c12", e12_bits),
         ] {
             let lin = (carried.weights, carried.kernel_bpw(bits));
             println!(
@@ -955,6 +1081,8 @@ fn main() {
         &format!("Planes12x ({exc_pct:.2} % d'exceptions)"),
         bpw(p12_bits, total),
     );
+    show("E1c14 — transposé, sans bourrage", bpw(e14_bits, total));
+    show("E1c12 — transposé + overlay", bpw(e12_bits, total));
     let fp16_gb = linear_w * 2.0 / 1e9 + lm_head_gb;
     println!(
         "\n  plafond FP16 : ~{:.0} tok/s ; plafond embedding seul : ~{:.0} tok/s",
@@ -1030,6 +1158,10 @@ mod tests {
             weights: qwen3_4b::WEIGHTS,
             tail_weights: qwen3_4b::TAIL_WEIGHTS,
             rows: qwen3_4b::ROWS,
+            // Ces fixtures épinglent la comptabilité NOYAU, qui ne lit pas ce
+            // champ ; un zéro explicite plutôt qu'un `..Default::default()`,
+            // pour qu'un futur test qui s'en servirait le voie faux.
+            padded_blocks: 0,
         }
     }
 
@@ -1145,6 +1277,73 @@ mod tests {
         assert!((rate - 3.3824).abs() < 5e-4, "taux d'exceptions {rate:.4} %");
     }
 
+    /// **The E1c acceptance test.** Both variants priced from block counts
+    /// alone, against the values `docs/archive/spec-memoire-extreme-2026-08-12.md`
+    /// predicted before a line of the layout existed (4.56 and 3.76 in the
+    /// kernel accounting).
+    ///
+    /// The spec derived them by converting a payload rate; this rebuilds them
+    /// from the real shapes of the published 4B. Two routes to one number is
+    /// the point — the conversion `thesis = payload × 0.99534 + 0.1589` was
+    /// exact to the thousandth on `Planes14` and wrong by 0.5 b/weight on
+    /// `Golay70`, so it is a heuristic, not an instrument.
+    #[test]
+    fn e1c_rates_on_the_published_4b_match_the_spec() {
+        let c = carried_4b();
+        let e14 = c.kernel_bpw(e1c14_bits(qwen3_4b::BLOCKS));
+        let e12 = c.kernel_bpw(e1c12_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
+        assert!((e14 - 4.5551).abs() < 5e-4, "E1c14 : {e14:.4} contre 4.5551");
+        assert!((e12 - 3.7618).abs() < 5e-4, "E1c12 : {e12:.4} contre 3.7618");
+        // And what each buys over the layout it replaces — the figure the
+        // bench's admission criteria are stated against.
+        let p14 = c.kernel_bpw(planes14_bits(qwen3_4b::BLOCKS));
+        let p12 = c.kernel_bpw(planes12x_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
+        assert!((p14 - e14 - 0.2489).abs() < 1e-3, "E1c14 rend {:.4}", p14 - e14);
+        assert!((p12 - e12 - 0.5806).abs() < 1e-3, "E1c12 rend {:.4}", p12 - e12);
+    }
+
+    /// The saving is **the padding, and only the padding** — stated as an
+    /// identity rather than as a measured difference.
+    ///
+    /// A group of 32 blocks costs `group_words · 32` bits where the source
+    /// costs `stride · 8 · 32`; the ratio of the two rates is therefore the
+    /// ratio of payload bits to stride bits, exactly. If that ever stops
+    /// holding, the transposition has started costing or saving something
+    /// else and the arm is no longer a single-variable comparison.
+    #[test]
+    fn e1c_costs_exactly_the_payload_and_nothing_else() {
+        const N: u64 = 32 * 1_000;
+        // Planes14: 112 bits of stride, 106 of payload.
+        assert_eq!(e1c14_bits(N) * (PLANES14_BYTES as u64 * 8), planes14_bits(N) * 106);
+        // Planes12x main stream: 96 bits of stride, 82 of payload. The
+        // exception term is identical on both sides, so it is excluded here
+        // and checked separately below.
+        let e12_main = e1c12_bits(N, 0);
+        assert_eq!(e12_main * (PLANES12X_BYTES as u64 * 8), planes12x_bits(N, 0) * 82);
+        // Exceptions: the same records, carried verbatim — so the difference
+        // between the two layouts does not move when exceptions appear.
+        let d0 = planes12x_bits(N, 0) - e1c12_bits(N, 0);
+        let d9 = planes12x_bits(N, 9_999) - e1c12_bits(N, 9_999);
+        assert_eq!(d0, d9, "le terme d'exceptions n'est pas identique des deux côtés");
+    }
+
+    /// A block count that is not a multiple of 32 pays a whole trailing
+    /// group, and the bench must charge it — otherwise a small matrix would
+    /// be priced below what it uploads.
+    ///
+    /// The published 4B happens to divide exactly (150 681 600 = 32 ×
+    /// 4 708 800), which is precisely why this needs its own test: the
+    /// acceptance test above would never exercise the rounding.
+    #[test]
+    fn a_partial_trailing_group_is_charged() {
+        assert_eq!(qwen3_4b::BLOCKS % E1C_GROUP as u64, 0, "le 4B tombe juste");
+        let full = e1c14_bits(32);
+        assert_eq!(e1c14_bits(1), full, "un bloc paie un groupe entier");
+        assert_eq!(e1c14_bits(33), 2 * full);
+        assert_eq!(e1c14_bits(64), 2 * full);
+        assert_eq!(e1c14_bits(65), 3 * full);
+    }
+
     /// The two accountings must **not** agree — and the gap must be the two
     /// terms that separate them, nothing else. A test that only checked the
     /// kernel figure would pass on a build that quietly used one denominator
@@ -1188,7 +1387,7 @@ mod tests {
     }
 
     /// The whole-model conversion, pinned on the two published Qwen3-8B
-    /// cells (`docs/tableau-8b-2026-08-07.md` §2–3): 6.461 b/param with an
+    /// cells (`docs/archive/tableau-8b-2026-08-07.md` §2–3): 6.461 b/param with an
     /// f16 embedding and 5.323 with `q8`, both measured in the engine.
     ///
     /// This is the step the dossier got wrong twice, so it is checked
@@ -1206,6 +1405,7 @@ mod tests {
             weights: LIN,
             tail_weights: 20_054_016,
             rows: 1_400_832,
+            padded_blocks: 0, // non lu par ce test, cf. `carried_4b`
         };
         assert_eq!((LIN - c.tail_weights) % DIM as u64, 0);
         let lin = c.kernel_bpw(planes14_bits((LIN - c.tail_weights) / DIM as u64));

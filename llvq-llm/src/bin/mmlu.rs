@@ -285,6 +285,10 @@ fn main() -> anyhow::Result<()> {
     // confound the moment the two are compared. `LLVQ_DTYPE` moves either one
     // onto the other, and the resolved value is printed with the score.
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
+    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // mode travels by value from this line down to every `KvCache`. An unknown
+    // name is an error, never a silent fallback — a typo would make an A/B lie.
+    let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
 
     // ---- the model: the shipped artifact, or the reference checkpoint ----
     //
@@ -292,7 +296,7 @@ fn main() -> anyhow::Result<()> {
     // `llvq_llm::sealed` for why having three copies of it was a problem and
     // not just duplication.
     let (model, tok, label) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
-        let s = llvq_llm::sealed::load(&model_arg, dtype, &device)?;
+        let s = llvq_llm::sealed::load(&model_arg, dtype, &device, kv_mode)?;
         (
             s.model,
             s.tokenizer,
@@ -303,7 +307,7 @@ fn main() -> anyhow::Result<()> {
         let tok = ck.tokenizer()?;
         let vb = ck.var_builder(dtype, &device)?;
         (
-            llvq_llm::model::Qwen3::new(&ck.config, vb)?,
+            llvq_llm::model::Qwen3::new(&ck.config, vb, kv_mode)?,
             tok,
             format!("{model_arg} [reference checkpoint]"),
         )
@@ -497,7 +501,12 @@ fn main() -> anyhow::Result<()> {
     // 60.7 are. The macro is printed next to it because the gap between them
     // is a property of MMLU, not noise, and a reader who sees only one number
     // cannot tell which they are holding.
-    println!("  MMLU (micro, = papier) = {:.2} % ± {:.2}", 100.0 * mic, 100.0 * se);
+    println!(
+        "  MMLU (micro, = papier) = {:.2} % ± {:.2}  [kv {}]",
+        100.0 * mic,
+        100.0 * se,
+        kv_mode.name()
+    );
     println!("  MMLU (macro, par matière) = {:.2} %", 100.0 * mac);
     if total < population {
         println!(

@@ -1,0 +1,182 @@
+# Rejeu apparié MMLU 4B et 8B — Phase 1.2, 2026-08-13
+# jobs 6a7ce71173ce7897b8937c53 (4B, 0,49 $) et 6a7ceb0f8747785b3ad5151f (8B, 0,80 $), l40sx1
+# les six bras rejouent les micros publiés au centième, empreinte 65dcd53655e8bfa5
+
+############ 4B ############
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-4b-f16.csv
+B = Pier-Jean/qwen3-4b-awq-deq [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-4b-awq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  70.32 %   B  70.04 %   Δ = +0.27 pp   ← le chiffre publié
+  non pondéré (poolé) A  72.76 %   B  70.79 %   Δ = +1.97 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 124   A✗B✓ = 79   concordantes = 2077   (8.9 % des questions sont discordantes)
+  p = 0.0019   (z normal = +3.16)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +0.27 pp   IC95 [-1.63 ; +2.13]   SE 0.96 pp
+  contrôle non pondéré = +1.97 pp   IC95 [+0.92 ; +3.02]   SE 0.54 pp
+  → l'IC contient zéro : l'écart n'est pas résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  professional law                         -10.0 pp × poids 10.9 % = -1.092 pp
+  miscellaneous                             -7.5 pp × poids  5.6 % = -0.418 pp
+  moral scenarios                           +5.0 pp × poids  6.4 % = +0.319 pp
+  high school macroeconomics                +5.0 pp × poids  2.8 % = +0.139 pp
+  high school microeconomics                +7.5 pp × poids  1.7 % = +0.127 pp
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-4b-f16.csv
+B = /model/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-4b-llvq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  70.32 %   B  55.59 %   Δ = +14.73 pp   ← le chiffre publié
+  non pondéré (poolé) A  72.76 %   B  57.46 %   Δ = +15.31 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 490   A✗B✓ = 141   concordantes = 1649   (27.7 % des questions sont discordantes)
+  p = 4.581e-46   (z normal = +13.89)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +14.73 pp   IC95 [+11.98 ; +17.47]   SE 1.41 pp
+  contrôle non pondéré = +15.31 pp   IC95 [+13.52 ; +17.13]   SE 0.91 pp
+  → l'IC exclut zéro : l'écart est résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  miscellaneous                            +22.5 pp × poids  5.6 % = +1.255 pp
+  professional law                         +10.0 pp × poids 10.9 % = +1.092 pp
+  professional psychology                  +15.0 pp × poids  4.4 % = +0.654 pp
+  high school macroeconomics               +22.5 pp × poids  2.8 % = +0.625 pp
+  prehistory                               +25.0 pp × poids  2.3 % = +0.577 pp
+
+############ 8B ############
+
+========================================================================
+A = Qwen/Qwen3-8B [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-8b-f16.csv
+B = Pier-Jean/qwen3-8b-awq-deq [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-8b-awq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  76.08 %   B  73.01 %   Δ = +3.07 pp   ← le chiffre publié
+  non pondéré (poolé) A  76.54 %   B  75.13 %   Δ = +1.40 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 96   A✗B✓ = 64   concordantes = 2120   (7.0 % des questions sont discordantes)
+  p = 0.0140   (z normal = +2.53)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +3.07 pp   IC95 [+1.61 ; +4.69]   SE 0.79 pp
+  contrôle non pondéré = +1.40 pp   IC95 [+0.50 ; +2.34]   SE 0.47 pp
+  → l'IC exclut zéro : l'écart est résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  professional law                         +10.0 pp × poids 10.9 % = +1.092 pp
+  miscellaneous                            +10.0 pp × poids  5.6 % = +0.558 pp
+  moral scenarios                           +7.5 pp × poids  6.4 % = +0.478 pp
+  professional psychology                   +5.0 pp × poids  4.4 % = +0.218 pp
+  high school macroeconomics                -5.0 pp × poids  2.8 % = -0.139 pp
+
+========================================================================
+A = Qwen/Qwen3-8B [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-8b-f16.csv
+B = /model/qwen3-8b-llvq.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-8b-llvq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  76.08 %   B  65.52 %   Δ = +10.57 pp   ← le chiffre publié
+  non pondéré (poolé) A  76.54 %   B  66.67 %   Δ = +9.87 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 331   A✗B✓ = 106   concordantes = 1843   (19.2 % des questions sont discordantes)
+  p = 5.128e-28   (z normal = +10.76)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +10.57 pp   IC95 [+8.58 ; +12.57]   SE 1.02 pp
+  contrôle non pondéré = +9.87 pp   IC95 [+8.42 ; +11.35]   SE 0.76 pp
+  → l'IC exclut zéro : l'écart est résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  moral scenarios                          +22.5 pp × poids  6.4 % = +1.434 pp
+  miscellaneous                            +22.5 pp × poids  5.6 % = +1.255 pp
+  prehistory                               +22.5 pp × poids  2.3 % = +0.519 pp
+  professional psychology                  +10.0 pp × poids  4.4 % = +0.436 pp
+  high school psychology                   +10.0 pp × poids  3.9 % = +0.388 pp
+
+############ la paire que le papier revendique réellement : AWQ vs LLVQ ############
+# (l'écart au 4 bits, 14,45 pp à 4B et 7,49 à 8B, jamais testé en apparié)
+
+--- 4B ---
+
+========================================================================
+A = Pier-Jean/qwen3-4b-awq-deq [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-4b-awq.csv
+B = /model/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-4b-llvq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  70.04 %   B  55.59 %   Δ = +14.45 pp   ← le chiffre publié
+  non pondéré (poolé) A  70.79 %   B  57.46 %   Δ = +13.33 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 456   A✗B✓ = 152   concordantes = 1672   (26.7 % des questions sont discordantes)
+  p = 3.213e-36   (z normal = +12.33)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +14.45 pp   IC95 [+11.60 ; +17.27]   SE 1.44 pp
+  contrôle non pondéré = +13.33 pp   IC95 [+11.57 ; +15.11]   SE 0.90 pp
+  → l'IC exclut zéro : l'écart est résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  professional law                         +20.0 pp × poids 10.9 % = +2.185 pp
+  miscellaneous                            +30.0 pp × poids  5.6 % = +1.673 pp
+  professional psychology                  +17.5 pp × poids  4.4 % = +0.763 pp
+  high school macroeconomics               +17.5 pp × poids  2.8 % = +0.486 pp
+  high school psychology                   +12.5 pp × poids  3.9 % = +0.485 pp
+
+--- 8B ---
+
+========================================================================
+A = Pier-Jean/qwen3-8b-awq-deq [reference checkpoint]
+    docs/data/mmlu-dumps/mmlu-8b-awq.csv
+B = /model/qwen3-8b-llvq.bin [LLVQ 2-bit, sealed]
+    docs/data/mmlu-dumps/mmlu-8b-llvq.csv
+2280 questions appariées, 57 matières · dtype f16 / f16 · limit 40 / 40
+empreinte de run : 65dcd53655e8bfa5 / 65dcd53655e8bfa5 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  73.01 %   B  65.52 %   Δ = +7.49 pp   ← le chiffre publié
+  non pondéré (poolé) A  75.13 %   B  66.67 %   Δ = +8.46 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 311   A✗B✓ = 118   concordantes = 1851   (18.8 % des questions sont discordantes)
+  p = 3.907e-21   (z normal = +9.32)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +7.49 pp   IC95 [+5.28 ; +9.70]   SE 1.12 pp
+  contrôle non pondéré = +8.46 pp   IC95 [+6.98 ; +9.97]   SE 0.76 pp
+  → l'IC exclut zéro : l'écart est résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  moral scenarios                          +15.0 pp × poids  6.4 % = +0.956 pp
+  professional law                          -7.5 pp × poids 10.9 % = -0.819 pp
+  miscellaneous                            +12.5 pp × poids  5.6 % = +0.697 pp
+  prehistory                               +17.5 pp × poids  2.3 % = +0.404 pp
+  high school chemistry                    +25.0 pp × poids  1.4 % = +0.361 pp

@@ -16,9 +16,9 @@
 //        u32[d_out*nblocks*3] cls (class id, gain, golay rank),
 //        f32[d_out] y (row pass + exception corrections)
 //
-// `golay70_fields`, `golay70_slot_value`, `golay70_dot`, `planes12x_locate`,
-// `golay70_exc_lane_term` and `golay70_exc_combine` are scalar register
-// arithmetic and are *executed* here. The warp of the correction pass is
+// `golay70_fields`, `golay70_prologue`, `golay70_slot_value`, `golay70_dot`,
+// `planes12x_locate`, `golay70_exc_lane_term` and `golay70_exc_combine` are
+// scalar register arithmetic and are *executed* here. The warp of the correction pass is
 // emulated by a serial loop over the 32 lanes accumulating what warp_sum
 // would reduce; atomicAdd by a plain `+=` — a single thread is the one
 // schedule where that is equivalent, which is why the true atomicity can
@@ -49,9 +49,14 @@ static inline float atomicAdd(float* addr, float v) {
 #include "../kernels/planes12.cu"
 #include "../kernels/llvq_golay.cuh"
 #include "../kernels/golay70.cu"
+// The frozen v1 witness arm, appended LAST here as in the bench's NVRTC
+// concatenation. Including it compiles tv_golay70_v1 under -Werror, and the
+// loops below execute its decode path against the v2's, bit for bit.
+#include "../kernels/golay70_v1.cu"
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 // The `extern __shared__` arrays and thread indices the (never-executed)
@@ -97,26 +102,51 @@ int main() {
     std::vector<float> y(d_out, 0.0f);
 
     // ---- the main-stream fields and per-slot values, block by block ----
+    // Prologue once per block, then the coset-blind slot decode — the exact
+    // shape of golay70_dot's hot path (the v2 decoder). The frozen v1 slot
+    // path runs beside it, and the two must agree BIT FOR BIT: the v2 is an
+    // algebraic identity of the v1, so one differing bit anywhere means one
+    // of the two texts drifted.
     for (std::size_t b = 0; b < ntotal; ++b) {
         Golay70Fields f = golay70_fields(words.data(), static_cast<u32>(b));
         const GolayClassRec r = gtab[f.id];
-        u32 c = cw[f.g];
+        Golay70Dec d = golay70_prologue(r, cw[f.g], f);
         cls[b * 3]     = f.id;
         cls[b * 3 + 1] = f.gain;
         cls[b * 3 + 2] = f.g;
-        for (u32 j = 0; j < LLVQ_DIM; ++j)
-            slots[b * LLVQ_DIM + j] = golay70_slot_value(r, c, f, j);
+        for (u32 j = 0; j < LLVQ_DIM; ++j) {
+            float v2 = golay70_slot_value(d, j);
+            float v1 = golay70_slot_value_v1(r, cw[f.g], f, j);
+            if (std::memcmp(&v1, &v2, sizeof v1) != 0) {
+                std::fprintf(stderr,
+                             "v1/v2 divergent: bloc %zu slot %u — v1 %.9g v2 %.9g\n",
+                             b, j, static_cast<double>(v1), static_cast<double>(v2));
+                std::exit(3);
+            }
+            slots[b * LLVQ_DIM + j] = v2;
+        }
     }
 
     // ---- the row pass: what tv_golay70's row CTAs compute ----
     // Serial sum per row (the kernel's four-chain association differs; the
     // Rust side compares against f64 with a tolerance, as the bench does).
+    // The v1 dot runs the same rows: identical slot values through identical
+    // FMA chains must give the identical float, so `==` is exact here too.
     for (unsigned row = 0; row < d_out; ++row) {
-        float acc = 0.0f;
-        for (unsigned j = 0; j < nblocks; ++j)
+        float acc = 0.0f, acc1 = 0.0f;
+        for (unsigned j = 0; j < nblocks; ++j) {
             acc += golay70_dot(words.data(), cw.data(), gtab, gscale.data(),
                                row * nblocks + j,
                                x.data() + static_cast<std::size_t>(j) * LLVQ_DIM);
+            acc1 += golay70_dot_v1(words.data(), cw.data(), gtab, gscale.data(),
+                                   row * nblocks + j,
+                                   x.data() + static_cast<std::size_t>(j) * LLVQ_DIM);
+        }
+        if (std::memcmp(&acc, &acc1, sizeof acc) != 0) {
+            std::fprintf(stderr, "v1/v2 divergent: ligne %u — v1 %.9g v2 %.9g\n",
+                         row, static_cast<double>(acc1), static_cast<double>(acc));
+            std::exit(3);
+        }
         y[row] += acc * rscale[row];  // += : the correction pass adds on top
     }
 

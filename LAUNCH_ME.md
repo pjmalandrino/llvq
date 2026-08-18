@@ -144,16 +144,35 @@ checkpoint) fait 2,263 Go sur disque : notre fichier est **×1,28 plus petit,
 soit 22 % de disque en moins — et rien d'autre qui soit mesuré en notre
 faveur**. Il génère bien plus vite, et sa qualité n'a jamais été mesurée face à
 la nôtre : cette case-là est **vide, pas faible**. Analyse :
-[`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+[`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
 **On gagne de la vitesse, mais pas encore dans le runner** : le noyau fusé est
 écrit, vérifié et mesuré à ×2,06–2,08 sur les projections du modèle entier ; il
 n'est pas branché dans `bin/run`, qui n'a d'ailleurs pas de cache KV.
 
 **On paie la vitesse en mémoire vive.** Le format que le noyau lit en RAM coûte
-**5,51 b/poids**, soit **plus** que les 4,50 d'un 4 bits ordinaire. Le
+**5,51 b/poids** sur les projections — plus que les **4,179 b/poids** que le
+noyau AWQ 4 bits lit dans la **même** comptabilité (banc à 7 bras du 2026-08-11,
+[`docs/data/echelle-formats.csv`](docs/data/echelle-formats.csv)). Le
 transcodage se fait au chargement, une fois. D'un même fichier on peut charger
 trois formats :
+
+> 🚨 **Cette phrase disait « 5,51 b/poids, soit plus que les 4,50 d'un 4 bits
+> ordinaire », et c'était la faute que l'errata du lot A qualifie de GRAVE —
+> corrigé le 2026-08-17.** Deux erreurs empilées : (a) 5,51 est un
+> b/**poids** de **projections seules**, 4,50 un b/**param** de **modèle
+> entier, embedding quantifié compris** — deux dénominateurs ; (b) le 4,50 est
+> le MLX q4 g64, un artefact qui n'est entré dans **aucune** campagne, alors
+> que le seul 4 bits mesuré est l'AWQ officiel de Qwen.
+> **Et dans la comptabilité licite la conclusion s'inverse** : en b/param
+> modèle entier, `Planes14` + embedding q8 pèse **5,162** contre **5,302**
+> pour l'AWQ officiel au 4B — **sous** le 4 bits déployé, et sous lui aussi au
+> 8B (5,322 contre 5,956) et au 14B (5,106 contre 5,404). Ce paragraphe
+> annonçait donc l'inverse de ce que la mesure dit.
+> ⚠️ Le reste de cette section décrit l'état du **2026-08-12** : le layout
+> servi n'est plus `Slot32` mais `Planes14` (4,804 b/poids), et le noyau est
+> branché dans `bin/fusedrun` depuis le 2026-08-06 — c'est `bin/run`, la démo
+> de génération, qui reste dense.
 
 | format en RAM | b/poids | projections en RAM | vitesse | mesurée sur |
 |---|---|---|---|---|

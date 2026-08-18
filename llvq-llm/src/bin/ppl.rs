@@ -49,6 +49,10 @@ fn main() -> anyhow::Result<()> {
 
     let device = llvq_llm::eval::device(device_arg)?;
     let dtype = llvq_llm::eval::dtype(DType::F32)?;
+    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // mode travels by value from this line down to every `KvCache`. An unknown
+    // name is an error, never a silent fallback — a typo would make an A/B lie.
+    let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     eprintln!(
         "device: {device:?}, context {ctx}, dtype {}",
         llvq_llm::eval::dtype_name(dtype)
@@ -60,7 +64,7 @@ fn main() -> anyhow::Result<()> {
         // Its tokenizer comes out of the file too, which is why the token
         // fingerprint below is worth printing.
         Some(p) if llvq_llm::sealed::is_sealed_path(p) => {
-            let s = llvq_llm::sealed::load(p, dtype, &device)?;
+            let s = llvq_llm::sealed::load(p, dtype, &device, kv_mode)?;
             eprintln!(
                 "sealed {p}: {} quantized matrices, {:.3} GB on disk",
                 s.matrices,
@@ -72,7 +76,7 @@ fn main() -> anyhow::Result<()> {
             let ck = Checkpoint::fetch(&repo)?;
             let tok = ck.tokenizer()?;
             let vb = ck.var_builder(dtype, &device)?;
-            let mut model = Qwen3::new(&ck.config, vb)?;
+            let mut model = Qwen3::new(&ck.config, vb, kv_mode)?;
             let label = match other {
                 Some(p) => {
                     let n = llvq_llm::artifact::load(&mut model, p, &device)?;
@@ -134,8 +138,9 @@ fn main() -> anyhow::Result<()> {
     // one goes on the result line: what was scored, at what precision, over
     // which tokens.
     println!(
-        "\n{label} — {corpus}, ctx {ctx}, {nwin} windows, dtype {}, tokens {fingerprint:016x}\nppl = {:.4}",
+        "\n{label} — {corpus}, ctx {ctx}, {nwin} windows, dtype {}, kv {}, tokens {fingerprint:016x}\nppl = {:.4}",
         llvq_llm::eval::dtype_name(dtype),
+        kv_mode.name(),
         (nll / count as f64).exp()
     );
     Ok(())

@@ -9,7 +9,7 @@ bras concurrent n'a encore tourné ; le dernier banc en date est
 > `Golay70`. Ce critère-là avait bien été posé d'avance, mais il vivait dans
 > une conversation. Celui-ci vit dans un commit.
 >
-> Emplacement et format : `docs/plan-de-test-v2-cuda.md` §6.3.
+> Emplacement et format : `docs/archive/plan-de-test-v2-cuda.md` §6.3.
 > *(⚠️ Ce même document nomme le fichier `docs/attentes-<date>.md` en §6.5 et
 > `proofs/preregistration-<date>.md` en §6.3. On retient §6.3, qui est la
 > section « où déposer ». La divergence est signalée plutôt que tranchée en
@@ -292,6 +292,15 @@ concurrent ; c'est la comparaison des incumbents à eux-mêmes qui est affaiblie
 run de contrôle doit être à une variable d'environnement près*. Tant que ce
 n'est pas vrai, chaque nouveau concurrent rejouera cet écart, et une règle
 enfreinte deux fois cesse d'être une règle.
+
+> ✅ **La clause est satisfaite depuis le 2026-08-11** : `planesbench` porte
+> `LLVQ_BENCH_ARMS` (`llvq_cuda::arms`, lot B du spec post-AWQ) — des phases
+> dans un même processus, un bras écarté ne construisant ni transcode ni
+> tampon device (la résidence VRAM d'une phase est exactement celle de ses
+> bras), l'unité de traduction NVRTC invariante à la sélection, les noms
+> inconnus refusés, et `Δ_contrôle` imprimé par le banc entre phases. É1 ne
+> peut plus se rejouer par absence d'outillage ; s'il se rejoue, ce sera un
+> choix, et il se consignera ici.
 
 ## 8. Ce qui invaliderait ce pré-enregistrement
 

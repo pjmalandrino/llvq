@@ -37,7 +37,16 @@ use llvq_core::{Golay, Point, DIM};
 /// [`FastDecoder::new`], not just claimed here.
 pub const MAX_LEVELS: usize = 5;
 
-const MAXK: usize = 8;
+/// Most distinct *kinds* one unranking problem can range over.
+///
+/// Not the same thing as [`MAX_LEVELS`]: a level is a distinct |value| of the
+/// class, a kind is a distinct symbol of one **arrangement** problem. The even
+/// coset splits into two problems — on-support (≤ 4 kinds) and off-support,
+/// where the zero run is its own kind — and it is the off-support one that
+/// needs the wider bound.
+pub const MAX_KINDS: usize = 8;
+
+const MAXK: usize = MAX_KINDS;
 
 /// The magnitude structure of one class, as a runtime format sees it.
 ///
@@ -61,30 +70,70 @@ pub struct ClassLevels {
     pub shell: u32,
 }
 
-/// Flat, fixed-size mirror of one class of `Indexer`'s layout.
-#[derive(Clone, Copy, Default)]
-struct FastClass {
-    offset: u64,
-    odd: bool,
-    // Even side.
-    w: u32,
-    p_req: u32,
-    word_vals: [i32; 4],
-    word_counts: [u8; 4],
-    n_word: usize,
-    free_vals: [i32; 4],
-    off_counts: [u8; MAXK],
-    n_off: usize,
-    a_on: u64,
-    a_off: u64,
-    s_w: u64,
-    s_f: u64,
-    // Odd side.
-    vals: [i32; MAXK],
-    counts: [u8; MAXK],
-    n_kinds: usize,
-    m_arr: u64,
+/// Flat, fixed-size mirror of one class of `Indexer`'s layout — everything the
+/// archive cascade needs, and nothing else.
+///
+/// Public because a kernel that runs the cascade needs this table on the
+/// device, and the only alternative is to rebuild the layout of
+/// [`FastDecoder::new`] somewhere else — two copies of the same derivation,
+/// which is exactly the shared misunderstanding an independent reference is
+/// supposed to prevent. Read it through [`FastDecoder::cascade_class`], and
+/// see `tests/fastdec.rs::the_public_cascade_table_is_complete`, which drives
+/// the whole cascade from this record alone and requires it to reproduce
+/// [`FastDecoder::decode`].
+///
+/// **A class is either odd or even**, and the two sides use disjoint fields.
+/// `odd` says which; reading the other side's fields is meaningless, not
+/// merely useless.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CascadeClass {
+    /// Index of the class's first block, so `idx - 1 - offset` is the local
+    /// rank the cascade consumes.
+    pub offset: u64,
+    /// Odd coset (all coordinates odd) or even.
+    pub odd: bool,
+
+    // ---- even side ----
+    /// Golay codeword weight: the support size.
+    pub w: u32,
+    /// Sign parity the support must satisfy, 0 or 1.
+    pub p_req: u32,
+    /// Distinct |values| carried on the support.
+    pub word_vals: [i32; 4],
+    /// How many support slots each `word_vals` entry takes.
+    pub word_counts: [u8; 4],
+    /// Kinds used in `word_vals` / `word_counts`.
+    pub n_word: usize,
+    /// Distinct nonzero |values| carried off the support.
+    pub free_vals: [i32; 4],
+    /// Off-support counts; the **last** kind (`n_off - 1`) is the zero run.
+    pub off_counts: [u8; MAX_KINDS],
+    /// Kinds used in `off_counts`, zero run included.
+    pub n_off: usize,
+    /// Arrangement count of the support problem — the `m0` of its unranking.
+    pub a_on: u64,
+    /// Arrangement count of the off-support problem.
+    pub a_off: u64,
+    /// Free sign patterns on the support (one sign is forced by `p_req`), a
+    /// power of two.
+    pub s_w: u64,
+    /// Free sign patterns off the support, a power of two.
+    pub s_f: u64,
+
+    // ---- odd side ----
+    /// Distinct |values| of the class. Signs are forced by the codeword, so
+    /// they carry no bits.
+    pub vals: [i32; MAX_KINDS],
+    /// How many of the 24 coordinates each `vals` entry takes.
+    pub counts: [u8; MAX_KINDS],
+    /// Kinds used in `vals` / `counts`.
+    pub n_kinds: usize,
+    /// Arrangement count over the 24 coordinates — the `m0` of its unranking.
+    pub m_arr: u64,
 }
+
+/// In-crate name, kept so the construction code below reads unchanged.
+type FastClass = CascadeClass;
 
 fn multinomial_u64(counts: &[u8]) -> u64 {
     let mut fact = [1u128; 25];
@@ -97,6 +146,26 @@ fn multinomial_u64(counts: &[u8]) -> u64 {
         m /= fact[c as usize];
     }
     u64::try_from(m).expect("arrangement count fits u64")
+}
+
+/// Unrank a multiset arrangement: `rank` → the kind sitting in each slot.
+///
+/// The archive cascade, and the reference every candidate decoder is measured
+/// against. **One multiply and one divide per candidate** — `M' = M·c_j/n`,
+/// exact because `n` divides `m·c_j` at every step, so no u128 and no
+/// factorial ever appears (see the module header on the u64 trap).
+///
+/// `counts` is consumed: on return it holds what is left, which is all zeros.
+/// `m0` is the arrangement count of the full multiset, `k` the number of kinds
+/// in play, and `out.len()` the number of slots — 24 for the odd coset, `w` or
+/// `24 - w` for the two halves of the even one.
+///
+/// Public because the cost of this loop is the question the decoder bench
+/// exists to answer, and a bench that reimplemented it would be measuring its
+/// own copy.
+#[inline]
+pub fn unrank_multiset(rank: u64, counts: &mut [u8; MAX_KINDS], k: usize, m0: u64, out: &mut [u8]) {
+    unrank_fast(rank, counts, k, m0, out);
 }
 
 /// One multiply and one divide per candidate — `M' = M·c_j/n`, exact.
@@ -234,6 +303,15 @@ impl FastDecoder {
     }
 
     /// Magnitude structure of class `ci`.
+    /// The archive cascade's factorisation of class `ci`.
+    ///
+    /// This is the class table a cascade kernel uploads. It is the same data
+    /// [`Self::decode`] runs on, read from the same place — there is no second
+    /// derivation to drift from.
+    pub fn cascade_class(&self, ci: usize) -> &CascadeClass {
+        &self.classes[ci]
+    }
+
     pub fn levels(&self, ci: usize) -> &ClassLevels {
         &self.levels[ci]
     }

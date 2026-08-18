@@ -41,15 +41,23 @@ fn main() -> anyhow::Result<()> {
     // generation back on the exact weights `verify_artifact` round-trips —
     // the narrowing here is outside that proof.
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
+    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // mode travels by value from this line down to every `KvCache`. An unknown
+    // name is an error, never a silent fallback — a typo would make an A/B lie.
+    let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
 
-    let s = llvq_llm::sealed::load(&path, dtype, &device)?;
+    let s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
     let fp16 = (s.quantized_weights + s.carried_weights) * 2;
     eprintln!(
         "loaded {path} — {} quantized matrices + {} carried tensors\n",
         s.matrices, s.raw_tensors
     );
     println!("── model");
-    println!("   running at dtype {}", llvq_llm::eval::dtype_name(dtype));
+    println!(
+        "   running at dtype {}, kv {}",
+        llvq_llm::eval::dtype_name(dtype),
+        kv_mode.name()
+    );
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",
         s.bytes as f64 / 1e9,

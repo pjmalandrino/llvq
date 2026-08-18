@@ -1,0 +1,18 @@
+# Sweep intégral E1c — X1/X2, lancé le 2026-08-12 sur M3 Max
+# ~/llvq-q4b.llvq : 252 matrices, 150 681 600 blocs, les deux variantes
+# contre le décodeur d'archive + le flux principal E1c12 contre Planes12x
+
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running tests/e1c_format.rs (target/release/deps/e1c_format-1d39a7b68ff58675)
+
+running 3 tests
+test the_inverse_repack_restores_the_source_bytes ... ok
+test the_repack_is_exact_and_the_word_map_is_the_format ... ok
+test the_sealed_artifact_e1c_repack_is_exact has been running for over 60 seconds
+E1c sur 150681600 blocs — payload b/poids :
+  Planes14 4.6667 → E1c14 4.4167  (-0.2500)
+  Planes12x 4.2029 → E1c12 3.6196  (-0.5833)
+test the_sealed_artifact_e1c_repack_is_exact ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 459.16s
+

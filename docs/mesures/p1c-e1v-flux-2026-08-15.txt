@@ -1,0 +1,137 @@
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running `target/release/rankbench`
+P1 — banc à 9 bras. Pré-enregistrements, tous horodatés :
+          proofs/preregistration-p1-2026-08-13.md
+          proofs/preregistration-p1b-2026-08-15.md
+          proofs/preregistration-p1c-2026-08-15.md
+
+🚨 RÉSERVE, EN TÊTE — le bras `e1v-flux` mesure le MEILLEUR CAS de l'adressage E1v.
+   Ici `gid` EST l'indice de bloc : un SIMD group de 32 lanes consécutives EST exactement
+   un groupe E1v, et l'alignement est donc vrai PAR CONSTRUCTION. Le matvec servi met un
+   warp par LIGNE, et `nblocks mod 32` vaut 10 ou 21 sur les cinq formes du 4B — aucun warp
+   n'y lit un seul groupe : il lirait deux mots de base et scannerait deux régions d'en-têtes.
+   Ce banc ne mesure pas non plus le coût EN BITS de cet alignement, acquis ailleurs à +0,48 %.
+   (`docs/mesures/x3-alignement-warp-2026-08-15.txt`, et §4 du pré-enregistrement de P1c.)
+FICHIER   /Users/pjmalandrino/llvq-q4b.llvq
+          980790202 octets
+          252 matrices, 150681600 blocs, 0 origine
+          286 classes observées sur 383 — lu en 3.2 s
+
+TIRAGE    réservoir (algorithme R), graine 0x00000000ba1c5eed, N = 16777216
+          271 classes tirées sur 286 observées au fichier, max |z| = 2.40 (classe 199)
+          232 classes d'attendu ≥ 25, 54 en dessous (le z n'y a pas de sens), 0 vide(s) d'attendu ≥ 5.
+             Le z divise par √attendu, pas par le σ hypergéométrique : sans remise, il SOUS-ESTIME l'écart
+     vrai d'un facteur ≈ 0,94.
+          ⚠️ AUCUN SEUIL n'est appliqué à ce |z|. Le §7 exige que le tirage suive le fichier, il ne
+             chiffre pas « suit » ; un critère chiffré a été PROPOSÉ (É3c) et ÉCARTÉ. Le tirage est
+             donc décrit, pas jugé, et l'accepter revient à l'opérateur.
+          couverture, en trois termes qui ne se confondent pas :
+            · 384 entrées de table (383 classes cap 13 + l'origine) ;
+            · 286 touchées par LE FICHIER — les 98 autres se décomposent en 1 origine, 82 classes
+              de coquille 13 (hors d'atteinte de tout fichier cap 12) et 15 classes cap 12 que ce
+              modèle n'utilise pas ;
+            · 271 touchées par CE TIRAGE — les 15 restantes sont des classes trop rares pour
+              survivre à un tirage de 1 bloc sur 9, ce qui est un fait sur le tirage, pas sur le codebook.
+          Les entrées hors fichier sont couvertes par la fixture de `bin/p1v0` pour les bras 3 et 4, et
+          par celle du bras 8, qui tourne ici même — parce que l'origine y est un CAS D'ADRESSAGE
+          (charge utile vide, entrée de table 0) et pas seulement une classe de plus.
+
+FLUX      centroïdes de gain RÉELS de la 1re matrice : [0.876794, 1.108245]
+          Fixed96 (bras 0-1) : 12 o/bloc, 4.0000 b/poids, transcodé en 10.2 s
+          rang d'archive (bras 2-3) : 8 o/bloc, le contenu du fichier tel quel
+          marche (bras 4) : 96 bits d'enregistrement, stride 12 o — l'adressage des ancres,
+            pour que le bras ne soit pas prix contre elles en payant une autre facture d'adresses
+          E1v (bras 8) : le VRAI flux, 110596108 o + 2097152 o de mots de base, transcodé en 10.0 s
+            largeur variable — 6.717 o/bloc en moyenne, 2.2390 b/poids adressage compris ; en-têtes 10 bits
+            à stride fixe, somme préfixe SIMD sur les 32 largeurs du groupe, charge utile au pire
+            46 bits — le §1 en divulgue 56, mais 56 est un RECORD, en-tête compris, et c'est la
+            charge utile que la somme préfixe additionne
+          ⚠️ ce 2.2390 est celui du TIRAGE, pas du fichier : les 32 blocs d'un groupe sont ici
+            des blocs sans voisinage, et le terme d'arrondi au mot ne tombe donc pas comme en
+            ordre de fichier, où la mesure publiée est 2,3877 b/poids noyau.
+
+GPU       Apple M3 Max — simd 32 (lu), max group 1024, GROUP effectif 256
+          18 rounds dont 3 jetés, 3 soumissions par mesure de surcoût
+          ⚠️ aucun horodatage GPU : metal-rs 0.29 n'expose pas GPUStartTime. Tout est du wall-clock
+             autour de commit()/wait_until_completed(), moins un surcoût MESURÉ — il n'existe aucun
+             autre moyen de séparer temps GPU et temps de soumission dans cet outillage.
+
+V0        aucune milliseconde n'est crue avant ce bloc
+          e1v-flux               1280 blocs de FIXTURE — les 383 classes (toutes), l'origine que le 4B ne
+                                 porte pas, et un groupe entier de la classe la plus large. Pire erreur 1.7e-7·Σ|w·x|
+          étalons                les deux étalons — `cns_decode` (nommé par P1c) et `FastDecoder::decode` — coïncident
+                                 au bit près sur les 16777216 blocs : C2 de P5 refait sur le tirage, pas cité.
+          sol                    16777216 blocs, 16776007 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          masques                16777216 blocs, 16777119 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          cascade-archive        16777216 blocs, pire erreur 1.1e-7·Σ|w·x|
+          cascade-uniformisée    16777216 blocs, pire erreur 1.1e-7·Σ|w·x|
+          marche-binomiale       16777216 blocs, pire erreur 1.7e-7·Σ|w·x|
+          sol-rang               16777216 blocs, 16776217 sorties non nulles et finies (ancre : observable, pas d'étalon)
+          marche-bloc            16777216 blocs, pire erreur 2.2e-7·Σ|w·x|
+          marche-bloc-plat       16777216 blocs, pire erreur 3.4e-7·Σ|w·x|
+          e1v-flux               16777216 blocs, pire erreur 2.2e-7·Σ|w·x|
+
+SURCOÛT   par bras, min / méd / max sur les 15 rounds gardés
+          sol                    0.0938 / 0.1626 / 0.1976 ms   =  0.0056 / 0.0097 / 0.0118 ns/bloc
+          masques                0.1439 / 0.1712 / 0.2004 ms   =  0.0086 / 0.0102 / 0.0119 ns/bloc
+          cascade-archive        0.1628 / 0.1940 / 0.1980 ms   =  0.0097 / 0.0116 / 0.0118 ns/bloc
+          cascade-uniformisée    0.1899 / 0.2040 / 0.2232 ms   =  0.0113 / 0.0122 / 0.0133 ns/bloc
+          marche-binomiale       0.1419 / 0.1713 / 0.1977 ms   =  0.0085 / 0.0102 / 0.0118 ns/bloc
+          sol-rang               0.1519 / 0.1638 / 0.1953 ms   =  0.0091 / 0.0098 / 0.0116 ns/bloc
+          marche-bloc            0.1614 / 0.1799 / 0.1878 ms   =  0.0096 / 0.0107 / 0.0112 ns/bloc
+          marche-bloc-plat       0.1510 / 0.1658 / 0.1968 ms   =  0.0090 / 0.0099 / 0.0117 ns/bloc
+          e1v-flux               0.1657 / 0.1806 / 0.1882 ms   =  0.0099 / 0.0108 / 0.0112 ns/bloc
+
+MESURE    N = 16777216 blocs, minimum sur 15 rounds gardés
+  bras                   o/bloc    min ms    méd ms    max ms    ns/bloc   × le sol méd [min–max]
+  sol                        12     1.361     1.387     1.504     0.0811   1.00× [1.00–1.00]
+  masques                    12     2.496     2.542     2.838     0.1487   1.82× [1.71–2.02]
+  cascade-archive             8   175.017   175.500   175.702    10.4318   126.44× [116.63–128.97]
+  cascade-uniformisée         8    29.055    29.149    29.223     1.7318   20.99× [19.36–21.43]
+  marche-binomiale           12     5.159     5.200     5.373     0.3075   3.75× [3.49–3.82]
+  sol-rang                    8     1.339     1.378     1.492     0.0798   0.99× [0.92–1.06]
+  marche-bloc                12    11.260    11.290    11.532     0.6711   8.15× [7.57–8.32]
+  marche-bloc-plat           12    13.996    14.062    14.239     0.8342   10.09× [9.33–10.34]
+  e1v-flux                  var    11.400    11.481    11.605     0.6795   8.26× [7.62–8.52]
+  ⚠️ les bras 2-4 lisent moins d'octets que le sol ; leur ns/bloc n'est PAS corrigé du trafic,
+     et un décodeur de rang qui bat le sol sur le temps ne bat pas le sol sur le travail.
+
+VERDICTS  seuils du §4, posés avant la première mesure
+          cascade-archive        10.4318 ns/bloc contre 2.00 — ROUGE (distance 8.4318, étendue du surcoût 0.0021 ns)
+          cascade-uniformisée    1.7318 ns/bloc contre 2.00 — VERT (distance 0.2682, étendue du surcoût 0.0020 ns)
+          marche-binomiale       0.3075 ns/bloc contre 1.50 — VERT (distance 1.1925, étendue du surcoût 0.0033 ns)
+          marche-bloc            0.6711 ns/bloc contre 1.50 — VERT (distance 0.8289, étendue du surcoût 0.0016 ns)
+          marche-bloc-plat       0.8342 ns/bloc contre 1.50 — VERT (distance 0.6658, étendue du surcoût 0.0027 ns)
+          e1v-flux               0.6795 ns/bloc contre 1.50 — VERT (distance 0.8205, étendue du surcoût 0.0013 ns)
+          ⚠️ la règle de suspension du §1.2 porte sur un écart ENTRE DEUX BRAS ; sa transposition
+             à un seuil ABSOLU a été PROPOSÉE (É3b) et ÉCARTÉE. Les deux quantités sont imprimées,
+             la conclusion revient à l'opérateur.
+          cascade-uniformisée contre marche : écart 1.4243 ns, étendue du surcoût 0.0033 ns — VERDICT RENDU
+
+          gate CUDA de P4 (§4.2) : meilleur des deux décodeurs = 0.3075 ns contre 0.45
+          le bras CUDA de P4 est AUTORISÉ (il reste soumis au go de dépense)
+          E1v (§4.3) : cascade-archive rend 10.4318 ns contre 2.00 — l'archive ne franchit pas la barre — elle ne ferme pas la ligne
+
+          P1b — le même gate lu sur un BLOC : le meilleur décodeur de bloc rend 0.6711 ns contre 0.45
+          🚨 l'autorisation du bras CUDA de P4 est RETIRÉE : le gate avait été franchi par un nombre
+          qui décrivait une marche, pas un bloc
+
+          P1c — le FLUX E1v, adressage compris : 0.6795 ns/bloc contre 1.50 — VERT
+          prix de l'adressage = e1v-flux − marche-bloc = +0.0083 ns/bloc (+1.2 %), étendue du surcoût 0.0016 ns
+          VERDICT RENDU (§1.2) — mot de base, en-tête à stride fixe, somme préfixe SIMD sur 32 largeurs, fenêtre à 3 mots
+
+          P1c §3 — RESTITUTION, écrite avant la mesure et symétrique de celle qui a retiré.
+          Elle porte sur le meilleur décodeur de BLOC du run, pas sur le bras neuf : c'est `marche-bloc`
+          à 0.6711 ns contre 0.45 — l'autorisation reste RETIRÉE (une règle qui ne saurait que retirer ne vaudrait pas mieux qu'une
+          règle qui ne saurait que donner ; celle-ci pouvait tirer, et elle ne tire pas)
+
+🚨 un bras rend mieux que 0.2 ns/bloc. Le §5 demande de CHERCHER L'ERREUR avant
+   d'en faire un titre : bras dégradé, tirage non représentatif, boucle éliminée faute d'être
+   observable, ancres non reproduites. Les sorties ont été relues (bloc V0) ; le reste est
+   à vérifier à la main avant publication.
+
+⚠️ Aucun repère d'un autre run n'apparaît ci-dessus, et aucun ne doit y être ajouté : ni les
+   0,084 / 0,152 / 0,158 de `decreal` (08-01), ni les 0,08 / 0,11 / 8,27 de `decode` (07-31).
+   Les cinq bras se lisent les uns contre les autres DANS CE RUN (§1.4). Si le sol s'écarte
+   notablement du 0,084 du 08-01, ce n'est pas un résultat de P1 : c'est un signal à expliquer.
+⚠️ Aucun tok/s n'est dérivé ici : ce banc ne mesure aucune bande passante.

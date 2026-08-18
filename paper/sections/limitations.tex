@@ -4,8 +4,10 @@
 We list these in the order a skeptical reader should weigh them.
 
 \textbf{The MMLU deficit is real, reproduced, and unresolved.} $-14.6$
-points against FP16 on the 4B, reproduced three times across two machines
-($-10.6$ on the 8B). The per-subject profile shows the mechanism: abstract
+points against FP16 on the 4B served arm, reproduced three times across two
+machines; on the sealed artifact, the arm every paired statistic uses, the
+paired loss is 14.73 points, and it is 10.57 at 8B and 6.85 at 14B, all
+three resolved. The per-subject profile shows the mechanism: abstract
 algebra and accounting fall to 25\%, exactly chance, while history, law and
 psychology hold above 80\%. Two-bit quantization damages \emph{reasoning}
 far more than \emph{recall}, and a perplexity corpus mostly measures
@@ -25,8 +27,7 @@ less, and it reports a $-9.5$-point drop without fine-tuning where we see
 $-14.6$. A deliberate-contamination oracle (calibrating on the evaluation
 text itself, an upper bound on anything volume, corpus or sequence length can
 buy) recovers $1.6\%$ of perplexity on a proxy, $2.3\sigma$, closing 29\% of
-that proxy's quantization gap; an honest $\times 13$ volume curve recovers
-$1.2\%$ at ${\sim}1.7\sigma$. A $\times 100$ calibration run is therefore
+that proxy's quantization gap; a $\times 13$ volume curve recovers $1.2\%$ at ${\sim}1.7\sigma$. A $\times 100$ calibration run is therefore
 unlikely to be the answer, and we did not commission it.
 \end{itemize} What remains
 untested: reasoning-weighted calibration composition, learned per-column
@@ -38,36 +39,164 @@ all.
 
 \textbf{We do not measure QTIP.} Our motivation rests on the original
 paper's report that its kernel is slower than QTIP's; we inherit that claim
-rather than reproducing it, and no QTIP arm ran on our machine. A kernel
-comparison at matching matvec shapes is the single most valuable missing
-measurement in this paper. The same holds, less centrally, for Marlin at
-4 bits and for the other 2-bit vector-quantized systems cited in
-\S\ref{sec:related}.
+rather than reproducing it. A 2-bit kernel comparison at matching shapes is
+the single most valuable missing measurement in this paper --- the 4-bit arm
+of Table~\ref{tab:layouts} is the same experiment against a different class
+of competitor, and it is the one that changed our reading of our own result.
+The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
+vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{Two models, one GPU, greedy decoding.} Everything end-to-end is
-Qwen3-4B and Qwen3-8B on a single L40S with batch size 1 and greedy
-decode. Batched serving changes the arithmetic-intensity regime that makes
+\textbf{Three models end to end, one GPU, greedy decoding.} Everything
+end-to-end is Qwen3-4B, Qwen3-8B and Qwen3-14B on a single L40S with batch
+size 1 and greedy decode. The 14B joined them on the evening of 2026-08-17
+(\S\ref{sec:integration}): 42.9~tok/s in 9.39~GB of card memory against
+17.0~tok/s in 29.54~GB for its dense arm, 128 identical greedy tokens. This
+paragraph carried the opposite claim twice over --- first that the 14B was
+``a \emph{quality} point only \dots\ nothing about throughput or VRAM'', then,
+once the 2026-08-17 \texttt{rtbits} pass had given it a byte-level memory
+figure, that it was ``never served \dots\ no throughput, no on-card VRAM''.
+What had kept it unserved was not the kernel but a host-side guard on the
+rotation kernel's shared memory; the paragraph below says what lifted that
+guard and what it still blocks. What the 14B does \emph{not} have is the
+same-head ratio the other two sizes carry: only the served, int8-head
+configuration was run at that size, and \S\ref{sec:integration} declines to
+reconstruct the missing arm from a phase profile rather than reporting a
+number of a different kind in the same column. Batched
+serving changes the arithmetic-intensity regime that makes
 the kernel memory-bound; larger models change the embedding share and the
 tail-column overhead.
 
-\textbf{The scale argument is two points, not a law.} On the 4B, the
-summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
-every axis except disk and served footprint, where our 5.15~b/param beats
-its 5.30 by 3\%, a margin that does not, on its own, justify a 14.6-point
-MMLU loss. The 8B moves every relevant number in the 2-bit
-direction (Table~\ref{tab:campaign8b}): the quality gap halves and the
-memory verdict flips. Whether the trend continues to the 70B class, the
-regime the sovereignty argument actually cares about, is measurable with
-this methodology and is not measured here.
+\textbf{The scale argument is three points, and not a law.} On the 4B,
+the summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
+every axis except disk and served footprint, where our 5.162~b/param (the
+exact-byte figure; 5.15 was the rounded card display) beats its 5.30 (5.302)
+by about 3\%, a margin that does not, on its
+own, justify a 14.6-point MMLU loss. The 8B moves every relevant number in
+the 2-bit direction (Table~\ref{tab:campaign8b}): the quality gap narrows by
+half and the memory verdict flips. The 14B keeps the direction and
+\emph{loses the rate} (Table~\ref{tab:scale}): the excess
+perplexity falls 42.8\% from 4B to 8B, $[-51.8, -33.5]$, and 13.9\% from 8B to
+14B, $[-22.8, -4.9]$. Whether the
+trend continues to the 70B class, the regime the sovereignty argument
+actually cares about, is measurable with this methodology and is not measured
+here --- and the third point is exactly the reason not to extrapolate from
+the first two, as an earlier draft of this section did when it had only two.
 
-\textbf{AWQ speed is not comparable.} The AWQ arm was never executed in our
-engine (its quality was, under matching fingerprints). Cross-engine
-throughput comparisons are meaningless and we make none.
+Four qualifications on how that curve may be read. Every one of them moved on
+2026-08-17, and each is recorded as changed rather than quietly rewritten.
+
+First, the slowdown has \emph{two} verdicts, one per metric, and they must
+never be merged into one sentence. On perplexity it is resolved: the 12
+evaluation windows are the same text at every model size, so the two steps
+can be differenced window by window rather than by composing standard errors,
+and they differ by $-0.1010$ in log perplexity ratio (\emph{not} in the excess
+parameterization the \texttt{fall} column uses), $[-0.1377, -0.0643]$,
+$t = -6.06$,
+with 11 of 12 windows agreeing in sign. On the MMLU gap it is not: no pairing
+across sizes is available for a question set, so the test composes the two
+campaigns' standard errors in quadrature, and that resolves the first step
+($-6.96$ points, $p = 0.0001$) and not the second ($-1.40$, $p = 0.40$).
+\emph{Neither result should be overclaimed and neither should be dropped.}
+$p = 0.40$ is silence about that step, not evidence that the gap has stopped
+closing; and the resolved perplexity knee says the first step fell harder than
+the second, not where the curve flattens or that it reaches zero. The most
+likely explanation of the divergence is power, not disagreement --- perplexity
+averages the 49\,140 scored tokens of 12 paired windows where MMLU is a rate
+over 2\,280 unpaired questions --- with two further differences that are real
+and not disposable: the two metrics do not measure the same faculty, and the
+perplexity knee is 2-bit against FP16 where the MMLU knee is 2-bit against the
+4-bit baseline. That last one is checkable and does not carry the divergence
+alone: against an AWQ reference the perplexity knee still resolves, though far
+less comfortably ($-0.0576$, $[-0.1011, -0.0140]$, $t = -2.91$ against
+$-6.06$), and that line should not be quoted with the confidence of the FP16
+one. What follows operationally is what
+this section already said --- no scaling law from three models --- now resting
+on two tests that disagree about curvature rather than on caution alone. Both
+are computed from published intervals and per-window logs, not separately
+measured. This section previously said no test of a difference of differences
+existed at all, and then, for a few hours, that the only test available
+declined to resolve the slowdown --- a statement true of the MMLU gap, which
+was then the only metric with bars at all three sizes, and that stopped being
+the whole story the moment perplexity had them too. The first statement was
+retired when the 14B dumps were recovered, the second when the 4B per-window
+NLLs were.
+
+Second, the third gap in the MMLU sequence (6.09 points) \emph{is} a paired
+estimate, $[3.62, 8.52]$, McNemar $p = 1.1\times10^{-11}$. This section said
+the opposite until 2026-08-17: that it was an unpaired difference of
+micro-averages, that the 14B run's per-question dumps had never been
+committed and were gone, and that it had no interval and must not be given
+one. The dumps were not gone --- they were in the job's mounted output
+bucket, and only the local copy had been looked for --- and the recomputation
+cost no GPU time and did not move the point estimate.
+See \S\ref{sec:evaluation}.
+
+Third, the memory half of the argument now has all three points, not two.
+This section said no whole-model b/param existed for the 14B because no
+\texttt{rtbits} pass had been run on its sealed artifact; that pass has since
+run, on the artifact recovered from the same bucket. We are below the AWQ
+checkpoint at every size (5.162, 5.322, 5.106 against 5.302, 5.956, 5.404),
+but \emph{the margin is not monotone} --- 2.6\%, 10.6\%, 5.5\% --- and it
+should not be read as a tendency: it tracks the share of parameters the
+embedding occupies, which AWQ leaves in FP16 and we quantize, and which peaks
+at the 8B. This qualification ended ``what remains unmeasured above 8B is not
+memory but \emph{serving}: the 14B was never run, so it has no throughput and
+no on-card VRAM figure'' until it was run, the same evening
+(\S\ref{sec:integration}). Its card memory is a third and independent route to
+the same b/param and lands $0.38\%$ from the byte-level one, inside a band
+fixed before the run --- a cross-check, not a replacement, since it divides a
+rounded card display.
+
+Fourth, the perplexity half of that curve carried no error bars at all before
+2026-08-17 and now carries them at all three sizes --- which is what made the
+perplexity verdict above possible, and it arrived in two steps on the same
+day. Six intervals came first, on the 8B and the 14B. The 4B's three were
+declared unformable in the same journal, on the ground that its campaign log
+had recorded aggregate perplexities and no per-window NLLs, with the cost of
+restoring them budgeted as a re-run of two arms. They were in the job's log,
+which the vendor had not purged, and they cost nothing. \emph{That is the
+second output this project declared lost and then found somewhere it had not
+looked, inside two days} --- the first being the 14B per-question dumps of the
+qualification above, which were in a mounted output bucket. Both recoveries
+changed a claim's evidential status without moving a point estimate, and both
+had been preceded by a price for re-measuring rather than by a search. The
+rule we now follow is to inventory a job's output bucket \emph{and} its logs
+before pricing any re-run. The practice we do \emph{not} rely on is log
+retention, which is neither documented nor guaranteed, which is why the
+recovered output is committed to the repository rather than cited by job id.
+
+\textbf{Our speedups are over FP16, not over the 4-bit state of the
+practice.} Every $\times$ in \S\ref{sec:layouts} and
+\S\ref{sec:integration} is against an FP16 baseline. At the \emph{kernel}
+level the 4-bit comparison exists and goes against us: their GEMV reaches
+$3.37\times$ the control where our production layout reaches $2.15\times$,
+roughly a factor 1.6 --- a quotient of two medians from shared rounds rather
+than a ratio formed round by round, so one significant figure. Their
+\emph{engine} we have now run once, on the 4B
+(\S\ref{sec:integration}); this paragraph read ``we have never run'' until
+2026-08-17, and the run changes what the empty cells mean rather than
+filling them. Tables~\ref{tab:campaign} and~\ref{tab:campaign8b} still
+carry no 4-bit throughput column, because a vLLM tok/s and a
+\texttt{candle} tok/s are not the same measurement, and we still claim no
+throughput comparison against that arm. What the run supplies is a
+within-stack ratio to place beside ours --- $2.413\times$ against
+$1.12\times$ --- and that comparison goes against us too.
 
 \textbf{Speedups carry ranges, not third decimals.} Inter-process
-dispersion on identical binaries spans several percent; all ratios are
-medians of per-round ratios with min--max ranges, and effects smaller than
-the range are treated as unresolved.
+dispersion on identical binaries spans several percent. Every
+\emph{bench} ratio --- \S\ref{sec:layouts}, Table~\ref{tab:layouts},
+Figure~\ref{fig:layouts} --- is a median of per-round ratios with a min--max
+range, and effects smaller than the range are treated as unresolved. The
+end-to-end ratios of \S\ref{sec:integration} are not of that kind and carry
+no range: $2.03\times$, $1.12\times$ and $1.29\times$ are single-run
+quotients of tok/s, with no rounds to take a median over. Two of the three
+divide arms timed inside one job; the $1.29\times$ divides arms from two,
+and is $1.30\times$ when formed within the job that ran both. Their second
+decimal should be read as dispersion, not as measurement. This matters
+where the forms meet: the vLLM ratio of \S\ref{sec:integration} is of the
+first kind and the $1.12\times$ it is set beside is of the second, and that
+asymmetry is stated in the sentence that juxtaposes them rather than left
+to this one.
 
 \textbf{The rotated basis is a real serving constraint.} Weights are stored
 in the incoherence-rotated basis; any consumer of the artifact must apply
@@ -75,3 +204,55 @@ the activation rotation. Our rotation kernel is verified bit-exact on CUDA
 but exists nowhere else (no Metal port yet), so the served path is currently
 NVIDIA-only, which sits awkwardly with the sovereignty motivation and is
 first in line for future work.
+
+\textbf{That same rotation caps the width the served path can serve, one
+model class below the one the argument wants.} The rotation is a
+Walsh--Hadamard transform: a ladder of barriers, logarithmic in the transform
+length, each of which has to synchronize every participant. A barrier
+synchronizes one block, so the transform runs in one block, so the entire
+activation must be resident in that block's shared memory, one f32 per
+coordinate whatever the input dtype. The binding width is
+\texttt{intermediate\_size}, the input of \texttt{down\_proj} and the widest
+activation the kernel has to hold. The ceiling is therefore arithmetic, not
+empirical:
+
+\begin{center}\small
+\begin{tabular}{lrrll}
+\toprule
+Model & \texttt{intermediate\_size} & shared bytes & vs.\ 49\,152 default & vs.\ 101\,376 opt-in \\
+\midrule
+Qwen3-4B  &  9\,728 &  38\,912 & fits & fits \\
+Qwen3-8B  & 12\,288 &  49\,152 & fits \emph{exactly} & fits \\
+Qwen3-14B & 17\,408 &  69\,632 & does not fit & fits \\
+Qwen3-32B & 25\,600 & 102\,400 & does not fit & \textbf{short by 1\,024 bytes} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+This hardware exposes \emph{two} bounds and our host code knew one. A guard
+compared the 14B's 69\,632 bytes against the 49\,152-byte per-block default
+and refused to launch --- correctly, since an overrun would corrupt silently
+--- which cost one job (\$0.24, 488~s, no tokens produced) and is how the
+wall was found. The larger bound is opt-in, requested once per function, and
+it is now \emph{measured} on the card that served, 101\,376 bytes, where
+every argument of that day had been using a datasheet value; the kernel did
+not change a line, only the host arithmetic did. Two things follow that the
+table alone does not say. The 8B sat exactly on the default bound, to the
+byte, and nothing ever flagged it because nothing ever failed: the first
+model wider than it is the first to hit the wall, and it hits it at once.
+And the 32B misses the opt-in bound by 1\,024 bytes --- one kibibyte in a
+hundred, and it is the driver's reserve, not host slack to be shaved. This
+is a bound on what the served path can serve, and it is not a format bound:
+every layout of \S\ref{sec:layouts} decodes weights that live in the rotated
+basis and calls the same rotation, so no layout verdict moves it and none is
+touched by it. One escape is named here and deliberately \emph{not} designed:
+carrying the shared activation in half precision needs 51\,200 bytes, half
+the opt-in bound and so no longer capacity-limited --- though still 2\,048
+bytes above the 49\,152 default, which an earlier draft of this sentence had
+it fitting under --- but at $n = 25\,600$ the transform is a
+1\,024-point Walsh--Hadamard --- 10 barriers --- followed by a dense mix of
+$k = 25$, so all 25\,600 terms contribute to each output coordinate, an
+accumulation depth equivalent to a ${\sim}14.6$-stage Hadamard, and that
+accumulation would then be in half precision. It is a numerical trade, not a
+trick, and we have neither made it nor priced it.

@@ -64,6 +64,10 @@ fn main() -> anyhow::Result<()> {
 
     let device = llvq_llm::eval::device(device_arg)?;
     let dtype = llvq_llm::eval::dtype(DType::F16)?;
+    // Resolved once, here: `model.rs` reads no environment variable, so the
+    // mode travels by value from this line down to every `KvCache`. An unknown
+    // name is an error, never a silent fallback — a typo would make an A/B lie.
+    let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     eprintln!(
         "device {device:?}, dtype {}, {n_new} nouveaux tokens",
@@ -76,7 +80,7 @@ fn main() -> anyhow::Result<()> {
     // path is the only way their numbers describe the same objects.
     let (model, tok, label) = match quantized.as_deref() {
         Some(p) if llvq_llm::sealed::is_sealed_path(p) => {
-            let s = llvq_llm::sealed::load(p, dtype, &device)?;
+            let s = llvq_llm::sealed::load(p, dtype, &device, kv_mode)?;
             eprintln!(
                 "sealed {p}: {} matrices quantifiées, {:.3} Go sur disque",
                 s.matrices,
@@ -88,7 +92,7 @@ fn main() -> anyhow::Result<()> {
             let ck = Checkpoint::fetch(&repo)?;
             let tok = ck.tokenizer()?;
             let vb = ck.var_builder(dtype, &device)?;
-            let mut model = Qwen3::new(&ck.config, vb)?;
+            let mut model = Qwen3::new(&ck.config, vb, kv_mode)?;
             let label = match other {
                 Some(p) => {
                     let n = llvq_llm::artifact::load(&mut model, p, &device)?;
@@ -141,7 +145,7 @@ fn main() -> anyhow::Result<()> {
         println!("  {:<10}{:>8}{:>12.2}{:>12.1}", ids.len(), n_new, s, rate);
     }
     println!("  {}", "-".repeat(44));
-    println!("  meilleur : {best:.1} tok/s");
+    println!("  meilleur : {best:.1} tok/s  [kv {}]", kv_mode.name());
     println!(
         "\n  ⚠️ génération gloutonne, batch 1, avec cache KV. Le prompt est court et le\n  \
          contexte le reste : le débit d'un contexte long est plus bas, parce que le coût\n  \

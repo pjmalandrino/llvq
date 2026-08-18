@@ -3,50 +3,84 @@
 
 The rate that determines which models fit on a GPU is not the artifact's
 on-disk rate but the rate of the format the kernel actually reads. This
-section is an experimentally mapped scale of that trade-off: five layouts,
-one benchmark harness, one byte-accounting convention.
+section is an experimentally mapped scale of that trade-off: four byte
+formats of ours read by five kernels (one format gets two decoders), a
+deployed 4-bit competitor, an FP16 control, one benchmark harness, one
+byte-accounting convention.
 
-\textbf{Methodology.} All five arms run in a single process on an NVIDIA
-L40S, interleaved within every round in a fixed dispatch order; 7 rounds,
-the first 2 discarded. Each reported speedup is the \emph{median of the
-per-round ratios} with its range over the kept rounds, never a quotient
-of two minima, which would compare rounds that did not coexist. Byte
-accounting includes payload, per-class tables, the full-precision tail
-columns, and per-row scales. All kernels use zero bytes of local memory.
-Every row of every arm is verified against f64 before timing
-(\S\ref{sec:decoder}). Data: \texttt{docs/data/echelle-formats.csv};
-raw logs in \texttt{docs/mesures/}.
+\textbf{Methodology.} All arms run in a single process on an NVIDIA L40S,
+interleaved within every round in a fixed dispatch order; 7 rounds, the first
+2 discarded. Each reported speedup is the \emph{median of the per-round
+ratios} with its range, never a quotient of two minima, which would compare
+rounds that did not coexist. All kernels use zero bytes of local memory, and
+every row of every arm is verified against f64 before timing
+(\S\ref{sec:decoder}).
+
+Byte accounting is the kernel's: what each arm streams per matrix --- payload,
+exception side-channels, full-precision tail columns, per-row scales. Three
+asymmetries follow, uncorrected. Per-class tables are excluded, being
+resident constants of a few kilobytes against gigabytes of stream, though
+\textsc{Golay70} alone loads two of them. The FP16 control bills its tail at
+f16 where our arms bill theirs at f32, and the 4-bit competitor bills no tail
+at all: both understate our arms. Bandwidth is the bench's
+convention, computed from each arm's fastest kept round rather than its
+median; on medians every reported percentage is unchanged.
+
+Adding an arm perturbs the others, so this run is two phases of one process:
+the six previously published arms, then the same six plus the seventh. Across
+the phases the six common arms move by at most 0.24\% in their ratio to the
+control, against a worst intra-run half-range of 0.30\% among those same six,
+so the addition is not resolvable here and the incumbents' numbers are the
+same object before and after. (The added arm is the most dispersed at
+0.56\%.) Data:
+\texttt{docs/data/echelle-formats.csv}; raw log
+\texttt{docs/mesures/golay70-v2-sept-bras-2026-08-11.txt}.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{lrrrrl}
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lrrrrrrl}
 \toprule
-Layout & b/weight & median ms & GB read & vs FP16 & verdict \\
+Kernel & b/weight & GB & med.\ ms & GB/s & of bound & vs FP16 & status \\
 \midrule
-FP16 (control) & 16.000 & 11.025 & 7.27 & 1.00$\times$ & \\
-\textsc{Slot32} & 5.510 & 5.883 & 2.50 & 1.87$\times$ [1.86--1.88] & first working layout \\
-\textsc{Planes14} & 4.804 & 5.156 & 2.18 & \textbf{2.14$\times$} [2.11--2.15] & \textbf{in production} \\
-\textsc{Planes12x} & 4.342 & 5.563 & 1.97 & 1.98$\times$ [1.95--1.99] & best rate, exact \\
-\textsc{Golay70} & 3.589 & 8.410 & 1.63 & 1.31$\times$ [1.29--1.32] & discarded (compute-bound) \\
+FP16 (control) & 16.000 & 7.27 & 11.008 & 661 & --- & 1.00$\times$ & \\
+\textsc{Slot32} & 5.510 & 2.50 & 5.834 & 429 & 65\% & 1.89$\times$ [1.88--1.89] & first working \\
+\textsc{Planes14} & 4.804 & 2.18 & 5.116 & 427 & 65\% & \textbf{2.15$\times$} [2.15--2.16] & \textbf{in production} \\
+\textsc{Planes12x} & 4.342 & 1.97 & 5.502 & 360 & 54\% & 2.00$\times$ [2.00--2.01] & best exact rate \\
+\textsc{Golay70} & 3.589 & 1.63 & 8.205 & 199 & 30\% & 1.34$\times$ [1.34--1.34] & discarded \\
+\textsc{Golay70}, hoisted & 3.589 & 1.63 & 6.214 & 263 & 40\% & 1.77$\times$ [1.76--1.78] & still discarded \\
+\midrule
+AWQ w4g128 & 4.179 & 1.90 & 3.263 & 583 & \textbf{88\%} & 3.37$\times$ [3.36--3.38] & competitor \\
 \bottomrule
 \end{tabular}
-\caption{The five-arm layout scale: one token's worth of the 252 model
-projections, single L40S, median of per-round ratios with ranges.
-Payload rates; whole-model rates appear in \S\ref{sec:evaluation}.}
+\caption{The layout scale with its first competitor: one token's worth of
+the 252 model projections, single L40S, seven arms in one process, median of
+per-round ratios with ranges. \emph{Of bound} is the arm's achieved
+bandwidth as a fraction of the 661~GB/s the FP16 control reaches on these
+same shapes --- the comparable quantity, since a ratio against FP16
+mechanically rewards whoever reads least. Kernel accounting; whole-model
+bits per parameter appear in \S\ref{sec:evaluation} and are a different
+denominator.}
 \label{tab:layouts}
 \end{table}
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.78\linewidth]{fig1_layout_scale.pdf}
-\caption{Speedup over FP16 versus in-VRAM rate for the five layouts.
-Error bars are min--max over kept rounds. Achieved bandwidth holds from
-\textsc{Slot32} to \textsc{Planes14} (428 to 425~GB/s: time falls exactly as
-bytes do), then degrades: 356~GB/s at \textsc{Planes12x}, 195 at
-\textsc{Golay70}, whose double-coset decode leaves the kernel compute-bound.
-The knee is at \textsc{Planes12x}, not at \textsc{Golay70}, which has fallen
-off it entirely.}
+\includegraphics[width=0.82\linewidth]{fig1_layout_scale.pdf}
+\caption{Speedup over FP16 against in-VRAM rate. Error bars are min--max
+over kept rounds. The dashed hyperbola is the ceiling: what an arm reading
+that many bits per weight would reach at the bandwidth the FP16 control
+achieves on the same shapes. An arm's fraction of its own byte bound is its
+height as a \emph{proportion} of that curve, which is why the vertical axis
+is logarithmic --- in log space equal fractions are equal gaps, so
+\textsc{Slot32} and \textsc{Planes14}, both at 65\%, sit the same distance
+below the ceiling at very different rates. Achieved bandwidth holds between
+them (429 to 427~GB/s: time falls exactly as bytes do), then degrades. The
+arrow is the second attack on \textsc{Golay70}: hoisting the per-slot coset
+decode to a per-block prologue, at zero change to the stored bytes, moves it
+from 199 to 263~GB/s and leaves it short anyway. The 4-bit competitor
+converts 88\% of its byte advantage where our best layout converts 65\%.}
 \label{fig:layouts}
 \end{figure}
 
@@ -57,9 +91,10 @@ mask per non-zero magnitude level naming which coordinates carry it. That is
 130 bits at the widest class ($L=5$) and 106 at $L=4$. The kernel addresses a
 record by its byte offset and reads a fixed five-word (20~B) window, an
 alignment bound the format guarantees rather than checks. It is the simplest
-divergence-free format and our first to beat FP16 ($1.87\times$), but at
-5.510~b/weight, records plus per-class tables, full-precision tail columns
-and per-row scales, it is \emph{more} memory than a 4-bit format: fast and
+divergence-free format and our first to beat FP16 ($1.89\times$), but at
+5.510~b/weight --- records, full-precision tail columns and per-row scales,
+per the byte accounting above, which excludes the resident per-class
+tables --- it is \emph{more} memory than a 4-bit format: fast and
 pointless at scale.
 
 \textbf{\textsc{Planes14}} is the observation that the four one-hot level
@@ -68,9 +103,10 @@ levels, so three binary bit planes name each coordinate's level where the
 one-hot encoding spent up to four 24-bit masks. With a uniform 14-byte
 stride, no level cap, and no per-group base pointers, the block shrinks to
 4.804~b/weight and, because the kernel was memory-bound, runs
-\emph{faster}: $1.14\times$ over \textsc{Slot32} (ranges 1.13--1.15 across two
-independent runs) at bit-identical decoded content, $2.14\times$ over FP16. Achieved bandwidth is
-unchanged (428 to 425~GB/s): the time falls exactly as the bytes do. That
+\emph{faster}: $1.14\times$ over \textsc{Slot32} at bit-identical decoded
+content ($1.14\times$ in five independent jobs, union of ranges 1.13--1.15)
+and $2.15\times$ over FP16. Achieved bandwidth is
+unchanged (429 to 427~GB/s): the time falls exactly as the bytes do. That
 invariance is also evidence about \emph{why} the kernel sits where it does:
 a uniform 14-byte stride and a bit-packed five-word window are very different
 access geometries, and they achieve the same bandwidth, so record geometry is
@@ -83,33 +119,102 @@ bit-exact, and this matters because the obvious alternative is not free:
 \emph{hard-capping} the level count at four (which would allow a plain
 two-plane 12-byte format at about 4.1~b/weight) was measured to cost
 $+4.75\%$ perplexity, enough to fall behind QTIP. The overlay gets 4.342~b/weight at
-$1.98\times$ with zero quality change.
+$2.00\times$ with zero quality change.
 
-\textbf{\textsc{Golay70}: a measured negative result.} The sign mask is
-redundant: signs on the codeword support are determined up to the Golay
+\textbf{\textsc{Golay70}: a negative result, attacked twice.} The sign mask
+is redundant: signs on the codeword support are determined up to the Golay
 coset, so storing 12 code bits instead of 24 sign bits yields
-3.589~b/weight, real and reconstruction-exact. But recovering the signs
-requires a double-coset decode per block, and the kernel stops being
-memory-bound: achieved bandwidth drops to 195~GB/s and the speedup to
-$1.31\times$, below our $1.6\times$ acceptance criterion, fixed before the
-measurement. We report it because it locates the floor of this design space:
-past the knee, further rate reduction is no longer free; the decode
-work itself becomes the bottleneck.
+3.589~b/weight, reconstruction-exact on all 150{,}681{,}600 blocks of the
+artifact. But recovering the signs requires resolving the coset \emph{per
+slot}, and the kernel stops being memory-bound: 199~GB/s, 30\% of its byte
+bound, $1.34\times$, below the $1.6\times$ criterion we had fixed before
+measuring. That criterion is recorded in the message of the commit that
+lands the layout (\texttt{caef2ac}, 7 August: ``$\geq 1.6\times$ vs FP16 =
+the bits point; $\geq 1.85\times$ = it dominates \textsc{Slot32}''), which
+predates the benchmark job. Its antecedence therefore rests on a commit
+date, not on a trusted timestamp --- unlike the replacement criterion below,
+which was stamped before measuring; we state the difference rather than let
+the two read alike.
+
+That failure had an identified cause, so we attacked it. Everything
+distinguishing the two
+cosets is a function of the block's three 24-bit words, so it hoists out of
+the slot loop into a per-block prologue of about a dozen integer operations,
+leaving a per-slot path of three mask tests and a negation --- and \emph{not
+one stored byte changes}. The identity is proved slot by slot against the
+original decode and block by block against the artifact. The repair works and
+is not enough: 199 to 263~GB/s, 30\% to 40\%, $1.34\times$ to $1.77\times$.
+Halving the per-slot decode returned 1.99~ms of the 5.74~ms by which the
+layout missed its DRAM floor: the diagnosis was right, the bar still missed.
+
+It also shows where the rest of the time is. Each arm sits above its own
+floor (bytes over the control's 661~GB/s) by 1.82~ms for \textsc{Planes14},
+2.52 for \textsc{Planes12x} and 3.75 for the hoisted \textsc{Golay70}.
+\textsc{Planes14} has no correction pass, so the excess over \emph{its} gap
+is 0.70~ms at a 3.4\% exception rate and 1.93~ms at 7.4\%: the residual grows
+with the correction pass, faster than in proportion to it. That pass lies
+outside the per-slot path this repair attacked, and neither it nor the
+per-block cost of the 9-byte stride has been touched. The design space is not
+empty; the layout missed a pre-registered bar twice.
+
+The bar had moved between the two attempts, and for a reason. The original
+$1.6\times$ was a
+\emph{speed} threshold, and once a deployed 4-bit kernel proved faster and
+smaller than our production layout (below), a speed threshold could no longer
+settle what had become a memory argument. We retired it, published a
+replacement --- $\geq 2.0\times$, the speed of \textsc{Planes12x}, together
+with a whole-model memory margin of $\geq 20\%$ over the deployed 4-bit
+checkpoint --- and timestamped it before measuring. The memory condition held
+by arithmetic; the speed condition missed, $1.77\times$ against $2.0\times$.
+Our pre-measurement estimate of $1.9$--$2.4\times$, from an instruction
+count, was optimistic for the reason it had itself flagged as weakest:
+integer and float issue share ports.
 
 The scale is brutally nonlinear: \emph{on a
 memory-bound kernel, bits saved are speed gained, until the decode that
 saves them stops being shifts and masks.} For lattice codes on this
 hardware, that stops between 4.8 and 4.3~b/weight.
 
+\textbf{Where a deployed 4-bit kernel sits on the same scale.} The last row
+of Table~\ref{tab:layouts} is not one of our layouts: it is the AWQ w4g128
+GEMV kernel~\citep{awq2024}, ported into our harness unchanged --- its own
+grid, its own binary16 output --- and timed in the same rounds and the same
+process as ours. It reads 4.179~b/weight, less than three of our four byte
+formats, so a ratio against FP16 flatters it by construction and we do not
+lean on the $3.37\times$ --- against the two \textsc{Golay70} rows, which
+read less than it does, the same effect runs the other way and they lose
+regardless. The comparable quantity is the fraction of the byte
+bound, and it is the result of this section: \textbf{88\% for the 4-bit
+kernel against 65\% for our best layout}. Both read a compressed format from
+DRAM on the same card; one converts nearly all of its byte advantage into
+time, the other two thirds. The gap is not the format but what happens
+between the load and the multiply.
+
+Two asymmetries qualify that number. The AWQ payload is \emph{synthesized}
+--- our own reconstructed weights, requantized to w4g128, not the official
+checkpoint. That is sound for timing, since the kernel has no data-dependent
+branch and its traffic depends only on the shapes, and unsound for any
+quality statement, which this arm does not make. And w4g128 quantizes every
+column, so it carries no tail where our rates do: that inflates our
+b/weight against it, but on the fraction of the bound it works the other way.
+Tail and row scales are 0.137 of \textsc{Planes14}'s 4.804~b/weight; without
+them the arm reads 2.12~GB in the same 5.116~ms, which is 63\% of its bound
+rather than 65\%, and the gap this section reports is 25 points rather than
+23. We keep 65\% because it is what the shipped format streams.
+
 \subsection{How close to the floor? A measured attribution}
 \label{sec:attribution}
 
 ``Bandwidth-dominated'' is a claim about a kernel, and we measured it rather
-than asserting it. The FP16 control reads 7.27~GB at 660~GB/s on this shape,
-so the 2.50~GB that \textsc{Slot32} reads put its own DRAM floor at
-$2.50/0.660 = 3.78$~ms. A separately instrumented run of the same two arms
-takes 5.82~ms on the \textsc{Slot32} side (Table~\ref{tab:layouts} reports
-5.883~ms and 428~GB/s for the uninstrumented one): a gap of
+than asserting it. The instrumented job carries its own FP16 control ---
+7.27~GB at 662~GB/s, within a rounding step of the 661 of
+Table~\ref{tab:layouts}, and it is that job's own control we use, since a
+floor derived from one process and a time measured in another is exactly the
+subtraction this section's methodology forbids. Against it, the 2.50~GB that
+\textsc{Slot32} reads put its DRAM floor at $2.50/0.662 = 3.78$~ms, and the
+instrumented arm takes 5.82~ms (Table~\ref{tab:layouts}'s uninstrumented run
+reports 5.834~ms and 429~GB/s, so the instrumentation costs nothing
+measurable): a gap of
 \textbf{2.04~ms} that belongs to the kernel, not to the memory system. Three
 ``floor'' kernels, each adding one stage, with per-shape CUDA events and
 submission timing, attribute it:
@@ -136,13 +241,11 @@ residual-decode line is a difference, not a direct measurement. Data:
 \label{tab:attribution}
 \end{table}
 
-This overturns a static audit we had written the same day from source-level
-instruction counts: it put bank conflicts at 0.3--2.9~ms (they are 0.118),
-overestimated the table gather twelvefold, and declared arithmetic ``out of
-the picture'' when decode and the latency it fails to hide are in fact the
-largest recoverable terms. \emph{A source-level count without SASS was wrong
-by a factor of two on the one item it was most confident about}, which is why
-the table above comes from an instrumented job and not from reasoning.
+A source-level instruction count over the same kernel disagrees on every
+line: it put bank conflicts at 0.3--2.9~ms (they are 0.118), overestimated
+the table gather twelvefold, and declared arithmetic ``out of the picture''
+when decode and the latency it fails to hide are the largest recoverable
+terms. The table above comes from an instrumented job.
 
 One term is already recovered. Fusing $q/k/v$ and
 $\textit{gate}/\textit{up}$ into row-concatenated launches takes the model
@@ -157,9 +260,9 @@ with an optimization the baseline was denied. The fused kernel is
 anyway (128 resident blocks out of an 852-block capacity, 157~GB/s against
 469, $1.06\times$).
 
-The consequence for the rest of this paper is that the $2.14\times$ of
-Table~\ref{tab:layouts} is not a ceiling imposed by the format. The
-attribution above is measured on \textsc{Slot32}, but its largest term is
-launch geometry, which is orthogonal to the record format: rate reduction and
-launch geometry are independent levers, and roughly a third of the remaining
-gap has never been attacked.
+The $2.15\times$ of Table~\ref{tab:layouts} is therefore not a ceiling
+imposed by the format. The attribution is measured on \textsc{Slot32}, but
+its largest term is launch geometry, which is orthogonal to the record
+format, and roughly a third of the gap has never been attacked. The 4-bit
+competitor's 88\% says the same from outside: much of the 23 points between
+us is not a property of lattice decoding at all.

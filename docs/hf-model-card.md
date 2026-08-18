@@ -23,17 +23,31 @@ tags:
   section Limitations sont mesurés SUR CES OCTETS, chemin fusé CUDA, layout
   Planes14 par défaut : 48,7 tok/s dans 2,96 Go (5,89 b/param).
 
-  `LLVQ_EMBED=q8` (88,4-88,5 tok/s, 2,60 Go, 5,15 b/param) est un DRAPEAU DE
+  `LLVQ_EMBED=q8` (88,4-88,5 tok/s, 2,60 Go, 5,162 b/param) est un DRAPEAU DE
   CHARGEMENT appliqué aux mêmes octets — pas un autre fichier — et il est
   mentionné comme tel. En revanche la qualité de cette configuration a été
   mesurée sur `q4b-e8.llvq` (1,406 Go, embedding int8 pré-cuit), qui n'est PAS
   publié : contenu bit-identique vérifié, octets différents.
 
+  ✅ 2026-08-17 — ARBITRÉ : le b/param publié est **5,162**, le verdict de
+  `rtbits` sur les octets exacts (le journal écrit lui-même « LE CHIFFRE 4B q8
+  À PUBLIER EST 5,162 »). Le **5,15** qui figurait ici est la division du
+  « 2,60 Go » affiché par `nvidia-smi`, arrondi : l'empreinte réelle est
+  2,595 Go. ⚠️ Les deux nombres de ce couple ont deux provenances et **ne se
+  déduisent pas l'un de l'autre** — ne pas diviser le 2,60 pour retrouver le
+  b/param.
+
+  🚨 CETTE CARTE EST UNE SURFACE PUBLIÉE. Le fichier du dépôt est à jour ; la
+  carte EN LIGNE sur le Hub ne l'est pas tant qu'elle n'a pas été republiée.
+  La republication est une action sortante distincte, qui demande son propre
+  go — tant qu'elle n'a pas eu lieu, dépôt et objet publié divergent sur ce
+  chiffre.
+
   DÉCISION UTILISATEUR EN ATTENTE, à ne pas prendre en éditant ce fichier :
   faut-il republier l'artefact HF en variante q8 pré-cuite ? Si oui, les
-  chiffres de tête de cette carte changent de dénominateur (1,406 Go, 5,15
-  b/param) et le sha256 ci-dessus devient faux. Tant que ce n'est pas tranché,
-  la carte reste écrite sur le fichier f16 réellement en ligne.
+  chiffres de tête de cette carte changent de dénominateur (1,406 Go) et le
+  sha256 ci-dessus devient faux. Tant que ce n'est pas tranché, la carte reste
+  écrite sur le fichier f16 réellement en ligne.
 -->
 
 # Qwen3-4B — LLVQ 2-bit
@@ -108,10 +122,22 @@ exact file** through the project's own pipeline:
 
 | | FP16 baseline | this model |
 |---|---|---|
-| MMLU (micro, population-weighted) | **70.42 ± 1.28** | **56.09 ± 1.36** |
+| MMLU (micro), Metal / M3 Max | 70.42 ± 1.28 | 56.09 ± 1.36 |
+| **MMLU (micro), CUDA / L40S** — the campaign figure | **70.32 ± 1.28** | **55.59 ± 1.35** |
 
-**−14.33 points, 79.7 % retained.** The ± is a stratified standard error
-covering sampling only — 1 σ, not a 95 % interval.
+**−14.33 points on Metal, −14.73 on CUDA; 79.7 % and 79.1 % retained.** The ±
+is a stratified standard error covering sampling only — 1 σ, not a 95 %
+interval, and two of them do not subtract. For a *difference*, the paired test
+below is the right instrument.
+
+⚠️ **The two rows disagree by 0.50 pp on what should be the same file, and we
+do not know why.** The baseline moves by only 0.10 pp across the same backend
+change, so this is five times the drift of its own control. It is not
+verifiable by token fingerprint: the Metal run predates their printing. The
+deltas are consistent either way and no conclusion here depends on the choice,
+but it is an open provenance debt rather than a rounding difference — and the
+rest of this card quotes the CUDA row, because that is the one measured
+alongside the AWQ arm on the same card with the same fingerprint.
 
 The damage is not uniform. Abstract algebra and professional accounting fall to
 10/40 — indistinguishable from chance within a ±7 pp per-subject bar; European
@@ -197,7 +223,9 @@ cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.
   in speed and ÷2.72 in memory**, 5.89 bits/param over the whole model — and
   the same greedy tokens up to a tie-break at token 89. Setting
   `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the same
-  bytes to **88.4–88.5 tok/s in 2.60 GB** (5.15 bits/param); that ×2.03 is
+  bytes to **88.4–88.5 tok/s in 2.60 GB** (5.162 bits/param, measured on the
+  exact bytes; the 2.60 GB is the rounded card display and the two do not
+  divide into one another); that ×2.03 is
   mostly a replacement of an output head that recopies 778 MB of vocabulary
   per token, and **not** the Leech kernel — whose own contribution is the
   ×1.12. The two are never quoted apart. That copy is on *our* side: our
@@ -217,11 +245,18 @@ cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.
   measured rather than assumed.** Qwen's own AWQ 4-bit checkpoint, run through
   this project's harness on the same card with the same questions and the same
   token fingerprint, scores **70.04 ± 1.25 on MMLU against this file's 55.59 ±
-  1.35**, and ×1.105 perplexity against ×1.384. It is statistically
-  indistinguishable from f16. This artifact wins disk size, and — with the
-  fused path and an int8 embedding — card memory (5.15 against 5.30 bits/param
-  in AWQ's own engine). It loses quality, by 14 points.
-  Log: `docs/mesures/a4-campagne-2026-08-06.txt`.
+  1.35**, and ×1.105 perplexity against ×1.384. On a paired, subject-stratified
+  bootstrap over the same 2 280 questions, AWQ − f16 is **+0.27 pp, 95% CI
+  [−1.63 ; +2.13]** — the interval contains zero, so the two are
+  *indistinguishable under this protocol*, which is not the same as equal.
+  Against this file the same test gives **+14.45 pp, 95% CI [+11.60 ; +17.27]**
+  — resolved, and by a wide margin. This artifact wins disk size, and — with the
+  fused path and an int8 embedding — card memory: **5.162 bits/param, measured
+  by `rtbits` on the actual bytes, against 5.302 computed for AWQ in its own
+  engine** (measured against computed — AWQ has never been loaded quantized in
+  our harness). It loses quality, by 14 points.
+  Logs: `docs/mesures/a4-campagne-2026-08-06.txt`,
+  `docs/mesures/mmlupair-4b-8b-2026-08-13.txt`.
 * **The format is not portable.** About 1 400 lines of dependency-free Rust
   (`llvq-artifact`) define the container, of which ~425 are the on-disk format
   itself — but *decoding* also needs `llvq-search` and `llvq-core` for the

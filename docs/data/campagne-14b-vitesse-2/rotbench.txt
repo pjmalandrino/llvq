@@ -1,0 +1,37 @@
+source NVRTC : 13659 octets, sha256 106f1374e635eb606af762eb1291ac2f158f7a87e0416ca9c7cb66dff7d5e434
+
+NVIDIA L40S — 142 SM, 49152 o de partagée par bloc (101376 après opt-in)
+  rot_apply   47 registres, 0 o locaux, sm_89, 1024 threads max
+
+Vérification contre la référence f64
+  forme                                   n    m   k         rel  pire coord
+  --------------------------------------------------------------------------
+  Qwen3-4B hidden — q/k/v/gate/up      2560  512   5    6.620e-8    4.258e-7
+  Qwen3-4B o_proj — k=1, no mix        4096 4096   1    4.994e-8    3.415e-7
+  Qwen3-4B down_proj — k=19, widest    9728  512  19    9.523e-8    6.234e-7
+  Qwen3-8B intermediate               12288 4096   3    6.775e-8    3.996e-7
+  Qwen3-14B intermediate — opt-in de partagée  17408 1024  17    8.790e-8    6.723e-7
+  Qwen3-0.6B intermediate              3072 1024   3    6.733e-8    3.384e-7
+  narrow, k=1                          1024 1024   1    4.351e-8    2.659e-7
+  small                                  96   32   3    4.267e-8    1.351e-7
+  one Leech block                        24    8   3    4.557e-8    1.351e-7
+  --------------------------------------------------------------------------
+  pire sur 9 formes : rel 9.523e-8, coord 6.723e-7
+
+Coût — 200 lancements enchaînés, 20 jetés
+  ⚠️ un lancement à la fois, sur un stream vide : c'est la latence isolée,
+     pas ce que coûtera la même rotation intercalée entre deux matvecs.
+        n          µs
+  -------------------
+     2560        7.90
+     4096        6.70
+     9728       18.92
+    12288       26.15
+    17408       29.76
+     3072        8.75
+     1024        3.39
+       96        3.38
+       24        3.19
+
+  Projection Qwen3-4B : 36 blocs × (2×2560 + 4096 + 9728) = 1491 µs/token
+  À rapporter aux ~23 400 µs d'un token f16 mesuré sur L40S le 2026-08-05.

@@ -378,7 +378,7 @@ impl RuntimeBlocks {
 }
 
 // ---------------------------------------------------------------------------
-// Planes14 — E1a of docs/pistes-format-vram-2026-08-05.md
+// Planes14 — E1a of docs/archive/pistes-format-vram-2026-08-05.md
 // ---------------------------------------------------------------------------
 
 /// Bytes per block of the [`PlanesBlocks`] layout — a frozen constant of the
@@ -936,9 +936,8 @@ impl Planes12xBlocks {
         let gain = cur.read(1) as u32;
         let rec = table.record(id);
         if id == 0 {
-            assert_eq!(
-                cur.read(86),
-                0,
+            assert!(
+                cur.is_zero(PLANES12X_BYTES as u32 * 8 - CLASS_BITS - 1),
                 "block {b}: origin record carries bits past the header"
             );
             return ([0; DIM], gain);
@@ -1191,7 +1190,7 @@ pub fn transcode_planes12x(
 }
 
 // ---------------------------------------------------------------------------
-// Golay70 — E2 of docs/pistes-format-vram-2026-08-05.md
+// Golay70 — E2 of docs/archive/pistes-format-vram-2026-08-05.md
 // ---------------------------------------------------------------------------
 
 /// Bytes per block of the [`Golay70Blocks`] **main stream** — a frozen
@@ -1664,6 +1663,7 @@ impl<'a> BitCursor<'a> {
     }
 
     fn read(&mut self, width: u32) -> u64 {
+        assert!(width <= 64, "BitCursor::read({width}): a u64 holds 64 bits");
         let mut out = 0u64;
         for i in 0..width as u64 {
             let bit = self.pos + i;
@@ -1671,5 +1671,68 @@ impl<'a> BitCursor<'a> {
         }
         self.pos += width as u64;
         out
+    }
+
+    /// Are the next `width` bits all zero? Advances the cursor either way.
+    ///
+    /// Exists because a canonicity check is the one place a field wider than
+    /// a `u64` is natural — `Planes12x`'s origin record has 86 bits that must
+    /// all be zero — and [`Self::read`] cannot express it. It used to be
+    /// written `read(86)`, which shifts a `u64` by up to 85: a panic under
+    /// `debug_assertions` and a masked shift in release.
+    ///
+    /// ⚠️ The release behaviour happened to be *harmless* — the accumulator
+    /// is OR-ed, so aliased bits could not cancel and the `== 0` test still
+    /// answered correctly — which is exactly why it survived: the assertion
+    /// gave the right verdict for the wrong reason, and only in the profile
+    /// the sealed sweeps run in. Found by an `e1c_format` fixture that puts
+    /// the origin mid-stream and runs in debug.
+    fn is_zero(&mut self, width: u32) -> bool {
+        let mut all = true;
+        let mut left = width;
+        while left > 0 {
+            let take = left.min(64);
+            all &= self.read(take) == 0;
+            left -= take;
+        }
+        all
+    }
+}
+
+#[cfg(test)]
+mod bitcursor_tests {
+    use super::*;
+
+    /// Regression: `Planes12x`'s origin canonicity check reads 86 bits, which
+    /// no `u64` holds. It was written `read(86)` — a panic in debug, a masked
+    /// shift in release — and survived because the sweeps that exercise the
+    /// origin run in release, where OR-ing aliased bits still answered `!= 0`
+    /// correctly. This pins both halves of the fix.
+    #[test]
+    fn is_zero_sees_bits_past_the_first_word() {
+        // 96 bits, all zero but one — swept across every position, including
+        // the ones a 64-bit read cannot reach.
+        for bit in 0..96u64 {
+            let mut data = [0u8; 12];
+            data[(bit / 8) as usize] |= 1 << (bit % 8);
+            assert!(
+                !BitCursor::new(&data, 0).is_zero(96),
+                "bit {bit} manqué par is_zero"
+            );
+        }
+        assert!(BitCursor::new(&[0u8; 12], 0).is_zero(96));
+        // And it advances the cursor by exactly what it consumed, so a caller
+        // can keep reading after it.
+        let mut cur = BitCursor::new(&[0u8; 12], 0);
+        assert!(cur.is_zero(86));
+        assert_eq!(cur.pos, 86);
+    }
+
+    /// `read` must refuse a width it cannot represent rather than silently
+    /// masking the shift — the defect above, made impossible to reintroduce.
+    #[test]
+    #[should_panic(expected = "a u64 holds 64 bits")]
+    fn read_refuses_more_than_a_word() {
+        BitCursor::new(&[0u8; 16], 0).read(65);
     }
 }

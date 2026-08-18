@@ -176,10 +176,34 @@ below) was implemented as the paper's Algorithm 3 reads to us, and **refuted at
 full depth: ×1.99 perplexity** on a 28-block 0.6B run against the shipped
 recipe — the second time in this project that a strictly better per-layer proxy
 composed into a disaster over 28 layers
-([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md),
-[`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md)).
-**What moved instead was scale**: at 8B the drop is −10.56 pp rather than
-−14.73, and the gap to 4-bit halves. Candidates still open and unmeasured:
+([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md),
+[`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md)).
+**What moved instead was scale**, and it now has three points rather than two:
+the MMLU drop against f16 reads −14.73 pp at 4B, −10.57 at 8B and −6.85 at 14B,
+each one *paired on the same questions* with a 95 % interval excluding zero.
+🚨 **This paragraph said "the perplexity excess flattens between the last two —
+a knee, not a law". The knee was withdrawn on 2026-08-17 (morning) and half of
+it was handed back the same evening — so any sentence about it must now NAME
+ITS METRIC, because each bare form is half wrong.** On the **MMLU gap to
+4-bit**, with all three AWQ − LLVQ gaps paired, the step-to-step drop tests as
+**resolved from 4B to 8B (p = 0.0001)** and **unresolved from 8B to 14B
+(p = 0.40)** — that slowdown is a property of the point estimates which the
+error bars do not separate, and ⚠️ p = 0.40 does not prove equality either: on
+that step the data are **silent**. What is tested there is the closing itself,
+4B to 14B (−8.36 pp, p ≈ 1e-5). On **perplexity**, the slowdown **is resolved**:
+paired window by window on the same 12 windows at all three sizes, the two steps
+read ×0.881211 [0.856 ; 0.907] and ×0.974855 [0.959 ; 0.991], and their paired
+difference is **−0.100992, 95 % CI [−0.137670 ; −0.064313], t = −6.06**
+([`docs/mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt)).
+**Two metrics, two verdicts — this is information, not a contradiction**:
+perplexity is paired *across sizes* and weighs 49,140 scored tokens, MMLU
+composes two independent 2,280-question campaigns, and 2-bit damages
+**reasoning** far more than the **recall** a perplexity corpus mostly measures.
+**Three points, not a law** — see *Against 4-bit*, which carries the figures and
+the reserves.
+An earlier version of this paragraph said "the gap to 4-bit halves", which was
+true from 4B to 8B and is not the shape of the three-point curve. Candidates
+still open and unmeasured:
 calibration *composition* (the failure is concentrated in reasoning subjects,
 which no corpus we use exercises), post-hoc compensation, per-column scale
 fine-tuning, and our 1-gain-bit configuration,
@@ -239,7 +263,7 @@ official AWQ checkpoint**, not one we produced:
 | | FP16 | **AWQ 4-bit** *(official)* | LLVQ 2-bit, dense | **LLVQ 2-bit + fused kernel** |
 |---|---|---|---|---|
 | **Cold storage** | 8.04 GB | 2.67 GB | **1.77 GB** | **1.41 GB**¹ |
-| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.15 bits/param** |
+| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.162 bits/param**⁵ |
 | **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **88.4 – 88.5 tok/s**⁴ |
 | **WikiText-2 perplexity** | 12.2369 | **13.5207** *(×1.105)* | 16.9422 *(×1.384)* | **16.9358** *(×1.384)* |
 | **MMLU** *(5-shot, micro, 2 280 q)* | 70.32 ± 1.28 | **70.04 ± 1.25** *(−0.28)* | 55.59 ± 1.35 | **55.70 ± 1.35** *(−14.6)* |
@@ -260,6 +284,15 @@ Its 5.30 bits/param is its own engine's, whole model, embedding included.
 FP16 — that was the state of this project on 2026-08-04.
 ⁴ 88.4 in the final campaign, 88.5 in the integration run. Two protocols, one
 object; the repo prints both rather than picking one.
+⁵ **The two numbers in that cell do not divide into each other, and neither is
+derived from the other.** 2.60 GB is what the card reports (`nvidia-smi`,
+rounded to two digits); 5.162 bits/param is recomputed from the exact bytes
+and the exact parameter count, whole model with embedding included, by
+`rtbits` ([`docs/mesures/rtbits-planes-8b-2026-08-09.txt`](docs/mesures/rtbits-planes-8b-2026-08-09.txt),
+which states the published 4B q8 figure is 5.162). The exact footprint is
+2.595 GB, so dividing the displayed 2.60 GB gives **5.15** — the figure this
+file published until 2026-08-17 and which is now labelled for what it is: a
+quotation of the rounded card display, not a measurement of the object.
 
 **Read the speed number with its companion.** The ×2.03 against the dense arm
 is *not* the kernel alone: ~25 ms/token of it comes from replacing an output
@@ -278,19 +311,198 @@ Leech kernel itself buys end to end
 Never quote the ×2.03 without the ×1.12.
 
 **What the table says, in order.** We win cold storage (1.41–1.77 GB against
-2.67) and, since Planes14 + int8 embedding, **card memory** (5.15 against 5.30
+2.67) and, since Planes14 + int8 embedding, **card memory** (5.162 against 5.30
 bits/param — the axis we were losing three days earlier). We lose quality, and
 not marginally: **70.04 against 55.70 on MMLU, a 14.3-point gap**, while
 4-bit is statistically indistinguishable from f16 (−0.28 pp, inside its own
 ±1.25). Speed does not compare honestly across two engines.
 
 **On a 4B, 4-bit dominates us on capabilities and that is the verdict.** The
-bet is scale, and it now has two points rather than one: at 8B the LLVQ
-degradation falls to ×1.220 perplexity and −10.56 pp MMLU while the AWQ starts
-to pay (−3.07 pp), so **the gap to 4-bit halves, 14.45 pp → 7.49 pp** — dense
-LLVQ arm on both sides, which is why it reads 14.45 and not the 14.3 above
-([`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
-Two points are not a scaling law and this file will not extrapolate one to 70B.
+bet is scale, and it now has **three points — and three points are not a law.**
+🕳️ *This sentence read "three points, and they show a knee, not a law" until
+2026-08-17; on the MMLU gap the knee did not survive its own error bars, while
+on perplexity it does — see the step tests below, and never state a knee without
+naming which metric it belongs to.*
+The LLVQ perplexity degradation reads ×1.3845 → ×1.2201 → ×1.1894 at 4B, 8B and
+14B *(measured, same codebook, same calibration, same harness, same card, same
+token fingerprints on all three)*; the excess over 1 therefore falls **42.8 %
+from 4B to 8B and then only 13.9 % from 8B to 14B** *(computed from those three
+ratios)*. ✅ **Both percentages now carry a paired interval: −42.8 %, 95 % CI
+[−51.8 ; −33.5] and −13.9 %, 95 % CI [−22.8 ; −4.9], f16 reference** — and
+their difference, the knee itself, excludes zero at t = −6.06.
+🕳️ *This passage read "those two percentages are not comparable as evidence:
+the first **cannot be given one at all** — the 4B campaign log is a summary, its
+per-window NLLs were never kept." That was true for one day. The NLLs were in
+the job's logs, which HF does not purge; `hf jobs logs` returned all 36 lines in
+seconds, for $0, and the raw output is now committed
+([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt))
+because that retention is neither documented nor guaranteed.* The −13.9 % is
+still the **loosely bounded** one of the two, a factor 4.6 between its ends.
+On the AWQ reference, the one that carries the
+product argument, the same step reads **−1.58 %, 95 % CI [−3.14 ; −0.004]**,
+t = 2.2063 against a 2.200985 threshold: it clears zero **by 0.005**. **Never
+write that the gap closes significantly**. ⚠️ **And do not read −13.9 against
+−1.58 as a ninefold difference: they are two parameterizations.** −13.9 % is
+the fall of the **excess**, −1.58 % the fall of the **ratio** of perplexities,
+which is the only form the journal publishes on the AWQ reference. Ratio
+against ratio, the two references read **−2.51 % [−4.12 ; −0.88]** and
+**−1.58 % [−3.14 ; −0.004]**
+([`docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt`](docs/mesures/ppl-appariee-8b-14b-2026-08-17.txt)).
+The MMLU drop against f16 falls −14.73 → −10.57 → −6.85 pp, each one
+**paired question by question** with a 95 % interval excluding zero — the 8B
+term reads 10.57 here and 10.56 in the table further up because one is
+`mmlupair`'s stratified estimate and the other the subtraction of two published
+micro rates; same measurement, last digit only —
+([`docs/mesures/mmlupair-4b-8b-2026-08-13.txt`](docs/mesures/mmlupair-4b-8b-2026-08-13.txt),
+[`docs/mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt),
+summary in [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
+**Three points are not a scaling law any more than two were**, and this file
+will not extrapolate one to 70B.
+
+The gap to 4-bit reads **14.45 → 7.49 → 6.09 pp** — dense LLVQ arm on both
+sides, which is why the first term reads 14.45 and not the 14.3 above. ✅ **All
+three are now the same species of number**, each a *paired* AWQ − LLVQ estimate
+with an interval: **+14.45 pp [+11.60 ; +17.27]** at 4B, **+7.49 pp
+[+5.28 ; +9.70]** at 8B, **+6.09 pp [+3.62 ; +8.52]** at 14B (SE 1.25 pp, exact
+McNemar p = 1.143e-11, 230/106 discordant pairs, stratified paired bootstrap,
+10 000 draws, seed `0xb0075eed`, fingerprint `65dcd53655e8bfa5` on both sides —
+[`docs/mesures/mmlupair-14b-2026-08-17.txt`](docs/mesures/mmlupair-14b-2026-08-17.txt)).
+All three are resolved.
+
+🕳️ **What this paragraph said until 2026-08-17, and why it was wrong.** It read:
+"**Those three numbers are not the same species** […] the third is a bare
+subtraction of two micro rates (78.21 − 72.12) — so **no AWQ − LLVQ pairing
+exists at 14B**: no interval, no McNemar. Recovering one means rerunning the 14B
+MMLU campaign, not recomputing something we hold. **Never quote 6.09 with an
+interval.** […] the scratch directory is gone." The caution was right; the fact
+was not. **The point estimate does not move by a hundredth** — this is not a new
+number, it is the same one ceasing to be bare.
+
+The dumps were never gone: the campaign job did not write to a machine, it wrote
+to the **mounted bucket**, which exists precisely so job output outlives the
+container. The 2026-08-16 check that declared them lost searched *the machine*.
+They had been sitting in the bucket since 2026-08-10; recovering them cost
+**579 kB of bandwidth and $0**, against a rebudgeted MMLU campaign. They are now
+committed into [`docs/data/mmlu-dumps/`](docs/data/mmlu-dumps/), so the loss
+cannot recur, and their authenticity was established *before* use: the three
+stratified micro rates replay 78.97 / 78.21 / 72.12, and the already-published
+`f16 − LLVQ` pair replays all four of its figures. **The standing rule this
+bought: any output declared lost deserves an `hf buckets ls` before anyone
+prices a re-run.**
+
+🚨 **Widened the next day, because it happened twice and is therefore a pattern,
+not an incident: exhaust the retention channels — `hf buckets ls`,
+`hf jobs logs`, `hf jobs inspect` — before pricing a re-run.** On 2026-08-17 the
+4B per-window NLLs were declared unrecoverable without a ~$0.25 card replay;
+`hf jobs logs` returned all 36 of them in two seconds, for $0, and the raw
+output is now committed
+([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt)).
+Both times the verdict "lost" came from having looked in the wrong place, never
+from a channel queried and empty, and both times money had been budgeted against
+that absence. `hf jobs inspect` completes the set: it returns a past job's exact
+command line. ⚠️ HF log retention is **neither documented nor guaranteed** —
+which is why the raw output is committed rather than cited by job id.
+
+🚨 **And the step-to-step test, which the homogeneous line makes possible for the
+first time** (SEs composed in quadrature — *computed*; separate campaigns on
+different models, so no cross-model pairing, which would be meaningless):
+
+| step | drop in the gap | SE | z | p | verdict |
+|---|---|---|---|---|---|
+| 4B → 8B | 6.96 pp | 1.82 | 3.82 | 0.0001 | **resolved** |
+| **8B → 14B** | **1.40 pp** | **1.68** | **0.83** | **0.40** | **unresolved** |
+| 4B → 14B | 8.36 pp | 1.91 | 4.38 | ≈ 1e-5 | **resolved** |
+
+**On MMLU, the first closing is real; the second is inside the noise.** ⚠️ And
+p = 0.40 does not prove equality either — on that step the data are **silent**,
+and both readings ("it is slowing" and "it keeps closing") remain compatible
+with three points. **The perplexity verdict does not lift that silence**: a
+second metric answering does not make the first one speak.
+
+🚨 **And on perplexity the same slowdown *is* resolved, which is why every
+sentence here names its metric.** Paired window by window on the same 12 windows
+at all three sizes, the excess against f16 falls by a factor **×0.881211
+[0.856 ; 0.907]** from 4B to 8B and **×0.974855 [0.959 ; 0.991]** from 8B to
+14B; the difference of the two steps, paired, is **−0.100992 [−0.137670 ;
+−0.064313], t = −6.06**, with 11 of 12 windows agreeing
+([`docs/mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt),
+[`docs/data/ppl-genou.csv`](docs/data/ppl-genou.csv)). The asymmetry has
+mechanisms, not mysteries: perplexity is paired *across sizes* and weighs 49,140
+scored tokens against 2,280 unpaired questions, and the two do not measure the
+same thing — 2-bit damages **reasoning** far more than the **recall** a
+perplexity corpus mostly probes. ⚠️ That interval carries corpus sampling only;
+the **calibration** draw is absent at all three scales, and the knee compares
+three artifacts each produced once.
+
+What this strengthens is what the file already said: **no scaling law on three
+points**, and the 32B point is what would settle it — the question it settles
+being whether the *capability* curve flattens, which perplexity cannot answer
+for it.
+
+Three reserves this file will not smooth over.
+
+* **"The 4-bit baseline starts paying" describes the 8B, not a trend.** It is
+  the only scale where f16 − AWQ is resolved: **+3.07 pp [+1.61 ; +4.69]**. At
+  4B it is unresolved (+0.27 [−1.63 ; +2.13]) and at 14B it is unresolved again
+  (+0.76 [−0.65 ; +2.17]). Not monotone.
+* **At 4B that verdict depends on the accounting.** The unweighted control
+  *does* resolve f16 − AWQ (+1.97 [+0.92 ; +3.02]) where the stratified micro
+  does not, and the disagreement is carried by `professional law`, 10.9 % of the
+  population.
+* 🕳️ **"None of these intervals tests the difference of differences between
+  scales" — true when written, no longer the whole story.** `mmlupair` still
+  pairs two arms on the same questions and never two model sizes, and
+  non-overlapping intervals are still not a test. But since 2026-08-17 the
+  step-to-step drop **is** tested, by composing the two campaign SEs in
+  quadrature (table above): resolved 4B→8B, **unresolved 8B→14B**. That is a
+  formal test, and it is the one that withdrew the knee **on this metric**.
+  ⚠️ It says nothing about perplexity, which *is* paired across sizes — same 12
+  windows, same text, same token fingerprint at all three scales — and where the
+  knee is **resolved** (t = −6.06). Two metrics, two verdicts; a bare "the knee
+  holds" or "the knee does not hold" is half wrong either way.
+
+✅ **The memory reading reaches three points on 2026-08-17.**
+🕳️ *This paragraph read "still at two points, not three — no whole-model
+bits/param exists for the 14B, `rtbits` has never been run on a sealed 14B".
+That was exact and is now obsolete: the sealed 14B artifact had never been
+brought back after the campaign, but it was still in the bucket, and re-reading
+it cost bandwidth only —*
+[`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt).
+The axis now holds **5.162 against AWQ's 5.302 at 4B (−2.6 %), 5.322 against
+5.956 at 8B (−10.6 %), and 5.106 against 5.404 at 14B (−5.5 %)**
+*(`Planes14` + int8 embedding; our figures **computed on measured bytes** with
+the embedding **modelled** at 8.5 bits/param — the same status at all three
+sizes — against AWQ safetensors bytes read from the Hub API, whole model with
+embedding included, the only accounting in which the two compare)*. `params_total`
+for the 14B is **14,768,307,200**, read from the sealed file and cross-checked
+by the architecture's arithmetic. **We are under deployed 4-bit at all three
+sizes.**
+
+🚨 **The margin is not monotone and carries no trend.** It peaks at 8B and falls
+back. The mechanism is not the method but the **embedding's share** — 9.7 % at
+4B (tied heads), 15.2 % at 8B, 10.5 % at 14B — which AWQ leaves in f16 and we
+move to int8. Three points, one mechanism, **no law**. ⚠️ Neither speed nor card
+VRAM has ever been measured at 14B: no `fusedrun` has run at that width, so the
+14B lacks the third instrument (the engine's own VRAM report) that
+cross-checked the 4B and 8B cells. ✅ **Cold storage at 14B, on the other hand,
+is settled and was already**: `qwen3-14b-llvq.bin` is **6,506,354,741 bytes =
+6.506 GB**, *measured*, confirmed to the byte by `hf buckets ls` **and** by the
+sealing job's log — two independent routes. Two cells open at 14B, not three.
+
+⚠️ The AWQ references are **three different models**: 5.302 is the 4B, 5.956 the
+8B, 5.404 the 14B — they are not one shared baseline. The table above now publishes **5.162**, the
+`rtbits` verdict on the exact bytes — settled 2026-08-17. The **5.15** it
+carried before is the same 4B object read off the rounded card display
+(2.60 GB shown for an exact 2.595 GB); it is kept here labelled rather than
+deleted, because a corrected claim says so.
+🕳️ *This paragraph ended "The 14B figure is **missing**, not omitted for
+brevity, and it is not to be extrapolated from the two that exist" — obsolete
+on 2026-08-17, and it survived the correction three paragraphs above that
+already publishes it.* The 14B figure is **5.106 against 5.404**, measured on
+the sealed artifact recovered from the bucket
+([`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt)).
+What still must not be extrapolated is the **margin**: it is not monotone, and
+nothing here licenses a fourth point.
 
 <details><summary>The earlier MLX q4 comparison, on the Mac, kept for genealogy</summary>
 
@@ -308,7 +520,7 @@ The structural niche for 2-bit is the memory window where 4-bit does not fit
 and we do. Whether it is worth anything at 70B is **untested** — no 70B has
 ever been quantized here, and the KV cache (320 KiB/token in f16) is not
 budgeted in any of our projections. Full analysis:
-[`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+[`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
 ## Read this before quoting the number
 
@@ -320,7 +532,7 @@ budgeted in any of our projections. Full analysis:
   *different object*. Three calibration seeds on a 3-block Qwen3-0.6B run give
   **σ ≈ 0.15 perplexity, ≈ 0.7 %**, around a quantized perplexity of ~20.66, so
   the working rule on such a run is that anything under ~1.5 % (2 σ) is noise
-  ([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md), §B1;
+  ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md), §B1;
   n = 3, a coarse estimate and the project's first).
   **That σ does not transfer to the 16.9415 published here**: different model,
   3 blocks against 36, different perplexity scale. **No σ has ever been measured
@@ -341,7 +553,7 @@ budgeted in any of our projections. Full analysis:
 > cancelling the gain code, so the stored magnitude was a free float per block
 > — 16 bits nothing charged for, and a true rate of 2.73. Two further
 > accounting defects are described in
-> [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md). All three were
+> [`docs/archive/retraction-et-gain.md`](docs/archive/retraction-et-gain.md). All three were
 > found by trying to *write the file* rather than compute its size.
 
 ## What is here
@@ -487,22 +699,51 @@ reads the tail in **f32** where the FP16 arm reads the same columns in f16 —
 `Slot32` is no longer the reference layout. **`Planes14`** replaces the one-hot
 slot masks with binary bit-planes at a uniform 14-byte stride and no base table:
 same decoded content, bit for bit, smaller *and* faster. Measured on an L40S,
-five arms, one stream, ratios formed round by round
-([`docs/mesures/e2-golay70-bench-2026-08-07.txt`](docs/mesures/e2-golay70-bench-2026-08-07.txt)):
+**seven arms in one process** (six, then the same six plus one — the incumbents
+move by at most 0.24 % between the two phases), ratios formed round by round
+([`docs/mesures/golay70-v2-sept-bras-2026-08-11.txt`](docs/mesures/golay70-v2-sept-bras-2026-08-11.txt)):
 
-| layout | bits/weight | GB read | vs FP16 |
-|---|---|---|---|
-| Slot32 | 5.510 | 2.50 | 1.87× [1.86–1.88] |
-| **Planes14** *(default)* | **4.804** | 2.18 | **2.14× [2.11–2.15]** |
-| Planes12x *(sparse overlay)* | **4.342** | 1.97 | 1.98× [1.95–1.99] |
-| Golay70 | 3.589 | 1.63 | 1.31× [1.29–1.32] |
+| kernel | bits/weight | GB read | GB/s | of byte bound | vs FP16 |
+|---|---|---|---|---|---|
+| Slot32 | 5.510 | 2.50 | 429 | 65 % | 1.89× [1.88–1.89] |
+| **Planes14** *(default)* | **4.804** | 2.18 | 427 | 65 % | **2.15× [2.15–2.16]** |
+| Planes12x *(sparse overlay)* | **4.342** | 1.97 | 360 | 54 % | 2.00× [2.00–2.01] |
+| Golay70 | 3.589 | 1.63 | 199 | 30 % | 1.34× [1.34–1.34] |
+| Golay70, hoisted decode | 3.589 | 1.63 | 263 | 40 % | 1.77× [1.76–1.78] |
+| **AWQ w4g128** *(competitor)* | 4.179 | 1.90 | 583 | **88 %** | 3.37× [3.36–3.38] |
+
+🚨 **Read the "of byte bound" column, not the "vs FP16" one.** A ratio against
+FP16 mechanically rewards whoever reads least; the comparable quantity is what
+fraction of its own byte advantage a kernel converts into time, taking the
+661 GB/s the FP16 control reaches on these shapes as the reference. A deployed
+4-bit kernel converts 88 % where our best layout converts 65 % — **that gap is
+the honest statement of what is left to do**, and it is not in the format.
+
+⚠️ Deux asymétries de comptabilité, dans les deux sens. Notre queue en pleine
+précision est facturée dans notre b/poids et AWQ n'en a pas — ça nous
+défavorise sur cette colonne. Mais sur la colonne « of byte bound », qui porte
+le résultat, elle nous **flatte** : queue et échelles de ligne retirées,
+`Planes14` lirait 2,12 Go dans les mêmes 5,116 ms, soit 414 Go/s et **63 %**,
+et l'écart au 4 bits serait de 25 points, pas 23.
 
 Planes12x reaches 4.342 b/w at **exactly identical quality** — the capped blocks
 are corrected by a sparse exception pass in the same launch, and every one of the
-1 105 920 rows still matches the f64 reference. Golay70 recomputes the Golay
-codeword by XOR instead of storing it, reaches a real 3.589 b/w, and was
-**measured and rejected**: 1.31× is below the 1.6× criterion set before the run,
-because the double-coset decode makes it ALU-bound (195 GB/s effective).
+1 105 920 rows still matches the f64 reference.
+
+**Golay70 is a negative result, attacked twice.** It stores a 12-bit *rank* of
+the block's Golay codeword instead of a 24-bit sign mask — the kernel resolves
+that rank through a resident 16 KiB codeword table; it does **not** re-encode
+anything by XOR, and an earlier version of this section said it did. The format
+result is real (3.589 b/w, reconstruction-exact on all 150 681 600 blocks); the
+kernel result is not. Resolving the coset *per slot* left it ALU-bound at
+199 GB/s and 1.34×, under the 1.6× criterion set before the run. Hoisting that
+decode to a per-block prologue — **zero stored bytes changed**, identity proved
+slot by slot and block by block — moved it to 263 GB/s and 1.77×, and that is
+still under the replacement criterion (≥ 2.0× *and* ≥ 20 % whole-model memory
+margin) which was committed and timestamped *before* the measurement
+([`proofs/preregistration-2026-08-11.md`](proofs/preregistration-2026-08-11.md)).
+Not adopted. The per-slot path is now identical to a layout we already ship, so
+there is no obvious repair left.
 
 **End to end, on a card.** `bin/fusedrun` loads the published artifact twice —
 once dense, once with the projections left encoded — and requires the same

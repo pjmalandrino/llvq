@@ -34,6 +34,18 @@
 #[cfg(target_os = "linux")]
 pub mod gpu;
 
+// Portable on purpose, like `f16_bits` below: the parsing rules of
+// `LLVQ_BENCH_ARMS` — unknown names refused, witness required, phases
+// monotone — are exactly the kind of logic a mutation can silently break,
+// and the development machine has no CUDA, so the tests must run here.
+pub mod arms;
+
+// Portable for the same reason, and paid for the same way: the rotation
+// kernel's shared-memory bound lived as a `>` in a `cfg(linux)` file, against
+// the wrong one of the card's two limits, and the only thing that could have
+// noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
+pub mod shared;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
@@ -92,6 +104,15 @@ pub fn f16_to_f64(h: u16) -> f64 {
     }
 }
 
+/// Blocks a tile stages in shared memory — the value the host must `#define`
+/// for `matvec.cu`, which `#error`s without it.
+///
+/// 🕳️ It lived in `bin/planesbench` alone, and `bin/cuhcheck` needed the same
+/// number to parse the same file. `matvec.cu`'s own header warns about exactly
+/// that shape of defect — *"the Metal side carried [it] for months (TILE_BLOCKS
+/// defined twice, unlinked)"* — so it is defined once here and read by both.
+pub const TILE_BLOCKS: usize = 128;
+
 /// Mirrors `LLVQ_ROT_KMAX` in `kernels/llvq_rot.cuh`.
 ///
 /// Duplicated across the language boundary, so it is pinned by
@@ -111,6 +132,12 @@ pub const FLOOR_CUH: &str = include_str!("../kernels/llvq_floor.cuh");
 pub const ROT_CUH: &str = include_str!("../kernels/llvq_rot.cuh");
 #[cfg(target_os = "linux")]
 pub const ROTATE_CU: &str = include_str!("../kernels/rotate.cu");
+#[cfg(target_os = "linux")]
+pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
+#[cfg(target_os = "linux")]
+pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
+#[cfg(target_os = "linux")]
+pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -178,6 +205,9 @@ pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
         "preflight.cu" => Ok(PREFLIGHT_CU),
         "matvec.cu" => Ok(MATVEC_CU),
         "llvq_floor.cuh" => Ok(FLOOR_CUH),
+        "llvq_e1v.cuh" => Ok(E1V_CUH),
+        "e1v.cu" => Ok(E1V_CU),
+        "nullk.cu" => Ok(NULLK_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),

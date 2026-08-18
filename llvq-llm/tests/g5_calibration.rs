@@ -188,7 +188,7 @@ fn tiny() -> Config {
 /// two configurations be compared with one variable between them.
 fn fresh(map: &VarMap, dev: &Device) -> Qwen3 {
     let vb = VarBuilder::from_varmap(map, DType::F32, dev);
-    Qwen3::new(&tiny(), vb).expect("tiny model builds")
+    Qwen3::new(&tiny(), vb, llvq_llm::kvq::KvMode::F16).expect("tiny model builds")
 }
 
 /// Calibration windows entering block 0. Deterministic, non-centred, and wide

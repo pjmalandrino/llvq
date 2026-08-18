@@ -1,0 +1,289 @@
+================================================================================
+LE BRAS AWQ DANS SON PROPRE MOTEUR — ce que la quantification achète chez vLLM
+job 6a830d53e55292eada79b600, l40sx1, 0,11 $ (226 s de running), 2026-08-17
+Image ÉPINGLÉE vllm/vllm-openai:v0.26.0
+  manifeste sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52
+  vllm 0.26.0 lu dans le paquet installé — le tag et la version, pas l'un des deux
+Pré-enregistrement : proofs/preregistration-awq-vllm-2026-08-17.md (commité AVANT
+le lancement). Script : ops/awq_speed.py. JSON : docs/data/awq-speed-4b-2026-08-17.json
+Plafond annoncé 1,35 $ (--timeout 45m) ; dépensé 0,11 $.
+================================================================================
+
+CE QUI EST MESURÉ POUR LA PREMIÈRE FOIS                               [mesuré]
+
+  Aucun tok/s vLLM n'existait sur ce projet, sur aucun matériel, pour aucun
+  modèle. La cellule vitesse du bras AWQ est vide dans toutes les tables depuis
+  le premier jour, faute d'un moteur capable de charger un checkpoint AWQ —
+  `fusedrun` ne le peut pas, et l'AWQ que notre banc du 08-10 chronomètre est un
+  PORTAGE de la GEMV de mit-han-lab dans notre harnais, donc une mesure de
+  noyau, pas de produit.
+
+  Ce job mesure le REGIME PRODUIT : batch 1, un prompt, 128 tokens, une carte.
+
+NVIDIA L40S — pilote 580.159.03, 46 068 MiB                           [mesuré]
+
+PROTOCOLE — trois bras vivants SIMULTANÉMENT dans un seul processus
+
+  · prompt passé en `prompt_token_ids = [785, 6722, 315, 9625, 374]`, JAMAIS
+    re-tokenisé : aucun chat template ne peut s'y glisser. C'est
+    « The capital of France is », 5 tokens, et les `tokenizer.json` des quatre
+    dépôts Qwen3 concernés partagent un seul sha256 (aeb13307a71acd8f…), celui
+    qu'épingle ops/awq_dequant.py — l'empreinte est commune PAR CONSTRUCTION.
+  · 128 tokens exactement : `max_tokens = min_tokens = 128`, `ignore_eos`.
+  · greedy pur : `temperature = 0.0`, `top_p = 1.0`, `n = 1`.
+  · `--dtype float16` des trois bras. Le garde a servi : le log porte
+    « [model.py:2123] Casting torch.bfloat16 to torch.float16 » sur le bras de
+    base — sans ce drapeau le « témoin f16 » aurait été un témoin bf16.
+  · `enable_prefix_caching = False`, RELU dans la config du moteur après
+    initialisation et non supposé depuis le drapeau : False sur les trois bras,
+    et le champ est lisible sur les trois. Avec le cache actif (défaut en V1),
+    les rounds 2..n sauteraient le prefill des 5 tokens et la plage min–max
+    cesserait de décrire la carte pour décrire un cache.
+  · `gpu_memory_utilization` fixé d'avance : 0,30 (f16) / 0,13 (chaque bras
+    quantifié). C'est un BUDGET DE PLACE, pas une mesure — cf. l'interdit (iii).
+  · chronomètre mur autour du seul `generate`, PREFILL COMPRIS,
+    `rate = 128 / elapsed`, comme `fusedrun`.
+  · 2 générations JETÉES puis 5 chronométrées, bras entrelacés dans un ordre de
+    dispatch fixe (f16, awq_marlin, awq) à chaque round.
+
+  ⚠️ Écart DÉLIBÉRÉ au protocole maison, déclaré au §2.2 du pré-enregistrement :
+  `fusedrun` fait 1 jeté + 1 chronométré, ici 2 + 5. Le bras vLLM est donc MIEUX
+  mesuré que le nôtre. C'est une raison de plus de ne pas diviser les deux piles.
+
+LES TROIS BRAS — médiane et plage sur les 5 rounds gardés              [mesuré]
+
+  --------------------------------------------------------------------------
+  bras           méd tok/s       min       max   étendue   s/génération
+  f16                83.09     83.08     83.11     0.03 %    1.540
+  awq_marlin        200.49    200.39    200.61     0.11 %    0.638
+  awq (forcé)       200.69    200.54    200.80     0.13 %    0.638
+  --------------------------------------------------------------------------
+  f16          Qwen/Qwen3-4B      rév. 1cfa9a7208912126459214e8b04321603b3df60c
+  awq_marlin   Qwen/Qwen3-4B-AWQ  rév. 74d4bd2bd4bff9cafc9345221320bffb08b406a3
+  awq          Qwen/Qwen3-4B-AWQ  même révision, `quantization="awq"` demandé
+
+  Les trois révisions sont celles qu'épingle ops/awq_dequant.py, relues au Hub
+  le 2026-08-17 et identiques à `main`. Le script REFUSE tout dépôt dont le nom
+  porte `-deq` : ce sont NOS reconstructions f16 denses, et les chronométrer
+  produirait un « bras AWQ » qui est en fait un bras f16 aux poids dégradés —
+  plausible, faux, invisible au log.
+
+RAPPORTS INTRA-PILE — formés ROUND PAR ROUND                           [mesuré]
+
+    awq_marlin / f16 = ×2,413  [2,412 ; 2,414]
+    awq        / f16 = ×2,415  [2,414 ; 2,417]
+
+  Médiane de 5 rapports formés DANS un round, jamais un quotient de deux
+  minima issus de rounds n'ayant pas coexisté (règle de maison n°2).
+
+🚨 LE ROUTAGE — ET CE QU'IL RETIRE À LA LECTURE ÉVIDENTE
+
+  Le log du job porte la décision de vLLM, DEUX FOIS, depuis deux processus
+  moteur distincts :
+
+    (EngineCore pid=501) INFO 08-17 14:07:41 [auto_awq.py:473]
+        Using MarlinLinearKernel for AutoAWQMarlinLinearMethod     ← bras awq_marlin
+    (EngineCore pid=813) INFO 08-17 14:08:41 [auto_awq.py:473]
+        Using MarlinLinearKernel for AutoAWQMarlinLinearMethod     ← bras awq FORCÉ
+
+  et la config résolue des deux bras AWQ lit `quantization=auto_awq` — la même
+  chaîne, alors que l'un a demandé `None` et l'autre `"awq"`.
+
+  🚨 DONC LE BRAS « awq FORCÉ » N'A PAS ISOLÉ LA GEMM AutoAWQ : les deux bras
+  ont exécuté MarlinLinearKernel. Dans vLLM 0.26.0, `quantization="awq"` est
+  normalisé en `auto_awq`, qui choisit Marlin sur Ada. Le §2.4 du
+  pré-enregistrement conçoit ce bras comme « le GEMM forcé, comparable au bras
+  porté du banc du 08-10 » ; cette version de vLLM ne le permet pas.
+
+  Conséquences, et elles vont toutes dans le sens du moins qu'on peut dire :
+
+  1. LE LIEN AVEC LE BANC DU 2026-08-10 N'EST PAS ÉTABLI. C'est l'issue prévue
+     au §6 (« le bras `awq` forcé refuse de démarrer → publier awq_marlin seul,
+     et écrire en toutes lettres que le GEMM AutoAWQ n'a pas pu être isolé »),
+     sous une forme que le §6 n'avait pas anticipée : le bras a démarré, il
+     n'était simplement pas le bras demandé. Il faut la traiter comme l'issue
+     qu'elle est, pas comme le succès qu'elle mime.
+
+  2. ⚠️ LES 0,10 % ENTRE LES DEUX BRAS NE CONFIRMENT PAS LA CLAUSE « M = 1 » DU
+     2026-08-10. Cette clause dit : « à M = 1 tous les noyaux 4 bits convergent
+     vers la même borne de bande passante ». La vérifier demande DEUX noyaux ;
+     ici il n'y en a qu'un, chargé deux fois. 200,69 contre 200,49 mesure la
+     REPRODUCTIBILITÉ D'UN SEUL NOYAU entre deux instanciations du moteur dans
+     le même processus — ce qui est un chiffre utile, mais un autre chiffre.
+     🕳️ Ce journal a failli publier l'inverse : la lecture « forcer awq ne
+     change rien, donc les deux noyaux convergent » est exactement ce que la
+     table des débits suggère quand on ne lit pas la ligne 179 du log. La
+     clause du 08-10 reste NON TESTÉE par ce job, dans un sens comme dans
+     l'autre.
+
+  3. Ce que ces 0,10 % bornent, en revanche : la RÉSOLUTION de ce banc. Deux
+     chargements du même noyau, mesurés dans les mêmes rounds entrelacés,
+     diffèrent de 0,10 % ; leurs plages se recouvrent ([200,54 ; 200,61]) et
+     celles de leurs rapports se touchent à 2,414. Aucun effet sous ~0,1 % ne
+     se tranche ici.
+
+🕳️ UN DÉFAUT DE L'INSTRUMENT, RELEVÉ ICI PLUTÔT QUE LAISSÉ
+
+  Le JSON commité à côté de ce journal porte un champ `kernel_log` par bras, et
+  il NE CONTIENT PAS les deux lignes Marlin ci-dessus — seulement la ligne
+  `non-default args`. Le mécanisme est dans le log lui-même : vLLM V1 exécute
+  son EngineCore dans un PROCESSUS SÉPARÉ (« We must use the `spawn`
+  multiprocessing start method », 14:06:26), donc le `LogTap` installé dans le
+  parent ne peut pas voir les enregistrements des pids 501 et 813.
+
+  Conséquence pratique : LA PREUVE DU ROUTAGE N'EXISTE QUE DANS LA SORTIE
+  STANDARD DU JOB, pas dans le JSON. C'est pourquoi les deux lignes sont
+  recopiées mot pour mot ci-dessus. Un lecteur du seul JSON conclurait qu'aucun
+  routage n'a été journalisé — et le script l'avertit dans ce cas (« aucune
+  ligne de log sur le routage »), avertissement qui n'a PAS été imprimé,
+  puisqu'une ligne (la mauvaise) avait bien été captée. Le garde a donc rapporté
+  vert sur une capture incomplète.
+
+CONTRÔLE DE CHARGEMENT — f16 vLLM contre notre journal du 2026-08-06   [mesuré]
+
+    premier token    id 12095 ' Paris'
+    attendu          id 12095 ' Paris'   (planes14-fusedrun-2026-08-06.txt)
+    préfixe commun   8 / 85 caractères de la référence
+
+  Le premier token est le nôtre, id ET texte. Une divergence AU PREMIER token
+  aurait signifié mauvais modèle, mauvais tokenizer ou échantillonnage non
+  glouton, et aurait invalidé le job (§7.1).
+
+  ⚠️ La divergence APRÈS le premier token est ATTENDUE et n'invalide rien : deux
+  moteurs, deux ordres d'accumulation, une chaîne d'argmax. Notre référence
+  continue en « (True or False?) » là où vLLM enchaîne sur « The capital of
+  Germany is Berlin ». Les deux bras AWQ produisent entre eux un texte
+  identique, ce qui est cohérent avec un noyau unique (cf. le routage).
+
+GARDES — tous verts, et ce qu'ils gardaient                            [mesuré]
+
+    tokens rendus            128 / 128 sur les 21 générations (3 bras × 7)
+    prefix caching           False, RELU sur les trois bras, champ lisible
+    dispersion inter-round   0,03 % · 0,11 % · 0,13 %, seuil §7.4 = 5 %
+    image épinglée           tag + digest exigés, `latest` refusé
+    dépôts `-deq`            refusés avant tout chargement
+    révisions                les deux épinglées, `--allow-unpinned` non utilisé
+    entrelacement            OUI — les trois moteurs ont coexisté, pas de repli
+                             séquentiel, donc les rapports sont légitimes
+    `violations`             [] dans le JSON
+
+================================================================================
+🚨 LES CINQ INTERDITS DU §4 DU PRÉ-ENREGISTREMENT, RECOPIÉS EN CLAIR
+
+  Ils ont été écrits AVANT la mesure. Ils sont ici pour qu'un lecteur du seul
+  journal ne puisse pas en tirer ce que le journal ne dit pas.
+
+  (i)   AUCUNE phrase de la forme « notre noyau est plus rapide / plus lent que
+        l'AWQ ». L'écart bout-en-bout entre les deux piles est dominé par vLLM
+        contre candle — ordonnancement, graphes CUDA, attention paginée, noyaux
+        de norme et de RoPE, chemin du lm_head — et non par le décodeur de
+        poids. Ce job ne sépare pas ces causes et n'a aucun moyen de les
+        séparer. Les deux rapports vivent dans des piles différentes et NE SE
+        DIVISENT PAS.
+
+  (ii)  LA CELLULE VITESSE AWQ DES TABLES DU PAPIER RESTE VIDE. Concrètement :
+        docs/data/campagne-finale.csv garde `speed_tokps` vide sur la ligne
+        `awq`, et paper/sections/evaluation.tex:29 et :108 gardent leur
+        `---$^{\dagger}$`. Ce qui peut changer est la NOTE de bas de tableau,
+        qui cessera de dire seulement « sa vitesse n'est pas comparable » pour
+        dire combien elle vaut dans son moteur et POURQUOI ce nombre ne peut pas
+        remplir la case. Une case expliquée vaut mieux qu'une case remplie par
+        un nombre incomparable.
+
+  (iii) AUCUN CHIFFRE DE VRAM NE SORT DE VLLM. `gpu_memory_utilization` est un
+        budget de préallocation : ce que l'outil rapporte est une RÉSERVATION,
+        pas une occupation. Ce job n'ajoute rien à la colonne mémoire et n'a pas
+        le droit d'y toucher.
+
+  (iv)  LE RAPPORT MAISON CITÉ EN REGARD EST ×1,12 (4B, à tête identique) —
+        jamais ×2,03. Le ×2,03 mesure en grande partie la disparition d'une
+        recopie de vocabulaire, pas le noyau Leech. (Au 8B : ×1,30, jamais
+        ×2,61.)
+
+  (v)   LE BIAIS DE NOTRE BRAS f16 EST NOMMÉ AVEC SA DIRECTION. `Head::project`
+        (llvq-llm/src/model.rs:580-582) appelle `Tensor::broadcast_matmul`, dont
+        le bras à rhs de rang 2 matérialise le poids transposé à chaque appel —
+        778 Mo de vocabulaire recopiés par token au 4B. À tête identique ce
+        défaut porte DES DEUX CÔTÉS, donc il tire nos rapports VERS 1 : NOUS
+        SOUS-ESTIMONS notre propre avance. Toute citation du ×1,12 qui omet ce
+        sens est incomplète.
+================================================================================
+
+LA LECTURE PUBLIABLE, ET C'EST LA SEULE
+
+  Ce que la quantification achète DANS SA PROPRE PILE :
+
+    ×2,413 [2,412 ; 2,414]   pour le 4 bits chez vLLM   (médiane de 5 rapports
+                                                         round par round)
+    ×1,12                    pour nous chez nous        (quotient de DEUX POINTS
+                                                         UNIQUES, 48,7 / 43,6,
+                                                         sans plage)
+
+  Les deux moteurs diffèrent ; 2,413 et 1,12 ne se soustraient ni ne se
+  divisent. L'étiquette des deux formes est dans la même phrase, pas dans une
+  note lointaine — c'est la forme imposée au §3 avant la mesure.
+
+  🚨 LE RÉSULTAT EST CONTRE NOUS, et le §6 du pré-enregistrement l'a déclaré
+  publiable tel quel avant de le connaître. Il est cohérent avec ce que le
+  dossier savait déjà par un autre chemin : notre noyau atteint 65 % de sa
+  borne d'octets là où l'AWQ porté en atteint 88 % (six-arm-awq-2026-08-10.txt).
+  Aucun titre, aucun abstract ne change : ils ne revendiquent aucun avantage de
+  vitesse contre l'AWQ.
+
+  ⚠️ Et la légende doit dire que M = 1 n'est pas le régime optimal d'une GEMM
+  Marlin (plus petite tuile en M = 8) : ce ×2,413 NE MAJORE PAS ce que l'AWQ
+  sait faire. C'est la condition (c) de l'amendement du §5, posée d'avance.
+
+CE QUE LA MESURE AJOUTE, ET QU'IL NE FAUT PAS SUR-LIRE
+
+  Le bras f16 est le MÊME modèle dense, le MÊME dtype, le MÊME prompt, la MÊME
+  carte des deux côtés :
+
+    vLLM       83,09 tok/s   [83,08 ; 83,11]              [mesuré, ce job]
+    le nôtre   43,6  tok/s                                [mesuré, 2026-08-06]
+    rapport    ×1,91                                      [calculé]
+
+  C'est la première mesure du confondant de moteur sur un travail identique.
+
+  ⚠️ MAIS ELLE N'EST PAS DÉCOMPOSABLE. Notre bras dense porte le défaut connu de
+  `broadcast_matmul` (interdit (v)), donc ce ×1,91 mélange « qualité du moteur »
+  et « notre propre défaut », et CE JOB NE LES SÉPARE PAS. Écrire « le moteur
+  vaut ×1,9 » serait une inférence, pas une mesure.
+  ⚠️ Le nôtre vaut 43,5 dans un journal et 43,6 dans l'autre (campagne-finale
+  contre planes14-fusedrun) : deux invocations, pas deux mesures contradictoires.
+  Le 43,6 est retenu ici parce que c'est le dénominateur du ×1,12.
+
+CE QUE CE RUN NE DIT PAS
+
+  · rien sur la GEMM AutoAWQ : elle n'a pas tourné (cf. le routage).
+  · rien sur le 8B AWQ : la taille est BLOQUÉE dans ops/awq_speed.py
+    (`pinned=False`). Ses révisions (4da05a8e… / b968826d…) sont relevées au Hub
+    et n'ont JAMAIS passé `ops/awq_dequant.py check` — aucune entrée EXPECTED
+    nulle part dans le dépôt. Une révision que personne n'a validée n'est pas un
+    épinglage, c'est un instantané, et le script la refuse sans
+    `--allow-unpinned-revision`.
+  · rien sur le 14B : son vis-à-vis maison (`fusedrun` 14B) n'existe pas encore.
+    Le job de vitesse 14B du même jour (6a82f40ce55292eada79b526) est mort sur
+    un garde de mémoire partagée sans produire un token
+    (rot-partagee-14b-2026-08-17.txt).
+  · rien sur la qualité : ce job ne score rien. Les MMLU et perplexités de l'AWQ
+    restent celles de nos propres campagnes, mesurées dans NOTRE harnais sur un
+    checkpoint déquantifié.
+  · rien en batch > 1 : le régime mesuré est M = 1, un utilisateur, un prompt.
+
+================================================================================
+PROVENANCE DES NOMBRES DE CE JOURNAL
+
+  mesuré   les 3 médianes et leurs plages, les 2 rapports intra-pile, les
+           étendues, les 128 tokens, le premier token du contrôle, les deux
+           lignes de routage, le pilote et la mémoire de la carte, 83,09
+  calculé  ×1,91 (83,09 / 43,6) ; +0,10 % (200,69 / 200,49) ; 0,11 $ à 1,80 $/h
+           sur 226 s = 0,113 $, cohérent au centime
+  cité     43,6 tok/s et ×1,12 (planes14-fusedrun-2026-08-06.txt) ; 65 % et 88 %
+           de la borne d'octets (six-arm-awq-2026-08-10.txt) ; 226 s et 0,11 $
+           (moniteur du job, rapportés par l'opérateur)
+
+  Comptabilité : tous les tok/s de ce journal sont PREFILL COMPRIS, sur 128
+  tokens générés à partir de 5 tokens de prompt. Ce n'est pas un débit de décode
+  pur, et il ne se compare pas à un chiffre qui le serait.
+================================================================================

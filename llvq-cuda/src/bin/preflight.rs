@@ -1,7 +1,7 @@
 //! The first thing this port asks of a rented card, and the cheapest.
 //!
 //! It answers, in one job of a few minutes, every question
-//! `docs/portage-noyau-cuda.md` §6.2 files under "answered at the first job,
+//! `docs/archive/portage-noyau-cuda.md` §6.2 files under "answered at the first job,
 //! for a few cents" — and one the document does not ask, which is the only
 //! one that matters: **does the ported decoder decide the same thing as the
 //! Rust decoder, on a real GPU?**
@@ -91,8 +91,8 @@ mod linux {
             dev.l2_bytes as f64 / 1e6
         );
         println!(
-            "  mémoire partagée       {} o/bloc, {} o/SM",
-            dev.shared_per_block, dev.shared_per_sm
+            "  mémoire partagée       {} o/bloc par défaut, {} o/bloc après opt-in, {} o/SM",
+            dev.shared_per_block, dev.shared_per_block_optin, dev.shared_per_sm
         );
         println!(
             "  bande passante fiche   {:.0} Go/s ({} bits à {:.0} MHz, DDR)",

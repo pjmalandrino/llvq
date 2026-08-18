@@ -107,6 +107,12 @@ enum DeviceStream {
         exc_words: CudaSlice<u32>,
         row_exc: CudaSlice<u32>,
     },
+    Golay70 {
+        words: CudaSlice<u32>,
+        exc_idx: CudaSlice<u32>,
+        exc_words: CudaSlice<u32>,
+        row_exc: CudaSlice<u32>,
+    },
 }
 
 /// One projection's weights, on the device.
@@ -144,13 +150,21 @@ pub struct FusedRuntime {
     /// of different layouts cannot meet.
     f_matvec: CudaFunction,
     tab: CudaSlice<u32>,
+    /// The Golay70 constant tables `(cwtab, gtab)` — the canonical 4096-word
+    /// codeword table and the 512-entry `GolayClassRec` table — present
+    /// exactly when the layout is `Golay70`, the `f_emb` pattern.
+    g70_tabs: Option<(CudaSlice<u32>, CudaSlice<u32>)>,
     rotations: HashMap<RotKey, RotBuffers>,
     /// The q8 embedding kernels, `(gather, lm_head matvec)` — present exactly
     /// when the runtime was built with [`EmbedMode::Q8`], which is when their
     /// source was in the translation unit.
     f_emb: Option<(CudaFunction, CudaFunction)>,
-    /// Dynamic shared memory the card allows one block, read at startup —
-    /// `tv_q8_h` stages the whole activation and must be refused past it.
+    /// Dynamic shared memory the card allows one block **without asking**,
+    /// read at startup — `tv_q8_h` stages the whole activation and must be
+    /// refused past it. This is the *default* allowance and not the opt-in
+    /// ceiling, because `tv_q8_h` is loaded through `func` and never opts in;
+    /// the rotation, which does, is bounded in `new` instead and against both
+    /// numbers (`llvq_cuda::shared`).
     shared_limit: usize,
     device: candle_core::CudaDevice,
     /// Largest `d_in` any projection takes — the staging bound the rotation
@@ -224,7 +238,9 @@ impl FusedRuntime {
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
-        let f_rot = cuda.func("rot_apply").map_err(candle_core::Error::msg)?;
+        // `f_rot` is loaded further down, once the widest rotation is known:
+        // staging past 48 KiB needs an opt-in posed on the *function*, and it
+        // has to name the number of bytes. See the shared-memory block below.
         let f_emb = match emb {
             None => None,
             Some(_) => Some((
@@ -251,18 +267,59 @@ impl FusedRuntime {
         }
         let tab = cuda.up_u32(&tab).map_err(candle_core::Error::msg)?;
 
-        let shared_limit = cuda.device().map_err(candle_core::Error::msg)?.shared_per_block as usize;
+        // The Golay70 constant tables, uploaded once and shared by every
+        // matrix — built from the same `Golay70Table` derivation the
+        // transcoder encoded against (`fused::golay70_gpu_class_table`), so
+        // encoder and decoder cannot drift apart.
+        let g70_tabs = match model.layout {
+            FusedLayout::Golay70 => {
+                let g70 = llvq_artifact::runtime::Golay70Table::new(&fd);
+                let cw = cuda
+                    .up_u32(&crate::fused::golay70_gpu_codewords(&g70))
+                    .map_err(candle_core::Error::msg)?;
+                let gt = cuda
+                    .up_u32(&crate::fused::golay70_gpu_class_table(&fd, &g70))
+                    .map_err(candle_core::Error::msg)?;
+                Some((cw, gt))
+            }
+            _ => None,
+        };
+
+        let dev_report = cuda.device().map_err(candle_core::Error::msg)?;
+        // The DEFAULT allowance, and it stays the default on purpose: this
+        // bound belongs to `tv_q8_h`, which stages `d` floats and is launched
+        // through `func`, with no opt-in. Widening it here would loosen a
+        // guard on a kernel that never asked the driver for anything.
+        let shared_limit = dev_report.shared_per_block as usize;
+
+        // The rotation is the one staging that can exceed the default — and
+        // comparing it against `shared_limit` is what refused Qwen3-14B on
+        // 2026-08-17 (69 632 o wanted, 49 152 offered by default, 101 376
+        // available on request). Both bounds now, from `llvq_cuda::shared`,
+        // which is where this arithmetic is testable: this file compiles
+        // nowhere but inside an image build.
+        for t in model.rotations.values() {
+            llvq_cuda::shared::rot_plan(
+                t.n,
+                dev_report.shared_per_block as usize,
+                dev_report.shared_per_block_optin as usize,
+            )
+            .map_err(candle_core::Error::msg)?;
+        }
+        // Posed on the function, once, for the widest rotation this model has
+        // — before any launch, and never per token.
+        let rot_bytes = model
+            .rotations
+            .values()
+            .map(|t| llvq_cuda::shared::rot_bytes(t.n))
+            .max()
+            .unwrap_or(0);
+        let f_rot = cuda
+            .func_dynamic_shared("rot_apply", rot_bytes as u32)
+            .map_err(candle_core::Error::msg)?;
+
         let mut rotations = HashMap::new();
         for (&key, t) in &model.rotations {
-            if t.n * 4 > shared_limit {
-                candle_core::bail!(
-                    "rotation de largeur {} : {} o de partagée demandés, la carte en offre {}. \
-                     Le noyau à un bloc ne convient pas à cette largeur (cf. rotate.cu).",
-                    t.n,
-                    t.n * 4,
-                    shared_limit
-                );
-            }
             rotations.insert(key, upload_rotation(&cuda, t)?);
         }
 
@@ -278,6 +335,7 @@ impl FusedRuntime {
                 f_rot,
                 f_matvec,
                 tab,
+                g70_tabs,
                 rotations,
                 f_emb,
                 shared_limit,
@@ -802,6 +860,37 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                 shared,
             )
             .map_err(candle_core::Error::msg)?,
+            DeviceStream::Golay70 {
+                words,
+                exc_idx,
+                exc_words,
+                row_exc,
+            } => {
+                let (cwtab, gtab) = self.rt.g70_tabs.as_ref().ok_or_else(|| {
+                    candle_core::Error::msg(
+                        "flux Golay70 sans tables constantes — bug de construction du runtime",
+                    )
+                })?;
+                launch_golay70_h(
+                    &self.rt.cuda,
+                    &self.rt.f_matvec,
+                    &[words, exc_idx, exc_words, row_exc],
+                    cwtab,
+                    gtab,
+                    &self.rt.tab,
+                    &self.proj.gscale,
+                    &self.proj.rscale,
+                    &self.proj.tail,
+                    xr,
+                    &mut y,
+                    self.proj.nblocks,
+                    self.proj.tail_w,
+                    self.proj.d_out as u32,
+                    THREADS,
+                    shared,
+                )
+                .map_err(candle_core::Error::msg)?
+            }
         }
 
         Ok((
@@ -921,6 +1010,51 @@ fn launch_planes12x_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     Ok(())
 }
 
+/// The Golay70 twin of [`launch_planes12x_h`] — same grid (one warp per
+/// output row, no exception region, no memset, no atomic: the row-sliced
+/// correction design of `tv_planes12x_h`, see its launcher's 🚨 note, which
+/// holds here word for word), with the two Golay70 constant tables added
+/// between the stream arrays and the shared class table, in the kernel's
+/// argument order: `tv_golay70_h(words, exc_idx, exc_words, row_exc, cwtab,
+/// gtab, tab, gscale, rscale, tail, x, y, nblocks, tail_w)`.
+///
+/// `arrays` is `[words, exc_idx, exc_words, row_exc]`, one slice for the same
+/// reason as Planes12x: four `CudaSlice<u32>` of identical type, and a silent
+/// transposition is the one mistake here that compiles.
+#[allow(clippy::too_many_arguments)]
+fn launch_golay70_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    arrays: &[&CudaSlice<u32>; 4],
+    cwtab: &CudaSlice<u32>,
+    gtab: &CudaSlice<u32>,
+    tab: &CudaSlice<u32>,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(arrays[0]).arg(arrays[1]).arg(arrays[2]).arg(arrays[3])
+        .arg(cwtab).arg(gtab)
+        .arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
+        .arg(&nblocks).arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_golay70_h: {e}"))?;
+    Ok(())
+}
+
 fn upload_matrix(
     cuda: &llvq_cuda::gpu::Cuda,
     m: &FusedMatrix,
@@ -957,6 +1091,25 @@ fn upload_matrix(
             let dummy = [0u32];
             let idx: &[u32] = if exc_idx.is_empty() { &dummy } else { exc_idx };
             DeviceStream::Planes12x {
+                words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+                exc_idx: cuda.up_u32(idx).map_err(candle_core::Error::msg)?,
+                exc_words: cuda.up_u32(exc_words).map_err(candle_core::Error::msg)?,
+                row_exc: cuda.up_u32(row_exc).map_err(candle_core::Error::msg)?,
+            }
+        }
+        (
+            HostStream::Golay70 { words, exc_idx, exc_words, row_exc },
+            FusedLayout::Golay70,
+        ) => {
+            // Same zero-length rule as Planes12x: a matrix without any
+            // exception block gets a one-word dummy the kernel never
+            // dereferences — every row's slice is empty, so
+            // `golay70_row_correction`'s loop never runs. `exc_words` is
+            // never empty (`pack_plane_bytes` appends the read-window pad)
+            // and `row_exc` has `d_out + 1` entries.
+            let dummy = [0u32];
+            let idx: &[u32] = if exc_idx.is_empty() { &dummy } else { exc_idx };
+            DeviceStream::Golay70 {
                 words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
                 exc_idx: cuda.up_u32(idx).map_err(candle_core::Error::msg)?,
                 exc_words: cuda.up_u32(exc_words).map_err(candle_core::Error::msg)?,
@@ -1201,8 +1354,21 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             );
         }
     }
+    // 🕳️ **Le cache KV est F16 ici, et il l'est par ALIGNEMENT, pas par défaut.**
+    // `bin/fusedrun` charge son bras dense avec `KvMode::F16` en dur
+    // (`fusedrun.rs:173`) : sa question est le noyau fusé, pas le cache. Le bras
+    // fusé doit donc prendre le même, ou la comparaison gagnerait une seconde
+    // variable — exactement ce que ce dossier passe son temps à interdire.
+    //
+    // 🚨 Ces deux appels ne compilaient plus depuis que `KvMode` est arrivé
+    // (KV q8, 2026-08-15) : ce fichier est sous `cfg(cuda)`, donc AUCUNE machine
+    // de développement ne le type, et la casse n'est apparue qu'au premier build
+    // d'image — 255 s de CI, le 2026-08-16. Le `--features cuda` n'est pas
+    // couvert par `cargo clippy --all-targets` sur un Mac, et c'est la même
+    // classe d'angle mort que le câblage `planesbench` du même jour.
+    let kv = crate::kvq::KvMode::F16;
     let mut qwen = match &quant_embed {
-        None => crate::model::Qwen3::new_with(&config, vb, &mut take)?,
+        None => crate::model::Qwen3::new_with(&config, vb, &mut take, kv)?,
         Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(
             &config,
             vb,
@@ -1215,6 +1381,7 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
                 rt: rt.clone(),
                 q: bufs[*ih].clone(),
             },
+            kv,
         )?,
     };
     if claimed != by_site.len() {

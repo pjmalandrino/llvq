@@ -21,9 +21,7 @@ Two further vector-quantized systems operate at our rate with released
 kernels and are the baselines a systems paper at 2 bits should eventually
 run: AQLM~\citep{aqlm2024}, which uses additive quantization, and
 VPTQ~\citep{vptq2024}. GPTVQ~\citep{gptvq2024}, from the group that later
-produced LLVQ, is the direct ancestor of its vector-quantization line. We
-measure none of them, and say so in \S\ref{sec:limitations} rather than
-letting an FP16-only comparison stand as if it were the interesting one.
+produced LLVQ, is the direct ancestor of its vector-quantization line. We measure none of them (\S\ref{sec:limitations}).
 
 \textbf{4-bit systems.} AWQ~\citep{awq2024} is the deployed 4-bit
 reference we compare against; Marlin~\citep{marlin2024} demonstrates what a
@@ -40,8 +38,4 @@ primitive, which we found unreported and have since reported
 upstream;\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
 it is not a property of \texttt{candle}'s served models, which reach their
 heads through \texttt{Linear} and avoid the path. Similar
-transpose-materialization taxes have been folklore in other engines, which
-is why per-phase attribution with synchronization barriers,
-rather than end-to-end numbers alone, belongs in systems evaluations, and
-why a speedup measured against one's own baseline has to be restated
-against a baseline free of the defect.
+transpose-materialization taxes are folklore in other engines.

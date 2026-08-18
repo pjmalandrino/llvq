@@ -1,0 +1,92 @@
+================================================================================
+e1c12 aligné sur le warp — le verdict qui manquait depuis le 2026-08-15
+2026-08-16, calculé sur le 4B scellé. 0 $, aucun accélérateur.
+`cargo run --release -p llvq-bench --bin rtbits -- ~/llvq-q4b.llvq`
+================================================================================
+
+CE QUE X3 AVAIT LAISSÉ OUVERT
+
+  X3 a montré qu'aucun warp du modèle publié ne lit un seul groupe E1c, que le
+  seul remède est de bourrer chaque ligne à un multiple de 32 blocs (+15,47 %),
+  et il a enterré `e1c14` sur ce compte. Il s'est ARRÊTÉ sur `e1c12` : son
+  modèle ignorait le terme d'exceptions (3,3824 % des blocs) et rendait 4,1404
+  pour Planes12x là où le dépôt publie 4,342 — « les deux côtés du rapport en
+  dépendent ».
+
+  Ici les deux côtés sortent du MÊME balayage du fichier scellé, exceptions
+  comprises, dans la comptabilité b/poids NOYAU du banc CUDA.
+
+LE MODÈLE SE VALIDE SUR LE CAS DÉJÀ TRANCHÉ                          [mesuré]
+
+  E1c14 aligné rend 5,2354 — le chiffre exact d'X3. Le terme d'exceptions ne le
+  touche pas (E1c14 n'en a pas), donc c'est un contrôle propre : ce qui suit
+  n'est pas un modèle neuf, c'est le sien avec la pièce qui manquait.
+
+LE VERDICT                                                           [mesuré]
+
+  150 681 600 blocs → 173 998 080 (+15,47 %), et ces blocs ne portent AUCUN
+  poids : le numérateur enfle, le dénominateur ne bouge pas.
+
+    E1c14 aligné   5,2354  contre 4,8040 (Planes14)    +9,0 %   ❌ plus gros
+    E1c12 aligné   4,2880  contre 4,3424 (Planes12x)   −1,3 %   ✅ survit
+
+  🚨 e1c12 SURVIT à l'alignement, et de justesse. Il n'est donc pas enterré
+  comme son jumeau — mais 1,3 % n'achète rien.
+
+CE QUE ÇA CHANGE À LA QUESTION, ET C'EST LE VRAI RÉSULTAT
+
+  L'argument d'E1c était de supprimer le bourrage. Aligné, il en rend presque
+  tout : il reste 1,3 % contre `Planes12x`, qui n'est lui-même PAS servi. Contre
+  le layout réellement servi, `Planes14` (4,8040), E1c12 pèse −10,7 % — mais
+  `Planes12x` en offre déjà −9,6 % et n'est pas servi pour autant, parce qu'il
+  paie ~7 % de débit.
+
+  Donc la question d'E1c12 n'est plus une question de BITS. Elle est : la
+  transposition rend-elle le décodage PLUS RAPIDE que `Planes12x` ? C'était son
+  argument d'origine — 32 lanes lisant le même mot, une diffusion L1 au lieu de
+  32 lectures dispersées — et c'est la seule chose qui pourrait le servir.
+
+  ⚠️ Et cette question n'hérite PAS du verdict d'E1v. E1v est mort d'être borné
+  en CALCUL : marches binomiales, Golay, parité, règles de signe. E1c décode le
+  MÊME contenu que Planes12x — des sélections sur des plans de bits — et sa
+  transposition est un problème de motif de lecture, pas d'ALU. Le pronostic
+  d'E1v ne se transporte pas ici.
+
+CE QUE CE CALCUL NE DIT PAS
+
+  Aucune nanoseconde. C'est une identité de comptage sur les formes réelles, du
+  genre qui a enterré E3 et `e1c14` : elle ne dépend d'aucun matériel et ne se
+  contourne pas par un meilleur noyau. Elle ne dit rien non plus du coût des
+  82 à 106 mots par groupe qu'une lane lirait.
+
+================================================================================
+
+  E1c — les mêmes flux transposés sur le warp (b/poids payload)
+  ------------------------------------------------------------------------
+  E1c14      106 mots par groupe de 32, sans bourrage : 4.4167 b/poids (-0.2500 vs Planes14)
+  E1c12      82 mots par groupe + les MÊMES 5096688 exceptions : 3.6196 b/poids (-0.5833 vs Planes12x)
+             dont 3.4167 de stream et 0.2029 d'exceptions — le terme d'exceptions
+  est identique à celui de Planes12x, donc l'écart entre les deux layouts EST le bourrage
+
+
+  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)
+  ------------------------------------------------------------------------
+  numérateur += queue f32 (16957440 poids) + échelles de ligne f32 (1105920 lignes)
+  dénominateur = 3633315840 poids (Σ d_out·d_in, queue comprise), et non 3616358400 quantifiés
+  Slot32          5.5096 b/poids noyau  (5.3756 payload, 2.50 Go de stream)
+  Planes14        4.8040 b/poids noyau  (4.6667 payload, 2.18 Go de stream)
+  Planes12x       4.3424 b/poids noyau  (4.2029 payload, 1.97 Go de stream)
+  E1c14           4.5551 b/poids noyau  (4.4167 payload, 2.07 Go de stream)
+  E1c12           3.7618 b/poids noyau  (3.6196 payload, 1.71 Go de stream)
+
+  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32
+
+  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32
+  ------------------------------------------------------------------------
+  150681600 blocs → 173998080 (+15.47 %), et ces blocs ne portent AUCUN poids :
+               le numérateur enfle, le dénominateur ne bouge pas
+  E1c14           5.2354 b/poids noyau aligné  contre 4.8040 pour Planes14                  — +9.0 %  ❌ PLUS GROS que le layout qu'il remplace
+  E1c12           4.2880 b/poids noyau aligné  contre 4.3424 pour Planes12x                  — -1.3 %  ✅
+  ⚠️ Aucun de ces deux chiffres n'est une vitesse. C'est une identité de
+               comptage sur les formes réelles, du genre qui a enterré E3 — elle ne dépend
+               d'aucun matériel et ne se contourne pas par un meilleur noyau.

@@ -4,25 +4,126 @@
 > qu'une nouvelle session doit savoir pour reprendre le travail sans relire
 > l'historique.
 
-> 🧭 **Reprise de session** :
-> [`docs/rapport-etat-2026-08-07.md`](docs/rapport-etat-2026-08-07.md) — la
-> photographie d'ensemble. Le noyau fusé **tourne dans le modèle** : le
-> Qwen3-4B publié rend **88,4–88,5 tok/s dans 2,60 Go** contre 43,5 tok/s dans
-> 8,04 Go au chemin dense, à qualité identique au bit près (deux invocations,
-> `campagne-finale-bras4` et `nuit-planes12x-q8` — une plage, pas un point,
-> cf. §3). Puis
-> [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md) — le
-> point d'échelle, la question centrale du projet : **le déficit du 2 bits
-> fond quand le modèle grossit** (ppl ×1,385 → ×1,220, MMLU −14,73 → −10,56 pp
-> du 4B au 8B), et l'écart au 4 bits fond deux fois plus vite. Puis
-> [`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md) —
-> embedding q8 en production, overlay `Planes12x` validé au banc, design C
-> réfuté. Puis [`docs/format-noyau.md`](docs/format-noyau.md) — l'état du
-> noyau, les quatre pièges de mesure GPU chèrement acquis, et l'échelle
-> bits↔vitesse.
-> Historique : [`docs/passation-lot-a-2026-08-06.md`](docs/passation-lot-a-2026-08-06.md)
-> · [`docs/passation-2026-08-05.md`](docs/passation-2026-08-05.md)
-> · [`docs/passation-2026-07-31.md`](docs/passation-2026-07-31.md).
+> 🚨 **REPRISE, 2026-08-15 (soir) — P1 EST MESURÉ, et deux portes se sont
+> ouvertes.** Sur pré-enregistrement **horodaté avant le run** (une première
+> pour ce projet) : `marche-binomiale` **0,3101 ns/bloc** ✅ contre un seuil de
+> 1,50 · `cascade-uniformisée` **1,7809** ✅ contre 2,00 · `cascade-archive`
+> **10,8115** ❌ contre 2,00. Journal
+> [`docs/mesures/p1-rankbench-2026-08-15.txt`](docs/mesures/p1-rankbench-2026-08-15.txt).
+>
+> **Ce que ça décide, et c'était écrit d'avance** : **P5 s'ouvre**, la règle
+> étant « si et seulement si la **marche** passe 0,45 » et non « si le banc est
+> vert » ; et **E1v n'est pas mort-né**, l'archive rendant 10,81 là où 2,00
+> aurait fermé la ligne.
+>
+> 🚨 **MAIS le bras CUDA de P4 n'est PAS autorisé, et il l'a été pendant
+> 57 minutes.** 🕳️ Cet en-tête a écrit « une demi-journée » — un chiffre que
+> personne n'avait mesuré, alors que git le donne à la seconde : autorisation
+> au commit `b18fe52` (2026-08-15 13:42:02), retrait au commit `c40641b`
+> (14:39:33), soit **57 min**. C'est exactement la dérive que ce fichier
+> reproche partout ailleurs, et elle était dans sa propre première page.
+> Le bras `marche-binomiale` décode **une marche de 24
+> créneaux, pas un bloc** — un bloc pair en demande deux, plus le mot de Golay
+> et la réparation de parité. P1b l'a mesuré : **0,6735 ns/bloc**
+> ([`docs/mesures/p1b-marche-bloc-2026-08-15.txt`](docs/mesures/p1b-marche-bloc-2026-08-15.txt),
+> [pré-enregistrement](proofs/preregistration-p1b-2026-08-15.md) écrit avant la
+> mesure). Vert contre le kill de 1,50, **au-dessus du gate de 0,45**. On est
+> dans le **régime intermédiaire** du §4.2 de P1, mot pour mot : *le bras
+> survit comme point de la courbe et n'achète AUCUN bras CUDA — il faut une
+> idée neuve, pas un job.*
+>
+> 🕳️ Et la leçon, payée pour la **troisième** fois sur ce projet : le compte de
+> pas prédisait **×1,002** entre une marche et un bloc, la mesure rend
+> **×2,17**. Le compteur ne comptait que les balayages de marche, pas le Golay,
+> pas le second appel, pas la parité, pas les trois règles de signe. *Un compte
+> d'opérations n'est pas une prédiction de temps, même quand il porte sur la
+> boucle qu'on croit dominante.*
+>
+> **Le résultat de fond** : uniformiser la boucle vaut **un ordre de grandeur**
+> — 10,81 → 1,78 ns sur les mêmes bits, la même table et la même recherche de
+> classe. Et la marche binomiale, qui ne divise jamais, rend **3,84× le
+> plancher de la machine**.
+>
+> 🚨 **E1v EST FERMÉ POUR LE CHEMIN SERVI depuis le 2026-08-16 : 0,25× FP16,
+> 25 Go/s sur L40S** ([`docs/mesures/e1v-cuda-2026-08-16.txt`](docs/mesures/e1v-cuda-2026-08-16.txt),
+> 0,85 $, critères d'X3 posés d'avance, plancher à 1,60×). La passation du soir
+> le donnait comme « la branche la plus intéressante » ; ce n'était pas faux au
+> moment où elle l'écrivait, et ça l'est depuis. **Ne pas repartir dessus.**
+>
+> Ce que la mesure NE retire pas : le **format** tient exactement sa promesse —
+> 1,09 Go lus contre 2,18 pour `Planes14`, soit la moitié, **2,3983 b/poids
+> noyau mesurés sur les octets écrits** en coupe alignée ligne, bijection
+> prouvée sur 150 681 600 blocs, qualité inchangée par preuve. Ce qui est mort
+> est son **décodeur en ligne**, borné en calcul : deux marches binomiales, un
+> mot de Golay, une réparation de parité et trois règles de signe contre les
+> sélections de `Planes14`. Le format reste disponible hors boucle.
+>
+> 🔎 **Et le chiffre qui recadre les quatre tentatives de cette ligne** (E3,
+> `Golay70` v2, `e1c14`, E1v) : l'attribution du gisement CUDA découpe les
+> 2,04 ms/token en **latence/occupation 39 %, flux 33 %, décodage 19 %**.
+> Descendre sous `Planes14` attaque les 33 % en multipliant le poste à 19 % —
+> ×17 dans le cas d'E1v. **Le plus gros poste, les 39 %, n'a jamais été
+> attaqué**, et c'est là que vivent les bras d'attribution de P4 (`nullk`,
+> `mvkf16`, `cublasf16`).
+>
+> 🆕 **ET LE PLANCHER EST MESURÉ (2026-08-16), ce qui recadre tout le reste** :
+> une passe de projections qui ne lit AUCUN poids coûte **2,305 ms contre 5,102
+> pour `Planes14`**, soit **45,2 %**
+> ([`docs/mesures/nullk-plancher-2026-08-16.txt`](docs/mesures/nullk-plancher-2026-08-16.txt),
+> 0,77 $). Conséquences, toutes dérivées d'un seul run :
+>
+> | | |
+> |---|---|
+> | plafond absolu de tout travail de **format** | **4,77×** FP16 |
+> | où `Planes14` en est | **2,16×** |
+> | ce que le format achète **net** du plancher | **3,11×** |
+> | coût du décodage de `Planes14` | **~7 %** du temps de trafic |
+>
+> **Le format se dispute au plus 55 % du temps et `Planes14` en capture déjà
+> l'essentiel.** Les 45 % restants ne sont touchés par aucun format : c'est ce
+> que la famille `k` de P4 §2.6 existe pour amortir, et elle n'est pas écrite.
+> ⚠️ Ce 45 % n'est **pas** les 39 % de l'attribution du 08-05, qui portent sur
+> 2,04 ms par **token** — deux dénominateurs.
+>
+> 🧭 **Reprise : commencer par
+> [`docs/archive/passation-2026-08-16.md`](docs/archive/passation-2026-08-16.md)**
+> — autonome, il porte le RAF de toutes les phases, les dettes et ce que la nuit
+> apprend. ⚠️ Il **périme le §2** de
+> [`passation-e1v-2026-08-15.md`](docs/archive/passation-e1v-2026-08-15.md),
+> qui donne encore E1v comme la branche à suivre.
+>
+> Puis **[`docs/PLAN.md`](docs/PLAN.md)** (section « Ouvert par
+> P1 ») et le plan d'exécution
+> [`docs/archive/passation-exec-2026-08-15.md`](docs/archive/passation-exec-2026-08-15.md),
+> **dont le §2 est périmé sur P1 seulement** — ce qu'il donne comme restant
+> (fixture, sweep, aller-retour GPU, banc) est fait. Le reste tient : P2 et P6
+> **en pause** (modèle tranché Qwen3-30B-A3B), **P3 clos**, **P4 sans code sur
+> trois de ses bras**, P7 non ouvert. ⚠️ **L'axe noyau n'est plus arrêté** : le
+> plan d'exécution P1→P7 l'a rouvert, et c'est l'arbitrage de l'opérateur qui
+> le porte.
+>
+> 🧭 **Reprise de session** — le système documentaire a été refondu le
+> 2026-08-12 : **[`docs/HISTORIQUE.md`](docs/HISTORIQUE.md)** est l'unique
+> fil chronologique (état courant en tête, une entrée par période, verdicts
+> étiquetés), **[`docs/PLAN.md`](docs/PLAN.md)** est la suite (papier v2 →
+> qualité → point 32B, plus le contexte long ouvert par P3).
+> Les documents de session d'époque (passations, rapports, verdicts, specs,
+> audits) vivent dans **[`docs/archive/`](docs/archive/)** — conservés
+> intégralement, plus jamais édités, et pouvant contenir des affirmations
+> démenties depuis. Les références vivantes : [`docs/fiche-4b.md`](docs/fiche-4b.md)
+> (l'objet publié), [`docs/campagne-finale-2026-08-07.md`](docs/campagne-finale-2026-08-07.md)
+> (la campagne 4B), [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)
+> (l'échelle — **trois points depuis le 08-10** : le 14B rend −6,85 pp apparié
+> et plie la courbe, cf. HISTORIQUE), [`docs/format-noyau.md`](docs/format-noyau.md)
+> (l'état du noyau et les pièges de mesure).
+> En bref : le Qwen3-4B publié rend **88,4–88,5 tok/s dans 2,60 Go** contre
+> 43,5 tok/s dans 8,04 Go à notre chemin dense, mêmes tokens gloutons jusqu'à
+> un tie-break. 🚨 **Ce débit se dit en DEUX formulations, et il faut toujours
+> donner les deux** : **×2,03 brut** contre ce bras dense — qui est *le nôtre*
+> et qui est **handicapé**, il recopie 778 Mo de vocabulaire par token
+> (`Head::project` → `broadcast_matmul`) — et **×1,12 à tête identique** (48,7
+> contre 43,6 tok/s), **la seule qui mesure le noyau**. Le ×2,03 ne se publie
+> jamais seul, cf. le 🚨 du §3.
 >
 > ⚠️ **Deux phrases de ce fichier ont survécu à leur propre démenti, et il
 > faut savoir ce qu'elles disaient** — c'est le motif récurrent du projet :
@@ -34,13 +135,13 @@
 >    **`bin/fusedrun`**, qui charge le fichier scellé par `fused_cuda::load`
 >    (`llvq-llm/src/bin/fusedrun.rs:115`) et exige les mêmes tokens que le
 >    chemin dense. Ce qui reste dense, c'est **`bin/run`** — la démo de
->    génération, encore sur `sealed::load` (`llvq-llm/src/bin/run.rs:45`) :
+>    génération, encore sur `sealed::load` (`llvq-llm/src/bin/run.rs:49`) :
 >    un binaire non porté, pas un chantier de noyau. Dire « pas branché »
 >    parce que `bin/run` ne l'appelle pas, c'est confondre la démo et le
 >    produit.
 > 2. « **Le point de décision suivant est C1** ». C1 a été gagné, branché et
 >    mesuré le même jour : le layout de production est **`Planes14`**, défaut
->    de `LLVQ_FUSED_LAYOUT` (`llvq-llm/src/fused.rs:68`). Le chantier ouvert
+>    de `LLVQ_FUSED_LAYOUT` (`llvq-llm/src/fused.rs:89`). Le chantier ouvert
 >    n'est plus le format — l'échelle des formats est close, cf. §3 — mais
 >    **la qualité** (−14,73 pp de MMLU au 4B, §3ter) et un arbitrage produit
 >    entre `Planes14` (vitesse) et `Planes12x` (bits).
@@ -90,9 +191,12 @@ sans raison, et **ne jamais** faire confiance à `pdftotext` dessus.
 ```
 llvq-core/     Golay [24,12,8] + Λ₂₄ + couches. ZÉRO dépendance, forbid(unsafe).
 llvq-search/   Recherche NN exacte, classes, moteur générique m≤13, indexage, packing.
+               + `rankdec` (2026-08-15) : les deux décodeurs de rang que P1 a jugés.
 llvq-quant/    Spherical GPTQ : algèbre dense, boucle par blocs, quantifieurs.
 llvq-artifact/ Le format .llvq : writer, reader, décodeur. ZÉRO dépendance.
 llvq-metal/    Micro-bancs GPU (macOS) : plomberie Metal, coût du décodage.
+               + `shaders/`, `p1host` et `bin/rankbench` (2026-08-15) : les six bras de P1,
+               mesurés — 4 fichiers MSL, 7 points d'entrée, tous listés par `bin/mslcheck`.
 llvq-cuda/     Le noyau fusé sur NVIDIA : source CUDA compilée par NVRTC au
                démarrage, bancs matvec/planes/rotation. (cudarc, cfg(linux) seul)
 llvq-llm/      Côté modèle : passe avant observable, corpus, perplexité,
@@ -117,7 +221,7 @@ commentaire de `llvq-cuda/Cargo.toml`, qui documente les trois murs de son
 
 > 🕳️ **Le « 690 » qu'affichait ce fichier était un nombre de lignes de
 > `cargo tree`, pas un compte de paquets.** Corrigé au README le 2026-08-03
-> (`docs/audit-publication-2026-08-03.md`, ligne « Corriger `README.md:122-124` » ;
+> (`docs/archive/audit-publication-2026-08-03.md`, ligne « Corriger `README.md:122-124` » ;
 > `README.md:277-280` porte les bons chiffres depuis). Même motif que
 > partout ailleurs : un chiffre repris d'une sortie d'outil sans vérifier ce
 > que l'outil comptait.
@@ -133,7 +237,7 @@ Compté le 2026-08-08 (`grep -rn unsafe --include='*.rs'`, crate par crate) :
 | `llvq-artifact` | 0 | `#![forbid(unsafe_code)]`, **posé le 2026-08-08** — le crate n'en contenait aucun mais rien ne l'interdisait, alors que c'est celui dont la doc de module plaide qu'on doit pouvoir le lire de bout en bout |
 | `llvq-metal` | 12 mentions | `read<T>` d'un buffer GPU typé (`lib.rs:106`) + ses appelants |
 | `llvq-cuda` | 13 mentions | `b.launch(cfg)` de cudarc (`gpu.rs`), `disable_event_tracking` |
-| `llvq-llm` | 11 mentions | mmap safetensors (`loader.rs:62`), `alloc`/`launch` (`fused_cuda.rs`) |
+| `llvq-llm` | 11 mentions | mmap safetensors (`loader.rs:315`), `alloc`/`launch` (`fused_cuda.rs`) |
 
 **Ce qui est faux, c'est l'exclusivité — pas la permission ni l'intention.**
 Le cœur mathématique reste `forbid(unsafe_code)`, et c'est ça qu'il fallait
@@ -148,8 +252,8 @@ compte.** Il est déclaré à `llvq-quant/Cargo.toml:11` (version 0.24,
 `optional = true`) derrière la feature `fast-linalg`
 (`llvq-quant/Cargo.toml:19`), et **c'est lui qui a factorisé les modèles
 publiés** : la ligne de commande de production porte
-`--features metal,fast-linalg` (`README.md:492`, `docs/run-de-nuit.md:8`), et
-l'image CUDA des runs 8B/32B l'a figée dedans (`docs/spec-lot-a-2026-08-05.md:26`).
+`--features metal,fast-linalg` (`README.md:492`, `docs/archive/run-de-nuit.md:8`), et
+l'image CUDA des runs 8B/32B l'a figée dedans (`docs/archive/spec-lot-a-2026-08-05.md:26`).
 Un lecteur du paragraphe précédent en déduisait que les chiffres du projet
 sortent d'une algèbre maison ; ils sortent de `faer`.
 
@@ -170,13 +274,13 @@ beaucoup d'une version à l'autre, et `llvq-quant` **compile et passe sans
 lui**. Ce que la mesure a ajouté, c'est que le chemin sans dépendance n'est
 pas utilisable en production : ~1 G multiply-add/s, soit **~40× plus lent**
 pour un résultat bit-identique (28,4 s contre 0,7 s sur un bloc de
-Qwen3-0.6B — `llvq-llm/src/bin/smoke.rs:474-486`, qui l'avertit
+Qwen3-0.6B — `llvq-llm/src/bin/smoke.rs:1095-1107`, qui l'avertit
 bruyamment). D'où la forme actuelle, qui est la bonne :
 
 - `faer` derrière un drapeau, donc l'audit du cœur reste possible ;
 - le chemin maison gardé comme **référence de vérification**, pas comme
   folklore — `both_factorizations_agree`
-  (`llvq-quant/tests/g5_gptq.rs:824`) exige que les deux produisent le
+  (`llvq-quant/tests/g5_gptq.rs:825`) exige que les deux produisent le
   **même facteur**, ce qu'aucune identité seule n'attrape (un facteur
   *valide* de la mauvaise chose passerait) ;
 - et le drapeau **allumé partout où on mesure ou où on paie du matériel**.
@@ -208,9 +312,24 @@ cargo run --release -p llvq-metal --bin decreal       # coût du décodage seul,
 cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>  # banc N bras, tous les layouts
 cargo run --release -p llvq-cuda --bin preflight                    # SM, registres, spill, L2
 cargo run --release -p llvq-llm  --features cuda --bin fusedrun     # LE noyau DANS le modèle
-#   LLVQ_FUSED_LAYOUT=planes14|slot32   (défaut planes14)
+#   LLVQ_FUSED_LAYOUT=planes14|planes12x|slot32|golay70   (défaut planes14)
+#     ⚠️ QUATRE valeurs, pas deux : `FusedLayout::parse` (llvq-llm/src/fused.rs:87-99)
+#        les admet toutes et REFUSE toute autre — un A/B qui retombe en silence
+#        sur le défaut est pire qu'un A/B qui échoue. `golay70` est câblé pour
+#        être mesurable, PAS servi (verdict v2 : 1,77× < 2,0×, cf. §3).
 #   LLVQ_EMBED=f16|q8                   (défaut f16 ; q8 = l'embedding int8 en prod)
 #   LLVQ_TIME_PHASES=1                  (profil par phase, hors protocole publié)
+
+# P1 — les décodeurs de rang (macOS, 0 $) — MESURÉ le 2026-08-15
+cargo run --release -p llvq-metal --bin mslcheck   # les 7 points d'entrée MSL compilent ? 3 s
+cargo run --release -p llvq-metal --bin p1v0       # V0 : exactitude, 2 bras, fixture + blocs réels
+cargo run --release -p llvq-metal --bin rankbench  # LE BANC : 6 bras, 2^24 blocs, ~4 min
+#   ⚠️ `rankbench` REFUSE de démarrer sans `proofs/preregistration-p1-2026-08-13.md.ots`.
+#      Ce n'est pas de la cérémonie : le §3 du pré-enregistrement demande le tampon avant
+#      la première milliseconde, et une règle qui ne vit que dans la prose se saute le soir
+#      où quelqu'un veut un chiffre. Le tampon est posé (SHA256 5109b35f…), le garde s'ouvre.
+#   ⚠️ Le sweep intégral des deux décodeurs est ailleurs, et il est #[ignore]d :
+#      cargo test --release -p llvq-artifact --test p1_rank_sweep -- --include-ignored   # 69 s
 
 # côté modèle (Metal recommandé : ~7× le CPU sur M3 Max)
 cargo run --release -p llvq-llm --features metal --bin oracle
@@ -224,12 +343,23 @@ cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
 #   LLVQ_DTYPE=f16 cargo run … --bin ppl -- 4096 12 metal ~/qwen3-4b-llvq.bin
 
 # ⚠️ Les deux A/B que ce bloc réclamait ONT ÉTÉ LANCÉS (lot B, nuit du 05
-# au 06 — docs/verdicts-lot-b-2026-08-06.md §B1). Ne pas les redemander.
+# au 06 — docs/archive/verdicts-lot-b-2026-08-06.md §B1). Ne pas les redemander.
 #   LLVQ_CALIB_SEED={1,2,3} → 20,6239 / 20,4709 / 20,7687 sur 3 blocs :
 #     σ ≈ 0,15 ppl ≈ 0,7 %. C'est la première barre d'erreur du projet.
+#     🚨 ET ELLE NE S'APPLIQUE PAS À UN A/B À FICHIER CONSTANT — cf. le bloc
+#     sous ce tableau.
 #   LLVQ_DAMPING={3e-3,1e-2,3e-2} → 20,6740 / 20,6643 / 20,6014 : écart
 #     0,35 %, SOUS 1σ. Effet nul — exactement ce que le code prédisait.
 cargo clippy --all-targets                   # doit rester à zéro warning
+#   ⚠️ `cargo test -p llvq-search --test g6_pack` ÉCHOUE EN DEBUG et passe en
+#   release — antérieur au 2026-08-15, vérifié au commit 3879cde. Motif d'un
+#   décalage de 64 bits que la release absorbe. Ne pas le lire comme une
+#   régression de la session en cours.
+
+# LLVQ_KV=f16|q8  (défaut f16) — le cache KV int8, livré le 2026-08-15 et
+#   DÉLIBÉRÉMENT PAS le défaut : qualité verte (ppl +0,049 %, MMLU +0,33 pp,
+#   les deux IC contenant zéro), mais verdict de débit rendu sur la seule
+#   série courte, donc « contexte court seulement ».
 ```
 
 > 🚨 **« Suite complète, ~45 s » était faux d'un ordre de grandeur, et ça se
@@ -252,12 +382,18 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 > fichier scellé de 981 Mo en entier** — 150,7 M blocs, bijection et overlay
 > prouvés bloc par bloc pour `Planes14`, `Planes12x` et `Golay70`. C'est
 > exactement la létalité que le §5 réclame : un sweep intégral attrape ce
-> qu'un échantillon laisse passer. Ils se **sautent proprement** quand
-> `~/llvq-q4b.llvq` n'est pas sur la machine
-> (`llvq-artifact/tests/planes12x_format.rs:305-315`, `SKIP:` sur stderr) —
-> donc la même commande est rapide sur une machine nue et longue ici. ⚠️ Ne
-> jamais lire un « tout vert » rapide comme une preuve : vérifier d'abord
-> qu'il n'est pas rapide *parce que* l'artefact manque.
+> qu'un échantillon laisse passer. Ils sont `#[ignore]`d, donc leur absence de
+> la boucle par défaut est **déclarée** ; et si on les invoque explicitement
+> sans `~/llvq-q4b.llvq` sur la machine, ils **échouent en nommant le
+> fichier** (`llvq-artifact/tests/common/mod.rs`, `sealed_artifact_path`) —
+> donc la même commande est rapide sur une machine nue et longue ici.
+> 🚨 **Ce paragraphe a dit jusqu'ici « ils se sautent proprement … `SKIP:` sur
+> stderr », en pointant `planes12x_format.rs:305-315`.** C'est périmé et
+> c'était exactement le défaut : ce `eprintln!("SKIP …"); return;` rapportait
+> `ok` sur toute machine sans l'archive. Il a été remplacé — la règle est au
+> §7 de ce fichier, qui contredisait donc son propre §2. ⚠️ Ne jamais lire un
+> « tout vert » rapide comme une preuve : vérifier d'abord qu'il n'est pas
+> rapide *parce que* l'artefact manque, ou parce qu'il est `ignored`.
 >
 > **En pratique** : `cargo test` (debug) pour la boucle de développement, la
 > suite complète avant un commit qui touche un format ou l'indexage.
@@ -268,6 +404,16 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 > deux variables à la fois, avait un angle mort — il donnait un Δ sans
 > savoir ce qu'un Δ vaut. Il le sait maintenant. Ne plus publier ni décider
 > sur un écart de 3 blocs sans le confronter à ce seuil.
+>
+> 🚨 **QUATRIÈME RÉSERVE, ET ELLE PRIME : CE σ N'A RIEN À FAIRE DANS UN A/B À
+> FICHIER CONSTANT** (KV q8, layouts runtime, embedding q8 — tout ce qui ne
+> retouche pas la quantification). Il mesure du bruit de **graine de
+> calibration entre fichiers DIFFÉRENTS** ; un A/B qui compare le même fichier
+> à la même empreinte est **déterministe**. Mesuré le 2026-08-15 sur le KV q8 :
+> l'intervalle t **apparié fenêtre par fenêtre** vaut **±0,12 %**, soit
+> **quatorze fois plus serré** que ce σ — qui n'aurait donc rien mesuré. La
+> bonne barre est cet intervalle apparié ; `bin/ppl` imprime les NLL par
+> fenêtre à 9 décimales exprès, **sur stderr**, donc perdus sans `2>`.
 >
 > ⚠️ Trois réserves, parce qu'un σ mal cité est pire que pas de σ. (1) Il est
 > estimé sur **3 points** — c'est un ordre de grandeur, pas un écart-type de
@@ -296,9 +442,9 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 | G4 | Source gaussienne 2 bits/dim : **92,23 % de rétention** | ✅ |
 | 2c | Encodeur : 639 µs/bloc/cœur (5,5× le départ) | ✅ |
 | G5 | Spherical GPTQ + pipeline LLM | ✅ **Wiki 16,9617 à 2,1696 bits pesés** sur Qwen3-4B (QTIP : 17,04 à 2,000), fichier scellé **`leech1c12`** — cap 12, 47 bits d'index + 1 de gain = **48 bits/bloc**, 2,0702 b/poids effectifs (note de provenance dans la section G5). Vert avec réserve : on passe de 0,08 point, à 8,5 % de bits en plus |
-| G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,03–2,09×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. ⚠️ **une plage, pas un point.** Le 2,07× publié le 2026-08-01 est le haut d'une plage [2,029 ; 2,080] mesurée sur trois invocations du banc à deux bras ; le banc à sept bras en rend 2,03× · 2,06× · 2,09× sur trois autres. Les octets, les b/poids et les pires erreurs sont identiques au chiffre à chacune — seuls les temps bougent, et ils bougent ensemble sur les deux bras. Une troisième décimale sur ce rapport n'a donc pas de contenu ([`docs/mesures/thesis-temoin-2026-08-04.txt`](docs/mesures/thesis-temoin-2026-08-04.txt)), et ces deux temps sont ceux du **run publié le 2026-08-01** : le run à sept bras du 2026-08-05 cité plus bas rend 21,728 / 10,496 ms **sur les mêmes deux bras**, soit **2,03× [2,03–2,10]**. Deux invocations du même objet, pas deux mesures contradictoires — ne pas les soustraire. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence. **Échelle bits↔vitesse, un seul protocole et une seule comptabilité d'octets** (`bin/thesis` du 2026-08-05, 7 rounds dont 2 jetés, tous les bras dispatchés à chaque round dans le même ordre ; payload + bases + queue f32 + échelles de ligne f32 ; le « vs FP16 » est la **médiane du rapport formé round par round** avec sa plage sur les 5 rounds gardés — surtout pas un quotient de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté ; millisecondes dans [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) : FP16 16,000 b/poids, 1,00× · **`Slot32` 5,510, 2,03× [2,03–2,10]** · `Flat32` 5,256, 0,91× [0,91–0,91] · `Grouped32` 3,498, 0,69× [0,68–0,69]. (L'ancienne échelle « 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07× » mélangeait plusieurs comptabilités d'octets dans une même liste — la faute que ce run supprime.) Transcodeur 5 layouts bit-exacts, ~25 mutants tués. ✅ **BRANCHÉ ET MESURÉ le 2026-08-06** (lot A, [`docs/passation-lot-a-2026-08-06.md`](docs/passation-lot-a-2026-08-06.md)) : `bin/fusedrun` sur L40S rend **47,0 tok/s contre 43,5 dense, 3,28 Go contre 8,04 (÷2,45)**, 88 tokens gloutons identiques avant un tie-break. Et la campagne à quatre bras a tranché : **sur un 4B le 4 bits nous domine partout sauf le disque** — MMLU 70,04 % pour l'AWQ officiel contre 55,59 % pour nous, ppl ×1,105 contre ×1,384 ([`docs/mesures/a4-campagne-2026-08-06.txt`](docs/mesures/a4-campagne-2026-08-06.txt)). ⚠️ La comparaison VRAM se dit en **b/param modèle entier, embedding compris** — jamais « 5,51 contre 4,50 » (deux dénominateurs, et deux quatre-bits confondus : l'AWQ mesuré pèse **5,30** dans son moteur, le 4,50 est le MLX q4 absent de la campagne) — [`docs/errata-rapport-lot-a-2026-08-06.md`](docs/errata-rapport-lot-a-2026-08-06.md). ✅ **C1 GAGNÉ ET BRANCHÉ le même jour** : le layout VRAM de référence est **`Planes14`** — plans de bits binaires au lieu du one-hot, stride uniforme 14 o, sans bases — **1,14× [1,14–1,15] plus rapide que `Slot32` à contenu décodé identique, 4,804 b/poids contre 5,510** au banc 3 bras (2,16× vs FP16 ; Go/s constants : le temps tombe exactement comme les octets ; [`docs/mesures/c1-planesbench-2026-08-06.txt`](docs/mesures/c1-planesbench-2026-08-06.txt)), et dans le modèle : **48,7 tok/s / 2,96 Go (÷2,72)**, bascule `LLVQ_FUSED_LAYOUT`, contrôle slot32 reproduit à l'identique — 47,0/3,28, divergence au même token 89 ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)). En modèle entier : **5,88 b/param projeté avec l'embedding f16, 5,11 avec l'embedding int8** (errata du lot A) — puis **5,15 mesuré en production** une fois `LLVQ_EMBED=q8` livré, **sous les 5,30 de l'AWQ réel** dans les deux comptabilités. ⚠️ Le plafond L ≤ 4 sec est **mort en qualité** (swap mesuré : **+4,75 % de ppl**, repasse au-dessus de QTIP — lot B) ; il est remplacé par l'**overlay épars**, qui atteint le même point de bits à **qualité exacte**. **L'échelle des formats est close depuis le 2026-08-07 — voir le tableau juste sous celui-ci.** Détail : [`docs/format-noyau.md`](docs/format-noyau.md), [`docs/pistes-format-vram-2026-08-05.md`](docs/pistes-format-vram-2026-08-05.md), [`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md) |
+| G6 | Noyau fusé (déquant + matvec) | ✅ **la thèse est mesurée sur le modèle entier : 2,03–2,09×** — `bin/thesis`, un token des 252 projections, un command buffer par format, froid par construction, **1 105 920 lignes vérifiées** contre référence f64 : FP16 21,69 ms contre **10,46 ms** ; 41,6 → **78,2 tok/s** avec le lm_head f16. ⚠️ **une plage, pas un point.** Le 2,07× publié le 2026-08-01 est le haut d'une plage [2,029 ; 2,080] mesurée sur trois invocations du banc à deux bras ; le banc à sept bras en rend 2,03× · 2,06× · 2,09× sur trois autres. Les octets, les b/poids et les pires erreurs sont identiques au chiffre à chacune — seuls les temps bougent, et ils bougent ensemble sur les deux bras. Une troisième décimale sur ce rapport n'a donc pas de contenu ([`docs/mesures/thesis-temoin-2026-08-04.txt`](docs/mesures/thesis-temoin-2026-08-04.txt)), et ces deux temps sont ceux du **run publié le 2026-08-01** : le run à sept bras du 2026-08-05 cité plus bas rend 21,728 / 10,496 ms **sur les mêmes deux bras**, soit **2,03× [2,03–2,10]**. Deux invocations du même objet, pas deux mesures contradictoires — ne pas les soustraire. Sur une couche isolée (`bin/matvec`, protocole froid à 4 copies) : **2,2×**. Le layout est `Slot32` — offsets fixes `[classe 9][gain 1][smask 24][m₁..m₄@24]`, zéro divergence. **Échelle bits↔vitesse, un seul protocole et une seule comptabilité d'octets** (`bin/thesis` du 2026-08-05, 7 rounds dont 2 jetés, tous les bras dispatchés à chaque round dans le même ordre ; payload + bases + queue f32 + échelles de ligne f32 ; le « vs FP16 » est la **médiane du rapport formé round par round** avec sa plage sur les 5 rounds gardés — surtout pas un quotient de deux minima, qui mêlerait deux rounds n'ayant jamais coexisté ; millisecondes dans [`docs/mesures/k1-metal-2026-08-05.txt`](docs/mesures/k1-metal-2026-08-05.txt)) : FP16 16,000 b/poids, 1,00× · **`Slot32` 5,510, 2,03× [2,03–2,10]** · `Flat32` 5,256, 0,91× [0,91–0,91] · `Grouped32` 3,498, 0,69× [0,68–0,69]. (L'ancienne échelle « 3,35 nested = 0,68× ; 4,54 Flat32 = 0,90× ; 5,51 Slot32 = 2,07× » mélangeait plusieurs comptabilités d'octets dans une même liste — la faute que ce run supprime.) Transcodeur 5 layouts bit-exacts, ~25 mutants tués. ✅ **BRANCHÉ ET MESURÉ le 2026-08-06** (lot A, [`docs/archive/passation-lot-a-2026-08-06.md`](docs/archive/passation-lot-a-2026-08-06.md)) : `bin/fusedrun` sur L40S rend **47,0 tok/s contre 43,5 dense, 3,28 Go contre 8,04 (÷2,45)**, 88 tokens gloutons identiques avant un tie-break. Et la campagne à quatre bras a tranché : **sur un 4B le 4 bits nous domine partout sauf le disque** — MMLU 70,04 % pour l'AWQ officiel contre 55,59 % pour nous, ppl ×1,105 contre ×1,384 ([`docs/mesures/a4-campagne-2026-08-06.txt`](docs/mesures/a4-campagne-2026-08-06.txt)). ⚠️ La comparaison VRAM se dit en **b/param modèle entier, embedding compris** — jamais « 5,51 contre 4,50 » (deux dénominateurs, et deux quatre-bits confondus : l'AWQ mesuré pèse **5,30** dans son moteur, le 4,50 est le MLX q4 absent de la campagne) — [`docs/archive/errata-rapport-lot-a-2026-08-06.md`](docs/archive/errata-rapport-lot-a-2026-08-06.md). ✅ **C1 GAGNÉ ET BRANCHÉ le même jour** : le layout VRAM de référence est **`Planes14`** — plans de bits binaires au lieu du one-hot, stride uniforme 14 o, sans bases — **1,14× [1,14–1,15] plus rapide que `Slot32` à contenu décodé identique, 4,804 b/poids contre 5,510** au banc 3 bras (2,16× vs FP16 ; Go/s constants : le temps tombe exactement comme les octets ; [`docs/mesures/c1-planesbench-2026-08-06.txt`](docs/mesures/c1-planesbench-2026-08-06.txt)), et dans le modèle : **48,7 tok/s / 2,96 Go (÷2,72)**, bascule `LLVQ_FUSED_LAYOUT`, contrôle slot32 reproduit à l'identique — 47,0/3,28, divergence au même token 89 ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)). En modèle entier : **5,887 b/param avec l'embedding f16** — puis **5,162 mesuré** une fois `LLVQ_EMBED=q8` livré, **sous les 5,302 de l'AWQ réel** dans les deux comptabilités (`rtbits`, 2026-08-09). 🚨 Les deux valeurs qui ont circulé ici, **5,11** (errata du lot A) et **≈ 5,15**, sont toutes deux sous la bonne : la première facture l'embedding à 8 bits nus, la seconde cite l'affichage carte arrondi — voir le 🚨 sous la table b/param plus bas. ⚠️ Le plafond L ≤ 4 sec est **mort en qualité** (swap mesuré : **+4,75 % de ppl**, repasse au-dessus de QTIP — lot B) ; il est remplacé par l'**overlay épars**, qui atteint le même point de bits à **qualité exacte**. 🚨 **« L'échelle des formats est close depuis le 2026-08-07 » a été écrit ici et a survécu à DEUX réouvertures — la ligne s'est refermée trois fois, pas une.** (1) **08-07** : le tableau juste sous celui-ci, `Golay70` écarté à 1,31× contre un critère de 1,6×. (2) **08-11** : E2 rouvert par la mesure AWQ sur l'axe mémoire, puis **re-fermé** — le décodeur v2 rend **1,77× [1,76–1,78], 263 Go/s**, sous le seuil pré-enregistré de 2,0×, et il n'y a plus de piste connue à format inchangé. (3) **08-16** : re-fermée **par le haut** cette fois, et c'est la fermeture qui compte — le plancher `nullk` (une passe de projections qui ne lit AUCUN poids) coûte **45,2 %** du bras servi, donc **tout travail de format plafonne à 4,77× FP16**, `Planes14` en est déjà à **2,16×**, et son décodage ne pèse que **~7 %** du temps de trafic. Le format se dispute au plus 55 % du temps ; les 45 % restants ne sont touchés par aucun format. Détail : [`docs/format-noyau.md`](docs/format-noyau.md), [`docs/archive/pistes-format-vram-2026-08-05.md`](docs/archive/pistes-format-vram-2026-08-05.md), [`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md) |
 
-### L'échelle des formats runtime — quatre points mesurés, un écarté (2026-08-07)
+### L'échelle des formats runtime — quatre points mesurés, un écarté, deux comptés (2026-08-07, complété le 08-12)
 
 Le format que le noyau lit en VRAM n'est pas celui du fichier. Quatre layouts
 ont été portés sur CUDA et mesurés **dans un seul processus, un seul
@@ -308,18 +454,144 @@ chacun est vérifié ligne à ligne contre une référence f64 sur les **1 105 9
 lignes** du modèle publié. Journal :
 [`docs/mesures/e2-golay70-bench-2026-08-07.txt`](docs/mesures/e2-golay70-bench-2026-08-07.txt).
 
-| layout | b/poids payload | vs FP16 | Go/s | statut |
+| layout | b/poids **noyau** (banc CUDA) | vs FP16 | Go/s | statut |
 |---|---|---|---|---|
 | `Slot32` (one-hot) | 5,510 | 1,87× [1,86–1,88] | 428 | remplacé, gardé en repli (`LLVQ_FUSED_LAYOUT=slot32`) |
 | **`Planes14`** (plans de bits) | **4,804** | **2,14× [2,11–2,15]** | 425 | ✅ **en production, défaut** |
-| **`Planes12x`** (overlay épars) | **4,342** | 1,98× [1,95–1,99] | 356 | ✅ validé au banc, qualité **exacte** — ⚠️ **pas dans le modèle** (voir ci-dessous) |
+| **`Planes12x`** (overlay épars) | **4,342** | 1,98× [1,95–1,99] | 356 | ✅ validé au banc, qualité **exacte** — ⚠️ **câblé dans le modèle depuis le 08-09, NON SERVI** (voir ci-dessous) |
 | `Golay70` (E2) | 3,589 | **1,31× [1,29–1,32]** | 195 | ❌ **écarté** — sous le critère de 1,6× posé d'avance |
 
+> 🕳️ **Cette colonne s'intitulait « b/poids payload », et c'était la mauvaise
+> comptabilité — corrigé le 2026-08-16, aucun nombre ne bouge.** Les quatre
+> valeurs sont celles qu'imprime le banc, dont le numérateur ajoute la **queue
+> f32 et les échelles de ligne f32** : c'est la comptabilité **noyau**. Le
+> **payload** des trois premiers vaut **5,3756 · 4,6667 · 4,2029**
+> ([`docs/mesures/e1c12-aligne-2026-08-16.txt`](docs/mesures/e1c12-aligne-2026-08-16.txt),
+> qui publie les deux séries côte à côte ; la note de provenance de
+> [`docs/format-noyau.md`](docs/format-noyau.md) l'établissait déjà pour
+> `Slot32`). Une étiquette de comptabilité fausse sur la table la plus citée du
+> dossier est exactement la règle n°1 du §7 enfreinte dans son propre fichier.
+
+> 🚨 **E2 a été ROUVERT le 2026-08-10, remesuré en v2 le 2026-08-11, et
+> re-fermé par un critère neuf — la ligne ci-dessus est l'histoire, pas le
+> dernier mot.** La mesure AWQ (584 Go/s, 3,38×) a périmé le critère de
+> vitesse et rouvert E2 sur l'axe mémoire (`Golay70` est le seul layout sous
+> l'AWQ déployé en b/param à toutes les échelles) ; un décodeur **v2**
+> (logique de coset hissée au niveau bloc, format inchangé) a été prouvé
+> bit-exact puis mesuré à sept bras avec contrôle :
+> **1,77× [1,76–1,78], 263 Go/s** — 1,32× sur la v1 dans les mêmes rounds,
+> mais **sous le seuil pré-enregistré de 2,0×** (`proofs/preregistration-2026-08-11.md`) :
+> **non adopté**, point de la courbe débit↔taux. Chaîne complète :
+> `docs/archive/spec-apres-awq-2026-08-10.md` → `docs/archive/projections-golay70-2026-08-11.md`
+> → `docs/archive/passation-golay70-2026-08-11.md` →
+> [`docs/mesures/golay70-v2-sept-bras-2026-08-11.txt`](docs/mesures/golay70-v2-sept-bras-2026-08-11.txt).
+
+🆕 **Deux points de plus, et AUCUN n'est mesuré EN VITESSE : `E1c14` et
+`E1c12` (2026-08-12).** ⚠️ En **bits**, ils le sont depuis — et l'un des deux
+est enterré **au 4B**, mais pas au 14B, où il passe sous `Planes14` ; voir la
+table et les verdicts d'alignement qui la suivent.
+Ce sont les deux flux ci-dessus **transposés sur le groupe de
+32 blocs** — le warp. Même contenu décodé au bit près, moins les bits de
+bourrage : `Planes14` en dépense 6 par bloc pour fermer son stride de 14 o et
+`Planes12x` en dépense 14, alors qu'un groupe de 32 tombe ici sur un nombre
+entier de mots de 32 bits. La transposition **ne coûte que le bourrage**, et
+c'est vérifiable : le terme d'exceptions d'`E1c12` est identique à celui de
+`Planes12x`, table pour table.
+
+**⚠️ Toute cette table est une table 4B — l'étiquette manquait, et elle change
+un verdict ; voir le 🚨 « spécifique au 4B » qui la suit.**
+
+| layout (formes du **4B**) | b/poids payload | b/poids **noyau, non aligné** | b/poids **noyau, aligné warp** | vs FP16 | statut **au 4B** |
+|---|---|---|---|---|---|
+| `E1c14` (`Planes14` transposé) | 4,4167 | 4,5551 | **5,2354** — +9,0 % sur `Planes14` (4,8040) | **jamais mesuré** | ❌ **enterré** (X3, 2026-08-15) |
+| `E1c12` (`Planes12x` transposé) | **3,6196** | **3,7618** | **4,2880** — −1,3 % sur `Planes12x` (4,3424) | **jamais mesuré** | ✅ **survit**, et sa question n'est plus les bits |
+
+🚨 **Les deux lignes portaient « ✅ exact, ❔ vitesse inconnue » ; les verdicts
+d'alignement du 2026-08-15/16 les séparent, et ils ne coûtent pas un dollar.**
+La colonne « non aligné » est celle qui a fondé les seuils d'X3 — et elle
+décrit un layout que le matvec servi **ne peut pas lire** : il met un warp par
+**ligne de sortie**, le groupe E1c est 32 blocs **globaux** consécutifs, donc
+**0 bloc sur 150 681 600 tombe dans un warp aligné** et chaque warp en lit
+deux ([`docs/mesures/x3-alignement-warp-2026-08-15.txt`](docs/mesures/x3-alignement-warp-2026-08-15.txt)).
+Le seul remède compatible est de bourrer chaque **ligne** à un multiple de 32
+blocs : **au 4B**, 150 681 600 → 173 998 080 blocs, **+15,47 %** de blocs qui
+ne portent aucun poids. D'où la colonne « aligné warp », qui est **ce qui
+serait servi**. ⚠️ **Ce +15,47 % n'est pas une constante** — c'est +4,18 % sur
+les formes du 14B (2026-08-17, voir ci-dessous).
+
+- ❌ **`E1c14` est enterré AU 4B** : aligné il y est **plus gros** que le layout
+  qu'il remplace. Le mécanisme tient en une phrase : il supprime 6 bits de
+  bourrage **par bloc** et en réintroduit jusqu'à 22 blocs **par ligne**.
+  🚨 **Ce verdict est un verdict 4B, et il NE TRANSFÈRE PAS (2026-08-17).**
+  Ce tiret a longtemps dit « `E1c14` est enterré », sans taille — une phrase
+  fausse au 14B. La pénalité d'alignement warp vaut **+15,47 % de blocs sur les
+  formes du 4B mais +4,18 % sur celles du 14B**, dont les lignes sont plus
+  longues (213 et 725 blocs contre 106/170/405). Sur les blocs réels du 14B :
+  **`E1c14` aligné 4,6410 contre 4,7063 pour `Planes14` (−1,4 %)** et `E1c12`
+  aligné 3,8021 contre 4,2420 (−10,4 %) —
+  [`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt).
+  ⚠️ **Cela ne le ressuscite pas** : aucun de ces nombres n'est une vitesse, et
+  `E1c` n'a jamais été dispatché par un banc, à aucune largeur. Ce qui est
+  établi est étroit — **la pénalité d'alignement est une fonction des FORMES,
+  pas une constante du layout**, et elle s'effondre quand les lignes
+  s'allongent. Une phrase « `E1c14` est plus gros que `Planes14` » sans « au
+  4B » est fausse au 14B.
+- ✅ **`E1c12` survit, et de justesse** : −1,3 % sur `Planes12x`, qui n'est
+  lui-même **pas servi**
+  ([`docs/mesures/e1c12-aligne-2026-08-16.txt`](docs/mesures/e1c12-aligne-2026-08-16.txt),
+  les deux côtés sortis du même balayage du 4B scellé, terme d'exceptions
+  compris — ce que le modèle d'X3 n'avait pas). **1,3 % n'achète rien** : sa
+  question cesse d'être une question de **bits** et devient une question de
+  **vitesse de transposition**.
+- ⚠️ **Et elle n'hérite PAS du verdict d'E1v.** E1v est mort d'être borné en
+  **calcul** ; `E1c12` décode le même contenu que `Planes12x` — des sélections
+  sur des plans de bits — donc sa question est un **motif de lecture**.
+
+⚠️ **La colonne « vs FP16 » est vide et doit le rester jusqu'à la carte.** Le
+code livré compte des bits et prouve une bijection — rien d'autre. La question
+« le transposé va-t-il aussi vite » est entière : le noyau lirait 82 ou 106
+mots par groupe là où `Planes14` en lit 4-5 par lane, et **un compte niveau
+source a déjà été faux d'un facteur 2 sur ce noyau**. Critères posés d'avance
+(spec §X3) : ≥ 1,9× pour remplacer `Planes12x`, ≥ 2,05× pour remplacer
+`Planes14`, sous 1,6× l'échelle se referme côté transposition.
+🚨 **Ces trois seuils ont été posés dans la comptabilité NON ALIGNÉE**, celle
+que le chemin servi ne peut pas lire. Ils **devront être amendés et
+ré-ancrés** — dans la comptabilité alignée, et sur un bras qu'un banc peut
+réellement dispatcher — **avant tout banc**, faute de quoi le banc publierait
+« E1c est lent » alors qu'il aurait mesuré un désalignement. Ce ré-ancrage
+n'est pas fait, et il revient à l'opérateur.
+
+**L'exactitude, elle, est acquise** : sweep intégral du 4B scellé, 150 681 600
+blocs, les deux variantes contre le décodeur d'archive et le flux principal
+d'`E1c12` contre celui de `Planes12x`
+([`docs/mesures/e1c-sweep-4b-2026-08-12.txt`](docs/mesures/e1c-sweep-4b-2026-08-12.txt)).
+Le bras de banc CUDA devient donc un **pur** test de vitesse à ~0,2 $.
+
+❌ **Et E3 est enterré sur papier le même jour, pour 0 $** — le barreau qui
+visait le 24-32 Go en décodant (presque) l'index du fichier dans le noyau.
+`bin/radixstudy` prix chaque décomposition shift-only sur les blocs réels : le
+meilleur point vaut **3,0444 b/poids noyau contre un critère de 2,60 posé
+d'avance**, soit 17 % au-dessus, et il est rouge dans les deux comptabilités
+comme sur les deux bras. La raison est arithmétique et ne se contourne pas :
+sur les blocs réels, le point *dans* sa classe coûte déjà **41,50 des 47 bits**
+d'index, il ne reste ~5,5 bits pour le choix de classe, et toute variante à
+champ de classe explicite les repaie en 10 bits d'en-tête
+([`docs/mesures/radixstudy-x4-2026-08-12.txt`](docs/mesures/radixstudy-x4-2026-08-12.txt)).
+**Le plafond mémoire du projet est donc `E1c`**, sous réserve de sa vitesse.
+
+🚨 **TROIS états, pas deux — et la table ci-dessus a longtemps dit « pas dans
+le modèle » pour le deuxième.** Un layout est **absent** (aucun code le
+sélectionne), **câblé** (`LLVQ_FUSED_LAYOUT` l'accepte, donc il est
+*mesurable*), ou **servi** (c'est le défaut, donc ce que rendent les chiffres
+publiés). `Planes14` est **servi** ; `Planes12x`, `slot32` et `golay70` sont
+**câblés et non servis** ; `E1c14`/`E1c12` sont **absents** du noyau.
+
 ✅ **`Planes12x` est câblé dans le modèle depuis le 2026-08-09** :
-`LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x` et `slot32`**, et
-il **refuse** toute autre valeur plutôt que de retomber en silence sur le
-défaut — un A/B qui se trompe de bras en silence est pire qu'un A/B qui
-échoue. `Golay70`, lui, reste hors du modèle (écarté à 1,31×).
+`LLVQ_FUSED_LAYOUT` admet **`planes14` (défaut), `planes12x`, `slot32` et —
+depuis le 2026-08-11 — `golay70`** (câblé pour être mesurable ; le verdict
+ci-dessus dit qu'il n'est **pas servi**), et il **refuse** toute autre valeur
+plutôt que de retomber en silence sur le défaut — un A/B qui se trompe de
+bras en silence est pire qu'un A/B qui échoue.
 
 ⚠️ **Mais « câblé » n'est toujours pas « mesuré », et c'est la distinction qui
 compte maintenant.** Le flux hôte est prouvé — balayage bloc à bloc du 4B
@@ -363,20 +635,52 @@ où il reprend son gain plein — pas pour être le défaut à 8B.
    qui permet de l'écarter sans discussion. ⚠️ Ne pas rouvrir E2 sans idée
    neuve sur le coût ALU (pistes notées, non poursuivies : spécialiser les
    warps par coset, payer le XOR seulement côté pair).
+   > 🚨 **L'idée neuve a existé, elle a été mesurée, et elle ne suffit pas
+   > (2026-08-11).** Le hissage de la logique de coset au niveau bloc (v2)
+   > subsume les deux pistes notées ci-dessus et rend 1,32× sur la v1 —
+   > 1,77× vs FP16, 263 Go/s, 40 % de la borne d'octets — sous le seuil
+   > pré-enregistré de 2,0×. **Il n'y a plus de piste connue à format
+   > inchangé** : le slot v2 est déjà un slot `Planes14` à trois masques ;
+   > l'écart restant vit donc dans le travail PAR BLOC — fenêtre non alignée
+   > du record de 9 o, prologue, deux tables — *attribution de lecture, pas
+   > un profil* (le profileur n'a toujours jamais servi, §2c). Cf. le 🚨
+   > sous la table ci-dessus.
 
 En **b/param modèle entier** — la seule comptabilité dans laquelle une
 comparaison mémoire a un sens, cf. l'errata cité en G6 :
 
-| point | b/param, embedding compris |
+| point (Qwen3-4B) | b/param, embedding compris |
 |---|---|
 | `Slot32` + embedding f16 (avant C1) | 6,52 |
 | `Planes14` + embedding f16 | 5,88 |
-| **`Planes14` + embedding q8** | **≈ 5,15 mesuré** — sous les 5,30 de l'AWQ réel |
-| `Planes12x` + embedding q8 | 4,69 — sous l'AWQ, à 4 % du MLX q4 |
-| repères : AWQ w4 g128 réel · MLX q4 g64 | 5,30 · 4,50 |
+| **`Planes14` + embedding q8** | **5,162 mesuré** — sous les 5,302 de l'AWQ réel |
+| `Planes12x` + embedding q8 | **4,745 mesuré** — sous l'AWQ, à 5 % du MLX q4 |
+| repères : AWQ w4 g128 réel · MLX q4 g64 | 5,302 · 4,50 |
+
+🆕 **Et cette ligne existe aux TROIS tailles depuis le 2026-08-17** — le 14B
+manquait parce que son artefact scellé n'avait jamais été rapatrié ; il dormait
+dans le bucket, d'où il a été relu pour **0 $**
+([`docs/mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt)) :
+`Planes14` + q8 vaut **5,162 · 5,322 · 5,106** contre **5,302 · 5,956 · 5,404**
+pour l'AWQ officiel, soit **−2,6 % · −10,6 % · −5,5 %**. ⚠️ **Marge non
+monotone**, mécanisme = part de l'embedding, détail au §6.
+
+> 🚨 **« ≈ 5,15 » et « 4,69 » étaient tous deux SOUS la bonne valeur, et
+> `rtbits` a tranché le 2026-08-09**
+> ([`docs/mesures/rtbits-planes-8b-2026-08-09.txt`](docs/mesures/rtbits-planes-8b-2026-08-09.txt),
+> §3 : « LE CHIFFRE 4B q8 À PUBLIER EST 5,162 »). Les deux mécanismes sont
+> identifiés et différents : **5,15 est une citation en prose de l'affichage
+> carte « 2,60 Go »** alors que le calcul exact rend 2,595 Go ; **5,11**, qui
+> circulait à l'errata du lot A, facture l'embedding **à 8 bits nus** en
+> oubliant les 0,5 b/param d'échelles et biais de groupe (q8 g64 vaut **8,5**
+> b/param, pas 8 — refaire le calcul à 8,0 rend bien 5,1136). Le chiffre de
+> `rtbits` est vérifié par un **troisième instrument** — le rapport VRAM du
+> moteur — sur les deux cellules 8B, reproduites au millième.
+> ⚠️ Les deux valeurs périmées survivent ailleurs dans ce fichier et dans
+> `docs/` ; les corriger toutes est une passe à faire, pas un acquis.
 
 **L'embedding int8 est en production** (`LLVQ_EMBED=q8`,
-`llvq-llm/src/fused.rs:106`) : validé sans perte au lot B — ppl **16,9379**
+`llvq-llm/src/fused.rs:137`) : validé sans perte au lot B — ppl **16,9379**
 contre 16,9415, soit −0,02 %, et MMLU dans le σ (55,44 contre 56,09) — puis
 livré la nuit du 06 au 07. ⚠️ **Deux mécanismes, un seul quantifieur, et il
 ne faut pas les confondre** : `bin/embedq` **écrit** un fichier à embedding
@@ -401,7 +705,7 @@ sur `q4b-e8.llvq`, `fusedrun` sur le fichier à embedding f16).
 >
 > 🚨 **« Un chemin candle » était une mauvaise étiquette, et elle a survécu
 > jusqu'au 2026-08-09.** Le chemin est **le nôtre** : `Head::project`
-> (`llvq-llm/src/model.rs:553`) appelle `Tensor::broadcast_matmul`, dont le
+> (`llvq-llm/src/model.rs:580-582`) appelle `Tensor::broadcast_matmul`, dont le
 > bras à rhs de rang 2 matérialise le poids transposé à chaque appel.
 > `candle_nn::Linear::forward` replie les dimensions de tête exprès pour
 > éviter ce chemin, et **les modèles de `candle_transformers` passent par
@@ -499,7 +803,8 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 > est intact — c'est *lui* qui compte, et il est reproduit à la ligne près par
 > la remesure — mais les **valeurs** ont bougé quand tout est passé sur carte
 > louée, dans un seul harnais, avec l'empreinte de tokens imprimée des deux
-> côtés (`65dcd53655e8bfa5`). Les trois mesures qui font foi :
+> côtés (`65dcd53655e8bfa5`). Les mesures qui font foi (elles étaient trois
+> quand cette phrase a été écrite ; elles sont cinq) :
 >
 > | | FP16 | LLVQ 2 bits | chute | source |
 > |---|---|---|---|---|
@@ -507,6 +812,15 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 > | **4B, L40S, 08-06** | **70,32 ± 1,28** | **55,59 ± 1,35** | **−14,73 pp** | [`mesures/a4-campagne-2026-08-06.txt`](docs/mesures/a4-campagne-2026-08-06.txt) |
 > | 4B, L40S, embedding q8, 08-07 | — | 55,70 ± 1,35 | — | [`mesures/campagne-finale-bras4-2026-08-07.txt`](docs/mesures/campagne-finale-bras4-2026-08-07.txt) |
 > | **8B, L40S, 08-08** | **76,08 ± 1,21** | **65,52 ± 1,31** | **−10,56 pp** | [`mesures/campagne-8b-qualite-2026-08-08.txt`](docs/mesures/campagne-8b-qualite-2026-08-08.txt) |
+> | **14B, L40S, 08-10** | **78,97 ± 1,19** | **72,12 ± 1,24** | **−6,85 pp** — IC95 apparié [+4,52 ; +9,12], SE 1,16 pp | [`mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt) |
+>
+> ⚠️ **Le 14B a une barre que les deux lignes au-dessus n'ont pas, et il ne
+> faut pas les confondre.** Le ± de chaque cellule est l'erreur
+> d'**échantillonnage** d'un bras seul ; le [+4,52 ; +9,12] est un bootstrap
+> **apparié** stratifié par matière sur les 2 280 questions communes
+> (`bin/mmlupair`, empreinte `65dcd53655e8bfa5` des deux côtés, McNemar
+> p = 8,7e-16). C'est la bonne barre pour une **différence** — celle que
+> l'errata du lot A réclamait, et qui n'existait pas au 4B ni au 8B.
 >
 > **Trois lectures, dans l'ordre d'importance.**
 >
@@ -515,10 +829,27 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 >    dériver — c'est le contrôle qui rend les deux autres lignes lisibles.
 > 2. **L'embedding q8 ne coûte rien en capacités** : 55,70 contre 55,59, dans
 >    le bruit. C'est ce qui autorise à le mettre en production (cf. §3).
-> 3. **Le déficit fond avec l'échelle** : −14,73 pp au 4B, **−10,56 pp au
->    8B** — 79,1 % de MMLU retenu contre 86,1 %. C'est le premier signal de
+> 3. **Le déficit fond avec l'échelle** : −14,73 pp au
+>    4B, **−10,56 pp au 8B**, **−6,85 pp au 14B** — 79,1 %, 86,1 % puis
+>    **91,3 %** de MMLU retenu (calculé). C'est le premier signal de
 >    capacités, et pas seulement de perplexité, sur l'axe d'échelle
 >    ([`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)).
+>    🕳️ **Ce point disait « mais en ralentissant » et « le point 14B plie la
+>    courbe : voir le genou en §3bis » — les deux ont été RETIRÉS le 2026-08-17
+>    (matin), puis la moitié perplexité a été RENDUE le soir. 🚨 Le verdict
+>    DÉPEND DE LA MÉTRIQUE, et une phrase qui ne la nomme pas est fausse de
+>    moitié.** Sur l'**écart MMLU au 4 bits**, le ralentissement reste **non
+>    résolu** entre 8B et 14B (1,40 pp, SE 1,68, p = 0,40) ; ce qui y est testé
+>    est la fonte 4B→8B (p = 0,0001) et la fonte 4B→14B (8,36 pp, p ≈ 1e-5).
+>    Sur la **perplexité**, il est **RÉSOLU** — pas 4B→8B ×0,881211
+>    [0,856 ; 0,907], pas 8B→14B ×0,974855 [0,959 ; 0,991], et leur différence
+>    appariée vaut **−0,100992, IC95 [−0,137670 ; −0,064313], t = −6,06**
+>    ([`mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt)).
+>    🕳️ Ce qui a changé entre les deux, ce ne sont pas les données mais leur
+>    disponibilité : « le pas 4B→8B n'est pas barrable, journal 4B de synthèse »
+>    était vrai le matin et faux le soir, les NLL du 4B ayant été retrouvées
+>    dans les logs du job. ⚠️ Et p = 0,40 ne prouve toujours pas l'égalité sur
+>    MMLU. Cf. §3bis.
 >
 > ⚠️ **Un point non expliqué, et il faut le laisser visible.** Le bras
 > quantifié perd 0,50 pp entre le run Metal du 08-02 (56,09) et le run CUDA du
@@ -527,14 +858,16 @@ notre `bin/run` divergent au 5ᵉ token sur les mêmes poids.
 > vérifiable par empreinte : le log du 08-02 est **antérieur** à l'impression
 > des empreintes de tokens. Les *deltas* restent cohérents, donc aucune
 > conclusion n'en dépend — mais c'est une dette de provenance, pas un
-> non-sujet ([`docs/errata-rapport-lot-a-2026-08-06.md`](docs/errata-rapport-lot-a-2026-08-06.md),
+> non-sujet ([`docs/archive/errata-rapport-lot-a-2026-08-06.md`](docs/archive/errata-rapport-lot-a-2026-08-06.md),
 > mineur n°2).
 >
 > ⚠️ Et le même errata (mineur n°3) corrige une justification qu'on a écrite
 > plusieurs fois : les questions étant **appariées**, l'écart-type pertinent
 > pour une *différence* est celui des paires discordantes (McNemar), pas le
 > ± d'échantillonnage imprimé sur chaque ligne. À 3-8 % de discordance,
-> σ ≈ 0,4-0,6 pp. Les écarts de 4 à 15 pp dépassent toute correction
+> σ ≈ 0,4-0,6 pp — 🚨 **estimation JAMAIS CALCULÉE, et fausse en pratique :
+> mesurée le 2026-08-15 sur un A/B à fichier constant, la SE appariée vaut
+> 0,43 pp ; entre modèles différents elle vaut 0,79 à 1,44 pp.** Les écarts de 4 à 15 pp dépassent toute correction
 > plausible ; les petits (−0,28 pp du 4 bits au 4B) ne doivent pas être
 > sur-interprétés.
 
@@ -563,7 +896,7 @@ déficit du bras quantifié ne peut plus être imputé au harnais.
 > a été mesurée et elle est PLAFONNÉE.** C'est le résultat le plus utile du
 > lot B, parce qu'il ferme une piste sur laquelle on allait dépenser 25 $ de
 > GPU. Deux mesures, une seule variable chacune
-> ([`docs/verdicts-lot-b-2026-08-06.md`](docs/verdicts-lot-b-2026-08-06.md)) :
+> ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md)) :
 >
 > - **L'oracle** — calibrer sur wikitext-2 *test* lui-même, la triche
 >   maximale, donc le plafond absolu de ce que volume, corpus et longueur
@@ -574,13 +907,13 @@ déficit du bras quantifié ne peut plus être imputé au harnais.
 >   pour ×13 de volume** (~1,7σ).
 >
 > Le critère avait été écrit **avant** la mesure (« si l'oracle ne rend que
-> 2-3 %, le suspect est plafonné », `docs/pistes-battre-q4.md`) : il est
+> 2-3 %, le suspect est plafonné », `docs/archive/pistes-battre-q4.md`) : il est
 > atteint par le bas. **Le run de calibration ×100 est enterré.**
 >
 > Et le suspect qui l'avait remplacé — le **design C**, chemin des
 > magnitudes — a été **réfuté à pleine profondeur** la nuit du 06 au 07 :
 > ×1,99 de perplexité sur 28 blocs de Qwen3-0.6B, gate automatique, 0 $ de
-> GPU (§6, [`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md)).
+> GPU (§6, [`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md)).
 > Restent, par ordre : la config 1 bit de gain (écart 0↔2 bits : 1,4 pp au
 > papier), la **composition** du corpus (mécanisme raisonnement, que l'oracle
 > en perplexité ne borne pas), la compensation post-hoc (EoRA/Recover-LoRA,
@@ -622,9 +955,9 @@ pendant que 4,50 est un **modèle entier, embedding quantifié compris** — deu
 dénominateurs ; (b) le 4,50 est le **MLX q4 g64, un artefact absent de la
 campagne**, alors que le quatre-bits réellement mesuré est l'**AWQ officiel
 de Qwen**, qui pèse **5,30 b/param dans son propre moteur**. Interdit posé
-d'avance (`docs/portage-noyau-cuda.md:31`), enfreint quand même, relevé comme
+d'avance (`docs/archive/portage-noyau-cuda.md:31`), enfreint quand même, relevé comme
 **erreur grave** par l'errata :
-[`docs/errata-rapport-lot-a-2026-08-06.md`](docs/errata-rapport-lot-a-2026-08-06.md).
+[`docs/archive/errata-rapport-lot-a-2026-08-06.md`](docs/archive/errata-rapport-lot-a-2026-08-06.md).
 
 **Qwen3-4B, tout mesuré sur L40S** (sauf indication), empreintes
 `3f1baca9033bf251` (ppl) et `65dcd53655e8bfa5` (MMLU) :
@@ -632,8 +965,8 @@ d'avance (`docs/portage-noyau-cuda.md:31`), enfreint quand même, relevé comme
 | | f16 | AWQ 4 bits (officiel Qwen) | **LLVQ 2 bits** |
 |---|---|---|---|
 | disque | 8,04 Go | 2,67 Go | **1,77 Go** — **1,41 avec l'embedding int8** |
-| VRAM, **b/param modèle entier** | 16,0 | 5,30 ¹ | **5,15** (`Planes14` + embedding q8) |
-| débit | 43,5 tok/s | jamais mesuré chez nous ¹ | **88,4–88,5 tok/s** |
+| VRAM, **b/param modèle entier** | 16,0 | 5,302 ¹ | **5,162** (`Planes14` + embedding q8) |
+| débit | 43,5 tok/s | **200,5 tok/s dans vLLM** ³ — 🚨 **ne se compare pas à cette colonne** | **88,4–88,5 tok/s** |
 | ppl wikitext | 12,2369 | 13,5207 (×1,105) | 16,9422 (×1,385) ² |
 | MMLU micro | 70,32 % | 70,04 % (−0,28 pp) | 55,59 % (−14,73 pp) ² |
 
@@ -643,20 +976,51 @@ donc les octets qu'il occupe chez nous ne veulent rien dire — réserve qui jou
 ² Sur le fichier scellé à embedding f16. La variante à embedding int8 rend
 16,9358 et 55,70 % — dans le bruit des deux côtés, donc les lignes disque et
 VRAM peuvent citer le q8 sans casser la colonne qualité.
+³ 🕳️ **Cette cellule a porté « jamais mesuré chez nous » jusqu'au 2026-08-17 —
+c'était vrai, ça ne l'est plus, et ce qui l'entourait n'a pas bougé d'un mot.**
+Mesuré dans **vLLM 0.26.0** (image épinglée), L40S, batch 1, 128 tokens,
+prefill compris, médiane de 5 rounds : **200,49 tok/s [200,39 ; 200,61]**
+([`docs/mesures/awq-vllm-4b-2026-08-17.txt`](docs/mesures/awq-vllm-4b-2026-08-17.txt),
+job `6a830d53e55292eada79b600`, 0,11 $, pré-enregistrement commité avant le
+lancement). 🚨 **Ce nombre est dans une AUTRE PILE que les deux qui l'encadrent
+et ne se divise avec aucun d'eux** : le même job mesure le témoin **f16 de
+vLLM à 83,09 tok/s** là où le nôtre rend 43,6, donc l'écart bout-en-bout est
+dominé par **vLLM contre candle** — ordonnancement, graphes CUDA, attention
+paginée, chemin du `lm_head` — et non par le décodeur de poids. **La seule
+forme licite est intra-pile : ×2,413 [2,412 ; 2,414] pour le 4 bits chez lui,
+×1,12 pour nous chez nous** ; ces deux-là ne se soustraient ni ne se divisent.
+⚠️ Et M = 1 n'est pas le régime optimal d'une GEMM Marlin (plus petite tuile en
+M = 8) : **ce 200,5 ne majore pas** ce que l'AWQ sait faire.
 
 **Où on en est, ligne par ligne, et ce qui a changé depuis le 2026-08-01.**
 
 1. **Disque** : notre avantage, inchangé (1,77 contre 2,67 Go).
-2. **Mémoire : renversé.** 5,15 contre 5,30 — on est passé **sous l'AWQ
-   réel**, et `Planes12x` descendrait à 4,69 (cf. l'échelle des formats en
-   §3). Ce que le §3bis d'origine décrivait comme structurellement perdu ne
-   l'était pas : c'était le one-hot de `Slot32`, pas la méthode.
+2. **Mémoire : renversé.** 5,162 contre 5,302 — on est passé **sous l'AWQ
+   réel**, et `Planes12x` descendrait à 4,745 (`rtbits` du 2026-08-09 ; le
+   « 5,15 contre 5,30 » et le « 4,69 » qui figuraient ici étaient tous deux
+   sous la bonne valeur, cf. l'échelle des formats en §3). Ce que le §3bis
+   d'origine décrivait comme structurellement perdu ne l'était pas : c'était
+   le one-hot de `Slot32`, pas la méthode.
 3. **Débit : renversé contre notre propre chemin dense** (×2,03), mais
    ⚠️ **à formuler deux fois** : l'essentiel du gain vient d'un défaut de
    **notre** bras dense, qui appelle `broadcast_matmul` et recopie 778 Mo de
    vocabulaire par token (pas les modèles de candle, qui passent par `Linear`
-   — cf. le 🚨 du §3), donc ~×1,4 contre ce même bras corrigé. Contre l'AWQ
-   **dans son moteur à lui**, on n'a toujours aucune mesure.
+   — cf. le 🚨 du §3), donc ~×1,4 contre ce même bras corrigé.
+   🕳️ **Cette ligne s'achevait sur « contre l'AWQ dans son moteur à lui, on n'a
+   toujours aucune mesure » : LEVÉ le 2026-08-17, et l'interdit qu'il portait
+   ne l'est PAS.** La mesure existe (200,49 tok/s dans vLLM, note ³ ci-dessus),
+   et elle **ne produit toujours aucune phrase de comparaison** : ce qu'on
+   publie est **deux rapports intra-pile côte à côte** — **×2,413** [2,412 ;
+   2,414] pour le 4 bits chez vLLM, **×1,12** pour nous chez nous — parce que
+   les deux moteurs diffèrent et que ce job **ne sépare pas** « qualité du
+   moteur » de « notre propre défaut ». 🚨 **Donc « nous sommes plus rapides
+   (ou plus lents) que le 4 bits » ne se dit à AUCUNE échelle** : ce n'est pas
+   une prudence en attendant un chiffre, c'est la conséquence permanente du
+   fait que les deux rapports **ne se divisent pas**. Ce qui change avec la
+   mesure, c'est qu'on peut désormais dire **combien** vaut chaque rapport et
+   **pourquoi** la case reste vide ; ce qui ne change pas, c'est qu'elle reste
+   vide. ⚠️ Et le sens du biais est connu : notre bras f16 handicapé est au
+   **dénominateur** du ×1,12, donc **nous sous-estimons notre propre avance**.
 4. **Qualité : pas renversé, et c'est le point dur.** −14,73 pp de MMLU au 4B
    contre −0,28 pour le 4 bits. Sur un 4B, **le 4 bits domine sans
    discussion**.
@@ -666,16 +1030,139 @@ VRAM peuvent citer le q8 sans casser la colonne qualité.
 > vite » était vrai sur `Slot32` / `Flat32` / `Grouped32`, et il a orienté
 > tout le travail de format. `Planes14` le contredit : **plus petit ET plus
 > rapide** que `Slot32`, à Go/s constants. Analyse d'origine, conservée pour
-> la généalogie : [`docs/face-au-4-bits.md`](docs/face-au-4-bits.md).
+> la généalogie : [`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
-**Et l'axe d'échelle a produit son premier chiffre** (2026-08-08,
-[`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)) : au
-8B, notre chute MMLU tombe à −10,56 pp pendant que celle du 4 bits monte à
-−3,07 pp. **L'écart au 4 bits passe de 14,45 pp à 7,49 pp — il est divisé par
-deux en doublant la taille.** À 4B le choix ne se discute pas ; à 8B c'est un
-arbitrage réel — 7,5 points de MMLU contre 25 % de mémoire en moins. ⚠️ Deux
-points ne font pas une loi d'échelle, et extrapoler à 70B serait exactement le
-raccourci que ce dossier refuse.
+**Et l'axe d'échelle a produit trois points, pas un** (2026-08-08 puis
+2026-08-10, [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md)
+et [`mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt)) :
+au 8B notre chute MMLU tombe à −10,56 pp pendant que celle du 4 bits monte à
+−3,07 pp, et au **14B** elle tombe à **−6,85 pp** (apparié, IC95
+[+4,52 ; +9,12]).
+
+| | 4B | 8B | **14B** |
+|---|---|---|---|
+| **écart LLVQ ↔ AWQ 4 bits, MMLU micro** *(apparié)* | 14,45 pp [+11,60 ; +17,27] | 7,49 pp [+5,28 ; +9,70] | **6,09 pp [+3,62 ; +8,52]** |
+
+✅ **Les trois cellules sont enfin LA MÊME ESPÈCE DE NOMBRE (2026-08-17).**
+🕳️ **Cette ligne portait jusqu'à ce matin un 🚨 « DIFFÉRENCE NUE » et le
+paragraphe qui l'expliquait** : « 6,09 est 78,21 − 72,12, sans appariement,
+sans IC, sans McNemar ; la paire `AWQ − LLVQ` **n'existe pas au 14B**, ses
+dumps sont perdus, la recalculer exige de **refaire la campagne MMLU 14B** ;
+**ne jamais citer 6,09 avec un intervalle** ». **C'était faux sur les faits,
+et la prudence qu'il imposait est aujourd'hui SATISFAITE plutôt que
+contournée** : la paire vaut **+6,09 pp, IC95 [+3,62 ; +8,52], SE 1,25 pp,
+McNemar exact p = 1,143e-11** (A✓B✗ 230 / A✗B✓ 106, 14,7 % de discordantes),
+bootstrap apparié stratifié par matière, 10 000 tirages, graine `0xb0075eed`,
+2 280 questions, empreinte `65dcd53655e8bfa5` des deux côtés
+([`mesures/mmlupair-14b-2026-08-17.txt`](docs/mesures/mmlupair-14b-2026-08-17.txt)).
+**Le point estimé ne bouge pas d'un centième** : ce n'est pas un chiffre neuf,
+c'est le même qui cesse d'être nu.
+
+> 🕳️ **Pourquoi le dossier les croyait perdus, et c'est la leçon qui vaut plus
+> que le chiffre.** La vérification du 2026-08-16 est exacte et c'est elle qui
+> a induit en erreur : elle a cherché **sur la machine**. Le job de campagne
+> n'écrivait pas sur une machine, il écrivait dans le **bucket monté** — le
+> dispositif qui existe précisément pour que les sorties survivent au
+> conteneur. Les trois dumps y dormaient depuis le 2026-08-10. Coût réel de la
+> « correction impossible » : **579 ko de bande passante, 0 $**. Ils sont
+> désormais commités dans [`docs/data/mmlu-dumps/`](docs/data/mmlu-dumps/), et
+> la règle qui en sort est au §7.
+>
+> ⚠️ **Authenticité établie AVANT usage**, sinon un CSV sorti d'un bucket n'est
+> pas une mesure : les trois micros stratifiés rejouent 78,97 / 78,21 / 72,12,
+> et la paire déjà publiée `f16 − LLVQ` rejoue ses **quatre** grandeurs
+> (+6,85 pp, [+4,52 ; +9,12], SE 1,16, McNemar 8,666e-16).
+
+🚨 **« Il est divisé par deux en doublant la taille » et « l'écart fond deux
+fois plus vite que le déficit lui-même » restent RETIRÉS par le point 14B** —
+vrais sur les deux premiers points, faux sur le fil complet. Les nombres :
+l'excès de **perplexité** fond de **−42,8 %, IC95 [−51,8 ; −33,5]** de 4B à 8B
+puis de **−13,9 %, IC95 [−22,8 ; −4,9]** de 8B à 14B (×1,3845 → ×1,2201 →
+×1,1894 ; les points sont *calculés* sur les excès 0,3845 / 0,2201 / 0,1894,
+les intervalles sont appariés fenêtre par fenêtre depuis le 2026-08-17 — 🕳️ le
+premier a longtemps circulé en « −43 % », et en « −42 % » dans ce fichier, qui
+en était la **troncature**), et l'écart MMLU au 4 bits passe de 14,45 à 7,49
+puis à 6,09 pp.
+
+🚨 **« LA COURBE A UN GENOU » NE SURVIT PAS AU TEST *SUR MMLU*, et cette
+phrase-là est RETIRÉE (2026-08-17) — mais elle survit EN PERPLEXITÉ, mesurée le
+soir même. 🚨 TOUTE PHRASE SUR LE GENOU DOIT DÉSORMAIS NOMMER SA MÉTRIQUE : un
+« le genou tient » nu est faux de moitié, un « le genou ne tient pas » nu l'est
+de l'autre moitié.** Ce paragraphe affirmait « **la courbe a un genou** : elle
+ne se referme pas au même rythme, elle ralentit », et concluait « le genou est
+le premier signe que l'extrapolation linéaire aurait été fausse » ; c'était
+écrit sur des points **nus**, et ce qui suit remplace l'assurance par deux
+verdicts distincts.
+
+| métrique | pas 4B→8B | pas 8B→14B | le ralentissement |
+|---|---|---|---|
+| **perplexité** *(apparié, 12 fenêtres, même texte aux trois tailles)* | ×0,881211 [0,856 ; 0,907], t = −9,62 | ×0,974855 [0,959 ; 0,991], t = −3,38 | ✅ **RÉSOLU** — pas1 − pas2 = **−0,100992** [−0,137670 ; −0,064313], t = −6,06, 11/12 fenêtres |
+| **écart MMLU au 4 bits** *(non apparié entre tailles, SE en quadrature)* | −6,96 pp, p = 0,0001 | −1,40 pp, p = 0,40 | ❌ **NON RÉSOLU** sur le second pas |
+
+🚨 **Ce n'est pas une contradiction, c'est une information : deux métriques,
+deux verdicts.** Trois mécanismes suffisent à l'expliquer sans supposer d'erreur
+nulle part. (1) **Puissance** : la perplexité est appariée *entre tailles* — la
+fenêtre *i* est le même texte aux trois campagnes, empreinte
+`3f1baca9033bf251` partout — et pèse **49 140 tokens scorés** ; MMLU compose
+deux campagnes indépendantes de **2 280 questions**, sans appariement possible.
+(2) **Elles ne mesurent pas la même chose** : le §3ter établit depuis le
+2026-08-02 que le 2 bits abîme le **raisonnement** bien plus que la
+**restitution**, et c'est la restitution qu'un corpus de perplexité mesure
+surtout — une courbe peut plier sur l'une et pas sur l'autre. (3) Les deux
+lignes ne comparent pas les mêmes bras (perplexité : LLVQ contre f16 ; MMLU :
+LLVQ contre AWQ) — mais sur la référence AWQ la perplexité **reste résolue**
+(−0,057562 [−0,101127 ; −0,013997], t = −2,91), donc le changement de référence
+n'explique pas l'écart à lui seul.
+Source : [`mesures/ppl-appariee-4b-2026-08-17.txt`](docs/mesures/ppl-appariee-4b-2026-08-17.txt),
+données dans [`docs/data/ppl-genou.csv`](docs/data/ppl-genou.csv).
+
+**Le détail du côté MMLU**, où la chute d'un palier au suivant se teste depuis
+que les trois écarts sont homogènes (SE composées en quadrature — *calculé* ;
+campagnes distinctes et modèles différents, donc pas d'appariement
+inter-modèles, qui n'aurait aucun sens) :
+
+| palier | chute de l'écart | SE | z | p | verdict |
+|---|---|---|---|---|---|
+| 4B → 8B | 6,96 pp | 1,82 | 3,82 | 0,0001 | ✅ **RÉSOLU** |
+| **8B → 14B** | **1,40 pp** | **1,68** | **0,83** | **0,40** | ❌ **NON RÉSOLU** |
+| 4B → 14B | 8,36 pp | 1,91 | 4,38 | ≈ 1e-5 | ✅ **RÉSOLU** |
+
+**Sur MMLU, la première fermeture est réelle, la seconde est dans le bruit.**
+Le ralentissement y est une propriété des points estimés que les barres ne
+séparent pas. ⚠️ **Et p = 0,40 ne prouve pas l'égalité non plus** : sur ce
+palier les données sont **muettes**, pas concluantes — « ça ralentit » et « ça
+continue » restent toutes deux compatibles avec ces trois points. **Ce
+non-verdict-là n'est pas levé par la perplexité** : une seconde métrique qui
+répond ne rend pas la première bavarde.
+
+🚨 **Du côté perplexité, ce paragraphe a dit « le genou n'est même pas
+testable », et c'est DÉMENTI le soir du 2026-08-17.** Le motif invoqué était
+une raison de conservation, pas de statistique — « le pas 4B→8B qui porte le
+−43 % n'est pas barrable, le journal de la campagne 4B est une synthèse sans
+NLL par fenêtre » — et il est tombé avec la récupération des NLL du 4B dans les
+logs du job ([`mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt),
+0 $). **Les deux pas sont barrés, et le genou de perplexité est RÉSOLU** —
+table ci-dessus. La fonte de l'excès vaut **−42,8 %, IC95 [−51,8 ; −33,5] %**
+du 4B au 8B (le « −43 % » publié depuis le 2026-08-10 reçoit enfin sa barre, et
+il est reproduit à 0,2 point près) contre **−13,9 %, IC95 [−22,8 ; −4,9]** du
+8B au 14B.
+⚠️ **Ce que cette barre ne couvre pas** : elle porte la seule variabilité du
+corpus d'évaluation. Le genou compare **trois artefacts produits chacun une
+fois** ; le tirage de **calibration** est absent aux trois échelles, et
+l'ajouter en empruntant le σ de 0,7 % serait fabriquer un nombre. Un t = −6,06
+sur la variabilité de corpus ne dit rien de ce que trois autres graines
+auraient donné.
+⚠️ Et sur la référence **AWQ**, le pas 8B→14B reste à la limite de la détection
+(t = 2,2063 contre un seuil de 2,200985 : il exclut zéro **de 0,005**) — **ne
+jamais écrire « l'écart se referme significativement »**. Le *genou* y est
+résolu, le *pas* non : deux énoncés différents sur la même colonne de chiffres.
+
+**Ce qui sort RENFORCÉ de tout ceci est ce que le dossier écrivait déjà** : à
+4B le choix ne se discute pas ; à 8B c'est un arbitrage réel — 7,5 points de
+MMLU contre **~11 % de mémoire en moins** (🕳️ « 25 % » était faux : 5,322
+b/param contre 5,956 pour l'AWQ, `rtbits` 08-09) ; **trois points ne font pas
+une loi d'échelle**, extrapoler à 70B reste le raccourci que ce dossier refuse,
+et **le point 32B reste ce qui trancherait**.
 
 Ce qui n'est pas réfuté : le noyau lui-même (un décodeur Leech multi-coquilles
 fusé qui bat le FP16 de 2,14× sur les projections, tourne dans un vrai modèle
@@ -845,6 +1332,25 @@ générique est actuellement tenu par 8 mutants tués (coefficient télescopique
 côtés de la partition branchless, comparaison de fusion, seuil d'élagage,
 amplitude du flip, créneau du flip, matérialisation, abandon de section).
 
+**La quatrième prise, et elle vient d'un autre mécanisme : le portage
+(2026-08-16).** *Une transcription porte les gardes de son original sans
+porter les hypothèses qui les rendaient suffisantes.* Le noyau E1v transcrit
+son `peek` du shader Metal scellé, dont le commentaire garantit « `off` est
+toujours au moins 10 » — vrai là-bas, **faux pour E1v**, dont l'en-tête vit
+dans le préfixe du groupe : son premier champ est à l'offset **zéro**, donc
+`hi << (64 − 0)` est un décalage de 64 — indéfini en C++, exécuté par NVIDIA
+comme un décalage de rien. **L'index Golay de presque tous les blocs serait
+revenu corrompu**, et aucune relecture ne l'avait vu.
+
+> **Le seul dispositif qui l'attrape est de faire EXÉCUTER le texte du noyau
+> contre une référence indépendante.** Pas le relire, pas le re-dériver de
+> tête : le compiler et le faire tourner. `llvq-cuda/tests/host_e1v.cpp` le
+> fait maintenant pour E1v — le **texte** du noyau, compilé par clang++ et
+> exécuté contre Rust — et les quatre `*_decoder_matches_rust.rs` le
+> faisaient déjà pour les layouts servis. Même motif que les trois prises
+> ci-dessus : une garantie qu'on croit tenue parce qu'on ne l'a jamais
+> réénoncée dans le contexte où elle doit tenir.
+
 ## 6. Prochaines étapes, par ordre
 
 ### Phase 2c — performance de l'encodeur ✅ (fait le 2026-07-28)
@@ -935,6 +1441,14 @@ sans raison.
 
 **État au 2026-07-28 : chaîne complète en place, smoke test Qwen3-0.6B en
 cours.**
+
+> ✅ **Périmé, et conservé pour la généalogie : ce smoke test est fini depuis
+> le 2026-07-28**, ses chiffres sont dans le tableau « Résultats quantifiés »
+> ci-dessous, et la chaîne a produit depuis **quatre modèles scellés** —
+> 4B (`leech1c12`, publié), 8B, 14B, plus le dé-risquage 32B sur 4 blocs.
+> Tout ce qui suit dans cette Phase 5, jusqu'à la Phase 6, est une **couche
+> fossile** : la lire comme un plan de travail enverrait une session refaire
+> ce qui est fait. Les marqueurs ✅ posés plus bas disent lesquels.
 
 ### Références mesurées
 
@@ -1066,7 +1580,7 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 > verrouillée du crate, un défaut de signe trouvé en revue a été corrigé
 > avant le run — et il rend **×1,99 de perplexité à pleine profondeur**. Un
 > gate automatique a bloqué le run 4B de 4 h qui devait suivre : 0 $ de GPU
-> pour un rouge net ([`docs/verdicts-nuit-2026-08-07.md`](docs/verdicts-nuit-2026-08-07.md)).
+> pour un rouge net ([`docs/archive/verdicts-nuit-2026-08-07.md`](docs/archive/verdicts-nuit-2026-08-07.md)).
 >
 > **Ce qu'on en retient** : *la rigidité de norme de la rétraction sphérique
 > est porteuse à profondeur*. Tout raffinement qui la relâche pour améliorer
@@ -1110,7 +1624,7 @@ dégrade ». Les A/B se font désormais **sur 3 blocs** — 8 minutes au lieu de
 > ci-dessus, valaient en réalité 2,7338 : rien à voir avec le fichier scellé.
 >
 > Diagnostic complet, les trois défauts et ce qui reste à décider :
-> [`docs/retraction-et-gain.md`](docs/retraction-et-gain.md).
+> [`docs/archive/retraction-et-gain.md`](docs/archive/retraction-et-gain.md).
 
 > ✅ **Le 16,9617 est confirmé sur le fichier lui-même (2026-08-01, §A2).**
 > Il avait été mesuré par la boucle interne de `smoke`, en F32, sur le modèle
@@ -1241,24 +1755,107 @@ Premier run hors du Mac : HF Jobs, `rtx-pro-6000` (23 vCPU, 96 Go), CUDA,
 d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 
 > ✅ **Ce signal a été confirmé, élargi aux capacités, et refait à une seule
-> variable le 2026-08-08.** Le run ci-dessus était `leech1c12L3` ; la campagne
+> variable le 2026-08-08 — puis étendu au 14B le 2026-08-10, qui le
+> nuance.** Le run ci-dessus était `leech1c12L3` ; la campagne
 > d'échelle a requantifié le 8B en `leech1c12` — **même codebook, même corpus
 > (C4 131 k), même rotation, même harnais, même carte (L40S), mêmes empreintes
 > de tokens des deux côtés** — pour que la taille du modèle soit la seule
 > chose qui change. C'est ce que le run du 08-02 ne permettait pas de dire.
 >
-> | | Qwen3-4B | **Qwen3-8B** | tendance |
-> |---|---|---|---|
-> | ppl, dégradation | ×1,3845 | **×1,2201** | **−42 % de l'excès** |
-> | MMLU micro, f16 → LLVQ | 70,32 → 55,59 | **76,08 → 65,52** | — |
-> | chute MMLU | −14,73 pp | **−10,56 pp** | +7,0 pp de rétention |
-> | **écart LLVQ ↔ AWQ 4 bits, MMLU** | **14,45 pp** | **7,49 pp** | **divisé par deux** |
+> | | Qwen3-4B | **Qwen3-8B** | **Qwen3-14B** | le fil |
+> |---|---|---|---|---|
+> | ppl, dégradation | ×1,3845 | **×1,2201** | **×1,1894** | excès **−42,8 %** [−51,8 ; −33,5] puis **−13,9 %** [−22,8 ; −4,9] |
+> | MMLU micro, f16 → LLVQ | 70,32 → 55,59 | **76,08 → 65,52** | **78,97 → 72,12** | — |
+> | chute MMLU | −14,73 pp | **−10,56 pp** | **−6,85 pp** [+4,52 ; +9,12] | +7,0 puis +5,2 pp de rétention |
+> | **écart LLVQ ↔ AWQ 4 bits, MMLU** *(apparié aux trois)* | **14,45 pp** [+11,60 ; +17,27] | **7,49 pp** [+5,28 ; +9,70] | **6,09 pp** [+3,62 ; +8,52] | 14,45 → 7,49 → **6,09** — ✅ **même espèce de nombre depuis le 2026-08-17**, cf. §3bis |
+> | ppl, excès contre f16 *(IC apparié fenêtre par fenêtre)* | **+38,45 %** [+33,62 ; +43,45] | **+22,01 %** [+19,37 ; +24,70] | **+18,94 %** [+17,22 ; +20,68] | ✅ **barré aux trois tailles depuis le 2026-08-17 (soir)** — 🕳️ la cellule 4B portait « ⚠️ AUCUN — journal de synthèse, non barrable sans rejeu », démenti par la récupération des NLL dans les logs du job |
 >
-> **Le déficit fond sur les deux axes, et l'écart au 4 bits fond deux fois
-> plus vite que le déficit lui-même** — parce que le 4 bits, lui, commence à
-> payer : indiscernable du f16 à 4B (−0,28 pp), il perd 3,07 pp à 8B.
+> 🚨 **« L'écart au 4 bits fond deux fois plus vite que le déficit lui-même »
+> est RETIRÉ par le point 14B.** C'était juste sur les deux premiers points —
+> l'écart y est bien divisé par deux, parce que le 4 bits, lui, commence à
+> payer : indiscernable du f16 à 4B (−0,28 pp), il perd 3,07 pp à 8B. **Le
+> troisième point le dément** : de 8B à 14B l'écart ne perd plus que 1,40 pp,
+> et l'excès de perplexité ne fond plus que de **−14 %** contre **−43 %** au
+> palier précédent.
+> 🚨 **Cette ligne concluait « Il y a un genou, et une phrase qui décrit une
+> fonte régulière décrit une courbe qui n'existe pas ». La seconde moitié
+> tient ; la PREMIÈRE a été RETIRÉE le 2026-08-17 (matin) puis RENDUE le soir
+> — SUR UNE SEULE DES DEUX MÉTRIQUES, et c'est ça qu'il faut nommer.**
+> Sur l'**écart MMLU au 4 bits**, la chute d'un palier au suivant se teste
+> depuis que les trois écarts sont appariés : **4B→8B −6,96 pp, p = 0,0001,
+> résolu** ; **8B→14B −1,40 pp, p = 0,40, NON résolu** ; 4B→14B −8,36 pp,
+> p ≈ 1e-5, résolu — le ralentissement n'y est pas séparé par les barres, et
+> p = 0,40 ne prouve pas l'égalité, les données y sont **muettes**.
+> Sur la **perplexité**, il est **RÉSOLU** : pas1 − pas2 = **−0,100992**
+> [−0,137670 ; −0,064313], t = −6,06, apparié fenêtre par fenêtre.
+> Détail, mécanisme et règle de rédaction au §3bis.
 > Sources : [`docs/echelle-4b-8b-2026-08-08.md`](docs/echelle-4b-8b-2026-08-08.md),
-> [`mesures/campagne-8b-qualite-2026-08-08.txt`](docs/mesures/campagne-8b-qualite-2026-08-08.txt).
+> [`mesures/campagne-8b-qualite-2026-08-08.txt`](docs/mesures/campagne-8b-qualite-2026-08-08.txt),
+> [`mesures/campagne-14b-qualite-2026-08-10.txt`](docs/mesures/campagne-14b-qualite-2026-08-10.txt).
+> ⚠️ Les colonnes 4B/8B/14B sont **trois campagnes distinctes**. 🕳️ Une version
+> antérieure de cette ligne disait « **seul le 14B** porte un IC apparié » :
+> c'est l'inverse de la vérité. Les **trois** tailles ont un IC apparié sur la
+> chute `f16 − LLVQ` (4B et 8B dans
+> [`mesures/mmlupair-4b-8b-2026-08-13.txt`](docs/mesures/mmlupair-4b-8b-2026-08-13.txt),
+> 14B l. 384-392 de son propre journal). 🕳️ **Et la fin de cette phrase — « ce
+> que le 14B est le seul à ne pas avoir, c'est la paire `AWQ − LLVQ` » — est
+> périmée depuis le 2026-08-17** : les **neuf** paires (3 tailles × 3 bras)
+> existent et vivent dans
+> [`docs/data/mmlu-appariee.csv`](docs/data/mmlu-appariee.csv). Les
+> pourcentages du « fil » sont **calculés** à partir des cellules, pas mesurés
+> — et la cellule portait « −42 % », qui était la **troncature** de −42,8 ;
+> l'arrondi correct est −43.
+>
+> 🆕 **La ligne MÉMOIRE existe aussi aux trois tailles depuis le 2026-08-17**
+> ([`mesures/rtbits-14b-2026-08-17.txt`](docs/mesures/rtbits-14b-2026-08-17.txt)) —
+> `params_total` du 14B vaut **14 768 307 200** (*mesuré* dans le fichier
+> scellé, recoupé par l'arithmétique de l'architecture) :
+>
+> | b/param modèle entier | 4B | 8B | **14B** |
+> |---|---|---|---|
+> | `Planes14` + embedding q8 (servi) | 5,162 | 5,322 | **5,106** |
+> | AWQ officiel | 5,302 | 5,956 | **5,404** |
+> | **marge** | −2,6 % | −10,6 % | **−5,5 %** |
+>
+> **Nous sommes sous l'AWQ aux trois tailles.** ⚠️ **La marge N'EST PAS
+> MONOTONE** — elle culmine au 8B — et il ne faut pas en raconter une tendance :
+> le mécanisme n'est pas la méthode mais la **part de l'embedding** (9,7 % au 4B
+> à têtes liées · **15,2 % au 8B** · 10,5 % au 14B), que l'AWQ laisse en f16 et
+> que nous passons en q8. Trois points, un mécanisme, **aucune loi**.
+> ⚠️ Étiquettes : nos cellules sont *calculées* sur octets **mesurés**, avec
+> l'embedding **modélisé** à 8,5 b/param — le même statut aux trois tailles, pas
+> une faiblesse propre au 14B. L'AWQ est *calculé* sur les octets safetensors du
+> dépôt officiel, lus par l'API du Hub.
+>
+> 🚨 **Cette ligne portait « Ni la vitesse ni la VRAM carte n'ont jamais été
+> mesurées à 14B » — DÉMENTI le 2026-08-17 (soir) : le 14B est SERVI**
+> ([`mesures/fusedrun-14b-2026-08-17.txt`](docs/mesures/fusedrun-14b-2026-08-17.txt),
+> job `6a83121be55292eada79b611`, 1,24 $, pré-enregistrement commité avant le
+> lancement). `Planes14` + `LLVQ_EMBED=q8`, 128 tokens **identiques** au bras
+> dense : **42,9 tok/s dans 9,39 Go** contre **17,0 tok/s dans 29,54 Go**
+> (*mesuré* ; les Go sont un **compte d'octets hôte** imprimé par `fusedrun`,
+> pas une lecture de `nvidia-smi`).
+> - **Mémoire ÷3,14** — direct, deux lectures de la même carte par le même
+>   instrument. ⚠️ Le binaire forme ses rapports sur ses valeurs internes ; la
+>   division des cellules **arrondies** rend ÷3,15 et ×2,52. **On publie ceux du
+>   binaire : ÷3,14 et ×2,53.**
+> - 🚨 **Le brut ×2,53 ne se publie JAMAIS seul** : son dénominateur est *notre*
+>   bras dense, handicapé, et le handicap est **maximal à cette taille** — têtes
+>   déliées, donc 1 555,8 Mo de vocabulaire recopiés par token (`Head::project`
+>   → `broadcast_matmul`), que le profil fencé price à 53,9 ms contre 1,2.
+> - ❌ **Le rapport « à tête identique » N'EXISTE PAS au 14B** : seul le bras q8
+>   a tourné. Il n'est pas dérivable du profil fencé — les deux sens du
+>   remplacement rendent ×1,78 et ×1,24 (facteur 1,44), et les totaux fencés
+>   ratent de **71 %** le rapport mesuré de leur propre invocation. Il se
+>   produirait par un **run** (`LLVQ_EMBED=f16`), pas par un calcul.
+> - 🕳️ **Et « ×2,53 est le plus élevé des trois tailles » est FAUX** : 4B ×2,03 ·
+>   **8B ×2,61** · 14B ×2,53. La suite n'est **pas monotone**, la part du
+>   `lm_head` décroît monotonement (9,67 % · 7,60 % · 5,27 %, *calculé*) et ne
+>   rend donc pas l'ordre observé — **aucun mécanisme n'est revendiqué**.
+> - ✅ **Recoupement en prime, posé d'avance** : 9,39 Go × 8 / 14 768 307 200 =
+>   **5,0866 b/param** contre **5,106** par `rtbits`, soit **−0,38 %** dans une
+>   bande de ±0,5 %. Le 14B a enfin son **troisième instrument**. ⚠️ Ni la
+>   qualité ni aucune **plage** n'ont été mesurées à cette taille.
 >
 > **Le bras vitesse, mesuré séparément** — et il illustre exactement le piège
 > d'embedding du ⚠️ ci-dessous : le 8B **délie ses têtes**, donc deux tables à
@@ -1276,10 +1873,35 @@ d'échelle qu'on cherchait, et il va dans le bon sens pour le 32B.
 > en f16. Le q8 n'est pas un raffinement à cette échelle, c'est ce qui rend le
 > verdict VRAM favorable.
 >
-> ⚠️ **Ce que ces deux points ne prouvent pas : une loi d'échelle.** Deux
-> points ne font pas une courbe. *Si* la tendance se poursuit, l'écart au
-> 4 bits se referme vers 16-32B — le point 32B coûterait ~60 $ et une nuit, et
-> c'est lui qui trancherait. Repère externe : le papier donne le 8B sans
+> ⚠️ **Ce que ces trois points ne prouvent pas : une loi d'échelle.** 🚨 La
+> phrase « *si* la tendance se poursuit, l'écart au 4 bits se referme vers
+> 16-32B » a été écrite sur **deux** points et sur une fonte supposée régulière,
+> et elle est **retirée** : le 14B est dans la fenêtre annoncée et l'écart y
+> vaut encore **6,09 pp** [+3,62 ; +8,52]. La fenêtre est traversée sans que
+> l'écart se referme — c'est ça qui tue la phrase, et non un rythme de fonte.
+> 🕳️ **Elle disait « puis de 7,49 à 6,09 seulement », et ce « seulement » est
+> retiré le 2026-08-17** : il énonçait le ralentissement comme un fait, trois
+> lignes avant le passage qui le rétracte. Le second palier n'est **pas
+> résolu**.
+> 🕳️ **En revanche « depuis le 14B on sait au moins qu'elle n'est pas droite »
+> et « ce que le genou dit, c'est qu'une extrapolation linéaire aurait
+> sur-promis » ont été RETIRÉS le 2026-08-17 (matin) — et le soir la
+> perplexité les rend, SUR SA PROPRE COURBE.** ⚠️ Ce sont **deux courbes**, et
+> les confondre est la faute que ce paragraphe existe désormais pour empêcher.
+> Sur la courbe de l'**écart MMLU au 4 bits**, le second palier n'est **pas
+> résolu** (1,40 pp, SE 1,68, p = 0,40) : on ne sait précisément **pas** qu'elle
+> n'est pas droite ; on sait qu'elle se referme du 4B au 14B (8,36 pp,
+> p ≈ 1e-5) et que la première moitié de cette fermeture est réelle
+> (p = 0,0001). ⚠️ Symétriquement, p = 0,40 ne dit pas non plus que la
+> fermeture continue — les données y sont **muettes**. Sur la courbe de
+> **perplexité**, en revanche, la courbure est **mesurée** : pas1 − pas2 =
+> −0,100992 [−0,137670 ; −0,064313], t = −6,06 — cette courbe-là n'est pas
+> droite, et l'extrapolation linéaire y aurait bien sur-promis.
+> **La conclusion opérationnelle est inchangée et mieux fondée : on ne publie
+> pas de loi d'échelle sur trois points.** Le point 32B coûterait ~60 $ et une
+> nuit, et c'est lui qui trancherait — la question qu'il tranche étant
+> désormais *si* la courbe s'aplatit, et non plus *où*.
+> Repère externe : le papier donne le 8B sans
 > fine-tuning à **×1,13** ; nous sommes à ×1,220 avec ~100× moins de tokens de
 > calibration et la rotation d'entrée seule. Au 4B nous étions à parité
 > (×1,385 contre leur ×1,374) — l'écart qui *apparaît* à 8B est cohérent avec
@@ -1442,6 +2064,17 @@ qui découple la validation de la rétroaction d'erreur de celle du codebook.
 
 **Deux points ouverts, délibérément non tranchés dans le code :**
 
+> ✅ **Les deux ont été tranchés depuis, et ce titre est un fossile.** (1) Les
+> blocs de queue → **`TailPolicy::KeepExact`**, décision prise et documentée
+> quelques paragraphes plus haut (« Décisions prises ») ; les colonnes non
+> alignées sur 24 restent en pleine précision, et elles pèsent dans la
+> comptabilité **b/poids noyau** (queue f32 + échelles de ligne f32, cf. la
+> formule de `rtbits`). (2) L'origine de `H` → **passe avant en Rust**, donc
+> `candle` assumé comme dépendance de `llvq-llm` : c'est `bin/oracle` qui la
+> verrouille (`max |Δhidden| = 0` contre `candle_transformers::qwen3`, et
+> `0.000e0` aussi sur CUDA). Le texte ci-dessous est conservé pour la
+> généalogie de l'arbitrage — pas comme une question ouverte.
+
 1. **Blocs de queue.** Un bloc fait 24 canaux d'entrée, mais les couches
    réelles ne sont pas des multiples de 24 (Qwen3-4B : 2560 = 24·106 + 16).
    Le papier dit seulement « le dernier peut être plus court » et ne dit
@@ -1458,6 +2091,21 @@ qui découple la validation de la rétroaction d'erreur de celle du codebook.
    l'argument « build reproductible ».
 
 Étapes restantes :
+
+> ✅ **Aucune n'est restante : les cinq sont faites, et cette liste est datée
+> du 2026-07-28.** (1) Chargeur `safetensors` → `llvq-llm/src/loader.rs`.
+> (2) Hessiennes `H = AᵀA/N` → capturées par la passe avant maison, calibration
+> **C4 131 k tokens** pour tous les modèles publiés (pas les 6 100 séquences
+> DCLM-edu du papier — ~100× moins, réserve rappelée partout où un chiffre est
+> comparé au leur). (3) Algorithmes 1 et 3 → `llvq-quant`, 8 mutants tués,
+> `faer` derrière `fast-linalg`. (4) Progression petit → gros → 0.6B, 4B, 8B,
+> 14B, et le 32B dé-risqué sur 4 blocs. (5) Évaluation → ppl wikitext-2 ctx
+> 4096 et MMLU micro, sur carte, avec empreinte de tokens des deux côtés.
+> ⚠️ **Un seul élément de la liste n'a jamais été fait** : le **benchmark
+> métier d'extraction documentaire** du point 5. Il n'a pas de verdict, pas de
+> date, et personne ne l'a rouvert — c'est une décision qui revient à
+> l'opérateur, pas une étape en cours. La liste est conservée telle quelle
+> pour la généalogie.
 
 1. Chargeur `safetensors` (première dépendance externe assumée).
 2. Hessiennes par couche `H = AᵀA/N` sur corpus de calibration. Le papier
@@ -1539,7 +2187,7 @@ auteurs déclarent que l'optimisation bas niveau est « largement orthogonale »
    groupe, et il est atteint dès qu'un groupe porte un bloc à 4 niveaux —
    **4 708 799 groupes sur 4 708 800** en portent un. Un compte, pas une
    probabilité.
-3. **Le conflit de bancs prédit en §3.2 de `docs/portage-noyau-cuda.md`
+3. **Le conflit de bancs prédit en §3.2 de `docs/archive/portage-noyau-cuda.md`
    n'existe pas ici.** Le pas de 28 flottants ne gagne rien (10,081 contre
    10,126, soit 0,4 % *plus lent*, et sa plage de rapport [2,06–2,17] recouvre
    par le haut celle du dense [2,12–2,19] : rien ne le distingue). Ce qui paie
@@ -1679,9 +2327,14 @@ casse la compatibilité des fichiers quantifiés (§4).
   mathématique doit rester auditable (contexte souveraineté).
 - **`unsafe` est autorisé aux frontières matérielles, interdit partout
   ailleurs.** Concrètement : mmap, lancement de noyau, lecture d'un buffer
-  device — c'est-à-dire `llvq-metal`, `llvq-cuda`, `llvq-llm`. Les quatre
+  device — c'est-à-dire `llvq-metal`, `llvq-cuda`, `llvq-llm`. Les **cinq**
   crates du cœur portent `#![forbid(unsafe_code)]` et doivent le garder
-  (cf. §2 pour le compte exact, crate par crate).
+  (cf. §2 pour le compte exact, crate par crate). 🕳️ Cette ligne disait
+  « quatre » : `llvq-artifact` a reçu l'attribut le **2026-08-08** et n'avait
+  pas été recompté ici, alors que le §2 et le tiret `#![forbid]`/tests trois
+  lignes plus bas disent tous deux cinq. Vérifié par `grep` le 2026-08-16 :
+  `llvq-core:20`, `llvq-search:38`, `llvq-quant:37`, `llvq-artifact:42`,
+  `llvq-bench:26` — cinq `lib.rs`, cinq attributs.
 - Zéro warning clippy.
 - **Deux paliers d'`ignore`, à ne pas confondre.** `#[cfg_attr(debug_assertions,
   ignore = "...")]` — rapide en debug, exhaustif en release — pour les tests
@@ -1708,6 +2361,60 @@ casse la compatibilité des fichiers quantifiés (§4).
   le cœur interdit `unsafe` sans cette réserve** : le papier en fait un
   argument d'auditabilité.
 - Commentaires et docs en anglais dans le code, échanges en français.
+- 🧭 **Toute sortie déclarée perdue mérite un `hf buckets ls` AVANT qu'on
+  chiffre un re-run** (posé le 2026-08-17, payé par une campagne budgétée
+  contre rien). Une sortie de job a **deux** domiciles possibles : la machine,
+  et le **bucket monté** — ce dernier existant précisément pour que les sorties
+  survivent au conteneur (`ops/run.py --bucket` : « sans `--bucket`, rien de ce
+  que le job écrit ne survit au conteneur »). Une recherche « sur la machine »
+  ne voit pas le bucket, **par construction**. C'est exactement ce qui s'est
+  passé : la vérification du 2026-08-16 était **exacte** et a conclu « les
+  dumps MMLU du 14B sont perdus, les recalculer exige de refaire la campagne » ;
+  ils dormaient dans le bucket depuis le 2026-08-10, et la « correction
+  impossible » a coûté **579 ko de bande passante**. Même prise le même jour sur
+  l'**artefact 14B scellé** (~9 min de bande passante, contre les 27,67 $ et
+  302 min de sa quantification). ⚠️ **La règle n'est pas une garantie** : le 8B
+  scellé a été cherché aux deux endroits et il est **perdu** — le bucket n'en
+  héberge que la version *projections seules*. `hf buckets ls` change ce qu'on
+  sait, pas ce qui existe. ⚠️ Et le bucket (**69 fichiers, 46,7 Go**) n'a
+  **jamais été inventorié** depuis sa création le 2026-08-02.
+- 🚨 **ÉLARGIE LE 2026-08-17 (soir), et ce n'est plus un incident mais un
+  MOTIF : avant de budgéter un re-run, ÉPUISER LES CANAUX DE RÉTENTION —
+  `hf buckets ls`, `hf jobs logs`, `hf jobs inspect`.** La règle ci-dessus
+  nommait **un** domicile de secours ; il y en a au moins **deux**, et la
+  deuxième prise est tombée le lendemain de la première. **Deux fois en deux
+  jours, une sortie déclarée perdue vivait ailleurs, et dans les deux cas une
+  dépense avait été devisée contre cette absence** : les dumps MMLU du 14B dans
+  le **bucket monté** (une campagne à refaire → 579 ko), puis les **NLL par
+  fenêtre du 4B dans les logs du job** (`hf jobs logs 6a746d8f6b79c09949c23fb4`,
+  devisé à ~0,25 $ de rejeu carte → 0 $ et deux secondes). La cause est la même
+  aux deux coups : la conclusion « perdu » venait d'avoir cherché **au mauvais
+  endroit**, jamais d'un canal interrogé et vide. `hf jobs inspect` complète le
+  jeu — il rend la **ligne de commande exacte** d'un job passé, donc l'argument
+  qu'on croit devoir redécouvrir en relançant. **Chiffrer un rejeu avant d'avoir
+  regardé aux trois endroits, c'est budgéter son ignorance.**
+  ⚠️ **Et la rétention des logs HF n'est NI documentée NI garantie** : elle
+  couvre aujourd'hui les 62 jobs du projet depuis le 2026-08-02 (vérifié sur le
+  plus ancien), elle peut cesser demain — d'où le commit du brut, cf. le point
+  suivant.
+- 🔎 **Un journal de SYNTHÈSE est une perte irréversible ; garder la sortie
+  brute.** Les campagnes 8B et 14B ont conservé leurs **NLL par fenêtre**, donc
+  leurs neuf cellules de perplexité ont reçu un intervalle apparié le
+  2026-08-17 — pour 0 $, sans rejouer un token. `bin/ppl` imprime les NLL à
+  9 décimales **sur stderr** exprès. Le coût de la sortie brute est **quelques
+  kilo-octets**.
+  🚨 **Ce point disait « la campagne 4B a conservé un tableau de ppl agrégées :
+  ses trois cellules ne sont pas barrables, et aucune des trois paires n'est
+  formable — ce n'est pas une des trois qui manque, ce sont les trois ».
+  DÉMENTI le soir même** : les NLL du 4B vivaient dans les logs du job, elles
+  sont commitées
+  ([`docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt`](docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt),
+  sha256 `07bf4119…`), et **les trois cellules du 4B ont leur barre**.
+  **Ce que le point garde, et qui est renforcé** : le raisonnement était juste,
+  seule sa prémisse était fausse — un journal de synthèse *est* une perte
+  irréversible **dès que le canal de rétention expire**, et c'est précisément
+  parce qu'aucune garantie ne couvre ce canal que le brut est désormais dans le
+  dépôt plutôt que cité par identifiant de job.
 
 **Trois règles de chiffres, chacune payée par une erreur publiée :**
 

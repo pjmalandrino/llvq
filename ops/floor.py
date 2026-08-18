@@ -4,7 +4,7 @@
 # ///
 """Resident-weight floor of every arm, by exact arithmetic on shapes and dtypes.
 
-Of the three memory lines the campaign publishes (`docs/plan-de-test-v2-cuda.md`
+Of the three memory lines the campaign publishes (`docs/archive/plan-de-test-v2-cuda.md`
 §3.3), only one is a property of the **format** rather than of the engine: what
 the weights weigh once resident. It needs no GPU, no job, no download — a
 `config.json` and integer arithmetic are enough. The other two lines (measured
@@ -147,7 +147,7 @@ DTYPE_BITS = {"f16": 16, "bf16": 16, "f32": 32}
 
 # --- three more widths, so the arithmetic is not tuned to one model ----------
 #
-# `docs/plan-de-test-v2-cuda.md` §5 (ticket FL) asks for 4B/8B/32B/70B in test,
+# `docs/archive/plan-de-test-v2-cuda.md` §5 (ticket FL) asks for 4B/8B/32B/70B in test,
 # and it is the only way to tell a formula from a coincidence: on Qwen3-4B
 # `d_out·(d_in//g)` and `d_in·(d_out//g)` give the same number, `hidden/heads`
 # happens to be twice `head_dim`, and every tail is non-zero. These three
@@ -212,7 +212,7 @@ REFERENCE_WIDTHS = {
     ),
 }
 
-# The abscissa `docs/plan-de-test-v2-cuda.md` §2.3 pre-registers for the GPTQ
+# The abscissa `docs/archive/plan-de-test-v2-cuda.md` §2.3 pre-registers for the GPTQ
 # w2g128 point. Reproduced — not adopted — by `selftest`: see the module
 # docstring for which denominator it mixes.
 PLAN_GPTQ_W2G128 = 2.148255
@@ -467,7 +467,7 @@ def declared_rate(cfg: dict, c: dict, has_gidx: bool = False) -> dict | None:
     one** (`has_gidx`, read off the header, not guessed from the method name:
     `desc_act=False` does not imply the tensor is absent). Built from the
     repo's declaration so that `verify-shapes` can confront it with the bytes
-    the same repo ships, which is the check `docs/plan-de-test-v2-cuda.md` §3.1
+    the same repo ships, which is the check `docs/archive/plan-de-test-v2-cuda.md` §3.1
     makes obligatory.
 
     Forgetting the `g_idx` term is not a rounding: on Qwen3-4B it is
@@ -655,7 +655,7 @@ def kv_bytes_per_token(cfg: dict, dtype: str = "f16") -> int:
     """`2 · n_layers · n_kv_heads · head_dim · sizeof(dtype)`.
 
     The 2 is K and V, once each — counting it twice is the ~640 Ko/token of
-    `docs/pistes-battre-q4.md`, wrong in every reading. Qwen3-4B lands on
+    `docs/archive/pistes-battre-q4.md`, wrong in every reading. Qwen3-4B lands on
     147 456 o/token; 320 Kio/token is the correct Llama-3.1-70B figure quoted
     outside its model.
     """

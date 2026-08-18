@@ -1,11 +1,16 @@
 # The paper rebuilds from the measurements: figures are generated from
-# docs/data/*.csv, then latexmk compiles. `make` does both.
-.PHONY: all figures pdf clean
+# docs/data/*.csv, the hand-typed tables are checked against the same CSVs,
+# then latexmk compiles. `make` does all three, and `check` is not optional
+# — a table that drifts from its CSV must fail the build, not the review.
+.PHONY: all figures check pdf clean
 
-all: figures pdf
+all: figures check pdf
 
 figures:
 	python3 scripts/make_figures.py
+
+check:
+	python3 scripts/check_tables.py
 
 pdf:
 	latexmk -pdf -interaction=nonstopmode main.tex

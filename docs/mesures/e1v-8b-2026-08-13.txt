@@ -1,0 +1,256 @@
+================================================================================
+T2bis — la dette de provenance : E1v refait sur le Qwen3-8B scellé
+2026-08-13
+================================================================================
+
+CE QUI JUGE CE RUN
+  proofs/preregistration-2026-08-13.md, §3 T2bis — écrit AVANT toute mesure :
+    « Le 41,50 est un chiffre 4B. Le 8B scellé (~/q8b-c12.llvq) est sur la
+      machine : refaire T2 dessus. KILL si l'écart 4B→8B sur e1v-séparé dépasse
+      +2 bits/bloc — la distribution ne serait pas transportable et toute
+      projection 70B tomberait, y compris celles déjà publiées. »
+  Le critère de kill est un écart EN BITS/BLOC. Il ne demande aucun b/poids.
+
+RÉÉMISSION DU 2026-08-13 — CE QUI A CHANGÉ, ET CE QUI N'A PAS BOUGÉ
+  Voir l'entête du journal 4B pour le détail. En deux lignes : le binaire prenait
+  son VERDICT sur `shift_only` seul et imprimait « E3 ouvert au sens de la spec »
+  sur un point de profondeur 96, alors que le spec exige la CONJONCTION
+  ≤ 2,6 b/poids ET profondeur ≤ 24 ; et il imprimait des ✅ dans la bande
+  ]S_spec ; S_alt] que le §2 interdit de publier comme « ça passe ».
+  CE QUI A CHANGÉ : le verdict, les marqueurs de la colonne S_alt (trois ⊘ sur
+    ce fichier), une table à 3 décimales ajoutée, une étiquette renommée.
+  CE QUI N'A PAS BOUGÉ : les 87 valeurs numériques des tables, vérifiées une à
+    une contre la première émission — aucune ne diffère d'un chiffre.
+  ET UNE AMÉLIORATION DE PROVENANCE QUI COMPTE ICI : la table de comparaison
+    4B↔8B ci-dessous était RECONSTRUITE en inversant la comptabilité de chaque
+    fichier à partir de ses colonnes b/poids. Elle est maintenant LUE dans la
+    sortie des deux commandes, qui imprime les bits/bloc à 3 décimales. Deux de
+    ses valeurs bougeaient au troisième chiffre pour cette raison ; elles sont
+    désormais exactes.
+
+QUAND / OÙ / QUOI
+  date (UTC)      2026-08-13T13:16:22Z
+  machine         Apple M3 Max, 16 cœurs, 64 Gio, macOS 26.5.2
+  rustc           1.95.0 (59807616e 2026-04-14)
+  commit          f8840b309bee5f8157f3e65b687534a58c08aeb1
+                  (+ llvq-bench/src/bin/radixstudy.rs modifié, non commité)
+  commande        ./target/release/radixstudy ~/q8b-c12.llvq
+  durée           8,26 s réelles (mesuré) — 77 103 104 octets de RSS crête
+                  Sortie reproduite AU CARACTÈRE sur deux invocations.
+  artefact        /Users/pjmalandrino/q8b-c12.llvq
+                  1 822 874 562 octets
+                  sha256 56b6b6e7a361af54eae3672fec4f56c665563ace5bb056dc2bb070e43cd831be
+                  NON modifié par ce run (lecture seule)
+
+LE FICHIER EST-IL LISIBLE ? OUI — mais pas avec la version annoncée
+  CLAUDE.md le décrit comme « format v1, projections seules ». read_header
+  l'ACCEPTE, et il porte la magie LVQ3, pas LVQ1. Il est is_self_contained()
+  (version ≥ 2) mais ses 8 octets de queue sont deux u32 nuls : 0 tenseur brut,
+  0 blob — donc projections seules EN CONTENU malgré une magie v3.
+  radixstudy ne lit que la section matrices : le fichier passe sans contournement.
+  (Le 4B publié, lui, porte la magie LVQ1 — pas LVQ2 comme l'annonce CLAUDE.md §4.)
+  T2bis A DONC PU ÊTRE EXÉCUTÉ. Aucune comptabilité n'a été changée en silence.
+
+LA COMPTABILITÉ NOYAU EST CELLE DU 8B, LUE DANS LE FICHIER — option (b), justifiée
+  Le brief prévenait que les constantes du module qwen3_4b (WEIGHTS, BLOCKS,
+  TAIL_WEIGHTS, ROWS) sont FAUSSES pour le 8B. Elles n'ont pas été réutilisées et
+  aucune constante n'a été inventée : les formes sont DÉRIVÉES des dimensions de
+  matrice du fichier lui-même (Shapes::push, d_out × d_in matrice par matrice).
+  Contrôle indépendant : la somme obtenue est 6 945 767 424 poids, soit
+  EXACTEMENT le compte que CLAUDE.md attribue au run 8B (« verify_artifact
+  repasse : 6 945 767 424 poids identiques bit pour bit »). Deux chemins
+  indépendants, un seul nombre.
+    4B : 3 633 315 840 poids · 16 957 440 de queue · 1 105 920 lignes · 150 681 600 blocs
+    8B : 6 945 767 424 poids · 20 054 016 de queue · 1 400 832 lignes · 288 571 392 blocs
+  ⚠️ CE SONT DEUX COMPTABILITÉS. 112 bits/bloc valent 4,8040 b/poids sur le 4B et
+     4,7520 sur le 8B. AUCUNE colonne b/poids de ce journal ne se compare à une
+     colonne b/poids du journal 4B. Les seuils eux-mêmes se déplacent :
+     S_spec = 2,60 b/poids ⇔ 60,20 bits/bloc ici, contre 58,86 sur le 4B.
+     Le kill de T2bis étant un écart en BITS/BLOC, il est immunisé contre ça —
+     c'est précisément pourquoi le pré-enregistrement l'a écrit dans cette unité.
+
+PROVENANCE DE CHAQUE NOMBRE
+  MESURÉ   : histogramme des classes, ordre des blocs, nombre de groupes, formes.
+  CALCULÉ  : toutes les largeurs, donc toutes les colonnes bits/bloc et b/poids.
+  ESTIMÉ   : rien.
+  ⚠️ Tout chiffre des sections de décision est une SORTIE de commande, à la
+     décimale près. Plus aucune inversion de comptabilité faite à la main.
+
+================================================================================
+SORTIE BRUTE, NON RETOUCHÉE
+================================================================================
+
+source : /Users/pjmalandrino/q8b-c12.llvq — 252 matrices, blocs réels
+288571392 blocs, 383 classes
+9017856 groupes de 32 en ordre-fichier, dont 0 partiels (fermés en fin de matrice)
+216/252 matrices ont blocs/ligne non multiple de 32 : un groupe y enjambe deux lignes
+comptabilité noyau LUE DANS LE FICHIER : 6945767424 poids, 20054016 de queue, 1400832 lignes, 288571392 blocs
+⚠️ CE N'EST PAS la comptabilité du 4B : 112 b/bloc valent 4.7520 ici contre 4.8040
+sur le 4B publié. Aucune ligne de ce run ne se compare à un chiffre 4B.
+
+  géométrie du groupe (vérifiée, pas supposée) : 32 blocs CONSÉCUTIFS de m.indices,
+  row-major d_out × (d_in/24) — e1c.rs:204, runtime.rs:491, format.rs:199. Un groupe ne
+  franchit JAMAIS une matrice ; il franchit les lignes dès que (d_in/24) mod 32 ≠ 0.
+
+  bits par bloc — les 4 combinaisons (ordre de balayage × adressage)
+  --------------------------------------------------------------------------------------------------
+  variante                    moy  pire   CM/max  CM/scan   FO/max  FO/scan  shift  prof.
+  archive (le fichier)      48.00    48    49.00    49.00    49.00    49.00    NON  sér.
+  radix2                    51.87    55    56.61    52.87    57.00    53.33    NON  sér.
+  radix2 + golay 12 b       52.24    56    56.69    53.24    57.00    53.77    NON  sér.
+  golay_tight               66.17    94    69.57    67.17    77.20    67.66    oui  24
+  golay70 (mesuré, écarté)  70.00    70    73.00    71.00    73.00    71.00    oui  24
+  perslot (PAS Planes14)    67.43   101    73.47    68.43    96.18    68.91    oui  24
+  e1v-packé                 51.50    54    56.55    52.50    57.00    52.98    NON  96
+  e1v-séparé                51.87    55    56.61    52.87    57.00    53.33    oui  96
+  golay_signs               72.93   100    77.06    73.93    95.77    74.41    oui  24
+  --------------------------------------------------------------------------------------------------
+  CM = classe-majeur — CONTRÔLE de non-régression, optimiste par construction :
+  un groupe y est presque toujours d'une seule classe. Interdit de citation (pré-enr. §1).
+  FO = ordre du fichier — ce qu'un noyau lit. max = stride uniforme au plus large du
+  groupe ; scan = largeurs exactes, offsets par somme préfixe de warp.
+
+  les MÊMES bits/bloc à 3 décimales — la table ci-dessus arrondit à 2, et un
+  chiffre à 3 décimales ne s'en déduit pas. Δ = le coût de l'ordre réel.
+  --------------------------------------------------------------------------------------------------
+  variante                    CM/max   CM/scan    FO/max   FO/scan   Δ FO−CM max
+  archive (le fichier)        49.000    49.000    49.000    49.000        +0.000
+  radix2                      56.606    52.870    57.000    53.333        +0.394
+  radix2 + golay 12 b         56.690    53.245    57.000    53.771        +0.310
+  golay_tight                 69.570    67.171    77.196    67.656        +7.626
+  golay70 (mesuré, écarté)    73.000    71.000    73.000    71.000        +0.000
+  perslot (PAS Planes14)      73.466    68.427    96.177    68.911       +22.712
+  e1v-packé                   56.554    52.500    57.000    52.976        +0.446
+  e1v-séparé                  56.606    52.870    57.000    53.333        +0.394
+  golay_signs                 77.060    73.926    95.775    74.409       +18.715
+  --------------------------------------------------------------------------------------------------
+
+  b/poids NOYAU — mêmes 4 combinaisons, et les deux seuils du pré-enregistrement
+  S_spec = 2.60 b/poids ⇔ 60.20 bits/bloc (pré-enr. : 58.86)   ·   S_alt = 3.09 ⇔ 72.00 (pré-enr. : 70.66)
+  --------------------------------------------------------------------------------------------------
+  variante                   CM/max  CM/scan   FO/max  FO/scan   FO vs S_spec  FO vs S_alt
+  archive (le fichier)       2.1346   2.1346   2.1346   2.1346   ✅ max  ✅ scan ✅ max  ✅ scan
+  radix2                     2.4506   2.2954   2.4670   2.3146   ✅ max  ✅ scan ✅ max  ✅ scan
+  radix2 + golay 12 b        2.4541   2.3110   2.4670   2.3328   ✅ max  ✅ scan ✅ max  ✅ scan
+  golay_tight                2.9892   2.8896   3.3061   2.9097   ❌ max  ❌ scan ❌ max  ⊘ scan
+  golay70 (mesuré, écarté)   3.1317   3.0486   3.1317   3.0486   ❌ max  ❌ scan ❌ max  ⊘ scan
+  perslot (PAS Planes14)     3.1511   2.9417   4.0947   2.9619   ❌ max  ❌ scan ❌ max  ⊘ scan
+  e1v-packé                  2.4485   2.2800   2.4670   2.2998   ✅ max  ✅ scan ✅ max  ✅ scan
+  e1v-séparé                 2.4506   2.2954   2.4670   2.3146   ✅ max  ✅ scan ✅ max  ✅ scan
+  golay_signs                3.3004   3.1702   4.0779   3.1903   ❌ max  ❌ scan ❌ max  ❌ scan
+  --------------------------------------------------------------------------------------------------
+  archive (le fichier)      ~509 ops sérielles, 8,27 ns/bloc mesuré — 75× un layout à masques
+  radix2                    champs extraits par shift, rangs de multiensemble encore sériels
+  radix2 + golay 12 b       idem, champ de codeword uniforme (offset indépendant de la classe)
+  golay_tight               plans A et signes réduits à ce que la classe exige — largeur variable
+  golay70 (mesuré, écarté)  3,589 b/poids et 1,31× vs FP16, sous le critère de 1,6×
+  perslot (PAS Planes14)    GÉOMÉTRIE des plans, PAS le layout servi : Planes14 est le 112 b/bloc plat (4,804 b/poids) ⚠️ et perslot sous-facture 12 b sur les 157 classes impaires
+  e1v-packé                 un seul champ : extraire les sous-rangs exige des divmod par constantes magiques
+  e1v-séparé                largeur = radix2 au bit près ; marche binomiale à compte fixe, 48-96 pas — ⚠️ RÉOUVERTURE de la clause ≤ 24 du spec, pas une variante qui la respecte
+  golay_signs               plans perslot + signes au tarif de la classe : message Golay 12 b (impair), 2^(w−1)·2^free_n (pair)
+
+  LÉGENDE DES MARQUEURS — et le ⊘ est la moitié qui compte :
+  ✅ = sous S_spec (2.60), le seul seuil du projet. C'est le seul marqueur
+  qui veuille dire « ça passe », et il ne s'imprime que là.
+  ⊘ = sous S_alt SEULEMENT, donc dans la bande ]2.60 ; 3.09]. NE SE CITE
+  JAMAIS SEUL : S_alt n'est pas le seuil du projet, il n'existe qu'à contexte 8k figé
+  et ne deviendrait opposable que si la note produit du pré-enregistrement §5 retenait
+  le triplet (32 Go ; 2 Go ; KV q8 ; 8k). CETTE NOTE N'EXISTE PAS. Un ⊘ se publie
+  « ça passerait si et seulement si ce triplet était retenu », jamais « ça passe ».
+  ❌ = au-dessus des deux.
+
+  où passent les 47 bits de l'archive
+  --------------------------------------------------------------------------------------------------
+  point DANS sa classe, moyenne de ⌈log₂ |classe|⌉ : 41.50 bits
+  choix de la classe : 47 − 41.50 ≈ 5.50 bits, que toute variante à champ
+  de classe explicite repaie en 10 bits d'en-tête
+  e1v-packé paie donc 41.50 + 10 bits par bloc, hors adressage
+
+  ce que le champ de signes de golay_signs coûte
+  --------------------------------------------------------------------------------------------------
+  moyenne du champ : 14.13 bits contre les 24 du masque plat que les layouts
+  servis dépensent, soit 9.87 bits/bloc d'espérance gagnée (prédiction du pré-enr. §3 T3 : −9,85).
+  ⚠️ Espérance ≠ ce qu'un flux paie : les colonnes max ci-dessus facturent le plus large
+  du groupe, et c'est là que se juge T3.
+
+  VERDICT X4
+  --------------------------------------------------------------------------------------------------
+  ❌ AUCUNE décomposition ADMISSIBLE — shift-only ET profondeur fixe ≤ 24 étapes,
+     la CONJONCTION que le spec exige — ne passe sous 2.6 b/poids noyau EN ORDRE-FICHIER,
+     ni en grp32-max ni en warp-scan.
+  Le meilleur point ADMISSIBLE vaut 2.9097 b/poids, soit 12 % au-dessus du seuil.
+  Le critère d'ouverture du chantier E3 n'est PAS atteint : E3 s'enterre sur papier,
+  pour 0 $, comme E2 s'est enterré au banc. La marche suivante de l'échelle mémoire
+  reste E1c (X1/X2), et le plancher pratique du projet est le layout mesuré.
+
+  ⚠️ SOUS LE CRITÈRE DE BITS, MAIS HORS DE LA CLAUSE DE PROFONDEUR ≤ 24 :
+     e1v-séparé              max   2.4670 b/poids noyau   (profondeur 96)
+     e1v-séparé              scan  2.3146 b/poids noyau   (profondeur 96)
+  Ces points ne sont PAS admis : le critère d'ouverture d'E3
+  (spec-memoire-extreme-2026-08-12.md:186-187) est une CONJONCTION — ≤ 2.6 b/poids
+  ET un décodeur à profondeur fixe ≤ 24 étapes sans état sériel inter-slot.
+  Ils constituent une RÉOUVERTURE DE LA CLAUSE DE PROFONDEUR, qui est une décision de
+  passation et non un résultat de ce banc. Les publier comme une admission serait la
+  sur-revendication que ce bloc existe pour empêcher.
+
+================================================================================
+T2bis — APPLICATION DE LA RÈGLE DE KILL
+================================================================================
+
+Les bits/bloc ci-dessous sont LUS dans la table « les MÊMES bits/bloc à
+3 décimales » des deux runs — c'est-à-dire imprimés par le binaire, pas
+reconstruits en inversant une colonne b/poids. Les deux comptabilités noyau
+étant différentes, une telle inversion aurait été le seul moyen de se tromper
+sans que rien ne le montre ; elle n'est plus nécessaire.
+
+  (colonnes 4B et 8B : LUES dans la sortie de chaque run ; colonne écart :
+   DÉRIVÉE, une soustraction des deux)
+  variante / adressage        4B bits/bloc   8B bits/bloc   écart 8B−4B
+  --------------------------------------------------------------------------
+  e1v-séparé   FO/scan  ←FOI       53,332         53,333       +0,001
+  e1v-séparé   FO/max            57,000         57,000        0,000
+  e1v-packé    FO/scan           52,975         52,976       +0,001
+  archive (le fichier)           49,000         49,000        0,000
+  golay_tight  FO/max            77,207         77,196       −0,011
+  golay_tight  FO/scan           67,657         67,656       −0,001
+  golay_signs  FO/max            95,809         95,775       −0,034
+
+RÈGLE : « KILL si l'écart 4B→8B sur e1v-séparé dépasse +2 bits/bloc. »
+APPLICATION : l'écart mesuré est +0,001 bit/bloc.
+  ⇒ PAS DE KILL. Le seuil est manqué d'un facteur ≈ 2 000.
+  ⇒ La distribution de classes est transportable d'un modèle à l'autre, au
+    niveau de résolution que ce test interroge.
+
+Le test de dérive du champ `exact` (⌈log₂|classe|⌉ moyen), la grandeur qui porte
+le verrou E3 lui-même :
+  4B : 41,50 bits          8B : 41,50 bits          écart : 0,00 à 2 décimales
+La moyenne des largeurs brutes ne bouge pas non plus : e1v-séparé rend 51,87
+bits/bloc de moyenne et 55 de pire sur les DEUX fichiers.
+
+LE VERDICT X4 SUR CE FICHIER, ET IL DIT LA MÊME CHOSE QUE SUR LE 4B
+  Aucune décomposition ADMISSIBLE — shift-only ET profondeur ≤ 24, la CONJONCTION
+  du spec — ne passe sous 2,60 b/poids en ordre-fichier. Le meilleur point
+  admissible est golay_tight FO/scan à 2,9097 b/poids (comptabilité 8B), 12 %
+  au-dessus du seuil, et lui-même dans la bande ]S_spec ; S_alt] où un résultat
+  ne se publie jamais comme « ça passe ».
+  e1v-séparé passe le critère de BITS (2,3146 en warp-scan, comptabilité 8B) à
+  profondeur 96 : c'est une RÉOUVERTURE DE LA CLAUSE DE PROFONDEUR, catégorie
+  distincte, pas une admission au titre du critère E3.
+  ⚠️ Ce fichier porte TROIS ⊘ là où la première émission imprimait trois ✅ :
+     golay_tight FO/scan (2,9097), golay70 FO/scan (3,0486) et perslot FO/scan
+     (2,9619). Aucun d'eux ne se cite comme un passage.
+
+CE QUE CE RÉSULTAT NE DIT PAS, ET IL FAUT LE DIRE
+  1. Deux points ne font pas une loi d'échelle — c'est la réserve que le dossier
+     applique déjà à la courbe MMLU 4B→8B, et elle vaut ici à l'identique. Rien
+     dans ce run ne valide une projection 70B ; il retire seulement le motif de
+     kill que le pré-enregistrement avait armé contre elles.
+  2. Les deux modèles sont de la MÊME famille (Qwen3) et sortent du MÊME
+     quantifieur (leech1c12, cap 12). La stabilité observée est celle d'un
+     codebook et d'un encodeur communs, pas une propriété prouvée des poids
+     de LLM en général.
+  3. Aucune vitesse n'est mesurée ici non plus.
+  4. La clause de profondeur n'est pas jugée : l'accorder est une décision de
+     passation, pas un résultat de ce banc.
+
+AUCUN JOB GPU, AUCUN APPEL RÉSEAU, AUCUNE DÉPENSE. 0 $.

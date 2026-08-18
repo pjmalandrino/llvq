@@ -1,0 +1,32 @@
+source NVRTC : 12351 octets, sha256 b0b50cafef7a34179d50ddb226c08ffe474f3301209aa3c7154c6c2071876b4b
+  sources embarquées (celles du commit)
+
+carte
+  ----------------------------------------------------------------------
+  nom                    NVIDIA L40S
+  compute capability     8.9
+  SM                     142
+  L2                     100663296 octets (100.7 Mo) — LU, jamais supposé
+  mémoire partagée       49152 o/bloc par défaut, 101376 o/bloc après opt-in, 102400 o/SM
+  bande passante fiche   864 Go/s (384 bits à 9001 MHz, DDR)
+  ⚠️ ce dernier chiffre est une plaque signalétique, pas une mesure : l'ECC est
+  active par défaut et en consomme une part. Tout « x % du pic » doit passer par le
+  noyau sol, jamais par lui.
+
+noyaux chargés
+  ----------------------------------------------------------------------
+  noyau               regs   local o  shared o       sm_  thr/bloc
+  decode_probe          26         0         0        89      1024
+  dot_probe             38         0         0        89      1024
+  floor_probe           12         0         0        89      1024
+
+fixture : 20767 blocs — les deux bornes de chacune des 383 classes, 20000 tirages uniformes
+  sur la boule m ≤ 13, plus l'origine. Plus large que le fichier scellé, qui est plafonné à Λ₂₄(12).
+
+vérification
+  ----------------------------------------------------------------------
+  20767 blocs, 498408 slots — classe, gain et niveau EXACTS
+  1 bloc origine, dont le champ de signes n'existe pas
+  produit scalaire : pire erreur 1.15e-7·Σ|w·x|
+
+✓ le décodeur porté décide exactement ce que décide le décodeur Rust.

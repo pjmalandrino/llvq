@@ -20,7 +20,7 @@ The paper rebuilds from the measurements, like everything else in the repo:
 
 - **No number in a figure is typed by hand.** `scripts/make_figures.py`
   reads `docs/data/*.csv` — the same CSVs behind
-  `docs/publication-2026-08-07.md` — and every cell there traces to a
+  `docs/archive/publication-2026-08-07.md` — and every cell there traces to a
   dated, costed GPU job (`docs/data/jobs.csv`).
 - **Every claim in the text carries its provenance** either inline
   (`docs/mesures/...` paths in table captions) or through the publication

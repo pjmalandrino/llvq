@@ -1,0 +1,106 @@
+# Histogramme de routage MoE — étape 5 du runbook lot X, 2026-08-12, M3 Max
+# openai/gpt-oss-20b (MXFP4 déquantifié bf16), C4 en, MPS
+# ⚠️ fenêtres de 1024 et non 2048 : le 2048 sature la mémoire MPS sur cette machine
+
+openai/gpt-oss-20b — 32 experts, 4 routés, hidden 2880, moe_inter 2880
+corpus allenai/c4, 131072 tokens, fenêtres de 1024, device mps
+
+tokenisation du corpus…
+  128 fenêtres × 1024 = 131072 tokens
+
+chargement du modèle (MXFP4 déquantifié en bf16 hors Hopper — c'est lent)…
+[transformers] Using MXFP4 quantized models requires model on cuda/xpu/cpu, but found mps, we will default to dequantizing the model to bf16. To use mxfp4, please disable the current accelerator.
+  chargé en 14 s
+
+24 couches MoE accrochées
+
+  fenêtre 8/128 — 27 s (3.4 s/fenêtre)
+  fenêtre 16/128 — 48 s (3.0 s/fenêtre)
+  fenêtre 24/128 — 67 s (2.8 s/fenêtre)
+  fenêtre 32/128 — 85 s (2.7 s/fenêtre)
+  fenêtre 40/128 — 104 s (2.6 s/fenêtre)
+  fenêtre 48/128 — 122 s (2.5 s/fenêtre)
+  fenêtre 56/128 — 141 s (2.5 s/fenêtre)
+  fenêtre 64/128 — 159 s (2.5 s/fenêtre)
+  fenêtre 72/128 — 177 s (2.5 s/fenêtre)
+  fenêtre 80/128 — 197 s (2.5 s/fenêtre)
+  fenêtre 88/128 — 217 s (2.5 s/fenêtre)
+  fenêtre 96/128 — 238 s (2.5 s/fenêtre)
+  fenêtre 104/128 — 263 s (2.5 s/fenêtre)
+  fenêtre 112/128 — 298 s (2.7 s/fenêtre)
+  fenêtre 120/128 — 370 s (3.1 s/fenêtre)
+  fenêtre 128/128 — 438 s (3.4 s/fenêtre)
+
+131072 tokens routés par couche, 24 couches
+
+  charge par expert, en multiple de la charge uniforme
+  ------------------------------------------------------------------------------------
+   couche       min       p10   médiane       p90       max    Gini
+  ------------------------------------------------------------------------------------
+        0     0.206     0.457     0.766     1.867     3.376   0.351
+        1     0.035     0.234     0.680     2.227     2.670   0.426
+        2     0.008     0.066     0.621     3.172     3.842   0.563
+        3     0.004     0.080     0.505     2.979     5.445   0.579
+        4     0.008     0.036     0.449     2.297     5.207   0.604
+        5     0.004     0.060     0.654     1.853     5.950   0.571
+        6     0.014     0.074     0.824     2.042     2.485   0.448
+        7     0.009     0.057     0.801     2.017     5.086   0.474
+        8     0.002     0.012     0.695     2.310     5.212   0.556
+        9     0.001     0.006     0.394     2.676     5.670   0.646
+       10     0.004     0.011     0.242     3.068     5.578   0.672
+       11     0.000     0.009     0.247     3.902     5.656   0.708
+       12     0.002     0.011     0.368     3.143     5.265   0.673
+       13     0.003     0.010     0.458     3.446     5.372   0.674
+       14     0.003     0.014     0.405     2.845     7.169   0.635
+       15     0.000     0.049     0.551     2.153     5.013   0.588
+       16     0.000     0.012     0.632     2.107     6.360   0.631
+       17     0.000     0.009     0.175     2.752     5.879   0.703
+       18     0.004     0.032     0.540     3.170     5.144   0.591
+       19     0.001     0.016     0.544     3.228     4.099   0.624
+       20     0.005     0.013     0.215     2.847     6.182   0.696
+       21     0.004     0.011     0.266     2.647     6.254   0.710
+       22     0.001     0.016     0.305     3.254     6.903   0.699
+       23     0.006     0.013     0.178     4.461     6.010   0.748
+  ------------------------------------------------------------------------------------
+   TOUTES     0.472     0.723     0.872     1.381     2.011   0.169
+
+  VERDICT — l'expert le moins servi
+  ------------------------------------------------------------------------------------
+  fraction des routages : 0.00000 contre 0.03125 en uniforme (×0.000)
+  à 131072 tokens de calibration, il voit ~0 tokens
+  hessienne de dimension   2880 : SINGULIÈRE — il faudrait 2 880 000 000 000 000 tokens pour l'atteindre
+
+  ⚠️ « OK » veut dire « assez d'échantillons pour un rang plein »,
+     pas « hessienne bien conditionnée » : le compte est un majorant.
+
+  détail par couche : docs/data/moe-routing-gptoss20b-2026-08-12.json
+
+# ---------------------------------------------------------------------------
+# VERDICT RECALCULÉ depuis le JSON (le premier était un artefact : diviser par
+# une cellule morte donnait « 2,88e15 tokens », ce qui n'apprend rien).
+#   uv run ops/moe_routing.py --from-json docs/data/moe-routing-gptoss20b-2026-08-12.json
+# ---------------------------------------------------------------------------
+
+openai/gpt-oss-20b — 32 experts, 4 routés, 131072 tokens (relu de docs/data/moe-routing-gptoss20b-2026-08-12.json)
+
+  VERDICT — combien de tokens pour une hessienne de rang plein
+  ------------------------------------------------------------------------------------
+  cellules (couche, expert) : 768   dont MORTES (zéro routage) : 1
+    → L15/e20 — aucun volume de calibration ne les sauve : ce n'est
+      pas un problème de volume mais un expert que le routeur n'élit jamais
+
+  hessienne de dimension 2880 — il faut 2880 routages par cellule
+    à 131072 tokens : 241 cellules sous le rang plein (31.4 %)
+    couvrir  99 % des cellules :   21 769 744 tokens (×166)
+    couvrir  95 % des cellules :    3 411 545 tokens (×26)
+    couvrir  90 % des cellules :    1 572 209 tokens (×12)
+    couvrir  75 % des cellules :      212 999 tokens (×1.63)
+    couvrir  50 % des cellules :       47 690 tokens (×0.36)
+
+  ⚠️ « rang plein possible » n'est PAS « hessienne bien conditionnée » :
+     le compte est un majorant d'espoir, exactement comme les comptes de
+     bits du lot X ne prédisent aucune vitesse. Des tokens colinéaires
+     rendent une hessienne singulière quel qu'en soit le nombre.
+  ⚠️ Ce modèle active 4/32 experts (12.5 %). Les cibles
+     réelles sont PLUS creuses (Qwen3-30B-A3B : 8/128 = 6,3 % ; K2.6 : 8/384
+     = 2,1 %), donc leur déséquilibre sera pire, pas meilleur.

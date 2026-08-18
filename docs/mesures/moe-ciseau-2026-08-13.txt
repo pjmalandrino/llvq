@@ -1,0 +1,279 @@
+# Le ciseau MoE chaud/froid — T4 du pré-enregistrement du 2026-08-13
+# date        : 2026-08-13
+# commande    : uv run ops/moe_ciseau.py
+# source      : docs/data/moe-routing-gptoss20b-2026-08-12.json (mesuré — 131 072 tokens de C4, M3 Max, 2026-08-12)
+# juge        : proofs/preregistration-2026-08-13.md §3-T4 — seuil mélange > 3,20 b/poids ⇒ variante VRAM enterrée
+# script      : ops/moe_ciseau.py (stdlib seule, 0 $, aucun GPU, aucun réseau)
+#
+# Étiquettes : mesuré = sort d'un fichier scellé ou d'un banc ; calculé = arithmétique
+# exacte sur des mesurés ; estimé = repose sur une hypothèse externe, nommée sur place.
+
+
+0. CONTRÔLE DE PARSING — les Gini publiés doivent retomber
+------------------------------------------------------------------------------
+   Si cette section ne reproduit pas moe-routing-gptoss20b-2026-08-12.txt,
+   rien de ce qui suit n'est lisible.
+   somme par couche      : 524288 = 131072 × 4   OK   (mesuré)
+   Gini couche 0         : 0,351   attendu 0,351   OK
+   Gini couche 23        : 0,748   attendu 0,748   OK
+   Gini agrégé (TOUTES)  : 0,169   attendu 0,169   OK
+   ✅ les trois Gini publiés retombent au millième : le parsing est bon.
+
+
+1. GÉOMÉTRIE DES CELLULES — et le contrôle qui la valide
+------------------------------------------------------------------------------
+   dump          : openai/gpt-oss-20b — 24 couches × 32 experts = 768 cellules,
+                   top-4, hidden 2880, moe_inter 2880   (mesuré)
+   cellule       : 3 × 2880 × 2880 = 24 883 200 poids (gate+up+down)   (calculé)
+   experts 20B   : 24×32×cellule = 19,11 Md ; +hors-experts ⇒ 21 Md de fiche
+   actifs 20B    : 4×24×cellule = 2,39 Md ; +hors-experts ⇒ 3,6 Md de fiche
+   ✅ contrôle : la fiche de l'étude donne 21 Md totaux / 3,6 Md actifs (etude-moe:22).
+      Le modèle à 3 matrices laisse 1,89 Md hors experts et 1,21 Md hors
+      experts actifs — soit exactement l'attention + l'embedding. La géométrie tient.
+   120B          : 117 Md totaux / 5,1 Md actifs, 128 experts top-4   (fiche + pré-enregistrement:169)
+                   ⇒ 36 couches   (CALCULÉ en chargeant le hors-experts
+                   par couche du 20B : 117 / (128×cellule + 79 M))
+      contrôle 1 : 36×128×cellule = 114,7 Md d'experts, reste 2,34 Md hors experts
+                   (contre 1,89 Md à 24 couches — ×1,24 pour ×1,50 de couches) ✅
+      contrôle 2 : actifs = 4×36×cellule = 3,58 Md, +1,52 Md hors experts
+                   = les 5,1 Md annoncés (contre 1,21 Md hors experts au 20B) ✅
+   ⚠️ hypothèse : hidden et moe_inter du 120B supposés identiques au 20B (2880).
+      Le dump ne le dit pas ; ce sont les deux contrôles ci-dessus qui la soutiennent.
+      *estimé*. Le compte de couches ne sert qu'à deux comparaisons secondaires
+      (temps d'une couche, §4 ; visites par token, §8) : ±1 couche ne change rien.
+
+
+2. DISTRIBUTION DE CHARGE ROUTÉE, PAR CELLULE ET PAR COUCHE   (mesuré)
+------------------------------------------------------------------------------
+   Charge en multiple de l'uniforme ; α_min = plus petite fraction de cellules
+   CHAUDES de la couche telle que la masse froide reste sous le budget, allocation
+   uniforme entre couches (budget/couche = budget/24).
+
+   couche      min   médiane      max    Gini  α_min 0,29  α_min 0,70
+   -----------------------------------------------------------------------
+        0    0,206     0,766    3,376   0,351       1,000       0,969
+        1    0,035     0,680    2,670   0,426       0,938       0,938
+        2    0,008     0,621    3,842   0,563       0,906       0,875
+        3    0,004     0,505    5,445   0,579       0,906       0,875
+        4    0,008     0,449    5,207   0,604       0,875       0,812
+        5    0,004     0,654    5,950   0,571       0,906       0,844
+        6    0,014     0,824    2,485   0,448       0,938       0,875
+        7    0,009     0,801    5,086   0,474       0,906       0,875
+        8    0,002     0,695    5,212   0,556       0,812       0,781
+        9    0,001     0,394    5,670   0,646       0,781       0,719
+       10    0,004     0,242    5,578   0,672       0,781       0,688
+       11    0,000     0,247    5,656   0,708       0,812       0,750
+       12    0,002     0,368    5,265   0,673       0,781       0,719
+       13    0,003     0,458    5,372   0,674       0,719       0,656
+       14    0,003     0,405    7,169   0,635       0,812       0,781
+       15    0,000     0,551    5,013   0,588       0,906       0,844
+       16    0,000     0,632    6,360   0,631       0,750       0,688
+       17    0,000     0,175    5,879   0,703       0,781       0,688
+       18    0,004     0,540    5,144   0,591       0,875       0,844
+       19    0,001     0,544    4,099   0,624       0,844       0,750
+       20    0,005     0,215    6,182   0,696       0,844       0,781
+       21    0,004     0,266    6,254   0,710       0,812       0,719
+       22    0,001     0,305    6,903   0,699       0,844       0,781
+       23    0,006     0,178    6,010   0,748       0,781       0,656
+   -----------------------------------------------------------------------
+   moyenne                               0,607       0,846       0,788
+
+   Gini par couche : 0,351 … 0,748
+   ⚠️ La fourchette « 0,59-0,77 » à recouper est celle des couches PROFONDES : les
+      couches 0-1 et 6 sont bien plus plates (0,351 / 0,426 / 0,448). La plage
+      complète des 24 couches est celle imprimée ci-dessus, et c'est elle qui compte
+      ici, parce que ce sont les couches PLATES qui coûtent cher au ciseau.
+   🔎 Mécanisme, contre-intuitif et central : un Gini ÉLEVÉ est FAVORABLE au ciseau
+      (peu de cellules portent la masse). Le poste de coût, ce sont les couches
+      plates — à 0,29 miss/token la couche 0 (Gini 0,351, la plus plate)
+      exige α = 1,000 : TOUTES ses cellules chaudes. La couche 23 (Gini 0,748),
+      la plus concentrée, n'en exige que 0,781.
+
+
+3. LE CISEAU — α_min (lame « hit ») contre α_VRAM (lame « mémoire »)
+------------------------------------------------------------------------------
+   α_VRAM = (3,20 − 2,219) / (3,589 − 2,219) = 0,7161   (calculé)
+   Au-dessus, le mélange dépasse 3,20 b/poids et le barreau 48 Go se ferme.
+
+     budget  masse froide    α_min   cellules   mélange   VRAM 120B  verdict
+   miss/tok           max   global    chaudes   b/poids          Go
+   --------------------------------------------------------------------------
+      0,137      0,1427 %   0,8659   665/768     3,4053        51,0  ROUGE
+      0,290      0,3021 %   0,8255   634/768     3,3500        50,2  ROUGE
+      0,500      0,5208 %   0,7891   606/768     3,3000        49,5  ROUGE
+      0,700      0,7292 %   0,7656   588/768     3,2679        49,0  ROUGE
+      1,000      1,0417 %   0,7370   566/768     3,2287        48,4  ROUGE
+      2,000      2,0833 %   0,6693   514/768     3,1359        47,1  vert
+      5,000      5,2083 %   0,5534   425/768     2,9771        44,7  vert
+     10,000     10,4167 %   0,4479   344/768     2,8326        42,6  vert
+     25,000     26,0417 %   0,2734   210/768     2,5936        39,1  vert
+   --------------------------------------------------------------------------
+   ⚠️ Les lignes ≥ 2 miss/token ne sont PAS des points de fonctionnement : le §4
+      montre qu'un miss coûte 8,57 ms contre 11,73 ms de temps de token. « vert »
+      y veut dire « la mémoire passerait », pas « le produit existe ».
+   Budget qu'il FAUDRAIT pour atteindre α_VRAM = 0,7161 : 1,26 miss/token   (calculé)
+   soit ×1,8 le budget de la piste et ×4,3 celui de la contre-expertise.
+
+
+4. CE QUE COÛTE VRAIMENT UN MISS — d'où sort un budget défendable
+------------------------------------------------------------------------------
+   temps/token 120B, tout chaud    : 5,1 Md × 3,589/8 = 2,288 Go ÷ 195 Go/s
+                                     = 11,73 ms  (85 tok/s)   *estimé* (plafond de bande
+                                     passante, pas un débit prédit — étude §2)
+   un miss en VARIANTE VRAM        : la cellule froide se décode par le rang v1,
+                                     1 036 800 blocs × 8,27 ns/bloc
+                                     (mesuré, format-noyau.md:120)
+                                     = 8,57 ms, soit 26× le temps d'UNE COUCHE entière   *estimé*
+   ⚠️ Les 195 Go/s sont CUDA/L40S et les 8,27 ns/bloc Metal/M3 Max : le composite
+      est un ordre de grandeur, jamais une précision. Il ne sert qu'à trancher un
+      facteur 30, ce qu'un facteur 2 d'incertitude ne renverse pas.
+
+     budget  coût des miss   % du temps  statut
+   miss/tok       ms/token     de token
+   ------------------------------------------------------------
+      0,137           1,17       10,0 %  +10 % de temps de token
+      0,290           2,49       21,2 %  contre-expertise
+      0,700           6,00       51,2 %  la piste
+      1,257          10,78       91,9 %  ce qu'il faudrait
+   ------------------------------------------------------------
+   ✅ VERDICT SUR LE BUDGET : c'est 0,29 qui est défendable, et il est déjà généreux.
+      À 0,70 miss/token le tier froid mange 51 % du temps de token — un « budget » qui
+      redéfinit la moitié du produit n'est pas un budget. Le seuil à +10 % de temps
+      de token vaut 0,137 miss/token, soit ×5,1 plus strict
+      encore que la contre-expertise. Le facteur 2,4 qu'elle dénonce est un minorant.
+
+   🔎 Recoupement indépendant, et il est dans le pré-enregistrement lui-même.
+      Son seuil de hit LRU (99,8 %) équivaut à 0,192 miss/token, et ce budget
+      rend α_min = 0,849 — c'est-à-dire EXACTEMENT le « α_hit ≈ 0,85 » qu'il
+      prédisait. Les deux chiffres du §3-T4 sont donc une seule affirmation, et elle
+      se situe à 0,19 miss/token : entre mon seuil dérivé (0,137) et celui de
+      la contre-expertise (0,29), très loin des 0,70 de la piste.
+      Trois dérivations indépendantes convergent sous 0,30 ; une seule reste dehors.
+
+
+5. VERDICT CONTRE LE SEUIL PRÉ-ENREGISTRÉ (mélange > 3,20 ⇒ VRAM enterrée)
+==============================================================================
+   budget 0,29 (défendable) : α_min = 0,8255 > α_VRAM = 0,7161  ⇒ mélange 3,350 b/poids, VRAM 50,2 Go
+   budget 0,70 (généreux)   : α_min = 0,7656 > α_VRAM = 0,7161  ⇒ mélange 3,268 b/poids, VRAM 49,0 Go
+
+   ❌ INTERVALLE VIDE AUX DEUX BUDGETS — la variante VRAM est ENTERRÉE.
+      Le mélange dépasse 3,20 même sous l'allocation la PLUS favorable
+      (classement global des 768 cellules, oracle statique, allocation optimale).
+      Et il le dépasse encore au budget le plus généreux du dossier : à 0,70
+      miss/token, 3,268 > 3,20. Aucun choix de budget entre les deux ne sauve
+      la piste — il faudrait 1,26 miss/token, hors de tout budget défendable.
+
+   🔎 Face à la prédiction pré-enregistrée (α_hit ≈ 0,85 ; α_VRAM ≤ 0,72 ; mélange
+      3,4-3,5) : α_VRAM = 0,7161 tombe pile, α_hit = 0,766-0,826 est
+      un peu SOUS 0,85, et le mélange atterrit à 3,27-3,35, sous la fourchette
+      prédite. Le verdict est celui qui était annoncé ; la marge est plus mince que
+      prédit, et c'est la seule chose que ce lot dément.
+
+
+6. LA BRANCHE CACHE LRU — tuée par arithmétique, puis par la mesure
+------------------------------------------------------------------------------
+   Backing résident ⇒ le froid est payé EN ENTIER, plus le cache :
+   2,219 + α×3,589 ≤ 3,20  ⟺  α ≤ 0,2733   (calculé — pré-enregistrement §3-T4)
+   À α = 0,2733 (210 cellules sur 768) :
+     hit d'un cache STATIQUE ORACLE (les 210 plus chargées) : 74,08 %   (mesuré)
+     ⇒ 24,9 miss/token, contre un seuil pré-enregistré de 99,8 %
+       (0,19 miss/token)
+   ❌ Écart : ×130 le budget de miss. La branche LRU est morte de deux façons
+      indépendantes — l'arithmétique du backing, puis la concentration réelle.
+   ⚠️ Et l'oracle statique n'est PAS un LRU : le dump est AGRÉGÉ sur 131 k tokens,
+      il ne porte aucune information temporelle. Un LRU peut battre l'oracle statique
+      s'il existe de la localité temporelle — cette mesure ne peut pas en décider.
+      Mais l'écart à combler est ×130, pas quelques pour cent : aucune localité
+      plausible ne le referme. Trancher exigerait un dump TEMPOREL, qui n'existe pas.
+
+
+7. L'ALTERNATIVE DOMINANTE — tier froid en RAM HÔTE, miss = memcpy PCIe
+==============================================================================
+   Le pré-enregistrement l'exige : « un enterrement qui ne nomme pas ce qui le
+   remplace n'est pas un verdict, c'est un abandon. »
+
+   Taille d'une cellule d'expert (120B, hidden 2880)   (calculé) :
+     format servi   `Golay70` 3,589 b/poids : 11,16 Mo
+     format archive 2,219 b/poids           : 6,90 Mo  (−38 % de trafic)
+
+   Coût d'un miss = un memcpy PCIe de cette cellule   (estimé — aucune mesure PCIe
+   dans ce dépôt) :
+                     lien   servi (ms)   archive (ms)  miss/token à +10 %   plafond recouvert
+   --------------------------------------------------------------------------------------------
+      gen4 x16 (~32 Go/s)        0,349          0,216                 3,4                33,6
+      gen5 x16 (~50 Go/s)        0,223          0,138                 5,3                52,6
+      gen5 x16 (~63 Go/s)        0,177          0,110                 6,6                66,2
+   --------------------------------------------------------------------------------------------
+   « +10 % » = miss sérialisés, ajoutés au temps de token. « plafond recouvert » =
+   miss parfaitement préchargés, bornés seulement par le débit du lien.
+
+   🔎 Un renversement à noter : sur ce chemin, le format ARCHIVE est le plus RAPIDE.
+      Le goulot est le lien, pas l'ALU — 38 % de trafic en moins, c'est 38 % de
+      latence de miss en moins. La thèse mémoire du projet devient une thèse de
+      latence dès que le tier froid traverse un bus.
+
+   Dimensionnement : la VRAM ne porte QUE le tier chaud (le froid vit en RAM hôte).
+   VRAM(α) = 117 Md × α × 3,589/8 + 1,2 Go
+
+        α   cellules   VRAM Go       hit   miss/tok   gen4 ms   gen5 ms  classe de carte
+   ----------------------------------------------------------------------------------------
+    0,200   154/768       11,7   63,91 %       34,6     12,08      6,14  24 Go
+    0,273   210/768       15,5   74,08 %       24,9      8,68      4,41  24 Go
+    0,350   269/768       19,6   82,33 %       17,0      5,92      3,01  24 Go
+    0,500   384/768       27,4   92,52 %        7,2      2,51      1,27  32 Go
+    0,716   550/768       38,8   98,71 %        1,2      0,43      0,22  48 Go
+    0,850   653/768       45,8   99,81 %        0,2      0,06      0,03  48 Go
+    1,000   768/768       53,7  100,00 %        0,0      0,00      0,00  ≥ 64 Go
+   ----------------------------------------------------------------------------------------
+   (les ms sont le trafic PCIe par token, à comparer aux 11,7 ms de calcul ;
+    recouvert, un miss est gratuit tant que cette colonne reste sous le temps de token.
+    Classes de carte à l'ajustement exact, convention du pré-enregistrement — les
+    1,2 Go d'embedding + KV sont DANS la colonne VRAM, il n'y a pas d'autre marge.)
+
+   Points de fonctionnement DÉRIVÉS — le α que chaque lien impose si les miss ne
+   sont PAS recouverts (le cas défavorable : +10 % de temps de token au plus) :
+                     lien  budget miss/tok  α requis   VRAM Go  carte
+   ----------------------------------------------------------------------
+      gen4 x16 (~32 Go/s)              3,4     0,607      33,0  48 Go
+      gen5 x16 (~50 Go/s)              5,3     0,546      29,8  32 Go
+      gen5 x16 (~63 Go/s)              6,6     0,513      28,1  32 Go
+   ----------------------------------------------------------------------
+
+   ✅ OUI, ÇA CHANGE LA CLASSE DE CARTE, et c'est le seul résultat positif du test.
+      • variante VRAM (ce test)     : 49,0 Go — ne tient MÊME PAS sur 48 Go.
+      • tout `Golay70` résident     : 53,7 Go — une carte 64 Go.
+      • RAM hôte, miss NON recouverts (le cas défavorable, gen4) : α = 0,607,
+        33,0 Go — une carte 48 Go, mais on y arrive par un chemin que la variante
+        VRAM ne pouvait pas prendre du tout. En gen5, α tombe à 0,51-0,55 et la
+        carte 32 Go suffit (tableau ci-dessus).
+      • RAM hôte, miss RECOUVERTS   : α = 0,50 ⇒ 27,4 Go, une carte 32 Go,
+        7,2 miss/token, 2,5 ms de PCIe gen4 contre 11,7 ms de calcul (21 %
+        du budget) — recouvrable EN PRINCIPE, jamais mesuré.
+      • la limite                   : α = 0,273 ⇒ 15,5 Go, une carte 24 Go,
+        mais le PCIe y devient le chemin critique. Une limite, pas un point de
+        fonctionnement.
+   ⇒ La variante VRAM ne descendait sous AUCUNE classe de carte ; le tier froid en
+      RAM hôte fait tomber le 120b de « ≥ 64 Go » à « 32-48 Go », et la question
+      redevient une question d'ingénierie de prefetch, pas une question de bits.
+   ⚠️ Trois dettes que ce chiffrage n'éteint pas : (i) le préchargement suppose de
+      connaître le routage AVANT la couche, ce qui exige un prefetch spéculatif ou
+      un décalage d'une couche — non conçu, non mesuré ; (ii) 32-63 Go/s sont des
+      hypothèses externes, aucune mesure PCIe n'existe ici ; (iii) le trafic PCIe
+      d'un batch > 1 ne se partage pas : ces chiffres sont batch 1.
+
+
+8. RÉSERVE DE PÉRIMÈTRE — inscrite d'avance au pré-enregistrement (§3-T4)
+==============================================================================
+   Le dump est un 20b à 32 experts top-4 (12,5 % actifs, 24 couches).
+   Le dimensionnement vise un 120b à 128 experts top-4 (3,1 % actifs, 36 couches).
+   ⇒ UN VERT NE SE TRANSPORTERAIT PAS. Un ROUGE, si : la concentration ne peut
+     qu'empirer en montant en nombre d'experts (plus d'experts pour la même masse
+     de tokens ⇒ plus de cellules faibles), et le nombre de visites par token monte
+     de 96 à 144, ce qui DIVISE encore la masse froide tolérable
+     par visite (×1,5).
+   Le verdict de ce test est ROUGE : il se transporte.
+
+   Ce que ce test NE tranche PAS : aucune milliseconde n'a été mesurée ; le dump
+   n'a pas de dimension temporelle, donc aucun cache dynamique n'est jugé ; le
+   routage d'un 120b n'a jamais été capturé ; et la qualité 2 bits sur un MoE reste
+   sans aucun chiffre, chez nous comme ailleurs (gate X5-MoE, ~25-55 $).

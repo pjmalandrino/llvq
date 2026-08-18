@@ -1,0 +1,171 @@
+================================================================================
+P5 — la ré-bijection CNS d'E1v : C1, C2 et C3
+2026-08-15, Apple M3 Max, macOS. 0 $, aucun accélérateur.
+================================================================================
+
+PROVENANCE
+  pré-enregistrement  proofs/preregistration-p5-2026-08-14.md
+                      commité le 2026-08-14 (2b89326), amendé É0 le 08-15 (9958f42)
+  🚨 DETTE DE PROVENANCE, DÉCLARÉE : ce document n'est PAS horodaté (ots).
+     Son antériorité repose sur ses commits git, ce qui est plus faible qu'un
+     tampon — c'est exactement la réserve que le §8 du même document formule
+     sur le journal du 08-13. P1, lui, a été tamponné AVANT sa mesure.
+     L'É0 a été écrit et arbitré avant la première ligne de CNS ; les critères
+     C1-C4, eux, datent du 08-14 et n'ont pas bougé.
+  code                llvq-search/src/cns.rs                     (la CNS)
+                      llvq-artifact/tests/p5_cns_sweep.rs        (C2, C3)
+                      llvq-artifact/tests/p5_cns_addressing.rs   (C1)
+  commandes           cargo test --release -p llvq-search --lib cns -- --include-ignored
+                      cargo test --release -p llvq-artifact --test p5_cns_sweep \
+                          -- --include-ignored --nocapture
+                      cargo test --release -p llvq-artifact --test p5_cns_addressing \
+                          -- --include-ignored --nocapture
+                      cargo rustc --release -p llvq-search --lib -- --emit asm -C debuginfo=0
+
+CE QUE L'AMENDEMENT É0 A CHANGÉ, ET POURQUOI IL FALLAIT LE CHANGER
+  C1 exigeait que la largeur dérivée de la CNS égale `Widths::radix2` au bit
+  près — un arrondi PAR ÉTAGE de composition. C3.2 exige zéro division dans le
+  décodage. Les deux ne peuvent pas être vrais ensemble : un champ par étage
+  porte un rang d'arrangement empaqueté, et le peler genre par genre est un
+  pelage à radix mixte, donc une division. Le seul pelage par décalage demande
+  que chaque radice de genre soit une puissance de deux, c'est-à-dire un
+  arrondi PAR GENRE — plus large.
+  É0 retient le par genre : P1 a mesuré une marche binomiale, pas un peleur
+  empaqueté, et le nombre qui ouvre la ligne doit décrire l'objet mesuré.
+  L'amendement rend E1v PLUS GROS, jamais plus petit.
+
+================================================================================
+C1 — LARGEUR RÉALISÉE                                                     VERT
+================================================================================
+
+Le modèle d'adressage est restaté depuis la prose du §1.1 — « mot de base 32 b
+par groupe de 32, arrondi au mot » — et VALIDÉ avant d'être utilisé, sur les
+deux chiffres publiés de la comptabilité par étage :
+
+  CONTRÔLE, par étage           calculé ici    publié      tolérance
+    classe-majeur                 52,8690      52,869      5e-3   OK
+    ordre-fichier                 53,3317      53,332      5e-3   OK
+    b/poids noyau                  2,3709      2,3709      5e-5   OK
+
+  RÉSULTAT, par genre (É0)
+    nue                           52,2206
+    classe-majeur                 53,2206
+    ordre-fichier                 53,7370
+    b/poids noyau                  2,3877      contre un critère C0 de 2,60
+
+  écart des deux comptabilités : +0,3516 bit/bloc nu, +0,4053 adressé FO
+  101 classes sur 383 diffèrent, jusqu'à +2 bits
+
+  La colonne par étage n'existe QUE comme contrôle : elle est calculée dans le
+  test d'adressage, jamais dans `llvq_search::cns`, dont le test
+  `the_cns_names_nothing_from_the_width_study` échoue si le module nomme
+  `Widths`, `widths_of_*` ou `radixstudy` (clause d'indépendance du §4).
+
+================================================================================
+C2 — BIJECTION                                                            VERT
+================================================================================
+
+  150 681 600 blocs, 252 matrices, 286 classes touchées, 51 s.
+  archive → record CNS → point == FastDecoder::decode : ZÉRO écart.
+  Plus la fixture de `llvq_search::cns` : les deux bornes et le milieu de
+  CHAQUE classe, quatre tirages par classe, et l'ORIGINE — que le 4B ne porte
+  pas et qu'aucun sweep n'exercera jamais.
+
+  ⚠️ « Prouvé sur 150,7 M blocs » sans cette réserve serait faux : l'origine
+     est prouvée par la fixture, pas par le sweep (§2.2).
+
+================================================================================
+C3 — FORME DU DÉCODEUR                                        VERT (3 clauses)
+================================================================================
+
+  C3.1  profondeur              90 pas au maximum contre 96 déclarés
+                                (compteur exécuté sur les 150 681 600 blocs)
+  C3.2  zéro division           source : aucun `/` ni `%` dans le corps de
+                                `cns_decode_counted`, extrait et décommenté
+                                assembleur : `cargo rustc --emit asm`,
+                                aarch64-apple-darwin, quatre symboles
+                                (cns_decode, cns_decode_counted,
+                                 binomial_walk, binomial_walk_counted),
+                                ZÉRO sdiv/udiv
+  C3.3  invariance par classe   verte sur les 286 classes du fichier ET sur
+                                les 383 de la fixture
+
+  ⚠️ L'assembleur est celui de l'HÔTE, pas de la cible CUDA. Il borne la
+     référence Rust et rien d'autre ; seul P4 dira quelque chose du noyau.
+  🔎 Le compteur n'est pas un jumeau instrumenté : `binomial_walk_counted` EST
+     le chemin de `binomial_walk`. L'ancien jumeau `steps_of` avait été écrit
+     avec un bug que son original n'avait pas, et il est retiré.
+
+================================================================================
+C4 — TRANSCODAGE                                                          VERT
+================================================================================
+
+  L'empaqueteur existe (llvq-artifact/src/e1v.rs) : 32 en-têtes à pas fixe de
+  10 bits, charges utiles à offsets de warp-scan, bourrage au mot, un mot de
+  base par groupe. Son flux est prouvé avant d'être chronométré — sweep scellé
+  des 150 681 600 blocs, aller-retour contre FastDecoder::decode, zéro écart,
+  plus un test de carte des mots qui reconstruit les en-têtes depuis les
+  octets bruts sans passer par le lecteur du module.
+
+  Et les OCTETS ÉCRITS rendent 53,7370 bits/bloc — exactement ce que le modèle
+  d'adressage prédisait sans en écrire un. La comptabilité et l'empaqueteur
+  décrivent le même flux, et le test le refuse s'ils divergent de plus de 5e-3.
+
+  Mesure, mono-thread, matrice `model.layers.0.mlp.down_proj.weight`
+  (1 036 800 blocs, la plus grosse du fichier), 3 passes, bras alternés dans
+  chaque passe, rapport formé PASSE PAR PASSE :
+
+    Planes14 : 0,580 / 0,571 / 0,571 s   (4,6667 b/poids)
+    E1v      : 0,632 / 0,621 / 0,621 s   (2,2391 b/poids, adressage compris)
+    rapport  : médiane 1,088× [plage 1,087–1,090]   contre un seuil de 2,0
+
+  ⚠️ L'ancre Planes14 mono-thread est établie ICI : elle n'avait jamais été
+     mesurée dans un modèle de threads défini (§4). Un rapport entre un nombre
+     mesuré aujourd'hui et un souvenir sans compte de threads ne vaudrait rien.
+  ⚠️ C4 reste un critère d'ADOPTION, jamais d'enterrement. Son vert autorise le
+     chemin servi ; il ne change rien à ce que C1, C2 et C3 ont décidé.
+
+================================================================================
+CE QUE ÇA DÉCIDE
+================================================================================
+
+  Le critère neuf qui remplace la clause « profondeur ≤ 24 » du spec X4 pour
+  le seul point `e1v-séparé` est la conjonction C1 ∧ C2 ∧ C3. Les trois sont
+  verts, et C4 l'est aussi — les QUATRE critères de P5 sont verts. La réouverture est ACQUISE, avec les trois réserves du §2.1 :
+    (a) nominative — tout autre point du menu exige un pré-enregistrement neuf ;
+    (b) provisoire — révoquée de plein droit si la mesure carte de P4 sort de
+        la fourchette que C3 supposait ;
+    (c) et « P1 mesure le décodeur » n'en est pas le critère.
+
+  E1v pèse 2,3877 b/poids noyau contre 2,1912 pour l'archive, dont le décodeur
+  existe et est prouvé. E1v reste le PLUS GROS des deux. Ce que la réouverture
+  achète est le droit de le porter sur carte avec le reste, pas une adoption.
+
+================================================================================
+E1v ET L'ALIGNEMENT WARP — il survit là où E1c14 meurt (2026-08-15, soir)
+================================================================================
+
+  Le même piège que X3 : le matvec servi met un warp par LIGNE, le groupe est
+  32 blocs, et `nblocks mod 32` vaut 10 ou 21 sur les cinq formes du 4B — donc
+  aucun warp ne lit un seul groupe. Aligner demande de grouper par 32 blocs
+  D'UNE LIGNE, avec un dernier groupe partiel par ligne.
+
+  E1v, 150 681 600 blocs                        bits/bloc    b/poids noyau
+    groupes de 32 blocs GLOBAUX (format actuel)   53,7370        2,3877
+    groupes ALIGNÉS SUR LE WARP                   53,9941        2,3983
+    surcoût de l'alignement                       +0,2571        +0,48 %
+
+  Contre E1c14, même géométrie, même remède : +15,47 %, 4,5551 → 5,2354, ce
+  qui l'enterre.
+
+  🔎 LA RAISON, ET ELLE EST STRUCTURELLE. Un groupe E1c coûte
+  24·(1+plans) mots QUELLE QUE SOIT la lane occupée : un groupe partiel de 10
+  blocs coûte le prix de 32. Un groupe E1v coûte 32 bits de mot de base plus la
+  SOMME de ses records, arrondie au mot : un groupe partiel coûte ce que ses
+  records coûtent, plus un arrondi. La largeur variable, qui est ce qu'E1v
+  paie en complexité de décodage, est exactement ce qui le sauve ici.
+
+  ⚠️ Ce chiffre est une comptabilité, pas une mesure de temps. Il dit que
+  l'alignement ne coûte pas de bits ; il ne dit rien du coût de lire deux mots
+  de base et de scanner deux régions d'en-têtes, qui est un coût de NOYAU et
+  qu'aucun noyau n'a payé, E1v n'en ayant aucun.

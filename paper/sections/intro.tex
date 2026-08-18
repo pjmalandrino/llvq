@@ -34,14 +34,22 @@ must not diverge across a warp whose 32 lanes hold different classes.
 
 \item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
 determines what fits on a GPU is not the on-disk rate (2.07 bits per weight
-for our artifact) but the rate of whatever format the kernel reads. Our
+for our artifact under the ideal payload accounting: 48 bits per block plus
+the full-precision tail and per-row scales, over all linear weights including
+the tail --- the bytes actually written are 2.17 over the quantized weights
+alone, the $+8\%$ of \S\ref{sec:evaluation}) but the rate of whatever format
+the kernel reads. Our
 first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
 bits per weight at bit-exact decoded content while \emph{increasing}
-throughput, and one measured dead end (3.59 bits per weight, compute-bound)
-that maps the floor. We also attribute what the kernel is actually waiting
-on, with an instrumented job rather than an assertion.
+throughput, and one dead end (3.59 bits per weight, compute-bound) that maps
+the floor and survives a second attack on its own diagnosed cause. We
+attribute what the kernel is actually waiting on with an instrumented job
+rather than an assertion, and we place a deployed 4-bit kernel on the same
+axis in the same process: it converts 88\% of its byte advantage into time
+where our best layout converts 65\%, which locates the remaining work in
+the decode rather than the format.
 
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and
@@ -52,28 +60,42 @@ that separates the kernel's contribution from the engine fix.
 \end{enumerate}
 
 The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 88.4~tok/s
-in 2.60~GB of VRAM, versus 43.5~tok/s in 8.04~GB for the FP16 reference,
-with the serving stack changing perplexity and MMLU only within sampling
-noise of the sealed artifact, verified by matching token-level
-fingerprints. In whole-model bits per
-parameter the served footprint (5.15) is below the official AWQ 4-bit
-checkpoint's 5.30. On Qwen3-8B, requantized under the exact
-4B configuration so that model size is the only variable, the served model
-takes 5.45~GB against AWQ's 6.10 and runs at $2.61\times$ the reference
-engine's throughput, from a file $1.9\times$ smaller.
-
+in 2.60~GB against 43.5~tok/s in 8.04~GB for the FP16 reference, with the
+serving stack costing nothing measurable on top of the quantized artifact.
+The same path serves a 2-bit Qwen3-14B at 42.9~tok/s in 9.39~GB against
+17.0~tok/s in 29.54~GB, and then stops one model class later --- the
+activation rotation is a Walsh--Hadamard transform, so a single block must
+hold the whole activation in shared memory, and the 32B exceeds the
+measured 101\,376-byte ceiling by 1\,024 bytes (\S\ref{sec:limitations}).
 We are equally explicit about what this does not buy
-(\S\ref{sec:limitations}). On a 4B model, 2-bit quantization costs
-$\times1.384$ perplexity and $-14.6$ percentage points of MMLU against
-FP16, a deficit reproduced three times and concentrated in reasoning-heavy
-subjects; the 4-bit AWQ baseline keeps essentially full quality. The case
-for 2 bits rests on scale, and the paper's second data point measures it:
-at 8B the degradation falls to $\times1.220$ and the MMLU gap to the 4-bit
-baseline halves, from 14.5 to 7.5 points, while AWQ itself starts paying
-($-0.3$ points at 4B, $-3.1$ at 8B). Two points are not a law; they are the
-direction the 2-bit thesis needs.
+(\S\ref{sec:limitations}).
+At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points (served
+arm; 14.73 on the sealed artifact), a deficit
+concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
+essentially full quality: on that model, 4 bits wins. The case for 2 bits
+rests on scale, and two further models measure it. The degradation does fall
+--- $\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
+and 14B --- and the MMLU gap to 4 bits goes 14.45, 7.49, 6.09 points, all
+three paired estimates with 95\% intervals (\S\ref{sec:evaluation}). It also
+flattens as it falls: the excess over FP16 loses 42.8\% of itself from 4B to
+8B, $[-51.8, -33.5]$, and 13.9\% from 8B to 14B, $[-22.8, -4.9]$. Whether that
+flattening is \emph{established} depends on which metric is asked, and the two
+answers differ. On perplexity it is: the evaluation windows are the same text
+at every size, so the two steps can be compared window by window, and they
+differ by $-0.1010$ in log perplexity ratio, $[-0.1377, -0.0643]$,
+$t = -6.06$. On the
+MMLU gap it is not: the first step is resolved ($-6.96$ points,
+$p = 0.0001$) and the second is not ($-1.40$, $p = 0.40$), and an unresolved
+step is not a flat one. The likeliest reason is power rather than
+disagreement --- perplexity averages 49\,140 paired tokens where MMLU rates
+2\,280 unpaired questions --- and we carry the two verdicts separately
+throughout, since a claim about this curvature that does not name its metric
+is half wrong either way. Three points, no law; the direction is the one the
+2-bit thesis needs, and where the curve flattens is not settled by either
+answer. On memory the three points do agree: the served model is below
+the 4-bit baseline at every size, by a margin that peaks in the middle
+because it tracks the embedding share.
 
-Everything in this paper is reproducible by construction: every table and
-figure regenerates from CSV files committed in the repository, each number
-traces to a dated, per-job-costed GPU run, and the full measurement campaign
-billed \$19.82.
+Every figure regenerates from CSV files committed in the repository, the
+layout table is checked against its CSV on every build, and each number
+traces to a dated GPU job with its billed cost.

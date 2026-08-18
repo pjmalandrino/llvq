@@ -1,0 +1,349 @@
+================================================================================
+LE 14B EST SERVI — fusedrun, quatre étapes, une carte
+job 6a83121be55292eada79b611, l40sx1, 2 472 s de running = 1,24 $ (plafond 1,80 $)
+2026-08-17 (soir). Pré-enregistrement proofs/preregistration-fusedrun14b-2026-08-17.md,
+écrit et commité AVANT le lancement.
+================================================================================
+
+Gabarit : docs/mesures/planes14-fusedrun-2026-08-06.txt (le même binaire au 4B).
+Sortie brute des quatre étapes commitée dans docs/data/campagne-14b-vitesse-2/
+(fusedrun-q8.txt, phases-q8.txt, preflight.txt, rotbench.txt) — récupérée du
+bucket monté Pier-Jean/jobs-artifacts, cf. la règle « épuiser les canaux de
+rétention » du §7 de CLAUDE.md.
+
+Quatre étapes sous `set -euo pipefail`, dans cet ordre.
+
+
+================================================================================
+ÉTAPE 1 — preflight : la borne d'opt-in, mesurée pour la première fois [mesuré]
+================================================================================
+
+  carte                  NVIDIA L40S, compute capability 8.9
+  SM                     142
+  L2                     100 663 296 o (100,7 Mo) — LU, jamais supposé
+  mémoire partagée       49 152 o/bloc par DÉFAUT
+                         101 376 o/bloc après OPT-IN     <-- le chiffre qui manquait
+                         102 400 o/SM
+  bande passante fiche   864 Go/s  ⚠️ plaque signalétique, pas une mesure (ECC active)
+
+  source NVRTC 12 351 o, sha256 b0b50caf… — sources embarquées (celles du commit)
+  décodeur porté vérifié : 20 767 blocs, 498 408 slots, classe/gain/niveau EXACTS ;
+  produit scalaire pire erreur 1,15e-7·Σ|w·x|.
+
+CE QUE CETTE LIGNE SOLDE
+
+  `docs/mesures/rot-partagee-14b-2026-08-17.txt` établit que le préflight du
+  2026-08-05 ne journalisait QUE la borne par défaut, et que la borne d'opt-in
+  n'avait « jamais été lue ». Elle valait donc, dans tous les raisonnements de la
+  journée, une valeur de FICHE TECHNIQUE. Elle est désormais MESURÉE sur la carte
+  qui a servi, et elle vaut ce que la fiche annonçait : 101 376 o.
+
+  Conséquence pour le 32B, et elle ne change pas :                    [calculé]
+    25 600 × 4 o = 102 400 o demandés  contre  101 376 o offerts à l'opt-in
+    → il manque 1 024 o. Le 32B rate la borne, et il la rate de peu.
+    ⚠️ Les 102 400 o/SM ne sauvent rien : c'est un budget PAR SM, pas la limite
+    d'un bloc. Les deux nombres se ressemblent à 1 024 o près et ne se
+    substituent pas — c'est exactement la confusion que le garde du job
+    précédent avait faite entre la borne par défaut et la limite.
+
+
+================================================================================
+ÉTAPE 2 — rotbench : 9 largeurs, dont la seule qui exerce l'opt-in    [mesuré]
+================================================================================
+
+  source NVRTC 13 659 o, sha256 106f1374…
+  rot_apply : 47 registres, 0 o locaux, sm_89, 1024 threads max
+
+  Vérification contre la référence f64 — seuils 1e-5 (relatif), 1e-3 (coordonnée)
+
+    forme                                        n     m    k       rel  pire coord
+    -------------------------------------------------------------------------------
+    Qwen3-14B intermediate — opt-in de partagée  17408 1024  17  8,790e-8   6,723e-7
+    -------------------------------------------------------------------------------
+    pire sur les 9 formes : rel 9,523e-8 (down_proj 9728), coord 6,723e-7 (17408)
+
+  ✅ La rotation est EXACTE à 17 408 : deux ordres de grandeur sous le seuil
+     relatif, quatre sous le seuil par coordonnée. C'est le cas qui a tué le job
+     précédent sur un garde ; il passe, et il passe par le chemin d'opt-in.
+
+  Latence isolée à 17 408 : 29,76 µs (200 lancements enchaînés, 20 jetés).
+  ⚠️ Un lancement à la fois sur un stream vide : c'est la latence ISOLÉE, pas ce
+     que coûte la même rotation intercalée entre deux matvecs.
+
+
+================================================================================
+ÉTAPE 3 — LE BRAS PUBLIÉ : Planes14 + LLVQ_EMBED=q8 (prereg §1)       [mesuré]
+================================================================================
+
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+rotation partagée : 0 (LLVQ_ROT_SHARE) — 280 rot_lancements/token pour 280 projections
+
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           748.7 s        17.0       29.54
+  fusé            472.4 s        42.9        9.39
+  ----------------------------------------------
+  vitesse ×2.53, mémoire ÷3.14        <-- ce que le binaire imprime
+
+  projections 7,74 Go sur la carte, 4,686 b/poids
+    (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la
+     sienne en f32 — les deux ne se comparent pas. Pour mémoire, `rtbits-14b`
+     rend 4,7063 b/poids pour Planes14 au 14B dans SA comptabilité.)
+  embedding q8 g64 : 2 tables (embed_tokens + lm_head), 1 653,1 Mo sur la carte
+    (int8 1 555,8 + échelles/biais 97,2)
+  fichier 6,51 Go sur disque
+  ⚠️ disque et carte ne se comparent pas : le fichier porte des index compacts,
+     la carte lit la disposition que le noyau peut lire vite.
+
+✅ LE GARDE DE CORRECTION EST VERT — 128 tokens IDENTIQUES
+
+  Aucune divergence sur les 128 tokens des deux bras. À comparer au 4B, où les
+  deux bras divergeaient au token 89 sur 128 (planes14-fusedrun-2026-08-06.txt) ;
+  le 8B était déjà identique sur ses 128.
+
+🚨 LES DEUX DERNIÈRES DÉCIMALES, ET IL FAUT DIRE LAQUELLE EST LAQUELLE
+
+  Le binaire imprime ×2.53 et ÷3.14. Il les forme sur ses valeurs internes NON
+  ARRONDIES.  Refaire la division sur les cellules AFFICHÉES, arrondies au
+  dixième, rend :
+      42,9 / 17,0  = 2,5235  → ×2,52          [calculé sur des valeurs arrondies]
+      29,54 / 9,39 = 3,1459  → ÷3,15          [calculé sur des valeurs arrondies]
+  Les deux séries diffèrent au dernier chiffre, dans des sens opposés. Ce n'est
+  pas un désaccord de mesure : c'est l'arrondi de l'affichage qui repasse dans
+  une division. LES CHIFFRES DE CE JOURNAL SONT CEUX DU BINAIRE — ×2,53 et
+  ÷3,14 — et la reconstruction à la main est notée ici pour qu'on ne la prenne
+  pas un jour pour une seconde mesure.
+  ⚠️ La note de campagne qui a commandé ce journal portait « ×2,52 » et
+     « ÷3,15 » : ce sont les valeurs reconstruites, pas celles du binaire.
+
+
+================================================================================
+LE RECOUPEMENT DU §2 DU PRÉ-ENREGISTREMENT — il passe                 [calculé]
+================================================================================
+
+Le §2 posait d'avance : les « Go carte » de `fusedrun` sont une TROISIÈME route
+vers le b/param modèle entier, celle que `rtbits-14b-2026-08-17.txt` déclarait
+manquante au 14B. Bande annoncée AVANT le run : ±0,5 %.
+
+  params_total = 14 768 307 200 (rtbits-14b, mesuré dans le fichier scellé)
+
+  bras fusé   9,39 Go × 8 / params_total  =  5,0866 b/param
+  rtbits                                  =  5,106  b/param
+  écart                                   =  −0,38 %          ✅ DANS LA BANDE
+
+  ✅ Contrôle qui vient en prime, et qui n'était pas demandé : le bras DENSE
+     rend 29,54 Go × 8 / params_total = 16,0018 b/param, contre 16,000 exacts
+     par construction — soit 0,011 %. Le `params_total` du 14B, que
+     `rtbits-14b` donnait comme « mesuré dans le fichier scellé, recoupé par
+     l'arithmétique de l'architecture », reçoit ici sa TROISIÈME route, par la
+     VRAM que le moteur rapporte.
+
+  ⚠️ Ces deux lignes sont CALCULÉES sur un affichage carte arrondi au centième
+     de Go. C'est la même route que le « ≈ 5,15 » du 4B, dont CLAUDE.md rappelle
+     qu'il était SOUS la bonne valeur pour cette raison précise. Le chiffre à
+     publier reste le 5,106 de `rtbits`, sur les octets exacts ; ce qui est
+     établi ici est un RECOUPEMENT, pas un remplaçant.
+
+
+================================================================================
+ÉTAPE 4 — HORS PROTOCOLE PUBLIÉ (prereg §4) : profil par phase        [mesuré]
+================================================================================
+
+32 tokens, LLVQ_TIME_PHASES=1. Le journal du binaire le dit lui-même :
+⚠️ « chaque phase est bornée par une synchronisation device : les phases
+   s'attribuent, mais les fences sérialisent ce que le chemin normal recouvre —
+   ce total ne remplace PAS le tok/s publié ci-dessus. »
+
+  phase (ms/token, médiane)      fusé q8        dense f16
+  ------------------------------------------------------
+  embed                            0.022            0.028
+  blocs+norme                     21.456           39.192
+  lm_head                          1.186           53.873
+  argmax+divers                    0.085            0.103
+  ------------------------------------------------------
+  total fencé                     22.749           93.196
+
+  et, dans la même invocation : fusé 40,5 tok/s · dense 16,9 tok/s (×2.40)
+
+
+================================================================================
+🚨 LE RAPPORT « À TÊTE IDENTIQUE » N'EXISTE PAS AU 14B
+================================================================================
+
+CE QU'IL EST AUX DEUX AUTRES TAILLES — un BRAS MESURÉ, pas un calcul :
+
+  4B  ×1,12 = 48,7 / 43,6  — fusé Planes14 + embedding f16 contre dense f16
+              (planes14-fusedrun-2026-08-06.txt). Têtes LIÉES : le bras fusé
+              porte alors littéralement la même tête f16 que le dense.
+  8B  ×1,30 = 34,4 / 26,5  — fusé Planes14 + embedding f16 contre dense f16
+              (campagne-8b-vitesse-2026-08-08.txt).
+
+  Dans les deux cas le rapport sort d'une SECONDE GÉNÉRATION CHRONOMÉTRÉE, avec
+  la tête f16 des deux côtés.
+
+CE QUI A ÉTÉ MESURÉ AU 14B : le bras q8 seul.
+
+  Le prereg §1 a choisi d'avance la configuration SERVIE (Planes14 + q8) et
+  précisait qu'un éventuel second bras à embedding f16 serait un CONTRÔLE.
+  Ce second bras N'A PAS ÉTÉ LANCÉ. Il n'y a donc pas, au 14B, l'objet dont le
+  ×1,12 et le ×1,30 sont la mesure.
+
+POURQUOI L'ÉTAPE 4 NE LE RECONSTRUIT PAS — quatre raisons, chiffrées :
+
+  1. LES DEUX SENS DU REMPLACEMENT NE DONNENT PAS LE MÊME NOMBRE.       [calculé]
+     donner au dense la tête q8 du fusé : (93,196 − 53,873 + 1,186) = 40,509
+        → 40,509 / 22,749 = ×1,78
+     donner au fusé la tête f16 du dense : (22,749 − 1,186 + 53,873) = 75,436
+        → 93,196 / 75,436 = ×1,24
+     Un facteur 1,44 sépare les deux. C'est le CHOIX DU SENS, et non la donnée,
+     qui fixerait la réponse.
+
+  2. LES TOTAUX FENCÉS NE REPRODUISENT PAS LE RAPPORT MESURÉ DE LEUR PROPRE
+     INVOCATION.                                                        [calculé]
+     93,196 / 22,749 = ×4,10   contre   40,5 / 16,9 = ×2,40 mesurés
+     → 71 % d'erreur, sur exactement l'espèce de grandeur qu'on chercherait à
+     calculer. Un instrument qui rate de 71 % la quantité qu'on peut vérifier
+     ne sert pas à en produire une qu'on ne peut pas.
+
+  3. L'ARTEFACT DE FENCE POINTE EN SENS OPPOSÉS SUR LES DEUX BRAS.      [calculé]
+     fusé  : 22,749 fencé pour 24,69 ms/token au mur → 0,92×
+     dense : 93,196 fencé pour 59,17 ms/token au mur → 1,58×
+     Il n'y a donc aucun facteur commun qui s'annulerait dans un rapport.
+
+  4. PREUVE ARITHMÉTIQUE QUE LES FENCES NE DÉCOMPOSENT PAS LE MUR.      [calculé]
+     Sur le bras dense, `blocs+norme` + `lm_head` = 39,192 + 53,873 = 93,065
+     ms/token, soit 57 % DE PLUS que les 59,17 ms/token que ce même bras met
+     réellement à produire un token. Une phase qui déborde le mur ne peut pas
+     être soustraite d'un mur qui ne l'a jamais contenue.
+
+  🔎 ET LE PIÈGE EST QUE LA MÉTHODE A L'AIR DE MARCHER AU 4B : là-bas, le
+     rapport des totaux fencés vaut 40,090 / 36,447 = ×1,100 contre ×1,117
+     mesurés, soit 1,5 % d'écart (phases-2026-08-07.txt). On l'aurait crue
+     valide et transportée ici, où elle rate de 71 %. Même motif que le compte
+     de pas de P1b, qui prédisait ×1,002 et rendait ×2,17 : UN BUDGET ATTRIBUÉ
+     N'EST PAS UNE PRÉDICTION DE TEMPS.
+
+DONC, ET C'EST LE VERDICT :
+
+  ❌ Le rapport « à tête identique » N'EXISTE PAS au 14B. Il n'a pas été
+     mesuré, et il n'est pas dérivable de ce qui l'a été.
+  ✅ Ce qui est mesuré au 14B, c'est le brut ×2,53 et la mémoire ÷3,14.
+  ⚠️ Il se produirait par un run, pas par un calcul : une invocation de
+     `fusedrun` avec LLVQ_EMBED=f16. Elle repaie le chargement entier
+     (~470 s pour le bras fusé), donc elle a un prix — ce qui est une raison
+     de la budgéter, pas de fabriquer son résultat.
+
+
+CE QUE L'ÉTAPE 4 ÉTABLIT QUAND MÊME — le MÉCANISME du handicap    [mesuré, fencé]
+
+  Le lm_head coûte 53,873 ms/token au bras dense contre 1,186 au bras q8, soit
+  ×45,4 sur cette phase, et 57,8 % du budget fencé du dense contre 5,2 % du fusé.
+
+  Et il se recoupe avec le 4B d'une façon qui nomme le mécanisme :   [calculé]
+
+    bras            lm_head    table portée   débit implicite
+    ------------------------------------------------------------
+    4B dense f16    26,672 ms     777,9 Mo        29,17 Go/s
+    4B fusé f16     25,886 ms     777,9 Mo        30,05 Go/s
+    14B dense f16   53,873 ms   1 555,8 Mo        28,88 Go/s
+
+    (tables LUES sur les journaux : 777,9 Mo au 4B — phases-2026-08-07.txt
+     l. 8, tête liée — et 1 555,8 Mo pour le lm_head f16 du 14B, la moitié des
+     1 555,8 Mo d'int8 que le bras q8 rapporte pour ses DEUX tables.
+     Débits implicites CALCULÉS.)
+
+    rapport 14B/4B du lm_head dense : ×2,0198
+    rapport des octets de la table   : ×2,0000
+
+  Les deux coïncident à 1 %, et le débit implicite est le même aux deux tailles
+  (~29 Go/s). C'est la signature d'une RECOPIE de la table de vocabulaire, et
+  non d'un calcul : `Head::project` → `broadcast_matmul`, le défaut de NOTRE
+  bras dense (llvq-llm/src/model.rs:580-582, huggingface/candle#3871).
+  ⚠️ Cela CONFIRME le mécanisme ; cela ne PRODUIT PAS le rapport à tête
+     identique, pour les quatre raisons ci-dessus.
+
+
+================================================================================
+🚨 LES INTERDITS, RECOPIÉS EN CLAIR — posés AVANT la mesure (prereg §3 et §4)
+================================================================================
+
+§3 — LE 14B SE PUBLIE EN POINT, PAS EN PLAGE.
+
+  `fusedrun` ne produit pas de plage : une génération jetée, puis UNE SEULE
+  génération chronométrée par bras. Les chiffres publiés du 4B et du 8B sont
+  eux-mêmes des points uniques. Donner une plage au seul 14B rendrait la
+  colonne HÉTÉROGÈNE — trois cellules dont une seule barrée — c'est-à-dire
+  exactement la faute que la ligne MMLU a payée avec le « 6,09 nu » aligné sur
+  deux appariés. LA COLONNE ENTIÈRE SE DÉCLARE « quotients à run unique ».
+
+  La dispersion se cite GRATUITEMENT, sans job : sur le MÊME 4B, même layout,
+  même embedding q8, un autre run rend 86,9 tok/s (paliers-4b-2026-08-10.txt)
+  contre 88,4–88,5 publié — soit ~2 % sur le rapport (×1,99 contre ×2,03) — le
+  bras dense étant lui reproduit à 0,2 % près (43,7 / 43,6 / 43,5).
+
+§4 — LE RAPPORT BRUT NE SE PUBLIE JAMAIS SEUL.
+
+  Le ×2,53 se dit contre NOTRE bras dense, qui est HANDICAPÉ : têtes déliées au
+  14B, deux tables de 777,9 M poids, dont celle du lm_head est recopiée à chaque
+  token (§ mécanisme ci-dessus, 28,88 Go/s).
+
+  🚨 MAIS « ET C'EST LE PLUS ÉLEVÉ DES TROIS TAILLES » EST FAUX, et la note de
+     campagne qui a commandé ce journal l'affirmait. Les trois bruts :   [calculé]
+
+       taille   fusé q8 / dense       publié (binaire)   à la main sur l'affiché
+       ---------------------------------------------------------------------
+       4B       88,4 / 43,5              ×2,03                 2,032
+       8B       69,3 / 26,5              ×2,61  <-- LE PLUS    2,615
+       14B      42,9 / 17,0              ×2,53      ÉLEVÉ      2,524
+
+     ⚠️ La colonne « publié » est celle des binaires, formée sur leurs valeurs
+        internes ; la dernière est la division des cellules arrondies. Elles
+        divergent au dernier chiffre au 8B et au 14B — même piège qu'à l'étape 3,
+        et c'est pourquoi les deux sont montrées plutôt qu'une seule choisie.
+
+     Le 14B est DEUXIÈME. La suite n'est pas monotone en taille, et le dossier
+     n'a rien qui l'explique : la table du lm_head, elle, décroît MONOTONEMENT
+     en part du modèle (9,67 % · 7,60 % · 5,27 % — calculé sur 151 936 × hidden),
+     donc elle ne rend pas l'ordre observé. ⚠️ AUCUN MÉCANISME N'EST REVENDIQUÉ
+     ICI : trois points, un seul run chacun, et une dispersion connue de ~2 % sur
+     ce genre de rapport (§3). Ce qui est établi est le fait, pas sa cause.
+
+  Ce qui reste vrai et suffit : un rapport brut mesure d'abord le handicap de
+  notre propre bras dense, et il ne se publie donc jamais seul.
+
+  Les deux formulations vont ensemble. Au 14B la seconde N'EXISTE PAS (voir le
+  verdict ci-dessus) : la forme licite est donc « ×2,53 brut contre notre bras
+  dense, qui est handicapé ; le rapport à tête identique n'a pas été mesuré à
+  cette taille ». Jamais « le 14B va 2,5× plus vite » tout court.
+
+  ✅ LE RAPPORT MÉMOIRE, LUI, EST DIRECT — 29,54 → 9,39 Go, deux mesures de la
+     même carte par le même instrument, sans bras handicapé au dénominateur.
+     Le binaire imprime ÷3,14 ; la division des cellules arrondies rend ÷3,15
+     (cf. le 🚨 de l'étape 3). C'est ÷3,14 qui se publie.
+
+  ⚠️ ET LE ×2,413 DE L'AWQ DANS vLLM NE SE DIVISE AVEC AUCUN DE CES NOMBRES —
+     autre pile, autre moteur (awq-vllm-4b-2026-08-17.txt). La case « débit »
+     de la colonne 4 bits reste vide, ici comme ailleurs.
+
+
+================================================================================
+PROVENANCE
+================================================================================
+
+  job                 6a83121be55292eada79b611, l40sx1, COMPLETED
+  durée / coût        2 472 s de running = 1,24 $ (plafond posé : 1,80 $)
+                      [rapporté par la plateforme, cité ici]
+  pré-enregistrement  proofs/preregistration-fusedrun14b-2026-08-17.md
+                      commité AVANT le lancement ; §7 (journal des écarts) vide
+                      à la signature
+  sortie brute        docs/data/campagne-14b-vitesse-2/ — les quatre fichiers
+                      écrits par le job dans le bucket monté, commités tels quels
+
+    sha256  c589c322…  fusedrun-q8.txt   (2 561 o)   étape 3
+    sha256  7c4d7984…  phases-q8.txt     (2 923 o)   étape 4
+    sha256  45face32…  preflight.txt     (1 649 o)   étape 1
+    sha256  4e4698a2…  rotbench.txt      (1 881 o)   étape 2
+
+  ⚠️ CE QUI N'A PAS ÉTÉ MESURÉ À CETTE TAILLE : le rapport à tête identique
+     (aucun bras à embedding f16) ; la qualité (elle vient de la campagne du
+     2026-08-10) ; toute plage sur l'un quelconque de ces débits.

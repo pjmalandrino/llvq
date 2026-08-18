@@ -77,7 +77,7 @@ pub struct GptqConfig {
     /// described by block codes — capturing refuses it. For a sealable
     /// variant of the same idea, see [`Self::design_c`].
     pub group_scales: bool,
-    /// **Design C** of `docs/retraction-et-gain.md`: Algorithm 3 to the
+    /// **Design C** of `docs/archive/retraction-et-gain.md`: Algorithm 3 to the
     /// letter, then a re-projection that makes the result sealable.
     ///
     /// Three steps, in order:

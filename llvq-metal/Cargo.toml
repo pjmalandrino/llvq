@@ -9,9 +9,12 @@ description = "Metal micro-benchmarks for the LLVQ fused kernel: what decoding a
 [dependencies]
 llvq-core = { path = "../llvq-core" }
 llvq-search = { path = "../llvq-search" }
+# Unconditional on purpose: `p1host` compiles on every platform and now names
+# `llvq_artifact::blockrec`. The artifact crate has no external dependency of
+# its own, so this costs the resolver nothing off macOS either.
+llvq-artifact = { path = "../llvq-artifact" }
 
 # Apple-only by construction. The rest of the workspace stays portable; this
 # crate exists precisely to answer a question about one GPU.
 [target.'cfg(target_os = "macos")'.dependencies]
 metal = "0.29"
-llvq-artifact = { path = "../llvq-artifact" }

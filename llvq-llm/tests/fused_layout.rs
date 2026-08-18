@@ -123,20 +123,26 @@ fn the_layout_switch_is_honoured() {
         FusedLayout::parse(Some("slot32")).unwrap(),
         FusedLayout::Slot32
     );
+    assert_eq!(
+        FusedLayout::parse(Some("golay70")).unwrap(),
+        FusedLayout::Golay70
+    );
     assert!(FusedLayout::parse(Some("Slot32")).is_err());
     assert!(FusedLayout::parse(Some("grouped32")).is_err());
-    // Near-misses of the name that joined the switch last: a layout that
-    // exists at the bench but not here (`golay70`), and two spellings of the
-    // one that does. Refusing beats falling back — an A/B whose arm silently
-    // reverts to the default reports the default's numbers under the other
-    // arm's name.
-    assert!(FusedLayout::parse(Some("golay70")).is_err());
+    // Near-misses: two spellings of layouts that exist, and one bench-only
+    // name. Refusing beats falling back — an A/B whose arm silently reverts
+    // to the default reports the default's numbers under the other arm's
+    // name. (Until 2026-08-11 `golay70` itself sat in this list; it is a
+    // layout of the switch now — step 5 of the v2 campaign — and the near
+    // misses keep guarding the same property.)
     assert!(FusedLayout::parse(Some("planes12")).is_err());
     assert!(FusedLayout::parse(Some("Planes12x")).is_err());
+    assert!(FusedLayout::parse(Some("Golay70")).is_err());
+    assert!(FusedLayout::parse(Some("golay70v2")).is_err());
     // And the refusal must *name* what it will accept, or the operator's next
     // move is a source dive.
     let msg = FusedLayout::parse(Some("planes12")).unwrap_err();
-    for expected in ["planes14", "planes12x", "slot32"] {
+    for expected in ["planes14", "planes12x", "slot32", "golay70"] {
         assert!(msg.contains(expected), "le refus ne cite pas « {expected} » : {msg}");
     }
 }

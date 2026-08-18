@@ -1,7 +1,7 @@
 //! cudarc plumbing: compile, load, upload, launch, and read back what the
 //! card says about the kernel it just loaded.
 //!
-//! Four API traps are documented in `docs/portage-noyau-cuda.md` §2.2, and
+//! Four API traps are documented in `docs/archive/portage-noyau-cuda.md` §2.2, and
 //! two of them are load-bearing here:
 //!
 //! * without an explicit `arch`, NVRTC compiles for `compute_75` by default,
@@ -40,6 +40,13 @@ pub struct DeviceReport {
     /// AD102). NVIDIA does not publish it; the driver does.
     pub l2_bytes: i32,
     pub shared_per_block: i32,
+    /// Bytes one block may hold **after opting in** — 101 376 on an L40S
+    /// against the 49 152 of `shared_per_block`. Read from
+    /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN`, never derived:
+    /// the folklore is `shared_per_sm − 1024`, which happens to give the right
+    /// answer on this card and is a guess about a reservation the driver owns.
+    /// Same rule as `l2_bytes` above — the driver publishes it, so it is read.
+    pub shared_per_block_optin: i32,
     pub shared_per_sm: i32,
     pub clock_khz: i32,
     pub mem_clock_khz: i32,
@@ -308,6 +315,9 @@ impl Cuda {
             sm_count: a(Attr::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)?,
             l2_bytes: a(Attr::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)?,
             shared_per_block: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)?,
+            shared_per_block_optin: a(
+                Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+            )?,
             shared_per_sm: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR)?,
             clock_khz: a(Attr::CU_DEVICE_ATTRIBUTE_CLOCK_RATE)?,
             mem_clock_khz: a(Attr::CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE)?,
@@ -319,6 +329,54 @@ impl Cuda {
         self.module
             .load_function(name)
             .map_err(|e| format!("no kernel {name}: {e}"))
+    }
+
+    /// [`Self::func`], plus the opt-in a kernel needs to stage more than the
+    /// default 48 KiB of dynamic shared memory.
+    ///
+    /// `bytes` is the **largest** allocation any later launch of this function
+    /// will ask for. The driver refuses a launch whose `sharedMemBytes`
+    /// exceeds the attribute (`CUDA_ERROR_INVALID_VALUE`), so under-declaring
+    /// fails loudly rather than corrupting; over-declaring costs occupancy,
+    /// which on a one-block kernel costs nothing at all.
+    ///
+    /// **Set on the function, once, at load.** It is a property of the loaded
+    /// `CUfunction`, not of a launch: posing it per launch would be one driver
+    /// call per token on a path whose measured problem is launch latency.
+    ///
+    /// Three states, and the third is the one that matters:
+    ///
+    ///  * under the default — nothing is asked of the driver, so a card with
+    ///    no opt-in behaves exactly as before;
+    ///  * over the default, under the ceiling — the attribute is set here and
+    ///    the launch is legal;
+    ///  * over the ceiling — **refused**, because there is no host-side
+    ///    remedy and a launch past it is what corrupts.
+    ///
+    /// The arithmetic is `crate::shared`, which is portable and tested; this
+    /// wrapper only reads the card and talks to the driver.
+    pub fn func_dynamic_shared(&self, name: &str, bytes: u32) -> Result<CudaFunction, String> {
+        let f = self.func(name)?;
+        let dev = self.device()?;
+        let (def, optin) = (dev.shared_per_block as usize, dev.shared_per_block_optin as usize);
+        match crate::shared::plan(bytes as usize, def, optin) {
+            None => Err(format!(
+                "{name} : {bytes} o de partagée dynamique demandés, la carte en offre {def} par \
+                 défaut et {} après opt-in — au-delà des deux bornes.",
+                crate::shared::ceiling(def, optin)
+            )),
+            Some(crate::shared::Fit::Default) => Ok(f),
+            Some(crate::shared::Fit::OptIn) => {
+                f.set_attribute(
+                    cudarc::driver::sys::CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                    bytes as i32,
+                )
+                .map_err(|e| {
+                    format!("{name} : opt-in de {bytes} o de partagée refusé par le driver : {e}")
+                })?;
+                Ok(f)
+            }
+        }
     }
 
     /// Read back what the driver made of a kernel, and refuse the two states
@@ -615,8 +673,18 @@ impl Cuda {
     /// The grid is fixed at one block by the kernel's design (a Walsh–Hadamard
     /// transform is `log₂ m` barriers, and CUDA has no barrier across blocks),
     /// so the only launch knob is the thread count. Shared memory is `n`
-    /// floats, and the caller is what keeps it under the device limit — the
-    /// kernel has no way to check and would simply corrupt.
+    /// floats, and **the caller is still what keeps it under the device limit
+    /// — the kernel has no way to check and would simply corrupt.**
+    ///
+    /// What moved on 2026-08-17 is the *bound*, not the responsibility. That
+    /// limit is not one number: past the default 48 KiB a block gets, sm_70
+    /// and later grant up to `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` (101 376 o on
+    /// an L40S) **to a function that asked**. So the caller owes two things
+    /// now: `crate::shared::rot_plan` to decide the width is legal, and
+    /// [`Self::func_dynamic_shared`] to load `f` — which is where the opt-in
+    /// is posed. Handing this a plain [`Self::func`] handle and an `n` over
+    /// 12 288 gets the launch refused by the driver; handing it a width past
+    /// the ceiling is what corrupts, and no check here would catch it.
     ///
     /// `xin` is generic over its element type so an inference runtime can hand
     /// over candle's own `CudaSlice<f16>` without a copy: the kernel reads it
