@@ -45,6 +45,57 @@ clauses par `;` ou ` - `, **jamais par une virgule**, et
 | **`ppl-genou.csv`** 🆕 | le **ralentissement EN PERPLEXITÉ** : 2 pas × 2 références, plus les 2 tests de genou (la différence des deux pas) | ppl-appariee-4b-2026-08-17 |
 | `mmlu-dumps/` | les dumps MMLU **question par question**, 3 tailles × 3 bras — la matière première des paires ci-dessus | campagnes 4B/8B/14B ; les trois fichiers 14B commités le 2026-08-17 (cf. la leçon du bucket, plus bas) |
 | `jobs.csv` | chaque job GPU : id, durée, coût, ce qu'il a mesuré | moniteur ops/run.py |
+| 🆕 **`campagne-14b-vitesse-2/`** | la **sortie brute** des quatre étapes du 14B servi, telle que le job l'a écrite dans le bucket monté | job `6a83121be55292eada79b611` ; synthèse dans [`mesures/fusedrun-14b-2026-08-17.txt`](../mesures/fusedrun-14b-2026-08-17.txt) |
+
+### 🆕 Pourquoi les cellules 14B SERVIES n'entrent dans aucun CSV (2026-08-17)
+
+Le 14B a été servi pour la première fois le soir du 2026-08-17 — **42,9 tok/s
+et 9,39 Go sur la carte**, contre 17,0 et 29,54 au bras dense. Ces deux
+cellules ne sont ajoutées à **aucun** CSV, et la décision se motive fichier par
+fichier plutôt que par principe :
+
+1. **`campagne-finale.csv` est une table 4B**, indexée par *bras* et épinglée
+   colonne par colonne sur `tab:campaign` par `check_campaign_table`. Une
+   ligne 14B n'y a pas de colonne où atterrir, et l'y forcer casserait le
+   filet — pas un inconvénient, un signal correct.
+2. **`tableau-8b.csv` est l'analogue 8B.** Le motif par taille appellerait donc
+   un `tableau-14b.csv`. Il n'est pas créé : le 14B n'a que **deux** bras de
+   débit (dense f16 et LLVQ servi), pas de mesure AWQ dans son moteur, et pas
+   de disque/VRAM par bras au-delà de ce que porte déjà `echelle-4b-8b.csv`.
+   Le schéma promettrait quatre bras et en porterait deux — une table dont la
+   forme ment sur ce qui a été mesuré.
+3. **`echelle-4b-8b.csv` n'a ni colonne de débit ni colonne de Go carte** : son
+   grain est *(modèle, bras)* sur la **qualité** et le **b/param modèle
+   entier**. Lui en ajouter une coûterait deux choses. (a) Les débits 4B et 8B
+   vivent déjà dans `campagne-finale.csv` et `tableau-8b.csv` : les recopier
+   ici créerait un **second domicile** pour le même nombre, exactement ce que
+   l'argument de « séparation physique » ci-dessous existe pour empêcher.
+   (b) Il faudrait décider des trois cellules `awq4`, dont le seul nombre
+   existant — **200,49 tok/s dans vLLM** — est **d'une autre pile** et ne se
+   divise avec aucun des nôtres ; la case est laissée vide **partout ailleurs
+   dans le dossier**, et une colonne neuve n'est pas l'endroit où la remplir.
+4. **`progression.csv` est l'arc daté du travail de noyau au 4B**
+   (`tab:progression`, 08-05 → 08-07), indexé par étape. Un point 14B n'est pas
+   une étape de cet arc.
+
+⚠️ **Ce que ce choix laisse donc hors CSV, et il faut le savoir** : les deux
+seules cellules servies du 14B ne vivent que dans leur journal et dans la
+`what` de `jobs.csv`. Elles ne sont vérifiées par aucun filet. Créer leur
+domicile est une décision de structure qui revient à l'opérateur — et elle ne
+devrait se prendre que le jour où le 14B a autant de bras que les deux autres
+tailles, faute de quoi on aura fabriqué une table pour deux nombres.
+
+🔎 **Un résultat que ce run produit et qui, lui, ne demande aucune colonne** :
+les « Go carte » sont une **troisième route** vers le b/param modèle entier,
+celle que `rtbits-14b-2026-08-17.txt` déclarait manquante au 14B. Elle rend
+**5,0866 b/param** (*calculé* : 9,39 Go × 8 / 14 768 307 200) contre **5,106**
+mesuré par `rtbits` sur les octets exacts — **−0,38 %**, dans la bande de
+±0,5 % posée **avant le run** (prereg §2). Et le bras dense rend **16,0018**
+contre 16,000 exacts par construction, soit 0,011 % : le `params_total` du 14B
+reçoit du même coup sa troisième route. ⚠️ Le chiffre **publié** reste le
+5,106 de `rtbits` — ceci est un **recoupement**, pas un remplaçant, et il est
+calculé sur un affichage carte arrondi au centième de Go, la route même par
+laquelle le « ≈ 5,15 » du 4B était tombé **sous** la bonne valeur.
 
 ### 🆕 Pourquoi DEUX fichiers de perplexité, et pas une colonne de plus (2026-08-17)
 
@@ -245,7 +296,7 @@ la colonne n'est plus le chiffre que le papier revendique pour lui-même.**
 | 14B | marquées `[14B]` | 30,20 $ | ✅ |
 | **`[phase 1.2]`** (rejeu MMLU apparié) | marquées `[phase 1.2]` | **1,30 $** | ✅ |
 | **`[plancher]`** (E1v sur carte + `nullk`) | marquées `[plancher]` | **1,62 $** | ❌ **et délibérément pas** |
-| 🆕 **`[vitesse]`** (lot de débit du 08-17) | marquées `[vitesse]` | **0,35 $** | ❌ **et délibérément pas** |
+| 🆕 **`[vitesse]`** (lot de débit du 08-17) | marquées `[vitesse]` | **1,59 $** | ❌ **et délibérément pas** |
 
 🆕 **Pourquoi `[vitesse]` et pas `[14B]` pour le job `campagne-14b-vitesse`.**
 Le tag nomme la campagne qui paie, pas le modèle mesuré — c'est déjà la
@@ -271,8 +322,11 @@ recoupés par le tarif l40sx1 qu'impliquent les lignes déjà présentes
 sous-total.** Aucune cellule du papier ne repose sur les deux jobs du 08-16 —
 E1v et le plancher `nullk` n'y apparaissent nulle part — donc les fondre dans
 « le coût de cette évidence » aurait gonflé le chiffre sans rien ajouter à ce
-qu'il paie. Le papier dit désormais les deux : **57,56 $ au registre, dont
+qu'il paie. Le papier dit désormais les deux : **58,80 $ au registre, dont
 55,59 $ derrière ses propres nombres.**
+🕳️ **Ce montant a dit « 57,56 $ » jusqu'au soir du 2026-08-17** ; il devient
+58,80 $ avec la retombée du job de vitesse 14B (voir plus bas). Le **55,59 $**,
+lui, n'a PAS bougé : aucune cellule du papier ne repose sur ce job.
 
 🆕 **Le total a bougé une SECONDE fois le même jour : 57,21 → 57,56 $**, en
 soldant les **quatre jobs du 08-17** que `jobs.csv` n'avait pas encore
@@ -293,9 +347,35 @@ secondes exactes vivent dans `what` : arrondir puis remultiplier par le tarif
 ne referme donc pas au centime, et c'est voulu — mieux vaut une minute
 arrondie visible qu'une durée inventée à la seconde.
 
-⚠️ **Le job de vitesse 14B en cours au moment de cette écriture n'est PAS dans
-le tableau** : il n'a pas rendu, donc il n'a ni durée ni montant. Une ligne
-`jobs.csv` se pose quand le job est retombé, jamais en anticipation.
+🕳️ **« Le job de vitesse 14B en cours au moment de cette écriture n'est PAS
+dans le tableau » — SOLDÉ le même soir.** La phrase était juste et sa règle le
+reste (*une ligne `jobs.csv` se pose quand le job est retombé, jamais en
+anticipation*) ; le job est retombé, il a donc sa ligne :
+
+| job | nom | flavor | durée | coût |
+|---|---|---|---|---|
+| `6a83121be55292eada79b611` | campagne-14b-vitesse-2 | l40sx1 | 2 472 s | **1,24 $** |
+
+Durée et montant **rapportés par la plateforme** (*mesuré* côté plateforme,
+*cité* ici) ; recoupés par le tarif l40sx1 de 1,80 $/h — 2 472 s en rendent
+1,236 $ — *calculé*, pas une seconde mesure. `billed_min` porte 41, la minute
+arrondie ; les 2 472 s exactes vivent dans `what`, comme pour les quatre
+lignes précédentes.
+
+**Conséquences arithmétiques, toutes vérifiées après écriture** :
+`[vitesse]` **0,35 → 1,59 $** · total de la colonne **57,56 → 58,80 $** ·
+les **deux sous-totaux 14B du papier restent 31,46 $ et 30,20 $**, parce que le
+tag `[vitesse]` nomme la campagne qui paie et non le modèle mesuré — la même
+convention que pour `campagne-14b-vitesse` et `paliers-4b-128`, et ici elle
+tient pour un job qui, cette fois, a bel et bien mesuré du 14B. Journal :
+[`mesures/fusedrun-14b-2026-08-17.txt`](../mesures/fusedrun-14b-2026-08-17.txt).
+
+🆕 **Et la sortie brute du job est commitée** :
+[`campagne-14b-vitesse-2/`](campagne-14b-vitesse-2/) — les quatre fichiers que
+le job a écrits dans le bucket monté (`preflight.txt`, `rotbench.txt`,
+`fusedrun-q8.txt`, `phases-q8.txt`), repris tels quels. C'est la leçon payée
+deux fois dans la semaine : un journal de synthèse est une perte irréversible
+dès que le canal de rétention expire, et le bucket n'est pas une garantie.
 
 🕳️ **« Le total vit dans quatre sites » était faux, et vérifié le
 2026-08-17 : il en vit DEUX.** `paper/main.tex` (abstract, l. 74-75) et

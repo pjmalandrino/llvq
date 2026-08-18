@@ -482,17 +482,19 @@ suspect, roughly $100\times$ less calibration data, is bounded in
 that bound is measured on perplexity, which does not constrain MMLU.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
-its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$57.56, of
+its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$58.80, of
 which \$55.59 is the campaign behind this paper (integration, ablations,
 negative results, three models): \$27.67 the 14B quantization, \$12.61 the 8B
 requantization, \$2.33 the kernel campaign of \S\ref{sec:layouts} and \$1.30
 the paired MMLU replay that produced the intervals above. The remaining
-\$1.97 is two format jobs of 2026-08-16 --- a transposed layout measured on
-card and a no-weight floor kernel --- and four speed jobs of 2026-08-17,
+\$3.21 is two format jobs of 2026-08-16 --- a transposed layout measured on
+card and a no-weight floor kernel --- and five speed jobs of 2026-08-17,
 among them the \$0.11 AWQ throughput run in vLLM that measures the 4-bit arm
 in its own engine and therefore fills no cell of Table~\ref{tab:campaign},
-whose throughput entry for that arm stays empty; \emph{no cell of this paper
-rests on} any of the six, and they are separated here rather than
+whose throughput entry for that arm stays empty, and the \$1.24 run that
+serves the 14B through the fused kernel for the first time, whose throughput
+and card memory this paper reports nowhere; \emph{no cell of this paper
+rests on} any of the seven, and they are separated here rather than
 folded in, since a campaign
 total that quietly absorbs later work stops being the cost of this evidence.
 An earlier draft reported \$22.83; that figure was correct for everything

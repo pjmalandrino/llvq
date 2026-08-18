@@ -1,0 +1,48 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+rotation partagée : 0 (LLVQ_ROT_SHARE) — 280 rot_lancements/token pour 280 projections
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 7.74 Go sur la carte, 4.686 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+embedding : q8 g64 (LLVQ_EMBED) — 2 tables (model.embed_tokens.weight + lm_head.weight), 1653.1 Mo sur la carte (int8 1555.8 + échelles/biais 97.2)
+total attendu sur la carte : 9.39 Go (projections 7.74 + portés 1.65)
+fusé   : chargé en  456.7 s,   40.5 tok/s, 9.39 Go sur la carte
+         LLVQ_ROT_SHARE=0, 280 rot_lancements/token
+
+--- phases, bras fusé (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.022  [0.020–0.027]  (31 éch.)
+  blocs+norme        21.456  [21.372–21.622]  (31 éch.)
+  lm_head             1.186  [1.184–1.196]  (32 éch.)
+  argmax+divers       0.085  [0.081–0.096]  (32 éch.)
+  total fencé        22.749  (somme des médianes, fences comprises)
+dense  : chargé en  749.2 s,   16.9 tok/s, 29.54 Go sur la carte
+
+--- phases, bras dense (LLVQ_TIME_PHASES, 32 tokens, hors protocole) ---
+  ⚠️ chaque phase est bornée par une synchronisation device : les phases
+     s'attribuent, mais les fences sérialisent ce que le chemin normal
+     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.
+  phase             médiane  plage (ms/token)
+  embed               0.028  [0.026–0.056]  (31 éch.)
+  blocs+norme        39.192  [39.124–39.276]  (31 éch.)
+  lm_head            53.873  [53.794–56.588]  (32 éch.)
+  argmax+divers       0.103  [0.094–0.136]  (32 éch.)
+  total fencé        93.196  (somme des médianes, fences comprises)
+
+--- les deux bras ---
+  32 tokens identiques
+  dense :  Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the
+  fusé  :  Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           749.2 s        16.9       29.54
+  fusé            456.7 s        40.5        9.39
+  ----------------------------------------------
+  vitesse ×2.40, mémoire ÷3.14
+
+  projections : 4.686 b/poids sur la carte, fichier 6.51 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.

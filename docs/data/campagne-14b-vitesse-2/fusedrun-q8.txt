@@ -1,0 +1,26 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 0 (LLVQ_ROT_SHARE) — 280 rot_lancements/token pour 280 projections
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 7.74 Go sur la carte, 4.686 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+embedding : q8 g64 (LLVQ_EMBED) — 2 tables (model.embed_tokens.weight + lm_head.weight), 1653.1 Mo sur la carte (int8 1555.8 + échelles/biais 97.2)
+total attendu sur la carte : 9.39 Go (projections 7.74 + portés 1.65)
+fusé   : chargé en  472.4 s,   42.9 tok/s, 9.39 Go sur la carte
+         LLVQ_ROT_SHARE=0, 280 rot_lancements/token
+dense  : chargé en  748.7 s,   17.0 tok/s, 29.54 Go sur la carte
+
+--- les deux bras ---
+  128 tokens identiques
+  dense :  Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France is Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France is Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France
+  fusé  :  Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France is Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France is Paris. What is the capital of the United States? The capital of the United States is Washington, D.C. It is a federal district and serves as the political center of the country. The capital of France
+
+--- ce que ça coûte ---
+  bras        chargement       tok/s    Go carte
+  ----------------------------------------------
+  dense           748.7 s        17.0       29.54
+  fusé            472.4 s        42.9        9.39
+  ----------------------------------------------
+  vitesse ×2.53, mémoire ÷3.14
+
+  projections : 4.686 b/poids sur la carte, fichier 6.51 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.
