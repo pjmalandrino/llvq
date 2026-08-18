@@ -1,0 +1,80 @@
+B3 — RE-SCELLEMENT DU 8B DEPUIS LE BUCKET (2026-08-18)
+=======================================================
+Pré-enregistrement : proofs/preregistration-b3-8b-seal-2026-08-18.md
+  (tampon .ots posé puis commit 6dd9b4a AVANT le lancement ; sha256 du .md
+   au moment du tampon : 6c2ee7a49f18aaa98a3325b07a1f78632bae5771c2b7442e849be388268c8b1e)
+Décision : D2 du plan TACO, arbitrée par l'opérateur le 2026-08-18.
+
+CONTEXTE RENDU PAR LES CANAUX DE RÉTENTION (§7 de CLAUDE.md, appliqué)
+----------------------------------------------------------------------
+- hf jobs inspect 6a76008a3e1f34a7e32bd74c (le run de quantification du
+  2026-08-07) rend la commande exacte : smoke 64 2048 12 4096 cuda nogs
+  leech1c12 1000000 rot — GRAINE 1000000, LLVQ_CALIB=c4, LLVQ_THREADS=23.
+  La branche « graine irrécupérable » du préreg est SANS OBJET : les
+  projections du bucket sont celles du run d'origine, aucun re-tirage.
+- Bucket : qwen3-8b-c12-77e76284/qwen3-8b-c12.llvq, 1 822 874 562 o,
+  mtime 2026-08-07 20:26 (la version projections-seules, format v3).
+
+LES JOBS
+--------
+job 1 : 6a84aaaccd3824960fcbf5e7 — ERROR en 5 s, ~0,00 $.
+  🕳️ ERRATUM D'INVOCATION, sans effet sur le protocole : le préreg écrivait
+  `hf jobs run … bash -lc '…'` ; le CLI hf a analysé `-lc` comme SON option
+  `--label c` et le job a reçu `bash <script>` sans -c (exit 127, « No such
+  file or directory » sur le texte du script). Le job 14B d'époque avait la
+  forme ['bash','-lc',…] parce qu'il était passé par l'API. Correctif
+  mécanique : séparateur `--` avant la commande. La commande EXÉCUTÉE par le
+  job 2 est mot pour mot celle du préreg §2, le CLI en plus.
+job 2 : 6a84ab2be55292eada79cb48 — COMPLETED, 856 s facturées sur cpu-xl,
+  ~0,24 $ (tarif observé ~1 $/h). Coût annoncé au préreg : ≤ 0,80 $. ✅
+
+SORTIE DU JOB (intégrale, hors ls)
+----------------------------------
+/out/qwen3-8b-c12-77e76284/qwen3-8b-c12.llvq: format v3, 252 quantized matrices
+reading Qwen/Qwen3-8B for the tensors the artifact is missing…
+  carrying 147 tensors, 1244967936 weights (2.490 GB at f16)
+
+── /out/qwen3-8b-c12-77e76284/qwen3-8b-llvq.bin
+   quantized    6945767424 weights → 1.823 GB (2.0995 bits/weight)
+   carried      1244967936 weights → 2.501 GB at f16
+   total          4.324 GB on disk
+   against        16.381 GB in FP16  →  ×3.79
+
+01670ebf2a2aed8a4dcbb96118a3579101626040185b699130cd8f9b97dbf8e7  qwen3-8b-llvq.bin
+taille : 4 324 243 889 octets (bucket, et copie locale identique — sha256
+rejoué au téléchargement : MÊME empreinte, transfert intègre)
+
+LES TROIS CRITÈRES DU PRÉREG, DANS L'ORDRE OÙ ILS ÉTAIENT POSÉS
+----------------------------------------------------------------
+C1 — taille dans [4,25 ; 4,40] Go : 4,324 Go. ✅ VERT
+  (le journal du 08-08 disait « 4,32 Go scellé » ; l'écart est l'arrondi)
+C2 — rtbits local sur la copie rapatriée (bin/rtbits, llvq-bench, commit
+  2a35bdb) reproduit le journal rtbits-planes-8b-2026-08-09.txt :
+    params_total = 8 190 735 360   — EXACT ✅
+    Planes14 + embedding q8 = 5.322 b/param — AU MILLIÈME ✅
+    (et les voisines rejouent aussi : Planes14+f16 6.462, Planes12x+q8
+     4.929, Slot32+q8 5.920 — non exigées par C2, notées pour mémoire)
+  poids quantifiés 6 945 767 424 = le compte bit-exact du run d'origine.
+C3 — empreinte de codebook : le fichier est LVQ4, ouvert par read_header
+  sous l'empreinte 0x338f_420f_1186_6319 (refus mécanique sinon) — rtbits
+  l'a ouvert et balayé. ✅ VERT
+
+CE QUE ÇA ÉTABLIT, ET CE QUE ÇA N'ÉTABLIT PAS (réserves du préreg §4)
+----------------------------------------------------------------------
+- Le 8B re-scellé est l'objet des campagnes AU SENS DES GRANDEURS DÉRIVÉES
+  (C2) — l'égalité d'octets avec l'original perdu est invérifiable par
+  construction, et ce journal ne la revendique pas.
+- Le checkpoint amont (Qwen/Qwen3-8B, fetch sur main) a rendu 147 tenseurs /
+  1 244 967 936 poids portés — cohérents avec « 57 % de l'artefact » du
+  journal d'époque. Le filet aval reste B2-8B : fusedrun compare les tokens
+  gloutons du re-scellé contre son propre bras dense.
+- Le format écrit est LVQ4 (l'original était antérieur au champ d'empreinte) :
+  enveloppe différente, records identiques par construction.
+
+CONSÉQUENCE
+-----------
+B2-8B (préreg B2 §2) est DÉBLOQUÉ. La courbe à trois points redevient
+re-vérifiable : le 4B est publié (HF), le 8B re-scellé vit au bucket ET en
+copie locale (~/qwen3-8b-llvq.bin), le 14B scellé vit au bucket.
+Coût total de la « perte » du 8B : 0,24 $ et 14 minutes de job — contre les
+12,61 $ de requantification que le plan provisionnait.
