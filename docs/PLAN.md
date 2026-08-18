@@ -5,6 +5,15 @@
 > information/coût**, chacune avec ses tâches, ses critères écrits d'avance
 > et son coût.
 >
+> 🗓️ **2026-08-18 — Le chantier « papier » a son plan d'exécution :
+> [`plan-taco-2026-08-18.md`](plan-taco-2026-08-18.md)**, issu d'un audit
+> complet du dépôt (9 agents, vérifications sur pièces) cadré sur une
+> soumission ACM TACO. Il porte le recadrage du claim, les trois décisions
+> d'opérateur (option A/B sur la courbe d'échelle, sort du 8B, périmètre
+> batch), le RAF ordonné (B1-B4 bloquants, F1-F7 attendus) et le chemin
+> critique en 4 jalons (~30-100 $, 18-25 j-h). Ce plan-ci reste le document
+> de niveau projet ; le plan TACO est son exécution côté publication.
+>
 > 🚨 **2026-08-16 — LE TRIPLET PRODUIT EST ARBITRÉ, ET IL FERME L'AXE FORMAT.**
 > L'opérateur a tranché les trois cases qui manquaient à
 > [`note-produit-2026-08-13.md`](note-produit-2026-08-13.md) : **A2 = 8k**,
