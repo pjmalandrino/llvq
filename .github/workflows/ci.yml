@@ -148,6 +148,33 @@ jobs:
           --workspace --exclude llvq-cuda --exclude llvq-metal
           --release
 
+      # The debug leg proves almost nothing about the math — the heavy tests
+      # are cfg_attr(debug_assertions, ignore)d, so most of the suite skips —
+      # but it is the only place the overflow checks run, and they are not
+      # hypothetical: BitWriter::push at width=64 was red in debug and
+      # correct-by-accident in release (a masked shift over an accumulator
+      # that happened to be 0) until 2026-08-18, and no automation could see
+      # it because CI tested --release only. Cheap by construction, since
+      # everything slow skips itself.
+      - name: tests (debug; where the overflow checks live)
+        run: >
+          cargo test --locked
+          --workspace --exclude llvq-cuda --exclude llvq-metal
+
+      # `fast-linalg` is the feature the *published* models were factorized
+      # with (faer is in the production command line, README §reproduce), and
+      # `both_factorizations_agree` — the test that pins faer's factor to the
+      # dependency-free reference, the only check that would catch a faer
+      # upgrade changing what gets published — is cfg(feature = "fast-linalg")
+      # and therefore ran in no automation at all until 2026-08-18. This step
+      # exists for that one property; scoping it to llvq-quant keeps faer's
+      # compile out of the other crates' cache entries.
+      - name: tests (llvq-quant with fast-linalg; the faer/reference cross-check)
+        run: >
+          cargo test --locked
+          -p llvq-quant --features fast-linalg
+          --release
+
       # CLAUDE.md §2 makes a load-bearing claim: llvq-core, llvq-search,
       # llvq-quant, llvq-artifact and llvq-bench have zero external
       # dependencies, so that reading a quantized model never requires a tensor
