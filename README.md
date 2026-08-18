@@ -11,6 +11,11 @@ end. Only the model side pulls in `candle`.
 
 > **Want to just run it?** → [`LAUNCH_ME.md`](LAUNCH_ME.md). The model is at
 > [Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit).
+> Verify your download before trusting it: `qwen3-4b-llvq.bin` is
+> 1 770 527 533 bytes, sha256
+> `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0`
+> (measured in [`docs/fiche-4b.md`](docs/fiche-4b.md), which also pins the
+> HF `content-length`/etag equality).
 >
 > ⚠️ **It is not GGUF, AWQ or safetensors.** `transformers`, `llama.cpp`, vLLM
 > and TGI do not read this file — the only reader that exists is

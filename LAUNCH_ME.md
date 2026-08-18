@@ -42,6 +42,17 @@ git clone https://github.com/pjmalandrino/llvq && cd llvq
 hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin --local-dir .
 ```
 
+Vérifier les octets avant de leur faire confiance — l'empreinte attendue est
+celle de la fiche d'identité ([`docs/fiche-4b.md`](docs/fiche-4b.md), MESURE) :
+
+```bash
+shasum -a 256 qwen3-4b-llvq.bin
+```
+
+> attendu : `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0`
+> (1 770 527 533 octets — un hash différent signifie un téléchargement
+> tronqué ou un fichier qui n'est pas celui que cette page décrit).
+
 ```bash
 cargo run --release -p llvq-llm --features metal --bin run -- qwen3-4b-llvq.bin metal 24
 ```
