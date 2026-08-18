@@ -121,6 +121,26 @@ fn get_u64(r: &mut impl Read, what: &'static str) -> Result<u64> {
     Ok(u64::from_le_bytes(b))
 }
 
+/// Cap on any allocation sized from a length field of the file. A length
+/// field is a claim, not a fact: reserving gigabytes because a corrupted u64
+/// says so would abort the process on OOM before the reads could fail.
+/// Legitimate vectors larger than this grow as their elements arrive.
+const PREALLOC_CAP: usize = 1 << 20;
+
+/// Read exactly `n` bytes declared by a length field of the file.
+///
+/// The buffer grows only as bytes actually arrive, so a lying length on a
+/// short stream returns [`Error::Truncated`] instead of aborting on an
+/// allocation the file could never back.
+fn get_bytes(r: &mut impl Read, n: u64, what: &'static str) -> Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(n.min(PREALLOC_CAP as u64) as usize);
+    let got = (&mut *r).take(n).read_to_end(&mut buf)?;
+    if (got as u64) < n {
+        return Err(Error::Truncated { reading: what });
+    }
+    Ok(buf)
+}
+
 /// Serialize one matrix, returning the bits its payload occupies.
 ///
 /// The `Indexer` is shared across calls — building it enumerates 383 classes
@@ -280,42 +300,59 @@ pub fn write_matrix_raw(w: &mut impl Write, m: &RawMatrix) -> Result<u64> {
 /// Read one matrix without decoding its indices.
 pub fn read_matrix_raw(r: &mut impl Read) -> Result<RawMatrix> {
     let n = get_u32(r, "name length")? as usize;
-    let mut name = vec![0u8; n];
-    r.read_exact(&mut name)
-        .map_err(|_| Error::Truncated { reading: "name" })?;
+    let name = get_bytes(r, n as u64, "name")?;
     let name = String::from_utf8(name).map_err(|_| Error::BadName)?;
     let d_out = get_u32(r, "d_out")? as usize;
     let d_in = get_u32(r, "d_in")? as usize;
     let shell_cap = get_u32(r, "shell cap")?;
+    // Validated before `index_bits`, whose class enumeration asserts on the
+    // supported ball — a wild cap from a corrupted file must be an `Err`,
+    // not a panic inside llvq-search.
+    if shell_cap > llvq_search::classes::MAX_SHELL {
+        return Err(Error::Inconsistent {
+            name,
+            detail: format!(
+                "shell cap {shell_cap} exceeds the supported ball (m ≤ {})",
+                llvq_search::classes::MAX_SHELL
+            ),
+        });
+    }
     let n_cent = get_u32(r, "centroid count")? as usize;
     let seed = get_u64(r, "rotation seed")?;
     let has_rot = get_u32(r, "rotation flag")? != 0;
 
-    let mut centroids = Vec::with_capacity(n_cent);
+    let mut centroids = Vec::with_capacity(n_cent.min(PREALLOC_CAP));
     for _ in 0..n_cent {
         centroids.push(f64::from_bits(get_u64(r, "centroids")?));
     }
-    let mut row_scales = Vec::with_capacity(d_out);
+    let mut row_scales = Vec::with_capacity(d_out.min(PREALLOC_CAP));
     for _ in 0..d_out {
         row_scales.push(f64::from_bits(get_u64(r, "row scales")?));
     }
     let tail_w = d_out * (d_in % DIM);
-    let mut tail = Vec::with_capacity(tail_w);
+    let mut tail = Vec::with_capacity(tail_w.min(PREALLOC_CAP));
     for _ in 0..tail_w {
         tail.push(f32::from_bits(get_u32(r, "tail")?) as f64);
     }
 
-    let nbytes = get_u64(r, "code length")? as usize;
-    let mut bytes = vec![0u8; nbytes];
-    r.read_exact(&mut bytes)
-        .map_err(|_| Error::Truncated { reading: "code stream" })?;
+    let nbytes = get_u64(r, "code length")?;
+    let bytes = get_bytes(r, nbytes, "code stream")?;
 
     let ib = llvq_quant::quantizer::index_bits(shell_cap);
     let gb = centroids.len().next_power_of_two().trailing_zeros();
     let nblocks = d_out * (d_in / DIM);
+    // The stream must hold every block the dimensions promise. Checked here
+    // because `BitReader::read` treats an over-read as a caller bug and
+    // panics — its assert is an internal invariant, and the boundary where a
+    // hostile file is still an `Err` is this one.
+    if nblocks as u64 * (ib + gb) as u64 > bytes.len() as u64 * 8 {
+        return Err(Error::Truncated {
+            reading: "code stream",
+        });
+    }
     let mut br = BitReader::new(&bytes);
-    let mut indices = Vec::with_capacity(nblocks);
-    let mut gains = Vec::with_capacity(nblocks);
+    let mut indices = Vec::with_capacity(nblocks.min(PREALLOC_CAP));
+    let mut gains = Vec::with_capacity(nblocks.min(PREALLOC_CAP));
     for _ in 0..nblocks {
         indices.push(br.read(ib));
         gains.push(br.read(gb) as u32);

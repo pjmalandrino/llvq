@@ -174,11 +174,26 @@ fn put_str(w: &mut impl Write, s: &str) -> Result<()> {
     Ok(())
 }
 fn get_str(r: &mut impl Read, what: &'static str) -> Result<String> {
-    let n = get_u32(r, what)? as usize;
-    let mut b = vec![0u8; n];
-    r.read_exact(&mut b)
-        .map_err(|_| Error::Truncated { reading: what })?;
+    let n = get_u32(r, what)?;
+    let b = get_bytes(r, n as u64, what)?;
     String::from_utf8(b).map_err(|_| Error::BadName)
+}
+
+/// Cap on any allocation sized from a length field of the file — same
+/// reasoning as its twin in `format.rs`: a corrupted length must fail as
+/// [`Error::Truncated`] when the bytes run out, not abort on OOM before the
+/// read gets a chance to.
+const PREALLOC_CAP: usize = 1 << 20;
+
+/// Read exactly `n` bytes declared by a length field of the file, growing the
+/// buffer only as bytes actually arrive.
+fn get_bytes(r: &mut impl Read, n: u64, what: &'static str) -> Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(n.min(PREALLOC_CAP as u64) as usize);
+    let got = (&mut *r).take(n).read_to_end(&mut buf)?;
+    if (got as u64) < n {
+        return Err(Error::Truncated { reading: what });
+    }
+    Ok(buf)
 }
 
 fn put_u16s(w: &mut impl Write, vals: &[u16]) -> Result<()> {
@@ -192,9 +207,13 @@ fn put_u16s(w: &mut impl Write, vals: &[u16]) -> Result<()> {
     Ok(())
 }
 fn get_u16s(r: &mut impl Read, n: usize, what: &'static str) -> Result<Vec<u16>> {
-    let mut bytes = vec![0u8; n * 2];
-    r.read_exact(&mut bytes)
-        .map_err(|_| Error::Truncated { reading: what })?;
+    // `n` can come straight from a length field; a count whose byte size
+    // overflows u64 names data no file could hold, so it truncates by
+    // definition rather than wrapping into a small, wrong allocation.
+    let nbytes = (n as u64)
+        .checked_mul(2)
+        .ok_or(Error::Truncated { reading: what })?;
+    let bytes = get_bytes(r, nbytes, what)?;
     Ok(bytes
         .chunks_exact(2)
         .map(|c| u16::from_le_bytes([c[0], c[1]]))
@@ -279,7 +298,7 @@ pub fn read_raw(r: &mut impl Read, version: u32) -> Result<RawTensor> {
     }
     let name = get_str(r, "raw tensor name")?;
     let rank = get_u32(r, "raw tensor rank")? as usize;
-    let mut dims = Vec::with_capacity(rank);
+    let mut dims = Vec::with_capacity(rank.min(PREALLOC_CAP));
     for _ in 0..rank {
         dims.push(get_u64(r, "raw tensor dims")? as usize);
     }
@@ -291,11 +310,8 @@ pub fn read_raw(r: &mut impl Read, version: u32) -> Result<RawTensor> {
         TAG_QUANT => {
             let bits = get_u32(r, "quant width")? as u8;
             let group = get_u32(r, "quant group")? as usize;
-            let nbytes = get_u64(r, "quant packed length")? as usize;
-            let mut packed = vec![0u8; nbytes];
-            r.read_exact(&mut packed).map_err(|_| Error::Truncated {
-                reading: "quant packed data",
-            })?;
+            let nbytes = get_u64(r, "quant packed length")?;
+            let packed = get_bytes(r, nbytes, "quant packed data")?;
             let groups = get_u64(r, "quant group count")? as usize;
             let scales = get_u16s(r, groups, "quant scales")?;
             let biases = get_u16s(r, groups, "quant biases")?;
@@ -321,9 +337,7 @@ pub fn write_blob(w: &mut impl Write, b: &Blob) -> Result<u64> {
 
 pub fn read_blob(r: &mut impl Read) -> Result<Blob> {
     let name = get_str(r, "blob name")?;
-    let n = get_u64(r, "blob length")? as usize;
-    let mut bytes = vec![0u8; n];
-    r.read_exact(&mut bytes)
-        .map_err(|_| Error::Truncated { reading: "blob" })?;
+    let n = get_u64(r, "blob length")?;
+    let bytes = get_bytes(r, n, "blob")?;
     Ok(Blob { name, bytes })
 }

@@ -61,7 +61,15 @@ impl BitWriter {
             let take = left.min(64 - self.nbits);
             // The `take` most significant bits of what is left of `value`.
             let chunk = (value >> (left - take)) & mask(take);
-            self.acc = (self.acc << take) | chunk;
+            // `take` reaches 64 only with an empty accumulator (`nbits == 0`,
+            // hence `acc == 0`), where a literal `acc << 64` overflows the
+            // shift width — a debug panic, and correct in release only by the
+            // accident that the masked shift keeps an accumulator that is 0.
+            self.acc = if take == 64 {
+                chunk
+            } else {
+                (self.acc << take) | chunk
+            };
             self.nbits += take;
             left -= take;
             while self.nbits >= 8 {
