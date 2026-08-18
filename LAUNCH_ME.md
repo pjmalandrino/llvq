@@ -14,7 +14,7 @@ checkpoint, sans cache Hugging Face et sans réseau.
 | MMLU 5-shot, micro, **sur le fichier publié** *(CUDA/L40S, la valeur de la carte HF)* | **55,59 ± 1,35** | 70,32 ± 1,28 | −14,73 pp |
 | projections, un token *(noyau fusé, modèle entier)* | **10,5 – 11,0 ms** | 21,7 – 22,7 ms | **×2,06 – 2,08** |
 | + lm_head f16 ajouté **analytiquement** *(jamais exécuté)* | *78,2 tok/s calculé* | *41,6 calculé* | *×1,88 — un majorant* |
-| génération réelle de `bin/run` | **2,2 – 7,6 tok/s mesurés** | — | — |
+| génération réelle de `bin/run` *(L40S, fichier scellé — cache KV depuis `9c24d26`)* | **42,7 tok/s mesurés** | — | — |
 
 🕳️ La ligne MMLU a porté **56,09 / 70,42 (−14,33 pp)** — le run Metal du
 2026-08-02 — jusqu'au 2026-08-18, pendant que la carte HF publiait 55,59 :
@@ -22,13 +22,21 @@ deux surfaces publiques, deux chiffres pour la même cellule. La référence est
 la campagne CUDA du 08-06 (empreinte `65dcd53655e8bfa5`) ; l'écart de 0,50 pp
 entre les deux runs est documenté — et non expliqué — sur la carte.
 
-⚠️ **Les deux lignes de vitesse ne sont pas ce que fait `bin/run`.** Elles sont
-mesurées par `bin/thesis` (§ *Valider la thèse*), sur le même fichier et la même
-machine, avec le noyau fusé. Ce noyau n'est **pas branché** dans le runner
-livré : `bin/run` décode les poids en mémoire puis fait un matvec ordinaire, et
-ne gagne donc aucune vitesse — **il génère entre 2,2 et 7,6 tok/s, et le débit
-décroît avec la longueur** parce que `generate` rejoue tout le préfixe à chaque
-pas (pas de cache KV). C'est le dernier chantier.
+⚠️ **Les deux lignes de vitesse « projections » ne sont pas ce que fait
+`bin/run`.** Elles sont mesurées par `bin/thesis` (§ *Valider la thèse*), sur le
+même fichier et la même machine, avec le noyau fusé. Ce noyau n'est **pas
+branché** dans le runner portable : `bin/run` décode les poids en mémoire puis
+fait un matvec ordinaire — sa vitesse est celle du moteur, pas du noyau. Le
+chemin fusé dans le modèle existe ailleurs : `bin/fusedrun` (Linux + CUDA).
+
+🕳️ Ce paragraphe a dit « 2,2 – 7,6 tok/s, débit décroissant, pas de cache KV,
+c'est le dernier chantier » jusqu'au 2026-08-18 — des mesures et un état
+**antérieurs au cache KV**, que `bin/run` a depuis le commit `9c24d26`
+(2026-08-05), épinglé par un test qui exige les mêmes tokens que le chemin non
+caché ; sur L40S le fichier scellé rend 42,7 tok/s
+([`docs/mesures/mini-2026-08-05.txt`](docs/mesures/mini-2026-08-05.txt)).
+`bin/run` n'a pas de mesure Mac post-cache — s'attendre à mieux que les
+2,2 – 7,6 tok/s d'époque, sans chiffre à promettre.
 
 ---
 
@@ -93,14 +101,27 @@ au réseau.)
 Quatre vérifications, de la plus rapide à la plus longue. Chacune répond à une
 question différente, et aucune ne demande de nous croire sur parole.
 
-### 1. Le cœur mathématique est-il juste ? — ~2 min sur un clone frais
+### 1. Le cœur mathématique est-il juste ? — quelques minutes sur un clone frais
 
 ```bash
-cargo test --release -- --include-ignored
+cargo test --release
 ```
 
-La totalité de la suite, sans un seul test ignoré (~20 s à chaud, le reste est
-la compilation). Les invariants de Λ₂₄ (nombre de baisers 196 560, série
+Les tests marqués `ignored` dans la sortie sont les **sweeps d'archive
+scellée** : ils exigent l'artefact et se comptent en dizaines de minutes. Les
+lancer une fois le fichier téléchargé :
+
+```bash
+LLVQ_SEALED_ARTIFACT=$PWD/qwen3-4b-llvq.bin cargo test --release -- --include-ignored
+```
+
+🕳️ Cette étape a promis « la totalité de la suite, sans un seul test ignoré,
+~2 min » jusqu'au 2026-08-18 — faux dans les deux sens depuis le 2026-08-08 :
+sans l'archive, les sweeps **échouent en nommant le fichier** (ils ne
+« sautent » plus, c'est voulu) ; avec elle, la suite complète se compte en
+dizaines de minutes, pas en minutes.
+
+La boucle rapide couvre les invariants de Λ₂₄ (nombre de baisers 196 560, série
 thêta), la recherche exacte du plus proche voisin contre la force brute, la
 bijectivité de l'index 48 bits, la boucle GPTQ contre un minimiseur analytique
 indépendant, et les allers-retours bit pour bit des cinq formats runtime.
@@ -115,7 +136,8 @@ env -i HOME=/nonexistent PATH=/usr/bin:/bin ./target/release/run qwen3-4b-llvq.b
 ```
 
 S'il répond, le fichier est bien le modèle entier. (255,7 s mesurées : c'est le
-chemin `cpu`, le plus lent, et il n'y a pas de cache KV.)
+chemin `cpu`, le plus lent — mesure antérieure au cache KV livré en `9c24d26`,
+s'attendre à mieux aujourd'hui.)
 
 ### 3. La thèse tient-elle ? — ~4 min
 
@@ -163,9 +185,11 @@ faveur**. Il génère bien plus vite, et sa qualité n'a jamais été mesurée f
 la nôtre : cette case-là est **vide, pas faible**. Analyse :
 [`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
-**On gagne de la vitesse, mais pas encore dans le runner** : le noyau fusé est
-écrit, vérifié et mesuré à ×2,06–2,08 sur les projections du modèle entier ; il
-n'est pas branché dans `bin/run`, qui n'a d'ailleurs pas de cache KV.
+**On gagne de la vitesse, mais pas dans le runner portable** : le noyau fusé
+est écrit, vérifié et mesuré à ×2,06–2,08 sur les projections du modèle
+entier ; il n'est pas branché dans `bin/run` — le chemin fusé dans le modèle
+est `bin/fusedrun` (Linux + CUDA). `bin/run`, lui, a un cache KV depuis
+`9c24d26`.
 
 **On paie la vitesse en mémoire vive.** Le format que le noyau lit en RAM coûte
 **5,51 b/poids** sur les projections — plus que les **4,179 b/poids** que le
@@ -215,7 +239,7 @@ jamais été quantifié ici, et aucun cache KV n'est budgété dans ce calcul.
 ⚠️ **Cette commande reproduit la méthode, pas les octets** : le shard de
 calibration C4 est passé de `00000` à `00001` après le run publié, et le magic
 du conteneur a bougé. Un re-run aujourd'hui produit un fichier différent,
-également valide. La CI du dépôt (depuis le 2026-08-09 : clippy, tests, garde
+également valide. La CI du dépôt (depuis le 2026-08-08 : clippy, tests, garde
 zéro-dépendance, sur les 6 crates CPU — pas de GPU) vérifie le code, pas les
 octets : rien n'automatise la reproduction de l'artefact.
 

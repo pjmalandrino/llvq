@@ -351,10 +351,13 @@ cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 999 metal
 #   LLVQ_DAMPING={3e-3,1e-2,3e-2} → 20,6740 / 20,6643 / 20,6014 : écart
 #     0,35 %, SOUS 1σ. Effet nul — exactement ce que le code prédisait.
 cargo clippy --all-targets                   # doit rester à zéro warning
-#   ⚠️ `cargo test -p llvq-search --test g6_pack` ÉCHOUE EN DEBUG et passe en
-#   release — antérieur au 2026-08-15, vérifié au commit 3879cde. Motif d'un
-#   décalage de 64 bits que la release absorbe. Ne pas le lire comme une
-#   régression de la session en cours.
+#   ✅ `cargo test -p llvq-search --test g6_pack` passe DANS LES DEUX PROFILS
+#   depuis le 2026-08-18 (commit a32163e) : le motif était un shift de 64 bits
+#   dans BitWriter::push à width=64 — panique en debug, correct-par-accident
+#   en release parce que l'accumulateur valait 0 à ce point. Couvert depuis
+#   par le leg debug de la CI. 🕳️ La note qui vivait ici disait « ÉCHOUE EN
+#   DEBUG … ne pas le lire comme une régression » : exact du 08-15 au 08-18,
+#   et c'était un bug réel, pas un artefact de profil.
 
 # LLVQ_KV=f16|q8  (défaut f16) — le cache KV int8, livré le 2026-08-15 et
 #   DÉLIBÉRÉMENT PAS le défaut : qualité verte (ppl +0,049 %, MMLU +0,33 pp,

@@ -569,13 +569,13 @@ une réponse. Personne n'attend de toi que tu récites la théorie des réseaux.
 | ❌ | ✅ |
 |---|---|
 | « On bat le papier » | « On reproduit le papier à iso-réglage ; notre avance sur β est un artefact de réglage » |
-| « 2 bits par poids » | « 2,17 sur le disque, 5,51 en RAM — et c'est tout le problème » |
-| « 5,51 contre 4,50 en RAM » | « à convention identique poids seuls, 6,5245 contre 4,5006, soit ×1,45 contre nous — le 5,51 décrit notre format, il ne se compare pas au q4 » |
+| « 2 bits par poids » | « 2,17 sur le disque, 4,804 b/poids noyau en VRAM (`Planes14`), 5,162 b/param modèle entier avec l'embedding q8 » *(cellule revue le 2026-08-18 — elle disait « 5,51 en RAM, c'est tout le problème », l'état `Slot32` d'avant C1)* |
+| « 5,51 contre 4,50 en RAM » | « en b/param modèle entier — la seule comptabilité licite — **5,162 contre 5,302** pour l'AWQ réel : nous sommes devant depuis le q8 ; le 4,50 est le MLX q4, absent de la campagne » *(cellule revue le 2026-08-18 — elle portait le 6,5245 contre 4,5006 de l'ère `Slot32`/MLX, verdict inversé depuis)* |
 | « 2,07× plus rapide » | « 2,03× [2,03–2,10] le FP16 sur les projections seules, rapport formé round par round ; contre du q4 bien réglé on est encore derrière — de combien, le dépôt ne le tranche pas, cf. `fiche-4b.md` §5.4 » ⚠️ **toujours vrai après la mesure du 2026-08-17** : elle donne les deux rapports, elle ne donne pas le « de combien » (§6) |
 | « On va 2,4 fois moins vite que l'AWQ » *(ou l'inverse)* | « chacun dans sa pile : ×2,41 pour lui chez vLLM, ×1,12 pour nous chez nous — **les deux ne se divisent pas**, l'écart bout-en-bout est dominé par vLLM contre candle » (§6) |
 | « Forcer `awq` ne change rien, donc les noyaux 4 bits convergent à M = 1 » | « les deux bras ont routé vers Marlin : c'est **un noyau chargé deux fois**, donc 0,10 % mesure la reproductibilité du banc — la clause M = 1 reste **non testée** » |
-| « ×4,63 de compression » | « ×4,63 sur le fichier, dont 44 % est un embedding non quantifié sur un 4B » |
-| « Le noyau est fini » | « Le noyau est mesuré et vérifié, il n'est pas encore branché dans le runner » |
+| « ×4,63 de compression » | « **×4,54 mesuré sur le fichier** (1,771 contre 8,045 Go) ; le ×4,63 qui circule est rétracté — calculé sur un artefact de 1,74 Go jamais écrit (`fiche-4b.md`) » *(cellule revue le 2026-08-18 — la réplique recommandée était elle-même la valeur rétractée)* |
+| « Le noyau est fini » | « Le noyau est **branché et mesuré dans le modèle** (`bin/fusedrun`, 48,7 tok/s dans 2,96 Go sur L40S) ; ce qui reste dense est `bin/run`, la démo portable » *(cellule revue le 2026-08-18 — elle disait « pas encore branché », faux depuis le 2026-08-06)* |
 
 ---
 

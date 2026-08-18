@@ -344,8 +344,17 @@ pub fn read_matrix_raw(r: &mut impl Read) -> Result<RawMatrix> {
     // The stream must hold every block the dimensions promise. Checked here
     // because `BitReader::read` treats an over-read as a caller bug and
     // panics — its assert is an internal invariant, and the boundary where a
-    // hostile file is still an `Err` is this one.
-    if nblocks as u64 * (ib + gb) as u64 > bytes.len() as u64 * 8 {
+    // hostile file is still an `Err` is this one. The multiplication is
+    // checked for the same reason as `get_u16s`'s: hostile u32 dimensions can
+    // push it past u64 (a debug panic, a wrap in release that would let the
+    // guard pass), and a bit count that overflows u64 names data no file
+    // could hold.
+    let need_bits = (nblocks as u64)
+        .checked_mul((ib + gb) as u64)
+        .ok_or(Error::Truncated {
+            reading: "code stream",
+        })?;
+    if need_bits > bytes.len() as u64 * 8 {
         return Err(Error::Truncated {
             reading: "code stream",
         });

@@ -62,8 +62,10 @@ van Baalen, Whatmough, Nagel — Qualcomm AI Research, 2026).
 > ⚠️ **This is a research artifact, not a drop-in model.** Two things to know
 > before downloading. It is not GGUF, AWQ or safetensors: it does not load with
 > `transformers`, `llama.cpp`, vLLM or TGI, and you need the Rust reader linked
-> below. And it loses **14.3 points of MMLU** against its own FP16 baseline —
-> reasoning tasks are hit hardest, some falling to chance. See *Quality*.
+> below. And it loses **14.7 points of MMLU** against its own FP16 baseline
+> (the CUDA campaign figure this card quotes throughout; the earlier Metal run
+> gave 14.3) — reasoning tasks are hit hardest, some falling to chance. See
+> *Quality*.
 
 ## Numbers
 

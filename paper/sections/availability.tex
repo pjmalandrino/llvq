@@ -65,7 +65,10 @@ cargo run --release \
 
 \noindent
 \texttt{LLVQ\_FUSED\_LAYOUT} selects the VRAM layout of \S\ref{sec:layouts}
-(\texttt{planes14}, the default, or \texttt{slot32});
+--- all four measured points: \texttt{planes14} (the default),
+\texttt{planes12x}, \texttt{slot32}, and \texttt{golay70} (wired to be
+measurable, not served), any other value being refused rather than silently
+defaulted;
 \texttt{LLVQ\_EMBED} selects the embedding precision (\texttt{f16}, the
 default, or \texttt{q8}); \texttt{LLVQ\_DTYPE} pins the evaluation dtype,
 which has to be set because \texttt{ppl} defaults to f32 and \texttt{mmlu}

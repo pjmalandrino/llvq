@@ -512,7 +512,9 @@ fn run() -> Result<(), String> {
                  Les documents que ce banc exige :\n{}\n\n\
                  Ce garde n'a pas de dérogation. Une règle qui ne vit que dans la prose se \
                  saute le soir\noù quelqu'un veut un chiffre ; une règle que le binaire tient \
-                 ne se saute pas.",
+                 ne se saute pas.\n\n\
+                 (Les chemins proofs/ sont résolus depuis le répertoire courant : si le \
+                 tampon existe,\nvérifier que le banc est lancé depuis la racine du dépôt.)",
                 STAMPED
                     .iter()
                     .map(|(d, _)| format!(
@@ -530,8 +532,13 @@ fn run() -> Result<(), String> {
         // Existence is not integrity: the .ots binds a *hash*, and the defect
         // this half of the gate closes has already happened twice in proofs/
         // (documents edited after anchoring, anchors silently detached).
-        let bytes = std::fs::read(doc)
-            .map_err(|e| format!("impossible de lire {doc} pour vérifier son empreinte : {e}"))?;
+        let bytes = std::fs::read(doc).map_err(|e| {
+            format!(
+                "impossible de lire {doc} pour vérifier son empreinte : {e}\n\
+                 (chemin résolu depuis le répertoire courant — lancer le banc depuis la \
+                 racine du dépôt)"
+            )
+        })?;
         let got = sha256_hex(&bytes);
         if got != pinned {
             return Err(format!(
@@ -1451,6 +1458,26 @@ fn run() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The stamp gate stands on this function: a wrong digest would either
+    /// refuse every intact document or accept every edited one. Pinned to the
+    /// NIST FIPS 180-2 vectors — empty message, "abc", and the two-block
+    /// 448-bit message — so a broken port fails here, not at the gate.
+    #[test]
+    fn sha256_matches_the_nist_vectors() {
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+            "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+        );
+    }
 
     /// The only **mechanical** guard on the draw's uniformity — the histogram
     /// printed at run time is a check on the implementation, not a proof.

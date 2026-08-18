@@ -134,14 +134,17 @@ jobs:
       # nothing — a green check that means "it compiled". In release the
       # attribute vanishes and they run: measured 212 passed, 0 failed at HEAD.
       #
-      # And --include-ignored is deliberately NOT passed. Exactly 3 tests carry
-      # an unconditional #[ignore] (planes12x_format, planes14_format,
-      # golay70_format): they sweep the sealed ~981 MB Qwen3-4B archive, which
-      # is not in the repo and never will be. llvq-artifact/tests/common/mod.rs
-      # makes a missing archive a hard failure rather than a silent skip, on
-      # purpose — so asking for them here would turn CI red on every run, for a
-      # file no runner can have. Reported as `ignored`, they are a declaration;
-      # that is the honest state, not a gap being hidden.
+      # And --include-ignored is deliberately NOT passed. Every test carrying
+      # an unconditional #[ignore] sweeps a sealed multi-hundred-MB artifact
+      # (the ~981 MB Qwen3-4B archive or its e8 variant) that is not in the
+      # repo and never will be. (No exact count here on purpose: one grew to
+      # 16 while an earlier revision of this comment still said "exactly 3" —
+      # the same rot as the "~45 s" of CLAUDE.md §2.)
+      # llvq-artifact/tests/common/mod.rs makes a missing archive a hard
+      # failure rather than a silent skip, on purpose — so asking for them
+      # here would turn CI red on every run, for a file no runner can have.
+      # Reported as `ignored`, they are a declaration; that is the honest
+      # state, not a gap being hidden.
       - name: tests (release; the debug-gated suite only runs here)
         run: >
           cargo test --locked

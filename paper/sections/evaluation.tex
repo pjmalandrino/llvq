@@ -103,8 +103,10 @@ quantized arm, so a positive number is a loss for that arm: $+0.27$ with a
 $[+11.98, +17.47]$ for the 2-bit arm, which does not. Both intervals are
 subject-stratified paired bootstraps over the same 2\,280 questions
 (\texttt{docs/mesures/mmlupair-4b-8b-2026-08-13.txt}). On a 4B, 4-bit
-dominates 2-bit on every axis except disk; \S\ref{sec:limitations} discusses
-where the 2-bit point can still win.
+dominates 2-bit on every axis except disk and served footprint (5.162
+against 5.302 b/param above --- a ${\sim}3\%$ margin that does not offset the
+quality loss); \S\ref{sec:limitations} discusses where the 2-bit point can
+still win.
 
 \begin{table}[t]
 \centering
