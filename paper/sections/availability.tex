@@ -4,10 +4,12 @@
 The implementation, the CSV files behind every table and figure in this
 paper, and the source of the paper itself are at
 \url{https://github.com/pjmalandrino/llvq}, dual-licensed MIT or
-Apache-2.0. The numbers reported here are those of the revision tagged
-\texttt{paper-v1}; the tag is moved only together with the numbers, and
-\texttt{make} in \texttt{paper/} refuses to build if a table has drifted
-from the CSV it is transcribed from.
+Apache-2.0. The numbers reported here are those of the repository revision
+this build was made from; frozen states are tagged together with their
+numbers (\texttt{paper-v2}, 2026-08-17, is the latest such tag, and the
+submitted revision will carry its own), and \texttt{make} in \texttt{paper/}
+refuses to build if a table has drifted from the CSV it is transcribed
+from.
 The lattice core, the exact nearest-neighbor search and the artifact format
 are dependency-free Rust and can be read end to end; \texttt{candle} and
 \texttt{cudarc} enter only through the model-side and kernel crates.

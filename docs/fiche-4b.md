@@ -1,6 +1,7 @@
 # FICHE 4B — Qwen3-4B-LLVQ-2bit et son noyau fusé
 
-> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08.** Cette fiche est
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue intégrale le 2026-08-08 ; amendements
+> ponctuels datés dans le corps depuis (dernier : 2026-08-17).** Cette fiche est
 > **exacte sur le fichier** (identité, octets, débits, provenance des chiffres
 > de qualité) et le reste : rien n'a bougé dans l'artefact publié. Elle est en
 > revanche **périmée sur l'environnement d'exécution**, qui a changé trois fois

@@ -676,8 +676,10 @@ monotone**, mécanisme = part de l'embedding, détail au §6.
 > b/param, pas 8 — refaire le calcul à 8,0 rend bien 5,1136). Le chiffre de
 > `rtbits` est vérifié par un **troisième instrument** — le rapport VRAM du
 > moteur — sur les deux cellules 8B, reproduites au millième.
-> ⚠️ Les deux valeurs périmées survivent ailleurs dans ce fichier et dans
-> `docs/` ; les corriger toutes est une passe à faire, pas un acquis.
+> ✅ La passe est faite : les occurrences restantes de 5,11 et ≈ 5,15 sont
+> partout étiquetées comme périmées avec leur mécanisme (vérifié par grep le
+> 2026-08-18 — G6 ci-dessus, README, carte HF). 🕳️ Cet aveu de dette a
+> survécu à sa propre résolution : la méta-couche dérive aussi.
 
 **L'embedding int8 est en production** (`LLVQ_EMBED=q8`,
 `llvq-llm/src/fused.rs:137`) : validé sans perte au lot B — ppl **16,9379**

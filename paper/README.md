@@ -27,10 +27,12 @@ The paper rebuilds from the measurements, like everything else in the repo:
   dossier. When editing a section, check the claim against the measurement
   file before changing a number.
 - Reporting rules that must survive any edit (from the dossier's §7):
-  AWQ speed is never compared; the ×2.03 always carries its double
-  formulation (~×1.4 vs the corrected engine); speedups are medians of
-  per-round ratios with ranges, never a third decimal; memory comparisons
-  are whole-model b/param, embedding included.
+  AWQ speed is never compared *across stacks* — since 2026-08-17 the two
+  within-stack ratios (×2.413 in vLLM, ×1.12 in ours) may sit side by side
+  but never divide; the ×2.03 always carries its double formulation (~×1.4
+  vs the corrected engine); speedups are medians of per-round ratios with
+  ranges, never a third decimal; memory comparisons are whole-model b/param,
+  embedding included.
 
 ## Layout
 

@@ -73,8 +73,10 @@ entrées du 2026-08-17.
 ✅ **Le papier N'EST PLUS BLOQUÉ.** Le point 14B y est intégré depuis le
 2026-08-16 (récit d'échelle, tables, `Cost of evidence`), et le 2026-08-17 lui
 a donné ce qui lui manquait encore : la paire appariée `AWQ − LLVQ`, la ligne
-mémoire et les intervalles de perplexité. Il reste le **tag `paper-v2`** et le
-commit. 🕳️ Cette ligne a dit « le papier est bloqué […] dont les cases restent
+mémoire et les intervalles de perplexité. ✅ Le **tag `paper-v2`** est posé
+depuis le 2026-08-17 13:18 (commit `e8aada9`). 🕳️ Cette phrase a dit « il
+reste le tag `paper-v2` et le commit » jusqu'au 2026-08-18, un jour après que
+le tag existait — dans le fichier qui existe pour empêcher exactement ça. 🕳️ Cette ligne a dit « le papier est bloqué […] dont les cases restent
 décochées » jusqu'au 2026-08-17 : la seconde moitié était vraie à la lettre —
 les cases du §1.1 de [`PLAN.md`](PLAN.md) l'étaient encore — mais elle décrivait
 un travail **fait**, et lire l'état d'un chantier dans une case au lieu du

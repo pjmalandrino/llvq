@@ -1,6 +1,8 @@
 # Format de noyau — mesures, impasses, architecture (2026-07-31)
 
-> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08.** Ce document décrit
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue intégrale le 2026-08-08 ; revue
+> partielle du 2026-08-16 ci-dessous, amendements ponctuels datés dans le
+> corps jusqu'au 2026-08-17.** Ce document décrit
 > l'état **Metal / `Slot32`** du noyau, qui n'est plus l'état de référence.
 > Trois choses ont changé depuis, toutes mesurées :
 >

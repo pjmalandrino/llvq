@@ -5,7 +5,8 @@
 > atteins ta limite. Cette dernière n'est pas un aveu de faiblesse — c'est ce qui
 > rend le reste croyable.
 >
-> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Le « chiffres à
+> 🗓️ **BANDEAU D'ÉTAT — dernière revue intégrale le 2026-08-08, amendements
+> ponctuels datés dans le corps depuis (dernier : 2026-08-17). Le « chiffres à
 > resynchroniser après le run MMLU » de la version précédente est levé : le
 > MMLU est mesuré, et bien d'autres choses avec.** Trois répliques de cette
 > fiche sont désormais fausses ou incomplètes, et un interlocuteur qui a lu le

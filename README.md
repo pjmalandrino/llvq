@@ -789,7 +789,9 @@ column, not the speed column, is the result here.
 * **The published command reproduces the method, not the bytes.** The C4
   calibration shard moved from `00000` to `00001` after the run, and the
   container format gained a magic bump; a re-run today produces a different,
-  equally valid file. There is no CI.
+  equally valid file. The repo's CI (since 2026-08-09: clippy, tests and the
+  zero-dependency guard, on the 6 CPU crates — no GPU) checks the code, not
+  the bytes: no automation reproduces the published artifact.
 * **Every fused kernel implements exactly one point of the design space.** Both
   the `Slot32` shader and the `Planes14` one read a fixed 10-bit header — 9 bits
   of class, **1 gain bit** — and offset every following field by it. The Rust

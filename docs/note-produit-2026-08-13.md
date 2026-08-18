@@ -6,8 +6,12 @@
 > du 2026-08-15 (**A1** RTX 5090 32 GiB · **A3** KV q8 · **A5** ≤ 60 s/doc et
 > ≥ 20 tok/s). **Le §B fait foi**, au triplet ci-dessous et pas à un autre.
 >
-> ⚠️ **Reste la condition que cette note se pose à elle-même** : le fichier doit
-> être commité. Tant qu'il ne l'est pas, le triplet est arbitré mais pas figé.
+> ✅ **La condition que cette note se posait à elle-même est levée** : le
+> fichier est commité et suivi — le triplet est **figé**. 🕳️ Ce paragraphe a
+> maintenu « tant qu'il ne l'est pas » après le commit du fichier (constaté et
+> corrigé le 2026-08-18) : la condition était satisfaite, le texte ne le
+> disait pas, et le statut du triplet que `PLAN.md` déclare « fait foi »
+> restait formellement ambigu.
 >
 > 🚨 **Et l'arbitrage déplace le seuil, dans le sens que personne n'attendait.**
 > Le §B publiait 2,74 pour « 8k, KV q8, marge 5 Go ». Ce nombre supposait « 32 »

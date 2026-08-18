@@ -11,10 +11,16 @@ checkpoint, sans cache Hugging Face et sans réseau.
 |---|---|---|---|
 | sur disque | **1,771 Go** | 8,045 Go | **×4,54** |
 | perplexité WikiText-2, f16, **sur le fichier publié** | **16,9415** | 12,2361 | ×1,385 |
-| MMLU 5-shot, micro, **sur le fichier publié** | **56,09 ± 1,36** | 70,42 ± 1,28 | −14,33 pp |
+| MMLU 5-shot, micro, **sur le fichier publié** *(CUDA/L40S, la valeur de la carte HF)* | **55,59 ± 1,35** | 70,32 ± 1,28 | −14,73 pp |
 | projections, un token *(noyau fusé, modèle entier)* | **10,5 – 11,0 ms** | 21,7 – 22,7 ms | **×2,06 – 2,08** |
 | + lm_head f16 ajouté **analytiquement** *(jamais exécuté)* | *78,2 tok/s calculé* | *41,6 calculé* | *×1,88 — un majorant* |
 | génération réelle de `bin/run` | **2,2 – 7,6 tok/s mesurés** | — | — |
+
+🕳️ La ligne MMLU a porté **56,09 / 70,42 (−14,33 pp)** — le run Metal du
+2026-08-02 — jusqu'au 2026-08-18, pendant que la carte HF publiait 55,59 :
+deux surfaces publiques, deux chiffres pour la même cellule. La référence est
+la campagne CUDA du 08-06 (empreinte `65dcd53655e8bfa5`) ; l'écart de 0,50 pp
+entre les deux runs est documenté — et non expliqué — sur la carte.
 
 ⚠️ **Les deux lignes de vitesse ne sont pas ce que fait `bin/run`.** Elles sont
 mesurées par `bin/thesis` (§ *Valider la thèse*), sur le même fichier et la même
@@ -198,7 +204,9 @@ jamais été quantifié ici, et aucun cache KV n'est budgété dans ce calcul.
 ⚠️ **Cette commande reproduit la méthode, pas les octets** : le shard de
 calibration C4 est passé de `00000` à `00001` après le run publié, et le magic
 du conteneur a bougé. Un re-run aujourd'hui produit un fichier différent,
-également valide. Il n'y a pas de CI.
+également valide. La CI du dépôt (depuis le 2026-08-09 : clippy, tests, garde
+zéro-dépendance, sur les 6 crates CPU — pas de GPU) vérifie le code, pas les
+octets : rien n'automatise la reproduction de l'artefact.
 
 Quantifier depuis le checkpoint d'origine — **~4 h** sur un M3 Max (14 447 s
 mesurées). Le run vérifie son propre fichier en le décodant et en exigeant les
