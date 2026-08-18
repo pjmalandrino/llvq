@@ -51,6 +51,38 @@ const PROMPT: &str = "The capital of France is";
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 const PHASE_TOKENS: usize = 32;
 
+/// The measurement protocol, aligned on the kernel benches (2026-08-18):
+/// one discarded generation per arm (kernel selection, allocator growth,
+/// clock ramp), then `ROUNDS_TIMED` timed ones, reported as median + min–max
+/// range. Until then every published tok/s was a single point — in
+/// contradiction with rule 2 of CLAUDE.md §7, which the benches obeyed and
+/// this binary did not.
+///
+/// Unlike `planesbench`, the two arms can NOT interleave round by round:
+/// each arm loads its model exclusively (the card does not have to hold
+/// both), so their rounds never coexist and the speed ratio is a **quotient
+/// of two medians**, not a median of per-round ratios. The summary labels it
+/// as such and prints the conservative envelope
+/// `[fused_lo/dense_hi ; fused_hi/dense_lo]` beside it.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+const ROUNDS_TIMED: usize = 5;
+
+/// Median and min–max of per-round rates. Not cfg-gated, same reason as
+/// [`PHASE_TOKENS`]: the Mac must type-check what a paid image build would
+/// otherwise be the first to compile.
+#[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
+fn rate_stats(rounds: &[f64]) -> (f64, f64, f64) {
+    assert!(!rounds.is_empty(), "rate_stats over zero rounds");
+    let mut sorted = rounds.to_vec();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let med = if sorted.len() % 2 == 1 {
+        sorted[sorted.len() / 2]
+    } else {
+        (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
+    };
+    (med, sorted[0], sorted[sorted.len() - 1])
+}
+
 /// The per-phase table of one arm's fenced pass. Additive diagnostics: this
 /// runs *after* the arm's published measurement and prints below it, so the
 /// published lines stay byte-identical.
@@ -136,9 +168,24 @@ fn main() -> anyhow::Result<()> {
         let rot_share = f.rot_share;
         let rot_launches = f.rot_launches;
         f.model.generate(&ids, n_new, &mut NoCapture)?;
-        let t = Instant::now();
-        let fused_tokens = f.model.generate(&ids, n_new, &mut NoCapture)?;
-        let fused_rate = n_new as f64 / t.elapsed().as_secs_f64();
+        let mut fused_rounds = Vec::with_capacity(ROUNDS_TIMED);
+        let mut fused_tokens: Vec<u32> = Vec::new();
+        for round in 0..ROUNDS_TIMED {
+            let t = Instant::now();
+            let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
+            fused_rounds.push(n_new as f64 / t.elapsed().as_secs_f64());
+            if round == 0 {
+                fused_tokens = out;
+            } else if out != fused_tokens {
+                // Greedy decode on fixed weights should be deterministic;
+                // a flip across rounds is a finding, not a nuisance.
+                println!(
+                    "  ⚠️ bras fusé : les tokens du round {round} diffèrent du round 0 — \
+                     décodage non déterministe, à investiguer avant de publier"
+                );
+            }
+        }
+        let (fused_rate, fused_lo, fused_hi) = rate_stats(&fused_rounds);
         // `carried_bytes`, not `carried_weights * 2`: under LLVQ_EMBED=q8 the
         // embedding sits on the card as int8 + f16 scales, and the old
         // identity would over-report by ~365 MB.
@@ -148,7 +195,8 @@ fn main() -> anyhow::Result<()> {
             f.file_bytes as f64 / 1e9,
         );
         println!(
-            "fusé   : chargé en {fused_load:6.1} s, {fused_rate:6.1} tok/s, {:.2} Go sur la carte",
+            "fusé   : chargé en {fused_load:6.1} s, {fused_rate:6.1} tok/s \
+             [{fused_lo:.1}–{fused_hi:.1}, {ROUNDS_TIMED} rounds], {:.2} Go sur la carte",
             fused_bytes as f64 / 1e9
         );
         // On the arm line, not only in the loader's log: an A/B whose two runs
@@ -168,7 +216,7 @@ fn main() -> anyhow::Result<()> {
         drop(f);
 
         // ---- dense arm ----
-        let (dense_tokens, dense_load, dense_rate, dense_bytes) = {
+        let (dense_tokens, dense_load, dense_rate, dense_lo, dense_hi, dense_bytes) = {
             let t = Instant::now();
             let m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
             let load = t.elapsed().as_secs_f64();
@@ -181,17 +229,33 @@ fn main() -> anyhow::Result<()> {
             // One discarded generation: the first on CUDA pays kernel
             // selection, allocator growth and clock ramp.
             m.model.generate(&ids, n_new, &mut NoCapture)?;
-            let t = Instant::now();
-            let out = m.model.generate(&ids, n_new, &mut NoCapture)?;
-            let rate = n_new as f64 / t.elapsed().as_secs_f64();
+            let mut rounds = Vec::with_capacity(ROUNDS_TIMED);
+            let mut out: Vec<u32> = Vec::new();
+            for round in 0..ROUNDS_TIMED {
+                let t = Instant::now();
+                let o = m.model.generate(&ids, n_new, &mut NoCapture)?;
+                rounds.push(n_new as f64 / t.elapsed().as_secs_f64());
+                if round == 0 {
+                    out = o;
+                } else if o != out {
+                    println!(
+                        "  ⚠️ bras dense : les tokens du round {round} diffèrent du round 0 — \
+                         décodage non déterministe, à investiguer avant de publier"
+                    );
+                }
+            }
+            let (rate, lo, hi) = rate_stats(&rounds);
             let bytes = (m.quantized_weights + m.carried_weights) as u64 * 2;
-            println!("dense  : chargé en {load:6.1} s, {rate:6.1} tok/s, {:.2} Go sur la carte",
-                     bytes as f64 / 1e9);
+            println!(
+                "dense  : chargé en {load:6.1} s, {rate:6.1} tok/s \
+                 [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} Go sur la carte",
+                bytes as f64 / 1e9
+            );
             if time_phases {
                 let (_, report) = m.model.generate_phased(&ids, PHASE_TOKENS)?;
                 print_phases("dense", &report);
             }
-            (out, load, rate, bytes)
+            (out, load, rate, lo, hi, bytes)
         };
 
         // ---- the comparison ----
@@ -217,18 +281,33 @@ fn main() -> anyhow::Result<()> {
 
         println!("\n--- ce que ça coûte ---");
         println!(
-            "  {:<10}{:>12}{:>12}{:>12}",
-            "bras", "chargement", "tok/s", "Go carte"
+            "  {:<10}{:>12}{:>16}{:>18}{:>12}",
+            "bras", "chargement", "tok/s (médiane)", "plage", "Go carte"
         );
-        println!("  {}", "-".repeat(46));
-        println!("  {:<10}{dense_load:>11.1} s{dense_rate:>12.1}{:>12.2}",
-                 "dense", dense_bytes as f64 / 1e9);
-        println!("  {:<10}{fused_load:>11.1} s{fused_rate:>12.1}{:>12.2}",
-                 "fusé", fused_bytes as f64 / 1e9);
-        println!("  {}", "-".repeat(46));
+        println!("  {}", "-".repeat(68));
         println!(
-            "  vitesse ×{:.2}, mémoire ÷{:.2}",
+            "  {:<10}{dense_load:>11.1} s{dense_rate:>16.1}{:>18}{:>12.2}",
+            "dense",
+            format!("[{dense_lo:.1}–{dense_hi:.1}]"),
+            dense_bytes as f64 / 1e9
+        );
+        println!(
+            "  {:<10}{fused_load:>11.1} s{fused_rate:>16.1}{:>18}{:>12.2}",
+            "fusé",
+            format!("[{fused_lo:.1}–{fused_hi:.1}]"),
+            fused_bytes as f64 / 1e9
+        );
+        println!("  {}", "-".repeat(68));
+        // A quotient of two medians, NOT a median of per-round ratios: the
+        // two arms' rounds never coexist (each load is exclusive), so no
+        // per-round pairing exists. The envelope divides the extremes the
+        // conservative way round; read the second decimal as dispersion.
+        println!(
+            "  vitesse ×{:.2} [×{:.2}–×{:.2}] (quotient des médianes, {ROUNDS_TIMED} rounds par bras \
+             jamais entrelacés), mémoire ÷{:.2}",
             fused_rate / dense_rate,
+            fused_lo / dense_hi,
+            fused_hi / dense_lo,
             dense_bytes as f64 / fused_bytes as f64
         );
         println!(
@@ -239,5 +318,18 @@ fn main() -> anyhow::Result<()> {
             fused_file
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rate_stats;
+
+    #[test]
+    fn median_is_the_middle_rate_odd_and_even() {
+        let (m, lo, hi) = rate_stats(&[3.0, 1.0, 2.0]);
+        assert_eq!((m, lo, hi), (2.0, 1.0, 3.0));
+        let (m, lo, hi) = rate_stats(&[4.0, 1.0, 2.0, 3.0]);
+        assert_eq!((m, lo, hi), (2.5, 1.0, 4.0));
     }
 }
