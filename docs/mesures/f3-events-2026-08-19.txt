@@ -1,0 +1,305 @@
+F3 — ATTRIBUTION INSTRUMENTÉE : EVENTS, NSIGHT, DRIVER (2026-08-19)
+===================================================================
+Pré-enregistrement : proofs/preregistration-f3-events-2026-08-18.md
+  (tampon .ots + commit c6febc3 AVANT lancement ; verdicts E1/N1/D1 §3)
+Job : 6a8567b4cd3824960fcc18aa, l40sx1, 1 729 s facturées (~0,86 $ ;
+  file d'attente 2 200 s non facturée). Coût annoncé : ≤ 1,20 $. ✅
+Image au commit b7698fe (LLVQ_TIME_EVENTS, première exécution).
+
+D1 — LE DRIVER, DETTE DU 2026-08-05 SOLDÉE ✅
+---------------------------------------------
+  580.159.03, NVIDIA L40S, 46068 MiB
+Le premier contact carte du 08-05 interrogeait `driver.version` — champ
+invalide, jamais corrigé ; le champ correct est `driver_version`. Tous les
+runs de cette image portent désormais leur driver. ⚠️ Les runs ANTÉRIEURS
+gardent un driver inconnu, et ça ne se répare pas rétroactivement : c'est
+déclaré, pas comblé.
+
+E1 — LES EVENTS, ET LE CHIFFRE EST 100× PLUS PETIT QUE PRÉVU ✅
+----------------------------------------------------------------
+  bras               hôte méd ms  device méd ms   écart ms  écart %
+  plancher (nullk)         2.301          2.296      0.004     0.2%
+  FP16 (128 bits)         10.999         10.991      0.008     0.1%
+  FP16 cuBLAS             10.848         10.842      0.006     0.1%
+  LLVQ Slot32              5.817          5.809      0.007     0.1%
+  LLVQ Planes14            5.098          5.093      0.005     0.1%
+  LLVQ Planes12x           5.502          5.496      0.006     0.1%
+  LLVQ Golay70 v1          8.199          8.193      0.005     0.1%
+  LLVQ Golay70 v2          6.200          6.195      0.005     0.1%
+  AWQ w4g128               3.255          3.251      0.004     0.1%
+
+Le préreg annonçait « de l'ordre de 0,5-2 ms par round » (2-8 µs × 252-504
+lancements). La mesure rend **4 à 8 µs par round ENTIER**, soit 0,1-0,2 % du
+temps — deux ordres de grandeur sous l'attente. Anomalies E1 : aucune
+(device < hôte partout, aucun écart négatif, dispersion homogène).
+
+CE QUE ÇA DIT, ET SURTOUT CE QUE ÇA NE DIT PAS
+-----------------------------------------------
+MESURÉ : dans CE banc, la soumission hôte est **entièrement recouverte** par
+  l'exécution device. Le pipeline de lancement fait son travail : pendant que
+  le noyau N tourne, l'hôte enfile N+1, et le wall-clock ne paie que la
+  synchronisation finale.
+CE QUI N'EST PAS MESURÉ, et le préreg §4 le disait d'avance : les écarts
+  INTER-NOYAUX sur le stream sont DANS le span device. L'écart hôte−device
+  est un MINORANT du poste latence, pas le poste. Ce que E1 élimine, c'est
+  UNE hypothèse — « le poste latence, c'est l'hôte qui n'arrive pas à
+  suivre » — pas le poste lui-même, qui reste device (bulles inter-noyaux,
+  montée en occupation).
+🚨 ET DEUX DÉNOMINATEURS À NE PAS CONFONDRE : E1 mesure le BANC (252
+  matrices enfilées en boucle serrée) ; l'attribution 39/33/19 du 2026-08-05
+  mesure le CHEMIN MODÈLE (candle, 2,04 ms/token, un dispatcher différent).
+  E1 ne transfère donc PAS tel quel à l'attribution — il dit que le
+  mécanisme « soumission non recouverte » est négligeable là où on peut le
+  mesurer, ce qui rend l'hypothèse moins probable ailleurs sans la réfuter.
+
+N1 — NSIGHT : L'ISSUE (b) SE RÉALISE, ET C'EST LA PLUS NETTE ✅
+---------------------------------------------------------------
+  ==PROF== Connected to process 9012 (/usr/local/bin/planesbench)
+  ==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access
+            NVIDIA GPU Performance Counters on the target device 0.
+  ==PROF== Disconnected from process 9012
+L'installation a RÉUSSI (zéro occurrence de NCU-INSTALL-IMPOSSIBLE ou
+NCU-ABSENT) et `ncu` s'est bien attaché au processus : ce n'est donc pas
+l'issue (c) « outillage indisponible » mais l'issue (b), la plus tranchante
+— **l'outil est là, la PLATEFORME refuse les compteurs**. Sur HF Jobs, le
+profil matériel n'est pas accessible à l'utilisateur ; ça ne se contourne pas
+par un meilleur script, ça demande un droit que l'infra ne donne pas.
+Conformément au préreg : **F3 est CLOS**, sans retentative non
+pré-enregistrée. Le papier documentera l'indisponibilité comme un fait de
+plateforme, pas comme une négligence.
+
+CONTRÔLE — LE PROTOCOLE PUBLIÉ EST INTACT
+------------------------------------------
+Le banc tourne ici avec LLVQ_TIME_EVENTS=1, et sa table rejoue les valeurs
+du L40S au centième : nullk 4,78×, Planes14 2,16× (429 Go/s), cuBLAS 1,01×,
+AWQ 3,37× (584 Go/s). Les events ne déplacent rien — ce qu'exigeait le motif
+LLVQ_TIME_PHASES : variable absente ⇒ protocole byte-identique, variable
+présente ⇒ diagnostics ADDITIFS sous la table publiée.
+La colonne s'intitule désormais « Go/s(min) » : elle divisait déjà par le
+temps minimum, l'en-tête ne le disait pas.
+
+CONSÉQUENCES POUR LE PAPIER (B4)
+---------------------------------
+1. L'attribution 39/33/19 se requalifie en « décomposition par soustraction
+   de planchers », avec deux appuis neufs : le poste hôte est borné à
+   0,1-0,2 % dans le banc (donc l'hypothèse hôte s'affaiblit fortement), et
+   le profil matériel qui trancherait est INACCESSIBLE sur cette infra.
+2. Ce que le papier gagne n'est pas un profil, c'est une **honnêteté
+   instrumentée** : il dira ce qu'il a mesuré (events), ce qu'il a tenté
+   (ncu), et pourquoi ça a échoué (droits plateforme) — trois faits datés,
+   là où un « nous n'avons pas profilé » aurait été une omission.
+
+SORTIE BRUTE DU JOB (intégrale)
+--------------------------------
+driver_version, name, memory.total [MiB]
+580.159.03, NVIDIA L40S, 46068 MiB
+##### ETAPE 1 — events par bras, echelle complete #####
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk
+source NVRTC : 121803 octets, sha256 321804d5327e3ebf30c1918b2012e28affd5877dc3534009d5ee515995654603
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus), Golay70 (trous origine + exceptions E2), AWQ w4g128, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 1467 s — preuves bloc par bloc des bras construits
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, planes12x 3.1e-8, golay70v1 3.0e-8, fp16 3.0e-8, awq 5.8e-5, golay70v2 3.4e-8, cublasf16 5.7e-5, nullk 0.0e0 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 9 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  plancher (nullk)          2.297    2.301    2.303     0.07    0.159       31
+  FP16 (128 bits)          10.993   10.999   11.007     7.27   16.000      661
+  FP16 cuBLAS              10.847   10.848   10.863     7.27   16.000      670
+  LLVQ Slot32               5.809    5.817    5.828     2.50    5.510      431
+  LLVQ Planes14             5.089    5.098    5.104     2.18    4.804      429
+  LLVQ Planes12x            5.495    5.502    5.516     1.97    4.342      359
+  LLVQ Golay70 v1           8.188    8.199    8.232     1.63    3.589      199
+  LLVQ Golay70 v2           6.179    6.200    6.204     1.63    3.589      264
+  AWQ w4g128                3.247    3.255    3.261     1.90    4.179      584
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 4.78× [4.78–4.79]
+  FP16 cuBLAS      vs FP16     : 1.01× [1.01–1.01]
+  LLVQ Slot32      vs FP16     : 1.89× [1.89–1.89]
+  LLVQ Planes14    vs FP16     : 2.16× [2.16–2.16]
+  LLVQ Planes12x   vs FP16     : 2.00× [2.00–2.00]
+  LLVQ Golay70 v1  vs FP16     : 1.34× [1.34–1.34]
+  LLVQ Golay70 v2  vs FP16     : 1.77× [1.77–1.78]
+  AWQ w4g128       vs FP16     : 3.38× [3.37–3.39]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+  golay70v2  vs golay70v1 : 1.32× [1.32–1.33]  (>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la campagne v2)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 0.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 3.50×, FP16 cuBLAS 1.01×, LLVQ Slot32 1.74×, LLVQ Planes14 1.94×, LLVQ Planes12x 1.82×, LLVQ Golay70 v1 1.30×, LLVQ Golay70 v2 1.65×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+--- events device par bras (LLVQ_TIME_EVENTS=1, hors protocole publié) ---
+  span device = du 1er lancement à la dernière complétion, écarts
+  inter-noyaux compris ; hôte − device = soumission non recouverte + sync.
+  bras               hôte méd ms device méd ms      écart ms  écart %
+  plancher (nullk)         2.301         2.296         0.004     0.2%
+  FP16 (128 bits)         10.999        10.991         0.008     0.1%
+  FP16 cuBLAS             10.848        10.842         0.006     0.1%
+  LLVQ Slot32              5.817         5.809         0.007     0.1%
+  LLVQ Planes14            5.098         5.093         0.005     0.1%
+  LLVQ Planes12x           5.502         5.496         0.006     0.1%
+  LLVQ Golay70 v1          8.199         8.193         0.005     0.1%
+  LLVQ Golay70 v2          6.200         6.195         0.005     0.1%
+  AWQ w4g128               3.255         3.251         0.004     0.1%
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 80 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.825 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.026 ms   144 lancements
+  Planes14, matrices séparées            5.110 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.511 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.797 ms [0.784–0.805]  (13.7 %)
+  gain Planes14 : 0.599 ms [0.590–0.609]  (11.7 %)
+  Planes14 / Slot32 sur le gain : 0.75× [0.74–0.76]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.
+##### ETAPE 2 — tentative Nsight Compute (issues pre-decidees au prereg) #####
+debconf: delaying package configuration, since apt-utils is not installed
+Selecting previously unselected package nsight-compute-2024.1.1.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5300 files and directories currently installed.)
+Preparing to unpack .../nsight-compute-2024.1.1_2024.1.1.4-1_amd64.deb ...
+Unpacking nsight-compute-2024.1.1 (2024.1.1.4-1) ...
+Selecting previously unselected package cuda-nsight-compute-12-4.
+Preparing to unpack .../cuda-nsight-compute-12-4_12.4.1-1_amd64.deb ...
+Unpacking cuda-nsight-compute-12-4 (12.4.1-1) ...
+Setting up nsight-compute-2024.1.1 (2024.1.1.4-1) ...
+Setting up cuda-nsight-compute-12-4 (12.4.1-1) ...
+sélection LLVQ_BENCH_ARMS :
+  phase 1/2 : planes14,fp16
+  phase 2/2 : planes14,fp16
+source NVRTC : 121803 octets, sha256 321804d5327e3ebf30c1918b2012e28affd5877dc3534009d5ee515995654603
+==PROF== Connected to process 9012 (/usr/local/bin/planesbench)
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 149 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access NVIDIA GPU Performance Counters on the target device 0. For instructions on enabling permissions and to get more information see https://developer.nvidia.com/ERR_NVGPUCTRPERM
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs planes14 2.2e-8, fp16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 2 bras entrelacés  [phase 1/2 : planes14,fp16]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  FP16 (128 bits)          48.711   61.617   62.786     7.27   16.000      149
+  LLVQ Planes14            52.130   58.332   63.825     2.18    4.804       42
+  --------------------------------------------------------------------------------
+  LLVQ Planes14    vs FP16     : 0.97× [0.93–1.13]
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2182 Mo distincts par passe sur le bras le plus léger (LLVQ Planes14), soit 21.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 5.22 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Planes14 0.94×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+UN TOKEN — 252 matrices, un stream, 2 bras entrelacés  [phase 2/2 : planes14,fp16]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  FP16 (128 bits)          48.477   53.494   58.560     7.27   16.000      150
+  LLVQ Planes14            50.003   54.475   57.240     2.18    4.804       44
+  --------------------------------------------------------------------------------
+  LLVQ Planes14    vs FP16     : 0.98× [0.89–1.02]
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2182 Mo distincts par passe sur le bras le plus léger (LLVQ Planes14), soit 21.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 5.19 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Planes14 0.97×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+Δ_contrôle — dérive des bras communs entre phases consécutives
+  phases 1→2 planes14   méd   58.332 →   54.475 ms (-6.61 %), vs FP16 0.966 → 0.982 (+1.61 %)
+  phases 1→2 fp16       méd   61.617 →   53.494 ms (-13.18 %)
+  Δ_contrôle (max |Δ| des rapports vs FP16) = 1.61 % ; demi-étendue max intra-run = 6.70 % (planes14) ; R = 6.70 %
+
+  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la sélection LLVQ_BENCH_ARMS
+==PROF== Disconnected from process 9012
+==WARNING== No kernels were profiled.
+NCU-RUN-REFUSE (voir f3-ncu.txt)
