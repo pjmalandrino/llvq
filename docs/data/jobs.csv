@@ -47,3 +47,7 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-17,6a83121be55292eada79b611,campagne-14b-vitesse-2 [vitesse],l40sx1,41,1.24,fusedrun-14b-2026-08-17.txt,le 14B servi : 42.9 tok/s et 9.39 Go carte contre 17.0 et 29.54 au bras dense - 128 tokens identiques - borne d opt-in de partagee enfin mesuree (101376 o) ; le rapport a tete identique n existe pas a cette taille ; 2472 s de running
 2026-08-18,6a84aaaccd3824960fcbf5e7,b3-reseal-8b (CLI -lc mange par hf),cpu-xl,0,0.00,b3-8b-reseal-2026-08-18.txt,exit 127 en 5 s - erratum d invocation documente au journal
 2026-08-18,6a84ab2be55292eada79cb48,b3-reseal-8b,cpu-xl,15,0.24,b3-8b-reseal-2026-08-18.txt,le 8B re-scelle depuis les projections du bucket - C1/C2/C3 verts et 5.322 au millieme
+2026-08-18,6a84b267e55292eada79cbe6,f1-cublasf16,l40sx1,3,0.08,f1-cublasf16-2026-08-18.txt,bande 1 : r=1.015-1.024 - le temoin maison est au niveau de cuBLAS et tous les x publies tiennent
+2026-08-18,6a84b268e55292eada79cbe8,b2-4b-plages,l40sx1,12,0.35,b2-fusedrun-plages-2026-08-18.txt,medianes 87.0 q8 / 48.3 f16 sur 5 rounds - le tie-break au token 89 rejoue
+2026-08-18,6a84b26bcd3824960fcbf755,b2-8b-plages,l40sx1,21,0.63,b2-fusedrun-plages-2026-08-18.txt,le RE-SCELLE rend 128 tokens identiques et rejoue 34.1/68.2 - filet aval de B3 passe
+2026-08-18,6a84b269e55292eada79cbea,b2-14b-plages,l40sx1,43,1.27,b2-fusedrun-plages-2026-08-18.txt,x2.55 q8 + LA CELLULE TETE-IDENTIQUE x1.41 - timeout APRES les mesures (erratum au journal)

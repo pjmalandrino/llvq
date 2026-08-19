@@ -1,0 +1,128 @@
+F1 — LE DÉNOMINATEUR cuBLAS (2026-08-18)
+=========================================
+Pré-enregistrement : proofs/preregistration-f1-cublasf16-2026-08-18.md
+  (tampon .ots + commit 2a35bdb AVANT lancement ; bandes de conséquence §3)
+Job : 6a84b267e55292eada79cbe6, l40sx1, 163 s facturées (~0,08 $ ;
+  file d'attente 23 min non facturée), image au commit 1a585d0.
+Coût annoncé : ≤ 0,60 $. Cumul session (B3+F1) : 0,32 $.
+
+VERDICT — BANDE 1 : LE TÉMOIN MAISON EST AU NIVEAU
+---------------------------------------------------
+r = médiane(t_tv_f16 / t_cublasf16), formé round par round (les deux bras
+coexistent dans chaque round — le rapport par round est licite ici) :
+  phase 1 (2 bras)  : 11,002 / 10,747 ms = r = 1,024
+  phase 2 (5 bras)  : 11,002 / 10,835 ms = r = 1,015
+r ≤ 1,05 dans les deux phases → bande 1 du préreg : cuBLAS ne rend que
+~1,5–2,4 % de mieux que tv_f16. TOUS les × publiés tiennent, et gagnent le
+paragraphe de mesure que le papier attendait. La bande 2 (requalification
+obligatoire) ne s'applique pas ; la bande 3 non plus.
+
+CE QUE LE JOB ÉTABLIT EN PLUS, SANS L'AVOIR CHERCHÉ
+----------------------------------------------------
+- L'échelle publiée REJOUE sous le nouveau dénominateur, dans le même
+  processus : Planes14 2,16× [2,16–2,16] (le chiffre publié), AWQ 3,37×
+  [3,37–3,38], nullk 4,79× [4,78–4,79] — cohérents au centième avec les
+  journaux du 08-11/08-16.
+- Vérification f64 : cublasf16 pire erreur 5,7e-5 < 1e-3 (seuil binary16,
+  même justification qu'AWQ : sortie arrondie par GemmEx). fp16 3,0e-8.
+- Δ_contrôle inter-phases : 0,84 % (fp16 −0,00 %, cublasf16 +0,82 %) —
+  R = 0,84 %, dans la norme des runs publiés.
+- En Go/s : tv_f16 661, cuBLAS 671-676 — l'écart est du flux, pas de l'ALU.
+
+RÉSERVES (du préreg §4, inchangées)
+------------------------------------
+CUBLAS_GEMM_DEFAULT (pas le meilleur GemmEx possible) ; sortie binary16 côté
+cuBLAS contre f32 côté témoin, différence déclarée au bénéfice de cuBLAS.
+
+SORTIE BRUTE DU JOB (intégrale)
+--------------------------------
+sélection LLVQ_BENCH_ARMS :
+  phase 1/2 : fp16,cublasf16
+  phase 2/2 : planes14,fp16,awq,cublasf16,nullk
+source NVRTC : 121803 octets, sha256 321804d5327e3ebf30c1918b2012e28affd5877dc3534009d5ee515995654603
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, AWQ w4g128, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 158 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs fp16 3.0e-8, cublasf16 5.7e-5 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 2 bras entrelacés  [phase 1/2 : fp16,cublasf16]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  FP16 (128 bits)          10.999   11.002   11.004     7.27   16.000      661
+  FP16 cuBLAS              10.742   10.747   10.754     7.27   16.000      676
+  --------------------------------------------------------------------------------
+  FP16 cuBLAS      vs FP16     : 1.02× [1.02–1.02]
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  7267 Mo distincts par passe sur le bras le plus léger (FP16 cuBLAS), soit 72.2× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : FP16 cuBLAS 1.02×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+— phase 2/2 : téléversement des bras ajoutés (planes14,awq,nullk) —
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs planes14 2.2e-8, awq 5.8e-5, nullk 0.0e0 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 5 bras entrelacés  [phase 2/2 : planes14,fp16,awq,cublasf16,nullk]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  plancher (nullk)          2.297    2.299    2.303     0.07    0.159       31
+  FP16 (128 bits)          10.998   11.002   11.008     7.27   16.000      661
+  FP16 cuBLAS              10.832   10.835   10.839     7.27   16.000      671
+  LLVQ Planes14             5.093    5.097    5.102     2.18    4.804      428
+  AWQ w4g128                3.251    3.260    3.260     1.90    4.179      584
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 4.79× [4.78–4.79]
+  FP16 cuBLAS      vs FP16     : 1.02× [1.01–1.02]
+  LLVQ Planes14    vs FP16     : 2.16× [2.16–2.16]
+  AWQ w4g128       vs FP16     : 3.37× [3.37–3.38]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 0.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 3.50×, FP16 cuBLAS 1.01×, LLVQ Planes14 1.94×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+Δ_contrôle — dérive des bras communs entre phases consécutives
+  phases 1→2 fp16       méd   11.002 →   11.002 ms (-0.00 %)
+  phases 1→2 cublasf16  méd   10.747 →   10.835 ms (+0.82 %), vs FP16 1.024 → 1.015 (-0.84 %)
+  Δ_contrôle (max |Δ| des rapports vs FP16) = 0.84 % ; demi-étendue max intra-run = 0.15 % (awq) ; R = 0.84 %
+
+  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la sélection LLVQ_BENCH_ARMS
