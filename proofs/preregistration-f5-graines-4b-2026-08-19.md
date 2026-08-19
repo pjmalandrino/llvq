@@ -124,7 +124,75 @@ devis estimateur 1,3 h de quantification + ~0,4 h de seal et ppl ; cap dur =
 - **A3** — `verify_artifact` (interne à `smoke`) doit passer sur les trois :
   un artefact qui ne se relit pas bit pour bit n'entre pas dans l'étendue.
 
-## 6. Sorties
+## 6bis. AMENDEMENT DU 2026-08-19 — le pilote a tué la `l4x4`
+
+Écrit **après le pilote, avant les runs de mesure**, et le document est
+**ré-ancré** (règle du dépôt : « un fichier ancré qui doit être édité est
+ré-ancré »). Le `.ots` d'origine reste dans l'historique git ; le nouveau
+atteste ces octets-ci.
+
+**Ce que le pilote a mesuré, et c'est un fait, pas une estimation** : job
+`6a857b07e55292eada79d93b`, `l4x4`, **OOM à 122 s**, pendant la passe de
+perplexité *baseline*, avant même que la quantification commence.
+`CUDA_ERROR_OUT_OF_MEMORY`. La carte annonce **23 034 MiB** (une L4 en fait
+22,5 Go, pas 24), et le budget f32 s'écrit :
+
+| poste | Go |
+|---|---|
+| modèle Qwen3-4B en f32 | 16,1 |
+| logits d'une fenêtre 4096 × 151 936 | 2,5 |
+| cache KV, 36 couches | 1,2 |
+| **sous-total, hors activations** | **19,8** contre 22,5 |
+
+**Amendements**, tous mécaniques :
+
+- flavor `l4x4` → **`rtx-pro-6000`** (96 Go de VRAM, 23 vCPU) — la carte sur
+  laquelle le 8B a été quantifié : précédent du projet, pas un choix neuf.
+- `LLVQ_THREADS` 48 → **23** (les vCPU de la carte).
+- `--timeout 3h` → **`4h`** (devis 2,4 h de quantification + ~0,4 h de seal
+  et ppl ; le 8B, deux fois plus gros, a pris 4,6 h).
+- Coût annoncé : **≤ 7,50 $ le pilote, ≤ 22,50 $ les trois** ; pire cas au
+  cap = 11 $ par job.
+- **Ce qui NE change pas, et c'est le point** : F32 reste le dtype, donc le
+  protocole publié est intact et aucune déviation ne s'ajoute aux réserves
+  R1-R4. L'alternative examinée — rester sur `l4x4` en `bf16` — était moins
+  chère de ~3 $ et introduisait une quantification depuis des poids bf16 :
+  écartée pour cette raison, sur arbitrage de l'opérateur.
+- **Un second pilote est relancé** sur la nouvelle carte avant les graines 2
+  et 3 : le mur VRAM est levé par l'arithmétique (96 Go ≫ 20), mais la
+  chaîne `smoke → seal → ppl` en un seul job n'a jamais tourné, et 7,50 $
+  restent moins chers que 22,50.
+
+Le pilote a coûté **0,13 $** pour économiser un lot à 19,50 $ lancé contre
+un mur. C'est la justification de la clause pilote, et elle est datée.
+
+## 6ter. Le job amendé, verbatim
+
+```
+hf jobs run --flavor rtx-pro-6000 --timeout 4h -d \
+  -v hf://buckets/Pier-Jean/jobs-artifacts:/out \
+  hf.co/spaces/Pier-Jean/llvq-runner-cuda \
+  -- bash -lc 'set -euo pipefail
+S=<1|2|3>; D=/out/f5-graines-2026-08-19/seed$S; mkdir -p "$D"
+nvidia-smi --query-gpu=driver_version,name,memory.total --format=csv
+export LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_THREADS=23
+export LLVQ_CALIB_SEED=$S LLVQ_ARTIFACT=$D/q4b-s$S.llvq
+smoke 64 2048 12 4096 cuda nogs leech1c12 999 rot 2>&1 | tee $D/smoke.txt
+seal $D/q4b-s$S.llvq $D/q4b-s$S-sealed.llvq 2>&1 | tee $D/seal.txt
+LLVQ_DTYPE=f16 ppl 4096 12 cuda $D/q4b-s$S-sealed.llvq \
+  > $D/ppl-stdout.txt 2> $D/ppl-nll-par-fenetre.txt
+cat $D/ppl-stdout.txt; tail -20 $D/ppl-nll-par-fenetre.txt
+sha256sum $D/q4b-s$S-sealed.llvq'
+```
+
+## 6quater. Une anomalie de plus, ajoutée par l'amendement
+
+- **A4** — OOM sur la nouvelle carte : ne pas contourner par une baisse de
+  dtype ou de contexte sans **nouvel amendement ancré**. Un protocole qui
+  se relâche sous la contrainte matérielle mesure autre chose que ce qu'il
+  annonce, et ce document existe pour rendre ce glissement visible.
+
+## 7. Sorties
 
 Journal : `docs/mesures/f5-graines-4b-2026-08-19.txt`. Données brutes : les
 trois `ppl-nll-par-fenetre.txt` commités sous `docs/data/f5-nll/`. Registre :
