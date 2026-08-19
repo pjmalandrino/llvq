@@ -53,3 +53,4 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-18,6a84b269e55292eada79cbea,b2-14b-plages,l40sx1,43,1.27,b2-fusedrun-plages-2026-08-18.txt,x2.55 q8 + LA CELLULE TETE-IDENTIQUE x1.41 - timeout APRES les mesures (erratum au journal)
 2026-08-19,6a8559fce55292eada79d7e8,f4-a100-echelle,a100-large,17,1.00,f4-a100-2026-08-18.txt,cout ESTIME (premier tarif a100-large) - V3 : l echelle ne transfere pas - aucun bras decode ne bat FP16 sur HBM - bornes calcul pas memoire
 2026-08-19,6a8567b4cd3824960fcc18aa,f3-events-ncu,l40sx1,29,0.86,f3-events-2026-08-19.txt,E1 ecart hote-device 0.1-0.2 pourcent + N1 ERR_NVGPUCTRPERM (issue b preregistree) + D1 driver 580.159.03
+2026-08-19,6a857b07e55292eada79d93b,f5-pilote-graine1 (OOM),l4x4,2,0.13,f5-graines-4b-2026-08-19.txt,PILOTE : OOM en 122 s a la ppl baseline - L4 = 22.5 Go VRAM et le 4B en f32 n y tient pas - le pilote a coute 0.13 au lieu de 19.50
