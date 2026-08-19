@@ -159,7 +159,7 @@ Two conventions an evaluator should know, because they are unusual:
   aggregated log cannot be given error bars afterwards, and because our
   compute vendor's log retention is neither documented nor guaranteed.
 - **Decision thresholds are pre-registered.** `proofs/` holds the documents
-  that fixed each acceptance criterion *before* its measurement; nine carry an
+  that fixed each acceptance criterion *before* its measurement; 13 carry an
   OpenTimestamps anchor. `proofs/README.md` inventories them adversarially —
   including the two whose anchors were detached by later edits, and the ones
   stamped after their measurement rather than before. **The claim of
