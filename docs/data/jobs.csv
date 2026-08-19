@@ -51,3 +51,4 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-18,6a84b268e55292eada79cbe8,b2-4b-plages,l40sx1,12,0.35,b2-fusedrun-plages-2026-08-18.txt,medianes 87.0 q8 / 48.3 f16 sur 5 rounds - le tie-break au token 89 rejoue
 2026-08-18,6a84b26bcd3824960fcbf755,b2-8b-plages,l40sx1,21,0.63,b2-fusedrun-plages-2026-08-18.txt,le RE-SCELLE rend 128 tokens identiques et rejoue 34.1/68.2 - filet aval de B3 passe
 2026-08-18,6a84b269e55292eada79cbea,b2-14b-plages,l40sx1,43,1.27,b2-fusedrun-plages-2026-08-18.txt,x2.55 q8 + LA CELLULE TETE-IDENTIQUE x1.41 - timeout APRES les mesures (erratum au journal)
+2026-08-19,6a8559fce55292eada79d7e8,f4-a100-echelle,a100-large,17,1.00,f4-a100-2026-08-18.txt,cout ESTIME (premier tarif a100-large) - V3 : l echelle ne transfere pas - aucun bras decode ne bat FP16 sur HBM - bornes calcul pas memoire

@@ -1,0 +1,218 @@
+F4 — SECONDE ARCHITECTURE : A100/HBM, ET L'ÉCHELLE S'INVERSE (2026-08-18/19)
+=============================================================================
+Pré-enregistrement : proofs/preregistration-f4-a100-2026-08-18.md
+  (tampon .ots + commit 9f8f160 AVANT lancement ; verdicts V1-V3 posés §4)
+Job : 6a8559fce55292eada79d7e8, a100-large (A100-SXM4-80GB, 108 SM, L2 41,9 Mo
+  lue, fiche 2 039 Go/s), 1 034 s facturées. ⚠️ Coût ESTIMÉ ~1,0 $ : premier
+  job a100-large du registre, tarif jamais observé — à confirmer au tableau
+  de bord. Coût annoncé : ≤ 2,50 $. Image au commit 1a585d0
+  (LLVQ_NVRTC_ARCH=compute_80, première exécution du mécanisme).
+
+LES TROIS VERDICTS DU PRÉREG
+-----------------------------
+V1 (mécanisme) ✅ — les 11 noyaux compilent et se chargent en sm_80, l'assert
+  binary_version tient avec l'override. LLVQ_NVRTC_ARCH fait ce qu'il dit.
+V2 (correction) ✅ — vérification f64 ligne à ligne : pires erreurs
+  IDENTIQUES à celles du L40S (slot32 2,2e-8 … awq 5,8e-5, cublasf16
+  5,7e-5). L'arithmétique des noyaux ne dépend pas de la carte.
+V3 (l'échelle) 🚨 — LA BRANCHE « RÉSULTAT À PUBLIER » SE RÉALISE :
+  l'échelle bits↔vitesse NE TRANSFÈRE PAS. Sur A100, AUCUN bras à décodage
+  ne bat FP16.
+
+LA TABLE (7 rounds dont 2 jetés, rapports round par round, Go/s sur temps min)
+-------------------------------------------------------------------------------
+  bras            méd ms A100   vs FP16 A100      Go/s(min) A100   [repère L40S : vs FP16 · Go/s]
+  nullk (plancher)      4,107   1,68× [1,68–1,68]        18        [4,79× · —]
+  FP16 (témoin)         6,915   1,00×                  1052        [1,00× · 661]
+  FP16 cuBLAS           6,041   1,14× [1,14–1,15]      1204        [1,02× · 671-676]
+  AWQ w4g128            3,793   1,82× [1,82–1,82]       501        [3,37× · 584]
+  LLVQ Planes14         8,742   0,79× [0,79–0,79]       250        [2,16× · 425-427]
+  LLVQ Slot32           9,413   0,73× [0,73–0,73]       266        [1,87× · 428]
+  LLVQ Planes12x        9,423   0,73× [0,73–0,73]       209        [1,98× · 356]
+  LLVQ Golay70 v2      11,121   0,62× [0,62–0,62]       147        [1,77× · 263]
+  LLVQ Golay70 v1      15,705   0,44× [0,44–0,44]       104        [1,31× · 195]
+  (repères L40S : journaux e2/golay70-v2 des 08-07/08-11 et f1 du 08-18 ;
+   les × inter-cartes NE SE DIVISENT PAS — règle du préreg §3)
+
+CE QUE LA TABLE ÉTABLIT (mesuré)
+---------------------------------
+1. FP16 et cuBLAS CONVERTISSENT la HBM : 661 → 1 052 et 676 → 1 204 Go/s.
+   Le témoin maison reste à 1,14× de cuBLAS sur A100 (contre 1,02× sur L40S
+   — le verdict F1 est un verdict L40S et n'est pas contredit : autre carte).
+2. TOUS les bras à décodage RALENTISSENT EN ABSOLU sur la carte à mémoire
+   plus rapide : Planes14 5,12 → 8,74 ms, leurs Go/s effectifs CHUTENT
+   (425 → 250 · 428 → 266 · 356 → 209 · 263 → 147). Une borne mémoire ne
+   produit pas ça : sur A100 ces noyaux sont bornés par le CALCUL par SM.
+3. Le plancher nullk — qui ne lit aucun poids — passe de 2,305 à 4,107 ms
+   (×1,78) et ne vaut plus que 1,68× FP16 (contre 4,79×) : le sol
+   latence/lancement mange 59 % du temps FP16 sur A100 contre 21 % sur L40S.
+4. L'ordre INTERNE des bras LLVQ tient à une égalité près (Planes14 devant ;
+   Slot32 et Planes12x à 0,73× tous deux — sur L40S Planes12x devançait
+   Slot32) ; c'est l'échelle CONTRE FP16 qui s'inverse en bloc.
+
+L'INTERPRÉTATION, avec ses étiquettes
+--------------------------------------
+MESURÉ : la conversion octets→temps est une propriété du COUPLE format×carte.
+  Sur L40S/Ada (GDDR6, 864 Go/s fiche), l'avantage d'octets convertit
+  (Planes14 2,16×, 65 % de sa borne d'octets) ; sur A100 (HBM2e, 2 039 Go/s
+  fiche), le toit mémoire monte, la borne de calcul des noyaux de décodage
+  descend, et les bras croisent du régime mémoire au régime calcul.
+HYPOTHÈSE CANDIDATE (non tranchée — aucun des deux preflights n'imprime
+  l'horloge SM, et la règle du dépôt interdit un pic que personne n'a lu) :
+  les facteurs ×1,6-1,8 des bras compute-bound sont compatibles avec le
+  rapport des fréquences SM constructeur Ada/Ampere ; les compteurs qui le
+  trancheraient sont l'objet de F3/N1. Améliorable à 0 $ : faire imprimer
+  clock_khz par preflight (le champ est déjà lu par DeviceReport).
+
+CONSÉQUENCES POUR LE PAPIER (B4)
+---------------------------------
+- Le domaine de validité du claim se resserre et se MESURE au lieu de se
+  supposer : « decode at matvec speed » est un résultat L40S/Ada — le point
+  A100 le borne, il ne l'étend pas. La limitation « une seule carte » est
+  remplacée par une CARACTÉRISATION à deux cartes, ce qui est plus fort et
+  plus honnête que le point unique — et exactement ce que V3 prévoyait.
+- La lecture roofline du papier sort renforcée : c'est elle qui explique
+  l'inversion (fraction de borne convertie 65 % sur L40S → <0 de marge sur
+  A100), et la figure gagne un second point d'ancrage.
+- AWQ à 1,82× et cuBLAS à 1,14× sur A100 : le concurrent 4 bits converge
+  aussi vers le toit calcul, mais de bien plus loin.
+
+ANOMALIE A1 (dispersion) : aucune — plages ≤ 0,3 % sur tous les bras.
+
+SORTIE BRUTE DU JOB (intégrale)
+--------------------------------
+name, memory.total [MiB]
+NVIDIA A100-SXM4-80GB, 81920 MiB
+source NVRTC : 12351 octets, sha256 b0b50cafef7a34179d50ddb226c08ffe474f3301209aa3c7154c6c2071876b4b
+  sources embarquées (celles du commit)
+
+carte
+  ----------------------------------------------------------------------
+  nom                    NVIDIA A100-SXM4-80GB
+  compute capability     8.0
+  SM                     108
+  L2                     41943040 octets (41.9 Mo) — LU, jamais supposé
+  mémoire partagée       49152 o/bloc par défaut, 166912 o/bloc après opt-in, 167936 o/SM
+  bande passante fiche   2039 Go/s (5120 bits à 1593 MHz, DDR)
+  ⚠️ ce dernier chiffre est une plaque signalétique, pas une mesure : l'ECC est
+  active par défaut et en consomme une part. Tout « x % du pic » doit passer par le
+  noyau sol, jamais par lui.
+
+noyaux chargés
+  ----------------------------------------------------------------------
+  noyau               regs   local o  shared o       sm_  thr/bloc
+  decode_probe          26         0         0        80      1024
+  dot_probe             31         0         0        80      1024
+  floor_probe           12         0         0        80      1024
+
+fixture : 20767 blocs — les deux bornes de chacune des 383 classes, 20000 tirages uniformes
+  sur la boule m ≤ 13, plus l'origine. Plus large que le fichier scellé, qui est plafonné à Λ₂₄(12).
+
+vérification
+  ----------------------------------------------------------------------
+  20767 blocs, 498408 slots — classe, gain et niveau EXACTS
+  1 bloc origine, dont le champ de signes n'existe pas
+  produit scalaire : pire erreur 1.15e-7·Σ|w·x|
+
+✓ le décodeur porté décide exactement ce que décide le décodeur Rust.
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk
+source NVRTC : 121803 octets, sha256 321804d5327e3ebf30c1918b2012e28affd5877dc3534009d5ee515995654603
+
+NVIDIA A100-SXM4-80GB — 108 SM, L2 41.9 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     32 registres, 0 o locaux, sm_80
+  tv_slot_seg  32 registres, 0 o locaux, sm_80
+  tv_f16      40 registres, 0 o locaux, sm_80
+  tv_planes   32 registres, 0 o locaux, sm_80
+  tv_planes_seg  32 registres, 0 o locaux, sm_80
+  tv_planes12x  32 registres, 0 o locaux, sm_80
+  tv_golay70  32 registres, 0 o locaux, sm_80
+  tv_golay70_v1  32 registres, 0 o locaux, sm_80
+  awq_gemv_g128  32 registres, 0 o locaux, sm_80
+  tv_e1v      78 registres, 0 o locaux, sm_80
+  tv_nullk    31 registres, 0 o locaux, sm_80
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus), Golay70 (trous origine + exceptions E2), AWQ w4g128, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 916 s — preuves bloc par bloc des bras construits
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, planes12x 2.9e-8, golay70v1 4.1e-8, fp16 3.0e-8, awq 5.8e-5, golay70v2 4.1e-8, cublasf16 5.7e-5, nullk 0.0e0 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 9 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids     Go/s
+  plancher (nullk)          4.106    4.107    4.118     0.07    0.159       18
+  FP16 (128 bits)           6.908    6.915    6.917     7.27   16.000     1052
+  FP16 cuBLAS               6.035    6.041    6.050     7.27   16.000     1204
+  LLVQ Slot32               9.410    9.413    9.415     2.50    5.510      266
+  LLVQ Planes14             8.732    8.742    8.748     2.18    4.804      250
+  LLVQ Planes12x            9.418    9.423    9.433     1.97    4.342      209
+  LLVQ Golay70 v1          15.704   15.705   15.712     1.63    3.589      104
+  LLVQ Golay70 v2          11.118   11.121   11.130     1.63    3.589      147
+  AWQ w4g128                3.791    3.793    3.794     1.90    4.179      501
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 1.68× [1.68–1.68]
+  FP16 cuBLAS      vs FP16     : 1.14× [1.14–1.15]
+  LLVQ Slot32      vs FP16     : 0.73× [0.73–0.73]
+  LLVQ Planes14    vs FP16     : 0.79× [0.79–0.79]
+  LLVQ Planes12x   vs FP16     : 0.73× [0.73–0.73]
+  LLVQ Golay70 v1  vs FP16     : 0.44× [0.44–0.44]
+  LLVQ Golay70 v2  vs FP16     : 0.62× [0.62–0.62]
+  AWQ w4g128       vs FP16     : 1.82× [1.82–1.82]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.08× [1.08–1.08]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.60× [0.60–0.60]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+  golay70v2  vs golay70v1 : 1.41× [1.41–1.41]  (>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la campagne v2)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 1.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 0.74 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 1.58×, FP16 cuBLAS 1.13×, LLVQ Slot32 0.75×, LLVQ Planes14 0.81×, LLVQ Planes12x 0.75×, LLVQ Golay70 v1 0.47×, LLVQ Golay70 v2 0.64×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 112 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              9.414 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         8.065 ms   144 lancements
+  Planes14, matrices séparées            8.742 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       7.731 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 1.348 ms [1.343–1.352]  (14.3 %)
+  gain Planes14 : 1.012 ms [1.001–1.021]  (11.6 %)
+  Planes14 / Slot32 sur le gain : 0.75× [0.74–0.75]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.
