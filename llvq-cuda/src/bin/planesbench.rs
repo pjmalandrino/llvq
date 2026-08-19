@@ -2031,9 +2031,15 @@ mod linux {
                 "  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND"
             );
             println!("  {}", "-".repeat(80));
+            // « Go/s(min) », pas « Go/s » : la colonne divise par le temps
+            // MINIMUM — la lecture la plus favorable, celle d'un débit de
+            // pointe — et l'en-tête ne le disait pas (relevé par l'audit du
+            // 2026-08-18). Déclaré plutôt que changé : les journaux publiés
+            // portent cette comptabilité, et c'est l'étiquette qui manquait,
+            // pas la formule.
             println!(
-                "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}",
-                "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s"
+                "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}",
+                "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s(min)"
             );
             for a in arms::DISPLAY_ORDER {
                 if !phase.has(a) {
@@ -2200,11 +2206,32 @@ mod linux {
                 );
             }
             let mut times: [Vec<f64>; arms::N_ARMS] = Default::default();
+            // Le span DEVICE par bras, sous LLVQ_TIME_EVENTS=1 seulement —
+            // variable non lue ailleurs, donc le protocole publié reste
+            // byte-identique quand elle est absente (le motif
+            // LLVQ_TIME_PHASES de fusedrun). Deux events par (bras, round) :
+            // le span va du premier lancement à la dernière complétion,
+            // écarts inter-noyaux sur le stream COMPRIS. La différence
+            // hôte − device isole ce que le wall-clock ajoute : soumission
+            // non recouverte et latence de sync — la composante mesurable
+            // du poste « latence/occupation » que l'attribution du 08-05
+            // obtenait par soustraction.
+            let time_events = std::env::var("LLVQ_TIME_EVENTS").as_deref() == Ok("1");
+            let mut dev_times: [Vec<f64>; arms::N_ARMS] = Default::default();
             for rep in 0..ROUNDS {
                 for (arm, t_arm) in times.iter_mut().enumerate() {
                     if !phase.has(arm) {
                         continue;
                     }
+                    let ev_flags = Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT);
+                    let ev_start = match time_events {
+                        true => Some(
+                            cuda.stream()
+                                .record_event(ev_flags)
+                                .map_err(|e| format!("event start : {e:?}"))?,
+                        ),
+                        false => None,
+                    };
                     let t = Instant::now();
                     for m in &mats {
                         match arm {
@@ -2225,14 +2252,58 @@ mod linux {
                             _ => unreachable!("bras inconnu"),
                         }
                     }
+                    let ev_end = match time_events {
+                        true => Some(
+                            cuda.stream()
+                                .record_event(ev_flags)
+                                .map_err(|e| format!("event end : {e:?}"))?,
+                        ),
+                        false => None,
+                    };
                     cuda.sync()?;
                     let s = t.elapsed().as_secs_f64();
                     if rep >= WARMUP {
                         t_arm.push(s);
+                        if let (Some(a), Some(b)) = (&ev_start, &ev_end) {
+                            dev_times[arm].push(
+                                a.elapsed_ms(b).map_err(|e| format!("elapsed : {e:?}"))? as f64
+                                    / 1e3,
+                            );
+                        }
                     }
                 }
             }
             report(&mats, pi, phase, &times);
+            if time_events {
+                let med = |v: &[f64]| -> f64 {
+                    let mut s = v.to_vec();
+                    s.sort_by(f64::total_cmp);
+                    s[s.len() / 2]
+                };
+                println!(
+                    "\n--- events device par bras (LLVQ_TIME_EVENTS=1, hors protocole publié) ---"
+                );
+                println!(
+                    "  span device = du 1er lancement à la dernière complétion, écarts\n  \
+                     inter-noyaux compris ; hôte − device = soumission non recouverte + sync."
+                );
+                println!(
+                    "  {:<16}{:>14}{:>14}{:>14}{:>9}",
+                    "bras", "hôte méd ms", "device méd ms", "écart ms", "écart %"
+                );
+                for a in arms::DISPLAY_ORDER {
+                    if phase.has(a) && !dev_times[a].is_empty() {
+                        let hm = med(&times[a]) * 1e3;
+                        let dm = med(&dev_times[a]) * 1e3;
+                        println!(
+                            "  {:<16}{hm:>14.3}{dm:>14.3}{:>14.3}{:>8.1}%",
+                            arms::DISPLAY_NAMES[a],
+                            hm - dm,
+                            (hm - dm) / hm * 100.0
+                        );
+                    }
+                }
+            }
             phase_times.push(times);
         }
 
