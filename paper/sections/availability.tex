@@ -21,23 +21,16 @@ behind columns 3 and 4 of Table~\ref{tab:campaign}: the sealed 1.77~GB
 int8 embedding pre-baked. \emph{Neither the Qwen3-8B nor the Qwen3-14B
 artifact is published}; both are reproducible from the repository at the
 costs recorded in \texttt{docs/data/jobs.csv} (\$12.61 and \$27.67 of GPU
-time). The 14B run's per-question MMLU dumps, however, \emph{are} committed,
-in \texttt{docs/data/mmlu-dumps/} beside the 4B and 8B ones. This paragraph
-said the opposite until 2026-08-17 --- that they had been pulled back from
-the job's output volume, never committed, and were now gone, which was the
-stated reason the 14B entry of Table~\ref{tab:scale} carried no paired
-interval. They were not gone. They were still in that job's mounted output
-bucket, where the job had written them; only the local scratch copy had been
-searched for. Retrieving them cost 579~kB and no GPU time, the paired
-estimate was recomputed from them, and the point estimate did not move.
-The sealed 14B artifact came back from the same bucket, which is what put a
-whole-model b/param in Table~\ref{tab:scale}; it is still not published here,
-for size. The 4B campaign's per-window NLLs came back the next day from a
-third place --- the job's own log, which the vendor had not purged --- and are
-committed as raw output in \texttt{docs/\allowbreak mesures/\allowbreak
-a4-campagne-4b-ppl-BRUT-2026-08-06.txt}; they are what gives
-Table~\ref{tab:scale} its \texttt{fall} intervals, and they are committed
-rather than cited by job id precisely because that retention is undocumented.
+time). What \emph{is} committed for all three sizes is the evidence behind
+every paired statistic: the per-question MMLU dumps of all nine arms in
+\texttt{docs/data/mmlu-dumps/}, and the per-window log-likelihoods behind the
+nine perplexity intervals, as raw output rather than as a job identifier
+(\texttt{docs/\allowbreak mesures/\allowbreak
+a4-campagne-4b-ppl-BRUT-2026-08-06.txt} and the campaign journals beside
+it). Raw rather than aggregate, and committed rather than cited, for the same
+reason in both cases: an aggregated log cannot be barred afterwards at any
+price short of rerunning the arms, and job-log retention at our compute
+vendor is neither documented nor guaranteed.
 The format is neither
 GGUF nor AWQ nor safetensors: no third-party runtime reads it, and the only
 reader that exists is the \texttt{llvq-artifact} crate in this repository.

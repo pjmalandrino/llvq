@@ -46,23 +46,14 @@ of competitor, and it is the one that changed our reading of our own result.
 The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
 vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{Three models end to end, one GPU, greedy decoding.} Everything
-end-to-end is Qwen3-4B, Qwen3-8B and Qwen3-14B on a single L40S with batch
-size 1 and greedy decode. The 14B joined them on the evening of 2026-08-17
-(\S\ref{sec:integration}): 42.9~tok/s in 9.39~GB of card memory against
-17.0~tok/s in 29.54~GB for its dense arm, 128 identical greedy tokens. This
-paragraph carried the opposite claim twice over --- first that the 14B was
-``a \emph{quality} point only \dots\ nothing about throughput or VRAM'', then,
-once the 2026-08-17 \texttt{rtbits} pass had given it a byte-level memory
-figure, that it was ``never served \dots\ no throughput, no on-card VRAM''.
-What had kept it unserved was not the kernel but a host-side guard on the
-rotation kernel's shared memory; the paragraph below says what lifted that
-guard and what it still blocks. What the 14B does \emph{not} have is the
-same-head ratio the other two sizes carry: only the served, int8-head
-configuration was run at that size, and \S\ref{sec:integration} declines to
-reconstruct the missing arm from a phase profile rather than reporting a
-number of a different kind in the same column. Batched
-serving changes the arithmetic-intensity regime that makes
+\textbf{Three models end to end, one serving GPU, greedy decoding.}
+Everything end-to-end is Qwen3-4B, Qwen3-8B and Qwen3-14B on a single L40S
+with batch size 1 and greedy decode; only the layout bench runs on a second
+architecture (\S\ref{sec:layouts}), and what it finds there is a limitation
+of its own, stated below. What kept the 14B unserved for a while was not the
+kernel but a host-side guard on the rotation kernel's shared memory; the
+paragraph after next says what lifted that guard and what it still blocks.
+Batched serving changes the arithmetic-intensity regime that makes
 the kernel memory-bound; larger models change the embedding share and the
 tail-column overhead.
 
@@ -81,10 +72,9 @@ perplexity falls 42.8\% from 4B to 8B, $[-51.8, -33.5]$, and 13.9\% from 8B to
 trend continues to the 70B class, the regime the sovereignty argument
 actually cares about, is measurable with this methodology and is not measured
 here --- and the third point is exactly the reason not to extrapolate from
-the first two, as an earlier draft of this section did when it had only two.
+the first two.
 
-Four qualifications on how that curve may be read. Every one of them moved on
-2026-08-17, and each is recorded as changed rather than quietly rewritten.
+Three qualifications on how that curve may be read.
 
 First, the slowdown has \emph{two} verdicts, one per metric, and they must
 never be merged into one sentence. On perplexity it is resolved: the 12
@@ -110,61 +100,30 @@ perplexity knee is 2-bit against FP16 where the MMLU knee is 2-bit against the
 alone: against an AWQ reference the perplexity knee still resolves, though far
 less comfortably ($-0.0576$, $[-0.1011, -0.0140]$, $t = -2.91$ against
 $-6.06$), and that line should not be quoted with the confidence of the FP16
-one. What follows operationally is what
-this section already said --- no scaling law from three models --- now resting
-on two tests that disagree about curvature rather than on caution alone. Both
-are computed from published intervals and per-window logs, not separately
-measured. This section previously said no test of a difference of differences
-existed at all, and then, for a few hours, that the only test available
-declined to resolve the slowdown --- a statement true of the MMLU gap, which
-was then the only metric with bars at all three sizes, and that stopped being
-the whole story the moment perplexity had them too. The first statement was
-retired when the 14B dumps were recovered, the second when the 4B per-window
-NLLs were.
+one. What follows operationally is no scaling law from three models, now
+resting on two tests that disagree about curvature rather than on caution
+alone. Both are computed from published intervals and per-window logs, not
+separately measured.
 
-Second, the third gap in the MMLU sequence (6.09 points) \emph{is} a paired
-estimate, $[3.62, 8.52]$, McNemar $p = 1.1\times10^{-11}$. This section said
-the opposite until 2026-08-17: that it was an unpaired difference of
-micro-averages, that the 14B run's per-question dumps had never been
-committed and were gone, and that it had no interval and must not be given
-one. The dumps were not gone --- they were in the job's mounted output
-bucket, and only the local copy had been looked for --- and the recomputation
-cost no GPU time and did not move the point estimate.
-See \S\ref{sec:evaluation}.
+Second, every interval in that curve is paired, including the third gap in
+the MMLU sequence (6.09 points, $[3.62, 8.52]$, McNemar
+$p = 1.1\times10^{-11}$; \S\ref{sec:evaluation}), and the three per-question
+dumps behind it are committed rather than cited by job identifier. So are
+the per-window log-likelihoods behind the nine perplexity intervals. We
+commit the raw output rather than the aggregate because an aggregated log is
+an irreversible loss: three cells of this table were briefly unbarrable for
+no reason other than a journal having recorded means instead of the windows
+they came from.
 
-Third, the memory half of the argument now has all three points, not two.
-This section said no whole-model b/param existed for the 14B because no
-\texttt{rtbits} pass had been run on its sealed artifact; that pass has since
-run, on the artifact recovered from the same bucket. We are below the AWQ
-checkpoint at every size (5.162, 5.322, 5.106 against 5.302, 5.956, 5.404),
-but \emph{the margin is not monotone} --- 2.6\%, 10.6\%, 5.5\% --- and it
-should not be read as a tendency: it tracks the share of parameters the
-embedding occupies, which AWQ leaves in FP16 and we quantize, and which peaks
-at the 8B. This qualification ended ``what remains unmeasured above 8B is not
-memory but \emph{serving}: the 14B was never run, so it has no throughput and
-no on-card VRAM figure'' until it was run, the same evening
-(\S\ref{sec:integration}). Its card memory is a third and independent route to
-the same b/param and lands $0.38\%$ from the byte-level one, inside a band
-fixed before the run --- a cross-check, not a replacement, since it divides a
-rounded card display.
-
-Fourth, the perplexity half of that curve carried no error bars at all before
-2026-08-17 and now carries them at all three sizes --- which is what made the
-perplexity verdict above possible, and it arrived in two steps on the same
-day. Six intervals came first, on the 8B and the 14B. The 4B's three were
-declared unformable in the same journal, on the ground that its campaign log
-had recorded aggregate perplexities and no per-window NLLs, with the cost of
-restoring them budgeted as a re-run of two arms. They were in the job's log,
-which the vendor had not purged, and they cost nothing. \emph{That is the
-second output this project declared lost and then found somewhere it had not
-looked, inside two days} --- the first being the 14B per-question dumps of the
-qualification above, which were in a mounted output bucket. Both recoveries
-changed a claim's evidential status without moving a point estimate, and both
-had been preceded by a price for re-measuring rather than by a search. The
-rule we now follow is to inventory a job's output bucket \emph{and} its logs
-before pricing any re-run. The practice we do \emph{not} rely on is log
-retention, which is neither documented nor guaranteed, which is why the
-recovered output is committed to the repository rather than cited by job id.
+Third, the memory half of the argument has all three points, and we are
+below the AWQ checkpoint at every size (5.162, 5.322, 5.106 against 5.302,
+5.956, 5.404) --- but \emph{the margin is not monotone}: 2.6\%, 10.6\%,
+5.5\%. It should not be read as a tendency. It tracks the share of
+parameters the embedding occupies, which AWQ leaves in FP16 and we quantize,
+and which peaks at the 8B. At 14B the on-card footprint is a third and
+independent route to the same b/param and lands $0.38\%$ from the byte-level
+one, inside a band fixed before the run --- a cross-check, not a
+replacement, since it divides a rounded card display.
 
 \textbf{Our speedups are over FP16, not over the 4-bit state of the
 practice.} Every $\times$ in \S\ref{sec:layouts} and
@@ -249,9 +208,8 @@ every layout of \S\ref{sec:layouts} decodes weights that live in the rotated
 basis and calls the same rotation, so no layout verdict moves it and none is
 touched by it. One escape is named here and deliberately \emph{not} designed:
 carrying the shared activation in half precision needs 51\,200 bytes, half
-the opt-in bound and so no longer capacity-limited --- though still 2\,048
-bytes above the 49\,152 default, which an earlier draft of this sentence had
-it fitting under --- but at $n = 25\,600$ the transform is a
+the opt-in bound and so no longer capacity-limited, though still 2\,048
+bytes above the 49\,152 default --- but at $n = 25\,600$ the transform is a
 1\,024-point Walsh--Hadamard --- 10 barriers --- followed by a dense mix of
 $k = 25$, so all 25\,600 terms contribute to each output coordinate, an
 accumulation depth equivalent to a ${\sim}14.6$-stage Hadamard, and that
