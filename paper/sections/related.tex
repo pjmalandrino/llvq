@@ -8,31 +8,75 @@ scalar grids: QuIP~\citep{quip2023} introduced incoherence processing,
 QuIP\#~\citep{quipsharp2024} added E8-lattice codebooks, and
 QTIP~\citep{qtip2024} reached the previous state of the art with trellis
 quantization and hardware-friendly decoders. LLVQ~\citep{llvq2026} improved
-on QTIP's quality by quantizing on the Leech lattice with a spherical
-variant of GPTQ; our work implements its quantizer independently in Rust
-and supplies the systems half the paper leaves open: its kernel decodes
-one shell, is slower than QTIP's, and no multi-shell decoder existed prior
-to this work. The lattice itself, its Golay-code construction and its
-optimality properties are classical~\citep{conway1999sphere,cohn2017}; the
+on QTIP's quality by quantizing on the Leech lattice with a spherical variant
+of GPTQ; our work implements its quantizer independently in Rust and supplies
+the systems half the paper leaves open: its kernel decodes one shell, is
+reported slower than QTIP's, and no multi-shell decoder existed prior to this
+work. The lattice itself, its Golay-code construction and its optimality
+properties are classical~\citep{conway1999sphere,cohn2017}; the
 nearest-neighbor literature for Leech-based spherical codes goes back to
 \citet{adoul1988}.
 
-Two further vector-quantized systems operate at our rate with released
-kernels and are the baselines a systems paper at 2 bits should eventually
-run: AQLM~\citep{aqlm2024}, which uses additive quantization, and
+A second family keeps a scalar grid and spends its bits on what the grid
+cannot hold. SpQR~\citep{spqr2023} and SqueezeLLM~\citep{squeezellm2024}
+isolate outlier weights into a sparse side-channel, which is the same
+structural move as the sparse overlay of \S\ref{sec:layouts} --- ours
+separates blocks whose level count exceeds what a 12-byte slot addresses,
+theirs separates weights whose magnitude a uniform grid would ruin --- and
+both pay for it in a second, irregular memory stream. Two further
+vector-quantized systems operate at our rate with released kernels and are
+the baselines a systems paper at 2 bits should eventually run:
+AQLM~\citep{aqlm2024}, which uses additive quantization, and
 VPTQ~\citep{vptq2024}. GPTVQ~\citep{gptvq2024}, from the group that later
-produced LLVQ, is the direct ancestor of its vector-quantization line. We measure none of them (\S\ref{sec:limitations}).
+produced LLVQ, is the direct ancestor of its vector-quantization line. We
+measure none of them (\S\ref{sec:limitations}).
 
-\textbf{4-bit systems.} AWQ~\citep{awq2024} is the deployed 4-bit
-reference we compare against; Marlin~\citep{marlin2024} demonstrates what a
-mature mixed-precision kernel achieves at 4 bits, including in batched
-regimes we do not address. Our layout study is complementary: it asks how
-far below 4 bits the \emph{in-VRAM} rate can be pushed before decode cost
-overtakes bandwidth savings, and finds the knee near 4.3~b/weight for
-lattice codes.
+\textbf{Rotations, and why they bound our serving path.} Incoherence
+processing is a rotation, and the line that made it practical at 4 bits ---
+QuaRot~\citep{quarot2024}, then SpinQuant~\citep{spinquant2024} with learned
+rotations --- shares the constraint that ends \S\ref{sec:limitations}: a
+Hadamard transform is a barrier ladder, a barrier synchronizes one block, so
+the whole activation must fit in one block's shared memory. Our rotation
+kernel meets that wall at a measured 101\,376 bytes, one model class below
+the width the sovereignty argument wants. Those systems place the transform
+differently and would meet it at a different width; none of them removes it.
+
+\textbf{Kernels for quantized inference.} Below 8 bits the multiplication
+stops being the problem and the \emph{decode} becomes it, which is the
+premise of the layout study in \S\ref{sec:layouts}. LUT-GEMM~\citep{lutgemm2024}
+and FLUTE~\citep{flute2024} answer with lookup tables sized to fit in fast
+memory --- the same instinct as our class table, though a Leech class is a
+permutation pattern rather than a value, so ours is read once per block and
+not once per weight. AWQ~\citep{awq2024} is the deployed 4-bit reference we
+port unchanged into our own harness, and Marlin~\citep{marlin2024}
+demonstrates what a mature mixed-precision kernel achieves at 4 bits,
+including in the batched regimes we do not address. On the community side,
+ExLlamaV2~\citep{exllamav2} ships comparable formats without an accompanying
+publication; we cite it as software, since that is what it is. Our layout
+study is complementary to all of these: it asks how far below 4 bits the
+\emph{in-VRAM} rate can be pushed before decode cost overtakes bandwidth
+savings, and finds the knee near 4.3~b/weight for lattice codes.
+
+\textbf{Performance models.} The quantity that organizes
+\S\ref{sec:layouts} --- the fraction of its own byte bound each layout
+converts into time --- is a roofline argument~\citep{roofline2009} with two
+adaptations forced by the setting. First, the ceiling is measured rather than
+taken from a datasheet: a kernel that reads no weights at all supplies an
+empirical floor, where a nameplate bandwidth would have overstated it and, on
+this card, cannot be read without ECC assumptions we did not want to make.
+Second, the same layouts sit on opposite sides of the ridge point on two
+cards. On an L40S every decoding arm is bandwidth-bound and the byte savings
+convert; on an A100, whose HBM raises the memory ceiling without raising the
+per-SM decode throughput, the same arms cross into the compute-bound region
+and fall below the FP16 baseline. A roofline drawn for one of those machines
+does not describe the other, which is the sharpest way to say what
+\S\ref{sec:layouts} found.
 
 \textbf{Serving engines.} Our integration is built on
-\texttt{candle}~\citep{candle2023}. The output-head materialization of
+\texttt{candle}~\citep{candle2023}, and the 4-bit throughput reference of
+\S\ref{sec:integration} was measured in vLLM~\citep{vllm2023} --- a different
+engine, which is exactly why that number is reported as a within-stack ratio
+and never divided against ours. The output-head materialization of
 \S\ref{sec:integration} is a property of the \texttt{broadcast\_matmul}
 primitive, which we found unreported and have since reported
 upstream;\footnote{\url{https://github.com/huggingface/candle/issues/3871}}

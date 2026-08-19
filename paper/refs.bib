@@ -181,3 +181,138 @@
   year      = {2017},
   note      = {arXiv:1609.07843}
 }
+
+% ---------------------------------------------------------------------------
+% PROVENANCE, second pass. Ten entries added on 2026-08-19 for the related
+% work of the TACO revision, checked the same way as the block at the top of
+% this file: DBLP records, publisher pages (PMLR, ACL Anthology, JMLR, ICLR
+% proceedings) and arXiv title pages, never a search summary.
+%
+% FIVE of the ten would have been WRONG cited as preprints — the defect this
+% file already carries twice (marlin2024, wikitext2016):
+%   - quarot2024 appeared at NeurIPS 2024, and its CoRR version lists EIGHT
+%     authors where the NeurIPS one lists NINE (Cameron, 5th). Copying the
+%     preprint's list would have reproduced the gptvq2024 defect exactly.
+%   - spinquant2024 appeared at ICLR 2025, spqr2023 and lutgemm2024 at ICLR
+%     2024 — spqr2023's arXiv page announces itself as an "extended preprint"
+%     and names no venue, so only the ICLR record reveals it. As with
+%     wikitext2016, those keys keep their names; their `year` fields do not.
+%   - flute2024 is in the EMNLP 2024 *Findings*, not the main track.
+%
+% One near-miss worth recording: `roofline2009` has a Berkeley technical
+% report with a DIFFERENT title ("... for Floating-Point Programs and
+% Multicore Architectures", UCB/EECS-2008-134). The entry below is the CACM
+% 2009 article, which is the one the performance-model literature cites. No
+% `doi` field is carried, for consistency with every other entry here.
+%
+% Weak spots, stated rather than hidden:
+%   - roofline2009: dl.acm.org and cacm.acm.org both answer 403, so the page
+%     range (65--76) rests on the DBLP record rather than on the article's
+%     first page, and the title's capitalization is the magazine's title-case
+%     form where DBLP records sentence case. Authors, journal, volume, number
+%     and year are confirmed by that same record.
+%   - vllm2023: the page range and the "29th" ordinal come from DBLP, the ACM
+%     page being 403. "Joseph E. Gonzalez" follows the arXiv title page;
+%     DBLP drops the initial.
+%   - spinquant2024: capitalization after the colon follows the ICLR record;
+%     OpenReview served a bot check instead of the camera-ready.
+%   - squeezellm2024: "Coleman Richard Charles Hooper" is PMLR's form, the
+%     publisher of the cited version; the arXiv title page has "Coleman
+%     Hooper". Same person, a style choice.
+%   - exllamav2 is a SOFTWARE citation and there is no paper behind it:
+%     README, releases and the GitHub API were read, and there is no arXiv,
+%     no CITATION file and no "how to cite" section. `author` is the
+%     repository owner login as the API returns it, not a claimed author, and
+%     `year` is the repository's creation date, not a publication date.
+%     llama.cpp's k-quants are in the same position — their canonical
+%     reference is a pull request — which is why the deployed-format citation
+%     here is ExLlamaV2 rather than GGUF.
+% ---------------------------------------------------------------------------
+
+@inproceedings{vllm2023,
+  title     = {Efficient Memory Management for Large Language Model Serving with {PagedAttention}},
+  author    = {Kwon, Woosuk and Li, Zhuohan and Zhuang, Siyuan and Sheng, Ying and Zheng, Lianmin and Yu, Cody Hao and Gonzalez, Joseph E. and Zhang, Hao and Stoica, Ion},
+  booktitle = {Proceedings of the 29th Symposium on Operating Systems Principles (SOSP)},
+  pages     = {611--626},
+  year      = {2023},
+  note      = {arXiv:2309.06180}
+}
+
+@article{c4corpus,
+  title   = {Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer},
+  author  = {Raffel, Colin and Shazeer, Noam and Roberts, Adam and Lee, Katherine and Narang, Sharan and Matena, Michael and Zhou, Yanqi and Li, Wei and Liu, Peter J.},
+  journal = {Journal of Machine Learning Research},
+  volume  = {21},
+  number  = {140},
+  pages   = {1--67},
+  year    = {2020},
+  note    = {arXiv:1910.10683}
+}
+
+@inproceedings{quarot2024,
+  title     = {{QuaRot}: Outlier-Free 4-Bit Inference in Rotated {LLMs}},
+  author    = {Ashkboos, Saleh and Mohtashami, Amirkeivan and Croci, Maximilian L. and Li, Bo and Cameron, Pashmina and Jaggi, Martin and Alistarh, Dan and Hoefler, Torsten and Hensman, James},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+  note      = {arXiv:2404.00456}
+}
+
+@inproceedings{spinquant2024,
+  title     = {{SpinQuant}: {LLM} Quantization with Learned Rotations},
+  author    = {Liu, Zechun and Zhao, Changsheng and Fedorov, Igor and Soran, Bilge and Choudhary, Dhruv and Krishnamoorthi, Raghuraman and Chandra, Vikas and Tian, Yuandong and Blankevoort, Tijmen},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  note      = {arXiv:2405.16406}
+}
+
+@inproceedings{lutgemm2024,
+  title     = {{LUT-GEMM}: Quantized Matrix Multiplication based on {LUTs} for Efficient Inference in Large-Scale Generative Language Models},
+  author    = {Park, Gunho and Park, Baeseong and Kim, Minsub and Lee, Sungjae and Kim, Jeonghoon and Kwon, Beomseok and Kwon, Se Jung and Kim, Byeongwook and Lee, Youngjoo and Lee, Dongsoo},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  note      = {arXiv:2206.09557}
+}
+
+@inproceedings{flute2024,
+  title     = {Fast Matrix Multiplications for Lookup Table-Quantized {LLMs}},
+  author    = {Guo, Han and Brandon, William and Cholakov, Radostin and Ragan-Kelley, Jonathan and Xing, Eric P. and Kim, Yoon},
+  booktitle = {Findings of the Association for Computational Linguistics: {EMNLP} 2024},
+  pages     = {12419--12433},
+  year      = {2024},
+  note      = {arXiv:2407.10960}
+}
+
+@inproceedings{squeezellm2024,
+  title     = {{SqueezeLLM}: Dense-and-Sparse Quantization},
+  author    = {Kim, Sehoon and Hooper, Coleman Richard Charles and Gholami, Amir and Dong, Zhen and Li, Xiuyu and Shen, Sheng and Mahoney, Michael W. and Keutzer, Kurt},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  pages     = {23901--23923},
+  year      = {2024},
+  note      = {arXiv:2306.07629}
+}
+
+@inproceedings{spqr2023,
+  title     = {{SpQR}: A Sparse-Quantized Representation for Near-Lossless {LLM} Weight Compression},
+  author    = {Dettmers, Tim and Svirschevski, Ruslan and Egiazarian, Vage and Kuznedelev, Denis and Frantar, Elias and Ashkboos, Saleh and Borzunov, Alexander and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  note      = {arXiv:2306.03078}
+}
+
+@article{roofline2009,
+  title   = {Roofline: An Insightful Visual Performance Model for Multicore Architectures},
+  author  = {Williams, Samuel and Waterman, Andrew and Patterson, David A.},
+  journal = {Communications of the {ACM}},
+  volume  = {52},
+  number  = {4},
+  pages   = {65--76},
+  year    = {2009}
+}
+
+@misc{exllamav2,
+  title        = {{ExLlamaV2}: A fast inference library for running {LLMs} locally on modern consumer-class {GPUs}},
+  author       = {{turboderp-org}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/turboderp-org/exllamav2}},
+  note         = {Version 0.3.2, accessed 2026-08-19}
+}
