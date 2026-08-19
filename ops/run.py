@@ -66,6 +66,27 @@ from pathlib import Path
 # `a100-large` is the trap: 80 GB of VRAM at a fair price is exactly what one
 # reaches for, and it is sm_80. Marked here so the choice is refused rather
 # than regretted.
+#
+# ⚠️ 2026-08-19 — THE GUARD IS RIGHT FOR THE MAJORITY AND OVER-STRICT FOR ONE
+# FAMILY, and the distinction is worth stating rather than acting on. Two
+# kinds of binary ship in this image:
+#
+#   * the candle family (`smoke`, `ppl`, `mmlu`, `seal`, `fusedrun`) — bound
+#     by `candle-kernels`' PTX, baked at CUDA_COMPUTE_CAP=89 when the Space
+#     builds. Nothing at run time can move it. The guard is exactly right.
+#   * the `llvq-cuda` family (`planesbench`, `preflight`, `rotbench`, …) —
+#     no candle dependency at all (cudarc plus workspace crates), kernels
+#     compiled by NVRTC at startup. Since `LLVQ_NVRTC_ARCH` landed
+#     (commit 1a585d0) these run on any sm: F4 dispatched nine arms on an
+#     `a100-large` (sm_80) on 2026-08-19, with `binary_version` asserting
+#     sm_80 on all eleven kernels.
+#
+# Loosening `MIN_COMPUTE_CAP` would therefore let a *candle* job onto a card
+# that bills, pulls the image, downloads the checkpoint and then loads no
+# kernel — the exact regret this constant exists to prevent. A per-family
+# guard is the honest fix and it is not written; until it is, an `llvq-cuda`
+# job on sm_80 is launched with `hf jobs run` directly (as F4 was), with the
+# override named in its pre-registration.
 MIN_COMPUTE_CAP = 89
 
 FLAVORS: dict[str, dict] = {

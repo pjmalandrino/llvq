@@ -9,9 +9,29 @@ CONTEXTE RENDU PAR LES CANAUX DE RÉTENTION (§7 de CLAUDE.md, appliqué)
 ----------------------------------------------------------------------
 - hf jobs inspect 6a76008a3e1f34a7e32bd74c (le run de quantification du
   2026-08-07) rend la commande exacte : smoke 64 2048 12 4096 cuda nogs
-  leech1c12 1000000 rot — GRAINE 1000000, LLVQ_CALIB=c4, LLVQ_THREADS=23.
-  La branche « graine irrécupérable » du préreg est SANS OBJET : les
-  projections du bucket sont celles du run d'origine, aucun re-tirage.
+  leech1c12 1000000 rot, avec LLVQ_CALIB=c4, LLVQ_MODEL=Qwen/Qwen3-8B,
+  LLVQ_THREADS=23. La branche « graine irrécupérable » du préreg est SANS
+  OBJET : les projections du bucket sont celles du run d'origine, aucun
+  re-tirage.
+  🕳️ CORRECTION DU 2026-08-19, et elle porte sur un fait, pas sur une
+  conclusion. Ce paragraphe a dit « GRAINE 1000000 » jusqu'à cette date :
+  FAUX. L'argument 7 de `smoke` est `blocks`, la limite de blocs à
+  quantifier (`arg(&a, 7, "blocks", usize::MAX)`, smoke.rs:583) — 1000000
+  est une sentinelle « tous les blocs », exactement comme le 999 du run 4B
+  publié. La graine de calibration ne vit pas dans les arguments mais dans
+  `LLVQ_CALIB_SEED`, et l'environnement du job ne la porte PAS : le run
+  d'origine a donc tourné graine NON POSÉE, ce qui signifie « préfixe
+  contigu depuis le token 0 » (`window_starts`, smoke.rs:416-427). Il n'y
+  avait aucune graine à récupérer — la conclusion « aucun re-tirage » reste
+  vraie, et même plus fortement qu'écrit : non pas parce qu'on a retrouvé
+  la graine, mais parce qu'il n'y en a jamais eu. Découvert en vérifiant le
+  plan de run de F5, dont c'est précisément le mécanisme.
+  ⚠️ Le pré-enregistrement B3 est TAMPONNÉ et porte encore l'affirmation
+  d'origine : il n'est PAS édité. Une ancre atteste des octets à une date ;
+  la corriger pour rendre le texte juste détruirait ce qu'elle prouve — le
+  défaut réalisé sur les préregs du 08-10 et du 08-11. Le document
+  pré-enregistré reste faux sur ce point, ce journal est l'endroit où ça se
+  lit, et les deux se citent l'un l'autre.
 - Bucket : qwen3-8b-c12-77e76284/qwen3-8b-c12.llvq, 1 822 874 562 o,
   mtime 2026-08-07 20:26 (la version projections-seules, format v3).
 
