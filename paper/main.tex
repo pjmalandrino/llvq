@@ -1,11 +1,19 @@
 % Fused multi-shell Leech decoder — ACM TACO submission.
 % Build: make (generates figures from ../docs/data/*.csv, then latexmk).
 %
-% Class: acmart in `acmsmall` — the journal format TACO uses. The previous
-% revision was `article` at 11pt, an arXiv-style preprint; the conversion
-% landed 2026-08-19 (item B4 of docs/plan-taco-2026-08-18.md) and changed no
-% number. `review` adds line numbers for the referees and comes off for the
-% camera-ready; `screen` makes the links live in the PDF referees read.
+% Class: acmart in `manuscript` — the format ACM's own journal-submission
+% sample prescribes for review ("For submission and review of your manuscript
+% please change the command to \documentclass[manuscript, screen, review]",
+% sample-acmsmall-submission.tex). `acmsmall` is the *published* format and is
+% what the camera-ready will use. The previous revision was `article` at 11pt,
+% an arXiv-style preprint; the conversion landed 2026-08-19 (item B4 of
+% docs/plan-taco-2026-08-18.md) and changed no number.
+%
+% 🚨 `anonymous=true`: TACO reviews double-anonymously and states that a paper
+% revealing its authors is "subject to immediate rejection". The author block
+% below stays in the source and is suppressed by the class; what the class
+% CANNOT suppress is a self-identifying URL, so the availability section
+% carries anonymized links for review — see its own comment.
 % Written `key=true` because acmart declares these with `\define@boolkey`;
 % the bare forms work identically, this is explicitness, not a fix.
 %
@@ -15,7 +23,7 @@
 % including this one. The mode is verified in the OUTPUT — acmart numbers
 % lines itself rather than loading `lineno`, so `pdftotext main.pdf` showing
 % the numbers is the check that means something.
-\documentclass[acmsmall,review=true,screen=true,anonymous=false]{acmart}
+\documentclass[manuscript,review=true,screen=true,anonymous=true]{acmart}
 
 % acmart loads its own fonts (libertine + newtxmath), microtype, graphicx,
 % booktabs, hyperref, xcolor, amsmath and natbib. Loading any of them again
@@ -27,6 +35,18 @@
 \usepackage{xurl}
 
 \graphicspath{{figures/}}
+
+% ---------------------------------------------------------------------------
+% Self-identifying URLs, switched by the class's own anonymity flag. TACO's
+% guidelines make a paper that reveals its authors "subject to immediate
+% rejection", and `anonymous=true` suppresses the author block but cannot
+% suppress a repository URL that names its owner. `\ifanon{real}{anonymized}`
+% keeps both forms in the source: the review build prints the second, the
+% camera-ready prints the first by flipping one class option.
+% ---------------------------------------------------------------------------
+\makeatletter
+\newcommand{\ifanon}[2]{\if@ACM@anonymous#2\else#1\fi}
+\makeatother
 
 % ---------------------------------------------------------------------------
 % Journal identification. The volume/number/article fields are placeholders

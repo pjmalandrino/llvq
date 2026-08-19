@@ -3,7 +3,8 @@
 
 The implementation, the CSV files behind every table and figure in this
 paper, and the source of the paper itself are at
-\url{https://github.com/pjmalandrino/llvq}, dual-licensed MIT or
+\ifanon{\url{https://github.com/pjmalandrino/llvq}}{a public repository whose
+URL is withheld for double-anonymous review}, dual-licensed MIT or
 Apache-2.0. The numbers reported here are those of the repository revision
 this build was made from; frozen states are tagged together with their
 numbers (\texttt{paper-v2}, 2026-08-17, is the latest such tag, and the
@@ -15,7 +16,8 @@ are dependency-free Rust and can be read end to end; \texttt{candle} and
 \texttt{cudarc} enter only through the model-side and kernel crates.
 
 The quantized Qwen3-4B artifact is published at
-\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit}, as both files
+\ifanon{\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit}}{a public
+model repository whose URL is withheld for double-anonymous review}, as both files
 behind columns 3 and 4 of Table~\ref{tab:campaign}: the sealed 1.77~GB
 \texttt{qwen3-4b-llvq.bin} and the 1.41~GB \texttt{q4b-e8.llvq} with the
 int8 embedding pre-baked. \emph{Neither the Qwen3-8B nor the Qwen3-14B
