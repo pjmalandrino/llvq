@@ -1,0 +1,110 @@
+F5 — VARIANCE DE CALIBRATION AU 4B : L'ÉTENDUE VAUT 10,3 % (2026-08-19)
+========================================================================
+Pré-enregistrement : proofs/preregistration-f5-graines-4b-2026-08-19.md
+  (tamponné avant le pilote ; AMENDÉ et RÉ-ANCRÉ avant les runs de mesure,
+   §6bis — sha256 courant 5ae2de8d…, le tampon de la version l4x4 conservé
+   sous .v1-l4x4.md.ots, atteste c860eccb…)
+Jobs (rtx-pro-6000, f32, image au commit 1a585d0) :
+  graine 1  6a858231cd3824960fcc1cf8  2,59 h  7,11 $   (pilote)
+  graine 2  6a85a76ae55292eada79dba1  2,58 h  7,11 $
+  graine 3  6a85a76bcd3824960fcc22f1  2,58 h  7,10 $
+  + pilote mort en OOM sur l4x4      6a857b07e55292eada79d93b  0,13 $
+  TOTAL 21,45 $ — annoncé ≤ 22,50. Cumul session (B3+F1+B2+F3+F4+F5) ≈ 25,88 $.
+
+LE RÉSULTAT
+------------
+Trois runs identiques à un caractère près — LLVQ_CALIB_SEED ∈ {1,2,3} —
+même corpus (lu dans la même heure), même codebook, même rotation, même
+protocole, et la MÊME empreinte de tokens d'évaluation que les neuf bras
+publiés (3f1baca9033bf251), donc appariables fenêtre par fenêtre.
+
+  graine   ppl scellé f16   ppl smoke f32
+  1            16,7425          16,7725
+  2            15,8836          15,9054
+  3            15,1027          15,1125
+
+  ÉTENDUE  15,1027 – 16,7425 = 1,6398 ppl = 10,3 % de la médiane
+  σ (n=3)  0,8202 ppl = 5,2 %
+
+Différences appariées fenêtre par fenêtre (nats ; t(0,975;11) = 2,200985) :
+  g1 − g2  +0,052665  IC95 [+0,027132 ; +0,078198]  t = +4,54   → ×1,0541
+  g1 − g3  +0,103077  IC95 [+0,082307 ; +0,123848]  t = +10,92  → ×1,1086
+  g2 − g3  +0,050412  IC95 [+0,035968 ; +0,064857]  t = +7,68   → ×1,0517
+
+🚨 LES TROIS PAIRES SONT RÉSOLUES. Ce n'est pas du bruit de mesure : le
+choix des fenêtres de calibration déplace la perplexité d'un effet que
+l'instrument sépare largement de zéro.
+
+CE QUE ÇA DIT — ET IL FAUT LIRE LES DEUX MOITIÉS
+-------------------------------------------------
+1. LE σ QUE LE DOSSIER SUPPOSAIT EST FAUX D'UN FACTEUR ~7. Depuis le lot B,
+   la règle de travail est « σ ≈ 0,7 %, tout effet sous ~1,5 % est du bruit »
+   — mesurée sur 3 graines de Qwen3-0.6B à 3 blocs. À la taille publiée,
+   sur le modèle publié, avec le protocole publié, σ vaut 5,2 % et l'étendue
+   10,3 %. L'avertissement du §2 de CLAUDE.md (« ce σ n'est pas la barre
+   d'erreur de l'objet publié ») était juste, et sa prudence insuffisante.
+2. CE QUE ÇA N'INVALIDE PAS, et c'est la moitié qui sauve le dossier : les
+   A/B À FICHIER CONSTANT ne recalibrent pas (KV q8, layouts runtime,
+   embedding q8, tous les verdicts de format) — cette variance ne les touche
+   pas, leur barre reste l'intervalle apparié à ±0,12 %. Et les artefacts
+   publiés 4B/8B/14B ont TOUS tourné sans graine, donc sur le MÊME préfixe
+   contigu et (tokenizer partagé) le même texte : la courbe d'échelle compare
+   des objets calibrés identiquement, et sa comparaison ne porte pas cette
+   variance.
+3. CE QUE ÇA TOUCHE VRAIMENT : (a) le NIVEAU ABSOLU de chaque dégradation
+   publiée — ×1,384 au 4B est la valeur d'UN choix de fenêtres, non
+   privilégié ; (b) toute expérience qui RECALIBRE. Deux verdicts du lot B
+   tombent sous le nouveau plancher de bruit : l'oracle (−1,6 %) et la courbe
+   de volume (−1,2 % pour ×13 de tokens) sont tous deux DANS l'étendue
+   inter-graines. Leur conclusion « le volume de calibration est plafonné »
+   n'est pas renversée — elle était fondée sur des effets trop petits pour
+   être distingués, ce qui est maintenant mesurable et le reste. Le design C
+   (×1,99) et le swap L ≤ 4 (+4,75 %) restent hors de portée du bruit.
+4. UNE LECTURE MÉCANISTE, ÉTIQUETÉE HYPOTHÈSE : nous calibrons sur ~131 k
+   tokens contre ~100× plus au papier amont. Un jeu de calibration petit ne
+   déplace pas seulement la moyenne (l'oracle a montré que non), il porte de
+   la VARIANCE. C'est cohérent avec les deux faits et personne ne l'avait
+   formulé.
+
+🚨 CE QUI NE SE COMPARE PAS : LE POINT PUBLIÉ N'EST PAS UN QUATRIÈME TIRAGE
+---------------------------------------------------------------------------
+L'artefact publié rend 16,9415 (scellé f16). Il est TENTANT d'écrire que les
+trois graines le battent toutes, donc que le préfixe est un mauvais choix.
+CE SERAIT DEUX VARIABLES À LA FOIS, et les réserves R1/R2 du préreg le
+disaient avant la mesure :
+  - RÉGIME : le publié est un PRÉFIXE CONTIGU (graine non posée), pas un
+    tirage aléatoire ; il n'appartient pas à la distribution échantillonnée.
+  - CORPUS : le shard C4 est passé de 00000 à 00001 après le run publié
+    (README). Les trois graines lisent le corpus d'aujourd'hui.
+Donc l'écart préfixe↔graines mélange régime et corpus, et ce journal ne le
+lit PAS comme un effet de graine. Ce qui est propre est l'étendue ENTRE les
+trois, mesurée à corpus et régime constants.
+
+LES ANOMALIES DU PRÉREG, UNE PAR UNE
+-------------------------------------
+A1 (run n'atteignant pas seal) : AUCUNE — les trois vont jusqu'au sha256.
+A2 (empreintes de tokens différentes) : AUCUNE — 3f1baca9033bf251 partout,
+   identique aux neuf bras des campagnes publiées.
+A3 (verify_artifact) : VERT sur les trois — « ✓ 3633315840 weights
+   identical, bit for bit (à f32) ». Les trois artefacts sont scellables et
+   se relisent.
+A4 (OOM, ajoutée par l'amendement) : aucune sur rtx-pro-6000. L'OOM du
+   pilote l4x4 est antérieur à l'amendement et l'a motivé.
+Contrôles annexes : les trois rendent 2,0702 b/poids effectifs et 1,771 Go
+   scellés — identiques au fichier publié, donc le débit du code n'a pas
+   bougé d'un tirage à l'autre ; seule la qualité bouge.
+
+DONNÉES BRUTES
+---------------
+NLL par fenêtre des trois graines commitées sous docs/data/f5-nll/ (12
+fenêtres × 3, 9 décimales). Artefacts scellés au bucket
+f5-graines-2026-08-19/seed{1,2,3}/, sha256 dans les logs des jobs.
+
+CONSÉQUENCE POUR LE PAPIER (B4)
+--------------------------------
+La réserve d'evaluation.tex — « les neuf intervalles couvrent
+l'échantillonnage du corpus d'évaluation et non le tirage de calibration,
+qui est d'un artefact par taille » — cesse d'être qualitative et reçoit son
+chiffre : à la taille publiée, ce tirage vaut ~10 % d'étendue. C'est la
+réserve la plus forte du papier et elle doit rester au corps, pas partir en
+annexe avec la courbe d'échelle.

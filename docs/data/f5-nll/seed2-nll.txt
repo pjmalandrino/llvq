@@ -1,0 +1,16 @@
+device: Cuda(CudaDevice(DeviceId(1))), context 4096, dtype f16
+sealed /out/f5-graines-2026-08-19/seed2/q4b-s2-sealed.llvq: 252 quantized matrices, 1.771 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.740978661  n 4095  running ppl   15.502  (1.9s)
+  window   2/12  nll 3.136367235  n 4095  running ppl   18.891  (3.4s)
+  window   3/12  nll 2.549356351  n 4095  running ppl   16.592  (4.8s)
+  window   4/12  nll 2.270013927  n 4095  running ppl   14.500  (6.3s)
+  window   5/12  nll 2.895515444  n 4095  running ppl   15.157  (7.7s)
+  window   6/12  nll 2.834729377  n 4095  running ppl   15.453  (9.2s)
+  window   7/12  nll 2.842664692  n 4095  running ppl   15.687  (10.6s)
+  window   8/12  nll 2.796437157  n 4095  running ppl   15.772  (12.1s)
+  window   9/12  nll 2.973775899  n 4095  running ppl   16.155  (13.6s)
+  window  10/12  nll 2.482773390  n 4095  running ppl   15.678  (15.0s)
+  window  11/12  nll 2.908973882  n 4095  running ppl   15.903  (16.5s)
+  window  12/12  nll 2.751835079  n 4095  running ppl   15.884  (17.9s)
