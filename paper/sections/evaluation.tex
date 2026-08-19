@@ -172,128 +172,25 @@ already-published FP16-minus-2-bit pair replays its point estimate, interval,
 standard error and McNemar $p$ to the digit
 (\texttt{docs/\allowbreak mesures/\allowbreak mmlupair-14b-2026-08-17.txt}).
 
-\textbf{Does the closing itself slow? On the MMLU gap, the bars decline to
-say.} With the three gaps finally the same kind of number, the question the
-word \emph{knee} asks can be put to a test, and on this metric the answer is
-that one step is resolved and the other is not. Composing the two standard
-errors in quadrature --- the campaigns are independent, and no pairing across
-model sizes is available for a question set or would mean anything --- the gap
-falls by 6.96 points from 4B to 8B ($\mathrm{SE}$ 1.82, $z = 3.82$,
-$p = 0.0001$), by 1.40 from 8B to 14B ($\mathrm{SE}$ 1.68, $z = 0.83$,
-$p = 0.40$), and by 8.36 end to end ($\mathrm{SE}$ 1.91,
-$p \approx 10^{-5}$). The first closing is established and the total closing
-is established; the second step is not. \emph{And $p = 0.40$ is not evidence
-of constancy either.} On that step this metric is silent, and both readings
---- a curve that flattens, and a curve that keeps closing at a smaller pace
---- remain compatible with it. These are $z$-tests computed from the intervals
-of Table~\ref{tab:scale}, not a further measurement. \emph{The same question
-put to perplexity answers differently}, and it is answered below, once that
-column has intervals of its own; a claim about the knee that does not name
-its metric is half wrong whichever half it states.
-
-\textbf{Perplexity gets error bars, and now at all three sizes.} Every
-perplexity ratio in this paper was a point estimate while the MMLU column
-carried intervals --- a comparison that tests its differences on one axis and
-not the other invites exactly the question it should close. Nine paired
-intervals now exist, three per model, formed window by
-window over the 12 evaluation windows --- the same text in every arm, which is
-what the matching fingerprint guarantees --- as a Student $t$ interval on the mean
-per-window NLL difference, $n = 12$, 11 degrees of freedom, exponentiated to
-a perplexity ratio. The exponentiation is exact rather than a delta-method
-step, since every window scores the same token count. As excess over the
-stated reference: at 4B, AWQ over FP16 $+10.49\%$ $[+8.55, +12.47]$, 2-bit
-over FP16 $+38.45\%$ $[+33.62, +43.45]$, 2-bit over AWQ $+25.31\%$
-$[+20.01, +30.84]$; at 8B, $+4.80\%$ $[+4.24, +5.35]$, $+22.01\%$
-$[+19.37, +24.70]$ and $+16.42\%$
-$[+14.17, +18.72]$; at 14B, $+3.81\%$ $[+3.27, +4.34]$, $+18.94\%$
-$[+17.22, +20.68]$ and $+14.58\%$ $[+13.10, +16.08]$. None contains zero, and
-all 108 window-level comparisons point the same way. The instrument returns a
-null when it should: the same 8B file scored with an f16 and with an int8
-embedding differs by $+0.0004\%$, interval $[-0.025, +0.026]$, which contains
-zero.
-
-\textbf{The 4B's three intervals rest on raw output, not on a summary.} A
-campaign log that records aggregate perplexities and no per-window
-log-likelihoods cannot be barred afterwards at any price short of rerunning
-the arms, so the per-window lines are committed rather than cited by job
-identifier (\texttt{docs/\allowbreak mesures/\allowbreak
-a4-campagne-4b-ppl-BRUT-2026-08-06.txt}). Three controls ran before those
-lines were used for anything: the three published perplexities replay from
-the NLLs to the ten-thousandth (12.2369 / 13.5207 / 16.9422), the paired
-differences are additive window by window --- all twelve residuals exactly
-zero in double precision, which a one-window offset between two arms would
-break and nothing else would show --- and the run fingerprint on all three
-arms is the one the 8B and 14B campaigns carry.
-
-One reservation bounds all nine intervals: they cover the sampling of the
-evaluation corpus and nothing else, in particular not the calibration draw,
-which is one seed per artifact and is unmeasured at these scales; they
-therefore condition on the three files we produced. Both steps of the curve
-are barred. The
-8B-to-14B fall of the excess over FP16 is $-13.9\%$ with interval
-$[-22.8, -4.9]$, and the 4B-to-8B fall is $-42.8\%$ with interval
-$[-51.8, -33.5]$ --- the bar that the $-43\%$ quoted in this repository since
-2026-08-10 had gone without. Against the AWQ reference --- the one the product
-argument rests on --- the 8B-to-14B step reads $-1.58\%$ with interval
-$[-3.14, -0.004]$,
-$t = 2.2063$ against a threshold of 2.2010, and it clears zero by five
-thousandths, so it must not be described as a significant closing. \emph{Those
-two percentages are in different parameterizations and must not be read as a
-ninefold difference}: $-13.9\%$ is the fall of the \emph{excess}, $-1.58\%$ the
-fall of the \emph{ratio} of perplexities, which is the only form the journal
-publishes for the AWQ reference. In the ratio parameterization the two
-references read $-2.51\%$ $[-4.12, -0.88]$ and $-1.58\%$ $[-3.14, -0.004]$.
-Data: \texttt{docs/\allowbreak mesures/\allowbreak
-ppl-appariee-8b-14b-2026-08-17.txt} and
-\texttt{docs/\allowbreak mesures/\allowbreak ppl-appariee-4b-2026-08-17.txt},
-carried by \texttt{docs/data/ppl-appariee.csv}.
-
-\textbf{On perplexity the closing does slow, and the knee resolves.} The
-question put to the MMLU gap above can now be put to this
-column, and here the three campaigns \emph{can} be paired across model sizes:
-the 12 windows are the same text at every size, which the common fingerprint
-guarantees, so the difference of differences is formed window by window rather
-than by composing two standard errors. Against FP16 the perplexity
-\emph{ratio} falls by a
-factor $\times0.8812$ $[0.8561, 0.9071]$ from 4B to 8B, all 12 windows
-agreeing in sign, and $\times0.9749$ $[0.9588, 0.9912]$ from 8B to 14B, 10 of
-12 agreeing. \emph{Those are the same two steps as the $-42.8\%$ and
-$-13.9\%$ of Table~\ref{tab:scale}, in the other parameterization}: 0.8812 is
-the ratio of two perplexity ratios, $-42.8\%$ the fall of the excess, and the
-warning two paragraphs above applies here too --- the test is run on the log
-ratio because that is what the per-window differences are linear in, which is
-what makes the pairing exact. The knee is the difference of those two log
-ratios, and it is
-$-0.1010$ $[-0.1377, -0.0643]$, $t = -6.06$ on 11 degrees of freedom, 11 of 12
-windows agreeing: the first step lowers the excess strictly harder than the
-second, with the near edge of the interval nearly four standard errors from
-zero. Against the AWQ reference the same test still resolves but far less
-comfortably --- $-0.0576$ $[-0.1011, -0.0140]$, $t = -2.91$ --- and it must not
-be quoted with the confidence of the FP16 line. Data:
-\texttt{docs/data/ppl-genou.csv}.
-
-\textbf{Why the two metrics answer differently, and what neither buys.} They
-are two quantities, not two measurements of one, and the most likely
-explanation is power: perplexity averages over the 49\,140 scored tokens of
-12 windows and pairs those windows across sizes, while MMLU is a rate over
-2\,280 questions with no cross-size pairing available, so its test composes
-two independent standard errors instead of cancelling a common nuisance. The
-perplexity instrument is mechanically the sharper of the two. Two further
-differences are real and neither is disposable. The columns do not measure the
-same faculty --- 2 bits damages reasoning far more than recall and a
-perplexity corpus mostly measures recall (\S\ref{sec:limitations}), so a curve
-may bend on one and not the other. And they do not compare the same arms: the
-perplexity knee is 2-bit against FP16, the MMLU knee is 2-bit against the
-4-bit baseline. That last difference is checkable, and it does not carry the
-divergence on its own --- against the AWQ reference the perplexity knee still
-resolves. \emph{Hence every statement about the knee in this paper names its
-metric}; an unqualified ``the knee holds'' is half wrong, and so is an
-unqualified ``it does not''. What neither answer buys is the extrapolation.
-The perplexity knee conditions on three artifacts with one calibration draw
-each, which is the reservation above and bites hardest here since this test
-conditions on all three at once; a resolved knee says the first step fell
-harder than the second, not where the curve flattens. We still publish no
-scaling law from three models, and a 32B point is what would settle the shape.
+\textbf{Does the closing itself slow? Two metrics, two answers, both
+reported.} With the three MMLU gaps and the nine perplexity intervals all
+paired, the question the word \emph{knee} asks can be tested --- and the two
+metrics do not answer alike. On perplexity, where the evaluation windows are
+the same text at every size and the steps can be differenced window by
+window, the slowdown resolves: the two steps differ by $-0.1010$ in log
+perplexity ratio, $[-0.1377, -0.0643]$, $t = -6.06$. On the MMLU gap, where
+no pairing across sizes exists and standard errors compose in quadrature,
+only the first step separates from zero ($-6.96$ points, $p = 0.0001$)
+against $-1.40$ and $p = 0.40$ for the second. The likeliest reason is power
+--- perplexity averages 49\,140 paired tokens where MMLU rates 2\,280
+unpaired questions --- and $p = 0.40$ is silence about that step rather than
+evidence of constancy. \emph{A claim about this curvature that does not name
+its metric is half wrong either way.} What follows operationally is the same
+under both readings: no scaling law from three models. Appendix~\ref{app:scale}
+carries the tests, the intervals, the controls that authenticate the raw
+output behind them, and the reservation that bounds all nine intervals --- they cover
+the sampling of the evaluation corpus and not the calibration draw, which is
+one seed per artifact.
 
 \textbf{Does the 4-bit baseline start paying?} At 8B, yes, and it is the
 only size where the answer is clean. In the FP16-minus-arm orientation used

@@ -130,4 +130,11 @@ GPU kernels, memory layout, GEMV, large language models, roofline}
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{refs}
 
+% ACM places appendices after the references. The scale curve lives here
+% rather than in the body for the reason the appendix's own opening gives:
+% it characterizes what two bits costs across model sizes, which is the
+% context of the contribution and not the contribution.
+\appendix
+\input{sections/appendix-scale}
+
 \end{document}
