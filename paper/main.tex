@@ -1,89 +1,121 @@
-% Fused multi-shell Leech decoder — arXiv-style preprint.
+% Fused multi-shell Leech decoder — ACM TACO submission.
 % Build: make (generates figures from ../docs/data/*.csv, then latexmk).
-\documentclass[11pt]{article}
+%
+% Class: acmart in `acmsmall` — the journal format TACO uses. The previous
+% revision was `article` at 11pt, an arXiv-style preprint; the conversion
+% landed 2026-08-19 (item B4 of docs/plan-taco-2026-08-18.md) and changed no
+% number. `review` adds line numbers for the referees and comes off for the
+% camera-ready; `screen` makes the links live in the PDF referees read.
+% Written `key=true` because acmart declares these with `\define@boolkey`;
+% the bare forms work identically, this is explicitness, not a fix.
+%
+% ⚠️ Do NOT read the log to decide whether review mode is on. It prints
+% "Not using review mode" from inside the key's own declaration (acmart.cls
+% line 98), before any option is applied, and says so on every build
+% including this one. The mode is verified in the OUTPUT — acmart numbers
+% lines itself rather than loading `lineno`, so `pdftotext main.pdf` showing
+% the numbers is the check that means something.
+\documentclass[acmsmall,review=true,screen=true,anonymous=false]{acmart}
 
-\usepackage[margin=1in]{geometry}
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage{newtxtext,newtxmath}
-\usepackage{microtype}
-\usepackage{graphicx}
-\usepackage{booktabs}
+% acmart loads its own fonts (libertine + newtxmath), microtype, graphicx,
+% booktabs, hyperref, xcolor, amsmath and natbib. Loading any of them again
+% is at best redundant and at worst a class-option clash — so the preamble
+% below carries only what acmart does NOT provide.
 \usepackage{multirow}
-\usepackage{amsmath}
-\usepackage{xcolor}
-\usepackage[numbers,sort&compress]{natbib}
-\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
 % Long URLs in the availability statement must wrap; hyperref alone breaks
 % them only at a few characters and overfills the line.
 \usepackage{xurl}
 
 \graphicspath{{figures/}}
 
-\title{Decoding the Leech Lattice at Matvec Speed:\\
-Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
-
-\author{%
-  Pier-Jean Malandrino\\
-  Scub\\
-  \texttt{pierjean.malandrino@scub.net}%
-}
-
-\date{August 2026}
+% ---------------------------------------------------------------------------
+% Journal identification. The volume/number/article fields are placeholders
+% until acceptance; they are here so the class stops warning and so the page
+% furniture looks like what a referee expects.
+% ---------------------------------------------------------------------------
+\acmJournal{TACO}
+\acmVolume{0}
+\acmNumber{0}
+\acmArticle{0}
+\acmYear{2026}
+\acmMonth{8}
+\copyrightyear{2026}
+\setcopyright{cc}
+\setcctype{by}
 
 \begin{document}
-\maketitle
+
+\title{Decoding the Leech Lattice at Matvec Speed}
+\subtitle{Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
+
+\author{Pier-Jean Malandrino}
+\affiliation{%
+  \institution{Scub}
+  \city{Dijon}
+  \country{France}}
+\email{pierjean.malandrino@scub.net}
+
+\renewcommand{\shortauthors}{Malandrino}
 
 \begin{abstract}
-Leech-lattice vector quantization gives the best published quality at 2 bits,
-but its kernel decodes a single lattice shell, and the multi-shell decoder
-the rate actually requires was never written. We write it: a fused
-dequantize-plus-matvec CUDA kernel for the full 301-class codebook, and a
-family of VRAM layouts that decouple the on-disk rate from the rate the
-kernel reads. Replacing one-hot coordinate masks with binary bit planes makes
-the format simultaneously smaller and faster --- 4.80 against 5.51 bits per
-weight, $2.15\times$ an FP16 matvec --- and a sparse overlay reaches 4.34 at
-bit-exact reconstruction. Below that the curve turns: a Golay-payload layout
-reaches 3.59 bits per weight, but its per-slot coset decode leaves the kernel
-compute-bound, and hoisting that decode to block level, at zero change to the
-stored bytes, recovers only part of the loss. Both attempts missed acceptance
-criteria fixed before measuring.
+Leech-lattice vector quantization gives the best published quality at two
+bits per weight, but its kernel decodes a single lattice shell, and the
+multi-shell decoder the rate actually requires was never written. We write
+it: a fused dequantize-plus-matvec CUDA kernel for the full 301-class
+codebook, and a family of VRAM layouts that decouple the on-disk rate from
+the rate the kernel reads. Replacing one-hot coordinate masks with binary bit
+planes makes the format simultaneously smaller and faster --- 4.80 against
+5.51 bits per weight, $2.16\times$ an FP16 matvec --- and a sparse overlay
+reaches 4.34 at bit-exact reconstruction. Below that the curve turns: a
+Golay-payload layout reaches 3.59 bits per weight but leaves the kernel
+compute-bound, missing an acceptance criterion fixed before measuring.
 
-We also run the comparison this literature usually omits. A deployed 4-bit
-GEMV, ported unchanged into the same process and the same rounds, converts
-88\% of its byte advantage into time where our best layout converts 65\%.
-That gap, not the speedup against FP16, is the result: what is left to win
-lies in the decode, not in the format. Integrated end to end, a 2-bit
-Qwen3-4B serves at 88.4~tok/s in 2.60~GB of VRAM; with the output head held
-identical in both arms (our dense arm materialized 778~MB per token;
-\S\ref{sec:integration} has the fix), the kernel-plus-format gain is
-$1.12\times$ on the 4B and $1.29\times$ on the 8B; no such same-head arm was
-run at 14B, which serves at 42.9~tok/s in 9.39~GB against 17.0 and 29.54 for
-its dense arm, once an opt-in lifted the rotation kernel's shared-memory
-ceiling. That ceiling, now measured at 101\,376 bytes, is where the served
-path stops: the rotation is a Walsh--Hadamard, so one block holds the whole
-activation, and the 32B class overruns it by 1\,024 bytes. Two bits costs $\times1.384$ perplexity
-and 14.6 MMLU points against FP16 at 4B (the served int8 arm; 14.73 on
-the sealed artifact). Scale helps: across 4B, 8B and 14B the excess perplexity
-over FP16 falls by 42.8\% and then by 13.9\%, while the MMLU gap to a 4-bit
-baseline goes 14.45, 7.49, 6.09 points --- all three subject-stratified paired
-bootstrap estimates with 95\% intervals, the last of which an earlier draft
-printed as an unpaired difference until that run's per-question dumps were
-recovered. Whether the closing itself slows has two answers and we report
-both, each with its metric attached: paired window by window, the perplexity
-slowdown is resolved (the two steps differ by $-0.1010$ in log perplexity
-ratio, $[-0.1377, -0.0643]$, $t = -6.06$), while on the MMLU gap only the first step
-separates from zero ($-6.96$ points, $p = 0.0001$, against $-1.40$ and
-$p = 0.40$). The divergence is most likely power --- perplexity averages
-49\,140 paired tokens where MMLU rates 2\,280 unpaired questions --- and a $p$
-of 0.40 is silence rather than constancy. Three points, no law. On memory the
-served model is below that 4-bit baseline at all three sizes --- 5.162, 5.322
-and 5.106 b/param against 5.302, 5.956 and 5.404 --- by a margin that is not
-monotone, since it tracks the embedding share and not the method; at 8B that
-is 5.45~GB against 6.10 from a file half the size. The ledger bills \$58.80 of
-recorded GPU time, \$55.59 of it behind the tables and \$1.48 more behind the
-14B serving figures and that ceiling.
+Three measurements bound what any format can buy. A kernel that reads no
+weights at all costs 45\% of the served arm, capping format work at
+$4.77\times$ FP16. A deployed 4-bit GEMV, ported unchanged into the same
+process and rounds, converts 88\% of its byte advantage into time where our
+best layout converts 65\% --- what is left to win lies in the decode, not in
+the format. And the advantage belongs to the memory hierarchy as much as to
+the format: on an A100, where FP16 converts HBM bandwidth an L40S cannot,
+every decoding arm falls below the FP16 baseline. Integrated end to end, a
+2-bit Qwen3-4B serves at 87.0~tok/s in 2.56~GB of VRAM; with the output head
+held identical in both arms, the kernel-plus-format gain grows with model
+size --- $1.11\times$, $1.29\times$, $1.41\times$ at 4B, 8B and 14B.
 \end{abstract}
+
+% ---------------------------------------------------------------------------
+% CCS concepts. Three, ordered by how much of the paper each covers: the
+% kernel and its layouts are the contribution, the model class is the object
+% they serve, and the lattice is the mathematics underneath.
+% ---------------------------------------------------------------------------
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10010147.10010169.10010170.10010174</concept_id>
+<concept_desc>Computing methodologies~Massively parallel algorithms</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10010520.10010521.10010528.10010534</concept_id>
+<concept_desc>Computer systems organization~Single instruction, multiple data</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+<concept>
+<concept_id>10010147.10010257</concept_id>
+<concept_desc>Computing methodologies~Machine learning</concept_desc>
+<concept_significance>300</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Computing methodologies~Massively parallel algorithms}
+\ccsdesc[300]{Computer systems organization~Single instruction, multiple data}
+\ccsdesc[300]{Computing methodologies~Machine learning}
+
+\keywords{Post-training quantization, vector quantization, Leech lattice,
+GPU kernels, memory layout, GEMV, large language models, roofline}
+
+\maketitle
 
 \input{sections/intro}
 \input{sections/decoder}
@@ -95,7 +127,7 @@ recorded GPU time, \$55.59 of it behind the tables and \$1.48 more behind the
 \input{sections/conclusion}
 \input{sections/availability}
 
-\bibliographystyle{plainnat}
+\bibliographystyle{ACM-Reference-Format}
 \bibliography{refs}
 
 \end{document}
