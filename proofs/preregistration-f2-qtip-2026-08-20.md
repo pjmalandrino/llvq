@@ -73,7 +73,7 @@ partie des questions ouvertes de P2/P3 :
 
 ## 4. Les deux jobs, verbatim, et ce que chacun a le droit de conclure
 
-Le plan du matin en prévoyait trois, dont un premier à `HAS_KERNEL` inchangé.
+Le plan du matin en prévoyait trois, dont un premier sans reconstruction d'image.
 🕳️ **Cette découpe reposait sur une supposition fausse** : que la première
 étape n'exigeait pas de reconstruction d'image. Elle en exige une — le script
 de récupération est un *script*, et l'étage runtime ne copiait que des
@@ -90,7 +90,7 @@ câblage QTIP lui est postérieur — le codec, les shims, la branche de dispatc
 échouerait avant la première mesure. La construction est gratuite et n'est pas
 un job GPU ; le commit exact sera consigné au journal de P2.
 
-### P2 — NVRTC accepte-t-il le texte, et le noyau calcule-t-il juste ? (≤ 0,30 $)
+### P2 — NVRTC accepte-t-il le texte, et le noyau calcule-t-il juste ? (≤ 0,85 $)
 
 ```
 hf jobs run --flavor l40sx1 --timeout 25m -d \
@@ -116,7 +116,7 @@ plus registres et spill. AUCUN temps ne se publie de ce job, y compris s'il en
 imprime** — deux bras ne sont pas le protocole du banc, et une ligne chronométrée
 là serait une mesure hors protocole.
 
-### P3 — le banc (≤ 0,40 $)
+### P3 — le banc (≤ 0,95 $)
 
 Conditionné à P2 vert.
 
