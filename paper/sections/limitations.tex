@@ -60,7 +60,8 @@ tail-column overhead.
 \textbf{The scale argument is three points, and not a law.} On the 4B,
 the summary of Table~\ref{tab:campaign} is that 4-bit AWQ dominates on
 every axis except disk and served footprint, where our 5.162~b/param (the
-exact-byte figure; 5.15 was the rounded card display) beats its 5.30 (5.302)
+exact-byte figure; the 5.15 that circulated is that same object divided out
+of a rounded byte total) beats its 5.30 (5.302)
 by about 3\%, a margin that does not, on its
 own, justify a 14.6-point MMLU loss. The 8B moves every relevant number in
 the 2-bit direction (Table~\ref{tab:campaign8b}): the quality gap narrows by
@@ -123,7 +124,8 @@ parameters the embedding occupies, which AWQ leaves in FP16 and we quantize,
 and which peaks at the 8B. At 14B the on-card footprint is a third and
 independent route to the same b/param and lands $0.38\%$ from the byte-level
 one, inside a band fixed before the run --- a cross-check, not a
-replacement, since it divides a rounded card display.
+replacement, since it divides a rounded byte total the runner reports rather
+than a reading of the card.
 
 \textbf{Our speedups are over FP16, not over the 4-bit state of the
 practice.} Every $\times$ in \S\ref{sec:layouts} and

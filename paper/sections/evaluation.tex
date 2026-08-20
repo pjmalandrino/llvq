@@ -26,7 +26,7 @@ files, not in-memory reconstructions.
 \midrule
 disk & 8.04 GB & 2.67 GB & 1.77 GB & \textbf{1.41 GB}$^{\ddagger}$ \\
 VRAM & 8.04 GB & 5.30 b/param$^{\dagger}$ & 8.04 GB & \textbf{2.60 GB / 5.162 b/param}$^{\S}$ \\
-throughput & 43.5 tok/s & ---$^{\dagger}$ & 43.5 tok/s & \textbf{88.4 tok/s} \\
+throughput & 43.5 [43.4--43.6] & ---$^{\dagger}$ & 43.5 [43.4--43.6] & \textbf{87.0 [86.8--87.0]} \\
 ppl (WikiText-2) & 12.2369 & 13.5207 ($\times$1.105) & 16.9422 ($\times$1.384) & 16.9358 ($\times$1.384) \\
 MMLU micro (\%) & 70.32 $\pm$ 1.28 & 70.04 $\pm$ 1.25 & 55.59 $\pm$ 1.35 & 55.70 $\pm$ 1.35 \\
 \bottomrule
@@ -50,10 +50,11 @@ its speed and VRAM are measured from the 1.77~GB sealed file with the same
 int8 quantization applied at load. The two paths produce bit-identical
 tensors (verified against the pre-baked bytes on real rows); they are not
 the same bytes on disk. $^{\S}$The two numbers in that cell have two
-provenances and neither follows from the other: 2.60~GB is the card's own
-rounded display, 5.162~b/param is recomputed from the exact bytes and the
-exact parameter count. Dividing the displayed 2.60~GB yields 5.15, which is
-the rounded reading, not the measurement. Data:
+provenances and neither follows from the other: 2.60~GB is the runner's own
+host-side byte count, rounded --- \emph{not} a reading of the card, which no
+journal of this paper contains --- and 5.162~b/param is recomputed from the
+exact bytes and the exact parameter count by a separate tool. Dividing the
+rounded 2.60~GB yields 5.15, which is that rounding, not the measurement. Data:
 \texttt{docs/data/campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
@@ -67,7 +68,7 @@ emit identical greedy tokens up to a tie-break-level divergence. The
 quality scores themselves run through the dense evaluation path; what the
 table shows directly is the cost of the int8 embedding, the one lossy
 change on the serving path: 16.9358 versus 16.9422 perplexity and $55.70$
-versus $55.59$ MMLU, both within sampling noise. The $2.03\times$
+versus $55.59$ MMLU, both within sampling noise. The $2.00\times$
 throughput and $3.09\times$ VRAM reduction ride on content proved
 bit-identical plus an embedding change measured to be free.
 
@@ -80,9 +81,9 @@ parameters) and silently mix denominators against other methods' figures. On
 this accounting the served footprint is 5.162~b/param, recomputed from the
 exact bytes and the exact parameter count
 (\texttt{docs/mesures/rtbits-planes-8b-2026-08-09.txt}), and that is what the
-tables carry. The 5.15 this paper published earlier is the same object read
-off the card's rounded display (2.60~GB shown for an exact 2.595~GB) and is
-kept here only so the correction is visible. Either way it is below the official AWQ
+tables carry. The 5.15 this paper published earlier is the same object
+divided out of a rounded byte total (2.60~GB printed for an exact 2.595~GB)
+and is kept here only so the correction is visible. Either way it is below the official AWQ
 4-bit checkpoint's 5.30 (5.302) in its own engine. \S\ref{sec:layouts} necessarily
 uses the other denominator --- what the kernel reads per quantized projection
 weight, the quantity a bandwidth argument is about --- and there the same
@@ -117,7 +118,7 @@ still win.
 \midrule
 disk & 16.38 GB & 6.10 GB & \textbf{3.16 GB} \\
 VRAM & 16.38 GB & 6.10 GB / 5.96 b/param$^{\dagger}$ & \textbf{5.45 GB / 5.32 b/param} \\
-throughput & 26.6 tok/s & ---$^{\dagger}$ & \textbf{69.3 tok/s} \\
+throughput & 26.5 [26.4--26.5] & ---$^{\dagger}$ & \textbf{68.2 [68.2--68.3]} \\
 ppl (WikiText-2) & 8.9899 & 9.4211 ($\times$1.048) & 10.9682 ($\times$1.220) \\
 MMLU micro (\%) & 76.08 $\pm$ 1.21 & 73.01 $\pm$ 1.26 & 65.63 $\pm$ 1.31 \\
 \bottomrule
@@ -191,6 +192,25 @@ carries the tests, the intervals, the controls that authenticate the raw
 output behind them, and the reservation that bounds all nine intervals --- they cover
 the sampling of the evaluation corpus and not the calibration draw, which is
 one seed per artifact.
+
+\textbf{What one calibration draw is worth, measured.} That second component
+is no longer a caveat without a number. Three requantizations of the 4B
+differing only in the calibration draw --- same corpus, same configuration,
+same evaluation fingerprint --- give perplexities of 16.74, 15.88 and 15.10:
+a range of 10.3\% of the median, with every pairwise difference resolved
+window by window ($t = 4.5$, $10.9$, $7.7$). \emph{The choice of calibration
+windows is worth more than most of the effects this literature reports}, and
+an absolute degradation figure at this calibration budget (${\sim}131$k
+tokens, two orders of magnitude below the source paper's) is the value of one
+draw. What it does \emph{not} touch: comparisons at fixed artifact, which
+recalibrate nothing, and the three sizes of Table~\ref{tab:scale}, which
+share one deterministic window selection over the same text. What it does
+touch is any comparison that recalibrates --- including two of our own bounds
+on calibration volume, whose effects ($-1.6\%$ and $-1.2\%$) sit inside this
+range, so that they bound the mean without ever having separated from the
+noise. A plausible mechanism, not tested here: a small calibration set moves
+the mean little and carries variance
+(\texttt{docs/mesures/f5-graines-4b-2026-08-19.txt}).
 
 \textbf{Does the 4-bit baseline start paying?} At 8B, yes, and it is the
 only size where the answer is clean. In the FP16-minus-arm orientation used
@@ -359,12 +379,14 @@ suspect, roughly $100\times$ less calibration data, is bounded in
 that bound is measured on perplexity, which does not constrain MMLU.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job with
-its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$58.80, of
-which \$55.59 is the campaign behind this paper --- \$27.67 the 14B
-quantization, \$12.61 the 8B requantization, \$2.33 the kernel campaign of
-\S\ref{sec:layouts}, \$1.30 the paired MMLU replay --- and \$3.21 is later
-work kept separate rather than folded in, since a campaign total that
-quietly absorbs what came after stops being the cost of this evidence. Two
+its billed cost (\texttt{docs/data/jobs.csv}). The ledger totals \$84.68
+across 58 jobs. Its largest single items are the model builds --- \$27.67
+the 14B quantization, \$21.45 the three-seed calibration study of
+\S\ref{sec:evaluation}, \$12.61 the 8B --- against \$2.33 for the kernel
+campaign of \S\ref{sec:layouts} and \$1.30 for the paired MMLU replay. The
+asymmetry is the point: \emph{producing the objects costs an order of
+magnitude more than measuring them}, which is why this paper has more
+measurements than models. Two
 caveats on that figure. It is a \emph{floor}: five jobs from the CUDA
 porting day are journaled without an amount. And the negative result of
 \S\ref{sec:layouts} cannot be costed on its own --- the two jobs that

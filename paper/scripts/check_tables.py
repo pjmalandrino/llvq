@@ -236,7 +236,13 @@ CAMPAIGN_SPEC = {
         # engine's report, recorded at the precision it was reported.
         "llvq_fused": [("vram_gb", 2), ("vram_bits_per_param", 3)],
     },
-    "throughput": {"*": [("speed_tokps", 1)], "awq": []},
+    # Median then min--max, since 2026-08-19: `fusedrun` now times five
+    # generations after a discarded one, and the cell prints the
+    # distribution rather than the point it used to print.
+    "throughput": {
+        "*": [("speed_tokps", 1), ("speed_lo", 1), ("speed_hi", 1)],
+        "awq": [],
+    },
     "ppl (WikiText-2)": {
         "*": [("ppl", 4), ("ppl_ratio_vs_fp16", 3)],
         "fp16": [("ppl", 4)],
@@ -251,7 +257,13 @@ CAMPAIGN8B_SPEC = {
         "awq": [("vram_gb", 2), ("vram_bits_per_param", 2)],
         "llvq_q8": [("vram_gb", 2), ("vram_bits_per_param", 2)],
     },
-    "throughput": {"*": [("speed_tokps", 1)], "awq": []},
+    # Median then min--max, since 2026-08-19: `fusedrun` now times five
+    # generations after a discarded one, and the cell prints the
+    # distribution rather than the point it used to print.
+    "throughput": {
+        "*": [("speed_tokps", 1), ("speed_lo", 1), ("speed_hi", 1)],
+        "awq": [],
+    },
     "ppl (WikiText-2)": {
         "*": [("ppl", 4), ("ppl_ratio_vs_f16", 3)],
         "fp16": [("ppl", 4)],
@@ -1038,9 +1050,65 @@ def check_progression() -> list[str]:
     return bad
 
 
+def check_a100() -> list[str]:
+    """`tab:a100` against `echelle-formats-a100.csv`, plus the L40S column.
+
+    The two-card table is the one place where a cell of `echelle-formats.csv`
+    and a cell of its A100 twin sit side by side, so a drift in either would
+    show up as a comparison that never happened. Both halves are checked
+    against their own CSV; the ratio columns are NOT recomputed across cards,
+    because the table's own caption forbids dividing them.
+    """
+    a100 = {r["layout"]: r for r in csv.DictReader(open(DATA / "echelle-formats-a100.csv"))}
+    l40s = {r["layout"]: r for r in csv.DictReader(open(DATA / "echelle-formats.csv"))}
+    tex = (SEC / "layouts.tex").read_text()
+    body = tex.split(r"\label{tab:a100}")[0].split(r"\begin{tabular}")[-1]
+    bad = []
+    # (row label in the table, CSV key, which side the GB/s and ratio come from)
+    wanted = [
+        ("Floor (no weights read)", "nullk"),
+        ("FP16 (control)", "FP16"),
+        ("FP16 via cuBLAS", "cuBLASf16"),
+        ("AWQ w4g128 (competitor)", "AWQ"),
+        ("Slot32", "Slot32"),
+        ("Planes14", "Planes14"),
+        ("Planes12x", "Planes12x"),
+        ("Golay70} v2", "Golay70v2"),
+        ("Golay70} v1", "Golay70v1"),
+    ]
+    for label, key in wanted:
+        line = next((l for l in body.split(r"\\") if label in l), None)
+        if line is None:
+            bad.append(f"tab:a100: no row for '{label}'")
+            continue
+        got = nums(line)
+        r = a100.get(key)
+        if r is None:
+            bad.append(f"tab:a100: '{key}' missing from echelle-formats-a100.csv")
+            continue
+        # Every row prints: [L40S GB/s] [L40S ratio] [A100 GB/s] [A100 ratio]
+        # [b/weight] -- except the floor and the controls, which drop a cell.
+        need = [str(int(r["gbps"])), f"{float(r['ratio_vs_fp16']):.2f}"]
+        for expect in need:
+            if expect not in got:
+                bad.append(
+                    f"tab:a100 / {label}: A100 CSV says {expect}, "
+                    f"the row carries {show(got)}"
+                )
+        if key in l40s:
+            expect = str(int(l40s[key]["gbps"]))
+            if expect not in got:
+                bad.append(
+                    f"tab:a100 / {label}: L40S CSV says {expect} GB/s, "
+                    f"the row carries {show(got)}"
+                )
+    return bad
+
+
 def main() -> int:
     bad = check_csv_shape()
     bad += check_layouts()
+    bad += check_a100()
     bad += check_campaign_table(
         "campagne-finale.csv",
         "campaign",

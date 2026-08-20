@@ -59,7 +59,12 @@ the 252 model projections, single L40S, seven arms in one process, median of
 per-round ratios with ranges. \emph{Of bound} is the arm's achieved
 bandwidth as a fraction of the 661~GB/s the FP16 control reaches on these
 same shapes --- the comparable quantity, since a ratio against FP16
-mechanically rewards whoever reads least. Kernel accounting; whole-model
+mechanically rewards whoever reads least. \emph{That control is our own
+FP16 matvec, so we checked what it is worth}: cuBLAS on the same weights,
+the same activation and the same rounds runs 1.5--2.4\% faster
+($r = 1.015$ and $1.024$ in two phases of one job), which leaves every ratio
+in this table standing and is why we report them against our control rather
+than re-anchoring on a library call. Kernel accounting; whole-model
 bits per parameter appear in \S\ref{sec:evaluation} and are a different
 denominator.}
 \label{tab:layouts}
@@ -234,10 +239,22 @@ class-table gather & 0.041 & 2\% \\
 \bottomrule
 \end{tabular}
 \caption{Attribution of the 2.04~ms between \textsc{Slot32} and its DRAM
-floor. Launch submission costs 1.85~$\mu$s per kernel, 8\% of the wall. The
-residual-decode line is a difference, not a direct measurement. Data:
-\texttt{docs/mesures/attribution-cuda-2026-08-05.txt} and
-\texttt{docs/mesures/fusion-qkv-cuda-2026-08-05.txt}.}
+floor. \emph{This is a decomposition by subtraction of floor kernels, not a
+hardware profile}, and the residual-decode line is a difference rather than
+a direct measurement. Two later measurements bound it from outside. CUDA
+events around each arm put the \emph{host} share --- submission not hidden
+behind execution, plus the final synchronization --- at 0.1--0.2\% of the
+wall on every arm of Table~\ref{tab:layouts}, so whatever the latency term
+is, it is not the host failing to keep the device fed; it lives in the gaps
+between kernels on the stream, which the event span already contains.
+A hardware profile would settle the rest, and we could not obtain one: the
+counters are inaccessible on our compute platform
+(\texttt{ERR\_NVGPUCTRPERM}), with Nsight Compute installed and attached to
+the process. That is a fact about the platform, stated rather than left as a
+gap. Data:
+\texttt{docs/mesures/attribution-cuda-2026-08-05.txt},
+\texttt{docs/\allowbreak mesures/\allowbreak fusion-qkv-cuda-2026-08-05.txt}
+and \texttt{docs/\allowbreak mesures/\allowbreak f3-events-2026-08-19.txt}.}
 \label{tab:attribution}
 \end{table}
 
@@ -266,3 +283,80 @@ its largest term is launch geometry, which is orthogonal to the record
 format, and roughly a third of the gap has never been attacked. The 4-bit
 competitor's 88\% says the same from outside: much of the 23 points between
 us is not a property of lattice decoding at all.
+
+\subsection{The same layouts on a second memory hierarchy}
+\label{sec:a100}
+
+Everything above is one card. Since a byte saved only becomes time saved if
+the kernel is bandwidth-bound, the scale of \S\ref{sec:layouts} is a claim
+about a \emph{pair} --- format and memory hierarchy --- and not about the
+format alone. We tested that by re-running the same nine arms, from the same
+binary and the same artifact, on an NVIDIA A100 (HBM2e, \texttt{sm\_80},
+41.9~MB of L2 as the driver reports it) against the L40S of
+Table~\ref{tab:layouts} (GDDR6, \texttt{sm\_89}). The kernels are compiled
+for the target at startup; nothing in their text changed, and the
+line-by-line f64 verification returns the \emph{same} worst errors on both
+cards, so the arithmetic is identical and only the machine differs.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrrrr}
+\toprule
+ & \multicolumn{2}{c}{L40S (GDDR6)} & \multicolumn{2}{c}{A100 (HBM2e)} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+Arm & GB/s & vs.\ FP16 & GB/s & vs.\ FP16 & b/weight \\
+\midrule
+Floor (no weights read) & ---$^{\ast}$ & ---$^{\ast}$ &   18 & 1.68$\times$ & 0.159 \\
+FP16 (control)          & 661 & 1.00$\times$ & 1052 & 1.00$\times$ & 16.000 \\
+FP16 via cuBLAS         & ---$^{\ast}$ & ---$^{\ast}$ & 1204 & 1.14$\times$ & 16.000 \\
+AWQ w4g128 (competitor) & 583 & 3.37$\times$ &  501 & 1.82$\times$ & 4.179 \\
+\textsc{Slot32}         & 429 & 1.89$\times$ &  266 & 0.73$\times$ & 5.510 \\
+\textsc{Planes14}       & 427 & 2.15$\times$ &  250 & 0.79$\times$ & 4.804 \\
+\textsc{Planes12x}      & 360 & 2.00$\times$ &  209 & 0.73$\times$ & 4.342 \\
+\textsc{Golay70} v2     & 263 & 1.77$\times$ &  147 & 0.62$\times$ & 3.589 \\
+\textsc{Golay70} v1     & 199 & 1.34$\times$ &  104 & 0.44$\times$ & 3.589 \\
+\bottomrule
+\end{tabular}
+\caption{The same arms on two memory hierarchies, same binary, same
+artifact, same protocol. \emph{The two \textsc{vs.\ FP16} columns are not
+comparable to each other and are never divided}: each is formed round by
+round against its own card's control. What transfers between them is the
+\emph{ordering} and the sign of each entry, which is what the text reads.
+Data: \texttt{docs/data/echelle-formats.csv} and
+\texttt{docs/\allowbreak data/\allowbreak echelle-formats-a100.csv};
+journal \texttt{docs/mesures/f4-a100-2026-08-18.txt}.
+$^{\ast}$The L40S floor and cuBLAS control were timed in \emph{separate}
+jobs from the seven-arm run this column reports, so their cells are left
+empty rather than carrying a figure from another process: both are given in
+the text, and the ratios that use them ($4.78\times$ for the floor,
+$1.01\times$ for cuBLAS) are formed inside their own runs.}
+\label{tab:a100}
+\end{table}
+
+\textbf{The advantage does not transfer, and the GB/s column says why.}
+On the A100 no decoding arm reaches the FP16 baseline: our production
+layout runs at $0.79\times$ where it ran at $2.15\times$. The mechanism is
+not a faster baseline outrunning them --- the decoders got slower
+\emph{in absolute terms} on the card with more bandwidth.
+\textsc{Planes14} falls from 427 to 250~GB/s and every LLVQ arm falls with
+it, while FP16 rises from 661 to 1052 and cuBLAS to 1204. A memory-bound
+kernel cannot behave that way: these arms are compute-bound on the A100,
+which raises the memory ceiling without raising per-SM decode throughput,
+and they cross the ridge point of the roofline~\citep{roofline2009}. The
+floor shows the same crossing from the other end --- a kernel that reads no
+weights is worth $4.78\times$ FP16 on the L40S and $1.68\times$ on the
+A100, so what \emph{any} format could buy shrinks from nearly five to under
+two before a format is chosen --- and the 4-bit competitor crosses in the
+same direction from much further away ($3.37\times$ to $1.82\times$),
+which places the effect in the class of decoding kernels rather than in
+lattice decoding.
+
+What survives is the \emph{ordering}: \textsc{Planes14} still leads, the
+two \textsc{Golay70} decoders still trail, and v2 still beats v1 --- so the
+format work of this section is not an artifact of one machine --- and the
+f64 check holds to the last digit. What is bounded is the headline:
+\emph{decoding at matvec speed is a result about a bandwidth-bound regime},
+and this second point measures where that regime ends rather than extending
+it. On an HBM-class card, expect the ordering of Table~\ref{tab:layouts}
+and none of its ratios.

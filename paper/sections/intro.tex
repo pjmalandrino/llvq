@@ -59,10 +59,10 @@ a double formulation
 that separates the kernel's contribution from the engine fix.
 \end{enumerate}
 
-The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 88.4~tok/s
+The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 87.0~tok/s
 in 2.60~GB against 43.5~tok/s in 8.04~GB for the FP16 reference, with the
 serving stack costing nothing measurable on top of the quantized artifact.
-The same path serves a 2-bit Qwen3-14B at 42.9~tok/s in 9.39~GB against
+The same path serves a 2-bit Qwen3-14B at 43.3~tok/s in 9.39~GB against
 17.0~tok/s in 29.54~GB, and then stops one model class later --- the
 activation rotation is a Walsh--Hadamard transform, so a single block must
 hold the whole activation in shared memory, and the 32B exceeds the
