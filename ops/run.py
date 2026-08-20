@@ -735,7 +735,22 @@ Lancé depuis `ops/run.py` du dépôt LLVQ.
 # fichier existait donc dans le dépôt, disait épingler le compilateur, et
 # n'atteignait pas la seule machine où ça compte. Un garde-fou écrit et non
 # armé — le motif que ce dossier a déjà documenté trois fois.
-UPLOAD_ALLOW = ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "llvq-*/**")
+# 🕳️ Et le même oubli a failli se reproduire le 2026-08-20, à l'identique :
+# `ops/Dockerfile.cuda` a gagné un `COPY --from=build /src/ops/fetch-qtip.sh`
+# (le bras QTIP a besoin de ce script DANS le job, l'étage runtime ne copiant
+# que des binaires) alors que `ops/` n'est nommé nulle part ici. Le fichier
+# n'aurait jamais atteint le builder et la construction aurait échoué — mieux
+# que le silence de `rust-toolchain.toml`, mais pour la même raison :
+# l'allow-list ignore ce qu'elle ne nomme pas. Le script est donc nommé, et
+# nommé SEUL : `ops/**` téléverserait `run.py`, que le §« hors périmètre »
+# ci-dessous exclut délibérément.
+UPLOAD_ALLOW = (
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "llvq-*/**",
+    "ops/fetch-qtip.sh",
+)
 UPLOAD_IGNORE = ("**/target/**", "**/*.log")
 
 

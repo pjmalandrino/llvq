@@ -1193,10 +1193,21 @@ mod linux {
         // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
         // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
         // format entre concurrents, pas un réglage, et elle se déclare. Elle
-        // n'existe que si un bras à entrée binary16 tourne — AWQ, et depuis
+        // n'existe que si un bras à entrée binary16 tourne — AWQ, depuis
         // le 2026-08-18 cublasf16 (GemmEx exige A et B du même type : x doit
-        // être en binary16 comme les poids).
-        let d_xh = match union.has(arms::AWQ) || union.has(arms::CUBLASF16) {
+        // être en binary16 comme les poids), et depuis le 2026-08-20 qtip,
+        // dont le noyau lit `const half2* x`.
+        //
+        // 🚨 Cette liste est une liste de BRAS, pas une liste de deux noms :
+        // le bras QTIP a été câblé le 2026-08-20 en lisant `d_xh` sans être
+        // ajouté ici, et la commande du pré-enregistrement — `fp16,qtip`,
+        // sans AWQ — aurait donc paniqué sur `expect` après le transcodage,
+        // sur une carte louée. Trouvé par une revue adverse du code, pas par
+        // le typecheck : un `Option` absent est un état parfaitement typé.
+        let d_xh = match union.has(arms::AWQ)
+            || union.has(arms::CUBLASF16)
+            || union.has(arms::QTIP)
+        {
             true => {
                 let xh: Vec<u16> = x.iter().map(|&v| f16_bits(v)).collect();
                 Some(cuda.up_u16(&xh)?)
@@ -1277,7 +1288,12 @@ mod linux {
             // contre la f32, sinon on facture au bras un écart qui n'est pas
             // le sien.
             let cublas_on = union.has(arms::CUBLASF16);
-            let xh_f64: Option<Vec<f64>> = (awq_on || cublas_on)
+            // Même règle, et le même oubli du 2026-08-20 : le bras QTIP forme
+            // sa référence contre l'activation ARRONDIE en binary16, parce que
+            // c'est celle que son noyau lit. Sans cette entrée il n'y a pas de
+            // référence à former du tout.
+            let qtip_on = union.has(arms::QTIP);
+            let xh_f64: Option<Vec<f64>> = (awq_on || cublas_on || qtip_on)
                 .then(|| x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect());
             // La référence du bras cublasf16 : poids f16 × entrée binary16,
             // accumulée en f64 — ni `y_ref` (poids exacts) ni `y16_ref`

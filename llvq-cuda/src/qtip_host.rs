@@ -418,9 +418,63 @@ pub fn pseudo_random_tlut(seed: u64) -> Tlut {
     for e in tlut.iter_mut() {
         let a = (rng.next_u64() >> 40) as f32 / 16_777_216.0 * 2.0 - 1.0;
         let b = (rng.next_u64() >> 40) as f32 / 16_777_216.0 * 2.0 - 1.0;
-        *e = (a, b);
+        // 🚨 Rounded to binary16, and this is a correctness requirement, not a
+        // cosmetic one. The kernel reads its codebook as `half2`, so the value
+        // it decodes for a state is the binary16 rounding of the entry — not
+        // the entry. A reference built on the unrounded f32 would differ from
+        // the device by ~2^-11 relative on EVERY weight, which is a thousand
+        // times the 1e-5 threshold this arm is held to, and the job would fail
+        // its verification for a reason that has nothing to do with the
+        // format. Rounding here makes the two agree by construction: the
+        // stored value IS a binary16 value, so uploading it loses nothing.
+        *e = (round_to_binary16(a), round_to_binary16(b));
     }
     tlut
+}
+
+/// Round an `f32` to the nearest `binary16` value and widen it back.
+///
+/// Written out rather than pulled in, for the reason the module header gives:
+/// this file names no dependency, not even `llvq-core`. Ties-to-even, the IEEE
+/// default and what a device `__float2half` does.
+///
+/// Only the range this module produces is exercised — finite values well
+/// inside binary16's normal range. Subnormals round correctly by the same
+/// arithmetic; infinities and NaN are out of scope and are asserted against
+/// rather than silently mishandled.
+pub fn round_to_binary16(x: f32) -> f32 {
+    assert!(x.is_finite(), "binary16 rounding is only defined here for finite values");
+    let bits = x.to_bits();
+    let sign = bits & 0x8000_0000;
+    let exp = ((bits >> 23) & 0xFF) as i32 - 127;
+    let mant = bits & 0x007F_FFFF;
+    // Beyond binary16's normal range in either direction, the caller is
+    // outside what this module generates; refuse rather than clamp silently.
+    assert!(exp <= 15, "value too large for binary16: {x}");
+    let f = |m: u32, e: i32| -> f32 {
+        f32::from_bits(sign | (((e + 127) as u32) << 23) | m)
+    };
+    if exp < -14 {
+        // Subnormal in binary16: the step is 2^-24 whatever the exponent.
+        let step = 2f32.powi(-24);
+        let mag = f32::from_bits(bits & 0x7FFF_FFFF);
+        let q = (mag / step).round_ties_even() * step;
+        return f32::from_bits(sign | q.to_bits());
+    }
+    // Normal: binary16 keeps 10 mantissa bits of the 23, so drop 13 with
+    // round-half-to-even.
+    let keep = mant >> 13;
+    let rest = mant & 0x1FFF;
+    let half = 0x1000;
+    let up = rest > half || (rest == half && (keep & 1) == 1);
+    let keep = keep + u32::from(up);
+    // A carry out of the 10 kept bits bumps the exponent, which is correct and
+    // exactly representable.
+    if keep == 0x400 {
+        f(0, exp + 1)
+    } else {
+        f(keep << 13, exp)
+    }
 }
 
 /// Bytes the QTIP arm streams for one matrix, in **the bench's accounting**:
@@ -928,6 +982,34 @@ mod tests {
     /// device decoder when no checkpoint is mounted, so a seed that did not
     /// reproduce would make two runs incomparable and nothing would say so.
     #[test]
+    fn binary16_rounding_is_idempotent_and_ties_to_even() {
+        // Idempotence on a wide sweep: rounding an already-rounded value must
+        // be a no-op, which is the property the reference depends on.
+        let mut x = -3.0f32;
+        while x < 3.0 {
+            let r = round_to_binary16(x);
+            assert_eq!(round_to_binary16(r), r, "not idempotent at {x}");
+            x += 0.0007;
+        }
+        // Exactly representable values survive untouched.
+        for v in [0.0f32, 1.0, -1.0, 0.5, -0.25, 2.0, 1024.0, -1024.0] {
+            assert_eq!(round_to_binary16(v), v, "{v} is a binary16 value");
+        }
+        // The step just above 1.0 is 2^-10: 1 + 2^-11 is a tie and must go to
+        // the even neighbour, which is 1.0 itself.
+        let step = 2f32.powi(-10);
+        assert_eq!(round_to_binary16(1.0 + step / 2.0), 1.0);
+        // And 1 + 3·2^-12 is past the tie, so it goes up.
+        assert_eq!(round_to_binary16(1.0 + step * 0.75), 1.0 + step);
+        // Rounding never moves a value by more than half a step.
+        let mut y = -2.0f32;
+        while y < 2.0 {
+            assert!((round_to_binary16(y) - y).abs() <= 2f32.powi(-11), "moved too far at {y}");
+            y += 0.0013;
+        }
+    }
+
+    #[test]
     fn the_stand_in_generators_are_deterministic() {
         assert_eq!(
             pseudo_random_buffer(32, 48, 42),
@@ -939,9 +1021,21 @@ mod tests {
         );
         let t = pseudo_random_tlut(5);
         assert_eq!(t.to_vec(), pseudo_random_tlut(5).to_vec());
+        // Inclusive on purpose: binary16 rounding can carry a value just under
+        // 1.0 to exactly 1.0, and the half-open range this test used before
+        // 2026-08-20 excluded it. The generator's intent is "magnitudes about
+        // ±1", not "strictly inside".
         assert!(t
             .iter()
-            .all(|&(a, b)| (-1.0..1.0).contains(&a) && (-1.0..1.0).contains(&b)));
+            .all(|&(a, b)| (-1.0..=1.0).contains(&a) && (-1.0..=1.0).contains(&b)));
+        // The invariant that makes the whole arm verifiable: every entry is
+        // exactly representable in binary16, so the value the device decodes
+        // and the value this reference decodes are the SAME number, not two
+        // numbers 2^-11 apart.
+        assert!(
+            t.iter().all(|&(a, b)| round_to_binary16(a) == a && round_to_binary16(b) == b),
+            "a tlut entry is not binary16-exact; the device would decode a different weight"
+        );
         // A generator that returned a constant would satisfy everything above.
         assert!(t.iter().any(|&(a, _)| a != t[0].0));
     }
