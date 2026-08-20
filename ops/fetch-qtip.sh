@@ -83,6 +83,80 @@ for tok in 'cuda::pipeline' 'wmma' 'nvcuda' 'c10'; do
 done
 echo "fetch-qtip: patch applied and verified (4 dead lines removed, 0 residual tokens)."
 
+# ---------------------------------------------------------------------------
+# The device-only extract.
+#
+# NVRTC carries `cuda_fp16.h` and nothing else of what this file includes —
+# no <cstdio>, no <cassert>, no <climits>, no <cuda_runtime.h>. So the kernel
+# cannot be handed to NVRTC as it stands. What NVRTC needs is the device half
+# alone: the unions, the load helpers, and the kernel template. The host
+# launcher `decompress_matvec_ptr` stays out — it calls
+# cudaGetDeviceProperties and cudaFuncSetAttribute, and we launch from Rust
+# through cudarc anyway.
+#
+# One transformation, and only one. cudarc resolves kernels BY NAME
+# (`Cuda::func`, llvq-cuda/src/gpu.rs:357), and a `__global__ static` template
+# has no reachable name. The template therefore becomes `__device__`, and our
+# own glue (llvq-cuda/kernels/qtip_glue.cu, which contains no upstream code)
+# wraps it in `extern "C" __global__` shims that DO have names. The
+# `__launch_bounds__` migrates to those shims.
+#
+# The extraction is anchored on text, not on line numbers, and it is PROVEN
+# afterwards rather than trusted: an extractor that silently mis-cuts would
+# produce a kernel that compiles and computes something else.
+# ---------------------------------------------------------------------------
+python3 - "$DEST" <<'PYEXTRACT'
+import pathlib, sys
+dest = pathlib.Path(sys.argv[1])
+hdr = (dest / "inference.h").read_text().splitlines(keepends=True)
+cu  = (dest / "inference.cu").read_text().splitlines(keepends=True)
+
+# (1) the three `ditto` unions — the device code needs them; gpuAssert and the
+#     host launcher's declaration do not come along.
+i0 = next(i for i, l in enumerate(hdr) if l.startswith("typedef union ditto {"))
+i1 = next(i for i, l in enumerate(hdr) if l.startswith("} ditto4;"))
+unions = hdr[i0 : i1 + 1]
+
+# (2) from the first #define through the end of the kernel template, stopping
+#     at the comment block that introduces the host launcher.
+j0 = next(i for i, l in enumerate(cu) if l.rstrip("\n") == "#define BLOCKS_PER_SM 1")
+j1 = next(i for i, l in enumerate(cu) if l.rstrip("\n") == "// L: shift register bit-width")
+body = "".join(cu[j0:j1])
+
+# (3) the one transformation.
+before = "__global__ static void\n__launch_bounds__(BLOCK_SIZE, 1)\n"
+after = "__device__ static void\n"
+if body.count(before) != 1:
+    sys.exit(f"fetch-qtip: expected exactly one kernel declaration to rewrite, found {body.count(before)}")
+body = body.replace(before, after)
+
+out = (
+    "// DERIVED FILE — device-only extract of QTIP's inference.cu, GPL v3.\n"
+    "// Produced by ops/fetch-qtip.sh. NOT redistributed by this repository.\n"
+    "// See PROVENANCE.txt beside it.\n"
+    "#pragma once\n#define QTIP_DEVICE_CUH 1\n\n" + "".join(unions) + "\n" + body
+)
+(dest / "qtip_device.cuh").write_text(out)
+PYEXTRACT
+
+# Prove the extract rather than trust it.
+CUH="$DEST/qtip_device.cuh"
+[ -s "$CUH" ] || { echo "fetch-qtip: qtip_device.cuh was not produced." >&2; exit 1; }
+check_count() {  # check_count <pattern> <wanted> <why>
+  n=$(grep -c -- "$1" "$CUH" || true)
+  if [ "$n" -ne "$2" ]; then
+    echo "fetch-qtip: qtip_device.cuh has $n occurrence(s) of '$1', expected $2 ($3)." >&2
+    exit 1
+  fi
+}
+check_count '__global__' 0 'the template must have become __device__'
+check_count '#include' 0 'NVRTC carries none of the headers this file used'
+check_count 'cudaGetDeviceProperties' 0 'the host launcher must stay out'
+check_count 'cudaFuncSetAttribute' 0 'the host launcher must stay out'
+check_count 'kernel_decompress_matvec(' 1 'exactly one kernel template'
+check_count '__device__ static void' 1 'the rewritten declaration'
+echo "fetch-qtip: qtip_device.cuh extracted and verified ($(wc -l < "$CUH" | tr -d ' ') lines)."
+
 cat > "$DEST/PROVENANCE.txt" <<EOF
 QTIP inference kernel — fetched, patched, NOT redistributed
 ===========================================================
@@ -103,6 +177,12 @@ Lines removed from inference.cu (each verified to have zero uses upstream, so
 the generated device code is unchanged; they are removed because NVRTC carries
 neither torch nor libcu++):
 $(printf '  %s\n' "${DEAD[@]}")
+
+Derived file: qtip_device.cuh — the device half alone (the three ditto unions,
+the load helpers, the kernel template), with the kernel template rewritten from
+\`__global__ static\` to \`__device__ static\` so that our own extern "C" shims
+can carry a name cudarc can resolve. The host launcher is excluded. This file
+is derived from GPL v3 sources and is likewise NOT redistributed.
 EOF
 
 echo

@@ -423,6 +423,84 @@ pub fn pseudo_random_tlut(seed: u64) -> Tlut {
     tlut
 }
 
+/// Bytes the QTIP arm streams for one matrix, in **the bench's accounting**:
+/// the payload and nothing else.
+///
+/// Exactly `d_out * d_in / 4`: two bits per weight, with no tail columns, no
+/// per-row scales and no side channel. That is a real asymmetry against our own
+/// layouts, which bill an f32 tail and f32 row scales, and it runs **in QTIP's
+/// favour** — so it is declared here rather than left for a reader to discover,
+/// the same way `awq_bytes` declares its own.
+///
+/// The 512-entry codebook (4 KiB) is excluded on the same rule that excludes our
+/// per-class tables: a resident constant of a few kilobytes against gigabytes of
+/// stream.
+pub fn qtip_bytes(d_out: usize, d_in: usize) -> u64 {
+    assert!(
+        d_out.is_multiple_of(QTIP_TILE) && d_in.is_multiple_of(QTIP_TILE),
+        "shape must tile 16x16"
+    );
+    (buffer_u16_len(d_out, d_in) * 2) as u64
+}
+
+/// The f64 reference for one output row: what the kernel will compute, exactly.
+///
+/// "Exactly" is meant literally, and it is why this arm can be held to our own
+/// `1e-5` threshold rather than the looser one AWQ needs. We know the compressed
+/// bits, so we know the state, so we know the codebook entry and the sign — the
+/// decoded weight is not an approximation of anything. The kernel accumulates in
+/// f32 (its output is `float`, not `half`), so the only difference left is
+/// accumulation order.
+///
+/// ⚠️ `xf` must be the activation **rounded to binary16 and widened back**: the
+/// kernel reads `half2`, and feeding the f32 activation here would inflate the
+/// measured error by a gap that is not this arm's.
+pub fn reference_row(buf: &[u16], d_in: usize, row: usize, xf: &[f64], tlut: &Tlut) -> f64 {
+    assert_eq!(xf.len(), d_in, "activation length must be d_in");
+    let mut acc = 0.0f64;
+    for (col, &x) in xf.iter().enumerate() {
+        acc += weight_at(buf, d_in, row, col, tlut) as f64 * x;
+    }
+    acc
+}
+
+/// The five distinct projection shapes of Qwen3-4B, and the kernel name each
+/// one resolves to in `kernels/qtip_glue.cu`.
+///
+/// The model has seven projections; `k_proj`/`v_proj` share a shape and so do
+/// `gate_proj`/`up_proj`, so five shims cover all seven. The kernel is templated
+/// on `M` and `K`, which is why the name carries them.
+pub const QTIP_SHAPES: [(usize, usize); 5] =
+    [(4096, 2560), (1024, 2560), (2560, 4096), (9728, 2560), (2560, 9728)];
+
+/// Name of the `extern "C"` shim for a shape, or `None` if no shim exists.
+///
+/// Returning `None` rather than formatting a name unconditionally is the point:
+/// an unlisted shape must fail by name here, at build time, not as a missing
+/// symbol lookup after the buffers are on the card.
+pub fn kernel_name(d_out: usize, d_in: usize) -> Option<String> {
+    QTIP_SHAPES
+        .contains(&(d_out, d_in))
+        .then(|| format!("qtip_mv_{d_out}x{d_in}"))
+}
+
+/// Dynamic shared memory the kernel needs: `1 << (S + 5 + V + 1)` with `S = 9`
+/// and `V = 1`, i.e. the 512-entry codebook replicated 32 times to spread it
+/// across banks.
+///
+/// 🚨 64 KiB is **above** the 48 KiB per-block default, so the launcher must opt
+/// in (`Cuda::func_dynamic_shared`) exactly as the rotation kernel does. A shim
+/// compiles without the opt-in and fails at launch.
+pub const QTIP_SHARED_BYTES: u32 = 1 << (9 + 5 + 1 + 1);
+
+/// The per-block default this exceeds. Kept as a named constant so the relation
+/// below is a statement rather than a magic number in a comment.
+pub const CUDA_DEFAULT_SHARED_BYTES: u32 = 49_152;
+
+// Compile-time, because the whole point is that this can never stop being true
+// without the launcher's opt-in becoming wrong at the same moment.
+const _: () = assert!(QTIP_SHARED_BYTES > CUDA_DEFAULT_SHARED_BYTES);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -866,5 +944,63 @@ mod tests {
             .all(|&(a, b)| (-1.0..1.0).contains(&a) && (-1.0..1.0).contains(&b)));
         // A generator that returned a constant would satisfy everything above.
         assert!(t.iter().any(|&(a, _)| a != t[0].0));
+    }
+}
+
+#[cfg(test)]
+mod wiring_tests {
+    use super::*;
+
+    #[test]
+    fn the_rate_the_bench_bills_is_two_bits() {
+        for (d_out, d_in) in QTIP_SHAPES {
+            let bytes = qtip_bytes(d_out, d_in);
+            assert_eq!(bytes * 8, (d_out * d_in * 2) as u64, "{d_out}x{d_in}");
+        }
+    }
+
+    #[test]
+    fn every_shape_has_a_shim_and_nothing_else_does() {
+        for (d_out, d_in) in QTIP_SHAPES {
+            assert_eq!(kernel_name(d_out, d_in).unwrap(), format!("qtip_mv_{d_out}x{d_in}"));
+        }
+        // A shape the glue does not instantiate must be refused, not formatted:
+        // 2048x2048 tiles perfectly well and would pass every upstream
+        // static_assert, so only the shim list can reject it.
+        assert!(kernel_name(2048, 2048).is_none());
+        assert!(kernel_name(2560, 2560).is_none());
+    }
+
+    #[test]
+    fn the_shared_request_is_the_upstream_formula() {
+        // 1 << (S + 5 + V + 1), S = 9, V = 1 — and above the 48 KiB default,
+        // which is the whole reason the launcher must opt in.
+        assert_eq!(QTIP_SHARED_BYTES, 65536);
+    }
+
+    #[test]
+    fn the_reference_row_is_the_decoded_matrix() {
+        // Two paths to the same number: row-at-a-time against the whole
+        // decoded matrix. A packing bug that shifted rows would pass one and
+        // not the other.
+        let (d_out, d_in) = (32, 48);
+        let buf = pseudo_random_buffer(d_out, d_in, 0xF2_0000);
+        let tlut = pseudo_random_tlut(0xF2_0001);
+        let w = decode_matrix(&buf, d_out, d_in, &tlut);
+        let xf: Vec<f64> = (0..d_in).map(|c| ((c % 7) as f64 - 3.0) / 4.0).collect();
+        for row in 0..d_out {
+            let got = reference_row(&buf, d_in, row, &xf, &tlut);
+            let want: f64 =
+                (0..d_in).map(|c| w[row * d_in + c] as f64 * xf[c]).sum();
+            assert_eq!(got, want, "row {row}");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "activation length must be d_in")]
+    fn a_mismatched_activation_is_refused() {
+        let buf = pseudo_random_buffer(16, 16, 1);
+        let tlut = pseudo_random_tlut(2);
+        reference_row(&buf, 16, 0, &[0.0; 8], &tlut);
     }
 }

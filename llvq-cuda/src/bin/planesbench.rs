@@ -227,6 +227,37 @@ mod linux {
         }
     }
 
+    /// The QTIP sources, and the one loader in this file with **no embedded
+    /// fallback**.
+    ///
+    /// 🚨 The kernel is GPL v3 and this workspace is MIT OR Apache-2.0, so it
+    /// is not in the repository and `LLVQ_KERNEL_DIR` is the only path to it —
+    /// `ops/fetch-qtip.sh` fetches it at a pinned commit, verifies two sha256,
+    /// and extracts the device half. `Ok(None)` means "not available here",
+    /// which is a normal state on any machine that has not run that script;
+    /// the arm is simply not dispatchable then, and `arms::HAS_KERNEL` already
+    /// says so. What must never happen is a *silent* fallback to some other
+    /// text, which is why there is nothing to fall back to.
+    fn load_qtip_sources() -> Result<Option<(String, String)>, String> {
+        let Ok(dir) = std::env::var("LLVQ_KERNEL_DIR") else {
+            return Ok(None);
+        };
+        let d = std::path::Path::new(&dir);
+        // The derived header is the one the fetch script produces; if it is
+        // absent the directory is simply not a QTIP directory.
+        if !d.join("qtip_device.cuh").exists() {
+            return Ok(None);
+        }
+        let cuh = std::fs::read_to_string(d.join("qtip_device.cuh"))
+            .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : qtip_device.cuh : {e}"))?;
+        // The glue IS ours and IS committed, so a directory carrying the
+        // header but not the glue is a broken fetch, not a missing arm.
+        let glue = std::fs::read_to_string(d.join("qtip_glue.cu")).map_err(|e| {
+            format!("LLVQ_KERNEL_DIR={dir} : qtip_glue.cu manquant à côté de qtip_device.cuh : {e}")
+        })?;
+        Ok(Some((cuh, glue)))
+    }
+
     fn load_planes_seg_source() -> Result<(String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
             Err(_) => Ok((PLANES_SEG_CU_EMBED.to_string(), None)),
@@ -380,6 +411,33 @@ mod linux {
         scale: Vec<f64>,
     }
 
+    /// The 2-bit competitor. Its payload is **synthetic and is not a
+    /// quantization of our weights** — a stronger caveat than the AWQ arm's,
+    /// and it is a property of the code, not a shortcut. QTIP is a fixed-rate
+    /// trellis: every bit pattern is a valid codeword, so a pseudo-random
+    /// buffer is a legitimate input, but encoding *given* weights would need
+    /// their Viterbi search. This arm therefore makes **no quality claim at
+    /// all**; it measures time and nothing else.
+    ///
+    /// The timing stands regardless: the kernel has no data-dependent branch
+    /// and its traffic is a function of the shapes alone.
+    struct QtipArm {
+        /// The trellis stream, two u16 per u32 in the order the kernel reads
+        /// them (it casts the pointer to `const uint16_t*`).
+        compressed: Staged<u32>,
+        /// 512 half2 entries, flat as 1024 binary16 words.
+        codebook: Staged<u16>,
+        bytes: u64,
+        /// Exact by construction: we know the bits, so we know the state, so we
+        /// know the codebook entry and the sign.
+        y_ref: Vec<f64>,
+        /// `Σ|w·x|` over **its own** decoded weights — reusing the LLVQ scale
+        /// would judge this arm by another format's rule.
+        scale: Vec<f64>,
+        /// The shim this shape resolves to, e.g. `qtip_mv_4096x2560`.
+        kernel: String,
+    }
+
     struct Mat {
         name: String,
         d_out: usize,
@@ -392,6 +450,7 @@ mod linux {
         g70: Option<G70Arm>,
         e1v: Option<E1vArm>,
         awq: Option<AwqArm>,
+        qtip: Option<QtipArm>,
         // Le témoin FP16 et les entrées partagées, toujours construits :
         // fp16 n'est pas désélectionnable (arms::parse_phases le refuse).
         gscale: cudarc::driver::CudaSlice<f32>,
@@ -428,6 +487,7 @@ mod linux {
             // Mêmes octets que le témoin : cublasf16 lit le MÊME w16.
             arms::CUBLASF16 => m.f16_bytes,
             arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
+            arms::QTIP => m.qtip.as_ref().map_or(0, |x| x.bytes),
             _ => unreachable!("bras inconnu"),
         }
     }
@@ -765,6 +825,49 @@ mod linux {
         acc
     }
 
+    /// `qtip_mv_<M>x<K>(out, compressed, x, codebook)` — the shim from
+    /// `kernels/qtip_glue.cu`.
+    ///
+    /// The geometry is **theirs**, copied from `decompress_matvec_ptr`:
+    /// `<<<128, 1024, 1 << (S + 5 + V + 1)>>>`. Changing it would make this arm
+    /// a measurement of our tuning rather than of their kernel — the same rule
+    /// the AWQ arm follows.
+    ///
+    /// ⚠️ The 64 KiB codebook is **dynamic** shared memory, above the 48 KiB
+    /// per-block default, so `f` must have come from
+    /// `Cuda::func_dynamic_shared(name, QTIP_SHARED_BYTES)` and not from
+    /// `Cuda::func`. A function obtained the wrong way compiles and fails at
+    /// launch.
+    fn launch_qtip(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        compressed: &cudarc::driver::CudaSlice<u32>,
+        xh: &cudarc::driver::CudaSlice<u16>,
+        codebook: &cudarc::driver::CudaSlice<u16>,
+    ) -> Result<(), String> {
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (128, 1, 1),
+            block_dim: (1024, 1, 1),
+            shared_mem_bytes: llvq_cuda::qtip_host::QTIP_SHARED_BYTES,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(y).arg(compressed).arg(xh).arg(codebook);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("qtip_mv: {e}"))?;
+        Ok(())
+    }
+
+    /// The trellis stream as the kernel addresses it: it casts `compressed` to
+    /// `const uint16_t*`, so u16 index `i` must sit at byte `2i`. On a
+    /// little-endian device that is the low half of u32 word `i / 2`.
+    ///
+    /// A tile is 32 u16, so the length is always even and the last word is
+    /// never half-filled — asserted rather than assumed.
+    fn qtip_pack_u32(buf: &[u16]) -> Vec<u32> {
+        assert!(buf.len().is_multiple_of(2), "QTIP buffer length must be even");
+        buf.chunks_exact(2).map(|c| c[0] as u32 | ((c[1] as u32) << 16)).collect()
+    }
+
     /// `awq_gemv_g128(inputs, weight, zeros, scaling_factors, outputs, IC, OC)`.
     ///
     /// La géométrie est **la leur**, recopiée de `gemv_forward_cuda` :
@@ -839,6 +942,16 @@ mod linux {
         // Le plancher (P4 §2.5). Il n'a pas d'en-tête à lui : `matvec.cu` lui
         // suffit, et il est concaténé après tout le reste comme tout arrivant.
         let nullk = llvq_cuda::load_sources_many(&["nullk.cu"])?;
+        // QTIP (F2). Absent unless `ops/fetch-qtip.sh` has run and
+        // `LLVQ_KERNEL_DIR` points at its output; the empty strings below then
+        // contribute nothing to the translation unit — and, deliberately,
+        // nothing to its hash either, so a machine without the fetch compiles
+        // the SAME source as every published run.
+        let qtip_src = load_qtip_sources()?;
+        let (qtip_cuh, qtip_glue) = match &qtip_src {
+            Some((cuh, glue)) => (cuh.as_str(), glue.as_str()),
+            None => ("", ""),
+        };
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let parts = [
             defines.as_str(),
@@ -864,6 +977,12 @@ mod linux {
             e1v.parts[0].as_str(),
             e1v.parts[1].as_str(),
             nullk.parts[0].as_str(),
+            // QTIP last, and for the rule that has governed every arrival:
+            // adding an arm must never reorder the fragments of the arms that
+            // produced a published number. The device half first, then our
+            // shims, which name it.
+            qtip_cuh,
+            qtip_glue,
         ];
         let src = KernelSource::new(&parts);
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
@@ -893,6 +1012,19 @@ mod linux {
         }
         if let Some(d) = &nullk.overridden_from {
             println!("  ⚠️ SOURCE nullk SURCHARGÉE depuis {d}");
+        }
+        match &qtip_src {
+            Some(_) => println!(
+                "  ⚠️ NOYAU QTIP CHARGÉ (GPL v3, non redistribué par ce dépôt — \
+                 voir docs/qtip-provenance.md)"
+            ),
+            None => {
+                if union.has(arms::QTIP) {
+                    return Err("le bras qtip est sélectionné mais son noyau est absent : \
+                                lancer ops/fetch-qtip.sh et pointer LLVQ_KERNEL_DIR dessus"
+                        .to_string());
+                }
+            }
         }
 
         let cuda = Cuda::new(&src)?;
@@ -1471,6 +1603,64 @@ mod linux {
                 _ => None,
             };
 
+            // ---- the QTIP arm ----
+            //
+            // Built only when selected, like every other arm. Two things about
+            // it are unlike the others and are stated here rather than left to
+            // be inferred:
+            //
+            //  * the payload is pseudo-random, so the weights it decodes are
+            //    nobody's weights. See `QtipArm`. The seed is derived from the
+            //    shape so a matrix gets the same stream in every phase and in
+            //    every process — a control run must restitute the same object,
+            //    and a clock-seeded buffer would silently break that.
+            //  * the reference is exact, so this arm is held to OUR threshold
+            //    (`TOL`), not to the looser `AWQ_TOL`. That looser bound exists
+            //    because AWQ and cuBLAS write binary16 outputs; QTIP writes
+            //    f32, so there is nothing to forgive.
+            let qtip = match union.has(arms::QTIP) {
+                true => {
+                    use llvq_cuda::qtip_host as qh;
+                    let kernel = qh::kernel_name(d_out, d_in).ok_or_else(|| {
+                        format!(
+                            "{}: QTIP n'a pas de shim pour {d_out}x{d_in} — \
+                             ajouter la forme à kernels/qtip_glue.cu et à \
+                             qtip_host::QTIP_SHAPES, plutôt que de deviner un nom",
+                            s.name
+                        )
+                    })?;
+                    let seed = 0xF2_0000_0000u64 ^ ((d_out as u64) << 20) ^ d_in as u64;
+                    let buf = qh::pseudo_random_buffer(d_out, d_in, seed);
+                    let tlut = qh::pseudo_random_tlut(seed ^ 0x5EED);
+                    let xf = xh_f64.as_ref().expect("activation binary16 en f64 non construite");
+                    let mut y = vec![0.0f64; d_out];
+                    let mut sc = vec![0.0f64; d_out];
+                    for row in 0..d_out {
+                        y[row] = qh::reference_row(&buf, d_in, row, xf, &tlut);
+                        sc[row] = (0..d_in)
+                            .map(|c| (qh::weight_at(&buf, d_in, row, c, &tlut) as f64 * xf[c]).abs())
+                            .sum();
+                    }
+                    // 512 half2, flat as 1024 binary16 words, in the order the
+                    // kernel indexes them: entry i is (x, y) at 2i and 2i+1.
+                    let mut cb = vec![0u16; qh::QTIP_TLUT_LEN * 2];
+                    for (i, &(a, b)) in tlut.iter().enumerate() {
+                        cb[2 * i] = f16_bits(a);
+                        cb[2 * i + 1] = f16_bits(b);
+                    }
+                    let in0 = phase0.has(arms::QTIP);
+                    Some(QtipArm {
+                        compressed: up_or_hold_u32(qtip_pack_u32(&buf), in0)?,
+                        codebook: up_or_hold_u16(cb, in0)?,
+                        bytes: qh::qtip_bytes(d_out, d_in),
+                        y_ref: y,
+                        scale: sc,
+                        kernel,
+                    })
+                }
+                false => None,
+            };
+
             Ok(Mat {
                 name: s.name.clone(),
                 d_out,
@@ -1483,6 +1673,7 @@ mod linux {
                 p12,
                 g70,
                 awq,
+                qtip,
                 gscale: cuda.up_f32(&s.centroids)?,
                 rscale: cuda.up_f32(&s.rscale)?,
                 tail: cuda.up_f32(if s.tail.is_empty() { &[0.0f32] } else { &s.tail })?,
@@ -1751,6 +1942,25 @@ mod linux {
                     m.d_in as u32, m.d_out as u32,
                 )
             };
+        // QTIP resolves ONE function per shape, and the lookup must ask for
+        // the 64 KiB dynamic shared memory the codebook needs — `func`, which
+        // every other arm uses, would return a function that fails at launch.
+        let run_qtip =
+            |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+                let a = m.qtip.as_ref().expect("bras qtip non construit");
+                let f = cuda.func_dynamic_shared(
+                    &a.kernel,
+                    llvq_cuda::qtip_host::QTIP_SHARED_BYTES,
+                )?;
+                launch_qtip(
+                    &cuda,
+                    &f,
+                    y,
+                    a.compressed.dev(),
+                    d_xh.as_ref().expect("activation binary16 non téléversée"),
+                    a.codebook.dev(),
+                )
+            };
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
@@ -1840,6 +2050,19 @@ mod linux {
             let mut worst = 0.0f64;
             for m in mats {
                 let e = match a {
+                    // QTIP writes f32, so it is held to OUR threshold. Its
+                    // reference is exact — we know the bits, hence the state,
+                    // hence the codebook entry and the sign — so the only
+                    // difference left is accumulation order.
+                    arms::QTIP => {
+                        run_qtip(m, d_y)?;
+                        cuda.sync()?;
+                        let got = cuda.down_f32(d_y)?;
+                        let q = m.qtip.as_ref().expect("bras qtip non construit");
+                        let e = worst_error(&got[..m.d_out], &q.y_ref, &q.scale);
+                        assert!(e < TOL, "{} / QTIP : {e:.2e}·Σ|w·x|", m.name);
+                        e
+                    }
                     arms::AWQ => {
                         let yh = d_yh.as_mut().expect("d_yh du bras awq");
                         run_awq(m, yh)?;

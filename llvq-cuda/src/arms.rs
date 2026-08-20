@@ -67,8 +67,12 @@ pub const ARM_NAMES: [&str; N_ARMS] = [
     // order of every arm that produced a published number must be fixed before
     // a job, not while one runs.
     "e1v",
+    // F2 — the QTIP comparison arm. Registered last, same rule again: the
+    // dispatch order of every arm that produced a published number is fixed
+    // before a job, never while one runs.
+    "qtip",
 ];
-pub const N_ARMS: usize = 16;
+pub const N_ARMS: usize = 17;
 
 pub const SLOT32: usize = 0;
 pub const PLANES14: usize = 1;
@@ -94,6 +98,16 @@ pub const E1C12: usize = 14;
 /// read (`llvq_artifact::e1v`, and X3's rotation argument). Measured at
 /// **2,3983 b/poids noyau** on the sealed 4B's written bytes.
 pub const E1V: usize = 15;
+/// The **2-bit competitor**, and the one this repository's motivation was
+/// inherited from without ever being reproduced: QTIP's trellis GEMV
+/// (Cornell-RelaxML), ported unchanged into this harness the way `AWQ` was.
+///
+/// 🚨 Its source is **not in this repository** and never will be: the kernel
+/// is GPL v3, this workspace is MIT OR Apache-2.0. It is fetched at job time
+/// by `ops/fetch-qtip.sh` and reaches the bench through `LLVQ_KERNEL_DIR`,
+/// which for this arm is the *only* path — there is no embedded fallback to
+/// silently succeed with (`docs/qtip-provenance.md`).
+pub const QTIP: usize = 16;
 
 /// The six arms of the 2026-08-10 job — phase 1 of P4 §2.4, which reproduces
 /// the published run.
@@ -152,6 +166,13 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     // between it and a published number is the bench's own V0 plus the
     // `local_bytes != 0` check at startup, not this table.
     true,
+    // 🚨 qtip — registered, NOT runnable. P0 of F2 resolved the format and
+    // wrote its host codec (`qtip_host`), but nothing has compiled the device
+    // side: the kernel is fetched, not committed, so a bare `planesbench` on a
+    // machine without `LLVQ_KERNEL_DIR` has no kernel to dispatch at all. This
+    // flag flips in P2, in the same commit that shows a device compile — not
+    // before, and not on the strength of a host-side test.
+    false,
 ];
 
 /// The name each arm carries in a published table — prettier than
@@ -185,6 +206,7 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
     "LLVQ E1c14",
     "LLVQ E1c12",
     "LLVQ E1v",
+    "QTIP 2 bits",
 ];
 
 /// The order a table PRINTS its rows in — cosmetic, and deliberately not the
