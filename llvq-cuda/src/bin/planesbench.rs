@@ -227,35 +227,42 @@ mod linux {
         }
     }
 
-    /// The QTIP sources, and the one loader in this file with **no embedded
-    /// fallback**.
+    /// Our QTIP shims — committed, so always available, and version-locked to
+    /// the binary that launches them.
+    const QTIP_GLUE_EMBED: &str = include_str!("../../kernels/qtip_glue.cu");
+
+    /// The QTIP device half, and the one loader here that reads a **different**
+    /// variable from every other.
     ///
-    /// 🚨 The kernel is GPL v3 and this workspace is MIT OR Apache-2.0, so it
-    /// is not in the repository and `LLVQ_KERNEL_DIR` is the only path to it —
-    /// `ops/fetch-qtip.sh` fetches it at a pinned commit, verifies two sha256,
-    /// and extracts the device half. `Ok(None)` means "not available here",
-    /// which is a normal state on any machine that has not run that script;
-    /// the arm is simply not dispatchable then, and `arms::HAS_KERNEL` already
-    /// says so. What must never happen is a *silent* fallback to some other
-    /// text, which is why there is nothing to fall back to.
+    /// 🚨 `LLVQ_QTIP_DIR`, not `LLVQ_KERNEL_DIR`, and the distinction is not
+    /// cosmetic. `LLVQ_KERNEL_DIR` means *override every kernel source from
+    /// this directory*: every other loader in this file and in
+    /// `load_sources_many` reads ITS OWN files from it and **fails hard** when
+    /// one is missing. Pointing it at the QTIP fetch output would therefore
+    /// break the whole bench on `matvec.cu: No such file or directory`. QTIP is
+    /// not an override of anything — it is an ADDITION — so it gets a variable
+    /// of its own, and the two compose instead of colliding.
+    ///
+    /// Only the device half is read from disk: the kernel is GPL v3 and this
+    /// workspace is MIT OR Apache-2.0, so it is fetched at job time by
+    /// `ops/fetch-qtip.sh` and never committed. The shims above are ours.
+    /// `Ok(None)` means "no QTIP here", the normal state on any machine that
+    /// has not run the script; the arm is then simply not dispatchable, which
+    /// `arms::HAS_KERNEL` already says. What must never happen is a *silent*
+    /// fallback to some other text, which is why there is nothing to fall
+    /// back to.
     fn load_qtip_sources() -> Result<Option<(String, String)>, String> {
-        let Ok(dir) = std::env::var("LLVQ_KERNEL_DIR") else {
+        let Ok(dir) = std::env::var("LLVQ_QTIP_DIR") else {
             return Ok(None);
         };
-        let d = std::path::Path::new(&dir);
-        // The derived header is the one the fetch script produces; if it is
-        // absent the directory is simply not a QTIP directory.
-        if !d.join("qtip_device.cuh").exists() {
-            return Ok(None);
-        }
-        let cuh = std::fs::read_to_string(d.join("qtip_device.cuh"))
-            .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : qtip_device.cuh : {e}"))?;
-        // The glue IS ours and IS committed, so a directory carrying the
-        // header but not the glue is a broken fetch, not a missing arm.
-        let glue = std::fs::read_to_string(d.join("qtip_glue.cu")).map_err(|e| {
-            format!("LLVQ_KERNEL_DIR={dir} : qtip_glue.cu manquant à côté de qtip_device.cuh : {e}")
-        })?;
-        Ok(Some((cuh, glue)))
+        let cuh = std::fs::read_to_string(std::path::Path::new(&dir).join("qtip_device.cuh"))
+            .map_err(|e| {
+                format!(
+                    "LLVQ_QTIP_DIR={dir} : qtip_device.cuh : {e} — lancer ops/fetch-qtip.sh \
+                     et pointer la variable sur sa sortie"
+                )
+            })?;
+        Ok(Some((cuh, QTIP_GLUE_EMBED.to_string())))
     }
 
     fn load_planes_seg_source() -> Result<(String, Option<String>), String> {
@@ -1021,11 +1028,24 @@ mod linux {
             None => {
                 if union.has(arms::QTIP) {
                     return Err("le bras qtip est sélectionné mais son noyau est absent : \
-                                lancer ops/fetch-qtip.sh et pointer LLVQ_KERNEL_DIR dessus"
+                                lancer ops/fetch-qtip.sh et pointer LLVQ_QTIP_DIR dessus"
                         .to_string());
                 }
             }
         }
+
+        // Built before the module so a shape without a shim is a Rust-side
+        // error message, never a failed symbol lookup on a rented card.
+        let qtip_names: Vec<String> = match &qtip_src {
+            None => Vec::new(),
+            Some(_) => llvq_cuda::qtip_host::QTIP_SHAPES
+                .iter()
+                .map(|&(d_out, d_in)| {
+                    llvq_cuda::qtip_host::kernel_name(d_out, d_in)
+                        .expect("QTIP_SHAPES must name its own shims")
+                })
+                .collect(),
+        };
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
@@ -1058,7 +1078,23 @@ mod linux {
             // chiffre mesure autre chose (pré-enregistrement E1v-CUDA §5.4).
             "tv_e1v",
             "tv_nullk",
-        ] {
+        ]
+        .iter()
+        .copied()
+        // The QTIP shims, when their source is present. They are reported for
+        // the same reason `tv_e1v` is — the `local_bytes != 0` line below —
+        // and for one more that is specific to this arm: **this report is the
+        // only proof that NVRTC accepted the fetched kernel text at all**.
+        // Everything about QTIP up to here was established by reading and by
+        // host-side tests; whether libcu++-free inline PTX, `__shfl_sync` and
+        // `__byte_perm` survive NVRTC is a question only a device compile
+        // answers, and a successful lookup of these five names IS that answer.
+        // They are listed even while `arms::HAS_KERNEL[QTIP]` is false,
+        // deliberately: the translation unit never varies with arm selection
+        // (`arms.rs`), so the compile can be proved a job before the arm is
+        // allowed to run.
+        .chain(qtip_names.iter().map(|s| s.as_str()))
+        {
             let r = cuda.report(name)?;
             println!(
                 "  {:<10} {:>3} registres, {} o locaux, sm_{}",

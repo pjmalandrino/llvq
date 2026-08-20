@@ -10,7 +10,7 @@ il est récupéré au moment du job par [`ops/fetch-qtip.sh`](../ops/fetch-qtip.
 |---|---|---|
 | licence amont | MIT | **GPL v3** |
 | dans le dépôt | oui — `llvq-cuda/kernels/awq_gemv.cu`, `include_str!` | **non** |
-| chemin de chargement | embarqué, `LLVQ_KERNEL_DIR` en surcharge | `LLVQ_KERNEL_DIR` **seul** |
+| chemin de chargement | embarqué, `LLVQ_KERNEL_DIR` en surcharge | `LLVQ_QTIP_DIR` (sa propre variable) |
 
 Le dépôt est sous MIT OU Apache-2.0. Redistribuer un fichier GPL v3 dedans
 obligerait à replacer l'ensemble sous GPL v3 — ce n'est pas le choix du projet.
@@ -45,6 +45,21 @@ transcription de leur code.
    jetons résiduels) au lieu de faire confiance au filtre.
 6. Écrit un `PROVENANCE.txt` à côté : URL, commit, sha256 avant patch, lignes
    retirées, date, et la mention de licence.
+
+## 🚨 Sa propre variable, et pourquoi ce n'est pas cosmétique
+
+Le noyau QTIP arrive par **`LLVQ_QTIP_DIR`**, jamais par `LLVQ_KERNEL_DIR`.
+Cette dernière signifie *« surcharge TOUS les noyaux depuis ce répertoire »* :
+chaque loader du banc y cherche **ses** fichiers et **échoue franchement** s'il
+n'en trouve pas un (`load_sources_many`, `llvq-cuda/src/lib.rs:230`). La pointer
+sur la sortie de `fetch-qtip.sh` casserait donc le banc entier sur un
+`matvec.cu: No such file or directory`. QTIP est une **addition**, pas une
+surcharge — deux variables distinctes, qui se composent.
+
+Corollaire : seule la **moitié device** vient de ce répertoire. Les shims
+`extern "C"` qui donnent un nom au noyau sont à nous, commités, et embarqués
+dans le binaire — donc toujours présents et verrouillés sur la version qui les
+lance.
 
 ## La limite honnête, à déclarer dans le papier
 

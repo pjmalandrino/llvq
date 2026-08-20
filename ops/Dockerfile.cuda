@@ -109,6 +109,11 @@ COPY --from=build \
       /src/target/release/graphbench \
       /src/target/release/planesbench \
       /usr/local/bin/
+# The QTIP fetcher (F2). It is a script, not a binary, and the runtime stage
+# copies only binaries — so without this line the `qtip` arm cannot be prepared
+# inside a job at all. The kernel it fetches is GPL v3 and is NOT in the image;
+# only the fetcher is (docs/qtip-provenance.md).
+COPY --from=build /src/ops/fetch-qtip.sh /usr/local/bin/fetch-qtip.sh
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
 # Space runtime only — a Job always overrides the command.

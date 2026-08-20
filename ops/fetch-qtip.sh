@@ -7,10 +7,14 @@
 # redistribute. So the kernel is fetched at job time and never committed. Using
 # GPL software to produce a measurement is unrestricted; only distribution is.
 #
-# The `LLVQ_KERNEL_DIR` override this feeds already exists — see
-# `llvq-cuda/src/bin/planesbench.rs:218` (`load_awq_source`), where it is an
-# *override* for AWQ. For QTIP it is the only path: there is no embedded
-# fallback to silently succeed with.
+# The bench reads this directory through `LLVQ_QTIP_DIR` — deliberately NOT the
+# `LLVQ_KERNEL_DIR` that overrides our own kernels. That one means "override
+# every kernel source from here", and every loader fails hard on a file it does
+# not find, so pointing it at this directory would break the whole bench. QTIP
+# is an addition, not an override, and the two variables compose.
+#
+# Only the device half is read from here. The `extern "C"` shims that name the
+# kernel are ours, committed, and embedded in the binary.
 set -euo pipefail
 
 COMMIT=e90c6688c8dfae326a3a81b5eb032db7c6680ec0
@@ -187,4 +191,4 @@ EOF
 
 echo
 echo "fetch-qtip: done. Pass this to the bench:"
-echo "  export LLVQ_KERNEL_DIR=$(cd "$DEST" && pwd)"
+echo "  export LLVQ_QTIP_DIR=$(cd "$DEST" && pwd)"

@@ -104,9 +104,9 @@ pub const E1V: usize = 15;
 ///
 /// 🚨 Its source is **not in this repository** and never will be: the kernel
 /// is GPL v3, this workspace is MIT OR Apache-2.0. It is fetched at job time
-/// by `ops/fetch-qtip.sh` and reaches the bench through `LLVQ_KERNEL_DIR`,
-/// which for this arm is the *only* path — there is no embedded fallback to
-/// silently succeed with (`docs/qtip-provenance.md`).
+/// by `ops/fetch-qtip.sh` and reaches the bench through `LLVQ_QTIP_DIR` — its
+/// own variable, not the `LLVQ_KERNEL_DIR` that overrides our kernels, since
+/// this is an addition and not an override (`docs/qtip-provenance.md`).
 pub const QTIP: usize = 16;
 
 /// The six arms of the 2026-08-10 job — phase 1 of P4 §2.4, which reproduces
@@ -169,11 +169,38 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     // 🚨 qtip — registered, NOT runnable. P0 of F2 resolved the format and
     // wrote its host codec (`qtip_host`), but nothing has compiled the device
     // side: the kernel is fetched, not committed, so a bare `planesbench` on a
-    // machine without `LLVQ_KERNEL_DIR` has no kernel to dispatch at all. This
+    // machine without `LLVQ_QTIP_DIR` has no kernel to dispatch at all. This
     // flag flips in P2, in the same commit that shows a device compile — not
     // before, and not on the strength of a host-side test.
     false,
 ];
+
+/// Arms whose kernel exists but **not in this repository**, and which are
+/// therefore fetched at job time.
+///
+/// This is a third state, and it is needed because the two that existed cannot
+/// express QTIP. `HAS_KERNEL[QTIP]` is `false` and stays `false` — the
+/// statement it makes ("there is no kernel here to dispatch") is literally
+/// true, the file is GPL v3 and is not committed. But `false` also means "the
+/// parser refuses this name", and that would leave a fetched arm unselectable
+/// forever.
+///
+/// The rule this table adds is narrow on purpose: such an arm is **never** in
+/// [`ArmSet::runnable`], so a bare `planesbench` on any machine — with or
+/// without the fetch — dispatches exactly what it dispatched before this arm
+/// existed. It becomes selectable only when a job **names it explicitly**,
+/// which is the only context in which someone has also arranged for the
+/// kernel to be there. The bench then fails loudly if it is not.
+pub const FETCHED_AT_RUNTIME: [bool; N_ARMS] = {
+    let mut f = [false; N_ARMS];
+    f[QTIP] = true;
+    f
+};
+
+/// Whether an arm may be named in `LLVQ_BENCH_ARMS` at all.
+pub fn is_selectable(arm: usize) -> bool {
+    HAS_KERNEL[arm] || FETCHED_AT_RUNTIME[arm]
+}
 
 /// The name each arm carries in a published table — prettier than
 /// [`ARM_NAMES`], which is the `LLVQ_BENCH_ARMS` vocabulary.
@@ -321,7 +348,7 @@ pub fn parse_phases(spec: Option<&str>) -> Result<Vec<ArmSet>, String> {
                 );
             }
             if let Some(arm) = ARM_NAMES.iter().position(|&n| n == name) {
-                if !HAS_KERNEL[arm] {
+                if !is_selectable(arm) {
                     return Err(format!(
                         "LLVQ_BENCH_ARMS : «{name}» est enregistré pour figer l'ordre de \
                          dispatch (P4 §2.3) mais son noyau n'est PAS écrit — le \
@@ -598,11 +625,27 @@ mod tests {
         // qui est la propriété qu'il vérifie, et non une liste qui se trouvait
         // coïncider avec elle — le même glissement que `plan[2].len() ==
         // N_ARMS` quinze lignes plus bas.
-        for a in (0..N_ARMS).filter(|&a| !HAS_KERNEL[a]) {
+        //
+        // 🕳️ Et le même glissement s'est reproduit UN CRAN PLUS HAUT le
+        // 2026-08-20 : ce filtre lisait `!HAS_KERNEL[a]`, qui a cessé d'être
+        // la propriété testée le jour où un arm a eu un noyau **hors du
+        // dépôt** (`FETCHED_AT_RUNTIME`). La propriété est « ni ici ni
+        // récupérable », donc `!is_selectable`. Le drapeau qu'on lit doit être
+        // celui que le parseur consulte, pas celui qui lui ressemblait.
+        for a in (0..N_ARMS).filter(|&a| !is_selectable(a)) {
             let e = parse_phases(Some(&format!("fp16,{}", ARM_NAMES[a]))).unwrap_err();
             assert!(e.contains(ARM_NAMES[a]), "{e}");
             assert!(e.contains("noyau n'est PAS écrit"), "{e}");
         }
+        // The one arm that is refused by `HAS_KERNEL` yet accepted by the
+        // parser is pinned by name here: a second one appearing silently is
+        // exactly what this test exists to catch.
+        let exceptions: Vec<&str> = (0..N_ARMS)
+            .filter(|&a| !HAS_KERNEL[a] && is_selectable(a))
+            .map(|a| ARM_NAMES[a])
+            .collect();
+        assert_eq!(exceptions, vec!["qtip"], "un bras récupéré au job s'est ajouté sans le dire");
+
         // And every implemented arm still parses. `fp16` is the witness and
         // is already in the spec, so it is named once.
         for name in ArmSet::runnable().iter().map(|a| ARM_NAMES[a]) {
@@ -651,6 +694,35 @@ mod tests {
     /// change silently violated for a day. The rest guards the other ways a
     /// hand-kept parallel table goes wrong: a row printed twice, a row for an
     /// arm that cannot run, an empty label.
+    #[test]
+    fn a_fetched_arm_is_selectable_but_never_bare() {
+        // The whole point of the third state: naming it works, and a bare
+        // command still never picks it up. Both halves matter — the first
+        // makes the arm usable at all, the second guarantees that adding it
+        // changed nothing for every machine that does not fetch it.
+        let qtip = ARM_NAMES[QTIP];
+        assert!(!HAS_KERNEL[QTIP], "QTIP's kernel is not in this repository");
+        assert!(FETCHED_AT_RUNTIME[QTIP]);
+        assert!(is_selectable(QTIP));
+        assert!(!ArmSet::runnable().has(QTIP), "a bare run must not select a fetched arm");
+        let phases = parse_phases(Some(&format!("fp16,{qtip}"))).unwrap();
+        assert_eq!(phases.len(), 1);
+        assert!(phases[0].has(QTIP));
+    }
+
+    #[test]
+    fn only_qtip_is_fetched_at_runtime() {
+        // A second arm silently joining this table would make itself
+        // selectable without a kernel, which is exactly what the refusal
+        // exists to prevent.
+        for a in 0..N_ARMS {
+            assert_eq!(FETCHED_AT_RUNTIME[a], a == QTIP, "arm {} ({})", a, ARM_NAMES[a]);
+            // And no arm may claim both: "in the repository" and "fetched"
+            // are exclusive statements about where the file is.
+            assert!(!(HAS_KERNEL[a] && FETCHED_AT_RUNTIME[a]), "arm {a}");
+        }
+    }
+
     #[test]
     fn the_display_tables_cover_the_registry() {
         assert_eq!(DISPLAY_NAMES.len(), N_ARMS);
