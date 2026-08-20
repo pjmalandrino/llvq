@@ -240,12 +240,22 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
 /// dispatch order: the witness first, v2 under v1, the competitor last.
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
-pub const DISPLAY_ORDER: [usize; 10] = [
+pub const DISPLAY_ORDER: [usize; 11] = [
     // Le plancher d'abord : c'est la quantité contre laquelle toutes les
     // autres se lisent, et la mettre en tête évite d'avoir à la chercher.
     // cublasf16 juste après le témoin maison : les deux lignes que tout ×
     // publié divise se lisent l'une sous l'autre.
     NULLK, FP16, CUBLASF16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
+    // 🚨 Les deux concurrents en fin de table, ensemble. QTIP y est arrivé le
+    // 2026-08-20 et son absence était un défaut SILENCIEUX d'un genre
+    // particulier : tout ce que `planesbench` imprime itère sur cette table,
+    // donc le banc aurait construit le payload, vérifié le bras contre sa
+    // référence f64, l'aurait dispatché dans les sept rounds — et n'aurait
+    // écrit AUCUNE ligne à son sujet, alors que « la ligne QTIP de la table »
+    // est le livrable déclaré de son job. Le commentaire ci-dessus dit « un
+    // bras sans noyau n'a pas de ligne » ; QTIP est le cas que ce raccourci ne
+    // couvre pas, `HAS_KERNEL` étant faux et `FETCHED_AT_RUNTIME` vrai.
+    QTIP,
 ];
 
 /// A set of arms, at most one bit per registered arm.
@@ -733,17 +743,40 @@ mod tests {
         for &a in &DISPLAY_ORDER {
             assert!(a < N_ARMS, "l'ordre d'affichage nomme un bras inexistant");
             assert!(!seen.has(a), "{} est affiché deux fois", ARM_NAMES[a]);
+            // 🕳️ TROISIÈME fois que ce glissement se produit dans ce fichier,
+            // et toujours identique : le test lisait `HAS_KERNEL`, qui a cessé
+            // d'être la propriété testée le jour où un bras a eu un noyau HORS
+            // du dépôt. La question ici est « ce bras peut-il tourner », c'est
+            // `is_selectable`. Les deux premières occurrences sont documentées
+            // sur `an_arm_without_a_kernel_is_registered_but_not_runnable` ;
+            // celle-ci est la troisième, et le motif mérite d'être nommé : un
+            // drapeau qui coïncide avec la propriété n'est pas la propriété.
             assert!(
-                HAS_KERNEL[a],
-                "{} a une ligne de table mais pas de noyau — une ligne pour un bras \
-                 qui ne peut pas tourner",
+                is_selectable(a),
+                "{} a une ligne de table mais ne peut pas tourner",
                 ARM_NAMES[a]
             );
             seen.insert(a);
         }
-        // Every runnable arm has a row: an arm that can be timed and has no row
-        // would be measured and never printed.
-        assert_eq!(seen, ArmSet::runnable(), "un bras exécutable n'a pas de ligne");
+        // Every SELECTABLE arm has a row — including the ones a bare run never
+        // picks up. An arm that can be timed and has no row would be measured
+        // and never printed, which is a worse failure than not measuring it:
+        // the job costs the same and produces nothing.
+        let selectable = {
+            let mut s = ArmSet::empty();
+            for a in 0..N_ARMS {
+                if is_selectable(a) {
+                    s.insert(a);
+                }
+            }
+            s
+        };
+        assert_eq!(seen, selectable, "un bras sélectionnable n'a pas de ligne");
+        // And the rows a bare run produces are still exactly the runnable set:
+        // adding a fetched arm must not change what a bare command prints.
+        for a in ArmSet::runnable().iter() {
+            assert!(seen.has(a), "{} tourne à nu sans ligne", ARM_NAMES[a]);
+        }
     }
 
     #[test]

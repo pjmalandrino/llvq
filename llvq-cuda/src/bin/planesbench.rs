@@ -230,6 +230,9 @@ mod linux {
     /// Our QTIP shims — committed, so always available, and version-locked to
     /// the binary that launches them.
     const QTIP_GLUE_EMBED: &str = include_str!("../../kernels/qtip_glue.cu");
+    /// The typedefs the fetched kernel needs and NVRTC does not carry. Ours,
+    /// and concatenated **before** the fetched half.
+    const QTIP_PRELUDE_EMBED: &str = include_str!("../../kernels/qtip_prelude.cuh");
 
     /// The QTIP device half, and the one loader here that reads a **different**
     /// variable from every other.
@@ -262,7 +265,8 @@ mod linux {
                      et pointer la variable sur sa sortie"
                 )
             })?;
-        Ok(Some((cuh, QTIP_GLUE_EMBED.to_string())))
+        // Prelude first — it declares the types the fetched half names.
+        Ok(Some((format!("{QTIP_PRELUDE_EMBED}\n{cuh}"), QTIP_GLUE_EMBED.to_string())))
     }
 
     fn load_planes_seg_source() -> Result<(String, Option<String>), String> {
@@ -2282,6 +2286,20 @@ mod linux {
                     stage_up_u32(&cuda, &mut a.z)?;
                     stage_up_u16(&cuda, &mut a.s)?;
                 }
+                // 🚨 Sans cette branche, un bras présent en phase 2 mais pas en
+                // phase 1 reste `Staged::Host` et panique sur `dev()` — et
+                // c'est EXACTEMENT la forme de la commande P3 du
+                // pré-enregistrement. La panique serait tombée après le
+                // transcodage des 252 matrices et après toute la phase 1,
+                // soit ~90 % d'un job perdu ; P2, qui met qtip en phase 0, y
+                // échappait par accident, donc le premier job n'aurait rien
+                // révélé. `stage_up_*` est idempotent, la branche est donc
+                // inoffensive quand le bras est déjà monté.
+                if added.has(arms::QTIP) {
+                    let a = m.qtip.as_mut().expect("bras qtip non construit");
+                    stage_up_u32(&cuda, &mut a.compressed)?;
+                    stage_up_u16(&cuda, &mut a.codebook)?;
+                }
             }
             Ok(())
         };
@@ -2386,7 +2404,13 @@ mod linux {
                     continue;
                 }
                 let (lo, md, hi) = spread(per_round(t_f16, &times[a]));
-                if a == arms::AWQ {
+                // Les DEUX concurrents portent l'avertissement, et pour la
+                // même raison : leur × contre FP16 récompense mécaniquement
+                // qui lit le moins. QTIP, à 2,0000 b/poids, est le cas
+                // extrême — sa borne d'octets vaut 8,00× quand la nôtre vaut
+                // 3,33× — donc un rapport nu y serait le plus trompeur de la
+                // table.
+                if a == arms::AWQ || a == arms::QTIP {
                     println!(
                         "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]  \
                          (CONCURRENT — lit {:.3} b/poids ;\n  la grandeur comparable est \

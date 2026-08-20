@@ -36,8 +36,19 @@ partie des questions ouvertes de P2/P3 :
   surdire** : la *fenêtre circulaire* est confrontée 200/200 à une
   transcription exécutée de leur `unpack_trellis`, et le *décodage d'un état*
   à une seconde lecture indépendante (leur Python et leur CUDA s'accordent) ;
-  le *placement des tuiles* n'est établi que par lecture. C'est P2 qui le
-  tranche sur carte, et c'est une des raisons d'être de ce job ;
+  le *placement des tuiles* n'est établi que par lecture.
+
+  🚨 **Et c'est LA question ouverte de F2, contestée par une relecture
+  indépendante.** Le noyau lit son flux par un motif entrelacé par lane —
+  `weight_idx = tileIdM·pas + warpId·256 + laneId·4`, puis `__shfl_sync` vers
+  la lane suivante pour la fenêtre à cheval — et rien ne garantit par la
+  lecture seule que les 32 u16 d'une tuile soient contigus, ni que l'état `s`
+  porte les poids plats `2s` et `2s+1`. Un relecteur adverse dérive le
+  contraire. Ce que nous savons vraiment : le déroulement du treillis DANS une
+  tuile est vérifié 200/200, et le décodage d'un état l'est par deux lectures
+  indépendantes ; **l'adressage, lui, ne l'est pas**. P2 le tranche — c'est sa
+  raison d'être principale, et un échec de vérification y sera une réponse,
+  pas un accident ;
 - **2,0000 b/poids** exactement, sans queue ni échelle de ligne ;
 - les cinq formes du 4B passent tous les `static_assert` amont ;
 - le typecheck Rust de la cible Linux (0 erreur, 0 warning clippy) — ⚠️ obtenu
