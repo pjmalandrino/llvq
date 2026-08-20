@@ -120,6 +120,14 @@ COPY --from=build \
 # inside a job at all. The kernel it fetches is GPL v3 and is NOT in the image;
 # only the fetcher is (docs/qtip-provenance.md).
 COPY --from=build /src/ops/fetch-qtip.sh /usr/local/bin/fetch-qtip.sh
+# 🚨 Le bit +x N'EST PAS préservé par l'upload vers le Space : l'arbre y arrive
+# en 0644, donc le COPY ci-dessus produit un fichier non exécutable et le job
+# meurt sur « Permission denied » (exit 126). Mesuré le 2026-08-20, job
+# 6a877e689cd058584adc481f : 16 s de run, carte allouée, nvidia-smi répondu,
+# script refusé. Les binaires voisins n'ont pas ce problème — ils sont produits
+# DANS l'étage build, qui les marque exécutables lui-même. Seul un fichier venu
+# de l'arbre téléversé a besoin de cette ligne.
+RUN chmod +x /usr/local/bin/fetch-qtip.sh
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
 # Space runtime only — a Job always overrides the command.
