@@ -5,8 +5,8 @@ The number of bits per weight is the only knob that changes the \emph{class}
 of model a given machine can load. At 16 bits a 70B-parameter model needs
 140~GB; at 2 bits it needs ${\sim}20$~GB and fits in the unified memory of a
 workstation. For anyone whose constraint is sovereignty (capable models on hardware
-they own), the 2-bit operating point is not an optimization. It is the
-difference between possible and impossible.
+they own), the 2-bit operating point determines whether the model loads at
+all.
 
 The best published quality at 2 bits comes from Leech-lattice vector
 quantization (LLVQ)~\citep{llvq2026}: weights are grouped into blocks of 24,
@@ -22,8 +22,8 @@ distinct coordinate-permutation classes (301 for the paper's best
 configuration, the ball $\Lambda_{24}(12)$). It exists nowhere, including
 in the original work.
 
-This paper is about that decoder, and about what it takes to make
-lattice-decoded weights \emph{faster} than FP16 rather than merely smaller.
+This paper is about that decoder, and about what it takes to move
+lattice-decoded weights from merely smaller to \emph{faster} than FP16.
 Three problems have to be solved together:
 
 \begin{enumerate}
@@ -33,10 +33,9 @@ inside a matvec inner loop must cost shifts and masks, not arithmetic, and
 must not diverge across a warp whose 32 lanes hold different classes.
 
 \item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
-determines what fits on a GPU is not the on-disk rate (2.07 bits per weight
-of payload; the bytes actually written are 2.17 over the quantized weights
-alone, the $+8\%$ of \S\ref{sec:evaluation}) but the rate of whatever
-format the kernel reads. Our
+determines what fits on a GPU is the rate of whatever format the kernel reads,
+a different quantity from the on-disk rate (2.07 bits per weight
+of payload; \S\ref{sec:evaluation}). Our
 first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
@@ -45,7 +44,7 @@ throughput, and one dead end (3.59, compute-bound) that maps the floor. We
 attribute what the kernel actually waits on with an instrumented job, and
 place a deployed 4-bit kernel on the same axis in the same process: it
 converts 88\% of its byte advantage into time against our 65\%, locating
-the remaining work in the decode rather than the format.
+the remaining work in the decode itself.
 
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and
@@ -69,17 +68,17 @@ At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points (served
 arm; 14.73 on the sealed artifact), a deficit
 concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
 essentially full quality: on that model, 4 bits wins. The case for 2 bits
-rests on scale, and two further models measure it. The degradation falls ---
-$\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
+rests on scale, and we measure it on two further models. The degradation
+falls ($\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
 and 14B, the MMLU gap to 4 bits going 14.45, 7.49, 6.09 points, all paired
-estimates with 95\% intervals --- and it flattens as it falls: the excess
-over FP16 loses 42.8\% of itself on the first step and 13.9\% on the
-second. Whether that flattening is \emph{established} depends on the metric
---- resolved on perplexity, where the evaluation windows pair across sizes;
-unresolved on the MMLU gap, likely a matter of statistical power --- and we
+estimates with 95\% intervals), and it flattens as it falls: the excess
+over FP16 drops by 42.8\% on the first step and 13.9\% on the
+second. Whether that flattening is \emph{established} depends on the metric:
+resolved on perplexity, where the evaluation windows pair across sizes;
+unresolved on the MMLU gap, likely a matter of statistical power. We
 carry the two verdicts separately throughout
-(\S\ref{sec:evaluation}, Appendix~\ref{app:scale}). Three points, no law.
-On memory the three points do agree: the served model is below the 4-bit
+(\S\ref{sec:evaluation}, Appendix~\ref{app:scale}). On memory the three
+points are consistent: the served model is below the 4-bit
 baseline at every size, by a margin that peaks in the middle because it
 tracks the embedding share.
 

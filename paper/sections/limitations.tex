@@ -12,11 +12,11 @@ fall to 25\%, exactly chance, while history, law and psychology hold above
 80\%. Two-bit quantization damages \emph{reasoning} far more than
 \emph{recall}, and a perplexity corpus mostly measures recall; perplexity
 alone should never be presented as evidence of quality at this rate. The
-obvious suspects are measured and bounded rather than left open:
+obvious suspects are measured and bounded:
 output-side rotation (near-zero marginal effect in the original paper's own
 ablation); a free-magnitude variant with a closed-form scale solve
 ($\times1.99$ perplexity at full depth on the 0.6B proxy, killed by a
-pre-registered gate); and calibration volume --- we calibrate on
+pre-registered gate); and calibration volume: we calibrate on
 ${\sim}131$k tokens, roughly $100\times$ less than the original paper, but
 a deliberate-contamination oracle (calibrating on the evaluation text
 itself, the upper bound on anything volume or corpus can buy) recovers only
@@ -30,8 +30,8 @@ adapters.
 
 \textbf{We do not measure QTIP.} Our motivation rests on the original
 paper's report that its kernel is slower than QTIP's; we inherit that claim
-rather than reproducing it. A 2-bit kernel comparison at matching shapes is
-the single most valuable missing measurement in this paper --- the 4-bit arm
+without reproducing it. A 2-bit kernel comparison at matching shapes is
+the single most valuable missing measurement in this paper: the 4-bit arm
 of Table~\ref{tab:layouts} is the same experiment against a different class
 of competitor, and it is the one that changed our reading of our own result.
 The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
@@ -47,30 +47,26 @@ tail-column overhead.
 
 \textbf{The scale argument is three points, and not a law.} On the 4B,
 4-bit AWQ dominates on every axis except disk and served footprint
-(Table~\ref{tab:campaign}) --- a ${\sim}3\%$ b/param margin that does not,
+(Table~\ref{tab:campaign}), a ${\sim}3\%$ b/param margin that does not,
 on its own, justify a 14.6-point MMLU loss. The 8B moves every relevant
 number in the 2-bit direction (Table~\ref{tab:campaign8b}); the 14B keeps
 the direction and \emph{loses the rate} (Table~\ref{tab:scale}). Whether
-the trend continues to the 70B class --- the regime the sovereignty
-argument cares about --- is measurable with this methodology and is not
+the trend continues to the 70B class (the regime that matters for the
+sovereignty argument) is measurable with this methodology and is not
 measured here, and the third point is exactly the reason not to extrapolate
-from the first two. Three qualifications, carried in full in
-\S\ref{sec:evaluation} and Appendix~\ref{app:scale}: the slowdown of the
-closing has one verdict per metric (resolved on perplexity, unresolved on
-the MMLU gap, where $p = 0.40$ is silence, not constancy); every interval
-in the curve is paired and rests on committed raw output rather than on job
-identifiers; and the memory margin below the 4-bit checkpoint, though
-present at all three sizes, is not monotone --- it tracks the embedding
-share and peaks at the 8B.
+from the first two. The qualifications on that curve (one verdict per metric on the
+slowdown, every interval paired and resting on committed raw output, a
+memory margin present at all three sizes but not monotone) are carried
+once, in \S\ref{sec:evaluation} and Appendix~\ref{app:scale}, and are
+not restated here.
 
 \textbf{Our speedups are over FP16, not over the 4-bit state of the
 practice.} At the \emph{kernel} level the 4-bit comparison exists and goes
 against us: the AWQ GEMV converts 88\% of its byte bound against our 65\%,
 roughly a factor 1.6 in ratio terms (\S\ref{sec:layouts}). At the
-\emph{engine} level the only licit form is two within-stack ratios side by
-side --- $2.413\times$ for AWQ--Marlin in vLLM against $1.11\times$ for us
-in \texttt{candle} --- and that comparison goes against us too
-(\S\ref{sec:integration}). Tables~\ref{tab:campaign}
+\emph{engine} level the comparison only exists within each stack
+($2.413\times$ for AWQ--Marlin in vLLM against $1.11\times$ for us in
+\texttt{candle}; \S\ref{sec:integration}), and it goes against us too. Tables~\ref{tab:campaign}
 and~\ref{tab:campaign8b} carry no 4-bit throughput column because a vLLM
 tok/s and a \texttt{candle} tok/s are not the same measurement.
 
@@ -98,7 +94,7 @@ ladder of barriers, logarithmic in the transform length, and a barrier
 synchronizes one block, so the whole activation must be resident in that
 block's shared memory, one f32 per coordinate whatever the input dtype. The
 binding width is \texttt{intermediate\_size}, the input of
-\texttt{down\_proj}, and the ceiling is arithmetic, not empirical:
+\texttt{down\_proj}, and the ceiling follows from arithmetic alone:
 
 \begin{center}\footnotesize
 \setlength{\tabcolsep}{4pt}%
@@ -115,22 +111,21 @@ Qwen3-32B & 25\,600 & 102\,400 & does not fit & \textbf{short by 1\,024 bytes} \
 \end{center}
 
 \noindent
-This hardware exposes \emph{two} bounds and our host code knew one: a guard
+This hardware exposes \emph{two} bounds and our host code checked one: a guard
 comparing against the 49\,152-byte per-block default refused to launch the
 14B --- correctly, since an overrun would corrupt silently --- which cost
 one job (\$0.24, no tokens produced) and is how the wall was found. The
-larger bound is opt-in, requested once per function, and is now
-\emph{measured} on the card that served (101\,376 bytes, where the day's
-arguments had been using a datasheet value); the kernel did not change a
-line, only the host arithmetic did. The 8B sat exactly on the default
+larger bound is opt-in, requested once per function, and is
+\emph{measured} on the card that served (101\,376 bytes); the kernel did
+not change a line, only the host arithmetic did. The 8B sat exactly on the default
 bound, to the byte, and nothing ever flagged it because nothing ever
-failed. The 32B misses the opt-in bound by 1\,024 bytes --- the driver's
-reserve, not host slack to be shaved. This is a bound on what the served
-path can serve, not a format bound: every layout of \S\ref{sec:layouts}
+failed. The 32B misses the opt-in bound by 1\,024 bytes; the shortfall is the
+driver's reserve, which no host-side trimming can reclaim. This is a bound on what the served
+path can serve, independent of any format: every layout of \S\ref{sec:layouts}
 decodes weights in the rotated basis and calls the same rotation, so no
 layout verdict moves it. One escape is named and deliberately \emph{not}
 designed: carrying the shared activation in half precision would halve the
 footprint below the opt-in bound, but at $n = 25\,600$ it would place an
 accumulation of depth equivalent to ${\sim}14.6$ Hadamard stages in half
-precision --- a numerical trade, not a trick, and we have neither made nor
+precision: a genuine numerical trade, and we have neither made nor
 priced it.

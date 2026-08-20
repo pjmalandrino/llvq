@@ -90,8 +90,8 @@ multi-shell decoder the rate actually requires was never written. We write
 it: a fused dequantize-plus-matvec CUDA kernel for the full 301-class
 codebook, and a family of VRAM layouts that decouple the on-disk rate from
 the rate the kernel reads. Replacing one-hot coordinate masks with binary bit
-planes makes the format simultaneously smaller and faster --- 4.80 against
-5.51 bits per weight, $2.16\times$ an FP16 matvec --- and a sparse overlay
+planes makes the format simultaneously smaller and faster (4.80 against
+5.51 bits per weight, $2.15\times$ an FP16 matvec), and a sparse overlay
 reaches 4.34 at bit-exact reconstruction. Below that the curve turns: a
 Golay-payload layout reaches 3.59 bits per weight but leaves the kernel
 compute-bound, missing an acceptance criterion fixed before measuring.
@@ -100,13 +100,12 @@ Three measurements bound what any format can buy. A kernel that reads no
 weights at all costs 45\% of the served arm, capping format work at
 $4.77\times$ FP16. A deployed 4-bit GEMV, ported unchanged into the same
 process and rounds, converts 88\% of its byte advantage into time where our
-best layout converts 65\% --- what is left to win lies in the decode, not in
-the format. And the advantage belongs to the memory hierarchy as much as to
+best layout converts 65\%: what is left to win lies in the decode. And the advantage belongs to the memory hierarchy as much as to
 the format: on an A100, where FP16 converts HBM bandwidth an L40S cannot,
 every decoding arm falls below the FP16 baseline. Integrated end to end, a
-2-bit Qwen3-4B serves at 87.0~tok/s in 2.56~GB of VRAM; with the output head
+2-bit Qwen3-4B serves at 87.0~tok/s in 2.60~GB of VRAM; with the output head
 held identical in both arms, the kernel-plus-format gain grows with model
-size --- $1.11\times$, $1.29\times$, $1.41\times$ at 4B, 8B and 14B.
+size: $1.11\times$, $1.29\times$, $1.41\times$ at 4B, 8B and 14B.
 \end{abstract}
 
 % ---------------------------------------------------------------------------

@@ -8,18 +8,18 @@ lives here because none of it is a statement about the kernel or the format;
 it is the context in which the 2-bit operating point is or is not worth its
 kernel.
 
-\textbf{Does the closing itself slow? On the MMLU gap, the bars decline
-to say.} Composing the two standard errors in quadrature (the campaigns are
+\textbf{Does the closing itself slow? On the MMLU gap, the intervals
+do not separate it.} Composing the two standard errors in quadrature (the campaigns are
 independent; no pairing across model sizes exists for a question set), the
 gap falls by 6.96 points from 4B to 8B ($\mathrm{SE}$ 1.82, $p = 0.0001$),
 by 1.40 from 8B to 14B ($\mathrm{SE}$ 1.68, $p = 0.40$), and by 8.36 end to
 end ($p \approx 10^{-5}$): the first closing and the total closing are
 established, the second step is not. \emph{And $p = 0.40$ is not evidence
-of constancy either} --- on that step this metric is silent, and a curve
+of constancy either}: that step is uninformative on this metric, and a curve
 that flattens and one that keeps closing at a smaller pace both remain
-compatible with it. These are $z$-tests computed from the intervals of
-Table~\ref{tab:scale}, not a further measurement; the same question put to
-perplexity answers differently below.
+compatible with it. These $z$-tests are computed from the intervals of
+Table~\ref{tab:scale}, with no further measurement behind them; the same
+question put to perplexity below receives a different answer.
 
 \begin{sloppypar}
 \textbf{Perplexity gets error bars, at all three sizes.} Nine paired
@@ -40,7 +40,7 @@ embedding differs by $+0.0004\%$, interval $[-0.025, +0.026]$, which contains
 zero.
 \end{sloppypar}
 
-\textbf{The 4B's three intervals rest on raw output, not on a summary.}
+\textbf{The 4B's three intervals rest on raw output, with no summary intervening.}
 The per-window lines are committed rather than cited by job identifier
 (\path{docs/mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt}), and three
 controls ran before they
@@ -57,9 +57,9 @@ therefore condition on the three files we produced. Both steps of the curve
 are barred. The
 8B-to-14B fall of the excess over FP16 is $-13.9\%$ with interval
 $[-22.8, -4.9]$, and the 4B-to-8B fall is $-42.8\%$ with interval
-$[-51.8, -33.5]$ --- the bar that the $-43\%$ quoted in this repository since
-2026-08-10 had gone without. Against the AWQ reference --- the one the product
-argument rests on --- the 8B-to-14B step reads $-1.58\%$ with interval
+$[-51.8, -33.5]$, the bar the previously circulated $-43\%$ figure
+lacked. Against the AWQ reference (the one the product
+argument rests on), the 8B-to-14B step reads $-1.58\%$ with interval
 $[-3.14, -0.004]$,
 $t = 2.2063$ against a threshold of 2.2010, and it clears zero by five
 thousandths, so it must not be described as a significant closing. \emph{Those
@@ -77,40 +77,39 @@ carried by \texttt{docs/data/ppl-appariee.csv}.
 question put to the MMLU gap above can now be put to this
 column, and here the three campaigns \emph{can} be paired across model sizes:
 the 12 windows are the same text at every size, which the common fingerprint
-guarantees, so the difference of differences is formed window by window rather
-than by composing two standard errors. Against FP16 the perplexity
+guarantees, so the difference of differences is formed window by window; no
+composition of standard errors is needed. Against FP16 the perplexity
 \emph{ratio} falls by a
 factor $\times0.8812$ $[0.8561, 0.9071]$ from 4B to 8B, all 12 windows
 agreeing in sign, and $\times0.9749$ $[0.9588, 0.9912]$ from 8B to 14B, 10 of
 12 agreeing. \emph{Those are the same two steps as the $-42.8\%$ and
-$-13.9\%$ of Table~\ref{tab:scale}, in the other parameterization}: 0.8812 is
-the ratio of two perplexity ratios, $-42.8\%$ the fall of the excess, and the
-warning two paragraphs above applies here too --- the test is run on the log
-ratio because that is what the per-window differences are linear in, which is
-what makes the pairing exact. The knee is the difference of those two log
+$-13.9\%$ of Table~\ref{tab:scale}, in the other parameterization}: 0.8812
+is the ratio of two perplexity ratios, $-42.8\%$ the fall of the excess.
+The test runs on the log ratio because the per-window differences are
+linear there, which is what makes the pairing exact. The knee is the difference of those two log
 ratios, and it is
 $-0.1010$ $[-0.1377, -0.0643]$, $t = -6.06$ on 11 degrees of freedom, 11 of 12
 windows agreeing: the first step lowers the excess strictly harder than the
 second, with the near edge of the interval nearly four standard errors from
 zero. Against the AWQ reference the same test still resolves but far less
-comfortably --- $-0.0576$ $[-0.1011, -0.0140]$, $t = -2.91$ --- and it must not
+comfortably ($-0.0576$ $[-0.1011, -0.0140]$, $t = -2.91$), and it must not
 be quoted with the confidence of the FP16 line. Data:
 \texttt{docs/data/ppl-genou.csv}.
 
 \textbf{Why the two metrics answer differently, and what neither buys.}
 They are two quantities, not two measurements of one. The likeliest
-explanation is power --- perplexity averages 49\,140 scored tokens and
+explanation is power: perplexity averages 49\,140 scored tokens and
 pairs its windows across sizes, MMLU rates 2\,280 questions with no
-cross-size pairing --- but two further differences are real: the columns do
+cross-size pairing. But two further differences are real: the columns do
 not measure the same faculty (2 bits damages reasoning far more than recall,
 \S\ref{sec:limitations}), and they do not compare the same arms (2-bit
-against FP16 versus against the 4-bit baseline; checkable, and not carrying
-the divergence alone, since against the AWQ reference the perplexity knee
+against FP16 versus against the 4-bit baseline; checkable, and insufficient on its
+own to carry the divergence, since against the AWQ reference the perplexity knee
 still resolves). \emph{Hence every statement about the knee in this paper
 names its metric.} What neither answer buys is the extrapolation: the
 perplexity knee conditions on three artifacts with one calibration draw
-each, and a resolved knee says the first step fell harder than the second,
-not where the curve flattens. We publish no scaling law from three models; a
+each, and a resolved knee establishes only that the first step fell harder
+than the second, leaving open where the curve flattens. We publish no scaling law from three models; a
 32B point is what would settle the shape.
 
 \begin{table}[t]
@@ -140,7 +139,7 @@ fine-tuning. Rows 1 and 3--6 are transcribed from its Table~6; rows 2 and 7
 are the FP16 and LLVQ arms of Tables~\ref{tab:campaign}
 and~\ref{tab:campaign8b}. \emph{Payload} is code rate only: 48 bits per
 24-weight block on every 2-bit row, per its Table~8. Each $\times$ is the
-ratio to its own harness's FP16 baseline, at two decimals --- the published
+ratio to its own harness's FP16 baseline, at two decimals: the published
 perplexities carry four significant figures, so a third decimal would be
 false precision. The original paper reports no MMLU for the 8B, and no
 error bars anywhere.}
@@ -153,14 +152,14 @@ matched rate: every 2-bit row spends 48 bits per 24-weight block, the
 configurations differing only in the index/gain split ($48{+}0$, $47{+}1$,
 $46{+}2$ in its Table~8); ours is the $47{+}1$ line its own distortion study
 ranks first, while its LLM results use the other two. What our sealed file
-adds on top of that payload --- full-precision tail columns and per-row
+adds on top of that payload (full-precision tail columns and per-row
 scales, about 8\% on the 4B, less on the 8B whose \texttt{down\_proj} is
-exactly block-aligned --- sits outside the comparison, since the original
+exactly block-aligned) sits outside the comparison, since the original
 paper never states its tail policy. The code rate can be compared, and it is
 equal.
 
 Absolute perplexities do not cross harnesses, so each $\times$ is the
-ratio to its own harness's FP16 baseline --- and the two baselines differ by
+ratio to its own harness's FP16 baseline; the two baselines differ by
 1.4\% on the 4B and agree on the 8B to the two decimals the original paper
 prints, which is what makes the column comparable. The verdict is the one
 \S\ref{sec:evaluation} summarizes: level at 4B with the nearest
@@ -174,5 +173,5 @@ across papers the question samples differ. What the matched payload does
 establish is that the 8B shortfall is not bought back by a rate advantage.
 We do not explain it; the natural suspect, roughly $100\times$ less
 calibration data, is bounded in \S\ref{sec:limitations} at an effect too
-small to be the whole story --- on perplexity, which does not constrain
-MMLU.
+small to be the whole story; the bound is on perplexity, which does not
+constrain MMLU.

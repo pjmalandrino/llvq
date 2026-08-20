@@ -20,16 +20,16 @@ files behind columns 3 and 4 of Table~\ref{tab:campaign}, the sealed
 1.77~GB file and the 1.41~GB one with the int8 embedding pre-baked. The 8B
 and 14B artifacts are not published but are reproducible at the costs
 recorded in \texttt{docs/\allowbreak data/\allowbreak jobs.csv}; what is
-committed for all three sizes is the evidence behind every paired statistic
---- the per-question MMLU dumps of all nine arms and the per-window
+committed for all three sizes is the evidence behind every paired
+statistic: the per-question MMLU dumps of all nine arms and the per-window
 log-likelihoods behind the nine perplexity intervals, raw and committed
 rather than aggregated and cited, since an aggregated log cannot be barred
 afterwards and vendor log retention is neither documented nor guaranteed.
 No third-party runtime reads the format; the only reader is the
 \texttt{llvq-artifact} crate in this repository. Serving additionally
 requires the rotation kernel of \S\ref{sec:limitations}, CUDA-only, with
-the servable \texttt{intermediate\_size} capped at 25\,344 coordinates
---- above the 14B, below the 32B.
+the servable \texttt{intermediate\_size} capped at 25\,344 coordinates:
+above the 14B, below the 32B.
 
 An artifact carries its own tokenizer and configuration, so on an NVIDIA GPU
 the served configuration of Table~\ref{tab:campaign} and the two evaluations
@@ -49,8 +49,9 @@ cargo run --release \
 }
 
 \noindent
-\texttt{LLVQ\_FUSED\_LAYOUT} selects the VRAM layout of \S\ref{sec:layouts}
---- all four measured points: \texttt{planes14} (the default),
+\texttt{LLVQ\_FUSED\_LAYOUT} selects the VRAM layout of
+\S\ref{sec:layouts}, all four measured points: \texttt{planes14} (the
+default),
 \texttt{planes12x}, \texttt{slot32}, and \texttt{golay70} (wired to be
 measurable, not served), any other value being refused rather than silently
 defaulted;

@@ -8,7 +8,7 @@ perplexity fingerprint \texttt{3f1baca9033bf251} (WikiText-2
 test~\citep{wikitext2016}, context 4096, 12 windows), MMLU
 fingerprint \texttt{65dcd53655e8bfa5} (2\,280 questions sampled 40 per
 subject from a fixed seed~\citep{mmlu2021}, micro-averaged, the original
-paper's convention --- macro-averaging inflates the quantized arm's
+paper's convention: macro-averaging inflates the quantized arm's
 deficit). The harness is validated by its FP16 arm: MMLU $70.32 \pm 1.28$
 on Qwen3-4B~\citep{qwen3_2025} against the original paper's 70.2 for the
 same model~\citep{llvq2026}. The quantized weights are the sealed artifact
@@ -33,9 +33,9 @@ MMLU micro (\%) & 70.32 $\pm$ 1.28 & 70.04 $\pm$ 1.25 & 55.59 $\pm$ 1.35 & 55.70
 \caption{The 4B campaign, single harness, matching token fingerprints
 across arms. $^{\dagger}$AWQ runs in its own engine: quality is directly
 comparable (same harness, same fingerprints), speed is not, and its VRAM
-figure is its own engine's accounting. The empty cell is not unmeasured,
-only incomparable: 200.49~tok/s in vLLM~0.26.0 against 83.09 for the same
-dense model in that same engine --- a vLLM tok/s does not divide against a
+figure is its own engine's accounting. The measurement behind the empty cell
+exists; it is merely incomparable: 200.49~tok/s in vLLM~0.26.0 against 83.09 for the same
+dense model in that same engine. A vLLM tok/s does not divide against a
 \texttt{candle} tok/s, so the comparable quantity is the within-stack ratio
 of \S\ref{sec:integration}. $^{\ddagger}$Column 4's quality is scored on
 the 1.41~GB file with the int8 embedding pre-baked; its speed and VRAM are
@@ -44,12 +44,12 @@ load, a path verified bit-identical against the pre-baked bytes.
 $^{\S}$Two provenances: 2.60~GB is the runner's host-side byte count,
 rounded (not a reading of the card); 5.162~b/param is recomputed from the
 exact bytes by a separate tool. Dividing the rounded figure yields 5.15,
-which is the rounding, not the measurement. Data:
+which is an artifact of the rounding. Data:
 \texttt{docs/data/campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
 
-\textbf{What the serving stack does and does not change.} Columns 3 and 4
+Columns 3 and 4 of Table~\ref{tab:campaign}
 serve the same quantized linears: the layout transcoding is proved a
 bijection of the decoded content on all 150{,}681{,}600 blocks, every row of
 every arm is verified against f64 before any timing (\S\ref{sec:decoder}),
@@ -57,11 +57,11 @@ and the two engines emit identical greedy tokens up to a tie-break. What the
 table shows directly is the cost of the int8 embedding, the one lossy change
 on the serving path: 16.9358 versus 16.9422 perplexity and $55.70$ versus
 $55.59$ MMLU, both within sampling noise. The $2.00\times$ throughput and
-$3.09\times$ VRAM reduction ride on content proved bit-identical plus an
+$3.09\times$ VRAM reduction rest on content proved bit-identical plus an
 embedding change measured to be free.
 
 \textbf{Memory accounting: two denominators, always labelled.} Model-level
-comparisons --- this section, the abstract's serving figures --- are in bits
+comparisons (this section, the abstract's serving figures) are in bits
 per parameter over the \emph{whole model, embedding included}: per-weight
 rates over the quantized linears alone overstate compression badly on small
 models (the 4B's embedding is 9.7\% of its parameters) and silently mix
@@ -69,8 +69,8 @@ denominators against other methods' figures. On this accounting the served
 footprint is 5.162~b/param
 (\texttt{docs/mesures/rtbits-planes-8b-2026-08-09.txt}), below the official
 AWQ 4-bit checkpoint's 5.302 in its own engine. \S\ref{sec:layouts}
-necessarily uses the other denominator --- what the kernel reads per
-quantized projection weight, the quantity a bandwidth argument is about ---
+necessarily uses the other denominator (what the kernel reads per
+quantized projection weight, the quantity a bandwidth argument is about),
 and there the same competitor reads \emph{less} than we do (4.18 against
 4.80). Both are true of different questions: what fits on the card, and what
 the matvec streams. They are never subtracted from one another.
@@ -84,10 +84,10 @@ AWQ arm makes the comparison sharp: at 4 bits on this model, quality is
 essentially free. Paired intervals are oriented FP16 \emph{minus} the
 quantized arm (positive = loss): $+0.27$, $[-1.63, +2.13]$, containing zero
 for the 4-bit arm, against $+14.73$, $[+11.98, +17.47]$ for the 2-bit arm,
-which does not --- subject-stratified paired bootstraps over the same
+which does not; these are subject-stratified paired bootstraps over the same
 2\,280 questions (\texttt{docs/mesures/mmlupair-4b-8b-2026-08-13.txt}). On a 4B, 4-bit
 dominates 2-bit on every axis except disk and served footprint (5.162
-against 5.302 b/param above --- a ${\sim}3\%$ margin that does not offset the
+against 5.302 b/param above, a ${\sim}3\%$ margin that does not offset the
 quality loss); \S\ref{sec:limitations} discusses where the 2-bit point can
 still win.
 
@@ -116,7 +116,7 @@ perplexity is identical to four decimal places. Data:
 \label{tab:campaign8b}
 \end{table}
 
-\textbf{The scale point: three models, and what the bars separate.}
+\textbf{The scale point: three models, and what the intervals separate.}
 Table~\ref{tab:campaign8b} is the paper's second model, requantized under the
 exact 4B configuration; a third, Qwen3-14B, was measured under the same one.
 Table~\ref{tab:scale} puts the three side by side.
@@ -126,13 +126,13 @@ The direction holds on both axes. Perplexity: $\times1.3845 \to
 then 10.57, then 6.85 points --- all three paired and all three resolved
 (sealed-artifact arms at every size; the served int8 arms lose 14.6 and 10.5
 at 4B and 8B, and the 14B has no served arm). On the point estimates the
-\emph{rate} does not hold. Read as excess over FP16 --- the quantity that must
-go to zero for the 2-bit thesis to close --- the fall is 42.8\% from 4B to 8B
+\emph{rate} does not hold. Read as excess over FP16 (the quantity that must
+go to zero for the 2-bit thesis to close), the fall is 42.8\% from 4B to 8B
 and 13.9\% from 8B to 14B, each with a paired 95\% interval,
 $[-51.8, -33.5]$ and $[-22.8, -4.9]$. Whether that slowdown is itself
-\emph{resolved} has two answers, one per metric --- the bars decline to
+\emph{resolved} has two answers, one per metric: the bars decline to
 separate it on the MMLU gap and separate it decisively on perplexity (below,
-and Appendix~\ref{app:scale}) --- and neither buys an extrapolation. We
+and Appendix~\ref{app:scale}); neither supports an extrapolation. We
 report the direction and refuse it.
 
 \textbf{The MMLU gap to 4 bits.} The sequence is 14.45, 7.49, 6.09 points,
@@ -153,8 +153,8 @@ and the steps can be differenced window by window, the slowdown resolves:
 the two steps differ by $-0.1010$ in log perplexity ratio,
 $[-0.1377, -0.0643]$, $t = -6.06$. On the MMLU gap, where no cross-size
 pairing exists and standard errors compose in quadrature, the first step
-separates from zero ($p = 0.0001$) and the second does not ($p = 0.40$) ---
-silence, not evidence of constancy, the likeliest reason being power
+separates from zero ($p = 0.0001$) and the second does not ($p = 0.40$):
+that step is uninformative, the likeliest reason being power
 (49\,140 paired tokens against 2\,280 unpaired questions). \emph{A claim
 about this curvature that does not name its metric is half wrong either
 way}; under both readings, no scaling law from three models.
@@ -165,8 +165,8 @@ calibration draw.
 
 \textbf{What one calibration draw is worth, measured.} That second component
 is no longer a caveat without a number. Three requantizations of the 4B
-differing only in the calibration draw --- same corpus, same configuration,
-same evaluation fingerprint --- give perplexities of 16.74, 15.88 and 15.10:
+differing only in the calibration draw (same corpus, same configuration,
+same evaluation fingerprint) give perplexities of 16.74, 15.88 and 15.10:
 a range of 10.3\% of the median, with every pairwise difference resolved
 window by window ($t = 4.5$, $10.9$, $7.7$). \emph{The choice of calibration
 windows is worth more than most of the effects this literature reports}, and
@@ -175,10 +175,10 @@ tokens, two orders of magnitude below the source paper's) is the value of one
 draw. What it does \emph{not} touch: comparisons at fixed artifact, which
 recalibrate nothing, and the three sizes of Table~\ref{tab:scale}, which
 share one deterministic window selection over the same text. What it does
-touch is any comparison that recalibrates --- including two of our own bounds
+touch is any comparison that recalibrates, including two of our own bounds
 on calibration volume, whose effects ($-1.6\%$ and $-1.2\%$) sit inside this
 range, so that they bound the mean without ever having separated from the
-noise. A plausible mechanism, not tested here: a small calibration set moves
+noise. A plausible mechanism, untested here: a small calibration set moves
 the mean little and carries variance
 (\texttt{docs/mesures/f5-graines-4b-2026-08-19.txt}).
 
@@ -187,8 +187,8 @@ only size where the answer is clean. In the FP16-minus-arm orientation used
 throughout, the 4-bit loss is $+3.07$ points at 8B with paired interval
 $[+1.61, +4.69]$, which excludes zero. At 4B the same comparison is
 unresolved ($+0.27$, $[-1.63, +2.13]$), and at 14B it is unresolved again
-($+0.76$, $[-0.65, +2.17]$): the sentence describes the 8B, not a monotone
-tendency. Two reservations. First, the 4B verdict depends on the
+($+0.76$, $[-0.65, +2.17]$): the verdict is specific to the 8B, with no
+monotone tendency implied. Two reservations. First, the 4B verdict depends on the
 accounting: the unweighted control gives $+1.97$, $[+0.92, +3.02]$,
 excluding zero, the disagreement carried by \texttt{professional law}
 alone (10.9\% of the stratified weight). Second, none of \emph{these} intervals tests a difference \emph{between}
@@ -203,11 +203,11 @@ included, is 5.162, 5.322 and 5.106 against the official AWQ checkpoints'
 tracks the share of the model the embedding occupies (9.7\% at 4B, whose
 heads are tied, 15.2\% at 8B, 10.5\% at 14B), a table AWQ leaves in FP16
 and we quantize to int8, so the 8B's peak embedding share makes it the peak
-margin. Three points, one mechanism, no law. At 14B the served path gives an
+margin. Three points, one mechanism. At 14B the served path gives an
 independent route to the same quantity (\S\ref{sec:integration}), the card
 figure's 5.0866~b/param landing $0.38\%$ from the 5.106 above, inside a
-band fixed before that run --- a cross-check, not a replacement, since it
-divides a rounded byte total. At 8B the choice between 4 and 2 bits is no
+band fixed before that run (a cross-check only, since it
+divides a rounded byte total). At 8B the choice between 4 and 2 bits is no
 longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
 disk. Data: \texttt{docs/\allowbreak data/\allowbreak echelle-4b-8b.csv} and
 \texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}; the journals
@@ -249,7 +249,7 @@ dumps in \texttt{docs/data/mmlu-dumps/}. Data:
 
 
 \textbf{Against the published 2-bit methods.} At exactly matched code
-rate --- 48 bits per 24-weight block on every 2-bit row --- our 4B arm sits
+rate (48 bits per 24-weight block on every 2-bit row), our 4B arm sits
 level with the original paper's nearest configurations ($\times1.38$
 against $\times1.37$ for QTIP and for its 0-gain-bit variant) and behind
 its 2-gain-bit line; at 8B we are behind both LLVQ variants and improve on
@@ -259,7 +259,7 @@ Table~\ref{tab:lit} in Appendix~\ref{app:scale} carries the comparison and
 its qualifications; none of the differences carries error bars, the original
 paper publishing none.
 
-\textbf{Cost of evidence.} Every cell above traces to a dated GPU job
+Every cell above traces to a dated GPU job
 with its billed cost (\texttt{docs/\allowbreak data/\allowbreak jobs.csv}): \$84.68 across 58
 jobs, dominated by the model builds (\$27.67 the 14B quantization, \$21.45
 the three-seed calibration study, \$12.61 the 8B) against \$2.33 for the
