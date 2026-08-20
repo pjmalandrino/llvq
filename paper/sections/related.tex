@@ -19,11 +19,9 @@ nearest-neighbor literature for Leech-based spherical codes goes back to
 
 A second family keeps a scalar grid and spends its bits on what the grid
 cannot hold. SpQR~\citep{spqr2023} and SqueezeLLM~\citep{squeezellm2024}
-isolate outlier weights into a sparse side-channel, which is the same
-structural move as the sparse overlay of \S\ref{sec:layouts} --- ours
-separates blocks whose level count exceeds what a 12-byte slot addresses,
-theirs separates weights whose magnitude a uniform grid would ruin --- and
-both pay for it in a second, irregular memory stream. Two further
+isolate outlier weights into a sparse side-channel --- the same
+structural move as the sparse overlay of \S\ref{sec:layouts}, paid for in
+the same coin, a second and irregular memory stream. Two further
 vector-quantized systems operate at our rate with released kernels and are
 the baselines a systems paper at 2 bits should eventually run:
 AQLM~\citep{aqlm2024}, which uses additive quantization, and
@@ -60,10 +58,8 @@ savings, and finds the knee near 4.3~b/weight for lattice codes.
 \textbf{Performance models.} The quantity that organizes
 \S\ref{sec:layouts} --- the fraction of its own byte bound each layout
 converts into time --- is a roofline argument~\citep{roofline2009} with two
-adaptations forced by the setting. First, the ceiling is measured rather than
-taken from a datasheet: a kernel that reads no weights at all supplies an
-empirical floor, where a nameplate bandwidth would have overstated it and, on
-this card, cannot be read without ECC assumptions we did not want to make.
+adaptations forced by the setting. First, the ceiling is measured rather than taken from a datasheet, by a
+kernel that reads no weights at all.
 Second, the same layouts sit on opposite sides of the ridge point on two
 cards. On an L40S every decoding arm is bandwidth-bound and the byte savings
 convert; on an A100, whose HBM raises the memory ceiling without raising the
@@ -79,7 +75,6 @@ engine, which is exactly why that number is reported as a within-stack ratio
 and never divided against ours. The output-head materialization of
 \S\ref{sec:integration} is a property of the \texttt{broadcast\_matmul}
 primitive, which we found unreported and have since reported
-upstream;\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
+upstream;\footnote{\ifanon{\candleissueurl}{Upstream issue URL withheld for double-anonymous review; it names its reporter.}}
 it is not a property of \texttt{candle}'s served models, which reach their
-heads through \texttt{Linear} and avoid the path. Similar
-transpose-materialization taxes are folklore in other engines.
+heads through \texttt{Linear} and avoid the path.

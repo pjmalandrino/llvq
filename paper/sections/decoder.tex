@@ -13,10 +13,9 @@ $\lceil\log_2 N\rceil = 47$ bits; one gain bit selects between two
 per-tensor magnitude centroids. The total is 48 bits per 24-weight
 block: exactly 2 bits per weight of payload.
 
-The 47 bits are close to tight. Measuring the empirical entropy of the index
-over the shipped model's $150$M blocks gives $46.6536$ bits per block against
-47 paid: a $0.74\%$ margin, or $0.015$ bits per weight. Entropy-coding the
-index rank is therefore closed by the structure of the format itself.
+The 47 bits are close to tight: the empirical index entropy over the
+shipped model's $150$M blocks is $46.6536$ bits per block against 47 paid, a
+$0.74\%$ margin that closes entropy-coding the rank.
 
 In the integer coordinate system $\sqrt{8}\,\Lambda_{24}\subset\mathbb{Z}^{24}$,
 lattice points are characterized by three simultaneous conditions tied to the
@@ -54,14 +53,11 @@ is identical for every lane regardless of class, hence zero warp
 divergence.
 The per-class table is small: 512 records of 24 bytes---five level values
 and a level count---so 12~KB, sized at 512 rather than at the class count so
-that a 9-bit class field cannot index out of bounds. It is passed as an
-ordinary \texttt{const}-qualified global pointer and read through L1, not
-placed in CUDA constant memory: constant memory is optimized for broadcast
-and serializes distinct addresses issued by one warp, and here the 32 lanes of a warp hold 32
-different classes by construction, which is the worst case for that bank.
-The instrumented attribution of \S\ref{sec:attribution} bears the choice
-out: the table gather costs 0.041~ms, 2\% of the kernel's gap to its DRAM
-floor and the smallest term measured. Because every point of a given shell
+that a 9-bit class field cannot index out of bounds. It is read through
+L1 as an ordinary \texttt{const}-qualified global pointer, not placed in
+CUDA constant memory, which serializes the 32 distinct addresses a warp
+issues here by construction; the attribution of \S\ref{sec:attribution}
+bears the choice out (0.041~ms, the smallest term measured). Because every point of a given shell
 has the same norm, the normalization factor between the lattice integer
 coordinates and the unit direction is a per-class constant folded into the
 stored level values themselves; the union-of-shells rescaling that the
@@ -87,14 +83,11 @@ either a weak test or dead code; both stop the line.
 benchmark first checks every output row of every arm against an independent
 f64 reference ($1\,105\,920$ rows for the full-model benchmark), against a
 threshold of $10^{-5}\cdot\sum|w\cdot x|$. Our six arms come in at
-$2.2$--$3.4\times10^{-8}$, consistent with f32 accumulation. The 4-bit
-competitor is held to its own, looser threshold of $10^{-3}$ and lands at
-$5.8\times10^{-5}$: its kernel stores a binary16 output where ours store
-f32, so $2^{-11}$ of relative error is structural and demanding $10^{-5}$
-of it would fail a correct kernel. Its \emph{reference} is exact --- we
-know its quantized value, scale and zero, so we know the weight it will
-reconstruct, bit for bit. No arm is timed until it is proven to compute the
-right thing.
+$2.2$--$3.4\times10^{-8}$, consistent with f32 accumulation; the 4-bit
+competitor stores a binary16 output, so it is held to a matching $10^{-3}$
+threshold ($5.8\times10^{-5}$ measured) against a reference that is still
+exact bit for bit. No arm is timed until proven to compute the right
+thing.
 
 \item \textbf{Invariant locks upstream.} The lattice code itself is pinned
 by exact combinatorial invariants: the kissing number $196\,560$, the

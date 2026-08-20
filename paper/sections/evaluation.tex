@@ -8,11 +8,10 @@ perplexity fingerprint \texttt{3f1baca9033bf251} (WikiText-2
 test~\citep{wikitext2016}, context 4096, 12 windows), MMLU
 fingerprint \texttt{65dcd53655e8bfa5} (2\,280 questions sampled 40 per
 subject from a fixed seed~\citep{mmlu2021}, micro-averaged, the original
-paper's convention; macro-averaging inflates the quantized arm's deficit
-and is not reported here). The harness is validated by its FP16 arm: MMLU
-$70.32 \pm 1.28$ on Qwen3-4B~\citep{qwen3_2025} against the 70.2 that the
-original paper's Table~6 reports for the same
-model~\citep{llvq2026}. The quantized weights are the sealed artifact
+paper's convention --- macro-averaging inflates the quantized arm's
+deficit). The harness is validated by its FP16 arm: MMLU $70.32 \pm 1.28$
+on Qwen3-4B~\citep{qwen3_2025} against the original paper's 70.2 for the
+same model~\citep{llvq2026}. The quantized weights are the sealed artifact
 (47-bit indices $+$ 1 gain bit, produced by Spherical GPTQ with input
 rotation and 131k tokens of C4~\citep{c4corpus} calibration), and the evaluation scores
 files, not in-memory reconstructions.
@@ -51,17 +50,15 @@ which is the rounding, not the measurement. Data:
 \end{table}
 
 \textbf{What the serving stack does and does not change.} Columns 3 and 4
-serve the same quantized linears. The layout transcoding is proved a
-bijection of the decoded content on all 150{,}681{,}600 blocks of the
-artifact, every row of every arm is verified against an f64 reference
-before any timing (\S\ref{sec:decoder}), and the fused and dense engines
-emit identical greedy tokens up to a tie-break-level divergence. The
-quality scores themselves run through the dense evaluation path; what the
-table shows directly is the cost of the int8 embedding, the one lossy
-change on the serving path: 16.9358 versus 16.9422 perplexity and $55.70$
-versus $55.59$ MMLU, both within sampling noise. The $2.00\times$
-throughput and $3.09\times$ VRAM reduction ride on content proved
-bit-identical plus an embedding change measured to be free.
+serve the same quantized linears: the layout transcoding is proved a
+bijection of the decoded content on all 150{,}681{,}600 blocks, every row of
+every arm is verified against f64 before any timing (\S\ref{sec:decoder}),
+and the two engines emit identical greedy tokens up to a tie-break. What the
+table shows directly is the cost of the int8 embedding, the one lossy change
+on the serving path: 16.9358 versus 16.9422 perplexity and $55.70$ versus
+$55.59$ MMLU, both within sampling noise. The $2.00\times$ throughput and
+$3.09\times$ VRAM reduction ride on content proved bit-identical plus an
+embedding change measured to be free.
 
 \textbf{Memory accounting: two denominators, always labelled.} Model-level
 comparisons --- this section, the abstract's serving figures --- are in bits
@@ -84,13 +81,11 @@ perplexity and $-14.6$ points of MMLU on the \emph{served} int8 arm; on the
 paired statistic in this paper uses, since it is the one whose per-question
 dumps exist. The two differ by less than the sampling error of either. The
 AWQ arm makes the comparison sharp: at 4 bits on this model, quality is
-essentially free --- $\times1.105$ perplexity and 0.27 MMLU points below
-FP16. Every paired interval in this paper is oriented FP16 \emph{minus} the
-quantized arm, so a positive number is a loss for that arm: $+0.27$ with a
-95\% interval $[-1.63, +2.13]$, which contains zero, against $+14.73$ with
-$[+11.98, +17.47]$ for the 2-bit arm, which does not. Both intervals are
-subject-stratified paired bootstraps over the same 2\,280 questions
-(\texttt{docs/mesures/mmlupair-4b-8b-2026-08-13.txt}). On a 4B, 4-bit
+essentially free. Paired intervals are oriented FP16 \emph{minus} the
+quantized arm (positive = loss): $+0.27$, $[-1.63, +2.13]$, containing zero
+for the 4-bit arm, against $+14.73$, $[+11.98, +17.47]$ for the 2-bit arm,
+which does not --- subject-stratified paired bootstraps over the same
+2\,280 questions (\texttt{docs/mesures/mmlupair-4b-8b-2026-08-13.txt}). On a 4B, 4-bit
 dominates 2-bit on every axis except disk and served footprint (5.162
 against 5.302 b/param above --- a ${\sim}3\%$ margin that does not offset the
 quality loss); \S\ref{sec:limitations} discusses where the 2-bit point can
@@ -110,17 +105,13 @@ ppl (WikiText-2) & 8.9899 & 9.4211 ($\times$1.048) & 10.9682 ($\times$1.220) \\
 MMLU micro (\%) & 76.08 $\pm$ 1.21 & 73.01 $\pm$ 1.26 & 65.63 $\pm$ 1.31 \\
 \bottomrule
 \end{tabular}
-\caption{The 8B campaign, same harness, same fingerprints, same codebook
-and calibration configuration as the 4B, so that model size is the only
-variable. $^{\dagger}$Same caveats as Table~\ref{tab:campaign}, with one
-exception: the vLLM timing recorded there is the 4B's only. The 8B AWQ
-checkpoint has no revision pinned in our tooling, the runner refuses an
-unpinned one, and it was not run --- so this cell is empty for the older
-reason, that no throughput for that arm exists at all. The AWQ
-VRAM figure is validated against the size of the official checkpoint
-(6.099~GB). Qwen3-8B unties its embedding from its output head, so the
-serving path quantizes both tables to int8 (two device buffers); perplexity
-is identical to four decimal places. Data:
+\caption{The 8B campaign, same harness, fingerprints, codebook and
+calibration as the 4B, so that model size is the only variable.
+$^{\dagger}$Same caveats as Table~\ref{tab:campaign}, except that no vLLM
+timing exists for this arm at all: the 8B AWQ checkpoint has no revision
+pinned and the runner refuses an unpinned one. Qwen3-8B unties its embedding
+from its output head, so the serving path quantizes both tables to int8;
+perplexity is identical to four decimal places. Data:
 \texttt{docs/data/tableau-8b.csv}.}
 \label{tab:campaign8b}
 \end{table}
@@ -196,13 +187,11 @@ only size where the answer is clean. In the FP16-minus-arm orientation used
 throughout, the 4-bit loss is $+3.07$ points at 8B with paired interval
 $[+1.61, +4.69]$, which excludes zero. At 4B the same comparison is
 unresolved ($+0.27$, $[-1.63, +2.13]$), and at 14B it is unresolved again
-($+0.76$, $[-0.65, +2.17]$). So the sentence describes the 8B, not a
-monotone tendency: the sequence resolved/unresolved is not ordered by scale.
-Two further reservations. First, the 4B verdict depends on the accounting:
-the unweighted control over the same questions gives $+1.97$,
-$[+0.92, +3.02]$, which \emph{does} exclude zero, and the disagreement is
-carried by \texttt{professional law}, one subject with 10.9\% of the
-stratified weight. Second, none of \emph{these} intervals tests a difference \emph{between}
+($+0.76$, $[-0.65, +2.17]$): the sentence describes the 8B, not a monotone
+tendency. Two reservations. First, the 4B verdict depends on the
+accounting: the unweighted control gives $+1.97$, $[+0.92, +3.02]$,
+excluding zero, the disagreement carried by \texttt{professional law}
+alone (10.9\% of the stratified weight). Second, none of \emph{these} intervals tests a difference \emph{between}
 scales: the bootstrap pairs arms, not sizes, and the cross-size test is the
 weaker quadrature construction above, which resolves one step and not the
 other.
@@ -220,11 +209,9 @@ figure's 5.0866~b/param landing $0.38\%$ from the 5.106 above, inside a
 band fixed before that run --- a cross-check, not a replacement, since it
 divides a rounded byte total. At 8B the choice between 4 and 2 bits is no
 longer one-sided; it is 7.5 MMLU points against 11\% of VRAM and half the
-disk. Data: \texttt{docs/data/echelle-4b-8b.csv},
-\texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}; journals
-\texttt{docs/\allowbreak mesures/\allowbreak mmlupair-4b-8b-2026-08-13.txt},
-\texttt{mmlupair-14b-2026-08-17.txt} and
-\texttt{rtbits-14b-2026-08-17.txt}.
+disk. Data: \texttt{docs/\allowbreak data/\allowbreak echelle-4b-8b.csv} and
+\texttt{docs/\allowbreak data/\allowbreak mmlu-appariee.csv}; the journals
+are beside them in \texttt{docs/\allowbreak mesures/}.
 
 \begin{table}[t]
 \centering
@@ -273,7 +260,7 @@ its qualifications; none of the differences carries error bars, the original
 paper publishing none.
 
 \textbf{Cost of evidence.} Every cell above traces to a dated GPU job
-with its billed cost (\texttt{docs/data/jobs.csv}): \$84.68 across 58
+with its billed cost (\texttt{docs/\allowbreak data/\allowbreak jobs.csv}): \$84.68 across 58
 jobs, dominated by the model builds (\$27.67 the 14B quantization, \$21.45
 the three-seed calibration study, \$12.61 the 8B) against \$2.33 for the
 whole kernel campaign of \S\ref{sec:layouts}. \emph{Producing the objects

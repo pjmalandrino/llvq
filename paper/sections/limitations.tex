@@ -19,13 +19,11 @@ ablation); a free-magnitude variant with a closed-form scale solve
 pre-registered gate); and calibration volume --- we calibrate on
 ${\sim}131$k tokens, roughly $100\times$ less than the original paper, but
 a deliberate-contamination oracle (calibrating on the evaluation text
-itself, an upper bound on anything volume, corpus or sequence length can
-buy) recovers $1.6\%$ of perplexity on a proxy, closing 29\% of that
-proxy's quantization gap, and a $\times13$ volume curve recovers $1.2\%$.
-That bound is weaker than it looks --- measured on perplexity, at 3 blocks,
-on a 0.6B proxy, and a perplexity oracle does not bound MMLU at all --- but
-a $\times100$ calibration run is unlikely to be the answer, and we did not
-commission it. What remains untested: reasoning-weighted calibration
+itself, the upper bound on anything volume or corpus can buy) recovers only
+$1.6\%$ of perplexity on a proxy, and a $\times13$ volume curve $1.2\%$
+--- a bound weaker than it looks (perplexity, 3 blocks, a 0.6B proxy; it
+does not bound MMLU), but enough that we did not commission a $\times100$
+run. What remains untested: reasoning-weighted calibration
 composition, learned per-column scales (worth about two MMLU points under
 the original paper's fine-tuning protocol), and low-rank compensation
 adapters.
@@ -102,7 +100,8 @@ block's shared memory, one f32 per coordinate whatever the input dtype. The
 binding width is \texttt{intermediate\_size}, the input of
 \texttt{down\_proj}, and the ceiling is arithmetic, not empirical:
 
-\begin{center}\small
+\begin{center}\footnotesize
+\setlength{\tabcolsep}{4pt}%
 \begin{tabular}{lrrll}
 \toprule
 Model & \texttt{intermediate\_size} & shared bytes & vs.\ 49\,152 default & vs.\ 101\,376 opt-in \\

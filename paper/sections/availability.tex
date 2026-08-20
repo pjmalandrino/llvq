@@ -5,10 +5,8 @@ The implementation, the CSV files behind every table and figure in this
 paper, and the source of the paper itself are at
 \ifanon{\url{https://github.com/pjmalandrino/llvq}}{a public repository whose
 URL is withheld for double-anonymous review}, dual-licensed MIT or
-Apache-2.0. The numbers reported here are those of the repository revision
-this build was made from; frozen states are tagged together with their
-numbers (\texttt{paper-v2}, 2026-08-17, is the latest such tag, and the
-submitted revision will carry its own), and \texttt{make} in \texttt{paper/}
+Apache-2.0. Frozen states are tagged together with their numbers (the submitted
+revision will carry its own tag), and \texttt{make} in \texttt{paper/}
 refuses to build if a table has drifted from the CSV it is transcribed
 from.
 The lattice core, the exact nearest-neighbor search and the artifact format
@@ -17,29 +15,21 @@ are dependency-free Rust and can be read end to end; \texttt{candle} and
 
 The quantized Qwen3-4B artifact is published at
 \ifanon{\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit}}{a public
-model repository whose URL is withheld for double-anonymous review}, as both files
-behind columns 3 and 4 of Table~\ref{tab:campaign}: the sealed 1.77~GB
-\texttt{qwen3-4b-llvq.bin} and the 1.41~GB \texttt{q4b-e8.llvq} with the
-int8 embedding pre-baked. \emph{Neither the Qwen3-8B nor the Qwen3-14B
-artifact is published}; both are reproducible from the repository at the
-costs recorded in \texttt{docs/data/jobs.csv} (\$12.61 and \$27.67 of GPU
-time). What \emph{is} committed for all three sizes is the evidence behind
-every paired statistic: the per-question MMLU dumps of all nine arms in
-\texttt{docs/data/mmlu-dumps/}, and the per-window log-likelihoods behind the
-nine perplexity intervals, as raw output rather than as a job identifier
-(\texttt{docs/\allowbreak mesures/\allowbreak
-a4-campagne-4b-ppl-BRUT-2026-08-06.txt} and the campaign journals beside
-it). Raw rather than aggregate, and committed rather than cited, for the same
-reason in both cases: an aggregated log cannot be barred afterwards at any
-price short of rerunning the arms, and job-log retention at our compute
-vendor is neither documented nor guaranteed.
-The format is neither
-GGUF nor AWQ nor safetensors: no third-party runtime reads it, and the only
-reader that exists is the \texttt{llvq-artifact} crate in this repository.
-Serving additionally requires the rotation kernel of
-\S\ref{sec:limitations}, which is CUDA-only and, on this hardware, caps the
-servable \texttt{intermediate\_size} at 25\,344 coordinates --- above the 14B,
-below the 32B.
+model repository whose URL is withheld for double-anonymous review}: both
+files behind columns 3 and 4 of Table~\ref{tab:campaign}, the sealed
+1.77~GB file and the 1.41~GB one with the int8 embedding pre-baked. The 8B
+and 14B artifacts are not published but are reproducible at the costs
+recorded in \texttt{docs/\allowbreak data/\allowbreak jobs.csv}; what is
+committed for all three sizes is the evidence behind every paired statistic
+--- the per-question MMLU dumps of all nine arms and the per-window
+log-likelihoods behind the nine perplexity intervals, raw and committed
+rather than aggregated and cited, since an aggregated log cannot be barred
+afterwards and vendor log retention is neither documented nor guaranteed.
+No third-party runtime reads the format; the only reader is the
+\texttt{llvq-artifact} crate in this repository. Serving additionally
+requires the rotation kernel of \S\ref{sec:limitations}, CUDA-only, with
+the servable \texttt{intermediate\_size} capped at 25\,344 coordinates
+--- above the 14B, below the 32B.
 
 An artifact carries its own tokenizer and configuration, so on an NVIDIA GPU
 the served configuration of Table~\ref{tab:campaign} and the two evaluations
@@ -66,9 +56,7 @@ measurable, not served), any other value being refused rather than silently
 defaulted;
 \texttt{LLVQ\_EMBED} selects the embedding precision (\texttt{f16}, the
 default, or \texttt{q8}); \texttt{LLVQ\_DTYPE} pins the evaluation dtype,
-which has to be set because \texttt{ppl} defaults to f32 and \texttt{mmlu}
-to f16, so the two compare different objects unless it is. Each binary
-prints its resolved configuration, and the two evaluations print a
-fingerprint of the scored token stream: numbers from different runs are
-comparable only when those fingerprints match, which is the discipline every
-table in this paper is held to.
+because \texttt{ppl} defaults to f32 and \texttt{mmlu} to f16. Each binary
+prints its resolved configuration and a fingerprint of the scored token
+stream; numbers are comparable only when fingerprints match, the discipline
+every table in this paper is held to.

@@ -58,11 +58,9 @@ per-round ratios with ranges. \emph{Of bound} is the arm's achieved
 bandwidth as a fraction of the 661~GB/s the FP16 control reaches on these
 same shapes --- the comparable quantity, since a ratio against FP16
 mechanically rewards whoever reads least. \emph{That control is our own
-FP16 matvec, so we checked what it is worth}: cuBLAS on the same weights,
-the same activation and the same rounds runs 1.5--2.4\% faster
-($r = 1.015$ and $1.024$ in two phases of one job), which leaves every ratio
-in this table standing and is why we report them against our control rather
-than re-anchoring on a library call. Kernel accounting; whole-model
+FP16 matvec, and we checked it}: cuBLAS on the same weights and rounds runs
+1.5--2.4\% faster, which leaves every ratio standing; we report against our
+control rather than re-anchoring on a library call. Kernel accounting; whole-model
 bits per parameter appear in \S\ref{sec:evaluation} and are a different
 denominator.}
 \label{tab:layouts}
@@ -144,14 +142,13 @@ Halving the per-slot decode returned 1.99~ms of the 5.74~ms by which the
 layout missed its DRAM floor: the diagnosis was right, the bar still missed.
 
 It also shows where the rest of the time is. Each arm sits above its own
-floor (bytes over the control's 661~GB/s) by 1.82~ms for \textsc{Planes14},
-2.52 for \textsc{Planes12x} and 3.75 for the hoisted \textsc{Golay70}.
-\textsc{Planes14} has no correction pass, so the excess over \emph{its} gap
-is 0.70~ms at a 3.4\% exception rate and 1.93~ms at 7.4\%: the residual grows
-with the correction pass, faster than in proportion to it. That pass lies
-outside the per-slot path this repair attacked, and neither it nor the
-per-block cost of the 9-byte stride has been touched. The design space is not
-empty; the layout missed a pre-registered bar twice.
+floor (bytes over the control's 661~GB/s) by 1.82, 2.52 and 3.75~ms for
+\textsc{Planes14}, \textsc{Planes12x} and the hoisted \textsc{Golay70};
+the excess over \textsc{Planes14}'s gap is 0.70~ms at a 3.4\% exception
+rate and 1.93 at 7.4\%, growing faster than in proportion to the correction
+pass --- which lies outside the per-slot path this repair attacked and has
+not been touched, nor has the per-block cost of the 9-byte stride. The
+design space is not empty; the layout missed a pre-registered bar twice.
 
 The bar had moved between the attempts, for a reason: once a deployed
 4-bit kernel proved faster and smaller than our production layout (below), a
@@ -294,8 +291,7 @@ AWQ w4g128 (competitor) & 583 & 3.37$\times$ &  501 & 1.82$\times$ & 4.179 \\
 \caption{The same arms on two memory hierarchies, same binary, same
 artifact, same protocol. \emph{The two \textsc{vs.\ FP16} columns are not
 comparable to each other and are never divided}: each is formed round by
-round against its own card's control. What transfers between them is the
-\emph{ordering} and the sign of each entry, which is what the text reads.
+round against its own card's control. What transfers is the \emph{ordering}, which is what the text reads.
 Data: \texttt{docs/data/echelle-formats.csv} and
 \texttt{docs/\allowbreak data/\allowbreak echelle-formats-a100.csv};
 journal \texttt{docs/mesures/f4-a100-2026-08-18.txt}.

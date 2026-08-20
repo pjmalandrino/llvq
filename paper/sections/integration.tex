@@ -8,15 +8,14 @@ attributes where the time actually goes.
 
 \textbf{Setup.} The serving stack is \texttt{candle}~0.9.2
 \citep{candle2023}, a widely used Rust inference engine, with our fused
-kernel replacing the 252 linear projections. Weights are stored in the
-incoherence-rotated basis required by the quantizer, so activations pass
-through a dedicated rotation kernel (verified bit-exact on device) before
-each projection. The embedding table (9.7\% of the model, untouched by
-the 2-bit format) is stored int8 with per-group scales and offsets
-(groups of 64), a change measured to be free on both evaluation metrics. Correctness gate: the
-fused and dense engines emit identical greedy tokens until a
-tie-break-level divergence (token 89), on top of the row-level f64
-verification of \S\ref{sec:decoder}.
+kernel replacing the 252 linear projections; activations pass through a
+dedicated rotation kernel (verified bit-exact on device) before each
+projection, since the weights live in the incoherence-rotated basis. The
+embedding table (9.7\% of the model, untouched by the 2-bit format) is
+stored int8 with per-group scales, a change measured to be free on both
+evaluation metrics. Correctness gate: identical greedy tokens across the
+two engines until a tie-break-level divergence (token 89), on top of the
+row-level f64 verification of \S\ref{sec:decoder}.
 
 \begin{table}[t]
 \centering
@@ -38,17 +37,6 @@ blocks. Data: \texttt{docs/data/phases.csv}.}
 \label{tab:phases}
 \end{table}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=0.85\linewidth]{fig2_phase_attribution.pdf}
-\caption{Where a token's time goes. The fused kernel wins its phase
-(13.3 to 10.4~ms across the transformer blocks); the decode loop is
-dominated by the output-head pathology of the dense reference arm --- a
-778~MB transposed copy of the vocabulary projection, materialized every
-token. Our q8 head reads 413~MB in place.}
-\label{fig:phases}
-\end{figure}
-
 \textbf{The finding.} Table~\ref{tab:phases} shows our dense reference arm
 spending 26.7~ms per token in the output head, twice the cost of all 36
 transformer blocks. The cause is a tensor primitive: the head applies
@@ -63,14 +51,14 @@ vocabulary projection: on the 8B (hidden size 4096, untied head) it is
 there (34.1 to 68.2~tok/s).
 
 \textbf{Whose defect this is.} It is a trap in the primitive, not a defect
-of \texttt{candle}'s models: \texttt{candle\_nn::Linear::forward} folds the
+of \texttt{candle}'s models: \texttt{candle\_nn::\allowbreak Linear::forward} folds the
 leading dimensions of its input into the row dimension precisely to avoid
 the broadcast path, so models built on \texttt{Linear}, including
 \texttt{candle\_transformers}' own, never pay this copy. Our head calls the
 primitive directly, so our dense baseline pays it where a stock deployment
 would not --- hence the headline below is measured with the \emph{same}
 head on both arms. Reported upstream with a reproducer and a
-patch.\footnote{\url{https://github.com/huggingface/candle/issues/3871}}
+patch.\footnote{\ifanon{\candleissueurl}{Upstream issue URL withheld for double-anonymous review; it names its reporter.}}
 
 \textbf{The double formulation.} End-to-end, the fused engine reaches
 87.0~tok/s against the dense engine's 43.5, a factor of $2.00\times$. Most

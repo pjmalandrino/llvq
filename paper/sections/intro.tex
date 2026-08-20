@@ -41,13 +41,11 @@ first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
 bits per weight at bit-exact decoded content while \emph{increasing}
-throughput, and one dead end (3.59 bits per weight, compute-bound) that maps
-the floor and survives a second attack on its own diagnosed cause. We
-attribute what the kernel is actually waiting on with an instrumented job
-rather than an assertion, and we place a deployed 4-bit kernel on the same
-axis in the same process: it converts 88\% of its byte advantage into time
-where our best layout converts 65\%, which locates the remaining work in
-the decode rather than the format.
+throughput, and one dead end (3.59, compute-bound) that maps the floor. We
+attribute what the kernel actually waits on with an instrumented job, and
+place a deployed 4-bit kernel on the same axis in the same process: it
+converts 88\% of its byte advantage into time against our 65\%, locating
+the remaining work in the decode rather than the format.
 
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and

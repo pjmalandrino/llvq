@@ -1,12 +1,14 @@
 % Fused multi-shell Leech decoder — ACM TACO submission.
 % Build: make (generates figures from ../docs/data/*.csv, then latexmk).
 %
-% Class: acmart in `manuscript` — the format ACM's own journal-submission
-% sample prescribes for review ("For submission and review of your manuscript
-% please change the command to \documentclass[manuscript, screen, review]",
-% sample-acmsmall-submission.tex). `acmsmall` is the *published* format and is
-% what the camera-ready will use. The previous revision was `article` at 11pt,
-% an arXiv-style preprint; the conversion landed 2026-08-19 (item B4 of
+% Class: acmart in `acmsmall`. TACO's own author guidelines set the page
+% limit "using the 7x10 ACM Submission Format" — the 6.75in x 10in geometry
+% of `acmsmall` — so the submission is built and counted in that format
+% (switched from `manuscript` 2026-08-20; ACM's generic sample prescribes
+% `manuscript`, but the journal's stated limit is the binding rule). The
+% limit is 20 pages of text and figures, references excluded, appendix
+% INCLUDED. The previous revision was `article` at 11pt, an arXiv-style
+% preprint; the acmart conversion landed 2026-08-19 (item B4 of
 % docs/plan-taco-2026-08-18.md) and changed no number.
 %
 % 🚨 `anonymous=true`: TACO reviews double-anonymously and states that a paper
@@ -23,7 +25,7 @@
 % including this one. The mode is verified in the OUTPUT — acmart numbers
 % lines itself rather than loading `lineno`, so `pdftotext main.pdf` showing
 % the numbers is the check that means something.
-\documentclass[manuscript,review=true,screen=true,anonymous=true]{acmart}
+\documentclass[acmsmall,review=true,screen=true,anonymous=true]{acmart}
 
 % acmart loads its own fonts (libertine + newtxmath), microtype, graphicx,
 % booktabs, hyperref, xcolor, amsmath and natbib. Loading any of them again
@@ -47,6 +49,9 @@
 \makeatletter
 \newcommand{\ifanon}[2]{\if@ACM@anonymous#2\else#1\fi}
 \makeatother
+% \url loses its breakpoints when tokenized inside another macro's argument
+% (footnote + \ifanon); \urldef freezes it here with catcodes intact.
+\urldef\candleissueurl\url{https://github.com/huggingface/candle/issues/3871}
 
 % ---------------------------------------------------------------------------
 % Journal identification. The volume/number/article fields are placeholders
@@ -67,6 +72,7 @@
 
 \title{Decoding the Leech Lattice at Matvec Speed}
 \subtitle{Fused Kernels and VRAM Layouts for 2-Bit LLM Inference}
+
 
 \author{Pier-Jean Malandrino}
 \affiliation{%
@@ -136,6 +142,13 @@ size --- $1.11\times$, $1.29\times$, $1.41\times$ at 4B, 8B and 14B.
 GPU kernels, memory layout, GEMV, large language models, roofline}
 
 \maketitle
+% TACO requires this exact label in a first-page footnote for original work.
+% \titlenote is suppressed by anonymous=true (its text lives in the author
+% block), so it is set as an unmarked footnote instead.
+\begingroup
+\renewcommand\thefootnote{}%
+\footnotetext{New Paper, Not an Extension of a Conference Paper.}%
+\endgroup
 
 \input{sections/intro}
 \input{sections/decoder}
