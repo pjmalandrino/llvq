@@ -1101,7 +1101,21 @@ mod linux {
                 r.name, r.num_regs, r.local_bytes, r.binary_version
             );
             if r.local_bytes != 0 {
-                return Err(format!("{name} : {} octets de spill", r.local_bytes));
+                // 🚨 Un spill dans NOTRE noyau arrête tout : il signifie qu'un
+                // choix de conception est faux et que le chiffre mesurerait
+                // autre chose. Dans le noyau d'un CONCURRENT porté tel que
+                // livré, c'est un FAIT à rapporter, pas un défaut à corriger —
+                // leur réglage à notre occupation. Refuser de mesurer serait
+                // choisir de ne pas savoir.
+                if qtip_names.iter().any(|q| q == name) {
+                    println!(
+                        "  ⚠️ {name} SPILLE {} o — bras concurrent porté tel que livré, \
+                         mesuré quand même et déclaré (préreg F2 §7 A1)",
+                        r.local_bytes
+                    );
+                } else {
+                    return Err(format!("{name} : {} octets de spill", r.local_bytes));
+                }
             }
         }
 
@@ -1681,7 +1695,18 @@ mod linux {
                             s.name
                         )
                     })?;
-                    let seed = 0xF2_0000_0000u64 ^ ((d_out as u64) << 20) ^ d_in as u64;
+                    // 🚨 Dérivée du NOM de la matrice, pas de sa seule forme.
+                    // Une graine par forme donnait 5 payloads distincts
+                    // répliqués 36 fois : les 252 matrices auraient produit
+                    // 21 504 lignes réellement distinctes au lieu des
+                    // 1 105 920 que la vérification prétend couvrir, et 36
+                    // répliques d'un même contenu ne testent qu'une fois.
+                    // Le nom reste déterministe d'un run à l'autre, donc un
+                    // run de contrôle restitue le même objet.
+                    let mut seed = 0xF2_0000_0000u64 ^ ((d_out as u64) << 20) ^ d_in as u64;
+                    for b in s.name.as_bytes() {
+                        seed = seed.rotate_left(7) ^ u64::from(*b);
+                    }
                     let buf = qh::pseudo_random_buffer(d_out, d_in, seed);
                     let tlut = qh::pseudo_random_tlut(seed ^ 0x5EED);
                     let xf = xh_f64.as_ref().expect("activation binary16 en f64 non construite");
@@ -1994,19 +2019,41 @@ mod linux {
                     m.d_in as u32, m.d_out as u32,
                 )
             };
-        // QTIP resolves ONE function per shape, and the lookup must ask for
-        // the 64 KiB dynamic shared memory the codebook needs — `func`, which
-        // every other arm uses, would return a function that fails at launch.
+        // QTIP resolves ONE function per shape — the kernel is templated on M
+        // and K — and each lookup must ask for the 64 KiB of dynamic shared
+        // memory the codebook needs: `func`, which every other arm uses, would
+        // return a function that fails at launch.
+        //
+        // 🚨 Resolved ONCE, here, and not inside the closure. A first draft
+        // called `func_dynamic_shared` per matrix, hence 252 times **inside
+        // the timed loop**, where every other arm resolves its function once
+        // outside it (`f_planes`, `f_golay70`, `f_f16`…). That is a module
+        // lookup plus a device query per dispatch, charged to this arm and to
+        // no other — a handicap on the competitor, in the direction that
+        // flatters us. Found by an adversarial review of the wiring, before a
+        // single job.
+        let qtip_funcs: Vec<(String, cudarc::driver::CudaFunction)> = match union.has(arms::QTIP) {
+            false => Vec::new(),
+            true => llvq_cuda::qtip_host::QTIP_SHAPES
+                .iter()
+                .filter_map(|&(d_out, d_in)| llvq_cuda::qtip_host::kernel_name(d_out, d_in))
+                .map(|n| {
+                    cuda.func_dynamic_shared(&n, llvq_cuda::qtip_host::QTIP_SHARED_BYTES)
+                        .map(|f| (n, f))
+                })
+                .collect::<Result<_, _>>()?,
+        };
         let run_qtip =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
                 let a = m.qtip.as_ref().expect("bras qtip non construit");
-                let f = cuda.func_dynamic_shared(
-                    &a.kernel,
-                    llvq_cuda::qtip_host::QTIP_SHARED_BYTES,
-                )?;
+                let f = &qtip_funcs
+                    .iter()
+                    .find(|(n, _)| *n == a.kernel)
+                    .expect("shim qtip non résolu")
+                    .1;
                 launch_qtip(
                     &cuda,
-                    &f,
+                    f,
                     y,
                     a.compressed.dev(),
                     d_xh.as_ref().expect("activation binary16 non téléversée"),
@@ -2524,6 +2571,7 @@ mod linux {
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
                             arms::E1V => run_e1v(m, &mut d_y)?,
                             arms::NULLK => run_nullk(m, &mut d_y)?,
+                            arms::QTIP => run_qtip(m, &mut d_y)?,
                             _ => unreachable!("bras inconnu"),
                         }
                     }

@@ -74,7 +74,13 @@ FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libssl3 \
+      curl python3-minimal \
  && rm -rf /var/lib/apt/lists/*
+# 🚨 `curl` et `python3-minimal` sont là pour `fetch-qtip.sh` (bras QTIP, F2) et
+# pour rien d'autre. L'étage runtime n'avait que `ca-certificates libssl3`, donc
+# le script — qui télécharge, vérifie deux sha256 et extrait la moitié device —
+# n'aurait pas pu s'exécuter : ni curl, ni python3, ni shasum. Trouvé par une
+# revue adverse avant le premier job, pas par le job.
 # The binaries the GPU path needs: `oracle` proves the forward pass on this
 # backend, `smoke` quantizes, `ppl` scores perplexity, `mmlu` scores
 # capability. `run` stays out — one more LTO link at build time, which is

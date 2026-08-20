@@ -32,7 +32,16 @@ if [ -e "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
 fi
 mkdir -p "$DEST"
 
-sha_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+# `sha256sum` (coreutils) est présent sur toute image Linux ; `shasum` est du
+# Perl et manque à l'image runtime. On préfère le premier et on retombe sur le
+# second, qui est ce qui existe sur le Mac de dev.
+sha_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
 expect() {  # expect <file> <wanted-sha>
   got=$(sha_of "$1")
   if [ "$got" != "$2" ]; then
