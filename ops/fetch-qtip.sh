@@ -119,10 +119,15 @@ echo "fetch-qtip: patch applied and verified (4 dead lines removed, 0 residual t
 # produce a kernel that compiles and computes something else.
 # ---------------------------------------------------------------------------
 python3 - "$DEST" <<'PYEXTRACT'
-import pathlib, sys
-dest = pathlib.Path(sys.argv[1])
-hdr = (dest / "inference.h").read_text().splitlines(keepends=True)
-cu  = (dest / "inference.cu").read_text().splitlines(keepends=True)
+# `os.path` + `open` seulement : `python3-minimal` n'embarque pas `ntpath`, que
+# `pathlib` importe, et le job 6a878b14 est mort dessus. Ce script ne dépend
+# donc que de ce qu'un interpréteur amputé fournit encore.
+import os.path, sys
+dest = sys.argv[1]
+with open(os.path.join(dest, "inference.h")) as f:
+    hdr = f.readlines()
+with open(os.path.join(dest, "inference.cu")) as f:
+    cu = f.readlines()
 
 # (1) the three `ditto` unions — the device code needs them; gpuAssert and the
 #     host launcher's declaration do not come along.
@@ -149,7 +154,8 @@ out = (
     "// See PROVENANCE.txt beside it.\n"
     "#pragma once\n#define QTIP_DEVICE_CUH 1\n\n" + "".join(unions) + "\n" + body
 )
-(dest / "qtip_device.cuh").write_text(out)
+with open(os.path.join(dest, "qtip_device.cuh"), "w") as f:
+    f.write(out)
 PYEXTRACT
 
 # Prove the extract rather than trust it.

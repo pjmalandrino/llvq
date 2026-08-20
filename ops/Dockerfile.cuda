@@ -74,7 +74,7 @@ FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates libssl3 \
-      curl python3-minimal \
+      curl python3 \
  && rm -rf /var/lib/apt/lists/*
 # 🚨 `curl` et `python3-minimal` sont là pour `fetch-qtip.sh` (bras QTIP, F2) et
 # pour rien d'autre. L'étage runtime n'avait que `ca-certificates libssl3`, donc
