@@ -141,6 +141,16 @@ j0 = next(i for i, l in enumerate(cu) if l.rstrip("\n") == "#define BLOCKS_PER_S
 j1 = next(i for i, l in enumerate(cu) if l.rstrip("\n") == "// L: shift register bit-width")
 body = "".join(cu[j0:j1])
 
+# (3a) C99 designated initializers. `nvcc` accepts `{.field = expr}` on a union
+#      as an extension; NVRTC refuses it below C++20, and raising the standard
+#      is not an option — the NVRTC options are shared with OUR kernels, and
+#      every published number depends on how those compile. So the two
+#      occurrences are rewritten into a declaration plus an assignment, which
+#      is the same object in any dialect.
+import re
+desig = re.compile(r"^(\s*)(\w+)\s+(\w+)\s*=\s*\{\.(\w+)\s*=\s*(.+)\};\s*$", re.M)
+body, n_desig = desig.subn(r"\1\2 \3; \3.\4 = \5;", body)
+
 # (3) the one transformation.
 before = "__global__ static void\n__launch_bounds__(BLOCK_SIZE, 1)\n"
 after = "__device__ static void\n"
@@ -174,6 +184,15 @@ check_count 'cudaGetDeviceProperties' 0 'the host launcher must stay out'
 check_count 'cudaFuncSetAttribute' 0 'the host launcher must stay out'
 check_count 'kernel_decompress_matvec(' 1 'exactly one kernel template'
 check_count '__device__ static void' 1 'the rewritten declaration'
+# 🕳️ Le motif naïf '= {.' comptait aussi les '= {};' — en regex de base le '.'
+# matche n'importe quel caractère, donc un garde-fou qui se déclenchait sur des
+# initialisations vides parfaitement valides. Un contrôle faux-positif use la
+# confiance qu'on lui accorde ; celui-ci nomme le champ.
+if grep -qE '=[[:space:]]*\{\.[a-zA-Z_]' "$CUH"; then
+  echo "fetch-qtip: des initialiseurs désignés C99 subsistent — NVRTC les refuse." >&2
+  grep -nE '=[[:space:]]*\{\.[a-zA-Z_]' "$CUH" >&2
+  exit 1
+fi
 echo "fetch-qtip: qtip_device.cuh extracted and verified ($(wc -l < "$CUH" | tr -d ' ') lines)."
 
 cat > "$DEST/PROVENANCE.txt" <<EOF
