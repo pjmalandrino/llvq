@@ -1,0 +1,342 @@
+================================================================================
+F2 / P0 — RECONNAISSANCE QTIP : LE FORMAT EST RÉSOLU, ET IL L'EST POUR 0 $
+2026-08-20, lecture seule sur le Mac de dev. 0 $, aucun GPU, aucune carte
+louée, aucune ligne de leur Python exécutée.
+================================================================================
+Plan de référence : docs/plan-f2-qtip-2026-08-20.md (écrit le matin même,
+  commit 71b7623). Ce journal en confirme l'essentiel ET en corrige trois
+  points — c'est la section 3, et c'est le cœur du texte.
+Source lue : Cornell-RelaxML/qtip, commit épinglé
+  e90c6688c8dfae326a3a81b5eb032db7c6680ec0
+Pas de pré-enregistrement, et ce n'est pas un oubli : P0 ne mesure rien, donc
+  il n'y a rien à pré-enregistrer. Le tampon .ots est l'objet de P1.
+
+🚨 CE JOURNAL NE CONTIENT AUCUN CHIFFRE DE PERFORMANCE et n'en autorise aucun.
+   Aucune phrase du papier ne peut s'appuyer sur lui. Voir la section 5.
+
+--------------------------------------------------------------------------------
+1. CE QUE LA RECONNAISSANCE ÉTABLIT                                       [lu]
+--------------------------------------------------------------------------------
+
+  licence           GPL v3
+                    🚨 pas de vendoring — notre dépôt est MIT/Apache-2.0. Le
+                    code QTIP est récupéré au moment du job (SHA épinglé,
+                    hash vérifié), jamais commité ici. Contraste avec le bras
+                    AWQ, qui était MIT et qui est donc vendoré.
+
+  commit épinglé    e90c6688c8dfae326a3a81b5eb032db7c6680ec0
+                    Toute récupération job-time cite ce SHA.
+
+  structure src/    inference.cu + inference.h  — les noyaux, SANS glue torch
+                    qtip_torch.cu + wrapper.cpp — la glue torch, séparée
+                    test.cu + Makefile          — un chemin de build SANS torch
+                    Le noyau est donc extractible : leur propre test.cu inclut
+                    inference.h et inference.cu et appelle le lanceur
+                    directement, et le Makefile pilote nvcc sur ces deux
+                    fichiers seuls, sans qtip_torch.cu ni wrapper.cpp.
+
+  le noyau          UN SEUL, templaté :
+                      kernel_decompress_matvec<L,S,R,V,M,N,K>(
+                          float*           out,
+                          const uint32_t*  compressed,
+                          const half2*     x,
+                          const half2*     codebook)
+                    déclaré __global__ static, __launch_bounds__(1024, 1)
+                    (template inference.cu:167, déclaration 169-176).
+                    M, N, K sont des paramètres TEMPLATE, donc une
+                    instanciation par forme de projection.
+
+  lancement         grille 128 blocs × 1024 threads (BLOCK_COUNT=128,
+                    BLOCK_SIZE=1024, inference.cu:27,30).
+
+  LUT en partagée   1<<(S+5+V+1) = 1<<16 = 65 536 octets = 64 Kio, alloués en
+                    shared memory dynamique (inference.cu:462,468), avec le
+                    static_assert qui le dit en toutes lettres :
+                      S + 5 + V + 1 <= 16, "We can only use 64 KiB shared memory"
+                    ⚠️ Les deux preflights publiés lisent 49 152 o de partagée
+                    par bloc PAR DÉFAUT sur L40S comme sur A100 (journaux
+                    f1-cublasf16 et f4-a100). 64 Kio > 48 Kio, donc l'OPT-IN
+                    DYNAMIQUE EST OBLIGATOIRE — leur lanceur le fait par
+                    cudaFuncSetAttribute / MaxDynamicSharedMemorySize
+                    (inference.cu:464-466). Nous devrons le faire aussi.
+
+  contraintes       static_assert : M % 16 == 0, N == 1, K % 16 == 0
+                    (inference.cu:447-449), plus R ∈ {2,3,4} et V == 1.
+                    ✅ Toutes les formes du 4B passent. Pas de queue côté QTIP
+                    — asymétrie de comptabilité à déclarer, comme pour AWQ.
+
+  sortie            float* — accumulation f32, pas binary16.
+                    Conséquence : le seuil de vérification est celui de NOS
+                    bras (1e-5·Σ|w·x|), PAS le seuil relâché 1e-3 concédé à
+                    AWQ et à cuBLAS pour cause de sortie arrondie.
+
+--------------------------------------------------------------------------------
+2. LE FORMAT 2 BITS, ENTIÈREMENT                              [lu, puis VÉRIFIÉ]
+--------------------------------------------------------------------------------
+
+Constantes de la configuration 2 bits :
+
+  L = 16            largeur du registre à décalage
+  S = tlut_bits = 9 bits d'index dans la LUT (512 entrées)
+  R = 2             bits par poids
+  V = 2 poids par état
+                    ⚠️ le CUDA reçoit V = 1, parce que leur Python passe
+                    int(log2(V)) au noyau. Deux conventions pour la même
+                    grandeur : ne pas les confondre en écrivant la glue.
+  K·V = 4           bits consommés par état
+                    ⚠️ COLLISION DE NOMS, et elle est piégeuse : dans leur
+                    Python, `K` est le nombre de bits par poids ; dans le
+                    template CUDA, `K` est la dimension interne de la matrice.
+  tuile             16 × 16
+
+  (1) GRILLE DE TUILES
+      La matrice m × k est découpée en tuiles 16×16, rangées ROW-MAJOR sur la
+      grille : la tuile (ti, tj) occupe les u16
+          [ (ti·(k/16) + tj)·32 , +32 )
+      du buffer. 32 u16 = 512 bits = 256 poids à 2 bits.
+          32 × 16 / 256 = 2,0000 b/poids  — exactement, sans bourrage.
+
+  (2) DANS UNE TUILE : UN REGISTRE À DÉCALAGE CIRCULAIRE
+      Concaténer les 32 u16 en 512 bits, chaque u16 contribuant ses bits
+      MSB-FIRST (bit 15 d'abord). L'état s (s = 0..127) est la fenêtre de
+      16 bits commençant au bit 4s, LUE CIRCULAIREMENT (indices modulo 512),
+      le premier bit lu étant le bit de poids fort de l'état :
+
+          state(s) = Σ(j = 0..15)  bit[(4s + j) mod 512] << (15 − j)
+
+      C'est cette formule-là qui a été validée mécaniquement (voir plus bas).
+
+  (3) DÉCODAGE D'UN ÉTAT EN DEUX POIDS  (leur `quantlut_sym`)
+
+          h    = ((s + 1) · s) & 0xFFFF          // hash
+          idx  = (h >> 6) & 0x1FF                // == (h & 0x7FC0) >> 6, S=9
+          sign = −1 si (h >> 15) & 1, sinon +1
+          (a, b) = tlut[idx]                     // 512 paires de f16
+          poids  = (a · sign, b)                 // LE SIGNE NE TOUCHE QUE LE 1er
+
+      🔎 CONFIRMATION CROISÉE, PAS UNE SEULE LECTURE. Les deux implémentations
+      ont été lues INDÉPENDAMMENT et s'accordent au bit près :
+        · Python (bitshift.py:72-80) — lut = (lut+1)*lut ; sflp tiré du bit 15 ;
+          index = (lut >> (16 − nbits − 1)) & ((1<<nbits) − 1), soit >>6 & 0x1FF
+          à nbits = 9 ; puis lut[:, 0] = lut[:, 0] * sflp — la colonne 0 seule.
+        · CUDA (inference.cu:349-359) — idx = idx*(idx+1) ; l'index de LUT est
+          (idx & 0b0111111111000000), c'est-à-dire les bits 6..14 ; le signe
+          est un XOR de 0x00008000 sur le uint32 qui porte le half2, donc sur
+          les 16 bits BAS, donc sur l'élément .x = le premier des deux.
+      Les deux chemins disent la même chose, y compris sur le point le plus
+      facile à rater : le signe s'applique à UN SEUL des deux poids.
+
+  (4) POSITION DES 256 POIDS DANS LA TUILE
+      Les états s = 0..127 donnent 256 poids consécutifs (2 par état, dans
+      l'ordre). Le poids d'indice plat f = 0..255 est à la ligne f/16, colonne
+      f%16 de la tuile (row-major). Donc :
+          f = i·16 + j   ->   état s = f/2, élément f%2.
+
+  (5) CE QU'IL NE FAUT PAS IMPLÉMENTER
+      🚨 Le layout par lane/warp du noyau — weight_idx, __shfl_sync,
+      __byte_perm — n'est PAS une propriété du format. C'est la manière dont
+      le noyau LIT ce buffer. Le buffer est défini par (1)-(4) et rien
+      d'autre. Porter la danse de lanes dans notre packeur serait porter une
+      contrainte d'implémentation dans une spécification de données, et c'est
+      exactement le genre de confusion qui a coûté X3 (cf. le journal
+      x3-alignement-warp du 08-15, où un layout avait été jugé sur un modèle
+      que le matvec servi ne pouvait pas lire).
+
+  LA VÉRIFICATION MÉCANIQUE                                          [VÉRIFIÉ]
+  ----------------------------------------------------------------------------
+  La formule de fenêtre circulaire (2) n'est pas une lecture, c'est une
+  DÉRIVATION — donc elle a été confrontée à leur propre logique de dépaquetage
+  plutôt que relue. Une transcription de `unpack_trellis` (leur récurrence :
+  premier état = les L premiers bits, puis décalage de K·V bits et injection
+  des K·V suivants, avec repli circulaire des L − K·V premiers bits) a été
+  opposée à la formule directe sur 200 tuiles aléatoires de 32 u16.
+
+      200 / 200 tuiles identiques, graine 0xF2.
+      script : scratchpad/verify_layout.py — pur Python, sans torch, sans GPU,
+               hors du dépôt (c'est un outil de reconnaissance, pas du code
+               livré).
+
+  ⚠️ Ce que cette vérification NE couvre PAS : elle établit l'équivalence de
+  deux façons de lire les mêmes 512 bits. Elle ne dit rien de (1) ni de (4) —
+  la position des tuiles sur la grille et celle des poids dans la tuile
+  restent des LECTURES DE CODE. Et il faut le dire précisément, parce que
+  notre codec hôte porte depuis des tests qui les nomment (§4) : un test qui
+  épingle notre implémentation sur NOTRE lecture ne confronte rien à leur
+  code — il empêche la lecture de dériver, il ne la valide pas. Seule
+  l'exécution de LEUR noyau sur un buffer écrit par NOUS tranche (1) et (4),
+  et c'est P2. Il les tranchera bruyamment : la vérification f64 précède
+  tout chrono.
+
+--------------------------------------------------------------------------------
+3. 🕳️ LES TROIS POINTS OÙ LE PLAN DU MATIN ÉTAIT INEXACT
+--------------------------------------------------------------------------------
+
+C'est la section qui vaut le journal. Le plan de ce matin est bon dans sa
+structure et dans ses gates ; trois de ses affirmations techniques ne
+survivent pas à la lecture du code, et deux d'entre elles rendaient la tâche
+plus chère et plus risquée qu'elle ne l'est.
+
+(a) 🕳️ « LE LAYOUT EST LE RISQUE N°1, CONÇU POUR ÉCHOUER BRUYAMMENT EN P2 »
+    — il se résout INTÉGRALEMENT sur le Mac, pour 0 $.
+
+    Le plan le classait risque n°1, à trancher par un job à ~0,2 $, avec pour
+    mitigation « test.cu documente le layout par l'exemple ; P0 le lit en
+    premier ». Les deux moitiés sont fausses.
+
+    · La mitigation annoncée ne mitige rien. test.cu met le buffer
+      `compressed` à ZÉRO (cudaMemset) et remplit la LUT d'une constante
+      (0x3c003c00 = half2(1,1)), puis vérifie out[i] == K. Tous les états y
+      valent 0, donc UN SEUL état est exercé et AUCUN bit de position n'est
+      contraint. Ce test prouve que le noyau tourne ; il ne documente pas le
+      format.
+
+    · Mais le format se lit ailleurs, et gratuitement. `cache_hatW`
+      (bitshift.py:389-396) choisit entre DEUX chemins qu'il traite comme
+      interchangeables :
+          has_kernel  ->  get_hatW_kernel(...)   le noyau CUDA
+          sinon       ->  get_hatW(unpack_trellis(...))  PyTorch pur, sans GPU
+      Les deux décodent le MÊME buffer packé et alimentent la même suite de
+      calcul. Le chemin CPU DÉFINIT donc le layout du noyau : ce n'est pas une
+      approximation de référence, c'est la même sémantique, écrite deux fois
+      par les auteurs eux-mêmes.
+
+    Conséquence, et elle est structurante pour la suite du plan : le risque
+    n°1 est retiré de la liste. P2 ne découvrira pas le layout, il le
+    CONFIRMERA — ce qui reste utile (voir le ⚠️ de la section 2), mais ce
+    n'est plus le même job, ni le même niveau d'incertitude avant de payer.
+
+(b) 🕳️ « <cuda/pipeline> ET <mma.h> INTERDISENT LE NVRTC, DONC nvcc → cubin »
+    — comptage fait : ces deux en-têtes ont ZÉRO usage dans le fichier.
+
+    Le plan concluait « NVRTC douteux sur libcu++ → compiler par nvcc vers un
+    cubin au démarrage du job, chargé par cudarc. Pas de NVRTC pour ce bras. »
+    C'était une inférence tirée de la liste des #include, jamais confrontée au
+    corps du fichier. Le comptage :
+
+      ------------------------------------------------------------------------
+      symbole                     occurrences   dont usage réel
+      ------------------------------------------------------------------------
+      cuda/pipeline                     1             0   (la ligne d'include)
+      mma.                              2             0   (l'include + une
+                                                           CHAÎNE d'asm PTX
+                                                           "mma.sync.aligned.
+                                                           m16n8k16...")
+      wmma                              0             0
+      nvcuda                            1             0   (le using namespace)
+      TORCH_CHECK                       2             0   (deux définitions de
+                                                           macro, jamais
+                                                           expansées)
+      ------------------------------------------------------------------------
+
+    Le MMA passe par de l'ASM PTX INLINE (inference.cu:364-373), pas par
+    nvcuda::wmma — donc <mma.h> ne sert à rien. <cuda/pipeline> n'est jamais
+    instancié. `using namespace nvcuda;` (l.15) ne désambiguïse rien puisque
+    rien du namespace n'est utilisé. Et les macros CHECK_CUDA /
+    CHECK_CONTIGUOUS / CHECK_INPUT (l.18-20) sont DÉFINIES mais jamais
+    invoquées : une macro non expansée n'exige pas que TORCH_CHECK existe,
+    donc elles ne réclament aucun patch.
+
+    Le patch job-time se réduit donc à QUATRE lignes mortes :
+
+      inference.cu:8    #include <cuda/pipeline>
+      inference.cu:10   #include <mma.h>
+      inference.cu:11   #include <c10/cuda/CUDAStream.h>
+      inference.cu:15   using namespace nvcuda;
+
+    Le plan n'en avait identifié qu'une (la l.11, la dépendance torch). Les
+    trois autres tombent pour la même raison qu'elle : elles sont là, elles ne
+    servent pas.
+
+    ⚠️ ET CE POINT N'EST PAS UNE MESURE. Ce qui est établi, c'est que les deux
+    en-têtes invoqués comme motif de disqualification du NVRTC ne sont pas
+    utilisés — donc le motif tombe. Il ne s'ensuit PAS que le NVRTC compile ce
+    fichier : l'asm PTX inline, le typage des intrinsèques et la liaison au
+    template (section 4) restent entiers. Le NVRTC redevient PLAUSIBLE, il
+    n'est pas démontré. C'est à P2 de trancher, et c'est un vrai gain : le
+    chemin NVRTC est celui que le dépôt maîtrise déjà pour ses onze noyaux.
+
+(c) 🕳️ « SANS EXÉCUTER UNE LIGNE DE LEUR PYTHON », PRÉSENTÉ COMME UNE
+    CONTRAINTE DE LICENCE — c'était une confusion juridique.
+
+    Le plan du matin, et le message de commit qui le porte (71b7623 : « le
+    bras se construit sans vendoring — et sans exécuter une ligne de leur
+    Python »), mettent les deux clauses sur le même plan, comme si elles
+    dérivaient toutes deux de la GPL. Elles n'en dérivent pas.
+
+      · vendoring          -> vraie contrainte. Committer du GPL v3 dans un
+                              dépôt MIT/Apache-2.0 est une DISTRIBUTION, et
+                              c'est le déclencheur du copyleft.
+      · exécuter leur code -> AUCUNE contrainte. La GPL contraint la
+                              distribution, pas l'usage. Exécuter leur Python
+                              sur notre machine n'aurait engagé personne.
+
+    Ne pas l'exécuter est un choix de SIMPLICITÉ — pas d'environnement torch à
+    monter, pas de dépendance de reconnaissance, une transcription de 40
+    lignes suffit — et il se trouve qu'on n'en a pas eu besoin. Ce n'est pas
+    une obligation juridique, et le présenter comme telle affaiblit la clause
+    qui, elle, en est une.
+
+    ⚠️ La conclusion opérationnelle du plan ne bouge pas d'un pouce : pas de
+    vendoring, récupération job-time, SHA épinglé. C'est la JUSTIFICATION de
+    la seconde moitié qui était fausse, pas la décision.
+
+--------------------------------------------------------------------------------
+4. CE QUI RESTE OUVERT — et qui n'est pas mesuré
+--------------------------------------------------------------------------------
+
+  · LA LIAISON NVRTC <-> TEMPLATE. Le noyau est `__global__ static` ET
+    templaté (inference.cu:167-176). Son nom mangé doit donc être retrouvé
+    pour être lancé : soit par name expressions NVRTC, soit par un enrobage
+    `extern "C"` à écrire nous-mêmes, une instanciation par forme. Aucun des
+    deux n'a été essayé. C'est une question de mécanique de chargement, pas de
+    format, et elle est indépendante de (b) : même si le NVRTC compile, il
+    faut encore savoir nommer ce qu'on lance.
+
+  · L'OPT-IN 64 Kio SUR LA CARTE. 65 536 octets demandés contre 49 152 par
+    défaut sur les deux cartes du dossier. Le mécanisme existe et il est
+    connu ; il n'a jamais été exercé ici pour un noyau tiers, et il n'est pas
+    mesuré.
+
+  · LE CODE DE NOTRE CÔTÉ — ÉCRIT POUR MOITIÉ, ET LA MOITIÉ ÉCRITE EST VERTE.
+    Le codec hôte est dans l'arbre de travail à l'heure de ce journal :
+    llvq-cuda/src/qtip_host.rs, 819 lignes, implémentation propre de la
+    section 2 écrite depuis LA SPÉCIFICATION et non depuis leur code.
+
+        cargo test -p llvq-cuda --lib qtip_host
+        12 passed ; 0 failed        [2026-08-20, Mac de dev, profil debug]
+
+    dont states_are_a_circular_window, the_hash_is_the_published_one,
+    sign_flip_hits_only_the_first_element et the_wrap_is_load_bearing — donc
+    les règles (2) et (3) sont épinglées par la machine et non par la prose.
+    ⚠️ Portabilité voulue et déclarée : ce module ne nomme aucun crate, il
+    tourne donc sur le Mac, là où le reste de llvq-cuda est gaté cfg(linux).
+
+    ❌ CE QUI MANQUE POUR FERMER LE GATE P0 : le bras n'est PAS enregistré
+    dans le registre de planesbench (aucune entrée QTIP dans arms.rs ;
+    planesbench.rs:216 n'en porte qu'un commentaire), et la glue
+    d'instanciation .cu n'existe pas. Le gate P0 n'est pas franchi.
+
+  · ET ÉVIDEMMENT TOUTE VITESSE. Aucune milliseconde, aucun Go/s, aucun
+    rapport contre FP16, contre AWQ ou contre quoi que ce soit.
+
+--------------------------------------------------------------------------------
+5. CE QUE P0 N'AUTORISE PAS
+--------------------------------------------------------------------------------
+
+🚨 P0 NE PRODUIT AUCUN CHIFFRE DE PERFORMANCE, ET AUCUNE PHRASE DU PAPIER.
+
+Ni « QTIP convertit x % de sa borne », ni « QTIP est plus rapide/plus lent que
+notre noyau », ni une révision du paragraphe de limitations, ni la promotion
+de la motivation héritée de l'intro (« is reported slower than QTIP's
+kernel ») du statut d'héritée à celui de mesurée. Cette promotion est le
+livrable de P3, et elle exige d'avoir mesuré.
+
+Ce que P0 autorise, et c'est déjà quelque chose : dire que le format est
+résolu et vérifié, que le blocage NVRTC annoncé le matin reposait sur deux
+en-têtes inutilisés, et que le risque n°1 du plan n'existe pas. Trois faits de
+reconnaissance, à 0 $, dont deux réduisent le coût et le risque des phases
+suivantes.
+
+Suite : P1 (pré-enregistrement, tampon .ots avant tout job), puis P2
+(compilation + exactitude, ~0,2 $), puis P3 (le banc, ~0,3 $). Budget annoncé
+inchangé : ≤ 1,5 $ pour P2+P3. Chaque lancement reçoit son go explicite.

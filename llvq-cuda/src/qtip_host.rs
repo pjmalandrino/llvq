@@ -1,0 +1,870 @@
+//! Host-side codec for QTIP's 2-bit trellis format — the comparison arm.
+//!
+//! A reviewer asked what the Leech kernel is worth against the 2-bit codec it
+//! actually competes with, rather than against FP16. QTIP (Cornell-RelaxML) is
+//! that codec. This module is the host half of the arm: it reads a QTIP 2-bit
+//! weight buffer and produces the same f32 matrix their kernel would, so a
+//! bench can check a device decoder against something, and so the bit
+//! accounting can be stated rather than assumed.
+//!
+//! ## The licence boundary, and why this file exists at all
+//!
+//! **No QTIP code is committed to this repository, and none may be.** Their
+//! kernel is GPL v3; this workspace is MIT OR Apache-2.0, and vendoring the
+//! one into the other is not a thing a licence audit forgives. Their sources
+//! are fetched inside the job that runs the bench and never leave it.
+//!
+//! What is committed is this file: a clean-room implementation written from a
+//! *specification of the buffer format*, established on 2026-08-20 by reading
+//! their kernel and then confirmed mechanically — a transcription of their
+//! packer was run against the formula below on 200 random tiles, 200/200
+//! agreeing. A file format is not their expression; this code is ours.
+//!
+//! ## The format, in four rules
+//!
+//! Config constants of the 2-bit setting: window `L = 16` bits, `S = 9` bits
+//! of codebook index, `R = 2` bits per weight, `V = 2` weights per state, and
+//! `K·V = 4` bits consumed per state.
+//!
+//! 1. **Tile grid.** An `d_out × d_in` matrix is cut into 16×16 tiles, and the
+//!    tiles are stored **row-major on the grid**: tile `(ti, tj)` owns the 32
+//!    `u16` starting at `(ti * (d_in/16) + tj) * 32`. 32 `u16` = 512 bits =
+//!    256 weights at 2 bits = exactly 2.0000 b/weight, with no header, no
+//!    scale and no exception stream. See [`bits_per_weight`].
+//!
+//! 2. **Inside a tile: one circular shift register.** Concatenate the 32
+//!    `u16` into 512 bits, each word contributing its bits **MSB first**. The
+//!    state `s ∈ [0, 128)` is the 16-bit window starting at bit `4s`, read
+//!    **modulo 512**, first bit read being the state's most significant:
+//!
+//!    ```text
+//!    state(s) = Σ_{j=0..15} bit[(4s + j) mod 512] << (15 - j)
+//!    ```
+//!
+//!    The `mod` is not decoration: states 125, 126 and 127 read 4, 8 and 12
+//!    bits of the tile's *first* word. [`tile_state`] is that formula, and
+//!    `the_wrap_is_load_bearing` is the test that a dropped modulo fails.
+//!
+//! 3. **A state decodes to two weights** (their `quantlut_sym`): hash the
+//!    state, take 9 bits of the hash as a codebook index, and take the hash's
+//!    top bit as a sign that negates **the first element only**. See
+//!    [`decode_state`].
+//!
+//! 4. **Where the 256 weights land.** The 128 states give 256 weights in
+//!    order; flat index `f` sits at row `f / 16`, column `f % 16` of the tile.
+//!    So `f = i * 16 + j` and the weight is element `f % 2` of state `f / 2`.
+//!
+//! What is deliberately **not** modelled here is the kernel's lane/warp read
+//! pattern — `weight_idx`, the shuffles, the byte permutes. That is how their
+//! kernel *reaches* this buffer, not a property of the buffer. Rules 1-4
+//! define the format and nothing else does.
+//!
+//! ## Every bit pattern is a valid buffer
+//!
+//! This is a **fixed-rate** code: 2 bits per weight, always, whatever the
+//! weights. There is no length field, no escape, no reserved pattern and no
+//! checksum, so any sequence of `u16` decodes — to *some* matrix. That is why
+//! [`pseudo_random_buffer`] can hand a bench a buffer without a checkpoint:
+//! the shape, the traffic and the decode cost are exactly those of a real
+//! one. It is also why nothing here can validate a buffer, and why a wrong
+//! `d_in` produces a plausible matrix rather than an error — the only guard
+//! is that the shapes are multiples of 16, which [`buffer_u16_len`] asserts.
+//!
+//! ⚠️ A pseudo-random buffer is a **shape and traffic** stand-in only. Any
+//! quality number taken from one would be a number about our RNG.
+//!
+//! ## Shapes
+//!
+//! Qwen3-4B's projections take `d_in`/`d_out` from {1024, 2560, 4096, 9728},
+//! and all four are multiples of 16 (64, 160, 256 and 608 tiles), so the
+//! format covers the deliverable with no padding — pinned by
+//! `the_qwen3_4b_shapes_are_all_tileable`.
+//!
+//! ## What holds this file
+//!
+//! Thirty-one mutants, twenty-nine killed (2026-08-20): the wrap dropped,
+//! clamped or made constant; the window read LSB-first, backwards, or one bit
+//! wide; the
+//! step at 2 and at 8; the hash without its `+1` and without its truncation;
+//! the codebook shift moved either way and its mask removed; the sign taken
+//! from bit 14, never applied, applied to the second element and applied to
+//! both; the pair emitted reversed; row and column transposed inside the tile
+//! and again in the matrix walk; the tile grid stored column-major; a tile
+//! accounted as 8-bit words; and both shape guards removed. Two mutants are
+//! **equivalent and unkillable by construction**, which is the honest way to
+//! report them: `div_ceil` for `/` in [`buffer_u16_len`] cannot differ once
+//! its own assert has passed, and `% QTIP_U16_PER_TILE` for `% 32` is the
+//! same expression written twice.
+//!
+//! ## Why a real module and not an `include!`
+//!
+//! The other host-side codecs here (`planes14_host.rs`, `golay70_host.rs`,
+//! `e1v_host.rs`, `seg_host.rs`) are `include!`d because they name
+//! `llvq-artifact`, which is a *dev*-dependency of this crate and therefore
+//! unnameable from `lib.rs`. This file names nothing at all — no crate, not
+//! even `llvq-core` — so it is a plain module, and its tests run under
+//! `cargo test -p llvq-cuda --lib` on the development Mac, where there is no
+//! CUDA and where tests are free.
+
+/// Tile side, in weights. The format's only tiling.
+pub const QTIP_TILE: usize = 16;
+
+/// `u16` words per tile: 512 bits.
+pub const QTIP_U16_PER_TILE: usize = 32;
+
+/// Shift-register states per tile.
+pub const QTIP_STATES_PER_TILE: usize = 128;
+
+/// Weights per tile — `QTIP_TILE²`, and two per state.
+pub const QTIP_WEIGHTS_PER_TILE: usize = QTIP_TILE * QTIP_TILE;
+
+/// Bits per tile, i.e. the modulus of the circular read in rule 2.
+pub const QTIP_TILE_BITS: u32 = (QTIP_U16_PER_TILE * 16) as u32;
+
+/// Bits the register advances per state — `K·V` in their notation.
+pub const QTIP_STEP_BITS: u32 = 4;
+
+/// Width of the shift-register window — `L`.
+pub const QTIP_WINDOW_BITS: u32 = 16;
+
+/// Codebook entries — `2^S` with `S = tlut_bits = 9`.
+pub const QTIP_TLUT_LEN: usize = 512;
+
+/// Where the codebook index sits in the 16-bit hash: `16 − S − 1`, the one
+/// bit above it being the sign. Their CUDA writes it as `(h & 0x7FC0) >> 6`.
+const QTIP_TLUT_SHIFT: u32 = 16 - 9 - 1;
+
+/// The codebook: 512 pairs, one per index. Their `tlut`.
+///
+/// A type alias rather than a newtype on purpose — the caller owns this, it
+/// comes out of their checkpoint, and this module only ever indexes it.
+pub type Tlut = [(f32, f32); QTIP_TLUT_LEN];
+
+/// Bits per weight this format costs. Exactly 2.
+///
+/// Derived from the two constants that produce it rather than written as a
+/// literal, so a mutation of either is a failing test and not a comment that
+/// disagrees with the code.
+///
+/// This is the **payload**, which for this format is also the whole story:
+/// there is no per-row scale, no tail and no side table, so unlike our own
+/// layouts the payload and kernel accountings coincide. Stating that is the
+/// point — repo rule n°3 is that a figure carries the accounting it was
+/// measured in.
+pub fn bits_per_weight() -> f64 {
+    (QTIP_U16_PER_TILE * 16) as f64 / QTIP_WEIGHTS_PER_TILE as f64
+}
+
+/// `u16` a `d_out × d_in` weight buffer occupies.
+///
+/// # Panics
+///
+/// If either extent is zero or not a multiple of [`QTIP_TILE`]. There is no
+/// padding convention in this format: a non-tileable shape has no encoding,
+/// and returning a rounded length would silently hand the caller a buffer
+/// whose tiles do not line up with its matrix.
+pub fn buffer_u16_len(d_out: usize, d_in: usize) -> usize {
+    assert!(
+        d_out > 0 && d_in > 0,
+        "QTIP: empty shape {d_out}x{d_in} has no tiling"
+    );
+    assert!(
+        d_out.is_multiple_of(QTIP_TILE) && d_in.is_multiple_of(QTIP_TILE),
+        "QTIP: {d_out}x{d_in} is not a whole number of {QTIP_TILE}x{QTIP_TILE} tiles"
+    );
+    (d_out / QTIP_TILE) * (d_in / QTIP_TILE) * QTIP_U16_PER_TILE
+}
+
+/// Word offset of tile `(ti, tj)` in a buffer whose matrix is `d_in` wide.
+///
+/// Rule 1: **row-major on the tile grid**. The row stride is `d_in / 16`
+/// tiles, so this is the one place the buffer's shape enters — and the one
+/// place a transposed grid would hide.
+///
+/// # Panics
+///
+/// If `d_in` is not a multiple of [`QTIP_TILE`], or `tj` is past the row.
+pub fn tile_offset(d_in: usize, ti: usize, tj: usize) -> usize {
+    assert!(
+        d_in.is_multiple_of(QTIP_TILE),
+        "QTIP: width {d_in} is not a whole number of tiles"
+    );
+    let row_tiles = d_in / QTIP_TILE;
+    assert!(tj < row_tiles, "QTIP: tile column {tj} past width {d_in}");
+    (ti * row_tiles + tj) * QTIP_U16_PER_TILE
+}
+
+/// State `s` of a tile — rule 2, the circular 16-bit window at bit `4s`.
+///
+/// Implemented as two shifts rather than as a bit vector because that is what
+/// a decoder does; the bit-vector reading is written independently inside
+/// `states_are_a_circular_window`, so the formula is checked by two paths and
+/// not by one path agreeing with itself.
+///
+/// The wrap is the `% QTIP_U16_PER_TILE`: for `s ≥ 125` the window's tail
+/// comes from word 0. `o` is always one of {0, 4, 8, 12}, so the second shift
+/// is between 4 and 16 and the arithmetic stays inside `u32` — a `u16` shift
+/// by 16 would be undefined-by-panic in debug and a no-op in release, which
+/// is exactly the class of defect that cost this project a kernel (§5, the
+/// fourth catch: a `hi << (64 - 0)` ported with its original's assumptions).
+///
+/// # Panics
+///
+/// If `s >= QTIP_STATES_PER_TILE`.
+#[inline]
+pub fn tile_state(tile_u16: &[u16; QTIP_U16_PER_TILE], s: usize) -> u16 {
+    assert!(
+        s < QTIP_STATES_PER_TILE,
+        "QTIP: state {s} past the {QTIP_STATES_PER_TILE} a tile holds"
+    );
+    let base = QTIP_STEP_BITS as usize * s;
+    let w = base / 16;
+    let o = (base % 16) as u32;
+    let hi = u32::from(tile_u16[w]);
+    let lo = u32::from(tile_u16[(w + 1) % QTIP_U16_PER_TILE]);
+    (((hi << o) | (lo >> (QTIP_WINDOW_BITS - o))) & 0xFFFF) as u16
+}
+
+/// All 128 states of a tile, in order — rule 2 applied 128 times.
+pub fn tile_states(tile_u16: &[u16; QTIP_U16_PER_TILE]) -> [u16; QTIP_STATES_PER_TILE] {
+    let mut out = [0u16; QTIP_STATES_PER_TILE];
+    for (s, st) in out.iter_mut().enumerate() {
+        *st = tile_state(tile_u16, s);
+    }
+    out
+}
+
+/// The 16-bit hash a state is decoded through: `((s + 1) · s) mod 2¹⁶`.
+///
+/// Exposed because the two things rule 3 derives from it — the index and the
+/// sign — are tested separately, and a test that recomputed the hash itself
+/// would only be testing its own copy.
+#[inline]
+pub fn state_hash(state: u16) -> u16 {
+    let s = u32::from(state);
+    (s.wrapping_add(1).wrapping_mul(s) & 0xFFFF) as u16
+}
+
+/// Codebook index of a state: 9 bits of the hash, just below the sign bit.
+#[inline]
+pub fn tlut_index(state: u16) -> usize {
+    ((state_hash(state) >> QTIP_TLUT_SHIFT) as usize) & (QTIP_TLUT_LEN - 1)
+}
+
+/// Does this state negate its **first** weight? The hash's top bit.
+#[inline]
+pub fn state_is_negated(state: u16) -> bool {
+    state_hash(state) & 0x8000 != 0
+}
+
+/// Decode a state into its two weights — rule 3.
+///
+/// The sign touches element `.0` and nothing else. In their kernel this is an
+/// XOR of `0x8000` over the low half of the `uint32` holding the `half2`,
+/// i.e. over `.x`, the first of the pair; negating `.1` as well, or instead,
+/// would be a decoder that reproduces roughly half the matrix.
+///
+/// Negation is `-a`, a sign-bit flip, not a multiply: it matches the XOR
+/// exactly, including on a zero entry, where `0.0` becomes `-0.0` and every
+/// downstream sum is unaffected.
+#[inline]
+pub fn decode_state(state: u16, tlut: &Tlut) -> (f32, f32) {
+    let (a, b) = tlut[tlut_index(state)];
+    if state_is_negated(state) {
+        (-a, b)
+    } else {
+        (a, b)
+    }
+}
+
+/// Decode a whole tile to its 256 weights, **row-major within the tile**.
+///
+/// Rule 4: index `f` of the returned array is row `f / 16`, column `f % 16`,
+/// and comes from element `f % 2` of state `f / 2`.
+pub fn decode_tile(
+    tile_u16: &[u16; QTIP_U16_PER_TILE],
+    tlut: &Tlut,
+) -> [f32; QTIP_WEIGHTS_PER_TILE] {
+    let mut out = [0f32; QTIP_WEIGHTS_PER_TILE];
+    for s in 0..QTIP_STATES_PER_TILE {
+        let (a, b) = decode_state(tile_state(tile_u16, s), tlut);
+        out[2 * s] = a;
+        out[2 * s + 1] = b;
+    }
+    out
+}
+
+/// Borrow tile `(ti, tj)` out of a buffer as the 32 words rule 2 reads.
+///
+/// # Panics
+///
+/// If the tile is not wholly inside `buf` — which means the buffer and the
+/// `d_in` it is being read with disagree, and the format has no way to say so
+/// on its own (see the module note on fixed-rate codes).
+pub fn tile_of(buf: &[u16], d_in: usize, ti: usize, tj: usize) -> &[u16; QTIP_U16_PER_TILE] {
+    let off = tile_offset(d_in, ti, tj);
+    let end = off + QTIP_U16_PER_TILE;
+    assert!(
+        end <= buf.len(),
+        "QTIP: tile ({ti},{tj}) ends at {end} in {} u16 — buffer and d_in={d_in} disagree",
+        buf.len()
+    );
+    buf[off..end]
+        .try_into()
+        .expect("slice of QTIP_U16_PER_TILE words")
+}
+
+/// One weight of a `d_in`-wide buffer, at `(row, col)` of the matrix.
+///
+/// Rules 1 and 4 composed. Decodes the single state it needs, not the tile.
+pub fn weight_at(buf: &[u16], d_in: usize, row: usize, col: usize, tlut: &Tlut) -> f32 {
+    assert!(col < d_in, "QTIP: column {col} past width {d_in}");
+    let tile = tile_of(buf, d_in, row / QTIP_TILE, col / QTIP_TILE);
+    let f = (row % QTIP_TILE) * QTIP_TILE + (col % QTIP_TILE);
+    let (a, b) = decode_state(tile_state(tile, f / 2), tlut);
+    if f.is_multiple_of(2) {
+        a
+    } else {
+        b
+    }
+}
+
+/// Decode a whole matrix, row-major, `d_out * d_in` values.
+///
+/// The reference a device decoder is diffed against. Straightforward on
+/// purpose: one tile at a time, each written into the rows it belongs to, so
+/// the grid order of rule 1 and the in-tile order of rule 4 stay visibly
+/// separate instead of being fused into one index expression nobody can read.
+///
+/// # Panics
+///
+/// If the shape is not tileable, or `buf` is not [`buffer_u16_len`] long.
+pub fn decode_matrix(buf: &[u16], d_out: usize, d_in: usize, tlut: &Tlut) -> Vec<f32> {
+    let want = buffer_u16_len(d_out, d_in);
+    assert_eq!(
+        buf.len(),
+        want,
+        "QTIP: {d_out}x{d_in} needs {want} u16, got {}",
+        buf.len()
+    );
+    let mut out = vec![0f32; d_out * d_in];
+    for ti in 0..d_out / QTIP_TILE {
+        for tj in 0..d_in / QTIP_TILE {
+            let w = decode_tile(tile_of(buf, d_in, ti, tj), tlut);
+            for (f, &v) in w.iter().enumerate() {
+                let row = ti * QTIP_TILE + f / QTIP_TILE;
+                let col = tj * QTIP_TILE + f % QTIP_TILE;
+                out[row * d_in + col] = v;
+            }
+        }
+    }
+    out
+}
+
+/// SplitMix64, so this module keeps its zero dependencies.
+///
+/// A copy of `llvq_core::rng::SplitMix64`, same constants and same stream —
+/// duplicated rather than imported because `llvq-core` is a Linux-only and
+/// dev-only dependency of this crate, and this module has to build on the
+/// development Mac in a non-test profile. Twelve lines against a `cfg` that
+/// would take the whole file off the Mac is the cheaper trade.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
+
+/// Fill a buffer with a deterministic pseudo-random bit pattern.
+///
+/// Valid by construction: the format is fixed-rate, so **every** bit pattern
+/// decodes (module note). What this produces is a stand-in with a real
+/// buffer's size and access pattern, for shape checks and for traffic — never
+/// for a quality figure.
+pub fn fill_pseudo_random(buf: &mut [u16], seed: u64) {
+    let mut rng = SplitMix64(seed);
+    for chunk in buf.chunks_mut(4) {
+        let r = rng.next_u64();
+        for (k, w) in chunk.iter_mut().enumerate() {
+            *w = (r >> (16 * k)) as u16;
+        }
+    }
+}
+
+/// A whole `d_out × d_in` buffer of deterministic pseudo-random bits.
+///
+/// See [`fill_pseudo_random`] for what this is and is not good for.
+pub fn pseudo_random_buffer(d_out: usize, d_in: usize, seed: u64) -> Vec<u16> {
+    let mut buf = vec![0u16; buffer_u16_len(d_out, d_in)];
+    fill_pseudo_random(&mut buf, seed);
+    buf
+}
+
+/// A deterministic stand-in codebook, values in `[-1, 1)`.
+///
+/// ⚠️ **Not** their codebook. Theirs is trained and ships in their checkpoint;
+/// this one exists so that shape, traffic and decode-path tests need no
+/// download and no GPL file. Any number produced with this codebook describes
+/// this function, not QTIP.
+pub fn pseudo_random_tlut(seed: u64) -> Tlut {
+    let mut rng = SplitMix64(seed);
+    let mut tlut = [(0f32, 0f32); QTIP_TLUT_LEN];
+    for e in tlut.iter_mut() {
+        let a = (rng.next_u64() >> 40) as f32 / 16_777_216.0 * 2.0 - 1.0;
+        let b = (rng.next_u64() >> 40) as f32 / 16_777_216.0 * 2.0 - 1.0;
+        *e = (a, b);
+    }
+    tlut
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rule 2, spelled out the slow way: materialise the 512 bits, then read a
+    /// circular window per state.
+    ///
+    /// This exists to be a **second path**, so it deliberately shares no
+    /// arithmetic with [`tile_state`]: no packed-word shifts, no `hi`/`lo`
+    /// pair, no modulus on word indices. If both agree, the two ways of
+    /// spelling MSB-first-then-wrap agree, which is the only thing that could
+    /// plausibly be wrong here.
+    fn states_by_bit_vector(tile: &[u16; QTIP_U16_PER_TILE]) -> [u16; QTIP_STATES_PER_TILE] {
+        let mut bits = [0u8; 512];
+        for (w, &word) in tile.iter().enumerate() {
+            for b in 0..16 {
+                bits[w * 16 + b] = ((word >> (15 - b)) & 1) as u8;
+            }
+        }
+        let mut out = [0u16; QTIP_STATES_PER_TILE];
+        for (s, st) in out.iter_mut().enumerate() {
+            let mut v = 0u16;
+            for j in 0..16 {
+                v |= u16::from(bits[(4 * s + j) % 512]) << (15 - j);
+            }
+            *st = v;
+        }
+        out
+    }
+
+    fn tile_from(buf: &[u16], k: usize) -> [u16; QTIP_U16_PER_TILE] {
+        buf[k * QTIP_U16_PER_TILE..(k + 1) * QTIP_U16_PER_TILE]
+            .try_into()
+            .unwrap()
+    }
+
+    /// A codebook of exactly representable, strictly positive, pairwise
+    /// distinct values — so an equality assertion is exact and a sign is
+    /// visible. Every numerator is an integer below 1024 over 512, hence a
+    /// binary32 with no rounding anywhere in these tests.
+    fn analytic_tlut() -> Tlut {
+        let mut t = [(0f32, 0f32); QTIP_TLUT_LEN];
+        for (i, e) in t.iter_mut().enumerate() {
+            *e = ((i as f32 + 1.0) / 512.0, -(i as f32 + 3.0) / 512.0);
+        }
+        t
+    }
+
+    /// Two independent readings of rule 2 agree — on random tiles, on the two
+    /// saturated tiles, and on **every one of the 512 single-bit tiles**.
+    ///
+    /// The single-bit sweep is what makes this lethal rather than reassuring:
+    /// it pins the contribution of each bit position separately, so a
+    /// bit-order flip (LSB-first within a word), an off-by-one in the window,
+    /// or a step of 2 or 8 instead of 4 moves at least one of the 512 cases.
+    #[test]
+    fn states_are_a_circular_window() {
+        let mut rng = SplitMix64(0xC0FF_EE12_3456_789A);
+        for _ in 0..64 {
+            let mut tile = [0u16; QTIP_U16_PER_TILE];
+            for w in tile.iter_mut() {
+                *w = rng.next_u64() as u16;
+            }
+            assert_eq!(
+                tile_states(&tile),
+                states_by_bit_vector(&tile),
+                "tile {tile:04x?}"
+            );
+        }
+        for fill in [0x0000u16, 0xFFFF] {
+            let tile = [fill; QTIP_U16_PER_TILE];
+            assert_eq!(tile_states(&tile), states_by_bit_vector(&tile));
+        }
+        for p in 0..512usize {
+            let mut tile = [0u16; QTIP_U16_PER_TILE];
+            tile[p / 16] = 1u16 << (15 - p % 16);
+            let a = tile_states(&tile);
+            assert_eq!(
+                a,
+                states_by_bit_vector(&tile),
+                "single bit at stream position {p}"
+            );
+            // Non-vacuity: a lone bit is seen by exactly four windows, since
+            // the window is 16 bits and the step is 4. A formula that read
+            // nothing, or read everything, would still pass an `assert_eq!`
+            // of two broken paths only if both broke identically — this
+            // catches the case where both return zero.
+            assert_eq!(
+                a.iter().filter(|&&s| s != 0).count(),
+                4,
+                "bit {p} must be visible to exactly four states"
+            );
+        }
+    }
+
+    /// States 125-127 read the tile's **first** word. Drop the modulus and
+    /// this test dies: a decoder that indexes word 32 panics, one that clamps
+    /// or masks to zero returns 0 where the format says 0x0ABC.
+    ///
+    /// The tile has a single non-zero word, so nothing else can supply these
+    /// bits and the assertion is about the wrap and about nothing else.
+    #[test]
+    fn the_wrap_is_load_bearing() {
+        let mut tile = [0u16; QTIP_U16_PER_TILE];
+        tile[0] = 0xABCD;
+        let st = tile_states(&tile);
+
+        // The window at bit 0 is word 0 itself, and the next one has already
+        // slid four bits: the register is a register.
+        assert_eq!(st[0], 0xABCD);
+        assert_eq!(st[1], 0xBCD0);
+
+        // State 124 starts at bit 496 — the last word, entirely zero, and no
+        // wrap yet. It is the control: it proves the three below are not
+        // simply "every late state sees word 0".
+        assert_eq!(st[124], 0x0000);
+
+        // 125, 126, 127 start at bits 500, 504, 508 and take 4, 8 and 12 bits
+        // from word 0 across the wrap.
+        assert_eq!(st[125], 0x000A, "state 125 must wrap 4 bits into word 0");
+        assert_eq!(st[126], 0x00AB, "state 126 must wrap 8 bits into word 0");
+        assert_eq!(st[127], 0x0ABC, "state 127 must wrap 12 bits into word 0");
+
+        // And the same three, read the other way, in case the constants above
+        // were copied from the implementation rather than from the format.
+        assert_eq!(&st[124..], &states_by_bit_vector(&tile)[124..]);
+    }
+
+    /// Rule 3's sign negates `.0` and leaves `.1` untouched — checked on all
+    /// 65 536 states, with a codebook whose entries are all positive and
+    /// pairwise distinct, so "unchanged" and "negated" are distinguishable
+    /// values and not two spellings of zero.
+    ///
+    /// Kills: sign applied to `.1`, to both, to neither, or always.
+    #[test]
+    fn sign_flip_hits_only_the_first_element() {
+        let tlut = analytic_tlut();
+        let mut negated = 0usize;
+        let mut plain = 0usize;
+        for s in 0..=u16::MAX {
+            let idx = tlut_index(s);
+            let (want_a, want_b) = tlut[idx];
+            let (a, b) = decode_state(s, &tlut);
+            assert_eq!(b, want_b, "state {s:#06x}: second element must never flip");
+            if state_is_negated(s) {
+                assert_eq!(a, -want_a, "state {s:#06x}: first element must flip");
+                assert!(a < 0.0);
+                negated += 1;
+            } else {
+                assert_eq!(a, want_a, "state {s:#06x}: first element must not flip");
+                assert!(a > 0.0);
+                plain += 1;
+            }
+        }
+        // Non-vacuity, and a fact about the hash worth pinning: the top bit is
+        // set for exactly half the state space.
+        assert_eq!((negated, plain), (32_768, 32_768));
+    }
+
+    /// The hash, its index field and its sign bit, pinned on the edges.
+    ///
+    /// `0xFFFF` is the one that matters: `(s + 1) · s` overflows 16 bits
+    /// there, and the format keeps the low 16. A `u16` multiply would panic
+    /// in debug and silently agree in release — the exact shape of defect §5
+    /// calls the fourth catch.
+    #[test]
+    fn the_hash_is_the_published_one() {
+        let cases = [
+            //  state,  hash,   index, negated
+            (0x0000u16, 0x0000u16, 0usize, false),
+            (0x0001, 0x0002, 0, false),
+            (0x00FF, 0xFF00, 508, true),
+            (0x0100, 0x0100, 4, false),
+            (0x7FFF, 0x8000, 0, true),
+            (0x8000, 0x8000, 0, true),
+            (0xFFFF, 0x0000, 0, false),
+            (0xA4D3, 0xAABC, 170, true),
+            (0x4D3C, 0x734C, 461, false),
+        ];
+        for (s, h, idx, neg) in cases {
+            assert_eq!(state_hash(s), h, "hash of {s:#06x}");
+            assert_eq!(tlut_index(s), idx, "index of {s:#06x}");
+            assert_eq!(state_is_negated(s), neg, "sign of {s:#06x}");
+        }
+        // The whole codebook is reachable: a shift or mask that lost a bit
+        // would leave half of it dead, which no per-state assertion notices.
+        let seen: std::collections::HashSet<usize> = (0..=u16::MAX).map(tlut_index).collect();
+        assert_eq!(seen.len(), QTIP_TLUT_LEN);
+    }
+
+    /// The rate is exactly two bits per weight, on the shapes the deliverable
+    /// has and on a square one for good measure.
+    ///
+    /// Exact float equality is deliberate: 2.0 is a binary32 and a binary64,
+    /// and a format that missed by a padding word would not land on it.
+    #[test]
+    fn rate_is_exactly_two_bits() {
+        for (d_out, d_in) in [
+            (2560usize, 2560usize),
+            (2560, 9728),
+            (9728, 2560),
+            (4096, 4096),
+            (1024, 2560),
+            (2560, 1024),
+            (16, 16),
+        ] {
+            let words = buffer_u16_len(d_out, d_in);
+            assert_eq!(words * 16, d_out * d_in * 2, "{d_out}x{d_in}: bits");
+            assert_eq!(
+                (words * 16) as f64 / (d_out * d_in) as f64,
+                2.0,
+                "{d_out}x{d_in}: b/weight"
+            );
+        }
+        assert_eq!(bits_per_weight(), 2.0);
+    }
+
+    /// Every projection width of Qwen3-4B is a whole number of tiles, so the
+    /// format covers the deliverable with no padding and no exception.
+    ///
+    /// If a future model brings a width that is not a multiple of 16, this
+    /// test is where that has to be noticed — the answer would be a padding
+    /// convention, which this format does not have.
+    #[test]
+    fn the_qwen3_4b_shapes_are_all_tileable() {
+        for d in [1024usize, 2560, 4096, 9728] {
+            assert_eq!(d % QTIP_TILE, 0, "width {d}");
+        }
+        assert_eq!(
+            [1024, 2560, 4096, 9728].map(|d: usize| d / QTIP_TILE),
+            [64, 160, 256, 608]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "not a whole number of")]
+    fn a_non_tileable_shape_is_refused() {
+        // 2552 = 16·159 + 8. There is no encoding for it, and rounding up
+        // would hand back a buffer whose tiles do not line up with the matrix.
+        buffer_u16_len(2560, 2552);
+    }
+
+    #[test]
+    #[should_panic(expected = "needs")]
+    fn a_buffer_of_the_wrong_length_is_refused() {
+        let tlut = analytic_tlut();
+        let buf = pseudo_random_buffer(32, 48, 1);
+        decode_matrix(&buf, 32, 64, &tlut);
+    }
+
+    /// Rule 1: tiles are row-major on the grid, with a row stride of
+    /// `d_in / 16` — checked on a **non-square** shape, which is the only
+    /// kind that can tell `ti · (d_in/16) + tj` from `tj · (d_out/16) + ti`.
+    #[test]
+    fn the_tile_grid_is_row_major() {
+        let (d_out, d_in) = (32usize, 48usize); // 2 x 3 tiles
+        let tlut = analytic_tlut();
+        let buf = pseudo_random_buffer(d_out, d_in, 0x9E37);
+        assert_eq!(buf.len(), 6 * QTIP_U16_PER_TILE);
+
+        // Tile (0,1) is the second one in the buffer.
+        assert_eq!(tile_offset(d_in, 0, 1), QTIP_U16_PER_TILE);
+        // Tile (1,0) is the fourth: one whole grid row of three tiles ahead.
+        assert_eq!(tile_offset(d_in, 1, 0), 3 * QTIP_U16_PER_TILE);
+
+        let want = decode_tile(&tile_from(&buf, 1), &tlut);
+        let got: Vec<f32> = (0..QTIP_WEIGHTS_PER_TILE)
+            .map(|f| weight_at(&buf, d_in, f / QTIP_TILE, QTIP_TILE + f % QTIP_TILE, &tlut))
+            .collect();
+        assert_eq!(
+            got,
+            want.to_vec(),
+            "matrix rows 0..16, cols 16..32 are tile 1"
+        );
+
+        // …and are *not* tile 2, which is where a transposed grid would put
+        // them. Without this the assertion above would also pass on a buffer
+        // whose tiles happened to be equal.
+        assert_ne!(
+            decode_tile(&tile_from(&buf, 2), &tlut).to_vec(),
+            want.to_vec()
+        );
+    }
+
+    /// [`weight_at`] and [`decode_matrix`] are the same map, on both
+    /// orientations of a non-square shape.
+    ///
+    /// They share `decode_state` and `tile_state` but not the index
+    /// arithmetic of rules 1 and 4, which is the half that has two spellings
+    /// in this file and could drift.
+    #[test]
+    fn weight_at_agrees_with_decode_matrix() {
+        let tlut = pseudo_random_tlut(7);
+        for (d_out, d_in) in [(32usize, 48usize), (48, 32), (16, 64)] {
+            let buf = pseudo_random_buffer(d_out, d_in, 0xBEEF);
+            let m = decode_matrix(&buf, d_out, d_in, &tlut);
+            assert_eq!(m.len(), d_out * d_in);
+            for row in 0..d_out {
+                for col in 0..d_in {
+                    assert_eq!(
+                        m[row * d_in + col],
+                        weight_at(&buf, d_in, row, col, &tlut),
+                        "{d_out}x{d_in} at ({row},{col})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A literal lock on the whole format: one fixed tile in, 128 states and
+    /// the decoded weights out.
+    ///
+    /// The expected values were produced **outside this crate**, by a third
+    /// implementation written straight from the specification in python, so
+    /// they are not this code agreeing with itself. Any change to bit order,
+    /// step, wrap, hash, index field, sign placement or in-tile layout moves
+    /// at least one of these numbers.
+    ///
+    /// The shape of the state list is the format's own signature and can be
+    /// read by eye: consecutive states slide by one hex digit — `0x4d3c`,
+    /// `0xd3c1`, `0x3c12`, `0xc128` — and the last, `0xa4d3`, is the last
+    /// word's low nibble glued to the first word's top three.
+    #[test]
+    fn known_vector() {
+        // Laid out eight to a line, and kept that way: the sliding-nibble
+        // signature described above is only visible in this shape.
+        #[rustfmt::skip]
+        const TILE: [u16; QTIP_U16_PER_TILE] = [
+            0x4d3c, 0x1284, 0xeb3e, 0xcd58, 0x2f6c, 0xc5cd, 0xe5a7, 0x1ce0,
+            0x6380, 0x3560, 0xf79f, 0x2eec, 0xd650, 0xbf3e, 0x8881, 0xce7a,
+            0x3083, 0x5df1, 0x1295, 0xe1d3, 0x31dc, 0x3627, 0x58ec, 0x6dc8,
+            0x6b47, 0xeac2, 0x87b3, 0xb240, 0xb9fa, 0x2072, 0x0047, 0x536a,
+        ];
+        // Laid out eight to a line, and kept that way: the sliding-nibble
+        // signature described above is only visible in this shape.
+        #[rustfmt::skip]
+        const STATES: [u16; QTIP_STATES_PER_TILE] = [
+            0x4d3c, 0xd3c1, 0x3c12, 0xc128, 0x1284, 0x284e, 0x84eb, 0x4eb3,
+            0xeb3e, 0xb3ec, 0x3ecd, 0xecd5, 0xcd58, 0xd582, 0x582f, 0x82f6,
+            0x2f6c, 0xf6cc, 0x6cc5, 0xcc5c, 0xc5cd, 0x5cde, 0xcde5, 0xde5a,
+            0xe5a7, 0x5a71, 0xa71c, 0x71ce, 0x1ce0, 0xce06, 0xe063, 0x0638,
+            0x6380, 0x3803, 0x8035, 0x0356, 0x3560, 0x560f, 0x60f7, 0x0f79,
+            0xf79f, 0x79f2, 0x9f2e, 0xf2ee, 0x2eec, 0xeecd, 0xecd6, 0xcd65,
+            0xd650, 0x650b, 0x50bf, 0x0bf3, 0xbf3e, 0xf3e8, 0x3e88, 0xe888,
+            0x8881, 0x881c, 0x81ce, 0x1ce7, 0xce7a, 0xe7a3, 0x7a30, 0xa308,
+            0x3083, 0x0835, 0x835d, 0x35df, 0x5df1, 0xdf11, 0xf112, 0x1129,
+            0x1295, 0x295e, 0x95e1, 0x5e1d, 0xe1d3, 0x1d33, 0xd331, 0x331d,
+            0x31dc, 0x1dc3, 0xdc36, 0xc362, 0x3627, 0x6275, 0x2758, 0x758e,
+            0x58ec, 0x8ec6, 0xec6d, 0xc6dc, 0x6dc8, 0xdc86, 0xc86b, 0x86b4,
+            0x6b47, 0xb47e, 0x47ea, 0x7eac, 0xeac2, 0xac28, 0xc287, 0x287b,
+            0x87b3, 0x7b3b, 0xb3b2, 0x3b24, 0xb240, 0x240b, 0x40b9, 0x0b9f,
+            0xb9fa, 0x9fa2, 0xfa20, 0xa207, 0x2072, 0x0720, 0x7200, 0x2004,
+            0x0047, 0x0475, 0x4753, 0x7536, 0x536a, 0x36a4, 0x6a4d, 0xa4d3,
+        ];
+        assert_eq!(tile_states(&TILE), STATES);
+
+        let tlut = analytic_tlut();
+        let w = decode_tile(&TILE, &tlut);
+
+        // Weights 0..8 — tile row 0, columns 0..8, i.e. states 0..4.
+        //
+        // Written as the exact rationals `analytic_tlut` holds, `k + 1` and
+        // `−(k + 3)` over 512, so the codebook index each state selects is
+        // visible in the fixture instead of being buried in a decimal. Every
+        // one is a binary32 to the last bit, so `assert_eq!` is exact.
+        // Note the negated *first* elements at f = 2 and f = 4, and the
+        // untouched second elements beside them.
+        assert_eq!(
+            w[..8],
+            [
+                462.0f32 / 512.0, // state 0x4d3c -> tlut[461], sign kept
+                -464.0 / 512.0,
+                -46.0 / 512.0, // state 0xd3c1 -> tlut[45], negated
+                -48.0 / 512.0,
+                -182.0 / 512.0, // state 0x3c12 -> tlut[181], negated
+                -184.0 / 512.0,
+                94.0 / 512.0, // state 0xc128 -> tlut[93], sign kept
+                -96.0 / 512.0,
+            ]
+        );
+        // …and the last four, which are the two states that wrap.
+        assert_eq!(
+            w[QTIP_WEIGHTS_PER_TILE - 4..],
+            [
+                278.0f32 / 512.0, // state 0x6a4d -> tlut[277], sign kept
+                -280.0 / 512.0,
+                -171.0 / 512.0, // state 0xa4d3 -> tlut[170], negated
+                -173.0 / 512.0,
+            ]
+        );
+        // 59 of this tile's 128 states negate. Pinned because the count is a
+        // property of the hash applied to *these* states: a decoder that
+        // never negates, or always does, cannot reach 59.
+        assert_eq!(STATES.iter().filter(|&&s| state_is_negated(s)).count(), 59);
+    }
+
+    /// The two guards that turn a confusing panic into a named one.
+    ///
+    /// Both were mutation survivors until this test existed: removing either
+    /// assert left every other test green, because the slice index panics on
+    /// its own a line later — with a message that says nothing about *why*.
+    /// For a fixed-rate format that is the difference that matters: a buffer
+    /// read with the wrong `d_in` is the one mistake nothing else can detect
+    /// (module note), so the message has to name it.
+    #[test]
+    #[should_panic(expected = "buffer and d_in=48 disagree")]
+    fn a_tile_past_the_buffer_names_the_disagreement() {
+        let buf = pseudo_random_buffer(32, 48, 1);
+        // Row 32 does not exist in a 32-row matrix; with a fixed-rate code
+        // nothing in the buffer says so, and the tile index simply runs off
+        // the end.
+        let _ = tile_of(&buf, 48, 2, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "state 128 past the 128")]
+    fn a_state_past_the_tile_is_refused() {
+        let tile = [0u16; QTIP_U16_PER_TILE];
+        let _ = tile_state(&tile, QTIP_STATES_PER_TILE);
+    }
+
+    /// The stand-in generators are deterministic and are what they claim.
+    ///
+    /// Not decoration: `pseudo_random_buffer` is what a bench will hand a
+    /// device decoder when no checkpoint is mounted, so a seed that did not
+    /// reproduce would make two runs incomparable and nothing would say so.
+    #[test]
+    fn the_stand_in_generators_are_deterministic() {
+        assert_eq!(
+            pseudo_random_buffer(32, 48, 42),
+            pseudo_random_buffer(32, 48, 42)
+        );
+        assert_ne!(
+            pseudo_random_buffer(32, 48, 42),
+            pseudo_random_buffer(32, 48, 43)
+        );
+        let t = pseudo_random_tlut(5);
+        assert_eq!(t.to_vec(), pseudo_random_tlut(5).to_vec());
+        assert!(t
+            .iter()
+            .all(|&(a, b)| (-1.0..1.0).contains(&a) && (-1.0..1.0).contains(&b)));
+        // A generator that returned a constant would satisfy everything above.
+        assert!(t.iter().any(|&(a, _)| a != t[0].0));
+    }
+}

@@ -46,6 +46,13 @@ pub mod arms;
 // noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
 pub mod shared;
 
+// Portable because it can be: the QTIP comparison arm's host codec names no
+// crate at all — not even `llvq-core` — so unlike the other `*_host.rs` files
+// it is a module rather than an `include!`, and its tests run on the
+// development Mac under `cargo test -p llvq-cuda --lib`. The QTIP sources
+// themselves are GPL v3 and are never committed here; see the module header.
+pub mod qtip_host;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
