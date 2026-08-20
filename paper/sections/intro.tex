@@ -34,11 +34,9 @@ must not diverge across a warp whose 32 lanes hold different classes.
 
 \item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
 determines what fits on a GPU is not the on-disk rate (2.07 bits per weight
-for our artifact under the ideal payload accounting: 48 bits per block plus
-the full-precision tail and per-row scales, over all linear weights including
-the tail --- the bytes actually written are 2.17 over the quantized weights
-alone, the $+8\%$ of \S\ref{sec:evaluation}) but the rate of whatever format
-the kernel reads. Our
+of payload; the bytes actually written are 2.17 over the quantized weights
+alone, the $+8\%$ of \S\ref{sec:evaluation}) but the rate of whatever
+format the kernel reads. Our
 first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
 a 4-bit format, erasing the point of 2-bit quantization. We show a
 progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
@@ -73,28 +71,19 @@ At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points (served
 arm; 14.73 on the sealed artifact), a deficit
 concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
 essentially full quality: on that model, 4 bits wins. The case for 2 bits
-rests on scale, and two further models measure it. The degradation does fall
---- $\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
-and 14B --- and the MMLU gap to 4 bits goes 14.45, 7.49, 6.09 points, all
-three paired estimates with 95\% intervals (\S\ref{sec:evaluation}). It also
-flattens as it falls: the excess over FP16 loses 42.8\% of itself from 4B to
-8B, $[-51.8, -33.5]$, and 13.9\% from 8B to 14B, $[-22.8, -4.9]$. Whether that
-flattening is \emph{established} depends on which metric is asked, and the two
-answers differ. On perplexity it is: the evaluation windows are the same text
-at every size, so the two steps can be compared window by window, and they
-differ by $-0.1010$ in log perplexity ratio, $[-0.1377, -0.0643]$,
-$t = -6.06$. On the
-MMLU gap it is not: the first step is resolved ($-6.96$ points,
-$p = 0.0001$) and the second is not ($-1.40$, $p = 0.40$), and an unresolved
-step is not a flat one. The likeliest reason is power rather than
-disagreement --- perplexity averages 49\,140 paired tokens where MMLU rates
-2\,280 unpaired questions --- and we carry the two verdicts separately
-throughout, since a claim about this curvature that does not name its metric
-is half wrong either way. Three points, no law; the direction is the one the
-2-bit thesis needs, and where the curve flattens is not settled by either
-answer. On memory the three points do agree: the served model is below
-the 4-bit baseline at every size, by a margin that peaks in the middle
-because it tracks the embedding share.
+rests on scale, and two further models measure it. The degradation falls ---
+$\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
+and 14B, the MMLU gap to 4 bits going 14.45, 7.49, 6.09 points, all paired
+estimates with 95\% intervals --- and it flattens as it falls: the excess
+over FP16 loses 42.8\% of itself on the first step and 13.9\% on the
+second. Whether that flattening is \emph{established} depends on the metric
+--- resolved on perplexity, where the evaluation windows pair across sizes;
+unresolved on the MMLU gap, likely a matter of statistical power --- and we
+carry the two verdicts separately throughout
+(\S\ref{sec:evaluation}, Appendix~\ref{app:scale}). Three points, no law.
+On memory the three points do agree: the served model is below the 4-bit
+baseline at every size, by a margin that peaks in the middle because it
+tracks the embedding share.
 
 Every figure regenerates from CSV files committed in the repository, the
 layout table is checked against its CSV on every build, and each number

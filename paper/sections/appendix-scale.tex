@@ -132,3 +132,69 @@ each, which is the reservation above and bites hardest here since this test
 conditions on all three at once; a resolved knee says the first step fell
 harder than the second, not where the curve flattens. We still publish no
 scaling law from three models, and a 32B point is what would settle the shape.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{lcrrrrr}
+\toprule
+ & payload & \multicolumn{3}{c}{Qwen3-4B} & \multicolumn{2}{c}{Qwen3-8B} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-7}
+Method, no fine-tuning & b/weight & ppl & $\times$ & MMLU & ppl & $\times$ \\
+\midrule
+FP16 baseline, original paper & 16 & 12.41 & --- & 70.2 & 8.99 & --- \\
+FP16 baseline, our harness & 16 & 12.2369 & --- & 70.32 & 8.9899 & --- \\
+\midrule
+QuIP\#/E8P12 & 2.000 & 21.15 & 1.70 & 48.6 & --- & --- \\
+QTIP (3INST) & 2.000 & 17.04 & 1.37 & 57.4 & 11.17 & 1.24 \\
+LLVQ shape--gain, 0 gain bits & 2.000 & 17.05 & 1.37 & 60.7 & 10.19 & 1.13 \\
+LLVQ shape--gain, 2 gain bits & 2.000 & 15.54 & 1.25 & 59.3 & 10.82 & 1.20 \\
+\midrule
+Ours: $\Lambda_{24}(12)$, 1 gain bit & 2.000 & 16.9422 & 1.38 & 55.59 & 10.9682 & 1.22 \\
+\bottomrule
+\end{tabular}
+\caption{Our sealed-artifact arms next to the 2-bit results the original
+paper reports for the same two models: WikiText-2 at 4096 context, no
+fine-tuning. Rows 1 and 3--6 are transcribed from its Table~6; rows 2 and 7
+are the FP16 and LLVQ arms of Tables~\ref{tab:campaign}
+and~\ref{tab:campaign8b}. \emph{Payload} is code rate only: 48 bits per
+24-weight block on every 2-bit row, per its Table~8. Each $\times$ is the
+ratio to its own harness's FP16 baseline, at two decimals --- the published
+perplexities carry four significant figures, so a third decimal would be
+false precision. The original paper reports no MMLU for the 8B, and no
+error bars anywhere.}
+\label{tab:lit}
+\end{table}
+
+\textbf{Against the published 2-bit methods.} Table~\ref{tab:lit} adds
+the comparison a reader of the original paper will make anyway, at exactly
+matched rate: every 2-bit row spends 48 bits per 24-weight block, the
+configurations differing only in the index/gain split ($48{+}0$, $47{+}1$,
+$46{+}2$ in its Table~8); ours is the $47{+}1$ line its own distortion study
+ranks first, while its LLM results use the other two. What our sealed file
+adds on top of that payload --- full-precision tail columns and per-row
+scales, about 8\% on the 4B, less on the 8B whose \texttt{down\_proj} is
+exactly block-aligned --- sits outside the comparison, since the original
+paper never states its tail policy. The code rate can be compared, and it is
+equal.
+
+Absolute perplexities do not cross harnesses, so the ratio to each harness's
+own FP16 baseline is the comparable quantity. The two baselines differ by
+1.4\% on the 4B (12.41 against our 12.2369) and agree on the 8B to the two
+decimals the original paper prints. The verdict is split. At 4B we sit level with the configurations nearest
+ours: $\times1.38$ against $\times1.37$ for the 0-gain-bit variant and for
+QTIP, behind the 2-gain-bit variant at $\times1.25$. At 8B we are behind both
+LLVQ variants ($\times1.22$ against $\times1.13$, 0.78 perplexity points on a
+shared baseline) and improve on QTIP alone. On MMLU, where only the 4B has
+published points, the shortfall is wider: 55.59 against 60.7, on a baseline
+our harness reproduces to 0.12 points.
+
+We claim no statistical significance for these differences: the original
+paper publishes no error bars, our $\pm$ is single-arm sampling error, and
+across papers the question samples differ. What the matched payload does
+establish is that the 8B shortfall is not bought back by a rate advantage.
+We do not explain it; the natural suspect, roughly $100\times$ less
+calibration data, is bounded in \S\ref{sec:limitations} at an effect too
+small to be the whole story --- on perplexity, which does not constrain
+MMLU.
