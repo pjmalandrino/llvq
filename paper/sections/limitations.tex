@@ -28,12 +28,21 @@ composition, learned per-column scales (worth about two MMLU points under
 the original paper's fine-tuning protocol), and low-rank compensation
 adapters.
 
-\textbf{We do not measure QTIP.} Our motivation rests on the original
-paper's report that its kernel is slower than QTIP's; we inherit that claim
-without reproducing it. A 2-bit kernel comparison at matching shapes is
-the single most valuable missing measurement in this paper: the 4-bit arm
-of Table~\ref{tab:layouts} is the same experiment against a different class
-of competitor, and it is the one that changed our reading of our own result.
+\textbf{We are slower than the 2-bit kernel we set out to beat, and the
+margin is large.} QTIP's kernel runs $2.27\times$ our production layout on
+matching shapes in the same process (\S\ref{sec:qtip}); the motivation we
+inherited from the original paper is confirmed, against us. We measured it
+as shipped, in its own launch geometry, and tuned nothing in either
+direction --- a tuning pass could move that number, and we did not attempt
+one. The mechanism is diagnosed and is not a defect of our
+implementation: the two formats store the same rate on disk, and the gap is
+entirely the load-time unfolding a combinatorial lattice index requires and
+a sliding-window trellis does not. What follows from that is a research
+direction rather than a patch, and it is not obviously open: the granular
+gain $\Lambda_{24}$ contributes over a deep trellis is at most a decibel,
+which a long-memory trellis on incoherence-processed (hence approximately
+i.i.d.\ Gaussian) weights already captures. We state this as the reading
+that our own measurements support and not as a proof.
 The same gap remains for Marlin's batched 4-bit GEMM and for the other 2-bit
 vector-quantized systems of \S\ref{sec:related}.
 
@@ -60,13 +69,19 @@ memory margin present at all three sizes but not monotone) are carried
 once, in \S\ref{sec:evaluation} and Appendix~\ref{app:scale}, and are
 not restated here.
 
-\textbf{Our speedups are over FP16, not over the 4-bit state of the
-practice.} At the \emph{kernel} level the 4-bit comparison exists and goes
+\textbf{Our speedups are over FP16, not over the state of the practice at
+either rate.} At the \emph{kernel} level both comparisons exist and both go
 against us: the AWQ GEMV converts 88\% of its byte bound against our 65\%,
-roughly a factor 1.6 in ratio terms (\S\ref{sec:layouts}). At the
-\emph{engine} level the comparison only exists within each stack
-($2.413\times$ for AWQ--Marlin in vLLM against $1.11\times$ for us in
-\texttt{candle}; \S\ref{sec:integration}), and it goes against us too. Tables~\ref{tab:campaign}
+and the QTIP kernel is $2.27\times$ faster outright (\S\ref{sec:layouts},
+\S\ref{sec:qtip}). At the \emph{engine} level the comparison only exists
+within each stack ($2.413\times$ for AWQ--Marlin in vLLM against
+$1.11\times$ for us in \texttt{candle}; \S\ref{sec:integration}), and it
+goes against us too --- with the further caveat that the two stacks are far
+apart independently of any weight format: vLLM's own FP16 control reaches
+83.1~tok/s on this model where ours reaches 43.6, so roughly a factor 1.9
+of the end-to-end distance is engine, not decoder. That factor is a real
+cost to a user and a confound to a reader, which is why we report the two
+ratios side by side and never divide them. Tables~\ref{tab:campaign}
 and~\ref{tab:campaign8b} carry no 4-bit throughput column because a vLLM
 tok/s and a \texttt{candle} tok/s are not the same measurement.
 

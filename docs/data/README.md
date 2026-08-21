@@ -36,7 +36,7 @@ clauses par `;` ou ` - `, **jamais par une virgule**, et
 | fichier | contenu | source |
 |---|---|---|
 | `campagne-finale.csv` | le tableau 4 bras × 5 facteurs (disque, VRAM, vitesse, ppl, MMLU) | a4-campagne + campagne-finale-bras4 |
-| `echelle-formats.csv` | les 7 bras au banc (b/poids **noyau**, ms, Go/s, % de la borne d'octets, ratio vs FP16 avec plage) | golay70-v2-sept-bras (le run à 7 bras, phase 2) |
+| `echelle-formats.csv` | les **10 bras** au banc (b/poids **noyau**, ms, Go/s, % de la borne d'octets, ratio vs FP16 avec plage) | **f2-p3-qtip-banc-2026-08-21 (phase 2)** — re-sourcé le 2026-08-21 depuis le run à 10 bras. 🚨 Avant cette date le fichier venait de `golay70-v2-sept-bras` : y AJOUTER la ligne QTIP aurait mis côte à côte des rounds de deux processus, ce que la méthodologie du papier interdit, donc **tout** le tableau a été re-mesuré avec tous les bras présents. Les titulaires se reproduisent dans la dispersion (`Planes14` 2,15× aux deux runs, `Golay70` v2 1,77× puis 1,78×) |
 | `phases.csv` | le temps par phase d'un token, 4 profils (fencé — attribution, pas total) | phases-2026-08-07 |
 | `progression.csv` | l'arc de la semaine : VRAM/débit/b-param à chaque étape | mini, a1, planes14-fusedrun, nuit |
 | `echelle-4b-8b.csv` | l'échelle des modèles, 3 bras × 3 tailles (ppl, ratio, MMLU micro, **b/param modèle entier**) | a4-campagne + campagne-finale-bras4 (4B), campagne-8b-qualite (8B), campagne-14b-qualite (14B) ; `params_total` et les colonnes `vram_*` viennent d'ailleurs — rtbits-planes-8b (4B, 8B) et rtbits-14b-2026-08-17 (14B) |

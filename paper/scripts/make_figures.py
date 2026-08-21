@@ -78,13 +78,14 @@ def fig1_layout_scale() -> None:
         "Planes12x": (SKY, "o"),
         "Golay70v1": (VERMILLION, "o"),
         "Golay70v2": (VERMILLION, "o"),
-        # The competitor: a different marker, because it is not one of ours.
+        # The competitors: a different marker, because they are not ours.
         "AWQ": (GREEN, "s"),
+        "QTIP": (GREEN, "s"),
     }
     shown = {
         "Slot32": "Slot32", "Planes14": "Planes14", "Planes12x": "Planes12x",
         "Golay70v1": "Golay70", "Golay70v2": "Golay70, hoisted",
-        "AWQ": "AWQ w4g128 (4-bit)",
+        "AWQ": "AWQ w4g128 (4-bit)", "QTIP": "QTIP (2-bit)",
     }
     # (dx, dy, horizontal alignment) — hand-placed so no two labels overlap
     # at this figure size; the two Golay70 points share an x, so theirs go
@@ -96,20 +97,35 @@ def fig1_layout_scale() -> None:
         # curve, and a label lying on the line it is being compared to is
         # exactly the wrong place for it.
         "Golay70v2": (9, 5, "left"), "AWQ": (-9, 0, "right"),
+        # QTIP is the leftmost and highest point; its label goes below-right
+        # so it clears both the ceiling curve and the floor rule.
+        "QTIP": (7, -13, "left"),
     }
     fig, ax = plt.subplots(figsize=(4.8, 3.4), layout="constrained")
 
     # The memory-bound ceiling, and the FP16 control it is anchored on.
-    xs = [3.2 + 0.02 * i for i in range(156)]
+    xs = [1.85 + 0.02 * i for i in range(224)]
     ax.plot(xs, [16.0 / x for x in xs], linestyle="--", linewidth=0.9,
             color=GRAY, zorder=1)
     ax.annotate("ceiling: this rate at the FP16 arm's bandwidth",
                 xy=(3.75, 16.0 / 3.75), xytext=(4, 7),
                 textcoords="offset points", fontsize=7, color=GRAY)
     ax.axhline(1.0, color=GRAY, linewidth=0.8, linestyle=":", zorder=1)
-    ax.annotate("FP16 control (16 b/weight)", xy=(6.25, 1.0),
+    ax.annotate("FP16 control (16 b/weight)", xy=(6.45, 1.0),
                 xytext=(0, 4), textcoords="offset points",
                 ha="right", fontsize=7.5, color=GRAY)
+    # The floor: our own launch geometry with nothing to read. Every arm of
+    # ours is below it; the 2-bit competitor is above, which is the point.
+    floor = next((float(r["ratio_vs_fp16"]) for r in rows
+                  if r["layout"] == "nullk"), None)
+    if floor is not None:
+        ax.axhline(floor, color=VERMILLION, linewidth=0.8, linestyle=":",
+                   zorder=1)
+        ax.annotate(f"floor: our launch geometry, no weights read "
+                    f"({floor:.2f}$\\times$)",
+                    xy=(6.45, floor), xytext=(0, 4),
+                    textcoords="offset points", ha="right", fontsize=7.5,
+                    color=VERMILLION)
 
     pts = {}
     for r in rows:
@@ -141,10 +157,12 @@ def fig1_layout_scale() -> None:
                     zorder=2)
 
     # A CSV row renamed out from under `styles` would otherwise vanish from
-    # the figure with exit code 0 — a plot missing an arm, silently. The
-    # control is deliberately absent (x = 16 is off the axis), so it is the
-    # one row allowed to be skipped.
-    expected = {r["layout"] for r in rows} - {"FP16"}
+    # the figure with exit code 0 — a plot missing an arm, silently. Three
+    # rows are deliberately absent as points: the two FP16 controls (x = 16
+    # is off the axis) and the floor, which reads 0.159 b/weight and would
+    # sit off the other end — it is drawn as a horizontal rule instead,
+    # because what matters about it is its height, not its rate.
+    expected = {r["layout"] for r in rows} - {"FP16", "cuBLASf16", "nullk"}
     missing = expected - set(pts)
     if missing:
         raise SystemExit(
@@ -154,12 +172,12 @@ def fig1_layout_scale() -> None:
 
     ax.set_xlabel("in-VRAM rate (bits per weight, kernel accounting)")
     ax.set_ylabel("speedup vs FP16 matvec (log)")
-    ax.set_xlim(3.2, 6.3)
+    ax.set_xlim(1.6, 6.5)
     ax.set_yscale("log")
-    ax.set_ylim(0.9, 5.2)
+    ax.set_ylim(0.9, 9.5)
     # Explicit ticks: a log axis with default minor labels reads as a
     # measurement instrument rather than a comparison.
-    ticks = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
+    ticks = [1.0, 1.5, 2.0, 3.0, 5.0, 8.0]
     ax.set_yticks(ticks, [f"{t:g}×" for t in ticks])
     ax.set_yticks([], minor=True)
     ax.grid(axis="y", zorder=0)

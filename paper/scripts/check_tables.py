@@ -96,13 +96,16 @@ def parse_layout_table(tex: str) -> dict[str, list[str]]:
 
 # CSV layout name -> the name as the table spells it.
 TABLE_NAME = {
+    "nullk": "Floor (no weights read)",
     "FP16": "FP16 (control)",
+    "cuBLASf16": "FP16 via cuBLAS",
     "Slot32": "Slot32",
     "Planes14": "Planes14",
     "Planes12x": "Planes12x",
     "Golay70v1": "Golay70",
     "Golay70v2": "Golay70, hoisted",
     "AWQ": "AWQ w4g128",
+    "QTIP": "QTIP 2-bit",
 }
 
 
@@ -1138,7 +1141,7 @@ def main() -> int:
         return 1
     print(
         "tables agree with docs/data/*.csv "
-        "(layouts 7 arms, campaign 4 arms, campaign8b 3 arms, scale 3 models "
+        "(layouts 10 arms, campaign 4 arms, campaign8b 3 arms, scale 3 models "
         "x {ppl, b/param, paired MMLU gap}, phases 3 profiles, "
         "progression 4 steps); paired-perplexity CSVs pinned to their journals "
         "(9 intervals, 4 steps, 2 knee tests -- perplexity only, the MMLU "

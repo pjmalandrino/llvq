@@ -22,6 +22,16 @@ distinct coordinate-permutation classes (301 for the paper's best
 configuration, the ball $\Lambda_{24}(12)$). It exists nowhere, including
 in the original work.
 
+We build it, and then test the claim that motivated it. Ported into our
+harness at a pinned commit and timed in the same rounds as everything else,
+QTIP's kernel runs $2.27\times$ faster than our best layout: low-level
+optimization is not ``largely orthogonal'' to this contribution, it
+\emph{is} the contribution, and on that axis the lattice loses. The
+mechanism is neither rate nor quality --- the two formats match on both ---
+but the load-time unfolding a combinatorial lattice index demands and a
+sliding-window trellis does not (\S\ref{sec:qtip}). Reaching that sentence
+took a complete implementation of both sides.
+
 This paper is about that decoder, and about what it takes to move
 lattice-decoded weights from merely smaller to \emph{faster} than FP16.
 Three problems have to be solved together:
@@ -42,9 +52,12 @@ progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
 bits per weight at bit-exact decoded content while \emph{increasing}
 throughput, and one dead end (3.59, compute-bound) that maps the floor. We
 attribute what the kernel actually waits on with an instrumented job, and
-place a deployed 4-bit kernel on the same axis in the same process: it
-converts 88\% of its byte advantage into time against our 65\%, locating
-the remaining work in the decode itself.
+place two deployed competitors on the same axis in the same process: a
+4-bit kernel that converts 88\% of its byte advantage into time against our
+65\%, and the 2-bit kernel above. The latter also runs faster than a
+control of ours that reads \emph{no weight bytes at all}, which retires
+that control as a floor: what we had measured as a ceiling on any format
+turns out to be the cost of our own launch geometry.
 
 \item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
 throughput is gated by the serving engine, not the kernel. We found and
