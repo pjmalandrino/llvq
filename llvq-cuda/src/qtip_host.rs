@@ -175,23 +175,37 @@ pub fn buffer_u16_len(d_out: usize, d_in: usize) -> usize {
     (d_out / QTIP_TILE) * (d_in / QTIP_TILE) * QTIP_U16_PER_TILE
 }
 
-/// Word offset of tile `(ti, tj)` in a buffer whose matrix is `d_in` wide.
+/// Base of the 128-word GROUP holding a tile, and the tile's slot inside it.
 ///
-/// Rule 1: **row-major on the tile grid**. The row stride is `d_in / 16`
-/// tiles, so this is the one place the buffer's shape enters — and the one
-/// place a transposed grid would hide.
+/// 🚨 **Rewritten 2026-08-20, after job `6a879628` refuted the previous model
+/// on the card** at `1.60e-1` of the error budget — structural, not rounding.
+/// The old model said a tile was 32 CONTIGUOUS words at
+/// `(ti * tiles_k + tj) * 32`; neither half of that was right.
 ///
-/// # Panics
+/// What the kernel does, derived by replaying its own arithmetic (`weight_idx`,
+/// the `__byte_perm` selection in `load_reg_cs`, the 4-bit window shift, and
+/// the `mma.m16n8k16` A-fragment layout) and checked against that replay on
+/// 23.6 M `(row, col)` pairs over three real shapes:
 ///
-/// If `d_in` is not a multiple of [`QTIP_TILE`], or `tj` is past the row.
-pub fn tile_offset(d_in: usize, ti: usize, tj: usize) -> usize {
-    assert!(
-        d_in.is_multiple_of(QTIP_TILE),
-        "QTIP: width {d_in} is not a whole number of tiles"
-    );
-    let row_tiles = d_in / QTIP_TILE;
-    assert!(tj < row_tiles, "QTIP: tile column {tj} past width {d_in}");
-    (ti * row_tiles + tj) * QTIP_U16_PER_TILE
+/// * words come in **128-word groups**, each holding **four** tiles — two
+///   adjacent K-tiles by two adjacent M-tiles;
+/// * inside a group the four tiles are **interleaved word by word, stride 4**:
+///   tile `t` owns words `base + 4*n + t`, `n = 0..31`.
+///
+/// That interleave is why the old model failed: a lane reads four consecutive
+/// words belonging to four DIFFERENT tiles, one per `reg_cs` component.
+fn group_of(d_in: usize, ti: usize, tj: usize) -> (usize, usize) {
+    let tiles_k = d_in / QTIP_TILE;
+    // A group holds two K-tiles by two M-tiles, so an odd tile count in either
+    // direction has a tile with no partner and no place to live. The kernel
+    // asserts the same thing more strongly (`tileCountM % 2 == 0`, and
+    // `(tileCountK % 128) % 4 == 0`); this is the weakest form that makes the
+    // addressing total, and it is stated here rather than discovered as an
+    // out-of-bounds read.
+    assert!(tiles_k.is_multiple_of(2), "QTIP: d_in={d_in} gives {tiles_k} K-tiles, which must be even");
+    let (m_pair, submi) = (ti / 2, ti % 2);
+    let subki = tj % 2;
+    (64 * (m_pair * tiles_k + (tj - subki)), 2 * subki + submi)
 }
 
 /// State `s` of a tile — rule 2, the circular 16-bit window at bit `4s`.
@@ -293,68 +307,87 @@ pub fn decode_tile(
     }
     out
 }
-
-/// Borrow tile `(ti, tj)` out of a buffer as the 32 words rule 2 reads.
+/// The 32 words of one tile, in the order the trellis unrolls them.
+///
+/// Gathered with stride 4 from the tile's group ([`group_of`]); they are not
+/// contiguous in memory, and what comes back is the LOGICAL sequence the shift
+/// register runs over.
 ///
 /// # Panics
 ///
 /// If the tile is not wholly inside `buf` — which means the buffer and the
-/// `d_in` it is being read with disagree, and the format has no way to say so
-/// on its own (see the module note on fixed-rate codes).
-pub fn tile_of(buf: &[u16], d_in: usize, ti: usize, tj: usize) -> &[u16; QTIP_U16_PER_TILE] {
-    let off = tile_offset(d_in, ti, tj);
-    let end = off + QTIP_U16_PER_TILE;
+/// `d_in` it is read with disagree, and a fixed-rate code cannot say so on its
+/// own (see the module note).
+pub fn tile_words(buf: &[u16], d_in: usize, ti: usize, tj: usize) -> [u16; QTIP_U16_PER_TILE] {
+    let (base, t) = group_of(d_in, ti, tj);
+    let end = base + 4 * (QTIP_U16_PER_TILE - 1) + t + 1;
     assert!(
         end <= buf.len(),
-        "QTIP: tile ({ti},{tj}) ends at {end} in {} u16 — buffer and d_in={d_in} disagree",
+        "QTIP: tile ({ti},{tj}) reaches word {end} in {} u16 — buffer and d_in={d_in} disagree",
         buf.len()
     );
-    buf[off..end]
-        .try_into()
-        .expect("slice of QTIP_U16_PER_TILE words")
+    let mut w = [0u16; QTIP_U16_PER_TILE];
+    for (n, slot) in w.iter_mut().enumerate() {
+        *slot = buf[base + 4 * n + t];
+    }
+    w
+}
+
+/// Which lane, which of the four MMA registers, and which half of it, holds
+/// the weight at `(row, col)` of a tile.
+///
+/// The `mma.sync.aligned.m16n8k16.row.col` A-fragment layout read backwards:
+/// register `j` covers rows `lane/4 (+8 if j is odd)` and columns
+/// `(lane%4)*2 (+8 if j >= 2)`, so the inverse is exact and total.
+fn fragment_slot(row: usize, col: usize) -> (usize, usize, usize) {
+    let j = usize::from(row >= 8) + 2 * usize::from(col >= 8);
+    let lane = (row % 8) * 4 + (col % 8) / 2;
+    (lane, j, col % 2)
+}
+
+/// The trellis state a `(lane, register)` pair reads.
+///
+/// The window slides 4 bits per step across `s_lane | s_{lane+1} << 16`, so
+/// register `j` sees state `4*lane + 4 - j`, and `j = 0` reaches entirely into
+/// the next lane's word. Modulo 128 because `__shfl_sync(.., lane + 1)` wraps
+/// at the warp edge — which is exactly the circular wrap the packer writes.
+fn state_index(lane: usize, j: usize) -> usize {
+    (4 * lane + 4 - j) % QTIP_STATES_PER_TILE
 }
 
 /// One weight of a `d_in`-wide buffer, at `(row, col)` of the matrix.
-///
-/// Rules 1 and 4 composed. Decodes the single state it needs, not the tile.
 pub fn weight_at(buf: &[u16], d_in: usize, row: usize, col: usize, tlut: &Tlut) -> f32 {
     assert!(col < d_in, "QTIP: column {col} past width {d_in}");
-    let tile = tile_of(buf, d_in, row / QTIP_TILE, col / QTIP_TILE);
-    let f = (row % QTIP_TILE) * QTIP_TILE + (col % QTIP_TILE);
-    let (a, b) = decode_state(tile_state(tile, f / 2), tlut);
-    if f.is_multiple_of(2) {
-        a
-    } else {
-        b
-    }
+    let words = tile_words(buf, d_in, row / QTIP_TILE, col / QTIP_TILE);
+    let (lane, j, half) = fragment_slot(row % QTIP_TILE, col % QTIP_TILE);
+    let (a, b) = decode_state(tile_state(&words, state_index(lane, j)), tlut);
+    if half == 0 { a } else { b }
 }
 
 /// Decode a whole matrix, row-major, `d_out * d_in` values.
 ///
-/// The reference a device decoder is diffed against. Straightforward on
-/// purpose: one tile at a time, each written into the rows it belongs to, so
-/// the grid order of rule 1 and the in-tile order of rule 4 stay visibly
-/// separate instead of being fused into one index expression nobody can read.
+/// The reference a device decoder is diffed against. One tile at a time, each
+/// weight placed through the fragment map, so the grid order and the in-tile
+/// order stay visibly separate instead of fusing into one index expression
+/// nobody can read.
 ///
 /// # Panics
 ///
 /// If the shape is not tileable, or `buf` is not [`buffer_u16_len`] long.
 pub fn decode_matrix(buf: &[u16], d_out: usize, d_in: usize, tlut: &Tlut) -> Vec<f32> {
     let want = buffer_u16_len(d_out, d_in);
-    assert_eq!(
-        buf.len(),
-        want,
-        "QTIP: {d_out}x{d_in} needs {want} u16, got {}",
-        buf.len()
-    );
+    assert_eq!(buf.len(), want, "QTIP: {d_out}x{d_in} needs {want} u16, got {}", buf.len());
     let mut out = vec![0f32; d_out * d_in];
     for ti in 0..d_out / QTIP_TILE {
         for tj in 0..d_in / QTIP_TILE {
-            let w = decode_tile(tile_of(buf, d_in, ti, tj), tlut);
-            for (f, &v) in w.iter().enumerate() {
-                let row = ti * QTIP_TILE + f / QTIP_TILE;
-                let col = tj * QTIP_TILE + f % QTIP_TILE;
-                out[row * d_in + col] = v;
+            let words = tile_words(buf, d_in, ti, tj);
+            for row in 0..QTIP_TILE {
+                for col in 0..QTIP_TILE {
+                    let (lane, j, half) = fragment_slot(row, col);
+                    let (a, b) = decode_state(tile_state(&words, state_index(lane, j)), tlut);
+                    out[(ti * QTIP_TILE + row) * d_in + tj * QTIP_TILE + col] =
+                        if half == 0 { a } else { b };
+                }
             }
         }
     }
@@ -494,6 +527,17 @@ pub fn qtip_bytes(d_out: usize, d_in: usize) -> u64 {
         d_out.is_multiple_of(QTIP_TILE) && d_in.is_multiple_of(QTIP_TILE),
         "shape must tile 16x16"
     );
+    // And both tile counts must be EVEN: a group pairs two K-tiles by two
+    // M-tiles, so an odd count leaves a tile with no partner and no address.
+    // The five served shapes give 256/64/160/608 M-tiles and 160/256/608
+    // K-tiles, all even; the kernel asserts the M half itself
+    // (`static_assert(tileCountM % 2 == 0)`).
+    assert!(
+        (d_out / QTIP_TILE).is_multiple_of(2) && (d_in / QTIP_TILE).is_multiple_of(2),
+        "QTIP: {d_out}x{d_in} gives {}x{} tiles; both counts must be even",
+        d_out / QTIP_TILE,
+        d_in / QTIP_TILE
+    );
     (buffer_u16_len(d_out, d_in) * 2) as u64
 }
 
@@ -583,12 +627,6 @@ mod tests {
             *st = v;
         }
         out
-    }
-
-    fn tile_from(buf: &[u16], k: usize) -> [u16; QTIP_U16_PER_TILE] {
-        buf[k * QTIP_U16_PER_TILE..(k + 1) * QTIP_U16_PER_TILE]
-            .try_into()
-            .unwrap()
     }
 
     /// A codebook of exactly representable, strictly positive, pairwise
@@ -801,41 +839,161 @@ mod tests {
     #[should_panic(expected = "needs")]
     fn a_buffer_of_the_wrong_length_is_refused() {
         let tlut = analytic_tlut();
-        let buf = pseudo_random_buffer(32, 48, 1);
-        decode_matrix(&buf, 32, 64, &tlut);
+        // Packed for one shape, decoded as another. Both are tileable and
+        // both have even tile counts, so only the LENGTH check can catch it —
+        // which is the point: a fixed-rate code carries no shape of its own.
+        let buf = pseudo_random_buffer(32, 64, 1);
+        decode_matrix(&buf, 32, 96, &tlut);
     }
 
-    /// Rule 1: tiles are row-major on the grid, with a row stride of
-    /// `d_in / 16` — checked on a **non-square** shape, which is the only
-    /// kind that can tell `ti · (d_in/16) + tj` from `tj · (d_out/16) + ti`.
+    /// The four tiles of a group are **interleaved word by word, stride 4** —
+    /// the property that job `6a879628` proved and the previous model denied.
+    ///
+    /// 🚨 This test replaces `the_tile_grid_is_row_major`, which pinned the
+    /// refuted model: it asserted a tile was 32 contiguous words at
+    /// `(ti·tiles_k + tj)·32`. It passed, and it was wrong — a test can only
+    /// pin what its author believes, which is why the card is the arbiter.
+    /// Replay the KERNEL's own index arithmetic and confront the closed form
+    /// with it — the test that would have caught the model job `6a879628`
+    /// refuted, and the reason it did not exist is that the old model was
+    /// derived by reading rather than by replaying.
+    ///
+    /// The replay walks blocks, warps, the `ki` loop and the `(submi, subki)`
+    /// pair exactly as `kernel_decompress_matvec` does, and derives from
+    /// `weight_idx` which group each `(M-tile, K-tile)` lands in. Two things
+    /// are asserted: the map is a **bijection** onto every `(row, col)` of the
+    /// matrix, and it **agrees with `group_of`** everywhere.
+    ///
+    /// Bijection is the load-bearing half. A wrong-but-consistent map would
+    /// still agree with itself; only covering each weight exactly once, with
+    /// no collision, pins the addressing.
     #[test]
-    fn the_tile_grid_is_row_major() {
-        let (d_out, d_in) = (32usize, 48usize); // 2 x 3 tiles
-        let tlut = analytic_tlut();
-        let buf = pseudo_random_buffer(d_out, d_in, 0x9E37);
-        assert_eq!(buf.len(), 6 * QTIP_U16_PER_TILE);
+    #[cfg_attr(debug_assertions, ignore = "replays 128 blocks x 32 warps; release only")]
+    fn the_closed_form_replays_the_kernel_indexing() {
+        // A real served shape, small enough to enumerate: 1024x2560.
+        const M: usize = 1024;
+        const K: usize = 2560;
+        let (tiles_m, tiles_k) = (M / QTIP_TILE, K / QTIP_TILE);
+        let m_per_block = tiles_m.div_ceil(2 * 128);
+        let k_per_block = tiles_k / (32 * 4) * 2;
 
-        // Tile (0,1) is the second one in the buffer.
-        assert_eq!(tile_offset(d_in, 0, 1), QTIP_U16_PER_TILE);
-        // Tile (1,0) is the fourth: one whole grid row of three tiles ahead.
-        assert_eq!(tile_offset(d_in, 1, 0), 3 * QTIP_U16_PER_TILE);
-
-        let want = decode_tile(&tile_from(&buf, 1), &tlut);
-        let got: Vec<f32> = (0..QTIP_WEIGHTS_PER_TILE)
-            .map(|f| weight_at(&buf, d_in, f / QTIP_TILE, QTIP_TILE + f % QTIP_TILE, &tlut))
-            .collect();
-        assert_eq!(
-            got,
-            want.to_vec(),
-            "matrix rows 0..16, cols 16..32 are tile 1"
+        // One entry per (M-tile, K-tile); `usize::MAX` means "not yet seen".
+        let mut seen = vec![usize::MAX; tiles_m * tiles_k];
+        for block in 0..128usize {
+            // Written as the kernel writes it: `tileIdM` advances at the
+            // bottom of the loop body, and the guard is the kernel's own
+            // early return. Clippy suggests zipping a range, which would
+            // stop being a transcription.
+            #[allow(clippy::mut_range_bound)]
+            for mi in 0..m_per_block {
+                let tile_id_m = m_per_block * block + mi;
+                if tile_id_m * 2 >= tiles_m {
+                    break;
+                }
+                for warp in 0..32usize {
+                    let this_warp_k = if warp < (tiles_k % 128) / 4 {
+                        k_per_block + 2
+                    } else {
+                        k_per_block
+                    };
+                    for ki in 0..this_warp_k {
+                        // The base of the 128-word group `reg_cs` refers to.
+                        let base = tile_id_m * (tiles_k * QTIP_U16_PER_TILE * 2)
+                            + (ki / 2) * (32 * 128 * 2)
+                            + warp * 256
+                            + (ki % 2) * 128;
+                        let kt0 = 128 * (ki / 2) + 4 * warp + 2 * (ki % 2);
+                        for subki in 0..2 {
+                            for submi in 0..2 {
+                                let (mt, kt) = (2 * tile_id_m + submi, kt0 + subki);
+                                let slot = 2 * subki + submi;
+                                // The closed form must produce the same group
+                                // and the same slot.
+                                assert_eq!(
+                                    group_of(K, mt, kt),
+                                    (base, slot),
+                                    "tile ({mt},{kt}) block={block} warp={warp} ki={ki}"
+                                );
+                                let cell = &mut seen[mt * tiles_k + kt];
+                                assert_eq!(*cell, usize::MAX, "tile ({mt},{kt}) dispatched twice");
+                                *cell = base;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            seen.iter().all(|&v| v != usize::MAX),
+            "the kernel never dispatches some tile of a {M}x{K} matrix"
         );
 
-        // …and are *not* tile 2, which is where a transposed grid would put
-        // them. Without this the assertion above would also pass on a buffer
-        // whose tiles happened to be equal.
+        // And the fragment map is a bijection inside a tile: 32 lanes x 4
+        // registers x 2 halves must hit each of the 256 positions once.
+        let mut hit = [0u8; QTIP_WEIGHTS_PER_TILE];
+        for row in 0..QTIP_TILE {
+            for col in 0..QTIP_TILE {
+                let (lane, j, half) = fragment_slot(row, col);
+                assert!(lane < 32 && j < 4 && half < 2);
+                hit[state_index(lane, j) * 2 + half] += 1;
+            }
+        }
+        assert!(hit.iter().all(|&c| c == 1), "the fragment map is not a bijection");
+    }
+
+    #[test]
+    fn the_four_tiles_of_a_group_are_interleaved() {
+        let d_in = 64usize; // 4 K-tiles
+        // Tiles (0,0), (1,0), (0,1), (1,1) share ONE group and differ only by
+        // their slot; (0,2) starts the next group.
+        assert_eq!(group_of(d_in, 0, 0), (0, 0));
+        assert_eq!(group_of(d_in, 1, 0), (0, 1));
+        assert_eq!(group_of(d_in, 0, 1), (0, 2));
+        assert_eq!(group_of(d_in, 1, 1), (0, 3));
+        assert_eq!(group_of(d_in, 0, 2), (128, 0));
+        // A second M-pair is one full grid row of groups further on.
+        assert_eq!(group_of(d_in, 2, 0), (64 * 4, 0));
+
+        // And the gather really is strided: word n of tile t sits at 4n + t.
+        let buf: Vec<u16> = (0..(64 / 16) * (32 / 16) * QTIP_U16_PER_TILE)
+            .map(|i| i as u16)
+            .collect();
+        let w = tile_words(&buf, d_in, 1, 1);
+        assert_eq!(w[0], 3, "tile slot 3 starts at word 3");
+        assert_eq!(w[1], 7, "then 4 words later");
+        assert_eq!(w[31], 4 * 31 + 3);
+    }
+
+    /// Rule 1: groups are row-major on the grid — checked on a **non-square**
+    /// shape, the only kind that can tell one row stride from the other.
+    #[test]
+    fn the_group_grid_is_row_major() {
+        let (d_out, d_in) = (32usize, 64usize); // 2 x 4 tiles, non-square and both even
+        let tlut = analytic_tlut();
+        let buf = pseudo_random_buffer(d_out, d_in, 0x9E37);
+        assert_eq!(buf.len(), 8 * QTIP_U16_PER_TILE);
+
+        // The whole matrix decoded two ways: tile by tile, and weight by
+        // weight. They can only agree if the grid order and the fragment map
+        // agree, which is what this shape is here to separate.
+        let whole = decode_matrix(&buf, d_out, d_in, &tlut);
+        for row in 0..d_out {
+            for col in 0..d_in {
+                assert_eq!(
+                    whole[row * d_in + col],
+                    weight_at(&buf, d_in, row, col, &tlut),
+                    "({row},{col})"
+                );
+            }
+        }
+
+        // Non-vacuity: a transposed grid would place tile (1,0) where (0,1)
+        // is, so the two must not decode alike. Without this the loop above
+        // would also pass on a buffer whose tiles happened to be equal.
         assert_ne!(
-            decode_tile(&tile_from(&buf, 2), &tlut).to_vec(),
-            want.to_vec()
+            tile_words(&buf, d_in, 0, 1).to_vec(),
+            tile_words(&buf, d_in, 1, 0).to_vec(),
+            "a transposed grid would make these the same words"
         );
     }
 
@@ -848,7 +1006,9 @@ mod tests {
     #[test]
     fn weight_at_agrees_with_decode_matrix() {
         let tlut = pseudo_random_tlut(7);
-        for (d_out, d_in) in [(32usize, 48usize), (48, 32), (16, 64)] {
+        // Both orientations, and both tile counts even — a group pairs two
+        // K-tiles by two M-tiles, so an odd count has no representation.
+        for (d_out, d_in) in [(32usize, 64usize), (64, 32), (32, 96)] {
             let buf = pseudo_random_buffer(d_out, d_in, 0xBEEF);
             let m = decode_matrix(&buf, d_out, d_in, &tlut);
             assert_eq!(m.len(), d_out * d_in);
@@ -960,13 +1120,13 @@ mod tests {
     /// read with the wrong `d_in` is the one mistake nothing else can detect
     /// (module note), so the message has to name it.
     #[test]
-    #[should_panic(expected = "buffer and d_in=48 disagree")]
+    #[should_panic(expected = "buffer and d_in=64 disagree")]
     fn a_tile_past_the_buffer_names_the_disagreement() {
-        let buf = pseudo_random_buffer(32, 48, 1);
+        let buf = pseudo_random_buffer(32, 64, 1);
         // Row 32 does not exist in a 32-row matrix; with a fixed-rate code
         // nothing in the buffer says so, and the tile index simply runs off
         // the end.
-        let _ = tile_of(&buf, 48, 2, 0);
+        let _ = tile_words(&buf, 64, 2, 0);
     }
 
     #[test]
@@ -1012,12 +1172,12 @@ mod tests {
     #[test]
     fn the_stand_in_generators_are_deterministic() {
         assert_eq!(
-            pseudo_random_buffer(32, 48, 42),
-            pseudo_random_buffer(32, 48, 42)
+            pseudo_random_buffer(32, 64, 42),
+            pseudo_random_buffer(32, 64, 42)
         );
         assert_ne!(
-            pseudo_random_buffer(32, 48, 42),
-            pseudo_random_buffer(32, 48, 43)
+            pseudo_random_buffer(32, 64, 42),
+            pseudo_random_buffer(32, 64, 43)
         );
         let t = pseudo_random_tlut(5);
         assert_eq!(t.to_vec(), pseudo_random_tlut(5).to_vec());
@@ -1077,7 +1237,7 @@ mod wiring_tests {
         // Two paths to the same number: row-at-a-time against the whole
         // decoded matrix. A packing bug that shifted rows would pass one and
         // not the other.
-        let (d_out, d_in) = (32, 48);
+        let (d_out, d_in) = (32, 64);
         let buf = pseudo_random_buffer(d_out, d_in, 0xF2_0000);
         let tlut = pseudo_random_tlut(0xF2_0001);
         let w = decode_matrix(&buf, d_out, d_in, &tlut);
