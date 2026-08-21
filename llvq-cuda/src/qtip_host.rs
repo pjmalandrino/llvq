@@ -347,12 +347,20 @@ fn fragment_slot(row: usize, col: usize) -> (usize, usize, usize) {
 
 /// The trellis state a `(lane, register)` pair reads.
 ///
-/// The window slides 4 bits per step across `s_lane | s_{lane+1} << 16`, so
-/// register `j` sees state `4*lane + 4 - j`, and `j = 0` reaches entirely into
-/// the next lane's word. Modulo 128 because `__shfl_sync(.., lane + 1)` wraps
-/// at the warp edge — which is exactly the circular wrap the packer writes.
+/// 🚨 **Corrected 2026-08-20 after job `6a87fc2f`**, which still failed at
+/// `1.34e-1`. The cause was one reversed convention, and it is worth naming
+/// because nothing but a device run could have caught it: `__byte_perm(x, y, s)`
+/// builds its 8-byte source with **`x` at bytes 0–3 and `y` at bytes 4–7**. The
+/// kernel calls `__byte_perm(next1, own, 0x5410)`, so the assembled register is
+/// `s_{lane+1} | s_lane << 16` — the NEXT lane's word in the low half, not the
+/// lane's own. Read the other way round, every state index came out mirrored.
+///
+/// With the right order, `reg_c >> (4·(4−j))` walks the MSB-first stream
+/// forward as `j` grows: `j = 0` is the lane's own word, `j = 3` straddles into
+/// the next. Hence `4·lane + j`, which needs no wrap — lane 31, register 3 is
+/// state 127, the last one.
 fn state_index(lane: usize, j: usize) -> usize {
-    (4 * lane + 4 - j) % QTIP_STATES_PER_TILE
+    4 * lane + j
 }
 
 /// One weight of a `d_in`-wide buffer, at `(row, col)` of the matrix.
@@ -853,6 +861,82 @@ mod tests {
     /// refuted model: it asserted a tile was 32 contiguous words at
     /// `(ti·tiles_k + tj)·32`. It passed, and it was wrong — a test can only
     /// pin what its author believes, which is why the card is the arbiter.
+    /// `__byte_perm`, transcribed from the CUDA semantics.
+    ///
+    /// The operand order is the whole point of the test below, so it is
+    /// spelled out rather than assumed: the selector indexes an 8-byte array
+    /// with **`x` at bytes 0–3 and `y` at bytes 4–7**. Getting this backwards
+    /// is what made two device runs fail.
+    fn byte_perm(x: u32, y: u32, s: u32) -> u32 {
+        let src = [
+            x as u8,
+            (x >> 8) as u8,
+            (x >> 16) as u8,
+            (x >> 24) as u8,
+            y as u8,
+            (y >> 8) as u8,
+            (y >> 16) as u8,
+            (y >> 24) as u8,
+        ];
+        (0..4).fold(0u32, |acc, k| {
+            acc | u32::from(src[((s >> (4 * k)) & 0xF) as usize]) << (8 * k)
+        })
+    }
+
+    /// Replay `load_reg_cs` — `ld_cs`, the `__shfl_sync`, and both
+    /// `__byte_perm` selectors — and require that the window each
+    /// `(lane, register)` pair sees is exactly `tile_state(state_index(..))`.
+    ///
+    /// 🚨 **This is the test that was missing, and its absence cost two device
+    /// runs.** The bijection check below is satisfied by any permutation of the
+    /// state indices, so it passed happily while `state_index` was mirrored.
+    /// Only replaying the kernel's own bit assembly pins which state a register
+    /// actually reads.
+    #[test]
+    fn a_register_reads_the_state_the_kernel_assembles() {
+        let mut buf = [0u16; QTIP_U16_PER_TILE];
+        let mut rng = SplitMix64(0xB17E_9E12);
+        for w in buf.iter_mut() {
+            *w = (rng.next_u64() >> 48) as u16;
+        }
+        // The lane's four words are consecutive in memory; the two the R=2
+        // path loads are `u32x2.x` (words 0,1) and `.y` (words 2,3). Only `.x`
+        // is exercised here: it is the one feeding `reg_cs.x`, and the three
+        // other components differ only by which tile of the group they carry.
+        for lane in 0..32usize {
+            let own = u32::from(buf[lane]); // s_lane, in the low half of u32x2.x
+            let next = u32::from(buf[(lane + 1) % QTIP_U16_PER_TILE]); // shfl wraps
+            // reg_cs.x = __byte_perm(next1, reg_load.u32x2.x, 0x5410)
+            let reg_c = byte_perm(next, own, 0x5410);
+            assert_eq!(
+                reg_c,
+                next | (own << 16),
+                "lane {lane}: the assembled register is s_next | s_own << 16"
+            );
+            for j in 0..4usize {
+                let window = ((reg_c >> (4 * (4 - j))) & 0xFFFF) as u16;
+                assert_eq!(
+                    window,
+                    tile_state(&buf, state_index(lane, j)),
+                    "lane {lane}, register {j}: the kernel reads state {}",
+                    state_index(lane, j)
+                );
+            }
+        }
+        // Non-vacuity: a mirrored index map must break this. `4·lane + 3 − j`
+        // is the shape of the formula that failed on the card.
+        let own = u32::from(buf[0]);
+        let next = u32::from(buf[1]);
+        let reg_c = byte_perm(next, own, 0x5410);
+        let (lane, j) = (0usize, 1usize);
+        let mirrored = ((reg_c >> (4 * (4 - j))) & 0xFFFF) as u16;
+        assert_ne!(
+            mirrored,
+            tile_state(&buf, (4 * lane + 4 - j) % QTIP_STATES_PER_TILE),
+            "the mirrored map must not agree, or this test proves nothing"
+        );
+    }
+
     /// Replay the KERNEL's own index arithmetic and confront the closed form
     /// with it — the test that would have caught the model job `6a879628`
     /// refuted, and the reason it did not exist is that the old model was
