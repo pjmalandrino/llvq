@@ -1,0 +1,92 @@
+name, memory.total [MiB]
+NVIDIA L40S, 46068 MiB
+fetch-qtip: both files fetched at e90c6688c8dfae326a3a81b5eb032db7c6680ec0, sha256 verified.
+fetch-qtip: patch applied and verified (4 dead lines removed, 0 residual tokens).
+fetch-qtip: qtip_device.cuh extracted and verified (438 lines).
+
+fetch-qtip: done. Pass this to the bench:
+  export LLVQ_QTIP_DIR=/scratch/qtip
+QTIP inference kernel — fetched, patched, NOT redistributed
+===========================================================
+Fetched     : 2026-08-21T08:07:11Z
+Upstream    : https://github.com/Cornell-RelaxML/qtip
+Commit      : e90c6688c8dfae326a3a81b5eb032db7c6680ec0
+Files       : qtip-kernels/src/inference.cu, inference.h
+sha256 (pristine, before patch)
+  inference.cu dcb0d9dd7b26953fefa854e0c9e9454fc0c6bcab8a92f1621dffdf287d229774
+  inference.h  98ba023d37e340cb4a1f5d7af1074eb01ca1d81d08029d8c99eec32b8f20f838
+
+Licence: GNU GPL v3. This code is NOT part of the LLVQ repository and is NOT
+redistributed by it. It is fetched here to be measured. Running GPL software
+to produce a measurement is unrestricted by the licence, which governs
+distribution.
+
+Lines removed from inference.cu (each verified to have zero uses upstream, so
+the generated device code is unchanged; they are removed because NVRTC carries
+neither torch nor libcu++):
+  #include <cuda/pipeline>
+  #include <mma.h>
+  #include <c10/cuda/CUDAStream.h>
+  using namespace nvcuda;
+
+Derived file: qtip_device.cuh — the device half alone (the three ditto unions,
+the load helpers, the kernel template), with the kernel template rewritten from
+`__global__ static` to `__device__ static` so that our own extern "C" shims
+can carry a name cudarc can resolve. The host launcher is excluded. This file
+is derived from GPL v3 sources and is likewise NOT redistributed.
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : fp16,qtip
+source NVRTC : 147162 octets, sha256 ccec13b554247cb2e35303cb270d978493d18f8d60f9cc8a68a139757671ae67
+  ⚠️ NOYAU QTIP CHARGÉ (GPL v3, non redistribué par ce dépôt — voir docs/qtip-provenance.md)
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+  qtip_mv_4096x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_1024x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_2560x4096  48 registres, 0 o locaux, sm_89
+  qtip_mv_9728x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_2560x9728  56 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 359 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs fp16 3.0e-8, qtip 5.4e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 2 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  FP16 (128 bits)          10.995   10.997   11.000     7.27   16.000      661
+  QTIP 2 bits               2.264    2.267    2.268     0.91    2.000      401
+  --------------------------------------------------------------------------------
+  QTIP 2 bits      vs FP16     : 4.85× [4.85–4.86]  (CONCURRENT — lit 2.000 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  908 Mo distincts par passe sur le bras le plus léger (QTIP 2 bits), soit 9.0× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : QTIP 2 bits 3.54×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la sélection LLVQ_BENCH_ARMS

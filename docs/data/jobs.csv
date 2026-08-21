@@ -57,3 +57,12 @@ date,job_id,name,flavor,billed_min,cost_usd,mesures_file,what
 2026-08-19,6a858231cd3824960fcc1cf8,f5-graine1,rtx-pro-6000,155,7.11,f5-graines-4b-2026-08-19.txt,pilote sur la bonne carte : chaine smoke+seal+ppl validee - ppl 16.7425
 2026-08-19,6a85a76ae55292eada79dba1,f5-graine2,rtx-pro-6000,155,7.11,f5-graines-4b-2026-08-19.txt,ppl 15.8836
 2026-08-19,6a85a76bcd3824960fcc22f1,f5-graine3,rtx-pro-6000,155,7.10,f5-graines-4b-2026-08-19.txt,ppl 15.1027 - etendue inter-graines 10.3 pourcent et les trois paires appariees sont resolues
+2026-08-20,6a877e689cd058584adc481f,f2-p2-echec-chmod,l40sx1,1,0.01,f2-p2-qtip-exactitude-2026-08-21.txt,le bit +x ne survit pas a l upload HF - fetch-qtip.sh Permission denied en 16 s (commit 7bf574f)
+2026-08-20,6a878520c81709766c802fe0,f2-p2-montage-echoue,l40sx1,0,0.00,f2-p2-qtip-exactitude-2026-08-21.txt,montage volume echoue - jamais demarre - aucun log
+2026-08-20,6a878b14c81709766c803022,f2-p2-echec-ntpath,l40sx1,1,0.01,f2-p2-qtip-exactitude-2026-08-21.txt,python3-minimal n a pas ntpath - mort en 16 s (commit d958070)
+2026-08-20,6a878ee6c81709766c80303e,f2-p2-echec-nvrtc,l40sx1,2,0.06,f2-p2-qtip-exactitude-2026-08-21.txt,NVRTC refuse les initialiseurs designes C99 - duree et cout ESTIMES (runtime et logs indisponibles) - commit 2da9f76
+2026-08-21,6a879628c81709766c803079,f2-p2-refutation1,l40sx1,3,0.10,f2-p2-qtip-exactitude-2026-08-21.txt,verification 1.60e-1 - les tuiles ne sont PAS contigues (groupes de 128 mots entrelaces pas 4) - adressage reecrit sur rejeu (commit d1ab21d)
+2026-08-21,6a87fc2fc81709766c803569,f2-p2-refutation2,l40sx1,6,0.19,f2-p2-qtip-exactitude-2026-08-21.txt,verification 1.34e-1 - operandes __byte_perm inverses et state_index faux - test de rejeu tue le mutant (commit 38bd250)
+2026-08-21,6a88057dc81709766c8035e8,f2-p2-montage-echoue,l40sx1,0,0.00,f2-p2-qtip-exactitude-2026-08-21.txt,montage volume echoue - jamais demarre - aucun log
+2026-08-21,6a8805f8c81709766c8035ef,f2-p2-exactitude,l40sx1,6,0.18,f2-p2-qtip-exactitude-2026-08-21.txt,P2 VERT - 5 shims compiles 48-56 registres 0 spill - 1105920 lignes pire erreur qtip 5.4e-8 contre seuil 1e-5
+2026-08-21,6a881ea073304676c8ec4e07,f2-p3-banc-qtip,l40sx1,30,0.89,f2-p3-qtip-banc-2026-08-21.txt,QTIP 2.246 ms contre Planes14 5.103 - r=2.27x [2.27-2.28] la motivation heritee est CONFIRMEE - et QTIP passe SOUS le plancher nullk (4.89x contre 4.77x meme processus)

@@ -1,0 +1,294 @@
+================================================================================
+F2 / P3 — LE BANC À DIX BRAS : QTIP DANS NOTRE HARNAIS (2026-08-21)
+================================================================================
+Job        : 6a881ea073304676c8ec4e07 (l40sx1, 29 min 33 s facturées, 0,89 $)
+Image      : reconstruite au commit 38bd250 (celui de la correction __byte_perm,
+             HEAD au lancement) — P2 (6a8805f8, vert) et P3 partagent cette image.
+Préreg     : proofs/preregistration-f2-qtip-2026-08-20.md, sha256 9b0bc1cf…,
+             tampon .ots posé AVANT le premier job. Commande de P3 exécutée
+             verbatim (§4).
+Provenance : amont épinglé e90c6688c8dfae326a3a81b5eb032db7c6680ec0, sha256
+             vérifiés (dcb0d9dd… / 98ba023d…), PROVENANCE.txt dans le brut
+             ci-dessous. GPL v3, mesuré, non redistribué.
+Coût F2 cumulé : 1,44 $ (dont 0,06 estimé — le job NVRTC n'a ni runtime ni log)
+             contre ≤ 1,80 annoncé. Détail par job dans docs/data/jobs.csv.
+
+--------------------------------------------------------------------------------
+1. r, LA GRANDEUR QUI DÉCIDE (§5bis du préreg) — VERDICT 1, PRÉ-ÉCRIT
+--------------------------------------------------------------------------------
+r = t(Planes14) ÷ t(QTIP), phase 2, mêmes formes, même processus, bras
+entrelacés :
+
+  médianes           : 5,103 / 2,246 = 2,272                        (mesuré)
+  plage (intervalles): [5,101/2,248 ; 5,115/2,245] = [2,269 ; 2,278] (calculé)
+  contrôle par les rapports round-par-round imprimés :
+    (QTIP vs FP16) ÷ (Planes14 vs FP16) = 4,89/2,15 = 2,274, plage
+    [4,89/2,16 ; 4,90/2,15] = [2,26 ; 2,28]                          (calculé)
+
+  ⚠️ le banc n'imprime pas r par round ; les deux dérivations ci-dessus
+  encadrent la plage vraie par l'extérieur (conservateur). Publication :
+
+  >>> r = 2,27× [2,27–2,28] — plage ENTIÈREMENT AU-DESSUS DE 1. <<<
+
+Verdict pré-enregistré (aucune reformulation permise) :
+  « le noyau QTIP porté est r× plus rapide que notre meilleur layout sur ces
+  formes : la motivation héritée de l'introduction est CONFIRMÉE dans notre
+  harnais »
+
+--------------------------------------------------------------------------------
+2. f, ET LE PLAFOND QU'ELLE CRÈVE (§5ter) — L'ERRATUM LE PLUS UTILE DU RUN
+--------------------------------------------------------------------------------
+f = Go/s(QTIP) ÷ Go/s(FP16 du même run) :
+
+  sur médianes : (vs-FP16 médian) ÷ borne = 4,89 / 8,00      = 61,1 % (calculé)
+  sur minima (contrôle, forme interdite en publication) : 405/661 = 61,3 %
+  → même case du §5ter dans les deux versions : la publication est licite.
+
+  δ pré-défini = demi-plage QTIP (0,07 %) + demi-plage Planes14 (0,14 %)
+              = 0,2 point.
+
+PLAFOND : le préreg §5 posait f ≤ 4,79/8,00 = 59,9 % « structurellement, quel
+que soit le noyau », sur le plancher nullk inter-job. Dans CE processus :
+nullk = 4,77× [4,76–4,77] → plafond même-processus 59,6 %.
+
+  >>> f = 61,1 % : AU-DESSUS du plafond, de 1,5 point > δ. <<<
+  >>> t(QTIP) 2,246 ms < t(nullk) 2,306 ms — le bras QTIP est PLUS RAPIDE
+      que notre passe qui ne lit AUCUN octet de poids (séparation 2,7 %,
+      contre une résolution 2R = 0,72 %). <<<
+
+ERRATUM au pré-enregistrement tamponné (le .ots interdit l'édition ; il se
+consigne ici) : la phrase du §5 « aucun bras ne peut aller plus vite [que
+nullk] » est MESURÉE FAUSSE. Le plancher nullk est un plancher de NOTRE
+structure de noyau (grille un-warp-par-ligne, 252 lancements de cette
+géométrie), pas un plancher machine : le noyau QTIP, lancé dans SA géométrie
+(<<<128, 1024, 64 Kio>>>, 252 lancements aussi), fait le même travail de
+projection en lisant 0,91 Go en MOINS de temps que notre passe à zéro octet.
+Conséquence pour le dossier : les « 39 % latence/occupation » de l'attribution
+et le plafond 4,77× du plancher sont des propriétés de notre géométrie de
+lancement — un autre noyau les traverse. P2 avait déjà consigné le défaut
+inter-job de ce même argument ; ceci est la version même-processus, plus forte.
+
+Lecture §5ter (case « f proche du plafond », atteinte par le haut) : le noyau
+QTIP convertit tout ce que notre plancher permettait — et davantage. Son
+décodage en treillis est gratuit au sens du roofline sur cette carte.
+
+--------------------------------------------------------------------------------
+3. LA LIGNE DE LA TABLE, ET LES DEUX COMPARAISONS ANNEXES
+--------------------------------------------------------------------------------
+  QTIP 2 bits : 2,246 ms méd [2,245–2,248], 0,91 Go lus, 2,0000 b/poids,
+                405 Go/s(min), vs FP16 4,89× [4,89–4,90] — étiquette
+                CONCURRENT : la grandeur comparable est les Go/s, pas le ×.
+
+  contre AWQ w4g128 (même processus) : t 2,246 vs 3,252 ms → 1,45× plus
+    rapide, en lisant 0,48× les octets ; AWQ garde le meilleur débit converti
+    (584 contre 405 Go/s).                                          (calculé)
+  avec le lm_head f16 ajouté (comptabilité du banc) : QTIP 3,56× vs
+    Planes14 1,94×.                                                  (mesuré)
+
+Asymétries déclarées d'avance et non corrigées (§3 du préreg) : QTIP ne porte
+ni queue f32 ni échelle de ligne f32 (en sa faveur) ; payload pseudo-aléatoire
+(licite : code à débit fixe, noyau sans branche dépendante des données) ;
+AUCUNE PHRASE DE QUALITÉ ne peut s'appuyer sur ce bras. Réserve permanente :
+QTIP tel que livré, réglage <<<128,1024>>> figé, aucun tuning dans aucun sens.
+
+--------------------------------------------------------------------------------
+4. CONTRÔLES
+--------------------------------------------------------------------------------
+- Exactitude : 1 105 920 lignes contre la référence f64, pire erreur QTIP
+  5,4e-8·Σ|w·x| contre un seuil de 1e-5 (le NÔTRE, pas le 1e-3 d'AWQ).
+- Spill (A1) : 0 octet local sur les cinq shims (48–56 registres). L'opt-in
+  64 Kio (A2) est passé sans bruit, comme prévu depuis fusedrun-14b.
+- Dispersion (A3) : plage QTIP 0,13 % de la médiane, très sous les 10 %.
+- Dérive inter-phases : Δ_contrôle = 0,36 % (nullk), demi-étendue max
+  intra-run 0,13 % (planes14), R = 0,36 %. Règle du 08-10 § « décision »,
+  reprise telle quelle (précédents : golay70v2 R=0,56 %, f1 Δ=0,84 % publié) :
+  R est un GRAIN DE RÉSOLUTION — tout écart sous 2R = 0,72 % est non résolu.
+  ⚠️ Lecture stricte de la phrase du §6 du préreg F2 (« bougent de plus que
+  leur demi-plage ») : nullk (0,36 % contre ~0,09 %) et golay70v1 (0,26 %
+  contre ~0,03 %) la dépasseraient. Les deux lectures sont consignées ; le
+  précédent nommé « tel quel » est la règle R, et AUCUNE conclusion de ce
+  journal ne repose sur un écart inférieur à 2R — r est séparé de 1 par 127 %.
+- Le bloc fusion (A4) du banc a tourné dans le même job (gains 13,7 %/11,7 %,
+  sorties identiques au bit) : hors périmètre F2, conservé dans le brut.
+
+--------------------------------------------------------------------------------
+5. SORTIE BRUTE INTÉGRALE (stdout du job, tee → bucket p3-banc.txt)
+--------------------------------------------------------------------------------
+name, memory.total [MiB]
+NVIDIA L40S, 46068 MiB
+fetch-qtip: both files fetched at e90c6688c8dfae326a3a81b5eb032db7c6680ec0, sha256 verified.
+fetch-qtip: patch applied and verified (4 dead lines removed, 0 residual tokens).
+fetch-qtip: qtip_device.cuh extracted and verified (438 lines).
+
+fetch-qtip: done. Pass this to the bench:
+  export LLVQ_QTIP_DIR=/scratch/qtip
+sélection LLVQ_BENCH_ARMS :
+  phase 1/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk
+  phase 2/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk,qtip
+source NVRTC : 147162 octets, sha256 ccec13b554247cb2e35303cb270d978493d18f8d60f9cc8a68a139757671ae67
+  ⚠️ NOYAU QTIP CHARGÉ (GPL v3, non redistribué par ce dépôt — voir docs/qtip-provenance.md)
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+  qtip_mv_4096x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_1024x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_2560x4096  48 registres, 0 o locaux, sm_89
+  qtip_mv_9728x2560  56 registres, 0 o locaux, sm_89
+  qtip_mv_2560x9728  56 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, Planes12x (swap L = 5 → L ≤ 4 inclus), Golay70 (trous origine + exceptions E2), AWQ w4g128, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 1688 s — preuves bloc par bloc des bras construits
+  exceptions L = 5 : 5096688 sur 150681600 blocs (3.3824 %), corrigées dans le même lancement
+  exceptions E2 (pair violant ou L = 5) : 11204181 sur 150681600 blocs (7.4357 %), corrigées dans le même lancement
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, planes12x 2.9e-8, golay70v1 3.4e-8, fp16 3.0e-8, awq 5.8e-5, golay70v2 3.4e-8, cublasf16 5.7e-5, nullk 0.0e0 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 9 bras entrelacés  [phase 1/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  plancher (nullk)          2.298    2.298    2.300     0.07    0.159       31
+  FP16 (128 bits)          10.992   10.995   10.995     7.27   16.000      661
+  FP16 cuBLAS              10.819   10.823   10.828     7.27   16.000      672
+  LLVQ Slot32               5.812    5.815    5.818     2.50    5.510      431
+  LLVQ Planes14             5.094    5.096    5.102     2.18    4.804      428
+  LLVQ Planes12x            5.480    5.485    5.495     1.97    4.342      360
+  LLVQ Golay70 v1           8.162    8.166    8.174     1.63    3.589      200
+  LLVQ Golay70 v2           6.167    6.171    6.174     1.63    3.589      264
+  AWQ w4g128                3.248    3.249    3.250     1.90    4.179      584
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 4.78× [4.78–4.78]
+  FP16 cuBLAS      vs FP16     : 1.02× [1.02–1.02]
+  LLVQ Slot32      vs FP16     : 1.89× [1.89–1.89]
+  LLVQ Planes14    vs FP16     : 2.16× [2.15–2.16]
+  LLVQ Planes12x   vs FP16     : 2.00× [2.00–2.01]
+  LLVQ Golay70 v1  vs FP16     : 1.35× [1.35–1.35]
+  LLVQ Golay70 v2  vs FP16     : 1.78× [1.78–1.78]
+  AWQ w4g128       vs FP16     : 3.38× [3.38–3.39]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+  golay70v2  vs golay70v1 : 1.32× [1.32–1.32]  (>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la campagne v2)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 0.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 3.50×, FP16 cuBLAS 1.01×, LLVQ Slot32 1.74×, LLVQ Planes14 1.94×, LLVQ Planes12x 1.83×, LLVQ Golay70 v1 1.30×, LLVQ Golay70 v2 1.66×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+— phase 2/2 : téléversement des bras ajoutés (qtip) —
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs qtip 5.4e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 10 bras entrelacés  [phase 2/2 : slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk,qtip]
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  plancher (nullk)          2.304    2.306    2.308     0.07    0.159       31
+  FP16 (128 bits)          10.993   10.994   10.996     7.27   16.000      661
+  FP16 cuBLAS              10.821   10.830   10.831     7.27   16.000      672
+  LLVQ Slot32               5.809    5.820    5.821     2.50    5.510      431
+  LLVQ Planes14             5.101    5.103    5.115     2.18    4.804      428
+  LLVQ Planes12x            5.488    5.492    5.495     1.97    4.342      359
+  LLVQ Golay70 v1           8.184    8.187    8.189     1.63    3.589      199
+  LLVQ Golay70 v2           6.181    6.182    6.196     1.63    3.589      264
+  AWQ w4g128                3.249    3.252    3.257     1.90    4.179      584
+  QTIP 2 bits               2.245    2.246    2.248     0.91    2.000      405
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 4.77× [4.76–4.77]
+  FP16 cuBLAS      vs FP16     : 1.02× [1.02–1.02]
+  LLVQ Slot32      vs FP16     : 1.89× [1.89–1.89]
+  LLVQ Planes14    vs FP16     : 2.15× [2.15–2.16]
+  LLVQ Planes12x   vs FP16     : 2.00× [2.00–2.00]
+  LLVQ Golay70 v1  vs FP16     : 1.34× [1.34–1.34]
+  LLVQ Golay70 v2  vs FP16     : 1.78× [1.77–1.78]
+  AWQ w4g128       vs FP16     : 3.38× [3.37–3.38]  (CONCURRENT — lit 4.179 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  QTIP 2 bits      vs FP16     : 4.89× [4.89–4.90]  (CONCURRENT — lit 2.000 b/poids ;
+  la grandeur comparable est les Go/s, pas ce rapport)
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)
+  golay70v2  vs golay70v1 : 1.32× [1.32–1.32]  (>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la campagne v2)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 0.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 3.50×, FP16 cuBLAS 1.01×, LLVQ Slot32 1.74×, LLVQ Planes14 1.94×, LLVQ Planes12x 1.83×, LLVQ Golay70 v1 1.30×, LLVQ Golay70 v2 1.65×, QTIP 2 bits 3.56×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+Δ_contrôle — dérive des bras communs entre phases consécutives
+  phases 1→2 slot32     méd    5.815 →    5.820 ms (+0.08 %), vs FP16 1.891 → 1.889 (-0.08 %)
+  phases 1→2 planes14   méd    5.096 →    5.103 ms (+0.13 %), vs FP16 2.157 → 2.154 (-0.14 %)
+  phases 1→2 planes12x  méd    5.485 →    5.492 ms (+0.13 %), vs FP16 2.005 → 2.002 (-0.14 %)
+  phases 1→2 golay70v1  méd    8.166 →    8.187 ms (+0.26 %), vs FP16 1.346 → 1.343 (-0.24 %)
+  phases 1→2 fp16       méd   10.995 →   10.994 ms (-0.00 %)
+  phases 1→2 awq        méd    3.249 →    3.252 ms (+0.08 %), vs FP16 3.384 → 3.382 (-0.07 %)
+  phases 1→2 golay70v2  méd    6.171 →    6.182 ms (+0.19 %), vs FP16 1.782 → 1.778 (-0.19 %)
+  phases 1→2 cublasf16  méd   10.823 →   10.830 ms (+0.07 %), vs FP16 1.016 → 1.015 (-0.07 %)
+  phases 1→2 nullk      méd    2.298 →    2.306 ms (+0.35 %), vs FP16 4.784 → 4.767 (-0.36 %)
+  Δ_contrôle (max |Δ| des rapports vs FP16) = 0.36 % ; demi-étendue max intra-run = 0.13 % (planes14) ; R = 0.36 %
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 77 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.809 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.017 ms   144 lancements
+  Planes14, matrices séparées            5.096 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.504 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.796 ms [0.791–0.810]  (13.7 %)
+  gain Planes14 : 0.594 ms [0.586–0.596]  (11.7 %)
+  Planes14 / Slot32 sur le gain : 0.74× [0.73–0.75]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.
