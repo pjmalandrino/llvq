@@ -547,16 +547,33 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
 /// a macro an earlier part defines).
 #[test]
 fn each_layout_names_its_own_translation_unit() {
-    use llvq_llm::fused::{load_planes_sources, matvec_kernel_name, planes_source_names};
+    use llvq_llm::fused::{
+        load_planes_sources, matvec_kernel_name, planes_source_names, seg_kernel_name,
+    };
 
     assert_eq!(planes_source_names(FusedLayout::Slot32), &[] as &[&str]);
     assert_eq!(matvec_kernel_name(FusedLayout::Slot32), "tv_slot_h");
     assert_eq!(matvec_kernel_name(FusedLayout::Planes14), "tv_planes_h");
     assert_eq!(matvec_kernel_name(FusedLayout::Planes12x), "tv_planes12x_h");
+    // A second entry point beside the first, on the one layout that can be
+    // segmented. `None` elsewhere is not a scoping choice — see
+    // `seg_kernel_name` for the three silent mechanisms.
+    assert_eq!(seg_kernel_name(FusedLayout::Planes14), Some("tv_planes_seg_h"));
+    for layout in [FusedLayout::Slot32, FusedLayout::Planes12x, FusedLayout::Golay70] {
+        assert_eq!(seg_kernel_name(layout), None, "{layout:?} ne se segmente pas");
+    }
 
     let p14 = planes_source_names(FusedLayout::Planes14);
     let p12 = planes_source_names(FusedLayout::Planes12x);
-    assert_eq!(p14, ["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu"]);
+    // `tv_planes_seg_h.cu` at its exact position, right after the kernel it is
+    // derived from and whose helpers it reuses. It is in **every** list even
+    // on the layouts that never launch it, so all three builds keep one shape
+    // of translation unit and `tv_planes_h`'s register report stays a drift
+    // detector on all of them. See `planes_source_names` for what that costs.
+    assert_eq!(
+        p14,
+        ["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu", "tv_planes_seg_h.cu"]
+    );
     // Planes12x extends Planes14's unit rather than replacing it — that is
     // what keeps `tv_planes_h`'s register report a drift detector on this
     // build too, and it means the shared prefix cannot diverge silently.
@@ -575,6 +592,14 @@ fn each_layout_names_its_own_translation_unit() {
             assert!(
                 unit.contains(&entry),
                 "{layout:?} : l'unité de traduction ne définit pas {entry}"
+            );
+            // …and the segmented entry point, on every bit-plane layout,
+            // launched or not. ⚠️ This is a substring search, not a
+            // compilation: `tests/host_planes_seg_h.cpp` is what puts the unit
+            // through `clang++ -Werror` in this very order.
+            assert!(
+                unit.contains("void tv_planes_seg_h("),
+                "{layout:?} : l'unité de traduction ne définit pas tv_planes_seg_h"
             );
         }
     }

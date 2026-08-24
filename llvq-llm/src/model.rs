@@ -269,6 +269,24 @@ pub enum Proj {
         rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
         proj: std::sync::Arc<crate::fused_cuda::FusedProj>,
     },
+    /// One part of a row-concatenated group — q, k or v of one layer, or gate
+    /// or up. The whole group is launched **once**, by [`group_forward`], and
+    /// the result is narrowed back into the parts; there is no per-projection
+    /// launch to reach from here (see [`Proj::forward_with`]'s arm).
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    FusedSeg {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        /// Shared by every projection of the group — `Arc::ptr_eq` on it is how
+        /// [`group_forward`] recognises a group, structurally rather than by a
+        /// flag that could be set on the wrong three projections.
+        group: std::sync::Arc<crate::fused_cuda::FusedSegProj>,
+        /// First row of this projection inside the group.
+        row0: usize,
+        /// This projection's own width. `group.d_out` is the group's.
+        d_out: usize,
+        /// Rank inside the group, 0-based — its index in `Act::consumers()`.
+        rank: usize,
+    },
 }
 
 /// An activation, in the basis the projections that consume it were quantized
@@ -349,6 +367,8 @@ impl Proj {
             Proj::Dense(_) => None,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => proj.rotation(),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { group, .. } => group.rotation(),
         }
     }
 
@@ -359,6 +379,8 @@ impl Proj {
             Proj::Dense(_) => "(projection dense)",
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => &proj.name,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { group, rank, .. } => group.part_name(*rank),
         }
     }
 
@@ -368,6 +390,10 @@ impl Proj {
             Proj::Dense(l) => l.weight().dim(0),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => Ok(proj.d_out),
+            // The **part**, not the group: this is the width of the tensor the
+            // caller gets back, which is what every consumer reshapes on.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { d_out, .. } => Ok(*d_out),
         }
     }
 
@@ -389,6 +415,13 @@ impl Proj {
                 key: proj.rotation(),
                 t: rt.rotate(proj, x)?,
             }),
+            // One `rot_apply` for the whole group: the parts share one `d_in`
+            // and one rotation key by construction, checked at load time.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { rt, group, .. } => Ok(Rotated {
+                key: group.rotation(),
+                t: rt.rotate_group(group, x)?,
+            }),
         }
     }
 
@@ -407,6 +440,16 @@ impl Proj {
             Proj::Dense(l) => l.forward(x),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { rt, proj } => rt.forward_rotated(proj, &r.t, x.dims()),
+            // Deliberately unreachable, and it must stay that way: a launch per
+            // projection here would compute the group's whole width and then
+            // throw most of it away — silently, and at three times the cost.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { group, .. } => candle_core::bail!(
+                "{} appartient à un groupe fusé de {} lignes : il ne se lance qu'à travers \
+                 model::group_forward, qui émet UN matvec pour tout le groupe.",
+                self.site_name(),
+                group.d_out
+            ),
         }
     }
 
@@ -423,6 +466,11 @@ impl Proj {
                 "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
                 proj.name
             ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { group, rank, .. } => panic!(
+                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                group.part_name(*rank)
+            ),
         }
     }
 
@@ -433,6 +481,11 @@ impl Proj {
             Proj::Fused { proj, .. } => panic!(
                 "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
                 proj.name
+            ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { group, rank, .. } => panic!(
+                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                group.part_name(*rank)
             ),
         }
     }
@@ -508,6 +561,13 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
             .collect();
     }
 
+    // After the dense branch, which must not move, and before the row loop:
+    // a fused group replaces the loop's per-projection launches with one.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    if let Some(plan) = SegPlan::of(projs)? {
+        return plan.run(x);
+    }
+
     let dims = x.dims();
     let rows: usize = dims[..dims.len() - 1].iter().product();
     if rows > MAX_ROWS {
@@ -533,6 +593,131 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
         .zip(projs)
         .map(|(rows_of_site, p)| regroup(&rows_of_site, dims, p.d_out()?))
         .collect()
+}
+
+/// One segmented launch, and the map back to the projections it stands for.
+///
+/// Built by [`Self::of`] from the projections `group_forward` was handed, so
+/// the model states the row order **independently** of the loader that assigned
+/// it. Two places have to agree and neither may assume: a group read in the
+/// order k,q,v would otherwise return finite, plausible, wrong numbers with no
+/// assertion anywhere.
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+struct SegPlan<'a> {
+    /// Both handles are borrowed as the `Arc` rather than as its target: the
+    /// group's identity test below is then `Arc::ptr_eq`, the only comparison
+    /// that cannot be fooled, and the two fields are initialised straight from
+    /// the enum's bindings with no coercion in between — which matters in a
+    /// file no machine of this workspace compiles.
+    rt: &'a std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+    group: &'a std::sync::Arc<crate::fused_cuda::FusedSegProj>,
+    /// `(rank, row0, d_out)` per projection, in the order the caller handed
+    /// them — the shape [`crate::fused::check_seg_spans`] validates.
+    spans: Vec<(usize, usize, usize)>,
+}
+
+#[cfg(all(target_os = "linux", feature = "cuda"))]
+impl<'a> SegPlan<'a> {
+    /// `Some` when every projection handed in is a part of **one** group and,
+    /// together and in this order, they are the whole group.
+    ///
+    /// `None` when none of them is segmented — every dense and every unfused
+    /// build. `Err` when they are mixed, partial, or out of order: a wiring
+    /// bug, never a fallback.
+    fn of(projs: &[&'a Proj]) -> Result<Option<Self>> {
+        if !projs.iter().any(|p| matches!(p, Proj::FusedSeg { .. })) {
+            return Ok(None);
+        }
+        let mut plan: Option<SegPlan<'a>> = None;
+        // `&p` rather than `p`: the item is a `&&Proj`, and destructuring the
+        // outer reference is what ties the bindings to the projections'
+        // lifetime rather than to this loop's.
+        for &p in projs {
+            let Proj::FusedSeg { rt, group, row0, d_out, rank } = p else {
+                candle_core::bail!(
+                    "{} n'appartient à aucun groupe fusé alors que ses voisins de groupe \
+                     oui — un lancement segmenté ne peut pas couvrir la moitié d'un site",
+                    p.site_name()
+                );
+            };
+            match &mut plan {
+                None => {
+                    plan = Some(SegPlan {
+                        rt,
+                        group,
+                        spans: vec![(*rank, *row0, *d_out)],
+                    })
+                }
+                Some(acc) => {
+                    // Pointer identity, not a key: two groups of two layers
+                    // share a `d_in` and a shape, and comparing anything else
+                    // would accept a q/k/v triple assembled across layers.
+                    if !std::sync::Arc::ptr_eq(acc.group, group) {
+                        candle_core::bail!(
+                            "{} appartient à un autre groupe fusé que {} — deux groupes dans \
+                             un seul appel",
+                            p.site_name(),
+                            acc.group.name
+                        );
+                    }
+                    acc.spans.push((*rank, *row0, *d_out));
+                }
+            }
+        }
+        let plan = plan.expect("the `any` above found at least one segmented projection");
+        crate::fused::check_seg_spans(&plan.group.name, &plan.spans, plan.group.d_out)
+            .map_err(candle_core::Error::msg)?;
+        Ok(Some(plan))
+    }
+
+    /// One rotation and one matvec per row, then one view per projection.
+    fn run(&self, x: &Tensor) -> Result<Vec<Tensor>> {
+        let dims = x.dims();
+        let rows: usize = dims[..dims.len() - 1].iter().product();
+        if rows > MAX_ROWS {
+            candle_core::bail!(
+                "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau segmenté \
+                 reste un matvec — il boucle, donc le coût est linéaire.",
+                self.group.name
+            );
+        }
+        let slices = row_views(x)?;
+
+        // One rotation and one matvec per row, whatever `RotShare` says: a
+        // fused group is ONE site, so there is no second arm left to keep.
+        // That is why `fused::check_fuse` refuses `LLVQ_FUSE=1` beside
+        // `LLVQ_ROT_SHARE=0` — accepting it would let an `LLVQ_FUSE` A/B move
+        // the hoist as well. `drive_rows` is deliberately not called here for
+        // the same reason: its two arms would coincide, and calling it would
+        // suggest a control that is gone.
+        let mut per_row = Vec::with_capacity(rows);
+        for row in 0..rows {
+            let r = self.rt.rotate_group(self.group, &slices[row])?;
+            per_row.push(self.rt.forward_rotated_seg(self.group, &r, slices[row].dims())?);
+        }
+        // `[rows, group.d_out]`, then one view per projection on the last axis.
+        let stacked = Tensor::cat(&per_row, 0)?;
+        self.spans
+            .iter()
+            .map(|&(_, row0, d)| {
+                let mut shape = dims.to_vec();
+                *shape.last_mut().expect("rank >= 1") = d;
+                // `.contiguous()` unconditionally, and it is not defensive:
+                //  * at `rows == 1` — the decode path this lot measures — the
+                //    narrow is already contiguous (`Shape::is_contiguous` skips
+                //    axes of extent ≤ 1), so this is a clone and costs nothing;
+                //  * at `rows > 1` the narrow is NOT contiguous (axis 0 has
+                //    stride `group.d_out` against an accumulator of `d`), so
+                //    the caller's `reshape` would materialise anyway. Doing it
+                //    here makes *where* the copy happens explicit, and it is
+                //    the same volume `regroup`'s `Tensor::cat` already copies.
+                // It also closes an aliasing retention: `KvCache::append`
+                // stores `v.clone()`, and a view would keep the whole
+                // 6144-wide buffer alive behind a 1024-wide tensor.
+                stacked.narrow(1, row0, d)?.contiguous()?.reshape(shape)
+            })
+            .collect()
+    }
 }
 
 /// The token embedding: a dense f16 table, or the int8 g64 payload the fused

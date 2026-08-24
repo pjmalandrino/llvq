@@ -42,8 +42,8 @@ use candle_core::{CudaStorage, DType, Device, Layout, Shape, Tensor};
 use half::f16;
 
 use crate::fused::{
-    load_planes_sources, matvec_kernel_name, EmbedMode, FusedLayout, FusedMatrix, FusedModel,
-    HostStream, RotKey, RotationTables, EMBED_GROUP,
+    load_planes_sources, matvec_kernel_name, seg_kernel_name, EmbedMode, FuseMode, FusedGroup,
+    FusedLayout, FusedMatrix, FusedModel, HostStream, RotKey, RotationTables, EMBED_GROUP,
 };
 
 /// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
@@ -141,6 +141,50 @@ impl FusedProj {
     }
 }
 
+/// One fused group's weights, on the device — the row-concatenation of the
+/// projections that share an activation.
+///
+/// A bare `words` field rather than a one-variant [`DeviceStream`]: the
+/// guarantee `DeviceStream` buys (a `Planes14` launch cannot be handed a bases
+/// array) is bought here by the *type of the struct itself* — a group is
+/// `Planes14` by construction and [`upload_group`] refuses anything else, so
+/// there is no second shape for this variant to distinguish it from.
+pub struct FusedSegProj {
+    /// The group key, `"{layer:03}.{act:?}"` — what an error message names.
+    pub name: String,
+    /// The **total** width: Σ of the parts.
+    pub d_out: usize,
+    pub d_in: usize,
+    nblocks: u32,
+    tail_w: u32,
+    words: CudaSlice<u32>,
+    gscale: CudaSlice<f32>,
+    /// One entry a row: where that row's part's pair starts in `gscale`. The
+    /// only thing a row concatenation cannot fold away.
+    gs_off: CudaSlice<u32>,
+    rscale: CudaSlice<f32>,
+    tail: CudaSlice<u16>,
+    rotation: Option<RotKey>,
+    /// One artifact name per part, indexed by rank — what `Proj::site_name`
+    /// returns, so an error still names a projection and not a group.
+    part_names: Vec<String>,
+}
+
+impl FusedSegProj {
+    /// The rotation every part of this group was quantized under. Equal across
+    /// the parts by construction, re-asserted by `fused::segment_matrices`.
+    pub fn rotation(&self) -> Option<RotKey> {
+        self.rotation
+    }
+
+    /// The artifact name of the part at `rank`.
+    pub fn part_name(&self, rank: usize) -> &str {
+        self.part_names
+            .get(rank)
+            .map_or("(partie hors groupe)", String::as_str)
+    }
+}
+
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
@@ -149,6 +193,11 @@ pub struct FusedRuntime {
     /// kernel per runtime, chosen with the layout, so a stream and a kernel
     /// of different layouts cannot meet.
     f_matvec: CudaFunction,
+    /// `tv_planes_seg_h` — present exactly when the layout can be segmented
+    /// **and** the loader was asked to fuse. The `f_emb`/`g70_tabs` pattern: an
+    /// `Option` whose `Some` is the *authorisation*, so no launch path can
+    /// reach a function the source list never carried.
+    f_matvec_seg: Option<CudaFunction>,
     tab: CudaSlice<u32>,
     /// The Golay70 constant tables `(cwtab, gtab)` — the canonical 4096-word
     /// codeword table and the 512-entry `GolayClassRec` table — present
@@ -178,12 +227,15 @@ impl FusedRuntime {
     /// `emode` decides whether the q8 embedding kernels join the translation
     /// unit; it must match how the caller intends to build the model, and is
     /// taken here rather than re-read from the environment so a runtime and
-    /// its loader cannot resolve the variable twice differently.
+    /// its loader cannot resolve the variable twice differently. `fuse` is
+    /// taken for exactly the same reason, and decides whether the segmented
+    /// entry point is looked up at all.
     pub fn new(
         model: &FusedModel,
         device: &Device,
         emode: EmbedMode,
-    ) -> candle_core::Result<(Self, Vec<FusedProj>)> {
+        fuse: FuseMode,
+    ) -> candle_core::Result<(Self, Vec<FusedProj>, Vec<FusedSegProj>)> {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
 
@@ -220,6 +272,18 @@ impl FusedRuntime {
             }
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
+        // The five binaries of `llvq-cuda` print this and the served path never
+        // did, while `fused::load_planes_sources` cites "the printed sha256" as
+        // the justification of its all-or-nothing override policy. A lot that
+        // ADDS a file to the served unit is the one where that stops being a
+        // formality: without this line, a run with `LLVQ_KERNEL_DIR` set is
+        // traceable by a directory name and nothing else.
+        println!(
+            "source NVRTC : {} octets, sha256 {} ({} parties)",
+            src.text.len(),
+            src.sha256,
+            parts.len()
+        );
         let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
 
         // The register report is a contract, not a diagnostic: the block
@@ -228,6 +292,14 @@ impl FusedRuntime {
         // result. Checked on the kernel this runtime will actually launch.
         let matvec_name = matvec_kernel_name(model.layout);
         let mut spill_checked = vec![matvec_name, "rot_apply"];
+        // In the translation unit whenever the bit-plane sources are — so the
+        // register report covers it on the Planes12x and Golay70 builds too,
+        // where it is compiled and never launched. `local_bytes == 0` is a
+        // contract, not a diagnostic: a spill costs occupancy without changing
+        // a result, so no correctness test can ever see it.
+        if planes.is_some() {
+            spill_checked.push("tv_planes_seg_h");
+        }
         if emb.is_some() {
             spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
         }
@@ -238,6 +310,13 @@ impl FusedRuntime {
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
+        // Looked up only when both the layout and the caller allow it: the
+        // `Some` is the authorisation, so `forward_rotated_seg` has nothing to
+        // fall back on rather than something to check.
+        let f_matvec_seg = match (fuse, seg_kernel_name(model.layout)) {
+            (FuseMode::On, Some(n)) => Some(cuda.func(n).map_err(candle_core::Error::msg)?),
+            _ => None,
+        };
         // `f_rot` is loaded further down, once the widest rotation is known:
         // staging past 48 KiB needs an opt-in posed on the *function*, and it
         // has to name the number of bytes. See the shared-memory block below.
@@ -323,10 +402,23 @@ impl FusedRuntime {
             rotations.insert(key, upload_rotation(&cuda, t)?);
         }
 
-        let max_d_in = model.matrices.iter().map(|m| m.d_in).max().unwrap_or(0);
+        // Over the groups as well: under fusion most of the model's activations
+        // are a group's, and a bound taken over the lone projections alone
+        // would be a bound over `o_proj` and `down_proj`.
+        let max_d_in = model
+            .matrices
+            .iter()
+            .map(|m| m.d_in)
+            .chain(model.groups.iter().map(|g| g.d_in))
+            .max()
+            .unwrap_or(0);
         let mut projs = Vec::with_capacity(model.matrices.len());
         for m in &model.matrices {
             projs.push(upload_matrix(&cuda, m, model.layout)?);
+        }
+        let mut seg_projs = Vec::with_capacity(model.groups.len());
+        for g in &model.groups {
+            seg_projs.push(upload_group(&cuda, g, model.layout)?);
         }
 
         Ok((
@@ -334,6 +426,7 @@ impl FusedRuntime {
                 cuda,
                 f_rot,
                 f_matvec,
+                f_matvec_seg,
                 tab,
                 g70_tabs,
                 rotations,
@@ -343,6 +436,7 @@ impl FusedRuntime {
                 max_d_in,
             },
             projs,
+            seg_projs,
         ))
     }
 
@@ -395,6 +489,67 @@ impl FusedRuntime {
         let op = FusedOp {
             rt: self,
             proj,
+            out_shape,
+        };
+        // No `to_dtype` on the result: the kernel already stored halves.
+        xr.apply_op1_no_bwd(&op)
+    }
+
+    /// [`Self::rotate`] for a fused group — one `rot_apply`, one f32
+    /// `[1, d_in]` result. The parts share one `d_in` and one rotation key by
+    /// construction (`fused::segment_matrices` re-asserts both), so there is
+    /// one rotation to do and no choice of which.
+    pub fn rotate_group(
+        &self,
+        g: &FusedSegProj,
+        x: &Tensor,
+    ) -> candle_core::Result<Tensor> {
+        let dims = x.dims();
+        let d_in = *dims.last().expect("rank >= 1");
+        if d_in != g.d_in {
+            candle_core::bail!("{} attend d_in={}, reçu {d_in}", g.name, g.d_in);
+        }
+        let rows: usize = dims[..dims.len() - 1].iter().product();
+        if rows != 1 {
+            candle_core::bail!(
+                "{} : rotation demandée sur {rows} vecteurs. La boucle de lignes appartient \
+                 à model::group_forward, qui la partage entre les parties du groupe.",
+                g.name
+            );
+        }
+        let x = x.to_dtype(DType::F16)?;
+        let op = RotSegOp { rt: self, group: g };
+        x.apply_op1_no_bwd(&op)
+    }
+
+    /// `y = W' xr` for one fused group. `out_dims` is the caller's shape; the
+    /// last axis becomes the group's **total** width, which
+    /// `model::group_forward` then narrows back into the parts.
+    pub fn forward_rotated_seg(
+        &self,
+        g: &FusedSegProj,
+        xr: &Tensor,
+        out_dims: &[usize],
+    ) -> candle_core::Result<Tensor> {
+        // The only place the absent `CudaFunction` can surface, so it surfaces
+        // as a message naming the group rather than as an `unwrap` in the
+        // middle of a billed job.
+        let f = self.f_matvec_seg.as_ref().ok_or_else(|| {
+            candle_core::Error::msg(format!(
+                "{} : groupe fusé lancé par un runtime construit sans tv_planes_seg_h \
+                 (LLVQ_FUSE=0, ou un layout qui ne se segmente pas)",
+                g.name
+            ))
+        })?;
+        let out_shape = {
+            let mut d = out_dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = g.d_out;
+            Shape::from(d)
+        };
+        let op = FusedSegOp {
+            rt: self,
+            f,
+            group: g,
             out_shape,
         };
         // No `to_dtype` on the result: the kernel already stored halves.
@@ -900,6 +1055,169 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
     }
 }
 
+/// [`RotOp`] for a fused group — the same launch, keyed on the group's shared
+/// rotation instead of one matrix's.
+///
+/// A separate type rather than an `enum` field on `RotOp`: the two carry
+/// different borrows and nothing else, and a shared struct with two `Option`s
+/// would be one `unwrap` away from launching a group's rotation on a lone
+/// projection's width.
+struct RotSegOp<'a> {
+    rt: &'a FusedRuntime,
+    group: &'a FusedSegProj,
+}
+
+impl candle_core::CustomOp1 for RotSegOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-rot-apply-seg"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("la rotation LLVQ n'a pas de chemin CPU")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let all = storage.as_cuda_slice::<f16>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+        if end - start != self.group.d_in {
+            candle_core::bail!(
+                "activation de {} valeurs pour d_in={}",
+                end - start,
+                self.group.d_in
+            );
+        }
+        let rot = match self.group.rotation {
+            None => candle_core::bail!(
+                "{} : groupe sans rotation — chemin non couvert, cf. fused_cuda.rs",
+                self.group.name
+            ),
+            Some(key) => self
+                .rt
+                .rotations
+                .get(&key)
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
+        };
+        let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.group.d_in) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
+        self.rt
+            .cuda
+            .launch_rot(
+                &self.rt.f_rot, all, &rot.signbits, &rot.small, &mut xr, rot.n, rot.m, rot.k,
+                rot.inv, start as u32, rot.threads,
+            )
+            .map_err(candle_core::Error::msg)?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
+            Shape::from(vec![1, self.group.d_in]),
+        ))
+    }
+}
+
+/// [`FusedOp`] for a fused group: one launch over the row concatenation, with
+/// the same three guards on the activation and the same uninitialised output.
+///
+/// It carries `f` rather than reading `rt.f_matvec_seg` here, so the absent
+/// function is refused in [`FusedRuntime::forward_rotated_seg`] — before any
+/// allocation — instead of inside a `CustomOp1` whose error surfaces two frames
+/// away from the projection that caused it.
+struct FusedSegOp<'a> {
+    rt: &'a FusedRuntime,
+    f: &'a CudaFunction,
+    group: &'a FusedSegProj,
+    out_shape: Shape,
+}
+
+impl candle_core::CustomOp1 for FusedSegOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-fused-matvec-seg"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("le noyau fusé LLVQ n'a pas de chemin CPU")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let xr = storage.as_cuda_slice::<f32>()?;
+        // `(start, start + elem_count)` — a *range*, not `(offset, length)`,
+        // exactly as in `FusedOp::cuda_fwd`. Taking the second field for a
+        // length is silent at offset 0 and wrong everywhere else.
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+        let len = end - start;
+        if len != self.group.d_in {
+            candle_core::bail!(
+                "activation tournée de {len} valeurs pour d_in={}",
+                self.group.d_in
+            );
+        }
+        // The matvec kernels index `x` from the base pointer and take no
+        // offset, so a nonzero start would read the wrong slice and return
+        // finite, plausible, wrong numbers. Asserted, not assumed.
+        if start != 0 {
+            candle_core::bail!(
+                "{} : activation tournée à l'offset {start}, alors que les noyaux matvec \
+                 indexent depuis la base",
+                self.group.name
+            );
+        }
+
+        // f16, and uninitialised — the same argument as `FusedOp`, and it needs
+        // restating because segmentation is exactly the shape in which it could
+        // stop holding: a segmented matrix is a concatenation **by rows**, rows
+        // partition the output, the grid is exact, and every row is *stored*
+        // rather than accumulated into. No CTA outside a row's own warp writes
+        // that row, so there is nothing to zero. ⚠️ If an exception region is
+        // ever added to a segmented layout, this allocation becomes a memset in
+        // the same commit.
+        let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.group.d_out) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
+        let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
+
+        launch_planes_seg_h(
+            &self.rt.cuda,
+            self.f,
+            &self.group.words,
+            &self.rt.tab,
+            &self.group.gscale,
+            &self.group.gs_off,
+            &self.group.rscale,
+            &self.group.tail,
+            xr,
+            &mut y,
+            self.group.nblocks,
+            self.group.tail_w,
+            self.group.d_out as u32,
+            THREADS,
+            shared,
+        )
+        .map_err(candle_core::Error::msg)?;
+
+        Ok((
+            CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
+            self.out_shape.clone(),
+        ))
+    }
+}
+
 fn upload_rotation(
     cuda: &llvq_cuda::gpu::Cuda,
     t: &RotationTables,
@@ -949,6 +1267,48 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
         .arg(&nblocks).arg(&tail_w);
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_h: {e}"))?;
+    Ok(())
+}
+
+/// The segmented twin of [`launch_planes_h`] — same grid, one extra array.
+///
+/// `gs_off` sits between `gscale` and `rscale`, which is `tv_planes_seg_h`'s
+/// declaration order. Note what the types buy here, against the remark
+/// [`launch_planes12x_h`] makes: `gscale` is `CudaSlice<f32>` and `gs_off` is
+/// `CudaSlice<u32>`, so transposing *those two* does not compile. The pair that
+/// still could is `gscale`/`rscale`, and that hazard predates this lot.
+///
+/// The grid is `tv_planes_h`'s, unchanged, over the **total** `d_out`: on the
+/// published 4B, q+k+v becomes 768 CTAs where it was 512+128+128, and gate+up
+/// 2432 where it was 1216+1216. Same CTAs, one launch.
+#[allow(clippy::too_many_arguments)]
+fn launch_planes_seg_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaSlice<u32>,
+    tab: &CudaSlice<u32>,
+    gscale: &CudaSlice<f32>,
+    gs_off: &CudaSlice<u32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
+        .arg(&nblocks).arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_seg_h: {e}"))?;
     Ok(())
 }
 
@@ -1143,6 +1503,89 @@ fn upload_matrix(
     })
 }
 
+/// Upload one fused group — the row concatenation, plus the offset table that
+/// is the only thing it adds.
+///
+/// Every refusal below fires **before** a byte reaches the card, and every one
+/// of them guards a failure that is finite, plausible and wrong rather than a
+/// crash. The `gs_off` sweep in particular is the only guard possible on that
+/// table: an entry past `gscale` would read arbitrary floats downstream of it
+/// without ever leaving an arena allocator's allocation, so nothing on the card
+/// would notice. It costs one pass over 25 600 `u32` a group, once, at load.
+fn upload_group(
+    cuda: &llvq_cuda::gpu::Cuda,
+    g: &FusedGroup,
+    layout: FusedLayout,
+) -> candle_core::Result<FusedSegProj> {
+    if seg_kernel_name(layout).is_none() {
+        candle_core::bail!(
+            "{} : groupe fusé sur le layout {} — seul planes14 se segmente",
+            g.key,
+            layout.name()
+        );
+    }
+    // Per part **and** on the total, the `fused::segment_matrices` rule: the
+    // total alone would let an individually ragged part through on a lucky sum,
+    // and the unfused control arm could then not be launched at all.
+    if !g.d_out.is_multiple_of(8) {
+        candle_core::bail!("{} : d_out={} n'est pas un multiple de 8", g.key, g.d_out);
+    }
+    for p in &g.parts {
+        if !p.d_out.is_multiple_of(8) {
+            candle_core::bail!("{} : {} a d_out={} — pas un multiple de 8", g.key, p.name, p.d_out);
+        }
+    }
+    if g.gs_off.len() != g.d_out
+        || g.gscale.len() != 2 * g.parts.len()
+        || g.rscale.len() != g.d_out
+        || g.tail.len() != g.d_out * g.tail_w
+    {
+        candle_core::bail!(
+            "{} : {} gs_off, {} centroïdes, {} échelles, {} valeurs de queue pour {} lignes \
+             de {} et {} parties",
+            g.key,
+            g.gs_off.len(),
+            g.gscale.len(),
+            g.rscale.len(),
+            g.tail.len(),
+            g.d_out,
+            g.tail_w,
+            g.parts.len()
+        );
+    }
+    if let Some(bad) = g.gs_off.iter().position(|&o| o as usize + 1 >= g.gscale.len()) {
+        candle_core::bail!(
+            "{} : gs_off[{bad}]={} hors de la table de {} centroïdes",
+            g.key,
+            g.gs_off[bad],
+            g.gscale.len()
+        );
+    }
+    let HostStream::Planes14 { words } = &g.stream else {
+        candle_core::bail!("{} : flux de groupe qui n'est pas Planes14", g.key);
+    };
+    Ok(FusedSegProj {
+        name: g.key.clone(),
+        d_out: g.d_out,
+        d_in: g.d_in,
+        nblocks: g.nblocks as u32,
+        tail_w: g.tail_w as u32,
+        words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+        gscale: cuda.up_f32(&g.gscale).map_err(candle_core::Error::msg)?,
+        gs_off: cuda.up_u32(&g.gs_off).map_err(candle_core::Error::msg)?,
+        rscale: cuda.up_f32(&g.rscale).map_err(candle_core::Error::msg)?,
+        // Same zero-length rule as `upload_matrix`: cudarc refuses an empty
+        // upload, so a group whose `d_in` is a multiple of 24 gets a one-element
+        // dummy the kernel never reads (`tail_w == 0` makes `tail_dot_h`'s loop
+        // empty).
+        tail: cuda
+            .up_u16(if g.tail.is_empty() { &[0u16] } else { &g.tail })
+            .map_err(candle_core::Error::msg)?,
+        rotation: g.rotation,
+        part_names: g.parts.iter().map(|p| p.name.clone()).collect(),
+    })
+}
+
 /// A model rebuilt from a sealed artifact **with its projections still
 /// encoded**, plus what it took to do so.
 pub struct FusedSealed {
@@ -1158,6 +1601,14 @@ pub struct FusedSealed {
     /// `rot_apply` launches one decode token costs. Printed on both arms: a
     /// gate showing identical tokens at 252 launches each proves nothing.
     pub rot_launches: usize,
+    /// Whether the projections that share an activation were row-concatenated
+    /// into one launch (`LLVQ_FUSE`).
+    pub fuse: FuseMode,
+    /// Matvec launches one decode token costs — 252 unfused on the published
+    /// 4B, 144 fused. Printed on the arm line for the same reason
+    /// [`Self::rot_launches`] is: a gate showing identical tokens while both
+    /// arms issued 252 matvecs proves the tokens and nothing about the lot.
+    pub matvec_launches: usize,
     pub quantized_weights: usize,
     pub carried_weights: usize,
     /// Size of the file on disk.
@@ -1193,6 +1644,20 @@ pub struct FusedSealed {
 /// false and the tail would be the one place the fused path is coarser than
 /// its reference. Refusing beats carrying a silently weaker claim.
 pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
+    let fuse = crate::fused::FuseMode::from_env().map_err(candle_core::Error::msg)?;
+    load_with(path, device, dtype, fuse)
+}
+
+/// [`load`] with the fusion mode named by the caller rather than read from the
+/// environment — what lets `bin/fusedrun` run both arms in one process, each
+/// dropped before the next loads, so the card holds one arm at a time and the
+/// two share a card, a prompt and one NVRTC translation unit.
+pub fn load_with(
+    path: &str,
+    device: &Device,
+    dtype: DType,
+    fuse: FuseMode,
+) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
 
     if dtype != DType::F16 {
@@ -1210,15 +1675,31 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
     let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
     let share = crate::rotplan::RotShare::from_env().map_err(candle_core::Error::msg)?;
-    let mut model = crate::fused::load(path, layout).map_err(candle_core::Error::msg)?;
-    // The partition is checked inside `fused::load`; this is only its count,
-    // printed because `LLVQ_ROT_SHARE=1` reporting 252 launches would be a lot
-    // that did nothing while looking green.
-    let rot_launches = crate::rotplan::rot_launches_per_token(share, &model.matrices);
+    // Both refusals before the 145 s transcode, not after it: a job that pays
+    // for a load and then discovers its two variables are incompatible has
+    // spent the money for nothing.
+    crate::fused::check_fuse(layout, share, fuse).map_err(candle_core::Error::msg)?;
+    let mut model =
+        crate::fused::load_with(path, layout, fuse).map_err(candle_core::Error::msg)?;
+    // The partition is checked inside `fused::load_with`; these are only its
+    // counts, printed because `LLVQ_ROT_SHARE=1` reporting 252 launches — or
+    // `LLVQ_FUSE=1` reporting 252 matvecs — would be a lot that did nothing
+    // while looking green.
+    let rot_launches = crate::rotplan::rot_launches(share, &model.matrices, &model.groups);
+    let matvec_launches =
+        crate::rotplan::matvec_launches_per_token(&model.matrices, &model.groups);
+    let projections =
+        model.matrices.len() + model.groups.iter().map(|g| g.parts.len()).sum::<usize>();
     println!(
         "rotation partagée : {} (LLVQ_ROT_SHARE) — {rot_launches} rot_lancements/token \
-         pour {} projections",
-        share.name(),
+         pour {projections} projections",
+        share.name()
+    );
+    println!(
+        "fusion des projections : {} (LLVQ_FUSE) — {matvec_launches} matvec_lancements/token \
+         pour {projections} projections ({} groupes + {} seules)",
+        fuse.name(),
+        model.groups.len(),
         model.matrices.len()
     );
     // The accounting is named on the line, because since lot A7a this number
@@ -1255,15 +1736,41 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         ),
     };
 
-    let (rt, projs) = FusedRuntime::new(&model, device, emode)?;
+    let (rt, projs, seg_projs) = FusedRuntime::new(&model, device, emode, fuse)?;
     let rt = Arc::new(rt);
 
-    // Index the uploaded projections by the pair `Block::new_with` asks for.
-    let mut by_site: HashMap<(usize, String), Arc<FusedProj>> = HashMap::new();
+    // Index every uploaded projection by the pair `Block::new_with` asks for —
+    // from **both** sources. A lone projection yields one `Proj::Fused`; a group
+    // yields one `Proj::FusedSeg` per part, all pointing at the *same*
+    // `Arc<FusedSegProj>`, which is what `model::SegPlan::of` recognises with
+    // `Arc::ptr_eq`. The `claimed != total_sites` check further down then also
+    // catches a group one of whose parts the model never claimed.
+    let mut by_site: HashMap<(usize, String), crate::model::Proj> = HashMap::new();
     for p in projs {
         let (layer, proj) =
             llvq_artifact::split_name(&p.name).map_err(|e| candle_core::Error::msg(e.to_string()))?;
-        by_site.insert((layer, proj), Arc::new(p));
+        by_site.insert(
+            (layer, proj),
+            crate::model::Proj::Fused { rt: rt.clone(), proj: Arc::new(p) },
+        );
+    }
+    // The row order comes from `fused::segment_matrices`, which read it off
+    // `Act::consumers()`; `model::SegPlan::of` re-derives it from these very
+    // fields and refuses a group that does not tile. Two places, one table.
+    for (g, group) in model.groups.iter().zip(seg_projs) {
+        let group = Arc::new(group);
+        for part in &g.parts {
+            by_site.insert(
+                (part.layer, part.proj.clone()),
+                crate::model::Proj::FusedSeg {
+                    rt: rt.clone(),
+                    group: group.clone(),
+                    row0: part.row0,
+                    d_out: part.d_out,
+                    rank: part.rank,
+                },
+            );
+        }
     }
 
     // Everything still carried — norms, and the embedding in f16 mode — as
@@ -1327,14 +1834,17 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
     // Every site the artifact carries must be claimed; anything left over
     // means a name the loader and the model disagree about, and the model
     // would silently fall back to a `VarBuilder` lookup that cannot succeed.
+    //
+    // `remove` rather than `get`: a `Proj` is not `Clone` (a `FusedSeg` shares
+    // one `Arc` between its parts, and cloning the enum would be a second way
+    // to say that), so the map hands each site over exactly once. `total_sites`
+    // is therefore read **before** the model claims any of them.
+    let total_sites = by_site.len();
     let mut claimed = 0usize;
     let mut take = |layer: usize, name: &str| {
-        by_site.get(&(layer, name.to_string())).map(|p| {
+        by_site.remove(&(layer, name.to_string())).map(|p| {
             claimed += 1;
-            crate::model::Proj::Fused {
-                rt: rt.clone(),
-                proj: p.clone(),
-            }
+            p
         })
     };
     // `(ie, ih)` is `(0, 0)` when the ends are tied — two clones of one `Arc`,
@@ -1384,10 +1894,10 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
             kv,
         )?,
     };
-    if claimed != by_site.len() {
+    if claimed != total_sites {
         candle_core::bail!(
-            "{claimed} projections réclamées par le modèle sur {} portées par le fichier",
-            by_site.len()
+            "{claimed} projections réclamées par le modèle sur {total_sites} portées par le \
+             fichier"
         );
     }
     // The one place `LLVQ_ROT_SHARE` reaches a model: every other `Qwen3` keeps
@@ -1402,6 +1912,8 @@ pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<Fu
         embed_mode: emode,
         rot_share: share,
         rot_launches,
+        fuse,
+        matvec_launches,
         quantized_weights: model.quantized_weights,
         // Counted at read time in `fused::load`, embedding included — the q8
         // extraction changes where those weights sit, not how many there are.

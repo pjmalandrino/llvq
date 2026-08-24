@@ -40,6 +40,7 @@ use std::io::Read;
 use llvq_artifact::runtime::{
     transcode, transcode_golay70, transcode_planes12x, transcode_planes14, ClassTable,
     Golay70Blocks, Golay70Table, Layout, Planes12xBlocks, PlanesBlocks, RuntimeBlocks,
+    PLANES14_BYTES,
 };
 use llvq_quant::rotation::Rotation;
 use llvq_search::fastdec::FastDecoder;
@@ -391,6 +392,7 @@ impl EmbedReport {
 const PLANES_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes.cuh");
 const PLANES_CU_EMBED: &str = include_str!("../../llvq-cuda/kernels/planes.cu");
 const PLANES_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_h.cu");
+const PLANES_SEG_H_CU_EMBED: &str = include_str!("../kernels/tv_planes_seg_h.cu");
 const PLANES12_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_planes12.cuh");
 const PLANES12X_H_CU_EMBED: &str = include_str!("../kernels/tv_planes12x_h.cu");
 const GOLAY_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_golay.cuh");
@@ -410,14 +412,32 @@ const GOLAY70_H_CU_EMBED: &str = include_str!("../kernels/tv_golay70_h.cu");
 /// the register report of `tv_planes_h` stays a drift detector on the
 /// `Planes12x` build too. `Slot32` takes none of them, so its translation unit
 /// is bit-identical to what shipped before any of this existed.
+///
+/// 🚨 **`tv_planes_seg_h.cu` is in all three lists unconditionally, and that
+/// choice has a price the commit has to name.** The alternative — appending it
+/// only under [`FuseMode::On`] — would give the two arms of a fusion A/B **two
+/// different translation units**, while the fused arm still launches
+/// `tv_planes_h` for `o_proj` and `down_proj`: it would inherit a possibly
+/// different register allocation on those 72 launches, which no correctness
+/// test can see. Including it always makes both arms share **one**
+/// `tv_planes_h` so they differ by a launch count and nothing else. What it
+/// costs: the served unit is no longer byte-identical to the one the
+/// 2026-08-06 figures were measured on, so **the reference for this lot is the
+/// `LLVQ_FUSE=0` arm of the same job**, never the published 5.079 ms.
 pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
     match layout {
         FusedLayout::Slot32 => &[],
-        FusedLayout::Planes14 => &["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu"],
+        FusedLayout::Planes14 => &[
+            "llvq_planes.cuh",
+            "planes.cu",
+            "tv_planes_h.cu",
+            "tv_planes_seg_h.cu",
+        ],
         FusedLayout::Planes12x => &[
             "llvq_planes.cuh",
             "planes.cu",
             "tv_planes_h.cu",
+            "tv_planes_seg_h.cu",
             "llvq_planes12.cuh",
             "tv_planes12x_h.cu",
         ],
@@ -430,6 +450,7 @@ pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
             "llvq_planes.cuh",
             "planes.cu",
             "tv_planes_h.cu",
+            "tv_planes_seg_h.cu",
             "llvq_planes12.cuh",
             "tv_planes12x_h.cu",
             "llvq_golay.cuh",
@@ -446,6 +467,125 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
         FusedLayout::Slot32 => "tv_slot_h",
         FusedLayout::Golay70 => "tv_golay70_h",
     }
+}
+
+/// The `extern "C"` **segmented** matvec entry point, or `None` when `layout`
+/// cannot be segmented.
+///
+/// A second entry point beside [`matvec_kernel_name`], never a replacement: a
+/// fused build still launches `tv_planes_h` for the projections that stay alone
+/// (`o_proj`, `down_proj`).
+///
+/// `Planes14` only, and that is not a scoping decision — the other three are
+/// *wrong* under a row concatenation, silently:
+///
+///  * `Planes12x`'s overlay is indexed by the **local** row of a matrix
+///    (`row_exc` has `d_out + 1` entries and `tv_planes12x_h` recovers an
+///    exception's column as `b − row·nblocks`), so stacking rows moves every
+///    exception to the wrong column and returns finite, plausible, wrong
+///    numbers;
+///  * `Golay70` inherits that machinery verbatim;
+///  * `Slot32`'s stride is the widest record of a group of 32 blocks and its
+///    bases table is per group, so a concatenation that regroups across a
+///    segment boundary moves the byte total. `tv_slot_seg` exists at the bench
+///    and wiring it is a separate lot with its own measurement.
+pub fn seg_kernel_name(layout: FusedLayout) -> Option<&'static str> {
+    match layout {
+        FusedLayout::Planes14 => Some("tv_planes_seg_h"),
+        _ => None,
+    }
+}
+
+/// Whether the projections that share an activation are launched as one
+/// row-concatenated matrix or one at a time.
+///
+/// The `Off` arm is not a fallback: it issues **today's launches, launch for
+/// launch** — 252 a token on the published 4B against 144 — so the two arms of
+/// a card measurement differ by a count and nothing else.
+///
+/// **The default is `Off`** until the card gate is green; the commit that flips
+/// it carries the measurement in its message, exactly the [`crate::rotplan::
+/// RotShare`] discipline. ⚠️ It also *cannot* be `On` today without a second
+/// variable being set: [`check_fuse`] refuses `On` beside `RotShare::Off`, and
+/// `RotShare`'s own default is `Off`, so a default of `On` here would make
+/// every `fused_cuda::load` fail with no environment set at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FuseMode {
+    /// One matvec per projection.
+    Off,
+    /// One matvec per shared activation.
+    On,
+}
+
+impl FuseMode {
+    /// Parse `LLVQ_FUSE`. Same contract as [`FusedLayout::parse`] and
+    /// [`crate::rotplan::RotShare::parse`]: unset and empty mean the default,
+    /// anything else must name a mode exactly — a typo quietly falling back to
+    /// the default is how an A/B reports "no effect" for an arm that never ran.
+    pub fn parse(v: Option<&str>) -> Result<Self, String> {
+        match v {
+            None | Some("") | Some("0") => Ok(Self::Off),
+            Some("1") => Ok(Self::On),
+            Some(other) => Err(format!(
+                "LLVQ_FUSE={other} : valeurs admises « 0 » (défaut, un matvec par \
+                 projection) et « 1 » (un matvec par activation partagée)"
+            )),
+        }
+    }
+
+    /// Resolve from the environment.
+    pub fn from_env() -> Result<Self, String> {
+        let v = std::env::var("LLVQ_FUSE").ok();
+        Self::parse(v.as_deref())
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Off => "0",
+            Self::On => "1",
+        }
+    }
+}
+
+/// Whether `fuse` can be honoured beside `layout` and `share`.
+///
+/// Two refusals, and the second is about the *measurement* rather than about
+/// correctness:
+///
+///  * a layout [`seg_kernel_name`] does not name cannot be segmented — see
+///    there for the mechanism, which is silent in all three cases;
+///  * `FuseMode::On` with `RotShare::Off` is refused, because a fused group is
+///    **one** site: it rotates once per row whatever the mode says. Accepting
+///    the pair would let an `LLVQ_FUSE` A/B move the hoist as well, and the
+///    delta would then be two mechanisms added together — the confounder this
+///    dossier spends its time forbidding. The only way to keep one variable is
+///    to make `LLVQ_ROT_SHARE=1` mandatory on **both** arms of the fusion A/B.
+pub fn check_fuse(
+    layout: FusedLayout,
+    share: crate::rotplan::RotShare,
+    fuse: FuseMode,
+) -> Result<(), String> {
+    if fuse == FuseMode::Off {
+        return Ok(());
+    }
+    if seg_kernel_name(layout).is_none() {
+        return Err(format!(
+            "LLVQ_FUSE=1 avec LLVQ_FUSED_LAYOUT={} : seul planes14 se segmente. Les \
+             exceptions de planes12x et golay70 sont indexées par la ligne LOCALE de leur \
+             matrice, et slot32 porte un pas par groupe de 32 blocs — une concaténation \
+             par lignes y rendrait des nombres finis, plausibles et faux.",
+            layout.name()
+        ));
+    }
+    if share == crate::rotplan::RotShare::Off {
+        return Err(
+            "LLVQ_FUSE=1 avec LLVQ_ROT_SHARE=0 : un groupe fusé est UN site, donc il tourne \
+             une fois par ligne quoi que dise le mode. Accepter la paire ferait bouger deux \
+             mécanismes dans un seul A/B. Poser LLVQ_ROT_SHARE=1 sur les DEUX bras."
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 /// The bit-plane parts of `layout`, honouring `LLVQ_KERNEL_DIR` with the same
@@ -466,6 +606,7 @@ pub fn load_planes_sources(
         "llvq_planes.cuh" => Ok(PLANES_CUH_EMBED),
         "planes.cu" => Ok(PLANES_CU_EMBED),
         "tv_planes_h.cu" => Ok(PLANES_H_CU_EMBED),
+        "tv_planes_seg_h.cu" => Ok(PLANES_SEG_H_CU_EMBED),
         "llvq_planes12.cuh" => Ok(PLANES12_CUH_EMBED),
         "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
         "llvq_golay.cuh" => Ok(GOLAY_CUH_EMBED),
@@ -724,11 +865,447 @@ impl RotationTables {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Segmentation — the row-concatenation one fused launch reads
+// ---------------------------------------------------------------------------
+//
+// The twin of `llvq-cuda/src/seg_host.rs`, which does the same job for the
+// bench. The two are **deliberately not shared**: `seg_host.rs` concatenates
+// raw indices *before* transcoding, carries an `f32` tail, and targets the f32
+// bench kernel, while the served path holds streams already packed into `u32`
+// words and a binary16 tail. Making one file serve both would mean reworking
+// the object that pins the bench, inside a lot whose subject is not the bench.
+// The price is paid in tests: `llvq-llm/tests/fused_segment.rs` has to be as
+// lethal as `llvq-cuda/tests/planes_segment_matches_unfused.rs`, not lighter.
+
+/// `u32` words a `Planes14` payload of `n_blocks` occupies, **pad excluded**.
+///
+/// `14·n ≡ 2n (mod 4)`, so this is a whole number of words exactly when `n` is
+/// even — which the served path guarantees, since `upload_matrix` refuses
+/// `d_out % 8 != 0` and `n = d_out · nblocks`. Returned as an `Option` rather
+/// than assumed: the day a ragged `d_out` reaches here, this is where it stops.
+pub fn planes_payload_words(n_blocks: usize) -> Option<usize> {
+    n_blocks
+        .is_multiple_of(2)
+        .then(|| PLANES14_BYTES * n_blocks / 4)
+}
+
+/// Splice the packed `Planes14` streams of a group into the single stream the
+/// segmented kernel indexes. `parts` is `(stream, n_blocks)` **in row order**.
+///
+/// ## Why this cannot be a `concat()`
+///
+/// [`pack_plane_bytes`] appends four bytes and then word-aligns, so every
+/// `HostStream::Planes14` carries **one trailing pad word**. Concatenating two
+/// of them buries that word in the middle of the stream: the kernel computes
+/// `byte = 14·b` from the base of the buffer, so every block of the second
+/// segment would be read four bytes early, with `sh = (byte & 3)·8` on the
+/// wrong parity. The class id, the gain, the sign mask and the three planes all
+/// come out of a shifted bit field — a valid class, a point in the ball, a
+/// model that runs.
+///
+/// And nothing crashes: with two pads the buffer is *longer* than the last
+/// block's four-word window needs, so there is no illegal address to catch it
+/// in the middle of a billed job. Finite, plausible, wrong.
+///
+/// ## Why the concatenation is correct at all
+///
+/// `transcode_planes14` opens a fresh `BitSink` at `bit0 = b·14·8` for every
+/// block and carries **no inter-block state**: record `b` depends only on
+/// `indices[b]`, `gains[b]` and the `ClassTable`. So the transcode of a
+/// concatenation is byte for byte the concatenation of the transcodes, and the
+/// block of local row `r` of segment `s` carries the global number
+/// `(row0_s + r)·nblocks + p` — exactly what the kernel computes.
+///
+/// The length check below is therefore the whole safety of this function, and
+/// it is written as an equality rather than as `len() - 1`: it also catches the
+/// day a stream arrives whose block count is odd, where `pack_plane_bytes`
+/// emits a different number of pad bytes.
+pub fn splice_planes14(parts: &[(&HostStream, usize)]) -> Result<Vec<u32>, String> {
+    let total: usize = parts.iter().map(|&(_, n)| n).sum();
+    let want = planes_payload_words(total)
+        .ok_or_else(|| format!("{total} blocs au total — impair"))?;
+    let mut out = Vec::with_capacity(want + 1);
+    for (i, &(s, n)) in parts.iter().enumerate() {
+        let HostStream::Planes14 { words } = s else {
+            return Err(format!("segment {i} : flux qui n'est pas Planes14"));
+        };
+        let pw = planes_payload_words(n).ok_or_else(|| {
+            format!(
+                "segment {i} : {n} blocs — impair, donc 14·n n'est pas un multiple de 4 et \
+                 la frontière ne tombe pas sur un mot"
+            )
+        })?;
+        if words.len() != pw + 1 {
+            return Err(format!(
+                "segment {i} : {} mots pour {n} blocs, {} attendus (charge utile {pw} + un \
+                 mot de bourrage de fin de flux)",
+                words.len(),
+                pw + 1
+            ));
+        }
+        // Payload ONLY, for every segment including the last.
+        out.extend_from_slice(&words[..pw]);
+    }
+    // One single pad, for the four-word window of the LAST block — exactly what
+    // `pack_plane_bytes` would have emitted over the concatenated payload.
+    out.push(0);
+    debug_assert_eq!(out.len(), want + 1);
+    Ok(out)
+}
+
+/// One projection's identity and place inside a fused group.
+pub struct SegPart {
+    /// The artifact's fully qualified name — what an error message must name.
+    pub name: String,
+    pub layer: usize,
+    /// Checkpoint suffix, e.g. `self_attn.q_proj` — the key `Block::proj` uses.
+    pub proj: String,
+    pub d_out: usize,
+    /// First row of this projection inside the group.
+    pub row0: usize,
+    /// Rank inside the family, i.e. its index in [`crate::model::Act::consumers`].
+    /// This *is* the row order, and `model::group_forward` re-checks it
+    /// structurally rather than trusting it: two places have to agree, so
+    /// neither may assume.
+    pub rank: usize,
+}
+
+/// A row-concatenation of the projections that share one activation — what one
+/// segmented launch needs, and nothing else.
+///
+/// `stream` is a `HostStream::Planes14` by construction ([`splice_planes14`]
+/// refuses anything else), so no code path can hand the segmented kernel a
+/// bases array or an exception table.
+pub struct FusedGroup {
+    /// `"{layer:03}.{act:?}"` — the grouping key, for logs and errors.
+    pub key: String,
+    /// The **total**: Σ of the parts.
+    pub d_out: usize,
+    pub d_in: usize,
+    pub nblocks: usize,
+    pub tail_w: usize,
+    pub stream: HostStream,
+    /// The concatenated `gscale`: two floats per part, in row order.
+    pub gscale: Vec<f32>,
+    /// `d_out` entries. `gs_off[row] = 2 · rank`, the index of the first of the
+    /// pair that row's part owns — the one thing that does **not** concatenate,
+    /// because a gain centroid belongs to a matrix while the gain bit belongs
+    /// to a block.
+    pub gs_off: Vec<u32>,
+    pub rscale: Vec<f32>,
+    pub tail: Vec<u16>,
+    pub rotation: Option<RotKey>,
+    pub parts: Vec<SegPart>,
+    /// Device bytes: the payload, [`matrix_side_bytes`] for the tail and the
+    /// row scales, **and `gs_off`** — 4 bytes a fused row, which no other
+    /// layout pays. On the published 4B that last term is the whole difference
+    /// between the two arms: 36 layers × 25 600 fused rows × 4 = 3 686 400
+    /// bytes, i.e. +0.0081 b/weight. Counted here rather than dropped, because
+    /// `runtime_bytes` is what `fusedrun` prints as "Go sur la carte".
+    pub bytes: u64,
+}
+
+/// Check that the spans handed to one segmented launch are the whole group, in
+/// row order. `spans` is `(rank, row0, d_out)` **in the caller's order**.
+///
+/// Lives here, beside the loader that assigns the row order, rather than inside
+/// `model::group_forward` where it is called from: that function's segmented
+/// branch exists on no target this workspace's development machine builds, and
+/// this is the half of risk R3 a test can reach. Two places have to agree on
+/// the row order and neither may assume — a group read in the order k,q,v would
+/// otherwise return finite, plausible, wrong numbers with no assertion
+/// anywhere.
+pub fn check_seg_spans(
+    key: &str,
+    spans: &[(usize, usize, usize)],
+    group_d_out: usize,
+) -> Result<(), String> {
+    if spans.is_empty() {
+        return Err(format!("{key} : groupe segmenté sans aucune partie"));
+    }
+    let mut at = 0usize;
+    for (i, &(rank, row0, d_out)) in spans.iter().enumerate() {
+        if rank != i {
+            return Err(format!(
+                "{key} : la projection en position {i} porte le rang {rank}. L'ordre des \
+                 lignes du groupe est celui de Act::consumers(), et le découpage de la \
+                 sortie en dépend."
+            ));
+        }
+        if row0 != at {
+            return Err(format!(
+                "{key} : la partie {i} commence à la ligne {row0}, {at} attendues — les \
+                 parties ne pavent pas le groupe."
+            ));
+        }
+        at += d_out;
+    }
+    if at != group_d_out {
+        return Err(format!(
+            "{key} : {at} lignes réparties sur les {group_d_out} du groupe fusé"
+        ));
+    }
+    Ok(())
+}
+
+/// One projection on its way into a group: its rank in `Act::consumers()`, the
+/// checkpoint suffix that gave the rank, and the matrix itself.
+type PendingPart = (usize, String, FusedMatrix);
+
+/// Split a loaded model's matrices into fused groups and the projections that
+/// stay alone (`o_proj`, `down_proj`).
+///
+/// **Consumes** the matrices: a group's parts are spliced into one stream, and
+/// keeping the unfused copies alive would double the host's peak — 1.37 GB on
+/// the published 4B — for nothing.
+///
+/// ## The grouping key is `(layer, Act)`, and never the name
+///
+/// `llvq-cuda/src/seg_host.rs::seg_family` matches `name.contains("q_proj")`
+/// and is right to — its fixtures carry no rotation, so the name is the only
+/// structure available. Here the artifact carries rotation keys, and
+/// [`crate::rotplan::act_of_suffix`] states the rule outright: the name is a
+/// **parallel channel** that can disagree with the file. So the family comes
+/// from that function (which reads `Act::consumers()`, the model's own table)
+/// and the rank is the position in that same slice — q,k,v then gate,up, the
+/// order `seg_family` also produces, from one derivation instead of two. The
+/// layer is part of the key because q/k/v of two different layers share a
+/// `d_in` and would concatenate perfectly well into nonsense.
+///
+/// The rotation keys are re-asserted equal across the group even though
+/// [`crate::rotplan::check_rotation_partition`] already ran, because this
+/// function owns the row order and must not inherit a premise it cannot see.
+pub fn segment_matrices(
+    matrices: Vec<FusedMatrix>,
+) -> Result<(Vec<FusedMatrix>, Vec<FusedGroup>), String> {
+    use crate::model::Act;
+
+    let mut singles: Vec<FusedMatrix> = Vec::new();
+    // First-appearance order, so logs and errors follow the file rather than a
+    // hash seed — `rotation_sites` does the same, for the same reason.
+    let mut order: Vec<(usize, Act)> = Vec::new();
+    let mut buckets: HashMap<(usize, Act), Vec<PendingPart>> = HashMap::new();
+
+    for m in matrices {
+        let (layer, suffix) = llvq_artifact::split_name(&m.name).map_err(|e| e.to_string())?;
+        let act = crate::rotplan::act_of_suffix(&suffix).ok_or_else(|| {
+            format!(
+                "{} : « {suffix} » n'est le consommateur d'aucune des quatre activations \
+                 d'un bloc Qwen3",
+                m.name
+            )
+        })?;
+        let consumers = act.consumers();
+        if consumers.len() < 2 {
+            // `o_proj` and `down_proj`: nothing else consumes their activation,
+            // so there is no group to be part of.
+            singles.push(m);
+            continue;
+        }
+        let rank = consumers
+            .iter()
+            .position(|&c| c == suffix)
+            .expect("act_of_suffix found this suffix in this very slice");
+        let key = (layer, act);
+        if !buckets.contains_key(&key) {
+            order.push(key);
+        }
+        buckets.entry(key).or_default().push((rank, suffix, m));
+    }
+
+    let mut groups = Vec::with_capacity(order.len());
+    for (layer, act) in order {
+        let mut parts = buckets
+            .remove(&(layer, act))
+            .expect("every key pushed on `order` was inserted in the same breath");
+        parts.sort_by_key(|&(rank, ..)| rank);
+        groups.push(build_group(layer, act, parts)?);
+    }
+    Ok((singles, groups))
+}
+
+/// One group, from its parts already sorted by rank.
+fn build_group(
+    layer: usize,
+    act: crate::model::Act,
+    parts: Vec<PendingPart>,
+) -> Result<FusedGroup, String> {
+    let key = format!("{layer:03}.{act:?}");
+    let want = act.consumers().len();
+    if parts.len() != want {
+        // An incomplete group is a broken file, never a degraded case: the
+        // missing rows would silently shrink the fused matrix.
+        return Err(format!(
+            "{key} : {} projections sur les {want} que cette activation nourrit ({})",
+            parts.len(),
+            act.consumers().join(", ")
+        ));
+    }
+    let (d_in, nblocks, tail_w, rotation) = {
+        let m = &parts[0].2;
+        (m.d_in, m.nblocks, m.tail_w, m.rotation)
+    };
+    if rotation.is_none() {
+        return Err(format!(
+            "{key} : {} n'a pas de rotation. Le chemin fusé ne sait pas lire une matrice \
+             quantifiée en base naturelle.",
+            parts[0].2.name
+        ));
+    }
+
+    // The spliced stream is built first, from borrows, so the parts can then be
+    // consumed field by field without cloning 1.37 GB of payload.
+    let words = {
+        let streams: Vec<(&HostStream, usize)> = parts
+            .iter()
+            .map(|(_, _, m)| (&m.stream, m.d_out * nblocks))
+            .collect();
+        splice_planes14(&streams).map_err(|e| format!("{key} : {e}"))?
+    };
+
+    let mut d_out = 0usize;
+    let mut payload = 0u64;
+    let mut gscale: Vec<f32> = Vec::with_capacity(2 * want);
+    let mut gs_off: Vec<u32> = Vec::new();
+    let mut rscale: Vec<f32> = Vec::new();
+    let mut tail: Vec<u16> = Vec::new();
+    let mut seg_parts: Vec<SegPart> = Vec::with_capacity(want);
+
+    for (i, (rank, suffix, m)) in parts.into_iter().enumerate() {
+        if rank != i {
+            return Err(format!(
+                "{key} : {} porte le rang {rank} en position {i} — deux projections de même \
+                 rang, ou un consommateur en double",
+                m.name
+            ));
+        }
+        if m.d_in != d_in {
+            return Err(format!(
+                "{key} : {} prend d_in={}, {d_in} pour le groupe. Un groupe partage son \
+                 activation, donc son nombre de blocs et sa queue.",
+                m.name, m.d_in
+            ));
+        }
+        if m.nblocks != nblocks || m.tail_w != tail_w {
+            return Err(format!(
+                "{key} : {} découpe {} blocs et une queue de {}, contre {nblocks} et \
+                 {tail_w} pour le groupe",
+                m.name, m.nblocks, m.tail_w
+            ));
+        }
+        if m.rotation != rotation {
+            return Err(format!(
+                "{key} : {} porte la rotation {:?}, {rotation:?} pour le groupe. Le hissage \
+                 donnerait à l'une la base de l'autre.",
+                m.name, m.rotation
+            ));
+        }
+        // Per part **and** on the total below. The kernels launch whole
+        // 256-thread blocks of 8 rows and carry no bounds guard; asserting the
+        // total alone would let an individually ragged part through on a lucky
+        // sum, and then the *unfused* control arm could not be launched at all.
+        if !m.d_out.is_multiple_of(8) {
+            return Err(format!(
+                "{key} : {} a d_out={}, qui n'est pas un multiple de 8",
+                m.name, m.d_out
+            ));
+        }
+        if m.rscale.len() != m.d_out || m.tail.len() != m.d_out * tail_w {
+            return Err(format!(
+                "{key} : {} porte {} échelles de ligne et {} valeurs de queue pour {} \
+                 lignes de {tail_w}",
+                m.name,
+                m.rscale.len(),
+                m.tail.len(),
+                m.d_out
+            ));
+        }
+        // The payload is 14 bytes a block whatever the grouping — structural
+        // for `Planes14`, uniform stride and no bases. Cross-checked against
+        // what `load` billed for this very matrix, so a drift between the two
+        // accountings stops here rather than in a published b/weight.
+        let part_payload = (PLANES14_BYTES * m.d_out * nblocks) as u64;
+        if m.bytes != part_payload + matrix_side_bytes(m.d_out, tail_w) {
+            return Err(format!(
+                "{key} : {} facture {} octets, {} attendus (charge utile {part_payload} + \
+                 queue et échelles)",
+                m.name,
+                m.bytes,
+                part_payload + matrix_side_bytes(m.d_out, tail_w)
+            ));
+        }
+
+        seg_parts.push(SegPart {
+            name: m.name,
+            layer,
+            proj: suffix,
+            d_out: m.d_out,
+            row0: d_out,
+            rank,
+        });
+        gscale.extend_from_slice(&m.gscale);
+        // Two centroids per part, so part `rank`'s pair starts at `2·rank`; one
+        // entry per ROW, because the kernel reads it as `gs_off[row]`.
+        gs_off.extend(std::iter::repeat_n(2 * rank as u32, m.d_out));
+        rscale.extend_from_slice(&m.rscale);
+        tail.extend_from_slice(&m.tail);
+        payload += part_payload;
+        d_out += m.d_out;
+    }
+
+    if !d_out.is_multiple_of(8) {
+        return Err(format!(
+            "{key} : d_out={d_out} au total, qui n'est pas un multiple de 8"
+        ));
+    }
+    if gs_off.len() != d_out
+        || rscale.len() != d_out
+        || tail.len() != d_out * tail_w
+        || gscale.len() != 2 * seg_parts.len()
+    {
+        return Err(format!(
+            "{key} : concaténation incohérente — {} gs_off, {} échelles, {} valeurs de \
+             queue, {} centroïdes pour {d_out} lignes de {tail_w} et {} parties",
+            gs_off.len(),
+            rscale.len(),
+            tail.len(),
+            gscale.len(),
+            seg_parts.len()
+        ));
+    }
+
+    Ok(FusedGroup {
+        key,
+        d_out,
+        d_in,
+        nblocks,
+        tail_w,
+        stream: HostStream::Planes14 { words },
+        gscale,
+        gs_off,
+        rscale,
+        tail,
+        rotation,
+        parts: seg_parts,
+        // The payload does not move — 14 bytes a block, grouping or not — and
+        // neither does `matrix_side_bytes`, which is additive in `d_out` at a
+        // shared `tail_w`. What fusion adds is exactly `4 · d_out`.
+        bytes: payload + matrix_side_bytes(d_out, tail_w) + d_out as u64 * 4,
+    })
+}
+
 /// Everything a fused runtime needs, still on the host.
 pub struct FusedModel {
     /// The runtime layout every matrix was transcoded to.
     pub layout: FusedLayout,
+    /// The projections launched one at a time. **All** of them under
+    /// [`FuseMode::Off`]; only `o_proj` and `down_proj` under `On`, the rest
+    /// having moved into [`Self::groups`].
     pub matrices: Vec<FusedMatrix>,
+    /// The row-concatenated groups, empty under [`FuseMode::Off`] — where this
+    /// struct is then byte-identical to what shipped before this lot.
+    pub groups: Vec<FusedGroup>,
     pub rotations: HashMap<RotKey, RotationTables>,
     /// Embedding and norms, carried verbatim, **still in the file's own
     /// encoding** — f16 bits, or int8 g64 for an `embedq` output. Decoding is
@@ -1145,6 +1722,29 @@ impl Transcoder {
 /// work. Measured on this machine (M3 Max, 12 performance cores), see
 /// `tests/fused_planes12x.rs::transcode_of_the_sealed_model_matches_planes14`.
 pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
+    load_with(path, layout, FuseMode::Off)
+}
+
+/// [`load`] with the fusion mode named by the caller rather than read from the
+/// environment.
+///
+/// Under [`FuseMode::Off`] this is `load` as it always was: [`FusedModel::
+/// groups`] is empty, `matrices` carries all 252 projections of the published
+/// 4B, and `runtime_bytes` is the same sum it always was. Under `On` the
+/// projections that share an activation are spliced into [`FusedGroup`]s — 72
+/// groups plus 72 lone projections, so 144 matvec launches a token.
+pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<FusedModel, String> {
+    // Refused here as well as in `fused_cuda::load_with`, and on purpose: this
+    // is the side of the boundary a test on a machine without a card reaches.
+    // Without it `segment_matrices` would be handed exception-carrying streams
+    // whose only symptom is a wrong number.
+    if fuse == FuseMode::On && seg_kernel_name(layout).is_none() {
+        return Err(format!(
+            "LLVQ_FUSE=1 avec LLVQ_FUSED_LAYOUT={} : seul planes14 se segmente (cf. \
+             seg_kernel_name)",
+            layout.name()
+        ));
+    }
     let file_bytes = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
     let f = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
@@ -1161,7 +1761,6 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     let mut matrices = Vec::with_capacity(head.matrices as usize);
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
-    let mut runtime_bytes = 0u64;
 
     for _ in 0..head.matrices {
         let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
@@ -1198,7 +1797,6 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
             .stream(&m.indices, &m.gains, m.d_out, nblocks)
             .map_err(|e| format!("{} : {e}", m.name))?;
         let bytes = payload + matrix_side_bytes(m.d_out, tail_w);
-        runtime_bytes += bytes;
 
         matrices.push(FusedMatrix {
             name: m.name,
@@ -1224,6 +1822,17 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     // premise as the `=1` arm.
     crate::rotplan::check_rotation_partition(&matrices)?;
 
+    let (matrices, groups) = match fuse {
+        FuseMode::Off => (matrices, Vec::new()),
+        FuseMode::On => segment_matrices(matrices)?,
+    };
+    // Re-derived rather than patched: the splice moves payload between the two
+    // vectors and adds `gs_off`, so an accumulator carried through the read
+    // loop would have to be corrected twice. One sum over what the model
+    // actually holds cannot drift from what it holds.
+    let runtime_bytes = matrices.iter().map(|m| m.bytes).sum::<u64>()
+        + groups.iter().map(|g| g.bytes).sum::<u64>();
+
     let n_raw = read_u32(&mut r)?;
     let mut raw = Vec::with_capacity(n_raw as usize);
     let mut carried_weights = 0usize;
@@ -1243,6 +1852,7 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
     Ok(FusedModel {
         layout,
         matrices,
+        groups,
         rotations,
         raw,
         config_json: blobs
@@ -1261,6 +1871,49 @@ pub fn load(path: &str, layout: FusedLayout) -> Result<FusedModel, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `LLVQ_FUSE` refuses anything that is not a mode — the [`FusedLayout::
+    /// parse`] contract, restated beside its siblings.
+    #[test]
+    fn fuse_mode_parse_refuses_anything_else() {
+        assert_eq!(FuseMode::parse(None), Ok(FuseMode::Off));
+        assert_eq!(FuseMode::parse(Some("")), Ok(FuseMode::Off));
+        assert_eq!(FuseMode::parse(Some("0")), Ok(FuseMode::Off));
+        assert_eq!(FuseMode::parse(Some("1")), Ok(FuseMode::On));
+        for bad in ["on", "off", "true", "2", "1 ", "01", "yes", "planes14"] {
+            let e = FuseMode::parse(Some(bad)).expect_err("must be refused");
+            assert!(e.contains(bad), "le message doit citer la valeur : {e}");
+        }
+    }
+
+    /// The default is `Off`, and it *has* to be: [`check_fuse`] refuses `On`
+    /// beside `RotShare::Off`, whose own default is `Off`, so a default of `On`
+    /// here would make every `fused_cuda::load` fail with no environment set.
+    /// The two defaults are pinned together so neither can move alone.
+    #[test]
+    fn the_two_defaults_are_compatible() {
+        let (fuse, share) = (
+            FuseMode::parse(None).expect("default"),
+            crate::rotplan::RotShare::parse(None).expect("default"),
+        );
+        assert_eq!(fuse, FuseMode::Off);
+        assert_eq!(share, crate::rotplan::RotShare::Off);
+        check_fuse(FusedLayout::Planes14, share, fuse).expect("les deux défauts se tiennent");
+        // And the pair this is guarding against, in both of its forms.
+        let e = check_fuse(FusedLayout::Planes14, crate::rotplan::RotShare::Off, FuseMode::On)
+            .expect_err("On + RotShare::Off doit être refusé");
+        assert!(e.contains("LLVQ_ROT_SHARE"), "{e}");
+        for layout in [FusedLayout::Planes12x, FusedLayout::Slot32, FusedLayout::Golay70] {
+            let e = check_fuse(layout, crate::rotplan::RotShare::On, FuseMode::On)
+                .expect_err("seul planes14 se segmente");
+            assert!(e.contains(layout.name()), "le refus doit nommer le layout : {e}");
+            // …and `Off` stays launchable on every layout, since it is the
+            // control arm.
+            check_fuse(layout, crate::rotplan::RotShare::On, FuseMode::Off).expect("contrôle");
+        }
+        check_fuse(FusedLayout::Planes14, crate::rotplan::RotShare::On, FuseMode::On)
+            .expect("la seule paire fusable");
+    }
 
     /// The three tables must describe the transform `Rotation` computes.
     ///

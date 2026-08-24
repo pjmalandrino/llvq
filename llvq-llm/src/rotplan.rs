@@ -272,6 +272,64 @@ pub fn rot_launches_per_token(share: RotShare, m: &[FusedMatrix]) -> usize {
     }
 }
 
+/// `rot_apply` launches one decode token costs, over the projections that stay
+/// alone **and** the groups that were fused.
+///
+/// Supersedes [`rot_launches_per_token`] on the fused path, which is kept
+/// because `tests/rotplan.rs` pins it on 252/144 with no groups and because it
+/// is the whole of the `Off` arm.
+///
+/// A fused group counts as **one** launch whatever `share` says, and that is
+/// not an approximation: the group is one site, so `model::group_forward`
+/// rotates it once per row. `share` therefore only reaches the projections that
+/// stayed alone — where, the groups having taken every shared activation, its
+/// two arms coincide anyway. On the published 4B: 72 singles + 72 groups = 144,
+/// the same 144 the unfused `On` arm issues.
+pub fn rot_launches(
+    share: RotShare,
+    singles: &[FusedMatrix],
+    groups: &[crate::fused::FusedGroup],
+) -> usize {
+    rot_launches_per_token(share, singles)
+        + groups.iter().filter(|g| g.rotation.is_some()).count()
+}
+
+/// Matvec launches one decode token costs — **252 unfused, 144 fused** on the
+/// published 4B.
+///
+/// Printed on `bin/fusedrun`'s arm line for the reason [`rot_launches`] is
+/// printed there: a gate reading "128 tokens identiques" while both arms issued
+/// 252 matvecs proves the tokens and nothing about the lot.
+pub fn matvec_launches_per_token(
+    singles: &[FusedMatrix],
+    groups: &[crate::fused::FusedGroup],
+) -> usize {
+    singles.len() + groups.len()
+}
+
+/// Whether a run of this shape can tell the two [`crate::fused::FuseMode`] arms
+/// apart.
+///
+/// Distinct from [`arms_are_discriminating`], which was written for the
+/// `RotShare` arms, and the mechanism really is different: hoisting only
+/// removes a launch where an activation has several consumers, while fusion
+/// removes matvec launches from `rows == 1` onwards, the prefill included.
+///
+/// The **bound** is nevertheless the same, and that is deliberate rather than
+/// lazy: what it buys in both cases is margin, not mechanism. A run this short
+/// spends most of its wall clock in load and warm-up, so a launch-count
+/// difference of a few hundred microseconds is not separable from noise and a
+/// green A/B on it would mean nothing. Two predicates instead of one alias so
+/// that a future change to either arm's gate cannot silently move the other's.
+///
+/// Here rather than in `bin/fusedrun` for the reason that function's own
+/// comment gives — that binary compiles on no machine this suite runs on, and a
+/// mutant weakening a bound written out there survived the whole suite once
+/// already.
+pub fn fuse_arms_are_discriminating(prompt_len: usize, n_new: usize) -> bool {
+    prompt_len >= 2 && n_new >= 2
+}
+
 /// Whether a run of this shape can tell the two [`RotShare`] arms apart.
 ///
 /// The hoist removes a launch only when one activation is consumed by several

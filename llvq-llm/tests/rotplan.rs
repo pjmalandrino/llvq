@@ -566,20 +566,31 @@ fn the_hoist_is_not_gated_on_the_layout() {
     }
 }
 
-/// **T10.** The source list handed to NVRTC is unchanged by this lot.
+/// **T10.** The source list handed to NVRTC, restated where the rotation lot
+/// can see it.
 ///
 /// Not a style check. NVRTC receives one concatenated string; adding a file —
-/// even one nothing calls — moves the register allocation of `tv_planes_h`,
+/// even one nothing calls — can move the register allocation of `tv_planes_h`,
 /// and a register allocation that moves is invisible to every correctness test
 /// in this repository while being exactly what the published 88.4 tok/s and
-/// 4.804 b/weight were measured on. Lot A4 adds no kernel source, and this is
-/// the assertion that says so.
+/// 4.804 b/weight were measured on.
+///
+/// 🚨 **This test used to be named "…is unchanged" and to assert that lot A4
+/// adds no kernel source. Lot D1 adds one**, `tv_planes_seg_h.cu`, and the
+/// consequence above is not hypothetical: the served unit is no longer
+/// byte-identical to the one the 2026-08-06 figures were measured on. That is
+/// accepted deliberately and mitigated by the shape of the measurement rather
+/// than by the code — **the reference of the fusion A/B is the `LLVQ_FUSE=0`
+/// arm of the same job**, which shares this very translation unit, never a
+/// published absolute. See `fused::planes_source_names` for the argument in
+/// full. What this assertion still buys: the list cannot drift again without
+/// two files disagreeing.
 #[test]
-fn the_nvrtc_source_list_is_unchanged() {
+fn the_nvrtc_source_list_is_what_the_lot_declares() {
     assert_eq!(planes_source_names(FusedLayout::Slot32), &[] as &[&str]);
     assert_eq!(
         planes_source_names(FusedLayout::Planes14),
-        &["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu"]
+        &["llvq_planes.cuh", "planes.cu", "tv_planes_h.cu", "tv_planes_seg_h.cu"]
     );
     assert_eq!(
         planes_source_names(FusedLayout::Planes12x),
@@ -587,6 +598,7 @@ fn the_nvrtc_source_list_is_unchanged() {
             "llvq_planes.cuh",
             "planes.cu",
             "tv_planes_h.cu",
+            "tv_planes_seg_h.cu",
             "llvq_planes12.cuh",
             "tv_planes12x_h.cu",
         ]
