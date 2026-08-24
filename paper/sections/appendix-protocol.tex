@@ -1,31 +1,30 @@
 \section{Protocol, pre-registered criteria and provenance}
 \label{app:protocol}
-% The three tables below are placed in-stream with [H]; trim the vertical
-% space around them so two large tables pack onto one page rather than
-% leaving a half-page gap under each.
-\setlength{\intextsep}{4pt plus 2pt minus 2pt}
-\setlength{\textfloatsep}{4pt plus 2pt minus 2pt}
-\setlength{\floatsep}{4pt plus 2pt minus 2pt}
 
 \textbf{Layout benchmark protocol.} The ten arms of Table~\ref{tab:layouts}
 run in one process on one L40S, interleaved each round in fixed dispatch
-order, seven rounds with two discarded. Each speedup is the median of
-per-round ratios against the FP16 control, with its range. Two phases: nine
-arms, then the same nine plus the 2-bit competitor; the nine common ratios
-move by at most 0.36\%. Incumbents reproduce across jobs (Planes14
+order, seven rounds with two discarded. Speedups are medians of per-round
+ratios against the FP16 control, with ranges. Two phases (nine arms, then
+the same nine plus the 2-bit competitor) move the nine common ratios by at
+most 0.36\%. Incumbents reproduce across jobs (Planes14
 2.15$\times$ twice, hoisted Golay70 1.77$\times$ and 1.78$\times$). Byte
 accounting is the kernel's (payload, exception side-channels, f32 tail
 columns, row scales); class tables are excluded as resident constants.
 Three uncorrected asymmetries understate our arms: the FP16 control bills
 its tail at f16, the competitors none. GB/s is each arm's fastest kept
 round; medians leave every percentage unchanged. CUDA events bound the host
-share of wall time at 0.1--0.2\%.
+share of wall time at 0.1--0.2\%. Pre-registration fixes each criterion
+before its measurement; it disciplines the reading and is no substitute for
+the cross-job replications above. Runtime: candle 0.9.2, CUDA 12.4.1
+images, NVRTC-compiled kernels for the target SM, drivers 580.178.04 (L40S)
+and 580.159.03 (A100 clock runs), the 2-bit competitor at its pinned
+upstream commit.
 
 \begin{table}[H]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3.5pt}
-\renewcommand{\arraystretch}{1.0}
+\renewcommand{\arraystretch}{0.92}
 \begin{tabular}{lp{0.175\linewidth}p{0.14\linewidth}p{0.135\linewidth}p{0.15\linewidth}p{0.14\linewidth}}
 \toprule
  & Ours (4 layouts) & FP16 / cuBLAS & AWQ w4g128 & QTIP 2-bit & No-weights \\
@@ -50,7 +49,7 @@ our arms. Data: the run journal named in Table~\ref{tab:provenance}.}
 \centering
 \scriptsize
 \setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{0.9}
+\renewcommand{\arraystretch}{0.85}
 \begin{tabular}{p{0.46\linewidth}lp{0.37\linewidth}}
 \toprule
 Criterion & Fixed before & Outcome \\
@@ -113,7 +112,7 @@ Table~\ref{tab:provenance}.}
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{0.9}
+\renewcommand{\arraystretch}{0.82}
 % File names may break only after "-", "/" and "_": xurl's default lets
 % \path break anywhere, which split names mid-word in this table.
 \renewcommand{\UrlBreaks}{\do\-\do\/\do\_}%
@@ -122,14 +121,13 @@ Table~\ref{tab:provenance}.}
 \toprule
 Figure / Table & CSV (\path{docs/data/}) & Journal (\path{docs/mesures/}) \\
 \midrule
-Fig.~\ref{fig:records} & \path{echelle-formats.csv}; field widths from the kernel headers (\path{llvq-cuda/kernels/*.cuh}) & \path{f2-p3-qtip-banc-2026-08-21.txt} \\
+Fig.~\ref{fig:records}, Fig.~\ref{fig:layouts}, Table~\ref{tab:layouts} & \path{echelle-formats.csv}; field widths from the kernel headers (\path{llvq-cuda/kernels/*.cuh}) & \path{f2-p3-qtip-banc-2026-08-21.txt} \\
 Fig.~\ref{fig:dataflow} & --- (kernel source, \path{llvq-cuda/kernels/planes.cu}, \path{llvq_planes.cuh}, \path{qtip_prelude.cuh}) & \path{f2-p3-qtip-banc-2026-08-21.txt} (registers, spill) \\
-Fig.~\ref{fig:layouts}, Table~\ref{tab:layouts} & \path{echelle-formats.csv} & \path{f2-p3-qtip-banc-2026-08-21.txt} \\
 Fig.~\ref{fig:attribution} & \path{attribution-slot32.csv} & \path{attribution-cuda-2026-08-05.txt}, \path{fusion-qkv-cuda-2026-08-05.txt}, \path{f2-p3-qtip-banc-2026-08-21.txt} (l.~260--295) \\
 Fig.~\ref{fig:a100}, \S\ref{sec:a100} clocks & \path{echelle-formats.csv}, \path{echelle-formats-a100.csv} & \path{f4-a100-2026-08-18.txt}, \path{g-horloges-planes12x-2026-08-23.txt} \\
 Planes12x served (\S\ref{sec:evaluation}) & --- & \path{g-horloges-planes12x-2026-08-23.txt} \\
 Fused served path (\S\ref{sec:attribution}) & --- & \path{d1-fusion-servie-2026-08-24.txt} \\
-Fig.~\ref{fig:scale} (interval cells) & \path{ppl-appariee.csv}, \path{mmlu-appariee.csv}; Fig.~\ref{fig:scale} also \path{echelle-4b-8b.csv} & \path{ppl-appariee-4b-2026-08-17.txt}, \path{ppl-appariee-8b-14b-2026-08-17.txt}, \path{mmlupair-4b-8b-2026-08-13.txt}, \path{mmlupair-14b-2026-08-17.txt} \\
+Fig.~\ref{fig:scale} & \path{ppl-appariee.csv}, \path{mmlu-appariee.csv} (interval cells), \path{echelle-4b-8b.csv} & \path{ppl-appariee-4b-2026-08-17.txt}, \path{ppl-appariee-8b-14b-2026-08-17.txt}, \path{mmlupair-4b-8b-2026-08-13.txt}, \path{mmlupair-14b-2026-08-17.txt} \\
 Table~\ref{tab:phases} & \path{phases.csv} & \path{phases-2026-08-07.txt} \\
 Table~\ref{tab:e2e} & \path{campagne-finale.csv}, \path{tableau-8b.csv}; the 14B row from the journal & \path{b2-fusedrun-plages-2026-08-18.txt} \\
 Table~\ref{tab:campaign} & \path{campagne-finale.csv} & \path{a4-campagne-2026-08-06.txt}, \path{campagne-finale-bras4-2026-08-07.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
@@ -141,12 +139,10 @@ Table~\ref{tab:seeds} & \path{knee-seeds.csv} & \path{f5-graines-4b-2026-08-19.t
 Table~\ref{tab:prereg} & --- & \path{proofs/preregistration-*.md} \\
 \bottomrule
 \end{tabular}
-\caption{Where each figure and table comes from. Every CSV is committed and
-the build regenerates the figures from them; the checked tables fail the
-build when they drift from their CSV. The token fingerprints required to
-match across quality arms (\S\ref{sec:evaluation}) are
-\texttt{3f1baca9033bf251} (perplexity) and \texttt{65dcd53655e8bfa5}
-(MMLU). Rented GPU time across the whole campaign cost under \$100; per-job
-amounts are in \texttt{jobs.csv}.}
+\caption{Where each figure and table comes from. Every CSV is committed;
+the build regenerates the figures and fails the checked tables on drift.
+Token fingerprints matched across quality arms (\S\ref{sec:evaluation}):
+\texttt{3f1baca9033bf251} (perplexity), \texttt{65dcd53655e8bfa5} (MMLU).
+Rented GPU time cost under \$100; per-job amounts are in \texttt{jobs.csv}.}
 \label{tab:provenance}
 \end{table}

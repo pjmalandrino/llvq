@@ -2,13 +2,12 @@
 \label{sec:limitations}
 
 \textbf{The validity envelope.} Table~\ref{tab:validity} states where the
-measurements hold and where they stop. Two rows deserve a word. The quality
-harness scores the sealed file through the dense path; the served path's
-equivalence rests on the bit-exact transcoding and the row-level f64 checks
-(\S\ref{sec:decoder}), so no quality score passes through the kernel. And
-the load-time unfolding is absorbed rather than added for the served
-layout: the fused path loads the 4B in 122--131~s, unfolding included,
-against 186--188~s for the dense arm, which reads 8~GB of f16.
+measurements hold and where they stop. Two rows deserve a word: quality is
+scored through the dense path, the served path's equivalence resting on the
+bit-exact transcoding and row-level f64 checks of \S\ref{sec:decoder}; and
+load-time unfolding is absorbed into a load that stays shorter than the
+dense arm's: 122--131~s for the fused 4B, unfolding included, against
+186--188~s to read 8~GB of f16.
 
 \begin{table}[t]
 \centering

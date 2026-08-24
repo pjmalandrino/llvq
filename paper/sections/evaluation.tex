@@ -15,14 +15,33 @@ sealed artifact: 47-bit indices plus one gain bit, from the error-propagating
 GPTQ loop with shape--gain coding and input rotation, calibrated on 131k
 tokens of C4~\citep{c4corpus}. The source paper calibrates on 6\,100
 sequences of DCLM-edu, roughly two orders of magnitude more tokens.
-Every score is taken on the written file. Three rates describe one
-file. The code rate is 2.000~b/weight (48 bits per 24-weight block); with
-full-precision tail columns and row scales it is 2.07 effective; as written
-in the 981~MB file, over the quantized weights alone, it is 2.17.
+Every score is taken on the written file. Table~\ref{tab:rates} collects
+the five rates this paper uses with their denominators; no two are ever
+subtracted or divided against each other.
 
 \begin{table}[t]
 \centering
-\small
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrl}
+\toprule
+Rate & Denominator & Value (4B) & Includes \\
+\midrule
+Code & quantized weights & 2.000 & 47-bit index + 1 gain bit \\
+Effective & quantized weights & 2.07 & + f32 tail columns, row scales \\
+File & quantized weights & 2.17 & as written: headers, f64 centroids \\
+Kernel (served) & streamed projection weights & 4.804 & unfolded payload + tail + scales (\S\ref{sec:layouts}) \\
+Whole-model & all parameters & 5.162 & embedding and head included \\
+\bottomrule
+\end{tabular}
+\caption{The five rates of this paper and their denominators; a comparison
+is valid only within one row (values: the published 4B).}
+\label{tab:rates}
+\end{table}
+
+\begin{table}[t]
+\centering
+\footnotesize
 \begin{tabular}{lrrrr}
 \toprule
  & FP16 & AWQ 4-bit & LLVQ (no kernel) & LLVQ fused (ours) \\
@@ -40,11 +59,8 @@ arms. $^{\dagger}$AWQ runs in its own engine (speed incomparable,
 $^{\ddagger}$Quality scored on the 1.41~GB pre-baked int8-embedding file;
 speed and VRAM measured from the 1.77~GB sealed file with the same
 quantization applied at load, verified bit-identical against those bytes.
-$^{\S}$The 4B (2.60~GB) and 8B (5.45~GB) VRAM cells are the nvidia-smi
-card reading from the quality-campaign invocations; the 14B cell
-(9.39~GB) is a runner host byte count of weights only, from the serving
-run (Table~\ref{tab:e2e}). The byte-exact host figures are 2.595~GB for
-the 4B (the 5.162~b/param above) and 5.41~GB for the 8B. Data:
+$^{\S}$VRAM provenance as in Table~\ref{tab:e2e}; the byte-exact host
+figure is 2.595~GB (the 5.162~b/param above). Data:
 \texttt{campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
@@ -55,11 +71,10 @@ linears. The transcoding is a proven bijection of decoded content on all
 timing (\S\ref{sec:decoder}), and both engines emit identical greedy tokens
 up to a tie-break. The one lossy change on the served path is the int8
 embedding, and the table shows it moving perplexity and MMLU within sampling
-noise. Two denominators appear in this paper and are never subtracted: whole-model
-bits per parameter, embedding included (the served 4B footprint is
-5.162~b/param against 5.302 for the official AWQ checkpoint), and the
-kernel's bits per quantized projection weight of \S\ref{sec:layouts}. On the
-second, the same competitor reads less than we do (4.18 against 4.80).
+noise. On the whole-model row of Table~\ref{tab:rates} the served 4B
+footprint is 5.162~b/param against 5.302 for the official AWQ checkpoint;
+on the kernel row the same competitor reads less than we do (4.18 against
+4.80).
 
 \textbf{What 2 bits costs.} Against FP16 the 4B pays $\times1.384$
 perplexity and $-14.6$ MMLU points on the served int8 arm, $-14.73$ on the

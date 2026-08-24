@@ -89,15 +89,15 @@ scale and the tail the columns past the last full block, kept in f32
 (KeepExact).
 
 The class table holds 512 records of 24 bytes (five f32 levels and a count),
-12~KB, read through L1 as a \texttt{const}-qualified global pointer.
+12~KB, sized above the 301 classes so a 9-bit identifier cannot index out
+of bounds, and read through L1 as a \texttt{const}-qualified global pointer.
 Constant memory would serialize the 32 distinct addresses a warp issues;
 the gather costs 0.041~ms per token (\S\ref{sec:attribution}).
 Every point of a shell has the same norm, so the normalization to a unit
 direction is a per-class constant folded into the stored levels, and the
 multi-shell rescaling of the original paper's Appendix~G is one multiply per
-block. The compiler reports 40 registers and no local memory (42 for the
-FP16 control, 32 for the ported 4-bit kernel, 48 to 56 for the ported 2-bit
-kernel over its five shapes, 31 for the no-weights control).
+block. The compiler reports 40 registers and no local memory for the kernel; the
+controls and competitors span 31--56 (Table~\ref{tab:fairness}).
 
 The right panel of Figure~\ref{fig:dataflow} draws the 2-bit competitor's
 decode. A 16-bit state slides over the bitstream by 4 bits per step, so

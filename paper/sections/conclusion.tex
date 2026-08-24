@@ -10,17 +10,17 @@ between 4.8 and 4.3~b/weight, where a second, irregular stream (the
 exception side channel) enters, and collapses at 3.6, where the decode stops
 being shifts and masks. Against deployed 4-bit and 2-bit GEMV kernels
 in one process, the trellis kernel reads 2.40$\times$ fewer bytes and runs
-2.27$\times$ faster at near-equal efficiency: the gap is the unfolding of a
-codebook no lookup table holds. The validity envelope is measured: the
+2.27$\times$ faster at near-equal efficiency: the unfolding of a codebook
+no lookup table holds is paid in bytes. The validity envelope is measured: the
 trellis kernel outruns our no-weights control, launch geometry holds 39\% of
 the gap to the DRAM floor, and fusing projections recovers 11.7\% of the
 \textsc{Planes14} kernel time and $1.061\times$ end to end. On an A100 every lattice arm falls below
 FP16, and same-head serving gains are 1.11$\times$, 1.29$\times$ and
 1.41$\times$.
 
-Two questions stay open. Does the quality curve, whose direction holds on
-three sizes without a scaling law, reach the 70B class? And which untested
+Two questions stay open: does the quality curve, whose direction holds on
+three sizes without a scaling law, reach the 70B class, and which untested
 lever (calibration composition, learned column scales, low-rank
 compensation) closes the reasoning-concentrated MMLU deficit? A successor
-should attack the launch geometry and the unfolding cost rather than the
-factor against FP16.
+should attack launch geometry and unfolding cost, not the factor against
+FP16.

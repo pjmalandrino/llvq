@@ -102,12 +102,11 @@ serving runs' journal for the 14B row.}
 \end{table}
 
 \textbf{What quantization buys inside its own stack.} We also timed the
-official 4-bit checkpoint in its deployment engine (vLLM~0.26.0 on the same
-L40S, same prompt token ids, 128 tokens, two discarded generations then
-five timed), with the f16 model as in-engine control. Quantization buys
-$2.413\times$ there, $[2.412, 2.414]$, against $1.11\times$ here. The two
-f16 controls differ (83.09~tok/s in vLLM against our 43.5) for reasons that
-mix engine design with the head path of this section. The two within-stack ratios are
-therefore reported side by side and never divided.
+official 4-bit checkpoint in its engine (vLLM~0.26.0, same L40S, prompt
+token ids and 128-token protocol), with the f16 model as in-engine control.
+Quantization buys $2.413\times$ there, $[2.412, 2.414]$, against
+$1.11\times$ here; the two f16 controls differ (83.09 against our
+43.5~tok/s), so the two within-stack ratios are reported side by side and
+never divided.
 
 % Table of the integration steps removed 2026-08-22: lab-notebook register; data stays in progression.csv

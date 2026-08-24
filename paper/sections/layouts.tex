@@ -69,7 +69,7 @@ denominator. Data:
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.82\linewidth]{fig1_layout_scale.pdf}
+\includegraphics[width=0.78\linewidth]{fig1_layout_scale.pdf}
 \Description{Scatter plot of speedup over FP16 on a log axis against
 in-VRAM bits per weight for the ten arms, with a dashed byte-bound
 hyperbola, a horizontal rule for the no-weights control and an arrow from
@@ -95,7 +95,7 @@ compares across rates.
 \textbf{\textsc{Slot32}} stores decoded fields at fixed offsets in a
 byte-aligned record of $9 + 1 + 24L$ bits: class identifier, gain bit,
 24-bit sign mask and one 24-bit one-hot mask per non-zero magnitude level.
-That is 106 bits at $L=4$ and 130 at $L=5$. The kernel reads a fixed five-word
+The kernel reads a fixed five-word
 (20~B) window per block, an alignment the format guarantees. It is the
 simplest divergence-free format, at $1.89\times$ over FP16. At
 5.510~b/weight it occupies more memory than a 4-bit format.
@@ -192,8 +192,9 @@ weight on disk, and they are comparable in quality in their respective harnesses
 (Table~\ref{tab:lit}, \S\ref{sec:evaluation}). On the same matrices the
 trellis kernel reads 0.91~GB where \textsc{Planes14} reads 2.18: a
 $2.40\times$ byte ratio for a $2.27\times$ time ratio, the two kernels
-converting 61\% and 65\% of their byte bounds. Kernel efficiency is not the
-gap. The gap is the load-time unfolding of \S\ref{sec:decoder}. A codebook
+converting 61\% and 65\% of their byte bounds. At near-equal efficiency
+the time gap tracks the traffic gap, and what sets the traffic is the
+load-time unfolding of \S\ref{sec:decoder}. A codebook
 of $1.1\times10^{14}$ points cannot sit in a lookup table, where a 16-bit
 trellis state can (a 2~KiB LUT; table codebooks such as QuIP\#'s E8P hold
 $2^{16}$ entries). The lattice index is therefore unfolded into a

@@ -1,16 +1,20 @@
 \section{Statistical tests on the scale curve}
 \label{app:scale}
+% The appendix tables are placed in-stream; trim the vertical space around
+% them so they pack rather than leaving stretched gaps.
+\setlength{\intextsep}{2pt plus 2pt minus 1pt}
+\setlength{\textfloatsep}{2pt plus 2pt minus 1pt}
+\setlength{\floatsep}{2pt plus 2pt minus 1pt}
 
 This appendix carries the tests behind \S\ref{sec:evaluation}. Perplexity
 intervals are paired Student $t$ intervals on the mean per-window NLL
-difference over the 12 windows (11 d.f.), exponentiated; the shared
-fingerprint makes window $i$ the same text at every size, so steps and the
-knee form window by window on the log ratio. MMLU deltas are
-subject-stratified paired bootstraps (10\,000 draws) with exact McNemar over
-the same 2\,280 questions; their between-size steps compose two standard
-errors in quadrature, cross-size pairing being unavailable. All intervals
-cover the evaluation corpus, not the calibration draw, which
-Table~\ref{tab:seeds} prices.
+difference (12 windows, 11 d.f.), exponentiated; the shared fingerprint
+makes window $i$ the same text at every size, so steps and the knee form
+window by window on the log ratio. MMLU deltas are subject-stratified
+paired bootstraps (10\,000 draws) with exact McNemar over the same 2\,280
+questions; between-size steps compose two standard errors in quadrature (no
+cross-size pairing). All intervals cover the evaluation corpus, not the
+calibration draw, priced by Table~\ref{tab:seeds}.
 
 \begin{table}[htbp]
 \centering
@@ -27,21 +31,19 @@ Qwen3-8B  & 8.9899  & 1.2201 & 0.2201 & $-42.8$ \ $[-51.8, -33.5]$ & 5.322 & 5.9
 Qwen3-14B & 7.9820  & 1.1894 & 0.1894 & $-13.9$ \ $[-22.8, -4.9]$ & 5.106 & 5.404 & 6.09 \ [3.62, 8.52] \\
 \bottomrule
 \end{tabular}
-\caption{Three models, one configuration, one harness, nine matching
+\caption{Three models, one configuration and harness, nine matching
 fingerprints. \emph{Excess} is the perplexity ratio minus one; \emph{fall}
-its relative drop from the row above with a paired 95\% interval;
-\emph{b/param} is whole-model, embedding included; gap cells are paired
-bootstraps. Data: echelle-4b-8b.csv, mmlu-appariee.csv, ppl-genou.csv.}
+its relative drop from the row above (paired 95\% CI); \emph{b/param} is
+whole-model, embedding included; gap cells: paired bootstraps. Data:
+echelle-4b-8b.csv, mmlu-appariee.csv, ppl-genou.csv.}
 \label{tab:scale}
 \end{table}
 
-The nine paired perplexity intervals and nine paired MMLU deltas behind
+The nine paired perplexity intervals and MMLU deltas behind
 Figure~\ref{fig:scale}'s error bars are in \texttt{ppl-appariee.csv} and
-\texttt{mmlu-appariee.csv}. No perplexity interval contains zero and all 108
-window-level comparisons agree in sign; two MMLU intervals (FP16 $-$ 4-bit
-at 4B and 14B) contain zero.
-
-
+\texttt{mmlu-appariee.csv}; no perplexity interval contains zero, all 108
+window-level comparisons agree in sign, and two MMLU intervals (FP16 $-$
+4-bit at 4B and 14B) contain zero.
 
 \begin{table}[htbp]
 \centering
@@ -67,7 +69,7 @@ knee-seeds.csv.}
 \end{table}
 
 On perplexity the knee of Table~\ref{tab:seeds} excludes zero for the
-artifacts as built. On the MMLU gap to 4 bits the steps are $6.96$ points
+artifacts as built; on the MMLU gap to 4 bits the steps are $6.96$ points
 ($\mathrm{SE}$ 1.82, $p = 0.0001$) and $1.40$ ($\mathrm{SE}$ 1.68,
 $p = 0.40$), the second supporting neither a flattening nor a constant pace.
 Three differences drive the divergence: power (49\,140 paired tokens against

@@ -32,11 +32,10 @@ counts already mark; $\Lambda_{24}(12)$'s $1.1\times10^{14}$ points are the
 sole must-unfold member, and timing them would confirm that side rather than
 test the unfolding cost.
 
-\textbf{Rotations.} Incoherence processing is a rotation, and
-QuaRot~\citep{quarot2024}, then SpinQuant~\citep{spinquant2024} with learned
-rotations, made it practical at 4 bits. Each applies a Hadamard transform to
-the activation at serving time and meets the shared-memory constraint of
-\S\ref{sec:limitations} at some width; none removes it.
+\textbf{Rotations.} QuaRot~\citep{quarot2024} and SpinQuant~\citep{spinquant2024}
+made incoherence rotations practical at 4 bits; each applies a serving-time
+Hadamard transform and meets the shared-memory constraint of
+\S\ref{sec:limitations} at some width, none removes it.
 
 \textbf{Kernels for quantized inference.} Below 8 bits the \emph{decode} sets
 the cost of a GEMV, the premise of \S\ref{sec:layouts}.
@@ -49,8 +48,7 @@ mature mixed-precision kernel achieves at 4 bits, including batched regimes
 outside our scope. ExLlamaV2~\citep{exllamav2} ships comparable formats
 without a publication; we cite it as software. We ask instead how far below
 4 bits the \emph{in-VRAM} rate can go before decode cost overtakes byte
-savings; for lattice codes on this hardware the curve turns below
-\textsc{Planes14} (\S\ref{sec:scale}).
+savings (\S\ref{sec:scale}).
 
 \textbf{Performance models.} The quantity organizing \S\ref{sec:layouts}, the
 fraction of its byte bound each layout converts into time, is a roofline

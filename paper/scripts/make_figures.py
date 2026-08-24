@@ -314,7 +314,7 @@ def fig_records() -> None:
               "llvq-cuda/kernels/llvq_{slot,planes,planes12,golay}.cuh headers")
 
     order = ["Slot32", "Planes14", "Planes12x", "Golay70"]
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.75), layout="constrained")
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.48), layout="constrained")
     bar_h = 0.5
     pitch = 1.42
     right = 196
@@ -428,7 +428,7 @@ def fig_scale() -> None:
     xs = [sizes[m] for m in models]
     short = {m: m.replace("Qwen3-", "") for m in models}
 
-    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(TEXTWIDTH_IN, 2.15),
+    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(TEXTWIDTH_IN, 1.95),
                                      layout="constrained")
 
     # Marker AND line style differ per series so the three curves of a panel
@@ -552,7 +552,7 @@ def fig_a100() -> None:
     # Drawn at full text width: at 0.8·linewidth the value column and the
     # six row labels leave the GB/s axis under two inches, and the labels of
     # the four control rules (661, 672, 1052, 1204) cannot be kept apart.
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.8), layout="constrained")
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.52), layout="constrained")
     card_color = {"L40S": INK, "A100": GRAY}
     ytop = len(order) - 0.35
     # Vertical rules: the FP16 control and cuBLAS on each card. Their labels
@@ -658,7 +658,7 @@ def fig_attribution() -> None:
     hardcoded("floor definition 2.50 GB at 662 GB/s (Fig. F, in-bar text)",
               "docs/mesures/attribution-cuda-2026-08-05.txt §2 — the CSV's "
               "dram_floor source field names the same two quantities")
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.2), layout="constrained")
+    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.0), layout="constrained")
     plotted = {"dram_floor", "total"}
     y_main, y_zoom, bar_h = 2.1, 0.55, 0.56
     # --- the whole time, to scale
