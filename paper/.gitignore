@@ -10,3 +10,8 @@
 main.pdf
 # figures are generated from docs/data/*.csv by scripts/make_figures.py
 figures/
+
+# Title page: identity lives here, never in main.pdf
+titlepage.aux
+titlepage.log
+titlepage.out

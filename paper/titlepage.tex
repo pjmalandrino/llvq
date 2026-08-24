@@ -1,0 +1,71 @@
+% Title page for the ACM TACO submission.
+%
+% Why this file exists as a separate document: the manuscript is built with
+% acmart's `anonymous=true`, so it carries no author, no affiliation and no
+% self-identifying URL. TACO's submission form asks for exactly that
+% information in a separate "Title Page" file, which the editor sees and the
+% reviewers do not. Everything identifying therefore lives here and nowhere
+% else.
+%
+% Build: pdflatex titlepage.tex
+% Deliberately `article` rather than `acmart`: this page is a form attachment,
+% not a document to be typeset by the publisher, and acmart would drag in the
+% whole journal furniture for one page.
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, urlcolor=blue}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\begin{document}
+
+{\Large\bfseries Unfolding the Leech Lattice: Fused Multi-Shell Decoding and
+VRAM Layouts for 2-Bit LLM Weights\par}
+
+\vspace{0.4em}
+{\large What a combinatorial index costs to serve, measured against deployed
+4-bit and 2-bit GEMV kernels\par}
+
+\vspace{2em}
+{\bfseries Author}
+
+\vspace{0.5em}
+Pier-Jean Malandrino\\
+Scub, Dijon, France\\
+\href{mailto:pierjean.malandrino@scub.net}{pierjean.malandrino@scub.net}
+
+\vspace{0.5em}
+Corresponding author, and sole author.
+
+\vspace{2em}
+{\bfseries Manuscript type}
+
+\vspace{0.5em}
+New Paper, Not an Extension of a Conference Paper. The work has not been
+published before in any form and is not under review elsewhere.
+
+\vspace{2em}
+{\bfseries Acknowledgements}
+
+\vspace{0.5em}
+% Nothing is claimed here that did not happen: there is no grant, no
+% co-author and no institutional compute allocation behind this work. If an
+% acknowledgement is added later, this is its only home — the manuscript
+% carries none, by anonymity.
+The measurement campaign was self-funded; the GPU time was rented per job and
+its cost is itemized in the artifact repository. The author thanks the
+maintainers of the open-source projects this work builds on and measures
+against.
+
+\vspace{2em}
+{\bfseries Artifact availability}
+
+\vspace{0.5em}
+The manuscript's availability section withholds the repository and model
+URLs for double-anonymous review. They can be supplied to the editor on
+request.
+
+\end{document}
