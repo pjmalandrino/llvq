@@ -1,0 +1,130 @@
+D1 — LA FUSION DES LANCEMENTS SUR LE CHEMIN SERVI (2026-08-24)
+==============================================================
+Pré-enregistrement : proofs/preregistration-d1-2026-08-24.md
+  (tampon .ots posé puis commit d168f40 AVANT le lancement ; sha256 du .md
+   au tampon : c419d67d1452804d43de78f29bd0bc8b4cf8d6dc7344489fc20e7b01bbb0bf4f)
+Job : 6a8c6fbcdc4d6ae814e83917, l40sx1, 488 s, 0,24 $ (annoncé ≈ 0,60, plafond 1,35).
+Image : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit d168f40.
+Commande : LLVQ_ROT_SHARE=1 LLVQ_FUSE_AB=1 LLVQ_EMBED=q8 fusedrun /model/qwen3-4b-llvq.bin 128
+
+CE QUE LE LOT FAIT
+-------------------
+q/k/v consomment la même activation, gate/up aussi. Concaténées PAR LIGNES,
+elles font un matvec au lieu de trois et de deux : 252 → 144 lancements/token.
+Trois bras dans UN SEUL processus, chacun chargé puis droppé avant le suivant :
+fusé F1 (LLVQ_FUSE=1), fusé F0 (LLVQ_FUSE=0), dense.
+
+⚠️ LES DEUX BRAS FUSÉS PARTAGENT LLVQ_ROT_SHARE=1, et ce n'est pas un réglage
+libre : un groupe fusé est UN site, il rotationne une fois par ligne quoi qu'en
+dise le mode. `check_fuse` refuse la paire FUSE=1 + ROT_SHARE=0 — l'accepter
+ferait bouger le hissage de rotation EN MÊME TEMPS que la fusion, et le delta
+serait deux mécanismes additionnés. La seule chose qui bouge entre F1 et F0 est
+donc le nombre de lancements matvec.
+
+LA TABLE
+---------
+  bras        chargement   tok/s (médiane)      plage        Go carte  matvec/t
+  ---------------------------------------------------------------------------
+  dense           188,9 s      43,5        [43,4–43,5]         8,04         —
+  fusé F1         130,5 s     100,6       [99,9–100,7]         2,57        144
+  fusé F0         123,5 s      94,9       [94,1–95,2]          2,56        252
+  ---------------------------------------------------------------------------
+
+  FUSION : ×1,061 [×1,050–×1,069] de F1 sur F0, mémoire +3 686 400 octets
+  (quotient des médianes, 5 rounds par bras, jamais entrelacés — les deux bras
+   chargent leur modèle exclusivement, donc aucun rapport round par round
+   n'existe ; forme de B2, pas celle des bancs à bras entrelacés.)
+
+LES CRITÈRES PRÉ-ENREGISTRÉS, UN PAR UN
+----------------------------------------
+C1 ✅ F1 et F0 rendent LES MÊMES 128 TOKENS entre eux. C'est la condition
+     forte : à poids fixés la fusion ne réassocie rien (mêmes blocs, même
+     ordre, mêmes centroïdes), donc l'égalité devait être exacte. Elle l'est.
+C2 ✅ Les deux bras divergent du dense AU MÊME TOKEN 89 sur 128 — exactement
+     le tie-break historique des journaux du 08-06, reproduit. C'est ce
+     contrôle qui autorise à lire 89 comme un tie-break et non comme un défaut.
+C3 ✅ Aucun avertissement de tokens différents entre rounds d'un même bras.
+L1 ✅ 144 matvec_lancements/token sous F1 contre 252 sous F0, imprimés sur la
+     ligne de bras. Un « 128 tokens identiques » vert pendant que les deux
+     bras émettent 252 matvecs aurait prouvé les tokens et rien du lot.
+M1 ✅ +3 686 400 octets EXACTEMENT, la valeur prédite par arithmétique avant
+     le run : `gs_off` est un u32 par ligne fusée, 36 couches × (4096+1024+1024
+     +9728+9728 = 25 600 lignes) = 921 600 × 4 o. Soit +0,008117 b/poids.
+V1 ✅ ×1,061 ∈ [1,00 ; 1,12], la bande posée d'avance. Prédiction du préreg :
+     ~×1,055 (l'économie matvec du banc, 0,594 ms, sur 11,49 ms/token).
+
+R5 FERMÉ, ET PAR UNE MESURE PLUTÔT QUE PAR UN ARGUMENT
+-------------------------------------------------------
+Le préreg §3.5 craignait que l'ajout de `tv_planes_seg_h.cu` change l'unité de
+traduction NVRTC pour TOUS les bras, y compris F0, et gonfle le gain par un
+bras de référence ralenti. Le journal tranche : les deux bras impriment la
+MÊME source NVRTC, 64 776 octets, sha256 347f50a4db2b558129f9ce9a77c7739f
+c1ee2941c8ffdfd01c2d1299e51c7a29, en 10 parties. Une seule unité, deux modes
+de lancement. Le rapport ×1,061 n'est donc pas un artefact d'allocation de
+registres déplacée.
+
+L'ÉCART À EXPLIQUER, ET IL EST EXPLIQUÉ
+----------------------------------------
+🚨 F0 rend 94,9 tok/s là où le chemin servi PUBLIÉ rend 87,0 : +9,1 %, hors de
+la bande de ±3 % que le préreg §3.5 imposait de rapporter avant tout verdict.
+
+Le mécanisme est identifié et VÉRIFIÉ, pas supposé : ce job impose
+LLVQ_ROT_SHARE=1 (obligatoire pour le bras fusé), tandis que les 87,0 publiés
+ont tourné à ROT_SHARE=0 — b2-fusedrun-plages-2026-08-18.txt l. 76, 123, 172 :
+« rotation partagée : 0 (LLVQ_ROT_SHARE) — 252 rot_lancements/token ». Les
+144 rot_lancements de ce job contre 252 sont le hissage de rotation du lot A4,
+un mécanisme SÉPARÉ de la fusion.
+
+Décomposition, les trois points étant tous mesurés sur cette carte :
+  87,0 tok/s   ROT_SHARE=0, FUSE=0   — la configuration servie publiée
+  94,9 tok/s   ROT_SHARE=1, FUSE=0   — le hissage de rotation seul (×1,091)
+ 100,6 tok/s   ROT_SHARE=1, FUSE=1   — plus la fusion (×1,061)
+
+⚠️ Le ×1,091 du hissage est une lecture INTER-JOBS (87,0 vient de B2, le
+2026-08-18, sur une autre unité de traduction) : il se rapporte, il ne se
+publie pas comme une mesure de ce lot. Le ×1,061 de la fusion, lui, est
+intra-job, à unité de traduction identique et ROT_SHARE constant.
+
+CE QUE LE LOT NE MESURE PAS
+----------------------------
+- Le 8B et le 14B n'ont PAS été rejoués sous fusion. La table à trois tailles
+  du papier reste donc sur UNE configuration (ROT_SHARE=0, FUSE=0) aux trois
+  tailles — propriété qu'elle utilise, et qu'un 4B fusé isolé casserait.
+- 🚨 Le 11,7 % du banc (5,096 → 4,504 ms) NE SE TRANSPORTE PAS et n'est pas
+  republié ici : il est mesuré en f32, sur tv_planes_seg, hors modèle, sur le
+  temps matvec seul. Ce journal mesure des tok/s bout-en-bout en f16, où les
+  matvecs ne sont qu'une part du temps par token. 11,7 % du temps matvec et
+  6,1 % du temps par token sont deux quantités différentes, cohérentes entre
+  elles.
+
+CE QUI EST PROUVÉ POUR LA PREMIÈRE FOIS
+----------------------------------------
+Aucune ligne de fused_cuda.rs, de SegPlan ni du corps du noyau n'est
+vérifiable hors carte (llvq-llm --features cuda ne compile sur aucune cible du
+Mac de développement : cinq crates tombent sur l'absence de
+x86_64-linux-gnu-gcc). Deux choses les prouvent ici, dans cet ordre :
+  1. le build de l'image — première compilation réelle de ces fichiers ;
+  2. le gate C1/C2 — 128 tokens identiques entre F1 et F0, et la même position
+     de divergence au dense. Un `gs_off` faux aurait multiplié CERTAINES lignes
+     par le mauvais centroïde (≈ ×2 ou ×0,5) en laissant les autres intactes ;
+     un pad resté au milieu du flux épissé aurait décalé tout un segment de
+     4 octets et rendu des nombres finis, plausibles et faux SANS jamais
+     planter. Les deux auraient déplacé la divergence bien avant le token 89.
+
+SORTIE BRUTE
+=============
+(voir /out/d1-2026-08-24/d1-4b-fuse-ab.txt dans le bucket ; extraits ci-dessous)
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 1 (LLVQ_FUSE) — 144 matvec_lancements/token pour 252 projections (72 groupes + 72 seules)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=1, 144 matvec_lancements/token
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 0 (LLVQ_FUSE) — 252 matvec_lancements/token pour 252 projections (0 groupes + 252 seules)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token
+  ⚠️ fusé F1 : divergence au token 89 sur 128
+  ⚠️ fusé F0 : divergence au token 89 sur 128
+  ✅ fusé F1 et F0 : 128 tokens identiques entre eux
+  fusion : ×1.061 [×1.050–×1.069] de F1 sur F0 (144 contre 252 matvec_lancements/token), mémoire +3686400 octets
+  projections : 4.737 b/poids sur la carte, fichier 1.77 Go sur disque.

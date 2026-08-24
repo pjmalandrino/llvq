@@ -65,9 +65,9 @@ no-weights control runs the same launches over the same shapes and reads no
 weight bytes; the trellis kernel outruns it, so our launch geometry and not
 the card sets that time. An attribution of the gap to the DRAM floor places
 39\% in launch geometry, and fusing q/k/v and gate/up (144 launches instead
-of 252) already recovers 11.7\% of the Planes14 time. On a second memory
-hierarchy (A100) every lattice arm falls below FP16. End-to-end serving is
-measured on three model sizes.
+of 252) recovers 11.7\% of the Planes14 kernel time and $1.061\times$ end to
+end on the served path. On a second memory hierarchy (A100) every lattice arm
+falls below FP16. End-to-end serving is measured on three model sizes.
 \end{itemize}
 
 End to end, a 2-bit Qwen3-4B serves at 87.0~tok/s in 2.60~GB of VRAM; with

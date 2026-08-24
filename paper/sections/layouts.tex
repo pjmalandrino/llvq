@@ -250,20 +250,22 @@ by fusing $q/k/v$ and gate/up. Data: \texttt{attribution-slot32.csv}.}
 \end{figure}
 
 The largest term is recovered by launch geometry alone. Fusing $q/k/v$ and
-$\textit{gate}/\textit{up}$ into row-concatenated launches takes the model
-from 252 kernels to 144. In the attribution job this returned 0.803~ms on
-\textsc{Slot32}, the whole latency term. Measured again in the process of
-Table~\ref{tab:layouts}, it returns 0.796~ms (13.7\%) on \textsc{Slot32}
-and 0.594~ms [0.586--0.596] (11.7\%) on \textsc{Planes14}, 5.096 to
-4.504~ms. The unfused 5.096~ms is the four-arm fusion run's median in that
-job and equals the first-phase median; Table~\ref{tab:layouts} prints the
-second phase, 5.103, a 0.13\% drift (Appendix~\ref{app:protocol}). Output
-is bit-identical on the $921\,600$ rows of the fused projections (the
-$q/k/v$ and gate/up rows the fusion touches; $o$ and down are unchanged),
-and bytes read are identical. The fused launches are not yet on the served
-path of
-\S\ref{sec:integration}, and no ratio against FP16 is formed from them: the
-FP16 arm has no fused counterpart.
+$\textit{gate}/\textit{up}$ into row-concatenated launches takes the model from
+252 kernels to 144, and returns 0.796~ms (13.7\%) on \textsc{Slot32} and
+0.594~ms [0.586--0.596] (11.7\%) on \textsc{Planes14} in the process of
+Table~\ref{tab:layouts}. Output is bit-identical on the $921\,600$ rows the
+fusion touches ($o$ and down are unchanged) and bytes read are identical. No
+ratio against FP16 is formed from it: the FP16 arm has no fused counterpart.
+
+That geometry is on the served path, where it is worth $1.061\times$
+[1.050--1.069] end to end on the 4B. Both arms run in one process from one
+NVRTC translation unit, differing only in the launch count; the rotation hoist
+is held on in both, a fused group being one site. Correctness is the gate
+rather than a tolerance: the two arms emit the same 128 greedy tokens and
+diverge from the dense engine at the same token 89. The table naming each row's
+gain centroids costs four bytes a fused row, 0.008~b/weight.
+Table~\ref{tab:e2e} holds one configuration across the three sizes and reports
+the unfused path; only the 4B was re-timed fused.
 
 The $2.15\times$ of Table~\ref{tab:layouts} is therefore not a bound
 set by the format. Its largest term is launch geometry, orthogonal to the record

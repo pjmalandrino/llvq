@@ -487,7 +487,7 @@ fn main() -> anyhow::Result<()> {
         println!(
             "\n  projections : {:.3} b/poids sur la carte, fichier {:.2} Go sur disque.\n  \
              ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index\n  \
-             compacts, la carte lit la disposition Slot32 que le noyau peut lire vite.",
+             compacts, la carte lit la disposition dépliée que le noyau peut lire vite.",
             fused_rt_bits,
             fused_file
         );
