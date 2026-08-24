@@ -38,8 +38,17 @@ cargo run --release \
 
 \noindent
 \texttt{LLVQ\_FUSED\_LAYOUT} selects the layout of \S\ref{sec:layouts}
-(\texttt{planes14} default, \texttt{planes12x}, \texttt{slot32},
-\texttt{golay70}; anything else is an error); \texttt{LLVQ\_EMBED} sets the
-embedding precision (\texttt{f16} default, \texttt{q8}); \texttt{LLVQ\_DTYPE}
-pins the evaluation dtype. Each binary prints a fingerprint of the scored
-tokens; numbers compare only when fingerprints match.
+(\texttt{planes14} default; anything unrecognised is an error),
+\texttt{LLVQ\_EMBED} the embedding precision, \texttt{LLVQ\_DTYPE} the
+evaluation dtype. Each binary prints a fingerprint of the scored tokens;
+numbers compare only when fingerprints match.
+
+\section*{Use of generative AI}
+
+Disclosed under ACM's Policy on Authorship. Anthropic's Claude, through the
+Claude Code CLI in 2026, drafted and revised this manuscript's text, wrote
+the figure-generating and table-checking scripts, wrote portions of the CUDA
+kernels, Rust host code and tests, and recomputed statistics from the
+committed measurement journals. The author designed the study, authorized
+every measurement, verified each number against its source, and is
+responsible for the entire content.

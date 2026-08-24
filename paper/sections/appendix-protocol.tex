@@ -23,8 +23,8 @@ upstream commit.
 \begin{table}[H]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3.5pt}
-\renewcommand{\arraystretch}{0.92}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{0.85}
 \begin{tabular}{lp{0.175\linewidth}p{0.14\linewidth}p{0.135\linewidth}p{0.15\linewidth}p{0.14\linewidth}}
 \toprule
  & Ours (4 layouts) & FP16 / cuBLAS & AWQ w4g128 & QTIP 2-bit & No-weights \\
@@ -38,18 +38,17 @@ Registers, local & 40, 0~B & 42, 0~B / n/a & 32, 0~B & 48--56, 0~B & 31, 0~B \\
 Quality claim & the artifact's (\S\ref{sec:evaluation}) & reference & none & none & none \\
 \bottomrule
 \end{tabular}
-\caption{What the ten-arm comparison holds equal (matrices, shapes, process,
-rounds, f64 verification) and what it does not, per arm. Differences are
-listed as shipped and left uncorrected; the billing asymmetries understate
-our arms. Data: the run journal named in Table~\ref{tab:provenance}.}
+\caption{What the ten-arm comparison holds equal (matrices, shapes,
+process, rounds, f64 verification) and what it does not. Differences are as
+shipped and uncorrected; the billing asymmetries understate our arms.}
 \label{tab:fairness}
 \end{table}
 
 \begin{table}[H]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{4pt}
-\renewcommand{\arraystretch}{0.85}
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{0.8}
 \begin{tabular}{p{0.46\linewidth}lp{0.37\linewidth}}
 \toprule
 Criterion & Fixed before & Outcome \\
@@ -107,8 +106,8 @@ Outcomes are read from the journals of Table~\ref{tab:provenance}.}
 \begin{table}[H]
 \centering
 \scriptsize
-\setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{0.82}
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{0.75}
 % File names may break only after "-", "/" and "_": xurl's default lets
 % \path break anywhere, which split names mid-word in this table.
 \renewcommand{\UrlBreaks}{\do\-\do\/\do\_}%
@@ -126,8 +125,7 @@ Fused served path (\S\ref{sec:attribution}) & --- & \path{d1-fusion-servie-2026-
 Fig.~\ref{fig:scale} & \path{ppl-appariee.csv}, \path{mmlu-appariee.csv} (interval cells), \path{echelle-4b-8b.csv} & \path{ppl-appariee-4b-2026-08-17.txt}, \path{ppl-appariee-8b-14b-2026-08-17.txt}, \path{mmlupair-4b-8b-2026-08-13.txt}, \path{mmlupair-14b-2026-08-17.txt} \\
 Table~\ref{tab:phases} & \path{phases.csv} & \path{phases-2026-08-07.txt} \\
 Table~\ref{tab:e2e} & \path{campagne-finale.csv}, \path{tableau-8b.csv}; the 14B row from the journal & \path{b2-fusedrun-plages-2026-08-18.txt} \\
-Table~\ref{tab:campaign} & \path{campagne-finale.csv} & \path{a4-campagne-2026-08-06.txt}, \path{campagne-finale-bras4-2026-08-07.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
-Table~\ref{tab:campaign8b} & \path{tableau-8b.csv} & \path{campagne-8b-qualite-2026-08-08.txt}, \path{campagne-8b-q8-2026-08-08.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
+Tables~\ref{tab:campaign}, \ref{tab:campaign8b} & \path{campagne-finale.csv}, \path{tableau-8b.csv} & \path{a4-campagne-2026-08-06.txt}, \path{campagne-finale-bras4-2026-08-07.txt}, \path{campagne-8b-qualite-2026-08-08.txt}, \path{campagne-8b-q8-2026-08-08.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
 Table~\ref{tab:lit} & --- & transcription of the original paper's tables (\path{docs/llvq-paper-notes.md}) \\
 Table~\ref{tab:envelope} & --- & \path{fusedrun-14b-2026-08-17.txt} \\
 Table~\ref{tab:scale} & \path{echelle-4b-8b.csv}, \path{mmlu-appariee.csv}, \path{ppl-genou.csv} & \path{rtbits-planes-8b-2026-08-09.txt}, \path{rtbits-14b-2026-08-17.txt}, \path{campagne-14b-qualite-2026-08-10.txt} \\
