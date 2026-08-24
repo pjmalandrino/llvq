@@ -1,0 +1,69 @@
+LOT G — HORLOGES SM PENDANT LE BANC + PLANES12X SERVI (2026-08-23)
+==================================================================
+Pré-enregistrement : proofs/preregistration-g-2026-08-23.md (tampon .ots,
+sha256 dfd65c4240f31d951e2a4ef37db1af4e3664876675bb2c41586bc589c21aa4a2).
+Image hf.co/spaces/Pier-Jean/llvq-runner-cuda, modèle Pier-Jean/Qwen3-4B-LLVQ-2bit.
+
+Jobs :
+  G1 (L40S) 6a8c142773304676c8ecbfb8  COMPLETED  l40sx1
+  G2 (A100) 6a8c14287c5c7dd379236e35  COMPLETED  a100-large (LLVQ_NVRTC_ARCH=compute_80)
+  G3-retry  6a8c235573304676c8ecc120  (le 1er essai a échoué "Volume mount failed",
+            infra transitoire, aucun octet lu ; relancé)
+  🕳️ Note plomberie : l'échantillonneur nvidia-smi a été rendu robuste au nom de
+     champ du driver (boucle par ligne sur clocks.sm/clocks.max.sm/clocks.mem/
+     power.draw/temperature.gpu ; throttle en clocks_event_reasons.active avec
+     repli clocks_throttle_reasons.active) au lieu du "-l 1" verbatim du préreg.
+     Le critère scientifique tamponné (rapport L40S/A100 dans [1,60 ; 1,95]) est
+     inchangé — pur détail d'invocation.
+
+G1/G2 — HORLOGES SM PENDANT LE BANC (planes14,fp16,nullk, 3 bras)
+-----------------------------------------------------------------
+Échantillon 1 Hz sur toute la durée du banc.
+
+  carte   driver        SM médiane   SM max (active >1 GHz)   n / n_actifs   throttle
+  L40S    580.178.04    2520 MHz     2520 MHz                 144 / 143      0x1 (GpuIdle seul)
+  A100    580.159.03    1410 MHz     1410 MHz                 183 / 182      0x1 (GpuIdle seul)
+
+  Les deux cartes tournent ÉPINGLÉES à leur boost max (datasheet L40S 2520,
+  A100 1410). Aucun bridage thermique ni puissance : la seule raison d'événement
+  d'horloge active est 0x1 = GpuIdle (creux entre noyaux).
+
+  RAPPORT L40S/A100 = 2520/1410 = 1,787  ∈ [1,60 ; 1,95]  ✅ CRITÈRE ATTEINT.
+  Il colle au ralentissement mesuré du témoin sans lecture (nullk) :
+    nullk L40S 2,290 ms → A100 4,058 ms = ×1,772 (banc G) ;
+    2,306 → 4,107 = ×1,781 (banc F4 publié).
+  Conclusion : le ×1,78 de la Table 3 EST le rapport d'horloges. Le §3.5 passe
+  d'« horloges constructeur » à « horloges mesurées, épinglées, sans bridage ».
+  Réserve inchangée : c'est une preuve d'HORLOGE, pas un profil d'occupation
+  (compteurs refusés par la plateforme, ERR_NVGPUCTRPERM).
+
+CONTRÔLE — le banc rejoue le papier (bras communs)
+---------------------------------------------------
+  L40S : nullk 4,75× [4,74–4,75] · Planes14 2,14× [2,13–2,14] · FP16 669 Go/s
+         (papier F4 : 4,77× · 2,15× · 661) — dispersion inter-run, même ordre.
+  A100 : nullk 1,70× · Planes14 0,79× · FP16 1055 Go/s
+         (papier F4 : 1,68× · 0,79× · 1052). Pires erreurs f64 planes14 2,2e-8.
+
+G3 — PLANES12X SERVI BOUT-EN-BOUT (4B)  [job 6a8c235573304676c8ecc120]
+---------------------------------------------------------------------
+  ⚠️ 1er essai (6a8c14287c5c7dd379236e33) : ERROR "Volume mount failed" —
+     infra transitoire, 0 octet lu, relancé.
+  Protocole fusedrun : 1 génération jetée + 5 chronométrées, médiane [plage],
+  tokens comparés au bras dense. LLVQ_FUSED_LAYOUT=planes12x LLVQ_EMBED=q8.
+
+  bras    tok/s (médiane) [plage]   Go carte (compte hôte)   b/poids inférence
+  fusé    85,0 [84,7–85,1]          2,36 (proj 1,94 + portés 0,41)   4,277
+  dense   43,4 [43,4–43,4]          8,04                             16,000
+
+  vitesse ×1,96 [1,95–1,96] (quotient des médianes, rounds jamais entrelacés)
+  mémoire ÷3,41
+  divergence gloutonne au token 89/128 — le tie-break historique de Planes14,
+  reproduit (A1 : aucune divergence avant le token 80).
+
+  PRÉDICTIONS DU PRÉREG, tenues : débit ~84 tok/s ∈ [76 ; 90] ✅ ;
+  VRAM ~2,39 Go ∈ [2,30 ; 2,48] ✅. Chargement 1340 s (transcodage Planes12x,
+  recherche réseau à 5 niveaux par bloc — coût hors ligne, payé une fois).
+
+  Contre Planes14 servi (B2 : 87,0 tok/s, 2,56 Go host) : −2,3 % de débit
+  pour −0,20 Go de carte. Point servi le plus compact mesuré.
+

@@ -302,15 +302,16 @@ visible in absolute terms. All lattice arms slow down on the card with more
 bandwidth, \textsc{Planes14} from 428 to 250~GB/s, while FP16 converts the
 HBM, 661 to 1052~GB/s, and cuBLAS 672 to 1204. The no-weights control goes
 from $4.77\times$ to $1.68\times$ FP16, slowing by $\times 1.78$ in
-absolute time (2.306 to 4.107~ms). That factor matches the ratio of
-datasheet SM boost clocks, 2\,520 against
-1\,410~MHz~\citep{nvidia_l40s_datasheet,nvidia_a100_datasheet}, and
-points at issue latency
-of a one-warp-per-row geometry rather than at DRAM. SM clocks were not
-captured during the run, and a hardware profile was unavailable on the
-platform (counters refused), so this is the consistent hypothesis rather
-than a measured mechanism. The 4-bit competitor stays above FP16, at
-$1.82\times$ from $3.38\times$.
+absolute time (2.306 to 4.107~ms). SM clocks sampled once a second through
+the bench show why: both cards run pinned at their maximum boost, 2\,520~MHz
+on the L40S and 1\,410 on the
+A100~\citep{nvidia_l40s_datasheet,nvidia_a100_datasheet}, with no throttling,
+the only active clock-event reason being the idle gap between kernels. The
+$\times 1.78$ slowdown is that $1.79$ clock ratio: a one-warp-per-row
+geometry bound by instruction issue rather than by DRAM, its per-SM decode
+throughput unchanged while the memory ceiling rises. This is clock evidence,
+not the occupancy profile the platform's disabled counters would have given.
+The 4-bit competitor stays above FP16, at $1.82\times$ from $3.38\times$.
 
 What transfers is the ordering: \textsc{Planes14} leads, the two
 \textsc{Golay70} decoders trail, and the hoisted decoder beats the first

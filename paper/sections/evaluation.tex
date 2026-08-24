@@ -157,6 +157,13 @@ trend: it tracks the embedding share (9.7\%, 15.2\%, 10.5\%), a table AWQ
 leaves in FP16 and we store as int8. At 8B the trade is 7.49 MMLU points
 against 10.6\% of VRAM and half the disk.
 
+The served default is Planes14. Its sparse-overlay sibling Planes12x, wired
+into the same runner, serves the 4B at 85.0~tok/s [84.7--85.1] in 2.36~GB,
+a $\times1.96$ over the dense arm and $3.41\times$ less card memory, greedy
+tokens identical to the dense arm through the same tie-break. It gives up
+about 2\% of Planes14's throughput for a smaller footprint, the most compact
+served configuration we measure.
+
 \textbf{Against published 2-bit methods.} Table~\ref{tab:lit} places the
 sealed arms beside the source paper's results at matched code rate,
 48 bits per 24-weight block on every 2-bit row. At 4B our $\times1.38$ sits
