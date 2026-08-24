@@ -1,0 +1,137 @@
+\section{Protocol, pre-registered criteria and provenance}
+\label{app:protocol}
+
+\textbf{Layout benchmark protocol.} The ten arms of Table~\ref{tab:layouts}
+run in one process on one L40S, interleaved each round in fixed dispatch
+order, seven rounds with two discarded. Each speedup is the median of
+per-round ratios against the FP16 control, with its range. Two phases: nine
+arms, then the same nine plus the 2-bit competitor; the nine common ratios
+move by at most 0.36\%. Incumbents reproduce across jobs (Planes14
+2.15$\times$ twice, hoisted Golay70 1.77$\times$ and 1.78$\times$). Byte
+accounting is the kernel's (payload, exception side-channels, f32 tail
+columns, row scales); class tables are excluded as resident constants.
+Three uncorrected asymmetries understate our arms: the FP16 control bills
+its tail at f16, the competitors none. GB/s is each arm's fastest kept
+round; medians leave every percentage unchanged. CUDA events bound the host
+share of wall time at 0.1--0.2\%.
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.5pt}
+\renewcommand{\arraystretch}{1.0}
+\begin{tabular}{lp{0.175\linewidth}p{0.14\linewidth}p{0.135\linewidth}p{0.15\linewidth}p{0.14\linewidth}}
+\toprule
+ & Ours (4 layouts) & FP16 / cuBLAS & AWQ w4g128 & QTIP 2-bit & No-weights \\
+\midrule
+Payload & sealed 4B artifact, transcoded bit-exact & same weights, decoded f16 & our weights requantized (timing only) & pseudo-random valid stream (timing only) & none \\
+Grid & one warp per row, 252 launches & ours / library's & own, as shipped & own, as shipped (1\,024 threads, 64~KiB smem) & ours \\
+Output, accum. & f32, f32 FMA & f32 / binary16 & binary16 & f32 & f32 \\
+f64 check & $10^{-5}$ (worst $3.4\times10^{-8}$) & $10^{-5}$ / $10^{-3}$ (worst $5.7\times10^{-5}$) & $10^{-3}$ (worst $5.8\times10^{-5}$) & $10^{-5}$ (worst $5.4\times10^{-8}$) & $10^{-5}$ (exact) \\
+Tail, scales billed & f32 tail + f32 row scales & f16 tail in 16.000 & none (all columns quantized) & none (shapes divide) & tail + scales only (0.159 b/w) \\
+Registers, local & 40, 0~B & 42, 0~B / n/a & 32, 0~B & 48--56, 0~B & 31, 0~B \\
+Quality claim & the artifact's (\S\ref{sec:evaluation}) & reference & none & none & none \\
+\bottomrule
+\end{tabular}
+\caption{What the ten-arm comparison holds equal (matrices, shapes, process,
+rounds, f64 verification) and what it does not, per arm. Differences are
+listed as shipped and left uncorrected; the billing asymmetries understate
+our arms. Data: the run journal named in Table~\ref{tab:provenance}.}
+\label{tab:fairness}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{0.9}
+\begin{tabular}{p{0.46\linewidth}lp{0.37\linewidth}}
+\toprule
+Criterion & Fixed before & Outcome \\
+\midrule
+Golay70: kept only if $\geq 1.6\times$ FP16 &
+2026-08-07 &
+1.31$\times$ [1.29--1.32]; 1.34$\times$ in the ten-arm run. Discarded. \\
+Golay70 hoisted: adopted for the served path only if $\geq 2.0\times$ FP16
+and $\geq 20\%$ whole-model memory margin over the deployed 4-bit checkpoint &
+2026-08-11 &
+Memory margin 23.3\% by arithmetic; speed 1.77$\times$ [1.76--1.78]. Not
+adopted. \\
+QTIP arm: $r = t(\text{Planes14})/t(\text{QTIP})$ per round; verdict
+fixed for a range above 1 (inherited claim confirmed), below 1 (refuted),
+covering 1 (undecided) &
+2026-08-20 &
+2.27$\times$ [2.27--2.28], entirely above 1. \\
+QTIP fraction of its byte bound $\leq 59.9\%$ (no-weights control of a prior
+job, 4.79$\times$); 59.6\% on the same-process control (4.77$\times$) &
+2026-08-20 &
+61.1\% measured, 1.5 points above against a resolution of 0.2 fixed in
+advance: the control is a property of our launch geometry. \\
+A100: order of the lattice arms (Planes14 $>$ Planes12x $>$ Slot32 $>$
+Golay70) preserved beyond range overlap, else published as a property of the
+format--card pair &
+2026-08-18 &
+Planes14 0.79$\times$ leads, the Golay70 arms (0.62$\times$,
+0.44$\times$) trail; Planes12x and Slot32 tie at 0.73$\times$
+[0.73--0.73]: the Planes12x $>$ Slot32 order is not preserved, and the
+ordering is published as a property of the format--card pair
+(\S\ref{sec:a100}). \\
+14B served VRAM reproduces the byte-level 5.106 b/param within $\pm 0.5\%$ &
+2026-08-17 &
+5.0866 b/param, $-0.38\%$. \\
+End-to-end ranges, anomalies A1--A4: divergence at or before token 5;
+tokens differing between rounds of one arm; median outside $\pm 10\%$ of
+the earlier point; range above 10\% of the median &
+2026-08-18 &
+None triggered: 4B divergence at token 89 (the tie-break of the earlier run),
+worst shift $-1.6\%$, worst range 0.6\%. \\
+\bottomrule
+\end{tabular}
+\caption{Decision criteria and predictions fixed before the measurement that
+tested them. Dates are those of the committed pre-registration files
+(\texttt{proofs/\allowbreak preregistration-*.md}), several with OpenTimestamps
+proofs; the first row predates that practice and carries the date of the
+journal recording it. Outcomes are read from the journals of
+Table~\ref{tab:provenance}.}
+\label{tab:prereg}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{0.9}
+% File names may break only after "-", "/" and "_": xurl's default lets
+% \path break anywhere, which split names mid-word in this table.
+\renewcommand{\UrlBreaks}{\do\-\do\/\do\_}%
+\renewcommand{\UrlBigBreaks}{}%
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.115\linewidth}>{\raggedright\arraybackslash}p{0.355\linewidth}>{\raggedright\arraybackslash}p{0.47\linewidth}}
+\toprule
+Figure / Table & CSV (\path{docs/data/}) & Journal (\path{docs/mesures/}) \\
+\midrule
+Fig.~\ref{fig:records} & \path{echelle-formats.csv}; field widths from the kernel headers (\path{llvq-cuda/kernels/*.cuh}) & \path{f2-p3-qtip-banc-2026-08-21.txt} \\
+Fig.~\ref{fig:dataflow} & --- (kernel source, \path{llvq-cuda/kernels/planes.cu}, \path{llvq_planes.cuh}, \path{qtip_prelude.cuh}) & \path{f2-p3-qtip-banc-2026-08-21.txt} (registers, spill) \\
+Fig.~\ref{fig:layouts}, Table~\ref{tab:layouts} & \path{echelle-formats.csv} & \path{f2-p3-qtip-banc-2026-08-21.txt} \\
+Fig.~\ref{fig:attribution} & \path{attribution-slot32.csv} & \path{attribution-cuda-2026-08-05.txt}, \path{fusion-qkv-cuda-2026-08-05.txt}, \path{f2-p3-qtip-banc-2026-08-21.txt} (l.~260--295) \\
+Fig.~\ref{fig:a100} & \path{echelle-formats.csv}, \path{echelle-formats-a100.csv} & \path{f4-a100-2026-08-18.txt} \\
+Fig.~\ref{fig:scale}, Table~\ref{tab:intervals} & \path{ppl-appariee.csv}, \path{mmlu-appariee.csv}; Fig.~\ref{fig:scale} also \path{echelle-4b-8b.csv} & \path{ppl-appariee-4b-2026-08-17.txt}, \path{ppl-appariee-8b-14b-2026-08-17.txt}, \path{mmlupair-4b-8b-2026-08-13.txt}, \path{mmlupair-14b-2026-08-17.txt} \\
+Table~\ref{tab:phases} & \path{phases.csv} & \path{phases-2026-08-07.txt} \\
+Table~\ref{tab:e2e} & \path{campagne-finale.csv}, \path{tableau-8b.csv}; the 14B row from the journal & \path{b2-fusedrun-plages-2026-08-18.txt} \\
+Table~\ref{tab:campaign} & \path{campagne-finale.csv} & \path{a4-campagne-2026-08-06.txt}, \path{campagne-finale-bras4-2026-08-07.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
+Table~\ref{tab:campaign8b} & \path{tableau-8b.csv} & \path{campagne-8b-qualite-2026-08-08.txt}, \path{campagne-8b-q8-2026-08-08.txt}, \path{b2-fusedrun-plages-2026-08-18.txt} \\
+Table~\ref{tab:lit} & --- & transcription of the original paper's tables (\path{docs/llvq-paper-notes.md}) \\
+Table~\ref{tab:envelope} & --- & \path{fusedrun-14b-2026-08-17.txt} \\
+Table~\ref{tab:scale} & \path{echelle-4b-8b.csv}, \path{mmlu-appariee.csv}, \path{ppl-genou.csv} & \path{rtbits-planes-8b-2026-08-09.txt}, \path{rtbits-14b-2026-08-17.txt}, \path{campagne-14b-qualite-2026-08-10.txt} \\
+Table~\ref{tab:seeds} & \path{knee-seeds.csv} & \path{f5-graines-4b-2026-08-19.txt}, \path{a4-campagne-4b-ppl-BRUT-2026-08-06.txt} \\
+Table~\ref{tab:prereg} & --- & \path{proofs/preregistration-*.md} \\
+\bottomrule
+\end{tabular}
+\caption{Where each figure and table comes from. Every CSV is committed and
+the build regenerates the figures from them; the checked tables fail the
+build when they drift from their CSV. The token fingerprints required to
+match across quality arms (\S\ref{sec:evaluation}) are
+\texttt{3f1baca9033bf251} (perplexity) and \texttt{65dcd53655e8bfa5}
+(MMLU). Rented GPU time across the whole campaign cost under \$100; per-job
+amounts are in \texttt{jobs.csv}.}
+\label{tab:provenance}
+\end{table}

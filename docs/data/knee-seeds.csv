@@ -1,0 +1,5 @@
+arm_4b,ppl_4b,step1_logratio,step1_t,step2_logratio,step2_t,knee_logratio,knee_lo,knee_hi,knee_t,knee_excludes_zero,source
+published,16.9422,-0.1265,-9.62,-0.0255,-3.38,-0.1010,-0.1377,-0.0643,-6.06,yes,mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt
+seed1,16.7425,-0.1146,-9.22,-0.0255,-3.38,-0.0891,-0.1274,-0.0509,-5.13,yes,data/f5-nll/seed1-nll.txt (mesures/f5-graines-4b-2026-08-19.txt)
+seed2,15.8836,-0.0619,-5.47,-0.0255,-3.38,-0.0365,-0.0744,0.0014,-2.12,no,data/f5-nll/seed2-nll.txt (mesures/f5-graines-4b-2026-08-19.txt)
+seed3,15.1027,-0.0115,-0.93,-0.0255,-3.38,0.0139,-0.0268,0.0547,0.75,no,data/f5-nll/seed3-nll.txt (mesures/f5-graines-4b-2026-08-19.txt)

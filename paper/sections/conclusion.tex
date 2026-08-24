@@ -1,23 +1,26 @@
 \section{Conclusion}
 \label{sec:conclusion}
 
-The missing piece of Leech-lattice LLM quantization was the decoder, not the
-math. The full multi-shell codebook can be decoded inside a matvec at
-memory-bound speed; the in-VRAM rate is a design axis of its own (5.51 to
-4.80 to 4.34~b/weight at bit-exact decoded content, with the floor mapped by
-a negative result at 3.59); and the integrated system serves a 2-bit 4B model
-from 2.60~GB. But a deployed 4-bit kernel converts 88\% of its byte advantage
-into time where our best layout converts 65\%, and that gap, more than the
-factor against FP16, is what a successor should attack.
+We wrote a fused dequantize-plus-matvec kernel for the full 301-class
+$\Lambda_{24}(12)$ codebook, to our knowledge the first: divergence-free, verified against
+f64, 65\% of its byte bound on an L40S. The in-VRAM rate is a distinct design
+axis: four bit-exact layouts span 5.51 to 3.59~b/weight, and bit planes beat
+one-hot masks on size and speed at constant bandwidth. The curve turns
+between 4.8 and 4.3~b/weight, where a second, irregular stream (the
+exception side channel) enters, and collapses at 3.6, where the decode stops
+being shifts and masks. Against deployed 4-bit and 2-bit GEMV kernels
+in one process, the trellis kernel reads 2.40$\times$ fewer bytes and runs
+2.27$\times$ faster at near-equal efficiency: the gap is the unfolding of a
+codebook no lookup table holds. The validity envelope is measured: the
+trellis kernel outruns our no-weights control, launch geometry holds 39\% of
+the gap to the DRAM floor, and fusing projections recovers 11.7\% of the
+\textsc{Planes14} kernel time. On an A100 every lattice arm falls below
+FP16, and same-head serving gains are 1.11$\times$, 1.29$\times$ and
+1.41$\times$.
 
-What we did not show is that 2 bits is the right operating point for a 4B
-model; it is not. Scale moves every quality number the right way across 4B, 8B and
-14B (the excess perplexity over FP16 falls 42.8\% and then 13.9\%, the
-MMLU gap to a 4-bit baseline goes 14.45, 7.49, 6.09 points, all paired),
-and it stops moving them at the same rate; whether that slowdown is
-resolved depends on the metric (\S\ref{sec:evaluation}). Three points, no
-law. The open questions are whether the curve reaches the 70B class, and
-which untested lever (calibration composition, learned column scales,
-low-rank compensation) closes a reasoning-concentrated MMLU deficit. Both
-are measurable with the methodology used here: interleaved arms, matching
-token fingerprints, pre-registered gates, per-job cost accounting.
+Two questions stay open. Does the quality curve, whose direction holds on
+three sizes without a scaling law, reach the 70B class? And which untested
+lever (calibration composition, learned column scales, low-rank
+compensation) closes the reasoning-concentrated MMLU deficit? A successor
+should attack the launch geometry and the unfolding cost rather than the
+factor against FP16.

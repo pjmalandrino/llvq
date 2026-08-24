@@ -1,34 +1,27 @@
 \section{Availability}
 \label{sec:availability}
 
-Code, every table and figure's CSVs, and the paper source are at
+Code, the CSVs behind every table and figure, and the paper source are at
 \ifanon{\url{https://github.com/pjmalandrino/llvq}}{a public repository whose
-URL is withheld for double-anonymous review}, dual-licensed MIT or Apache-2.0. States are
-tagged with their numbers (the submission gets its own tag); \texttt{make}
-in \texttt{paper/} refuses a table drifted from its CSV.
-Lattice core, exact nearest-neighbor search and artifact format are
-dependency-free Rust, readable end to end; \texttt{candle} and
-\texttt{cudarc} enter only via model-side and kernel crates.
+URL is withheld for double-anonymous review} (MIT or Apache-2.0);
+\texttt{make} in \texttt{paper/} rejects a table that drifts from its CSV.
+The measurement campaign cost under \$100 of rented GPU time in total;
+per-job amounts, dates and logs are in the repository. The 2-bit
+competitor's kernel is GPL~v3: the benchmark fetches it at a pinned commit
+rather than redistributing it.
 
-The quantized Qwen3-4B artifact is at
+The quantized Qwen3-4B artifact (sealed, 1.77~GB, and with the int8 embedding
+pre-baked, 1.41~GB; Table~\ref{tab:campaign}) is at
 \ifanon{\url{https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit}}{a public
-model repository whose URL is withheld for double-anonymous review}: both files behind
-columns 3 and 4 of Table~\ref{tab:campaign} --- sealed 1.77~GB, and
-1.41~GB with int8 embedding pre-baked. The 8B and 14B artifacts are
-unpublished but reproducible at the costs in
-\texttt{docs/\allowbreak data/\allowbreak jobs.csv}. All three sizes ship
-the evidence behind every paired statistic: per-question MMLU dumps for the
-nine arms, per-window log-likelihoods behind the nine perplexity intervals
---- raw, not aggregated and cited, since an aggregated log cannot be barred
-afterwards and vendor log retention is neither documented nor guaranteed.
-No third-party runtime reads the format; only the \texttt{llvq-artifact}
-crate here. Serving also needs \S\ref{sec:limitations}'s CUDA-only rotation
-kernel, capping servable \texttt{intermediate\_size} at 25\,344
-coordinates: above the 14B, below the 32B.
+model repository whose URL is withheld for double-anonymous review}. The 8B
+and 14B artifacts are unpublished; a requantization would be a new
+calibration draw (\S\ref{sec:evaluation}) rather than the same object. The
+MMLU dumps and per-window log-likelihoods behind every paired statistic are
+committed raw. Serving needs the CUDA-only rotation kernel of
+\S\ref{sec:limitations}.
 
-Artifacts carry tokenizer and configuration, so on an NVIDIA GPU
-Table~\ref{tab:campaign}'s served configuration and the two evaluations
-replay from the file alone --- no checkpoint, no network:
+Artifacts carry tokenizer and configuration; on an NVIDIA GPU the served
+configuration and both evaluations replay from the file alone:
 
 {\small
 \begin{verbatim}
@@ -44,12 +37,9 @@ cargo run --release \
 }
 
 \noindent
-\texttt{LLVQ\_FUSED\_LAYOUT} selects the VRAM layout of
-\S\ref{sec:layouts}: all four measured points, \texttt{planes14}
-(default), \texttt{planes12x}, \texttt{slot32}, \texttt{golay70}
-(measurable, not served); other values are refused, not silently
-defaulted. \texttt{LLVQ\_EMBED} sets embedding precision (\texttt{f16}
-default, \texttt{q8}); \texttt{LLVQ\_DTYPE} pins the evaluation dtype,
-\texttt{ppl} defaulting to f32 and \texttt{mmlu} to f16. Each binary prints
-its resolved configuration and a fingerprint of the scored tokens;
-numbers compare only when fingerprints match, as every table requires.
+\texttt{LLVQ\_FUSED\_LAYOUT} selects the layout of \S\ref{sec:layouts}
+(\texttt{planes14} default, \texttt{planes12x}, \texttt{slot32},
+\texttt{golay70}; anything else is an error); \texttt{LLVQ\_EMBED} sets the
+embedding precision (\texttt{f16} default, \texttt{q8}); \texttt{LLVQ\_DTYPE}
+pins the evaluation dtype. Each binary prints a fingerprint of the scored
+tokens; numbers compare only when fingerprints match.

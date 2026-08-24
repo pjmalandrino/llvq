@@ -1,132 +1,82 @@
-\section{Limitations}
+\section{Limitations and Validity Envelope}
 \label{sec:limitations}
 
-\textbf{The MMLU deficit is real, reproduced, and unresolved.} $-14.6$
-points against FP16 on the 4B served arm, reproduced three times on two
-machines; $-14.73$ paired on the sealed artifact, the arm all paired
-statistics use; 10.57 at 8B, 6.85 at 14B, all three resolved. Abstract
-algebra and accounting fall to 25\%, chance, where history, law and
-psychology hold above 80\%: two bits damage \emph{reasoning} far
-more than \emph{recall}, mostly what a perplexity corpus measures, so
-perplexity alone is never evidence of quality at this rate. Suspects,
-measured and bounded: output-side rotation (near-zero marginal effect in the
-original paper's ablation); a free-magnitude variant with a closed-form
-scale solve ($\times1.99$ perplexity at full depth on the 0.6B proxy, killed
-by a pre-registered gate); and calibration volume --- our ${\sim}131$k
-tokens are roughly $100\times$ less than the original paper's, but a
-deliberate-contamination oracle (calibrating on the evaluation text itself,
-an upper bound on what volume or corpus buys) recovers only $1.6\%$ of
-perplexity on a proxy, a $\times13$ volume curve $1.2\%$; a bound weaker
-than it looks (perplexity, 3 blocks, a 0.6B proxy; it does not bound MMLU),
-but enough that we did not commission a $\times100$ run. Untested:
-reasoning-weighted calibration composition, learned per-column scales (about
-two MMLU points under the original paper's fine-tuning protocol), low-rank
-compensation adapters.
+\textbf{The validity envelope.} Every speed figure in this paper is a
+decode-phase GEMV at batch size 1. The served kernel is a matrix--vector
+product: a prompt of $\ell$ tokens costs $\ell$ passes, and no prefill GEMM
+exists on that path. Throughput figures therefore describe short prompts
+(the end-to-end runs use a five-token prompt); time-to-first-token at long
+prompts is not measured. The perplexity and MMLU harness scores the sealed
+file through the dense path. The served path's equivalence to that file
+rests on the bit-exact transcoding and the row-level f64 checks
+(\S\ref{sec:decoder}); no quality score passes through the kernel. The
+unfolded stream is built at load time, one pass over the artifact per
+process, and is not persisted: 84~s for Planes14 and 404~s for Planes12x on
+the 4B with 16 threads. For the served layout the cost is absorbed rather
+than added: the fused path loads the 4B in 122--131~s across invocations,
+unfolding included, against 186--188~s for the dense arm, which reads
+8~GB of f16. VRAM figures count weights only; the KV cache is
+excluded. The rotation kernel exists for CUDA only, so the served path is
+NVIDIA-only.
 
-\textbf{We are slower than the 2-bit kernel we set out to beat, and the
-margin is large.} QTIP's kernel runs $2.27\times$ our production layout on
-matching shapes in the same process (\S\ref{sec:qtip}). We measured it as
-shipped, in its own launch geometry, tuning nothing either way: a tuning
-pass could move that number, and we did not attempt one. Not a defect of
-our implementation: both formats store the same rate on
-disk, and the gap is entirely the load-time unfolding a combinatorial
-lattice index requires and a sliding-window trellis does not. A
-research direction, not a patch, and not obviously open: the granular gain
-$\Lambda_{24}$ contributes over a deep trellis is at most a decibel, which a
-long-memory trellis on incoherence-processed (hence approximately i.i.d.\
-Gaussian) weights already captures --- the reading our measurements support,
-not a proof. The same gap remains for Marlin's batched 4-bit GEMM and the
-other 2-bit vector-quantized systems of \S\ref{sec:related}.
+\textbf{The MMLU deficit is unexplained.} The deficit of
+\S\ref{sec:evaluation} is reproduced at three sizes. Three suspects are
+bounded. Output-side rotation has a near-zero marginal effect
+in the original paper's ablation. A free-magnitude variant with a
+closed-form scale solve costs $\times1.99$ perplexity on a 0.6B proxy.
+Calibration volume (131k tokens, about $100\times$ below the original
+paper) is bounded on perplexity only: a contamination oracle recovers 1.6\%,
+a $\times13$ volume curve 1.2\%. Untested: calibration
+composition, learned per-column scales, low-rank compensation.
 
-\textbf{Three models end to end, one serving GPU, greedy decoding.}
-End-to-end: Qwen3-4B, 8B and 14B on one L40S at batch size 1;
-only the layout bench runs on a second architecture, where it bounds rather
-than extends the claim (\S\ref{sec:a100}). Batching changes
-the arithmetic-intensity regime that makes the kernel memory-bound; larger
-models change the embedding share and tail-column overhead.
+\textbf{The trellis kernel is faster.} The 2-bit competitor's kernel runs
+$2.27\times$ faster than Planes14 in one process (\S\ref{sec:qtip}). A
+tuning pass on either side could move the number; none was attempted. The
+same gap stands, unmeasured here, against Marlin's batched 4-bit GEMM and
+the 2-bit vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{The scale argument is three points, and not a law.} On the 4B,
-4-bit AWQ dominates every axis but disk and served footprint
-(Table~\ref{tab:campaign}), a ${\sim}3\%$ b/param margin that does not,
-alone, justify a 14.6-point MMLU loss. The 8B moves every relevant
-number in the 2-bit direction (Table~\ref{tab:campaign8b}); the 14B keeps it
-and \emph{loses the rate} (Table~\ref{tab:scale}). Whether it
-continues to the 70B class --- the regime the sovereignty argument needs ---
-is measurable with this methodology, and not measured here; the third
-point is why we do not extrapolate. Those qualifications
-(one verdict per metric on the slowdown; intervals paired, on committed raw
-output; a memory margin at all three sizes, not monotone) are carried once,
-in \S\ref{sec:evaluation} and Appendix~\ref{app:scale}.
+\textbf{One serving GPU, three models.} End to end, Qwen3-4B, 8B and 14B
+run on one L40S. Only the layout bench runs on a second architecture (\S\ref{sec:a100}),
+which bounds the claim. Batching changes the regime: the kernel is
+memory-bound because one activation amortizes each weight byte, and a
+batched GEMM amortizes it across rows, where the deployed 4-bit kernels
+already operate. Larger models change the embedding share and the
+tail-column overhead, both of which enter the whole-model rate.
 
-\textbf{Our speedups are over FP16, not over the state of the practice at
-either rate.} At the \emph{kernel} level both comparisons go against us:
-the AWQ GEMV converts 88\% of its byte bound against our 65\%, and QTIP is
-$2.27\times$ faster outright (\S\ref{sec:layouts}, \S\ref{sec:qtip}). At
-the \emph{engine} level the comparison exists only within each stack
-($2.413\times$ for AWQ--Marlin in vLLM against $1.11\times$ for us in
-\texttt{candle}; \S\ref{sec:integration}), and goes against us too --- with
-the caveat that the stacks differ independently of weight format:
-vLLM's FP16 control reaches 83.1~tok/s where ours reaches 43.6, so roughly
-a factor 1.9 of the end-to-end distance is engine, not decoder. A cost to
-the user and a confound to the reader: we report the two ratios side by
-side and never divide them. Tables~\ref{tab:campaign}
-and~\ref{tab:campaign8b} carry no 4-bit throughput column: the two tok/s are
-different measurements.
+\textbf{Three points, no law.} The direction holds on three sizes and
+supports no scaling law (\S\ref{sec:evaluation}, Appendix~\ref{app:scale}).
+The 70B class, the regime the memory argument targets, is measurable with
+this methodology and not measured here.
 
-\textbf{Speedups carry ranges, and the two protocols differ.} Inter-process
-dispersion on identical binaries spans several percent, so every bench
-ratio (\S\ref{sec:layouts}, Table~\ref{tab:layouts},
-Figure~\ref{fig:layouts}) is a median of per-round ratios over interleaved
-arms, with its min--max range. \S\ref{sec:integration}'s end-to-end
-figures are medians of five timed generations per arm, but
-their ratios are quotients of two medians with a conservative envelope: the
-arms load their models exclusively and their rounds never coexist.
-Effects smaller than a range are unresolved; second decimals read as
-dispersion, not measurement.
+\textbf{The rotated basis and the shared-memory wall.} Weights are stored
+in the incoherence-rotated basis, so every consumer applies the activation
+rotation, a Walsh--Hadamard transform whose barrier ladder synchronizes one
+thread block. That block must hold the whole activation in shared memory,
+one f32 per coordinate, and the binding width is the \texttt{down\_proj}
+input (Table~\ref{tab:envelope}). The 14B required the opt-in 101\,376-byte
+bound, measured on the serving card. The 32B needs 102\,400 bytes and
+misses that bound by 1\,024 bytes, which no host-side trimming reclaims;
+every layout of \S\ref{sec:layouts} calls the same rotation.
+Half-precision shared activations would halve the footprint, at an
+accumulation depth of order $\log_2 n \approx 14.6$ stages at
+$n = 25\,600$ that we have not priced.
 
-\textbf{The rotated basis is a real serving constraint.} Weights sit in the
-incoherence-rotated basis, so any consumer must apply the activation
-rotation. Our rotation kernel is verified bit-exact on CUDA and
-exists nowhere else (no Metal port yet), so the served path is currently
-NVIDIA-only ---
-awkward for the sovereignty motivation, and first in line for future work.
-
-\textbf{That same rotation caps the servable width one model class below
-the one the argument wants.} A Walsh--Hadamard transform's barrier
-ladder, logarithmic in the transform length, synchronizes one block, so the
-whole activation must sit in that block's shared memory: one f32 per
-coordinate whatever the input dtype. The binding width is
-\texttt{intermediate\_size}, the input of \texttt{down\_proj}; the ceiling
-is arithmetic:
-
-\begin{center}\footnotesize
+\begin{table}[h]
+\centering
+\footnotesize
 \setlength{\tabcolsep}{4pt}%
 \begin{tabular}{lrrll}
 \toprule
 Model & \texttt{intermediate\_size} & shared bytes & vs.\ 49\,152 default & vs.\ 101\,376 opt-in \\
 \midrule
 Qwen3-4B  &  9\,728 &  38\,912 & fits & fits \\
-Qwen3-8B  & 12\,288 &  49\,152 & fits \emph{exactly} & fits \\
+Qwen3-8B  & 12\,288 &  49\,152 & fits exactly & fits \\
 Qwen3-14B & 17\,408 &  69\,632 & does not fit & fits \\
-Qwen3-32B & 25\,600 & 102\,400 & does not fit & \textbf{short by 1\,024 bytes} \\
+Qwen3-32B & 25\,600 & 102\,400 & does not fit & short by 1\,024 bytes \\
 \bottomrule
 \end{tabular}
-\end{center}
-
-\noindent
-This hardware exposes \emph{two} bounds and our host code checked one: a
-guard against the 49\,152-byte per-block default refused to launch the 14B
---- correctly, an overrun would corrupt silently --- costing one job
-(\$0.24, no tokens produced) and finding the wall. The larger bound is
-opt-in, requested once per function, and \emph{measured} on the card that
-served (101\,376 bytes); only the host arithmetic changed.
-The 8B sat on the default bound to the byte, unflagged because nothing ever
-failed. The 32B misses the opt-in bound by 1\,024 bytes, the driver's
-reserve, which no host-side trimming reclaims. The bound holds for any
-format: every layout of \S\ref{sec:layouts} calls the same rotation. One
-escape is named and
-deliberately \emph{not} designed: half-precision shared activations would
-halve the footprint below the opt-in bound, but at $n = 25\,600$ that puts
-an accumulation of depth equivalent to ${\sim}14.6$ Hadamard stages in half
-precision --- a trade we
-have neither made nor priced.
+\caption{Shared memory required by the Walsh--Hadamard rotation of the
+\texttt{down\_proj} input (one f32 per coordinate) against the default and
+opt-in per-block bounds measured on the serving card.}
+\label{tab:envelope}
+\end{table}

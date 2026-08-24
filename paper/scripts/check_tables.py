@@ -10,16 +10,21 @@ this repository documents everywhere else, so it is checked here instead.
 Exit code 1 on any mismatch, with the cell named. Wired into `make`, so a
 table that drifts from its CSV fails the build rather than the review.
 
-Scope, stated so nobody mistakes it for more. Six tables are checked cell by
-cell against the CSV their own caption names: `tab:layouts`
+Scope, stated so nobody mistakes it for more. Seven tables are checked cell
+by cell against the CSV (or journal) their own caption names: `tab:layouts`
 (`echelle-formats.csv`, including the derived `of bound` column),
-`tab:campaign` (`campagne-finale.csv`), `tab:campaign8b` (`tableau-8b.csv`),
-`tab:scale` (`echelle-4b-8b.csv` for perplexity and whole-model b/param,
-including the derived excess, its fall and the memory margin, plus
-`mmlu-appariee.csv` for the paired MMLU gap), `tab:phases` (`phases.csv`) and
-`tab:progression` (`progression.csv`). Two tables are *not* checked, for a
-reason each, and they are named at the bottom of this file rather than left
-implicit.
+`tab:campaign` (`campagne-finale.csv`), `tab:campaign8b` (`tableau-8b.csv`,
+four arms since the TACO v5 rewrite: the sealed f16-heads artifact is
+tabulated next to the served int8-heads arm), `tab:scale` (`echelle-4b-8b.csv`
+for perplexity and whole-model b/param, including the derived excess, its
+fall and the memory margin, plus `mmlu-appariee.csv` for the paired MMLU
+gap; the table lives in Appendix A since the rewrite), `tab:phases`
+(`phases.csv`), `tab:seeds` (`knee-seeds.csv`, Appendix A) and `tab:e2e`
+(the three-size end-to-end table of Section 4, against `campagne-finale.csv`,
+`tableau-8b.csv` and the B2 journal that carries the 14B row). Tables that
+are *not* checked are named at the bottom of this file, with a reason each,
+rather than left implicit. `tab:progression` (`progression.csv`) was checked
+until the rewrite deleted the table; the CSV stays.
 
 Two CSVs are checked with no table behind them yet, added 2026-08-17:
 `ppl-appariee.csv` and `ppl-genou.csv` carry the paired perplexity intervals
@@ -96,7 +101,7 @@ def parse_layout_table(tex: str) -> dict[str, list[str]]:
 
 # CSV layout name -> the name as the table spells it.
 TABLE_NAME = {
-    "nullk": "Floor (no weights read)",
+    "nullk": "No-weights control",
     "FP16": "FP16 (control)",
     "cuBLASf16": "FP16 via cuBLAS",
     "Slot32": "Slot32",
@@ -258,6 +263,12 @@ CAMPAIGN8B_SPEC = {
     "VRAM": {
         "*": [("vram_gb", 2)],
         "awq": [("vram_gb", 2), ("vram_bits_per_param", 2)],
+        # The sealed f16-heads artifact is tabulated since the TACO v5
+        # rewrite, so that the paired gaps of Appendix A (10.57, 7.49) are
+        # reconstructible from a printed MMLU cell (65.52) rather than from
+        # the served arm's 65.63. Same two-decimal convention as its
+        # neighbour: the CSV records 6.461 and the cell prints 6.46.
+        "llvq_f16emb": [("vram_gb", 2), ("vram_bits_per_param", 2)],
         "llvq_q8": [("vram_gb", 2), ("vram_bits_per_param", 2)],
     },
     # Median then min--max, since 2026-08-19: `fusedrun` now times five
@@ -508,9 +519,16 @@ def check_scale() -> list[str]:
     knee = {}
     for r in csv.DictReader(open(DATA / "ppl-genou.csv")):
         knee[(r["step"], r["reference"])] = r
-    table = table_body((SEC / "evaluation.tex").read_text(), "scale")
+    # Since the TACO v5 rewrite the compact tab:scale lives in Appendix A
+    # (appendix-scale.tex); evaluation.tex is kept as a fallback so the
+    # check follows the table rather than the file.
+    table = []
+    for tex_file in ("appendix-scale.tex", "evaluation.tex"):
+        table = table_body((SEC / tex_file).read_text(), "scale")
+        if table:
+            break
     if not table:
-        return ["tab:scale: no tabular with that label in evaluation.tex"]
+        return ["tab:scale: no tabular with that label in appendix-scale.tex or evaluation.tex"]
     if len(table) != len(SCALE_MODELS):
         return [
             f"tab:scale has {len(table)} rows, {len(SCALE_MODELS)} models expected"
@@ -1001,117 +1019,257 @@ def knee_factor_is_a_ratio_of_ratios(rows: dict, scale: dict) -> list[str]:
     return bad
 
 
-MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+def signed_nums(cell: str) -> list[str]:
+    """Every number a LaTeX cell prints, sign kept, as canonical floats.
 
-# The three measured columns of Table 5, in the table's order. A decimal
-# count of None means "the table must print the CSV's own digits, verbatim",
-# which is stricter than rounding, not looser: it forbids the script from
-# silently re-rounding a value the CSV records more precisely. The b/param
-# column needs it because its rows do not share a precision -- the served 4B
-# figure is 5.162, the `rtbits` verdict on the exact bytes, and formatting it
-# to two decimals here would print 5.16 and let the cell drift back toward the
-# 5.15 that was only ever the rounded card display.
-PROGRESSION_COLUMNS = [
-    ("vram_gb", 2),
-    ("tokps", 1),
-    ("bits_per_param_modele_entier", None),
-]
-
-
-def check_progression() -> list[str]:
-    """Table 5 (tab:progression): the four integration steps, CSV order.
-
-    The step column is English prose against a French CSV label, so it is not
-    compared; the date is, which is what pins a table row to its CSV row.
+    `nums` drops signs because no cell it reads carries one. The seed table
+    does: the knee changes sign between the second and third re-draw, and a
+    check that ignored the sign would pass a row whose claim is inverted.
+    Math mode, \textbf and macros are stripped; a "+" is kept as a sign.
     """
-    rows = list(csv.DictReader(open(DATA / "progression.csv")))
-    table = table_body((SEC / "integration.tex").read_text(), "progression")
+    cell = re.sub(r"\\textbf\{([^}]*)\}", r"\1", cell)
+    cell = re.sub(r"\\[a-zA-Z]+", " ", cell)
+    cell = cell.replace("--", " ")  # a LaTeX en dash in a range is not a sign
+    return [str(float(x)) for x in re.findall(r"[-+]?\d+\.?\d*", cell)]
+
+
+def fmt(value: str, decimals: int) -> str:
+    """A CSV value rounded as the table prints it, as a canonical float."""
+    return str(float(f"{float(value):.{decimals}f}"))
+
+
+# The seed table's rows, in CSV order, with the label each prints.
+SEEDS_ROWS = {"published": "published", "seed1": "seed 1",
+              "seed2": "seed 2", "seed3": "seed 3"}
+
+# Tolerance for `knee = step1 - step2` on values the CSV records to four
+# decimals: two roundings of 5e-5 each, so a miss of 1e-4 is rounding and a
+# miss of 1e-3 is a knee that was not computed from its own two steps.
+SEEDS_TOL = 1.5e-4
+
+
+def check_seeds() -> list[str]:
+    """Table tab:seeds (Appendix A): knee-seeds.csv, every cell, sign kept.
+
+    The table replays the knee with each calibration re-draw of the 4B in
+    place of the published artifact; the second step is the same in every
+    row because the 8B and 14B are not re-drawn. Three things are checked:
+    the cells against the CSV, the CSV against itself (the knee is the
+    difference of its two steps; `knee_excludes_zero` follows from the
+    interval), and the published row against ppl-genou.csv, which carries
+    the same three numbers to nine decimals and is pinned to its journal.
+    """
+    rows = {r["arm_4b"]: r for r in csv.DictReader(open(DATA / "knee-seeds.csv"))}
+    table = table_body((SEC / "appendix-scale.tex").read_text(), "seeds")
     if not table:
-        return ["tab:progression: no tabular with that label in integration.tex"]
-    if len(table) != len(rows):
-        return [
-            f"tab:progression has {len(table)} steps, progression.csv has {len(rows)}"
+        return ["tab:seeds: no tabular with that label in appendix-scale.tex"]
+    bad = []
+    if len(table) != len(SEEDS_ROWS):
+        bad.append(f"tab:seeds has {len(table)} rows, {len(SEEDS_ROWS)} expected")
+    for arm in rows:
+        if arm not in SEEDS_ROWS:
+            bad.append(f"knee-seeds.csv row '{arm}' is in no row of tab:seeds")
+
+    for (arm, label), cells in zip(SEEDS_ROWS.items(), table):
+        if arm not in rows:
+            bad.append(f"knee-seeds.csv has no row '{arm}'")
+            continue
+        r = rows[arm]
+        if cells[0] != label:
+            bad.append(f"tab:seeds: row expected {label!r}, the table says {cells[0]!r}")
+            continue
+        if len(cells) != 6:
+            bad.append(f"tab:seeds row '{label}': {len(cells)} columns, 6 expected")
+            continue
+        want = [
+            ("4B ppl", [fmt(r["ppl_4b"], 4)], cells[1]),
+            ("step 4B->8B", [fmt(r["step1_logratio"], 4), fmt(r["step1_t"], 2)], cells[2]),
+            ("step 8B->14B", [fmt(r["step2_logratio"], 4), fmt(r["step2_t"], 2)], cells[3]),
+            ("knee", [fmt(r["knee_logratio"], 4), fmt(r["knee_lo"], 4),
+                      fmt(r["knee_hi"], 4), fmt(r["knee_t"], 2)], cells[4]),
         ]
-    bad = []
-    for r, cells in zip(rows, table):
-        if len(cells) != 2 + len(PROGRESSION_COLUMNS):
+        for field, expect, cell in want:
+            got = signed_nums(cell)
+            if got != expect:
+                bad.append(
+                    f"tab:seeds / {label} / {field}: CSV says {show(expect)}, "
+                    f"the table says {show(got)}"
+                )
+        if cells[5].strip() != r["knee_excludes_zero"]:
             bad.append(
-                f"tab:progression row '{cells[0]}': {len(cells)} columns, "
-                f"{2 + len(PROGRESSION_COLUMNS)} expected"
+                f"tab:seeds / {label} / excludes zero: CSV says "
+                f"{r['knee_excludes_zero']!r}, the table says {cells[5]!r}"
             )
-            continue
-        _, month, day = r["date"].split("-")
-        want_date = f"{MONTHS[int(month) - 1]} {int(day)}"
-        if cells[0] != want_date:
+        if not r["source"]:
+            bad.append(f"knee-seeds.csv / {arm}: no source")
+
+        # The CSV against itself.
+        s1, s2, k = (float(r[f]) for f in ("step1_logratio", "step2_logratio", "knee_logratio"))
+        if abs((s1 - s2) - k) > SEEDS_TOL:
             bad.append(
-                f"tab:progression: CSV date {r['date']} reads {want_date}, "
-                f"the table says {cells[0]!r}"
+                f"knee-seeds.csv / {arm}: knee {k} recorded, {s1 - s2:.4f} "
+                "implied by the two steps it is the difference of"
             )
-        for (field, dec), cell in zip(PROGRESSION_COLUMNS, cells[2:]):
-            expect = [r[field] if dec is None else f"{float(r[field]):.{dec}f}"]
-            bad += cell_says(f"tab:progression / {r['date']} / {field}", expect, cell)
+        lo, hi = float(r["knee_lo"]), float(r["knee_hi"])
+        excludes = "yes" if (lo > 0.0 or hi < 0.0) else "no"
+        if r["knee_excludes_zero"] != excludes:
+            bad.append(
+                f"knee-seeds.csv / {arm}: knee_excludes_zero {r['knee_excludes_zero']!r}, "
+                f"{excludes!r} implied by the interval [{lo}, {hi}]"
+            )
+        if not (lo < k < hi):
+            bad.append(f"knee-seeds.csv / {arm}: the knee is not inside its own interval")
+
+    # The published row is the knee of ppl-genou.csv, to four decimals.
+    genou = {}
+    for r in csv.DictReader(open(DATA / "ppl-genou.csv")):
+        genou[(r["step"], r["reference"])] = r
+    pub = rows.get("published")
+    if pub is not None:
+        for field, key in (("step1_logratio", ("4B->8B", "f16")),
+                           ("step2_logratio", ("8B->14B", "f16")),
+                           ("knee_logratio", ("knee", "f16"))):
+            g = genou.get(key)
+            if g is None:
+                bad.append(f"ppl-genou.csv has no row for {key[0]} / {key[1]}")
+                continue
+            if fmt(g["mean_logratio_diff"], 4) != fmt(pub[field], 4):
+                bad.append(
+                    f"knee-seeds.csv / published / {field}: {pub[field]}, "
+                    f"ppl-genou.csv records {g['mean_logratio_diff']}"
+                )
+            t_field = field.replace("logratio", "t")
+            if fmt(g["t_stat"], 2) != fmt(pub[t_field], 2):
+                bad.append(
+                    f"knee-seeds.csv / published / {t_field}: {pub[t_field]}, "
+                    f"ppl-genou.csv records {g['t_stat']}"
+                )
     return bad
 
 
-def check_a100() -> list[str]:
-    """`tab:a100` against `echelle-formats-a100.csv`, plus the L40S column.
+# The B2 journal carries the only copy of the 14B end-to-end row and of the
+# six published ratios (quotients of medians, formed within one invocation).
+# Its table is parsed by shape: size, config, fused median [lo-hi], dense
+# median [lo-hi], x ratio [envelope], GB fused / dense (division).
+E2E_JOURNAL = ROOT / "docs" / "mesures" / "b2-fusedrun-plages-2026-08-18.txt"
+E2E_LINE = re.compile(
+    r"^(4B|8B|14B)\s+(q8|f16)\s.*?"
+    r"([\d,]+) \[([\d,]+)[–-]([\d,]+)\]\s+"      # fused tok/s
+    r"([\d,]+) \[([\d,]+)[–-]([\d,]+)\]\s+"      # dense tok/s
+    r"×([\d,]+) \[[^\]]*\]\s+"                   # ratio of medians
+    r"([\d,]+) / ([\d,]+)"                       # GB fused / dense
+)
 
-    The two-card table is the one place where a cell of `echelle-formats.csv`
-    and a cell of its A100 twin sit side by side, so a drift in either would
-    show up as a comparison that never happened. Both halves are checked
-    against their own CSV; the ratio columns are NOT recomputed across cards,
-    because the table's own caption forbids dividing them.
+
+def read_e2e_journal() -> dict[tuple[str, str], dict]:
+    """The six (size, config) rows of the B2 table, decimal commas converted."""
+    rows = {}
+    for line in E2E_JOURNAL.read_text().splitlines():
+        m = E2E_LINE.match(line)
+        if not m:
+            continue
+        f = [v.replace(",", ".") for v in m.groups()[2:]]
+        rows[(m.group(1), m.group(2))] = {
+            "fused": f[0], "fused_lo": f[1], "fused_hi": f[2],
+            "dense": f[3], "dense_lo": f[4], "dense_hi": f[5],
+            "ratio": f[6], "gb_fused": f[7], "gb_dense": f[8],
+        }
+    return rows
+
+
+def check_e2e() -> list[str]:
+    """Table tab:e2e (Section 4): three sizes, same-head and served, one L40S.
+
+    Columns: dense tok/s [range], fused same-head [range], gain, fused served
+    [range], gain, VRAM dense, VRAM served. The 4B and 8B cells are checked
+    against the campaign CSVs their caption names; the 14B row and the six
+    gains against the B2 journal, which is the only place they are recorded.
+    The served VRAM of the 4B (2.60, card reading) and 8B (5.45) come from
+    the CSVs, as the caption says; the journal's host-side counts for the
+    same arms (2.56, 5.41) are not what the table prints, by declaration.
+    Where a CSV and the journal both carry a value (fused medians and
+    ranges) they are also checked against each other.
     """
-    a100 = {r["layout"]: r for r in csv.DictReader(open(DATA / "echelle-formats-a100.csv"))}
-    l40s = {r["layout"]: r for r in csv.DictReader(open(DATA / "echelle-formats.csv"))}
-    tex = (SEC / "layouts.tex").read_text()
-    body = tex.split(r"\label{tab:a100}")[0].split(r"\begin{tabular}")[-1]
+    journal = read_e2e_journal()
+    if len(journal) != 6:
+        return [f"{E2E_JOURNAL.name}: {len(journal)} table rows parsed, 6 expected"]
+    c4 = {r["arm"]: r for r in csv.DictReader(open(DATA / "campagne-finale.csv"))}
+    c8 = {r["arm"]: r for r in csv.DictReader(open(DATA / "tableau-8b.csv"))}
+    table = table_body((SEC / "integration.tex").read_text(), "e2e")
+    if not table:
+        return ["tab:e2e: no tabular with that label in integration.tex"]
+    rows = {cells[0]: cells[1:] for cells in table}
     bad = []
-    # (row label in the table, CSV key, which side the GB/s and ratio come from)
-    wanted = [
-        ("Floor (no weights read)", "nullk"),
-        ("FP16 (control)", "FP16"),
-        ("FP16 via cuBLAS", "cuBLASf16"),
-        ("AWQ w4g128 (competitor)", "AWQ"),
-        ("Slot32", "Slot32"),
-        ("Planes14", "Planes14"),
-        ("Planes12x", "Planes12x"),
-        ("Golay70} v2", "Golay70v2"),
-        ("Golay70} v1", "Golay70v1"),
-    ]
-    for label, key in wanted:
-        line = next((l for l in body.split(r"\\") if label in l), None)
-        if line is None:
-            bad.append(f"tab:a100: no row for '{label}'")
+
+    def speed(r: dict, k: str) -> list[str]:
+        return [fmt(r[k], 1), fmt(r[k + "_lo"], 1), fmt(r[k + "_hi"], 1)]
+
+    def csv_speed(r: dict) -> list[str]:
+        return [fmt(r["speed_tokps"], 1), fmt(r["speed_lo"], 1), fmt(r["speed_hi"], 1)]
+
+    # (size, dense source, same-head source, served source, dense GB, served GB)
+    # -- each source is a dict with the speed triplet already formatted.
+    spec = {
+        "4B": dict(dense=csv_speed(c4["fp16"]),
+                   head=speed(journal[("4B", "f16")], "fused"),
+                   served=csv_speed(c4["llvq_fused"]),
+                   gb_dense=fmt(c4["fp16"]["vram_gb"], 2),
+                   gb_served=fmt(c4["llvq_fused"]["vram_gb"], 2)),
+        "8B": dict(dense=csv_speed(c8["fp16"]),
+                   head=csv_speed(c8["llvq_f16emb"]),
+                   served=csv_speed(c8["llvq_q8"]),
+                   gb_dense=fmt(c8["fp16"]["vram_gb"], 2),
+                   gb_served=fmt(c8["llvq_q8"]["vram_gb"], 2)),
+        "14B": dict(dense=speed(journal[("14B", "q8")], "dense"),
+                    head=speed(journal[("14B", "f16")], "fused"),
+                    served=speed(journal[("14B", "q8")], "fused"),
+                    gb_dense=fmt(journal[("14B", "q8")]["gb_dense"], 2),
+                    gb_served=fmt(journal[("14B", "q8")]["gb_fused"], 2)),
+    }
+    for size, want in spec.items():
+        if size not in rows:
+            bad.append(f"tab:e2e has no row '{size}'")
             continue
-        got = nums(line)
-        r = a100.get(key)
-        if r is None:
-            bad.append(f"tab:a100: '{key}' missing from echelle-formats-a100.csv")
+        cells = rows[size]
+        if len(cells) != 7:
+            bad.append(f"tab:e2e row '{size}': {len(cells)} value columns, 7 expected")
             continue
-        # Every row prints: [L40S GB/s] [L40S ratio] [A100 GB/s] [A100 ratio]
-        # [b/weight] -- except the floor and the controls, which drop a cell.
-        need = [str(int(r["gbps"])), f"{float(r['ratio_vs_fp16']):.2f}"]
-        for expect in need:
-            if expect not in got:
+        checks = [
+            ("dense tok/s", want["dense"], cells[0]),
+            ("same-head tok/s", want["head"], cells[1]),
+            ("same-head gain", [fmt(journal[(size, "f16")]["ratio"], 2)], cells[2]),
+            ("served tok/s", want["served"], cells[3]),
+            ("served gain", [fmt(journal[(size, "q8")]["ratio"], 2)], cells[4]),
+            ("VRAM dense", [want["gb_dense"]], cells[5]),
+            ("VRAM served", [want["gb_served"]], cells[6]),
+        ]
+        for field, expect, cell in checks:
+            got = signed_nums(cell)
+            if got != expect:
                 bad.append(
-                    f"tab:a100 / {label}: A100 CSV says {expect}, "
-                    f"the row carries {show(got)}"
+                    f"tab:e2e / {size} / {field}: source says {show(expect)}, "
+                    f"the table says {show(got)}"
                 )
-        if key in l40s:
-            expect = str(int(l40s[key]["gbps"]))
-            if expect not in got:
-                bad.append(
-                    f"tab:a100 / {label}: L40S CSV says {expect} GB/s, "
-                    f"the row carries {show(got)}"
-                )
+    for size in rows:
+        if size not in spec:
+            bad.append(f"tab:e2e row '{size}' maps to no source")
+
+    # CSV against journal, where both carry the fused medians and ranges.
+    for size, arm, key, src in (("4B", "llvq_fused", ("4B", "q8"), c4),
+                                ("8B", "llvq_f16emb", ("8B", "f16"), c8),
+                                ("8B", "llvq_q8", ("8B", "q8"), c8)):
+        if csv_speed(src[arm]) != speed(journal[key], "fused"):
+            bad.append(
+                f"{size} / {arm}: CSV speed {show(csv_speed(src[arm]))}, "
+                f"{E2E_JOURNAL.name} says {show(speed(journal[key], 'fused'))}"
+            )
     return bad
+
 
 
 def main() -> int:
     bad = check_csv_shape()
     bad += check_layouts()
-    bad += check_a100()
     bad += check_campaign_table(
         "campagne-finale.csv",
         "campaign",
@@ -1122,18 +1280,17 @@ def main() -> int:
     bad += check_campaign_table(
         "tableau-8b.csv",
         "campaign8b",
-        ["fp16", "awq", "llvq_q8"],
+        ["fp16", "awq", "llvq_f16emb", "llvq_q8"],
         CAMPAIGN8B_SPEC,
-        # The f16-embedding 8B arm is measured and cited in prose (34.4 tok/s,
-        # 6.62 GB, \S integration) but deliberately not tabulated.
-        absent={"llvq_f16emb": "cited in prose, not tabulated"},
+        absent={},
     )
     bad += check_scale_gap_csv()
     bad += check_scale()
     bad += check_ppl_paired()
     bad += check_ppl_knee()
     bad += check_phases()
-    bad += check_progression()
+    bad += check_seeds()
+    bad += check_e2e()
     if bad:
         print("table/CSV mismatch:", file=sys.stderr)
         for b in bad:
@@ -1141,24 +1298,42 @@ def main() -> int:
         return 1
     print(
         "tables agree with docs/data/*.csv "
-        "(layouts 10 arms, campaign 4 arms, campaign8b 3 arms, scale 3 models "
-        "x {ppl, b/param, paired MMLU gap}, phases 3 profiles, "
-        "progression 4 steps); paired-perplexity CSVs pinned to their journals "
+        "(layouts 10 arms, campaign 4 arms, campaign8b 4 arms, scale 3 models "
+        "x {ppl, b/param, paired MMLU gap}, phases 3 profiles, seeds 4 arms, "
+        "e2e 3 sizes); paired-perplexity CSVs pinned to their journals "
         "(9 intervals, 4 steps, 2 knee tests -- perplexity only, the MMLU "
         "verdict on the same slowdown differs); all CSVs rectangular"
     )
     # Still not covered, and named rather than left implicit:
-    #   tab:lit          — no CSV, and there should not be one: rows 1 and 3–6
-    #                      are transcribed from the original paper's Table 6,
-    #                      not measured here. Its rows 2 and 7 are our own, and
-    #                      they repeat cells this script does check in
-    #                      tab:campaign and tab:campaign8b.
-    #   tab:attribution  — its five stages come from two logs
-    #                      (attribution-cuda, fusion-qkv-cuda), and no CSV of
-    #                      that shape exists in docs/data/.
-    # Two CSV facts the covered tables leave on the floor, by design and not by
-    # omission: phases.csv's (q8, dense) profile is measured and plotted but
-    # not tabulated, and tableau-8b.csv's llvq_f16emb arm is cited in prose.
+    #   tab:lit          — in Section 5 since the TACO v5 rewrite. No CSV, and there
+    #                      should not be one: rows 1 and 3–6 are transcribed
+    #                      from the original paper's Table 6, not measured
+    #                      here. Its rows 2 and 7 are our own, and they repeat
+    #                      cells this script does check in tab:campaign and
+    #                      tab:campaign8b.
+    #   tab:envelope     — the rotation kernel's shared-memory table of Section 6:
+    #                      intermediate sizes are architecture constants and
+    #                      the byte counts are 4x them, read from the 14B
+    #                      fusedrun journal; no CSV carries them.
+    #   tab:intervals    — Appendix A; its 18 cells are the nine rows of
+    #                      ppl-appariee.csv and the nine of mmlu-appariee.csv,
+    #                      both pinned to their journals above, but the
+    #                      tabular is two-block (a second header after an
+    #                      inner \midrule) and table_body() does not read it.
+    #   tab:fairness    — Appendix B; per-arm qualitative comparison conditions,
+    #     sourced from the ten-arm run journal (thresholds, registers, grids).
+    #   tab:prereg, tab:provenance — Appendix B; dates, criteria and file
+    #                      names, no numeric CSV behind them.
+    # Two former tables are figures since the TACO v5 rewrite, and their
+    # guard moved to make_figures.py ("every CSV row plotted or fail"):
+    #   fig:attribution  — the five stages of the Slot32 attribution, from
+    #                      attribution-slot32.csv (replaces tab:attribution).
+    #   fig:a100         — the two-card dumbbell, from echelle-formats.csv and
+    #                      echelle-formats-a100.csv (replaces tab:a100, whose
+    #                      cell-by-cell check lived here until then).
+    # One CSV fact the covered tables leave on the floor, by design and not by
+    # omission: phases.csv's (q8, dense) profile is measured but not tabulated.
+    # progression.csv has no table since the rewrite deleted tab:progression.
     return 0
 
 

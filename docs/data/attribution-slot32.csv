@@ -1,0 +1,10 @@
+term,ms,share_pct,source
+dram_floor,3.782,65.0,mesures/attribution-cuda-2026-08-05.txt §2 (2.50 GB at the 662 GB/s of the same run's FP16 arm ; calculated ; share_pct = floor / total time)
+payload_streaming,0.681,33,mesures/attribution-cuda-2026-08-05.txt §2 (floor kernel bases + 5-word window minus DRAM floor ; share_pct = share of the 2.039 ms gap)
+class_table_gather,0.041,2,mesures/attribution-cuda-2026-08-05.txt §2 (floor kernel + tab gather ; share_pct = share of the 2.039 ms gap)
+shared_x_reads,0.118,6,mesures/attribution-cuda-2026-08-05.txt §2 (floor kernel + 24 xs reads ; share_pct = share of the 2.039 ms gap)
+residual_decode,0.396,19,mesures/fusion-qkv-cuda-2026-08-05.txt §4 (1.199 decode stage minus the 0.803 recovered by fusion ; by difference ; share_pct = share of the 2.039 ms gap)
+launch_latency,0.803,39,mesures/fusion-qkv-cuda-2026-08-05.txt §4 (unmasked latency / occupancy = the gain of fusing q+k+v and gate+up in that job ; share_pct = share of the 2.039 ms gap)
+total,5.822,100,mesures/attribution-cuda-2026-08-05.txt (tv_slot median of the instrumented run ; the five stages sum to 5.821 by rounding of the journal's stage medians)
+recovered_by_fusion_slot32,0.796,13.7,mesures/f2-p3-qtip-banc-2026-08-21.txt l.279 (5.809 -> 5.017 ms ; range 0.791-0.810 ; share_pct = of the Slot32 time in that run)
+recovered_by_fusion_planes14,0.594,11.7,mesures/f2-p3-qtip-banc-2026-08-21.txt l.280 (5.096 -> 4.504 ms ; range 0.586-0.596 ; share_pct = of the Planes14 time in that run)

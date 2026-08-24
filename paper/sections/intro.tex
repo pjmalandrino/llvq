@@ -1,100 +1,78 @@
 \section{Introduction}
 \label{sec:intro}
 
-The number of bits per weight is the only knob that changes the \emph{class}
+The number of bits per weight is the only rate that changes the \emph{class}
 of model a given machine can load. At 16 bits a 70B-parameter model needs
-140~GB; at 2 bits it needs ${\sim}20$~GB and fits in the unified memory of a
-workstation. For anyone whose constraint is sovereignty (capable models on hardware
-they own), the 2-bit operating point determines whether the model loads at
-all.
+140~GB of weights; at 2 bits the same model occupies about 20~GB on disk and
+fits in the memory of a workstation. That figure is the on-disk rate. The
+rate served from VRAM is higher, because the kernel reads a format it can
+decode inside a matvec, and that rate is the subject of \S\ref{sec:layouts}.
+For deployments whose constraint is sovereignty (capable models on hardware
+one owns), the 2-bit operating point decides whether the model loads at all.
 
-The best published quality at 2 bits comes from Leech-lattice vector
-quantization (LLVQ)~\citep{llvq2026}: weights are grouped into blocks of 24,
+The strongest published 2-bit quality, under its own evaluation protocol,
+comes from Leech-lattice vector quantization (LLVQ)~\citep{llvq2026}: weights are grouped in blocks of 24,
 normalized, and snapped to the nearest point of the Leech lattice
-$\Lambda_{24}$, whose exceptional packing density buys roughly a decibel of
-distortion over trellis and E8-based codes at the same rate. But the paper's
-own systems story stops short. Its CUDA kernel decodes a single lattice shell
-($m=3$, ``for simplicity''), is reported slower than QTIP's
-kernel~\citep{qtip2024}, and the authors explicitly defer low-level
-optimization as ``largely orthogonal'' to their contribution. The decoder the
-2-bit rate actually requires is a union of lattice shells with hundreds of
-distinct coordinate-permutation classes (301 for the paper's best
-configuration, the ball $\Lambda_{24}(12)$). It exists nowhere, including
-in the original work.
+$\Lambda_{24}$. The systems half of that paper stops short. Its CUDA kernel
+decodes a single lattice shell ($m=3$, ``for simplicity''), is reported
+slower than QTIP's kernel~\citep{qtip2024}, and low-level optimization is
+deferred as ``largely orthogonal'' to the contribution. The decoder the
+2-bit rate requires is a union of shells: 301 coordinate-permutation
+classes for the ball $\Lambda_{24}(12)$, whose 47-bit index names one of
+$1.1\times10^{14}$ lattice points. A branch per class would diverge across
+every warp. We found no prior implementation of that decoder, the original
+work included.
 
-We build it, and then test the claim that motivated it. Ported into our
-harness at a pinned commit and timed in the same rounds as everything else,
-QTIP's kernel runs $2.27\times$ faster than our best layout: low-level
-optimization is not ``largely orthogonal'' to this contribution, it
-\emph{is} the contribution, and on that axis the lattice loses. The
-mechanism is neither rate nor quality --- the two formats match on both ---
-but the load-time unfolding a combinatorial lattice index demands and a
-sliding-window trellis does not (\S\ref{sec:qtip}). Reaching that sentence
-took a complete implementation of both sides.
+This paper supplies it and measures, for decode-phase GEMV at batch~1, what
+a combinatorial lattice index costs to serve. Four contributions:
 
-This paper is about that decoder, and about what it takes to move
-lattice-decoded weights from merely smaller to \emph{faster} than FP16.
-Three problems have to be solved together:
+\begin{itemize}
+\item[\textbf{C1}] \textbf{The fused multi-shell decoder}
+(\S\ref{sec:decoder}): to our knowledge the first fused
+dequantize-plus-matvec kernel for the full multi-shell $\Lambda_{24}(12)$
+codebook (301 classes). Decoding is
+shifts, masks and a predicated table lookup, the same instruction sequence
+on every lane whatever the class, hence divergence-free. Every output row
+is verified against an f64 reference before any timing. On an L40S the
+kernel reaches 65\% of its byte bound.
 
-\begin{enumerate}
-\item \textbf{The decode itself} (\S\ref{sec:decoder}). A $\Lambda_{24}$
-index is 47 bits naming one of $1.1\times10^{14}$ lattice points. Decoding it
-inside a matvec inner loop must cost shifts and masks, not arithmetic, and
-must not diverge across a warp whose 32 lanes hold different classes.
+\item[\textbf{C2}] \textbf{The in-VRAM rate as a design axis}
+(\S\ref{sec:layouts}), distinct from the on-disk rate (2.07 effective,
+\S\ref{sec:evaluation}). Four bit-exact layouts timed in one process span
+5.51, 4.80, 4.34 and 3.59 bits per weight. Binary bit planes beat one-hot
+masks on size and speed at constant bandwidth: Planes14, the served layout,
+reads 4.80 bits per weight at $2.15\times$ an FP16 matvec. The curve turns
+between 4.8 and 4.3 bits per weight, where a second, irregular stream (the
+exception side channel) enters, and collapses at 3.6, where the decode stops
+being shifts and masks.
 
-\item \textbf{The memory format} (\S\ref{sec:layouts}). The rate that
-determines what fits on a GPU is the rate of whatever format the kernel reads,
-a different quantity from the on-disk rate (2.07 bits per weight
-of payload; \S\ref{sec:evaluation}). Our
-first working layout cost 5.51 bits per weight in VRAM, \emph{more} than
-a 4-bit format, erasing the point of 2-bit quantization. We show a
-progression of layouts that brings the in-VRAM rate to 4.80 and then 4.34
-bits per weight at bit-exact decoded content while \emph{increasing}
-throughput, and one dead end (3.59, compute-bound) that maps the floor. We
-attribute what the kernel actually waits on with an instrumented job, and
-place two deployed competitors on the same axis in the same process: a
-4-bit kernel that converts 88\% of its byte advantage into time against our
-65\%, and the 2-bit kernel above. The latter also runs faster than a
-control of ours that reads \emph{no weight bytes at all}, which retires
-that control as a floor: what we had measured as a ceiling on any format
-turns out to be the cost of our own launch geometry.
+\item[\textbf{C3}] \textbf{The cost of a combinatorial index, located}
+(\S\ref{sec:qtip}): a same-process comparison with deployed 4-bit
+(AWQ w4g128) and 2-bit (QTIP) GEMV kernels. The trellis kernel reads
+$2.40\times$ fewer bytes than Planes14 (0.91 against 2.18~GB) and runs
+$2.27\times$ faster. Kernel efficiency is close (61\% against 65\% of
+bound); the byte ratio is the gap. A codebook of $1.1\times10^{14}$ points
+cannot live in a lookup table, where E8P- and IQ2-style codebooks hold at
+most $2^{16}$ entries, so it is unfolded at load time into a 4.80-bit
+stream.
 
-\item \textbf{The integration} (\S\ref{sec:integration}). End-to-end
-throughput is gated by the serving engine, not the kernel. We found and
-worked around a per-token 778~MB transposed materialization in the output
-head of a widely used Rust inference engine, and we report our speedup in
-a double formulation
-that separates the kernel's contribution from the engine fix.
-\end{enumerate}
+\item[\textbf{C4}] \textbf{The validity envelope, measured}
+(\S\ref{sec:attribution}, \S\ref{sec:a100}, \S\ref{sec:integration}). A
+no-weights control runs the same launches over the same shapes and reads no
+weight bytes; the trellis kernel outruns it, so our launch geometry and not
+the card sets that time. An attribution of the gap to the DRAM floor places
+39\% in launch geometry, and fusing q/k/v and gate/up (144 launches instead
+of 252) already recovers 11.7\% of the Planes14 time. On a second memory
+hierarchy (A100) every lattice arm falls below FP16. End-to-end serving is
+measured on three model sizes.
+\end{itemize}
 
-The result (\S\ref{sec:evaluation}): a 2-bit Qwen3-4B served at 87.0~tok/s
-in 2.60~GB against 43.5~tok/s in 8.04~GB for the FP16 reference, with the
-serving stack costing nothing measurable on top of the quantized artifact.
-The same path serves a 2-bit Qwen3-14B at 43.3~tok/s in 9.39~GB against
-17.0~tok/s in 29.54~GB, and then stops one model class later --- the
-activation rotation is a Walsh--Hadamard transform, so a single block must
-hold the whole activation in shared memory, and the 32B exceeds the
-measured 101\,376-byte ceiling by 1\,024 bytes (\S\ref{sec:limitations}).
-We are equally explicit about what this does not buy
-(\S\ref{sec:limitations}).
-At 4B, 2 bits costs $\times1.384$ perplexity and 14.6 MMLU points (served
-arm; 14.73 on the sealed artifact), a deficit
-concentrated in reasoning-heavy subjects, while the 4-bit baseline keeps
-essentially full quality: on that model, 4 bits wins. The case for 2 bits
-rests on scale, and we measure it on two further models. The degradation
-falls ($\times1.384 \to \times1.220 \to \times1.189$ perplexity across 4B, 8B
-and 14B, the MMLU gap to 4 bits going 14.45, 7.49, 6.09 points, all paired
-estimates with 95\% intervals), and it flattens as it falls: the excess
-over FP16 drops by 42.8\% on the first step and 13.9\% on the
-second. Whether that flattening is \emph{established} depends on the metric:
-resolved on perplexity, where the evaluation windows pair across sizes;
-unresolved on the MMLU gap, likely a matter of statistical power. We
-carry the two verdicts separately throughout
-(\S\ref{sec:evaluation}, Appendix~\ref{app:scale}). On memory the three
-points are consistent: the served model is below the 4-bit
-baseline at every size, by a margin that peaks in the middle because it
-tracks the embedding share.
-
-Every figure regenerates from CSV files committed in the repository, the
-layout table is checked against its CSV on every build, and each number
-traces to a dated GPU job with its billed cost.
+End to end, a 2-bit Qwen3-4B serves at 87.0~tok/s in 2.60~GB of VRAM; with
+the output head held identical in both arms, the gain grows with model
+size, $1.11\times$, $1.29\times$, $1.41\times$ at 4B, 8B and 14B
+(\S\ref{sec:integration}). At 4B, two bits cost $\times1.384$ perplexity
+and 14.7 MMLU points where a 4-bit baseline keeps full quality; the deficit
+shrinks at 8B and 14B, and three points support no scaling law
+(\S\ref{sec:evaluation}, Appendix~\ref{app:scale}). Every figure
+regenerates from CSV files committed with the source, and the tables are
+checked against those files on every build.

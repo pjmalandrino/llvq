@@ -227,6 +227,15 @@
 %     llama.cpp's k-quants are in the same position — their canonical
 %     reference is a pull request — which is why the deployed-format citation
 %     here is ExLlamaV2 rather than GGUF.
+%   - llamacpp (added 2026-08-22) is the same kind of SOFTWARE citation, for
+%     the IQ2_XXS/IQ2_XS/IQ2_S formats named in Related Work. Filled from
+%     the GitHub API on the access date: `author` is the owner login
+%     (ggml-org), `year` the repository's creation date (2023-03-10), the
+%     version the latest release tag (v0.2.0, published 2026-08-21). The
+%     grid sizes quoted in the text (256 / 512 / 1024 entries) are the
+%     declared sizes of iq2xxs_grid / iq2xs_grid / iq2s_grid in
+%     ggml/src/ggml-common.h at master on that date; the E8 origin is stated
+%     by the author of pull request #4773 ("SOTA 2-bit quants").
 % ---------------------------------------------------------------------------
 
 @inproceedings{vllm2023,
@@ -315,4 +324,28 @@
   year         = {2023},
   howpublished = {\url{https://github.com/turboderp-org/exllamav2}},
   note         = {Version 0.3.2, accessed 2026-08-19}
+}
+
+@misc{llamacpp,
+  title        = {llama.cpp: {LLM} inference in {C/C++}},
+  author       = {{ggml-org}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/ggml-org/llama.cpp}},
+  note         = {Release v0.2.0, accessed 2026-08-22}
+}
+
+@misc{nvidia_l40s_datasheet,
+  title        = {{NVIDIA L40S} datasheet},
+  author       = {{NVIDIA Corporation}},
+  year         = {2023},
+  howpublished = {NVIDIA Corporation},
+  note         = {Accessed 2026-08-22}
+}
+
+@misc{nvidia_a100_datasheet,
+  title        = {{NVIDIA A100} {Tensor Core} {GPU} datasheet},
+  author       = {{NVIDIA Corporation}},
+  year         = {2020},
+  howpublished = {NVIDIA Corporation},
+  note         = {Accessed 2026-08-22}
 }
