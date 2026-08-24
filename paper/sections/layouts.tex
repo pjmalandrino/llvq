@@ -129,7 +129,7 @@ replaces the 24 sign bits: a 72-bit record at a 9-byte stride,
 3.589~b/weight. Reconstruction is exact on all 150{,}681{,}600 blocks of
 the artifact, with an exception table for the 7.44\% of blocks the
 in-class two-bit code cannot hold. Recovering the signs determines the
-coset per slot, and the kernel stops being memory-bound: 199~GB/s, 30\% of
+coset per slot, and the kernel stops being bandwidth-bound: 199~GB/s, 30\% of
 its byte bound, $1.34\times$, below the $1.6\times$ criterion of
 Appendix~\ref{app:protocol}. A second decoder hoists the coset logic into a
 per-block prologue of about a dozen integer operations, leaving three mask
@@ -138,8 +138,9 @@ tests and a negation per slot, at unchanged stored bytes. It reaches
 of Appendix~\ref{app:protocol} (the speed of \textsc{Planes12x}). Both
 decoders remain points on the curve rather than served layouts.
 
-The scale is nonlinear. Bits saved are time saved on a memory-bound kernel
-while the decode that saves them stays shifts and masks over one stream.
+The scale is nonlinear. Bits saved are time saved while the kernel is
+bandwidth-bound on this card (\S\ref{sec:a100}) and the decode that saves
+them stays shifts and masks over one stream.
 For lattice codes here the curve turns between 4.8 and 4.3~b/weight, where
 a second, irregular stream (the exception side channel) enters, and
 collapses at 3.6, where the decode stops being shifts and masks.
@@ -202,7 +203,7 @@ memory speed.
 \textbf{The no-weights control.} The last row of Table~\ref{tab:layouts}
 runs the same 252 launches over the same shapes and reads no weight bytes:
 2.306~ms. The QTIP kernel finishes the same 252 projections, reading
-0.91~GB, in 2.246~ms, 2.7\% less against a 0.36\% resolution. That control
+0.91~GB, in 2.246~ms, 2.6\% less against a 0.36\% resolution. That control
 therefore bounds our launch geometry, one warp per output row across 252
 launches; a differently shaped kernel passes under it.
 
@@ -304,9 +305,9 @@ HBM, 661 to 1052~GB/s, and cuBLAS 672 to 1204. The no-weights control goes
 from $4.77\times$ to $1.68\times$ FP16, slowing by $\times 1.78$ in
 absolute time (2.306 to 4.107~ms). SM clocks sampled once a second through
 the bench show why: both cards run pinned at their maximum boost, 2\,520~MHz
-on the L40S and 1\,410 on the
-A100~\citep{nvidia_l40s_datasheet,nvidia_a100_datasheet}, with no throttling,
-the only active clock-event reason being the idle gap between kernels. The
+on the L40S and 1\,410 on the A100, with no throttling and the only active
+clock-event reason being the idle gap between kernels; these equal the
+datasheet boost clocks~\citep{nvidia_l40s_datasheet,nvidia_a100_datasheet}. The
 $\times 1.78$ slowdown is that $1.79$ clock ratio: a one-warp-per-row
 geometry bound by instruction issue rather than by DRAM, its per-SM decode
 throughput unchanged while the memory ceiling rises. This is clock evidence,

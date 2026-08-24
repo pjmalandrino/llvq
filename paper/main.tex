@@ -42,6 +42,11 @@
 % in TikZ so that it stays a vector drawing under the class's fonts.
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta,fit,calc}
+% The three consecutive provenance/criteria tables in Appendix B carry no
+% interleaving text, so the class defaults float them one per page and leave
+% a half-page gap under each. \usepackage{float} supplies the [H] specifier,
+% which places them in the text stream so they pack, cutting no content.
+\usepackage{float}
 
 \graphicspath{{figures/}}
 
@@ -56,9 +61,6 @@
 \makeatletter
 \newcommand{\ifanon}[2]{\if@ACM@anonymous#2\else#1\fi}
 \makeatother
-% \url loses its breakpoints when tokenized inside another macro's argument
-% (footnote + \ifanon); \urldef freezes it here with catcodes intact.
-\urldef\candleissueurl\url{https://github.com/huggingface/candle/issues/3871}
 
 % ---------------------------------------------------------------------------
 % Journal identification. The volume/number/article fields are placeholders
@@ -96,7 +98,7 @@ quality under its evaluation protocol. Its kernel decodes one shell; we found
 no implementation of the multi-shell decoder the rate requires. This paper
 supplies one and measures its serving cost for decode-phase GEMV at batch~1. First, a fused
 dequantize-plus-matvec CUDA kernel decodes the full 301-class codebook
-without warp divergence, verified row by row against f64. Second, the
+without warp divergence, verified against f64. Second, the
 in-VRAM rate is a design axis distinct from the on-disk rate. Four
 bit-exact layouts timed in one process show binary bit planes beating
 one-hot masks on size and speed at constant bandwidth (4.80 bits per
@@ -105,11 +107,11 @@ enters, and at 3.6 bits the decode stops being shifts and masks. Third,
 deployed four-bit (AWQ) and two-bit (QTIP) GEMV kernels run in the same
 process. The trellis kernel reads $2.40\times$ fewer bytes than our served
 layout and runs $2.27\times$ faster. The byte ratio is the gap: a codebook
-too large for a lookup table unfolds at load time. Fourth, the validity envelope is measured: a
-no-weights control the trellis kernel outruns, an attribution placing its
-largest term in launch geometry, and a second memory hierarchy where every
-lattice arm falls below FP16. End to end, a 2-bit Qwen3-4B serves at
-87.0~tok/s in 2.60~GB; with the output head held identical in both arms,
+too large for a lookup table unfolds at load time. Fourth, we measure the validity envelope: the trellis kernel outruns our
+no-weights control, so its launch geometry, not the card, sets that floor;
+an attribution places the largest term in launch geometry; and on a second
+memory hierarchy every lattice arm falls below FP16. End to end, a 2-bit Qwen3-4B serves at
+87.0~tok/s in 2.60~GB; with the output head held identical across arms,
 the kernel-and-format gain grows with model size: $1.11\times$,
 $1.29\times$, $1.41\times$.
 \end{abstract}

@@ -89,12 +89,13 @@ Size & dense tok/s & fused tok/s & gain & fused tok/s & gain & dense & served \\
 sizes. Medians of five timed generations with min--max ranges; ratios are
 quotients of medians (arms never coexist). The dense arm is re-timed in
 each invocation and its medians differ by at most 0.1~tok/s; each ratio is
-formed within its own invocation. VRAM cells are host-side byte counts of
-weights only by the runner under the bench's f32-tail accounting (the card
-reports the same 2.60~GB for the 4B); the 4B and 8B cells come from the
-quality-campaign invocations and the 14B from the serving run. Data:
-\texttt{campagne-finale.csv}, \texttt{tableau-8b.csv}, and the serving
-runs' journal for the 14B row.}
+formed within its own invocation. The 4B (2.60~GB) and 8B (5.45~GB) VRAM
+cells are the nvidia-smi card reading from the quality-campaign
+invocations; the 14B cell (9.39~GB) is a runner host byte count of weights
+only, from the serving run. The byte-exact host figures are 2.595~GB for
+the 4B (the 5.162~b/param of \S\ref{sec:evaluation}) and 5.41~GB for the
+8B. Data: \texttt{campagne-finale.csv}, \texttt{tableau-8b.csv}, and the
+serving runs' journal for the 14B row.}
 \label{tab:e2e}
 \end{table}
 

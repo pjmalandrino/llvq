@@ -1,20 +1,16 @@
 \section{Statistical tests on the scale curve}
 \label{app:scale}
 
-This appendix carries the tests behind the two sentences of
-\S\ref{sec:evaluation} on the closing of the gap across model sizes.
-Perplexity intervals are paired Student $t$ intervals on the mean per-window
-NLL difference over the 12 evaluation windows (11 degrees of freedom),
-exponentiated to a perplexity ratio. Every window scores the same token
-count. The common fingerprint makes window $i$ the same text at every size,
-so steps between sizes and their difference (the knee) are formed window by
-window on the log ratio. MMLU deltas are subject-stratified paired
-bootstraps (10\,000 draws) with exact McNemar tests over the same 2\,280
-questions. Steps of the MMLU gap between sizes compose two standard errors
-in quadrature, since question-level pairing across sizes is not used. All
-intervals cover the sampling of the evaluation corpus only, not the
-calibration draw: each artifact is one draw, and Table~\ref{tab:seeds}
-measures what that draw is worth.
+This appendix carries the tests behind \S\ref{sec:evaluation}. Perplexity
+intervals are paired Student $t$ intervals on the mean per-window NLL
+difference over the 12 windows (11 d.f.), exponentiated; the shared
+fingerprint makes window $i$ the same text at every size, so steps and the
+knee form window by window on the log ratio. MMLU deltas are
+subject-stratified paired bootstraps (10\,000 draws) with exact McNemar over
+the same 2\,280 questions; their between-size steps compose two standard
+errors in quadrature, cross-size pairing being unavailable. All intervals
+cover the evaluation corpus, not the calibration draw, which
+Table~\ref{tab:seeds} prices.
 
 \begin{table}[htbp]
 \centering
@@ -31,12 +27,11 @@ Qwen3-8B  & 8.9899  & 1.2201 & 0.2201 & $-42.8$ \ $[-51.8, -33.5]$ & 5.322 & 5.9
 Qwen3-14B & 7.9820  & 1.1894 & 0.1894 & $-13.9$ \ $[-22.8, -4.9]$ & 5.106 & 5.404 & 6.09 \ [3.62, 8.52] \\
 \bottomrule
 \end{tabular}
-\caption{Three models, one configuration, one harness, matching fingerprints
-on all nine arms. \emph{Excess} is the perplexity ratio minus one;
-\emph{fall} its relative drop from the row above, with a paired 95\%
-interval. \emph{b/param} is whole-model, embedding included. Gap cells are
-paired bootstraps. Data: echelle-4b-8b.csv, mmlu-appariee.csv,
-ppl-genou.csv.}
+\caption{Three models, one configuration, one harness, nine matching
+fingerprints. \emph{Excess} is the perplexity ratio minus one; \emph{fall}
+its relative drop from the row above with a paired 95\% interval;
+\emph{b/param} is whole-model, embedding included; gap cells are paired
+bootstraps. Data: echelle-4b-8b.csv, mmlu-appariee.csv, ppl-genou.csv.}
 \label{tab:scale}
 \end{table}
 
@@ -61,10 +56,10 @@ Qwen3-8B  & $10.57$ \ $[8.58, 12.57]$ & $7.49$ \ $[5.28, 9.70]$ & $3.07$ \ $[1.6
 Qwen3-14B & $6.85$ \ $[4.52, 9.12]$ & $6.09$ \ $[3.62, 8.52]$ & $0.76$ \ $[-0.65, 2.17]$ \\
 \bottomrule
 \end{tabular}
-\caption{The nine paired perplexity intervals and the nine paired MMLU
-deltas, 95\% intervals. No perplexity interval contains zero and all 108
-window-level comparisons agree in sign; two MMLU intervals (FP16 $-$ 4-bit at
-4B and 14B) contain zero. Data: ppl-appariee.csv, mmlu-appariee.csv.}
+\caption{Nine paired perplexity intervals and nine paired MMLU deltas, 95\%.
+No perplexity interval contains zero and all 108 window-level comparisons
+agree in sign; two MMLU intervals (FP16 $-$ 4-bit at 4B and 14B) contain
+zero. Data: ppl-appariee.csv, mmlu-appariee.csv.}
 \label{tab:intervals}
 \end{table}
 
@@ -82,24 +77,22 @@ seed 2    & 15.8836 & $-0.0619$ ($-5.47$) & $-0.0255$ ($-3.38$) & $-0.0365$ $[-0
 seed 3    & 15.1027 & $-0.0115$ ($-0.93$) & $-0.0255$ ($-3.38$) & $+0.0139$ $[-0.0268, +0.0547]$ ($+0.75$) & no \\
 \bottomrule
 \end{tabular}
-\caption{The knee (first step minus second step, per window, in the log of
-the perplexity ratio against FP16) replayed with each calibration re-draw of
-the 4B in place of the published artifact. Conditional on the artifacts as
-built it excludes zero; one re-draw moves it from $-0.10$ to $+0.01$, and
-with the third re-draw the first step itself no longer separates from zero.
-Data: knee-seeds.csv.}
+\caption{The knee (first step minus second step, per window, in the log
+perplexity ratio against FP16) replayed with each 4B calibration re-draw in
+place of the published artifact. Conditional on the artifacts as built it
+excludes zero; one re-draw moves it from $-0.10$ to $+0.01$, and the third
+leaves the first step itself no longer separated from zero. Data:
+knee-seeds.csv.}
 \label{tab:seeds}
 \end{table}
 
 On perplexity the knee of Table~\ref{tab:seeds} excludes zero for the
 artifacts as built. On the MMLU gap to 4 bits the steps are $6.96$ points
 ($\mathrm{SE}$ 1.82, $p = 0.0001$) and $1.40$ ($\mathrm{SE}$ 1.68,
-$p = 0.40$); the second supports neither a flattening nor a constant pace.
-Three differences explain why the metrics diverge: power (49\,140 scored
-tokens paired across sizes against 2\,280 questions without cross-size
-pairing), faculty (2 bits damages reasoning more than recall,
-\S\ref{sec:limitations}), and reference arm. Against the AWQ reference the
-perplexity knee is $-0.0576$ $[-0.1011, -0.0140]$, $t = -2.91$; the
-8B$\to$14B step on that reference is $-1.58\%$ $[-3.14, -0.004]$ in the
-ratio of perplexity ratios, at the edge of the interval and not read as a
-closing. Neither metric supports extrapolation beyond three sizes.
+$p = 0.40$), the second supporting neither a flattening nor a constant pace.
+Three differences drive the divergence: power (49\,140 paired tokens against
+2\,280 unpaired questions), skill dimension (2 bits damages reasoning more
+than recall, \S\ref{sec:evaluation}), and reference arm. Against AWQ the
+knee is $-0.0576$ $[-0.1011, -0.0140]$, $t = -2.91$, and the 8B$\to$14B step
+$-1.58\%$ $[-3.14, -0.004]$, at the interval's edge and not a closing.
+Neither metric supports extrapolation beyond three sizes.

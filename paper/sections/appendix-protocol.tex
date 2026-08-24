@@ -1,5 +1,11 @@
 \section{Protocol, pre-registered criteria and provenance}
 \label{app:protocol}
+% The three tables below are placed in-stream with [H]; trim the vertical
+% space around them so two large tables pack onto one page rather than
+% leaving a half-page gap under each.
+\setlength{\intextsep}{4pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{4pt plus 2pt minus 2pt}
+\setlength{\floatsep}{4pt plus 2pt minus 2pt}
 
 \textbf{Layout benchmark protocol.} The ten arms of Table~\ref{tab:layouts}
 run in one process on one L40S, interleaved each round in fixed dispatch
@@ -15,7 +21,7 @@ its tail at f16, the competitors none. GB/s is each arm's fastest kept
 round; medians leave every percentage unchanged. CUDA events bound the host
 share of wall time at 0.1--0.2\%.
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3.5pt}
@@ -40,7 +46,7 @@ our arms. Data: the run journal named in Table~\ref{tab:provenance}.}
 \label{tab:fairness}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{4pt}
@@ -96,7 +102,7 @@ Table~\ref{tab:provenance}.}
 \label{tab:prereg}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \scriptsize
 \setlength{\tabcolsep}{3pt}

@@ -40,11 +40,12 @@ arms. $^{\dagger}$AWQ runs in its own engine (speed incomparable,
 $^{\ddagger}$Quality scored on the 1.41~GB pre-baked int8-embedding file;
 speed and VRAM measured from the 1.77~GB sealed file with the same
 quantization applied at load, verified bit-identical against those bytes.
-$^{\S}$5.162~b/param is byte-exact (2.595~GB). VRAM cells are host-side
-byte counts by the runner under the bench's f32-tail accounting (the card
-reports the same 2.60~GB for the 4B); the 4B and 8B cells come from the
-quality-campaign invocations and the 14B from the serving run
-(Table~\ref{tab:e2e}). Data: \texttt{campagne-finale.csv}.}
+$^{\S}$The 4B (2.60~GB) and 8B (5.45~GB) VRAM cells are the nvidia-smi
+card reading from the quality-campaign invocations; the 14B cell
+(9.39~GB) is a runner host byte count of weights only, from the serving
+run (Table~\ref{tab:e2e}). The byte-exact host figures are 2.595~GB for
+the 4B (the 5.162~b/param above) and 5.41~GB for the 8B. Data:
+\texttt{campagne-finale.csv}.}
 \label{tab:campaign}
 \end{table}
 

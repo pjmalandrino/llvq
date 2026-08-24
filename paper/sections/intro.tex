@@ -51,7 +51,10 @@ being shifts and masks.
 (AWQ w4g128) and 2-bit (QTIP) GEMV kernels. The trellis kernel reads
 $2.40\times$ fewer bytes than Planes14 (0.91 against 2.18~GB) and runs
 $2.27\times$ faster. Kernel efficiency is close (61\% against 65\% of
-bound); the byte ratio is the gap. A codebook of $1.1\times10^{14}$ points
+bound); the byte ratio is the gap. As shipped, launch geometry is not
+equalized between the two kernels; \S\ref{sec:attribution} recovers 11.7\%
+of Planes14's time by fusion, so the byte-driven residual is somewhat under
+$2.27\times$. A codebook of $1.1\times10^{14}$ points
 cannot live in a lookup table, where E8P- and IQ2-style codebooks hold at
 most $2^{16}$ entries, so it is unfolded at load time into a 4.80-bit
 stream.

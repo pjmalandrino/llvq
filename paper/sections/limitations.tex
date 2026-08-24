@@ -26,8 +26,17 @@ in the original paper's ablation. A free-magnitude variant with a
 closed-form scale solve costs $\times1.99$ perplexity on a 0.6B proxy.
 Calibration volume (131k tokens, about $100\times$ below the original
 paper) is bounded on perplexity only: a contamination oracle recovers 1.6\%,
-a $\times13$ volume curve 1.2\%. Untested: calibration
-composition, learned per-column scales, low-rank compensation.
+a $\times13$ volume curve 1.2\%. The leading untested suspect is
+calibration composition, not volume: the source paper calibrates on
+DCLM-edu, an education- and reasoning-curated corpus, where ours uses C4.
+The perplexity excess reproduces the source ($\times1.38$ against its
+$\times1.37$) while the MMLU shortfall does not, the signature a
+reasoning-curated calibration would leave, since the loss concentrates in
+reasoning-heavy subjects (\S\ref{sec:evaluation}). These data cannot
+separate a faithful reproduction of a method that loses reasoning quality
+at 2 bits from a bias introduced by C4 calibration; a source-matched
+requantization would settle it. Learned per-column scales and low-rank
+compensation remain untested.
 
 \textbf{The trellis kernel is faster.} The 2-bit competitor's kernel runs
 $2.27\times$ faster than Planes14 in one process (\S\ref{sec:qtip}). A
@@ -38,8 +47,8 @@ the 2-bit vector-quantized systems of \S\ref{sec:related}.
 \textbf{One serving GPU, three models.} End to end, Qwen3-4B, 8B and 14B
 run on one L40S. Only the layout bench runs on a second architecture (\S\ref{sec:a100}),
 which bounds the claim. Batching changes the regime: the kernel is
-memory-bound because one activation amortizes each weight byte, and a
-batched GEMM amortizes it across rows, where the deployed 4-bit kernels
+bandwidth-bound at batch~1 because one activation amortizes each weight byte,
+and a batched GEMM amortizes it across rows, where the deployed 4-bit kernels
 already operate. Larger models change the embedding share and the
 tail-column overhead, both of which enter the whole-model rate.
 

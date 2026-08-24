@@ -26,7 +26,11 @@ sparse overlay makes (\S\ref{sec:layouts}) at the same price: a second
 irregular memory stream. AQLM~\citep{aqlm2024} and VPTQ~\citep{vptq2024} run
 at our rate with released kernels; GPTVQ~\citep{gptvq2024}, from the group
 behind LLVQ, precedes that line. We measure none of them
-(\S\ref{sec:limitations}).
+(\S\ref{sec:limitations}). Both are lookup-decoded, so they sit on the
+fits-a-lookup-table side of the frontier above that the E8P and IQ2 entry
+counts already mark; $\Lambda_{24}(12)$'s $1.1\times10^{14}$ points are the
+sole must-unfold member, and timing them would confirm that side rather than
+test the unfolding cost.
 
 \textbf{Rotations.} Incoherence processing is a rotation, and
 QuaRot~\citep{quarot2024}, then SpinQuant~\citep{spinquant2024} with learned

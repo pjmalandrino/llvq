@@ -357,7 +357,8 @@ def fig_records() -> None:
         # the label says so: the stored bytes are the same, the speed is not.
         speed = f"{float(r['ratio_vs_fp16']):.2f}× FP16"
         if name == "Golay70":
-            speed += "\n(hoisted decoder)"
+            v1 = float(rows["Golay70v1"]["ratio_vs_fp16"])
+            speed = f"{v1:.2f}× / {float(r['ratio_vs_fp16']):.2f}× hoisted"
         ax.text(right, y, f"{float(r['bpw_kernel']):.2f} b/w\n{speed}",
                 ha="right", va="center", fontsize=7.5, color=INK,
                 linespacing=1.0)
