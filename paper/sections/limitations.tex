@@ -1,23 +1,34 @@
 \section{Limitations and Validity Envelope}
 \label{sec:limitations}
 
-\textbf{The validity envelope.} Every speed figure in this paper is a
-decode-phase GEMV at batch size 1. The served kernel is a matrix--vector
-product: a prompt of $\ell$ tokens costs $\ell$ passes, and no prefill GEMM
-exists on that path. Throughput figures therefore describe short prompts
-(the end-to-end runs use a five-token prompt); time-to-first-token at long
-prompts is not measured. The perplexity and MMLU harness scores the sealed
-file through the dense path. The served path's equivalence to that file
-rests on the bit-exact transcoding and the row-level f64 checks
-(\S\ref{sec:decoder}); no quality score passes through the kernel. The
-unfolded stream is built at load time, one pass over the artifact per
-process, and is not persisted: 84~s for Planes14 and 404~s for Planes12x on
-the 4B with 16 threads. For the served layout the cost is absorbed rather
-than added: the fused path loads the 4B in 122--131~s across invocations,
-unfolding included, against 186--188~s for the dense arm, which reads
-8~GB of f16. VRAM figures count weights only; the KV cache is
-excluded. The rotation kernel exists for CUDA only, so the served path is
-NVIDIA-only.
+\textbf{The validity envelope.} Table~\ref{tab:validity} states where the
+measurements hold and where they stop. Two rows deserve a word. The quality
+harness scores the sealed file through the dense path; the served path's
+equivalence rests on the bit-exact transcoding and the row-level f64 checks
+(\S\ref{sec:decoder}), so no quality score passes through the kernel. And
+the load-time unfolding is absorbed rather than added for the served
+layout: the fused path loads the 4B in 122--131~s, unfolding included,
+against 186--188~s for the dense arm, which reads 8~GB of f16.
+
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.16\linewidth}>{\raggedright\arraybackslash}p{0.42\linewidth}>{\raggedright\arraybackslash}p{0.35\linewidth}}
+\toprule
+Dimension & Measured domain & Boundary \\
+\midrule
+Phase, batch & decode-phase GEMV at batch 1; a prompt of $\ell$ tokens costs $\ell$ passes (end-to-end runs use a five-token prompt) & no prefill GEMM on the served path; time-to-first-token at long prompts unmeasured \\
+Hardware & L40S: bandwidth-bound, byte savings convert to time & A100: every lattice arm below FP16 (\S\ref{sec:a100}) \\
+Models & Qwen3 4B, 8B, 14B served end to end & 32B: rotation exceeds the shared-memory bound (Table~\ref{tab:envelope}) \\
+Load & unfolding at load: 84~s (Planes14) and 404~s (Planes12x) on the 4B, 16 threads & unfolded stream not persisted; the cost recurs per process \\
+Memory, platform & VRAM figures count weights only; rotation kernel is CUDA-only & KV cache excluded; served path NVIDIA-only \\
+\bottomrule
+\end{tabular}
+\caption{The validity envelope: the domain each result was measured in, and
+the boundary past which it is not claimed.}
+\label{tab:validity}
+\end{table}
 
 \textbf{The MMLU deficit is unexplained.} The deficit of
 \S\ref{sec:evaluation} is reproduced at three sizes. Three suspects are
@@ -44,13 +55,11 @@ tuning pass on either side could move the number; none was attempted. The
 same gap stands, unmeasured here, against Marlin's batched 4-bit GEMM and
 the 2-bit vector-quantized systems of \S\ref{sec:related}.
 
-\textbf{One serving GPU, three models.} End to end, Qwen3-4B, 8B and 14B
-run on one L40S. Only the layout bench runs on a second architecture (\S\ref{sec:a100}),
-which bounds the claim. Batching changes the regime: the kernel is
-bandwidth-bound at batch~1 because one activation amortizes each weight byte,
-and a batched GEMM amortizes it across rows, where the deployed 4-bit kernels
-already operate. Larger models change the embedding share and the
-tail-column overhead, both of which enter the whole-model rate.
+\textbf{Batching.} The kernel is bandwidth-bound at batch~1 because one
+activation amortizes each weight byte; a batched GEMM amortizes it across
+rows, where the deployed 4-bit kernels already operate. Larger models change
+the embedding share and the tail-column overhead, both of which enter the
+whole-model rate.
 
 \textbf{Three points, no law.} The direction holds on three sizes and
 supports no scaling law (\S\ref{sec:evaluation}, Appendix~\ref{app:scale}).
@@ -70,7 +79,7 @@ Half-precision shared activations would halve the footprint, at an
 accumulation depth of order $\log_2 n \approx 14.6$ stages at
 $n = 25\,600$ that we have not priced.
 
-\begin{table}[h]
+\begin{table}[t]
 \centering
 \footnotesize
 \setlength{\tabcolsep}{4pt}%

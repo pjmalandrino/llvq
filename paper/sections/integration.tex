@@ -80,13 +80,15 @@ the same reading lands $0.38\%$ from the byte-exact whole-model rate of
 \cmidrule(lr){3-4} \cmidrule(lr){5-6} \cmidrule(lr){7-8}
 Size & dense tok/s & fused tok/s & gain & fused tok/s & gain & dense & served \\
 \midrule
-4B  & 43.5 [43.4--43.6] & 48.3 [48.1--48.3] & $1.11\times$ & 87.0 [86.8--87.0] & $2.00\times$ & 8.04  & 2.60 \\
-8B  & 26.5 [26.4--26.5] & 34.1 [34.0--34.1] & $1.29\times$ & 68.2 [68.2--68.3] & $2.57\times$ & 16.38 & 5.45 \\
-14B & 17.0 [17.0--17.0] & 23.9 [23.8--24.0] & $1.41\times$ & 43.3 [43.2--43.4] & $2.55\times$ & 29.54 & 9.39 \\
+4B  & 43.5 [43.4--43.6] & 48.3 [48.1--48.3] & $\mathbf{1.11\times}$ & 87.0 [86.8--87.0] & $2.00\times$ & 8.04  & 2.60 \\
+8B  & 26.5 [26.4--26.5] & 34.1 [34.0--34.1] & $\mathbf{1.29\times}$ & 68.2 [68.2--68.3] & $2.57\times$ & 16.38 & 5.45 \\
+14B & 17.0 [17.0--17.0] & 23.9 [23.8--24.0] & $\mathbf{1.41\times}$ & 43.3 [43.2--43.4] & $2.55\times$ & 29.54 & 9.39 \\
 \bottomrule
 \end{tabular}
 \caption{End-to-end decode on one L40S, 128 greedy tokens, three model
-sizes. Medians of five timed generations with min--max ranges; ratios are
+sizes. The bold same-head series is the kernel-and-format measurement; the
+served series includes the output-head replacement both arms could adopt.
+Medians of five timed generations with min--max ranges; ratios are
 quotients of medians (arms never coexist). The dense arm is re-timed in
 each invocation and its medians differ by at most 0.1~tok/s; each ratio is
 formed within its own invocation. The 4B (2.60~GB) and 8B (5.45~GB) VRAM

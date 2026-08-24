@@ -1320,6 +1320,8 @@ def main() -> int:
     #                      both pinned to their journals above, but the
     #                      tabular is two-block (a second header after an
     #                      inner \midrule) and table_body() does not read it.
+    #   tab:validity    — Section 6; qualitative envelope rows restating facts
+    #     carried (and checked where numeric) elsewhere in the paper.
     #   tab:fairness    — Appendix B; per-arm qualitative comparison conditions,
     #     sourced from the ten-arm run journal (thresholds, registers, grids).
     #   tab:prereg, tab:provenance — Appendix B; dates, criteria and file
