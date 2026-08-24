@@ -17,7 +17,7 @@ dense arm's: 122--131~s for the fused 4B, unfolding included, against
 \toprule
 Dimension & Measured domain & Boundary \\
 \midrule
-Phase, batch & decode-phase GEMV at batch 1; a prompt of $\ell$ tokens costs $\ell$ passes (end-to-end runs use a five-token prompt) & no prefill GEMM on the served path; time-to-first-token at long prompts unmeasured \\
+Phase, batch & decode-phase GEMV at batch 1; a prompt of $\ell$ tokens costs $\ell$ passes (five-token prompt end to end) & no prefill GEMM on the served path; time-to-first-token at long prompts unmeasured \\
 Hardware & L40S: bandwidth-bound, byte savings convert to time & A100: every lattice arm below FP16 (\S\ref{sec:a100}) \\
 Models & Qwen3 4B, 8B, 14B served end to end & 32B: rotation exceeds the shared-memory bound (Table~\ref{tab:envelope}) \\
 Load & unfolding at load: 84~s (Planes14) and 404~s (Planes12x) on the 4B, 16 threads & unfolded stream not persisted; the cost recurs per process \\

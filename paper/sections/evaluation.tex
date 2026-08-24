@@ -76,7 +76,7 @@ footprint is 5.162~b/param against 5.302 for the official AWQ checkpoint;
 on the kernel row the same competitor reads less than we do (4.18 against
 4.80).
 
-\textbf{What 2 bits costs.} Against FP16 the 4B pays $\times1.384$
+\textbf{What 2 bits costs on this artifact.} Against FP16 the 4B pays $\times1.384$
 perplexity and $-14.6$ MMLU points on the served int8 arm, $-14.73$ on the
 sealed artifact; the two differ by less than either sampling error. The
 sealed artifact carries every paired statistic below, because its
@@ -180,7 +180,7 @@ tokens identical to the dense arm through the same tie-break. It gives up
 about 2\% of Planes14's throughput for a smaller footprint, the most compact
 served configuration we measure.
 
-\textbf{Against published 2-bit methods.} Table~\ref{tab:lit} places the
+\textbf{Published 2-bit results, respective protocols.} Table~\ref{tab:lit} places the
 sealed arms beside the source paper's results at matched code rate,
 48 bits per 24-weight block on every 2-bit row. At 4B our $\times1.38$ sits
 level with QTIP and the 0-gain-bit LLVQ line ($\times1.37$) and behind the

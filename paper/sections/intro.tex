@@ -10,7 +10,7 @@ decode inside a matvec, and that rate is the subject of \S\ref{sec:layouts}.
 For deployments whose constraint is sovereignty (capable models on hardware
 one owns), the 2-bit operating point decides whether the model loads at all.
 
-The strongest published 2-bit quality, under its own evaluation protocol,
+The strongest reported 2-bit quality, under its own evaluation protocol,
 comes from Leech-lattice vector quantization (LLVQ)~\citep{llvq2026}: weights are grouped in blocks of 24,
 normalized, and snapped to the nearest point of the Leech lattice
 $\Lambda_{24}$. The systems half of that paper stops short. Its CUDA kernel
@@ -28,14 +28,16 @@ a combinatorial lattice index costs to serve. Four contributions:
 
 \begin{itemize}
 \item[\textbf{C1}] \textbf{The fused multi-shell decoder}
-(\S\ref{sec:decoder}): to our knowledge the first serving implementation
+(\S\ref{sec:decoder}): to our knowledge the first publicly documented
+serving implementation
 of the full multi-shell $\Lambda_{24}(12)$ codebook (301 classes): an
 offline expansion into divergence-free GPU layouts, and a fused
 dequantize-plus-matvec kernel that reads them with shifts, masks and a
 predicated table lookup, the same instruction sequence on every lane
 whatever the class. The combinatorial index itself is never decoded inside
 the matvec. Every output row is verified against an f64 reference before
-any timing; on an L40S the kernel reaches 65\% of its byte bound.
+any timing; on an L40S the kernel reaches 65\% of its byte bound, measured
+against the FP16 control's bandwidth (\S\ref{sec:layouts}).
 
 \item[\textbf{C2}] \textbf{The in-VRAM rate as a design axis}
 (\S\ref{sec:layouts}), distinct from the on-disk rate (2.07 effective,
