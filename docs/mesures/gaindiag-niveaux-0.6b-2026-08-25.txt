@@ -1,0 +1,58 @@
+modèle : Qwen/Qwen3-0.6B   (hidden 1024, intermediate 3072)
+g = ‖bloc de 24‖ / row_scale(ligne) — c'est ce que le codebook de gain quantifie
+
+── model.layers.0.self_attn.q_proj.weight  (2048×1024, 86016 blocs)
+   g : moyenne 0.976288  médiane 0.965649  p1 0.613391  p99 1.509785  asymétrie +0.871
+   k=0 (1 niveaux)  niveaux : 0.976288
+        population : 100.0%   |  bloc reconstruit trop court : 47.3%  |  niveau bas vs moyenne k=0 : -0.00%
+   k=1 (2 niveaux)  niveaux : 0.862131  1.133443
+        population : 57.9%  42.1%   |  bloc reconstruit trop court : 48.6%  |  niveau bas vs moyenne k=0 : -11.69%
+   k=2 (4 niveaux)  niveaux : 0.768919  0.947527  1.125773  1.439706
+        population : 24.3%  42.7%  28.9%  4.1%   |  bloc reconstruit trop court : 50.2%  |  niveau bas vs moyenne k=0 : -21.24%
+   k=4 (16 niveaux)  niveaux : 0.561029  0.670804  0.740281  0.794916  0.841010  0.881433  0.919358  0.957036  0.995639  1.037513  1.085988  1.145152  1.221960  1.333292  1.538206  1.888510
+        population : 1.0%  3.3%  5.4%  7.1%  8.1%  8.9%  9.3%  9.5%  9.7%  9.9%  9.4%  8.1%  6.0%  2.9%  1.1%  0.4%   |  bloc reconstruit trop court : 50.6%  |  niveau bas vs moyenne k=0 : -42.53%
+
+── model.layers.0.mlp.gate_proj.weight  (3072×1024, 129024 blocs)
+   g : moyenne 0.978551  médiane 0.972272  p1 0.629393  p99 1.383192  asymétrie +0.655
+   k=0 (1 niveaux)  niveaux : 0.978551
+        population : 100.0%   |  bloc reconstruit trop court : 48.4%  |  niveau bas vs moyenne k=0 : +0.00%
+   k=1 (2 niveaux)  niveaux : 0.863559  1.117136
+        population : 54.7%  45.3%   |  bloc reconstruit trop court : 49.4%  |  niveau bas vs moyenne k=0 : -11.75%
+   k=2 (4 niveaux)  niveaux : 0.763545  0.926834  1.075725  1.269887
+        population : 20.0%  37.3%  31.8%  10.8%   |  bloc reconstruit trop court : 49.8%  |  niveau bas vs moyenne k=0 : -21.97%
+   k=4 (16 niveaux)  niveaux : 0.596031  0.692136  0.756140  0.807242  0.851165  0.890375  0.927174  0.962869  0.999511  1.039405  1.085112  1.139976  1.210545  1.310465  1.498787  2.200411
+        population : 1.3%  3.5%  5.4%  6.9%  8.0%  8.7%  9.0%  9.4%  9.6%  9.6%  9.4%  8.5%  6.3%  3.4%  0.7%  0.1%   |  bloc reconstruit trop court : 50.6%  |  niveau bas vs moyenne k=0 : -39.09%
+
+── model.layers.0.mlp.down_proj.weight  (1024×3072, 131072 blocs)
+   g : moyenne 0.986861  médiane 0.981137  p1 0.639350  p99 1.384986  asymétrie +0.510
+   k=0 (1 niveaux)  niveaux : 0.986861
+        population : 100.0%   |  bloc reconstruit trop court : 48.6%  |  niveau bas vs moyenne k=0 : +0.00%
+   k=1 (2 niveaux)  niveaux : 0.870139  1.124825
+        population : 54.2%  45.8%   |  bloc reconstruit trop court : 49.3%  |  niveau bas vs moyenne k=0 : -11.83%
+   k=2 (4 niveaux)  niveaux : 0.768587  0.930583  1.076991  1.262250
+        population : 19.5%  36.2%  31.8%  12.5%   |  bloc reconstruit trop court : 49.9%  |  niveau bas vs moyenne k=0 : -22.12%
+   k=4 (16 niveaux)  niveaux : 0.605429  0.699209  0.763794  0.814709  0.858737  0.897914  0.934651  0.969957  1.005882  1.044796  1.088969  1.141548  1.208575  1.301536  1.458471  2.334817
+        population : 1.3%  3.5%  5.5%  6.9%  8.0%  8.5%  8.8%  9.2%  9.3%  9.3%  9.4%  8.4%  6.8%  4.0%  1.0%  0.0%   |  bloc reconstruit trop court : 50.5%  |  niveau bas vs moyenne k=0 : -38.65%
+
+── model.layers.13.mlp.gate_proj.weight  (3072×1024, 129024 blocs)
+   g : moyenne 0.973148  médiane 0.967790  p1 0.555777  p99 1.457990  asymétrie +0.683
+   k=0 (1 niveaux)  niveaux : 0.973148
+        population : 100.0%   |  bloc reconstruit trop court : 48.8%  |  niveau bas vs moyenne k=0 : -0.00%
+   k=1 (2 niveaux)  niveaux : 0.834468  1.132497
+        population : 53.5%  46.5%   |  bloc reconstruit trop court : 49.1%  |  niveau bas vs moyenne k=0 : -14.25%
+   k=2 (4 niveaux)  niveaux : 0.714414  0.910790  1.086429  1.319439
+        population : 19.4%  37.4%  32.7%  10.5%   |  bloc reconstruit trop court : 49.5%  |  niveau bas vs moyenne k=0 : -26.59%
+   k=4 (16 niveaux)  niveaux : 0.519237  0.630621  0.708375  0.770663  0.823141  0.870324  0.913236  0.955101  0.998293  1.044659  1.097360  1.161490  1.245332  1.366636  1.616592  2.330481
+        population : 1.4%  3.4%  5.4%  6.9%  7.9%  8.7%  8.9%  9.3%  9.7%  9.7%  9.6%  8.6%  6.4%  3.3%  0.7%  0.1%   |  bloc reconstruit trop court : 50.6%  |  niveau bas vs moyenne k=0 : -46.64%
+
+── model.layers.27.mlp.down_proj.weight  (1024×3072, 131072 blocs)
+   g : moyenne 0.980650  médiane 0.970879  p1 0.566262  p99 1.471839  asymétrie +0.525
+   k=0 (1 niveaux)  niveaux : 0.980650
+        population : 100.0%   |  bloc reconstruit trop court : 47.9%  |  niveau bas vs moyenne k=0 : -0.00%
+   k=1 (2 niveaux)  niveaux : 0.842754  1.153400
+        population : 55.6%  44.4%   |  bloc reconstruit trop court : 49.5%  |  niveau bas vs moyenne k=0 : -14.06%
+   k=2 (4 niveaux)  niveaux : 0.720295  0.912682  1.091114  1.318563
+        population : 19.9%  36.5%  31.2%  12.5%   |  bloc reconstruit trop court : 49.6%  |  niveau bas vs moyenne k=0 : -26.55%
+   k=4 (16 niveaux)  niveaux : 0.533228  0.640728  0.715305  0.775209  0.826700  0.872854  0.916627  0.958958  1.002549  1.049525  1.103191  1.166784  1.245626  1.350715  1.528328  2.381760
+        population : 1.4%  3.6%  5.6%  6.9%  8.0%  8.6%  9.0%  9.0%  9.0%  9.3%  9.0%  8.2%  6.7%  4.3%  1.3%  0.1%   |  bloc reconstruit trop court : 50.5%  |  niveau bas vs moyenne k=0 : -45.63%
+
