@@ -1297,7 +1297,9 @@ run : c'est un point unique, et c'est exactement ce que B2 corrige le lendemain.
 
 ## 2026-08-18 — Les points deviennent des plages, le 8B ressuscite pour 0,24 $, et le dépôt cesse de se contredire
 
-Quatre lots dans la journée, **~2,57 $** de carte au total. Le fil commun est
+Quatre lots dans la journée, **2,57 $** facturés au total (*calculé* sur
+[`data/jobs.csv`](data/jobs.csv) ; B3 tourne sur `cpu-xl`, les trois autres sur
+l40sx1). Le fil commun est
 qu'aucun ne cherche un layout : ils **solidifient ce qui existe** — remplacer
 des points par des médianes, retrouver un objet perdu, mesurer un dénominateur,
 et faire taire les contradictions entre surfaces d'entrée.
@@ -1410,8 +1412,10 @@ couvrent des variantes d'erreur qui n'avaient aucune assertion.
 
 ## 2026-08-19 — Trois lots, trois verdicts : la soumission hôte est négligeable, l'A100 renverse l'échelle, et le σ de calibration est faux d'un facteur 7
 
-Journée la plus chère depuis le début du projet — **~22,3 $**, dont 21,45 pour
-le seul F5. Les trois lots sont indépendants et pré-enregistrés séparément.
+**23,31 $** de carte dans la journée (*calculé* sur
+[`data/jobs.csv`](data/jobs.csv)), dont **21,45 pour le seul F5** — la deuxième
+journée la plus chère du projet, derrière les 27,67 $ de la quantification 14B
+du 2026-08-09. Les trois lots sont indépendants et pré-enregistrés séparément.
 
 ✅ **1. F3 — LES EVENTS CUDA : L'ÉCART HÔTE−DEVICE VAUT 0,1-0,2 %, DEUX ORDRES
 DE GRANDEUR SOUS L'ATTENTE** (job `6a8567b4`, l40sx1, 1 729 s, **~0,86 $** ;
@@ -1621,8 +1625,9 @@ exécuter le texte du noyau contre une référence indépendante, pas le relire.
 
 ## 2026-08-23 — Lot G : les horloges tranchent l'A100, et `Planes12x` devient un point SERVI
 
-Trois jobs, **~1,00 $** au total, pré-enregistrement tamponné
-(sha256 `dfd65c42…`). Journal :
+Trois jobs facturés — plus deux morts avant tout octet lu — pour **1,00 $** au
+total (*calculé* sur [`data/jobs.csv`](data/jobs.csv)), pré-enregistrement
+tamponné (sha256 `dfd65c42…`). Journal :
 [`mesures/g-horloges-planes12x-2026-08-23.txt`](mesures/g-horloges-planes12x-2026-08-23.txt).
 
 ✅ **1. G1/G2 — L'HYPOTHÈSE LAISSÉE OUVERTE PAR F4 EST TRANCHÉE, ET PAR UNE

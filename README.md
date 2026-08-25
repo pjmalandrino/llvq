@@ -30,8 +30,8 @@ end. Only the model side pulls in `candle`.
 > **2.93 GB on the card against 8.04, 48.3 tok/s [48.1–48.3] against 43.5
 > [43.4–43.5]**, same greedy tokens as the dense arm up to a tie-break at
 > token 89. Those are medians over five timed generations; they replaced the
-> single points this file carried until 2026-08-18 (2.96 GB, 48.7 tok/s), and
-> they land 0.8 % under them
+> single points this file carried until 2026-08-18 (2.96 GB, 48.7 tok/s), the
+> throughput landing 0.8 % under its point value
 > ([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt),
 > superseding [`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)).
 > On macOS the fused kernel is still a bench and nothing else: `llvq-metal` is
@@ -77,7 +77,7 @@ before paying for 8.5 % more bits.** An earlier version of this file said "just
 under QTIP", which contradicted its own table.
 
 🚨 **And since 2026-08-19 there is a dispersion, measured on this very object,
-that swallows all three of those percentages.** Three *complete* Qwen3-4B runs
+that swallows both of those quality percentages.** Three *complete* Qwen3-4B runs
 differing only in `LLVQ_CALIB_SEED` ∈ {1, 2, 3} — same corpus read within the
 same hour, same codebook, same rotation, same protocol, and the same evaluation
 token fingerprint `3f1baca9033bf251` as every published arm — return sealed-f16
@@ -88,9 +88,10 @@ calibration draw moving the answer, not instrument noise
 ([`docs/mesures/f5-graines-4b-2026-08-19.txt`](docs/mesures/f5-graines-4b-2026-08-19.txt),
 $21.45 of card time, preregistration stamped before the pilot). **σ is ten times
 the 0.08 perplexity point that separates us from QTIP, and the range is twenty
-times it** *(computed)*. So the honest reading of the table above is that
-16.9415 is the value of **one** choice of calibration windows, not a privileged
-one, and no ranking decided at 3 % resolution survives it.
+times it** *(computed)*. So the honest reading of the table above is that the
+published artifact — 16.9617 in f32, 16.9415 sealed in f16 — is the value of
+**one** choice of calibration windows, not a privileged one, and no ranking
+decided at 3 % resolution survives it.
 
 Two things that dispersion does **not** touch, and they are what keeps the rest
 of this file standing. The published file is **not a fourth draw**: it ran on a
@@ -606,6 +607,15 @@ ever been quantized here, and the KV cache (320 KiB/token in f16) is not
 budgeted in any of our projections. Full analysis:
 [`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
 
+🚨 **And 4-bit is not the only thing that beats us: the two-bit competitor now
+does too, in our own bench.** Since 2026-08-21, QTIP's trellis kernel runs as an
+arm of this repository's CUDA bench, in one process against `Planes14`, and it
+is **2.27× [2.27–2.28] faster while reading 2.40× fewer bytes** — 2.000 against
+4.804 bits/weight, at near-equal conversion of their byte bounds. That is a
+kernel-and-format result, on shapes only, and no quality sentence rests on it;
+the full row, the mechanism and the declared asymmetries are under *QTIP in our
+own bench*. It is published here for the same reason the MMLU column is.
+
 ## Read this before quoting the number
 
 * **We are at QTIP's level, marginally worse.** 16.96 against 17.04 looks like
@@ -901,12 +911,14 @@ control that runs the same 252 launches over the same shapes and reads **no
 weight bytes at all** takes 2.306 ms in that process — 4.77× FP16 — and had been
 read as a *machine* floor, hence as an absolute ceiling of **4.77× on anything a
 format could ever buy**. **QTIP finishes the same projections, reading 0.91 GB,
-in 2.246 ms**: 2.6 % *under* the no-weights control, against a 0.36 % resolution.
+in 2.246 ms**: 2.6 % *under* the no-weights control, against a resolution grain
+of 0.36 % (2R = 0.72 %, the run's own rule for what counts as separated).
 So that control bounds **our launch geometry** — one warp per output row, 252
 launches — and not the machine; a differently shaped kernel passes under it. The
 right phrase is "the floor of our launch geometry", never "the machine floor",
-and the 39 % latency-and-occupancy share attributed elsewhere in this project is
-a property of that same geometry. This is an erratum to a stamped
+and any latency-or-occupancy share this project attributes against that control
+is a property of the same geometry rather than of the card. This is an erratum
+to a stamped
 preregistration, which cannot be edited, so it is recorded here and in the
 journal.
 
@@ -1011,8 +1023,8 @@ up: served end to end at 4B it gives **85.0 tok/s [84.7–85.1] in 2.36 GB**,
 greedy tokens and the same token-89 tie-break. That is 2.3 % less throughput than
 `Planes14` for 0.20 GB less card — **the most compact served point measured**
 ([`docs/mesures/g-horloges-planes12x-2026-08-23.txt`](docs/mesures/g-horloges-planes12x-2026-08-23.txt)).
-⚠️ It costs 1 340 s to transcode at load against ~130 s for `Planes14`: a
-five-level lattice search per block, paid once, offline.
+⚠️ It takes 1 340 s to load against ~131 s for `Planes14`: a five-level lattice
+search per block at transcode time, paid once, offline.
 
 And **fusing the launches** — `q/k/v` and `gate/up` concatenated by rows, **252 →
 144 matvecs per token** — gives **×1.061 [1.050–1.069] at constant
