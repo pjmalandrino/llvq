@@ -156,9 +156,16 @@ fn index_width_follows_the_shell_cap() {
     assert_eq!(index_bits(13), 48, "the full ball needs 48 bits");
     assert_eq!(index_bits(12), 47, "Λ24(12) fits in 47 — that pays the gain bit");
     assert_eq!(index_bits(11), 46, "Λ24(11) fits in 46 — that pays a second gain bit");
-    // The three arms of the direction↔gain split must land on the same 48-bit
+    assert_eq!(index_bits(10), 44, "Λ24(10) fits in 44 — that pays a fourth gain bit");
+    // No ball costs 45 bits: the width jumps 44 → 46, which is why the ladder
+    // has no 3-gain-bit rung and the source paper's Table 8 skips it too.
+    assert!(
+        !(2..=13u32).any(|c| index_bits(c) == 45),
+        "a 45-bit ball would add a rung to the direction↔gain ladder"
+    );
+    // The four arms of the direction↔gain split must land on the same 48-bit
     // budget, or the A/B is not at constant rate and compares nothing.
-    for (cap, gain_bits) in [(13u32, 0u32), (12, 1), (11, 2)] {
+    for (cap, gain_bits) in [(13u32, 0u32), (12, 1), (11, 2), (10, 4)] {
         assert_eq!(
             index_bits(cap) + gain_bits,
             48,
