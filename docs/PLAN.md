@@ -5,6 +5,24 @@
 > information/coût**, chacune avec ses tâches, ses critères écrits d'avance
 > et son coût.
 >
+> 🧭 **2026-08-25 — LE RAF COURANT VIT DÉSORMAIS DANS
+> [`BACKLOG.md`](BACKLOG.md).** Ce fichier-ci reste le document de **niveau
+> projet** : les trois phases, ce qu'elles décident, leurs critères écrits
+> d'avance et leurs coûts. Il ne porte plus la liste de ce qui reste à faire
+> au jour le jour — une session qui reprend lit `BACKLOG.md` d'abord, puis ce
+> plan pour savoir *pourquoi* un item y figure.
+>
+> ✅ **2026-08-24 — LE PAPIER EST SOUMIS : ACM TACO, `TACO-2026-428`, au
+> commit `e21a8bb`.** La **Phase 1 est soldée** (détail en tête de sa
+> section) : le bras **QTIP** est entré au corps (`tab:layouts`,
+> `sec:qtip`, lot F2) et le récit d'échelle porte ses barres aux trois
+> tailles. ⚠️ **Décision d'opérateur du 2026-08-25 : le dépôt GitHub RESTE
+> PUBLIC** — le manuscrit est anonymisé et la page de titre donne les URL à
+> l'**éditeur** seul, pour que l'artefact soit localisable sans que le
+> manuscrit brise sa propre anonymité. 🕳️ **Toute phrase de ce dossier qui
+> dit ou suppose « dépôt privé pendant la revue » est périmée**, y compris
+> dans le plan TACO cité juste dessous.
+>
 > 🗓️ **2026-08-18 — Le chantier « papier » a son plan d'exécution :
 > [`plan-taco-2026-08-18.md`](plan-taco-2026-08-18.md)**, issu d'un audit
 > complet du dépôt (9 agents, vérifications sur pièces) cadré sur une
@@ -25,19 +43,54 @@
 > *aucun layout du portefeuille ne le passe*. `Planes14` (le servi) est à
 > **+60 %**, `Planes12x` +44,6 %, `e1c12` aligné +42,8 %, `Golay70` **+19,5 %**,
 > et le seul qui franchit — E1v, −20,1 % — a son décodeur fermé à 0,25× FP16.
-> Combiné au plancher du 2026-08-16 (tout travail de format plafonné à 4,77×,
-> `Planes14` en capturant déjà 2,16×), **il n'y a plus de raison de chercher un
+> Combiné au plancher du 2026-08-16 — le format ne se dispute qu'une part du
+> temps, `Planes14` en capture déjà l'essentiel, et son décodage ne coûte que
+> **~7 %** du temps de trafic —, **il n'y a plus de raison de chercher un
 > format** : ni pour la vitesse, ni pour la mémoire.
+>
+> 🕳️ **Cette phrase disait « tout travail de format plafonné à 4,77×,
+> `Planes14` en capturant déjà 2,16× ». LE PLAFOND EST FAUX depuis le
+> 2026-08-21, et c'est l'erratum le plus utile du mois.** Le lot F2 a porté
+> **QTIP** dans notre propre banc, **un seul processus**, 7 rounds dont 2
+> jetés, bras entrelacés : **QTIP 2 bits = 2,246 ms [2,245–2,248]**, 0,91 Go
+> lus, 2,0000 b/poids, 405 Go/s, **4,89× FP16**, contre `Planes14` 5,103 ms,
+> 2,18 Go, 4,804 b/poids, **2,15×** — soit **r = 2,27× [2,27–2,28]** en faveur
+> de QTIP *(mesuré ; comptabilité **b/poids noyau** des deux côtés ; rapport
+> encadré par l'extérieur, le banc n'imprimant pas `r` par round)*.
+> **`t(QTIP) = 2,246 ms < t(nullk) = 2,306 ms`** : un noyau réel finit les
+> mêmes 252 projections **en lisant 0,91 Go** plus vite que notre passe qui
+> n'en lit **aucun** (séparation 2,7 % contre une résolution de 0,72 %), et
+> `f = 61,1 %` contre un plafond **pré-enregistré** de 59,6 % — erratum
+> consigné au journal, le `.ots` interdisant l'édition du prereg
+> ([`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt)).
+> ⇒ **`nullk` n'est pas un plancher machine : c'est le plancher de NOTRE
+> GÉOMÉTRIE DE LANCEMENT** — un warp par ligne de sortie, 252 lancements —
+> et **un noyau autrement formé passe dessous**. Le papier porte déjà la
+> correction (`paper/main.tex`, `paper/sections/layouts.tex`) ; les documents
+> internes la reçoivent ici.
 >
 > ⚠️ **Et il faut dire de quoi chacune des deux moitiés est faite, parce
 > qu'elles n'ont pas la même force.** *Mémoire* : un **compte** sur le
 > portefeuille existant — aucun de ces layouts ne passe, ce qui ne borne pas un
-> format futur. *Vitesse* : le plancher ne dit **pas** que la vitesse est
-> épuisée — il laisse 2,16× → 4,77× de marge nominale sur le terme de trafic.
-> Ce qui la referme est une **induction sur trois points mesurés**, pas une
-> borne : `Golay70` v1 (1,31×), v2 (1,77×) et E1v (0,25×) réduisent tous les
-> octets et sortent tous **plus lents**, bornés en calcul. Une idée neuve sur
-> le coût ALU rouvrirait la moitié vitesse ; aucune n'est connue.
+> format futur. *Vitesse* : la fermeture ne repose plus sur un plafond, **il
+> n'y en a pas**. Ce qui la tient est (i) le **partage du temps** — le format
+> se dispute la part que `Planes14` capture déjà, son décodage pesant ~7 % du
+> trafic — et (ii) une **induction sur trois points mesurés**, pas une borne :
+> `Golay70` v1 (1,31×), v2 (1,77×) et E1v (0,25×) réduisent tous les octets et
+> sortent tous **plus lents**, bornés en calcul.
+>
+> 🔎 **Une idée neuve sur le coût ALU rouvrirait la moitié vitesse — QTIP en
+> est PRESQUE une, et ce « presque » est tout le sujet : ce n'est pas un
+> défaut d'implémentation qui nous sépare de lui, c'est la TAILLE de notre
+> codebook**, et le papier en nomme le mécanisme. Un état de treillis
+> 16 bits tient dans une table de correspondance de 2 KiB ; un codebook de
+> **1,1·10¹⁴ points n'y tient pas**. Notre index de réseau doit donc être
+> **déplié** en flux de plans de bits à **4,80 b/poids**, et le noyau paie ces
+> octets à la vitesse mémoire — l'écart de temps suit l'écart de trafic
+> (2,40× d'octets pour 2,27× de temps, à fractions de borne quasi égales,
+> 61 % contre 65 %). **Aucune idée connue ne replie ce flux à codebook
+> constant** ; ce qui est ouvert, c'est le codebook lui-même, et ce n'est plus
+> un travail de layout.
 >
 > **Trois branches se referment ici, dont deux qui pendaient :**
 > 1. **L'argument mémoire de `Golay70`** — orphelin depuis le 2026-08-11, où la
@@ -59,12 +112,21 @@
 >
 > 🧭 **L'ordre de priorité qui en découle** — les deux fronts qui portent les
 > critères fondamentaux sont ceux qui n'ont **aucune ligne de code** :
-> **(1) Phase 1** — le point 14B au papier, 0 $, seul bloquant du papier ;
+> ✅ **(1) Phase 1** — le point 14B au papier, 0 $, seul bloquant du papier :
+> **LIVRÉE, papier soumis le 2026-08-24** ;
 > **(2) Phase 2** — la qualité, le seul axe dont une découverte change le
 > verdict produit à échelle fixée ;
 > **(3) la famille `k` de P4 §2.6** — le poste des 45 % que le plancher désigne
-> et qu'aucun format ne touche ;
+> et qu'aucun format ne touche ; 🚨 **REQUALIFIÉ le 2026-08-25 : ce poste n'est
+> pas un « sol machine » mais le coût de NOTRE GÉOMÉTRIE DE LANCEMENT** (F2 :
+> un noyau réel passe sous `nullk`), et **D1 en a déjà repris une part sans
+> toucher au format** — 252 → **144 matvec par token**, **×1,061
+> [1,050–1,069]** à `ROT_SHARE` constant sur le chemin servi
+> ([`mesures/d1-fusion-servie-2026-08-24.txt`](mesures/d1-fusion-servie-2026-08-24.txt)).
+> Ce qu'on amortit est **attaquable**, et il vient d'être attaqué une fois ;
 > **(4) Phase 3** — le 32B, après que 1 soit livrée et 2 tranchée.
+> ⚠️ **(1) est livrée depuis le 2026-08-24** (papier soumis), donc cet ordre se
+> lit aujourd'hui **2 → 3 → 4**.
 > Tout le reste (e1c12, KV long, MoE) passe derrière et n'a plus de caractère
 > bloquant.
 >
@@ -103,11 +165,107 @@
 
 ---
 
+## 🆕 Ce que les lots F, G et D1 ont changé (2026-08-18 → 2026-08-24)
+
+> Neuf campagnes en une semaine, **28,56 $ facturés depuis le 08-18** sur
+> **27 jobs** (*mesuré*, [`data/jobs.csv`](data/jobs.csv), qui porte
+> **73 lignes pour 87,36 $** depuis le 2026-08-02). **Aucune n'avait d'entrée
+> dans les documents de reprise** au moment où cette section est écrite, et
+> deux d'entre elles retirent une phrase que ce plan portait.
+> Compteurs au 2026-08-25 (*mesuré*) : `docs/mesures/` **69 fichiers**,
+> `docs/data/*.csv` **13 fichiers**, `proofs/` **22 documents et 16 ancrages
+> `.ots`** — ⚠️ dont **aucun n'a jamais été upgradé**, cf. § 1.5.
+>
+> ⚠️ **La colonne « coût » ne somme pas au total, et c'est normal** : elle
+> donne le job qui porte le résultat cité, là où un lot en compte plusieurs
+> (F2 cumule 1,44 $ sur ses phases P0/P2/P3) et où le registre porte aussi les
+> essais échoués à 0,00 $. Le total qui fait foi est celui de `jobs.csv`.
+
+| lot | ce qu'il rend | coût *(mesuré)* | journal |
+|---|---|---|---|
+| **F2 / P3** | **QTIP dans notre banc** : 2,246 ms [2,245–2,248], 0,91 Go, 2,0000 b/poids, 405 Go/s, **4,89× FP16** contre `Planes14` 5,103 ms / 2,18 Go / 4,804 b/poids / 2,15× → **r = 2,27× [2,27–2,28]**. **`t(QTIP) < t(nullk)`** : le plafond de 4,77× est **FAUX** | 0,89 $ | [`f2-p3-qtip-banc`](mesures/f2-p3-qtip-banc-2026-08-21.txt) |
+| **F5** | **σ de calibration = 5,2 %** au 4B (étendue 10,3 %), trois runs **complets**, les trois paires appariées **résolues** | 21,45 $ | [`f5-graines-4b`](mesures/f5-graines-4b-2026-08-19.txt) |
+| **B2** | débits bout-en-bout **à plages**, trois tailles ; **14B à tête identique ×1,41 [1,40–1,41]**, la cellule que le dossier déclarait inexistante | 0,80 $ | [`b2-fusedrun-plages`](mesures/b2-fusedrun-plages-2026-08-18.txt) |
+| **B3** | le 8B **re-scellé depuis le bucket** rejoue **5,322 b/param** au millième — contre **12,6 $** provisionnés pour une requantification | 0,24 $ | [`b3-8b-reseal`](mesures/b3-8b-reseal-2026-08-18.txt) |
+| **F1** | le **dénominateur publiable** : `r = 1,024` (2 bras) et **1,015** (5 bras), ≤ 1,05 — notre témoin FP16 maison est **au niveau de cuBLAS sur L40S** | 0,08 $ | [`f1-cublasf16`](mesures/f1-cublasf16-2026-08-18.txt) |
+| **F3** | chronométrage par **events CUDA** : écart hôte−device **0,1–0,2 %** (4–8 µs/round) ; `ncu` refusé par la **plateforme** (`ERR_NVGPUCTRPERM`), driver 580.159.03 capturé | 0,86 $ | [`f3-events`](mesures/f3-events-2026-08-19.txt) |
+| **F4** | **seconde architecture** : sur **A100-SXM4-80GB, aucun bras à décodage ne bat FP16** — `Planes14` 0,79× · `Slot32` 0,73× · `Planes12x` 0,73× · `Golay70` v2 0,62× · v1 0,44× · AWQ 1,82× · cuBLAS 1,14× | ~1,00 $ *(estimé — premier `a100-large` du registre)* | [`f4-a100`](mesures/f4-a100-2026-08-18.txt) |
+| **G1/G2** | **les horloges tranchent l'A100** : L40S **2 520 MHz**, A100 **1 410 MHz**, toutes deux **épinglées au boost max**, aucun bridage → 2 520/1 410 = **1,787** ∈ [1,60 ; 1,95] tamponné | 0,21 $ *(0,08 + 0,13)* | [`g-horloges-planes12x`](mesures/g-horloges-planes12x-2026-08-23.txt) |
+| **G3** | **`Planes12x` SERVI bout-en-bout au 4B** : **85,0 tok/s [84,7–85,1] dans 2,36 Go**, ×1,96 sur le dense, ÷3,41 de mémoire carte, tokens gloutons identiques | 0,79 $ | *idem* |
+| **D1** | **la fusion sur le chemin servi** : 252 → **144 matvec/token**, **×1,061 [1,050–1,069]** à `ROT_SHARE` constant | 0,24 $ | [`d1-fusion-servie`](mesures/d1-fusion-servie-2026-08-24.txt) |
+
+**Cinq choses que ça change pour ce plan, dans l'ordre de ce qu'elles coûtent
+à ignorer.**
+
+1. 🚨 **Le plafond de format n'existe pas** (F2). L'axe format reste fermé —
+   la fermeture ne tient pas à un plafond mais au partage du temps et à
+   l'induction sur trois décodeurs bornés en calcul — mais **l'argument
+   change**, et `nullk` doit se dire « plancher de notre géométrie de
+   lancement », jamais « sol machine ». Détail et mécanisme du **dépliage** en
+   tête de fichier.
+2. 🚨 **Le σ de calibration vaut 5,2 %, pas 0,7 %** (F5). Tout gate de la
+   Phase 2 qui **recalibre** se lit contre cette barre. Détail au § 2.1.
+3. ❌ **Le claim de vitesse a un domaine de validité MESURÉ** (F4 + G).
+   « À vitesse de matvec » est un résultat **L40S/Ada** : sur A100 tous les
+   bras à décodage **ralentissent en absolu** et leurs Go/s effectifs
+   **chutent** (`Planes14` 425 → 250, `Slot32` 428 → 266). Le plancher `nullk`
+   y passe de 4,79× à 1,68×, et G établit que le ×1,78 inter-cartes **est le
+   rapport d'horloges** (1,787), sur deux cartes épinglées sans bridage.
+   ⚠️ **Les × inter-cartes ne se divisent pas** — règle du prereg F4 §3.
+   ⚠️ Et ce que G prouve est une **horloge**, pas une occupation : les
+   compteurs restent refusés par la plateforme.
+4. ✅ **Le poste de géométrie est attaquable, et D1 l'a entamé** : la fusion
+   `q/k/v` et `gate/up` par lignes rend **×1,061** sur le chemin servi, six
+   critères pré-enregistrés verts — 128 tokens identiques entre bras fusés,
+   divergence au dense **au même token 89**, **+3 686 400 octets exactement**
+   (+0,008117 b/poids), même sha256 NVRTC des deux côtés. Décomposition
+   mesurée : **87,0** (servi publié) → **94,9** (hissage de la rotation seul)
+   → **100,6 tok/s [99,9–100,7]** (plus la fusion). Conséquence de
+   priorisation au § « famille `k` ».
+5. ✅ **Deux dettes de comparabilité sont soldées pour 1,04 $** : le
+   dénominateur FP16 est **mesuré au niveau de cuBLAS** (F1, donc tous les
+   « vs FP16 » publiés tiennent), et l'écart hôte−device est **0,1–0,2 %**
+   (F3, donc la soumission hôte est **entièrement recouverte** — ce qui
+   **affaiblit** l'hypothèse « le poste latence, c'est l'hôte » **sans la
+   réfuter**).
+
+---
+
 ## Phase 1 — Papier v2 et solde des dettes de cohérence
+
+> ✅ **SOLDÉE le 2026-08-24 — LE PAPIER EST SOUMIS : ACM TACO,
+> `TACO-2026-428`, au commit `e21a8bb`.** Les cases restées `[ ]` ci-dessous
+> ne sont pas des travaux en cours : elles ont été traitées dans le manuscrit
+> soumis ou requalifiées par une mesure postérieure. **Deux entrées que le
+> plan n'avait pas prévues y figurent** : le bras **QTIP** est au corps
+> (`tab:layouts`, `sec:qtip`, lot F2) — il fait du papier le seul document du
+> dossier à comparer notre noyau à un 2 bits déployé **dans le même
+> processus** — et la réserve d'`evaluation.tex` sur le **tirage de
+> calibration** a reçu son chiffre (**σ = 5,2 %**, lot F5) ; le journal F5
+> demande explicitement qu'elle reste **au corps**, pas en annexe.
+>
+> ⚠️ **Ce que la soumission ne solde pas, et qui est suivi dans
+> [`BACKLOG.md`](BACKLOG.md)** : les surfaces publiées hors papier
+> (`docs/hf-model-card.md`, README), les **16 ancrages `.ots` jamais
+> upgradés** (§ 1.5), et la conséquence de la décision du 2026-08-25 — **le
+> dépôt reste public**, donc toute phrase de plan supposant un dépôt privé
+> pendant la revue est **périmée**.
+>
+> 🕳️ **Un titre de cette section est faux et reste en place** : le § 1.1
+> s'intitule « le bloquant » ; il ne l'est plus, il est **livré**. Conservé
+> tel quel parce que les verdicts de métrique qu'il porte — genou MMLU contre
+> genou perplexité — sont la **raison d'être** des formulations du manuscrit
+> soumis, et qu'une session qui les relit sans eux réécrirait le mauvais
+> récit.
 
 **Objectif** : que plus aucune surface publiée (papier, README, `CLAUDE.md`,
 `proofs/`) ne porte une affirmation que le dépôt lui-même a démentie.
 **Coût : 0 $ (option +~3 $). Durée : 2-3 jours. Aucun risque.**
+⚠️ **Ce devis est celui du 2026-08-12 et il a été dépassé par ce que la phase
+a réellement demandé** : les lots F et G qui l'ont accompagnée ont coûté
+**28,56 $ sur 27 jobs** depuis le 08-18 (*mesuré*). Ce n'est pas un
+dépassement de la Phase 1 telle qu'elle était écrite — c'est que la
+cohérence a exigé des **mesures**, pas seulement des relectures.
 
 ### 1.1 Intégrer le point 14B au papier (le bloquant)
 
@@ -265,6 +423,18 @@ le papier ne doit pas laisser croire le contraire.
       possibles sont écrits dans le README, **aucun n'est retenu**. Le plus
       proche de ce qui a marché ici serait un garde de build sur les empreintes
       (la forme du garde de `bin/rankbench`, le seul mécanisme qui ait tenu).
+- [ ] 🚨 **2026-08-25 — AUCUN des 16 ancrages `.ots` n'a jamais été upgradé**,
+      et c'est la dette qui touche le plus directement la revendication de
+      vérifiabilité. Compté ce jour : **16 fichiers `.ots` pour 22 documents**
+      dans `proofs/`, **tous** porteurs de **4 `PendingAttestation` et 0
+      `BitcoinBlockHeaderAttestation`**. Un tampon en attente atteste une
+      **promesse de calendrier**, pas une chaîne : tant que l'upgrade n'a pas
+      tourné, « vérifiable sans nous faire confiance » revient à faire
+      confiance aux calendriers. L'upgrade coûte **0 $ et une commande** —
+      soit on le passe, soit la dette se déclare **à l'endroit où la
+      vérifiabilité est revendiquée**, pas seulement ici.
+      ⚠️ Sans effet sur l'**antériorité** des seuils : ce qui est en cause est
+      la force de la preuve, pas la date qu'elle promet.
 - [ ] ⏳ **Quatre preregs sans aucun tampon** : `2026-08-13`, `p2`, `p3`, `p4`.
       Pour `p2` et `p4`, la mesure n'a pas eu lieu — `ots stamp` reste possible
       et **doit précéder** le premier noyau `k` (exigence du prereg P4 lui-même).
@@ -356,6 +526,15 @@ le papier ne doit pas laisser croire le contraire.
 grep-liste des phrases condamnées = 0 occurrence hors `archive/` ; tag
 **`paper-v2`**. Livrable : papier corrigé + dépôt cohérent.
 
+✅ **Franchi le 2026-08-24 par la soumission** (`TACO-2026-428`, commit
+`e21a8bb`). ⚠️ **La moitié « dépôt cohérent » du livrable, elle, n'est pas
+close par la soumission** : le papier a été corrigé du plafond de 4,77×
+(F2), les documents internes ne l'étaient pas — ce fichier reçoit la
+correction aujourd'hui, les autres surfaces sont suivies dans
+[`BACKLOG.md`](BACKLOG.md). 🕳️ **C'est exactement le motif que la Phase 1
+existe pour empêcher** : une affirmation retirée d'une surface et laissée sur
+les autres, ici pendant quatre jours.
+
 ---
 
 ## Phase 2 — Qualité : attaquer le mécanisme du déficit MMLU
@@ -366,17 +545,88 @@ calibration ne borne que la perplexité, donc la piste volume est morte mais
 pas celles-ci). **Coût : ≤ 10 $ GPU + jours d'ingénierie. C'est le seul axe
 dont une découverte change le verdict produit.**
 
+🚨 **2026-08-19 — F5 TRAVERSE CETTE PHASE DE PART EN PART : σ de calibration
+= 5,2 %, pas 0,7 %.** *(Il touche aussi le papier, dont il chiffre la réserve
+la plus forte — mais c'est ici qu'il change un **gate**.)* Tout ce qui suit
+**recalibre** par construction, donc tout gate de cette phase se lit contre
+cette barre. Le détail et ce qu'il ne touche pas sont au § 2.1 ; la
+conséquence de budget est immédiate et il faut la lire avant de deviser :
+⚠️ **le « ≤ 10 $ » tient encore, mais seulement si les requantifications
+restent LOCALES** (2,4 h sur M3 Max, 0 $, puis MMLU carte à 1-2 $ le bras).
+Dès qu'un bras se requantifie sur carte, le repère mesuré est **~7,1 $ le run
+4B complet** (F5 : trois runs, 21,45 $), et **répliquer un bras pour le
+séparer du tirage multiplie d'autant**. **Le go de dépense se redemande sur
+le protocole retenu, pas sur ce chiffre.**
+
 ### 2.1 Composition du corpus de calibration (quasi gratuit, en premier)
 
 Hypothèse : calibrer sur un corpus pondéré raisonnement (maths, code,
 chaînes de déduction) déplace ce que GPTQ préserve, là où C4 sur-représente
 la restitution.
 
+🚨 **LE GATE DE CETTE CASE SE LIT DÉSORMAIS CONTRE UN σ DE 5,2 %, ET C'EST LE
+CHANGEMENT LE PLUS LOURD DE LA PHASE.** Le lot F5 a payé **trois runs
+complets** du 4B — `LLVQ_CALIB_SEED ∈ {1,2,3}`, même corpus lu dans la même
+heure, même codebook, même rotation, même protocole, empreinte de tokens
+`3f1baca9033bf251` **partout**, donc appariables fenêtre par fenêtre :
+**ppl scellé f16 = 16,7425 / 15,8836 / 15,1027** *(mesuré, bras **scellé**)*,
+**étendue 1,6398 ppl = 10,3 %** de la médiane, **σ (n = 3) = 0,8202 ppl =
+5,2 %**, et **les trois paires appariées sont RÉSOLUES** (t = +4,54 / +10,92
+/ +7,68). Contrôle : les trois rendent **2,0702 b/poids effectifs et 1,771 Go
+scellés**, identiques au fichier publié — **seule la qualité bouge, pas le
+débit**
+([`mesures/f5-graines-4b-2026-08-19.txt`](mesures/f5-graines-4b-2026-08-19.txt),
+21,45 $ *mesuré*).
+
+🕳️ **Le σ de 0,7 % hérité du lot B est donc faux d'un facteur ~7 à la taille
+publiée, et le seuil « tout effet sous ~1,5 % est du bruit » avec lui** : il
+était estimé sur **3 blocs de Qwen3-0.6B**, et le dossier l'a transporté à
+l'objet publié pendant deux semaines. La réserve du § 2 de `CLAUDE.md` — « ce
+σ n'est pas la barre d'erreur de l'objet publié » — était **juste et
+insuffisante** : elle disait qu'on ne savait pas, sans dire de combien on
+pouvait se tromper.
+
+⚠️ **Ce que F5 ne touche PAS, et qu'il faut écrire avec.** (i) Les A/B à
+**fichier constant** — KV q8, layouts runtime, embedding q8, tous les
+verdicts de format — **ne recalibrent pas** : leur barre reste l'intervalle
+apparié à **±0,12 %**, et cette variance ne les atteint pas. (ii) Les trois
+artefacts **4B/8B/14B ont tous tourné sans graine**, donc sur le **même
+préfixe contigu** : la courbe d'échelle compare des objets calibrés
+identiquement et **ne porte pas cette variance**. (iii) Deux verdicts du lot
+B — l'**oracle** (−1,6 %) et la **courbe de volume** (−1,2 % pour ×13 de
+tokens) — tombent désormais **sous le plancher de bruit**, **sans que leur
+conclusion soit renversée** : « le volume de calibration est plafonné » était
+fondé sur des effets trop petits pour être distingués, ce qui est maintenant
+**mesurable** et le reste. Le design C (×1,99) et le swap L ≤ 4 (+4,75 %)
+restent **hors de portée** du bruit.
+
+🔎 **Et une lecture mécaniste, étiquetée hypothèse** (celle du journal) : nous
+calibrons sur ~131 k tokens contre ~100× plus au papier amont. Un jeu de
+calibration petit ne déplace pas seulement la moyenne — l'oracle a montré que
+non — il porte de la **variance**. C'est ce que la composition du corpus
+prétend justement déplacer, donc l'hypothèse de 2.1 et celle de F5 visent le
+même mécanisme par deux bouts.
+
 - [ ] Construire 3 bras de calibration à 131 k tokens, même graine : C4 pur
       (contrôle = l'existant), C4+raisonnement 50/50, raisonnement pur.
 - [ ] **Écrire le critère avant** : +2 pp de MMLU micro 4B vs contrôle, en
       apparié (`mmlupair`), hors σ McNemar. En dessous : piste close, comme
       l'oracle.
+      🚨 **Amendement du 2026-08-19 — un contrôle UNIQUE ne suffit plus.**
+      Trois bras de composition sont trois **recalibrations**, donc trois
+      tirages d'une distribution dont l'étendue vaut **10,3 %** en
+      perplexité ; un « +2 pp » lu contre un contrôle unique **confondrait
+      l'effet de composition avec l'effet de tirage**. Deux formes tiennent :
+      **n graines par bras** (coût ×n, à budgéter au repère de ~7,1 $ le run
+      4B carte, ou 2,4 h de Mac par bras si tout reste local), ou un critère
+      qui **exige de dépasser l'étendue inter-graines**. À défaut, le verdict
+      honnête est **« non séparable »**, pas « piste close » — la nuance que
+      F5 vient d'imposer rétroactivement aux deux verdicts du lot B.
+      ⚠️ **Et la barre de cette case est en MMLU apparié, pas en perplexité** :
+      F5 mesure la variance de tirage **sur la perplexité** et ne la transporte
+      pas telle quelle sur les capacités. C'est un **ordre de grandeur** à
+      respecter, pas un nombre à reporter — le mesurer sur MMLU demanderait
+      de scorer les trois artefacts de F5, qui sont au bucket.
 - [ ] Gate à profondeur 0.6B (28 blocs, gate ppl automatique — le corpus ne
       touche pas les magnitudes mais la règle s'applique quand même).
 - [ ] Requantifier le 4B en local par bras (2,4 h M3 Max chacun, 0 $),
@@ -396,6 +646,13 @@ tenté ici. Coût en jours d'ingénierie, pas en dollars.
       la comparaison AWQ est à refaire.
 - [ ] **Critère avant** : refermer ≥ 4 pp du déficit 4B (la moitié basse du
       publié), apparié, dans le budget d'octets déclaré.
+      ✅ **Ce critère-ci échappe au σ de F5, et c'est ce qui le rend le plus
+      lisible des deux leviers** : l'adaptateur se pose **sur l'artefact
+      existant**, sans requantifier — l'A/B « avec / sans » est donc à
+      **fichier de quantification constant**, du côté des A/B dont la barre
+      appariée vaut ±0,12 %. ⚠️ Cela ne vaut que tant qu'aucune graine ne
+      bouge : ajuster l'adaptateur **et** recalibrer serait deux variables à
+      la fois, et le second effet est sept fois le premier.
 - [ ] Gate à profondeur 0.6B, puis 4B. C'est un mécanisme post-hoc : il ne
       touche pas la boucle GPTQ, donc pas le motif design C — mais le gate
       reste obligatoire.
@@ -451,7 +708,13 @@ perplexité seule comme preuve de qualité » (`CLAUDE.md` §3ter).
 
 ### Préconditions (go/no-go — dans l'ordre)
 
-1. Phase 1 livrée (on ne repaie pas une campagne pour un papier incohérent).
+1. ✅ **SATISFAITE le 2026-08-24** — Phase 1 livrée, papier soumis
+   (`TACO-2026-428`, commit `e21a8bb`). ⚠️ **Mais la condition change de
+   nature plutôt que de disparaître** : la soumission ouvre une **fenêtre de
+   revue**, donc un run de qualité qui déplacerait un chiffre du manuscrit se
+   gère comme une **correction en revue**, pas comme une v2 libre. Ce qui
+   était « on ne repaie pas une campagne pour un papier incohérent » devient
+   « on ne rend pas incohérent un papier déjà soumis ».
 2. Phase 2 **tranchée** : si un levier rend, le 32B se mesure **avec** le
    levier (sinon on paie deux fois) ; si rien ne rend, décision explicite de
    payer pour la courbe seule.
@@ -467,6 +730,39 @@ perplexité seule comme preuve de qualité » (`CLAUDE.md` §3ter).
       LLVQ, mêmes empreintes des deux côtés.
 - [ ] Vitesse/VRAM : `fusedrun` `Planes14`+q8, et **`Planes12x`** — c'est
       l'échelle pour laquelle il a été câblé (part de queue ~5 %).
+      ✅ **2026-08-23 — `Planes12x` n'est plus « câblé, pas servi » : il est
+      MESURÉ SERVI au 4B** (G3, 0,79 $) — **85,0 tok/s [84,7–85,1] dans
+      2,36 Go** (projections 1,94 + portés 0,41), **×1,96 [1,95–1,96]** sur le
+      dense, **÷3,41** de mémoire carte, tokens gloutons identiques et
+      divergence au **token 89/128**, le tie-break historique de `Planes14`
+      ([`mesures/g-horloges-planes12x-2026-08-23.txt`](mesures/g-horloges-planes12x-2026-08-23.txt)).
+      **C'est le point servi le plus compact mesuré**, et le bras 32B hérite
+      donc d'un **chemin établi** au lieu d'un layout à valider en même temps
+      que la taille.
+- [ ] ⚠️ **Protocole de débit : la forme B2, pas le point unique.** 1
+      génération jetée + **5 chronométrées**, médiane et **plage**, quotient
+      des médianes **étiqueté** (les rounds des deux bras ne coexistent
+      jamais, donc aucun rapport round par round n'existe sur ce banc-là).
+      Le point unique du 08-17 n'est plus une forme publiable
+      ([`mesures/b2-fusedrun-plages-2026-08-18.txt`](mesures/b2-fusedrun-plages-2026-08-18.txt)).
+      Et **les deux bascules livrées depuis se posent explicitement** —
+      `LLVQ_ROT_SHARE` / `LLVQ_FUSE_AB` / `LLVQ_FUSE` (D1, ×1,061 sur le
+      servi) : les mesurer **au même réglage qu'au 4B**, sinon la ligne 32B ne
+      se compare à rien.
+- [ ] ⚠️ **Et la ligne à publier est celle À TÊTE IDENTIQUE.** B2 l'a établie
+      aux trois tailles : **×1,11 → ×1,29 → ×1,41 [1,40–1,41]**, série
+      **strictement croissante**, là où la série brute (×2,00 · ×2,57 ·
+      ×2,55) **n'a aucun ordre** parce qu'elle est dominée par le handicap
+      variable de *notre* bras dense. Un 32B qui ne mesure que le brut
+      ajouterait un point à la mauvaise courbe.
+- [ ] ⚠️ **Nommer la CARTE dans le verdict de vitesse, et la nommer d'avance.**
+      F4 a mesuré une seconde architecture : sur **A100-SXM4-80GB, aucun bras
+      à décodage ne bat FP16** (`Planes14` **0,79×**), et le lot G établit que
+      le ×1,78 inter-cartes **est le rapport d'horloges** (2 520 contre
+      1 410 MHz, les deux **épinglées au boost max**, aucun bridage). Un
+      « ×N » de 32B publié sans sa carte referait exactement la faute qu'F4 a
+      obligé à corriger. ⚠️ Et **les × inter-cartes ne se divisent pas** :
+      deux cartes donnent deux verdicts, pas un rapport.
 - [ ] **Critères pré-enregistrés et ancrés avant lancement.** Proposition à
       affiner en phase 1 : (i) chute MMLU appariée ≤ 6 pp **et** écart AWQ
       ≤ 4 pp → la thèse d'échelle tient, v2 du papier en « courbe à 4 points » ;
@@ -579,8 +875,16 @@ d'ALU. Le pronostic ne se transporte pas.
 > (§B de la note produit) ; `e1c12` aligné pèse **4,288**, soit **+42,8 %**.
 > Même admis au banc, il ne rapproche du barreau ni lui ni personne — son gain
 > se lit **−10,7 % de bits contre `Planes14`**, pas un changement de classe.
-> Et le plancher borne son gain de vitesse : tout format plafonne à 4,77×,
-> `Planes14` en capture déjà 2,16×, son décodage ne coûte que ~7 % du trafic.
+> Et le partage du temps borne son gain de vitesse : le format ne se dispute
+> qu'une part de la passe, `Planes14` en capture déjà l'essentiel, et son
+> décodage ne coûte que **~7 %** du temps de trafic.
+> 🕳️ **Cette phrase disait « tout format plafonne à 4,77×, `Planes14` en
+> capture déjà 2,16× » — retiré le 2026-08-21.** Le plafond n'existe pas :
+> QTIP rend 2,246 ms là où `nullk` en rend 2,306, donc un noyau réel passe
+> **sous** le prétendu sol (F2). **Ce qui ne change pas ici, c'est le verdict
+> sur `e1c12`** : son argument n'a jamais été un plafond mais le peu qu'il
+> reste à gagner sur le poste que le format touche — et ce peu-là est mesuré,
+> pas déduit.
 >
 > **Conséquence de priorisation, pas de verdict** : la ligne `e1c12` reste
 > ouverte et légitime, mais elle passe **derrière** Phase 1, Phase 2 et la
@@ -595,6 +899,12 @@ d'ALU. Le pronostic ne se transporte pas.
 
 ## 🆕 MESURÉ le 2026-08-16 — le plancher, et ce qu'il plafonne
 
+> 🚨 **CE TITRE EST FAUX DEPUIS LE 2026-08-21 : le plancher ne plafonne RIEN.**
+> Conservé pour que la correction se lise à l'endroit où l'erreur a été
+> commise. Ce que `nullk` mesure reste exact et utile — c'est son **statut**
+> qui a changé : **plancher de NOTRE géométrie de lancement**, pas sol
+> machine. Voir l'encadré sous la table.
+
 `nullk` — même grille, même tuilage, même staging, même épilogue, **aucun poids
 lu** — rend **2,305 ms** contre 5,102 pour `Planes14` :
 [`mesures/nullk-plancher-2026-08-16.txt`](mesures/nullk-plancher-2026-08-16.txt),
@@ -605,16 +915,44 @@ obtenu par soustraction.
 
 | | |
 |---|---|
-| plafond absolu de tout travail de **format** | **4,77×** FP16 (= FP16 / plancher) |
+| ~~plafond absolu de tout travail de **format**~~ | 🕳️ **RETIRÉ le 2026-08-21** — la ligne disait **4,77× FP16 (= FP16 / plancher)** ; elle supposait que rien ne pouvait passer sous `nullk`. Un noyau réel y passe |
 | où `Planes14` en est | **2,16×** |
 | ce que le format achète, **net** du plancher | **3,11×** (8,691 ms de trafic contre 2,797) |
 | coût du décodage de `Planes14` | **~7 %** du temps de trafic (779 Go/s net contre 836 pour du FP16 pur) |
 
+> 🚨 **CE QUI A TUÉ LE PLAFOND, et il vaut la peine d'être lu en entier.** Le
+> lot F2 a porté **QTIP** dans ce même banc — un seul processus, 7 rounds dont
+> 2 jetés, bras entrelacés. **QTIP finit les mêmes 252 projections en 2,246 ms
+> [2,245–2,248] en lisant 0,91 Go ; `nullk` en met 2,306 en n'en lisant
+> aucun** (séparation 2,7 %, résolution 0,72 %). `f = 61,1 %` contre un
+> plafond **pré-enregistré** de 59,6 % — **erratum consigné au journal**, le
+> `.ots` interdisant l'édition du prereg tamponné
+> ([`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt)).
+>
+> ⇒ **`nullk` borne notre géométrie de lancement — un warp par ligne de
+> sortie, 252 lancements — et rien d'autre.** Un noyau autrement formé passe
+> dessous. Le mécanisme de l'écart, lui, est nommé et il n'est pas un défaut
+> d'implémentation : un état de treillis 16 bits tient dans une table de
+> correspondance de 2 KiB, **un codebook de 1,1·10¹⁴ points n'y tient pas**,
+> donc notre index de réseau est **déplié** en flux de plans de bits à
+> **4,80 b/poids** et le noyau paie ces octets à la vitesse mémoire — 2,40×
+> d'octets pour 2,27× de temps, à fractions de borne quasi égales
+> (`paper/sections/layouts.tex`).
+>
+> ✅ **Ce que la table garde**, et qui n'a jamais dépendu du plafond : les
+> **45,2 %**, les **~7 %** de coût de décodage, et le partage du temps entre
+> format et reste. C'est là-dessus, et non sur un sol, que repose la fermeture
+> de l'axe format.
+
 🚨 **Ce que ça dit de quatre tentatives** : le format n'a que 55 % du temps à
 disputer, `Planes14` en capture déjà l'essentiel, et 45 % ne sont touchés par
-**aucun** format. Le plancher est le poste le plus gros et le seul jamais
-attaqué — c'est exactement ce que la famille **k** de P4 §2.6 existe pour
-amortir, et elle n'est pas écrite.
+**aucun** format. Ce poste **était** le plus gros et le seul jamais attaqué —
+c'est exactement ce que la famille **k** de P4 §2.6 existe pour amortir, et
+elle n'est toujours pas écrite.
+⚠️ **Mais depuis le 08-21 on sait ce qu'on y amortit** : le
+coût de **notre** géométrie, pas une fatalité de la machine — donc un poste
+**attaquable**, et **D1 en a repris une part le 08-24** (252 → 144 lancements,
+×1,061) sans écrire un seul noyau `k`.
 
 ⚠️ Ce n'est **pas** les « 39 % » de l'attribution du 05-08 : celle-ci découpe
 2,04 ms par **token**, normes et attention comprises. Deux dénominateurs.
@@ -628,6 +966,40 @@ d'une passe n'est touché par **aucun** format. La famille `k` — le même noya
 servant `k` colonnes par lancement — est le seul levier écrit qui l'amortisse :
 le plancher se paie **une fois pour `k` colonnes** au lieu d'une fois par
 colonne. **Coût : code sur Mac (0 $), puis un job mutualisé 0,8-1,0 $.**
+
+> 🚨 **REQUALIFIÉE le 2026-08-25, et la requalification change ce qu'on a le
+> droit de promettre.** Ce titre et ce paragraphe supposaient que les 45,2 %
+> étaient un **sol machine** ; F2 a montré que non — un noyau réel (QTIP,
+> 2,246 ms) passe **sous** `nullk` (2,306 ms). **Ce que la famille `k`
+> amortit, c'est le coût de NOTRE GÉOMÉTRIE DE LANCEMENT** : un warp par ligne
+> de sortie, 252 lancements par token.
+> 🕳️ **Et le titre est faux d'un mot depuis le 2026-08-24** : ce poste n'est
+> plus « le seul **jamais** attaqué » — D1 l'a entamé, sans `k` et pour
+> 0,24 $. Conservé pour que la correction se lise là où la promesse a été
+> écrite.
+>
+> ✅ **Deux conséquences, et la seconde est une bonne nouvelle.** (i) Le
+> discours change : on n'« amortit » plus une fatalité, on **corrige une forme
+> qu'on a choisie** — ce qui rend le poste attaquable par d'autres voies que
+> `k`. (ii) **D1 en a déjà repris une part, le 2026-08-24, sans écrire un seul
+> noyau `k`** : concaténer `q/k/v` et `gate/up` **par lignes** fait passer le
+> chemin servi de **252 à 144 matvec par token** et rend **×1,061
+> [1,050–1,069]** à `ROT_SHARE` constant — six critères pré-enregistrés verts,
+> 128 tokens identiques entre bras fusés, divergence au dense **au même token
+> 89**, **+3 686 400 octets exactement** (+0,008117 b/poids), **même sha256
+> NVRTC** des deux côtés. Décomposition mesurée : **87,0** (servi publié) →
+> **94,9** (hissage de la rotation seul) → **100,6 tok/s [99,9–100,7]** (plus
+> la fusion)
+> ([`mesures/d1-fusion-servie-2026-08-24.txt`](mesures/d1-fusion-servie-2026-08-24.txt),
+> 0,24 $).
+>
+> ⚠️ **Ce que D1 ne fait PAS, et qui laisse `k` entière** : il **réduit le
+> nombre** de lancements à `k = 1`, il n'amortit pas le plancher **sur
+> plusieurs colonnes**. Les deux leviers se composent en principe et **n'ont
+> jamais été mesurés ensemble** ; un banc `k` qui ignorerait la fusion
+> mesurerait un chemin qui n'est plus celui qu'on sert. ⚠️ Et le point de
+> départ d'un futur verdict `k` **a bougé** : le servi de référence n'est plus
+> 87,0 mais **100,6 tok/s** dès que `ROT_SHARE` et la fusion sont posés.
 
 ⚠️ **Le garde qui décide de la valeur produit, à poser avant d'écrire.** La
 famille `k` n'amortit qu'à **`k` > 1**, donc en **prefill / lot** — c'est le
@@ -652,11 +1024,30 @@ gain produit.
       `nullk` publie la table de fusion avec ses verdicts chiffrés. Si ce job
       n'était pas P4, le plancher non plus n'a pas été produit sous protocole
       P4 — les deux lectures ne tiennent pas ensemble.
-- [ ] **Chronométrage par forme via events CUDA**, en rounds séparés (§2.10) :
-      **sans lui, K1 et K2 ne sont ni verts ni rouges**.
-- [ ] **`cublasf16`** — le dénominateur publiable. `tv_f16` est maison et ne
-      peut pas l'être : **sans `cublasf16`, aucun chiffre de P4 n'entre au
-      papier**. Imprimer la version de cuBLAS (§2.15).
+- [x] ✅ **2026-08-19 — `LLVQ_TIME_EVENTS` est livré et a tourné** (F3,
+      0,86 $) : chronométrage par events CUDA, en rounds séparés. **K1 et K2
+      ont désormais leur instrument.** Ce qu'il a rendu au passage est un
+      résultat en soi : l'écart **hôte − device vaut 0,1–0,2 %** (4–8 µs par
+      round), **deux ordres de grandeur sous l'attente** — la soumission hôte
+      est **entièrement recouverte**, ce qui **affaiblit** l'hypothèse « le
+      poste latence, c'est l'hôte » **sans la réfuter**
+      ([`mesures/f3-events-2026-08-19.txt`](mesures/f3-events-2026-08-19.txt)).
+      ❌ **Et ce que la plateforme refuse** : `ncu` s'installe et s'attache,
+      mais les compteurs sont interdits (`ERR_NVGPUCTRPERM`). C'est déclaré
+      comme **fait de plateforme** et F3 est clos **sans retentative** — donc
+      un profil d'occupation ne fait pas partie des instruments disponibles,
+      et aucun verdict de `k` ne doit en dépendre. Driver **580.159.03**
+      capturé (la dette du 08-05 sur le champ `driver_version` est soldée).
+- [x] ✅ **2026-08-18 — `cublasf16` a tourné, et le dénominateur tient** (F1,
+      0,08 $) : `r = médiane(t_tv_f16 / t_cublasf16)` formé **round par
+      round** (les deux bras coexistent, le rapport par round est licite ici)
+      vaut **1,024** en phase 2 bras et **1,015** en phase 5 bras, **≤ 1,05**
+      — bande 1 du prereg. **Notre témoin FP16 maison est au niveau de cuBLAS
+      sur L40S**, donc **tous les « vs FP16 » publiés tiennent** et P4 a le
+      dénominateur que le papier attendait
+      ([`mesures/f1-cublasf16-2026-08-18.txt`](mesures/f1-cublasf16-2026-08-18.txt)).
+      ⚠️ **C'est un verdict L40S** : sur A100, F4 mesure le témoin maison à
+      **1,14× de cuBLAS** — autre carte, autre bande, et ça ne contredit rien.
 - [ ] **`mvkf16`** (contrôle §4.3) et extension nominative du gate zéro-spill
       aux six sites par bras (§2.12) — un site oublié panique après ~25 min
       déjà payées.
@@ -696,6 +1087,15 @@ gain produit.
       fait, aucun chiffre de plancher ne se cite au niveau produit — et le
       bout-en-bout reste par ailleurs plafonné ~1,28× par l'overhead de
       lancement.
+      ⚠️ **Deux amendements du 08-24/25, et ils vont en sens contraire.**
+      (i) Le mot « plancher » ne se cite plus **du tout** sans dire qu'il est
+      celui de **notre géométrie** (F2). (ii) Le « ~1,28× d'overhead de
+      lancement » est un plafond **hérité et jamais remesuré depuis** que le
+      nombre de lancements a changé : **D1 en a supprimé 108 sur 252** et rend
+      ×1,061 sur le servi. Le plafond n'est donc pas réfuté, il est
+      **périmé dans son dénominateur** — le remesurer fait partie de cette
+      case, et il est moins cher qu'avant : l'instrument (`LLVQ_TIME_EVENTS`)
+      existe depuis F3.
 
 ## Ouvert par P1 (2026-08-15) — le bras CUDA de P4, et P5
 

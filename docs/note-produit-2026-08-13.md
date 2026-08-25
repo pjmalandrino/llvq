@@ -26,6 +26,17 @@
 > pré-enregistrements de `proofs/` citent, et ce qui donne un statut au `S_alt`
 > du pré-enregistrement du 2026-08-13 — lequel vaut **3,09** parce qu'il est
 > calculé à **marge 2 Go**, donc pas au triplet retenu.
+>
+> 🆕 **2026-08-25 — révisée, et l'arbitrage NE BOUGE PAS.** Trois choses ont
+> changé sous cette page sans en déplacer une case : le **plafond de 4,77× FP16
+> est mesuré faux** (lot F2, QTIP porté dans notre propre banc — §B et §E) ; le
+> **chemin servi au 32B est muré par une arithmétique de mémoire partagée**
+> (§B bis) ; et le **σ de calibration vaut 5,2 %, pas 0,7 %**, à la taille
+> publiée (lot F5 — §D). `b_max` = **3,00 b/poids noyau** reste le barreau,
+> aucun layout du portefeuille ne le passe, et les six cases du §A sont
+> inchangées — **A3 compris**, la variance de F5 ne touchant aucun A/B à
+> fichier constant. Ce qui change est la **compréhension** de l'obstacle,
+> jamais son emplacement.
 
 **Pourquoi cette note existe.** Le critère qui a enterré E3 (≤ 2,60 b/poids
 noyau) n'est pas une constante physique : il se dérive de
@@ -216,13 +227,75 @@ y survit largement, une décision à quelques pour cent n'y survivrait pas.
 (ii) `b_max` suppose le modèle **entièrement en VRAM** : A6 ayant écarté
 l'offload comme solution servie, c'est bien l'hypothèse retenue.
 
+🆕 **Le barreau EST franchi — par un concurrent, pas par le portefeuille
+(F2, 2026-08-21).** C'est un fait produit, et il manquait à cette page :
+
+| point | b/poids noyau | vs `b_max` 3,00 | provenance |
+|---|---|---|---|
+| **QTIP 2 bits** — ⚠️ **CONCURRENT, hors portefeuille** | **2,000** | **−33,3 %** | mesuré, même banc, même processus et mêmes formes que `Planes14` ([`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt)) |
+
+**Un code 2 bits concurrent passe donc le barreau que notre portefeuille ne
+passe pas**, et il le passe avec un décodeur qui tourne — c'est ce qui le
+sépare d'E1v, seul point de la table du §B sous `b_max` (−20,1 %) mais dont le
+décodeur est fermé à 0,25× FP16.
+
+⚠️ **Deux asymétries déclarées d'avance et non corrigées, à porter avec le
+chiffre.** (i) QTIP ne porte **ni queue f32 ni échelle de ligne f32** — ses
+cinq formes se divisent toutes par 16 [*calculé* sur les noyaux du journal],
+donc il n'a **pas de queue à payer** là où `Planes14` facture la sienne dans sa
+comptabilité noyau. Les 2,000 et les 4,804 sont bien dans la **même**
+comptabilité, mais pas sous les mêmes charges. (ii) Le payload du banc est
+pseudo-aléatoire — licite pour un code à débit fixe et un noyau sans branche
+dépendante des données, mais **aucune phrase de qualité** ne peut s'appuyer sur
+ce bras : il ne dit rien de ce qu'un client perdrait.
+
+🔎 **Et la raison pour laquelle NOUS ne descendons pas est nommée, structurelle,
+et ce n'est pas un défaut de format.** Un codebook de **1,1e14 points** ne tient
+dans aucune table de correspondance, là où un état de treillis de **16 bits** y
+tient. Notre index de réseau doit donc être **déplié** en flux de plans de bits,
+à 4,80 b/poids noyau : **le dépliage est imposé par la TAILLE du codebook**, pas
+par un choix d'encodage qu'un travail de format viendrait corriger
+(`paper/sections/layouts.tex`). Pour cette page, la conséquence est nette :
+l'obstacle au barreau n'est pas un layout mieux tassé qui resterait à écrire, il
+est dans la nature du code. **L'arbitrage produit est inchangé — `b_max` = 3,00,
+aucun layout du portefeuille ne le passe — c'est la compréhension de l'obstacle
+qui progresse, pas son emplacement.**
+
 > 🔎 **Ce que le barreau désigne comme suite, en creux.** Aucun travail de
-> *format* ne referme +60 %, et le plancher mesuré le 2026-08-16 borne de toute
-> façon le gain de vitesse d'un format à 4,77× (dont `Planes14` capture déjà
-> 2,16×). Les seules issues au segment 70B dense sont donc **hors format** :
-> une carte plus grande, un modèle plus petit, ou l'axe MoE — que A6 vient de
-> ranger en référence. **C'est une décision produit, pas un chantier
-> technique**, et elle n'appartient pas à cette page.
+> *format* ne referme +60 %. Les seules issues au segment 70B dense sont donc
+> **hors format** : une carte plus grande, un modèle plus petit, ou l'axe MoE —
+> que A6 vient de ranger en référence. **C'est une décision produit, pas un
+> chantier technique**, et elle n'appartient pas à cette page.
+>
+> 🕳️ **Ce paragraphe a porté « et le plancher mesuré le 2026-08-16 borne de
+> toute façon le gain de vitesse d'un format à 4,77× (dont `Planes14` capture
+> déjà 2,16×) » — MESURÉ FAUX le 2026-08-21, et le mécanisme compte plus que la
+> correction.** Le lot F2 a porté **QTIP** dans notre propre banc : un seul
+> processus, 7 rounds dont 2 jetés, bras entrelacés, rapports formés round par
+> round
+> ([`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt)).
+> QTIP 2 bits rend **2,246 ms [2,245–2,248], 0,91 Go lus, 2,0000 b/poids noyau,
+> 405 Go/s, 4,89× FP16 [4,89–4,90]** là où `Planes14` rend, *dans le même
+> processus*, **5,103 ms, 2,18 Go, 4,804 b/poids noyau, 2,15×** — tous
+> *mesurés*. **Un noyau réel passe donc au-dessus du prétendu plafond**, et il
+> le passe de la façon la plus nette possible : **t(QTIP) 2,246 ms < t(nullk)
+> 2,306 ms**, c'est-à-dire plus vite que notre propre passe qui ne lit **aucun
+> octet de poids** (séparation 2,7 % contre une résolution 2R = 0,72 %). En
+> rendement d'octets, **f = 61,1 %** contre un plafond **pré-enregistré** de
+> 59,6 % : dépassement de 1,5 point pour un δ de 0,2. Le tampon `.ots` interdit
+> d'éditer le pré-enregistrement, donc l'**erratum est consigné dans la
+> mesure**, pas dans la preuve.
+> ⇒ **La formulation juste n'est plus « plafond absolu de tout travail de
+> format » mais « plancher de NOTRE géométrie de lancement »** — un warp par
+> ligne de sortie, 252 lancements de cette géométrie. Le 4,77× décrit notre
+> grille, pas la machine ; les « 39 % latence/occupation » de l'attribution du
+> 08-05 sont dans le même cas. Le papier est corrigé (`main.tex:112`) ; cette
+> page l'est ici.
+> ✅ **Ce que l'erratum ne change PAS, et c'est ce qui compte pour une note
+> produit** : le barreau du §B est un barreau de **bits**, pas de vitesse.
+> Aucune ligne de la table ci-dessus ne bouge, `b_max` reste **3,00 b/poids
+> noyau**, et « aucun travail de format ne referme +60 % » tient tel quel. Un
+> plafond de vitesse démenti n'ouvre pas une porte mémoire.
 
 ### B bis. Ce que le barreau ADMET — la question à l'endroit
 
@@ -248,6 +321,37 @@ d'échelle ». C'est **la plus grande classe de modèle que le barreau arbitré
 admette** — donc le seul point de qualité qui porte sur l'objet réellement
 servi. Les 4B, 8B et 14B mesurés sont des points de courbe ; le 32B serait le
 produit.
+
+🚨 **Mais le chemin SERVI au 32B est muré — par une arithmétique, pas par un
+budget.** Le noyau de rotation met en mémoire partagée l'activation d'entrée de
+`down_proj`, une f32 par coordonnée, quel que soit le dtype d'entrée. À
+`intermediate_size` = 25 600, cela fait **102 400 octets demandés** contre
+**101 376 offerts à l'opt-in**, ce dernier *mesuré* sur la carte servante
+(L40S — l'attribut est **lu**, et non plus dérivé, depuis la campagne 14B :
+[`mesures/rot-partagee-14b-2026-08-17.txt`](mesures/rot-partagee-14b-2026-08-17.txt),
+[`mesures/fusedrun-14b-2026-08-17.txt`](mesures/fusedrun-14b-2026-08-17.txt)).
+**Il manque 1 024 octets — un kibioctet sur cent — et c'est la réserve du
+driver : aucun rognage côté hôte ne les récupère.** Le garde refuse le 32B
+plutôt que de corrompre en silence, et c'est le comportement voulu.
+
+> ⚠️ **Ce n'est PAS un mur de format**, et le confondre avec le §B serait la
+> faute que ce document police. La rotation est la même pour `Planes14`,
+> `Planes12x`, `Slot32`, `Golay70` et E1v — tous décodent des poids qui vivent
+> dans la base tournée et appellent le même `rot_apply` : aucun verdict de
+> format ne déplace ce mur, et aucun ne l'évite. Ce n'est pas non plus une part
+> du plancher du 2026-08-16, qui chronomètre 252 projections **rotation
+> exclue** ; les rapprocher demanderait de refaire l'attribution, pas de
+> reporter un nombre.
+> 🔎 **La seule piste nommée n'est pas chiffrée** : passer les activations
+> partagées en **demi-précision**. Son coût est numérique et non structurel —
+> à n = 25 600 la transformée est m = 1 024, et la profondeur d'accumulation
+> d'une Hadamard vaut ~**14,6 étages**, qui se feraient alors en demi-précision.
+> C'est un arbitrage numérique, il n'est **pas tranché**, et rien dans le dépôt
+> ne l'a mesuré.
+> ⚠️ **Pour cette page, la conséquence est de portée, pas de seuil** : le §B bis
+> dit ce que le barreau **admet en bits** (~43-46 Md), et le 32B y entre
+> largement. Ce mur-ci dit que le chemin **servi** n'y va pas encore sur la
+> carte où nous mesurons. Les deux énoncés sont vrais et ne se soustraient pas.
 
 ⚠️ **Deux réserves.** (i) Le 5,162 est mesuré sur le 4B ; un 32B a un embedding
 proportionnellement plus petit, donc un b/param **meilleur** — la borne de
@@ -341,6 +445,39 @@ même fichier) :
 | MMLU (f16 → LLVQ) | 70,32 → 55,59 (−14,73 pp) | 76,08 → 65,52 (−10,56 pp) | **78,97 → 72,12 (−6,85 pp)** |
 | ppl (dégradation) | ×1,385 | ×1,220 | **×1,189** |
 
+> 🚨 **Ces lignes sont le résultat d'UN choix de fenêtres de calibration, et
+> F5 a mesuré ce que ce choix vaut (2026-08-19).** Trois runs **complets** du
+> 4B, `LLVQ_CALIB_SEED` ∈ {1, 2, 3}, même corpus, même codebook, même rotation,
+> même empreinte de tokens `3f1baca9033bf251`, **21,45 $** *mesurés* : ppl
+> scellé f16 **16,7425 / 15,8836 / 15,1027**, étendue **1,6398 ppl = 10,3 %**
+> de la médiane, **σ (n = 3) = 0,8202 ppl = 5,2 %**, et les **trois** paires
+> appariées sont **RÉSOLUES** (t = +4,54 / +10,92 / +7,68)
+> ([`mesures/f5-graines-4b-2026-08-19.txt`](mesures/f5-graines-4b-2026-08-19.txt)).
+> **Ce n'est pas du bruit de mesure** : le tirage des fenêtres de calibration
+> déplace réellement la qualité de l'objet livré.
+> 🕳️ **Le σ que ce dossier utilisait comme règle de travail — 0,7 %, et « tout
+> effet sous ~1,5 % est du bruit » — est donc faux d'un facteur ~7 à la taille
+> publiée** : il avait été mesuré sur **3 blocs de Qwen3-0.6B**, pas sur
+> l'objet servi.
+> ✅ **Le contrôle qui décide de la portée pour cette page** : les trois graines
+> rendent **2,0702 b/poids effectifs et 1,771 Go scellés**, identiques au
+> fichier publié. **Seule la qualité bouge — ni le débit, ni les octets.** Donc
+> **ni le §B, ni `b_max`, ni la table b/param du §B bis ne sont touchés**, et
+> l'arbitrage produit ne bouge pas d'une case.
+> ⚠️ **Trois limites, sans lesquelles on sur-corrige.** (i) Les **A/B à fichier
+> constant** — KV q8 d'A3, layouts runtime, embedding q8 — **ne recalibrent
+> pas** : cette variance ne les touche pas, leur barre reste l'intervalle
+> apparié à **±0,12 %**, et **A3 tient**. (ii) Les artefacts 4B/8B/14B ont
+> **tous** tourné **sans graine**, donc sur le même préfixe contigu : la courbe
+> d'échelle ci-dessus **compare des objets calibrés identiquement** et ne porte
+> pas cette variance. (iii) Ce qui est réellement touché, c'est le **niveau
+> absolu** de chaque dégradation — ×1,385 est la valeur d'**un** choix de
+> fenêtres, non privilégié — et **toute expérience qui recalibre**. Deux
+> verdicts du lot B (oracle −1,6 %, courbe de volume −1,2 %) tombent désormais
+> **sous le plancher de bruit** sans que leur conclusion « le volume de
+> calibration est plafonné » soit renversée : elle reposait sur des effets trop
+> petits, ce que F5 confirme plutôt qu'il ne l'infirme.
+>
 > 🕳️ **Corrigé le 2026-08-16 : « Aucun chiffre de qualité n'existe au-delà du
 > 8B » était faux le jour où cette note a été écrite.** Le point 14B est mesuré
 > depuis le **2026-08-10**, dans le même harnais et sur la même empreinte de
@@ -472,9 +609,28 @@ même fichier) :
 > depuis le 2026-08-16, et qui devrait entrer dans cet arbitrage : une passe de
 > projections qui ne lit **aucun poids** coûte déjà **45,2 %** du bras servi
 > ([`mesures/nullk-plancher-2026-08-16.txt`](mesures/nullk-plancher-2026-08-16.txt)),
-> ce qui **plafonne tout travail de format à 4,77× FP16** quand `Planes14` est
-> déjà à 2,16×. Le seul levier nommé qui vise ces 45 % est la famille `k` de
-> P4 §2.6, et **elle n'est pas écrite**.
+> quand `Planes14` est à 2,16×. Le seul levier nommé qui vise ces 45 % est la
+> famille `k` de P4 §2.6, et **elle n'est pas écrite**.
+>
+> 🕳️ **Cette phrase a porté « ce qui plafonne tout travail de format à 4,77×
+> FP16 » — MESURÉ FAUX le 2026-08-21, et le sens de la correction OUVRE ce
+> segment au lieu de le fermer.** Le lot F2 a porté QTIP dans notre banc, un
+> seul processus, bras entrelacés : **t(QTIP) 2,246 ms < t(nullk) 2,306 ms**
+> — le noyau concurrent fait le même travail de projection **en lisant 0,91 Go**
+> et en moins de temps que notre passe qui n'en lit aucun (séparation 2,7 %
+> contre une résolution 2R = 0,72 %) ; f = **61,1 %** contre un plafond
+> pré-enregistré de 59,6 %
+> ([`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt),
+> erratum consigné au journal, le `.ots` interdisant d'éditer la preuve).
+> ⇒ **Les 45,2 % restent mesurés et vrais — mais ils mesurent NOTRE géométrie
+> de lancement** (un warp par ligne de sortie, 252 lancements), pas la machine.
+> La formulation juste est « plancher de notre géométrie de lancement ».
+> **Pour le package C, cela déplace la question** : ce n'était pas « le format
+> ne peut plus rien gagner », c'était « **notre grille** ne le laisse pas
+> gagner ». La famille `k` de P4 §2.6 n'est plus le seul levier concevable sur
+> ces 45 % — la géométrie de lancement elle-même en est un, et **personne ne
+> l'a écrit non plus**. ⚠️ Ce qui ne change pas : E1v reste fermé à 0,25×,
+> borné en **calcul**, et rien ici ne le rouvre.
 >
 > ⚠️ **Dette de provenance déclarée sur E1v** :
 > `proofs/preregistration-e1v-cuda-2026-08-15.md` **n'est pas horodaté**, par
@@ -505,6 +661,17 @@ job `6a830d53e55292eada79b600`, **0,11 $**).
    **vLLM contre candle**, pas par le décodeur de poids. La seule forme licite
    est **intra-pile** — ×2,413 pour le 4 bits chez lui, ×1,12 pour nous chez
    nous — et **ces deux rapports ne se divisent pas**.
+   > ⚠️ **Le ×1,12 est un POINT, et B2 lui a donné sa plage le 2026-08-18** :
+   > à tête identique le 4B rend **×1,11 [1,11–1,11]** (48,3 contre 43,5 tok/s,
+   > médianes sur 5 rounds,
+   > [`mesures/b2-fusedrun-plages-2026-08-18.txt`](mesures/b2-fusedrun-plages-2026-08-18.txt)).
+   > L'écart au ×1,12 est un arrondi, aucune conclusion n'en dépend — mais la
+   > règle « une plage, pas un point » du §C s'applique à nos propres nombres
+   > avant de s'appliquer à ceux du concurrent. 🔎 **Et B2 ajoute un fait
+   > produit** : à tête identique la série est **strictement croissante avec la
+   > taille** — ×1,11 (4B) → ×1,29 (8B) → ×1,41 (14B) — là où la série brute
+   > (×2,00 · ×2,57 · ×2,55) n'a aucun ordre. **C'est la série à tête identique
+   > qui se publie.**
 2. **Il est sur un 4B**, pas sur les 70B denses et le MoE ~120B que les trois
    segments servent. Rien dans ce dossier n'autorise à le transporter d'une
    taille à l'autre.

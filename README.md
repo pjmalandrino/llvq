@@ -26,10 +26,14 @@ end. Only the model side pulls in `candle`.
 > **Since 2026-08-06 there is a second path, and it does win memory.** A CUDA
 > kernel (`llvq-cuda`) keeps the weights encoded on the card; it is wired into
 > the model and its caller is `bin/fusedrun` (Linux + `--features cuda`).
-> Running the *published bytes* on an L40S: **2.96 GB on the card against 8.04,
-> 48.7 tok/s against 43.6**, same greedy tokens as the dense arm up to a
-> tie-break at token 89
-> ([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)).
+> Running the *published bytes* on an L40S, output head f16 on both arms:
+> **2.93 GB on the card against 8.04, 48.3 tok/s [48.1–48.3] against 43.5
+> [43.4–43.5]**, same greedy tokens as the dense arm up to a tie-break at
+> token 89. Those are medians over five timed generations; they replaced the
+> single points this file carried until 2026-08-18 (2.96 GB, 48.7 tok/s), and
+> they land 0.8 % under them
+> ([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt),
+> superseding [`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt)).
 > On macOS the fused kernel is still a bench and nothing else: `llvq-metal` is
 > gated on macOS and has no runner.
 >
@@ -71,6 +75,33 @@ baseline — the only cross-paper comparison that holds:
 log-likelihood — and 2.9 % worse than the paper's own 0-gain-bit configuration,
 before paying for 8.5 % more bits.** An earlier version of this file said "just
 under QTIP", which contradicted its own table.
+
+🚨 **And since 2026-08-19 there is a dispersion, measured on this very object,
+that swallows all three of those percentages.** Three *complete* Qwen3-4B runs
+differing only in `LLVQ_CALIB_SEED` ∈ {1, 2, 3} — same corpus read within the
+same hour, same codebook, same rotation, same protocol, and the same evaluation
+token fingerprint `3f1baca9033bf251` as every published arm — return sealed-f16
+perplexities of **16.7425 / 15.8836 / 15.1027**. That is a range of 1.6398 ppl,
+**10.3 % of the median**, and σ (n = 3) = 0.8202 ppl = **5.2 %**; all three
+paired differences are *resolved* (t = +4.54, +10.92, +7.68), so this is the
+calibration draw moving the answer, not instrument noise
+([`docs/mesures/f5-graines-4b-2026-08-19.txt`](docs/mesures/f5-graines-4b-2026-08-19.txt),
+$21.45 of card time, preregistration stamped before the pilot). **σ is ten times
+the 0.08 perplexity point that separates us from QTIP, and the range is twenty
+times it** *(computed)*. So the honest reading of the table above is that
+16.9415 is the value of **one** choice of calibration windows, not a privileged
+one, and no ranking decided at 3 % resolution survives it.
+
+Two things that dispersion does **not** touch, and they are what keeps the rest
+of this file standing. The published file is **not a fourth draw**: it ran on a
+contiguous prefix with no seed set, on the C4 shard as it was before it moved
+(see *What is not here*), so reading it against the three would mix two
+variables — the journal refuses to. And the three published artifacts at 4B, 8B
+and 14B *all* ran seedless on that same prefix, so the scale curve compares
+identically calibrated objects and does not carry this variance. A control in
+the same runs says what stayed fixed: all three seal to 2.0702 effective
+bits/weight and 1.771 GB, byte for byte the published rate. **Only the quality
+moves.**
 
 The row above is measured in f32 on the model in memory, which is how the
 paper-facing comparison was run. **Scored instead on the published file itself,
@@ -138,7 +169,8 @@ asking for `metal` without the feature is an error.
 
 That is true of `bin/run`, on every backend. It is **not** true of the CUDA
 fused runner, which keeps the weights encoded and holds the same model in
-**2.96 GB** of card memory — see *Speed: the fused kernel*.
+**2.93 GB** of card memory, or **2.56 GB** with the embedding quantized to int8
+at load — see *Speed: the fused kernel*.
 
 ### MMLU — what the perplexity was hiding
 
@@ -268,8 +300,8 @@ official AWQ checkpoint**, not one we produced:
 | | FP16 | **AWQ 4-bit** *(official)* | LLVQ 2-bit, dense | **LLVQ 2-bit + fused kernel** |
 |---|---|---|---|---|
 | **Cold storage** | 8.04 GB | 2.67 GB | **1.77 GB** | **1.41 GB**¹ |
-| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.60 GB — 5.162 bits/param**⁵ |
-| **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **88.4 – 88.5 tok/s**⁴ |
+| **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.56 GB — 5.162 bits/param**⁵ |
+| **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **87.0 tok/s [86.8–87.0]**⁴ |
 | **WikiText-2 perplexity** | 12.2369 | **13.5207** *(×1.105)* | 16.9422 *(×1.384)* | **16.9358** *(×1.384)* |
 | **MMLU** *(5-shot, micro, 2 280 q)* | 70.32 ± 1.28 | **70.04 ± 1.25** *(−0.28)* | 55.59 ± 1.35 | **55.70 ± 1.35** *(−14.6)* |
 
@@ -287,22 +319,29 @@ f16, so any memory or speed number we could print for it would be meaningless.
 Its 5.30 bits/param is its own engine's, whole model, embedding included.
 ³ Without the kernel the file decodes to f16 at load and runs exactly like
 FP16 — that was the state of this project on 2026-08-04.
-⁴ 88.4 in the final campaign, 88.5 in the integration run. Two protocols, one
-object; the repo prints both rather than picking one.
-⁵ **The two numbers in that cell do not divide into each other, and neither is
-derived from the other.** 2.60 GB is what the card reports (`nvidia-smi`,
-rounded to two digits); 5.162 bits/param is recomputed from the exact bytes
-and the exact parameter count, whole model with embedding included, by
+⁴ **A median over five timed generations, with its range** — the form that
+replaced this row's single point on 2026-08-18, alongside the paired dense arm
+of the same job, 43.6 tok/s [43.5–43.6]. The cell read **88.4** in the final
+campaign and **88.5** in the integration run; the median falls 1.6 % under both,
+and that gap is exactly the inter-invocation dispersion a point value cannot
+show ([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt)).
+⁵ **Three readings of one object, in three accountings; none is derived from
+another.** **2.56 GB** is `fusedrun`'s host-side byte count (projections 2.15 +
+ported tables 0.41), the same instrument that produces the ÷3.14 published for
+the 14B, and it is what this cell now carries. **2.60 GB** is what the card
+*displayed*, rounded to two digits, and it is what this cell carried before.
+**5.162 bits/param** is recomputed from exact bytes and the exact parameter
+count, whole model with embedding included, by
 `rtbits` ([`docs/mesures/rtbits-planes-8b-2026-08-09.txt`](docs/mesures/rtbits-planes-8b-2026-08-09.txt),
-which states the published 4B q8 figure is 5.162). The exact footprint is
-2.595 GB, so dividing the displayed 2.60 GB gives **5.15** — the figure this
+which states the published 4B q8 figure is 5.162); the footprint it counts is
+2.595 GB, so dividing the *displayed* 2.60 GB gives **5.15** — the figure this
 file published until 2026-08-17 and which is now labelled for what it is: a
-quotation of the rounded card display, not a measurement of the object.
+quotation of a rounded card display, not a measurement of the object.
 
-**Read the speed number with its companion.** The ×2.03 against the dense arm
-is *not* the kernel alone: ~25 ms/token of it comes from replacing an output
-head that recopies 778 MB of vocabulary per token. **That copy is ours, not
-candle's.** Our dense arm calls `Tensor::broadcast_matmul`
+**Read the speed number with its companion.** The ×2.00 [1.99–2.00] against the
+dense arm is *not* the kernel alone: ~25 ms/token of it comes from replacing an
+output head that recopies 778 MB of vocabulary per token. **That copy is ours,
+not candle's.** Our dense arm calls `Tensor::broadcast_matmul`
 ([`llvq-llm/src/model.rs:553`](llvq-llm/src/model.rs)), whose rank-2-rhs path
 materializes the transposed weight on every call (the `TODO` is in candle's
 code). Models built on `candle_nn::Linear` fold the batch dimensions instead
@@ -310,10 +349,19 @@ and never pay it, so the trap is in the primitive, not in candle's models.
 Reported upstream:
 [huggingface/candle#3871](https://github.com/huggingface/candle/issues/3871).
 **At identical head — f16 on both arms — the same measurement gives
-×1.12** (48.7 against 43.6 tok/s), and that is the honest figure for what the
-Leech kernel itself buys end to end
-([`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
-Never quote the ×2.03 without the ×1.12.
+×1.11 [1.11–1.11]** (48.3 against 43.5 tok/s), and that is the honest figure for
+what the Leech kernel and format buy end to end
+([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt);
+mechanism in [`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
+Never quote the ×2.00 without the ×1.11.
+
+✅ **Measuring all six cells at once produced a fact no single point could
+show.** At identical head the gain is **strictly increasing with model size —
+×1.11, ×1.29, ×1.41 at 4B, 8B and 14B** — while the served series
+(×2.00, ×2.57, ×2.55), dominated by a dense-arm handicap that varies with the
+head, has **no order at all**. The identical-head series is the one that
+measures the kernel, and it says the bigger the model, the more the kernel and
+format pay. Full table under *End to end, on a card*.
 
 **What the table says, in order.** We win cold storage (1.41–1.77 GB against
 2.67) and, since Planes14 + int8 embedding, **card memory** (5.162 against 5.30
@@ -486,13 +534,44 @@ sizes.**
 🚨 **The margin is not monotone and carries no trend.** It peaks at 8B and falls
 back. The mechanism is not the method but the **embedding's share** — 9.7 % at
 4B (tied heads), 15.2 % at 8B, 10.5 % at 14B — which AWQ leaves in f16 and we
-move to int8. Three points, one mechanism, **no law**. ⚠️ Neither speed nor card
-VRAM has ever been measured at 14B: no `fusedrun` has run at that width, so the
-14B lacks the third instrument (the engine's own VRAM report) that
-cross-checked the 4B and 8B cells. ✅ **Cold storage at 14B, on the other hand,
+move to int8. Three points, one mechanism, **no law**.
+
+🕳️ *This paragraph then read: "**Neither speed nor card VRAM has ever been
+measured at 14B: no `fusedrun` has run at that width**, so the 14B lacks the
+third instrument (the engine's own VRAM report) that cross-checked the 4B and 8B
+cells." It was true when written and false from 2026-08-17 on, and it survived
+that run by more than a week.* ✅ **The 14B is served.** `Planes14` with
+`LLVQ_EMBED=q8` on an L40S, 128 tokens **identical** to the dense arm:
+**42.9 tok/s in 9.39 GB against 17.0 tok/s in 29.54 GB** — memory **÷3.14**,
+throughput ×2.53 raw *(the binary forms both ratios on its own internal values;
+dividing the rounded cells gives ÷3.15 and ×2.52, and it is the binary's pair
+this file publishes)*
+([`docs/mesures/fusedrun-14b-2026-08-17.txt`](docs/mesures/fusedrun-14b-2026-08-17.txt),
+$1.24, preregistration committed before launch). Re-measured the next day as a
+median over five generations: **43.3 tok/s [43.2–43.4], ×2.55 [2.54–2.56]** — and
+with it the identical-head cell that had never existed at any width,
+**×1.41 [1.40–1.41]**
+([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt)).
+🚨 **The raw ×2.53 is never quoted alone**: its denominator is *our* dense arm,
+and the handicap is largest at exactly this size — untied heads, so 1,555.8 MB of
+vocabulary recopied per token.
+
+✅ **And the third instrument arrived with the run, on a band written down before
+it (±0.5 %).** 9.39 GB × 8 ÷ 14,768,307,200 = **5.0866 bits/param** against
+`rtbits`'s **5.106**: **−0.38 %**, inside the band. The dense arm returns 16.0018
+against 16.000 exact by construction, 0.011 %, which was not even asked for.
+⚠️ Both lines are *computed* on a card figure rounded to the hundredth of a GB —
+the same route as the 4B's "≈ 5.15", which was under the true value for that
+precise reason. **It is a cross-check, not a replacement**: the figure to publish
+stays the 5.106 taken on exact bytes.
+
+✅ **Cold storage at 14B, on the other hand,
 is settled and was already**: `qwen3-14b-llvq.bin` is **6,506,354,741 bytes =
 6.506 GB**, *measured*, confirmed to the byte by `hf buckets ls` **and** by the
-sealing job's log — two independent routes. Two cells open at 14B, not three.
+sealing job's log — two independent routes. 🕳️ *And the sentence that closed
+this paragraph, "Two cells open at 14B, not three", goes with the one above it:
+**none of the three is open.** Cold storage, card memory and throughput are all
+measured at that width.*
 
 ⚠️ The AWQ references are **three different models**: 5.302 is the 4B, 5.956 the
 8B, 5.404 the 14B — they are not one shared baseline. The table above now publishes **5.162**, the
@@ -532,19 +611,35 @@ budgeted in any of our projections. Full analysis:
 * **We are at QTIP's level, marginally worse.** 16.96 against 17.04 looks like
   a win and is not: our baseline is lower, and normalised on each side's own
   baseline we are 3.1 % worse.
-* **The 0.08 perplexity margin is still not defensible, but the reason has
-  improved.** There is now a measured dispersion — and it is measured on a
-  *different object*. Three calibration seeds on a 3-block Qwen3-0.6B run give
-  **σ ≈ 0.15 perplexity, ≈ 0.7 %**, around a quantized perplexity of ~20.66, so
-  the working rule on such a run is that anything under ~1.5 % (2 σ) is noise
-  ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md), §B1;
-  n = 3, a coarse estimate and the project's first).
-  **That σ does not transfer to the 16.9415 published here**: different model,
-  3 blocks against 36, different perplexity scale. **No σ has ever been measured
-  on the full-model number**, and a 0.5 % margin over QTIP sits well inside the
-  only dispersion we can point at. The older and cruder observation still
-  stands too: ~7 % between two configurations that a test proves were the same
-  quantizer, n = 2, cause unresolved.
+* **The 0.08 perplexity margin is not defensible, and since 2026-08-19 the
+  dispersion that swallows it is measured on the published object itself.**
+  Three *complete* Qwen3-4B runs, `LLVQ_CALIB_SEED` ∈ {1, 2, 3}, everything else
+  identical down to the evaluation token fingerprint, return **16.7425 /
+  15.8836 / 15.1027** sealed-f16: range 1.6398 ppl = **10.3 % of the median**,
+  σ (n = 3) = 0.8202 ppl = **5.2 %**, all three paired differences resolved
+  (t = +4.54, +10.92, +7.68 —
+  [`docs/mesures/f5-graines-4b-2026-08-19.txt`](docs/mesures/f5-graines-4b-2026-08-19.txt)).
+  **σ is ten times the 0.08 point that separates us from QTIP, and the range is
+  twenty times it** *(computed)*. What did *not* move, in those same runs: all
+  three seal to 2.0702 effective bits/weight and 1.771 GB, byte for byte the
+  published rate. The rate is stable; the quality is a draw.
+  🕳️ *This bullet read "**No σ has ever been measured on the full-model
+  number**", and offered instead σ ≈ 0.15 ppl ≈ 0.7 %, taken from three
+  calibration seeds on a 3-block Qwen3-0.6B run, with the working rule "anything
+  under ~1.5 % (2 σ) is noise"
+  ([`docs/archive/verdicts-lot-b-2026-08-06.md`](docs/archive/verdicts-lot-b-2026-08-06.md), §B1).
+  Its own caveat — "that σ does not transfer" — was right; the number it deferred
+  to was wrong by a factor of about seven at the published size, and the noise
+  floor derived from it with it.*
+  ⚠️ **The 5.2 % applies only where calibration is redrawn.** A/B tests at
+  *constant file* — int8 KV cache, runtime layouts, int8 embedding, every format
+  verdict in this file — do not recalibrate and keep their own paired bar of
+  ±0.12 %. Two lot-B verdicts do fall under the new floor without being
+  reversed: the calibration oracle (−1.6 %) and the ×13 volume curve (−1.2 %)
+  were effects too small to separate from a seed draw, which is now measurable
+  and leaves "calibration volume is capped" standing. The older and cruder
+  observation still stands too: ~7 % between two configurations that a test
+  proves were the same quantizer, n = 2, cause unresolved.
 * **We are 9 % above the paper's best configuration**, which reaches 15.54 at a
   true 2.000.
 * **Evaluated on 12 windows, not the full 73.** Our FP32 baseline lands 1.4 %
@@ -631,7 +726,9 @@ cargo run --release -p llvq-metal --bin thesis -- qwen3-4b-llvq.bin
 batch 1 in unified memory — not comparable to the paper's Table 7 on different
 hardware, where a single-shell (M = 3) kernel reaches 1.36–1.48×. No fused
 **multi-shell Leech** decoder appears to have been published before this one;
-fused 2-bit kernels in general certainly have (QTIP, QuIP#, AQLM). That is a
+fused 2-bit kernels in general certainly have (QTIP, QuIP#, AQLM) — and QTIP's
+now runs as an arm of this repository's own CUDA bench, where it beats our served
+layout by 2.27×; see *QTIP in our own bench*. That is a
 negative claim, and it rests on one survey
 ([`docs/inference-cost-reduction-2026.md`](docs/inference-cost-reduction-2026.md))
 carried out from a network that blocked arXiv and Hugging Face, and which says
@@ -724,12 +821,12 @@ fraction of its own byte advantage a kernel converts into time, taking the
 4-bit kernel converts 88 % where our best layout converts 65 % — **that gap is
 the honest statement of what is left to do**, and it is not in the format.
 
-⚠️ Deux asymétries de comptabilité, dans les deux sens. Notre queue en pleine
-précision est facturée dans notre b/poids et AWQ n'en a pas — ça nous
-défavorise sur cette colonne. Mais sur la colonne « of byte bound », qui porte
-le résultat, elle nous **flatte** : queue et échelles de ligne retirées,
-`Planes14` lirait 2,12 Go dans les mêmes 5,116 ms, soit 414 Go/s et **63 %**,
-et l'écart au 4 bits serait de 25 points, pas 23.
+⚠️ Two accounting asymmetries, running in opposite directions. Our full-precision
+tail is charged to our bits/weight and AWQ has none — that penalises us on that
+column. But on the "of byte bound" column, the one that carries the result, it
+**flatters** us: with the tail and the row scales removed, `Planes14` would read
+2.12 GB in the same 5.116 ms, i.e. 414 GB/s and **63 %**, and the gap to 4-bit
+would be 25 points rather than 23.
 
 Planes12x reaches 4.342 b/w at **exactly identical quality** — the capped blocks
 are corrected by a sparse exception pass in the same launch, and every one of the
@@ -750,27 +847,188 @@ margin) which was committed and timestamped *before* the measurement
 Not adopted. The per-slot path is now identical to a layout we already ship, so
 there is no obvious repair left.
 
-**End to end, on a card.** `bin/fusedrun` loads the published artifact twice —
-once dense, once with the projections left encoded — and requires the same
-greedy tokens out. On an L40S, 128 tokens, `Planes14`:
+⚠️ **A standing debt on the word "timestamped".** This repository holds 22
+preregistration documents and **16 OpenTimestamps anchors** in
+[`proofs/`](proofs/), and **not one of the 16 has ever been upgraded**: each
+carries 4 pending attestations and 0 Bitcoin block-header attestation. They
+record that a calendar server saw the hash; until upgraded they do not yet
+*prove* when, and nothing in this file should be read as if they did.
 
-| | dense f16 | fused |
-|---|---|---|
-| tok/s | 43.6 | **48.7 (×1.12)** |
-| GB on the card | 8.04 | **2.96 (÷2.72)** |
-| tokens | reference | identical to a tie-break at token 89 |
+#### QTIP in our own bench — the result that goes against us
 
-With the tied embedding also quantized to int8 at load (`LLVQ_EMBED=q8`) the
-same run reaches **88.4–88.5 tok/s in 2.60 GB**. That ×2.03 is *not* the Leech
-kernel: ~25 ms/token of it is *our own* dense `lm_head` path being replaced, the
-`broadcast_matmul` copy described above, not something candle's models do.
-**×1.12 is
-the kernel's own end-to-end contribution and the two must be quoted together**
-([`docs/mesures/planes14-fusedrun-2026-08-06.txt`](docs/mesures/planes14-fusedrun-2026-08-06.txt),
-[`docs/mesures/phases-2026-08-07.txt`](docs/mesures/phases-2026-08-07.txt)).
-Half a token's time is attention, norms and launch overhead, which the fused
-path does not touch — that is what bounds ×1.12, and it is why the memory
-column, not the speed column, is the result here.
+🚨 **Since 2026-08-21 the two-bit competitor is not a citation, it is a row.**
+QTIP's trellis kernel was ported into *this* bench — one process, same shapes,
+the same 252 projections, seven rounds with two discarded, ratios formed round
+by round, all 1 105 920 output rows verified against the f64 reference first
+(worst error 5.4·10⁻⁸·Σ|wᵢxᵢ|, against our own 1e-5 threshold). **It wins.**
+
+| kernel *(one process, 2026-08-21)* | bits/weight | GB read | GB/s | of byte bound | ms, median [range] | vs FP16 |
+|---|---|---|---|---|---|---|
+| **QTIP 2-bit** *(competitor)* | **2.000** | **0.91** | 405 | 61 %† | **2.246 [2.245–2.248]** | 4.89× [4.89–4.90] |
+| **Planes14** *(ours, served)* | 4.804 | 2.18 | 428 | 65 % | 5.103 [5.101–5.115] | 2.15× [2.15–2.16] |
+| AWQ w4g128 *(competitor)* | 4.179 | 1.90 | 584 | 88 % | 3.252 [3.249–3.257] | 3.38× [3.37–3.38] |
+
+**r = t(Planes14) ÷ t(QTIP) = 2.27× [2.27–2.28]**, formed inside one process on
+interleaved arms. **The trellis kernel finishes the same work 2.27× faster while
+reading 2.40× fewer bytes, at near-equal conversion of their respective byte
+bounds** — 61 % against 65 %. The time gap tracks the traffic gap
+([`docs/mesures/f2-p3-qtip-banc-2026-08-21.txt`](docs/mesures/f2-p3-qtip-banc-2026-08-21.txt)).
+
+**The mechanism has a name, and it is not an implementation defect.** A codebook
+of 1.1·10¹⁴ points cannot sit in a lookup table, where a 16-bit trellis state
+can (a 2 KiB LUT). The lattice index therefore has to be **unfolded at load
+time** into a 4.80 b/weight stream of bit planes, and the kernel then pays for
+those bytes at memory speed. The unfolding is imposed by the *size of the
+codebook*, not by how the kernel is written — which makes it the price of the
+object this project set out to build, and a result worth publishing against
+ourselves.
+
+⚠️ Asymmetries declared in advance and left uncorrected: QTIP carries neither an
+f32 tail nor f32 row scales, which favours it on bits/weight; its payload here is
+pseudo-random, licit for a fixed-rate code with no data-dependent branch, and it
+means **no quality sentence may lean on this arm**; and it is QTIP as shipped,
+`<<<128,1024>>>` frozen, untuned in either direction.
+† **The "of byte bound" column saturates on that row.** The metric compares an
+arm to 16/b times the FP16 control, and is only readable while 16/b stays under
+the no-weights control below — that is, while b > 16 ÷ 4.77 = 3.35 b/weight. At
+2.000 bits QTIP's byte bound is 8.00× against a control at 4.77×, so at two bits
+**time is the comparable quantity, not the fraction**. The 61 % is the
+median-based form (4.89 ÷ 8.00 = 61.1 %) the preregistration permits; the
+minima-based form the other rows use gives 405 ÷ 661 = 61.3 %, the same cell.
+
+🕳️ **And the same run retracts a ceiling this project had been carrying.** A
+control that runs the same 252 launches over the same shapes and reads **no
+weight bytes at all** takes 2.306 ms in that process — 4.77× FP16 — and had been
+read as a *machine* floor, hence as an absolute ceiling of **4.77× on anything a
+format could ever buy**. **QTIP finishes the same projections, reading 0.91 GB,
+in 2.246 ms**: 2.6 % *under* the no-weights control, against a 0.36 % resolution.
+So that control bounds **our launch geometry** — one warp per output row, 252
+launches — and not the machine; a differently shaped kernel passes under it. The
+right phrase is "the floor of our launch geometry", never "the machine floor",
+and the 39 % latency-and-occupancy share attributed elsewhere in this project is
+a property of that same geometry. This is an erratum to a stamped
+preregistration, which cannot be edited, so it is recorded here and in the
+journal.
+
+#### The validity envelope: one card is not "hardware"
+
+🚨 **Every "vs FP16" ratio above is an L40S/Ada result, and that is now measured
+rather than assumed.** The same bench, the same kernels, the same NVRTC sources
+rebuilt for `sm_80`, run on an **A100-SXM4-80GB**: line-by-line f64 verification
+returns worst errors *identical* to the L40S ones, so the arithmetic does not
+depend on the card — and **not one decoding arm beats FP16**
+([`docs/mesures/f4-a100-2026-08-18.txt`](docs/mesures/f4-a100-2026-08-18.txt)):
+
+| arm | vs FP16, A100 | GB/s, A100 | *(L40S reference)* |
+|---|---|---|---|
+| no-weights control | 1.68× [1.68–1.68] | 18 | 4.79× |
+| FP16 control | 1.00× | 1052 | 1.00× · 661 |
+| FP16 cuBLAS | 1.14× [1.14–1.15] | 1204 | 1.02× · 672 |
+| AWQ w4g128 | 1.82× [1.82–1.82] | 501 | 3.37× · 584 |
+| **Planes14** | **0.79× [0.79–0.79]** | **250** | 2.16× · 425 |
+| Slot32 | 0.73× [0.73–0.73] | 266 | 1.87× · 428 |
+| Planes12x | 0.73× [0.73–0.73] | 209 | 1.98× · 356 |
+| Golay70, hoisted | 0.62× [0.62–0.62] | 147 | 1.77× · 263 |
+| Golay70 | 0.44× [0.44–0.44] | 104 | 1.31× · 195 |
+
+**The cross-card ratios do not divide into each other** — written into the
+preregistration before the run. What the two columns say is that FP16 converts
+the faster memory (661 → 1052 GB/s) while every decoding arm's *effective* GB/s
+**falls** (Planes14 425 → 250): on HBM these kernels stop being memory-bound and
+become compute-bound per SM. The no-weights control moves the same way, 2.305 →
+4.107 ms, and eats 59 % of the FP16 time on A100 against 21 % on L40S.
+
+✅ **The cause is measured, not guessed.** Sampling SM clocks at 1 Hz through the
+bench: **L40S 2 520 MHz, A100 1 410 MHz, both pinned at their boost maximum, the
+only clock event on either card being GpuIdle — no thermal and no power
+throttling.** The ratio 2520 ÷ 1410 = **1.787** falls inside the [1.60 ; 1.95]
+band written down beforehand, and it matches what the no-weights control actually
+does (×1.772 in that run, ×1.781 in the A100 bench above)
+([`docs/mesures/g-horloges-planes12x-2026-08-23.txt`](docs/mesures/g-horloges-planes12x-2026-08-23.txt)).
+⚠️ That is a proof about **clocks**, not an occupancy profile: the platform
+refuses hardware counters (`ERR_NVGPUCTRPERM`), so `ncu` installs and attaches
+and returns nothing — declared as a platform fact and not retried
+([`docs/mesures/f3-events-2026-08-19.txt`](docs/mesures/f3-events-2026-08-19.txt),
+which also shows the host–device gap at 0.1–0.2 %, two orders of magnitude under
+expectation: host submission is fully overlapped, which *weakens* the "the
+latency term is the host" hypothesis without refuting it).
+**So "decodes at matvec speed" is a claim about L40S/Ada with a measured domain
+of validity, and this file will not state it without naming the card.**
+
+✅ **One thing that envelope does not undermine: the denominator.** Our
+hand-written FP16 control is at cuBLAS's level on the L40S — r = t(ours) ÷
+t(cuBLAS) = **1.024** with two arms and **1.015** with five, both under the 1.05
+threshold set in advance — so every "vs FP16" ratio published here is measured
+against a competitive baseline, not a straw one
+([`docs/mesures/f1-cublasf16-2026-08-18.txt`](docs/mesures/f1-cublasf16-2026-08-18.txt)).
+On the A100 the same control sits at 1.14× of cuBLAS, which is an A100 fact and
+leaves the L40S verdict standing.
+
+**End to end, on a card.** `bin/fusedrun` loads the same artifact twice — once
+dense, once with the projections left encoded — and requires the same greedy
+tokens out. Since 2026-08-18 each arm is **one discarded generation plus five
+timed ones**, reported as a median with its range; the ratio is a quotient of
+medians with an envelope, because the two arms load their model exclusively and
+their rounds never coexist — not the round-by-round form the interleaved
+benches above use. L40S, 128 tokens, `Planes14`
+([`docs/mesures/b2-fusedrun-plages-2026-08-18.txt`](docs/mesures/b2-fusedrun-plages-2026-08-18.txt)):
+
+| | output head | fused tok/s | dense tok/s | ratio | GB fused / dense |
+|---|---|---|---|---|---|
+| **4B** | f16 on both arms | 48.3 [48.1–48.3] | 43.5 [43.4–43.5] | **×1.11 [1.11–1.11]** | 2.93 / 8.04 (÷2.75) |
+| 4B | int8 (`LLVQ_EMBED=q8`) | **87.0 [86.8–87.0]** | 43.6 [43.5–43.6] | ×2.00 [1.99–2.00] | **2.56 / 8.04 (÷3.14)** |
+| **8B** | f16 on both arms | 34.1 [34.0–34.1] | 26.4 [26.4–26.5] | **×1.29 [1.29–1.29]** | 6.58 / 16.38 (÷2.49) |
+| 8B | int8 | 68.2 [68.2–68.3] | 26.5 [26.5–26.5] | ×2.57 [2.57–2.58] | 5.41 / 16.38 (÷3.03) |
+| **14B** | f16 on both arms | 23.9 [23.8–24.0] | 17.0 [16.9–17.0] | **×1.41 [1.40–1.41]** | 10.85 / 29.54 (÷2.72) |
+| 14B | int8 | 43.3 [43.2–43.4] | 17.0 [17.0–17.0] | ×2.55 [2.54–2.56] | **9.39 / 29.54 (÷3.14)** |
+
+Tokens: at 4B the two arms diverge at token 89, the tie-break reproduced from
+2026-08-06; at 8B and 14B all 128 are identical.
+
+**Read the bold column, not the other one.** The identical-head ratio is the only
+one that measures the kernel and the format, and it is **strictly increasing with
+size: ×1.11, ×1.29, ×1.41**. The int8-head series (×2.00, ×2.57, ×2.55) is
+dominated by a dense-arm handicap that varies with the head — ~25 ms/token of it
+at 4B is *our own* `broadcast_matmul` copy being replaced, not something candle's
+models do, and the handicap is largest at 14B, where untied heads mean 1,555.8 MB
+of vocabulary recopied per token — and it has **no order at all**. The two must
+always be quoted together. Half a token's time is attention, norms and launch
+overhead, which the fused path does not touch: that is what bounds the
+identical-head column, and it is why the memory column, not the speed column, is
+the result here.
+🕳️ *This table published single points — 48.7 tok/s in 2.96 GB, and 88.4–88.5 in
+2.60 GB — until the ranges existed. The medians land 0.8 % and 1.6 % under them,
+which is exactly the inter-invocation dispersion a point value cannot show, and
+the ×1.41 at 14B did not exist at all: it was not derivable from the fenced phase
+profile either, whose two reconstructions gave ×1.78 and ×1.24. The "GB on the
+card" is, and always was, a host-side byte count rather than an `nvidia-smi`
+reading.*
+
+**Two further served points, both measured since.** `Planes12x` — the
+sparse-overlay layout, bit-identical decoded content — is no longer merely wired
+up: served end to end at 4B it gives **85.0 tok/s [84.7–85.1] in 2.36 GB**,
+×1.96 [1.95–1.96] on the dense arm and **÷3.41 of card memory**, with the same
+greedy tokens and the same token-89 tie-break. That is 2.3 % less throughput than
+`Planes14` for 0.20 GB less card — **the most compact served point measured**
+([`docs/mesures/g-horloges-planes12x-2026-08-23.txt`](docs/mesures/g-horloges-planes12x-2026-08-23.txt)).
+⚠️ It costs 1 340 s to transcode at load against ~130 s for `Planes14`: a
+five-level lattice search per block, paid once, offline.
+
+And **fusing the launches** — `q/k/v` and `gate/up` concatenated by rows, **252 →
+144 matvecs per token** — gives **×1.061 [1.050–1.069] at constant
+`LLVQ_ROT_SHARE`**, inside the [1.00 ; 1.12] band written down beforehand, for
+exactly **+3 686 400 bytes** (+0.008117 b/weight, a figure predicted
+arithmetically before the run). Six preregistered criteria came back green,
+including 128 identical tokens between the two fused arms, the same divergence
+from dense at token 89, and the *same* NVRTC source sha256 on both arms — so the
+ratio is not an artifact of moved register allocation. Decomposed on that card:
+**87.0 → 94.9 (rotation hoisting alone) → 100.6 tok/s [99.9–100.7]** with the
+fusion
+([`docs/mesures/d1-fusion-servie-2026-08-24.txt`](docs/mesures/d1-fusion-servie-2026-08-24.txt)).
+⚠️ The middle step is an **inter-job** reading — the 87.0 comes from a different
+job on a different translation unit — so it is reported, not published as this
+lot's measurement; only the ×1.061 is intra-job. And neither 8B nor 14B has been
+replayed under fusion, so the three-size table above stays on one configuration.
 
 ## What is *not* here
 
@@ -784,13 +1042,20 @@ column, not the speed column, is the result here.
   CUDA.
 * **No CSR, and no domain-specific benchmark.** MMLU is measured above, on a
   2 280-question sample (16.2 % of the split), not the full suite.
-* **No error bar on the published perplexity.** A σ exists — three calibration
-  seeds, but on a 3-block 0.6B run, which is a different object. See *Read this
-  before quoting the number*.
-* **No 4-bit arm inside the fused runner.** The 4-bit quality column is no
-  longer empty (see *Against 4-bit*), but the AWQ is only ever loaded
-  dequantized in our engine, so its memory and speed have never been measured
-  here and the comparison on those two axes remains cross-engine.
+* 🕳️ **"No error bar on the published perplexity" — true until 2026-08-19, and
+  now the opposite of the problem.** The calibration draw *has* been measured at
+  the published size: three complete 4B runs differing only in
+  `LLVQ_CALIB_SEED` span 10.3 % of their median, σ = 5.2 %
+  ([`docs/mesures/f5-graines-4b-2026-08-19.txt`](docs/mesures/f5-graines-4b-2026-08-19.txt)).
+  What is missing is a bar of a different kind: that dispersion is *between
+  artifacts*, and every quality number published here comes from a **single
+  artifact per size**. See *Read this before quoting the number*.
+* **No competitor inside the fused runner.** Both AWQ and QTIP now run as arms
+  of our own matvec bench, in our process, verified against the same f64
+  reference (see *The layout scale on CUDA*) — and QTIP beats us there. But
+  neither has ever been loaded *as a model* in our engine, the AWQ only ever
+  being dequantized to f16, so no end-to-end memory or throughput comparison
+  exists and on those two axes the comparison stays cross-engine.
 * **The published command reproduces the method, not the bytes.** The C4
   calibration shard moved from `00000` to `00001` after the run, and the
   container format gained a magic bump; a re-run today produces a different,
@@ -943,6 +1208,16 @@ parameter it is supposed to cover.**
 Reading notes on the paper — Algorithms 1 and 3 transcribed, two notational
 ambiguities in Algorithm 3 resolved with justification, Tables 3/6/7/8/9 — are
 in [`docs/llvq-paper-notes.md`](docs/llvq-paper-notes.md).
+
+Every run billed to a card is journalled, and the ledger is in the repository.
+As of 2026-08-25 that is **69 measurement logs** in
+[`docs/mesures/`](docs/mesures/), 13 datasets in [`docs/data/`](docs/data/), and
+**73 jobs for $87.36 billed** in [`docs/data/jobs.csv`](docs/data/jobs.csv) — 27
+of those jobs, $28.56, in the last week alone. The criteria a measurement had to
+meet were written down before it ran, in the 22 documents under
+[`proofs/`](proofs/); ⚠️ their 16 OpenTimestamps anchors are all still
+**pending**, as noted above, so read them as commitments recorded in git history
+rather than as cryptographically dated ones.
 
 Determinism is uneven and worth knowing about: the Leech encoder is exactly
 deterministic and pinned by a test, but the Hessians accumulate `AᵀA` in f32 on
