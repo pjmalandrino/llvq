@@ -3,7 +3,8 @@
 > Le RAF courant du projet, ordonné par ce qui décide chaque sujet et non par
 > thème. Établi par balayage des 53 commits depuis le 2026-08-18, des onze
 > journaux de mesure postérieurs, des quatre documents de plan et du registre
-> de coûts. HEAD `e21a8bb`, arbre en sync avec `origin/main`.
+> de coûts. Établi à HEAD `e21a8bb` ; **mis à jour au fil de la journée du
+> 2026-08-25** (branche `docs/etat-courant-2026-08-25`).
 >
 > 🧭 **Ce document remplace la liste de tête de [`PLAN.md`](PLAN.md)** comme RAF
 > courant. `PLAN.md` reste le document de niveau projet (les trois phases et
@@ -94,8 +95,8 @@ verdict.
 | § | bloc | items | coût | ce qui le décide |
 |---|---|---|---|---|
 | 1 | Fenêtre courte | 1 | 0 $ | se périme en jours |
-| 2 | Dette de vérité | 7 | 0 $ | aucune raison d'attendre |
-| 3 | Qualité | 3 | 0 → 15 $ | **le seul axe qui bascule le verdict** |
+| 2 | Dette de vérité | 7 (**5 soldés**) | 0 $ | aucune raison d'attendre |
+| 3 | Qualité | 3 (**§3.1 étage 1 mesuré**) | 0 → 15 $ | **le seul axe qui bascule le verdict** |
 | 4 | Noyau | 4 | ≤ 2,5 $ | borné — matériel de révision |
 | 5 | Échelle et produit | 4 | ~73 $ | go budget explicite |
 | 6 | Attente éditeur | 2 | ~43 $ | lettre de décision TACO |
@@ -139,7 +140,7 @@ mesure qui dit le contraire.
 | 2.2 | Propager le σ de F5 (0,7 % → 5,2 %) et ses trois réserves | ✅ fait le 2026-08-25 |
 | 2.3 | Rattraper `HISTORIQUE.md` (9 campagnes + la soumission) | ✅ fait le 2026-08-25 |
 | 2.4 | Deux affirmations démenties encore publiées | ✅ fait le 2026-08-25 |
-| 2.5 | `ots upgrade` des 16 ancrages | ☐ **5 minutes, non fait** |
+| 2.5 | `ots upgrade` des 16 ancrages | ✅ **fait le 2026-08-25** — les 16 portent leur attestation Bitcoin |
 | 2.6 | Tag + `.ots` sur la version soumise | ☐ non fait |
 | 2.7 | Armer les gardes déjà écrits (CI Linux, `check_tables`, manifeste) | ☐ non fait |
 | 2.8 | Inventorier le bucket HF | ☐ non fait |
@@ -213,7 +214,43 @@ sous les 0,7 % hérités du lot B. Les gates ci-dessous sont écrits contre
 l'ancienne barre et doivent être relus avant lancement. Ce qui n'est *pas*
 touché : les A/B à fichier constant, qui gardent leur barre appariée à ±0,12 %.
 
-### 3.1 A/B des bits de gain, à débit constant — 0 $ 🆕
+### 3.1 A/B du partage des 48 bits — ✅ ÉTAGE 1 MESURÉ le 2026-08-25
+
+> ✅ **Gate rendu, 0 $, 86 min.** Les quatre contrôles passent — iso-débit
+> **2,1656 b/poids aux trois bras**, la valeur calculée et écrite avant le
+> lancement. Résultats, baseline 19,5038 :
+>
+> | bras | gain | boule | ppl | vs témoin |
+> |---|---|---|---|---|
+> | `leech0c13` | 0 | 13 | **39,3309** | **−9,56 %** |
+> | `leech1c12` ← servi | 1 | 12 | 43,4865 | — |
+> | `leech2c11` | 2 | 11 | **39,5350** | **−9,09 %** |
+>
+> **Les deux candidats sont VERTS**, et le codebook **servi ressort dernier des
+> trois** à débit strictement identique. Le classement est en U : les deux
+> configurations spécialisées battent celle qui partage. Aucun mécanisme n'est
+> revendiqué, et le repère gaussien du banc G4 pointe en sens inverse (92,14 %
+> de rétention pour le témoin contre 88,90 %) — exactement la réserve que le §6
+> de `CLAUDE.md` posait d'avance sur des poids non gaussiens après GPTQ.
+>
+> 🚨 **Le gate ne peut RIEN adopter** (§0.1 du pré-enregistrement) : un bras
+> vert a le droit d'être mesuré au 4B, il n'est pas meilleur. Quatre réserves,
+> dont celle qui décide — **R1, un seul tirage de calibration**, quand F5
+> mesure σ = 5,2 % entre graines.
+>
+> Journal :
+> [`mesures/gain-ab-gate-0.6b-2026-08-25.txt`](mesures/gain-ab-gate-0.6b-2026-08-25.txt),
+> logs bruts dans `mesures/gain-ab-2026-08-25-brut/`.
+>
+> **Suite recommandée, avant l'étage 2** : rejouer les trois bras à une seconde
+> graine — ~90 min, 0 $, contre ~24 h pour deux runs 4B. C'est la seule des
+> quatre réserves qui peut retourner le signe. Demande son propre
+> pré-enregistrement, celui du 08-25 étant scellé sur un tirage.
+> ⚠️ Et si l'étage 2 élit un candidat, la suite n'est pas « refaire le 4B » mais
+> « refaire le 4B **et** rouvrir le layout runtime » (C6) : le chemin servi gèle
+> le champ de gain à un bit sur huit assertions et quatre shaders.
+
+<details><summary>Le raisonnement d'origine, conservé — il est intact</summary>
 
 **Le choix de 1 bit de gain n'a jamais été fondé par un A/B au niveau modèle, à
 aucune taille.** Il vient d'un argument de débit — plafonner à Λ₂₄(12) fait
@@ -258,6 +295,8 @@ s'est retournée deux fois à pleine profondeur (`group_scales`, design C). Le
 gate n'est pas une formalité.
 ⚠️ Le bras témoin du script de gate tourne sur `leech` (boule 13, 1 bit) et non
 sur `leech1c12` : à ré-ancrer avant.
+
+</details>
 
 ### 3.2 D3 — recalibrer sur DCLM-edu
 
