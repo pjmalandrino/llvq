@@ -12,6 +12,88 @@
 
 ---
 
+## 🧭 Reprise — état au SOIR du 2026-08-25
+
+**Ce bloc est le point d'entrée d'une session neuve.** Il périme la lecture
+« matin » du reste de ce document sur un point : la piste calibration, que
+§0 et la liste donnaient pour close, est **rouverte et en cours de mesure**.
+
+### Ce qui s'est passé dans la journée
+
+**L'échelle des bits de gain est RÉFUTÉE, et par sa propre réplication.** Quatre
+codebooks à débit constant (48 bits/bloc) mesurés au 0.6B pleine profondeur, à
+deux tirages de calibration — journal
+[`mesures/gain-ab-gate-0.6b-2026-08-25.txt`](mesures/gain-ab-gate-0.6b-2026-08-25.txt),
+**0 $**. Le classement s'inverse complètement d'un tirage à l'autre ; un seul
+bras bouge de **13,9 %** en ne changeant que le texte de calibration, là où
+l'écart entre les quatre bras n'était que de 10,6 %. **Le bruit dépasse le
+signal.** Rien n'est adopté, aucun étage 2 au 4B n'est justifié, et le sujet de
+papier envisagé sur ces chiffres est mort.
+
+Deux prédictions signées de l'assistant, **fausses toutes les deux**. Trois
+hypothèses réfutées dans la journée : le codebook de gain biaisé, le biais
+radial comme explication, puis l'effet lui-même.
+
+**Ce qui survit du lot** : le **biais radial** mesuré par `bin/cosdiag` — le
+code de gain quantifie `‖w‖` là où l'optimum à direction fixée est la
+projection `⟨w, û⟩`. ~3,7 % sur la configuration servie, de la géométrie pure,
+indépendant de tout tirage. **Piste de qualité gratuite, non traitée.**
+
+### Ce qui est en cours, et pourquoi
+
+Le résultat ci-dessus a rouvert une piste que le dossier donnait pour close.
+La borne qui avait enterré la calibration le 2026-08-06 (l'« oracle », −1,6 %)
+a été mesurée sur **3 blocs de Qwen3-0.6B**, en **perplexité**. Or notre
+déficit est sur **MMLU**, à la **taille publiée**. La piste n'a donc jamais été
+testée là où elle compte.
+
+Le mécanisme se chiffre : sur `down_proj` du 4B, la hessienne fait 9 728² et on
+l'estime sur 131 072 tokens — **13,5 exemples par dimension**. Le papier amont
+en utilise ~96× plus.
+
+| | | statut |
+|---|---|---|
+| **1b — bruit de MMLU entre tirages, au 4B** | job `6a8de89b984507d9db4e4664`, `l40sx1`, ~0,5 $ | 🔄 **lancé le 2026-08-25 au soir** |
+| **2 — échelle de volume de calibration** | ×8 → ×32 → ×96, `rtx-pro-6000` | ⏸️ **gaté sur la sortie de 1b** |
+
+**1b** passe MMLU sur les trois artefacts 4B des graines F5, retrouvés dans le
+bucket (`f5-graines-2026-08-19/seed{1,2,3}/`) — **0,5 $ au lieu de ~21 $** de
+requantification. Quatrième fois que la règle des canaux de rétention paie.
+Il produit **s**, l'écart-type MMLU entre tirages, qui n'a jamais été mesuré
+(F5 n'avait chronométré que la perplexité).
+
+**2** est intégralement pré-enregistré et tamponné AVANT tout lancement :
+[`proofs/preregistration-volume-calibration-2026-08-25.md`](../proofs/preregistration-volume-calibration-2026-08-25.md)
+(sha256 `33fd4932…`). Une seule variable, préfixes **emboîtés** ×1 ⊂ ×8 ⊂ ×32 ⊂
+×96 du même texte C4, témoin déjà payé (l'artefact publié, MMLU 55,59), cinq
+contrôles, et une règle d'arrêt qui borne le pire cas à **deux barreaux et
+~19 $**.
+
+🚨 **Le barreau de départ N'EST PAS AU CHOIX** — il est décidé par `s` :
+
+| | départ |
+|---|---|
+| `s ≤ 1,0 pp` | **×8** (2,9 h, ~8 $) |
+| `1,0 < s ≤ 2,0 pp` | **×32** (3,8 h, ~11 $) — ×8 serait illisible |
+| `s > 2,0 pp` | **aucun** — le design est à repenser |
+
+Coûts et durées *estimés* par un modèle calibré sur le profil mesuré du 4B
+(222,5 s fixes par bloc + 4,06 s par bloc et par unité de volume), qui
+**reproduit à ×1 les 155 min facturés** — c'est sa seule validation.
+
+⚠️ **Une inconnue reste, dans les contrôles** : le shard C4 a-t-il ~50 Mo de
+caractères pour ×96 ? `smoke` imprime ce qu'il a réellement lu ; si ça
+plafonne, le barreau se publie **à son volume réel**. Sans effet sur ×8 ni ×32.
+
+### Deux choses qui n'appartiennent qu'à l'opérateur
+
+1. **Corriger la fiche de soumission ScholarOne** — elle porte « MALANDRINO,
+   MALANDRINO » avec une affiliation parasite, et c'est ce qui serait publié.
+2. **Transmettre la page de titre corrigée au bureau éditorial.** La committer
+   ne l'envoie pas.
+
+---
+
 ## 0. Le cadre — ce que le projet a produit, et la seule question qui reste
 
 Il faut écrire ce paragraphe avant la liste, parce qu'il change ce que la liste

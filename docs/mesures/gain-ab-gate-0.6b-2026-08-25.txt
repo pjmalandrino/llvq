@@ -318,3 +318,72 @@ R6. LE VERDICT 0 ↔ 2 BITS S'INVERSE SELON LA CORRECTION. La Table 10 le montre
     mesuré les quatre boules les plus grandes ; le papier s'arrête au même
     endroit. La bonne phrase est « les quatre plus grandes », jamais « les
     quatre ».
+
+
+================================================================================
+ADDENDUM 3 — JOB B : LA RÉPLICATION À SECONDE GRAINE RETOURNE LE CLASSEMENT
+2026-08-25 (soir) · 0 $ · Qwen3-0.6B, 28 blocs, LLVQ_CALIB_SEED=1
+Pré-enregistrement : proofs/preregistration-bits-de-gain-suite-2026-08-25.md
+                     (sha256 99d30d6f…, tamponné avant le job A)
+Bruts : gain-ab-2026-08-25-brut/gain-ab-s1-{0c13,1c12,2c11,4c10}.log
+================================================================================
+
+Les quatre bras rejoués, une seule variable changée : le tirage des fenêtres de
+calibration (préfixe contigu depuis le token 0 → offsets tirés, graine 1).
+Tout le reste identique — codebook, rotation, corpus, mode nogs, 28 blocs,
+baseline 19,5038, débit 2,1656 b/poids effectifs aux quatre bras.
+
+  bras          tirage 1 (préfixe)   tirage 2 (graine 1)   écart
+  ----------------------------------------------------------------------
+  leech0c13       39,3309  (1er)       44,7954  (4e)       +13,9 %
+  leech1c12       43,4865  (3e)        38,4507  (2e)       −11,6 %   ← servi
+  leech2c11       39,5350  (2e)        36,5997  (1er)       −7,4 %
+  leech4c10       47,1537  (4e)        44,3889  (3e)        −5,9 %
+
+  classement tirage 1 :  0c13 < 2c11 < 1c12 < 4c10
+  classement tirage 2 :  2c11 < 1c12 < 4c10 < 0c13
+
+VERDICT. Le classement ne tient pas. Le bras premier au tirage 1 finit dernier
+au tirage 2. L'étendue INTRA-bras (13,9 % sur leech0c13) dépasse l'étendue
+INTER-bras du tirage 1 (10,6 %) : le bruit est plus grand que le signal que
+l'étage 1 croyait mesurer.
+
+CE QUE ÇA TUE.
+  - La lecture en U de l'étage 1, déjà démolie par le job A le matin.
+  - L'histoire « nous servons la mauvaise configuration » : leech1c12 est
+    dernier des trois au tirage 1 et DEUXIÈME des quatre au tirage 2.
+  - Toute justification de payer un étage 2 au 4B sur cette base. La règle
+    d'adoption du §5.2 (sha256 428f17d4…) n'est pas atteinte et ne peut pas
+    l'être avec ces données.
+  - Le sujet de papier envisagé sur ces chiffres.
+
+LA RÉSERVE R1 AVAIT RAISON, ET ELLE ÉTAIT ÉCRITE AVANT LA PREMIÈRE MESURE.
+« Un seul tirage de calibration, quand F5 mesure σ = 5,2 % entre graines au 4B »
+— c'était la seule des quatre réserves capable de retourner le signe du
+résultat, et c'est exactement ce qu'elle a fait.
+
+⚠️ CONFONDANT DÉCLARÉ D'AVANCE ET NON LEVÉ (§4 du pré-enregistrement).
+   LLVQ_CALIB_SEED ne change pas que le tirage, il change le MODE
+   d'échantillonnage (préfixe contigu → offsets aléatoires). Le classement ayant
+   bougé, on ne peut PAS séparer « autre tirage » de « autre mode ». Un
+   troisième job à LLVQ_CALIB_SEED=2 le ferait ; il n'a pas été jugé utile,
+   puisque les deux lectures mènent à la même conclusion opérationnelle.
+
+PRÉDICTION SIGNÉE, FAUSSE POUR LA SECONDE FOIS DE LA JOURNÉE.
+   §6 du pré-enregistrement : « Job B : le classement TIENT, les niveaux
+   bougeant de quelques pour cent. » Il ne tient pas, et les niveaux bougent de
+   6 à 14 %. Première prédiction fausse du jour : leech4c10 annoncé entre 39 et
+   42, mesuré 47,1537.
+
+CE QUI SURVIT, ET QUI NE DÉPEND D'AUCUN DES DEUX TIRAGES.
+   Le biais radial mesuré par cosdiag (addendum 2) : le code de gain quantifie
+   ‖w‖ là où l'optimum à direction fixée est ⟨w, û⟩. C'est de la géométrie pure,
+   pas de la statistique de corpus, et ça reste une piste de qualité gratuite.
+
+CE QUE CE JOB A OUVERT, ET QUI VAUT PLUS QUE CE QU'IL A FERMÉ.
+   Un seul bras se déplace de 13,9 % en ne changeant QUE le texte de
+   calibration, à profondeur complète. La borne qui avait fermé la piste
+   calibration le 2026-08-06 (« oracle », −1,6 %) a été mesurée sur 3 BLOCS de
+   Qwen3-0.6B et en PERPLEXITÉ. Le déficit du projet est sur MMLU, à la taille
+   publiée. La piste est donc rouverte, et elle est testée par
+   proofs/preregistration-volume-calibration-2026-08-25.md.
