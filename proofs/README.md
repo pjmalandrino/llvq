@@ -30,6 +30,39 @@ mémoire — `ls proofs/*.md | wc -l` moins ce README, `ls proofs/*.ots | wc -l`
 - les **chiffres eux-mêmes** : ils sont dans `docs/data/*.csv`, et c'est de là
   que le papier se régénère.
 
+## Écarts constatés APRÈS ancrage — ils vivent ici, jamais dans le document scellé
+
+*Un pré-enregistrement tamponné est en lecture seule pour toujours (§ « Règle
+d'édition après ancrage »). Un écart découvert **pendant** la mesure ne peut
+donc pas aller dans son §7bis : il va ici.*
+
+**2026-08-25 — `preregistration-bits-de-gain-2026-08-25.md`, contrôle §4.4.**
+Le document exigeait que la factorisation retombe « **sous ~5 %** » du profil
+par phase, comme preuve que le binaire avait bien pris `fast-linalg`. Mesuré
+sur les trois bras : **8,7 % · 9,4 % · 9,6 %**. Le seuil numérique n'est pas
+atteint.
+
+- *Ce qui est établi malgré tout* : la feature est active, par trois signes
+  indépendants — l'avertissement « compilé SANS » est absent des trois logs, le
+  binaire porte 54 symboles `faer` (zéro avant reconstruction), et la
+  factorisation tombe de 43,3 % (gate du 2026-08-07, sans la feature) à ~9 %,
+  soit ×4,8.
+- *Mécanisme du défaut* : le « ÷40 » d'où venait le ~5 % est repris d'un
+  commentaire de `smoke.rs` qui chiffre la factorisation d'**une couche**
+  (28,4 s → 0,7 s), pas celle d'un run entier. Le vrai facteur est ~4,8. La
+  même erreur explique l'estimation de durée du §9 (« ~20 min/bras » contre
+  27-30 mesurées).
+- *Effet sur le verdict* : **nul**. Les deux chemins de factorisation sont
+  bit-identiques par construction (`both_factorizations_agree`) ; ce contrôle
+  portait sur la confiance à accorder aux **durées**, pas aux perplexités.
+- *Ce que ça n'autorise pas* : réinterpréter le seuil après coup. Il est écrit,
+  il n'est pas atteint, et c'est consigné — pas amendé.
+
+Détail complet dans
+[`../docs/mesures/gain-ab-gate-0.6b-2026-08-25.txt`](../docs/mesures/gain-ab-gate-0.6b-2026-08-25.txt).
+
+---
+
 ## L'état honnête de ce répertoire
 
 > 🕳️ *Cette section s'ouvrait sur « Il vient d'être créé et il est incomplet »

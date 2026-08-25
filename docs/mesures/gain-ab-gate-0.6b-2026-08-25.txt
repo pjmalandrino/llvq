@@ -1,0 +1,160 @@
+# A/B du partage des 48 bits entre direction et gain — étage 1, gate 0.6B
+# Mac M3 Max, Metal, 0 $. 2026-08-25, 13:41:23 → 15:07 (86 min pour trois bras).
+# Pré-enregistrement : proofs/preregistration-bits-de-gain-2026-08-25.md
+#   sha256 428f17d4273173996a1be65ebe27bab747dd27700a28bc96ea46a03efbeb486d
+#   tamponné (.ots) AVANT le premier bras, commit a0e75c5.
+# Logs bruts : docs/mesures/gain-ab-2026-08-25-brut/ (les trois, plus le script de file).
+
+PROTOCOLE (§3 du pré-enregistrement, une seule variable : le 7e positionnel)
+  Qwen3-0.6B, 28 blocs — pleine profondeur, 196 matrices, 440 401 920 poids
+  calibration wikitext-2 train, 64 × 2048 = 131 072 tokens, préfixe contigu
+  rotation d'entrée on (graine 0x110feed), group scales off, design C off
+  évaluation wikitext-2 test, 12 fenêtres × 2048, f32, Metal, 16 threads
+  binaire reconstruit avec `fast-linalg` (déclaré au §3 ; le gate hérité du
+  2026-08-07 tournait sans, sa factorisation y pesait 43,3 %)
+
+  target/release/smoke 64 2048 12 2048 metal nogs <codebook> 999 rot
+
+
+LES QUATRE CONTRÔLES DU §4 — TOUS PASSÉS, UN AVEC RÉSERVE
+
+  1. ISO-DÉBIT — exigé 2,1656 b/poids, *calculé d'avance* sur les formes du
+     0.6B (18 149 376 blocs, 4 816 896 poids de queue, 344 064 lignes) :
+
+       leech0c13   2.1656      leech1c12   2.1656      leech2c11   2.1656
+
+     Les trois au chiffre près. La prémisse de l'expérience tient : c'est bien
+     le même budget de 48 bits redistribué, pas trois débits différents.
+     (Repère de validation de la formule : le bras `leech` du 2026-08-07, à
+     49 bits/bloc, imprimait 2,2068.)
+
+  2. CONFIGURATION RÉSOLUE — les trois lignes de codebook, recopiées :
+       leech0c13 → 0 gain bits, shell ≤ 13, levels ≤ 5, 383 classes, 48 bits/block
+       leech1c12 → 1 gain bit,  shell ≤ 12, levels ≤ 5, 301 classes, 48 bits/block
+       leech2c11 → 2 gain bits, shell ≤ 11, levels ≤ 5, 222 classes, 48 bits/block
+     Et les blocs de configuration des trois logs sont IDENTIQUES hors codebook
+     (vérifié par `diff` ligne à ligne).
+
+  3. BASELINE FP32 — exigée 19,5038, ne dépend pas du codebook :
+       19.5038 aux trois bras. Le harnais n'a pas dérivé.
+
+  4. `fast-linalg` EFFECTIF — l'avertissement « compilé SANS » est absent des
+     trois logs, et le binaire porte 54 symboles `faer` (0 avant reconstruction).
+     ⚠️ RÉSERVE, ET ELLE EST DÉCLARÉE PLUTÔT QUE LISSÉE : le §4.4 exigeait une
+     factorisation « sous ~5 % » du profil par phase. Mesuré : 8,7 % · 9,4 % ·
+     9,6 %. Le seuil numérique n'est PAS atteint.
+       · Ce qui est établi malgré tout : la feature est bien active (trois
+         signes indépendants — avertissement absent, symboles faer, et la
+         factorisation qui tombe de 43,3 % à ~9 %, soit ×4,8).
+       · Mécanisme du défaut : le « ÷40 » d'où venait le ~5 % est repris d'un
+         commentaire qui chiffre la factorisation d'UNE COUCHE (28,4 s → 0,7 s),
+         pas celle d'un run entier. Le vrai facteur ici est ~4,8. La même erreur
+         explique l'estimation de durée du §9 (« ~20 min/bras » contre 27-30
+         mesurées).
+       · Effet sur le verdict : NUL. Les deux chemins de factorisation sont
+         bit-identiques par construction (`both_factorizations_agree`) ; ce
+         contrôle portait sur la confiance à accorder aux DURÉES, pas aux
+         perplexités.
+       · Un pré-enregistrement tamponné ne s'édite jamais : cet écart est
+         consigné ici et dans proofs/README.md, pas dans le document scellé.
+
+
+RÉSULTATS — baseline FP32 = 19,5038 aux trois
+
+  bras            gain  boule  classes   ppl LLVQ   dégradation   vs témoin   durée
+  ------------------------------------------------------------------------------------
+  leech0c13         0     13      383     39,3309      ×2,017       −9,56 %    30 min
+  leech1c12 ←       1     12      301     43,4865      ×2,230        (témoin)  27 min
+  leech2c11         2     11      222     39,5350      ×2,027       −9,09 %    27 min
+
+  ← `leech1c12` est le codebook SERVI, celui du 4B publié.
+  Durées : segment de quantification 1805 / 1602 / 1622 s.
+
+
+VERDICT — RÈGLE DU §5.1, APPLIQUÉE TELLE QU'ÉCRITE
+
+  Seuil de kill : b ≤ 1,02 × a, avec a = 43,4865 → seuil = 44,3562.
+
+    leech0c13   39,3309 ≤ 44,3562   →  ✅ VERT
+    leech2c11   39,5350 ≤ 44,3562   →  ✅ VERT
+
+  Les deux candidats passent. Issue §6 « Les deux VERTS » : run 4B des deux,
+  sur go séparé de l'opérateur.
+
+  🚨 CE QUE CE VERT NE DIT PAS, et le §0.1 l'avait posé d'avance : « un bras
+  vert n'est pas un bras meilleur, c'est un bras qui a le droit d'être mesuré
+  au 4B ». Le gate est un filtre de destruction. Il ne peut RIEN adopter.
+
+
+CE QUI N'ÉTAIT PAS PRÉDIT, ET QU'IL FAUT REGARDER EN FACE
+
+  Le §10 portait une prédiction signée : « les deux candidats passent le gate ».
+  Elle est vérifiée. Mais elle n'annonçait pas l'amplitude, et l'amplitude est
+  grande : les deux candidats rendent ~9,5 % de perplexité EN MOINS que le
+  codebook servi, à débit strictement identique.
+
+  Et la forme est inattendue : le témoin est le PIRE des trois. Le classement
+  n'est ni monotone en taille de boule, ni monotone en bits de gain — il est
+  en U, les deux configurations « spécialisées » (tout en direction, ou le
+  maximum en magnitude) battant celle qui partage. Aucun mécanisme n'est
+  revendiqué ici pour l'expliquer.
+
+  Ce que dit le repère gaussien, et il pointe dans l'autre sens : au banc G4
+  sur source gaussienne, `norm(Λ₂₄(12))` + 1 bit de gain rend 92,14 % de
+  rétention contre 88,90 % pour `norm(Λ₂₄(13))` + 0 bit — donc le témoin y est
+  MEILLEUR. Le dossier avait posé la réserve d'avance (§6 de CLAUDE.md, section
+  coquille unique) : « À revérifier sur de vrais poids après la boucle GPTQ —
+  les poids ne sont pas gaussiens et le GPTQ déforme leur distribution. »
+  C'est exactement ce que ce gate observe.
+
+  QUATRE RÉSERVES SUR CE −9,5 %, dans l'ordre de ce qui pourrait le tuer :
+
+  R1. UN SEUL TIRAGE DE CALIBRATION (C4 du pré-enregistrement). F5 a mesuré
+      σ = 5,2 % entre graines au 4B. L'effet observé vaut 1,8 σ de cette
+      dispersion-là. ⚠️ Les trois bras PARTAGENT la graine, donc la comparaison
+      est déterministe et contrôlée en interne — le σ de F5 borne la variation
+      du NIVEAU, pas celle de la DIFFÉRENCE, et personne n'a jamais mesuré la
+      seconde. C'est la réserve qui décide si ce résultat tient, et elle se
+      lève pour ~90 min et 0 $ : rejouer les trois bras à une autre graine.
+
+  R2. LE GATE EST UN PROXY (C5). Deux précédents de ce dossier montrent un
+      proxy local meilleur prédisant une composition pire — mais tous deux
+      RELÂCHAIENT la rigidité de norme, ce que ce mécanisme ne fait pas. Ici
+      le proxy est à pleine profondeur (28 blocs sur 28), ce qui était
+      justement la parade à ces deux précédents.
+
+  R3. C'EST UNE PERPLEXITÉ, PAS UNE CAPACITÉ (§0.2). Le §3ter établit que le
+      2 bits abîme le raisonnement bien plus que la restitution, et que c'est
+      la restitution qu'un corpus de perplexité mesure surtout. Rien ici ne
+      dit ce que MMLU ferait — c'est précisément l'objet de l'étage 2.
+
+  R4. LE BRAS `leech2c11` REPOSE SUR DES ASSERTIONS ÉCRITES LE JOUR MÊME
+      (C3). La coquille 11 n'était couverte par AUCUN test du workspace avant
+      le 2026-08-25 ; trois assertions ont été ajoutées et prouvées létales par
+      mutation (commit b55c387), mais un test écrit le jour du code qu'il garde
+      partage ses angles morts. Le bras `leech0c13`, lui, tourne sur la boule 13
+      qui est le défaut historique du parseur et de loin le chemin le plus
+      exercé.
+
+  ⚠️ ET UNE COMPARAISON À NE PAS FAIRE : le 35,9806 du bras A du gate du
+  2026-08-07 n'est PAS un quatrième point de cette table. Autre codebook
+  (`leech` = boule 13 + 1 bit de gain), autre débit (49 bits/bloc, 2,2068
+  b/poids), et le binaire a changé trois fois depuis. Le §10 du
+  pré-enregistrement l'avait déclaré d'avance.
+
+
+CE QUE CE GATE A COÛTÉ
+
+  0 $. 86 min de Mac. Plus les prérequis : rapatriement de Qwen3-0.6B (1,4 Go,
+  absent de la machine) et une reconstruction du binaire avec `fast-linalg`.
+
+
+SUITE, TELLE QUE LE §6 LA POSE
+
+  Issue atteinte : « Les deux VERTS → run 4B des deux, sur go séparé ».
+  ⚠️ Recommandation de l'auteur, qui n'est pas une issue pré-enregistrée : lever
+  R1 AVANT de dépenser ~24 h de machine sur l'étage 2. Rejouer les trois bras à
+  une seconde graine de calibration coûte ~90 min et 0 $, et c'est la seule des
+  quatre réserves qui peut retourner le signe du résultat. Cela demande son
+  propre pré-enregistrement — le document du 2026-08-25 fixe un tirage, et il
+  est scellé.
