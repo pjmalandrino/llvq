@@ -1,0 +1,75 @@
+modèle : Qwen/Qwen3-0.6B   échantillon : 3000 blocs par (matrice, boule)
+cos θ = ⟨w, û⟩ / ‖w‖ — û étant la direction que la recherche angulaire retient.
+Le code de gain quantifie ‖w‖ ; l'optimum à direction fixée est ‖w‖·cos θ.
+Le surcoût systématique est donc 1/cos θ − 1, en pour-cent.
+
+── model.layers.0.mlp.gate_proj.weight  (3072×1024) — 3000 blocs échantillonnés
+   boule  classes   cos θ moyen   p1        p50       p99       surcoût 1/cosθ−1
+      13      383   0.967192      0.961455  0.966710  0.977137   +3.392 %
+      12      301   0.964373      0.958074  0.963873  0.974839   +3.694 %
+      11      222   0.961008      0.954364  0.960380  0.972521   +4.057 %
+      10      168   0.957023      0.949604  0.956512  0.969924   +4.491 %
+
+── model.layers.13.mlp.gate_proj.weight  (3072×1024) — 3000 blocs échantillonnés
+   boule  classes   cos θ moyen   p1        p50       p99       surcoût 1/cosθ−1
+      13      383   0.967214      0.961302  0.966851  0.976135   +3.390 %
+      12      301   0.964314      0.957946  0.963916  0.974426   +3.701 %
+      11      222   0.960967      0.954122  0.960412  0.971856   +4.062 %
+      10      168   0.957163      0.949236  0.956587  0.969737   +4.475 %
+
+── model.layers.27.mlp.down_proj.weight  (1024×3072) — 3000 blocs échantillonnés
+   boule  classes   cos θ moyen   p1        p50       p99       surcoût 1/cosθ−1
+      13      383   0.967193      0.961464  0.966775  0.976492   +3.392 %
+      12      301   0.964330      0.958023  0.963797  0.974553   +3.699 %
+      11      222   0.961065      0.954474  0.960526  0.971795   +4.051 %
+      10      168   0.956994      0.949414  0.956333  0.969472   +4.494 %
+
+
+
+═══ LECTURE — le confondant est réel, petit, monotone, et de MAUVAIS SIGNE ═══
+
+Rappel du confondant, relevé après coup et absent des C1-C7 du pré-enregistrement :
+le code de gain quantifie ‖w‖, alors que la magnitude qui minimise ‖w − a·û‖²
+à direction û fixée est la PROJECTION ⟨w, û⟩ = ‖w‖·cos θ. Coder la norme
+surestime donc de 1/cos θ sur chaque bloc. La crainte : θ grandit quand la
+boule rétrécit, donc le biais bougerait AVEC le bras testé.
+
+MESURÉ (3 000 blocs par couple, trois matrices de trois formes et trois
+profondeurs — les trois tables se reproduisent au millième) :
+
+  boule   classes   cos θ moyen   surcoût 1/cos θ − 1
+    13      383      0,9672          +3,39 %
+    12      301      0,9643          +3,69 %
+    11      222      0,9610          +4,06 %
+    10      168      0,9570          +4,49 %
+
+TROIS CONSTATS.
+
+1. LE BIAIS EXISTE, ET SUR TOUS LES BRAS. Chaque bloc est reconstruit 3,4 à
+   4,5 % trop long, y compris dans la configuration servie. C'est une
+   inefficacité de conception présente partout, pas un défaut d'un bras.
+
+2. IL BOUGE AVEC LA BOULE, MAIS PEU. L'étendue entre le meilleur et le pire
+   bras est de 1,10 point de pourcentage. La crainte « le biais est confondu
+   avec le bras » est donc fondée dans son principe et faible dans son
+   amplitude.
+
+3. 🚨 ET IL EST DE MAUVAIS SIGNE POUR L'ANOMALIE. Le biais est strictement
+   monotone en taille de boule — 13 < 12 < 11 < 10 — donc il prédit l'ordre
+   c13 < c12 < c11 < c10. Or la perplexité mesurée ordonne c13 < c11 < c12 <
+   c10. **Le biais dit que c12 devrait battre c11 ; c'est l'inverse qui est
+   mesuré.** Il ne peut donc pas expliquer l'inversion 1↔2 bits, qui est
+   précisément l'anomalie sans mécanisme.
+
+CE QUE ÇA CHANGE. Le confondant cesse d'être une explication candidate de
+l'anomalie : il ne l'explique pas, et il pousse dans l'autre sens. Il reste (a)
+une réserve légitime sur les NIVEAUX absolus, tous décalés de ~3,4-4,5 %, et
+(b) une piste de qualité gratuite indépendante de tout ce dossier — coder la
+projection au lieu de la norme supprimerait un surcoût systématique de ~3,7 %
+sur la configuration servie.
+
+⚠️ CE QUE CE DIAGNOSTIC NE DIT PAS. Il mesure l'angle entre un bloc et la
+direction retenue, sur des poids BRUTS. Dans la boucle GPTQ les poids présentés
+au quantifieur sont déjà compensés par les blocs précédents ; rien ici ne dit
+que cos θ y a la même distribution. Et aucun de ces chiffres n'est une
+perplexité.
