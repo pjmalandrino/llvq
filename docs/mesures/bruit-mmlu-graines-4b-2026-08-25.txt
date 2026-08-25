@@ -1,0 +1,155 @@
+================================================================================
+LE BRUIT DE MMLU ENTRE TIRAGES DE CALIBRATION, AU 4B
+2026-08-25 (soir) · job 6a8df15645686a1580c087ea · l40sx1 · 20 min · 0,60 $
+Pré-enregistrement : proofs/preregistration-bruit-mmlu-graines-2026-08-25.md
+                     (sha256 c97e1abf…, tamponné AVANT le lancement)
+Dumps : bucket bruit-mmlu-graines-2026-08-25/mmlu-s{1,2,3}.csv
+================================================================================
+
+OBJET. F5 (2026-08-19) a produit trois artefacts 4B complets aux graines de
+calibration 1/2/3 et n'a mesuré que leur PERPLEXITÉ. Le bruit MMLU
+correspondant n'avait jamais été mesuré, à aucune taille. C'est le chiffre dont
+dépendait la lisibilité de l'échelle de volume de calibration.
+
+Les trois fichiers scellés ont été retrouvés dans le bucket : 0,60 $ au lieu des
+~21 $ d'une requantification. Quatrième fois que la règle des canaux de
+rétention paie.
+
+--------------------------------------------------------------------------------
+CONTRÔLES — les quatre du §3 passent
+--------------------------------------------------------------------------------
+  empreinte de tokens   65dcd53655e8bfa5 sur les trois bras          ✓
+  taille des fichiers   1 770 528 125 octets exactement sur les trois ✓
+  questions scorées     2 280 / 14 042, 57 matières, sur les trois    ✓
+  dumps par question    écrits sur les trois                          ✓
+
+--------------------------------------------------------------------------------
+LES TROIS CHIFFRES
+--------------------------------------------------------------------------------
+  graine 1    MMLU micro = 58,02 %  ± 1,34   (ppl F5 : 16,7425)
+  graine 2    MMLU micro = 52,19 %  ± 1,34   (ppl F5 : 15,8836)
+  graine 3    MMLU micro = 55,17 %  ± 1,34   (ppl F5 : 15,1027)
+
+  moyenne 55,13 %  ·  étendue 5,83 pp  ·  s = 2,92 pp (n = 3, écart-type
+  d'échantillon ; 2,38 en diviseur n — les deux au-dessus de 2,0)
+
+⚠️ LE ± 1,34 N'EST PAS s. C'est l'erreur d'échantillonnage d'un bras seul sur
+   2 280 questions. s mesure autre chose : ce que change le TIRAGE DU TEXTE DE
+   CALIBRATION. Les deux se composent, ils ne se substituent pas.
+
+--------------------------------------------------------------------------------
+CE NE SONT PAS DES ERREURS DE MESURE : DEUX PAIRES SUR TROIS SONT RÉSOLUES
+--------------------------------------------------------------------------------
+bin/mmlupair sur les dumps, McNemar exact + bootstrap apparié stratifié par
+matière (10 000 tirages, graine 0xb0075eed, correction de population finie) :
+
+  paire      Δ micro     McNemar p     IC95 apparié          verdict
+  ------------------------------------------------------------------------
+  g1 − g2    +5,83 pp    2,378e-6      [+2,75 ; +8,93]       ✅ RÉSOLU
+  g2 − g3    −2,97 pp    0,0032        [−5,75 ; −0,11]       ✅ RÉSOLU
+  g1 − g3    +2,86 pp    0,0584        [−0,04 ; +5,81]       ❌ à la limite
+
+  (g1−g2 : 374 A✓B✗ contre 255 A✗B✓, 27,6 % de discordantes. La matière qui
+   porte le plus l'écart est professional law, +15,0 pp × poids 10,9 %.)
+
+Ce sont donc TROIS MODÈLES RÉELLEMENT DIFFÉRENTS, pas trois mesures du même.
+C'est le résultat de F5 sur la perplexité, répliqué sur MMLU.
+
+--------------------------------------------------------------------------------
+CONTRÔLE QUI COMPTE : LE CHIFFRE PUBLIÉ N'EST PAS BIAISÉ, IL EST UN TIRAGE
+--------------------------------------------------------------------------------
+  moyenne des trois graines   55,13 %
+  artefact publié             55,59 %      écart −0,46 pp
+
+Le point publié est un échantillon honnête de la distribution. Ce qui change,
+ce n'est pas sa valeur, c'est ce qu'on sait de son incertitude.
+
+⚠️ Et il n'est PAS un quatrième tirage : il a tourné en PRÉFIXE CONTIGU quand
+   les trois graines tirent des offsets aléatoires. Même réserve que F5 sur la
+   perplexité. Ce qui est propre est l'étendue ENTRE LES TROIS.
+
+--------------------------------------------------------------------------------
+LA RÈGLE PRÉ-ENREGISTRÉE FIRE, ET ELLE DIT NON
+--------------------------------------------------------------------------------
+§5 du pré-enregistrement, écrit avant de voir le chiffre :
+
+    s ≤ 1,0 pp          → bras volume unique à ×8
+    1,0 < s ≤ 2,0 pp    → bras volume unique à ×32
+    s > 2,0 pp          → ON NE LANCE PAS, le design est à repenser
+
+  s = 2,92 pp  →  TROISIÈME BRANCHE.  Aucun barreau n'est lancé.
+
+Le motif est arithmétique et il ne se négocie pas : un bras unique contre un
+témoin unique devrait dépasser ~2s ≈ 5,8 pp pour être lu. Or l'écart TOTAL que
+l'expérience cherche — notre déficit MMLU contre le papier — vaut 5,11 pp. Le
+design ne peut donc rien détecter de plus petit que l'intégralité de l'effet
+recherché. Il est mort comme spécifié.
+
+⚠️ s majore le bruit d'un bras volume (tirages indépendants ici, préfixes
+   emboîtés là-bas). La règle a été écrite en le sachant, et elle a été écrite
+   AVANT. On ne la relâche pas maintenant qu'elle gêne.
+
+PRÉDICTION SIGNÉE : FAUSSE, POUR LA TROISIÈME FOIS DE LA JOURNÉE.
+   §6 : « s entre 0,5 et 1,5 pp », motivé par MMLU vu comme instrument grossier
+   et par le précédent du swap L≤4. Mesuré 2,92 — le double du haut de la
+   fourchette. Les deux autres prédictions fausses du jour : leech4c10 annoncé
+   entre 39 et 42 (mesuré 47,15) et « le classement tient » (il s'est inversé).
+
+--------------------------------------------------------------------------------
+CE QUE CE CHIFFRE OUVRE, ET QUI DÉPASSE L'EXPÉRIENCE QU'IL BLOQUE
+--------------------------------------------------------------------------------
+1. LA MOITIÉ DE NOTRE « ÉCART AU PAPIER » EST DANS NOTRE PROPRE DISPERSION.
+   Papier (Qwen3-4B, 2 bits, 0 bit de gain, sans FT) : MMLU 60,7.
+   Notre meilleur tirage : 58,02 — à 2,68 pp. Notre tirage publié : 55,59 — à
+   5,11 pp. L'écart publié vaut 1,75 s. Il n'est pas confortablement hors du
+   bruit de tirage.
+   ⚠️ Ceci ne dit PAS que l'écart est nul : le chiffre du papier est lui aussi
+   un tirage, d'incertitude inconnue. Ça dit que notre point n'est pas un point.
+
+2. TOUTES LES BARRES MMLU PUBLIÉES DU DOSSIER IGNORENT CETTE COMPOSANTE.
+   Les IC appariés publiés aux trois tailles mesurent l'échantillonnage
+   d'ÉVALUATION, pour UN artefact donné. Ils sont justes pour cet artefact. Ils
+   ne disent rien de ce qu'un autre artefact de la même méthode rendrait.
+   ⚠️ QUESTION OUVERTE, NON MESURÉE : la courbe d'échelle (−14,73 / −10,56 /
+   −6,85 pp) compare trois artefacts produits chacun UNE fois. Ils ont tous
+   tourné en préfixe contigu — donc le tirage est le MÊME par construction — et
+   on ne sait pas si l'erreur qu'il induit est corrélée d'une taille à l'autre.
+   Si elle ne l'est pas, le pas 4B→8B (6,96 pp, SE 1,82, p = 0,0001) verrait sa
+   SE monter vers ~4,4 et cesserait d'être résolu. CE CALCUL EST UNE
+   ILLUSTRATION, PAS UN RÉSULTAT : il suppose l'indépendance, qui n'est pas
+   établie. Ce qui trancherait est un jeu de graines à 8B ou 14B — non budgété.
+
+3. LA VARIANCE EST ELLE-MÊME UN SUJET, ET C'EST NEUF.
+   Un utilisateur reçoit UN modèle, pas la moyenne. Une méthode dont la qualité
+   se déplace de 5,83 pp selon la tranche de corpus qu'on lui a donnée à lire
+   est fragile, indépendamment de sa moyenne. Réduire cette dispersion est un
+   gain produit en soi — et c'est exactement ce que plus de texte devrait faire.
+   L'expérience de volume change donc d'objet : elle ne vise plus seulement la
+   MOYENNE, elle vise la DISPERSION.
+
+--------------------------------------------------------------------------------
+CE QU'UN REDESIGN DEVRAIT ÊTRE — non lancé, non pré-enregistré, à arbitrer
+--------------------------------------------------------------------------------
+Apparier PAR GRAINE plutôt que comparer deux points isolés.
+
+  - Les trois artefacts ×1 aux graines 1/2/3 existent et sont mesurés : la
+    moitié témoin du design est DÉJÀ PAYÉE.
+  - Trois runs à ×8 aux MÊMES graines donnent trois paires (même graine, deux
+    volumes), analysées question par question et POOLÉES : 3 × 2 280 = 6 840
+    observations appariées, là où le design bloqué en avait 2 280 non appariées.
+  - `window_starts` (smoke.rs:416) tire une suite SplitMix64 séquentielle sur un
+    `span` constant, donc à graine fixe les 64 premières fenêtres sont un
+    PRÉFIXE des 512 : les paires sont emboîtées, pas seulement homonymes.
+
+  Coût *estimé* : 3 × 2,9 h ≈ 8,7 h, ~24 $ (+0,5 $ de MMLU). Variante à deux
+  graines : 5,8 h, ~16 $, 4 560 paires.
+
+🚨 ET UN PLAFOND DE CODE QUE LE PRÉ-ENREGISTREMENT DU VOLUME N'AVAIT PAS VU.
+   `smoke.rs:876` appelle `c4_calibration(8_000_000)` — 8 M de CARACTÈRES en
+   dur, soit ~2 M de tokens. ×8 (1,05 M) passe ; ×32 (4,2 M) et ×96 (12,6 M)
+   NE RENTRENT PAS sans changer cette constante. Le contrôle §6.1 du
+   pré-enregistrement du volume (« le barreau se publie à son volume réel »)
+   aurait attrapé ça APRÈS avoir payé ; il est attrapé avant, pour 0 $.
+   ⚠️ Et changer la constante change `span`, donc DÉTRUIT l'emboîtement des
+   tirages à graine fixe : les artefacts ×1 existants cesseraient d'être des
+   témoins appariés. C'est un argument fort pour plafonner l'échelle à ×8.

@@ -39,51 +39,77 @@ code de gain quantifie `‖w‖` là où l'optimum à direction fixée est la
 projection `⟨w, û⟩`. ~3,7 % sur la configuration servie, de la géométrie pure,
 indépendant de tout tirage. **Piste de qualité gratuite, non traitée.**
 
-### Ce qui est en cours, et pourquoi
+### 🚨 Le résultat du soir : la piste est rouverte, et le premier test la BLOQUE
 
-Le résultat ci-dessus a rouvert une piste que le dossier donnait pour close.
 La borne qui avait enterré la calibration le 2026-08-06 (l'« oracle », −1,6 %)
-a été mesurée sur **3 blocs de Qwen3-0.6B**, en **perplexité**. Or notre
-déficit est sur **MMLU**, à la **taille publiée**. La piste n'a donc jamais été
-testée là où elle compte.
+portait sur **3 blocs de Qwen3-0.6B** et sur la **perplexité**. Notre déficit
+est sur **MMLU, à la taille publiée** : la piste n'avait jamais été testée là
+où elle compte. Le mécanisme se chiffre — sur `down_proj` du 4B la hessienne
+fait 9 728² et on l'estime sur 131 072 tokens, soit **13,5 exemples par
+dimension**, quand le papier amont en utilise ~96× plus.
 
-Le mécanisme se chiffre : sur `down_proj` du 4B, la hessienne fait 9 728² et on
-l'estime sur 131 072 tokens — **13,5 exemples par dimension**. Le papier amont
-en utilise ~96× plus.
+**Le job 1b a mesuré le plancher de bruit, et il est trop haut.**
+Journal [`mesures/bruit-mmlu-graines-4b-2026-08-25.txt`](mesures/bruit-mmlu-graines-4b-2026-08-25.txt),
+job `6a8df15645686a1580c087ea`, **0,60 $**. MMLU sur les trois artefacts 4B des
+graines F5, relus du bucket :
 
-| | | statut |
-|---|---|---|
-| **1b — bruit de MMLU entre tirages, au 4B** | job `6a8de89b984507d9db4e4664`, `l40sx1`, ~0,5 $ | 🔄 **lancé le 2026-08-25 au soir** |
-| **2 — échelle de volume de calibration** | ×8 → ×32 → ×96, `rtx-pro-6000` | ⏸️ **gaté sur la sortie de 1b** |
+| graine | MMLU micro | | paire | Δ | p | verdict |
+|---|---|---|---|---|---|---|
+| 1 | **58,02 %** | | g1 − g2 | +5,83 pp | 2,4e-6 | ✅ résolu |
+| 2 | **52,19 %** | | g2 − g3 | −2,97 pp | 0,0032 | ✅ résolu |
+| 3 | **55,17 %** | | g1 − g3 | +2,86 pp | 0,058 | ❌ limite |
 
-**1b** passe MMLU sur les trois artefacts 4B des graines F5, retrouvés dans le
-bucket (`f5-graines-2026-08-19/seed{1,2,3}/`) — **0,5 $ au lieu de ~21 $** de
-requantification. Quatrième fois que la règle des canaux de rétention paie.
-Il produit **s**, l'écart-type MMLU entre tirages, qui n'a jamais été mesuré
-(F5 n'avait chronométré que la perplexité).
+**Étendue 5,83 pp · s = 2,92 pp.** Deux paires sur trois sont **résolues** :
+ce sont trois modèles réellement différents, pas trois mesures du même. Contrôle
+qui compte : la moyenne des trois (55,13) est à **−0,46 pp** du chiffre publié
+(55,59) — le point publié n'est pas biaisé, il est **un tirage**.
 
-**2** est intégralement pré-enregistré et tamponné AVANT tout lancement :
+🚨 **La règle pré-enregistrée fire sur sa troisième branche : `s > 2,0 pp` → ON
+NE LANCE PAS.** Motif arithmétique et non négociable : un bras unique devrait
+dépasser ~2s ≈ 5,8 pp pour être lu, alors que l'effet cherché tout entier —
+notre écart MMLU au papier — vaut **5,11 pp**. Le design ne peut rien détecter
+de plus petit que l'intégralité de ce qu'il cherche. **Aucun barreau n'est
+lancé**, et la règle ne se relâche pas maintenant qu'elle gêne.
+
+**Trois choses que ce chiffre ouvre, et qui dépassent l'expérience qu'il bloque.**
+
+1. **La moitié de notre « écart au papier » est dans notre propre dispersion.**
+   Papier 60,7 · notre meilleur tirage **58,02** (−2,68) · notre tirage publié
+   55,59 (−5,11). L'écart publié vaut **1,75 s**. ⚠️ Ça ne dit pas qu'il est
+   nul — le chiffre du papier est lui aussi un tirage — ça dit que notre point
+   n'est pas un point.
+2. **Toutes les barres MMLU du dossier ignorent cette composante.** Les IC
+   appariés publiés mesurent l'échantillonnage d'**évaluation**, pour **un**
+   artefact. ⚠️ **Question ouverte, non mesurée** : la courbe d'échelle compare
+   trois artefacts produits chacun une fois. Le journal détaille ce qu'il
+   faudrait pour trancher (un jeu de graines à 8B ou 14B, non budgété) et
+   pourquoi le calcul naïf n'est **pas** un résultat.
+3. **La variance est elle-même un sujet.** Un utilisateur reçoit *un* modèle,
+   pas la moyenne. L'expérience de volume change d'objet : elle vise désormais
+   la **dispersion** autant que la moyenne.
+
+### Ce qu'un redesign devrait être — non lancé, non pré-enregistré
+
+**Apparier par graine** au lieu de comparer deux points isolés. Les trois
+artefacts ×1 aux graines 1/2/3 sont **déjà payés et mesurés** ; trois runs à ×8
+aux mêmes graines donneraient **6 840 observations appariées** au lieu de 2 280
+non appariées. `window_starts` (`smoke.rs:416`) tire une suite SplitMix64
+séquentielle sur un `span` constant, donc à graine fixe les 64 premières
+fenêtres sont un **préfixe** des 512 : les paires seraient emboîtées.
+
+*Estimé* : 3 × 2,9 h ≈ **8,7 h, ~24 $**. Variante à deux graines : 5,8 h, ~16 $.
+
+🚨 **Et un plafond de code que le pré-enregistrement du volume n'avait pas vu** :
+`smoke.rs:876` appelle `c4_calibration(8_000_000)` — **8 M de caractères en
+dur**, ~2 M de tokens. **×8 passe ; ×32 et ×96 ne rentrent pas** sans changer
+cette constante — ce qui changerait `span` et **détruirait l'emboîtement** des
+tirages, donc le statut de témoin apparié des artefacts existants. Argument fort
+pour plafonner l'échelle à ×8. Attrapé pour 0 $, avant de payer.
+
+Le pré-enregistrement des trois barreaux
 [`proofs/preregistration-volume-calibration-2026-08-25.md`](../proofs/preregistration-volume-calibration-2026-08-25.md)
-(sha256 `33fd4932…`). Une seule variable, préfixes **emboîtés** ×1 ⊂ ×8 ⊂ ×32 ⊂
-×96 du même texte C4, témoin déjà payé (l'artefact publié, MMLU 55,59), cinq
-contrôles, et une règle d'arrêt qui borne le pire cas à **deux barreaux et
-~19 $**.
-
-🚨 **Le barreau de départ N'EST PAS AU CHOIX** — il est décidé par `s` :
-
-| | départ |
-|---|---|
-| `s ≤ 1,0 pp` | **×8** (2,9 h, ~8 $) |
-| `1,0 < s ≤ 2,0 pp` | **×32** (3,8 h, ~11 $) — ×8 serait illisible |
-| `s > 2,0 pp` | **aucun** — le design est à repenser |
-
-Coûts et durées *estimés* par un modèle calibré sur le profil mesuré du 4B
-(222,5 s fixes par bloc + 4,06 s par bloc et par unité de volume), qui
-**reproduit à ×1 les 155 min facturés** — c'est sa seule validation.
-
-⚠️ **Une inconnue reste, dans les contrôles** : le shard C4 a-t-il ~50 Mo de
-caractères pour ×96 ? `smoke` imprime ce qu'il a réellement lu ; si ça
-plafonne, le barreau se publie **à son volume réel**. Sans effet sur ×8 ni ×32.
+reste tamponné et **non consommé** : il n'a servi à rien lancer, et son §4 est
+ce qui a bloqué le lancement.
 
 ### Deux choses qui n'appartiennent qu'à l'opérateur
 
