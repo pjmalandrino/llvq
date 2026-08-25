@@ -241,3 +241,80 @@ précaution, c'est la mesure qui décide s'il y a un résultat.
 
 Le job B du même pré-enregistrement la pose : les QUATRE bras à
 `LLVQ_CALIB_SEED=1`, ~2 h, 0 $, go séparé.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ADDENDUM 2 — LA CONFIGURATION SERVIE N'A AUCUN RÉSULTAT LLM, NULLE PART
+═══════════════════════════════════════════════════════════════════════════════
+
+Vérification sur pièces (PDF re-rendu par image, recette du §1 de CLAUDE.md ;
+Tables 1, 4, 5, 6, 7, 8, 9, 10 et annexes C, D, G, I relues).
+
+1. LES CONFIGURATIONS LLM DU PAPIER SONT DEUX, ET LA NÔTRE N'EN EST PAS.
+   « 0 bit de gain » = Λ₂₄(13) + 0 · « 2 bits de gain » = Λ₂₄(11) + 2.
+   Établi DEUX fois : forcé par l'arithmétique (48 bits d'index ⇒ cap 13 ;
+   46 ⇒ cap 11), ET lu dans la colonne « Code » de la Table 8, qui apparie
+   chaque compte de gain à une boule nommée avec sa décomposition de débit
+   (2,00000+0,00000 · 1,95833+0,04167 · 1,91667+0,08333 · 1,83333+0,16667).
+   `cap12 + 1 bit` — CE QUE NOUS SERVONS — n'apparaît dans AUCUNE table LLM
+   (4, 5, 6, 9, 10 recensées une à une). Elle n'existe que dans la Table 8,
+   table de distorsion sur SOURCE GAUSSIENNE, où elle est le meilleur point.
+
+2. ET SUR QUATRE MODÈLES SUR CINQ, LE 0 BIT DE GAIN GAGNE LES TROIS MÉTRIQUES.
+   Table 6, sans fine-tuning, 0 bit contre 2 bits (Wiki↓ / MMLU↑ / CSR↑) :
+     Llama-2 7B     6,48/35,4/66,5  contre  6,83/34,9/64,6   → 0 bit gagne
+     Llama-3 8B     8,50/52,6/69,3  contre  9,35/48,7/66,4   → 0 bit gagne
+     Ministral-3 8B 8,11/58,4/72,2  contre  8,56/56,6/71,3   → 0 bit gagne
+     Qwen-3 8B     10,19/69,3/70,2  contre 10,82/67,2/69,9   → 0 bit gagne
+     Qwen-3 4B     17,05/60,7/63,6  contre 15,54/59,3/64,1   → 2 bits gagne ppl et CSR
+   🕳️ Le dossier écrivait « Table 6 → optimum 2 bits en perplexité ». C'est vrai
+   AU 4B SEULEMENT, et c'est l'exception des cinq. Avec fine-tuning, le 0 bit
+   reprend même la perplexité au 4B (9,26 contre 9,51).
+
+3. NOTRE CHOIX EST HÉRITÉ D'UN RAISONNEMENT RÉTRACTÉ LE LENDEMAIN.
+   Décision du 2026-07-30 : « plafonner à Λ₂₄(12) fait tomber l'index de 48 à
+   47 bits, ce qui paie le bit de gain au même débit total ». Le 2026-07-31,
+   `docs/archive/retraction-et-gain.md` établit que la rétraction sphérique
+   annulait alors le bit de gain — « le cap n'a donc rien payé ». Le mécanisme
+   a été corrigé ; **la configuration n'a jamais été ré-arbitrée**.
+
+4. CE QUE ÇA COÛTERAIT D'EN CHANGER — moins que ce que le dossier supposait.
+   L'archive v1 est générique et `leech0c13` fait les mêmes 48 bits/bloc, donc
+   même taille de fichier ; le stride de 14 o et les 5,162 b/param sont
+   invariants pour tout g ≤ 7 ; aucune raison d'alignement ne favorise 1 bit.
+   Servir `leech0c13` en gelant le champ de gain à zéro se réduirait à deux ou
+   trois sites Rust. Le coût réel est ailleurs : requantifier, republier
+   l'artefact HF, et un papier soumis dont l'intro, le décodeur, les layouts et
+   l'évaluation portent tous « 47-bit index + 1 gain bit ».
+
+🚨 DEUX RÉSERVES QUI PEUVENT TUER CETTE LECTURE, ET ELLES SONT SÉRIEUSES
+
+R5. LE « 0 BIT DE GAIN » DU PAPIER NE COÛTE PEUT-ÊTRE PAS 0 BIT. L'Algorithme 3
+    (p. 24) se termine par un raffinement où `s_i ← (M_i + λI)⁻¹ r_i` porte
+    **une valeur par (ligne, BLOC)**, puis `W̃_{i,Q_p} ← s_i[p]·W̃_{i,Q_p}`.
+    Un scalaire par 24 poids occupe EXACTEMENT le créneau qu'un code de gain
+    occuperait, et le papier ne le facture jamais (son « < 0,001 bit/poids »
+    porte sur les échelles par colonne du fine-tuning). C'est très précisément
+    l'erreur de comptabilité que notre propre §6 a commise et rétractée en
+    juillet. ⚠️ Et nous, nous tournons `nogs` — group scales DÉSACTIVÉES. Si
+    leur 0 bit inclut ce raffinement, leur configuration et la nôtre ne sont
+    pas la même chose.
+
+R6. LE VERDICT 0 ↔ 2 BITS S'INVERSE SELON LA CORRECTION. La Table 10 le montre
+    entre GPTQ euclidien et Spherical GPTQ, et la Table 6 ne déclare PAS
+    laquelle ses lignes LLVQ utilisent.
+
+⚠️ ET UN CONFONDANT QUE LE PRÉ-ENREGISTREMENT N'AVAIT PAS LISTÉ (ni C1 à C7)
+    Le code de gain quantifie ‖w‖, alors que l'optimum à direction fixée est la
+    PROJECTION ⟨w, û⟩ = ‖w‖·cos θ. Biais radial systématique de 1/cos θ — et θ
+    croît quand la boule rétrécit, donc **le biais est confondu avec le bras**.
+    C'est exactement le défaut que le §A5 documente pour le banc G4. Un
+    rapporteur qui lit le code le trouve. À supprimer (coder la projection) ou
+    à mesurer avant toute publication.
+
+⚠️ ET LA PRÉMISSE « QUATRE CONFIGURATIONS » EST FAUSSE. En exécutant
+    `index_bits(cap)` pour cap ∈ [6,13] : il y a HUIT barreaux à 48 bits/bloc —
+    cap 9→42 bits (6 de gain), 8→40 (8), 7→38 (10), 6→36 (12). Nous avons
+    mesuré les quatre boules les plus grandes ; le papier s'arrête au même
+    endroit. La bonne phrase est « les quatre plus grandes », jamais « les
+    quatre ».
