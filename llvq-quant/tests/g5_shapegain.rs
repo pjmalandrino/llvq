@@ -155,6 +155,16 @@ fn index_width_follows_the_shell_cap() {
     use llvq_quant::quantizer::index_bits;
     assert_eq!(index_bits(13), 48, "the full ball needs 48 bits");
     assert_eq!(index_bits(12), 47, "Λ24(12) fits in 47 — that pays the gain bit");
+    assert_eq!(index_bits(11), 46, "Λ24(11) fits in 46 — that pays a second gain bit");
+    // The three arms of the direction↔gain split must land on the same 48-bit
+    // budget, or the A/B is not at constant rate and compares nothing.
+    for (cap, gain_bits) in [(13u32, 0u32), (12, 1), (11, 2)] {
+        assert_eq!(
+            index_bits(cap) + gain_bits,
+            48,
+            "cap {cap} with {gain_bits} gain bits is not a 48-bit block"
+        );
+    }
     // Monotone, and never wider than the full ball.
     for c in 2..=13u32 {
         assert!(index_bits(c) <= 48);

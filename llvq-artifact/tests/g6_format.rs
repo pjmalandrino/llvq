@@ -90,6 +90,9 @@ fn a_matrix_survives_a_round_trip() {
         (4, 3 * DIM, 12, 2, Some(0xABCD_1234)),
         (3, 100, 12, 1, Some(7)), // 100 = 24·4 + 4, so there is a tail
         (5, 5 * DIM, 12, 4, None),
+        // Cap 11 with four gain levels: the 46-bit index arm of the
+        // direction↔gain split, which no round-trip covered.
+        (4, 4 * DIM, 11, 4, Some(0x0B11_0B11)),
     ] {
         let m = synthetic(&ix, &mut rng, "model.layers.0.self_attn.q_proj.weight", d_out, d_in, cap, gains, seed);
         let got = round_trip(&m);

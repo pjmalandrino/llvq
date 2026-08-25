@@ -130,6 +130,14 @@ fn codes_reconstruct_bit_for_bit_with_zero_gain_bits() {
 }
 
 #[test]
+fn codes_reconstruct_bit_for_bit_with_two_gain_bits() {
+    // The third arm of the 48-bit split: Λ24(11) costs 46 index bits, so two
+    // bits are left for the gain. Four levels had never been exercised through
+    // the GPTQ loop — only through the file format and the runtime layouts.
+    round_trip(4 * DIM, 11, 2, 0x6_A006);
+}
+
+#[test]
 fn codes_reconstruct_bit_for_bit_beside_a_tail() {
     // 100 = 24·4 + 4: the tail stays exact and is stored verbatim, but the
     // four coded blocks must still round-trip.
