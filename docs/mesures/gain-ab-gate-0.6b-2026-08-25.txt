@@ -158,3 +158,86 @@ SUITE, TELLE QUE LE §6 LA POSE
   quatre réserves qui peut retourner le signe du résultat. Cela demande son
   propre pré-enregistrement — le document du 2026-08-25 fixe un tirage, et il
   est scellé.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ADDENDUM — LE QUATRIÈME BARREAU (job A), 2026-08-25 16:47 → 17:19
+═══════════════════════════════════════════════════════════════════════════════
+
+Pré-enregistrement : proofs/preregistration-bits-de-gain-suite-2026-08-25.md
+  sha256 99d30d6f71431121bef691ef266d7e900026b1ecc85fb2fac9fc795065cf3085
+  tamponné AVANT le lancement, commit 72419e6. Statut déclaré du bras :
+  POINT DE COURBE DESCRIPTIF, sans seuil ni verdict d'admission.
+
+CONTRÔLES — les quatre passent. Iso-débit 2,1656 (le même que les trois
+autres), baseline 19,5038, configuration résolue « leech4c10 → 4 gain bits,
+shell ≤ 10, levels ≤ 5, 168 classes, 48 bits/block », avertissement
+`fast-linalg` absent, factorisation à 9,7 % (sous les 15 % amendés).
+
+LA COURBE COMPLÈTE, quatre points, même tirage, même débit
+
+  bras           gain  boule  classes     ppl      dégr.    vs témoin
+  ---------------------------------------------------------------------
+  leech4c10        4     10      168    47,1537   ×2,418     +8,43 %
+  leech2c11        2     11      222    39,5350   ×2,027     −9,09 %
+  leech1c12 ←      1     12      301    43,4865   ×2,230      témoin
+  leech0c13        0     13      383    39,3309   ×2,017     −9,56 %
+
+  durée du job A : 1863 s de quantification, 31 min au total.
+
+
+🚨 LA PRÉDICTION SIGNÉE EST FAUSSE, ET C'EST LE PREMIER RÉSULTAT
+
+Le §6 du pré-enregistrement annonçait `leech4c10` « entre 39 et 42, donc sous
+le témoin mais pas sous `leech2c11` — c'est-à-dire que la branche se retourne
+et que l'optimum est autour de 2 bits de gain ». Mesuré : **47,1537**, hors de
+la fourchette par le haut, et **au-dessus du témoin**. C'est la troisième des
+trois formes énumérées au §4, celle qui était écrite mais pas attendue.
+
+
+🕳️ ET LA LECTURE EN « U » DE CE MATIN NE SURVIT PAS
+
+Le journal ci-dessus décrivait, sur trois points, « un classement en U, les
+deux configurations spécialisées battant celle qui partage ». **Le quatrième
+point la démolit** : la configuration la PLUS spécialisée du côté magnitude
+(4 bits de gain) est la pire des quatre, pas la meilleure. Le U était un
+artefact de n = 3, et il aura vécu six heures.
+
+Ce que ça coûte de l'avoir écrit : rien, parce que le point qui le corrige
+coûtait 31 minutes et 0 $. Ce que ça aurait coûté sans lui : une histoire
+racontée sur trois points dans un papier.
+
+
+CE QUI SURVIT, ET C'EST PLUS SOLIDE QUE LE U
+
+Le classement mesuré n'est PAS désordonné. Confronté à l'échelle de la Table 8
+du papier amont (source gaussienne, rétention) :
+
+  mesuré ici (ppl, poids réels)  :  0c13  >  2c11  >  1c12  >  4c10
+  Table 8 du papier (gaussienne) :  1c12  >  2c11  >  0c13  >  4c10
+
+  · `leech2c11` est DEUXIÈME dans les deux.
+  · `leech4c10` est DERNIER dans les deux.
+  · Le désaccord porte exactement sur UNE paire : `0c13` et `1c12`
+    s'échangent la première et la troisième place.
+
+Les deux extrémités de l'échelle s'accordent donc, et le renversement est
+localisé sur les deux configurations que le papier lui-même ne sépare que de
+trois points de rétention (92,14 % contre 89,12 %). Ce n'est pas du bruit
+généralisé : c'est un renversement précis, et il porte sur la configuration
+que nous servons.
+
+⚠️ Ce qui NE change pas : les deux bras qui battent le témoin le battent
+toujours de ~9,5 %, et le gate ne peut toujours RIEN adopter.
+
+
+CE QUE ÇA FAIT À R1
+
+R1 monte d'un cran. Sur trois points on pouvait croire à une forme ; sur
+quatre, ce qu'on a est un CLASSEMENT à un seul tirage de calibration, dont une
+paire est renversée par rapport à la seule référence externe disponible. La
+question « ce classement survit-il à un autre tirage ? » n'est plus une
+précaution, c'est la mesure qui décide s'il y a un résultat.
+
+Le job B du même pré-enregistrement la pose : les QUATRE bras à
+`LLVQ_CALIB_SEED=1`, ~2 h, 0 $, go séparé.
