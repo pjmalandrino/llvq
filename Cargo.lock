@@ -1812,7 +1812,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 
 [[package]]
 name = "llvq-artifact"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "llvq-core",
  "llvq-quant",
@@ -1821,7 +1821,7 @@ dependencies = [
 
 [[package]]
 name = "llvq-bench"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "llvq-artifact",
  "llvq-core",
@@ -1831,11 +1831,11 @@ dependencies = [
 
 [[package]]
 name = "llvq-core"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "llvq-cuda"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "cudarc 0.19.8",
  "llvq-artifact",
@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "llvq-llm"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -1868,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "llvq-metal"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "llvq-artifact",
  "llvq-core",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "llvq-quant"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "faer",
  "llvq-core",
@@ -1887,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "llvq-search"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "llvq-core",
 ]

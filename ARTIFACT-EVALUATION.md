@@ -24,10 +24,10 @@ nearest-neighbour search, bijective indexing, GPTQ, artifact format) has
 | Code | <https://github.com/pjmalandrino/llvq>, MIT OR Apache-2.0 |
 | Published model | <https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit> (Apache-2.0) |
 | Paper sources | `paper/`, builds with `make` |
-| Measurement journals | `docs/mesures/` (63 files) |
-| Figure/table data | `docs/data/*.csv` (10 files) |
-| Cost ledger | `docs/data/jobs.csv` (55 GPU jobs) |
-| Pre-registrations | `proofs/` (19 documents, 13 OpenTimestamps anchors) |
+| Measurement journals | `docs/mesures/` (69 files) |
+| Figure/table data | `docs/data/*.csv` (13 files) |
+| Cost ledger | `docs/data/jobs.csv` (73 rows; 68 carry a billed amount, $87.36 in total) |
+| Pre-registrations | `proofs/` (22 documents, 16 OpenTimestamps anchors) |
 
 ---
 
@@ -35,11 +35,15 @@ nearest-neighbour search, bijective indexing, GPTQ, artifact format) has
 
 ### Available — attainable
 
-The repository and the model are public and permanently addressable. The one
-gap for a strict reading of this badge: **neither GitHub nor Hugging Face is
-an archival host**, and no DOI has been minted. Depositing the reviewed
-revision on Zenodo is on the to-do list of `docs/plan-taco-2026-08-18.md`
-(item F6) and is not done at the time of writing.
+The repository and the model are public and permanently addressable. The
+revision this paper describes is tagged **`v0.0.1`**, so "the reviewed
+revision" names one commit rather than a moving branch; `CHANGELOG.md` states
+what that tag contains. The one gap for a strict reading of this badge:
+**neither GitHub nor Hugging Face is an archival host**, and no DOI has been
+minted — a tag is not an archival guarantee, only a stable name inside a host
+that could disappear. Depositing the reviewed revision on Zenodo is on the
+to-do list of `docs/plan-taco-2026-08-18.md` (item F6) and is not done at the
+time of writing.
 
 ### Functional — attainable, ~30 minutes, no GPU
 
