@@ -1286,6 +1286,21 @@ fn main() -> anyhow::Result<()> {
     println!("{:<21}ppl = {base:.4}", format!("baseline ({dt})"));
     println!("LLVQ 2-bit           ppl = {quant:.4}");
     println!("degradation          ×{:.3}", quant / base);
+    // Full precision, on its own line, for the one comparison the display
+    // lines above cannot serve: **two runs at the same seed must agree**.
+    //
+    // At ppl ≈ 20, `{:.4}` resolves 5e-6 relative — three orders too coarse to
+    // tell a faithful re-run apart from a backend that reordered a reduction.
+    // A variance study cannot start without that check, because a σ measured
+    // on a non-deterministic pipeline is the sum of two things and separates
+    // neither.
+    //
+    // A *new* line rather than widening the two above: `ops/manifest.py`
+    // matches declared values against `ppl = <number>` in a log, and the
+    // published numbers are quoted at four decimals. The label deliberately
+    // avoids that spelling so the manifest matcher cannot pick it up as a
+    // second candidate for the same claim.
+    println!("exact-ppl  baseline {base:.12e}  quantized {quant:.12e}");
     println!(
         "effective rate           = {:.4} bits/weight",
         report.bits_per_weight()

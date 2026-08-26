@@ -125,20 +125,89 @@ C4 s'établit au premier run et se fige ensuite.
 
 ---
 
-## Lot 1 — Étage 0, le gate à 0 $ (~1 h)
+## Lot 1 — Étage 0 : le gate à 0 $ (~1 h de Mac)
 
-Trois runs, et **la grille ne part pas avant qu'ils soient lus**.
+**Rien de la grille ne part avant que ces trois runs soient lus.** Ils tiennent
+en une heure et ils décident d'un chantier de 28 h.
 
-| run | ce qu'il pin |
+### Ce qu'il faut avant de lancer
+
+| | |
 |---|---|
-| `leech1c12` ×1 graine 1, **deux fois** | le **déterminisme** — Gate A |
-| `int3g24` ×1 graine 1 | le terme fixe du bras scalaire (~160 s *estimé*) |
+| machine | **le Mac** — cette boîte de session n'a ni Metal ni CUDA, un run y tomberait sur CPU et ne serait pas le protocole |
+| build | `cargo build --release -p llvq-llm --features metal --bin smoke` |
+| modèle | `Qwen/Qwen3-0.6B` en cache HF (sinon premier run = téléchargement) |
+| ✅ précision | `smoke` imprime depuis le 2026-08-26 une ligne `exact-ppl … {:.12e}` — **sans elle Gate A est inobservable**, les lignes d'affichage étant à `{:.4}`, soit 5·10⁻⁶ de résolution relative à ppl ≈ 20 |
 
-**Gate A** : deux runs à graine identique doivent rendre la même ppl à 1e-9
-relatif. **Si ça échoue, la grille ne part pas** — σ mélangerait la calibration
-et le non-déterminisme du backend, et aucune cellule ne serait interprétable. Le
-chantier deviendrait alors une enquête sur le déterminisme, ce qui est un
-résultat aussi, et moins cher.
+### Les trois runs, verbatim
+
+```bash
+D=docs/mesures/variance-etage0-$(date +%Y-%m-%d) && mkdir -p $D
+export LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_CALIB=c4 LLVQ_THREADS=12 LLVQ_CALIB_SEED=1
+
+# A1 et A2 — le MÊME run, deux fois. Gate A.
+target/release/smoke 64 2048 73 2048 metal nogs leech1c12 999 rot 2>&1 | tee $D/a1-leech-s1.txt
+target/release/smoke 64 2048 73 2048 metal nogs leech1c12 999 rot 2>&1 | tee $D/a2-leech-s1.txt
+
+# A3 — le terme fixe du bras scalaire, seul nombre encore estimé du modèle de coût.
+target/release/smoke 64 2048 73 2048 metal nogs int3g24  999 rot 2>&1 | tee $D/a3-int3g24-s1.txt
+```
+
+Ordre des positionnels : `n_calib calib_len n_eval eval_ctx device mode codebook
+limit rot`. `999` est la sentinelle « tous les blocs » (28 au 0.6B).
+
+### Ce qu'on lit, dans l'ordre
+
+**1. Gate A — le déterminisme.** Comparer la ligne `exact-ppl` de `a1` et `a2` :
+
+```bash
+grep '^exact-ppl' $D/a1-leech-s1.txt $D/a2-leech-s1.txt
+```
+
+- ✅ **Chiffres identiques** → le pipeline est déterministe, toute la variance
+  observée dans la grille est de la calibration. La grille part.
+- ❌ **Chiffres différents** → σ mélangerait deux sources et **aucune cellule
+  de la grille ne serait interprétable**. La grille ne part pas ; le chantier
+  devient une enquête sur le déterminisme — ce qui est un résultat aussi, et
+  bien moins cher que 28 h de runs illisibles.
+
+⚠️ **C'est la prédiction P1 du pré-enregistrement, et celle que je tiens pour la
+plus sûre — donc la plus coûteuse à rater.** Le seul doute réel est le backend :
+la boucle GPTQ est prouvée déterministe (`parallel_matches_serial_exactly` exige
+le découpage parallèle bit-identique au sériel), les graines de rotation
+dérivent d'une fonction pure, mais l'ordre de réduction d'un matmul Metal n'a
+jamais été vérifié ici.
+
+**2. Le terme fixe du bras scalaire.** Dans `a3`, le bloc `phases:` :
+
+```bash
+sed -n '/^phases/,/^$/p' $D/a3-int3g24-s1.txt
+```
+
+Le modèle de coût prédit **quantification ≈ 0** (la recherche de plus proche
+voisin sur le réseau disparaît, il ne reste qu'un arrondi), factorisation
+≈ 151 s, capture ≈ 100 s — soit **~4,4 min** contre 26,7 pour Leech. Si la
+quantification scalaire ne s'effondre pas, **le budget de la grille est faux** et
+le §4 du pré-enregistrement est à refaire avant de lancer 68 runs.
+
+**3. La baseline à 73 fenêtres — contrôle C4.** Les trois runs doivent imprimer
+la **même** ligne `baseline (f32) ppl = …`, et cette valeur devient la référence
+figée du contrôle. ⚠️ **Ce ne sera pas 19,5038** : ce chiffre est celui de **12**
+fenêtres à ctx 2048. La valeur à 73 s'établit ici et ne rebouge plus.
+
+**4. Le volume réellement lu — contrôle C2.** Chaque run doit porter
+`64 windows of 2048 = 131072 tokens (N available)`. À ×1 il n'y a aucun risque
+de plafond ; la ligne sert de témoin de forme avant que ×16 et ×32 la sollicitent
+vraiment.
+
+### Ce que le lot produit
+
+Un journal `docs/mesures/variance-etage0-<date>.txt` portant : le verdict de
+Gate A avec les deux `exact-ppl` côte à côte, le profil par phase du bras
+scalaire, la baseline à 73 fenêtres, et — s'il y a lieu — la correction du modèle
+de coût. Plus les trois logs bruts dans le même répertoire : c'est ce format qui
+a permis, trois jours après le gate du 2026-08-25, de retrouver un profil par
+phase que personne n'avait pensé à extraire.
 
 ---
 
