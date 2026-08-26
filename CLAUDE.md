@@ -99,16 +99,39 @@
 > et [`docs/plan-taco-2026-08-18.md`](docs/plan-taco-2026-08-18.md) — restent
 > lisibles pour la généalogie, **avec ce qu'ils portent de périmé**.
 >
-> 🧾 **Compteurs au 2026-08-25, et une dette qui touche l'argument de
-> vérifiabilité** : `docs/mesures/` **69 fichiers** · `docs/data/*.csv` **13** ·
-> `docs/data/jobs.csv` **73 lignes pour 87,36 $ facturés** au total (**28,56 $
-> depuis le 08-18**, 27 jobs) · `proofs/` **22 documents et 16 ancrages `.ots`**
-> (*mesuré*, `awk` sur le CSV et `grep` sur les `.ots`).
-> ⚠️ **Aucun des 16 `.ots` n'a jamais été upgradé** : chacun porte **4
-> `PendingAttestation`** (les quatre calendriers) et **0
-> `BitcoinBlockHeaderAttestation`**. Ce qui est posé est une **demande**
-> d'horodatage, pas encore une ancre Bitcoin — à dire tel quel partout où le
-> dossier revendique un pré-enregistrement vérifiable par un tiers.
+> 🧾 **Compteurs au 2026-08-26** : `docs/mesures/` **74 fichiers** ·
+> `docs/data/*.csv` **13** · `docs/data/jobs.csv` **73 lignes pour 87,36 $
+> facturés** au total (**28,56 $ depuis le 08-18**, 27 jobs) · `proofs/`
+> **28 documents et 20 ancrages `.ots`** (*mesuré*, `awk` sur le CSV,
+> `ots info` sur les `.ots`).
+>
+> 🕳️ **RENVERSEMENT — cette ligne a porté « Aucun des 16 `.ots` n'a jamais été
+> upgradé … 0 `BitcoinBlockHeaderAttestation` », et c'est MESURÉ FAUX le
+> 2026-08-26 : 16 des 20 tampons portent 3 ou 4 ancres Bitcoin.** Le défaut est
+> dans l'instrument, et il vaut d'être connu : le format `.ots` stocke le type
+> d'une attestation dans une **étiquette binaire de 8 octets**, jamais en texte
+> — donc `grep BitcoinBlockHeaderAttestation` rend **0 sur un fichier qui en
+> porte quatre**, et `grep PendingAttestation` rend **0** lui aussi. Le « 0 »
+> publié était la sortie de l'instrument ; le « 4 `PendingAttestation` », juste
+> par ailleurs, **n'a jamais été mesuré** — il a été inféré des quatre
+> calendriers puis présenté comme mesuré. Les quatre tampons réellement en
+> attente sont ceux du **2026-08-25**, trop récents pour être ancrés
+> ([`docs/mesures/ots-etat-2026-08-26.txt`](docs/mesures/ots-etat-2026-08-26.txt),
+> reproductible par `ops/otsaudit.py`).
+> ⚠️ **Ce que ce journal N'établit PAS** : les ancres sont lues **dans les
+> fichiers**, pas confrontées à la chaîne — la vérification complète exige un
+> nœud Bitcoin ou un explorateur, tous deux injoignables depuis la machine de
+> session (403 du proxy). Le journal imprime la **racine de Merkle engagée par
+> bloc**, exactement pour qu'un tiers fasse ce dernier pas en une commande.
+>
+> 🚨 **Et une dette RÉELLE apparaît là où celle-ci se referme : les préregs du
+> 08-10 et du 08-11 ne sont plus attestés par leur propre tampon.** §7 le savait
+> de mémoire ; c'est désormais machine-vérifiable, et le mécanisme est nommé —
+> la passe d'anonymisation TACO (`01fdbe6`, 2026-08-19) a réécrit leurs octets.
+> **La version attestée n'est récupérable nulle part** : les 128 blobs `.md` de
+> toute l'histoire git ont été hachés, aucun ne rend l'un des deux condensats
+> engagés. Ces deux tampons prouvent l'antériorité d'un texte que le dépôt ne
+> contient plus.
 >
 > ---
 >
@@ -2830,14 +2853,34 @@ casse la compatibilité des fichiers quantifiés (§4).
   journal B3 (la « graine 1000000 » qui était une sentinelle de blocs) et le
   journal F2 (l'erratum « aucun bras ne peut aller plus vite que `nullk` », cf.
   §3) ; le défaut inverse a été réalisé sur les préregs du 08-10 et du 08-11.
-  **(2)** Vérifié par `grep` le 2026-08-25 : `proofs/` porte **22 documents et
-  16 `.ots`**, et **les 16 portent chacun 4 `PendingAttestation`** (les quatre
-  calendriers) **et 0 `BitcoinBlockHeaderAttestation`** — **aucun n'a jamais
-  été upgradé**. Ce qui est posé est donc une **demande** d'horodatage : elle
-  prouve qu'un tiers a reçu l'empreinte à cette date, **pas** qu'elle est
-  ancrée dans une chaîne. Le dire tel quel partout où on écrit
-  « pré-enregistrement vérifiable », et faire un `ots upgrade` avant d'en faire
-  un argument devant un relecteur.
+  🕳️ **Et le « défaut inverse » ci-dessus n'était su que de mémoire : il est
+  MESURÉ depuis le 2026-08-26, et il est pire qu'écrit.** Les deux tampons
+  n'attestent plus de leur fichier — c'est la passe d'anonymisation TACO
+  (`01fdbe6`, 2026-08-19) qui a réécrit leurs octets, pas une correction de
+  fond — et **la version attestée n'est récupérable sous aucune révision** :
+  les 128 blobs `.md` de toute l'histoire git ont été hachés, aucun ne rend le
+  condensat engagé. Un tampon dont on a réécrit le document ne se répare pas ;
+  il se déclare.
+  **(2)** 🕳️ **Ce point a dit « les 16 portent 0 `BitcoinBlockHeaderAttestation`,
+  aucun n'a jamais été upgradé », vérifié par `grep` le 2026-08-25 — et c'est
+  FAUX : 16 des 20 tampons portent 3 ou 4 ancres Bitcoin** (mesuré le
+  2026-08-26 par `ots info`,
+  [`docs/mesures/ots-etat-2026-08-26.txt`](docs/mesures/ots-etat-2026-08-26.txt),
+  reproductible par `ops/otsaudit.py`). **Le `grep` ne pouvait pas le voir** :
+  le format `.ots` stocke le type d'attestation dans une **étiquette binaire de
+  8 octets**, donc le motif rend `0` sur un fichier ancré comme sur un fichier
+  en attente — et `grep PendingAttestation` rend `0` aussi, ce qui aurait dû
+  alerter, le « 4 » publié à côté ne venant alors d'aucune mesure. **La leçon
+  est celle du §5, sur un format au lieu d'un test : un instrument qui rend la
+  même valeur dans les deux cas ne mesure rien**, et il faut vérifier qu'il
+  sait distinguer avant de lui faire dire `0`.
+  **Ce qui reste vrai, et rétréci** : les **quatre** tampons du 2026-08-25 sont
+  encore en pure attente — pour eux, ce qui est posé est une **demande**
+  d'horodatage, pas une ancre. Un `ots upgrade` les règle. ⚠️ Et pour les
+  seize autres, le journal établit ce que **les fichiers portent**, pas que la
+  chaîne le confirme : la vérification complète exige un nœud ou un explorateur.
+  Les racines de Merkle engagées y sont imprimées par bloc pour qu'un tiers
+  ferme ce dernier pas.
 - 🔎 **Un journal de SYNTHÈSE est une perte irréversible ; garder la sortie
   brute.** Les campagnes 8B et 14B ont conservé leurs **NLL par fenêtre**, donc
   leurs neuf cellules de perplexité ont reçu un intervalle apparié le

@@ -138,6 +138,13 @@ en une heure et ils décident d'un chantier de 28 h.
 | build | `cargo build --release -p llvq-llm --features metal --bin smoke` |
 | modèle | `Qwen/Qwen3-0.6B` en cache HF (sinon premier run = téléchargement) |
 | ✅ précision | `smoke` imprime depuis le 2026-08-26 une ligne `exact-ppl … {:.12e}` — **sans elle Gate A est inobservable**, les lignes d'affichage étant à `{:.4}`, soit 5·10⁻⁶ de résolution relative à ppl ≈ 20 |
+| 🚨 tampon | **`ots stamp proofs/preregistration-variance-calibration-2026-08-26.md` AVANT le premier run** — le §3 du pré-enregistrement l'exige avant la première milliseconde mesurée, et il n'est pas encore posé. **Impossible depuis la boîte de session** : les quatre calendriers y sont injoignables (403 du proxy). C'est donc une action du Mac, dans la même session que les trois runs, et **avant** eux. Commiter le `.ots` produit. |
+
+> 🔎 **Et pendant qu'on y est, un `ots upgrade proofs/*.ots`** : quatre tampons
+> du 2026-08-25 sont encore en pure attente, les seize autres portent déjà
+> leurs ancres Bitcoin (mesuré le 2026-08-26,
+> [`docs/mesures/ots-etat-2026-08-26.txt`](mesures/ots-etat-2026-08-26.txt)).
+> Zéro coût, et ça règle la dette de vérifiabilité pour de bon.
 
 ### Les trois runs, verbatim
 
