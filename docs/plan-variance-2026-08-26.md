@@ -60,9 +60,8 @@ silence. C'est l'objet du correctif, pas un dommage.
 ### 0.2 — `ScalarGroupwise`, le bras qui décide de la portée du papier
 
 **Pourquoi.** Si la variance n'est montrée que sur Λ₂₄, c'est une note de bas de
-page sur une méthode morte. Sur un quantifieur scalaire groupwise — le défaut
-d'AutoGPTQ, `group_size=128`, `static_groups=False` — c'est une propriété de
-**GPTQ**.
+page sur une méthode morte. Sur le quantifieur affine du domaine — celui
+d'AutoGPTQ, `sym=False` — c'est une propriété de **GPTQ**.
 
 **Ce qui existe déjà et sert de patron** : `llvq-quant/src/quantizer.rs:224-240`
 porte `ScalarGrid { block, step }`, dont le commentaire dit exactement
@@ -94,21 +93,27 @@ de `BlockCode`. Ce n'est pas un problème — la grille se lit sur la perplexit�
 interne de `smoke`, pas sur un fichier scellé — mais **ça impose que le bras
 Leech se lise par le même chemin** (cf. §protocole, contrôle C8).
 
-**Létalité** : test de propriété — toute sortie est sur la grille
-`zero + k·scale`, l'erreur maximale est ≤ `scale/2`, et `bits_per_weight` rend la
-valeur calculée d'avance. Plus le contrôle de fidélité ci-dessous.
+**Létalité** : ✅ 12 tests de propriété, **11 mutants sur 11 tués** (en deux
+tours : le premier laissait passer `round_ties_even` → `round`, que seul un
+groupe construit sur un tie *pair* exerce).
 
 ### 0.3 — Le contrôle de fidélité, sans lequel « GPTQ standard » est une affirmation
 
 Un relecteur dira que notre scalaire n'est pas celui du domaine. Deux niveaux,
 et le premier est obligatoire :
 
-- **Obligatoire** : une référence indépendante écrite **dans le fichier de test**
-  — le patron de `correction_is_the_analytic_minimizer`, qui reconstruit son
-  attendu par un chemin qui ne partage pas une ligne avec le code testé.
-- **Recommandé** : un recoupement contre AutoGPTQ sur **une** matrice, même
-  calibration, même graine. ~une demi-journée, Python hors workspace. C'est ce
-  qui transforme « notre scalaire » en « le scalaire du domaine ».
+✅ **Fait le 2026-08-26, et il était obligatoire, pas recommandé.** La source
+amont a été récupérée (`AutoGPTQ@main:auto_gptq/quantization/quantizer.py`,
+sha256 `2e0b4588…`) et transcrite ; `the_transcription_matches_upstream` compare
+au bit près sur 8 largeurs × 4 étendues × 5 décalages, y compris le mode
+d'arrondi (`torch.round` casse les ties **au pair**, pas `f64::round`).
+
+🕳️ **Et une affirmation fausse a été évitée de justesse au passage.** J'avais
+écrit dans le source que le clamp amont « se déclenche sur données réelles » ;
+38,4 M de poids sur huit largeurs disent zéro déclenchement. La raison est
+arithmétique — `round(maxq − t) + round(t) = maxq` pour tout `t` non
+demi-entier — et elle est maintenant écrite, avec le cas de tie qui rend le
+clamp vivant par test plutôt que par assertion.
 
 ### 0.4 — L'évaluation à 73 fenêtres
 
@@ -127,7 +132,7 @@ Trois runs, et **la grille ne part pas avant qu'ils soient lus**.
 | run | ce qu'il pin |
 |---|---|
 | `leech1c12` ×1 graine 1, **deux fois** | le **déterminisme** — Gate A |
-| `scalar-g128-b3` ×1 graine 1 | le terme fixe du bras scalaire (~160 s *estimé*) |
+| `int3g24` ×1 graine 1 | le terme fixe du bras scalaire (~160 s *estimé*) |
 
 **Gate A** : deux runs à graine identique doivent rendre la même ppl à 1e-9
 relatif. **Si ça échoue, la grille ne part pas** — σ mélangerait la calibration
@@ -137,15 +142,16 @@ résultat aussi, et moins cher.
 
 ---
 
-## Lot 2 — La grille 0.6B (~28 h de Mac + ~4 h d'évaluation, 0 $)
+## Lot 2 — La grille 0.6B (~28,3 h de Mac + ~4 h d'évaluation, 0 $)
 
-**64 runs**, dans cet ordre pour que le premier résultat lisible arrive tôt :
+**68 runs**, dans cet ordre pour que le premier résultat lisible arrive tôt :
 
 1. `leech1c12`, ×1 et ×8, les 4 graines — **8 runs, ~4,3 h**. Donne σ_diff et un
    premier point de pente.
-2. `scalar-g128-b3`, ×1 et ×8, les 4 graines — **8 runs, ~1,4 h**. Donne le
+2. `int3g24`, ×1 et ×8, les 4 graines — **8 runs, ~1,4 h**. Donne le
    contraste de famille, qui est la prédiction P4.
-3. Les ancres bits : `b2` et `b4` à ×1 et ×8 — **16 runs, ~2,7 h**.
+3. Les ancres bits : `int2g24` et `int4g24` à ×1 et ×8 — **16 runs, ~2,7 h** —
+   puis le contrôle de granularité `int3g128` à ×1 — **4 runs, ~18 min**.
 4. Le remplissage de la courbe : les deux bras porteurs aux volumes ×2, ×4, ×16,
    ×32 — **32 runs, ~20 h**.
 
@@ -160,7 +166,7 @@ retrouver le profil par phase trois jours après.
 
 ## Lot 3 — Le contrôle d'invariance de backend (~4 $)
 
-Deux cellules répliquées sur `l40sx1` : `leech1c12` ×1 et `scalar-g128-b3` ×1,
+Deux cellules répliquées sur `l40sx1` : `leech1c12` ×1 et `int3g24` ×1,
 k = 3 graines, **6 runs**.
 
 ⚠️ **Ce n'est pas pour aller plus vite.** 84 % du run est l'encodeur, qui est
