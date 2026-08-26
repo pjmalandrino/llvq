@@ -59,7 +59,7 @@ celui des papiers.
 
 ---
 
-## §2 — Les quatre bras, et l'unique variable
+## §2 — Les cinq bras, et l'unique variable
 
 **Une seule chose bouge entre deux runs d'une même cellule : `LLVQ_CALIB_SEED`.**
 Tout le reste — modèle, corpus, rotation, damping, dtype, blocs, threads — est
@@ -68,25 +68,43 @@ identique et figé ci-dessous.
 | bras | codebook | b/poids | rôle |
 |---|---|---|---|
 | `leech1c12` | shape–gain, 1 bit de gain, boule ≤ 12 | **2,1656** *(mesuré, journal du gate)* | VQ à codebook **intabulable** (1,1·10¹⁴ points) |
-| `scalar-g128-b3` | INT3 groupwise, groupe 128, échelle+zéro asymétriques | 3 + 32/128 = **3,25** *(calculé)* | le standard du domaine, bras **porteur** de la courbe |
-| `scalar-g128-b2` | idem, 2 bits | 2 + 32/128 = **2,25** *(calculé)* | point de **stress** — cf. la réserve ci-dessous |
-| `scalar-g128-b4` | idem, 4 bits | 4 + 32/128 = **4,25** *(calculé)* | l'ancre haute de l'axe bits |
+| `int3g24` | affine INT3, échelle f16 + zéro 3 bits par groupe de 24 | 3 + 19/24 = **3,7917** *(calculé)* | le standard du domaine, bras **porteur** de la courbe |
+| `int2g24` | idem, 2 bits | 2 + 18/24 = **2,75** *(calculé)* | point de **stress** — cf. la réserve ci-dessous |
+| `int4g24` | idem, 4 bits | 4 + 20/24 = **4,8333** *(calculé)* | l'ancre haute de l'axe bits |
+| `int3g128` | idem, groupe **128** | 3 + 19/128 = **3,1484** *(calculé)* | contrôle de granularité, **une cellule** — cf. ci-dessous |
 
 **Pourquoi le scalaire est obligatoire.** Si la variance n'est montrée que sur
 Λ₂₄, c'est une curiosité sur une méthode dont le §0 du backlog établit qu'elle
-n'a pas d'avenir produit. Sur un quantifieur scalaire groupwise — le défaut
-d'AutoGPTQ, `group_size=128`, `static_groups=False` — le résultat devient une
-propriété de **GPTQ**, pas de notre codebook. C'est ce qui décide si ce travail
-est une note de bas de page ou un résultat de domaine.
+n'a pas d'avenir produit. Sur le quantifieur affine du domaine, le résultat
+devient une propriété de **GPTQ**, pas de notre codebook. C'est ce qui décide si
+ce travail est une note de bas de page ou un résultat de domaine.
 
-⚠️ **Réserve déclarée d'avance sur `scalar-g128-b2`.** Le 2 bits scalaire nu est
+🚨 **Le groupe est 24, et non le 128 d'AutoGPTQ — c'est un arbitrage, écrit
+ici.** Le groupe **est** `GptqConfig::block` (`Codebook::block_len`) : il fixe la
+granularité de la rétroaction d'erreur en même temps que celle de l'échelle. À
+`g128` le bras scalaire ne différerait pas de Leech par le seul codebook mais
+aussi par sa granularité — deux variables. `g24` apparie les deux ; `int3g128`
+entre comme **contrôle à une cellule** (×1, k=4) pour montrer que le passage à
+la granularité du domaine ne déplace pas σ. Si ce contrôle échoue, la courbe se
+publie en `g24` et l'écart devient un résultat à part.
+
+⚠️ **Le recoupement amont a corrigé ces débits, et il a corrigé le quantifieur
+avec.** Une première implémentation, écrite de mémoire, a passé neuf tests de
+propriété en étant fausse sur trois points — étendue non étendue à zéro, zéro
+point flottant au lieu d'entier, groupe dégénéré traité autrement — et
+surchargeait le débit de `(16−bits)/groupe`, soit 0,54 b/poids à `int3g24`. Le
+code suit désormais `Quantizer.find_params`/`quantize` d'AutoGPTQ (sha256
+`2e0b4588…`, récupéré le 2026-08-26), et `the_transcription_matches_upstream`
+l'épingle au bit près.
+
+⚠️ **Réserve déclarée d'avance sur `int2g24`.** Le 2 bits scalaire nu est
 connu pour être catastrophique — c'est pourquoi personne ne le déploie sans
 autre chose. Sa perplexité peut être si dégradée que σ y mesure la **pathologie**
 et non la calibration. Ce bras est un point de stress ; **l'axe bits se lit sur
 b3 et b4**, et une σ aberrante à b2 ne réfute rien.
 
-⚠️ **Le débit n'est pas apparié entre familles** (2,1656 contre 3,25). Comparer
-σ entre `leech1c12` et `scalar-g128-b3` compare **deux points de qualité
+⚠️ **Le débit n'est pas apparié entre familles** (2,1656 contre 3,7917). Comparer
+σ entre `leech1c12` et `int3g24` compare **deux points de qualité
 différents**. C'est assumé : l'estimand est la **sensibilité relative** au
 tirage, pas la qualité. Toutes les comparaisons inter-familles se font en σ
 **relative** (en % de la ppl médiane de la cellule), jamais en ppl absolue.
@@ -111,10 +129,11 @@ beaucoup de niveaux et de peu de bras ; l'axe bits de l'inverse.
 | bras | volumes | graines | runs |
 |---|---|---|---|
 | `leech1c12` | les 6 | 4 | 24 |
-| `scalar-g128-b3` | les 6 | 4 | 24 |
-| `scalar-g128-b2` | ×1, ×8 | 4 | 8 |
-| `scalar-g128-b4` | ×1, ×8 | 4 | 8 |
-| | | **total** | **64** |
+| `int3g24` | les 6 | 4 | 24 |
+| `int2g24` | ×1, ×8 | 4 | 8 |
+| `int4g24` | ×1, ×8 | 4 | 8 |
+| `int3g128` *(contrôle)* | ×1 | 4 | 4 |
+| | | **total** | **68** |
 
 Commande, `<W>` = 64 · 128 · 256 · 512 · 1024 · 2048 et `<C>` le bras :
 
@@ -160,8 +179,13 @@ D'où deux termes, *mesurés* :
 | ×16 | 1 024 | 51,9 | 29,6 | 8,59 Go |
 | ×32 | 2 048 | 78,8 | 56,5 | **17,18 Go** |
 
-**Total de la grille : 28,0 h de Mac, 0 $**, plus ~4 h d'évaluation à 73
-fenêtres. Cinq nuits.
+**Total de la grille : 68 runs, 28,3 h de Mac, 0 $**, plus ~4 h d'évaluation à
+73 fenêtres. Cinq nuits.
+
+⚠️ Le terme fixe du bras scalaire (~160 s) est le **seul du modèle qui reste
+estimé** : la recherche de plus proche voisin sur le réseau disparaît, il ne
+reste que la factorisation et un arrondi. L'étage 0 le mesure avant que la
+grille parte.
 
 🚨 **Deux plafonds de l'outillage, à lever AVANT le premier run — sinon les deux
 derniers barreaux sont silencieusement faux.**
@@ -188,7 +212,7 @@ Trois runs, et **rien d'autre ne part avant qu'ils soient verts** :
 | run | ce qu'il pin |
 |---|---|
 | `leech1c12`, ×1, graine 1 — **deux fois** | le **déterminisme** du pipeline |
-| `scalar-g128-b3`, ×1, graine 1 | le terme fixe du bras scalaire (§4) |
+| `int3g24`, ×1, graine 1 | le terme fixe du bras scalaire (§4) |
 
 🚨 **Le contrôle de déterminisme est la fondation de tout le document.** Si deux
 runs à graine identique ne rendent pas la **même perplexité au dernier chiffre
@@ -209,7 +233,7 @@ bras balayant ses graines avant de changer de volume.
 
 **Deux cellules répliquées sur CUDA** (`l40sx1`, ~1,77 $/h *mesuré* sur les jobs
 `g3-planes12x-servi` 0,79 $/27 min et `f2-p3-banc-qtip` 0,89 $/30 min) :
-`leech1c12` ×1 et `scalar-g128-b3` ×1, k = 3 graines chacune, soit **6 runs**.
+`leech1c12` ×1 et `int3g24` ×1, k = 3 graines chacune, soit **6 runs**.
 
 ⚠️ **Motif écrit d'avance, parce qu'il est contre-intuitif : ce n'est pas pour
 aller plus vite.** 84 % du run est l'encodeur, qui est **CPU** ; louer une carte
@@ -243,8 +267,8 @@ la grille 0.6B, qui reste publiable telle quelle.
 |---|---|---|
 | `leech1c12` ×1, k=3 | **0** | **déjà payé** — les trois graines F5 |
 | `leech1c12` ×8, k=3 | 3 | ~24 $ |
-| `scalar-g128-b3` ×1, k=3 | 3 | ~21 $ |
-| `scalar-g128-b3` ×8, k=3 | 3 | ~24 $ |
+| `int3g24` ×1, k=3 | 3 | ~21 $ |
+| `int3g24` ×8, k=3 | 3 | ~24 $ |
 | | **9** | **~69 $** + ~2 $ d'évaluation |
 
 Le 4B est la seule taille où la métrique de **capacités** existe : MMLU est au
@@ -347,7 +371,7 @@ fausses le 2026-08-25 ; celles-ci sont dans le même esprit.
 | **P1** | Le pipeline est déterministe : deux runs à graine identique rendent la même ppl. | Un écart > 1e-9. **Si P1 est fausse, tout le reste tombe** — et c'est la prédiction que je tiens pour la plus sûre, donc la plus coûteuse à rater. |
 | **P2** | σ décroît avec le volume, `β ∈ [−0,6 ; −0,4]` (loi en `1/√V`). | Un IC95 de β contenant 0, ou un β positif. |
 | **P3** | Chez le scalaire, σ(3 bits) > σ(4 bits), rapport ≥ 1,5. | Un rapport < 1,2 ou de signe inverse. |
-| **P4** | À volume égal, σ(`leech1c12`) > σ(`scalar-g128-b3`) — un codebook à beaucoup de degrés de liberté sur-exploite une hessienne bruitée. | σ(leech) ≤ σ(scalaire). **C'est la prédiction la plus intéressante et la moins fondée** : aucune mesure du dépôt ne la soutient, c'est un raisonnement. |
+| **P4** | À volume égal, σ(`leech1c12`) > σ(`int3g24`) — un codebook à beaucoup de degrés de liberté sur-exploite une hessienne bruitée. | σ(leech) ≤ σ(scalaire). **C'est la prédiction la plus intéressante et la moins fondée** : aucune mesure du dépôt ne la soutient, c'est un raisonnement. |
 | **P5** | *(étage 3 seulement)* σ(4B) > σ(0.6B) à volume égal, parce que les exemples par dimension passent de 42,7 à 13,5. | σ(4B) ≤ σ(0.6B). |
 
 🚨 **P5 est probablement fausse, et je l'écris quand même.** Les bribes existantes

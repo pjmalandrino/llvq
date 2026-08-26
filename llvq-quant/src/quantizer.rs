@@ -238,36 +238,70 @@ impl BlockQuantizer for ScalarGrid {
     }
 }
 
-/// Affine INT-`k` round-to-nearest on a grid **fitted to each group** — the
-/// quantizer that deployed post-training pipelines actually ship.
+/// Affine INT-`k` with a scale and a zero point per group — **transcribed from
+/// the reference GPTQ implementation**, not re-derived.
 ///
 /// [`ScalarGrid`] above holds one step for the whole model, which nothing
-/// deployed does: the standard is a scale and a zero point derived from each
+/// deployed does: the standard derives a scale and a zero point from each
 /// group's own extent, so a group of small weights gets a fine grid and one
 /// carrying an outlier gets a coarse one. That per-group affine map is what
-/// `group_size` names in AutoGPTQ, and it is the reason INT4 is usable at all.
+/// `group_size` names, and it is why INT4 is usable at all.
 ///
-/// ## Why the group is the GPTQ block
+/// ## Provenance, because "the field's scalar quantizer" is a claim
 ///
-/// The group here **is** [`crate::gptq::GptqConfig::block`], so that an A/B
-/// against a lattice quantizer changes the codebook and nothing else: both
-/// arms then see the same error-feedback granularity. Running the field
-/// default of 128 is a matter of setting *both* to 128, which is why the two
-/// are one number rather than two.
+/// The arithmetic below follows `Quantizer.find_params` and `quantize` of
+/// AutoGPTQ, fetched 2026-08-26 from
+/// `AutoGPTQ/AutoGPTQ@main:auto_gptq/quantization/quantizer.py` (sha256
+/// `2e0b4588cfc5bd250c8a635697ee1a1d59d65741bf1d4e3a18ce2b79befe2a5d`), in its
+/// `sym = false, mse = false` configuration. That file descends from
+/// `IST-DASLab/gptq@main:quant.py` (sha256
+/// `211528568b962b868d20fc58b55200b615f41ebd9f36b4d2d7e4a196a095ea5a`), whose
+/// `find_params` is line for line the same.
 ///
-/// ## The affine map, and what it costs
+/// 🕳️ **This replaced a version written from memory, and the memory was wrong
+/// in three ways** — each of which moves the grid, and none of which any
+/// property test caught until the source was in hand:
 ///
-/// With `n = 2^bits − 1` steps between the group's extremes, `lo` maps to 0
-/// and `hi` to `n`, so **both extremes are reproduced exactly** — that is the
-/// property separating an asymmetric map from a symmetric one, and
-/// `tests/scalar_groupwise.rs` exercises it because dropping the zero point is
-/// the most plausible way to write this wrong. The group is charged `bits` per
-/// weight plus one f16 scale and one f16 zero, i.e. `bits + 32/group` bits per
-/// weight.
+/// 1. **The range is extended to include zero** (`xmin = min(min(x), 0)`,
+///    `xmax = max(max(x), 0)`), so a group that does not straddle zero gets a
+///    coarser step than its own extent would give. That is what makes `0.0`
+///    exactly representable.
+/// 2. **The zero point is an integer**, `round(-xmin/scale)` — it has to be,
+///    because a deployed file packs it at `bits` width beside the scale. The
+///    grid is therefore `scale·(k − zero)`, which puts an exact `0.0` on it
+///    and does **not** reproduce `xmin` exactly. The from-memory version used
+///    a float offset and returned both extremes exactly: a strictly better
+///    quantizer, and not the one the field runs.
+/// 3. **An all-zero group is mapped to `[-1, +1]`**, not to a degenerate
+///    constant — it still reconstructs to zero, but through a live grid.
+///
+/// ## What it costs, and why the clamp is live here
+///
+/// Charged `bits` per weight plus an f16 scale and a `bits`-wide packed zero
+/// per group: `bits + (16 + bits)/group`.
+///
+/// ## The clamp, and what it actually guards
+///
+/// 🕳️ **A claim was nearly written here that the measurement refutes.** The
+/// reasoning was: rounding `zero` to an integer should let
+/// `round(x/scale) + zero` reach `maxq + 1` at the top of the range, so
+/// upstream's clamp must be live where the from-memory version's was dead.
+/// Probed before being believed — 38.4 M weights over all eight widths — and
+/// it **never fired**.
+///
+/// The reason is arithmetic. With `t = −xmin/scale`, the top of the range
+/// gives `round(maxq − t) + round(t)`, and for any `t` that is *not* a
+/// half-integer that sum is exactly `maxq`; the bottom gives exactly `0`. So
+/// the clamp guards precisely two things: **exact ties**, where round-half-to-
+/// even can break the identity by one (`t = 1.5, maxq = 7` reaches `maxq + 1`),
+/// and a `static_groups = true` variant, where the scale is fitted on the
+/// original weights and applied to error-compensated ones that drift outside
+/// it. It is kept because it is upstream's and this is a transcription;
+/// `the_clamp_keeps_a_tie_group_on_the_grid` pins the tie case so it is live
+/// by test rather than by assertion.
 pub struct ScalarGroupwise {
     pub block: usize,
-    /// Bits per weight. `1..=8`; the caller validates, and `1 << bits` would
-    /// overflow long before that bound in any case.
+    /// Bits per weight. `1..=8`; the caller validates.
     pub bits: u32,
 }
 
@@ -277,56 +311,66 @@ impl BlockQuantizer for ScalarGroupwise {
     }
 
     fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
-        let mut lo = f64::INFINITY;
-        let mut hi = f64::NEG_INFINITY;
+        let maxq = ((1u32 << self.bits) - 1) as f64;
+        // `torch.minimum(x.min(1)[0], zeros)` and its maximum twin: the
+        // accumulators start at zero rather than at ±inf, and *that* is the
+        // range extension of point 1 above — it is one line upstream too, and
+        // easy to read past.
+        let mut xmin = 0.0f64;
+        let mut xmax = 0.0f64;
         for &a in v {
-            if a < lo {
-                lo = a;
+            if a < xmin {
+                xmin = a;
             }
-            if a > hi {
-                hi = a;
+            if a > xmax {
+                xmax = a;
             }
         }
-        let n = ((1u32 << self.bits) - 1) as f64;
-        let step = (hi - lo) / n;
-        // A group with no usable extent has no grid to build, and the affine
-        // map degenerates to the constant — which it reproduces exactly.
+        // Upstream's `xmin[tmp] = -1; xmax[tmp] = +1` for an all-zero group.
+        // Whole groups of a real matrix do go to zero under error feedback,
+        // so this path runs; it is not a formality.
+        if xmin == 0.0 && xmax == 0.0 {
+            xmin = -1.0;
+            xmax = 1.0;
+        }
+        let scale = (xmax - xmin) / maxq;
+        // ⚠️ **The only deliberate divergence from upstream.** An extent that
+        // overflows f64 — `xmin = -1e308, xmax = 1e308` — makes `scale`
+        // infinite, and upstream would then return a group of NaN
+        // (`0.0 * inf`) with nothing to show for it. Measured rather than
+        // reasoned about: `inf > 0.0` is *true*, so a `scale > 0.0` guard does
+        // not catch it. No real weight matrix reaches this, so the divergence
+        // cannot move a published number — it replaces a silent NaN with a
+        // finite zero.
         //
-        // Three cases land here, and only the first is obvious. **Zero
-        // extent** is not a corner case invented for a test: whole groups of
-        // a real matrix go to zero under error feedback, and `(a - lo) / 0`
-        // would hand back NaN for every weight in them. A **NaN** extent
-        // lands here because `!(x > 0.0)` is true of NaN where `x == 0.0`
-        // would not be. And an extent that **overflows to infinity** —
-        // `lo = -1e308, hi = 1e308` — is the one that had to be measured
-        // rather than reasoned about: `inf > 0.0` is *true*, so the earlier
-        // guard let it through, `q` came out 0, and `0.0 * inf` is NaN. The
-        // whole group came back NaN with nothing to show for it.
-        if !(step.is_finite() && step > 0.0) {
-            out.fill(lo);
+        // 🕳️ This guard read `!scale.is_finite() || scale <= 0.0`, and the
+        // `<= 0.0` half made the `[-1, +1]` branch above **unreachable** —
+        // mutation testing caught it by deleting that branch and watching
+        // every test stay green. It is genuinely unreachable arithmetic:
+        // `xmin <= 0 <= xmax` holds by construction, so `scale` is zero only
+        // when both are, which the branch above has already fixed up.
+        // Narrowed, so the transcription's own degenerate case is what runs.
+        if !scale.is_finite() {
+            out.fill(0.0);
             return;
         }
+        let zero = ties_even(-xmin / scale);
         for (o, &a) in out.iter_mut().zip(v.iter()) {
-            // 🕳️ There was a `.clamp(0.0, n)` here, and mutation testing found
-            // it was **dead code** — neutralising it left all nine tests
-            // green. It is dead by construction: the map is fitted to *this*
-            // group, so `a ∈ [lo, hi]` gives a quotient in `[0, n]`, and
-            // escaping after `.round()` would need a relative error of
-            // `0.5/n ≥ 0.2 %` out of two roundings. Checked rather than
-            // assumed: 38.4 M groups over 30 orders of magnitude of extent,
-            // both extremes and an interior point at every width, produced no
-            // quotient outside `[0, n]`.
-            //
-            // It would become load-bearing again under AutoGPTQ's
-            // `static_groups = true`, where the scale comes from the original
-            // weights and is applied to error-compensated ones that can drift
-            // outside the extent it was fitted to. `the_quotient_never_leaves_
-            // the_level_range` pins the invariant this removal rests on, so
-            // that variant fails a test rather than rounding out of range.
-            let q = ((a - lo) / step).round();
-            *o = q * step + lo;
+            let q = (ties_even(a / scale) + zero).clamp(0.0, maxq);
+            *o = scale * (q - zero);
         }
     }
+}
+
+/// `torch.round`, which breaks ties **to even** — not `f64::round`, which
+/// breaks them away from zero.
+///
+/// The two differ by one ulp on exact ties only, and exact ties in `x/scale`
+/// are vanishingly rare on real weights. It is here because what this arm
+/// carries is a claim of *transcription*, and a transcription that silently
+/// swaps a rounding mode is not one.
+fn ties_even(x: f64) -> f64 {
+    x.round_ties_even()
 }
 
 /// Shape–gain: the direction from the Leech ball, the magnitude from a

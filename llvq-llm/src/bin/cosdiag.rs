@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
             for b in row.chunks_exact(DIM) {
-                if idx % stride == 0 && blocks.len() < sample {
+                if idx.is_multiple_of(stride) && blocks.len() < sample {
                     let mut a = [0.0f64; DIM];
                     a.copy_from_slice(b);
                     if a.iter().any(|v| *v != 0.0) {

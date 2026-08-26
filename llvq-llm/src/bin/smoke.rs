@@ -456,10 +456,10 @@ fn codebook_line(spec: &str, c: &Codebook) -> String {
         // want to compare against a lattice arm, and `bits + 32/group` is not
         // something to do in one's head at the top of a log.
         Codebook::ScalarGroup { bits, group } => format!(
-            "affine INT{bits}, f16 scale+zero per group of {group}, \
-             {:.4} b/weight before the per-row f16 (which this arm does not use), \
-             no artifact",
-            *bits as f64 + 32.0 / *group as f64
+            "affine INT{bits} (AutoGPTQ sym=false), f16 scale + {bits}-bit zero \
+             per group of {group}, {:.4} b/weight before the per-row f16 \
+             (which this arm does not use), no artifact",
+            *bits as f64 + (16.0 + *bits as f64) / *group as f64
         ),
         Codebook::Direction => {
             "direction only, magnitude left a free float — NOT a 2-bit code".to_string()
@@ -1610,8 +1610,13 @@ mod tests {
         assert_eq!(parse_codebook("int3g24").unwrap().block_len(), 24);
         assert_eq!(parse_codebook("int3g128").unwrap().block_len(), 128);
 
-        // `bits + 32/group`, computed here from the definition rather than
-        // read back from the same expression the code uses.
+        // `bits + (16 + bits)/group`: an f16 scale and a zero point packed
+        // at `bits` width, which is what a deployed INT-k file stores.
+        //
+        // 🕳️ This read `bits + 32/group` until the upstream source was
+        // fetched — charging the zero point a second f16 it does not cost.
+        // That overstated `int3g24` by 0.54 b/weight, on the arm whose whole
+        // job is to be the field's own quantizer.
         for (spec, bits, group) in [
             ("int2g24", 2.0, 24.0),
             ("int3g24", 3.0, 24.0),
@@ -1619,7 +1624,7 @@ mod tests {
             ("int4g128", 4.0, 128.0),
         ] {
             let c = parse_codebook(spec).unwrap();
-            let want = group * bits + 32.0;
+            let want = group * bits + 16.0 + bits;
             assert!(
                 (c.block_bits() - want).abs() < 1e-9,
                 "{spec}: block_bits {} != {want}",
@@ -1627,7 +1632,7 @@ mod tests {
             );
             let per_weight = c.block_bits() / c.block_len() as f64;
             assert!(
-                (per_weight - (bits + 32.0 / group)).abs() < 1e-9,
+                (per_weight - (bits + (16.0 + bits) / group)).abs() < 1e-9,
                 "{spec}: {per_weight} b/weight"
             );
         }

@@ -1,5 +1,5 @@
-//! The affine per-group scalar quantizer, held to the properties that define
-//! it rather than to a recorded output.
+//! The affine per-group scalar quantizer, held against **the upstream source
+//! it transcribes** and against the properties that define it.
 //!
 //! ## Why this file exists at all
 //!
@@ -9,26 +9,21 @@
 //! **GPTQ**. A reviewer will therefore ask whether our "standard scalar
 //! quantizer" is standard — and the answer has to be a test, not a claim.
 //!
-//! ## What each test kills
+//! ## 🕳️ What the cross-check caught
 //!
-//! The doctrine of `CLAUDE.md` §5 is that an assertion which does not exercise
-//! the parameter it covers tests nothing. Each test below is paired with the
-//! mutant it exists to kill, and the two that matter most are:
-//!
-//! * `both_extremes_are_exact` — kills a **symmetric** quantizer. Dropping the
-//!   zero point is the single most plausible way to write this wrong, and it
-//!   leaves every other property here intact.
-//! * `the_grid_is_fitted_per_group_not_globally` — kills a fallback to
-//!   [`ScalarGrid`]'s behaviour, which is the neighbouring type in the same
-//!   file and differs by exactly the thing this arm exists for.
+//! The first version of this quantizer was written from memory, passed nine
+//! property tests, and was **wrong in three ways** — extended range, integer
+//! zero point, degenerate-group handling. Every one of them moves the grid,
+//! and no property test written without the source in hand could have found
+//! them, because each was internally consistent. That is the whole argument
+//! for `the_transcription_matches_upstream` below: properties pin a
+//! quantizer, only a transcription pins *which* quantizer.
 
 use llvq_core::SplitMix64;
 use llvq_quant::quantizer::{BlockQuantizer, ScalarGroupwise};
 
-/// Deterministic test data. A fixed seed rather than a literal array so the
-/// tests exercise many extents, and so an exact tie between two levels — which
-/// would make the nearest-level reference below ambiguous — stays a measure-zero
-/// event rather than something a hand-written array might accidentally contain.
+/// Deterministic test data. A fixed seed rather than a literal array, so the
+/// tests exercise many extents rather than one hand-picked shape.
 fn sample(seed: u64, n: usize, spread: f64) -> Vec<f64> {
     let mut rng = SplitMix64::new(seed);
     (0..n).map(|_| rng.next_gaussian() * spread).collect()
@@ -44,67 +39,232 @@ fn quantize(bits: u32, v: &[f64]) -> Vec<f64> {
     out
 }
 
-/// The `2^bits` reconstruction levels of a group, built from its extent.
-fn levels(bits: u32, v: &[f64]) -> Vec<f64> {
-    let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
-    let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let n = (1u32 << bits) - 1;
-    let step = (hi - lo) / n as f64;
-    (0..=n).map(|k| lo + k as f64 * step).collect()
+/// `find_params` of the upstream quantizer, `sym = false`, transcribed.
+///
+/// Returns `(scale, zero, maxq)`. Kept separate from the reference `quantize`
+/// below because upstream keeps them separate, and because three tests need
+/// the grid without needing the reconstruction.
+fn upstream_params(bits: u32, x: &[f64]) -> (f64, f64, f64) {
+    let maxq = ((1u32 << bits) - 1) as f64;
+    // `tmp = torch.zeros(...)`, then `minimum(x.min(1)[0], tmp)` and
+    // `maximum(x.max(1)[0], tmp)` — the range is extended to include zero.
+    let mut xmin = x.iter().cloned().fold(f64::INFINITY, f64::min).min(0.0);
+    let mut xmax = x.iter().cloned().fold(f64::NEG_INFINITY, f64::max).max(0.0);
+    // `tmp = (xmin == 0) & (xmax == 0); xmin[tmp] = -1; xmax[tmp] = +1`
+    if xmin == 0.0 && xmax == 0.0 {
+        xmin = -1.0;
+        xmax = 1.0;
+    }
+    let scale = (xmax - xmin) / maxq;
+    // `self.zero = torch.round(-xmin / self.scale)` — an integer.
+    let zero = (-xmin / scale).round_ties_even();
+    (scale, zero, maxq)
 }
 
-/// Kills "the output is the input" and "the output is off the grid".
+/// The `2^bits` reconstruction levels of a group: `scale·(k − zero)`.
+fn levels(bits: u32, x: &[f64]) -> Vec<f64> {
+    let (scale, zero, maxq) = upstream_params(bits, x);
+    (0..=(maxq as u32)).map(|k| scale * (k as f64 - zero)).collect()
+}
+
+/// 🚨 The cross-check the whole arm rests on: an independent transcription of
+/// upstream's two functions, and bit agreement with the implementation.
+///
+/// Source: `AutoGPTQ/AutoGPTQ@main:auto_gptq/quantization/quantizer.py`,
+/// fetched 2026-08-26, sha256
+/// `2e0b4588cfc5bd250c8a635697ee1a1d59d65741bf1d4e3a18ce2b79befe2a5d`. The
+/// relevant lines, `sym = false, mse = false`:
+///
+/// ```text
+/// tmp  = torch.zeros(x.shape[0])
+/// xmin = torch.minimum(x.min(1)[0], tmp)
+/// xmax = torch.maximum(x.max(1)[0], tmp)
+/// tmp  = (xmin == 0) & (xmax == 0); xmin[tmp] = -1; xmax[tmp] = +1
+/// scale = (xmax - xmin) / maxq
+/// zero  = torch.round(-xmin / scale)
+/// q     = torch.clamp(torch.round(x / scale) + zero, 0, maxq)
+/// return  scale * (q - zero)
+/// ```
+///
+/// `torch.round` breaks ties to even, which is `round_ties_even` and *not*
+/// `f64::round`; getting that wrong would show up here on tie inputs only,
+/// which is exactly the class of bug a transcription claim has to exclude.
 #[test]
-fn every_output_lands_on_a_level_of_its_own_group() {
+fn the_transcription_matches_upstream() {
     for bits in 1..=8u32 {
-        let v = sample(0x51ca_1a40 ^ bits as u64, 128, 0.02);
-        let out = quantize(bits, &v);
-        let ls = levels(bits, &v);
-        for (i, &o) in out.iter().enumerate() {
-            assert!(
-                ls.iter().any(|&l| (l - o).abs() <= 1e-12 * l.abs().max(1e-12)),
-                "bits {bits}, weight {i}: {o} is not one of the {} levels",
-                ls.len()
+        for spread in [1e-4f64, 0.02, 1.0, 50.0] {
+            for shift in [-3.0f64, -0.4, 0.0, 0.4, 3.0] {
+                // The shift walks the group across zero, so the extended-range
+                // branch is exercised from "entirely negative" to "entirely
+                // positive" rather than only near-centred.
+                let v: Vec<f64> = sample(0x0141_5926 ^ bits as u64, 96, spread)
+                    .into_iter()
+                    .map(|a| a + shift * spread)
+                    .collect();
+                let (scale, zero, maxq) = upstream_params(bits, &v);
+                let want: Vec<f64> = v
+                    .iter()
+                    .map(|&a| {
+                        let q = ((a / scale).round_ties_even() + zero).clamp(0.0, maxq);
+                        scale * (q - zero)
+                    })
+                    .collect();
+                let got = quantize(bits, &v);
+                for (i, (&w, &g)) in want.iter().zip(got.iter()).enumerate() {
+                    assert_eq!(
+                        w.to_bits(),
+                        g.to_bits(),
+                        "bits {bits}, spread {spread:e}, shift {shift}: weight \
+                         {i} = {} — upstream says {w}, we say {g}",
+                        v[i]
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// 🚨 Kills the from-memory version, which used the group's raw extent.
+///
+/// Upstream extends the range to include zero, so an entirely positive group
+/// gets `step = xmax/maxq` — coarser than `(xmax − xmin)/maxq` would be. The
+/// difference is not subtle on a group far from zero: it is the whole offset.
+#[test]
+fn the_range_is_extended_to_include_zero() {
+    // Entirely positive, and tight: raw extent 0.02, extended extent 1.01.
+    let v: Vec<f64> = sample(0x7f4a_7c15, 64, 0.005)
+        .into_iter()
+        .map(|a| a + 1.0)
+        .collect();
+    let (scale, _, maxq) = upstream_params(4, &v);
+    let xmax = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let xmin = v.iter().cloned().fold(f64::INFINITY, f64::min);
+    assert!(
+        (scale - xmax / maxq).abs() < 1e-12,
+        "the step should be xmax/maxq = {}, got {scale}",
+        xmax / maxq
+    );
+    assert!(
+        scale > 10.0 * (xmax - xmin) / maxq,
+        "a raw-extent step would be {} — the two must not be confusable here",
+        (xmax - xmin) / maxq
+    );
+}
+
+/// 🚨 The defining consequence of an **integer** zero point: `0.0` is on the
+/// grid of every group, exactly.
+///
+/// The from-memory version used a float offset, which reproduced both extremes
+/// exactly and put zero on the grid only by accident. Deployed formats want
+/// the opposite trade, because zero is what padding and sparsity feed in.
+#[test]
+fn zero_is_exactly_representable_in_every_group() {
+    for bits in 1..=8u32 {
+        for shift in [-2.0f64, -0.3, 0.0, 0.3, 2.0] {
+            let mut v: Vec<f64> = sample(0xa5a5_1234 ^ bits as u64, 48, 0.01)
+                .into_iter()
+                .map(|a| a + shift * 0.01)
+                .collect();
+            // Put an exact zero in the group and require it back exactly.
+            v[7] = 0.0;
+            let out = quantize(bits, &v);
+            assert_eq!(
+                out[7].to_bits(),
+                0.0f64.to_bits(),
+                "bits {bits}, shift {shift}: an exact zero came back {}",
+                out[7]
             );
         }
     }
 }
 
-/// 🚨 Kills a **symmetric** quantizer — the most plausible way to get this
-/// wrong, and one that no other test here would notice.
+/// 🕳️ The clamp is not dead, but it is not reached by ordinary data either:
+/// probing 38.4 M weights over all eight widths fired it zero times.
 ///
-/// An asymmetric affine map sends the group's minimum to level 0 and its
-/// maximum to level `n`, so both come back bit-exact. A symmetric map (scale
-/// only, zero point fixed at 0) reproduces neither unless the group happens to
-/// be centred, which random data never is.
+/// It guards **exact ties**. With `t = −xmin/scale`, the top of the range is
+/// `round(maxq − t) + round(t)`, which equals `maxq` for every non-half-integer
+/// `t`; at `t = 1.5, maxq = 7`, round-half-to-even makes it `6 + 2 = 8`. The
+/// group below is built to land exactly there — `xmin = −3, xmax = 11`, so
+/// `scale = 2` and `t = 1.5` — and without the clamp the reconstruction would
+/// leave the representable grid.
 #[test]
-fn both_extremes_are_exact() {
-    for bits in 1..=8u32 {
-        let v = sample(0xe715_9e11 ^ bits as u64, 96, 0.05);
-        let out = quantize(bits, &v);
-        let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
-        let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let qlo = out[v.iter().position(|&a| a == lo).unwrap()];
-        let qhi = out[v.iter().position(|&a| a == hi).unwrap()];
+fn the_clamp_keeps_a_tie_group_on_the_grid() {
+    let v = vec![-3.0, 0.0, 4.0, 7.0, 11.0];
+    let (scale, zero, maxq) = upstream_params(3, &v);
+    assert!(
+        (scale - 2.0).abs() < 1e-12 && (zero - 2.0).abs() < 1e-12,
+        "the constructed tie case drifted: scale {scale}, zero {zero} \
+         (expected 2 and 2)"
+    );
+    // The tie itself: this is what would overflow `maxq` unclamped.
+    let raw = (11.0f64 / scale).round_ties_even() + zero;
+    assert!(
+        raw > maxq,
+        "this group no longer exercises the clamp: raw level {raw} <= {maxq}"
+    );
+
+    let out = quantize(3, &v);
+    let top = scale * (maxq - zero);
+    let bottom = scale * (0.0 - zero);
+    for (i, &o) in out.iter().enumerate() {
         assert!(
-            (qlo - lo).abs() <= 1e-15,
-            "bits {bits}: the group minimum {lo} came back {qlo} — the zero \
-             point is not doing its job"
-        );
-        assert!(
-            (qhi - hi).abs() <= 1e-12 * hi.abs().max(1e-12),
-            "bits {bits}: the group maximum {hi} came back {qhi}"
+            o >= bottom - 1e-12 && o <= top + 1e-12,
+            "weight {i} = {} reconstructed to {o}, outside the representable \
+             grid [{bottom}, {top}] — the clamp was load-bearing here",
+            v[i]
         );
     }
 }
 
-/// 🚨 Kills a fallback to [`llvq_quant::quantizer::ScalarGrid`], the
-/// neighbouring type, which holds one step for everything.
+/// 🚨 `torch.round` breaks ties **to even**; `f64::round` breaks them away
+/// from zero. Swapping them is invisible on random data — exact ties are
+/// measure-zero — so a transcription claim needs a group built to hit one.
+///
+/// 🕳️ Mutation testing found this gap: replacing `round_ties_even` with
+/// `round` in the implementation left all eleven tests green, because none of
+/// them contained a tie the two modes disagree on. They agree at `5.5` (both
+/// give 6) and differ at `0.5` (0 against 1) — the tie has to sit at an
+/// *even* half-integer.
+///
+/// The group below puts `−xmin/scale` at exactly `0.5`: with `xmin = −1` and
+/// `xmax = 13` at three bits, `scale = 2`. Ties-to-even makes `zero = 0`,
+/// away-from-zero makes it `1`, and every reconstruction in the group moves.
+#[test]
+fn the_rounding_mode_is_ties_to_even() {
+    let v = vec![-1.0, 0.0, 5.0, 9.0, 13.0];
+    let (scale, zero, _) = upstream_params(3, &v);
+    assert!(
+        (scale - 2.0).abs() < 1e-12,
+        "the constructed tie case drifted: scale {scale} (expected 2)"
+    );
+    assert!(
+        (-1.0f64 / scale).abs() == 0.5,
+        "this group no longer sits on a tie"
+    );
+    assert_eq!(
+        zero, 0.0,
+        "torch.round breaks ties to even, so round(0.5) is 0 — getting 1 here \
+         means the implementation uses f64::round and the transcription claim \
+         is false"
+    );
+    // And the difference is observable in the output, not just in `zero`:
+    // with `zero = 1` every level shifts by one step.
+    let out = quantize(3, &v);
+    assert_eq!(
+        out[0].to_bits(),
+        0.0f64.to_bits(),
+        "with ties-to-even, −1 clamps to level 0 and reconstructs to 0; got {}",
+        out[0]
+    );
+}
+
+/// Kills a fallback to [`llvq_quant::quantizer::ScalarGrid`], the neighbouring
+/// type, which holds one step for everything.
 ///
 /// Two groups three orders of magnitude apart in extent: a per-group grid
-/// resolves each to its own `step/2`, a global one resolves the small group
-/// not at all. The assertion is on the *ratio* of errors, so it cannot be
-/// satisfied by a quantizer that is merely accurate.
+/// resolves each to its own step, a global one resolves the small group not at
+/// all. The assertion is on the *ratio* of errors, so it cannot be satisfied
+/// by a quantizer that is merely accurate.
 #[test]
 fn the_grid_is_fitted_per_group_not_globally() {
     let big = sample(0x9e37_79b9, 64, 1.0);
@@ -118,32 +278,28 @@ fn the_grid_is_fitted_per_group_not_globally() {
             .fold(0.0, f64::max)
     };
 
-    let (e_big, e_small) = (err(&big), err(&small));
-    let ratio = e_big / e_small;
+    let ratio = err(&big) / err(&small);
     assert!(
         (900.0..=1100.0).contains(&ratio),
         "the error should scale with each group's own extent (ratio ≈ 1000), \
-         got {ratio:.1} — big {e_big:e}, small {e_small:e}. A global step \
-         would put this ratio at 1."
+         got {ratio:.1}. A global step would put this ratio at 1."
     );
 }
 
-/// Kills an off-by-one in the level count — `2^bits` steps instead of
-/// `2^bits − 1` — which shifts every reconstruction by a fraction of a step
-/// and no other test here would separate from correct rounding.
+/// Kills an off-by-one in the level count and a truncation in place of
+/// rounding: absent a tie, the reconstruction is `scale·round(x/scale)`, so
+/// nothing sits further than half a step from its weight.
 #[test]
 fn no_weight_is_further_than_half_a_step() {
     for bits in 1..=8u32 {
         let v = sample(0xbf58_476d ^ bits as u64, 128, 0.03);
         let out = quantize(bits, &v);
-        let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
-        let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let step = (hi - lo) / ((1u32 << bits) - 1) as f64;
+        let (scale, _, _) = upstream_params(bits, &v);
         for (i, (&a, &o)) in v.iter().zip(out.iter()).enumerate() {
             assert!(
-                (a - o).abs() <= step / 2.0 + 1e-12,
+                (a - o).abs() <= scale / 2.0 + 1e-12,
                 "bits {bits}, weight {i}: |{a} − {o}| exceeds half a step ({})",
-                step / 2.0
+                scale / 2.0
             );
         }
     }
@@ -174,32 +330,55 @@ fn more_bits_is_strictly_better() {
     }
 }
 
-/// Kills the division by zero on a group with no extent.
+/// The degenerate cases, both of which run on real matrices.
 ///
-/// Not a corner case invented for a test: whole groups of a real matrix go to
-/// zero under error feedback, and every weight in them would come back NaN.
+/// An all-zero group takes upstream's `[-1, +1]` branch and still comes back
+/// zero; a constant group has one extreme at zero by the range extension, and
+/// its value lands on a grid endpoint exactly.
 #[test]
-fn a_group_with_no_extent_is_reproduced_exactly() {
-    for (name, value) in [("zeros", 0.0), ("constant", -0.317)] {
-        for bits in [1u32, 3, 8] {
-            let v = vec![value; 32];
+fn degenerate_groups_come_back_exactly() {
+    for bits in [1u32, 3, 8] {
+        let zeros = vec![0.0f64; 32];
+        assert!(
+            quantize(bits, &zeros).iter().all(|&o| o == 0.0),
+            "bits {bits}: an all-zero group did not come back zero"
+        );
+        for c in [-0.317f64, 0.05] {
+            let v = vec![c; 32];
             let out = quantize(bits, &v);
             assert!(
-                out.iter().all(|&o| o == value),
-                "{name} group at {bits} bits came back {:?}",
-                &out[..4]
+                out.iter().all(|&o| (o - c).abs() <= 1e-15 * c.abs()),
+                "bits {bits}: a constant group at {c} came back {:?}",
+                &out[..3]
             );
         }
     }
 }
 
-/// The independent reference of `CLAUDE.md` §5: the same answer reached by a
-/// route that shares no arithmetic with the implementation.
+/// 🚨 The one deliberate divergence from upstream, and why it is there.
 ///
-/// `ScalarGroupwise` divides, rounds and clamps. This picks the nearest of the
-/// enumerated levels by exhaustive search. A sign error, a misplaced clamp or
-/// a wrong rounding mode shows up as a disagreement; nothing about the two
-/// paths is common except the definition of the grid.
+/// `xmin = −1e308, xmax = 1e308` overflows `xmax − xmin` to infinity. Upstream
+/// then computes `0.0 * inf` and returns a group of NaN, silently. Found by
+/// probing the neighbourhood of a surviving mutant rather than by the mutant
+/// itself, which is why it is written down.
+#[test]
+fn an_extent_that_overflows_does_not_produce_nan() {
+    for bits in [1u32, 3, 8] {
+        let mut v = vec![0.0; 16];
+        v[0] = -1e308;
+        v[1] = 1e308;
+        let out = quantize(bits, &v);
+        assert!(
+            out.iter().all(|o| o.is_finite()),
+            "bits {bits}: an infinite extent produced {:?}",
+            &out[..4]
+        );
+    }
+}
+
+/// An exhaustive nearest-level search over the enumerated grid agrees —
+/// including where the clamp bites, since clamping to `[0, maxq]` *is*
+/// "restrict to the levels that exist".
 #[test]
 fn an_exhaustive_nearest_level_search_agrees() {
     for bits in 1..=6u32 {
@@ -223,7 +402,7 @@ fn an_exhaustive_nearest_level_search_agrees() {
 }
 
 /// The group is the block, and the block is what the caller sets. A quantizer
-/// that reported a different width would make `GptqConfig::block` and the rate
+/// reporting a different width would make `GptqConfig::block` and the rate
 /// accounting disagree — the failure `Codebook::block_len` exists to prevent.
 #[test]
 fn the_reported_block_length_is_the_group() {
@@ -233,82 +412,5 @@ fn the_reported_block_length_is_the_group() {
             bits: 3,
         };
         assert_eq!(q.block_len(), group);
-    }
-}
-
-/// 🕳️ The invariant that let a `.clamp(0.0, n)` be **removed** from
-/// `quantize`, after mutation testing showed neutralising it left all nine
-/// tests green — dead code, in the sense of `CLAUDE.md` §5.
-///
-/// It is dead only because the affine map is fitted to *this* group: `a ∈
-/// [lo, hi]` puts the quotient in `[0, n]`, and escaping after `.round()`
-/// would need a relative error of `0.5/n` out of two roundings. This test is
-/// what makes that removal safe to have made: a variant fitting the scale
-/// somewhere else — AutoGPTQ's `static_groups = true`, where it comes from
-/// the original weights and is applied to error-compensated ones — breaks the
-/// invariant here rather than silently rounding out of range.
-#[test]
-fn the_quotient_never_leaves_the_level_range() {
-    for mag in [1e-30f64, 1e-12, 1e-3, 1.0, 1e12, 1e30] {
-        for bits in 1..=8u32 {
-            let v = sample(0xd129_a4bd ^ bits as u64, 64, mag);
-            let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
-            let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let n = ((1u32 << bits) - 1) as f64;
-            let step = (hi - lo) / n;
-            if !(step.is_finite() && step > 0.0) {
-                continue;
-            }
-            for &a in &v {
-                let q = ((a - lo) / step).round();
-                assert!(
-                    (0.0..=n).contains(&q),
-                    "extent {mag:e}, bits {bits}: weight {a:e} quantizes to \
-                     level {q}, outside [0, {n}] — the clamp removed from \
-                     `quantize` was load-bearing after all, put it back"
-                );
-            }
-        }
-    }
-}
-
-/// 🚨 An extent that **overflows to infinity** used to hand back a group of
-/// NaN, silently.
-///
-/// `lo = -1e308, hi = 1e308` makes `hi - lo` overflow, so `step` is `inf`.
-/// The degenerate-group guard read `!(step > 0.0)`, and `inf > 0.0` is *true*
-/// — so the group went down the normal path, `q` came out 0, and `0.0 * inf`
-/// is NaN. Found by probing the neighbourhood of a surviving mutant rather
-/// than by the mutant itself, which is why it is written down here.
-#[test]
-fn an_extent_that_overflows_does_not_produce_nan() {
-    for bits in [1u32, 3, 8] {
-        let mut v = vec![0.0; 16];
-        v[0] = -1e308;
-        v[1] = 1e308;
-        let out = quantize(bits, &v);
-        assert!(
-            out.iter().all(|o| o.is_finite()),
-            "bits {bits}: an infinite extent produced {:?}",
-            &out[..4]
-        );
-    }
-}
-
-/// No reconstruction escapes the group's own range, at any width. Kills a
-/// clamp removed or applied to the wrong bound.
-#[test]
-fn nothing_lands_outside_the_group_extent() {
-    for bits in 1..=8u32 {
-        let v = sample(0xff51_afd7 ^ bits as u64, 128, 0.1);
-        let out = quantize(bits, &v);
-        let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
-        let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        for &o in &out {
-            assert!(
-                o >= lo - 1e-12 && o <= hi + 1e-12,
-                "bits {bits}: {o} is outside [{lo}, {hi}]"
-            );
-        }
     }
 }

@@ -266,10 +266,16 @@ impl Codebook {
         match self {
             Codebook::Identity | Codebook::Grid { .. } => 24.0 * 16.0,
             Codebook::Direction => 48.0 + 16.0,
-            // `bits` per weight, plus an f16 scale and an f16 zero for the
-            // group — the group-size accounting of a deployed INT-k file,
-            // not an idealisation of one.
-            Codebook::ScalarGroup { bits, group } => *group as f64 * *bits as f64 + 32.0,
+            // `bits` per weight, plus what a deployed INT-k file actually
+            // stores for the group: an **f16 scale** and a zero point packed
+            // at **`bits` width**, not a second f16. The zero is an integer in
+            // `0..=2^bits−1` by construction (see `ScalarGroupwise`), which is
+            // exactly why it packs that narrow — and charging it 16 bits, as
+            // this line did before the upstream source was read, overstates
+            // the rate by `(16−bits)/group`: 0.54 b/weight at `int3g24`.
+            Codebook::ScalarGroup { bits, group } => {
+                *group as f64 * *bits as f64 + 16.0 + *bits as f64
+            }
             // A free per-block magnitude is an f16, and has to be charged as
             // one — claiming `gain_bits` while the retraction hands back a
             // float is exactly the accounting error of 2026-07-31.

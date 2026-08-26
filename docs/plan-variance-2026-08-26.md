@@ -71,12 +71,21 @@ l'INT-k réel dérive une échelle et un zéro **par groupe**.
 
 **À écrire** (~50 lignes de quantifieur, plus le câblage) :
 
-- `ScalarGroupwise { block: 128, bits: u32 }` implémentant `BlockQuantizer` :
-  min/max du bloc → `scale = (hi−lo)/(2^b − 1)`, `zero = lo`, arrondi et
-  saturation dans `[0, 2^b−1]`.
-- Le câblage : la variante de codebook, son parseur dans `smoke.rs`
-  (`scalar-g128-b2|b3|b4`), et sa comptabilité `bits/weight`
-  (`b + 32/128`, l'échelle et le zéro en f16 par groupe).
+- ✅ **Fait le 2026-08-26** — `ScalarGroupwise { block, bits }`, transcrit de
+  `Quantizer.find_params`/`quantize` d'AutoGPTQ (sha256 `2e0b4588…`) plutôt que
+  re-dérivé, avec la grammaire `int<bits>g<groupe>` et la comptabilité
+  `bits + (16 + bits)/groupe`.
+
+🕳️ **Et le recoupement du §0.3 a fait son travail avant même d'être écrit
+comme tel.** Une première implémentation, écrite de mémoire, a passé neuf tests
+de propriété en étant fausse sur **trois** points, chacun déplaçant la grille :
+l'étendue n'était pas étendue à zéro ; le zéro point était un flottant là où
+un fichier déployé le stocke en entier packé à `bits` ; le groupe dégénéré était
+traité autrement. Elle surchargeait en prime le débit de `(16−bits)/groupe`,
+soit 0,54 b/poids à `int3g24`. **Aucun test de propriété écrit sans la source
+sous les yeux ne pouvait les trouver** — chacune était cohérente avec
+elle-même. C'est l'argument entier pour ce lot : des propriétés épinglent *un*
+quantifieur, seule une transcription épingle *lequel*.
 
 🚨 **Conséquence à connaître avant d'écrire : le bras scalaire ne produira pas
 d'artefact.** `quantize_model_capturing` refuse la capture pour tout codebook
