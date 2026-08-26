@@ -252,9 +252,13 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
         "direction" => return Ok(Codebook::Direction),
         _ => {}
     }
-    let grammar = "valeurs admises « identity », « grid », « direction » et \
+    if spec.starts_with("int") {
+        return parse_int(spec);
+    }
+    let grammar = "valeurs admises « identity », « grid », « direction », \
+                   « int<bits>g<groupe> » et \
                    « leech[<gain>][c<coquille>][L<niveaux>][f] » — \
-                   ex. « leech1 », « leech1c12 », « leech1c12L3 », « leech1c12f »";
+                   ex. « int3g24 », « leech1 », « leech1c12 », « leech1c12L3 », « leech1c12f »";
     let rest = spec
         .strip_prefix("leech")
         .ok_or_else(|| format!("codebook {spec:?} : {grammar}"))?;
@@ -318,6 +322,82 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     })
 }
 
+/// Parse `int<bits>g<groupe>` — the affine scalar arm.
+///
+/// Both fields are mandatory, and neither falls back. `int3` alone would have
+/// to invent a group size, and the group is not a detail: it *is* the GPTQ
+/// block (see [`Codebook::block_len`]), so a defaulted one would silently
+/// change the error-feedback granularity of the run rather than just its rate.
+///
+/// `g24` pairs with a Leech arm — same block, same feedback, one variable.
+/// `g128` is the field default of AutoGPTQ, and costs `bits + 0.25` instead of
+/// `bits + 1.33`.
+fn parse_int(spec: &str) -> Result<Codebook, String> {
+    let grammar = "grammaire « int<bits>g<groupe> » — bits 1..=8, groupe 8..=1024, \
+                   ex. « int3g24 » (apparié au bloc de Leech) ou « int4g128 » \
+                   (le défaut d'AutoGPTQ)";
+    let rest = spec
+        .strip_prefix("int")
+        .ok_or_else(|| format!("codebook {spec:?} : {grammar}"))?;
+    let (digits, rest) = split_digits(rest);
+    if digits.is_empty() {
+        return Err(format!("codebook {spec:?} : bits manquants — {grammar}"));
+    }
+    let bits: u32 = digits
+        .parse()
+        .map_err(|e| format!("codebook {spec:?} : bits {digits:?} illisibles ({e})"))?;
+    let (rest, group) = take_field_required(spec, rest, 'g', grammar)?;
+    if !rest.is_empty() {
+        return Err(format!("codebook {spec:?} : {rest:?} en trop — {grammar}"));
+    }
+    // `1u32 << bits` overflows at 32, and a 9-bit "INT" is not a thing anyone
+    // ships; the bound is the useful one, not the representable one.
+    if !(1..=8).contains(&bits) {
+        return Err(format!(
+            "codebook {spec:?} : {bits} bits, admis 1..=8 — {grammar}"
+        ));
+    }
+    // The lower bound keeps the f16 scale and zero from dominating the rate
+    // (at 8 they already cost 4 bits/weight); the upper one is the narrowest
+    // `d_in` of the models this harness loads (1024 on Qwen3-0.6B), past
+    // which `TailPolicy::KeepExact` would quantize nothing at all and the run
+    // would report a baseline as if it were a result.
+    if !(8..=1024).contains(&group) {
+        return Err(format!(
+            "codebook {spec:?} : groupe {group}, admis 8..=1024 — {grammar}"
+        ));
+    }
+    Ok(Codebook::ScalarGroup {
+        bits,
+        group: group as usize,
+    })
+}
+
+/// Read a mandatory `<tag><digits>` field off the front of `rest`.
+///
+/// The optional twin is [`take_field`]; this one exists because
+/// [`parse_int`]'s group has no defensible default.
+fn take_field_required<'a>(
+    spec: &str,
+    rest: &'a str,
+    tag: char,
+    grammar: &str,
+) -> Result<(&'a str, u32), String> {
+    let after = rest
+        .strip_prefix(tag)
+        .ok_or_else(|| format!("codebook {spec:?} : « {tag} » attendu — {grammar}"))?;
+    let (digits, rest) = split_digits(after);
+    if digits.is_empty() {
+        return Err(format!(
+            "codebook {spec:?} : « {tag} » doit être suivi d'un nombre — {grammar}"
+        ));
+    }
+    let v = digits
+        .parse()
+        .map_err(|e| format!("codebook {spec:?} : « {tag}{digits} » illisible ({e})"))?;
+    Ok((rest, v))
+}
+
 /// Split off the leading run of ASCII digits.
 fn split_digits(s: &str) -> (&str, &str) {
     let n = s.len() - s.trim_start_matches(|c: char| c.is_ascii_digit()).len();
@@ -372,6 +452,15 @@ fn codebook_line(spec: &str, c: &Codebook) -> String {
     let what = match c {
         Codebook::Identity => "lossless control, no code".to_string(),
         Codebook::Grid { step } => format!("scalar grid, step {step}"),
+        // The rate is spelled out because it is the one thing a reader will
+        // want to compare against a lattice arm, and `bits + 32/group` is not
+        // something to do in one's head at the top of a log.
+        Codebook::ScalarGroup { bits, group } => format!(
+            "affine INT{bits}, f16 scale+zero per group of {group}, \
+             {:.4} b/weight before the per-row f16 (which this arm does not use), \
+             no artifact",
+            *bits as f64 + 32.0 / *group as f64
+        ),
         Codebook::Direction => {
             "direction only, magnitude left a free float — NOT a 2-bit code".to_string()
         }
@@ -873,7 +962,21 @@ fn main() -> anyhow::Result<()> {
             // A different shard from the one `bin/ppl` evaluates on —
             // otherwise calibrating on C4 and scoring on C4 is the same text
             // twice.
-            llvq_llm::corpus::c4_calibration(8_000_000)?
+            // Sized from what this run asked for, not from a literal.
+            //
+            // 🕳️ The literal was `8_000_000`, and lot B measured what it
+            // actually yields: **847 windows of 2048**
+            // (`docs/archive/verdicts-lot-b-2026-08-06.md:33`), i.e. 4.61
+            // characters per token. Any run asking for more than ~13× the
+            // published volume was served ~13× — the `min` below did it
+            // without a word in the log. A calibration-volume ladder built on
+            // that would have published two rungs measuring the same point.
+            //
+            // Six characters per token is the measured 4.61 plus margin. It
+            // only avoids a needless second read: what actually guarantees
+            // the volume is the `ensure!` below.
+            let want = n_calib.saturating_mul(calib_len).saturating_mul(6);
+            llvq_llm::corpus::c4_calibration(want)?
         }
         CalibCorpus::Wikitext2Test => {
             // The calibration *oracle* (pistes-battre-q4.md P3): deliberate
@@ -894,10 +997,28 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .get_ids()
         .to_vec();
-    let n_calib = n_calib.min(train_ids.len() / calib_len);
-    anyhow::ensure!(n_calib > 0, "calibration corpus too short");
+    anyhow::ensure!(n_calib > 0, "n_calib doit être > 0");
+    // 🚨 This used to be `n_calib.min(train_ids.len() / calib_len)` — a
+    // **silent clamp**. A run that asked for 2048 windows and got 847 said so
+    // nowhere except in a line nobody diffs, and reported its result under the
+    // volume it *asked* for. That is the §7 rule of `CLAUDE.md` — a mechanism
+    // that skips when its resource is missing must fail, not pass — applied to
+    // a run rather than to a test.
+    let available = train_ids.len() / calib_len;
+    anyhow::ensure!(
+        available >= n_calib,
+        "le corpus de calibration ne porte que {available} fenêtres de {calib_len} \
+         ({} tokens lus) — {n_calib} demandées. Ce run échoue ici plutôt que d'en \
+         servir moins en silence : un volume publié doit être un volume mesuré.",
+        train_ids.len()
+    );
     eprintln!(
-        "  {n_calib} windows of {calib_len} = {} tokens, {}",
+        // `available` is printed alongside because this line is what a
+        // volume ladder's control reads back: "we asked for N and got N" is
+        // only reassuring next to how many the corpus actually held. The
+        // `ensure!` above already refuses N > available, so the two can no
+        // longer disagree — this is the line that lets a reader see it.
+        "  {n_calib} windows of {calib_len} = {} tokens ({available} available), {}",
         n_calib * calib_len,
         match calib_seed {
             Some(s) => format!("seeded offsets (seed {s})"),
@@ -915,7 +1036,10 @@ fn main() -> anyhow::Result<()> {
 
     // ---- quantize ----
     let cfg = GptqConfig {
-        block: llvq_core::DIM,
+        // The codebook decides it: a Leech block is 24 weights, an affine
+        // scalar arm's block is its group. `quantize_layer` asserts the two
+        // agree, so a mismatch is a panic rather than a silent regrouping.
+        block: codebook.block_len(),
         retract: true, // Spherical GPTQ
         group_scales,
         design_c,
@@ -1431,6 +1555,81 @@ mod tests {
         assert_eq!(parse_rotation(Some("rot")).unwrap(), Some(ROTATION_SEED));
         for bad in ["", "ROT", "rott", "on", "true", "1"] {
             assert!(parse_rotation(Some(bad)).is_err(), "{bad:?} was accepted");
+        }
+    }
+
+    /// The affine scalar arm parses, and **nothing about it falls back**.
+    ///
+    /// The group is not a cosmetic field: it *is* `GptqConfig::block` (see
+    /// `Codebook::block_len`), so a defaulted one would change the run's
+    /// error-feedback granularity and not merely its rate. That is why
+    /// `int3` alone is an error rather than "group 128".
+    #[test]
+    fn the_scalar_arm_parses_and_never_falls_back() {
+        assert!(matches!(
+            parse_codebook("int3g24").unwrap(),
+            Codebook::ScalarGroup { bits: 3, group: 24 }
+        ));
+        assert!(matches!(
+            parse_codebook("int4g128").unwrap(),
+            Codebook::ScalarGroup {
+                bits: 4,
+                group: 128
+            }
+        ));
+        for spec in [
+            "int3",      // no group — would have to be invented
+            "intg24",    // no bits
+            "int3g",     // tag with no digits behind it
+            "int0g24",   // zero bits
+            "int9g24",   // past the 8-bit bound
+            "int3g4",    // group below the f16 overhead bound
+            "int3g2048", // group past the narrowest d_in this harness loads
+            "int3g24x",  // trailing junk
+            "int3G24",   // the tag is case-sensitive, as `c` is for leech
+        ] {
+            assert!(
+                parse_codebook(spec).is_err(),
+                "{spec:?} should be refused, not resolved"
+            );
+        }
+    }
+
+    /// 🚨 The block length follows the codebook, and the rate follows the
+    /// block length.
+    ///
+    /// While every codebook was 24 wide, `Report::bits_per_weight` could
+    /// divide by `llvq_core::DIM` and be right by accident. The first one
+    /// that is not would have made it report a rate no file has, and nothing
+    /// downstream would have noticed — the failure `Codebook::block_len`
+    /// exists to make unwriteable.
+    #[test]
+    fn the_block_length_follows_the_codebook_and_the_rate_follows_it() {
+        assert_eq!(parse_codebook("leech1c12").unwrap().block_len(), 24);
+        assert_eq!(parse_codebook("identity").unwrap().block_len(), 24);
+        assert_eq!(parse_codebook("int3g24").unwrap().block_len(), 24);
+        assert_eq!(parse_codebook("int3g128").unwrap().block_len(), 128);
+
+        // `bits + 32/group`, computed here from the definition rather than
+        // read back from the same expression the code uses.
+        for (spec, bits, group) in [
+            ("int2g24", 2.0, 24.0),
+            ("int3g24", 3.0, 24.0),
+            ("int3g128", 3.0, 128.0),
+            ("int4g128", 4.0, 128.0),
+        ] {
+            let c = parse_codebook(spec).unwrap();
+            let want = group * bits + 32.0;
+            assert!(
+                (c.block_bits() - want).abs() < 1e-9,
+                "{spec}: block_bits {} != {want}",
+                c.block_bits()
+            );
+            let per_weight = c.block_bits() / c.block_len() as f64;
+            assert!(
+                (per_weight - (bits + 32.0 / group)).abs() < 1e-9,
+                "{spec}: {per_weight} b/weight"
+            );
         }
     }
 

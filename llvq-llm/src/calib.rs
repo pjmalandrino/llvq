@@ -32,6 +32,7 @@ use llvq_quant::gptq::{GptqConfig, Weights};
 use llvq_quant::linalg::GptqFactor;
 use llvq_quant::quantizer::{
     fit_gain_centroids, BlockQuantizer, Identity, LeechDirection, LeechShapeGain, ScalarGrid,
+    ScalarGroupwise,
 };
 use llvq_quant::rotation::Rotation;
 use std::collections::HashMap;
@@ -155,6 +156,11 @@ pub struct Report {
     pub rows: u64,
     /// Bits per quantized block, gain included.
     pub block_bits: f64,
+    /// Weights one block code covers — [`Codebook::block_len`]. Set from the
+    /// codebook at the end of the run; [`Report::bits_per_weight`] refuses to
+    /// compute a rate without it, because a wrong divisor here would report a
+    /// rate no file has and nothing downstream would notice.
+    pub block_len: usize,
     pub seconds: f64,
     /// Where the time went. See [`Phases`].
     pub phases: Phases,
@@ -178,8 +184,19 @@ impl Report {
     /// Counting only the index is how a 2.73 bit/weight run got reported as
     /// 2.07; the magnitude has to be in here.
     pub fn bits_per_weight(&self) -> f64 {
+        // `Report` derives `Default`, so this field can be zero — and a zero
+        // divisor would hand back an infinite rate that reads as a bug
+        // somewhere else entirely. It is a programming error, not a user one,
+        // so it says which field and where it comes from.
+        assert!(
+            self.block_len > 0,
+            "Report::block_len is zero: a rate cannot be computed without \
+             knowing how many weights a block code covers. It is set from \
+             Codebook::block_len at the end of a run; a Report built by hand \
+             has to set it too."
+        );
         let quantized = self.weights - self.tail_weights;
-        let blocks = quantized as f64 / llvq_core::DIM as f64;
+        let blocks = quantized as f64 / self.block_len as f64;
         (blocks * self.block_bits + self.tail_weights as f64 * 16.0 + self.rows as f64 * 16.0)
             / self.weights as f64
     }
@@ -198,6 +215,26 @@ pub enum Codebook {
     Identity,
     /// Round-to-nearest on a fixed grid.
     Grid { step: f64 },
+    /// Affine INT-`bits` with a scale and a zero point per group of `group`
+    /// input channels — the quantizer deployed pipelines ship, and the
+    /// baseline a lattice code has to beat. See
+    /// [`llvq_quant::quantizer::ScalarGroupwise`].
+    ///
+    /// It exists for one reason: a result shown only on Λ₂₄ is a statement
+    /// about *our codebook*, and the same result shown on the field's own
+    /// scalar quantizer is a statement about **GPTQ**.
+    ///
+    /// ⚠️ Its reconstruction is not describable by a `BlockCode`, so a run
+    /// using it **cannot write an artifact** — `quantize_model_capturing`
+    /// refuses it. Its perplexity is read off the in-memory model, which is
+    /// why every arm it is compared against must be read the same way.
+    ///
+    /// ⚠️ [`Report::bits_per_weight`] charges one f16 per output row to every
+    /// codebook, and this one carries no per-row scale — so its reported rate
+    /// is high by `16/d_in` (≈ 0.006 b/weight at `d_in` = 2560). Declared
+    /// rather than special-cased: what an A/B on this arm measures is a
+    /// *variance*, not a rate.
+    ScalarGroup { bits: u32, group: usize },
     /// Leech direction with the block magnitude left in full precision.
     /// **Not** a 2 bit/weight code — see `LeechDirection`.
     Direction,
@@ -229,6 +266,10 @@ impl Codebook {
         match self {
             Codebook::Identity | Codebook::Grid { .. } => 24.0 * 16.0,
             Codebook::Direction => 48.0 + 16.0,
+            // `bits` per weight, plus an f16 scale and an f16 zero for the
+            // group — the group-size accounting of a deployed INT-k file,
+            // not an idealisation of one.
+            Codebook::ScalarGroup { bits, group } => *group as f64 * *bits as f64 + 32.0,
             // A free per-block magnitude is an f16, and has to be charged as
             // one — claiming `gain_bits` while the retraction hands back a
             // float is exactly the accounting error of 2026-07-31.
@@ -247,6 +288,29 @@ impl Codebook {
                 let magnitude = if *free_magnitude { 16 } else { *gain_bits };
                 (llvq_quant::quantizer::index_bits(*max_shell) + magnitude) as f64
             }
+        }
+    }
+
+    /// Input channels one block code covers, and therefore what
+    /// [`llvq_quant::gptq::GptqConfig::block`] must be set to.
+    ///
+    /// Λ₂₄ fixes it at 24 — a Leech block *is* 24 weights. The scalar arm
+    /// carries its own group size instead, and the two numbers are one on
+    /// purpose: the group and the error-feedback granularity have to move
+    /// together, or an A/B between families changes two things at once.
+    ///
+    /// **One source of truth on purpose**, the same discipline as
+    /// [`effective_rotation_seed`]: the site that configures the GPTQ loop
+    /// and the site that divides weights into blocks to report a rate must
+    /// not be able to disagree. They did not disagree while every codebook
+    /// was 24 wide; the first one that is not would have made
+    /// [`Report::bits_per_weight`] divide by the wrong number and report a
+    /// rate no file has.
+    pub fn block_len(&self) -> usize {
+        match self {
+            Codebook::ScalarGroup { group, .. } => *group,
+            Codebook::Identity | Codebook::Grid { .. } | Codebook::Direction => llvq_core::DIM,
+            Codebook::ShapeGain { .. } => llvq_core::DIM,
         }
     }
 }
@@ -592,6 +656,13 @@ pub fn quantize_model_capturing(
                             block: cfg.block,
                             step,
                         }),
+                        // `cfg.block` is the group: the caller sets it from
+                        // `Codebook::block_len`, and `quantize_layer` asserts
+                        // the two agree.
+                        Codebook::ScalarGroup { bits, .. } => Box::new(ScalarGroupwise {
+                            block: cfg.block,
+                            bits,
+                        }),
                         Codebook::Direction => Box::new(LeechDirection::new()),
                         Codebook::ShapeGain {
                             max_shell,
@@ -723,6 +794,7 @@ pub fn quantize_model_capturing(
                 report.tail_weights += (d_out * (d_in % cfg.block)) as u64;
                 report.rows += d_out as u64;
                 report.block_bits = codebook.block_bits();
+                report.block_len = codebook.block_len();
                 progress(t, nblocks, name);
             }
         }

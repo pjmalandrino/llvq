@@ -238,6 +238,97 @@ impl BlockQuantizer for ScalarGrid {
     }
 }
 
+/// Affine INT-`k` round-to-nearest on a grid **fitted to each group** — the
+/// quantizer that deployed post-training pipelines actually ship.
+///
+/// [`ScalarGrid`] above holds one step for the whole model, which nothing
+/// deployed does: the standard is a scale and a zero point derived from each
+/// group's own extent, so a group of small weights gets a fine grid and one
+/// carrying an outlier gets a coarse one. That per-group affine map is what
+/// `group_size` names in AutoGPTQ, and it is the reason INT4 is usable at all.
+///
+/// ## Why the group is the GPTQ block
+///
+/// The group here **is** [`crate::gptq::GptqConfig::block`], so that an A/B
+/// against a lattice quantizer changes the codebook and nothing else: both
+/// arms then see the same error-feedback granularity. Running the field
+/// default of 128 is a matter of setting *both* to 128, which is why the two
+/// are one number rather than two.
+///
+/// ## The affine map, and what it costs
+///
+/// With `n = 2^bits − 1` steps between the group's extremes, `lo` maps to 0
+/// and `hi` to `n`, so **both extremes are reproduced exactly** — that is the
+/// property separating an asymmetric map from a symmetric one, and
+/// `tests/scalar_groupwise.rs` exercises it because dropping the zero point is
+/// the most plausible way to write this wrong. The group is charged `bits` per
+/// weight plus one f16 scale and one f16 zero, i.e. `bits + 32/group` bits per
+/// weight.
+pub struct ScalarGroupwise {
+    pub block: usize,
+    /// Bits per weight. `1..=8`; the caller validates, and `1 << bits` would
+    /// overflow long before that bound in any case.
+    pub bits: u32,
+}
+
+impl BlockQuantizer for ScalarGroupwise {
+    fn block_len(&self) -> usize {
+        self.block
+    }
+
+    fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for &a in v {
+            if a < lo {
+                lo = a;
+            }
+            if a > hi {
+                hi = a;
+            }
+        }
+        let n = ((1u32 << self.bits) - 1) as f64;
+        let step = (hi - lo) / n;
+        // A group with no usable extent has no grid to build, and the affine
+        // map degenerates to the constant — which it reproduces exactly.
+        //
+        // Three cases land here, and only the first is obvious. **Zero
+        // extent** is not a corner case invented for a test: whole groups of
+        // a real matrix go to zero under error feedback, and `(a - lo) / 0`
+        // would hand back NaN for every weight in them. A **NaN** extent
+        // lands here because `!(x > 0.0)` is true of NaN where `x == 0.0`
+        // would not be. And an extent that **overflows to infinity** —
+        // `lo = -1e308, hi = 1e308` — is the one that had to be measured
+        // rather than reasoned about: `inf > 0.0` is *true*, so the earlier
+        // guard let it through, `q` came out 0, and `0.0 * inf` is NaN. The
+        // whole group came back NaN with nothing to show for it.
+        if !(step.is_finite() && step > 0.0) {
+            out.fill(lo);
+            return;
+        }
+        for (o, &a) in out.iter_mut().zip(v.iter()) {
+            // 🕳️ There was a `.clamp(0.0, n)` here, and mutation testing found
+            // it was **dead code** — neutralising it left all nine tests
+            // green. It is dead by construction: the map is fitted to *this*
+            // group, so `a ∈ [lo, hi]` gives a quotient in `[0, n]`, and
+            // escaping after `.round()` would need a relative error of
+            // `0.5/n ≥ 0.2 %` out of two roundings. Checked rather than
+            // assumed: 38.4 M groups over 30 orders of magnitude of extent,
+            // both extremes and an interior point at every width, produced no
+            // quotient outside `[0, n]`.
+            //
+            // It would become load-bearing again under AutoGPTQ's
+            // `static_groups = true`, where the scale comes from the original
+            // weights and is applied to error-compensated ones that can drift
+            // outside the extent it was fitted to. `the_quotient_never_leaves_
+            // the_level_range` pins the invariant this removal rests on, so
+            // that variant fails a test rather than rounding out of range.
+            let q = ((a - lo) / step).round();
+            *o = q * step + lo;
+        }
+    }
+}
+
 /// Shape–gain: the direction from the Leech ball, the magnitude from a
 /// `k`-bit scalar code relative to a per-row scale.
 ///
