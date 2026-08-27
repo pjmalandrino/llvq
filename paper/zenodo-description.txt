@@ -1,0 +1,13 @@
+Leech lattice vector quantization gives the best reported quality at 2 bits per weight, but the CUDA kernel published alongside it decodes only one shell of the lattice. The decoder you actually need at that rate covers a union of shells: 301 classes, and a 47-bit index that names one point out of 1.1e14. I could not find an implementation of it anywhere, the original work included. This paper builds one and measures what it costs to run.
+
+The kernel expands the codebook offline into a GPU layout that every lane reads with the same instruction sequence, so there is no branch per class and no warp divergence. The combinatorial index is never decoded inside the matrix-vector product. Every output row is checked against a float64 reference before anything is timed.
+
+The main result is that the bit rate on disk does not predict the bit rate in VRAM. This format and QTIP both store 2.000 bits per weight in the file. In VRAM they differ by 2.4x, because a codebook of 1.1e14 points cannot fit in a lookup table and has to be unfolded into a 4.80-bit stream, while a 16-bit trellis state fits in 2 KiB. Running both kernels in one process, on the same shapes, QTIP reads 2.40x fewer bytes and runs 2.27x faster. Both sit at roughly the same fraction of their byte bound, 61% against 65%, so the time gap is the traffic gap. That is a consequence of codebook size, not of the implementation.
+
+Two measurements bound the rest. A control kernel that reads no weight bytes at all is slower than QTIP, which means it measures the launch geometry used here and not the card. And on an A100, every lattice arm falls below FP16, so the speedups reported here are an L40S/Ada result rather than a general one.
+
+End to end, with the output head held identical in both arms, the kernel and format together give 1.11x, 1.29x and 1.41x at 4B, 8B and 14B parameters. The served 4B configuration runs at 87 tokens per second in 2.60 GB of VRAM. Quality is the weak side: at 4B, two bits cost 38% perplexity and 14.7 MMLU points, where 4-bit quantization costs nothing measurable. The gap narrows as the model grows, but three points do not make a scaling law and none is claimed.
+
+All timings are batch 1 decode, not batched GEMM and not prefill. Code, data and the paper source are public, including the per-window numbers behind every confidence interval and the cost of every GPU job (the whole campaign came to under $100 of rented time). The competitor kernel is GPL v3, so the benchmark fetches it at a pinned commit instead of redistributing it. Use of generative AI in writing the manuscript is disclosed in the paper.
+
+This is a preprint I deposited myself. It has not been peer reviewed.

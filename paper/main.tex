@@ -1,31 +1,34 @@
-% Fused multi-shell Leech decoder — ACM TACO submission.
+% Fused multi-shell Leech decoder — Zenodo preprint build.
 % Build: make (generates figures from ../docs/data/*.csv, then latexmk).
 %
-% Class: acmart in `acmsmall`. TACO's own author guidelines set the page
-% limit "using the 7x10 ACM Submission Format" — the 6.75in x 10in geometry
-% of `acmsmall` — so the submission is built and counted in that format
-% (switched from `manuscript` 2026-08-20; ACM's generic sample prescribes
-% `manuscript`, but the journal's stated limit is the binding rule). The
-% limit is 20 pages of text and figures, references excluded, appendix
-% INCLUDED. The previous revision was `article` at 11pt, an arXiv-style
-% preprint; the acmart conversion landed 2026-08-19 (item B4 of
-% docs/plan-taco-2026-08-18.md) and changed no number.
+% HISTORY, because the class options only make sense with it: this was
+% submitted to ACM TACO on 2026-08-24 (TACO-2026-428) and returned by the
+% Editor-in-Chief on 2026-08-27 without review, on scope grounds. It is now
+% deposited as a self-published author preprint. Not peer reviewed.
 %
-% 🚨 `anonymous=true`: TACO reviews double-anonymously and states that a paper
-% revealing its authors is "subject to immediate rejection". The author block
-% below stays in the source and is suppressed by the class; what the class
-% CANNOT suppress is a self-identifying URL, so the availability section
-% carries anonymized links for review — see its own comment.
-% Written `key=true` because acmart declares these with `\define@boolkey`;
-% the bare forms work identically, this is explicitness, not a fix.
+% Class: acmart in `acmsmall`, kept from the TACO build — the 6.75in x 10in
+% geometry is what every page count, float placement and table width in this
+% source was tuned against, and changing class would reflow the whole paper
+% for no gain. The previous revision was `article` at 11pt; the acmart
+% conversion landed 2026-08-19 and changed no number.
 %
-% ⚠️ Do NOT read the log to decide whether review mode is on. It prints
-% "Not using review mode" from inside the key's own declaration (acmart.cls
-% line 98), before any option is applied, and says so on every build
-% including this one. The mode is verified in the OUTPUT — acmart numbers
-% lines itself rather than loading `lineno`, so `pdftotext main.pdf` showing
-% the numbers is the check that means something.
-\documentclass[acmsmall,review=true,screen=true,anonymous=true]{acmart}
+% 🚨 `nonacm=true` IS LOAD-BEARING AND MUST NOT BE REMOVED. Without it acmart
+% prints, on a document that ACM never published: an "ACM Reference Format"
+% block, the TACO ISSN line `ACM 1544-3973/...`, the placeholder DOI
+% `10.1145/nnnnnnn.nnnnnnn`, and a `ACM Trans. Arch. Code Optim., Vol. 0,
+% No. 0` footer on all 21 pages. On a Zenodo DOI — permanent, non-deletable —
+% that is a false publication claim. Verified by build, not by reading:
+%   pdftotext main.pdf - | grep -E 'ACM Trans|1544-3973|10\.1145'
+% must return NOTHING.
+%
+% ⚠️ `anonymous` and `review` are gone (both default false). The author block
+% below now prints, and \ifanon (see below) resolves to the real URLs. The old
+% warning is kept because it is still true and still costs an hour to
+% rediscover: do NOT read the log to decide whether review mode is on — it
+% prints "Not using review mode" from inside the key's own declaration
+% (acmart.cls line 98), before any option is applied, on every build. Modes
+% are verified in the OUTPUT, never in the log.
+\documentclass[acmsmall,screen=true,nonacm=true]{acmart}
 
 % acmart loads its own fonts (libertine + newtxmath), microtype, graphicx,
 % booktabs, hyperref, xcolor, amsmath and natbib. Loading any of them again
@@ -63,19 +66,41 @@
 \makeatother
 
 % ---------------------------------------------------------------------------
-% Journal identification. The volume/number/article fields are placeholders
-% until acceptance; they are here so the class stops warning and so the page
-% furniture looks like what a referee expects.
+% Journal identification — DELIBERATELY EMPTY, and the empty braces are not
+% the same as deleting the lines. acmart's own defaults are \acmVolume{1} and
+% \acmNumber{1} (acmart.cls:1700,1702), so DELETING these two would emit
+% <prism:volume>1</prism:volume> <prism:number>1</prism:number> into the PDF's
+% XMP metadata — a fabricated "Volume 1, Issue 1" inside a permanent DOI.
+% Empty braces make hyperxmp skip the field entirely (hyperxmp.sty:473-487).
+% \acmJournal is DELETED rather than emptied: `\acmJournal{}` is a hard error
+% ("Class acmart Error: Incorrect journal"). \acmArticle must go too, or every
+% page is headed `0:2`, `0:3`... — \@acmArticlePage (acmart.cls:3021) is NOT
+% gated by nonacm. \acmYear/\acmMonth/\copyrightyear feed the CC-BY line and
+% stay. Measured, not assumed.
 % ---------------------------------------------------------------------------
-\acmJournal{TACO}
-\acmVolume{0}
-\acmNumber{0}
-\acmArticle{0}
+\acmVolume{}
+\acmNumber{}
+\acmArticle{}
 \acmYear{2026}
 \acmMonth{8}
 \copyrightyear{2026}
 \setcopyright{cc}
 \setcctype{by}
+
+% ---------------------------------------------------------------------------
+% XMP metadata override. `nonacm=true` cleans the VISIBLE furniture but NOT
+% the embedded XMP: hyperxmp's acmart hook (hyperxmp.sty:636-651) is not
+% nonacm-gated, so without these four keys the deposited PDF still carries
+%   dc:publisher          = Association for Computing Machinery
+%   prism:aggregationType = journal
+% which is exactly the false claim nonacm was set to remove, just invisible.
+% Verify after building:  pdftotext is not enough — read the XMP packet.
+% ---------------------------------------------------------------------------
+\hypersetup{
+  pdfpublisher={Pier-Jean Malandrino},
+  pdfpubtype={preprint},
+  pdfcopyright={Creative Commons Attribution 4.0 International (CC BY 4.0)},
+  pdflicenseurl={https://creativecommons.org/licenses/by/4.0/}}
 
 \begin{document}
 
@@ -150,13 +175,6 @@ and 14B; with an int8 output head the served 4B reaches 87.0~tok/s in
 GPU kernels, memory layout, GEMV, large language models, roofline}
 
 \maketitle
-% TACO requires this exact label in a first-page footnote for original work.
-% \titlenote is suppressed by anonymous=true (its text lives in the author
-% block), so it is set as an unmarked footnote instead.
-\begingroup
-\renewcommand\thefootnote{}%
-\footnotetext{New Paper, Not an Extension of a Conference Paper.}%
-\endgroup
 
 \input{sections/intro}
 \input{sections/decoder}

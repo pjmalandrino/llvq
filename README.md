@@ -1,5 +1,7 @@
 # LLVQ in Rust — Leech lattice vector quantization for LLM weights
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22133606.svg)](https://doi.org/10.5281/zenodo.22133606)
+
 An independent, from-scratch implementation of
 [**Leech Lattice Vector Quantization for Efficient LLM Compression**](https://arxiv.org/abs/2603.11021)
 (van der Ouderaa, van Baalen, Whatmough, Nagel — Qualcomm AI Research, 2026),
@@ -41,6 +43,21 @@ end. Only the model side pulls in `candle`.
 > specification: it still carries superseded figures this file retracts — among
 > them a ×4.63 compression ratio computed on a 1.74 GB artifact that was never
 > written. Where they disagree, this file and `docs/fiche-4b.md` win.
+
+## The paper
+
+The measurements in this file are written up, and the write-up has a DOI:
+
+> Malandrino, P.-J. (2026). **Unfolding the Leech Lattice: Fused Multi-Shell
+> Decoding and VRAM Layouts for 2-Bit LLM Weights**. Zenodo.
+> [10.5281/zenodo.22133606](https://doi.org/10.5281/zenodo.22133606)
+
+⚠️ **Self-deposited preprint. It has not been peer reviewed.**
+
+That link is the *concept* DOI: it always resolves to the newest version.
+Use `10.5281/zenodo.22133607` to pin v1 specifically. Not to be confused with
+[arXiv:2603.11021](https://arxiv.org/abs/2603.11021), which is the Qualcomm
+paper this repository implements.
 
 ## Result
 
