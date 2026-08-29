@@ -345,3 +345,37 @@ les jobs courts du front 2.
   codebook ; le papier en a fait un résultat, pas une défaite).
 - La **chasse au format** (plancher 4,77×, barreau 3,00 b/poids, induction
   ALU — fermée le 08-16, rien de neuf connu).
+
+---
+
+## Annexe 🔮 — Le tableau prédictif à H+6 (exploratoire, NE SE CITE PAS)
+
+> Demandé par l'opérateur le 2026-08-29 (nuit) : LLVQ tel qu'il serait à
+> six mois SI le plan atterrit en entier (préfill GEMM, mégakernel+Graphs,
+> travail moteur au-delà du plan, graines servies, EoRA, Planes12x, KV q8
+> validé), contre AWQ/vLLM et QTIP/RelaxML figés à leurs épingles. 🚨 Ce
+> tableau mélange du mesuré, du calculé et du doigt mouillé (🔮) — il
+> n'est PAS publiable, il sert de ligne de départ à la première édition du
+> duel C0 et de carte des couloirs. Hypothèse assumée : les deux
+> concurrents ne bougent pas — fausse à six mois, dite d'avance.
+
+| critère (4B, L40S) | LLVQ H+6 | AWQ/vLLM | QTIP/RelaxML | verdict H+6 |
+|---|---|---|---|---|
+| ppl 2 bits | ~15,1 *mesuré g3, à servir* (2,17 b) | 13,52 *mesuré* (4 bits) | 17,04 *leur papier* (2,00 b) | couloir 2 bits : **nous** |
+| MMLU | 🔮 60-64 (graines + EoRA, deux paris non mesurés) | **70,0** *mesuré* | ~57,4 *harnais tiers* | AWQ ; couloir 2 bits : nous, probable |
+| décode absolu | 🔮 140-165 tok/s (40 → 55-65 % d'un plafond de 254 *calculé*) | **200,5** *mesuré* (81 % de 248) | ? (plafond ~390 *calculé*) | AWQ |
+| préfill / 8k | 🔮 fonctionnel (aujourd'hui refusé > 256) | mature | recherche | AWQ ; notre seul saut binaire |
+| VRAM b/param | 4,75 *mesuré banc* | 5,30 | **~3,4** *calculé* | **QTIP, structurel** (2,4× de flux) |
+| disque | **1,41 Go** *mesuré* | 2,67 | ~1,7 *calculé* | **nous**, acquis |
+| portabilité GPU | Ada seul ; 🔮 A100 si géométrie | partout | Ampère+ | AWQ |
+| souveraineté / audit | cœur zéro dép, MIT/Apache | moteur-cathédrale | recherche GPL | **nous** |
+| échelle (qualité) | l'écart fond : −14,7 → −10,6 → −6,9 pp *mesuré* | stable | inconnu chez nous | nous, en tendance, sans loi |
+
+**Lecture** : score H+6 ≈ nous 3 acquis + 1 probable · AWQ 4 · QTIP 1.
+L'identité gagnable : *le meilleur 2 bits servi, souverain, le plus petit
+sur disque* — pas « le plus rapide ». Le débit est la plus grande marge
+(tout l'écart est moteur, aucun n'est format — plafonds d'octets quasi
+identiques à l'AWQ) et le plus long chemin. La case la plus fragile est
+MMLU 60-64 (deux paris chaînés, zéro mesure) ; c'est aussi la moins chère
+à sécuriser (B-a.2, 3-5 $). Le verrou VRAM face à QTIP est structurel et
+se dit d'avance.
