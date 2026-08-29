@@ -94,6 +94,14 @@ citer **une** :
   candidates + dense témoin), 128 tokens comparés. **≈ 0,25 $** (*calculé*
   sur D1). Bandes à pré-enregistrer sur le modèle de G3 (~−2 % de débit
   pour −0,2 Go serait la reconduction du verdict Planes12x).
+  🚨 **INLANÇABLE EN L'ÉTAT (vérifié le 2026-08-29, 0 $)** : `check_fuse`
+  refuse `LLVQ_FUSE=1` hors `planes14` — « seul planes14 se segmente »
+  (`llvq-llm/src/fused.rs:563-576`), et le seul noyau segmenté est
+  `planes_seg.cu`. La case exige d'écrire un `planes12x_seg` d'abord.
+  Alternative à 0 $ : trancher sur les deux points déjà mesurés —
+  planes14+FUSE 100,6 tok/s / 2,57 Go (D1) contre planes12x sans FUSE
+  85,0 / 2,36 (G3), soit +18 % de débit contre +0,21 Go. Détail :
+  [`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt).
 - **0.2 — Décision et gel** : « config servie v1 » choisie (débit d'abord,
   sauf si l'écart VRAM change une classe de matériel — il ne le fait pas au
   4B). README, model card HF et billet de blog alignés dessus. 0 $.

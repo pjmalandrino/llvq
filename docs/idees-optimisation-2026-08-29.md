@@ -53,6 +53,17 @@ périmètre produit → classée, pas codée.
 `tv_planes`) + banc M ∈ {1, 4, 16, 128} : ~0,3 $. Préfill 8k bout-en-bout :
 ~0,5 $.
 
+> ✅ **ÉTAPE 0 FAITE (2026-08-29, 0 $) — et l'idée est PROMUE : c'est un
+> bloqueur produit, pas une optimisation.** Le chemin fusé traite seq > 1
+> par une boucle de lignes — un matvec par token, les poids entiers relus à
+> chaque fois (`model.rs:573-580`) — et **refuse tout prompt > 256 tokens**
+> (`MAX_ROWS`, `model.rs:352`). Le prompt du protocole publié fait ~5
+> tokens : aucun chiffre du dossier n'a jamais exercé le préfill, et la
+> promesse 8k du triplet est aujourd'hui inservable sur ce chemin. Le kill
+> ci-dessus est donc levé dans l'autre sens : le chemin dense groupé
+> n'existe pas côté fusé. Journal :
+> [`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt) §A.
+
 ---
 
 ## B — Mégakernel : un lancement par couche, puis par token
@@ -76,6 +87,11 @@ supprime pas, et il coûte lui-même).
 **Étape 0 gratuite.** Compter ce que `grid.sync` impose : la grille
 coopérative plafonne le nombre de blocs résidents — vérifier que les formes
 du 4B y tiennent (calcul d'occupation sur papier, puis `preflight`).
+> ✅ **FAITE (2026-08-29)** : 6 blocs/SM × 142 SM = **852 blocs résidents**
+> contre **2 432 requis** par gate+up fusé — la grille coopérative naïve
+> est impossible, le design obligatoire est un persistant qui boucle les
+> lignes (~3 vagues). Support cooperative-launch de cudarc non vérifié.
+> Journal : [`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt) §B.
 **Kill.** A1 du plan (le `nullk` sous géométrie fusée) rend l'attribution
 avant d'écrire : si le plancher ne suit pas le compte de lancements, ce
 mécanisme est mal ciblé → clos pour 0,2 $.
@@ -102,6 +118,18 @@ vers ceux du témoin f16, l'ALU n'était pas le limiteur → tout clos.
 **Coût du verdict complet.** ≤ 6 $ (attribution 0,2 $ ; hôte 0 $ ; banc
 0,3 $ ; qualité int8 0,3-5 $). ⚠️ Les activations int8 sont une variable
 de **qualité** neuve — gate apparié obligatoire, protocole KV q8.
+
+> 🚨 **VALIDÉE PUIS DÉGRADÉE (2026-08-29, 0 $).** L'algèbre est prouvée —
+> identité multilinéaire exacte (0 échec / 200 000 en entiers), sommes
+> masquées popcount int8 exactes (0 / 1 000 000) — mais le recomptage
+> honnête rend **~148 ops/bloc contre 96 au chemin servi** à masques de
+> 24 bits : l'avantage ALU annoncé (~×1,5-2) n'existe pas à cette
+> granularité. Espérance résiduelle : le dual-issue INT/FP (invisible à un
+> compte statique) et des mots de masque ≥ 32 coordonnées — c'est-à-dire
+> un format conçu pour. Statut : **long shot conditionné à un redesign de
+> format** ; le bras d'attribution à 0,2 $ reste au programme (il sert D
+> et E). Journal :
+> [`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt) §C.
 
 ---
 
@@ -168,6 +196,13 @@ trafic de premier ordre que tout le dossier ignore (36 couches × 8k × …
 le vrai mur » (→ renvoie à A).
 **Coût du verdict.** `fusedrun` avec prompts 4k/8k, f16 vs q8 : ~0,5-1 $.
 
+> ✅ **Étape 0 papier FAITE (2026-08-29)** : à 8k, le cache vaut 1,208 Go
+> f16 (0,60 q8) et sa lecture par token décodé pèse **+57 %** du flux de
+> poids (+29 % en q8) — poste co-dominant, VRAM servie 3,78 Go f16 contre
+> 3,17 q8. 🚨 Mais **F est gelée derrière A** : le chemin fusé refuse tout
+> prompt > 256 tokens, le run 8k est impossible avant le préfill de A.
+> Journal : [`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt) §F.
+
 ---
 
 ## G — Profiler la boucle token, enfin (l'étape 0 de toutes les autres)
@@ -179,7 +214,11 @@ toutes les optimisations à ce jour viennent de compteurs instrumentés.
 Avant de jouer B, D ou E : un profil par phase de la boucle token servie
 (échantillonnage, copies hôte↔device, argmax, écart entre fin de noyau et
 lancement suivant). Coût : **un job à 0,25 $**, ou 0 $ s'il s'ajoute à un
-run déjà payé. Chaque µs attribuée ici change l'espérance de B — et
+run déjà payé.
+> ⚠️ **Lacune trouvée avant de payer (2026-08-29)** : `generate_phased` ne
+> phase **pas** le préfill — c'est documenté (`model.rs:1296`). Vu le
+> verdict de A, c'est précisément le préfill qu'il faut instrumenter : le
+> job G exige ce petit dev d'abord, sinon il mesure à côté du poste. Chaque µs attribuée ici change l'espérance de B — et
 l'histoire du projet dit que c'est le coup à meilleur ratio information/prix
 du bloc.
 
