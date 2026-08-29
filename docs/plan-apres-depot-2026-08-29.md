@@ -192,6 +192,50 @@ F5 rend au même protocole.
 
 ---
 
+## Phase C0 — Le duel à moteur unique : .llvq ↔ AWQ, noyaux séparés (≈ 0,5-2 $, 3-6 j-h)
+
+> Ajoutée le 2026-08-29 (soir) sur décision d'opérateur : la cible à terme
+> est la comparaison .llvq ↔ 4 bits **à noyaux séparés dans un seul
+> moteur** — celle qui rend enfin licite la case vitesse laissée vide
+> depuis le lot A (« les deux rapports ne se divisent pas »).
+
+**Ce qui existe déjà, vérifié** : le noyau AWQ (vendoré, MIT) tourne dans
+le même processus que les nôtres au niveau **banc** depuis le 08-10 —
+3,37× vs FP16 contre 2,16× pour `planes14`, f64 ligne à ligne, un seul
+protocole (six bras, F1). **Ce qui manque** : l'étage modèle — un
+`Proj::Awq` dans `fusedrun`, trois bras (.llvq, AWQ, dense témoin), même
+attention, même tête, mêmes phases.
+
+| poste | contenu | coût |
+|---|---|---|
+| chargeur AWQ officiel (qweight/qzeros/scales g128) → `Proj::Awq`, câblage `group_forward`, pas de rotation (base naturelle) | dev | 3-6 j |
+| duel 4B, 3 bras, protocole `fusedrun` | run | ~0,5 $ |
+| option : rejouer 8B et 14B (checkpoints AWQ officiels existants) — la courbe d'échelle entière dans un moteur | runs | ~1,5 $ |
+
+**Règles d'équité, à ancrer au préreg avant toute mesure** : même tête des
+deux côtés (q8 ou f16 — la règle « à tête identique » devient
+structurelle) ; même KV ; même prompt et mêmes 128 tokens de protocole ;
+**symétrie de fusion déclarée** — notre bras a ROT_SHARE+FUSE, le bras AWQ
+reçoit l'équivalent (qkv concaténé hors ligne) ou les deux tournent non
+fusés. Une asymétrie silencieuse invaliderait le duel entier. Chemin GEMV
+batch 1 des deux côtés (Marlin/M≥8 hors périmètre, dit d'avance).
+
+**Pronostic à écrire avant la mesure, et il ne nous flatte pas** : dérivé
+des rapports de banc (octets ~4,3 contre 4,80 b/poids ; 584 contre 425
+Go/s effectifs), le bras AWQ devrait rendre **+10-25 % de décode
+bout-en-bout au 4B** (*estimé*). Le livrable n'est pas une victoire, c'est
+la **table de trade-off à quatre axes dans une seule pile** — vitesse
+(probablement AWQ), VRAM (nous : −2,6 / −10,6 / −5,5 % selon la taille),
+disque (nous : −34 %), qualité (AWQ : +6 à +14 pp) — qu'aucun dossier
+public ne possède, parce que personne n'a les deux noyaux dans un moteur.
+**Kill** : aucun — les deux issues se publient ; seul un écart
+d'orchestration non attribuable (bras AWQ pénalisé par un chemin que le
+nôtre ne paie pas) invalide et renvoie au dev.
+
+**Séquencement** : après le gel de la config servie (Phase 0) et de
+préférence après le préfill (front 3 de l'ordre) — le bras AWQ, une fois
+écrit, se réutilise tel quel pour la Phase C1 et chaque nouvelle taille.
+
 ## Phase C — Autres familles : le déficit est-il un fait Qwen ? (17 $ ; option MoE +65 $)
 
 ### C1 — Une famille dense hors Qwen (Llama-3.1-8B ou Mistral-7B) (≈ 17 $, 4-7 j-h)
