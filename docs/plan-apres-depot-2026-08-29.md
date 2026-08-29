@@ -192,86 +192,61 @@ F5 rend au même protocole.
 
 ---
 
-## Phase C0 — Le duel à moteur unique : .llvq ↔ AWQ, noyaux séparés (≈ 0,5-2 $, 3-6 j-h)
+## Phase C0 — Le duel chacun-chez-soi : trois piles, un protocole d'injections (≈ 1-2 $, 2-4 j-h)
 
-> Ajoutée le 2026-08-29 (soir) sur décision d'opérateur : la cible à terme
-> est la comparaison .llvq ↔ 4 bits **à noyaux séparés dans un seul
-> moteur** — celle qui rend enfin licite la case vitesse laissée vide
-> depuis le lot A (« les deux rapports ne se divisent pas »).
+> Réécrite le 2026-08-29 (nuit) sur clarification d'opérateur — la première
+> version de cette phase intégrait le noyau AWQ *dans* notre moteur ; c'est
+> l'inverse du design voulu. **Le design arbitré : notre moteur ne fait
+> tourner QUE .llvq.** AWQ tourne chez lui (vLLM, image épinglée), QTIP
+> chez lui (la pile d'inférence RelaxML, commit épinglé, doctrine F2 — la
+> GPL ne touche jamais notre code). La comparaison vit AU-DESSUS des
+> moteurs : un harnais d'orchestration (`ops/`) injecte LE MÊME jeu de
+> questions dans les trois systèmes et relève débit, VRAM et réponses.
 
-**Ce qui existe déjà, vérifié** : le noyau AWQ (vendoré, MIT) tourne dans
-le même processus que les nôtres au niveau **banc** depuis le 08-10 —
-3,37× vs FP16 contre 2,16× pour `planes14`, f64 ligne à ligne, un seul
-protocole (six bras, F1). **Ce qui manque** : l'étage modèle — un
-`Proj::Awq` dans `fusedrun`, trois bras (.llvq, AWQ, dense témoin), même
-attention, même tête, mêmes phases.
+**Ce que ce protocole mesure, et la règle qui le rend publiable** — payée
+par le job vLLM du 08-17 (leur témoin f16 : 83,09 tok/s ; le nôtre :
+43,6 — le moteur domine l'écart) : il compare des **systèmes déployés**,
+pas des formats. Donc :
+
+1. **Chaque pile fait aussi tourner SON témoin f16**, dans le même job.
+2. On publie **deux séries côte à côte, jamais leur quotient** : les
+   absolus (réalité de déploiement, moteur compris, étiquetés comme tels)
+   et les rapports **intra-pile** (AWQ/vLLM ×2,413 mesuré ; nous ×1,11 ;
+   QTIP/RelaxML : à mesurer).
+3. La question « format seul » reste couverte par le **banc noyau à un
+   processus** (F1/F2/F4), qui existe et ne bouge pas. Les deux niveaux ne
+   se divisent pas l'un par l'autre.
+4. **Qualité par injections** : mêmes questions, décodage glouton, sorties
+   des trois systèmes corrigées par UN correcteur unique (exact-match
+   génératif). C'est une métrique à part entière — ne jamais la mélanger
+   au MMLU log-prob du harnais interne.
+5. Versions épinglées partout (image vLLM, commit RelaxML, notre commit),
+   même carte, VRAM relevée par le même instrument, prompts et graine du
+   correcteur figés au préreg.
 
 | poste | contenu | coût |
 |---|---|---|
-| chargeur AWQ officiel (qweight/qzeros/scales g128) → `Proj::Awq`, câblage `group_forward`, pas de rotation (base naturelle) | dev | 3-6 j |
-| duel 4B, 3 bras, protocole `fusedrun` | run | ~0,5 $ |
-| option : rejouer 8B et 14B (checkpoints AWQ officiels existants) — la courbe d'échelle entière dans un moteur | runs | ~1,5 $ |
+| harnais d'injections dans `ops/` (lancement d'un job par pile, jeu de questions versionné, collecte tok/s + VRAM + sorties) | dev | 2-4 j |
+| duel 4B à deux piles : nous + AWQ/vLLM, témoins f16 compris | runs | ~0,5 $ (le job vLLM mesuré : 0,11 $) |
+| étage QTIP : leur pile sur LEURS checkpoints — **Llama, pas Qwen3** (aucun artefact QTIP Qwen3 connu ; ⚠️ à re-vérifier au lancement) | run | ~0,3-0,6 $ |
+| triple duel complet sur Llama-3.1-8B — exige la Phase C1 (notre bras Llama) | après C1 | ~1 $ |
 
-**Règles d'équité, à ancrer au préreg avant toute mesure** : même tête des
-deux côtés (q8 ou f16 — la règle « à tête identique » devient
-structurelle) ; même KV ; même prompt et mêmes 128 tokens de protocole ;
-**symétrie de fusion déclarée** — notre bras a ROT_SHARE+FUSE, le bras AWQ
-reçoit l'équivalent (qkv concaténé hors ligne) ou les deux tournent non
-fusés. Une asymétrie silencieuse invaliderait le duel entier. Chemin GEMV
-batch 1 des deux côtés (Marlin/M≥8 hors périmètre, dit d'avance).
+**La jonction C0×C1 demeure** : le triple duel à trois artefacts officiels
+(f16, AWQ, QTIP) se joue sur Llama-3.1-8B, donc C1 le débloque.
+Requantifier Qwen3 avec le pipeline QTIP (GPL) reste le dernier recours.
 
-**Pronostic à écrire avant la mesure, et il ne nous flatte pas** : dérivé
-des rapports de banc (octets ~4,3 contre 4,80 b/poids ; 584 contre 425
-Go/s effectifs), le bras AWQ devrait rendre **+10-25 % de décode
-bout-en-bout au 4B** (*estimé*). Le livrable n'est pas une victoire, c'est
-la **table de trade-off à quatre axes dans une seule pile** — vitesse
-(probablement AWQ), VRAM (nous : −2,6 / −10,6 / −5,5 % selon la taille),
-disque (nous : −34 %), qualité (AWQ : +6 à +14 pp) — qu'aucun dossier
-public ne possède, parce que personne n'a les deux noyaux dans un moteur.
-**Kill** : aucun — les deux issues se publient ; seul un écart
-d'orchestration non attribuable (bras AWQ pénalisé par un chemin que le
-nôtre ne paie pas) invalide et renvoie au dev.
+**Pronostic écrit d'avance, inchangé** : sur les absolus, vLLM et la pile
+RelaxML devraient dominer notre candle (leur moteur est meilleur — c'est
+le ×1,9 du témoin) ; sur les rapports intra-pile, chacun mesure son propre
+format chez lui. Le livrable est la table à trois systèmes × quatre axes
+(débit absolu, rapport intra-pile, VRAM, exact-match) — et elle se publie
+quelle que soit l'issue. **Kill** : aucun sur le résultat ; seul un
+correcteur qui n'est pas strictement identique entre piles invalide.
 
-**Séquencement** : après le gel de la config servie (Phase 0) et de
-préférence après le préfill (front 3 de l'ordre) — le bras AWQ, une fois
-écrit, se réutilise tel quel pour la Phase C1 et chaque nouvelle taille.
-
-### C0-ter — L'étage QTIP, et la jonction avec C1 (décision d'opérateur du 2026-08-29, soir)
-
-La cible finale est le **banc de service neutre à trois bras** — .llvq,
-AWQ, QTIP, chacun dans son noyau, tout le reste partagé. Trois étages de
-faisabilité, à ne pas confondre :
-
-1. **Banc : fait.** Les trois noyaux dans un processus, f64 ligne à ligne
-   (planes14 2,16× · AWQ 3,37× · QTIP, F2-P3).
-2. **Servi, AWQ : c'est cette phase.** Checkpoint officiel + noyau MIT.
-3. **Servi, QTIP : le verrou n'est PAS la licence** — la doctrine F2 tient
-   (GPL v3 : récupération au moment du job, commit épinglé, sha256, jamais
-   commité ni redistribué ; notre glue reste MIT). **Le verrou est le
-   payload** : le bras F2 tourne sur un payload *synthétique*, déclaré
-   comme tel ; servir exige un artefact QTIP réel, et il n'en existe pas
-   de connu pour Qwen3 — RelaxML en publie pour les familles **Llama**
-   (⚠️ à re-vérifier au lancement du lot).
-
-**Conséquence structurante : C0 et C1 fusionnent à terme.** Le triple duel
-à payloads réels se joue sur **Llama-3.1-8B**, où f16, AWQ et QTIP
-officiels existent tous trois — le portage de famille (C1) est ce qui
-débloque le duel complet, et non une ligne indépendante. L'alternative
-(faire tourner le pipeline de quantification QTIP, GPL, sur Qwen3) coûte
-des jours + du GPU pour un artefact d'une fidélité contestable à leur
-méthode : dernier recours seulement.
-
-| poste supplémentaire | coût |
-|---|---|
-| bras QTIP servi (runtime Hadamard d'incohérence + métadonnées par couche — plus gros que le bras AWQ) | dev 5-10 j |
-| duel à trois par taille | ~1 $ |
-
-**Ce que le banc neutre achète ensuite** : chaque gain moteur (préfill,
-mégakernel, Graphs, KV q8) profite aux trois bras à la fois, les deltas
-restent propres, et les axes perf / qualité / VRAM se travaillent bras par
-bras dans un harnais unique — l'objet que ni les papiers ni les moteurs
-déployés n'offrent.
-
+**Ce que ce design achète en plus** : chaque gain de NOTRE moteur
+(préfill, mégakernel, Graphs, KV q8) se relit immédiatement dans la table
+sans toucher aux deux autres piles — elles sont figées par leurs épingles,
+nous sommes la seule variable qui bouge d'une édition à l'autre.
 ## Phase C — Autres familles : le déficit est-il un fait Qwen ? (17 $ ; option MoE +65 $)
 
 ### C1 — Une famille dense hors Qwen (Llama-3.1-8B ou Mistral-7B) (≈ 17 $, 4-7 j-h)
