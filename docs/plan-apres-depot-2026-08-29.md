@@ -114,6 +114,17 @@ publiée ne cite deux configs concurrentes sans les nommer.
 
 ## Phase A — Géométrie : faire descendre le plancher (≤ 4 $, 4-8 j-h)
 
+> 🚨 **RECONDITIONNÉE le 2026-08-29 (nuit)** : l'endgame étant le port
+> (Phase P), le gros de cette phase — A2 (Graphs), A3 (occupation), le
+> mégakernel du vivier — ne transfère pas et passe **derrière P**,
+> conditionné à la décision « moteur-fin vs moteur-banc ». **Restent
+> inconditionnels** : A1 et le bras d'attribution (0,4 $ — ils informent
+> aussi le port), A4 (A100 — question de *noyau*, elle suit le kernel
+> partout), et un **préfill minimal** côté candle (lever le refus > 256
+> par un simple chunking de la boucle de lignes — quelques heures, pas le
+> GEMM complet) pour que le produit souverain cesse de refuser un prompt
+> long.
+
 **État établi, à ne pas re-mesurer** : F1 — le témoin f16 maison est à
 1,5-2,4 % de cuBLAS (le matvec *lui-même* n'a rien à rendre) ; D1 — la
 fusion des lancements rend ×1,061 ; lot G — horloges épinglées, seuls
@@ -191,6 +202,49 @@ F5 rend au même protocole.
 **Budget phase B : ~12-20 $ nominal, plafond 25 $.**
 
 ---
+
+## Phase P — Le port vLLM : le format chez un vrai moteur (≈ 1 $, 2-4 sem 🔮)
+
+> Ajoutée le 2026-08-29 (nuit), décision d'opérateur : l'endgame est le
+> **port**, pas la course de moteur. Constat qui la fonde : le décodeur de
+> bloc transfère quasi verbatim (F1 : il est déjà au niveau cuBLAS), tout
+> le travail qualité porte sur l'artefact donc transfère à 100 % — mais le
+> travail de géométrie (mégakernel, Graphs, préfill candle) répare des
+> défauts que vLLM et llama.cpp **n'ont pas** (ils tournent à 80-100 % de
+> la borne d'octets). Hisser candle de 40 à 60 % puis porter, c'est payer
+> deux fois le même problème.
+
+**Contenu** : un plugin de quantification custom vLLM — chargeur
+`.llvq` → tenseurs torch, le kernel CUDA (transfère tel quel), le
+câblage `LinearMethod`. **Le trou identifié d'avance** : un chemin M > 1
+pour leur préfill (décodage-une-fois en GEMM, ou repli déquant+cuBLAS
+par tuile — à trancher au premier prototype).
+
+**Ce que ça achète, et pourquoi ça passe devant la géométrie** :
+1. `.llvq` hérite d'un coup de l'orchestration vLLM (attention paginée,
+   graphes, batch) — des mois de travail moteur remplacés par un port ;
+2. 🚨 **la comparaison interdite depuis le lot A devient licite** :
+   `.llvq` et AWQ dans LE MÊME moteur, même attention, même préfill —
+   la case vitesse se remplit proprement, enfin ;
+3. le moteur candle garde sa raison d'être (le seul auditable de bout en
+   bout — l'argument souverain ne se porte pas) mais cesse d'être le
+   véhicule de performance.
+
+| poste | coût |
+|---|---|
+| plugin (chargeur + kernel + LinearMethod) | 2-4 sem 🔮 |
+| validation : tokens vs notre moteur, puis duel intra-vLLM (.llvq vs AWQ vs f16, un job) | ~0,5-1 $ |
+
+**Kill** (à ancrer au préreg du prototype) : si l'interface plugin ne
+peut pas héberger proprement une méthode GEMV batch-1 (ou si le chemin
+M > 1 exige de réécrire leur scheduler), documenter le mur et retomber
+sur llama.cpp comme cible (chantier plus gros : chemin CPU obligatoire,
+politique d'upstream — évalué à ce moment-là, pas avant).
+
+**llama.cpp reste la cible d'adoption à terme** (l'audience locale =
+l'audience souveraine), mais après vLLM : effort supérieur (décodeur CPU
+jamais écrit, Metal, négociation d'un type GGUF custom), et le plugin
+vLLM fournit d'ici là la preuve d'existence chez un moteur tiers.
 
 ## Phase C0 — Le duel chacun-chez-soi : trois piles, un protocole d'injections (≈ 1-2 $, 2-4 j-h)
 
