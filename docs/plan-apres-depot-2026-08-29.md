@@ -254,10 +254,33 @@ Chaque run individuel reste sous la discipline existante : préreg ancré,
 coût annoncé, go explicite, cumul rapporté. Les plafonds de phase (4 / 25 /
 17+70 $) sont des **plafonds d'arrêt**, pas des budgets à consommer.
 
-**Ordre d'exécution recommandé** : 0 → A1 (il oriente A2/A3) → B-a.2 (le
-chiffre qui peut changer le claim qualité pour 3-5 $) → A2-A4 ∥ B-b → C1 →
-(arbitrage C2) → D. Les phases A et B sont parallélisables — A est du GPU
-court, B est du dev local.
+**Ordre d'exécution — RÉVISÉ le 2026-08-29 (soir), après l'étape 0 du
+vivier** ([`mesures/etape0-vivier-2026-08-29.txt`](mesures/etape0-vivier-2026-08-29.txt)) :
+
+1. **Décisions à 0 $, aujourd'hui, opérateur** : (a) geler la config servie
+   sur les deux points mesurés — planes14+FUSE 100,6 tok/s / 2,57 Go
+   contre planes12x 85,0 / 2,36 (la 4ᵉ case du 2×2 exige un
+   `planes12x_seg`, cf. le 🚨 de la Phase 0) ; (b) publier le billet HF ;
+   (c) ORCID + profil Scholar.
+2. **Jobs d'orientation, ~0,4 $ au total, sur go** : A1 (`nullk` sous
+   géométrie fusée) + le bras d'attribution ALU/lecture (kill partagé des
+   idées C, D, E du vivier). Ils décident de tout l'axe géométrie avant
+   une ligne de dev.
+3. **Le chantier préfill — le bloqueur produit** (vivier idée A, promue) :
+   dev du chemin GEMM-préfill (le fusé boucle un matvec par token et
+   refuse > 256) + phasage du préfill dans `generate_phased` (idée G) ;
+   puis le job de profil (0,25 $) et le banc préfill (0,3-0,5 $).
+4. **Qualité en parallèle, dev local** : protocole de sélection de graines
+   écrit et ancré (B-a.1, 0 $) ; MMLU de la graine 3 (3-5 $) au premier go
+   — le chiffre qui peut changer le claim qualité.
+5. **Géométrie, selon le verdict d'A1** : A2 (CUDA Graphs) → B du vivier
+   (mégakernel persistant — bandes de gain dans le vivier, +3-6 % seul,
+   +8-15 % avec Graphs, *estimé*) → A4 (A100 avec la géométrie gagnante).
+6. **Ensuite** : B-b (EoRA) → B-c (corpus) → C1 (famille dense) →
+   arbitrage C2 (MoE, go explicite) → Phase D (v2 Zenodo/blog/cards).
+
+Les fronts 3 (dev) et 4 (dev local + un job) restent parallélisables avec
+les jobs courts du front 2.
 
 ## Ce que ce plan enterre, pour qu'on ne le redécouvre pas
 

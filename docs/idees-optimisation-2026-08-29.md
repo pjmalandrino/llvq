@@ -83,6 +83,19 @@ par token), soit **+5-8 %** ; la version « un lancement par token » vise le
 reliquat du plancher, borne haute **+20-30 %** (*estimé* — le plancher
 contient aussi de l'occupation et des queues de grille que `grid.sync` ne
 supprime pas, et il coûte lui-même).
+> ⚠️ **BANDES RESSERRÉES le 2026-08-29 (soir), sur lecture de la structure
+> de couche** (`model.rs`, `forward_cached`) : les 4 matvecs d'une couche
+> sont **entrecoupés de noyaux candle** (normes par tête, RoPE, cache,
+> attention, softmax) — un mégakernel à nous ne peut chaîner que le bloc
+> MLP (`gate+up` → SiLU → `down`), soit **~72 lancements chaînables sur
+> 144**, pas la couche entière. Au coût marginal mesuré par D1
+> (~5,5 µs/lancement) : **mégakernel seul +3-6 %** (*calculé*). Le reste
+> du gisement — les creux autour des noyaux candle — relève des **CUDA
+> Graphs sur la boucle entière** (idée A2 du plan) : **+8-15 % cumulés**
+> (*estimé*), borne haute +20-25 % conditionnée au verdict d'A1 (le
+> plancher suit-il les lancements ?). Un « un lancement par token » pur
+> exigerait d'absorber l'attention de candle — hors de portée sans
+> réécrire l'attention, à dire d'avance.
 
 **Étape 0 gratuite.** Compter ce que `grid.sync` impose : la grille
 coopérative plafonne le nombre de blocs résidents — vérifier que les formes
