@@ -3,7 +3,7 @@ Draft for a Hugging Face Community Article.
 Publish at https://huggingface.co/new-blog (paste everything below this
 comment block; the title goes in the article's title field).
 
-Suggested title : Two bits per weight, and what it actually costs
+Suggested title : I put a 24 dimensional lattice in a CUDA kernel to run Qwen3-4B in 2.6 GB
 Suggested tags  : quantization, llm, cuda, rust, inference
 Do NOT mention any journal submission anywhere in the article.
 
@@ -12,7 +12,7 @@ README, or a measurement journal in docs/mesures/. If a number changes,
 check it against its source first.
 -->
 
-# Two bits per weight, and what it actually costs
+# I put a 24 dimensional lattice in a CUDA kernel to run Qwen3-4B in 2.6 GB
 
 I am not a researcher. I work at a software company in France, and a few weeks
 ago I read a paper from Qualcomm AI Research about squeezing LLM weights down
