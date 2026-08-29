@@ -236,6 +236,42 @@ nôtre ne paie pas) invalide et renvoie au dev.
 préférence après le préfill (front 3 de l'ordre) — le bras AWQ, une fois
 écrit, se réutilise tel quel pour la Phase C1 et chaque nouvelle taille.
 
+### C0-ter — L'étage QTIP, et la jonction avec C1 (décision d'opérateur du 2026-08-29, soir)
+
+La cible finale est le **banc de service neutre à trois bras** — .llvq,
+AWQ, QTIP, chacun dans son noyau, tout le reste partagé. Trois étages de
+faisabilité, à ne pas confondre :
+
+1. **Banc : fait.** Les trois noyaux dans un processus, f64 ligne à ligne
+   (planes14 2,16× · AWQ 3,37× · QTIP, F2-P3).
+2. **Servi, AWQ : c'est cette phase.** Checkpoint officiel + noyau MIT.
+3. **Servi, QTIP : le verrou n'est PAS la licence** — la doctrine F2 tient
+   (GPL v3 : récupération au moment du job, commit épinglé, sha256, jamais
+   commité ni redistribué ; notre glue reste MIT). **Le verrou est le
+   payload** : le bras F2 tourne sur un payload *synthétique*, déclaré
+   comme tel ; servir exige un artefact QTIP réel, et il n'en existe pas
+   de connu pour Qwen3 — RelaxML en publie pour les familles **Llama**
+   (⚠️ à re-vérifier au lancement du lot).
+
+**Conséquence structurante : C0 et C1 fusionnent à terme.** Le triple duel
+à payloads réels se joue sur **Llama-3.1-8B**, où f16, AWQ et QTIP
+officiels existent tous trois — le portage de famille (C1) est ce qui
+débloque le duel complet, et non une ligne indépendante. L'alternative
+(faire tourner le pipeline de quantification QTIP, GPL, sur Qwen3) coûte
+des jours + du GPU pour un artefact d'une fidélité contestable à leur
+méthode : dernier recours seulement.
+
+| poste supplémentaire | coût |
+|---|---|
+| bras QTIP servi (runtime Hadamard d'incohérence + métadonnées par couche — plus gros que le bras AWQ) | dev 5-10 j |
+| duel à trois par taille | ~1 $ |
+
+**Ce que le banc neutre achète ensuite** : chaque gain moteur (préfill,
+mégakernel, Graphs, KV q8) profite aux trois bras à la fois, les deltas
+restent propres, et les axes perf / qualité / VRAM se travaillent bras par
+bras dans un harnais unique — l'objet que ni les papiers ni les moteurs
+déployés n'offrent.
+
 ## Phase C — Autres familles : le déficit est-il un fait Qwen ? (17 $ ; option MoE +65 $)
 
 ### C1 — Une famille dense hors Qwen (Llama-3.1-8B ou Mistral-7B) (≈ 17 $, 4-7 j-h)
