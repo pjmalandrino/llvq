@@ -88,3 +88,68 @@ DUMPS
   docs/data/mmlu-dumps/mmlu-4b-hf-gptq2.csv
   ⚠️ Ceux-là portent de VRAIS logits (`# scores=logit`), contrairement aux dumps
   vLLM du même jour qui portent des logprobs. L'en-tête distingue les deux.
+
+================================================================================
+SUITE — LES DEUX TESTS DE GÉNÉRATION (2026-08-30, +0,10 $)
+================================================================================
+
+Jobs : 6a941977984507d9db4eceb8 — 2 min, 0,05 $
+       6a941a77984507d9db4ecedc — 2 min, 0,05 $
+
+  prompt              'The capital of France is'
+  f16 (publié)        ' Paris. (True or False?)\nThe statement "The capital of
+                        France is Paris" is **False**.'
+  wrapper GPTQModel   'OLFisa.clear (–//блy:1st3/ore22,13R,ind, ii, 2, t, brain,
+                        vgrandform,  and - the, Frove2, and the 2, …'
+  .model (déballé)    IDENTIQUE, au caractère près
+
+CE QUE ÇA ÉTABLIT
+-----------------
+  Le 24,74 % de MMLU NE MESURE AUCUNE CAPACITÉ. Le modèle ne génère pas de
+  texte. Quelle qu'en soit la cause, ce bras ne peut pas porter une phrase de
+  qualité sur le 2 bits GPTQ.
+
+🕳️ DEUX CORRECTIONS À MES PROPRES CRITÈRES, ET ELLES COMPTENT
+--------------------------------------------------------------
+1. Le critère du premier test — « charabia -> chargement cassé » — était FAUX.
+   Un modèle réellement détruit produit le même charabia. Seul du texte FLUIDE
+   aurait tranché, en prouvant que les poids fonctionnent. Le test a donc
+   conclu moins que je ne l'avais annoncé.
+
+2. Le second test opposait le wrapper GPTQModel au module déballé pour savoir si
+   notre chemin de scoring court-circuitait le câblage des noyaux. Il RÉFUTE ce
+   suspect. Mais les deux sorties sont identiques AU CARACTÈRE PRÈS, ce qui dit
+   que le wrapper DÉLÈGUE au module : ce ne sont pas deux chargeurs indépendants,
+   c'est un seul testé deux fois. « Deux chemins d'accord » vaut donc beaucoup
+   moins que la lecture pré-posée ne le laissait croire.
+
+LA TENSION QUI RESTE, ET ELLE EST INSTRUCTIVE
+---------------------------------------------
+Le quant_log de gptqmodel rend une perte de reconstruction PAR COUCHE minuscule
+(médiane 0,0021 sur 252 modules), et le modèle composé est détruit.
+
+C'est exactement le fait de méthode que le §6 du CLAUDE.md documente deux fois —
+`group_scales` et le design C : « dans ce pipeline, un proxy local meilleur
+prédit une composition pire ». La perte par couche de GPTQ EST un proxy local.
+Un proxy local sain qui compose en un modèle mort n'est donc pas une
+contradiction dans ce dossier : c'est le motif qu'il a déjà payé deux fois.
+
+⚠️ Ce rapprochement rend l'hypothèse « effondrement réel » plus plausible ; il
+ne la PROUVE pas. Une confirmation indépendante exigerait un CHARGEUR
+ENTIÈREMENT AUTRE — l'intégration GPTQ native de transformers, ou un autre
+moteur. Non fait, et non chiffré.
+
+VERDICT OPÉRATIONNEL
+--------------------
+  - colonne QUALITÉ du bras GPTQ : VIDE, et elle le reste ;
+  - ce qui survit du bras : b/param 3,489 *mesuré*, le refus de vLLM 0.26.0
+    (bits=2 sym=True), et la calibration sur NOTRE corpus ;
+  - le bras est un PLANCHER, pas un rival, et il ne porte aucun classement.
+
+⇒ Et ça confirme la direction d'opérateur du 2026-08-30 : il faut un 2 bits qui
+TIENNE. La ligne de partage n'est pas le nombre de bits mais la FAMILLE —
+scalaire affine par groupe (GPTQ, AWQ, MLX q2, Q2_K) contre codebook/réseau/
+treillis (LLVQ, QTIP, QuIP#, AQLM, VPTQ, IQ2_XXS). Si la quantification
+scalaire naïve tenait à 2 bits, ni QuIP#, ni QTIP, ni LLVQ n'existeraient.
+Le seul candidat qui tienne ET soit à notre portée est IQ2_XXS, produit
+localement à 0 $.
