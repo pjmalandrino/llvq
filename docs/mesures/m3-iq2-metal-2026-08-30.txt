@@ -94,3 +94,99 @@ CONTRÔLES ET PROVENANCE
   ⚠️ Et une asymétrie qui joue CONTRE nous si l'on était tenté : le témoin f16
     de llama.cpp est celui d'un bon moteur, quand le nôtre recopie 778 Mo de
     vocabulaire par token.
+
+================================================================================
+SUITE — LE MMLU D'IQ2_XXS (2026-08-30, 0 $)
+================================================================================
+
+LE CHEMIN, ET POURQUOI PAS LE FACILE
+------------------------------------
+`llama-perplexity --multiple-choice` NE SCORE PAS COMME bin/mmlu : sa structure
+`multiple_choice_answers` compare la vraisemblance des CONTINUATIONS ENTIÈRES
+(perplexity.cpp:1331), quand mmlu.rs:420-432 compare les LOGITS DE QUATRE
+TOKENS-LETTRES après « Answer: ». Deux règles de décision, deux métriques ; le
+70,32 publié est celle de bin/mmlu. L'employer aurait rendu un nombre qui ne se
+compare à rien de ce dossier.
+
+Chemin retenu (ops/gguf_mmlu.py) : llama-server + `n_probs`, lecture des
+logprobs de ' A' ' B' ' C' ' D' (362, 425, 356, 422) à la position générée,
+argmax. Même règle de décision, à une transformation monotone près.
+
+TROIS GARDES, PARCE QUE TROIS SUPPOSITIONS AURAIENT PU PASSER
+-------------------------------------------------------------
+1. Les prompts ne sont PAS réécrits : importés de ops/vllm_score.py, dont la
+   reconstruction est vérifiée à 2280/2280 qhash.
+2. Le nom du champ est LU, pas deviné : `top_logprobs`, pas `top_probs` comme
+   écrit d'abord. Vérifié sur une réponse réelle avant de lancer 2280 requêtes.
+3. Les quatre lettres doivent être au top-100 de CHAQUE question. Une lettre
+   absente ferait un pick arbitraire ; le script REFUSE de rendre un score si le
+   compte n'est pas nul. Résultat : 2280/2280 sur les deux bras.
+
+⚠️ Un HTTP 400 initial venait de `-np 4` qui DIVISE le contexte en quatre slots
+de 1024 tokens, trop courts pour nos prompts few-shot. Redimensionné à 8192.
+
+LE GATE, DANS UN QUATRIÈME MOTEUR
+---------------------------------
+  f16 dans llama.cpp   MMLU micro 70,36 %   contre 70,32 connu   |Δ| = 0,04 pp
+
+Le même modèle f16 est désormais scoré par QUATRE implémentations indépendantes :
+  candle + notre noyau CUDA   70,32
+  vLLM + Marlin               70,34
+  transformers                70,84
+  llama.cpp + Metal           70,36
+Étendue 0,52 pp, deux backends, deux familles de matériel. Le §0 du protocole
+(« MMLU traverse en NIVEAU, la perplexité non ») est mesuré quatre fois.
+
+🚨 LE RÉSULTAT
+--------------
+  IQ2_XXS         MMLU micro  39,39 %   (904 / 2280)
+  son témoin f16              70,36 %
+  chute                      -30,97 pp
+
+  LLVQ 2 bits     MMLU micro  55,59 %
+  son témoin f16              70,32 %
+  chute                      -14,73 pp
+
+  PAIRE LLVQ − IQ2_XXS, sur les 2280 MÊMES questions (qhash identiques) :
+    écart          +16,20 pp
+    IC95 apparié   [+12,64 ; +19,72] pp   bootstrap stratifié par matière,
+                                          10 000 tirages, graine 0xb0075eed
+    SE             1,81 pp
+    discordantes   LLVQ✓IQ2✗ 657 · LLVQ✗IQ2✓ 251  (39,8 %)
+
+⇒ L'ÉCART EST LARGEMENT RÉSOLU. Le seuil de lecture posé d'avance était ~6 pp
+  (σ = 2,92 pp entre trois graines de calibration au 4B) ; l'intervalle entier
+  est au-dessus de +12 pp.
+
+LES DEUX MÉTRIQUES DISENT LA MÊME CHOSE, ET C'EST CE QUI COMPTE
+---------------------------------------------------------------
+                          ppl (× témoin)   MMLU micro   chute MMLU
+  LLVQ      2,0702 b/pds     ×1,3845         55,59       -14,73 pp
+  IQ2_XXS   2,0625 bpw       ×2,6287         39,39       -30,97 pp
+
+Le §3ter avertit depuis le 2026-08-02 qu'une perplexité seule n'est pas une
+preuve de qualité — le 2 bits abîme le RAISONNEMENT bien plus que la
+RESTITUTION. Ici les deux métriques CONCORDENT, et l'avantage tient sur celle
+qui mesure le raisonnement. C'est ce qui rend le verdict solide plutôt que
+commode.
+
+À 0,37 % d'écart de débit de format, un codebook de Leech à 1,1·10¹⁴ points
+retient donc 16,20 pp de MMLU de plus qu'un codebook qui tient en LUT.
+
+⚠️ ET LE PRIX EST TOUJOURS LÀ : 2,479 contre 5,162 b/param servis. IQ2_XXS
+gagne la mémoire du double parce qu'il n'a pas besoin d'être déplié. Le
+contrefactuel LUT tranche dans les deux sens, et les deux sont mesurés.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  * Verdict METAL / M3 Max pour tout ce qui est débit ; le même GGUF sur CUDA
+    n'est pas mesuré.
+  * Aucun rapport de VITESSE ne se divise entre piles.
+  * Un seul tirage de calibration par bras.
+  * Rien sur QTIP, qui reste l'état de l'art 2 bits non mesuré faute
+    d'artefact Qwen3.
+
+DUMPS
+-----
+  docs/data/mmlu-dumps/mmlu-4b-gguf-f16.csv
+  docs/data/mmlu-dumps/mmlu-4b-gguf-iq2xxs.csv
