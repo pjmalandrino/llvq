@@ -1,0 +1,104 @@
+M3 — L'ARTEFACT GPTQ 2 BITS EST PRODUIT, ET vLLM REFUSE DE LE SERVIR (2026-08-30)
+
+Pré-enregistrement : proofs/preregistration-m3-gptq2-2026-08-30.md
+Écarts             : proofs/preregistration-m3-gptq2-2026-08-30-ECARTS.md
+Jobs               : 6a940b8f984507d9db4ecdd6 — 2 min, 0,05 $ — exit 1 (kwarg)
+                     6a940d47984507d9db4ecde9 — 8 min, 0,23 $ — exit 1 (vLLM)
+Artefact           : hf://buckets/Pier-Jean/jobs-artifacts/m3-gptq-ec0b7752/qwen3-4b-gptq2
+                     — DANS LE BUCKET, il ne se repaiera pas
+
+CE QUI A RÉUSSI
+---------------
+La quantification, entièrement.
+
+  modèle                Qwen/Qwen3-4B @ 1cfa9a720891 (révision résolue puis
+                        chargée depuis un chemin local — cf. l'échec n°1)
+  documents C4 lus      305
+  tokens de calibration 131 072 = 64 × 2048     <-- le n_calib × calib_len de
+                        TOUS les artefacts LLVQ publiés
+  shard                 en/c4-validation.00001-of-00008.json.gz
+                        (celui que corpus.rs:187 réserve à la calibration)
+  empreinte calib       40300263e5d0afa2
+  configuration         bits 2 · group_size 128 · desc_act True · sym True
+  octets écrits         1 754 463 312 (model.safetensors)
+
+⇒ C'EST LE PREMIER BRAS TIERS DU DOSSIER CALIBRÉ SUR NOTRE PROPRE CORPUS.
+Tous les autres — l'AWQ officiel en tête — sont calibrés sur des données que
+nous ne connaissons pas. Le confondant tombe. ⚠️ Même corpus n'est pas même
+procédure : GPTQ compense contre une hessienne, Spherical GPTQ rétracte sur un
+réseau.
+
+🚨 LE b/param, ET SON DÉNOMINATEUR A ÉTÉ FAUX
+---------------------------------------------
+Le job a imprimé 3,182 et l'a mis en regard de nos 5,162. C'est faux, et c'est
+la règle n°1 du §7 enfreinte dans le fichier qui la cite.
+
+  octets safetensors                      1 754 463 312
+  dénominateur gptqmodel                  4 411 424 256   -> 3,182
+  dénominateur RÉEL (têtes liées)         4 022 468 096   -> 3,489
+  rapport des deux                        1,0967 = la part de l'embedding (9,67 %)
+
+`sum(p.numel())` compte `embed_tokens` ET `lm_head` alors que Qwen3-4B a les
+têtes LIÉES. Corrigé dans ops/gptq_quantize.py, qui imprime désormais les deux,
+étiquetés, et ne publie que le nôtre.
+
+  LA VALEUR PUBLIABLE EST 3,489 b/param modèle entier.
+
+  repères, même comptabilité :
+    GPTQ 2 bits g128        3,489       <-- ce bras
+    MLX q4 g64              4,50
+    LLVQ Planes12x + q8     4,745
+    LLVQ Planes14  + q8     5,162       <-- notre bras servi
+    AWQ officiel            5,302
+
+⇒ SUR L'AXE MÉMOIRE, LE GPTQ 2 BITS EST 32 % PLUS PETIT QUE NOTRE BRAS SERVI.
+C'est le point le plus compact du tableau, et il n'est pas de nous.
+
+🔎 UN RECOUPEMENT QUI TOMBE JUSTE
+--------------------------------
+gptqmodel imprime sa propre estimation : « 2.271875 bpw, based on [bits: 2,
+group_size: 128] ». Or llvq-llm/src/bin/smoke.rs:333 modélise depuis longtemps
+la concurrence à « bits + 0.25 » pour g128, soit 2,25. Notre modèle de la
+concurrence est donc juste à 0,022 bit près, vérifié contre l'outil amont.
+
+🚨 CE QUI A ÉCHOUÉ, ET C'EST UN FAIT DE PLATEFORME
+--------------------------------------------------
+vLLM 0.26.0 REFUSE DE CHARGER L'ARTEFACT :
+
+  pydantic_core.ValidationError: 1 validation error for VllmConfig
+    Value error, Unsupported quantization config: bits=2, sym=True
+
+Ce n'est pas une erreur d'invocation ni un défaut de l'artefact : c'est vLLM qui
+n'implémente pas le 2 bits GPTQ. Marlin est 4/8 bits, et aucun autre noyau de
+cette version ne prend le relais.
+
+⇒ ET CE REFUS EST LUI-MÊME UN RÉSULTAT, qui touche l'argument produit du bras.
+Le bras GPTQ existait pour répondre à « que donne une pile de serving STANDARD
+si on lui demande 2 bits ? ». La réponse mesurée est : **elle refuse de le
+servir**. Le 2 bits n'est pas une option de vLLM 0.26.0, quel que soit le
+quantifieur qui l'a produit.
+
+⚠️ Domaine de validité : vLLM 0.26.0, image épinglée. Une version ultérieure
+peut l'ajouter. Ce journal date un refus, il ne prédit pas l'avenir du projet
+amont.
+
+CE QUE CE JOURNAL N'ÉTABLIT PAS
+-------------------------------
+  - AUCUNE QUALITÉ. Le bras n'a pas été scoré : MMLU, ppl, tout est vide.
+    La colonne mémoire est la seule remplie.
+  - Aucun débit, pour la même raison.
+  - Rien sur la qualité intrinsèque du 2 bits GPTQ : un artefact qu'on ne peut
+    pas servir dans une pile donnée reste servable ailleurs.
+
+CE QUI RESTE POSSIBLE, ET NE COÛTE PAS UNE SECONDE PLUS DE QUANTIFICATION
+-------------------------------------------------------------------------
+L'artefact est dans le bucket. `gptqmodel` 7.3.5 s'installe et tourne dans
+l'image, et ses modèles sont compatibles transformers — donc le bras peut être
+scoré DANS SON PROPRE MOTEUR, ce qui est exactement le design « chacun chez
+lui ». Il faut pour cela un chemin `--engine hf` dans ops/vllm_score.py : une
+passe avant et les logits de dernière position sur quatre tokens, soit
+littéralement ce que fait bin/mmlu — plus SIMPLE que le chemin vLLM.
+
+Et c'est le gate du matin qui rend ce détour licite : il a MESURÉ que MMLU
+traverse les moteurs (0,02 et 0,22 pp, 99,6 % d'accord de picks). Le niveau
+d'un MMLU scoré dans gptqmodel se compare donc à celui de nos bras.

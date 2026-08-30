@@ -141,6 +141,7 @@ def main(argv: list[str]) -> int:
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
+    print(f"  modèle                {args.model} @ {args.revision[:12]}")
     windows = calibration_windows(tok, args.n_calib, args.calib_len)
 
     try:
@@ -159,9 +160,39 @@ def main(argv: list[str]) -> int:
     )
     print(f"\n  bits {cfg.bits} · group_size {cfg.group_size} · desc_act {cfg.desc_act}")
 
-    model = GPTQModel.load(args.model, cfg, revision=args.revision)
-    n_params = sum(p.numel() for p in model.model.parameters())
-    print(f"  paramètres            {n_params}")
+    # 🕳️ `GPTQModel.load(..., revision=…)` NE MARCHE PAS : gptqmodel 7.3.5
+    # forwarde ses kwargs inconnus jusqu'au constructeur du modèle, et
+    # `Qwen3ForCausalLM.__init__()` les refuse — mort en 2 min pour 0,05 $ le
+    # 2026-08-30 (job 6a940b8f…).
+    #
+    # La réparation ne consiste PAS à laisser tomber la révision : ce bras
+    # existe pour être comparable à des chiffres datés, et un artefact produit
+    # depuis « main » ne se compare à rien de daté. On résout la révision
+    # d'abord, on charge un chemin local ensuite.
+    from huggingface_hub import snapshot_download
+
+    local = snapshot_download(repo_id=args.model, revision=args.revision)
+    print(f"  révision résolue      {args.revision[:12]} → {local}")
+    model = GPTQModel.load(local, cfg)
+
+    # 🚨 LE DÉNOMINATEUR, ET IL A ÉTÉ FAUX. `sum(p.numel())` compte
+    # `embed_tokens` ET `lm_head` alors que Qwen3-4B a les têtes **liées** :
+    # 4 411 424 256 au lieu de 4 022 468 096, soit +9,67 % — exactement la part
+    # de l'embedding. Le job du 2026-08-30 a imprimé 3,182 b/param là où la
+    # bonne valeur est 3,489, et l'a mis en regard de nos 5,162.
+    #
+    # C'est la règle n°1 du §7 enfreinte : « toute comparaison mémoire se dit en
+    # b/param MODÈLE ENTIER », et deux dénominateurs différents ne se comparent
+    # pas. Les deux sont désormais imprimés, étiquetés, et c'est le nôtre qui
+    # porte le b/param publiable.
+    raw = sum(p.numel() for p in model.model.parameters())
+    tied = bool(getattr(model.model.config, "tie_word_embeddings", False))
+    vocab = int(model.model.config.vocab_size)
+    hidden = int(model.model.config.hidden_size)
+    n_params = raw - (vocab * hidden if tied else 0)
+    print(f"  paramètres bruts      {raw}   (embed + lm_head comptés deux fois si liés)")
+    print(f"  têtes liées           {tied}")
+    print(f"  paramètres RÉELS      {n_params}   <-- le dénominateur publiable")
 
     model.quantize([{"input_ids": w} for w in windows])
 
@@ -171,9 +202,11 @@ def main(argv: list[str]) -> int:
     tok.save_pretrained(str(out))
 
     bpp = bits_per_param(out, n_params)
+    bpp_raw = bits_per_param(out, raw)
     print(f"\n  écrit                 {out}")
-    print(f"  b/param modèle entier {bpp:.3f}   (*mesuré* sur les octets écrits)")
-    print("  repères               LLVQ 5,162 · AWQ 5,302")
+    print(f"  b/param modèle entier {bpp:.3f}   (*mesuré*, dénominateur RÉEL)")
+    print(f"  (pour mémoire)        {bpp_raw:.3f}   avec le compte brut — NE PAS PUBLIER")
+    print("  repères               LLVQ 5,162 · AWQ 5,302 · MLX q4 4,50")
     return 0
 
 
