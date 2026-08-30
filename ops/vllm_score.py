@@ -341,6 +341,7 @@ def emit_dump(
     items: list[dict],
     scores: list[list[float]],
     populations: dict[str, int],
+    revision: str | None,
 ) -> tuple[int, int]:
     """The `llvq-mmlu-dump v1` format, so `bin/mmlupair` consumes it unchanged.
 
@@ -352,6 +353,7 @@ def emit_dump(
     with path.open("w", encoding="utf-8") as fh:
         fh.write("# llvq-mmlu-dump v1\n")
         fh.write(f"# model={model_label} [vLLM arm {arm}]\n")
+        fh.write(f"# revision={revision or 'main (NON ÉPINGLÉE)'}\n")
         fh.write("# dtype=f16\n")
         fh.write("# scores=logprob  ⚠️ colonnes logit_* = LOGPROBS, pas des logits\n")
         fh.write("# engine=vllm\n")
@@ -403,6 +405,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--model", required=True, help="dépôt ou chemin local")
     ap.add_argument("--quantization", default=None)
     ap.add_argument(
+        "--revision",
+        default=None,
+        help="révision du dépôt de poids — ce job existe pour reproduire des "
+        "valeurs connues, donc la révision se pose plutôt que de se subir",
+    )
+    ap.add_argument(
         "--reference-dump",
         default="docs/data/mmlu-dumps/mmlu-4b-f16.csv",
         help="d'où viennent les (subject, index, qhash) — jamais re-sélectionnés",
@@ -431,7 +439,7 @@ def main(argv: list[str]) -> int:
     from transformers import AutoTokenizer
     from vllm import LLM
 
-    tok = AutoTokenizer.from_pretrained(args.model)
+    tok = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     for s in ANSWER_STRINGS:
         ids = tok.encode(s, add_special_tokens=False)
         if len(ids) != 1:
@@ -461,11 +469,20 @@ def main(argv: list[str]) -> int:
     kwargs: dict[str, Any] = dict(model=args.model, dtype="float16")
     if args.quantization:
         kwargs["quantization"] = args.quantization
+    if args.revision:
+        kwargs["revision"] = args.revision
     llm = LLM(**kwargs)
 
     scores = score_mmlu(llm, tok, prompts)
     right, total = emit_dump(
-        Path(args.out), args.arm, args.model, wanted, items, scores, populations
+        Path(args.out),
+        args.arm,
+        args.model,
+        wanted,
+        items,
+        scores,
+        populations,
+        args.revision,
     )
     mmlu_pct = right / total * 100.0
     print(f"\n  MMLU micro            {mmlu_pct:.2f} %  ({right}/{total})")
