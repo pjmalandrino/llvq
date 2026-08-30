@@ -50,6 +50,53 @@ connue — et sa conséquence si rouge : le bras GPTQ n'est pas lu.
 
 ---
 
+## Écart n°2 — le gate a été lu sur la MACRO, et le micro est recalculé hors ligne
+
+**Date** : 2026-08-30, job `6a93edf1984507d9db4ecbf1`, 0,20 $.
+
+**L'écart.** `ops/vllm_score.py` imprimait `Σright/Σtotal` en l'appelant « MMLU
+micro ». Avec exactement 40 questions par matière, cette division est
+**algébriquement la macro** — le défaut que le §3ter du `CLAUDE.md` a identifié
+le 2026-08-01 et corrigé dans `bin/mmlu`. Le gate a donc été évalué sur 72,85
+contre une valeur connue qui est un micro, et il est passé au rouge.
+
+**Ce que ça change au verdict.** Rien, une fois le dump lu. Le dump par question
+a survécu au conteneur, et le micro s'en recalcule :
+
+| | macro | micro |
+|---|---|---|
+| candle (référence 08-13) | 72,76 % | **70,32 %** |
+| vLLM (ce job) | 72,85 % | **70,36 %** |
+
+⇒ **|Δ| = 0,04 pp** contre un critère de 1,5 pp. Le volet f16 du gate §2.4 est
+**vert**, sur la métrique que le §2.4 nomme.
+
+🚨 **Et il faut être scrupuleux sur ce que « vert » veut dire ici.** Le job a
+imprimé un nombre rouge ; le vert est **recalculé hors ligne** à partir des
+lignes du dump. Ce n'est pas un sauvetage post-hoc : l'agrégation est une
+fonction pure du dump, et le protocole exige un dump par question **précisément
+pour que l'agrégation reste rejouable**. Mais le job, lui, a échoué, et son
+journal le dit.
+
+**Ce que le gate a réellement acheté.** Une erreur **réelle**, attrapée dès son
+premier usage, avant qu'un seul chiffre GPTQ existe. Sans lui, la campagne aurait
+comparé des MMLU **macro** côté vLLM à des MMLU **micro** côté maison — un
+échange qui vaut ~1 pp sur la baseline mais **frappe plus fort le bras
+quantifié** (§3ter), donc qui aurait faussé la comparaison **dans notre sens**.
+
+**Fait non demandé, obtenu en prime.** Deux moteurs entièrement distincts —
+candle + notre noyau CUDA, et vLLM — deux chemins numériques distincts (logits
+f16 contre logprobs) s'accordent sur **2 272 / 2 280 picks, soit 99,65 %**, à
+qhash identiques sur les 2 280.
+
+**Correction.** `vllm_score.py` rend désormais le micro **et** la macro,
+étiquetés ; le gate porte sur le micro.
+
+**Reste dû** : le bras `awq_marlin` n'a jamais tourné — le job s'est arrêté au
+premier gate rouge. La moitié du gate §2.4 est encore à passer.
+
+---
+
 ## Ce qui a été vérifié à 0 $ et n'est pas un écart
 
 [`docs/mesures/m3-qhash-local-2026-08-30.txt`](../docs/mesures/m3-qhash-local-2026-08-30.txt) :

@@ -342,7 +342,7 @@ def emit_dump(
     scores: list[list[float]],
     populations: dict[str, int],
     revision: str | None,
-) -> tuple[int, int]:
+) -> tuple[int, int, float, float]:
     """The `llvq-mmlu-dump v1` format, so `bin/mmlupair` consumes it unchanged.
 
     The header carries `scores=logprob` because the columns are named
@@ -350,6 +350,7 @@ def emit_dump(
     silently is exactly the class of error this project keeps paying for.
     """
     right = 0
+    per: dict[str, list[int]] = {}
     with path.open("w", encoding="utf-8") as fh:
         fh.write("# llvq-mmlu-dump v1\n")
         fh.write(f"# model={model_label} [vLLM arm {arm}]\n")
@@ -365,13 +366,38 @@ def emit_dump(
             pick = max(range(4), key=lambda k: row[k])
             ok = int(pick == it["answer"])
             right += ok
+            slot = per.setdefault(subject, [0, 0])
+            slot[0] += ok
+            slot[1] += 1
             fh.write(
                 f"{subject},{index},{populations.get(subject, 0)},{qhash:016x},"
                 f"{it['answer']},{pick},{ok},"
                 + ",".join(f"{v:.6f}" for v in row)
                 + "\n"
             )
-    return right, len(wanted)
+    # 🚨 MICRO, PAS LE NAÏF. Chaque matière porte exactement `limit` questions
+    # (40), donc `Σright/Σtotal` est **algébriquement la moyenne non pondérée**
+    # des 57 taux — la MACRO. C'est le défaut que le §3ter du CLAUDE.md a
+    # identifié le 2026-08-01 et corrigé dans `bin/mmlu`, et dans lequel ce
+    # fichier est retombé le 2026-08-30 : il a rendu 72,85 là où la référence
+    # publie 70,32, et le gate a coûté 0,20 $ pour le dire.
+    #
+    # Le micro repondère chaque matière par sa **population dans le split test
+    # entier**, pas par les 40 échantillonnées. La colonne `population` du dump
+    # existe pour ça et pour rien d'autre.
+    #
+    # Les deux sont rendues : la macro n'est pas fausse, elle répond à une autre
+    # question. Ce qui était faux était de l'appeler MMLU.
+    total_pop = sum(populations.get(s, 0) for s in per)
+    if total_pop == 0:
+        raise Refused("aucune population connue — le micro n'est pas calculable")
+    micro = (
+        sum(v[0] / v[1] * populations.get(s, 0) for s, v in per.items())
+        / total_pop
+        * 100.0
+    )
+    macro = sum(v[0] / v[1] for v in per.values()) / len(per) * 100.0
+    return right, len(wanted), micro, macro
 
 
 def check_gate(arm: str, mmlu_pct: float | None, ppl: float | None) -> list[str]:
@@ -474,7 +500,7 @@ def main(argv: list[str]) -> int:
     llm = LLM(**kwargs)
 
     scores = score_mmlu(llm, tok, prompts)
-    right, total = emit_dump(
+    right, total, mmlu_pct, macro_pct = emit_dump(
         Path(args.out),
         args.arm,
         args.model,
@@ -484,8 +510,9 @@ def main(argv: list[str]) -> int:
         populations,
         args.revision,
     )
-    mmlu_pct = right / total * 100.0
-    print(f"\n  MMLU micro            {mmlu_pct:.2f} %  ({right}/{total})")
+    print(f"\n  MMLU micro            {mmlu_pct:.2f} %   <-- la métrique du papier")
+    print(f"  MMLU macro            {macro_pct:.2f} %   (= right/total ici : 40/matière)")
+    print(f"  brut                  {right}/{total}")
     print(f"  dump                  {args.out}")
 
     ppl_value = None

@@ -1,0 +1,96 @@
+M3 — GATE DE L'INSTRUMENT : LE SCORER MMLU CÔTÉ vLLM (2026-08-30)
+
+Pré-enregistrement : proofs/preregistration-m3-gptq2-2026-08-30.md §2.4
+Écarts             : proofs/preregistration-m3-gptq2-2026-08-30-ECARTS.md
+Job                : 6a93edf1984507d9db4ecbf1 — l40sx1, vllm/vllm-openai:v0.26.0
+Facturé            : 7 min, 0,20 $   (plafond posé 45 min / 1,35 $)
+Sortie             : ERROR exit 2 — GateFailed, par construction
+
+CE QUE LE JOB DEVAIT FAIRE
+--------------------------
+Demander à un instrument neuf — un scorer MMLU par `prompt_logprobs` dans vLLM —
+de rendre DEUX réponses déjà connues, mesurées le 2026-08-06 dans notre propre
+harnais : f16 à 70,32 et AWQ 4 bits à 70,04. Critère tamponné : |Δ| <= 1,5 pp.
+Aucun bras nouveau n'est mesuré ici.
+
+CE QUI S'EST PASSÉ
+------------------
+Le bras f16 a scoré ses 9 120 prompts (2 280 questions x 4 lettres) en 4 min 38
+à 19 885 tok/s d'entrée, puis le gate a refusé :
+
+  🚨 GATE ROUGE — f16: MMLU 72.85 contre 70.32 connu — |Δ| = 2.53 pp > 1.5 pp
+
+Le job s'est arrêté là. Le bras awq_marlin n'a jamais tourné.
+VRAM : pic 43,624 Go, moyenne 37,389 (366 échantillons sur 367 s).
+
+🕳️ LE DÉFAUT EST LE NÔTRE, ET C'EST CELUI DU §3ter — REFAIT À NEUF
+-----------------------------------------------------------------
+72,85 n'est pas un nombre au hasard : c'est LA MACRO. Vérifié à 0 $ sur le dump
+de référence, sans relancer une carte :
+
+  dump de référence, 2280 questions, 57 matières, 40 par matière EXACTEMENT
+    naïf  Σright/Σtotal          = 72,76 %     <-- ce que le scorer calculait
+    macro (moyenne des taux)     = 72,76 %     <-- le MÊME nombre
+    micro (pondéré population)   = 70,32 %     <-- le chiffre publié
+
+Avec exactement 40 questions par matière, `Σright/Σtotal` est ALGÉBRIQUEMENT la
+moyenne non pondérée des 57 taux. C'est mot pour mot le défaut que le §3ter du
+CLAUDE.md a identifié le 2026-08-01, corrigé dans bin/mmlu, et documenté sur
+trois paragraphes — y compris sa signature (« le macro sur-pondère les petites
+matières STEM d'un facteur ~2,5 »).
+
+Le scorer neuf y est retombé. La colonne `population` du dump existe pour ça et
+pour rien d'autre ; elle était écrite correctement et n'était pas lue.
+
+CE QUE LE DUMP RÉCUPÉRÉ ÉTABLIT — ET C'EST L'INVERSE D'UN ÉCHEC
+---------------------------------------------------------------
+Le dump du bras f16 a survécu au conteneur (bucket monté, 203 445 o) et a été
+rapatrié pour 0 $. Confronté question par question au dump de référence du
+2026-08-13, produit par candle + notre noyau CUDA :
+
+  questions communes                 2280 / 2280
+  qhash identiques                   2280 / 2280
+  MÊME PICK                          2272 / 2280   =  99,65 %
+    désaccords                       8
+
+                          macro        micro
+  candle (référence)      72,76 %      70,32 %
+  vLLM (ce job)           72,85 %      70,36 %
+                                       |Δ| = 0,04 pp
+
+⇒ L'INSTRUMENT EST BON. Sur le micro — la métrique du pré-enregistrement — il
+reproduit la valeur connue à 0,04 pp contre un critère de 1,5 pp, soit
+trente-sept fois à l'intérieur.
+
+⇒ ET UN FAIT EN PRIME, QUI N'ÉTAIT PAS DEMANDÉ : deux moteurs entièrement
+distincts — candle + notre noyau CUDA d'un côté, vLLM de l'autre — deux chemins
+numériques distincts (logits f16 contre logprobs), s'accordent sur 99,65 % des
+picks. Les 8 désaccords sont des questions où deux logprobs sont à un cheveu.
+
+CE QUE ÇA COÛTE ET CE QUE ÇA ACHÈTE
+-----------------------------------
+0,20 $ pour découvrir que le scorer agrégeait faux — AVANT qu'un seul chiffre
+GPTQ existe. C'est exactement ce que le gate était censé faire, et le fait qu'il
+ait attrapé une erreur RÉELLE dès son premier usage est le meilleur argument
+possible en sa faveur.
+
+Si le gate n'avait pas existé, la campagne aurait publié des MMLU macro pour les
+bras vLLM contre des MMLU micro pour les bras maison — un échange qui vaut ~1 pp
+sur la baseline mais FRAPPE PLUS FORT LE BRAS QUANTIFIÉ (§3ter), donc qui aurait
+faussé la comparaison DANS NOTRE SENS.
+
+CE QUE CE JOURNAL N'ÉTABLIT PAS
+-------------------------------
+  - Le bras awq_marlin n'a pas tourné. La moitié du gate §2.4 reste à passer.
+  - Le volet ppl n'est toujours pas câblé (écart n°1).
+  - Aucun chiffre GPTQ n'existe : l'artefact n'est pas produit.
+  - Le micro de 70,36 est RECALCULÉ hors ligne à partir du dump par question,
+    pas imprimé par le job. C'est l'usage prévu du dump — l'agrégation est une
+    fonction pure de ses lignes, et c'est précisément pourquoi le protocole
+    exige un dump par question plutôt qu'un taux. Mais il faut le dire.
+
+CORRECTION APPORTÉE
+-------------------
+ops/vllm_score.py rend désormais le micro (pondéré par `population`) ET la
+macro, étiquetés. Le gate porte sur le micro. La macro n'est pas fausse — elle
+répond à une autre question ; ce qui était faux était de l'appeler MMLU.
