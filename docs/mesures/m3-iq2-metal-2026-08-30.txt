@@ -1,0 +1,96 @@
+M3 — IQ2_XXS PRODUIT ET MESURÉ SUR METAL : LE PREMIER CONCURRENT 2 BITS
+DONT CE DOSSIER MESURE LA QUALITÉ (2026-08-30)
+
+Coût : 0 $ — machine de dev, aucun job, aucune carte louée.
+Brut : docs/mesures/m3-iq2-metal-2026-08-30-brut/
+
+POURQUOI CE BRAS, ET POURQUOI MAINTENANT
+----------------------------------------
+Le dossier n'avait JAMAIS mesuré la qualité d'un concurrent 2 bits. Le 17,04 de
+QTIP est une citation de la Table 6 du papier ; F2 interdit toute phrase de
+qualité sur son propre bras QTIP (payload pseudo-aléatoire) ; et le bras GPTQ
+produit le même jour s'est révélé inutilisable — vLLM 0.26.0 refuse de le servir
+et il ne génère que du charabia.
+
+La ligne de partage est la FAMILLE, pas le nombre de bits : scalaire affine par
+groupe (GPTQ, AWQ, MLX q2, Q2_K) contre codebook / réseau / treillis (LLVQ,
+QTIP, QuIP#, IQ2_XXS). IQ2_XXS est le seul candidat qui TIENNE et qui soit à
+notre portée.
+
+LA CHAÎNE, ENTIÈREMENT LOCALE
+-----------------------------
+  poids            Qwen/Qwen3-4B @ 1cfa9a7208912126459214e8b04321603b3df60c
+  conversion       GGUF F16 — 8 051 284 928 o = 16,013 b/param
+  calibration      en/c4-validation.00001-of-00008.json.gz, le shard que
+                   corpus.rs:187 réserve à la calibration
+                   305 documents, 131 072 tokens = 64 × 2048
+                   empreinte 40300263e5d0afa2 — IDENTIQUE au bras GPTQ,
+                   machine-vérifiée et non déclarée
+  imatrix          3 min, 3 872 640 o
+  quantification   1 min 42, IQ2_XXS
+  artefact         1 246 620 832 o
+
+LES TROIS MESURES
+-----------------
+  b/param modèle entier    2,479     (llama-quantize dit 2,47 BPW — 2 instruments)
+  débit                    114,02 ± 0,62 tok/s   contre f16 43,08 ± 0,10
+                           -> ×2,647 INTRA-PILE
+  ppl wikitext-2 ctx 4096  29,9922 ± 0,243       contre f16 11,4096 ± 0,098
+                           -> ×2,629 INTRA-PILE
+
+🚨 LE RÉSULTAT, ET IL EST DOUBLE
+--------------------------------
+1. SUR LA QUALITÉ, À DÉBIT DE FORMAT QUASI IDENTIQUE, NOUS DOMINONS LARGEMENT.
+
+     LLVQ      2,0702 b/poids effectifs   ppl ×1,3845   excès  +38,45 %
+     IQ2_XXS   2,0625 bpw                 ppl ×2,6287   excès +162,87 %
+
+   L'écart de débit de format est de 0,0077 bit, soit 0,37 %. À bits égaux, un
+   codebook de Leech à 1,1·10¹⁴ points retient donc BEAUCOUP plus qu'un codebook
+   qui tient en LUT. C'est la thèse du papier, et c'est la première fois qu'elle
+   est mesurée contre un concurrent réel dans un harnais que nous contrôlons.
+
+2. SUR LA MÉMOIRE SERVIE, IL NOUS BAT DU DOUBLE, ET C'EST LA MÊME THÈSE
+   RETOURNÉE.
+
+     IQ2_XXS            2,479 b/param
+     LLVQ Planes14+q8   5,162 b/param
+
+   Le mécanisme est celui que le papier nomme lui-même : un codebook assez petit
+   pour tenir en table n'a PAS BESOIN D'ÊTRE DÉPLIÉ, donc il sert ~2 b/poids là
+   où nous en servons 4,804. S'y ajoute que llama.cpp quantifie l'embedding
+   quand nous le portons à 8,5 b/param.
+
+   ⇒ Le contrefactuel LUT du docs/BACKLOG.md §4.4 est mesuré, et il TRANCHE DANS
+     LES DEUX SENS : il coûte en qualité ce qu'il gagne en mémoire.
+
+CONTRÔLES ET PROVENANCE
+-----------------------
+  * Le dénominateur 4 022 468 096 (têtes LIÉES) est confirmé par QUATRE
+    instruments indépendants : notre comptabilité, le GGUF f16 qui rend
+    16,013 b/param, le rapport de llama-quantize, et llama-bench qui imprime
+    « params 4.02 B ». Le compte de gptqmodel (4 411 424 256) était faux
+    de +9,67 %, exactement la part de l'embedding.
+  * Les DEUX bras tiers du jour ont vu le MÊME texte de calibration, empreinte
+    40300263e5d0afa2 — vérifié, pas déclaré.
+
+⚠️ CE QUE CE JOURNAL N'ÉTABLIT PAS
+----------------------------------
+  * AUCUN MMLU. llama.cpp n'a pas notre harnais ; son --multiple-choice attend
+    un autre format, et rejouer nos 2 280 questions au même qhash demande de
+    bâtir la fixture. Le §3ter dit depuis le 2026-08-02 que le 2 bits abîme le
+    RAISONNEMENT bien plus que la RESTITUTION, et que c'est la restitution
+    qu'un corpus de perplexité mesure surtout. UNE PERPLEXITÉ SEULE N'EST PAS
+    UNE PREUVE DE QUALITÉ — c'est la règle de maison, elle s'applique ici.
+  * Les deux ×  (×1,3845 et ×2,6287) sont chacun intra-pile, donc licites. Mais
+    QUE LE RAPPORT TRANSFÈRE d'un moteur à l'autre est SUPPOSÉ, pas mesuré : le
+    gate du matin a mesuré que MMLU transfère (0,02 à 0,52 pp sur trois
+    moteurs), jamais que les rapports de ppl transfèrent. L'argument est que le
+    chunking affecte numérateur et dénominateur ensemble ; c'est un argument,
+    pas une mesure.
+  * Verdict METAL / M3 Max. Le même GGUF sur CUDA n'est pas mesuré.
+  * Aucun rapport ne se divise entre piles : ×2,647 (llama.cpp/Metal) et ×2,00
+    (notre harnais/CUDA) ne se comparent pas.
+  ⚠️ Et une asymétrie qui joue CONTRE nous si l'on était tenté : le témoin f16
+    de llama.cpp est celui d'un bon moteur, quand le nôtre recopie 778 Mo de
+    vocabulaire par token.
