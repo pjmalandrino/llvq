@@ -1,0 +1,90 @@
+M3 — LE BRAS GPTQ 2 BITS EST SCORÉ, ET SON CHIFFRE N'EST PAS PUBLIABLE (2026-08-30)
+
+Pré-enregistrement : proofs/preregistration-m3-gptq2-2026-08-30.md
+Job                : 6a94160b984507d9db4ece7b — l40sx1, 6 min, 0,20 $, COMPLETED
+Moteur             : transformers/gptqmodel 7.3.5, batch 16, logits BRUTS
+                     (le chemin `--engine hf`, écrit parce que vLLM 0.26.0
+                     refuse bits=2 — cf. m3-gptq2-production-2026-08-30.txt)
+
+LE TÉMOIN, DANS UN TROISIÈME MOTEUR
+-----------------------------------
+  f16, transformers   MMLU micro 70,84 %   contre 70,32 connu   |Δ| = 0,52 pp
+  gate §2.4                                                      ✅ vert
+
+  qhash 2280/2280. Le dossier a donc maintenant le MÊME modèle scoré dans TROIS
+  moteurs indépendants :
+    candle + notre noyau CUDA   70,32 %
+    vLLM + Marlin               70,34 %
+    transformers                70,84 %
+  Étendue 0,52 pp sur trois implémentations entièrement distinctes.
+
+LE BRAS GPTQ 2 BITS
+-------------------
+  MMLU micro          24,74 %   (564 / 2280)
+  MMLU macro          24,74 %
+
+24,74 % est le HASARD à quatre choix (25,00 %).
+
+🚨 CE CHIFFRE N'EST PAS PUBLIABLE EN L'ÉTAT, ET LE PRÉREG L'AVAIT ANNONCÉ
+-------------------------------------------------------------------------
+Le §1.3 du pré-enregistrement, écrit avant tout job, nomme exactement cette
+situation : « Nous attendons de gagner ce bras. […] C'est exactement la
+situation où l'on relâche les contrôles : un résultat favorable ATTENDU ne
+déclenche pas la relecture qu'un résultat défavorable déclenche. »
+
+Un bras concurrent qui s'effondre au hasard est le résultat le plus favorable
+possible pour nous. Il exige donc PLUS de vérification, pas moins.
+
+CE QUI A ÉTÉ VÉRIFIÉ, À 0 $
+--------------------------
+1. LA QUANTIFICATION S'EST BIEN PASSÉE. Le quant_log.csv de gptqmodel porte
+   252 modules — exactement nos 252 projections — avec une perte de
+   reconstruction par couche :
+     min 0,0000   médiane 0,0021   max 0,1070
+   Ce ne sont pas les nombres d'une quantification qui a divergé.
+
+2. MAIS LA SORTIE EST DÉGÉNÉRÉE, ET PAS « ALÉATOIRE ».
+
+                    pick A    B       C       D      écart médian des 4 logits
+     f16            26,5 %   23,5 %  25,0 %  25,0 %          7,50
+     GPTQ 2 bits    68,9 %    5,4 %  14,6 %  11,2 %          2,19
+
+   Le modèle ne tire pas au sort : il s'effondre vers un a priori (A dans 69 %
+   des cas) et son pouvoir de séparation entre les quatre options chute d'un
+   facteur 3,4. C'est la signature d'une perte de capacité discriminante.
+
+⚠️ ET CETTE SIGNATURE NE DISTINGUE PAS LES DEUX HYPOTHÈSES
+----------------------------------------------------------
+  (a) le 2 bits GPTQ nu s'effondre RÉELLEMENT — plausible, et c'est même la
+      prémisse de toute la littérature : si la quantification scalaire naïve
+      tenait à 2 bits, ni QuIP#, ni QTIP, ni LLVQ n'existeraient ;
+  (b) le CHARGEMENT est défectueux — `GPTQModel.load(...).model` peut ne pas
+      câbler les noyaux quantifiés comme le service le ferait, et `desc_act`
+      met un `g_idx` en jeu.
+
+Les deux produisent exactement la forme observée. Le journal s'arrête ici.
+
+CE QUI TRANCHERAIT, ET CE QUE ÇA COÛTE
+--------------------------------------
+Une génération libre de quelques dizaines de tokens depuis l'artefact :
+  - texte fluide      -> les poids fonctionnent, l'effondrement est une perte
+                         de CAPACITÉ réelle, hypothèse (a) ;
+  - charabia          -> le chargement est cassé, hypothèse (b), et le chiffre
+                         MMLU ne mesure rien.
+Coût : un job de ~2-3 min, ~0,10 $. Non lancé à la date de ce journal.
+
+CE QUE CE JOURNAL ÉTABLIT MALGRÉ TOUT
+-------------------------------------
+  - le témoin f16 passe le gate dans un TROISIÈME moteur (0,52 pp) ;
+  - MMLU traverse trois implémentations indépendantes avec une étendue de
+    0,52 pp — le §0 du protocole est confirmé une fois de plus ;
+  - la quantification GPTQ 2 bits sur NOTRE corpus a produit un artefact dont
+    la comptabilité mémoire est mesurée (3,489 b/param) ;
+  - et la colonne QUALITÉ de ce bras reste VIDE.
+
+DUMPS
+-----
+  docs/data/mmlu-dumps/mmlu-4b-hf-f16.csv
+  docs/data/mmlu-dumps/mmlu-4b-hf-gptq2.csv
+  ⚠️ Ceux-là portent de VRAIS logits (`# scores=logit`), contrairement aux dumps
+  vLLM du même jour qui portent des logprobs. L'en-tête distingue les deux.

@@ -304,6 +304,45 @@ def score_mmlu(llm, tok, prompts: list[str]) -> list[list[float]]:
     return scores
 
 
+def score_mmlu_hf(model, tok, prompts: list[str], answer_ids: list[int], bs: int):
+    """Le même score, dans le moteur de transformers/gptqmodel.
+
+    Existe parce que **vLLM 0.26.0 refuse le 2 bits GPTQ** — `Unsupported
+    quantization config: bits=2, sym=True`, mesuré le 2026-08-30 après que
+    l'artefact ait été produit. Un bras qu'une pile ne sait pas servir reste
+    servable dans la sienne, et « chacun chez lui » veut précisément dire ça.
+
+    🔎 Ce chemin est PLUS proche de `bin/mmlu` que le chemin vLLM : il lit les
+    **logits bruts** de la dernière position et compare quatre valeurs, ce que
+    `mmlu.rs:420-432` fait mot pour mot. Le chemin vLLM, lui, passe par des
+    logprobs — même argmax, autres nombres.
+
+    Le padding est à GAUCHE : la dernière position est alors `-1` pour toute la
+    lot, sans avoir à retrouver la vraie fin de chaque séquence. Se tromper là
+    lirait les logits d'un token de bourrage, ce qui produirait des nombres
+    plausibles et faux.
+    """
+    import torch
+
+    tok.padding_side = "left"
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+
+    out: list[list[float]] = []
+    dev = next(model.parameters()).device
+    for i in range(0, len(prompts), bs):
+        batch = prompts[i : i + bs]
+        enc = tok(batch, return_tensors="pt", padding=True, add_special_tokens=False)
+        enc = {k: v.to(dev) for k, v in enc.items()}
+        with torch.inference_mode():
+            logits = model(**enc).logits[:, -1, :].float()
+        for row in logits:
+            out.append([float(row[a]) for a in answer_ids])
+        if (i // bs) % 10 == 0:
+            print(f"    {min(i + bs, len(prompts))}/{len(prompts)}", flush=True)
+    return out
+
+
 def score_ppl(llm, tok, ids: list[int], ctx: int, nwin: int) -> list[tuple[float, int]]:
     """Non-overlapping windows, exactly `llvq-llm/src/bin/ppl.rs:115`.
 
@@ -342,6 +381,7 @@ def emit_dump(
     scores: list[list[float]],
     populations: dict[str, int],
     revision: str | None,
+    engine: str,
 ) -> tuple[int, int, float, float]:
     """The `llvq-mmlu-dump v1` format, so `bin/mmlupair` consumes it unchanged.
 
@@ -356,8 +396,11 @@ def emit_dump(
         fh.write(f"# model={model_label} [vLLM arm {arm}]\n")
         fh.write(f"# revision={revision or 'main (NON ÉPINGLÉE)'}\n")
         fh.write("# dtype=f16\n")
-        fh.write("# scores=logprob  ⚠️ colonnes logit_* = LOGPROBS, pas des logits\n")
-        fh.write("# engine=vllm\n")
+        if engine == "hf":
+            fh.write("# scores=logit  (logits bruts, comme bin/mmlu)\n")
+        else:
+            fh.write("# scores=logprob  ⚠️ colonnes logit_* = LOGPROBS, pas des logits\n")
+        fh.write(f"# engine={engine}\n")
         fh.write(
             "subject,index,population,qhash,answer,pick,correct,"
             "logit_a,logit_b,logit_c,logit_d\n"
@@ -443,6 +486,13 @@ def main(argv: list[str]) -> int:
     )
     ap.add_argument("--out", required=True, help="où écrire le dump de ce bras")
     ap.add_argument("--dataset-rev", default=os.environ.get("LLVQ_DATASET_REV", "main"))
+    ap.add_argument(
+        "--engine",
+        default="vllm",
+        choices=("vllm", "hf"),
+        help="vllm par défaut ; hf pour les formats que vLLM refuse (2 bits GPTQ)",
+    )
+    ap.add_argument("--batch-size", type=int, default=8, help="moteur hf seulement")
     ap.add_argument("--ppl", action="store_true", help="scorer aussi la perplexité")
     ap.add_argument(
         "--gate",
@@ -463,7 +513,6 @@ def main(argv: list[str]) -> int:
     print(f"  en-tête du dump       {head}")
 
     from transformers import AutoTokenizer
-    from vllm import LLM
 
     tok = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
     for s in ANSWER_STRINGS:
@@ -492,14 +541,38 @@ def main(argv: list[str]) -> int:
         )
     print(f"  qhash vérifiés        {len(wanted)}/{len(wanted)} ✅")
 
-    kwargs: dict[str, Any] = dict(model=args.model, dtype="float16")
-    if args.quantization:
-        kwargs["quantization"] = args.quantization
-    if args.revision:
-        kwargs["revision"] = args.revision
-    llm = LLM(**kwargs)
+    answer_ids = [tok.encode(x, add_special_tokens=False)[0] for x in ANSWER_STRINGS]
 
-    scores = score_mmlu(llm, tok, prompts)
+    if args.engine == "hf":
+        import torch
+
+        print(f"  moteur                transformers/gptqmodel (batch {args.batch_size})")
+        try:
+            from gptqmodel import GPTQModel
+
+            model = GPTQModel.load(args.model, device="cuda:0").model
+        except Exception as e:
+            print(f"  gptqmodel.load a refusé ({e}) — repli AutoModelForCausalLM")
+            from transformers import AutoModelForCausalLM
+
+            model = AutoModelForCausalLM.from_pretrained(
+                args.model,
+                revision=args.revision,
+                dtype=torch.float16,
+                device_map="cuda:0",
+            )
+        model.eval()
+        scores = score_mmlu_hf(model, tok, prompts, answer_ids, args.batch_size)
+    else:
+        from vllm import LLM
+
+        kwargs: dict[str, Any] = dict(model=args.model, dtype="float16")
+        if args.quantization:
+            kwargs["quantization"] = args.quantization
+        if args.revision:
+            kwargs["revision"] = args.revision
+        llm = LLM(**kwargs)
+        scores = score_mmlu(llm, tok, prompts)
     right, total, mmlu_pct, macro_pct = emit_dump(
         Path(args.out),
         args.arm,
@@ -509,6 +582,7 @@ def main(argv: list[str]) -> int:
         scores,
         populations,
         args.revision,
+        args.engine,
     )
     print(f"\n  MMLU micro            {mmlu_pct:.2f} %   <-- la métrique du papier")
     print(f"  MMLU macro            {macro_pct:.2f} %   (= right/total ici : 40/matière)")
