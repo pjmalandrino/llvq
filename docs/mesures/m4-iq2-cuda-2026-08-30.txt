@@ -1,0 +1,68 @@
+M4 — LE MÊME GGUF IQ2_XXS SUR CUDA : LE BRAS PONT (2026-08-30)
+
+Jobs : 6a94a0d7984507d9db4ed7bb — reconnaissance, 1 min, 0,02 $
+       6a94a1d445686a1580c19524 — mesure, 1 min, 0,04 $
+Image : ghcr.io/ggml-org/llama.cpp:full-cuda
+Carte : NVIDIA L40S · driver 580.178.04 · clocks.max.sm 2520 MHz · 46068 MiB
+        (2520 MHz = exactement l'horloge que le lot G a épinglée le 2026-08-23)
+
+L'IDENTITÉ DES ARTEFACTS EST PROUVÉE, PAS DÉCLARÉE
+--------------------------------------------------
+  19a8ed4946353b6fdc5d19ba9766ffe903923cb7aefe848dcbcd5dba1de27605  iq2xxs
+  259393f93c7a55515161c1db0609118d8c1e94f78c01ad75f5d8ee0471cc0c3f  f16
+
+Les deux sha256 sont IDENTIQUES entre la machine de dev et le conteneur, vérifiés
+au démarrage du job. IQ2_XXS est donc le premier bras du dossier dont on peut
+dire que c'est LE MÊME OBJET qui a traversé deux backends — pas deux artefacts
+produits séparément et supposés équivalents.
+
+LE DÉBIT, CONTRE LE TÉMOIN f16 DE SA PROPRE PILE
+------------------------------------------------
+  Metal / M3 Max     114,02 ± 0,62  /  43,08 ± 0,10  = ×2,647
+  CUDA  / L40S       312,85 ± 2,33  /  84,83 ± 0,05  = ×3,688
+
+🚨 LE RAPPORT N'EST PAS STABLE ENTRE BACKENDS : +39 % sur CUDA, à FICHIER
+IDENTIQUE, MOTEUR IDENTIQUE, MODÈLE IDENTIQUE.
+
+C'est un fait sur la GÉOMÉTRIE D'EXÉCUTION, pas sur le format : les octets lus
+sont les mêmes, le décodeur est le même code. Ce que la carte change, c'est le
+rapport entre le coût de lire 1,16 GiB et celui d'en lire 7,49.
+
+⇒ Et ça CONFIRME EXPÉRIMENTALEMENT l'interdit que ce dossier applique depuis F4 :
+  « les × inter-cartes NE SE DIVISENT PAS ». Jusqu'ici la démonstration reposait
+  sur NOS bras (Planes14 : 2,14× sur L40S, 0,79× sur A100). Elle est maintenant
+  reproduite sur un bras TIERS, avec un fichier dont l'identité est prouvée par
+  hachage. L'interdit n'est pas une prudence maison, c'est une propriété du
+  matériel.
+
+🔎 UN RECOUPEMENT QUI N'ÉTAIT PAS CHERCHÉ, ET QUI CORROBORE UNE DETTE CONNUE
+----------------------------------------------------------------------------
+Deux moteurs tiers ENTIÈREMENT INDÉPENDANTS mesurent le f16 de Qwen3-4B sur la
+même L40S :
+
+  vLLM 0.26.0          83,09 tok/s   (job 6a830d53…, 2026-08-17)
+  llama.cpp CUDA       84,83 tok/s   (ce job)          écart 2,1 %
+  ------------------------------------------------------------
+  NOTRE bras dense     43,60 tok/s   soit 1,95× plus lent
+
+Le §3 du CLAUDE.md attribue ce handicap à un mécanisme précis et identifié :
+`Head::project` appelle `Tensor::broadcast_matmul`, qui recopie les 778 Mo du
+vocabulaire À CHAQUE TOKEN (~26 ms/token chronométrés, issue candle #3871).
+
+Ce qui change aujourd'hui : le handicap cesse d'être un AUTO-DIAGNOSTIC. Deux
+moteurs extérieurs, écrits par des équipes différentes dans des langages
+différents, s'accordent à 2,1 % sur une valeur qui est 1,95× la nôtre. Le
+facteur ~2 que le dossier suppose depuis le 2026-08-09 est corroboré du dehors.
+
+⚠️ Ce n'est PAS un rapport publiable — trois piles, aucune division licite. C'est
+une corroboration de mécanisme, et elle joue CONTRE nous : elle confirme que nos
+× bruts flattent notre noyau, et que seul le ×1,11 à tête identique le mesure.
+
+CE QUE CE JOURNAL N'ÉTABLIT PAS
+-------------------------------
+  * Aucune qualité — ce job ne score rien. Le MMLU d'IQ2_XXS (39,39 %) a été
+    mesuré sur Metal, et il traverse par construction (le §0, vérifié sur
+    quatre moteurs à 0,52 pp).
+  * Aucune division entre les ×2,647 et ×3,688 : ce sont deux rapports
+    intra-pile, à poser côte à côte.
+  * Verdict L40S et M3 Max. Rien sur A100, où F4 a montré que tout change.
