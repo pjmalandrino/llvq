@@ -1,0 +1,76 @@
+M3 — VÉRIFICATION LOCALE DE LA RECONSTRUCTION DES PROMPTS (2026-08-30)
+
+Pré-enregistrement : proofs/preregistration-m3-gptq2-2026-08-30.md
+Coût : 0 $ — machine de dev, aucun GPU, aucun job.
+
+POURQUOI CETTE VÉRIFICATION EXISTE
+----------------------------------
+Le pré-enregistrement §2.4 fait dépendre toute la vague d'un instrument neuf :
+un scorer MMLU côté vLLM. Avant de payer pour le faire tourner sur carte, la
+partie qui n'a besoin d'aucun GPU a été exécutée ici — reconstruction des
+prompts, tokenisation, empreinte par question.
+
+Un désaccord de qhash aurait signifié : dataset déplacé, tokenizer différent,
+ou format de prompt divergent. Chacun aurait produit des nombres plausibles et
+faux, et se serait payé en dollars avant d'être vu.
+
+CE QUI A ÉTÉ EXÉCUTÉ
+--------------------
+  ops/vllm_score.py, fonctions pures uniquement (aucun import vllm) :
+    test_fingerprint_matches_rust()  — FNV-1a 64 contre la définition Rust
+    read_reference_dump()            — docs/data/mmlu-dumps/mmlu-4b-f16.csv
+    load_mmlu("test"/"dev", "main")  — cais/mmlu, le parquet de corpus.rs:83
+    build_prompts()                  — prompt reconstruit + qhash recalculé
+
+RÉSULTAT
+--------
+  FNV vs Rust                             ok
+  questions lues                          2280
+  en-tête du dump de référence            model=Qwen/Qwen3-4B [reference checkpoint]
+                                          dtype=f16  limit=40
+                                          end fingerprint=65dcd53655e8bfa5 questions=2280
+  split test / dev                        14042 / 285
+
+  tokens de réponse, un seul token chacun (vérifié, pas supposé) :
+    ' A' -> [362]     ' B' -> [425]     ' C' -> [356]     ' D' -> [422]
+
+  qhash reproduits                        2280 / 2280   ✅
+
+CE QUE ÇA ÉTABLIT
+-----------------
+Sept choses d'un coup, chacune capable de fausser silencieusement la campagne :
+
+  1. la réimplémentation Python de `llvq_llm::eval::token_fingerprint`
+     (FNV-1a 64 sur les octets little-endian des u32) est exacte ;
+  2. le prompt reconstruit est identique AU BYTE à celui de bin/mmlu — chaque
+     trim(), chaque saut de ligne, le "Answer:" sans espace final ;
+  3. l'assemblage few-shot est le bon : split dev, même matière, dans l'ordre ;
+  4. la résolution (subject, index) -> question du split test est la bonne ;
+  5. le dataset cais/mmlu n'a pas bougé depuis les dumps du 2026-08-13 —
+     ce qui comptait, la révision côté Rust n'étant PAS épinglée (corpus.rs:28
+     tombe sur "main" faute de LLVQ_DATASET_REV) ;
+  6. le tokenizer de Qwen3-4B rend les mêmes ids qu'à l'époque ;
+  7. ' A' ' B' ' C' ' D' se tokenisent chacun en UN token — sans quoi la
+     comparaison à quatre valeurs n'aurait pas de sens.
+
+L'empreinte de bout du dump de référence est 65dcd53655e8bfa5, exactement
+l'empreinte MMLU citée dans tout le dossier. La chaîne est donc vérifiée de
+bout en bout.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  - Rien sur vLLM. `prompt_logprobs` n'a pas tourné : son comportement, sa
+    convention de position 0, et le fait qu'il rende bien le logprob du token
+    imposé restent à vérifier SUR CARTE. C'est l'objet du job gate.
+  - Rien sur la qualité d'un bras. Aucun modèle n'a été chargé.
+  - Rien sur la perplexité : le bras ppl de vllm_score.py REFUSE de tourner
+    (il n'est pas câblé au corpus wikitext-2). ⚠️ ÉCART AU PROTOCOLE — le
+    pré-enregistrement §2.4 fait porter le gate sur MMLU *et* ppl ; à ce jour
+    seul le volet MMLU est exécutable. Consigné au §7 du pré-enregistrement,
+    qui n'est pas édité (il est tamponné).
+
+CE QUI RESTE AVANT LE PREMIER JOB
+---------------------------------
+  - câbler le volet ppl, ou lancer le gate sur MMLU seul en le déclarant ;
+  - ajouter l'entrée gptq2 à ARMS dans ops/awq_speed.py ;
+  - produire l'artefact GPTQ 2 bits (job, ~0,5-1,0 $).
