@@ -1,0 +1,76 @@
+M3 — GATE DE L'INSTRUMENT, SECONDE PASSE : VERT SUR LES DEUX BRAS (2026-08-30)
+
+Pré-enregistrement : proofs/preregistration-m3-gptq2-2026-08-30.md §2.4
+Écarts             : proofs/preregistration-m3-gptq2-2026-08-30-ECARTS.md
+Job                : 6a93fc4b984507d9db4eccf2 — l40sx1, vllm/vllm-openai:v0.26.0
+Facturé            : 13 min, 0,39 $   (plafond posé 45 min / 1,35 $)
+Sortie             : COMPLETED, exit 0 — les deux verdicts IMPRIMÉS PAR LE JOB
+Prédécesseurs      : 6a93edf1… (0,20 $, gate rouge sur notre agrégation)
+                     6a93fc17… (annulé avant facturation — fichiers stagés dans
+                     le mauvais dossier, bucket vide, détecté sur « New Data
+                     Upload : 0.00B » avant de laisser tourner)
+
+LE VERDICT
+----------
+  bras          MMLU micro    connu     |Δ|      critère §2.4
+  f16              70,34 %    70,32     0,02 pp     ≤ 1,5   ✅
+  awq_marlin       69,82 %    70,04     0,22 pp     ≤ 1,5   ✅
+
+  qhash vérifiés   2280/2280 sur les deux bras
+  routage          « Using MarlinLinearKernel for AutoAWQMarlinLinearMethod »
+                   — le bras est bien sur Marlin, pas sur un repli silencieux
+  VRAM             pic 43,730 Go, moyenne 36,890 (732 échantillons / 747 s)
+
+⇒ L'INSTRUMENT EST VALIDÉ. Le scorer `prompt_logprobs` côté vLLM reproduit deux
+réponses connues à 0,02 et 0,22 pp, contre un critère de 1,5. Le bras GPTQ peut
+être lu quand il existera.
+
+LES QUATRE CELLULES, CÔTE À CÔTE
+--------------------------------
+                                  macro      micro
+  candle f16   (référence 08-13)  72,76 %    70,32 %
+  vLLM  f16                       72,81 %    70,34 %
+  candle AWQ   (référence 08-13)  70,79 %    70,04 %
+  vLLM  AWQ marlin                70,70 %    69,82 %
+
+  accord des picks, moteur contre moteur, mêmes 2280 questions :
+    f16   2271 / 2280  =  99,61 %
+    AWQ   2270 / 2280  =  99,56 %
+
+CE QUE ÇA ÉTABLIT EN PLUS DU GATE — ET CE N'ÉTAIT PAS DEMANDÉ
+--------------------------------------------------------------
+1. LE CONTRÔLE CENTRAL DU DESIGN EST TOMBÉ. L'AWQ est le seul bras qui existe
+   des DEUX côtés : mesuré chez lui (vLLM, 69,82) et ramené chez nous par
+   déquantisation (candle, 70,04). |Δ| = 0,22 pp. L'hypothèse « une grandeur
+   mesurée dans une pile se lit dans l'autre » cesse d'être supposée pour ce
+   qui concerne MMLU — elle est MESURÉE, sur le seul bras qui pouvait la tester.
+   C'est ce que docs/exp-piles-isolees-2026-08-30/MACHINES.md appelle « la
+   machine de contrôle du design », et elle a rendu.
+
+2. LE §0 DU PROTOCOLE EST CONFIRMÉ PAR L'EXPÉRIENCE. Il posait d'avance que
+   « MMLU traverse en NIVEAU, la perplexité non ». Deux moteurs entièrement
+   distincts — candle + notre noyau CUDA, et vLLM + Marlin — deux chemins
+   numériques distincts (logits f16 contre logprobs), rendent des MMLU à 0,02 et
+   0,22 pp l'un de l'autre et s'accordent sur plus de 99,5 % des picks.
+
+3. LE ROUTAGE DU NOYAU EST CAPTURÉ, pas supposé. Le log nomme Marlin.
+
+CE QUE CE JOURNAL N'ÉTABLIT PAS
+-------------------------------
+  - Rien sur la perplexité. Le volet ppl du gate n'est toujours pas câblé
+    (écart n°1) : un scorer juste en MMLU et faux en ppl passerait encore.
+    ⇒ AUCUNE ppl mesurée dans vLLM ne se publie à ce jour.
+  - Rien sur GPTQ : l'artefact n'existe pas.
+  - Aucun débit. Ce job ne chronomètre rien ; les tok/s vLLM restent ceux
+    d'awq_speed.py du 2026-08-17.
+  - Le 70,34 de cette passe et le 70,36 recalculé de la passe précédente
+    diffèrent d'UNE question (1660 contre 1661 sur 2280). Non-déterminisme de
+    lot / de numérique f16 dans vLLM, à l'échelle d'un pouième — noté, pas
+    expliqué.
+
+DUMPS COMMITÉS
+--------------
+  docs/data/mmlu-dumps/mmlu-4b-vllm-f16.csv
+  docs/data/mmlu-dumps/mmlu-4b-vllm-awq.csv
+  Format llvq-mmlu-dump v1, consommables par bin/mmlupair sans modification.
+  ⚠️ Leurs colonnes logit_* portent des LOGPROBS — l'en-tête le déclare.
