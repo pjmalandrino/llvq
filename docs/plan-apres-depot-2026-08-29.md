@@ -433,3 +433,48 @@ identiques à l'AWQ) et le plus long chemin. La case la plus fragile est
 MMLU 60-64 (deux paris chaînés, zéro mesure) ; c'est aussi la moins chère
 à sécuriser (B-a.2, 3-5 $). Le verrou VRAM face à QTIP est structurel et
 se dit d'avance.
+
+---
+
+## Jonction 2026-08-31 — la Phase C0 a été exécutée en parallèle, et au-delà
+
+🕳️ **Ce plan et la vague « piles isolées » des 30-31 août ont été écrits dans
+les deux copies du dépôt sans se voir** — même design (chacun-chez-soi, témoin
+f16 par pile, rapports intra-pile, épingles partout), convergé indépendamment à
+un jour d'écart. La jonction, pour qu'aucune session ne re-planifie C0 :
+
+**Ce que la vague a livré de C0** (12 jobs, 1,29 $, protocole ancré
+[`proofs/protocole-piles-isolees-v2-2026-08-31.md`](../proofs/protocole-piles-isolees-v2-2026-08-31.md),
+audit dans [`docs/exp-piles-isolees-2026-08-30/`](exp-piles-isolees-2026-08-30/)) :
+
+- le duel 4B nous + AWQ/vLLM, témoins compris — **fait** (gate 0,39 $ vert) ;
+- **deux bras que C0 ne prévoyait pas** : GPTQ 2 bits (plancher : vLLM refuse
+  `bits=2`, l'artefact ne génère pas — 3,489 b/param seul survivant) et
+  IQ2_XXS (le contrefactuel LUT du BACKLOG §4.4 : 39,39 MMLU contre nos 55,59
+  à 0,37 % de bits d'écart, mais 2,479 b/param servis contre nos 5,162) ;
+- le **pont inter-backend** : même GGUF sha256-identique, ×2,647 Metal /
+  ×3,688 CUDA — l'interdit inter-cartes reproduit sur un bras tiers.
+
+**Ce que la vague CHANGE aux prémisses de C0** :
+
+1. C0 prévoyait la qualité **par injections génératives**, au motif implicite
+   qu'une métrique ne traverse pas les piles. **Mesuré le contraire pour le
+   MMLU log-prob** : 70,32 / 70,34 / 70,84 / 70,36 sur quatre moteurs
+   (étendue 0,52 pp) — la fixture `ops/vllm_score.py` + `ops/gguf_mmlu*.py`
+   transplante le harnais partout, dumps `qhash` compris.
+2. **Mais l'exact-match génératif de C0 reste motivé, et mieux qu'avant** :
+   entre les noyaux de déquantisation Metal/CUDA d'IQ2_XXS, l'agrégat tient à
+   0,52 pp pendant que **4,2 % des picks changent** (95,79 % d'accord). C'est
+   arXiv:2607.08734 observé chez nous — l'injection générative est la métrique
+   qui verrait ce que MMLU masque.
+3. Le pronostic « vLLM domine notre candle » est corroboré par **deux** moteurs
+   tiers accordés à 2,1 % (83,09 / 84,83 contre 43,6) — le gisement moteur de
+   la Phase P n'est plus une lecture, c'est deux mesures indépendantes.
+
+**Ce qui reste de C0, inchangé** : l'étage QTIP chez lui sur Llama
+(~0,3-0,6 $), l'exact-match par injections, et la jonction C0×C1 (triple duel
+Llama-3.1-8B).
+
+**Le mécanisme de ré-édition que C0 demandait existe** : le protocole v2 §2
+fixe qu'une amélioration de noyau ne re-mesure que notre débit (~0,3-0,6 $),
+les autres piles étant figées par leurs épingles.
