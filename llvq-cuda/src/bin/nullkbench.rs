@@ -46,6 +46,7 @@ fn main() -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 mod linux {
+    use cudarc::driver::PushKernelArg;
     use llvq_core::{SplitMix64, DIM};
     use llvq_cuda::gpu::{Cuda, KernelSource};
     use llvq_cuda::TILE_BLOCKS;
