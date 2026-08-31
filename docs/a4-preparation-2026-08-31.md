@@ -51,7 +51,7 @@ mkdir -p /out/vague2-2026-08-31
 which planesbench nullkbench
 nvidia-smi --query-gpu=name,driver_version,clocks.max.sm --format=csv | tee /out/vague2-2026-08-31/a4-gpu.txt
 LLVQ_NVRTC_ARCH=compute_80 preflight 2>&1 | tee /out/vague2-2026-08-31/a4-preflight.txt
-LLVQ_NVRTC_ARCH=compute_80 LLVQ_BENCH_ARMS="planes14,fp16,cublasf16,nullk" \
+LLVQ_NVRTC_ARCH=compute_80 LLVQ_BENCH_ARMS="slot32,planes14,fp16,cublasf16,nullk" \
   planesbench /model/qwen3-4b-llvq.bin 2>&1 | tee /out/vague2-2026-08-31/a4-a100-planesbench.txt
 LLVQ_NVRTC_ARCH=compute_80 nullkbench 2>&1 | tee /out/vague2-2026-08-31/a4-a100-nullkbench.txt
 ```
@@ -63,9 +63,17 @@ prédisent son échelle, pas son rapport)
 Moitié `fusedrun` (si issue (a)) — même job ou job séparé sur l'image sm80 :
 
 ```
-LLVQ_FUSED_LAYOUT=planes14 LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1 \
-  fusedrun /model/qwen3-4b-llvq.bin 128 2>&1 | tee /out/vague2-2026-08-31/a4-a100-fusedrun.txt
+LLVQ_NVRTC_ARCH=compute_80 LLVQ_ROT_SHARE=1 LLVQ_FUSE_AB=1 LLVQ_EMBED=q8 \
+  fusedrun /model/qwen3-4b-llvq.bin 128 2>&1 | tee /out/vague2-2026-08-31/a4-a100-fuse-ab.txt
 ```
+
+⚠️ Deux corrections d'exécution posées AVANT le job (2026-08-31 soir) :
+la section seg du banc **exige `slot32` ET `planes14` dans la sélection**
+(`planesbench.rs:2740` : « elle saute, et le dit ») — la liste sans slot32
+aurait raté l'objet même d'A4 ; et `fusedrun` passe par `Cuda::on_stream`,
+donc **nos** noyaux exigent aussi `LLVQ_NVRTC_ARCH=compute_80` sur A100
+(seuls les noyaux candle sont réglés par l'image sm80). La forme `FUSE_AB=1`
+est celle des jobs 0.1 de la vague : les deux bras dans un processus.
 
 ## Lecture (rappel du préreg, inchangée)
 

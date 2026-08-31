@@ -1,9 +1,9 @@
 # Pré-enregistrement — A2 (CUDA Graphs) et A3 (occupation) — BROUILLON
 
-> 🚨 **NON TAMPONNÉ — BROUILLON du 2026-08-31.** Deux choses manquent avant le
-> tampon, et elles sont déclarées : **les parts d'A1** (§3, gabarits vides —
-> A1 relancé ce soir, image réparée) et **l'arbitrage des critères d'A3**
-> (§5, marqués PROPOSITION). Règle une fois tamponné : ce document ne s'édite
+> 🚨 **NON TAMPONNÉ — BROUILLON du 2026-08-31.** Les parts d'A1 sont
+> **remplies** (§3, mesurées le soir même : r = 0,8158, bande mixte). Restent
+> avant le tampon : **l'arbitrage des critères d'A3** (§5, marqués
+> PROPOSITION) et **l'ordre A2/A3** (§3, proposition faite). Règle une fois tamponné : ce document ne s'édite
 > plus jamais ; écarts →
 > `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, nommé ici
 > d'avance. **Tampon exigé avant la première milliseconde d'un job A2 ou A3.**
@@ -58,13 +58,26 @@ tableau.
 A1 (préreg vague 2 §A1, tamponné `e23e9895…`) rend
 `r = t(nullk-fusé 144) ÷ t(nullk 252)` :
 
-- **r = ______ [______–______]** (médiane du rapport round par round, 7 rounds
-  dont 2 jetés, un seul processus)
+- **r = 0,8158 [0,8150–0,8162]** (*mesuré* le 2026-08-31, job `6a95e11b…`,
+  0,01 $ — médiane du rapport round par round, 7 rounds dont 2 jetés, un seul
+  processus, L40S 142 SM ; le prior déclaré de 0,83 est confirmé à 1,7 % près)
 - lecture pré-posée : r ≤ 0,65 → latence par lancement, **A2 d'abord** ;
-  r ≥ 0,90 → occupation, **A3 d'abord** ; entre les deux → mixte, les parts se
-  publient, l'ordre est au choix de l'opérateur et se justifie ici : ______
-- part par-lancement implicite : ______ ms sur les ______ ms du plancher
-- journal : `docs/mesures/______`
+  r ≥ 0,90 → occupation, **A3 d'abord** ; **0,8158 → BANDE MIXTE** — les
+  parts se publient, ni A2 ni A3 n'est éliminé. L'ordre est au choix de
+  l'opérateur ; les deux pools, pour l'éclairer : le pool par-lancement est
+  **mesuré directement** (Δ = 0,406 ms pour 108 lancements = **3,76
+  µs/lancement**, *calculé* — cohérent avec les 3,63 µs du lot A du 08-06),
+  le pool d'occupation est le **plancher résiduel à 144 lancements, 1,794
+  ms**, plus gros mais sans mécanisme unique. ⚖️ PROPOSITION : A2 d'abord —
+  son pool est certain et son critère tranche vite ; à arbitrer.
+- part par-lancement implicite : **0,406 ms** des **2,200 ms** du plancher
+  252 pour les 108 lancements retirés ; extrapolée linéairement aux 252,
+  **0,947 ms ≈ 43 %** (*calculé*, hypothèse de linéarité DÉCLARÉE — seule la
+  différence à 108 lancements est mesurée)
+- journal : `docs/mesures/a1-nullk-252-144-2026-08-31.txt` (sha256
+  `6c811c5d…`, identique aux logs du job — authenticité vérifiée avant usage)
+- ⚠️ le 2,200 ms de ce processus ne se soustrait PAS au 2,306 de F2 ni au
+  2,305 du 08-16 — autre processus, le banc l'imprime lui-même
 
 ## §4 — A2 : CUDA Graphs sur la boucle token
 
