@@ -66,3 +66,72 @@ CE QUE CE JOURNAL N'ÉTABLIT PAS
   * Aucune division entre les ×2,647 et ×3,688 : ce sont deux rapports
     intra-pile, à poser côte à côte.
   * Verdict L40S et M3 Max. Rien sur A100, où F4 a montré que tout change.
+
+================================================================================
+SUITE — LE MMLU D'IQ2_XXS SUR CUDA (2026-08-31)
+================================================================================
+
+Job : 6a951e9f45686a1580c1a70c — l40sx1, ~2 min
+Dump : docs/data/mmlu-dumps/mmlu-4b-gguf-iq2xxs-cuda.csv
+
+POURQUOI CE JOB EXISTE — UN RACCOURCI QUE J'AVAIS PRIS
+------------------------------------------------------
+Le MMLU sur CUDA avait été SAUTÉ, au motif que « MMLU traverse, vérifié sur
+quatre moteurs ». L'argument était partiellement FAUX : ces quatre vérifications
+portaient TOUTES sur le f16 (candle 70,32 · vLLM 70,34 · transformers 70,84 ·
+llama.cpp/Metal 70,36). Or ce qui peut diverger, c'est la DÉQUANTISATION 2 BITS,
+dont les noyaux Metal et CUDA sont du code entièrement distinct. L'accord en f16
+n'établit rien là-dessus.
+
+IQ2_XXS est le SEUL objet du dossier capable de trancher : même fichier, sha256
+prouvé des deux côtés. Aucun de nos bras ne le peut — LLVQ n'a pas de chemin
+servi sur Metal.
+
+MÉTHODE — LES PROMPTS SONT EXPÉDIÉS, PAS RECONSTRUITS
+-----------------------------------------------------
+L'image llama.cpp est du C++ : ni torch ni transformers. Plutôt que de les
+installer, `mmlu-prompts.jsonl` (6,2 Mo, 2280 lignes portant chacune son qhash)
+est produit sur la machine de dev par le chemin qui a passé 2280/2280, et le
+scorer embarqué (ops/gguf_mmlu_thin.py) n'utilise que la bibliothèque standard.
+Reconstruire dans un second environnement aurait été une seconde occasion de
+diverger ; les expédier garantit qu'ils sont AU BYTE ceux du run Metal — ce qui
+est exactement la condition pour que la comparaison isole le BACKEND.
+
+Les deux gardes du run Metal sont conservés : quatre lettres au top-100 sous
+peine de refus (2280/2280 ✅), et micro pondéré par population.
+
+🚨 LE RÉSULTAT, ET IL EST À DEUX ÉTAGES
+---------------------------------------
+  MMLU micro   Metal 39,39 %   CUDA 38,87 %   Δ = +0,52 pp
+  MÊME PICK    2184 / 2280  =  95,79 %
+  discordantes Metal✓CUDA✗ 34 · Metal✗CUDA✓ 26
+
+1. L'AGRÉGAT EST INVARIANT PAR BACKEND. 0,52 pp, soit exactement l'étendue
+   observée sur le f16 entre quatre moteurs. Une qualité de bras quantifié
+   n'a donc pas besoin d'être étiquetée par backend — c'était la question
+   posée, et la réponse est non.
+
+2. MAIS LES RÉPONSES INDIVIDUELLES, ELLES, NE LE SONT PAS. 95,79 % d'accord
+   ici contre 99,6 % pour le f16 entre moteurs. Les noyaux de déquantisation
+   2 bits divergent réellement, et les 96 désaccords S'ANNULENT PRESQUE
+   (34 contre 26), ce qui masque l'effet dans le total.
+
+🔎 ET C'EST MOT POUR MOT UNE CITATION QUE LE DOSSIER PORTE SANS L'AVOIR TESTÉE.
+Le §6 de la Phase 5 renvoie depuis l'origine à arXiv:2607.08734 : « perplexité
+et exactitude restent stables pendant que les réponses individuelles changent ».
+C'est observé ici, dans nos propres données, sur le cas le plus contrôlé
+possible — même fichier, même moteur, même prompt, seul le backend change.
+
+⇒ CONSÉQUENCE DE MÉTHODE : un écart agrégé de 0,5 pp entre deux mesures ne
+  garantit PAS que les deux systèmes répondent la même chose. Sur un banc
+  métier — celui que le §6 réclame depuis l'origine et qui n'a jamais été fait —
+  4 % de réponses différentes se verraient là où MMLU ne montre rien.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  * Rien sur nos propres bras : LLVQ n'existe pas sur Metal, donc cette
+    invariance n'est PAS vérifiée pour Planes14.
+  * Deux backends seulement (M3 Max, L40S). Rien sur A100.
+  * Le +16,20 pp contre LLVQ ne bouge pas : il est formé sur les dumps candle
+    et Metal, appariés question par question, et le présent job montre que le
+    choix du backend n'y déplacerait qu'un demi-point.
