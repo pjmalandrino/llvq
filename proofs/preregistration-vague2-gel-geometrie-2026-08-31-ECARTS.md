@@ -62,3 +62,20 @@ qu'en exécutant le **texte** du noyau (leçon §5 de CLAUDE.md) — le
 Aucun de ces trois écarts ne touche les **mesures** de la vague 2 : les jobs
 0.1 (8B, 14B) ont tourné avant, leurs chiffres sont au journal, et A1 n'a
 encore produit aucun nombre.
+
+## É4 — Quatrième mort d'A1, celle-ci dans le LANCEUR (2026-08-31 soir, ~0,01 $)
+
+Job `6a95e0780718b0f6d890a159`, mort en ~1 s : la relance est passée par le
+**CLI** (`hf jobs run … bash -lc '<script>'`) là où le job d'origine avait
+été créé par l'**API**. Le parseur du CLI (click) a consommé `-lc` comme
+`-l c` — son option `--label` — et bash a reçu le script entier comme un
+**nom de fichier** : « bash: set -euo pipefail… : No such file or directory ».
+Aucune milliseconde mesurée, aucun octet écrit au bucket.
+
+Relance corrigée dans la minute par l'API (`huggingface_hub.run_job`), avec
+un **assert d'identité** : le tableau `['bash', '-lc', …]` est vérifié égal à
+l'octet près à celui du job d'origine (`hf jobs inspect 6a954da8…`) avant
+l'envoi — job `6a95e11b21c5aa7c8364a122`. Règle qui en sort : **une commande
+de job se relance par le canal qui l'a créée, ou par un canal dont on a
+vérifié qu'il reproduit le même tableau d'arguments** — un wrapper shell
+autour d'un CLI à options courtes ne le garantit pas.
