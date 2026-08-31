@@ -319,7 +319,7 @@ official AWQ checkpoint**, not one we produced:
 |---|---|---|---|---|
 | **Cold storage** | 8.04 GB | 2.67 GB | **1.77 GB** | **1.41 GB**¹ |
 | **Card memory** | 8.04 GB | *5.30 bits/param, in its own engine*² | 8.04 GB³ | **2.56 GB — 5.162 bits/param**⁵ |
-| **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **87.0 tok/s [86.8–87.0]**⁴ |
+| **Throughput** | 43.5 tok/s | *not comparable*² | 43.5 tok/s | **87.0 tok/s [86.8–87.0]**⁴ *(`ROT_SHARE=0/FUSE=0`; served config v1, frozen 2026-08-31, reaches **100.6 [99.9–100.7]** — see below)* |
 | **WikiText-2 perplexity** | 12.2369 | **13.5207** *(×1.105)* | 16.9422 *(×1.384)* | **16.9358** *(×1.384)* |
 | **MMLU** *(5-shot, micro, 2 280 q)* | 70.32 ± 1.28 | **70.04 ± 1.25** *(−0.28)* | 55.59 ± 1.35 | **55.70 ± 1.35** *(−14.6)* |
 
@@ -1056,8 +1056,29 @@ fusion
 ([`docs/mesures/d1-fusion-servie-2026-08-24.txt`](docs/mesures/d1-fusion-servie-2026-08-24.txt)).
 ⚠️ The middle step is an **inter-job** reading — the 87.0 comes from a different
 job on a different translation unit — so it is reported, not published as this
-lot's measurement; only the ×1.061 is intra-job. And neither 8B nor 14B has been
-replayed under fusion, so the three-size table above stays on one configuration.
+lot's measurement; only the ×1.061 is intra-job.
+🕳️ *This paragraph ended with "neither 8B nor 14B has been replayed under
+fusion, so the three-size table above stays on one configuration" — true until
+2026-08-31, and resolved that day by wave 2* (preregistered band [1.00 ; 1.12],
+same D1 form, both arms in one process): the fusion gain is **×1.055
+[1.054–1.058] at 8B** and **×1.028 [1.027–1.029] at 14B**, all six D1 criteria
+green at both sizes
+([`docs/mesures/vague2-fusion-8b-14b-2026-08-31.txt`](docs/mesures/vague2-fusion-8b-14b-2026-08-31.txt)).
+
+**Served configuration v1, frozen 2026-08-31** — the one line every surface
+quotes, per the freeze rule written before the numbers:
+`Planes14 + LLVQ_EMBED=q8 + LLVQ_ROT_SHARE=1 + LLVQ_FUSE=1`:
+
+| | 4B | 8B | 14B |
+|---|---|---|---|
+| **served v1, tok/s** | **100.6 [99.9–100.7]** | **75.5 [75.5–75.6]** | **46.8 [46.7–46.8]** |
+| card | 2.57 GB | 5.41 GB | 9.40 GB |
+| fusion gain *(intra-job)* | ×1.061 [1.050–1.069] | ×1.055 [1.054–1.058] | ×1.028 [1.027–1.029] |
+
+The B2 table above is **not** superseded: it is the `ROT_SHARE=0/FUSE=0`
+measurement, and its identical-head column remains the only series that
+measures the kernel. The fusion gain *declines* with size — consistent with a
+per-launch cost amortised over bigger matvecs; three points, not a law.
 
 ## What is *not* here
 

@@ -22,6 +22,10 @@ tags:
   1,771 Go, sha256 9db213ef…c84b0. Les chiffres de vitesse et de VRAM de la
   section Limitations sont mesurés SUR CES OCTETS, chemin fusé CUDA, layout
   Planes14 par défaut : 48,7 tok/s dans 2,96 Go (5,89 b/param).
+  🕳️ 2026-08-31 — les points uniques de ce commentaire (48,7 ; 88,4-88,5) sont
+  remplacés dans le corps par les médianes B2 (48,3 ; 87,0), et la CONFIG
+  SERVIE v1 gelée ce jour (+ ROT_SHARE=1 FUSE=1) rend 100,6 [99,9-100,7] dans
+  2,57 Go — fusion mesurée en bande aux trois tailles.
 
   `LLVQ_EMBED=q8` (88,4-88,5 tok/s, 2,60 Go, 5,162 b/param) est un DRAPEAU DE
   CHARGEMENT appliqué aux mêmes octets — pas un autre fichier — et il est
@@ -220,14 +224,18 @@ cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.
   dequantize + matvec kernel decodes the Leech blocks on the card without ever
   materialising f16 weights. It is wired into the model and driven by
   `bin/fusedrun` (Linux + `--features cuda`). On these exact bytes, L40S,
-  128 tokens, default `Planes14` layout: **48.7 tok/s in 2.96 GB of card
-  memory against 43.6 tok/s in 8.04 GB** for the dense arm — that is **×1.12
-  in speed and ÷2.72 in memory**, 5.89 bits/param over the whole model — and
-  the same greedy tokens up to a tie-break at token 89. Setting
-  `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the same
-  bytes to **88.4–88.5 tok/s in 2.60 GB** (5.162 bits/param, measured on the
-  exact bytes; the 2.60 GB is the rounded card display and the two do not
-  divide into one another); that ×2.03 is
+  128 tokens, default `Planes14` layout: **48.3 tok/s [48.1–48.3] in 2.93 GB
+  of card memory against 43.5 [43.4–43.5] in 8.04 GB** for the dense arm —
+  that is **×1.11 [1.11–1.11] in speed and ÷2.75 in memory**, 5.89 bits/param
+  over the whole model — and the same greedy tokens up to a tie-break at
+  token 89. *(This card carried the single points 48.7/×1.12 until
+  2026-08-31; the B2 medians land within the inter-invocation dispersion.)*
+  Setting `LLVQ_EMBED=q8` quantizes the tied embedding at load and takes the
+  same bytes to **87.0 tok/s [86.8–87.0] in 2.56 GB** (5.162 bits/param,
+  measured on the exact bytes) — and the **served configuration v1, frozen
+  2026-08-31** (`+ LLVQ_ROT_SHARE=1 LLVQ_FUSE=1`, launch fusion measured in
+  band at all three sizes) reaches **100.6 tok/s [99.9–100.7] in 2.57 GB**;
+  that ×2.00 is
   mostly a replacement of an output head that recopies 778 MB of vocabulary
   per token, and **not** the Leech kernel — whose own contribution is the
   ×1.12. The two are never quoted apart. That copy is on *our* side: our

@@ -288,7 +288,11 @@
 > 🆕 Et sous **D1** (fusion des lancements, 2026-08-24) le même 4B rend
 > **100,6 tok/s [99,9–100,7]** — configuration `LLVQ_ROT_SHARE=1 LLVQ_FUSE=1`,
 > **pas** celle des tables publiées, qui restent à ROT_SHARE=0/FUSE=0 aux trois
-> tailles.
+> tailles. 🕳️ **Périmé le 2026-08-31 (vague 2)** : la fusion est rejouée et
+> verte aux trois tailles (×1,055 au 8B, ×1,028 au 14B, bande [1,00 ; 1,12]
+> tamponnée), et la **config servie v1 EST la fusée** — 100,6 / 75,5 / 46,8
+> tok/s dans 2,57 / 5,41 / 9,40 Go
+> ([`mesures/vague2-fusion-8b-14b-2026-08-31.txt`](docs/mesures/vague2-fusion-8b-14b-2026-08-31.txt)).
 >
 > ⚠️ **Deux phrases de ce fichier ont survécu à leur propre démenti, et il
 > faut savoir ce qu'elles disaient** — c'est le motif récurrent du projet :
@@ -496,6 +500,9 @@ cargo run --release -p llvq-llm  --features cuda --bin fusedrun     # LE noyau D
 #        UN site de rotation. L'accepter ferait bouger deux mécanismes à la fois.
 #     🚨 Les tables publiées aux trois tailles sont à ROT_SHARE=0, FUSE=0. Un 4B
 #        fusé isolé casserait la propriété « une seule configuration partout ».
+#        🕳️ LEVÉ le 2026-08-31 : la fusion est mesurée aux TROIS tailles (vague
+#        2, bandes tenues) et la config servie v1 est ROT_SHARE=1/FUSE=1 —
+#        la propriété est préservée PAR le gel, plus par l'interdit.
 #
 #   côté banc (llvq-cuda), les trois variables qui manquaient à ce bloc :
 #   LLVQ_NVRTC_ARCH=compute_NN          (défaut compute_89 = Ada/L40S ; compute_80
