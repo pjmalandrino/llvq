@@ -1,0 +1,134 @@
+ÉTAPE 0 DU VIVIER — TOUT CE QUI SE VALIDE SANS CARTE (2026-08-29, 0 $)
+======================================================================
+Périmètre : les étapes gratuites du vivier (docs/idees-optimisation-2026-08-29.md)
+et de la Phase 0 du plan (docs/plan-apres-depot-2026-08-29.md). Aucun run
+machine, aucun job HF : lecture de code (provenance file:line), preuve
+numérique compilée localement (clang++ -O2, graine 0x11c0de, source dans le
+scratchpad de session — reproduite intégralement au §C ci-dessous), calculs
+étiquetés. Quatre verdicts, dont deux qui DÉGRADENT des idées du vivier et
+un qui en PROMEUT une au rang de bloqueur produit.
+
+A — LE PRÉFILL : l'étape 0 de l'idée A est FAITE, et le verdict dépasse
+    l'hypothèse
+-----------------------------------------------------------------------
+1. Le chemin fusé traite une entrée à seq > 1 par une BOUCLE DE LIGNES :
+   un lancement de matvec par token du prompt et par projection. Ce n'est
+   pas une inférence — le code le dit : « Le noyau fusé est un matvec — il
+   boucle, donc le coût est linéaire » (llvq-llm/src/model.rs:573-580,
+   group_forward → drive_rows ; même garde côté segmenté, :677).
+   Conséquence : un préfill de P tokens relit LES POIDS ENTIERS P fois
+   (~2,11 Go × P — 150 681 600 blocs × 14 o, calculé).
+2. MAX_ROWS = 256 (model.rs:352) : au-delà de 256 tokens de prompt, le
+   chemin fusé REFUSE (bail), il ne dégrade même pas. Le triplet produit
+   arbitré promet 8k de contexte : LA PROMESSE 8k EST AUJOURD'HUI
+   INSERVABLE SUR LE CHEMIN FUSÉ, indépendamment de toute vitesse.
+3. Le prompt du protocole publié est « The capital of France is »
+   (fusedrun.rs:43, ~5 tokens) : aucun chiffre publié n'a jamais exercé le
+   préfill. Les tok/s du dossier sont des débits de DÉCODE pur.
+→ L'idée A change de statut : ce n'était pas une optimisation, c'est le
+  bloqueur entre l'état du moteur et le contexte produit. Son étape
+  suivante n'est pas un banc mais un chemin GEMM-préfill (décoder une fois,
+  accumuler sur les colonnes), avec le bail à 256 comme garde-fou existant.
+
+B — LE MÉGAKERNEL : le calcul d'occupation est fait, la grille coopérative
+    naïve est IMPOSSIBLE
+-----------------------------------------------------------------------
+Données : tv_planes = 40 registres, 0 o locaux (journal F1, preflight) ;
+blocs de 256 threads, 8 lignes/bloc ; L40S = 142 SM (F1) ; sm_89 :
+65 536 registres/SM, 1 536 threads/SM.
+  registres : 256 × 40 = 10 240/bloc → ⌊65 536/10 240⌋ = 6 blocs/SM
+  threads   : 1 536/256 = 6 blocs/SM
+  → 6 blocs/SM × 142 SM = 852 BLOCS RÉSIDENTS MAX          (calculé)
+Grilles du 4B sous FUSE (lignes/8) :
+  q+k+v fusé  6 144 lignes →   768 blocs  ✅ tient
+  o           2 560        →   320        ✅
+  gate+up     19 456       → 2 432        ❌ 2,85× au-delà de 852
+  down        2 560        →   320        ✅
+→ Un mégakernel à grid.sync NE PEUT PAS garder le mapping actuel
+  8 lignes/bloc : cooperative launch exige tous les blocs résidents, et le
+  MLP en demande 2 432. Le design obligatoire est un noyau PERSISTANT qui
+  boucle les lignes (~3 vagues sur gate+up) — pattern standard, mais le
+  portage naïf est mort sur papier, et le tiling du staging partagé bouge.
+⚠️ Non vérifié à 0 $ : le support cuLaunchCooperativeKernel dans la version
+  de cudarc épinglée — à vérifier avant tout dev.
+
+C — LE BIT-SERIAL (idée C) : l'algèbre est PROUVÉE, et le recomptage
+    honnête DÉGRADE l'idée
+-----------------------------------------------------------------------
+Preuve numérique (clang++ -O2, 200 000 tirages, sémantique exacte de
+llvq_planes.cuh — niveaux 0..4, invariant p2 ⟹ p0=p1=0, signes) :
+  identité multilinéaire vs arbre de selects, entiers : 0 échec / 200 000
+  idem en f64 : écart max 1,7e-14 (pure réassociation)
+  sommes masquées bit-serial int8 (plans en complément à deux,
+  S = Σ_{j<7} 2^j·popc(m∧a_j) − 128·popc(m∧a_7)) : 0 échec / 1 000 000
+L'identité (dot = v0·Σz + Δ1·S(p0) + Δ2·S(p1) + Δ12·S(p0∧p1) + Δ4·S(p2))
+et le mécanisme popcount sont donc EXACTS. MAIS le recomptage d'ops par
+bloc de 24 coordonnées, fait en face du chemin servi :
+  arbre de selects (servi)  : 24 × (2 sel + 1 signe + 1 FMA)      =  96
+  bit-serial int8           : 5 masques × 8 plans × (LOP3+POPC)    =  80
+                              + accumulation pondérée (~40) + masques (~4)
+                              + transposition des plans amortie /8  ≈ 148
+→ LE CHEMIN BIT-SERIAL COÛTE PLUS D'INSTRUCTIONS QUE LE CHEMIN SERVI à
+  granularité de masque 24 bits. L'avantage théorique annoncé (~×1,5-2)
+  ne survit pas au comptage : il supposait des masques pleins et pas de
+  reconstruction pondérée. Ce qui reste d'espérance : (a) le dual-issue
+  INT/FP d'Ada (les popc/LOP3 sur les pipes INT pendant que les FMA f32
+  occupent les pipes FP — un effet d'ordonnanceur, invisible à un compte
+  statique), (b) des mots de masque ≥ 32 coordonnées, c'est-à-dire un
+  FORMAT CONÇU POUR (mise en commun type E1c). Et le caveat rituel joue
+  DANS LES DEUX SENS : un compte source a déjà été faux d'un facteur 2.
+→ Idée C rétrogradée : « long shot, conditionnée à un redesign de format ».
+  Le bras d'attribution à 0,2 $ reste au programme — il sert aussi D et E.
+
+D/E — l'attribution reste la clé, rien de plus à valider à 0 $
+-----------------------------------------------------------------------
+Le SASS (étape 0 de D) exige nvcc, absent de ce conteneur. Les bits d'E
+sont recomptés : stride 16 = 128 bits/bloc = 5,3333 b/poids payload
+(+14,3 % sur 4,6667 — calculé), seuil de rentabilité ≥ +18 % de vitesse
+inchangé.
+
+F — LE KV À 8k : le papier est fait, et F dépend de A
+-----------------------------------------------------------------------
+Formes (D1 : 36 couches ; k = v = 1 024 lignes → 1 024 valeurs KV par
+couche et par sens) :
+  KV/token = 36 × 2 × 1 024 = 73 728 valeurs = 144 Ko f16, 72 Ko q8 (calculé)
+  cache à 8 192 tokens : 1,208 Go f16 · ~0,604 Go q8
+  lecture d'attention par token décodé à 8k : ~1,21 Go f16, soit +57 % du
+  flux de poids (2,11 Go/token) — le KV devient un poste co-dominant ;
+  q8 le ramène à +29 %.
+  VRAM 4B servie à 8k : 2,57 + 1,21 = 3,78 Go f16 · 3,17 Go q8 (calculé)
+⚠️ Tout ceci est HYPOTHÉTIQUE tant que A tient : le chemin fusé refuse un
+  prompt > 256 tokens (§A). F se mesure APRÈS A, pas avant.
+
+G — LE PROFIL : une lacune de couverture trouvée avant de payer le job
+-----------------------------------------------------------------------
+generate_phased ne phase PAS le préfill — c'est documenté et volontaire
+(« The prefill is not phased », model.rs:1296-1297) : le job G tel que
+pensé au vivier verrait les phases de décode et RIEN du préfill. Vu le §A,
+c'est précisément le préfill qu'il faut instrumenter : le job G exige un
+petit dev d'abord (phaser la passe de préfill), sinon il mesure à côté.
+
+PHASE 0 DU PLAN — la case manquante du 2×2 est INLANÇABLE en l'état
+-----------------------------------------------------------------------
+check_fuse refuse LLVQ_FUSE=1 avec tout layout autre que planes14 — « seul
+planes14 se segmente » (fused.rs:563-576 ; seg_kernel_name ne connaît que
+planes14, kernels/planes_seg.cu est le seul noyau segmenté). Le job
+« Planes12x + FUSE_AB » du plan N'EXISTE PAS sans écrire d'abord un
+planes12x_seg. Décision d'opérateur, avec les points déjà mesurés :
+  planes14 + FUSE (D1)     100,6 tok/s   2,57 Go
+  planes12x sans FUSE (G3)  85,0 tok/s   2,36 Go
+soit +18 % de débit contre +0,21 Go. Trancher sur ces deux points (0 $)
+ou budgéter le dev planes12x_seg avant le job à 0,25 $.
+
+RÉCAPITULATIF DES CHANGEMENTS DE STATUT
+-----------------------------------------------------------------------
+  A  promue   : bloqueur produit (8k inservable : bail à 256, boucle de
+                lignes, préfill jamais mesuré)
+  B  précisée : persistant obligatoire, coopératif naïf impossible (852
+                blocs résidents contre 2 432 requis)
+  C  dégradée : algèbre exacte, mais ~148 ops/bloc contre 96 au servi —
+                l'avantage ALU n'existe pas à masques 24 bits
+  F  gelée    : derrière A (le chemin refuse > 256 tokens)
+  G  amendée  : phaser le préfill avant de payer le job
+  Phase 0     : la 4e case du 2×2 exige du dev ; décision possible à 0 $
+                sur les deux points mesurés
