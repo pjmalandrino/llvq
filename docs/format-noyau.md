@@ -918,7 +918,7 @@ une charge d'ALU
    ([`mesures/d1-fusion-servie-2026-08-24.txt`](mesures/d1-fusion-servie-2026-08-24.txt),
    job `6a8c6fbc…`, 0,24 $).
    **La décomposition, trois points tous mesurés sur cette carte** : **87,0**
-   tok/s (`ROT_SHARE=0, FUSE=0`, la configuration servie publiée) → **94,9**
+   tok/s (`ROT_SHARE=0, FUSE=0`, la configuration servie publiée **à cette date**) → **94,9**
    (`ROT_SHARE=1, FUSE=0`, le hissage de rotation seul, ×1,091) → **100,6
    [99,9–100,7]** (`ROT_SHARE=1, FUSE=1`, plus la fusion, ×1,061).
    ⚠️ **Les deux marches sont deux mécanismes, et une seule des deux se
@@ -938,6 +938,16 @@ une charge d'ALU
    rejoués sous fusion. La table à trois tailles reste donc sur **une seule**
    configuration (`ROT_SHARE=0, FUSE=0`) aux trois tailles — propriété qu'elle
    utilise, et qu'un 4B fusé isolé casserait.
+   🕳️ **LEVÉ le 2026-08-31 (vague 2)** : la fusion est rejouée et verte aux
+   trois tailles (×1,055 au 8B, ×1,028 au 14B — 280→160 lancements, ses 40
+   couches — bande [1,00 ; 1,12] tamponnée `e23e9895…`), et la **config servie
+   v1 EST la fusée** : `planes14+q8+ROT_SHARE=1+FUSE=1`, **100,6 / 75,5 /
+   46,8 tok/s dans 2,57 / 5,41 / 9,40 Go**. La propriété « une seule
+   configuration partout » est préservée **par le gel**, plus par l'interdit
+   ([`mesures/vague2-fusion-8b-14b-2026-08-31.txt`](mesures/vague2-fusion-8b-14b-2026-08-31.txt)).
+   ⚠️ La série à **tête identique** (×1,11 → ×1,29 → ×1,41), la seule qui
+   mesure le noyau, reste à `ROT_SHARE=0/FUSE=0` et n'est **pas** re-mesurée
+   sous v1 — les deux formulations se donnent toujours ensemble.
 
 🕳️ **Un défaut du journal, qu'il relève lui-même plutôt que de le laisser.** Sa
 ligne V0 imprime « pires erreurs nullk 0.0e0·Σ|w·x| », ce qui se lit comme un

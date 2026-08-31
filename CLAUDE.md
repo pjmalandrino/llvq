@@ -99,11 +99,13 @@
 > et [`docs/plan-taco-2026-08-18.md`](docs/plan-taco-2026-08-18.md) — restent
 > lisibles pour la généalogie, **avec ce qu'ils portent de périmé**.
 >
-> 🧾 **Compteurs au 2026-08-26** : `docs/mesures/` **74 fichiers** ·
-> `docs/data/*.csv` **13** · `docs/data/jobs.csv` **73 lignes pour 87,36 $
-> facturés** au total (**28,56 $ depuis le 08-18**, 27 jobs) · `proofs/`
-> **28 documents et 20 ancrages `.ots`** (*mesuré*, `awk` sur le CSV,
-> `ots info` sur les `.ots`).
+> 🧾 **Compteurs au 2026-08-31 (soir)** : `docs/mesures/` **88 entrées** ·
+> `docs/data/*.csv` **13** · `docs/data/jobs.csv` **89 jobs pour 90,55 $
+> facturés** au total · `proofs/` **34 documents `.md` et 23 ancrages `.ots`**
+> (*mesuré*, `awk` sur le CSV, `ls` sur les répertoires ; l'état des ancres
+> est celui d'`ops/otsaudit.py`, cf. la note ci-dessous). 🕳️ Le bloc
+> précédent (« 73 lignes pour 87,36 $ », au 2026-08-26) avait déjà dérivé de
+> 16 jobs quand il a été relu le 2026-08-31.
 >
 > 🕳️ **RENVERSEMENT — cette ligne a porté « Aucun des 16 `.ots` n'a jamais été
 > upgradé … 0 `BitcoinBlockHeaderAttestation` », et c'est MESURÉ FAUX le
@@ -118,6 +120,12 @@
 > attente sont ceux du **2026-08-25**, trop récents pour être ancrés
 > ([`docs/mesures/ots-etat-2026-08-26.txt`](docs/mesures/ots-etat-2026-08-26.txt),
 > reproductible par `ops/otsaudit.py`).
+> 🕳️ **Périmé le 2026-08-31** : ces quatre-là sont ancrés depuis le 08-27
+> (upgradés, journal `ots-etat-2026-08-27.txt`) ; les tampons en attente sont
+> désormais **trois autres**, plus récents — `m3-gptq2` (08-30),
+> `vague2-gel-geometrie` (08-31), `protocole-piles-isolees-v2` (08-31) — sur
+> **23 tampons au total, 20 ancrés** (*mesuré*, `otsaudit.py` du 08-31 ;
+> l'`ots upgrade` de ces trois-là attend leur ancrage puis un go d'opérateur).
 > ⚠️ **Ce que ce journal N'établit PAS** : les ancres sont lues **dans les
 > fichiers**, pas confrontées à la chaîne — la vérification complète exige un
 > nœud Bitcoin ou un explorateur, tous deux injoignables depuis la machine de
