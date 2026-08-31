@@ -93,7 +93,7 @@ mod linux {
     }
 
     fn build(cuda: &Cuda, list: &[(&'static str, usize, usize)]) -> Result<Vec<Shape>, String> {
-        let mut rng = SplitMix64::new(0xA1_2026_08_31);
+        let mut rng = SplitMix64::new(0x00A1_2026_0831);
         let mut out = Vec::new();
         for &(name, d_out, d_in) in list {
             assert_eq!(
@@ -154,14 +154,15 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
-        let matvec = llvq_cuda::load_sources_many(&["matvec.cu"])?;
-        let nullk = llvq_cuda::load_sources_many(&["nullk.cu"])?;
+        // `llvq_slot.cuh` first: it owns the `u32` typedef and the guard macro
+        // that keeps `matvec.cu`'s own `#include` from ever being evaluated —
+        // NVRTC has no filesystem, so an evaluated include is a refused build.
+        // Same assembly as `planesbench`'s base unit, plus `nullk.cu`.
+        let base = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "nullk.cu"])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
-        let src = KernelSource::new(&[
-            defines.as_str(),
-            matvec.parts[0].as_str(),
-            nullk.parts[0].as_str(),
-        ]);
+        let mut parts: Vec<&str> = vec![defines.as_str()];
+        parts.extend(base.parts.iter().map(String::as_str));
+        let src = KernelSource::new(&parts);
         println!("A1 — nullk : 252 lancements contre 144 (préreg e23e9895…, §A1)");
         println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
         let cuda = Cuda::new(&src)?;
