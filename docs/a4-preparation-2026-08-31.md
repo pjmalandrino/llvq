@@ -27,10 +27,13 @@ Ce n'est pas un écart : c'est la traduction préreg → vocabulaire.
 `LLVQ_NVRTC_ARCH=compute_80`) tourne, elle — précédent F4, neuf bras verts.
 
 **Décision d'opérateur requise, deux issues :**
-- **(a) recommandée** : publier une image jumelle `CUDA_COMPUTE_CAP=80`
-  (Space `llvq-runner-cuda-sm80`, build HF 0 $, ~15 min ; exige une recette
-  variante — `ops/Dockerfile.cuda` avec la seule ligne 23 changée) → A4
-  complet, banc + fusedrun, tel que le préreg l'écrit.
+- **(a) recommandée** : publier une image jumelle `CUDA_COMPUTE_CAP=80` —
+  **une commande depuis le 2026-08-31 au soir** :
+  `uv run ops/run.py publish Pier-Jean/llvq-runner-cuda-sm80 --cuda
+  --compute-cap 80` (build HF 0 $, ~15-20 min). Pas de recette jumelle dans
+  le dépôt : `publish --compute-cap` réécrit la seule ligne `ENV` au
+  téléversement et le déclare dans la recette téléversée ET dans `COMMIT` —
+  un fichier canonique, pas deux qui dérivent. → A4 complet, banc + fusedrun.
 - **(b)** : A4 = banc seul sur l'image actuelle ; la moitié `fusedrun` se
   déclare bloquée par l'image dans le fichier d'écarts de la vague 2, datée.
 

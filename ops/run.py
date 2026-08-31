@@ -896,7 +896,9 @@ def cmd_publish(args) -> int:
     # recorded, marked, and refused by `verify`.
     lines = [f"{git_st.commit}\n",
              "# Commit du dépôt LLVQ dont proviennent Cargo.lock et llvq-*/**.\n",
-             f"# recette : ops/{recipe}\n",
+             f"# recette : ops/{recipe}"
+             + (f" — CUDA_COMPUTE_CAP réécrit à {args.compute_cap} au téléversement"
+                if args.compute_cap is not None else "") + "\n",
              f"# téléversé : {now_utc()}\n"]
     if blocking:
         lines.append(f"# ⚠️ ARBRE SALE dans le périmètre téléversé — "
@@ -912,11 +914,32 @@ def cmd_publish(args) -> int:
         commit_message=f"commit {git_st.commit[:12]}"
                        + (" (ARBRE SALE)" if blocking else ""),
     )
+    # The recipe ships as written — unless `--compute-cap` rewrites its one
+    # ENV line at upload time. One canonical file in the repo, no sm80 twin to
+    # drift (the two-Dockerfile-lists lesson of 2026-08-31, generalized): the
+    # transform happens here, is stamped into the uploaded bytes as a comment,
+    # and is named in the commit message and in COMMIT above.
+    recipe_bytes = (args.root / "ops" / recipe).read_bytes()
+    recipe_label = recipe
+    if args.compute_cap is not None:
+        marker = b"ENV CUDA_COMPUTE_CAP="
+        if recipe_bytes.count(marker) != 1:
+            print(f"refus : {recipe} porte {recipe_bytes.count(marker)} ligne(s) "
+                  f"CUDA_COMPUTE_CAP — la réécriture exige exactement une.",
+                  file=sys.stderr)
+            return 1
+        head, tail = recipe_bytes.split(marker, 1)
+        _old_cap, rest = tail.split(b"\n", 1)
+        note = (f"# ⚠️ CUDA_COMPUTE_CAP réécrit à {args.compute_cap} par "
+                f"`ops/run.py publish --compute-cap` (recette canonique : "
+                f"ops/{recipe}, qui porte {_old_cap.decode()}).\n").encode()
+        recipe_bytes = head + note + marker + str(args.compute_cap).encode() + b"\n" + rest
+        recipe_label = f"{recipe} (compute_cap={args.compute_cap})"
     upload_file(
-        path_or_fileobj=str(args.root / "ops" / recipe),
+        path_or_fileobj=recipe_bytes,
         path_in_repo="Dockerfile",
         repo_id=repo_id, repo_type="space",
-        commit_message=f"build recipe ({recipe})",
+        commit_message=f"build recipe ({recipe_label})",
     )
     upload_file(
         path_or_fileobj=SPACE_CARD.encode(),
@@ -1485,6 +1508,10 @@ def main() -> int:
                     help="par défaut le Space est privé")
     pu.add_argument("--cuda", action="store_true",
                     help="image CUDA (compute cap figée, cf. ops/Dockerfile.cuda)")
+    pu.add_argument("--compute-cap", type=int, default=None, metavar="N",
+                    help="réécrit ENV CUDA_COMPUTE_CAP=N dans la recette téléversée "
+                         "(ex. 80 pour a100-large) ; la recette du dépôt reste intacte — "
+                         "un seul fichier canonique, pas deux qui dérivent")
     pu.add_argument("--allow-dirty", action="store_true",
                     help="téléverser un périmètre non commité ; COMMIT le déclarera")
     pu.set_defaults(fn=cmd_publish)
