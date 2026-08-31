@@ -78,6 +78,13 @@ A1 (préreg vague 2 §A1, tamponné `e23e9895…`) rend
   `6c811c5d…`, identique aux logs du job — authenticité vérifiée avant usage)
 - ⚠️ le 2,200 ms de ce processus ne se soustrait PAS au 2,306 de F2 ni au
   2,305 du 08-16 — autre processus, le banc l'imprime lui-même
+- 🆕 **le même r sur A100, le même soir (A4, bras en prime)** : **0,8198
+  [0,8196–0,8202]** — invariant à 0,5 % entre les deux architectures quand
+  les temps absolus s'étirent de ×1,809 ≈ le rapport d'horloges 1,787 du
+  lot G (*calculé*). Le poste par-lancement est une propriété de la
+  GÉOMÉTRIE, pas de la carte — ce qui renforce la valeur d'A2/A3 : ce
+  qu'ils gagneraient vaut sur les deux architectures
+  (`docs/mesures/a4-a100-2026-08-31.txt`)
 
 ## §4 — A2 : CUDA Graphs sur la boucle token
 

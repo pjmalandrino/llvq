@@ -1,0 +1,16 @@
+A1 — nullk : 252 lancements contre 144 (préreg e23e9895…, §A1)
+source NVRTC : 32004 octets, sha256 446612535be583d3033c17702ff56c2a854e3f673ef88f33bb21b4f030fefceb
+carte : NVIDIA A100-SXM4-80GB · 108 SM
+géométries : 7 formes × 36 couches = 252 lancements/round, contre 4 × 36 = 144
+
+  7 rounds, 2 jetés ; le rapport est formé ROUND PAR ROUND
+  nullk 252   méd 3.980 ms  [3.977–3.980]
+  nullk 144   méd 3.262 ms  [3.260–3.263]
+  r = t(144)/t(252) = 0.8198 [0.8196–0.8202]
+
+  lecture pré-enregistrée (préreg §A1, AVANT ce chiffre) :
+    r ≤ 0,65 → latence par lancement → A2 (Graphs) prioritaire
+    r ≥ 0,90 → occupation → A3 prioritaire
+    entre    → mixte : publier les parts, n'éliminer ni A2 ni A3
+
+  ⚠️ aucun de ces temps ne se compare à un temps d'un AUTRE processus.

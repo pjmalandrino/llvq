@@ -1,0 +1,63 @@
+A4 — LA GÉOMÉTRIE GAGNANTE SUR A100 : LA RÉSERVE ADA DEVIENT UN MÉCANISME,
+ET LA FUSION TRANSFÈRE À LA SECONDE ARCHITECTURE (2026-08-31, soir)
+
+Préreg : proofs/preregistration-vague2-gel-geometrie-2026-08-31.md §A4
+(sha256 e23e9895…, tamponné le matin avant le premier job de la vague).
+Deux jobs a100-large, coût total 0,83 $ (sous le devis de 0,9-1,0 $) :
+  6a95e6c421c5aa7c8364a1e4 — banc, image standard, 308 s, 0,25 $
+  6a95e6c421c5aa7c8364a1e6 — fuse-ab, image sm80, 788 s, 0,58 $
+Carte : NVIDIA A100-SXM4-80GB, driver 580.159.03, SM max 1 410 MHz (mesuré).
+Bruts : a4-a100-2026-08-31-brut/ (5 fichiers, vérifiés identiques aux logs
+des jobs avant usage). L'image sm80 est née ce soir : publish --compute-cap
+réécrit la seule ligne ENV de la recette canonique au téléversement.
+
+== VERDICT, dans les termes posés d'avance ==
+
+AUCUN bras réseau n'atteint 1,00× FP16 sur A100 — Planes14 0,79×
+[0,79–0,79], Slot32 0,73× [0,73–0,74] (mesuré, banc 5 bras, 7 rounds dont 2
+jetés, rapports round par round). La branche « sinon » du préreg s'applique
+donc : la réserve « résultat Ada » du papier ne saute pas, elle devient un
+MÉCANISME MESURÉ À DEUX POINTS, désormais étendu à la géométrie fusée.
+Les deux issues se publient ; celle-ci est une issue de publication, pas un
+échec (préreg §3).
+
+Contrôle de cohérence : la table reproduit F4 (08-18) au centième —
+Planes14 0,79×, Slot32 0,73×, cuBLAS 1,14×, nullk 1,69× (F4 : 1,68×).
+Autre processus, autre jour, mêmes rapports.
+
+== CE QUE LE POINT A100 AJOUTE (le fait neuf) ==
+
+1) LA FUSION TRANSFÈRE À LA SECONDE ARCHITECTURE, chemin servi :
+     dense    51,4 tok/s [51,4–51,5]   8,04 Go
+     F0 (ROT_SHARE=1)        59,7 [59,5–59,7]   2,56 Go   252 matvec/t
+     F1 (config servie v1)   63,4 [63,4–63,5]   2,57 Go   144 matvec/t
+   fusion ×1,063 [1,062–1,067] de F1 sur F0 — contre ×1,061 [1,050–1,069]
+   sur L40S (D1) : mêmes +3 686 400 octets exactement, 128 tokens
+   IDENTIQUES entre F1, F0 et dense, bande [1,00 ; 1,12] tenue sur une
+   CARTE QUE LE PRÉREG N'AVAIT PAS PROMISE. ×1,23 [1,23–1,23] contre le
+   dense DU MÊME JOB (⚠️ dense A100, jamais celui du L40S).
+
+2) LE RAPPORT DE GÉOMÉTRIE EST INVARIANT ENTRE ARCHITECTURES :
+     nullk 252 : 3,980 ms [3,977–3,980] · nullk 144 : 3,262 [3,260–3,263]
+     r = 0,8198 [0,8196–0,8202]   (L40S le même soir : 0,8158 [0,8150–0,8162])
+   Écart 0,5 % entre les deux cartes, quand les temps ABSOLUS s'étirent de
+   ×1,809 (3,980/2,200, calculé) — à 1,2 % du rapport d'horloges 1,787 du
+   lot G. Le poste par-lancement suit l'horloge comme le reste : c'est une
+   propriété de la GÉOMÉTRIE, pas de la carte. (Bras nullkbench ajouté au
+   job en supplément du préreg — déclaré au fichier d'écarts, É5.)
+
+3) LA SECTION SEG DU BANC, sur A100 (4 bras entrelacés, bit-identiques aux
+   matrices non fusionnées sur 921 600 lignes) :
+     gain Slot32   : 1,331 ms [1,324–1,341]  (14,2 %)
+     gain Planes14 : 1,004 ms [0,992–1,017]  (11,6 %)
+   octets inchangés des deux côtés (vérification, pas mesure — Planes14 ne
+   PEUT pas bouger). ⚠️ Ce bloc ne produit AUCUN rapport contre FP16 : le
+   bras FP16 gagnerait lui aussi à la fusion (le banc l'imprime lui-même).
+
+== GARDE-FOUS ==
+· Aucun × A100 ne se divise par un × L40S — protocole v2 §4.1, toujours.
+· Les 63,4 tok/s A100 ne se comparent pas aux 100,6 du L40S autrement que
+  par le mécanisme d'horloge du lot G.
+· fusedrun exige LLVQ_NVRTC_ARCH=compute_80 sur A100 (nos noyaux passent
+  par NVRTC via Cuda::on_stream) EN PLUS de l'image sm80 (noyaux candle).
+  Les deux pièges étaient documentés AVANT le job (a4-preparation §1-2).

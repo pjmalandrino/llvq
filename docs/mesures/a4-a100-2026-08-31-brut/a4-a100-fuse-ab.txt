@@ -1,0 +1,66 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 1 (LLVQ_FUSE) — 144 matvec_lancements/token pour 252 projections (72 groupes + 72 seules)
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.737 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.57 Go (projections 2.15 + portés 0.41)
+fusé   : chargé en  178.9 s,   63.4 tok/s [63.4–63.5, 5 rounds], 2.57 Go sur la carte
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=1, 144 matvec_lancements/token
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 0 (LLVQ_FUSE) — 252 matvec_lancements/token pour 252 projections (0 groupes + 252 seules)
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.729 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.56 Go (projections 2.15 + portés 0.41)
+fusé   : chargé en  171.6 s,   59.7 tok/s [59.5–59.7, 5 rounds], 2.56 Go sur la carte
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token
+dense  : chargé en  385.2 s,   51.4 tok/s [51.4–51.5, 5 rounds], 8.04 Go sur la carte
+
+--- les deux bras ---
+  fusé F1 : 128 tokens identiques au dense
+  fusé F0 : 128 tokens identiques au dense
+  ✅ fusé F1 et F0 : 128 tokens identiques entre eux
+  dense :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+  fusé F1 :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+  fusé F0 :  Paris. (True or False?)
+The statement "The capital of France is Paris" is **False**. 
+
+**Explanation:**  
+Paris is the capital of **France**, not the **United States**. The capital of the **United States** is **Washington, D.C.** However, **Paris** is the capital of **France**. This is a common misconception, as the term "capital" can be confusing when referring to different countries. 
+
+**Correct Answer:** False. 
+
+**Note:** The statement is **true** if the question is about France, but the statement is **false** because it is not true
+
+--- ce que ça coûte ---
+  bras        chargement tok/s (médiane)             plage    Go carte  matvec/t
+  ------------------------------------------------------------------------------
+  dense           385.2 s            51.4       [51.4–51.5]        8.04         —
+  fusé F1         178.9 s            63.4       [63.4–63.5]        2.57       144
+  fusé F0         171.6 s            59.7       [59.5–59.7]        2.56       252
+  ------------------------------------------------------------------------------
+  fusé F1 : vitesse ×1.23 [×1.23–×1.23] contre le dense (quotient des médianes, 5 rounds par bras jamais entrelacés), mémoire ÷3.14
+  fusé F0 : vitesse ×1.16 [×1.16–×1.16] contre le dense (quotient des médianes, 5 rounds par bras jamais entrelacés), mémoire ÷3.14
+  fusion : ×1.063 [×1.062–×1.067] de F1 sur F0 (144 contre 252 matvec_lancements/token), mémoire +3686400 octets
+
+  projections : 4.737 b/poids sur la carte, fichier 1.77 Go sur disque.
+  ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index
+  compacts, la carte lit la disposition dépliée que le noyau peut lire vite.

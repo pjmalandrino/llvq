@@ -1,0 +1,87 @@
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : slot32,planes14,fp16,cublasf16,nullk
+source NVRTC : 121805 octets, sha256 d744b7b903df72ba34da75eb67de7d0ec0e3c21b2726de0ab54e699a71d0bee3
+
+NVIDIA A100-SXM4-80GB — 108 SM, L2 41.9 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     32 registres, 0 o locaux, sm_80
+  tv_slot_seg  32 registres, 0 o locaux, sm_80
+  tv_f16      40 registres, 0 o locaux, sm_80
+  tv_planes   32 registres, 0 o locaux, sm_80
+  tv_planes_seg  32 registres, 0 o locaux, sm_80
+  tv_planes12x  32 registres, 0 o locaux, sm_80
+  tv_golay70  32 registres, 0 o locaux, sm_80
+  tv_golay70_v1  32 registres, 0 o locaux, sm_80
+  awq_gemv_g128  32 registres, 0 o locaux, sm_80
+  tv_e1v      78 registres, 0 o locaux, sm_80
+  tv_nullk    31 registres, 0 o locaux, sm_80
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 192 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, fp16 3.0e-8, cublasf16 5.7e-5, nullk 0.0e0 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 5 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  plancher (nullk)          4.067    4.069    4.072     0.07    0.159       18
+  FP16 (128 bits)           6.879    6.885    6.889     7.27   16.000     1056
+  FP16 cuBLAS               6.017    6.025    6.033     7.27   16.000     1208
+  LLVQ Slot32               9.369    9.374    9.377     2.50    5.510      267
+  LLVQ Planes14             8.690    8.691    8.698     2.18    4.804      251
+  --------------------------------------------------------------------------------
+  plancher (nullk) vs FP16     : 1.69× [1.69–1.69]
+  FP16 cuBLAS      vs FP16     : 1.14× [1.14–1.14]
+  LLVQ Slot32      vs FP16     : 0.73× [0.73–0.74]
+  LLVQ Planes14    vs FP16     : 0.79× [0.79–0.79]
+  planes14   vs slot32    : 1.08× [1.08–1.08]  (>1 = Planes14 plus rapide, même contenu décodé)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  72 Mo distincts par passe sur le bras le plus léger (plancher (nullk)), soit 1.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 0.74 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : plancher (nullk) 1.59×, FP16 cuBLAS 1.13×, LLVQ Slot32 0.75×, LLVQ Planes14 0.81×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 108 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              9.378 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         8.047 ms   144 lancements
+  Planes14, matrices séparées            8.696 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       7.691 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 1.331 ms [1.324–1.341]  (14.2 %)
+  gain Planes14 : 1.004 ms [0.992–1.017]  (11.6 %)
+  Planes14 / Slot32 sur le gain : 0.76× [0.75–0.76]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.

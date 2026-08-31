@@ -79,3 +79,19 @@ l'envoi — job `6a95e11b21c5aa7c8364a122`. Règle qui en sort : **une commande
 de job se relance par le canal qui l'a créée, ou par un canal dont on a
 vérifié qu'il reproduit le même tableau d'arguments** — un wrapper shell
 autour d'un CLI à options courtes ne le garantit pas.
+
+## É5 — A4 : deux jobs au lieu d'un, deux traductions, un bras en plus (2026-08-31 soir, 0,83 $)
+
+Trois déviations d'exécution, aucune de lecture. (1) **Deux jobs** : l'image
+publiée fige `CUDA_COMPUTE_CAP=89` et `fusedrun` ne peut pas charger ses
+noyaux candle sur sm_80 — le banc a tourné sur l'image standard (NVRTC,
+précédent F4), `fusedrun` sur une image jumelle sm80 née le soir même
+(`publish --compute-cap 80`). (2) **Vocabulaire** : le §A4 écrit « planes14,
+planes14_seg, nullk, f16, cublasf16 » ; la sélection réelle est
+`slot32,planes14,fp16,cublasf16,nullk` — `fp16` est le nom d'arme, la
+section seg n'est pas une arme nommable ET exige slot32+planes14 dans la
+sélection (`planesbench.rs:2740`), piège trouvé à la lecture AVANT le
+lancement. (3) **Un bras en plus** : `nullkbench` a tourné dans le job banc
+— le r de A1 sur la seconde architecture, non promis par le préreg, 0 $ de
+plus. Résultat : r = 0,8198 contre 0,8158 sur L40S. Coût total 0,83 $, sous
+le devis (0,9-1,0 $). Journal : `docs/mesures/a4-a100-2026-08-31.txt`.
