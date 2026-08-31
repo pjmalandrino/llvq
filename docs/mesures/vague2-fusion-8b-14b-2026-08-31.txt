@@ -1,0 +1,69 @@
+VAGUE 2, ÉTAPE 0.1 — LA FUSION TRANSFÈRE AUX TROIS TAILLES, ET LA CONFIG
+SERVIE EST GELÉE (2026-08-31)
+
+Pré-enregistrement : proofs/preregistration-vague2-gel-geometrie-2026-08-31.md
+                     (sha256 e23e9895…, tamponné avant le premier job)
+Jobs : 6a952a1445686a1580c1a8b9 — 8B,  15 min, 0,45 $
+       6a952c7845686a1580c1a903 — 14B, 29 min, 0,86 $
+Brut : docs/mesures/vague2-fusion-2026-08-31-brut/
+Forme : D1 exacte — LLVQ_ROT_SHARE=1 LLVQ_FUSE_AB=1 LLVQ_EMBED=q8, les deux
+        bras (FUSE=1/FUSE=0) dans UN processus, 128 tokens, médianes 5 rounds.
+        Artefacts du bucket : le 8B re-scellé (B3), le 14B rapatrié.
+
+LE VERDICT, CONTRE LA BANDE PRÉ-ENREGISTRÉE [1,00 ; 1,12]
+---------------------------------------------------------
+  taille   gain de fusion (intra-job)      bande   lancements/token
+  4B       ×1,061 [1,050–1,069]  (D1)      ✅      252 → 144
+  8B       ×1,055 [1,054–1,058]            ✅      252 → 144
+  14B      ×1,028 [1,027–1,029]            ✅      280 → 160  (40 couches)
+
+Les six critères de D1, aux deux tailles :
+  - 128 tokens identiques : F1↔dense, F0↔dense, F1↔F0        ✅✅
+  - même sha256 NVRTC des deux bras : 347f50a4…               ✅✅
+  - delta d'octets EXACT : +4 423 680 (8B), +6 717 440 (14B)  ✅✅
+  - cohérence B2 : au 8B comme au 14B, B2 rendait déjà 128 tokens
+    identiques au dense — reproduit                            ✅✅
+
+LES DÉBITS SOUS LA CONFIG CANDIDATE (médianes, plage sur 5 rounds)
+------------------------------------------------------------------
+  taille   F1 (fusé)          F0 (hissage seul)   dense          Go carte  ÷
+  8B       75,5 [75,5–75,6]   71,6 [71,5–71,7]    26,5 [26,5–26,6]  5,41   3,03
+  14B      46,8 [46,7–46,8]   45,5 [45,5–45,5]    17,0 [17,0–17,0]  9,40   3,14
+
+  ⚠️ Le ×2,85 (8B) et le ×2,75 (14B) contre le dense sont des quotients de
+  médianes de bras jamais entrelacés (enveloppe, pas plage round par round),
+  et le dense est NOTRE bras handicapé — règle des deux formulations, comme
+  toujours. Seul le gain de fusion est un rapport intra-job.
+
+🔎 LE FAIT TRANSVERSAL, NON EXIGÉ PAR LE PRÉREG
+-----------------------------------------------
+Le gain de fusion DÉCROÎT avec la taille : ×1,061 → ×1,055 → ×1,028. C'est
+cohérent avec le mécanisme — la latence de lancement s'amortit sur des matvec
+plus gros — et c'est une OBSERVATION à trois points, pas une loi. Elle donne
+un prior pour A1 : si le poste était la latence pure, le gain serait ~constant
+en proportion des lancements supprimés ; il ne l'est pas.
+
+⇒ LE GEL (étape 0.2, règle écrite avant les chiffres)
+------------------------------------------------------
+Les trois tailles tiennent leur bande, donc :
+
+  CONFIG SERVIE v1 = planes14 + LLVQ_EMBED=q8 + LLVQ_ROT_SHARE=1 + LLVQ_FUSE=1
+
+  taille   tok/s servi v1       Go carte   (ancien servi B2)
+  4B       100,6 [99,9–100,7]   2,57       (87,0 · 2,56)
+  8B       75,5  [75,5–75,6]    5,41       (68,2 · 5,41)
+  14B      46,8  [46,7–46,8]    9,40       (43,3 · 9,39)
+
+  La série à TÊTE IDENTIQUE (×1,11 → ×1,29 → ×1,41) reste celle qui mesure le
+  noyau ; elle est à ROT_SHARE=0/FUSE=0 et N'EST PAS re-mesurée ici — un
+  rejeu tête-identique sous v1 serait une autre campagne.
+
+RESTE DÛ (0 $) : aligner README, model card HF et surfaces sur la config v1 —
+une seule ligne « configuration servie » partout, avec ses deux formulations.
+
+CE QUE CE JOURNAL N'ÉTABLIT PAS
+-------------------------------
+  - Aucune qualité : mêmes artefacts scellés, pas un octet de poids ne change.
+  - Verdict L40S. A4 (A100) est le prochain bras du préreg.
+  - Le ×1,05 apparent du hissage seul contre B2 (71,6 vs 68,2 au 8B) est une
+    lecture INTER-JOBS — non publiable, notée pour mémoire.
