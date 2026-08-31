@@ -68,7 +68,11 @@ RUN cargo build --release --locked -p llvq-llm --bin seal
 # joining the one that has already been SIGKILLed once. Its kernels are not
 # compiled here at all — they ship as text and NVRTC compiles them at startup,
 # so tuning a tile size or a register cap never touches this image again.
-RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench
+RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench
+# `nullkbench` — vague 2 §A1 (2026-08-31) : le plancher sous deux géométries
+# de lancement. Son premier lancement est mort en 15 s sur `which` : ce
+# Dockerfile construit et copie des LISTES explicites, et compiler le crate
+# ne suffit pas — un bin absent des deux listes n'existe pas sur la cible.
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -114,6 +118,7 @@ COPY --from=build \
       /src/target/release/rotbench \
       /src/target/release/graphbench \
       /src/target/release/planesbench \
+      /src/target/release/nullkbench \
       /usr/local/bin/
 # The QTIP fetcher (F2). It is a script, not a binary, and the runtime stage
 # copies only binaries — so without this line the `qtip` arm cannot be prepared
