@@ -1,0 +1,170 @@
+BRUIT DE MMLU ENTRE TIRAGES DE CALIBRATION, AU 4B : s = 2,92 pp (2026-08-25)
+============================================================================
+Pré-enregistrement : proofs/preregistration-bruit-mmlu-graines-2026-08-25.md
+  (sha256 c97e1abfee6f0f88f03e26546a0473d05f5bbfc66025d35df6347673a0cc6f50 ;
+   tampon .ots posé AVANT le lancement, et il atteste les octets COURANTS —
+   vérifié par ops/otsaudit.py le 2026-08-27 : « recalcule ok ». Les quatre
+   attestations étaient encore EN ATTENTE ; `ots upgrade` a été passé le
+   2026-08-27, le réseau étant ouvert dans cette session, et le tampon porte
+   désormais 4 ancres Bitcoin — blocs 964047, 964057, 964090, 964094. Il atteste
+   toujours les octets courants après upgrade.)
+Gouverne aussi le verdict : proofs/preregistration-volume-calibration-2026-08-25.md
+  (sha256 33fd4932…, §4 — même branche « on ne lance pas » au-delà de 2,0 pp.)
+
+Jobs (l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda) :
+  6a8de89b984507d9db4e4664  ERROR exit 127, 15 s,   0,00 $   ← mort au démarrage
+  6a8df15645686a1580c087ea  COMPLETED,    1 171 s, ~0,58 $   *calculé* au tarif
+                                                   l40sx1 (annoncé ~0,5 $)
+
+⚠️ LE PREMIER JOB EST MORT SUR UN FLAG, PAS SUR UN BINAIRE MANQUANT
+--------------------------------------------------------------------
+`exit 127` invite à lire « commande introuvable », et le script appelle bien un
+`mmlu` nu. Ce n'est pas ça. La commande était `['bash', '<le script entier>']`
+au lieu de `['bash', '-lc', '<le script>']` : bash a traité le texte du script
+comme un NOM DE FICHIER. Le log le dit mot pour mot — le script complet, suivi
+de « : No such file or directory ». Relancé 37 min plus tard avec `-lc`, le
+même script passe en 19 min 31 s.
+
+🕳️ Et la passation du 2026-08-27 a lu l'échec comme « un job EN VOL, non
+récolté », en budgétant 0,49 $ de relance. Le successeur avait réussi le soir
+même, deux lignes plus haut dans `hf jobs ps -a`. C'est la règle du §7 de
+CLAUDE.md — épuiser les canaux de rétention avant de chiffrer un rejeu — prise
+en défaut une CINQUIÈME fois, et cette fois le canal n'était pas un bucket ni
+des logs : c'était la liste des jobs elle-même.
+
+LES QUATRE CONTRÔLES DU §3, UN PAR UN
+--------------------------------------
+C1 ✅ Empreinte de tokens 65dcd53655e8bfa5 imprimée sur les TROIS bras — donc
+     les trois scorent les mêmes 2 280 questions, et les paires sont formables.
+C2 ✅ Les trois artefacts pèsent 1 770 528 125 octets EXACTEMENT, la taille du
+     fichier publié.
+C3 ✅ 2 280 questions sur les trois, 57 matières, dtype f16.
+C4 ✅ Les trois dumps par question sont écrits (mmlu-s{1,2,3}.csv, ~193 ko),
+     rapatriés dans docs/data/bruit-mmlu-graines/ — sans eux aucune paire
+     appariée ne serait formable plus tard.
+
+AUTHENTICITÉ DES DUMPS, ÉTABLIE AVANT USAGE
+--------------------------------------------
+Un CSV sorti d'un bucket n'est pas une mesure tant qu'il n'a pas rejoué le
+chiffre publié. Micro repondéré par la population réelle de chaque matière
+(14 042) et recalculé depuis les dumps :
+
+  graine   micro recalculé   micro du log   écart
+  1           58,0249 %        58,02 %      +0,0049 pp
+  2           52,1945 %        52,19 %      +0,0045 pp
+  3           55,1652 %        55,17 %      −0,0048 pp
+
+Les écarts sont l'arrondi d'affichage à deux décimales. ✅
+
+⚠️ PIÈGE DE COMPTABILITÉ, RETROUVÉ INTACT. Une somme NUE sur le dump rend
+59,47 / 54,25 / 57,50 — qui sont exactement les MACROS des logs, pas les
+micros. Normal : 2 280 = 57 × 40, donc chaque matière pèse pareil et la somme
+non pondérée EST le macro. C'est le défaut du §3ter, à l'identique, et il se
+retend à quiconque relit ces dumps.
+
+LE RÉSULTAT
+------------
+Trois artefacts 4B complets, identiques à un caractère près (LLVQ_CALIB_SEED
+∈ {1,2,3}), même corpus, même codebook, même rotation, même protocole.
+
+  graine   ppl scellé f16 (F5)   MMLU micro        rang ppl   rang MMLU
+  1              16,7425         58,02 % ± 1,34        3          1
+  2              15,8836         52,19 % ± 1,34        2          3
+  3              15,1027         55,17 % ± 1,34        1          2
+
+  ÉTENDUE  58,02 − 52,19 = 5,8304 pp
+  s (n−1)  2,9154 pp          s (n)  2,3803 pp
+
+Écarts appariés (bootstrap 10 000 tirages stratifié par matière, graine
+0xb0075eed, micro repondéré ; McNemar exact bilatéral sur les discordantes) :
+
+  paire     Δ         IC95                 discordantes   McNemar p
+  s1 − s2  +5,83  [+2,70 ; +9,11]           374 / 255      2,378e-06   ✅ résolu
+  s3 − s2  +2,97  [+0,02 ; +5,97]           345 / 271      3,237e-03   ✅ résolu
+  s1 − s3  +2,86  [−0,10 ; +5,85]           293 / 248      5,843e-02   ❌ non résolu
+
+DEUX des trois paires sont séparées. Trois artefacts qui ne diffèrent QUE par
+le texte tiré pour la calibration s'écartent de 5,83 pp de MMLU, à p = 2,4e-06.
+
+LE VERDICT, ET IL EST MÉCANIQUE
+--------------------------------
+Les deux pré-enregistrements posent la même branche haute :
+
+  bruit-mmlu §5    s > 2,0 pp → « on ne lance pas — un bras unique ne
+                   déciderait rien, le design est à repenser »
+  volume §4        s > 2,0 pp → « aucun » barreau de départ
+
+s = 2,9154 pp (n−1), 2,3803 pp (n). **Les deux estimateurs dépassent 2,0**, donc
+le verdict ne dépend pas de ce choix.
+
+❌ L'ÉCHELLE DE VOLUME DE CALIBRATION NE PART PAS. Ni ×8, ni ×32, ni ×96.
+   Économie directe : les ~19 $ du pire cas prévu au §5 du prereg volume.
+
+⚠️ CE QUE LE PREREG A POSÉ D'AVANCE ET QU'IL FAUT GARDER : s MAJORE le bruit du
+bras volume. Les trois graines sont des tirages INDÉPENDANTS ; les barreaux de
+volume auraient comparé des préfixes EMBOÎTÉS, donc corrélés, donc d'écart moins
+variable. Le seuil de 2,0 a été écrit en sachant cela — il n'y a donc pas de
+relâchement post-hoc disponible ici, et c'était le point de l'écrire d'avance.
+
+LA PRÉDICTION SIGNÉE EST RÉFUTÉE
+---------------------------------
+Le §6 porte une prédiction opposable de l'auteur, écrite avant la mesure :
+« s entre 0,5 et 1,5 pp », au motif que MMLU est un instrument plus grossier que
+la perplexité et que le seul précédent (swap L≤4 : +4,75 % de ppl pour −0,66 pp
+de MMLU) allait vers une faible sensibilité.
+
+Mesuré : 2,92 pp — près du DOUBLE du haut de la fourchette. La prédiction tombe,
+et le motif avec elle : MMLU n'est pas ici l'instrument insensible qu'on lui
+supposait face à un changement de calibration.
+
+LE RECOUPEMENT QUI DÉRANGE : LES DEUX MÉTRIQUES NE CLASSENT PAS PAREIL
+-----------------------------------------------------------------------
+La graine 1 a la PIRE perplexité des trois (16,7425) et le MEILLEUR MMLU
+(58,02). La graine 3 a la MEILLEURE perplexité (15,1027) et un MMLU médian.
+
+C'est une instance mesurée de la thèse du §3ter — « ne plus jamais présenter la
+perplexité seule comme preuve de qualité » — et elle est plus forte que les
+précédentes, parce qu'ici les trois objets ne diffèrent QUE par le tirage de
+calibration : aucun changement de méthode, de format ni de taille ne peut porter
+l'inversion.
+
+⚠️ n = 3. Aucune corrélation ne se publie sur trois points ; ce qui se publie est
+l'ORDRE, qui est lisible sans statistique. Le Pearson vaut +0,51 — signe déjà
+contraire à l'attendu (une meilleure ppl devrait accompagner un meilleur MMLU) —
+et il est cité ici comme descriptif, pas comme résultat.
+
+CE QUE CE JOURNAL NE DIT PAS
+-----------------------------
+🚨 IL NE DIT RIEN SUR LE 55,59 PUBLIÉ, et c'est la réserve du §4 du prereg,
+posée d'avance. L'artefact publié a calibré sur un PRÉFIXE CONTIGU ; les trois
+graines tirent des OFFSETS ALÉATOIRES. Deux modes d'échantillonnage, pas deux
+tirages du même. On ne peut donc PAS écrire « le 55,59 publié porte ±2,9 pp ».
+Ce qui est propre est l'ÉTENDUE ENTRE LES TROIS, et elle seule.
+
+  (Pour mémoire, sans que ce soit une comparaison : moyenne des trois = 55,13.)
+
+Il ne dit rien non plus sur le volume de calibration (aucun barreau n'a tourné),
+sur la vitesse, sur une autre taille, ni sur la perplexité — déjà mesurée par F5
+(docs/mesures/f5-graines-4b-2026-08-19.txt : étendue 10,3 %, σ 5,2 %).
+
+CE QUI RESTE OUVERT, ET QUI REVIENT À L'OPÉRATEUR
+--------------------------------------------------
+Le prereg dit « le design est à repenser », pas « la piste est morte ». Ce qui
+est fermé est le bras UNIQUE contre un TÉMOIN UNIQUE : à s = 2,92 pp, un effet
+de volume de ~2 pp y serait invisible. Ce qui n'est pas tranché est de savoir
+si un design à graines répliquées (n artefacts par volume) le rendrait lisible
+— et ce design coûte n fois le prix par point, donc c'est un arbitrage de
+budget, pas une question technique. Aucun chiffre n'est engagé ici.
+
+PROVENANCE DES OCTETS
+----------------------
+Dumps par question (rapatriés du bucket Pier-Jean/jobs-artifacts le 2026-08-27,
+580 ko, 0 $) — docs/data/bruit-mmlu-graines/ :
+  f24b72d5ddc43300f1db165fb5cf900d1006deebc6955e1a3bea4463ba3c19a6  mmlu-s1.csv
+  481e9f67a94ae79fff6bce60d9d06615c35ae72a4857cc9ab0c6b72b24d317c1  mmlu-s2.csv
+  5f14bd3493ed809bd8d74a5b76b639ecc038e51489c7696867eafc1172e3dca9  mmlu-s3.csv
+
+Sortie brute complète du job (les trois profils par matière, non résumés) —
+docs/mesures/bruit-mmlu-graines-2026-08-25-brut/ : mmlu-s{1,2,3}.txt et
+job-6a8df156-complet.log. C'est la règle du §7 : un journal de SYNTHÈSE est une
+perte irréversible, et la rétention des logs HF n'est ni documentée ni garantie.

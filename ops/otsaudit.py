@@ -25,6 +25,7 @@ committed root per block so a third party can close that last step.
 
 Run from the repository root: paths are relative to it.
 """
+import datetime as _dt
 import glob, hashlib, os, subprocess
 from opentimestamps.core.timestamp import DetachedTimestampFile
 from opentimestamps.core.notary import BitcoinBlockHeaderAttestation, PendingAttestation
@@ -35,7 +36,8 @@ def load(p):
         return DetachedTimestampFile.deserialize(StreamDeserializationContext(f))
 
 print("=" * 78)
-print("ÉTAT RÉEL DES TAMPONS OpenTimestamps  —  mesuré le 2026-08-26")
+print("ÉTAT RÉEL DES TAMPONS OpenTimestamps  —  mesuré le "
+      + _dt.date.today().isoformat())
 print("=" * 78)
 print("""
 INSTRUMENT.  `ots info` (opentimestamps-client v0.7.2, installé depuis PyPI) et
@@ -45,10 +47,12 @@ fichiers du dépôt ; rien n'est estimé.
 
 ⚠️  CE QUI N'EST PAS FAIT ICI, ET POURQUOI.  La vérification complète d'une
 ancre exige de confronter la racine de Merkle engagée au bloc réel — donc un
-nœud Bitcoin ou un explorateur.  La politique réseau de cette machine bloque
-les deux (403 du proxy sur blockstream.info, mempool.space, blockchain.info,
-et sur les quatre calendriers).  Ce journal établit donc ce que les FICHIERS
-portent, pas que la chaîne le confirme.  Les racines sont imprimées en fin de
+nœud Bitcoin ou un explorateur.  Ce script ne les interroge pas, quel que
+soit l'état du réseau — il désérialise des fichiers, c'est tout.  Ce journal
+établit donc ce que les FICHIERS portent, pas que la chaîne le confirme.
+(⚠️ L'accès aux explorateurs et aux quatre calendriers VARIE d'une session à
+l'autre : bloqué au 403 le 2026-08-26, ouvert le 2026-08-27.  Ne pas relire une
+absence d'ancre comme un fait de la machine.)  Les racines sont imprimées en fin de
 journal exactement pour qu'un tiers fasse ce dernier pas en une commande.
 """)
 
