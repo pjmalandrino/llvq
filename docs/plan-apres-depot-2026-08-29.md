@@ -117,7 +117,16 @@ publiée ne cite deux configs concurrentes sans les nommer.
 > 🚨 **RECONDITIONNÉE le 2026-08-29 (nuit)** : l'endgame étant le port
 > (Phase P), le gros de cette phase — A2 (Graphs), A3 (occupation), le
 > mégakernel du vivier — ne transfère pas et passe **derrière P**,
-> conditionné à la décision « moteur-fin vs moteur-banc ». **Restent
+> conditionné à la décision « moteur-fin vs moteur-banc ».
+> 🚨 **RENVERSÉE le 2026-08-31, décision d'opérateur** : A2 et A3 se font
+> **quoi qu'il arrive**, port ou pas. Le motif est la **crédibilité** : le
+> papier revendique un noyau, et candle est le seul moteur auditable de bout
+> en bout — l'argument souverain exige que ce chemin soit rapide par
+> lui-même, pas par procuration vLLM. Ce que la décision NE change pas :
+> les critères d'adoption restent (A2 : ≥ 8 % adopté, < 3 % clos) — on
+> construit et on mesure les deux, un résultat nul ne s'adopte pas ; et A1
+> garde son rôle, qui redevient celui du préreg vague 2 : **ordonner** A2
+> contre A3, plus décider de leur existence. **Restent
 > inconditionnels** : A1 et le bras d'attribution (0,4 $ — ils informent
 > aussi le port), A4 (A100 — question de *noyau*, elle suit le kernel
 > partout), et un **préfill minimal** côté candle (lever le refus > 256
