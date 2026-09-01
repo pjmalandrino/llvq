@@ -1,0 +1,18 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 1 (LLVQ_FUSE) — 144 matvec_lancements/token pour 252 projections (72 groupes + 72 seules)
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.737 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.57 Go (projections 2.15 + portés 0.41)
+chargé en 130.4 s — A/B kv_store : cat contre prealloc(256)
+LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=1, 144 matvec_lancements/token
+
+5 paires de rounds entrelacées, 128 tokens identiques partout
+  cat             100.0 tok/s [99.9–100.2]
+  prealloc(256)    89.3 tok/s [88.9–89.5]
+  r = prealloc/cat = 0.8919 [0.8884–0.8953]  (formé round par round)
+
+  lecture pré-enregistrée : r ≥ 0,97 → la prealloc porte l'étape 2 ;
+  r < 0,97 → régression, arrêt et retour à l'opérateur.
