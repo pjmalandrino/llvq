@@ -205,12 +205,18 @@ costs on disk. Measured peak RSS: **9.79 GB on CPU, 17.41 GB on Metal**. A
 is on disk only.
 
 The CUDA runner is the exception — it keeps the weights encoded and holds the
-same model in 2.96 GB of card memory (2.60 with `LLVQ_EMBED=q8`). It needs a
+same model in 2.93 GB of card memory, 2.57 GB in the served configuration v1
+(frozen 2026-08-31: `LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1`). It needs a
 Linux host with an NVIDIA card:
 
 ```bash
+LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1 \
 cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.bin 128
 ```
+
+*(The 2.96/2.60 GB pair quoted here until 2026-09-01 were the pre-B2 single
+points; 2.93 and 2.56/2.57 are the B2 host byte counts, and the command above
+is the frozen served configuration.)*
 
 ## Limitations
 
