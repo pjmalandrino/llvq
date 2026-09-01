@@ -194,6 +194,14 @@ impl Rotary {
 /// Stored **before** `repeat_kv`: the grouped-query expansion is a view over
 /// `n_kv` heads, so caching the expanded form would hold `n_heads / n_kv`
 /// times the bytes for nothing. On Qwen3-4B that is a factor 4.
+///
+/// 🕳️ **That argument holds for `Cat`, and was measured NOT to hold for a
+/// bounded window (2026-09-01, étape 1b).** Under
+/// [`crate::kvq::KvStore::Prealloc`] this cache stores the EXPANDED form in
+/// a fixed `[b, n_heads, W, hd]` buffer: ×4 of a bounded window is ~151 Mo
+/// at W = 256 on the 4B — trivial — and it removes the real per-step cost,
+/// the ×4 HISTORY copy `repeat_kv` performs on every decode step of the
+/// `Cat` path.
 /// ⚠️ **No `Default`, deliberately.** Every construction site must name the
 /// mode it caches in. With a `Default`, an incomplete wiring compiles and an
 /// unwired arm reports Δppl = 0, ΔMMLU = 0 and 1.00× throughput — three greens
@@ -265,26 +273,35 @@ impl KvCache {
         Ok((k, v))
     }
 
-    /// The `Prealloc` arm of [`Self::append`]: write in place, return views.
+    /// The `Prealloc` arm of [`Self::append`]: write in place, return the
+    /// FULL fixed buffers.
     ///
     /// The buffers are allocated on first use, from the shape/dtype/device of
-    /// what arrives — the cache needs no model handle. `slice_set` demands
-    /// contiguity on both sides; the buffers are born contiguous and the
-    /// incoming step is made so (a copy of `l` positions, not of the
-    /// history). What goes OUT are `narrow` views over the valid prefix:
-    /// same shapes as the `Cat` path at every step, so the attention math —
-    /// and therefore the tokens — cannot differ. `generate` and
+    /// what arrives — the cache needs no model handle, and the CALLER decides
+    /// what head count arrives: the block hands the EXPANDED step in, so the
+    /// buffer is `[b, n_heads, W, hd]` and `repeat_kv` has no call site on
+    /// this path. `slice_set` demands contiguity on both sides; the buffers
+    /// are born contiguous and the incoming step is made so (a copy of `l`
+    /// positions, not of the history).
+    ///
+    /// What goes OUT are the full `W`-wide buffers — contiguous, at a stable
+    /// address: the shape the wide causal mask expects and the shape a CUDA
+    /// graph can capture. 🕳️ The first form of this arm (étape 1, 2026-09-01)
+    /// returned `narrow` views instead: non-contiguous at every `len < W`,
+    /// they pushed `repeat_kv`'s per-step history copy into its strided
+    /// paths — r = 0,8919 [0,8884–0,8953] on CUDA, ~−29 % on Metal. Measured,
+    /// then replaced by this form (étape 1b). `generate` and
     /// `generate_uncached` staying token-identical under `LLVQ_VERIFY_CACHE`
-    /// is the end-to-end witness of exactly that.
+    /// remains the end-to-end witness.
     ///
     /// Overflow is a NAMED error: a silent ring would change what attention
     /// sees. The window is the operator's promise, and this arm holds it.
     fn append_prealloc(&mut self, w: usize, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
         let l = k.dim(2)?;
         if self.k.is_none() {
-            let (b, n_kv, _, hd) = k.dims4()?;
-            self.k = Some(Tensor::zeros((b, n_kv, w, hd), k.dtype(), k.device())?);
-            self.v = Some(Tensor::zeros((b, n_kv, w, hd), v.dtype(), v.device())?);
+            let (b, n_heads, _, hd) = k.dims4()?;
+            self.k = Some(Tensor::zeros((b, n_heads, w, hd), k.dtype(), k.device())?);
+            self.v = Some(Tensor::zeros((b, n_heads, w, hd), v.dtype(), v.device())?);
         }
         if self.len + l > w {
             candle_core::bail!(
@@ -296,7 +313,12 @@ impl KvCache {
         kb.slice_set(&k.contiguous()?, 2, self.len)?;
         vb.slice_set(&v.contiguous()?, 2, self.len)?;
         self.len += l;
-        Ok((kb.narrow(2, 0, self.len)?, vb.narrow(2, 0, self.len)?))
+        Ok((kb.clone(), vb.clone()))
+    }
+
+    /// Which store this cache grows by — the block branches on it.
+    pub fn store(&self) -> crate::kvq::KvStore {
+        self.store
     }
 }
 
@@ -1046,10 +1068,29 @@ impl Block {
         // RoPE at the *absolute* position. `Rotary::apply` has taken an
         // offset since it was written; nothing had ever passed one but zero.
         let (q, k) = rotary.apply(&q, &k, offset)?;
-        let (k, v) = cache.append(&k, &v)?;
         let groups = self.n_heads / self.n_kv;
-        let k = candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?;
-        let v = candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?;
+        let (k, v) = match cache.store() {
+            crate::kvq::KvStore::Cat => {
+                let (k, v) = cache.append(&k, &v)?;
+                (
+                    candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?,
+                    candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?,
+                )
+            }
+            // Prealloc stores the EXPANDED step: the ×`groups` copy happens
+            // once, on the `l` new positions, instead of on the whole history
+            // at every step — which is what `repeat_kv` costs on the `Cat`
+            // path. What comes back is the full contiguous
+            // `[b, n_heads, W, hd]` pair; the wide causal mask −infs
+            // everything past the valid prefix, so softmax weights there are
+            // exactly zero and the zero-filled tail contributes exactly
+            // nothing.
+            crate::kvq::KvStore::Prealloc(_) => {
+                let ke = candle_transformers::utils::repeat_kv(k, groups)?.contiguous()?;
+                let ve = candle_transformers::utils::repeat_kv(v, groups)?.contiguous()?;
+                cache.append(&ke, &ve)?
+            }
+        };
 
         let scale = 1.0 / (self.head_dim as f64).sqrt();
         let scores = (q.matmul(&k.transpose(2, 3)?)? * scale)?.broadcast_add(mask)?;
@@ -1189,15 +1230,15 @@ impl Qwen3 {
     /// future. That degenerate row is the entire attention arithmetic of a
     /// decode step.
     fn causal_mask_offset(&self, b: usize, l: usize, offset: usize) -> Result<Tensor> {
-        let total = offset + l;
-        let m: Vec<f32> = (0..l)
-            .flat_map(|i| {
-                (0..total).map(move |j| {
-                    if j <= offset + i { 0.0 } else { f32::NEG_INFINITY }
-                })
-            })
-            .collect();
-        Tensor::from_slice(&m, (b, 1, l, total), &self.device)?.to_dtype(self.dtype)
+        self.causal_mask_width(b, l, offset, offset + l)
+    }
+
+    /// The same mask at an imposed key width `w >= offset + l` — the fixed
+    /// window of a preallocated cache. Columns past `offset + i` are −inf,
+    /// which covers BOTH the future and the not-yet-written tail: no second
+    /// mechanism, the causal rule is the validity rule.
+    fn causal_mask_width(&self, b: usize, l: usize, offset: usize, w: usize) -> Result<Tensor> {
+        build_causal_mask(b, l, offset, w, self.dtype, &self.device)
     }
 
     /// One `KvCache` per block, empty.
@@ -1230,7 +1271,14 @@ impl Qwen3 {
         cap: &mut dyn Capture,
     ) -> Result<Tensor> {
         let (b, l) = input.dims2()?;
-        let mask = self.causal_mask_offset(b, l, offset)?;
+        // Under a preallocated window the keys are always `w` wide, so the
+        // mask is too: the causal condition `j <= offset + i` already −infs
+        // every position past the valid prefix, which is what makes the
+        // zero-filled tail of the buffers exactly inert.
+        let mask = match self.kv_store {
+            crate::kvq::KvStore::Cat => self.causal_mask_offset(b, l, offset)?,
+            crate::kvq::KvStore::Prealloc(w) => self.causal_mask_width(b, l, offset, w)?,
+        };
         let mut h = self.embed.forward(input)?;
         for (i, blk) in self.blocks.iter().enumerate() {
             h = blk.forward_cached(&h, &self.rotary, &mask, offset, &mut caches[i], i, cap)?;
@@ -1442,6 +1490,26 @@ impl Qwen3 {
     }
 }
 
+
+/// The causal mask at an imposed key width `w >= offset + l` — free-standing
+/// so the unit tests can exercise the exact object the model uses, not a
+/// re-derivation of it. Columns past `offset + i` are −inf: the causal rule
+/// is also the validity rule of a preallocated window's unwritten tail.
+pub fn build_causal_mask(
+    b: usize,
+    l: usize,
+    offset: usize,
+    w: usize,
+    dtype: DType,
+    device: &Device,
+) -> Result<Tensor> {
+    debug_assert!(w >= offset + l);
+    let m: Vec<f32> = (0..l)
+        .flat_map(|i| (0..w).map(move |j| if j <= offset + i { 0.0 } else { f32::NEG_INFINITY }))
+        .collect();
+    Tensor::from_slice(&m, (b, 1, l, w), device)?.to_dtype(dtype)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1592,51 +1660,92 @@ mod tests {
         assert_eq!(out[0].dims(), &[1, MAX_ROWS + 44, 2]);
     }
 
-    /// The `Prealloc` store must be indistinguishable from `Cat` in every
-    /// byte it returns — a prefill then single-token steps, compared tensor
-    /// for tensor at each step. This is what makes the étape-1 A/B measure
-    /// STORAGE and nothing else, and it is the assertion that catches a
-    /// stale `len`, a wrong dim, or a slice landing one position off —
-    /// mutations a shape check alone would let through.
+    /// Étape 1b invariant: the expanded fixed-window store must hold, in its
+    /// valid prefix, EXACTLY the bytes the `Cat` path hands to attention
+    /// (`repeat_kv` of the history), and exactly zeros past it. A prefill
+    /// then single-token steps, checked at every step — this is what catches
+    /// a stale `len`, a wrong dim, a slice landing one position off, or an
+    /// expansion done in the wrong order relative to Q8 quantization.
     #[test]
-    fn prealloc_matches_cat_at_every_step() {
+    fn prealloc_expanded_matches_repeat_kv_of_cat_at_every_step() {
         use crate::kvq::{KvMode, KvStore};
+        use candle_transformers::utils::repeat_kv;
         let dev = Device::Cpu;
-        let (b, n_kv, hd) = (1, 2, 64); // hd multiple du GROUP q8
+        let (b, n_kv, hd, groups, w) = (1, 2, 64, 4, 16); // hd multiple du GROUP q8
         for mode in [KvMode::F16, KvMode::Q8] {
             let mut cat = KvCache::new(mode);
-            let mut pre = KvCache::with_store(mode, KvStore::Prealloc(16));
+            let mut pre = KvCache::with_store(mode, KvStore::Prealloc(w));
             let mut pos = 0u32;
+            let mut len = 0usize;
             for (step, l) in [5usize, 1, 1, 1, 1, 1].into_iter().enumerate() {
-                // Deterministic, position-dependent payload: a slice landing
-                // at the wrong offset produces different bytes, not zeros.
                 let n = b * n_kv * l * hd;
                 let kd: Vec<f32> = (0..n).map(|i| (pos as f32) + i as f32 * 0.25).collect();
                 let vd: Vec<f32> = (0..n).map(|i| -(pos as f32) - i as f32 * 0.5).collect();
                 pos += l as u32;
+                len += l;
                 let k = Tensor::from_vec(kd, (b, n_kv, l, hd), &dev).expect("k");
                 let v = Tensor::from_vec(vd, (b, n_kv, l, hd), &dev).expect("v");
+                // chemin Cat : append puis repeat_kv — ce que forward_cached fait
                 let (ck, cv) = cat.append(&k, &v).expect("cat append");
-                let (pk, pv) = pre.append(&k, &v).expect("prealloc append");
-                assert_eq!(ck.dims(), pk.dims(), "step {step} ({mode:?}) : formes k");
-                assert_eq!(cv.dims(), pv.dims(), "step {step} ({mode:?}) : formes v");
-                let (a, bb): (Vec<f32>, Vec<f32>) = (
-                    ck.flatten_all().unwrap().to_vec1().unwrap(),
-                    pk.flatten_all().unwrap().to_vec1().unwrap(),
-                );
-                assert_eq!(a, bb, "step {step} ({mode:?}) : octets k");
-                let (a, bb): (Vec<f32>, Vec<f32>) = (
-                    cv.flatten_all().unwrap().to_vec1().unwrap(),
-                    pv.flatten_all().unwrap().to_vec1().unwrap(),
-                );
-                assert_eq!(a, bb, "step {step} ({mode:?}) : octets v");
+                let ck = repeat_kv(ck, groups).unwrap().contiguous().unwrap();
+                let cv = repeat_kv(cv, groups).unwrap().contiguous().unwrap();
+                // chemin Prealloc : étendre PUIS append — ce que forward_cached fait
+                let ke = repeat_kv(k.clone(), groups).unwrap().contiguous().unwrap();
+                let ve = repeat_kv(v.clone(), groups).unwrap().contiguous().unwrap();
+                let (pk, pv) = pre.append(&ke, &ve).expect("prealloc append");
+                assert_eq!(pk.dims(), &[b, n_kv * groups, w, hd], "step {step} : buffer plein");
+                for (full, reference, name) in [(&pk, &ck, "k"), (&pv, &cv, "v")] {
+                    let prefix = full.narrow(2, 0, len).unwrap().contiguous().unwrap();
+                    let a: Vec<f32> = reference.flatten_all().unwrap().to_vec1().unwrap();
+                    let bb: Vec<f32> = prefix.flatten_all().unwrap().to_vec1().unwrap();
+                    assert_eq!(a, bb, "step {step} ({mode:?}) : préfixe {name}");
+                    let tail = full.narrow(2, len, w - len).unwrap();
+                    let t: Vec<f32> = tail.flatten_all().unwrap().to_vec1().unwrap();
+                    assert!(t.iter().all(|x| *x == 0.0), "step {step} ({mode:?}) : queue {name} non nulle");
+                }
             }
         }
     }
 
-    /// Going past the window is a NAMED error — never a silent ring. The
-    /// message must name the mechanism (the window) so the operator reads a
-    /// broken promise, not a candle backtrace.
+    /// The padding of the fixed window must be EXACTLY inert through the
+    /// whole attention arithmetic: same scores→softmax→ctx bytes over `len`
+    /// keys as over `w` keys whose tail is zeros behind −inf. `exp(−inf) = 0`
+    /// and `x + 0.0 = x` are what make this bitwise, not approximate — if
+    /// either stops holding (a mask built at a finite floor, say), this test
+    /// is the tripwire. It exercises `build_causal_mask` itself, not a
+    /// re-derivation.
+    #[test]
+    fn wide_mask_padding_is_exactly_inert() {
+        let dev = Device::Cpu;
+        let (b, h, l, hd, offset, len, w) = (1usize, 2, 1, 8, 3, 4, 16);
+        let q = Tensor::from_vec(
+            (0..b * h * l * hd).map(|i| (i as f32).sin()).collect::<Vec<f32>>(),
+            (b, h, l, hd),
+            &dev,
+        )
+        .unwrap();
+        let mk = |n: usize, sgn: f32| {
+            Tensor::from_vec(
+                (0..b * h * n * hd).map(|i| sgn * (i as f32).cos()).collect::<Vec<f32>>(),
+                (b, h, n, hd),
+                &dev,
+            )
+            .unwrap()
+        };
+        let (k, v) = (mk(len, 1.0), mk(len, -1.0));
+        let zpad = Tensor::zeros((b, h, w - len, hd), DType::F32, &dev).unwrap();
+        let kw = Tensor::cat(&[&k, &zpad], 2).unwrap().contiguous().unwrap();
+        let vw = Tensor::cat(&[&v, &zpad], 2).unwrap().contiguous().unwrap();
+        let attn = |k: &Tensor, v: &Tensor, width: usize| -> Vec<f32> {
+            let mask = build_causal_mask(b, l, offset, width, DType::F32, &dev).unwrap();
+            let scores = q.matmul(&k.transpose(2, 3).unwrap()).unwrap();
+            let scores = scores.broadcast_add(&mask).unwrap();
+            let p = candle_nn::ops::softmax_last_dim(&scores).unwrap();
+            p.matmul(v).unwrap().flatten_all().unwrap().to_vec1().unwrap()
+        };
+        assert_eq!(attn(&k, &v, len), attn(&kw, &vw, w), "le rembourrage n'est pas inerte");
+    }
+
     #[test]
     fn prealloc_overflow_is_a_named_error() {
         use crate::kvq::{KvMode, KvStore};
