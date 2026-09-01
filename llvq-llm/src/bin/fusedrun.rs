@@ -183,6 +183,98 @@ fn main() -> anyhow::Result<()> {
             std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
         );
 
+        // ---- A2 étape 1 : l'A/B prealloc-contre-cat, intra-processus ----
+        //
+        // `LLVQ_KV_AB=1` court-circuite le protocole publié : UN modèle fusé
+        // chargé une fois (config prise de l'environnement — la v1 gelée pour
+        // le job pré-enregistré), puis des PAIRES de rounds entrelacées où le
+        // store bascule par `set_kv_store` entre deux `generate` — même
+        // poids, même unité NVRTC, même processus, même prompt. Le rapport
+        // se forme round par round, jamais en quotient de médianes de bras
+        // séparés. Le seul mécanisme qui bouge est le stockage du cache — la
+        // règle `check_fuse`, appliquée à l'axe qu'elle protège.
+        // Préreg : proofs/preregistration-a2-etape1-prealloc-2026-09-01.md.
+        if std::env::var("LLVQ_KV_AB").ok().as_deref() == Some("1") {
+            use llvq_llm::kvq::KvStore;
+            let w = match kv_store {
+                KvStore::Prealloc(w) => w,
+                KvStore::Cat => anyhow::bail!(
+                    "LLVQ_KV_AB=1 exige LLVQ_KV_PREALLOC=<fenêtre> : l'A/B compare \
+                     cat au store préalloué, il lui faut la fenêtre"
+                ),
+            };
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            println!("chargé en {:.1} s — A/B kv_store : cat contre prealloc({w})", t.elapsed().as_secs_f64());
+            println!(
+                "LLVQ_ROT_SHARE={}, {} rot_lancements/token · LLVQ_FUSE={}, {} matvec_lancements/token",
+                f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
+            );
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            if ids.len() + n_new > w {
+                anyhow::bail!(
+                    "fenêtre {w} < {} + {n_new} tokens : le bras prealloc mourrait en \
+                     cours de round — agrandir LLVQ_KV_PREALLOC",
+                    ids.len()
+                );
+            }
+            // Une génération jetée PAR STORE : la première sur CUDA paie la
+            // sélection de noyaux et la montée en fréquence, et le premier
+            // round prealloc paie ses allocations de fenêtre.
+            let mut reference: Option<Vec<u32>> = None;
+            for store in [KvStore::Cat, KvStore::Prealloc(w)] {
+                f.model.set_kv_store(store);
+                let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
+                match &reference {
+                    None => reference = Some(out),
+                    Some(r) => {
+                        if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                            anyhow::bail!(
+                                "chauffe : divergence cat/prealloc au token {i} — l'A/B ne se \
+                                 mesure pas sur des bras qui ne rendent pas les mêmes tokens"
+                            );
+                        }
+                    }
+                }
+            }
+            let reference = reference.expect("chauffe faite");
+            let (mut r_cat, mut r_pre, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
+            for round in 0..ROUNDS_TIMED {
+                let mut pair = [0f64; 2];
+                for (slot, store) in [KvStore::Cat, KvStore::Prealloc(w)].into_iter().enumerate() {
+                    f.model.set_kv_store(store);
+                    let t = Instant::now();
+                    let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
+                    pair[slot] = n_new as f64 / t.elapsed().as_secs_f64();
+                    if let Some(i) = first_divergence(&reference, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!(
+                            "round {round}, {} : divergence au token {i} contre la référence",
+                            store.label()
+                        );
+                    }
+                }
+                r_cat.push(pair[0]);
+                r_pre.push(pair[1]);
+                ratios.push(pair[1] / pair[0]);
+            }
+            let (mc, lc, hc) = rate_stats(&r_cat);
+            let (mp, lp, hp) = rate_stats(&r_pre);
+            let (mr, lr, hr) = rate_stats(&ratios);
+            println!("\n{ROUNDS_TIMED} paires de rounds entrelacées, {} tokens identiques partout", reference.len());
+            println!("  cat            {mc:6.1} tok/s [{lc:.1}–{hc:.1}]");
+            println!("  prealloc({w})  {mp:6.1} tok/s [{lp:.1}–{hp:.1}]");
+            println!("  r = prealloc/cat = {mr:.4} [{lr:.4}–{hr:.4}]  (formé round par round)");
+            println!("\n  lecture pré-enregistrée : r ≥ 0,97 → la prealloc porte l'étape 2 ;");
+            println!("  r < 0,97 → régression, arrêt et retour à l'opérateur.");
+            return Ok(());
+        }
+
         // Which fused arms to run. Normally one, named by `LLVQ_FUSE`; under
         // `LLVQ_FUSE_AB=1` both, `On` then `Off`, each loaded and **dropped**
         // before the next — the card never holds two arms, and the two share a
