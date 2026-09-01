@@ -307,6 +307,16 @@ fn main() -> anyhow::Result<()> {
                 g.map_err(|e| anyhow::anyhow!("{e}"))?
             };
             println!("capture : OK — le pas de décodage est un graph rejouable");
+            // Le PREMIER lancement d'un graph AUTO_FREE est celui qui
+            // matérialise ses nœuds d'allocation — et le diagnostic du
+            // 2026-09-01 l'a mesuré LÉGÈREMENT FAUX (max|Δlogits| = 11,2 au
+            // premier launch, puis 0,000e0 EXACT à tous les suivants, douze
+            // tokens durant). On le consomme donc ici, à blanc, sur l'état de
+            // la capture — ses écritures tombent sur un état que chaque
+            // génération re-préfille de toute façon.
+            graph.launch().map_err(|e| anyhow::anyhow!("graph launch (jetable): {e}"))?;
+            device.synchronize()?;
+            println!("premier lancement consommé à blanc (le diag l'a mesuré inexact)");
             let gen_graph = |f: &llvq_llm::fused_cuda::FusedSealed,
                              caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<Vec<u32>> {
@@ -361,15 +371,54 @@ fn main() -> anyhow::Result<()> {
                 }
                 anyhow::bail!("diagnostic terminé — pas de chrono en mode DIAG");
             }
-            // Gate de justesse AVANT tout chrono.
+            // L'hybride de secours : le premier token de décodage en éager
+            // (il « atterrit » l'état), le replay pour tous les suivants.
+            let gen_hybrid = |f: &llvq_llm::fused_cuda::FusedSealed,
+                              caches: &mut [llvq_llm::model::KvCache]|
+             -> anyhow::Result<Vec<u32>> {
+                let mut next = prefill(&f.model, caches)?;
+                let mut offset = ids.len();
+                let mut out = Vec::with_capacity(n_new);
+                loop {
+                    out.push(next);
+                    if out.len() == n_new {
+                        return Ok(out);
+                    }
+                    f.model.refresh_step(&st, next, offset)?;
+                    if out.len() == 1 {
+                        step(&f.model, caches)?;
+                    } else {
+                        graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
+                    }
+                    next = read_next()?;
+                    offset += 1;
+                }
+            };
+            // Gate de justesse AVANT tout chrono — replay pur d'abord,
+            // hybride en secours, et les DEUX verdicts s'impriment.
             let g0 = gen_graph(&f, &mut caches)?;
-            if let Some(i) = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))? {
-                anyhow::bail!(
-                    "GATE ROUGE : le chemin graph diverge de l'éager au token {i} — \
-                     l'inventaire de StepState est incomplet, on ne chronomètre pas"
-                );
-            }
-            println!("gate : {} tokens identiques éager/graph — on chronomètre", warm.len());
+            let pure_ok = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let use_hybrid = match pure_ok {
+                None => {
+                    println!("gate replay PUR : {} tokens identiques — on chronomètre le pur", warm.len());
+                    false
+                }
+                Some(i) => {
+                    println!("gate replay pur : ROUGE (divergence au token {i}) — essai de l'hybride");
+                    let h0 = gen_hybrid(&f, &mut caches)?;
+                    match first_divergence(&warm, &h0).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        None => {
+                            println!("gate HYBRIDE : {} tokens identiques — on chronomètre l'hybride \
+                                      (1er token éager, replay ensuite)", warm.len());
+                            true
+                        }
+                        Some(j) => anyhow::bail!(
+                            "GATE ROUGE des deux bras : pur au token {i}, hybride au token {j} — \
+                             on ne chronomètre pas"
+                        ),
+                    }
+                }
+            };
             let _ = first;
             let (mut r_e, mut r_g, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
             for round in 0..ROUNDS_TIMED {
@@ -377,7 +426,11 @@ fn main() -> anyhow::Result<()> {
                 let oe = gen_eager(&f, &mut caches)?;
                 let te = n_new as f64 / t.elapsed().as_secs_f64();
                 let t = Instant::now();
-                let og = gen_graph(&f, &mut caches)?;
+                let og = if use_hybrid {
+                    gen_hybrid(&f, &mut caches)?
+                } else {
+                    gen_graph(&f, &mut caches)?
+                };
                 let tg = n_new as f64 / t.elapsed().as_secs_f64();
                 for (o, name) in [(&oe, "éager"), (&og, "graph")] {
                     if let Some(i) = first_divergence(&warm, o).map_err(|e| anyhow::anyhow!("{e}"))? {
