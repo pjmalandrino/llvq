@@ -8,6 +8,12 @@
 > ots de `CLAUDE.md`). Le reste est listé ici avec ce qui le décide — les
 > entrées ⚖️ attendent un arbitrage d'opérateur, les autres sont mécaniques.
 
+> ✅ **Pointage du 2026-09-01** : les quatre lignes « mécaniques » sont
+> soldées — fiche-4b et cheatsheet annotées (`2ad11b7`), le dernier reste de
+> la model card locale aligné (`cd82f19`), et **HISTORIQUE rattrape ses huit
+> jours** (`6164f73` : État courant au 09-01 + quatre entrées 08-25→09-01).
+> Restent les trois ⚖️ ci-dessous, inchangés, à l'arbitrage de l'opérateur.
+
 ## Mécaniques (aucune décision, juste du soin)
 
 | surface | ce qui est faux | la correction |
