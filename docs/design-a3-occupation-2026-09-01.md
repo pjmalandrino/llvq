@@ -1,6 +1,6 @@
 # Note de design — A3, variantes d'occupation (préreg `proofs/preregistration-a2-a3-geometrie-2026-08-31.md`, sha256 802006c5…)
 
-Statut : note de conception, aucun code écrit, aucun job lancé. Tout chiffre porte son étiquette *mesuré* / *calculé* / *estimé* et sa provenance. Écarts au préreg tamponné → `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, jamais d'édition du préreg.
+Statut : note de conception ; **code écrit le 2026-09-01** (`llvq-cuda/kernels/planes_occ.cu`, `llvq_cuda::occ`, section Fusion de `planesbench`, sélecteur `LLVQ_SEG_ARMS`), écarts déclarés dans le fichier d'ÉCARTS ci-dessous, aucun job lancé. Tout chiffre porte son étiquette *mesuré* / *calculé* / *estimé* et sa provenance. Écarts au préreg tamponné → `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, jamais d'édition du préreg.
 
 ## 1. La géométrie actuelle, au chiffre
 
