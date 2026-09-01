@@ -1,0 +1,23 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 144 rot_lancements/token pour 252 projections
+fusion des projections : 1 (LLVQ_FUSE) — 144 matvec_lancements/token pour 252 projections (72 groupes + 72 seules)
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 2.15 Go sur la carte, 4.737 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+embedding : q8 g64 (LLVQ_EMBED) — 1 table (model.embed_tokens.weight, lm_head lié dessus), 413.3 Mo sur la carte (int8 389.0 + échelles/biais 24.3)
+total attendu sur la carte : 2.57 Go (projections 2.15 + portés 0.41)
+chargé en 131.4 s — A/B graph : éager contre replay, prealloc(256), stream frais, events off
+capture : OK — le pas de décodage est un graph rejouable
+  diag t00 : input=12095 pos=5 · graph→13 éager→13 == · max|Δlogits|=1.120e1
+  diag t01 : input=13 pos=6 · graph→320 éager→320 == · max|Δlogits|=0.000e0
+  diag t02 : input=320 pos=7 · graph→2514 éager→2514 == · max|Δlogits|=0.000e0
+  diag t03 : input=2514 pos=8 · graph→476 éager→476 == · max|Δlogits|=0.000e0
+  diag t04 : input=476 pos=9 · graph→3557 éager→3557 == · max|Δlogits|=0.000e0
+  diag t05 : input=3557 pos=10 · graph→50805 éager→50805 == · max|Δlogits|=0.000e0
+  diag t06 : input=50805 pos=11 · graph→785 éager→785 == · max|Δlogits|=0.000e0
+  diag t07 : input=785 pos=12 · graph→5114 éager→5114 == · max|Δlogits|=0.000e0
+  diag t08 : input=5114 pos=13 · graph→330 éager→330 == · max|Δlogits|=0.000e0
+  diag t09 : input=330 pos=14 · graph→785 éager→785 == · max|Δlogits|=0.000e0
+  diag t10 : input=785 pos=15 · graph→6722 éager→6722 == · max|Δlogits|=0.000e0
+  diag t11 : input=6722 pos=16 · graph→315 éager→315 == · max|Δlogits|=0.000e0
+Error: diagnostic terminé — pas de chrono en mode DIAG
