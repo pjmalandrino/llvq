@@ -168,6 +168,11 @@ fn main() -> anyhow::Result<()> {
         use candle_core::{DType, Device};
         let device = Device::new_cuda(0)?;
         let dtype = DType::F16;
+        // Resolved once, here — `model.rs` reads no environment variable. The
+        // store rides BOTH arms identically: it is never the variable of this
+        // A/B (the `check_fuse` rule), and each arm line prints it below so a
+        // wiring miss shows as `cat` instead of silently measuring it.
+        let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
         // Whether to run the extra fenced pass after each arm's published
@@ -205,7 +210,8 @@ fn main() -> anyhow::Result<()> {
         let mut fused_file = 0.0f64;
         for fuse in modes {
             let t = Instant::now();
-            let f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            f.model.set_kv_store(kv_store);
             let load_s = t.elapsed().as_secs_f64();
             let ids = f
                 .tokenizer
@@ -280,11 +286,12 @@ fn main() -> anyhow::Result<()> {
             // and nothing about this lot.
             println!(
                 "         LLVQ_ROT_SHARE={}, {} rot_lancements/token · LLVQ_FUSE={}, {} \
-                 matvec_lancements/token",
+                 matvec_lancements/token · kv_store={}",
                 f.rot_share.name(),
                 f.rot_launches,
                 f.fuse.name(),
-                f.matvec_launches
+                f.matvec_launches,
+                kv_store.label()
             );
             if tok.is_none() {
                 tok = Some(f.tokenizer.clone());
@@ -314,7 +321,8 @@ fn main() -> anyhow::Result<()> {
         // ---- dense arm ----
         let (dense_tokens, dense_load, dense_rate, dense_lo, dense_hi, dense_bytes) = {
             let t = Instant::now();
-            let m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
+            let mut m = llvq_llm::sealed::load(&path, dtype, &device, llvq_llm::kvq::KvMode::F16)?;
+            m.model.set_kv_store(kv_store);
             let load = t.elapsed().as_secs_f64();
             let ids = m
                 .tokenizer
@@ -347,6 +355,7 @@ fn main() -> anyhow::Result<()> {
                  [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} Go sur la carte",
                 bytes as f64 / 1e9
             );
+            println!("         kv_store={}", kv_store.label());
             if time_phases {
                 let (_, report) = m.model.generate_phased(&ids, PHASE_TOKENS)?;
                 print_phases("dense", &report);

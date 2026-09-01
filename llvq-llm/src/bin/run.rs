@@ -45,8 +45,10 @@ fn main() -> anyhow::Result<()> {
     // mode travels by value from this line down to every `KvCache`. An unknown
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
+    let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
 
-    let s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
+    let mut s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
+    s.model.set_kv_store(kv_store);
     let fp16 = (s.quantized_weights + s.carried_weights) * 2;
     eprintln!(
         "loaded {path} — {} quantized matrices + {} carried tensors\n",
@@ -54,9 +56,10 @@ fn main() -> anyhow::Result<()> {
     );
     println!("── model");
     println!(
-        "   running at dtype {}, kv {}",
+        "   running at dtype {}, kv {}, kv_store {}",
         llvq_llm::eval::dtype_name(dtype),
-        kv_mode.name()
+        kv_mode.name(),
+        kv_store.label()
     );
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",

@@ -202,15 +202,28 @@ pub struct KvCache {
     k: Option<Tensor>,
     v: Option<Tensor>,
     mode: KvMode,
+    /// How the history grows — [`KvStore::Cat`] (shipped) or a preallocated
+    /// window. Under `Prealloc`, `k`/`v` hold the FULL fixed buffers and
+    /// `len` counts the valid positions; under `Cat` they hold exactly the
+    /// history and `len` is unused.
+    store: crate::kvq::KvStore,
+    len: usize,
 }
 
 impl KvCache {
-    /// An empty cache, in the named mode.
+    /// An empty cache, in the named mode, growing by concatenation.
     pub fn new(mode: KvMode) -> Self {
+        Self::with_store(mode, crate::kvq::KvStore::Cat)
+    }
+
+    /// An empty cache, naming both the payload mode and the growth store.
+    pub fn with_store(mode: KvMode, store: crate::kvq::KvStore) -> Self {
         Self {
             k: None,
             v: None,
             mode,
+            store,
+            len: 0,
         }
     }
 
@@ -236,6 +249,9 @@ impl KvCache {
                 crate::kvq::quantize_dequantize(v)?,
             ),
         };
+        if let crate::kvq::KvStore::Prealloc(w) = self.store {
+            return self.append_prealloc(w, &k, &v);
+        }
         let k = match &self.k {
             None => k,
             Some(p) => Tensor::cat(&[p, &k], 2)?.contiguous()?,
@@ -247,6 +263,40 @@ impl KvCache {
         self.k = Some(k.clone());
         self.v = Some(v.clone());
         Ok((k, v))
+    }
+
+    /// The `Prealloc` arm of [`Self::append`]: write in place, return views.
+    ///
+    /// The buffers are allocated on first use, from the shape/dtype/device of
+    /// what arrives — the cache needs no model handle. `slice_set` demands
+    /// contiguity on both sides; the buffers are born contiguous and the
+    /// incoming step is made so (a copy of `l` positions, not of the
+    /// history). What goes OUT are `narrow` views over the valid prefix:
+    /// same shapes as the `Cat` path at every step, so the attention math —
+    /// and therefore the tokens — cannot differ. `generate` and
+    /// `generate_uncached` staying token-identical under `LLVQ_VERIFY_CACHE`
+    /// is the end-to-end witness of exactly that.
+    ///
+    /// Overflow is a NAMED error: a silent ring would change what attention
+    /// sees. The window is the operator's promise, and this arm holds it.
+    fn append_prealloc(&mut self, w: usize, k: &Tensor, v: &Tensor) -> Result<(Tensor, Tensor)> {
+        let l = k.dim(2)?;
+        if self.k.is_none() {
+            let (b, n_kv, _, hd) = k.dims4()?;
+            self.k = Some(Tensor::zeros((b, n_kv, w, hd), k.dtype(), k.device())?);
+            self.v = Some(Tensor::zeros((b, n_kv, w, hd), v.dtype(), v.device())?);
+        }
+        if self.len + l > w {
+            candle_core::bail!(
+                "KvCache prealloc: {} + {l} positions > fenêtre {w} (LLVQ_KV_PREALLOC) —                  la fenêtre est une borne dure, pas un anneau",
+                self.len
+            );
+        }
+        let (kb, vb) = (self.k.as_ref().unwrap(), self.v.as_ref().unwrap());
+        kb.slice_set(&k.contiguous()?, 2, self.len)?;
+        vb.slice_set(&v.contiguous()?, 2, self.len)?;
+        self.len += l;
+        Ok((kb.narrow(2, 0, self.len)?, vb.narrow(2, 0, self.len)?))
     }
 }
 
@@ -1026,6 +1076,11 @@ pub struct Qwen3 {
     /// Cache mode, named by the caller at construction. `model.rs` reads no
     /// environment variable; the binaries resolve `LLVQ_KV` and pass it here.
     kv: KvMode,
+    /// Cache growth store — [`crate::kvq::KvStore::Cat`] unless a binary
+    /// resolves `LLVQ_KV_PREALLOC` and says otherwise via
+    /// [`Self::set_kv_store`]. The A/B guard is the printed arm line, which
+    /// must name the store: an unwired arm prints `cat` and is visible.
+    kv_store: crate::kvq::KvStore,
     embed: Embed,
     pub blocks: Vec<Block>,
     norm: RmsNorm,
@@ -1098,6 +1153,7 @@ impl Qwen3 {
         Ok(Self {
             cfg: cfg.clone(),
             kv,
+            kv_store: crate::kvq::KvStore::Cat,
             embed,
             blocks,
             norm: candle_nn::rms_norm(cfg.hidden_size, cfg.rms_norm_eps, vb.pp("model.norm"))?,
@@ -1146,7 +1202,23 @@ impl Qwen3 {
 
     /// One `KvCache` per block, empty.
     pub fn fresh_caches(&self) -> Vec<KvCache> {
-        (0..self.blocks.len()).map(|_| KvCache::new(self.kv)).collect()
+        (0..self.blocks.len())
+            .map(|_| KvCache::with_store(self.kv, self.kv_store))
+            .collect()
+    }
+
+    /// Name the cache growth store — resolved from `LLVQ_KV_PREALLOC` by the
+    /// binaries, after construction (the loaders' signatures predate the
+    /// store, and threading it through them would touch every call site for
+    /// a value that only the generation binaries exercise). Every arm line
+    /// that a binary prints must include [`crate::kvq::KvStore::label`], so
+    /// a wiring miss shows as `cat` instead of silently measuring it.
+    pub fn set_kv_store(&mut self, store: crate::kvq::KvStore) {
+        self.kv_store = store;
+    }
+
+    pub fn kv_store(&self) -> crate::kvq::KvStore {
+        self.kv_store
     }
 
     /// Hidden states for `l` new positions, attending over `caches`.
@@ -1518,5 +1590,62 @@ mod tests {
             .expect("wide");
         let out = group_forward(&[&a], &wide, RotShare::On).expect("dense sur une fenêtre large");
         assert_eq!(out[0].dims(), &[1, MAX_ROWS + 44, 2]);
+    }
+
+    /// The `Prealloc` store must be indistinguishable from `Cat` in every
+    /// byte it returns — a prefill then single-token steps, compared tensor
+    /// for tensor at each step. This is what makes the étape-1 A/B measure
+    /// STORAGE and nothing else, and it is the assertion that catches a
+    /// stale `len`, a wrong dim, or a slice landing one position off —
+    /// mutations a shape check alone would let through.
+    #[test]
+    fn prealloc_matches_cat_at_every_step() {
+        use crate::kvq::{KvMode, KvStore};
+        let dev = Device::Cpu;
+        let (b, n_kv, hd) = (1, 2, 64); // hd multiple du GROUP q8
+        for mode in [KvMode::F16, KvMode::Q8] {
+            let mut cat = KvCache::new(mode);
+            let mut pre = KvCache::with_store(mode, KvStore::Prealloc(16));
+            let mut pos = 0u32;
+            for (step, l) in [5usize, 1, 1, 1, 1, 1].into_iter().enumerate() {
+                // Deterministic, position-dependent payload: a slice landing
+                // at the wrong offset produces different bytes, not zeros.
+                let n = b * n_kv * l * hd;
+                let kd: Vec<f32> = (0..n).map(|i| (pos as f32) + i as f32 * 0.25).collect();
+                let vd: Vec<f32> = (0..n).map(|i| -(pos as f32) - i as f32 * 0.5).collect();
+                pos += l as u32;
+                let k = Tensor::from_vec(kd, (b, n_kv, l, hd), &dev).expect("k");
+                let v = Tensor::from_vec(vd, (b, n_kv, l, hd), &dev).expect("v");
+                let (ck, cv) = cat.append(&k, &v).expect("cat append");
+                let (pk, pv) = pre.append(&k, &v).expect("prealloc append");
+                assert_eq!(ck.dims(), pk.dims(), "step {step} ({mode:?}) : formes k");
+                assert_eq!(cv.dims(), pv.dims(), "step {step} ({mode:?}) : formes v");
+                let (a, bb): (Vec<f32>, Vec<f32>) = (
+                    ck.flatten_all().unwrap().to_vec1().unwrap(),
+                    pk.flatten_all().unwrap().to_vec1().unwrap(),
+                );
+                assert_eq!(a, bb, "step {step} ({mode:?}) : octets k");
+                let (a, bb): (Vec<f32>, Vec<f32>) = (
+                    cv.flatten_all().unwrap().to_vec1().unwrap(),
+                    pv.flatten_all().unwrap().to_vec1().unwrap(),
+                );
+                assert_eq!(a, bb, "step {step} ({mode:?}) : octets v");
+            }
+        }
+    }
+
+    /// Going past the window is a NAMED error — never a silent ring. The
+    /// message must name the mechanism (the window) so the operator reads a
+    /// broken promise, not a candle backtrace.
+    #[test]
+    fn prealloc_overflow_is_a_named_error() {
+        use crate::kvq::{KvMode, KvStore};
+        let dev = Device::Cpu;
+        let mut c = KvCache::with_store(KvMode::F16, KvStore::Prealloc(4));
+        let k = Tensor::zeros((1, 2, 3, 4), DType::F32, &dev).unwrap();
+        c.append(&k, &k).expect("3 sur 4 passe");
+        let e = c.append(&k, &k).expect_err("3+3 sur 4 doit refuser");
+        let msg = format!("{e}");
+        assert!(msg.contains("fenêtre"), "message sans mécanisme : {msg}");
     }
 }
