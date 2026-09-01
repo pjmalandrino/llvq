@@ -1,0 +1,49 @@
+A2 — LE TRANSFERT : ADOPTÉ AU 8B, POINT DE COURBE AU 14B — LE VERDICT
+MÉLANGÉ QUE LE PRÉREG PRÉDISAIT, DONC PAS DE GEL v2 (2026-09-01)
+
+Préreg : preregistration-a2-transfert-8b-14b-2026-09-01.md (2c7ac5cd…,
+tamponné avant le lancement), sous les seuils de phase gelés (802006c5).
+Jobs : 8B `6a971d5a…` 0,15 $ · 14B `6a971d5b…` 0,27 $. Bruts vérifiés.
+
+== LA SÉRIE COMPLÈTE, trois tailles, protocole identique ==
+| taille | éager (base fixe) | graph | r intra-job | verdict |
+|---|---|---|---|---|
+| 4B  | 99,2 [99,1–99,2]  | 112,5 [112,4–112,6] | 1,1345 [1,1336–1,1358] | ADOPTÉ |
+| 8B  | 76,2 [76,2–76,3]  | 83,9 [83,9–83,9]    | 1,1009 [1,1008–1,1014] | ADOPTÉ |
+| 14B | 46,9 [46,7–47,0]  | 49,8 [49,6–49,9]    | 1,0609 [1,0602–1,0611] | point de courbe |
+
+Le gain DÉCROÎT avec la taille (+13,45 → +10,1 → +6,1 %) — la forme exacte
+de la fusion (×1,061/×1,055/×1,028), même mécanisme : le pool par-lancement
+s'amortit sur des tokens plus longs. Le prior du préreg (~+9 au 8B, ~+6 au
+14B, « verdict mélangé attendu ») est CONFIRMÉ presque au chiffre.
+
+== LA RÈGLE TAMPONNÉE S'APPLIQUE : PAS DE GEL v2 ==
+« Un gel v2 n'est possible que si LES TROIS tailles atteignent la branche
+adopté. » Le 14B est à +6,1 % [6,02–6,11], sous le seuil de 8 : la config
+servie RESTE v1, et les trois points se publient tels quels. Ce n'est pas
+un échec — c'est la lecture écrite avant les chiffres.
+
+== FAITS ANNEXES, mesurés ==
+· Le replay PUR passe son gate au 8B (128 tokens identiques sans hybride) ;
+  il est rouge au 4B (token 2) et au 14B (token 7). L'anomalie du premier
+  replay post-préfill est ERRATIQUE selon la taille — l'hybride est
+  uniformément sain et reste la forme de référence.
+· Les bases fixes éager rendent 76,2 et 46,9 tok/s là où la v1 (vague 2)
+  rendait 75,5 [75,5–75,6] et 46,8 [46,7–46,8] — compatibles à la
+  dispersion près. ⚠️ Comparaison INTER-JOBS : elle se rapporte, elle ne se
+  publie pas comme un rapport. Le −0,83 % mesuré au 4B (é1b) ne se
+  manifeste pas à ces tailles.
+· Aucun gel, donc aucune surface à aligner ; les artefacts scellés et les
+  tables publiées ne bougent pas d'un octet.
+
+== CE QUI RESTE À L'OPÉRATEUR ==
+1. L'adoption OPÉRATIONNELLE du graph là où il est « adopté » (4B/8B)
+   créerait une config non uniforme — la règle des trois tailles l'interdit
+   en l'état. Options : rester v1 partout (défaut), ou une idée neuve qui
+   remonte le 14B au-dessus de 8 % (A3 en est une : ses bras d'occupation
+   attaquent le résidu que le graph ne prend pas).
+2. A3 reste dû (deaa449) — sa note de design est prête ; le kill de phase
+   est déjà franchi par A2 (l'axe est ouvert), A3 s'y ajoute.
+== BUDGET ==
+Vague transfert : 0,42 $ (nominal 0,75, plafond 2). Phase A cumulée :
+0,87 $ sur 4. Registre : 100 jobs, 92,27 $.

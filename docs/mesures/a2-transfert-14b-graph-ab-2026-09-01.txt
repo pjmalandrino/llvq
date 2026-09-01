@@ -1,0 +1,22 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 128 tokens
+
+rotation partagée : 1 (LLVQ_ROT_SHARE) — 160 rot_lancements/token pour 280 projections
+fusion des projections : 1 (LLVQ_FUSE) — 160 matvec_lancements/token pour 280 projections (80 groupes + 80 seules)
+layout fusé : planes14 (LLVQ_FUSED_LAYOUT) — projections 7.75 Go sur la carte, 4.690 b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; le banc facture la sienne en f32)
+source NVRTC : 64776 octets, sha256 347f50a4db2b558129f9ce9a77c7739fc1ee2941c8ffdfd01c2d1299e51c7a29 (10 parties)
+embedding : q8 g64 (LLVQ_EMBED) — 2 tables (model.embed_tokens.weight + lm_head.weight), 1653.1 Mo sur la carte (int8 1555.8 + échelles/biais 97.2)
+total attendu sur la carte : 9.40 Go (projections 7.75 + portés 1.65)
+chargé en 479.0 s — A/B graph : éager contre replay, prealloc(256), stream frais, events off
+capture : OK — le pas de décodage est un graph rejouable
+premier lancement consommé à blanc (le diag l'a mesuré inexact)
+gate replay pur : ROUGE (divergence au token 7) — essai de l'hybride
+gate HYBRIDE : 128 tokens identiques — on chronomètre l'hybride (1er token éager, replay ensuite)
+
+5 paires de rounds entrelacées, 128 tokens identiques partout
+  éager (prealloc)    46.9 tok/s [46.7–47.0]
+  graph (replay)      49.8 tok/s [49.6–49.9]
+  r = graph/éager = 1.0609 [1.0602–1.0611]  (formé round par round)
+
+  lecture gelée (préreg de phase 802006c5) : gain bout-en-bout
+  ≥ 8 % → adopté · < 3 % → clos · entre : point de courbe.
+  ⚠️ le net contre la config v1 = ce gain − 0,83 % (coût de la base fixe, é1b).
