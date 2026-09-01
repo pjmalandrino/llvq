@@ -183,6 +183,187 @@ fn main() -> anyhow::Result<()> {
             std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
         );
 
+        // ---- A2 étapes 2+3 : la capture, et l'A/B graph-contre-éager ----
+        //
+        // `LLVQ_GRAPH_AB=1` : UN modèle sur un stream FRAIS (le NULL legacy ne
+        // se capture pas), event tracking coupé AVANT toute allocation (la
+        // leçon graphbench du 08-06 : un événement étranger invalide la
+        // capture). Les deux bras partagent tout — poids, caches, StepState,
+        // buffer de logits — et ne diffèrent que par UNE chose : le pas de
+        // décodage est exécuté éagerment, ou rejoué depuis le graph capturé.
+        // Gate de justesse d'abord (tokens identiques partout), chiffres
+        // ensuite, round par round. Préreg de phase 802006c5 (seuils gelés).
+        if std::env::var("LLVQ_GRAPH_AB").ok().as_deref() == Some("1") {
+            use candle_core::IndexOp;
+            use llvq_llm::kvq::KvStore;
+            let w = match kv_store {
+                KvStore::Prealloc(w) => w,
+                KvStore::Cat => anyhow::bail!(
+                    "LLVQ_GRAPH_AB=1 exige LLVQ_KV_PREALLOC=<fenêtre> : les formes \
+                     fixes sont ce qui rend le pas capturable"
+                ),
+            };
+            // Le device du mode : stream frais + tracking coupé, AVANT toute
+            // allocation. Le `device` du protocole publié (créé plus haut)
+            // n'est pas touché ; celui-ci le remplace pour ce mode seulement.
+            let device = Device::new_cuda_with_stream(0)?;
+            let stream = device.as_cuda_device()?.cuda_stream();
+            unsafe { stream.context().disable_event_tracking() };
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            f.model.set_kv_store(kv_store);
+            println!(
+                "chargé en {:.1} s — A/B graph : éager contre replay, prealloc({w}), stream frais, events off",
+                t.elapsed().as_secs_f64()
+            );
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            if ids.len() + n_new > w {
+                anyhow::bail!("fenêtre {w} < {} + {n_new} tokens", ids.len());
+            }
+            let vocab = f.model.config().vocab_size;
+            let mut caches = f.model.fresh_caches();
+            // Le préfill dimensionne les buffers ; step_state ARME ensuite le
+            // chemin d'écriture capturable (jamais avant : l'écriture
+            // multi-positions du préfill reste sur slice_set).
+            let prefill = |model: &llvq_llm::model::Qwen3,
+                           caches: &mut [llvq_llm::model::KvCache]|
+             -> anyhow::Result<u32> {
+                for c in caches.iter_mut() {
+                    c.reset();
+                }
+                let input = candle_core::Tensor::from_slice(&ids, (1, ids.len()), &device)?;
+                let h = model.hidden_cached(&input, 0, caches, &mut NoCapture)?;
+                let l = h.dim(1)?;
+                let last = h.narrow(1, l - 1, 1)?;
+                let logits = model.project_head(&last)?.to_dtype(candle_core::DType::F32)?;
+                Ok(logits.i((0, 0))?.argmax(candle_core::D::Minus1)?.to_scalar::<u32>()?)
+            };
+            let first = prefill(&f.model, &mut caches)?;
+            let st = f.model.step_state(&mut caches)?;
+            let logits_out =
+                candle_core::Tensor::zeros((1usize, 1, vocab), candle_core::DType::F32, &device)?;
+            // LE pas — identique au bit près entre les deux bras : ce que le
+            // bras éager exécute est ce que la capture a enregistré.
+            let step = |model: &llvq_llm::model::Qwen3,
+                        caches: &mut [llvq_llm::model::KvCache]|
+             -> anyhow::Result<()> {
+                let lg = model.token_step(&st, caches, &mut NoCapture)?;
+                logits_out.slice_set(&lg.to_dtype(candle_core::DType::F32)?, 0, 0)?;
+                Ok(())
+            };
+            let read_next = || -> anyhow::Result<u32> {
+                Ok(logits_out
+                    .i((0, 0))?
+                    .argmax(candle_core::D::Minus1)?
+                    .to_scalar::<u32>()?)
+            };
+            // Chauffe : une génération éager complète (allocateur, cuBLAS,
+            // fréquences) — jetée.
+            let gen_eager = |f: &llvq_llm::fused_cuda::FusedSealed,
+                             caches: &mut [llvq_llm::model::KvCache]|
+             -> anyhow::Result<Vec<u32>> {
+                let mut next = prefill(&f.model, caches)?;
+                let mut offset = ids.len();
+                let mut out = Vec::with_capacity(n_new);
+                loop {
+                    out.push(next);
+                    if out.len() == n_new {
+                        return Ok(out);
+                    }
+                    f.model.refresh_step(&st, next, offset)?;
+                    step(&f.model, caches)?;
+                    next = read_next()?;
+                    offset += 1;
+                }
+            };
+            let warm = gen_eager(&f, &mut caches)?;
+            // LA CAPTURE : préparer l'état du premier pas réel, enregistrer le
+            // pas (le corps s'exécute côté hôte, le device ENREGISTRE sans
+            // exécuter), puis le graph est rejouable à chaque token.
+            let next0 = prefill(&f.model, &mut caches)?;
+            f.model.refresh_step(&st, next0, ids.len())?;
+            let graph = {
+                let fm = &f.model;
+                let cs = &mut caches;
+                let mut err: Option<anyhow::Error> = None;
+                let g = llvq_cuda::gpu::capture_on(&stream, || {
+                    // LE MÊME `step` que le bras éager : ce que la capture
+                    // enregistre est, à l'octet près, ce que l'éager exécute.
+                    if let Err(e) = step(fm, cs) {
+                        err = Some(e);
+                        return Err("le corps de la capture a échoué".to_string());
+                    }
+                    Ok(())
+                });
+                if let Some(e) = err {
+                    return Err(e.context("pendant la capture"));
+                }
+                g.map_err(|e| anyhow::anyhow!("{e}"))?
+            };
+            println!("capture : OK — le pas de décodage est un graph rejouable");
+            let gen_graph = |f: &llvq_llm::fused_cuda::FusedSealed,
+                             caches: &mut [llvq_llm::model::KvCache]|
+             -> anyhow::Result<Vec<u32>> {
+                let mut next = prefill(&f.model, caches)?;
+                let mut offset = ids.len();
+                let mut out = Vec::with_capacity(n_new);
+                loop {
+                    out.push(next);
+                    if out.len() == n_new {
+                        return Ok(out);
+                    }
+                    f.model.refresh_step(&st, next, offset)?;
+                    graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
+                    next = read_next()?;
+                    offset += 1;
+                }
+            };
+            // Gate de justesse AVANT tout chrono.
+            let g0 = gen_graph(&f, &mut caches)?;
+            if let Some(i) = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))? {
+                anyhow::bail!(
+                    "GATE ROUGE : le chemin graph diverge de l'éager au token {i} — \
+                     l'inventaire de StepState est incomplet, on ne chronomètre pas"
+                );
+            }
+            println!("gate : {} tokens identiques éager/graph — on chronomètre", warm.len());
+            let _ = first;
+            let (mut r_e, mut r_g, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
+            for round in 0..ROUNDS_TIMED {
+                let t = Instant::now();
+                let oe = gen_eager(&f, &mut caches)?;
+                let te = n_new as f64 / t.elapsed().as_secs_f64();
+                let t = Instant::now();
+                let og = gen_graph(&f, &mut caches)?;
+                let tg = n_new as f64 / t.elapsed().as_secs_f64();
+                for (o, name) in [(&oe, "éager"), (&og, "graph")] {
+                    if let Some(i) = first_divergence(&warm, o).map_err(|e| anyhow::anyhow!("{e}"))? {
+                        anyhow::bail!("round {round}, {name} : divergence au token {i}");
+                    }
+                }
+                r_e.push(te);
+                r_g.push(tg);
+                ratios.push(tg / te);
+            }
+            let (me, le, he) = rate_stats(&r_e);
+            let (mg, lg2, hg) = rate_stats(&r_g);
+            let (mr, lr, hr) = rate_stats(&ratios);
+            println!("\n{ROUNDS_TIMED} paires de rounds entrelacées, {} tokens identiques partout", warm.len());
+            println!("  éager (prealloc)  {me:6.1} tok/s [{le:.1}–{he:.1}]");
+            println!("  graph (replay)    {mg:6.1} tok/s [{lg2:.1}–{hg:.1}]");
+            println!("  r = graph/éager = {mr:.4} [{lr:.4}–{hr:.4}]  (formé round par round)");
+            println!("\n  lecture gelée (préreg de phase 802006c5) : gain bout-en-bout");
+            println!("  ≥ 8 % → adopté · < 3 % → clos · entre : point de courbe.");
+            println!("  ⚠️ le net contre la config v1 = ce gain − 0,83 % (coût de la base fixe, é1b).");
+            return Ok(());
+        }
+
         // ---- A2 étape 1 : l'A/B prealloc-contre-cat, intra-processus ----
         //
         // `LLVQ_KV_AB=1` court-circuite le protocole publié : UN modèle fusé

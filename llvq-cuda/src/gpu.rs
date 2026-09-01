@@ -285,27 +285,7 @@ impl Cuda {
         &self,
         body: impl FnOnce() -> Result<(), String>,
     ) -> Result<cudarc::driver::CudaGraph, String> {
-        self.stream
-            .begin_capture(cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_RELAXED)
-            .map_err(|e| format!("begin_capture: {e}"))?;
-        // A failure inside `body` leaves the stream in capture mode, so the
-        // capture is closed on both paths before the error is returned.
-        let r = body();
-        let ended = self
-            .stream
-            .end_capture(cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH);
-        // The body's error first. `end_capture` fails *because* of it —
-        // `CUDA_ERROR_STREAM_CAPTURE_INVALIDATED` means "a previous operation
-        // failed", and reporting that instead swallows the cause. Cost of
-        // getting this wrong: one billed job that says nothing useful.
-        r?;
-        let g = ended.map_err(|e| format!("end_capture: {e}"))?;
-        let g = g.ok_or_else(|| {
-            "le driver n'a rien capturé — stream NULL legacy ? (cf. new_on_fresh_stream)"
-                .to_string()
-        })?;
-        g.upload().map_err(|e| format!("graph upload: {e}"))?;
-        Ok(g)
+        capture_on(&self.stream, body)
     }
 
     /// Compile `src` onto an **existing** stream — candle's, in practice.
@@ -766,6 +746,31 @@ impl Cuda {
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_f16: {e}"))?;
         Ok(())
     }
+}
+
+/// Capture whatever `body` launches on `stream` into a replayable graph —
+/// the free-standing form of [`Cuda::capture`], for callers that own a stream
+/// without owning a [`Cuda`] (fusedrun's graph mode captures on CANDLE's
+/// stream). Same contract, word for word: `Relaxed` mode, capture closed on
+/// both error paths, the body's error reported first, `None` from the driver
+/// surfaced as the legacy-NULL-stream message, `upload()` before return.
+pub fn capture_on(
+    stream: &Arc<CudaStream>,
+    body: impl FnOnce() -> Result<(), String>,
+) -> Result<cudarc::driver::CudaGraph, String> {
+    stream
+        .begin_capture(cudarc::driver::sys::CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_RELAXED)
+        .map_err(|e| format!("begin_capture: {e}"))?;
+    let r = body();
+    let ended = stream
+        .end_capture(cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH);
+    r?;
+    let g = ended.map_err(|e| format!("end_capture: {e}"))?;
+    let g = g.ok_or_else(|| {
+        "le driver n'a rien capturé — stream NULL legacy ? (cf. new_on_fresh_stream)".to_string()
+    })?;
+    g.upload().map_err(|e| format!("graph upload: {e}"))?;
+    Ok(g)
 }
 
 fn row_grid(d_out: u32, threads: u32, shared: u32) -> LaunchConfig {

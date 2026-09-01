@@ -46,6 +46,10 @@ fn main() -> anyhow::Result<()> {
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
+    // The stepped (capturable) decode path — stable buffers, scatter write.
+    // Only meaningful over a preallocated store; `generate_stepped` refuses
+    // otherwise, by name.
+    let stepped = std::env::var("LLVQ_STEPPED").ok().as_deref() == Some("1");
 
     let mut s = llvq_llm::sealed::load(&path, dtype, &device, kv_mode)?;
     s.model.set_kv_store(kv_store);
@@ -56,10 +60,11 @@ fn main() -> anyhow::Result<()> {
     );
     println!("── model");
     println!(
-        "   running at dtype {}, kv {}, kv_store {}",
+        "   running at dtype {}, kv {}, kv_store {}{}",
         llvq_llm::eval::dtype_name(dtype),
         kv_mode.name(),
-        kv_store.label()
+        kv_store.label(),
+        if stepped { " (stepped)" } else { "" }
     );
     println!(
         "   {:.3} GB on disk against {:.3} GB in FP16  →  ×{:.2}",
@@ -80,7 +85,11 @@ fn main() -> anyhow::Result<()> {
             .get_ids()
             .to_vec();
         let t = std::time::Instant::now();
-        let out = s.model.generate(&ids, n_new, &mut NoCapture)?;
+        let out = if stepped {
+            s.model.generate_stepped(&ids, n_new)?
+        } else {
+            s.model.generate(&ids, n_new, &mut NoCapture)?
+        };
         let secs = t.elapsed().as_secs_f64();
         let text = s
             .tokenizer
