@@ -1,9 +1,11 @@
-# Pré-enregistrement — A2 (CUDA Graphs) et A3 (occupation) — BROUILLON
+# Pré-enregistrement — A2 (CUDA Graphs) et A3 (occupation) — 2026-08-31/09-01
 
-> 🚨 **NON TAMPONNÉ — BROUILLON du 2026-08-31.** Les parts d'A1 sont
-> **remplies** (§3, mesurées le soir même : r = 0,8158, bande mixte). Restent
-> avant le tampon : **l'arbitrage des critères d'A3** (§5, marqués
-> PROPOSITION) et **l'ordre A2/A3** (§3, proposition faite). Règle une fois tamponné : ce document ne s'édite
+> ✅ **ARBITRÉ ET FIGÉ le 2026-09-01.** Écrit en brouillon le 2026-08-31 au
+> soir (priors et kill d'abord, parts d'A1 remplies le soir même : r =
+> 0,8158, bande mixte), arbitré par l'opérateur le 2026-09-01 : **A2
+> d'abord**, et les critères d'A3 du §5 sont adoptés tels que proposés.
+> Tampon posé à la suite — AVANT la première milliseconde de tout job A2 ou
+> A3, comme ce document l'exige. Règle une fois tamponné : ce document ne s'édite
 > plus jamais ; écarts →
 > `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, nommé ici
 > d'avance. **Tampon exigé avant la première milliseconde d'un job A2 ou A3.**
@@ -68,8 +70,9 @@ A1 (préreg vague 2 §A1, tamponné `e23e9895…`) rend
   **mesuré directement** (Δ = 0,406 ms pour 108 lancements = **3,76
   µs/lancement**, *calculé* — cohérent avec les 3,63 µs du lot A du 08-06),
   le pool d'occupation est le **plancher résiduel à 144 lancements, 1,794
-  ms**, plus gros mais sans mécanisme unique. ⚖️ PROPOSITION : A2 d'abord —
-  son pool est certain et son critère tranche vite ; à arbitrer.
+  ms**, plus gros mais sans mécanisme unique. ✅ **Arbitré le 2026-09-01
+  (opérateur) : A2 d'abord** — son pool est certain et son critère tranche
+  vite.
 - part par-lancement implicite : **0,406 ms** des **2,200 ms** du plancher
   252 pour les 108 lancements retirés ; extrapolée linéairement aux 252,
   **0,947 ms ≈ 43 %** (*calculé*, hypothèse de linéarité DÉCLARÉE — seule la
@@ -98,18 +101,25 @@ A1 (préreg vague 2 §A1, tamponné `e23e9895…`) rend
   **< 3 % → clos** ; entre les deux : point de courbe, non adopté, la ligne ne
   se rouvre pas sans fait neuf. La comparaison est **intra-job**, médiane sur
   5 rounds avec plage, tokens gloutons identiques exigés entre bras.
+- 🚨 **Règle `check_fuse`, transposée** : les deux bras de l'A/B portent la
+  **même préallocation KV** — le graph est la SEULE variable. Comparer
+  « graph + prealloc » au chemin actuel ferait bouger deux mécanismes ; si la
+  préallocation seule a un coût ou un gain, il se mesure dans son propre A/B
+  (prealloc contre `Tensor::cat`, sans graph), avant.
 - **Coût** : ~0,25 $ de carte (*estimé*, plan :149) + le dev.
 
 ## §5 — A3 : variantes d'occupation — ⚠️ PROPOSITION, à arbitrer avant tampon
 
 Le plan (:150) donne l'objet — 2-3 bras de banc : multi-lignes par bloc,
-matvec persistant — mais **aucun critère chiffré n'existe nulle part** pour
-A3, et aucun design doc. Proposition à arbitrer :
+matvec persistant — mais aucun critère chiffré n'existait avant ce document.
+✅ **Adoptés le 2026-09-01 (opérateur), tels que proposés :**
 
 - **Étage banc (gate d'entrée au port)** : un bras d'occupation doit battre
-  `planes14` (formes servies, même processus, protocole planesbench) de
-  **≥ 10 %** pour mériter son port dans `fusedrun`. Sous 10 %, point de
-  courbe, pas de port — le port coûte des jours et le bout-en-bout dilue.
+  **`planes14` en géométrie FUSÉE (144 lancements — la géométrie servie v1)**,
+  formes servies, même processus, protocole planesbench, de **≥ 10 %** pour
+  mériter son port dans `fusedrun`. Sous 10 %, point de courbe, pas de port —
+  le port coûte des jours et le bout-en-bout dilue. Battre la géométrie à 252
+  ne compte pas : ce serait re-mesurer la fusion.
 - **Étage bout-en-bout (adoption)** : mêmes seuils qu'A2 — **≥ 8 % adopté,
   < 3 % clos** — pour qu'aucun des deux bras ne soit avantagé par son barème.
 - ⚠️ F1 borne l'attente par-noyau ; l'hypothèse d'A3 est l'**inter-noyau**
