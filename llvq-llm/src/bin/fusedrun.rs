@@ -324,6 +324,43 @@ fn main() -> anyhow::Result<()> {
                     offset += 1;
                 }
             };
+            // Mode diagnostic : chaque token fait replay PUIS éager sur le
+            // MÊME état (le scatter ré-écrit la même position avec les mêmes
+            // valeurs — idempotent), les deux vecteurs de logits sont
+            // comparés en entier, et les canaux de StepState sont relus
+            // DEPUIS LE DEVICE après le refresh. Ce que ça discrimine : un
+            // canal figé par valeur (les relectures sont justes, le replay
+            // est faux, l'éager est juste), une corruption d'allocateur
+            // (logits massivement différents), ou une dérive numérique
+            // (écart petit et croissant).
+            if std::env::var("LLVQ_GRAPH_DIAG").ok().as_deref() == Some("1") {
+                let mut next = prefill(&f.model, &mut caches)?;
+                let mut offset = ids.len();
+                for tok in 0..12usize {
+                    f.model.refresh_step(&st, next, offset)?;
+                    let inp: u32 = st.debug_input()?;
+                    let pos: u32 = st.debug_pos()?;
+                    graph.launch().map_err(|e| anyhow::anyhow!("graph launch: {e}"))?;
+                    let lg_graph: Vec<f32> = logits_out.flatten_all()?.to_vec1()?;
+                    let ng = read_next()?;
+                    step(&f.model, &mut caches)?;
+                    let lg_eager: Vec<f32> = logits_out.flatten_all()?.to_vec1()?;
+                    let ne = read_next()?;
+                    let maxd = lg_graph
+                        .iter()
+                        .zip(&lg_eager)
+                        .map(|(a, b)| (a - b).abs())
+                        .fold(0f32, f32::max);
+                    println!(
+                        "  diag t{tok:02} : input={inp} pos={pos} · graph→{ng} éager→{ne} \
+                         {} · max|Δlogits|={maxd:.3e}",
+                        if ng == ne { "==" } else { "≠≠ DIVERGENT" },
+                    );
+                    next = ne;
+                    offset += 1;
+                }
+                anyhow::bail!("diagnostic terminé — pas de chrono en mode DIAG");
+            }
             // Gate de justesse AVANT tout chrono.
             let g0 = gen_graph(&f, &mut caches)?;
             if let Some(i) = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))? {

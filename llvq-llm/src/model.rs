@@ -1696,6 +1696,17 @@ pub struct StepState {
     w: usize,
 }
 
+impl StepState {
+    /// Device read-backs for the graph diagnostics: what the buffers ACTUALLY
+    /// contain after a refresh — not what the host believes it wrote.
+    pub fn debug_input(&self) -> Result<u32> {
+        self.input.flatten_all()?.to_vec1::<u32>().map(|v| v[0])
+    }
+    pub fn debug_pos(&self) -> Result<u32> {
+        self.pos_idx.flatten_all()?.to_vec1::<u32>().map(|v| v[0])
+    }
+}
+
 /// The causal mask at an imposed key width `w >= offset + l` — free-standing
 /// so the unit tests can exercise the exact object the model uses, not a
 /// re-derivation of it. Columns past `offset + i` are −inf: the causal rule
