@@ -1,0 +1,50 @@
+A2 — LE VERDICT : LE GRAPH REND +13,45 % [13,36–13,58] BOUT-EN-BOUT, LA
+BRANCHE « ADOPTÉ » DES SEUILS GELÉS EST ATTEINTE (2026-09-01)
+
+Préreg de phase : proofs/preregistration-a2-a3-geometrie-2026-08-31.md
+(802006c5…, seuils gelés le 09-01 : ≥ 8 % adopté · < 3 % clos).
+Préreg d'exécution : preregistration-a2-etapes2-3-graph-2026-09-01.md
+(af6c12d2…, trois gates ordonnés) et ses ÉCARTS É1-É2.
+Job : 6a96d5e1…, l40sx1, 0,09 $. Brut : a2-e3-graph-ab-2026-09-01.txt,
+vérifié identique aux logs avant usage.
+
+== LA MESURE ==
+Un processus, un modèle (config v1 + store étendu é1b), un StepState, un
+buffer de logits ; 5 paires de rounds entrelacées ; la SEULE variable :
+exécuter le pas ou rejouer le graph. Gate de justesse d'abord :
+  gate replay pur : ROUGE (divergence au token 2 — cf. É2, mystère borné)
+  gate HYBRIDE   : 128 tokens IDENTIQUES, re-vérifiés à chaque round
+  éager (base fixe é1b)    99,2 tok/s [99,1–99,2]
+  graph (hybride, replay)  112,5 tok/s [112,4–112,6]
+  r = 1,1345 [1,1336–1,1358]   (formé round par round)
+
+== LA LECTURE, DANS LES TERMES GELÉS ==
++13,45 % ≥ 8 % : BRANCHE « ADOPTÉ », plage entière au-dessus du seuil.
+Net contre la config servie v1 : +13,45 − 0,83 (coût mesuré de la base
+fixe, é1b) = **+12,6 %** — c'est le net qui entre au kill de phase, et il
+le franchit à lui seul (A1+A2+A3 < 8 % → axe clos : l'axe est OUVERT).
+Le prior déclaré (~7 % de plafond optimiste, « clos ou point de courbe
+attendu ») est RÉFUTÉ dans le sens favorable : le replay récupère aussi le
+par-lancement des ~750 lancements candle, pas seulement celui de nos 288.
+
+== CE QUE « ADOPTÉ » ENGAGE, ET QUI N'EST PAS CE JOB ==
+Le seuil d'adoption est franchi ; l'adoption DANS LA CONFIG SERVIE est une
+décision d'opérateur avec sa discipline propre (la même que le gel v1) :
+  1. la forme adoptable est l'HYBRIDE (1er token de décodage éager, replay
+     ensuite) sur store étendu à fenêtre fixe — nommer ces DEUX mécanismes ;
+  2. transfert aux 8B/14B à rejouer (la leçon vague 2 : les trois tailles
+     ou aucune) ;
+  3. la fenêtre (256 ici) devient un paramètre de service — sa politique
+     pour les contextes longs est à écrire ;
+  4. surfaces à aligner le jour du gel v2.
+En chiffres bruts : la config v1 rendait 100,6 [99,9–100,7] ; le chemin
+graph-hybride rend 112,5 [112,4–112,6] sur la même carte — mais le rapport
+propre est le +12,6 % net ci-dessus, pas un quotient de jobs différents.
+
+== GARDE-FOUS ==
+· Le replay PUR n'est pas servi : il diverge au premier pas post-préfill
+  (É2, hypothèse workspace cuBLAS étiquetée comme telle) — l'hybride le
+  contourne par construction et c'est LUI qui est mesuré.
+· Les deux bras incluent le préfill (protocole fusedrun) : dilution vers 1
+  déclarée au préreg — le +13,45 % la contient déjà.
+· Chiffres L40S ; aucun × inter-cartes ne se divise.

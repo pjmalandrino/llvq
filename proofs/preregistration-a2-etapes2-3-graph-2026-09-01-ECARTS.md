@@ -23,3 +23,18 @@ blanc, sur l'état de la capture, que chaque génération re-préfille) ; en
 secours un mode HYBRIDE (premier token de décodage éager, replay ensuite),
 les deux gates imprimés, le chrono sur le bras qui passe. Le protocole et
 la lecture du préreg sont inchangés.
+
+## É2 — Le replay pur reste rouge APRÈS le lancement jetable ; l'HYBRIDE est la forme qui passe (2026-09-01, job 6a96d5e1…)
+
+Le correctif d'É1 (lancement jetable post-capture) n'a PAS suffi : le replay
+pur diverge encore au token 2. Le fait mesuré se précise donc : ce n'est pas
+« le premier lancement du graph » qui est inexact, c'est **le premier replay
+qui SUIT un préfill** (le diag d'É1 avait son préfill juste avant t00 ; le
+jetable, lui, précédait le préfill du round). Mécanisme le plus compatible,
+étiqueté HYPOTHÈSE : un état de bibliothèque re-façonné par les GEMM l=5 du
+préfill (workspace cuBLAS) que le premier replay l=1 retrouve autrement
+qu'à la capture. **L'hybride le contourne par construction** : le premier
+token de décodage s'exécute en éager (il « atterrit » l'état post-préfill),
+tous les suivants se rejouent — et rend **128 tokens identiques, 5 rounds,
+partout**. C'est la forme chronométrée et c'est la forme adoptable ; le
+mystère résiduel du replay-pur est documenté, pas bloquant.
