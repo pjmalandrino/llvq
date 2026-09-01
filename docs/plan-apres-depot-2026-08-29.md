@@ -151,6 +151,20 @@ noyaux, pas dedans.**
 | **A4 — A100, géométrie gagnante** | lever (ou borner proprement) la réserve « résultat Ada » du papier | 0,9 $ (banc + fusedrun, a100-large) | bras réseau ≥ FP16 sur A100 = la plus grosse réserve du papier saute ; sinon, l'attribution horloge de lot G s'étend et la réserve devient un mécanisme |
 
 **Budget : ~2 $ nominal, plafond 4 $.**
+
+> ✅ **Pointage du 2026-09-01** : **A1 FAIT** (r = 0,8158 [0,8150–0,8162],
+> bande MIXTE — ni A2 ni A3 éliminé, parts publiées : 3,76 µs/lancement,
+> plancher résiduel 1,794 ms ; 0,01 $ — `mesures/a1-nullk-252-144-2026-08-31.txt`).
+> **A4 FAIT** (aucun bras réseau ≥ 1,00× FP16 sur A100 → la réserve Ada est
+> un MÉCANISME à deux points, étendu à la géométrie fusée ; la fusion
+> transfère, ×1,063 [1,062–1,067], et r = 0,8198 y est invariant à 0,5 % ;
+> 0,83 $ — `mesures/a4-a100-2026-08-31.txt`). **Ordre arbitré : A2 d'abord**
+> (opérateur, 2026-09-01). Le kill ci-dessous n'est plus une prose : il est
+> **ancré et tamponné** au préreg A2/A3
+> (`proofs/preregistration-a2-a3-geometrie-2026-08-31.md`, sha256 802006c5…),
+> avec les critères d'A3 (banc ≥ 10 % contre planes14 FUSÉ, puis
+> ≥ 8 %/< 3 % bout-en-bout).
+
 **Kill de phase** (à ancrer avant A1) : si A1 + A2 + A3 rendent < 8 %
 cumulés bout-en-bout, l'axe géométrie **sous candle** est clos par mesure ;
 le gisement restant est le moteur lui-même, et « servir dans un autre
