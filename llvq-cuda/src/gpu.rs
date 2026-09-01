@@ -77,6 +77,13 @@ pub struct DeviceReport {
     /// Same rule as `l2_bytes` above — the driver publishes it, so it is read.
     pub shared_per_block_optin: i32,
     pub shared_per_sm: i32,
+    /// The two other residency limits an SM has, read for the same reason
+    /// `shared_per_sm` is: the persistent arms of A3 size their grid to what
+    /// the card holds resident (`crate::occ::residency`), and the 1 536
+    /// threads / 65 536 registers of an L40S are a fixture in a test, never
+    /// a constant in the launcher.
+    pub max_threads_per_sm: i32,
+    pub regs_per_sm: i32,
     pub clock_khz: i32,
     pub mem_clock_khz: i32,
     pub mem_bus_bits: i32,
@@ -328,6 +335,8 @@ impl Cuda {
                 Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
             )?,
             shared_per_sm: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_MULTIPROCESSOR)?,
+            max_threads_per_sm: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR)?,
+            regs_per_sm: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_MULTIPROCESSOR)?,
             clock_khz: a(Attr::CU_DEVICE_ATTRIBUTE_CLOCK_RATE)?,
             mem_clock_khz: a(Attr::CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE)?,
             mem_bus_bits: a(Attr::CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH)?,
@@ -425,6 +434,12 @@ impl Cuda {
 
     pub fn up_u16(&self, v: &[u16]) -> Result<CudaSlice<u16>, String> {
         self.stream.clone_htod(v).map_err(|e| format!("H2D u16: {e}"))
+    }
+
+    /// The site table of A3's persistent-global arm: device pointers and
+    /// packed `u32` pairs, eight `u64` a site (`crate::occ::site_words`).
+    pub fn up_u64(&self, v: &[u64]) -> Result<CudaSlice<u64>, String> {
+        self.stream.clone_htod(v).map_err(|e| format!("H2D u64: {e}"))
     }
 
     pub fn zeros_u32(&self, n: usize) -> Result<CudaSlice<u32>, String> {

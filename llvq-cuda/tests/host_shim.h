@@ -59,10 +59,22 @@ static inline float __shfl_xor_sync(unsigned, float v, int) { return v; }
 static inline unsigned __shfl_up_sync(unsigned, unsigned v, unsigned, int = 32) { return v; }
 static inline float __shfl_up_sync(unsigned, float v, unsigned, int = 32) { return v; }
 struct uint4 { unsigned x, y, z, w; };
+// The split-K fixup of `planes_occ.cu` (A3): a device-wide fence, an
+// unsigned ticket counter and the barrier-plus-OR. Same standing as the
+// shuffles above — these compile the kernel, they do not model it: a
+// single thread is always "last", and the fence orders nothing. The float
+// `atomicAdd` the overlay probes need is deliberately NOT here; two of them
+// define it locally and a third copy would collide (see `bin/cuhcheck`).
+static inline void __threadfence() {}
+static inline unsigned atomicAdd(unsigned* a, unsigned v) { unsigned o = *a; *a += v; return o; }
+static inline int __syncthreads_or(int p) { return p; }
 
 struct Dim3 { unsigned x, y, z; };
 extern Dim3 blockIdx;
 extern Dim3 threadIdx;
 extern Dim3 blockDim;
+// Read by the persistent kernels of `planes_occ.cu`; a probe that includes
+// them defines it, exactly as it defines the three above.
+extern Dim3 gridDim;
 
 #endif  // LLVQ_HOST_SHIM_H

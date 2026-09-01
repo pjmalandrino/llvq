@@ -72,7 +72,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk — `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"* — so they need no list of their own.
-const UNITS: [(&str, &[&str], &str); 14] = [
+const UNITS: [(&str, &[&str], &str); 15] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32 — le layout de repli"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14 — le layout servi"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x — l'overlay épars"),
@@ -91,6 +91,9 @@ const UNITS: [(&str, &[&str], &str); 14] = [
     ("rotate.cu", &["rotate.cu"], "la rotation, hors boucle"),
     ("e1v.cu", &["e1v.cu"], "le matvec fusé, E1v aligné ligne (P1c)"),
     ("nullk.cu", &["nullk.cu"], "le plancher : même passe, aucun poids lu (P4)"),
+    // A3. Its `#ifndef` guards pull matvec.cu and llvq_planes.cuh from disk;
+    // the seven entry points instantiate every template the device build will.
+    ("planes_occ.cu", &["planes_occ.cu"], "A3 : les variantes d'occupation du Planes14 fusé"),
 ];
 
 fn main() {

@@ -46,6 +46,12 @@ pub mod arms;
 // noticed was a billed job — which is how it was found (0,24 $, 2026-08-17).
 pub mod shared;
 
+// Portable for the reason `shared` is: the A3 occupancy arms size their grids,
+// slices and shared memory here, and the bench that launches them is
+// `cfg(linux)` — a grid one CTA short would corrupt on a rented card without
+// a log line, so the arithmetic is tested where tests are free.
+pub mod occ;
+
 // Portable because it can be: the QTIP comparison arm's host codec names no
 // crate at all — not even `llvq-core` — so unlike the other `*_host.rs` files
 // it is a module rather than an `include!`, and its tests run on the

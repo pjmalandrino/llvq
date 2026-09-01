@@ -282,6 +282,26 @@ mod linux {
         }
     }
 
+    /// A3 — the occupancy arms of the fusion section (`kernels/planes_occ.cu`,
+    /// préreg `proofs/preregistration-a2-a3-geometrie-2026-08-31.md` §5). A
+    /// separate file for the reason planes_seg.cu gives: the translation unit
+    /// `fused_cuda.rs` ships must not move for a bench's convenience. Same
+    /// `LLVQ_KERNEL_DIR` contract as every loader above.
+    const PLANES_OCC_CU_EMBED: &str = include_str!("../../kernels/planes_occ.cu");
+
+    fn load_planes_occ_source() -> Result<(String, Option<String>), String> {
+        match std::env::var("LLVQ_KERNEL_DIR") {
+            Err(_) => Ok((PLANES_OCC_CU_EMBED.to_string(), None)),
+            Ok(dir) => {
+                let cu = std::fs::read_to_string(
+                    std::path::Path::new(&dir).join("planes_occ.cu"),
+                )
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : planes_occ.cu : {e}"))?;
+                Ok((cu, Some(dir)))
+            }
+        }
+    }
+
     /// Même contrat pour la copie gelée v1 — surcharger le TÉMOIN est
     /// possible mais annoncé aussi bruyamment que les autres : un témoin
     /// silencieusement remplacé ne témoigne plus de rien.
@@ -586,6 +606,140 @@ mod linux {
         b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_seg: {e}"))?;
+        Ok(())
+    }
+
+    // ---- A3 : les lanceurs des bras d'occupation (kernels/planes_occ.cu) ----
+    //
+    // Chaque grille et chaque taille de partagée vient de `llvq_cuda::occ`,
+    // testé sur le Mac ; ici on ne fait que les poser dans un LaunchConfig.
+    // Les noyaux n'ont pas de garde de bornes (un `return` avant
+    // `__syncthreads()` bloque), donc une grille inexacte est refusée EN AMONT
+    // par `occ::mr_grid`, jamais rattrapée sur la carte.
+
+    /// Les bras à signature `tv_planes_seg` — `tv_planes_pad`, `_mr2`, `_mr4`,
+    /// `_mr2p` — sur une grille explicite : un noyau multi-lignes lance
+    /// `d_out / (8R)` CTAs, ce que `row_grid` ne sait pas exprimer.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_occ_seg(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        name: &str,
+        words: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        grid: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (grid, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: shared,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("{name}: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_planes_pers(…, ngroups)` — la grille persistante par site.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_occ_pers(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        ngroups: u32,
+        grid: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (grid, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: shared,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w).arg(&ngroups);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_pers: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_planes_sk(…, part, done, nsplit, d_out)` — split-K entre CTAs :
+    /// `(d_out / 8) · nsplit` CTAs, les partiels dans `part`, un compteur de
+    /// tickets par groupe dans `done` (remis à zéro par le noyau lui-même).
+    #[allow(clippy::too_many_arguments)]
+    fn launch_occ_sk(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        part: &mut cudarc::driver::CudaSlice<f32>,
+        done: &mut cudarc::driver::CudaSlice<u32>,
+        nblocks: u32,
+        tail_w: u32,
+        nsplit: u32,
+        d_out: u32,
+        grid: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (grid, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: shared,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(tab).arg(gscale).arg(gs_off).arg(rscale).arg(tail).arg(x).arg(y)
+            .arg(&nblocks).arg(&tail_w).arg(part).arg(done).arg(&nsplit).arg(&d_out);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_sk: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_planes_persall(sites, nsites, tab, x, total_groups)` — les sites
+    /// d'un round en UN lancement, la table de sites portant les pointeurs
+    /// (dont la sortie propre de chaque site).
+    #[allow(clippy::too_many_arguments)]
+    fn launch_occ_persall(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        sites: &cudarc::driver::CudaSlice<u64>,
+        nsites: u32,
+        tab: &cudarc::driver::CudaSlice<u32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        total_groups: u32,
+        grid: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (grid, 1, 1),
+            block_dim: (THREADS, 1, 1),
+            shared_mem_bytes: shared,
+        };
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(sites).arg(&nsites).arg(tab).arg(x).arg(&total_groups);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes_persall: {e}"))?;
         Ok(())
     }
 
@@ -932,6 +1086,24 @@ mod linux {
                 println!("  phase {}/{} : {}", k + 1, phases.len(), p.label());
             }
         }
+        // A3 : les bras d'occupation de la section Fusion. Parsés ICI, avant
+        // le moindre transcodage, pour qu'un nom faux tue le job dans sa
+        // première seconde et non après ses trois minutes de construction.
+        // Non posée = les quatre bras historiques seuls, table inchangée.
+        let seg_arms =
+            llvq_cuda::occ::parse_seg_arms(std::env::var("LLVQ_SEG_ARMS").ok().as_deref())?;
+        if !seg_arms.is_empty() {
+            if !(union.has(arms::SLOT32) && union.has(arms::PLANES14)) {
+                return Err("LLVQ_SEG_ARMS : la section Fusion exige slot32 ET planes14 dans \
+                            LLVQ_BENCH_ARMS — sans eux il n'y a ni flux fusé ni dénominateur"
+                    .to_string());
+            }
+            println!(
+                "section Fusion, bras A3 (LLVQ_SEG_ARMS) : {} — appendés APRÈS les quatre \
+                 historiques, mêmes rounds, mêmes tampons",
+                seg_arms.iter().map(|&a| llvq_cuda::occ::SEG_ARM_NAMES[a]).collect::<Vec<_>>().join(",")
+            );
+        }
         let g70_needed = union.has(arms::GOLAY70V1) || union.has(arms::GOLAY70V2);
 
         // Parts concatenated in dependency order: llvq_planes.cuh needs
@@ -953,6 +1125,11 @@ mod linux {
         // Le plancher (P4 §2.5). Il n'a pas d'en-tête à lui : `matvec.cu` lui
         // suffit, et il est concaténé après tout le reste comme tout arrivant.
         let nullk = llvq_cuda::load_sources_many(&["nullk.cu"])?;
+        // A3 (2026-09-01). Toujours dans l'unité, sélectionné ou non — l'unité
+        // ne varie jamais avec la sélection (arms.rs) — et son sha256 bouge
+        // donc pour TOUS les bras : la référence 4,504 ms de F2 ne se reporte
+        // pas, le job re-chronomètre `planes14_seg` dans son propre processus.
+        let (occcu, occ_overridden) = load_planes_occ_source()?;
         // QTIP (F2). Absent unless `ops/fetch-qtip.sh` has run and
         // `LLVQ_KERNEL_DIR` points at its output; the empty strings below then
         // contribute nothing to the translation unit — and, deliberately,
@@ -988,6 +1165,13 @@ mod linux {
             e1v.parts[0].as_str(),
             e1v.parts[1].as_str(),
             nullk.parts[0].as_str(),
+            // A3 après nullk : il n'a besoin que de matvec.cu et de
+            // llvq_planes.cuh, déjà en tête. Inséré AVANT le fragment QTIP,
+            // qui n'est présent que sur une machine ayant fait le fetch — un
+            // fragment à nous ne doit pas dépendre d'un fragment optionnel
+            // qui le précéderait. L'ordre relatif des fragments existants ne
+            // bouge pas d'un cran.
+            occcu.as_str(),
             // QTIP last, and for the rule that has governed every arrival:
             // adding an arm must never reorder the fragments of the arms that
             // produced a published number. The device half first, then our
@@ -1023,6 +1207,9 @@ mod linux {
         }
         if let Some(d) = &nullk.overridden_from {
             println!("  ⚠️ SOURCE nullk SURCHARGÉE depuis {d}");
+        }
+        if let Some(d) = &occ_overridden {
+            println!("  ⚠️ SOURCE A3 (planes_occ.cu) SURCHARGÉE depuis {d}");
         }
         match &qtip_src {
             Some(_) => println!(
@@ -1082,6 +1269,18 @@ mod linux {
             // chiffre mesure autre chose (pré-enregistrement E1v-CUDA §5.4).
             "tv_e1v",
             "tv_nullk",
+            // A3 : les sept noyaux d'occupation, rapportés même quand aucun
+            // bras n'est sélectionné — c'est la seule preuve que NVRTC les
+            // accepte, et `mr4` (quatre planes_dot en vol par lane) est le
+            // candidat désigné au spill. Un spill d'un bras A3 NON
+            // sélectionné se déclare sans arrêter la table (ci-dessous).
+            "tv_planes_pad",
+            "tv_planes_mr2",
+            "tv_planes_mr4",
+            "tv_planes_mr2p",
+            "tv_planes_pers",
+            "tv_planes_sk",
+            "tv_planes_persall",
         ]
         .iter()
         .copied()
@@ -1115,6 +1314,17 @@ mod linux {
                     println!(
                         "  ⚠️ {name} SPILLE {} o — bras concurrent porté tel que livré, \
                          mesuré quand même et déclaré (préreg F2 §7 A1)",
+                        r.local_bytes
+                    );
+                } else if llvq_cuda::occ::SEG_KERNEL.contains(&name)
+                    && !seg_arms.iter().any(|&a| llvq_cuda::occ::SEG_KERNEL[a] == name)
+                {
+                    // Un bras A3 qui spille ET que personne ne chronomètre :
+                    // un fait à consigner, pas une raison de priver la table
+                    // de ses cinq bras. Sélectionné, il tombe dans le `else`.
+                    println!(
+                        "  ⚠️ {name} SPILLE {} o — bras A3 NON sélectionné, rien ne le \
+                         chronomètre ; à corriger avant de le sélectionner",
                         r.local_bytes
                     );
                 } else {
@@ -2738,6 +2948,11 @@ mod linux {
         // sélection sans slot32 ou sans planes14, elle n'a ni flux à
         // concaténer ni bras séparé à qui comparer — elle saute, et le dit.
         let a4_on = union.has(arms::SLOT32) && union.has(arms::PLANES14);
+        if srcs.is_empty() && !seg_arms.is_empty() {
+            return Err("LLVQ_SEG_ARMS : les bras A3 exigent un modèle — la section Fusion \
+                        n'existe pas sur le chemin synthétique"
+                .to_string());
+        }
         if !srcs.is_empty() && !a4_on {
             println!(
                 "\n  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la \
@@ -2899,6 +3114,323 @@ mod linux {
                 fused.iter().map(|f| f.d_out).sum::<usize>()
             );
 
+            // ---- A3 : les bras d'occupation (préreg §5, sha256 802006c5…) ----
+            //
+            // Appendés APRÈS les quatre bras historiques et dans les MÊMES
+            // rounds, sur les MÊMES tampons : un bras A3 relit `pwords` des
+            // groupes fusés et des matrices o/down — il n'ajoute pas un octet
+            // de flux résident, seulement ses partiels et ses compteurs
+            // (< 0,4 Mo) et, pour persall, sa table de sites et une sortie
+            // propre (4,4 Mo). Le dénominateur du gate (préreg §5 : ≥ 10 %
+            // contre planes14 en géométrie FUSÉE) est la ligne « Planes14,
+            // q+k+v et gate+up fusés » RE-MESURÉE dans ce processus ; le
+            // 4,504 ms de F2 cadre le seuil, il ne le porte pas — autre
+            // processus, autre unité de traduction (note de design §4).
+            use llvq_cuda::occ;
+            let occ_on = !seg_arms.is_empty();
+            // Un site = un lancement de la géométrie fusée, dans l'ordre de
+            // dispatch du bras de référence : les groupes fusés, puis o/down.
+            enum OccRef<'a> {
+                Fused(&'a FusedMat),
+                Mat(&'a Mat),
+            }
+            struct OccSite<'a> {
+                name: String,
+                d_out: u32,
+                nblocks: u32,
+                tail_w: u32,
+                words: &'a cudarc::driver::CudaSlice<u32>,
+                gscale: &'a cudarc::driver::CudaSlice<f32>,
+                /// `None` : matrice non fusionnée, la table nulle sert.
+                gs_off: Option<&'a cudarc::driver::CudaSlice<u32>>,
+                rscale: &'a cudarc::driver::CudaSlice<f32>,
+                tail: &'a cudarc::driver::CudaSlice<f32>,
+                /// Indices dans `mats` des matrices dont ce site est la sortie.
+                parts: Vec<usize>,
+                r: OccRef<'a>,
+            }
+            // `gs_off` d'une matrice non fusionnée : la table nulle, partagée —
+            // chaque ligne pointe sur l'index 0 de la paire de sa matrice, ce
+            // que `tv_planes` lit sans table. Un chargement warp-uniforme de
+            // plus par ligne que le bras de référence sur o/down : c'est
+            // l'écart `tv_planes_seg` / `tv_planes`, un registre.
+            let d_gs0 = if occ_on { Some(cuda.zeros_u32(a4_dout)?) } else { None };
+            let mut sites: Vec<OccSite<'_>> = Vec::new();
+            if occ_on {
+                for fm in &fused {
+                    sites.push(OccSite {
+                        name: fm.name.clone(),
+                        d_out: fm.d_out as u32,
+                        nblocks: fm.nblocks as u32,
+                        tail_w: fm.tail_w as u32,
+                        words: &fm.pwords,
+                        gscale: &fm.gscale,
+                        gs_off: Some(&fm.gs_off),
+                        rscale: &fm.rscale,
+                        tail: &fm.tail,
+                        parts: fm.parts.clone(),
+                        r: OccRef::Fused(fm),
+                    });
+                }
+                for (i, m) in mats.iter().enumerate() {
+                    if fused.iter().any(|f| f.parts.contains(&i)) {
+                        continue;
+                    }
+                    let a = m.planes.as_ref().expect("bras planes14 non construit");
+                    sites.push(OccSite {
+                        name: m.name.clone(),
+                        d_out: m.d_out as u32,
+                        nblocks: m.nblocks as u32,
+                        tail_w: m.tail_w as u32,
+                        words: a.pwords.dev(),
+                        gscale: &m.gscale,
+                        gs_off: None,
+                        rscale: &m.rscale,
+                        tail: &m.tail,
+                        parts: vec![i],
+                        r: OccRef::Mat(m),
+                    });
+                }
+            }
+            let occ_f: Vec<Option<cudarc::driver::CudaFunction>> = (0..occ::N_SEG_ARMS)
+                .map(|a| match seg_arms.contains(&a) {
+                    true => cuda.func(occ::SEG_KERNEL[a]).map(Some),
+                    false => Ok(None),
+                })
+                .collect::<Result<_, _>>()?;
+            // La résidence, LUE : les registres du noyau chargé, les trois
+            // limites de la carte. Un modèle (granularité d'allocation
+            // ignorée), imprimé à côté de la grille qu'il dimensionne.
+            let shared_ref = occ::shared_bytes(TILE_BLOCKS as u32, 1, occ::XS_DIM);
+            let slots_of = |kernel: &str| -> Result<(u32, u32, u32), String> {
+                let r = cuda.report(kernel)?;
+                let per_sm = occ::residency(
+                    r.num_regs as u32,
+                    THREADS,
+                    shared_ref,
+                    dev.max_threads_per_sm as u32,
+                    dev.regs_per_sm as u32,
+                    dev.shared_per_sm as u32,
+                );
+                if per_sm == 0 {
+                    return Err(format!(
+                        "{kernel} : aucune résidence possible ({} registres, {shared_ref} o)",
+                        r.num_regs
+                    ));
+                }
+                Ok((r.num_regs as u32, per_sm, per_sm * dev.sm_count as u32))
+            };
+            let (ref_regs, ref_per_sm, ref_slots) =
+                if occ_on { slots_of("tv_planes_seg")? } else { (0, 0, 0) };
+            let (pers_regs, pers_per_sm, pers_slots) =
+                if seg_arms.contains(&occ::PERS) { slots_of("tv_planes_pers")? } else { (0, 0, 0) };
+            let (pall_regs, pall_per_sm, pall_slots) =
+                if seg_arms.contains(&occ::PERSALL) { slots_of("tv_planes_persall")? } else { (0, 0, 0) };
+            // Les partiels et les tickets des bras split-K : dimensionnés sur
+            // le pire site au facteur 2, zéro au départ, remis à zéro par le
+            // noyau — aucun memset dans le chrono.
+            let occ_part_len = sites
+                .iter()
+                .map(|s| occ::sk_nsplit(s.nblocks, 2) as usize * s.d_out as usize)
+                .max()
+                .unwrap_or(0);
+            let occ_groups_max = sites
+                .iter()
+                .map(|s| (s.d_out / occ::ROWS_PER_CTA) as usize)
+                .max()
+                .unwrap_or(0);
+            let mut d_part = if occ_part_len > 0 { Some(cuda.zeros_f32(occ_part_len)?) } else { None };
+            let mut d_done = if occ_groups_max > 0 { Some(cuda.zeros_u32(occ_groups_max)?) } else { None };
+            // persall : la table de sites et une sortie PROPRE par site — la
+            // sortie partagée `d_y` ne peut pas servir à 144 sites d'un même
+            // lancement. Les groupes sont numérotés dans l'ordre des sites.
+            let occ_total_groups: u32 = sites.iter().map(|s| s.d_out / occ::ROWS_PER_CTA).sum();
+            let occ_total_rows: usize = sites.iter().map(|s| s.d_out as usize).sum();
+            let mut d_y_all = if seg_arms.contains(&occ::PERSALL) {
+                Some(cuda.zeros_f32(occ_total_rows.max(1))?)
+            } else {
+                None
+            };
+            let (d_sites, site_row0): (Option<cudarc::driver::CudaSlice<u64>>, Vec<usize>) =
+                if let Some(yall) = d_y_all.as_mut() {
+                    use cudarc::driver::{DevicePtr, DevicePtrMut};
+                    let gs0 = d_gs0.as_ref().expect("table nulle non allouée");
+                    let mut words: Vec<u64> = Vec::with_capacity(sites.len() * occ::SITE_WORDS);
+                    let mut row0s = Vec::with_capacity(sites.len());
+                    let (ybase, _yg) = yall.device_ptr_mut(cuda.stream());
+                    let (mut g0, mut r0) = (0u32, 0usize);
+                    for s in &sites {
+                        let (wp, _a) = s.words.device_ptr(cuda.stream());
+                        let (gp, _b) = s.gscale.device_ptr(cuda.stream());
+                        let (op, _c) = s.gs_off.unwrap_or(gs0).device_ptr(cuda.stream());
+                        let (rp, _d) = s.rscale.device_ptr(cuda.stream());
+                        let (tp, _e) = s.tail.device_ptr(cuda.stream());
+                        let ng = s.d_out / occ::ROWS_PER_CTA;
+                        words.extend_from_slice(&occ::site_words(
+                            wp,
+                            gp,
+                            op,
+                            rp,
+                            tp,
+                            ybase + (r0 as u64) * 4,
+                            s.nblocks,
+                            s.tail_w,
+                            g0,
+                            ng,
+                        ));
+                        row0s.push(r0);
+                        g0 += ng;
+                        r0 += s.d_out as usize;
+                    }
+                    (Some(cuda.up_u64(&words)?), row0s)
+                } else {
+                    (None, Vec::new())
+                };
+            // Le lancement d'un bras A3 sur un site — la grille et la partagée
+            // viennent de `occ`, testé ; ici on ne fait que les poser.
+            let occ_launch = |a: usize,
+                              s: &OccSite<'_>,
+                              y: &mut cudarc::driver::CudaSlice<f32>,
+                              part: &mut Option<cudarc::driver::CudaSlice<f32>>,
+                              done: &mut Option<cudarc::driver::CudaSlice<u32>>|
+             -> Result<(), String> {
+                let f = occ_f[a].as_ref().expect("bras A3 non résolu");
+                let gs_off = s.gs_off.unwrap_or_else(|| d_gs0.as_ref().expect("table nulle"));
+                let xs = occ::XS_STRIDE[a];
+                match a {
+                    occ::PAD | occ::MR2 | occ::MR4 | occ::MR2P => {
+                        let grid = occ::mr_grid(s.d_out, THREADS, occ::ROWS_PER_WARP[a])
+                            .map_err(|e| format!("{} / {} : {e}", occ::SEG_ARM_NAMES[a], s.name))?;
+                        launch_occ_seg(
+                            &cuda, f, occ::SEG_KERNEL[a], s.words, &d_tab, s.gscale, gs_off,
+                            s.rscale, s.tail, &d_x, y, s.nblocks, s.tail_w, grid,
+                            occ::shared_bytes(s.nblocks, 1, xs),
+                        )
+                    }
+                    occ::PERS => {
+                        let ngroups = s.d_out / occ::ROWS_PER_CTA;
+                        launch_occ_pers(
+                            &cuda, f, s.words, &d_tab, s.gscale, gs_off, s.rscale, s.tail, &d_x,
+                            y, s.nblocks, s.tail_w, ngroups, occ::pers_grid(ngroups, pers_slots),
+                            occ::shared_bytes(s.nblocks, 1, xs),
+                        )
+                    }
+                    occ::SK1 | occ::SK2 => {
+                        let nsplit = occ::sk_nsplit(s.nblocks, occ::SK_FACTOR[a]);
+                        let grid = (s.d_out / occ::ROWS_PER_CTA) * nsplit;
+                        launch_occ_sk(
+                            &cuda, f, s.words, &d_tab, s.gscale, gs_off, s.rscale, s.tail, &d_x,
+                            y, part.as_mut().expect("partiels non alloués"),
+                            done.as_mut().expect("compteurs non alloués"), s.nblocks, s.tail_w,
+                            nsplit, s.d_out, grid, occ::shared_bytes(s.nblocks, nsplit, xs),
+                        )
+                    }
+                    _ => Err(format!(
+                        "{} ne se lance pas site par site",
+                        occ::SEG_ARM_NAMES[a]
+                    )),
+                }
+            };
+            let occ_launch_all = || -> Result<(), String> {
+                let f = occ_f[occ::PERSALL].as_ref().expect("bras persall non résolu");
+                let table = d_sites.as_ref().expect("table de sites non téléversée");
+                launch_occ_persall(
+                    &cuda, f, table, sites.len() as u32, &d_tab, &d_x, occ_total_groups,
+                    occ::pers_grid(occ_total_groups, pall_slots), shared_ref,
+                )
+            };
+
+            // Justesse d'abord, contre le bras de référence de CE processus :
+            // bit pour bit partout où l'ordre d'accumulation est le sien (tout
+            // sauf les sites scindés de sk), la référence f64 au seuil du banc
+            // sur les sites scindés. Une tolérance là où l'égalité est due
+            // laisserait passer un `gs_off` faux ; l'égalité là où
+            // l'association change refuserait un noyau juste.
+            if occ_on {
+                println!(
+                    "\n  Occupation (A3) — justesse : {} bras, {} sites, {} lignes",
+                    seg_arms.len(),
+                    sites.len(),
+                    occ_total_rows
+                );
+                let mut got_ref: Vec<Vec<f32>> = Vec::with_capacity(sites.len());
+                for s in &sites {
+                    match s.r {
+                        OccRef::Fused(fm) => run_planes_seg(fm, &mut d_y)?,
+                        OccRef::Mat(m) => run_planes(m, &mut d_y)?,
+                    }
+                    cuda.sync()?;
+                    let v = cuda.down_f32(&d_y)?;
+                    got_ref.push(v[..s.d_out as usize].to_vec());
+                }
+                let mismatch = |arm: &str, s: &OccSite<'_>, got: &[f32], want: &[f32]| -> String {
+                    let bad = (0..want.len()).find(|&r| got[r] != want[r]).unwrap_or(0);
+                    format!(
+                        "{arm} / {} : ligne {bad} vaut {} contre {} pour tv_planes_seg",
+                        s.name, got[bad], want[bad]
+                    )
+                };
+                for &a in &seg_arms {
+                    let (mut exact_rows, mut tol_rows, mut worst) = (0usize, 0usize, 0.0f64);
+                    if a == occ::PERSALL {
+                        occ_launch_all()?;
+                        cuda.sync()?;
+                        let all = cuda.down_f32(d_y_all.as_ref().expect("sortie persall"))?;
+                        for (k, s) in sites.iter().enumerate() {
+                            let got = &all[site_row0[k]..site_row0[k] + s.d_out as usize];
+                            if got != got_ref[k].as_slice() {
+                                return Err(mismatch("persall", s, got, &got_ref[k]));
+                            }
+                            exact_rows += s.d_out as usize;
+                        }
+                    } else {
+                        for (k, s) in sites.iter().enumerate() {
+                            occ_launch(a, s, &mut d_y, &mut d_part, &mut d_done)?;
+                            cuda.sync()?;
+                            let v = cuda.down_f32(&d_y)?;
+                            let got = &v[..s.d_out as usize];
+                            let exact = occ::BIT_EXACT[a]
+                                || occ::sk_site_bit_exact(s.nblocks, occ::SK_FACTOR[a]);
+                            if exact {
+                                if got != got_ref[k].as_slice() {
+                                    return Err(mismatch(occ::SEG_ARM_NAMES[a], s, got, &got_ref[k]));
+                                }
+                                exact_rows += s.d_out as usize;
+                            } else {
+                                let mut want = Vec::with_capacity(s.d_out as usize);
+                                let mut scale = Vec::with_capacity(s.d_out as usize);
+                                for &pi in &s.parts {
+                                    want.extend_from_slice(&mats[pi].y_ref);
+                                    scale.extend_from_slice(&mats[pi].scale);
+                                }
+                                let e = worst_error(got, &want, &scale);
+                                if e > TOL {
+                                    return Err(format!(
+                                        "{} / {} : pire erreur {e:.2e}·Σ|w·x| au-dessus du seuil {TOL:.0e}",
+                                        occ::SEG_ARM_NAMES[a],
+                                        s.name
+                                    ));
+                                }
+                                worst = worst.max(e);
+                                tol_rows += s.d_out as usize;
+                            }
+                        }
+                    }
+                    println!(
+                        "  {:<8} {exact_rows} lignes identiques AU BIT près à tv_planes_seg{}",
+                        occ::SEG_ARM_NAMES[a],
+                        if tol_rows > 0 {
+                            format!(
+                                " ; {tol_rows} lignes scindées à {worst:.1e}·Σ|w·x| contre la \
+                                 référence f64 (seuil {TOL:.0e})"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+            }
+
             // Cost. Four arms, interleaved in every round, same process: LLVQ
             // against LLVQ on each layout, and the two layouts against each
             // other. No FP16 arm, deliberately — fusing the FP16 witness would
@@ -2906,6 +3438,9 @@ mod linux {
             // fused-LLVQ / unfused-FP16 ratio would credit the format for a
             // geometry change. Every number below is a DELTA, not a ratio.
             let mut tf: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            // A3 : une série par bras sélectionné, remplie dans les MÊMES
+            // rounds que les quatre ci-dessus, après eux.
+            let mut tn: Vec<Vec<f64>> = vec![Vec::new(); seg_arms.len()];
             for rep in 0..ROUNDS {
                 for (arm, ta) in tf.iter_mut().enumerate() {
                     let tin = Instant::now();
@@ -2949,8 +3484,29 @@ mod linux {
                         ta.push(s);
                     }
                 }
+                // A3 : les bras d'occupation, après les quatre historiques,
+                // dans le même round — jamais dans une boucle à part, sinon
+                // le dénominateur viendrait de rounds qu'ils n'ont pas vécus.
+                for (k, &a) in seg_arms.iter().enumerate() {
+                    let tin = Instant::now();
+                    if a == occ::PERSALL {
+                        occ_launch_all()?;
+                    } else {
+                        for s in &sites {
+                            occ_launch(a, s, &mut d_y, &mut d_part, &mut d_done)?;
+                        }
+                    }
+                    cuda.sync()?;
+                    let t = tin.elapsed().as_secs_f64();
+                    if rep >= WARMUP {
+                        tn[k].push(t);
+                    }
+                }
             }
             let [ts, tss, tp, tps] = tf;
+            // La série de référence des bras A3, round par round, gardée
+            // avant que `spread` ne consomme `tps`.
+            let tps_ref = tps.clone();
             // Deltas formed ROUND BY ROUND, exactly as the ratios are: a
             // difference of two minima taken from rounds that never coexisted
             // is the mistake this repository documents.
@@ -3058,6 +3614,122 @@ mod linux {
                  gagnerait\n  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ \
                  ci-dessus sont mesurés."
             );
+
+            // ---- A3 : le gate, dans les termes gelés avant le job ----
+            if occ_on {
+                println!(
+                    "\n  Occupation (A3) — {ROUNDS} rounds, {WARMUP} jetés, bras entrelacés APRÈS les \
+                     quatre ci-dessus, médianes\n  dénominateur du gate (préreg §5) : « Planes14, \
+                     q+k+v et gate+up fusés » de CE processus = {:.3} ms\n  lecture gelée AVANT le \
+                     job (ÉCARTS É1) : gain = (t_ref − t) / t_ref, formé ROUND PAR ROUND ; \
+                     ≥ 10 % sur TOUTE la plage = passe\n  {}",
+                    p_fus * 1e3,
+                    "-".repeat(78)
+                );
+                for (k, &a) in seg_arms.iter().enumerate() {
+                    let (lo, md, hi) = spread(tn[k].clone());
+                    let gain: Vec<f64> =
+                        tps_ref.iter().zip(&tn[k]).map(|(r, t)| (r - t) / r).collect();
+                    let dms: Vec<f64> =
+                        tps_ref.iter().zip(&tn[k]).map(|(r, t)| (r - t) * 1e3).collect();
+                    let (g_lo, g_md, g_hi) = spread(gain);
+                    let (d_lo, d_md, d_hi) = spread(dms);
+                    let launches = if a == occ::PERSALL { 1 } else { n_fus };
+                    let verdict = if g_lo >= 0.10 {
+                        "PASSE le gate banc (plage entière ≥ 10 %)"
+                    } else if g_hi < 0.10 {
+                        "sous le gate : point de courbe, pas de port"
+                    } else {
+                        "plage à cheval sur 10 % — NON RÉSOLU"
+                    };
+                    println!(
+                        "  {:<44}{:>8.3} ms [{:.3}–{:.3}]   {launches} lancements",
+                        occ::SEG_DISPLAY[a],
+                        md * 1e3,
+                        lo * 1e3,
+                        hi * 1e3
+                    );
+                    println!(
+                        "      gain {:+.2} % [{:+.2} ; {:+.2}]   Δ {:+.3} ms [{:+.3} ; {:+.3}]   → {verdict}",
+                        g_md * 100.0,
+                        g_lo * 100.0,
+                        g_hi * 100.0,
+                        d_md,
+                        d_lo,
+                        d_hi
+                    );
+                }
+                println!("  {}", "-".repeat(78));
+                println!(
+                    "  résidence lue — tv_planes_seg {ref_regs} registres → {ref_per_sm} CTAs/SM × {} SM = \
+                     {ref_slots} emplacements{}{}",
+                    dev.sm_count,
+                    if pers_slots > 0 {
+                        format!(" ; tv_planes_pers {pers_regs} reg → {pers_per_sm}/SM = {pers_slots}")
+                    } else {
+                        String::new()
+                    },
+                    if pall_slots > 0 {
+                        format!(" ; tv_planes_persall {pall_regs} reg → {pall_per_sm}/SM = {pall_slots}")
+                    } else {
+                        String::new()
+                    }
+                );
+                // La géométrie de chaque bras sur chaque FORME (CTAs par
+                // lancement, vagues sur les emplacements lus) — calculée,
+                // imprimée pour que le lecteur voie ce que chaque bras change.
+                let mut shapes: Vec<&OccSite<'_>> = Vec::new();
+                for s in &sites {
+                    if !shapes.iter().any(|t| t.d_out == s.d_out && t.nblocks == s.nblocks) {
+                        shapes.push(s);
+                    }
+                }
+                let ctas_of = |a: Option<usize>, s: &OccSite<'_>| -> Option<u32> {
+                    let groups = s.d_out / occ::ROWS_PER_CTA;
+                    match a {
+                        None => Some(groups),
+                        Some(occ::PAD) => Some(groups),
+                        Some(x @ (occ::MR2 | occ::MR4 | occ::MR2P)) => {
+                            occ::mr_grid(s.d_out, THREADS, occ::ROWS_PER_WARP[x]).ok()
+                        }
+                        Some(occ::PERS) => Some(occ::pers_grid(groups, pers_slots)),
+                        Some(x @ (occ::SK1 | occ::SK2)) => {
+                            Some(groups * occ::sk_nsplit(s.nblocks, occ::SK_FACTOR[x]))
+                        }
+                        Some(_) => None,
+                    }
+                };
+                let mut head = format!("  {:<10}", "géométrie");
+                for s in &shapes {
+                    head.push_str(&format!("{:>18}", format!("{}×{}", s.d_out, s.nblocks * 24 + s.tail_w)));
+                }
+                println!("{head}   (CTAs, vagues sur {ref_slots})");
+                let line = |label: &str, a: Option<usize>| {
+                    let mut l = format!("  {label:<10}");
+                    for s in &shapes {
+                        match ctas_of(a, s) {
+                            Some(c) => {
+                                let (w, _) = occ::waves(c, ref_slots.max(1));
+                                l.push_str(&format!("{:>18}", format!("{c} ({w:.2})")));
+                            }
+                            None => l.push_str(&format!("{:>18}", "1 lancement")),
+                        }
+                    }
+                    println!("{l}");
+                };
+                line("référence", None);
+                for &a in &seg_arms {
+                    line(occ::SEG_ARM_NAMES[a], Some(a));
+                }
+                println!(
+                    "  ⚠️ persall : UN lancement pour les {n_fus} sites — bras de BANC ; le chemin servi \
+                     ne peut pas l'utiliser\n  (rotation, attention et normes entre les sites), il \
+                     borne ce qu'A2+A3 réunis peuvent viser, il ne se porte pas.\n  arithmétique \
+                     posée d'avance (note de design §4) : les 144 matvec pèsent ~45 % du token servi \
+                     v1, donc 10 % ici ≈ +4,5 %\n  bout-en-bout — entre 3 et 8, point de courbe ; \
+                     l'adoption (≥ 8 %) demande ~18 % au banc, ou la combinaison avec A2."
+                );
+            }
         }
         Ok(())
     }
