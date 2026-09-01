@@ -13,6 +13,9 @@
 > sont `fichier:ligne` sur l'arbre courant. Ce document **propose** ; il ne
 > tranche rien qui relève de l'opérateur, et il ne rouvre rien de ce que le §1.3
 > liste comme fermé.
+>
+> 🧭 La déclinaison opérationnelle (ordre, gates, coûts, décisions attendues)
+> est dans [`docs/ROADMAP-RECHERCHE.md`](ROADMAP-RECHERCHE.md).
 
 ---
 
