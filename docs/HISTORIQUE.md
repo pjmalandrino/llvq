@@ -31,180 +31,57 @@
 > entrées passées — si un verdict se retourne, on l'écrit dans une entrée
 > nouvelle qui cite l'ancienne.
 
-## État courant (au 2026-08-25)
+## État courant (au 2026-09-01)
 
-✅ **LE PAPIER EST SOUMIS.** ACM TACO, **`TACO-2026-428`**, le **2026-08-24**,
-source au commit **`e21a8bb`** — 21 pages dont 19,55 comptées sur 20, manuscrit
-anonymisé, page de titre séparée. Le bras **QTIP est au corps** (`tab:layouts`,
-`sec:qtip`). ⚠️ **Décision opérateur du 2026-08-25 : le dépôt GitHub RESTE
-PUBLIC**, et la page de titre a été réécrite pour l'expliquer à l'éditeur — le
-manuscrit ne porte aucun lien qui identifie l'auteur, les URL ne sont données
-qu'à l'éditeur pour que l'artefact soit localisable sans que le manuscrit brise
-sa propre anonymité. 🕳️ **Toute phrase du dossier qui dit ou suppose « dépôt
-privé pendant la revue » est périmée** — la note de soumission d'origine la
-portait.
+❌ **LE PAPIER A ÉTÉ RENVOYÉ SANS REVUE PAR TACO LE 2026-08-27** (`TACO-2026-428`,
+motif : le périmètre — aucune revue technique, aucun chiffre contesté ;
+`paper/main.tex:4-7`, commit `209a695`) **et il est DÉPOSÉ EN PRÉPRINT le soir
+même** : Zenodo, DOI de concept **`10.5281/zenodo.22133606`**, v1
+`10.5281/zenodo.22133607`. La venue suivante n'est **pas choisie** — le
+manuscrit est « entre deux venues » (`alignement-v1-restant-2026-08-31.md`).
 
-**Le chemin servi n'a pas bougé, mais il se dit désormais en médianes.** Le
-Qwen3-4B 2 bits rend **87,0 tok/s [86,8–87,0] dans 2,56 Go** (médiane sur
-5 rounds, B2 du 08-18 ; ÷3,14 de mémoire, ×2,00 [1,99–2,00] contre notre bras
-dense). Layout **`Planes14`**, embedding **q8**. 🕳️ Le « 88,4–88,5 tok/s dans
-2,60 Go » que cette ligne portait n'est **pas démenti, il est encadré** : c'était
-un point unique et l'affichage carte arrondi ; l'écart est **−1,6 %**, dans la
-dispersion inter-invocations qu'un point ne pouvait pas voir.
+✅ **LA CONFIG SERVIE v1 EST GELÉE AUX TROIS TAILLES depuis le 2026-08-31** :
+`planes14 + LLVQ_EMBED=q8 + LLVQ_ROT_SHARE=1 + LLVQ_FUSE=1` — **100,6
+[99,9–100,7] / 75,5 [75,5–75,6] / 46,8 [46,7–46,8] tok/s dans 2,57 / 5,41 /
+9,40 Go** (*mesuré*, [`mesures/vague2-fusion-8b-14b-2026-08-31.txt`](mesures/vague2-fusion-8b-14b-2026-08-31.txt) ;
+la cellule 4B vient de D1). Fusion dans la bande tamponnée aux trois tailles
+(×1,061 / ×1,055 / ×1,028) **et sur A100** (×1,063). ⚠️ Ces tok/s se disent
+toujours en deux formulations — le dense au dénominateur est *notre* bras
+handicapé — et **la série à tête identique ×1,11 → ×1,29 → ×1,41 (B2,
+ROT_SHARE=0/FUSE=0) reste LA série qui mesure le noyau : elle n'est PAS
+re-mesurée sous v1.**
 
-✅ **ET LA SÉRIE « À TÊTE IDENTIQUE » — la seule formulation qui mesure le
-noyau — EST COMPLÈTE ET STRICTEMENT CROISSANTE : ×1,11 · ×1,29 · ×1,41** au 4B,
-8B et 14B (B2, 08-18). La cellule 14B que le dossier déclarait inexistante a été
-**mesurée**, pas dérivée. ⚠️ La série **brute** (×2,00 · ×2,57 · ×2,55) n'a
-**aucun ordre** : elle est dominée par le handicap variable de notre bras dense.
-On publie les deux, jamais la brute seule.
+✅ **La vague 2 est COMPLÈTE : 2,17 $ sur un plafond de 5** (*mesuré*,
+[`data/jobs.csv`](data/jobs.csv)). A1 : `r = t(144)÷t(252) = 0,8158
+[0,8150–0,8162]` — bande **mixte**, ni latence pure ni occupation pure, ni A2
+ni A3 éliminé. A4 : **aucun bras réseau ≥ 1,00× FP16 sur A100** (`Planes14`
+0,79×, F4 reproduit au centième) — la réserve Ada du papier est un **mécanisme
+mesuré à deux points** ; et `r` est **invariant entre cartes** (0,8198, temps
+×1,809 ≈ horloges 1,787).
 
-🕳️ **DEUX AFFIRMATIONS DE CET EN-TÊTE SONT MORTES DEPUIS, ET IL FAUT SAVOIR CE
-QU'ELLES DISAIENT.**
+⚠️ **Le point dur reste la QUALITÉ, mais il a désormais un étalon concurrent** :
+IQ2_XXS, premier 2 bits mesuré chez nous, rend **+16,20 pp [+12,64 ; +19,72]**
+de MMLU en notre faveur à 0,37 % de bits d'écart — et **nous bat du double en
+mémoire servie** (2,479 contre 5,162 b/param). Le bruit inter-graines du MMLU
+vaut **σ = 2,92 pp** au 4B — l'échelle de volume de calibration **ne part pas**.
 
-1. 🕳️ « **Plafond absolu de tout travail de format = 4,77× FP16** », dérivé du
-   plancher `nullk` du 2026-08-16. **FAUX, et mesuré faux le 2026-08-21** : le
-   noyau **QTIP** porté dans notre propre banc rend **2,246 ms [2,245–2,248]**
-   en lisant **0,91 Go**, contre **2,306 ms** pour notre passe qui ne lit
-   **aucun octet de poids** — un noyau réel passe **sous** le plancher, de 2,7 %
-   contre une résolution `2R` de 0,72 %. **`nullk` n'est donc pas un plancher
-   machine** : c'est le plancher de **notre géométrie de lancement** (un warp
-   par ligne de sortie, 252 lancements). La formulation de remplacement est
-   celle-là, et elle vaut aussi pour les « 39 % latence/occupation » de
-   l'attribution du 2026-08-05 : **propriétés de notre géométrie, qu'un autre
-   noyau traverse.** Journal :
-   [`mesures/f2-p3-qtip-banc-2026-08-21.txt`](mesures/f2-p3-qtip-banc-2026-08-21.txt).
-   ✅ Le papier est corrigé (`main.tex`, `sections/layouts.tex`) ; les surfaces
-   internes ne l'étaient pas.
-2. 🕳️ « **σ ≈ 0,7 %, tout effet sous ~1,5 % est du bruit** », hérité du lot B du
-   2026-08-06. **Faux d'un facteur ~7 à la taille publiée** : trois runs
-   **complets** du 4B à graines de calibration 1/2/3 rendent **16,7425 /
-   15,8836 / 15,1027** de perplexité scellée f16, soit une **étendue de
-   1,6398 ppl = 10,3 %** et **σ = 0,8202 ppl = 5,2 %** (F5, 21,45 $ *mesurés*,
-   [`mesures/f5-graines-4b-2026-08-19.txt`](mesures/f5-graines-4b-2026-08-19.txt)).
-   Les **trois paires appariées sont résolues** (t = +4,54 / +10,92 / +7,68) :
-   ce n'est pas du bruit d'instrument, c'est de la variance de calibration.
-   ⚠️ **Ce que F5 ne touche pas, et il faut l'écrire avec** : (a) les **A/B à
-   fichier constant** (KV q8, layouts runtime, embedding q8, tous les verdicts
-   de format) **ne recalibrent pas** — leur barre reste l'intervalle apparié à
-   **±0,12 %** ; (b) les trois artefacts 4B/8B/14B ont **tous** tourné sans
-   graine, donc sur le même préfixe contigu — **la courbe d'échelle compare des
-   objets calibrés identiquement et ne porte pas cette variance** ; (c) deux
-   verdicts du lot B (oracle −1,6 %, courbe de volume −1,2 %) tombent désormais
-   **sous le plancher de bruit** sans que leur conclusion — « le volume de
-   calibration est plafonné » — soit renversée.
+🧭 **Prochain chantier : le dev d'A2 (CUDA Graphs), préallocation KV d'abord**,
+sous le préreg arbitré et tamponné du 09-01 (sha256 `802006c5…`, kill de phase
+ancré : < 8 % cumulés A1+A2+A3 → l'axe géométrie sous candle est clos).
 
-❌ **L'axe des FORMATS est refermé, et sur quatre routes, pas une.** E3
-(3,0444 b/poids noyau contre un critère de 2,60, sur papier) · `Golay70` v2
-(1,77× contre 2,0×) · `e1c14` (plus gros une fois aligné au warp, +9,0 % —
-⚠️ **au 4B seulement** : au 14B il passe **sous** `Planes14`, cf. l'entrée du
-2026-08-17) · **E1v (0,25× FP16 sur carte, 2026-08-16)**. **Toutes bornées en
-calcul, aucune en octets.** 🔎 **Et QTIP nomme le mécanisme que ces quatre
-échecs partageaient** : un codebook de **1,1·10¹⁴ points ne tient pas dans une
-table de correspondance**, là où un état de treillis 16 bits y tient (LUT de
-2 Kio) ; l'index de réseau doit donc être **déplié** en flux de plans de bits à
-**4,80 b/poids**, et le noyau paie ces octets à la vitesse mémoire. **Le
-dépliage est imposé par la TAILLE du codebook, pas par un défaut
-d'implémentation** — c'est ce que le papier publie, et c'est contre nous.
-
-🚨 **LE DOMAINE DE VALIDITÉ EST MESURÉ, PAS SUPPOSÉ, DEPUIS LE 2026-08-19.** Sur
-**A100-SXM4-80GB**, **aucun** bras à décodage ne bat FP16 : `Planes14` **0,79×**
-· `Slot32` 0,73× · `Planes12x` 0,73× · `Golay70` v2 0,62× · v1 0,44× — pendant
-que l'AWQ tient 1,82× et cuBLAS 1,14×. Les Go/s effectifs **chutent** (425 → 250
-pour `Planes14`, 428 → 266 pour `Slot32`) : sur cette carte les noyaux de
-décodage sont bornés **calcul**, pas mémoire, et le plancher `nullk` tombe de
-4,79× à **1,68×**
-([`mesures/f4-a100-2026-08-18.txt`](mesures/f4-a100-2026-08-18.txt)). ✅ **Le lot
-G a tranché la cause le 2026-08-23** : L40S **2 520 MHz**, A100 **1 410 MHz**,
-les deux **épinglées au boost max, aucun bridage** — rapport **1,787**, dans le
-critère tamponné [1,60 ; 1,95], et il colle au ralentissement du témoin sans
-lecture (×1,772 au banc G, ×1,781 au banc F4). **Le ×1,78 de la table A100
-_est_ le rapport d'horloges.** ⚠️ Preuve d'**horloge**, pas profil d'occupation
-— les compteurs sont refusés par la plateforme (F3). Conséquence : *« decode at
-matvec speed »* est un résultat **L40S/Ada** à domaine mesuré, ce qui est plus
-fort et plus honnête qu'un point unique.
-
-🆕 **`Planes12x` n'est plus « câblé non servi » au 4B : il est MESURÉ SERVI**
-(G3, 2026-08-23, 0,79 $) — **85,0 tok/s [84,7–85,1] dans 2,36 Go**, ×1,96
-[1,95–1,96] sur le dense, **÷3,41** de mémoire carte, tokens gloutons identiques
-et divergence au token 89. **C'est le point servi le plus compact mesuré** :
-−2,3 % de débit contre `Planes14` pour −0,20 Go de carte.
-
-🆕 **ET LE PREMIER LEVIER HORS FORMAT A ÉTÉ TIRÉ (D1, 2026-08-24, 0,24 $).**
-`q/k/v` et `gate/up` concaténés par lignes font **144 matvec par token au lieu
-de 252** : **×1,061 [1,050–1,069]** à `ROT_SHARE` constant, dans la bande
-[1,00 ; 1,12] posée d'avance, pour **+3 686 400 octets exactement**
-(+0,008117 b/poids). Décomposition, les trois points mesurés sur la même carte :
-**87,0** (servi publié) → **94,9** (hissage de la rotation seul) → **100,6
-[99,9–100,7] tok/s** (plus la fusion). ⚠️ Le 8B et le 14B n'ont **pas** été
-rejoués sous fusion : la table à trois tailles du papier reste sur **une seule**
-configuration.
-
-⚠️ **Le point dur reste la QUALITÉ** : −14,73 pp de MMLU au 4B, −10,56 au 8B,
-**−6,85 au 14B (apparié)**. 🕳️ **Cette ligne ajoutait « la courbe d'échelle a
-un **genou** » — RETIRÉ le 2026-08-17 (matin), puis RENDU LE SOIR SUR UNE SEULE
-DES DEUX MÉTRIQUES.** 🚨 **Le genou n'a pas de verdict unique : il faut nommer
-la métrique.** Sur l'**écart MMLU au 4 bits**, la chute est **résolue du 4B au
-8B (p = 0,0001)** et **NON résolue du 8B au 14B (p = 0,40)** — le ralentissement
-n'y est pas séparé par les barres, et p = 0,40 ne prouve pas l'égalité non plus.
-Sur la **perplexité**, il est **RÉSOLU** (pas1 − pas2 = −0,100992
-[−0,137670 ; −0,064313], t = −6,06, apparié fenêtre par fenêtre). Voir les deux
-entrées du 2026-08-17. ⚠️ **Et F5 mord ici** : ces neuf intervalles portent la
-seule variabilité du **corpus d'évaluation** ; le tirage de **calibration**,
-désormais chiffré à **10,3 % d'étendue**, en est absent aux trois échelles.
-
-✅ **La ligne MÉMOIRE est complète depuis le 2026-08-17** : nous sommes sous
-l'AWQ officiel **aux trois tailles** — 5,162 vs 5,302 (4B) · 5,322 vs 5,956
-(8B) · **5,106 vs 5,404 (14B)**. ⚠️ Marge **non monotone**, mécanisme = part de
-l'embedding. ✅ Le 8B a été **re-scellé depuis le bucket** le 2026-08-18 pour
-**0,24 $** et rejoue son **5,322 b/param au millième**, contre les 12,61 $ de
-requantification que le plan provisionnait.
-
-🆕 **La ligne VITESSE de l'AWQ existe depuis le 2026-08-17 (soir), et elle ne
-remplit toujours aucune case de comparaison.** Premier tok/s vLLM du projet, au
-4B, batch 1 : **200,49** [200,39 ; 200,61] contre son propre témoin f16 à
-**83,09**, soit **×2,413** intra-pile pour 0,11 $ — contre **×1,12** pour nous
-chez nous. 🚨 **Les deux rapports ne se divisent pas** (deux moteurs, vLLM
-contre candle), la cellule vitesse AWQ des tables **reste vide**, et **le
-résultat est contre nous, publié tel quel**. ⚠️ Le bras `awq` forcé ayant lui
-aussi routé vers Marlin, la clause « M = 1 » du 2026-08-10 reste **non testée**.
-Voir l'entrée du 2026-08-17 (second lot du soir). ✅ Le **dénominateur** de tous
-ces rapports est mesuré depuis le 2026-08-18 : notre témoin FP16 maison est à
-**r = 1,024** (2 bras) et **1,015** (5 bras) de cuBLAS sur L40S, sous le seuil
-de 1,05 — **tous les « vs FP16 » publiés tiennent** (F1, 0,08 $).
-
-**Les compteurs, au 2026-08-25** (*mesurés*) : **69** journaux dans
-[`mesures/`](mesures/), **13** CSV dans [`data/`](data/), **73 lignes** dans
-[`data/jobs.csv`](data/jobs.csv) pour **87,36 $ facturés au total** — dont
-**28,56 $ sur 27 jobs depuis le 2026-08-18** —, **22** pré-enregistrements et
-**16** ancrages `.ots` dans [`../proofs/`](../proofs/).
-⚠️ **DETTE, et elle mord là où le dossier revendique la vérifiabilité : aucun
-des 16 `.ots` n'a jamais été upgradé.** Tous portent **4 `PendingAttestation`
-et 0 `BitcoinBlockHeaderAttestation`** (*vérifié par balayage des 16 fichiers le
-2026-08-25*). Ce sont des reçus de calendrier, pas encore des ancrages Bitcoin :
-l'antériorité tient tant que les calendriers répondent, et un `ots upgrade`
-suffirait à la rendre indépendante d'eux.
-
-🚨 **Ce que cet état remplace, et il faut le savoir** : l'« État courant (au
-2026-08-15) » affirmait que la marche binomiale à 0,3101 ns/bloc « franchit le
-gate CUDA de P4 ». **Cette autorisation a été retirée le jour même par P1b**
-— le bras mesuré décodait une marche de 24 créneaux, pas un bloc ; un bloc
-coûte 0,6735 ns contre un gate de 0,45. Voir l'entrée du 2026-08-15 (soir).
-Ce qui survit de cette phrase : l'ouverture de P5 (sa condition porte bien sur
-la marche) et le non-verdict d'E1v par l'archive.
-
-La suite : [`PLAN.md`](PLAN.md) et la passation autonome
-[`archive/passation-2026-08-16.md`](archive/passation-2026-08-16.md) — qui
-**périme le §2** de
-[`archive/passation-e1v-2026-08-15.md`](archive/passation-e1v-2026-08-15.md),
-lequel donne encore E1v comme la branche à suivre. Le plan d'exécution
-[`archive/passation-exec-2026-08-15.md`](archive/passation-exec-2026-08-15.md)
-tient hors de son §2, périmé sur P1.
-⚠️ **Ces trois documents sont antérieurs au 2026-08-18 et portent donc les deux
-affirmations retirées ci-dessus** (plafond 4,77×, σ de 0,7 %) : les lire avec
-cet en-tête à côté.
-
----
+**Compteurs au 2026-09-01** (*mesurés*) : **93 lignes** dans
+[`data/jobs.csv`](data/jobs.csv) pour **91,40 $ facturés** (`awk` sur le CSV) ·
+**86** journaux `.txt` dans [`mesures/`](mesures/) · **13** CSV dans
+[`data/`](data/) · **34** documents et **24** ancrages `.ots` dans
+[`../proofs/`](../proofs/) — **20 ancrés Bitcoin** (audit
+[`mesures/ots-etat-2026-08-27.txt`](mesures/ots-etat-2026-08-27.txt)), les 4
+postérieurs (m3, vague 2, protocole v2, A2/A3) encore en attente de calendrier.
+🕳️ **La fin de ce fichier (entrée du 08-24, §5) répète « aucun des 16 `.ots`
+n'a jamais été upgradé … 0 Bitcoin » : MESURÉ FAUX le 2026-08-26** — le grep ne
+pouvait pas voir les ancres (étiquette binaire de 8 octets), 16 des 20 tampons
+en portaient déjà 3 ou 4 — cf. l'entrée du 08-25→27 et
+[`mesures/ots-etat-2026-08-26.txt`](mesures/ots-etat-2026-08-26.txt). On
+n'édite pas l'entrée passée ; c'est ici que vit le démenti.
 
 ## 2026-07-24 → 07-28 — Fondations : G1→G4, encodeur ×5,4
 
@@ -1815,3 +1692,410 @@ aussi.*
 [`data/jobs.csv`](data/jobs.csv) pour **87,36 $ facturés au total** — dont
 **28,56 $ sur 27 jobs depuis le 2026-08-18**, la quinzaine la plus dense du
 projet —, **22** pré-enregistrements et **16** ancrages `.ots`.
+
+## 2026-08-25 → 08-27 — Le tour de qualité à 0 $, l'instrument des tampons pris en défaut, le desk reject de TACO et le dépôt Zenodo
+
+Trois journées qui se referment sur un renversement d'instrument, un
+renvoi éditorial et un DOI. Dans l'ordre.
+
+✅ **1. LE 08-25 SUR LE MAC (0 $) : LE PARTAGE DES 48 BITS EST GATÉ, PUIS SON
+ÉCHELLE EST RÉFUTÉE PAR SA PROPRE RÉPLICATION.** Étage 1 du gate (86 min de
+Mac, [`mesures/gain-ab-gate-0.6b-2026-08-25.txt`](mesures/gain-ab-gate-0.6b-2026-08-25.txt),
+préreg tamponné avant le premier bras) : à **iso-débit vérifié 2,1656 b/poids**
+sur Qwen3-0.6B/28 blocs, `leech0c13` (0 bit de gain) rend **39,3309 (×2,017)**
+et `leech2c11` (2 bits) **39,5350 (×2,027)** — tous deux **−9 %** sous le
+témoin `leech1c12`, **la configuration servie, pire des trois** (43,4865,
+×2,230). Puis le quatrième barreau `leech4c10` rend **47,1537 (×2,418)** — pire
+des quatre, la prédiction signée fausse par le haut, et la « lecture en U » du
+matin morte en six heures (commit `fb06beb`). ❌ **Et la réplication à
+`LLVQ_CALIB_SEED=1` inverse le classement** : le premier au tirage 1 finit
+dernier au tirage 2, un bras bouge de 13,9 % là où l'écart entre les quatre
+n'était que de 10,6 % — **le bruit dépasse le signal, l'échelle des bits de
+gain est réfutée** (commit `ebd40e6` ; la réserve R1 du préreg, écrite avant la
+première mesure, avait raison).
+🔎 **Ce qui survit et ne dépend d'aucun tirage** : le **biais radial** est
+mesuré ([`mesures/cosdiag-biais-radial-0.6b-2026-08-25.txt`](mesures/cosdiag-biais-radial-0.6b-2026-08-25.txt)) —
+le code de gain quantifie ‖w‖ quand l'optimum à direction fixée est
+‖w‖·cos θ ; surcoût **+3,69 %** à la boule 12 servie, monotone en taille de
+boule (+3,39 → +4,49 % des boules 13 à 10). Pure géométrie, piste gratuite.
+🔎 Et une lecture du PDF amont (commit `8300145`, tables re-rendues en image) :
+**notre cap 12 + 1 bit n'apparaît dans aucune table LLM du papier** — leurs
+résultats LLM n'emploient que Λ₂₄(13)+0 et Λ₂₄(11)+2, et le 0 bit gagne les
+trois métriques sur quatre modèles sur cinq. La configuration que nous servons
+n'a de résultat LLM nulle part, pas même chez les auteurs.
+
+✅ **2. LE BRUIT DE MMLU ENTRE GRAINES EST MESURÉ, ET IL FERME L'ÉCHELLE DE
+VOLUME** (préregs tamponnés `548ad9b` et `b1a0be1` avant le premier job ;
+jobs du 08-25 au soir, 0,58 $, analyse des 25-27/08, entrée au dépôt par
+`e8f9e07` ; [`mesures/bruit-mmlu-graines-4b-2026-08-25.txt`](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)).
+Les trois artefacts 4B complets de F5 (graines 1/2/3, survivants du bucket :
+0,58 $ au lieu de ~21) rendent **58,02 / 52,19 / 55,17 %** de MMLU micro —
+**étendue 5,83 pp, s (n−1) = 2,9154 pp**, deux paires appariées sur trois
+résolues (s1−s2 : +5,83 [+2,70 ; +9,11], McNemar p = 2,4e-06). Les deux
+préregs posaient la même branche : **s > 2,0 pp → on ne lance pas**.
+❌ **L'échelle de volume de calibration NE PART PAS** — ni ×8, ni ×32, ni ×96 ;
+~19 $ économisés, et la prédiction signée (0,5-1,5 pp) est **réfutée**.
+🔎 Détail qui vaut d'être vu : les **rangs s'inversent entre métriques** — la
+graine 1, pire en perplexité (16,7425), est la **meilleure** en MMLU (58,02).
+⚠️ Le premier job est mort en 15 s sur `exit 127` : la commande était
+`['bash', script]` au lieu de `['bash', '-lc', script]` — bash a lu le script
+comme un **nom de fichier**. Relancé 37 min plus tard, vert.
+🕳️ **Et la passation du 08-27 a lu cet échec comme « un job EN VOL, jamais
+récolté », en budgétant 0,49-0,55 $ de relance** ([`plan-cloture-2026-08-27.md`](plan-cloture-2026-08-27.md)
+§L1) — le successeur avait réussi le soir même, deux lignes plus haut dans
+`hf jobs ps -a`. **Cinquième prise de la règle du §7 de CLAUDE.md** (épuiser
+les canaux de rétention avant de chiffrer un rejeu), et cette fois le canal
+n'était ni un bucket ni des logs : la liste des jobs elle-même.
+
+🕳️ **3. LE 08-26 : « AUCUN DES 16 `.OTS` N'A JAMAIS ÉTÉ UPGRADÉ … 0
+`BitcoinBlockHeaderAttestation` » — la ligne que ce fichier porte encore en §5
+de l'entrée du 08-24 — EST MESURÉ FAUX, ET LE DÉFAUT EST DANS L'INSTRUMENT**
+([`mesures/ots-etat-2026-08-26.txt`](mesures/ots-etat-2026-08-26.txt),
+reproductible par `ops/otsaudit.py`, commit `9105ef8`). Le format `.ots`
+stocke le type d'une attestation dans une **étiquette binaire de 8 octets**,
+jamais en texte : `grep BitcoinBlockHeaderAttestation` rend **0 sur un fichier
+qui en porte quatre** — et `grep PendingAttestation` rend **0 aussi**, donc le
+« 4 pending » publié à côté n'avait **jamais été mesuré**, il avait été inféré
+des quatre calendriers puis présenté comme mesuré. *Un instrument qui rend la
+même valeur dans les deux cas ne mesure rien* — la leçon du §5 de CLAUDE.md,
+sur un format au lieu d'un test. État réel : **20 tampons** (pas 16), dont
+**16 portent 3 ou 4 ancres Bitcoin** et 4 (ceux du 08-25) attendent encore.
+⚠️ Le journal établit ce que **les fichiers portent**, pas que la chaîne le
+confirme (403 du proxy ce jour-là) ; les racines de Merkle engagées sont
+imprimées par bloc pour qu'un tiers fasse le dernier pas.
+🚨 **Et une dette réelle apparaît là où celle-ci se referme** : les préregs du
+**08-10 et du 08-11 n'attestent plus de leurs propres octets** — la passe
+d'anonymisation TACO (`01fdbe6`, 2026-08-19) les a réécrits, et **la version
+attestée n'est récupérable sous aucune révision** (les 128 blobs `.md` de
+toute l'histoire git ont été hachés, aucun ne rend les condensats engagés).
+Un tampon dont on a réécrit le document ne se répare pas ; il se déclare.
+✅ Le 08-26 porte aussi le **protocole de variance de calibration** et son plan
+de travaux (`b3362ab` → `1bb7f93`) : le bras scalaire recoupé et réécrit
+(faux sur trois points), et le gate A jugé **inobservable** avant le premier
+run (`ec14526`).
+
+✅ **4. LE 08-27 AU MATIN : LE PROGRAMME DE CLÔTURE** (commit `190d0b7`,
+[`plan-cloture-2026-08-27.md`](plan-cloture-2026-08-27.md)) — **neuf lots,
+9 à 13 $ hors 4B, ~30 h de Mac, onze pistes écartées avec leur raison**, sous
+deux règles : aucun lot ne se justifie par « ça pourrait renverser le
+verdict », et chaque lot porte un gate tamponné avant la mesure. Le pari
+produit reste clos par arithmétique (plafond `Planes14` 3,331× < AWQ mesuré
+3,38×) ; ce que le programme renforce, c'est la **force de l'énoncé de
+fermeture** du manuscrit. ✅ Et l'`ots upgrade` que L1 réclamait est **passé le
+jour même** (réseau ouvert dans cette session) :
+**20 tampons sur 20 portent désormais au moins une ancre Bitcoin**
+([`mesures/ots-etat-2026-08-27.txt`](mesures/ots-etat-2026-08-27.txt) —
+pour le préreg bruit-MMLU : blocs 964047, 964057, 964090, 964094).
+
+❌ **5. LE 08-27 : DESK REJECT DE TACO.** Le manuscrit `TACO-2026-428` est
+**renvoyé sans revue par l'Editor-in-Chief, sur le périmètre** — « returned …
+on 2026-08-27 without review, on scope grounds » (`paper/main.tex:4-7` ;
+commit `209a695`). **Aucun chiffre n'est contesté, aucune revue technique n'a
+eu lieu.** La venue suivante n'est pas choisie.
+
+✅ **6. ET LE PAPIER EST DÉPOSÉ LE SOIR MÊME** (commit `209a695`, 22:14) :
+**Zenodo, DOI de concept `10.5281/zenodo.22133606`, version v1
+`10.5281/zenodo.22133607`** — préprint d'auteur, non relu par les pairs, et le
+PDF le dit. 🔎 **Le piège de la désanonymisation, et il vaut d'être connu** :
+flipper `anonymous`/`review` fait imprimer par `acmart` un bloc « ACM
+Reference Format », l'ISSN 1544-3973, un DOI bidon `10.1145/…` et un pied de
+page « ACM Trans. Arch. Code Optim., Vol. 0 » sur les 21 pages — une fausse
+revendication de publication, **sur un DOI permanent et non supprimable,
+depuis la revue qui vient de renvoyer le papier**. `nonacm=true` retire le
+visible mais **pas le XMP** (`dc:publisher = ACM`), d'où le `\hypersetup`
+explicite. Vérifié **sur le PDF, pas sur la source** : toutes les occurrences
+rendent 0, et le corps est identique au soumis (comparaison des
+multi-ensembles de mots, 0 mot ajouté).
+
+## 2026-08-28 → 08-30 — Le plan d'après-dépôt, puis la campagne « piles isolées » : le premier concurrent 2 bits mesuré chez nous, et un bras concurrent qui ne rend rien de publiable
+
+✅ **1. LE PLAN D'APRÈS-DÉPÔT** (2026-08-29, commit `3bd1d05`,
+[`plan-apres-depot-2026-08-29.md`](plan-apres-depot-2026-08-29.md)) : quatre
+phases chiffrées sur coûts mesurés — **geler la config servie** (~0,25 $),
+**la géométrie de lancement** (~2-4 $, orientée par F1 : le par-noyau est à
+2 % de cuBLAS, le gisement est *entre* les noyaux), **la qualité**
+(~12-25 $ : MMLU de la graine 3, EoRA à budget de bits posé d'avance,
+corpus), puis **les familles** (~17 $ dense, MoE ~65 $ sur go explicite).
+❌ Le mini-papier « calibration de la hessienne » est **enterré** : l'oracle du
+lot B borne la calibration à −1,6 % et F5 montre une variance de graine qui
+écrase damping et volume — raffiner un terme sous le bruit d'un autre. Le
+même jour, des brouillons de diffusion sont écrits sans être publiés (billet
+HF `3b8a144`/`21f0366`, post r/LocalLLaMA `7c550f2`/`a220052` — la
+publication est une décision d'opérateur listée au plan, en attente).
+🕳️ Le soir du 08-29, la « Phase P » fait passer **le port vLLM devant la
+géométrie** (`783aeb0`) — un ordre **renversé le 08-31 par décision
+d'opérateur** (`deaa449`, cf. l'entrée suivante).
+
+✅ **2. LA CAMPAGNE M3/M4 (30-31/08) : 1,29 $ au registre** (*mesuré*,
+[`data/jobs.csv`](data/jobs.csv) — 11 lignes `m3-*`/`m4-*` ; ⚠️ le commit
+`1aad002` et le protocole v2 en comptent **12**, écart d'un job non élucidé
+ici). Préreg tamponné avant le premier job (`250c726`).
+
+**2a. Le gate de l'instrument a rougi une fois — sur NOUS, pas sur lui.**
+Premier job : rouge parce que notre script agrégait en **macro** (72,85) au
+lieu du micro — le défaut du §3ter, refait 25 jours après sa première
+correction ; le dump rapatrié rend **70,36 contre 70,32** et 2 272/2 280
+mêmes picks ([`mesures/m3-gate-mmlu-vllm-2026-08-30.txt`](mesures/m3-gate-mmlu-vllm-2026-08-30.txt)).
+Seconde passe **verte sur les deux bras**
+([`mesures/m3-gate2-mmlu-vllm-2026-08-30.txt`](mesures/m3-gate2-mmlu-vllm-2026-08-30.txt)) :
+**f16 dans vLLM 70,34 % contre 70,32 connu** (0,02 pp), AWQ/Marlin **69,82
+contre 70,04** (0,22 pp), picks 99,61/99,56 %. Et le bras GPTQ ajoute un
+**troisième moteur** : f16 dans transformers **70,84 %**
+([`mesures/m3-gptq2-mmlu-2026-08-30.txt`](mesures/m3-gptq2-mmlu-2026-08-30.txt)),
+puis llama.cpp/Metal un quatrième (70,36) — **le même modèle f16 scoré par
+QUATRE implémentations indépendantes, étendue 0,52 pp.**
+
+**2b. Le bras GPTQ 2 bits : la quantification réussit, et rien de publiable
+n'en sort** ([`mesures/m3-gptq2-production-2026-08-30.txt`](mesures/m3-gptq2-production-2026-08-30.txt)).
+Premier bras tiers du dossier **calibré sur NOTRE corpus** (empreinte
+`40300263e5d0afa2`, 131 072 tokens C4 — le confondant de calibration tombe) ;
+artefact de 1 754 463 312 octets = **3,489 b/param** au bon dénominateur — 🚨
+le job imprimait 3,182 sur le dénominateur de gptqmodel (4 411 424 256, faux
+de +9,67 % = la part de l'embedding, têtes liées comptées deux fois) : la
+règle n°1 du §7 enfreinte dans le fichier qui la cite, corrigée. ❌ **Mais
+vLLM 0.26.0 REFUSE `bits=2`** — le bras ne se sert pas dans le moteur prévu ;
+scoré via transformers : **MMLU 24,74 % = le hasard à quatre choix**.
+🚨 **CE CHIFFRE N'EST PAS PUBLIABLE, et le préreg l'avait annoncé** (§1.3 :
+« nous attendons de gagner ce bras » — un résultat favorable attendu exige
+*plus* de vérification) : la sortie est **dégénérée, pas aléatoire** (pick A
+68,9 %, écart médian des logits divisé par 3,4) — **indistinguable entre
+effondrement réel et chargement cassé**. La génération libre rend un
+**charabia intégral** (le 24,74 ne mesure aucune capacité), et le wrapper et
+`.model` rendent **le même charabia au caractère près** — suspect du
+déballage réfuté, mais les deux chemins ne sont pas indépendants (le wrapper
+délègue). **La colonne qualité du bras GPTQ reste vide.**
+
+**2c. IQ2_XXS : le premier concurrent 2 bits dont ce dossier mesure la
+qualité — et le verdict est double** (Metal, 0 $,
+[`mesures/m3-iq2-metal-2026-08-30.txt`](mesures/m3-iq2-metal-2026-08-30.txt) ;
+même corpus de calibration que le bras GPTQ, empreinte machine-vérifiée).
+
+| | b/poids ou bpw | ppl (× son témoin) | MMLU micro | chute |
+|---|---|---|---|---|
+| LLVQ 2 bits | 2,0702 | ×1,3845 | 55,59 % | −14,73 pp |
+| IQ2_XXS | 2,0625 | ×2,6287 | 39,39 % | −30,97 pp |
+
+Paire appariée sur les 2 280 mêmes questions (qhash identiques) : **+16,20 pp,
+IC95 [+12,64 ; +19,72]**, SE 1,81 — l'intervalle entier au-dessus du seuil de
+lecture posé d'avance (~6 pp, soit 2× le σ inter-graines de 2,92). **À
+0,37 % d'écart de bits, un codebook de Leech à 1,1·10¹⁴ points retient
+16,20 pp de MMLU de plus qu'un codebook qui tient en LUT** — et les deux
+métriques concordent, celle du raisonnement comprise. ⚠️ **Et le prix est
+toujours là, c'est la même thèse retournée** : IQ2_XXS sert **2,479 b/param
+contre nos 5,162** — pas besoin d'être déplié. Le contrefactuel LUT du
+BACKLOG §4.4 est mesuré, et il tranche **dans les deux sens**.
+
+**2d. M4, le bras pont CUDA : l'interdit inter-cartes reproduit sur un bras
+TIERS** ([`mesures/m4-iq2-cuda-2026-08-30.txt`](mesures/m4-iq2-cuda-2026-08-30.txt)).
+Le **même GGUF, sha256 prouvé identique des deux côtés** (`19a8ed49…`), rend
+**×2,647 sur Metal et ×3,688 sur CUDA** contre le f16 de sa propre pile —
++39 % à fichier, moteur et modèle identiques. « Les × inter-cartes ne se
+divisent pas » cesse d'être une prudence maison : c'est une propriété du
+matériel, mesurée hors de nos bras. 🔎 Et un recoupement non cherché : vLLM
+(83,09) et llama.cpp (84,83) s'accordent à 2,1 % sur le f16 L40S — **1,95×
+notre bras dense** : le handicap `broadcast_matmul` est corroboré du dehors,
+et il joue contre nos × bruts, pas pour. ✅ Le MMLU d'IQ2_XXS sur CUDA
+(08-31) : **38,87 contre 39,39 Metal — agrégat invariant à 0,52 pp**, mais
+**même pick à 95,79 % seulement** (contre 99,6 % pour le f16 entre moteurs) —
+les noyaux de déquantisation 2 bits divergent réellement, et 96 désaccords
+s'annulent presque (commit `4834ab3`).
+
+✅ **3. LE PROTOCOLE « PILES ISOLÉES » v2 EST AUDITÉ PUIS TAMPONNÉ** (commits
+`6b053f3` et `e8f9e07`, 08-31 au matin ;
+[`../proofs/protocole-piles-isolees-v2-2026-08-31.md`](../proofs/protocole-piles-isolees-v2-2026-08-31.md),
+sha256 `987a07f4…`). Quatorze éléments du v1 confrontés à son exécution
+réelle ; la v2 **ancre les constantes** que quatre instruments ont convergé à
+établir — dénominateur **4 022 468 096** (têtes liées), étalon f16 à quatre
+moteurs **[70,3 ; 70,9]**, les trois empreintes, les sha256 des GGUF — plus le
+**seuil de lecture σ = 2,92 pp**, et sept gates ordonnés. Elle est construite
+pour la **ré-exécution après amélioration du noyau** : un changement de noyau
+ne bouge que notre débit (~0,3-0,6 $ le rejeu, contre 1,29 $ la table
+entière), et elle ne contient **aucune section à remplir** — les écarts vont
+dans un fichier nommé d'avance, jamais dedans.
+
+## 2026-08-31 — Vague 2 : la fusion transfère aux trois tailles, et la config servie v1 est GELÉE
+
+Pré-enregistrement [`../proofs/preregistration-vague2-gel-geometrie-2026-08-31.md`](../proofs/preregistration-vague2-gel-geometrie-2026-08-31.md)
+(sha256 `e23e9895…`, sous le protocole v2, gates G1-G7 tels quels, nominal
+~3,0 $, plafond 5 $), **tamponné et commité 77 s avant la création du premier
+job** (*calculé* : commit `f37cfa8` à 09:14:15, job `6a952a14` créé à
+09:15:32 — horodatage ObjectId). Le biais y est nommé d'avance : le gel
+FUSE=1 est le résultat *attendu*, donc c'est un 8B ou 14B raté qui aurait
+exigé la lecture soigneuse.
+
+✅ **1. LA FUSION TRANSFÈRE AUX DEUX TAILLES RESTANTES, forme D1 exacte**
+(deux jobs, 0,45 + 0,86 $ ;
+[`mesures/vague2-fusion-8b-14b-2026-08-31.txt`](mesures/vague2-fusion-8b-14b-2026-08-31.txt)) :
+
+| taille | gain de fusion (intra-job) | bande [1,00 ; 1,12] | lancements/token |
+|---|---|---|---|
+| 4B (D1, 08-24) | ×1,061 [1,050–1,069] | ✅ | 252 → 144 |
+| **8B** | **×1,055 [1,054–1,058]** | ✅ | 252 → 144 |
+| **14B** | **×1,028 [1,027–1,029]** | ✅ | **280 → 160** (40 couches) |
+
+Les six critères de D1 tiennent partout : 128 tokens **identiques** F1/F0/
+dense, même sha256 NVRTC des deux bras (`347f50a4…`), deltas d'octets
+**exacts** (+4 423 680 au 8B, +6 717 440 au 14B). 🔎 **Fait transversal, non
+exigé par le préreg** : le gain **décroît** avec la taille (×1,061 → ×1,055 →
+×1,028) — cohérent avec une latence de lancement qui s'amortit sur des matvec
+plus gros ; observation à trois points, pas une loi, et un **prior pour A1**.
+
+✅ **2. LE GEL, PAR UNE RÈGLE ÉCRITE AVANT LES CHIFFRES** :
+
+  **config servie v1 = `planes14` + `LLVQ_EMBED=q8` + `LLVQ_ROT_SHARE=1` + `LLVQ_FUSE=1`**
+
+| taille | tok/s servi v1 [plage] | Go carte | (ancien servi B2) |
+|---|---|---|---|
+| 4B ⚠️ *cellule importée de D1 (08-24), pas re-mesurée dans cette vague* | **100,6** [99,9–100,7] | 2,57 | 87,0 · 2,56 |
+| 8B | **75,5** [75,5–75,6] | 5,41 | 68,2 · 5,41 |
+| 14B | **46,8** [46,7–46,8] | 9,40 | 43,3 · 9,39 |
+
+⚠️ **Règle des deux formulations, comme toujours** : les ×2,85 (8B) et ×2,75
+(14B) contre le dense sont des quotients de médianes de bras jamais
+entrelacés, et le dense est *notre* bras handicapé — seul le gain de fusion
+est un rapport intra-job. **La série à tête identique (×1,11 → ×1,29 →
+×1,41, ROT_SHARE=0/FUSE=0) reste LA série qui mesure le noyau, et elle n'est
+PAS re-mesurée sous v1** — un rejeu tête-identique serait une autre campagne.
+🕳️ **Ce que le gel retire** : l'interdit « les tables publiées sont à
+ROT_SHARE=0/FUSE=0, un 4B fusé isolé casserait la propriété » — la propriété
+« une seule configuration partout » est désormais préservée **par le gel**,
+plus par l'interdit. Aucune qualité ne bouge : mêmes artefacts scellés, pas
+un octet de poids ne change.
+
+✅ **3. DÉCISION D'OPÉRATEUR (`deaa449`) : A2 ET A3 SE FONT QUOI QU'IL
+ARRIVE.** Le plan du 29 mettait Graphs et occupation derrière le port vLLM ;
+l'opérateur le renverse — le papier revendique un noyau, candle est le seul
+moteur auditable de bout en bout, et l'argument souverain exige que ce chemin
+soit rapide **par lui-même**, pas par procuration. Ce que la décision ne
+change pas : les critères d'adoption (un résultat nul ne s'adopte pas), et le
+rôle d'A1 — ordonner A2 contre A3.
+
+✅ **4. LES SURFACES CITENT UNE SEULE CONFIG SERVIE, ET ELLES LA NOMMENT**
+(`5ff5c55` : README — bloc « served configuration v1, frozen 2026-08-31 » —,
+model card locale, CLAUDE.md ; puis la passe du soir `46164a9`). Une
+vérification systématique (25 agents, adversariale) a trouvé **sept surfaces
+de plus** donnant encore l'ancienne config comme courante : deux corrigées le
+soir (`format-noyau.md`, compteurs et note ots de CLAUDE.md), le reste
+inventorié dans [`alignement-v1-restant-2026-08-31.md`](alignement-v1-restant-2026-08-31.md),
+séparé en mécanique et en ⚖️ à arbitrer — **dont ce fichier-ci, muet depuis le
+08-24, le plus gros morceau**. La table B2 n'est pas remplacée : elle est la
+mesure ROT_SHARE=0/FUSE=0.
+
+## 2026-08-31 (soir) — Les quatre morts d'A1, puis A1 et A4 verts : la vague 2 est complète pour 2,17 $
+
+Le bras A1 (`nullk` à 252 contre 144 lancements) est mort **quatre fois avant
+de rendre un chiffre** — trois morts d'infrastructure, une de lanceur — pour
+0,02 $ au total, chacune consignée au fichier d'écarts que le préreg nommait
+d'avance ([`../proofs/preregistration-vague2-gel-geometrie-2026-08-31-ECARTS.md`](../proofs/preregistration-vague2-gel-geometrie-2026-08-31-ECARTS.md)) :
+
+1. **É1 — le binaire n'était pas dans l'image** (probe `which`, 15 s, 0,01 $) :
+   `nullkbench` absent des **deux** listes explicites du Dockerfile
+   (`cargo build --bin` et `COPY`) — compiler le crate ne suffit pas
+   (`c6642e4`).
+2. **É2 — E0599 à la PREMIÈRE compile Linux du bin** : le trait
+   `PushKernelArg` qui porte `.arg()` n'était pas importé (`nullkbench.rs:139`).
+   Le « compile » du registre était un constat **macOS, donc vide** — le corps
+   du bin est `cfg(linux)`, le Mac ne compile qu'un stub. Une ligne
+   (`970d27d`) ; le Space est resté en `BUILD_ERROR` ~9 h 40.
+3. **É3 — la seconde mort aurait eu lieu SUR CARTE, et elle est tuée à 0 $
+   AVANT relance** : seul bin du crate à ne pas prépendre `llvq_slot.cuh`,
+   dont l'`#include` gardé par `#ifndef` aurait fait refuser la source à
+   NVRTC (sans système de fichiers) — **après** le probe et **après** le début
+   de la facturation. Reproduit par `clang -E -nostdinc` sur l'unité exacte,
+   corrigé par l'assemblage de `planesbench` (`3815eda`).
+4. **É4 — le LANCEUR** : la relance par CLI a fait parser `-lc` comme
+   `--label c` par click, et bash a reçu le script en **nom de fichier**
+   (exit 127, ~0,01 $). Relance par l'**API** avec un assert d'identité du
+   tableau de commande contre `hf jobs inspect` du job d'origine.
+
+🔎 **L'instrument qui manquait existe désormais** :
+`CUDARC_CUDA_VERSION=12040 cargo check --target x86_64-unknown-linux-gnu -p
+llvq-cuda` type-checke le crate CUDA **depuis le Mac** — il aurait vu É2 avant
+tout build. É3, lui, ne se voit qu'en **exécutant le texte du noyau** (leçon
+§5 de CLAUDE.md) ; le `clang -E` en est la forme à 0 $.
+
+✅ **A1 EST VERT — 15 s de GPU, 0,01 $**
+([`mesures/a1-nullk-252-144-2026-08-31.txt`](mesures/a1-nullk-252-144-2026-08-31.txt)) :
+`nullk` 252 lancements **2,200 ms [2,198–2,201]**, 144 lancements **1,794
+[1,793–1,796]**, **r = 0,8158 [0,8150–0,8162]** — rapport formé round par
+round, 7 rounds dont 2 jetés, un seul processus. Lecture pré-enregistrée
+(préreg `e23e9895` §A1, avant le chiffre) : r ≤ 0,65 → latence, A2 ; r ≥ 0,90
+→ occupation, A3 ; **0,8158 → BANDE MIXTE** — ni A2 ni A3 éliminé, les parts
+se publient : **Δ = 0,406 ms pour 108 lancements = 3,76 µs/lancement**
+(*calculé*, cohérent avec les 3,63 µs du lot A du 08-06). Le prior déclaré de
+0,83 est confirmé à 1,7 %. ⚠️ Le 2,200 ms de ce processus ne se soustrait à
+aucun temps d'un autre processus — pas au 2,306 de F2 non plus.
+
+✅ **A4 EST VERT, ET LA RÉSERVE ADA DEVIENT UN MÉCANISME** (deux jobs
+a100-large, **0,83 $** sous le devis ;
+[`mesures/a4-a100-2026-08-31.txt`](mesures/a4-a100-2026-08-31.txt)). Dans les
+termes posés d'avance : **AUCUN bras réseau n'atteint 1,00× FP16 sur A100** —
+`Planes14` **0,79×** [0,79–0,79], `Slot32` 0,73× — et la table **reproduit F4
+au centième** (cuBLAS 1,14×, `nullk` 1,69×). La branche « sinon » du préreg
+s'applique : la réserve Ada du papier **ne saute pas, elle devient un
+mécanisme mesuré à deux points, étendu à la géométrie fusée** — une issue de
+publication, pas un échec. Les faits neufs :
+
+- **La fusion TRANSFÈRE à la seconde architecture** : ×1,063 [1,062–1,067] de
+  F1 sur F0, contre ×1,061 [1,050–1,069] sur L40S — mêmes **+3 686 400 octets
+  exactement**, 128 tokens identiques F1/F0/dense, bande tenue sur une carte
+  que le préreg n'avait pas promise. F1 rend **63,4 tok/s [63,4–63,5] dans
+  2,57 Go** contre **51,4 [51,4–51,5]** à son propre dense (×1,23 intra-job).
+  🚨 **Aucun × A100 ne se divise par un × L40S**, et les 63,4 ne se comparent
+  pas aux 100,6 autrement que par le mécanisme d'horloges du lot G ; le dense
+  au dénominateur reste *notre* bras handicapé — deux formulations, toujours.
+- **Le rapport de géométrie est INVARIANT entre architectures** : `nullkbench`
+  en prime (É5, déclaré au fichier d'écarts) rend **r = 0,8198
+  [0,8196–0,8202]** sur A100 contre 0,8158 sur L40S le même soir — **0,5 %
+  d'écart quand les temps absolus s'étirent de ×1,809** (*calculé*), à 1,2 %
+  du rapport d'horloges 1,787 du lot G. Le poste par-lancement suit l'horloge
+  comme le reste : **propriété de la géométrie, pas de la carte.**
+- **`fusedrun` a tourné sur A100 pour la première fois**, sur une image sm80
+  née le soir même : `publish --compute-cap 80` réécrit la seule ligne `ENV`
+  de la recette canonique au téléversement, sans recette jumelle à tenir
+  synchrone (`7e67f28`) — plus `LLVQ_NVRTC_ARCH=compute_80` pour nos noyaux
+  NVRTC, les deux pièges documentés **avant** le job.
+
+✅ **La vague 2 est COMPLÈTE : 0.1 ✓ gel ✓ A1 ✓ A4 ✓ — 2,17 $ sur un plafond
+de 5** (*mesuré*, somme des 7 lignes du 08-31 dans
+[`data/jobs.csv`](data/jobs.csv) ; commit `1fc429e`).
+
+## 2026-09-01 — Le préreg A2/A3 est arbitré et tamponné, et le plan pointe la phase A
+
+✅ **L'ARBITRAGE D'OPÉRATEUR : A2 D'ABORD** (commit `833d630` ;
+[`../proofs/preregistration-a2-a3-geometrie-2026-08-31.md`](../proofs/preregistration-a2-a3-geometrie-2026-08-31.md),
+sha256 **`802006c5…`**, tamponné sur quatre calendriers **avant la première
+milliseconde de tout job A2/A3**). A1 ayant rendu la bande mixte, l'ordre
+revenait à l'opérateur : A2 (CUDA Graphs) passe devant — son pool
+par-lancement est **mesuré directement** (0,406 ms/108 = 3,76 µs ; extrapolé
+linéairement aux 252 lancements : **0,947 ms ≈ 43 %** du plancher,
+*calculé*, hypothèse de linéarité **déclarée**) et son critère tranche vite.
+🚨 **Les priors, TOUS défavorables à A2, sont déclarés dans le préreg** — la
+ligne « CUDA Graphs » avait été fermée par mesure au lot A (0,167 ms = 0,8 %
+d'un token, **en plafond**) et ce document la rouvre **sur décision
+(`deaa449`), pas sur fait neuf** ; F3 (soumission hôte recouverte) et F1
+(témoin ≤ 1,05× de cuBLAS) bornent l'attente.
+
+Les règles gelées, telles qu'ancrées :
+
+- **A2** : blocant nommé d'abord — **préallocation du cache KV à formes
+  fixes** (un graph statique ne capture pas un `Tensor::cat` qui grandit ;
+  2-4 j de dev). Critères : gain bout-en-bout **≥ 8 % → adopté**, **< 3 % →
+  clos**, entre les deux : point de courbe. 🚨 Règle `check_fuse` transposée :
+  les deux bras de l'A/B portent la **même** préallocation — le graph est la
+  seule variable ; la prealloc se mesure dans **son propre A/B avant**.
+- **A3** (occupation) : gate d'entrée au port — un bras doit battre
+  **`planes14` en géométrie FUSÉE (144 lancements, la géométrie servie v1)**
+  de **≥ 10 %** au banc (« battre les 252 ne compte pas : ce serait re-mesurer
+  la fusion ») ; puis mêmes seuils bout-en-bout qu'A2 (**≥ 8 % / < 3 %**).
+- **Le kill de phase, ancré — il ne vivait qu'en prose depuis le plan du
+  08-29** : *si A1 + A2 + A3 rendent < 8 % cumulés bout-en-bout, l'axe
+  géométrie SOUS CANDLE est clos par mesure* — le cumul se mesure sur le
+  chemin servi v1, intra-job, jamais en additionnant des pourcentages de jobs
+  différents. Plafond de phase : 4 $, distinct du plafond 5 $ de la vague 2.
+
+✅ **Et le plan pointe la phase A** (`6fc74e4`) ; `fiche-4b.md`,
+`cheatsheet-defense.md` et la model card locale reçoivent leurs médianes B2
+et la ligne v1 en annotations datées (`2ad11b7`, `cd82f19`) — deux d'entre
+elles portaient encore les points uniques d'avant B2 (48,7 / 88,4-88,5 /
+×1,12), **deux générations en arrière**.
