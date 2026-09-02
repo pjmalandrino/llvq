@@ -310,9 +310,7 @@ fn main() -> anyhow::Result<()> {
     // not just duplication.
     // Resolved once, like `kv_mode`: the restoration travels by value into the
     // loader, and an unknown name is an error rather than a fallback.
-    let restore =
-        llvq_llm::sealed::RestoreF16::parse(&std::env::var("LLVQ_RESTORE_F16").unwrap_or_default())
-            .map_err(anyhow::Error::msg)?;
+    let restore = llvq_llm::sealed::RestoreF16::from_env().map_err(anyhow::Error::msg)?;
     let (model, tok, label, restore_note) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
         // A restoration reads the checkpoint the file was sealed from, named by
         // `LLVQ_MODEL` as for `bin/seal` — required here, because its default
@@ -560,7 +558,7 @@ fn main() -> anyhow::Result<()> {
     // On the result line, not only in the label: an arm whose defining
     // parameter is not printed with its number is an arm nobody can re-read.
     if let Some(n) = &restore_note {
-        println!("  restauré en f16 (M2)     = {n}");
+        println!("  restauré (M2/M2b)        = {n}");
     }
     if total < population {
         println!(

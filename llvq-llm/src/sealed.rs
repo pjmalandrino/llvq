@@ -48,6 +48,48 @@ pub const PROJ_TYPES: [&str; 7] = [
     "down_proj",
 ];
 
+/// At what precision a restored projection is handed back.
+///
+/// ## Why `Q4` exists, and what it is a proxy for
+///
+/// M2 measured what one projection type is worth **at f16** (`v_proj`:
+/// +4.48 pp of MMLU). f16 is not a serving option: it costs +0.263 b/param
+/// and pushes the 4B above the 4-bit competitor it currently undercuts. The
+/// question that decides whether that gain is reachable is therefore not
+/// "what is this matrix worth in full precision" but "what is it worth at
+/// **four bits of information**" — because the served format already spends
+/// 4.80 b/weight of VRAM unfolding 2.00 bits, so a genuine 4-bit matrix costs
+/// *less* memory than the lattice one it replaces.
+///
+/// `Q4` answers that by quantizing the checkpoint tensor and handing back the
+/// **dequantized** values. No 4-bit kernel is involved and none is implied:
+/// this measures the information cost, which is the part that is in doubt.
+/// The quantizer is `embedquant::quantize_affine` — the same call the shipped
+/// q8 embedding path makes, at `bits = 4`, so the arm inherits a validated
+/// implementation rather than a fresh one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestorePrec {
+    /// The checkpoint's own values, narrowed to the run dtype.
+    F16,
+    /// Affine int4, `group` values per scale/bias pair, then dequantized.
+    Q4 { group: usize },
+}
+
+/// Group width of the `Q4` arm: 128, to match the AWQ w4 g128 whose b/param
+/// the cost table compares against. Our affine path stores scale *and* bias
+/// in f16, so the rate is `4 + 32/128 = 4.25` b/weight, not AWQ's 4.156 — a
+/// declared, unfavourable difference of 0.09 b/weight.
+pub const Q4_GROUP: usize = 128;
+
+impl RestorePrec {
+    pub fn describe(&self) -> String {
+        match self {
+            Self::F16 => "f16".into(),
+            Self::Q4 { group } => format!("int4 g{group} (dequantized)"),
+        }
+    }
+}
+
 /// Projection types to take **from the reference checkpoint, at its own
 /// precision**, instead of from the artifact's lattice codes.
 ///
@@ -80,11 +122,47 @@ pub const PROJ_TYPES: [&str; 7] = [
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RestoreF16 {
     types: Vec<&'static str>,
+    prec: RestorePrec,
+}
+
+impl Default for RestorePrec {
+    fn default() -> Self {
+        Self::F16
+    }
 }
 
 impl RestoreF16 {
     /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
     /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
+    /// Resolve from the environment: `LLVQ_RESTORE_F16` and
+    /// `LLVQ_RESTORE_Q4` take the same type list and differ only in the
+    /// precision handed back. Setting both is refused — an arm whose defining
+    /// parameter is ambiguous is an arm nobody can re-read.
+    pub fn from_env() -> Result<Self, String> {
+        let f16 = std::env::var("LLVQ_RESTORE_F16").unwrap_or_default();
+        let q4 = std::env::var("LLVQ_RESTORE_Q4").unwrap_or_default();
+        match (f16.trim().is_empty(), q4.trim().is_empty()) {
+            (true, true) => Ok(Self::default()),
+            (false, true) => Self::parse(&f16),
+            (true, false) => Ok(Self::parse(&q4)?.at(RestorePrec::Q4 { group: Q4_GROUP })),
+            (false, false) => Err(
+                "LLVQ_RESTORE_F16 et LLVQ_RESTORE_Q4 sont tous deux posés : \
+                 choisir une seule précision"
+                    .into(),
+            ),
+        }
+    }
+
+    /// Same type set, another precision.
+    pub fn at(mut self, prec: RestorePrec) -> Self {
+        self.prec = prec;
+        self
+    }
+
+    pub fn prec(&self) -> RestorePrec {
+        self.prec
+    }
+
     pub fn parse(spec: &str) -> Result<Self, String> {
         let spec = spec.trim();
         if spec.is_empty() {
@@ -93,6 +171,7 @@ impl RestoreF16 {
         if spec == "all" {
             return Ok(Self {
                 types: PROJ_TYPES.to_vec(),
+                prec: RestorePrec::default(),
             });
         }
         let mut types: Vec<&'static str> = Vec::new();
@@ -110,7 +189,10 @@ impl RestoreF16 {
             }
             types.push(known);
         }
-        Ok(Self { types })
+        Ok(Self {
+            types,
+            prec: RestorePrec::default(),
+        })
     }
 
     pub fn is_empty(&self) -> bool {
@@ -132,6 +214,11 @@ impl RestoreF16 {
     /// Comma-joined, for labels and error messages.
     pub fn describe(&self) -> String {
         self.types.join(",")
+    }
+
+    /// Types and precision together — what goes on the result line.
+    pub fn describe_full(&self) -> String {
+        format!("{} at {}", self.types.join(","), self.prec.describe())
     }
 }
 
@@ -186,6 +273,36 @@ pub fn restore_projections(
     Ok(done)
 }
 
+/// Quantize `t` to affine int4 with the shipped quantizer, then dequantize.
+///
+/// The round trip is the point: the returned tensor holds exactly the values a
+/// 4-bit store would reconstruct, so scoring it measures what four bits of
+/// information cost — without pretending a 4-bit kernel exists.
+fn quantize_dequantize_q4(
+    t: &Tensor,
+    name: &str,
+    group: usize,
+    dtype: DType,
+) -> anyhow::Result<Tensor> {
+    let dims = t.dims().to_vec();
+    let bits: Vec<u16> = t
+        .flatten_all()?
+        .to_dtype(DType::F16)?
+        .to_vec1::<half::f16>()?
+        .into_iter()
+        .map(|v| v.to_bits())
+        .collect();
+    let raw = llvq_artifact::RawTensor {
+        name: name.to_string(),
+        dims: dims.clone(),
+        data: llvq_artifact::RawData::F16(bits),
+    };
+    let q = crate::embedquant::quantize_affine(&raw, 4, group)?;
+    Tensor::from_vec(q.to_f32(), dims, t.device())?
+        .to_dtype(dtype)
+        .map_err(anyhow::Error::from)
+}
+
 fn describe_source(s: &Source) -> String {
     match s {
         Source::Local(p) => p.display().to_string(),
@@ -226,8 +343,8 @@ impl SealedModel {
             return None;
         }
         Some(format!(
-            "f16 restored: {} ({} matrices, {} weights) from {}",
-            self.restored_types.describe(),
+            "restored {} ({} matrices, {} weights) from {}",
+            self.restored_types.describe_full(),
             self.restored.matrices,
             self.restored.weights,
             self.restored_from.as_deref().unwrap_or("?")
@@ -354,11 +471,19 @@ pub fn load_with_restored(
             // is alive — the same contract as `Checkpoint::var_builder`, which
             // is the other reader of these very files.
             let st = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&ck.weights)? };
-            // Loaded then narrowed, in that order, which is what `VarBuilder`
-            // does for the dense arm: a restored matrix and the checkpoint
-            // arm's own copy of it are the same f16 bytes.
+            let prec = restore.prec();
             let r = restore_projections(&mut tensors, restore, |name| {
-                Ok(st.load(name, device)?.to_dtype(dtype)?)
+                // Loaded then narrowed, in that order, which is what
+                // `VarBuilder` does for the dense arm: an f16-restored matrix
+                // and the checkpoint arm's own copy of it are the same bytes.
+                let t = st.load(name, device)?.to_dtype(dtype)?;
+                match prec {
+                    RestorePrec::F16 => Ok(t),
+                    // Round-trip through the shipped affine quantizer, then
+                    // hand back the dequantized values: what this measures is
+                    // the information cost of four bits, not a 4-bit kernel.
+                    RestorePrec::Q4 { group } => quantize_dequantize_q4(&t, name, group, dtype),
+                }
             })?;
             (r, Some(describe_source(&ck.source)))
         }
@@ -443,6 +568,59 @@ mod restore_tests {
 
     fn value(m: &HashMap<String, Tensor>, name: &str) -> f32 {
         m[name].flatten_all().unwrap().to_vec1::<f32>().unwrap()[0]
+    }
+
+    /// The two environment variables select the same type set at two
+    /// precisions, and asking for both at once is refused rather than
+    /// silently resolved — an arm whose precision is ambiguous is an arm
+    /// nobody can re-read six weeks later.
+    #[test]
+    fn the_two_restore_variables_select_a_precision_and_refuse_each_other() {
+        assert_eq!(RestorePrec::default(), RestorePrec::F16);
+        let q4 = RestoreF16::parse("v_proj")
+            .unwrap()
+            .at(RestorePrec::Q4 { group: Q4_GROUP });
+        assert_eq!(q4.prec(), RestorePrec::Q4 { group: 128 });
+        assert_eq!(q4.types(), &["v_proj"]);
+        // The precision travels into the label, so a dump cannot be mistaken
+        // for the f16 arm of the same type.
+        assert!(q4.describe_full().contains("int4 g128"));
+        assert!(RestoreF16::parse("v_proj").unwrap().describe_full().contains("at f16"));
+    }
+
+    /// Four bits must actually cost something: a round trip that returned its
+    /// input would make the whole arm a second copy of the f16 one.
+    #[test]
+    fn the_q4_round_trip_quantizes_rather_than_copying() {
+        let dev = Device::Cpu;
+        // A row with more spread than 16 levels can hold, so the error is
+        // forced to be non-zero and bounded by the step.
+        let v: Vec<f32> = (0..256).map(|i| i as f32 * 0.01 - 1.28).collect();
+        let t = Tensor::from_vec(v.clone(), (2, 128), &dev)
+            .unwrap()
+            .to_dtype(DType::F16)
+            .unwrap();
+        let q = quantize_dequantize_q4(&t, "probe", 128, DType::F16).unwrap();
+        let got: Vec<f32> = q
+            .flatten_all()
+            .unwrap()
+            .to_dtype(DType::F32)
+            .unwrap()
+            .to_vec1()
+            .unwrap();
+        assert_eq!(got.len(), v.len());
+        assert!(got != v, "le round-trip a rendu son entrée : rien n'a été quantifié");
+        // Every value within one step of its group's range: 16 levels over a
+        // span of 1.27 gives a step of ~0.085, and the affine grid rounds.
+        let step = 1.27 / 15.0;
+        for (a, b) in v.iter().zip(&got) {
+            assert!((a - b).abs() <= step, "écart {} > pas {step}", (a - b).abs());
+        }
+        // And it must be a *grid*: far fewer distinct values than inputs.
+        let mut d: Vec<i64> = got.iter().map(|x| (x * 1e4) as i64).collect();
+        d.sort_unstable();
+        d.dedup();
+        assert!(d.len() <= 32, "{} valeurs distinctes pour 16 niveaux par groupe", d.len());
     }
 
     #[test]

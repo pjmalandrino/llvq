@@ -68,10 +68,7 @@ fn main() -> anyhow::Result<()> {
             // semantics (see `llvq_llm::sealed::RestoreF16`): a projection type
             // taken from the checkpoint at f16, everything else as shipped. The
             // checkpoint must be named explicitly; `repo`'s default is the 0.6B.
-            let restore = llvq_llm::sealed::RestoreF16::parse(
-                &std::env::var("LLVQ_RESTORE_F16").unwrap_or_default(),
-            )
-            .map_err(anyhow::Error::msg)?;
+            let restore = llvq_llm::sealed::RestoreF16::from_env().map_err(anyhow::Error::msg)?;
             let ck = if restore.is_empty() {
                 None
             } else {
