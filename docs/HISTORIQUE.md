@@ -2279,6 +2279,39 @@ consigné au journal de la roadmap (`91b5921`).
   comptes de poids exacts (94 371 840 pour `k_proj`, 3 633 315 840 pour
   `all`), **« all restauré » = le checkpoint à 114/114 picks, Δ = +0,00 pp**,
   refus qui refusent. `limit 2`, donc aucun chiffre de qualité n'en sort.
+- ✅ **M2 EST RENDU** (job `6a97ea8e…`, l40sx1, 72 min, **2,17 $** sur un
+  plafond de vague de 5) —
+  [`mesures/m2-attribution-4b-2026-09-02.txt`](mesures/m2-attribution-4b-2026-09-02.txt).
+  Les six contrôles passent, et les deux qui décident passent **à 100 %** : le
+  bras livré rejoue 55,59 et le bras « tout restauré » rejoue 70,32, chacun à
+  **2280/2280 picks identiques** aux dumps de référence du 08-13. Attribution
+  appariée : **gate +5,18 · up +4,94 · v +4,48 · down +2,96 · o +2,35 ·
+  k +2,09 · q +1,85** ; groupes attention +6,90, MLP +10,78, tout +14,73.
+  **Les sept écarts sont résolus.** 🚨 **Le prior de la littérature est
+  réfuté** (k_proj est avant-dernier, l'attention est 3,9 pp derrière le MLP),
+  et la prédiction signée de l'auteur ne tient qu'à 1 sur 3. **La cible est
+  `v_proj`** — +4,48 pp pour 2,6 % des poids, huit fois le rendement de la
+  meilleure cible du MLP. ⚠️ **Mais aucune cible ne se sert en f16 sous
+  l'AWQ** (+0,263 b/param au mieux, 5,425 contre 5,302) et v1 n'offre aucune
+  précision intermédiaire par matrice : **Q5 pointe un chantier de FORMAT**
+  (F3 sous F1), pas un run de 7 $. Réplique graine 3 due, non lancée.
+- ✅ **M1 EST RENDU, ET IL EST VERT** (0 $, 12 runs de Mac, 11:05 → 17:13) —
+  [`mesures/m1-hessienne-shrink-2026-09-02.txt`](mesures/m1-hessienne-shrink-2026-09-02.txt).
+  Les quatre contrôles passent, dont (ρ=1, s=1) qui rejoue **38,4507 au
+  dix-millième** : le bouton ne touche pas le chemin publié. **ρ\* = 0,7** :
+  étendue inter-graines **4,6214 → 0,6847 (÷6,7)** et médiane **39,6042 →
+  27,4944 (−31 %)**, les deux conditions franchies. **La prédiction signée de
+  l'auteur (kill, ρ\* = 1) est RÉFUTÉE.** L'optimum est **intérieur** — 0,5
+  est pire que 0,7 sur les deux axes — donc la structure hors-diagonale porte
+  de l'information réelle noyée dans du bruit d'estimation, et non l'inverse.
+  🚨 **Mais le critère ne voit pas ce qui porte l'étendue** : sur n = 3 elle
+  tient à UNE graine, et pas la même selon ρ (la graine 1 est à ~3 pp
+  au-dessus à 0,9 et à 0,5, dans le rang à 0,7). Ce qui est robuste est le
+  **signe et l'ordre de grandeur** — médiane −12 ppl à tous les ρ < 1, graines
+  2 et 3 passant de 3,47 à ≤ 0,54 d'écart — **pas la valeur 0,7 elle-même**.
+  Q1 doit donc adopter « un ρ dans [0,5 ; 0,9] à ré-estimer », pas 0,7 sur la
+  foi de ce job. Prédiction opposable pour la suite : n/N vaut 0,023 ici
+  contre **0,074 au 4B**, donc l'effet doit y être **plus grand**.
 - ⚠️ **Une note posée sur F1 avant qu'on y touche** : l'estimation de perte de
   forme de la projection (+7-9 % de MSE) donne une rétention gaussienne de
   88,9-89,6 %, **sous le kill de F1b** (90,3 %). F1a doit compter la rétention

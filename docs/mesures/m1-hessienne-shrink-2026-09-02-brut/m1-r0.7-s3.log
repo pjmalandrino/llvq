@@ -1,0 +1,68 @@
+=== configuration ===
+  model        Qwen/Qwen3-0.6B
+  codebook     leech1c12 → shape–gain, 1 gain bit, shell ≤ 12, levels ≤ 5, 301 classes, magnitude on the gain grid, 48 bits/block
+  calibration  wikitext2, 64 × 2048 = 131072 tokens demandés, offsets tirés (graine 3)
+  rotation     on (graine 0x110feed)
+  mode         nogs (group scales off, design C off)
+  blocks       999 au plus
+  eval         wikitext-2 test, 12 fenêtres × 2048
+  dtype        f32
+  device       Metal(MetalDevice(DeviceId(1))), 16 encoder threads
+  damping      1e-2 (relatif à mean(diag H))
+  h_shrink     0.7 (ρ·H + (1−ρ)·diag H, base naturelle — M1)
+  artifact     (aucun)
+  reprise      (non — départ au bloc 0)
+=====================
+baseline perplexity over 12 windows of 2048…
+  baseline ppl = 19.5038
+tokenizing calibration set (wikitext2)…
+  64 windows of 2048 = 131072 tokens (1229 available), seeded offsets (seed 3)
+quantizing blocks 0..27 of 28 of Qwen/Qwen3-0.6B — leech1c12 → shape–gain, 1 gain bit, shell ≤ 12, levels ≤ 5, 301 classes, magnitude on the gain grid, 48 bits/block, retract on, group scales off, design C off, input rotation on…
+  bloc   1/28  1 min écoulées  56 s/bloc  reste ~25 min  (fin estimée à +0.4 h)
+  bloc   2/28  2 min écoulées  59 s/bloc  reste ~26 min  (fin estimée à +0.5 h)
+  bloc   3/28  3 min écoulées  61 s/bloc  reste ~25 min  (fin estimée à +0.5 h)
+  bloc   4/28  4 min écoulées  61 s/bloc  reste ~25 min  (fin estimée à +0.5 h)
+  bloc   5/28  5 min écoulées  61 s/bloc  reste ~24 min  (fin estimée à +0.5 h)
+  bloc   6/28  6 min écoulées  61 s/bloc  reste ~22 min  (fin estimée à +0.5 h)
+  bloc   7/28  7 min écoulées  61 s/bloc  reste ~21 min  (fin estimée à +0.5 h)
+  bloc   8/28  8 min écoulées  61 s/bloc  reste ~20 min  (fin estimée à +0.5 h)
+  bloc   9/28  9 min écoulées  61 s/bloc  reste ~19 min  (fin estimée à +0.5 h)
+  bloc  10/28  10 min écoulées  61 s/bloc  reste ~18 min  (fin estimée à +0.5 h)
+  bloc  11/28  11 min écoulées  61 s/bloc  reste ~17 min  (fin estimée à +0.5 h)
+  bloc  12/28  12 min écoulées  61 s/bloc  reste ~16 min  (fin estimée à +0.5 h)
+  bloc  13/28  13 min écoulées  61 s/bloc  reste ~15 min  (fin estimée à +0.5 h)
+  bloc  14/28  14 min écoulées  61 s/bloc  reste ~14 min  (fin estimée à +0.5 h)
+  bloc  15/28  15 min écoulées  61 s/bloc  reste ~13 min  (fin estimée à +0.5 h)
+  bloc  16/28  16 min écoulées  61 s/bloc  reste ~12 min  (fin estimée à +0.5 h)
+  bloc  17/28  17 min écoulées  61 s/bloc  reste ~11 min  (fin estimée à +0.5 h)
+  bloc  18/28  18 min écoulées  61 s/bloc  reste ~10 min  (fin estimée à +0.5 h)
+  bloc  19/28  19 min écoulées  61 s/bloc  reste ~9 min  (fin estimée à +0.5 h)
+  bloc  20/28  20 min écoulées  61 s/bloc  reste ~8 min  (fin estimée à +0.5 h)
+  bloc  21/28  21 min écoulées  61 s/bloc  reste ~7 min  (fin estimée à +0.5 h)
+  bloc  22/28  22 min écoulées  61 s/bloc  reste ~6 min  (fin estimée à +0.5 h)
+  bloc  23/28  23 min écoulées  61 s/bloc  reste ~5 min  (fin estimée à +0.5 h)
+  bloc  24/28  24 min écoulées  61 s/bloc  reste ~4 min  (fin estimée à +0.5 h)
+  bloc  25/28  25 min écoulées  61 s/bloc  reste ~3 min  (fin estimée à +0.5 h)
+  bloc  26/28  26 min écoulées  61 s/bloc  reste ~2 min  (fin estimée à +0.5 h)
+  bloc  27/28  27 min écoulées  61 s/bloc  reste ~1 min  (fin estimée à +0.5 h)
+  bloc  28/28  28 min écoulées  61 s/bloc  reste ~0 min  (fin estimée à +0.5 h)
+quantized 196 matrices, 440401920 weights (2.1656 bits/weight); ce segment a tourné 1703s
+phases :
+  quantification           1430.9s   84.0 %
+  factorisation             161.5s    9.5 %
+  capture (passe 1)         107.4s    6.3 %
+  transfert f64               2.7s    0.2 %
+  advance (passe 2)           0.4s    0.0 %
+  écriture artefact           0.0s    0.0 %
+
+=== Qwen/Qwen3-0.6B [leech1c12, 28 blocks, rot on, mode nogs, calib wikitext2/seed 3], wikitext-2, ctx 2048, 12 windows ===
+codebook                 = leech1c12 → shape–gain, 1 gain bit, shell ≤ 12, levels ≤ 5, 301 classes, magnitude on the gain grid, 48 bits/block
+calibration              = 64 × 2048 = 131072 tokens
+baseline (f32)       ppl = 19.5038
+LLVQ 2-bit           ppl = 27.4944
+degradation          ×1.410
+exact-ppl  baseline 1.950378648357e1  quantized 2.749438110857e1
+effective rate           = 2.1656 bits/weight
+hessian damping          = 1e-2
+hessian shrink ρ         = 0.7
+dtype / device           = f32 / Metal(MetalDevice(DeviceId(1)))

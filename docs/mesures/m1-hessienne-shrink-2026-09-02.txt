@@ -1,0 +1,107 @@
+M1 — STABILITÉ DE L'ESTIMATEUR DE HESSIENNE : SHRINKAGE HORS-DIAGONALE (2026-09-02)
+====================================================================================
+Pré-enregistrement : proofs/preregistration-m1-hessienne-shrink-2026-09-02.md
+  sha256 5a5e1027f497bdf6f136653416bb912d5137126271d64cbe5308059732b52cc5
+  tamponné AVANT le premier run (ots stamp, 4 calendriers ; « recalcule ok »).
+Écarts déclarés : ...-2026-09-02-ECARTS.md (É1, la file passée en nice 10).
+Code mesuré : commit 55ee392 (LLVQ_H_SHRINK), binaire sha256 6773325e372d7dd4…
+Coût : 0 $. 12 runs sur M3 Max, 26 à 40 min chacun, 11:05 → 17:13.
+
+LE DISPOSITIF
+--------------
+H ← ρ·H + (1−ρ)·diag(H), en base naturelle, AVANT la rotation. À ρ = 1 l'appel
+est sauté : c'est le chemin publié, au bit près. Qwen3-0,6B, 28 blocs,
+leech1c12, calibration wikitext-2 train 64×2048, évaluation 12 fenêtres ×2048,
+f32, Metal. Une seule variable par bras — ρ — la graine étant un facteur de
+réplication.
+
+LES QUATRE CONTRÔLES DU §3 — TOUS VERTS
+-----------------------------------------
+1 ✅ (ρ=1, s=1) rejoue 38,4507 au DIX-MILLIÈME : le bouton ne touche pas le
+     chemin publié.
+2 ✅ « hessian shrink ρ » imprimé sur les 12 bras, conforme au nom du fichier ;
+     effective rate = 2,1656 b/poids partout (le shrinkage touche H, pas le code).
+3 ✅ baseline f32 = 19,5038 sur les 12 : mêmes fenêtres d'évaluation.
+4 ✅ 12 logs bruts conservés, jamais résumés avant commit.
+
+LA TABLE DU §4
+---------------
+  ρ       s1        s2        s3      médiane   étendue   E(ρ)/E(1)  M(ρ)−M(1)
+  1     38,4507   39,6042   43,0721   39,6042   4,6214     1,000      +0,0000
+  0,9   30,2190   27,0812   27,0692   27,0812   3,1498     0,682     −12,5230
+  0,7   27,6364   26,9517   27,4944   27,4944   0,6847     0,148     −12,1098
+  0,5   30,8510   27,8739   27,9506   27,9506   2,9771     0,644     −11,6536
+
+LE VERDICT, MÉCANIQUE DEPUIS LA RÈGLE TAMPONNÉE DU §5
+------------------------------------------------------
+Adoption si E(ρ) ≤ E(1)/2 = 2,3107 ET M(ρ) ≤ M(1)+E(1) = 44,2256.
+  ρ = 0,9 : étendue ❌ (3,1498)   médiane ✅
+  ρ = 0,7 : étendue ✅ (0,6847)   médiane ✅   ← seul à passer les deux
+  ρ = 0,5 : étendue ❌ (2,9771)   médiane ✅
+E(1) = 11,67 % de M(1), donc le design N'EST PAS sous-puissant (seuil 2 %).
+
+✅ **M1 EST VERT. ρ* = 0,7. Q1 s'ouvre.**
+❌ **LA PRÉDICTION SIGNÉE DE L'AUTEUR EST RÉFUTÉE.** Le §6 annonçait « kill,
+   ρ* = 1 », au motif que le bruit croît avec la profondeur et signe donc une
+   composition séquentielle plutôt qu'un estimateur bruité par matrice. Le
+   mécanisme invoqué n'est pas exclu — il peut coexister — mais la conclusion
+   opérationnelle qu'on en tirait est fausse : le shrinkage agit, et fort.
+
+🚨 CE QUE LE CRITÈRE NE VOIT PAS, ET QU'IL FAUT LIRE AVANT D'ADOPTER 0,7
+-------------------------------------------------------------------------
+L'étendue sur n = 3 est portée par UNE graine, et pas la même selon ρ. Écart
+de chaque graine à la médiane de sa ligne :
+
+  ρ         s1       s2       s3     extrême
+  1      −1,15    +0,00    +3,47      s3
+  0,9    +3,14    +0,00    −0,01      s1
+  0,7    +0,14    −0,54    +0,00      s2
+  0,5    +2,90    −0,08    +0,00      s1
+
+Et l'écart entre les deux graines AUTRES que la première :
+  ρ=1 : 3,4679   ρ=0,9 : 0,0120   ρ=0,7 : 0,5427   ρ=0,5 : 0,0767
+
+**Deux lectures, et la seconde tempère la première.**
+
+(a) CE QUI EST ROBUSTE, à tous les ρ < 1 : la médiane tombe d'environ 12 ppl
+    (−31 %), et les graines 2 et 3 passent d'un écart de 3,47 à ≤ 0,54. Le
+    shrinkage rapproche massivement deux tirages sur trois, et améliore le
+    niveau, à TOUS les ρ testés.
+
+(b) CE QUI NE L'EST PAS : la valeur ρ* = 0,7 elle-même. À 0,9 et à 0,5, la
+    graine 1 est ~3 ppl au-dessus des deux autres ; à 0,7 elle rentre dans le
+    rang. Le ÷6,7 de l'étendue repose donc sur le comportement d'UNE graine à
+    UNE valeur de ρ. **Avec n = 3, on ne distingue pas « 0,7 est optimal » de
+    « la graine 1 s'aligne par hasard à 0,7 ».** Le critère est atteint tel
+    qu'il était écrit, et il l'est franchement ; mais il ne prouve pas que le
+    minimum soit en 0,7 plutôt qu'ailleurs dans [0,5 ; 0,9].
+
+⚠️ CONSÉQUENCE POUR Q1, à écrire dans son pré-enregistrement : le bras à
+   adopter n'est pas « ρ = 0,7 » sur la foi de ce job, c'est « un ρ dans
+   [0,5 ; 0,9], à ré-estimer sur plus de graines ou à une autre taille ». Ce
+   qui est acquis est le SIGNE et l'ORDRE DE GRANDEUR de l'effet, pas son
+   argument optimal.
+
+L'OPTIMUM EST INTÉRIEUR, ET C'EST LE FAIT DE STRUCTURE
+--------------------------------------------------------
+La médiane décroît de ρ=1 à ρ=0,9, plafonne à 0,7, remonte à 0,5. Un gain qui
+aurait crû jusqu'à ρ=0 aurait dit « la rétroaction d'erreur est globalement
+nuisible » — une affirmation bien plus forte, qui aurait exigé un bras ρ=0.
+Ce n'est pas ce qu'on observe : la structure hors-diagonale porte de
+l'information réelle, noyée dans du bruit d'estimation. Trop la croire coûte,
+trop la jeter coûte aussi.
+
+⚠️ CE QUE CE JOB N'ÉTABLIT PAS
+--------------------------------
+- C'est un **0,6B**. Le rapport n/N y vaut 0,023 sur down_proj contre 0,074 au
+  4B (*calculé*). Si le mécanisme est bien l'erreur d'estimation, l'effet doit
+  être PLUS GRAND au 4B — prédiction opposable, que Q1 doit aller chercher.
+- Trois graines. L'étendue est un estimateur grossier, cf. le 🚨 ci-dessus.
+- Un seul amortissement (λ = 1e-2). Les deux régularisations n'ont jamais été
+  balayées ensemble ; ce job dit que la crête seule ne suffisait pas, pas
+  qu'elle est inutile.
+- Rien sur MMLU, rien sur la vitesse, rien sur une autre taille.
+
+PROVENANCE DES OCTETS
+----------------------
+12 logs bruts + le journal de la file : docs/mesures/m1-hessienne-shrink-2026-09-02-brut/

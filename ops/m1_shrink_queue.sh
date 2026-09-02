@@ -21,6 +21,22 @@ fi
 LOG=/Users/pjmalandrino/llvq-nuit-b
 mkdir -p "$LOG"
 SMOKE=target/release/smoke
+
+# 🚨 Le Mac est le POSTE DE TRAVAIL de l'opérateur, pas un nœud de calcul.
+# Mesuré le 2026-09-02 pendant cette file même : un `smoke` sans plafond prend
+# ~1 470 % de CPU, soit ~15 cœurs sur 16, et rend la machine pénible pendant
+# cinq heures. La RAM, elle, n'est pas en cause (1,22 Go de RSS sur 64).
+#
+# Les deux gardes ci-dessous coûtent ~20 % de temps de calcul et rendent la
+# machine utilisable. ✅ Elles ne déplacent AUCUN chiffre : le découpage de la
+# quantification est par ligne et exact, `parallel_matches_serial_exactly`
+# l'exige au bit près — seules les durées du journal bougent.
+#
+# La correction a été appliquée à la 5e mesure sur 12 par un `renice` (cf.
+# ...-ECARTS.md §É1) faute d'avoir été posée au départ. Elle l'est maintenant.
+: "${LLVQ_THREADS:=$(( $(sysctl -n hw.ncpu) - 4 ))}"
+export LLVQ_THREADS
+renice 10 -p $$ >/dev/null 2>&1   # les bras enfants en héritent
 if ! "$SMOKE" --help >/dev/null 2>&1 && [ ! -x "$SMOKE" ]; then
   echo "refus : $SMOKE introuvable — cargo build --release -p llvq-llm --features metal,fast-linalg --bin smoke" >&2
   exit 2
@@ -44,6 +60,7 @@ note ""
 note "##### M1 shrinkage de H — 12 runs 0.6B/28 blocs — depart $(date '+%Y-%m-%d %H:%M:%S') #####"
 note "  preregistrement $(shasum -a 256 "$PREREG" | cut -c1-16)..., tampon $PREREG.ots present"
 note "  binaire $(shasum -a 256 "$SMOKE" | cut -c1-16)..., commit $(git rev-parse --short HEAD)"
+note "  LLVQ_THREADS=$LLVQ_THREADS sur $(sysctl -n hw.ncpu) coeurs, nice $(ps -o nice= -p $$ | tr -d ' ')"
 
 # §2 du pré-enregistrement : (ρ = 1, s = 1) d'abord — c'est le contrôle du §3,
 # qui doit rejouer 38,4507 — puis ρ-majeur, tel qu'écrit.
