@@ -229,7 +229,9 @@ aucune carte avant novembre.
 | # | décision | échéance | défaut si silence |
 |---|---|---|---|
 | 1 | adopter la roadmap et son plafond (30 $) | D0 | rien ne démarre au-delà de M4 |
+|   | ✅ **Rendue le 2026-09-02** : roadmap adoptée et fusionnée dans `main` ; plafond de **5 $ pour la vague 1** (M2 + réplique) ; le 30 $ se confirme **vague par vague**, jamais en cumul | | |
 | 2 | tamponner les préregs de M1 et M2 (critères ci-dessus) | avant la première mesure | — |
+|   | 🕐 brouillons écrits le 2026-09-02 (`proofs/preregistration-m2-*`, `proofs/preregistration-m1-*`), tampon après relecture d'opérateur | | |
 | 3 | autoriser le format v2 (`codebook_fingerprint` change) | à F1b vert | F1 s'arrête au banc gaussien |
 | 4 | choisir la première piste Q qui reçoit le run 4B (7 $) | D2 | celle au meilleur Δppl/étendue à 0,6B |
 | 5 | go Q6d (hors plafond) | D4 | non |
@@ -242,3 +244,18 @@ aucune carte avant novembre.
 - **2026-09-01** — création, depuis l'audit du même jour. Aucune étape lancée ;
   aucun préreg tamponné.
 - **2026-09-01** (soir) — pointeur vers la projection des gains par critère.
+- **2026-09-02** — **D0 rendu.** Roadmap adoptée par l'opérateur et fusionnée
+  dans `main` (commit `1e8583c`). Plafond : **5 $ pour la première vague** (M2
+  et sa réplique sur une seconde graine) ; le plafond global de 30 $ se
+  confirme vague par vague, jamais en cumul. **Ordre modifié : M2 avant M1.**
+  M2 est un A/B à fichier constant (SE appariée 0,43 pp, *mesurée*),
+  indépendant du σ de calibration et du verdict de M1, et c'est le seul sujet
+  de la roadmap qui ne peut pas être tué : c'est une mesure. M1 tourne **en
+  parallèle sur le Mac** (0 $). Préregs de M2 et M1 en brouillon, non
+  tamponnés. ⚠️ **Note sur F1, à lire avant d'ouvrir F1a** : l'estimation de
+  perte de forme de la projection (§1.4 de `projection-gains-2026-09-01.md`,
+  +7 à +9 % de MSE) donne une rétention gaussienne de **88,9 à 89,6 %**
+  (*calculé* : rétention = log₁₀(1/MSE)/log₁₀ 16), **sous le kill de F1b**
+  (90,3 %). F1a doit donc compter la rétention exacte de la région de mise en
+  forme *avant* toute ligne de code, ou le trellis shaping doit rendre plus de
+  0,15 dB — sinon F1 s'arrête à son propre gate.
