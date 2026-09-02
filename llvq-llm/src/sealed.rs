@@ -101,7 +101,7 @@ impl RestorePrec {
 /// cheapest experiment that answers it restores **one type** to f16 — all
 /// thirty-six `k_proj`, say — and scores the rest as shipped. Seven such arms
 /// plus the shipped file, paired question by question, is the error budget by
-/// function (`docs/ROADMAP-RECHERCHE.md`, M2).
+/// function (`docs/ROADMAP.md`, M2).
 ///
 /// ## Why it is exact
 ///

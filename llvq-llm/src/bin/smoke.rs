@@ -30,7 +30,7 @@
 //! `LLVQ_H_SHRINK=<ρ>` (default 1, the published path) shrinks the
 //! off-diagonal of every layer Hessian towards its diagonal before the
 //! rotation — `H ← ρ·H + (1 − ρ)·diag(H)` — the M1 knob of
-//! `docs/ROADMAP-RECHERCHE.md`. It is recorded in the `.state` sidecar only
+//! `docs/ROADMAP.md`. It is recorded in the `.state` sidecar only
 //! when it is not 1, so a shard produced before the knob existed still resumes
 //! under the published configuration, and a shard produced under ρ < 1 refuses
 //! a resume that does not say so. See `calib::RunConfig::h_shrink`.

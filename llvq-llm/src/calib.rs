@@ -331,7 +331,7 @@ pub struct RunConfig {
     /// rotation. `1.0` is the published path — and not a multiply by one: the
     /// call is skipped, so the bytes of every shipped artifact are untouched.
     ///
-    /// The hypothesis it exists to test (`docs/ROADMAP-RECHERCHE.md`, M1):
+    /// The hypothesis it exists to test (`docs/ROADMAP.md`, M1):
     /// the σ = 5.2 % between three calibration draws of the 4B (F5) comes
     /// from the **off-diagonal** terms of `H`, estimated at 13.5 samples per
     /// dimension on `down_proj`, through which the error feedback passes. If

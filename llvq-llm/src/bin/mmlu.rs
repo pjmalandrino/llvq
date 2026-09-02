@@ -69,7 +69,7 @@
 //! `all`) scores the sealed file with that type taken **from the checkpoint at
 //! f16**, all layers at once, everything else as shipped. Seven such arms plus
 //! the shipped file, paired on the dumps, are the error budget by function
-//! that `docs/ROADMAP-RECHERCHE.md` (M2) asks for. The checkpoint is the one
+//! that `docs/ROADMAP.md` (M2) asks for. The checkpoint is the one
 //! `LLVQ_MODEL` names — required, never defaulted, because the default would
 //! be the 0.6B — and the restoration is written into the label, the dump
 //! header and the result line, so an arm cannot be mistaken for the deliverable.
