@@ -1,0 +1,102 @@
+M2b — LE GAIN DE v_proj SURVIT-IL À QUATRE BITS ? (2026-09-02)
+===============================================================
+Pré-enregistrement : proofs/preregistration-m2b-v4bits-2026-09-02.md
+  sha256 263ec52aef42451ac6e9cffa5bd64a47d28a54f0fc8563e9bae5b58606303bb4
+  tamponné AVANT le lancement. Écarts : ...-2026-09-02-ECARTS.md
+Job l40sx1 6a98669821c5aa7c8364e7b4, démarré 18:11:32 UTC, ~10 min, ~0,29 $.
+Image Space COMMIT 33f46341 (porte LLVQ_RESTORE_Q4, vérifié avant lancement).
+
+LE DISPOSITIF, ET CE QU'IL N'EST PAS
+--------------------------------------
+Un seul bras : v_proj repris du checkpoint, quantifié en affine int4 g128 par
+`embedquant::quantize_affine` (le quantifieur du chemin q8 livré, appelé à
+4 bits), puis DÉQUANTIFIÉ et rendu au modèle. Tout le reste est le fichier
+publié, aux mêmes octets.
+🚨 Aucun noyau 4 bits n'existe et aucun n'est sous-entendu. Ce bras mesure un
+COÛT D'INFORMATION, pas une vitesse ni une empreinte réelle.
+Les deux témoins ne sont pas repayés : ils viennent de M2, même protocole,
+même empreinte, dumps commités.
+
+LES CINQ CONTRÔLES DU §3 — TOUS VERTS
+---------------------------------------
+1 ✅ empreinte 65dcd53655e8bfa5, 2 280 questions.
+2 ✅ artefact 1 770 527 533 octets.
+3 ✅ « restored v_proj at int4 g128 (dequantized) (36 matrices, 94371840
+     weights) » — mêmes matrices et mêmes poids que le bras f16 de M2.
+4 ✅ dump écrit avec son trailer.
+5 ✅ micro 59,19 %, égal ni à 55,59 ni à 60,07 : la quantification a bien agi
+     sans tout détruire.
+
+LE RÉSULTAT
+------------
+  bras                          MMLU     gain      IC95 apparié      McNemar p
+  livré (témoin, M2)           55,59        —              —                 —
+  v_proj int4 g128 (ce job)    59,19    +3,60   [+1,47 ; +5,79]        2,0e-4
+  v_proj f16 (témoin, M2)      60,07    +4,48   [+2,39 ; +6,61]        5,1e-6
+
+  survie du gain : 3,60 / 4,48 = 80,4 %
+
+Et le coût mémoire correspondant (*calculé*, b/param modèle entier ;
+int4 g128 = 4 bits + scale et biais f16 par groupe = 4,250 b/poids) :
+
+  v_proj servi en…              b/poids   Δ b/param    total    MMLU
+  Leech déplié (aujourd'hui)      4,804     +0,0000    5,162   55,59
+  int4 g128                       4,250     −0,0130    5,149   59,19
+  f16 (non servable)             16,000     +0,2627    5,425   60,07
+
+**Mémoire EN BAISSE et qualité en hausse.** L'écart au 4 bits concurrent
+passe de 14,45 à 10,85 pp.
+
+🚨 LE VERDICT NE SE LIT PAS : LA RÈGLE DU §5 A UN TROU, ET CE CAS Y TOMBE
+--------------------------------------------------------------------------
+Le §5 tamponné pose trois lignes :
+  1. G4 ≥ +3,0 ET son IC entièrement > +1,5   → encaissable
+  2. +1,5 ≤ G4 < +3,0                          → partiel
+  3. G4 < +1,5                                 → mort
+
+Mesuré : **G4 = +3,60, borne basse de l'IC = +1,47**. La ligne 1 exige les
+deux conditions et la seconde échoue de 0,03 pp. La ligne 2 exige G4 < 3,0,
+faux. La ligne 3 exige G4 < 1,5, faux. **Aucune ligne ne s'applique.**
+
+⚠️ Et ce n'est PAS du bruit de bootstrap. Borne basse sur 8 graines de
+rééchantillonnage (le Δ point ne bouge pas) : 1,47 · 1,49 · 1,47 · 1,49 ·
+1,48 · 1,42 · 1,45 · 1,46. **Jamais au-dessus de 1,50.** Le critère échoue
+franchement, il ne rate pas de justesse par malchance.
+
+**Ce que la mesure dit, et c'est indépendant du trou de la règle** : le point
+estimé est dans le régime « encaissable », et l'incertitude n'exclut pas le
+régime « partiel ». L'écart est résolu contre zéro (p = 2,0e-4) ; ce qui
+n'est pas résolu, c'est le NIVEAU du gain contre le seuil de 1,5.
+
+**Le choix de ligne revient à l'opérateur.** Il n'est pas fait ici, et il ne
+se fera pas en réécrivant le §5 après coup : la règle est tamponnée, son
+défaut est déclaré aux ECARTS, et un futur préreg devra la poser sans trou.
+
+LA PRÉDICTION SIGNÉE : JUSTE SUR LE NOMBRE, FAUSSE SUR LA CONCLUSION
+---------------------------------------------------------------------
+Le §6 annonçait « G4 entre +3,5 et +4,3 pp, donc la première ligne du §5 ».
+Mesuré **+3,60** : dans la fourchette, et c'est la PREMIÈRE prédiction signée
+juste de la session (les quatre précédentes étaient fausses en tout ou
+partie). Mais la conclusion attachée — « donc la ligne 1 » — est fausse, non
+parce que le nombre est faux, mais parce que la règle qui devait le lire est
+incomplète. **Prédire juste et conclure faux est un mode d'échec distinct, et
+il vient du protocole, pas de la mesure.**
+
+La faille déclarée du §6 s'est bien matérialisée, partiellement : l'AWQ
+protège ses canaux saillants, cet affine nu ne protège rien, et 19,6 % du
+gain est perdu. L'analogie « la perte sera une fraction de 0,28 pp » était
+donc trop optimiste — la perte vaut 0,88 pp sur cette matrice seule.
+
+CE QUE CE JOB N'ÉTABLIT PAS
+-----------------------------
+- **Aucun chemin servi.** Un noyau à précision mixte n'existe pas ; ce qui est
+  mesuré est ce qu'il rendrait s'il existait, côté qualité seulement.
+- **4,250 n'est pas 4,156** : notre affine stocke scale et biais en f16 là où
+  l'AWQ empaquette son zéro. Écart déclaré, en notre défaveur.
+- **Le coût disque monte** : 2,0702 → 2,1333 b/poids effectifs (+0,063).
+- Une matrice, une taille, un tirage de calibration.
+
+PROVENANCE DES OCTETS
+----------------------
+Dump : docs/data/m2-attribution/mmlu-v_proj-int4g128.csv
+Bruts + appariement complet : docs/mesures/m2b-v4bits-2026-09-02-brut/
