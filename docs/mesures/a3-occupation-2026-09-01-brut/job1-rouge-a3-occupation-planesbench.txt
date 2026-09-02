@@ -1,0 +1,71 @@
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : slot32,planes14,fp16
+section Fusion, bras A3 (LLVQ_SEG_ARMS) : pad,mr2,mr4,mr2p,pers,sk1,sk2,persall — appendés APRÈS les quatre historiques, mêmes rounds, mêmes tampons
+source NVRTC : 142629 octets, sha256 ef95089593c2dc210591e64cef5231a5992900399cbd89f640830d5c1499464e
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+  tv_planes_pad  40 registres, 0 o locaux, sm_89
+  tv_planes_mr2  48 registres, 0 o locaux, sm_89
+  tv_planes_mr4  64 registres, 0 o locaux, sm_89
+  tv_planes_mr2p  48 registres, 0 o locaux, sm_89
+  tv_planes_pers  40 registres, 0 o locaux, sm_89
+  tv_planes_sk  40 registres, 0 o locaux, sm_89
+  tv_planes_persall  48 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 149 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, fp16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 3 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  FP16 (128 bits)          10.994   10.995   10.999     7.27   16.000      661
+  LLVQ Slot32               5.806    5.812    5.821     2.50    5.510      431
+  LLVQ Planes14             5.080    5.084    5.091     2.18    4.804      429
+  --------------------------------------------------------------------------------
+  LLVQ Slot32      vs FP16     : 1.89× [1.89–1.89]
+  LLVQ Planes14    vs FP16     : 2.16× [2.16–2.16]
+  planes14   vs slot32    : 1.14× [1.14–1.14]  (>1 = Planes14 plus rapide, même contenu décodé)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2182 Mo distincts par passe sur le bras le plus léger (LLVQ Planes14), soit 21.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Slot32 1.74×, LLVQ Planes14 1.95×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 81 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Occupation (A3) — justesse : 8 bras, 144 sites, 1105920 lignes
+  pad      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr2      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr4      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr2p     1105920 lignes identiques AU BIT près à tv_planes_seg
+  pers     1105920 lignes identiques AU BIT près à tv_planes_seg
+Error: "sk1 / model.layers.0.mlp.down_proj.weight : pire erreur 2.25e-2·Σ|w·x| au-dessus du seuil 1e-5"

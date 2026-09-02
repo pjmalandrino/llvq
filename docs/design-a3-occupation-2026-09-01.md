@@ -1,6 +1,6 @@
 # Note de design — A3, variantes d'occupation (préreg `proofs/preregistration-a2-a3-geometrie-2026-08-31.md`, sha256 802006c5…)
 
-Statut : note de conception ; **code écrit le 2026-09-01** (`llvq-cuda/kernels/planes_occ.cu`, `llvq_cuda::occ`, section Fusion de `planesbench`, sélecteur `LLVQ_SEG_ARMS`), écarts déclarés dans le fichier d'ÉCARTS ci-dessous, aucun job lancé. Tout chiffre porte son étiquette *mesuré* / *calculé* / *estimé* et sa provenance. Écarts au préreg tamponné → `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, jamais d'édition du préreg.
+Statut : **MESURÉE le 2026-09-02** (`docs/mesures/a3-occupation-banc-2026-09-01.txt`, 0,24 $) — aucun bras portable ne passe le gate de 10 % (meilleur : `pers` +1,56 %), le bras de banc `persall` borne la géométrie à +26,36 %, et l'hypothèse centrale du §1 (le sous-remplissage de o/down) est réfutée : sk1 remplit leurs grilles et rend −1,87 %. Les priors du §2 sont faux de signe pour (a) et (c). Code : `llvq-cuda/kernels/planes_occ.cu`, `llvq_cuda::occ`, sélecteur `LLVQ_SEG_ARMS` ; écarts dans le fichier d'ÉCARTS. Tout chiffre porte son étiquette *mesuré* / *calculé* / *estimé* et sa provenance. Écarts au préreg tamponné → `proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`, jamais d'édition du préreg.
 
 ## 1. La géométrie actuelle, au chiffre
 

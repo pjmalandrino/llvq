@@ -98,6 +98,25 @@ dans le bloc du gate, les autres bras gardent leur mesure. Ce qui reste
 fatal : une erreur de lancement, ou une référence qui ne se calcule pas.
 `sk2` et `persall` n'ont pas été atteints ; leurs priors d'É3 tiennent.
 
+## É6 — Second job (2026-09-02, `6a97b843…`, 237 s, 0,12 $) : le verdict, et deux écarts au plan d'É4
+
+Verdict complet : `docs/mesures/a3-occupation-banc-2026-09-01.txt`. En une
+ligne : **aucun bras portable ne passe le gate** (le meilleur, `pers`,
++1,56 % [+1,01 ; +1,86]) ; `persall`, non portable par construction, passe
+à +26,36 % [+25,31 ; +26,61] et **borne** la géométrie. Les écarts :
+
+- **L'annexe A100 n'est pas lancée.** É4 la réservait à un bras qui passe
+  le gate ; le seul qui passe est le bras de banc, dont le point A100 ne
+  déciderait rien (aucun port en jeu). 0,25 $ non dépensés.
+- **Les priors d'É3 sont faux dans leur signe pour `sk1` (+5 à +15 %
+  attendus, −1,87 % mesuré) et pour `mr2`/`mr4` (bornes hautes +8 %,
+  mesurés −10,45 % et −24,62 %)** ; `pers` est cinq fois sous son prior ;
+  `persall` est juste au-dessus du sien (+26,4 contre +15 à +25). Le prior
+  global — au plus un bras portable au-dessus du gate — tenait, par le bas.
+- Le brut du job 1 dans le bucket n'a pas la ligne `Error:` finale (stderr,
+  après la fermeture du `tee`) ; elle est jointe à part dans le répertoire
+  des bruts.
+
 ## É4 — Le job, tel qu'il sera lancé
 
 - Image reconstruite (le binaire `planesbench` change ; les noyaux sont du

@@ -1,0 +1,1 @@
+Error: "sk1 / model.layers.0.mlp.down_proj.weight : pire erreur 2.25e-2·Σ|w·x| au-dessus du seuil 1e-5"

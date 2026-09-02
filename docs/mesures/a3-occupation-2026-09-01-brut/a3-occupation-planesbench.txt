@@ -1,0 +1,140 @@
+sélection LLVQ_BENCH_ARMS :
+  phase 1/1 : slot32,planes14,fp16
+section Fusion, bras A3 (LLVQ_SEG_ARMS) : pad,mr2,mr4,mr2p,pers,sk1,sk2,persall — appendés APRÈS les quatre historiques, mêmes rounds, mêmes tampons
+source NVRTC : 143339 octets, sha256 06ab3c028ab0eb0d44937d965f1b0afde30e1739e5355951ba03ed46a37d846d
+
+NVIDIA L40S — 142 SM, L2 100.7 Mo (lue), 49152 o de partagée par bloc
+  tv_slot     40 registres, 0 o locaux, sm_89
+  tv_slot_seg  40 registres, 0 o locaux, sm_89
+  tv_f16      42 registres, 0 o locaux, sm_89
+  tv_planes   40 registres, 0 o locaux, sm_89
+  tv_planes_seg  40 registres, 0 o locaux, sm_89
+  tv_planes12x  40 registres, 0 o locaux, sm_89
+  tv_golay70  40 registres, 0 o locaux, sm_89
+  tv_golay70_v1  40 registres, 0 o locaux, sm_89
+  awq_gemv_g128  32 registres, 0 o locaux, sm_89
+  tv_e1v      79 registres, 0 o locaux, sm_89
+  tv_nullk    31 registres, 0 o locaux, sm_89
+  tv_planes_pad  40 registres, 0 o locaux, sm_89
+  tv_planes_mr2  48 registres, 0 o locaux, sm_89
+  tv_planes_mr4  64 registres, 0 o locaux, sm_89
+  tv_planes_mr2p  48 registres, 0 o locaux, sm_89
+  tv_planes_pers  40 registres, 0 o locaux, sm_89
+  tv_planes_sk  40 registres, 0 o locaux, sm_89
+  tv_planes_persall  48 registres, 0 o locaux, sm_89
+
+Construction — transcodage Slot32 (référence, toujours), Planes14, preuves de reconstruction exacte des bras construits…
+  /model/qwen3-4b-llvq.bin — 252 matrices
+  d_y : 9728 f32 — la table, et rien d'autre (la section A4 a le sien)
+  252 matrices, 3.63 Md de poids, en 148 s — preuves bloc par bloc des bras construits
+
+Vérification de chaque ligne contre la référence f64…
+  1105920 lignes, seuil 1e-5 (AWQ, cublasf16 : 1e-3, sortie binary16) — pires erreurs slot32 2.2e-8, planes14 2.2e-8, fp16 3.0e-8 ·Σ|w·x|
+
+UN TOKEN — 252 matrices, un stream, 3 bras entrelacés
+  7 rounds, 2 jetés ; les rapports sont formés ROUND PAR ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   méd ms   max ms   Go lus  b/poids Go/s(min)
+  FP16 (128 bits)          10.990   10.997   10.999     7.27   16.000      661
+  LLVQ Slot32               5.805    5.815    5.817     2.50    5.510      431
+  LLVQ Planes14             5.079    5.083    5.085     2.18    4.804      430
+  --------------------------------------------------------------------------------
+  LLVQ Slot32      vs FP16     : 1.89× [1.89–1.89]
+  LLVQ Planes14    vs FP16     : 2.16× [2.16–2.17]
+  planes14   vs slot32    : 1.14× [1.14–1.15]  (>1 = Planes14 plus rapide, même contenu décodé)
+
+  source : le modèle publié (/model/qwen3-4b-llvq.bin)
+  2182 Mo distincts par passe sur le bras le plus léger (LLVQ Planes14), soit 21.7× la L2 lue.
+  Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu
+  optimiste toute mesure LLVQ antérieure au 2026-07-31.
+
+  Avec le lm_head f16 non quantifié (389 M poids, 1.18 ms au débit FP16
+  mesuré, ajouté aux bras LLVQ) : LLVQ Slot32 1.74×, LLVQ Planes14 1.94×.
+  Normes, activations, attention et rotation ne sont mesurées ni ici ni là.
+
+  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un
+  run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque
+  bras contre sa référence f64 ; les rapports se forment round par round,
+  dans un même processus.
+
+  fusion : 72 groupes (180 matrices → 72), transcodés en 79 s
+
+  Fusion (A4) — sortie contre les matrices non fusionnées
+  72 groupes, 921600 lignes — identiques AU BIT près, sur Slot32 ET sur Planes14
+
+  Occupation (A3) — justesse : 8 bras, 144 sites, 1105920 lignes
+  pad      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr2      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr4      1105920 lignes identiques AU BIT près à tv_planes_seg
+  mr2p     1105920 lignes identiques AU BIT près à tv_planes_seg
+  pers     1105920 lignes identiques AU BIT près à tv_planes_seg
+  sk1      921600 lignes identiques AU BIT près à tv_planes_seg ; 184320 lignes scindées contre la référence f64
+           pire erreur f64 1.4e-8·Σ|w·x| (seuil 1e-5)
+  sk2      0 lignes identiques AU BIT près à tv_planes_seg ; 1105920 lignes scindées contre la référence f64
+           pire erreur f64 2.0e-8·Σ|w·x| (seuil 1e-5)
+  persall  1105920 lignes identiques AU BIT près à tv_planes_seg
+
+  Coût — 7 rounds, 2 jetés, QUATRE bras entrelacés, médianes
+  ------------------------------------------------------------------------------
+  Slot32, matrices séparées              5.855 ms   252 lancements
+  Slot32, q+k+v et gate+up fusés         5.045 ms   144 lancements
+  Planes14, matrices séparées            5.140 ms   252 lancements
+  Planes14, q+k+v et gate+up fusés       4.565 ms   144 lancements
+  ------------------------------------------------------------------------------
+  gain Slot32   : 0.816 ms [0.804–0.823]  (13.9 %)
+  gain Planes14 : 0.578 ms [0.559–0.596]  (11.2 %)
+  Planes14 / Slot32 sur le gain : 0.70× [0.70–0.73]
+  ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux numérateurs
+  cumulée, donc bien plus large que celle des rapports du tableau ci-dessus. Le
+  lire comme un ordre de grandeur, jamais à deux décimales. Ce sont les deux
+  lignes « gain » qui portent le résultat.
+  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)
+  = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation.
+  octets lus — Slot32   : 2.502 Go fusé contre 2.502 séparé (-0.00 %)
+  octets lus — Planes14 : 2.182 Go fusé contre 2.182 séparé (+0.00 %)
+  Slot32 peut bouger : son stride est le plus large enregistrement d'un
+  groupe de 32, et la concaténation regroupe aux frontières de segment. Planes14
+  ne le peut pas — 14 octets par bloc, sans table de bases — et le +0,00 % ci-dessus
+  est donc une vérification, pas une mesure (tests/planes_segment_matches_unfused.rs).
+  Un gain d'octets serait un confondant, pas un bonus.
+
+  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise
+  aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et gagnerait
+  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ ci-dessus sont mesurés.
+
+  Occupation (A3) — 7 rounds, 2 jetés, bras entrelacés APRÈS les quatre ci-dessus, médianes
+  dénominateur du gate (préreg §5) : « Planes14, q+k+v et gate+up fusés » de CE processus = 4.565 ms
+  lecture gelée AVANT le job (ÉCARTS É1) : gain = (t_ref − t) / t_ref, formé ROUND PAR ROUND ; ≥ 10 % sur TOUTE la plage = passe
+  ------------------------------------------------------------------------------
+  Planes14 fusé, staging à 28 (pad)              4.572 ms [4.547–4.588]   144 lancements
+      gain -0.14 % [-0.52 ; -0.08]   Δ -0.006 ms [-0.023 ; -0.004]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, 2 lignes/warp (mr2)             5.031 ms [5.017–5.057]   144 lancements
+      gain -10.45 % [-11.04 ; -10.17]   Δ -0.477 ms [-0.500 ; -0.464]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, 4 lignes/warp (mr4)             5.678 ms [5.650–5.708]   144 lancements
+      gain -24.62 % [-24.90 ; -24.07]   Δ -1.128 ms [-1.132 ; -1.102]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, mr2 + pad (mr2p)                5.011 ms [4.993–5.027]   144 lancements
+      gain -9.85 % [-10.59 ; -9.36]   Δ -0.451 ms [-0.480 ; -0.427]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, persistant/site (pers)          4.496 ms [4.480–4.507]   144 lancements
+      gain +1.56 % [+1.01 ; +1.86]   Δ +0.072 ms [+0.046 ; +0.085]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, split-K ×tuiles (sk1)           4.654 ms [4.644–4.666]   144 lancements
+      gain -1.87 % [-2.50 ; -1.77]   Δ -0.086 ms [-0.113 ; -0.081]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, split-K ×2 tuiles (sk2)         4.997 ms [4.987–5.028]   144 lancements
+      gain -9.87 % [-10.28 ; -9.23]   Δ -0.452 ms [-0.466 ; -0.421]   → sous le gate : point de courbe, pas de port
+  Planes14 fusé, 1 lancement/round (persall)     3.366 ms [3.362–3.384]   1 lancements
+      gain +26.36 % [+25.31 ; +26.61]   Δ +1.203 ms [+1.147 ; +1.219]   → PASSE le gate banc (plage entière ≥ 10 %)
+  ------------------------------------------------------------------------------
+  résidence lue — tv_planes_seg 40 registres → 6 CTAs/SM × 142 SM = 852 emplacements ; tv_planes_pers 40 reg → 6/SM = 852 ; tv_planes_persall 48 reg → 5/SM = 710
+  géométrie          6144×2560        19456×2560         2560×4096         2560×9728   (CTAs, vagues sur 852)
+  référence         768 (0.90)       2432 (2.85)        320 (0.38)        320 (0.38)
+  pad               768 (0.90)       2432 (2.85)        320 (0.38)        320 (0.38)
+  mr2               384 (0.45)       1216 (1.43)        160 (0.19)        160 (0.19)
+  mr4               192 (0.23)        608 (0.71)         80 (0.09)         80 (0.09)
+  mr2p              384 (0.45)       1216 (1.43)        160 (0.19)        160 (0.19)
+  pers              768 (0.90)        852 (1.00)        320 (0.38)        320 (0.38)
+  sk1               768 (0.90)       2432 (2.85)        640 (0.75)       1280 (1.50)
+  sk2              1536 (1.80)       4864 (5.71)       1280 (1.50)       2560 (3.00)
+  persall          1 lancement       1 lancement       1 lancement       1 lancement
+  ⚠️ persall : UN lancement pour les 144 sites — bras de BANC ; le chemin servi ne peut pas l'utiliser
+  (rotation, attention et normes entre les sites), il borne ce qu'A2+A3 réunis peuvent viser, il ne se porte pas.
+  arithmétique posée d'avance (note de design §4) : les 144 matvec pèsent ~45 % du token servi v1, donc 10 % ici ≈ +4,5 %
+  bout-en-bout — entre 3 et 8, point de courbe ; l'adoption (≥ 8 %) demande ~18 % au banc, ou la combinaison avec A2.

@@ -431,6 +431,19 @@ launch geometry and unfolding cost, not the factor against FP16. »*
 La famille *k* (le même noyau servant *k* colonnes par lancement) reste le seul
 levier écrit pour le reste, et elle n'est pas codée.
 
+> ✅ **Rendu le 2026-09-01 → 09-02 (phase A du plan d'après-dépôt).** La part
+> de ce poste que la géométrie pouvait rendre est **mesurée et bornée** :
+> A2 (CUDA Graphs, hybride) **adopté au 4B, +13,45 % [13,36–13,58]** et au 8B
+> (+10,1 %), point de courbe au 14B ; A3 (huit variantes d'occupation au
+> banc, `mesures/a3-occupation-banc-2026-09-01.txt`) : **aucun bras portable
+> ≥ 10 %**, le meilleur (`pers`) à +1,56 %, et le bras de banc `persall`
+> (un lancement par round) borne le matvec fusé à **+26,36 %**, ce que les
+> graphs ont déjà encaissé sur le chemin servi. ⚠️ **Le sous-remplissage de
+> o/down n'est PAS le résidu** — un split-K qui porte leurs grilles à
+> 640/1 280 CTAs rend −1,87 %. Ce qui reste ici après A2 vaut ~1,6 % ; la
+> famille *k* garde son statut (non codée, garde produit à *k* > 1), sans
+> que rien de la phase A ne l'ait rendue plus urgente.
+
 - ⚠️ **Garde produit à poser avant d'écrire** — elle n'amortit qu'à *k* > 1,
   donc en prefill et en lot ; à *k* = 1 (chat interactif) le plancher reste
   entier, et un verdict de *k* **ne se transporte pas** au débit interactif.

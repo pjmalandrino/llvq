@@ -164,6 +164,18 @@ noyaux, pas dedans.**
 > (`proofs/preregistration-a2-a3-geometrie-2026-08-31.md`, sha256 802006c5…),
 > avec les critères d'A3 (banc ≥ 10 % contre planes14 FUSÉ, puis
 > ≥ 8 %/< 3 % bout-en-bout).
+>
+> ✅ **Pointage du 2026-09-02 : la phase est RENDUE, 1,11 $ sur 4.** **A2
+> FAIT** — graphs en forme hybride, **adopté au 4B (+13,45 % [13,36–13,58])
+> et au 8B (+10,1 %)**, point de courbe au 14B (+6,1 %), pas de gel v2
+> (0,87 $, `mesures/a2-*-2026-09-01.txt`). **A3 FAIT** — huit bras
+> d'occupation au banc, **aucun bras portable ≥ 10 %** (meilleur : `pers`
+> +1,56 % [+1,01 ; +1,86]), le bras de banc `persall` borne la géométrie à
+> +26,36 % et le split-K qui remplit o/down rend −1,87 % : le
+> sous-remplissage n'est pas le résidu (0,24 $,
+> `mesures/a3-occupation-banc-2026-09-01.txt`). **Kill de phase non
+> déclenché** — A2 seul dépasse 8 %. La phase se ferme avec A2 pour seule
+> adoption ; l'annexe A100 d'A3 n'est pas due (aucun bras portable).
 
 **Kill de phase** (à ancrer avant A1) : si A1 + A2 + A3 rendent < 8 %
 cumulés bout-en-bout, l'axe géométrie **sous candle** est clos par mesure ;

@@ -65,17 +65,30 @@ de MMLU en notre faveur à 0,37 % de bits d'écart — et **nous bat du double e
 mémoire servie** (2,479 contre 5,162 b/param). Le bruit inter-graines du MMLU
 vaut **σ = 2,92 pp** au 4B — l'échelle de volume de calibration **ne part pas**.
 
-🧭 **Prochain chantier : le dev d'A2 (CUDA Graphs), préallocation KV d'abord**,
-sous le préreg arbitré et tamponné du 09-01 (sha256 `802006c5…`, kill de phase
-ancré : < 8 % cumulés A1+A2+A3 → l'axe géométrie sous candle est clos).
+✅ **LA PHASE A (GÉOMÉTRIE) EST RENDUE, 1,11 $ sur un plafond de 4, avec
+A2 pour seule adoption** (entrée du 09-01 → 09-02). **A2, CUDA Graphs en
+forme hybride : adopté au 4B (+13,45 % [13,36–13,58], 112,5 tok/s) et au 8B
+(+10,1 %), point de courbe au 14B (+6,1 %) → pas de gel v2**, la config
+servie reste v1 partout. **A3, huit variantes d'occupation : aucun bras
+portable ne passe le gate banc** (le meilleur, `pers`, +1,56 %
+[+1,01 ; +1,86]) ; le bras de banc `persall` **borne** la géométrie à
++26,36 % [+25,31 ; +26,61] du matvec fusé, ce que les graphs ont déjà
+encaissé sur le chemin servi. ⚠️ Le sous-remplissage de o/down n'est **pas**
+le résidu (split-K −1,87 %). Kill de phase (< 8 %) non déclenché.
 
-**Compteurs au 2026-09-01** (*mesurés*) : **93 lignes** dans
-[`data/jobs.csv`](data/jobs.csv) pour **91,40 $ facturés** (`awk` sur le CSV) ·
-**86** journaux `.txt` dans [`mesures/`](mesures/) · **13** CSV dans
-[`data/`](data/) · **34** documents et **24** ancrages `.ots` dans
-[`../proofs/`](../proofs/) — **20 ancrés Bitcoin** (audit
-[`mesures/ots-etat-2026-08-27.txt`](mesures/ots-etat-2026-08-27.txt)), les 4
-postérieurs (m3, vague 2, protocole v2, A2/A3) encore en attente de calendrier.
+🧭 **Prochain chantier : la QUALITÉ (phase B du plan d'après-dépôt)** — la
+géométrie sous candle a rendu ce qu'elle pouvait ; ce qui reste s'appelle
+`pers` (+1,6 %) et ne mérite pas un port.
+
+**Compteurs au 2026-09-02** (*mesurés*) : **102 lignes** dans
+[`data/jobs.csv`](data/jobs.csv) pour **92,51 $ facturés** (`awk` sur le CSV) ·
+**96** journaux `.txt` dans [`mesures/`](mesures/) · **13** CSV dans
+[`data/`](data/) · **40** documents et **28** ancrages `.ots` dans
+[`../proofs/`](../proofs/) — **20 ancrés Bitcoin, 8 en attente de calendrier**
+(*mesuré* le 09-02 par `ops/otsaudit.py`,
+[`mesures/ots-etat-2026-09-02.txt`](mesures/ots-etat-2026-09-02.txt) : les
+huit sont m3, vague 2, protocole v2, et les cinq préregs A2/A3 du 09-01 ;
+les deux du 08-10/08-11 ne collent toujours pas à leur fichier).
 🕳️ **La fin de ce fichier (entrée du 08-24, §5) répète « aucun des 16 `.ots`
 n'a jamais été upgradé … 0 Bitcoin » : MESURÉ FAUX le 2026-08-26** — le grep ne
 pouvait pas voir les ancres (étiquette binaire de 8 octets), 16 des 20 tampons
@@ -2099,3 +2112,68 @@ Les règles gelées, telles qu'ancrées :
 et la ligne v1 en annotations datées (`2ad11b7`, `cd82f19`) — deux d'entre
 elles portaient encore les points uniques d'avant B2 (48,7 / 88,4-88,5 /
 ×1,12), **deux générations en arrière**.
+
+## 2026-09-01 → 09-02 — A2 rendu, A3 rendu : les graphs adoptent au 4B et au 8B, aucune variante d'occupation ne passe le gate, et la borne de la géométrie est mesurée
+
+> 🕳️ L'entrée A2 est écrite ici **après** A3, qui l'a précédée d'un jour :
+> c'était la dette documentaire déclarée à la passation du 09-01 au soir.
+> Les chiffres viennent des journaux `a2-*-2026-09-01.txt` et du registre.
+
+**A2 — CUDA Graphs sur la boucle token (2026-09-01, sept jobs, 0,87 $).**
+Sous le préreg de phase `802006c5…` et le préreg d'étapes `af6c12d2…`, une
+étape par tampon :
+- ❌ **Étape 1, préallocation KV : STOP** — `r = prealloc/cat = 0,8919
+  [0,8884–0,8953] < 0,97`, la prealloc **régresse de ~11 %** à fenêtre 256,
+  prior `r = 1,00` réfuté ; retour opérateur, mécanisme instruit (vues
+  narrow striées).
+- ✅ **Étape 1b, store étendu à fenêtre fixe : VERT** — `r = 0,9917
+  [0,9883–0,9935] ≥ 0,97`, coût net de la base fixe **−0,83 %, résolu**.
+- ⚠️ **Étape 2 : capture certifiée, gate 2 rouge** — le pas entier
+  s'enregistre (noyaux candle, cuBLAS et les nôtres), mais éager et graph
+  divergent au token 2 ; aucun chrono rendu, comme le préreg l'exigeait.
+  Diagnostic instrumenté : **le premier replay qui suit un préfill est
+  inexact (max|Δlogits| = 1,12e1), les douze suivants sont exacts au bit
+  près** — forme **hybride** (premier token de décodage éager, replay
+  ensuite).
+- ✅ **Étape 3, 4B : ADOPTÉ** — `r = graph/éager = 1,1345 [1,1336–1,1358]`,
+  **+13,45 %** bout-en-bout, +12,6 % net contre v1 ; 128 tokens identiques
+  sur 5 rounds ; éager 99,2 [99,1–99,2], graph **112,5 [112,4–112,6] tok/s**.
+- **Transfert** (préreg `a2-transfert-8b-14b`, seuils par taille, règle de
+  gel « les trois ou aucune ») : ✅ **8B adopté, +10,1 % [+10,08 ; +10,14]**
+  (76,2 → 83,9 tok/s ; le replay **pur** y passe) ; ⚠️ **14B point de
+  courbe, +6,1 % [+6,02 ; +6,11]** (46,9 → 49,8 ; replay pur rouge au token
+  7, hybride vert) → **pas de gel v2**, la config servie reste v1 partout.
+
+**A3 — variantes d'occupation au banc (2026-09-01 → 09-02, deux jobs,
+0,24 $).** Huit bras dans la section Fusion de `planesbench`
+(`kernels/planes_occ.cu`, sélecteur `LLVQ_SEG_ARMS`), chacun ne bougeant
+qu'un mécanisme, justesse établie avant tout chrono — **six bras identiques
+au bit près à `tv_planes_seg` sur 1 105 920 lignes**, les deux split-K à
+≤ 2,0e-8 sur les sites scindés. Gate gelé aux ÉCARTS avant le job :
+`gain = (t_ref − t)/t_ref` round par round, `t_ref` = Planes14 fusé
+re-mesuré (4,565 ms), plage entière ≥ 10 % = passe
+([`mesures/a3-occupation-banc-2026-09-01.txt`](mesures/a3-occupation-banc-2026-09-01.txt)).
+- ❌ **Aucun bras portable ne passe** : pad −0,14 % [−0,52 ; −0,08] ·
+  mr2 −10,45 · mr4 −24,62 · mr2p −9,85 · **pers +1,56 % [+1,01 ; +1,86]**
+  (le seul positif, résolu, six fois sous le seuil) · sk1 −1,87 [−2,50 ;
+  −1,77] · sk2 −9,87. **Point de courbe, pas de port.**
+- ❌ **Le sous-remplissage de o/down n'est pas le résidu** : sk1 porte
+  leurs grilles de 320 à 640/1 280 CTAs sans changer un octet et rend
+  −1,87 %. L'hypothèse centrale de la note de design est réfutée dans son
+  signe ; multi-lignes par warp perd davantage avec R.
+- ✅ **La borne de la géométrie est mesurée** : `persall` (les 144 sites
+  d'un round en UN lancement, bras de banc non portable par construction)
+  rend **+26,36 % [+25,31 ; +26,61]**, 1,203 ms sur 4,565 — ≈ 0,54 ms de
+  par-lancement (A1) plus ≈ 0,66 ms de bulles inter-noyaux (*calculé*).
+  Transporté 1:1 au token servi ce serait ≈ +12 % (*calculé*, indicatif) ;
+  **A2 a mesuré +13,45 %** — les graphs ont déjà encaissé, à l'ordre de
+  grandeur près, ce que la géométrie pouvait rendre. Ce qui reste à A3
+  après A2 est ce que `pers` mesure.
+- 🕳️ **Une prise, instruite** : le premier job (`6a97394c…`, 0,12 $) est
+  mort à la justesse de sk1 — huit warps écrivaient leurs partiels, chacun
+  fençait le sien, le thread 0 tirait le ticket sans attendre les sept
+  autres (le sample CUDA a UN écrivain par bloc). Un `__syncthreads()`
+  entre fences et ticket ; et un bras faux **invalide** désormais sans tuer
+  le job.
+- ✅ **Kill de phase non déclenché** (A2 seul rend > 8 %) ; **la phase A se
+  ferme avec A2 pour seule adoption** — 1,11 $ dépensés sur un plafond de 4.

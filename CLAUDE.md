@@ -90,6 +90,19 @@
 > intra-job. Le reste de la suite est le **backlog** et la **qualité** — pas un
 > nouveau format.
 >
+> 🆕 **La phase A géométrie est RENDUE (2026-09-01 → 09-02, 1,11 $ sur un
+> plafond de 4)** — [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md), entrée du
+> 09-01 → 09-02. **A2 (CUDA Graphs, forme hybride) : adopté au 4B, +13,45 %
+> [13,36–13,58] → 112,5 tok/s, et au 8B (+10,1 %) ; point de courbe au 14B
+> (+6,1 %) → pas de gel v2, la config servie reste v1 partout.** **A3 (huit
+> variantes d'occupation au banc, `LLVQ_SEG_ARMS`) : aucun bras portable ne
+> passe le gate de 10 %** — le meilleur, `pers`, rend +1,56 % [+1,01 ; +1,86] ;
+> le bras de banc `persall` borne la géométrie du matvec fusé à **+26,36 %
+> [+25,31 ; +26,61]**, ce que les graphs ont déjà encaissé sur le chemin
+> servi. ⚠️ **Le sous-remplissage de o/down N'EST PAS le résidu** : un split-K
+> qui remplit leurs grilles rend −1,87 %. Kill de phase non déclenché
+> ([`docs/mesures/a3-occupation-banc-2026-09-01.txt`](docs/mesures/a3-occupation-banc-2026-09-01.txt)).
+>
 > 🧭 **Par où reprendre, dans cet ordre** : **[`docs/BACKLOG.md`](docs/BACKLOG.md)**
 > — le RAF courant, ordonné par ce qui décide chaque sujet ; puis
 > [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md) (le fil chronologique) et
@@ -99,13 +112,13 @@
 > et [`docs/plan-taco-2026-08-18.md`](docs/plan-taco-2026-08-18.md) — restent
 > lisibles pour la généalogie, **avec ce qu'ils portent de périmé**.
 >
-> 🧾 **Compteurs au 2026-08-31 (soir)** : `docs/mesures/` **88 entrées** ·
-> `docs/data/*.csv` **13** · `docs/data/jobs.csv` **89 jobs pour 90,55 $
-> facturés** au total · `proofs/` **34 documents `.md` et 23 ancrages `.ots`**
+> 🧾 **Compteurs au 2026-09-02 (matin)** : `docs/mesures/` **102 entrées** ·
+> `docs/data/*.csv` **13** · `docs/data/jobs.csv` **102 jobs pour 92,51 $
+> facturés** au total · `proofs/` **40 documents `.md` et 28 ancrages `.ots`**
 > (*mesuré*, `awk` sur le CSV, `ls` sur les répertoires ; l'état des ancres
 > est celui d'`ops/otsaudit.py`, cf. la note ci-dessous). 🕳️ Le bloc
-> précédent (« 73 lignes pour 87,36 $ », au 2026-08-26) avait déjà dérivé de
-> 16 jobs quand il a été relu le 2026-08-31.
+> précédent (« 89 jobs pour 90,55 $ », au 2026-08-31 soir) avait dérivé de
+> 13 jobs quand il a été relu le 2026-09-02.
 >
 > 🕳️ **RENVERSEMENT — cette ligne a porté « Aucun des 16 `.ots` n'a jamais été
 > upgradé … 0 `BitcoinBlockHeaderAttestation` », et c'est MESURÉ FAUX le

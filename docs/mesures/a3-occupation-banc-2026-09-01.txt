@@ -1,0 +1,157 @@
+A3 — LES VARIANTES D'OCCUPATION AU BANC : AUCUN BRAS PORTABLE NE PASSE LE
+GATE, ET LA BORNE DE LA GÉOMÉTRIE EST MESURÉE (2026-09-01 → 09-02)
+
+Préreg : proofs/preregistration-a2-a3-geometrie-2026-08-31.md §5 (sha256
+802006c5…, tamponné le 2026-09-01 avant tout job A2/A3). Lecture du gate
+gelée AVANT le job dans le fichier d'ÉCARTS (É1) : gain = (t_ref − t)/t_ref,
+formé round par round, t_ref = « Planes14, q+k+v et gate+up fusés »
+RE-MESURÉ dans le même processus ; passe si TOUTE la plage est ≥ 10 %.
+Note de design : docs/design-a3-occupation-2026-09-01.md.
+
+Deux jobs l40sx1, image hf.co/spaces/Pier-Jean/llvq-runner-cuda :
+  6a97394c0718b0f6d890e0d0 — commit bb16d11, 236 s, 0,12 $ : ROUGE INSTRUIT
+    (justesse de sk1 fausse sur layers.0.down_proj, aucun chrono rendu)
+  6a97b8430718b0f6d890fbb2 — commit 5a881fb, 237 s, 0,12 $ : le verdict
+Coût A3 total : 0,24 $ (mesuré, docs/data/jobs.csv) ; phase A : 1,11 $
+dépensés sur un plafond de 4 (A2 0,87 + A3 0,24).
+Carte : NVIDIA L40S, driver 580.178.04, SM max 2 520 MHz (mesuré, a3-gpu.txt).
+Bruts : a3-occupation-2026-09-01-brut/ (4 fichiers). Authenticité vérifiée
+AVANT usage : le brut du job 2 est identique au log HF ligne à ligne (lignes
+non vides) ; celui du job 1 n'en diffère que par la ligne `Error:` finale,
+écrite sur stderr après la fermeture du tee — elle est jointe à part.
+Unité NVRTC du job 2 : 143 339 octets, sha256 06ab3c02… ; sept noyaux A3,
+0 o de mémoire locale chacun (mr4 64 registres, mr2/mr2p/persall 48, les
+autres 40 — tv_planes_seg en a 40).
+
+== VERDICT, dans les termes posés d'avance ==
+
+Étage banc (préreg §5, lecture É1), t_ref = 4,565 ms dans ce processus —
+7 rounds dont 2 jetés, huit bras entrelacés APRÈS les quatre historiques,
+gain et Δ formés ROUND PAR ROUND, médiane [plage] (mesuré) :
+
+  bras                          méd ms  [plage]          gain %  [plage]           verdict
+  pad     staging à 28           4,572  [4,547–4,588]    −0,14  [−0,52 ; −0,08]   sous le gate
+  mr2     2 lignes/warp          5,031  [5,017–5,057]   −10,45  [−11,04 ; −10,17]  sous le gate
+  mr4     4 lignes/warp          5,678  [5,650–5,708]   −24,62  [−24,90 ; −24,07]  sous le gate
+  mr2p    mr2 + pad              5,011  [4,993–5,027]    −9,85  [−10,59 ; −9,36]   sous le gate
+  pers    persistant/site        4,496  [4,480–4,507]    +1,56  [+1,01 ; +1,86]    sous le gate
+  sk1     split-K ×tuiles        4,654  [4,644–4,666]    −1,87  [−2,50 ; −1,77]    sous le gate
+  sk2     split-K ×2 tuiles      4,997  [4,987–5,028]    −9,87  [−10,28 ; −9,23]   sous le gate
+  persall 1 lancement/round      3,366  [3,362–3,384]   +26,36  [+25,31 ; +26,61]  PASSE (plage entière)
+
+AUCUN BRAS PORTABLE NE PASSE LE GATE BANC. Le seul bras portable positif
+est `pers`, +1,56 % [+1,01 ; +1,86] — résolu (la plage exclut zéro), et
+six fois sous le seuil. La branche « sous 10 % » du préreg s'applique aux
+sept bras portables : point de courbe, PAS DE PORT dans fusedrun. Aucun
+étage bout-en-bout n'est dû, aucune annexe A100 n'est due (É4 la
+réservait à un bras portable qui passe).
+
+`persall` PASSE le gate, largement — et c'est le bras déclaré d'avance
+comme NON portable (note §2 b2, ÉCARTS É2) : les 144 sites d'un round en UN
+lancement, ce que le chemin servi ne peut pas faire (rotation, attention et
+normes entre les sites). Il ne se porte pas ; il BORNE. Cf. § « le fait
+neuf ».
+
+Justesse, établie AVANT tout chrono, contre le bras de référence du même
+processus (mesuré) :
+  pad, mr2, mr4, mr2p, pers, persall : 1 105 920 lignes IDENTIQUES AU BIT
+    PRÈS à tv_planes_seg — sur les 144 sites, sans exception ;
+  sk1 : bit-exact sur les 921 600 lignes des sites non scindés (qkv,
+    gate_up), pire erreur 1,4e-8·Σ|w·x| sur les 184 320 lignes scindées
+    (o_proj, down_proj) contre la référence f64, seuil 1e-5 ;
+  sk2 : tous les sites scindés, pire erreur 2,0e-8·Σ|w·x|.
+Table à trois bras du même job (NON publiable — unité NVRTC changée pour
+tous les bras — mais contrôle de cohérence) : FP16 10,995 ms, Slot32 5,812
+(1,89×), Planes14 5,084 (2,16× [2,16–2,16]) — F2 rendait 2,15× [2,15–2,16].
+Section Fusion historique du même job : gain Planes14 de la fusion 0,578 ms
+[0,559–0,596] (11,2 %) — F2 : 0,594 [0,586–0,596] ; A4/A100 : 1,004.
+
+== LE FAIT NEUF : LA BORNE DE LA GÉOMÉTRIE EST MESURÉE, ET A2 L'A DÉJÀ
+   PRESQUE ATTEINTE ==
+
+`persall` supprime tout ce qu'une géométrie de lancement coûte au-dessus du
+travail lui-même : 143 lancements, leurs rampes et drainages, les fins de
+vague. Il gagne 1,203 ms [1,147–1,219] sur 4,565 (mesuré). Décomposition
+(calculée, hypothèse de linéarité du préreg §3 déclarée) :
+  · 143 lancements × 3,76 µs (part par-lancement d'A1) ≈ 0,54 ms ;
+  · le reste, ≈ 0,66 ms par différence : les bulles inter-noyaux que F3
+    logeait dans le span device (rampe/drainage entre lancements d'un même
+    stream, fins de vague), plus le staging de x amorti par CTA.
+Le plancher A1 à 144 lancements valait 1,794 ms ; persall en récupère
+1,203 ; ce qui reste dans persall (≈ 0,59 ms, calculé) est le prix
+intrinsèque de la géométrie warp-par-ligne — staging, barrières, réduction.
+
+Rapportée au chemin servi par l'arithmétique posée d'avance (note §4 : le
+banc f32 se transporte ~1:1 en ms, précédent D1 0,594 → 0,60 ms/token),
+1,203 ms sur les 9,94 ms/token de la config v1 (100,6 tok/s) ferait
+≈ +12 % (calculé, indicatif). A2 (CUDA Graphs, hybride) a MESURÉ +13,45 %
+[13,36–13,58] bout-en-bout au 4B (a2-e3-graph-ab-2026-09-01.txt) — sur
+TOUS les lancements du token, pas les seuls matvec. Autrement dit : ce que
+persall borne au banc, les graphs l'ont déjà encaissé sur le chemin servi,
+à l'ordre de grandeur près. Ce qui reste à A3 après A2 est ce que `pers`
+mesure : ≈ 1,6 %.
+
+== CE QUE LES SEPT BRAS PORTABLES APPRENNENT, MÉCANISME PAR MÉCANISME ==
+
+1) LE SOUS-REMPLISSAGE DE o_proj/down_proj N'EST PAS LE RÉSIDU. C'était
+   l'hypothèse centrale de la note (§1 : 320 CTAs sur 852, 37,6 % de
+   remplissage, 35 % des octets). sk1 porte o/down à 640 et 1 280 CTAs
+   (0,75 et 1,50 vague) sans changer un octet lu, et rend −1,87 %
+   [−2,50 ; −1,77] ; sk2 à 1 280/2 560 CTAs rend −9,87 %. Remplir la grille
+   coûte (partiels, tickets, fixup, CTAs plus courts) et ne rend rien : sur
+   L40S, un lancement de 320 CTAs de ce noyau n'est pas borné par le
+   remplissage. Prior d'É3 (+5 à +15 %) RÉFUTÉ dans son signe.
+
+2) PLUSIEURS LIGNES PAR WARP PERD, ET PERD PLUS AVEC R. mr2 −10,45 %, mr4
+   −24,62 % — la grille ÷R et l'occupation (mr4 : 64 registres → 4 CTAs/SM,
+   calculé par occ::residency) l'emportent sur l'ILP et le staging amorti.
+   La somme que la note laissait « non signée sur papier » est signée :
+   négative. mr2p (−9,85 %) ne diffère de mr2 que de 0,6 point — le padding
+   n'ajoute rien là non plus.
+
+3) LE STAGING PADDÉ NE CHANGE RIEN : pad −0,14 % [−0,52 ; −0,08], plage
+   entière dans le bruit d'un bras identique. L'analyse de conflits de bancs
+   (stride 96 o → chargements 128 bits 2-way) était calculée, jamais
+   mesurée : soit le compilateur n'émet pas les chargements supposés, soit
+   le conflit est masqué. Ce journal n'établit PAS lequel — seulement que
+   ça ne coûte pas de temps ici. Prior [0 ; +7] : le 0 était dedans.
+
+4) LA PERSISTANCE PAR SITE RÉCUPÈRE 1,6 %. pers (grille = résidence lue
+   6 × 142 = 852, x stagé une fois par CTA sur les sites à une tuile) rend
+   +0,072 ms [+0,046 ; +0,085]. C'est la rampe et la fin de vague par
+   lancement — petites, comme la note le disait (« pas le
+   sous-remplissage ») — et c'est le seul mécanisme portable qui ait un
+   signe positif. Prior (+5 à +12 %) trop haut d'un facteur ~5.
+
+5) LE FIXUP SPLIT-K EST JUSTE — après une prise. Le job 1 l'a pris en
+   défaut sur down_proj (2,25e-2) : huit warps écrivaient leurs partiels,
+   chacun fençait le sien, et le thread 0 tirait le ticket sans attendre
+   les sept autres — le motif « threadFenceReduction » a UN écrivain par
+   bloc. Un __syncthreads() entre les fences et le ticket règle tout (job
+   2 : 1,4e-8 et 2,0e-8 sur tous les sites scindés). Consigné aux ÉCARTS É5.
+
+== CE QUE CE JOURNAL N'ÉTABLIT PAS ==
+
+· Aucun point A100 : l'annexe était réservée à un bras portable qui passe.
+  Le point A4 (aucun bras réseau ≥ 1,00× FP16 sur A100, calcul borné par
+  SM) rend de toute façon un gain d'occupation improbable sur cette carte.
+· La borne de persall est un chiffre de BANC (x partagé, un seul flux, pas
+  de dépendance entre sites) ; son transport au chemin servi est une
+  arithmétique déclarée, pas une mesure — le chiffre servi est celui d'A2.
+· Le bras pad ne dit pas si les conflits de bancs existent, seulement
+  qu'ils ne se paient pas en temps sur ce noyau.
+· Les jumeaux nullk par géométrie (note, recommandation ii) n'ont pas été
+  construits ; le plancher 1,794 ms borne pad/mr/pers approximativement et
+  ne borne ni sk ni persall.
+· t_ref = 4,565 ms est le chiffre de CE processus ; il ne se soustrait ni
+  au 4,504 de F2 ni à aucun autre run — le banc l'imprime lui-même.
+
+== GARDE-FOUS ==
+· Le kill de phase (préreg §6 : A1+A2+A3 < 8 % cumulés bout-en-bout →
+  axe géométrie sous candle clos) N'EST PAS déclenché : A2 seul rend
+  +13,45 % au 4B. Mais A3 n'y ajoute rien de portable : la phase A se
+  ferme avec A2 pour seule adoption (4B et 8B ; 14B point de courbe).
+· Les % de ce journal sont des gains Δ/t_ref, pas des ratios ; « ×1,26 »
+  pour persall serait 4,565/3,366 = 1,356 — ne pas mélanger.
+· Rien ici ne se compare à FP16 : la section Fusion n'a pas de bras FP16
+  fusé, par construction (le banc l'imprime).
