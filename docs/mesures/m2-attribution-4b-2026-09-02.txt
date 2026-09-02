@@ -1,0 +1,149 @@
+M2 — ATTRIBUTION DE LA CHUTE MMLU PAR TYPE DE PROJECTION, AU 4B (2026-09-02)
+============================================================================
+Pré-enregistrement : proofs/preregistration-m2-attribution-4b-2026-09-02.md
+  sha256 71712e60dbe4d0edfa7976144b611e3551c90195e29fdcd9a44f3ddf491af6af
+  tamponné AVANT le lancement (ots stamp, 4 calendriers ; « recalcule ok »).
+Code mesuré : commit 55ee392 (LLVQ_RESTORE_F16) ; image Space COMMIT 2cdc9e8.
+Plomberie vérifiée à 0 $ avant la carte : docs/mesures/m2-plomberie-mac-2026-09-02.txt
+
+Job l40sx1 6a97ea8e0718b0f6d8910460 — démarré 11:41:54 UTC, dernier fichier
+écrit 12:54:11 UTC, soit 72,3 min de running (*calculé* sur les horodatages du
+bucket ; `ended_at` n'est pas rendu par l'API). ~2,17 $ au tarif 1,80 $/h.
+⚠️ 141 min d'attente matérielle AVANT le démarrage, non facturées.
+
+LE DISPOSITIF
+--------------
+Onze bras, un seul job, un seul processus par bras. Le fichier scellé PUBLIÉ
+(1 770 527 533 o) est chargé tel quel ; un ou plusieurs TYPES de projection
+sont repris du checkpoint Qwen/Qwen3-4B en f16, toutes couches à la fois ;
+tout le reste reste quantifié aux mêmes octets. C'est donc un A/B à FICHIER
+CONSTANT : le σ de calibration (5,2 % ppl, 2,92 pp MMLU) ne s'y applique pas,
+la barre est l'intervalle apparié.
+
+Pourquoi la restauration est exacte : decode_matrix dé-rotationne à la sortie,
+donc les tenseurs du fichier scellé sont en base naturelle, celle du
+checkpoint ; Proj::Dense ne porte aucune rotation. Le tenseur du checkpoint,
+ramené au dtype comme le fait le VarBuilder du bras f16, tombe dans le même
+emplacement sans transformation.
+
+LES SIX CONTRÔLES DU §3 — TOUS VERTS, ET DEUX D'ENTRE EUX À 100 %
+------------------------------------------------------------------
+1 ✅ empreinte 65dcd53655e8bfa5 sur les ONZE bras, 2 280 questions partout.
+2 ✅ artefact 1 770 527 533 o = le fichier publié.
+3 ✅ bras livré : micro 55,59 % = le chiffre publié, et 2280/2280 picks
+     IDENTIQUES au dump de référence du 2026-08-13 (mmlu-4b-llvq.csv).
+4 ✅ bras `all` : micro 70,32 % = le f16 publié, et 2280/2280 picks
+     IDENTIQUES à mmlu-4b-f16.csv. **« Tout restauré » EST le checkpoint,
+     question par question** — pas une approximation de lui.
+5 ✅ comptes de poids restaurés = ce que les formes du 4B imposent, aux dix
+     bras (377 487 360 · 94 371 840 · 896 532 480 · 943 718 400 ·
+     2 689 597 440 · 3 633 315 840).
+6 ✅ onze dumps par question écrits, avec leur trailer.
+
+Le critère du préreg demandait « ≥ 99,5 % de picks » sur les contrôles 3 et 4.
+Mesuré : 100,00 % des deux côtés.
+
+L'ATTRIBUTION — gain de la restauration, apparié, bootstrap stratifié
+----------------------------------------------------------------------
+10 000 tirages, graine 0xb0075eed, correction de population finie, McNemar
+exact en regard. ⚠️ mmlupair rend Δ = livré − restauré, donc NÉGATIF ; les
+valeurs ci-dessous sont −Δ, avec les bornes de l'IC inversées.
+
+  type restauré   gain (pp)   IC95 apparié        SE     McNemar p    % des poids
+  gate_proj         +5,18     [+3,04 ; +7,34]    1,11    1,59e-8         24,7 %
+  up_proj           +4,94     [+2,72 ; +7,17]    1,13    8,47e-6         24,7 %
+  v_proj            +4,48     [+2,39 ; +6,61]    1,08    5,10e-6          2,6 %
+  down_proj         +2,96     [+0,71 ; +5,17]    1,14    1,90e-7         24,7 %
+  o_proj            +2,35     [+0,32 ; +4,32]    1,02    0,0019          10,4 %
+  k_proj            +2,09     [+0,34 ; +3,79]    0,88    0,0022           2,6 %
+  q_proj            +1,85     [+0,22 ; +3,50]    0,83    0,0381          10,4 %
+
+  groupe attention  +6,90     [+4,11 ; +9,71]    1,41    5,83e-14        26,0 %
+  groupe MLP       +10,78     [+8,26 ; +13,35]   1,31    5,58e-26        74,0 %
+  TOUT (contrôle)  +14,73     [+11,98 ; +17,47]  1,41    4,58e-46       100,0 %
+
+**LES SEPT ÉCARTS SONT RÉSOLUS** : aucun IC ne contient zéro. Le profil n'est
+donc PAS plat — mais il n'a pas non plus un coupable unique.
+
+CE QUE LA RÈGLE DU §5 TRANCHE
+------------------------------
+« cible désignée : un type seul rend ≥ +3,0 pp ET son IC est entièrement
+au-dessus de +1,5 pp ». TROIS types passent : gate_proj, up_proj, v_proj.
+down_proj échoue de justesse sur les deux conditions (+2,96 < 3,0 ; borne
+basse +0,71 < 1,5).
+
+Le départage est le COÛT, et le préreg l'avait posé d'avance. Au gain par
+point de poids :
+
+  v_proj    1,72        gate_proj 0,21   o_proj 0,23
+  k_proj    0,81        up_proj   0,20   q_proj 0,18
+  down_proj 0,12
+
+**v_proj est huit fois plus efficace que la meilleure cible du MLP.** Il rend
++4,48 pp pour 2,6 % des poids — la même taille que k_proj, qui n'en rend que
+la moitié.
+
+🚨 MAIS LE COÛT MÉMOIRE DIT QUE LE GAIN N'EST PAS ENCAISSABLE SOUS v1
+----------------------------------------------------------------------
+En b/param modèle entier (*calculé* ; 4 022 458 880 params, projections 90,3 %,
+servi 5,162 aujourd'hui), servir une cible en f16 au lieu du format déplié :
+
+  cible          +b/param      total     contre AWQ 5,302
+  v_proj / k_proj  +0,263      5,425     ❌ au-dessus
+  q_proj / o_proj  +1,051      6,213     ❌
+  gate/up/down     +2,495      7,657     ❌
+
+**Aucune cible ne se sert en f16 sans repasser au-dessus de l'AWQ**, y compris
+la moins chère. Or la config servie v1 est gelée à 1 bit de gain et cap 12 :
+elle n'offre AUCUNE précision intermédiaire par matrice. Le seul niveau
+disponible sous v1 est f16, et il est trop cher.
+
+En comptabilité DISQUE (b/poids effectifs, 2,0702 aujourd'hui), porter v_proj
+à 4 bits d'information coûterait +0,0631 — bon marché. Mais ce niveau
+n'existe pas dans le format servi.
+
+**CONCLUSION OPÉRATIONNELLE, ET ELLE N'EST PAS CELLE QU'ON ATTENDAIT** : M2
+désigne une cible bon marché et nette, et la même mesure établit que
+l'encaisser demande un format à débit flexible par matrice — F3 sous F1, ou un
+codebook par matrice — et non un réglage de v1. Q5 s'ouvre donc sur un
+chantier de FORMAT, pas sur un run de 7 $.
+
+⚠️ RÉPLIQUE DUE. Le §5 la rend obligatoire dès qu'une cible est désignée :
+même job sur l'artefact graine 3 de F5. Non lancée — elle relève de
+l'opérateur, et son intérêt a changé maintenant que la suite est un chantier
+de format.
+
+CE QUI EST RÉFUTÉ
+------------------
+1. LE PRIOR DE LA LITTÉRATURE (audit §4.6 : « APTQ, KVTuner, HyQuant prédisent
+   k_proj et l'attention »). **Faux ici** : k_proj est l'avant-dernier des
+   sept (+2,09), et le groupe attention (+6,90) est très loin derrière le
+   groupe MLP (+10,78). Sur ce modèle, à ce format, c'est le MLP qui porte la
+   chute.
+2. LA PRÉDICTION SIGNÉE DE L'AUTEUR (§6), UNE SUR TROIS SEULEMENT :
+   ✅ « le groupe MLP > le groupe attention » — juste, et de 3,9 pp.
+   ❌ « q_proj et k_proj < +1,5 pp chacun » — mesuré +1,85 et +2,09. Le motif
+      (q_norm/k_norm effacent l'erreur de magnitude) va dans le bon sens
+      — ce sont deux des trois plus petits — mais le seuil est franchi.
+   ❌ « le plus grand Δ isolé sur down_proj » — down_proj est QUATRIÈME
+      (+2,96). Le plus grand est gate_proj (+5,18).
+   Le raisonnement q_norm/k_norm avait pourtant la clé de v_proj sans qu'elle
+   soit tirée : v n'est PAS renormalisé, et il rend deux fois k à taille
+   identique. Prédiction signée : 1 sur 3.
+
+CE QUI NE SE DIT PAS
+---------------------
+- La somme des sept gains vaut 23,85 pp pour un déficit de 14,73 : les effets
+  sont MARGINAUX et sous-additifs, ce que le §4 posait d'avance. Chaque bras
+  mesure ce que gagne UN type dans un modèle dont les blocs aval ont été
+  calibrés sur des activations déjà quantifiées en amont. Ne jamais présenter
+  ces sept nombres comme une décomposition du déficit.
+- Un seul tirage de calibration. Le classement peut dépendre de la graine ;
+  c'est l'objet de la réplique.
+- Rien sur la vitesse, rien sur une autre taille, rien sur la perplexité.
+
+PROVENANCE DES OCTETS
+----------------------
+Onze dumps par question : docs/data/m2-attribution/ (2,1 Mo).
+Sorties brutes non résumées + l'appariement complet :
+docs/mesures/m2-attribution-4b-2026-09-02-brut/ (14 fichiers).
