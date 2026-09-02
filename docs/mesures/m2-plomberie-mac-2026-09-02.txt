@@ -1,0 +1,36 @@
+PLOMBERIE DE M2 SUR LE FICHIER PUBLIÉ, MAC M3 MAX, METAL — 0 $ (2026-09-02)
+===========================================================================
+Ce que c'est : la clause « avant de payer » du préreg
+proofs/preregistration-m2-attribution-4b-2026-09-02.md (§2), exécutée AVANT
+tout job carte. Commit du code : 55ee392. Binaire : target/release/mmlu,
+--features metal,fast-linalg. Fichier : /Users/pjmalandrino/qwen3-4b-llvq.bin
+(1 770 527 533 octets = le fichier publié, sha256 9db213ef…, docs/fiche-4b.md).
+Checkpoint : Qwen/Qwen3-4B@main (cache HF local).
+
+🚨 CE QUE CE JOURNAL N'EST PAS : une mesure de qualité. `limit 2` par matière
+= 114 questions sur 14 042 ; les pourcentages ci-dessous ont ±4-5 pp d'erreur
+d'échantillonnage et ne se comparent à AUCUN chiffre publié. Ils ne sont là
+que parce qu'un journal de synthèse est une perte irréversible.
+
+LES QUATRE FAITS ÉTABLIS
+-------------------------
+1. Le compte de poids restaurés est exactement celui que les formes du 4B
+   imposent (préreg §3.5) :
+     k_proj           36 matrices     94 371 840 poids
+     all             252 matrices  3 633 315 840 poids
+2. « all restauré » EST le checkpoint, sur les octets réels et non sur un
+   tenseur de test : 114/114 mêmes picks, Δ = +0,00 pp, McNemar 0/0
+   discordantes, même empreinte e8e7fb25f3d92fe8 — mmlupair, bras (b) contre
+   bras (c). C'est le contrôle haut du préreg (§3.4), vérifié à 0 $.
+3. La restauration est imprimée aux trois endroits prévus : label du modèle,
+   ligne de résultat (« restauré en f16 (M2) = … »), en-tête du dump
+   (« # model=… ; f16 restored: … »).
+4. Les trois refus attendus refusent, en nommant la cause : nom inconnu
+   (`k`), restauration sans LLVQ_MODEL, variable posée sur un checkpoint.
+
+Durée : ~10 min pour les trois chargements du 4B (décodage f64 des 252
+matrices puis 114 questions chacun) — un bras limit 40 sur L40S reste estimé
+à ~6,5 min, comme au job du 08-25.
+
+Bruts (non résumés) : plomberie-m2.log, mmlu-limit2-checkpoint.csv,
+mmlu-limit2-restore-all.csv, dans ce répertoire.

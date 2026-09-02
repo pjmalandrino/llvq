@@ -89,11 +89,13 @@ SH
 comparaison se fait sur les dumps, question par question, aucune horloge n'est
 en jeu, donc le « même processus » des bancs de vitesse n'a pas d'objet ici.
 
-⚠️ Avant de payer : un essai de plomberie **à 0 $ sur le Mac** (`limit 2`,
-Metal, `LLVQ_RESTORE_F16=k_proj` sur `~/qwen3-4b-llvq.bin`) doit avoir montré
+✅ **Plomberie faite, 0 $, le 2026-09-02, sur le fichier publié**
+([`docs/mesures/m2-plomberie-mac-2026-09-02.txt`](../docs/mesures/m2-plomberie-mac-2026-09-02.txt)) :
 la ligne `restauré en f16 (M2) = f16 restored: k_proj (36 matrices, 94371840
-weights)`. Un job qui découvre une faute de nom de tenseur sur la carte est un
-job facturé pour rien.
+weights)` est rendue ; **« all restauré » rejoue le checkpoint à 114/114 picks
+identiques, Δ = +0,00 pp** (le contrôle haut du §3.4, vérifié avant la carte) ;
+les trois refus refusent. Un job qui découvrirait une faute de nom de tenseur
+sur la carte aurait été un job facturé pour rien — ce n'est plus possible.
 
 ---
 

@@ -2274,6 +2274,11 @@ consigné au journal de la roadmap (`91b5921`).
   prior de l'audit** : `q`/`k` sous 1,5 pp à cause de `q_norm`/`k_norm`, et
   kill pour M1 (le bruit croît avec la profondeur : composition séquentielle,
   pas estimateur).
+- ✅ **Plomberie de M2 vérifiée à 0 $ sur le fichier publié, avant la carte**
+  ([`mesures/m2-plomberie-mac-2026-09-02.txt`](mesures/m2-plomberie-mac-2026-09-02.txt)) :
+  comptes de poids exacts (94 371 840 pour `k_proj`, 3 633 315 840 pour
+  `all`), **« all restauré » = le checkpoint à 114/114 picks, Δ = +0,00 pp**,
+  refus qui refusent. `limit 2`, donc aucun chiffre de qualité n'en sort.
 - ⚠️ **Une note posée sur F1 avant qu'on y touche** : l'estimation de perte de
   forme de la projection (+7-9 % de MSE) donne une rétention gaussienne de
   88,9-89,6 %, **sous le kill de F1b** (90,3 %). F1a doit compter la rétention

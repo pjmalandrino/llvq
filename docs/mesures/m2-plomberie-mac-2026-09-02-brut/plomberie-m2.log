@@ -1,0 +1,93 @@
+=== (a) k_proj restauré, limit 2 ===
+device: Metal(MetalDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+
+/Users/pjmalandrino/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed; f16 restored: k_proj (36 matrices, 94371840 weights) from Qwen/Qwen3-4B@main]
+MMLU 5-shot — 114 questions scorées sur 14042, 57 matières, dtype f16, tokens e8e7fb25f3d92fe8
+  --------------------------------------------------------
+  meilleures :
+    anatomy                                  100.0 %
+    business ethics                          100.0 %
+    college medicine                         100.0 %
+  pires :
+    prehistory                                 0.0 %
+    philosophy                                 0.0 %
+    moral scenarios                            0.0 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 62.03 % ± 4.89  [kv f16]
+  MMLU (macro, par matière) = 59.65 %
+  restauré en f16 (M2)     = f16 restored: k_proj (36 matrices, 94371840 weights) from Qwen/Qwen3-4B@main
+  échantillon : 114/14042 questions, 0.8 % — ± est l'erreur d'échantillonnage seule
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+
+=== (b) all restauré, limit 2, dump ===
+    world religions                           50.0 %
+    virology                                  50.0 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 77.79 % ± 3.44  [kv f16]
+  MMLU (macro, par matière) = 76.32 %
+  restauré en f16 (M2)     = f16 restored: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj (252 matrices, 3633315840 weights) from Qwen/Qwen3-4B@main
+  échantillon : 114/14042 questions, 0.8 % — ± est l'erreur d'échantillonnage seule
+
+  Dump écrit. La comparaison de deux bras se fait sur les dumps, pas sur
+  ces deux lignes : `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+
+=== (c) checkpoint Qwen/Qwen3-4B, limit 2, dump ===
+    virology                                  50.0 %
+  --------------------------------------------------------
+  MMLU (micro, = papier) = 77.79 % ± 3.44  [kv f16]
+  MMLU (macro, par matière) = 76.32 %
+  échantillon : 114/14042 questions, 0.8 % — ± est l'erreur d'échantillonnage seule
+
+  Dump écrit. La comparaison de deux bras se fait sur les dumps, pas sur
+  ces deux lignes : `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.
+  Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,
+  pas le modèle.
+
+=== (d) refus attendus ===
+Error: LLVQ_RESTORE_F16="k" : "k" n'est pas un type de projection. Admis : q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj, ou `all`.
+Error: LLVQ_RESTORE_F16=k_proj demande LLVQ_MODEL=<checkpoint> : les matrices restaurées viennent de là
+Error: LLVQ_RESTORE_F16=k_proj ne s'applique qu'à un fichier scellé ; Qwen/Qwen3-4B est un checkpoint, qui est déjà tout en f16
+
+=== (e) appariement b contre c ===
+    Finished `release` profile [optimized] target(s) in 16.57s
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/358b71b6-f3ea-4719-8634-a073acf35567/scratchpad/plomb-ck.csv
+B = /Users/pjmalandrino/qwen3-4b-llvq.bin [LLVQ 2-bit, sealed; f16 restored: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj (252 matrices, 3633315840 weights) from Qwen/Qwen3-4B@main]
+    /private/tmp/claude-501/-Users-pjmalandrino-Documents-Pro-workspace-poc-llvq/358b71b6-f3ea-4719-8634-a073acf35567/scratchpad/plomb-all.csv
+114 questions appariées, 57 matières · dtype f16 / f16 · limit 2 / 2
+empreinte de run : e8e7fb25f3d92fe8 / e8e7fb25f3d92fe8 (identique)
+
+taux (Δ = A − B, en points de pourcentage)
+  micro stratifié     A  77.79 %   B  77.79 %   Δ = +0.00 pp   ← le chiffre publié
+  non pondéré (poolé) A  76.32 %   B  76.32 %   Δ = +0.00 pp   ← ce que McNemar teste
+
+McNemar exact (non pondéré)
+  A✓B✗ = 0   A✗B✓ = 0   concordantes = 114   (0.0 % des questions sont discordantes)
+  p = 1.0000   (z normal = +0.00)
+
+bootstrap apparié stratifié par matière (10000 tirages, graine 0xb0075eed, correction de population finie)
+  Δ micro stratifié = +0.00 pp   IC95 [+0.00 ; +0.00]   SE 0.00 pp
+  contrôle non pondéré = +0.00 pp   IC95 [+0.00 ; +0.00]   SE 0.00 pp
+  → l'IC contient zéro : l'écart n'est pas résolu par ce protocole.
+
+matières qui portent l'écart (contribution au Δ stratifié)
+  abstract algebra                          +0.0 pp × poids  0.7 % = +0.000 pp
+  anatomy                                   +0.0 pp × poids  1.0 % = +0.000 pp
+  astronomy                                 +0.0 pp × poids  1.1 % = +0.000 pp
+  business ethics                           +0.0 pp × poids  0.7 % = +0.000 pp
+  clinical knowledge                        +0.0 pp × poids  1.9 % = +0.000 pp
+fin rc=0
