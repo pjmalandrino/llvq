@@ -103,6 +103,23 @@
 > qui remplit leurs grilles rend −1,87 %. Kill de phase non déclenché
 > ([`docs/mesures/a3-occupation-banc-2026-09-01.txt`](docs/mesures/a3-occupation-banc-2026-09-01.txt)).
 >
+> 🚨 **ET A2 N'EST PAS SERVI — décision d'opérateur du 2026-09-02. Ne pas
+> l'implémenter dans le cœur, ne pas rouvrir la question sans l'une des trois
+> conditions du §É7 des écarts.** Ce n'est pas le débit qui tranche mais la
+> **mémoire** : un graph statique ne capture pas un cache qui grandit, donc il
+> exige une fenêtre KV **préallouée et payée en entier quelle que soit la
+> longueur du prompt**, là où le chemin servi alloue au fil de l'eau. À la
+> cible produit de 8k, elle coûte **+1,21 Go au 4B sur 2,57, soit +47 % de
+> VRAM pour +12,6 % de débit** (*calculé* ; +22 % au 8B, +14 % au 14B) — sur
+> l'axe même où vit la thèse du projet. 🚨 **Ce +47 % est CALCULÉ, jamais
+> mesuré** : la seule fenêtre qui ait tourné est `prealloc(256)`, à 0,038 Go,
+> et le −0,83 % de é1b est un coût en **temps**. ⚠️ **Ce qui est refusé est le
+> couple (graph, fenêtre 8k), pas le graph** : à 2k c'est +12 % de mémoire
+> pour +12,6 % de débit, et l'arbitrage s'inverse. **État du code, à ne pas
+> re-découvrir** : `KvStore::Cat` (concaténation, non borné) est et reste le
+> défaut ; `LLVQ_KV_PREALLOC` et `LLVQ_GRAPH_AB` sont des modes de **mesure**
+> de `bin/fusedrun` ; la config servie v1 est inchangée.
+>
 > 🧭 **Par où reprendre, dans cet ordre** : **[`docs/BACKLOG.md`](docs/BACKLOG.md)**
 > — le RAF courant, ordonné par ce qui décide chaque sujet ; puis
 > [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md) (le fil chronologique) et

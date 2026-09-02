@@ -117,6 +117,58 @@ ligne : **aucun bras portable ne passe le gate** (le meilleur, `pers`,
   après la fermeture du `tee`) ; elle est jointe à part dans le répertoire
   des bruts.
 
+## É7 — DÉCISION D'OPÉRATEUR (2026-09-02) : A2 n'est PAS servi, la mémoire décide — les résultats se publient, le cœur ne bouge pas
+
+Le journal du transfert laissait deux options à l'opérateur : rester v1
+partout, ou trouver de quoi remonter le 14B au-dessus de 8 %. A3 a fermé la
+seconde (aucun bras portable, la géométrie est bornée et les graphs l'ont
+déjà encaissée). **L'opérateur tranche la première le 2026-09-02 : on ne
+sert pas le graph, on garde l'expérimentation publiée, et on n'implémente
+rien dans le cœur.**
+
+**Le chiffre qui décide, et ce n'est pas le débit.** Un graph statique ne
+capture pas un cache qui grandit : l'historique doit vivre à adresse fixe,
+sur une fenêtre réservée d'avance et **payée en entier quelle que soit la
+longueur du prompt**, là où le chemin servi (`KvStore::Cat`, le défaut)
+alloue au fil de l'eau. À la cible produit de **8k** (arbitrage du
+2026-08-16), la fenêtre coûte, *calculé* sur la géométrie GQA du dossier
+(2 × couches × 8 têtes KV × 128 × 2 o, cache f16) :
+
+| taille | servi v1 | fenêtre 8k | soit | gain débit |
+|---|---|---|---|---|
+| 4B | 2,57 Go | +1,21 Go | **+47 %** | +12,6 % net |
+| 8B | 5,41 Go | +1,21 Go | +22 % | +10,1 % |
+| 14B | 9,40 Go | +1,34 Go | +14 % | +6,1 % |
+
+**47 % de VRAM pour 12,6 % de débit, sur l'axe même où vit la thèse du
+projet** (faire tenir un plus gros modèle sur une carte donnée) : le
+marché est refusé.
+
+🚨 **Ce chiffre est *calculé*, jamais mesuré, et il faut le dire.** La
+seule fenêtre qui ait tourné est **prealloc(256)**, dont le coût est
+0,038 Go — négligeable, ce qui explique qu'aucune mesure d'A2 n'ait vu
+passer ce poste : é1b l'a chronométré et n'avait aucune raison de le
+peser. Le −0,83 % de é1b est le coût en **temps** de la base fixe, pas son
+coût en mémoire.
+
+⚠️ **Et l'arbitrage s'inverse aux petites fenêtres** : à 2k la même
+arithmétique donne +0,30 Go au 4B, soit +12 % de mémoire pour +12,6 % de
+débit. **Ce qui est refusé est donc le couple (graph, fenêtre 8k), pas le
+graph.** La ligne rouvrirait si la cible de contexte descendait, si le
+cache KV passait en q8 (livré, non défaut, diviserait la fenêtre par ~2),
+ou si un mécanisme rendait la capture compatible d'un cache qui grandit.
+Aucun de ces trois n'est au programme.
+
+**Ce que la décision NE change pas** : les mesures restent publiées telles
+quelles (les trois tailles, les gates, les journaux et leurs bruts) ; le
+verdict préenregistré « adopté au 4B et au 8B » reste vrai **au sens du
+critère de débit**, et cette décision ne le relit pas — elle ajoute un
+critère que le préreg ne portait pas, la mémoire, et c'est l'opérateur qui
+l'apporte, pas la mesure. Le cœur est intact et le reste : `KvStore::Cat`
+est le défaut, `LLVQ_KV_PREALLOC` et `LLVQ_GRAPH_AB` sont des modes de
+mesure de `bin/fusedrun`, et **la config servie v1 ne bouge pas d'un
+octet**.
+
 ## É4 — Le job, tel qu'il sera lancé
 
 - Image reconstruite (le binaire `planesbench` change ; les noyaux sont du

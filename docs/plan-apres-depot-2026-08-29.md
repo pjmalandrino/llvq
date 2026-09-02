@@ -174,8 +174,17 @@ noyaux, pas dedans.**
 > +26,36 % et le split-K qui remplit o/down rend −1,87 % : le
 > sous-remplissage n'est pas le résidu (0,24 $,
 > `mesures/a3-occupation-banc-2026-09-01.txt`). **Kill de phase non
-> déclenché** — A2 seul dépasse 8 %. La phase se ferme avec A2 pour seule
-> adoption ; l'annexe A100 d'A3 n'est pas due (aucun bras portable).
+> déclenché** — A2 seul dépasse 8 %. L'annexe A100 d'A3 n'est pas due (aucun
+> bras portable).
+>
+> 🚨 **CLOSE le 2026-09-02, sans rien changer au chemin servi.** Décision
+> d'opérateur : **A2 n'est pas servi**, et c'est la MÉMOIRE qui tranche, pas
+> le débit — la fenêtre KV que la capture exige coûte **+47 % de VRAM au 4B à
+> la cible produit de 8k pour +12,6 % de débit** (*calculé* ; seule
+> `prealloc(256)` a tourné, à 0,038 Go). Refusé sur l'axe de la thèse. Les
+> mesures restent publiées, `KvStore::Cat` reste le défaut, la config servie
+> v1 ne bouge pas. Ce qui est refusé est le couple (graph, fenêtre 8k) : à 2k
+> l'arbitrage s'inverse. Réouverture conditionnée, §É7 des écarts.
 
 **Kill de phase** (à ancrer avant A1) : si A1 + A2 + A3 rendent < 8 %
 cumulés bout-en-bout, l'axe géométrie **sous candle** est clos par mesure ;

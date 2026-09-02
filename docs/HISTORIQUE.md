@@ -65,20 +65,28 @@ de MMLU en notre faveur à 0,37 % de bits d'écart — et **nous bat du double e
 mémoire servie** (2,479 contre 5,162 b/param). Le bruit inter-graines du MMLU
 vaut **σ = 2,92 pp** au 4B — l'échelle de volume de calibration **ne part pas**.
 
-✅ **LA PHASE A (GÉOMÉTRIE) EST RENDUE, 1,11 $ sur un plafond de 4, avec
-A2 pour seule adoption** (entrée du 09-01 → 09-02). **A2, CUDA Graphs en
-forme hybride : adopté au 4B (+13,45 % [13,36–13,58], 112,5 tok/s) et au 8B
-(+10,1 %), point de courbe au 14B (+6,1 %) → pas de gel v2**, la config
-servie reste v1 partout. **A3, huit variantes d'occupation : aucun bras
-portable ne passe le gate banc** (le meilleur, `pers`, +1,56 %
-[+1,01 ; +1,86]) ; le bras de banc `persall` **borne** la géométrie à
-+26,36 % [+25,31 ; +26,61] du matvec fusé, ce que les graphs ont déjà
-encaissé sur le chemin servi. ⚠️ Le sous-remplissage de o/down n'est **pas**
-le résidu (split-K −1,87 %). Kill de phase (< 8 %) non déclenché.
+✅ **LA PHASE A (GÉOMÉTRIE) EST RENDUE ET CLOSE, 1,11 $ sur un plafond de 4,
+SANS RIEN CHANGER AU CHEMIN SERVI** (entrée du 09-01 → 09-02). **A2, CUDA
+Graphs en forme hybride : +13,45 % [13,36–13,58] au 4B, +10,1 % au 8B,
++6,1 % au 14B** — les trois résolus, deux au-dessus du seuil d'adoption.
+**A3, huit variantes d'occupation : aucun bras portable ne passe le gate
+banc** (le meilleur, `pers`, +1,56 % [+1,01 ; +1,86]) ; le bras de banc
+`persall` **borne** la géométrie à +26,36 % [+25,31 ; +26,61] du matvec
+fusé, ce que les graphs ont déjà encaissé. ⚠️ Le sous-remplissage de o/down
+n'est **pas** le résidu (split-K −1,87 %). Kill de phase non déclenché.
+
+🚨 **ET A2 N'EST PAS SERVI — décision d'opérateur du 2026-09-02, tranchée
+par la MÉMOIRE et non par le débit** : la fenêtre KV que la capture exige
+coûte **+47 % de VRAM au 4B à la cible produit de 8k pour +12,6 % de débit**
+(*calculé*, jamais mesuré au-delà de `prealloc(256)`). Refusé sur l'axe même
+où vit la thèse. **La config servie v1 est inchangée, le cœur intact**, et
+les mesures restent publiées telles quelles. Ce qui est refusé est le couple
+(graph, fenêtre 8k), pas le graph : à 2k l'arbitrage s'inverse. Conditions
+de réouverture au §É7 des écarts.
 
 🧭 **Prochain chantier : la QUALITÉ (phase B du plan d'après-dépôt)** — la
-géométrie sous candle a rendu ce qu'elle pouvait ; ce qui reste s'appelle
-`pers` (+1,6 %) et ne mérite pas un port.
+géométrie sous candle a rendu ce qu'elle pouvait, et ce qu'elle rendait
+encore se paie en mémoire.
 
 **Compteurs au 2026-09-02** (*mesurés*) : **102 lignes** dans
 [`data/jobs.csv`](data/jobs.csv) pour **92,51 $ facturés** (`awk` sur le CSV) ·
@@ -2176,4 +2184,28 @@ re-mesuré (4,565 ms), plage entière ≥ 10 % = passe
   entre fences et ticket ; et un bras faux **invalide** désormais sans tuer
   le job.
 - ✅ **Kill de phase non déclenché** (A2 seul rend > 8 %) ; **la phase A se
-  ferme avec A2 pour seule adoption** — 1,11 $ dépensés sur un plafond de 4.
+  ferme avec A2 pour seule adoption AU SENS DU CRITÈRE DE DÉBIT** — 1,11 $
+  dépensés sur un plafond de 4. ⚠️ « Adopté » y veut dire « passe le seuil
+  préenregistré », pas « servi » : voir la décision juste dessous.
+
+🚨 **DÉCISION D'OPÉRATEUR DU 2026-09-02 : A2 N'EST PAS SERVI, ET CE N'EST PAS
+LE DÉBIT QUI TRANCHE, C'EST LA MÉMOIRE.** Un graph statique ne capture pas un
+cache qui grandit : il exige une fenêtre KV **préallouée et payée en entier
+quelle que soit la longueur du prompt**, là où le chemin servi alloue au fil
+de l'eau. À la cible produit de 8k, cette fenêtre coûte **+1,21 Go au 4B sur
+2,57, soit +47 % de VRAM pour +12,6 % de débit** (*calculé*, géométrie GQA du
+dossier ; +22 % au 8B, +14 % au 14B). Sur l'axe même où vit la thèse du
+projet, le marché est refusé : **les résultats se publient, le cœur ne bouge
+pas.** `KvStore::Cat` reste le défaut, `LLVQ_KV_PREALLOC` et `LLVQ_GRAPH_AB`
+restent des modes de mesure de `bin/fusedrun`, la config servie v1 est
+inchangée.
+🚨 **Ce +47 % est *calculé*, JAMAIS MESURÉ** : la seule fenêtre qui ait tourné
+est `prealloc(256)`, dont le coût mémoire est 0,038 Go — négligeable, ce qui
+explique qu'aucun job A2 n'ait vu passer ce poste. Le −0,83 % de é1b est un
+coût en **temps**, pas en mémoire.
+⚠️ **Et ce qui est refusé est le couple (graph, fenêtre 8k), pas le graph** :
+à 2k la même arithmétique donne +12 % de mémoire pour +12,6 % de débit, et
+l'arbitrage s'inverse. La ligne rouvrirait sur une cible de contexte plus
+basse, sur le cache KV en q8 (livré, non défaut), ou sur une capture
+compatible d'un cache qui grandit. Détail et conditions de réouverture :
+[`proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md) §É7.
