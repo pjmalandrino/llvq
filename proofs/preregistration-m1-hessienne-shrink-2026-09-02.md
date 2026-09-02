@@ -1,9 +1,13 @@
 # Pré-enregistrement — M1 : stabilité de l'estimateur de Hessienne (shrinkage hors-diagonale), 0,6B
 
-**Écrit et commité le 2026-09-02. BROUILLON : à tamponner (`ots stamp`) après
-relecture de l'opérateur et AVANT le premier run.** Go de principe de
-l'opérateur du 2026-09-02 (D0 de `docs/ROADMAP-RECHERCHE.md`, « M1 en
-parallèle sur le Mac »).
+**Écrit, commité et TAMPONNÉ le 2026-09-02, AVANT le premier run.** Relu et
+approuvé par l'opérateur le 2026-09-02, avec le go de lancement (D0 de
+`docs/ROADMAP-RECHERCHE.md`, « M1 en parallèle sur le Mac »).
+
+🚨 **Ce fichier ne s'édite plus** : le tampon atteste ces octets à cette date.
+Un fait démenti s'écrit **à côté**, dans un `-ECARTS.md` (§7 de `CLAUDE.md`).
+
+**Ce qui est mesuré** : le code au commit `55ee392` (`LLVQ_H_SHRINK`).
 
 **Coût : 0 $, ≈ 5 h de Mac** (*estimé* : 12 runs de 22 à 31 min mesurés le
 2026-08-25 sur exactement ce protocole, `~/llvq-nuit-b/journal.txt`). Le Mac ne

@@ -1,9 +1,18 @@
 # Pré-enregistrement — M2 : attribution de la chute MMLU par type de projection, au 4B
 
-**Écrit et commité le 2026-09-02. BROUILLON : à tamponner (`ots stamp`) après
-relecture de l'opérateur et AVANT le lancement du job.** Go de principe de
-l'opérateur du 2026-09-02 (D0 de `docs/ROADMAP-RECHERCHE.md`), plafond de la
-vague : **5 $**.
+**Écrit, commité et TAMPONNÉ le 2026-09-02, AVANT la première milliseconde du
+job.** Relu et approuvé par l'opérateur le 2026-09-02, avec le go de lancement
+(D0 de `docs/ROADMAP-RECHERCHE.md`), plafond de la vague : **5 $**.
+
+🚨 **Ce fichier ne s'édite plus.** Le tampon atteste ces octets à cette date ;
+les corriger détruirait ce qu'il prouve. Si un fait s'avère faux, **on écrit à
+côté**, dans un `-ECARTS.md` — la règle du §7 de `CLAUDE.md`, que ce dépôt a
+enfreinte deux fois (préregs du 08-10 et du 08-11, dont la version attestée
+n'est récupérable sous aucune révision).
+
+**Ce qui est mesuré** : le code au commit `55ee392` (`LLVQ_RESTORE_F16`), dont
+la plomberie a été vérifiée à 0 $ sur le fichier publié au commit `9ef8a46`
+([`docs/mesures/m2-plomberie-mac-2026-09-02.txt`](../docs/mesures/m2-plomberie-mac-2026-09-02.txt)).
 
 **Coût : ≈ 2,3 $** (*estimé* : 11 bras × ~6,5 min à 1,80 $/h sur `l40sx1`,
 depuis les 0,19 $/bras mesurés au job `6a8df15645686a1580c087ea` du 2026-08-25 ;
