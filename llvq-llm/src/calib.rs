@@ -326,6 +326,26 @@ pub struct RunConfig {
     pub gptq: GptqConfig,
     /// Hessian damping, relative to `mean(diag H)`.
     pub damping: f64,
+    /// Off-diagonal shrinkage of the Hessian **estimate**, `ρ ∈ [0, 1]`:
+    /// `H ← ρ·H + (1 − ρ)·diag(H)`, applied in the natural basis before the
+    /// rotation. `1.0` is the published path — and not a multiply by one: the
+    /// call is skipped, so the bytes of every shipped artifact are untouched.
+    ///
+    /// The hypothesis it exists to test (`docs/ROADMAP-RECHERCHE.md`, M1):
+    /// the σ = 5.2 % between three calibration draws of the 4B (F5) comes
+    /// from the **off-diagonal** terms of `H`, estimated at 13.5 samples per
+    /// dimension on `down_proj`, through which the error feedback passes. If
+    /// so, shrinking them towards the (stable) diagonal should halve the
+    /// inter-seed spread at 28 blocks of the 0.6B before it hurts the median.
+    /// The diagonal is left exact at every ρ — it is the part that is
+    /// well-estimated, and the damping already handles its conditioning.
+    ///
+    /// Natural basis, deliberately: the rotation is a change of coordinates
+    /// applied to an *estimate*, and shrinking after it would target
+    /// `diag(Q H Qᵀ)`, which a Hadamard flattens to almost a constant — that
+    /// variant is a large relative damping under another name, and is not
+    /// what M1 sweeps.
+    pub h_shrink: f64,
     pub codebook: Codebook,
     pub threads: usize,
     /// First block to quantize. Blocks below it are **advanced only** — they
@@ -468,6 +488,33 @@ pub fn quantize_model(
     quantize_model_capturing(model, hidden, run, progress, None)
 }
 
+/// `H ← ρ·H + (1 − ρ)·diag(H)` on a dense row-major `n × n` matrix: every
+/// off-diagonal entry scaled by `ρ`, the diagonal untouched. See
+/// [`RunConfig::h_shrink`] for why, and for why the natural basis.
+///
+/// `ρ = 1` is a no-op and callers skip it; `ρ = 0` keeps the diagonal only.
+/// Symmetry is preserved because each entry is scaled by the same constant.
+pub fn shrink_off_diagonal(h: &mut [f64], n: usize, rho: f64) {
+    assert!(
+        (0.0..=1.0).contains(&rho),
+        "shrink_off_diagonal: ρ = {rho} hors de [0, 1]"
+    );
+    assert_eq!(
+        h.len(),
+        n * n,
+        "shrink_off_diagonal: {} n'est pas {n}²",
+        h.len()
+    );
+    for i in 0..n {
+        let row = &mut h[i * n..(i + 1) * n];
+        for (j, v) in row.iter_mut().enumerate() {
+            if j != i {
+                *v *= rho;
+            }
+        }
+    }
+}
+
 /// [`quantize_model`], streaming every matrix's codes to `sink`.
 ///
 /// Capture is refused for codebooks whose reconstruction the codes cannot
@@ -484,6 +531,7 @@ pub fn quantize_model_capturing(
     let RunConfig {
         gptq: cfg,
         damping,
+        h_shrink,
         codebook,
         threads,
         start,
@@ -493,6 +541,11 @@ pub fn quantize_model_capturing(
     let codebook = *codebook;
     let (damping, threads, start, limit) = (*damping, *threads, *start, *limit);
     let rotation_seed = *rotation_seed;
+    let h_shrink = *h_shrink;
+    anyhow::ensure!(
+        (0.0..=1.0).contains(&h_shrink),
+        "h_shrink = {h_shrink} : ρ doit être dans [0, 1] (1 = H tel quel)"
+    );
     anyhow::ensure!(
         start < limit,
         "start = {start} et limit = {limit} : ce run ne quantifierait aucun bloc"
@@ -580,6 +633,11 @@ pub fn quantize_model_capturing(
                 .expect("every activation is inserted once, above")
                 .to_f64()?;
             let n = act.width(model.config());
+            // M1 — see `RunConfig::h_shrink`. On the estimate, before the
+            // rotation; skipped entirely on the published path.
+            if h_shrink < 1.0 {
+                shrink_off_diagonal(&mut h, n, h_shrink);
+            }
             // Quantizing in a rotated basis means the Hessian has to move
             // with it: H' = Q H Qᵀ, since x' = Q x.
             let rot = rotation_seed.map(|s| {
@@ -817,4 +875,72 @@ pub fn quantize_model_capturing(
 
     report.seconds = t0.elapsed().as_secs_f64();
     Ok(report)
+}
+
+#[cfg(test)]
+mod shrink_tests {
+    use super::shrink_off_diagonal;
+
+    fn sample() -> Vec<f64> {
+        // Symmetric, with a diagonal that is not constant and off-diagonals
+        // of both signs — the shape of a real activation Hessian, in small.
+        vec![
+            4.0, 1.0, -0.5, //
+            1.0, 2.0, 0.25, //
+            -0.5, 0.25, 9.0,
+        ]
+    }
+
+    #[test]
+    fn rho_zero_keeps_the_diagonal_and_nothing_else() {
+        let mut h = sample();
+        shrink_off_diagonal(&mut h, 3, 0.0);
+        assert_eq!(h, vec![4.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 9.0]);
+    }
+
+    #[test]
+    fn rho_one_is_the_identity_bit_for_bit() {
+        let mut h = sample();
+        shrink_off_diagonal(&mut h, 3, 1.0);
+        assert_eq!(h, sample());
+    }
+
+    /// Kills the two mutants that matter: one that also scales the diagonal,
+    /// and one that scales by ρ² (a "symmetric" implementation applying the
+    /// factor from both sides).
+    #[test]
+    fn off_diagonals_are_scaled_by_rho_exactly_and_the_diagonal_is_not() {
+        let mut h = sample();
+        shrink_off_diagonal(&mut h, 3, 0.5);
+        assert_eq!(h, vec![4.0, 0.5, -0.25, 0.5, 2.0, 0.125, -0.25, 0.125, 9.0]);
+        let mut h = sample();
+        shrink_off_diagonal(&mut h, 3, 0.3);
+        for i in 0..3 {
+            assert_eq!(
+                h[i * 3 + i],
+                sample()[i * 3 + i],
+                "diagonal moved at ρ = 0.3"
+            );
+        }
+    }
+
+    #[test]
+    fn symmetry_survives_every_rho() {
+        for rho in [0.0, 0.1, 0.5, 0.9, 1.0] {
+            let mut h = sample();
+            shrink_off_diagonal(&mut h, 3, rho);
+            for i in 0..3 {
+                for j in 0..3 {
+                    assert_eq!(h[i * 3 + j], h[j * 3 + i], "ρ = {rho}, ({i}, {j})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "hors de [0, 1]")]
+    fn a_rho_outside_the_unit_interval_is_a_programming_error() {
+        let mut h = sample();
+        shrink_off_diagonal(&mut h, 3, 1.5);
+    }
 }

@@ -31,7 +31,20 @@
 > entrées passées — si un verdict se retourne, on l'écrit dans une entrée
 > nouvelle qui cite l'ancienne.
 
-## État courant (au 2026-09-01)
+## État courant (au 2026-09-02)
+
+🆕 **LA ROADMAP RECHERCHE EST ADOPTÉE (D0, 2026-09-02)** — trois axes (mesure,
+format sans dépliage, qualité), gates et kills posés d'avance :
+[`ROADMAP-RECHERCHE.md`](ROADMAP-RECHERCHE.md), fondée sur
+[`audit-recherche-2026-09-01.md`](audit-recherche-2026-09-01.md) et
+[`projection-gains-2026-09-01.md`](projection-gains-2026-09-01.md). **Vague 1,
+plafond 5 $ : M2 d'abord** (attribution de la chute MMLU par type de projection
+— un A/B à fichier constant, SE appariée 0,43 pp, indépendant du σ de
+calibration), **M1 en parallèle sur le Mac** (shrinkage hors-diagonale de H,
+0 $). Les deux boutons sont livrés (`LLVQ_RESTORE_F16`, `LLVQ_H_SHRINK`), les
+deux préregs sont **en brouillon, non tamponnés**, rien n'a tourné. ⚠️ La
+projection de F1 place F1b **sous son propre kill** (rétention 88,9-89,6 %
+contre 90,3 %) : F1a doit compter avant de coder (journal de la roadmap).
 
 ❌ **LE PAPIER A ÉTÉ RENVOYÉ SANS REVUE PAR TACO LE 2026-08-27** (`TACO-2026-428`,
 motif : le périmètre — aucune revue technique, aucun chiffre contesté ;
@@ -2209,3 +2222,59 @@ l'arbitrage s'inverse. La ligne rouvrirait sur une cible de contexte plus
 basse, sur le cache KV en q8 (livré, non défaut), ou sur une capture
 compatible d'un cache qui grandit. Détail et conditions de réouverture :
 [`proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md`](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md) §É7.
+
+## 2026-09-02 — D0 : la roadmap recherche est adoptée, M2 passe devant M1, et les deux boutons sont livrés sans qu'un run ait tourné
+
+Décision d'opérateur en trois OK, après lecture des trois documents de la
+branche `claude/repo-audit-optimization-20r2pz` (roadmap, audit, projection
+des gains) : **adoption**, **plafond de 5 $ pour la vague 1**, **M1 en
+parallèle sur le Mac**. Branche fusionnée dans `main` (`1e8583c`, docs
+seulement, branche de secours `secours/main-avant-roadmap-2026-09-02`), D0
+consigné au journal de la roadmap (`91b5921`).
+
+- ✅ **Le premier sujet est M2, pas M1 — et c'est un changement d'ordre par
+  rapport à la roadmap, motivé.** M2 (restaurer un type de projection en f16
+  depuis le checkpoint dans le 4B scellé, sept bras + deux groupes + deux
+  contrôles, MMLU apparié) est un **A/B à fichier constant** : aucun bras ne
+  recalibre, donc la barre est la SE appariée de **0,43 pp** et non les
+  2,92 pp de bruit inter-graines. Il ne dépend ni du verdict de M1 ni du σ de
+  calibration, il coûte **≈ 2,3 $** (*estimé* depuis 0,19 $/bras mesuré le
+  08-25), et c'est le seul sujet de la roadmap qui **ne peut pas être tué** :
+  c'est une mesure. Ce qu'il décide : l'ouverture de Q5 (précision mixte, +0,05
+  b/poids si la cible est `k`) contre Q6/F3 — et le coût décide autant que le
+  signal (une cible `down` coûterait ≥ +0,49 b/poids, soit l'AWQ).
+- ✅ **Faisabilité vérifiée dans le code, pas supposée** : `decode_matrix`
+  dé-rotationne à la sortie (`llvq-artifact/src/format.rs:435`), le chargeur
+  scellé construit le modèle depuis une table nom → tenseur en base naturelle,
+  et `Proj::Dense` ne porte aucune rotation — restaurer un type, c'est écraser
+  des entrées de cette table par les tenseurs du checkpoint, ramenés au dtype
+  exactement comme le `VarBuilder` du bras f16. **Avec les sept restaurés, le
+  modèle EST le checkpoint** (test
+  `the_mmap_source_narrows_like_the_var_builder_does`), ce qui donne un
+  contrôle haut exact (70,32) en plus du contrôle bas (55,59).
+- ✅ **Livré** : `LLVQ_RESTORE_F16=<types>|all` dans `sealed::load_with_restored`,
+  `bin/mmlu` et `bin/ppl` — refus d'un nom inconnu, d'un type absent du
+  fichier, d'une forme qui diffère, d'une restauration sans `LLVQ_MODEL`, et
+  de la variable sur un checkpoint ; la restauration est imprimée dans le
+  label, l'en-tête du dump et la ligne de résultat (9 tests). Et
+  `LLVQ_H_SHRINK=ρ` (M1) dans `calib::RunConfig::h_shrink` et `bin/smoke` :
+  `H ← ρ·H + (1−ρ)·diag H` en **base naturelle, avant la rotation**, appel
+  sauté à ρ = 1, clé `.state` écrite seulement si ρ < 1 pour que les shards
+  d'avant reprennent inchangés (5 tests, dont les deux mutants qui comptent :
+  diagonale touchée, ρ² au lieu de ρ).
+- ⚠️ **Préregs en BROUILLON, non tamponnés, rien n'a tourné** :
+  [`proofs/preregistration-m2-attribution-4b-2026-09-02.md`](../proofs/preregistration-m2-attribution-4b-2026-09-02.md)
+  (11 bras, contrôles à rejouer au centième, règle de lecture cible/plat/diffus,
+  réplique sur la graine 3 de F5 si une cible est désignée) et
+  [`proofs/preregistration-m1-hessienne-shrink-2026-09-02.md`](../proofs/preregistration-m1-hessienne-shrink-2026-09-02.md)
+  (12 runs 0,6B/28 blocs, ρ ∈ {1 ; 0,9 ; 0,7 ; 0,5} × 3 graines, contrôle
+  (ρ = 1, s = 1) → 38,4507, adoption = étendue ÷ 2 sans déplacer la médiane de
+  plus d'une étendue, kill ρ\* = 1). `ops/m1_shrink_queue.sh` **refuse de
+  démarrer sans le `.ots`**. Les deux prédictions signées sont **opposées au
+  prior de l'audit** : `q`/`k` sous 1,5 pp à cause de `q_norm`/`k_norm`, et
+  kill pour M1 (le bruit croît avec la profondeur : composition séquentielle,
+  pas estimateur).
+- ⚠️ **Une note posée sur F1 avant qu'on y touche** : l'estimation de perte de
+  forme de la projection (+7-9 % de MSE) donne une rétention gaussienne de
+  88,9-89,6 %, **sous le kill de F1b** (90,3 %). F1a doit compter la rétention
+  exacte de la région de mise en forme avant toute ligne de code.

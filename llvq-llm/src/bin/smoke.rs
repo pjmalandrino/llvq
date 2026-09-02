@@ -27,6 +27,14 @@
 //! the cheapest thing in this repo that turns a 3 % difference from an
 //! anecdote into a result.
 //!
+//! `LLVQ_H_SHRINK=<ρ>` (default 1, the published path) shrinks the
+//! off-diagonal of every layer Hessian towards its diagonal before the
+//! rotation — `H ← ρ·H + (1 − ρ)·diag(H)` — the M1 knob of
+//! `docs/ROADMAP-RECHERCHE.md`. It is recorded in the `.state` sidecar only
+//! when it is not 1, so a shard produced before the knob existed still resumes
+//! under the published configuration, and a shard produced under ρ < 1 refuses
+//! a resume that does not say so. See `calib::RunConfig::h_shrink`.
+//!
 //! ## Running in segments (`LLVQ_RESUME`)
 //!
 //! A 32B run is ~11.4 h of rented card, and an incident in the tenth hour used
@@ -746,6 +754,18 @@ fn main() -> anyhow::Result<()> {
         damping >= 0.0 && damping.is_finite(),
         "LLVQ_DAMPING must be finite and non-negative, got {damping}"
     );
+    // Off-diagonal shrinkage of the Hessian estimate (M1). Unset is 1, the
+    // published path, and 1 is not a multiply by one: `calib` skips the call.
+    let h_shrink = match std::env::var("LLVQ_H_SHRINK") {
+        Ok(s) => s
+            .parse::<f64>()
+            .map_err(|_| anyhow::anyhow!("LLVQ_H_SHRINK={s:?} is not a number"))?,
+        Err(_) => 1.0,
+    };
+    anyhow::ensure!(
+        (0.0..=1.0).contains(&h_shrink),
+        "LLVQ_H_SHRINK must be in [0, 1] (1 = H as estimated), got {h_shrink}"
+    );
     // `LLVQ_ARTIFACT=<path>` writes the real compressed artifact: packed
     // lattice indices, not reconstructions. The file's size is the bit rate.
     let artifact_path = std::env::var("LLVQ_ARTIFACT")
@@ -787,6 +807,11 @@ fn main() -> anyhow::Result<()> {
     // flavor's vCPU count — refusing a resume on a wider machine would defeat
     // the point), and the block bound (that is the segment, not the run).
     let mut state = llvq_llm::artifact2::RunState::new();
+    // Recorded only when it changes the published path — see the module doc
+    // for the resume contract this preserves in both directions.
+    if h_shrink < 1.0 {
+        state.set("h_shrink", format!("{h_shrink:e}"));
+    }
     state
         .set("model", &repo)
         .set("codebook", codebook_line(&kind, &codebook))
@@ -860,6 +885,14 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  dtype        {}", llvq_llm::eval::dtype_name(dtype));
     eprintln!("  device       {device:?}, {threads} encoder threads");
     eprintln!("  damping      {damping:e} (relatif à mean(diag H))");
+    eprintln!(
+        "  h_shrink     {h_shrink} ({})",
+        if h_shrink < 1.0 {
+            "ρ·H + (1−ρ)·diag H, base naturelle — M1"
+        } else {
+            "H tel quel, chemin publié"
+        }
+    );
     eprintln!(
         "  artifact     {}",
         artifact_path.as_deref().unwrap_or("(aucun)")
@@ -1078,6 +1111,7 @@ fn main() -> anyhow::Result<()> {
     let run = llvq_llm::calib::RunConfig {
         gptq: cfg,
         damping,
+        h_shrink,
         codebook,
         threads,
         start,
@@ -1308,6 +1342,7 @@ fn main() -> anyhow::Result<()> {
     // On the result line, not only in stderr: an A/B whose swept parameter is
     // not printed with its number is an A/B nobody can re-read six weeks later.
     println!("hessian damping          = {damping:e}");
+    println!("hessian shrink ρ         = {h_shrink}");
     println!("dtype / device           = {dt} / {device:?}");
     Ok(())
 }

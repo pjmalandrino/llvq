@@ -62,6 +62,19 @@
 //! and 2026-08-08 were run without it: their per-question answers are gone, and
 //! the −0.28 pp that carries "4-bit is indistinguishable from f16 at 4B" cannot
 //! be tested without paying for those runs a second time.
+//!
+//! ## Attribution arms (`LLVQ_RESTORE_F16`)
+//!
+//! `LLVQ_RESTORE_F16=k_proj` (a comma list of the seven projection types, or
+//! `all`) scores the sealed file with that type taken **from the checkpoint at
+//! f16**, all layers at once, everything else as shipped. Seven such arms plus
+//! the shipped file, paired on the dumps, are the error budget by function
+//! that `docs/ROADMAP-RECHERCHE.md` (M2) asks for. The checkpoint is the one
+//! `LLVQ_MODEL` names — required, never defaulted, because the default would
+//! be the 0.6B — and the restoration is written into the label, the dump
+//! header and the result line, so an arm cannot be mistaken for the deliverable.
+//! On a checkpoint argument the variable is refused: a knob that is silently
+//! ignored is the A/B that lies. See `llvq_llm::sealed::RestoreF16`.
 
 use candle_core::{DType, IndexOp, Tensor};
 use llvq_llm::corpus::{mmlu_split, MmluItem};
@@ -295,14 +308,49 @@ fn main() -> anyhow::Result<()> {
     // The sealed path is shared with `bin/run` and `bin/ppl` — see
     // `llvq_llm::sealed` for why having three copies of it was a problem and
     // not just duplication.
-    let (model, tok, label) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
-        let s = llvq_llm::sealed::load(&model_arg, dtype, &device, kv_mode)?;
-        (
-            s.model,
-            s.tokenizer,
-            format!("{model_arg} [LLVQ 2-bit, sealed]"),
-        )
+    // Resolved once, like `kv_mode`: the restoration travels by value into the
+    // loader, and an unknown name is an error rather than a fallback.
+    let restore =
+        llvq_llm::sealed::RestoreF16::parse(&std::env::var("LLVQ_RESTORE_F16").unwrap_or_default())
+            .map_err(anyhow::Error::msg)?;
+    let (model, tok, label, restore_note) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
+        // A restoration reads the checkpoint the file was sealed from, named by
+        // `LLVQ_MODEL` as for `bin/seal` — required here, because its default
+        // elsewhere is Qwen3-0.6B and a 4B file would only find out at the
+        // first shape mismatch.
+        let ck = if restore.is_empty() {
+            None
+        } else {
+            let repo = std::env::var("LLVQ_MODEL").map_err(|_| {
+                anyhow::anyhow!(
+                    "LLVQ_RESTORE_F16={} demande LLVQ_MODEL=<checkpoint> : les matrices \
+                     restaurées viennent de là",
+                    restore.describe()
+                )
+            })?;
+            Some(llvq_llm::loader::Checkpoint::fetch(&repo)?)
+        };
+        let s = llvq_llm::sealed::load_with_restored(
+            &model_arg,
+            dtype,
+            &device,
+            kv_mode,
+            &restore,
+            ck.as_ref(),
+        )?;
+        let note = s.restore_note();
+        let label = match &note {
+            Some(n) => format!("{model_arg} [LLVQ 2-bit, sealed; {n}]"),
+            None => format!("{model_arg} [LLVQ 2-bit, sealed]"),
+        };
+        (s.model, s.tokenizer, label, note)
     } else {
+        anyhow::ensure!(
+            restore.is_empty(),
+            "LLVQ_RESTORE_F16={} ne s'applique qu'à un fichier scellé ; {model_arg} est \
+             un checkpoint, qui est déjà tout en f16",
+            restore.describe()
+        );
         let ck = llvq_llm::loader::Checkpoint::fetch(&model_arg)?;
         let tok = ck.tokenizer()?;
         let vb = ck.var_builder(dtype, &device)?;
@@ -310,6 +358,7 @@ fn main() -> anyhow::Result<()> {
             llvq_llm::model::Qwen3::new(&ck.config, vb, kv_mode)?,
             tok,
             format!("{model_arg} [reference checkpoint]"),
+            None,
         )
     };
     eprintln!(
@@ -508,6 +557,11 @@ fn main() -> anyhow::Result<()> {
         kv_mode.name()
     );
     println!("  MMLU (macro, par matière) = {:.2} %", 100.0 * mac);
+    // On the result line, not only in the label: an arm whose defining
+    // parameter is not printed with its number is an arm nobody can re-read.
+    if let Some(n) = &restore_note {
+        println!("  restauré en f16 (M2)     = {n}");
+    }
     if total < population {
         println!(
             "  échantillon : {total}/{population} questions, {:.1} % — \

@@ -132,6 +132,7 @@ fn codebook() -> Codebook {
 
 fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConfig {
     RunConfig {
+        h_shrink: 1.0,
         gptq: GptqConfig {
             block: llvq_core::DIM,
             retract: true,

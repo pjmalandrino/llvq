@@ -64,13 +64,43 @@ fn main() -> anyhow::Result<()> {
         // Its tokenizer comes out of the file too, which is why the token
         // fingerprint below is worth printing.
         Some(p) if llvq_llm::sealed::is_sealed_path(p) => {
-            let s = llvq_llm::sealed::load(p, dtype, &device, kv_mode)?;
+            // `LLVQ_RESTORE_F16` — the attribution arms of `bin/mmlu`, same
+            // semantics (see `llvq_llm::sealed::RestoreF16`): a projection type
+            // taken from the checkpoint at f16, everything else as shipped. The
+            // checkpoint must be named explicitly; `repo`'s default is the 0.6B.
+            let restore = llvq_llm::sealed::RestoreF16::parse(
+                &std::env::var("LLVQ_RESTORE_F16").unwrap_or_default(),
+            )
+            .map_err(anyhow::Error::msg)?;
+            let ck = if restore.is_empty() {
+                None
+            } else {
+                anyhow::ensure!(
+                    std::env::var("LLVQ_MODEL").is_ok(),
+                    "LLVQ_RESTORE_F16={} demande LLVQ_MODEL=<checkpoint> : les matrices \
+                     restaurées viennent de là",
+                    restore.describe()
+                );
+                Some(Checkpoint::fetch(&repo)?)
+            };
+            let s = llvq_llm::sealed::load_with_restored(
+                p,
+                dtype,
+                &device,
+                kv_mode,
+                &restore,
+                ck.as_ref(),
+            )?;
             eprintln!(
                 "sealed {p}: {} quantized matrices, {:.3} GB on disk",
                 s.matrices,
                 s.bytes as f64 / 1e9
             );
-            (s.model, s.tokenizer, format!("{p} [LLVQ 2-bit, sealed]"))
+            let label = match s.restore_note() {
+                Some(n) => format!("{p} [LLVQ 2-bit, sealed; {n}]"),
+                None => format!("{p} [LLVQ 2-bit, sealed]"),
+            };
+            (s.model, s.tokenizer, label)
         }
         other => {
             let ck = Checkpoint::fetch(&repo)?;

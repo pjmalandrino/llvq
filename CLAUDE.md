@@ -601,6 +601,15 @@ cargo clippy --all-targets                   # doit rester à zéro warning
 #   DÉLIBÉRÉMENT PAS le défaut : qualité verte (ppl +0,049 %, MMLU +0,33 pp,
 #   les deux IC contenant zéro), mais verdict de débit rendu sur la seule
 #   série courte, donc « contexte court seulement ».
+
+# 🆕 2026-09-02 — deux boutons de la roadmap recherche (docs/ROADMAP-RECHERCHE.md) :
+# LLVQ_RESTORE_F16=k_proj[,…]|all  (mmlu, ppl ; fichier scellé seulement, exige
+#   LLVQ_MODEL=<checkpoint>) — M2 : un type de projection repris du checkpoint en
+#   f16, tout le reste tel que livré. `all` = le checkpoint lui-même (contrôle).
+#   Nom inconnu, type absent du fichier, ou checkpoint non nommé → REFUS.
+# LLVQ_H_SHRINK=ρ  (smoke ; défaut 1 = chemin publié, appel sauté) — M1 :
+#   H ← ρ·H + (1−ρ)·diag H en base naturelle, avant la rotation. Écrit dans le
+#   .state seulement si ρ < 1 (les shards d'avant reprennent inchangés).
 ```
 
 > 🚨 **« Suite complète, ~45 s » était faux d'un ordre de grandeur, et ça se
