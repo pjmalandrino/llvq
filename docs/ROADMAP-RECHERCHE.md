@@ -5,7 +5,9 @@
 > *pourquoi* de chaque piste vit là ; ici vit le *quoi, dans quel ordre, à quel
 > prix, et ce qui tranche*). Il complète — sans les remplacer —
 > [`BACKLOG.md`](BACKLOG.md) (RAF d'ingénierie et de publication) et
-> [`PLAN.md`](PLAN.md) (les trois phases). Il ne touche pas à la phase A en
+> [`PLAN.md`](PLAN.md) (les trois phases). Les gains attendus de chaque piste,
+> étiquetés et ancrés, sont projetés dans
+> [`projection-gains-2026-09-01.md`](projection-gains-2026-09-01.md). Il ne touche pas à la phase A en
 > cours (A2 transfert 8B/14B tamponné, A3 dessiné) : décision d'opérateur
 > `deaa449`, « A2 et A3 ont lieu quoi qu'il arrive ».
 >
@@ -239,3 +241,4 @@ aucune carte avant novembre.
 
 - **2026-09-01** — création, depuis l'audit du même jour. Aucune étape lancée ;
   aucun préreg tamponné.
+- **2026-09-01** (soir) — pointeur vers la projection des gains par critère.
