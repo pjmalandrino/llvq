@@ -3346,6 +3346,9 @@ mod linux {
             // sur les sites scindés. Une tolérance là où l'égalité est due
             // laisserait passer un `gs_off` faux ; l'égalité là où
             // l'association change refuserait un noyau juste.
+            // Un drapeau par bras sélectionné : faux à la première justesse
+            // rouge, et un bras faux n'entre pas dans la boucle de chrono.
+            let mut occ_valid: Vec<bool> = vec![true; seg_arms.len()];
             if occ_on {
                 println!(
                     "\n  Occupation (A3) — justesse : {} bras, {} sites, {} lignes",
@@ -3378,17 +3381,24 @@ mod linux {
                 // ce n'est pas un défaut de l'arithmétique — la référence f64
                 // le tranche, et la ligne fautive est imprimée. Ce qui
                 // arrête : une erreur f64 au-dessus du seuil, partout.
+                // Un site faux n'arrête plus le JOB : il INVALIDE le bras, qui
+                // n'est alors jamais chronométré et sort en ROUGE dans le
+                // bloc du gate — les sept autres bras gardent leur mesure.
+                // 🕳️ Le premier job (6a97394c…) est mort sur la justesse de
+                // sk1 après 4 min de transcodage, emportant les chronos des
+                // cinq bras déjà prouvés bit-exacts. Ce qui reste fatal : une
+                // erreur de lancement, ou une référence qui ne se calcule pas.
                 let check_site = |arm: usize,
                                       k: usize,
                                       s: &OccSite<'_>,
                                       got: &[f32],
                                       due: bool,
                                       counts: &mut (usize, usize, usize, f64)|
-                 -> Result<(), String> {
+                 -> Result<bool, String> {
                     let name = occ::SEG_ARM_NAMES[arm];
                     if due && got == got_ref[k].as_slice() {
                         counts.0 += s.d_out as usize;
-                        return Ok(());
+                        return Ok(true);
                     }
                     let mut want = Vec::with_capacity(s.d_out as usize);
                     let mut scale = Vec::with_capacity(s.d_out as usize);
@@ -3398,11 +3408,13 @@ mod linux {
                     }
                     let e = worst_error(got, &want, &scale);
                     if e > TOL {
-                        return Err(format!(
-                            "{name} / {} : pire erreur {e:.2e}·Σ|w·x| au-dessus du seuil {TOL:.0e}{}",
+                        println!(
+                            "  🚨 {name} / {} : pire erreur {e:.2e}·Σ|w·x| au-dessus du seuil {TOL:.0e}{} \
+                             — BRAS INVALIDÉ, il ne sera pas chronométré",
                             s.name,
                             if due { format!(" — et {}", mismatch(name, s, got, &got_ref[k])) } else { String::new() }
-                        ));
+                        );
+                        return Ok(false);
                     }
                     counts.3 = counts.3.max(e);
                     if due {
@@ -3417,18 +3429,19 @@ mod linux {
                     } else {
                         counts.2 += s.d_out as usize;
                     }
-                    Ok(())
+                    Ok(true)
                 };
-                for &a in &seg_arms {
+                for (idx, &a) in seg_arms.iter().enumerate() {
                     // (bit-exactes, dues mais déplacées, scindées, pire erreur f64)
                     let mut counts = (0usize, 0usize, 0usize, 0.0f64);
+                    let mut ok = true;
                     if a == occ::PERSALL {
                         occ_launch_all()?;
                         cuda.sync()?;
                         let all = cuda.down_f32(d_y_all.as_ref().expect("sortie persall"))?;
                         for (k, s) in sites.iter().enumerate() {
                             let got = &all[site_row0[k]..site_row0[k] + s.d_out as usize];
-                            check_site(a, k, s, got, true, &mut counts)?;
+                            ok &= check_site(a, k, s, got, true, &mut counts)?;
                         }
                     } else {
                         for (k, s) in sites.iter().enumerate() {
@@ -3437,13 +3450,15 @@ mod linux {
                             let v = cuda.down_f32(&d_y)?;
                             let due = occ::BIT_EXACT[a]
                                 || occ::sk_site_bit_exact(s.nblocks, occ::SK_FACTOR[a]);
-                            check_site(a, k, s, &v[..s.d_out as usize], due, &mut counts)?;
+                            ok &= check_site(a, k, s, &v[..s.d_out as usize], due, &mut counts)?;
                         }
                     }
+                    occ_valid[idx] = ok;
                     let (exact_rows, moved_rows, split_rows, worst) = counts;
                     println!(
-                        "  {:<8} {exact_rows} lignes identiques AU BIT près à tv_planes_seg{}{}",
+                        "  {:<8} {}{exact_rows} lignes identiques AU BIT près à tv_planes_seg{}{}",
                         occ::SEG_ARM_NAMES[a],
+                        if ok { "" } else { "INVALIDÉ — " },
                         if moved_rows > 0 {
                             format!(" ; {moved_rows} lignes à association déplacée, justes contre f64")
                         } else {
@@ -3520,6 +3535,9 @@ mod linux {
                 // dans le même round — jamais dans une boucle à part, sinon
                 // le dénominateur viendrait de rounds qu'ils n'ont pas vécus.
                 for (k, &a) in seg_arms.iter().enumerate() {
+                    if !occ_valid[k] {
+                        continue; // faux : jamais chronométré
+                    }
                     let tin = Instant::now();
                     if a == occ::PERSALL {
                         occ_launch_all()?;
@@ -3659,6 +3677,13 @@ mod linux {
                     "-".repeat(78)
                 );
                 for (k, &a) in seg_arms.iter().enumerate() {
+                    if !occ_valid[k] {
+                        println!(
+                            "  {:<44}   ROUGE — justesse fausse, jamais chronométré (voir ci-dessus)",
+                            occ::SEG_DISPLAY[a]
+                        );
+                        continue;
+                    }
                     let (lo, md, hi) = spread(tn[k].clone());
                     let gain: Vec<f64> =
                         tps_ref.iter().zip(&tn[k]).map(|(r, t)| (r - t) / r).collect();

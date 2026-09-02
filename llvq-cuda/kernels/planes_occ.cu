@@ -329,7 +329,18 @@ __device__ __forceinline__ void occ_sk(LLVQ_OCC_SEG_ARGS,
     float a = warp_sum(acc[0]);
     if (lane == 0) part[s * d_out + row] = a;
     // Release: this CTA's partials are device-visible before its ticket.
+    //
+    // 🕳️ The barrier was missing on the first job (2026-09-01, job
+    // 6a97394c…, 0,15 $): each warp fenced its OWN store, but thread 0 drew
+    // the ticket without waiting for the seven other warps to have stored
+    // theirs — the CUDA "threadFenceReduction" sample has ONE writer per
+    // block, this kernel has eight. On down_proj (four slices, 1 280 CTAs)
+    // a last CTA read a partial its neighbour had not written yet: worst
+    // error 2,25e-2·Σ|w·x| on layer 0, where o_proj (two slices) had passed
+    // by timing luck. The fence orders a thread's store before ITS later
+    // writes; the barrier makes the ticket later than EVERY warp's fence.
     __threadfence();
+    __syncthreads();
     u32 ticket = 0u;
     if (threadIdx.x == 0) ticket = atomicAdd(done + g, 1u);
     // The barrier and the broadcast in one: every thread learns whether this

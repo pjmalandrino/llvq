@@ -68,6 +68,36 @@ arithmétique de la note §4 : 10 % au banc ≈ +4,5 % bout-en-bout, entre 3 et
 A2 (adopté au 4B, +13,45 %). Le kill de phase (§6) se mesure de toute façon
 en cumul intra-job.
 
+## É5 — Premier job ROUGE INSTRUIT (2026-09-01, job `6a97394c…`, 236 s, 0,12 $) : cinq bras bit-exacts, une course dans le fixup de `sk`
+
+Aucun chrono rendu — le job est mort à la justesse, avant la boucle de
+mesure, exactement comme le préreg A2 l'exigeait de son gate rouge. Ce qu'il
+établit quand même :
+
+- **NVRTC accepte l'unité** (142 629 octets, sha256 `ef950895…`) et **les
+  sept noyaux A3 chargent sans un octet de spill** — `mr4` à 64 registres,
+  `mr2`/`mr2p`/`persall` à 48, `pad`/`pers`/`sk` à 40 (contre 40 pour
+  `tv_planes_seg`). Le prior « spill possible » d'É3 sur `mr4` est réfuté.
+- **`pad`, `mr2`, `mr4`, `mr2p`, `pers` sont IDENTIQUES AU BIT PRÈS à
+  `tv_planes_seg` sur les 1 105 920 lignes** — pas une association déplacée
+  par le compilateur, contrairement à la crainte qui avait motivé le repli
+  f64 du commit `bb16d11`.
+- **`sk1` est faux sur `layers.0.down_proj`** (pire erreur 2,25e-2·Σ|w·x|),
+  après un `o_proj` juste (deux tranches). Mécanisme, instruit à la
+  lecture : chaque warp stocke son partiel puis fait sa fence, mais le
+  thread 0 tire le ticket **sans attendre les sept autres warps** — le
+  motif CUDA « threadFenceReduction » a un seul écrivain par bloc, ce noyau
+  en a huit. À quatre tranches et 1 280 CTAs, un dernier CTA a lu un partiel
+  que son voisin n'avait pas encore écrit ; à deux tranches la fenêtre n'a
+  pas mordu — chance de timing, pas correction.
+
+Correctif, avant le second job : un `__syncthreads()` entre les fences et le
+ticket (le kernel le consigne), et **un bras faux à la justesse est
+INVALIDÉ sans tuer le job** — il n'est jamais chronométré, il sort en ROUGE
+dans le bloc du gate, les autres bras gardent leur mesure. Ce qui reste
+fatal : une erreur de lancement, ou une référence qui ne se calcule pas.
+`sk2` et `persall` n'ont pas été atteints ; leurs priors d'É3 tiennent.
+
 ## É4 — Le job, tel qu'il sera lancé
 
 - Image reconstruite (le binaire `planesbench` change ; les noyaux sont du
