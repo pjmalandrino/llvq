@@ -43,7 +43,7 @@ const TAG_QUANT: u32 = 1;
 /// Widen one IEEE binary16 to f32. Exact — widening has no rounding.
 ///
 /// Hand-rolled so this crate keeps zero dependencies; `llvq-llm` pins it
-/// against the `half` crate for all 65 536 bit patterns.
+/// against the `half` crate for all 65,536 bit patterns.
 pub fn f16_to_f32(bits: u16) -> f32 {
     let sign = ((bits >> 15) as u32) << 31;
     let exp = ((bits >> 10) & 0x1f) as u32;

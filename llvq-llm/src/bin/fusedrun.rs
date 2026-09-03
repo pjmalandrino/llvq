@@ -107,7 +107,7 @@ struct Arm {
 ///
 /// Refuses arms of different lengths instead of comparing their common prefix.
 /// `zip` truncates, so an arm that returned fewer tokens would have printed
-/// "N tokens identiques" over the prefix and said nothing about the rest — a
+/// "N tokens identical" over the prefix and said nothing about the rest — a
 /// green that means nothing, which is the failure mode this binary's own gate
 /// clause exists to prevent. Out here rather than inline for the reason
 /// `rotplan::arms_are_discriminating` is out of this file: a comparison written
@@ -116,8 +116,8 @@ struct Arm {
 fn first_divergence(a: &[u32], b: &[u32]) -> Result<Option<usize>, String> {
     if a.len() != b.len() {
         return Err(format!(
-            "{} tokens contre {} : les deux bras n'ont pas décodé la même longueur, et \
-             comparer leur préfixe commun imprimerait un vert qui ne dit rien",
+            "{} tokens against {}: the two arms did not decode the same length, and \
+             comparing their common prefix would print a green that says nothing",
             a.len(),
             b.len()
         ));
@@ -131,23 +131,23 @@ fn first_divergence(a: &[u32], b: &[u32]) -> Result<Option<usize>, String> {
 #[cfg_attr(not(all(target_os = "linux", feature = "cuda")), allow(dead_code))]
 fn print_phases(arm: &str, r: &llvq_llm::model::PhaseReport) {
     use llvq_llm::model::PhaseReport;
-    println!("\n--- phases, bras {arm} (LLVQ_TIME_PHASES, {PHASE_TOKENS} tokens, hors protocole) ---");
-    println!("  ⚠️ chaque phase est bornée par une synchronisation device : les phases");
-    println!("     s'attribuent, mais les fences sérialisent ce que le chemin normal");
-    println!("     recouvre — ce total ne remplace PAS le tok/s publié ci-dessus.");
-    println!("  {:<15}{:>10}  plage (ms/token)", "phase", "médiane");
+    println!("\n--- phases, arm {arm} (LLVQ_TIME_PHASES, {PHASE_TOKENS} tokens, off protocol) ---");
+    println!("  WARNING: each phase is bounded by a device synchronization. The");
+    println!("     attribution holds, but the fences serialize what the normal path");
+    println!("     overlaps. This total does NOT replace the tok/s published above.");
+    println!("  {:<15}{:>10}  range (ms/token)", "phase", "median");
     let mut total = 0.0;
     for (name, samples) in [
         ("embed", &r.embed_ms),
-        ("blocs+norme", &r.blocks_ms),
+        ("blocks+norm", &r.blocks_ms),
         ("lm_head", &r.head_ms),
-        ("argmax+divers", &r.rest_ms),
+        ("argmax+misc", &r.rest_ms),
     ] {
         let (med, lo, hi) = PhaseReport::stats(samples);
         total += med;
-        println!("  {name:<15}{med:>10.3}  [{lo:.3}–{hi:.3}]  ({} éch.)", samples.len());
+        println!("  {name:<15}{med:>10.3}  [{lo:.3}–{hi:.3}]  ({} samples)", samples.len());
     }
-    println!("  {:<15}{total:>10.3}  (somme des médianes, fences comprises)", "total fencé");
+    println!("  {:<15}{total:>10.3}  (sum of medians, fences included)", "total fenced");
 }
 
 fn main() -> anyhow::Result<()> {
@@ -160,7 +160,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(all(target_os = "linux", feature = "cuda")))]
     {
         let _ = (path, n_new);
-        anyhow::bail!("fusedrun exige une carte NVIDIA et la feature `cuda`");
+        anyhow::bail!("fusedrun requires an NVIDIA card and the `cuda` feature");
     }
 
     #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -183,29 +183,29 @@ fn main() -> anyhow::Result<()> {
             std::env::var("LLVQ_TIME_PHASES").ok().as_deref(),
         );
 
-        // ---- A2 étapes 2+3 : la capture, et l'A/B graph-contre-éager ----
+        // ---- A2 steps 2+3: the capture, and the graph-against-eager A/B ----
         //
-        // `LLVQ_GRAPH_AB=1` : UN modèle sur un stream FRAIS (le NULL legacy ne
-        // se capture pas), event tracking coupé AVANT toute allocation (la
-        // leçon graphbench du 08-06 : un événement étranger invalide la
-        // capture). Les deux bras partagent tout — poids, caches, StepState,
-        // buffer de logits — et ne diffèrent que par UNE chose : le pas de
-        // décodage est exécuté éagerment, ou rejoué depuis le graph capturé.
-        // Gate de justesse d'abord (tokens identiques partout), chiffres
-        // ensuite, round par round. Préreg de phase 802006c5 (seuils gelés).
+        // `LLVQ_GRAPH_AB=1`: ONE model on a FRESH stream (the legacy NULL one
+        // does not capture), event tracking off BEFORE any allocation (the
+        // graphbench lesson of 08-06: a foreign event invalidates the
+        // capture). The two arms share everything, weights, caches, StepState,
+        // logits buffer, and differ by ONE thing only: the decode step is run
+        // eagerly, or replayed from the captured graph. Correctness gate
+        // first (identical tokens everywhere), numbers second, round by round.
+        // Phase prereg 802006c5 (frozen thresholds).
         if std::env::var("LLVQ_GRAPH_AB").ok().as_deref() == Some("1") {
             use candle_core::IndexOp;
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
                 KvStore::Cat => anyhow::bail!(
-                    "LLVQ_GRAPH_AB=1 exige LLVQ_KV_PREALLOC=<fenêtre> : les formes \
-                     fixes sont ce qui rend le pas capturable"
+                    "LLVQ_GRAPH_AB=1 requires LLVQ_KV_PREALLOC=<window>: fixed shapes \
+                     are what make the step capturable"
                 ),
             };
-            // Le device du mode : stream frais + tracking coupé, AVANT toute
-            // allocation. Le `device` du protocole publié (créé plus haut)
-            // n'est pas touché ; celui-ci le remplace pour ce mode seulement.
+            // This mode's device: fresh stream plus tracking off, BEFORE any
+            // allocation. The published protocol's `device` (created above) is
+            // not touched; this one shadows it for this mode only.
             let device = Device::new_cuda_with_stream(0)?;
             let stream = device.as_cuda_device()?.cuda_stream();
             unsafe { stream.context().disable_event_tracking() };
@@ -214,7 +214,7 @@ fn main() -> anyhow::Result<()> {
             let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
             f.model.set_kv_store(kv_store);
             println!(
-                "chargé en {:.1} s — A/B graph : éager contre replay, prealloc({w}), stream frais, events off",
+                "loaded in {:.1} s. graph A/B: eager against replay, prealloc({w}), fresh stream, events off",
                 t.elapsed().as_secs_f64()
             );
             let ids = f
@@ -224,13 +224,13 @@ fn main() -> anyhow::Result<()> {
                 .get_ids()
                 .to_vec();
             if ids.len() + n_new > w {
-                anyhow::bail!("fenêtre {w} < {} + {n_new} tokens", ids.len());
+                anyhow::bail!("window {w} < {} + {n_new} tokens", ids.len());
             }
             let vocab = f.model.config().vocab_size;
             let mut caches = f.model.fresh_caches();
-            // Le préfill dimensionne les buffers ; step_state ARME ensuite le
-            // chemin d'écriture capturable (jamais avant : l'écriture
-            // multi-positions du préfill reste sur slice_set).
+            // The prefill sizes the buffers; step_state then ARMS the
+            // capturable write path (never before: the prefill's
+            // multi-position write stays on slice_set).
             let prefill = |model: &llvq_llm::model::Qwen3,
                            caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<u32> {
@@ -248,8 +248,8 @@ fn main() -> anyhow::Result<()> {
             let st = f.model.step_state(&mut caches)?;
             let logits_out =
                 candle_core::Tensor::zeros((1usize, 1, vocab), candle_core::DType::F32, &device)?;
-            // LE pas — identique au bit près entre les deux bras : ce que le
-            // bras éager exécute est ce que la capture a enregistré.
+            // THE step, bit-identical between the two arms: what the eager arm
+            // runs is what the capture recorded.
             let step = |model: &llvq_llm::model::Qwen3,
                         caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<()> {
@@ -263,8 +263,8 @@ fn main() -> anyhow::Result<()> {
                     .argmax(candle_core::D::Minus1)?
                     .to_scalar::<u32>()?)
             };
-            // Chauffe : une génération éager complète (allocateur, cuBLAS,
-            // fréquences) — jetée.
+            // Warmup: one complete eager generation (allocator, cuBLAS,
+            // clocks), discarded.
             let gen_eager = |f: &llvq_llm::fused_cuda::FusedSealed,
                              caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<Vec<u32>> {
@@ -283,9 +283,9 @@ fn main() -> anyhow::Result<()> {
                 }
             };
             let warm = gen_eager(&f, &mut caches)?;
-            // LA CAPTURE : préparer l'état du premier pas réel, enregistrer le
-            // pas (le corps s'exécute côté hôte, le device ENREGISTRE sans
-            // exécuter), puis le graph est rejouable à chaque token.
+            // THE CAPTURE: prepare the state of the first real step, record
+            // the step (the body runs host-side, the device RECORDS without
+            // executing), then the graph is replayable at every token.
             let next0 = prefill(&f.model, &mut caches)?;
             f.model.refresh_step(&st, next0, ids.len())?;
             let graph = {
@@ -293,30 +293,30 @@ fn main() -> anyhow::Result<()> {
                 let cs = &mut caches;
                 let mut err: Option<anyhow::Error> = None;
                 let g = llvq_cuda::gpu::capture_on(&stream, || {
-                    // LE MÊME `step` que le bras éager : ce que la capture
-                    // enregistre est, à l'octet près, ce que l'éager exécute.
+                    // THE SAME `step` as the eager arm: what the capture
+                    // records is, byte for byte, what the eager arm runs.
                     if let Err(e) = step(fm, cs) {
                         err = Some(e);
-                        return Err("le corps de la capture a échoué".to_string());
+                        return Err("the capture body failed".to_string());
                     }
                     Ok(())
                 });
                 if let Some(e) = err {
-                    return Err(e.context("pendant la capture"));
+                    return Err(e.context("during the capture"));
                 }
                 g.map_err(|e| anyhow::anyhow!("{e}"))?
             };
-            println!("capture : OK — le pas de décodage est un graph rejouable");
-            // Le PREMIER lancement d'un graph AUTO_FREE est celui qui
-            // matérialise ses nœuds d'allocation — et le diagnostic du
-            // 2026-09-01 l'a mesuré LÉGÈREMENT FAUX (max|Δlogits| = 11,2 au
-            // premier launch, puis 0,000e0 EXACT à tous les suivants, douze
-            // tokens durant). On le consomme donc ici, à blanc, sur l'état de
-            // la capture — ses écritures tombent sur un état que chaque
-            // génération re-préfille de toute façon.
-            graph.launch().map_err(|e| anyhow::anyhow!("graph launch (jetable): {e}"))?;
+            println!("capture: OK, the decode step is a replayable graph");
+            // The FIRST launch of an AUTO_FREE graph is the one that
+            // materializes its allocation nodes, and the 2026-09-01 diagnostic
+            // measured it SLIGHTLY WRONG (max|Δlogits| = 11.2 on the first
+            // launch, then 0.000e0 EXACTLY on every later one, twelve tokens
+            // long). So it is spent here as a dry run, on the capture's state:
+            // its writes land on a state that every generation re-prefills
+            // anyway.
+            graph.launch().map_err(|e| anyhow::anyhow!("graph launch (throwaway): {e}"))?;
             device.synchronize()?;
-            println!("premier lancement consommé à blanc (le diag l'a mesuré inexact)");
+            println!("first launch spent as a dry run (the diagnostic measured it inexact)");
             let gen_graph = |f: &llvq_llm::fused_cuda::FusedSealed,
                              caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<Vec<u32>> {
@@ -334,15 +334,14 @@ fn main() -> anyhow::Result<()> {
                     offset += 1;
                 }
             };
-            // Mode diagnostic : chaque token fait replay PUIS éager sur le
-            // MÊME état (le scatter ré-écrit la même position avec les mêmes
-            // valeurs — idempotent), les deux vecteurs de logits sont
-            // comparés en entier, et les canaux de StepState sont relus
-            // DEPUIS LE DEVICE après le refresh. Ce que ça discrimine : un
-            // canal figé par valeur (les relectures sont justes, le replay
-            // est faux, l'éager est juste), une corruption d'allocateur
-            // (logits massivement différents), ou une dérive numérique
-            // (écart petit et croissant).
+            // Diagnostic mode: every token does replay THEN eager on the SAME
+            // state (the scatter rewrites the same position with the same
+            // values, idempotent), the two logit vectors are compared in
+            // full, and the StepState channels are read back FROM THE DEVICE
+            // after the refresh. What this discriminates: a channel frozen by
+            // value (the read-backs are right, the replay is wrong, the eager
+            // arm is right), an allocator corruption (massively different
+            // logits), or a numerical drift (small and growing gap).
             if std::env::var("LLVQ_GRAPH_DIAG").ok().as_deref() == Some("1") {
                 let mut next = prefill(&f.model, &mut caches)?;
                 let mut offset = ids.len();
@@ -362,17 +361,17 @@ fn main() -> anyhow::Result<()> {
                         .map(|(a, b)| (a - b).abs())
                         .fold(0f32, f32::max);
                     println!(
-                        "  diag t{tok:02} : input={inp} pos={pos} · graph→{ng} éager→{ne} \
+                        "  diag t{tok:02}: input={inp} pos={pos} · graph→{ng} eager→{ne} \
                          {} · max|Δlogits|={maxd:.3e}",
                         if ng == ne { "==" } else { "≠≠ DIVERGENT" },
                     );
                     next = ne;
                     offset += 1;
                 }
-                anyhow::bail!("diagnostic terminé — pas de chrono en mode DIAG");
+                anyhow::bail!("diagnostic done, no timing in DIAG mode");
             }
-            // L'hybride de secours : le premier token de décodage en éager
-            // (il « atterrit » l'état), le replay pour tous les suivants.
+            // The fallback hybrid: the first decode token eager (it "lands"
+            // the state), replay for all the following ones.
             let gen_hybrid = |f: &llvq_llm::fused_cuda::FusedSealed,
                               caches: &mut [llvq_llm::model::KvCache]|
              -> anyhow::Result<Vec<u32>> {
@@ -394,27 +393,27 @@ fn main() -> anyhow::Result<()> {
                     offset += 1;
                 }
             };
-            // Gate de justesse AVANT tout chrono — replay pur d'abord,
-            // hybride en secours, et les DEUX verdicts s'impriment.
+            // Correctness gate BEFORE any timing: pure replay first, hybrid
+            // as the fallback, and BOTH verdicts print.
             let g0 = gen_graph(&f, &mut caches)?;
             let pure_ok = first_divergence(&warm, &g0).map_err(|e| anyhow::anyhow!("{e}"))?;
             let use_hybrid = match pure_ok {
                 None => {
-                    println!("gate replay PUR : {} tokens identiques — on chronomètre le pur", warm.len());
+                    println!("PURE replay gate: {} identical tokens, timing the pure arm", warm.len());
                     false
                 }
                 Some(i) => {
-                    println!("gate replay pur : ROUGE (divergence au token {i}) — essai de l'hybride");
+                    println!("pure replay gate: RED (divergence at token {i}), trying the hybrid");
                     let h0 = gen_hybrid(&f, &mut caches)?;
                     match first_divergence(&warm, &h0).map_err(|e| anyhow::anyhow!("{e}"))? {
                         None => {
-                            println!("gate HYBRIDE : {} tokens identiques — on chronomètre l'hybride \
-                                      (1er token éager, replay ensuite)", warm.len());
+                            println!("HYBRID gate: {} identical tokens, timing the hybrid \
+                                      (1st token eager, replay after)", warm.len());
                             true
                         }
                         Some(j) => anyhow::bail!(
-                            "GATE ROUGE des deux bras : pur au token {i}, hybride au token {j} — \
-                             on ne chronomètre pas"
+                            "RED GATE on both arms: pure at token {i}, hybrid at token {j}, \
+                             no timing"
                         ),
                     }
                 }
@@ -432,9 +431,9 @@ fn main() -> anyhow::Result<()> {
                     gen_graph(&f, &mut caches)?
                 };
                 let tg = n_new as f64 / t.elapsed().as_secs_f64();
-                for (o, name) in [(&oe, "éager"), (&og, "graph")] {
+                for (o, name) in [(&oe, "eager"), (&og, "graph")] {
                     if let Some(i) = first_divergence(&warm, o).map_err(|e| anyhow::anyhow!("{e}"))? {
-                        anyhow::bail!("round {round}, {name} : divergence au token {i}");
+                        anyhow::bail!("round {round}, {name}: divergence at token {i}");
                     }
                 }
                 r_e.push(te);
@@ -444,40 +443,40 @@ fn main() -> anyhow::Result<()> {
             let (me, le, he) = rate_stats(&r_e);
             let (mg, lg2, hg) = rate_stats(&r_g);
             let (mr, lr, hr) = rate_stats(&ratios);
-            println!("\n{ROUNDS_TIMED} paires de rounds entrelacées, {} tokens identiques partout", warm.len());
-            println!("  éager (prealloc)  {me:6.1} tok/s [{le:.1}–{he:.1}]");
+            println!("\n{ROUNDS_TIMED} interleaved round pairs, {} identical tokens everywhere", warm.len());
+            println!("  eager (prealloc)  {me:6.1} tok/s [{le:.1}–{he:.1}]");
             println!("  graph (replay)    {mg:6.1} tok/s [{lg2:.1}–{hg:.1}]");
-            println!("  r = graph/éager = {mr:.4} [{lr:.4}–{hr:.4}]  (formé round par round)");
-            println!("\n  lecture gelée (préreg de phase 802006c5) : gain bout-en-bout");
-            println!("  ≥ 8 % → adopté · < 3 % → clos · entre : point de courbe.");
-            println!("  ⚠️ le net contre la config v1 = ce gain − 0,83 % (coût de la base fixe, é1b).");
+            println!("  r = graph/eager = {mr:.4} [{lr:.4}–{hr:.4}]  (formed round by round)");
+            println!("\n  frozen reading (phase prereg 802006c5): end-to-end gain");
+            println!("  ≥ 8% → adopted · < 3% → closed · in between: a curve point.");
+            println!("  WARNING: net against the v1 config = this gain − 0.83% (fixed-base cost, e1b).");
             return Ok(());
         }
 
-        // ---- A2 étape 1 : l'A/B prealloc-contre-cat, intra-processus ----
+        // ---- A2 step 1: the prealloc-against-cat A/B, in one process ----
         //
-        // `LLVQ_KV_AB=1` court-circuite le protocole publié : UN modèle fusé
-        // chargé une fois (config prise de l'environnement — la v1 gelée pour
-        // le job pré-enregistré), puis des PAIRES de rounds entrelacées où le
-        // store bascule par `set_kv_store` entre deux `generate` — même
-        // poids, même unité NVRTC, même processus, même prompt. Le rapport
-        // se forme round par round, jamais en quotient de médianes de bras
-        // séparés. Le seul mécanisme qui bouge est le stockage du cache — la
-        // règle `check_fuse`, appliquée à l'axe qu'elle protège.
-        // Préreg : proofs/preregistration-a2-etape1-prealloc-2026-09-01.md.
+        // `LLVQ_KV_AB=1` short-circuits the published protocol: ONE fused
+        // model loaded once (config taken from the environment, the v1 frozen
+        // for the preregistered job), then INTERLEAVED round pairs where the
+        // store switches through `set_kv_store` between two `generate` calls,
+        // same weights, same NVRTC translation unit, same process, same
+        // prompt. The ratio forms round by round, never as a quotient of
+        // medians of separate arms. The only mechanism that moves is the cache
+        // storage: the `check_fuse` rule, applied to the axis it protects.
+        // Prereg: proofs/preregistration-a2-etape1-prealloc-2026-09-01.md.
         if std::env::var("LLVQ_KV_AB").ok().as_deref() == Some("1") {
             use llvq_llm::kvq::KvStore;
             let w = match kv_store {
                 KvStore::Prealloc(w) => w,
                 KvStore::Cat => anyhow::bail!(
-                    "LLVQ_KV_AB=1 exige LLVQ_KV_PREALLOC=<fenêtre> : l'A/B compare \
-                     cat au store préalloué, il lui faut la fenêtre"
+                    "LLVQ_KV_AB=1 requires LLVQ_KV_PREALLOC=<window>: the A/B compares \
+                     cat to the prealloc store, it needs the window"
                 ),
             };
             let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             let t = Instant::now();
             let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
-            println!("chargé en {:.1} s — A/B kv_store : cat contre prealloc({w})", t.elapsed().as_secs_f64());
+            println!("loaded in {:.1} s. kv_store A/B: cat against prealloc({w})", t.elapsed().as_secs_f64());
             println!(
                 "LLVQ_ROT_SHARE={}, {} rot_lancements/token · LLVQ_FUSE={}, {} matvec_lancements/token",
                 f.rot_share.name(), f.rot_launches, f.fuse.name(), f.matvec_launches
@@ -490,14 +489,14 @@ fn main() -> anyhow::Result<()> {
                 .to_vec();
             if ids.len() + n_new > w {
                 anyhow::bail!(
-                    "fenêtre {w} < {} + {n_new} tokens : le bras prealloc mourrait en \
-                     cours de round — agrandir LLVQ_KV_PREALLOC",
+                    "window {w} < {} + {n_new} tokens: the prealloc arm would die \
+                     mid-round, grow LLVQ_KV_PREALLOC",
                     ids.len()
                 );
             }
-            // Une génération jetée PAR STORE : la première sur CUDA paie la
-            // sélection de noyaux et la montée en fréquence, et le premier
-            // round prealloc paie ses allocations de fenêtre.
+            // One discarded generation PER STORE: the first on CUDA pays
+            // kernel selection and clock ramp, and the first prealloc round
+            // pays its window allocations.
             let mut reference: Option<Vec<u32>> = None;
             for store in [KvStore::Cat, KvStore::Prealloc(w)] {
                 f.model.set_kv_store(store);
@@ -507,14 +506,14 @@ fn main() -> anyhow::Result<()> {
                     Some(r) => {
                         if let Some(i) = first_divergence(r, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
                             anyhow::bail!(
-                                "chauffe : divergence cat/prealloc au token {i} — l'A/B ne se \
-                                 mesure pas sur des bras qui ne rendent pas les mêmes tokens"
+                                "warmup: cat/prealloc divergence at token {i}. The A/B is not \
+                                 measured on arms that do not return the same tokens"
                             );
                         }
                     }
                 }
             }
-            let reference = reference.expect("chauffe faite");
+            let reference = reference.expect("warmup done");
             let (mut r_cat, mut r_pre, mut ratios) = (Vec::new(), Vec::new(), Vec::new());
             for round in 0..ROUNDS_TIMED {
                 let mut pair = [0f64; 2];
@@ -525,7 +524,7 @@ fn main() -> anyhow::Result<()> {
                     pair[slot] = n_new as f64 / t.elapsed().as_secs_f64();
                     if let Some(i) = first_divergence(&reference, &out).map_err(|e| anyhow::anyhow!("{e}"))? {
                         anyhow::bail!(
-                            "round {round}, {} : divergence au token {i} contre la référence",
+                            "round {round}, {}: divergence at token {i} against the reference",
                             store.label()
                         );
                     }
@@ -537,12 +536,12 @@ fn main() -> anyhow::Result<()> {
             let (mc, lc, hc) = rate_stats(&r_cat);
             let (mp, lp, hp) = rate_stats(&r_pre);
             let (mr, lr, hr) = rate_stats(&ratios);
-            println!("\n{ROUNDS_TIMED} paires de rounds entrelacées, {} tokens identiques partout", reference.len());
+            println!("\n{ROUNDS_TIMED} interleaved round pairs, {} identical tokens everywhere", reference.len());
             println!("  cat            {mc:6.1} tok/s [{lc:.1}–{hc:.1}]");
             println!("  prealloc({w})  {mp:6.1} tok/s [{lp:.1}–{hp:.1}]");
-            println!("  r = prealloc/cat = {mr:.4} [{lr:.4}–{hr:.4}]  (formé round par round)");
-            println!("\n  lecture pré-enregistrée : r ≥ 0,97 → la prealloc porte l'étape 2 ;");
-            println!("  r < 0,97 → régression, arrêt et retour à l'opérateur.");
+            println!("  r = prealloc/cat = {mr:.4} [{lr:.4}–{hr:.4}]  (formed round by round)");
+            println!("\n  preregistered reading: r ≥ 0.97 → prealloc carries step 2;");
+            println!("  r < 0.97 → regression, stop and back to the operator.");
             return Ok(());
         }
 
@@ -589,16 +588,16 @@ fn main() -> anyhow::Result<()> {
             // comparison was written out here.
             if !llvq_llm::rotplan::arms_are_discriminating(ids.len(), n_new) {
                 anyhow::bail!(
-                    "prompt de {} token(s), {n_new} nouveau(x) : les deux bras \
-                     LLVQ_ROT_SHARE parcourent alors le même chemin, et la comparaison de \
-                     tokens imprimerait un vert qui ne dit rien.",
+                    "prompt of {} token(s), {n_new} new: the two LLVQ_ROT_SHARE arms \
+                     then walk the same path, and the token comparison would print a \
+                     green that says nothing.",
                     ids.len()
                 );
             }
             if !llvq_llm::rotplan::fuse_arms_are_discriminating(ids.len(), n_new) {
                 anyhow::bail!(
-                    "prompt de {} token(s), {n_new} nouveau(x) : trop court pour séparer les \
-                     deux bras LLVQ_FUSE du bruit de chargement et de montée en fréquence.",
+                    "prompt of {} token(s), {n_new} new: too short to separate the two \
+                     LLVQ_FUSE arms from load and clock-ramp noise.",
                     ids.len()
                 );
             }
@@ -615,9 +614,9 @@ fn main() -> anyhow::Result<()> {
                     // Greedy decode on fixed weights should be deterministic;
                     // a flip across rounds is a finding, not a nuisance.
                     println!(
-                        "  ⚠️ bras fusé LLVQ_FUSE={} : les tokens du round {round} diffèrent \
-                         du round 0 — décodage non déterministe, à investiguer avant de \
-                         publier",
+                        "  WARNING: fused arm LLVQ_FUSE={}: the round {round} tokens differ \
+                         from round 0. Nondeterministic decode, to investigate before \
+                         publishing",
                         f.fuse.name()
                     );
                 }
@@ -627,7 +626,7 @@ fn main() -> anyhow::Result<()> {
             // the embedding sits on the card as int8 + f16 scales, and the old
             // identity would over-report by ~365 MB.
             let bytes = f.runtime_bytes + f.carried_bytes;
-            // The trailing "projections … b/poids" line reports the FIRST arm,
+            // The trailing "projections … b/weight" line reports the FIRST arm,
             // which is the fused one under `LLVQ_FUSE_AB=1`. Letting the loop
             // overwrite it would print the control arm's accounting under the
             // fused arm's heading — the two differ by `gs_off`, 3.69 MB on the
@@ -637,15 +636,15 @@ fn main() -> anyhow::Result<()> {
                 fused_file = f.file_bytes as f64 / 1e9;
             }
             println!(
-                "fusé   : chargé en {load_s:6.1} s, {rate:6.1} tok/s \
-                 [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} Go sur la carte",
+                "fused  : loaded in {load_s:6.1} s, {rate:6.1} tok/s \
+                 [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} GB on the card",
                 bytes as f64 / 1e9
             );
             // On the arm line, not only in the loader's log: an A/B whose two
             // runs are told apart by scrolling back to a load-time message is
             // an A/B waiting to be misread. The matvec count is here for the
             // same reason the rotation count is — a gate reading "128 tokens
-            // identiques" while both arms issued 252 matvecs proves the tokens
+            // identical" while both arms issued 252 matvecs proves the tokens
             // and nothing about this lot.
             println!(
                 "         LLVQ_ROT_SHARE={}, {} rot_lancements/token · LLVQ_FUSE={}, {} \
@@ -661,7 +660,7 @@ fn main() -> anyhow::Result<()> {
             }
             if time_phases {
                 let (_, report) = f.model.generate_phased(&ids, PHASE_TOKENS)?;
-                print_phases(&format!("fusé F{}", f.fuse.name()), &report);
+                print_phases(&format!("fused F{}", f.fuse.name()), &report);
             }
             arms.push(Arm {
                 fuse: f.fuse,
@@ -706,16 +705,16 @@ fn main() -> anyhow::Result<()> {
                     out = o;
                 } else if o != out {
                     println!(
-                        "  ⚠️ bras dense : les tokens du round {round} diffèrent du round 0 — \
-                         décodage non déterministe, à investiguer avant de publier"
+                        "  WARNING: dense arm: the round {round} tokens differ from round 0. \
+                         Nondeterministic decode, to investigate before publishing"
                     );
                 }
             }
             let (rate, lo, hi) = rate_stats(&rounds);
             let bytes = (m.quantized_weights + m.carried_weights) as u64 * 2;
             println!(
-                "dense  : chargé en {load:6.1} s, {rate:6.1} tok/s \
-                 [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} Go sur la carte",
+                "dense  : loaded in {load:6.1} s, {rate:6.1} tok/s \
+                 [{lo:.1}–{hi:.1}, {ROUNDS_TIMED} rounds], {:.2} GB on the card",
                 bytes as f64 / 1e9
             );
             println!("         kv_store={}", kv_store.label());
@@ -727,28 +726,28 @@ fn main() -> anyhow::Result<()> {
         };
 
         // ---- the comparison ----
-        println!("\n--- les deux bras ---");
+        println!("\n--- the two arms ---");
         for a in &arms {
             let first = first_divergence(&dense_tokens, &a.tokens)
-                .map_err(|e| anyhow::anyhow!("dense contre fusé F{} : {e}", a.fuse.name()))?;
+                .map_err(|e| anyhow::anyhow!("dense against fused F{}: {e}", a.fuse.name()))?;
             match first {
                 None => println!(
-                    "  fusé F{} : {} tokens identiques au dense",
+                    "  fused F{}: {} tokens identical to the dense arm",
                     a.fuse.name(),
                     dense_tokens.len()
                 ),
                 Some(i) => {
                     println!(
-                        "  ⚠️ fusé F{} : divergence au token {i} sur {}",
+                        "  WARNING: fused F{}: divergence at token {i} out of {}",
                         a.fuse.name(),
                         dense_tokens.len()
                     );
                     println!("     dense {:?}", &dense_tokens[i.saturating_sub(2)..]);
-                    println!("     fusé  {:?}", &a.tokens[i.saturating_sub(2)..]);
+                    println!("     fused {:?}", &a.tokens[i.saturating_sub(2)..]);
                     println!(
-                        "     un décodage glouton est une chaîne d'argmax : un token \
-                         retourné\n     change tous les suivants. Seule la POSITION du \
-                         premier écart informe."
+                        "     a greedy decode is a chain of argmaxes: one flipped \
+                         token\n     changes every token after it. Only the POSITION of \
+                         the first divergence means anything."
                     );
                 }
             }
@@ -764,35 +763,35 @@ fn main() -> anyhow::Result<()> {
         // other everywhere.
         if let [a, b] = &arms[..] {
             match first_divergence(&a.tokens, &b.tokens)
-                .map_err(|e| anyhow::anyhow!("fusé F{} contre F{} : {e}", a.fuse.name(), b.fuse.name()))?
+                .map_err(|e| anyhow::anyhow!("fused F{} against F{}: {e}", a.fuse.name(), b.fuse.name()))?
             {
                 None => println!(
-                    "  ✅ fusé F{} et F{} : {} tokens identiques entre eux",
+                    "  OK: fused F{} and F{}: {} tokens identical to each other",
                     a.fuse.name(),
                     b.fuse.name(),
                     a.tokens.len()
                 ),
                 Some(i) => println!(
-                    "  🚨 fusé F{} et F{} divergent au token {i} — c'est la fusion elle-même \
-                     qui a changé l'arithmétique, pas un tie-break",
+                    "  ALERT: fused F{} and F{} diverge at token {i}. The fusion itself \
+                     changed the arithmetic, not a tie-break",
                     a.fuse.name(),
                     b.fuse.name()
                 ),
             }
         }
-        println!("  dense : {}", tok.decode(&dense_tokens, true).unwrap_or_default());
+        println!("  dense: {}", tok.decode(&dense_tokens, true).unwrap_or_default());
         for a in &arms {
             println!(
-                "  fusé F{} : {}",
+                "  fused F{}: {}",
                 a.fuse.name(),
                 tok.decode(&a.tokens, true).unwrap_or_default()
             );
         }
 
-        println!("\n--- ce que ça coûte ---");
+        println!("\n--- what it costs ---");
         println!(
             "  {:<10}{:>12}{:>16}{:>18}{:>12}{:>10}",
-            "bras", "chargement", "tok/s (médiane)", "plage", "Go carte", "matvec/t"
+            "arm", "load", "tok/s (median)", "range", "GB card", "matvec/t"
         );
         println!("  {}", "-".repeat(78));
         println!(
@@ -805,7 +804,7 @@ fn main() -> anyhow::Result<()> {
         for a in &arms {
             println!(
                 "  {:<10}{:>11.1} s{:>16.1}{:>18}{:>12.2}{:>10}",
-                format!("fusé F{}", a.fuse.name()),
+                format!("fused F{}", a.fuse.name()),
                 a.load_s,
                 a.rate,
                 format!("[{:.1}–{:.1}]", a.lo, a.hi),
@@ -820,8 +819,8 @@ fn main() -> anyhow::Result<()> {
         // conservative way round; read the second decimal as dispersion.
         for a in &arms {
             println!(
-                "  fusé F{} : vitesse ×{:.2} [×{:.2}–×{:.2}] contre le dense (quotient des \
-                 médianes, {ROUNDS_TIMED} rounds par bras jamais entrelacés), mémoire ÷{:.2}",
+                "  fused F{}: speed ×{:.2} [×{:.2}–×{:.2}] against the dense arm (quotient \
+                 of medians, {ROUNDS_TIMED} rounds per arm, never interleaved), memory ÷{:.2}",
                 a.fuse.name(),
                 a.rate / dense_rate,
                 a.lo / dense_hi,
@@ -831,14 +830,14 @@ fn main() -> anyhow::Result<()> {
         }
         // 🚨 The number this lot is about, and the only comparison in this
         // output whose two sides share a translation unit and a card: fused
-        // against unfused, both of them ours. The 11.7 % the bench measured on
+        // against unfused, both of them ours. The 11.7% the bench measured on
         // `tv_planes_seg` (5.096 → 4.504 ms) does **not** transport here — it is
         // f32, out of model, on matvecs alone, where this is f16 end to end and
         // the matvecs are one share of a token's time.
         if let [a, b] = &arms[..] {
             println!(
-                "  fusion : ×{:.3} [×{:.3}–×{:.3}] de F{} sur F{} ({} contre {} \
-                 matvec_lancements/token), mémoire {:+} octets",
+                "  fusion: ×{:.3} [×{:.3}–×{:.3}] of F{} over F{} ({} against {} \
+                 matvec_lancements/token), memory {:+} bytes",
                 a.rate / b.rate,
                 a.lo / b.hi,
                 a.hi / b.lo,
@@ -850,16 +849,16 @@ fn main() -> anyhow::Result<()> {
             );
             if a.rot_launches != b.rot_launches {
                 println!(
-                    "  ⚠️ {} rot_lancements/token contre {} : les deux bras ne diffèrent PAS \
-                     que par la fusion, le rapport ci-dessus mêle deux mécanismes",
+                    "  WARNING: {} rot_lancements/token against {}: the two arms do NOT \
+                     differ by the fusion alone, the ratio above mixes two mechanisms",
                     a.rot_launches, b.rot_launches
                 );
             }
         }
         println!(
-            "\n  projections : {:.3} b/poids sur la carte, fichier {:.2} Go sur disque.\n  \
-             ⚠️ ces deux comptabilités ne se comparent pas : le fichier porte des index\n  \
-             compacts, la carte lit la disposition dépliée que le noyau peut lire vite.",
+            "\n  projections: {:.3} b/weight on the card, file {:.2} GB on disk.\n  \
+             WARNING: these two accountings do not compare. The file carries compact\n  \
+             indexes, the card reads the unfolded layout the kernel can read fast.",
             fused_rt_bits,
             fused_file
         );
@@ -891,7 +890,7 @@ mod tests {
         assert_eq!(first_divergence(&[1, 2, 3], &[1, 2, 3]), Ok(None));
         assert_eq!(first_divergence(&[1, 2, 3], &[1, 9, 3]), Ok(Some(1)));
         assert_eq!(first_divergence(&[9, 2], &[1, 2]), Ok(Some(0)));
-        let e = first_divergence(&[1, 2, 3], &[1, 2]).expect_err("longueurs inégales");
+        let e = first_divergence(&[1, 2, 3], &[1, 2]).expect_err("unequal lengths");
         assert!(e.contains('3') && e.contains('2'), "{e}");
         assert_eq!(first_divergence(&[], &[]), Ok(None));
     }

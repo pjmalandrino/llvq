@@ -70,7 +70,7 @@ fn load_emb_sources() -> Result<(String, Option<String>), String> {
         Ok(dir) => {
             let p = std::path::Path::new(&dir).join("emb_q8.cu");
             let s = std::fs::read_to_string(&p)
-                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : emb_q8.cu : {e}"))?;
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: emb_q8.cu: {e}"))?;
             Ok((s, Some(dir)))
         }
     }
@@ -181,7 +181,7 @@ impl FusedSegProj {
     pub fn part_name(&self, rank: usize) -> &str {
         self.part_names
             .get(rank)
-            .map_or("(partie hors groupe)", String::as_str)
+            .map_or("(part outside the group)", String::as_str)
     }
 }
 
@@ -262,13 +262,13 @@ impl FusedRuntime {
         if let Some((pp, overridden)) = &planes {
             parts.extend(pp.iter().map(String::as_str));
             if let Some(d) = overridden {
-                eprintln!("⚠️ SOURCES {} SURCHARGÉES depuis {d}", model.layout.name());
+                eprintln!("WARNING: {} SOURCES OVERRIDDEN from {d}", model.layout.name());
             }
         }
         if let Some((es, overridden)) = &emb {
             parts.push(es.as_str());
             if let Some(d) = overridden {
-                eprintln!("⚠️ SOURCE emb_q8 SURCHARGÉE depuis {d}");
+                eprintln!("WARNING: emb_q8 SOURCE OVERRIDDEN from {d}");
             }
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
@@ -279,7 +279,7 @@ impl FusedRuntime {
         // formality: without this line, a run with `LLVQ_KERNEL_DIR` set is
         // traceable by a directory name and nothing else.
         println!(
-            "source NVRTC : {} octets, sha256 {} ({} parties)",
+            "NVRTC source: {} bytes, sha256 {} ({} parts)",
             src.text.len(),
             src.sha256,
             parts.len()
@@ -306,7 +306,7 @@ impl FusedRuntime {
         for name in spill_checked {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
-                candle_core::bail!("{name} : {} octets de spill", r.local_bytes);
+                candle_core::bail!("{name}: {} bytes of spill", r.local_bytes);
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
@@ -373,7 +373,7 @@ impl FusedRuntime {
 
         // The rotation is the one staging that can exceed the default — and
         // comparing it against `shared_limit` is what refused Qwen3-14B on
-        // 2026-08-17 (69 632 o wanted, 49 152 offered by default, 101 376
+        // 2026-08-17 (69,632 o wanted, 49,152 offered by default, 101,376
         // available on request). Both bounds now, from `llvq_cuda::shared`,
         // which is where this arithmetic is testable: this file compiles
         // nowhere but inside an image build.
@@ -457,13 +457,13 @@ impl FusedRuntime {
         let dims = x.dims();
         let d_in = *dims.last().expect("rank >= 1");
         if d_in != proj.d_in {
-            candle_core::bail!("{} attend d_in={}, reçu {d_in}", proj.name, proj.d_in);
+            candle_core::bail!("{} expects d_in={}, got {d_in}", proj.name, proj.d_in);
         }
         let rows: usize = dims[..dims.len() - 1].iter().product();
         if rows != 1 {
             candle_core::bail!(
-                "{} : rotation demandée sur {rows} vecteurs. La boucle de lignes appartient \
-                 à model::group_forward, qui la partage entre les projections d'un groupe.",
+                "{}: rotation requested for {rows} vectors. The row loop belongs to \
+                 model::group_forward, which shares it across the projections of a group.",
                 proj.name
             );
         }
@@ -507,13 +507,13 @@ impl FusedRuntime {
         let dims = x.dims();
         let d_in = *dims.last().expect("rank >= 1");
         if d_in != g.d_in {
-            candle_core::bail!("{} attend d_in={}, reçu {d_in}", g.name, g.d_in);
+            candle_core::bail!("{} expects d_in={}, got {d_in}", g.name, g.d_in);
         }
         let rows: usize = dims[..dims.len() - 1].iter().product();
         if rows != 1 {
             candle_core::bail!(
-                "{} : rotation demandée sur {rows} vecteurs. La boucle de lignes appartient \
-                 à model::group_forward, qui la partage entre les parties du groupe.",
+                "{}: rotation requested for {rows} vectors. The row loop belongs to \
+                 model::group_forward, which shares it across the parts of the group.",
                 g.name
             );
         }
@@ -536,8 +536,8 @@ impl FusedRuntime {
         // middle of a billed job.
         let f = self.f_matvec_seg.as_ref().ok_or_else(|| {
             candle_core::Error::msg(format!(
-                "{} : groupe fusé lancé par un runtime construit sans tv_planes_seg_h \
-                 (LLVQ_FUSE=0, ou un layout qui ne se segmente pas)",
+                "{}: fused group launched by a runtime built without tv_planes_seg_h \
+                 (LLVQ_FUSE=0, or a layout that does not segment)",
                 g.name
             ))
         })?;
@@ -567,30 +567,30 @@ impl FusedRuntime {
         t: &llvq_artifact::RawTensor,
     ) -> candle_core::Result<QuantEmbed> {
         if self.f_emb.is_none() {
-            candle_core::bail!("runtime construit sans les noyaux q8 (LLVQ_EMBED=f16)");
+            candle_core::bail!("runtime built without the q8 kernels (LLVQ_EMBED=f16)");
         }
         let llvq_artifact::RawData::Quant(q) = &t.data else {
-            candle_core::bail!("{} : pas un tenseur quantifié", t.name);
+            candle_core::bail!("{}: not a quantized tensor", t.name);
         };
         if q.bits != 8 || q.group != EMBED_GROUP {
             candle_core::bail!(
-                "{} : int{} g{} — les noyaux codent int8 g{EMBED_GROUP} en dur",
+                "{}: int{} g{}, but the kernels hardcode int8 g{EMBED_GROUP}",
                 t.name, q.bits, q.group
             );
         }
         if t.dims.len() != 2 {
-            candle_core::bail!("{} : dims {:?}, un embedding est 2-D", t.name, t.dims);
+            candle_core::bail!("{}: dims {:?}, an embedding is 2-D", t.name, t.dims);
         }
         let (vocab, d) = (t.dims[0], t.dims[1]);
         if !d.is_multiple_of(4) {
-            candle_core::bail!("{} : d={d} n'est pas un multiple de 4", t.name);
+            candle_core::bail!("{}: d={d} is not a multiple of 4", t.name);
         }
         if !vocab.is_multiple_of(8) {
-            candle_core::bail!("{} : vocab={vocab} n'est pas un multiple de 8", t.name);
+            candle_core::bail!("{}: vocab={vocab} is not a multiple of 8", t.name);
         }
         if d * 4 > self.shared_limit {
             candle_core::bail!(
-                "{} : {} o de partagée demandés par tv_q8_h, la carte en offre {}",
+                "{}: tv_q8_h asks for {} B of shared memory, the card offers {}",
                 t.name, d * 4, self.shared_limit
             );
         }
@@ -600,7 +600,7 @@ impl FusedRuntime {
             || q.biases.len() != q.scales.len()
         {
             candle_core::bail!(
-                "{} : payload incohérent ({} octets, {} échelles, {} biais pour {vocab}×{d})",
+                "{}: inconsistent payload ({} bytes, {} scales, {} biases for {vocab}×{d})",
                 t.name, q.packed.len(), q.scales.len(), q.biases.len()
             );
         }
@@ -642,7 +642,7 @@ impl FusedRuntime {
         let dims = h.dims();
         let d_in = *dims.last().expect("rank >= 1");
         if d_in != q.d {
-            candle_core::bail!("lm_head q8 attend d={}, reçu {d_in}", q.d);
+            candle_core::bail!("lm_head q8 expects d={}, got {d_in}", q.d);
         }
         let h = h.contiguous()?.to_dtype(DType::F16)?;
         let out_shape = {
@@ -695,7 +695,7 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("le gather q8 n'a pas de chemin CPU")
+        candle_core::bail!("the q8 gather has no CPU path")
     }
 
     fn cuda_fwd(
@@ -706,10 +706,10 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
         let ids = storage.as_cuda_slice::<u32>()?;
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("ids non contigus"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous ids"))?;
         let ntok = end - start;
         if ntok == 0 {
-            candle_core::bail!("gather q8 : zéro token");
+            candle_core::bail!("q8 gather: zero tokens");
         }
         let mut y = unsafe {
             self.rt
@@ -760,7 +760,7 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("le lm_head q8 n'a pas de chemin CPU")
+        candle_core::bail!("the q8 lm_head has no CPU path")
     }
 
     fn cuda_fwd(
@@ -771,10 +771,10 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
         let x = storage.as_cuda_slice::<f16>()?;
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         let len = end - start;
         if len == 0 || !len.is_multiple_of(self.q.d) {
-            candle_core::bail!("lm_head q8 : {len} valeurs pour d={}", self.q.d);
+            candle_core::bail!("lm_head q8: {len} values for d={}", self.q.d);
         }
         let rows = len / self.q.d;
         let mut y = unsafe {
@@ -835,7 +835,7 @@ impl candle_core::CustomOp1 for RotOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("la rotation LLVQ n'a pas de chemin CPU")
+        candle_core::bail!("the LLVQ rotation has no CPU path")
     }
 
     fn cuda_fwd(
@@ -846,24 +846,24 @@ impl candle_core::CustomOp1 for RotOp<'_> {
         let all = storage.as_cuda_slice::<f16>()?;
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         if end - start != self.proj.d_in {
             candle_core::bail!(
-                "activation de {} valeurs pour d_in={}",
+                "activation of {} values for d_in={}",
                 end - start,
                 self.proj.d_in
             );
         }
         let rot = match self.proj.rotation {
             None => candle_core::bail!(
-                "{} : artefact sans rotation — chemin non couvert, cf. fused_cuda.rs",
+                "{}: artifact without rotation, path not covered, see fused_cuda.rs",
                 self.proj.name
             ),
             Some(key) => self
                 .rt
                 .rotations
                 .get(&key)
-                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
         };
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.proj.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
@@ -907,7 +907,7 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("le noyau fusé LLVQ n'a pas de chemin CPU")
+        candle_core::bail!("the LLVQ fused kernel has no CPU path")
     }
 
     fn cuda_fwd(
@@ -922,11 +922,11 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         // died on the second vector of the prompt.
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         let len = end - start;
         if len != self.proj.d_in {
             candle_core::bail!(
-                "activation tournée de {len} valeurs pour d_in={}",
+                "rotated activation of {len} values for d_in={}",
                 self.proj.d_in
             );
         }
@@ -935,8 +935,8 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         // finite, plausible, wrong numbers. Asserted, not assumed.
         if start != 0 {
             candle_core::bail!(
-                "{} : activation tournée à l'offset {start}, alors que les noyaux matvec \
-                 indexent depuis la base",
+                "{}: rotated activation at offset {start}, while the matvec kernels \
+                 index from the base",
                 self.proj.name
             );
         }
@@ -1023,7 +1023,7 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
             } => {
                 let (cwtab, gtab) = self.rt.g70_tabs.as_ref().ok_or_else(|| {
                     candle_core::Error::msg(
-                        "flux Golay70 sans tables constantes — bug de construction du runtime",
+                        "Golay70 stream without constant tables, a runtime construction bug",
                     )
                 })?;
                 launch_golay70_h(
@@ -1077,7 +1077,7 @@ impl candle_core::CustomOp1 for RotSegOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("la rotation LLVQ n'a pas de chemin CPU")
+        candle_core::bail!("the LLVQ rotation has no CPU path")
     }
 
     fn cuda_fwd(
@@ -1088,24 +1088,24 @@ impl candle_core::CustomOp1 for RotSegOp<'_> {
         let all = storage.as_cuda_slice::<f16>()?;
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         if end - start != self.group.d_in {
             candle_core::bail!(
-                "activation de {} valeurs pour d_in={}",
+                "activation of {} values for d_in={}",
                 end - start,
                 self.group.d_in
             );
         }
         let rot = match self.group.rotation {
             None => candle_core::bail!(
-                "{} : groupe sans rotation — chemin non couvert, cf. fused_cuda.rs",
+                "{}: group without rotation, path not covered, see fused_cuda.rs",
                 self.group.name
             ),
             Some(key) => self
                 .rt
                 .rotations
                 .get(&key)
-                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} absente")))?,
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
         };
         let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(self.group.d_in) }
             .map_err(|e| candle_core::Error::msg(format!("alloc rot: {e}")))?;
@@ -1147,7 +1147,7 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
         _: &candle_core::CpuStorage,
         _: &Layout,
     ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
-        candle_core::bail!("le noyau fusé LLVQ n'a pas de chemin CPU")
+        candle_core::bail!("the LLVQ fused kernel has no CPU path")
     }
 
     fn cuda_fwd(
@@ -1161,11 +1161,11 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
         // length is silent at offset 0 and wrong everywhere else.
         let (start, end) = layout
             .contiguous_offsets()
-            .ok_or_else(|| candle_core::Error::msg("activation non contiguë"))?;
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
         let len = end - start;
         if len != self.group.d_in {
             candle_core::bail!(
-                "activation tournée de {len} valeurs pour d_in={}",
+                "rotated activation of {len} values for d_in={}",
                 self.group.d_in
             );
         }
@@ -1174,8 +1174,8 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
         // finite, plausible, wrong numbers. Asserted, not assumed.
         if start != 0 {
             candle_core::bail!(
-                "{} : activation tournée à l'offset {start}, alors que les noyaux matvec \
-                 indexent depuis la base",
+                "{}: rotated activation at offset {start}, while the matvec kernels \
+                 index from the base",
                 self.group.name
             );
         }
@@ -1424,7 +1424,7 @@ fn upload_matrix(
         // `tv_slot` has no bounds guard: a `return` before `__syncthreads()`
         // deadlocks, and it would break the full-warp mask the reduction
         // relies on. The grid is exact, so the host asserts instead.
-        candle_core::bail!("{} : d_out={} n'est pas un multiple de 8", m.name, m.d_out);
+        candle_core::bail!("{}: d_out={} is not a multiple of 8", m.name, m.d_out);
     }
     // A stream in the wrong layout would be read by the wrong kernel into
     // finite, plausible, wrong numbers — refused here, matrix by matrix,
@@ -1477,7 +1477,7 @@ fn upload_matrix(
             }
         }
         _ => candle_core::bail!(
-            "{} : flux hôte et layout du runtime ({}) en désaccord",
+            "{}: host stream and runtime layout ({}) disagree",
             m.name,
             layout.name()
         ),
@@ -1511,7 +1511,7 @@ fn upload_matrix(
 /// crash. The `gs_off` sweep in particular is the only guard possible on that
 /// table: an entry past `gscale` would read arbitrary floats downstream of it
 /// without ever leaving an arena allocator's allocation, so nothing on the card
-/// would notice. It costs one pass over 25 600 `u32` a group, once, at load.
+/// would notice. It costs one pass over 25,600 `u32` a group, once, at load.
 fn upload_group(
     cuda: &llvq_cuda::gpu::Cuda,
     g: &FusedGroup,
@@ -1519,7 +1519,7 @@ fn upload_group(
 ) -> candle_core::Result<FusedSegProj> {
     if seg_kernel_name(layout).is_none() {
         candle_core::bail!(
-            "{} : groupe fusé sur le layout {} — seul planes14 se segmente",
+            "{}: fused group on layout {}, only planes14 segments",
             g.key,
             layout.name()
         );
@@ -1528,11 +1528,11 @@ fn upload_group(
     // total alone would let an individually ragged part through on a lucky sum,
     // and the unfused control arm could then not be launched at all.
     if !g.d_out.is_multiple_of(8) {
-        candle_core::bail!("{} : d_out={} n'est pas un multiple de 8", g.key, g.d_out);
+        candle_core::bail!("{}: d_out={} is not a multiple of 8", g.key, g.d_out);
     }
     for p in &g.parts {
         if !p.d_out.is_multiple_of(8) {
-            candle_core::bail!("{} : {} a d_out={} — pas un multiple de 8", g.key, p.name, p.d_out);
+            candle_core::bail!("{}: {} has d_out={}, not a multiple of 8", g.key, p.name, p.d_out);
         }
     }
     if g.gs_off.len() != g.d_out
@@ -1541,8 +1541,8 @@ fn upload_group(
         || g.tail.len() != g.d_out * g.tail_w
     {
         candle_core::bail!(
-            "{} : {} gs_off, {} centroïdes, {} échelles, {} valeurs de queue pour {} lignes \
-             de {} et {} parties",
+            "{}: {} gs_off, {} centroids, {} scales, {} tail values for {} rows \
+             of {} and {} parts",
             g.key,
             g.gs_off.len(),
             g.gscale.len(),
@@ -1555,14 +1555,14 @@ fn upload_group(
     }
     if let Some(bad) = g.gs_off.iter().position(|&o| o as usize + 1 >= g.gscale.len()) {
         candle_core::bail!(
-            "{} : gs_off[{bad}]={} hors de la table de {} centroïdes",
+            "{}: gs_off[{bad}]={} outside the table of {} centroids",
             g.key,
             g.gs_off[bad],
             g.gscale.len()
         );
     }
     let HostStream::Planes14 { words } = &g.stream else {
-        candle_core::bail!("{} : flux de groupe qui n'est pas Planes14", g.key);
+        candle_core::bail!("{}: group stream that is not Planes14", g.key);
     };
     Ok(FusedSegProj {
         name: g.key.clone(),
@@ -1662,10 +1662,10 @@ pub fn load_with(
 
     if dtype != DType::F16 {
         candle_core::bail!(
-            "chemin fusé demandé en {dtype:?} : il est f16 de bout en bout (activations \
-             converties, noyaux stockant des demis, queue KeepExact résidente en binaire16 \
-             pour s'aligner sur ce que `sealed::load` narrow au même dtype). Un autre dtype \
-             ne rendrait pas un modèle plus précis, il rendrait une comparaison fausse."
+            "fused path requested in {dtype:?}: it is f16 end to end (activations \
+             converted, kernels storing halves, KeepExact tail resident in binary16 to \
+             line up with what `sealed::load` narrows to the same dtype). Another dtype \
+             would not make the model more accurate, it would make a comparison wrong."
         );
     }
 
@@ -1691,13 +1691,13 @@ pub fn load_with(
     let projections =
         model.matrices.len() + model.groups.iter().map(|g| g.parts.len()).sum::<usize>();
     println!(
-        "rotation partagée : {} (LLVQ_ROT_SHARE) — {rot_launches} rot_lancements/token \
-         pour {projections} projections",
+        "shared rotation: {} (LLVQ_ROT_SHARE), {rot_launches} rot_launches/token \
+         for {projections} projections",
         share.name()
     );
     println!(
-        "fusion des projections : {} (LLVQ_FUSE) — {matvec_launches} matvec_lancements/token \
-         pour {projections} projections ({} groupes + {} seules)",
+        "projection fusion: {} (LLVQ_FUSE), {matvec_launches} matvec_launches/token \
+         for {projections} projections ({} groups + {} lone)",
         fuse.name(),
         model.groups.len(),
         model.matrices.len()
@@ -1708,9 +1708,9 @@ pub fn load_with(
     // 4B. A reader comparing 4.729 to a published 4.804 must be able to see
     // from the log itself that they are two residencies, not a regression.
     println!(
-        "layout fusé : {} (LLVQ_FUSED_LAYOUT) — projections {:.2} Go sur la carte, \
-         {:.3} b/poids (comptabilité INFÉRENCE : queue KeepExact en binaire16 ; \
-         le banc facture la sienne en f32)",
+        "fused layout: {} (LLVQ_FUSED_LAYOUT), projections {:.2} GB on the card, \
+         {:.3} b/weight (INFERENCE accounting: KeepExact tail in binary16; \
+         the bench bills its own in f32)",
         layout.name(),
         model.runtime_bytes as f64 / 1e9,
         model.runtime_bits_per_weight()
@@ -1718,9 +1718,9 @@ pub fn load_with(
 
     let config: candle_transformers::models::qwen3::Config =
         serde_json::from_slice(&model.config_json)
-            .map_err(|e| candle_core::Error::msg(format!("config.json : {e}")))?;
+            .map_err(|e| candle_core::Error::msg(format!("config.json: {e}")))?;
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
-        .map_err(|e| candle_core::Error::msg(format!("tokenizer.json : {e}")))?;
+        .map_err(|e| candle_core::Error::msg(format!("tokenizer.json: {e}")))?;
 
     // Under q8, the embedding tables leave the carried list before any tensor
     // is built: nothing downstream may materialize an f16 copy of them. One
@@ -1732,7 +1732,7 @@ pub fn load_with(
         EmbedMode::F16 => None,
         EmbedMode::Q8 => Some(
             crate::fused::take_embed_tables(&mut model.raw, config.tie_word_embeddings)
-                .map_err(|e| candle_core::Error::msg(format!("{path} : {e}")))?,
+                .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?,
         ),
     };
 
@@ -1813,7 +1813,7 @@ pub fn load_with(
                 // nothing and closes exactly the defect being fixed.
                 if q.bytes != *packed + *sb {
                     candle_core::bail!(
-                        "table portée {} : {} octets annoncés, {} uploadés",
+                        "carried table {}: {} bytes announced, {} uploaded",
                         t.name, *packed + *sb, q.bytes
                     );
                 }
@@ -1824,7 +1824,7 @@ pub fn load_with(
         }
     };
     println!(
-        "total attendu sur la carte : {:.2} Go (projections {:.2} + portés {:.2})",
+        "total expected on the card: {:.2} GB (projections {:.2} + carried {:.2})",
         (model.runtime_bytes + carried_bytes) as f64 / 1e9,
         model.runtime_bytes as f64 / 1e9,
         carried_bytes as f64 / 1e9
@@ -1857,25 +1857,26 @@ pub fn load_with(
     if let Some((bufs, (ie, ih))) = &quant_embed {
         if Arc::ptr_eq(&bufs[*ie], &bufs[*ih]) != config.tie_word_embeddings {
             candle_core::bail!(
-                "câblage q8 incohérent : embedding et lm_head {} le même buffer \
-                 alors que tie_word_embeddings = {}",
-                if Arc::ptr_eq(&bufs[*ie], &bufs[*ih]) { "partagent" } else { "ne partagent pas" },
+                "inconsistent q8 wiring: embedding and lm_head {} the same buffer \
+                 while tie_word_embeddings = {}",
+                if Arc::ptr_eq(&bufs[*ie], &bufs[*ih]) { "share" } else { "do not share" },
                 config.tie_word_embeddings
             );
         }
     }
-    // 🕳️ **Le cache KV est F16 ici, et il l'est par ALIGNEMENT, pas par défaut.**
-    // `bin/fusedrun` charge son bras dense avec `KvMode::F16` en dur
-    // (`fusedrun.rs:173`) : sa question est le noyau fusé, pas le cache. Le bras
-    // fusé doit donc prendre le même, ou la comparaison gagnerait une seconde
-    // variable — exactement ce que ce dossier passe son temps à interdire.
+    // 🕳️ **The KV cache is F16 here, and it is F16 by ALIGNMENT, not by default.**
+    // `bin/fusedrun` loads its dense arm with `KvMode::F16` hardcoded
+    // (`fusedrun.rs:173`): its question is the fused kernel, not the cache. The
+    // fused arm must therefore take the same one, or the comparison would gain
+    // a second variable, which is exactly what this workstream spends its time
+    // forbidding.
     //
-    // 🚨 Ces deux appels ne compilaient plus depuis que `KvMode` est arrivé
-    // (KV q8, 2026-08-15) : ce fichier est sous `cfg(cuda)`, donc AUCUNE machine
-    // de développement ne le type, et la casse n'est apparue qu'au premier build
-    // d'image — 255 s de CI, le 2026-08-16. Le `--features cuda` n'est pas
-    // couvert par `cargo clippy --all-targets` sur un Mac, et c'est la même
-    // classe d'angle mort que le câblage `planesbench` du même jour.
+    // 🚨 These two calls stopped compiling when `KvMode` arrived (KV q8,
+    // 2026-08-15): this file is under `cfg(cuda)`, so NO development machine
+    // type-checks it, and the breakage only surfaced at the first image build,
+    // 255 s of CI, on 2026-08-16. `--features cuda` is not covered by
+    // `cargo clippy --all-targets` on a Mac, and it is the same class of blind
+    // spot as the `planesbench` wiring of the same day.
     let kv = crate::kvq::KvMode::F16;
     let mut qwen = match &quant_embed {
         None => crate::model::Qwen3::new_with(&config, vb, &mut take, kv)?,
@@ -1896,8 +1897,8 @@ pub fn load_with(
     };
     if claimed != total_sites {
         candle_core::bail!(
-            "{claimed} projections réclamées par le modèle sur {total_sites} portées par le \
-             fichier"
+            "{claimed} projections claimed by the model out of {total_sites} carried by the \
+             file"
         );
     }
     // The one place `LLVQ_ROT_SHARE` reaches a model: every other `Qwen3` keeps

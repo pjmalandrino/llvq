@@ -10,7 +10,7 @@
 //!
 //! It quantizes a weight matrix given a Hessian. It does **not** run a model:
 //! obtaining `H = AᵀA/N` requires a forward pass over a calibration corpus
-//! (the paper uses 6 100 sequences of DCLM-edu), which is a separate concern
+//! (the paper uses 6,100 sequences of DCLM-edu), which is a separate concern
 //! and a separate decision — see the open questions below. Everything here is
 //! therefore testable, and tested, without a model file.
 //!

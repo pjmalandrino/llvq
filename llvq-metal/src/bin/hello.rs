@@ -40,9 +40,9 @@ kernel void int_throughput(device const uint* in  [[buffer(0)]],
 
 fn main() -> Result<(), String> {
     let k = llvq_metal::Kernel::new(SRC, "square_plus_index")?;
-    println!("GPU : {}", k.device_name());
+    println!("GPU: {}", k.device_name());
     println!(
-        "  largeur SIMD          {}\n  threads/groupe max    {}",
+        "  SIMD width            {}\n  max threads/group     {}",
         k.simd_width(),
         k.max_threads_per_group()
     );
@@ -61,7 +61,7 @@ fn main() -> Result<(), String> {
         let want = (i as u32).wrapping_mul(i as u32).wrapping_add(i as u32);
         assert_eq!(got[i], want, "wrong result at {i}");
     }
-    println!("\n  ✓ shader compilé, exécuté, résultat vérifié sur {N} éléments");
+    println!("\n  OK: shader compiled, ran, result verified on {N} elements");
 
     // ---- integer throughput ----
     let k2 = llvq_metal::Kernel::new(SRC, "int_throughput")?;
@@ -85,18 +85,18 @@ fn main() -> Result<(), String> {
     }
     assert_eq!(out[12345], want, "the throughput kernel did not run");
     println!(
-        "\n  surcoût de soumission {:.3} ms (dispatch vide)\n  \
-         temps brut            {:.3} ms\n  \
-         temps net             {:.3} ms pour {:.1} G op",
+        "\n  submission overhead   {:.3} ms (empty dispatch)\n  \
+         raw time              {:.3} ms\n  \
+         net time              {:.3} ms for {:.1} G op",
         overhead * 1e3,
         t.seconds * 1e3,
         net * 1e3,
         ops / 1e9
     );
-    println!("\n  débit entier mesuré   {:.2} T op/s", rate / 1e12);
+    println!("\n  integer throughput    {:.2} T op/s", rate / 1e12);
     println!(
-        "\n  C'est le dénominateur de tout budget « opérations par bloc ».\n  \
-         Les estimations précédentes supposaient ~5,7 T op/s."
+        "\n  This is the denominator of every \"operations per block\" budget.\n  \
+         Earlier estimates assumed ~5.7 T op/s."
     );
     Ok(())
 }

@@ -329,7 +329,7 @@ fn read_raws(path: &std::path::Path) -> Option<Vec<RawTensor>> {
 /// `#[ignore]`d unconditionally and fails loudly when asked for by name.
 ///
 /// It used to be `cfg_attr(debug_assertions, ignore)` with an
-/// `eprintln!("… sauté"); return;` inside — which means it *ran* in release
+/// `eprintln!("… skipped"); return;` inside — which means it *ran* in release
 /// and reported `ok` on every machine without the files. That is the defect
 /// CLAUDE.md §5 is about, and it sat inside the suite CI runs: a green that
 /// described the filesystem, not the format. `llvq-artifact` had the same
@@ -661,7 +661,7 @@ fn the_accounting_carries_both_tables() {
     let tied_r = EmbedReport::new(EmbedMode::F16, &carried_embed_tables(&tied));
     assert_eq!(tied_r.total(), (rows * d * 2) as u64, "one table, f16");
     assert!(tied_r.line().contains("1 table ("), "{}", tied_r.line());
-    assert!(tied_r.line().contains("lm_head lié"), "{}", tied_r.line());
+    assert!(tied_r.line().contains("lm_head tied"), "{}", tied_r.line());
 
     // q8, untied: both tables counted, payload and metadata separately.
     let mut raw = carried_list(rows, d, true);
@@ -693,7 +693,7 @@ fn shape_only(name: &str, dims: &[usize]) -> RawTensor {
 /// The **printed** line carries the total of every table, not the first one's.
 ///
 /// Asserted at 8B scale on purpose: at test-fixture sizes both readings round
-/// to `0.0 Mo` and the assertion would be vacuous. This is the one that fails
+/// to `0.0 MB` and the assertion would be vacuous. This is the one that fails
 /// on the defect as it actually shipped — a line announcing one table beside a
 /// total, below, that counted two.
 #[test]
@@ -703,19 +703,19 @@ fn the_printed_line_announces_every_table() {
     let refs: Vec<&RawTensor> = two.iter().collect();
 
     let f16_line = EmbedReport::new(EmbedMode::F16, &refs).line();
-    assert!(f16_line.contains("2489.3 Mo"), "f16 line under-reports: {f16_line}");
-    assert!(!f16_line.contains("1244.7 Mo"), "f16 line announces one table: {f16_line}");
+    assert!(f16_line.contains("2489.3 MB"), "f16 line under-reports: {f16_line}");
+    assert!(!f16_line.contains("1244.7 MB"), "f16 line announces one table: {f16_line}");
 
     let q8_line = EmbedReport::new(EmbedMode::Q8, &refs).line();
-    assert!(q8_line.contains("1322.5 Mo"), "q8 line under-reports: {q8_line}");
-    assert!(!q8_line.contains("661.2 Mo"), "q8 line announces one table: {q8_line}");
+    assert!(q8_line.contains("1322.5 MB"), "q8 line under-reports: {q8_line}");
+    assert!(!q8_line.contains("661.2 MB"), "q8 line announces one table: {q8_line}");
     assert!(q8_line.contains("int8 1244.7"), "q8 payload split wrong: {q8_line}");
-    assert!(q8_line.contains("échelles/biais 77.8"), "q8 metadata split wrong: {q8_line}");
+    assert!(q8_line.contains("scales/biases 77.8"), "q8 metadata split wrong: {q8_line}");
 
     // Tied: one table, and the figure is that one table's.
     let one = [shape_only(EMBED_NAME, &dims)];
     let tied = EmbedReport::new(EmbedMode::Q8, &one.iter().collect::<Vec<_>>()).line();
-    assert!(tied.contains("661.2 Mo"), "tied q8 line: {tied}");
+    assert!(tied.contains("661.2 MB"), "tied q8 line: {tied}");
     assert!(tied.contains("1 table ("), "tied q8 line: {tied}");
 }
 

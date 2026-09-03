@@ -33,7 +33,7 @@
 //   tv_planes_pers    a persistent, card-sized grid (resident CTAs × SM)
 //                     whose CTAs loop over row groups; a single-tile
 //                     activation is staged once per CTA rather than once per
-//                     group. Same bits. Design note bras (b1).
+//                     group. Same bits. Design note arm (b1).
 //   tv_planes_sk      split-K across CTAs: the grid is the set of (row group,
 //                     K slice) pairs, so o_proj and down_proj fill the card.
 //                     The partial sums of a group meet in a fixed-order
@@ -41,10 +41,10 @@
 //                     ticket per CTA, no atomicAdd on any float. Deterministic
 //                     but re-associated, so it is held to the f64 reference at
 //                     the bench's 1e-5 rather than bit for bit. This is the
-//                     note's bras (c) with the split moved from intra-CTA to
+//                     note's arm (c) with the split moved from intra-CTA to
 //                     inter-CTA: at g rows per CTA and all of K per CTA, the
 //                     L2→shared staging of the activation multiplies by 8/g
-//                     — 14.5 GB a token at g = 1 (*calculé*, ÉCARTS É2) —
+//                     — 14.5 GB a token at g = 1 (*computed*, ÉCARTS É2) —
 //                     whereas splitting K across CTAs keeps it invariant.
 //   tv_planes_persall bench-only: the 144 sites of a round in ONE launch, a
 //                     persistent grid walking a work list of row groups. It
@@ -52,7 +52,7 @@
 //                     wave boundary can buy. The served path cannot use it —
 //                     rotation, attention and norms sit between the sites —
 //                     so it is measured to bound A2+A3 and never ported
-//                     (design note, bras b2).
+//                     (design note, arm b2).
 //
 // ## The invariants every arm keeps
 //
@@ -331,12 +331,12 @@ __device__ __forceinline__ void occ_sk(LLVQ_OCC_SEG_ARGS,
     // Release: this CTA's partials are device-visible before its ticket.
     //
     // 🕳️ The barrier was missing on the first job (2026-09-01, job
-    // 6a97394c…, 0,15 $): each warp fenced its OWN store, but thread 0 drew
+    // 6a97394c…, $0.15): each warp fenced its OWN store, but thread 0 drew
     // the ticket without waiting for the seven other warps to have stored
     // theirs — the CUDA "threadFenceReduction" sample has ONE writer per
-    // block, this kernel has eight. On down_proj (four slices, 1 280 CTAs)
+    // block, this kernel has eight. On down_proj (four slices, 1,280 CTAs)
     // a last CTA read a partial its neighbour had not written yet: worst
-    // error 2,25e-2·Σ|w·x| on layer 0, where o_proj (two slices) had passed
+    // error 2.25e-2·Σ|w·x| on layer 0, where o_proj (two slices) had passed
     // by timing luck. The fence orders a thread's store before ITS later
     // writes; the barrier makes the ticket later than EVERY warp's fence.
     __threadfence();

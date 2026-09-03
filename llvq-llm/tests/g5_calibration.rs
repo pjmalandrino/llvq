@@ -294,7 +294,7 @@ fn expected_dense_bytes(c: &Config) -> u64 {
 /// The published path keeps nothing.
 ///
 /// Reported in bytes rather than asserted as a boolean because the number is
-/// the item: on Qwen3-32B the same arithmetic reads 6 199 379 968.
+/// the item: on Qwen3-32B the same arithmetic reads 6,199,379,968.
 #[test]
 fn the_published_path_does_not_keep_the_dense_hessian() {
     let dev = Device::Cpu;

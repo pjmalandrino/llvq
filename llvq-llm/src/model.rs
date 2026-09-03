@@ -231,9 +231,9 @@ pub enum RopeAt<'a> {
 /// times the bytes for nothing. On Qwen3-4B that is a factor 4.
 ///
 /// 🕳️ **That argument holds for `Cat`, and was measured NOT to hold for a
-/// bounded window (2026-09-01, étape 1b).** Under
+/// bounded window (2026-09-01, step 1b).** Under
 /// [`crate::kvq::KvStore::Prealloc`] this cache stores the EXPANDED form in
-/// a fixed `[b, n_heads, W, hd]` buffer: ×4 of a bounded window is ~151 Mo
+/// a fixed `[b, n_heads, W, hd]` buffer: ×4 of a bounded window is ~151 MB
 /// at W = 256 on the 4B — trivial — and it removes the real per-step cost,
 /// the ×4 HISTORY copy `repeat_kv` performs on every decode step of the
 /// `Cat` path.
@@ -331,11 +331,11 @@ impl KvCache {
     ///
     /// What goes OUT are the full `W`-wide buffers — contiguous, at a stable
     /// address: the shape the wide causal mask expects and the shape a CUDA
-    /// graph can capture. 🕳️ The first form of this arm (étape 1, 2026-09-01)
+    /// graph can capture. 🕳️ The first form of this arm (step 1, 2026-09-01)
     /// returned `narrow` views instead: non-contiguous at every `len < W`,
     /// they pushed `repeat_kv`'s per-step history copy into its strided
-    /// paths — r = 0,8919 [0,8884–0,8953] on CUDA, ~−29 % on Metal. Measured,
-    /// then replaced by this form (étape 1b). `generate` and
+    /// paths — r = 0.8919 [0.8884–0.8953] on CUDA, ~−29% on Metal. Measured,
+    /// then replaced by this form (step 1b). `generate` and
     /// `generate_uncached` staying token-identical under `LLVQ_VERIFY_CACHE`
     /// remains the end-to-end witness.
     ///
@@ -350,7 +350,8 @@ impl KvCache {
         }
         if self.len + l > w {
             candle_core::bail!(
-                "KvCache prealloc: {} + {l} positions > fenêtre {w} (LLVQ_KV_PREALLOC) —                  la fenêtre est une borne dure, pas un anneau",
+                "KvCache prealloc: {} + {l} positions > window {w} (LLVQ_KV_PREALLOC). \
+                 The window is a hard bound, not a ring.",
                 self.len
             );
         }
@@ -524,7 +525,7 @@ impl Proj {
     /// come out of a `VarBuilder` and carry none.
     pub fn site_name(&self) -> &str {
         match self {
-            Proj::Dense(_) => "(projection dense)",
+            Proj::Dense(_) => "(dense projection)",
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => &proj.name,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -593,8 +594,8 @@ impl Proj {
             // throw most of it away — silently, and at three times the cost.
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, .. } => candle_core::bail!(
-                "{} appartient à un groupe fusé de {} lignes : il ne se lance qu'à travers \
-                 model::group_forward, qui émet UN matvec pour tout le groupe.",
+                "{} belongs to a fused group of {} rows: it only launches through \
+                 model::group_forward, which emits ONE matvec for the whole group.",
                 self.site_name(),
                 group.d_out
             ),
@@ -611,12 +612,12 @@ impl Proj {
             Proj::Dense(l) => l,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => panic!(
-                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                "{} is a fused projection: the quantizer only works on a dense model",
                 proj.name
             ),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, rank, .. } => panic!(
-                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
             ),
         }
@@ -627,12 +628,12 @@ impl Proj {
             Proj::Dense(l) => l,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => panic!(
-                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                "{} is a fused projection: the quantizer only works on a dense model",
                 proj.name
             ),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, rank, .. } => panic!(
-                "{} est une projection fusée — le quantifieur n'opère que sur un modèle dense",
+                "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
             ),
         }
@@ -720,9 +721,9 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
     let rows: usize = dims[..dims.len() - 1].iter().product();
     if rows > MAX_ROWS {
         candle_core::bail!(
-            "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau fusé est un \
-             matvec — il boucle, donc le coût est linéaire. La passe de score garde le \
-             chemin dense.",
+            "{}: {rows} vectors at once, more than {MAX_ROWS}. The fused kernel is a \
+             matvec, it loops, so the cost is linear. The scoring pass keeps the \
+             dense path.",
             projs[0].site_name()
         );
     }
@@ -783,8 +784,8 @@ impl<'a> SegPlan<'a> {
         for &p in projs {
             let Proj::FusedSeg { rt, group, row0, d_out, rank } = p else {
                 candle_core::bail!(
-                    "{} n'appartient à aucun groupe fusé alors que ses voisins de groupe \
-                     oui — un lancement segmenté ne peut pas couvrir la moitié d'un site",
+                    "{} belongs to no fused group while its group neighbours do. A \
+                     segmented launch cannot cover half a site",
                     p.site_name()
                 );
             };
@@ -802,8 +803,8 @@ impl<'a> SegPlan<'a> {
                     // would accept a q/k/v triple assembled across layers.
                     if !std::sync::Arc::ptr_eq(acc.group, group) {
                         candle_core::bail!(
-                            "{} appartient à un autre groupe fusé que {} — deux groupes dans \
-                             un seul appel",
+                            "{} belongs to a different fused group than {}, two groups in \
+                             a single call",
                             p.site_name(),
                             acc.group.name
                         );
@@ -824,8 +825,8 @@ impl<'a> SegPlan<'a> {
         let rows: usize = dims[..dims.len() - 1].iter().product();
         if rows > MAX_ROWS {
             candle_core::bail!(
-                "{} : {rows} vecteurs d'un coup, au-delà de {MAX_ROWS}. Le noyau segmenté \
-                 reste un matvec — il boucle, donc le coût est linéaire.",
+                "{}: {rows} vectors at once, more than {MAX_ROWS}. The segmented kernel is \
+                 still a matvec, it loops, so the cost is linear.",
                 self.group.name
             );
         }
@@ -1421,8 +1422,8 @@ impl Qwen3 {
         let w = match self.kv_store {
             crate::kvq::KvStore::Prealloc(w) => w,
             crate::kvq::KvStore::Cat => candle_core::bail!(
-                "le chemin pas-à-pas exige un store préalloué (LLVQ_KV_PREALLOC) : \
-                 ses formes fixes sont ce qui le rend capturable"
+                "the stepped path requires a preallocated store (LLVQ_KV_PREALLOC): \
+                 its fixed shapes are what make it capturable"
             ),
         };
         let (cos, sin) = self.rotary.step_tables()?;
@@ -1540,7 +1541,7 @@ impl Qwen3 {
     ) -> Result<Vec<u32>> {
         // The stop test is after the push, so `out.len() == 0` is never
         // true: at `max_new = 0` the loop would run until RoPE walks off
-        // `max_position_embeddings` — 40 960 decode steps and an opaque
+        // `max_position_embeddings` — 40,960 decode steps and an opaque
         // candle error. The witness returns `[]` immediately, so the two
         // paths diverged at the very first edge case.
         if max_new == 0 {
@@ -1756,12 +1757,12 @@ mod tests {
         };
         let e = p
             .forward_with(&foreign, &x)
-            .expect_err("une rotation étrangère doit être refusée");
+            .expect_err("a foreign rotation must be refused");
         let msg = format!("{e}");
-        assert!(msg.contains("2560"), "le message doit citer la clé : {msg}");
+        assert!(msg.contains("2560"), "the message must cite the key: {msg}");
         assert!(
-            msg.contains("projection dense"),
-            "le message doit nommer le site : {msg}"
+            msg.contains("dense projection"),
+            "the message must name the site: {msg}"
         );
     }
 
@@ -1780,7 +1781,7 @@ mod tests {
         assert_eq!(
             x.id(),
             r.t.id(),
-            "la préparation dense doit rendre le tenseur lui-même, pas une copie"
+            "the dense prepare must return the tensor itself, not a copy"
         );
         assert!(p.forward_with(&r, &x).is_ok());
     }
@@ -1812,7 +1813,7 @@ mod tests {
             assert_eq!(
                 back.flatten_all().expect("flat").to_vec1::<f32>().expect("vals"),
                 x.flatten_all().expect("flat").to_vec1::<f32>().expect("vals"),
-                "dims {dims:?} : le découpage en lignes n'est pas rendu à l'identique"
+                "dims {dims:?}: the row split is not returned identically"
             );
 
             // The order is load-bearing, and this says so: reversing the rows
@@ -1825,7 +1826,7 @@ mod tests {
                 assert_ne!(
                     other.flatten_all().expect("f").to_vec1::<f32>().expect("v"),
                     back.flatten_all().expect("f").to_vec1::<f32>().expect("v"),
-                    "dims {dims:?} : l'ordre des lignes ne change rien, le test ne prouve rien"
+                    "dims {dims:?}: the row order changes nothing, the test proves nothing"
                 );
             }
         }
@@ -1872,11 +1873,11 @@ mod tests {
         // 256, and would otherwise be invisible: the numbers would be right.
         let wide = Tensor::zeros((1usize, MAX_ROWS + 44, 3usize), DType::F32, &Device::Cpu)
             .expect("wide");
-        let out = group_forward(&[&a], &wide, RotShare::On).expect("dense sur une fenêtre large");
+        let out = group_forward(&[&a], &wide, RotShare::On).expect("dense on a wide window");
         assert_eq!(out[0].dims(), &[1, MAX_ROWS + 44, 2]);
     }
 
-    /// Étape 1b invariant: the expanded fixed-window store must hold, in its
+    /// Step 1b invariant: the expanded fixed-window store must hold, in its
     /// valid prefix, EXACTLY the bytes the `Cat` path hands to attention
     /// (`repeat_kv` of the history), and exactly zeros past it. A prefill
     /// then single-token steps, checked at every step — this is what catches
@@ -1887,7 +1888,7 @@ mod tests {
         use crate::kvq::{KvMode, KvStore};
         use candle_transformers::utils::repeat_kv;
         let dev = Device::Cpu;
-        let (b, n_kv, hd, groups, w) = (1, 2, 64, 4, 16); // hd multiple du GROUP q8
+        let (b, n_kv, hd, groups, w) = (1, 2, 64, 4, 16); // hd a multiple of the q8 GROUP
         for mode in [KvMode::F16, KvMode::Q8] {
             let mut cat = KvCache::new(mode);
             let mut pre = KvCache::with_store(mode, KvStore::Prealloc(w));
@@ -1901,23 +1902,23 @@ mod tests {
                 len += l;
                 let k = Tensor::from_vec(kd, (b, n_kv, l, hd), &dev).expect("k");
                 let v = Tensor::from_vec(vd, (b, n_kv, l, hd), &dev).expect("v");
-                // chemin Cat : append puis repeat_kv — ce que forward_cached fait
+                // Cat path: append then repeat_kv, what forward_cached does
                 let (ck, cv) = cat.append(&k, &v).expect("cat append");
                 let ck = repeat_kv(ck, groups).unwrap().contiguous().unwrap();
                 let cv = repeat_kv(cv, groups).unwrap().contiguous().unwrap();
-                // chemin Prealloc : étendre PUIS append — ce que forward_cached fait
+                // Prealloc path: expand THEN append, what forward_cached does
                 let ke = repeat_kv(k.clone(), groups).unwrap().contiguous().unwrap();
                 let ve = repeat_kv(v.clone(), groups).unwrap().contiguous().unwrap();
                 let (pk, pv) = pre.append(&ke, &ve).expect("prealloc append");
-                assert_eq!(pk.dims(), &[b, n_kv * groups, w, hd], "step {step} : buffer plein");
+                assert_eq!(pk.dims(), &[b, n_kv * groups, w, hd], "step {step}: full buffer");
                 for (full, reference, name) in [(&pk, &ck, "k"), (&pv, &cv, "v")] {
                     let prefix = full.narrow(2, 0, len).unwrap().contiguous().unwrap();
                     let a: Vec<f32> = reference.flatten_all().unwrap().to_vec1().unwrap();
                     let bb: Vec<f32> = prefix.flatten_all().unwrap().to_vec1().unwrap();
-                    assert_eq!(a, bb, "step {step} ({mode:?}) : préfixe {name}");
+                    assert_eq!(a, bb, "step {step} ({mode:?}): prefix {name}");
                     let tail = full.narrow(2, len, w - len).unwrap();
                     let t: Vec<f32> = tail.flatten_all().unwrap().to_vec1().unwrap();
-                    assert!(t.iter().all(|x| *x == 0.0), "step {step} ({mode:?}) : queue {name} non nulle");
+                    assert!(t.iter().all(|x| *x == 0.0), "step {step} ({mode:?}): tail {name} not zero");
                 }
             }
         }
@@ -1959,7 +1960,7 @@ mod tests {
             let p = candle_nn::ops::softmax_last_dim(&scores).unwrap();
             p.matmul(v).unwrap().flatten_all().unwrap().to_vec1().unwrap()
         };
-        assert_eq!(attn(&k, &v, len), attn(&kw, &vw, w), "le rembourrage n'est pas inerte");
+        assert_eq!(attn(&k, &v, len), attn(&kw, &vw, w), "the padding is not inert");
     }
 
     #[test]
@@ -1968,10 +1969,10 @@ mod tests {
         let dev = Device::Cpu;
         let mut c = KvCache::with_store(KvMode::F16, KvStore::Prealloc(4));
         let k = Tensor::zeros((1, 2, 3, 4), DType::F32, &dev).unwrap();
-        c.append(&k, &k).expect("3 sur 4 passe");
-        let e = c.append(&k, &k).expect_err("3+3 sur 4 doit refuser");
+        c.append(&k, &k).expect("3 out of 4 passes");
+        let e = c.append(&k, &k).expect_err("3+3 out of 4 must refuse");
         let msg = format!("{e}");
-        assert!(msg.contains("fenêtre"), "message sans mécanisme : {msg}");
+        assert!(msg.contains("window"), "message without a mechanism: {msg}");
     }
 
     /// THE certifier of the stepped path: on a tiny random model, the three
@@ -2034,7 +2035,7 @@ mod tests {
             model.set_kv_store(KvStore::Prealloc(32));
             model.generate_stepped(&prompt, n_new).expect("stepped")
         };
-        assert_eq!(cat, pre, "cat contre prealloc éager");
-        assert_eq!(pre, stepped, "prealloc éager contre pas-à-pas (StepState incomplet ?)");
+        assert_eq!(cat, pre, "cat against eager prealloc");
+        assert_eq!(pre, stepped, "eager prealloc against stepped (incomplete StepState?)");
     }
 }

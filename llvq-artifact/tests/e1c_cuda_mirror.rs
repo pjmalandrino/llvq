@@ -3,7 +3,7 @@
 //! `llvq-cuda/kernels/llvq_e1c.cuh` is arm `e1c14` / `e1c12` of
 //! `proofs/preregistration-p4-2026-08-14.md` §2.5. It cannot be compiled here:
 //! the development machine is a Mac, `cargo check -p llvq-cuda` finishes in
-//! 0,4 s because the whole crate is behind `cfg(target_os = "linux")`, and
+//! 0.4 s because the whole crate is behind `cfg(target_os = "linux")`, and
 //! neither `nvcc` nor NVRTC exists. Everything written for a card is therefore
 //! written blind — the established workflow of this crate, which `llvq-cuda`'s
 //! own module header explains.
@@ -125,21 +125,21 @@ fn the_cuda_word_map_rebuilds_every_field() {
 
     for (b, &gain_b) in gains.iter().enumerate() {
         // The kernel's fields must be the module's fields. `decode_block` is
-        // the proven side — swept over the 150 681 600 blocks of the sealed 4B
-        // on 2026-08-12 — so an disagreement here is the kernel's.
+        // the proven side — swept over the 150,681,600 blocks of the sealed 4B
+        // on 2026-08-12 — so a disagreement here is the kernel's.
         let (id, gain, smask, p) = e1c_fields(&w14, E1C14_PLANES, b);
         let (want, wgain) = e14.decode_block(&table, b);
-        assert_eq!(gain, gain_b, "bloc {b}: gain, E1c14");
-        assert_eq!(wgain, gain_b, "bloc {b}: gain du module");
-        assert_eq!(point_of(&table, id, smask, &p), want, "bloc {b}: E1c14");
+        assert_eq!(gain, gain_b, "block {b}: gain, E1c14");
+        assert_eq!(wgain, gain_b, "block {b}: the module's gain");
+        assert_eq!(point_of(&table, id, smask, &p), want, "block {b}: E1c14");
 
         let (id, gain, smask, p) = e1c_fields(&w12, E1C12_PLANES, b);
-        assert_eq!(gain, gain_b, "bloc {b}: gain, E1c12");
-        assert_eq!(p[2], 0, "bloc {b}: E1c12 n'a que deux plans");
+        assert_eq!(gain, gain_b, "block {b}: gain, E1c12");
+        assert_eq!(p[2], 0, "block {b}: E1c12 has only two planes");
         assert_eq!(
             point_of(&table, id, smask, &p),
             e12.decode_approx_block(&table, b).0,
-            "bloc {b}: E1c12"
+            "block {b}: E1c12"
         );
     }
 }
@@ -174,11 +174,11 @@ fn the_mirrored_constants_are_still_the_kernels() {
         let line = CUH
             .lines()
             .find(|l| l.trim_start().starts_with(name))
-            .unwrap_or_else(|| panic!("{name} a disparu du .cuh"));
+            .unwrap_or_else(|| panic!("{name} has disappeared from the .cuh"));
         assert!(
             line.contains(expect),
-            "{name} ne vaut plus {expect} dans le .cuh : «{line}» — le miroir de ce \
-             fichier ne décrit plus le noyau"
+            "{name} is no longer {expect} in the .cuh: \"{line}\" — this file's mirror \
+             no longer describes the kernel"
         );
     }
     assert_eq!(E1C_GROUP, 32);

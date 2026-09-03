@@ -1,5 +1,5 @@
 //! `E1c` — the bit-sliced twin of [`PlanesBlocks`] and [`Planes12xBlocks`],
-//! barreau E1c of `docs/archive/pistes-format-vram-2026-08-05.md` and item X1/X2 of
+//! rung E1c of `docs/archive/pistes-format-vram-2026-08-05.md` and item X1/X2 of
 //! `docs/archive/spec-memoire-extreme-2026-08-12.md`.
 //!
 //! ## What it is, in one sentence
@@ -450,7 +450,7 @@ mod tests {
             .zip(PLANES14_PLANE_BIT.iter())
             .enumerate()
         {
-            assert_eq!(a, b, "plan {k} n'est pas au même bit dans les deux formats");
+            assert_eq!(a, b, "plane {k} is not at the same bit in the two formats");
         }
     }
 
@@ -482,7 +482,7 @@ mod tests {
     /// 82, so a format change lands here instead of drifting.
     #[test]
     fn group_words_equal_the_planes_payload_bits() {
-        assert_eq!(header_words(), 10, "10 bits × 32 blocs = 320 bits = 10 mots");
+        assert_eq!(header_words(), 10, "10 bits × 32 blocks = 320 bits = 10 words");
         assert_eq!(group_words(E1C14_PLANES), PLANES14_PAD_BIT as usize);
         assert_eq!(group_words(E1C12_PLANES), PLANES12X_PAD_BIT as usize);
         assert_eq!(group_words(E1C14_PLANES), 106);
@@ -497,8 +497,8 @@ mod tests {
     fn payload_rates_are_the_predicted_ones() {
         let r14 = group_words(E1C14_PLANES) as f64 / DIM as f64;
         let r12 = group_words(E1C12_PLANES) as f64 / DIM as f64;
-        assert!((r14 - 4.416_666).abs() < 1e-5, "E1c14 : {r14}");
-        assert!((r12 - 3.416_666).abs() < 1e-5, "E1c12 : {r12}");
+        assert!((r14 - 4.416_666).abs() < 1e-5, "E1c14: {r14}");
+        assert!((r12 - 3.416_666).abs() < 1e-5, "E1c12: {r12}");
         // Strictly under the layouts they replace, on both variants.
         assert!(r14 < PLANES14_BYTES as f64 * 8.0 / DIM as f64);
         assert!(r12 < PLANES12X_BYTES as f64 * 8.0 / DIM as f64);
@@ -557,8 +557,8 @@ mod tests {
             .filter(|(_, &w)| w != 0)
             .map(|(i, _)| i)
             .collect();
-        assert_eq!(set, vec![expect], "un seul mot non nul, et c'est {expect}");
-        assert_eq!(words[expect], 1 << B, "le bit du bloc est à la lane {B}");
+        assert_eq!(set, vec![expect], "exactly one nonzero word, and it is {expect}");
+        assert_eq!(words[expect], 1 << B, "the block's bit is at lane {B}");
         // Slot-major is the claim: slot J's fields are contiguous, so the
         // next slot's field 0 is exactly `1 + planes` words further on.
         assert_eq!(
@@ -601,7 +601,7 @@ mod tests {
         // Lanes 1..32 of the second group were never written.
         for b in 1..E1C_GROUP {
             let f = untranspose(&e.data, n - 1 + b, E1C14_PLANES);
-            assert_eq!(f, Fields::default(), "lane de bourrage {b} non nulle");
+            assert_eq!(f, Fields::default(), "padding lane {b} is not zero");
         }
     }
 

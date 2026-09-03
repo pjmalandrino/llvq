@@ -23,11 +23,11 @@
 //!   the decoder walks slots in order and indexes signs by a running nonzero
 //!   count it maintains anyway.
 //! * assignment, three candidate encodings:
-//!   - **positionnel** — ⌈log₂ L⌉ bits per slot, L the block's level count.
+//!   - **positional** — ⌈log₂ L⌉ bits per slot, L the block's level count.
 //!     Decode is one shift+mask+table lookup per slot, no popcount chain.
-//!   - **masques imbriqués** — level 0's mask over 24 slots, level 1's over
+//!   - **nested masks** — level 0's mask over 24 slots, level 1's over
 //!     what level 0 left free, … Compact, but decode chains popcounts.
-//!   - **champ fixe 128** — 24 sign+3-bit-level nibbles + class + gain in a
+//!   - **fixed field 128** — 24 sign+3-bit-level nibbles + class + gain in a
 //!     uint4. One aligned load, zero divergence, 5.33 b/w flat.
 //!   - **Slot32** — the layout the fused kernel actually reads: one 24-bit
 //!     mask per level *in slot space*, level 0 implicit, signs indexed by
@@ -64,12 +64,12 @@
 //! The dossier has been bitten three times by mixing byte accountings in one
 //! list, so this bench states both and never blends them.
 //!
-//! * **payload** (`b/poids payload`, the historical column of this bench):
+//! * **payload** (`b/weight payload`, the historical column of this bench):
 //!   numerator = the per-block stream and its base table, nothing else;
 //!   denominator = **quantized weights only**, `24 × blocks`. Tails and row
 //!   scales are excluded from both ends. This is the number that answers
 //!   "what does one block cost", and it is what `Slot32 = 5.3756` means here.
-//! * **kernel** (`b/poids noyau`), the accounting of the CUDA bench
+//! * **kernel** (`b/weight kernel`), the accounting of the CUDA bench
 //!   (`llvq-cuda/src/bin/planesbench.rs`, `docs/mesures/e2-golay70-*.txt`):
 //!   numerator = the same stream **plus** the `f32` tail block and the `f32`
 //!   row-scale vector every arm uploads; denominator = **every weight of the
@@ -79,7 +79,7 @@
 //!   numbers from real blocks, on the CPU, is this bench's acceptance test —
 //!   see `published_4b_kernel_rates_are_reproduced`.
 //!
-//! Neither is `b/param modèle entier`: that third grandeur divides by the
+//! Neither is `b/param whole model`: that third quantity divides by the
 //! whole model, embedding included, and is the only one comparable to an
 //! AWQ figure. It is printed only when the file is self-contained, so the
 //! carried parameters are **counted from the file** rather than assumed.
@@ -88,7 +88,7 @@
 //!
 //! `cargo run --release -p llvq-bench --bin rtbits [path/to/model.llvq]`
 //!
-//! Without a path: 20 000 gaussian blocks through `nearest_angular`, the
+//! Without a path: 20,000 gaussian blocks through `nearest_angular`, the
 //! same source as `classprofile`/`arrbits`. With one: every block of the
 //! artifact, exhaustively.
 //!
@@ -212,7 +212,7 @@ fn planes14_bits(blocks: u64) -> u64 {
 /// A five-level block cannot be said in two planes. The transcoder puts its
 /// best `L ≤ 4` neighbour in the main stream and repeats the block exactly in
 /// the exception table, at [`PLANES12X_EXC_BYTES`] bytes: a `u32` block index
-/// (4 o, so the correction pass can find it) plus a full [`PLANES14_BYTES`]
+/// (4 B, so the correction pass can find it) plus a full [`PLANES14_BYTES`]
 /// record of the exact block. The exception is an **addition**, never a
 /// replacement — the main record is written either way, which is why the
 /// two terms add rather than trade.
@@ -310,7 +310,7 @@ struct Shapes {
     /// 🚨 **It adds bits and NOT ONE weight**, and that asymmetry is the whole
     /// verdict: the padded blocks are synthetic, so they inflate the numerator
     /// of a b/weight while [`Self::weights`] stays put. X3 measured the block
-    /// inflation at +15,47 % on the shapes of the published 4B; what it did
+    /// inflation at +15.47 % on the shapes of the published 4B; what it did
     /// not do is carry it through the exception term, which is why `e1c12` was
     /// left without a verdict.
     padded_blocks: u64,
@@ -345,7 +345,7 @@ impl Shapes {
 /// Bits per parameter of the **whole model**: a weighted mean of `(count,
 /// bits per parameter)` groups over their total count.
 ///
-/// The only grandeur comparable to an AWQ figure, and the one the dossier
+/// The only quantity comparable to an AWQ figure, and the one the dossier
 /// got wrong twice by quoting a payload rate against a whole-model one. It
 /// takes a list rather than two arguments because a real model has three
 /// groups, not two — quantized linears, embedding tables, and the norms that
@@ -599,9 +599,9 @@ fn main() {
         // ---- carried tensors, counted rather than assumed ----
         // A self-contained file lists its raw tensors right after the
         // matrices: a u32 count, then one framed tensor each. Reading them
-        // costs one transient allocation per tensor and turns "b/param
-        // modèle entier" from a figure with a remembered vocabulary size
-        // into one the file itself answers for.
+        // costs one transient allocation per tensor and turns "b/param whole
+        // model" from a figure with a remembered vocabulary size into one the
+        // file itself answers for.
         if h.is_self_contained() {
             let mut b = [0u8; 4];
             r.read_exact(&mut b).expect("raw-tensor count");
@@ -620,7 +620,7 @@ fn main() {
     } else {
         // ---- gaussian source, same harness as classprofile/arrbits ----
         const N: usize = 20_000;
-        source = format!("{N} blocs gaussiens, nearest_angular");
+        source = format!("{N} gaussian blocks, nearest_angular");
         let mut rng = SplitMix64::new(0x6_A88B);
         let s = Searcher::new();
         let mut ball = BallSearcher::new();
@@ -640,21 +640,21 @@ fn main() {
     let pct = |n: u64| 100.0 * n as f64 / total as f64;
     let bpw = |bits: u64, blocks: u64| bits as f64 / (blocks * DIM as u64) as f64;
 
-    println!("source : {source}");
-    println!("{total} blocs — impair {:.1} %, pair {:.1} %", pct(odd.blocks), pct(even.blocks));
+    println!("source: {source}");
+    println!("{total} blocks — odd {:.1} %, even {:.1} %", pct(odd.blocks), pct(even.blocks));
     if origin_blocks > 0 {
-        println!("dont {origin_blocks} blocs origine (tout zéro)");
+        println!("of which {origin_blocks} origin blocks (all zero)");
     }
     if verified_classes > 0 {
-        println!("{verified_classes} classes recoupées point décodé ↔ table");
+        println!("{verified_classes} classes cross-checked, decoded point ↔ table");
     }
 
-    println!("\n  niveaux de magnitude par bloc");
+    println!("\n  magnitude levels per block");
     println!("  {}", "-".repeat(56));
     for l in 1..=MAX_LEVELS {
         let n = odd.levels[l] + even.levels[l];
         if n > 0 {
-            println!("  {l} niveaux{:>16} blocs{:>8.2} %", n, pct(n));
+            println!("  {l} levels{:>17} blocks{:>8.2} %", n, pct(n));
         }
     }
 
@@ -667,55 +667,55 @@ fn main() {
     let fixed_mask = worst_mask.div_ceil(32) * 32;
     let fixed_pos = worst_pos.div_ceil(32) * 32;
 
-    println!("\n  bits/poids en RAM, comptabilité complète");
-    println!("  (assignation + signes + classe {CLASS_BITS} b + gain {gain_bits} b + adressage)");
+    println!("\n  bits/weight in RAM, full accounting");
+    println!("  (assignment + signs + class {CLASS_BITS} b + gain {gain_bits} b + addressing)");
     println!("  {}", "-".repeat(72));
     println!(
         "  {:<44}{:>10}{:>10}",
-        "layout", "masques", "positionnel"
+        "layout", "masks", "positional"
     );
     println!(
         "  {:<44}{:>10.4}{:>10.4}",
-        "variable, adressage gratuit (borne inf.)",
+        "variable, free addressing (lower bound)",
         bpw(all_mask, total),
         bpw(all_pos, total)
     );
     println!(
         "  {:<44}{:>10.4}{:>10.4}",
-        "variable + offset u16 par bloc",
+        "variable + u16 offset per block",
         bpw(all_mask + 16 * total, total),
         bpw(all_pos + 16 * total, total)
     );
     println!(
         "  {:<44}{:>10.4}{:>10.4}",
-        "groupé 32 (stride = max du groupe + base u32)",
+        "grouped 32 (stride = group max + u32 base)",
         bpw(grouped.mask_bits, total),
         bpw(grouped.pos_bits, total)
     );
     println!(
         "  {:<44}{:>10.4}{:>10}",
-        "groupé 32, stride arrondi à l'octet",
+        "grouped 32, stride rounded to the byte",
         bpw(grouped.mask_bits_byte, total),
         "—"
     );
     println!(
         "  {:<44}{:>10.4}{:>10.4}",
-        format!("champ fixe au pire cas ({worst_mask}/{worst_pos} b → u32)"),
+        format!("worst-case fixed field ({worst_mask}/{worst_pos} b → u32)"),
         bpw(fixed_mask * total, total),
         bpw(fixed_pos * total, total)
     );
     println!(
         "  {:<44}{:>10}{:>10.4}",
-        "champ fixe 128 (uint4, nibbles)", "—",
+        "fixed field 128 (uint4, nibbles)", "—",
         128.0 / DIM as f64
     );
 
-    println!("\n  par coset (variable, adressage gratuit)");
+    println!("\n  by coset (variable, free addressing)");
     println!("  {}", "-".repeat(72));
-    for (name, a) in [("impair", &odd), ("pair", &even)] {
+    for (name, a) in [("odd", &odd), ("even", &even)] {
         if a.blocks > 0 {
             println!(
-                "  {:<10}{:>9.1} %   masques {:.4}   positionnel {:.4}   pire {}/{} b",
+                "  {:<10}{:>9.1} %   masks {:.4}   positional {:.4}   worst {}/{} b",
                 name,
                 pct(a.blocks),
                 bpw(a.mask, a.blocks),
@@ -730,15 +730,15 @@ fn main() {
     if grouped.groups > 0 {
         let mean_l = grouped.sum_levels as f64 / total as f64;
         let mean_max_l = grouped.max_levels_sum as f64 / grouped.groups as f64;
-        println!("\n  divergence sur groupes de {GROUP} lanes consécutives");
+        println!("\n  divergence over groups of {GROUP} consecutive lanes");
         println!("  {}", "-".repeat(72));
         println!(
-            "  niveaux : moyenne {mean_l:.3}, moyenne des max par groupe {mean_max_l:.3} \
+            "  levels: mean {mean_l:.3}, mean of the per-group maxima {mean_max_l:.3} \
              (×{:.3})",
             mean_max_l / mean_l
         );
         println!(
-            "  padding groupé 32 : masques ×{:.3}, positionnel ×{:.3} vs adressage gratuit",
+            "  grouped-32 padding: masks ×{:.3}, positional ×{:.3} vs free addressing",
             grouped.mask_bits as f64 / all_mask as f64,
             grouped.pos_bits as f64 / all_pos as f64
         );
@@ -767,20 +767,20 @@ fn main() {
             + 32 * grouped.groups;
         assert_eq!(
             from_hist, grouped.slot_bits_byte,
-            "l'histogramme des max et l'accumulateur de strides divergent"
+            "the histogram of maxima and the stride accumulator disagree"
         );
 
-        println!("\n  Slot32 — le layout que le noyau fusé lit réellement");
+        println!("\n  Slot32 — the layout the fused kernel actually reads");
         println!("  {}", "-".repeat(72));
         println!(
-            "  groupé 32, stride octet, base u32 : {:.4} b/poids",
+            "  grouped 32, byte stride, u32 base: {:.4} b/weight",
             bpw(grouped.slot_bits_byte, total)
         );
-        println!("  {} groupes, max de niveaux :", grouped.groups);
+        println!("  {} groups, level maxima:", grouped.groups);
         for l in 1..=MAX_LEVELS {
             if grouped.maxl_hist[l] > 0 {
                 println!(
-                    "    L = {l}{:>14} groupes{:>9.4} %   stride {} o",
+                    "    L = {l}{:>14} groups{:>9.4} %   stride {} B",
                     grouped.maxl_hist[l],
                     100.0 * grouped.maxl_hist[l] as f64 / grouped.groups as f64,
                     slot_stride_bits(l, gain_bits) / 8
@@ -789,7 +789,7 @@ fn main() {
         }
         if grouped.origin_only_groups > 0 {
             println!(
-                "    origine seule{:>13} groupes",
+                "    origin only{:>15} groups",
                 grouped.origin_only_groups
             );
         }
@@ -799,21 +799,21 @@ fn main() {
         // blocks would change and cannot be predicted here. What can be
         // stated exactly:
         //
-        //  * `L ≤ 4 ⇒ width_slot ≤ 9 + gain + 96 = 106 b ⇒ stride ≤ 14 o`,
+        //  * `L ≤ 4 ⇒ width_slot ≤ 9 + gain + 96 = 106 b ⇒ stride ≤ 14 B`,
         //    so 14 bytes is an unconditional majorant of every group;
         //  * a block already at `L ≤ 4` keeps its class under the cap — its
         //    codeword is the argmin over the full ball and stays the argmin
         //    over a subset that still contains it — so a group holding an
-        //    L = 4 block reaches exactly 14 o, majorant attained.
+        //    L = 4 block reaches exactly 14 B, majorant attained.
         let capped_bits = grouped.groups * (GROUP as u64 * slot_stride_bits(4, gain_bits) + 32);
         println!(
-            "  sous plafond L ≤ 4 : ≤ {:.4} b/poids ({} o de stride, majorant inconditionnel)",
+            "  under an L ≤ 4 cap: ≤ {:.4} b/weight ({} B of stride, unconditional majorant)",
             bpw(capped_bits, total),
             slot_stride_bits(4, gain_bits) / 8
         );
         println!(
-            "  majorant ATTEINT sur {} groupes sur {} ({:.4} %) : ceux qui portent déjà un\n  \
-             bloc L = 4, dont la classe est inchangée par le plafond. Gain {:.3} b/poids ({:.1} %).",
+            "  majorant ATTAINED on {} groups out of {} ({:.4} %): those that already carry\n  \
+             an L = 4 block, whose class the cap leaves unchanged. Saves {:.3} b/weight ({:.1} %).",
             grouped.groups_with_four,
             grouped.groups,
             100.0 * grouped.groups_with_four as f64 / grouped.groups as f64,
@@ -831,19 +831,19 @@ fn main() {
     let p14_bits = planes14_bits(total);
     let p12_bits = planes12x_bits(total, exceptions);
     let exc_pct = 100.0 * exceptions as f64 / total as f64;
-    println!("\n  Planes14 et Planes12x — les plans binaires (b/poids payload)");
+    println!("\n  Planes14 and Planes12x — the bit planes (b/weight payload)");
     println!("  {}", "-".repeat(72));
     println!(
-        "  Planes14   stride {PLANES14_BYTES} o fixe, sans base ni exception : {:.4} b/poids",
+        "  Planes14   fixed {PLANES14_BYTES} B stride, no base and no exception: {:.4} b/weight",
         bpw(p14_bits, total)
     );
     println!(
-        "  Planes12x  stride {PLANES12X_BYTES} o + {} exceptions à {PLANES12X_EXC_BYTES} o \
-         ({exc_pct:.4} % des blocs)",
+        "  Planes12x  {PLANES12X_BYTES} B stride + {} exceptions at {PLANES12X_EXC_BYTES} B \
+         ({exc_pct:.4} % of blocks)",
         exceptions
     );
     println!(
-        "             = {:.4} b/poids, dont {:.4} de stream et {:.4} d'exceptions",
+        "             = {:.4} b/weight, of which {:.4} stream and {:.4} exceptions",
         bpw(p12_bits, total),
         bpw(total * PLANES12X_BYTES as u64 * 8, total),
         bpw(exceptions * PLANES12X_EXC_BYTES as u64 * 8, total)
@@ -858,10 +858,10 @@ fn main() {
         .sum();
     assert_eq!(
         from_hist, exceptions,
-        "le compte d'exceptions et l'histogramme de niveaux divergent"
+        "the exception count and the level histogram disagree"
     );
     println!(
-        "  seuil : L > {PLANES12X_LEVEL_CAP} — {} blocs à {} niveaux, recoupés sur l'histogramme",
+        "  threshold: L > {PLANES12X_LEVEL_CAP} — {} blocks at {} levels, cross-checked on the histogram",
         exceptions,
         MAX_LEVELS
     );
@@ -869,17 +869,17 @@ fn main() {
     // ---- E1c: the same two streams with the byte rounding removed ----
     let e14_bits = e1c14_bits(total);
     let e12_bits = e1c12_bits(total, exceptions);
-    println!("\n  E1c — les mêmes flux transposés sur le warp (b/poids payload)");
+    println!("\n  E1c — the same streams transposed over the warp (b/weight payload)");
     println!("  {}", "-".repeat(72));
     println!(
-        "  E1c14      {} mots par groupe de {E1C_GROUP}, sans bourrage : {:.4} b/poids \
+        "  E1c14      {} words per group of {E1C_GROUP}, no padding: {:.4} b/weight \
          ({:+.4} vs Planes14)",
         group_words(E1C14_PLANES),
         bpw(e14_bits, total),
         bpw(e14_bits, total) - bpw(p14_bits, total)
     );
     println!(
-        "  E1c12      {} mots par groupe + les MÊMES {} exceptions : {:.4} b/poids \
+        "  E1c12      {} words per group + the SAME {} exceptions: {:.4} b/weight \
          ({:+.4} vs Planes12x)",
         group_words(E1C12_PLANES),
         exceptions,
@@ -887,8 +887,8 @@ fn main() {
         bpw(e12_bits, total) - bpw(p12_bits, total)
     );
     println!(
-        "             dont {:.4} de stream et {:.4} d'exceptions — le terme d'exceptions\n  \
-         est identique à celui de Planes12x, donc l'écart entre les deux layouts EST le bourrage",
+        "             of which {:.4} stream and {:.4} exceptions — the exception term\n  \
+         is identical to Planes12x's, so the gap between the two layouts IS the padding",
         bpw(e12_bits - exceptions * PLANES12X_EXC_BYTES as u64 * 8, total),
         bpw(exceptions * PLANES12X_EXC_BYTES as u64 * 8, total)
     );
@@ -903,20 +903,20 @@ fn main() {
     // never be quoted in one list.
     if carried.weights > 0 {
         let tail_w = carried.weights - total * DIM as u64;
-        println!("\n  b/poids NOYAU — comptabilité du banc CUDA (planesbench.rs)");
+        println!("\n  b/weight KERNEL — the CUDA bench accounting (planesbench.rs)");
         println!("  {}", "-".repeat(72));
         println!(
-            "  numérateur += queue f32 ({tail_w} poids) + échelles de ligne f32 ({} lignes)",
+            "  numerator += f32 tail ({tail_w} weights) + f32 row scales ({} rows)",
             carried.rows
         );
         println!(
-            "  dénominateur = {} poids (Σ d_out·d_in, queue comprise), et non {} quantifiés",
+            "  denominator = {} weights (Σ d_out·d_in, tail included), not {} quantized",
             carried.weights,
             total * DIM as u64
         );
         assert_eq!(
             tail_w, carried.tail_weights,
-            "les poids de queue comptés par forme et par différence divergent"
+            "tail weights counted by shape and by difference disagree"
         );
         for (name, bits) in [
             ("Slot32", grouped.slot_bits_byte),
@@ -926,33 +926,33 @@ fn main() {
             ("E1c12", e12_bits),
         ] {
             println!(
-                "  {name:<12}{:>10.4} b/poids noyau  ({:.4} payload, {:.2} Go de stream)",
+                "  {name:<12}{:>10.4} b/weight kernel  ({:.4} payload, {:.2} GB of stream)",
                 carried.kernel_bpw(bits),
                 bpw(bits, total),
                 (bits + carried.side_bits()) as f64 / 8.0 / 1e9
             );
         }
 
-        // ---- E1c ALIGNÉ : le verdict qui manquait à e1c12 ----
+        // ---- E1c ALIGNED: the verdict e1c12 was missing ----
         //
-        // X3 (2026-08-15) a montré qu'aucun warp du modèle publié ne lit un
-        // seul groupe E1c — `nblocks mod 32` vaut 10 ou 21 sur les cinq formes
-        // — et que le seul remède est de bourrer chaque ligne. Il a rendu son
-        // verdict sur `e1c14` (5,2354, plus gros que le Planes14 qu'il
-        // remplace) et s'est ARRÊTÉ sur `e1c12`, faute du terme d'exceptions :
-        // son modèle rendait 4,1404 pour Planes12x là où le dépôt publie
-        // 4,342, et les deux côtés du rapport en dépendent.
+        // X3 (2026-08-15) showed that no warp of the published model reads a
+        // single E1c group — `nblocks mod 32` is 10 or 21 on the five shapes —
+        // and that the only remedy is to pad every row. It returned its
+        // verdict on `e1c14` (5.2354, bigger than the Planes14 it replaces)
+        // and STOPPED at `e1c12`, for want of the exception term: its model
+        // gave 4.1404 for Planes12x where the repository publishes 4.342, and
+        // both sides of the ratio depend on it.
         //
-        // Ici les deux côtés viennent du même balayage, exceptions comprises.
-        // Le terme d'exceptions ne bouge PAS avec le bourrage : un bloc de
-        // bourrage est synthétique, il n'a pas de classe à cinq niveaux.
+        // Here both sides come from the same sweep, exceptions included. The
+        // exception term does NOT move with the padding: a padding block is
+        // synthetic, it has no five-level class.
         let pad = carried.padded_blocks;
         println!("
-  E1c ALIGNÉ SUR LE WARP — bourrage de chaque ligne à un multiple de 32");
+  E1c WARP-ALIGNED — every row padded to a multiple of 32");
         println!("  {}", "-".repeat(72));
         println!(
-            "  {total} blocs → {pad} ({:+.2} %), et ces blocs ne portent AUCUN poids :
-               le numérateur enfle, le dénominateur ne bouge pas",
+            "  {total} blocks → {pad} ({:+.2} %), and these blocks carry NO weight:
+               the numerator swells, the denominator does not move",
             (pad as f64 / total as f64 - 1.0) * 100.0
         );
         for (name, aligned, served, served_name) in [
@@ -962,19 +962,19 @@ fn main() {
             let a = carried.kernel_bpw(aligned);
             let s = carried.kernel_bpw(served);
             println!(
-                "  {name:<12}{a:>10.4} b/poids noyau aligné  contre {s:.4} pour {served_name}                  — {:+.1} %  {}",
+                "  {name:<12}{a:>10.4} b/weight kernel aligned  against {s:.4} for {served_name}                  — {:+.1} %  {}",
                 (a / s - 1.0) * 100.0,
-                if a < s { "✅" } else { "❌ PLUS GROS que le layout qu'il remplace" }
+                if a < s { "OK" } else { "FAIL: BIGGER than the layout it replaces" }
             );
         }
         println!(
-            "  ⚠️ Aucun de ces deux chiffres n'est une vitesse. C'est une identité de
-               comptage sur les formes réelles, du genre qui a enterré E3 — elle ne dépend
-               d'aucun matériel et ne se contourne pas par un meilleur noyau."
+            "  WARNING: neither of these two figures is a speed. It is a counting
+               identity on the real shapes, the kind that buried E3. It depends on no
+               hardware, and a better kernel does not get around it."
         );
     }
 
-    // ---- b/param modèle entier: the only figure comparable to an AWQ one ----
+    // ---- b/param whole model: the only figure comparable to an AWQ one ----
     //
     // Printed only when the file carries its embedding, so both counts of the
     // division come from the same bytes. `q8` is the `LLVQ_EMBED=q8` path:
@@ -984,17 +984,17 @@ fn main() {
     if carried_params > 0 && carried.weights > 0 {
         let embed_q8 = 8.0 + EMBED_GROUP_BITS / EMBED_GROUP;
         let other = carried_params - carried_embed;
-        println!("\n  b/param MODÈLE ENTIER — la seule grandeur comparable à un chiffre AWQ");
+        println!("\n  b/param WHOLE MODEL — the only quantity comparable to an AWQ figure");
         println!("  {}", "-".repeat(72));
         println!(
-            "  {} poids quantifiés + {} d'embedding + {other} portés en f16 = {} paramètres",
+            "  {} quantized weights + {} of embedding + {other} carried in f16 = {} parameters",
             carried.weights,
             carried_embed,
             carried.weights + carried_params
         );
         println!(
-            "  embedding f16 = 16,000 b/param ; q8 g{:.0} = {embed_q8:.3} b/param \
-             (int8 + f16 échelle et biais par groupe)",
+            "  embedding f16 = 16.000 b/param; q8 g{:.0} = {embed_q8:.3} b/param \
+             (int8 + f16 scale and bias per group)",
             EMBED_GROUP
         );
         // The third column is not a model: it is the carried section's own
@@ -1003,13 +1003,13 @@ fn main() {
         // model is wrong and the modelled columns are not publishable.
         let carried_measured = carried_bits as f64 / carried_params as f64;
         println!(
-            "  porté MESURÉ dans le fichier : {carried_measured:.3} b/param \
-             ({:.2} Go sur {carried_params} paramètres)",
+            "  carried MEASURED in the file: {carried_measured:.3} b/param \
+             ({:.2} GB over {carried_params} parameters)",
             carried_bits as f64 / 8.0 / 1e9
         );
         println!(
-            "  {:<12}{:>14}{:>14}{:>14}",
-            "layout", "embed f16", "embed q8", "porté mesuré"
+            "  {:<12}{:>16}{:>16}{:>16}",
+            "layout", "embed f16", "embed q8", "carried measured"
         );
         for (name, bits) in [
             ("Slot32", grouped.slot_bits_byte),
@@ -1020,7 +1020,7 @@ fn main() {
         ] {
             let lin = (carried.weights, carried.kernel_bpw(bits));
             println!(
-                "  {name:<12}{:>14.3}{:>14.3}{:>14.3}",
+                "  {name:<12}{:>16.3}{:>16.3}{:>16.3}",
                 model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
                 model_bpw(&[lin, (carried_embed, embed_q8), (other, 16.0)]),
                 model_bpw(&[lin, (carried_params, carried_measured)])
@@ -1032,60 +1032,60 @@ fn main() {
     //
     // Both terms used to be Qwen3-4B constants. They are now taken from the
     // file when there is one — a 4B file reproduces the old numbers exactly
-    // (3 633 315 840 weights, 0.778 GB of tied embedding), and an 8B file no
+    // (3,633,315,840 weights, 0.778 GB of tied embedding), and an 8B file no
     // longer gets a 4B's head silently charged to it.
     let (linear_w, lm_head_gb, head_src) = match (carried.weights, carried_params) {
-        (0, _) => (3_633_315_840f64, 0.778, "constantes Qwen3-4B"),
-        (w, 0) => (w as f64, 0.778, "⚠️ lm_head SUPPOSÉ (fichier projections seules)"),
-        (w, c) => (w as f64, c as f64 * 2.0 / 1e9, "mesurés sur le fichier"),
+        (0, _) => (3_633_315_840f64, 0.778, "Qwen3-4B constants"),
+        (w, 0) => (w as f64, 0.778, "WARNING: lm_head ASSUMED (projections-only file)"),
+        (w, c) => (w as f64, c as f64 * 2.0 / 1e9, "measured on the file"),
     };
     println!(
-        "\n  trafic par token — linéaires + embedding f16 {lm_head_gb:.3} Go ({head_src})"
+        "\n  traffic per token — linears + f16 embedding {lm_head_gb:.3} GB ({head_src})"
     );
     println!("  {}", "-".repeat(72));
     let show = |name: &str, b: f64| {
         let gb = linear_w * b / 8.0 / 1e9 + lm_head_gb;
         println!(
-            "  {name:<44}{b:>7.3} b/p{:>9.2} Go{:>9.0} tok/s",
+            "  {name:<44}{b:>7.3} b/p{:>9.2} GB{:>9.0} tok/s",
             gb,
             400.0 / gb
         );
     };
     show(
-        &format!("archive v1, {arch_bits} b/bloc (indécodable en fusé)"),
+        &format!("archive v1, {arch_bits} b/block (no fused decode)"),
         arch_bits as f64 / 24.0,
     );
-    show("variable masques + u16", bpw(all_mask + 16 * total, total));
-    show("variable positionnel + u16", bpw(all_pos + 16 * total, total));
-    show("groupé 32, masques", bpw(grouped.mask_bits, total));
-    show("groupé 32, masques, stride octet", bpw(grouped.mask_bits_byte, total));
-    show("groupé 32, positionnel", bpw(grouped.pos_bits, total));
-    show("champ fixe au pire cas (masques, u32)", bpw(fixed_mask * total, total));
-    show("champ fixe au pire cas (pos., u32)", bpw(fixed_pos * total, total));
-    show("champ fixe 128", 128.0 / 24.0);
+    show("variable masks + u16", bpw(all_mask + 16 * total, total));
+    show("variable positional + u16", bpw(all_pos + 16 * total, total));
+    show("grouped 32, masks", bpw(grouped.mask_bits, total));
+    show("grouped 32, masks, byte stride", bpw(grouped.mask_bits_byte, total));
+    show("grouped 32, positional", bpw(grouped.pos_bits, total));
+    show("worst-case fixed field (masks, u32)", bpw(fixed_mask * total, total));
+    show("worst-case fixed field (pos., u32)", bpw(fixed_pos * total, total));
+    show("fixed field 128", 128.0 / 24.0);
     if grouped.groups > 0 {
         show(
-            "groupé 32, Slot32",
+            "grouped 32, Slot32",
             bpw(grouped.slot_bits_byte, total),
         );
         show(
-            "groupé 32, Slot32, plafond L ≤ 4 (majorant)",
+            "grouped 32, Slot32, L ≤ 4 cap (majorant)",
             bpw(
                 grouped.groups * (GROUP as u64 * slot_stride_bits(4, gain_bits) + 32),
                 total,
             ),
         );
     }
-    show("Planes14 — CE QUI TOURNE AUJOURD'HUI", bpw(p14_bits, total));
+    show("Planes14 — WHAT RUNS TODAY", bpw(p14_bits, total));
     show(
-        &format!("Planes12x ({exc_pct:.2} % d'exceptions)"),
+        &format!("Planes12x ({exc_pct:.2} % exceptions)"),
         bpw(p12_bits, total),
     );
-    show("E1c14 — transposé, sans bourrage", bpw(e14_bits, total));
-    show("E1c12 — transposé + overlay", bpw(e12_bits, total));
+    show("E1c14 — transposed, no padding", bpw(e14_bits, total));
+    show("E1c12 — transposed + overlay", bpw(e12_bits, total));
     let fp16_gb = linear_w * 2.0 / 1e9 + lm_head_gb;
     println!(
-        "\n  plafond FP16 : ~{:.0} tok/s ; plafond embedding seul : ~{:.0} tok/s",
+        "\n  FP16 ceiling: ~{:.0} tok/s; embedding-only ceiling: ~{:.0} tok/s",
         400.0 / fp16_gb,
         400.0 / lm_head_gb
     );
@@ -1114,7 +1114,7 @@ mod tests {
         /// `Σ d_out · (d_in mod 24)` — 16 columns on the 2560/4096 inputs,
         /// 8 on the 9728 one.
         pub const TAIL_WEIGHTS: u64 = 16_957_440;
-        /// `Σ d_out`, i.e. the 1 105 920 rows the CUDA bench verifies.
+        /// `Σ d_out`, i.e. the 1,105,920 rows the CUDA bench verifies.
         pub const ROWS: u64 = 1_105_920;
         /// Five-level blocks, from `docs/mesures/k1c-rtbits-2026-08-05.txt`
         /// and reproduced by the CUDA bench as its exception count.
@@ -1138,18 +1138,18 @@ mod tests {
     #[test]
     fn q8_embedding_is_eight_bits_plus_its_group_scales() {
         assert_eq!(EMBED_GROUP, 64.0, "llvq_llm::fused::EMBED_GROUP");
-        assert_eq!(EMBED_GROUP_BITS, 32.0, "f16 échelle + f16 biais");
+        assert_eq!(EMBED_GROUP_BITS, 32.0, "f16 scale + f16 bias");
         assert!(
             (embed_q8_bpw() - 8.5).abs() < 1e-12,
-            "q8 g64 vaut 8,5 b/param, pas {}",
+            "q8 g64 is 8.5 b/param, not {}",
             embed_q8_bpw()
         );
-        // The 4B's tied table: 388 956 160 values, 40 groups per row of
+        // The 4B's tied table: 388,956,160 values, 40 groups per row of
         // 2560, 4 bytes per group — the 413.3 MB `q8_device_bytes` announces.
         let (packed, scales) = (388_956_160u64, 151_936u64 * 40 * 4);
         assert!(
             ((packed + scales) as f64 * 8.0 / packed as f64 - embed_q8_bpw()).abs() < 1e-9,
-            "le taux et les octets annoncés par le chemin q8 divergent"
+            "the rate and the bytes the q8 path announces disagree"
         );
     }
 
@@ -1158,9 +1158,10 @@ mod tests {
             weights: qwen3_4b::WEIGHTS,
             tail_weights: qwen3_4b::TAIL_WEIGHTS,
             rows: qwen3_4b::ROWS,
-            // Ces fixtures épinglent la comptabilité NOYAU, qui ne lit pas ce
-            // champ ; un zéro explicite plutôt qu'un `..Default::default()`,
-            // pour qu'un futur test qui s'en servirait le voie faux.
+            // These fixtures pin the KERNEL accounting, which does not read
+            // this field. An explicit zero rather than a
+            // `..Default::default()`, so a future test that used it sees it
+            // wrong.
             padded_blocks: 0,
         }
     }
@@ -1171,26 +1172,26 @@ mod tests {
     /// Asserting `112` alone would survive a format that moved a field; this
     /// walks `PLANES14_SMASK_BIT`, `PLANES14_PLANE_BIT` and
     /// `PLANES14_PAD_BIT` from `llvq_artifact::runtime` and demands they be
-    /// consistent with `class 9 | gain 1 | signes 24 | 3 × plan 24 | 6 de
-    /// bourrage`. Any field that moves, widens or disappears lands here.
+    /// consistent with `class 9 | gain 1 | signs 24 | 3 × plane 24 | 6 of
+    /// padding`. Any field that moves, widens or disappears lands here.
     #[test]
     fn one_planes14_record_is_112_bits_field_by_field() {
         // Header: class then a one-bit gain — the field the two Planes
         // layouts freeze, and the reason they refuse a file with more.
-        assert_eq!(PLANES14_SMASK_BIT, CLASS_BITS + 1, "classe 9 b + gain 1 b");
+        assert_eq!(PLANES14_SMASK_BIT, CLASS_BITS + 1, "class 9 b + gain 1 b");
         // Sign mask in slot space: 24 bits, not `nonzero`.
         assert_eq!(PLANES14_PLANE_BIT[0], PLANES14_SMASK_BIT + DIM as u64);
         // Three contiguous 24-bit planes.
         assert_eq!(PLANES14_PLANE_BIT.len(), 3);
         for w in PLANES14_PLANE_BIT.windows(2) {
-            assert_eq!(w[1] - w[0], DIM as u64, "un plan fait 24 bits");
+            assert_eq!(w[1] - w[0], DIM as u64, "a plane is 24 bits");
         }
         let last = PLANES14_PLANE_BIT[PLANES14_PLANE_BIT.len() - 1];
         assert_eq!(PLANES14_PAD_BIT, last + DIM as u64);
         assert_eq!(PLANES14_PAD_BIT, 106, "9 + 1 + 24 + 72");
         // And the stride closes the record to a whole number of bytes.
         let stride = PLANES14_BYTES as u64 * 8;
-        assert_eq!(stride - PLANES14_PAD_BIT, 6, "6 bits de bourrage");
+        assert_eq!(stride - PLANES14_PAD_BIT, 6, "6 padding bits");
         assert_eq!(planes14_bits(1), stride);
         // Class-blind by construction: a thousand blocks cost a thousand
         // strides whatever they hold, origin included.
@@ -1201,7 +1202,7 @@ mod tests {
     /// of padding, `12·8 = 96`; one exception adds `4 + 14 = 18` bytes.
     #[test]
     fn one_planes12x_record_is_96_bits_and_one_exception_144_field_by_field() {
-        assert_eq!(PLANES12X_SMASK_BIT, CLASS_BITS + 1, "classe 9 b + gain 1 b");
+        assert_eq!(PLANES12X_SMASK_BIT, CLASS_BITS + 1, "class 9 b + gain 1 b");
         assert_eq!(PLANES12X_PLANE_BIT[0], PLANES12X_SMASK_BIT + DIM as u64);
         // **Two** planes, not three — the whole difference with Planes14.
         assert_eq!(PLANES12X_PLANE_BIT.len(), PLANES14_PLANE_BIT.len() - 1);
@@ -1212,7 +1213,7 @@ mod tests {
         assert_eq!(PLANES12X_PAD_BIT, last + DIM as u64);
         assert_eq!(PLANES12X_PAD_BIT, 82, "9 + 1 + 24 + 48");
         let stride = PLANES12X_BYTES as u64 * 8;
-        assert_eq!(stride - PLANES12X_PAD_BIT, 14, "14 bits de bourrage");
+        assert_eq!(stride - PLANES12X_PAD_BIT, 14, "14 padding bits");
         // An exception is a u32 block index plus a full Planes14 record.
         assert_eq!(PLANES12X_EXC_BYTES as u64 * 8, 32 + PLANES14_BYTES as u64 * 8);
         assert_eq!(planes12x_bits(1, 0), 96);
@@ -1227,9 +1228,9 @@ mod tests {
     /// 4 is in and 5 is out; the origin (one level) is never an exception.
     #[test]
     fn only_five_level_classes_are_exceptions() {
-        assert!(!is_planes12x_exception(1), "l'origine n'est pas une exception");
+        assert!(!is_planes12x_exception(1), "the origin is not an exception");
         for l in 2..=PLANES12X_LEVEL_CAP {
-            assert!(!is_planes12x_exception(l), "L = {l} tient en deux plans");
+            assert!(!is_planes12x_exception(l), "L = {l} fits in two planes");
         }
         assert!(is_planes12x_exception(PLANES12X_LEVEL_CAP + 1));
         assert!(is_planes12x_exception(MAX_LEVELS));
@@ -1241,7 +1242,7 @@ mod tests {
             assert_eq!(
                 is_planes12x_exception(l),
                 exceeds_planes12x_geometry(l),
-                "les deux routes divergent à L = {l}"
+                "the two routes disagree at L = {l}"
             );
         }
     }
@@ -1266,15 +1267,15 @@ mod tests {
         let p12 = c.kernel_bpw(planes12x_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
         assert!(
             (p14 - 4.804).abs() < 5e-4,
-            "Planes14 : {p14:.4} contre 4.804 au banc CUDA"
+            "Planes14: {p14:.4} against 4.804 at the CUDA bench"
         );
         assert!(
             (p12 - 4.342).abs() < 5e-4,
-            "Planes12x : {p12:.4} contre 4.342 au banc CUDA"
+            "Planes12x: {p12:.4} against 4.342 at the CUDA bench"
         );
         // And the exception rate the arbitration rests on.
         let rate = 100.0 * qwen3_4b::EXCEPTIONS as f64 / qwen3_4b::BLOCKS as f64;
-        assert!((rate - 3.3824).abs() < 5e-4, "taux d'exceptions {rate:.4} %");
+        assert!((rate - 3.3824).abs() < 5e-4, "exception rate {rate:.4} %");
     }
 
     /// **The E1c acceptance test.** Both variants priced from block counts
@@ -1292,14 +1293,14 @@ mod tests {
         let c = carried_4b();
         let e14 = c.kernel_bpw(e1c14_bits(qwen3_4b::BLOCKS));
         let e12 = c.kernel_bpw(e1c12_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
-        assert!((e14 - 4.5551).abs() < 5e-4, "E1c14 : {e14:.4} contre 4.5551");
-        assert!((e12 - 3.7618).abs() < 5e-4, "E1c12 : {e12:.4} contre 3.7618");
+        assert!((e14 - 4.5551).abs() < 5e-4, "E1c14: {e14:.4} against 4.5551");
+        assert!((e12 - 3.7618).abs() < 5e-4, "E1c12: {e12:.4} against 3.7618");
         // And what each buys over the layout it replaces — the figure the
         // bench's admission criteria are stated against.
         let p14 = c.kernel_bpw(planes14_bits(qwen3_4b::BLOCKS));
         let p12 = c.kernel_bpw(planes12x_bits(qwen3_4b::BLOCKS, qwen3_4b::EXCEPTIONS));
-        assert!((p14 - e14 - 0.2489).abs() < 1e-3, "E1c14 rend {:.4}", p14 - e14);
-        assert!((p12 - e12 - 0.5806).abs() < 1e-3, "E1c12 rend {:.4}", p12 - e12);
+        assert!((p14 - e14 - 0.2489).abs() < 1e-3, "E1c14 saves {:.4}", p14 - e14);
+        assert!((p12 - e12 - 0.5806).abs() < 1e-3, "E1c12 saves {:.4}", p12 - e12);
     }
 
     /// The saving is **the padding, and only the padding** — stated as an
@@ -1324,21 +1325,21 @@ mod tests {
         // between the two layouts does not move when exceptions appear.
         let d0 = planes12x_bits(N, 0) - e1c12_bits(N, 0);
         let d9 = planes12x_bits(N, 9_999) - e1c12_bits(N, 9_999);
-        assert_eq!(d0, d9, "le terme d'exceptions n'est pas identique des deux côtés");
+        assert_eq!(d0, d9, "the exception term is not identical on both sides");
     }
 
     /// A block count that is not a multiple of 32 pays a whole trailing
     /// group, and the bench must charge it — otherwise a small matrix would
     /// be priced below what it uploads.
     ///
-    /// The published 4B happens to divide exactly (150 681 600 = 32 ×
-    /// 4 708 800), which is precisely why this needs its own test: the
+    /// The published 4B happens to divide exactly (150,681,600 = 32 ×
+    /// 4,708,800), which is precisely why this needs its own test: the
     /// acceptance test above would never exercise the rounding.
     #[test]
     fn a_partial_trailing_group_is_charged() {
-        assert_eq!(qwen3_4b::BLOCKS % E1C_GROUP as u64, 0, "le 4B tombe juste");
+        assert_eq!(qwen3_4b::BLOCKS % E1C_GROUP as u64, 0, "the 4B divides exactly");
         let full = e1c14_bits(32);
-        assert_eq!(e1c14_bits(1), full, "un bloc paie un groupe entier");
+        assert_eq!(e1c14_bits(1), full, "one block pays a whole group");
         assert_eq!(e1c14_bits(33), 2 * full);
         assert_eq!(e1c14_bits(64), 2 * full);
         assert_eq!(e1c14_bits(65), 3 * full);
@@ -1355,7 +1356,7 @@ mod tests {
         let payload = bits as f64 / (qwen3_4b::BLOCKS * DIM as u64) as f64;
         assert!(
             (payload - 14.0 * 8.0 / 24.0).abs() < 1e-12,
-            "le payload de Planes14 est 112/24 exactement, pas {payload}"
+            "the Planes14 payload is exactly 112/24, not {payload}"
         );
         // Same numerator, whole-matrix denominator: strictly smaller.
         assert!(bits as f64 / (c.weights as f64) < payload);
@@ -1363,7 +1364,7 @@ mod tests {
         assert_eq!(
             c.side_bits(),
             (qwen3_4b::TAIL_WEIGHTS + qwen3_4b::ROWS) * 32,
-            "queue f32 + échelles de ligne f32, rien d'autre"
+            "f32 tail + f32 row scales, nothing else"
         );
         assert!(c.kernel_bpw(bits) > payload);
     }
@@ -1399,21 +1400,21 @@ mod tests {
         // `tie_word_embeddings = false`, so two 151936×4096 tables.
         const LIN: u64 = 6_945_767_424;
         const EMBED: u64 = 2 * 151_936 * 4_096;
-        // Planes14 on the 8B shapes: 288 571 392 blocks, 20 054 016 tail
-        // weights, 1 400 832 rows.
+        // Planes14 on the 8B shapes: 288,571,392 blocks, 20,054,016 tail
+        // weights, 1,400,832 rows.
         let c = Shapes {
             weights: LIN,
             tail_weights: 20_054_016,
             rows: 1_400_832,
-            padded_blocks: 0, // non lu par ce test, cf. `carried_4b`
+            padded_blocks: 0, // not read by this test, see `carried_4b`
         };
         assert_eq!((LIN - c.tail_weights) % DIM as u64, 0);
         let lin = c.kernel_bpw(planes14_bits((LIN - c.tail_weights) / DIM as u64));
 
         let f16 = model_bpw(&[(LIN, lin), (EMBED, 16.0)]);
         let q8 = model_bpw(&[(LIN, lin), (EMBED, embed_q8_bpw())]);
-        assert!((f16 - 6.461).abs() < 1e-3, "embed f16 : {f16:.3} contre 6.461");
-        assert!((q8 - 5.323).abs() < 2e-3, "embed q8 : {q8:.3} contre 5.323");
+        assert!((f16 - 6.461).abs() < 1e-3, "embed f16: {f16:.3} against 6.461");
+        assert!((q8 - 5.323).abs() < 2e-3, "embed q8: {q8:.3} against 5.323");
         // Sanity on the direction: carrying 15.2 % of the model in f16 costs
         // more per parameter than the linears do.
         assert!(f16 > lin && q8 > lin);

@@ -20,7 +20,7 @@
 // -----------------------------------------------------------------------------
 // §4.3 of the pre-registration: **if this arm returns ≤ 2,0 ns/block — the
 // threshold imposed on the uniformised cascade — then E1v is stillborn.** The
-// archive exists, it is proven on 150 681 600 blocks, it is *smaller*
+// archive exists, it is proven on 150,681,600 blocks, it is *smaller*
 // (2,19 b/weight kernel-side against 2,3709 for E1v), and it would have just
 // cleared the bar set for a decoder that would still have to be written,
 // proven and transcoded to. This is the only arm of the five that can make the
@@ -191,7 +191,7 @@ static inline float archive_block(ulong idx,
         // coordinate at all. The scan then lands on a real kind, and every
         // coordinate of that kind is written as a zero.
         //
-        // It failed V0 on **883 blocks out of 16 777 216** (5·10⁻⁵) — rare
+        // It failed V0 on **883 blocks out of 16,777,216** (5·10⁻⁵) — rare
         // enough that a sampled check would have missed it, which is why V0
         // verifies every block of the draw. `p1_rank_sweep.rs` did not catch it
         // because the Rust composition reads `c.n_off` from the class record;

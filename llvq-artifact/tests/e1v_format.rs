@@ -68,15 +68,15 @@ fn the_e1v_stream_round_trips_and_the_word_map_is_the_format() {
     // and still round-trip whichever was written last.
     assert!(
         s.bases.windows(2).all(|w| w[0] < w[1]),
-        "les mots de base doivent croître strictement"
+        "base words must strictly increase"
     );
 
     for (b, &idx) in idxs.iter().enumerate() {
         // 1 — the round trip.
         let (got, gain) = s.decode_block(&fd, &golay, &lays, b);
-        let want = fd.decode(idx).expect("dans la boule");
-        assert_eq!(got, want, "bloc {b}, index {idx}");
-        assert_eq!(u32::from(gain), gains[b], "bloc {b}: gain");
+        let want = fd.decode(idx).expect("in the ball");
+        assert_eq!(got, want, "block {b}, index {idx}");
+        assert_eq!(u32::from(gain), gains[b], "block {b}: gain");
 
         // 2 — the word map, walked by hand. The header of lane `l` of group `g`
         // sits at `bases[g]·32 + 10·l`, and nothing about that position depends
@@ -87,11 +87,11 @@ fn the_e1v_stream_round_trips_and_the_word_map_is_the_format() {
         let want_id = fd
             .class_of(idx)
             .map_or(E1V_ORIGIN_ID, |ci| ci as u64);
-        assert_eq!(id, want_id, "bloc {b}: la classe n'est pas où le format la met");
+        assert_eq!(id, want_id, "block {b}: the class is not where the format puts it");
         assert_eq!(
             read_bits(&s.data, hb + u64::from(E1V_CLASS_BITS), 1),
             u64::from(gains[b]),
-            "bloc {b}: le gain n'est pas où le format le met"
+            "block {b}: the gain is not where the format puts it"
         );
     }
 }
@@ -112,7 +112,7 @@ fn the_e1v_stream_round_trips_and_the_word_map_is_the_format() {
 ///    whole difference between the two cuts, and nothing else notices it: a
 ///    writer that reserved 32 header slots in a partial group would round-trip
 ///    perfectly through its own reader while wasting `10·(32−k)` bits per row
-///    — turning the +0,48 % this cut costs into something several times worse,
+///    — turning the +0.48% this cut costs into something several times worse,
 ///    silently, in the one number E1v is defended on.
 #[test]
 fn the_row_aligned_cut_never_straddles_a_row() {
@@ -134,17 +134,17 @@ fn the_row_aligned_cut_never_straddles_a_row() {
         let s = llvq_artifact::e1v::transcode_e1v_rows(&fd, &golay, &idxs, &gains, row_blocks)
             .expect("transcodes");
         let per_row = row_blocks.div_ceil(E1V_GROUP);
-        assert_eq!(s.bases.len(), rows * per_row, "{row_blocks}: groupes par ligne");
+        assert_eq!(s.bases.len(), rows * per_row, "{row_blocks}: groups per row");
         assert!(
             s.bases.windows(2).all(|w| w[0] < w[1]),
-            "{row_blocks}: les mots de base doivent croître strictement"
+            "{row_blocks}: base words must strictly increase"
         );
 
         for (b, &idx) in idxs.iter().enumerate() {
             // 1 — the round trip.
             let (got, gain) = s.decode_block(&fd, &golay, &lays, b);
-            assert_eq!(got, fd.decode(idx).expect("dans la boule"), "{row_blocks}: bloc {b}");
-            assert_eq!(u32::from(gain), gains[b], "{row_blocks}: bloc {b} gain");
+            assert_eq!(got, fd.decode(idx).expect("in the ball"), "{row_blocks}: block {b}");
+            assert_eq!(u32::from(gain), gains[b], "{row_blocks}: block {b} gain");
 
             // 2 — the word map, and the group a kernel would compute.
             let (g, l, len) = s.locate(b);
@@ -155,7 +155,7 @@ fn the_row_aligned_cut_never_straddles_a_row() {
             assert_eq!(
                 read_bits(&s.data, hb, E1V_CLASS_BITS),
                 want_id,
-                "{row_blocks}: bloc {b}, la classe n'est pas où le format la met"
+                "{row_blocks}: block {b}, the class is not where the format puts it"
             );
         }
 
@@ -175,7 +175,7 @@ fn the_row_aligned_cut_never_straddles_a_row() {
                 .map_or(E1V_ORIGIN_ID, |ci| ci as u64);
             assert_eq!(
                 id, want,
-                "{row_blocks}: le dernier en-tête d'un groupe partiel n'est pas à 10·(k−1)"
+                "{row_blocks}: the last header of a partial group is not at 10·(k−1)"
             );
         }
     }
@@ -185,8 +185,8 @@ fn the_row_aligned_cut_never_straddles_a_row() {
 /// `llvq-bench/src/bin/rtbits.rs` and `Mat` in `planesbench.rs`.
 ///
 /// ⚠️ Its denominator is **every weight of the matrix**, `d_out · d_in`, tail
-/// columns included — not `24 · blocks`. Swapping the two is what turns 4,804
-/// into 4,827, and it is the mistake the dossier's errata are made of.
+/// columns included — not `24 · blocks`. Swapping the two is what turns 4.804
+/// into 4.827, and it is the mistake the dossier's errata are made of.
 #[derive(Default)]
 struct Shapes {
     weights: u64,
@@ -208,7 +208,7 @@ impl Shapes {
     }
 }
 
-/// **The +0,48 % is measured here, on bytes, for the first time.**
+/// **The +0.48% is measured here, on bytes, for the first time.**
 ///
 /// The two cuts of the same stream over the whole sealed 4B, in **one run, one
 /// file and one accounting** — so the ratio between them is formed the way the
@@ -220,7 +220,7 @@ impl Shapes {
 /// Those identities are sound, and they still had never been confronted with a
 /// packer. Here they are.
 ///
-/// It also carries the aligned cut's own round trip over all 150 681 600
+/// It also carries the aligned cut's own round trip over all 150,681,600
 /// blocks: a cut is not a re-encoding, but a partial group is a code path the
 /// file-order sweep never takes.
 #[test]
@@ -248,7 +248,7 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
         assert_eq!(
             m.indices.len(),
             m.d_out * row_blocks,
-            "{}: la matrice n'est pas d_out lignes de d_in/24 blocs",
+            "{}: the matrix is not d_out rows of d_in/24 blocks",
             m.name
         );
         shapes.push(m.d_out, m.d_in);
@@ -284,8 +284,8 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
                     .expect("transcodes");
                     for (b, &idx) in m.indices[lo..hi].iter().enumerate() {
                         let (got, gain) = al.decode_block(&fd, &golay, &lays, b);
-                        assert_eq!(got, fd.decode(idx).expect("dans la boule"), "{} bloc {}", m.name, lo + b);
-                        assert_eq!(u32::from(gain), m.gains[lo + b], "{} bloc {}: gain", m.name, lo + b);
+                        assert_eq!(got, fd.decode(idx).expect("in the ball"), "{} block {}", m.name, lo + b);
+                        assert_eq!(u32::from(gain), m.gains[lo + b], "{} block {}: gain", m.name, lo + b);
                     }
                     al_bits.fetch_add(
                         al.data.len() as u64 * 8 + al.bases.len() as u64 * 32,
@@ -302,8 +302,8 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
         assert_eq!(
             m.indices.len() % E1V_GROUP,
             0,
-            "{}: {} blocs ne font pas un nombre entier de groupes — la coupe en ordre de \
-             fichier ne partitionnerait pas la matrice",
+            "{}: {} blocks are not a whole number of groups — the file-order cut \
+             would not partition the matrix",
             m.name,
             m.indices.len()
         );
@@ -331,22 +331,22 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
     }
 
     let n = verified.load(Ordering::Relaxed);
-    assert_eq!(n, 150_681_600, "le 4B publié fait 150 681 600 blocs");
+    assert_eq!(n, 150_681_600, "the published 4B has 150,681,600 blocks");
     let (fo_b, al_b) = (fo_bits.load(Ordering::Relaxed), al_bits.load(Ordering::Relaxed));
     let (fo_per, al_per) = (fo_b as f64 / n as f64, al_b as f64 / n as f64);
     let (fo_k, al_k) = (shapes.kernel_bpw(fo_b), shapes.kernel_bpw(al_b));
     let overhead = (al_b as f64 / fo_b as f64 - 1.0) * 100.0;
 
     eprintln!(
-        "E1v — les deux coupes du MÊME flux, un seul run, une seule comptabilité\n  \
-         {n} blocs, {} matrices, {} formes distinctes (blocs/ligne × lignes) : {:?}\n\n  \
-         ordre de fichier   {fo_per:.4} bits/bloc   {fo_k:.4} b/poids noyau\n  \
-         ALIGNÉ LIGNE       {al_per:.4} bits/bloc   {al_k:.4} b/poids noyau\n  \
-         surcoût d'alignement : {overhead:+.3} %\n\n  \
-         Le modèle de comptage d'X3 annonçait 2,3877 → 2,3983 et +0,48 % SANS écrire un \
-         octet ; ces\n  deux lignes sont pesées sur les octets écrits. ⚠️ Le surcoût se lit \
-         sur les bits, pas sur\n  le quotient des deux b/poids arrondis à quatre décimales, \
-         qui rendrait 0,44 %.",
+        "E1v — the two cuts of the SAME stream, one run, one accounting\n  \
+         {n} blocks, {} matrices, {} distinct shapes (blocks/row × rows): {:?}\n\n  \
+         file order         {fo_per:.4} bits/block   {fo_k:.4} b/weight kernel\n  \
+         ROW-ALIGNED        {al_per:.4} bits/block   {al_k:.4} b/weight kernel\n  \
+         alignment overhead: {overhead:+.3}%\n\n  \
+         X3's counting model announced 2.3877 → 2.3983 and +0.48% WITHOUT writing a \
+         byte; these\n  two lines are weighed on the bytes written. WARNING: the overhead \
+         reads on the bits, not on\n  the quotient of the two b/weight rounded to four \
+         decimals, which would give 0.44%.",
         h.matrices,
         shapes_seen.len(),
         shapes_seen
@@ -354,18 +354,18 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
 
     // The bound the mechanism implies, and it is the one that matters: aligning
     // by PADDING rows out to a multiple of 32 blocks — the only remedy `E1c`
-    // had — costs +15,47 % on these shapes. A partial group must cost a base
+    // had — costs +15.47% on these shapes. A partial group must cost a base
     // word and a rounding, nothing more. Anything above a per cent means the
     // writer is padding somewhere it should be cutting.
     assert!(
         overhead > 0.0 && overhead < 1.0,
-        "le surcoût d'alignement mesuré est {overhead:+.3} % : hors du régime qu'un groupe \
-         partiel implique (un mot de base et un arrondi par ligne). Au-dessus, l'écrivain \
-         bourre là où il devrait couper — c'est le mécanisme qui a enterré e1c14 à +15,47 %."
+        "the measured alignment overhead is {overhead:+.3}%: outside the regime a partial \
+         group implies (one base word and one rounding per row). Above that, the writer \
+         pads where it should cut — the mechanism that buried e1c14 at +15.47%."
     );
     assert!(
         (fo_per - ADDRESSED_FO).abs() < TOL_BITS,
-        "la coupe en ordre de fichier rend {fo_per:.4} bits/bloc contre {ADDRESSED_FO} publié"
+        "the file-order cut gives {fo_per:.4} bits/block against the published {ADDRESSED_FO}"
     );
 }
 
@@ -411,9 +411,9 @@ fn the_sealed_artifact_e1v_stream_is_exact() {
                         .expect("transcodes");
                     for (b, &idx) in m.indices[lo..hi].iter().enumerate() {
                         let (got, gain) = s.decode_block(&fd, &golay, &lays, b);
-                        let want = fd.decode(idx).expect("dans la boule");
-                        assert_eq!(got, want, "{} bloc {}", m.name, lo + b);
-                        assert_eq!(u32::from(gain), m.gains[lo + b], "{} bloc {}: gain", m.name, lo + b);
+                        let want = fd.decode(idx).expect("in the ball");
+                        assert_eq!(got, want, "{} block {}", m.name, lo + b);
+                        assert_eq!(u32::from(gain), m.gains[lo + b], "{} block {}: gain", m.name, lo + b);
                     }
                     bits.fetch_add(
                         s.data.len() as u64 * 8 + s.bases.len() as u64 * 32,
@@ -427,13 +427,13 @@ fn the_sealed_artifact_e1v_stream_is_exact() {
 
     let n = verified.load(Ordering::Relaxed);
     let per_block = bits.load(Ordering::Relaxed) as f64 / n as f64;
-    assert_eq!(n, 150_681_600, "le 4B publié fait 150 681 600 blocs");
+    assert_eq!(n, 150_681_600, "the published 4B has 150,681,600 blocks");
     eprintln!(
-        "E1v flux — {n} blocs, {} matrices\n  \
-         aller-retour contre FastDecoder::decode : 0 écart\n  \
-         largeur adressée mesurée sur les OCTETS ÉCRITS : {per_block:.4} bits/bloc\n  \
-         ({:.4} b/poids payload) — à comparer au {ADDRESSED_FO} que le modèle d'adressage\n  \
-         calculait sans écrire un octet.",
+        "E1v stream — {n} blocks, {} matrices\n  \
+         round trip against FastDecoder::decode: 0 deviation\n  \
+         addressed width measured on the BYTES WRITTEN: {per_block:.4} bits/block\n  \
+         ({:.4} b/weight payload) — to compare with the {ADDRESSED_FO} the addressing model\n  \
+         computed without writing a byte.",
         h.matrices,
         per_block / DIM as f64
     );
@@ -442,7 +442,7 @@ fn the_sealed_artifact_e1v_stream_is_exact() {
     // every b/weight in the dossier a statement about nothing.
     assert!(
         (per_block - ADDRESSED_FO).abs() < TOL_BITS,
-        "les octets écrits rendent {per_block:.4} bits/bloc, le modèle en prédisait \
-         {ADDRESSED_FO} — la comptabilité et l'empaqueteur ne décrivent pas le même flux"
+        "the bytes written give {per_block:.4} bits/block, the model predicted \
+         {ADDRESSED_FO} — the accounting and the packer do not describe the same stream"
     );
 }

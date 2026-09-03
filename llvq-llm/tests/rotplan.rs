@@ -117,7 +117,7 @@ fn a_file_whose_groups_disagree_is_refused() {
     // Direction 1: k_proj drifts off q_proj's rotation.
     let mut m = model_4b_shaped(2, 0xABCD);
     m[8].rotation = Some((2560, 0xdead_beef));
-    let e = check_rotation_partition(&m).expect_err("un groupe divisé doit être refusé");
+    let e = check_rotation_partition(&m).expect_err("a split group must be refused");
     assert!(e.contains("model.layers.1.self_attn.q_proj"), "{e}");
     assert!(e.contains("model.layers.1.self_attn.k_proj"), "{e}");
 
@@ -127,7 +127,7 @@ fn a_file_whose_groups_disagree_is_refused() {
     let attn0 = m[0].rotation;
     m[4].rotation = attn0;
     m[5].rotation = attn0;
-    let e = check_rotation_partition(&m).expect_err("deux activations partagées doivent être refusées");
+    let e = check_rotation_partition(&m).expect_err("two shared activations must be refused");
     assert!(e.contains("self_attn.q_proj"), "{e}");
     assert!(e.contains("mlp.gate_proj"), "{e}");
 
@@ -135,12 +135,12 @@ fn a_file_whose_groups_disagree_is_refused() {
     // is named rather than skipped.
     let mut m = model_4b_shaped(1, 0xABCD);
     m[6].rotation = None;
-    let e = check_rotation_partition(&m).expect_err("une matrice sans rotation doit être refusée");
+    let e = check_rotation_partition(&m).expect_err("a matrix with no rotation must be refused");
     assert!(e.contains("mlp.down_proj"), "{e}");
 
     // And the well-formed model passes, so the three failures above are not a
     // check that refuses everything.
-    check_rotation_partition(&model_4b_shaped(2, 0xABCD)).expect("modèle bien formé");
+    check_rotation_partition(&model_4b_shaped(2, 0xABCD)).expect("well-formed model");
 }
 
 /// **T3.** The key partition is *not* the width partition — the mutation
@@ -154,14 +154,14 @@ fn a_file_whose_groups_disagree_is_refused() {
 #[test]
 fn the_key_partition_is_not_the_width_partition() {
     let m = model_4b_shaped(36, 0x5EED);
-    let sites = rotation_sites(&m).expect("partition bien formée");
-    assert_eq!(sites.len(), 144, "36 couches × 4 activations");
+    let sites = rotation_sites(&m).expect("well-formed partition");
+    assert_eq!(sites.len(), 144, "36 layers × 4 activations");
 
     let widths: HashSet<usize> = m.iter().map(|x| x.d_in).collect();
     assert_eq!(widths.len(), 3, "2560, 4096, 9728");
     assert!(
         widths.len() < sites.len(),
-        "une clé sur d_in seul confondrait {} sites en {} classes",
+        "a key on d_in alone would merge {} sites into {} classes",
         sites.len(),
         widths.len()
     );
@@ -180,7 +180,7 @@ fn the_key_partition_is_not_the_width_partition() {
     assert_eq!(q.d_in, gate.d_in);
     assert_ne!(
         q.rotation, gate.rotation,
-        "même largeur, même couche, deux activations : d_in ne peut pas être la clé"
+        "same width, same layer, two activations: d_in cannot be the key"
     );
 
     // Same width across layers, too.
@@ -204,7 +204,7 @@ fn a_block_has_four_activation_sites() {
     assert_eq!(sites.len(), 4);
     assert_eq!(by_size.get(&3), Some(&1), "q/k/v");
     assert_eq!(by_size.get(&2), Some(&1), "gate/up");
-    assert_eq!(by_size.get(&1), Some(&2), "o_proj et down_proj");
+    assert_eq!(by_size.get(&1), Some(&2), "o_proj and down_proj");
 }
 
 // ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ fn run(
         )?;
         for per_site in out {
             for (k, v) in per_site {
-                assert!(seen.insert(k, v).is_none(), "un (site, ligne) rendu deux fois");
+                assert!(seen.insert(k, v).is_none(), "a (site, row) returned twice");
             }
         }
     }
@@ -393,8 +393,8 @@ fn every_use_gets_the_rotation_of_its_own_activation() {
     let distinct: HashSet<RotKey> = keys.iter().copied().collect();
     assert!(
         distinct.len() < total_prepares,
-        "un fixture qui ne revisite aucune clé ne peut pas tuer un cache : \
-         {} clés pour {total_prepares} usages",
+        "a fixture that revisits no key cannot kill a cache: \
+         {} keys for {total_prepares} uses",
         distinct.len()
     );
     // At least two consecutive groups on the same key with different contents.
@@ -408,7 +408,7 @@ fn every_use_gets_the_rotation_of_its_own_activation() {
                 .any(|g| g.key == script[*i].key && g.rows[0].v != script[*i].rows[0].v)
         })
         .count();
-    assert!(repeats >= 2, "il faut des clés revisitées à contenus différents");
+    assert!(repeats >= 2, "revisited keys with different contents are needed");
     // One ulp apart, sharing an allocation, differing by offset alone.
     let prefill = &script[0];
     assert_eq!(prefill.rows.len(), 3);
@@ -418,17 +418,17 @@ fn every_use_gets_the_rotation_of_its_own_activation() {
     assert_eq!(
         (prefill.rows[0].v[0].to_bits() as i128 - prefill.rows[1].v[0].to_bits() as i128).abs(),
         1,
-        "les deux premières lignes du préfil doivent différer d'un seul ulp"
+        "the first two prefill rows must differ by a single ulp"
     );
 
     // --- the property ---
     for share in [RotShare::Off, RotShare::On] {
         let rot = HostRotator::new(&keys);
-        let seen = run(share, &rot, &script).expect("séquence valide");
+        let seen = run(share, &rot, &script).expect("valid sequence");
         assert_eq!(
             seen.len(),
             total_prepares,
-            "{share:?} : chaque (site, ligne) doit rendre un résultat"
+            "{share:?}: every (site, row) must return a result"
         );
         // Independent oracle, per use.
         let mut checked = 0usize;
@@ -439,10 +439,10 @@ fn every_use_gets_the_rotation_of_its_own_activation() {
                     Rotation::new(g.key.0, g.key.1).apply(&mut want);
                     let got = seen
                         .get(&(s.tag, r))
-                        .unwrap_or_else(|| panic!("{} ligne {r} jamais vue", s.name));
+                        .unwrap_or_else(|| panic!("{} row {r} never seen", s.name));
                     assert_eq!(
                         got, &want,
-                        "{share:?} : {} ligne {r} a reçu la rotation d'une autre activation",
+                        "{share:?}: {} row {r} got the rotation of another activation",
                         s.name
                     );
                     checked += 1;
@@ -465,7 +465,7 @@ fn a_group_whose_sites_disagree_is_refused_at_use() {
         .flat_map(|g| g.sites.iter().map(|s| s.key).chain(std::iter::once(g.key)))
         .collect();
     let rot = HostRotator::new(&keys);
-    let e = run(RotShare::On, &rot, &script).expect_err("clé étrangère");
+    let e = run(RotShare::On, &rot, &script).expect_err("foreign key");
     assert!(e.contains("v_proj"), "{e}");
 }
 
@@ -488,15 +488,15 @@ fn the_hoist_actually_hoists() {
         .filter(|g| g.rows.len() == 1)
         .take(36 * 4)
         .collect();
-    assert_eq!(one_step.len(), 144, "36 couches × 4 activations");
+    assert_eq!(one_step.len(), 144, "36 layers × 4 activations");
     let sites: usize = one_step.iter().map(|g| g.sites.len()).sum();
-    assert_eq!(sites, 252, "36 couches × 7 projections");
+    assert_eq!(sites, 252, "36 layers × 7 projections");
 
     for (share, want) in [(RotShare::On, 144usize), (RotShare::Off, 252)] {
         let keys: Vec<RotKey> = one_step.iter().map(|g| g.key).collect();
         let rot = HostRotator::new(&keys);
-        run(share, &rot, &one_step).expect("séquence valide");
-        assert_eq!(rot.applies(), want, "{share:?} : rot_lancements/token");
+        run(share, &rot, &one_step).expect("valid sequence");
+        assert_eq!(rot.applies(), want, "{share:?}: rot launches/token");
     }
 
     // And the number `bin/fusedrun` prints agrees with the number the driver
@@ -541,7 +541,7 @@ fn the_hoist_is_not_gated_on_the_layout() {
                 let gains: Vec<u32> = (0..d_out * nblocks).map(|_| (rng.next() & 1) as u32).collect();
                 let (stream, bytes) = tr
                     .stream(&idx, &gains, d_out, nblocks)
-                    .expect("transcodage");
+                    .expect("transcode");
                 let w = width_4b(act);
                 matrices.push(FusedMatrix {
                     stream,
@@ -554,13 +554,13 @@ fn the_hoist_is_not_gated_on_the_layout() {
         assert_eq!(
             rot_launches_per_token(RotShare::On, &matrices),
             16,
-            "{}: 4 couches × 4 activations",
+            "{}: 4 layers × 4 activations",
             layout.name()
         );
         assert_eq!(
             rot_launches_per_token(RotShare::Off, &matrices),
             28,
-            "{}: 4 couches × 7 projections",
+            "{}: 4 layers × 7 projections",
             layout.name()
         );
     }
@@ -633,9 +633,9 @@ fn rot_share_parse_refuses_anything_else() {
 /// exercise of `load` needs a multi-gigabyte archive.
 fn synthetic_sealed(path: &std::path::Path, layers: usize, sabotage: bool) {
     let mut rng = SplitMix64::new(0xDEC0DE);
-    let f = std::fs::File::create(path).expect("création");
+    let f = std::fs::File::create(path).expect("create");
     let mut w = llvq_artifact::ArtifactWriter::new(std::io::BufWriter::new(f), (layers * 7) as u32)
-        .expect("en-tête");
+        .expect("header");
     for layer in 0..layers {
         for (i, (suffix, act)) in PLAN.iter().enumerate() {
             let (d_out, d_in) = (8usize, DIM);
@@ -658,7 +658,7 @@ fn synthetic_sealed(path: &std::path::Path, layers: usize, sabotage: bool) {
                 shell_cap: 13,
                 tail: Vec::new(),
             })
-            .expect("matrice");
+            .expect("matrix");
         }
     }
     w.seal(
@@ -668,7 +668,7 @@ fn synthetic_sealed(path: &std::path::Path, layers: usize, sabotage: bool) {
             llvq_artifact::Blob { name: "tokenizer.json".into(), bytes: b"{}".to_vec() },
         ],
     )
-    .expect("scellement");
+    .expect("seal");
 }
 
 /// `fused::load` refuses a file whose rotation keys do not partition its
@@ -680,13 +680,13 @@ fn synthetic_sealed(path: &std::path::Path, layers: usize, sabotage: bool) {
 #[test]
 fn the_load_path_runs_the_partition_gate() {
     let dir = std::env::temp_dir().join(format!("llvq-a4-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("répertoire");
+    std::fs::create_dir_all(&dir).expect("directory");
 
     let good = dir.join("good.llvq");
     synthetic_sealed(&good, 4, false);
     let m = match llvq_llm::fused::load(good.to_str().expect("utf8"), FusedLayout::Planes14) {
         Ok(m) => m,
-        Err(e) => panic!("un fichier bien formé doit charger : {e}"),
+        Err(e) => panic!("a well-formed file must load: {e}"),
     };
     assert_eq!(m.matrices.len(), 28);
     assert_eq!(rot_launches_per_token(RotShare::On, &m.matrices), 16);
@@ -694,7 +694,7 @@ fn the_load_path_runs_the_partition_gate() {
     let bad = dir.join("bad.llvq");
     synthetic_sealed(&bad, 4, true);
     let e = match llvq_llm::fused::load(bad.to_str().expect("utf8"), FusedLayout::Planes14) {
-        Ok(_) => panic!("une partition cassée doit être refusée au chargement"),
+        Ok(_) => panic!("a broken partition must be refused at load"),
         Err(e) => e,
     };
     assert!(e.contains("self_attn.q_proj"), "{e}");
@@ -720,16 +720,16 @@ fn sealed(env: &str, default: &str) -> std::path::PathBuf {
     let p = match (std::env::var_os(env), std::env::var_os("HOME")) {
         (Some(p), _) => std::path::PathBuf::from(p),
         (None, Some(h)) => std::path::Path::new(&h).join(default),
-        (None, None) => panic!("ni ${env} ni $HOME : aucun chemin à essayer"),
+        (None, None) => panic!("neither ${env} nor $HOME: no path to try"),
     };
     assert!(
         p.exists(),
-        "l'artefact scellé n'est pas sur cette machine : {}\n\n\
-         Ce balayage vérifie sur le VRAI fichier que les graines de rotation partitionnent \
-         les sites d'activation — la prémisse du lot A4. Il est #[ignore] pour ne jamais \
-         tourner par accident ; être ici veut dire qu'il a été demandé par son nom ou avec \
-         --include-ignored, donc il échoue au lieu d'imprimer SKIP et de rendre `ok`.\n\n    \
-         {env}=/chemin/vers/le.llvq \\\n        cargo test --release -p llvq-llm -- --include-ignored",
+        "the sealed artifact is not on this machine: {}\n\n\
+         This sweep checks on the REAL file that the rotation seeds partition the \
+         activation sites, the premise of lot A4. It is #[ignore] so it never \
+         runs by accident; being here means it was asked for by name or with \
+         --include-ignored, so it fails instead of printing SKIP and returning `ok`.\n\n    \
+         {env}=/path/to/the.llvq \\\n        cargo test --release -p llvq-llm -- --include-ignored",
         p.display()
     );
     p
@@ -741,17 +741,17 @@ fn sealed(env: &str, default: &str) -> std::path::PathBuf {
 /// (much more under `Planes12x`, which re-encodes every 5-level block). What
 /// T1 is about is the *file's* keys, and those are in the matrix headers.
 fn matrices_of(path: &std::path::Path) -> Vec<FusedMatrix> {
-    let f = std::fs::File::open(path).expect("ouverture");
+    let f = std::fs::File::open(path).expect("open");
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let head = llvq_artifact::read_header(&mut r).expect("en-tête");
+    let head = llvq_artifact::read_header(&mut r).expect("header");
     assert!(
         head.is_self_contained(),
-        "{} : artefact de projections seules, pas un modèle scellé",
+        "{}: projections-only artifact, not a sealed model",
         path.display()
     );
     (0..head.matrices)
         .map(|_| {
-            let m = llvq_artifact::read_matrix_raw(&mut r).expect("matrice");
+            let m = llvq_artifact::read_matrix_raw(&mut r).expect("matrix");
             let rotation = m.rotation_seed.map(|s| (m.d_in, s));
             let mut fm = matrix(0, "self_attn.q_proj", m.d_in, rotation);
             fm.name = m.name;
@@ -771,7 +771,7 @@ fn matrices_of(path: &std::path::Path) -> Vec<FusedMatrix> {
 /// layer 1's `Attn` onto layer 0's `MlpOut`), and the design would become
 /// unfounded without a line of this lot changing.
 #[test]
-#[ignore = "lit un artefact scellé de plusieurs Go, absent du dépôt"]
+#[ignore = "reads a multi-gigabyte sealed artifact, absent from the repository"]
 fn rotation_keys_partition_the_sites() {
     for (env, default, layers) in [
         ("LLVQ_SEALED_4B", "qwen3-4b-llvq.bin", 36usize),
@@ -780,7 +780,7 @@ fn rotation_keys_partition_the_sites() {
         let path = sealed(env, default);
         let m = matrices_of(&path);
         let sites: Vec<RotSite> = rotation_sites(&m)
-            .unwrap_or_else(|e| panic!("{} : {e}", path.display()));
+            .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
 
         assert_eq!(m.len(), layers * 7, "{}: projections", path.display());
         assert_eq!(sites.len(), layers * 4, "{}: sites", path.display());
@@ -794,7 +794,7 @@ fn rotation_keys_partition_the_sites() {
         assert_eq!(
             hist.get(&1),
             Some(&(2 * layers)),
-            "{}: o_proj et down_proj",
+            "{}: o_proj and down_proj",
             path.display()
         );
 
@@ -803,22 +803,22 @@ fn rotation_keys_partition_the_sites() {
             for act in Act::ALL {
                 assert!(
                     sites.iter().any(|s| s.layer == layer && s.act == act),
-                    "{}: {act:?} de la couche {layer} absente",
+                    "{}: {act:?} of layer {layer} missing",
                     path.display()
                 );
             }
         }
         for fm in &m {
-            let (_, suffix) = llvq_artifact::split_name(&fm.name).expect("nom");
+            let (_, suffix) = llvq_artifact::split_name(&fm.name).expect("name");
             assert!(
                 act_of_suffix(&suffix).is_some(),
-                "{}: suffixe inconnu {suffix}",
+                "{}: unknown suffix {suffix}",
                 path.display()
             );
         }
 
         println!(
-            "{} : {} matrices → {} sites, histogramme {:?}",
+            "{}: {} matrices → {} sites, histogram {:?}",
             path.display(),
             m.len(),
             sites.len(),

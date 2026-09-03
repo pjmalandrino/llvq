@@ -2,7 +2,7 @@
 //!
 //! It answers, in one job of a few minutes, every question
 //! `docs/archive/portage-noyau-cuda.md` §6.2 files under "answered at the first job,
-//! for a few cents" — and one the document does not ask, which is the only
+//! for a few cents", plus one the document does not ask, which is the only
 //! one that matters: **does the ported decoder decide the same thing as the
 //! Rust decoder, on a real GPU?**
 //!
@@ -20,15 +20,15 @@
 //!
 //! `slot_dot` returns a float, and a float compared across two compilers can
 //! only ever be "close". The **level index** of each slot and its **sign** are
-//! exact, and they are where the mask arithmetic lives — a flipped sign or an
+//! exact, and they are where the mask arithmetic lives. A flipped sign or an
 //! off-by-one mask is a plain integer difference, not a suspicious residue.
 //! The dot product is checked too, but second, and against an f64 reference.
 //!
 //! One exception, and it is documented rather than papered over: for a block
 //! whose class is the origin the record stops after its 10-bit header, so the
 //! 24 bits the kernel reads as `smask` belong to *the following blocks*. This
-//! is harmless — `len = 1` forces every level to 0, every value to 0.0f, and
-//! the sign only ever produces −0.0f — but it means the raw sign bit of a zero
+//! is harmless: `len = 1` forces every level to 0, every value to 0.0f, and
+//! the sign only ever produces −0.0f. But it means the raw sign bit of a zero
 //! slot is meaningless. Signs are therefore compared only where the decoded
 //! value is nonzero, which is the decoder's actual semantics.
 
@@ -58,8 +58,8 @@ mod linux {
     /// Entries in the device class table. The class field is 9 bits, so 512
     /// values are addressable while only 384 exist. Allocating the full 512
     /// and leaving the tail as the origin costs 3 KB and turns a truncated or
-    /// corrupt stream from an illegal address — which kills the context, in
-    /// the middle of a billed job — into a block of zeros.
+    /// corrupt stream from an illegal address into a block of zeros. An
+    /// illegal address kills the context, in the middle of a billed job.
     const TABLE_ENTRIES: usize = 512;
     /// `float vals[5]; unsigned len;`
     const REC_WORDS: usize = 6;
@@ -67,50 +67,50 @@ mod linux {
     pub fn run() -> Result<(), String> {
         let sources = llvq_cuda::load_sources()?;
         let src = KernelSource::new(&[&sources.slot, &sources.cu]);
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         match &sources.overridden_from {
-            None => println!("  sources embarquées (celles du commit)"),
+            None => println!("  embedded sources (the commit's own)"),
             Some(d) => println!(
-                "  ⚠️ SOURCES SURCHARGÉES depuis {d} — tout chiffre issu de ce run se \n                   rattache au sha256 ci-dessus et à rien d'autre."
+                "  WARNING: SOURCES OVERRIDDEN from {d}. Every figure from this run \n                   attaches to the sha256 above and to nothing else."
             ),
         }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
-        println!("\ncarte");
+        println!("\ncard");
         println!("  {}", "-".repeat(70));
-        println!("  nom                    {}", dev.name);
+        println!("  name                   {}", dev.name);
         println!(
             "  compute capability     {}.{}",
             dev.compute_cap.0, dev.compute_cap.1
         );
         println!("  SM                     {}", dev.sm_count);
         println!(
-            "  L2                     {} octets ({:.1} Mo) — LU, jamais supposé",
+            "  L2                     {} bytes ({:.1} MB), READ, never assumed",
             dev.l2_bytes,
             dev.l2_bytes as f64 / 1e6
         );
         println!(
-            "  mémoire partagée       {} o/bloc par défaut, {} o/bloc après opt-in, {} o/SM",
+            "  shared memory          {} B/block default, {} B/block after opt-in, {} B/SM",
             dev.shared_per_block, dev.shared_per_block_optin, dev.shared_per_sm
         );
         println!(
-            "  bande passante fiche   {:.0} Go/s ({} bits à {:.0} MHz, DDR)",
+            "  nameplate bandwidth    {:.0} GB/s ({} bits at {:.0} MHz, DDR)",
             dev.nameplate_bandwidth_gbs(),
             dev.mem_bus_bits,
             dev.mem_clock_khz as f64 / 1e3
         );
         println!(
-            "  ⚠️ ce dernier chiffre est une plaque signalétique, pas une mesure : l'ECC est\n  \
-             active par défaut et en consomme une part. Tout « x % du pic » doit passer par le\n  \
-             noyau sol, jamais par lui."
+            "  WARNING: that last figure is a nameplate, not a measurement. ECC is on by\n  \
+             default and eats part of it. Any \"x% of peak\" has to go through the floor\n  \
+             kernel, never through this number."
         );
 
-        println!("\nnoyaux chargés");
+        println!("\nloaded kernels");
         println!("  {}", "-".repeat(70));
         println!(
             "  {:<16}{:>8}{:>10}{:>10}{:>10}{:>10}",
-            "noyau", "regs", "local o", "shared o", "sm_", "thr/bloc"
+            "kernel", "regs", "local B", "shared B", "sm_", "thr/block"
         );
         for name in ["decode_probe", "dot_probe", "floor_probe"] {
             let r = cuda.report(name)?;
@@ -120,10 +120,10 @@ mod linux {
             );
             if r.local_bytes != 0 {
                 return Err(format!(
-                    "{name} : {} octets de mémoire locale. `slot_dot` tient ses quatre chaînes \
-                     FMA dans d0..d3 ; si le compilateur n'a pas déroulé, elles deviennent un \
-                     tableau indexé dynamiquement, donc de la mémoire locale, sur le chemin le \
-                     plus chaud. Aucun test de justesse ne peut voir ça.",
+                    "{name}: {} bytes of local memory. `slot_dot` holds its four FMA chains \
+                     in d0..d3; if the compiler did not unroll, they become a dynamically \
+                     indexed array, so local memory, on the hottest path. No correctness \
+                     test can see that.",
                     r.local_bytes
                 ));
             }
@@ -134,11 +134,11 @@ mod linux {
         let table = ClassTable::new(&fd, 1);
         assert!(
             24 + table.worst_width_slot() <= 160,
-            "la table déborde la fenêtre de 5 mots du noyau"
+            "the table overflows the kernel's five-word window"
         );
         assert!(
             fd.n_classes() < TABLE_ENTRIES,
-            "{} classes plus l'origine ne tiennent pas dans {TABLE_ENTRIES} entrées",
+            "{} classes plus the origin do not fit in {TABLE_ENTRIES} entries",
             fd.n_classes()
         );
 
@@ -157,9 +157,9 @@ mod linux {
         let rt = transcode(&fd, &table, &indices, &gains, Layout::Slot32)
             .map_err(|e| e.to_string())?;
         println!(
-            "\nfixture : {n} blocs — les deux bornes de chacune des {} classes, {} tirages \
-             uniformes\n  sur la boule m ≤ 13, plus l'origine. Plus large que le fichier scellé, \
-             qui est plafonné à Λ₂₄(12).",
+            "\nfixture: {n} blocks, both bounds of each of the {} classes, {} uniform \
+             draws\n  over the m ≤ 13 ball, plus the origin. Wider than the sealed file, \
+             which is capped at Λ₂₄(12).",
             fd.n_classes(),
             20_000
         );
@@ -228,21 +228,21 @@ mod linux {
             let id = match fd.class_of(idx) {
                 Some(ci) => 1 + ci,
                 None => {
-                    assert_eq!(idx, 0, "bloc {b} : index {idx} hors de la boule");
+                    assert_eq!(idx, 0, "block {b}: index {idx} outside the ball");
                     n_origin += 1;
                     0
                 }
             };
             if got_cls[b * 2] as usize != id {
                 return Err(format!(
-                    "bloc {b} : le GPU lit la classe {} là où l'hôte écrit {id}. \
-                     L'en-tête de 10 bits est mal lu — boutisme, ou décalage d'alignement.",
+                    "block {b}: the GPU reads class {} where the host wrote {id}. \
+                     The 10-bit header is misread: endianness, or an alignment shift.",
                     got_cls[b * 2]
                 ));
             }
             if got_cls[b * 2 + 1] != gain {
                 return Err(format!(
-                    "bloc {b} : bit de gain {} contre {gain} attendu",
+                    "block {b}: gain bit {} against {gain} expected",
                     got_cls[b * 2 + 1]
                 ));
             }
@@ -258,25 +258,25 @@ mod linux {
                         .iter()
                         .position(|&u| u == v.abs())
                         .ok_or_else(|| {
-                            format!("bloc {b} slot {j} : |{v}| absent des niveaux de la classe")
+                            format!("block {b} slot {j}: |{v}| missing from the class levels")
                         })?,
                 };
                 let g = got_slots[b * DIM + j];
                 if (g & 7) as usize != lev {
                     return Err(format!(
-                        "bloc {b} slot {j} : niveau {} contre {lev} attendu (classe {id}). \
-                         C'est l'arithmétique des masques qui diverge, pas un arrondi.",
+                        "block {b} slot {j}: level {} against {lev} expected (class {id}). \
+                         The mask arithmetic is what diverges, not a rounding.",
                         g & 7
                     ));
                 }
                 // Only where the value is nonzero: a zero slot's sign bit is
                 // meaningless, and for the origin it is not even part of the
-                // record — see the module header.
+                // record. See the module header.
                 if v != 0 {
                     let want_sign = u32::from(v < 0);
                     if (g >> 3) & 1 != want_sign {
                         return Err(format!(
-                            "bloc {b} slot {j} : signe {} contre {want_sign} attendu",
+                            "block {b} slot {j}: sign {} against {want_sign} expected",
                             (g >> 3) & 1
                         ));
                     }
@@ -292,18 +292,18 @@ mod linux {
             worst_dot = worst_dot.max(e);
         }
 
-        println!("\nvérification");
+        println!("\nverification");
         println!("  {}", "-".repeat(70));
-        println!("  {n} blocs, {} slots — classe, gain et niveau EXACTS", n * DIM);
-        println!("  {n_origin} bloc origine, dont le champ de signes n'existe pas");
-        println!("  produit scalaire : pire erreur {worst_dot:.2e}·Σ|w·x|");
+        println!("  {n} blocks, {} slots: class, gain and level EXACT", n * DIM);
+        println!("  {n_origin} origin block, whose sign field does not exist");
+        println!("  dot product: worst error {worst_dot:.2e}·Σ|w·x|");
         if worst_dot > 1e-6 {
             return Err(format!(
-                "pire erreur {worst_dot:.2e} au-dessus de 1e-6. Le décodage est juste \
-                 (les niveaux le sont), donc c'est l'arithmétique flottante qui diverge."
+                "worst error {worst_dot:.2e} above 1e-6. The decoding is right \
+                 (the levels are), so the floating-point arithmetic is what diverges."
             ));
         }
-        println!("\n✓ le décodeur porté décide exactement ce que décide le décodeur Rust.");
+        println!("\nOK: the ported decoder decides exactly what the Rust decoder decides.");
         Ok(())
     }
 }

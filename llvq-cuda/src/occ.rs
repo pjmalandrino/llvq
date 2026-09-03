@@ -66,14 +66,14 @@ pub const SEG_KERNEL: [&str; N_SEG_ARMS] = [
 
 /// The row each arm prints in the fusion block.
 pub const SEG_DISPLAY: [&str; N_SEG_ARMS] = [
-    "Planes14 fusé, staging à 28 (pad)",
-    "Planes14 fusé, 2 lignes/warp (mr2)",
-    "Planes14 fusé, 4 lignes/warp (mr4)",
-    "Planes14 fusé, mr2 + pad (mr2p)",
-    "Planes14 fusé, persistant/site (pers)",
-    "Planes14 fusé, split-K ×tuiles (sk1)",
-    "Planes14 fusé, split-K ×2 tuiles (sk2)",
-    "Planes14 fusé, 1 lancement/round (persall)",
+    "Planes14 fused, staging at 28 (pad)",
+    "Planes14 fused, 2 rows/warp (mr2)",
+    "Planes14 fused, 4 rows/warp (mr4)",
+    "Planes14 fused, mr2 + pad (mr2p)",
+    "Planes14 fused, persistent/site (pers)",
+    "Planes14 fused, split-K ×tiles (sk1)",
+    "Planes14 fused, split-K ×2 tiles (sk2)",
+    "Planes14 fused, 1 launch/round (persall)",
 ];
 
 /// Rows per warp — the grid divisor of the multi-row arms.
@@ -102,22 +102,22 @@ pub fn parse_seg_arms(spec: Option<&str>) -> Result<Vec<usize>, String> {
     for raw in spec.split(',') {
         let name = raw.trim();
         if name.is_empty() {
-            return Err(format!("LLVQ_SEG_ARMS : nom vide dans «{}»", spec.trim()));
+            return Err(format!("LLVQ_SEG_ARMS: empty name in \"{}\"", spec.trim()));
         }
         named_any = true;
         let Some(arm) = SEG_ARM_NAMES.iter().position(|&n| n == name) else {
             return Err(format!(
-                "LLVQ_SEG_ARMS : bras inconnu «{name}» — valides : {}",
+                "LLVQ_SEG_ARMS: unknown arm \"{name}\". Valid: {}",
                 SEG_ARM_NAMES.join(", ")
             ));
         };
         if seen[arm] {
-            return Err(format!("LLVQ_SEG_ARMS : «{name}» nommé deux fois"));
+            return Err(format!("LLVQ_SEG_ARMS: \"{name}\" named twice"));
         }
         seen[arm] = true;
     }
     if !named_any {
-        return Err("LLVQ_SEG_ARMS : sélection vide (ne pas poser la variable pour les quatre bras historiques seuls)".to_string());
+        return Err("LLVQ_SEG_ARMS: empty selection (leave the variable unset for the four historic arms alone)".to_string());
     }
     Ok((0..N_SEG_ARMS).filter(|&a| seen[a]).collect())
 }
@@ -168,7 +168,7 @@ pub fn mr_grid(d_out: u32, threads: u32, r: u32) -> Result<u32, String> {
     let rows_per_cta = (threads / 32) * r;
     if !d_out.is_multiple_of(rows_per_cta) {
         return Err(format!(
-            "d_out {d_out} n'est pas un multiple de {rows_per_cta} lignes par CTA ({r} lignes par warp)"
+            "d_out {d_out} is not a multiple of {rows_per_cta} rows per CTA ({r} rows per warp)"
         ));
     }
     Ok(d_out / rows_per_cta)
@@ -265,7 +265,7 @@ mod tests {
         let mut sorted = SEG_ARM_NAMES.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), N_SEG_ARMS, "un nom de bras est enregistré deux fois");
+        assert_eq!(sorted.len(), N_SEG_ARMS, "an arm name is registered twice");
         for a in 0..N_SEG_ARMS {
             assert!(SEG_KERNEL[a].starts_with("tv_planes_"), "{}", SEG_ARM_NAMES[a]);
             assert!(!SEG_DISPLAY[a].is_empty());
@@ -275,7 +275,7 @@ mod tests {
             assert!(ROWS_PER_WARP[a] == 1 || SK_FACTOR[a] == 0, "{}", SEG_ARM_NAMES[a]);
             assert!(XS_STRIDE[a] == XS_DIM || XS_STRIDE[a] == XS_PAD);
         }
-        assert_eq!(SEG_KERNEL[SK1], SEG_KERNEL[SK2], "sk1 et sk2 partagent le noyau");
+        assert_eq!(SEG_KERNEL[SK1], SEG_KERNEL[SK2], "sk1 and sk2 share the kernel");
         assert_eq!(SEG_ARM_NAMES[PERSALL], "persall");
     }
 
@@ -287,7 +287,7 @@ mod tests {
         assert!(cu.contains(&format!("#define LLVQ_XS_PAD {XS_PAD}u")), "LLVQ_XS_PAD ≠ {XS_PAD}");
         assert!(cu.contains(&format!("#define LLVQ_OCC_SITE_WORDS {SITE_WORDS}u")));
         for k in SEG_KERNEL {
-            assert!(cu.contains(&format!("__global__ void {k}(")), "noyau {k} absent de planes_occ.cu");
+            assert!(cu.contains(&format!("__global__ void {k}(")), "{k} absent from planes_occ.cu");
         }
     }
 
@@ -307,7 +307,7 @@ mod tests {
         let e = parse_seg_arms(Some("pad,mr3")).unwrap_err();
         assert!(e.contains("mr3") && e.contains("persall"), "{e}");
         let e = parse_seg_arms(Some("pad,pad")).unwrap_err();
-        assert!(e.contains("deux fois"), "{e}");
+        assert!(e.contains("twice"), "{e}");
         assert!(parse_seg_arms(Some("pad,,mr2")).is_err());
         assert!(parse_seg_arms(Some("")).is_err());
         assert!(parse_seg_arms(Some("  ")).is_err());
@@ -391,13 +391,13 @@ mod tests {
         assert!(!sk_site_bit_exact(nblocks(4096), 1));
         assert!(!sk_site_bit_exact(nblocks(2560), 2));
         // The design note's figures: o/down go from 320 CTAs to 640/1280
-        // under sk1 (*calculé*).
+        // under sk1 (*computed*).
         assert_eq!(320 * sk_nsplit(nblocks(4096), 1), 640);
         assert_eq!(320 * sk_nsplit(nblocks(9728), 1), 1280);
     }
 
-    /// Shared bytes follow the narrower of a tile and a slice: 12 288 o for
-    /// the reference geometry, 14 336 padded, and less when a slice is short.
+    /// Shared bytes follow the narrower of a tile and a slice: 12,288 bytes for
+    /// the reference geometry, 14,336 padded, and less when a slice is short.
     #[test]
     fn shared_bytes_follow_the_slice() {
         assert_eq!(shared_bytes(106, 1, XS_DIM), 106 * 24 * 4);
@@ -422,13 +422,13 @@ mod tests {
         assert_eq!(mr_grid(2560, 256, 2).unwrap(), 160);
         assert_eq!(mr_grid(19456, 256, 4).unwrap(), 608);
         assert!(mr_grid(1028, 256, 1).is_err());
-        assert_eq!(mr_grid(1032, 256, 1).unwrap(), 129, "1032 = 8 × 129 : des CTAs entiers");
+        assert_eq!(mr_grid(1032, 256, 1).unwrap(), 129, "1032 = 8 × 129: whole CTAs");
         assert!(mr_grid(2568, 256, 2).is_err());
     }
 
     /// The L40S numbers of the design note: 40 registers, 256 threads,
-    /// 12 288 o → 6 CTAs an SM, 852 on 142 SM — the `852` every comment
-    /// quotes. Padded staging (14 336 o) still allows 7 by shared memory, so
+    /// 12,288 bytes → 6 CTAs an SM, 852 on 142 SM — the `852` every comment
+    /// quotes. Padded staging (14,336 bytes) still allows 7 by shared memory, so
     /// threads keep the limit at 6.
     #[test]
     fn residency_reproduces_the_l40s_figure() {
@@ -447,7 +447,7 @@ mod tests {
         assert_eq!(pers_grid(0, 852), 1);
     }
 
-    /// The design note's fill figures (*calculé*): qkv 90.1 % of 852, o and
+    /// The design note's fill figures (*computed*): qkv 90.1 % of 852, o and
     /// down 37.6 %, gate_up 2.85 waves.
     #[test]
     fn waves_reproduce_the_design_note() {

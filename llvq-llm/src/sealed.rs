@@ -67,9 +67,10 @@ pub const PROJ_TYPES: [&str; 7] = [
 /// The quantizer is `embedquant::quantize_affine` — the same call the shipped
 /// q8 embedding path makes, at `bits = 4`, so the arm inherits a validated
 /// implementation rather than a fresh one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum RestorePrec {
     /// The checkpoint's own values, narrowed to the run dtype.
+    #[default]
     F16,
     /// Affine int4, `group` values per scale/bias pair, then dequantized.
     Q4 { group: usize },
@@ -125,12 +126,6 @@ pub struct RestoreF16 {
     prec: RestorePrec,
 }
 
-impl Default for RestorePrec {
-    fn default() -> Self {
-        Self::F16
-    }
-}
-
 impl RestoreF16 {
     /// Parse a `LLVQ_RESTORE_F16` value: empty means nothing, `all` means the
     /// seven, otherwise a comma-separated subset of [`PROJ_TYPES`].
@@ -146,8 +141,8 @@ impl RestoreF16 {
             (false, true) => Self::parse(&f16),
             (true, false) => Ok(Self::parse(&q4)?.at(RestorePrec::Q4 { group: Q4_GROUP })),
             (false, false) => Err(
-                "LLVQ_RESTORE_F16 et LLVQ_RESTORE_Q4 sont tous deux posés : \
-                 choisir une seule précision"
+                "LLVQ_RESTORE_F16 and LLVQ_RESTORE_Q4 are both set: \
+                 pick one precision only"
                     .into(),
             ),
         }
@@ -179,13 +174,13 @@ impl RestoreF16 {
             let name = raw.trim();
             let Some(known) = PROJ_TYPES.iter().find(|t| **t == name) else {
                 return Err(format!(
-                    "LLVQ_RESTORE_F16={spec:?} : {name:?} n'est pas un type de projection. \
-                     Admis : {}, ou `all`.",
+                    "LLVQ_RESTORE_F16={spec:?}: {name:?} is not a projection type. \
+                     Accepted: {}, or `all`.",
                     PROJ_TYPES.join(", ")
                 ));
             };
             if types.contains(known) {
-                return Err(format!("LLVQ_RESTORE_F16={spec:?} : {name:?} est répété"));
+                return Err(format!("LLVQ_RESTORE_F16={spec:?}: {name:?} is repeated"));
             }
             types.push(known);
         }
@@ -255,7 +250,7 @@ pub fn restore_projections(
     for t in restore.types() {
         anyhow::ensure!(
             names.iter().any(|n| n.ends_with(&format!(".{t}.weight"))),
-            "LLVQ_RESTORE_F16 demande {t}, et l'artefact ne porte aucune matrice de ce type"
+            "LLVQ_RESTORE_F16 asks for {t}, and the artifact carries no matrix of that type"
         );
     }
     for name in names {
@@ -263,7 +258,7 @@ pub fn restore_projections(
         let fresh = source(&name)?;
         anyhow::ensure!(
             fresh.dims() == have.as_slice(),
-            "{name} : l'artefact porte {have:?}, le checkpoint {:?} — ce n'est pas le même modèle",
+            "{name}: the artifact carries {have:?}, the checkpoint {:?}, not the same model",
             fresh.dims()
         );
         done.weights += fresh.elem_count();
@@ -462,8 +457,8 @@ pub fn load_with_restored(
     let (restored, restored_from) = match (restore.is_empty(), checkpoint) {
         (true, _) => (Restored::default(), None),
         (false, None) => anyhow::bail!(
-            "LLVQ_RESTORE_F16={} demande un checkpoint à lire (LLVQ_MODEL) : \
-             les matrices restaurées viennent de là, pas du fichier scellé",
+            "LLVQ_RESTORE_F16={} asks for a checkpoint to read (LLVQ_MODEL): \
+             the restored matrices come from there, not from the sealed file",
             restore.describe()
         ),
         (false, Some(ck)) => {
@@ -609,18 +604,18 @@ mod restore_tests {
             .to_vec1()
             .unwrap();
         assert_eq!(got.len(), v.len());
-        assert!(got != v, "le round-trip a rendu son entrée : rien n'a été quantifié");
+        assert!(got != v, "the round trip returned its input: nothing was quantized");
         // Every value within one step of its group's range: 16 levels over a
         // span of 1.27 gives a step of ~0.085, and the affine grid rounds.
         let step = 1.27 / 15.0;
         for (a, b) in v.iter().zip(&got) {
-            assert!((a - b).abs() <= step, "écart {} > pas {step}", (a - b).abs());
+            assert!((a - b).abs() <= step, "gap {} > step {step}", (a - b).abs());
         }
         // And it must be a *grid*: far fewer distinct values than inputs.
         let mut d: Vec<i64> = got.iter().map(|x| (x * 1e4) as i64).collect();
         d.sort_unstable();
         d.dedup();
-        assert!(d.len() <= 32, "{} valeurs distinctes pour 16 niveaux par groupe", d.len());
+        assert!(d.len() <= 32, "{} distinct values for 16 levels per group", d.len());
     }
 
     #[test]
@@ -732,17 +727,17 @@ mod restore_tests {
             Ok(t(9.0, (4, 9)))
         })
         .unwrap_err();
-        assert!(e.to_string().contains("le même modèle"), "{e}");
+        assert!(e.to_string().contains("not the same model"), "{e}");
     }
 
     #[test]
     fn a_name_the_source_cannot_serve_aborts_the_load() {
         let mut m = artifact(1.0);
         let e = restore_projections(&mut m, &RestoreF16::parse("v_proj").unwrap(), |n| {
-            anyhow::bail!("{n} absent du checkpoint")
+            anyhow::bail!("{n} absent from the checkpoint")
         })
         .unwrap_err();
-        assert!(e.to_string().contains("absent du checkpoint"), "{e}");
+        assert!(e.to_string().contains("absent from the checkpoint"), "{e}");
     }
 
     /// The load path used for a real checkpoint — `MmapedSafetensors::multi`

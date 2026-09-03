@@ -43,7 +43,7 @@ pub const BINOM_STRIDE: usize = DIM + 1;
 /// kind that must take every remaining position gets placed.
 ///
 /// Narrowed from the crate's one `u64` table with a checked cast rather than
-/// re-derived — the largest entry is `C(24,12) = 2 704 156`.
+/// re-derived — the largest entry is `C(24,12) = 2,704,156`.
 pub fn binom_table() -> Vec<u32> {
     let mut t = vec![0u32; BINOM_STRIDE * BINOM_STRIDE];
     for c in 0..BINOM_STRIDE {
@@ -329,7 +329,7 @@ pub fn e1v_fixture(fd: &FastDecoder, pay: &[u32], group: usize) -> (Vec<u64>, Ve
     }
     let widest = (0..fd.n_classes())
         .max_by_key(|&ci| pay[ci])
-        .expect("le codebook n'est pas vide");
+        .expect("the codebook is not empty");
     let (first, last) = fd.class_range(widest);
     for j in 0..E1V_GROUP {
         idx.push(if j % 2 == 0 { first } else { last });
@@ -337,7 +337,7 @@ pub fn e1v_fixture(fd: &FastDecoder, pay: &[u32], group: usize) -> (Vec<u64>, Ve
 
     assert!(
         group.is_multiple_of(E1V_GROUP),
-        "un threadgroup de {group} ne contient pas un nombre entier de groupes E1v"
+        "a threadgroup of {group} does not hold a whole number of E1v groups"
     );
     while !idx.len().is_multiple_of(group) {
         idx.push(0);

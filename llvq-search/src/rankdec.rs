@@ -33,7 +33,7 @@
 //! the *format*: its per-kind ranks are **separate bit fields**, not one packed
 //! integer, because peeling a packed mixed-radix integer needs the division
 //! this arm exists to avoid. That is the `e1v-séparé` variant, and it is why it
-//! costs 53,332 bits/block where the packed one costs 52,975.
+//! costs 53.332 bits/block where the packed one costs 52.975.
 //!
 //! Neither of these is a speed claim. This module produces arrangements; the
 //! nanoseconds are the bench's business, and no count of source-level
@@ -294,7 +294,7 @@ pub fn binomial_walk_counted(
         //
         // 🕳️ **The `u64::MAX` itself is inert on well-formed input, and a
         // surviving mutant is what says so.** Replacing it with plain
-        // `binom(p, c)` passes the integral sweep — 150 681 600 real blocks,
+        // `binom(p, c)` passes the integral sweep — 150,681,600 real blocks,
         // `llvq-artifact/tests/p1_rank_sweep.rs` — because colex unranking
         // consumes its rank exactly: when `c` reaches zero the residual `r` is
         // zero, and `binom(p, 0) == 1 > 0` is already out of reach. So this is
@@ -538,7 +538,7 @@ mod tests {
                 // wrote `j + 1` for the last kind survived all five tests
                 // before this assertion existed — it produced arrangements
                 // where the last kind was absent and 17 to 19 slots carried a
-                // symbol out of range, on 0,11 % of the codebook.
+                // symbol out of range, on 0.11% of the codebook.
                 for (j, &c) in counts.iter().enumerate().take(k) {
                     assert_eq!(
                         out[..n_slots].iter().filter(|&&x| x == j as u8).count(),

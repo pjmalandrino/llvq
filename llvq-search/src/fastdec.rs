@@ -8,7 +8,7 @@
 //! Two things live here:
 //!
 //! * [`FastDecoder::decode`] — same bits, same points as [`Indexer::decode`],
-//!   verified bit-for-bit on every class boundary plus 200 000 uniform draws
+//!   verified bit-for-bit on every class boundary plus 200,000 uniform draws
 //!   (`tests/fastdec.rs`).
 //! * [`ClassLevels`] — the *class-level* facts a runtime format needs. A class
 //!   is a fixed multiset of |values|, so the number of magnitude levels, their

@@ -1,36 +1,36 @@
-"""MMLU d'un GGUF, scoré comme `bin/mmlu` — via llama-server et `n_probs`.
+"""MMLU of a GGUF, scored the way `bin/mmlu` scores it, via llama-server and `n_probs`.
 
-## Pourquoi pas `llama-perplexity --multiple-choice`
+## Why not `llama-perplexity --multiple-choice`
 
-Parce qu'il ne score pas la même chose. Son `multiple_choice_answers` compare la
-vraisemblance des **continuations entières** (`tools/server/../perplexity.cpp:1331`,
-« possible answers (continuations) »), quand `llvq-llm/src/bin/mmlu.rs:420-432`
-compare les **logits de quatre tokens-lettres** à la dernière position, après
-« Answer: ». Deux règles de décision différentes donnent deux métriques
-différentes, et le 70,32 publié est celle de `bin/mmlu`. Employer l'autre
-produirait un nombre qui ne se compare à rien de ce dossier.
+Because it does not score the same thing. Its `multiple_choice_answers` compares
+the likelihood of **whole continuations** (`tools/server/../perplexity.cpp:1331`,
+"possible answers (continuations)"), while `llvq-llm/src/bin/mmlu.rs:420-432`
+compares the **logits of four letter tokens** at the last position, after
+"Answer: ". Two different decision rules give two different metrics, and the
+published 70.32 is the one from `bin/mmlu`. Using the other one would produce a
+number that compares to nothing in this dossier.
 
-## Ce que ce fichier fait à la place
+## What this file does instead
 
-`llama-server` accepte `n_probs` sur `/completion` et rend les probabilités des
-N tokens les plus probables à la position générée. On y lit celles de
-`' A' ' B' ' C' ' D'` — ids 362, 425, 356, 422, vérifiés le 2026-08-30 — et on
-prend l'argmax. Même règle de décision que `bin/mmlu`, à la transformation
-monotone près (probabilités contre logits), qui ne déplace pas l'argmax.
+`llama-server` accepts `n_probs` on `/completion` and returns the probabilities
+of the N most likely tokens at the generated position. We read those of
+`' A' ' B' ' C' ' D'`, ids 362, 425, 356, 422, checked on 2026-08-30, and take
+the argmax. Same decision rule as `bin/mmlu`, up to a monotone transform
+(probabilities instead of logits), which does not move the argmax.
 
-## 🚨 Le piège, et il est traité plutôt que supposé
+## WARNING: the trap, and it is handled rather than assumed
 
-Un top-N ne contient pas forcément les quatre lettres. Une lettre absente
-deviendrait silencieusement une probabilité nulle, donc un pick faux — encore un
-nombre plausible et faux. Ce fichier **compte** les questions où les quatre ne
-sont pas toutes présentes et **refuse de rendre un score** si le compte n'est pas
-nul. C'est la leçon du §5 : ne pas croire un instrument sur parole.
+A top-N does not necessarily contain the four letters. A missing letter would
+silently become a zero probability, so a wrong pick, another plausible and
+false number. This file **counts** the questions where the four are not all
+present and **refuses to return a score** if that count is not zero. That is the
+lesson of §5: do not take an instrument at its word.
 
-## Les prompts ne sont pas réécrits
+## The prompts are not rewritten
 
-Ils viennent de `ops/vllm_score.py`, dont la reconstruction a été vérifiée à
-**2 280 / 2 280 qhash** contre les dumps de référence. Une seconde
-implémentation serait une seconde occasion de diverger.
+They come from `ops/vllm_score.py`, whose reconstruction was checked at
+**2,280 / 2,280 qhash** against the reference dumps. A second implementation
+would be a second chance to diverge.
 """
 
 from __future__ import annotations
@@ -63,14 +63,15 @@ def ask(url: str, prompt: str) -> dict:
 
 
 def letter_logprobs(resp: dict, answer_ids: list[int]) -> list[float] | None:
-    """Les quatre logprobs, ou None si l'une des lettres manque au top-N."""
+    """The four logprobs, or None if one of the letters is missing from the top-N."""
     probs = resp.get("completion_probabilities") or []
     if not probs:
         return None
-    # Le champ est `top_logprobs`, vérifié sur une réponse réelle le 2026-08-30 :
+    # The field is `top_logprobs`, checked on a real response on 2026-08-30:
     #   completion_probabilities[0].top_logprobs = [{id, token, bytes, logprob}, …]
-    # Deviner ce nom aurait rendu None partout — échec bruyant, pas silencieux,
-    # mais échec quand même. On le lit plutôt qu'on ne le suppose.
+    # Guessing that name would have returned None everywhere. A loud failure,
+    # not a silent one, but a failure all the same. We read it rather than
+    # assume it.
     top = probs[0].get("top_logprobs") or []
     by_id = {int(e["id"]): float(e["logprob"]) for e in top if "id" in e}
     out = []
@@ -85,7 +86,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--url", default="http://127.0.0.1:8080")
     ap.add_argument("--arm", required=True)
-    ap.add_argument("--label", required=True, help="ce que le dump nommera")
+    ap.add_argument("--label", required=True, help="what the dump will name it")
     ap.add_argument("--reference-dump", default="docs/data/mmlu-dumps/mmlu-4b-f16.csv")
     ap.add_argument("--out", required=True)
     ap.add_argument("--workers", type=int, default=4)
@@ -95,7 +96,7 @@ def main(argv: list[str]) -> int:
 
     tok = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B")
     answer_ids = [tok.encode(x, add_special_tokens=False)[0] for x in vs.ANSWER_STRINGS]
-    print(f"  tokens de réponse     {answer_ids}")
+    print(f"  answer tokens         {answer_ids}")
 
     wanted, head = vs.read_reference_dump(Path(args.reference_dump))
     test = vs.load_mmlu("test", "main")
@@ -106,8 +107,8 @@ def main(argv: list[str]) -> int:
 
     prompts, items, bad = vs.build_prompts(wanted, test, dev, tok)
     if bad:
-        raise SystemExit(f"🚨 {len(bad)} qhash divergent — rien n'est scoré")
-    print(f"  qhash vérifiés        {len(wanted)}/{len(wanted)} ✅")
+        raise SystemExit(f"ALERT: {len(bad)} qhash diverge, nothing is scored")
+    print(f"  qhash checked         {len(wanted)}/{len(wanted)} OK")
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         resps = list(ex.map(lambda p: ask(args.url, p), prompts))
@@ -122,18 +123,18 @@ def main(argv: list[str]) -> int:
 
     if missing:
         raise SystemExit(
-            f"🚨 {missing} questions sur {len(scores)} n'ont pas les quatre lettres "
-            f"dans le top-{N_PROBS}. Un pick y serait arbitraire. AUCUN SCORE RENDU."
+            f"ALERT: {missing} questions out of {len(scores)} do not have the four "
+            f"letters in the top-{N_PROBS}. A pick would be arbitrary. NOTHING SCORED."
         )
-    print(f"  quatre lettres au top-{N_PROBS} : {len(scores)}/{len(scores)} ✅")
+    print(f"  four letters in the top-{N_PROBS}: {len(scores)}/{len(scores)} OK")
 
     right, total, micro, macro = vs.emit_dump(
         Path(args.out), args.arm, args.label, wanted, items, scores,
         populations, None, "llama.cpp",
     )
-    print(f"\n  MMLU micro            {micro:.2f} %   <-- la métrique du papier")
+    print(f"\n  MMLU micro            {micro:.2f} %   <-- the paper's metric")
     print(f"  MMLU macro            {macro:.2f} %")
-    print(f"  brut                  {right}/{total}")
+    print(f"  raw                   {right}/{total}")
     return 0
 
 

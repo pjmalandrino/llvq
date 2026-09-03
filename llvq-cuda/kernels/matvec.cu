@@ -217,27 +217,25 @@ extern "C" __global__ void tv_slot_seg(const u32* __restrict__ words,
 // f32 → f16, round to nearest even. The inverse of `h2f`, same reasoning: no
 // `cuda_fp16.h` in the runtime image, and `cvt.rn.f16.f32` is the instruction
 // `__float2half` compiles to.
-// 🕳️ **La branche hôte rendait 0, et c'est le même défaut que `h2f` portait
-// jusqu'au 2026-08-09 — corrigé là-bas, laissé ici.** Sa licence était la
-// même phrase : « rien ne l'exécute, seul le code alentour est type-vérifié ».
-// Elle a cessé de tenir le 2026-08-10, quand le bras AWQ est arrivé : son
-// noyau écrit sa sortie par `f2h`, donc un test C++ hôte de `awq_gemv_g128`
-// aurait lu des zéros et serait passé au vert sur n'importe quel noyau — y
-// compris un noyau vide. C'est exactement le motif du §5 de CLAUDE.md : un
-// paramètre à valeur neutre qui rend le test aveugle à ce qu'il prétend
-// couvrir.
+// 🕳️ **The host branch used to return 0, the same defect `h2f` carried until
+// 2026-08-09: fixed there, left here.** Its licence was the same sentence,
+// "nothing executes it, only the surrounding code is type-checked". It stopped
+// holding on 2026-08-10, when the AWQ arm arrived: its kernel writes its output
+// through `f2h`, so a host C++ test of `awq_gemv_g128` would have read zeros and
+// gone green on any kernel whatsoever, an empty one included. This is exactly
+// the pattern of §5 of CLAUDE.md: a neutral-valued parameter that makes the test
+// blind to what it claims to cover.
 //
-// L'arrondi au plus proche pair est reproduit ici en logiciel. Contrairement à
-// l'élargissement de `h2f`, la CONTRACTION n'est pas exacte : elle arrondit,
-// et un arrondi mal fait passerait la plupart des tests en n'échouant qu'aux
-// demi-ulps. D'où les trois cas explicites — débordement vers l'infini,
-// sous-normal, et le demi-cas pair — plutôt qu'un décalage naïf.
+// Round to nearest even is reproduced here in software. Unlike the widening in
+// `h2f`, the CONTRACTION is not exact: it rounds, and a badly done rounding
+// would pass most tests and fail only at the half-ulps. Hence the three explicit
+// cases, overflow to infinity, subnormal, and the even half-case, rather than a
+// naive shift.
 //
-// ⚠️ Le `#else` que NVRTC compile est INCHANGÉ. Le texte de l'unité de
-// traduction grossit, donc son sha256 bouge ; le PTX, lui, ne bouge pas. C'est
-// précisément pourquoi il faudrait imprimer le sha256 du PTX à côté de celui
-// de la source — le second détecte des changements que le premier ne voit pas,
-// et réciproquement.
+// ⚠️ The `#else` that NVRTC compiles is UNCHANGED. The text of the translation
+// unit grows, so its sha256 moves; the PTX does not move. That is precisely why
+// the sha256 of the PTX should be printed next to the one of the source: the
+// second detects changes the first does not see, and the other way round.
 __device__ __forceinline__ unsigned short f2h(float f)
 {
 #ifdef LLVQ_HOST_BUILD
@@ -248,15 +246,15 @@ __device__ __forceinline__ unsigned short f2h(float f)
     u32 man = bits & 0x7fffffu;
 
     if (((bits >> 23) & 0xffu) == 0xffu) {
-        // NaN garde un mantisse non nul ; l'infini la perd.
+        // NaN keeps a non-zero mantissa; infinity loses it.
         return (unsigned short)(sign | 0x7c00u | (man ? 0x0200u : 0u));
     }
     if (exp >= 0x1f) {
-        return (unsigned short)(sign | 0x7c00u);  // déborde → ±inf
+        return (unsigned short)(sign | 0x7c00u);  // overflows → ±inf
     }
     if (exp <= 0) {
-        // Sous-normal binary16, ou zéro. Le bit implicite redevient explicite,
-        // puis on décale de ce qui manque à l'exposant.
+        // Subnormal binary16, or zero. The implicit bit becomes explicit
+        // again, then shift by what the exponent is short of.
         if (exp < -10) {
             return (unsigned short)sign;
         }
@@ -274,7 +272,7 @@ __device__ __forceinline__ unsigned short f2h(float f)
     u32 rem = man & 0x1fffu;
     if (rem > 0x1000u || (rem == 0x1000u && (r & 1u))) {
         ++r;
-        if (r == 0x400u) {  // la mantisse a débordé dans l'exposant
+        if (r == 0x400u) {  // the mantissa overflowed into the exponent
             r = 0;
             ++exp;
             if (exp >= 0x1f) {
@@ -305,7 +303,7 @@ __device__ __forceinline__ unsigned short f2h(float f)
 // `bin/fusedrun` runs both arms at `DType::F16`. Keeping 24 mantissa bits on
 // the card bought precision the reference does not have, at 2 bytes a weight.
 //
-// So this is an *alignment*, not a saving taken out of quality: 16 957 440
+// So this is an *alignment*, not a saving taken out of quality: 16,957,440
 // tail weights on the published 4B, 33.9 MB, −0.067 b/param whole-model. The
 // rounding it introduces lands ~12× (4B `q/k/v/o/gate/up`) to ~34× (4B
 // `down_proj`) under the binary16 rounding `f2h` already applies to `y` two
@@ -314,7 +312,7 @@ __device__ __forceinline__ unsigned short f2h(float f)
 //
 // The bench kernels (`tv_slot`, `tv_slot_seg`, `tv_planes`, `tv_planes12x`,
 // `tv_golay70`) keep `const float*`, deliberately: they are the objects every
-// published millisecond and every published `b/poids noyau` refer to, and
+// published millisecond and every published kernel `b/weight` refer to, and
 // `rtbits` bills their tail at 32 bits. Moving them would move numbers that
 // are already in the dossier. A future `tv_*_seg_h` — the A4 wiring — belongs
 // on *this* side of that line and should call this function.

@@ -149,7 +149,7 @@ impl SubjectScore {
 ///
 /// This is the axis that decides the number, and it is not a detail of
 /// presentation. MMLU's test split is violently unbalanced —
-/// `professional_law` holds 1 534 questions, `abstract_algebra` 100, a ratio
+/// `professional_law` holds 1,534 questions, `abstract_algebra` 100, a ratio
 /// of 15 — so the two averages are different statistics, not two roundings of
 /// one.
 ///
@@ -244,7 +244,7 @@ const DUMP_COLUMNS: &str =
 ///   the same stream; a per-question hash proves it question by question,
 ///   which is what a paired join actually needs. It also survives the one case
 ///   the run-level fingerprint cannot express: a census and a `limit=40` run
-///   share 2 280 questions but necessarily print different run fingerprints,
+///   share 2,280 questions but necessarily print different run fingerprints,
 ///   so only the per-question hash can certify the overlap.
 /// * the four logits, verbatim. `pick` is an argmax and throws away the
 ///   margin: a question missed by 1e-4 and one missed by 8 are the same row
@@ -321,8 +321,8 @@ fn main() -> anyhow::Result<()> {
         } else {
             let repo = std::env::var("LLVQ_MODEL").map_err(|_| {
                 anyhow::anyhow!(
-                    "LLVQ_RESTORE_F16={} demande LLVQ_MODEL=<checkpoint> : les matrices \
-                     restaurées viennent de là",
+                    "LLVQ_RESTORE_F16={} requires LLVQ_MODEL=<checkpoint>: the restored \
+                     matrices come from there",
                     restore.describe()
                 )
             })?;
@@ -345,8 +345,8 @@ fn main() -> anyhow::Result<()> {
     } else {
         anyhow::ensure!(
             restore.is_empty(),
-            "LLVQ_RESTORE_F16={} ne s'applique qu'à un fichier scellé ; {model_arg} est \
-             un checkpoint, qui est déjà tout en f16",
+            "LLVQ_RESTORE_F16={} only applies to a sealed file; {model_arg} is a \
+             checkpoint, which is already all f16",
             restore.describe()
         );
         let ck = llvq_llm::loader::Checkpoint::fetch(&model_arg)?;
@@ -530,16 +530,16 @@ fn main() -> anyhow::Result<()> {
     per_subject.sort_by(|a, b| b.rate().total_cmp(&a.rate()));
     println!("\n{label}");
     println!(
-        "MMLU 5-shot — {total} questions scorées sur {population}, {} matières, dtype {}, tokens {fingerprint:016x}",
+        "MMLU 5-shot — {total} questions scored out of {population}, {} subjects, dtype {}, tokens {fingerprint:016x}",
         per_subject.len(),
         llvq_llm::eval::dtype_name(dtype)
     );
     println!("  {}", "-".repeat(56));
-    println!("  meilleures :");
+    println!("  best:");
     for s in per_subject.iter().take(3) {
         println!("    {:<40}{:>6.1} %", pretty(&s.subject), 100.0 * s.rate());
     }
-    println!("  pires :");
+    println!("  worst:");
     for s in per_subject.iter().rev().take(3) {
         println!("    {:<40}{:>6.1} %", pretty(&s.subject), 100.0 * s.rate());
     }
@@ -549,34 +549,34 @@ fn main() -> anyhow::Result<()> {
     // is a property of MMLU, not noise, and a reader who sees only one number
     // cannot tell which they are holding.
     println!(
-        "  MMLU (micro, = papier) = {:.2} % ± {:.2}  [kv {}]",
+        "  MMLU (micro, = paper) = {:.2} % ± {:.2}  [kv {}]",
         100.0 * mic,
         100.0 * se,
         kv_mode.name()
     );
-    println!("  MMLU (macro, par matière) = {:.2} %", 100.0 * mac);
+    println!("  MMLU (macro, per subject) = {:.2} %", 100.0 * mac);
     // On the result line, not only in the label: an arm whose defining
     // parameter is not printed with its number is an arm nobody can re-read.
     if let Some(n) = &restore_note {
-        println!("  restauré (M2/M2b)        = {n}");
+        println!("  restored (M2/M2b)        = {n}");
     }
     if total < population {
         println!(
-            "  échantillon : {total}/{population} questions, {:.1} % — \
-             ± est l'erreur d'échantillonnage seule",
+            "  sample: {total}/{population} questions, {:.1} % — \
+             ± is the sampling error alone",
             100.0 * total as f64 / population as f64
         );
     }
     if dump.is_some() {
         println!(
-            "\n  Dump écrit. La comparaison de deux bras se fait sur les dumps, pas sur\n  \
-             ces deux lignes : `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`."
+            "\n  Dump written. Two arms are compared on the dumps, not on these two\n  \
+             lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`."
         );
     }
     println!(
-        "\n  Repères papier (Qwen3-4B, Table 6) : FP16 70,2 · LLVQ 60,7 · QTIP 57,4.\n  \
-         Si le FP16 ne tombe pas vers 70, c'est le protocole qu'il faut corriger,\n  \
-         pas le modèle."
+        "\n  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.\n  \
+         If FP16 does not land near 70, the protocol is what needs fixing,\n  \
+         not the model."
     );
     Ok(())
 }
@@ -585,7 +585,7 @@ fn main() -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
-    /// Two subjects, sizes 100 and 1 500, rates 25 % and 80 % — the real shape
+    /// Two subjects, sizes 100 and 1,500, rates 25 % and 80 % — the real shape
     /// of MMLU's tail. Micro and macro must land 12 points apart, and the
     /// sampled estimate must recover the census one.
     fn unbalanced(scored: usize) -> Vec<SubjectScore> {
@@ -645,7 +645,7 @@ mod tests {
     fn stderr_shrinks_with_the_sample() {
         let (few, many) = (micro_stderr(&unbalanced(20)), micro_stderr(&unbalanced(80)));
         assert!(few > many, "{few} should exceed {many}");
-        assert!(many > 0.0, "80 scored out of 1 500 is still a sample");
+        assert!(many > 0.0, "80 scored out of 1,500 is still a sample");
     }
 
     fn corpus(n: usize) -> Vec<MmluItem> {
@@ -797,6 +797,6 @@ mod tests {
             }]
         };
         assert_eq!(micro_stderr(&one(100, 100)), 0.0, "a census cannot have sampling error");
-        assert!(micro_stderr(&one(100, 1_000)) > 0.0, "100 of 1 000 is a sample");
+        assert!(micro_stderr(&one(100, 1_000)) > 0.0, "100 of 1,000 is a sample");
     }
 }

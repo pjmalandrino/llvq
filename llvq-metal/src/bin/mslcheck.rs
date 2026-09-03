@@ -66,7 +66,7 @@ fn main() {
             ),
             Err(e) => {
                 bad += 1;
-                println!("ÉCHEC");
+                println!("FAILED");
                 for line in e.lines().take(40) {
                     println!("      {line}");
                 }

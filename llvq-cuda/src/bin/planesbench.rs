@@ -22,7 +22,7 @@
 //! shares the v2's device buffers — not one stored byte differs between the
 //! two, so the witness arm costs zero VRAM.
 //!
-//! ## `LLVQ_BENCH_ARMS` — the arm selector (lot B, écart É1)
+//! ## `LLVQ_BENCH_ARMS` — the arm selector (lot B, deviation É1)
 //!
 //! Semicolon-separated phases of comma-separated arm names (see
 //! `llvq_cuda::arms` for the whole contract). One process can therefore run
@@ -101,25 +101,25 @@ mod linux {
     const TABLE_ENTRIES: usize = 512;
     const REC_WORDS: usize = 6;
     const TOL: f64 = 1e-5;
-    /// Le seuil du bras concurrent, plus lâche d'un facteur ~100, et pour une
-    /// raison de format et non de complaisance : `awq_gemv_g128` écrit sa
-    /// sortie en **binary16** (`f2h`, dernière ligne de `awq_gemv.cu`) là où
-    /// les cinq bras maison rendent du f32. Une sortie binary16 porte ~2⁻¹¹
-    /// d'erreur relative par construction, donc exiger 1e-5 ici ferait échouer
-    /// un noyau parfaitement juste. Sa RÉFÉRENCE, elle, reste exacte :
-    /// `scale·(q − zero)` est ce que le noyau reconstruit au bit près.
+    /// The competitor arm's threshold, looser by a factor of ~100, for a
+    /// reason of format and not of indulgence: `awq_gemv_g128` writes its
+    /// output in **binary16** (`f2h`, last line of `awq_gemv.cu`) where the
+    /// five in-house arms return f32. A binary16 output carries ~2⁻¹¹ of
+    /// relative error by construction, so demanding 1e-5 here would fail a
+    /// perfectly correct kernel. Its REFERENCE stays exact: `scale·(q − zero)`
+    /// is what the kernel reconstructs bit for bit.
     const AWQ_TOL: f64 = 1e-3;
     const ROUNDS: usize = 7;
     const WARMUP: usize = 2;
     // Arm order inside a round: `arms::ARM_NAMES`, the registration order —
     // Slot32, Planes14, Planes12x, Golay70 v1, FP16, AWQ, Golay70 v2.
     //
-    // ⚠️ L'ordre est celui de l'ENREGISTREMENT, et un bras ajouté l'est
-    // TOUJOURS EN DERNIER — insérer un bras au milieu changerait l'ordre de
-    // dispatch des bras existants dans chaque round, donc l'objet que la
-    // table publiée mesure. AWQ (2026-08-10) puis Golay70 v2 (2026-08-11)
-    // suivent tous deux cette règle. Une sélection `LLVQ_BENCH_ARMS` ne
-    // change jamais cet ordre : elle saute des bras, elle n'en déplace pas.
+    // ⚠️ The order is the REGISTRATION order, and an added arm ALWAYS goes
+    // LAST. Inserting an arm in the middle would change the dispatch order of
+    // the existing arms inside every round, hence the object the published
+    // table measures. AWQ (2026-08-10) then Golay70 v2 (2026-08-11) both
+    // follow this rule. An `LLVQ_BENCH_ARMS` selection never changes this
+    // order: it skips arms, it does not move them.
 
     /// The seven projection shapes of Qwen3-4B, `(name, d_out, d_in)`.
     const SHAPES: [(&str, usize, usize); 7] = [
@@ -150,13 +150,13 @@ mod linux {
     /// inference kernel, and appending to `planes.cu` would change that
     /// string's bytes and its sha256 for a bench's convenience.
     const PLANES_SEG_CU_EMBED: &str = include_str!("../../kernels/planes_seg.cu");
-    /// Le bras concurrent. Il dépend de `h2f`/`f2h`, donc de `matvec.cu`,
-    /// donc il est concaténé APRÈS lui — et en dernier, pour qu'ajouter un
-    /// concurrent ne réordonne jamais les fragments des bras maison.
+    /// The competitor arm. It depends on `h2f`/`f2h`, hence on `matvec.cu`,
+    /// so it is concatenated AFTER it, and last, so that adding a competitor
+    /// never reorders the fragments of the in-house arms.
     const AWQ_CU_EMBED: &str = include_str!("../../kernels/awq_gemv.cu");
-    /// Le bras témoin : la copie GELÉE du décodeur Golay70 publié (v1),
-    /// symboles renommés, tampons partagés avec la v2. Concaténé après AWQ —
-    /// le bras ajouté en dernier ne réordonne aucun fragment existant.
+    /// The witness arm: the FROZEN copy of the published Golay70 decoder
+    /// (v1), symbols renamed, buffers shared with v2. Concatenated after AWQ,
+    /// since the arm added last reorders no existing fragment.
     const GOLAY_V1_CU_EMBED: &str = include_str!("../../kernels/golay70_v1.cu");
 
     fn load_planes_sources() -> Result<(String, String, Option<String>), String> {
@@ -165,7 +165,7 @@ mod linux {
             Ok(dir) => {
                 let rd = |n: &str| {
                     std::fs::read_to_string(std::path::Path::new(&dir).join(n))
-                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: {n}: {e}"))
                 };
                 let cuh = rd("llvq_planes.cuh")?;
                 let cu = rd("planes.cu")?;
@@ -185,7 +185,7 @@ mod linux {
             Ok(dir) => {
                 let rd = |n: &str| {
                     std::fs::read_to_string(std::path::Path::new(&dir).join(n))
-                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: {n}: {e}"))
                 };
                 let cuh = rd("llvq_planes12.cuh")?;
                 let cu = rd("planes12.cu")?;
@@ -201,7 +201,7 @@ mod linux {
             Ok(dir) => {
                 let rd = |n: &str| {
                     std::fs::read_to_string(std::path::Path::new(&dir).join(n))
-                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : {n} : {e}"))
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: {n}: {e}"))
                 };
                 let cuh = rd("llvq_golay.cuh")?;
                 let cu = rd("golay70.cu")?;
@@ -211,17 +211,17 @@ mod linux {
     }
 
     /// Same contract for the one segmented source — the A4 arm's kernel.
-    /// Même contrat que les autres : sans la variable, le texte embarqué ;
-    /// avec, le fichier du répertoire, annoncé bruyamment. C'est aussi le
-    /// chemin par lequel un noyau qu'on ne peut pas vendoriser — QTIP est en
-    /// GPL-3 — entrerait sans être commité.
+    /// Same contract as the others: without the variable, the embedded text;
+    /// with it, the file from the directory, announced loudly. It is also the
+    /// path by which a kernel we cannot vendor, QTIP being GPL-3, would enter
+    /// without being committed.
     fn load_awq_source() -> Result<(String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
             Err(_) => Ok((AWQ_CU_EMBED.to_string(), None)),
             Ok(dir) => {
                 let cu =
                     std::fs::read_to_string(std::path::Path::new(&dir).join("awq_gemv.cu"))
-                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : awq_gemv.cu : {e}"))?;
+                        .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: awq_gemv.cu: {e}"))?;
                 Ok((cu, Some(dir)))
             }
         }
@@ -261,8 +261,8 @@ mod linux {
         let cuh = std::fs::read_to_string(std::path::Path::new(&dir).join("qtip_device.cuh"))
             .map_err(|e| {
                 format!(
-                    "LLVQ_QTIP_DIR={dir} : qtip_device.cuh : {e} — lancer ops/fetch-qtip.sh \
-                     et pointer la variable sur sa sortie"
+                    "LLVQ_QTIP_DIR={dir}: qtip_device.cuh: {e}, run ops/fetch-qtip.sh \
+                     and point the variable at its output"
                 )
             })?;
         // Prelude first — it declares the types the fetched half names.
@@ -276,14 +276,14 @@ mod linux {
                 let cu = std::fs::read_to_string(
                     std::path::Path::new(&dir).join("planes_seg.cu"),
                 )
-                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : planes_seg.cu : {e}"))?;
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: planes_seg.cu: {e}"))?;
                 Ok((cu, Some(dir)))
             }
         }
     }
 
     /// A3 — the occupancy arms of the fusion section (`kernels/planes_occ.cu`,
-    /// préreg `proofs/preregistration-a2-a3-geometrie-2026-08-31.md` §5). A
+    /// prereg `proofs/preregistration-a2-a3-geometrie-2026-08-31.md` §5). A
     /// separate file for the reason planes_seg.cu gives: the translation unit
     /// `fused_cuda.rs` ships must not move for a bench's convenience. Same
     /// `LLVQ_KERNEL_DIR` contract as every loader above.
@@ -296,15 +296,15 @@ mod linux {
                 let cu = std::fs::read_to_string(
                     std::path::Path::new(&dir).join("planes_occ.cu"),
                 )
-                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : planes_occ.cu : {e}"))?;
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: planes_occ.cu: {e}"))?;
                 Ok((cu, Some(dir)))
             }
         }
     }
 
-    /// Même contrat pour la copie gelée v1 — surcharger le TÉMOIN est
-    /// possible mais annoncé aussi bruyamment que les autres : un témoin
-    /// silencieusement remplacé ne témoigne plus de rien.
+    /// Same contract for the frozen v1 copy. Overriding the WITNESS is
+    /// allowed, but announced as loudly as the rest: a witness silently
+    /// replaced attests to nothing.
     fn load_golay_v1_source() -> Result<(String, Option<String>), String> {
         match std::env::var("LLVQ_KERNEL_DIR") {
             Err(_) => Ok((GOLAY_V1_CU_EMBED.to_string(), None)),
@@ -312,7 +312,7 @@ mod linux {
                 let cu = std::fs::read_to_string(
                     std::path::Path::new(&dir).join("golay70_v1.cu"),
                 )
-                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir} : golay70_v1.cu : {e}"))?;
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: golay70_v1.cu: {e}"))?;
                 Ok((cu, Some(dir)))
             }
         }
@@ -332,34 +332,34 @@ mod linux {
         tail: Vec<f32>,
     }
 
-    /// Un tampon dont le bras peut n'entrer qu'à une phase ultérieure : les
-    /// octets sont préparés une seule fois à la construction (le travail
-    /// hôte — références, transcodes — ne se refait pas entre phases), mais
-    /// ils ne montent sur la carte qu'au début de la première phase qui
-    /// chronomètre le bras. Pendant une phase, les FLUX résidents (les Go)
-    /// sont donc exactement ceux des bras de cette phase — l'invariant de
-    /// résidence que le contrôle du §4 du pré-enregistrement doit restituer.
+    /// A buffer whose arm may enter only at a later phase: the bytes are
+    /// prepared once at build time (the host work, references and transcodes,
+    /// is not redone between phases), but they reach the card only at the
+    /// start of the first phase that times the arm. During a phase the
+    /// resident STREAMS (the GB) are therefore exactly those of that phase's
+    /// arms, the residency invariant the §4 control of the preregistration
+    /// must reproduce.
     ///
-    /// ⚠️ Périmètre exact, pour que l'énoncé ne sur-revendique pas : quatre
-    /// tampons CONSTANTS suivent l'UNION des phases et non la phase
-    /// courante — `d_gtab`/`d_cw` (~32 Kio, dès qu'un bras golay70 est
-    /// sélectionné quelque part), `d_xh` (32 Kio) et `d_yh` (~19 Kio, dès
-    /// qu'awq l'est). Ils ne passent pas par cet étage : ~83 Kio au total
-    /// contre ~15 Go de flux, en deçà de toute résolution du banc, et
-    /// déclarés ici plutôt que niés.
+    /// ⚠️ Exact scope, so the claim does not overreach: four CONSTANT buffers
+    /// follow the UNION of the phases and not the current phase.
+    /// `d_gtab`/`d_cw` (~32 KiB, as soon as a golay70 arm is selected
+    /// anywhere), `d_xh` (32 KiB) and `d_yh` (~19 KiB, as soon as awq is).
+    /// They do not go through this stage: ~83 KiB in all against ~15 GB of
+    /// stream, below any resolution of the bench, and declared here rather
+    /// than denied.
     enum Staged<T> {
         Host(Vec<T>),
         Dev(cudarc::driver::CudaSlice<T>),
     }
 
     impl<T> Staged<T> {
-        /// Le tampon device — panique nominative si le bras n'a pas été
-        /// téléversé : un lancement sur un bras non monté est un bug de
-        /// séquencement des phases, jamais un cas à rattraper en silence.
+        /// The device buffer. Named panic if the arm was not uploaded: a
+        /// launch on an unstaged arm is a phase-sequencing bug, never a case
+        /// to be recovered from in silence.
         fn dev(&self) -> &cudarc::driver::CudaSlice<T> {
             match self {
                 Staged::Dev(d) => d,
-                Staged::Host(_) => panic!("bras non téléversé — bug de phase"),
+                Staged::Host(_) => panic!("arm not uploaded, phase bug"),
             }
         }
     }
@@ -378,11 +378,10 @@ mod linux {
         Ok(())
     }
 
-    // ---- un bras sélectionné = une Option construite, et rien d'autre ----
+    // ---- a selected arm = one Option built, and nothing else ----
     //
-    // Chaque bras porte ses tampons ET sa comptabilité d'octets : un bras
-    // écarté n'a ni les uns ni l'autre, donc aucune ligne de table ne peut
-    // citer un bras qui n'a pas tourné.
+    // Every arm carries its buffers AND its byte accounting: a discarded arm
+    // has neither, so no table row can cite an arm that did not run.
 
     struct SlotArm {
         words: Staged<u32>,
@@ -403,9 +402,9 @@ mod linux {
         bytes: u64,
     }
 
-    /// PARTAGÉ par les bras golay70v1 et golay70v2 : zéro octet de format ne
-    /// les distingue, donc un seul jeu de tampons sert les deux — le bras
-    /// témoin v1 ne coûte aucune VRAM.
+    /// SHARED by the golay70v1 and golay70v2 arms: not one format byte
+    /// distinguishes them, so a single set of buffers serves both, and the v1
+    /// witness arm costs no VRAM.
     struct G70Arm {
         words: Staged<u32>,
         exc_idx: Staged<u32>,
@@ -414,9 +413,9 @@ mod linux {
         bytes: u64,
     }
 
-    /// P1c. Le flux E1v aligné ligne, sa table de bases, et le nombre de blocs
-    /// par LIGNE sur lequel il a été coupé — le même que le `nblocks` du noyau,
-    /// porté ici plutôt que recalculé au lancement.
+    /// P1c. The row-aligned E1v stream, its bases table, and the number of
+    /// blocks per ROW it was cut on, the same as the kernel's `nblocks`,
+    /// carried here rather than recomputed at launch.
     struct E1vArm {
         data: Staged<u32>,
         bases: Staged<u32>,
@@ -424,21 +423,20 @@ mod linux {
         bytes: u64,
     }
 
-    // ---- le bras concurrent (AWQ w4g128) ----
+    // ---- the competitor arm (AWQ w4g128) ----
     //
-    // Trois tampons et sa propre référence : son contenu n'est celui
-    // d'aucun autre bras, donc ni `y_ref` (le contenu LLVQ) ni `y16_ref`
-    // (les mêmes poids en binary16) ne le décrivent. Même situation que le
-    // bras FP16, même réponse.
+    // Three buffers and its own reference: its content is no other arm's, so
+    // neither `y_ref` (the LLVQ content) nor `y16_ref` (the same weights in
+    // binary16) describes it. Same situation as the FP16 arm, same answer.
     struct AwqArm {
         w: Staged<u32>,
         z: Staged<u32>,
         s: Staged<u16>,
         bytes: u64,
         y_ref: Vec<f64>,
-        /// Le dénominateur d'erreur PROPRE au bras : `Σ|w·x|` sur ses poids à
-        /// lui. Réutiliser `scale`, calculé sur les poids LLVQ, mesurerait
-        /// l'erreur d'AWQ avec la règle d'un autre format.
+        /// The arm's OWN error denominator: `Σ|w·x|` over its own weights.
+        /// Reusing `scale`, computed on the LLVQ weights, would measure AWQ's
+        /// error by another format's rule.
         scale: Vec<f64>,
     }
 
@@ -482,8 +480,8 @@ mod linux {
         e1v: Option<E1vArm>,
         awq: Option<AwqArm>,
         qtip: Option<QtipArm>,
-        // Le témoin FP16 et les entrées partagées, toujours construits :
-        // fp16 n'est pas désélectionnable (arms::parse_phases le refuse).
+        // The FP16 witness and the shared inputs, always built: fp16 cannot
+        // be deselected (arms::parse_phases refuses it).
         gscale: cudarc::driver::CudaSlice<f32>,
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
@@ -491,16 +489,16 @@ mod linux {
         f16_bytes: u64,
         y_ref: Vec<f64>,
         y16_ref: Vec<f64>,
-        /// La référence du bras cublasf16 : poids f16 × entrée binary16 —
-        /// construite seulement quand le bras l'est.
+        /// The cublasf16 arm's reference: f16 weights × binary16 input, built
+        /// only when the arm is.
         y16h_ref: Option<Vec<f64>>,
         scale: Vec<f64>,
     }
 
-    /// Les octets qu'un bras lit pour une matrice, dans la comptabilité du
-    /// banc — 0 pour un bras non construit, qui n'a de toute façon aucune
-    /// ligne de table où l'imprimer. v1 et v2 partagent la ligne golay70 :
-    /// mêmes tampons, mêmes octets, par construction.
+    /// The bytes an arm reads for one matrix, in the bench's accounting. 0
+    /// for an arm that was not built, which has no table row to print it in
+    /// anyway. v1 and v2 share the golay70 row: same buffers, same bytes, by
+    /// construction.
     fn arm_bytes(m: &Mat, a: usize) -> u64 {
         match a {
             arms::SLOT32 => m.slot.as_ref().map_or(0, |x| x.bytes),
@@ -508,18 +506,17 @@ mod linux {
             arms::PLANES12X => m.p12.as_ref().map_or(0, |x| x.bytes),
             arms::GOLAY70V1 | arms::GOLAY70V2 => m.g70.as_ref().map_or(0, |x| x.bytes),
             arms::E1V => m.e1v.as_ref().map_or(0, |x| x.bytes),
-            // Le plancher ne lit AUCUN poids — c'est sa définition. Ce qui
-            // reste est ce que tout bras LLVQ téléverse de toute façon : la
-            // queue f32 et les échelles de ligne. Sa ligne de table montrera
-            // donc un b/poids quasi nul, et ce n'est pas une anomalie, c'est
-            // le point.
+            // The floor reads NO weight, which is its definition. What is
+            // left is what every LLVQ arm uploads anyway: the f32 tail and
+            // the row scales. Its table row will therefore show a near-zero
+            // b/weight, and that is not an anomaly, it is the point.
             arms::NULLK => ((m.d_out * m.tail_w) as u64 + m.d_out as u64) * 4,
             arms::FP16 => m.f16_bytes,
-            // Mêmes octets que le témoin : cublasf16 lit le MÊME w16.
+            // Same bytes as the witness: cublasf16 reads the SAME w16.
             arms::CUBLASF16 => m.f16_bytes,
             arms::AWQ => m.awq.as_ref().map_or(0, |x| x.bytes),
             arms::QTIP => m.qtip.as_ref().map_or(0, |x| x.bytes),
-            _ => unreachable!("bras inconnu"),
+            _ => unreachable!("unknown arm"),
         }
     }
 
@@ -609,17 +606,17 @@ mod linux {
         Ok(())
     }
 
-    // ---- A3 : les lanceurs des bras d'occupation (kernels/planes_occ.cu) ----
+    // ---- A3: the launchers of the occupancy arms (kernels/planes_occ.cu) ----
     //
-    // Chaque grille et chaque taille de partagée vient de `llvq_cuda::occ`,
-    // testé sur le Mac ; ici on ne fait que les poser dans un LaunchConfig.
-    // Les noyaux n'ont pas de garde de bornes (un `return` avant
-    // `__syncthreads()` bloque), donc une grille inexacte est refusée EN AMONT
-    // par `occ::mr_grid`, jamais rattrapée sur la carte.
+    // Every grid and every shared size comes from `llvq_cuda::occ`, tested on
+    // the Mac; here we only put them into a LaunchConfig. The kernels have no
+    // bounds guard (a `return` before `__syncthreads()` deadlocks), so an
+    // inexact grid is refused UPSTREAM by `occ::mr_grid`, never caught on the
+    // card.
 
-    /// Les bras à signature `tv_planes_seg` — `tv_planes_pad`, `_mr2`, `_mr4`,
-    /// `_mr2p` — sur une grille explicite : un noyau multi-lignes lance
-    /// `d_out / (8R)` CTAs, ce que `row_grid` ne sait pas exprimer.
+    /// The arms with the `tv_planes_seg` signature, `tv_planes_pad`, `_mr2`,
+    /// `_mr4`, `_mr2p`, on an explicit grid: a multi-row kernel launches
+    /// `d_out / (8R)` CTAs, which `row_grid` cannot express.
     #[allow(clippy::too_many_arguments)]
     fn launch_occ_seg(
         cuda: &Cuda,
@@ -650,7 +647,7 @@ mod linux {
         Ok(())
     }
 
-    /// `tv_planes_pers(…, ngroups)` — la grille persistante par site.
+    /// `tv_planes_pers(…, ngroups)`: the persistent grid, one per site.
     #[allow(clippy::too_many_arguments)]
     fn launch_occ_pers(
         cuda: &Cuda,
@@ -681,9 +678,9 @@ mod linux {
         Ok(())
     }
 
-    /// `tv_planes_sk(…, part, done, nsplit, d_out)` — split-K entre CTAs :
-    /// `(d_out / 8) · nsplit` CTAs, les partiels dans `part`, un compteur de
-    /// tickets par groupe dans `done` (remis à zéro par le noyau lui-même).
+    /// `tv_planes_sk(…, part, done, nsplit, d_out)`: split-K across CTAs.
+    /// `(d_out / 8) · nsplit` CTAs, the partials in `part`, one ticket counter
+    /// per group in `done` (zeroed by the kernel itself).
     #[allow(clippy::too_many_arguments)]
     fn launch_occ_sk(
         cuda: &Cuda,
@@ -717,9 +714,9 @@ mod linux {
         Ok(())
     }
 
-    /// `tv_planes_persall(sites, nsites, tab, x, total_groups)` — les sites
-    /// d'un round en UN lancement, la table de sites portant les pointeurs
-    /// (dont la sortie propre de chaque site).
+    /// `tv_planes_persall(sites, nsites, tab, x, total_groups)`: a round's
+    /// sites in ONE launch, the site table carrying the pointers, including
+    /// each site's own output.
     #[allow(clippy::too_many_arguments)]
     fn launch_occ_persall(
         cuda: &Cuda,
@@ -787,9 +784,9 @@ mod linux {
         Ok(())
     }
 
-    /// `tv_nullk(rscale, tail, x, y, nblocks, tail_w)` — le plancher. Même
-    /// grille, même tuilage, même épilogue, aucun tampon de poids : il n'a donc
-    /// ni `Staged` ni structure de bras, seulement un lancement.
+    /// `tv_nullk(rscale, tail, x, y, nblocks, tail_w)`: the floor. Same grid,
+    /// same tiling, same epilogue, no weight buffer, so it has neither a
+    /// `Staged` nor an arm struct, only a launch.
     #[allow(clippy::too_many_arguments)]
     fn launch_nullk(
         cuda: &Cuda,
@@ -812,14 +809,14 @@ mod linux {
     }
 
     /// `tv_e1v(data, bases, tab, pay, binom, golay, gscale, rscale, tail, x, y,
-    /// nblocks, tail_w)` — le bras P1c. Même grille et même épilogue que
-    /// `tv_planes`, un seul lancement, pas de région de corrections et pas de
-    /// `y` remis à zéro : E1v n'a pas d'exceptions, chaque ligne écrit la sienne.
+    /// nblocks, tail_w)`: the P1c arm. Same grid and same epilogue as
+    /// `tv_planes`, a single launch, no correction region and no zeroed `y`.
+    /// E1v has no exceptions, every row writes its own.
     ///
-    /// ⚠️ `nblocks` est le nombre de blocs par LIGNE, et c'est la valeur sur
-    /// laquelle le flux a été coupé. Elle vient de `E1vMat::row_blocks` et non
-    /// d'un second calcul : deux valeurs déplaceraient chaque frontière de
-    /// groupe et le décodage partirait faux dès la deuxième ligne.
+    /// ⚠️ `nblocks` is the number of blocks per ROW, and it is the value the
+    /// stream was cut on. It comes from `E1vMat::row_blocks` and not from a
+    /// second computation: two values would move every group boundary and the
+    /// decode would go wrong from the second row on.
     #[allow(clippy::too_many_arguments)]
     fn launch_e1v(
         cuda: &Cuda,
@@ -896,53 +893,53 @@ mod linux {
         Ok(())
     }
 
-    // ================= le bras concurrent : AWQ 4 bits, w4g128 =================
+    // ================= the competitor arm: AWQ 4-bit, w4g128 =================
     //
-    // Groupe de 128 canaux d'entrée, un facteur d'échelle binary16 et un zéro
-    // de 4 bits par groupe, quatre bits par poids. C'est la configuration des
-    // checkpoints AWQ officiels de Qwen3, et donc la seule que ce bras porte.
+    // A group of 128 input channels, one binary16 scale factor and one 4-bit
+    // zero per group, four bits per weight. This is the configuration of the
+    // official Qwen3 AWQ checkpoints, hence the only one this arm carries.
     const AWQ_GROUP: usize = 128;
 
-    /// Les trois pas de ligne que `awq_gemv_g128` calcule lui-même. Recopiés
-    /// ici parce que l'hôte doit allouer et remplir exactement ce que le noyau
-    /// va lire — et deux d'entre eux sont **rembourrés**, ce qui n'est ni
-    /// cosmétique ni devinable depuis les formes.
+    /// The three row strides `awq_gemv_g128` computes for itself. Copied here
+    /// because the host must allocate and fill exactly what the kernel will
+    /// read, and two of them are **padded**, which is neither cosmetic nor
+    /// guessable from the shapes.
     fn awq_strides(d_in: usize) -> (usize, usize, usize) {
-        let g = d_in / AWQ_GROUP; // groupes réels
+        let g = d_in / AWQ_GROUP; // actual groups
         let npg = g.div_ceil(8); // `num_groups_packed`
         (d_in / 8, npg, npg * 8) // weight_w, zeros_w, sf_w
     }
 
-    /// Octets qu'un bras AWQ lit pour une matrice, **dans la comptabilité du
-    /// banc** : le flux et rien d'autre, rembourrage structurel compris parce
-    /// que le noyau l'indexe vraiment.
+    /// Bytes an AWQ arm reads for one matrix, **in the bench's accounting**:
+    /// the stream and nothing else, structural padding included because the
+    /// kernel really does index it.
     ///
-    /// Pas de queue ni d'échelle de ligne ici, contrairement aux bras LLVQ :
-    /// w4g128 quantifie *toutes* les colonnes, il n'a pas de politique de
-    /// queue. C'est une différence réelle entre les formats, pas un oubli de
-    /// facturation — et elle joue en faveur d'AWQ, donc elle se déclare.
+    /// No tail and no row scale here, unlike the LLVQ arms: w4g128 quantizes
+    /// *every* column, it has no tail policy. That is a real difference
+    /// between the formats, not a billing oversight, and it favours AWQ, so
+    /// it is declared.
     fn awq_bytes(d_out: usize, d_in: usize) -> u64 {
         let (ww, zw, sw) = awq_strides(d_in);
         (d_out * ww * 4 + d_out * zw * 4 + d_out * sw * 2) as u64
     }
 
-    /// Quantifie une ligne de poids en w4g128, l'empaquette dans les trois
-    /// tampons du noyau, et rend le produit scalaire EXACT en f64 de ce que le
-    /// noyau va décoder contre l'activation **telle qu'il la voit**.
+    /// Quantizes one row of weights into w4g128, packs it into the kernel's
+    /// three buffers, and returns the EXACT f64 dot product of what the kernel
+    /// will decode against the activation **as it sees it**.
     ///
-    /// ## Pourquoi la référence se calcule ici et pas ailleurs
+    /// ## Why the reference is computed here and nowhere else
     ///
-    /// Le bras AWQ décode un contenu qui n'est celui d'aucun autre bras : ni
-    /// `y_ref` (le contenu LLVQ) ni `y16_ref` (les mêmes poids en binary16) ne
-    /// le décrivent. Il lui faut la sienne, sur le modèle du bras FP16 — et
-    /// elle est **exacte par construction** : on connaît `q`, `scale` et
-    /// `zero`, donc `scale·(q − zero)` est le poids que le noyau reconstruira,
-    /// au bit près, sans approximation à borner.
+    /// The AWQ arm decodes a content that is no other arm's: neither `y_ref`
+    /// (the LLVQ content) nor `y16_ref` (the same weights in binary16)
+    /// describes it. It needs its own, on the FP16 arm's model, and that one
+    /// is **exact by construction**: we know `q`, `scale` and `zero`, so
+    /// `scale·(q − zero)` is the weight the kernel will reconstruct, bit for
+    /// bit, with no approximation to bound.
     ///
-    /// ⚠️ `xf` est l'activation **arrondie en binary16 puis réélargie**, parce
-    /// que c'est ce que le noyau lit : ses entrées sont des `float4` de huit
-    /// binary16. Utiliser l'activation f32 ici gonflerait l'erreur mesurée d'un
-    /// écart qui n'est pas celui du bras.
+    /// ⚠️ `xf` is the activation **rounded to binary16 then widened back**,
+    /// because that is what the kernel reads: its inputs are `float4` of eight
+    /// binary16. Using the f32 activation here would inflate the measured
+    /// error by a deviation that is not the arm's.
     fn awq_quant_row(
         wrow: &[f64],
         xf: &[f64],
@@ -961,20 +958,20 @@ mod linux {
             let c0 = gi * AWQ_GROUP;
             let seg = &wrow[c0..c0 + AWQ_GROUP];
             let (lo, hi) = seg.iter().fold((f64::MAX, f64::MIN), |(a, b), &v| (a.min(v), b.max(v)));
-            // Échelle et zéro asymétriques sur 4 bits, la convention d'AWQ :
-            // `w ≈ scale·(q − zero)` avec `q ∈ [0, 15]`. Une échelle nulle
-            // n'arrive que sur un groupe constant ; on la force non nulle pour
-            // que la division existe, et le zéro absorbe alors la valeur.
+            // Asymmetric 4-bit scale and zero, the AWQ convention:
+            // `w ≈ scale·(q − zero)` with `q ∈ [0, 15]`. A zero scale happens
+            // only on a constant group; we force it non-zero so the division
+            // exists, and the zero then absorbs the value.
             let mut scale = (hi - lo) / 15.0;
-            // `!(scale > 0.0)` et non `scale <= 0.0` : la forme négée attrape
-            // aussi un NaN (poids NaN en amont), que la forme positive
-            // laisserait passer dans la division.
+            // `!(scale > 0.0)` and not `scale <= 0.0`: the negated form also
+            // catches a NaN (a NaN weight upstream), which the positive form
+            // would let through into the division.
             #[allow(clippy::neg_cmp_op_on_partial_ord)]
             if !(scale > 0.0) {
                 scale = 1.0;
             }
-            // L'échelle traverse un aller-retour binary16 AVANT de servir de
-            // référence : c'est celle-là que le noyau lira, pas la f64.
+            // The scale makes a binary16 round trip BEFORE serving as the
+            // reference: that is the one the kernel will read, not the f64.
             let scale = f16_to_f64(f16_bits(scale as f32));
             let zero = (-lo / scale).round().clamp(0.0, 15.0);
             s_out[gi] = f16_bits(scale as f32);
@@ -1035,10 +1032,10 @@ mod linux {
 
     /// `awq_gemv_g128(inputs, weight, zeros, scaling_factors, outputs, IC, OC)`.
     ///
-    /// La géométrie est **la leur**, recopiée de `gemv_forward_cuda` :
-    /// `dim3 num_blocks(1, OC/4, B)` et `dim3 num_threads(32, 4)`, soit un warp
-    /// par canal de sortie et quatre canaux par bloc. La changer ferait de ce
-    /// bras une mesure de notre réglage, pas de leur noyau.
+    /// The geometry is **theirs**, copied from `gemv_forward_cuda`:
+    /// `dim3 num_blocks(1, OC/4, B)` and `dim3 num_threads(32, 4)`, one warp
+    /// per output channel and four channels per block. Changing it would make
+    /// this arm a measurement of our tuning, not of their kernel.
     #[allow(clippy::too_many_arguments)]
     fn launch_awq(
         cuda: &Cuda,
@@ -1051,7 +1048,7 @@ mod linux {
         d_in: u32,
         d_out: u32,
     ) -> Result<(), String> {
-        assert_eq!(d_out % 4, 0, "AWQ : OC/4 blocs, OC doit être multiple de 4");
+        assert_eq!(d_out % 4, 0, "AWQ: OC/4 blocks, OC must be a multiple of 4");
         let cfg = cudarc::driver::LaunchConfig {
             grid_dim: (1, d_out / 4, 1),
             block_dim: (32, 4, 1),
@@ -1064,11 +1061,11 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
-        // La sélection de bras, AVANT toute construction : une valeur
-        // invalide doit échouer ici, pas après vingt minutes de transcodage.
-        // ⚠️ Elle ne touche PAS l'unité de traduction NVRTC ci-dessous — la
-        // sélection change les tampons et le dispatch, jamais le texte
-        // compilé ni le rapport de registres (le contraire referait É1).
+        // The arm selection, BEFORE any build: an invalid value must fail
+        // here, not after twenty minutes of transcoding.
+        // ⚠️ It does NOT touch the NVRTC translation unit below. The selection
+        // changes the buffers and the dispatch, never the compiled text nor
+        // the register report (the opposite would redo É1).
         let arms_var = std::env::var("LLVQ_BENCH_ARMS").ok();
         let phases = arms::parse_phases(arms_var.as_deref())?;
         let union: ArmSet = {
@@ -1081,26 +1078,27 @@ mod linux {
             u
         };
         if arms_var.is_some() {
-            println!("sélection LLVQ_BENCH_ARMS :");
+            println!("LLVQ_BENCH_ARMS selection:");
             for (k, p) in phases.iter().enumerate() {
-                println!("  phase {}/{} : {}", k + 1, phases.len(), p.label());
+                println!("  phase {}/{}: {}", k + 1, phases.len(), p.label());
             }
         }
-        // A3 : les bras d'occupation de la section Fusion. Parsés ICI, avant
-        // le moindre transcodage, pour qu'un nom faux tue le job dans sa
-        // première seconde et non après ses trois minutes de construction.
-        // Non posée = les quatre bras historiques seuls, table inchangée.
+        // A3: the occupancy arms of the Fusion section. Parsed HERE, before
+        // any transcoding at all, so that a wrong name kills the job in its
+        // first second and not after its three minutes of building. Unset
+        // means the four historical arms alone, table unchanged.
         let seg_arms =
             llvq_cuda::occ::parse_seg_arms(std::env::var("LLVQ_SEG_ARMS").ok().as_deref())?;
         if !seg_arms.is_empty() {
             if !(union.has(arms::SLOT32) && union.has(arms::PLANES14)) {
-                return Err("LLVQ_SEG_ARMS : la section Fusion exige slot32 ET planes14 dans \
-                            LLVQ_BENCH_ARMS — sans eux il n'y a ni flux fusé ni dénominateur"
+                return Err("LLVQ_SEG_ARMS: the Fusion section requires slot32 AND planes14 in \
+                            LLVQ_BENCH_ARMS, without them there is no fused stream and no \
+                            denominator"
                     .to_string());
             }
             println!(
-                "section Fusion, bras A3 (LLVQ_SEG_ARMS) : {} — appendés APRÈS les quatre \
-                 historiques, mêmes rounds, mêmes tampons",
+                "Fusion section, A3 arms (LLVQ_SEG_ARMS): {}, appended AFTER the four \
+                 historical ones, same rounds, same buffers",
                 seg_arms.iter().map(|&a| llvq_cuda::occ::SEG_ARM_NAMES[a]).collect::<Vec<_>>().join(",")
             );
         }
@@ -1122,13 +1120,14 @@ mod linux {
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
         // the same way and the override is reported below like every other.
         let e1v = llvq_cuda::load_sources_many(&["llvq_e1v.cuh", "e1v.cu"])?;
-        // Le plancher (P4 §2.5). Il n'a pas d'en-tête à lui : `matvec.cu` lui
-        // suffit, et il est concaténé après tout le reste comme tout arrivant.
+        // The floor (P4 §2.5). It has no header of its own: `matvec.cu` is
+        // enough, and it is concatenated after everything else like every
+        // arrival.
         let nullk = llvq_cuda::load_sources_many(&["nullk.cu"])?;
-        // A3 (2026-09-01). Toujours dans l'unité, sélectionné ou non — l'unité
-        // ne varie jamais avec la sélection (arms.rs) — et son sha256 bouge
-        // donc pour TOUS les bras : la référence 4,504 ms de F2 ne se reporte
-        // pas, le job re-chronomètre `planes14_seg` dans son propre processus.
+        // A3 (2026-09-01). Always in the unit, selected or not, since the unit
+        // never varies with the selection (arms.rs), so its sha256 moves for
+        // ALL arms: the 4.504 ms reference from F2 does not carry over, the
+        // job re-times `planes14_seg` in its own process.
         let (occcu, occ_overridden) = load_planes_occ_source()?;
         // QTIP (F2). Absent unless `ops/fetch-qtip.sh` has run and
         // `LLVQ_KERNEL_DIR` points at its output; the empty strings below then
@@ -1154,23 +1153,23 @@ mod linux {
             p12cu.as_str(),
             gcuh.as_str(),
             gcu.as_str(),
-            // Le concurrent en dernier : ajouter un bras ne doit jamais
-            // réordonner les fragments des bras maison.
+            // The competitor last: adding an arm must never reorder the
+            // fragments of the in-house arms.
             awqcu.as_str(),
-            // Puis le témoin v1 (2026-08-11), dernier arrivé — même règle.
+            // Then the v1 witness (2026-08-11), latest arrival, same rule.
             gv1cu.as_str(),
-            // Et E1v en dernier (P1c, 2026-08-16) : même règle encore, et
-            // `e1v.cu` a besoin de `matvec.cu` (warp_sum, TILE_BLOCKS), déjà
-            // concaténé en tête.
+            // And E1v last (P1c, 2026-08-16): the same rule again, and
+            // `e1v.cu` needs `matvec.cu` (warp_sum, TILE_BLOCKS), already
+            // concatenated at the head.
             e1v.parts[0].as_str(),
             e1v.parts[1].as_str(),
             nullk.parts[0].as_str(),
-            // A3 après nullk : il n'a besoin que de matvec.cu et de
-            // llvq_planes.cuh, déjà en tête. Inséré AVANT le fragment QTIP,
-            // qui n'est présent que sur une machine ayant fait le fetch — un
-            // fragment à nous ne doit pas dépendre d'un fragment optionnel
-            // qui le précéderait. L'ordre relatif des fragments existants ne
-            // bouge pas d'un cran.
+            // A3 after nullk: it needs only matvec.cu and llvq_planes.cuh,
+            // already at the head. Inserted BEFORE the QTIP fragment, which
+            // is present only on a machine that ran the fetch. A fragment of
+            // ours must not depend on an optional fragment placed before it.
+            // The relative order of the existing fragments does not move one
+            // notch.
             occcu.as_str(),
             // QTIP last, and for the rule that has governed every arrival:
             // adding an arm must never reorder the fragments of the arms that
@@ -1180,46 +1179,46 @@ mod linux {
             qtip_glue,
         ];
         let src = KernelSource::new(&parts);
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &base.overridden_from {
-            println!("  ⚠️ SOURCES Slot32 SURCHARGÉES depuis {d}");
+            println!("  WARNING: Slot32 SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &planes_overridden {
-            println!("  ⚠️ SOURCES Planes14 SURCHARGÉES depuis {d}");
+            println!("  WARNING: Planes14 SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &planes12_overridden {
-            println!("  ⚠️ SOURCES Planes12x SURCHARGÉES depuis {d}");
+            println!("  WARNING: Planes12x SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &awq_overridden {
-            println!("  ⚠️ SOURCE AWQ SURCHARGÉE depuis {d}");
+            println!("  WARNING: AWQ SOURCE OVERRIDDEN from {d}");
         }
         if let Some(d) = &golay_overridden {
-            println!("  ⚠️ SOURCES Golay70 SURCHARGÉES depuis {d}");
+            println!("  WARNING: Golay70 SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &golay_v1_overridden {
-            println!("  ⚠️ SOURCE TÉMOIN Golay70 v1 SURCHARGÉE depuis {d}");
+            println!("  WARNING: Golay70 v1 WITNESS SOURCE OVERRIDDEN from {d}");
         }
         if let Some(d) = &seg_overridden {
-            println!("  ⚠️ SOURCE Planes14 segmentée SURCHARGÉE depuis {d}");
+            println!("  WARNING: segmented Planes14 SOURCE OVERRIDDEN from {d}");
         }
         if let Some(d) = &e1v.overridden_from {
-            println!("  ⚠️ SOURCES E1v SURCHARGÉES depuis {d}");
+            println!("  WARNING: E1v SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &nullk.overridden_from {
-            println!("  ⚠️ SOURCE nullk SURCHARGÉE depuis {d}");
+            println!("  WARNING: nullk SOURCE OVERRIDDEN from {d}");
         }
         if let Some(d) = &occ_overridden {
-            println!("  ⚠️ SOURCE A3 (planes_occ.cu) SURCHARGÉE depuis {d}");
+            println!("  WARNING: A3 SOURCE (planes_occ.cu) OVERRIDDEN from {d}");
         }
         match &qtip_src {
             Some(_) => println!(
-                "  ⚠️ NOYAU QTIP CHARGÉ (GPL v3, non redistribué par ce dépôt — \
-                 voir docs/qtip-provenance.md)"
+                "  WARNING: QTIP KERNEL LOADED (GPL v3, not redistributed by this \
+                 repository, see docs/qtip-provenance.md)"
             ),
             None => {
                 if union.has(arms::QTIP) {
-                    return Err("le bras qtip est sélectionné mais son noyau est absent : \
-                                lancer ops/fetch-qtip.sh et pointer LLVQ_QTIP_DIR dessus"
+                    return Err("the qtip arm is selected but its kernel is absent: run \
+                                ops/fetch-qtip.sh and point LLVQ_QTIP_DIR at it"
                         .to_string());
                 }
             }
@@ -1241,7 +1240,7 @@ mod linux {
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
         println!(
-            "\n{} — {} SM, L2 {:.1} Mo (lue), {} o de partagée par bloc",
+            "\n{}: {} SM, L2 {:.1} MB (read), {} B of shared memory per block",
             dev.name,
             dev.sm_count,
             dev.l2_bytes as f64 / 1e6,
@@ -1262,18 +1261,18 @@ mod linux {
             "tv_golay70",
             "tv_golay70_v1",
             "awq_gemv_g128",
-            // 🚨 `tv_e1v` est ici pour la ligne `local_bytes != 0` juste en
-            // dessous, pas pour la table : le corps PLAT a été choisi contre un
-            // corps 24 % plus rapide sur Metal précisément pour ne rien
-            // déborder, et si ce noyau spille, ce choix était faux et le
-            // chiffre mesure autre chose (pré-enregistrement E1v-CUDA §5.4).
+            // 🚨 `tv_e1v` is here for the `local_bytes != 0` line just below,
+            // not for the table: the FLAT body was chosen over a body 24%
+            // faster on Metal precisely so that nothing spills, and if this
+            // kernel spills then that choice was wrong and the number measures
+            // something else (E1v-CUDA preregistration §5.4).
             "tv_e1v",
             "tv_nullk",
-            // A3 : les sept noyaux d'occupation, rapportés même quand aucun
-            // bras n'est sélectionné — c'est la seule preuve que NVRTC les
-            // accepte, et `mr4` (quatre planes_dot en vol par lane) est le
-            // candidat désigné au spill. Un spill d'un bras A3 NON
-            // sélectionné se déclare sans arrêter la table (ci-dessous).
+            // A3: the seven occupancy kernels, reported even when no arm is
+            // selected. This is the only proof that NVRTC accepts them, and
+            // `mr4` (four planes_dot in flight per lane) is the designated
+            // spill candidate. A spill in a NON-selected A3 arm is declared
+            // without stopping the table (below).
             "tv_planes_pad",
             "tv_planes_mr2",
             "tv_planes_mr4",
@@ -1300,35 +1299,35 @@ mod linux {
         {
             let r = cuda.report(name)?;
             println!(
-                "  {:<10} {:>3} registres, {} o locaux, sm_{}",
+                "  {:<10} {:>3} registers, {} local bytes, sm_{}",
                 r.name, r.num_regs, r.local_bytes, r.binary_version
             );
             if r.local_bytes != 0 {
-                // 🚨 Un spill dans NOTRE noyau arrête tout : il signifie qu'un
-                // choix de conception est faux et que le chiffre mesurerait
-                // autre chose. Dans le noyau d'un CONCURRENT porté tel que
-                // livré, c'est un FAIT à rapporter, pas un défaut à corriger —
-                // leur réglage à notre occupation. Refuser de mesurer serait
-                // choisir de ne pas savoir.
+                // 🚨 A spill in OUR kernel stops everything: it means a design
+                // choice is wrong and the number would measure something
+                // else. In a COMPETITOR's kernel ported as shipped it is a
+                // FACT to report, not a defect to fix, their tuning at our
+                // occupancy. Refusing to measure would be choosing not to
+                // know.
                 if qtip_names.iter().any(|q| q == name) {
                     println!(
-                        "  ⚠️ {name} SPILLE {} o — bras concurrent porté tel que livré, \
-                         mesuré quand même et déclaré (préreg F2 §7 A1)",
+                        "  WARNING: {name} SPILLS {} B, competitor arm ported as shipped, \
+                         measured anyway and declared (F2 prereg §7 A1)",
                         r.local_bytes
                     );
                 } else if llvq_cuda::occ::SEG_KERNEL.contains(&name)
                     && !seg_arms.iter().any(|&a| llvq_cuda::occ::SEG_KERNEL[a] == name)
                 {
-                    // Un bras A3 qui spille ET que personne ne chronomètre :
-                    // un fait à consigner, pas une raison de priver la table
-                    // de ses cinq bras. Sélectionné, il tombe dans le `else`.
+                    // An A3 arm that spills AND that nobody times: a fact to
+                    // record, not a reason to deprive the table of its five
+                    // arms. Selected, it falls into the `else`.
                     println!(
-                        "  ⚠️ {name} SPILLE {} o — bras A3 NON sélectionné, rien ne le \
-                         chronomètre ; à corriger avant de le sélectionner",
+                        "  WARNING: {name} SPILLS {} B, NON-selected A3 arm, nothing times \
+                         it; to be fixed before selecting it",
                         r.local_bytes
                     );
                 } else {
-                    return Err(format!("{name} : {} octets de spill", r.local_bytes));
+                    return Err(format!("{name}: {} spill bytes", r.local_bytes));
                 }
             }
         }
@@ -1347,12 +1346,12 @@ mod linux {
         let table = ClassTable::new(&fd, 1);
         // The Slot32 arm's five-word window bound, re-asserted as every
         // consumer of slot_dot must.
-        assert!(24 + table.worst_width_slot() <= 160, "fenêtre de 5 mots dépassée");
+        assert!(24 + table.worst_width_slot() <= 160, "five-word window exceeded");
         // The Planes14 bound: three bit-planes address 8 levels; the layout
         // is only bijective while every class has at most 5.
         assert!(
             (0..table.n_entries()).all(|e| table.record(e).len <= 5),
-            "une classe dépasse 5 niveaux : 3 plans ne suffisent plus"
+            "a class exceeds 5 levels: 3 planes are no longer enough"
         );
 
         let mut tab = vec![0u32; TABLE_ENTRIES * REC_WORDS];
@@ -1374,13 +1373,13 @@ mod linux {
         // (residue pairs / level values + mod-4 flags + coset flag) and the
         // canonical 4096-codeword table (16 KiB) the 12-bit rank resolves
         // through. Uploaded once, shared by every matrix and by BOTH golay70
-        // arms — and not at all when neither is selected. ⚠️ Conditionnels à
-        // l'UNION des phases, pas à la phase courante : contrairement aux
-        // flux (Staged), ces ~32 Kio résident dès le départ quand un bras
-        // golay70 n'entre qu'en phase 2 — divulgué dans le commentaire de
-        // `Staged`, avec les trois autres tampons de niveau union.
-        // (`golay`/`g70cls`, côté hôte, servent aussi le transcode
-        // conditionnel de `build`.)
+        // arms — and not at all when neither is selected. ⚠️ Conditional on
+        // the UNION of the phases, not on the current phase: unlike the
+        // streams (Staged), these ~32 KiB are resident from the start when a
+        // golay70 arm enters only at phase 2. Disclosed in the `Staged`
+        // comment, along with the three other union-level buffers.
+        // (`golay`/`g70cls`, host side, also serve the conditional transcode
+        // in `build`.)
         let golay = llvq_core::Golay::new();
         let g70cls = golay70_classes(&fd);
         let d_gtab = match g70_needed {
@@ -1392,16 +1391,16 @@ mod linux {
             false => None,
         };
 
-        // Les trois tables constantes du bras E1v, plus les mots de Golay
-        // canoniques. Conditionnelles à l'UNION comme celles de golay70, et
-        // déclarées ici pour la même raison : ~54 Kio de records, 2 Kio de
-        // largeurs, 2,5 Kio de binomiaux et 16 Kio de mots de code résident dès
-        // le départ quand le bras n'entre qu'en phase 2.
+        // The E1v arm's three constant tables, plus the canonical Golay
+        // codewords. Conditional on the UNION like golay70's, and declared
+        // here for the same reason: ~54 KiB of records, 2 KiB of widths,
+        // 2.5 KiB of binomials and 16 KiB of codewords are resident from the
+        // start when the arm enters only at phase 2.
         //
-        // 🚨 Les mots de Golay sont ceux de `Golay::codewords()`, PAS la table
-        // remaniée de golay70 : `llvq_e1v.cuh` indexe `golay[golay_base + gi]`
-        // dans l'ordre canonique du format, et `golay70_gpu_codewords` en produit
-        // un autre. Deux tables qui se ressemblent, et une seule est la bonne.
+        // 🚨 The Golay words are those of `Golay::codewords()`, NOT golay70's
+        // reworked table: `llvq_e1v.cuh` indexes `golay[golay_base + gi]` in
+        // the format's canonical order, and `golay70_gpu_codewords` produces
+        // another one. Two tables that look alike, and only one is right.
         let (d_e1vtab, d_e1vpay, d_e1vbinom, d_e1vcw) = match union.has(arms::E1V) {
             true => {
                 let (tabw, pay, binom) = e1v_tables(&fd, &golay);
@@ -1418,20 +1417,20 @@ mod linux {
         let mut rng = SplitMix64::new(0x6_D07);
         let x: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
         let d_x = cuda.up_f32(&x)?;
-        // L'activation telle que le noyau AWQ la lit : binary16, par float4 de
-        // huit. Les bras LLVQ et FP16 lisent la f32 — c'est une différence de
-        // format entre concurrents, pas un réglage, et elle se déclare. Elle
-        // n'existe que si un bras à entrée binary16 tourne — AWQ, depuis
-        // le 2026-08-18 cublasf16 (GemmEx exige A et B du même type : x doit
-        // être en binary16 comme les poids), et depuis le 2026-08-20 qtip,
-        // dont le noyau lit `const half2* x`.
+        // The activation as the AWQ kernel reads it: binary16, by float4 of
+        // eight. The LLVQ and FP16 arms read the f32. That is a format
+        // difference between competitors, not a tuning knob, and it is
+        // declared. It exists only when an arm with a binary16 input runs:
+        // AWQ, since 2026-08-18 cublasf16 (GemmEx requires A and B of the
+        // same type, so x must be binary16 like the weights), and since
+        // 2026-08-20 qtip, whose kernel reads `const half2* x`.
         //
-        // 🚨 Cette liste est une liste de BRAS, pas une liste de deux noms :
-        // le bras QTIP a été câblé le 2026-08-20 en lisant `d_xh` sans être
-        // ajouté ici, et la commande du pré-enregistrement — `fp16,qtip`,
-        // sans AWQ — aurait donc paniqué sur `expect` après le transcodage,
-        // sur une carte louée. Trouvé par une revue adverse du code, pas par
-        // le typecheck : un `Option` absent est un état parfaitement typé.
+        // 🚨 This list is a list of ARMS, not a list of two names: the QTIP
+        // arm was wired on 2026-08-20 reading `d_xh` without being added
+        // here, so the preregistration command, `fp16,qtip` without AWQ,
+        // would have panicked on `expect` after the transcode, on a rented
+        // card. Found by an adversarial review of the code, not by the
+        // typecheck: a missing `Option` is a perfectly typed state.
         let d_xh = match union.has(arms::AWQ)
             || union.has(arms::CUBLASF16)
             || union.has(arms::QTIP)
@@ -1452,8 +1451,8 @@ mod linux {
             let (d_out, d_in) = (s.d_out, s.d_in);
             let nblocks = d_in / DIM;
             let tail_w = d_in % DIM;
-            assert_eq!(d_out % 8, 0, "{}: CUDA lance des blocs entiers", s.name);
-            assert!(d_in <= x.len(), "{}: d_in {d_in} dépasse l'activation", s.name);
+            assert_eq!(d_out % 8, 0, "{}: CUDA launches whole blocks", s.name);
+            assert!(d_in <= x.len(), "{}: d_in {d_in} overruns the activation", s.name);
             // The Slot32 host transcode is NOT conditional: it is the exact
             // content every LLVQ arm is proved against, and the reference
             // loop below decodes it row by row. What the selection spares is
@@ -1486,24 +1485,24 @@ mod linux {
             let mut y_ref = vec![0.0f64; d_out];
             let mut y16_ref = vec![0.0f64; d_out];
             let mut scale = vec![0.0f64; d_out];
-            // ---- les trois tampons du bras AWQ ----
+            // ---- the AWQ arm's three buffers ----
             //
-            // 🚨 Le tampon de poids porte une QUEUE D'ALLOCATION, et l'oublier
-            // est une `illegal memory access` après vingt minutes de
-            // transcodage. Le chargement `float4` des poids est
-            // INCONDITIONNEL dans leur noyau (`awq_gemv.cu`), alors que la
-            // garde `inputs_ptr_delta + ic_0 < IC/8` ne protège que l'entrée
-            // et l'accumulation. L'indice u32 le plus haut atteint vaut donc
-            // `(OC-1)*weight_w + NPG*128 - 1`, au-delà de `OC*weight_w` quand
-            // `IC/8` n'est pas multiple de `NPG*128`. Les débordements des
-            // lignes intérieures retombent dans la ligne suivante — seule la
-            // dernière sort, d'où une queue unique et non un pas élargi.
+            // 🚨 The weight buffer carries an ALLOCATION TAIL, and forgetting
+            // it is an `illegal memory access` after twenty minutes of
+            // transcoding. The `float4` load of the weights is UNCONDITIONAL
+            // in their kernel (`awq_gemv.cu`), whereas the guard
+            // `inputs_ptr_delta + ic_0 < IC/8` protects only the input and the
+            // accumulation. The highest u32 index reached is therefore
+            // `(OC-1)*weight_w + NPG*128 - 1`, past `OC*weight_w` when `IC/8`
+            // is not a multiple of `NPG*128`. The overruns of the inner rows
+            // fall back into the next row, only the last one goes out, hence a
+            // single tail and not a widened stride.
             let (aww, awz, aws) = awq_strides(d_in);
-            // ⚠️ La queue N'EST PAS allouée ici mais au téléversement. Si elle
-            // l'était, `chunks_mut(chunk * aww)` pourrait rendre une tranche de
-            // plus que `y_ref.chunks_mut(chunk)`, et `zip` s'arrête sur la plus
-            // courte — donc des lignes entières seraient silencieusement non
-            // quantifiées, et le bras passerait au vert sur un tampon à trous.
+            // ⚠️ The tail is NOT allocated here but at upload. If it were,
+            // `chunks_mut(chunk * aww)` could return one slice more than
+            // `y_ref.chunks_mut(chunk)`, and `zip` stops on the shorter one,
+            // so whole rows would silently go unquantized and the arm would
+            // turn green on a buffer full of holes.
             let awq_tail = (awz * 128).saturating_sub(aww);
             let awq_on = union.has(arms::AWQ);
             let mut awq_w = awq_on.then(|| vec![0u32; d_out * aww]);
@@ -1511,31 +1510,32 @@ mod linux {
             let mut awq_s = awq_on.then(|| vec![0u16; d_out * aws]);
             let mut y_awq_ref = awq_on.then(|| vec![0.0f64; d_out]);
             let mut awq_scale = awq_on.then(|| vec![0.0f64; d_out]);
-            // L'activation telle que le noyau AWQ — et cublasf16 — la voit :
-            // binary16. La référence doit être calculée contre celle-ci, pas
-            // contre la f32, sinon on facture au bras un écart qui n'est pas
-            // le sien.
+            // The activation as the AWQ kernel, and cublasf16, sees it:
+            // binary16. The reference must be computed against this one, not
+            // against the f32, otherwise the arm is billed for a deviation
+            // that is not its own.
             let cublas_on = union.has(arms::CUBLASF16);
-            // Même règle, et le même oubli du 2026-08-20 : le bras QTIP forme
-            // sa référence contre l'activation ARRONDIE en binary16, parce que
-            // c'est celle que son noyau lit. Sans cette entrée il n'y a pas de
-            // référence à former du tout.
+            // Same rule, and the same 2026-08-20 oversight: the QTIP arm
+            // forms its reference against the activation ROUNDED to binary16,
+            // because that is the one its kernel reads. Without this input
+            // there is no reference to form at all.
             let qtip_on = union.has(arms::QTIP);
             let xh_f64: Option<Vec<f64>> = (awq_on || cublas_on || qtip_on)
                 .then(|| x[..d_in].iter().map(|&v| f16_to_f64(f16_bits(v))).collect());
-            // La référence du bras cublasf16 : poids f16 × entrée binary16,
-            // accumulée en f64 — ni `y_ref` (poids exacts) ni `y16_ref`
-            // (poids f16 mais entrée f32) ne décrivent ce que GemmEx calcule.
+            // The cublasf16 arm's reference: f16 weights × binary16 input,
+            // accumulated in f64. Neither `y_ref` (exact weights) nor
+            // `y16_ref` (f16 weights but f32 input) describes what GemmEx
+            // computes.
             let mut y16h_ref = cublas_on.then(|| vec![0.0f64; d_out]);
             let nthreads = std::thread::available_parallelism().map_or(8, |n| n.get());
             let chunk = d_out.div_ceil(nthreads);
             let n_chunks = d_out.div_ceil(chunk);
-            // Les tranches par thread des tampons optionnels. ⚠️ Le piège que
-            // cette forme évite : `chunks_mut` sur un Vec VIDE rend zéro
-            // tranche, et le `zip` du pilote s'arrêterait à la plus courte —
-            // toute la boucle de référence sauterait en silence. D'où des
-            // `Vec<Option<&mut [T]>>` de longueur n_chunks EXACTEMENT, dans
-            // tous les cas.
+            // The per-thread slices of the optional buffers. ⚠️ The trap this
+            // shape avoids: `chunks_mut` on an EMPTY Vec returns zero slices,
+            // and the driver's `zip` would stop at the shortest one, so the
+            // whole reference loop would be skipped in silence. Hence
+            // `Vec<Option<&mut [T]>>` of length n_chunks EXACTLY, in every
+            // case.
             fn opt_chunks<T>(
                 v: &mut Option<Vec<T>>,
                 chunk: usize,
@@ -1545,7 +1545,7 @@ mod linux {
                     Some(v) => {
                         let out: Vec<Option<&mut [T]>> =
                             v.chunks_mut(chunk).map(Some).collect();
-                        assert_eq!(out.len(), n, "tranches optionnelles désalignées");
+                        assert_eq!(out.len(), n, "optional slices misaligned");
                         out
                     }
                     None => (0..n).map(|_| None).collect(),
@@ -1596,7 +1596,7 @@ mod linux {
                                     assert_eq!(
                                         (pt, gain),
                                         (ppt, pgain),
-                                        "{}: bloc {} — Planes14 n'est pas une bijection de \
+                                        "{}: block {}, Planes14 is not a bijection of \
                                          Slot32",
                                         src.name,
                                         row * nblocks + p
@@ -1611,8 +1611,8 @@ mod linux {
                                     assert_eq!(
                                         (pt, gain),
                                         (xpt, xgain),
-                                        "{}: bloc {} — l'overlay Planes12x ne reconstruit pas \
-                                         l'exact",
+                                        "{}: block {}, the Planes12x overlay does not \
+                                         reconstruct the exact block",
                                         src.name,
                                         row * nblocks + p
                                     );
@@ -1627,7 +1627,8 @@ mod linux {
                                     assert_eq!(
                                         (pt, gain),
                                         (gpt, ggain),
-                                        "{}: bloc {} — Golay70 ne reconstruit pas l'exact",
+                                        "{}: block {}, Golay70 does not reconstruct the exact \
+                                         block",
                                         src.name,
                                         row * nblocks + p
                                     );
@@ -1654,7 +1655,7 @@ mod linux {
                                 w16c[lr * d_in + c] = hb;
                                 a += wv * xv;
                                 b += f16_to_f64(hb) * xv;
-                                // Entrée binary16 : la somme que GemmEx voit.
+                                // binary16 input: the sum GemmEx sees.
                                 if let Some(xhv) = xh.as_deref() {
                                     bh += f16_to_f64(hb) * xhv[c];
                                 }
@@ -1666,12 +1667,12 @@ mod linux {
                                 y16hc[lr] = bh;
                             }
                             scc[lr] = ss;
-                            // Le bras concurrent, sur les MÊMES poids : w4g128
-                            // appliqué à ce que LLVQ a reconstruit. Ce n'est
-                            // pas le checkpoint AWQ de Qwen — c'est un w4g128
-                            // fidèle en TEMPS (le noyau n'a aucune branche
-                            // dépendante des données) et exact en RÉFÉRENCE,
-                            // et il ne portera aucune phrase de qualité.
+                            // The competitor arm, on the SAME weights: w4g128
+                            // applied to what LLVQ reconstructed. This is not
+                            // Qwen's AWQ checkpoint, it is a w4g128 faithful
+                            // in TIME (the kernel has no data-dependent
+                            // branch) and exact in REFERENCE, and it will
+                            // carry no quality claim.
                             if let (Some(awc), Some(azc), Some(asc), Some(yawc), Some(asqc)) = (
                                 awc.as_deref_mut(),
                                 azc.as_deref_mut(),
@@ -1679,7 +1680,7 @@ mod linux {
                                 yawc.as_deref_mut(),
                                 asqc.as_deref_mut(),
                             ) {
-                                let xh = xh.as_ref().expect("xh_f64 construit avec le bras");
+                                let xh = xh.as_ref().expect("xh_f64 built with the arm");
                                 yawc[lr] = awq_quant_row(
                                     &wrow,
                                     xh,
@@ -1688,7 +1689,7 @@ mod linux {
                                     &mut azc[lr * awz..(lr + 1) * awz],
                                     &mut asc[lr * aws..(lr + 1) * aws],
                                 );
-                                // Son dénominateur d'erreur, sur ses poids à lui.
+                                // Its error denominator, on its own weights.
                                 let mut sa = 0.0f64;
                                 for c in 0..d_in {
                                     sa += (wrow[c] * xh[c]).abs();
@@ -1700,7 +1701,7 @@ mod linux {
                 }
             });
 
-            // ---- l'étage : Dev pour la phase 1, Host pour les suivantes ----
+            // ---- the stage: Dev for phase 1, Host for the ones after ----
             let up_or_hold_u32 = |v: Vec<u32>, in_p0: bool| -> Result<Staged<u32>, String> {
                 Ok(if in_p0 { Staged::Dev(cuda.up_u32(&v)?) } else { Staged::Host(v) })
             };
@@ -1834,20 +1835,20 @@ mod linux {
                 None => None,
             };
 
-            // P1c. Le flux servable : `transcode_e1v_rows` via `e1v_host.rs`,
-            // coupé sur `d_in / 24` blocs par ligne pour qu'un groupe n'enjambe
-            // jamais une ligne — sans quoi aucun warp ne lirait un seul groupe
-            // (X3). Aucune recherche, aucune exception : un transcodage direct.
+            // P1c. The servable stream: `transcode_e1v_rows` through
+            // `e1v_host.rs`, cut on `d_in / 24` blocks per row so that a group
+            // never straddles a row, failing which no warp would read a single
+            // group (X3). No search, no exception, a direct transcode.
             let e1v_arm = match union.has(arms::E1V) {
                 true => {
                     let em = e1v_mat(&fd, &golay, &s.indices, &s.gains, d_in)?;
                     let in0 = phase0.has(arms::E1V);
                     Some(E1vArm {
                         row_blocks: em.row_blocks,
-                        // La facture du bras : le flux et sa table de bases,
-                        // plus la queue f32 et les échelles de ligne que TOUT
-                        // bras LLVQ téléverse — la comptabilité `slot32` de
-                        // vingt lignes plus haut, à l'identique.
+                        // The arm's bill: the stream and its bases table, plus
+                        // the f32 tail and the row scales that EVERY LLVQ arm
+                        // uploads, the `slot32` accounting twenty lines above,
+                        // identical.
                         bytes: em.bytes + (d_out * tail_w) as u64 * 4 + d_out as u64 * 4,
                         data: up_or_hold_u32(em.data, in0)?,
                         bases: up_or_hold_u32(em.bases, in0)?,
@@ -1861,14 +1862,13 @@ mod linux {
                     let in0 = phase0.has(arms::AWQ);
                     Some(AwqArm {
                         w: {
-                            // La queue d'allocation, ajoutée ICI et nulle part
-                            // ailleurs : le noyau lit jusqu'à `NPG*128` mots
-                            // au-delà du début de la dernière ligne, et ces
-                            // mots doivent exister. Ils ne sont PAS facturés —
-                            // c'est une marge d'adressage, pas un octet que
-                            // l'algorithme transporte, et la facturer
-                            // gonflerait le bras concurrent d'un poids qu'il
-                            // ne porte pas.
+                            // The allocation tail, added HERE and nowhere
+                            // else: the kernel reads up to `NPG*128` words
+                            // past the start of the last row, and those words
+                            // must exist. They are NOT billed, being an
+                            // addressing margin and not a byte the algorithm
+                            // carries, and billing them would inflate the
+                            // competitor arm by a weight it does not bear.
                             let mut wup = awq_w;
                             wup.resize(d_out * aww + awq_tail, 0);
                             up_or_hold_u32(wup, in0)?
@@ -1892,7 +1892,7 @@ mod linux {
             //  * the payload is pseudo-random, so the weights it decodes are
             //    nobody's weights. See `QtipArm`. The seed is derived from the
             //    shape so a matrix gets the same stream in every phase and in
-            //    every process — a control run must restitute the same object,
+            //    every process — a control run must reproduce the same object,
             //    and a clock-seeded buffer would silently break that.
             //  * the reference is exact, so this arm is held to OUR threshold
             //    (`TOL`), not to the looser `AWQ_TOL`. That looser bound exists
@@ -1903,27 +1903,27 @@ mod linux {
                     use llvq_cuda::qtip_host as qh;
                     let kernel = qh::kernel_name(d_out, d_in).ok_or_else(|| {
                         format!(
-                            "{}: QTIP n'a pas de shim pour {d_out}x{d_in} — \
-                             ajouter la forme à kernels/qtip_glue.cu et à \
-                             qtip_host::QTIP_SHAPES, plutôt que de deviner un nom",
+                            "{}: QTIP has no shim for {d_out}x{d_in}, add the \
+                             shape to kernels/qtip_glue.cu and to \
+                             qtip_host::QTIP_SHAPES rather than guess a name",
                             s.name
                         )
                     })?;
-                    // 🚨 Dérivée du NOM de la matrice, pas de sa seule forme.
-                    // Une graine par forme donnait 5 payloads distincts
-                    // répliqués 36 fois : les 252 matrices auraient produit
-                    // 21 504 lignes réellement distinctes au lieu des
-                    // 1 105 920 que la vérification prétend couvrir, et 36
-                    // répliques d'un même contenu ne testent qu'une fois.
-                    // Le nom reste déterministe d'un run à l'autre, donc un
-                    // run de contrôle restitue le même objet.
+                    // 🚨 Derived from the matrix NAME, not from its shape
+                    // alone. One seed per shape gave 5 distinct payloads
+                    // replicated 36 times: the 252 matrices would have
+                    // produced 21,504 genuinely distinct rows instead of the
+                    // 1,105,920 the verification claims to cover, and 36
+                    // replicas of one content test it once. The name stays
+                    // deterministic from run to run, so a control run
+                    // reproduces the same object.
                     let mut seed = 0xF2_0000_0000u64 ^ ((d_out as u64) << 20) ^ d_in as u64;
                     for b in s.name.as_bytes() {
                         seed = seed.rotate_left(7) ^ u64::from(*b);
                     }
                     let buf = qh::pseudo_random_buffer(d_out, d_in, seed);
                     let tlut = qh::pseudo_random_tlut(seed ^ 0x5EED);
-                    let xf = xh_f64.as_ref().expect("activation binary16 en f64 non construite");
+                    let xf = xh_f64.as_ref().expect("binary16 activation in f64 not built");
                     let mut y = vec![0.0f64; d_out];
                     let mut sc = vec![0.0f64; d_out];
                     for row in 0..d_out {
@@ -1978,15 +1978,15 @@ mod linux {
         };
 
         println!(
-            "\nConstruction — transcodage Slot32 (référence, toujours){}{}{}{}, preuves \
-             de reconstruction exacte des bras construits…",
+            "\nBuild: Slot32 transcode (reference, always){}{}{}{}, exact-reconstruction \
+             proofs of the arms that were built…",
             if union.has(arms::PLANES14) { ", Planes14" } else { "" },
             if union.has(arms::PLANES12X) {
-                ", Planes12x (swap L = 5 → L ≤ 4 inclus)"
+                ", Planes12x (L = 5 → L ≤ 4 swap included)"
             } else {
                 ""
             },
-            if g70_needed { ", Golay70 (trous origine + exceptions E2)" } else { "" },
+            if g70_needed { ", Golay70 (origin holes + E2 exceptions)" } else { "" },
             if union.has(arms::AWQ) { ", AWQ w4g128" } else { "" },
         );
         let t0 = Instant::now();
@@ -2009,14 +2009,14 @@ mod linux {
                 let mut r = std::io::BufReader::new(f);
                 let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
                 println!("  {path} — {} matrices", h.matrices);
-                source = format!("le modèle publié ({path})");
+                source = format!("the published model ({path})");
                 for _ in 0..h.matrices {
                     let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
                     // Every decoder hard-codes one gain bit (`hdr >> 9`).
                     assert_eq!(
                         m.centroids.len(),
                         2,
-                        "{}: les noyaux codent 1 bit de gain en dur",
+                        "{}: the kernels hard-code 1 gain bit",
                         m.name
                     );
                     n_weights += (m.d_out * m.d_in) as u64;
@@ -2037,7 +2037,7 @@ mod linux {
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
             None => {
-                source = format!("{reps} répétitions synthétiques des 7 formes");
+                source = format!("{reps} synthetic repetitions of the 7 shapes");
                 for r in 0..reps {
                     for &(name, d_out, d_in) in &SHAPES {
                         let n = d_out * (d_in / DIM);
@@ -2098,43 +2098,43 @@ mod linux {
             parts: Vec<usize>,
         }
 
-        // 🕳️ **Le bras de fusion (A4) se construit APRÈS la table des cinq
-        // bras, et non plus ici.** Il y était, et il déplaçait deux fois
-        // l'objet que la table mesure — sans qu'aucune ligne de log le dise :
+        // 🕳️ **The fusion arm (A4) is built AFTER the five-arm table, and no
+        // longer here.** It used to be here, and it moved the object the table
+        // measures twice over, with no log line saying so:
         //
-        //   * `max_dout` chaînait les `d_out` fusionnés, donc `d_y` passait de
-        //     9 728 à 19 456. Or `Planes12x` et `Golay70` font leur
-        //     `memset_zeros(y)` sur **tout** le slice et **dans le
-        //     chronomètre** (choix revendiqué, cf. `launch_planes12x`). Les
-        //     deux bras à correction payaient donc ~9,8 Mo de plus par passe,
-        //     ~+0,4 %, que dans le run qui a publié leurs chiffres — un biais
-        //     systématique et unidirectionnel, sur exactement les deux bras
-        //     dont on veut savoir s'ils ont dérivé.
-        //   * ses ~2,9 Go de flux fusés restaient résidents pendant le
-        //     chronométrage des cinq bras, portant l'occupation de ~15,3 à
-        //     ~18,4 Go. La pression VRAM est le suspect nommé de la dispersion
-        //     ×20 observée au passage de quatre à cinq bras.
+        //   * `max_dout` chained the fused `d_out`, so `d_y` went from 9,728
+        //     to 19,456. But `Planes12x` and `Golay70` do their
+        //     `memset_zeros(y)` over the **whole** slice and **inside the
+        //     timer** (a claimed choice, see `launch_planes12x`). The two
+        //     correction arms therefore paid ~9.8 MB more per pass, ~+0.4%,
+        //     than in the run that published their numbers: a systematic and
+        //     one-directional bias, on exactly the two arms we want to know
+        //     whether they drifted.
+        //   * its ~2.9 GB of fused streams stayed resident while the five arms
+        //     were being timed, taking occupancy from ~15.3 to ~18.4 GB. VRAM
+        //     pressure is the named suspect for the ×20 spread observed going
+        //     from four arms to five.
         //
-        // Aucun des deux n'est un bug : ce sont des effets de bord d'un lot
-        // ajouté après coup (A4, commit 2d56cce, 2026-08-09). Mais ils
-        // rendaient la table des cinq bras **incomparable au run qui l'a
-        // publiée**, et c'est la seule chose que cette table doit garantir.
+        // Neither is a bug: they are side effects of a lot added afterwards
+        // (A4, commit 2d56cce, 2026-08-09). But they made the five-arm table
+        // **incomparable with the run that published it**, and that is the one
+        // thing this table has to guarantee.
         let max_dout = mats.iter().map(|m| m.d_out).max().unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
-        // Le bras AWQ écrit une sortie binary16 — c'est ce que fait leur
-        // noyau. Un tampon séparé plutôt qu'une réinterprétation de `d_y` :
-        // deux types, deux tampons, et rien qui puisse se recouvrir — et
-        // pas de tampon du tout quand le bras n'est pas sélectionné.
+        // The AWQ arm writes a binary16 output, which is what their kernel
+        // does. A separate buffer rather than a reinterpretation of `d_y`:
+        // two types, two buffers, and nothing that can overlap, and no buffer
+        // at all when the arm is not selected.
         let mut d_yh = match union.has(arms::AWQ) || union.has(arms::CUBLASF16) {
             true => Some(cuda.zeros_u16(max_dout)?),
             false => None,
         };
-        // Imprimé parce qu'il ne l'était pas : c'est ce silence qui a laissé
-        // `d_y` doubler sans que personne ne puisse le lire dans un log.
-        println!("  d_y : {max_dout} f32 — la table, et rien d'autre (la section A4 a le sien)");
+        // Printed because it was not: that silence is what let `d_y` double
+        // with nobody able to read it in a log.
+        println!("  d_y: {max_dout} f32, the table and nothing else (section A4 has its own)");
         println!(
-            "  {} matrices, {:.2} Md de poids, en {:.0} s — preuves bloc par bloc des \
-             bras construits",
+            "  {} matrices, {:.2} G weights, in {:.0} s, block-by-block proofs of the \
+             arms that were built",
             mats.len(),
             n_weights as f64 / 1e9,
             t0.elapsed().as_secs_f64()
@@ -2153,11 +2153,11 @@ mod linux {
         let f_awq = cuda.func("awq_gemv_g128")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
 
-        // Chaque fermeture n'est appelée que si son bras est dans la phase
-        // courante ; le `expect` nominatif transforme toute erreur de
-        // séquencement en panique lisible plutôt qu'en mesure d'un bras vide.
+        // Each closure is called only if its arm is in the current phase; the
+        // named `expect` turns any sequencing error into a readable panic
+        // rather than into the measurement of an empty arm.
         let run_slot = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-            let a = m.slot.as_ref().expect("bras slot32 non construit");
+            let a = m.slot.as_ref().expect("slot32 arm not built");
             cuda.launch_slot(
                 &f_slot, a.words.dev(), a.bases.dev(), &d_tab, &m.gscale, &m.rscale,
                 &m.tail, &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32,
@@ -2165,7 +2165,7 @@ mod linux {
             )
         };
         let run_planes = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-            let a = m.planes.as_ref().expect("bras planes14 non construit");
+            let a = m.planes.as_ref().expect("planes14 arm not built");
             launch_planes(
                 &cuda, &f_planes, a.pwords.dev(), &d_tab, &m.gscale, &m.rscale, &m.tail,
                 &d_x, y, m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
@@ -2178,46 +2178,46 @@ mod linux {
             )
         };
         let run_e1v = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-            let a = m.e1v.as_ref().expect("bras e1v non construit");
-            // 🚨 `a.row_blocks`, pas `m.nblocks` — ce sont le même nombre, et
-            // c'est justement pourquoi on prend celui que la COUPE a utilisé :
-            // le jour où ils divergeraient, le flux serait juste et le noyau
-            // lirait ailleurs. L'assertion le dit avant le lancement.
+            let a = m.e1v.as_ref().expect("e1v arm not built");
+            // 🚨 `a.row_blocks`, not `m.nblocks`. They are the same number,
+            // and that is exactly why we take the one the CUT used: the day
+            // they diverge, the stream would be right and the kernel would
+            // read elsewhere. The assertion says so before the launch.
             assert_eq!(
                 a.row_blocks, m.nblocks,
-                "{} : le flux est coupé sur {} blocs par ligne et le noyau en lirait {}",
+                "{}: the stream is cut on {} blocks per row and the kernel would read {}",
                 m.name, a.row_blocks, m.nblocks
             );
             launch_e1v(
                 &cuda, &f_e1v, a.data.dev(), a.bases.dev(),
-                d_e1vtab.as_ref().expect("tables E1v non téléversées"),
-                d_e1vpay.as_ref().expect("tables E1v non téléversées"),
-                d_e1vbinom.as_ref().expect("tables E1v non téléversées"),
-                d_e1vcw.as_ref().expect("tables E1v non téléversées"),
+                d_e1vtab.as_ref().expect("E1v tables not uploaded"),
+                d_e1vpay.as_ref().expect("E1v tables not uploaded"),
+                d_e1vbinom.as_ref().expect("E1v tables not uploaded"),
+                d_e1vcw.as_ref().expect("E1v tables not uploaded"),
                 &m.gscale, &m.rscale, &m.tail, &d_x, y,
                 a.row_blocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
         let run_planes12x =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-                let a = m.p12.as_ref().expect("bras planes12x non construit");
+                let a = m.p12.as_ref().expect("planes12x arm not built");
                 launch_planes12x(
                     &cuda, &f_planes12x, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(),
                     &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y, m.nblocks as u32,
                     m.tail_w as u32, a.n_exc as u32, m.d_out as u32, THREADS, shared,
                 )
             };
-        // v1 et v2 : mêmes tampons, même grille, même protocole memset —
-        // seul le NOYAU change. C'est toute la comparaison.
+        // v1 and v2: same buffers, same grid, same memset protocol, only the
+        // KERNEL changes. That is the whole comparison.
         let run_g70 = |m: &Mat,
                        f: &cudarc::driver::CudaFunction,
                        y: &mut cudarc::driver::CudaSlice<f32>|
          -> Result<(), String> {
-            let a = m.g70.as_ref().expect("bras golay70 non construit");
+            let a = m.g70.as_ref().expect("golay70 arm not built");
             launch_golay70(
                 &cuda, f, a.words.dev(), a.exc_idx.dev(), a.exc_words.dev(),
-                d_cw.as_ref().expect("tables golay70 non téléversées"),
-                d_gtab.as_ref().expect("tables golay70 non téléversées"),
+                d_cw.as_ref().expect("golay70 tables not uploaded"),
+                d_gtab.as_ref().expect("golay70 tables not uploaded"),
                 &d_tab, &m.gscale, &m.rscale, &m.tail, &d_x, y,
                 m.nblocks as u32, m.tail_w as u32, a.n_exc as u32, m.d_out as u32,
                 THREADS, shared,
@@ -2225,10 +2225,10 @@ mod linux {
         };
         let run_awq =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
-                let a = m.awq.as_ref().expect("bras awq non construit");
+                let a = m.awq.as_ref().expect("awq arm not built");
                 launch_awq(
                     &cuda, &f_awq,
-                    d_xh.as_ref().expect("activation binary16 non téléversée"),
+                    d_xh.as_ref().expect("binary16 activation not uploaded"),
                     a.w.dev(), a.z.dev(), a.s.dev(), y,
                     m.d_in as u32, m.d_out as u32,
                 )
@@ -2259,44 +2259,43 @@ mod linux {
         };
         let run_qtip =
             |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
-                let a = m.qtip.as_ref().expect("bras qtip non construit");
+                let a = m.qtip.as_ref().expect("qtip arm not built");
                 let f = &qtip_funcs
                     .iter()
                     .find(|(n, _)| *n == a.kernel)
-                    .expect("shim qtip non résolu")
+                    .expect("qtip shim not resolved")
                     .1;
                 launch_qtip(
                     &cuda,
                     f,
                     y,
                     a.compressed.dev(),
-                    d_xh.as_ref().expect("activation binary16 non téléversée"),
+                    d_xh.as_ref().expect("binary16 activation not uploaded"),
                     a.codebook.dev(),
                 )
             };
         let run_f16 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
-        // Le dénominateur cuBLAS (F1, 2026-08-18) : un handle lié au MÊME
-        // stream que tous les lancements, pour que `cuda.sync()` borne aussi
-        // ses appels — un handle sur un autre stream chronométrerait des
-        // enqueues, pas des exécutions.
+        // The cuBLAS denominator (F1, 2026-08-18): a handle bound to the SAME
+        // stream as every launch, so that `cuda.sync()` bounds its calls too.
+        // A handle on another stream would time enqueues, not executions.
         let blas = match union.has(arms::CUBLASF16) {
             true => Some(
                 cudarc::cublas::CudaBlas::new(cuda.stream().clone())
-                    .map_err(|e| format!("cublasCreate : {e:?}"))?,
+                    .map_err(|e| format!("cublasCreate: {e:?}"))?,
             ),
             false => None,
         };
         let run_cublas = |m: &Mat, y: &mut cudarc::driver::CudaSlice<u16>| -> Result<(), String> {
             use cudarc::cublas::{result as cbr, sys as cbs};
             use cudarc::driver::{DevicePtr, DevicePtrMut};
-            let blas = blas.as_ref().expect("bras cublasf16 non construit");
-            let xh = d_xh.as_ref().expect("activation binary16 non téléversée");
-            // W est d_out×d_in row-major, donc (d_in, d_out) en colonne-major
-            // avec lda = d_in ; op(A) = T rend le (d_out, d_in) que veut le
-            // matvec y = W·x, n = 1. Tout en R_16F, accumulation 32F — le
-            // combo GemmEx standard, celui que candle emploie.
+            let blas = blas.as_ref().expect("cublasf16 arm not built");
+            let xh = d_xh.as_ref().expect("binary16 activation not uploaded");
+            // W is d_out×d_in row-major, hence (d_in, d_out) column-major
+            // with lda = d_in; op(A) = T gives the (d_out, d_in) that the
+            // matvec y = W·x wants, n = 1. All in R_16F, 32F accumulation,
+            // the standard GemmEx combo, the one candle uses.
             let (wp, _wg) = m.w16.device_ptr(cuda.stream());
             let (xp, _xg) = xh.device_ptr(cuda.stream());
             let (yp, _yg) = y.device_ptr_mut(cuda.stream());
@@ -2323,7 +2322,7 @@ mod linux {
                     cbs::cublasComputeType_t::CUBLAS_COMPUTE_32F,
                     cbs::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
                 )
-                .map_err(|e| format!("cublasGemmEx : {e:?}"))
+                .map_err(|e| format!("cublasGemmEx: {e:?}"))
             }
         };
         let run_slot_seg =
@@ -2343,18 +2342,18 @@ mod linux {
                 )
             };
 
-        // ---- vérification f64, PAR BRAS — au plus tard avant la première
-        // phase qui chronomètre le bras (la garde du §7 du
-        // pré-enregistrement : jamais un chronométrage avant sa preuve).
+        // ---- f64 verification, PER ARM, at the latest before the first
+        // phase that times the arm (the §7 guard of the preregistration:
+        // never a timing before its proof).
         //
-        // Les commentaires de fond des six vérifications d'origine tiennent
-        // inchangés : même référence exacte pour tous les bras LLVQ (la
-        // preuve de l'overlay Planes12x et de la correction E2 est justement
-        // qu'ils l'atteignent), y16_ref pour le témoin FP16, et pour AWQ SA
-        // référence, SON dénominateur et SA tolérance — plus lâche d'un
-        // facteur ~100 parce que sa sortie est arrondie en binary16 par le
-        // noyau (`f2h`), pas parce qu'on lui pardonne quoi que ce soit : sa
-        // référence `scale·(q − zero)` reste exacte au bit près.
+        // The substantive comments of the six original verifications hold
+        // unchanged: the same exact reference for every LLVQ arm (the proof
+        // of the Planes12x overlay and of the E2 correction is precisely that
+        // they reach it), y16_ref for the FP16 witness, and for AWQ ITS
+        // reference, ITS denominator and ITS tolerance, looser by a factor of
+        // ~100 because its output is rounded to binary16 by the kernel
+        // (`f2h`), not because anything is forgiven it: its reference
+        // `scale·(q − zero)` stays exact bit for bit.
         let verify_arm = |a: usize,
                           mats: &[Mat],
                           d_y: &mut cudarc::driver::CudaSlice<f32>,
@@ -2371,45 +2370,45 @@ mod linux {
                         run_qtip(m, d_y)?;
                         cuda.sync()?;
                         let got = cuda.down_f32(d_y)?;
-                        let q = m.qtip.as_ref().expect("bras qtip non construit");
+                        let q = m.qtip.as_ref().expect("qtip arm not built");
                         let e = worst_error(&got[..m.d_out], &q.y_ref, &q.scale);
-                        assert!(e < TOL, "{} / QTIP : {e:.2e}·Σ|w·x|", m.name);
+                        assert!(e < TOL, "{} / QTIP: {e:.2e}·Σ|w·x|", m.name);
                         e
                     }
                     arms::AWQ => {
-                        let yh = d_yh.as_mut().expect("d_yh du bras awq");
+                        let yh = d_yh.as_mut().expect("d_yh of the awq arm");
                         run_awq(m, yh)?;
                         cuda.sync()?;
                         let goth = cuda.down_u16(yh)?;
                         let gotf: Vec<f32> =
                             goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
-                        let aw = m.awq.as_ref().expect("bras awq non construit");
+                        let aw = m.awq.as_ref().expect("awq arm not built");
                         let e = worst_error(&gotf, &aw.y_ref, &aw.scale);
-                        assert!(e < AWQ_TOL, "{} / AWQ : {e:.2e}·Σ|w·x|", m.name);
+                        assert!(e < AWQ_TOL, "{} / AWQ: {e:.2e}·Σ|w·x|", m.name);
                         e
                     }
-                    // cuBLAS : même tolérance qu'AWQ et pour la même raison —
-                    // la sortie est arrondie en binary16 par GemmEx (C en
-                    // R_16F), pas parce qu'on lui pardonne quoi que ce soit.
-                    // Sa référence est la sienne : poids f16 × entrée
-                    // binary16, accumulée en f64.
+                    // cuBLAS: same tolerance as AWQ and for the same reason,
+                    // the output is rounded to binary16 by GemmEx (C in
+                    // R_16F), not because anything is forgiven it. Its
+                    // reference is its own: f16 weights × binary16 input,
+                    // accumulated in f64.
                     arms::CUBLASF16 => {
-                        let yh = d_yh.as_mut().expect("d_yh du bras cublasf16");
+                        let yh = d_yh.as_mut().expect("d_yh of the cublasf16 arm");
                         run_cublas(m, yh)?;
                         cuda.sync()?;
                         let goth = cuda.down_u16(yh)?;
                         let gotf: Vec<f32> =
                             goth[..m.d_out].iter().map(|&h| f16_to_f64(h) as f32).collect();
-                        let want = m.y16h_ref.as_ref().expect("référence cublasf16 non construite");
+                        let want = m.y16h_ref.as_ref().expect("cublasf16 reference not built");
                         let e = worst_error(&gotf, want, &m.scale);
-                        assert!(e < AWQ_TOL, "{} / cublasf16 : {e:.2e}·Σ|w·x|", m.name);
+                        assert!(e < AWQ_TOL, "{} / cublasf16: {e:.2e}·Σ|w·x|", m.name);
                         e
                     }
-                    // 🚨 Le plancher n'a AUCUN étalon, et ne peut pas en avoir :
-                    // il ne calcule pas le produit du modèle. Ce qu'on exige de
-                    // lui est ce que `bin/rankbench` exige de son ancre `sol` —
-                    // être OBSERVABLE. Un noyau que le compilateur aurait vidé
-                    // chronométrerait magnifiquement et ne mesurerait rien.
+                    // 🚨 The floor has NO yardstick, and cannot have one: it
+                    // does not compute the model's product. What is required
+                    // of it is what `bin/rankbench` requires of its `sol`
+                    // anchor, to be OBSERVABLE. A kernel the compiler had
+                    // emptied would time beautifully and measure nothing.
                     arms::NULLK => {
                         run_nullk(m, d_y)?;
                         cuda.sync()?;
@@ -2417,16 +2416,16 @@ mod linux {
                         let nz = got[..m.d_out].iter().filter(|v| **v != 0.0 && v.is_finite()).count();
                         assert!(
                             nz > m.d_out / 2,
-                            "{} / nullk : sortie majoritairement nulle — boucle éliminée ?",
+                            "{} / nullk: output mostly zero, loop eliminated?",
                             m.name
                         );
-                        // 🕳️ Rendre 0.0 ici met « pires erreurs nullk 0.0e0 »
-                        // dans la ligne V0, ce qui se lit comme un accord
-                        // PARFAIT avec la référence alors que ce bras n'est pas
-                        // comparé du tout. Un NaN serait pire (il propagerait).
-                        // f64::NEG_INFINITY est neutre pour le `max` qui agrège
-                        // et s'imprime `-inf`, que personne ne lit comme une
-                        // erreur mesurée.
+                        // 🕳️ Returning 0.0 here puts "worst errors nullk
+                        // 0.0e0" in the V0 line, which reads as PERFECT
+                        // agreement with the reference while this arm is not
+                        // compared at all. A NaN would be worse (it would
+                        // propagate). f64::NEG_INFINITY is neutral for the
+                        // aggregating `max` and prints as `-inf`, which nobody
+                        // reads as a measured error.
                         f64::NEG_INFINITY
                     }
                     _ => {
@@ -2438,7 +2437,7 @@ mod linux {
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, d_y)?,
                             arms::E1V => run_e1v(m, d_y)?,
                             arms::FP16 => run_f16(m, d_y)?,
-                            _ => unreachable!("bras inconnu"),
+                            _ => unreachable!("unknown arm"),
                         }
                         cuda.sync()?;
                         let got = cuda.down_f32(d_y)?;
@@ -2446,7 +2445,7 @@ mod linux {
                         let e = worst_error(&got[..m.d_out], want, &m.scale);
                         assert!(
                             e < TOL,
-                            "{} / {} : {e:.2e}·Σ|w·x|",
+                            "{} / {}: {e:.2e}·Σ|w·x|",
                             m.name,
                             arms::ARM_NAMES[a]
                         );
@@ -2458,55 +2457,55 @@ mod linux {
             Ok(worst)
         };
 
-        // La vague de téléversement d'une phase : les tampons des bras qui
-        // entrent montent sur la carte, ceux des bras déjà montés ne bougent
-        // pas (stage_up_* est idempotent — v1 et v2 partagent le groupe
-        // golay70, le second des deux ne re-téléverse rien).
+        // A phase's upload wave: the buffers of the entering arms go up to
+        // the card, those of the arms already staged do not move (stage_up_*
+        // is idempotent, v1 and v2 share the golay70 group, so the second of
+        // the two re-uploads nothing).
         let upload_added = |mats: &mut [Mat], added: ArmSet| -> Result<(), String> {
             for m in mats.iter_mut() {
                 if added.has(arms::SLOT32) {
-                    let a = m.slot.as_mut().expect("bras slot32 non construit");
+                    let a = m.slot.as_mut().expect("slot32 arm not built");
                     stage_up_u32(&cuda, &mut a.words)?;
                     stage_up_u32(&cuda, &mut a.bases)?;
                 }
                 if added.has(arms::PLANES14) {
-                    let a = m.planes.as_mut().expect("bras planes14 non construit");
+                    let a = m.planes.as_mut().expect("planes14 arm not built");
                     stage_up_u32(&cuda, &mut a.pwords)?;
                 }
                 if added.has(arms::PLANES12X) {
-                    let a = m.p12.as_mut().expect("bras planes12x non construit");
+                    let a = m.p12.as_mut().expect("planes12x arm not built");
                     stage_up_u32(&cuda, &mut a.words)?;
                     stage_up_u32(&cuda, &mut a.exc_idx)?;
                     stage_up_u32(&cuda, &mut a.exc_words)?;
                 }
                 if added.has(arms::GOLAY70V1) || added.has(arms::GOLAY70V2) {
-                    let a = m.g70.as_mut().expect("bras golay70 non construit");
+                    let a = m.g70.as_mut().expect("golay70 arm not built");
                     stage_up_u32(&cuda, &mut a.words)?;
                     stage_up_u32(&cuda, &mut a.exc_idx)?;
                     stage_up_u32(&cuda, &mut a.exc_words)?;
                 }
                 if added.has(arms::E1V) {
-                    let a = m.e1v.as_mut().expect("bras e1v non construit");
+                    let a = m.e1v.as_mut().expect("e1v arm not built");
                     stage_up_u32(&cuda, &mut a.data)?;
                     stage_up_u32(&cuda, &mut a.bases)?;
                 }
                 if added.has(arms::AWQ) {
-                    let a = m.awq.as_mut().expect("bras awq non construit");
+                    let a = m.awq.as_mut().expect("awq arm not built");
                     stage_up_u32(&cuda, &mut a.w)?;
                     stage_up_u32(&cuda, &mut a.z)?;
                     stage_up_u16(&cuda, &mut a.s)?;
                 }
-                // 🚨 Sans cette branche, un bras présent en phase 2 mais pas en
-                // phase 1 reste `Staged::Host` et panique sur `dev()` — et
-                // c'est EXACTEMENT la forme de la commande P3 du
-                // pré-enregistrement. La panique serait tombée après le
-                // transcodage des 252 matrices et après toute la phase 1,
-                // soit ~90 % d'un job perdu ; P2, qui met qtip en phase 0, y
-                // échappait par accident, donc le premier job n'aurait rien
-                // révélé. `stage_up_*` est idempotent, la branche est donc
-                // inoffensive quand le bras est déjà monté.
+                // 🚨 Without this branch, an arm present in phase 2 but not
+                // in phase 1 stays `Staged::Host` and panics on `dev()`, and
+                // that is EXACTLY the shape of the preregistration's P3
+                // command. The panic would have landed after the transcode of
+                // the 252 matrices and after the whole of phase 1, about 90%
+                // of a job lost; P2, which puts qtip in phase 0, escaped it by
+                // accident, so the first job would have revealed nothing.
+                // `stage_up_*` is idempotent, so the branch is harmless when
+                // the arm is already staged.
                 if added.has(arms::QTIP) {
-                    let a = m.qtip.as_mut().expect("bras qtip non construit");
+                    let a = m.qtip.as_mut().expect("qtip arm not built");
                     stage_up_u32(&cuda, &mut a.compressed)?;
                     stage_up_u16(&cuda, &mut a.codebook)?;
                 }
@@ -2519,22 +2518,22 @@ mod linux {
         if union.has(arms::PLANES12X) {
             let total_exc: u64 = mats
                 .iter()
-                .map(|m| m.p12.as_ref().expect("bras planes12x non construit").n_exc as u64)
+                .map(|m| m.p12.as_ref().expect("planes12x arm not built").n_exc as u64)
                 .sum();
             println!(
-                "  exceptions L = 5 : {total_exc} sur {total_blocks} blocs \
-                 ({:.4} %), corrigées dans le même lancement",
+                "  L = 5 exceptions: {total_exc} out of {total_blocks} blocks \
+                 ({:.4}%), corrected in the same launch",
                 total_exc as f64 * 100.0 / total_blocks as f64
             );
         }
         if g70_needed {
             let total_gexc: u64 = mats
                 .iter()
-                .map(|m| m.g70.as_ref().expect("bras golay70 non construit").n_exc as u64)
+                .map(|m| m.g70.as_ref().expect("golay70 arm not built").n_exc as u64)
                 .sum();
             println!(
-                "  exceptions E2 (pair violant ou L = 5) : {total_gexc} sur {total_blocks} \
-                 blocs ({:.4} %), corrigées dans le même lancement",
+                "  E2 exceptions (parity-violating or L = 5): {total_gexc} out of \
+                 {total_blocks} blocks ({:.4}%), corrected in the same launch",
                 total_gexc as f64 * 100.0 / total_blocks as f64
             );
         }
@@ -2548,17 +2547,17 @@ mod linux {
         let per_round = |num: &[f64], den: &[f64]| -> Vec<f64> {
             num.iter().zip(den).map(|(a, b)| a / b).collect()
         };
-        // 🕳️ Les deux tables vivaient ICI, dimensionnées sur `arms::N_ARMS`
-        // avec sept littéraux — et ce fichier n'est typé par aucune machine de
-        // développement. P4 a porté N_ARMS de 7 à 15 le 2026-08-15 sans les
-        // toucher, et l'image CUDA est restée incompilable une journée. Elles
-        // sont dans `arms.rs`, qui compile et se teste sur le Mac.
+        // 🕳️ Both tables used to live HERE, sized on `arms::N_ARMS` with seven
+        // literals — and no development machine type-checks this file. P4 took
+        // N_ARMS from 7 to 15 on 2026-08-15 without touching them, and the CUDA
+        // image stayed uncompilable for a day. They are in `arms.rs`, which
+        // compiles and is tested on the Mac.
         //
-        // 🚨 Et il n'en reste PAS d'alias local, parce qu'un alias doit
-        // annoncer un type, donc restater une longueur — ce qui reproduit le
-        // défaut à trois lignes de sa correction. Ça a coûté un build : la
-        // première version écrivait `const DISPLAY: [usize; 8]`, et le
-        // plancher a porté `DISPLAY_ORDER` à neuf le lendemain.
+        // 🚨 And NO local alias is left of them, because an alias must announce
+        // a type, hence restate a length — which reproduces the defect three
+        // lines from its own fix. That cost a build: the first version wrote
+        // `const DISPLAY: [usize; 8]`, and the floor took `DISPLAY_ORDER` to
+        // nine the next day.
         let n_phases = phases.len();
         let report = |mats: &[Mat],
                       pi: usize,
@@ -2567,29 +2566,28 @@ mod linux {
             let bytes_of = |a: usize| -> u64 { mats.iter().map(|m| arm_bytes(m, a)).sum() };
             let t_f16 = &times[arms::FP16];
             let phase_tag = if n_phases > 1 {
-                format!("  [phase {}/{} : {}]", pi + 1, n_phases, phase.label())
+                format!("  [phase {}/{}: {}]", pi + 1, n_phases, phase.label())
             } else {
                 String::new()
             };
             println!(
-                "\nUN TOKEN — {} matrices, un stream, {} bras entrelacés{}",
+                "\nONE TOKEN — {} matrices, one stream, {} arms interleaved{}",
                 mats.len(),
                 phase.len(),
                 phase_tag
             );
             println!(
-                "  {ROUNDS} rounds, {WARMUP} jetés ; les rapports sont formés ROUND PAR ROUND"
+                "  {ROUNDS} rounds, {WARMUP} discarded; the ratios are formed ROUND BY ROUND"
             );
             println!("  {}", "-".repeat(80));
-            // « Go/s(min) », pas « Go/s » : la colonne divise par le temps
-            // MINIMUM — la lecture la plus favorable, celle d'un débit de
-            // pointe — et l'en-tête ne le disait pas (relevé par l'audit du
-            // 2026-08-18). Déclaré plutôt que changé : les journaux publiés
-            // portent cette comptabilité, et c'est l'étiquette qui manquait,
-            // pas la formule.
+            // "GB/s(min)", not "GB/s": the column divides by the MINIMUM time
+            // — the most favourable reading, that of a peak throughput — and
+            // the header did not say so (raised by the 2026-08-18 audit).
+            // Declared rather than changed: the published journals carry this
+            // accounting, and what was missing is the label, not the formula.
             println!(
                 "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}",
-                "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s(min)"
+                "format", "min ms", "med ms", "max ms", "GB read", "b/weight", "GB/s(min)"
             );
             for a in arms::DISPLAY_ORDER {
                 if !phase.has(a) {
@@ -2614,17 +2612,16 @@ mod linux {
                     continue;
                 }
                 let (lo, md, hi) = spread(per_round(t_f16, &times[a]));
-                // Les DEUX concurrents portent l'avertissement, et pour la
-                // même raison : leur × contre FP16 récompense mécaniquement
-                // qui lit le moins. QTIP, à 2,0000 b/poids, est le cas
-                // extrême — sa borne d'octets vaut 8,00× quand la nôtre vaut
-                // 3,33× — donc un rapport nu y serait le plus trompeur de la
-                // table.
+                // BOTH competitors carry the warning, and for the same
+                // reason: their × against FP16 mechanically rewards whoever
+                // reads the least. QTIP, at 2.0000 b/weight, is the extreme
+                // case — its byte bound is 8.00× where ours is 3.33× — so a
+                // bare ratio would be the most misleading one in the table.
                 if a == arms::AWQ || a == arms::QTIP {
                     println!(
                         "  {:<16} vs FP16     : {md:.2}× [{lo:.2}–{hi:.2}]  \
-                         (CONCURRENT — lit {:.3} b/poids ;\n  la grandeur comparable est \
-                         les Go/s, pas ce rapport)",
+                         (COMPETITOR — reads {:.3} b/weight;\n  the comparable quantity \
+                         is the GB/s, not this ratio)",
                         arms::DISPLAY_NAMES[a],
                         bytes_of(a) as f64 * 8.0 / n_weights as f64
                     );
@@ -2635,9 +2632,9 @@ mod linux {
                     );
                 }
             }
-            // Les rapports entre bras : `num` contre `den`, formés round par
-            // round — >1 = `num` plus rapide. N'existent que si les DEUX
-            // bras ont tourné dans cette phase.
+            // The arm-against-arm ratios: `num` against `den`, formed round by
+            // round — >1 = `num` faster. They exist only if BOTH arms ran in
+            // this phase.
             let pair = |num: usize, den: usize, note: &str| {
                 if phase.has(num) && phase.has(den) {
                     let (lo, md, hi) = spread(per_round(&times[den], &times[num]));
@@ -2651,25 +2648,25 @@ mod linux {
             pair(
                 arms::PLANES14,
                 arms::SLOT32,
-                "(>1 = Planes14 plus rapide, même contenu décodé)",
+                "(>1 = Planes14 faster, same content decoded)",
             );
             pair(
                 arms::PLANES12X,
                 arms::PLANES14,
-                "(>1 = Planes12x plus rapide ; memset + correction inclus, même y exact)",
+                "(>1 = Planes12x faster; memset + correction included, same exact y)",
             );
             pair(
                 arms::GOLAY70V1,
                 arms::PLANES12X,
-                "(>1 = Golay70 v1 plus rapide ; memset + correction inclus, même y exact)",
+                "(>1 = Golay70 v1 faster; memset + correction included, same exact y)",
             );
             pair(
                 arms::GOLAY70V2,
                 arms::GOLAY70V1,
-                "(>1 = v2 plus rapide ; MÊMES tampons, même y exact — le rapport de la \
-                 campagne v2)",
+                "(>1 = v2 faster; SAME buffers, same exact y — the ratio of the \
+                 v2 campaign)",
             );
-            println!("\n  source : {source}");
+            println!("\n  source: {source}");
             let light = arms::DISPLAY_ORDER
                 .into_iter()
                 .filter(|&a| {
@@ -2679,9 +2676,10 @@ mod linux {
             if let Some(la) = light {
                 let light = bytes_of(la);
                 println!(
-                    "  {:.0} Mo distincts par passe sur le bras le plus léger ({}), soit \
-                     {:.1}× la L2 lue.\n  Sous 1× on mesurerait le cache et pas la DRAM — le piège \
-                     qui a rendu\n  optimiste toute mesure LLVQ antérieure au 2026-07-31.",
+                    "  {:.0} MB distinct per pass on the lightest arm ({}), which is \
+                     {:.1}× the L2 read.\n  Under 1× we would be measuring the cache and not \
+                     the DRAM — the trap that\n  made every LLVQ measurement before 2026-07-31 \
+                     optimistic.",
                     light as f64 / 1e6,
                     arms::DISPLAY_NAMES[la],
                     light as f64 / dev.l2_bytes as f64
@@ -2689,10 +2687,10 @@ mod linux {
             }
             if std::env::args().nth(1).is_none() {
                 println!(
-                    "  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le mélange\n  \
-                     de classes d'un vrai artefact n'est pas exercé, donc les strides de groupe\n  \
-                     du bras Slot32 et le trafic d'octets diffèrent du modèle publié. Ce rapport\n  \
-                     mesure les NOYAUX — passer le chemin du .llvq en argument pour le modèle."
+                    "  WARNING: SYNTHETIC blocks, drawn uniformly on the ball m ≤ 13. The class\n  \
+                     mixture of a real artifact is not exercised, so the group strides of the\n  \
+                     Slot32 arm and the byte traffic differ from the published model. This report\n  \
+                     measures the KERNELS — pass the .llvq path as an argument for the model."
                 );
             }
             // The tied lm_head, read once per token by every arm at the FP16
@@ -2711,23 +2709,23 @@ mod linux {
                 .collect();
             if !with_head.is_empty() {
                 println!(
-                    "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms au débit FP16\n  \
-                     mesuré, ajouté aux bras LLVQ) : {}.\n  Normes, activations, attention et \
-                     rotation ne sont mesurées ni ici ni là.",
+                    "\n  With the unquantized f16 lm_head ({:.0} M weights, {:.2} ms at the \
+                     measured FP16\n  throughput, added to the LLVQ arms): {}.\n  Norms, \
+                     activations, attention and rotation are measured neither here nor there.",
                     389_070_848f64 / 1e6,
                     head_s * 1e3,
                     with_head.join(", ")
                 );
             }
             println!(
-                "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne, ni soustraire d'un\n  \
-                 run de bin/matvec : autres rounds, autre unité de traduction NVRTC. Chaque\n  \
-                 bras contre sa référence f64 ; les rapports se forment round par round,\n  \
-                 dans un même processus."
+                "\n  WARNING: NEVER compare this line by line with the Metal figure, and never\n  \
+                 subtract it from a bin/matvec run: other rounds, other NVRTC translation unit.\n  \
+                 Every arm against its own f64 reference; the ratios form round by round,\n  \
+                 inside one process."
             );
         };
 
-        // ---- les phases : téléversement, vérification, rounds, rapport ----
+        // ---- the phases: upload, verification, rounds, report ----
         let mut verified = [false; arms::N_ARMS];
         let mut phase_times: Vec<[Vec<f64>; arms::N_ARMS]> = Vec::new();
         for pi in 0..n_phases {
@@ -2736,7 +2734,7 @@ mod linux {
                 let added = phase.minus(phases[pi - 1]);
                 if !added.is_empty() {
                     println!(
-                        "\n— phase {}/{n_phases} : téléversement des bras ajoutés ({}) —",
+                        "\n— phase {}/{n_phases}: upload of the arms added ({}) —",
                         pi + 1,
                         added.label()
                     );
@@ -2747,7 +2745,7 @@ mod linux {
             for a in phase.iter() {
                 if !verified[a] {
                     if worsts.is_empty() {
-                        println!("\nVérification de chaque ligne contre la référence f64…");
+                        println!("\nVerifying every row against the f64 reference…");
                     }
                     let w = verify_arm(a, &mats, &mut d_y, &mut d_yh)?;
                     worsts.push(format!("{} {w:.1e}", arms::ARM_NAMES[a]));
@@ -2756,22 +2754,21 @@ mod linux {
             }
             if !worsts.is_empty() {
                 println!(
-                    "  {rows} lignes, seuil {TOL:.0e} (AWQ, cublasf16 : {AWQ_TOL:.0e}, \
-                     sortie binary16) — pires erreurs {} ·Σ|w·x|",
+                    "  {rows} rows, threshold {TOL:.0e} (AWQ, cublasf16: {AWQ_TOL:.0e}, \
+                     binary16 output) — worst errors {} ·Σ|w·x|",
                     worsts.join(", ")
                 );
             }
             let mut times: [Vec<f64>; arms::N_ARMS] = Default::default();
-            // Le span DEVICE par bras, sous LLVQ_TIME_EVENTS=1 seulement —
-            // variable non lue ailleurs, donc le protocole publié reste
-            // byte-identique quand elle est absente (le motif
-            // LLVQ_TIME_PHASES de fusedrun). Deux events par (bras, round) :
-            // le span va du premier lancement à la dernière complétion,
-            // écarts inter-noyaux sur le stream COMPRIS. La différence
-            // hôte − device isole ce que le wall-clock ajoute : soumission
-            // non recouverte et latence de sync — la composante mesurable
-            // du poste « latence/occupation » que l'attribution du 08-05
-            // obtenait par soustraction.
+            // The DEVICE span per arm, under LLVQ_TIME_EVENTS=1 only — a
+            // variable read nowhere else, so the published protocol stays
+            // byte-identical when it is absent (fusedrun's LLVQ_TIME_PHASES
+            // pattern). Two events per (arm, round): the span runs from the
+            // first launch to the last completion, inter-kernel gaps on the
+            // stream INCLUDED. The host − device difference isolates what the
+            // wall clock adds: uncovered submission and sync latency — the
+            // measurable component of the "latency/occupancy" item that the
+            // 08-05 attribution obtained by subtraction.
             let time_events = std::env::var("LLVQ_TIME_EVENTS").as_deref() == Ok("1");
             let mut dev_times: [Vec<f64>; arms::N_ARMS] = Default::default();
             for rep in 0..ROUNDS {
@@ -2784,7 +2781,7 @@ mod linux {
                         true => Some(
                             cuda.stream()
                                 .record_event(ev_flags)
-                                .map_err(|e| format!("event start : {e:?}"))?,
+                                .map_err(|e| format!("event start: {e:?}"))?,
                         ),
                         false => None,
                     };
@@ -2797,23 +2794,23 @@ mod linux {
                             arms::GOLAY70V1 => run_g70(m, &f_golay70_v1, &mut d_y)?,
                             arms::FP16 => run_f16(m, &mut d_y)?,
                             arms::AWQ => {
-                                run_awq(m, d_yh.as_mut().expect("d_yh du bras awq"))?
+                                run_awq(m, d_yh.as_mut().expect("d_yh of the awq arm"))?
                             }
                             arms::CUBLASF16 => {
-                                run_cublas(m, d_yh.as_mut().expect("d_yh du bras cublasf16"))?
+                                run_cublas(m, d_yh.as_mut().expect("d_yh of the cublasf16 arm"))?
                             }
                             arms::GOLAY70V2 => run_g70(m, &f_golay70, &mut d_y)?,
                             arms::E1V => run_e1v(m, &mut d_y)?,
                             arms::NULLK => run_nullk(m, &mut d_y)?,
                             arms::QTIP => run_qtip(m, &mut d_y)?,
-                            _ => unreachable!("bras inconnu"),
+                            _ => unreachable!("unknown arm"),
                         }
                     }
                     let ev_end = match time_events {
                         true => Some(
                             cuda.stream()
                                 .record_event(ev_flags)
-                                .map_err(|e| format!("event end : {e:?}"))?,
+                                .map_err(|e| format!("event end: {e:?}"))?,
                         ),
                         false => None,
                     };
@@ -2823,7 +2820,7 @@ mod linux {
                         t_arm.push(s);
                         if let (Some(a), Some(b)) = (&ev_start, &ev_end) {
                             dev_times[arm].push(
-                                a.elapsed_ms(b).map_err(|e| format!("elapsed : {e:?}"))? as f64
+                                a.elapsed_ms(b).map_err(|e| format!("elapsed: {e:?}"))? as f64
                                     / 1e3,
                             );
                         }
@@ -2838,15 +2835,16 @@ mod linux {
                     s[s.len() / 2]
                 };
                 println!(
-                    "\n--- events device par bras (LLVQ_TIME_EVENTS=1, hors protocole publié) ---"
+                    "\n--- device events per arm (LLVQ_TIME_EVENTS=1, outside the published \
+                     protocol) ---"
                 );
                 println!(
-                    "  span device = du 1er lancement à la dernière complétion, écarts\n  \
-                     inter-noyaux compris ; hôte − device = soumission non recouverte + sync."
+                    "  device span = from the 1st launch to the last completion, inter-kernel\n  \
+                     gaps included; host − device = uncovered submission + sync."
                 );
                 println!(
                     "  {:<16}{:>14}{:>14}{:>14}{:>9}",
-                    "bras", "hôte méd ms", "device méd ms", "écart ms", "écart %"
+                    "arm", "host med ms", "device med ms", "gap ms", "gap %"
                 );
                 for a in arms::DISPLAY_ORDER {
                     if phase.has(a) && !dev_times[a].is_empty() {
@@ -2864,16 +2862,16 @@ mod linux {
             phase_times.push(times);
         }
 
-        // ---- Δ_contrôle : la dérive des bras communs entre phases ----
+        // ---- Δ_contrôle: the drift of the common arms between phases ----
         //
-        // Le chiffre que la règle §4 du pré-enregistrement du 2026-08-10
-        // demande au job de rapporter, imprimé par le banc lui-même pour
-        // qu'aucun rapport ne se fasse entre deux processus : R =
-        // max(Δ_contrôle, demi-étendue intra-run du bras le plus dispersé) ;
-        // |Δ| > 2R sépare, |Δ| < R est indiscernable à cette résolution,
-        // entre les deux : non résolu, publié comme tel.
+        // The number the §4 rule of the 2026-08-10 preregistration asks the job
+        // to report, printed by the bench itself so that no ratio is ever taken
+        // between two processes: R = max(Δ_contrôle, intra-run half-range of
+        // the most dispersed arm); |Δ| > 2R separates, |Δ| < R is
+        // indistinguishable at this resolution, and between the two: not
+        // resolved, published as such.
         if n_phases > 1 {
-            println!("\nΔ_contrôle — dérive des bras communs entre phases consécutives");
+            println!("\nΔ_contrôle — drift of the common arms between consecutive phases");
             let med = |v: &[f64]| -> f64 {
                 let mut s = v.to_vec();
                 s.sort_by(f64::total_cmp);
@@ -2881,14 +2879,14 @@ mod linux {
             };
             for k in 1..n_phases {
                 let (prev, cur) = (&phase_times[k - 1], &phase_times[k]);
-                let common = phases[k - 1]; // ⊆ phases[k], garanti au parsing
+                let common = phases[k - 1]; // ⊆ phases[k], guaranteed at parsing
                 let mut delta_ctrl = 0.0f64;
                 for a in common.iter() {
                     let (m0, m1) = (med(&prev[a]), med(&cur[a]));
                     let dms = (m1 - m0) / m0;
                     if a == arms::FP16 {
                         println!(
-                            "  phases {k}→{} {:<10} méd {:>8.3} → {:>8.3} ms ({:+.2} %)",
+                            "  phases {k}→{} {:<10} med {:>8.3} → {:>8.3} ms ({:+.2}%)",
                             k + 1,
                             arms::ARM_NAMES[a],
                             m0 * 1e3,
@@ -2901,8 +2899,8 @@ mod linux {
                         let dr = (r1 - r0) / r0;
                         delta_ctrl = delta_ctrl.max(dr.abs());
                         println!(
-                            "  phases {k}→{} {:<10} méd {:>8.3} → {:>8.3} ms ({:+.2} %), \
-                             vs FP16 {:.3} → {:.3} ({:+.2} %)",
+                            "  phases {k}→{} {:<10} med {:>8.3} → {:>8.3} ms ({:+.2}%), \
+                             vs FP16 {:.3} → {:.3} ({:+.2}%)",
                             k + 1,
                             arms::ARM_NAMES[a],
                             m0 * 1e3,
@@ -2929,8 +2927,8 @@ mod linux {
                 }
                 let r = delta_ctrl.max(half);
                 println!(
-                    "  Δ_contrôle (max |Δ| des rapports vs FP16) = {:.2} % ; demi-étendue \
-                     max intra-run = {:.2} % ({half_name}) ; R = {:.2} %",
+                    "  Δ_contrôle (max |Δ| of the ratios vs FP16) = {:.2}%; max intra-run \
+                     half-range = {:.2}% ({half_name}); R = {:.2}%",
                     delta_ctrl * 100.0,
                     half * 100.0,
                     r * 100.0
@@ -2938,25 +2936,25 @@ mod linux {
             }
         }
 
-        // ---- A4 : la fusion q+k+v et gate+up, justesse d'abord, coût ensuite ----
+        // ---- A4: the q+k+v and gate+up fusion, correctness first, cost after ----
         //
-        // Construite ICI, après la table des cinq bras : ni ses ~2,9 Go ni son
-        // `d_out` doublé ne doivent exister pendant que la table se mesure
-        // (voir le long commentaire au-dessus de `max_dout`).
+        // Built HERE, after the five-arm table: neither its ~2.9 GB nor its
+        // doubled `d_out` may exist while the table is being measured (see the
+        // long comment above `max_dout`).
         let mut fused: Vec<FusedMat> = Vec::new();
-        // La section exige les DEUX bras qu'elle fusionne : sur une
-        // sélection sans slot32 ou sans planes14, elle n'a ni flux à
-        // concaténer ni bras séparé à qui comparer — elle saute, et le dit.
+        // The section requires BOTH arms it fuses: on a selection without
+        // slot32 or without planes14 it has neither a stream to concatenate nor
+        // a separate arm to compare against — it skips, and says so.
         let a4_on = union.has(arms::SLOT32) && union.has(arms::PLANES14);
         if srcs.is_empty() && !seg_arms.is_empty() {
-            return Err("LLVQ_SEG_ARMS : les bras A3 exigent un modèle — la section Fusion \
-                        n'existe pas sur le chemin synthétique"
+            return Err("LLVQ_SEG_ARMS: the A3 arms require a model — the Fusion section does \
+                        not exist on the synthetic path"
                 .to_string());
         }
         if !srcs.is_empty() && !a4_on {
             println!(
-                "\n  section A4 (fusion) SAUTÉE : elle exige slot32 ET planes14 dans la \
-                 sélection LLVQ_BENCH_ARMS"
+                "\n  section A4 (fusion) SKIPPED: it requires slot32 AND planes14 in the \
+                 LLVQ_BENCH_ARMS selection"
             );
         }
         if !srcs.is_empty() && a4_on {
@@ -2985,7 +2983,7 @@ mod linux {
                 // past the end of it.
                 assert!(
                     seg.d_in <= x.len(),
-                    "{key}: d_in {} dépasse l'activation",
+                    "{key}: d_in {} overruns the activation",
                     seg.d_in
                 );
                 // Slot32 first, then Planes14 off it — the same two-step every
@@ -3040,7 +3038,7 @@ mod linux {
                 });
             }
             println!(
-                "\n  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
+                "\n  fusion: {} groups ({} matrices → {}), transcoded in {:.0} s",
                 fused.len(),
                 fused.iter().map(|f| f.parts.len()).sum::<usize>(),
                 fused.len(),
@@ -3048,15 +3046,15 @@ mod linux {
             );
         }
 
-        // Un tampon de sortie propre à cette section : un bras fusionné écrit
-        // jusqu'à 19 456 lignes, et c'est précisément ce qu'on refuse d'imposer
-        // au `d_y` de la table. Les deux sections ne partagent plus rien.
+        // An output buffer of this section's own: a fused arm writes up to
+        // 19,456 rows, and that is exactly what we refuse to impose on the
+        // table's `d_y`. The two sections no longer share anything.
         let a4_dout = fused
             .iter()
             .map(|f| f.d_out)
             .chain(std::iter::once(max_dout))
             .max()
-            .expect("la chaîne porte au moins max_dout");
+            .expect("the chain carries at least max_dout");
         drop(d_y);
         let mut d_y = cuda.zeros_f32(a4_dout)?;
 
@@ -3068,10 +3066,10 @@ mod linux {
             // centroids moves some rows by ~2× and leaves the rest untouched,
             // which a global epsilon on a different row still passes. The
             // Slot32 arm established that this equality is achievable on this
-            // card and this compiler (921 600 rows, 2026-08-05); the Planes14
+            // card and this compiler (921,600 rows, 2026-08-05); the Planes14
             // arm is the same claim about `tv_planes_seg` and is *not*
             // established until this block runs.
-            println!("\n  Fusion (A4) — sortie contre les matrices non fusionnées");
+            println!("\n  Fusion (A4) — output against the unfused matrices");
             for fm in &fused {
                 for layout in 0..2 {
                     if layout == 0 {
@@ -3095,8 +3093,8 @@ mod linux {
                             let bad =
                                 (0..m.d_out).find(|&r| got[at + r] != want[r]).unwrap_or(0);
                             return Err(format!(
-                                "{} / {} / {} : ligne {bad} vaut {} fusionnée contre {} \
-                                 séparée",
+                                "{} / {} / {}: row {bad} is {} fused against {} \
+                                 separate",
                                 fm.name,
                                 m.name,
                                 if layout == 0 { "Slot32" } else { "Planes14" },
@@ -3109,27 +3107,27 @@ mod linux {
                 }
             }
             println!(
-                "  {} groupes, {} lignes — identiques AU BIT près, sur Slot32 ET sur Planes14",
+                "  {} groups, {} rows — identical BIT FOR BIT, on Slot32 AND on Planes14",
                 fused.len(),
                 fused.iter().map(|f| f.d_out).sum::<usize>()
             );
 
-            // ---- A3 : les bras d'occupation (préreg §5, sha256 802006c5…) ----
+            // ---- A3: the occupancy arms (prereg §5, sha256 802006c5…) ----
             //
-            // Appendés APRÈS les quatre bras historiques et dans les MÊMES
-            // rounds, sur les MÊMES tampons : un bras A3 relit `pwords` des
-            // groupes fusés et des matrices o/down — il n'ajoute pas un octet
-            // de flux résident, seulement ses partiels et ses compteurs
-            // (< 0,4 Mo) et, pour persall, sa table de sites et une sortie
-            // propre (4,4 Mo). Le dénominateur du gate (préreg §5 : ≥ 10 %
-            // contre planes14 en géométrie FUSÉE) est la ligne « Planes14,
-            // q+k+v et gate+up fusés » RE-MESURÉE dans ce processus ; le
-            // 4,504 ms de F2 cadre le seuil, il ne le porte pas — autre
-            // processus, autre unité de traduction (note de design §4).
+            // Appended AFTER the four historical arms and inside the SAME
+            // rounds, on the SAME buffers: an A3 arm re-reads the `pwords` of
+            // the fused groups and of the o/down matrices — it adds not one
+            // byte of resident stream, only its partials and its counters
+            // (< 0.4 MB) and, for persall, its site table and an output of its
+            // own (4.4 MB). The gate's denominator (prereg §5: ≥ 10% against
+            // planes14 in FUSED geometry) is the "Planes14, q+k+v and gate+up
+            // fused" row RE-MEASURED in this process; F2's 4.504 ms frames the
+            // threshold, it does not carry it — another process, another
+            // translation unit (design note §4).
             use llvq_cuda::occ;
             let occ_on = !seg_arms.is_empty();
-            // Un site = un lancement de la géométrie fusée, dans l'ordre de
-            // dispatch du bras de référence : les groupes fusés, puis o/down.
+            // One site = one launch of the fused geometry, in the dispatch
+            // order of the reference arm: the fused groups, then o/down.
             enum OccRef<'a> {
                 Fused(&'a FusedMat),
                 Mat(&'a Mat),
@@ -3141,19 +3139,19 @@ mod linux {
                 tail_w: u32,
                 words: &'a cudarc::driver::CudaSlice<u32>,
                 gscale: &'a cudarc::driver::CudaSlice<f32>,
-                /// `None` : matrice non fusionnée, la table nulle sert.
+                /// `None`: unfused matrix, the null table serves.
                 gs_off: Option<&'a cudarc::driver::CudaSlice<u32>>,
                 rscale: &'a cudarc::driver::CudaSlice<f32>,
                 tail: &'a cudarc::driver::CudaSlice<f32>,
-                /// Indices dans `mats` des matrices dont ce site est la sortie.
+                /// Indices into `mats` of the matrices this site is the output of.
                 parts: Vec<usize>,
                 r: OccRef<'a>,
             }
-            // `gs_off` d'une matrice non fusionnée : la table nulle, partagée —
-            // chaque ligne pointe sur l'index 0 de la paire de sa matrice, ce
-            // que `tv_planes` lit sans table. Un chargement warp-uniforme de
-            // plus par ligne que le bras de référence sur o/down : c'est
-            // l'écart `tv_planes_seg` / `tv_planes`, un registre.
+            // `gs_off` of an unfused matrix: the null table, shared — every row
+            // points at index 0 of its matrix's pair, which is what `tv_planes`
+            // reads without a table. One more warp-uniform load per row than
+            // the reference arm on o/down: that is the `tv_planes_seg` /
+            // `tv_planes` gap, one register.
             let d_gs0 = if occ_on { Some(cuda.zeros_u32(a4_dout)?) } else { None };
             let mut sites: Vec<OccSite<'_>> = Vec::new();
             if occ_on {
@@ -3176,7 +3174,7 @@ mod linux {
                     if fused.iter().any(|f| f.parts.contains(&i)) {
                         continue;
                     }
-                    let a = m.planes.as_ref().expect("bras planes14 non construit");
+                    let a = m.planes.as_ref().expect("planes14 arm not built");
                     sites.push(OccSite {
                         name: m.name.clone(),
                         d_out: m.d_out as u32,
@@ -3198,9 +3196,9 @@ mod linux {
                     false => Ok(None),
                 })
                 .collect::<Result<_, _>>()?;
-            // La résidence, LUE : les registres du noyau chargé, les trois
-            // limites de la carte. Un modèle (granularité d'allocation
-            // ignorée), imprimé à côté de la grille qu'il dimensionne.
+            // Residency, READ: the registers of the loaded kernel, the three
+            // limits of the card. A model (allocation granularity ignored),
+            // printed next to the grid it sizes.
             let shared_ref = occ::shared_bytes(TILE_BLOCKS as u32, 1, occ::XS_DIM);
             let slots_of = |kernel: &str| -> Result<(u32, u32, u32), String> {
                 let r = cuda.report(kernel)?;
@@ -3214,7 +3212,7 @@ mod linux {
                 );
                 if per_sm == 0 {
                     return Err(format!(
-                        "{kernel} : aucune résidence possible ({} registres, {shared_ref} o)",
+                        "{kernel}: no residency possible ({} registers, {shared_ref} B)",
                         r.num_regs
                     ));
                 }
@@ -3226,9 +3224,9 @@ mod linux {
                 if seg_arms.contains(&occ::PERS) { slots_of("tv_planes_pers")? } else { (0, 0, 0) };
             let (pall_regs, pall_per_sm, pall_slots) =
                 if seg_arms.contains(&occ::PERSALL) { slots_of("tv_planes_persall")? } else { (0, 0, 0) };
-            // Les partiels et les tickets des bras split-K : dimensionnés sur
-            // le pire site au facteur 2, zéro au départ, remis à zéro par le
-            // noyau — aucun memset dans le chrono.
+            // The partials and the tickets of the split-K arms: sized on the
+            // worst site at factor 2, zero at the start, re-zeroed by the
+            // kernel — no memset inside the timing.
             let occ_part_len = sites
                 .iter()
                 .map(|s| occ::sk_nsplit(s.nblocks, 2) as usize * s.d_out as usize)
@@ -3241,9 +3239,9 @@ mod linux {
                 .unwrap_or(0);
             let mut d_part = if occ_part_len > 0 { Some(cuda.zeros_f32(occ_part_len)?) } else { None };
             let mut d_done = if occ_groups_max > 0 { Some(cuda.zeros_u32(occ_groups_max)?) } else { None };
-            // persall : la table de sites et une sortie PROPRE par site — la
-            // sortie partagée `d_y` ne peut pas servir à 144 sites d'un même
-            // lancement. Les groupes sont numérotés dans l'ordre des sites.
+            // persall: the site table and an output OF ITS OWN per site — the
+            // shared output `d_y` cannot serve 144 sites of one and the same
+            // launch. The groups are numbered in site order.
             let occ_total_groups: u32 = sites.iter().map(|s| s.d_out / occ::ROWS_PER_CTA).sum();
             let occ_total_rows: usize = sites.iter().map(|s| s.d_out as usize).sum();
             let mut d_y_all = if seg_arms.contains(&occ::PERSALL) {
@@ -3254,7 +3252,7 @@ mod linux {
             let (d_sites, site_row0): (Option<cudarc::driver::CudaSlice<u64>>, Vec<usize>) =
                 if let Some(yall) = d_y_all.as_mut() {
                     use cudarc::driver::{DevicePtr, DevicePtrMut};
-                    let gs0 = d_gs0.as_ref().expect("table nulle non allouée");
+                    let gs0 = d_gs0.as_ref().expect("null table not allocated");
                     let mut words: Vec<u64> = Vec::with_capacity(sites.len() * occ::SITE_WORDS);
                     let mut row0s = Vec::with_capacity(sites.len());
                     let (ybase, _yg) = yall.device_ptr_mut(cuda.stream());
@@ -3286,16 +3284,16 @@ mod linux {
                 } else {
                     (None, Vec::new())
                 };
-            // Le lancement d'un bras A3 sur un site — la grille et la partagée
-            // viennent de `occ`, testé ; ici on ne fait que les poser.
+            // The launch of an A3 arm on one site — the grid and the shared
+            // size come from `occ`, tested; here we only lay them down.
             let occ_launch = |a: usize,
                               s: &OccSite<'_>,
                               y: &mut cudarc::driver::CudaSlice<f32>,
                               part: &mut Option<cudarc::driver::CudaSlice<f32>>,
                               done: &mut Option<cudarc::driver::CudaSlice<u32>>|
              -> Result<(), String> {
-                let f = occ_f[a].as_ref().expect("bras A3 non résolu");
-                let gs_off = s.gs_off.unwrap_or_else(|| d_gs0.as_ref().expect("table nulle"));
+                let f = occ_f[a].as_ref().expect("A3 arm not resolved");
+                let gs_off = s.gs_off.unwrap_or_else(|| d_gs0.as_ref().expect("null table"));
                 let xs = occ::XS_STRIDE[a];
                 match a {
                     occ::PAD | occ::MR2 | occ::MR4 | occ::MR2P => {
@@ -3320,38 +3318,38 @@ mod linux {
                         let grid = (s.d_out / occ::ROWS_PER_CTA) * nsplit;
                         launch_occ_sk(
                             &cuda, f, s.words, &d_tab, s.gscale, gs_off, s.rscale, s.tail, &d_x,
-                            y, part.as_mut().expect("partiels non alloués"),
-                            done.as_mut().expect("compteurs non alloués"), s.nblocks, s.tail_w,
+                            y, part.as_mut().expect("partials not allocated"),
+                            done.as_mut().expect("counters not allocated"), s.nblocks, s.tail_w,
                             nsplit, s.d_out, grid, occ::shared_bytes(s.nblocks, nsplit, xs),
                         )
                     }
                     _ => Err(format!(
-                        "{} ne se lance pas site par site",
+                        "{} does not launch site by site",
                         occ::SEG_ARM_NAMES[a]
                     )),
                 }
             };
             let occ_launch_all = || -> Result<(), String> {
-                let f = occ_f[occ::PERSALL].as_ref().expect("bras persall non résolu");
-                let table = d_sites.as_ref().expect("table de sites non téléversée");
+                let f = occ_f[occ::PERSALL].as_ref().expect("persall arm not resolved");
+                let table = d_sites.as_ref().expect("site table not uploaded");
                 launch_occ_persall(
                     &cuda, f, table, sites.len() as u32, &d_tab, &d_x, occ_total_groups,
                     occ::pers_grid(occ_total_groups, pall_slots), shared_ref,
                 )
             };
 
-            // Justesse d'abord, contre le bras de référence de CE processus :
-            // bit pour bit partout où l'ordre d'accumulation est le sien (tout
-            // sauf les sites scindés de sk), la référence f64 au seuil du banc
-            // sur les sites scindés. Une tolérance là où l'égalité est due
-            // laisserait passer un `gs_off` faux ; l'égalité là où
-            // l'association change refuserait un noyau juste.
-            // Un drapeau par bras sélectionné : faux à la première justesse
-            // rouge, et un bras faux n'entre pas dans la boucle de chrono.
+            // Correctness first, against THIS process's reference arm: bit for
+            // bit everywhere the accumulation order is its own (everything
+            // except the split sites of sk), the f64 reference at the bench
+            // threshold on the split sites. A tolerance where the equality is
+            // owed would let a wrong `gs_off` through; equality where the
+            // association changes would refuse a correct kernel.
+            // One flag per selected arm: false at the first red correctness
+            // check, and a wrong arm never enters the timing loop.
             let mut occ_valid: Vec<bool> = vec![true; seg_arms.len()];
             if occ_on {
                 println!(
-                    "\n  Occupation (A3) — justesse : {} bras, {} sites, {} lignes",
+                    "\n  Occupancy (A3) — correctness: {} arms, {} sites, {} rows",
                     seg_arms.len(),
                     sites.len(),
                     occ_total_rows
@@ -3369,25 +3367,25 @@ mod linux {
                 let mismatch = |arm: &str, s: &OccSite<'_>, got: &[f32], want: &[f32]| -> String {
                     let bad = (0..want.len()).find(|&r| got[r] != want[r]).unwrap_or(0);
                     format!(
-                        "{arm} / {} : ligne {bad} vaut {} contre {} pour tv_planes_seg",
+                        "{arm} / {}: row {bad} is {} against {} for tv_planes_seg",
                         s.name, got[bad], want[bad]
                     )
                 };
-                // Un site : bit pour bit si l'égalité est due, sinon — ou si
-                // elle est due et manque — la référence f64 au seuil du banc.
-                // Une égalité due qui manque n'ARRÊTE pas le job : elle dit
-                // que le compilateur a déplacé une contraction (acc += dot·g
-                // en FMA ou non), ce que le texte source ne commande pas, et
-                // ce n'est pas un défaut de l'arithmétique — la référence f64
-                // le tranche, et la ligne fautive est imprimée. Ce qui
-                // arrête : une erreur f64 au-dessus du seuil, partout.
-                // Un site faux n'arrête plus le JOB : il INVALIDE le bras, qui
-                // n'est alors jamais chronométré et sort en ROUGE dans le
-                // bloc du gate — les sept autres bras gardent leur mesure.
-                // 🕳️ Le premier job (6a97394c…) est mort sur la justesse de
-                // sk1 après 4 min de transcodage, emportant les chronos des
-                // cinq bras déjà prouvés bit-exacts. Ce qui reste fatal : une
-                // erreur de lancement, ou une référence qui ne se calcule pas.
+                // One site: bit for bit if the equality is owed, otherwise —
+                // or if it is owed and missing — the f64 reference at the
+                // bench threshold. An owed equality that is missing does NOT
+                // stop the job: it says the compiler moved a contraction
+                // (acc += dot·g into an FMA or not), which the source text does
+                // not command, and that is not an arithmetic defect — the f64
+                // reference settles it, and the offending row is printed. What
+                // stops: an f64 error above the threshold, anywhere.
+                // A wrong site no longer stops the JOB: it INVALIDATES the arm,
+                // which is then never timed and comes out RED in the gate
+                // block — the seven other arms keep their measurement.
+                // 🕳️ The first job (6a97394c…) died on sk1's correctness after
+                // 4 min of transcoding, taking with it the timings of the five
+                // arms already proved bit-exact. What stays fatal: a launch
+                // error, or a reference that does not compute.
                 let check_site = |arm: usize,
                                       k: usize,
                                       s: &OccSite<'_>,
@@ -3409,20 +3407,20 @@ mod linux {
                     let e = worst_error(got, &want, &scale);
                     if e > TOL {
                         println!(
-                            "  🚨 {name} / {} : pire erreur {e:.2e}·Σ|w·x| au-dessus du seuil {TOL:.0e}{} \
-                             — BRAS INVALIDÉ, il ne sera pas chronométré",
+                            "  ALERT: {name} / {}: worst error {e:.2e}·Σ|w·x| above the threshold \
+                             {TOL:.0e}{} — ARM INVALIDATED, it will not be timed",
                             s.name,
-                            if due { format!(" — et {}", mismatch(name, s, got, &got_ref[k])) } else { String::new() }
+                            if due { format!(" — and {}", mismatch(name, s, got, &got_ref[k])) } else { String::new() }
                         );
                         return Ok(false);
                     }
                     counts.3 = counts.3.max(e);
                     if due {
-                        // Due, manquée, mais juste : à déclarer une fois par
-                        // site, avec la première ligne qui diffère.
+                        // Owed, missed, but correct: to be declared once per
+                        // site, with the first row that differs.
                         println!(
-                            "  ⚠️ {} — association déplacée par le compilateur, PAS un défaut : \
-                             vérifié contre f64 à {e:.1e}·Σ|w·x|",
+                            "  WARNING: {} — association moved by the compiler, NOT a defect: \
+                             verified against f64 at {e:.1e}·Σ|w·x|",
                             mismatch(name, s, got, &got_ref[k])
                         );
                         counts.1 += s.d_out as usize;
@@ -3432,13 +3430,13 @@ mod linux {
                     Ok(true)
                 };
                 for (idx, &a) in seg_arms.iter().enumerate() {
-                    // (bit-exactes, dues mais déplacées, scindées, pire erreur f64)
+                    // (bit-exact, owed but moved, split, worst f64 error)
                     let mut counts = (0usize, 0usize, 0usize, 0.0f64);
                     let mut ok = true;
                     if a == occ::PERSALL {
                         occ_launch_all()?;
                         cuda.sync()?;
-                        let all = cuda.down_f32(d_y_all.as_ref().expect("sortie persall"))?;
+                        let all = cuda.down_f32(d_y_all.as_ref().expect("persall output"))?;
                         for (k, s) in sites.iter().enumerate() {
                             let got = &all[site_row0[k]..site_row0[k] + s.d_out as usize];
                             ok &= check_site(a, k, s, got, true, &mut counts)?;
@@ -3456,23 +3454,23 @@ mod linux {
                     occ_valid[idx] = ok;
                     let (exact_rows, moved_rows, split_rows, worst) = counts;
                     println!(
-                        "  {:<8} {}{exact_rows} lignes identiques AU BIT près à tv_planes_seg{}{}",
+                        "  {:<8} {}{exact_rows} rows identical BIT FOR BIT to tv_planes_seg{}{}",
                         occ::SEG_ARM_NAMES[a],
-                        if ok { "" } else { "INVALIDÉ — " },
+                        if ok { "" } else { "INVALIDATED — " },
                         if moved_rows > 0 {
-                            format!(" ; {moved_rows} lignes à association déplacée, justes contre f64")
+                            format!("; {moved_rows} rows with moved association, correct against f64")
                         } else {
                             String::new()
                         },
                         if split_rows > 0 {
-                            format!(" ; {split_rows} lignes scindées contre la référence f64")
+                            format!("; {split_rows} split rows against the f64 reference")
                         } else {
                             String::new()
                         }
                     );
                     if moved_rows + split_rows > 0 {
                         println!(
-                            "           pire erreur f64 {worst:.1e}·Σ|w·x| (seuil {TOL:.0e})"
+                            "           worst f64 error {worst:.1e}·Σ|w·x| (threshold {TOL:.0e})"
                         );
                     }
                 }
@@ -3485,8 +3483,8 @@ mod linux {
             // fused-LLVQ / unfused-FP16 ratio would credit the format for a
             // geometry change. Every number below is a DELTA, not a ratio.
             let mut tf: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-            // A3 : une série par bras sélectionné, remplie dans les MÊMES
-            // rounds que les quatre ci-dessus, après eux.
+            // A3: one series per selected arm, filled in the SAME rounds as the
+            // four above, after them.
             let mut tn: Vec<Vec<f64>> = vec![Vec::new(); seg_arms.len()];
             for rep in 0..ROUNDS {
                 for (arm, ta) in tf.iter_mut().enumerate() {
@@ -3531,12 +3529,12 @@ mod linux {
                         ta.push(s);
                     }
                 }
-                // A3 : les bras d'occupation, après les quatre historiques,
-                // dans le même round — jamais dans une boucle à part, sinon
-                // le dénominateur viendrait de rounds qu'ils n'ont pas vécus.
+                // A3: the occupancy arms, after the four historical ones, in
+                // the same round — never in a loop of their own, otherwise the
+                // denominator would come from rounds they never lived through.
                 for (k, &a) in seg_arms.iter().enumerate() {
                     if !occ_valid[k] {
-                        continue; // faux : jamais chronométré
+                        continue; // wrong: never timed
                     }
                     let tin = Instant::now();
                     if a == occ::PERSALL {
@@ -3554,8 +3552,8 @@ mod linux {
                 }
             }
             let [ts, tss, tp, tps] = tf;
-            // La série de référence des bras A3, round par round, gardée
-            // avant que `spread` ne consomme `tps`.
+            // The reference series of the A3 arms, round by round, kept before
+            // `spread` consumes `tps`.
             let tps_ref = tps.clone();
             // Deltas formed ROUND BY ROUND, exactly as the ratios are: a
             // difference of two minima taken from rounds that never coexisted
@@ -3596,53 +3594,53 @@ mod linux {
             let pb_fus = fused_bytes(|f| f.planes_bytes, |m| arm_bytes(m, arms::PLANES14));
 
             println!(
-                "\n  Coût — {ROUNDS} rounds, {WARMUP} jetés, QUATRE bras entrelacés, \
-                 médianes\n  {}",
+                "\n  Cost — {ROUNDS} rounds, {WARMUP} discarded, FOUR arms interleaved, \
+                 medians\n  {}",
                 "-".repeat(78)
             );
             println!(
-                "  {:<34}{:>10.3} ms   {n_sep} lancements",
-                "Slot32, matrices séparées",
+                "  {:<34}{:>10.3} ms   {n_sep} launches",
+                "Slot32, separate matrices",
                 s_sep * 1e3
             );
             println!(
-                "  {:<34}{:>10.3} ms   {n_fus} lancements",
-                "Slot32, q+k+v et gate+up fusés",
+                "  {:<34}{:>10.3} ms   {n_fus} launches",
+                "Slot32, q+k+v and gate+up fused",
                 s_fus * 1e3
             );
             println!(
-                "  {:<34}{:>10.3} ms   {n_sep} lancements",
-                "Planes14, matrices séparées",
+                "  {:<34}{:>10.3} ms   {n_sep} launches",
+                "Planes14, separate matrices",
                 p_sep * 1e3
             );
             println!(
-                "  {:<34}{:>10.3} ms   {n_fus} lancements",
-                "Planes14, q+k+v et gate+up fusés",
+                "  {:<34}{:>10.3} ms   {n_fus} launches",
+                "Planes14, q+k+v and gate+up fused",
                 p_fus * 1e3
             );
             println!("  {}", "-".repeat(78));
             println!(
-                "  gain Slot32   : {ds_md:.3} ms [{ds_lo:.3}–{ds_hi:.3}]  ({:.1} %)",
+                "  gain Slot32   : {ds_md:.3} ms [{ds_lo:.3}–{ds_hi:.3}]  ({:.1}%)",
                 100.0 * ds_md / (s_sep * 1e3)
             );
             println!(
-                "  gain Planes14 : {dp_md:.3} ms [{dp_lo:.3}–{dp_hi:.3}]  ({:.1} %)",
+                "  gain Planes14 : {dp_md:.3} ms [{dp_lo:.3}–{dp_hi:.3}]  ({:.1}%)",
                 100.0 * dp_md / (p_sep * 1e3)
             );
             println!(
-                "  Planes14 / Slot32 sur le gain : {rr_md:.2}× [{rr_lo:.2}–{rr_hi:.2}]\n  \
-                 ⚠️ rapport de deux DIFFÉRENCES : sa dispersion est celle des deux \
-                 numérateurs\n  cumulée, donc bien plus large que celle des rapports du \
-                 tableau ci-dessus. Le\n  lire comme un ordre de grandeur, jamais à deux \
-                 décimales. Ce sont les deux\n  lignes « gain » qui portent le résultat."
+                "  Planes14 / Slot32 on the gain: {rr_md:.2}× [{rr_lo:.2}–{rr_hi:.2}]\n  \
+                 WARNING: ratio of two DIFFERENCES. Its spread is that of the two \
+                 numerators\n  combined, hence far wider than that of the ratios in the table \
+                 above. Read it\n  as an order of magnitude, never to two decimals. The two \
+                 \"gain\" lines are the\n  ones that carry the result."
             );
             println!(
-                "  repère : 108 lancements en moins × 3,63 µs mesurés (a3-graph-2026-08-06)\n  \
-                 = 0,392 ms, indépendants du layout. Ce qui dépasse est l'occupation."
+                "  landmark: 108 fewer launches × 3.63 µs measured (a3-graph-2026-08-06)\n  \
+                 = 0.392 ms, independent of the layout. What exceeds that is occupancy."
             );
             println!(
-                "  octets lus — Slot32   : {:.3} Go fusé contre {:.3} séparé ({:+.2} %)\n  \
-                 octets lus — Planes14 : {:.3} Go fusé contre {:.3} séparé ({:+.2} %)",
+                "  bytes read — Slot32   : {:.3} GB fused against {:.3} separate ({:+.2}%)\n  \
+                 bytes read — Planes14 : {:.3} GB fused against {:.3} separate ({:+.2}%)",
                 sb_fus as f64 / 1e9,
                 sb_sep as f64 / 1e9,
                 100.0 * (sb_fus as f64 - sb_sep as f64) / sb_sep as f64,
@@ -3651,35 +3649,33 @@ mod linux {
                 100.0 * (pb_fus as f64 - pb_sep as f64) / pb_sep as f64
             );
             println!(
-                "  Slot32 peut bouger : son stride est le plus large enregistrement d'un\n  \
-                 groupe de 32, et la concaténation regroupe aux frontières de segment. \
-                 Planes14\n  ne le peut pas — 14 octets par bloc, sans table de bases — et \
-                 le +0,00 % ci-dessus\n  est donc une vérification, pas une mesure \
-                 (tests/planes_segment_matches_unfused.rs).\n  Un gain d'octets serait un \
-                 confondant, pas un bonus."
+                "  Slot32 can move: its stride is the widest record of a group of 32, and\n  \
+                 the concatenation regroups at segment boundaries. Planes14 cannot — 14 \
+                 bytes\n  per block, no bases table — so the +0.00% above is a verification, \
+                 not a\n  measurement (tests/planes_segment_matches_unfused.rs). A byte gain \
+                 would be a\n  confounder, not a bonus."
             );
             println!(
-                "\n  ⚠️ CE BLOC NE PRODUIT AUCUN RAPPORT CONTRE LE FP16, et n'en autorise\n  \
-                 aucun : le bras FP16 souffre lui aussi du sous-remplissage sur k/v et \
-                 gagnerait\n  lui aussi à la fusion. Seuls les deux DELTAS LLVQ → LLVQ \
-                 ci-dessus sont mesurés."
+                "\n  WARNING: THIS BLOCK PRODUCES NO RATIO AGAINST FP16, and authorizes\n  \
+                 none: the FP16 arm suffers the same underfill on k/v and would gain from\n  \
+                 the fusion too. Only the two LLVQ → LLVQ DELTAS above are measured."
             );
 
-            // ---- A3 : le gate, dans les termes gelés avant le job ----
+            // ---- A3: the gate, in the terms frozen before the job ----
             if occ_on {
                 println!(
-                    "\n  Occupation (A3) — {ROUNDS} rounds, {WARMUP} jetés, bras entrelacés APRÈS les \
-                     quatre ci-dessus, médianes\n  dénominateur du gate (préreg §5) : « Planes14, \
-                     q+k+v et gate+up fusés » de CE processus = {:.3} ms\n  lecture gelée AVANT le \
-                     job (ÉCARTS É1) : gain = (t_ref − t) / t_ref, formé ROUND PAR ROUND ; \
-                     ≥ 10 % sur TOUTE la plage = passe\n  {}",
+                    "\n  Occupancy (A3) — {ROUNDS} rounds, {WARMUP} discarded, arms interleaved \
+                     AFTER the four above, medians\n  gate denominator (prereg §5): \"Planes14, \
+                     q+k+v and gate+up fused\" of THIS process = {:.3} ms\n  reading frozen \
+                     BEFORE the job (DEVIATIONS É1): gain = (t_ref − t) / t_ref, formed ROUND BY \
+                     ROUND;\n  ≥ 10% over the WHOLE range = passes\n  {}",
                     p_fus * 1e3,
                     "-".repeat(78)
                 );
                 for (k, &a) in seg_arms.iter().enumerate() {
                     if !occ_valid[k] {
                         println!(
-                            "  {:<44}   ROUGE — justesse fausse, jamais chronométré (voir ci-dessus)",
+                            "  {:<44}   RED — correctness wrong, never timed (see above)",
                             occ::SEG_DISPLAY[a]
                         );
                         continue;
@@ -3693,21 +3689,21 @@ mod linux {
                     let (d_lo, d_md, d_hi) = spread(dms);
                     let launches = if a == occ::PERSALL { 1 } else { n_fus };
                     let verdict = if g_lo >= 0.10 {
-                        "PASSE le gate banc (plage entière ≥ 10 %)"
+                        "PASSES the bench gate (whole range ≥ 10%)"
                     } else if g_hi < 0.10 {
-                        "sous le gate : point de courbe, pas de port"
+                        "under the gate: a curve point, not a port"
                     } else {
-                        "plage à cheval sur 10 % — NON RÉSOLU"
+                        "range straddles 10% — NOT RESOLVED"
                     };
                     println!(
-                        "  {:<44}{:>8.3} ms [{:.3}–{:.3}]   {launches} lancements",
+                        "  {:<44}{:>8.3} ms [{:.3}–{:.3}]   {launches} launches",
                         occ::SEG_DISPLAY[a],
                         md * 1e3,
                         lo * 1e3,
                         hi * 1e3
                     );
                     println!(
-                        "      gain {:+.2} % [{:+.2} ; {:+.2}]   Δ {:+.3} ms [{:+.3} ; {:+.3}]   → {verdict}",
+                        "      gain {:+.2}% [{:+.2}; {:+.2}]   Δ {:+.3} ms [{:+.3}; {:+.3}]   → {verdict}",
                         g_md * 100.0,
                         g_lo * 100.0,
                         g_hi * 100.0,
@@ -3718,23 +3714,23 @@ mod linux {
                 }
                 println!("  {}", "-".repeat(78));
                 println!(
-                    "  résidence lue — tv_planes_seg {ref_regs} registres → {ref_per_sm} CTAs/SM × {} SM = \
-                     {ref_slots} emplacements{}{}",
+                    "  residency read — tv_planes_seg {ref_regs} registers → {ref_per_sm} CTAs/SM × {} SM = \
+                     {ref_slots} slots{}{}",
                     dev.sm_count,
                     if pers_slots > 0 {
-                        format!(" ; tv_planes_pers {pers_regs} reg → {pers_per_sm}/SM = {pers_slots}")
+                        format!("; tv_planes_pers {pers_regs} reg → {pers_per_sm}/SM = {pers_slots}")
                     } else {
                         String::new()
                     },
                     if pall_slots > 0 {
-                        format!(" ; tv_planes_persall {pall_regs} reg → {pall_per_sm}/SM = {pall_slots}")
+                        format!("; tv_planes_persall {pall_regs} reg → {pall_per_sm}/SM = {pall_slots}")
                     } else {
                         String::new()
                     }
                 );
-                // La géométrie de chaque bras sur chaque FORME (CTAs par
-                // lancement, vagues sur les emplacements lus) — calculée,
-                // imprimée pour que le lecteur voie ce que chaque bras change.
+                // The geometry of every arm on every SHAPE (CTAs per launch,
+                // waves over the slots read) — computed, printed so the reader
+                // sees what each arm changes.
                 let mut shapes: Vec<&OccSite<'_>> = Vec::new();
                 for s in &sites {
                     if !shapes.iter().any(|t| t.d_out == s.d_out && t.nblocks == s.nblocks) {
@@ -3756,11 +3752,11 @@ mod linux {
                         Some(_) => None,
                     }
                 };
-                let mut head = format!("  {:<10}", "géométrie");
+                let mut head = format!("  {:<10}", "geometry");
                 for s in &shapes {
                     head.push_str(&format!("{:>18}", format!("{}×{}", s.d_out, s.nblocks * 24 + s.tail_w)));
                 }
-                println!("{head}   (CTAs, vagues sur {ref_slots})");
+                println!("{head}   (CTAs, waves over {ref_slots})");
                 let line = |label: &str, a: Option<usize>| {
                     let mut l = format!("  {label:<10}");
                     for s in &shapes {
@@ -3769,22 +3765,22 @@ mod linux {
                                 let (w, _) = occ::waves(c, ref_slots.max(1));
                                 l.push_str(&format!("{:>18}", format!("{c} ({w:.2})")));
                             }
-                            None => l.push_str(&format!("{:>18}", "1 lancement")),
+                            None => l.push_str(&format!("{:>18}", "1 launch")),
                         }
                     }
                     println!("{l}");
                 };
-                line("référence", None);
+                line("reference", None);
                 for &a in &seg_arms {
                     line(occ::SEG_ARM_NAMES[a], Some(a));
                 }
                 println!(
-                    "  ⚠️ persall : UN lancement pour les {n_fus} sites — bras de BANC ; le chemin servi \
-                     ne peut pas l'utiliser\n  (rotation, attention et normes entre les sites), il \
-                     borne ce qu'A2+A3 réunis peuvent viser, il ne se porte pas.\n  arithmétique \
-                     posée d'avance (note de design §4) : les 144 matvec pèsent ~45 % du token servi \
-                     v1, donc 10 % ici ≈ +4,5 %\n  bout-en-bout — entre 3 et 8, point de courbe ; \
-                     l'adoption (≥ 8 %) demande ~18 % au banc, ou la combinaison avec A2."
+                    "  WARNING: persall — ONE launch for the {n_fus} sites, a BENCH arm; the served \
+                     path cannot use it\n  (rotation, attention and norms between the sites), it \
+                     bounds what A2+A3 together can aim at, it does not port.\n  Arithmetic laid \
+                     down in advance (design note §4): the 144 matvec weigh ~45% of the v1 served \
+                     token, so 10% here ≈ +4.5%\n  end to end — between 3 and 8, a curve point; \
+                     adoption (≥ 8%) demands ~18% at the bench, or the combination with A2."
                 );
             }
         }

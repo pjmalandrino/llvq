@@ -15,8 +15,8 @@
 //!
 //! ⚠️ **The cost of that is not the "26 min" the docs repeat.** 65.5 GB ÷
 //! 42 MB/s = 26.0 min: the two figures are each other, and neither end was
-//! measured — `docs/archive/plan-de-test-v2-cuda.md` presents the rate as "mesurés sur
-//! le run 32B" while `CLAUDE.md` and `ops/run.py` present the duration as the
+//! measured — `docs/archive/plan-de-test-v2-cuda.md` presents the rate as measured
+//! on the 32B run, while `CLAUDE.md` and `ops/run.py` present the duration as the
 //! measurement. What the 32B de-risking run actually bounds: it billed 59 min
 //! (5.43 $ at 5.50 $/h on `rtx-pro-6000x2`), of which 2694 s are the
 //! quantization loop (the core-second table in `ops/run.py`), leaving **≤ 846 s
@@ -100,9 +100,9 @@ impl Source {
         let s = spec.trim();
         if s.is_empty() {
             return Err(
-                "LLVQ_MODEL est vide : attendu un dépôt (« Qwen/Qwen3-4B », \
-                 « Qwen/Qwen3-4B@<sha> ») ou un répertoire (« /model », « ./ckpt », \
-                 « ~/ckpt »)"
+                "LLVQ_MODEL is empty: expected a repo (\"Qwen/Qwen3-4B\", \
+                 \"Qwen/Qwen3-4B@<sha>\") or a directory (\"/model\", \"./ckpt\", \
+                 \"~/ckpt\")"
                     .to_string(),
             );
         }
@@ -121,9 +121,9 @@ impl Source {
                 // ends up quantizing `main` while the log says otherwise.
                 if repo.is_empty() || revision.is_empty() || revision.contains('@') {
                     return Err(format!(
-                        "LLVQ_MODEL={spec} : la syntaxe d'épinglage est « dépôt@révision », \
-                         un seul « @ » et aucune moitié vide (ex. « Qwen/Qwen3-4B@a1b2c3d »). \
-                         Sans « @ », la révision est « main », comme avant."
+                        "LLVQ_MODEL={spec}: the pinning syntax is \"repo@revision\", \
+                         one single \"@\" and no empty half (e.g. \"Qwen/Qwen3-4B@a1b2c3d\"). \
+                         Without \"@\", the revision is \"main\", as before."
                     ));
                 }
                 Ok(Self::Hub {
@@ -139,8 +139,8 @@ impl Source {
     /// off the Hub, nor at which revision.
     pub fn describe(&self) -> String {
         match self {
-            Self::Local(p) => format!("répertoire local {}", p.display()),
-            Self::Hub { repo, revision } => format!("dépôt {repo}@{revision}"),
+            Self::Local(p) => format!("local directory {}", p.display()),
+            Self::Hub { repo, revision } => format!("repo {repo}@{revision}"),
         }
     }
 }
@@ -165,7 +165,8 @@ fn expand_home(s: &str) -> Result<PathBuf, String> {
         return Ok(PathBuf::from(s));
     };
     let home = std::env::var("HOME").map_err(|_| {
-        format!("LLVQ_MODEL={s} : HOME n'est pas défini, donc « ~/ » ne peut pas être développé — donne un chemin absolu")
+        format!("LLVQ_MODEL={s}: HOME is not set, so \"~/\" cannot be expanded. \
+                 Give an absolute path")
     })?;
     Ok(Path::new(&home).join(rest))
 }
@@ -179,7 +180,7 @@ fn shard_names(index: &[u8]) -> anyhow::Result<Vec<String>> {
     let json: serde_json::Value = serde_json::from_slice(index)?;
     let map = json["weight_map"]
         .as_object()
-        .ok_or_else(|| anyhow::anyhow!("{INDEX} : pas d'objet « weight_map »"))?;
+        .ok_or_else(|| anyhow::anyhow!("{INDEX}: no \"weight_map\" object"))?;
     let mut names: Vec<String> = map
         .values()
         .filter_map(|v| v.as_str().map(str::to_owned))
@@ -188,7 +189,7 @@ fn shard_names(index: &[u8]) -> anyhow::Result<Vec<String>> {
     names.dedup();
     anyhow::ensure!(
         !names.is_empty(),
-        "{INDEX} : « weight_map » ne nomme aucun fichier"
+        "{INDEX}: \"weight_map\" names no file"
     );
     Ok(names)
 }
@@ -230,12 +231,12 @@ impl Checkpoint {
         let d = dir.display();
         anyhow::ensure!(
             dir.is_dir(),
-            "LLVQ_MODEL={d} : ce répertoire n'existe pas (ou n'est pas un répertoire). \
-             Aucun dépôt du même nom n'a été cherché — un chemin reste un chemin."
+            "LLVQ_MODEL={d}: this directory does not exist (or is not a directory). \
+             No repo of the same name was looked up, a path stays a path."
         );
         let need = |name: &str| -> anyhow::Result<PathBuf> {
             let p = dir.join(name);
-            anyhow::ensure!(p.is_file(), "{d} ne porte pas de {name}");
+            anyhow::ensure!(p.is_file(), "{d} carries no {name}");
             Ok(p)
         };
         let config_path = need(CONFIG)?;
@@ -250,12 +251,12 @@ impl Checkpoint {
             vec![single]
         } else {
             let idx = dir.join(INDEX);
-            anyhow::ensure!(idx.is_file(), "{d} ne porte ni {SINGLE} ni {INDEX}");
+            anyhow::ensure!(idx.is_file(), "{d} carries neither {SINGLE} nor {INDEX}");
             shard_names(&std::fs::read(&idx)?)?
                 .iter()
                 .map(|n| {
                     let p = dir.join(n);
-                    anyhow::ensure!(p.is_file(), "{d} ne porte pas {n}, que {INDEX} liste");
+                    anyhow::ensure!(p.is_file(), "{d} carries no {n}, which {INDEX} lists");
                     Ok(p)
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?
@@ -442,7 +443,7 @@ mod tests {
     #[test]
     fn a_malformed_pin_is_refused() {
         for bad in ["", "   ", "Qwen/Qwen3-4B@", "@a1b2c3d", "Qwen/Qwen3-4B@a@b"] {
-            assert!(Source::parse(bad).is_err(), "{bad:?} aurait dû être refusé");
+            assert!(Source::parse(bad).is_err(), "{bad:?} should have been refused");
         }
     }
 
@@ -452,7 +453,7 @@ mod tests {
             assert_eq!(
                 Source::parse(p).unwrap(),
                 Source::Local(PathBuf::from(p)),
-                "{p} aurait dû être un chemin"
+                "{p} should have been a path"
             );
         }
         // `@` is only read on the Hub branch, so a path keeps it verbatim.
@@ -464,7 +465,7 @@ mod tests {
 
     #[test]
     fn a_tilde_is_expanded() {
-        let home = std::env::var("HOME").expect("HOME sur cette plateforme");
+        let home = std::env::var("HOME").expect("HOME on this platform");
         assert_eq!(
             Source::parse("~/qwen3-4b").unwrap(),
             Source::Local(Path::new(&home).join("qwen3-4b"))
@@ -477,7 +478,7 @@ mod tests {
     ///
     /// Driven through `fetch`, not `from_dir`: the mutant worth killing is a
     /// *fallback* — "the directory is not there, try the Hub" — and only the
-    /// dispatch can commit it. Hence the assertion on the word `répertoire`,
+    /// dispatch can commit it. Hence the assertion on the word `directory`,
     /// which no Hub error carries.
     #[test]
     fn a_missing_local_path_never_becomes_a_repo_id() {
@@ -485,7 +486,7 @@ mod tests {
         assert_eq!(Source::parse(p).unwrap(), Source::Local(PathBuf::from(p)));
         let e = Checkpoint::fetch(p).unwrap_err().to_string();
         assert!(
-            e.contains(p) && e.contains("répertoire n'existe pas"),
+            e.contains(p) && e.contains("directory does not exist"),
             "{e}"
         );
     }
@@ -584,7 +585,7 @@ mod tests {
             dotted.unwrap(),
             Source::Local(PathBuf::from("./Qwen/Qwen3-0.6B"))
         );
-        assert!(dotted_loads, "le checkpoint planté aurait dû se charger");
+        assert!(dotted_loads, "the planted checkpoint should have loaded");
     }
 
     /// End to end on real bytes when the machine has them: the Hub cache lays
@@ -594,7 +595,7 @@ mod tests {
     #[test]
     fn a_real_cached_snapshot_loads_and_maps() {
         let Some(dir) = cached_snapshot("Qwen--Qwen3-0.6B") else {
-            eprintln!("cache HF absent : chargement réel non exercé");
+            eprintln!("HF cache absent: real load not exercised");
             return;
         };
         let ck = Checkpoint::fetch(dir.to_str().unwrap()).unwrap();
@@ -610,7 +611,7 @@ mod tests {
     #[test]
     fn a_real_cached_sharded_snapshot_resolves_every_shard() {
         let Some(dir) = cached_snapshot("Qwen--Qwen3-4B") else {
-            eprintln!("cache HF absent : chemin multi-shards non exercé");
+            eprintln!("HF cache absent: multi-shard path not exercised");
             return;
         };
         let ck = Checkpoint::fetch(dir.to_str().unwrap()).unwrap();

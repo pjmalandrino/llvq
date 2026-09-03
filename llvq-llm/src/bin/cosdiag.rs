@@ -37,10 +37,10 @@ fn main() -> anyhow::Result<()> {
         ("model.layers.27.mlp.down_proj.weight", h, inter),
     ];
 
-    println!("modèle : {repo}   échantillon : {sample} blocs par (matrice, boule)");
-    println!("cos θ = ⟨w, û⟩ / ‖w‖ — û étant la direction que la recherche angulaire retient.");
-    println!("Le code de gain quantifie ‖w‖ ; l'optimum à direction fixée est ‖w‖·cos θ.");
-    println!("Le surcoût systématique est donc 1/cos θ − 1, en pour-cent.\n");
+    println!("model: {repo}   sample: {sample} blocks per (matrix, ball)");
+    println!("cos θ = ⟨w, û⟩ / ‖w‖ — û is the direction the angular search keeps.");
+    println!("The gain code quantizes ‖w‖; the optimum at a fixed direction is ‖w‖·cos θ.");
+    println!("The systematic overshoot is therefore 1/cos θ − 1, in percent.\n");
 
     for (name, d_out, d_in) in picks {
         let t = vb.get((d_out, d_in), name)?;
@@ -76,8 +76,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        println!("── {name}  ({d_out}×{d_in}) — {} blocs échantillonnés", blocks.len());
-        println!("   boule  classes   cos θ moyen   p1        p50       p99       surcoût 1/cosθ−1");
+        println!("── {name}  ({d_out}×{d_in}) — {} blocks sampled", blocks.len());
+        println!("    ball  classes   mean cos θ    p1        p50       p99       overshoot 1/cosθ−1");
         let s = Searcher::new();
         for cap in [13u32, 12, 11, 10] {
             let mut ball = BallSearcher::with_level_cap(llvq_search::generic::MAX_LEVELS_ANY);

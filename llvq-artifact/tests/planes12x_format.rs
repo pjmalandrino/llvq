@@ -14,7 +14,7 @@
 //!    encoder/decoder bug cannot pass.
 //! 4. **The accounting is a formula, not a measurement**: `96·n + 144·n_exc`
 //!    bits over `24·n` weights, and on the sealed 4B the exception count is
-//!    the `rtbits` census: 5 096 688 exactly, for ~4.20 b/w.
+//!    the `rtbits` census: 5,096,688 exactly, for ~4.20 b/w.
 
 use llvq_artifact::runtime::{
     transcode, transcode_planes12x, transcode_planes14, ClassTable, Layout, PLANES12X_BYTES,
@@ -52,7 +52,7 @@ fn distinct_magnitudes(p: &Point) -> usize {
 
 /// Both ends of every class (every zero pattern, every level count), a
 /// bounded uniform draw over the cap-13 ball, and the origin mid-stream.
-/// 2 000 draws, not 200 000: every 5-level block costs a real
+/// 2,000 draws, not 200,000: every 5-level block costs a real
 /// `nearest_angular` search, and this fixture already covers all 383 classes.
 fn fixture_indices(fd: &FastDecoder, rng: &mut SplitMix64) -> Vec<u64> {
     let mut indices: Vec<u64> = Vec::new();
@@ -294,7 +294,7 @@ fn planes12x_refuses_an_out_of_range_index() {
 /// The integral proof on the sealed 4B artifact: every block of every matrix
 /// reconstructs bit-identically through the Planes12x overlay and through
 /// Planes14, and the exception count is the `rtbits` census of L = 5 blocks:
-/// **5 096 688** exactly. ⚠️ This runs one `nearest_angular` search per L = 5
+/// **5,096,688** exactly. ⚠️ This runs one `nearest_angular` search per L = 5
 /// block — the longest test in this crate by two orders of magnitude, ~574 s
 /// of all-core work, the same bill `lswap` paid. Out of the default run for
 /// that reason; asked for explicitly, a missing archive is an error, never a

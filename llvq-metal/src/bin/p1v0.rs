@@ -1,10 +1,9 @@
 //! **V0 of P1 — exactness, and not one nanosecond.**
 //!
-//! `proofs/preregistration-p1-2026-08-13.md` §3: *aucune milliseconde n'est
-//! chronométrée avant que le décodeur soit prouvé*. This binary is that proof
-//! for the new arms. It prints no timing, no throughput and no derived
-//! tok/s — deliberately. A number of that kind here would be read as a P1
-//! result, and P1 has not run.
+//! `proofs/preregistration-p1-2026-08-13.md` §3: *no millisecond is timed
+//! before the decoder is proven*. This binary is that proof for the new arms.
+//! It prints no timing, no throughput and no derived tok/s — deliberately. A
+//! number of that kind here would be read as a P1 result, and P1 has not run.
 //!
 //! ## The arms do not have the same standard, and confusing them is the trap
 //! ## this file exists to avoid
@@ -13,7 +12,7 @@
 //! |---|---|
 //! | `cascade_uniform` | the dot product of `FastDecoder::decode`'s point, in f64 — it decodes the **archive's** order, so equality is the requirement |
 //! | `decode_walk` | the dot product `binomial_walk` (the CPU reference) gives **on the same ranks**, over levels re-derived from `FastDecoder::levels` — it decodes **its own** combinatorial order |
-//! | `decode_e1v` | the dot product of `cns_decode`'s point — the CNS is what the E1v stream numbers, and P5 C2 swept it against `FastDecoder::decode` over the 150 681 600 blocks of the 4B |
+//! | `decode_e1v` | the dot product of `cns_decode`'s point — the CNS is what the E1v stream numbers, and P5 C2 swept it against `FastDecoder::decode` over the 150,681,600 blocks of the 4B |
 //!
 //! Amendment É2 of the pre-registration settles the second: relating a
 //! binomial walk's order to the archive's multiset-permutation order *is* the
@@ -92,7 +91,7 @@ const FIXTURE_SEED: u64 = 0x0000_F1C7_5EED;
 /// Largest class cardinality the bijection check enumerates in full, and the
 /// total block budget it may spend doing so.
 ///
-/// Both are arbitrary and both are printed: a class of cardinality 2 704 156
+/// Both are arbitrary and both are printed: a class of cardinality 2,704,156
 /// cannot be enumerated at any budget this binary is willing to hold, so the
 /// bijection is established **where enumeration is affordable** and the round
 /// trip carries the rest. Saying which is which is the point of printing the
@@ -159,11 +158,11 @@ impl CascadeArm {
 
     fn run(&self, idx: &[u64], gains: &[u8]) -> Vec<f32> {
         let n = idx.len();
-        assert_eq!(n, gains.len(), "un gain par bloc");
+        assert_eq!(n, gains.len(), "one gain per block");
         assert!(
             n > 0 && n.is_multiple_of(GROUP),
-            "{n} blocs n'est pas un multiple de {GROUP} : le dernier threadgroup \
-             lirait un `xs` non écrit"
+            "{n} blocks is not a multiple of {GROUP}: the last threadgroup would \
+             read an unwritten `xs`"
         );
         let b_idx = self.k.buffer(idx);
         let b_gain = self.k.buffer(gains);
@@ -192,7 +191,7 @@ impl CascadeArm {
 /// twin exists because a dot product is a sum, and a sum is not injective: É2's
 /// standard is `rank → arrangement → rank`, and the arrangement never leaves
 /// the lane in the timed kernel. Adding a store to `decode_walk` to get at it
-/// would change the thing being measured — defect n°1 of the 2026-07-31 bench,
+/// would change the thing being measured — defect no. 1 of the 2026-07-31 bench,
 /// turned into a rule.
 struct WalkArm {
     k: llvq_metal::Kernel,
@@ -226,11 +225,11 @@ impl WalkArm {
     }
 
     fn nblocks(words: &[u32]) -> usize {
-        assert_eq!(words.len() % 3, 0, "trois mots par bloc");
+        assert_eq!(words.len() % 3, 0, "three words per block");
         let n = words.len() / 3;
         assert!(
             n > 0 && n.is_multiple_of(GROUP),
-            "{n} blocs n'est pas un multiple de {GROUP}"
+            "{n} blocks is not a multiple of {GROUP}"
         );
         n
     }
@@ -309,7 +308,7 @@ impl E1vArm {
         let n = stream.n_blocks;
         assert!(
             n > 0 && n.is_multiple_of(GROUP),
-            "{n} blocs n'est pas un multiple de {GROUP}"
+            "{n} blocks is not a multiple of {GROUP}"
         );
         // Two words of padding so the three-word window of the last lane cannot
         // run off the end. Not part of the stream, and never counted as bytes
@@ -510,15 +509,15 @@ fn verify_arrangements(
     label: &str,
 ) -> usize {
     let n = feed.len();
-    assert_eq!(arr.len(), n * DIM, "{label}: DIM octets par bloc");
-    assert_eq!(dots.len(), n, "{label}: un flottant par bloc");
+    assert_eq!(arr.len(), n * DIM, "{label}: DIM bytes per block");
+    assert_eq!(dots.len(), n, "{label}: one float per block");
     let mut bad = 0usize;
     let mut cpu = [0u8; DIM];
     let mut worst_dot = 0.0f64;
     for b in 0..n {
         let id = feed.ids[b] as usize;
         let (counts, vals, k) = &lev[id];
-        let gpu: &[u8; DIM] = arr[b * DIM..(b + 1) * DIM].try_into().expect("DIM octets");
+        let gpu: &[u8; DIM] = arr[b * DIM..(b + 1) * DIM].try_into().expect("DIM bytes");
 
         // 2 — the multiset, before anything else: a slot carrying a symbol
         // outside `0..k` would index `vals` out of range below.
@@ -553,13 +552,13 @@ fn verify_arrangements(
         }
     }
     println!(
-        "  {label:<18} {n} arrangements — aller-retour fermé, multiensemble réalisé, \
-         égalité au CPU slot par slot,\n  {:<18} épinglé sur decode_walk à {worst_dot:.3e} \
-         relatif à Σ|w·x|",
+        "  {label:<18} {n} arrangements — round trip closed, multiset realised, \
+         equal to the CPU slot by slot,\n  {:<18} pinned on decode_walk at {worst_dot:.3e} \
+         relative to Σ|w·x|",
         ""
     );
     if bad > 0 {
-        println!("  {:<18} ROUGE — {bad} bloc(s) sur {n}", "");
+        println!("  {:<18} RED — {bad} block(s) of {n}", "");
     }
     bad
 }
@@ -593,8 +592,8 @@ fn verify_bijection(lev: &Levels, feed: &WalkFeed, arr: &[u8], picked: &[usize])
         if n != card || seen.len() as u64 != card {
             bad += 1;
             println!(
-                "  {:<18} ROUGE — entrée {id} : {n} rangs fournis, {} arrangements \
-                 distincts, cardinalité {card}",
+                "  {:<18} RED — entry {id}: {n} ranks supplied, {} distinct \
+                 arrangements, cardinality {card}",
                 "",
                 seen.len()
             );
@@ -632,8 +631,8 @@ fn verify(name: &str, got: &[f32], want: &[(f64, f64)]) -> Worst {
     let n_bad = got.iter().filter(|v| !v.is_finite()).count();
     assert_eq!(
         n_bad, 0,
-        "{name}: {n_bad} valeur(s) non finies rendues par le noyau — \
-         ce n'est pas un écart, c'est un dispatch en échec"
+        "{name}: {n_bad} non-finite value(s) returned by the kernel — \
+         this is not a deviation, it is a failed dispatch"
     );
     let mut w = Worst {
         abs: 0.0,
@@ -663,8 +662,8 @@ fn verify(name: &str, got: &[f32], want: &[(f64, f64)]) -> Worst {
         }
     }
     println!(
-        "  {name:<18} {} blocs vérifiés — pire écart {:.3e} absolu, {:.3e} relatif à Σ|w·x| \
-         (bloc {}: GPU {:.9} / CPU {:.9})",
+        "  {name:<18} {} blocks verified — worst deviation {:.3e} absolute, {:.3e} relative \
+         to Σ|w·x| (block {}: GPU {:.9} / CPU {:.9})",
         got.len(),
         w.abs,
         w.rel,
@@ -674,7 +673,7 @@ fn verify(name: &str, got: &[f32], want: &[(f64, f64)]) -> Worst {
     );
     if w.bad > 0 {
         println!(
-            "  {:<18} ROUGE — {} blocs hors tolérance sur {}",
+            "  {:<18} RED — {} blocks out of tolerance of {}",
             "",
             w.bad,
             got.len()
@@ -696,7 +695,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    println!("P1 — V0 : exactitude seule. Aucun chronométrage dans ce binaire.\n");
+    println!("P1 — V0: exactness only. No timing in this binary.\n");
 
     // ---- host tables ------------------------------------------------------
     let fd = FastDecoder::new();
@@ -710,8 +709,8 @@ fn main() -> Result<(), String> {
     let binom = binom_table();
     let brecs = block_records(&fd, &golay);
     println!(
-        "tables hôtes : {} classes cascade (88 o), {} entrées marche (52 o), \
-         DivTab 600 o, binomiaux {}×{}, Golay {} mots",
+        "host tables: {} cascade classes (88 B), {} walk entries (52 B), \
+         DivTab 600 B, binomials {}×{}, Golay {} words",
         recs.len(),
         walk.len(),
         DIM + 1,
@@ -722,13 +721,13 @@ fn main() -> Result<(), String> {
     let x = xvec();
     let cascade = CascadeArm::new(&ends, &recs, &golay, &dv, &x)?;
     let walk_arm = WalkArm::new(&walk, &binom, &x)?;
-    println!("GPU : {}", cascade.k.device_name());
+    println!("GPU: {}", cascade.k.device_name());
 
     // =======================================================================
-    // PASSE 1 — la fixture synthétique (§1.6)
+    // PASS 1 — the synthetic fixture (§1.6)
     // =======================================================================
     println!("\n{}", "=".repeat(78));
-    println!("PASSE 1 — fixture synthétique : ce qu'aucun tirage réel n'atteint");
+    println!("PASS 1 — synthetic fixture: what no real draw reaches");
     println!("{}", "=".repeat(78));
 
     let mut frng = SplitMix64::new(FIXTURE_SEED);
@@ -741,27 +740,27 @@ fn main() -> Result<(), String> {
     let fseen: BTreeSet<Option<usize>> = fidx.iter().map(|&i| fd.class_of(i)).collect();
     assert!(
         fseen.contains(&None),
-        "la fixture ne contient pas l'origine, qui est la moitié de sa raison d'être"
+        "the fixture does not contain the origin, which is half its reason to exist"
     );
     for ci in 0..fd.n_classes() {
         assert!(
             fseen.contains(&Some(ci)),
-            "classe {ci} absente de la fixture cascade"
+            "class {ci} missing from the cascade fixture"
         );
     }
     let s13 = (0..fd.n_classes())
         .filter(|&ci| fd.levels(ci).shell == 13)
         .count();
     println!(
-        "\n{} blocs synthétiques — {} classes sur {} (TOUTES), origine comprise ; \
-         dont {s13} classes de coquille 13, qu'aucun bloc du 4B publié n'habite",
+        "\n{} synthetic blocks — {} classes of {} (ALL), origin included; \
+         of which {s13} shell-13 classes, which no block of the published 4B inhabits",
         fidx.len(),
         fseen.len() - 1,
         fd.n_classes()
     );
-    println!("  graine de la fixture : {FIXTURE_SEED:#x}");
+    println!("  fixture seed: {FIXTURE_SEED:#x}");
 
-    println!("\nbras CASCADE — étalon : produit scalaire f64 de FastDecoder::decode");
+    println!("\nCASCADE arm — etalon: f64 dot product of FastDecoder::decode");
     let fc = verify(
         "cascade_uniform",
         &cascade.run(&fidx, &fgains),
@@ -773,18 +772,18 @@ fn main() -> Result<(), String> {
     assert_eq!(
         wseen.len(),
         walk.len(),
-        "la fixture marche doit toucher les {} entrées de la table",
+        "the walk fixture must touch the {} entries of the table",
         walk.len()
     );
     let (fwords, fwant) = walk_feed(&walk, &lev, &ffeed, &GSCALE, &x);
     println!(
-        "\n{} blocs synthétiques — {} entrées de marche sur {} (TOUTES), origine comprise ; \
-         rang 0, dernier rang, et deux tirages par entrée",
+        "\n{} synthetic blocks — {} walk entries of {} (ALL), origin included; \
+         rank 0, last rank, and two draws per entry",
         ffeed.len(),
         wseen.len(),
         walk.len()
     );
-    println!("bras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
+    println!("WALK arm — etalon: binomial_walk (CPU) on THE SAME ranks (É2), not fd.decode");
     let fdots = walk_arm.run(&fwords);
     let fw = verify("decode_walk", &fdots, &fwant);
     let fwa = verify_arrangements(
@@ -797,28 +796,28 @@ fn main() -> Result<(), String> {
     );
 
     // =======================================================================
-    // PASSE 1ter — le flux E1v, sur la même fixture (P1c)
+    // PASS 1ter — the E1v stream, on the same fixture (P1c)
     // =======================================================================
     //
-    // Ce bras ne décode rien que `marche-bloc` ne décode — son corps est le même
-    // texte, à l'octet près, et un test l'exige. Ce qu'il ajoute est l'ADRESSAGE :
-    // mot de base, en-tête à stride fixe, somme préfixe SIMD sur les 32 largeurs
-    // du groupe, fenêtre à trois mots. C'est donc l'adressage que cette passe
-    // vérifie, et la fixture est faite pour lui : l'origine (dont la charge utile
-    // est VIDE, donc qui ne contribue rien à la somme préfixe et dont l'entrée de
-    // table est 0 au lieu de 1+ci) et un groupe entier de la classe la plus
-    // large, qui est la plus grande somme préfixe que l'adressage puisse subir.
+    // This arm decodes nothing that `marche-bloc` does not decode — its body is
+    // the same text, byte for byte, and a test requires it. What it adds is the
+    // ADDRESSING: base word, fixed-stride header, SIMD prefix sum over the 32
+    // widths of the group, three-word window. So addressing is what this pass
+    // verifies, and the fixture is built for it: the origin (whose payload is
+    // EMPTY, so it contributes nothing to the prefix sum and whose table entry
+    // is 0 instead of 1+ci) and a whole group of the widest class, which is the
+    // largest prefix sum the addressing can face.
     println!("\n{}", "-".repeat(78));
     let pay = e1v_payload_bits(&fd, &golay, &brecs);
     let (e1x, e1g) = e1v_fixture(&fd, &pay, GROUP);
     let e1seen: BTreeSet<Option<usize>> = e1x.iter().map(|&i| fd.class_of(i)).collect();
     assert!(
         e1seen.contains(&None),
-        "la fixture E1v ne contient pas l'origine, que le 4B ne porte pas et qu'aucun \
-         tirage n'atteindra donc jamais"
+        "the E1v fixture does not contain the origin, which the 4B does not carry and \
+         which no draw will therefore ever reach"
     );
     for ci in 0..fd.n_classes() {
-        assert!(e1seen.contains(&Some(ci)), "classe {ci} absente de la fixture E1v");
+        assert!(e1seen.contains(&Some(ci)), "class {ci} missing from the E1v fixture");
     }
     let stream = transcode_e1v(
         &fd,
@@ -828,14 +827,14 @@ fn main() -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
     println!(
-        "bras E1v — étalon : produit scalaire f64 de cns_decode (P1c §2), pas fd.decode\n  \
-         {} blocs, {} groupes, {} o de flux + {} o de mots de base, largeur de charge utile \
-         au pire {} bits",
+        "E1v arm — etalon: f64 dot product of cns_decode (P1c §2), not fd.decode\n  \
+         {} blocks, {} groups, {} B of stream + {} B of base words, worst-case payload \
+         width {} bits",
         stream.n_blocks,
         stream.bases.len(),
         stream.data.len(),
         4 * stream.bases.len(),
-        pay.iter().max().expect("la table n'est pas vide")
+        pay.iter().max().expect("the table is not empty")
     );
     let e1v_arm = E1vArm::new(&brecs, &pay, &binom, &golay, &x)?;
     let fe = verify(
@@ -845,7 +844,7 @@ fn main() -> Result<(), String> {
     );
 
     // =======================================================================
-    // PASSE 1bis — la bijection, par énumération exhaustive (É2)
+    // PASS 1bis — the bijection, by exhaustive enumeration (É2)
     // =======================================================================
     println!("\n{}", "-".repeat(78));
     let (efeed, picked) = exhaustive_walk(&walk, &radices, EXHAUSTIVE_CARD, EXHAUSTIVE_BUDGET);
@@ -856,28 +855,28 @@ fn main() -> Result<(), String> {
         .map(|&id| walk_cardinality(&lev[id].0, lev[id].2, DIM))
         .sum();
     println!(
-        "bijection — {} entrées de cardinalité ≤ {EXHAUSTIVE_CARD} énumérées ENTIÈREMENT \
-         : {ecard} rangs,\n  {} blocs avec le bourrage origine, sur les {} entrées de la \
-         table. Les autres sont hors\n  de portée d'une énumération et restent bornées par \
-         l'aller-retour seul.",
+        "bijection — {} entries of cardinality ≤ {EXHAUSTIVE_CARD} enumerated IN FULL: \
+         {ecard} ranks,\n  {} blocks with the origin padding, of the {} entries of the \
+         table. The others are out\n  of reach of an enumeration and stay bounded by \
+         the round trip alone.",
         picked.len(),
         efeed.len(),
         walk.len()
     );
     let eb = verify_bijection(&lev, &efeed, &earr, &picked);
-    let ea = verify_arrangements(&lev, &efeed, &earr, &walk_arm.run(&ewords), &x, "exhaustif");
+    let ea = verify_arrangements(&lev, &efeed, &earr, &walk_arm.run(&ewords), &x, "exhaustive");
     if eb == 0 {
         println!(
-            "  {:<18} arrangements deux à deux distincts, compte égal à la cardinalité",
+            "  {:<18} pairwise distinct arrangements, count equal to the cardinality",
             ""
         );
     }
 
     // =======================================================================
-    // PASSE 2 — le tirage réel (§1.5)
+    // PASS 2 — the real draw (§1.5)
     // =======================================================================
     println!("\n{}", "=".repeat(78));
-    println!("PASSE 2 — tirage réel : le mélange de classes du modèle publié");
+    println!("PASS 2 — real draw: the class mix of the published model");
     println!("{}", "=".repeat(78));
 
     // House rule: a test that skips when its file is missing must FAIL. P1's
@@ -885,17 +884,17 @@ fn main() -> Result<(), String> {
     // there is no substitute draw and no degraded mode.
     let f = File::open(&path).map_err(|e| {
         format!(
-            "l'archive scellée du 4B n'est pas sur cette machine : {path} ({e})\n\n\
-             La fixture ci-dessus est passée, mais elle ne remplace RIEN : elle couvre les \
-             entrées de table, pas la distribution.\n\
-             P1 se mesure sur le mélange de classes RÉEL du modèle publié — il n'y a ni \
-             substitut ni saut (pré-enregistrement §1.5).\n\
-             La récupérer :\n\n    \
+            "the sealed 4B archive is not on this machine: {path} ({e})\n\n\
+             The fixture above passed, but it replaces NOTHING: it covers the table \
+             entries, not the distribution.\n\
+             P1 is measured on the REAL class mix of the published model — there is no \
+             substitute and no skip (pre-registration §1.5).\n\
+             To fetch it:\n\n    \
              hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin --local-dir .\n\n\
-             puis la passer en argument :\n\n    \
+             then pass it as an argument:\n\n    \
              cargo run --release -p llvq-metal --bin p1v0 -- {n_req} ./qwen3-4b-llvq.bin\n\n\
-             (cf. LAUNCH_ME.md pour le téléchargement, README.md pour l'invocation de \
-             `bin/smoke` qui en produit une.)"
+             (see LAUNCH_ME.md for the download, README.md for the invocation of \
+             `bin/smoke` that produces one.)"
         )
     })?;
 
@@ -914,13 +913,13 @@ fn main() -> Result<(), String> {
         assert_eq!(
             m.centroids.len().next_power_of_two().trailing_zeros(),
             1,
-            "{}: les deux shaders de P1 codent en dur 1 bit de gain",
+            "{}: both P1 shaders hardcode 1 gain bit",
             m.name
         );
         let take = per_matrix.min(m.indices.len()).min(n_req - indices.len());
         indices.extend_from_slice(&m.indices[..take]);
         gains.extend(m.gains[..take].iter().map(|&g| {
-            assert!(g < 2, "{}: rang de gain {g} avec 1 bit de gain", m.name);
+            assert!(g < 2, "{}: gain rank {g} with 1 gain bit", m.name);
             g as u8
         }));
     }
@@ -929,14 +928,14 @@ fn main() -> Result<(), String> {
     let n = indices.len() / GROUP * GROUP;
     assert!(
         n > 0,
-        "{} blocs lus, moins d'un threadgroup de {GROUP}",
+        "{} blocks read, less than one threadgroup of {GROUP}",
         indices.len()
     );
     indices.truncate(n);
     gains.truncate(n);
 
     println!(
-        "\n{n} blocs réels ({} matrices, préfixes contigus) — {path}",
+        "\n{n} real blocks ({} matrices, contiguous prefixes) — {path}",
         h.matrices
     );
 
@@ -944,20 +943,20 @@ fn main() -> Result<(), String> {
     for &idx in &indices {
         classes.push(
             fd.class_of(idx)
-                .ok_or_else(|| format!("index {idx} hors de la boule"))?,
+                .ok_or_else(|| format!("index {idx} outside the ball"))?,
         );
     }
     let seen: BTreeSet<usize> = classes.iter().copied().collect();
     let origin = indices.iter().filter(|&&i| i == 0).count();
     println!(
-        "  {} classes distinctes sur {} de la table, {origin} bloc(s) origine — \
-         les entrées non touchées ici le sont par la passe 1",
+        "  {} distinct classes of {} in the table, {origin} origin block(s) — \
+         the entries not touched here are covered by pass 1",
         seen.len(),
         fd.n_classes()
     );
-    println!("  graine du tirage de rangs (bras marche) : {SEED:#x}");
+    println!("  seed of the rank draw (walk arm): {SEED:#x}");
 
-    println!("\nbras CASCADE — étalon : produit scalaire f64 de FastDecoder::decode");
+    println!("\nCASCADE arm — etalon: f64 dot product of FastDecoder::decode");
     let wc = verify(
         "cascade_uniform",
         &cascade.run(&indices, &gains),
@@ -982,7 +981,7 @@ fn main() -> Result<(), String> {
     }
     let (words, want_walk) = walk_feed(&walk, &lev, &rfeed, &GSCALE, &x);
 
-    println!("\nbras MARCHE — étalon : binomial_walk (CPU) sur LES MÊMES rangs (É2), pas fd.decode");
+    println!("\nWALK arm — etalon: binomial_walk (CPU) on THE SAME ranks (É2), not fd.decode");
     let dots = walk_arm.run(&words);
     let ww = verify("decode_walk", &dots, &want_walk);
     let wwa = verify_arrangements(
@@ -1002,23 +1001,23 @@ fn main() -> Result<(), String> {
         && wwa == 0;
     if ok {
         println!(
-            "V0 VERT — les trois bras, plus la bijection.\n\n  \
-             cascade : {} blocs de fixture (toutes les {} classes, origine comprise) \
-             + {n} blocs réels,\n            point pour point contre FastDecoder::decode\n  \
-             marche  : {} blocs de fixture + {n} blocs réels, aller-retour rang → \
-             arrangement → rang\n            FERMÉ SUR L'ARRANGEMENT DU GPU, multiensemble \
-             réalisé, égalité au CPU slot par slot\n  E1v     : {} blocs de fixture — toutes \
-             les classes, l'origine que le 4B ne porte pas,\n            et un groupe entier \
-             de la classe la plus large, contre cns_decode\n  bijection : {} entrées énumérées \
-             entièrement ({ecard} rangs), arrangements distincts\n\n\
-             Tolérance {REL:.0e}·Σ|w·x|. Ce que ça autorise : écrire le banc, et rien \
-             d'autre.\n⚠️ Le bras E1v n'a PAS de passe sur tirage réel ici : son \
-             pré-enregistrement (P1c §5.2) la\n   place dans `bin/rankbench`, sur les 2^24 \
-             blocs du tirage. Ce qui est établi ici, c'est\n   l'exactitude sur les entrées de \
-             table — dont l'origine, qu'aucun tirage n'atteindra.\n⚠️ L'arrangement sort du \
-             jumeau instrumenté `walk_arrangement`, pas de `decode_walk`,\n   qui n'émet qu'une \
-             somme — le lien entre les deux est le produit scalaire, pas\n   l'arrangement \
-             (binomial_walk.metal §11).",
+            "V0 GREEN — the three arms, plus the bijection.\n\n  \
+             cascade : {} fixture blocks (all {} classes, origin included) \
+             + {n} real blocks,\n            point for point against FastDecoder::decode\n  \
+             walk    : {} fixture blocks + {n} real blocks, round trip rank → \
+             arrangement → rank\n            CLOSED ON THE GPU'S ARRANGEMENT, multiset \
+             realised, equal to the CPU slot by slot\n  E1v     : {} fixture blocks — all \
+             the classes, the origin the 4B does not carry,\n            and a whole group \
+             of the widest class, against cns_decode\n  bijection : {} entries enumerated \
+             in full ({ecard} ranks), distinct arrangements\n\n\
+             Tolerance {REL:.0e}·Σ|w·x|. What it authorises: writing the bench, and \
+             nothing else.\nWARNING: the E1v arm has NO real-draw pass here; its \
+             pre-registration (P1c §5.2)\n   puts it in `bin/rankbench`, on the 2^24 \
+             blocks of the draw. What is established here\n   is exactness on the table \
+             entries — the origin included, which no draw will reach.\nWARNING: the \
+             arrangement comes out of the instrumented twin `walk_arrangement`,\n   not \
+             out of `decode_walk`, which emits only a sum — the link between the two is\n   \
+             the dot product, not the arrangement (binomial_walk.metal §11).",
             fidx.len(),
             fd.n_classes(),
             ffeed.len(),
@@ -1027,10 +1026,10 @@ fn main() -> Result<(), String> {
         );
     } else {
         println!(
-            "V0 ROUGE — fixture : cascade {} bloc(s) hors tolérance, marche {}, \
-             arrangements {fwa}, E1v {} ;\n  bijection : {eb} entrée(s), arrangements {ea} ; \
-             tirage réel : cascade {}, marche {}, arrangements {wwa}.\n\
-             Aucun chronométrage n'est autorisé.",
+            "V0 RED — fixture: cascade {} block(s) out of tolerance, walk {}, \
+             arrangements {fwa}, E1v {};\n  bijection: {eb} entries, arrangements {ea}; \
+             real draw: cascade {}, walk {}, arrangements {wwa}.\n\
+             No timing is authorised.",
             fc.bad, fw.bad, fe.bad, wc.bad, ww.bad
         );
     }

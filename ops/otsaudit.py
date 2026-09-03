@@ -36,56 +36,56 @@ def load(p):
         return DetachedTimestampFile.deserialize(StreamDeserializationContext(f))
 
 print("=" * 78)
-print("ÉTAT RÉEL DES TAMPONS OpenTimestamps  —  mesuré le "
+print("ACTUAL STATE OF THE OpenTimestamps STAMPS  -  measured on "
       + _dt.date.today().isoformat())
 print("=" * 78)
 print("""
-INSTRUMENT.  `ots info` (opentimestamps-client v0.7.2, installé depuis PyPI) et
-la bibliothèque python `opentimestamps`, qui désérialise le .ots et parcourt
-ses attestations.  Chaque nombre ci-dessous est *mesuré* sur les octets des
-fichiers du dépôt ; rien n'est estimé.
+INSTRUMENT.  `ots info` (opentimestamps-client v0.7.2, installed from PyPI) and
+the python `opentimestamps` library, which deserializes the .ots and walks its
+attestations.  Every number below is *measured* on the bytes of the repository
+files; nothing is estimated.
 
-⚠️  CE QUI N'EST PAS FAIT ICI, ET POURQUOI.  La vérification complète d'une
-ancre exige de confronter la racine de Merkle engagée au bloc réel — donc un
-nœud Bitcoin ou un explorateur.  Ce script ne les interroge pas, quel que
-soit l'état du réseau — il désérialise des fichiers, c'est tout.  Ce journal
-établit donc ce que les FICHIERS portent, pas que la chaîne le confirme.
-(⚠️ L'accès aux explorateurs et aux quatre calendriers VARIE d'une session à
-l'autre : bloqué au 403 le 2026-08-26, ouvert le 2026-08-27.  Ne pas relire une
-absence d'ancre comme un fait de la machine.)  Les racines sont imprimées en fin de
-journal exactement pour qu'un tiers fasse ce dernier pas en une commande.
+WARNING: WHAT IS NOT DONE HERE, AND WHY.  Verifying an anchor end to end means
+checking the committed Merkle root against the real block, which needs a Bitcoin
+node or a block explorer.  This script queries neither, whatever the state of
+the network.  It deserializes files, that is all.  This journal establishes what
+the FILES carry, not that the chain confirms it.
+(WARNING: access to the explorers and to the four calendars VARIES from one
+session to the next: blocked at 403 on 2026-08-26, open on 2026-08-27.  Do not
+read a missing anchor as a fact about the machine.)  The roots are printed at
+the end of the journal exactly so a third party can take that last step in one
+command.
 """)
 
 print("-" * 78)
-print("1.  LE GREP QUI A FONDÉ LA LIGNE DE CLAUDE.md")
+print("1.  THE GREP THE CLAUDE.md LINE RESTS ON")
 print("-" * 78)
 print("""
-CLAUDE.md (en-tête 🧾 et §7) affirme, « vérifié par grep le 2026-08-25 » :
-    16 .ots, chacun 4 PendingAttestation et 0 BitcoinBlockHeaderAttestation,
-    « aucun n'a jamais été upgradé ».
+CLAUDE.md (header and §7) states, "verified by grep on 2026-08-25":
+    16 .ots, each carrying 4 PendingAttestation and 0 BitcoinBlockHeaderAttestation,
+    "none has ever been upgraded".
 
-Ce que le grep rend réellement, sur un fichier qui porte quatre ancres :""")
+What the grep actually returns, on a file that carries four anchors:""")
 f = "proofs/preregistration-p1-2026-08-13.md.ots"
 for pat in ("BitcoinBlockHeaderAttestation", "PendingAttestation"):
     n = subprocess.run(["grep","-c",pat,f], capture_output=True, text=True).stdout.strip()
     print(f"    grep -c {pat:<32} {f}  ->  {n}")
 print("""
-Les deux rendent 0.  Le format .ots stocke le type d'une attestation dans une
-étiquette binaire de 8 octets, jamais sous forme de texte : le nom de classe
-n'apparaît que dans la sortie RENDUE par `ots info`, et dans le source de la
-bibliothèque.  Un grep sur ce format ne peut donc pas distinguer un fichier
-ancré d'un fichier en attente — il rend 0 dans les deux cas.
+Both return 0.  The .ots format stores an attestation type in an 8-byte binary
+tag, never as text: the class name appears only in the output RENDERED by
+`ots info`, and in the library source.  A grep on this format therefore cannot
+tell an anchored file from a pending one.  It returns 0 in both cases.
 
-Conséquence sur les deux nombres publiés :
-  · le « 0 BitcoinBlockHeaderAttestation » est ce que l'instrument a rendu, et
-    il est FAUX — le fichier ci-dessus en porte quatre ;
-  · le « 4 PendingAttestation » est JUSTE, mais il ne vient pas de ce grep, qui
-    rend 0 lui aussi.  Il a été inféré (« les quatre calendriers ») et présenté
-    comme mesuré.
+Consequence for the two published numbers:
+  · the "0 BitcoinBlockHeaderAttestation" is what the instrument returned, and
+    it is WRONG.  The file above carries four;
+  · the "4 PendingAttestation" is RIGHT, but it does not come from this grep,
+    which returns 0 as well.  It was inferred ("the four calendars") and
+    presented as measured.
 """)
 
 print("-" * 78)
-print("2.  CE QUE LES FICHIERS PORTENT")
+print("2.  WHAT THE FILES CARRY")
 print("-" * 78)
 rows = []
 for p in sorted(glob.glob("proofs/*.ots")):
@@ -99,76 +99,77 @@ for p in sorted(glob.glob("proofs/*.ots")):
         elif isinstance(att, PendingAttestation): pend.add(att.uri)
     rows.append((os.path.basename(doc), ok, sorted(btc), sorted(pend)))
 
-print(f"\n{'document':<56} {'sha256 du .md':<14} {'btc':>4} {'pend':>5}")
+print(f"\n{'document':<56} {'sha256 of .md':<14} {'btc':>4} {'pend':>5}")
 for name, ok, btc, pend in rows:
-    mark = {True: "recalcule ok", False: "NE COLLE PAS", None: ".md absent"}[ok]
+    mark = {True: "recomputes ok", False: "DOES NOT MATCH", None: ".md missing"}[ok]
     print(f"{name:<56} {mark:<14} {len(btc):>4} {len(pend):>5}")
 
 nb = sum(1 for _,_,b,_ in rows if b)
 print(f"""
-TOTAL : {len(rows)} tampons, dont {nb} portent au moins une ancre Bitcoin et
-{len(rows)-nb} n'en portent aucune.  Tous portent les 4 attestations en attente.
+TOTAL: {len(rows)} stamps, of which {nb} carry at least one Bitcoin anchor and
+{len(rows)-nb} carry none.  All carry the 4 pending attestations.
 
-Le compte de CLAUDE.md (« 16 .ots ») est lui aussi périmé : il y en a {len(rows)},
-pour {len(glob.glob('proofs/*.md'))} documents (README.md compris).
+The CLAUDE.md count ("16 .ots") is stale too: there are {len(rows)} of them,
+for {len(glob.glob('proofs/*.md'))} documents (README.md included).
 """)
 
 print("-" * 78)
-print("3.  LES DEUX TAMPONS QUI N'ATTESTENT PLUS DE LEUR FICHIER")
+print("3.  THE TWO STAMPS THAT NO LONGER ATTEST TO THEIR FILE")
 print("-" * 78)
 print("""
-CLAUDE.md §7 le savait déjà — « le défaut inverse a été réalisé sur les préregs
-du 08-10 et du 08-11 » — mais de mémoire.  C'est désormais machine-vérifiable,
-et le mécanisme est nommé : le commit 01fdbe6 (2026-08-19), la passe
-d'anonymisation pour TACO, a réécrit ces deux documents.  Une ancre atteste des
-OCTETS : les réécrire détruit ce qu'elle prouve.
+CLAUDE.md §7 already knew it, from memory: "the reverse defect did occur on the
+08-10 and the 08-11 preregs".  It is now machine-checkable, and the mechanism is
+named: commit 01fdbe6 (2026-08-19), the anonymization pass for TACO, rewrote
+those two documents.  An anchor attests to BYTES.  Rewriting a document destroys
+what its anchor proves.
 """)
 for doc in ["proofs/preregistration-2026-08-10.md", "proofs/preregistration-2026-08-11.md"]:
     want = load(doc + ".ots").file_digest
     have = hashlib.sha256(open(doc,"rb").read()).digest()
     print(f"  {os.path.basename(doc)}")
-    print(f"    le tampon engage  {want.hex()}")
-    print(f"    le fichier vaut   {have.hex()}")
+    print(f"    the stamp commits to  {want.hex()}")
+    print(f"    the file hashes to    {have.hex()}")
 print("""
-Et la version attestée n'est PAS récupérable : les 128 blobs .md distincts de
-toute l'histoire git ont été hachés, aucun ne rend l'un de ces deux condensats.
-Ces deux tampons prouvent donc l'antériorité d'un texte que le dépôt ne
-contient plus, sous aucune révision.
+And the attested version is NOT recoverable: the 128 distinct .md blobs of the
+whole git history were hashed, and none yields either of these two digests.
+These two stamps therefore prove the prior existence of a text the repository no
+longer holds, under any revision.
 """)
 
 print("-" * 78)
-print("4.  CE QUI N'EST PAS TAMPONNÉ")
+print("4.  WHAT IS NOT TIMESTAMPED")
 print("-" * 78)
 print()
 for f in sorted(glob.glob("proofs/*.md")):
     if not os.path.exists(f + ".ots"):
         print(f"    {os.path.basename(f)}")
 print("""
-    (README.md n'est pas un pré-enregistrement.)
+    (README.md is not a preregistration.)
 
-⚠️  preregistration-variance-calibration-2026-08-26.md est dans cette liste, et
-    son propre §3 exige le tampon avant la première milliseconde mesurée.  Il ne
-    peut pas être posé depuis cette machine : les quatre calendriers sont
-    injoignables (403).  À faire depuis une machine en réseau, avant le lot 1.
+WARNING: preregistration-variance-calibration-2026-08-26.md is in this list, and
+    its own §3 requires the stamp before the first measured millisecond.  It
+    cannot be stamped from this machine: the four calendars are unreachable
+    (403).
+    To be done from a networked machine, before batch 1.
 """)
 
 print("-" * 78)
-print("5.  RACINES DE MERKLE ENGAGÉES  —  pour la vérification par un tiers")
+print("5.  COMMITTED MERKLE ROOTS  -  for third-party verification")
 print("-" * 78)
 print("""
-Chaque ligne dit : ce fichier engage cette racine dans le bloc de cette hauteur.
-Vérification en une commande, depuis une machine en réseau :
+Each line says: this file commits this root in the block at this height.
+Verification in one command, from a networked machine:
 
-    ots verify proofs/<fichier>.md.ots        (avec un nœud Bitcoin)
+    ots verify proofs/<file>.md.ots        (with a Bitcoin node)
 
-ou, sans nœud, en comparant la racine ci-dessous au champ merkle_root du bloc :
+or, without a node, by comparing the root below to the block's merkle_root field:
 
-    curl -s https://blockstream.info/api/block-height/<hauteur> \\
+    curl -s https://blockstream.info/api/block-height/<height> \\
       | xargs -I{} curl -s https://blockstream.info/api/block/{} | jq -r .merkle_root
 """)
 for name, ok, btc, pend in rows:
     if not btc: continue
     print(f"\n  {name}")
     for h, root in btc:
-        print(f"    bloc {h}   {root}")
+        print(f"    block {h}   {root}")
 print()

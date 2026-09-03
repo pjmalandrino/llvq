@@ -164,14 +164,14 @@ fn the_fused_path_computes_what_the_dense_path_computes() {
             let e = (dense[r] - got[r]).abs() / scale;
             assert!(
                 e < 1e-6,
-                "{what}, ligne {r} : dense {} contre fusé {} ({e:.3e}·Σ|w·x|)",
+                "{what}, row {r}: dense {} against fused {} ({e:.3e}·Σ|w·x|)",
                 dense[r],
                 got[r]
             );
             worst = worst.max(e);
         }
     }
-    eprintln!("pire écart sur {} formes : {worst:.3e}·Σ|w·x|", CASES.len());
+    eprintln!("worst deviation over {} shapes: {worst:.3e}·Σ|w·x|", CASES.len());
 }
 
 /// The rotation is not decorative: without it the two sides must disagree.
@@ -203,6 +203,6 @@ fn skipping_the_rotation_is_detected() {
         / dense.iter().map(|v| v.abs()).fold(0.0, f64::max).max(1e-12);
     assert!(
         rel > 0.1,
-        "sans rotation l'écart n'est que de {rel:.3e} — le test principal ne prouve rien"
+        "without the rotation the deviation is only {rel:.3e} — the main test proves nothing"
     );
 }

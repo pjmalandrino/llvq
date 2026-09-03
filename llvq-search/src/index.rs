@@ -1,7 +1,7 @@
 //! Bijective indexing of the ball Λ₂₄(13) ∪ {0} — Phase 3, gate G3.
 //!
 //! Maps every codebook point to a unique integer `0 ..= N(13)`
-//! (`N(13) + 1 = 280 974 212 784 721 ≤ 2⁴⁸` — a 48-bit code per 24-weight
+//! (`N(13) + 1 = 280,974,212,784,721 ≤ 2⁴⁸` — a 48-bit code per 24-weight
 //! block, i.e. exactly the paper's 2 bit-per-weight regime) **without
 //! materializing the codebook**, following the hierarchy of §3.2 / App. A
 //! of the paper: shells by increasing radius, classes in a fixed order

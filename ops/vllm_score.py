@@ -10,7 +10,7 @@ competitor at all: QTIP's 17.04 is a citation of the paper's Table 6, and F2
 forbids any quality claim on its own arm (pseudo-random payload).
 
 The alternative would be one dequantization pipeline per format, in the shape of
-`ops/awq_dequant.py` — 2 358 lines whose header states what they are for:
+`ops/awq_dequant.py` — 2,358 lines whose header states what they are for:
 *"publishing plausible, wrong weights"*. This file takes the other route: score
 the arm **as deployed**, with the engine reading its own format with its own
 code. One brick serves every arm instead of one pipeline per format.
@@ -181,8 +181,8 @@ def load_mmlu(split: str, revision: str) -> list[dict]:
         from huggingface_hub import hf_hub_download
     except ImportError as e:  # pragma: no cover - image contents
         raise Refused(
-            f"il manque {e.name} dans l'image ; ce script tourne dans l'image "
-            "vLLM du job, pas sous uv"
+            f"{e.name} is missing from the image; this script runs in the job's "
+            "vLLM image, not under uv"
         ) from e
 
     path = hf_hub_download(
@@ -233,7 +233,7 @@ def read_reference_dump(path: Path) -> tuple[list[tuple[str, int, int]], dict]:
             continue
         rows.append((r["subject"], int(r["index"]), int(r["qhash"], 16)))
     if not rows:
-        raise Refused(f"{path} ne contient aucune question")
+        raise Refused(f"{path} holds no question")
     return rows, head
 
 
@@ -261,7 +261,7 @@ def build_prompts(
         pool = by_subject.get(subject)
         if pool is None or index >= len(pool):
             raise Refused(
-                f"{subject}[{index}] absent du split test — le dataset a bougé"
+                f"{subject}[{index}] not in the test split. The dataset moved."
             )
         it = pool[index]
         prompt = prefixes[subject] + block(it, None)
@@ -305,22 +305,22 @@ def score_mmlu(llm, tok, prompts: list[str]) -> list[list[float]]:
 
 
 def score_mmlu_hf(model, tok, prompts: list[str], answer_ids: list[int], bs: int):
-    """Le même score, dans le moteur de transformers/gptqmodel.
+    """The same score, in the transformers/gptqmodel engine.
 
-    Existe parce que **vLLM 0.26.0 refuse le 2 bits GPTQ** — `Unsupported
-    quantization config: bits=2, sym=True`, mesuré le 2026-08-30 après que
-    l'artefact ait été produit. Un bras qu'une pile ne sait pas servir reste
-    servable dans la sienne, et « chacun chez lui » veut précisément dire ça.
+    It exists because **vLLM 0.26.0 refuses 2-bit GPTQ**: `Unsupported
+    quantization config: bits=2, sym=True`, measured on 2026-08-30 after the
+    artifact was produced. An arm that one stack cannot serve is still
+    servable in its own, and that is exactly what "each in its own stack" means.
 
-    🔎 Ce chemin est PLUS proche de `bin/mmlu` que le chemin vLLM : il lit les
-    **logits bruts** de la dernière position et compare quatre valeurs, ce que
-    `mmlu.rs:420-432` fait mot pour mot. Le chemin vLLM, lui, passe par des
-    logprobs — même argmax, autres nombres.
+    This path is CLOSER to `bin/mmlu` than the vLLM path: it reads the **raw
+    logits** of the last position and compares four values, word for word what
+    `mmlu.rs:420-432` does. The vLLM path goes through logprobs: same argmax,
+    other numbers.
 
-    Le padding est à GAUCHE : la dernière position est alors `-1` pour toute la
-    lot, sans avoir à retrouver la vraie fin de chaque séquence. Se tromper là
-    lirait les logits d'un token de bourrage, ce qui produirait des nombres
-    plausibles et faux.
+    Padding is on the LEFT, so the last position is `-1` for the whole batch,
+    without having to find the true end of each sequence. Getting that wrong
+    would read the logits of a padding token, which would produce plausible and
+    wrong numbers.
     """
     import torch
 
@@ -394,7 +394,7 @@ def emit_dump(
     with path.open("w", encoding="utf-8") as fh:
         fh.write("# llvq-mmlu-dump v1\n")
         fh.write(f"# model={model_label} [vLLM arm {arm}]\n")
-        fh.write(f"# revision={revision or 'main (NON ÉPINGLÉE)'}\n")
+        fh.write(f"# revision={revision or 'main (NOT PINNED)'}\n")
         fh.write("# dtype=f16\n")
         if engine == "hf":
             fh.write("# scores=logit  (logits bruts, comme bin/mmlu)\n")
@@ -418,22 +418,22 @@ def emit_dump(
                 + ",".join(f"{v:.6f}" for v in row)
                 + "\n"
             )
-    # 🚨 MICRO, PAS LE NAÏF. Chaque matière porte exactement `limit` questions
-    # (40), donc `Σright/Σtotal` est **algébriquement la moyenne non pondérée**
-    # des 57 taux — la MACRO. C'est le défaut que le §3ter du CLAUDE.md a
-    # identifié le 2026-08-01 et corrigé dans `bin/mmlu`, et dans lequel ce
-    # fichier est retombé le 2026-08-30 : il a rendu 72,85 là où la référence
-    # publie 70,32, et le gate a coûté 0,20 $ pour le dire.
+    # MICRO, NOT THE NAIVE ONE. Every subject carries exactly `limit` questions
+    # (40), so `Σright/Σtotal` is **algebraically the unweighted mean** of the
+    # 57 rates, the MACRO. That is the defect §3ter of CLAUDE.md identified on
+    # 2026-08-01 and fixed in `bin/mmlu`, and that this file fell back into on
+    # 2026-08-30: it returned 72.85 where the reference publishes 70.32, and the
+    # gate cost $0.20 to say so.
     #
-    # Le micro repondère chaque matière par sa **population dans le split test
-    # entier**, pas par les 40 échantillonnées. La colonne `population` du dump
-    # existe pour ça et pour rien d'autre.
+    # The micro reweights every subject by its **population in the whole test
+    # split**, not by the 40 sampled ones. The dump's `population` column exists
+    # for that and for nothing else.
     #
-    # Les deux sont rendues : la macro n'est pas fausse, elle répond à une autre
-    # question. Ce qui était faux était de l'appeler MMLU.
+    # Both are returned: the macro is not wrong, it answers another question.
+    # What was wrong was calling it MMLU.
     total_pop = sum(populations.get(s, 0) for s in per)
     if total_pop == 0:
-        raise Refused("aucune population connue — le micro n'est pas calculable")
+        raise Refused("no known population: the micro cannot be computed")
     micro = (
         sum(v[0] / v[1] * populations.get(s, 0) for s, v in per.items())
         / total_pop
@@ -453,15 +453,15 @@ def check_gate(arm: str, mmlu_pct: float | None, ppl: float | None) -> list[str]
         d = abs(mmlu_pct - known["mmlu"])
         if d > GATE_MMLU_PP:
             bad.append(
-                f"{arm}: MMLU {mmlu_pct:.2f} contre {known['mmlu']:.2f} connu — "
+                f"{arm}: MMLU {mmlu_pct:.2f} against the known {known['mmlu']:.2f}, "
                 f"|Δ| = {d:.2f} pp > {GATE_MMLU_PP} pp"
             )
     if ppl is not None:
         pct = abs(ppl - known["ppl"]) / known["ppl"] * 100.0
         if pct > GATE_PPL_PCT:
             bad.append(
-                f"{arm}: ppl {ppl:.4f} contre {known['ppl']:.4f} connu — "
-                f"|Δ| = {pct:.2f} % > {GATE_PPL_PCT} %"
+                f"{arm}: ppl {ppl:.4f} against the known {known['ppl']:.4f}, "
+                f"|Δ| = {pct:.2f}% > {GATE_PPL_PCT}%"
             )
     return bad
 
@@ -471,46 +471,46 @@ def main(argv: list[str]) -> int:
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arm", required=True, help="f16 | awq_marlin | awq | gptq2")
-    ap.add_argument("--model", required=True, help="dépôt ou chemin local")
+    ap.add_argument("--model", required=True, help="repository or local path")
     ap.add_argument("--quantization", default=None)
     ap.add_argument(
         "--revision",
         default=None,
-        help="révision du dépôt de poids — ce job existe pour reproduire des "
-        "valeurs connues, donc la révision se pose plutôt que de se subir",
+        help="revision of the weight repository. This job exists to reproduce "
+        "known values, so the revision is pinned rather than left to drift",
     )
     ap.add_argument(
         "--reference-dump",
         default="docs/data/mmlu-dumps/mmlu-4b-f16.csv",
-        help="d'où viennent les (subject, index, qhash) — jamais re-sélectionnés",
+        help="where the (subject, index, qhash) come from, never re-selected",
     )
-    ap.add_argument("--out", required=True, help="où écrire le dump de ce bras")
+    ap.add_argument("--out", required=True, help="where to write this arm's dump")
     ap.add_argument("--dataset-rev", default=os.environ.get("LLVQ_DATASET_REV", "main"))
     ap.add_argument(
         "--engine",
         default="vllm",
         choices=("vllm", "hf"),
-        help="vllm par défaut ; hf pour les formats que vLLM refuse (2 bits GPTQ)",
+        help="vllm by default; hf for the formats vLLM refuses (2-bit GPTQ)",
     )
-    ap.add_argument("--batch-size", type=int, default=8, help="moteur hf seulement")
-    ap.add_argument("--ppl", action="store_true", help="scorer aussi la perplexité")
+    ap.add_argument("--batch-size", type=int, default=8, help="hf engine only")
+    ap.add_argument("--ppl", action="store_true", help="also score perplexity")
     ap.add_argument(
         "--gate",
         action="store_true",
-        help="exiger que ce bras reproduise sa valeur connue (préreg §2.4)",
+        help="require this arm to reproduce its known value (prereg §2.4)",
     )
     args = ap.parse_args(argv)
 
     print(BANNER)
-    print(f"vllm_score — bras {args.arm}, modèle {args.model}")
+    print(f"vllm_score, arm {args.arm}, model {args.model}")
     print(BANNER)
 
     ref = Path(args.reference_dump)
     if not ref.is_file():
-        raise Refused(f"dump de référence introuvable : {ref}")
+        raise Refused(f"reference dump not found: {ref}")
     wanted, head = read_reference_dump(ref)
-    print(f"  questions demandées   {len(wanted)}  (depuis {ref})")
-    print(f"  en-tête du dump       {head}")
+    print(f"  questions requested   {len(wanted)}  (from {ref})")
+    print(f"  dump header           {head}")
 
     from transformers import AutoTokenizer
 
@@ -519,8 +519,8 @@ def main(argv: list[str]) -> int:
         ids = tok.encode(s, add_special_tokens=False)
         if len(ids) != 1:
             raise Refused(
-                f"{s!r} se tokenise en {ids}, pas un seul token — la comparaison "
-                "à quatre logprobs n'aurait pas de sens"
+                f"{s!r} tokenizes to {ids}, not to a single token. The four-logprob "
+                "comparison would make no sense"
             )
 
     test = load_mmlu("test", args.dataset_rev)
@@ -531,28 +531,28 @@ def main(argv: list[str]) -> int:
 
     prompts, items, bad = build_prompts(wanted, test, dev, tok)
     if bad:
-        print(f"\n🚨 {len(bad)} qhash ne correspondent pas. Les cinq premiers :")
+        print(f"\nWARNING: {len(bad)} qhash do not match. The first five:")
         for subject, index, want, got in bad[:5]:
-            print(f"    {subject}[{index}]  attendu {want:016x}  obtenu {got:016x}")
+            print(f"    {subject}[{index}]  expected {want:016x}  got {got:016x}")
         raise Refused(
-            "les questions reconstruites ne sont pas celles du dump de référence "
-            "— dataset déplacé, tokenizer différent, ou format de prompt divergent. "
-            "Rien n'est scoré."
+            "the rebuilt questions are not those of the reference dump: dataset "
+            "moved, different tokenizer, or divergent prompt format. "
+            "Nothing is scored."
         )
-    print(f"  qhash vérifiés        {len(wanted)}/{len(wanted)} ✅")
+    print(f"  qhash verified        {len(wanted)}/{len(wanted)} OK")
 
     answer_ids = [tok.encode(x, add_special_tokens=False)[0] for x in ANSWER_STRINGS]
 
     if args.engine == "hf":
         import torch
 
-        print(f"  moteur                transformers/gptqmodel (batch {args.batch_size})")
+        print(f"  engine                transformers/gptqmodel (batch {args.batch_size})")
         try:
             from gptqmodel import GPTQModel
 
             model = GPTQModel.load(args.model, device="cuda:0").model
         except Exception as e:
-            print(f"  gptqmodel.load a refusé ({e}) — repli AutoModelForCausalLM")
+            print(f"  gptqmodel.load refused ({e}), falling back to AutoModelForCausalLM")
             from transformers import AutoModelForCausalLM
 
             model = AutoModelForCausalLM.from_pretrained(
@@ -584,32 +584,32 @@ def main(argv: list[str]) -> int:
         args.revision,
         args.engine,
     )
-    print(f"\n  MMLU micro            {mmlu_pct:.2f} %   <-- la métrique du papier")
-    print(f"  MMLU macro            {macro_pct:.2f} %   (= right/total ici : 40/matière)")
-    print(f"  brut                  {right}/{total}")
+    print(f"\n  MMLU micro            {mmlu_pct:.2f}%   <-- the metric of the paper")
+    print(f"  MMLU macro            {macro_pct:.2f}%   (= right/total here: 40/subject)")
+    print(f"  raw                   {right}/{total}")
     print(f"  dump                  {args.out}")
 
     ppl_value = None
     if args.ppl:
         raise Refused(
-            "le bras ppl n'est pas encore câblé : il attend le corpus wikitext-2 "
-            "dans la même forme que llvq-llm/src/corpus.rs. "
-            "ÉCART AU PROTOCOLE — à consigner au §7 du pré-enregistrement."
+            "the ppl arm is not wired yet: it waits for the wikitext-2 corpus in "
+            "the same shape as llvq-llm/src/corpus.rs. "
+            "PROTOCOL DEVIATION, to be recorded in §7 of the preregistration."
         )
 
     if args.gate:
         violations = check_gate(args.arm, mmlu_pct, ppl_value)
         if violations:
             for v in violations:
-                print(f"\n🚨 GATE ROUGE — {v}")
+                print(f"\nGATE RED: {v}")
             raise GateFailed(
-                "l'instrument ne reproduit pas une réponse connue : aucun bras "
-                "quantifié n'est lu (préreg §2.4)"
+                "the instrument does not reproduce a known answer: no quantized "
+                "arm is read (prereg §2.4)"
             )
         if args.arm in KNOWN:
-            print(f"  gate §2.4             ✅ vert pour {args.arm}")
+            print(f"  gate §2.4             green for {args.arm}")
         else:
-            print(f"  gate §2.4             ⚠️ {args.arm} n'a pas de valeur connue")
+            print(f"  gate §2.4             WARNING: {args.arm} has no known value")
 
     return 0
 

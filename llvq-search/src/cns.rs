@@ -7,22 +7,22 @@
 //!
 //! * **per stage** — one `⌈log₂⌉` per composition radix (the codeword, the two
 //!   arrangements, the two sign fields). That is `radix2`, and it is what the
-//!   published 51,87 bits/block is. Its arrangement field is a **packed**
+//!   published 51.87 bits/block is. Its arrangement field is a **packed**
 //!   multiset rank, and peeling it kind by kind is a mixed-radix peel, i.e. a
 //!   **division** by the product of the remaining radices.
 //! * **per kind** — one `⌈log₂⌉` per *kind* of each arrangement, so every
 //!   radix is a power of two and the peel is a **shift**. That is what this
-//!   module builds, what a binomial walk reads, and it costs **+0,3516
+//!   module builds, what a binomial walk reads, and it costs **+0.3516
 //!   bit/block** in file order (101 of 383 classes differ, up to +2 bits).
 //!
-//! É0 retained the second: P1 measured a binomial walk at 0,3101 ns/block, not
+//! É0 retained the second: P1 measured a binomial walk at 0.3101 ns/block, not
 //! a packed peeler, and the number that opens the line has to describe the
 //! object that was measured.
 //!
 //! ## What this module is not allowed to look at
 //!
-//! §4 of P5: *ni la CNS ni son test de largeur n'appellent `Widths`,
-//! `widths_of_even`, `widths_of_odd` ni quoi que ce soit de `radixstudy`* —
+//! §4 of P5: *neither the CNS nor its width test calls `Widths`,
+//! `widths_of_even`, `widths_of_odd` or anything from `radixstudy`* —
 //! otherwise C1 is the tautology §2.3 warns about. That separation is
 //! structural here (`radixstudy` lives in `llvq-bench`, which this crate cannot
 //! see) **and** pinned by [`tests::the_cns_names_nothing_from_the_width_study`],
@@ -133,9 +133,9 @@ impl CnsLayout {
 
 /// The origin's record: the header alone.
 ///
-/// P5 §2.2 decides this rather than leaving it to the chantier — the 4B carries
-/// **zero** origin block, so no sweep will ever exercise it and the fixture
-/// must. It decodes to the zero vector.
+/// P5 §2.2 decides this rather than leaving it to the implementation — the 4B
+/// carries **zero** origin block, so no sweep will ever exercise it and the
+/// fixture must. It decodes to the zero vector.
 pub const ORIGIN_BITS: u64 = HEADER_BITS;
 
 /// Build class `ci`'s layout, from the class table and a binomial table, and
@@ -409,7 +409,7 @@ mod tests {
     /// coordinate, on a fixture that touches every class at both ends plus the
     /// origin.
     ///
-    /// The full statement is the integral sweep over the 150 681 600 blocks of
+    /// The full statement is the integral sweep over the 150,681,600 blocks of
     /// the sealed 4B, which lives in `llvq-artifact/tests/` — the only crate
     /// that can open a `.llvq`. This one runs everywhere, needs no archive, and
     /// reaches the 98 table entries no cap-12 file can.
@@ -430,7 +430,7 @@ mod tests {
     /// C3.1 and C3.3, on the fixture: the step count is ≤ 96 and depends only
     /// on the class.
     ///
-    /// The sweep will say the same over 150 681 600 real blocks; this says it
+    /// The sweep will say the same over 150,681,600 real blocks; this says it
     /// over every class, which the file cannot. Both are needed and neither
     /// implies the other.
     #[test]
@@ -451,12 +451,12 @@ mod tests {
                 None => seen[slot] = Some(steps),
                 Some(s) => assert_eq!(
                     s, steps,
-                    "classe {slot} : le compte de pas bouge avec le rang ({s} puis {steps})"
+                    "class {slot}: the step count moves with the rank ({s} then {steps})"
                 ),
             }
         }
-        assert!(max <= 96, "compte de pas maximal {max} > 96 (C3.1)");
-        eprintln!("C3.1 sur la fixture — compte de pas maximal : {max} / 96");
+        assert!(max <= 96, "max step count {max} > 96 (C3.1)");
+        eprintln!("C3.1 on the fixture, max step count: {max} / 96");
     }
 
     /// 🚨 **C3.2, first half: zero division in the decode.**
@@ -472,7 +472,7 @@ mod tests {
         let src = include_str!("cns.rs");
         let start = src
             .find("pub fn cns_decode_counted(")
-            .expect("la fonction est dans ce fichier");
+            .expect("the function is in this file");
         let (mut depth, mut end, mut open) = (0i32, start, false);
         for (i, ch) in src[start..].char_indices() {
             match ch {
@@ -498,8 +498,8 @@ mod tests {
         for op in ['/', '%'] {
             assert!(
                 !code.contains(op),
-                "le décodeur contient `{op}` : C3.2 exige zéro division, et c'est \
-                 la propriété qui rend la réouverture argumentable"
+                "the decoder contains `{op}`: C3.2 requires zero division, and that is \
+                 the property that makes the reopening arguable"
             );
         }
     }
@@ -529,12 +529,12 @@ mod tests {
             assert_eq!(
                 cns_cardinality(&fd, &golay, ci),
                 archive_cardinality(&fd, ci),
-                "classe {ci} : la CNS numérote un autre ensemble que l'archive"
+                "class {ci}: the CNS numbers a different set from the archive"
             );
         }
     }
 
-    /// A width below `⌈log₂ |classe|⌉` makes a bijection impossible for want of
+    /// A width below `⌈log₂ |class|⌉` makes a bijection impossible for want of
     /// room. It proves nothing positive — that is C2 — but it fails loudly on a
     /// counting bug.
     #[test]
@@ -547,7 +547,7 @@ mod tests {
             let card = archive_cardinality(&fd, ci);
             assert!(
                 l.bits() - HEADER_BITS >= u64::from(lg_ceil(card)),
-                "classe {ci} : {} bits de champ pour une cardinalité de {card}",
+                "class {ci}: {} field bits for a cardinality of {card}",
                 l.bits() - HEADER_BITS
             );
         }
@@ -571,15 +571,15 @@ mod tests {
             if c.odd {
                 let mut counts = [0u8; MAX_KINDS];
                 counts[..c.n_kinds].copy_from_slice(&c.counts[..c.n_kinds]);
-                assert_eq!(prod(&l.on_radices, l.n_on), u128::from(c.m_arr), "classe {ci}");
+                assert_eq!(prod(&l.on_radices, l.n_on), u128::from(c.m_arr), "class {ci}");
                 assert_eq!(
                     walk_cardinality(&counts, c.n_kinds, DIM),
                     c.m_arr,
-                    "classe {ci} : la marche ne couvre pas m_arr"
+                    "class {ci}: the walk does not span m_arr"
                 );
             } else {
-                assert_eq!(prod(&l.on_radices, l.n_on), u128::from(c.a_on), "classe {ci}");
-                assert_eq!(prod(&l.off_radices, l.n_off), u128::from(c.a_off), "classe {ci}");
+                assert_eq!(prod(&l.on_radices, l.n_on), u128::from(c.a_on), "class {ci}");
+                assert_eq!(prod(&l.off_radices, l.n_off), u128::from(c.a_off), "class {ci}");
             }
         }
     }
@@ -599,11 +599,11 @@ mod tests {
                 if n == 0 {
                     continue;
                 }
-                assert_eq!(r[n - 1], 1, "classe {ci} : le dernier genre porte un champ");
+                assert_eq!(r[n - 1], 1, "class {ci}: the last kind carries a field");
                 assert_eq!(
                     lg_ceil(u128::from(r[n - 1])),
                     0,
-                    "classe {ci} : et il coûte des bits"
+                    "class {ci}: and it costs bits"
                 );
             }
         }
@@ -637,12 +637,11 @@ mod tests {
 
     /// 🚨 **C1's independence clause, enforced on the source itself.**
     ///
-    /// P5 §4: *l'égalité doit être un résultat de deux chemins indépendants,
-    /// jamais une lecture* — ni la CNS ni son test de largeur n'appellent
-    /// `Widths`, `widths_of_even`, `widths_of_odd` ni quoi que ce soit de
-    /// `radixstudy`. Today that separation is structural, `radixstudy` living in
-    /// a crate this one cannot see; a refactor could undo it silently, and this
-    /// notices.
+    /// P5 §4: *the equality must be the result of two independent paths, never
+    /// a lookup* — neither the CNS nor its width test calls `Widths`,
+    /// `widths_of_even`, `widths_of_odd` or anything from `radixstudy`. Today
+    /// that separation is structural, `radixstudy` living in a crate this one
+    /// cannot see; a refactor could undo it silently, and this notices.
     ///
     /// Two exclusions, and both are the difference between the rule and a
     /// caricature of it. **Comment lines are stripped**: the module header has
@@ -655,7 +654,7 @@ mod tests {
     fn the_cns_names_nothing_from_the_width_study() {
         let src = include_str!("cns.rs");
         let marker = "fn the_cns_names_nothing_from_the_width_study";
-        let body = src.find(marker).expect("ce test est dans ce fichier");
+        let body = src.find(marker).expect("this test is in this file");
         let head: String = src[..body]
             .lines()
             .filter(|l| !l.trim_start().starts_with("//"))
@@ -664,8 +663,8 @@ mod tests {
         for forbidden in ["radixstudy", "Widths", "widths_of_"] {
             assert!(
                 !head.contains(forbidden),
-                "la CNS nomme `{forbidden}` : C1 redeviendrait une lecture, pas une \
-                 dérivation indépendante (P5 §4)"
+                "the CNS names `{forbidden}`: C1 would become a lookup again, not an \
+                 independent derivation (P5 §4)"
             );
         }
     }

@@ -11,7 +11,7 @@ use llvq_artifact::{RawData, RawTensor};
 use llvq_llm::embedquant::quantize_affine;
 
 /// The dependency-free f16 widening in `llvq-artifact`, against the `half`
-/// crate, for every one of the 65 536 bit patterns. NaNs compare as NaNs;
+/// crate, for every one of the 65,536 bit patterns. NaNs compare as NaNs;
 /// everything else must match to the bit.
 #[test]
 fn f16_widening_matches_the_half_crate_exhaustively() {

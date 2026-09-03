@@ -55,40 +55,40 @@ fn main() {
 
     let pct = |n: usize| 100.0 * n as f64 / N as f64;
 
-    println!("{N} blocs gaussiens, quantifiés par recherche angulaire\n");
-    println!("  valeurs |xᵢ| distinctes par bloc");
+    println!("{N} gaussian blocks, quantized by angular search\n");
+    println!("  distinct |xᵢ| values per block");
     println!("  {}", "-".repeat(46));
     let mut cum = 0usize;
     for (types, n) in &by_types {
         cum += n;
         println!(
-            "  {types} type(s){:>12} blocs{:>8.1} %   cumul {:>5.1} %",
+            "  {types} type(s){:>12} blocks{:>8.1} %   cum {:>5.1} %",
             n,
             pct(*n),
             pct(cum)
         );
     }
 
-    println!("\n  coquille atteinte");
+    println!("\n  shell reached");
     println!("  {}", "-".repeat(46));
     for (shell, n) in &by_shell {
-        println!("  m = {shell:<3}{:>15} blocs{:>8.1} %", n, pct(*n));
+        println!("  m = {shell:<3}{:>15} blocks{:>8.1} %", n, pct(*n));
     }
 
-    println!("\n  coset impair (toutes coordonnées impaires) : {:.1} %", pct(odd_coset));
+    println!("\n  odd coset (every coordinate odd): {:.1} %", pct(odd_coset));
 
     if !two_type_popcount.is_empty() {
-        println!("\n  blocs à 2 magnitudes : combien de coordonnées portent la grande");
+        println!("\n  2-magnitude blocks: how many coordinates carry the larger one");
         println!("  {}", "-".repeat(46));
         for (k, n) in &two_type_popcount {
-            println!("  {k:>2} sur 24{:>14} blocs{:>8.1} %", n, pct(*n));
+            println!("  {k:>2} of 24{:>15} blocks{:>8.1} %", n, pct(*n));
         }
     }
 
     let simple: usize = by_types.iter().filter(|(t, _)| **t <= 2).map(|(_, n)| n).sum();
     println!(
-        "\n  ≤ 2 magnitudes : {:.1} % des blocs — décodables par masque,\n  \
-         sans rang de permutation ni division.",
+        "\n  ≤ 2 magnitudes: {:.1} % of blocks — decodable by mask,\n  \
+         with no permutation rank and no division.",
         pct(simple)
     );
 }

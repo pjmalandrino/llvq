@@ -1,50 +1,51 @@
 #!/usr/bin/env bash
-# M1 — stabilité de l'estimateur de Hessienne : shrinkage hors-diagonale.
-# Pré-enregistrement : proofs/preregistration-m1-hessienne-shrink-2026-09-02.md
+# M1, stability of the Hessian estimator: off-diagonal shrinkage.
+# Preregistration: proofs/preregistration-m1-hessienne-shrink-2026-09-02.md
 #
-# Douze runs, une seule variable par bras (LLVQ_H_SHRINK = ρ), la graine étant
-# un facteur de réplication. Tout le reste est le protocole du gate design C du
-# 2026-08-25 (gain-ab-queue.sh) : 0,6B, 28 blocs, wikitext-2, Metal, f32,
-# leech1c12, rotation on, nogs. Le binaire DOIT être reconstruit avec
-# `--features metal,fast-linalg` au commit qui porte le bouton.
+# Twelve runs, a single variable per arm (LLVQ_H_SHRINK = ρ). The seed is a
+# replication factor. Everything else is the protocol of the design C gate of
+# 2026-08-25 (gain-ab-queue.sh): 0.6B, 28 blocks, wikitext-2, Metal, f32,
+# leech1c12, rotation on, nogs. The binary MUST be rebuilt with
+# `--features metal,fast-linalg` at the commit that carries the knob.
 #
-# ⚠️ Ce script NE CHAÎNE AUCUN run 4B, et il REFUSE de démarrer sans le tampon
-#    du pré-enregistrement — la règle de `rankbench`, portée au shell : une
-#    règle qui ne vit que dans la prose se saute le soir où on veut un chiffre.
+# WARNING: this script CHAINS NO 4B run, and it REFUSES to start without the
+#    timestamp of the preregistration. That is the `rankbench` rule carried to
+#    the shell: a rule that lives only in prose gets skipped the evening you
+#    want a number.
 set -u
 cd /Users/pjmalandrino/Documents/Pro/workspace/poc/llvq
 PREREG=proofs/preregistration-m1-hessienne-shrink-2026-09-02.md
 if [ ! -f "$PREREG.ots" ]; then
-  echo "refus : $PREREG.ots absent — tamponner le pré-enregistrement AVANT le premier run" >&2
+  echo "refused: $PREREG.ots missing, timestamp the preregistration BEFORE the first run" >&2
   exit 2
 fi
 LOG=/Users/pjmalandrino/llvq-nuit-b
 mkdir -p "$LOG"
 SMOKE=target/release/smoke
 
-# 🚨 Le Mac est le POSTE DE TRAVAIL de l'opérateur, pas un nœud de calcul.
-# Mesuré le 2026-09-02 pendant cette file même : un `smoke` sans plafond prend
-# ~1 470 % de CPU, soit ~15 cœurs sur 16, et rend la machine pénible pendant
-# cinq heures. La RAM, elle, n'est pas en cause (1,22 Go de RSS sur 64).
+# WARNING: the Mac is the operator's WORKSTATION, not a compute node. Measured
+# on 2026-09-02 during this very queue: a `smoke` with no cap takes ~1,470% of
+# CPU, that is ~15 cores out of 16, and makes the machine painful to use for
+# five hours. RAM is not the cause (1.22 GB of RSS out of 64).
 #
-# Les deux gardes ci-dessous coûtent ~20 % de temps de calcul et rendent la
-# machine utilisable. ✅ Elles ne déplacent AUCUN chiffre : le découpage de la
-# quantification est par ligne et exact, `parallel_matches_serial_exactly`
-# l'exige au bit près — seules les durées du journal bougent.
+# The two guards below cost ~20% of compute time and make the machine usable.
+# They move NO number: the quantization is split by row and exact, and
+# `parallel_matches_serial_exactly` requires that to the bit. Only the
+# durations in the journal move.
 #
-# La correction a été appliquée à la 5e mesure sur 12 par un `renice` (cf.
-# ...-ECARTS.md §É1) faute d'avoir été posée au départ. Elle l'est maintenant.
+# The fix was applied at the 5th measurement out of 12 with a `renice` (see
+# ...-ECARTS.md §É1) because it was not set at the start. It is set now.
 : "${LLVQ_THREADS:=$(( $(sysctl -n hw.ncpu) - 4 ))}"
 export LLVQ_THREADS
-renice 10 -p $$ >/dev/null 2>&1   # les bras enfants en héritent
+renice 10 -p $$ >/dev/null 2>&1   # child arms inherit it
 if ! "$SMOKE" --help >/dev/null 2>&1 && [ ! -x "$SMOKE" ]; then
-  echo "refus : $SMOKE introuvable — cargo build --release -p llvq-llm --features metal,fast-linalg --bin smoke" >&2
+  echo "refused: $SMOKE not found, cargo build --release -p llvq-llm --features metal,fast-linalg --bin smoke" >&2
   exit 2
 fi
 
 note() { echo "$*"; echo "$*" >> "$LOG/journal.txt"; }
 
-step() {                       # step <nom> <cmd...>
+step() {                       # step <name> <cmd...>
   local name="$1"; shift
   note ""
   note "=== $name — $(date '+%Y-%m-%d %H:%M:%S')"
@@ -62,8 +63,8 @@ note "  preregistrement $(shasum -a 256 "$PREREG" | cut -c1-16)..., tampon $PRER
 note "  binaire $(shasum -a 256 "$SMOKE" | cut -c1-16)..., commit $(git rev-parse --short HEAD)"
 note "  LLVQ_THREADS=$LLVQ_THREADS sur $(sysctl -n hw.ncpu) coeurs, nice $(ps -o nice= -p $$ | tr -d ' ')"
 
-# §2 du pré-enregistrement : (ρ = 1, s = 1) d'abord — c'est le contrôle du §3,
-# qui doit rejouer 38,4507 — puis ρ-majeur, tel qu'écrit.
+# §2 of the preregistration: (ρ = 1, s = 1) first, the control of §3, which
+# must replay 38.4507. Then ρ-major, as written.
 for rho in 1 0.9 0.7 0.5; do
   for s in 1 2 3; do
     LLVQ_CALIB_SEED=$s LLVQ_H_SHRINK=$rho \

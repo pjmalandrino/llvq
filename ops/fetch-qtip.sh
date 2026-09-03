@@ -32,9 +32,9 @@ if [ -e "$DEST" ] && [ -n "$(ls -A "$DEST" 2>/dev/null)" ]; then
 fi
 mkdir -p "$DEST"
 
-# `sha256sum` (coreutils) est présent sur toute image Linux ; `shasum` est du
-# Perl et manque à l'image runtime. On préfère le premier et on retombe sur le
-# second, qui est ce qui existe sur le Mac de dev.
+# `sha256sum` (coreutils) is present on every Linux image; `shasum` is Perl and
+# is missing from the runtime image. We prefer the first and fall back to the
+# second, which is what exists on the dev Mac.
 sha_of() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | cut -d' ' -f1
@@ -119,9 +119,9 @@ echo "fetch-qtip: patch applied and verified (4 dead lines removed, 0 residual t
 # produce a kernel that compiles and computes something else.
 # ---------------------------------------------------------------------------
 python3 - "$DEST" <<'PYEXTRACT'
-# `os.path` + `open` seulement : `python3-minimal` n'embarque pas `ntpath`, que
-# `pathlib` importe, et le job 6a878b14 est mort dessus. Ce script ne dépend
-# donc que de ce qu'un interpréteur amputé fournit encore.
+# `os.path` + `open` only: `python3-minimal` does not carry `ntpath`, which
+# `pathlib` imports, and job 6a878b14 died on it. This script therefore depends
+# only on what a stripped interpreter still provides.
 import os.path, sys
 dest = sys.argv[1]
 with open(os.path.join(dest, "inference.h")) as f:
@@ -184,12 +184,12 @@ check_count 'cudaGetDeviceProperties' 0 'the host launcher must stay out'
 check_count 'cudaFuncSetAttribute' 0 'the host launcher must stay out'
 check_count 'kernel_decompress_matvec(' 1 'exactly one kernel template'
 check_count '__device__ static void' 1 'the rewritten declaration'
-# 🕳️ Le motif naïf '= {.' comptait aussi les '= {};' — en regex de base le '.'
-# matche n'importe quel caractère, donc un garde-fou qui se déclenchait sur des
-# initialisations vides parfaitement valides. Un contrôle faux-positif use la
-# confiance qu'on lui accorde ; celui-ci nomme le champ.
+# PITFALL: the naive pattern '= {.' also counted the '= {};' lines. In basic
+# regex the '.' matches any character, so the guard fired on perfectly valid
+# empty initializations. A check that raises false positives wears out the
+# trust placed in it; this one names the field.
 if grep -qE '=[[:space:]]*\{\.[a-zA-Z_]' "$CUH"; then
-  echo "fetch-qtip: des initialiseurs désignés C99 subsistent — NVRTC les refuse." >&2
+  echo "fetch-qtip: C99 designated initializers remain, NVRTC refuses them." >&2
   grep -nE '=[[:space:]]*\{\.[a-zA-Z_]' "$CUH" >&2
   exit 1
 fi

@@ -33,7 +33,7 @@
 // packed stream are untouched.
 //
 // 🚨 It does NOT replace `binomial_block.metal`. That arm has a measured
-// verdict, 0,6735 ns/bloc, and both run in the same round so the gap between
+// verdict, 0.6735 ns/block, and both run in the same round so the gap between
 // them is what the spill cost. Deleting the first would delete the comparison.
 //
 // No timing, no threshold, no claim.

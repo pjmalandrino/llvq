@@ -48,20 +48,12 @@ on the 3,633,315,840 of the published run, and that encoding account for 40% to
 80% of the 14,447 s measured. An estimator nobody has confronted with a real
 run is a spreadsheet.
 
-Output for the 32B:
-
-```
-  poids quantifiés     31.21 Md
-  poids portés 16 b     1.56 Md   (4.7 % des poids, 27 % de l'artefact)
-  checkpoint bf16       65.5 Go
-  artefact projeté      11.6 Go   ×5.7
-  encodage Leech       245.9 cœur-h
-  Cholesky               1.9 cœur-h   (0.8 %)
-
-  cpu-performance          7.7    14.71
-  rtx-pro-6000            10.8    29.62
-  h200                    10.8    53.86
-```
+For the 32B, `estimate` reports 31.21 G quantized weights, 1.56 G carried at 16 b
+(4.7% of the weights, 27% of the artifact), a 65.5 GB bf16 checkpoint against an
+11.6 GB projected artifact (×5.7), 245.9 core-h of Leech encoding and 1.9 core-h
+of Cholesky (0.8%). Then one cost line per flavor: 7.7 h and $14.71 on
+`cpu-performance`, 10.8 h and $29.62 on `rtx-pro-6000`, 10.8 h and $53.86 on
+`h200`.
 
 > Caveat: `tie_word_embeddings: false` on the 32B. Unlike the 4B,
 > `embed_tokens` and `lm_head` are two tensors. They are 4.7% of the weights but

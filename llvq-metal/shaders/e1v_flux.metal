@@ -3,7 +3,7 @@
 //
 // Pre-registration: proofs/preregistration-p1c-2026-08-15.md
 // CPU reference:    llvq-search/src/cns.rs::cns_decode, already swept against
-//                   FastDecoder::decode on the 150 681 600 blocks of the sealed
+//                   FastDecoder::decode on the 150,681,600 blocks of the sealed
 //                   4B (P5 C2, zero discrepancy). Not a new yardstick — the one
 //                   P5 proved.
 //
@@ -32,9 +32,9 @@
 //     The scan sums payloads, so ten bits separate the two quantities and
 //     nothing but their names keeps them apart.)
 //
-// 🚨 So this arm is `marche-bloc` PLUS an address bill, and 0,6704 ns/bloc is a
+// 🚨 So this arm is `marche-bloc` PLUS an address bill, and 0.6704 ns/block is a
 // LOWER BOUND on it rather than an estimate of it. The pre-registration says so
-// before the measurement, and it can only be creusé by this run.
+// before the measurement, and this run can only widen the gap.
 //
 // -----------------------------------------------------------------------------
 // 2. THE MAP, RESTATED FROM `llvq_artifact::e1v` — THE WRITER
@@ -304,7 +304,7 @@ kernel void decode_e1v(device const uint*   data   [[buffer(0)]],
         // 🚨 `par` accumulates over SUPPORT slots only. The first version
         // XORed it on every slot, and since `s_on` does not advance off the
         // support, an off-support slot folded the SAME bit in a second time and
-        // flipped the parity. V0 caught it on 4 149 448 blocks of 16 777 216 —
+        // flipped the parity. V0 caught it on 4,149,448 blocks of 16,777,216 —
         // half the even ones, which is exactly the shape of the defect.
         par ^= (on && !last_on) ? bfree : 0u;
 

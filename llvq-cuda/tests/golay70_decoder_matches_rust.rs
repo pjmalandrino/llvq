@@ -232,7 +232,7 @@ fn golay70_reconstruction_is_exact_against_slot32() {
     let cls = golay70_classes(&fd);
     let mut rng = SplitMix64::new(0x60_1AC0);
 
-    // Both ends of every class + 20 000 uniform draws + the origin: every
+    // Both ends of every class + 20,000 uniform draws + the origin: every
     // class id — E2 violators included — crosses the stream.
     let mut indices: Vec<u64> = Vec::new();
     for ci in 0..fd.n_classes() {

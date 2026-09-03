@@ -1,12 +1,12 @@
 //! Arm selection for `planesbench` — the `LLVQ_BENCH_ARMS` contract.
 //!
-//! Exists to close écart É1 of `proofs/preregistration-2026-08-10.md` §7bis:
+//! Exists to close deviation É1 of `proofs/preregistration-2026-08-10.md` §7bis:
 //! the six-arm job could not run its five-arm control in the same process,
 //! because the bench had no way to leave an arm out — and a control taken
 //! from another job, another image and another translation unit is exactly
 //! the inter-process subtraction this repository has already had to retract.
-//! The exit clause written into É1 is the specification here: *un run de
-//! contrôle doit être à une variable d'environnement près.*
+//! The exit clause written into É1 is the specification here: *a control run
+//! must be one environment variable away.*
 //!
 //! ## The contract
 //!
@@ -84,7 +84,7 @@ pub const GOLAY70V2: usize = 6;
 /// The **publishable denominator**: f16 through cuBLAS, unhandicapped.
 pub const CUBLASF16: usize = 7;
 /// Matvec-k f16, ours. A **control**, never published alone — the
-/// `broadcast_matmul` trap made this repo publish a ×2,03 that came from a
+/// `broadcast_matmul` trap made this repo publish a ×2.03 that came from a
 /// defect of its own dense arm (§2.5).
 pub const MVKF16: usize = 8;
 /// Same grid, same k, output written, **no weight read**. The floor.
@@ -96,7 +96,7 @@ pub const E1C14: usize = 13;
 pub const E1C12: usize = 14;
 /// The E1v stream, **row-aligned** — the only cut a warp-per-row matvec can
 /// read (`llvq_artifact::e1v`, and X3's rotation argument). Measured at
-/// **2,3983 b/poids noyau** on the sealed 4B's written bytes.
+/// **2.3983 kernel b/weight** on the sealed 4B's written bytes.
 pub const E1V: usize = 15;
 /// The **2-bit competitor**, and the one this repository's motivation was
 /// inherited from without ever being reproduced: QTIP's trellis GEMV
@@ -141,22 +141,22 @@ pub const PHASE3_NEW: [usize; 8] = [
 pub const HAS_KERNEL: [bool; N_ARMS] = [
     // the six of the 2026-08-10 job, and the v2 campaign's seventh
     true, true, true, true, true, true, true,
-    // cublasf16, écrit le 2026-08-18 (F1 du plan TACO) : pas un kernel à
-    // nous — un appel cublasGemmEx (16F/16F/16F, compute 32F, n = 1) sur le
-    // MÊME tampon w16 que le témoin fp16, vérifié contre sa propre référence
-    // f64 à entrée binary16. C'est le dénominateur que tout × publié
-    // attendait : si tv_f16 n'est pas au niveau de cuBLAS, c'est ici que ça
-    // se voit, avant qu'un rapporteur ne le fasse.
+    // cublasf16, written 2026-08-18 (F1 of the TACO plan): not a kernel of
+    // ours. It is one cublasGemmEx call (16F/16F/16F, compute 32F, n = 1) on
+    // the SAME w16 buffer as the fp16 witness, checked against its own f64
+    // reference with binary16 inputs. This is the denominator every published
+    // × was waiting for: if tv_f16 is not at cuBLAS level, it shows here,
+    // before a referee makes it show.
     true,
-    // P4 §2.5 — mvkf16 : à écrire
+    // P4 §2.5, mvkf16: still to be written
     false,
-    // `nullk`, écrit le 2026-08-16. Il atterrit avant les sept autres bras de
-    // P4 pour une raison de fond : il ne remplace aucun layout et n'a aucun
-    // critère d'admission à satisfaire. Il MESURE — le reste que l'attribution
-    // du gisement CUDA obtient par soustraction — il ne candidate pas, donc il
-    // n'attend pas les arbitrages A2/A4/A6 de l'opérateur.
+    // `nullk`, written 2026-08-16. It lands before P4's seven other arms for a
+    // fundamental reason: it replaces no layout and has no admission criterion
+    // to meet. It MEASURES the residue that the CUDA attribution obtains by
+    // subtraction. It is not a candidate, so it does not wait for the
+    // operator's A2/A4/A6 rulings.
     true,
-    // planes14k, planes12xk, golay70v2k, e1c14, e1c12 : à écrire
+    // planes14k, planes12xk, golay70v2k, e1c14, e1c12: still to be written
     false, false, false, false, false,
     // 🚨 e1v — written, wired, and **never compiled by nvcc**. `bin/cuhcheck`
     // says clang parses it and `tests/e1v_decoder_matches_rust.rs` runs its
@@ -226,7 +226,7 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
     "LLVQ Golay70 v2",
     "FP16 cuBLAS",
     "FP16 matvec-k",
-    "plancher (nullk)",
+    "floor (nullk)",
     "LLVQ Planes14-k",
     "LLVQ Planes12x-k",
     "LLVQ Golay70 v2-k",
@@ -241,20 +241,20 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
 pub const DISPLAY_ORDER: [usize; 11] = [
-    // Le plancher d'abord : c'est la quantité contre laquelle toutes les
-    // autres se lisent, et la mettre en tête évite d'avoir à la chercher.
-    // cublasf16 juste après le témoin maison : les deux lignes que tout ×
-    // publié divise se lisent l'une sous l'autre.
+    // The floor first: it is the quantity every other row is read against, and
+    // putting it at the top saves the reader from hunting for it. cublasf16
+    // sits right under our own witness, so the two rows every published ×
+    // divides are read one under the other.
     NULLK, FP16, CUBLASF16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
-    // 🚨 Les deux concurrents en fin de table, ensemble. QTIP y est arrivé le
-    // 2026-08-20 et son absence était un défaut SILENCIEUX d'un genre
-    // particulier : tout ce que `planesbench` imprime itère sur cette table,
-    // donc le banc aurait construit le payload, vérifié le bras contre sa
-    // référence f64, l'aurait dispatché dans les sept rounds — et n'aurait
-    // écrit AUCUNE ligne à son sujet, alors que « la ligne QTIP de la table »
-    // est le livrable déclaré de son job. Le commentaire ci-dessus dit « un
-    // bras sans noyau n'a pas de ligne » ; QTIP est le cas que ce raccourci ne
-    // couvre pas, `HAS_KERNEL` étant faux et `FETCHED_AT_RUNTIME` vrai.
+    // 🚨 The two competitors at the end of the table, together. QTIP got here
+    // on 2026-08-20 and its absence was a SILENT defect of a particular kind:
+    // everything `planesbench` prints iterates over this table, so the bench
+    // would have built the payload, checked the arm against its f64 reference
+    // and dispatched it in the seven rounds, then written NO line about it,
+    // while "the QTIP row of the table" is the declared deliverable of its
+    // job. The comment above says "an arm with no kernel has no row"; QTIP is
+    // the case that shortcut does not cover: `HAS_KERNEL` is false and
+    // `FETCHED_AT_RUNTIME` is true.
     QTIP,
 ];
 
@@ -344,7 +344,7 @@ pub fn parse_phases(spec: Option<&str>) -> Result<Vec<ArmSet>, String> {
             let name = raw.trim();
             if name.is_empty() {
                 return Err(format!(
-                    "LLVQ_BENCH_ARMS : nom vide dans la phase {} («{}»)",
+                    "LLVQ_BENCH_ARMS: empty name in phase {} (\"{}\")",
                     pi + 1,
                     phase_txt.trim()
                 ));
@@ -352,52 +352,52 @@ pub fn parse_phases(spec: Option<&str>) -> Result<Vec<ArmSet>, String> {
             named_any = true;
             if name == "golay70" {
                 return Err(
-                    "LLVQ_BENCH_ARMS : «golay70» est ambigu depuis la v2 — \
-                     nommer golay70v1 (le décodeur publié) ou golay70v2"
+                    "LLVQ_BENCH_ARMS: \"golay70\" is ambiguous since the v2. Name \
+                     golay70v1 (the published decoder) or golay70v2"
                         .to_string(),
                 );
             }
             if let Some(arm) = ARM_NAMES.iter().position(|&n| n == name) {
                 if !is_selectable(arm) {
                     return Err(format!(
-                        "LLVQ_BENCH_ARMS : «{name}» est enregistré pour figer l'ordre de \
-                         dispatch (P4 §2.3) mais son noyau n'est PAS écrit — le \
-                         sélectionner dispatcherait un noyau inexistant sur une carte \
-                         louée. Bras exécutables : {}",
+                        "LLVQ_BENCH_ARMS: \"{name}\" is registered to fix the dispatch \
+                         order (P4 §2.3) but its kernel is NOT written. Selecting it \
+                         would dispatch a kernel that does not exist, on a rented \
+                         card. Runnable arms: {}",
                         ArmSet::runnable().label()
                     ));
                 }
             }
             let Some(arm) = ARM_NAMES.iter().position(|&n| n == name) else {
                 return Err(format!(
-                    "LLVQ_BENCH_ARMS : bras inconnu «{name}» — valides : {}",
+                    "LLVQ_BENCH_ARMS: unknown arm \"{name}\". Valid: {}",
                     ARM_NAMES.join(", ")
                 ));
             };
             if set.has(arm) {
                 return Err(format!(
-                    "LLVQ_BENCH_ARMS : «{name}» nommé deux fois dans la phase {}",
+                    "LLVQ_BENCH_ARMS: \"{name}\" named twice in phase {}",
                     pi + 1
                 ));
             }
             set.insert(arm);
         }
         if !named_any {
-            return Err(format!("LLVQ_BENCH_ARMS : phase {} vide", pi + 1));
+            return Err(format!("LLVQ_BENCH_ARMS: phase {} is empty", pi + 1));
         }
         if !set.has(FP16) {
             return Err(format!(
-                "LLVQ_BENCH_ARMS : phase {} sans fp16 — le témoin n'est pas \
-                 désélectionnable, tout rapport publié se forme contre lui",
+                "LLVQ_BENCH_ARMS: phase {} without fp16. The witness cannot be \
+                 deselected, every published ratio is formed against it",
                 pi + 1
             ));
         }
         if let Some(prev) = phases.last() {
             if !set.is_superset_of(*prev) {
                 return Err(format!(
-                    "LLVQ_BENCH_ARMS : la phase {} ({}) ne contient pas la phase {} \
-                     ({}) — les tampons se construisent et ne se libèrent pas, une \
-                     phase qui rétrécit mesurerait avec la résidence d'un bras mort",
+                    "LLVQ_BENCH_ARMS: phase {} ({}) does not contain phase {} ({}). \
+                     Buffers are built and never freed, so a shrinking phase would \
+                     measure with a dead arm's residency",
                     pi + 1,
                     set.label(),
                     pi,
@@ -417,7 +417,7 @@ pub fn parse_phases(spec: Option<&str>) -> Result<Vec<ArmSet>, String> {
 ///
 /// 🚨 **A single-phase job produces NO `Δ_contrôle`, therefore no `R`,
 /// therefore no decision rule — and nothing in the output says so** (§2.2,
-/// which calls the phase plan *une condition de validité*). Having the plan as
+/// which calls the phase plan *a validity condition*). Having the plan as
 /// a function that can be compared against what a job actually ran is what
 /// turns that from a footnote into something a test can check.
 pub fn p4_phase_plan() -> Vec<ArmSet> {
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn bare_golay70_is_refused_by_name() {
         let e = parse_phases(Some("fp16,golay70")).unwrap_err();
-        assert!(e.contains("ambigu"), "{e}");
+        assert!(e.contains("ambiguous"), "{e}");
     }
 
     #[test]
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn a_duplicate_name_is_refused() {
         let e = parse_phases(Some("fp16,awq,awq")).unwrap_err();
-        assert!(e.contains("deux fois"), "{e}");
+        assert!(e.contains("twice"), "{e}");
     }
 
     #[test]
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn a_shrinking_phase_is_refused() {
         let e = parse_phases(Some("fp16,slot32,awq;fp16,slot32")).unwrap_err();
-        assert!(e.contains("résidence"), "{e}");
+        assert!(e.contains("residency"), "{e}");
     }
 
     #[test]
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(ARM_NAMES.len(), N_ARMS);
         let all = ArmSet::all();
         for (a, name) in ARM_NAMES.iter().enumerate() {
-            assert!(all.has(a), "le bras {a} ({name}) ne tient pas dans le set");
+            assert!(all.has(a), "arm {a} ({name}) does not fit in the set");
         }
         assert_eq!(all.len(), N_ARMS);
         // And no name is registered twice — a duplicate would make one of the
@@ -556,7 +556,7 @@ mod tests {
         let mut sorted = ARM_NAMES.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
-        assert_eq!(sorted.len(), N_ARMS, "un nom de bras est enregistré deux fois");
+        assert_eq!(sorted.len(), N_ARMS, "an arm name is registered twice");
     }
 
     /// The six of the published run keep indices 0..5 and `golay70v2` keeps 6.
@@ -569,7 +569,7 @@ mod tests {
             &["slot32", "planes14", "planes12x", "golay70v1", "fp16", "awq", "golay70v2"]
         );
         for (i, &a) in PHASE3_NEW.iter().enumerate() {
-            assert_eq!(a, 7 + i, "le bras neuf {} n'est pas en dernière position", ARM_NAMES[a]);
+            assert_eq!(a, 7 + i, "the new arm {} is not in last position", ARM_NAMES[a]);
         }
     }
 
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn the_p4_phase_plan_is_valid_by_its_own_parser() {
         let plan = p4_phase_plan();
-        assert_eq!(plan.len(), 3, "un job à une phase ne produit aucun Δ_contrôle (§2.2)");
+        assert_eq!(plan.len(), 3, "a single-phase job produces no Δ_contrôle (§2.2)");
         assert_eq!(plan[0].len(), 6);
         assert_eq!(plan[1].len(), 7);
         // 🕳️ This read `N_ARMS`, and it passed only because P4's phase 3 and
@@ -589,9 +589,9 @@ mod tests {
         // of P4's plan (its own document governs it). The plan's size is what
         // the plan is made of.
         assert_eq!(plan[2].len(), PHASE2.len() + PHASE3_NEW.len());
-        assert!(!plan[2].has(E1V), "e1v n'appartient pas au plan de phases de P4");
+        assert!(!plan[2].has(E1V), "e1v does not belong to P4's phase plan");
         for p in &plan {
-            assert!(p.has(FP16), "le témoin n'est pas désélectionnable");
+            assert!(p.has(FP16), "the witness cannot be deselected");
         }
         // 🚨 And the plan is NOT runnable today, which is a fact worth
         // asserting rather than discovering at job start: phase 3 names arms
@@ -604,13 +604,13 @@ mod tests {
             // day every kernel exists this falls into `Ok` and the round trip
             // is checked instead — no edit needed, and no window where the
             // test asserts nothing.
-            Err(e) => assert!(e.contains("noyau n'est PAS écrit"), "{e}"),
+            Err(e) => assert!(e.contains("kernel is NOT written"), "{e}"),
             Ok(back) => assert_eq!(back, plan),
         }
         // The two phases that ARE runnable parse today — the control plan of
         // the published campaign is not held hostage by P4's unwritten arms.
         let runnable_spec = format!("{};{}", plan[0].label(), plan[1].label());
-        let back = parse_phases(Some(&runnable_spec)).expect("phases 1 et 2 sont exécutables");
+        let back = parse_phases(Some(&runnable_spec)).expect("phases 1 and 2 are runnable");
         assert_eq!(back, vec![plan[0], plan[1]]);
     }
 
@@ -628,24 +628,24 @@ mod tests {
         // Every arm of the published run and of the control phase must have a
         // kernel, or the campaign those two phases reproduce could not run.
         for &a in PHASE1.iter().chain(&PHASE2) {
-            assert!(HAS_KERNEL[a], "{} porte un numéro publié sans noyau", ARM_NAMES[a]);
+            assert!(HAS_KERNEL[a], "{} carries a published number with no kernel", ARM_NAMES[a]);
         }
-        // PHASE3_NEW n'est plus « les bras sans noyau » : `nullk` en fait
-        // partie et il en a un depuis le 2026-08-16. Le test lit le DRAPEAU,
-        // qui est la propriété qu'il vérifie, et non une liste qui se trouvait
-        // coïncider avec elle — le même glissement que `plan[2].len() ==
-        // N_ARMS` quinze lignes plus bas.
+        // PHASE3_NEW is no longer "the arms with no kernel": `nullk` is one of
+        // them and it has had a kernel since 2026-08-16. The test reads the
+        // FLAG, which is the property it checks, and not a list that happened
+        // to coincide with it. Same slip as `plan[2].len() == N_ARMS` fifteen
+        // lines below.
         //
-        // 🕳️ Et le même glissement s'est reproduit UN CRAN PLUS HAUT le
-        // 2026-08-20 : ce filtre lisait `!HAS_KERNEL[a]`, qui a cessé d'être
-        // la propriété testée le jour où un arm a eu un noyau **hors du
-        // dépôt** (`FETCHED_AT_RUNTIME`). La propriété est « ni ici ni
-        // récupérable », donc `!is_selectable`. Le drapeau qu'on lit doit être
-        // celui que le parseur consulte, pas celui qui lui ressemblait.
+        // 🕳️ And the same slip happened ONE STEP UP on 2026-08-20: this filter
+        // read `!HAS_KERNEL[a]`, which stopped being the property under test
+        // the day an arm had a kernel **outside the repository**
+        // (`FETCHED_AT_RUNTIME`). The property is "neither here nor
+        // fetchable", so `!is_selectable`. The flag being read must be the one
+        // the parser consults, not the one that resembled it.
         for a in (0..N_ARMS).filter(|&a| !is_selectable(a)) {
             let e = parse_phases(Some(&format!("fp16,{}", ARM_NAMES[a]))).unwrap_err();
             assert!(e.contains(ARM_NAMES[a]), "{e}");
-            assert!(e.contains("noyau n'est PAS écrit"), "{e}");
+            assert!(e.contains("kernel is NOT written"), "{e}");
         }
         // The one arm that is refused by `HAS_KERNEL` yet accepted by the
         // parser is pinned by name here: a second one appearing silently is
@@ -654,7 +654,7 @@ mod tests {
             .filter(|&a| !HAS_KERNEL[a] && is_selectable(a))
             .map(|a| ARM_NAMES[a])
             .collect();
-        assert_eq!(exceptions, vec!["qtip"], "un bras récupéré au job s'est ajouté sans le dire");
+        assert_eq!(exceptions, vec!["qtip"], "an arm fetched at job time was added silently");
 
         // And every implemented arm still parses. `fp16` is the witness and
         // is already in the spec, so it is named once.
@@ -662,7 +662,7 @@ mod tests {
             let name = &name;
             let spec = if *name == "fp16" { name.to_string() } else { format!("fp16,{name}") };
             parse_phases(Some(&spec))
-                .unwrap_or_else(|e| panic!("{name} devrait être sélectionnable : {e}"));
+                .unwrap_or_else(|e| panic!("{name} should be selectable: {e}"));
         }
     }
 
@@ -682,17 +682,17 @@ mod tests {
             assert_eq!(
                 ArmSet::runnable().has(a),
                 ok,
-                "{} : le set exécutable ne suit pas son drapeau",
+                "{}: the runnable set does not follow its flag",
                 ARM_NAMES[a]
             );
         }
         // The registry HAS a hole today — e1v is runnable while the eight arms
         // registered before it are not — which is exactly the situation a
         // threshold could not express.
-        assert!(HAS_KERNEL[E1V], "e1v a un noyau");
+        assert!(HAS_KERNEL[E1V], "e1v has a kernel");
         assert!(
             PHASE3_NEW.iter().any(|&a| !HAS_KERNEL[a]),
-            "le trou a disparu : ce test perdrait son objet"
+            "the hole is gone: this test would lose its subject"
         );
         let flags: Vec<bool> = (0..N_ARMS).map(|a| ArmSet::runnable().has(a)).collect();
         assert_eq!(flags, HAS_KERNEL.to_vec());
@@ -737,23 +737,23 @@ mod tests {
     fn the_display_tables_cover_the_registry() {
         assert_eq!(DISPLAY_NAMES.len(), N_ARMS);
         for (a, n) in DISPLAY_NAMES.iter().enumerate() {
-            assert!(!n.is_empty(), "le bras {} n'a pas de libellé", ARM_NAMES[a]);
+            assert!(!n.is_empty(), "arm {} has no label", ARM_NAMES[a]);
         }
         let mut seen = ArmSet::empty();
         for &a in &DISPLAY_ORDER {
-            assert!(a < N_ARMS, "l'ordre d'affichage nomme un bras inexistant");
-            assert!(!seen.has(a), "{} est affiché deux fois", ARM_NAMES[a]);
-            // 🕳️ TROISIÈME fois que ce glissement se produit dans ce fichier,
-            // et toujours identique : le test lisait `HAS_KERNEL`, qui a cessé
-            // d'être la propriété testée le jour où un bras a eu un noyau HORS
-            // du dépôt. La question ici est « ce bras peut-il tourner », c'est
-            // `is_selectable`. Les deux premières occurrences sont documentées
-            // sur `an_arm_without_a_kernel_is_registered_but_not_runnable` ;
-            // celle-ci est la troisième, et le motif mérite d'être nommé : un
-            // drapeau qui coïncide avec la propriété n'est pas la propriété.
+            assert!(a < N_ARMS, "the display order names an arm that does not exist");
+            assert!(!seen.has(a), "{} is displayed twice", ARM_NAMES[a]);
+            // 🕳️ THIRD time this slip happens in this file, and always the
+            // same one: the test read `HAS_KERNEL`, which stopped being the
+            // property under test the day an arm had a kernel OUTSIDE the
+            // repository. The question here is "can this arm run", which is
+            // `is_selectable`. The first two occurrences are documented on
+            // `an_arm_without_a_kernel_is_registered_but_not_runnable`; this
+            // is the third, and the pattern deserves a name: a flag that
+            // coincides with the property is not the property.
             assert!(
                 is_selectable(a),
-                "{} a une ligne de table mais ne peut pas tourner",
+                "{} has a table row but cannot run",
                 ARM_NAMES[a]
             );
             seen.insert(a);
@@ -771,11 +771,11 @@ mod tests {
             }
             s
         };
-        assert_eq!(seen, selectable, "un bras sélectionnable n'a pas de ligne");
+        assert_eq!(seen, selectable, "a selectable arm has no row");
         // And the rows a bare run produces are still exactly the runnable set:
         // adding a fetched arm must not change what a bare command prints.
         for a in ArmSet::runnable().iter() {
-            assert!(seen.has(a), "{} tourne à nu sans ligne", ARM_NAMES[a]);
+            assert!(seen.has(a), "{} runs bare with no row", ARM_NAMES[a]);
         }
     }
 

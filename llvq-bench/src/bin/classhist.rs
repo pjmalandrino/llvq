@@ -93,26 +93,26 @@ fn main() {
     }
 
     let pct = |n: u64| 100.0 * n as f64 / total as f64;
-    println!("source : {path} — {matrices} matrices, cap {shell_cap}");
+    println!("source: {path} — {matrices} matrices, cap {shell_cap}");
     println!(
-        "{total} blocs, {origin_blocks} origine, {observed} classes observées"
+        "{total} blocks, {origin_blocks} origin, {observed} classes observed"
     );
 
     // ---- 1. histogram by class, descending population ----
     let mut order: Vec<usize> = (0..fd.n_classes()).filter(|&ci| counts[ci] > 0).collect();
     order.sort_by_key(|&ci| std::cmp::Reverse(counts[ci]));
 
-    println!("\n  top 20 classes par population (valeurs v^count, ordre canonique)");
+    println!("\n  top 20 classes by population (v^count values, canonical order)");
     println!("  {}", "-".repeat(76));
     let mut cum = 0u64;
     for (rank, &ci) in order.iter().take(20).enumerate() {
         let lv = fd.levels(ci);
         cum += counts[ci];
         println!(
-            "  {:>2}. c{:<3} {} m={:<2} L={} {:<26}{:>12} blocs{:>8.3} %  cum {:>6.2} %",
+            "  {:>2}. c{:<3} {} m={:<2} L={} {:<26}{:>12} blocks{:>8.3} %  cum {:>6.2} %",
             rank + 1,
             ci,
-            if lv.odd { "imp." } else { "pair" },
+            if lv.odd { "odd " } else { "even" },
             lv.shell,
             lv.len,
             fmt_values(lv),
@@ -122,7 +122,7 @@ fn main() {
         );
     }
     println!(
-        "  … {} autres classes, {} blocs ({:.3} %)",
+        "  … {} other classes, {} blocks ({:.3} %)",
         order.len().saturating_sub(20),
         total - origin_blocks - cum,
         pct(total - origin_blocks - cum)
@@ -148,18 +148,18 @@ fn main() {
         h_class -= p * p.log2();
     }
     let paid = llvq_quant::quantizer::index_bits(shell_cap) as f64;
-    println!("\n  entropie de l'index (arrangement uniforme dans la classe)");
+    println!("\n  index entropy (arrangement uniform within the class)");
     println!("  {}", "-".repeat(76));
-    println!("  H(classe)                : {h_class:>8.4} bits/bloc");
-    println!("  Σ p·log₂|classe|         : {h_arr:>8.4} bits/bloc");
+    println!("  H(class)                 : {h_class:>8.4} bits/block");
+    println!("  Σ p·log₂|class|          : {h_arr:>8.4} bits/block");
     println!(
-        "  H(index) = somme         : {:>8.4} bits/bloc — payés {paid:.0} ({:.4} de marge)",
+        "  H(index) = sum           : {:>8.4} bits/block — paid {paid:.0} ({:.4} of margin)",
         h_class + h_arr,
         paid - h_class - h_arr
     );
 
     // ---- 3. every class of the m ≤ cap ball: residues mod 4 and violations ----
-    println!("\n  les classes de la boule m ≤ {shell_cap} — résidus mod 4 (zéro compté)");
+    println!("\n  the classes of the m ≤ {shell_cap} ball — residues mod 4 (zero counted)");
     println!("  {}", "-".repeat(76));
     let ball: Vec<usize> = (0..fd.n_classes())
         .filter(|&ci| fd.levels(ci).shell <= shell_cap)
@@ -181,9 +181,9 @@ fn main() {
             .map(|i| format!("r{}={}", i, r[i]))
             .collect();
         println!(
-            "  c{:<3} {} m={:<2} L={} {:<26} {:<12}{}{:>14} blocs",
+            "  c{:<3} {} m={:<2} L={} {:<26} {:<12}{}{:>14} blocks",
             ci,
-            if lv.odd { "imp." } else { "pair" },
+            if lv.odd { "odd " } else { "even" },
             lv.shell,
             lv.len,
             fmt_values(lv),
@@ -209,36 +209,36 @@ fn main() {
     }
 
     // ---- 4. the totals the E2 bracket is decided from ----
-    println!("\n  totaux");
+    println!("\n  totals");
     println!("  {}", "-".repeat(76));
     println!(
-        "  boule m ≤ {shell_cap} : {} classes ({} paires + {} impaires)",
+        "  m ≤ {shell_cap} ball: {} classes ({} even + {} odd)",
         ball.len(),
         ball.iter().filter(|&&ci| !fd.levels(ci).odd).count(),
         ball.iter().filter(|&&ci| fd.levels(ci).odd).count()
     );
     println!(
-        "  classes violantes (>2 valeurs dans un résidu) : {} ({} paires + {} impaires)",
+        "  violating classes (>2 values in a residue): {} ({} even + {} odd)",
         viol_classes[0] + viol_classes[1],
         viol_classes[0],
         viol_classes[1]
     );
     println!(
-        "  max de valeurs distinctes dans un résidu : {max_in_residue} ; \
-         classes à ≥3 dans les deux résidus : {both_residues_ge3}"
+        "  max distinct values in a residue: {max_in_residue}; \
+         classes with ≥3 in both residues: {both_residues_ge3}"
     );
-    println!("\n  niveaux par bloc (recoupement rtbits)");
+    println!("\n  levels per block (rtbits cross-check)");
     for (l, &n) in level_hist.iter().enumerate().skip(1) {
         if n > 0 {
-            println!("    L = {l}{:>16} blocs{:>9.4} %", n, pct(n));
+            println!("    L = {l}{:>16} blocks{:>9.4} %", n, pct(n));
         }
     }
     println!(
-        "\n  BLOCS dans des classes violantes : {viol_blocks} / {total} = {:.4} %",
+        "\n  BLOCKS in violating classes : {viol_blocks} / {total} = {:.4} %",
         pct(viol_blocks)
     );
     println!(
-        "  parmi les blocs L ≤ 4 seulement  : {viol_blocks_le4} / {blocks_le4} = {:.4} %",
+        "  among L ≤ 4 blocks only     : {viol_blocks_le4} / {blocks_le4} = {:.4} %",
         100.0 * viol_blocks_le4 as f64 / blocks_le4 as f64
     );
 
@@ -298,26 +298,26 @@ fn main() {
     );
 
     let frac = exc_blocks as f64 / total as f64;
-    println!("\n  exceptions E2 (pair violant, ou L = 5 quel que soit le coset)");
+    println!("\n  E2 exceptions (violating even, or L = 5 in either coset)");
     println!("  {}", "-".repeat(76));
     println!(
-        "  pairs violants (L ≤ 4)   : {exc_even_viol_le4:>12} blocs{:>9.4} %",
+        "  violating even (L ≤ 4)   : {exc_even_viol_le4:>12} blocks{:>9.4} %",
         pct(exc_even_viol_le4)
     );
     println!(
-        "  L = 5 pairs              : {exc_l5_even:>12} blocs{:>9.4} %  (dont violants : {l5_even_also_viol})",
+        "  L = 5 even               : {exc_l5_even:>12} blocks{:>9.4} %  (of which violating: {l5_even_also_viol})",
         pct(exc_l5_even)
     );
     println!(
-        "  L = 5 impairs            : {exc_l5_odd:>12} blocs{:>9.4} %",
+        "  L = 5 odd                : {exc_l5_odd:>12} blocks{:>9.4} %",
         pct(exc_l5_odd)
     );
     println!(
-        "  TOTAL exceptions         : {exc_blocks:>12} blocs{:>9.4} %  ({exc_classes} classes peuplées)",
+        "  TOTAL exceptions         : {exc_blocks:>12} blocks{:>9.4} %  ({exc_classes} populated classes)",
         pct(exc_blocks)
     );
     println!(
-        "  payload E2 = 3,0 + 6·fraction = {:.4} b/poids  (144 bits/exception ; Planes12x : 4,342)",
+        "  E2 payload = 3.0 + 6·fraction = {:.4} b/weight  (144 bits/exception; Planes12x: 4.342)",
         3.0 + 6.0 * frac
     );
 }

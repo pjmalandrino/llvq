@@ -150,7 +150,7 @@ fn the_restructured_block_is_the_same_calls_in_the_same_order() {
     assert_eq!(
         got.as_slice(),
         &GOLDEN,
-        "la restructuration de forward_cached a changé ce que le modèle dit"
+        "the restructuring of forward_cached changed what the model says"
     );
 
     // (2) The golden is sensitive to a k/v permutation.
@@ -160,7 +160,7 @@ fn the_restructured_block_is_the_same_calls_in_the_same_order() {
     assert_ne!(
         swapped.as_slice(),
         &GOLDEN,
-        "échanger k et v ne change pas la sortie : le golden ne prouve rien sur l'ordre"
+        "swapping k and v does not change the output: the golden proves nothing about order"
     );
 
     // (3) The mode does not reach a dense model.
@@ -170,7 +170,7 @@ fn the_restructured_block_is_the_same_calls_in_the_same_order() {
         assert_eq!(
             m.generate(&prompt, GOLDEN.len(), &mut NoCapture).expect("generate"),
             GOLDEN.to_vec(),
-            "{share:?} a changé un modèle dense"
+            "{share:?} changed a dense model"
         );
     }
 }
@@ -266,7 +266,7 @@ fn a_split_prefill_matches_a_whole_one() {
 }
 
 /// `max_new = 0` used to run until RoPE walked off the end of its table —
-/// 40 960 decode steps and an opaque error — because the stop test sits after
+/// 40,960 decode steps and an opaque error — because the stop test sits after
 /// the push and `out.len() == 0` is never true. The witness returned `[]`
 /// immediately, so the two paths this repository declares equivalent diverged
 /// at the very first edge case.
@@ -282,7 +282,7 @@ fn zero_new_tokens_returns_nothing_on_both_paths() {
 }
 
 // ---------------------------------------------------------------------------
-// Le contrôle positif du §3.6 de proofs/preregistration-p3-2026-08-14.md.
+// The positive control of §3.6 of proofs/preregistration-p3-2026-08-14.md.
 // ---------------------------------------------------------------------------
 
 /// Qwen3-4B's KV geometry, which is what the quantizer groups over: 36 layers,
@@ -351,7 +351,7 @@ fn q8_actually_changes_what_a_block_computes() {
         "KvMode::Q8 produced bit-identical logits to F16 on the 4B KV geometry \
          (36 × 8 × 128). The arm is NOT wired: a run in this state would report \
          Δppl = 0, ΔMMLU = 0 and 1.00× throughput, and every one of those greens \
-         would be empty. Vérifier les deux sites de construction de KvCache \
-         (model.rs : Block::forward et fresh_caches)."
+         would be empty. Check the two KvCache construction sites \
+         (model.rs: Block::forward and fresh_caches)."
     );
 }

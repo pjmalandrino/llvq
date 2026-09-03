@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
             .decode(&out, false)
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         println!(
-            "── {p:?}\n   →{text}\n   {n_new} tokens en {secs:.2} s — {:.1} tok/s",
+            "── {p:?}\n   →{text}\n   {n_new} tokens in {secs:.2} s — {:.1} tok/s",
             n_new as f64 / secs
         );
 
@@ -116,17 +116,17 @@ fn main() -> anyhow::Result<()> {
             // exact motif CLAUDE.md §5 documents three times.
             anyhow::ensure!(
                 n_new >= 3,
-                "LLVQ_VERIFY_CACHE n'exerce rien sous 3 tokens (n_new = {n_new})"
+                "LLVQ_VERIFY_CACHE exercises nothing below 3 tokens (n_new = {n_new})"
             );
             let t = std::time::Instant::now();
             let want = s.model.generate_uncached(&ids, n_new, &mut NoCapture)?;
             let slow = t.elapsed().as_secs_f64();
             anyhow::ensure!(
                 out == want,
-                "le cache KV change ce que le modèle dit :\n  avec  {out:?}\n  sans  {want:?}"
+                "the KV cache changes what the model says:\n  with     {out:?}\n  without  {want:?}"
             );
             println!(
-                "   ✓ identique au chemin sans cache ({slow:.2} s, ×{:.1} plus lent)",
+                "   ✓ identical to the uncached path ({slow:.2} s, ×{:.1} slower)",
                 slow / secs
             );
         }

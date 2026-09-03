@@ -4,7 +4,7 @@
 // PROVENANCE. This file is a port of `awq/kernels/csrc/quantization/gemv_cuda.cu`
 // from https://github.com/mit-han-lab/llm-awq, MIT License, Copyright (c) 2023
 // MIT HAN Lab. Retrieved 2026-08-10 from `raw.githubusercontent.com`, branch
-// `main`, 11 160 bytes, 247 lines,
+// `main`, 11,160 bytes, 247 lines,
 //   sha256 f55d69f6bc11e351dcc5923b6c86b1cb4f354b97588743b9b06311d6ada600f5
 // — a date alone does not let anyone reproduce the port; the digest does.
 // Their header, preserved verbatim:

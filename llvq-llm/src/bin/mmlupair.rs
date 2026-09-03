@@ -3,7 +3,7 @@
 //! Usage:
 //!   `cargo run --release -p llvq-llm --bin mmlupair -- <a.csv> <b.csv> [more…] [flags]`
 //!
-//! Flags: `--draws N` (default 10 000) · `--seed 0x…` · `--intersect` · `--no-fpc`.
+//! Flags: `--draws N` (default 10,000) · `--seed 0x…` · `--intersect` · `--no-fpc`.
 //! With more than two dumps, every later one is compared against the **first**,
 //! which is the shape of the campaigns: one baseline, several quantized arms.
 //!
@@ -30,7 +30,7 @@
 //! information, and under the null they split like a fair coin. But the number
 //! this project publishes is the **stratified micro** — 57 subject rates
 //! re-weighted by their true population, because MMLU's test split runs from
-//! 100 questions (`abstract_algebra`) to 1 534 (`professional_law`). McNemar
+//! 100 questions (`abstract_algebra`) to 1,534 (`professional_law`). McNemar
 //! knows nothing about those weights, so it answers a question adjacent to the
 //! published one, not the published one.
 //!
@@ -290,8 +290,8 @@ impl Stratum {
 /// Join two dumps question by question.
 ///
 /// `intersect` waives the *run-level* refusal — the only legitimate use is a
-/// census against a `limit=40` run, which share their 2 280 questions but
-/// cannot share a run fingerprint because the census also scored 11 762
+/// census against a `limit=40` run, which share their 2,280 questions but
+/// cannot share a run fingerprint because the census also scored 11,762
 /// others. It never waives the per-question check below.
 fn pair(a: &Dump, b: &Dump, intersect: bool) -> anyhow::Result<Vec<Stratum>> {
     // The headline gate. Two arms are comparable because they were asked the
@@ -404,8 +404,8 @@ fn mcnemar_exact(b: usize, c: usize) -> f64 {
         return 1.0;
     }
     // Log-factorials by prefix sum. `n` is at most the whole test split
-    // (14 042), so the table costs microseconds and keeps C(n, k) in log space,
-    // where a 14 000-trial binomial coefficient does not overflow.
+    // (14,042), so the table costs microseconds and keeps C(n, k) in log space,
+    // where a 14,000-trial binomial coefficient does not overflow.
     let mut ln_fact = vec![0.0f64; n + 1];
     for k in 1..=n {
         ln_fact[k] = ln_fact[k - 1] + (k as f64).ln();
@@ -501,9 +501,9 @@ fn bootstrap(strata: &[Stratum], w: &[f64], fpc: bool, draws: usize, seed: u64) 
             if n == 0 {
                 continue;
             }
-            // Modulo bias over a 64-bit stream with n ≤ 1 534 is below 1e-16 —
+            // Modulo bias over a 64-bit stream with n ≤ 1,534 is below 1e-16 —
             // fifteen orders of magnitude under the Monte-Carlo error of
-            // 10 000 draws.
+            // 10,000 draws.
             let mut sum = 0.0;
             for _ in 0..n {
                 sum += s.d[(rng.next() % n as u64) as usize] as f64;
@@ -601,7 +601,7 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
     println!("A = {}\n    {}", a.label, a.path);
     println!("B = {}\n    {}", b.label, b.path);
     println!(
-        "{n} questions appariées, {} matières · dtype {} / {} · limit {} / {}",
+        "{n} paired questions, {} subjects · dtype {} / {} · limit {} / {}",
         strata.len(),
         a.dtype,
         b.dtype,
@@ -609,17 +609,17 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
         b.limit
     );
     println!(
-        "empreinte de run : {:016x} / {:016x}{}",
+        "run fingerprint: {:016x} / {:016x}{}",
         a.fingerprint,
         b.fingerprint,
         if a.fingerprint == b.fingerprint {
-            " (identique)"
+            " (identical)"
         } else {
-            " ⚠️ DIFFÉRENTE — appariement forcé sur l'intersection"
+            " WARNING: DIFFERENT — pairing forced onto the intersection"
         }
     );
     if a.dtype != b.dtype {
-        println!("⚠️ dtypes différents : la comparaison porte sur deux objets, pas un.");
+        println!("WARNING: different dtypes. The comparison covers two objects, not one.");
     }
 
     let (ws, wp) = (
@@ -627,15 +627,15 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
         weights(&strata, Weighting::Pooled),
     );
     let (ds, dp) = (delta(&strata, &ws), delta(&strata, &wp));
-    println!("\ntaux (Δ = A − B, en points de pourcentage)");
+    println!("\nrates (Δ = A − B, in percentage points)");
     println!(
-        "  micro stratifié     A {:6.2} %   B {:6.2} %   Δ = {:+.2} pp   ← le chiffre publié",
+        "  stratified micro    A {:6.2} %   B {:6.2} %   Δ = {:+.2} pp   ← the published number",
         100.0 * rate(&strata, &ws, |s| s.a_right),
         100.0 * rate(&strata, &ws, |s| s.b_right),
         100.0 * ds
     );
     println!(
-        "  non pondéré (poolé) A {:6.2} %   B {:6.2} %   Δ = {:+.2} pp   ← ce que McNemar teste",
+        "  unweighted (pooled) A {:6.2} %   B {:6.2} %   Δ = {:+.2} pp   ← what McNemar tests",
         100.0 * rate(&strata, &wp, |s| s.a_right),
         100.0 * rate(&strata, &wp, |s| s.b_right),
         100.0 * dp
@@ -648,10 +648,10 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
     } else {
         0.0
     };
-    println!("\nMcNemar exact (non pondéré)");
+    println!("\nMcNemar exact (unweighted)");
     println!(
-        "  A✓B✗ = {nb}   A✗B✓ = {nc}   concordantes = {}   ({:.1} % des questions sont \
-         discordantes)",
+        "  A✓B✗ = {nb}   A✗B✓ = {nc}   concordant = {}   ({:.1} % of the questions are \
+         discordant)",
         n - nb - nc,
         100.0 * (nb + nc) as f64 / n.max(1) as f64
     );
@@ -667,24 +667,24 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
     let boot = bootstrap(&strata, &ws, opt.fpc, opt.draws, opt.seed);
     let flat = bootstrap(&strata, &wp, opt.fpc, opt.draws, opt.seed);
     println!(
-        "\nbootstrap apparié stratifié par matière ({} tirages, graine {:#x}{})",
+        "\npaired bootstrap stratified by subject ({} draws, seed {:#x}{})",
         opt.draws,
         opt.seed,
         if opt.fpc {
-            ", correction de population finie"
+            ", finite population correction"
         } else {
-            ", SANS correction de population finie"
+            ", WITHOUT finite population correction"
         }
     );
     println!(
-        "  Δ micro stratifié = {:+.2} pp   IC95 [{:+.2} ; {:+.2}]   SE {:.2} pp",
+        "  Δ stratified micro = {:+.2} pp   CI95 [{:+.2} ; {:+.2}]   SE {:.2} pp",
         100.0 * ds,
         100.0 * boot.lo,
         100.0 * boot.hi,
         100.0 * boot.se
     );
     println!(
-        "  contrôle non pondéré = {:+.2} pp   IC95 [{:+.2} ; {:+.2}]   SE {:.2} pp",
+        "  unweighted control = {:+.2} pp   CI95 [{:+.2} ; {:+.2}]   SE {:.2} pp",
         100.0 * dp,
         100.0 * flat.lo,
         100.0 * flat.hi,
@@ -693,9 +693,9 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
     println!(
         "  → {}",
         if boot.lo <= 0.0 && boot.hi >= 0.0 {
-            "l'IC contient zéro : l'écart n'est pas résolu par ce protocole."
+            "the CI contains zero: the gap is not resolved by this protocol."
         } else {
-            "l'IC exclut zéro : l'écart est résolu par ce protocole."
+            "the CI excludes zero: the gap is resolved by this protocol."
         }
     );
 
@@ -708,10 +708,10 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
         .map(|(s, w)| (w * s.mean_d(), s))
         .collect();
     movers.sort_by(|x, y| y.0.abs().total_cmp(&x.0.abs()));
-    println!("\nmatières qui portent l'écart (contribution au Δ stratifié)");
+    println!("\nsubjects carrying the gap (contribution to the stratified Δ)");
     for (contribution, s) in movers.iter().take(5) {
         println!(
-            "  {:<40}{:+6.1} pp × poids {:4.1} % = {:+.3} pp",
+            "  {:<40}{:+6.1} pp × weight {:4.1} % = {:+.3} pp",
             s.subject.replace('_', " "),
             100.0 * s.mean_d(),
             100.0 * s.population as f64 / strata.iter().map(|x| x.population).sum::<usize>() as f64,
@@ -765,7 +765,7 @@ mod tests {
     }
 
     /// The test must not see the concordant pairs. Two arms that agree on 20
-    /// questions and two that agree on 20 000 have the same evidence about a
+    /// questions and two that agree on 20,000 have the same evidence about a
     /// difference — that is precisely the variance an unpaired bar keeps paying
     /// for, and if this assertion ever fails the tool has stopped being paired.
     #[test]
@@ -816,7 +816,7 @@ mod tests {
         let strata = vec![stratum("s", 1_000, 40, 40, 200)];
         let b = boot_of(&strata, Weighting::Stratified, true);
         assert!(b.lo < 0.0 && b.hi > 0.0, "[{}, {}]", b.lo, b.hi);
-        assert!(b.se > 0.0, "a sample of 280 out of 1 000 has sampling error");
+        assert!(b.se > 0.0, "a sample of 280 out of 1,000 has sampling error");
     }
 
     /// And an arm that is strictly better must come out as strictly better:
@@ -829,7 +829,7 @@ mod tests {
     }
 
     /// **The stratification test.** Two subjects of the real MMLU shape — 100
-    /// questions and 1 500 — sampled to the same depth, with A winning the
+    /// questions and 1,500 — sampled to the same depth, with A winning the
     /// small one by as much as it loses the large one.
     ///
     /// Pooled, the two cancel: Δ = 0, interval straddling zero, "no
@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(strata[0].n(), strata[0].population, "this is a census");
         let with = boot_of(&strata, Weighting::Stratified, true);
         // Not `== 0.0`: every draw lands on the same value, but the mean of
-        // 4 000 identical doubles is that value to within an ulp, so the
+        // 4,000 identical doubles is that value to within an ulp, so the
         // variance is fp residue (~1e-15) rather than an exact zero. The bound
         // is twelve orders of magnitude below the interval the same data yields
         // without the correction, which is the assertion right below.

@@ -176,14 +176,14 @@ def check_image_pin() -> tuple[str, str]:
     digest = os.environ.get("LLVQ_IMAGE_DIGEST", "").strip()
     if not tag:
         raise Refused(
-            "LLVQ_IMAGE_TAG absente. Le conteneur ne connaît pas son propre tag :\n"
-            "  le lanceur doit l'exporter, sinon le journal ne dit pas ce qui a\n"
-            "  été mesuré et le run n'est pas rejouable (§7.5)."
+            "LLVQ_IMAGE_TAG missing. The container does not know its own tag:\n"
+            "  the launcher must export it, otherwise the journal does not say\n"
+            "  what was measured and the run is not replayable (§7.5)."
         )
     if "latest" in tag:
         raise Refused(
-            f"LLVQ_IMAGE_TAG={tag!r} : `latest` est un tag mobile.\n"
-            "  Épingler une version, et de préférence son digest (§2.5)."
+            f"LLVQ_IMAGE_TAG={tag!r}: `latest` is a moving tag.\n"
+            "  Pin a version, and preferably its digest (§2.5)."
         )
     return tag, digest
 
@@ -192,18 +192,18 @@ def check_repo(repo: str, revision: str, pinned: bool, allow_unpinned: bool) -> 
     """Two ways to measure the wrong thing, both silent, both caught here."""
     if repo.endswith("-deq") or "-awq-deq" in repo:
         raise Refused(
-            f"{repo} est une de NOS reconstructions f16 denses : elle ne contient\n"
-            "  AUCUN quartet. La chronométrer produirait un « bras AWQ » qui est en\n"
-            "  fait un bras f16 aux poids dégradés — plausible, faux, et invisible\n"
-            "  dans les logs."
+            f"{repo} is one of OUR dense f16 reconstructions: it holds NO nibble\n"
+            "  at all. Timing it would produce an \"AWQ arm\" that is in fact an\n"
+            "  f16 arm with degraded weights. Plausible, wrong, and invisible in\n"
+            "  the logs."
         )
     if not revision:
-        raise Refused(f"{repo} : aucune révision. Un dépôt bouge, une mesure non.")
+        raise Refused(f"{repo}: no revision. A repository moves, a measurement does not.")
     if not pinned and not allow_unpinned:
         raise Refused(
-            f"{repo}@{revision} : révision RELEVÉE au Hub, jamais validée par\n"
-            "  `ops/awq_dequant.py check` (aucune entrée EXPECTED). Forcer avec\n"
-            "  --allow-unpinned-revision, et alors le dire dans tout chiffre publié."
+            f"{repo}@{revision}: revision READ OFF the Hub, never validated by\n"
+            "  `ops/awq_dequant.py check` (no EXPECTED entry). Force it with\n"
+            "  --allow-unpinned-revision, and then say so in every published figure."
         )
 
 
@@ -218,7 +218,7 @@ class _Missing:
     """
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return "ILLISIBLE"
+        return "UNREADABLE"
 
 
 MISSING = _Missing()
@@ -246,7 +246,7 @@ def dig(root: Any, *paths: str) -> Any:
 
 def _s(v: Any) -> str:
     if v is MISSING:
-        return "ILLISIBLE"
+        return "UNREADABLE"
     if v is None:
         return "none"
     return str(v)
@@ -436,11 +436,11 @@ def run(args) -> int:
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     unknown = [a for a in arms if a not in ARMS]
     if unknown:
-        raise Refused(f"bras inconnu(s) : {unknown} — connus : {list(ARMS)}")
+        raise Refused(f"unknown arm(s): {unknown}, known: {list(ARMS)}")
     if "f16" not in arms:
         raise Refused(
-            "le bras f16 est le témoin intra-pile : sans lui il n'y a aucun\n"
-            "  rapport publiable, seulement des tok/s absolus (§3)."
+            "the f16 arm is the within-stack control: without it there is no\n"
+            "  publishable ratio, only absolute tok/s (§3)."
         )
     # fixed dispatch order, independent of the order typed on the command line
     arms = [a for a in DEFAULT_ARM_ORDER if a in arms]
@@ -459,47 +459,47 @@ def run(args) -> int:
     interleaved = not args.one_arm
     if interleaved and total_util > 0.85:
         raise Refused(
-            f"utilisations cumulées {total_util:.2f} > 0,85 : trois moteurs vLLM\n"
-            "  ne tiendront pas dans un processus. Lancer un bras par processus\n"
-            "  avec --one-arm <nom> --json <fichier>, puis --merge — et le rapport\n"
-            "  sera étiqueté « rounds NON entrelacés » (§2.6)."
+            f"total utilization {total_util:.2f} > 0.85: three vLLM engines\n"
+            "  will not fit in one process. Run one arm per process with\n"
+            "  --one-arm <name> --json <file>, then --merge, and the report will\n"
+            "  be labelled \"rounds NOT interleaved\" (§2.6)."
         )
     if args.one_arm:
         if args.one_arm not in arms:
-            raise Refused(f"--one-arm {args.one_arm} absent de --arms")
+            raise Refused(f"--one-arm {args.one_arm} not in --arms")
         arms = [args.one_arm]
 
     try:
         import vllm
     except ImportError as e:  # pragma: no cover - only outside the image
         raise Refused(
-            f"vLLM introuvable ({e}). Ce script tourne DANS l'image vllm/vllm-openai\n"
-            "  épinglée, pas dans notre image ni sur la machine de dev — il n'a\n"
-            "  aucune dépendance au dépôt LLVQ pour cette raison."
+            f"vLLM not found ({e}). This script runs INSIDE the pinned\n"
+            "  vllm/vllm-openai image, not in our image nor on the dev machine.\n"
+            "  That is why it has no dependency on the LLVQ repository."
         ) from None
 
     tap = LogTap()
     tap.install()
 
     print(BANNER)
-    print("BANC DE VITESSE AWQ — dans vLLM, son propre moteur")
+    print("AWQ SPEED BENCH, inside vLLM, its own engine")
     print(BANNER)
     print(f"  image                 {tag}")
-    print(f"  digest                {digest or '(non fourni)'}")
+    print(f"  digest                {digest or '(not provided)'}")
     print(f"  vllm                  {getattr(vllm, '__version__', '?')}")
-    print(f"  taille                {args.size}")
-    print(f"  bras (ordre fixe)     {arms}")
-    print(f"  prompt ids            {PROMPT_IDS}  ({len(PROMPT_IDS)} tokens, non re-tokenisés)")
-    print(f"  tokens générés        {N_TOKENS} (min=max, ignore_eos)")
-    print(f"  rounds                {args.warmups} jetés + {args.rounds} chronométrés")
-    print(f"  entrelacement         {'OUI' if interleaved else 'NON — rounds NON entrelacés'}")
+    print(f"  size                  {args.size}")
+    print(f"  arms (fixed order)    {arms}")
+    print(f"  prompt ids            {PROMPT_IDS}  ({len(PROMPT_IDS)} tokens, not re-tokenized)")
+    print(f"  tokens generated      {N_TOKENS} (min=max, ignore_eos)")
+    print(f"  rounds                {args.warmups} discarded + {args.rounds} timed")
+    print(f"  interleaving          {'YES' if interleaved else 'NO, rounds NOT interleaved'}")
     print(f"  gpu_memory_util       {utils}")
     print(f"  max_model_len         {args.max_model_len}")
     print(BANNER)
     if not interleaved:
-        print("⚠️  MODE SÉQUENTIEL : les bras ne coexistent pas. Tout rapport formé")
-        print("    par --merge sera étiqueté « rounds non entrelacés » et ne se cite")
-        print("    pas comme un rapport entrelacé (§2.6 du pré-enregistrement).")
+        print("WARNING: sequential mode. The arms do not coexist. Any ratio formed")
+        print("    by --merge is labelled \"rounds not interleaved\" and is not cited")
+        print("    as an interleaved ratio (§2.6 of the preregistration).")
         print(BANNER)
 
     prompt = make_prompt()
@@ -519,35 +519,35 @@ def run(args) -> int:
         facts[arm] = f
 
         which, requested = ARMS[arm]
-        print(f"\n--- bras {arm} chargé en {load_s:.1f} s ---")
-        print(f"  dépôt                 {spec['awq_repo'] if which == 'awq' else spec['base_repo']}")
-        print(f"  révision              {spec['awq_rev'] if which == 'awq' else spec['base_rev']}")
-        print(f"  quantization demandée {requested!r}")
-        print(f"  quantization résolue  {f['quantization_resolved']}")
-        print(f"  dtype résolu          {f['dtype']}")
-        print(f"  prefix caching        {f['prefix_caching']}")
+        print(f"\n--- arm {arm} loaded in {load_s:.1f} s ---")
+        print(f"  repository             {spec['awq_repo'] if which == 'awq' else spec['base_repo']}")
+        print(f"  revision               {spec['awq_rev'] if which == 'awq' else spec['base_rev']}")
+        print(f"  quantization requested {requested!r}")
+        print(f"  quantization resolved  {f['quantization_resolved']}")
+        print(f"  dtype resolved         {f['dtype']}")
+        print(f"  prefix caching         {f['prefix_caching']}")
         if f["kernel_log"]:
-            print("  journal vLLM sur le noyau retenu :")
+            print("  vLLM log on the selected kernel:")
             for line in f["kernel_log"]:
                 print(f"    | {line}")
         else:
-            print("  ⚠️ aucune ligne de log sur le routage : la méthode résolue")
-            print("     ci-dessus est alors la SEULE preuve de quel noyau tourne.")
+            print("  WARNING: no log line about routing. The resolved method above")
+            print("     is then the ONLY evidence of which kernel runs.")
 
         # §7.3 — read back, never suppose. Checked on the FIRST arm, before the
         # others are built and before any generation: an unreadable config must
         # cost two minutes, not the whole job.
         if f["prefix_caching"] is True:
             raise Violation(
-                f"bras {arm} : prefix caching ACTIF malgré le drapeau. Les rounds\n"
-                "  2..n sauteraient le prefill et la plage deviendrait un artefact."
+                f"arm {arm}: prefix caching ACTIVE despite the flag. Rounds 2..n\n"
+                "  would skip the prefill and the range would become an artifact."
             )
         if not f["prefix_caching_readable"]:
             raise Violation(
-                f"bras {arm} : `enable_prefix_caching` illisible dans la config du\n"
-                "  moteur (chemins connus épuisés). Le §7.3 exige une RELECTURE, pas\n"
-                "  une supposition : cette version de vLLM a déplacé le champ et il\n"
-                "  faut ajouter son chemin à `dig()` avant de mesurer quoi que ce soit."
+                f"arm {arm}: `enable_prefix_caching` unreadable in the engine\n"
+                "  config (known paths exhausted). §7.3 requires a READ BACK, not\n"
+                "  a supposition: this vLLM version moved the field, and its path\n"
+                "  must be added to `dig()` before anything is measured."
             )
 
     # --- rounds, interleaved in a fixed dispatch order ----------------------
@@ -569,15 +569,15 @@ def run(args) -> int:
                 ntok[arm].append(n)
                 texts[arm] = text
                 firsts[arm] = ids[:4]
-            tagr = f"round {r - args.warmups + 1}" if kept else f"jeté {r + 1}"
+            tagr = f"round {r - args.warmups + 1}" if kept else f"warmup {r + 1}"
             print(f"  {tagr:<10} {arm:<12} {dt:7.3f} s   {n:4d} tokens   "
                   f"{n / dt:7.2f} tok/s")
             # §7.2 — a short generation is not a slow one, it is a wrong one.
             if n != N_TOKENS:
                 raise Violation(
-                    f"bras {arm}, {tagr} : {n} tokens rendus au lieu de {N_TOKENS}.\n"
-                    "  Diviser 128 par le temps de moins de 128 tokens surestime le\n"
-                    "  débit d'un facteur non borné."
+                    f"arm {arm}, {tagr}: {n} tokens returned instead of {N_TOKENS}.\n"
+                    "  Dividing 128 by the time of fewer than 128 tokens overstates\n"
+                    "  the throughput by an unbounded factor."
                 )
 
     # --- the load control ---------------------------------------------------
@@ -596,40 +596,40 @@ def run(args) -> int:
             ref_chars=len(REF_TEXT_4B),
         )
         print(f"\n{BANNER}")
-        print("CONTRÔLE DE CHARGEMENT — f16 vLLM contre notre journal du 2026-08-06")
+        print("LOAD CONTROL, f16 vLLM against our journal of 2026-08-06")
         print(BANNER)
-        print(f"  premier token        id {ids[0]} {first_text!r}")
-        print(f"  attendu              id {REF_FIRST_TOKEN_ID} {REF_FIRST_TOKEN_TEXT!r}")
-        print(f"  préfixe commun       {control['common_prefix_chars']} / "
-              f"{control['ref_chars']} caractères de la référence")
+        print(f"  first token          id {ids[0]} {first_text!r}")
+        print(f"  expected             id {REF_FIRST_TOKEN_ID} {REF_FIRST_TOKEN_TEXT!r}")
+        print(f"  common prefix        {control['common_prefix_chars']} / "
+              f"{control['ref_chars']} characters of the reference")
         if first_text.strip() != REF_FIRST_TOKEN_TEXT.strip():
             raise ControlFailed(
-                f"le bras f16 démarre sur {first_text!r} au lieu de "
+                f"the f16 arm starts on {first_text!r} instead of "
                 f"{REF_FIRST_TOKEN_TEXT!r}.\n"
-                "  Une divergence AU PREMIER TOKEN ne s'explique pas par un ordre\n"
-                "  d'accumulation : c'est un mauvais modèle, un mauvais tokenizer ou\n"
-                "  un échantillonnage non glouton. Le job est FAUX (§7.1)."
+                "  A divergence AT THE FIRST TOKEN is not explained by an\n"
+                "  accumulation order: it is a wrong model, a wrong tokenizer, or\n"
+                "  non-greedy sampling. The job is FALSE (§7.1)."
             )
         if ids[0] != REF_FIRST_TOKEN_ID:
-            print(f"  ⚠️ texte conforme mais id {ids[0]} ≠ {REF_FIRST_TOKEN_ID} : "
-                  "vocabulaire différent ?")
+            print(f"  WARNING: text matches but id {ids[0]} ≠ {REF_FIRST_TOKEN_ID}: "
+                  "different vocabulary?")
             control["id_mismatch"] = True
         if control["common_prefix_chars"] < control["ref_chars"]:
-            print("  ⚠️ divergence APRÈS le premier token : ATTENDUE (deux moteurs,")
-            print("     deux ordres d'accumulation, une chaîne d'argmax). Signalée,")
-            print("     elle n'invalide rien.")
+            print("  WARNING: divergence AFTER the first token, EXPECTED (two")
+            print("     engines, two accumulation orders, one chain of argmax). It")
+            print("     is reported and it invalidates nothing.")
     else:
-        print("\n(contrôle de chargement : non applicable — il n'existe de texte de")
-        print(" référence publié qu'au 4B)")
+        print("\n(load control: not applicable, a published reference text exists")
+        print(" only at 4B)")
 
     # --- rates, spread, ratios ---------------------------------------------
     rates = {a: [N_TOKENS / dt for dt in elapsed[a]] for a in arms}
     stats = {a: summarize(rates[a]) for a in arms}
 
     print(f"\n{BANNER}")
-    print("DÉBITS — médiane et plage sur les rounds gardés")
+    print("THROUGHPUTS, median and range over the kept rounds")
     print(BANNER)
-    print(f"  {'bras':<12}{'méd tok/s':>12}{'min':>10}{'max':>10}{'étendue':>10}")
+    print(f"  {'arm':<12}{'med tok/s':>12}{'min':>10}{'max':>10}{'spread':>10}")
     for a in arms:
         s = stats[a]
         print(f"  {a:<12}{s['median']:>12.2f}{s['min']:>10.2f}{s['max']:>10.2f}"
@@ -639,30 +639,30 @@ def run(args) -> int:
     for a in arms:
         if stats[a]["spread_pct"] > SPREAD_MAX_PCT:
             violations.append(
-                f"bras {a} : dispersion inter-round {stats[a]['spread_pct']:.2f} % > "
-                f"{SPREAD_MAX_PCT:.0f} % (§7.4)"
+                f"arm {a}: inter-round spread {stats[a]['spread_pct']:.2f}% > "
+                f"{SPREAD_MAX_PCT:.0f}% (§7.4)"
             )
 
     ratio_block: dict[str, Any] = {}
     if interleaved and "f16" in arms:
         print(f"\n{BANNER}")
-        print("RAPPORTS INTRA-PILE — formés ROUND PAR ROUND, dans vLLM uniquement")
+        print("WITHIN-STACK RATIOS, formed ROUND BY ROUND, inside vLLM only")
         print(BANNER)
         for a in arms:
             if a == "f16":
                 continue
             rb = ratios_round_by_round(rates[a], rates["f16"])
             ratio_block[f"{a}_vs_f16"] = rb
-            print(f"  {a} / f16 : ×{rb['median']:.3f} [{rb['min']:.3f}–{rb['max']:.3f}]"
-                  "   (médiane de 5 rapports formés round par round)")
+            print(f"  {a} / f16: ×{rb['median']:.3f} [{rb['min']:.3f}–{rb['max']:.3f}]"
+                  "   (median of 5 ratios formed round by round)")
         print()
-        print("  🚨 CES RAPPORTS NE SE COMPARENT PAS PAR DIVISION AUX NÔTRES.")
-        print("     Le rapport maison à tête identique — ×1,12 au 4B (48,7/43,6),")
-        print("     ×1,30 au 8B (34,4/26,5) — est un QUOTIENT DE DEUX POINTS UNIQUES,")
-        print("     mesuré dans candle, pas dans vLLM. L'écart entre les deux piles")
-        print("     est dominé par le moteur, pas par le décodeur de poids (§4 i).")
+        print("  WARNING: DO NOT DIVIDE THESE RATIOS BY OURS.")
+        print("     The in-house same-head ratio, ×1.12 at 4B (48.7/43.6) and")
+        print("     ×1.30 at 8B (34.4/26.5), is a QUOTIENT OF TWO SINGLE POINTS,")
+        print("     measured in candle, not in vLLM. The gap between the two stacks")
+        print("     is dominated by the engine, not by the weight decoder (§4 i).")
     elif not interleaved:
-        print("\n(aucun rapport formé : mode séquentiel, les bras n'ont pas coexisté)")
+        print("\n(no ratio formed: sequential mode, the arms did not coexist)")
 
     payload = {
         "schema": "llvq-awq-speed/1",
@@ -702,13 +702,13 @@ def run(args) -> int:
         os.makedirs(os.path.dirname(os.path.abspath(args.json)) or ".", exist_ok=True)
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=1, ensure_ascii=False)
-        print(f"\nJSON écrit : {args.json}")
+        print(f"\nJSON written: {args.json}")
 
     if violations:
         raise Violation("\n  ".join(violations))
 
     print(f"\n{BANNER}")
-    print("OK — tous les gardes verts")
+    print("OK, every guard green")
     print(BANNER)
     return 0
 
@@ -720,7 +720,7 @@ def merge(args) -> int:
     for p in parts:
         arms.update(p["arms"])
     if "f16" not in arms:
-        raise Refused("fusion sans bras f16 : aucun rapport intra-pile possible")
+        raise Refused("merge without an f16 arm: no within-stack ratio is possible")
     n = min(len(a["tokps"]) for a in arms.values())
     ratios = {}
     for name, a in arms.items():
@@ -734,42 +734,42 @@ def merge(args) -> int:
     out["ratios"] = ratios
     out["interleaved"] = False
     out["ratio_label"] = (
-        "rounds NON entrelacés — les bras n'ont jamais coexisté ; le rapport "
-        "apparie le round i de l'un au round i de l'autre et doit être cité "
-        "avec cette réserve (§2.6)"
+        "rounds NOT interleaved: the arms never coexisted. The ratio pairs "
+        "round i of one with round i of the other and must be cited with that "
+        "caveat (§2.6)"
     )
     print(BANNER)
-    print("FUSION SÉQUENTIELLE — ⚠️ ROUNDS NON ENTRELACÉS")
+    print("SEQUENTIAL MERGE, WARNING: ROUNDS NOT INTERLEAVED")
     print(BANNER)
     for k, v in ratios.items():
-        print(f"  {k} : ×{v['median']:.3f} [{v['min']:.3f}–{v['max']:.3f}]  "
-              "(bras non entrelacés)")
+        print(f"  {k}: ×{v['median']:.3f} [{v['min']:.3f}–{v['max']:.3f}]  "
+              "(arms not interleaved)")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(out, fh, indent=1, ensure_ascii=False)
-        print(f"\nJSON écrit : {args.json}")
+        print(f"\nJSON written: {args.json}")
     return 0
 
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
-        description="Débit AWQ 4 bits dans vLLM, protocole fusedrun, "
-                    "rapports intra-pile uniquement.",
+        description="AWQ 4-bit throughput in vLLM, fusedrun protocol, "
+                    "within-stack ratios only.",
     )
     p.add_argument("--size", choices=sorted(SIZES), help="4b | 8b | 14b")
     p.add_argument("--arms", default=",".join(DEFAULT_ARM_ORDER),
-                   help="sous-ensemble de f16,awq_marlin,awq (ordre de dispatch fixe)")
+                   help="subset of f16,awq_marlin,awq (fixed dispatch order)")
     p.add_argument("--one-arm", default=None,
-                   help="mode séquentiel : ne mesurer que ce bras, écrire son JSON")
+                   help="sequential mode: measure only this arm, write its JSON")
     p.add_argument("--merge", nargs="+", default=None,
-                   help="fusionner des JSON de mode séquentiel (rapport étiqueté)")
+                   help="merge JSONs from sequential mode (labelled ratio)")
     p.add_argument("--rounds", type=int, default=ROUNDS)
     p.add_argument("--warmups", type=int, default=WARMUPS)
     p.add_argument("--gpu-util-f16", type=float, default=0.30)
     p.add_argument("--gpu-util-quant", type=float, default=0.13)
     p.add_argument("--max-model-len", type=int, default=2048,
-                   help="borne le budget KV ; sans effet sur la latence à batch 1")
-    p.add_argument("--json", default=None, help="chemin du journal machine")
+                   help="bounds the KV budget; no effect on latency at batch 1")
+    p.add_argument("--json", default=None, help="path of the machine journal")
     p.add_argument("--allow-unpinned-revision", action="store_true")
     args = p.parse_args(argv)
 
@@ -777,16 +777,16 @@ def main(argv: list[str]) -> int:
         if args.merge:
             return merge(args)
         if not args.size:
-            raise Refused("--size est obligatoire (ou --merge)")
+            raise Refused("--size is required (or --merge)")
         return run(args)
     except Refused as e:
-        print(f"\nREFUS (rien n'a été chargé) : {e}", file=sys.stderr)
+        print(f"\nREFUSED (nothing was loaded): {e}", file=sys.stderr)
         return 2
     except ControlFailed as e:
-        print(f"\nCONTRÔLE ÉCHOUÉ — LE JOB EST FAUX : {e}", file=sys.stderr)
+        print(f"\nCONTROL FAILED, THE JOB IS FALSE: {e}", file=sys.stderr)
         return 3
     except Violation as e:
-        print(f"\nVIOLATION DU §7 : {e}", file=sys.stderr)
+        print(f"\n§7 VIOLATION: {e}", file=sys.stderr)
         return 4
 
 

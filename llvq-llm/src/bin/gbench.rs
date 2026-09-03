@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let repo = std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-0.6B".into());
     eprintln!(
-        "device {device:?}, dtype {}, {n_new} nouveaux tokens",
+        "device {device:?}, dtype {}, {n_new} new tokens",
         llvq_llm::eval::dtype_name(dtype)
     );
 
@@ -82,11 +82,11 @@ fn main() -> anyhow::Result<()> {
         Some(p) if llvq_llm::sealed::is_sealed_path(p) => {
             let s = llvq_llm::sealed::load(p, dtype, &device, kv_mode)?;
             eprintln!(
-                "sealed {p}: {} matrices quantifiées, {:.3} Go sur disque",
+                "sealed {p}: {} quantized matrices, {:.3} GB on disk",
                 s.matrices,
                 s.bytes as f64 / 1e9
             );
-            (s.model, s.tokenizer, format!("{p} [LLVQ 2 bits, scellé]"))
+            (s.model, s.tokenizer, format!("{p} [LLVQ 2-bit, sealed]"))
         }
         other => {
             let ck = Checkpoint::fetch(&repo)?;
@@ -96,8 +96,8 @@ fn main() -> anyhow::Result<()> {
             let label = match other {
                 Some(p) => {
                     let n = llvq_llm::artifact::load(&mut model, p, &device)?;
-                    eprintln!("{n} projections recouvertes depuis {p}");
-                    format!("{repo} [recouvert {p}]")
+                    eprintln!("{n} projections overlaid from {p}");
+                    format!("{repo} [overlay {p}]")
                 }
                 None => format!("{repo} [f16]"),
             };
@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     };
     let load_s = t0.elapsed().as_secs_f64();
     phase("load-end");
-    println!("modèle : {label}\n  chargé en {load_s:.1} s");
+    println!("model: {label}\n  loaded in {load_s:.1} s");
 
     println!("\n  {:<10}{:>8}{:>12}{:>12}", "prompt", "tokens", "s", "tok/s");
     println!("  {}", "-".repeat(44));
@@ -139,20 +139,19 @@ fn main() -> anyhow::Result<()> {
         let out = model.generate(&ids, n_new, &mut NoCapture)?;
         let s = t.elapsed().as_secs_f64();
         phase(&format!("gen-end-{}", ids.len()));
-        anyhow::ensure!(out.len() == n_new, "generate rendit {} tokens", out.len());
+        anyhow::ensure!(out.len() == n_new, "generate returned {} tokens", out.len());
         let rate = n_new as f64 / s;
         best = best.max(rate);
         println!("  {:<10}{:>8}{:>12.2}{:>12.1}", ids.len(), n_new, s, rate);
     }
     println!("  {}", "-".repeat(44));
-    println!("  meilleur : {best:.1} tok/s  [kv {}]", kv_mode.name());
+    println!("  best: {best:.1} tok/s  [kv {}]", kv_mode.name());
     println!(
-        "\n  ⚠️ génération gloutonne, batch 1, avec cache KV. Le prompt est court et le\n  \
-         contexte le reste : le débit d'un contexte long est plus bas, parce que le coût\n  \
-         du cache croît avec lui. Ce chiffre n'est comparable qu'à un autre pris ici.\n  \
-         Les marqueurs `[phase] <epoch_ms>` sur stderr servent à recaler la série de\n  \
-         métriques du job : un pic de VRAM pendant `load` ne dit pas la même chose\n  \
-         qu'un pic pendant `gen`."
+        "\n  WARNING: greedy generation, batch 1, with KV cache. The prompt is short and\n  \
+         the context stays short: the throughput of a long context is lower, because the\n  \
+         cache cost grows with it. This number compares only to another one taken here.\n  \
+         The `[phase] <epoch_ms>` markers on stderr realign the job metric series: a\n  \
+         VRAM spike during `load` does not say the same thing as a spike during `gen`."
     );
     Ok(())
 }

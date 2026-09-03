@@ -1,26 +1,26 @@
-"""MMLU d'un GGUF via llama-server — SANS tokenizer, SANS dataset, stdlib seule.
+"""MMLU of a GGUF via llama-server, with NO tokenizer, NO dataset, stdlib only.
 
-Existe pour une raison précise : mesurer le MMLU d'IQ2_XXS **sur CUDA**, dans une
-image llama.cpp qui est du C++ et n'a ni torch ni transformers. Les installer
-pour un tokenizer coûterait plus que la mesure.
+It exists for one precise reason: to measure the MMLU of IQ2_XXS **on CUDA**, in
+a llama.cpp image that is C++ and has neither torch nor transformers. Installing
+them for a tokenizer would cost more than the measurement.
 
-## Ce qui rend ça légitime plutôt que commode
+## What makes this legitimate rather than convenient
 
-Les prompts ne sont pas reconstruits ici : ils sont **expédiés déjà vérifiés**.
-`mmlu-prompts.jsonl` est produit sur la machine de dev par le chemin qui a passé
-2 280 / 2 280 qhash contre les dumps de référence, et il porte son `qhash` par
-ligne. Reconstruire les prompts dans un second environnement serait une seconde
-occasion de diverger ; les expédier garantit qu'ils sont **au byte** ceux du run
-Metal.
+The prompts are not rebuilt here: they are **shipped already checked**.
+`mmlu-prompts.jsonl` is produced on the dev machine by the path that passed
+2,280 / 2,280 qhash against the reference dumps, and it carries its `qhash` per
+line. Rebuilding the prompts in a second environment would be a second chance to
+diverge; shipping them guarantees they are **byte for byte** those of the Metal
+run.
 
-## La question à laquelle ce fichier répond, et qui n'a jamais été posée ici
+## The question this file answers, and that has never been asked here
 
-La qualité d'un bras QUANTIFIÉ est-elle invariante par backend, à fichier
-identique et moteur identique ? Le §0 du protocole dit que MMLU traverse, et
-c'est vérifié sur quatre moteurs — mais **toutes ces vérifications portaient sur
-le f16**. Or c'est la déquantisation 2 bits, dont les noyaux Metal et CUDA sont
-du code distinct, qui pourrait diverger. IQ2_XXS est le seul objet du dossier
-capable de trancher : même fichier, sha256 prouvé des deux côtés.
+Is the quality of a QUANTIZED arm invariant across backends, at identical file
+and identical engine? §0 of the protocol says MMLU carries across, and that is
+checked on four engines, but **all those checks were on f16**. It is the 2-bit
+dequantization, whose Metal and CUDA kernels are distinct code, that could
+diverge. IQ2_XXS is the only object in the dossier able to settle it: same file,
+sha256 proven on both sides.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import sys
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-ANSWER_IDS = [362, 425, 356, 422]  # ' A' ' B' ' C' ' D', vérifiés le 2026-08-30
+ANSWER_IDS = [362, 425, 356, 422]  # ' A' ' B' ' C' ' D', checked on 2026-08-30
 LETTERS = "ABCD"
 N_PROBS = 100
 
@@ -53,13 +53,13 @@ def main(argv: list[str]) -> int:
     workers = int(argv[3]) if len(argv) > 3 else 4
 
     rows = [json.loads(l) for l in open(prompts_path, encoding="utf-8") if l.strip()]
-    print(f"  questions             {len(rows)} (prompts expédiés, qhash porté par ligne)")
+    print(f"  questions             {len(rows)} (prompts shipped, qhash carried per line)")
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         resps = list(ex.map(lambda r: ask(url, r["prompt"]), rows))
 
-    # 🚨 Même garde que sur Metal : une lettre absente du top-N ferait un pick
-    # arbitraire. On compte, et on refuse plutôt que de rendre un score sali.
+    # ALERT: same guard as on Metal. A letter missing from the top-N would make
+    # an arbitrary pick. We count, and we refuse rather than return a dirty score.
     missing = 0
     scores = []
     for resp in resps:
@@ -72,9 +72,9 @@ def main(argv: list[str]) -> int:
         else:
             scores.append([by_id[a] for a in ANSWER_IDS])
     if missing:
-        print(f"🚨 {missing}/{len(rows)} sans les quatre lettres au top-{N_PROBS}")
+        print(f"ALERT: {missing}/{len(rows)} without the four letters in the top-{N_PROBS}")
         return 2
-    print(f"  quatre lettres au top-{N_PROBS} : {len(rows)}/{len(rows)} ✅")
+    print(f"  four letters in the top-{N_PROBS}: {len(rows)}/{len(rows)} OK")
 
     per: dict[str, list[int]] = {}
     pop: dict[str, int] = {}
@@ -99,14 +99,14 @@ def main(argv: list[str]) -> int:
                 f"{pick},{ok}," + ",".join(f"{v:.6f}" for v in sc) + "\n"
             )
 
-    # MICRO, pondéré par la population du split test — jamais Σright/Σtotal, qui
-    # est algébriquement la MACRO quand chaque matière porte 40 questions. Ce
-    # défaut a coûté 0,20 $ le 2026-08-30.
+    # MICRO, weighted by the test split population. Never Σright/Σtotal, which
+    # is algebraically the MACRO when every subject carries 40 questions. That
+    # defect cost $0.20 on 2026-08-30.
     micro = sum(v[0] / v[1] * pop[s] for s, v in per.items()) / sum(pop.values()) * 100
     macro = sum(v[0] / v[1] for v in per.values()) / len(per) * 100
-    print(f"\n  MMLU micro            {micro:.2f} %   <-- la métrique du papier")
+    print(f"\n  MMLU micro            {micro:.2f} %   <-- the paper's metric")
     print(f"  MMLU macro            {macro:.2f} %")
-    print(f"  brut                  {right}/{len(rows)}")
+    print(f"  raw                   {right}/{len(rows)}")
     return 0
 
 

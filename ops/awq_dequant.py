@@ -160,7 +160,7 @@ EXPECTED: dict[str, dict] = {
         ),
         # bf16 -> f16 on the embedding. `docs/fiche-4b.md` §4.2 measured these
         # on the **base** checkpoint; they have since been recounted on **AWQ's
-        # own 777 912 320 bytes**, streamed by Range: 77 045 changed
+        # own 777,912,320 bytes**, streamed by Range: 77,045 changed
         # (1.981e-4), 451 flushed, largest touched value 7.5996e-6, largest
         # absolute error 2.9802e-8 = 2^-25, max |v| 0.250000. Every figure
         # identical, which does more than confirm the constants: it says the two
@@ -185,14 +185,14 @@ EXPECTED: dict[str, dict] = {
         awq_revision="31c69efc29464b6bb0aee1398b5a7b50a99340c3",
         base_repo="Qwen/Qwen3-14B",
         base_revision="40c069824f4251a91eefaf281ebe4c544efd3e18",
-        # **Sharded**, unlike the 4B: `model-00001-of-00002` (4 988 339 832) +
-        # `model-00002-of-00002` (4 988 350 408), which is the sum
+        # **Sharded**, unlike the 4B: `model-00001-of-00002` (4,988,339,832) +
+        # `model-00002-of-00002` (4,988,350,408), which is the sum
         # `ShardedSafeTensors.total` forms and therefore what `check_structure`
         # compares against. The field needs no generalisation — the class
         # already presents a sharded export as one header and one size.
         #
         # ⚠️ This is **not** `metadata.total_size` of `model.safetensors.index
-        # .json`, which announces 9 989 683 200 — 13 107 200 bytes above the
+        # .json`, which announces 9,989,683,200 — 13,107,200 bytes above the
         # payload the shards actually carry. The served bytes are the ones the
         # parser proves: `SafeTensors.__init__` checks, per shard, that the
         # header lands exactly on that shard's own length. Sourcing this field
@@ -210,7 +210,7 @@ EXPECTED: dict[str, dict] = {
         # A bf16 significand is 8 bits and `q - z` spans [-15, 15], i.e. 4 bits,
         # so the product needs at most 12 significant bits against f16's 11;
         # with F16 scales it needs up to 15. Measured: the narrowing costs
-        # 1.6e-5 to 2.3e-5 relative here (margins x4 486 to x6 361) against
+        # 1.6e-5 to 2.3e-5 relative here (margins x4,486 to x6,361) against
         # 1.7e-4 to 1.9e-4 on the 4B (x538 to x625) — the ~8x = 2^3 the three
         # extra significand bits predict.
         by_suffix={
@@ -237,7 +237,7 @@ EXPECTED: dict[str, dict] = {
         carried_diff=80,
         # sha256 of `tokenizer.json`, measured on all three repositories:
         # **byte-identical** to `Qwen/Qwen3-14B`'s and to the 4B entry's above,
-        # 11 422 654 bytes each. So the token fingerprint is common to the 4B
+        # 11,422,654 bytes each. So the token fingerprint is common to the 4B
         # arms and the 14B arms by construction, not by luck — the property the
         # campaign assumes when it compares a ppl across models, and the one
         # whose failure would have invalidated the comparison outright.
@@ -246,9 +246,9 @@ EXPECTED: dict[str, dict] = {
         ),
         # bf16 -> f16 on `model.embed_tokens.weight`, which is the only tensor
         # `control_embedding_narrowing` is ever called on. Counted by streaming
-        # that tensor's 1 555 824 640 bytes by Range in 64 MB chunks **through
-        # that same function**, never touching the disk: 777 912 320 values,
-        # 212 296 changed (2.729e-4), 1 228 flushed, largest touched value
+        # that tensor's 1,555,824,640 bytes by Range in 64 MB chunks **through
+        # that same function**, never touching the disk: 777,912,320 values,
+        # 212,296 changed (2.729e-4), 1,228 flushed, largest touched value
         # 7.5996e-6, largest absolute error 2.9802e-8 = 2^-25, max |v| 1.015625.
         #
         # The mechanism is the 4B's and the numbers obey it: bf16 carries 8
@@ -280,7 +280,7 @@ EXPECTED: dict[str, dict] = {
 # `selftest_pipeline` for the mutant that forced the change.
 #
 # Calibrated on nine projections spread across the model (`layers.{0,4,9,13,18,
-# 22,26,31,35}`, three projection kinds, salience spreads from 1.0 to 4 421)
+# 22,26,31,35}`, three projection kinds, salience spreads from 1.0 to 4,421)
 # plus ten synthetic ones, each measured correct and against three mutants.
 # Every number below comes from that table (`selftest_pipeline` rebuilds the
 # three mutant columns on every run):
@@ -390,13 +390,13 @@ def http_range(url: str, off: int, n: int, retries: int = 3) -> tuple[bytes, int
             with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:  # noqa: S310
                 if r.status != 206:
                     raise Fatal(
-                        f"le serveur a ignoré l'en-tête Range (statut {r.status}) "
-                        f"sur {url} : la lecture partielle est impossible"
+                        f"the server ignored the Range header (status {r.status}) "
+                        f"on {url}: partial reads are impossible"
                     )
                 total = _content_range_total(r.headers.get("Content-Range"))
                 buf = r.read()
             if len(buf) != n:
-                raise OSError(f"{len(buf)} octets reçus, {n} demandés")
+                raise OSError(f"{len(buf)} bytes received, {n} requested")
             return buf, total
         except Fatal:
             raise
@@ -404,7 +404,7 @@ def http_range(url: str, off: int, n: int, retries: int = 3) -> tuple[bytes, int
             last = e
             if attempt + 1 < retries:
                 time.sleep(1.5 * (attempt + 1))
-    raise Fatal(f"lecture Range impossible sur {url} : {last}")
+    raise Fatal(f"Range read failed on {url}: {last}")
 
 
 def hub_url(repo: str, filename: str, revision: str = "main") -> str:
@@ -449,7 +449,7 @@ class SafeTensors:
 
         n = struct.unpack("<Q", self.read_at(0, 8))[0]
         if not 0 < n <= MAX_HEADER_BYTES:
-            raise Fatal(f"en-tête safetensors invalide : {n} octets annoncés")
+            raise Fatal(f"invalid safetensors header: {n} bytes declared")
         self.header: dict = json.loads(self.read_at(8, n))
         self.metadata = self.header.pop("__metadata__", None)
         self.header_bytes = n
@@ -461,8 +461,8 @@ class SafeTensors:
         end = max((e["data_offsets"][1] for e in self.header.values()), default=0)
         if self.total is not None and self.data_start + end != self.total:
             raise Fatal(
-                f"le parse tombe sur {self.data_start + end} octets, "
-                f"le fichier en fait {self.total}"
+                f"the parse lands on {self.data_start + end} bytes, "
+                f"the file holds {self.total}"
             )
 
     def close(self) -> None:
@@ -487,14 +487,14 @@ class SafeTensors:
         self._fh.seek(off)
         buf = self._fh.read(n)
         if len(buf) != n:
-            raise Fatal(f"{len(buf)} octets lus, {n} attendus à {off}")
+            raise Fatal(f"{len(buf)} bytes read, {n} expected at {off}")
         return buf
 
     def entry(self, name: str) -> dict:
         try:
             return self.header[name]
         except KeyError:
-            raise Fatal(f"tenseur absent : {name}") from None
+            raise Fatal(f"missing tensor: {name}") from None
 
     def span(self, name: str) -> tuple[int, int]:
         """`(absolute offset, length)` of a tensor's payload."""
@@ -512,8 +512,8 @@ class SafeTensors:
         want = self.declared_bytes(name)
         if n != want:
             raise Fatal(
-                f"{name}: {n} octets pour une forme {e['shape']} "
-                f"en {e['dtype']} qui en demande {want}"
+                f"{name}: {n} bytes for a shape {e['shape']} "
+                f"in {e['dtype']} that requires {want}"
             )
         return self.read_at(off, n)
 
@@ -532,7 +532,7 @@ class SafeTensors:
         for n in names:
             off, ln = self.span(n)
             if ln != self.declared_bytes(n):
-                raise Fatal(f"{n}: {ln} octets, {self.declared_bytes(n)} déclarés")
+                raise Fatal(f"{n}: {ln} bytes, {self.declared_bytes(n)} declared")
             spans[n] = (off, ln)
         lo = min(o for o, _ in spans.values())
         hi = max(o + ln for o, ln in spans.values())
@@ -619,7 +619,7 @@ def unpack_nibbles(packed: np.ndarray) -> np.ndarray:
     `[0, 15]`.
     """
     if packed.ndim != 2:
-        raise Fatal(f"forme empaquetée inattendue : {packed.shape}")
+        raise Fatal(f"unexpected packed shape: {packed.shape}")
     rows, cols = packed.shape
     p = np.ascontiguousarray(packed, dtype=np.int32).view(np.uint32)
     shifts = np.arange(0, 32, 4, dtype=np.uint32)
@@ -633,9 +633,9 @@ def unpack_nibbles(packed: np.ndarray) -> np.ndarray:
 def repack_nibbles(iweights: np.ndarray) -> np.ndarray:
     """The exact inverse of `unpack_nibbles`, for control L2."""
     if iweights.ndim != 2 or iweights.shape[1] % 8:
-        raise Fatal(f"forme dépliée inattendue : {iweights.shape}")
+        raise Fatal(f"unexpected unpacked shape: {iweights.shape}")
     if iweights.size and (iweights.min() < 0 or iweights.max() > 15):
-        raise Fatal(f"quartets hors de [0, 15] : [{iweights.min()}, {iweights.max()}]")
+        raise Fatal(f"nibbles outside [0, 15]: [{iweights.min()}, {iweights.max()}]")
     rows, n = iweights.shape
     g = iweights.reshape(rows, n // 8, 8)[:, :, AWQ_ORDER].astype(np.uint32)
     out = np.zeros((rows, n // 8), dtype=np.uint32)
@@ -658,15 +658,15 @@ class Projection:
         groups, d_out = self.scales.shape
         if packed * 8 != d_out:
             raise Fatal(
-                f"{prefix}: qweight annonce {packed * 8} sorties, scales {d_out}"
+                f"{prefix}: qweight declares {packed * 8} outputs, scales {d_out}"
             )
         if self.qzeros.shape != (groups, packed):
             raise Fatal(
-                f"{prefix}: qzeros {self.qzeros.shape}, attendu {(groups, packed)}"
+                f"{prefix}: qzeros {self.qzeros.shape}, expected {(groups, packed)}"
             )
         if groups * group_size != d_in:
             raise Fatal(
-                f"{prefix}: {groups} groupes x {group_size} != {d_in} canaux d'entrée"
+                f"{prefix}: {groups} groups x {group_size} != {d_in} input channels"
             )
         self.d_in, self.d_out, self.groups = d_in, d_out, groups
 
@@ -720,9 +720,9 @@ def selftest_packing() -> list[str]:
     """
     fail: list[str] = []
     if not np.array_equal(AWQ_REVERSE_ORDER[AWQ_ORDER], np.arange(8)):
-        fail.append("AWQ_REVERSE_ORDER o AWQ_ORDER n'est pas l'identité")
+        fail.append("AWQ_REVERSE_ORDER o AWQ_ORDER is not the identity")
     if not np.array_equal(AWQ_ORDER[AWQ_REVERSE_ORDER], np.arange(8)):
-        fail.append("AWQ_ORDER o AWQ_REVERSE_ORDER n'est pas l'identité")
+        fail.append("AWQ_ORDER o AWQ_REVERSE_ORDER is not the identity")
 
     rng = np.random.default_rng(0x11_0FEED)
     iw = rng.integers(0, 16, size=(37, 8 * 5)).astype(np.int32)
@@ -739,14 +739,14 @@ def selftest_packing() -> list[str]:
         for i in range(8):
             ref[:, col] |= iw[:, 8 * col + order_map[i]].astype(np.uint32) << (4 * i)
     if not np.array_equal(repack_nibbles(iw), ref.view(np.int32)):
-        fail.append("repack_nibbles ne reproduit pas la boucle de référence")
+        fail.append("repack_nibbles does not reproduce the reference loop")
     if not np.array_equal(unpack_nibbles(ref.view(np.int32)), iw):
-        fail.append("unpack_nibbles n'inverse pas la boucle de référence")
+        fail.append("unpack_nibbles does not invert the reference loop")
 
     # The top nibble must survive int32's sign bit.
     hi = np.full((2, 8), 15, dtype=np.int32)
     if not np.array_equal(unpack_nibbles(repack_nibbles(hi)), hi):
-        fail.append("le quartet de poids fort est perdu (bit de signe int32)")
+        fail.append("the top nibble is lost (int32 sign bit)")
 
     # A permutation applied on only one side must be caught: this is exactly the
     # asymmetry L2 detects on real data, and the reason L2 is not vacuous.
@@ -755,7 +755,7 @@ def selftest_packing() -> list[str]:
     for i in range(8):
         naive |= plain[:, :, i] << np.uint32(4 * i)
     if np.array_equal(unpack_nibbles(naive.view(np.int32)), iw):
-        fail.append("unpack_nibbles accepte un empaquetage sans AWQ_ORDER")
+        fail.append("unpack_nibbles accepts a packing without AWQ_ORDER")
     return fail
 
 
@@ -843,17 +843,17 @@ def control_l1_base(p: Projection, base_weight: np.ndarray) -> dict:
     the statistic a function of how widely `s` spreads inside the layer, which
     is a property of the *layer*, not of our reading: measured on the real file,
     the floor tracks the spread from 0.9950 at spread 1.0 to 0.9583 at spread
-    26.5, and `layers.9.self_attn.q_proj` spreads by **4 421**. On a synthetic
+    26.5, and `layers.9.self_attn.q_proj` spreads by **4,421**. On a synthetic
     projection with that much spread a *correct* reconstruction floors at
     **0.4307** — the old threshold of 0.80 would have called it permuted. The
     same defect the docstring above describes, one level up: a criterion whose
     model omits the very term the method is built on. Dividing `s` back out
     makes the statistic invariant (0.9915 – 0.9950 measured across spreads from
-    1.0 to 4 421) and sharpens the permutation gap from ~75x to ~1 400x.
+    1.0 to 4,421) and sharpens the permutation gap from ~75x to ~1,400x.
     Pinned offline by `selftest_pipeline`.
     """
     if base_weight.shape != p.weight.shape:
-        raise Fatal(f"{p.prefix}: base {base_weight.shape} contre AWQ {p.weight.shape}")
+        raise Fatal(f"{p.prefix}: base {base_weight.shape} against AWQ {p.weight.shape}")
     w = p.weight
     b = np.asarray(base_weight, dtype=np.float32)
     den = (b * b).sum(axis=0)
@@ -951,7 +951,7 @@ class ShardedSafeTensors:
         try:
             return self._shards[self._map[name]]
         except KeyError:
-            raise Fatal(f"tenseur absent de l'index : {name}") from None
+            raise Fatal(f"missing tensor in the index: {name}") from None
 
     def entry(self, name: str) -> dict:
         return self.shard_for(name).entry(name)
@@ -1138,7 +1138,7 @@ def expected_weight_count(cfg: dict) -> int:
     """Every parameter the written checkpoint must carry, from `config.json`.
 
     Same arithmetic as `ops/run.py:weight_counts`, kept here so the two can
-    disagree loudly rather than share a bug. On Qwen3-4B it is 4 022 468 096 —
+    disagree loudly rather than share a bug. On Qwen3-4B it is 4,022,468,096 —
     the number `docs/fiche-4b.md` §1.2 reads off the sealed artifact.
     """
     layers = cfg["num_hidden_layers"]
@@ -1163,20 +1163,22 @@ def quant_config(cfg: dict) -> tuple[int, int]:
     """`(bits, group_size)`, refusing anything this file was not written for."""
     q = cfg.get("quantization_config")
     if not q:
-        raise Fatal("config.json sans quantization_config : ce n'est pas un dépôt AWQ")
+        raise Fatal("config.json without quantization_config: not an AWQ repository")
     if q.get("quant_method") != "awq" or q.get("version") != "gemm":
         raise Fatal(
-            f"format non géré : quant_method={q.get('quant_method')}, "
-            f"version={q.get('version')} (attendu awq/gemm)"
+            f"unsupported format: quant_method={q.get('quant_method')}, "
+            f"version={q.get('version')} (expected awq/gemm)"
         )
     if q.get("bits") != 4:
-        raise Fatal(f"{q.get('bits')} bits : seul le 4 bits est implémenté")
+        raise Fatal(f"{q.get('bits')} bits: only 4 bits is implemented")
     if not q.get("zero_point", False):
-        raise Fatal("zero_point=false : la formule de ce fichier suppose l'asymétrique")
+        raise Fatal(
+            "zero_point=false: this file's formula assumes asymmetric quantization"
+        )
     if q.get("modules_to_not_convert"):
         raise Fatal(
-            f"modules_to_not_convert={q['modules_to_not_convert']} : "
-            "le périmètre quantifié n'est plus les 252 projections"
+            f"modules_to_not_convert={q['modules_to_not_convert']}: "
+            "the quantized perimeter is no longer the 252 projections"
         )
     return q["bits"], q["group_size"]
 
@@ -1204,48 +1206,48 @@ def inventory(awq: SafeTensors) -> dict:
 
 def check_structure(awq: SafeTensors, exp: dict | None, say) -> bool:
     inv = inventory(awq)
-    say(f"  {inv['tensors']} tenseurs · en-tête {inv['header_bytes']} o "
-        f"· fichier {inv['bytes']} o")
+    say(f"  {inv['tensors']} tensors · header {inv['header_bytes']} B "
+        f"· file {inv['bytes']} B")
     for k, v in inv["by_suffix"].items():
         say(f"      {k:<16} {v}")
     if exp is None:
         return True
     ok = True
     if inv["bytes"] != exp["bytes"]:
-        say(f"  FAIL  {inv['bytes']} octets, {exp['bytes']} attendus")
+        say(f"  FAIL  {inv['bytes']} bytes, {exp['bytes']} expected")
         ok = False
     if inv["tensors"] != exp["tensors"]:
-        say(f"  FAIL  {inv['tensors']} tenseurs, {exp['tensors']} attendus")
+        say(f"  FAIL  {inv['tensors']} tensors, {exp['tensors']} expected")
         ok = False
     want = {f"{s}/{d}": n for (s, d), n in exp["by_suffix"].items()}
     if inv["by_suffix"] != want:
-        say(f"  FAIL  inventaire {inv['by_suffix']}, attendu {want}")
+        say(f"  FAIL  inventory {inv['by_suffix']}, expected {want}")
         ok = False
     if ok:
-        say("  ok    structure conforme (octets, comptes, dtypes)")
+        say("  ok    structure matches (bytes, counts, dtypes)")
     return ok
 
 
 def check_tokenizer(repo: str, revision: str, exp: dict | None, say) -> bool:
     blob = hub_bytes(repo, "tokenizer.json", revision)
     got = hashlib.sha256(blob).hexdigest()
-    say(f"  tokenizer.json  {len(blob)} o  sha256 {got}")
+    say(f"  tokenizer.json  {len(blob)} B  sha256 {got}")
     if exp is None:
         return True
     if got != exp["tokenizer_sha256"]:
-        say(f"  FAIL  sha256 attendu {exp['tokenizer_sha256']}")
-        say("        l'empreinte de tokens n'est plus commune aux trois bras")
+        say(f"  FAIL  sha256 expected {exp['tokenizer_sha256']}")
+        say("        the token fingerprint is no longer common to the three arms")
         return False
-    say("  ok    identique au checkpoint de base et au blob du .bin scellé")
+    say("  ok    identical to the base checkpoint and to the sealed .bin blob")
     return True
 
 
 def report_perimeter(res: dict, exp: dict | None, say) -> bool:
-    say(f"  {res['carried']} tenseurs portés : {res['identical']} identiques, "
-        f"{res['different']} différents"
-        + (f"  (dont {len(res['sampled'])} échantillonné(s))" if res["sampled"] else ""))
+    say(f"  {res['carried']} carried tensors: {res['identical']} identical, "
+        f"{res['different']} different"
+        + (f"  ({len(res['sampled'])} of them sampled)" if res["sampled"] else ""))
     if res["missing_from_base"]:
-        say(f"  FAIL  absents du checkpoint de base : {res['missing_from_base'][:5]}")
+        say(f"  FAIL  missing from the base checkpoint: {res['missing_from_base'][:5]}")
         return False
     if exp is None:
         return True
@@ -1254,20 +1256,20 @@ def report_perimeter(res: dict, exp: dict | None, say) -> bool:
         and res["identical"] == exp["carried_same"]
         and res["different"] == exp["carried_diff"]
     ):
-        say(f"  ok    {exp['carried_same']}/{exp['carried_diff']} comme attendu — "
-            "AWQ replie ses échelles dans les RMSNorm")
+        say(f"  ok    {exp['carried_same']}/{exp['carried_diff']} as expected, "
+            "AWQ folds its scales into the RMSNorm")
         return True
-    say(f"  FAIL  attendu {exp['carried']} portés, {exp['carried_same']} identiques, "
-        f"{exp['carried_diff']} différents. Le dépôt amont a bougé : relire §2.4 "
-        "du plan avant d'aller plus loin")
-    say(f"        premiers différents : {res['different_names'][:4]}")
+    say(f"  FAIL  expected {exp['carried']} carried, {exp['carried_same']} identical, "
+        f"{exp['carried_diff']} different. The upstream repository moved: re-read "
+        "§2.4 of the plan before going further")
+    say(f"        first different: {res['different_names'][:4]}")
     return False
 
 
 def report_embedding(res: dict, exp: dict | None, say) -> bool:
-    say(f"  embedding bf16->f16 : {res['changed']} valeurs sur {res['values']} "
-        f"({res['changed'] / res['values']:.3e}), {res['flushed_to_zero']} à zéro")
-    say(f"      |v| touché max {res['touched_max']:.3e} · erreur abs max "
+    say(f"  embedding bf16->f16: {res['changed']} values out of {res['values']} "
+        f"({res['changed'] / res['values']:.3e}), {res['flushed_to_zero']} to zero")
+    say(f"      |v| touched max {res['touched_max']:.3e} · abs error max "
         f"{res['abs_error_max']:.3e} · |v| max {res['max_abs']:.4f}")
     if exp is None:
         return True
@@ -1275,14 +1277,14 @@ def report_embedding(res: dict, exp: dict | None, say) -> bool:
         res["changed"] == exp["embed_narrowed"]
         and res["flushed_to_zero"] == exp["embed_flushed"]
     ):
-        say("  ok    reproduit fiche-4b §4.2 au comptage près, sur les octets "
-            "d'AWQ")
+        say("  ok    reproduces fiche-4b §4.2 count for count, on AWQ's own "
+            "bytes")
         return True
-    say(f"  FAIL  attendu {exp['embed_narrowed']} changées et "
-        f"{exp['embed_flushed']} à zéro (fiche-4b §4.2, recompté sur les octets "
-        "d'AWQ).")
-    say("        Soit le dépôt amont a bougé, soit la référence est à revoir : "
-        "un humain tranche, ce script ne devine pas.")
+    say(f"  FAIL  expected {exp['embed_narrowed']} changed and "
+        f"{exp['embed_flushed']} to zero (fiche-4b §4.2, recounted on AWQ's own "
+        "bytes).")
+    say("        Either the upstream repository moved, or the reference needs "
+        "revisiting: a human decides, this script does not guess.")
     return False
 
 
@@ -1349,13 +1351,13 @@ def _synthetic_awq(
     input channels, then pack `qweight`/`qzeros` under `AWQ_ORDER` while leaving
     `scales` in natural order.
 
-    The salience spread is deliberately brutal — ~3 000x end to end — because
-    the real file carries a layer at **4 421** (`layers.9.self_attn.q_proj`) and
+    The salience spread is deliberately brutal — ~3,000x end to end — because
+    the real file carries a layer at **4,421** (`layers.9.self_attn.q_proj`) and
     a threshold that survives only mild spreads is a threshold that fails in
     production, not in the selftest.
 
     It is built per **group**, with mild jitter inside, and that shape is not
-    cosmetic. A salience that swings by 3 000x *within* one group of 128 input
+    cosmetic. A salience that swings by 3,000x *within* one group of 128 input
     channels lets the loud channel set the group's scale and quantizes the quiet
     ones to a constant; the least-squares `s` of the quiet channels then comes
     back exactly 0, and L1 rejects a reconstruction that is in fact correct.
@@ -1419,23 +1421,23 @@ def selftest_pipeline() -> list[str]:
     # every control below would raise on a mismatched shape, and a stack trace
     # is a worse report than a sentence.
     if p.weight.shape != base.shape:
-        return [f"forme reconstruite {p.weight.shape}, attendu {base.shape} — "
-                "la transposition finale a sauté"]
+        return [f"reconstructed shape {p.weight.shape}, expected {base.shape}: "
+                "the final transpose was dropped"]
     l2, l4 = control_l2(p), control_l4(p)
     l1 = control_l1_base(p, base)
     if not l2["ok"]:
-        fail.append(f"L2 rejette une reconstruction correcte : {l2}")
+        fail.append(f"L2 rejects a correct reconstruction: {l2}")
     if not l4["ok"]:
-        fail.append(f"L4 rejette une reconstruction correcte : marge {l4['margin']}")
+        fail.append(f"L4 rejects a correct reconstruction: margin {l4['margin']}")
     if not l1["ok"]:
         fail.append(
-            f"L1 rejette une reconstruction correcte (plancher {l1['cosine_floor']:.4f},"
-            f" écart {l1['cosine_spread']:.4f}, ratio {l1['ratio']:.3f}) — c'est la"
-            f" faute que le seuil brut avait déjà commise, cf. control_l1_base"
+            f"L1 rejects a correct reconstruction (floor {l1['cosine_floor']:.4f},"
+            f" spread {l1['cosine_spread']:.4f}, ratio {l1['ratio']:.3f}), the same"
+            f" mistake the raw threshold already made, cf. control_l1_base"
         )
     # The reconstruction must be the transpose: [d_out, d_in], not [d_in, d_out].
     if p.weight.shape != base.shape:
-        fail.append(f"forme reconstruite {p.weight.shape}, attendu {base.shape}")
+        fail.append(f"reconstructed shape {p.weight.shape}, expected {base.shape}")
 
     # Mutant 1 — the file packed WITHOUT `AWQ_ORDER`, i.e. our reverse gather is
     # spurious. This is the exact failure the module docstring forbids, and the
@@ -1443,13 +1445,13 @@ def selftest_pipeline() -> list[str]:
     src2, base2 = _synthetic_awq(group_size=gs, order=np.arange(8))
     p2 = Projection(src2, "t", gs)
     if not control_l2(p2)["ok"]:
-        fail.append("L2 voit la permutation de quartets — l'énoncé du fichier, "
-                    "qui affirme qu'il ne peut pas la voir, est faux")
+        fail.append("L2 sees the nibble permutation, so this file's claim that "
+                    "it cannot see it is false")
     m = control_l1_base(p2, base2)
     if m["ok"] or not m["permuted"]:
         fail.append(
-            f"L1 laisse passer un AWQ_REVERSE_ORDER non appliqué "
-            f"(plancher {m['cosine_floor']:.4f}, écart {m['cosine_spread']:.4f})"
+            f"L1 lets an unapplied AWQ_REVERSE_ORDER through "
+            f"(floor {m['cosine_floor']:.4f}, spread {m['cosine_spread']:.4f})"
         )
 
     # Mutant 2 — `scales` permuted like `qweight`. Nothing else pins the fact
@@ -1459,14 +1461,14 @@ def selftest_pipeline() -> list[str]:
     src3, base3 = _synthetic_awq(group_size=gs, scale_order=AWQ_ORDER)
     p3 = Projection(src3, "t", gs)
     if not control_l2(p3)["ok"]:
-        fail.append("L2 voit des échelles permutées — l'énoncé selon lequel il "
-                    "les traverse est faux, et le rôle du ratio est à revoir")
+        fail.append("L2 sees permuted scales, so the claim that it traverses "
+                    "them is false, and the ratio's role needs revisiting")
     m = control_l1_base(p3, base3)
     if m["ok"]:
-        fail.append(f"L1 laisse passer des échelles permutées : ratio {m['ratio']:.3f}")
+        fail.append(f"L1 lets permuted scales through: ratio {m['ratio']:.3f}")
     if m["permuted"]:
-        fail.append("L1 impute des échelles permutées à AWQ_REVERSE_ORDER : le "
-                    "rapport enverrait le lecteur dans le mauvais fichier")
+        fail.append("L1 blames permuted scales on AWQ_REVERSE_ORDER: the report "
+                    "would send the reader to the wrong file")
 
     # Mutant 3 — the spurious `-1` on the zeros: `(iw - (iz-1))*s = w + s`.
     p4 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
@@ -1474,7 +1476,7 @@ def selftest_pipeline() -> list[str]:
     p4.weight = np.ascontiguousarray(p4.w_in_major.T)
     p4._f16 = None
     if control_l2(p4)["ok"]:
-        fail.append("L2 laisse passer le -1 parasite sur les zéros")
+        fail.append("L2 lets the spurious -1 on the zeros through")
 
     # Mutant 3b — two input rows of the same group swapped. Nibbles all legal,
     # simply not the ones the file holds.
@@ -1492,10 +1494,10 @@ def selftest_pipeline() -> list[str]:
     p4b._f16 = None
     r = control_l2(p4b)
     if r["ok"]:
-        fail.append("L2 laisse passer des quartets déplacés dans [0, 15]")
+        fail.append("L2 lets nibbles displaced inside [0, 15] through")
     if not r["in_range"]:
-        fail.append("le mutant de quartets déplacés sort de [0, 15] : il ne "
-                    "teste plus `mismatched`, il teste `in_range`")
+        fail.append("the displaced-nibble mutant leaves [0, 15]: it no longer "
+                    "tests `mismatched`, it tests `in_range`")
 
     # The output dtype is a campaign requirement, not a preference (plan §2.6:
     # "calculer en float32, un seul .astype(float16) en sortie"). Nothing else
@@ -1504,14 +1506,14 @@ def selftest_pipeline() -> list[str]:
     # step [7] re-reads names. The checkpoint would simply be twice the size and
     # perfectly plausible.
     if p.f16.dtype != np.float16:
-        fail.append(f"la sortie est en {p.f16.dtype}, f16 imposé par le protocole")
+        fail.append(f"the output is {p.f16.dtype}, the protocol requires f16")
 
     # Mutant 4 — an f16 overflow, and mutant 5 — one rounding too many (a bf16
     # detour). Without these two, `L4_MIN_MARGIN` and the overflow test are
     # decoration: every correct projection clears them by x500, so loosening
     # either threshold to zero fails nothing.
     p6 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
-    p6.weight = p6.weight * np.float32(1e5)  # past f16's 65 504
+    p6.weight = p6.weight * np.float32(1e5)  # past f16's 65,504
     p6.scales = p6.scales * np.float32(1e5)  # keep the yardstick consistent
     p6._f16 = None
     # The overflow is the point of this mutant, so numpy's warning about it is
@@ -1519,14 +1521,14 @@ def selftest_pipeline() -> list[str]:
     with np.errstate(over="ignore", invalid="ignore"):
         r = control_l4(p6)
     if r["ok"] or r["overflow"] == 0:
-        fail.append(f"L4 accepte un débordement f16 : {r['overflow']} valeurs")
+        fail.append(f"L4 accepts an f16 overflow: {r['overflow']} values")
     p7 = Projection(_synthetic_awq(group_size=gs)[0], "t", gs)
     p7._f16 = (
         (p7.weight.view(np.uint32) & np.uint32(0xFFFF0000)).view(np.float32)
     ).astype(np.float16)
     r = control_l4(p7)
     if r["ok"]:
-        fail.append(f"L4 accepte un arrondi supplémentaire : marge {r['margin']:.1f}")
+        fail.append(f"L4 accepts one rounding too many: margin {r['margin']:.1f}")
 
     # Mutant 6 — the transpose dropped, and mutant 7 — the wrong group size.
     # Both must be structural refusals, not silent degradations.
@@ -1534,12 +1536,12 @@ def selftest_pipeline() -> list[str]:
     p5.weight = p5.w_in_major
     try:
         control_l1_base(p5, base)
-        fail.append("L1 accepte une reconstruction non transposée")
+        fail.append("L1 accepts an untransposed reconstruction")
     except Fatal:
         pass
     try:
         Projection(_synthetic_awq(group_size=gs)[0], "t", gs // 2)
-        fail.append("Projection accepte un group_size faux")
+        fail.append("Projection accepts a wrong group_size")
     except Fatal:
         pass
     return fail
@@ -1559,16 +1561,16 @@ def selftest_narrowing() -> list[str]:
     v = ((128 + k[None, :]) * np.float64(2.0) ** (e[:, None] - 7)).astype(np.float32)
     r = control_embedding_narrowing(v.reshape(-1))
     if r["changed"] != 0:
-        fail.append(f"{r['changed']} valeurs bf16 >= 2^-17 changent au cast f16")
+        fail.append(f"{r['changed']} bf16 values >= 2^-17 change under the f16 cast")
     # One exponent lower, the odd significands need a bit f16 does not have.
     v2 = ((128 + k) * np.float64(2.0) ** -25).astype(np.float32)
     r2 = control_embedding_narrowing(v2)
     if r2["changed"] != 64:
-        fail.append(f"{r2['changed']} valeurs changent à 2^-18, 64 attendues")
+        fail.append(f"{r2['changed']} values change at 2^-18, 64 expected")
     if abs(r2["abs_error_max"] - 2.0**-25) > 1e-12:
-        fail.append(f"erreur max {r2['abs_error_max']}, 2^-25 attendu")
+        fail.append(f"max error {r2['abs_error_max']}, 2^-25 expected")
     if control_embedding_narrowing(np.zeros(4, np.float32))["flushed_to_zero"]:
-        fail.append("des zéros exacts sont comptés comme écrasés à zéro")
+        fail.append("exact zeros are counted as flushed to zero")
     return fail
 
 
@@ -1582,13 +1584,13 @@ def selftest_weight_count() -> list[str]:
     )
     got = expected_weight_count(qwen3_4b)
     if got != 4_022_468_096:
-        fail.append(f"Qwen3-4B compté à {got}, 4 022 468 096 attendus (plan §2.1)")
+        fail.append(f"Qwen3-4B counted at {got}, 4,022,468,096 expected (plan §2.1)")
     # The 252 projections alone, the homogeneous denominator of the same table.
     if got - 151936 * 2560 - 2560 - 36 * (2 * 2560 + 2 * 128) != 3_633_315_840:
-        fail.append("les projections seules ne retombent pas sur 3 633 315 840")
+        fail.append("the projections alone do not land on 3,633,315,840")
     untied = expected_weight_count(dict(qwen3_4b, tie_word_embeddings=False))
     if untied - got != 151936 * 2560:
-        fail.append("un lm_head délié ne coûte pas une embedding de plus")
+        fail.append("an untied lm_head does not cost one more embedding")
     return fail
 
 
@@ -1609,52 +1611,53 @@ def selftest_writer() -> list[str]:
             w.add(k, v)
         files, index = w.finish()
         if len(files) < 2:
-            fail.append(f"{len(files)} shard(s) pour 5 tenseurs sous une limite "
-                        "de 20 000 o : le découpage ne se déclenche pas")
+            fail.append(f"{len(files)} shard(s) for 5 tensors under a limit of "
+                        "20,000 B: the split does not trigger")
         if w.weights != sum(v.size for v in want.values()):
-            fail.append(f"{w.weights} poids comptés, {sum(v.size for v in want.values())} écrits")
+            fail.append(f"{w.weights} weights counted, "
+                        f"{sum(v.size for v in want.values())} written")
         if set(index["weight_map"]) != set(want):
-            fail.append("l'index n'annonce pas les tenseurs écrits")
+            fail.append("the index does not list the tensors written")
         if len(files) > 1 and not (tmp / "model.safetensors.index.json").exists():
-            fail.append("index.json absent d'un checkpoint multi-shard")
+            fail.append("index.json missing from a multi-shard checkpoint")
         seen: dict[str, np.ndarray] = {}
         for f in files:
             if not (tmp / f).exists():
-                fail.append(f"shard annoncé mais absent : {f}")
+                fail.append(f"shard listed but missing: {f}")
                 continue
             with SafeTensors(tmp / f) as st:
                 for n in st.header:
                     seen[n] = st.tensor(n)
         for k, v in want.items():
             if k not in seen or not np.array_equal(seen[k], v):
-                fail.append(f"{k} ne se relit pas à l'identique")
+                fail.append(f"{k} does not read back identical")
         if any(p.name.startswith(".shard-") for p in tmp.iterdir()):
-            fail.append("des shards temporaires survivent à finish()")
+            fail.append("temporary shards survive finish()")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return fail
 
 
 SELFTESTS = (
-    ("arithmétique d'empaquetage", selftest_packing,
-     "ordres mutuellement inverses, pack/unpack contre référence naïve, "
-     "empaquetage non permuté rejeté"),
-    ("reconstruction et contrôles", selftest_pipeline,
-     "L2/L1/L4 acceptent une projection correcte à saillance extrême et tuent "
-     "7 mutants (quartets, échelles, zéros, débordement f16, arrondi de trop, "
-     "transposée, group_size) ; la sortie est bien en f16"),
+    ("packing arithmetic", selftest_packing,
+     "mutually inverse orders, pack/unpack against a naive reference, "
+     "unpermuted packing rejected"),
+    ("reconstruction and controls", selftest_pipeline,
+     "L2/L1/L4 accept a correct projection at extreme salience and kill "
+     "7 mutants (nibbles, scales, zeros, f16 overflow, one rounding too many, "
+     "transpose, group_size); the output really is f16"),
     ("narrowing bf16 -> f16", selftest_narrowing,
-     "exact au-dessus de 2^-17, arrondi de 2^-25 en dessous"),
-    ("comptabilité des poids", selftest_weight_count,
-     "Qwen3-4B retombe sur 4 022 468 096 et 3 633 315 840"),
-    ("écriture des shards", selftest_writer,
-     "découpage, index et relecture bit pour bit"),
+     "exact above 2^-17, rounded by 2^-25 below it"),
+    ("weight accounting", selftest_weight_count,
+     "Qwen3-4B lands on 4,022,468,096 and 3,633,315,840"),
+    ("shard writing", selftest_writer,
+     "split, index and bit-for-bit read-back"),
 )
 
 
 def run_selftest(say) -> bool:
     """Every offline lock. No network, no model, no bytes read."""
-    say("\n[0] verrous hors ligne (aucun octet lu)")
+    say("\n[0] offline locks (no bytes read)")
     ok = True
     for name, fn, blurb in SELFTESTS:
         failures = fn()
@@ -1705,10 +1708,10 @@ def resolve_expectations(repo: str, allow_unknown: bool, say) -> tuple[dict | No
     exp = EXPECTED.get(repo)
     if exp is not None:
         return exp, True
-    say(f"\n⚠️  aucune attente enregistrée pour {repo} : les contrôles de "
-        "structure, d'iso-périmètre et de tokenizer sont désactivés")
+    say(f"\nWARNING: no recorded expectations for {repo}: the structure, "
+        "iso-perimeter and tokenizer controls are disabled")
     if not allow_unknown:
-        say("    relance avec --allow-unknown-repo pour l'accepter explicitement")
+        say("    re-run with --allow-unknown-repo to accept it explicitly")
     return None, allow_unknown
 
 
@@ -1722,7 +1725,7 @@ def cmd_selftest(args) -> int:
     other output of this file, and the thing to run after touching it.
     """
     ok = run_selftest(print)
-    print("\n" + ("TOUS LES VERROUS TIENNENT" if ok else "AU MOINS UN VERROU CÈDE"))
+    print("\n" + ("ALL LOCKS HOLD" if ok else "AT LEAST ONE LOCK GIVES WAY"))
     return 0 if ok else 1
 
 
@@ -1738,8 +1741,8 @@ def cmd_check(args) -> int:
     if not allowed:
         return 2
 
-    say(f"\n[1] structure de {args.awq_repo}@{args.awq_revision[:8]} "
-        f"({bits} bits, group_size {gs}, {n_layers} couches)")
+    say(f"\n[1] structure of {args.awq_repo}@{args.awq_revision[:8]} "
+        f"({bits} bits, group_size {gs}, {n_layers} layers)")
     awq = open_awq_remote(args.awq_repo, args.awq_revision)
     ok &= check_structure(awq, exp, say)
 
@@ -1750,66 +1753,64 @@ def cmd_check(args) -> int:
     names = projection_names(n_layers)
     missing = [n for n in names if n + ".qweight" not in awq.header]
     if missing:
-        say(f"\n  FAIL  {len(missing)} projections absentes, ex. {missing[0]}")
+        say(f"\n  FAIL  {len(missing)} projections missing, e.g. {missing[0]}")
         ok = False
     picks = [names[i] for i in sample_indices(len(names), args.samples)]
 
-    say(f"\n[3] L2 / L1 / L4 sur {len(picks)} projections sur {len(names)}")
+    say(f"\n[3] L2 / L1 / L4 on {len(picks)} projections out of {len(names)}")
     tested_l1 = 0
     for prefix in picks:
         p = Projection(awq, prefix, gs)
         l2 = control_l2(p)
         l4 = control_l4(p)
         say(f"  {prefix}  [{p.d_out}x{p.d_in}]")
-        say(f"      L2  ré-empaquetage "
-            f"{'IDENTIQUE' if l2['ok'] else 'DIFFÉRENT'}"
-            f"  (entiers récupérés {l2['integers_recovered']},"
-            f" quartets != {l2['mismatched']},"
-            f" échelles nulles {l2['zero_scales']})")
+        say(f"      L2  repack "
+            f"{'IDENTICAL' if l2['ok'] else 'DIFFERENT'}"
+            f"  (integers recovered {l2['integers_recovered']},"
+            f" nibbles != {l2['mismatched']},"
+            f" zero scales {l2['zero_scales']})")
         ok &= l2["ok"]
         if base.has(prefix + ".weight"):
             l1 = control_l1_base(p, base.tensor(prefix + ".weight"))
             tested_l1 += 1
-            say(f"      L1  cosinus min {l1['cosine_floor']:.4f}, écart entre "
-                f"positions {l1['cosine_spread']:.4f}  {'ok' if l1['ok'] else 'FAIL'}")
-            say(f"          résidu {l1['residual']:.5f} contre arrondi pur "
+            say(f"      L1  min cosine {l1['cosine_floor']:.4f}, spread across "
+                f"slots {l1['cosine_spread']:.4f}  {'ok' if l1['ok'] else 'FAIL'}")
+            say(f"          residual {l1['residual']:.5f} against pure rounding "
                 f"{l1['quantization_error']:.5f}, ratio {l1['ratio']:.3f}"
-                f"  (> 1 attendu : AWQ écrête)")
-            say(f"          s dans [{l1['scale_min']:.4f}, {l1['scale_max']:.4f}]"
-                f" (étendue x{l1['salience_spread']:,.0f})"
-                f"  cosinus par position mod 8 {l1['cosine_by_slot']}")
+                f"  (> 1 expected: AWQ clips)")
+            say(f"          s in [{l1['scale_min']:.4f}, {l1['scale_max']:.4f}]"
+                f" (spread x{l1['salience_spread']:,.0f})"
+                f"  cosine per slot mod 8 {l1['cosine_by_slot']}")
             if l1["permuted"]:
-                say("          les positions se séparent en deux populations : "
-                    "c'est la signature\n          d'un AWQ_REVERSE_ORDER non "
-                    "appliqué, et rien d'autre ne la produit")
+                say("          the slots split into two populations: that is "
+                    "the signature\n          of an unapplied AWQ_REVERSE_ORDER, "
+                    "and nothing else produces it")
             elif not l1["ok"]:
-                say("          pas de signature de permutation : les huit "
-                    "positions bougent ensemble.\n          La lecture des "
-                    "quartets est donc probablement juste (voir L2), mais\n"
-                    "          l'alignement avec le checkpoint de base ne tient "
-                    "plus — échelles\n          déplacées, révision amont "
-                    "différente. À examiner avant de mesurer.")
+                say("          no permutation signature: the eight slots move "
+                    "together.\n          So the nibble reading is probably "
+                    "right (see L2), but the\n          alignment with the base "
+                    "checkpoint no longer holds: moved\n          scales, a "
+                    "different upstream revision. Examine before measuring.")
             ok &= l1["ok"]
         else:
-            say("      L1  ignoré : tenseur absent du checkpoint de base")
-        say(f"      L4  {l4['relative']:.3e} relatif, marge x{l4['margin']:,.0f}"
-            f"  subnormaux {l4['subnormals']}  ->0 {l4['flushed_to_zero']}"
+            say("      L1  skipped: tensor missing from the base checkpoint")
+        say(f"      L4  {l4['relative']:.3e} relative, margin x{l4['margin']:,.0f}"
+            f"  subnormals {l4['subnormals']}  ->0 {l4['flushed_to_zero']}"
             f"  {'ok' if l4['ok'] else 'FAIL'}")
         ok &= l4["ok"]
         del p
 
     if tested_l1 == 0:
-        say("  FAIL  L1 n'a tourné sur aucun tenseur : l'ordre des quartets "
-            "n'est pinné par rien")
+        say("  FAIL  L1 ran on no tensor: nothing pins the nibble order")
         ok = False
 
-    say("\n[4] iso-périmètre des tenseurs portés")
+    say("\n[4] iso-perimeter of the carried tensors")
     ok &= report_perimeter(
         control_perimeter(awq, base, full=args.full_embed), exp, say
     )
 
     awq.close()
-    say(f"\n{'TOUS LES CONTRÔLES PASSENT' if ok else 'AU MOINS UN CONTRÔLE ÉCHOUE'}")
+    say(f"\n{'ALL CONTROLS PASS' if ok else 'AT LEAST ONE CONTROL FAILS'}")
     return 0 if ok else 1
 
 
@@ -1829,7 +1830,7 @@ def cmd_dequant(args) -> int:
     ok = run_selftest(say)
     report["controls"]["selftest"] = dict(ok=ok, failures=selftest_failures())
     if not ok:
-        say("\nabandon : un verrou hors ligne cède, rien de ce qui suit n'a de sens")
+        say("\naborting: an offline lock gives way, nothing below means anything")
         return 1
 
     cfg = hub_json(args.awq_repo, "config.json", args.awq_revision)
@@ -1844,7 +1845,7 @@ def cmd_dequant(args) -> int:
     # otherwise touch; discovering at step [6] that one is missing would throw
     # away the whole run.
     want_weights = expected_weight_count(cfg)
-    say(f"\n  cible : {want_weights} poids d'après config.json")
+    say(f"\n  target: {want_weights} weights per config.json")
 
     # Stale outputs are the quiet way to publish the wrong model, and there are
     # two of them.
@@ -1873,7 +1874,7 @@ def cmd_dequant(args) -> int:
     for p in stale:
         p.unlink()
     if stale:
-        say(f"  {len(stale)} fichier(s) d'un run précédent effacé(s) : "
+        say(f"  {len(stale)} file(s) from a previous run deleted: "
             f"{', '.join(p.name for p in stale[:4])}"
             + (" …" if len(stale) > 4 else ""))
 
@@ -1883,8 +1884,8 @@ def cmd_dequant(args) -> int:
         from huggingface_hub import hf_hub_download
         from huggingface_hub.errors import EntryNotFoundError
 
-        say(f"\n[1] téléchargement de {args.awq_repo} "
-            f"(~{(exp or {}).get('bytes', 0) / 1e9:.2f} Go)")
+        say(f"\n[1] download of {args.awq_repo} "
+            f"(~{(exp or {}).get('bytes', 0) / 1e9:.2f} GB)")
         try:
             awq = SafeTensors(Path(hf_hub_download(
                 repo_id=args.awq_repo,
@@ -1905,7 +1906,7 @@ def cmd_dequant(args) -> int:
                 for f in sorted(set(wmap.values()))
             }
             awq = ShardedSafeTensors(shards, wmap)
-    say(f"\n[1] structure ({bits} bits, group_size {gs}, {n_layers} couches)")
+    say(f"\n[1] structure ({bits} bits, group_size {gs}, {n_layers} layers)")
     st_ok = check_structure(awq, exp, say)
     ok &= st_ok
     report["controls"]["structure"] = dict(ok=st_ok, **inventory(awq))
@@ -1916,7 +1917,7 @@ def cmd_dequant(args) -> int:
     report["controls"]["tokenizer"] = dict(ok=tk_ok)
 
     base = BaseCheckpoint(args.base_repo, args.base_revision)
-    say("\n[3] iso-périmètre des tenseurs portés")
+    say("\n[3] iso-perimeter of the carried tensors")
     perim = control_perimeter(awq, base, full=args.full_embed)
     p_ok = report_perimeter(perim, exp, say)
     ok &= p_ok
@@ -1930,8 +1931,8 @@ def cmd_dequant(args) -> int:
     picks |= waive_l1
     writer = ShardWriter(out, int(args.shard_gb * 1e9))
 
-    say(f"\n[4] reconstruction des {len(names)} projections "
-        f"— L2 sur toutes, L1 sur {len(picks)}, L4 sur toutes")
+    say(f"\n[4] reconstruction of the {len(names)} projections: "
+        f"L2 on all, L1 on {len(picks)}, L4 on all")
     l2_all, l4_all, l1_all = [], [], []
     worst_margin = float("inf")
     for prefix in names:
@@ -1953,17 +1954,17 @@ def cmd_dequant(args) -> int:
             l1_all.append(dict(name=prefix, waived=waived, **l1))
             line += (
                 f"  L1 {l1['ratio']:.3f} "
-                + ("DÉROGÉ (--waive-l1)" if waived else ("ok" if l1["ok"] else "FAIL"))
+                + ("WAIVED (--waive-l1)" if waived else ("ok" if l1["ok"] else "FAIL"))
             )
             ok &= l1["ok"] or waived
             say(line)
             if not l1["ok"]:
-                say(f"      cosinus par position mod 8 : {l1['cosine_by_slot']}")
-                say("      deux populations = AWQ_REVERSE_ORDER non appliqué"
+                say(f"      cosine per slot mod 8: {l1['cosine_by_slot']}")
+                say("      two populations = unapplied AWQ_REVERSE_ORDER"
                     if l1["permuted"]
-                    else "      les huit positions bougent ensemble : ce n'est pas "
-                         "une permutation de quartets, mais l'alignement avec le "
-                         "checkpoint de base ne tient plus")
+                    else "      the eight slots move together. This is no "
+                         "nibble permutation. The alignment with the base "
+                         "checkpoint no longer holds")
         else:
             say(line)
         ok &= l2["ok"] and l4["ok"]
@@ -1971,10 +1972,9 @@ def cmd_dequant(args) -> int:
         del p
 
     if not l1_all:
-        say("  FAIL  L1 n'a tourné sur aucun tenseur : l'ordre des quartets "
-            "n'est pinné par rien")
+        say("  FAIL  L1 ran on no tensor: nothing pins the nibble order")
         ok = False
-    say(f"  marge L4 la pire : x{worst_margin:,.0f} (critère x{L4_MIN_MARGIN:,.0f})")
+    say(f"  worst L4 margin: x{worst_margin:,.0f} (criterion x{L4_MIN_MARGIN:,.0f})")
     report["controls"]["l2"] = dict(
         ok=all(r["ok"] for r in l2_all), tested=len(l2_all), detail=l2_all
     )
@@ -1991,7 +1991,7 @@ def cmd_dequant(args) -> int:
         detail=l4_all,
     )
 
-    say("\n[5] tenseurs portés, copiés du dépôt AWQ")
+    say("\n[5] carried tensors, copied from the AWQ repository")
     carried = sorted(
         n for n in awq.header if n.endswith(".weight") and ".qweight" not in n
     )
@@ -2003,23 +2003,23 @@ def cmd_dequant(args) -> int:
             ok &= e_ok
             report["controls"]["embedding_narrowing"] = dict(ok=e_ok, **emb)
         writer.add(n, a.astype(np.float16))
-    say(f"  {len(carried)} tenseurs, bf16 -> f16")
-    say("  ⚠️  le checkpoint écrit est f16 partout, donc les 74 tenseurs qui")
-    say("      étaient bit-identiques au checkpoint de base ne le sont plus en")
-    say("      tant qu'octets. Chargés en f16 — ce que la campagne impose —")
-    say("      les valeurs sont identiques ; en f32 elles ne le sont pas.")
-    say("      Même écart que pour le .bin scellé, cf. fiche-4b §4.2.")
+    say(f"  {len(carried)} tensors, bf16 -> f16")
+    say("  WARNING: the written checkpoint is f16 everywhere, so the 74")
+    say("      tensors that were bit-identical to the base checkpoint are no")
+    say("      longer identical as bytes. Loaded in f16, which the campaign")
+    say("      requires, the values are identical; in f32 they are not.")
+    say("      Same deviation as for the sealed .bin, cf. fiche-4b §4.2.")
 
-    say(f"\n[6] écriture dans {out}")
+    say(f"\n[6] writing into {out}")
     files, index = writer.finish()
-    say(f"  {len(index['weight_map'])} tenseurs · {writer.weights} poids "
-        f"· {writer.total} octets · {len(files)} fichier(s)")
+    say(f"  {len(index['weight_map'])} tensors · {writer.weights} weights "
+        f"· {writer.total} bytes · {len(files)} file(s)")
     if writer.weights != want_weights:
-        say(f"  FAIL  {writer.weights} poids écrits, {want_weights} déduits de "
-            "config.json — un tenseur manque ou une forme est fausse")
+        say(f"  FAIL  {writer.weights} weights written, {want_weights} deduced "
+            "from config.json: a tensor is missing or a shape is wrong")
         ok = False
     else:
-        say(f"  ok    {want_weights} poids, exactement ce que config.json décrit")
+        say(f"  ok    {want_weights} weights, exactly what config.json describes")
 
     # `quantization_config` has to go: what is written is no longer quantized,
     # and leaving it would tell every other loader to expect packed nibbles.
@@ -2037,12 +2037,12 @@ def cmd_dequant(args) -> int:
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise
-            say(f"  (absent du dépôt source, non copié : {name})")
-    say(f"  annexes : {', '.join(copied)}")
+            say(f"  (missing from the source repository, not copied: {name})")
+    say(f"  annexes: {', '.join(copied)}")
 
     # Re-read what we wrote with our own parser, which re-runs the "the parse
     # lands exactly on the file" check on every shard.
-    say("\n[7] relecture des fichiers écrits")
+    say("\n[7] re-reading the written files")
     seen: set[str] = set()
     dtypes: dict[str, int] = {}
     for f in files:
@@ -2058,13 +2058,13 @@ def cmd_dequant(args) -> int:
     dtype_ok = set(dtypes) == {"F16"}
     size_ok = writer.total == 2 * writer.weights
     reread_ok = names_ok and dtype_ok and size_ok
-    say(f"  {'ok   ' if names_ok else 'FAIL '} {len(seen)} tenseurs relus sur "
-        f"{len(index['weight_map'])} annoncés par l'index")
-    say(f"  {'ok   ' if dtype_ok else 'FAIL '} dtypes écrits : "
-        f"{dict(sorted(dtypes.items()))} (F16 seul exigé)")
-    say(f"  {'ok   ' if size_ok else 'FAIL '} {writer.total} octets pour "
-        f"{writer.weights} poids, soit {writer.total / max(writer.weights, 1):.3f} "
-        "o/poids (2,000 exigés)")
+    say(f"  {'ok   ' if names_ok else 'FAIL '} {len(seen)} tensors read back out "
+        f"of {len(index['weight_map'])} listed by the index")
+    say(f"  {'ok   ' if dtype_ok else 'FAIL '} dtypes written: "
+        f"{dict(sorted(dtypes.items()))} (F16 alone required)")
+    say(f"  {'ok   ' if size_ok else 'FAIL '} {writer.total} bytes for "
+        f"{writer.weights} weights, i.e. {writer.total / max(writer.weights, 1):.3f} "
+        "B/weight (2.000 required)")
     ok &= reread_ok
     report["controls"]["reread"] = dict(
         ok=reread_ok, tensors=len(seen), dtypes=dict(sorted(dtypes.items())),
@@ -2089,13 +2089,13 @@ def cmd_dequant(args) -> int:
     awq.close()
 
     if ok:
-        say(f"\nTOUS LES CONTRÔLES PASSENT — rapport dans "
+        say(f"\nALL CONTROLS PASS, report in "
             f"{out / 'RECONSTRUCTION.json'}")
-        say("  publier : uv run ops/awq_dequant.py push <user>/<repo> "
+        say("  publish: uv run ops/awq_dequant.py push <user>/<repo> "
             f"--out {out} --public --yes")
     else:
-        say("\n🚨 AU MOINS UN CONTRÔLE ÉCHOUE — ces poids ne doivent être ni "
-            "publiés ni scorés. `push` les refusera.")
+        say("\nALERT: AT LEAST ONE CONTROL FAILS. These weights must be neither "
+            "published nor scored. `push` will refuse them.")
     return 0 if ok else 1
 
 
@@ -2110,71 +2110,68 @@ tags:
 > **This is a measurement reconstruction, not a model to use.** It is the dense
 > f16 dequantization of [`{awq_repo}`]({awq_url}), published only so that a
 > quantization benchmark can be replayed by a third party. Use the original.
->
-> **Reconstruction de mesure, pas un modèle à utiliser.**
 
 # {repo}
 
-## Pourquoi ce dépôt existe
+## Why this repository exists
 
-Le projet LLVQ compare une quantification 2 bits sur le réseau de Leech à la
-quantification 4 bits AWQ publiée par l'auteur du modèle, sur Qwen3-4B. Les
-trois bras doivent passer par **le même moteur, le même tokenizer et la même
-définition de la perplexité** ; or ce harnais ne sait pas lire le format AWQ
-empaqueté.
+The LLVQ project compares a 2-bit quantization on the Leech lattice against the
+4-bit AWQ quantization published by the model's own author, on Qwen3-4B. The
+three arms must go through **the same engine, the same tokenizer and the same
+perplexity definition**, and this harness cannot read the packed AWQ format.
 
-Ce dépôt contient donc les poids AWQ **reconstruits en f16 dense**. Il ne
-compresse rien, il ne va pas plus vite, et il pèse plus lourd que l'original :
-il n'a d'autre intérêt que de rendre la mesure rejouable.
+So this repository holds the AWQ weights **rebuilt as dense f16**. It compresses
+nothing, it is no faster, and it weighs more than the original: its only point
+is to make the measurement replayable.
 
-## Pourquoi un checkpoint complet et pas seulement les projections
+## Why a full checkpoint and not only the projections
 
-AWQ replie ses échelles de saillance par canal dans les RMSNorm qui précèdent
-les projections. Sur les {n_carried} tenseurs non quantifiés, **{diff} sont
-modifiés** par rapport au checkpoint de base et **{same} sont bit pour bit
-identiques**. Ne remplacer que les {n_proj} projections produirait un modèle
-mathématiquement faux — projections à l'échelle `s`, normes sans le `1/s`
-compensatoire.
+AWQ folds its per-input-channel salience scales into the RMSNorm that precede
+the projections. Of the {n_carried} non-quantized tensors, **{diff} are
+modified** against the base checkpoint and **{same} are bit for bit
+identical**. Replacing only the {n_proj} projections would produce a
+mathematically wrong model: projections at scale `s`, norms without the
+compensating `1/s`.
 
-Tout ce qui n'est pas quantifié est donc copié **depuis le dépôt AWQ**, jamais
-depuis le checkpoint de base.
+Everything that is not quantized is therefore copied **from the AWQ
+repository**, never from the base checkpoint.
 
 ## Provenance
 
 | | |
 |---|---|
-| source | `{awq_repo}` révision `{awq_revision}` |
-| checkpoint de référence | `{base_repo}` révision `{base_revision}` |
-| produit par | `ops/awq_dequant.py dequant` |
-| dtype | f16 partout |
-| tenseurs | {n_tensors} ({n_proj} projections reconstruites, {n_carried} portés) |
-| poids | {n_weights} |
+| source | `{awq_repo}` revision `{awq_revision}` |
+| reference checkpoint | `{base_repo}` revision `{base_revision}` |
+| produced by | `ops/awq_dequant.py dequant` |
+| dtype | f16 everywhere |
+| tensors | {n_tensors} ({n_proj} projections rebuilt, {n_carried} carried) |
+| weights | {n_weights} |
 
-`quantization_config` est **retiré** du `config.json` : ce qui est écrit ici
-n'est plus quantifié.
+`quantization_config` is **removed** from `config.json`: what is written here is
+no longer quantized.
 
-## Contrôles passés avant publication
+## Controls passed before publication
 
-* **L2 — ré-empaquetage.** Nos flottants sont re-convertis en `qweight` /
-  `qzeros` et comparés **octet pour octet** au fichier source, sur les {n_proj}
-  projections. Ferme le group size, la convention de zéro (pas de `-1`) et
-  l'arithmétique des quartets.
-* **L1 — recoupement avec le checkpoint non quantifié.** AWQ garantit
-  `W_awq[out, in] ~= W_base[out, in] * s[in]` ; ajuster un scalaire par canal
-  d'entrée doit laisser exactement le bruit de quantification du bras. C'est ce
-  contrôle qui épingle l'ordre `AWQ_REVERSE_ORDER` des quartets, que L2 seul ne
-  peut pas voir.
-* **L4 — budget de narrowing.** L'erreur du cast f16 est au moins {margin} fois
-  sous l'erreur de quantification du bras lui-même.
-* **Iso-périmètre.** {same} tenseurs portés identiques, {diff} différents.
+* **L2, repack.** Our floats are converted back to `qweight` / `qzeros` and
+  compared **byte for byte** with the source file, on the {n_proj}
+  projections. Pins the group size, the zero-point convention (no `-1`) and
+  the nibble arithmetic.
+* **L1, cross-check with the unquantized checkpoint.** AWQ guarantees
+  `W_awq[out, in] ~= W_base[out, in] * s[in]`; fitting one scalar per input
+  channel must leave exactly the arm's own quantization noise. This is the
+  control that pins the `AWQ_REVERSE_ORDER` nibble order, which L2 alone cannot
+  see.
+* **L4, narrowing budget.** The f16 cast error is at least {margin} times below
+  the arm's own quantization error.
+* **Iso-perimeter.** {same} carried tensors identical, {diff} different.
 
-Le rapport complet, avec le sha256 de chaque fichier, est dans
-`RECONSTRUCTION.json`.
+The full report, with the sha256 of every file, is in `RECONSTRUCTION.json`.
 
-## Limite déclarée
+## Declared limit
 
-On mesure la **reconstruction**, pas l'arithmétique fusionnée du noyau AWQ. Un
-noyau fusé accumule dans un autre ordre ; l'écart est borné, pas nul.
+We measure the **reconstruction**, not the AWQ kernel's fused arithmetic. A
+fused kernel accumulates in a different order; the deviation is bounded, not
+zero.
 """
 
 
@@ -2185,13 +2182,14 @@ def cmd_push(args) -> int:
     out = Path(args.out)
     rpath = out / "RECONSTRUCTION.json"
     if not rpath.exists():
-        print(f"aucun rapport dans {rpath} : lance `dequant` d'abord", file=sys.stderr)
+        print(f"no report in {rpath}: run `dequant` first", file=sys.stderr)
         return 2
     report = json.loads(rpath.read_text(encoding="utf-8"))
     if not report.get("ok"):
         failed = [k for k, v in report.get("controls", {}).items() if not v.get("ok")]
-        print(f"refus : les contrôles {failed} n'ont pas passé."
-              "\nUn objet qu'on ne sait pas juste ne se publie pas.", file=sys.stderr)
+        print(f"refused: controls {failed} did not pass."
+              "\nAn object we cannot show to be right does not get published.",
+              file=sys.stderr)
         return 1
 
     # The report certifies bytes, not a directory. Between `dequant` and here a
@@ -2201,30 +2199,30 @@ def cmd_push(args) -> int:
     # controls above are only worth what the files still are.
     waived = report.get("controls", {}).get("l1", {}).get("waived", [])
     if waived:
-        print("\n⚠️  DÉROGATION L1 — à reproduire dans toute publication de ces poids :")
+        print("\nWARNING: L1 WAIVER, to repeat in any publication of these weights:")
         for w in waived:
             row = next((r for r in report["controls"]["l1"]["detail"]
                         if r["name"] == w), {})
-            print(f"    {w} : ratio {row.get('ratio')}, L2 identique au fichier AWQ —"
-                  "\n    l'alignement au checkpoint de base ne tient pas sur ce tenseur"
-                  " (propriété de l'export amont).")
-    print(f"\nvérification des octets contre {rpath.name}")
+            print(f"    {w}: ratio {row.get('ratio')}, L2 identical to the AWQ file."
+                  "\n    The alignment with the base checkpoint does not hold on this"
+                  " tensor (a property of the upstream export).")
+    print(f"\nchecking the bytes against {rpath.name}")
     drift: list[str] = []
     listed = report.get("output", {}).get("files", [])
     if not listed:
-        drift.append("le rapport ne liste aucun fichier")
+        drift.append("the report lists no file")
     for entry in listed:
         f = out / entry["name"]
         if not f.exists():
-            drift.append(f"{entry['name']} : absent")
+            drift.append(f"{entry['name']}: missing")
             continue
         if f.stat().st_size != entry["bytes"]:
             drift.append(
-                f"{entry['name']} : {f.stat().st_size} o, {entry['bytes']} certifiés"
+                f"{entry['name']}: {f.stat().st_size} B, {entry['bytes']} certified"
             )
             continue
         if sha256_file(f) != entry["sha256"]:
-            drift.append(f"{entry['name']} : sha256 différent")
+            drift.append(f"{entry['name']}: sha256 differs")
     extra = sorted(
         p.name
         for p in out.iterdir()
@@ -2233,14 +2231,14 @@ def cmd_push(args) -> int:
         and p.name not in {e["name"] for e in listed}
     )
     if extra:
-        drift.append(f"poids non certifiés dans le répertoire : {extra}")
+        drift.append(f"uncertified weights in the directory: {extra}")
     if drift:
-        print("refus : le répertoire ne correspond plus au rapport."
+        print("refused: the directory no longer matches the report."
               "\n  " + "\n  ".join(drift)
-              + "\nRelance `dequant` : on ne publie pas des octets qu'aucun "
-                "contrôle n'a vus.", file=sys.stderr)
+              + "\nRe-run `dequant`: we do not publish bytes that no control "
+                "has seen.", file=sys.stderr)
         return 1
-    print(f"  ok    {len(listed)} fichiers, sha256 et tailles conformes")
+    print(f"  ok    {len(listed)} files, sha256 and sizes match")
 
     margin = report["controls"]["l4"]["worst_margin"]
     card = MODEL_CARD.format(
@@ -2256,21 +2254,21 @@ def cmd_push(args) -> int:
         n_weights=report["output"]["weights"],
         same=report["controls"]["perimeter"]["identical"],
         diff=report["controls"]["perimeter"]["different"],
-        margin=f"{margin:,.0f}" if isinstance(margin, (int, float)) else "n/d",
+        margin=f"{margin:,.0f}" if isinstance(margin, (int, float)) else "n/a",
     )
     (out / "README.md").write_text(card, encoding="utf-8")
 
     total = sum(f["bytes"] for f in report["output"]["files"])
-    print(f"\nà publier : {out} -> {args.repo} "
-          f"({'public' if args.public else 'privé'})")
-    print(f"  {len(report['output']['files'])} fichiers, {total / 1e9:.2f} Go")
-    print("  carte : « reconstruction de mesure, pas un modèle à utiliser »")
+    print(f"\nto publish: {out} -> {args.repo} "
+          f"({'public' if args.public else 'private'})")
+    print(f"  {len(report['output']['files'])} files, {total / 1e9:.2f} GB")
+    print('  card: "measurement reconstruction, not a model to use"')
     if not args.public:
-        print("\n  ⚠️  un dépôt PRIVÉ n'est pas scorable : côté Rust, `hf-hub` ne lit"
-              "\n      jamais HF_TOKEN (plan §2.5). Pour la campagne, --public.")
+        print("\n  WARNING: a PRIVATE repository cannot be scored: on the Rust side,"
+              "\n      `hf-hub` never reads HF_TOKEN (plan §2.5). Use --public.")
     if not args.yes:
         sys.stdout.flush()
-        print("\nrefus : publier engage le compte. Relance avec --yes.",
+        print("\nrefused: publishing commits the account. Re-run with --yes.",
               file=sys.stderr)
         return 1
 
@@ -2279,9 +2277,9 @@ def cmd_push(args) -> int:
         repo_id=args.repo,
         repo_type="model",
         folder_path=str(out),
-        commit_message=f"Reconstruction f16 dense de {report['source']['repo']}",
+        commit_message=f"Dense f16 reconstruction of {report['source']['repo']}",
     )
-    print(f"\npublié : https://huggingface.co/{args.repo}")
+    print(f"\npublished: https://huggingface.co/{args.repo}")
     return 0
 
 
@@ -2292,65 +2290,64 @@ def main() -> int:
     def common(sp):
         sp.add_argument("--awq-repo", default=AWQ_REPO)
         sp.add_argument("--awq-revision", default=None,
-                        help="défaut : la révision épinglée dans EXPECTED pour "
-                             "ce dépôt, `main` s'il n'y en a pas")
+                        help="default: the revision pinned in EXPECTED for this "
+                             "repository, `main` if there is none")
         sp.add_argument("--base-repo", default=BASE_REPO)
         sp.add_argument("--base-revision", default=None,
-                        help="défaut : la révision de base épinglée par la même "
-                             "entrée, `main` si elle ne nomme pas ce dépôt")
+                        help="default: the base revision pinned by the same "
+                             "entry, `main` if it does not name this repository")
         sp.add_argument("--full-embed", action="store_true",
-                        help="comparer l'embedding en entier (778 Mo) au lieu de "
-                             "trois sondages")
+                        help="compare the whole embedding (778 MB) instead of "
+                             "three probes")
         sp.add_argument("--allow-unknown-repo", action="store_true",
-                        help="accepter un dépôt sans attentes enregistrées")
+                        help="accept a repository with no recorded expectations")
 
-    s = sub.add_parser("selftest", help="les verrous hors ligne, ~1 s, sans réseau")
+    s = sub.add_parser("selftest", help="the offline locks, ~1 s, no network")
     s.set_defaults(fn=cmd_selftest)
 
-    c = sub.add_parser("check", help="L2/L1/L4 par requêtes Range, sans téléchargement")
+    c = sub.add_parser("check", help="L2/L1/L4 by Range requests, no download")
     common(c)
     c.add_argument("--samples", type=int, default=4,
-                   help="projections échantillonnées (~10 Mo AWQ + 25 Mo base pièce)")
+                   help="projections sampled (~10 MB AWQ + 25 MB base each)")
     c.set_defaults(fn=cmd_check)
 
-    d = sub.add_parser("dequant", help="reconstruction complète vers un répertoire")
+    d = sub.add_parser("dequant", help="full reconstruction into a directory")
     common(d)
-    d.add_argument("--out", required=True, help="répertoire de sortie")
+    d.add_argument("--out", required=True, help="output directory")
     d.add_argument("--awq-file", default=None,
-                   help="model.safetensors déjà local, au lieu de le retélécharger")
+                   help="model.safetensors already local, instead of re-downloading")
     d.add_argument("--l1-samples", type=int, default=6,
-                   help="projections recoupées avec le checkpoint de base")
+                   help="projections cross-checked against the base checkpoint")
     d.add_argument("--waive-l1", default="",
-                   help="tenseurs (séparés par des virgules) dont un échec L1 "
-                        "est DÉROGÉ : le L2 (octets du fichier AWQ) doit rester "
-                        "identique, la dérogation est écrite dans le rapport et "
-                        "criée par `push` — pour un export amont dont "
-                        "l'alignement au checkpoint de base ne tient pas sur un "
-                        "tenseur isolé")
+                   help="tensors (comma separated) whose L1 failure is WAIVED: "
+                        "L2 (the bytes of the AWQ file) must stay identical, the "
+                        "waiver is written into the report and shouted by "
+                        "`push`. For an upstream export whose alignment with the "
+                        "base checkpoint does not hold on one isolated tensor")
     d.add_argument("--shard-gb", type=float, default=4.0,
-                   help="taille max d'un shard, en Go décimaux")
+                   help="max shard size, in decimal GB")
     d.set_defaults(fn=cmd_dequant)
 
-    u = sub.add_parser("push", help="publier la reconstruction sur le Hub")
-    u.add_argument("repo", help="ex. Pier-Jean/qwen3-4b-awq-deq")
-    u.add_argument("--out", required=True, help="répertoire produit par `dequant`")
+    u = sub.add_parser("push", help="publish the reconstruction to the Hub")
+    u.add_argument("repo", help="e.g. Pier-Jean/qwen3-4b-awq-deq")
+    u.add_argument("--out", required=True, help="directory produced by `dequant`")
     u.add_argument("--public", action="store_true",
-                   help="requis pour que bin/ppl puisse le charger")
-    u.add_argument("--yes", action="store_true", help="confirmer la publication")
+                   help="required so that bin/ppl can load it")
+    u.add_argument("--yes", action="store_true", help="confirm the publication")
     u.set_defaults(fn=cmd_push)
 
     args = p.parse_args()
     if hasattr(args, "awq_repo"):  # `push` reads its revisions from the report
         for flag in resolve_revision(args):
-            print(f"⚠️  {flag} non épinglé : lecture sur `main`, donc ce run "
-                  "n'est pas reproductible dans le temps")
+            print(f"WARNING: {flag} not pinned: reading from `main`, so this run "
+                  "is not reproducible over time")
     try:
         return args.fn(args)
     except Fatal as e:
-        print(f"\nerreur : {e}", file=sys.stderr)
+        print(f"\nerror: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
-        print("\ninterrompu", file=sys.stderr)
+        print("\ninterrupted", file=sys.stderr)
         return 130
 
 

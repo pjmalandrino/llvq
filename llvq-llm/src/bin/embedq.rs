@@ -6,7 +6,7 @@
 //! Reads a sealed file, copies the quantized matrices through **without
 //! decoding them** (`write_matrix_raw` — byte-identical, pinned by test), and
 //! rewrites every f16 raw tensor of at least `min_weights` weights (default
-//! 1 000 000 — i.e. the embedding and nothing else; norms stay f16) as
+//! 1,000,000 — i.e. the embedding and nothing else; norms stay f16) as
 //! group-affine int8 or int4, groups of 64, MLX's exact scheme.
 //!
 //! Needs no checkpoint, no cache, no network: it operates on the deliverable.

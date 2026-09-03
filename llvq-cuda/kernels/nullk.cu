@@ -1,58 +1,58 @@
-// tv_nullk: le PLANCHER — la même passe, sans un octet de poids.
+// tv_nullk: the FLOOR, the same pass without one byte of weights.
 //
-// Bras `nullk` de `proofs/preregistration-p4-2026-08-14.md` §2.5 : *même
-// grille, même k, sortie écrite, aucune lecture de poids*.
+// Arm `nullk` of `proofs/preregistration-p4-2026-08-14.md` §2.5: *same grid,
+// same k, output written, no weight read*.
 //
-// ## Ce qu'il mesure, et pourquoi c'est le seul bras qui le mesure
+// ## What it measures, and why it is the only arm that measures it
 //
-// L'attribution du gisement CUDA découpe les 2,04 ms/token en **latence et
-// occupation 39 %, flux 33 %, décodage 19 %**. Les quatre tentatives de
-// descendre sous `Planes14` — E3, `Golay70` v2, `e1c14`, E1v — attaquaient
-// toutes les 33 % en gonflant les 19 %. **Personne n'a jamais attaqué les
-// 39 %**, et personne ne les a jamais mesurés directement : ils sont un reste,
-// obtenu par soustraction dans une attribution de 2026-08-05.
+// The CUDA attribution splits the 2.04 ms/token into **latency and occupancy
+// 39%, stream 33%, decoding 19%**. The four attempts to get under `Planes14`
+// (E3, `Golay70` v2, `e1c14`, E1v) all attacked the 33% by inflating the 19%.
+// **Nobody has ever attacked the 39%**, and nobody has ever measured it
+// directly: it is a residue, obtained by subtraction in an attribution of
+// 2026-08-05.
 //
-// Ce noyau est ce reste, rendu observable. Il garde TOUT ce qu'un bras LLVQ
-// fait autour du décodage :
+// This kernel is that residue, made observable. It keeps EVERYTHING an LLVQ
+// arm does around the decoding:
 //
-//   * la même grille — un warp par ligne, 8 lignes par bloc de 256 ;
-//   * le même tuilage et les deux mêmes `__syncthreads` ;
-//   * le même staging de l'activation en mémoire partagée ;
-//   * la même réduction `warp_sum` et le même épilogue de queue ;
-//   * la même écriture de `y`.
+//   * the same grid, one warp per row, 8 rows per block of 256;
+//   * the same tiling and the same two `__syncthreads`;
+//   * the same staging of the activation in shared memory;
+//   * the same `warp_sum` reduction and the same tail epilogue;
+//   * the same write of `y`.
 //
-// et il retire une seule chose : **la lecture et le décodage du bloc**.
+// and it removes exactly one thing: **reading and decoding the block**.
 //
-//     t(planes14) − t(nullk)  =  trafic de poids + décodage
-//     t(nullk)                =  tout le reste, c'est-à-dire les 39 %
+//     t(planes14) − t(nullk)  =  weight traffic + decoding
+//     t(nullk)                =  everything else, the 39%
 //
-// ## Le piège, et ce qui le désamorce
+// ## The trap, and what defuses it
 //
-// 🚨 Un noyau qui ne lit aucun poids est un noyau que le compilateur peut
-// vider. S'il vidait la boucle de tuiles, il supprimerait le staging — donc
-// précisément la moitié de ce que ce bras existe pour mesurer — et rendrait un
-// plancher flatteur que rien dans la sortie ne signalerait.
+// 🚨 A kernel that reads no weight is a kernel the compiler can empty out. If
+// it emptied the tile loop it would remove the staging, which is exactly half
+// of what this arm exists to measure, and it would return a flattering floor
+// that nothing in the output would report.
 //
-// Il accumule donc l'ACTIVATION STAGÉE elle-même : `xs[j]` est lu depuis la
-// mémoire partagée, le résultat part dans `y`, et la chaîne
-// global → partagé → registre → global est complète. Le staging est
-// load-bearing par construction, pas par espoir.
+// So it accumulates the STAGED ACTIVATION itself: `xs[j]` is read from shared
+// memory, the result goes into `y`, and the chain global → shared → register
+// → global is complete. The staging is load-bearing by construction, not by
+// hope.
 //
-// ⚠️ Ce que ce bras ne peut PAS être : vérifié contre la référence f64. Il ne
-// calcule pas le produit du modèle et n'a aucun étalon — comme `sol` dans
-// `bin/rankbench`, c'est une ancre, et ce qu'on exige de lui est d'être
-// OBSERVABLE, pas juste. Le banc le traite ainsi explicitement.
+// ⚠️ What this arm can NOT be: checked against the f64 reference. It does not
+// compute the model's product and has no standard to be held to. Like `sol`
+// in `bin/rankbench` it is an anchor, and what is asked of it is to be
+// OBSERVABLE, not correct. The bench treats it that way explicitly.
 //
-// ## Ce qu'il ne mesure pas
+// ## What it does not measure
 //
-// Ni la latence de lancement seule (108 lancements en moins valent 0,392 ms
-// mesurés ailleurs), ni l'occupation seule. Il rend leur somme plus le staging
-// plus la réduction — un plafond sur ce qu'un décodage parfaitement gratuit
-// laisserait, et c'est exactement la quantité qui manque au dossier.
+// Neither launch latency alone (108 launches fewer are worth 0.392 ms,
+// measured elsewhere) nor occupancy alone. It returns their sum plus the
+// staging plus the reduction: a ceiling on what a perfectly free decoding
+// would leave, and exactly the quantity the dossier is missing.
 //
-// Même contrat d'assemblage que `planes.cu` : NVRTC n'a pas de système de
-// fichiers, l'hôte concatène, et les gardes ci-dessous ne résolvent depuis le
-// disque que sous une vérification hôte (`bin/cuhcheck`).
+// Same assembly contract as `planes.cu`: NVRTC has no file system, the host
+// concatenates, and the guards below only resolve from disk under a host
+// check (`bin/cuhcheck`).
 
 #ifndef TILE_COLS
 #include "matvec.cu"
@@ -79,9 +79,9 @@ extern "C" __global__ void tv_nullk(const float* __restrict__ rscale,
         for (u32 i = threadIdx.x; i < n; i += blockDim.x) xs[i] = x[jlo * LLVQ_DIM + i];
         __syncthreads();
 
-        // La boucle de `tv_planes`, au décodage près. Chaque lane touche les 24
-        // créneaux de ses blocs — même nombre d'itérations, même accès à la
-        // partagée — et n'ouvre aucun mot de poids.
+        // The loop of `tv_planes`, minus the decoding. Each lane touches the
+        // 24 slots of its blocks, same iteration count, same access to shared
+        // memory, and opens no weight word.
         for (u32 j = jlo + lane; j < jhi; j += 32u) {
             const float* xb = xs + (j - jlo) * LLVQ_DIM;
 #pragma unroll

@@ -6,14 +6,14 @@
 //! things it structurally cannot check, and they are this job's entire
 //! purpose:
 //!
-//!   * **register pressure** — `rot_mix` holds a `LLVQ_ROT_KMAX`-wide array in
+//!   * **register pressure**: `rot_mix` holds a `LLVQ_ROT_KMAX`-wide array in
 //!     registers, and that only works if the unrolled loops let it. A spill
 //!     would not change a single result; it would quietly cost occupancy. The
 //!     driver reports it, so it is an error here rather than a mystery later.
-//!   * **the barriers** — at one thread a barrier is vacuous, so the host
+//!   * **the barriers**: at one thread a barrier is vacuous, so the host
 //!     harness cannot tell a correct `__syncthreads()` from a missing one.
 //!     With 1024 threads on a card, a missing one is a wrong answer.
-//!   * **the cost** — 144 of these run per token in the fused decode. If one
+//!   * **the cost**: 144 of these run per token in the fused decode. If one
 //!     is not a few microseconds, the whole plan changes.
 //!
 //! ## Why the fixture is built here and not downloaded
@@ -65,14 +65,14 @@ mod linux {
     /// `(n, seed, what it is)`. The three widths of the published 4B first,
     /// then the shapes that exercise the branches around them.
     const CASES: [(usize, u64, &str); 9] = [
-        (2560, 0x5, "Qwen3-4B hidden — q/k/v/gate/up"),
-        (4096, 0x6, "Qwen3-4B o_proj — k=1, no mix"),
-        (9728, 0x7, "Qwen3-4B down_proj — k=19, widest"),
+        (2560, 0x5, "Qwen3-4B hidden, q/k/v/gate/up"),
+        (4096, 0x6, "Qwen3-4B o_proj, k=1, no mix"),
+        (9728, 0x7, "Qwen3-4B down_proj, k=19, widest"),
         (12288, 0x8, "Qwen3-8B intermediate"),
-        // 69 632 o of staging: over the default allowance, under the opt-in.
-        // The only shape here that exercises the opt-in path at all, and the
-        // width that a billed job refused on 2026-08-17 before it existed.
-        (17408, 0x9, "Qwen3-14B intermediate — opt-in de partagée"),
+        // 69,632 bytes of staging: over the default allowance, under the
+        // opt-in. The only shape here that exercises the opt-in path at all,
+        // and the width a billed job refused on 2026-08-17 before it existed.
+        (17408, 0x9, "Qwen3-14B intermediate, shared opt-in"),
         (3072, 0x4, "Qwen3-0.6B intermediate"),
         (1024, 0x3, "narrow, k=1"),
         (96, 0x2, "small"),
@@ -85,21 +85,21 @@ mod linux {
     pub fn run() -> Result<(), String> {
         let sources = llvq_cuda::load_sources_named(&["llvq_rot.cuh", "rotate.cu"])?;
         let src = KernelSource::new(&[&sources.slot, &sources.cu]);
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &sources.overridden_from {
-            println!("  ⚠️ SOURCES SURCHARGÉES depuis {d}");
+            println!("  WARNING: SOURCES OVERRIDDEN from {d}");
         }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
         println!(
-            "\n{} — {} SM, {} o de partagée par bloc ({} après opt-in)",
+            "\n{}: {} SM, {} B of shared memory per block ({} after opt-in)",
             dev.name, dev.sm_count, dev.shared_per_block, dev.shared_per_block_optin
         );
 
         let rep = cuda.report("rot_apply")?;
         println!(
-            "  {:<10} {:>3} registres, {} o locaux, sm_{}, {} threads max",
+            "  {:<10} {:>3} registers, {} local B, sm_{}, {} max threads",
             rep.name, rep.num_regs, rep.local_bytes, rep.binary_version, rep.max_threads
         );
         // The one hardware fact the host harness cannot produce. `rot_mix`
@@ -107,28 +107,28 @@ mod linux {
         // unrolled; if they did not, this is where it shows.
         if rep.local_bytes != 0 {
             return Err(format!(
-                "rot_apply : {} octets de spill — `col` n'est pas resté en registres",
+                "rot_apply: {} bytes of spill. `col` did not stay in registers",
                 rep.local_bytes
             ));
         }
         // The opt-in is a property of the loaded function, so it is posed once
-        // here, for the widest case in the table — not per launch, and not per
+        // here, for the widest case in the table, not per launch, and not per
         // case: re-posing it between timed cases would make the narrow widths
         // and the wide ones different objects inside one run.
         //
-        // 🚨 And it makes this run a different object from every rotbench run
+        // And it makes this run a different object from every rotbench run
         // before 2026-08-17. Raising a function's maximum dynamic shared size
         // is what the driver reads to bound its occupancy, and the L1/shared
         // carveout follows from it; whether it moves the microseconds of the
         // *narrow* widths is not knowable from here, and this repository does
         // not subtract numbers from runs that never coexisted. So: the
         // correctness columns compare across the change, the µs column does
-        // not. A run that wants the old object drops the 17 408 line.
+        // not. A run that wants the old object drops the 17,408 line.
         let widest = CASES.iter().map(|&(n, _, _)| rot_bytes(n)).max().unwrap_or(0);
         let f = cuda.func_dynamic_shared("rot_apply", widest as u32)?;
 
-        println!("\nVérification contre la référence f64");
-        println!("  {:<34}{:>7}{:>5}{:>4}{:>12}{:>12}", "forme", "n", "m", "k", "rel", "pire coord");
+        println!("\nVerification against the f64 reference");
+        println!("  {:<34}{:>7}{:>5}{:>4}{:>12}{:>12}", "shape", "n", "m", "k", "rel", "max coord");
         println!("  {}", "-".repeat(74));
 
         let mut worst_rel = 0.0f64;
@@ -139,15 +139,15 @@ mod linux {
             let rot = Rotation::new(n, seed);
             let (m, k) = (rot.pow2(), rot.odd());
             if k > ROT_KMAX {
-                return Err(format!("{what} : k={k} dépasse KMAX={ROT_KMAX}"));
+                return Err(format!("{what}: k={k} exceeds KMAX={ROT_KMAX}"));
             }
-            // Both bounds, not just the default — and the same function the
+            // Both bounds, not just the default, and the same function the
             // model path calls, so a width this bench accepts is a width the
             // model accepts.
             rot_plan(n, dev.shared_per_block as usize, dev.shared_per_block_optin as usize)
-                .map_err(|e| format!("{what} : {e}"))?;
+                .map_err(|e| format!("{what}: {e}"))?;
 
-            // Drawn in f32, narrowed to f16, widened for the reference — so
+            // Drawn in f32, narrowed to f16, widened for the reference, so
             // the kernel is compared against the vector it was handed, not
             // against one it never saw.
             let mut rng = SplitMix64::new(seed ^ 0xa5a5_a5a5);
@@ -203,7 +203,7 @@ mod linux {
 
             println!("  {what:<34}{n:>7}{m:>5}{k:>4}{rel:>12.3e}{cmax:>12.3e}");
             if !(rel < TOL_REL && cmax < TOL_COORD) {
-                return Err(format!("{what} : rel {rel:.3e}, pire coord {cmax:.3e} — hors seuil"));
+                return Err(format!("{what}: rel {rel:.3e}, coord {cmax:.3e}, over threshold"));
             }
             worst_rel = worst_rel.max(rel);
             worst_coord = worst_coord.max(cmax);
@@ -212,7 +212,7 @@ mod linux {
             let norm_out = got.iter().map(|&g| g as f64 * g as f64).sum::<f64>().sqrt();
             let dn = (norm_out - norm_in).abs() / norm_in;
             if dn > TOL_REL {
-                return Err(format!("{what} : norme {norm_in:.9} → {norm_out:.9} ({dn:.3e})"));
+                return Err(format!("{what}: norm {norm_in:.9} → {norm_out:.9} ({dn:.3e})"));
             }
 
             for _ in 0..WARMUP {
@@ -230,11 +230,11 @@ mod linux {
         }
 
         println!("  {}", "-".repeat(74));
-        println!("  pire sur {} formes : rel {worst_rel:.3e}, coord {worst_coord:.3e}", CASES.len());
+        println!("  worst of {} shapes: rel {worst_rel:.3e}, coord {worst_coord:.3e}", CASES.len());
 
-        println!("\nCoût — {ROUNDS} lancements enchaînés, {WARMUP} jetés");
-        println!("  ⚠️ un lancement à la fois, sur un stream vide : c'est la latence isolée,");
-        println!("     pas ce que coûtera la même rotation intercalée entre deux matvecs.");
+        println!("\nCost: {ROUNDS} back-to-back launches, {WARMUP} discarded");
+        println!("  WARNING: one launch at a time, on an empty stream. This is isolated latency,");
+        println!("     not what the same rotation will cost interleaved between two matvecs.");
         println!("  {:>7}{:>12}", "n", "µs");
         println!("  {}", "-".repeat(19));
         for (n, us) in &timings {
@@ -245,8 +245,8 @@ mod linux {
         // block, one per distinct activation, over 36 blocks.
         let per = |n: usize| timings.iter().find(|(w, _)| *w == n).map(|(_, u)| *u).unwrap_or(0.0);
         let token = 36.0 * (2.0 * per(2560) + per(4096) + per(9728));
-        println!("\n  Projection Qwen3-4B : 36 blocs × (2×2560 + 4096 + 9728) = {token:.0} µs/token");
-        println!("  À rapporter aux ~23 400 µs d'un token f16 mesuré sur L40S le 2026-08-05.");
+        println!("\n  Qwen3-4B projection: 36 blocks × (2×2560 + 4096 + 9728) = {token:.0} µs/token");
+        println!("  Compare with the ~23,400 µs of an f16 token measured on L40S, 2026-08-05.");
         Ok(())
     }
 }

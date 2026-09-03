@@ -43,14 +43,14 @@ fn main() -> anyhow::Result<()> {
     ];
     let _ = kv;
 
-    println!("modèle : {repo}   (hidden {h}, intermediate {inter})");
-    println!("g = ‖bloc de 24‖ / row_scale(ligne) — c'est ce que le codebook de gain quantifie\n");
+    println!("model: {repo}   (hidden {h}, intermediate {inter})");
+    println!("g = ‖block of 24‖ / row_scale(row) — this is what the gain codebook quantizes\n");
 
     for (name, d_out, d_in) in picks {
         let t = match vb.get((d_out, d_in), name) {
             Ok(t) => t,
             Err(e) => {
-                println!("{name} : absent ({e})\n");
+                println!("{name}: missing ({e})\n");
                 continue;
             }
         };
@@ -84,9 +84,9 @@ fn main() -> anyhow::Result<()> {
         let var = g.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
         let skew = g.iter().map(|v| ((v - mean) / var.sqrt()).powi(3)).sum::<f64>() / n;
 
-        println!("── {name}  ({d_out}×{d_in}, {} blocs)", g.len());
+        println!("── {name}  ({d_out}×{d_in}, {} blocks)", g.len());
         println!(
-            "   g : moyenne {mean:.6}  médiane {:.6}  p1 {:.6}  p99 {:.6}  asymétrie {skew:+.3}",
+            "   g: mean {mean:.6}  median {:.6}  p1 {:.6}  p99 {:.6}  skew {skew:+.3}",
             q(0.5),
             q(0.01),
             q(0.99)
@@ -118,11 +118,11 @@ fn main() -> anyhow::Result<()> {
                 .join("  ");
             let rel = (c[0] / mean - 1.0) * 100.0;
             println!(
-                "   k={k} ({} niveaux)  niveaux : {lvls}",
+                "   k={k} ({} levels)  levels: {lvls}",
                 c.len()
             );
             println!(
-                "        population : {pct}   |  bloc reconstruit trop court : {:.1}%  |  niveau bas vs moyenne k=0 : {rel:+.2}%",
+                "        population: {pct}   |  block reconstructed too short: {:.1}%  |  low level vs k=0 mean: {rel:+.2}%",
                 100.0 * short as f64 / n
             );
         }

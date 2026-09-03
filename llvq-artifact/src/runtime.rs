@@ -1717,7 +1717,7 @@ mod bitcursor_tests {
             data[(bit / 8) as usize] |= 1 << (bit % 8);
             assert!(
                 !BitCursor::new(&data, 0).is_zero(96),
-                "bit {bit} manqué par is_zero"
+                "bit {bit} missed by is_zero"
             );
         }
         assert!(BitCursor::new(&[0u8; 12], 0).is_zero(96));

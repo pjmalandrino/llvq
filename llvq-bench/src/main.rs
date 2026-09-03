@@ -76,7 +76,7 @@ fn main() {
     row("LLVQ spherical shaping (m ≤ 3)", r_sph, mse_sph);
     for (k, r, mse, bound) in &rows_sg {
         row(&format!("LLVQ shape–gain, {k}-bit gain (m ≤ 3)"), *r, *mse);
-        row(&format!("  ↳ borne, gain optimal ({k}-bit)"), *r, *bound);
+        row(&format!("  ↳ bound, optimal gain ({k}-bit)"), *r, *bound);
     }
     println!(
         "{:<38} {:>9.4} {:>9.4} {:>12.4} {:>9.2}",
@@ -131,7 +131,7 @@ fn main() {
     row("LLVQ spherical shaping (m ≤ 13)", r13, mse13);
     for (k, r, mse, bound) in &rows_sg13 {
         row(&format!("LLVQ shape–gain, {k}-bit gain (m ≤ 13)"), *r, *mse);
-        row(&format!("  ↳ borne, gain optimal ({k}-bit)"), *r, *bound);
+        row(&format!("  ↳ bound, optimal gain ({k}-bit)"), *r, *bound);
     }
     // Single shell vs the union: same harness, one line of difference. Gain
     // centroids are fitted on `train`, like every other row — measuring them
@@ -156,10 +156,10 @@ fn main() {
         100.0
     );
     println!(
-        "\nLes lignes « shape–gain » codent le gain sur la NORME du bloc, comme\n\
-         LeechShapeGain — c'est le quantifieur livré. Les lignes « borne »\n\
-         codent la projection ⟨x,v̂⟩, qui minimise l'erreur à direction fixée :\n\
-         c'est un plancher, pas une configuration, et l'écart vaut 2/(1+cos θ).\n\
-         Les tables de docs/ d'avant le 2026-08-01 rapportaient la borne."
+        "\nThe \"shape–gain\" rows code the gain on the block NORM, the way\n\
+         LeechShapeGain does. That is the shipped quantizer. The \"bound\" rows\n\
+         code the projection ⟨x,v̂⟩, which minimizes the error at fixed\n\
+         direction: a floor, not a configuration, and the gap is 2/(1+cos θ).\n\
+         The docs/ tables written before 2026-08-01 reported the bound."
     );
 }

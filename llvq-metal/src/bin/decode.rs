@@ -214,9 +214,9 @@ fn main() -> Result<(), String> {
     let xvec: Vec<f32> = (0..DIM).map(|i| 1.0 + i as f32 * 0.125).collect();
 
     let floor = llvq_metal::Kernel::new(SRC, "floor_copy")?;
-    println!("GPU : {}", floor.device_name());
+    println!("GPU: {}", floor.device_name());
     let overhead = floor.overhead(20);
-    println!("  surcoût de soumission {:.3} ms\n", overhead * 1e3);
+    println!("  submission overhead {:.3} ms\n", overhead * 1e3);
 
     let bcodes = floor.buffer(&codes);
     let bmags = floor.buffer(&mags);
@@ -227,7 +227,7 @@ fn main() -> Result<(), String> {
         let net = secs - overhead;
         let per_block = net / N as f64;
         println!(
-            "  {name:<18}{:>9.3} ms{:>12.2} ns/bloc{:>14.2e} blocs/s{:>9}",
+            "  {name:<18}{:>9.3} ms{:>12.2} ns/block{:>14.2e} blocks/s{:>9}",
             net * 1e3,
             per_block * 1e9,
             1.0 / per_block,
@@ -242,7 +242,7 @@ fn main() -> Result<(), String> {
 
     println!(
         "  {:<18}{:>12}{:>19}{:>19}{:>9}",
-        "noyau", "temps", "par bloc", "débit", "vs sol"
+        "kernel", "time", "per block", "throughput", "vs sol"
     );
     println!("  {}", "-".repeat(80));
 
@@ -252,7 +252,7 @@ fn main() -> Result<(), String> {
         enc.set_buffer(1, Some(&bx), 0);
         enc.set_buffer(2, Some(&bout), 0);
     });
-    let t_floor = report("sol (aucun décodage)", t.seconds, 0.0);
+    let t_floor = report("sol (no decoding)", t.seconds, 0.0);
 
     // ---- masks ----
     let masks = llvq_metal::Kernel::new(SRC, "decode_masks")?;
@@ -305,26 +305,26 @@ fn main() -> Result<(), String> {
         enc.set_buffer(4, Some(&bx), 0);
         enc.set_buffer(5, Some(&bout), 0);
     });
-    let t_rank = report("rang (récurrence u64)", t.seconds, t_floor);
+    let t_rank = report("rang (u64 recurrence)", t.seconds, t_floor);
 
     // ---- what it means ----
     println!("  {}", "-".repeat(80));
     let blocks_4b = 3_633_315_840f64 / 24.0;
-    println!("\n  Pour un Qwen3-4B ({:.0} M blocs) et un token :", blocks_4b / 1e6);
+    println!("\n  For one Qwen3-4B ({:.0} M blocks) and one token:", blocks_4b / 1e6);
     for (name, per_block) in [
         ("masques", t_masks / N as f64),
         ("rang", t_rank / N as f64),
     ] {
         let decode_ms = blocks_4b * per_block * 1e3;
         println!(
-            "    {name:<10} décodage seul {decode_ms:>7.2} ms  →  plafond {:>6.0} tok/s",
+            "    {name:<10} decode alone {decode_ms:>7.2} ms  →  ceiling {:>6.0} tok/s",
             1000.0 / decode_ms
         );
     }
     println!(
-        "\n  À comparer au plafond mémoire : ~190-200 tok/s (le décodage doit\n  \
-         se cacher dessous, pas s'y ajouter — dans un noyau fusé les deux se\n  \
-         recouvrent)."
+        "\n  Compare against the memory ceiling: ~190-200 tok/s (the decode has to\n  \
+         hide under it rather than add to it — in a fused kernel the two\n  \
+         overlap)."
     );
     Ok(())
 }

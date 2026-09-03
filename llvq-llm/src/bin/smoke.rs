@@ -8,7 +8,7 @@
 //! only difference between the two numbers is the codebook.
 //!
 //! Deviations from the paper, stated up front:
-//!   * calibration on WikiText-2 **train**, not 6 100 DCLM-edu sequences —
+//!   * calibration on WikiText-2 **train**, not 6,100 DCLM-edu sequences —
 //!     same-domain calibration flatters the result, so this is a pipeline
 //!     check, not a comparable figure;
 //!   * far fewer calibration tokens than the paper uses;
@@ -125,8 +125,8 @@ where
         None => Ok(default),
         Some(s) => s.parse().map_err(|e| {
             anyhow::anyhow!(
-                "argument {i} ({name}) = {s:?} n'est pas un nombre : {e}\n\
-                 Ordre attendu : {USAGE}"
+                "argument {i} ({name}) = {s:?} is not a number: {e}\n\
+                 Expected order: {USAGE}"
             )
         }),
     }
@@ -158,7 +158,7 @@ impl Mode {
             Some("gs") => Ok(Self::Gs),
             Some("dc") => Ok(Self::DesignC),
             Some(other) => Err(format!(
-                "mode {other:?} : valeurs admises « nogs » (défaut), « gs » et « dc »"
+                "mode {other:?}: accepted values `nogs` (default), `gs` and `dc`"
             )),
         }
     }
@@ -179,7 +179,7 @@ fn parse_rotation(v: Option<&str>) -> Result<Option<u64>, String> {
         None | Some("norot") => Ok(None),
         Some("rot") => Ok(Some(ROTATION_SEED)),
         Some(other) => Err(format!(
-            "rotation {other:?} : valeurs admises « rot » et « norot » (défaut)"
+            "rotation {other:?}: accepted values `rot` and `norot` (default)"
         )),
     }
 }
@@ -209,8 +209,8 @@ impl CalibCorpus {
             Some("c4") => Ok(Self::C4),
             Some("wikitext2-test") => Ok(Self::Wikitext2Test),
             Some(other) => Err(format!(
-                "LLVQ_CALIB={other} : valeurs admises « wikitext2 » (défaut), \
-                 « c4 » et « wikitext2-test »"
+                "LLVQ_CALIB={other}: accepted values `wikitext2` (default), \
+                 `c4` and `wikitext2-test`"
             )),
         }
     }
@@ -263,20 +263,20 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     if spec.starts_with("int") {
         return parse_int(spec);
     }
-    let grammar = "valeurs admises « identity », « grid », « direction », \
-                   « int<bits>g<groupe> » et \
-                   « leech[<gain>][c<coquille>][L<niveaux>][f] » — \
-                   ex. « int3g24 », « leech1 », « leech1c12 », « leech1c12L3 », « leech1c12f »";
+    let grammar = "accepted values `identity`, `grid`, `direction`, \
+                   `int<bits>g<group>` and \
+                   `leech[<gain>][c<shell>][L<levels>][f]` — \
+                   e.g. `int3g24`, `leech1`, `leech1c12`, `leech1c12L3`, `leech1c12f`";
     let rest = spec
         .strip_prefix("leech")
-        .ok_or_else(|| format!("codebook {spec:?} : {grammar}"))?;
+        .ok_or_else(|| format!("codebook {spec:?}: {grammar}"))?;
 
     let (gain, rest) = split_digits(rest);
     let gain_bits: u32 = if gain.is_empty() {
         1
     } else {
         gain.parse()
-            .map_err(|e| format!("codebook {spec:?} : gain {gain:?} illisible ({e})"))?
+            .map_err(|e| format!("codebook {spec:?}: gain {gain:?} unreadable ({e})"))?
     };
     // The `f` suffix sits at the very end, so it comes off before the fields
     // are read left to right. Order is then enforced by requiring an empty
@@ -289,26 +289,26 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     let (rest, level_cap) =
         take_field(spec, rest, 'L', llvq_search::generic::MAX_LEVELS_ANY as u32)?;
     if !rest.is_empty() {
-        return Err(format!("codebook {spec:?} : {rest:?} en trop — {grammar}"));
+        return Err(format!("codebook {spec:?}: {rest:?} left over — {grammar}"));
     }
 
     if gain_bits > MAX_GAIN_BITS {
         return Err(format!(
-            "codebook {spec:?} : {gain_bits} bits de gain, maximum {MAX_GAIN_BITS}"
+            "codebook {spec:?}: {gain_bits} gain bits, maximum {MAX_GAIN_BITS}"
         ));
     }
     // `BallSearcher::set_shell_cap` asserts this range three hours into a run;
     // `enumerate_classes` asserts the upper half of it one line below.
     if !(2..=llvq_search::classes::MAX_SHELL).contains(&max_shell) {
         return Err(format!(
-            "codebook {spec:?} : coquille {max_shell}, admis 2..={}",
+            "codebook {spec:?}: shell {max_shell}, accepted 2..={}",
             llvq_search::classes::MAX_SHELL
         ));
     }
     let cap = llvq_search::generic::MAX_LEVELS_ANY as u32;
     if level_cap == 0 || level_cap > cap {
         return Err(format!(
-            "codebook {spec:?} : {level_cap} niveaux, admis 1..={cap} ({cap} n'exclut rien)"
+            "codebook {spec:?}: {level_cap} levels, accepted 1..={cap} ({cap} excludes nothing)"
         ));
     }
     let level_cap = level_cap as usize;
@@ -318,8 +318,8 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     let classes = class_count(max_shell, level_cap);
     if classes == 0 {
         return Err(format!(
-            "codebook {spec:?} : aucune classe ne survit à (coquille ≤ {max_shell}, \
-             niveaux ≤ {level_cap}) — le codebook serait vide"
+            "codebook {spec:?}: no class survives (shell ≤ {max_shell}, \
+             levels ≤ {level_cap}) — the codebook would be empty"
         ));
     }
     Ok(Codebook::ShapeGain {
@@ -341,28 +341,28 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
 /// `g128` is the field default of AutoGPTQ, and costs `bits + 0.25` instead of
 /// `bits + 1.33`.
 fn parse_int(spec: &str) -> Result<Codebook, String> {
-    let grammar = "grammaire « int<bits>g<groupe> » — bits 1..=8, groupe 8..=1024, \
-                   ex. « int3g24 » (apparié au bloc de Leech) ou « int4g128 » \
-                   (le défaut d'AutoGPTQ)";
+    let grammar = "grammar `int<bits>g<group>` — bits 1..=8, group 8..=1024, \
+                   e.g. `int3g24` (paired with the Leech block) or `int4g128` \
+                   (the AutoGPTQ default)";
     let rest = spec
         .strip_prefix("int")
-        .ok_or_else(|| format!("codebook {spec:?} : {grammar}"))?;
+        .ok_or_else(|| format!("codebook {spec:?}: {grammar}"))?;
     let (digits, rest) = split_digits(rest);
     if digits.is_empty() {
-        return Err(format!("codebook {spec:?} : bits manquants — {grammar}"));
+        return Err(format!("codebook {spec:?}: bits missing — {grammar}"));
     }
     let bits: u32 = digits
         .parse()
-        .map_err(|e| format!("codebook {spec:?} : bits {digits:?} illisibles ({e})"))?;
+        .map_err(|e| format!("codebook {spec:?}: bits {digits:?} unreadable ({e})"))?;
     let (rest, group) = take_field_required(spec, rest, 'g', grammar)?;
     if !rest.is_empty() {
-        return Err(format!("codebook {spec:?} : {rest:?} en trop — {grammar}"));
+        return Err(format!("codebook {spec:?}: {rest:?} left over — {grammar}"));
     }
     // `1u32 << bits` overflows at 32, and a 9-bit "INT" is not a thing anyone
     // ships; the bound is the useful one, not the representable one.
     if !(1..=8).contains(&bits) {
         return Err(format!(
-            "codebook {spec:?} : {bits} bits, admis 1..=8 — {grammar}"
+            "codebook {spec:?}: {bits} bits, accepted 1..=8 — {grammar}"
         ));
     }
     // The lower bound keeps the f16 scale and zero from dominating the rate
@@ -372,7 +372,7 @@ fn parse_int(spec: &str) -> Result<Codebook, String> {
     // would report a baseline as if it were a result.
     if !(8..=1024).contains(&group) {
         return Err(format!(
-            "codebook {spec:?} : groupe {group}, admis 8..=1024 — {grammar}"
+            "codebook {spec:?}: group {group}, accepted 8..=1024 — {grammar}"
         ));
     }
     Ok(Codebook::ScalarGroup {
@@ -393,16 +393,16 @@ fn take_field_required<'a>(
 ) -> Result<(&'a str, u32), String> {
     let after = rest
         .strip_prefix(tag)
-        .ok_or_else(|| format!("codebook {spec:?} : « {tag} » attendu — {grammar}"))?;
+        .ok_or_else(|| format!("codebook {spec:?}: `{tag}` expected — {grammar}"))?;
     let (digits, rest) = split_digits(after);
     if digits.is_empty() {
         return Err(format!(
-            "codebook {spec:?} : « {tag} » doit être suivi d'un nombre — {grammar}"
+            "codebook {spec:?}: `{tag}` must be followed by a number — {grammar}"
         ));
     }
     let v = digits
         .parse()
-        .map_err(|e| format!("codebook {spec:?} : « {tag}{digits} » illisible ({e})"))?;
+        .map_err(|e| format!("codebook {spec:?}: `{tag}{digits}` unreadable ({e})"))?;
     Ok((rest, v))
 }
 
@@ -428,12 +428,12 @@ fn take_field<'a>(
     let (digits, tail) = split_digits(after);
     if digits.is_empty() {
         return Err(format!(
-            "codebook {spec:?} : « {tag} » doit être suivi d'un nombre"
+            "codebook {spec:?}: `{tag}` must be followed by a number"
         ));
     }
     let v = digits
         .parse()
-        .map_err(|e| format!("codebook {spec:?} : « {tag}{digits} » illisible ({e})"))?;
+        .map_err(|e| format!("codebook {spec:?}: `{tag}{digits}` unreadable ({e})"))?;
     Ok((tail, v))
 }
 
@@ -637,7 +637,7 @@ fn verify_artifact(path: &str, model: &Qwen3, dtype: DType) -> anyhow::Result<()
         checked += decoded.len();
     }
     eprintln!(
-        "  ✓ {checked} weights identical, bit for bit (à {})",
+        "  ✓ {checked} weights identical, bit for bit (at {})",
         llvq_llm::eval::dtype_name(dtype)
     );
     Ok(())
@@ -657,8 +657,8 @@ fn main() -> anyhow::Result<()> {
     let eval_ctx: usize = arg(&a, 3, "eval_ctx", 2048)?;
     // Zero would be a division by zero when the window count is clamped to the
     // corpus, three seconds after the model finishes loading.
-    anyhow::ensure!(calib_len > 0, "calib_len doit être > 0");
-    anyhow::ensure!(eval_ctx > 0, "eval_ctx doit être > 0");
+    anyhow::ensure!(calib_len > 0, "calib_len must be > 0");
+    anyhow::ensure!(eval_ctx > 0, "eval_ctx must be > 0");
     let device = llvq_llm::eval::device(a.get(4).map(String::as_str).unwrap_or("cpu"))?;
     // Algorithm 3's closed-form gain refinement. Appendix I treats it as part
     // of the 0-gain-bit configuration, not as an extra. `gs` is the raw
@@ -678,7 +678,7 @@ fn main() -> anyhow::Result<()> {
     // this is the single most expensive argument in the file: the de-risking
     // pass and the full run differ by this number alone, and by ~$56.
     let limit: usize = arg(&a, 7, "blocks", usize::MAX)?;
-    anyhow::ensure!(limit > 0, "blocks doit être > 0 — 0 ne quantifie rien");
+    anyhow::ensure!(limit > 0, "blocks must be > 0 — 0 quantizes nothing");
     // Incoherence rotation on each linear's input basis (paper Table 9's
     // "Input" column). `rot` to enable, `norot` to state it is off.
     let rotation_seed =
@@ -693,8 +693,8 @@ fn main() -> anyhow::Result<()> {
         Ok(s) if !s.is_empty() => {
             let n: usize = s
                 .parse()
-                .map_err(|e| anyhow::anyhow!("LLVQ_THREADS={s:?} n'est pas un nombre : {e}"))?;
-            anyhow::ensure!(n > 0, "LLVQ_THREADS={s:?} : il en faut au moins un");
+                .map_err(|e| anyhow::anyhow!("LLVQ_THREADS={s:?} is not a number: {e}"))?;
+            anyhow::ensure!(n > 0, "LLVQ_THREADS={s:?}: at least one is needed");
             n
         }
         _ => std::thread::available_parallelism()
@@ -726,7 +726,7 @@ fn main() -> anyhow::Result<()> {
     let calib_seed = match std::env::var("LLVQ_CALIB_SEED") {
         Ok(s) if !s.is_empty() => Some(
             s.parse::<u64>()
-                .map_err(|e| anyhow::anyhow!("LLVQ_CALIB_SEED={s:?} n'est pas un entier : {e}"))?,
+                .map_err(|e| anyhow::anyhow!("LLVQ_CALIB_SEED={s:?} is not an integer: {e}"))?,
         ),
         _ => None,
     };
@@ -786,16 +786,16 @@ fn main() -> anyhow::Result<()> {
         // just made *and* the blocks it just paid for.
         let Some(a) = &artifact_path else {
             anyhow::bail!(
-                "LLVQ_RESUME={r} sans LLVQ_ARTIFACT : une reprise recopie son shard \
-                 dans sa propre sortie, donc sans fichier de sortie elle jette à la \
-                 fois le shard et les blocs qu'elle vient de calculer."
+                "LLVQ_RESUME={r} without LLVQ_ARTIFACT: a resume copies its shard \
+                 into its own output, so with no output file it throws away both \
+                 the shard and the blocks it just computed."
             );
         };
         anyhow::ensure!(
             a != r,
-            "LLVQ_RESUME et LLVQ_ARTIFACT désignent le même fichier ({r}) : la \
-             sortie est ouverte en création, donc le shard serait tronqué avant \
-             d'être lu."
+            "LLVQ_RESUME and LLVQ_ARTIFACT name the same file ({r}): the output \
+             is opened for creation, so the shard would be truncated before it \
+             is read."
         );
     }
     // What a shard cannot record about the run that wrote it, and what a
@@ -852,18 +852,18 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  model        {repo}");
     eprintln!("  codebook     {}", codebook_line(&kind, &codebook));
     eprintln!(
-        "  calibration  {}, {n_calib} × {calib_len} = {} tokens demandés, {}",
+        "  calibration  {}, {n_calib} × {calib_len} = {} tokens requested, {}",
         calib.name(),
         n_calib.saturating_mul(calib_len),
         match calib_seed {
-            Some(s) => format!("offsets tirés (graine {s})"),
-            None => "préfixe contigu depuis le token 0".into(),
+            Some(s) => format!("offsets drawn (seed {s})"),
+            None => "contiguous prefix from token 0".into(),
         }
     );
     eprintln!(
         "  rotation     {}",
         match rotation_seed {
-            Some(s) => format!("on (graine {s:#x})"),
+            Some(s) => format!("on (seed {s:#x})"),
             None => "off".into(),
         }
     );
@@ -876,30 +876,30 @@ fn main() -> anyhow::Result<()> {
     eprintln!(
         "  blocks       {}",
         if limit == usize::MAX {
-            "tous".into()
+            "all".into()
         } else {
-            format!("{limit} au plus")
+            format!("{limit} at most")
         }
     );
-    eprintln!("  eval         wikitext-2 test, {n_eval} fenêtres × {eval_ctx}");
+    eprintln!("  eval         wikitext-2 test, {n_eval} windows × {eval_ctx}");
     eprintln!("  dtype        {}", llvq_llm::eval::dtype_name(dtype));
     eprintln!("  device       {device:?}, {threads} encoder threads");
-    eprintln!("  damping      {damping:e} (relatif à mean(diag H))");
+    eprintln!("  damping      {damping:e} (relative to mean(diag H))");
     eprintln!(
         "  h_shrink     {h_shrink} ({})",
         if h_shrink < 1.0 {
-            "ρ·H + (1−ρ)·diag H, base naturelle — M1"
+            "ρ·H + (1−ρ)·diag H, natural basis — M1"
         } else {
-            "H tel quel, chemin publié"
+            "H as is, published path"
         }
     );
     eprintln!(
         "  artifact     {}",
-        artifact_path.as_deref().unwrap_or("(aucun)")
+        artifact_path.as_deref().unwrap_or("(none)")
     );
     eprintln!(
-        "  reprise      {}",
-        resume_path.as_deref().unwrap_or("(non — départ au bloc 0)")
+        "  resume       {}",
+        resume_path.as_deref().unwrap_or("(no — start at block 0)")
     );
     eprintln!("=====================");
 
@@ -918,10 +918,10 @@ fn main() -> anyhow::Result<()> {
             let diffs = prev.diff(&state);
             anyhow::ensure!(
                 diffs.is_empty(),
-                "reprise refusée : {p} a été produit sous une autre configuration.\n  \
-                 {}\n\nUn artefact dont les moitiés ne partagent pas la même \
-                 calibration est valide en apparence et faux : rien en aval ne le \
-                 détecte, et la perplexité qui en sort n'est explicable par personne.",
+                "resume refused: {p} was produced under a different configuration.\n  \
+                 {}\n\nAn artifact whose halves do not share the same calibration \
+                 looks valid and is wrong: nothing downstream detects it, and \
+                 nobody can explain the perplexity that comes out.",
                 diffs.join("\n  ")
             );
             // The sidecar's own claim about the shard, against the file's. Two
@@ -933,20 +933,21 @@ fn main() -> anyhow::Result<()> {
             {
                 anyhow::ensure!(
                     blocks <= claim,
-                    "reprise refusée : {p} porte {blocks} blocs entiers mais son \
-                     état en annonce {claim}. Le fichier et l'état ne décrivent pas \
-                     le même objet."
+                    "resume refused: {p} carries {blocks} whole blocks but its \
+                     state claims {claim}. The file and the state do not \
+                     describe the same object."
                 );
                 if blocks < claim {
                     eprintln!(
-                        "  ⚠️  le shard visait {claim} blocs et en a {blocks} : run \
-                         interrompu, la reprise repart du bloc {blocks}."
+                        "  WARNING: the shard targeted {claim} blocks and holds \
+                         {blocks}: run interrupted, the resume restarts at block \
+                         {blocks}."
                     );
                 }
             }
             eprintln!(
-                "reprise depuis {p} : {matrices} matrices, blocs 0..{} déjà \
-                 quantifiés — la quantification repart au bloc {blocks}.",
+                "resume from {p}: {matrices} matrices, blocks 0..{} already \
+                 quantized — quantization restarts at block {blocks}.",
                 blocks.saturating_sub(1)
             );
             blocks
@@ -954,9 +955,9 @@ fn main() -> anyhow::Result<()> {
     };
     anyhow::ensure!(
         limit > start,
-        "blocks = {limit} et la reprise démarre au bloc {start} : ce run ne \
-         quantifierait aucun bloc. « blocks » est une borne absolue, pas un \
-         nombre de blocs à faire."
+        "blocks = {limit} and the resume starts at block {start}: this run would \
+         quantize no block. `blocks` is an absolute bound, not a count of blocks \
+         to do."
     );
 
     let ck = Checkpoint::fetch(&repo)?;
@@ -1030,7 +1031,7 @@ fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("{e}"))?
         .get_ids()
         .to_vec();
-    anyhow::ensure!(n_calib > 0, "n_calib doit être > 0");
+    anyhow::ensure!(n_calib > 0, "n_calib must be > 0");
     // 🚨 This used to be `n_calib.min(train_ids.len() / calib_len)` — a
     // **silent clamp**. A run that asked for 2048 windows and got 847 said so
     // nowhere except in a line nobody diffs, and reported its result under the
@@ -1040,9 +1041,9 @@ fn main() -> anyhow::Result<()> {
     let available = train_ids.len() / calib_len;
     anyhow::ensure!(
         available >= n_calib,
-        "le corpus de calibration ne porte que {available} fenêtres de {calib_len} \
-         ({} tokens lus) — {n_calib} demandées. Ce run échoue ici plutôt que d'en \
-         servir moins en silence : un volume publié doit être un volume mesuré.",
+        "the calibration corpus only holds {available} windows of {calib_len} \
+         ({} tokens read) — {n_calib} requested. This run fails here rather than \
+         serving fewer in silence: a published volume must be a measured volume.",
         train_ids.len()
     );
     eprintln!(
@@ -1085,8 +1086,8 @@ fn main() -> anyhow::Result<()> {
     let n_target = limit.min(model.blocks.len());
     anyhow::ensure!(
         n_target > start,
-        "la reprise démarre au bloc {start} et le modèle n'a que {} blocs sous \
-         la borne demandée : rien à quantifier",
+        "the resume starts at block {start} and the model has only {} blocks under \
+         the requested bound: nothing to quantize",
         n_target
     );
     let per_block = llvq_llm::calib::matrices_per_block();
@@ -1131,8 +1132,8 @@ fn main() -> anyhow::Result<()> {
             let per = el / done as f64;
             let left = n_target.saturating_sub(t + 1);
             eprintln!(
-                "  bloc {:>3}/{n_target}  {:.0} min écoulées  {per:.0} s/bloc  \
-                 reste ~{:.0} min  (fin estimée à +{:.1} h)",
+                "  block {:>3}/{n_target}  {:.0} min elapsed  {per:.0} s/block  \
+                 ~{:.0} min left  (estimated end at +{:.1} h)",
                 t + 1,
                 el / 60.0,
                 per * left as f64 / 60.0,
@@ -1152,7 +1153,7 @@ fn main() -> anyhow::Result<()> {
             let mut st = state.clone();
             st.set(llvq_llm::artifact2::RunState::BLOCKS, n_target);
             let sp = st.write(p)?;
-            eprintln!("  état du run écrit dans {sp}");
+            eprintln!("  run state written to {sp}");
             Some(s)
         }
         None => None,
@@ -1173,8 +1174,8 @@ fn main() -> anyhow::Result<()> {
                     ..
                 } => (max_shell, gain_bits),
                 _ => anyhow::bail!(
-                    "reprise refusée : seul un codebook shape–gain écrit un \
-                     artefact, donc seul lui peut en reprendre un"
+                    "resume refused: only a shape-gain codebook writes an \
+                     artifact, so only it can resume one"
                 ),
             };
             let expect = llvq_llm::artifact2::ShardExpect {
@@ -1185,7 +1186,7 @@ fn main() -> anyhow::Result<()> {
             let scan =
                 llvq_llm::artifact2::resume_from_shard(&mut model, p, s.writer(), &expect, &device)?;
             eprintln!(
-                "  ✓ {} matrices recopiées et rechargées ({} poids, {} blocs) en {:.1} s",
+                "  ✓ {} matrices copied and reloaded ({} weights, {} blocks) in {:.1} s",
                 scan.matrices, scan.weights, scan.blocks, scan.seconds
             );
             scan
@@ -1228,13 +1229,13 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!(
         "quantized {} matrices, {} weights ({:.4} bits/weight){}; \
-         ce segment a tourné {:.0}s",
+         this segment ran {:.0}s",
         report.matrices,
         report.weights,
         report.bits_per_weight(),
         if resumed.matrices > 0 {
             format!(
-                ", dont {} matrices reprises du shard",
+                ", of which {} matrices resumed from the shard",
                 resumed.matrices
             )
         } else {
@@ -1246,7 +1247,7 @@ fn main() -> anyhow::Result<()> {
     // backend — Leech encoding on Metal, forward passes on a CPU-only job — so
     // the only way to know what to optimize (and which flavor to rent) is to
     // read it off the run itself.
-    eprintln!("phases :");
+    eprintln!("phases:");
     for (name, secs, pct) in report.phases.ranked() {
         eprintln!("  {name:<22}{secs:>9.1}s{pct:>7.1} %");
     }
@@ -1257,10 +1258,10 @@ fn main() -> anyhow::Result<()> {
     // claims — so the omission is made loud instead.
     if !cfg!(feature = "fast-linalg") {
         eprintln!(
-            "\n  ⚠️  compilé SANS `fast-linalg` : la factorisation tourne sur \
-             l'implémentation\n      de référence, ~40× plus lente que `faer` \
-             pour un résultat identique.\n      Ajouter `--features fast-linalg` \
-             avant de payer du matériel."
+            "\n  WARNING: compiled WITHOUT `fast-linalg`. The factorization runs on \
+             the reference\n      implementation, ~40× slower than `faer` \
+             for an identical result.\n      Add `--features fast-linalg` \
+             before paying for hardware."
         );
     }
 
@@ -1280,7 +1281,7 @@ fn main() -> anyhow::Result<()> {
         "\n=== {repo} [{kind}, {n_target} blocks{}, rot {}, mode {}, calib {}/{}], \
          wikitext-2, ctx {eval_ctx}, {n_eval} windows ===",
         if start > 0 {
-            format!(" ({start} repris)")
+            format!(" ({start} resumed)")
         } else {
             String::new()
         },
@@ -1309,8 +1310,8 @@ fn main() -> anyhow::Result<()> {
     // from a shell history six weeks later.
     if resumed.blocks > 0 {
         println!(
-            "segments                 = repris au bloc {start} depuis {} \
-             (états cachés recalculés, pas restaurés)",
+            "segments                 = resumed at block {start} from {} \
+             (hidden states recomputed, not restored)",
             resume_path.as_deref().unwrap_or("?")
         );
     }

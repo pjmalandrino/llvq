@@ -3,20 +3,20 @@
 //! `matvec <model.llvq>` measures **the published model**: one token's worth
 //! of linear algebra over its 252 projections. With no argument it falls back
 //! to synthetic blocks over the seven shapes of Qwen3-4B, repeated until a
-//! pass exceeds the card's L2 — useful for iterating on the kernel without
+//! pass exceeds the card's L2, useful for iterating on the kernel without
 //! moving 1.77 GB, and nothing else.
 //!
 //! The two paths share every line downstream of the input, so a difference
 //! between them can only come from the data. And it does: uniform draws over
-//! the cap-13 ball give a wider class mix than a real quantization (65.85 % of
-//! the artifact's blocks have exactly 4 levels), hence wider group strides —
+//! the cap-13 ball give a wider class mix than a real quantization (65.85% of
+//! the artifact's blocks have exactly 4 levels), hence wider group strides:
 //! 5.742 b/weight synthetic against 5.510 measured on the file. **The
 //! synthetic run reads more bytes per weight than the model does**, so it is
 //! the pessimistic one; only the run with a path is the headline.
 //!
 //! ## The cache the measurement has to defeat
 //!
-//! The card reports its L2, and it turned out to be 100.7 MB — not the 48 or
+//! The card reports its L2, and it turned out to be 100.7 MB, not the 48 or
 //! 96 that third-party sources give. Getting that wrong is a trap this
 //! repository already fell into: 11-17 MB buffers replayed 576 times inside a
 //! 48 MB system cache made every earlier LLVQ figure optimistic. On the real
@@ -28,7 +28,7 @@
 //! Every row of every matrix is checked against an f64 CPU reference built
 //! from the transcoded blocks. Errors are relative to Σ|wᵢ·xᵢ|.
 //!
-//! ⚠️ The CUDA and Metal outputs are **not** bit-comparable and must never be
+//! The CUDA and Metal outputs are **not** bit-comparable and must never be
 //! diffed against each other: `simd_sum` and a `__shfl_xor_sync` butterfly
 //! reduce in different orders, and the two compilers contract FMAs by their
 //! own rules. Each is checked against the shared f64 reference; two worst
@@ -78,7 +78,7 @@ mod linux {
     /// One matrix's inputs, whatever they came from.
     ///
     /// The synthetic path and the artifact path differ only here; everything
-    /// downstream — the f64 reference, the f16 rounding, the upload — is the
+    /// downstream (the f64 reference, the f16 rounding, the upload) is the
     /// same code, so a difference between the two runs can only come from the
     /// data.
     struct Src {
@@ -190,15 +190,15 @@ mod linux {
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
         let src = KernelSource::new(&parts);
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &sources.overridden_from {
-            println!("  ⚠️ SOURCES SURCHARGÉES depuis {d}");
+            println!("  WARNING: SOURCES OVERRIDDEN from {d}");
         }
 
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
         println!(
-            "\n{} — {} SM, L2 {:.1} Mo (lue), {} o de partagée par bloc",
+            "\n{}: {} SM, L2 {:.1} MB (read), {} B of shared memory per block",
             dev.name,
             dev.sm_count,
             dev.l2_bytes as f64 / 1e6,
@@ -210,11 +210,11 @@ mod linux {
         for name in ["tv_slot", "tv_f16", "tv_floor_stream", "tv_floor_tab", "tv_floor_xs"] {
             let r = cuda.report(name)?;
             println!(
-                "  {:<10} {:>3} registres, {} o locaux, sm_{}",
+                "  {:<10} {:>3} registers, {} local B, sm_{}",
                 r.name, r.num_regs, r.local_bytes, r.binary_version
             );
             if r.local_bytes != 0 {
-                return Err(format!("{name} : {} octets de spill", r.local_bytes));
+                return Err(format!("{name}: {} bytes of spill", r.local_bytes));
             }
         }
 
@@ -229,7 +229,7 @@ mod linux {
 
         let fd = FastDecoder::new();
         let table = ClassTable::new(&fd, 1);
-        assert!(24 + table.worst_width_slot() <= 160, "fenêtre de 5 mots dépassée");
+        assert!(24 + table.worst_width_slot() <= 160, "five-word window overflowed");
 
         let mut tab = vec![0u32; TABLE_ENTRIES * REC_WORDS];
         for e in 0..TABLE_ENTRIES {
@@ -260,8 +260,8 @@ mod linux {
             let (d_out, d_in) = (s.d_out, s.d_in);
             let nblocks = d_in / DIM;
             let tail_w = d_in % DIM;
-            assert_eq!(d_out % 8, 0, "{}: CUDA lance des blocs entiers", s.name);
-            assert!(d_in <= x.len(), "{}: d_in {d_in} dépasse l'activation", s.name);
+            assert_eq!(d_out % 8, 0, "{}: CUDA launches whole blocks", s.name);
+            assert!(d_in <= x.len(), "{}: d_in {d_in} exceeds the activation", s.name);
             let rt = transcode(&fd, &table, &s.indices, &s.gains, Layout::Slot32)
                 .map_err(|e| e.to_string())?;
 
@@ -351,7 +351,7 @@ mod linux {
             })
         };
 
-        println!("\nConstruction et transcodage…");
+        println!("\nBuilding and transcoding…");
         let t0 = Instant::now();
         let mut mats = Vec::new();
         // Kept alive past `build`: the fusion arm re-transcodes a
@@ -367,8 +367,8 @@ mod linux {
                 let f = std::fs::File::open(&path).map_err(|e| format!("open {path}: {e}"))?;
                 let mut r = std::io::BufReader::new(f);
                 let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
-                println!("  {path} — {} matrices", h.matrices);
-                source = format!("le modèle publié ({path})");
+                println!("  {path}: {} matrices", h.matrices);
+                source = format!("the published model ({path})");
                 for _ in 0..h.matrices {
                     let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
                     // Every decoder hard-codes one gain bit (`hdr >> 9`).
@@ -377,7 +377,7 @@ mod linux {
                     assert_eq!(
                         m.centroids.len(),
                         2,
-                        "{}: les noyaux codent 1 bit de gain en dur",
+                        "{}: the kernels hard-code 1 gain bit",
                         m.name
                     );
                     n_weights += (m.d_out * m.d_in) as u64;
@@ -398,7 +398,7 @@ mod linux {
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
             None => {
-                source = format!("{reps} répétitions synthétiques des 7 formes");
+                source = format!("{reps} synthetic repetitions of the 7 shapes");
                 for r in 0..reps {
                     for &(name, d_out, d_in) in &SHAPES {
                         let n = d_out * (d_in / DIM);
@@ -430,7 +430,7 @@ mod linux {
         // against FP16 of 1.06×.
         //
         // The concatenation is done on the *indices*, before transcoding, so
-        // the fused matrix is one ordinary Slot32 stream — its groups of 32
+        // the fused matrix is one ordinary Slot32 stream: its groups of 32
         // simply straddle the segment boundaries, which the addressing has
         // always tolerated since they already straddle rows. Only the gain
         // centroids do not concatenate, and `gs_off` names each row's pair.
@@ -447,7 +447,7 @@ mod linux {
             tail: cudarc::driver::CudaSlice<f32>,
             slot_bytes: u64,
             /// Indices into `mats` of the matrices this one replaces, in row
-            /// order — the fused output must equal their outputs concatenated.
+            /// order. The fused output must equal their outputs concatenated.
             parts: Vec<usize>,
         }
 
@@ -491,12 +491,12 @@ mod linux {
                 let d_in = srcs[idx[0]].d_in;
                 assert!(
                     idx.iter().all(|&i| srcs[i].d_in == d_in),
-                    "{key}: fusion exige un d_in commun"
+                    "{key}: fusion requires a common d_in"
                 );
                 let nblocks = d_in / DIM;
                 let tail_w = d_in % DIM;
                 let d_out: usize = idx.iter().map(|&i| srcs[i].d_out).sum();
-                assert_eq!(d_out % 8, 0, "{key}: CUDA lance des blocs entiers");
+                assert_eq!(d_out % 8, 0, "{key}: CUDA launches whole blocks");
 
                 let mut indices = Vec::with_capacity(d_out * nblocks);
                 let mut gains = Vec::with_capacity(d_out * nblocks);
@@ -543,7 +543,7 @@ mod linux {
                 });
             }
             println!(
-                "  fusion : {} groupes ({} matrices → {}), transcodés en {:.0} s",
+                "  fusion: {} groups ({} matrices → {}), transcoded in {:.0} s",
                 fused.len(),
                 fused.iter().map(|f| f.parts.len()).sum::<usize>(),
                 fused.len(),
@@ -559,7 +559,7 @@ mod linux {
             .unwrap();
         let mut d_y = cuda.zeros_f32(max_dout)?;
         println!(
-            "  {} matrices, {:.2} Md de poids, en {:.0} s",
+            "  {} matrices, {:.2} G weights, in {:.0} s",
             mats.len(),
             n_weights as f64 / 1e9,
             t0.elapsed().as_secs_f64()
@@ -579,32 +579,32 @@ mod linux {
             cuda.launch_f16(&f_f16, &m.w16, &d_x, y, m.d_in as u32, m.d_out as u32, THREADS, shared)
         };
 
-        println!("\nVérification de chaque ligne contre la référence f64…");
+        println!("\nChecking every row against the f64 reference…");
         let (mut wq, mut wf) = (0.0f64, 0.0f64);
         for m in &mats {
             run_slot(m, &mut d_y)?;
             cuda.sync()?;
             let got = cuda.down_f32(&d_y)?;
             let e = worst_error(&got[..m.d_out], &m.y_ref, &m.scale);
-            assert!(e < TOL, "{} / LLVQ : {e:.2e}·Σ|w·x|", m.name);
+            assert!(e < TOL, "{} / LLVQ: {e:.2e}·Σ|w·x|", m.name);
             wq = wq.max(e);
 
             run_f16(m, &mut d_y)?;
             cuda.sync()?;
             let got = cuda.down_f32(&d_y)?;
             let e = worst_error(&got[..m.d_out], &m.y16_ref, &m.scale);
-            assert!(e < TOL, "{} / FP16 : {e:.2e}·Σ|w·x|", m.name);
+            assert!(e < TOL, "{} / FP16: {e:.2e}·Σ|w·x|", m.name);
             wf = wf.max(e);
         }
         let rows: usize = mats.iter().map(|m| m.d_out).sum();
         println!(
-            "  {rows} lignes, seuil {TOL:.0e} — pire erreur LLVQ {wq:.1e}, FP16 {wf:.1e} ·Σ|w·x|"
+            "  {rows} rows, threshold {TOL:.0e}, worst error LLVQ {wq:.1e}, FP16 {wf:.1e} ·Σ|w·x|"
         );
 
         // One pass = all matrices, one stream, in order. The stream serializes
         // them, which is the dependency a transformer's layers really have.
         // Wall-clock around the pass and a synchronize, exactly as the Metal
-        // bench times its command buffer — so the two protocols are the same
+        // bench times its command buffer, so the two protocols are the same
         // shape and the two ratios are comparable.
         let mut t_slot = Vec::new();
         let mut t_f16 = Vec::new();
@@ -636,16 +636,16 @@ mod linux {
         let sb: u64 = mats.iter().map(|m| m.slot_bytes).sum();
         let fb: u64 = mats.iter().map(|m| m.f16_bytes).sum();
 
-        println!("\nUN TOKEN — {} matrices, un stream, bras entrelacés", mats.len());
-        println!("  {ROUNDS} rounds, {WARMUP} jetés ; le rapport est formé ROUND PAR ROUND");
+        println!("\nONE TOKEN: {} matrices, one stream, interleaved arms", mats.len());
+        println!("  {ROUNDS} rounds, {WARMUP} discarded; the ratio is formed ROUND BY ROUND");
         println!("  {}", "-".repeat(80));
         println!(
             "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}",
-            "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s"
+            "format", "min ms", "med ms", "max ms", "GB read", "b/weight", "GB/s"
         );
         for (n, (lo, md, hi), b) in [
             ("FP16 (128 bits)", (flo, fmd, fhi), fb),
-            ("LLVQ fusé (Slot32)", (slo, smd, shi), sb),
+            ("LLVQ fused (Slot32)", (slo, smd, shi), sb),
         ] {
             println!(
                 "  {n:<22}{:>9.3}{:>9.3}{:>9.3}{:>9.2}{:>9.3}{:>9.0}",
@@ -658,13 +658,13 @@ mod linux {
             );
         }
         println!("  {}", "-".repeat(80));
-        println!("  vs FP16 : {rmd:.2}× [{rlo:.2}–{rhi:.2}]");
+        println!("  vs FP16: {rmd:.2}× [{rlo:.2}–{rhi:.2}]");
         let read_per_pass: u64 = mats.iter().map(|m| m.slot_bytes).sum();
-        println!("\n  source : {source}");
+        println!("\n  source: {source}");
         println!(
-            "  {:.0} Mo de poids LLVQ distincts par passe, soit {:.1}× la L2 lue.\n  \
-             Sous 1× on mesurerait le cache et pas la DRAM — le piège qui a rendu\n  \
-             optimiste toute mesure LLVQ antérieure au 2026-07-31.",
+            "  {:.0} MB of distinct LLVQ weights per pass, that is {:.1}× the L2 read.\n  \
+             Under 1× we would be measuring the cache and not the DRAM, the trap that\n  \
+             made every LLVQ measurement before 2026-07-31 optimistic.",
             read_per_pass as f64 / 1e6,
             read_per_pass as f64 / dev.l2_bytes as f64
         );
@@ -673,15 +673,15 @@ mod linux {
         // under "synthetic" by whoever reads the log six months later.
         if std::env::args().nth(1).is_none() {
             println!(
-                "  ⚠️ blocs SYNTHÉTIQUES, tirés uniformément sur la boule m ≤ 13 : le chemin de\n  \
-                 décodage est exercé à l'identique, mais le mélange de classes d'un vrai\n  \
-                 artefact ne l'est pas, donc ses strides de groupe et son trafic d'octets\n  \
-                 diffèrent. Ce rapport mesure le NOYAU, pas le modèle publié — passer le\n  \
-                 chemin du .llvq en argument pour cela."
+                "  WARNING: SYNTHETIC blocks, drawn uniformly over the m ≤ 13 ball. The\n  \
+                 decoding path is exercised identically, but a real artifact's class mix\n  \
+                 is not, so its group strides and its byte traffic differ. This ratio\n  \
+                 measures the KERNEL, not the published model. Pass the .llvq path as an\n  \
+                 argument for that."
             );
         }
         // The tied lm_head is unquantized and read once per token by both
-        // arms — the same constant added to each, and what caps the ratio.
+        // arms: the same constant added to each, and what caps the ratio.
         // The Metal bench prints this; without it a projections-only ratio
         // gets read as an end-to-end one, which is the risk this dossier
         // names first.
@@ -689,18 +689,18 @@ mod linux {
         let bw = fb as f64 / flo;
         let head_s = head_bytes / bw;
         println!(
-            "\n  Avec le lm_head f16 non quantifié ({:.0} M poids, {:.2} ms sur les deux\n  \
-             bras au débit mesuré) : {:.2}× au lieu de {rmd:.2}×. C'est lui qui plafonne\n  \
-             le rapport, et attention — normes, activations, attention et rotation ne\n  \
-             sont mesurées ni ici ni là.",
+            "\n  With the unquantized f16 lm_head ({:.0} M weights, {:.2} ms on both arms\n  \
+             at the measured throughput): {:.2}× instead of {rmd:.2}×. That is what caps\n  \
+             the ratio. Norms, activations, attention and rotation are measured\n  \
+             neither here nor there.",
             389_070_848f64 / 1e6,
             head_s * 1e3,
             (flo + head_s) / (slo + head_s)
         );
         println!(
-            "\n  ⚠️ à ne JAMAIS comparer au chiffre Metal ligne à ligne : les deux réductions\n  \
-             somment dans des ordres différents et les deux compilateurs contractent les FMA\n  \
-             selon leurs propres règles. Chacun contre sa référence f64, deux pires erreurs."
+            "\n  WARNING: NEVER compare this to the Metal figure row by row. The two\n  \
+             reductions sum in different orders and the two compilers contract FMAs by\n  \
+             their own rules. Each against its own f64 reference, two worst errors."
         );
 
         // ================= ATTRIBUTION =================
@@ -713,18 +713,18 @@ mod linux {
         //
         // Two instruments, and their costs are declared:
         //
-        //   * the floor probes, timed exactly like the two arms — same rounds,
+        //   * the floor probes, timed exactly like the two arms: same rounds,
         //     same warmup, same wall-clock-around-a-pass. Their *differences*
         //     are the attribution; their absolute values are not baselines.
         //   * per-matrix CUDA events, which add a `cuEventRecord` between
         //     consecutive launches. That is not free, so these rounds are
         //     separate and their totals are NOT the published milliseconds.
-        println!("\n\n================= ATTRIBUTION (hors protocole publié) =================");
+        println!("\n\n============= ATTRIBUTION (outside the published protocol) =============");
 
         let floors = [
-            ("sol — bases + 5 mots", cuda.func("tv_floor_stream")?),
-            ("sol — + gather tab", cuda.func("tv_floor_tab")?),
-            ("sol — + 24 lectures xs", cuda.func("tv_floor_xs")?),
+            ("floor: bases + 5 words", cuda.func("tv_floor_stream")?),
+            ("floor: + gather tab", cuda.func("tv_floor_tab")?),
+            ("floor: + 24 xs reads", cuda.func("tv_floor_xs")?),
         ];
         let run_floor = |f: &cudarc::driver::CudaFunction,
                          m: &Mat,
@@ -766,22 +766,22 @@ mod linux {
 
         let (_, sub_md, _) = spread(submit_slot.clone());
         println!(
-            "\n  t_submit (LLVQ) : {:.3} ms de CPU pour {} lancements, soit {:.1} % du mur\n  \
-             et {:.2} µs par lancement — le gap `g` que le dossier laissait dans [1 ; 4] µs.",
+            "\n  t_submit (LLVQ): {:.3} ms of CPU for {} launches, that is {:.1}% of the wall\n  \
+             and {:.2} µs per launch, the gap `g` the dossier left in [1, 4] µs.",
             sub_md * 1e3,
             mats.len(),
             100.0 * sub_md / smd,
             sub_md * 1e6 / mats.len() as f64
         );
 
-        println!("\n  Décomposition — chaque étage ajoute UNE chose que `tv_slot` fait");
+        println!("\n  Breakdown: each stage adds ONE thing that `tv_slot` does");
         println!("  {}", "-".repeat(72));
-        println!("  {:<26}{:>10}{:>12}{:>12}", "étage", "méd ms", "Δ ms", "part des ~2 ms");
+        println!("  {:<26}{:>10}{:>12}{:>12}", "stage", "med ms", "Δ ms", "share of ~2 ms");
         println!("  {}", "-".repeat(72));
         let dram_floor = sb as f64 / (fb as f64 / flo) * 1e3; // 2.50 GB at the FP16 arm's rate
         let gisement = smd * 1e3 - dram_floor;
         let mut prev = dram_floor;
-        println!("  {:<26}{:>10.3}{:>12}{:>12}", "plancher DRAM (calculé)", dram_floor, "—", "—");
+        println!("  {:<26}{:>10.3}{:>12}{:>12}", "DRAM floor (computed)", dram_floor, "-", "-");
         for (fi, (name, _)) in floors.iter().enumerate() {
             let (_, md, _) = spread(floor_ms[fi].clone());
             let md = md * 1e3;
@@ -795,15 +795,15 @@ mod linux {
         let smd_ms = smd * 1e3;
         println!(
             "  {:<26}{smd_ms:>10.3}{:>12.3}{:>11.0} %",
-            "tv_slot (décodage)",
+            "tv_slot (decoding)",
             smd_ms - prev,
             100.0 * (smd_ms - prev) / gisement
         );
         println!("  {}", "-".repeat(72));
         println!(
-            "  gisement total {gisement:.3} ms au-dessus du plancher DRAM.\n  \
-             ⚠️ les sols ne calculent AUCUN produit : ce sont des diagnostics, jamais\n  \
-             des références. Aucun rapport ne doit être cité contre eux."
+            "  total headroom {gisement:.3} ms above the DRAM floor.\n  \
+             WARNING: the floors compute NO product. They are diagnostics, never\n  \
+             references. No ratio may ever be quoted against them."
         );
 
         // ---- per-shape timing, by CUDA events ----
@@ -843,22 +843,22 @@ mod linux {
         }
 
         // Aggregate by shape. Order of first appearance, which is the order of
-        // the model — so a reader can line the table up against a block.
+        // the model, so a reader can line the table up against a block.
         let mut shapes: Vec<(usize, usize)> = Vec::new();
         for m in &mats {
             if !shapes.contains(&(m.d_out, m.d_in)) {
                 shapes.push((m.d_out, m.d_in));
             }
         }
-        println!("\n  Temps par forme — {ev_rounds} rounds, events CUDA");
+        println!("\n  Time per shape: {ev_rounds} rounds, CUDA events");
         println!(
-            "  ⚠️ un `cuEventRecord` entre deux lancements n'est pas gratuit : ces\n  \
-             millisecondes ne sont PAS celles du tableau publié. Les lire en relatif."
+            "  WARNING: a `cuEventRecord` between two launches is not free. These\n  \
+             milliseconds are NOT the published table's. Read them relative to each other."
         );
         println!("  {}", "-".repeat(86));
         println!(
             "  {:<8}{:>7}{:>7}{:>6}{:>11}{:>11}{:>10}{:>10}{:>9}",
-            "forme", "d_out", "d_in", "n", "LLVQ µs", "FP16 µs", "LLVQ Go/s", "FP16 Go/s", "blocs"
+            "shape", "d_out", "d_in", "n", "LLVQ µs", "FP16 µs", "LLVQ GB/s", "FP16 GB/s", "blocks"
         );
         println!("  {}", "-".repeat(86));
         for (d_out, d_in) in &shapes {
@@ -886,9 +886,9 @@ mod linux {
         }
         println!("  {}", "-".repeat(86));
         println!(
-            "  capacité ≈ {} blocs résidents ({} SM × 6). Une forme très en dessous\n  \
-             et lente désigne le sous-remplissage ; toutes à ~430 Go/s désigne le\n  \
-             motif d'accès. C'est la lecture qui réécrit l'ordre de K7.",
+            "  capacity ≈ {} resident blocks ({} SM × 6). A shape that sits far below\n  \
+             that and runs slow points at underfill; all of them at ~430 GB/s points at\n  \
+             the access pattern. This reading is what rewrites the order of K7.",
             dev.sm_count * 6,
             dev.sm_count
         );
@@ -907,12 +907,12 @@ mod linux {
             };
 
             // The fused row `r` runs the same blocks, in the same order, with
-            // the same centroids as the unfused row it came from — nothing is
+            // the same centroids as the unfused row it came from, nothing is
             // reassociated. So the outputs must agree BIT FOR BIT, and a
             // tolerance here would let a wrong `gs_off` through: swapping two
             // segments' centroids moves a result by ~2×, but an epsilon-based
             // check on a different row would still pass.
-            println!("\n  Fusion — sortie contre les matrices non fusionnées");
+            println!("\n  Fusion: output against the unfused matrices");
             for f in &fused {
                 run_seg(f, &mut d_y)?;
                 cuda.sync()?;
@@ -928,7 +928,7 @@ mod linux {
                             .find(|&r| got[at + r] != want[r])
                             .unwrap_or(0);
                         return Err(format!(
-                            "{} / {} : ligne {bad} vaut {} fusionnée contre {} séparée",
+                            "{} / {}: row {bad} is {} fused against {} separate",
                             f.name, m.name, got[at + bad], want[bad]
                         ));
                     }
@@ -936,7 +936,7 @@ mod linux {
                 }
             }
             println!(
-                "  {} groupes, {} lignes — identiques AU BIT près",
+                "  {} groups, {} rows, identical BIT FOR BIT",
                 fused.len(),
                 fused.iter().map(|f| f.d_out).sum::<usize>()
             );
@@ -944,7 +944,7 @@ mod linux {
             // Cost. The comparison is LLVQ against LLVQ: the same 252
             // matrices' worth of weights, launched as 252 kernels or as 144.
             //
-            // ⚠️ No ratio against FP16 is formed here, and that is deliberate.
+            // No ratio against FP16 is formed here, and that is deliberate.
             // Fusing the FP16 arm too would mean rebuilding and holding a
             // second copy of 7.27 GB of f16 weights; until that is done, a
             // fused-LLVQ / unfused-FP16 ratio would credit the format for a
@@ -959,8 +959,8 @@ mod linux {
                             run_slot(m, &mut d_y)?;
                         }
                     } else {
-                        // The fusible matrices, fused; everything else — o_proj
-                        // and down_proj — exactly as before.
+                        // The fusible matrices, fused; everything else, o_proj
+                        // and down_proj, exactly as before.
                         for f in &fused {
                             run_seg(f, &mut d_y)?;
                         }
@@ -990,14 +990,14 @@ mod linux {
                     .filter(|(i, _)| !fused.iter().any(|f| f.parts.contains(i)))
                     .count();
             println!(
-                "\n  Coût — {ROUNDS} rounds, {WARMUP} jetés, bras entrelacés\n  \
-                 {:<28}{:>10.3} ms   {} lancements\n  \
-                 {:<28}{:>10.3} ms   {} lancements\n  \
-                 gain {:.3} ms ({:.1} %), soit {:.0} % du gisement de 2,039 ms",
-                "LLVQ, matrices séparées",
+                "\n  Cost: {ROUNDS} rounds, {WARMUP} discarded, interleaved arms\n  \
+                 {:<28}{:>10.3} ms   {} launches\n  \
+                 {:<28}{:>10.3} ms   {} launches\n  \
+                 gain {:.3} ms ({:.1}%), that is {:.0}% of the 2.039 ms headroom",
+                "LLVQ, separate matrices",
                 rmd_ms * 1e3,
                 mats.len(),
-                "LLVQ, q+k+v et gate+up fusés",
+                "LLVQ, fused q+k+v, gate+up",
                 fmd_ms * 1e3,
                 n_launch,
                 (rmd_ms - fmd_ms) * 1e3,
@@ -1012,10 +1012,10 @@ mod linux {
                     .map(|(_, m)| m.slot_bytes)
                     .sum::<u64>();
             println!(
-                "  octets lus : {:.3} Go fusé contre {:.3} Go séparé ({:+.2} %) — la\n  \
-                 fusion re-transcode le flux, donc les strides de groupe changent aux\n  \
-                 frontières de segment. Un gain d'octets serait un confondant, pas un\n  \
-                 bonus : il est imprimé pour pouvoir le retrancher.",
+                "  bytes read: {:.3} GB fused against {:.3} GB separate ({:+.2}%). The\n  \
+                 fusion re-transcodes the stream, so group strides change at segment\n  \
+                 boundaries. A byte gain would be a confounder rather than a bonus. It\n  \
+                 is printed so that it can be subtracted.",
                 fb_slot as f64 / 1e9,
                 sb as f64 / 1e9,
                 100.0 * (fb_slot as f64 - sb as f64) / sb as f64

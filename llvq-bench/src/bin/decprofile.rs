@@ -132,20 +132,20 @@ fn main() {
     let ns = |x: f64| x * 1e9;
     let pct = |x: f64| 100.0 * x / full;
     println!("decode profile, {N} blocks, one core (sink {sink})\n");
-    println!("  {:<34}{:>9} ns  {:>6}", "étape", "coût", "part");
+    println!("  {:<34}{:>9} ns  {:>6}", "stage", "cost", "share");
     println!("  {}", "-".repeat(52));
-    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "1. localiser la classe (383)", ns(locate), pct(locate));
-    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "2. divisions mixed-radix (u128)", ns(divide), pct(divide));
-    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "3. un seul multinomial", ns(one_multinomial), pct(one_multinomial));
-    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "4. perm_unrank, 24 créneaux", ns(unrank), pct(unrank));
+    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "1. locate the class (383)", ns(locate), pct(locate));
+    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "2. mixed-radix divisions (u128)", ns(divide), pct(divide));
+    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "3. one multinomial", ns(one_multinomial), pct(one_multinomial));
+    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "4. perm_unrank, 24 slots", ns(unrank), pct(unrank));
     println!("  {}", "-".repeat(52));
-    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "decode complet", ns(full), 100.0);
+    println!("  {:<34}{:>9.1} ns  {:>5.1} %", "full decode", ns(full), 100.0);
     println!(
-        "\n  Le décodeur en fait DEUX (support et hors-support), plus les\n  \
-         allocations que ce banc ne reproduit pas."
+        "\n  The decoder does TWO of them (on-support and off-support), plus\n  \
+         the allocations this bench does not reproduce."
     );
     println!(
-        "\n  Cible noyau : ~16 ns/bloc (65 opérations). Le poste à supprimer\n  \
-         est celui qui domine — pas celui qu'on croyait."
+        "\n  Kernel target: ~16 ns/block (65 operations). The item to remove\n  \
+         is the one that dominates, not the one we assumed."
     );
 }

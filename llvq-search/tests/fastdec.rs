@@ -40,7 +40,7 @@ fn fast_decoder_matches_indexer_exactly() {
         }
     }
 
-    // 200 000 uniform draws over the ball.
+    // 200,000 uniform draws over the ball.
     let mut rng = SplitMix64::new(0x6_F0FF);
     for _ in 0..200_000 {
         let idx = 1 + rng.next() % N13;

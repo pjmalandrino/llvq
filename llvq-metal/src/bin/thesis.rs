@@ -444,8 +444,8 @@ enum Arm {
 impl Arm {
     fn name(self) -> &'static str {
         match self {
-            Arm::F16 => "FP16 (half4, scalaire)",
-            Arm::Slot => "LLVQ Slot32 (scalaire@24)",
+            Arm::F16 => "FP16 (half4, scalar)",
+            Arm::Slot => "LLVQ Slot32 (scalar@24)",
             Arm::Flat => "LLVQ Flat32",
             Arm::G32 => "LLVQ Grouped32",
             Arm::F16V4 => "FP16 (half4, float4)",
@@ -543,9 +543,9 @@ fn main() -> Result<(), String> {
         .unwrap_or_else(|| format!("{}/llvq-q4b.llvq", std::env::var("HOME").unwrap()));
     if !std::path::Path::new(&path).exists() {
         return Err(format!(
-            "{path} : introuvable.\n  \
-             Le fichier publié est Pier-Jean/Qwen3-4B-LLVQ-2bit sur Hugging Face ; \
-             passer son chemin en argument."
+            "{path}: not found.\n  \
+             The published file is Pier-Jean/Qwen3-4B-LLVQ-2bit on Hugging Face; \
+             pass its path as an argument."
         ));
     }
 
@@ -590,7 +590,7 @@ fn main() -> Result<(), String> {
         .iter()
         .map(|a| llvq_metal::Kernel::new(&src, a.kernel_name()))
         .collect::<Result<_, _>>()?;
-    println!("GPU : {}\n", kernels[0].device_name());
+    println!("GPU: {}\n", kernels[0].device_name());
 
     let fd = FastDecoder::new();
     let recs = llvq_metal::gpu_class_table(&fd);
@@ -607,7 +607,7 @@ fn main() -> Result<(), String> {
     let bx = kernels[0].buffer(&xmax);
     let mut by_len = 0usize;
 
-    println!("Chargement et transcodage des {} matrices…", h.matrices);
+    println!("Loading and transcoding the {} matrices…", h.matrices);
     let t0 = Instant::now();
     let mut mats: Vec<Mat> = Vec::with_capacity(h.matrices as usize);
     let mut n_weights = 0u64;
@@ -769,7 +769,7 @@ fn main() -> Result<(), String> {
     let load_s = t0.elapsed().as_secs_f64();
     let by = kernels[0].empty::<f32>(by_len);
     println!(
-        "  {} matrices, {:.2} Md de poids, transcodées (3 layouts) en {load_s:.0} s\n",
+        "  {} matrices, {:.2} G weights, transcoded (3 layouts) in {load_s:.0} s\n",
         mats.len(),
         n_weights as f64 / 1e9
     );
@@ -799,7 +799,7 @@ fn main() -> Result<(), String> {
     };
 
     // ---- verify every matrix, every row, every arm, before any timing ----
-    println!("Vérification des {} matrices contre la référence CPU f64…", mats.len());
+    println!("Verifying the {} matrices against the f64 CPU reference…", mats.len());
     let mut worst = vec![(0.0f64, String::new()); arms.len()];
     let mut twin_err = vec![0.0f64; arms.len()];
     let idx = |a: Arm| arms.iter().position(|&x| x == a).unwrap();
@@ -852,17 +852,17 @@ fn main() -> Result<(), String> {
         }
     }
     let rows: usize = mats.iter().map(|m| m.d_out).sum();
-    println!("  {rows} lignes sur {} matrices, seuil {TOL:.0e} :", mats.len());
+    println!("  {rows} rows over {} matrices, threshold {TOL:.0e}:", mats.len());
     for ((&arm, (e, name)), &terr) in arms.iter().zip(&worst).zip(&twin_err) {
         let twin = match arm.twin() {
             None => String::new(),
-            Some((t, true)) => format!("  — identique à {} au bit près", t.name()),
+            Some((t, true)) => format!("  — bit-identical to {}", t.name()),
             Some((t, false)) => {
-                format!("  — vs {} : {terr:.1e}·Σ|w·x| (contraction FMA, non épinglée)", t.name())
+                format!("  — vs {}: {terr:.1e}·Σ|w·x| (FMA contraction, not pinned)", t.name())
             }
         };
         println!(
-            "    {:<26} pire erreur {e:.1e}·Σ|w·x|  ({name}){twin}",
+            "    {:<26} worst error {e:.1e}·Σ|w·x|  ({name}){twin}",
             arm.name()
         );
     }
@@ -900,16 +900,16 @@ fn main() -> Result<(), String> {
         .collect();
     let stats: Vec<(f64, f64, f64)> = times.into_iter().map(spread).collect();
 
-    println!("\nUN TOKEN — les 252 projections, un command buffer par bras, mémoire froide");
+    println!("\nONE TOKEN — the 252 projections, one command buffer per arm, cold memory");
     println!(
-        "  {} rounds, {WARMUP_ROUNDS} jetés, TOUS les bras à chaque round, même ordre",
+        "  {} rounds, {WARMUP_ROUNDS} discarded, ALL arms every round, same order",
         ROUNDS
     );
     println!("  {}", "-".repeat(89));
     println!(
         "  {:<27}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}{:>23}",
-        "format", "min ms", "méd ms", "max ms", "Go lus", "b/poids", "Go/s",
-        "vs FP16 méd [min–max]"
+        "format", "min ms", "med ms", "max ms", "GB read", "b/weight", "GB/s",
+        "vs FP16 med [min–max]"
     );
     for ((&arm, &(mn, md, mx)), &(rlo, rmd, rhi)) in
         arms.iter().zip(&stats).zip(&ratios)
@@ -934,9 +934,9 @@ fn main() -> Result<(), String> {
     }
     println!("  {}", "-".repeat(89));
     println!(
-        "  Le rapport est formé round par round puis résumé : médiane, puis plage\n  \
-         sur les {} rounds gardés. Un min divisé par un min mêlerait deux rounds\n  \
-         qui n'ont jamais coexisté.",
+        "  The ratio is formed round by round and then summarised: median, then range\n  \
+         over the {} rounds kept. A min divided by a min would mix two rounds\n  \
+         that never coexisted.",
         ROUNDS - WARMUP_ROUNDS
     );
 
@@ -947,7 +947,7 @@ fn main() -> Result<(), String> {
     let f16_bytes: u64 = mats.iter().map(|m| m.f16_bytes).sum();
     let bw = f16_bytes as f64 / stats[0].0; // this machine's measured streaming rate
     let head_s = head_bytes / bw;
-    println!("\n  Débit d'un pas de décodage (projections + lm_head f16 non quantifié) :");
+    println!("\n  Throughput of one decode step (projections + unquantized f16 lm_head):");
     println!("  {}", "-".repeat(89));
     for (&arm, &(mn, _, _)) in arms.iter().zip(&stats) {
         let total = mn + head_s;
@@ -956,13 +956,13 @@ fn main() -> Result<(), String> {
             arm.name(),
             total * 1e3,
             1.0 / total,
-            format!("(dont lm_head {:.2} ms)", head_s * 1e3)
+            format!("(of which lm_head {:.2} ms)", head_s * 1e3)
         );
     }
     println!(
-        "\n  Le lm_head lié ({:.0} M poids, f16) n'est pas quantifié dans cet artefact\n  \
-         et coûte la même chose à tous les bras : c'est lui qui plafonne le rapport\n  \
-         de bout en bout. Attention, normes et activations ne sont pas mesurées ici.",
+        "\n  The tied lm_head ({:.0} M weights, f16) is not quantized in this artifact\n  \
+         and costs every arm the same: it is what caps the end-to-end ratio.\n  \
+         Attention, norms and activations are not measured here.",
         389_070_848f64 / 1e6
     );
     Ok(())

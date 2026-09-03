@@ -3,7 +3,7 @@
 //
 // Pre-registration: proofs/preregistration-p1b-2026-08-15.md
 // CPU reference:    llvq-search/src/cns.rs::cns_decode, already swept against
-//                   FastDecoder::decode on the 150 681 600 blocks of the sealed
+//                   FastDecoder::decode on the 150,681,600 blocks of the sealed
 //                   4B (P5 C2, zero discrepancy). Not a new yardstick — the one
 //                   P5 proved.
 //
@@ -226,7 +226,7 @@ kernel void decode_block(device const uint*   words  [[buffer(0)]],
         // 🚨 `par` accumulates over SUPPORT slots only. The first version
         // XORed it on every slot, and since `s_on` does not advance off the
         // support, an off-support slot folded the SAME bit in a second time and
-        // flipped the parity. V0 caught it on 4 149 448 blocks of 16 777 216 —
+        // flipped the parity. V0 caught it on 4,149,448 blocks of 16,777,216 —
         // half the even ones, which is exactly the shape of the defect.
         par ^= (on && !last_on) ? bfree : 0u;
 

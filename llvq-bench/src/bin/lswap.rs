@@ -24,7 +24,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 
 /// The cap under study: at most 4 distinct magnitudes per block, zero
-/// included — the knob whose runtime stride is `9 + 1 + 24·4 = 106 b = 14 o`.
+/// included — the knob whose runtime stride is `9 + 1 + 24·4 = 106 b = 14 B`.
 const LEVEL_CAP: usize = 4;
 /// The published file is `leech1c12`: ball m ≤ 12, 47 index bits. The swap
 /// searches the same ball, so every new index fits the stream's width.
@@ -197,8 +197,8 @@ fn main() {
     write_header(&mut w, h.version, h.matrices).expect("write header");
 
     println!(
-        "{src} : format v{}, {} matrices — swap L = 5 → L ≤ {LEVEL_CAP}, \
-         boule m ≤ {SHELL_CAP}, {nthreads} threads",
+        "{src}: format v{}, {} matrices — swap L = 5 → L ≤ {LEVEL_CAP}, \
+         ball m ≤ {SHELL_CAP}, {nthreads} threads",
         h.version, h.matrices
     );
 
@@ -224,7 +224,7 @@ fn main() {
             total.absorb(st);
         }
         eprintln!(
-            "  {:>3}/{} {:<44} {:>7} blocs échangés ({:.0} s)",
+            "  {:>3}/{} {:<44} {:>7} blocks swapped ({:.0} s)",
             mi + 1,
             h.matrices,
             m.name,
@@ -240,16 +240,16 @@ fn main() {
     drop(w);
 
     let blocks: u64 = total.hist.iter().sum();
-    println!("\n{} blocs, dont {} origine — passe en {:.0} s", blocks, total.origin, t0.elapsed().as_secs_f64());
-    println!("  niveaux de magnitude par bloc (avant swap)");
+    println!("\n{} blocks, {} of them origin — pass in {:.0} s", blocks, total.origin, t0.elapsed().as_secs_f64());
+    println!("  magnitude levels per block (before swap)");
     for l in 1..=MAX_LEVELS {
         if total.hist[l] > 0 {
-            println!("  {l} niveaux{:>16} blocs", total.hist[l]);
+            println!("  {l} levels{:>17} blocks", total.hist[l]);
         }
     }
-    println!("  sections traînantes copiées : {copied} octets");
+    println!("  trailing sections copied: {copied} bytes");
 
-    println!("\n  blocs échangés : {} (attendu {EXPECTED_SWAPS})", total.swapped);
+    println!("\n  blocks swapped: {} (expected {EXPECTED_SWAPS})", total.swapped);
     assert_eq!(
         total.swapped, EXPECTED_SWAPS,
         "swap count disagrees with the rtbits census"
@@ -263,14 +263,14 @@ fn main() {
     assert_eq!(n as u64, EXPECTED_SWAPS);
     let mean = cs.iter().sum::<f64>() / n as f64;
     let p1 = cs[n / 100];
-    println!("  cos(ancien, nouveau) : min {:.6}   p1 {:.6}   moyen {:.6}   max {:.6}", cs[0], p1, mean, cs[n - 1]);
-    println!("  gain : inchangé par construction (jamais lu ni écrit par la passe)");
+    println!("  cos(old, new): min {:.6}   p1 {:.6}   mean {:.6}   max {:.6}", cs[0], p1, mean, cs[n - 1]);
+    println!("  gain: unchanged by construction (never read or written by the pass)");
 
     // Control reload: the produced file must open with the sealed reader and
     // differ from the source at exactly the swapped indices.
-    println!("\n  rechargement de contrôle…");
+    println!("\n  control reload…");
     let diffs = verify(&src, &tmp, &fd);
-    println!("  indices différents : {diffs} (= blocs échangés)");
+    println!("  differing indices: {diffs} (= blocks swapped)");
     assert_eq!(diffs, total.swapped, "diff count disagrees with the swap count");
 
     // Every check has passed: the file may now claim its real name.
@@ -281,6 +281,6 @@ fn main() {
         std::fs::metadata(&dst).expect("stat output").len(),
     );
     println!("\n── {dst}");
-    println!("   taille : {dst_b} octets (source {src_b})");
-    println!("   vérifié : hors swap bit-identique, gains intacts, relit par le lecteur — {:.0} s total", t0.elapsed().as_secs_f64());
+    println!("   size: {dst_b} bytes (source {src_b})");
+    println!("   verified: bit-identical outside the swap, gains intact, reopened by the reader — {:.0} s total", t0.elapsed().as_secs_f64());
 }

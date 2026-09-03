@@ -2,7 +2,7 @@
 //!
 //! Every constant asserted here is public mathematics (Conway & Sloane,
 //! *Sphere Packings, Lattices and Groups*; OEIS A008408), independent of the
-//! LLVQ paper. The kissing number 196 560 and |Shell(3)| = 16 773 120 are
+//! LLVQ paper. The kissing number 196,560 and |Shell(3)| = 16,773,120 are
 //! reproduced by exhaustive enumeration in which every counted vector is
 //! individually verified by the membership predicate.
 //!
@@ -107,7 +107,7 @@ fn golay_is_self_dual_and_doubly_even() {
 }
 
 // ---------------------------------------------------------------------------
-// Leech lattice: kissing number 196 560 (Shell 2, ‖x‖² = 32)
+// Leech lattice: kissing number 196,560 (Shell 2, ‖x‖² = 32)
 // ---------------------------------------------------------------------------
 //
 // Completeness of the shapes for ‖x‖² = 32:
@@ -276,7 +276,7 @@ fn leech_shell4_spot_checks() {
     assert_eq!(c8, 48, "(±8) class of Shell(4)");
 
     // (±4⁴, 0²⁰): word 0 ∈ Golay; every sign flip changes the sum by 8, so
-    // all 2⁴ patterns pass → C(24,4)·16 = 170 016 (matches paper Table 2).
+    // all 2⁴ patterns pass → C(24,4)·16 = 170,016 (matches paper Table 2).
     let mut c44 = 0u64;
     for i in 0..DIM {
         for j in (i + 1)..DIM {
@@ -442,7 +442,7 @@ fn shell_enumerator_shell3() {
 }
 
 // ---------------------------------------------------------------------------
-// Shell 3 (‖x‖² = 48): |Shell(3)| = 16 773 120 — release builds only
+// Shell 3 (‖x‖² = 48): |Shell(3)| = 16,773,120 — release builds only
 // ---------------------------------------------------------------------------
 //
 // Shape completeness for ‖x‖² = 48:

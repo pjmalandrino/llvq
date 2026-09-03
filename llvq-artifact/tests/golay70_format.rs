@@ -20,7 +20,7 @@
 //! 4. **The accounting is a formula, not a measurement**: `72·n` bits of
 //!    main stream (plus the frozen word-aligned tail) and `144` per
 //!    exception; on the sealed 4B the exception count is the classhist
-//!    census: **11 204 181** exactly, for ~3.45 b/w.
+//!    census: **11,204,181** exactly, for ~3.45 b/w.
 
 use llvq_artifact::runtime::{
     transcode, transcode_golay70, transcode_planes14, ClassTable, Golay70Table, Layout,
@@ -370,7 +370,7 @@ fn golay70_refuses_an_out_of_range_index() {
 /// The integral proof on the sealed 4B artifact: every block of every matrix
 /// reconstructs bit-identically through the Golay70 overlay and through
 /// Planes14, and the exception count is the classhist census of the E2 rule:
-/// **11 204 181** exactly. No per-exception search here — this sweep is
+/// **11,204,181** exactly. No per-exception search here — this sweep is
 /// decode-bound, ~50 s over a 981 MB file — but that is still three orders of
 /// magnitude past the rest of this crate, so it is out of the default run;
 /// asked for explicitly, a missing archive is an error, never a green skip

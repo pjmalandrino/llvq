@@ -84,12 +84,12 @@ fn main() {
     let s = Searcher::new();
 
     println!(
-        "source gaussienne, {TRAIN} blocs d'entraînement + {EVAL} d'évaluation, \
+        "gaussian source, {TRAIN} train blocks + {EVAL} eval blocks, \
          shape–gain {GAIN_BITS} bit\n"
     );
     println!(
         "  {:<7}{:>9}{:>18}{:>9}{:>9}{:>9}{:>13}{:>11}",
-        "L max", "classes", "codebook", "index", "b/dim", "MSE", "rétention", "RAM b/p"
+        "L max", "classes", "codebook", "index", "b/dim", "MSE", "retention", "RAM b/p"
     );
     println!("  {}", "-".repeat(88));
 
@@ -150,13 +150,13 @@ fn main() {
 
     if let Some((ret5, ram5)) = baseline {
         println!(
-            "\n  Repères : 4 bits (MLX, g64) = 4,500 b/poids en RAM · \
-             Slot32 non contraint mesuré = 5,510\n  \
-             Sans contrainte ici : {ret5:.2} % de rétention à {ram5:.3} b/poids de RAM.\n"
+            "\n  Reference points: 4 bits (MLX, g64) = 4.500 b/weight in RAM · \
+             unconstrained Slot32 measured = 5.510\n  \
+             Unconstrained here: {ret5:.2} % of retention at {ram5:.3} b/weight of RAM.\n"
         );
     }
     println!(
-        "  ⚠️  Source gaussienne, une seule graine, pas de GPTQ. Ceci indique,\n  \
-         ça ne tranche pas — l'A/B sur 3 blocs du vrai modèle tranche."
+        "  WARNING: gaussian source, one seed, no GPTQ. This indicates,\n  \
+         it does not decide. The 3-block A/B on the real model decides."
     );
 }

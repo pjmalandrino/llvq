@@ -47,7 +47,7 @@ fn le_f32(v: &[f32]) -> Vec<u8> {
 }
 
 /// The adversarial block set: both ends of every class (all zero patterns),
-/// 20 000 uniform draws over the cap-13 ball, and the origin in mid-stream.
+/// 20,000 uniform draws over the cap-13 ball, and the origin in mid-stream.
 fn fixture_indices(fd: &FastDecoder, rng: &mut SplitMix64) -> Vec<u64> {
     let mut indices: Vec<u64> = Vec::new();
     for ci in 0..fd.n_classes() {

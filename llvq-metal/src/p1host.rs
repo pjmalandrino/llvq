@@ -747,7 +747,7 @@ pub fn etalon_cascade(
     for (b, &i) in idx.iter().enumerate() {
         let p = fd
             .decode(i)
-            .ok_or_else(|| format!("index {i} hors de la boule"))?;
+            .ok_or_else(|| format!("index {i} outside the ball"))?;
         let (mut dot, mut mag) = (0.0f64, 0.0f64);
         if let Some(m) = llvq_core::Leech::shell_index(&p).filter(|&m| m > 0) {
             let s = gscale[gains[b] as usize] as f64 / ((16 * m) as f64).sqrt();
@@ -766,7 +766,7 @@ pub fn etalon_cascade(
 /// `e1v-flux` arm (§2 of its pre-registration).
 ///
 /// `cns_encode` then `cns_decode`: the two halves of the re-bijection, which P5
-/// C2 swept over the 150 681 600 blocks of the sealed 4B against
+/// C2 swept over the 150,681,600 blocks of the sealed 4B against
 /// [`FastDecoder::decode`] with zero discrepancy. It is therefore **not a new
 /// yardstick**, and it is not the same code path as [`etalon_cascade`] — which
 /// is why the bench computes both and requires them to agree: on the draw, that
@@ -789,7 +789,7 @@ pub fn etalon_cns(
     use llvq_search::cns::{cns_decode, cns_encode};
     let mut want = Vec::with_capacity(idx.len());
     for (b, &i) in idx.iter().enumerate() {
-        let rec = cns_encode(fd, i, gains[b]).ok_or_else(|| format!("index {i} hors de la boule"))?;
+        let rec = cns_encode(fd, i, gains[b]).ok_or_else(|| format!("index {i} outside the ball"))?;
         let p = cns_decode(fd, golay, &rec);
         let (mut dot, mut mag) = (0.0f64, 0.0f64);
         if let Some(m) = llvq_core::Leech::shell_index(&p).filter(|&m| m > 0) {

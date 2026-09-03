@@ -89,7 +89,7 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
         .arg(&bin)
         .status()
         .expect("clang++ is on PATH");
-    assert!(st.success(), "llvq_e1v.cuh ne compile pas en C++ hôte");
+    assert!(st.success(), "llvq_e1v.cuh does not compile as host C++");
 
     let fd = FastDecoder::new();
     let golay = Golay::new();
@@ -150,7 +150,7 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
                 }
             }
         }
-        assert_eq!(addr.len(), n * 5, "une adresse par bloc");
+        assert_eq!(addr.len(), n * 5, "one address per block");
 
         let mut fixture = le_u32(&[n as u32, words.len() as u32, recs.len() as u32, pay.len() as u32]);
         fixture.extend(le_u32(&words));
@@ -170,7 +170,7 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
         child.stdin.as_mut().expect("stdin").write_all(&fixture).expect("fixture written");
         let res = child.wait_with_output().expect("host probe finishes");
         assert!(res.status.success(), "host probe failed");
-        assert_eq!(res.stdout.len(), n * 12, "sortie de taille inattendue");
+        assert_eq!(res.stdout.len(), n * 12, "unexpected output size");
 
         let dot: Vec<f32> = res.stdout[..n * 4]
             .chunks_exact(4)
@@ -191,9 +191,9 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
             assert_eq!(
                 ids[b],
                 fd.class_of(idxs[b]).map_or(E1V_ORIGIN_ID as u32, |ci| ci as u32),
-                "forme {row_blocks}, bloc {b} : classe lue par le noyau"
+                "shape {row_blocks}, block {b}: class read by the kernel"
             );
-            assert_eq!(gs[b], gains[b], "forme {row_blocks}, bloc {b} : gain lu par le noyau");
+            assert_eq!(gs[b], gains[b], "shape {row_blocks}, block {b}: gain read by the kernel");
 
             // The reference: the format's own reader, and the archive decoder
             // behind it (P5 C2).
@@ -212,7 +212,7 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
             let rel = if mag > 0.0 { d / mag } else { d };
             assert!(
                 rel <= TOL,
-                "forme {row_blocks}, bloc {b} : noyau {} contre Rust {want} ({rel:.3e} relatif)",
+                "shape {row_blocks}, block {b}: kernel {} against Rust {want} ({rel:.3e} relative)",
                 dot[b]
             );
         }
@@ -221,13 +221,13 @@ fn the_cuda_e1v_decoder_decides_what_the_rust_decoder_decides() {
 
     // The §5 discipline: a fixture that quietly missed a class prints the same
     // green line as one that did not.
-    assert!(seen.contains(&None), "aucun bloc origine dans la sonde");
+    assert!(seen.contains(&None), "no origin block in the probe");
     for ci in 0..fd.n_classes() {
-        assert!(seen.contains(&Some(ci)), "classe {ci} absente de la sonde");
+        assert!(seen.contains(&Some(ci)), "class {ci} missing from the probe");
     }
     eprintln!(
-        "sonde hôte E1v — {total} blocs sur 5 formes, les {} classes plus l'origine,\n  \
-         le TEXTE de llvq_e1v.cuh exécuté par clang++ contre E1vBlocks::decode_block.",
+        "E1v host probe — {total} blocks over 5 shapes, the {} classes plus the origin,\n  \
+         the TEXT of llvq_e1v.cuh run by clang++ against E1vBlocks::decode_block.",
         fd.n_classes()
     );
 }

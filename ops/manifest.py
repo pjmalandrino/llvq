@@ -49,7 +49,7 @@ the field is *required* so that deleting it is a failure too.
 
 It is a presence check, not a parse — it says the digits are physically in the
 bytes being hashed, nothing more. `false` is legitimate (a ratio computed from
-two logged numbers, a size logged in Go and recorded in bytes) and is recorded,
+two logged numbers, a size logged in GB and recorded in bytes) and is recorded,
 warned about, and marked in `report`. What is not legitimate is nobody
 noticing.
 
@@ -72,7 +72,7 @@ So this file does the same: the id is stored verbatim, and the URL is either
 resolved through `inspect_job` (recorded as `api`) or supplied by hand
 (recorded as `declare`). Never assembled.
 
-⚠️ And per `docs/archive/plan-de-test-v2-cuda.md` §6.1, a job URL redirects an
+WARNING: and per `docs/archive/plan-de-test-v2-cuda.md` §6.1, a job URL redirects an
 anonymous visitor to a login form. It is a pointer for an auditor who has been
 granted access, **not** a proof opposable to a reader. The proof is the log,
 and what makes the log a proof is its hash sitting in a committed file.
@@ -100,18 +100,18 @@ MANIFEST = ROOT / "ops" / "manifest.jsonl"
 SCHEMA = 1
 
 # The three arms of the campaign (`docs/archive/plan-de-test-v2-cuda.md` §2.1), plus
-# the ones its arbitration n°2 dropped — kept so that an old entry still reads,
+# the ones its arbitration no. 2 dropped, kept so that an old entry still reads,
 # and so that a typo (`A` for `A1`) is rejected instead of silently splitting a
 # comparison in two.
 ARMS: dict[str, str] = {
-    "A1": "LLVQ 2 bits — Pier-Jean/Qwen3-4B-LLVQ-2bit, qwen3-4b-llvq.bin",
-    "A2": "LLVQ 2 bits, embedding int4 — ~/q4b-e4.llvq (sans comparateur)",
-    "B0": "AWQ 4 bits officiel — Qwen/Qwen3-4B-AWQ",
-    "B1": "GPTQ w2 g128 sym (écarté par l'utilisateur, §9 n°2)",
-    "B2": "GPTQ w3 g128 sym (écarté par l'utilisateur, §9 n°2)",
-    "B3": "bitsandbytes NF4 bs64 (écarté par l'utilisateur, §9 n°2)",
-    "C": "f16 d'origine — Qwen/Qwen3-4B",
-    "ctrl": "contrôle (oracle, L1–L4, CI, C8) — pas un bras de comparaison",
+    "A1": "LLVQ 2 bits, Pier-Jean/Qwen3-4B-LLVQ-2bit, qwen3-4b-llvq.bin",
+    "A2": "LLVQ 2 bits, int4 embedding, ~/q4b-e4.llvq (no comparator)",
+    "B0": "official AWQ 4 bits, Qwen/Qwen3-4B-AWQ",
+    "B1": "GPTQ w2 g128 sym (dropped by the operator, §9 no. 2)",
+    "B2": "GPTQ w3 g128 sym (dropped by the operator, §9 no. 2)",
+    "B3": "bitsandbytes NF4 bs64 (dropped by the operator, §9 no. 2)",
+    "C": "original f16, Qwen/Qwen3-4B",
+    "ctrl": "control (oracle, L1-L4, CI, C8), not a comparison arm",
 }
 
 REQUIRED_FIELDS = ("schema", "recorded_at", "metric", "value", "value_in_log",
@@ -223,8 +223,9 @@ def value_evidence(text: str, value: int | float) -> str | None:
       it. Closing that would take parsing the log, which means a schema per
       binary, which is the machinery this file exists to avoid.
 
-    Accepted spellings: the canonical `repr`, the same with a French decimal
-    comma, and either of those inside space-grouped digits. A log printing
+    Accepted spellings: the canonical `repr`, the same with a decimal comma, and
+    either of those inside space-grouped digits. The logs this scans are frozen
+    and French, so the comma and the space grouping both stay in scope. A log printing
     *more* decimals than were recorded matches on the prefix; one printing
     fewer does not, and says so rather than guessing.
     """
@@ -245,16 +246,16 @@ def value_evidence(text: str, value: int | float) -> str | None:
 def parse_value(text: str) -> int | float:
     """Numbers as the project writes them, including the French decimal comma.
 
-    `16,9415` is how every table in this repository spells it, and refusing it
-    would guarantee somebody re-types the number by hand — which is the exact
-    failure this file exists to stop.
+    `16,9415` is how the frozen journals spell it, and refusing that would
+    guarantee somebody re-types the number by hand, which is the exact failure
+    this file exists to stop. The living tables now spell it `16.9415`.
 
-    ⚠️ One comma and no dot is read as a decimal comma. That is the repo's
-    convention, not a proof: `1,770` meant as an English thousands separator
-    would be read as 1.77 and no rule can tell the two apart (`×1,386` is a
-    real three-digit decimal in this very repository). The defence is not here
-    — it is `value_in_log`, which goes looking for the digits in the log and
-    says so when it cannot find them.
+    WARNING: one comma and no dot is read as a decimal comma. That is the
+    repo's convention, not a proof: `1,770` meant as an English thousands
+    separator would be read as 1.77 and no rule can tell the two apart
+    (`×1,386` is a real three-digit decimal in this very repository). The
+    defence is not here. It is `value_in_log`, which goes looking for the
+    digits in the log and says so when it cannot find them.
     """
     text = text.strip()
     if text.count(",") == 1 and "." not in text:
@@ -266,12 +267,12 @@ def parse_value(text: str) -> int | float:
     try:
         return float(text)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"valeur non numérique : {text!r}") from exc
+        raise argparse.ArgumentTypeError(f"value is not numeric: {text!r}") from exc
 
 
 def parse_kv(text: str) -> tuple[str, str]:
     if "=" not in text:
-        raise argparse.ArgumentTypeError(f"attendu clé=valeur, reçu {text!r}")
+        raise argparse.ArgumentTypeError(f"expected key=value, got {text!r}")
     key, _, val = text.partition("=")
     return key.strip(), val.strip()
 
@@ -299,7 +300,7 @@ def git_out(root: Path, *args: str) -> str:
                           capture_output=True, text=True)
     if proc.returncode != 0:
         raise ManifestError(
-            f"`git {' '.join(args)}` a échoué : {proc.stderr.strip() or 'code ' + str(proc.returncode)}")
+            f"`git {' '.join(args)}` failed: {proc.stderr.strip() or 'code ' + str(proc.returncode)}")
     return proc.stdout
 
 
@@ -325,7 +326,7 @@ def resolve_job(job_id: str) -> dict:
 
     Never assembles a URL (see the module docstring): either the API returns
     one, or the entry carries the identifier alone and says so. A failure here
-    is not fatal — losing the network must not cost the operator the record of
+    is not fatal. Losing the network must not cost the operator the record of
     a measure that has already been paid for.
     """
     out: dict = {"id": job_id, "url": None, "url_source": "indisponible"}
@@ -393,19 +394,19 @@ def record(manifest: Path, *, git_st: GitState, metric: str, value: int | float,
     docstring of `GitState`.
     """
     if arm not in ARMS:
-        raise ManifestError(f"bras inconnu : {arm!r}. Connus : {', '.join(ARMS)}")
+        raise ManifestError(f"unknown arm: {arm!r}. Known: {', '.join(ARMS)}")
     if not metric.strip():
-        raise ManifestError("métrique vide")
+        raise ManifestError("empty metric")
     if not command.strip():
-        raise ManifestError("commande vide — un chiffre sans sa commande n'est pas retrouvable")
+        raise ManifestError("empty command: a number without its command cannot be found again")
     if git_st.dirty and not allow_dirty:
         listing = "\n".join(f"    {f}" for f in git_st.dirty_files[:20])
-        more = f"\n    … et {len(git_st.dirty_files) - 20} autres" if len(git_st.dirty_files) > 20 else ""
+        more = f"\n    ... and {len(git_st.dirty_files) - 20} more" if len(git_st.dirty_files) > 20 else ""
         raise ManifestError(
-            "arbre de travail sale — aucun chiffre de papier ne sort d'un arbre non commité.\n"
-            f"  {len(git_st.dirty_files)} fichier(s) modifié(s) :\n{listing}{more}\n"
-            "  Commite, puis relance la MESURE (pas seulement l'enregistrement).\n"
-            "  `--allow-dirty` enregistre quand même, marque l'entrée, et `verify` la refusera.")
+            "dirty working tree: no paper number comes out of an uncommitted tree.\n"
+            f"  {len(git_st.dirty_files)} modified file(s):\n{listing}{more}\n"
+            "  Commit, then run the MEASURE again (not just the recording).\n"
+            "  `--allow-dirty` records anyway, marks the entry, and `verify` will refuse it.")
 
     if obj_sha is not None:
         # The `declare` path is the one with no bytes to check against, so the
@@ -415,19 +416,19 @@ def record(manifest: Path, *, git_st: GitState, metric: str, value: int | float,
         obj_sha = obj_sha.strip().lower()
         if len(obj_sha) != 64 or obj_sha.strip("0123456789abcdef"):
             raise ManifestError(
-                f"--object-sha256 n'est pas un sha256 (64 caractères hexadécimaux) : {obj_sha!r}")
+                f"--object-sha256 is not a sha256 (64 hexadecimal characters): {obj_sha!r}")
 
     if job_url and not job_id:
         # The URL of a job contains its identifier, so a URL with no id is
         # provenance that points at a job the entry cannot name. Silently
-        # dropping it — which is what happened — is the failure mode this file
+        # dropping it, which is what happened, is the failure mode this file
         # is built against.
         raise ManifestError(
-            "--job-url sans --job : l'URL désigne un job que l'entrée ne nomme pas")
+            "--job-url without --job: the URL points at a job the entry does not name")
 
     log = Path(log).expanduser()
     if not log.is_file():
-        raise ManifestError(f"log introuvable : {log}")
+        raise ManifestError(f"log not found: {log}")
     log_sha, log_bytes = sha256_file(log)
     evidence = value_evidence(read_text_head(log), value)
 
@@ -437,8 +438,8 @@ def record(manifest: Path, *, git_st: GitState, metric: str, value: int | float,
         computed, obj_bytes = sha256_file(obj_path)
         if obj_sha and obj_sha != computed:
             raise ManifestError(
-                f"le sha256 annoncé pour l'objet ne correspond pas au fichier :\n"
-                f"  annoncé {obj_sha}\n  calculé {computed}")
+                f"the sha256 declared for the object does not match the file:\n"
+                f"  declared {obj_sha}\n  computed {computed}")
         obj_block.update(ref=store_path(obj_path, root), sha256=computed,
                          bytes=obj_bytes, sha256_source="calcule")
     elif obj_sha:
@@ -485,13 +486,13 @@ def record(manifest: Path, *, git_st: GitState, metric: str, value: int | float,
 class Finding:
     level: str          # "FAIL" or "warn"
     line: int
-    kind: str           # see KINDS — the machine-readable cause
+    kind: str           # see KINDS, the machine-readable cause
     message: str
 
 
-# What a finding is *about*, kept separate from how it is worded. Callers —
-# `--selftest` first among them — assert on the kind: a check that matched a
-# substring of a French sentence would go green the day somebody rewords it.
+# What a finding is *about*, kept separate from how it is worded. Callers,
+# `--selftest` first among them, assert on the kind: a check that matched a
+# substring of a sentence would go green the day somebody rewords it.
 KINDS = ("log", "objet", "commit", "sale", "structure", "horodatage", "valeur",
          "bras", "chiffre")
 
@@ -521,16 +522,16 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
 
     Three **verdict** classes, never mixed. They are not the plan's three
     *proof* classes (§6.2, existence / validity / environment), which are a
-    different taxonomy; what this implements is §6.4's rule — verify fails on a
-    hash that does not come back and on a dirty tree:
-      * **FAIL** — something that was true at record time is false now: a log
+    different taxonomy; what this implements is §6.4's rule: verify fails on a
+    hash that does not come back and on a dirty tree.
+      * **FAIL**: something that was true at record time is false now. A log
         that vanished or changed, an object whose bytes or size moved, a value
         that has left its log, a commit that no longer exists, a dirty entry.
         The manifest no longer holds.
-      * **warn** — something that cannot be re-checked here: an object absent
+      * **warn**: something that cannot be re-checked here. An object absent
         from this machine, an unknown arm, two values for the same measure, a
         number that was never literally in its log.
-      * silence — everything that matched.
+      * silence: everything that matched.
     """
     report = VerifyReport()
     previous_ts: datetime | None = None
@@ -541,16 +542,16 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
         try:
             entry = json.loads(raw)
         except json.JSONDecodeError as exc:
-            report.fail(line_no, "structure", f"ligne illisible (JSON invalide : {exc.msg})")
+            report.fail(line_no, "structure", f"unreadable line (invalid JSON: {exc.msg})")
             continue
         if not isinstance(entry, dict):
-            report.fail(line_no, "structure", "ligne illisible (l'entrée n'est pas un objet JSON)")
+            report.fail(line_no, "structure", "unreadable line (the entry is not a JSON object)")
             continue
 
         missing = [k for k in REQUIRED_FIELDS if k not in entry]
         if missing:
             report.fail(line_no, "structure",
-                        f"champs obligatoires absents : {', '.join(missing)}")
+                        f"required fields missing: {', '.join(missing)}")
             continue
         # Present is not the same as usable. The threat model here is a
         # hand-edited manifest, and a hand edit turns `"git": {...}` into
@@ -562,11 +563,11 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
             malformed.append("value")
         if malformed:
             report.fail(line_no, "structure",
-                        f"champs de type inattendu : {', '.join(sorted(malformed))}")
+                        f"fields of unexpected type: {', '.join(sorted(malformed))}")
             continue
         if entry["schema"] != SCHEMA:
             report.warn(line_no, "structure",
-                        f"schéma {entry['schema']} ≠ {SCHEMA} (entrée d'une version antérieure)")
+                        f"schema {entry['schema']} ≠ {SCHEMA} (entry from an earlier version)")
 
         label = f"{entry['metric']}/{entry['arm']}"
 
@@ -575,25 +576,25 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
             ts = parse_ts(entry["recorded_at"])
         except (ValueError, TypeError):
             report.fail(line_no, "horodatage",
-                        f"{label} : horodatage illisible ({entry['recorded_at']!r})")
+                        f"{label}: unreadable timestamp ({entry['recorded_at']!r})")
             ts = None
         if ts and previous_ts and ts < previous_ts:
             # Append-only means non-decreasing. A step backwards is either a
             # hand-edit or a clock jump; both deserve a look.
             report.warn(line_no, "horodatage",
-                        f"{label} : horodatage antérieur à l'entrée précédente")
+                        f"{label}: timestamp earlier than the previous entry")
         previous_ts = ts or previous_ts
 
         # -- repository
         git_block = entry["git"]
         commit = git_block.get("commit")
         if not commit:
-            report.fail(line_no, "commit", f"{label} : aucun commit enregistré")
+            report.fail(line_no, "commit", f"{label}: no commit recorded")
         elif not commit_exists(commit, root):
-            report.fail(line_no, "commit", f"{label} : commit {short(commit, 12)} inconnu du dépôt")
+            report.fail(line_no, "commit", f"{label}: commit {short(commit, 12)} unknown to the repo")
         if git_block.get("dirty"):
-            msg = (f"{label} : mesure prise sur un arbre sale "
-                   f"({len(git_block.get('dirty_files') or [])} fichier(s)) — non publiable")
+            msg = (f"{label}: measure taken on a dirty tree "
+                   f"({len(git_block.get('dirty_files') or [])} file(s)), not publishable")
             if allow_dirty:
                 report.warn(line_no, "sale", msg)
             else:
@@ -604,15 +605,15 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
         log_path = locate(log_block.get("path", ""), root)
         log_intact = False
         if log_path is None:
-            report.fail(line_no, "log", f"{label} : log introuvable ({log_block.get('path')!r})")
+            report.fail(line_no, "log", f"{label}: log not found ({log_block.get('path')!r})")
         else:
             digest, size = sha256_file(log_path)
             if digest != log_block.get("sha256"):
                 report.fail(line_no, "log",
-                            f"{label} : le log a changé — sha256 {short(log_block.get('sha256'), 12)} "
-                            f"attendu, {short(digest, 12)} lu ({log_path})")
+                            f"{label}: the log changed, sha256 {short(log_block.get('sha256'), 12)} "
+                            f"expected, {short(digest, 12)} read ({log_path})")
             elif size != log_block.get("bytes"):
-                report.fail(line_no, "log", f"{label} : taille du log incohérente avec l'entrée")
+                report.fail(line_no, "log", f"{label}: log size inconsistent with the entry")
             else:
                 log_intact = True
 
@@ -624,51 +625,52 @@ def verify(manifest: Path, *, root: Path = ROOT, allow_dirty: bool = False) -> V
         if entry["value_in_log"]:
             if log_intact and value_evidence(read_text_head(log_path), entry["value"]) is None:
                 report.fail(line_no, "chiffre",
-                            f"{label} : {fmt_value(entry['value'])} n'est pas dans le "
-                            f"log, alors que l'entrée affirme l'y avoir trouvé — la "
-                            f"valeur a été modifiée après l'enregistrement")
+                            f"{label}: {fmt_value(entry['value'])} is not in the "
+                            f"log, though the entry claims to have found it there. The "
+                            f"value was edited after the recording")
         else:
             report.warn(line_no, "chiffre",
-                        f"{label} : {fmt_value(entry['value'])} n'apparaît pas "
-                        f"littéralement dans le log — chiffre dérivé ou converti, à "
-                        f"justifier en toutes lettres")
+                        f"{label}: {fmt_value(entry['value'])} does not appear "
+                        f"literally in the log. Derived or converted figure, to be "
+                        f"justified in full")
 
         # -- the measured object: absent ≠ corrupted, and that nuance is the result
         obj = entry["object"]
         obj_path = locate(obj.get("ref", ""), root) if obj.get("ref") else None
         if obj.get("sha256") is None:
-            report.warn(line_no, "objet", f"{label} : objet sans sha256 ({obj.get('ref')!r})")
+            report.warn(line_no, "objet", f"{label}: object without sha256 ({obj.get('ref')!r})")
         elif obj_path is None:
             report.warn(line_no, "objet",
-                        f"{label} : objet absent de cette machine, sha256 non revérifié "
+                        f"{label}: object absent from this machine, sha256 not re-checked "
                         f"({obj.get('ref')!r})")
         else:
             digest, obj_size = sha256_file(obj_path)
             if digest != obj["sha256"]:
                 report.fail(line_no, "objet",
-                            f"{label} : l'objet mesuré a changé — sha256 {short(obj['sha256'], 12)} "
-                            f"attendu, {short(digest, 12)} lu ({obj_path})")
+                            f"{label}: the measured object changed, sha256 {short(obj['sha256'], 12)} "
+                            f"expected, {short(digest, 12)} read ({obj_path})")
             elif obj.get("bytes") is not None and obj_size != obj["bytes"]:
                 # The object's byte count is not bookkeeping here: it IS a
-                # published figure — axis 1 of the campaign is 1 770 527 533 o
-                # against 2 666 027 672 o. The log's size was already checked
-                # for exactly this reason; leaving the object's unchecked left
-                # the hole on the side whose number reaches the paper.
+                # published figure. Axis 1 of the campaign is 1,770,527,533
+                # bytes against 2,666,027,672 bytes. The log's size was already
+                # checked for exactly this reason; leaving the object's
+                # unchecked left the hole on the side whose number reaches the
+                # paper.
                 report.fail(line_no, "objet",
-                            f"{label} : taille de l'objet incohérente avec l'entrée — "
-                            f"{thousands(obj['bytes'])} o annoncés, {thousands(obj_size)} o lus "
+                            f"{label}: object size inconsistent with the entry, "
+                            f"{thousands(obj['bytes'])} bytes declared, {thousands(obj_size)} bytes read "
                             f"({obj_path})")
 
         # -- cross-entry consistency
         if entry["arm"] not in ARMS:
-            report.warn(line_no, "bras", f"{label} : bras inconnu {entry['arm']!r}")
+            report.warn(line_no, "bras", f"{label}: unknown arm {entry['arm']!r}")
         key = (entry["metric"], entry["arm"])
         if key in seen and seen[key][1] != entry["value"]:
             first_line, first_value = seen[key]
             report.warn(line_no, "valeur",
-                        f"{label} : deux valeurs pour la même mesure — {first_value} "
-                        f"(ligne {first_line}) puis {entry['value']}. `report` ne montrera "
-                        f"que la plus récente")
+                        f"{label}: two values for the same measure, {first_value} "
+                        f"(line {first_line}) then {entry['value']}. `report` will show "
+                        f"only the most recent one")
         seen.setdefault(key, (line_no, entry["value"]))
 
     return report
@@ -720,12 +722,12 @@ def render_report(entries: list[dict], *, show_all: bool, full: bool) -> str:
     entries = sorted(entries, key=lambda e: (str(e.get("metric")), str(e.get("arm")),
                                              str(e.get("recorded_at"))))
 
-    lines = ["| métrique | bras | valeur | unité | objet | commit | job | log | date |",
+    lines = ["| metric | arm | value | unit | object | commit | job | log | date |",
              "|---|---|---|---:|---|---|---|---|---|"]
     derived = 0
     for entry in entries:
         git_block = entry.get("git") or {}
-        commit = short(git_block.get("commit"), 7) + ("+sale" if git_block.get("dirty") else "")
+        commit = short(git_block.get("commit"), 7) + ("+dirty" if git_block.get("dirty") else "")
         job = (entry.get("job") or {}).get("id")
         # A number that is not literally in its log is not necessarily wrong,
         # but the reader of a provenance table is entitled to know which ones
@@ -744,58 +746,58 @@ def render_report(entries: list[dict], *, show_all: bool, full: bool) -> str:
             f"| {md_cell(str(entry.get('recorded_at'))[:10])} |")
 
     lines.append("")
-    lines.append("Provenance : `objet` = sha256 tronqué de l'objet mesuré · `commit` = arbre "
-                 "du dépôt au moment de la mesure (`+sale` = non commité, **chiffre non "
-                 "publiable**) · `job` = identifiant HF Jobs, dont l'URL exige un accès au "
-                 "namespace · `log` = sha256 tronqué du log. Tout est revérifiable par "
-                 "`uv run ops/manifest.py verify`.")
+    lines.append("Provenance: `object` = truncated sha256 of the measured object · `commit` = "
+                 "repository tree at the time of the measure (`+dirty` = uncommitted, **number "
+                 "not publishable**) · `job` = HF Jobs identifier, whose URL requires access to "
+                 "the namespace · `log` = truncated sha256 of the log. Everything is "
+                 "re-checkable with `uv run ops/manifest.py verify`.")
     if derived:
         lines.append("")
-        lines.append(f"† {plural(derived, 'valeur')} n'apparaît pas littéralement dans son log "
-                     f"(chiffre dérivé ou converti). Le hachage garantit le log, pas la "
-                     f"dérivation — la justifier explicitement.")
+        lines.append(f"† {plural(derived, 'value')}: not literally present in its own log "
+                     f"(derived or converted figure). The hash guarantees the log, not the "
+                     f"derivation. Justify it explicitly.")
     if hidden:
         lines.append("")
-        lines.append(f"*{hidden} entrée(s) antérieure(s) masquée(s) — seule la plus récente de "
-                     f"chaque (métrique, bras) est montrée. `--all` pour les voir.*")
+        lines.append(f"*{hidden} earlier entry(ies) hidden. Only the most recent one for each "
+                     f"(metric, arm) is shown. `--all` to see them.*")
 
     if full:
         lines.append("")
-        lines.append("### Provenance détaillée")
+        lines.append("### Detailed provenance")
         for entry in entries:
             obj = entry.get("object") or {}
             log_block = entry.get("log") or {}
             git_block = entry.get("git") or {}
             job = entry.get("job") or {}
             lines.append("")
-            lines.append(f"#### `{entry.get('metric')}` — bras {entry.get('arm')}")
+            lines.append(f"#### `{entry.get('metric')}` — arm {entry.get('arm')}")
             lines.append("")
-            lines.append(f"- valeur : **{fmt_value(entry.get('value'))}** {entry.get('unit') or ''}".rstrip())
+            lines.append(f"- value: **{fmt_value(entry.get('value'))}** {entry.get('unit') or ''}".rstrip())
             if entry.get("claim"):
-                lines.append(f"- claim : `[[claim:{entry['claim']}]]`")
-            octets = f", {thousands(obj['bytes'])} o" if obj.get("bytes") else ""
-            revision = f", révision `{obj['revision']}`" if obj.get("revision") else ""
-            lines.append(f"- objet : `{obj.get('ref')}`{revision} — sha256 `{obj.get('sha256') or '—'}`"
+                lines.append(f"- claim: `[[claim:{entry['claim']}]]`")
+            octets = f", {thousands(obj['bytes'])} bytes" if obj.get("bytes") else ""
+            revision = f", revision `{obj['revision']}`" if obj.get("revision") else ""
+            lines.append(f"- object: `{obj.get('ref')}`{revision} — sha256 `{obj.get('sha256') or '—'}`"
                          f" ({obj.get('sha256_source')}){octets}")
-            lines.append(f"- commande : `{md_cell(entry.get('command'))}`")
-            lines.append(f"- log : `{log_block.get('path')}` — sha256 `{log_block.get('sha256')}`"
-                         f", {thousands(log_block.get('bytes') or 0)} o — "
-                         + ("le chiffre y figure littéralement"
+            lines.append(f"- command: `{md_cell(entry.get('command'))}`")
+            lines.append(f"- log: `{log_block.get('path')}` — sha256 `{log_block.get('sha256')}`"
+                         f", {thousands(log_block.get('bytes') or 0)} bytes — "
+                         + ("the number is literally in it"
                             if entry.get("value_in_log")
-                            else "**le chiffre n'y figure pas** (dérivé ou converti)"))
+                            else "**the number is not in it** (derived or converted)"))
             if job.get("id"):
-                url = job.get("url") or "URL non résolue"
-                lines.append(f"- job : `{job['id']}` — {url} ({job.get('url_source')})")
+                url = job.get("url") or "URL not resolved"
+                lines.append(f"- job: `{job['id']}` — {url} ({job.get('url_source')})")
                 if job.get("durations"):
-                    lines.append(f"  - durées : {json.dumps(job['durations'], ensure_ascii=False)}")
-            lines.append(f"- dépôt : commit `{git_block.get('commit')}`, arbre "
-                         f"{'**sale**' if git_block.get('dirty') else 'propre'}")
+                    lines.append(f"  - durations: {json.dumps(job['durations'], ensure_ascii=False)}")
+            lines.append(f"- repository: commit `{git_block.get('commit')}`, tree "
+                         f"{'**dirty**' if git_block.get('dirty') else 'clean'}")
             if entry.get("versions"):
-                lines.append("- versions : "
+                lines.append("- versions: "
                              + ", ".join(f"{k}={v}" for k, v in sorted(entry["versions"].items())))
             if entry.get("notes"):
-                lines.append(f"- note : {md_cell(entry['notes'])}")
-            lines.append(f"- enregistré : {entry.get('recorded_at')}")
+                lines.append(f"- note: {md_cell(entry['notes'])}")
+            lines.append(f"- recorded: {entry.get('recorded_at')}")
     return "\n".join(lines)
 
 
@@ -813,7 +815,7 @@ def cmd_record(args) -> int:
             versions=dict(args.version or []), claim=args.claim, notes=args.notes,
             allow_dirty=args.allow_dirty)
     except ManifestError as exc:
-        print(f"refus : {exc}", file=sys.stderr)
+        print(f"refused: {exc}", file=sys.stderr)
         return 1
 
     previous = [e for e in load_entries(args.manifest)[:-1]
@@ -821,53 +823,53 @@ def cmd_record(args) -> int:
                 and e.get("value") != args.value]
     obj = entry["object"]
     log_block = entry["log"]
-    print(f"enregistré : {entry['metric']} = {fmt_value(entry['value'])} {entry['unit']} "
-          f"(bras {entry['arm']})")
-    octets = f"  {thousands(obj['bytes'])} o" if obj.get("bytes") else ""
-    print(f"  objet   {obj['ref']}\n          sha {short(obj['sha256'], 16)} "
+    print(f"recorded: {entry['metric']} = {fmt_value(entry['value'])} {entry['unit']} "
+          f"(arm {entry['arm']})")
+    octets = f"  {thousands(obj['bytes'])} bytes" if obj.get("bytes") else ""
+    print(f"  object  {obj['ref']}\n          sha {short(obj['sha256'], 16)} "
           f"({obj['sha256_source']}){octets}")
     print(f"  log     {log_block['path']}\n          sha {short(log_block['sha256'], 16)}  "
-          f"{thousands(log_block['bytes'])} o")
+          f"{thousands(log_block['bytes'])} bytes")
     print(f"  commit  {short(entry['git']['commit'], 12)} "
-          f"({'ARBRE SALE' if entry['git']['dirty'] else 'arbre propre'})")
+          f"({'DIRTY TREE' if entry['git']['dirty'] else 'clean tree'})")
     if entry["job"]:
         job = entry["job"]
-        print(f"  job     {job['id']}  {job.get('url') or 'URL non résolue'} ({job['url_source']})")
+        print(f"  job     {job['id']}  {job.get('url') or 'URL not resolved'} ({job['url_source']})")
     print(f"  → {store_path(args.manifest)} "
-          f"({plural(len(load_entries(args.manifest)), 'entrée')})")
+          f"({plural(len(load_entries(args.manifest)), 'record')})")
 
     if not entry["value_in_log"]:
-        print(f"\n  ⚠️  {fmt_value(entry['value'])} n'apparaît pas dans {log_block['path']}."
-              "\n      Le hachage prouve que le log n'a pas bougé, pas que le chiffre en vient."
-              "\n      Si la valeur est dérivée (ratio, conversion d'unité), dis-le dans"
-              "\n      `--notes` ; sinon c'est le mauvais log, ou le mauvais chiffre.")
+        print(f"\n  WARNING  {fmt_value(entry['value'])} does not appear in {log_block['path']}."
+              "\n      The hash proves the log has not moved, not that the number comes from it."
+              "\n      If the value is derived (ratio, unit conversion), say so in"
+              "\n      `--notes`; otherwise it is the wrong log, or the wrong number.")
     if obj["sha256_source"] == "indisponible":
-        print("\n  ⚠️  objet sans sha256 : l'entrée dit quel chiffre, pas sur quels octets."
-              "\n      Repasse `--object-sha256` dès que l'objet est atteignable.")
+        print("\n  WARNING  object without sha256: the entry says which number, not on which bytes."
+              "\n      Pass `--object-sha256` again as soon as the object is reachable.")
     if previous:
-        print(f"\n  ⚠️  {len(previous)} entrée(s) antérieure(s) pour {args.metric}/{args.arm} "
-              f"avec une AUTRE valeur : {', '.join(fmt_value(e['value']) for e in previous)}."
-              f"\n      `report` ne montrera que la plus récente — vérifie laquelle est bonne.")
+        print(f"\n  WARNING  {len(previous)} earlier entry(ies) for {args.metric}/{args.arm} "
+              f"with a DIFFERENT value: {', '.join(fmt_value(e['value']) for e in previous)}."
+              f"\n      `report` will show only the most recent one. Check which one is right.")
     if entry["git"]["dirty"]:
-        print("\n  ⚠️  entrée marquée « arbre sale » : `verify` la refusera "
-              "(sauf `verify --allow-dirty`). Elle ne peut pas entrer dans le papier.")
+        print("\n  WARNING  entry marked \"dirty tree\": `verify` will refuse it "
+              "(unless `verify --allow-dirty`). It cannot go into the paper.")
     return 0
 
 
 def cmd_verify(args) -> int:
     manifest = args.manifest
     if not manifest.is_file():
-        print(f"aucun manifeste à {store_path(manifest)}", file=sys.stderr)
+        print(f"no manifest at {store_path(manifest)}", file=sys.stderr)
         return 1
     report = verify(manifest, root=ROOT, allow_dirty=args.allow_dirty)
 
     for finding in report.findings:
         prefix = "FAIL " if finding.level == "FAIL" else "warn "
-        print(f"{prefix} ligne {finding.line} : {finding.message}")
+        print(f"{prefix} line {finding.line}: {finding.message}")
     clean = report.checked - len({f.line for f in report.failures})
-    print(f"\n{plural(report.checked, 'entrée')} · {plural(clean, 'vérifiée')} sans échec · "
-          f"{plural(len(report.failures), 'échec')} · "
-          f"{plural(len(report.warnings), 'avertissement')}")
+    print(f"\n{plural(report.checked, 'record')} checked · {plural(clean, 'record')} with no "
+          f"failure · {plural(len(report.failures), 'failure')} · "
+          f"{plural(len(report.warnings), 'warning')}")
     if not report.failures:
         return 0
 
@@ -880,19 +882,19 @@ def cmd_verify(args) -> int:
     # Three failure modes with nothing in common, and conflating them sends the
     # operator hunting for a corruption that never happened.
     if kinds - {"sale", "chiffre"}:
-        print("\nLe manifeste ne tient plus : un log, un objet ou un commit a bougé "
-              "depuis l'enregistrement. Les chiffres concernés ne sont plus adossés "
-              "à leur preuve.", file=sys.stderr)
+        print("\nThe manifest no longer holds: a log, an object or a commit has moved "
+              "since the recording. The numbers concerned are no longer backed by "
+              "their proof.", file=sys.stderr)
     if "chiffre" in kinds:
-        print("\nUne valeur a quitté son log alors que le log, lui, est intact : "
-              "l'entrée a été éditée à la main après l'enregistrement. C'est la seule "
-              "falsification que le hachage ne voit pas, et c'est celle qui atteint "
-              "directement le papier.", file=sys.stderr)
+        print("\nA value has left its log while the log itself is intact: the entry "
+              "was edited by hand after the recording. That is the one forgery the "
+              "hash does not see, and it is the one that reaches the paper "
+              "directly.", file=sys.stderr)
     if "sale" in kinds:
-        print("\nDes mesures ont été prises sur un arbre de travail sale : elles sont "
-              "enregistrées mais non publiables, personne ne pouvant reconstruire le "
-              "code qui les a produites. `verify --allow-dirty` les dégrade en "
-              "avertissement.", file=sys.stderr)
+        print("\nMeasures were taken on a dirty working tree: they are recorded but "
+              "not publishable, since nobody can rebuild the code that produced "
+              "them. `verify --allow-dirty` downgrades them to a "
+              "warning.", file=sys.stderr)
     return 1
 
 
@@ -903,7 +905,7 @@ def cmd_report(args) -> int:
     if args.arm:
         entries = [e for e in entries if e.get("arm") == args.arm]
     if not entries:
-        print("aucune mesure enregistrée", file=sys.stderr)
+        print("no measure recorded", file=sys.stderr)
         return 1
     print(render_report(entries, show_all=args.all, full=args.full))
     return 0
@@ -924,12 +926,12 @@ def has_fail(report: VerifyReport, kind: str) -> bool:
     French sentence passes again the day the sentence is rephrased, which is
     the same disease as a monotonicity test that accepts a no-op (CLAUDE.md §5).
     """
-    assert kind in KINDS, f"cause inconnue : {kind}"
+    assert kind in KINDS, f"unknown cause: {kind}"
     return any(f.kind == kind for f in report.failures)
 
 
 def cmd_selftest(args) -> int:
-    """Prove the verifier detects corruption. A verifier that does not is décor.
+    """Prove the verifier detects corruption. A verifier that does not is decoration.
 
     Same discipline as `run.py cmd_selftest`, and the same reason: the value of
     this file rests entirely on `verify` being able to fail. Every assertion
@@ -945,7 +947,7 @@ def cmd_selftest(args) -> int:
 
         manifest = tmp / "manifest.jsonl"
         log = tmp / "run.log"
-        log.write_text("ppl = 16.9415 sur 12 fenêtres\nbaseline ppl = 12.2361\n",
+        log.write_text("ppl = 16.9415 over 12 windows\nbaseline ppl = 12.2361\n",
                        encoding="utf-8")
         obj = tmp / "objet.bin"
         obj.write_bytes(bytes(range(256)) * 16)
@@ -956,22 +958,22 @@ def cmd_selftest(args) -> int:
         # 1. an unclean tree is refused, and refused *before* writing anything.
         try:
             record(manifest, git_st=dirty, value=16.9415, **common)
-            ok = check(ok, False, "l'arbre sale est refusé")
+            ok = check(ok, False, "a dirty tree is refused")
         except ManifestError:
-            ok = check(ok, True, "l'arbre sale est refusé")
-        ok = check(ok, not manifest.exists(), "un refus n'écrit rien dans le manifeste")
+            ok = check(ok, True, "a dirty tree is refused")
+        ok = check(ok, not manifest.exists(), "a refusal writes nothing to the manifest")
 
         # 2. nominal path.
         entry = record(manifest, git_st=clean, value=16.9415, **common)
         report = verify(manifest, root=ROOT)
-        ok = check(ok, not report.failures, "une entrée saine passe verify")
+        ok = check(ok, not report.failures, "a sound entry passes verify")
         ok = check(ok, entry["value_in_log"] is True,
-                   "record retrouve le chiffre dans le log")
+                   "record finds the number in the log")
 
         # 3. append-only: a second entry must not cost the first.
         record(manifest, git_st=clean, value=12.2361,
                **{**common, "metric": "selftest_baseline"})
-        ok = check(ok, len(load_entries(manifest)) == 2, "le manifeste est en ajout seul")
+        ok = check(ok, len(load_entries(manifest)) == 2, "the manifest is append-only")
 
         # 4. THE lock: the log's hash. Two corruptions, and the first one is
         #    length-preserving **on purpose** — an appended byte also changes
@@ -983,25 +985,25 @@ def cmd_selftest(args) -> int:
         flipped[0] ^= 0x01
         log.write_bytes(bytes(flipped))
         ok = check(ok, has_fail(verify(manifest, root=ROOT), "log"),
-                   "un log modifié à taille constante fait échouer verify")
+                   "a log edited at constant size makes verify fail")
         log.write_bytes(original + b" ")
         ok = check(ok, has_fail(verify(manifest, root=ROOT), "log"),
-                   "un log rallongé fait échouer verify")
+                   "a lengthened log makes verify fail")
         log.write_bytes(original)
         ok = check(ok, not verify(manifest, root=ROOT).failures,
-                   "le log restauré fait repasser verify")
+                   "the restored log makes verify pass again")
 
         # 5. a log that disappeared is a failure too — "does it still exist?"
         log.unlink()
         ok = check(ok, has_fail(verify(manifest, root=ROOT), "log"),
-                   "un log disparu fait échouer verify")
+                   "a vanished log makes verify fail")
         log.write_bytes(original)
 
         # 6. the measured object is hashed for the same reason as the log.
         obj_original = obj.read_bytes()
         obj.write_bytes(obj_original[:-1] + bytes([obj_original[-1] ^ 0xFF]))
         ok = check(ok, has_fail(verify(manifest, root=ROOT), "objet"),
-                   "un objet corrompu fait échouer verify")
+                   "a corrupted object makes verify fail")
         obj.write_bytes(obj_original)
 
         # 7. a commit the repository does not know is not provenance.
@@ -1010,22 +1012,22 @@ def cmd_selftest(args) -> int:
         forged["metric"] = "selftest_commit_forge"
         append_entry(manifest, forged)
         ok = check(ok, has_fail(verify(manifest, root=ROOT), "commit"),
-                   "un commit inexistant fait échouer verify")
+                   "a nonexistent commit makes verify fail")
 
         # 8. a dirty entry is recordable, and rejected by default.
         dirty_manifest = tmp / "dirty.jsonl"
         entry = record(dirty_manifest, git_st=dirty, value=1.0, allow_dirty=True, **common)
-        ok = check(ok, entry["git"]["dirty"] is True, "--allow-dirty marque l'entrée")
+        ok = check(ok, entry["git"]["dirty"] is True, "--allow-dirty marks the entry")
         ok = check(ok, has_fail(verify(dirty_manifest, root=ROOT), "sale"),
-                   "une entrée sale fait échouer verify par défaut")
+                   "a dirty entry makes verify fail by default")
         ok = check(ok, not verify(dirty_manifest, root=ROOT, allow_dirty=True).failures,
-                   "verify --allow-dirty l'accepte en avertissement")
+                   "verify --allow-dirty accepts it as a warning")
 
         # 9. an unreadable line is a failure, not a silent skip.
         broken = tmp / "broken.jsonl"
-        broken.write_text("{ ceci n'est pas du JSON\n", encoding="utf-8")
+        broken.write_text("{ this is not JSON\n", encoding="utf-8")
         ok = check(ok, has_fail(verify(broken, root=ROOT), "structure"),
-                   "une ligne illisible fait échouer verify")
+                   "an unreadable line makes verify fail")
 
         # 10. a truncated entry cannot pass as a complete one.
         amputated = tmp / "amputee.jsonl"
@@ -1033,44 +1035,44 @@ def cmd_selftest(args) -> int:
         partial.pop("log")
         append_entry(amputated, partial)
         ok = check(ok, has_fail(verify(amputated, root=ROOT), "structure"),
-                   "une entrée amputée fait échouer verify")
+                   "a truncated entry makes verify fail")
 
         # 10bis. …and an entry whose fields have the wrong TYPE must be refused,
         #        not crash. A hand edit breaks a type as easily as a digit, and
         #        a traceback is not a refusal an operator can act on.
-        # ⚠️ One file per case, numbered. `append_entry` appends: two cases
-        #    sharing a filename means the second one is verified against the
-        #    first one's failure and passes for free. That is exactly how the
-        #    boolean case below went green on a verifier that accepted booleans.
+        # WARNING: one file per case, numbered. `append_entry` appends: two
+        #    cases sharing a filename means the second one is verified against
+        #    the first one's failure and passes for free. That is exactly how
+        #    the boolean case below went green on a verifier that took booleans.
         for case, (label, key, junk) in enumerate((
-                ("bloc git", "git", "abc"),
-                ("bloc log", "log", None),
-                ("bloc objet", "object", []),
-                ("valeur textuelle", "value", "16,9415"),
+                ("git block", "git", "abc"),
+                ("log block", "log", None),
+                ("object block", "object", []),
+                ("text value", "value", "16,9415"),
                 # `isinstance(True, int)` is True in Python, so a boolean walks
                 # straight through a numeric check written the obvious way.
-                ("valeur booléenne", "value", True))):
+                ("boolean value", "value", True))):
             typed = tmp / f"type-{case}.jsonl"
             entry = json.loads(read_entries(manifest)[0][1])
             entry[key] = junk
             append_entry(typed, entry)
             try:
                 ok = check(ok, has_fail(verify(typed, root=ROOT), "structure"),
-                           f"un {label} de type inattendu fait échouer verify")
+                           f"{label} of unexpected type makes verify fail")
             except Exception as exc:  # a traceback is a failure of this check
-                ok = check(ok, False, f"un {label} de type inattendu fait planter verify : {exc!r}")
+                ok = check(ok, False, f"{label} of unexpected type crashes verify: {exc!r}")
 
         # 11. the report shows the newest value, and says how many it hides.
         record(manifest, git_st=clean, value=16.9415, **common)
         record(manifest, git_st=clean, value=17.5, **common)
         rendered = render_report(load_entries(manifest), show_all=False, full=False)
-        ok = check(ok, "17.5" in rendered and "masquée" in rendered,
-                   "report montre la valeur la plus récente et signale les masquées")
+        ok = check(ok, "17.5" in rendered and "hidden" in rendered,
+                   "report shows the most recent value and flags the hidden ones")
 
         # 12. the French decimal comma round-trips; a thousands separator would
         #     not be unambiguous, and is left alone on purpose.
         ok = check(ok, parse_value("16,9415") == 16.9415 and parse_value("1770527533") == 1770527533,
-                   "parse_value lit la virgule décimale et garde les entiers exacts")
+                   "parse_value reads the decimal comma and keeps integers exact")
 
         # 13. absent ≠ corrupted. An object living on the Hub (arm B0) is
         #     recordable with a declared sha, warns that it could not be
@@ -1080,15 +1082,15 @@ def cmd_selftest(args) -> int:
         #     corrupted log — would still satisfy every assertion above.
         remote = tmp / "remote.jsonl"
         record(remote, git_st=clean, value=4.15625, allow_dirty=False,
-               **{**common, "metric": "selftest_remote", "unit": "b/poids",
+               **{**common, "metric": "selftest_remote", "unit": "b/weight",
                   "obj": "Qwen/Qwen3-4B-AWQ", "obj_sha": "74d4bd2b" + "0" * 56})
         remote_report = verify(remote, root=ROOT)
         ok = check(ok, not remote_report.failures,
-                   "un objet distant, non hachable ici, ne fait pas échouer verify")
-        ok = check(ok, any("objet absent" in f.message for f in remote_report.warnings),
-                   "un objet distant est signalé en avertissement")
+                   "a remote object, not hashable here, does not make verify fail")
+        ok = check(ok, any("object absent" in f.message for f in remote_report.warnings),
+                   "a remote object is flagged as a warning")
         ok = check(ok, not has_fail(remote_report, "objet"),
-                   "un avertissement n'est jamais compté comme un échec")
+                   "a warning is never counted as a failure")
 
         # 14. a declared sha that contradicts the local bytes is a refusal, not
         #     a preference. This is how one records the 4B's sha against the
@@ -1098,21 +1100,22 @@ def cmd_selftest(args) -> int:
         try:
             record(wrong, git_st=clean, value=1.0,
                    **{**common, "obj_sha": "dead" + "0" * 60})
-            ok = check(ok, False, "un sha annoncé faux est refusé")
+            ok = check(ok, False, "a declared sha that is wrong is refused")
         except ManifestError:
-            ok = check(ok, not wrong.exists(), "un sha annoncé faux est refusé, sans rien écrire")
+            ok = check(ok, not wrong.exists(),
+                       "a declared sha that is wrong is refused, writing nothing")
 
         # …and a truncated one is refused on its shape alone. Tested on a
         # REMOTE object on purpose: on a local file the mismatch above would
         # catch it anyway, so a local fixture would leave the shape check
         # untested — a mutant deleting it survived exactly that way.
-        for label, bad in (("tronqué", "aa"), ("non hexadécimal", "z" * 64)):
+        for label, bad in (("truncated", "aa"), ("non-hexadecimal", "z" * 64)):
             try:
                 record(wrong, git_st=clean, value=1.0,
                        **{**common, "obj": "Qwen/Qwen3-4B", "obj_sha": bad})
-                ok = check(ok, False, f"un sha annoncé {label} est refusé")
+                ok = check(ok, False, f"a declared sha that is {label} is refused")
             except ManifestError:
-                ok = check(ok, True, f"un sha annoncé {label} est refusé")
+                ok = check(ok, True, f"a declared sha that is {label} is refused")
 
         # 15. the remaining refusals of `record`. Each is a 2 a.m. typo, and
         #     each would otherwise produce an entry that `verify` can never
@@ -1122,16 +1125,16 @@ def cmd_selftest(args) -> int:
         #     called programmatically too, and the guard belongs where the
         #     entry is built.
         guard = tmp / "guard.jsonl"
-        for label, override in (("bras inconnu", {"arm": "A"}),
-                                ("commande vide", {"command": "   "}),
-                                ("log absent", {"log": tmp / "pas-de-log.txt"}),
-                                ("URL de job sans identifiant",
+        for label, override in (("unknown arm", {"arm": "A"}),
+                                ("empty command", {"command": "   "}),
+                                ("missing log", {"log": tmp / "pas-de-log.txt"}),
+                                ("job URL without an identifier",
                                  {"job_url": "https://huggingface.co/jobs/x/y"})):
             try:
                 record(guard, git_st=clean, value=1.0, **{**common, **override})
-                ok = check(ok, False, f"record refuse : {label}")
+                ok = check(ok, False, f"record refuses: {label}")
             except ManifestError:
-                ok = check(ok, not guard.exists(), f"record refuse : {label}")
+                ok = check(ok, not guard.exists(), f"record refuses: {label}")
 
         # 16bis. the recorded size must agree with the hashed file. This can
         #        only ever fire on an entry edited by hand — a corrupted log
@@ -1143,7 +1146,7 @@ def cmd_selftest(args) -> int:
         entry["log"]["bytes"] = entry["log"]["bytes"] + 1
         append_entry(resized, entry)
         ok = check(ok, has_fail(verify(resized, root=ROOT), "log"),
-                   "une taille de log réécrite à la main fait échouer verify")
+                   "a log size rewritten by hand makes verify fail")
 
         # 16ter. a blank line is tolerated, not treated as a broken entry.
         #        Somebody will open this file in an editor one day; the
@@ -1153,7 +1156,7 @@ def cmd_selftest(args) -> int:
         good = read_entries(manifest)[0][1]
         spaced.write_text(good + "\n" + good, encoding="utf-8")
         ok = check(ok, not verify(spaced, root=ROOT).failures,
-                   "une ligne vide ne fait pas échouer verify")
+                   "a blank line does not make verify fail")
 
         # 16. the comparison is on the WHOLE digest, not on what gets printed.
         #     `short()` lives in this file and shows 8 characters in every
@@ -1171,14 +1174,14 @@ def cmd_selftest(args) -> int:
         append_entry(forged_hash, entry)
         prefix_report = verify(forged_hash, root=ROOT)
         ok = check(ok, has_fail(prefix_report, "log"),
-                   "un sha de log coïncidant sur 8 caractères est rejeté")
+                   "a log sha matching on 8 characters is rejected")
         ok = check(ok, has_fail(prefix_report, "objet"),
-                   "un sha d'objet coïncidant sur 8 caractères est rejeté")
+                   "an object sha matching on 8 characters is rejected")
 
         # 17. the object's SIZE, for the same reason the log's is checked — and
         #     it matters more here: the object's byte count is not bookkeeping,
-        #     it IS a published figure (axis 1 is 1 770 527 533 o against
-        #     2 666 027 672 o). Hashes and sizes are checked on the log side and
+        #     it IS a published figure (axis 1 is 1,770,527,533 bytes against
+        #     2,666,027,672 bytes). Hashes and sizes are checked on the log side and
         #     were not on the object side; a mutant deleting the object branch
         #     survived every assertion above.
         obj_resized = tmp / "objet-taille.jsonl"
@@ -1186,7 +1189,7 @@ def cmd_selftest(args) -> int:
         entry["object"]["bytes"] = entry["object"]["bytes"] + 1
         append_entry(obj_resized, entry)
         ok = check(ok, has_fail(verify(obj_resized, root=ROOT), "objet"),
-                   "une taille d'objet réécrite à la main fait échouer verify")
+                   "an object size rewritten by hand makes verify fail")
 
         # 18. THE number. Everything above passes on an entry whose `value` was
         #     edited by hand: the log is untouched, so every hash still matches
@@ -1198,9 +1201,9 @@ def cmd_selftest(args) -> int:
         append_entry(edited, entry)
         edited_report = verify(edited, root=ROOT)
         ok = check(ok, has_fail(edited_report, "chiffre"),
-                   "une valeur réécrite à la main fait échouer verify")
+                   "a value rewritten by hand makes verify fail")
         ok = check(ok, not has_fail(edited_report, "log"),
-                   "…et l'échec accuse la valeur, pas le log, qui lui n'a pas bougé")
+                   "…and the failure accuses the value, not the log, which has not moved")
 
         #     …and deleting the field must not be a way out. That is why it is
         #     required: an omission is a structural failure, not a silence.
@@ -1210,7 +1213,7 @@ def cmd_selftest(args) -> int:
         entry.pop("value_in_log")
         append_entry(stripped, entry)
         ok = check(ok, has_fail(verify(stripped, root=ROOT), "structure"),
-                   "supprimer value_in_log ne contourne pas la vérification")
+                   "deleting value_in_log does not bypass the check")
 
         # 19. a value that was never in its log is recorded as such, warned
         #     about, and NOT failed — a ratio or a unit conversion is legitimate
@@ -1221,96 +1224,96 @@ def cmd_selftest(args) -> int:
         derived_entry = record(derived_mf, git_st=clean, value=1.5058,
                                **{**common, "metric": "selftest_ratio", "unit": "×"})
         ok = check(ok, derived_entry["value_in_log"] is False,
-                   "un chiffre absent du log est enregistré comme tel")
+                   "a number absent from the log is recorded as such")
         derived_report = verify(derived_mf, root=ROOT)
         ok = check(ok, not derived_report.failures,
-                   "un chiffre dérivé ne fait pas échouer verify")
+                   "a derived number does not make verify fail")
         ok = check(ok, any(f.kind == "chiffre" for f in derived_report.warnings),
-                   "un chiffre dérivé est signalé en avertissement")
+                   "a derived number is flagged as a warning")
         ok = check(ok, "†" in render_report(load_entries(derived_mf), show_all=True, full=False),
-                   "report marque le chiffre que le log ne porte pas")
+                   "report marks the number the log does not carry")
 
         # 20. the matcher itself. A presence check that matched everything
         #     would make 18 pass on a broken verifier, so it needs its own
         #     negative controls — the same reason `golay_stage_is_load_bearing`
         #     exists (CLAUDE.md §5).
         cases: tuple[tuple[str, str, int | float, bool], ...] = (
-            ("virgule décimale", "ppl = 16,9415 sur 12 fenêtres", 16.9415, True),
-            ("point décimal", "ppl = 16.9415", 16.9415, True),
-            ("plus de décimales dans le log", "ppl = 16.94153", 16.9415, True),
-            ("moins de décimales dans le log", "ppl = 16.94", 16.9415, False),
-            ("entier groupé par espaces", "taille 1 770 527 533 o", 1770527533, True),
-            ("entier nu", "taille 1770527533 o", 1770527533, True),
-            ("signe moins typographique", "chute −14.33 pp", -14.33, True),
-            ("un autre chiffre", "ppl = 12.2361", 16.9415, False),
-            ("un préfixe n'est pas une preuve", "ppl = 16.94", 16.941, False),
+            ("decimal comma", "ppl = 16,9415 over 12 windows", 16.9415, True),
+            ("decimal point", "ppl = 16.9415", 16.9415, True),
+            ("more decimals in the log", "ppl = 16.94153", 16.9415, True),
+            ("fewer decimals in the log", "ppl = 16.94", 16.9415, False),
+            ("integer grouped by spaces", "size 1 770 527 533 bytes", 1770527533, True),
+            ("bare integer", "size 1770527533 bytes", 1770527533, True),
+            ("typographic minus sign", "drop −14.33 pp", -14.33, True),
+            ("a different number", "ppl = 12.2361", 16.9415, False),
+            ("a prefix is not a proof", "ppl = 16.94", 16.941, False),
             # The trap the grouping rule is written against: collapsing any
             # digit-space-digit would turn this into `409612` and invent a
             # match for a value nobody logged.
-            ("pas de fusion hors groupes de trois", "ppl 4096 12 cuda", 409612, False),
+            ("no merging outside groups of three", "ppl 4096 12 cuda", 409612, False),
         )
         for label, text, value, expected in cases:
             ok = check(ok, (value_evidence(text, value) is not None) is expected,
                        f"value_evidence — {label}")
     except ManifestError as exc:
-        print(f"FAIL  selftest interrompu : {exc}")
+        print(f"FAIL  selftest interrupted: {exc}")
         ok = False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    print("\n" + ("selftest vert — verify sait échouer, donc il vérifie."
-                  if ok else "selftest ROUGE — ne pas se fier au manifeste."))
+    print("\n" + ("selftest green: verify can fail, so it verifies."
+                  if ok else "selftest RED: do not trust the manifest."))
     return 0 if ok else 1
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--manifest", type=Path, default=MANIFEST,
-                   help=f"défaut : {store_path(MANIFEST)}")
+                   help=f"default: {store_path(MANIFEST)}")
     p.add_argument("--selftest", action="store_true",
-                   help="enregistrer, vérifier, corrompre, exiger l'échec")
+                   help="record, verify, corrupt, require the failure")
     sub = p.add_subparsers(dest="cmd")
 
-    r = sub.add_parser("record", help="enregistrer une mesure et sa provenance")
-    r.add_argument("--metric", required=True, help="ex. ppl_wikitext2_ctx4096_w73")
+    r = sub.add_parser("record", help="record a measure and its provenance")
+    r.add_argument("--metric", required=True, help="e.g. ppl_wikitext2_ctx4096_w73")
     r.add_argument("--value", required=True, type=parse_value,
-                   help="virgule décimale acceptée (16,9415)")
-    r.add_argument("--unit", required=True, help="ex. ppl, pp, o, b/poids, tok/s, s")
+                   help="decimal comma accepted (16,9415)")
+    r.add_argument("--unit", required=True, help="e.g. ppl, pp, bytes, b/weight, tok/s, s")
     r.add_argument("--arm", required=True, choices=sorted(ARMS),
                    help="; ".join(f"{k} = {v}" for k, v in ARMS.items()))
-    r.add_argument("--log", required=True, type=Path, help="le log qui porte le chiffre")
+    r.add_argument("--log", required=True, type=Path, help="the log that carries the number")
     r.add_argument("--object", required=True,
-                   help="l'objet mesuré : chemin local (haché) ou référence Hub")
-    r.add_argument("--command", required=True, help="la commande EXACTE, environnement compris")
+                   help="the measured object: local path (hashed) or Hub reference")
+    r.add_argument("--command", required=True, help="the EXACT command, environment included")
     r.add_argument("--object-sha256", default=None,
-                   help="sha du fichier s'il n'est pas atteignable ici ; vérifié s'il l'est")
-    r.add_argument("--object-rev", default=None, help="révision Hub de l'objet")
-    r.add_argument("--job", default=None, help="identifiant HF Jobs ; l'URL est résolue par l'API")
+                   help="sha of the file if it is not reachable here; checked if it is")
+    r.add_argument("--object-rev", default=None, help="Hub revision of the object")
+    r.add_argument("--job", default=None, help="HF Jobs identifier; the URL is resolved by the API")
     r.add_argument("--job-url", default=None,
-                   help="URL du job si l'API est hors d'atteinte (marquée « declare »)")
-    r.add_argument("--version", action="append", type=parse_kv, metavar="CLE=VALEUR",
-                   help="rustc=…, cuda=…, driver=…, candle=… (répétable)")
-    r.add_argument("--claim", default=None, help="identifiant [[claim:ID]] côté papier")
+                   help="URL of the job if the API is out of reach (marked \"declare\")")
+    r.add_argument("--version", action="append", type=parse_kv, metavar="KEY=VALUE",
+                   help="rustc=…, cuda=…, driver=…, candle=… (repeatable)")
+    r.add_argument("--claim", default=None, help="[[claim:ID]] identifier on the paper side")
     r.add_argument("--notes", default=None)
     r.add_argument("--allow-dirty", action="store_true",
-                   help="enregistrer depuis un arbre sale ; l'entrée est marquée et verify la refuse")
+                   help="record from a dirty tree; the entry is marked and verify refuses it")
     r.set_defaults(fn=cmd_record)
 
-    v = sub.add_parser("verify", help="revérifier hachages, commits et propreté")
+    v = sub.add_parser("verify", help="re-check hashes, commits and cleanliness")
     v.add_argument("--allow-dirty", action="store_true",
-                   help="dégrader les entrées « arbre sale » en avertissement")
+                   help="downgrade \"dirty tree\" entries to a warning")
     v.set_defaults(fn=cmd_verify)
 
-    rp = sub.add_parser("report", help="table markdown, chaque ligne avec sa provenance")
+    rp = sub.add_parser("report", help="markdown table, each row with its provenance")
     rp.add_argument("--metric", default=None)
     rp.add_argument("--arm", default=None, choices=sorted(ARMS))
     rp.add_argument("--all", action="store_true",
-                    help="montrer aussi les mesures remplacées")
+                    help="also show the superseded measures")
     rp.add_argument("--full", action="store_true",
-                    help="ajouter la provenance détaillée sous la table")
+                    help="add the detailed provenance under the table")
     rp.set_defaults(fn=cmd_report)
 
-    st = sub.add_parser("selftest", help="alias de --selftest")
+    st = sub.add_parser("selftest", help="alias for --selftest")
     st.set_defaults(fn=cmd_selftest)
 
     args = p.parse_args()

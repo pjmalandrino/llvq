@@ -144,7 +144,7 @@ fn qkv_fixture(seed: u64) -> Vec<Part> {
 fn to_matrix(tr: &Transcoder, layer: usize, p: &Part, seed: u64) -> FusedMatrix {
     let (stream, payload) = tr
         .stream(&p.indices, &p.gains, p.d_out, NBLOCKS)
-        .expect("transcodage planes14");
+        .expect("planes14 transcode");
     FusedMatrix {
         name: format!("model.layers.{layer}.{}.weight", p.suffix),
         d_out: p.d_out,
@@ -174,7 +174,7 @@ fn refusal(r: Result<(Vec<FusedMatrix>, Vec<FusedGroup>), String>, why: &str) ->
 fn words_of(s: &HostStream) -> &[u32] {
     match s {
         HostStream::Planes14 { words } => words,
-        _ => panic!("layout planes14 demandé, autre flux rendu"),
+        _ => panic!("planes14 layout asked, another stream returned"),
     }
 }
 
@@ -187,31 +187,31 @@ fn words_of(s: &HostStream) -> &[u32] {
 /// bytes.
 #[test]
 fn the_spliced_stream_decodes_to_the_unfused_projections() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let parts = qkv_fixture(0x5_E6A4);
     // The reference streams, transcoded apart, before `segment_matrices` eats
     // the matrices it is handed.
     let unfused: Vec<HostStream> = parts
         .iter()
-        .map(|p| tr.stream(&p.indices, &p.gains, p.d_out, NBLOCKS).expect("transcodage").0)
+        .map(|p| tr.stream(&p.indices, &p.gains, p.d_out, NBLOCKS).expect("transcode").0)
         .collect();
 
     let matrices: Vec<FusedMatrix> = parts
         .iter()
         .map(|p| to_matrix(&tr, 0, p, 0x11))
         .collect();
-    let (singles, groups) = segment_matrices(matrices).expect("q/k/v se fusionnent");
-    assert!(singles.is_empty(), "la fixture ne porte que des projections fusibles");
+    let (singles, groups) = segment_matrices(matrices).expect("q/k/v fuse");
+    assert!(singles.is_empty(), "the fixture carries only fusable projections");
     assert_eq!(groups.len(), 1);
     let g = &groups[0];
 
     assert_eq!(g.key, "000.Attn");
-    assert_eq!(g.d_out, 48, "la fixture empile 32 + 8 + 8 lignes");
+    assert_eq!(g.d_out, 48, "the fixture stacks 32 + 8 + 8 rows");
     assert_eq!((g.nblocks, g.tail_w, g.d_in), (NBLOCKS, TAIL_W, D_IN));
     assert_eq!(
         g.parts.iter().map(|p| p.row0).collect::<Vec<_>>(),
         [0, 32, 40],
-        "les lignes sont empilées dans l'ordre des rangs"
+        "the rows are stacked in rank order"
     );
     assert_eq!(
         g.parts.iter().map(|p| p.rank).collect::<Vec<_>>(),
@@ -237,9 +237,9 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
             let gs = g.gs_off[grow] as usize;
             assert!(
                 gs + 1 < g.gscale.len(),
-                "ligne {grow} : gs_off {gs} hors de la table"
+                "row {grow}: gs_off {gs} past the table"
             );
-            assert_eq!(gs, 2 * s, "ligne {grow} : la paire du segment {s} commence à 2·{s}");
+            assert_eq!(gs, 2 * s, "row {grow}: segment {s}'s pair starts at 2·{s}");
 
             for b in 0..NBLOCKS {
                 // (a) The stream, field by field — id, gain, sign mask and the
@@ -249,8 +249,8 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
                 let got = planes_fields(fused, grow * NBLOCKS + b);
                 assert_eq!(
                     got, want,
-                    "segment {s}, ligne {r} (ligne fusée {grow}), bloc {b} : le contenu \
-                     Planes14 a bougé"
+                    "segment {s}, row {r} (fused row {grow}), block {b}: the Planes14 \
+                     content moved"
                 );
 
                 // (b) The scalar every weight of this block is multiplied by,
@@ -263,8 +263,8 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
                 let want_k = p.gscale[gain] as f64 * p.rscale[r] as f64;
                 assert_eq!(
                     got_k, want_k,
-                    "segment {s}, ligne {r} (ligne fusée {grow}), bloc {b} : le facteur \
-                     gain × échelle de ligne a bougé"
+                    "segment {s}, row {r} (fused row {grow}), block {b}: the gain × row \
+                     scale factor moved"
                 );
             }
 
@@ -275,7 +275,7 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
             assert_eq!(
                 &g.tail[a..a + TAIL_W],
                 &p.tail[b..b + TAIL_W],
-                "segment {s}, ligne {r} : la queue a bougé"
+                "segment {s}, row {r}: the tail moved"
             );
         }
     }
@@ -286,11 +286,11 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
     // widest record among 32 blocks and can move when a concatenation regroups
     // across a segment boundary.
     let total_blocks = g.d_out * NBLOCKS;
-    let payload_words = planes_payload_words(total_blocks).expect("nombre pair de blocs");
+    let payload_words = planes_payload_words(total_blocks).expect("even block count");
     assert_eq!(
         fused.len(),
         payload_words + 1,
-        "charge utile 14·N/4 plus UN mot de bourrage de fin de flux"
+        "payload 14·N/4 plus ONE end-of-stream padding word"
     );
     let unfused_payload: usize = unfused
         .iter()
@@ -303,7 +303,7 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
         .sum();
     assert_eq!(
         payload_words, unfused_payload,
-        "la fusion Planes14 a changé le total d'octets : le pas uniforme n'est plus là"
+        "the Planes14 fusion changed the byte total: the uniform stride is gone"
     );
     assert_eq!(payload_words * 4, total_blocks * PLANES14_BYTES);
 }
@@ -320,16 +320,16 @@ fn the_spliced_stream_decodes_to_the_unfused_projections() {
 /// — is that the window's far end is exactly the payload's end.
 #[test]
 fn the_last_block_window_is_in_bounds_and_one_word_less_is_not() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let parts = qkv_fixture(0xB0_07);
     let matrices: Vec<FusedMatrix> = parts.iter().map(|p| to_matrix(&tr, 0, p, 0x11)).collect();
-    let (_, groups) = segment_matrices(matrices).expect("q/k/v se fusionnent");
+    let (_, groups) = segment_matrices(matrices).expect("q/k/v fuse");
     let g = &groups[0];
     let words = words_of(&g.stream);
 
     let last = g.d_out * NBLOCKS - 1;
     let far = (PLANES14_BYTES * last) / 4 + 4;
-    assert!(far <= words.len(), "la fenêtre du dernier bloc sort du tampon");
+    assert!(far <= words.len(), "the last block window falls outside the buffer");
     let full = planes_fields(words, last);
 
     // One word short of what the window needs, so `words[w + 3]` is the first
@@ -341,8 +341,8 @@ fn the_last_block_window_is_in_bounds_and_one_word_less_is_not() {
     std::panic::set_hook(prev);
     assert!(
         r.is_err(),
-        "un tampon trop court doit paniquer sur la fenêtre du dernier bloc, \
-         pas rendre {full:?}"
+        "a buffer that is one word short must panic on the last block window, \
+         not return {full:?}"
     );
 }
 
@@ -356,14 +356,14 @@ fn the_last_block_window_is_in_bounds_and_one_word_less_is_not() {
 /// read out of the shifted bit fields is a valid class and a point in the ball.
 #[test]
 fn the_naive_word_concatenation_decodes_differently() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let parts = qkv_fixture(0x00DE_AD10);
     let unfused: Vec<HostStream> = parts
         .iter()
-        .map(|p| tr.stream(&p.indices, &p.gains, p.d_out, NBLOCKS).expect("transcodage").0)
+        .map(|p| tr.stream(&p.indices, &p.gains, p.d_out, NBLOCKS).expect("transcode").0)
         .collect();
     let matrices: Vec<FusedMatrix> = parts.iter().map(|p| to_matrix(&tr, 0, p, 0x11)).collect();
-    let (_, groups) = segment_matrices(matrices).expect("q/k/v se fusionnent");
+    let (_, groups) = segment_matrices(matrices).expect("q/k/v fuse");
     let g = &groups[0];
     let fused = words_of(&g.stream);
 
@@ -371,7 +371,7 @@ fn the_naive_word_concatenation_decodes_differently() {
     let naive: Vec<u32> = unfused.iter().flat_map(|s| words_of(s).iter().copied()).collect();
     assert!(
         naive.len() > fused.len(),
-        "la concaténation naïve est PLUS LONGUE : c'est pourquoi elle ne plante pas"
+        "the naive concatenation is LONGER, which is why it does not crash"
     );
 
     let row0 = g.parts[1].row0;
@@ -386,8 +386,8 @@ fn the_naive_word_concatenation_decodes_differently() {
     }
     assert!(
         differ > 0,
-        "la concaténation naïve décode comme l'épissure : ce fichier ne verrait pas le \
-         défaut qu'il existe pour attraper"
+        "the naive concatenation decodes like the splice, so this file would not see \
+         the defect it exists to catch"
     );
     // And the first segment is untouched — the pad only shifts what follows it,
     // which is why the failure is partial and therefore plausible.
@@ -395,7 +395,7 @@ fn the_naive_word_concatenation_decodes_differently() {
         assert_eq!(
             planes_fields(&naive, b),
             planes_fields(fused, b),
-            "le premier segment ne peut pas bouger : rien ne le précède"
+            "the first segment cannot move, nothing precedes it"
         );
     }
 }
@@ -404,7 +404,7 @@ fn the_naive_word_concatenation_decodes_differently() {
 /// odd block count, rather than trusting the caller's arithmetic.
 #[test]
 fn the_splice_refuses_a_stream_of_the_wrong_length() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let (idx, gains): (Vec<u64>, Vec<u32>) = {
         let mut rng = SplitMix64::new(0xF00D);
         (
@@ -412,22 +412,22 @@ fn the_splice_refuses_a_stream_of_the_wrong_length() {
             (0..40).map(|_| (rng.next() & 1) as u32).collect(),
         )
     };
-    let (ok, _) = tr.stream(&idx, &gains, 8, 5).expect("transcodage");
+    let (ok, _) = tr.stream(&idx, &gains, 8, 5).expect("transcode");
     // The honest call: 40 blocks, and the stream really carries 40.
-    assert_eq!(splice_planes14(&[(&ok, 40)]).expect("un seul segment").len(), 141);
+    assert_eq!(splice_planes14(&[(&ok, 40)]).expect("a single segment").len(), 141);
 
     // A block count that does not match the stream — the mutant "I took
     // `words.len() - 1` without knowing why" dies here.
-    let e = splice_planes14(&[(&ok, 38)]).expect_err("38 blocs pour un flux de 40");
-    assert!(e.contains("mots"), "{e}");
+    let e = splice_planes14(&[(&ok, 38)]).expect_err("38 blocks for a stream of 40");
+    assert!(e.contains("words"), "{e}");
     // An odd block count: `14·n` is then not a multiple of 4, so the segment
     // boundary would not fall on a word at all.
-    let e = splice_planes14(&[(&ok, 39)]).expect_err("compte impair");
-    assert!(e.contains("impair"), "{e}");
+    let e = splice_planes14(&[(&ok, 39)]).expect_err("odd count");
+    assert!(e.contains("odd"), "{e}");
     // And a stream that is not Planes14 at all.
-    let slot = Transcoder::new(FusedLayout::Slot32).expect("transcodeur slot32");
-    let (s32, _) = slot.stream(&idx, &gains, 8, 5).expect("transcodage");
-    let e = splice_planes14(&[(&s32, 40)]).expect_err("flux slot32");
+    let slot = Transcoder::new(FusedLayout::Slot32).expect("slot32 transcoder");
+    let (s32, _) = slot.stream(&idx, &gains, 8, 5).expect("transcode");
+    let e = splice_planes14(&[(&s32, 40)]).expect_err("slot32 stream");
     assert!(e.contains("Planes14"), "{e}");
 }
 
@@ -478,13 +478,13 @@ fn two_layer_model(tr: &Transcoder) -> Vec<FusedMatrix> {
 /// this test exists to kill.
 #[test]
 fn the_grouping_keys_on_the_layer_and_orders_by_rank() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
-    let (singles, groups) = segment_matrices(two_layer_model(&tr)).expect("modèle fusible");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
+    let (singles, groups) = segment_matrices(two_layer_model(&tr)).expect("fusable model");
 
     assert_eq!(
         groups.iter().map(|g| g.key.as_str()).collect::<Vec<_>>(),
         ["000.Attn", "000.Mlp", "001.Attn", "001.Mlp"],
-        "un groupe par (couche, activation), dans l'ordre de première apparition"
+        "one group per (layer, activation), in first-appearance order"
     );
     // `o_proj` and `down_proj` consume activations nothing else does.
     assert_eq!(
@@ -501,14 +501,14 @@ fn the_grouping_keys_on_the_layer_and_orders_by_rank() {
         // Ranks are 0..n in row order, and the parts tile the group.
         let spans: Vec<(usize, usize, usize)> =
             g.parts.iter().map(|p| (p.rank, p.row0, p.d_out)).collect();
-        check_seg_spans(&g.key, &spans, g.d_out).expect("les parties pavent le groupe");
-        assert!(g.d_out.is_multiple_of(8), "{} : d_out total", g.key);
+        check_seg_spans(&g.key, &spans, g.d_out).expect("the parts tile the group");
+        assert!(g.d_out.is_multiple_of(8), "{}: total d_out", g.key);
         for p in &g.parts {
-            assert!(p.d_out.is_multiple_of(8), "{} : {} d_out", g.key, p.name);
+            assert!(p.d_out.is_multiple_of(8), "{}: {} d_out", g.key, p.name);
         }
         assert_eq!(g.gs_off.len(), g.d_out);
         assert_eq!(g.gscale.len(), 2 * g.parts.len());
-        assert!(g.rotation.is_some(), "{} : le groupe porte une rotation", g.key);
+        assert!(g.rotation.is_some(), "{}: the group carries a rotation", g.key);
     }
 
     // Layer 1's three arrived as v, q, k and must come back q, k, v.
@@ -516,7 +516,7 @@ fn the_grouping_keys_on_the_layer_and_orders_by_rank() {
     assert_eq!(
         l1.parts.iter().map(|p| p.proj.as_str()).collect::<Vec<_>>(),
         ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"],
-        "le rang ordonne les lignes, pas l'arrivée"
+        "rank orders the rows, not arrival"
     );
     assert_eq!(groups[1].parts.iter().map(|p| p.proj.as_str()).collect::<Vec<_>>(), [
         "mlp.gate_proj",
@@ -527,23 +527,23 @@ fn the_grouping_keys_on_the_layer_and_orders_by_rank() {
     assert_eq!(
         singles.len() + groups.len(),
         8,
-        "4 groupes + 4 seules pour 14 projections"
+        "4 groups + 4 lone for 14 projections"
     );
 }
 
 /// An incomplete group is a broken file, not a degraded case.
 #[test]
 fn a_group_missing_a_consumer_is_refused() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let mut m = two_layer_model(&tr);
     // Drop layer 0's `v_proj`. The two survivors would splice into a matrix of
     // 40 rows that the model would then read as if it had 48.
     let i = m
         .iter()
         .position(|x| x.name == "model.layers.0.self_attn.v_proj.weight")
-        .expect("la fixture la porte");
+        .expect("the fixture carries it");
     m.remove(i);
-    let e = refusal(segment_matrices(m), "un groupe incomplet doit être refusé");
+    let e = refusal(segment_matrices(m), "an incomplete group must be refused");
     assert!(e.contains("000.Attn") && e.contains("v_proj"), "{e}");
 }
 
@@ -552,14 +552,14 @@ fn a_group_missing_a_consumer_is_refused() {
 /// the row order and must not inherit a premise it cannot see.
 #[test]
 fn a_group_whose_parts_disagree_on_the_rotation_is_refused() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let mut m = two_layer_model(&tr);
     let i = m
         .iter()
         .position(|x| x.name == "model.layers.0.self_attn.k_proj.weight")
-        .expect("la fixture la porte");
+        .expect("the fixture carries it");
     m[i].rotation = Some((D_IN, 0xBAD));
-    let e = refusal(segment_matrices(m), "deux rotations dans un groupe : refus attendu");
+    let e = refusal(segment_matrices(m), "two rotations in one group: refusal expected");
     assert!(e.contains("k_proj"), "{e}");
 }
 
@@ -576,32 +576,32 @@ fn a_group_whose_parts_disagree_on_the_rotation_is_refused() {
 /// shapes — the two together are what licenses the number the lot announces.
 #[test]
 fn fusion_costs_exactly_four_bytes_a_fused_row() {
-    let tr = Transcoder::new(FusedLayout::Planes14).expect("transcodeur planes14");
+    let tr = Transcoder::new(FusedLayout::Planes14).expect("planes14 transcoder");
     let model = two_layer_model(&tr);
     let unfused_total: u64 = model.iter().map(|m| m.bytes).sum();
-    let (singles, groups) = segment_matrices(model).expect("modèle fusible");
+    let (singles, groups) = segment_matrices(model).expect("fusable model");
     let fused_total: u64 =
         singles.iter().map(|m| m.bytes).sum::<u64>() + groups.iter().map(|g| g.bytes).sum::<u64>();
     let fused_rows: usize = groups.iter().map(|g| g.d_out).sum();
     assert_eq!(
         fused_total - unfused_total,
         fused_rows as u64 * 4,
-        "la fusion n'ajoute que gs_off"
+        "fusion adds only gs_off"
     );
 
     // The published Qwen3-4B, *calculated* on its shapes: 36 layers, and per
     // layer q+k+v = 4096 + 1024 + 1024 = 6144 fused rows plus gate+up =
-    // 9728 + 9728 = 19456, i.e. 25 600. `o_proj` and `down_proj` stay alone and
+    // 9728 + 9728 = 19456, i.e. 25,600. `o_proj` and `down_proj` stay alone and
     // pay nothing.
     let per_layer_4b = (4096 + 1024 + 1024) + (9728 + 9728);
     assert_eq!(per_layer_4b, 25_600);
     assert_eq!(36 * per_layer_4b * 4, 3_686_400);
-    // Which is +0.0081 b/weight over the 3 633 315 840 weights of the 4B's
+    // Which is +0.0081 b/weight over the 3,633,315,840 weights of the 4B's
     // projections — the term the runtime line must not drop.
     let b_per_weight: f64 = 3_686_400.0 * 8.0 / 3_633_315_840.0;
     assert!(
         (b_per_weight - 0.008_117).abs() < 1e-6,
-        "b/poids ajoutés par gs_off : {b_per_weight}"
+        "b/weight added by gs_off: {b_per_weight}"
     );
 }
 
@@ -619,22 +619,22 @@ fn fusion_costs_exactly_four_bytes_a_fused_row() {
 #[test]
 fn the_spans_must_tile_the_group_in_rank_order() {
     check_seg_spans("g", &[(0, 0, 4096), (1, 4096, 1024), (2, 5120, 1024)], 6144)
-        .expect("q, k, v du 4B");
-    check_seg_spans("g", &[(0, 0, 8)], 8).expect("un groupe d'une partie tuile");
+        .expect("q, k, v of the 4B");
+    check_seg_spans("g", &[(0, 0, 8)], 8).expect("a one-part group tiles");
 
     // Out of order: the ranks are 0,1,2 in *some* order, the rows still tile,
     // and the result is a group read k,q,v.
     let e = check_seg_spans("g", &[(1, 0, 1024), (0, 1024, 4096), (2, 5120, 1024)], 6144)
-        .expect_err("rangs désordonnés");
-    assert!(e.contains("rang"), "{e}");
+        .expect_err("ranks out of order");
+    assert!(e.contains("rank"), "{e}");
     // A hole between two parts.
     let e = check_seg_spans("g", &[(0, 0, 4096), (1, 5120, 1024)], 5144)
-        .expect_err("trou entre deux parties");
-    assert!(e.contains("commence"), "{e}");
+        .expect_err("hole between two parts");
+    assert!(e.contains("starts"), "{e}");
     // Partial: the parts are contiguous and in order, but they do not cover the
     // group — the tail rows of the fused launch would be dropped in silence.
     let e = check_seg_spans("g", &[(0, 0, 4096), (1, 4096, 1024)], 6144)
-        .expect_err("groupe partiel");
+        .expect_err("partial group");
     assert!(e.contains("6144"), "{e}");
     // And a launch with no part at all.
     assert!(check_seg_spans("g", &[], 6144).is_err());

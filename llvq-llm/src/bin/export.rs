@@ -172,8 +172,8 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  {n_tensors} tensors identical bit for bit\n");
 
     println!(
-        "\n{} → {}\n  {n_tensors} tensors, {:.2} Md de poids déquantifiés + {:.0} M portés\n  \
-         model.safetensors : {:.2} Go (f16)\n",
+        "\n{} → {}\n  {n_tensors} tensors, {:.2} B weights dequantized + {:.0} M carried\n  \
+         model.safetensors: {:.2} GB (f16)\n",
         path,
         out.display(),
         quantized as f64 / 1e9,
@@ -181,10 +181,10 @@ fn main() -> anyhow::Result<()> {
         bytes as f64 / 1e9
     );
     println!(
-        "⚠️  Ce fichier est un artefact de MESURE, pas de distribution : il pèse\n   \
-         ce que pèse le modèle en f16. Le taux de compression, c'est {path}.\n"
+        "WARNING: this file is a MEASUREMENT artifact, not a distribution one. It is\n   \
+         as large as the model in f16. The compression ratio is {path}.\n"
     );
-    println!("Ensuite :\n  mlx_lm.convert --hf-path {0} --mlx-path {0}-mlx\n  \
+    println!("Next:\n  mlx_lm.convert --hf-path {0} --mlx-path {0}-mlx\n  \
               mlx_lm.evaluate --model {0}-mlx --tasks mmlu --num-shots 5", out.display());
     Ok(())
 }

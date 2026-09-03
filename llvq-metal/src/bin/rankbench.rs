@@ -11,14 +11,14 @@
 //!
 //! | # | arm | reads | what it costs |
 //! |---|---|---|---|
-//! | 0 | `sol` | 12 o | nothing is decoded — the machine's floor |
-//! | 1 | `masques` | 12 o | nested masks, `Fixed96` — the fastest decoder this machine has ever run |
-//! | 2 | `cascade-archive` | 8 o | the incumbent's unranking, as it is |
-//! | 3 | `cascade-uniformisée` | 8 o | 24 identical steps, branchless, magic reciprocals |
-//! | 4 | `marche-binomiale` | 12 o | one 24-slot walk: table lookups, no division |
-//! | 5 | `sol-rang` | 8 o | the rank stream's own floor (É3a) |
-//! | 6 | `marche-bloc` | 12 o | a whole BLOCK, at a fixed stride (P1b) |
-//! | 7 | `marche-bloc-plat` | 12 o | the same, without the register spill (É1) |
+//! | 0 | `sol` | 12 B | nothing is decoded — the machine's floor |
+//! | 1 | `masques` | 12 B | nested masks, `Fixed96` — the fastest decoder this machine has ever run |
+//! | 2 | `cascade-archive` | 8 B | the incumbent's unranking, as it is |
+//! | 3 | `cascade-uniformisée` | 8 B | 24 identical steps, branchless, magic reciprocals |
+//! | 4 | `marche-binomiale` | 12 B | one 24-slot walk: table lookups, no division |
+//! | 5 | `sol-rang` | 8 B | the rank stream's own floor (É3a) |
+//! | 6 | `marche-bloc` | 12 B | a whole BLOCK, at a fixed stride (P1b) |
+//! | 7 | `marche-bloc-plat` | 12 B | the same, without the register spill (É1) |
 //! | 8 | `e1v-flux` | variable | the same decode, on the REAL E1v stream (P1c) |
 //!
 //! 🚨 **Arms 6 and 8 decode the same thing and differ only in how they find
@@ -26,7 +26,7 @@
 //! E1v's addressing — base word, fixed-stride header, warp-scan over 32 widths,
 //! a field read at an arbitrary bit offset — and of nothing else.
 //!
-//! 🚨 **The bytes per block are NOT the same across arms, and no ns/bloc here is
+//! 🚨 **The bytes per block are NOT the same across arms, and no ns/block here is
 //! corrected for traffic.** `sol` reads the 12 bytes of `Fixed96`; the rank arms
 //! read 8 (arms 2-3) or the walk's 12-byte record (arm 4). `sol` is therefore
 //! the floor of `masques` and **not** the floor of the rank arms. A rank decoder
@@ -70,7 +70,7 @@ use std::io::BufReader;
 
 /// §1.1 / §1.2. A floor, not a choice: at 2 M blocks the submission overhead
 /// was worth the work being measured, which is one of the three defects that
-/// made "25 tok/s, c'est mort" before correction. **Any arm measured on fewer
+/// made "25 tok/s, that is dead" before correction. **Any arm measured on fewer
 /// than 2^24 blocks is null and void.**
 const N: usize = 1 << 24;
 
@@ -114,13 +114,13 @@ const CUDA_GATE_NS: f64 = 0.45;
 /// anything until each carries an OpenTimestamps proof.**
 ///
 /// This is not ceremony. P1's own §3 asks for the stamp *before the first line
-/// of the bench is written*, "contrairement au pré-enregistrement du lot du 13,
-/// dont l'antériorité ne repose que sur un mtime". A rule that lives only in
+/// of the bench is written*, "unlike the pre-registration of the batch of the
+/// 13th, whose precedence rests on an mtime alone". A rule that lives only in
 /// prose gets skipped on the evening someone wants a number; a rule the binary
 /// enforces does not.
 ///
 /// P1c is on the list for the same reason and by its own §0: it asks for the
-/// stamp *before the first millisecond*, "comme P1", precisely because P5 and
+/// stamp *before the first millisecond*, "like P1", precisely because P5 and
 /// P1b were stamped after theirs and their journals carry that debt. Adding an
 /// arm to this bench therefore adds a document to this gate — which is what
 /// stops the arm from being timed on the strength of a file's mtime.
@@ -287,7 +287,7 @@ impl Reservoir {
 ///
 /// §7 says a draw whose histogram departs from the file's does not answer the
 /// question the run poses; it puts no figure on "departs", and the bench plan
-/// refused to invent one. A chiffré criterion was proposed as É3(c) — `|z| ≤ 4`
+/// refused to invent one. A numeric criterion was proposed as É3(c) — `|z| ≤ 4`
 /// over the classes of expected ≥ 25, refusal on an empty class of expected ≥ 5
 /// — and **the operator declined it on 2026-08-15**. So this function reports
 /// and returns; nothing here refuses a run.
@@ -299,7 +299,7 @@ impl Reservoir {
 ///
 /// ⚠️ The draw is **without replacement**, so the exact law is hypergeometric,
 /// whose σ is `√(expected·(1 − N/total))`. Dividing by `√expected` therefore
-/// **understates** the true deviation by a factor ≈ 0,94. Stated rather than
+/// **understates** the true deviation by a factor ≈ 0.94. Stated rather than
 /// corrected, so the printed `z` stays the simple quantity a reader can
 /// recompute from the two histograms.
 struct DrawCheck {
@@ -350,7 +350,7 @@ fn check_draw(draw: &[u64], file: &[u64], n_draw: u64, n_file: u64) -> DrawCheck
 /// [`TOL`] — the same reading the V0 loop makes of a timed arm, factored out
 /// because the fixture makes it too.
 fn worst_rel(got: &[f32], want: &[(f64, f64)]) -> (f64, usize) {
-    assert_eq!(got.len(), want.len(), "un flottant par bloc");
+    assert_eq!(got.len(), want.len(), "one float per block");
     let (mut worst, mut bad) = (0.0f64, 0usize);
     for (&g, &(exp, mag)) in got.iter().zip(want) {
         let d = (g as f64 - exp).abs();
@@ -441,7 +441,7 @@ impl Arm {
     /// class. Printing a rounded average in this column would put a fixed
     /// stride next to a variable one under the same heading, which is exactly
     /// the kind of comparison the dossier's errata are made of. The average is
-    /// printed once, in the feed section, next to the b/poids it comes from.
+    /// printed once, in the feed section, next to the b/weight it comes from.
     fn bytes_per_block(self) -> Option<usize> {
         match self {
             Arm::Sol | Arm::Masques => Some(12),
@@ -461,15 +461,15 @@ impl Arm {
             // §4.3: the incumbent is judged against the *uniformised cascade's*
             // threshold, and passing it kills E1v rather than the arm.
             Arm::CascadeArchive => Some(KILL_CASCADE_NS),
-            // P1b keeps P1's thresholds without amending them: the kill at 1,5
-            // and the CUDA gate at 0,45, read on the block rather than on a
+            // P1b keeps P1's thresholds without amending them: the kill at 1.5
+            // and the CUDA gate at 0.45, read on the block rather than on a
             // walk.
-            // P1b keeps P1's thresholds without amending them: the kill at 1,5
-            // and the CUDA gate at 0,45, read on the BLOCK rather than on a
+            // P1b keeps P1's thresholds without amending them: the kill at 1.5
+            // and the CUDA gate at 0.45, read on the BLOCK rather than on a
             // walk.
             Arm::MarcheBloc | Arm::MarcheBlocPlat => Some(KILL_WALK_NS),
             // P1c §3 keeps P1's thresholds without amending them either: above
-            // 1,5 ns/bloc the decoder of E1v is dead. The CUDA gate at 0,45 is
+            // 1.5 ns/block the decoder of E1v is dead. The CUDA gate at 0.45 is
             // NOT read on this arm but on the best block decoder of the run —
             // see the verdict block, where that is spelled out rather than
             // assumed.
@@ -500,29 +500,28 @@ fn run() -> Result<(), String> {
         let ots = format!("{doc}.ots");
         if !std::path::Path::new(&ots).exists() {
             return Err(format!(
-                "un pré-enregistrement qui lie ce run n'est pas horodaté : {ots} est \
-                 absent.\n\n\
-                 Ce banc produit la PREMIÈRE MILLISECONDE de chacun des trois documents \
-                 ci-dessous.\nLe §3 de P1 demande le tampon AVANT elle, précisément pour ne \
-                 pas hériter de la dette de\nprovenance qu'il reproche au lot du 13, dont \
-                 l'antériorité ne repose que sur un mtime ;\nle §0 de P1c le redemande pour \
-                 son propre bras, P5 et P1b ayant été tamponnés APRÈS.\n\n\
-                 Le poser (l'opérateur, pas ce binaire) :\n\n    \
+                "a pre-registration that binds this run is not timestamped: {ots} is \
+                 missing.\n\n\
+                 This bench produces the FIRST MILLISECOND of each of the three documents \
+                 below.\n§3 of P1 asks for the stamp BEFORE it, precisely so as not to \
+                 inherit the provenance debt\nit charges against the batch of the 13th, \
+                 whose precedence rests on an mtime alone;\n§0 of P1c asks for it again for \
+                 its own arm, P5 and P1b having been stamped AFTER.\n\n\
+                 To lay it down (the operator, not this binary):\n\n    \
                  ots stamp {doc}\n\n\
-                 Les documents que ce banc exige :\n{}\n\n\
-                 Ce garde n'a pas de dérogation. Une règle qui ne vit que dans la prose se \
-                 saute le soir\noù quelqu'un veut un chiffre ; une règle que le binaire tient \
-                 ne se saute pas.\n\n\
-                 (Les chemins proofs/ sont résolus depuis le répertoire courant : si le \
-                 tampon existe,\nvérifier que le banc est lancé depuis la racine du dépôt.)",
+                 The documents this bench requires:\n{}\n\n\
+                 This guard has no override. A rule that lives only in prose gets skipped \
+                 on the evening\nsomeone wants a number; a rule the binary holds does not.\n\n\
+                 (proofs/ paths are resolved from the current directory: if the stamp \
+                 exists,\ncheck that the bench is run from the repository root.)",
                 STAMPED
                     .iter()
                     .map(|(d, _)| format!(
                         "    {} {d}",
                         if std::path::Path::new(&format!("{d}.ots")).exists() {
-                            "✅"
+                            "present"
                         } else {
-                            "❌"
+                            "MISSING"
                         }
                     ))
                     .collect::<Vec<_>>()
@@ -534,22 +533,22 @@ fn run() -> Result<(), String> {
         // (documents edited after anchoring, anchors silently detached).
         let bytes = std::fs::read(doc).map_err(|e| {
             format!(
-                "impossible de lire {doc} pour vérifier son empreinte : {e}\n\
-                 (chemin résolu depuis le répertoire courant — lancer le banc depuis la \
-                 racine du dépôt)"
+                "cannot read {doc} to check its fingerprint: {e}\n\
+                 (path resolved from the current directory, run the bench from the \
+                 repository root)"
             )
         })?;
         let got = sha256_hex(&bytes);
         if got != pinned {
             return Err(format!(
-                "l'empreinte de {doc} n'est plus celle que son tampon atteste.\n\n\
-                 attendue (ots info {doc}.ots) : {pinned}\n\
-                 calculée sur le fichier actuel : {got}\n\n\
-                 Le document a été modifié après son ancrage — exactement le défaut des \
-                 préregs du 08-10\net du 08-11, que le garde à existence-seule laissait \
-                 passer. Si l'édition est légitime :\nré-ancrer (ots stamp) puis mettre à \
-                 jour l'empreinte épinglée dans STAMPED — deux gestes\nd'opérateur, aucun \
-                 des deux à ce binaire."
+                "the fingerprint of {doc} is no longer the one its stamp attests.\n\n\
+                 expected (ots info {doc}.ots): {pinned}\n\
+                 computed on the current file: {got}\n\n\
+                 The document was edited after anchoring, exactly the defect of the \
+                 08-10 and 08-11\npreregs that the existence-only guard let through. If \
+                 the edit is legitimate:\nre-anchor (ots stamp), then update the pinned \
+                 fingerprint in STAMPED. Two operator\nsteps, neither of them this \
+                 binary's."
             ));
         }
     }
@@ -562,7 +561,7 @@ fn run() -> Result<(), String> {
     // 1. PROVENANCE
     // =======================================================================
     println!(
-        "P1 — banc à {} bras. Pré-enregistrements, tous horodatés :",
+        "P1, bench with {} arms. Pre-registrations, all timestamped:",
         Arm::ALL.len()
     );
     for (doc, _) in STAMPED {
@@ -570,33 +569,35 @@ fn run() -> Result<(), String> {
     }
 
     // =======================================================================
-    // LA RÉSERVE — en tête, et pas en note de bas de page (P1c §4)
+    // THE CAVEAT — at the head, not in a footnote (P1c §4)
     // =======================================================================
     //
-    // Elle est imprimée AVANT le premier chiffre, et par le binaire plutôt que
-    // par la prose du journal, pour une raison mécanique : un journal se
-    // fabrique en redirigeant cette sortie, donc une réserve imprimée ici est
-    // dans son en-tête quoi qu'il arrive, tandis qu'une réserve qu'il faut
-    // penser à recopier finit sous les tableaux — ou nulle part.
+    // It is printed BEFORE the first figure, and by the binary rather than by
+    // the journal's prose, for a mechanical reason: a journal is made by
+    // redirecting this output, so a caveat printed here is in its header
+    // whatever happens, where a caveat someone has to remember to copy ends up
+    // under the tables, or nowhere.
     println!(
-        "\n🚨 RÉSERVE, EN TÊTE — le bras `e1v-flux` mesure le MEILLEUR CAS de l'adressage E1v.\n   \
-         Ici `gid` EST l'indice de bloc : un SIMD group de 32 lanes consécutives EST exactement\n   \
-         un groupe E1v, et l'alignement est donc vrai PAR CONSTRUCTION. Le matvec servi met un\n   \
-         warp par LIGNE, et `nblocks mod 32` vaut 10 ou 21 sur les cinq formes du 4B — aucun warp\n   \
-         n'y lit un seul groupe : il lirait deux mots de base et scannerait deux régions d'en-têtes.\n   \
-         Ce banc ne mesure pas non plus le coût EN BITS de cet alignement, acquis ailleurs à +0,48 %.\n   \
-         (`docs/mesures/x3-alignement-warp-2026-08-15.txt`, et §4 du pré-enregistrement de P1c.)"
+        "\nALERT: CAVEAT, AT THE HEAD. The `e1v-flux` arm measures the BEST CASE of E1v \
+         addressing.\n   \
+         Here `gid` IS the block index: a SIMD group of 32 consecutive lanes IS exactly one\n   \
+         E1v group, so the alignment is true BY CONSTRUCTION. The served matvec puts one warp\n   \
+         per ROW, and `nblocks mod 32` is 10 or 21 on the five shapes of the 4B, so no warp\n   \
+         there reads a single group: it would read two base words and scan two header regions.\n   \
+         This bench does not measure the cost IN BITS of that alignment either, acquired\n   \
+         elsewhere at +0.48%.\n   \
+         (`docs/mesures/x3-alignement-warp-2026-08-15.txt`, and §4 of the P1c pre-registration.)"
     );
     let meta = std::fs::metadata(&path).map_err(|e| {
         format!(
-            "l'archive scellée du 4B n'est pas sur cette machine : {path} ({e})\n\n\
-             P1 se mesure sur le mélange de classes RÉEL du modèle publié — il n'y a ni \
-             substitut ni repli\nsynthétique : « un run sur codes synthétiques ne peut pas \
-             porter ces seuils, c'est exactement\nla réserve qu'il existe pour lever » (§7)."
+            "the sealed archive of the 4B is not on this machine: {path} ({e})\n\n\
+             P1 is measured on the REAL class mix of the published model. There is no \
+             substitute and no\nsynthetic fallback: \"a run on synthetic codes cannot carry \
+             these thresholds, that is exactly\nthe caveat it exists to lift\" (§7)."
         )
     })?;
-    println!("FICHIER   {path}");
-    println!("          {} octets", meta.len());
+    println!("FILE      {path}");
+    println!("          {} bytes", meta.len());
 
     let fd = FastDecoder::new();
     let golay = Golay::new();
@@ -622,7 +623,7 @@ fn run() -> Result<(), String> {
         assert_eq!(
             m.centroids.len().next_power_of_two().trailing_zeros(),
             1,
-            "{}: les shaders de ce banc codent en dur 1 bit de gain",
+            "{}: this bench's shaders hard-code 1 gain bit",
             m.name
         );
         if centroids.is_none() {
@@ -633,7 +634,7 @@ fn run() -> Result<(), String> {
             match fd.class_of(idx) {
                 Some(ci) => file_hist[ci] += 1,
                 None => {
-                    assert_eq!(idx, 0, "{}: index {idx} hors de la boule", m.name);
+                    assert_eq!(idx, 0, "{}: index {idx} outside the ball", m.name);
                     origin_blocks += 1;
                 }
             }
@@ -641,9 +642,9 @@ fn run() -> Result<(), String> {
         }
     }
     let observed = file_hist.iter().filter(|&&c| c > 0).count();
-    println!("          {} matrices, {total} blocs, {origin_blocks} origine", h.matrices);
+    println!("          {} matrices, {total} blocks, {origin_blocks} origin", h.matrices);
     println!(
-        "          {observed} classes observées sur {} — lu en {:.1} s",
+        "          {observed} classes observed of {}, read in {:.1} s",
         fd.n_classes(),
         t0.elapsed().as_secs_f64()
     );
@@ -651,15 +652,15 @@ fn run() -> Result<(), String> {
     // The three numbers `docs/mesures/shell-distribution-4b-2026-08-10.txt:47`
     // already carries. Checked, not assumed: a divergence here is an alert
     // before any timing, not a footnote after it.
-    assert_eq!(total, 150_681_600, "le 4B publié fait 150 681 600 blocs");
-    assert_eq!(origin_blocks, 0, "le 4B publié ne porte aucun bloc origine");
-    assert_eq!(observed, 286, "le 4B publié touche 286 classes");
+    assert_eq!(total, 150_681_600, "the published 4B has 150,681,600 blocks");
+    assert_eq!(origin_blocks, 0, "the published 4B carries no origin block");
+    assert_eq!(observed, 286, "the published 4B touches 286 classes");
 
     let (indices, gains) = (res.idx, res.gain);
     // `transcode` wants u32 gains, the kernels and the etalons want u8. One
     // draw, two views — never two draws.
     let gains32: Vec<u32> = gains.iter().map(|&g| g as u32).collect();
-    assert_eq!(indices.len(), N, "le réservoir doit rendre exactement N");
+    assert_eq!(indices.len(), N, "the reservoir must return exactly N");
     let mut draw_hist = vec![0u64; fd.n_classes()];
     for &idx in &indices {
         if let Some(ci) = fd.class_of(idx) {
@@ -668,26 +669,26 @@ fn run() -> Result<(), String> {
     }
     let drawn = draw_hist.iter().filter(|&&c| c > 0).count();
     let dc = check_draw(&draw_hist, &file_hist, N as u64, total);
-    println!("\nTIRAGE    réservoir (algorithme R), graine {SEED:#018x}, N = {N}");
+    println!("\nDRAW      reservoir (algorithm R), seed {SEED:#018x}, N = {N}");
     println!(
-        "          {drawn} classes tirées sur {observed} observées au fichier, \
-         max |z| = {:.2} (classe {})",
+        "          {drawn} classes drawn of {observed} observed in the file, \
+         max |z| = {:.2} (class {})",
         dc.max_z, dc.at
     );
     println!(
-        "          {} classes d'attendu ≥ {Z_MIN_EXPECTED:.0}, {} en dessous (le z n'y a pas de \
-         sens), {} vide(s) d'attendu ≥ {EMPTY_MIN_EXPECTED:.0}.\n             Le z divise par \
-         √attendu, pas par le σ hypergéométrique : sans remise, il SOUS-ESTIME l'écart\n     \
-         vrai d'un facteur ≈ 0,94.",
+        "          {} classes of expected ≥ {Z_MIN_EXPECTED:.0}, {} below it (z means nothing \
+         there), {} empty of expected ≥ {EMPTY_MIN_EXPECTED:.0}.\n             The z divides by \
+         √expected, not by the hypergeometric σ: without replacement it UNDERSTATES the\n     \
+         true deviation by a factor ≈ 0.94.",
         dc.judged,
         dc.too_small,
         dc.empty.len()
     );
     println!(
-        "          ⚠️ AUCUN SEUIL n'est appliqué à ce |z|. Le §7 exige que le tirage suive le \
-         fichier, il ne\n             chiffre pas « suit » ; un critère chiffré a été PROPOSÉ \
-         (É3c) et ÉCARTÉ. Le tirage est\n             donc décrit, pas jugé, et l'accepter \
-         revient à l'opérateur."
+        "          WARNING: NO THRESHOLD is applied to this |z|. §7 requires the draw to follow \
+         the file, it\n             puts no figure on \"follow\". A numeric criterion was \
+         PROPOSED (É3c) and DECLINED. The draw\n             is therefore described, not judged, \
+         and accepting it is the operator's call."
     );
     // §1.6's coverage declaration, and it has to separate three things a single
     // subtraction would merge. `384 − drawn` is NOT the count of entries a file
@@ -699,17 +700,17 @@ fn run() -> Result<(), String> {
         .count();
     let entries = fd.n_classes() + 1;
     println!(
-        "          couverture, en trois termes qui ne se confondent pas :\n            \
-         · {entries} entrées de table (383 classes cap 13 + l'origine) ;\n            \
-         · {observed} touchées par LE FICHIER — les {} autres se décomposent en 1 origine, \
-         {shell13} classes\n              de coquille 13 (hors d'atteinte de tout fichier \
-         cap 12) et {} classes cap 12 que ce\n              modèle n'utilise pas ;\n            \
-         · {drawn} touchées par CE TIRAGE — les {} restantes sont des classes trop rares \
-         pour\n              survivre à un tirage de 1 bloc sur 9, ce qui est un fait sur le \
-         tirage, pas sur le codebook.\n          Les entrées hors fichier sont couvertes par \
-         la fixture de `bin/p1v0` pour les bras 3 et 4, et\n          par celle du bras 8, \
-         qui tourne ici même — parce que l'origine y est un CAS D'ADRESSAGE\n          \
-         (charge utile vide, entrée de table 0) et pas seulement une classe de plus.",
+        "          coverage, in three terms that must not be conflated:\n            \
+         · {entries} table entries (383 classes cap 13 plus the origin);\n            \
+         · {observed} touched by THE FILE. The other {} split into 1 origin, {shell13} \
+         classes of\n              shell 13 (out of reach of any cap 12 file) and {} cap 12 \
+         classes this model\n              does not use;\n            \
+         · {drawn} touched by THIS DRAW. The remaining {} are classes too rare to \
+         survive\n              a draw of 1 block in 9, which is a fact about the draw, not \
+         about the codebook.\n          The entries outside the file are covered by \
+         `bin/p1v0`'s fixture for arms 3 and 4, and\n          by arm 8's, which runs right \
+         here, because the origin is an ADDRESSING CASE there\n          \
+         (empty payload, table entry 0) and not just one more class.",
         entries - observed,
         entries - observed - 1 - shell13,
         observed - drawn
@@ -718,16 +719,16 @@ fn run() -> Result<(), String> {
     // =======================================================================
     // 4. THE FOUR FEEDS
     // =======================================================================
-    let gscale = centroids.expect("au moins une matrice");
+    let gscale = centroids.expect("at least one matrix");
     println!(
-        "\nFLUX      centroïdes de gain RÉELS de la 1re matrice : [{:.6}, {:.6}]",
+        "\nFEEDS     REAL gain centroids of the 1st matrix: [{:.6}, {:.6}]",
         gscale[0], gscale[1]
     );
 
     let t = std::time::Instant::now();
     let f96 = transcode(&fd, &table, &indices, &gains32, Layout::Fixed96).map_err(|e| e.to_string())?;
     println!(
-        "          Fixed96 (bras 0-1) : 12 o/bloc, {:.4} b/poids, transcodé en {:.1} s",
+        "          Fixed96 (arms 0-1): 12 B/block, {:.4} b/weight, transcoded in {:.1} s",
         f96.bits_per_weight(),
         t.elapsed().as_secs_f64()
     );
@@ -740,7 +741,7 @@ fn run() -> Result<(), String> {
         .zip(&gains)
         .map(|(&i, &g)| (i << 1) | u64::from(g))
         .collect();
-    println!("          rang d'archive (bras 2-3) : 8 o/bloc, le contenu du fichier tel quel");
+    println!("          archive rank (arms 2-3): 8 B/block, the file's own content, untouched");
 
     let walk = walk_records(&fd);
     let radices = walk_radix_table(&walk);
@@ -755,7 +756,7 @@ fn run() -> Result<(), String> {
         // rank, and both are exercised at their real distribution. What is not
         // exercised is the correlation between a block and its particular CNS
         // rank — and nothing suggests one exists, the walk being fixed-count.
-        let id = 1 + fd.class_of(idx).expect("index dans la boule");
+        let id = 1 + fd.class_of(idx).expect("index inside the ball");
         let k = walk[id].k as usize;
         let mut ranks = [0u64; MAX_KINDS];
         for (j, rj) in ranks.iter_mut().enumerate().take(k) {
@@ -774,8 +775,8 @@ fn run() -> Result<(), String> {
     let brecs = block_records(&fd, &golay);
     let mut block_words: Vec<u32> = Vec::with_capacity(3 * N);
     for (b, &idx) in indices.iter().enumerate() {
-        let ci = fd.class_of(idx).expect("index dans la boule");
-        let rec = cns_encode(&fd, idx, gains[b]).expect("index dans la boule");
+        let ci = fd.class_of(idx).expect("index inside the ball");
+        let rec = cns_encode(&fd, idx, gains[b]).expect("index inside the ball");
         block_words.extend_from_slice(&pack_block(
             &brecs[1 + ci],
             (1 + ci) as u32,
@@ -785,15 +786,15 @@ fn run() -> Result<(), String> {
         ));
     }
     println!(
-        "          marche (bras 4) : {} bits d'enregistrement, stride 12 o — \
-         l'adressage des ancres,\n            pour que le bras ne soit pas prix contre elles \
-         en payant une autre facture d'adresses",
+        "          marche (arm 4): a {}-bit record, stride 12 B, the anchors' \
+         addressing,\n            so the arm is not judged against them while paying a \
+         different address bill",
         llvq_metal::p1host::WALK_RECORD_BITS
     );
 
     // P1c's feed: the REAL E1v stream over the SAME draw. The writer is
     // `llvq_artifact::e1v::transcode_e1v` — the one whose round trip is proved
-    // over the 150 681 600 blocks of the 4B (P5) — not a re-implementation, so
+    // over the 150,681,600 blocks of the 4B (P5) — not a re-implementation, so
     // what is new in this arm is the reading and nothing else.
     //
     // 🕳️ Two assertions stood here, pinning `p1host`'s restatement of E1V_GROUP
@@ -808,22 +809,22 @@ fn run() -> Result<(), String> {
     let e1v_secs = t.elapsed().as_secs_f64();
     let e1v_bpw = e1v.bits_per_weight();
     let e1v_bytes = (e1v.data.len() + 4 * e1v.bases.len()) as f64 / N as f64;
-    let pay_max = pay.iter().copied().max().expect("la table n'est pas vide");
+    let pay_max = pay.iter().copied().max().expect("the table is not empty");
     println!(
-        "          E1v (bras 8) : le VRAI flux, {} o + {} o de mots de base, transcodé en \
-         {e1v_secs:.1} s\n            largeur variable — {e1v_bytes:.3} o/bloc en moyenne, \
-         {e1v_bpw:.4} b/poids adressage compris ; en-têtes 10 bits\n            à stride fixe, \
-         somme préfixe SIMD sur les 32 largeurs du groupe, charge utile au pire\n            \
-         {pay_max} bits — le §1 en divulgue 56, mais 56 est un RECORD, en-tête compris, et \
-         c'est la\n            charge utile que la somme préfixe additionne",
+        "          E1v (arm 8): the REAL stream, {} B + {} B of base words, transcoded in \
+         {e1v_secs:.1} s\n            variable width, {e1v_bytes:.3} B/block on average, \
+         {e1v_bpw:.4} b/weight addressing included; 10-bit\n            headers at fixed \
+         stride, SIMD prefix sum over the group's 32 widths, payload at worst\n            \
+         {pay_max} bits. §1 announces 56, but 56 is a RECORD, header included, and it is \
+         the\n            payload that the prefix sum adds up",
         e1v.data.len(),
         4 * e1v.bases.len()
     );
     println!(
-        "          ⚠️ ce {e1v_bpw:.4} est celui du TIRAGE, pas du fichier : les 32 blocs d'un \
-         groupe sont ici\n            des blocs sans voisinage, et le terme d'arrondi au mot ne \
-         tombe donc pas comme en\n            ordre de fichier, où la mesure publiée est 2,3877 \
-         b/poids noyau."
+        "          WARNING: this {e1v_bpw:.4} is the DRAW's, not the file's: the 32 blocks of a \
+         group are\n            here blocks with no neighborhood, so the word-rounding term \
+         does not fall as it does\n            in file order, where the published measurement \
+         is 2.3877 b/weight kernel."
     );
     // Two words of padding so the three-word window of the last lane cannot run
     // off the end. Not counted in the arm's bytes — `thesis.rs:731`.
@@ -880,17 +881,17 @@ fn run() -> Result<(), String> {
     ];
     let group = GROUP.min(kernels[0].max_threads_per_group() as usize);
     println!(
-        "\nGPU       {} — simd {} (lu), max group {}, GROUP effectif {group}",
+        "\nGPU       {}, simd {} (read), max group {}, effective GROUP {group}",
         kernels[0].device_name(),
         kernels[0].simd_width(),
         kernels[0].max_threads_per_group()
     );
     println!(
-        "          {ROUNDS} rounds dont {WARMUP_ROUNDS} jetés, {OH_REPS} soumissions par \
-         mesure de surcoût\n          ⚠️ aucun horodatage GPU : metal-rs 0.29 n'expose pas \
-         GPUStartTime. Tout est du wall-clock\n             autour de commit()/\
-         wait_until_completed(), moins un surcoût MESURÉ — il n'existe aucun\n             \
-         autre moyen de séparer temps GPU et temps de soumission dans cet outillage."
+        "          {ROUNDS} rounds, {WARMUP_ROUNDS} of them thrown away, {OH_REPS} \
+         submissions per overhead measurement\n          WARNING: no GPU timestamp, \
+         metal-rs 0.29 does not expose GPUStartTime. Everything is\n             wall-clock \
+         around commit()/wait_until_completed(), minus a MEASURED overhead. There\n             \
+         is no other way to separate GPU time from submission time in this tooling."
     );
 
     // Per-arm buffers. `Kernel::new` creates a Device AND a command queue per
@@ -1024,28 +1025,28 @@ fn run() -> Result<(), String> {
     // =======================================================================
     // 6. V0 — every arm verified before one millisecond is believed (§3, §7)
     // =======================================================================
-    println!("\nV0        aucune milliseconde n'est crue avant ce bloc");
+    println!("\nV0        no millisecond is believed before this block");
 
-    // ---- V0(a) : la fixture E1v, ce que le tirage ne peut pas atteindre ----
+    // ---- V0(a): the E1v fixture, what the draw cannot reach ----------------
     //
-    // Elle passe AVANT le tirage : si le décodeur est faux sur l'origine ou sur
-    // une classe que le fichier n'habite pas, le tirage ne le dira jamais, et
-    // un bras vert sur 2^24 blocs serait vert pour la mauvaise raison.
+    // It runs BEFORE the draw: if the decoder is wrong on the origin or on a
+    // class the file does not inhabit, the draw will never say so, and an arm
+    // green over 2^24 blocks would be green for the wrong reason.
     let nf = fix_idx.len();
     assert!(
         nf.is_multiple_of(group),
-        "{nf} blocs de fixture ne font pas un nombre entier de threadgroups de {group}"
+        "{nf} fixture blocks are not a whole number of threadgroups of {group}"
     );
-    // La couverture est ASSERTÉE, pas imprimée : une fixture qui raterait
-    // l'origine imprimerait exactement la même ligne verte qu'une fixture qui
-    // l'atteint (§5 du dossier).
+    // Coverage is ASSERTED, not printed: a fixture that missed the origin
+    // would print exactly the same green line as a fixture that reaches it
+    // (§5 of the dossier).
     let fseen: BTreeSet<Option<usize>> = fix_idx.iter().map(|&i| fd.class_of(i)).collect();
     assert!(
         fseen.contains(&None),
-        "la fixture ne contient pas l'origine, qui est la moitié de sa raison d'être"
+        "the fixture does not contain the origin, which is half its reason to exist"
     );
     for ci in 0..fd.n_classes() {
-        assert!(fseen.contains(&Some(ci)), "classe {ci} absente de la fixture E1v");
+        assert!(fseen.contains(&Some(ci)), "class {ci} missing from the E1v fixture");
     }
     let fb_data = kernels[8].buffer(&fix_data);
     let fb_bases = kernels[8].buffer(&fix.bases);
@@ -1066,34 +1067,34 @@ fn run() -> Result<(), String> {
     let fix_want = etalon_cns(&fd, &golay, &fix_idx, &fix_gain, &gscale, &x)?;
     let (fix_worst, fix_bad) = worst_rel(&fix_got, &fix_want);
     println!(
-        "          {:<22} {nf} blocs de FIXTURE — les {} classes (toutes), l'origine que le \
-         4B ne\n          {:<22} porte pas, et un groupe entier de la classe la plus large. \
-         Pire erreur {fix_worst:.1e}·Σ|w·x|{}",
+        "          {:<22} {nf} FIXTURE blocks: the {} classes (all of them), the origin the \
+         4B does\n          {:<22} not carry, and a whole group of the widest class. \
+         Worst error {fix_worst:.1e}·Σ|w·x|{}",
         Arm::E1vFlux.name(),
         fd.n_classes(),
         "",
         if fix_bad > 0 {
-            format!("\n          ROUGE, {fix_bad} blocs > {TOL:.0e}")
+            format!("\n          RED, {fix_bad} blocks > {TOL:.0e}")
         } else {
             String::new()
         }
     );
     if fix_bad > 0 {
         return Err(format!(
-            "{} échoue V0 sur la fixture : le bras n'existe pas, il n'est pas chronométré \
-             (§5 du pré-enregistrement de P1c). Correction d'abord.",
+            "{} fails V0 on the fixture: the arm does not exist, it is not timed \
+             (§5 of the P1c pre-registration). Fix it first.",
             Arm::E1vFlux.name()
         ));
     }
 
-    // ---- V0(b) : le tirage, et ses deux étalons ----------------------------
+    // ---- V0(b): the draw, and its two etalons ------------------------------
     let want_cascade = etalon_cascade(&fd, &indices, &gains, &gscale, &x)?;
-    // L'étalon que P1c nomme (§2) : `cns_decode`, sur les mêmes blocs. Il n'est
-    // pas neuf — P5 C2 l'a balayé contre `FastDecoder::decode` sur les
-    // 150 681 600 blocs du 4B — et il n'est pas non plus le même chemin de code
-    // que `etalon_cascade`. Les deux sont donc calculés et leur égalité EXIGÉE :
-    // pour le prix d'une passe CPU, C2 est rétabli sur les blocs mêmes qu'on
-    // s'apprête à chronométrer, au lieu d'être cité.
+    // The etalon P1c names (§2): `cns_decode`, on the same blocks. It is not
+    // new — P5 C2 swept it against `FastDecoder::decode` over the 150,681,600
+    // blocks of the 4B — and it is not the same code path as `etalon_cascade`
+    // either. Both are therefore computed and their equality REQUIRED: for the
+    // price of one CPU pass, C2 is re-established on the very blocks about to
+    // be timed, instead of being cited.
     let want_cns = etalon_cns(&fd, &golay, &indices, &gains, &gscale, &x)?;
     let disagree = want_cns
         .iter()
@@ -1102,15 +1103,14 @@ fn run() -> Result<(), String> {
         .count();
     assert_eq!(
         disagree, 0,
-        "les deux étalons divergent sur {disagree} blocs : la re-bijection de P5 (C2) ne \
-         tient pas sur ce tirage, et aucun bras n'est chronométrable avant d'en connaître \
-         la cause"
+        "the two etalons diverge on {disagree} blocks: the P5 re-bijection (C2) does not \
+         hold on this draw, and no arm can be timed before the cause of that is known"
     );
     println!(
-        "          {:<22} les deux étalons — `cns_decode` (nommé par P1c) et \
-         `FastDecoder::decode` — coïncident\n          {:<22} au bit près sur les {N} blocs : \
-         C2 de P5 refait sur le tirage, pas cité.",
-        "étalons", ""
+        "          {:<22} the two etalons, `cns_decode` (named by P1c) and \
+         `FastDecoder::decode`, agree\n          {:<22} to the bit over the {N} blocks: \
+         P5's C2 redone on the draw, not cited.",
+        "etalons", ""
     );
 
     let mut worst = vec![0.0f64; Arm::ALL.len()];
@@ -1146,7 +1146,7 @@ fn run() -> Result<(), String> {
                         bad += 1;
                         if bad == 1 {
                             println!(
-                                "          {} : bloc {b} GPU {g:.9} / CPU {exp:.9}",
+                                "          {}: block {b} GPU {g:.9} / CPU {exp:.9}",
                                 Arm::ALL[ai].name()
                             );
                         }
@@ -1154,18 +1154,18 @@ fn run() -> Result<(), String> {
                 }
                 worst[ai] = e;
                 println!(
-                    "          {:<22} {N} blocs, pire erreur {e:.1e}·Σ|w·x|{}",
+                    "          {:<22} {N} blocks, worst error {e:.1e}·Σ|w·x|{}",
                     Arm::ALL[ai].name(),
                     if bad > 0 {
-                        format!("  ROUGE, {bad} blocs > {TOL:.0e}")
+                        format!("  RED, {bad} blocks > {TOL:.0e}")
                     } else {
                         String::new()
                     }
                 );
                 if bad > 0 {
                     return Err(format!(
-                        "{} échoue V0 : le bras n'existe pas, il n'est pas chronométré \
-                         (§3, §7). Correction d'abord.",
+                        "{} fails V0: the arm does not exist, it is not timed \
+                         (§3, §7). Fix it first.",
                         Arm::ALL[ai].name()
                     ));
                 }
@@ -1173,13 +1173,13 @@ fn run() -> Result<(), String> {
             None => {
                 let nz = got.iter().filter(|v| **v != 0.0 && v.is_finite()).count();
                 println!(
-                    "          {:<22} {N} blocs, {nz} sorties non nulles et finies \
-                     (ancre : observable, pas d'étalon)",
+                    "          {:<22} {N} blocks, {nz} outputs non-zero and finite \
+                     (anchor: observable, no etalon)",
                     Arm::ALL[ai].name()
                 );
                 assert!(
                     nz > N / 2,
-                    "{}: sortie majoritairement nulle — boucle éliminée ? (§7)",
+                    "{}: output mostly zero, loop eliminated? (§7)",
                     Arm::ALL[ai].name()
                 );
             }
@@ -1195,7 +1195,7 @@ fn run() -> Result<(), String> {
         for (ai, k) in kernels.iter().enumerate() {
             // §1.2 as amended: the overhead is measured EVERY round, on the
             // arm's own queue, and its dispersion is printed. At 2^24 blocks
-            // the repo chiffres it at 12 % of a floor-speed arm — a number
+            // the repo puts it at 12% of a floor-speed arm — a number
             // that large is not noise, it is a term of the result.
             let mut oh = f64::INFINITY;
             for _ in 0..OH_REPS {
@@ -1212,13 +1212,13 @@ fn run() -> Result<(), String> {
     // =======================================================================
     // 8. THE JOURNAL
     // =======================================================================
-    println!("\nSURCOÛT   par bras, min / méd / max sur les {} rounds gardés", ROUNDS - WARMUP_ROUNDS);
+    println!("\nOVERHEAD  per arm, min / med / max over the {} rounds kept", ROUNDS - WARMUP_ROUNDS);
     let mut oh_span_ns = vec![0.0f64; Arm::ALL.len()];
     for (ai, arm) in Arm::ALL.iter().enumerate() {
         let (lo, med, hi) = spread(ohs[ai].clone());
         oh_span_ns[ai] = (hi - lo) / N as f64 * 1e9;
         println!(
-            "          {:<22} {:.4} / {:.4} / {:.4} ms   =  {:.4} / {:.4} / {:.4} ns/bloc",
+            "          {:<22} {:.4} / {:.4} / {:.4} ms   =  {:.4} / {:.4} / {:.4} ns/block",
             arm.name(),
             lo * 1e3,
             med * 1e3,
@@ -1239,8 +1239,8 @@ fn run() -> Result<(), String> {
             .collect();
         if v.iter().any(|&n| n <= 0.0) {
             return Err(format!(
-                "{}: un round rend un net ≤ 0 après soustraction du surcoût. \
-                 Ce n'est pas ramené à zéro et le bras est suspendu (§6.2).",
+                "{}: a round yields a net ≤ 0 after the overhead is subtracted. \
+                 This is not clamped to zero and the arm is suspended (§6.2).",
                 arm.name()
             ));
         }
@@ -1252,9 +1252,9 @@ fn run() -> Result<(), String> {
         .map(|v| v.iter().cloned().fold(f64::INFINITY, f64::min) / N as f64 * 1e9)
         .collect();
     // Ratios formed ROUND BY ROUND, never as a quotient of two minima issued
-    // from rounds that never coexisted (règle de maison n°2). Arm 0 is the
+    // from rounds that never coexisted (house rule no. 2). Arm 0 is the
     // fast one here — unlike `thesis`, whose arm 0 is FP16 — so the column is
-    // "× le sol" = net[ai] / net[0], and `sol` comes out at 1,00× by
+    // "× the floor" = net[ai] / net[0], and `sol` comes out at 1.00× by
     // construction.
     let ratios: Vec<(f64, f64, f64)> = (0..Arm::ALL.len())
         .map(|ai| {
@@ -1268,10 +1268,10 @@ fn run() -> Result<(), String> {
         })
         .collect();
 
-    println!("\nMESURE    N = {N} blocs, minimum sur {} rounds gardés", ROUNDS - WARMUP_ROUNDS);
+    println!("\nMEASURE   N = {N} blocks, minimum over {} rounds kept", ROUNDS - WARMUP_ROUNDS);
     println!(
-        "  {:<22}{:>7}{:>10}{:>10}{:>10}{:>11}   × le sol méd [min–max]",
-        "bras", "o/bloc", "min ms", "méd ms", "max ms", "ns/bloc"
+        "  {:<22}{:>7}{:>10}{:>10}{:>10}{:>11}   × the floor med [min–max]",
+        "arm", "B/block", "min ms", "med ms", "max ms", "ns/block"
     );
     for (ai, arm) in Arm::ALL.iter().enumerate() {
         let (lo, med, hi) = spread(nets[ai].clone());
@@ -1291,24 +1291,24 @@ fn run() -> Result<(), String> {
         );
     }
     println!(
-        "  ⚠️ les bras 2-4 lisent moins d'octets que le sol ; leur ns/bloc n'est PAS corrigé \
-         du trafic,\n     et un décodeur de rang qui bat le sol sur le temps ne bat pas le \
-         sol sur le travail."
+        "  WARNING: arms 2-4 read fewer bytes than the floor; their ns/block is NOT corrected \
+         for traffic,\n     and a rank decoder that beats the floor on time does not beat the \
+         floor on work."
     );
 
     // =======================================================================
     // 9. VERDICTS — §4, and the suspension rule of §1.2
     // =======================================================================
-    println!("\nVERDICTS  seuils du §4, posés avant la première mesure");
+    println!("\nVERDICTS  thresholds of §4, laid down before the first measurement");
     for (ai, arm) in Arm::ALL.iter().enumerate() {
         let Some(seuil) = arm.threshold() else {
             continue;
         };
         let dist = (ns[ai] - seuil).abs();
-        let verdict = if ns[ai] <= seuil { "VERT" } else { "ROUGE" };
+        let verdict = if ns[ai] <= seuil { "GREEN" } else { "RED" };
         println!(
-            "          {:<22} {:.4} ns/bloc contre {seuil:.2} — {verdict} (distance {dist:.4}, \
-             étendue du surcoût {:.4} ns)",
+            "          {:<22} {:.4} ns/block against {seuil:.2} — {verdict} (distance {dist:.4}, \
+             overhead range {:.4} ns)",
             arm.name(),
             ns[ai],
             oh_span_ns[ai]
@@ -1319,23 +1319,23 @@ fn run() -> Result<(), String> {
     // covers arm-vs-arm gaps only, the two quantities are printed side by side,
     // and the binary does not conclude in the operator's place.
     println!(
-        "          ⚠️ la règle de suspension du §1.2 porte sur un écart ENTRE DEUX BRAS ; \
-         sa transposition\n             à un seuil ABSOLU a été PROPOSÉE (É3b) et ÉCARTÉE. \
-         Les deux quantités sont imprimées,\n             la conclusion revient à \
-         l'opérateur."
+        "          WARNING: the suspension rule of §1.2 covers a gap BETWEEN TWO ARMS; \
+         its transposition\n             to an ABSOLUTE threshold was PROPOSED (É3b) and \
+         DECLINED. Both quantities are printed,\n             the conclusion is the \
+         operator's."
     );
 
     // The arm-vs-arm comparison the rule does cover.
-    let (a, b) = (3usize, 4usize); // cascade-uniformisée contre marche
+    let (a, b) = (3usize, 4usize); // cascade-uniformisée against marche
     let ecart = (ns[a] - ns[b]).abs();
     let span = oh_span_ns[a].max(oh_span_ns[b]);
     println!(
-        "          cascade-uniformisée contre marche : écart {ecart:.4} ns, étendue du \
-         surcoût {span:.4} ns — {}",
+        "          cascade-uniformisée against marche: gap {ecart:.4} ns, overhead range \
+         {span:.4} ns — {}",
         if span > ecart / 2.0 {
-            "VERDICT SUSPENDU (§1.2)"
+            "VERDICT SUSPENDED (§1.2)"
         } else {
-            "VERDICT RENDU"
+            "VERDICT DELIVERED"
         }
     );
 
@@ -1343,76 +1343,78 @@ fn run() -> Result<(), String> {
     // P1b: the gate read on a BLOCK rather than on a walk. Written before the
     // measurement, in its own document, and it can only withdraw — never grant.
     println!(
-        "\n          gate CUDA de P4 (§4.2) : meilleur des deux décodeurs = {best:.4} ns \
-         contre {CUDA_GATE_NS:.2}"
+        "\n          P4 CUDA gate (§4.2): best of the two decoders = {best:.4} ns \
+         against {CUDA_GATE_NS:.2}"
     );
     println!(
         "          {}",
         if best <= CUDA_GATE_NS {
-            "le bras CUDA de P4 est AUTORISÉ (il reste soumis au go de dépense)"
+            "P4's CUDA arm is AUTHORIZED (it still needs the spend go-ahead)"
         } else if ns[4] <= KILL_WALK_NS || ns[3] <= KILL_CASCADE_NS {
-            "régime intermédiaire : le bras SURVIT comme point de courbe et n'achète AUCUN \
-             bras CUDA — il faut une idée neuve, pas un job"
+            "intermediate regime: the arm SURVIVES as a curve point and buys NO CUDA \
+             arm — what is needed is a new idea, not a job"
         } else {
-            "les deux bras sont rouges : le package C meurt, le package B se réduit au \
-             prefill pur (§4.3)"
+            "both arms are red: package C dies, package B shrinks to pure \
+             prefill (§4.3)"
         }
     );
     println!(
-        "          E1v (§4.3) : cascade-archive rend {:.4} ns contre {KILL_CASCADE_NS:.2} — {}",
+        "          E1v (§4.3): cascade-archive yields {:.4} ns against \
+         {KILL_CASCADE_NS:.2} — {}",
         ns[2],
         if ns[2] <= KILL_CASCADE_NS {
-            "E1v est MORT-NÉ : l'archive existe, elle est prouvée, elle est plus petite, \
-             et elle franchit la barre imposée aux décodeurs neufs"
+            "E1v is STILLBORN: the archive exists, it is proved, it is smaller, \
+             and it clears the bar set for new decoders"
         } else {
-            "l'archive ne franchit pas la barre — elle ne ferme pas la ligne"
+            "the archive does not clear the bar — it does not close the line"
         }
     );
 
     println!(
-        "\n          P1b — le même gate lu sur un BLOC : le meilleur décodeur de bloc rend \
-         {:.4} ns contre \
+        "\n          P1b — the same gate read on a BLOCK: the best block decoder yields \
+         {:.4} ns against \
          {CUDA_GATE_NS:.2}\n          {}",
         ns[6].min(ns[7]),
         if ns[6].min(ns[7]) <= CUDA_GATE_NS {
-            "l'autorisation du bras CUDA de P4 est RÉTABLIE (É1) : un décodeur de bloc franchit le seuil"
+            "the authorization of P4's CUDA arm is RESTORED (É1): a block decoder clears \
+             the threshold"
         } else {
-            "🚨 l'autorisation du bras CUDA de P4 est RETIRÉE : le gate avait été franchi \
-             par un nombre\n          qui décrivait une marche, pas un bloc"
+            "ALERT: the authorization of P4's CUDA arm is WITHDRAWN: the gate had been \
+             cleared by a number\n          that described a walk, not a block"
         }
     );
     // =======================================================================
-    // 9bis. P1c — le prix de l'adressage, et la règle de restitution
+    // 9bis. P1c — the price of addressing, and the restitution rule
     // =======================================================================
     let (a8, a6) = (ns[8], ns[6]);
     let addr = a8 - a6;
     let span68 = oh_span_ns[6].max(oh_span_ns[8]);
     println!(
-        "\n          P1c — le FLUX E1v, adressage compris : {a8:.4} ns/bloc contre \
+        "\n          P1c — the E1v STREAM, addressing included: {a8:.4} ns/block against \
          {KILL_WALK_NS:.2} — {}",
-        if a8 <= KILL_WALK_NS { "VERT" } else { "ROUGE" }
+        if a8 <= KILL_WALK_NS { "GREEN" } else { "RED" }
     );
     println!(
-        "          prix de l'adressage = e1v-flux − marche-bloc = {addr:+.4} ns/bloc \
-         ({:+.1} %), étendue du surcoût {span68:.4} ns\n          {} — mot de base, en-tête à \
-         stride fixe, somme préfixe SIMD sur 32 largeurs, fenêtre à 3 mots",
+        "          price of addressing = e1v-flux − marche-bloc = {addr:+.4} ns/block \
+         ({:+.1}%), overhead range {span68:.4} ns\n          {} — base word, fixed-stride \
+         header, SIMD prefix sum over 32 widths, 3-word window",
         100.0 * addr / a6,
         if span68 > addr.abs() / 2.0 {
-            "VERDICT SUSPENDU (§1.2) : l'écart n'est pas grand devant le bruit du surcoût"
+            "VERDICT SUSPENDED (§1.2): the gap is not large against the overhead noise"
         } else {
-            "VERDICT RENDU (§1.2)"
+            "VERDICT DELIVERED (§1.2)"
         }
     );
     // §6 of P1c: this arm pays everything `marche-bloc` pays PLUS the
     // addressing, so a faster figure is a reason to look for the error, not a
     // headline. Named here rather than left to the generic suspicion below,
-    // because the generic one only fires under 0,20 ns.
+    // because the generic one only fires under 0.20 ns.
     if a8 < a6 {
         println!(
-            "          🚨 e1v-flux est PLUS RAPIDE que marche-bloc, ce que le §6 du \
-             pré-enregistrement\n             désigne d'avance comme un signal d'erreur : ce \
-             bras paie tout ce que l'autre paie,\n             plus l'adressage. Chercher la \
-             cause avant d'en faire quoi que ce soit."
+            "          ALERT: e1v-flux is FASTER than marche-bloc, which §6 of the \
+             pre-registration\n             names in advance as an error signal: this arm \
+             pays everything the other pays,\n             plus the addressing. Find the \
+             cause before making anything of it."
         );
     }
 
@@ -1420,37 +1422,38 @@ fn run() -> Result<(), String> {
         .iter()
         .map(|&i| (i, ns[i]))
         .min_by(|x, y| x.1.total_cmp(&y.1))
-        .expect("trois bras décodent un bloc");
+        .expect("three arms decode a block");
     println!(
-        "\n          P1c §3 — RESTITUTION, écrite avant la mesure et symétrique de celle qui a \
-         retiré.\n          Elle porte sur le meilleur décodeur de BLOC du run, pas sur le bras \
-         neuf : c'est `{}`\n          à {best_block:.4} ns contre {CUDA_GATE_NS:.2} — {}",
+        "\n          P1c §3 — RESTITUTION, written before the measurement and symmetric with \
+         the one that\n          withdrew. It bears on the run's best BLOCK decoder, not on the \
+         new arm: that is `{}`\n          at {best_block:.4} ns against {CUDA_GATE_NS:.2} — {}",
         Arm::ALL[best_i].name(),
         if best_block <= CUDA_GATE_NS {
-            "l'autorisation du bras CUDA de P4 est RÉTABLIE"
+            "the authorization of P4's CUDA arm is RESTORED"
         } else {
-            "l'autorisation reste RETIRÉE (une règle qui ne saurait que retirer ne vaudrait \
-             pas mieux qu'une\n          règle qui ne saurait que donner ; celle-ci pouvait \
-             tirer, et elle ne tire pas)"
+            "the authorization stays WITHDRAWN (a rule that could only withdraw would be \
+             worth no more\n          than a rule that could only grant; this one could \
+             fire, and it does not)"
         }
     );
 
     if ns.iter().any(|&v| v < SUSPICIOUS_NS) {
         println!(
-            "\n🚨 un bras rend mieux que {SUSPICIOUS_NS} ns/bloc. Le §5 demande de CHERCHER \
-             L'ERREUR avant\n   d'en faire un titre : bras dégradé, tirage non représentatif, \
-             boucle éliminée faute d'être\n   observable, ancres non reproduites. Les sorties \
-             ont été relues (bloc V0) ; le reste est\n   à vérifier à la main avant publication."
+            "\nALERT: an arm yields better than {SUSPICIOUS_NS} ns/block. §5 asks to LOOK FOR \
+             THE ERROR before\n   making a headline of it: degraded arm, unrepresentative \
+             draw, loop eliminated for want\n   of being observable, anchors not reproduced. \
+             The outputs were re-read (V0 block); the\n   rest is to be checked by hand before \
+             publication."
         );
     }
     println!(
-        "\n⚠️ Aucun repère d'un autre run n'apparaît ci-dessus, et aucun ne doit y être \
-         ajouté : ni les\n   0,084 / 0,152 / 0,158 de `decreal` (08-01), ni les 0,08 / 0,11 / \
-         8,27 de `decode` (07-31).\n   Les cinq bras se lisent les uns contre les autres DANS \
-         CE RUN (§1.4). Si le sol s'écarte\n   notablement du 0,084 du 08-01, ce n'est pas un \
-         résultat de P1 : c'est un signal à expliquer."
+        "\nWARNING: no marker from another run appears above, and none is to be added: not \
+         the\n   0.084 / 0.152 / 0.158 of `decreal` (08-01), nor the 0.08 / 0.11 / 8.27 of \
+         `decode` (07-31).\n   The five arms are read against each other WITHIN THIS RUN \
+         (§1.4). If the floor departs\n   notably from the 0.084 of 08-01, that is not a P1 \
+         result: it is a signal to explain."
     );
-    println!("⚠️ Aucun tok/s n'est dérivé ici : ce banc ne mesure aucune bande passante.");
+    println!("WARNING: no tok/s is derived here: this bench measures no bandwidth.");
     let _ = worst;
     Ok(())
 }
@@ -1497,7 +1500,7 @@ mod tests {
             for i in 0..TOTAL {
                 r.offer(i as u64, 0);
             }
-            assert_eq!(r.idx.len(), CAP, "le réservoir doit rendre exactement CAP");
+            assert_eq!(r.idx.len(), CAP, "the reservoir must return exactly CAP");
             for &v in &r.idx {
                 kept[v as usize] += 1;
             }
@@ -1512,8 +1515,8 @@ mod tests {
             let z = (c as f64 - expect) / sigma;
             assert!(
                 z.abs() < 5.0,
-                "élément {i} gardé {c} fois, attendu {expect:.1} (z = {z:.2}) — \
-                 le tirage n'est pas uniforme"
+                "element {i} kept {c} times, expected {expect:.1} (z = {z:.2}) — \
+                 the draw is not uniform"
             );
         }
     }

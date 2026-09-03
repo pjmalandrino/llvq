@@ -211,31 +211,31 @@ fn main() {
     let tries_per_block = tries as f64 / blocks as f64;
 
     println!(
-        "{} problèmes d'unrank issus de {blocks} blocs réels (sink {sink})\n",
+        "{} unrank problems from {blocks} real blocks (sink {sink})\n",
         problems.len()
     );
-    println!("  {:<38}{:>10}  {:>12}", "variante", "ns/bloc", "vs réf");
+    println!("  {:<38}{:>10}  {:>12}", "variant", "ns/block", "vs ref");
     println!("  {}", "-".repeat(64));
     println!(
         "  {:<38}{per_block_ref:>10.1}  {:>12}",
-        "référence (u128, factorielles)", "1,0×"
+        "reference (u128, factorials)", "1.0×"
     );
     println!(
         "  {:<38}{per_block_fast:>10.1}  {:>11.1}×",
-        "récurrence (u64, M·c/n)",
+        "recurrence (u64, M·c/n)",
         per_block_ref / per_block_fast
     );
     println!("  {}", "-".repeat(64));
     println!(
-        "\n  sortie identique bit à bit sur les {} problèmes — même format,\n  \
-         mêmes bits, seule l'implémentation change",
+        "\n  bit-identical output on all {} problems — same format,\n  \
+         same bits, only the implementation changes",
         problems.len()
     );
     println!(
-        "\n  candidats essayés : {avg_tries:.2} par créneau en moyenne,\n  \
-         {tries_per_block:.1} par bloc — c'est ce qu'un portage GPU paie :\n  \
-         à ~11 opérations entières par candidat (mul64, mulhi-magic pour la\n  \
-         division par n ≤ 24, comparaison), compter ~{:.0} opérations par bloc.",
+        "\n  candidates tried: {avg_tries:.2} per slot on average,\n  \
+         {tries_per_block:.1} per block — this is what a GPU port pays:\n  \
+         at ~11 integer operations per candidate (mul64, mulhi-magic for the\n  \
+         division by n ≤ 24, comparison), count ~{:.0} operations per block.",
         tries_per_block * 11.0
     );
 }

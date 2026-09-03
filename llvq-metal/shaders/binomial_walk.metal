@@ -100,8 +100,8 @@
 // The walk reads `C(p, c)` for `p ≤ 23`, `c ≤ 24`. Three facts decide the
 // placement, and all three are arithmetic rather than measured:
 //
-//   (a) Every entry fits in 32 bits. The largest is C(24,12) = 2 704 156, so
-//       the whole table is `uint`, not `ulong`, and 25×25×4 = 2 500 bytes.
+//   (a) Every entry fits in 32 bits. The largest is C(24,12) = 2,704,156, so
+//       the whole table is `uint`, not `ulong`, and 25×25×4 = 2,500 bytes.
 //       The Rust `BINOM` is `[[u64; 25]; 25]` (5 KB); the bench narrows it
 //       with a checked cast so there is still exactly one table in the
 //       project. Writing the 625 literals into this shader would create the
@@ -124,7 +124,7 @@
 //     does not hold here: each lane sits on a different class, so each lane
 //     reads a different (c,p). Whether that costs anything on an M3 is a
 //     measurement this file does not make.
-//   * staging into `threadgroup` — 2 500 bytes plus one barrier, competing for
+//   * staging into `threadgroup` — 2,500 bytes plus one barrier, competing for
 //     the same 32 KB the activations already use 96 of. Also a measurement.
 // The zeros for `c > p` are load-bearing, not a guard: when a kind must take
 // every remaining position, `C(p,c) = 0` makes `rank >= b` true at every step,
@@ -275,7 +275,7 @@
 // MEASURED, 2026-08-15, Apple M3 Max, via `MTLDevice.makeLibrary(source:)` —
 // the same runtime path as `Kernel::new`:
 //   * it compiles, and `decode_walk` comes out of the library;
-//   * 20 000 blocks over 10 synthetic class shapes — including the origin
+//   * 20,000 blocks over 10 synthetic class shapes — including the origin
 //     shape (k=1), the 62-bit worst case [2,2,3,2,4,3,4,4], a zero count in
 //     the middle [8,0,8,8], and three radix-1-mid-walk shapes — agree with a
 //     LITERAL port of `binomial_walk` (free-position space, `nth_set_bit`,
@@ -297,7 +297,7 @@
 // its to-do and is kept as the record of what closed it:
 //   * the real 383 classes of `FastDecoder`, with the real `walk_radices`
 //     widths — the synthetic shapes above are superseded;
-//   * real blocks from `~/llvq-q4b.llvq`: 1 048 576 of them, so the real class
+//   * real blocks from `~/llvq-q4b.llvq`: 1,048,576 of them, so the real class
 //     mix and the real inter-lane divergence, the whole reason P1 exists;
 //   * the fixture for the origin and the shell-13 classes, which no real draw
 //     reaches — all 384 table entries at rank 0, at the last rank and on two
@@ -306,11 +306,11 @@
 //     the GPU itself produced (§11 below): `rank → arrangement → rank` closes,
 //     the multiset is realised, and the arrangement equals `binomial_walk`'s
 //     slot for slot. Plus the bijection by full enumeration over the 49 table
-//     entries of cardinality ≤ 65 536 — 653 531 ranks, arrangements pairwise
+//     entries of cardinality ≤ 65,536 — 653,531 ranks, arrangements pairwise
 //     distinct and exactly as many as the class holds.
 //
 // STILL NOT RUN:
-//   * the integral sweep of the 150 681 600 blocks *through this shader*.
+//   * the integral sweep of the 150,681,600 blocks *through this shader*.
 //     `llvq-artifact/tests/p1_rank_sweep.rs` sweeps them through the CPU
 //     references, which is a different statement and must not be read as this
 //     one: no GPU runs in that harness;
@@ -353,7 +353,7 @@ constant uint BINOM_STRIDE = DIM + 1;  // 25 — one row per kind count
 //     }
 //
 // Table convention identical to `gpu_class_table`: entry 0 is the origin,
-// entry 1+ci is class ci, 384 entries, 19 968 bytes.
+// entry 1+ci is class ci, 384 entries, 19,968 bytes.
 struct WalkRec {
     float vals[MAX_KINDS];
     uchar counts[MAX_KINDS];
@@ -461,7 +461,7 @@ kernel void decode_walk(device const uint*   words  [[buffer(0)]],
 // ===========================================================================
 // 11. THE INSTRUMENTED TWIN — `walk_arrangement`
 // ===========================================================================
-// `decode_walk` writes one float. That is deliberate and it is defect n°1 of
+// `decode_walk` writes one float. That is deliberate and it is defect no. 1 of
 // the 2026-07-31 bench turned into a rule (§1): a kernel that stores 24 decoded
 // weights measures its own uncoalesced stores. But it also means the arm's
 // actual V0 — pre-registration §3, amendment É2: `rank → arrangement → rank`

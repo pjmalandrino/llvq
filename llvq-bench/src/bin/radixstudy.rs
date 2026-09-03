@@ -2,7 +2,7 @@
 //! would cost, priced exactly on the 384 classes and, when an artifact is
 //! given, weighted by the real blocks of the published 4B.
 //!
-//! `docs/archive/spec-memoire-extreme-2026-08-12.md` opens the E3 chantier only if a
+//! `docs/archive/spec-memoire-extreme-2026-08-12.md` opens the E3 workstream only if a
 //! decomposition exists that is **both**
 //!
 //! * ≤ **2.6 b/weight** in the kernel accounting, and
@@ -13,7 +13,7 @@
 //! and no card. It cannot answer whether a shift-only decoder is *fast* — the
 //! dossier's own rule is that no conclusion about speed survives without SASS
 //! — but it can prove that no admissible decomposition reaches the bit target,
-//! which is the cheap half of the verdict and the one that closes the chantier.
+//! which is the cheap half of the verdict and the one that closes the workstream.
 //!
 //! ## Why the archive itself is not the answer
 //!
@@ -32,7 +32,7 @@
 //! | `radix2` | every composition radix rounded up to a power of two | ❌ fields extract by shift, multiset ranks still unrank serially |
 //! | `radix2+g12` | same, codeword as a uniform 12-bit rank | ❌ same |
 //! | `perslot` | the arrangement replaced by 24 per-slot level fields | ✅ the **geometry** of `Planes14`/`Planes12x`, **not** their price — see below |
-//! | `golay70` | the measured E2 layout | ✅ depth 24, **1.31× — écarté** |
+//! | `golay70` | the measured E2 layout | ✅ depth 24, **1.31×, dropped** |
 //! | `golay_tight` | `golay70` with the A plane and the sign plane cut to what each class actually needs | ✅ depth 24, variable width |
 //! | `e1v-packé` | the exact class rank in one field (T2) | ❌ divmod by magic constants to split the sub-ranks |
 //! | `e1v-séparé` | one `⌈log₂⌉` per composition stage (T2) | ✅ **depth 48–96**, a reopening — see below |
@@ -79,7 +79,7 @@
 //! does not disguise it: `depth: Some(96)` is declared as written, and the
 //! variant's note names it a **reopening** of the depth bound rather than a
 //! variant that satisfies it. Whether that reopening is granted is a decision
-//! for the passation, not for a counter of bits.
+//! for the handover, not for a counter of bits.
 //!
 //! **And the verdict enforces that, rather than merely printing it.** The
 //! spec's criterion is a **conjunction** — ≤ 2.6 b/weight **and** a fixed-depth
@@ -91,7 +91,7 @@
 //! [`tests::a_depth_reopening_never_prints_the_spec_admission_sentence`] fail
 //! if anyone restores a decision taken on [`Variant::shift_only`] alone — which
 //! is exactly what this binary did until 2026-08-13, and it published
-//! "E3 est ouvert au sens de la spec" on a `depth: Some(96)` point.
+//! "E3 is open in the sense of the spec" on a `depth: Some(96)` point.
 //!
 //! ## T3 — `golay_signs`, and the sign bits a class really charges
 //!
@@ -277,14 +277,14 @@ const GOLAY_RANK_BITS: u64 = 12;
 const GOLAY_MSG_BITS: u64 = 12;
 /// Index bits of the published `leech1c12` file, plus its gain bit.
 const ARCHIVE_BITS: u64 = 47 + 1;
-/// The spec's admission threshold for opening the E3 chantier, in the kernel
+/// The spec's admission threshold for opening the E3 workstream, in the kernel
 /// accounting. `S_spec` of the 2026-08-13 pre-registration, unchanged since
 /// `spec-memoire-extreme-2026-08-12.md:185-188`.
 const E3_CRITERION: f64 = 2.6;
 /// The **other half** of the same criterion, and the one this binary ignored
 /// until 2026-08-13: `spec-memoire-extreme-2026-08-12.md:186-187` opens the E3
-/// chantier on a conjunction — "≤ 2,6 b/poids thesis projeté **ET** un décodeur
-/// à profondeur fixe **≤ 24 étapes** sans état sériel inter-slot".
+/// workstream on a conjunction: "≤ 2.6 b/weight projected thesis **AND** a
+/// fixed-depth decoder **≤ 24 steps** with no inter-slot serial state".
 ///
 /// A bit count that clears [`E3_CRITERION`] with a deeper decoder is a
 /// **reopening** of this clause, not an admission under it, and
@@ -564,48 +564,48 @@ const VARIANTS: &[Variant] = &[
         get: |_| ARCHIVE_BITS,
         shift_only: false,
         depth: None,
-        note: "~509 ops sérielles, 8,27 ns/bloc mesuré — 75× un layout à masques",
+        note: "~509 serial ops, 8.27 ns/block measured, 75× a mask layout",
     },
     Variant {
         name: "radix2",
         get: |w| w.radix2,
         shift_only: false,
         depth: None,
-        note: "champs extraits par shift, rangs de multiensemble encore sériels",
+        note: "fields extracted by shift, multiset ranks still serial",
     },
     Variant {
         name: "radix2 + golay 12 b",
         get: |w| w.radix2_g12,
         shift_only: false,
         depth: None,
-        note: "idem, champ de codeword uniforme (offset indépendant de la classe)",
+        note: "same, uniform codeword field (offset independent of the class)",
     },
     Variant {
         name: "golay_tight",
         get: |w| w.golay_tight,
         shift_only: true,
         depth: Some(24),
-        note: "plans A et signes réduits à ce que la classe exige — largeur variable",
+        note: "A and sign planes cut to what the class needs, variable width",
     },
     Variant {
         name: "golay70 (mesuré, écarté)",
         get: |w| w.golay70,
         shift_only: true,
         depth: Some(24),
-        note: "3,589 b/poids et 1,31× vs FP16, sous le critère de 1,6×",
+        note: "3.589 b/weight and 1.31× vs FP16, under the 1.6× criterion",
     },
     Variant {
         // ⚠️ NOT `perslot (= Planes)`, which is how this row was labelled until
-        // 2026-08-13: the served `Planes14` is a flat 112 b/block = 4,804
+        // 2026-08-13: the served `Planes14` is a flat 112 b/block = 4.804
         // b/weight, and this row is neither that width nor that price.
         name: "perslot (PAS Planes14)",
         get: |w| w.perslot,
         shift_only: true,
         depth: Some(24),
-        note: "GÉOMÉTRIE des plans, PAS le layout servi : Planes14 est le 112 b/bloc plat \
-               (4,804 b/poids) ⚠️ et perslot sous-facture 12 b sur les 157 classes impaires",
+        note: "plane GEOMETRY, NOT the served layout: Planes14 is the flat 112 b/block \
+               (4.804 b/weight); WARNING: perslot undercharges 12 b on the 157 odd classes",
     },
-    // ---- T2 (pré-enr. §3) : le rang exact par classe. Appended, never
+    // ---- T2 (prereg §3): the exact rank per class. Appended, never
     // inserted: the six rows above are indexed positionally by the
     // non-regression control of the 2026-08-12 log.
     Variant {
@@ -613,7 +613,7 @@ const VARIANTS: &[Variant] = &[
         get: |w| w.exact + HEADER_BITS,
         shift_only: false,
         depth: Some(96),
-        note: "un seul champ : extraire les sous-rangs exige des divmod par constantes magiques",
+        note: "one field only: extracting the sub-ranks needs divmods by magic constants",
     },
     Variant {
         name: "e1v-séparé",
@@ -624,17 +624,17 @@ const VARIANTS: &[Variant] = &[
         get: |w| w.radix2,
         shift_only: true,
         depth: Some(96),
-        note: "largeur = radix2 au bit près ; marche binomiale à compte fixe, 48-96 pas \
-               — ⚠️ RÉOUVERTURE de la clause ≤ 24 du spec, pas une variante qui la respecte",
+        note: "width = radix2 to the bit; fixed-count binomial walk, 48-96 steps. \
+               WARNING: REOPENING of the spec's ≤ 24 clause, not a variant that satisfies it",
     },
-    // ---- T3 (pré-enr. §3) : les signes reconstruits par le mot de Golay.
+    // ---- T3 (prereg §3): the signs rebuilt from the Golay codeword.
     Variant {
         name: "golay_signs",
         get: |w| w.golay_signs,
         shift_only: true,
         depth: Some(24),
-        note: "plans perslot + signes au tarif de la classe : message Golay 12 b (impair), \
-               2^(w−1)·2^free_n (pair)",
+        note: "perslot planes + signs at the class tariff: 12 b Golay message (odd), \
+               2^(w−1)·2^free_n (even)",
     },
 ];
 
@@ -875,7 +875,7 @@ impl WidthTable {
                 let lv = fd.levels(ci);
                 *by_key
                     .get(&key_of_levels(lv))
-                    .unwrap_or_else(|| panic!("classe {ci} absente de enumerate_classes : {lv:?}"))
+                    .unwrap_or_else(|| panic!("class {ci} missing from enumerate_classes: {lv:?}"))
             })
             .collect();
         let mut flat = Vec::with_capacity(per_class.len() * NVAR);
@@ -1024,7 +1024,7 @@ fn sweep_file(fd: &FastDecoder, t: &WidthTable, path: &str) -> Sweep {
         let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
         s.push_matrix(fd, t, &m);
     }
-    assert_eq!(s.matrices, u64::from(h.matrices), "matrices lues ≠ annoncées");
+    assert_eq!(s.matrices, u64::from(h.matrices), "matrices read ≠ matrices announced");
     s
 }
 
@@ -1060,7 +1060,7 @@ fn main() {
     let (s, source) = match std::env::args().nth(1) {
         Some(path) => {
             let s = sweep_file(&fd, &t, &path);
-            let src = format!("{path} — {} matrices, blocs réels", s.matrices);
+            let src = format!("{path} — {} matrices, real blocks", s.matrices);
             (s, src)
         }
         None => {
@@ -1077,7 +1077,7 @@ fn main() {
                 matrices: 0,
                 row_straddling: 0,
             };
-            (s, "les 383 classes à poids égal (⚠️ PAS la distribution réelle)".to_string())
+            (s, "the 383 classes at equal weight (WARNING: NOT the real distribution)".to_string())
         }
     };
     let have_file = !s.file.is_empty();
@@ -1087,8 +1087,8 @@ fn main() {
     // not — set once, at construction, so the two can never drift apart.
     let shapes = s.shapes;
 
-    println!("source : {source}");
-    println!("{total} blocs, {} classes", fd.n_classes());
+    println!("source: {source}");
+    println!("{total} blocks, {} classes", fd.n_classes());
     // The origin tariff is `Widths::default()`, i.e. 10 bits, which is right
     // for a variable-width variant and **wrong** for a fixed-width one: an
     // origin in `golay70` still occupies its flat 70-bit record. No sealed
@@ -1098,66 +1098,66 @@ fn main() {
     assert_eq!(
         s.origins,
         0,
-        "{} blocs origine dans ce fichier, et le tarif origine de ce banc est FAUX pour les \
-         variantes à LARGEUR FIXE : WidthTable::build lit (v.get)(&Widths::default()).max(10), \
-         ce qui facture {} bits à « golay70 (mesuré, écarté) » au lieu de ses 70 bits plats. \
-         Corriger le tarif origine variante par variante AVANT de publier une colonne sur ce \
-         fichier — aucune ligne de ce run ne serait lisible",
+        "{} origin blocks in this file, and this bench's origin tariff is WRONG for the \
+         FIXED-WIDTH variants: WidthTable::build reads (v.get)(&Widths::default()).max(10), \
+         which charges {} bits to \"golay70 (mesuré, écarté)\" instead of its flat 70 bits. \
+         Fix the origin tariff variant by variant BEFORE publishing a column on this \
+         file: no row of this run would be readable",
         s.origins,
         t.origin[VARIANTS
             .iter()
             .position(|v| v.name.starts_with("golay70"))
-            .expect("golay70 au menu")]
+            .expect("golay70 on the menu")]
     );
     if have_file {
         let g = s.file[0];
         println!(
-            "{} groupes de 32 en ordre-fichier, dont {} partiels (fermés en fin de matrice)",
+            "{} groups of 32 in file order, {} of them partial (closed at a matrix end)",
             g.groups, g.partial
         );
         println!(
-            "{}/{} matrices ont blocs/ligne non multiple de 32 : un groupe y enjambe deux lignes",
+            "{}/{} matrices have blocks/row not a multiple of 32: a group there straddles two rows",
             s.row_straddling, s.matrices
         );
         println!(
-            "comptabilité noyau LUE DANS LE FICHIER : {} poids, {} de queue, {} lignes, {} blocs",
+            "kernel accounting READ FROM THE FILE: {} weights, {} of tail, {} rows, {} blocks",
             shapes.weights, shapes.tail_weights, shapes.rows, shapes.blocks
         );
         if shapes != Shapes::qwen3_4b() {
             // Two accountings in one dossier is exactly how a b/weight figure
-            // goes wrong (CLAUDE.md §7, règle 1). Name the gap rather than let
+            // goes wrong (CLAUDE.md §7, rule 1). Name the gap rather than let
             // a reader put this table beside a 4B one.
             println!(
-                "⚠️ CE N'EST PAS la comptabilité du 4B : 112 b/bloc valent {:.4} ici contre {:.4}\n\
-                 sur le 4B publié. Aucune ligne de ce run ne se compare à un chiffre 4B.",
+                "WARNING: THIS IS NOT the 4B accounting: 112 b/block are worth {:.4} here,\n\
+                 against {:.4} on the published 4B. No row of this run compares to a 4B figure.",
                 shapes.kernel_bpw(112.0),
                 kernel_bpw(112.0)
             );
         }
         assert_eq!(
             shapes.blocks, total,
-            "les blocs comptés ({total}) ne sont pas ceux des formes ({})",
+            "the blocks counted ({total}) are not the ones the shapes give ({})",
             shapes.blocks
         );
     } else {
-        println!("pas de fichier : aucun ORDRE réel, donc pas de colonne ordre-fichier ni de verdict");
+        println!("no file: no real ORDER, hence no file-order column and no verdict");
     }
 
     // ---- geometry of the group, stated rather than assumed ----
     println!(
-        "\n  géométrie du groupe (vérifiée, pas supposée) : 32 blocs CONSÉCUTIFS de m.indices,\n  \
-         row-major d_out × (d_in/24) — e1c.rs:204, runtime.rs:491, format.rs:199. Un groupe ne\n  \
-         franchit JAMAIS une matrice ; il franchit les lignes dès que (d_in/24) mod 32 ≠ 0."
+        "\n  group geometry (verified, not assumed): 32 CONSECUTIVE blocks of m.indices,\n  \
+         row-major d_out × (d_in/24) — e1c.rs:204, runtime.rs:491, format.rs:199. A group NEVER\n  \
+         crosses a matrix; it crosses rows as soon as (d_in/24) mod 32 ≠ 0."
     );
 
     // ---- the menu, priced: bits per block ----
-    println!("\n  bits par bloc — les 4 combinaisons (ordre de balayage × adressage)");
+    println!("\n  bits per block — the 4 combinations (scan order × addressing)");
     println!("  {}", "-".repeat(98));
     println!(
-        "  {:<24}{:>7}{:>6}{:>9}{:>9}{:>9}{:>9}{:>7}  prof.",
-        "variante",
-        "moy",
-        "pire",
+        "  {:<24}{:>7}{:>6}{:>9}{:>9}{:>9}{:>9}{:>7}  depth",
+        "variant",
+        "mean",
+        "worst",
         col(Order::ClassMajor, Mode::Grp32Max),
         col(Order::ClassMajor, Mode::WarpScan),
         col(Order::FileOrder, Mode::Grp32Max),
@@ -1179,16 +1179,16 @@ fn main() {
             per_block(&cm[k], Mode::WarpScan),
             fo(Mode::Grp32Max),
             fo(Mode::WarpScan),
-            if v.shift_only { "oui" } else { "NON" },
-            v.depth.map_or("sér.".to_string(), |d| format!("{d}")),
+            if v.shift_only { "yes" } else { "NO" },
+            v.depth.map_or("ser.".to_string(), |d| format!("{d}")),
         );
     }
     println!("  {}", "-".repeat(98));
     println!(
-        "  CM = classe-majeur — CONTRÔLE de non-régression, optimiste par construction :\n  \
-         un groupe y est presque toujours d'une seule classe. Interdit de citation (pré-enr. §1).\n  \
-         FO = ordre du fichier — ce qu'un noyau lit. max = stride uniforme au plus large du\n  \
-         groupe ; scan = largeurs exactes, offsets par somme préfixe de warp."
+        "  CM = class-major — non-regression CONTROL, optimistic by construction:\n  \
+         a group there is almost always of one single class. Not citable (prereg §1).\n  \
+         FO = file order — what a kernel reads. max = uniform stride at the widest block of\n  \
+         the group; scan = exact widths, offsets by warp prefix sum."
     );
 
     // ---- the same bits per block at 3 decimals, because the decision sections
@@ -1196,12 +1196,12 @@ fn main() {
     // 4-decimal b/weight column is a transcription, not an output: this block
     // exists so every figure a verdict cites is something a command printed.
     if have_file {
-        println!("\n  les MÊMES bits/bloc à 3 décimales — la table ci-dessus arrondit à 2, et un");
-        println!("  chiffre à 3 décimales ne s'en déduit pas. Δ = le coût de l'ordre réel.");
+        println!("\n  the SAME bits/block at 3 decimals — the table above rounds to 2, and a");
+        println!("  3-decimal figure does not follow from it. Δ = the cost of the real order.");
         println!("  {}", "-".repeat(98));
         println!(
             "  {:<24}{:>10}{:>10}{:>10}{:>10}{:>14}",
-            "variante",
+            "variant",
             col(Order::ClassMajor, Mode::Grp32Max),
             col(Order::ClassMajor, Mode::WarpScan),
             col(Order::FileOrder, Mode::Grp32Max),
@@ -1225,16 +1225,16 @@ fn main() {
 
     // ---- the same, in the grandeur the criterion is stated in ----
     let (sp, sa) = (shapes.bits_for(E3_CRITERION), shapes.bits_for(S_ALT));
-    println!("\n  b/poids NOYAU — mêmes 4 combinaisons, et les deux seuils du pré-enregistrement");
+    println!("\n  KERNEL b/weight — same 4 combinations, and the two preregistered thresholds");
     println!(
-        "  S_spec = {E3_CRITERION:.2} b/poids ⇔ {sp:.2} bits/bloc (pré-enr. : {:.2})   ·   \
-         S_alt = {S_ALT:.2} ⇔ {sa:.2} (pré-enr. : {:.2})",
+        "  S_spec = {E3_CRITERION:.2} b/weight ⇔ {sp:.2} bits/block (prereg: {:.2})   ·   \
+         S_alt = {S_ALT:.2} ⇔ {sa:.2} (prereg: {:.2})",
         PREREG_BITS.0, PREREG_BITS.1
     );
     println!("  {}", "-".repeat(98));
     println!(
         "  {:<24}{:>9}{:>9}{:>9}{:>9}   {:<14}FO vs S_alt",
-        "variante",
+        "variant",
         col(Order::ClassMajor, Mode::Grp32Max),
         col(Order::ClassMajor, Mode::WarpScan),
         col(Order::FileOrder, Mode::Grp32Max),
@@ -1281,15 +1281,15 @@ fn main() {
         println!("  {:<26}{}", v.name, v.note);
     }
     println!(
-        "\n  LÉGENDE DES MARQUEURS — et le ⊘ est la moitié qui compte :\n  \
-         ✅ = sous S_spec ({E3_CRITERION:.2}), le seul seuil du projet. C'est le seul marqueur\n  \
-            qui veuille dire « ça passe », et il ne s'imprime que là.\n  \
-         ⊘ = sous S_alt SEULEMENT, donc dans la bande ]{E3_CRITERION:.2} ; {S_ALT:.2}]. NE SE CITE\n  \
-            JAMAIS SEUL : S_alt n'est pas le seuil du projet, il n'existe qu'à contexte 8k figé\n  \
-            et ne deviendrait opposable que si la note produit du pré-enregistrement §5 retenait\n  \
-            le triplet (32 Go ; 2 Go ; KV q8 ; 8k). CETTE NOTE N'EXISTE PAS. Un ⊘ se publie\n  \
-            « ça passerait si et seulement si ce triplet était retenu », jamais « ça passe ».\n  \
-         ❌ = au-dessus des deux."
+        "\n  MARKER LEGEND — and the ⊘ is the half that counts:\n  \
+         ✅ = under S_spec ({E3_CRITERION:.2}), the project's only threshold. It is the only\n  \
+            marker that means \"it passes\", and it prints nowhere else.\n  \
+         ⊘ = under S_alt ONLY, so in the band ]{E3_CRITERION:.2} ; {S_ALT:.2}]. NEVER CITED\n  \
+            ALONE: S_alt is not the project's threshold, it exists only at a frozen 8k context\n  \
+            and would become opposable only if the product note of prereg §5 kept the\n  \
+            triple (32 GB; 2 GB; KV q8; 8k). THAT NOTE DOES NOT EXIST. A ⊘ is published as\n  \
+            \"it would pass if and only if that triple were kept\", never as \"it passes\".\n  \
+         ❌ = above both."
     );
 
     // ---- where the archive's 47 bits actually go ----
@@ -1300,15 +1300,15 @@ fn main() {
         .map(|(ci, &n)| t.per_class[ci].exact as f64 * n as f64)
         .sum::<f64>()
         / total as f64;
-    println!("\n  où passent les 47 bits de l'archive");
+    println!("\n  where the archive's 47 bits go");
     println!("  {}", "-".repeat(98));
-    println!("  point DANS sa classe, moyenne de ⌈log₂ |classe|⌉ : {exact_mean:.2} bits");
+    println!("  point WITHIN its class, mean of ⌈log₂ |class|⌉: {exact_mean:.2} bits");
     println!(
-        "  choix de la classe : 47 − {exact_mean:.2} ≈ {:.2} bits, que toute variante à champ\n  \
-         de classe explicite repaie en {HEADER_BITS} bits d'en-tête",
+        "  choice of the class: 47 − {exact_mean:.2} ≈ {:.2} bits, which every variant with an\n  \
+         explicit class field pays back as {HEADER_BITS} header bits",
         47.0 - exact_mean
     );
-    println!("  e1v-packé paie donc {exact_mean:.2} + {HEADER_BITS} bits par bloc, hors adressage");
+    println!("  e1v-packé pays {exact_mean:.2} + {HEADER_BITS} bits per block, addressing aside");
 
     // ---- T3: what the sign field costs, against the flat mask it replaces ----
     let sign_mean: f64 = s
@@ -1318,13 +1318,13 @@ fn main() {
         .map(|(ci, &n)| t.per_class[ci].sign_field as f64 * n as f64)
         .sum::<f64>()
         / total as f64;
-    println!("\n  ce que le champ de signes de golay_signs coûte");
+    println!("\n  what the golay_signs sign field costs");
     println!("  {}", "-".repeat(98));
     println!(
-        "  moyenne du champ : {sign_mean:.2} bits contre les 24 du masque plat que les layouts\n  \
-         servis dépensent, soit {:.2} bits/bloc d'espérance gagnée (prédiction du pré-enr. §3 T3 : −9,85).\n  \
-         ⚠️ Espérance ≠ ce qu'un flux paie : les colonnes max ci-dessus facturent le plus large\n  \
-         du groupe, et c'est là que se juge T3.",
+        "  mean of the field: {sign_mean:.2} bits against the 24 of the flat mask the served\n  \
+         layouts spend, so {:.2} bits/block of expected saving (prereg §3 T3 predicts −9.85).\n  \
+         WARNING: an expectation ≠ what a stream pays. The max columns above charge the widest\n  \
+         block of the group, and that is where T3 is judged.",
         24.0 - sign_mean
     );
 
@@ -1333,8 +1333,8 @@ fn main() {
     println!("  {}", "-".repeat(98));
     if !have_file {
         println!(
-            "  ⏸️  Aucun verdict sans fichier. La seule colonne disponible est le contrôle\n  \
-             classe-majeur, que le pré-enregistrement §1 interdit de citer dans un verdict."
+            "  PAUSED: no verdict without a file. The only column available is the\n  \
+             class-major control, which prereg §1 forbids citing in a verdict."
         );
         return;
     }
@@ -1384,7 +1384,7 @@ struct Point {
 /// can require its absence: printing it for a point that only cleared the bit
 /// half is precisely the over-claim of the 2026-08-13 journals, and it is now a
 /// test failure rather than a proofreading duty.
-const OPEN_AT_SPEC: &str = "Le chantier E3 est ouvert AU SENS DE LA SPEC";
+const OPEN_AT_SPEC: &str = "The E3 workstream is open IN THE SENSE OF THE SPEC";
 
 /// The verdict, as text, so it can be asserted on rather than eyeballed.
 ///
@@ -1398,33 +1398,33 @@ fn verdict_text(admissible: &[Point], reopening: &[Point], best: f64) -> String 
     if admissible.is_empty() {
         let _ = writeln!(
             o,
-            "  ❌ AUCUNE décomposition ADMISSIBLE — shift-only ET profondeur fixe ≤ {MAX_DEPTH} \
-             étapes,\n     la CONJONCTION que le spec exige — ne passe sous {E3_CRITERION} \
-             b/poids noyau EN ORDRE-FICHIER,\n     ni en grp32-max ni en warp-scan."
+            "  FAIL: NO ADMISSIBLE decomposition, shift-only AND fixed depth ≤ {MAX_DEPTH} \
+             steps,\n     the CONJUNCTION the spec demands, gets under {E3_CRITERION} \
+             kernel b/weight IN FILE ORDER,\n     neither in grp32-max nor in warp-scan."
         );
         if best.is_finite() {
             let _ = writeln!(
                 o,
-                "  Le meilleur point ADMISSIBLE vaut {best:.4} b/poids, soit {:.0} % au-dessus du seuil.",
+                "  The best ADMISSIBLE point is {best:.4} b/weight, {:.0}% above the threshold.",
                 100.0 * (best / E3_CRITERION - 1.0)
             );
         }
         let _ = writeln!(
             o,
-            "  Le critère d'ouverture du chantier E3 n'est PAS atteint : E3 s'enterre sur papier,\n  \
-             pour 0 $, comme E2 s'est enterré au banc. La marche suivante de l'échelle mémoire\n  \
-             reste E1c (X1/X2), et le plancher pratique du projet est le layout mesuré."
+            "  The criterion for opening the E3 workstream is NOT met: E3 buries itself on\n  \
+             paper, for 0 $, as E2 buried itself at the bench. The next rung of the memory\n  \
+             ladder stays E1c (X1/X2), and the project's practical floor is the measured layout."
         );
     } else {
         let _ = writeln!(
             o,
-            "  ✅ décomposition(s) ADMISSIBLES (shift-only ET profondeur ≤ {MAX_DEPTH}) sous le \
-             critère,\n     en ordre-fichier :"
+            "  PASS: ADMISSIBLE decomposition(s) (shift-only AND depth ≤ {MAX_DEPTH}) under the \
+             criterion,\n     in file order:"
         );
         for p in admissible {
             let _ = writeln!(
                 o,
-                "     {:<24}{:<6}{:.4} b/poids noyau   (profondeur {})",
+                "     {:<24}{:<6}{:.4} kernel b/weight   (depth {})",
                 p.name,
                 p.mode.tag(),
                 p.bpw,
@@ -1433,20 +1433,20 @@ fn verdict_text(admissible: &[Point], reopening: &[Point], best: f64) -> String 
         }
         let _ = writeln!(
             o,
-            "  {OPEN_AT_SPEC}. ⚠️ Ce verdict porte sur les BITS\n  \
-             seuls : la vitesse d'un tel décodeur reste non mesurée, et Golay70 rappelle qu'un\n  \
-             format juste et compact peut mourir en ALU (195 Go/s contre 425)."
+            "  {OPEN_AT_SPEC}. WARNING: this verdict is about the BITS\n  \
+             alone. The speed of such a decoder is still unmeasured, and Golay70 recalls that a\n  \
+             correct and compact format can die in the ALU (195 GB/s against 425)."
         );
     }
     if !reopening.is_empty() {
         let _ = writeln!(
             o,
-            "\n  ⚠️ SOUS LE CRITÈRE DE BITS, MAIS HORS DE LA CLAUSE DE PROFONDEUR ≤ {MAX_DEPTH} :"
+            "\n  WARNING: UNDER THE BIT CRITERION, BUT OUTSIDE THE DEPTH CLAUSE ≤ {MAX_DEPTH}:"
         );
         for p in reopening {
             let _ = writeln!(
                 o,
-                "     {:<24}{:<6}{:.4} b/poids noyau   (profondeur {})",
+                "     {:<24}{:<6}{:.4} kernel b/weight   (depth {})",
                 p.name,
                 p.mode.tag(),
                 p.bpw,
@@ -1455,20 +1455,20 @@ fn verdict_text(admissible: &[Point], reopening: &[Point], best: f64) -> String 
         }
         let _ = writeln!(
             o,
-            "  Ces points ne sont PAS admis : le critère d'ouverture d'E3\n  \
-             (spec-memoire-extreme-2026-08-12.md:186-187) est une CONJONCTION — ≤ {E3_CRITERION} \
-             b/poids\n  \
-             ET un décodeur à profondeur fixe ≤ {MAX_DEPTH} étapes sans état sériel inter-slot.\n  \
-             Ils constituent une RÉOUVERTURE DE LA CLAUSE DE PROFONDEUR, qui est une décision de\n  \
-             passation et non un résultat de ce banc. Les publier comme une admission serait la\n  \
-             sur-revendication que ce bloc existe pour empêcher."
+            "  These points are NOT admitted: the criterion for opening E3\n  \
+             (spec-memoire-extreme-2026-08-12.md:186-187) is a CONJUNCTION, ≤ {E3_CRITERION} \
+             b/weight\n  \
+             AND a fixed-depth decoder ≤ {MAX_DEPTH} steps with no inter-slot serial state.\n  \
+             They amount to a REOPENING OF THE DEPTH CLAUSE, which is a handover decision\n  \
+             and not a result of this bench. Publishing them as an admission would be the\n  \
+             over-claim this block exists to prevent."
         );
     }
     o
 }
 
 fn depth_tag(d: Option<u32>) -> String {
-    d.map_or("sérielle".to_string(), |d| format!("{d}"))
+    d.map_or("serial".to_string(), |d| format!("{d}"))
 }
 
 fn mark(ok: bool) -> &'static str {
@@ -1511,12 +1511,12 @@ mod tests {
     #[test]
     fn lg_ceil_is_the_field_width() {
         assert_eq!(lg_ceil(0), 0);
-        assert_eq!(lg_ceil(1), 0, "un seul choix ne coûte aucun bit");
+        assert_eq!(lg_ceil(1), 0, "a single choice costs no bit");
         assert_eq!(lg_ceil(2), 1);
         assert_eq!(lg_ceil(3), 2);
         assert_eq!(lg_ceil(4), 2);
         assert_eq!(lg_ceil(5), 3);
-        assert_eq!(lg_ceil(4096), 12, "le rang de codeword tient en 12 bits");
+        assert_eq!(lg_ceil(4096), 12, "the codeword rank fits in 12 bits");
         assert_eq!(lg_ceil(4097), 13);
     }
 
@@ -1530,14 +1530,14 @@ mod tests {
         for c in &cs.even {
             let w = widths_of_even(c);
             let rounded = w.radix2 - HEADER_BITS;
-            assert!(rounded >= w.exact, "classe paire : arrondi sous l'exact");
-            assert!(rounded <= w.exact + 5, "5 radices, 5 bits de gaspillage max");
+            assert!(rounded >= w.exact, "even class: rounding below the exact width");
+            assert!(rounded <= w.exact + 5, "5 radices, 5 bits of waste at most");
         }
         for c in &cs.odd {
             let w = widths_of_odd(c);
             let rounded = w.radix2 - HEADER_BITS;
             assert!(rounded >= w.exact);
-            assert!(rounded <= w.exact + 2, "2 radices côté impair");
+            assert!(rounded <= w.exact + 2, "2 radices on the odd side");
         }
     }
 
@@ -1556,7 +1556,7 @@ mod tests {
                 trimmed += 1;
             }
         }
-        assert!(trimmed > 0, "aucune classe paire ne profite du serrage");
+        assert!(trimmed > 0, "no even class benefits from the tightening");
     }
 
     /// **The refutation, encoded.** On the odd coset the codeword constrains
@@ -1571,11 +1571,11 @@ mod tests {
         for c in &cs.odd {
             let w = widths_of_odd(c);
             let (a, sg) = odd_planes(c);
-            assert_eq!(sg, 0, "les signes impairs sont calculés, jamais stockés");
+            assert_eq!(sg, 0, "odd signs are computed, never stored");
             assert_eq!(a, 24 * lg_ceil(c.vals.len() as u128));
             assert!(
                 w.golay_tight >= 46,
-                "classe impaire à {} bits — la variante 46 b réfutée est de retour",
+                "odd class at {} bits: the refuted 46 b variant is back",
                 w.golay_tight
             );
         }
@@ -1588,7 +1588,7 @@ mod tests {
         VARIANTS
             .iter()
             .position(|v| v.name == name)
-            .unwrap_or_else(|| panic!("variante « {name} » absente du menu"))
+            .unwrap_or_else(|| panic!("variant \"{name}\" missing from the menu"))
     }
 
     /// The `exact` column must be `⌈log₂ |class|⌉` of the **cardinality
@@ -1601,12 +1601,12 @@ mod tests {
         let mut want_sum = 0u64;
         for c in &cs.even {
             let e = widths_of_even(c).exact;
-            assert_eq!(e, lg_ceil(u128::from(c.cardinality())), "classe paire {c:?}");
+            assert_eq!(e, lg_ceil(u128::from(c.cardinality())), "even class {c:?}");
             want_sum += e;
         }
         for c in &cs.odd {
             let e = widths_of_odd(c).exact;
-            assert_eq!(e, lg_ceil(u128::from(c.cardinality())), "classe impaire {c:?}");
+            assert_eq!(e, lg_ceil(u128::from(c.cardinality())), "odd class {c:?}");
             want_sum += e;
         }
         // And the same column as the sweep reads it, through `FastDecoder`'s
@@ -1615,7 +1615,7 @@ mod tests {
         let fd = FastDecoder::new();
         let t = WidthTable::build(&fd);
         let got: u64 = t.per_class.iter().map(|w| w.exact).sum();
-        assert_eq!(got, want_sum, "l'ordre FastDecoder ne voit pas les mêmes classes");
+        assert_eq!(got, want_sum, "the FastDecoder order does not see the same classes");
     }
 
     /// [`even_sign_bits`] must be the exponent of the index's own two sign
@@ -1631,7 +1631,7 @@ mod tests {
             assert_eq!(
                 1u128 << even_sign_bits(c),
                 s_w * s_f,
-                "classe paire w={} free_n={free_n} : {} bits contre S_w·S_f",
+                "even class w={} free_n={free_n}: {} bits against S_w·S_f",
                 c.w,
                 even_sign_bits(c)
             );
@@ -1646,7 +1646,7 @@ mod tests {
         let g = llvq_core::Golay::new();
         assert_eq!(g.codewords().len(), 4096);
         assert_eq!(GOLAY_RANK_BITS, lg_ceil(g.codewords().len() as u128));
-        assert_eq!(GOLAY_MSG_BITS, GOLAY_RANK_BITS, "|Golay| = 2¹² : même largeur");
+        assert_eq!(GOLAY_MSG_BITS, GOLAY_RANK_BITS, "|Golay| = 2¹²: same width");
     }
 
     /// **T2's lethal test, written before reading any result**
@@ -1662,20 +1662,20 @@ mod tests {
         for c in &cs.even {
             let w = widths_of_even(c);
             let floor = lg_ceil(u128::from(c.cardinality()));
-            assert!(w.exact >= floor, "e1v-packé paire : {} < {floor}", w.exact);
+            assert!(w.exact >= floor, "e1v-packé even: {} < {floor}", w.exact);
             assert!(
                 w.radix2 - HEADER_BITS >= floor,
-                "e1v-séparé paire : {} < {floor}",
+                "e1v-séparé even: {} < {floor}",
                 w.radix2 - HEADER_BITS
             );
         }
         for c in &cs.odd {
             let w = widths_of_odd(c);
             let floor = lg_ceil(u128::from(c.cardinality()));
-            assert!(w.exact >= floor, "e1v-packé impaire : {} < {floor}", w.exact);
+            assert!(w.exact >= floor, "e1v-packé odd: {} < {floor}", w.exact);
             assert!(
                 w.radix2 - HEADER_BITS >= floor,
-                "e1v-séparé impaire : {} < {floor}",
+                "e1v-séparé odd: {} < {floor}",
                 w.radix2 - HEADER_BITS
             );
         }
@@ -1688,14 +1688,14 @@ mod tests {
             for (k, tag) in [(packed, "packé"), (split, "séparé")] {
                 assert!(
                     row[k] >= floor + HEADER_BITS,
-                    "classe {ci} : e1v-{tag} {} bits, en-tête compris, sous {floor} + {HEADER_BITS}",
+                    "class {ci}: e1v-{tag} {} bits, header included, under {floor} + {HEADER_BITS}",
                     row[k]
                 );
             }
             // The packed variant is the floor itself, so any gap it shows is
             // the header and nothing else — the assertion above would still
             // pass if it silently grew, this one would not.
-            assert_eq!(row[packed], floor + HEADER_BITS, "classe {ci}");
+            assert_eq!(row[packed], floor + HEADER_BITS, "class {ci}");
         }
         // The origin is not a class and is charged separately; it must still
         // be at least a header.
@@ -1714,21 +1714,21 @@ mod tests {
         let (split, r2) = (variant("e1v-séparé"), variant("radix2"));
         for ci in 0..fd.n_classes() {
             let row = t.row(ci);
-            assert_eq!(row[split], row[r2], "classe {ci} : les deux largeurs ont divergé");
+            assert_eq!(row[split], row[r2], "class {ci}: the two widths have diverged");
         }
-        assert_eq!(t.origin[split], t.origin[r2], "bloc origine");
+        assert_eq!(t.origin[split], t.origin[r2], "origin block");
         // The interpretation, which is the whole of the difference.
-        assert!(!VARIANTS[r2].shift_only, "radix2 déclaré shift-only");
-        assert!(VARIANTS[split].shift_only, "e1v-séparé n'est plus shift-only");
-        assert_eq!(VARIANTS[r2].depth, None, "le rang de multiensemble est sériel");
+        assert!(!VARIANTS[r2].shift_only, "radix2 declared shift-only");
+        assert!(VARIANTS[split].shift_only, "e1v-séparé is no longer shift-only");
+        assert_eq!(VARIANTS[r2].depth, None, "the multiset rank is serial");
         assert_eq!(
             VARIANTS[split].depth,
             Some(96),
-            "la marche binomiale est à 48-96 pas, et la profondeur doit le DIRE"
+            "the binomial walk is 48-96 steps, and the depth must SAY so"
         );
         assert!(
             VARIANTS[split].depth.unwrap() > 24,
-            "une profondeur ≤ 24 déguiserait la réouverture de la clause du spec"
+            "a depth ≤ 24 would disguise the reopening of the spec clause"
         );
     }
 
@@ -1746,20 +1746,20 @@ mod tests {
         let cs = enumerate_classes(13);
         for c in &cs.even {
             let w = widths_of_even(c);
-            assert_eq!(w.sign_field, even_sign_bits(c), "champ de signes pair");
+            assert_eq!(w.sign_field, even_sign_bits(c), "even sign field");
             assert!(
                 w.golay_signs - HEADER_BITS >= w.exact,
-                "classe paire : golay_signs {} sous le rang {}",
+                "even class: golay_signs {} under the rank {}",
                 w.golay_signs - HEADER_BITS,
                 w.exact
             );
         }
         for c in &cs.odd {
             let w = widths_of_odd(c);
-            assert_eq!(w.sign_field, GOLAY_MSG_BITS, "champ de signes impair");
+            assert_eq!(w.sign_field, GOLAY_MSG_BITS, "odd sign field");
             assert!(
                 w.golay_signs - HEADER_BITS >= w.exact,
-                "classe impaire : golay_signs {} sous le rang {}",
+                "odd class: golay_signs {} under the rank {}",
                 w.golay_signs - HEADER_BITS,
                 w.exact
             );
@@ -1771,7 +1771,7 @@ mod tests {
         for ci in 0..fd.n_classes() {
             assert!(
                 t.row(ci)[k] - HEADER_BITS >= t.per_class[ci].exact,
-                "classe {ci} : golay_signs sous son rang"
+                "class {ci}: golay_signs under its own rank"
             );
         }
         // Lethality: the 12-bit message is load-bearing, not padding.
@@ -1785,7 +1785,7 @@ mod tests {
             .count();
         assert!(
             broken > 0,
-            "retirer le message Golay ne casse aucune classe : le test ne prouve rien"
+            "dropping the Golay message breaks no class: the test proves nothing"
         );
     }
 
@@ -1811,23 +1811,23 @@ mod tests {
             assert_eq!(
                 w.golay_signs,
                 w.perslot + GOLAY_MSG_BITS,
-                "golay_signs impair n'est plus perslot + le message"
+                "odd golay_signs is no longer perslot + the message"
             );
             if w.perslot - HEADER_BITS < w.exact {
                 short += 1;
             }
         }
-        assert_eq!(cs.odd.len(), 157, "l'énumération des classes impaires a bougé");
+        assert_eq!(cs.odd.len(), 157, "the odd class enumeration has moved");
         assert_eq!(
             short, 10,
-            "10 des 157 classes impaires tombent sous leur rang en perslot, pas {short}"
+            "10 of the 157 odd classes fall under their rank in perslot, not {short}"
         );
         // The even coset is sound in `perslot` — `nonzero ≥ (w−1) + free_n` —
         // so the defect is odd-only, and naming it that way is part of the
         // finding.
         for c in &cs.even {
             let w = widths_of_even(c);
-            assert!(w.perslot - HEADER_BITS >= w.exact, "classe paire perslot sous son rang");
+            assert!(w.perslot - HEADER_BITS >= w.exact, "even class perslot under its own rank");
             // …and there `golay_signs` is at most one bit cheaper, because
             // `perslot` already charges per nonzero slot rather than a flat 24.
             assert!(w.perslot >= w.golay_signs && w.perslot - w.golay_signs <= 1);
@@ -1856,23 +1856,23 @@ mod tests {
                 // A `w = 0` class is made of free values only, and cannot be
                 // empty (the origin is not a class), so `nonzero = free_n ≥ 1`
                 // and `nonzero − 1` loses exactly the bit nothing fixed.
-                assert!(free_n > 0, "classe paire vide");
+                assert!(free_n > 0, "empty even class");
                 assert_eq!(truth, free_n);
-                assert_eq!(truth, frozen + 1, "w = 0 : le manque n'est pas d'un bit");
+                assert_eq!(truth, frozen + 1, "w = 0: the shortfall is not one bit");
                 w0 += 1;
             } else {
-                assert_eq!(frozen, truth, "w > 0 : nonzero−1 EST (w−1) + free_n");
+                assert_eq!(frozen, truth, "w > 0: nonzero−1 IS (w−1) + free_n");
             }
             // Optimistic, bounded, and harmless to the bijection.
             assert!(truth >= frozen && truth - frozen <= 1);
             let w = widths_of_even(c);
             assert!(
                 w.golay_tight - HEADER_BITS >= w.exact,
-                "golay_tight sous son rang : le serrage a cessé d'être valide"
+                "golay_tight under its own rank: the tightening is no longer valid"
             );
         }
-        assert_eq!(cs.even.len(), 226, "l'énumération des classes paires a bougé");
-        assert_eq!(w0, 17, "17 des 226 classes paires sont à w = 0, pas {w0}");
+        assert_eq!(cs.even.len(), 226, "the even class enumeration has moved");
+        assert_eq!(w0, 17, "17 of the 226 even classes are at w = 0, not {w0}");
     }
 
     /// The two class sources must cover each other exactly, or the sweep
@@ -1882,7 +1882,7 @@ mod tests {
         let fd = FastDecoder::new();
         let cs = enumerate_classes(13);
         let n = cs.even.len() + cs.odd.len();
-        assert_eq!(n, fd.n_classes(), "{n} classes énumérées, {} au décodeur", fd.n_classes());
+        assert_eq!(n, fd.n_classes(), "{n} classes enumerated, {} at the decoder", fd.n_classes());
         let mut keys: Vec<Key> = Vec::new();
         for c in &cs.even {
             let free_n: u32 = c.free_vals.iter().map(|&(_, n)| u32::from(n)).sum();
@@ -1905,10 +1905,10 @@ mod tests {
             ));
         }
         let set: HashMap<Key, ()> = keys.iter().map(|&k| (k, ())).collect();
-        assert_eq!(set.len(), keys.len(), "deux classes partagent une clé canonique");
+        assert_eq!(set.len(), keys.len(), "two classes share one canonical key");
         for ci in 0..fd.n_classes() {
             let k = key_of_levels(fd.levels(ci));
-            assert!(set.contains_key(&k), "classe {ci} sans radices : {:?}", fd.levels(ci));
+            assert!(set.contains_key(&k), "class {ci} with no radices: {:?}", fd.levels(ci));
         }
     }
 
@@ -1922,7 +1922,7 @@ mod tests {
             assert_eq!(
                 u64::try_from(4096 * arr).unwrap(),
                 c.cardinality(),
-                "cardinalité impaire"
+                "odd cardinality"
             );
         }
     }
@@ -1933,10 +1933,10 @@ mod tests {
     #[test]
     fn kernel_conversion_reproduces_planes14() {
         let p14 = kernel_bpw(112.0);
-        assert!((p14 - 4.804).abs() < 5e-4, "Planes14 : {p14:.4}");
+        assert!((p14 - 4.804).abs() < 5e-4, "Planes14: {p14:.4}");
         // And the archive's own 48 bits, the floor E3 is chasing.
         let arch = kernel_bpw(ARCHIVE_BITS as f64);
-        assert!(arch < E3_CRITERION, "le fichier lui-même vaut {arch:.4}");
+        assert!(arch < E3_CRITERION, "the file itself is worth {arch:.4}");
     }
 
     /// The pre-registration states each threshold twice — in b/weight and in
@@ -1988,11 +1988,11 @@ mod tests {
     #[test]
     fn grp32max_charges_the_group_maximum_to_every_lane() {
         let flat = group_of(&[47u64; 32]);
-        assert_eq!(flat.max_bits, 32 * 48 + 32, "47 arrondi à 48 par lane");
+        assert_eq!(flat.max_bits, 32 * 48 + 32, "47 rounded to 48 per lane");
         let mut ws = [47u64; 32];
         ws[13] = 94;
         let spiked = group_of(&ws);
-        assert_eq!(spiked.max_bits, 32 * 96 + 32, "un bloc à 94 fait payer 96 aux 32");
+        assert_eq!(spiked.max_bits, 32 * 96 + 32, "one block at 94 makes all 32 pay 96");
         // 47 → 94 on ONE lane costs 32·(96−48) = 1536 bits of stride.
         assert_eq!(spiked.max_bits - flat.max_bits, 32 * (96 - 48));
         // The scan mode pays that one block and the word it rounds into:
@@ -2004,7 +2004,7 @@ mod tests {
     }
 
     /// `WarpScan` is `⌈Σ/32⌉·32 + 32`, and the pre-registration's phrasing
-    /// ("Σ + 32 d'offset de base, arrondi au mot de 32 bits") has only one
+    /// ("Σ + 32 of base offset, rounded to the 32-bit word") has only one
     /// reading because the base offset is itself a whole word: rounding before
     /// or after adding it gives the same number.
     #[test]
@@ -2027,11 +2027,11 @@ mod tests {
     fn a_partial_group_pays_full_lanes_under_max_and_only_its_blocks_under_scan() {
         let g = group_of(&[48u64; 5]);
         assert_eq!((g.groups, g.partial), (1, 1));
-        assert_eq!(g.max_bits, 32 * 48 + 32, "les 32 voies sont adressables");
+        assert_eq!(g.max_bits, 32 * 48 + 32, "the 32 lanes are addressable");
         // 5·48 = 240 bits, which is 7.5 words: the group rounds to 8 (256) and
         // then pays its base word. Charging 240 + 32 would be the off-by-one
         // this assertion exists to catch.
-        assert_eq!(g.scan_bits, 256 + 32, "5 blocs arrondis au mot, pas 32 voies");
+        assert_eq!(g.scan_bits, 256 + 32, "5 blocks rounded to the word, not 32 lanes");
         assert!(g.scan_bits < g.max_bits);
         // A full group is not partial, and closing an empty accumulator is a
         // no-op — which is what makes the matrix-boundary close free when the
@@ -2069,7 +2069,7 @@ mod tests {
         // 17 blocks per row, 3 rows: 51 blocks, deliberately not 32 | 51.
         let (rows, per_row) = (3usize, 17usize);
         let blocks = rows * per_row;
-        assert!(!(blocks as u64).is_multiple_of(GROUP), "51 doit couper un groupe");
+        assert!(!(blocks as u64).is_multiple_of(GROUP), "51 must cut a group");
         let matrix = |name: &str| llvq_artifact::RawMatrix {
             name: name.to_string(),
             d_out: rows,
@@ -2088,16 +2088,16 @@ mod tests {
         s.push_matrix(&fd, &t, &matrix("A"));
         // One matrix alone already shows it: 51 blocks are 1 full group and a
         // partial of 19, and the partial must be **closed** by the boundary.
-        assert_eq!(s.origins, 0, "les indices de test doivent tous être dans la boule");
+        assert_eq!(s.origins, 0, "every test index must be inside the ball");
         let single = s.file.clone();
         for (k, v) in VARIANTS.iter().enumerate() {
             assert_eq!(
                 (single[k].groups, single[k].partial),
                 (2, 1),
-                "{} : la fin de matrice n'a pas fermé le groupe partiel",
+                "{}: the matrix end did not close the partial group",
                 v.name
             );
-            assert_eq!(single[k].filled, 0, "{} : 19 voies restées ouvertes", v.name);
+            assert_eq!(single[k].filled, 0, "{}: 19 lanes left open", v.name);
         }
 
         s.push_matrix(&fd, &t, &matrix("B"));
@@ -2106,7 +2106,7 @@ mod tests {
             assert_eq!(
                 (g.groups, g.partial),
                 (4, 2),
-                "{} : les deux matrices se sont fondues en un seul flux",
+                "{}: the two matrices merged into a single stream",
                 v.name
             );
             // The two matrices are identical, so a boundary that really closes
@@ -2123,12 +2123,12 @@ mod tests {
             for w in ws.iter().chain(ws.iter()) {
                 joined.push(*w);
             }
-            assert_eq!(joined.groups, 3, "le flux continu ne ferait que 3 groupes pleins");
-            assert_eq!(joined.filled, 102 - 3 * GROUP, "6 blocs restent en suspens");
+            assert_eq!(joined.groups, 3, "the continuous stream would make only 3 full groups");
+            assert_eq!(joined.filled, 102 - 3 * GROUP, "6 blocks are left dangling");
             assert_ne!(
                 (g.groups, g.partial, g.max_bits, g.scan_bits),
                 (joined.groups, joined.partial, joined.max_bits, joined.scan_bits),
-                "{} : fermer à la frontière ne change rien, donc rien ne prouve qu'on ferme",
+                "{}: closing at the boundary changes nothing, so nothing proves we close",
                 v.name
             );
         }
@@ -2149,7 +2149,7 @@ mod tests {
         assert_eq!((split.groups, split.partial), (2, 2));
         let joined = group_of(&[48u64; 32]);
         assert_eq!((joined.groups, joined.partial), (1, 0));
-        assert_eq!(split.max_bits, 2 * joined.max_bits, "deux groupes payés plein");
+        assert_eq!(split.max_bits, 2 * joined.max_bits, "two groups paid in full");
         assert_eq!(split.scan_bits, joined.scan_bits + BASE_OFFSET_BITS);
     }
 
@@ -2167,7 +2167,7 @@ mod tests {
     #[test]
     fn the_verdict_needs_both_clauses_not_shift_only_alone() {
         // The clause exists in the code as a number, not only in the prose.
-        assert_eq!(MAX_DEPTH, 24, "la clause du spec est ≤ 24 étapes");
+        assert_eq!(MAX_DEPTH, 24, "the spec clause is ≤ 24 steps");
 
         let mut deep = 0;
         for v in VARIANTS {
@@ -2182,8 +2182,8 @@ mod tests {
                     assert_eq!(
                         cls,
                         Admissibility::DepthReopening,
-                        "{} est shift-only à profondeur {:?} : la CONJONCTION du spec exige \
-                         qu'il soit une RÉOUVERTURE, jamais une admission",
+                        "{} is shift-only at depth {:?}: the spec CONJUNCTION requires it to be \
+                         a REOPENING, never an admission",
                         v.name,
                         v.depth
                     );
@@ -2195,12 +2195,12 @@ mod tests {
         // a menu where the two clauses happen to coincide.
         assert!(
             deep > 0,
-            "aucune variante shift-only de profondeur > {MAX_DEPTH} au menu : ce test ne \
-             distingue plus la conjonction du seul shift_only"
+            "no shift-only variant of depth > {MAX_DEPTH} on the menu: this test no longer \
+             tells the conjunction apart from shift_only alone"
         );
         // And the one that made the defect matter, by name.
         let split = &VARIANTS[variant("e1v-séparé")];
-        assert!(split.shift_only, "e1v-séparé n'est plus shift-only");
+        assert!(split.shift_only, "e1v-séparé is no longer shift-only");
         assert_eq!(split.depth, Some(96));
         assert_eq!(split.admissibility(), Admissibility::DepthReopening);
     }
@@ -2217,7 +2217,7 @@ mod tests {
             depth: Some(96),
         };
         let shallow = Point {
-            name: "hypothétique",
+            name: "hypothetical",
             mode: Mode::WarpScan,
             bpw: 2.3709,
             depth: Some(24),
@@ -2225,26 +2225,26 @@ mod tests {
 
         // A reopening alone: no admission sentence, and the reopening named.
         let t = verdict_text(&[], std::slice::from_ref(&deep), f64::INFINITY);
-        assert!(!t.contains(OPEN_AT_SPEC), "réouverture publiée comme admission :\n{t}");
-        assert!(t.contains("AUCUNE décomposition ADMISSIBLE"), "{t}");
-        assert!(t.contains("HORS DE LA CLAUSE DE PROFONDEUR"), "{t}");
-        assert!(t.contains("RÉOUVERTURE"), "{t}");
-        assert!(t.contains("2.3709"), "le point doit rester chiffré :\n{t}");
+        assert!(!t.contains(OPEN_AT_SPEC), "reopening published as an admission:\n{t}");
+        assert!(t.contains("NO ADMISSIBLE decomposition"), "{t}");
+        assert!(t.contains("OUTSIDE THE DEPTH CLAUSE"), "{t}");
+        assert!(t.contains("REOPENING"), "{t}");
+        assert!(t.contains("2.3709"), "the point must stay a figure:\n{t}");
 
         // The same point, plus a genuinely admissible one: the sentence comes
         // back, and the reopening is still reported separately rather than
         // folded into the admitted list.
         let t2 = verdict_text(std::slice::from_ref(&shallow), std::slice::from_ref(&deep), 2.3709);
         assert!(t2.contains(OPEN_AT_SPEC), "{t2}");
-        assert!(t2.contains("HORS DE LA CLAUSE DE PROFONDEUR"), "{t2}");
-        assert!(t2.contains("hypothétique"), "{t2}");
+        assert!(t2.contains("OUTSIDE THE DEPTH CLAUSE"), "{t2}");
+        assert!(t2.contains("hypothetical"), "{t2}");
 
         // And nothing at all under the criterion: the plain red verdict, with
         // the best ADMISSIBLE point — never the best shift-only one.
         let t3 = verdict_text(&[], &[], 2.9650);
         assert!(!t3.contains(OPEN_AT_SPEC), "{t3}");
-        assert!(t3.contains("Le meilleur point ADMISSIBLE vaut 2.9650"), "{t3}");
-        assert!(!t3.contains("RÉOUVERTURE"), "{t3}");
+        assert!(t3.contains("The best ADMISSIBLE point is 2.9650"), "{t3}");
+        assert!(!t3.contains("REOPENING"), "{t3}");
     }
 
     /// **D5a, pinned rather than fixed.** The origin tariff is
@@ -2265,13 +2265,13 @@ mod tests {
         let flat = HEADER_BITS + GOLAY_RANK_BITS + 24 + 24;
         assert_eq!(flat, 70);
         for ci in 0..fd.n_classes() {
-            assert_eq!(t.row(ci)[g70], flat, "golay70 n'est plus à largeur fixe");
+            assert_eq!(t.row(ci)[g70], flat, "golay70 is no longer fixed-width");
         }
         assert_eq!(
             t.origin[g70], HEADER_BITS,
-            "le tarif origine de golay70 a changé : le message d'assertion de main() ment"
+            "the golay70 origin tariff has changed: the assertion message in main() lies"
         );
-        assert!(t.origin[g70] < flat, "le défaut est une SOUS-facturation, et il faut le dire");
+        assert!(t.origin[g70] < flat, "the defect is an UNDER-charge, and that has to be said");
         // The variable-width variants are the ones the tariff is right for.
         for name in ["perslot (PAS Planes14)", "golay_tight", "golay_signs"] {
             assert_eq!(t.origin[variant(name)], HEADER_BITS, "{name}");
@@ -2291,12 +2291,12 @@ mod tests {
         let k = variant("perslot (PAS Planes14)");
         assert!(
             !VARIANTS[k].name.contains("= Planes"),
-            "l'étiquette réintroduit l'égalité fausse avec le layout servi"
+            "the label reintroduces the false equality with the served layout"
         );
         for ci in 0..fd.n_classes() {
             assert!(
                 t.row(ci)[k] < PLANES14_BITS,
-                "classe {ci} : perslot {} atteint les {PLANES14_BITS} b/bloc plats de Planes14",
+                "class {ci}: perslot {} reaches the flat {PLANES14_BITS} b/block of Planes14",
                 t.row(ci)[k]
             );
         }
@@ -2309,7 +2309,7 @@ mod tests {
             assert_eq!(
                 widths_of_odd(c).perslot + GOLAY_MSG_BITS,
                 widths_of_odd(c).golay_signs,
-                "perslot impair n'est plus 12 bits sous le décodable"
+                "odd perslot is no longer 12 bits under the decodable width"
             );
         }
     }
@@ -2330,12 +2330,12 @@ mod tests {
         // 383 classes + 1 origin = 384 blocks = 8 rows of 48, and 384 is a
         // whole number of groups, so neither order pays for padding.
         let n = fd.n_classes();
-        assert_eq!(n, 383, "le menu synthétique suppose les 383 classes");
+        assert_eq!(n, 383, "the synthetic menu assumes the 383 classes");
         let mut indices: Vec<u64> = (0..n).map(|ci| fd.class_range(ci).0).collect();
         indices.push(0); // the origin
         let blocks = indices.len();
         let m = llvq_artifact::RawMatrix {
-            name: "synthétique".to_string(),
+            name: "synthetic".to_string(),
             d_out: 8,
             d_in: 48 * DIM,
             indices,
@@ -2349,30 +2349,30 @@ mod tests {
         let mut s = Sweep::empty(n);
         s.push_matrix(&fd, &t, &m);
         assert_eq!(s.total(), blocks as u64);
-        assert_eq!(s.origins, 1, "l'origine doit passer par le tarif origine");
-        assert!(s.count.iter().all(|&c| c == 1), "une classe non vue par le balayage");
+        assert_eq!(s.origins, 1, "the origin must go through the origin tariff");
+        assert!(s.count.iter().all(|&c| c == 1), "a class the sweep did not see");
 
         let cm = sweep_class_major(&t, &s.count, s.origins);
-        assert_eq!(cm.len(), NVAR, "ordre classe-majeur : {} accumulateurs", cm.len());
-        assert_eq!(s.file.len(), NVAR, "ordre-fichier : {} accumulateurs", s.file.len());
+        assert_eq!(cm.len(), NVAR, "class-major order: {} accumulators", cm.len());
+        assert_eq!(s.file.len(), NVAR, "file order: {} accumulators", s.file.len());
         assert_eq!(NVAR, VARIANTS.len());
         for (k, v) in VARIANTS.iter().enumerate() {
             for (g, tag) in [(cm[k], "CM"), (s.file[k], "FO")] {
                 for mode in Mode::ALL {
                     assert!(
                         g.bits(mode) > 0,
-                        "{} non prixé en {tag}/{}",
+                        "{} not priced in {tag}/{}",
                         v.name,
                         mode.tag()
                     );
                 }
                 assert!(
                     g.bits(Mode::WarpScan) <= g.bits(Mode::Grp32Max),
-                    "{} : {tag}/scan au-dessus de {tag}/max",
+                    "{}: {tag}/scan above {tag}/max",
                     v.name
                 );
-                assert_eq!(g.groups, blocks as u64 / GROUP, "{} en {tag}", v.name);
-                assert_eq!(g.partial, 0, "{} en {tag}", v.name);
+                assert_eq!(g.groups, blocks as u64 / GROUP, "{} in {tag}", v.name);
+                assert_eq!(g.partial, 0, "{} in {tag}", v.name);
             }
         }
     }
@@ -2395,7 +2395,7 @@ mod tests {
         let total = count.iter().sum::<u64>();
         let shapes = Shapes::qwen3_4b();
 
-        // radixstudy-x4-2026-08-12.txt, bras 1 : moy · pire · grp32 · b/p moy · b/p GRP
+        // radixstudy-x4-2026-08-12.txt, arm 1: mean · worst · grp32 · b/w mean · b/w GRP
         let want: [(&str, f64, u64, f64, f64, f64); 6] = [
             ("archive (le fichier)", 48.00, 48, 49.13, 2.1498, 2.1965),
             ("radix2", 43.68, 56, 55.81, 1.9708, 2.4737),
@@ -2412,18 +2412,18 @@ mod tests {
         // be comparing a row against another row's number.
         assert!(
             VARIANTS.len() >= want.len(),
-            "le menu a rétréci : le contrôle publié n'est plus reproductible"
+            "the menu has shrunk: the published control is no longer reproducible"
         );
         for (k, (name, moy, pire, grp, bpw_moy, bpw_grp)) in want.iter().enumerate() {
-            assert_eq!(VARIANTS[k].name, *name, "l'ordre du menu a changé");
+            assert_eq!(VARIANTS[k].name, *name, "the menu order has changed");
             let mean = mean_bits(&t, &count, 0, k);
             let grouped = cm[k].bits(Mode::Grp32Max) as f64 / total as f64;
-            assert!((mean - moy).abs() < 5e-3, "{name} moy : {mean:.2} contre {moy}");
-            assert_eq!(worst_bits(&t, &count, 0, k), *pire, "{name} pire");
-            assert!((grouped - grp).abs() < 5e-3, "{name} grp32 : {grouped:.2} contre {grp}");
+            assert!((mean - moy).abs() < 5e-3, "{name} mean: {mean:.2} against {moy}");
+            assert_eq!(worst_bits(&t, &count, 0, k), *pire, "{name} worst");
+            assert!((grouped - grp).abs() < 5e-3, "{name} grp32: {grouped:.2} against {grp}");
             let (a, b) = (shapes.kernel_bpw(mean), shapes.kernel_bpw(grouped));
-            assert!((a - bpw_moy).abs() < 5e-5, "{name} b/p moy : {a:.4}");
-            assert!((b - bpw_grp).abs() < 5e-5, "{name} b/p GRP : {b:.4}");
+            assert!((a - bpw_moy).abs() < 5e-5, "{name} b/w mean: {a:.4}");
+            assert!((b - bpw_grp).abs() < 5e-5, "{name} b/w GRP: {b:.4}");
         }
         // The `exact` column of the same arm, and the Planes14 control that
         // ties this table to the 4.804 of the production layout.
@@ -2431,14 +2431,14 @@ mod tests {
             .map(|ci| t.per_class[ci].exact as f64)
             .sum::<f64>()
             / total as f64;
-        assert!((exact - 33.40).abs() < 5e-3, "⌈log₂|classe|⌉ : {exact:.2}");
+        assert!((exact - 33.40).abs() < 5e-3, "⌈log₂|class|⌉: {exact:.2}");
         assert!((kernel_bpw(112.0) - 4.804).abs() < 5e-4);
     }
 
     /// The streaming glue, on **real** blocks: header, one matrix, the
     /// per-block class lookup, the group boundary and the matrix boundary.
     ///
-    /// One matrix of the sealed 4B is 108 544 blocks and a couple of megabytes
+    /// One matrix of the sealed 4B is 108,544 blocks and a couple of megabytes
     /// — a second, against the minutes of a full sweep — so this runs where the
     /// full control cannot. It asserts geometry and **direction**, never a
     /// rate: no number printed by this test is a result about a layout.
@@ -2451,14 +2451,14 @@ mod tests {
         let path = sealed_4b();
         assert!(
             std::path::Path::new(&path).exists(),
-            "archive scellée absente : {path} (LLVQ_Q4B déplace la recherche, ne la satisfait pas)"
+            "sealed archive missing: {path} (LLVQ_Q4B moves the search, it does not satisfy it)"
         );
         let fd = FastDecoder::new();
         let t = WidthTable::build(&fd);
         let f = File::open(&path).expect("open");
         let mut r = BufReader::with_capacity(1 << 20, f);
         let h = llvq_artifact::read_header(&mut r).expect("valid header");
-        assert_eq!(h.version, 1, "le 4B publié est un LVQ1 « projections seules »");
+        assert_eq!(h.version, 1, "the published 4B is an LVQ1, \"projections only\"");
         let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
         assert_eq!(m.name, "model.layers.0.self_attn.q_proj.weight");
         assert_eq!((m.d_out, m.d_in), (4096, 2560));
@@ -2466,10 +2466,10 @@ mod tests {
         let mut s = Sweep::empty(fd.n_classes());
         s.push_matrix(&fd, &t, &m);
         let blocks = 4096 * (2560 / DIM) as u64;
-        assert_eq!(s.total(), blocks, "434 176 blocs : 4096 lignes de 106");
+        assert_eq!(s.total(), blocks, "434,176 blocks: 4096 rows of 106");
         // 106 blocks per row is not a multiple of 32: groups straddle rows.
         assert_eq!(s.row_straddling, 1);
-        // 434 176 blocks is 13 568 whole groups — nothing partial, so closing
+        // 434,176 blocks is 13,568 whole groups — nothing partial, so closing
         // at the matrix boundary costs this matrix nothing.
         assert!(blocks.is_multiple_of(GROUP));
         assert_eq!((s.file[0].groups, s.file[0].partial), (blocks / GROUP, 0));
@@ -2481,7 +2481,7 @@ mod tests {
         let cm = sweep_class_major(&t, &s.count, s.origins);
         assert!(
             s.file[k].max_bits > cm[k].max_bits,
-            "ordre-fichier {} ≤ contrôle classe-majeur {} : le contrôle n'est plus optimiste",
+            "file order {} ≤ class-major control {}: the control is no longer optimistic",
             s.file[k].max_bits,
             cm[k].max_bits
         );
@@ -2506,21 +2506,21 @@ mod tests {
         let path = sealed_4b();
         assert!(
             std::path::Path::new(&path).exists(),
-            "archive scellée absente : {path} (LLVQ_Q4B déplace la recherche, ne la satisfait pas)"
+            "sealed archive missing: {path} (LLVQ_Q4B moves the search, it does not satisfy it)"
         );
         let fd = FastDecoder::new();
         let t = WidthTable::build(&fd);
         let s = sweep_file(&fd, &t, &path);
         let total = s.total();
-        assert_eq!(total, 150_681_600, "ce n'est pas le 4B publié");
+        assert_eq!(total, 150_681_600, "this is not the published 4B");
         assert_eq!(s.matrices, 252);
-        assert_eq!(s.origins, 0, "le 4B publié n'a aucun bloc origine");
+        assert_eq!(s.origins, 0, "the published 4B has no origin block");
         // The shapes read from the file ARE the pinned constants — the whole
         // licence for reading them from the file instead of remembering them.
-        assert_eq!(s.shapes, Shapes::qwen3_4b(), "formes lues ≠ formes épinglées");
+        assert_eq!(s.shapes, Shapes::qwen3_4b(), "shapes read ≠ shapes pinned");
 
         let cm = sweep_class_major(&t, &s.count, s.origins);
-        // radixstudy-x4-2026-08-12.txt, bras 2 : moy · pire · grp32 · b/p GRP
+        // radixstudy-x4-2026-08-12.txt, arm 2: mean · worst · grp32 · b/w GRP
         let want: [(&str, f64, u64, f64, f64); 6] = [
             ("archive (le fichier)", 48.00, 48, 49.00, 2.1912),
             ("radix2", 51.87, 55, 56.61, 2.5066),
@@ -2533,11 +2533,11 @@ mod tests {
             assert_eq!(VARIANTS[k].name, *name);
             let mean = mean_bits(&t, &s.count, s.origins, k);
             let grouped = cm[k].bits(Mode::Grp32Max) as f64 / total as f64;
-            assert!((mean - moy).abs() < 5e-3, "{name} moy : {mean:.2} contre {moy}");
-            assert_eq!(worst_bits(&t, &s.count, s.origins, k), *pire, "{name} pire");
-            assert!((grouped - grp).abs() < 5e-3, "{name} grp32 : {grouped:.2} contre {grp}");
+            assert!((mean - moy).abs() < 5e-3, "{name} mean: {mean:.2} against {moy}");
+            assert_eq!(worst_bits(&t, &s.count, s.origins, k), *pire, "{name} worst");
+            assert!((grouped - grp).abs() < 5e-3, "{name} grp32: {grouped:.2} against {grp}");
             let b = s.shapes.kernel_bpw(grouped);
-            assert!((b - bpw_grp).abs() < 5e-5, "{name} b/p GRP : {b:.4} contre {bpw_grp}");
+            assert!((b - bpw_grp).abs() < 5e-5, "{name} b/w GRP: {b:.4} against {bpw_grp}");
         }
         let exact: f64 = s
             .count
@@ -2546,13 +2546,13 @@ mod tests {
             .map(|(ci, &n)| t.per_class[ci].exact as f64 * n as f64)
             .sum::<f64>()
             / total as f64;
-        assert!((exact - 41.50).abs() < 5e-3, "⌈log₂|classe|⌉ : {exact:.2}");
+        assert!((exact - 41.50).abs() < 5e-3, "⌈log₂|class|⌉: {exact:.2}");
 
         // And the geometry the module header claims, measured rather than
         // assumed: every matrix's block count is a multiple of 32, so closing
         // at the boundary truncates nothing.
         assert_eq!(s.file[0].groups, 150_681_600 / 32);
-        assert_eq!(s.file[0].partial, 0, "groupes partiels sur le 4B");
-        assert_eq!(s.row_straddling, 252, "toutes les matrices enjambent des lignes");
+        assert_eq!(s.file[0].partial, 0, "partial groups on the 4B");
+        assert_eq!(s.row_straddling, 252, "every matrix straddles rows");
     }
 }

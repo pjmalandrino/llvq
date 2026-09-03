@@ -29,11 +29,11 @@
 //!
 //! A group costs `32 + ceil(Σ widths / 32) × 32` bits — the base word, then the
 //! payload rounded to a whole word. That model was **validated before it was
-//! used**: fed the per-stage widths it reproduces the published 52,869
-//! (class-major) and 53,332 (file order) to 5e-3, and their 2,3709 b/weight to
+//! used**: fed the per-stage widths it reproduces the published 52.869
+//! (class-major) and 53.332 (file order) to 5e-3, and their 2.3709 b/weight to
 //! 5e-5 (`llvq-artifact/tests/p5_cns_addressing.rs`). Fed the CNS's per-kind
 //! widths — the ones a division-free decoder needs, amendment É0 — it gives
-//! **53,7370** and **2,3877**.
+//! **53.7370** and **2.3877**.
 //!
 //! ## What this module does NOT claim
 //!
@@ -60,7 +60,7 @@ pub const E1V_CLASS_BITS: u32 = 9;
 /// (`planes.cu`, `b0r = row · nblocks`, `j = jlo + lane`), so lane `l` handles
 /// group rank `(row·nblocks + lane) mod 32` — a rotation that vanishes only
 /// when `nblocks ≡ 0 (mod 32)`. On the five shapes of the published 4B it never
-/// does: **0 aligned blocks out of 150 681 600**. Every warp would straddle two
+/// does: **0 aligned blocks out of 150,681,600**. Every warp would straddle two
 /// groups, read two base words and scan two header regions.
 ///
 /// So there is a second cut, [`transcode_e1v_rows`], where **a group never
@@ -69,9 +69,9 @@ pub const E1V_CLASS_BITS: u32 = 9;
 ///
 /// 🔎 **A partial group is cheap here, and that is not a detail — it is the
 /// whole reason E1v survives this where `E1c14` died.** An `E1c` group costs
-/// `24·(1+plans)` words whatever the occupancy, so a group of 10 blocks costs
+/// `24·(1+planes)` words whatever the occupancy, so a group of 10 blocks costs
 /// the price of 32 and alignment can only be bought by padding rows out to a
-/// multiple of 32 blocks: **+15,47 %**, which made `E1c14` bigger than the
+/// multiple of 32 blocks: **+15.47%**, which made `E1c14` bigger than the
 /// layout it replaces. An `E1v` group costs one base word plus the sum of its
 /// records, rounded to a word, so a partial group costs what its records cost.
 /// The variable width — everything E1v pays for in decode complexity — is
@@ -184,8 +184,8 @@ fn payload_bits(l: &CnsLayout) -> u64 {
 
 /// **The transcoder C4 times.** `(indices, gains)` in, one byte buffer out.
 ///
-/// Allocation is inside on purpose: C4's `T` is *du tableau au tampon,
-/// allocation comprise, I/O disque exclue*, and a version that took a
+/// Allocation is inside on purpose: C4's `T` is *from array to buffer,
+/// allocation included, disk I/O excluded*, and a version that took a
 /// pre-allocated buffer would be timing a different thing than `Planes14`'s
 /// transcoder, which allocates its own.
 pub fn transcode_e1v(

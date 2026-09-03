@@ -2,7 +2,7 @@
 //!
 //! `llvq-artifact` already proves the layout itself: `Planes12xBlocks`'s
 //! overlay reconstructs the archive bit for bit over the sealed 4B's
-//! 150 681 600 blocks (`planes12x_format.rs`). `llvq-cuda` already proves the
+//! 150,681,600 blocks (`planes12x_format.rs`). `llvq-cuda` already proves the
 //! bench decoder's field extraction against Rust. What neither can see is the
 //! layer this crate adds, and every part of it is a way to ship a correct
 //! stream and still be wrong on the card:
@@ -109,9 +109,9 @@ fn point_from_planes(
     let mut p = [0i32; DIM];
     if id == 0 {
         for (k, &m) in planes.iter().enumerate() {
-            assert_eq!(m, 0, "{what} : plan {k} non nul sur un enregistrement origine");
+            assert_eq!(m, 0, "{what}: plane {k} not zero on an origin record");
         }
-        assert_eq!(smask, 0, "{what} : masque de signe non nul sur l'origine");
+        assert_eq!(smask, 0, "{what}: sign mask not zero on the origin");
         return p;
     }
     let rec = table.record(id);
@@ -122,7 +122,7 @@ fn point_from_planes(
         }
         assert!(
             lvl < rec.len as usize,
-            "{what}, slot {j} : niveau {lvl} hors de la classe {id} ({} niveaux)",
+            "{what}, slot {j}: level {lvl} outside class {id} ({} levels)",
             rec.len
         );
         let v = rec.values[lvl];
@@ -171,7 +171,7 @@ fn overlay_block(
     }
     let (id, gain, smask, p) = planes12_fields(s.words, b);
     (
-        point_from_planes(table, id, smask, &p, &format!("bloc {b}")),
+        point_from_planes(table, id, smask, &p, &format!("block {b}")),
         gain,
     )
 }
@@ -181,7 +181,7 @@ fn overlay_block(
 fn approx_block(table: &ClassTable, words: &[u32], b: usize) -> (Point, u32) {
     let (id, gain, smask, p) = planes12_fields(words, b);
     (
-        point_from_planes(table, id, smask, &p, &format!("bloc {b}")),
+        point_from_planes(table, id, smask, &p, &format!("block {b}")),
         gain,
     )
 }
@@ -189,7 +189,7 @@ fn approx_block(table: &ClassTable, words: &[u32], b: usize) -> (Point, u32) {
 fn planes14_block(table: &ClassTable, words: &[u32], b: usize) -> (Point, u32) {
     let (id, gain, smask, p) = planes_fields(words, b);
     (
-        point_from_planes(table, id, smask, &p, &format!("bloc {b}")),
+        point_from_planes(table, id, smask, &p, &format!("block {b}")),
         gain,
     )
 }
@@ -202,14 +202,14 @@ fn unwrap_p12(s: &HostStream) -> P12<'_> {
             exc_words,
             row_exc,
         },
-        _ => panic!("layout planes12x demandé, autre flux rendu"),
+        _ => panic!("planes12x layout asked for, another stream returned"),
     }
 }
 
 fn unwrap_p14(s: &HostStream) -> &[u32] {
     match s {
         HostStream::Planes14 { words } => words,
-        _ => panic!("layout planes14 demandé, autre flux rendu"),
+        _ => panic!("planes14 layout asked for, another stream returned"),
     }
 }
 
@@ -288,21 +288,21 @@ fn planes12x_words_rebuild_the_planes14_content() {
         let p14 = unwrap_p14(&s14);
         assert!(
             !exc_idx.is_empty(),
-            "d_out={d_out} : la fixture doit produire des exceptions"
+            "d_out={d_out}: the fixture must produce exceptions"
         );
         assert!(
             exc_idx.len() < idx.len() / 4,
-            "d_out={d_out} : {} exceptions sur {} blocs — le flux principal ne \
-             porte plus rien",
+            "d_out={d_out}: {} exceptions over {} blocks, the main stream carries \
+             nothing any more",
             exc_idx.len(),
             idx.len()
         );
 
         // The read windows must sit inside the buffers.
-        assert!(3 * (idx.len() - 1) + 3 <= words.len(), "fenêtre 3 mots hors tampon");
+        assert!(3 * (idx.len() - 1) + 3 <= words.len(), "3-word window out of buffer");
         assert!(
             PLANES14_BYTES * (exc_idx.len() - 1) / 4 + 4 <= exc_words.len(),
-            "fenêtre 4 mots de la table d'exceptions hors tampon"
+            "4-word window of the exception table out of buffer"
         );
 
         let mut approx_differs = 0usize;
@@ -311,29 +311,29 @@ fn planes12x_words_rebuild_the_planes14_content() {
                 let b = row * nblocks + col;
                 let want = planes14_block(&table, p14, b);
                 let got = overlay_block(&table, p12, row, nblocks, col);
-                assert_eq!(got, want, "bloc {b} : l'overlay diverge de Planes14");
+                assert_eq!(got, want, "block {b}: the overlay diverges from Planes14");
                 let ap = approx_block(&table, words, b);
                 let is_exc = exc_idx.binary_search(&(b as u32)).is_ok();
                 assert_eq!(
                     ap != want,
                     is_exc,
-                    "bloc {b} : le flux principal doit différer exactement sur les \
+                    "block {b}: the main stream must differ exactly on the \
                      exceptions"
                 );
                 if is_exc {
                     approx_differs += 1;
                     // The swap moves the direction only: the gain bit is copied.
-                    assert_eq!(ap.1, want.1, "bloc {b} : le swap a changé le gain");
+                    assert_eq!(ap.1, want.1, "block {b}: the swap changed the gain");
                 }
             }
         }
-        assert_eq!(approx_differs, exc_idx.len(), "toutes les exceptions vues");
+        assert_eq!(approx_differs, exc_idx.len(), "every exception seen");
 
         // The accounting: 12 bytes a block, 18 an exception, 4 a row + 4.
         let want_bytes = (idx.len() * PLANES12X_BYTES
             + exc_idx.len() * (4 + PLANES14_BYTES)
             + (d_out + 1) * 4) as u64;
-        assert_eq!(bytes12, want_bytes, "comptabilité du payload planes12x");
+        assert_eq!(bytes12, want_bytes, "planes12x payload accounting");
     }
 }
 
@@ -354,10 +354,10 @@ fn the_row_offsets_partition_the_exception_table() {
     let p12 = unwrap_p12(&s);
     let (exc_idx, row_exc) = (p12.exc_idx, p12.row_exc);
 
-    assert_eq!(row_exc.len(), d_out + 1, "une borne par ligne, plus la sentinelle");
+    assert_eq!(row_exc.len(), d_out + 1, "one bound per row, plus the sentinel");
     assert_eq!(row_exc[0], 0);
-    assert_eq!(*row_exc.last().unwrap() as usize, exc_idx.len(), "couverture");
-    assert!(row_exc.windows(2).all(|w| w[0] <= w[1]), "bornes croissantes");
+    assert_eq!(*row_exc.last().unwrap() as usize, exc_idx.len(), "coverage");
+    assert!(row_exc.windows(2).all(|w| w[0] <= w[1]), "increasing bounds");
     let mut with_several = 0usize;
     for r in 0..d_out {
         let sl = &exc_idx[row_exc[r] as usize..row_exc[r + 1] as usize];
@@ -368,18 +368,18 @@ fn the_row_offsets_partition_the_exception_table() {
             assert_eq!(
                 b as usize / nblocks,
                 r,
-                "le bloc {b} est rangé sous la ligne {r} dont les blocs sont \
+                "block {b} is filed under row {r}, whose blocks are \
                  [{}, {})",
                 r * nblocks,
                 (r + 1) * nblocks
             );
         }
-        assert!(sl.windows(2).all(|w| w[0] < w[1]), "ligne {r} : ordre strict");
+        assert!(sl.windows(2).all(|w| w[0] < w[1]), "row {r}: strict order");
     }
     assert!(
         with_several > 0,
-        "la fixture doit poser deux exceptions sur une même ligne — sinon la \
-         boucle par lane du noyau n'est jamais exercée à plus d'un tour"
+        "the fixture must put two exceptions on one row, otherwise the kernel's \
+         per-lane loop is never exercised past a single turn"
     );
 }
 
@@ -423,7 +423,7 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
         .expect("clang++ is on PATH");
     assert!(
         st.success(),
-        "la source Planes12x demi-stockante ne compile pas en C++ hôte"
+        "the half-storing Planes12x source does not compile as host C++"
     );
 
     let fd = FastDecoder::new();
@@ -433,7 +433,7 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
     let (s, _) = tr.stream(&idx, &gains, D_OUT, NBLOCKS).unwrap();
     let p12 = unwrap_p12(&s);
     let (words, exc_idx, exc_words) = (p12.words, p12.exc_idx, p12.exc_words);
-    assert!(!exc_idx.is_empty(), "la fixture doit exercer la correction");
+    assert!(!exc_idx.is_empty(), "the fixture must exercise the correction");
 
     let tab = gpu_class_table(&fd);
     let mut rng = SplitMix64::new(0x5EED);
@@ -485,7 +485,7 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
     };
     let y = take_f32(D_OUT);
     let corr = take_f32(D_OUT);
-    assert!(r.is_empty(), "la sonde hôte a écrit plus qu'on ne lui demandait");
+    assert!(r.is_empty(), "the host probe wrote more than it was asked for");
 
     // The correction is zero exactly where a row has no exception, and
     // non-zero where it has one. The first half kills a correction pass that
@@ -495,9 +495,9 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
     for (row, &c) in corr.iter().enumerate() {
         let n_exc = p12.row_exc[row + 1] - p12.row_exc[row];
         if n_exc == 0 {
-            assert_eq!(c, 0.0, "ligne {row} sans exception, correction non nulle");
+            assert_eq!(c, 0.0, "row {row} has no exception, correction not zero");
         } else {
-            assert!(c != 0.0, "ligne {row} : {n_exc} exceptions et une correction nulle");
+            assert!(c != 0.0, "row {row}: {n_exc} exceptions and a zero correction");
         }
     }
 
@@ -519,10 +519,10 @@ fn the_planes12x_half_kernel_decides_what_rust_decides() {
         }
         let e = (y[row] as f64 - want).abs() / scale.max(1e-12);
         worst = worst.max(e);
-        assert!(e < TOL, "ligne {row} : écart {e:.2e}·Σ|w·x|");
+        assert!(e < TOL, "row {row}: gap {e:.2e}·Σ|w·x|");
     }
     println!(
-        "planes12x_h hôte : {D_OUT} lignes, {} blocs, {} exceptions, pire écart \
+        "planes12x_h host: {D_OUT} rows, {} blocks, {} exceptions, worst gap \
          {worst:.1e}·Σ|w·x|",
         idx.len(),
         exc_idx.len()
@@ -560,7 +560,7 @@ fn each_layout_names_its_own_translation_unit() {
     // `seg_kernel_name` for the three silent mechanisms.
     assert_eq!(seg_kernel_name(FusedLayout::Planes14), Some("tv_planes_seg_h"));
     for layout in [FusedLayout::Slot32, FusedLayout::Planes12x, FusedLayout::Golay70] {
-        assert_eq!(seg_kernel_name(layout), None, "{layout:?} ne se segmente pas");
+        assert_eq!(seg_kernel_name(layout), None, "{layout:?} does not segment");
     }
 
     let p14 = planes_source_names(FusedLayout::Planes14);
@@ -577,12 +577,12 @@ fn each_layout_names_its_own_translation_unit() {
     // Planes12x extends Planes14's unit rather than replacing it — that is
     // what keeps `tv_planes_h`'s register report a drift detector on this
     // build too, and it means the shared prefix cannot diverge silently.
-    assert_eq!(&p12[..p14.len()], p14, "planes12x doit prolonger planes14");
+    assert_eq!(&p12[..p14.len()], p14, "planes12x must extend planes14");
     assert_eq!(&p12[p14.len()..], ["llvq_planes12.cuh", "tv_planes12x_h.cu"]);
 
     for layout in [FusedLayout::Slot32, FusedLayout::Planes14, FusedLayout::Planes12x] {
-        let (parts, overridden) = load_planes_sources(layout).expect("copies embarquées");
-        assert!(overridden.is_none(), "LLVQ_KERNEL_DIR ne doit pas être posé ici");
+        let (parts, overridden) = load_planes_sources(layout).expect("embedded copies");
+        assert!(overridden.is_none(), "LLVQ_KERNEL_DIR must not be set here");
         assert_eq!(parts.len(), planes_source_names(layout).len());
         // Each embedded part is the file it claims to be, and the whole unit
         // defines the entry point the launcher will look up by name.
@@ -591,7 +591,7 @@ fn each_layout_names_its_own_translation_unit() {
             let entry = format!("void {}(", matvec_kernel_name(layout));
             assert!(
                 unit.contains(&entry),
-                "{layout:?} : l'unité de traduction ne définit pas {entry}"
+                "{layout:?}: the translation unit does not define {entry}"
             );
             // …and the segmented entry point, on every bit-plane layout,
             // launched or not. ⚠️ This is a substring search, not a
@@ -599,7 +599,7 @@ fn each_layout_names_its_own_translation_unit() {
             // through `clang++ -Werror` in this very order.
             assert!(
                 unit.contains("void tv_planes_seg_h("),
-                "{layout:?} : l'unité de traduction ne définit pas tv_planes_seg_h"
+                "{layout:?}: the translation unit does not define tv_planes_seg_h"
             );
         }
     }
@@ -615,7 +615,7 @@ fn each_layout_names_its_own_translation_unit() {
         "planes12x_row_correction",
         "LLVQ_PLANES12_CUH",
     ] {
-        assert!(unit.contains(symbol), "l'unité planes12x ne porte pas {symbol}");
+        assert!(unit.contains(symbol), "the planes12x unit carries no {symbol}");
     }
     // And it must NOT carry the bench arm's kernel: `tv_planes12x` memsets `y`
     // and accumulates with atomicAdd, which is exactly the protocol this path
@@ -623,7 +623,7 @@ fn each_layout_names_its_own_translation_unit() {
     // of nearly the same name in the module.
     assert!(
         !unit.contains("void tv_planes12x("),
-        "l'unité d'inférence embarque le noyau de banc tv_planes12x"
+        "the inference unit embeds the bench kernel tv_planes12x"
     );
 }
 
@@ -640,13 +640,13 @@ const MODEL_DEFAULT: &str = "qwen3-4b-llvq.bin";
 
 fn sealed_model_path() -> PathBuf {
     let howto = format!(
-        "Ce balayage vérifie le flux Planes12x que ce crate produit contre le flux \
-         Planes14, bloc par bloc, sur un modèle scellé réel. Il est #[ignore]d, donc \
-         être ici veut dire qu'on l'a demandé — il échoue plutôt que d'imprimer SKIP \
-         et de rendre `ok`.\n\n\
-         Pointer {MODEL_ENV} sur un .llvq AUTOPORTANT (pas un artefact de projections \
-         seules) :\n\n    \
-         {MODEL_ENV}=/chemin/qwen3-8b-llvq.bin \\\\\n        \
+        "This sweep checks the Planes12x stream this crate produces against the \
+         Planes14 stream, block by block, on a real sealed model. It is #[ignore]d, so \
+         being here means it was asked for: it fails rather than print SKIP \
+         and return `ok`.\n\n\
+         Point {MODEL_ENV} at a SELF-CONTAINED .llvq (not a projections-only \
+         artifact):\n\n    \
+         {MODEL_ENV}=/path/qwen3-8b-llvq.bin \\\\\n        \
          cargo test --release -p llvq-llm --test fused_planes12x -- --include-ignored"
     );
     let (path, origin) = match (std::env::var_os(MODEL_ENV), std::env::var_os("HOME")) {
@@ -655,11 +655,11 @@ fn sealed_model_path() -> PathBuf {
             Path::new(&h).join(MODEL_DEFAULT),
             format!("$HOME/{MODEL_DEFAULT}"),
         ),
-        (None, None) => panic!("ni ${MODEL_ENV} ni $HOME ne sont définis.\n\n{howto}"),
+        (None, None) => panic!("neither ${MODEL_ENV} nor $HOME is set.\n\n{howto}"),
     };
     assert!(
         path.exists(),
-        "le modèle scellé n'est pas sur cette machine : {} (depuis {origin})\n\n{howto}",
+        "the sealed model is not on this machine: {} (from {origin})\n\n{howto}",
         path.display()
     );
     path
@@ -678,7 +678,7 @@ fn sealed_model_path() -> PathBuf {
 /// minutes on the 4B, more on the 8B. Out of the default run for that reason;
 /// asked for explicitly, a missing model is an error, never a green skip.
 #[test]
-#[ignore = "des dizaines de minutes de recherches sur un modèle scellé réel (--include-ignored)"]
+#[ignore = "tens of minutes of searches on a real sealed model (--include-ignored)"]
 fn transcode_of_the_sealed_model_matches_planes14() {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Instant;
@@ -694,7 +694,7 @@ fn transcode_of_the_sealed_model_matches_planes14() {
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
     assert!(
         h.is_self_contained(),
-        "{} n'est qu'un artefact de projections (v{}) — fused::load le refuserait",
+        "{} is only a projections artifact (v{}), fused::load would refuse it",
         path.display(),
         h.version
     );
@@ -713,7 +713,7 @@ fn transcode_of_the_sealed_model_matches_planes14() {
         assert_eq!(
             m.indices.len(),
             m.d_out * nblocks,
-            "{} : {} codes pour {}×{nblocks}",
+            "{}: {} codes for {}×{nblocks}",
             m.name,
             m.indices.len(),
             m.d_out
@@ -754,7 +754,7 @@ fn transcode_of_the_sealed_model_matches_planes14() {
                             let b = row * nblocks + col;
                             let want = planes14_block(table, p14, b);
                             let got = overlay_block(table, p12, row, nblocks, col);
-                            assert_eq!(got, want, "{name} bloc {b} : overlay ≠ Planes14");
+                            assert_eq!(got, want, "{name} block {b}: overlay ≠ Planes14");
                             n += 1;
                         }
                     }
@@ -765,18 +765,18 @@ fn transcode_of_the_sealed_model_matches_planes14() {
         assert_eq!(
             seen.load(Ordering::Relaxed) as usize,
             m.indices.len(),
-            "{} : le balayage a sauté des blocs",
+            "{}: the sweep skipped blocks",
             m.name
         );
     }
 
     let bpw = |bytes: u64| bytes as f64 * 8.0 / (blocks * DIM as u64) as f64;
     println!(
-        "\n{} — {} matrices, {blocks} blocs vérifiés bloc à bloc\n  \
-         exceptions : {exceptions} ({:.4} % des blocs)\n  \
-         payload    : Planes12x {:.4} b/poids contre Planes14 {:.4}\n  \
-         transcodage: Planes12x {:.1} s, Planes14 {:.1} s, lecture {:.1} s, \
-         total {:.1} s ({nthreads} cœurs)",
+        "\n{} — {} matrices, {blocks} blocks checked block by block\n  \
+         exceptions : {exceptions} ({:.4}% of blocks)\n  \
+         payload    : Planes12x {:.4} b/weight against Planes14 {:.4}\n  \
+         transcode  : Planes12x {:.1} s, Planes14 {:.1} s, read {:.1} s, \
+         total {:.1} s ({nthreads} cores)",
         path.display(),
         h.matrices,
         exceptions as f64 * 100.0 / blocks as f64,
@@ -787,5 +787,5 @@ fn transcode_of_the_sealed_model_matches_planes14() {
         secs_read,
         wall.elapsed().as_secs_f64(),
     );
-    assert!(exceptions > 0, "aucune exception : le balayage n'a rien exercé");
+    assert!(exceptions > 0, "no exception: the sweep exercised nothing");
 }

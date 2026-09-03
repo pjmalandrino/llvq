@@ -13,7 +13,7 @@
 //! With the `1/√8` normalization the lattice is even and unimodular; the
 //! `m`-th shell `{v : ‖v‖² = 2m}` corresponds to `‖x‖² = 16m` in the
 //! integer embedding. The minimal shell is `m = 2` (`‖x‖² = 32`) with
-//! 196 560 vectors — the kissing number of Λ₂₄ — which the G1 test-suite
+//! 196,560 vectors — the kissing number of Λ₂₄ — which the G1 test-suite
 //! reproduces by exhaustive, membership-verified enumeration.
 //!
 //! ## Exactness domain
@@ -50,7 +50,7 @@ pub const THETA: [(u32, u64); 4] = [
 /// 2.000 bits/dim (paper Table 1), i.e. the codebook size of the
 /// 2 bit-per-weight regime. Convention: **the origin is excluded** (the
 /// paper's `N(M)` sums shells from m = 2); the closed ball `‖x‖² ≤ 26`
-/// contains one point more, 280 974 212 784 721.
+/// contains one point more, 280,974,212,784,721.
 pub const N_SHELL_13_CUMULATIVE: u64 = 280_974_212_784_720;
 
 /// The Leech lattice, backed by the extended Golay code.

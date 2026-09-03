@@ -348,16 +348,16 @@ fn the_cuda_mirror_decodes_what_the_format_reads() {
 
                     // The addressing, against the format's own derivation.
                     let (rg, rl, rlen) = s.locate(b);
-                    assert_eq!((rg, rl, rlen), (g, lane, len), "bloc {b} : adressage");
+                    assert_eq!((rg, rl, rlen), (g, lane, len), "block {b}: addressing");
 
                     // The reference: the format's reader, and the archive's own
                     // decoder behind it.
                     let (point, ref_gain) = s.decode_block(&fd, &golay, &lays, b);
-                    assert_eq!(gain, u32::from(ref_gain), "bloc {b} : gain");
+                    assert_eq!(gain, u32::from(ref_gain), "block {b}: gain");
                     assert_eq!(
                         id,
                         fd.class_of(idxs[b]).map_or(E1V_ORIGIN_ID as u32, |ci| ci as u32),
-                        "bloc {b} : classe"
+                        "block {b}: class"
                     );
 
                     seen.insert(fd.class_of(idxs[b]));
@@ -365,7 +365,7 @@ fn the_cuda_mirror_decodes_what_the_format_reads() {
                     match fd.class_of(idxs[b]) {
                         None => {
                             origins += 1;
-                            assert_eq!(got, [0.0f32; DIM], "bloc {b} : l'origine n'est pas nulle");
+                            assert_eq!(got, [0.0f32; DIM], "block {b}: the origin is not zero");
                         }
                         Some(ci) => {
                             let norm = ((16 * fd.levels(ci).shell) as f64).sqrt();
@@ -373,7 +373,7 @@ fn the_cuda_mirror_decodes_what_the_format_reads() {
                                 let want = (f64::from(p_v) / norm) as f32;
                                 assert_eq!(
                                     g_v, want,
-                                    "bloc {b} (forme {row_blocks}, classe {ci}), créneau {sl}"
+                                    "block {b} (shape {row_blocks}, class {ci}), slot {sl}"
                                 );
                             }
                         }
@@ -387,16 +387,16 @@ fn the_cuda_mirror_decodes_what_the_format_reads() {
     // the same green line as one that did not.
     assert!(
         seen.contains(&None),
-        "aucun bloc origine dans le miroir — l'id 511 est le cas où la charge utile est vide, \
-         l'entrée de table est 0 et le scan ne reçoit rien"
+        "no origin block in the mirror — id 511 is the case where the payload is empty, \
+         the table entry is 0 and the scan receives nothing"
     );
     for ci in 0..fd.n_classes() {
-        assert!(seen.contains(&Some(ci)), "classe {ci} absente du miroir");
+        assert!(seen.contains(&Some(ci)), "class {ci} missing from the mirror");
     }
     eprintln!(
-        "miroir CUDA E1v — {checked} blocs sur 5 formes, dont {origins} origines,\n  \
-         les {} classes toutes couvertes, créneau par créneau en égalité f32 EXACTE\n  \
-         contre E1vBlocks::decode_block.",
+        "CUDA E1v mirror — {checked} blocks over 5 shapes, {origins} of them origins,\n  \
+         all {} classes covered, slot by slot in EXACT f32 equality\n  \
+         against E1vBlocks::decode_block.",
         fd.n_classes()
     );
 }

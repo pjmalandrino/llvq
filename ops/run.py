@@ -90,7 +90,7 @@ from pathlib import Path
 MIN_COMPUTE_CAP = 89
 
 FLAVORS: dict[str, dict] = {
-    #                       vCPU  RAM Go  VRAM Go  $/h        compute cap
+    #                       vCPU  RAM GB  VRAM GB  $/h        compute cap
     "cpu-upgrade":     dict(vcpu=8,   ram=32,   vram=0,   usd_h=0.03, cap=None),
     "cpu-xl":          dict(vcpu=16,  ram=124,  vram=0,   usd_h=1.00, cap=None),
     "cpu-performance": dict(vcpu=32,  ram=256,  vram=0,   usd_h=1.90, cap=None),
@@ -119,10 +119,10 @@ def cap_ok(flavor: str) -> tuple[bool, str]:
     if cap is None:
         return True, "CPU"
     if cap < MIN_COMPUTE_CAP:
-        return False, f"sm_{cap} < sm_{MIN_COMPUTE_CAP} — l'image ne peut y charger aucun noyau"
+        return False, f"sm_{cap} < sm_{MIN_COMPUTE_CAP}, the image can load no kernel there"
     if cap > MIN_COMPUTE_CAP:
-        return True, f"sm_{cap}, par JIT PTX depuis sm_{MIN_COMPUTE_CAP}"
-    return True, f"sm_{cap} natif"
+        return True, f"sm_{cap}, by PTX JIT from sm_{MIN_COMPUTE_CAP}"
+    return True, f"sm_{cap} native"
 
 
 def device_ok(flavor: str, device: str) -> tuple[bool, str]:
@@ -161,30 +161,30 @@ def device_ok(flavor: str, device: str) -> tuple[bool, str]:
     gpu = spec["vram"] > 0
     if device == "metal":
         return False, (
-            f"--device metal sur {flavor} : aucune flavor HF Jobs n'est un Mac, et\n"
-            f"l'image de ce dépôt n'est pas construite avec `--features metal`.\n"
-            f"Le job démarrerait, serait facturé, téléchargerait le checkpoint, puis\n"
-            f"`eval.rs::device` échouerait au premier appel.\n"
-            f"Relance avec --device {'cuda' if gpu else 'cpu'}.")
+            f"--device metal on {flavor}: no HF Jobs flavor is a Mac, and\n"
+            f"this repository's image is not built with `--features metal`.\n"
+            f"The job would start, be billed, download the checkpoint, and then\n"
+            f"`eval.rs::device` would fail on the first call.\n"
+            f"Rerun with --device {'cuda' if gpu else 'cpu'}.")
     if gpu and device != "cuda":
         return False, (
-            f"--device {device} sur {flavor}, qui a {spec['vram']} Go de VRAM.\n"
-            f"Le devis facture à cette flavor le tarif `cuda` "
-            f"({QUANT_CORE_SEC_PER_WEIGHT['cuda']:.2e} cœur-s/poids) parce que les passes\n"
-            f"avant y tombent à 1–2 % du run. En `{device}` elles reviennent à 88 %, soit\n"
-            f"{QUANT_CORE_SEC_PER_WEIGHT['cpu']:.2e} : ×"
-            + f"{QUANT_CORE_SEC_PER_WEIGHT['cpu'] / QUANT_CORE_SEC_PER_WEIGHT['cuda']:.1f}".replace(".", ",")
-            + " le devis. Et le `timeout` est posé à 1,5× ce devis,\n"
-            f"donc le job serait tué vers 40 % des blocs — facturé plein, sans artefact.\n"
-            f"Relance avec --device cuda, ou prends une flavor sans VRAM.")
+            f"--device {device} on {flavor}, which has {spec['vram']} GB of VRAM.\n"
+            f"The estimate charges this flavor the `cuda` rate "
+            f"({QUANT_CORE_SEC_PER_WEIGHT['cuda']:.2e} core-s/weight) because the forward\n"
+            f"passes fall to 1-2% of the run there. In `{device}` they come back to 88%, or\n"
+            f"{QUANT_CORE_SEC_PER_WEIGHT['cpu']:.2e}: x"
+            + f"{QUANT_CORE_SEC_PER_WEIGHT['cpu'] / QUANT_CORE_SEC_PER_WEIGHT['cuda']:.1f}"
+            + " the estimate. And the `timeout` is set to 1.5x that estimate,\n"
+            f"so the job would be killed around 40% of the blocks, billed in full, no artifact.\n"
+            f"Rerun with --device cuda, or take a flavor without VRAM.")
     if not gpu and device != "cpu":
         return False, (
-            f"--device {device} sur {flavor}, qui n'a aucun GPU.\n"
-            f"`eval.rs::device` ne retombe plus sur le CPU en silence : il échoue en\n"
-            f"nommant la feature manquante — mais après démarrage, pull de l'image et\n"
-            f"téléchargement du checkpoint, tous facturés.\n"
-            f"Relance avec --device cpu, ou prends une flavor avec de la VRAM.")
-    return True, f"{device} sur {flavor} ({spec['vram']} Go de VRAM)"
+            f"--device {device} on {flavor}, which has no GPU.\n"
+            f"`eval.rs::device` no longer falls back to the CPU silently: it fails naming\n"
+            f"the missing feature, but only after startup, image pull and checkpoint\n"
+            f"download, all of them billed.\n"
+            f"Rerun with --device cpu, or take a flavor with VRAM.")
+    return True, f"{device} on {flavor} ({spec['vram']} GB of VRAM)"
 
 
 # Measured, see the module docstring. Change these only with a bench to back it.
@@ -194,10 +194,10 @@ DIM = 24
 
 # Core-seconds per quantized weight, measured end to end on real jobs:
 #
-#   0.6B  cpu-upgrade      8 vCPU  cpu    47 185 920 poids en  1421 s → 2.41e-4
-#   0.6B  l4x1             8 vCPU  cuda   47 185 920 poids en   371 s → 6.29e-5
-#   8B    rtx-pro-6000    23 vCPU  cuda 6 925 713 408 poids en 14356 s → 4.77e-5
-#   32B   rtx-pro-6000x2  46 vCPU  cuda 1 947 893 760 poids en  2694 s → 6.36e-5
+#   0.6B  cpu-upgrade      8 vCPU  cpu    47,185,920 weights in  1421 s → 2.41e-4
+#   0.6B  l4x1             8 vCPU  cuda   47,185,920 weights in   371 s → 6.29e-5
+#   8B    rtx-pro-6000    23 vCPU  cuda 6,925,713,408 weights in 14356 s → 4.77e-5
+#   32B   rtx-pro-6000x2  46 vCPU  cuda 1,947,893,760 weights in  2694 s → 6.36e-5
 #
 # The GPU is ~4× cheaper *in core-seconds*: the forward passes fall from 88 %
 # of the work to 1–2 %. What is left is the encoder, which is CPU-bound either
@@ -217,7 +217,7 @@ BITS_PER_WEIGHT = 2.1696
 # read the shard's record, decode its Leech indices, copy the record into the
 # new artifact, and hand the reconstruction to the model. Measured on
 # Qwen3-0.6B, single-threaded, on the run that resumed at block 14 of 28 —
-# 220 200 960 weights in 8.1 s, i.e. 27.2 M/s. (A 2-block shard gave 26.2 M/s,
+# 220,200,960 weights in 8.1 s, i.e. 27.2 M/s. (A 2-block shard gave 26.2 M/s,
 # so the rate does not depend on how much is being reloaded.)
 #
 # 🔎 On that run the whole segmentation was **free within the noise**: 1747 s
@@ -226,7 +226,7 @@ BITS_PER_WEIGHT = 2.1696
 # see — a second checkpoint load, a second baseline perplexity, and the forward
 # passes replayed over the inherited blocks — was under 20 s at this size. It
 # will not stay that small: at 32B the replayed forwards run on 131 k
-# calibration tokens instead of 2 048, and the reload is 488 M weights per
+# calibration tokens instead of 2,048, and the reload is 488 M weights per
 # block instead of 15.7 M.
 #
 # ⚠️ **This is the only new constant here, and it is an extrapolation.** It was
@@ -380,9 +380,9 @@ def cost_table(est: dict, dtype: str = "f32") -> list[tuple[str, float, float, s
         # difference between one 96 GB card and a two-card flavor.
         need = est["checkpoint_gb"] * (2 if dtype == "f32" else 1)
         if gpu and f["vram"] < need:
-            warn = f"VRAM {f['vram']} Go < {need:.0f} Go en {dtype}"
+            warn = f"VRAM {f['vram']} GB < {need:.0f} GB in {dtype}"
         if not gpu and f["ram"] < need:
-            warn = f"RAM {f['ram']} Go < {need:.0f} Go en {dtype}"
+            warn = f"RAM {f['ram']} GB < {need:.0f} GB in {dtype}"
         rows.append((name, wall, wall * f["usd_h"], warn))
     return rows
 
@@ -419,8 +419,8 @@ def print_segment_plan(cfg: dict, est: dict, n: int, flavor: str) -> None:
     usd_h = FLAVORS[flavor]["usd_h"]
 
     cuts = [round(i * layers / n) for i in range(n + 1)]
-    print(f"\n  découpage en {n} segments sur {flavor}")
-    print(f"  {'segment':<9}{'blocs':<12}{'quantifie':>12}{'recharge':>12}"
+    print(f"\n  split into {n} segments on {flavor}")
+    print(f"  {'segment':<9}{'blocks':<12}{'quantized':>12}{'reload':>12}"
           f"{'h':>8}{'$':>8}")
     print("  " + "-" * 62)
     total_h = 0.0
@@ -433,60 +433,60 @@ def print_segment_plan(cfg: dict, est: dict, n: int, flavor: str) -> None:
         h_back = back * RESUME_SEC_PER_WEIGHT / 3600.0
         total_h += h_quant + h_back
         reload_h += h_back
-        print(f"  {i + 1:<9}{f'{lo}..{hi - 1}':<12}{quant / 1e9:>10.2f} Md"
-              f"{back / 1e9:>10.2f} Md{h_quant + h_back:>8.1f}{(h_quant + h_back) * usd_h:>8.2f}")
+        print(f"  {i + 1:<9}{f'{lo}..{hi - 1}':<12}{quant / 1e9:>10.2f} G"
+              f"{back / 1e9:>10.2f} G{h_quant + h_back:>8.1f}{(h_quant + h_back) * usd_h:>8.2f}")
     base_h = est["quantized"] * rate / vcpu / 3600.0
     longest = max(
         (cuts[i + 1] - cuts[i]) * per_weight * rate / vcpu / 3600.0
         + cuts[i] * per_weight * RESUME_SEC_PER_WEIGHT / 3600.0
         for i in range(n)
     )
-    print(f"\n  job le plus long   {longest:8.1f} h   (contre {base_h:.1f} h d'un seul tenant)")
-    print(f"  surcoût total      {reload_h:8.1f} h   soit +{100 * reload_h / max(base_h, 1e-9):.1f} %,"
+    print(f"\n  longest job        {longest:8.1f} h   (against {base_h:.1f} h in one piece)")
+    print(f"  total overhead     {reload_h:8.1f} h   or +{100 * reload_h / max(base_h, 1e-9):.1f}%,"
           f" ~{reload_h * usd_h:.2f} $")
-    print(f"  perte maximale     {longest:8.1f} h   au lieu de {base_h:.1f} h"
-          f"  ← ce que le découpage achète")
-    print("\n  ⚠️  Le terme « recharge » ne compte que le DÉCODAGE du shard (constante")
-    print("      mesurée sur un 0,6B, mono-thread). Il ne modélise ni le rechargement")
-    print("      du checkpoint, ni la perplexité de référence que chaque segment")
-    print("      remesure, ni les passes avant que le segment repris rejoue sur les")
-    print("      blocs hérités — comme le reste de ce devis, qui ne modélise pas les")
-    print("      passes avant. Le surcoût réel est donc PLUS GRAND que celui affiché.")
+    print(f"  worst-case loss    {longest:8.1f} h   instead of {base_h:.1f} h"
+          f"  ← what the split buys")
+    print("\n  WARNING: the reload term counts only the shard DECODE (constant")
+    print("      measured on a 0.6B, single-threaded). It models neither the reload")
+    print("      of the checkpoint, nor the baseline perplexity that each segment")
+    print("      remeasures, nor the forward passes the resumed segment replays over")
+    print("      the inherited blocks, as the rest of this estimate does not model")
+    print("      the forwards either. The real overhead is therefore LARGER.")
 
 
 def cmd_estimate(args) -> int:
     cfg = fetch_config(args.model)
     est = estimate(cfg, args.blocks)
-    print(f"\n{args.model} — {est['layers']} couches")
-    print(f"  poids quantifiés  {est['quantized'] / 1e9:8.2f} Md")
-    print(f"  poids portés 16 b {est['carried'] / 1e9:8.2f} Md"
-          f"   ({100 * est['carried'] / (est['quantized'] + est['carried']):.1f} %"
-          f" des poids, {100 * est['carried'] * 2 / 1e9 / est['artifact_gb']:.0f} %"
-          f" de l'artefact)")
-    print(f"  checkpoint bf16   {est['checkpoint_gb']:8.1f} Go")
-    print(f"  artefact projeté  {est['artifact_gb']:8.1f} Go"
+    print(f"\n{args.model}: {est['layers']} layers")
+    print(f"  quantized weights {est['quantized'] / 1e9:8.2f} G")
+    print(f"  carried at 16 b   {est['carried'] / 1e9:8.2f} G"
+          f"   ({100 * est['carried'] / (est['quantized'] + est['carried']):.1f}%"
+          f" of the weights, {100 * est['carried'] * 2 / 1e9 / est['artifact_gb']:.0f}%"
+          f" of the artifact)")
+    print(f"  bf16 checkpoint   {est['checkpoint_gb']:8.1f} GB")
+    print(f"  projected artifact{est['artifact_gb']:8.1f} GB"
           f"   ×{est['checkpoint_gb'] / est['artifact_gb']:.1f}")
-    print(f"\n  encodage Leech    {est['leech_core_h']:8.1f} cœur-h")
-    print(f"  Cholesky          {est['chol_core_h']:8.1f} cœur-h"
-          f"   ({100 * est['chol_core_h'] / (est['leech_core_h'] + est['chol_core_h']):.1f} %)")
-    print(f"\n  {'flavor':<18}{'h (CPU)':>10}{'$':>9}   remarque")
+    print(f"\n  Leech encoding    {est['leech_core_h']:8.1f} core-h")
+    print(f"  Cholesky          {est['chol_core_h']:8.1f} core-h"
+          f"   ({100 * est['chol_core_h'] / (est['leech_core_h'] + est['chol_core_h']):.1f}%)")
+    print(f"\n  {'flavor':<18}{'h (CPU)':>10}{'$':>9}   note")
     print("  " + "-" * 72)
     for name, wall, usd, warn in sorted(cost_table(est, args.dtype), key=lambda r: r[2]):
         usable, why = cap_ok(name)
-        mark = "" if usable else "  ⛔ "
+        mark = "" if usable else "  unusable: "
         print(f"  {name:<18}{wall:>10.1f}{usd:>9.2f}   {mark}{warn if usable else why}")
-    print("\n  Constantes mesurées de bout en bout sur un run 0,6B (CPU et CUDA). Les")
-    print("  flavors GPU paient le tarif cuda, les autres le tarif cpu.")
-    print("  ⛔ = l'image de ce dépôt n'y charge aucun noyau CUDA.")
+    print("\n  Constants measured end to end on a 0.6B run (CPU and CUDA). GPU")
+    print("  flavors pay the cuda rate, the others the cpu rate.")
+    print("  unusable = this repository's image loads no CUDA kernel there.")
     if args.segments and args.segments > 1:
         print_segment_plan(cfg, est, args.segments, args.flavor)
-    print("\n  ⚠️  Ce devis modélise une QUANTIFICATION, et rien d'autre : il multiplie")
-    print("      un nombre de poids par un coût mesuré de l'encodeur Leech et de la")
-    print("      factorisation. Un job de MESURE (ppl, mmlu, oracle) n'exécute ni")
-    print("      l'un ni l'autre — sur Qwen3-4B ce devis annonce ~8 h pour ce qui en")
-    print("      prend 30 à 90 min. Ne pas s'en servir pour la campagne de mesure, ni")
-    print("      de --max-usd comme garde : le plafond utile y est le `timeout` du job,")
-    print("      qui est exact et connu avant lancement.")
+    print("\n  WARNING: this estimate models a QUANTIZATION and nothing else. It")
+    print("      multiplies a weight count by a measured cost of the Leech encoder")
+    print("      and of the factorization. A MEASUREMENT job (ppl, mmlu, oracle) runs")
+    print("      neither: on Qwen3-4B this estimate announces ~8 h for what takes 30")
+    print("      to 90 min. Do not use it for the measurement campaign, nor --max-usd")
+    print("      as a guard. The useful ceiling there is the job `timeout`, which is")
+    print("      exact and known before launch.")
     return 0
 
 
@@ -494,8 +494,8 @@ def cmd_selftest(args) -> int:
     """Check the estimator against the run that produced the published 16.94.
 
     An estimator nobody has confronted with a real run is a spreadsheet. This
-    one is pinned to `~/llvq-run-4b-artefact.log`: 3 633 315 840 weights, and
-    14 447 s of wall clock on 12 M3 Max performance cores with Metal.
+    one is pinned to `~/llvq-run-4b-artefact.log`: 3,633,315,840 weights, and
+    14,447 s of wall clock on 12 M3 Max performance cores with Metal.
     """
     ok = True
 
@@ -517,37 +517,37 @@ def cmd_selftest(args) -> int:
     mq, mc = weight_counts(moe)
     total = (mq + mc) / 1e9
     if not (30.0 <= total <= 31.0):
-        print(f"FAIL  MoE 30B-A3B estimé à {total:.2f} G, la fiche donne 30,5 G")
-        print("      (une formule dense rendrait ~3,3 G — faux d'un ordre de grandeur)")
+        print(f"FAIL  MoE 30B-A3B estimated at {total:.2f} G, the datasheet gives 30.5 G")
+        print("      (a dense formula would give ~3.3 G, wrong by an order of magnitude)")
         ok = False
     else:
-        print(f"ok    MoE 30B-A3B : {total:.2f} G au total, dont {mq/1e9:.2f} G quantifiés")
+        print(f"ok    MoE 30B-A3B: {total:.2f} G in total, {mq/1e9:.2f} G of it quantized")
 
     cfg = fetch_config("Qwen/Qwen3-4B")
     quantized, carried = weight_counts(cfg)
 
     if quantized != 3_633_315_840:
-        print(f"FAIL  poids quantifiés {quantized}, le run en rapporte 3 633 315 840")
+        print(f"FAIL  quantized weights {quantized}, the run reports 3,633,315,840")
         ok = False
     else:
-        print("ok    poids quantifiés = 3 633 315 840, au poids près")
+        print("ok    quantized weights = 3,633,315,840, to the weight")
 
     if carried != 151_936 * 2_560:
-        print(f"FAIL  embedding {carried}, attendu {151_936 * 2_560} (liée)")
+        print(f"FAIL  embedding {carried}, expected {151_936 * 2_560} (tied)")
         ok = False
     else:
-        print("ok    embedding liée comptée une fois")
+        print("ok    tied embedding counted once")
 
     est = estimate(cfg)
     leech_wall = est["leech_core_h"] / 12 * 3600
     chol_wall = est["chol_core_h"] / 12 * 3600
-    print(f"\n      Leech    {leech_wall:7.0f} s sur 12 cœurs")
-    print(f"      Cholesky {chol_wall:7.0f} s sur 12 cœurs")
-    print(f"      mesuré   {14447:7d} s au total")
+    print(f"\n      Leech    {leech_wall:7.0f} s on 12 cores")
+    print(f"      Cholesky {chol_wall:7.0f} s on 12 cores")
+    print(f"      measured {14447:7d} s in total")
     share = 100 * leech_wall / 14447
-    print(f"\n      l'encodage expliquerait {share:.0f} % du run mesuré")
+    print(f"\n      the encoding would explain {share:.0f}% of the measured run")
     if not 40 <= share <= 80:
-        print("FAIL  hors de la fourchette plausible — la constante a dérivé")
+        print("FAIL  outside the plausible range, the constant has drifted")
         ok = False
     return 0 if ok else 1
 
@@ -559,31 +559,31 @@ def cmd_launch(args) -> int:
     est = estimate(cfg, args.blocks)
     rows = {name: (wall, usd) for name, wall, usd, _ in cost_table(est, args.dtype or "f32")}
     if args.flavor not in rows:
-        print(f"flavor inconnu: {args.flavor}", file=sys.stderr)
+        print(f"unknown flavor: {args.flavor}", file=sys.stderr)
         return 2
     usable, why = cap_ok(args.flavor)
     if not usable:
-        print(f"refus : {args.flavor} — {why}.\n"
-              f"L'image fige CUDA_COMPUTE_CAP={MIN_COMPUTE_CAP} (le builder d'un Space n'a pas\n"
-              f"de GPU, donc candle-kernels n'embarque que du PTX, compatible vers l'avant\n"
-              f"seulement). Le job démarrerait, serait facturé, téléchargerait le checkpoint,\n"
-              f"puis échouerait à charger le premier noyau.", file=sys.stderr)
+        print(f"refused, {args.flavor}: {why}.\n"
+              f"The image pins CUDA_COMPUTE_CAP={MIN_COMPUTE_CAP} (a Space builder has no\n"
+              f"GPU, so candle-kernels ships PTX only, and PTX is forward-compatible\n"
+              f"only). The job would start, be billed, download the checkpoint, then\n"
+              f"fail to load the first kernel.", file=sys.stderr)
         return 2
     coherent, why = device_ok(args.flavor, args.device)
     if not coherent:
-        print(f"refus : {why}", file=sys.stderr)
+        print(f"refused: {why}", file=sys.stderr)
         return 2
     wall, usd = rows[args.flavor]
 
-    print(f"{args.model} sur {args.flavor} — {wall:.1f} h estimées, ~{usd:.2f} $")
-    print("  (hors passes avant, cf. `estimate`)")
+    print(f"{args.model} on {args.flavor}: {wall:.1f} h estimated, ~{usd:.2f} $")
+    print("  (forward passes excluded, see `estimate`)")
     if usd > args.max_usd and not args.yes:
         # Flush first: the estimate above is on stdout and the refusal below on
         # stderr, and unflushed they arrive in the wrong order — which reads as
         # a refusal without a reason.
         sys.stdout.flush()
-        print(f"\nrefus : {usd:.2f} $ dépasse le plafond de {args.max_usd:.2f} $."
-              f"\nRelance avec --yes, ou --max-usd plus haut.", file=sys.stderr)
+        print(f"\nrefused: {usd:.2f} $ is above the {args.max_usd:.2f} $ ceiling."
+              f"\nRerun with --yes, or a higher --max-usd.", file=sys.stderr)
         return 1
 
     # `--mount-model` works as of 2026-08-08: `Checkpoint::fetch` now decides
@@ -607,7 +607,7 @@ def cmd_launch(args) -> int:
         # in-process, it just dies with the container. Fine for a plumbing
         # test, useless for a real run.
         env["LLVQ_ARTIFACT"] = f"/scratch/{args.name}.llvq"
-        print("  ⚠️  sans --bucket, l'artefact ne survit pas au conteneur")
+        print("  WARNING: without --bucket the artifact does not outlive the container")
     for var, val in (("LLVQ_DAMPING", args.damping),
                      ("LLVQ_CALIB_SEED", args.calib_seed),
                      ("LLVQ_DTYPE", args.dtype)):
@@ -623,23 +623,23 @@ def cmd_launch(args) -> int:
     # artifact cannot be assembled by accident.
     if args.resume:
         if not args.bucket:
-            print("refus : --resume sans --bucket. Le shard vit sur le volume de "
-                  "sortie ;\nsans lui il n'y a rien à reprendre et rien où écrire.",
+            print("refused: --resume without --bucket. The shard lives on the output "
+                  "volume;\nwithout it there is nothing to resume from and nowhere to write.",
                   file=sys.stderr)
             return 2
         env["LLVQ_RESUME"] = args.resume
         if args.resume == env["LLVQ_ARTIFACT"]:
-            print(f"refus : --resume et la sortie désignent {args.resume}.\n"
-                  f"La sortie est ouverte en création : le shard serait tronqué "
-                  f"avant d'être lu.\nDonne un --name différent de celui du segment "
-                  f"précédent.", file=sys.stderr)
+            print(f"refused: --resume and the output both name {args.resume}.\n"
+                  f"The output is opened for creation: the shard would be truncated "
+                  f"before it is read.\nGive a --name different from the previous "
+                  f"segment's.", file=sys.stderr)
             return 2
-        print(f"  reprise depuis {args.resume}"
+        print(f"  resuming from {args.resume}"
               f" → {env['LLVQ_ARTIFACT']}")
-        print("  ⚠️  le devis ci-dessus chiffre TOUS les blocs, pas le reste à faire :")
-        print("      il ne sait pas où s'arrête le shard, qui n'est lisible que dans")
-        print("      le conteneur. Il majore donc, ce qui est le bon sens d'erreur")
-        print("      pour un plafond de coût et pour un timeout.")
+        print("  WARNING: the estimate above prices ALL the blocks, not what is left:")
+        print("      it does not know where the shard stops, which is readable only")
+        print("      inside the container. So it overestimates, which is the right")
+        print("      direction to err for a cost ceiling and for a timeout.")
 
     command = [
         "smoke",
@@ -666,7 +666,7 @@ def cmd_launch(args) -> int:
         out.mkdir(parents=True, exist_ok=True)
         vol = sync_job_volume(str(out), args.out_mount, read_only=False)
         volumes.append(vol)
-        print(f"  bucket : hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
+        print(f"  bucket: hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
     elif args.bucket:
         volumes.append(Volume(type="bucket", source=args.bucket,
                               mount_path=args.out_mount, read_only=False))
@@ -683,8 +683,8 @@ def cmd_launch(args) -> int:
         name=args.name,
         namespace=args.namespace,
     )
-    print(f"\nlancé : {job.url}\n  id {job.id}")
-    print(f"  suivi : uv run ops/run.py watch {job.id}")
+    print(f"\nlaunched: {job.url}\n  id {job.id}")
+    print(f"  follow: uv run ops/run.py watch {job.id}")
     return 0
 
 
@@ -699,17 +699,17 @@ pinned: false
 
 # LLVQ runner
 
-**Ce Space ne sert rien.** C'est un *constructeur d'image* : Hugging Face
-compile ici les binaires Rust de la quantification LLVQ, et
-[HF Jobs](https://huggingface.co/docs/hub/jobs-overview) réutilise l'image
-produite pour lancer les runs sur du matériel adapté.
+**This Space serves nothing.** It is an *image builder*: Hugging Face compiles
+the Rust binaries of LLVQ quantization here, and
+[HF Jobs](https://huggingface.co/docs/hub/jobs-overview) reuses the image it
+produces to launch runs on suitable hardware.
 
-Passer par un Space évite de pousser plusieurs gigaoctets d'image depuis un
-poste de dev : c'est HF qui construit, à partir des sources.
+Going through a Space avoids pushing several gigabytes of image from a dev
+machine: HF builds it, from the sources.
 
-Binaires : `smoke` (quantification), `ppl`, `mmlu`, `run`, `seal`, `oracle`.
+Binaries: `smoke` (quantization), `ppl`, `mmlu`, `run`, `seal`, `oracle`.
 
-Lancé depuis `ops/run.py` du dépôt LLVQ.
+Launched from `ops/run.py` in the LLVQ repository.
 """
 
 # What `publish` uploads, as one pair of lists used **twice**: to filter the
@@ -728,22 +728,22 @@ Lancé depuis `ops/run.py` du dépôt LLVQ.
 # committed — and every number the image produces would be traceable to a
 # commit that does not describe it. That is exactly the provenance gap this
 # campaign exists to close.
-# 🕳️ `rust-toolchain.toml` a manqué à cette liste le jour où il a été écrit, et
-# l'oubli était silencieux dans les deux sens : `publish` ne s'en plaint pas
-# (l'allow-list ignore ce qu'elle ne nomme pas) et le Dockerfile non plus
-# (`rustup ... -y` sans toolchain installe le stable du jour et réussit). Le
-# fichier existait donc dans le dépôt, disait épingler le compilateur, et
-# n'atteignait pas la seule machine où ça compte. Un garde-fou écrit et non
-# armé — le motif que ce dossier a déjà documenté trois fois.
-# 🕳️ Et le même oubli a failli se reproduire le 2026-08-20, à l'identique :
-# `ops/Dockerfile.cuda` a gagné un `COPY --from=build /src/ops/fetch-qtip.sh`
-# (le bras QTIP a besoin de ce script DANS le job, l'étage runtime ne copiant
-# que des binaires) alors que `ops/` n'est nommé nulle part ici. Le fichier
-# n'aurait jamais atteint le builder et la construction aurait échoué — mieux
-# que le silence de `rust-toolchain.toml`, mais pour la même raison :
-# l'allow-list ignore ce qu'elle ne nomme pas. Le script est donc nommé, et
-# nommé SEUL : `ops/**` téléverserait `run.py`, que le §« hors périmètre »
-# ci-dessous exclut délibérément.
+# 🕳️ `rust-toolchain.toml` was missing from this list the day it was written,
+# and the omission was silent in both directions: `publish` does not complain
+# (the allow-list ignores what it does not name) and neither does the
+# Dockerfile (`rustup ... -y` with no toolchain installs the day's stable and
+# succeeds). So the file existed in the repository, said it pinned the
+# compiler, and never reached the one machine where that counts. A guard
+# written and not armed, the pattern this directory has documented three times.
+# 🕳️ And the same omission nearly happened again on 2026-08-20, identically:
+# `ops/Dockerfile.cuda` gained a `COPY --from=build /src/ops/fetch-qtip.sh`
+# (the QTIP arm needs that script INSIDE the job, the runtime stage copying
+# binaries only) while `ops/` is named nowhere here. The file would never have
+# reached the builder and the build would have failed, better than the silence
+# of `rust-toolchain.toml`, but for the same reason: the allow-list ignores
+# what it does not name. So the script is named, and named ALONE: `ops/**`
+# would upload `run.py`, which the "out of scope" paragraph below excludes
+# deliberately.
 UPLOAD_ALLOW = (
     "Cargo.toml",
     "Cargo.lock",
@@ -812,8 +812,8 @@ def cmd_publish(args) -> int:
 
     ## And it uploads a commit, or refuses
 
-    `ops/README.md` and this module both promise that "un chiffre qu'elle
-    produit est rattachable à un commit" — on the strength of `--locked` alone,
+    `ops/README.md` and this module both promise that a number the image
+    produces is traceable to a commit, on the strength of `--locked` alone,
     which pins the *dependencies* and says nothing about the workspace itself.
     Nothing checked that the workspace being uploaded was committed at all, so
     the promise held only by habit. It is checked now, over the perimeter that
@@ -841,36 +841,36 @@ def cmd_publish(args) -> int:
         # there is no revision to write into COMMIT, so publishing would ship
         # sources nobody can situate. A refusal the operator can act on, rather
         # than the traceback `git_out` would otherwise raise here.
-        print(f"refus : git est muet sur {args.root} — {exc}\n"
-              "Sans état git, `publish` ne peut rattacher l'image à aucun commit, et\n"
-              "c'est toute la promesse de ops/README.md.", file=sys.stderr)
+        print(f"refused: git is silent on {args.root}: {exc}\n"
+              "Without git state, `publish` cannot tie the image to any commit, and\n"
+              "that is the whole promise of ops/README.md.", file=sys.stderr)
         return 1
     blocking = dirty_in_upload_perimeter(git_st.dirty_files, f"ops/{recipe}")
     if blocking and not args.allow_dirty:
         listing = "\n".join(f"    {f}" for f in blocking[:20])
-        more = f"\n    … et {len(blocking) - 20} autres" if len(blocking) > 20 else ""
-        print(f"refus : {len(blocking)} fichier(s) non commité(s) dans ce que "
-              f"`publish` téléverse :\n{listing}{more}\n"
-              "Le Space compile l'image depuis ces octets-là, et les deux recettes bâtissent\n"
-              "avec `--locked` précisément pour qu'un chiffre produit par l'image soit\n"
-              "rattachable à un commit. Téléverser un arbre sale rompt la promesse en\n"
-              "silence : l'image existe, elle tourne, et le commit qu'elle annonce ne la\n"
-              "décrit pas — c'est la panne de provenance que `ops/manifest.py` existe pour\n"
-              "empêcher côté mesures.\n"
-              "Le contrôle ne regarde QUE le périmètre téléversé "
-              f"({', '.join(UPLOAD_ALLOW)}, ops/{recipe}) :\n"
-              "`docs/` et `ops/run.py` peuvent bouger librement.\n"
-              "Commite, ou `--allow-dirty` — et le fichier COMMIT dira alors que l'arbre\n"
-              "était sale, plutôt que de laisser croire le contraire.", file=sys.stderr)
+        more = f"\n    … and {len(blocking) - 20} more" if len(blocking) > 20 else ""
+        print(f"refused: {len(blocking)} uncommitted file(s) in what "
+              f"`publish` uploads:\n{listing}{more}\n"
+              "The Space compiles the image from those bytes, and both recipes build with\n"
+              "`--locked` precisely so that a number produced by the image can be tied to a\n"
+              "commit. Uploading a dirty tree breaks that promise silently: the image\n"
+              "exists, it runs, and the commit it announces does not describe it. That is\n"
+              "the provenance failure `ops/manifest.py` exists to prevent on the\n"
+              "measurement side.\n"
+              "The check looks ONLY at the uploaded perimeter "
+              f"({', '.join(UPLOAD_ALLOW)}, ops/{recipe}):\n"
+              "`docs/` and `ops/run.py` can move freely.\n"
+              "Commit, or pass `--allow-dirty`, and the COMMIT file will then say the tree\n"
+              "was dirty rather than let anyone believe otherwise.", file=sys.stderr)
         return 1
 
     repo_id = args.space
     create_repo(repo_id, repo_type="space", space_sdk="docker",
                 private=not args.public, exist_ok=True)
-    print(f"space {repo_id} ({'public' if args.public else 'privé'})")
+    print(f"space {repo_id} ({'public' if args.public else 'private'})")
     print(f"commit {git_st.commit[:12]}"
-          + (f"  ⚠️ {len(blocking)} fichier(s) sale(s) dans le périmètre" if blocking
-             else "  (périmètre téléversé propre)"))
+          + (f"  WARNING: {len(blocking)} dirty file(s) in the perimeter" if blocking
+             else "  (uploaded perimeter clean)"))
 
     upload_folder(
         repo_id=repo_id,
@@ -895,24 +895,24 @@ def cmd_publish(args) -> int:
     # COMMIT at all — same rule as `manifest.py`, where a dirty entry is
     # recorded, marked, and refused by `verify`.
     lines = [f"{git_st.commit}\n",
-             "# Commit du dépôt LLVQ dont proviennent Cargo.lock et llvq-*/**.\n",
-             f"# recette : ops/{recipe}"
-             + (f" — CUDA_COMPUTE_CAP réécrit à {args.compute_cap} au téléversement"
+             "# Commit of the LLVQ repository Cargo.lock and llvq-*/** come from.\n",
+             f"# recipe: ops/{recipe}"
+             + (f", CUDA_COMPUTE_CAP rewritten to {args.compute_cap} at upload time"
                 if args.compute_cap is not None else "") + "\n",
-             f"# téléversé : {now_utc()}\n"]
+             f"# uploaded: {now_utc()}\n"]
     if blocking:
-        lines.append(f"# ⚠️ ARBRE SALE dans le périmètre téléversé — "
-                     f"{len(blocking)} fichier(s), image NON rattachable à ce commit :\n")
+        lines.append(f"# WARNING: DIRTY TREE in the uploaded perimeter, "
+                     f"{len(blocking)} file(s), image NOT tied to this commit:\n")
         lines += [f"#     {f}\n" for f in blocking[:20]]
     else:
-        lines.append("# Périmètre téléversé propre au moment du téléversement.\n")
+        lines.append("# Uploaded perimeter clean at upload time.\n")
     commit_note = "".join(lines)
     upload_file(
         path_or_fileobj=commit_note.encode(),
         path_in_repo="COMMIT",
         repo_id=repo_id, repo_type="space",
         commit_message=f"commit {git_st.commit[:12]}"
-                       + (" (ARBRE SALE)" if blocking else ""),
+                       + (" (DIRTY TREE)" if blocking else ""),
     )
     # The recipe ships as written — unless `--compute-cap` rewrites its one
     # ENV line at upload time. One canonical file in the repo, no sm80 twin to
@@ -924,15 +924,15 @@ def cmd_publish(args) -> int:
     if args.compute_cap is not None:
         marker = b"ENV CUDA_COMPUTE_CAP="
         if recipe_bytes.count(marker) != 1:
-            print(f"refus : {recipe} porte {recipe_bytes.count(marker)} ligne(s) "
-                  f"CUDA_COMPUTE_CAP — la réécriture exige exactement une.",
+            print(f"refused: {recipe} carries {recipe_bytes.count(marker)} "
+                  f"CUDA_COMPUTE_CAP line(s); the rewrite requires exactly one.",
                   file=sys.stderr)
             return 1
         head, tail = recipe_bytes.split(marker, 1)
         _old_cap, rest = tail.split(b"\n", 1)
-        note = (f"# ⚠️ CUDA_COMPUTE_CAP réécrit à {args.compute_cap} par "
-                f"`ops/run.py publish --compute-cap` (recette canonique : "
-                f"ops/{recipe}, qui porte {_old_cap.decode()}).\n").encode()
+        note = (f"# WARNING: CUDA_COMPUTE_CAP rewritten to {args.compute_cap} by "
+                f"`ops/run.py publish --compute-cap` (canonical recipe: "
+                f"ops/{recipe}, which carries {_old_cap.decode()}).\n").encode()
         recipe_bytes = head + note + marker + str(args.compute_cap).encode() + b"\n" + rest
         recipe_label = f"{recipe} (compute_cap={args.compute_cap})"
     upload_file(
@@ -947,9 +947,9 @@ def cmd_publish(args) -> int:
         repo_id=repo_id, repo_type="space",
         commit_message="space card",
     )
-    print(f"\nimage : hf.co/spaces/{repo_id}")
-    print(f"build : https://huggingface.co/spaces/{repo_id}  (suivre les logs)")
-    print("\nAttendre que le build passe en RUNNING avant de lancer un Job.")
+    print(f"\nimage: hf.co/spaces/{repo_id}")
+    print(f"build: https://huggingface.co/spaces/{repo_id}  (follow the logs)")
+    print("\nWait for the build to reach RUNNING before launching a Job.")
     return 0
 
 
@@ -972,7 +972,7 @@ def cmd_oracle(args) -> int:
     # mistake — it is a proof that was never taken while looking taken.
     coherent, why = device_ok(args.flavor, args.device)
     if not coherent:
-        print(f"refus : {why}", file=sys.stderr)
+        print(f"refused: {why}", file=sys.stderr)
         return 2
 
     job = run_job(
@@ -983,7 +983,7 @@ def cmd_oracle(args) -> int:
         name=f"oracle-{args.device}",
         namespace=args.namespace,
     )
-    print(f"oracle sur {args.flavor}/{args.device} : {job.url}\n  id {job.id}")
+    print(f"oracle on {args.flavor}/{args.device}: {job.url}\n  id {job.id}")
     return 0
 
 
@@ -1021,14 +1021,14 @@ def cmd_bench(args) -> int:
 
     ok, why = cap_ok(args.flavor)
     if not ok:
-        print(f"refus : {args.flavor} — {why}")
+        print(f"refused, {args.flavor}: {why}")
         return 2
     if args.flavor not in BENCH_FLAVORS and not args.any_flavor:
         print(
-            f"refus : {args.flavor} n'est pas dans {BENCH_FLAVORS}.\n"
-            "  Un rapport mesuré ailleurs n'est pas comparable au chiffre Metal —\n"
-            "  voir docs/archive/portage-noyau-cuda.md §4.11. Forcer avec --any-flavor,\n"
-            "  et alors le dire dans tout chiffre publié."
+            f"refused: {args.flavor} is not in {BENCH_FLAVORS}.\n"
+            "  A ratio measured elsewhere is not comparable to the Metal figure;\n"
+            "  see docs/archive/portage-noyau-cuda.md §4.11. Force with --any-flavor,\n"
+            "  and then say so in every published figure."
         )
         return 2
 
@@ -1039,44 +1039,44 @@ def cmd_bench(args) -> int:
     if args.mount_model:
         volumes.append(Volume(type="model", source=args.mount_model,
                               mount_path=args.model_mount, read_only=True))
-        print(f"montage {args.mount_model} en lecture seule sur {args.model_mount}")
+        print(f"mounting {args.mount_model} read-only on {args.model_mount}")
 
-    # 🕳️ Un volume de SORTIE, que cette sous-commande n'avait pas — et son
-    # absence était une facture différée, pas un manque cosmétique.
+    # 🕳️ An OUTPUT volume, which this subcommand did not have, and its absence
+    # was a deferred bill rather than a cosmetic gap.
     #
-    # `cmd_launch` en a un depuis toujours parce qu'il produit un artefact.
-    # `bench` produisait, lui, des chiffres qu'on lisait dans les logs, ce qui
-    # suffit pour un tableau de banc. Ça ne suffit plus depuis que `bin/mmlu`
-    # sait écrire `LLVQ_MMLU_DUMP` : un dump par question est le seul objet
-    # qui rende un écart MMLU testable en appariement, il pèse quelques Mo, et
-    # sans chemin de retour il meurt avec le conteneur. On aurait donc payé un
-    # rejeu pour découvrir qu'il faut le repayer.
+    # `cmd_launch` has always had one because it produces an artifact. `bench`
+    # produced figures read off the logs instead, which is enough for a bench
+    # table. It stopped being enough when `bin/mmlu` learned to write
+    # `LLVQ_MMLU_DUMP`: a per-question dump is the only object that makes an
+    # MMLU deviation testable as a matched pair, it weighs a few MB, and with
+    # no way back it dies with the container. We would have paid for a replay
+    # only to find we had to pay for it again.
     #
-    # Même mécanique que `launch --bucket auto` : `sync_job_volume` crée le
-    # bucket à la demande et rend un volume montable en écriture, de sorte que
-    # ce qui atterrit sous `--out-mount` survit au job. Rien en local, ce qui
-    # est aussi la consigne d'exploitation.
+    # Same mechanism as `launch --bucket auto`: `sync_job_volume` creates the
+    # bucket on demand and returns a volume that mounts writable, so that what
+    # lands under `--out-mount` outlives the job. Nothing local, which is also
+    # the operating rule.
     if args.bucket == "auto":
         from huggingface_hub import sync_job_volume
         out = Path(args.root_out) / args.name
         out.mkdir(parents=True, exist_ok=True)
         vol = sync_job_volume(str(out), args.out_mount, read_only=False)
         volumes.append(vol)
-        print(f"  bucket : hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
+        print(f"  bucket: hf://buckets/{vol.source}/{vol.path} → {args.out_mount}")
     elif args.bucket:
         volumes.append(Volume(type="bucket", source=args.bucket,
                               mount_path=args.out_mount, read_only=False))
-        print(f"  bucket : {args.bucket} → {args.out_mount}")
+        print(f"  bucket: {args.bucket} → {args.out_mount}")
     else:
-        print("  ⚠️  sans --bucket, rien de ce que le job écrit ne survit au conteneur")
+        print("  WARNING: without --bucket nothing the job writes outlives the container")
 
     script = "set -euo pipefail\n" + "\n".join(args.cmd)
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
     if usd_h:
         mins = _timeout_minutes(args.timeout)
         print(
-            f"{args.flavor} à {usd_h:.2f} $/h = {usd_h / 60:.4f} $/min ; "
-            f"plafond {args.timeout} → au pire {usd_h * mins / 60:.2f} $"
+            f"{args.flavor} at {usd_h:.2f} $/h = {usd_h / 60:.4f} $/min; "
+            f"ceiling {args.timeout} → at worst {usd_h * mins / 60:.2f} $"
         )
     job = run_job(
         image=args.image,
@@ -1092,8 +1092,8 @@ def cmd_bench(args) -> int:
         # would put it in the logs.
         secrets={"HF_TOKEN": os.environ["HF_TOKEN"]} if os.environ.get("HF_TOKEN") else None,
     )
-    print(f"{args.name} sur {args.flavor} : {job.url}\n  id {job.id}")
-    print(f"suivre : uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
+    print(f"{args.name} on {args.flavor}: {job.url}\n  id {job.id}")
+    print(f"follow: uv run ops/run.py monitor {job.id} --flavor {args.flavor}")
     return 0
 
 
@@ -1130,11 +1130,11 @@ def cmd_dequant(args) -> int:
     script = Path(__file__).resolve().parent / "awq_dequant.py"
     if args.awq_repo not in _expected_repos():
         print(
-            f"refus : {args.awq_repo} n'a pas d'entrée EXPECTED dans {script.name}.\n"
-            "Sans elle, structure, iso-périmètre et tokenizer ne sont PAS vérifiés,\n"
-            "et une reconstruction fausse est indiscernable d'une bonne : elle charge,\n"
-            "elle tourne, elle produit des nombres. Ajouter l'entrée d'abord — voir\n"
-            "celle de Qwen/Qwen3-14B-AWQ, chaque constante y porte sa source.",
+            f"refused: {args.awq_repo} has no EXPECTED entry in {script.name}.\n"
+            "Without it, structure, iso-perimeter and tokenizer are NOT checked,\n"
+            "and a wrong reconstruction is indistinguishable from a good one: it\n"
+            "loads, it runs, it produces numbers. Add the entry first, see the one\n"
+            "for Qwen/Qwen3-14B-AWQ, where every constant carries its source.",
             file=sys.stderr,
         )
         return 2
@@ -1147,17 +1147,17 @@ def cmd_dequant(args) -> int:
             "--awq-repo", args.awq_repo,
             "--base-repo", args.base_repo,
             "--out", out_dir,
-            # 🕳️ Le défaut de `awq_dequant.py` est 4 Go, et il n'était pas
-            # transmis — donc pas réglable depuis ici, donc subi. Il l'a été
-            # le 2026-08-10 : sur le 14B, le shard 6 sur 8 est ressorti
-            # **tronqué** (2 642 414 752 o là où ses pairs font 3 963 622 136),
-            # le `rename` interne de `safetensors.save_file` n'a rien produit,
-            # et `finish()` est mort sur un `FileNotFoundError` après dix
-            # minutes de reconstruction déjà validée par ses cinq contrôles.
-            # Le montage de bucket a donc accepté une écriture courte SANS
-            # lever d'erreur — c'est une propriété de l'environnement, pas un
-            # défaut du reconstructeur. Des shards plus petits réduisent la
-            # taille de chaque écriture et le coût d'une reprise.
+            # 🕳️ The `awq_dequant.py` default is 4 GB, and it was not passed
+            # through, so it could not be set from here. That was paid for on
+            # 2026-08-10: on the 14B, shard 6 of 8 came out
+            # **truncated** (2,642,414,752 B where its peers are 3,963,622,136),
+            # the internal `rename` of `safetensors.save_file` produced nothing,
+            # and `finish()` died on a `FileNotFoundError` after ten minutes of
+            # reconstruction already validated by its five checks. So the bucket
+            # mount accepted a short write WITHOUT raising an error, which is a
+            # property of the environment, not a defect of the reconstructor.
+            # Smaller shards reduce the size of each write and the cost of a
+            # restart.
             "--shard-gb", str(args.shard_gb),
         ],
         flavor=args.flavor,
@@ -1173,10 +1173,10 @@ def cmd_dequant(args) -> int:
     usd_h = FLAVORS.get(args.flavor, {}).get("usd_h")
     if usd_h:
         mins = _timeout_minutes(args.timeout)
-        print(f"{args.flavor} à {usd_h:.2f} $/h ; plafond {args.timeout} → "
-              f"au pire {usd_h * mins / 60:.2f} $")
-    print(f"  sortie : hf://buckets/{args.bucket}/{args.name} → {out_dir}")
-    print(f"dequant {args.awq_repo} : {job.url}\n  id {job.id}")
+        print(f"{args.flavor} at {usd_h:.2f} $/h; ceiling {args.timeout} → "
+              f"at worst {usd_h * mins / 60:.2f} $")
+    print(f"  output: hf://buckets/{args.bucket}/{args.name} → {out_dir}")
+    print(f"dequant {args.awq_repo}: {job.url}\n  id {job.id}")
     return 0
 
 
@@ -1269,8 +1269,8 @@ def cmd_monitor(args) -> int:
         try:
             from huggingface_hub import fetch_job_metrics, inspect_job as _inspect
         except ImportError:
-            print("[metrics] fetch_job_metrics absent de huggingface_hub — "
-                  "axe mémoire perdu pour ce job", flush=True)
+            print("[metrics] fetch_job_metrics missing from huggingface_hub, "
+                  "memory axis lost for this job", flush=True)
             return
         # **Re-subscribe in a loop, and it is not defensive coding.** The first
         # pilot subscribed while the Job was still SCHEDULING; the endpoint has
@@ -1289,8 +1289,8 @@ def cmd_monitor(args) -> int:
                 st = "UNKNOWN"
             if st in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
                 if not attached:
-                    print("[metrics] le Job s'est terminé sans qu'aucun "
-                          "échantillon n'ait pu être lu", flush=True)
+                    print("[metrics] the Job finished without a single "
+                          "sample being read", flush=True)
                 return
             try:
                 for ev in fetch_job_metrics(job_id=args.job_id):
@@ -1299,11 +1299,11 @@ def cmd_monitor(args) -> int:
                                default=0)
                     if used:
                         if not attached:
-                            print("[metrics] flux attaché", flush=True)
+                            print("[metrics] stream attached", flush=True)
                             attached = True
                         samples.append((time.time(), int(used)))
             except Exception as e:
-                print(f"[metrics interrompues: {e}]", flush=True)
+                print(f"[metrics interrupted: {e}]", flush=True)
             time.sleep(2)
 
     threading.Thread(target=meter, daemon=True).start()
@@ -1317,7 +1317,7 @@ def cmd_monitor(args) -> int:
             for line in fetch_job_logs(job_id=args.job_id):
                 print(line, flush=True)
         except Exception as e:  # a dead stream must not kill the monitor
-            print(f"[logs interrompus: {e}]", flush=True)
+            print(f"[logs interrupted: {e}]", flush=True)
 
     threading.Thread(target=tail, daemon=True).start()
 
@@ -1338,13 +1338,13 @@ def cmd_monitor(args) -> int:
         # before the metrics stream had produced a single sample — and the
         # stream is live, so a monitor that dies is an axis that is lost.
         secs = (getattr(d, "running_secs", None) or 0) if d else 0
-        cost = f"{secs / 3600 * usd_h:.2f} $" if usd_h else "coût n/d"
-        print(f"[{secs / 60:.0f} min facturées · {cost}]", flush=True)
+        cost = f"{secs / 3600 * usd_h:.2f} $" if usd_h else "cost n/a"
+        print(f"[{secs / 60:.0f} min billed · {cost}]", flush=True)
         if stage in ("COMPLETED", "ERROR", "CANCELED", "DELETED"):
             break
         time.sleep(args.every)
 
-    print(f"\n[fin] {stage} — {secs / 3600:.2f} h facturées"
+    print(f"\n[end] {stage}: {secs / 3600:.2f} h billed"
           + (f", {secs / 3600 * usd_h:.2f} $" if usd_h else ""))
 
     if samples:
@@ -1364,17 +1364,17 @@ def cmd_monitor(args) -> int:
         p50 = ordered[len(ordered) // 2]
         p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
         gb = 1e9
-        print(f"\n[VRAM] pic {peak / gb:.3f} Go · moyenne {mean / gb:.3f} Go "
+        print(f"\n[VRAM] peak {peak / gb:.3f} GB · mean {mean / gb:.3f} GB "
               f"· p50 {p50 / gb:.3f} · p95 {p95 / gb:.3f}")
-        print(f"       {len(samples)} échantillons sur {span:.0f} s "
-              f"({span / max(1, len(samples) - 1):.2f} s entre deux)")
+        print(f"       {len(samples)} samples over {span:.0f} s "
+              f"({span / max(1, len(samples) - 1):.2f} s apart)")
         if peak > 0 and (peak - min(vals)) / peak < 0.02:
             # The control the protocol demands before promising two numbers: if
             # the allocator never returns memory, "peak" and "mean" are two
             # names for one measurement and publishing both is false precision.
-            print("       ⚠️  la série ne redescend jamais (< 2 % d'amplitude) : "
-                  "pic et moyenne\n           décrivent la même chose, ne pas "
-                  "les publier comme deux mesures")
+            print("       WARNING: the series never comes back down (< 2% swing): "
+                  "peak and mean\n           describe the same thing, do not "
+                  "publish them as two measurements")
         if args.metrics_out:
             with open(args.metrics_out, "w") as f:
                 json.dump({
@@ -1389,11 +1389,11 @@ def cmd_monitor(args) -> int:
                     "span_secs": span,
                     "series": samples,
                 }, f, indent=2)
-            print(f"       série écrite dans {args.metrics_out}")
+            print(f"       series written to {args.metrics_out}")
     else:
-        print("\n[VRAM] aucune métrique reçue — un Job lancé en --detach puis "
-              "observé après coup\n       n'en a pas : le flux est live et "
-              "l'endpoint 500 une fois le Job fini.")
+        print("\n[VRAM] no metric received. A Job launched with --detach and "
+              "observed afterwards\n       has none: the stream is live and the "
+              "endpoint 500s once the Job is done.")
 
     return 0 if stage == "COMPLETED" else 1
 
@@ -1412,48 +1412,48 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    e = sub.add_parser("estimate", help="cœur-heures et coût, sans rien lancer")
+    e = sub.add_parser("estimate", help="core-hours and cost, without launching anything")
     e.add_argument("model", nargs="?", default="Qwen/Qwen3-32B")
-    e.add_argument("--blocks", type=int, default=None, help="limiter aux N premiers blocs")
+    e.add_argument("--blocks", type=int, default=None, help="limit to the first N blocks")
     e.add_argument("--dtype", default="f32", choices=["f32", "bf16", "f16"],
-                   help="precision du modele resident (C3)")
+                   help="precision of the resident model (C3)")
     # The C4 planner. A single 32B job is ~11.4 h and, if it dies at hour ten,
     # ten hours are billed for nothing — which is the reason that run keeps not
     # being launched. This prints what cutting it costs and what it bounds the
     # loss to.
     e.add_argument("--segments", type=int, default=None,
-                   help="afficher le plan de découpage en N segments (reprise, C4)")
+                   help="print the plan for splitting into N segments (resume, C4)")
     e.add_argument("--flavor", default="rtx-pro-6000x2", choices=sorted(FLAVORS),
-                   help="flavor sur laquelle chiffrer le plan de découpage")
+                   help="flavor to price the split plan on")
     e.set_defaults(fn=cmd_estimate)
 
-    s = sub.add_parser("selftest", help="confronter l'estimateur au run 4B réel")
+    s = sub.add_parser("selftest", help="check the estimator against the real 4B run")
     s.set_defaults(fn=cmd_selftest)
 
-    l = sub.add_parser("launch", help="lancer un Job HF")
+    l = sub.add_parser("launch", help="launch an HF Job")
     l.add_argument("--model", default="Qwen/Qwen3-32B")
     l.add_argument("--flavor", default="cpu-performance", choices=sorted(FLAVORS))
-    l.add_argument("--image", required=True, help="ex. <user>/llvq:cpu")
+    l.add_argument("--image", required=True, help="e.g. <user>/llvq:cpu")
     l.add_argument("--name", default="llvq")
-    l.add_argument("--namespace", default=None, help="facturer à une organisation")
+    l.add_argument("--namespace", default=None, help="bill to an organization")
     l.add_argument("--bucket", default=None,
-                   help="Storage Bucket pour la sortie ; `auto` en crée un")
+                   help="Storage Bucket for the output; `auto` creates one")
     l.add_argument("--root-out", default="/tmp/llvq-out",
-                   help="dossier local synchronisé quand --bucket auto")
+                   help="local folder synced when --bucket auto")
     l.add_argument("--model-mount", default="/model")
     l.add_argument("--mount-model", action="store_true",
-                   help="monter le checkpoint en volume plutôt que le retélécharger")
+                   help="mount the checkpoint as a volume instead of downloading it again")
     l.add_argument("--out-mount", default="/out")
     l.add_argument("--device", default="cpu", choices=["cpu", "cuda", "metal"],
-                   help="doit s'accorder à la flavor — croisé par `device_ok`")
+                   help="must match the flavor, cross-checked by `device_ok`")
     l.add_argument("--blocks", type=int, default=None)
     # Code item C4. `--blocks` is an **absolute bound**, not a count, so a
     # second segment of a 64-layer model is `--resume <shard> --blocks 64`,
     # never `--blocks 32`. `smoke` refuses a bound at or below the block the
     # shard stops at rather than quantizing nothing.
     l.add_argument("--resume", default=None, metavar="PATH",
-                   help="reprendre derrière un shard, ex. /out/qwen3-32b-seg1.llvq "
-                        "(le bloc de reprise est lu dans le shard, pas passé ici)")
+                   help="resume behind a shard, e.g. /out/qwen3-32b-seg1.llvq "
+                        "(the resume block is read from the shard, not passed here)")
     # `leech1c12` — ball m ≤ 12, 47 index bits + 1 gain bit — is the protocol
     # every published number of this project was measured under, 4B and 8B
     # alike (docs/echelle-4b-8b-2026-08-08.md).
@@ -1467,11 +1467,11 @@ def main() -> int:
     #
     # And it has already been paid for once as a default: the 8B had to be
     # requantized at $12.61 to purge it (docs/data/jobs.csv, 2026-08-07,
-    # « confondant L3 purge »). A VRAM experiment that wants the cap again
+    # "confondant L3 purge"). A VRAM experiment that wants the cap again
     # asks for it by name; it must never be what a bare `launch` produces.
     l.add_argument("--codebook", default="leech1c12",
-                   help="défaut leech1c12, le protocole de tous les chiffres publiés ; "
-                        "un suffixe L<n> plafonne les niveaux et coûte +4,75 %% de ppl")
+                   help="default leech1c12, the protocol of every published figure; "
+                        "an L<n> suffix caps the levels and costs +4.75%% of ppl")
     # Mirrors `CalibCorpus` in `llvq-llm/src/bin/smoke.rs`. The binary now
     # refuses an unknown corpus, but it does so **inside the container** —
     # i.e. after the job has started, been billed and pulled the image. The
@@ -1495,28 +1495,28 @@ def main() -> int:
     # ×1.811 on the 0.6B, 21 % of perplexity in one step, CLAUDE.md §6), so its
     # control arm has to stay dialable to attribute anything to it.
     l.add_argument("--rotation", action=argparse.BooleanOptionalAction, default=True,
-                   help="rotation d'incohérence en entrée (défaut) ; "
-                        "--no-rotation pour le bras de contrôle")
+                   help="input incoherence rotation (default); "
+                        "--no-rotation for the control arm")
     l.add_argument("--max-usd", type=float, default=60.0)
-    l.add_argument("--yes", action="store_true", help="passer outre le plafond")
+    l.add_argument("--yes", action="store_true", help="override the ceiling")
     l.set_defaults(fn=cmd_launch)
 
-    pu = sub.add_parser("publish", help="publier le workspace en Space docker")
-    pu.add_argument("space", help="ex. Pier-Jean/llvq-runner")
+    pu = sub.add_parser("publish", help="publish the workspace as a docker Space")
+    pu.add_argument("space", help="e.g. Pier-Jean/llvq-runner")
     pu.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
     pu.add_argument("--public", action="store_true",
-                    help="par défaut le Space est privé")
+                    help="by default the Space is private")
     pu.add_argument("--cuda", action="store_true",
-                    help="image CUDA (compute cap figée, cf. ops/Dockerfile.cuda)")
+                    help="CUDA image (compute cap pinned, see ops/Dockerfile.cuda)")
     pu.add_argument("--compute-cap", type=int, default=None, metavar="N",
-                    help="réécrit ENV CUDA_COMPUTE_CAP=N dans la recette téléversée "
-                         "(ex. 80 pour a100-large) ; la recette du dépôt reste intacte — "
-                         "un seul fichier canonique, pas deux qui dérivent")
+                    help="rewrite ENV CUDA_COMPUTE_CAP=N in the uploaded recipe "
+                         "(e.g. 80 for a100-large); the repository recipe stays intact, "
+                         "one canonical file, not two that drift")
     pu.add_argument("--allow-dirty", action="store_true",
-                    help="téléverser un périmètre non commité ; COMMIT le déclarera")
+                    help="upload an uncommitted perimeter; COMMIT will declare it")
     pu.set_defaults(fn=cmd_publish)
 
-    o = sub.add_parser("oracle", help="valider la passe avant sur le backend cible")
+    o = sub.add_parser("oracle", help="validate the forward pass on the target backend")
     o.add_argument("--image", required=True)
     o.add_argument("--flavor", default="l4x1", choices=sorted(FLAVORS))
     o.add_argument("--device", default="cuda", choices=["cpu", "cuda", "metal"])
@@ -1525,62 +1525,62 @@ def main() -> int:
     o.add_argument("--namespace", default=None)
     o.set_defaults(fn=cmd_oracle)
 
-    b = sub.add_parser("bench", help="lancer une commande quelconque de l'image sur une carte")
-    b.add_argument("cmd", nargs="+", help="lignes de shell, exécutées sous set -euo pipefail")
+    b = sub.add_parser("bench", help="run any command from the image on a card")
+    b.add_argument("cmd", nargs="+", help="shell lines, run under set -euo pipefail")
     b.add_argument("--image", required=True)
     b.add_argument("--flavor", default="l40sx1")
     b.add_argument("--any-flavor", action="store_true",
-                   help="passer outre la liste blanche — à déclarer dans tout chiffre publié")
+                   help="override the whitelist, to be declared in every published figure")
     b.add_argument("--timeout", default="30m",
-                   help="plafond réel du coût : l'estimateur ne vaut que pour une quantification")
+                   help="the real cost ceiling: the estimator only holds for a quantization")
     b.add_argument("--mount-model", default=None,
-                   help="dépôt du Hub à monter en lecture seule (ex. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
+                   help="Hub repository to mount read-only (e.g. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
     b.add_argument("--model-mount", default="/model")
-    # Mêmes noms que sur `launch`, à dessein : une campagne enchaîne les deux
-    # sous-commandes et un opérateur ne doit pas avoir à se rappeler laquelle
-    # appelle sa sortie autrement.
+    # Same names as on `launch`, deliberately: a campaign chains the two
+    # subcommands and an operator must not have to remember which one calls
+    # its output something else.
     b.add_argument("--bucket", default=None,
-                   help="'auto' crée/synchronise un bucket, ou un nom de bucket existant")
+                   help="'auto' creates/syncs a bucket, or the name of an existing one")
     b.add_argument("--root-out", default="/tmp/llvq-out",
-                   help="dossier local synchronisé quand --bucket auto")
+                   help="local folder synced when --bucket auto")
     b.add_argument("--out-mount", default="/out")
     b.add_argument("--name", default="llvq-bench")
     b.add_argument("--namespace", default=None)
     b.set_defaults(fn=cmd_bench)
 
     dq = sub.add_parser("dequant",
-                        help="reconstruire un dépôt AWQ en f16 dense, dans un bucket")
-    dq.add_argument("--awq-repo", required=True, help="ex. Qwen/Qwen3-14B-AWQ")
-    dq.add_argument("--base-repo", required=True, help="ex. Qwen/Qwen3-14B")
-    dq.add_argument("--bucket", required=True, help="ex. Pier-Jean/jobs-artifacts")
+                        help="rebuild an AWQ repository into dense f16, in a bucket")
+    dq.add_argument("--awq-repo", required=True, help="e.g. Qwen/Qwen3-14B-AWQ")
+    dq.add_argument("--base-repo", required=True, help="e.g. Qwen/Qwen3-14B")
+    dq.add_argument("--bucket", required=True, help="e.g. Pier-Jean/jobs-artifacts")
     dq.add_argument("--name", required=True,
-                    help="sous-dossier du bucket, ex. qwen3-14b-awq-deq")
+                    help="bucket subfolder, e.g. qwen3-14b-awq-deq")
     dq.add_argument("--out-mount", default="/out")
-    # CPU pur : la reconstruction est du déballage de quartets et de l'écriture
-    # de shards. Une carte n'y sert à rien et coûterait 27× le cœur-heure.
+    # Pure CPU: the reconstruction is nibble unpacking and shard writing. A card
+    # is useless here and would cost 27× the core-hour.
     dq.add_argument("--flavor", default="cpu-upgrade", choices=sorted(FLAVORS))
     dq.add_argument("--timeout", default="4h")
     dq.add_argument("--namespace", default=None)
-    # 1 Go, pas les 4 de `awq_dequant.py` : la sortie va sur un montage de
-    # bucket, et un 4 Go y est ressorti tronqué sans erreur (voir le long
-    # commentaire de `cmd_dequant`). Le défaut de l'outil reste 4 pour un
-    # disque local ; celui d'ICI vise le seul support que cette sous-commande
-    # sache écrire.
+    # 1 GB, not the 4 of `awq_dequant.py`: the output goes to a bucket mount,
+    # and a 4 GB shard came out of one truncated with no error (see the long
+    # comment in `cmd_dequant`). The tool default stays 4 for a local disk; the
+    # default HERE targets the only medium this subcommand knows how to write
+    # to.
     dq.add_argument("--shard-gb", type=float, default=1.0,
-                    help="taille max d'un shard, en Go décimaux (défaut 1.0 : "
-                         "un bucket a tronqué un 4 Go en silence)")
+                    help="max shard size, in decimal GB (default 1.0: "
+                         "a bucket truncated a 4 GB shard silently)")
     dq.set_defaults(fn=cmd_dequant)
 
-    m = sub.add_parser("monitor", help="suivre un Job : coût, utilisation, logs")
+    m = sub.add_parser("monitor", help="follow a Job: cost, usage, logs")
     m.add_argument("job_id")
     m.add_argument("--flavor", default=None, choices=sorted(FLAVORS),
-                   help="pour chiffrer le coût accumulé")
-    m.add_argument("--every", type=int, default=120, help="secondes entre relevés")
-    m.add_argument("--metrics-out", default=None, metavar="FICHIER.json",
-                   help="écrire la série VRAM complète (pic, moyenne pondérée, série brute)")
+                   help="to price the accrued cost")
+    m.add_argument("--every", type=int, default=120, help="seconds between readings")
+    m.add_argument("--metrics-out", default=None, metavar="FILE.json",
+                   help="write the full VRAM series (peak, weighted mean, raw series)")
     m.set_defaults(fn=cmd_monitor)
 
-    w = sub.add_parser("watch", help="statut et logs d'un Job")
+    w = sub.add_parser("watch", help="status and logs of a Job")
     w.add_argument("job_id")
     w.set_defaults(fn=cmd_watch)
 

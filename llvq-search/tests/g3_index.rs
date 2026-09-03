@@ -4,7 +4,7 @@
 //! codebook points sharing an index corrupt weights while every quality
 //! metric stays plausible. These tests pin the bijection from both sides:
 //!
-//! * `decode(encode(p)) == p` exhaustively on Shell(2) (196 560 points,
+//! * `decode(encode(p)) == p` exhaustively on Shell(2) (196,560 points,
 //!   every index verified to land in the shell-2 range with no collision);
 //! * `encode(decode(i)) == i` on random indices across the whole 2⁴⁸-sized
 //!   ball, plus every class boundary (offset−1, offset, offset+1) — the
@@ -55,8 +55,8 @@ fn shell2_exhaustive_roundtrip_no_collision() {
         n += 1;
     });
     assert_eq!(n, 196_560);
-    // Surjectivity on the shell follows: 196 560 distinct indices in a
-    // range of size 196 560.
+    // Surjectivity on the shell follows: 196,560 distinct indices in a
+    // range of size 196,560.
 }
 
 #[cfg_attr(debug_assertions, ignore = "release-only: 2M decode/encode pairs")]

@@ -75,7 +75,7 @@ fn fields_by_hand(data: &[u8], planes: usize, b: usize) -> (u32, u32, u32, [u32;
 }
 
 /// Every class at both ends of its range, plus a bounded uniform draw and the
-/// origin mid-stream — the `planes12x_format` fixture, restated. 2 000 draws:
+/// origin mid-stream — the `planes12x_format` fixture, restated. 2,000 draws:
 /// every 5-level block costs a real `nearest_angular` search in
 /// `transcode_planes12x`, and this already covers all 383 classes.
 fn fixture_indices(fd: &FastDecoder, rng: &mut SplitMix64) -> Vec<u64> {
@@ -125,34 +125,34 @@ fn the_repack_is_exact_and_the_word_map_is_the_format() {
         // 1 — the repack is exact against the archive and against Planes14.
         let (pe, ge) = e14.decode_block(&table, b);
         let (p4, g4) = p14.decode_block(&table, b);
-        assert_eq!(pe, want, "bloc {b}: E1c14 contre l'archive");
-        assert_eq!(pe, p4, "bloc {b}: E1c14 contre Planes14");
-        assert_eq!((ge, g4), (gains[b], gains[b]), "bloc {b}: gain");
+        assert_eq!(pe, want, "block {b}: E1c14 against the archive");
+        assert_eq!(pe, p4, "block {b}: E1c14 against Planes14");
+        assert_eq!((ge, g4), (gains[b], gains[b]), "block {b}: gain");
         // The main stream of the capped variant matches its source's main
         // stream — swapped representatives included, which is the only place
         // the two differ from the archive.
         assert_eq!(
             e12.decode_approx_block(&table, b),
             p12.decode_approx_block(&table, b),
-            "bloc {b}: flux principal E1c12 contre Planes12x"
+            "block {b}: E1c12 main stream against Planes12x"
         );
 
         // 2 — the word map, walked by hand off the raw bytes.
         let (id, gain, smask, pl) = fields_by_hand(&e14.data, E1C14_PLANES, b);
-        assert_eq!(gain, gains[b], "bloc {b}: bit de gain à la main");
+        assert_eq!(gain, gains[b], "block {b}: gain bit by hand");
         let rec = table.record(id as usize);
         if id != 0 {
             for (i, &wi) in want.iter().enumerate() {
                 let lvl = (0..E1C14_PLANES).fold(0u32, |a, k| a | (((pl[k] >> i) & 1) << k));
                 let v = rec.values[lvl as usize];
                 let got = if (smask >> i) & 1 == 1 { -v } else { v };
-                assert_eq!(got, wi, "bloc {b}, slot {i}: mots bruts");
+                assert_eq!(got, wi, "block {b}, slot {i}: raw words");
             }
         }
     }
     // 3 — the exception table is carried verbatim: same indices, same bytes.
-    assert_eq!(e12.exc_idx, p12.exc_idx, "table d'exceptions déplacée");
-    assert_eq!(e12.exc_data, p12.exc_data, "records d'exception modifiés");
+    assert_eq!(e12.exc_idx, p12.exc_idx, "exception table moved");
+    assert_eq!(e12.exc_data, p12.exc_data, "exception records modified");
 }
 
 /// The inverse repack restores the source stream byte for byte, on a real
@@ -168,12 +168,12 @@ fn the_inverse_repack_restores_the_source_bytes() {
     let gains: Vec<u32> = (0..idxs.len()).map(|i| (i % 2) as u32).collect();
     let p14 = transcode_planes14(&fd, &table, &idxs, &gains).expect("transcodes");
     let back = E1c14Blocks::from_planes14(&p14).to_planes14();
-    assert_eq!(back.data, p14.data, "aller-retour E1c14 non identique");
+    assert_eq!(back.data, p14.data, "E1c14 round trip is not identical");
     assert_eq!(back.n_blocks, p14.n_blocks);
 }
 
 /// **The sealed sweep.** Every block of the published Qwen3-4B through both
-/// variants, against the archive decoder — 150 681 600 blocks, the same
+/// variants, against the archive decoder — 150,681,600 blocks, the same
 /// standard `Planes14`, `Planes12x` and `Golay70` are each held to.
 ///
 /// This is the run item X1/X2 of the spec exists to make possible on a Mac,
@@ -233,12 +233,12 @@ fn the_sealed_artifact_e1c_repack_is_exact() {
                             [0i32; DIM]
                         });
                         let (pe, ge) = e14.decode_block(&table, b);
-                        assert_eq!(pe, want, "{} bloc {}: E1c14", m.name, lo + b);
-                        assert_eq!(ge, gns[b], "{} bloc {}: gain", m.name, lo + b);
+                        assert_eq!(pe, want, "{} block {}: E1c14", m.name, lo + b);
+                        assert_eq!(ge, gns[b], "{} block {}: gain", m.name, lo + b);
                         assert_eq!(
                             e12.decode_approx_block(&table, b),
                             p12.decode_approx_block(&table, b),
-                            "{} bloc {}: flux principal E1c12",
+                            "{} block {}: E1c12 main stream",
                             m.name,
                             lo + b
                         );
@@ -273,11 +273,11 @@ fn the_sealed_artifact_e1c_repack_is_exact() {
     // mean the trailing group was mis-sized.
     assert!(
         (bpw(&e14_bits) - group_words(E1C14_PLANES) as f64 / DIM as f64).abs() < 1e-3,
-        "E1c14 : {:.4} b/poids",
+        "E1c14: {:.4} b/weight",
         bpw(&e14_bits)
     );
     eprintln!(
-        "E1c sur {n} blocs — payload b/poids :\n  \
+        "E1c over {n} blocks — payload b/weight:\n  \
          Planes14 {:.4} → E1c14 {:.4}  ({:+.4})\n  \
          Planes12x {:.4} → E1c12 {:.4}  ({:+.4})",
         bpw(&p14_bits),
@@ -287,5 +287,5 @@ fn the_sealed_artifact_e1c_repack_is_exact() {
         bpw(&e12_bits),
         bpw(&e12_bits) - bpw(&p12_bits),
     );
-    assert_eq!(n, 150_681_600, "le 4B publié fait 150 681 600 blocs");
+    assert_eq!(n, 150_681_600, "the published 4B has 150,681,600 blocks");
 }

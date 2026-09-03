@@ -74,8 +74,8 @@ fn main() -> anyhow::Result<()> {
             } else {
                 anyhow::ensure!(
                     std::env::var("LLVQ_MODEL").is_ok(),
-                    "LLVQ_RESTORE_F16={} demande LLVQ_MODEL=<checkpoint> : les matrices \
-                     restaurées viennent de là",
+                    "LLVQ_RESTORE_F16={} requires LLVQ_MODEL=<checkpoint>: the restored \
+                     matrices come from there",
                     restore.describe()
                 );
                 Some(Checkpoint::fetch(&repo)?)

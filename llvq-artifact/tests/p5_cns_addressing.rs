@@ -2,15 +2,15 @@
 //!
 //! The sweep (`p5_cns_sweep.rs`) gives the **raw** width: the record's own bits,
 //! header included. The number the dossier argues with is the **addressed** one
-//! — `53,332 bits/block, FO/warp-scan` for the per-stage variant, and the
-//! `2,3709 b/weight kernel` that derives from it. Amendment É0 moved C1's target
+//! — `53.332 bits/block, FO/warp-scan` for the per-stage variant, and the
+//! `2.3709 b/weight kernel` that derives from it. Amendment É0 moved C1's target
 //! to the per-kind accounting, and **nobody has ever computed the per-kind
 //! addressed figure**. This does.
 //!
 //! ## The addressing model, restated from the pre-registration's prose
 //!
-//! P5 §1.1: *« + mot de base 32 b par groupe de 32, + arrondi au mot »*. So a
-//! group of 32 consecutive blocks costs
+//! P5 §1.1: *"+ a 32-bit base word per group of 32, + rounding to the word"*. So
+//! a group of 32 consecutive blocks costs
 //!
 //! ```text
 //!   32  (the base word)  +  ceil( Σ widths / 32 ) × 32
@@ -24,7 +24,7 @@
 //! ## Validated before it is believed
 //!
 //! The same model, fed the **per-stage** widths, must reproduce the two published
-//! numbers: **52,869** in class-major order and **53,332** in file order, within
+//! numbers: **52.869** in class-major order and **53.332** in file order, within
 //! the tolerance §4 already uses for those columns (`5e-3` on a bits/block mean).
 //! The per-stage column exists **only** as that control — it is computed here,
 //! never in `llvq_search::cns`, whose own test forbids it (§4's independence
@@ -67,7 +67,7 @@ fn kernel_bpw(bits_per_block: f64) -> f64 {
 }
 
 /// The **per-stage** width of a class — the control column, and the one the
-/// published 51,87 / 53,332 belong to.
+/// published 51.87 / 53.332 belong to.
 ///
 /// One `⌈log₂⌉` per composition radix: the codeword, the two arrangement
 /// counts **taken whole**, and the two sign fields. Its arrangement field is a
@@ -128,10 +128,10 @@ fn the_cns_addressed_width_is_what_it_is() {
             assert_eq!(
                 kind[ci] - stage[ci],
                 per_kind_on - u64::from(lg_ceil(u128::from(c.m_arr))),
-                "classe {ci}: l'écart ne vient pas du seul arrangement"
+                "class {ci}: the gap does not come from the arrangement alone"
             );
         }
-        assert!(kind[ci] >= stage[ci], "classe {ci}: le par-genre est plus étroit");
+        assert!(kind[ci] >= stage[ci], "class {ci}: the per-kind width is narrower");
     }
 
     // ---- one pass, both orders -------------------------------------------
@@ -146,7 +146,7 @@ fn the_cns_addressed_width_is_what_it_is() {
         assert_eq!(
             m.indices.len() % GROUP,
             0,
-            "{}: {} blocs, groupe partiel — le dossier en compte zéro",
+            "{}: {} blocks, partial group — the dossier counts none",
             m.name,
             m.indices.len()
         );
@@ -155,7 +155,7 @@ fn the_cns_addressed_width_is_what_it_is() {
         for g in m.indices.chunks(GROUP) {
             let (mut ws, mut wk) = ([0u64; GROUP], [0u64; GROUP]);
             for (i, &idx) in g.iter().enumerate() {
-                let ci = fd.class_of(idx).expect("le 4B ne porte aucun bloc origine");
+                let ci = fd.class_of(idx).expect("the 4B carries no origin block");
                 hist[ci] += 1;
                 total += 1;
                 ws[i] = stage[ci];
@@ -166,8 +166,8 @@ fn the_cns_addressed_width_is_what_it_is() {
             groups += 1;
         }
     }
-    assert_eq!(total, 150_681_600, "le 4B publié fait 150 681 600 blocs");
-    assert_eq!(groups, 4_708_800, "4 708 800 groupes, aucun partiel");
+    assert_eq!(total, 150_681_600, "the published 4B has 150,681,600 blocks");
+    assert_eq!(groups, 4_708_800, "4,708,800 groups, none partial");
 
     // CLASS-MAJOR: every block of a class together, so a group is 32 identical
     // widths — `32·w + 32` is a whole number of words and the rounding costs
@@ -193,14 +193,14 @@ fn the_cns_addressed_width_is_what_it_is() {
     let (fo_s, fo_k) = (fo_stage as f64 / total as f64, fo_kind as f64 / total as f64);
 
     eprintln!(
-        "P5 C1 — largeur adressée, {total} blocs, {groups} groupes de {GROUP}\n\n  \
-         CONTRÔLE, comptabilité PAR ÉTAGE (celle des chiffres publiés)\n    \
-         nue {raw_stage:.4}  ·  classe-majeur {cm_stage:.4} (publié {PUBLISHED_CM})  ·  \
-         ordre-fichier {fo_s:.4} (publié {PUBLISHED_FO})\n\n  \
-         RÉSULTAT, comptabilité PAR GENRE (É0 — celle qui se décode sans division)\n    \
-         nue {raw_kind:.4}  ·  classe-majeur {cm_kind:.4}  ·  ordre-fichier {fo_k:.4}\n    \
-         b/poids noyau : {:.4}  (contre {:.4} par étage, et un critère C0 de 2,60)\n\n  \
-         écart des deux comptabilités : {:+.4} bit/bloc nu, {:+.4} adressé FO",
+        "P5 C1 — addressed width, {total} blocks, {groups} groups of {GROUP}\n\n  \
+         CONTROL, PER-STAGE accounting (the one the published figures use)\n    \
+         raw {raw_stage:.4}  ·  class-major {cm_stage:.4} (published {PUBLISHED_CM})  ·  \
+         file-order {fo_s:.4} (published {PUBLISHED_FO})\n\n  \
+         RESULT, PER-KIND accounting (É0 — the one that decodes without division)\n    \
+         raw {raw_kind:.4}  ·  class-major {cm_kind:.4}  ·  file-order {fo_k:.4}\n    \
+         b/weight kernel: {:.4}  (against {:.4} per stage, and a C0 criterion of 2.60)\n\n  \
+         gap between the two accountings: {:+.4} bit/block raw, {:+.4} addressed FO",
         kernel_bpw(fo_k),
         kernel_bpw(fo_s),
         raw_kind - raw_stage,
@@ -210,18 +210,18 @@ fn the_cns_addressed_width_is_what_it_is() {
     // 🚨 The control decides whether any of the above may be published.
     assert!(
         (cm_stage - PUBLISHED_CM).abs() < TOL_BITS,
-        "le modèle d'adressage ne reproduit pas le classe-majeur publié : \
-         {cm_stage:.4} contre {PUBLISHED_CM} (tolérance {TOL_BITS})"
+        "the addressing model does not reproduce the published class-major: \
+         {cm_stage:.4} against {PUBLISHED_CM} (tolerance {TOL_BITS})"
     );
     assert!(
         (fo_s - PUBLISHED_FO).abs() < TOL_BITS,
-        "le modèle d'adressage ne reproduit pas l'ordre-fichier publié : \
-         {fo_s:.4} contre {PUBLISHED_FO} (tolérance {TOL_BITS})"
+        "the addressing model does not reproduce the published file-order: \
+         {fo_s:.4} against {PUBLISHED_FO} (tolerance {TOL_BITS})"
     );
-    // And the b/weight it derives, against the published 2,3709.
+    // And the b/weight it derives, against the published 2.3709.
     assert!(
         (kernel_bpw(fo_s) - 2.3709).abs() < TOL_BPW,
-        "le b/poids noyau par étage ne reproduit pas 2,3709 : {:.6}",
+        "the per-stage b/weight kernel does not reproduce 2.3709: {:.6}",
         kernel_bpw(fo_s)
     );
 }

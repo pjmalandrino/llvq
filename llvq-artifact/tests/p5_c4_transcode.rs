@@ -1,9 +1,9 @@
 //! **P5 C4 — what transcoding to `E1v` costs, against `Planes14`.**
 //!
-//! `T ≡ le temps mural, du tableau (indices, gains) d'une matrice au tampon
-//! d'octets final du layout, allocation comprise, I/O disque exclue`. The ratio
+//! `T ≡ the wall-clock time, from a matrix's (indices, gains) array to the
+//! layout's final byte buffer, allocation included, disk I/O excluded`. The ratio
 //! is formed **pass by pass**; C4 is green if the **median of three ratios** is
-//! ≤ 2,0, and the range of the three is published.
+//! ≤ 2.0, and the range of the three is published.
 //!
 //! ## Mono-thread, and why that is not a detail
 //!
@@ -17,7 +17,7 @@
 //! ## What C4 can and cannot do
 //!
 //! 🚨 **C4 is a criterion of ADOPTION, never of burial** (P5 §4). Its ×2 is an
-//! engineering judgement, not a derived quantity, and unlike E2's "2,0×" — which
+//! engineering judgement, not a derived quantity, and unlike E2's "2.0×" — which
 //! was *the speed of a layout already served* — nothing here is a threshold some
 //! served path already meets. A red C4 means `E1v` is not adopted for the served
 //! path and is published as a point on the curve. It does not touch C1, C2 or
@@ -61,11 +61,11 @@ fn the_e1v_transcode_is_within_twice_planes14() {
             best = Some((m.name.clone(), m.indices.clone(), m.gains.clone()));
         }
     }
-    let (name, indices, gains) = best.expect("au moins une matrice");
+    let (name, indices, gains) = best.expect("at least one matrix");
     assert_eq!(
         indices.len() % E1V_GROUP,
         0,
-        "{name}: {} blocs, E1v adresse des groupes entiers",
+        "{name}: {} blocks, E1v addresses whole groups",
         indices.len()
     );
 
@@ -91,7 +91,7 @@ fn the_e1v_transcode_is_within_twice_planes14() {
         assert_eq!(p14.n_blocks, indices.len());
         assert_eq!(e1v.n_blocks, indices.len());
         // Both buffers are read once, so neither call can be optimised away —
-        // §7's "un bras éliminé par le compilateur ne mesure rien", applied to a
+        // §7's "an arm the compiler eliminated measures nothing", applied to a
         // transcode rather than to a kernel.
         assert!(!p14.data.is_empty() && !e1v.data.is_empty());
 
@@ -99,7 +99,7 @@ fn the_e1v_transcode_is_within_twice_planes14() {
         t14s.push(t14);
         t1vs.push(t1v);
         eprintln!(
-            "  passe {} : Planes14 {t14:.3} s · E1v {t1v:.3} s · rapport {:.3}×",
+            "  pass {}: Planes14 {t14:.3} s · E1v {t1v:.3} s · ratio {:.3}×",
             p + 1,
             t1v / t14
         );
@@ -112,15 +112,15 @@ fn the_e1v_transcode_is_within_twice_planes14() {
     let p14 = transcode_planes14(&fd, &table, &indices, &gains).expect("transcodes");
 
     eprintln!(
-        "\nP5 C4 — transcodage mono-thread, matrice `{name}`, {} blocs, {PASSES} passes\n  \
-         Planes14 : {:.3} / {:.3} / {:.3} s   ({:.4} b/poids)\n  \
-         E1v      : {:.3} / {:.3} / {:.3} s   ({:.4} b/poids, adressage compris)\n  \
-         rapport formé PASSE PAR PASSE : médiane {median:.3}× [plage {:.3}–{:.3}]\n  \
-         seuil C4 : {C4_MAX} — {}\n  \
-         ⚠️ C4 est un critère d'ADOPTION, jamais d'enterrement. Un rouge ne touche ni C1,\n     \
-         ni C2, ni C3, ni la réouverture qu'ils accordent.\n  \
-         ⚠️ L'ancre Planes14 mono-thread est établie ICI : elle n'avait jamais été mesurée\n     \
-         dans un modèle de threads défini (§4).",
+        "\nP5 C4 — mono-thread transcode, matrix `{name}`, {} blocks, {PASSES} passes\n  \
+         Planes14: {:.3} / {:.3} / {:.3} s   ({:.4} b/weight)\n  \
+         E1v     : {:.3} / {:.3} / {:.3} s   ({:.4} b/weight, addressing included)\n  \
+         ratio formed PASS BY PASS: median {median:.3}× [range {:.3}–{:.3}]\n  \
+         C4 threshold: {C4_MAX} — {}\n  \
+         WARNING: C4 is a criterion of ADOPTION, never of burial. A red touches neither C1,\n     \
+         nor C2, nor C3, nor the reopening they grant.\n  \
+         WARNING: the mono-thread Planes14 anchor is established HERE: it had never been \
+         measured\n     in a defined thread model (§4).",
         indices.len(),
         t14s[0], t14s[1], t14s[2],
         p14.bits_per_weight(),
@@ -128,6 +128,6 @@ fn the_e1v_transcode_is_within_twice_planes14() {
         e1v.bits_per_weight(),
         sorted[0],
         sorted[PASSES - 1],
-        if median <= C4_MAX { "VERT" } else { "ROUGE (non adopté pour le chemin servi)" }
+        if median <= C4_MAX { "GREEN" } else { "RED (not adopted for the served path)" }
     );
 }

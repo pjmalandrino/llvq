@@ -2,7 +2,7 @@
 //!
 //! The full G4 gate (paper Table 3: 89.14 % / 92.11 % retention at
 //! 2 bits/dim) requires shells up to m = 13. With m ≤ 3 the reachable rate
-//! is ≈ 1.0007 bits/dim; the reference measurement (20 000 eval blocks,
+//! is ≈ 1.0007 bits/dim; the reference measurement (20,000 eval blocks,
 //! seed 0x64A4_2026) gives:
 //!
 //! | method | bits/dim | MSE | retention |

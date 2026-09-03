@@ -11,7 +11,7 @@
 //!   Golay code (paper Eq. 4–5, [`leech::Leech`]),
 //! * the G1 invariant test-suite (`tests/g1_invariants.rs`), which validates
 //!   the implementation against publicly known constants of Λ₂₄ — the
-//!   kissing number 196 560, the theta-series coefficients, the Golay weight
+//!   kissing number 196,560, the theta-series coefficients, the Golay weight
 //!   distribution — none of which depend on the paper itself.
 //!
 //! The crate deliberately has **zero dependencies** and forbids `unsafe`:

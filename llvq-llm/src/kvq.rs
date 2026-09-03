@@ -63,7 +63,7 @@ impl KvMode {
             Some("f16") => Ok(Self::F16),
             Some("q8") => Ok(Self::Q8),
             Some(other) => Err(format!(
-                "LLVQ_KV={other} : valeurs admises « f16 » (défaut) et « q8 »"
+                "LLVQ_KV={other}: accepted values \"f16\" (default) and \"q8\""
             )),
         }
     }
@@ -330,7 +330,7 @@ mod tests {
     /// The accounting the memory claim is made in, pinned.
     #[test]
     fn the_geometry_is_the_published_one() {
-        // Qwen3-4B: 36 layers, 8 KV heads, head_dim 128 — 147 456 o/token f16.
+        // Qwen3-4B: 36 layers, 8 KV heads, head_dim 128 — 147,456 o/token f16.
         let f16 = bytes_per_token(36, 8, 128, KvMode::F16, DType::F16);
         assert_eq!(f16, 147_456.0);
         // q8 g64 with f16 scale and bias: 8.5 bits, so ÷1.882 and NOT ÷2.
@@ -393,7 +393,8 @@ impl KvStore {
             Some(other) => match other.parse::<usize>() {
                 Ok(w) if w > 0 => Ok(Self::Prealloc(w)),
                 _ => Err(format!(
-                    "LLVQ_KV_PREALLOC={other} : valeurs admises « » (défaut,                      concaténation) ou une fenêtre entière > 0"
+                    "LLVQ_KV_PREALLOC={other}: accepted values \"\" (default, \
+                     concatenation) or a whole window > 0"
                 )),
             },
         }

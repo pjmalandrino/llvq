@@ -130,12 +130,12 @@ impl Phases {
     pub fn ranked(&self) -> Vec<(&'static str, f64, f64)> {
         let total = self.total().max(1e-9);
         let mut v = vec![
-            ("capture (passe 1)", self.capture, 0.0),
-            ("factorisation", self.factor, 0.0),
-            ("transfert f64", self.transfer, 0.0),
-            ("quantification", self.quantize, 0.0),
-            ("écriture artefact", self.write, 0.0),
-            ("advance (passe 2)", self.advance, 0.0),
+            ("capture (pass 1)", self.capture, 0.0),
+            ("factorization", self.factor, 0.0),
+            ("f64 transfer", self.transfer, 0.0),
+            ("quantization", self.quantize, 0.0),
+            ("artifact write", self.write, 0.0),
+            ("advance (pass 2)", self.advance, 0.0),
         ];
         for e in v.iter_mut() {
             e.2 = 100.0 * e.1 / total;
@@ -497,12 +497,12 @@ pub fn quantize_model(
 pub fn shrink_off_diagonal(h: &mut [f64], n: usize, rho: f64) {
     assert!(
         (0.0..=1.0).contains(&rho),
-        "shrink_off_diagonal: ρ = {rho} hors de [0, 1]"
+        "shrink_off_diagonal: ρ = {rho} outside [0, 1]"
     );
     assert_eq!(
         h.len(),
         n * n,
-        "shrink_off_diagonal: {} n'est pas {n}²",
+        "shrink_off_diagonal: {} is not {n}²",
         h.len()
     );
     for i in 0..n {
@@ -544,11 +544,11 @@ pub fn quantize_model_capturing(
     let h_shrink = *h_shrink;
     anyhow::ensure!(
         (0.0..=1.0).contains(&h_shrink),
-        "h_shrink = {h_shrink} : ρ doit être dans [0, 1] (1 = H tel quel)"
+        "h_shrink = {h_shrink}: ρ must be in [0, 1] (1 = H as is)"
     );
     anyhow::ensure!(
         start < limit,
-        "start = {start} et limit = {limit} : ce run ne quantifierait aucun bloc"
+        "start = {start} and limit = {limit}: this run would quantize no block"
     );
     // Only shape–gain with a load-bearing gain code is describable by codes.
     let capturing = sink.is_some();
@@ -938,7 +938,7 @@ mod shrink_tests {
     }
 
     #[test]
-    #[should_panic(expected = "hors de [0, 1]")]
+    #[should_panic(expected = "outside [0, 1]")]
     fn a_rho_outside_the_unit_interval_is_a_programming_error() {
         let mut h = sample();
         shrink_off_diagonal(&mut h, 3, 1.5);

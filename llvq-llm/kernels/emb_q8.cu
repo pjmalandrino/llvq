@@ -28,7 +28,7 @@
 // Like the rest of the family there is no `if (row >= d_out) return;` in
 // tv_q8_h: a return before __syncthreads() deadlocks and would break the
 // full-warp mask of warp_sum. The host asserts d_out % 8 == 0 instead
-// (151 936 = 8 · 18 992 on the 4B).
+// (151,936 = 8 · 18,992 on the 4B).
 
 #ifndef TILE_COLS
 #include "../../llvq-cuda/kernels/matvec.cu"

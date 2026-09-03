@@ -35,7 +35,7 @@ pub fn arch() -> &'static str {
                 s.strip_prefix("compute_")
                     .and_then(|n| n.parse::<i32>().ok())
                     .is_some(),
-                "LLVQ_NVRTC_ARCH={s} : attendu `compute_NN` (compute_80, compute_89, …)"
+                "LLVQ_NVRTC_ARCH={s}: expected `compute_NN` (compute_80, compute_89, …)"
             );
             Box::leak(s.into_boxed_str())
         }
@@ -48,9 +48,9 @@ pub fn arch() -> &'static str {
 fn arch_binary_version() -> i32 {
     arch()
         .strip_prefix("compute_")
-        .expect("arch() garantit le préfixe")
+        .expect("arch() guarantees the prefix")
         .parse()
-        .expect("arch() garantit le nombre")
+        .expect("arch() guarantees the number")
 }
 
 /// What the card and the loaded kernel say about themselves.
@@ -69,8 +69,8 @@ pub struct DeviceReport {
     /// AD102). NVIDIA does not publish it; the driver does.
     pub l2_bytes: i32,
     pub shared_per_block: i32,
-    /// Bytes one block may hold **after opting in** — 101 376 on an L40S
-    /// against the 49 152 of `shared_per_block`. Read from
+    /// Bytes one block may hold **after opting in** — 101,376 on an L40S
+    /// against the 49,152 of `shared_per_block`. Read from
     /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN`, never derived:
     /// the folklore is `shared_per_sm − 1024`, which happens to give the right
     /// answer on this card and is a guess about a reservation the driver owns.
@@ -79,8 +79,8 @@ pub struct DeviceReport {
     pub shared_per_sm: i32,
     /// The two other residency limits an SM has, read for the same reason
     /// `shared_per_sm` is: the persistent arms of A3 size their grid to what
-    /// the card holds resident (`crate::occ::residency`), and the 1 536
-    /// threads / 65 536 registers of an L40S are a fixture in a test, never
+    /// the card holds resident (`crate::occ::residency`), and the 1,536
+    /// threads / 65,536 registers of an L40S are a fixture in a test, never
     /// a constant in the launcher.
     pub max_threads_per_sm: i32,
     pub regs_per_sm: i32,
@@ -379,8 +379,8 @@ impl Cuda {
         let (def, optin) = (dev.shared_per_block as usize, dev.shared_per_block_optin as usize);
         match crate::shared::plan(bytes as usize, def, optin) {
             None => Err(format!(
-                "{name} : {bytes} o de partagée dynamique demandés, la carte en offre {def} par \
-                 défaut et {} après opt-in — au-delà des deux bornes.",
+                "{name}: {bytes} bytes of dynamic shared memory requested, past both bounds: \
+                 the card offers {def} by default and {} after opt-in.",
                 crate::shared::ceiling(def, optin)
             )),
             Some(crate::shared::Fit::Default) => Ok(f),
@@ -390,7 +390,7 @@ impl Cuda {
                     bytes as i32,
                 )
                 .map_err(|e| {
-                    format!("{name} : opt-in de {bytes} o de partagée refusé par le driver : {e}")
+                    format!("{name}: opt-in for {bytes} shared bytes refused by the driver: {e}")
                 })?;
                 Ok(f)
             }
@@ -450,11 +450,11 @@ impl Cuda {
         self.stream.alloc_zeros(n).map_err(|e| format!("alloc f32: {e}"))
     }
 
-    /// Sortie en binary16, pour les noyaux qui en écrivent une.
+    /// A binary16 output, for the kernels that write one.
     ///
-    /// Aucun bras LLVQ n'en a besoin — ils écrivent tous `float* y`. Le bras
-    /// AWQ, lui, écrit `unsigned short* outputs`, parce que c'est ce que fait
-    /// le noyau amont et qu'on ne le modifie pas.
+    /// No LLVQ arm needs it, they all write `float* y`. The AWQ arm writes
+    /// `unsigned short* outputs`, because that is what the upstream kernel
+    /// does and we do not modify it.
     pub fn zeros_u16(&self, n: usize) -> Result<CudaSlice<u16>, String> {
         self.stream.alloc_zeros(n).map_err(|e| format!("alloc u16: {e}"))
     }
@@ -467,7 +467,7 @@ impl Cuda {
         self.stream.clone_dtoh(d).map_err(|e| format!("D2H f32: {e}"))
     }
 
-    /// Le pendant de [`Self::zeros_u16`] : relire une sortie binary16.
+    /// The counterpart of [`Self::zeros_u16`]: read a binary16 output back.
     pub fn down_u16(&self, d: &CudaSlice<u16>) -> Result<Vec<u16>, String> {
         self.stream.clone_dtoh(d).map_err(|e| format!("D2H u16: {e}"))
     }
@@ -597,7 +597,7 @@ impl Cuda {
     /// A7a the f16-storing entry points hold the `KeepExact` tail as binary16,
     /// which is what the dense arm they are diffed against holds it at. The
     /// *bench* arms — `launch_slot`, `launch_slot_seg`, and planesbench's —
-    /// keep `f32`, because their published `b/poids noyau` bills 32 bits
+    /// keep `f32`, because their published kernel `b/weight` bills 32 bits
     /// there. Two residencies, two accountings, and the type keeps a caller
     /// from handing one to the other.
     #[allow(clippy::too_many_arguments)]
@@ -703,12 +703,12 @@ impl Cuda {
     ///
     /// What moved on 2026-08-17 is the *bound*, not the responsibility. That
     /// limit is not one number: past the default 48 KiB a block gets, sm_70
-    /// and later grant up to `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` (101 376 o on
+    /// and later grant up to `MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` (101,376 bytes on
     /// an L40S) **to a function that asked**. So the caller owes two things
     /// now: `crate::shared::rot_plan` to decide the width is legal, and
     /// [`Self::func_dynamic_shared`] to load `f` — which is where the opt-in
     /// is posed. Handing this a plain [`Self::func`] handle and an `n` over
-    /// 12 288 gets the launch refused by the driver; handing it a width past
+    /// 12,288 gets the launch refused by the driver; handing it a width past
     /// the ceiling is what corrupts, and no check here would catch it.
     ///
     /// `xin` is generic over its element type so an inference runtime can hand
@@ -782,7 +782,7 @@ pub fn capture_on(
     r?;
     let g = ended.map_err(|e| format!("end_capture: {e}"))?;
     let g = g.ok_or_else(|| {
-        "le driver n'a rien capturé — stream NULL legacy ? (cf. new_on_fresh_stream)".to_string()
+        "the driver captured nothing. Legacy NULL stream? (see new_on_fresh_stream)".to_string()
     })?;
     g.upload().map_err(|e| format!("graph upload: {e}"))?;
     Ok(g)

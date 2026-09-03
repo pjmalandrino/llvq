@@ -10,10 +10,10 @@
 //! Class decompositions (all counts pinned in `tests/g1_invariants.rs`):
 //!
 //! * Shell(2) = (±2⁸ on octads, even −) ∪ (±4²) ∪ (±3, ±1²³)
-//!   = 97 152 + 1 104 + 98 304 = 196 560
+//!   = 97,152 + 1,104 + 98,304 = 196,560
 //! * Shell(3) = (±2¹² on dodecads, even −) ∪ (±4, ±2⁸ odd −) ∪
 //!   (±5, ±1²³) ∪ (±3³, ±1²¹)
-//!   = 5 275 648 + 3 108 864 + 98 304 + 8 290 304 = 16 773 120
+//!   = 5,275,648 + 3,108,864 + 98,304 + 8,290,304 = 16,773,120
 
 use crate::golay::Golay;
 use crate::leech::{Leech, Point, DIM};

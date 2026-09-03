@@ -22,8 +22,8 @@
 //! means reconstituting that state. It looks like it needs a checkpoint of the
 //! whole loop. It does not, and the reason is the property `verify_artifact`
 //! has asserted on every run that ever wrote a file: [`decode_matrix`] returns
-//! the evaluated weights **bit for bit** (6 945 767 424 of them on the 8B run,
-//! 1 950 351 360 on the 32B de-risking pass). The already-written matrices are
+//! the evaluated weights **bit for bit** (6,945,767,424 of them on the 8B run,
+//! 1,950,351,360 on the 32B de-risking pass). The already-written matrices are
 //! therefore a lossless snapshot of every weight the loop has changed, and the
 //! only thing left to rebuild is the hidden states — by re-running the forward
 //! pass over the blocks that are already done, which is exactly what
@@ -216,15 +216,15 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
     let blocks = complete / per;
     anyhow::ensure!(
         blocks > 0,
-        "{}: {complete} matrice(s) complète(s), moins d'un bloc de {per} — \
-         rien à reprendre",
+        "{}: {complete} complete matrices, less than one block of {per}, \
+         nothing to resume",
         path.display()
     );
     if complete != head.matrices as usize {
         eprintln!(
-            "  ⚠️  {}: l'en-tête annonce {} matrices, le fichier en porte {complete} \
-             — shard interrompu. La reprise ne garde que les {blocks} blocs entiers \
-             ({} matrices) et jette la queue.",
+            "  WARNING: {}: the header announces {} matrices, the file carries {complete}. \
+             The shard was interrupted. The resume keeps only the {blocks} whole blocks \
+             ({} matrices) and drops the tail.",
             path.display(),
             head.matrices,
             blocks * per
@@ -291,8 +291,8 @@ pub fn resume_from_shard<W: Write>(
     let (n_matrices, blocks) = shard_extent(path)?;
     anyhow::ensure!(
         blocks <= model.blocks.len(),
-        "{}: le shard couvre {blocks} blocs, le modèle n'en a que {}. \
-         Ce n'est pas le même modèle.",
+        "{}: the shard covers {blocks} blocks, the model has only {}. \
+         This is not the same model.",
         path.display(),
         model.blocks.len()
     );
@@ -316,31 +316,30 @@ pub fn resume_from_shard<W: Write>(
             let want = crate::artifact::key(t, proj);
             anyhow::ensure!(
                 raw.name == want,
-                "{}: matrice {want:?} attendue, {:?} lue. L'ordre des \
-                 enregistrements n'est pas celui que la boucle écrit, donc ce \
-                 fichier n'est le préfixe d'aucun run.",
+                "{}: expected matrix {want:?}, read {:?}. The record order is not the \
+                 one the loop writes, so this file is the prefix of no run.",
                 path.display(),
                 raw.name
             );
             let dims = model.blocks[t].linear(proj).weight().dims2()?;
             anyhow::ensure!(
                 (raw.d_out, raw.d_in) == dims,
-                "{want}: le shard porte {:?}, le modèle attend {:?} — pas le \
-                 même modèle",
+                "{want}: the shard carries {:?}, the model expects {:?}, not the \
+                 same model",
                 (raw.d_out, raw.d_in),
                 dims
             );
             anyhow::ensure!(
                 raw.shell_cap == expect.shell_cap,
-                "{want}: le shard a été quantifié avec la coquille {} et ce run \
-                 utilise {}. Deux codebooks dans un même fichier.",
+                "{want}: the shard was quantized with shell {} and this run uses \
+                 {}. Two codebooks in one file.",
                 raw.shell_cap,
                 expect.shell_cap
             );
             anyhow::ensure!(
                 raw.centroids.len() == expect.centroids,
-                "{want}: le shard porte {} niveaux de gain et ce run en fixe {} \
-                 — deux débits dans un même fichier.",
+                "{want}: the shard carries {} gain levels and this run sets {}, \
+                 two rates in one file.",
                 raw.centroids.len(),
                 expect.centroids
             );
@@ -352,9 +351,8 @@ pub fn resume_from_shard<W: Write>(
                 .map(|s| crate::calib::effective_rotation_seed(s, t, *act));
             anyhow::ensure!(
                 raw.rotation_seed == want_seed,
-                "{want}: graine de rotation {:?} dans le shard, {want_seed:?} \
-                 pour ce run. Les deux moitiés du modèle seraient quantifiées \
-                 dans des bases différentes.",
+                "{want}: rotation seed {:?} in the shard, {want_seed:?} for this run. \
+                 The two halves of the model would be quantized in different bases.",
                 raw.rotation_seed
             );
 
@@ -441,8 +439,8 @@ impl RunState {
 
     pub fn render(&self) -> String {
         let mut s = String::from(
-            "# llvq run state — écrit à côté de l'artefact, relu par une reprise.\n\
-             # Toute divergence avec la configuration résolue fait refuser la reprise.\n",
+            "# llvq run state, written beside the artifact, read back by a resume.\n\
+             # Any divergence from the resolved configuration makes the resume refuse.\n",
         );
         for (k, v) in &self.fields {
             s.push_str(&format!("{k} = {v}\n"));
@@ -460,10 +458,10 @@ impl RunState {
         let p = Self::path_for(artifact);
         let text = std::fs::read_to_string(&p).map_err(|e| {
             anyhow::anyhow!(
-                "{p}: {e}\nUne reprise exige l'état écrit à côté du shard. Sans \
-                 lui, rien ne dit sur quelle calibration, quel amortissement ni \
-                 quel dtype le shard a été produit — et un artefact dont les \
-                 deux moitiés n'ont pas la même serait valide en apparence et faux."
+                "{p}: {e}\nA resume requires the state written beside the shard. Without \
+                 it, nothing says on which calibration, which damping and which dtype the \
+                 shard was produced, and an artifact whose two halves do not share them \
+                 would look valid and be wrong."
             )
         })?;
         Ok(Self::parse(&text))
@@ -499,13 +497,13 @@ impl RunState {
         for (k, v) in self.fields.iter().filter(|(k, _)| k != Self::BLOCKS) {
             match now.get(k) {
                 Some(w) if w == v => {}
-                Some(w) => out.push(format!("{k} : shard {v:?}, ce run {w:?}")),
-                None => out.push(format!("{k} : shard {v:?}, ce run ne le renseigne pas")),
+                Some(w) => out.push(format!("{k}: shard {v:?}, this run {w:?}")),
+                None => out.push(format!("{k}: shard {v:?}, this run does not record it")),
             }
         }
         for (k, w) in now.fields.iter().filter(|(k, _)| k != Self::BLOCKS) {
             if self.get(k).is_none() {
-                out.push(format!("{k} : absent du shard, ce run {w:?}"));
+                out.push(format!("{k}: absent from the shard, this run {w:?}"));
             }
         }
         out
@@ -523,7 +521,7 @@ fn to_quantized(
     let mut codes = Vec::with_capacity(raw.indices.len());
     for (&idx, &gain) in raw.indices.iter().zip(&raw.gains) {
         let point = ix.decode(idx).ok_or_else(|| {
-            anyhow::anyhow!("{}: index {idx} hors du codebook", raw.name)
+            anyhow::anyhow!("{}: index {idx} outside the codebook", raw.name)
         })?;
         codes.push(llvq_quant::quantizer::BlockCode { point, gain });
     }

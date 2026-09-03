@@ -1,4 +1,4 @@
-//! A1 — the floor under two launch geometries: 252 launches against 144.
+//! A1, the floor under two launch geometries: 252 launches against 144.
 //!
 //! Preregistered: `proofs/preregistration-vague2-gel-geometrie-2026-08-31.md`
 //! §A1 (sha256 `e23e9895…`, stamped before this file was written). The
@@ -12,7 +12,7 @@
 //!   between  → mixed; publish the parts, eliminate neither
 //!
 //! A prior worth disclosing: `nullk.cu`'s own header notes "108 fewer
-//! launches are worth 0.392 ms measured elsewhere" — that would put r near
+//! launches are worth 0.392 ms measured elsewhere", which would put r near
 //! 0.83, in the prereg's *mixed* band. The bench exists to measure, not to
 //! confirm that comment.
 //!
@@ -24,15 +24,15 @@
 //! reason), and would drag the byte-accounting report into shapes no layout
 //! ever serves. The protocol here is `planesbench`'s, reproduced rather than
 //! referenced: interleaved rounds, warmup discarded, ratios formed **round by
-//! round** and reported as median with range — never a quotient of minima.
+//! round** and reported as median with range, never a quotient of minima.
 //!
 //! ## What this bin cannot be
 //!
 //! Verified against an f64 reference. Like `nullk` itself it computes no
-//! model product and has no oracle — it is an anchor, required to be
+//! model product and has no oracle. It is an anchor, required to be
 //! *observable*, not correct. The post-run check only demands that every row
 //! of every output was actually written (finite, and the kernel's staged
-//! accumulation is load-bearing by construction — see `nullk.cu`).
+//! accumulation is load-bearing by construction, see `nullk.cu`).
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -57,7 +57,7 @@ mod linux {
     const THREADS: u32 = 256;
     const LAYERS: usize = 36;
 
-    /// The seven projection shapes of Qwen3-4B — `planesbench`'s table.
+    /// The seven projection shapes of Qwen3-4B, `planesbench`'s table.
     const UNFUSED: [(&str, usize, usize); 7] = [
         ("q_proj", 4096, 2560),
         ("k_proj", 1024, 2560),
@@ -79,7 +79,7 @@ mod linux {
     ];
 
     /// One shape's device buffers. `nullk` reads no weights, so a shape is
-    /// fully described by its activation, its row scales and its tail — the
+    /// fully described by its activation, its row scales and its tail: the
     /// three things the kernel actually touches.
     struct Shape {
         name: &'static str,
@@ -155,7 +155,7 @@ mod linux {
 
     pub fn run() -> Result<(), String> {
         // `llvq_slot.cuh` first: it owns the `u32` typedef and the guard macro
-        // that keeps `matvec.cu`'s own `#include` from ever being evaluated —
+        // that keeps `matvec.cu`'s own `#include` from ever being evaluated.
         // NVRTC has no filesystem, so an evaluated include is a refused build.
         // Same assembly as `planesbench`'s base unit, plus `nullk.cu`.
         let base = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "nullk.cu"])?;
@@ -163,18 +163,18 @@ mod linux {
         let mut parts: Vec<&str> = vec![defines.as_str()];
         parts.extend(base.parts.iter().map(String::as_str));
         let src = KernelSource::new(&parts);
-        println!("A1 — nullk : 252 lancements contre 144 (préreg e23e9895…, §A1)");
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("A1: nullk, 252 launches against 144 (prereg e23e9895…, §A1)");
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
-        println!("carte : {} · {} SM", dev.name, dev.sm_count);
+        println!("card: {} · {} SM", dev.name, dev.sm_count);
 
         let f = cuda.func("tv_nullk")?;
         let shared = (TILE_BLOCKS * DIM * 4) as u32;
         let mut unfused = build(&cuda, &UNFUSED)?;
         let mut fused = build(&cuda, &FUSED)?;
         println!(
-            "géométries : {} formes × {LAYERS} couches = {} lancements/round, contre {} × {LAYERS} = {}",
+            "geometries: {} shapes × {LAYERS} layers = {} launches/round, against {} × {LAYERS} = {}",
             UNFUSED.len(),
             UNFUSED.len() * LAYERS,
             FUSED.len(),
@@ -211,13 +211,13 @@ mod linux {
         }
 
         // Observability: every output row of both lists was written and is
-        // finite. Not an oracle — the anchor's only obligation.
+        // finite. Not an oracle; the anchor's only obligation.
         for s in unfused.iter().chain(fused.iter()) {
             let y = cuda.down_f32(&s.y)?;
             let bad = y.iter().filter(|v| !v.is_finite()).count();
             if bad > 0 || y.iter().all(|v| *v == 0.0) {
                 return Err(format!(
-                    "{} : sortie non observable ({bad} non-finis, tout-zéro {})",
+                    "{}: output not observable ({bad} non-finite, all-zero {})",
                     s.name,
                     y.iter().all(|v| *v == 0.0)
                 ));
@@ -227,15 +227,15 @@ mod linux {
         let (m252, lo252, hi252) = median_range(&t252);
         let (m144, lo144, hi144) = median_range(&t144);
         let (mr, lor, hir) = median_range(&ratios);
-        println!("\n  {ROUNDS} rounds, {WARMUP} jetés ; le rapport est formé ROUND PAR ROUND");
-        println!("  nullk 252   méd {m252:.3} ms  [{lo252:.3}–{hi252:.3}]");
-        println!("  nullk 144   méd {m144:.3} ms  [{lo144:.3}–{hi144:.3}]");
+        println!("\n  {ROUNDS} rounds, {WARMUP} discarded; the ratio is formed ROUND BY ROUND");
+        println!("  nullk 252   med {m252:.3} ms  [{lo252:.3}–{hi252:.3}]");
+        println!("  nullk 144   med {m144:.3} ms  [{lo144:.3}–{hi144:.3}]");
         println!("  r = t(144)/t(252) = {mr:.4} [{lor:.4}–{hir:.4}]");
-        println!("\n  lecture pré-enregistrée (préreg §A1, AVANT ce chiffre) :");
-        println!("    r ≤ 0,65 → latence par lancement → A2 (Graphs) prioritaire");
-        println!("    r ≥ 0,90 → occupation → A3 prioritaire");
-        println!("    entre    → mixte : publier les parts, n'éliminer ni A2 ni A3");
-        println!("\n  ⚠️ aucun de ces temps ne se compare à un temps d'un AUTRE processus.");
+        println!("\n  preregistered reading (prereg §A1, written BEFORE this figure):");
+        println!("    r ≤ 0.65 → per-launch latency → A2 (Graphs) first");
+        println!("    r ≥ 0.90 → occupancy → A3 first");
+        println!("    between  → mixed: publish the parts, eliminate neither A2 nor A3");
+        println!("\n  WARNING: none of these times compares to a time from ANOTHER process.");
         Ok(())
     }
 }

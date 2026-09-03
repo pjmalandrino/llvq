@@ -83,7 +83,7 @@ impl RotShare {
     ///
     /// Same contract as [`crate::fused::FusedLayout::parse`], for the same
     /// reason: a typo quietly falling back to the default makes an A/B report
-    /// "no effect" for a bras that never ran.
+    /// "no effect" for an arm that never ran.
     ///
     /// **The default is `Off`** until the card gate of §4 is green. The commit
     /// that flips it carries the measurement in its message.
@@ -93,8 +93,8 @@ impl RotShare {
             Some("0") => Ok(Self::Off),
             Some("1") => Ok(Self::On),
             Some(other) => Err(format!(
-                "LLVQ_ROT_SHARE={other} : valeurs admises « 0 » (défaut, une rotation par \
-                 projection) et « 1 » (une rotation par activation partagée)"
+                "LLVQ_ROT_SHARE={other}: accepted values \"0\" (default, one rotation per \
+                 projection) and \"1\" (one rotation per shared activation)"
             )),
         }
     }
@@ -126,9 +126,9 @@ pub fn check_key(site: &str, want: Option<RotKey>, got: Option<RotKey>) -> Resul
         return Ok(());
     }
     Err(format!(
-        "{site} : activation tournée par la rotation {got:?}, alors que cette projection \
-         est quantifiée sous {want:?}. Une activation tournée est portée, jamais retrouvée — \
-         c'est le mauvais groupe qui a été passé."
+        "{site}: activation rotated by {got:?}, while this projection \
+         is quantized under {want:?}. A rotated activation is carried, never recovered: \
+         the wrong group was passed."
     ))
 }
 
@@ -183,16 +183,16 @@ pub fn rotation_sites(m: &[FusedMatrix]) -> Result<Vec<RotSite>, String> {
         let (layer, suffix) = llvq_artifact::split_name(&fm.name).map_err(|e| e.to_string())?;
         let act = act_of_suffix(&suffix).ok_or_else(|| {
             format!(
-                "{} : « {suffix} » n'est le consommateur d'aucune des quatre activations \
-                 d'un bloc Qwen3",
+                "{}: \"{suffix}\" consumes none of the four activations \
+                 of a Qwen3 block",
                 fm.name
             )
         })?;
         let key = fm.rotation.ok_or_else(|| {
             format!(
-                "{} : aucune rotation dans le fichier. Le chemin fusé ne sait pas lire une \
-                 matrice quantifiée en base naturelle (cf. fused_cuda.rs), et la partager \
-                 n'aurait pas de sens.",
+                "{}: no rotation in the file. The fused path cannot read a \
+                 matrix quantized in the natural basis (see fused_cuda.rs), and sharing \
+                 it would make no sense.",
                 fm.name
             )
         })?;
@@ -205,9 +205,9 @@ pub fn rotation_sites(m: &[FusedMatrix]) -> Result<Vec<RotSite>, String> {
             Some((k0, n0, count)) => {
                 if *k0 != key {
                     return Err(format!(
-                        "{n0} et {} consomment la même activation ({act:?} de la couche \
-                         {layer}) mais portent deux rotations, {k0:?} et {key:?}. Le \
-                         hissage donnerait à l'une la base de l'autre.",
+                        "{n0} and {} consume the same activation ({act:?} of layer \
+                         {layer}) but carry two rotations, {k0:?} and {key:?}. The \
+                         hoist would give one the other's basis.",
                         fm.name
                     ));
                 }
@@ -222,9 +222,9 @@ pub fn rotation_sites(m: &[FusedMatrix]) -> Result<Vec<RotSite>, String> {
             Some((l0, a0, n0)) => {
                 if (*l0, *a0) != (layer, act) {
                     return Err(format!(
-                        "{n0} et {} partagent la rotation {key:?} alors qu'ils consomment \
-                         deux activations distinctes ({a0:?} de la couche {l0}, {act:?} de \
-                         la couche {layer}).",
+                        "{n0} and {} share rotation {key:?} while they consume \
+                         two distinct activations ({a0:?} of layer {l0}, {act:?} of \
+                         layer {layer}).",
                         fm.name
                     ));
                 }
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(RotShare::parse(Some("1")), Ok(RotShare::On));
         for bad in ["on", "off", "true", "2", "1 ", "01", "yes"] {
             let e = RotShare::parse(Some(bad)).expect_err("must be refused");
-            assert!(e.contains(bad), "le message doit citer la valeur : {e}");
+            assert!(e.contains(bad), "the message must cite the value: {e}");
         }
     }
 
@@ -465,11 +465,11 @@ mod tests {
         for (p, n) in [(0, 0), (1, 128), (128, 1), (1, 1), (5, 0), (0, 5)] {
             assert!(
                 !arms_are_discriminating(p, n),
-                "prompt {p}, {n} nouveaux : les deux bras parcourent le même chemin"
+                "prompt {p}, {n} new: both arms walk the same path"
             );
         }
         for (p, n) in [(2, 2), (5, 128), (2, 128), (128, 2)] {
-            assert!(arms_are_discriminating(p, n), "prompt {p}, {n} nouveaux");
+            assert!(arms_are_discriminating(p, n), "prompt {p}, {n} new");
         }
     }
 

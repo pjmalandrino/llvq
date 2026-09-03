@@ -12,7 +12,7 @@ use llvq_search::pack::{BitReader, BitWriter};
 /// The byte layout, spelled out on a case small enough to read by hand.
 ///
 /// Three 3-bit values 0b101, 0b011, 0b110 must produce the bit string
-/// 101 011 110, i.e. 0b10101111 0b0xxxxxxx with the tail zero-padded.
+/// 101,011,110, i.e. 0b10101111 0b0xxxxxxx with the tail zero-padded.
 #[test]
 fn the_bit_order_is_most_significant_first() {
     let mut w = BitWriter::new();

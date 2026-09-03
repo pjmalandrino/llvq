@@ -3,13 +3,13 @@
 //! `proofs/preregistration-p1-2026-08-13.md` §3 orders V0 in three steps: a CPU
 //! reference written independently of the shader, a block-by-block check on a
 //! broad sample plus the §1.6 synthetic fixture, and then **the integral sweep
-//! of the 150 681 600 blocks** of the sealed 4B. The first two are
+//! of the 150,681,600 blocks** of the sealed 4B. The first two are
 //! `llvq-search/src/rankdec.rs` and `llvq-metal/src/bin/p1v0.rs`. This file is
 //! the third.
 //!
 //! It lives here and not in `llvq-search` because this is the only crate that
 //! can open a `.llvq` — `llvq-search` has no dev-dependency and is meant to
-//! keep none (pre-registration §3, *placement du code*).
+//! keep none (pre-registration §3, *code placement*).
 //!
 //! ## The two arms are swept against their own standards, which differ
 //!
@@ -27,7 +27,7 @@
 //! ## What the sweep adds over the unit tests, and it is not "more of the same"
 //!
 //! `cascade_uniform_matches_the_archive` probes 43 ranks per class. Real blocks
-//! are not probes: they are 150 681 600 ranks drawn by GPTQ from a distribution
+//! are not probes: they are 150,681,600 ranks drawn by GPTQ from a distribution
 //! nobody chose, concentrated on 243 of the 383 classes, and this is the only
 //! harness that sees them. It is also the only one that exercises the
 //! **composition** — the mixed-radix peel, the Golay lookup, the parity repair,
@@ -191,14 +191,14 @@ fn walk_round_trips(fd: &FastDecoder, ci: usize, rng: &mut SplitMix64) {
         assert_eq!(
             arr.iter().filter(|&&x| x == j as u8).count(),
             c as usize,
-            "classe {ci}, genre {j} mal placé : rangs {ranks:?}"
+            "class {ci}, kind {j} misplaced: ranks {ranks:?}"
         );
     }
     let back = binomial_rank(&arr, &counts, k);
     for j in 0..k.saturating_sub(1) {
         assert_eq!(
             back[j], ranks[j],
-            "classe {ci}, genre {j} : l'aller-retour ne ferme pas"
+            "class {ci}, kind {j}: the round trip does not close"
         );
     }
 }
@@ -248,7 +248,7 @@ fn the_sealed_artifact_p1_decoders_are_exact() {
                         assert_eq!(
                             point_via_cascade(&fd, &golay, idx),
                             want,
-                            "{} bloc {}: cascade_uniform contre FastDecoder::decode",
+                            "{} block {}: cascade_uniform against FastDecoder::decode",
                             m.name,
                             lo + b
                         );
@@ -282,15 +282,15 @@ fn the_sealed_artifact_p1_decoders_are_exact() {
 
     // The count is the assertion, not a decoration: a sweep that read one
     // matrix and stopped would print the same green line.
-    assert_eq!(n, 150_681_600, "le 4B publié fait 150 681 600 blocs");
+    assert_eq!(n, 150_681_600, "the published 4B has 150,681,600 blocks");
     eprintln!(
-        "P1 §3.3 — {n} blocs, {} matrices.\n  \
-         cascade_uniform : point pour point contre FastDecoder::decode, 0 écart\n  \
-         binomial_walk   : rang → arrangement → rang fermé, multiensemble réalisé\n  \
-         {touched} entrées de table sur {ENTRIES} touchées ({} origine) — les {} \
-         restantes,\n  dont les {shell13} classes de coquille 13, ne sont atteignables \
-         depuis AUCUN fichier\n  cap 12 et relèvent de la fixture synthétique de \
-         `bin/p1v0` (pré-enregistrement §1.6).",
+        "P1 §3.3 — {n} blocks, {} matrices.\n  \
+         cascade_uniform: point for point against FastDecoder::decode, 0 deviation\n  \
+         binomial_walk  : rank → arrangement → rank closes, multiset realised\n  \
+         {touched} of {ENTRIES} table entries touched ({} origin) — the {} \
+         remaining,\n  including the {shell13} shell-13 classes, are not reachable from \
+         ANY cap-12 file\n  and belong to the synthetic fixture of \
+         `bin/p1v0` (preregistration §1.6).",
         h.matrices,
         hist[0],
         ENTRIES - touched,

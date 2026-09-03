@@ -83,21 +83,21 @@ impl Acc {
         let k = self.n as f64;
         let (o, m, p) = (self.opt / k, self.mask / k, self.pos / k);
         println!(
-            "\n  {title} — {} blocs ({:.1} %)",
+            "\n  {title} — {} blocks ({:.1} %)",
             self.n,
             100.0 * k / total as f64
         );
         println!("  {}", "-".repeat(62));
-        println!("  {:<24}{o:>9.1} bits", "rang optimal (v1)");
+        println!("  {:<24}{o:>9.1} bits", "optimal rank (v1)");
         println!(
-            "  {:<24}{m:>9.1} bits{:>+9.1}{:>+11.3} b/poids",
-            "masques imbriqués",
+            "  {:<24}{m:>9.1} bits{:>+9.1}{:>+11.3} b/weight",
+            "nested masks",
             m - o,
             (m - o) / DIM as f64
         );
         println!(
-            "  {:<24}{p:>9.1} bits{:>+9.1}{:>+11.3} b/poids",
-            "positionnel",
+            "  {:<24}{p:>9.1} bits{:>+9.1}{:>+11.3} b/weight",
+            "positional",
             p - o,
             (p - o) / DIM as f64
         );
@@ -156,23 +156,23 @@ fn main() {
         }
     }
 
-    println!("{N} blocs gaussiens quantifiés — coût de l'arrangement seul");
-    println!("  (le codeword Golay est commun aux schémas, donc exclu des deux)");
-    odd.show("COSET IMPAIR", N);
-    even.show("COSET PAIR", N);
+    println!("{N} quantized gaussian blocks — cost of the arrangement alone");
+    println!("  (the Golay codeword is common to both schemes, so excluded from both)");
+    odd.show("ODD COSET", N);
+    even.show("EVEN COSET", N);
 
     let tot = N as f64;
     let base = odd.opt + even.opt;
     let d = |x: f64| (x - base) / tot / DIM as f64;
-    println!("\n  MOYENNE PONDÉRÉE");
+    println!("\n  WEIGHTED MEAN");
     println!("  {}", "-".repeat(62));
-    println!("  masques imbriqués{:>+34.3} bits/poids", d(odd.mask + even.mask));
-    println!("  positionnel{:>+40.3} bits/poids", d(odd.pos + even.pos));
+    println!("  nested masks{:>+39.3} bits/weight", d(odd.mask + even.mask));
+    println!("  positional{:>+41.3} bits/weight", d(odd.pos + even.pos));
 
-    println!("\n  jusqu'à {worst_types} magnitudes distinctes dans un bloc");
+    println!("\n  up to {worst_types} distinct magnitudes in a block");
     println!(
-        "\n  Ce Δ s'ajoute aux 2,1595 bits/poids pesés sur le fichier. Repère :\n  \
-         au-delà de +0,35 on dépasse 2,5 bits/poids, et l'écart avec QTIP\n  \
-         (2,000) devient difficile à défendre."
+        "\n  This Δ adds to the 2.1595 bits/weight weighed on the file. Reference:\n  \
+         past +0.35 we exceed 2.5 bits/weight, and the gap with QTIP\n  \
+         (2.000) becomes hard to defend."
     );
 }

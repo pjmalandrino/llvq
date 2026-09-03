@@ -383,7 +383,7 @@ fn check(name: &str, got: &[f32], want: &[f64], scale: &[f64]) {
         worst < 1e-3,
         "{name}: worst row error {worst:.2e} of the row's Σ|w·x|"
     );
-    println!("  {name:<10} : {} lignes vérifiées, pire erreur {worst:.1e}·Σ|w·x|", got.len());
+    println!("  {name:<10}: {} rows verified, worst error {worst:.1e}·Σ|w·x|", got.len());
 }
 
 fn main() -> Result<(), String> {
@@ -407,7 +407,7 @@ fn main() -> Result<(), String> {
     assert_eq!(d_in % 4, 0, "the FP16 kernel loads half4");
     assert_eq!(m.centroids.len(), 2, "the shader hardcodes 1 gain bit");
     println!(
-        "{} — {d_out}×{d_in}, {nblocks} blocs/ligne + queue {tail_w}, {} blocs",
+        "{} — {d_out}×{d_in}, {nblocks} blocks/row + tail {tail_w}, {} blocks",
         m.name,
         d_out * nblocks
     );
@@ -470,7 +470,7 @@ fn main() -> Result<(), String> {
     let src = format!("{}{}", llvq_metal::PAYLOAD_MSL, SRC);
     let kf16 = llvq_metal::Kernel::new(&src, "matvec_f16")?;
     let kg32 = llvq_metal::Kernel::new(&src, "matvec_g32")?;
-    println!("GPU : {}", kf16.device_name());
+    println!("GPU: {}", kf16.device_name());
     let overhead = kf16.overhead(20);
 
     let params = [Params {
@@ -643,7 +643,7 @@ fn main() -> Result<(), String> {
         + rt.bases.len() as f64 * 4.0
         + (d_out * tail_w) as f64 * 4.0
         + d_out as f64 * 4.0;
-    println!("\n  {:<22}{:>10}{:>12}{:>14}", "noyau", "µs", "Go/s eff.", "vs FP16");
+    println!("\n  {:<22}{:>10}{:>12}{:>14}", "kernel", "µs", "GB/s eff.", "vs FP16");
     println!("  {}", "-".repeat(60));
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
@@ -654,14 +654,14 @@ fn main() -> Result<(), String> {
     );
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
-        "sol G32 (sans décodage)",
+        "sol G32 (no decoding)",
         tfl * 1e6,
         g32_bytes / tfl / 1e9,
         format!("{:.2}×", t16 / tfl)
     );
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
-        "LLVQ fusé (G32)",
+        "LLVQ fused (G32)",
         tg * 1e6,
         g32_bytes / tg / 1e9,
         format!("{:.2}×", t16 / tg)
@@ -672,7 +672,7 @@ fn main() -> Result<(), String> {
         + d_out as f64 * 4.0;
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
-        "LLVQ fusé (Slot32)",
+        "LLVQ fused (Slot32)",
         tl * 1e6,
         slot_bytes / tl / 1e9,
         format!("{:.2}×", t16 / tl)
@@ -683,38 +683,38 @@ fn main() -> Result<(), String> {
         + d_out as f64 * 4.0;
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
-        "LLVQ fusé (Sorted32)",
+        "LLVQ fused (Sorted32)",
         (ts + ti) * 1e6,
         sort_bytes / (ts + ti) / 1e9,
         format!("{:.2}×", t16 / (ts + ti))
     );
-    println!("  (dont init queue : {:.2} µs)", ti * 1e6);
+    println!("  (of which tail init: {:.2} µs)", ti * 1e6);
     let flat_bytes = rtf.data.len() as f64
         + rtf.bases.len() as f64 * 4.0
         + (d_out * tail_w) as f64 * 4.0
         + d_out as f64 * 4.0;
     println!(
         "  {:<22}{:>10.2}{:>12.0}{:>14}",
-        "LLVQ fusé (Flat32)",
+        "LLVQ fused (Flat32)",
         tf * 1e6,
         flat_bytes / tf / 1e9,
         format!("{:.2}×", t16 / tf)
     );
     println!(
-        "\n  poids lus : FP16 {:.1} Mo, G32 {:.1} Mo, Flat32 {:.1} Mo, \
-         Slot32 {:.1} Mo ({:.3} b/poids)",
+        "\n  weights read: FP16 {:.1} MB, G32 {:.1} MB, Flat32 {:.1} MB, \
+         Slot32 {:.1} MB ({:.3} b/weight)",
         f16_bytes / 1e6, g32_bytes / 1e6, flat_bytes / 1e6, slot_bytes / 1e6,
         rtl.bits_per_weight()
     );
     println!(
-        "\n  poids lus : FP16 {:.1} Mo, LLVQ {:.1} Mo (×{:.2} de moins)",
+        "\n  weights read: FP16 {:.1} MB, LLVQ {:.1} MB (×{:.2} less)",
         f16_bytes / 1e6,
         g32_bytes / 1e6,
         f16_bytes / g32_bytes
     );
     println!(
-        "  repère papier (Table 7, leur GPU, 4096×4104, M=3) : LLVQ 11,94 µs, \
-         FP16 17,69 µs — 1,48×"
+        "  paper reference (Table 7, their GPU, 4096×4104, M=3): LLVQ 11.94 µs, \
+         FP16 17.69 µs — 1.48×"
     );
     Ok(())
 }

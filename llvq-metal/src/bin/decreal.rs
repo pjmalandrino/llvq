@@ -132,7 +132,7 @@ fn verify(name: &str, got: &[f32], rt: &RuntimeBlocks, table: &ClassTable, x: &[
             "{name}: block {b} decodes to {g}, reference says {want}"
         );
     }
-    println!("  {name} : {} blocs vérifiés contre le décodeur CPU", got.len());
+    println!("  {name}: {} blocks verified against the CPU decoder", got.len());
 }
 
 fn main() -> Result<(), String> {
@@ -163,7 +163,7 @@ fn main() -> Result<(), String> {
     }
     let n = indices.len();
     println!(
-        "{n} blocs réels ({} matrices, préfixes contigus) — {path}",
+        "{n} real blocks ({} matrices, contiguous prefixes) — {path}",
         h.matrices
     );
 
@@ -174,7 +174,7 @@ fn main() -> Result<(), String> {
     let g32 = transcode(&fd, &table, &indices, &gains, Layout::Grouped32)
         .map_err(|e| e.to_string())?;
     println!(
-        "transcodés en {:.1} s — F96 {:.4} b/poids, G32 {:.4} b/poids\n",
+        "transcoded in {:.1} s — F96 {:.4} b/weight, G32 {:.4} b/weight\n",
         t.elapsed().as_secs_f64(),
         f96.bits_per_weight(),
         g32.bits_per_weight()
@@ -183,9 +183,9 @@ fn main() -> Result<(), String> {
     // ---- GPU setup ----
     let src = format!("{}{}", llvq_metal::PAYLOAD_MSL, SRC);
     let floor = llvq_metal::Kernel::new(&src, "floor96")?;
-    println!("GPU : {}", floor.device_name());
+    println!("GPU: {}", floor.device_name());
     let overhead = floor.overhead(20);
-    println!("  surcoût de soumission {:.3} ms\n", overhead * 1e3);
+    println!("  submission overhead {:.3} ms\n", overhead * 1e3);
 
     let x = xvec();
     let recs = llvq_metal::gpu_class_table(&fd);
@@ -204,7 +204,7 @@ fn main() -> Result<(), String> {
         let net = secs - overhead;
         let per_block = net / n as f64;
         println!(
-            "  {name:<26}{:>9.3} ms{:>10.3} ns/bloc{:>13.2e} blocs/s{:>9}",
+            "  {name:<26}{:>9.3} ms{:>10.3} ns/block{:>13.2e} blocks/s{:>9}",
             net * 1e3,
             per_block * 1e9,
             1.0 / per_block,
@@ -219,7 +219,7 @@ fn main() -> Result<(), String> {
 
     println!(
         "  {:<26}{:>12}{:>18}{:>18}{:>9}",
-        "noyau", "temps", "par bloc", "débit", "vs sol"
+        "kernel", "time", "per block", "throughput", "vs sol"
     );
     println!("  {}", "-".repeat(84));
 
@@ -229,7 +229,7 @@ fn main() -> Result<(), String> {
         enc.set_buffer(1, Some(&bx), 0);
         enc.set_buffer(2, Some(&bout), 0);
     });
-    let t_floor = report("sol (12 o lus, rien décodé)", t.seconds, 0.0);
+    let t_floor = report("sol (12 B read, no decode)", t.seconds, 0.0);
 
     // ---- Fixed96 ----
     let kf = llvq_metal::Kernel::new(&src, "decode_f96")?;
@@ -240,7 +240,7 @@ fn main() -> Result<(), String> {
         enc.set_buffer(3, Some(&bx), 0);
         enc.set_buffer(4, Some(&bout), 0);
     });
-    let t_f96 = report("Fixed96 (aligné)", t.seconds, t_floor);
+    let t_f96 = report("Fixed96 (aligned)", t.seconds, t_floor);
     let got: Vec<f32> = unsafe { kf.read(&bout, n) };
     verify("Fixed96", &got, &f96, &table, &x);
 
@@ -254,14 +254,14 @@ fn main() -> Result<(), String> {
         enc.set_buffer(4, Some(&bx), 0);
         enc.set_buffer(5, Some(&bout), 0);
     });
-    let t_g32 = report("Grouped32 (strides octet)", t.seconds, t_floor);
+    let t_g32 = report("Grouped32 (byte strides)", t.seconds, t_floor);
     let got: Vec<f32> = unsafe { kg.read(&bout, n) };
     verify("Grouped32", &got, &g32, &table, &x);
 
     // ---- what it means ----
     println!("  {}", "-".repeat(84));
     let blocks_4b = 3_633_315_840f64 / 24.0;
-    println!("\n  Pour un Qwen3-4B ({:.0} M blocs) et un token :", blocks_4b / 1e6);
+    println!("\n  For one Qwen3-4B ({:.0} M blocks) and one token:", blocks_4b / 1e6);
     for (name, per_block, bpw) in [
         ("Fixed96", t_f96 / n as f64, f96.bits_per_weight()),
         ("Grouped32", t_g32 / n as f64, g32.bits_per_weight()),
@@ -269,14 +269,14 @@ fn main() -> Result<(), String> {
         let decode_ms = blocks_4b * per_block * 1e3;
         let gb = 3_633_315_840f64 * bpw / 8.0 / 1e9 + 0.778;
         println!(
-            "    {name:<11} décodage {decode_ms:>6.2} ms/token — trafic {gb:.2} Go \
-             → plafond mémoire {:.0} tok/s",
+            "    {name:<11} decode {decode_ms:>6.2} ms/token — traffic {gb:.2} GB \
+             → memory ceiling {:.0} tok/s",
             400.0 / gb
         );
     }
     println!(
-        "\n  Repère synthétique (4 niveaux uniformes, uint4) : 0,11 ns/bloc.\n  \
-         Le sol lit les mêmes 12 octets que Fixed96 ; Grouped32 en lit ~{:.1}.",
+        "\n  Synthetic reference (4 uniform levels, uint4): 0.11 ns/block.\n  \
+         The floor reads the same 12 bytes as Fixed96; Grouped32 reads ~{:.1}.",
         g32.data.len() as f64 / n as f64
     );
     Ok(())

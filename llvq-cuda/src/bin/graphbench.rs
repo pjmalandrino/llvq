@@ -1,33 +1,33 @@
-//! Ce que coûte un lancement, et ce qu'un CUDA Graph en rend.
+//! What a launch costs, and what a CUDA Graph gives back.
 //!
-//! L'audit de perf du 2026-08-05 fait de ce chiffre une **condition de
-//! publication** : tout gain de noyau mesuré à travers 252 lancements est
-//! dilué par le terme constant `252·g`, et `g` doit être connu avant tout
-//! balayage. `bin/matvec` en a déjà donné une borne — `t_submit` = 1,85 µs de
-//! CPU par lancement, 8 % du mur — mais la soumission n'est pas l'exécution :
-//! le GPU paie aussi un coût par lancement que le CPU ne voit pas.
+//! The 2026-08-05 performance audit makes this figure a **publication
+//! condition**: any kernel gain measured across 252 launches is diluted by the
+//! constant term `252·g`, and `g` has to be known before any sweep.
+//! `bin/matvec` already gave a bound, `t_submit` = 1.85 µs of CPU per launch,
+//! 8% of the wall. But submission is not execution: the GPU also pays a
+//! per-launch cost that the CPU never sees.
 //!
-//! ## Pourquoi un noyau minuscule
+//! ## Why a tiny kernel
 //!
-//! On mesure le **lancement**, pas le trafic. Une matrice de 64 lignes lance
-//! 8 blocs et lit quelques kilo-octets : le temps par itération est alors
-//! presque entièrement du coût fixe, ce qui est précisément la grandeur
-//! cherchée. Sur les vraies formes, le travail masquerait ce qu'on veut isoler.
+//! What is measured is the **launch**, not the traffic. A 64-row matrix
+//! launches 8 blocks and reads a few kilobytes: the per-iteration time is then
+//! almost entirely fixed cost, which is exactly the quantity wanted. On the
+//! real shapes the work would mask what has to be isolated.
 //!
-//! Les tampons sont des zéros. Ce n'est pas un raccourci : `bases` nul donne
-//! un stride nul, donc tous les blocs lisent l'entrée 0 de la table — la
-//! classe origine, parfaitement valide (`len = 1`, valeurs nulles). Le noyau
-//! exécute son chemin complet sur des données licites.
+//! The buffers are zeros. That is not a shortcut: a null `bases` gives a null
+//! stride, so every block reads entry 0 of the table, the origin class, which
+//! is perfectly valid (`len = 1`, null values). The kernel runs its full path
+//! on legal data.
 //!
-//! ## Les trois bras, et pourquoi il en faut trois
+//! ## The three arms, and why three are needed
 //!
-//! `Cuda::new` prend `ctx.default_stream()` — le stream NULL legacy, que le
-//! driver **refuse de capturer**. Un bras graph impose donc un stream frais,
-//! et changer de stream change l'objet mesuré : le NULL stream porte une
-//! synchronisation implicite contre tous les autres streams du contexte, pas
-//! un stream frais. Comparer « graph sur stream frais » à un chiffre publié
-//! pris sur le legacy créditerait le graph de ce que vaut le changement de
-//! stream. D'où : legacy · frais · frais + graph, dans le même job.
+//! `Cuda::new` takes `ctx.default_stream()`, the legacy NULL stream, which the
+//! driver **refuses to capture**. A graph arm therefore forces a fresh stream,
+//! and changing the stream changes the object measured: the NULL stream
+//! carries an implicit synchronization against every other stream of the
+//! context, a fresh stream does not. Comparing "graph on a fresh stream" to a
+//! figure published on the legacy stream would credit the graph with what the
+//! stream change is worth. Hence legacy, fresh, fresh + graph, in one job.
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -48,13 +48,13 @@ mod linux {
     const THREADS: u32 = 256;
     const TABLE_ENTRIES: usize = 512;
     const REC_WORDS: usize = 6;
-    /// Les 252 projections d'un token de Qwen3-4B — le compte qui donne son
-    /// sens à `252·g`.
+    /// The 252 projections of one Qwen3-4B token, the count that gives `252·g`
+    /// its meaning.
     const LAUNCHES: usize = 252;
     const ROUNDS: usize = 20;
     const WARMUP: usize = 5;
-    /// 64 lignes = 8 blocs : assez pour que la grille soit légale, assez peu
-    /// pour que le travail ne masque pas le lancement.
+    /// 64 rows = 8 blocks: enough for the grid to be legal, few enough that
+    /// the work does not mask the launch.
     const D_OUT: usize = 64;
     const D_IN: usize = 2560;
 
@@ -71,12 +71,12 @@ mod linux {
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
         let src = KernelSource::new(&parts);
-        println!("source NVRTC : {} octets, sha256 {}", src.text.len(), src.sha256);
+        println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
 
         let nblocks = D_IN / 24;
         let mut results: Vec<(&str, f64, f64, f64)> = Vec::new();
 
-        for (label, fresh) in [("stream legacy (défaut)", false), ("stream frais", true)] {
+        for (label, fresh) in [("legacy stream (default)", false), ("fresh stream", true)] {
             let cuda = if fresh {
                 Cuda::new_on_fresh_stream(&src)?
             } else {
@@ -84,7 +84,7 @@ mod linux {
             };
             let dev = cuda.device()?;
             if !fresh {
-                println!("\n{} — {} SM", dev.name, dev.sm_count);
+                println!("\n{} · {} SM", dev.name, dev.sm_count);
             }
             let f = cuda.func("tv_floor_stream")?;
 
@@ -102,7 +102,7 @@ mod linux {
                 )
             };
 
-            // --- sans graph ---
+            // --- without graph ---
             let mut us = Vec::new();
             for r in 0..ROUNDS {
                 let t = Instant::now();
@@ -115,10 +115,10 @@ mod linux {
                 }
             }
             let (lo, md, hi) = spread(us);
-            println!("  {label:<26} {md:7.2} µs/lancement  [{lo:.2}–{hi:.2}]");
+            println!("  {label:<26} {md:7.2} µs/launch  [{lo:.2}–{hi:.2}]");
             results.push((if fresh { "frais" } else { "legacy" }, lo, md, hi));
 
-            // --- avec graph, seulement là où le driver l'accepte ---
+            // --- with graph, only where the driver accepts it ---
             if fresh {
                 let graph = cuda.capture(|| {
                     for _ in 0..LAUNCHES {
@@ -136,30 +136,30 @@ mod linux {
                     }
                 }
                 let (lo, md, hi) = spread(us);
-                println!("  {:<26} {md:7.2} µs/lancement  [{lo:.2}–{hi:.2}]", "frais + graph");
+                println!("  {:<26} {md:7.2} µs/launch  [{lo:.2}–{hi:.2}]", "fresh + graph");
                 results.push(("graph", lo, md, hi));
             }
         }
 
-        // --- ce que ça vaut sur un token ---
+        // --- what it is worth on one token ---
         let get = |k: &str| results.iter().find(|(n, ..)| *n == k).map(|(_, _, m, _)| *m);
         if let (Some(legacy), Some(fresh), Some(graph)) = (get("legacy"), get("frais"), get("graph"))
         {
-            println!("\n  Sur {LAUNCHES} lancements — ce que vaut un token de projections :");
+            println!("\n  Over {LAUNCHES} launches, what one token of projections is worth:");
             println!("    legacy         {:6.3} ms", legacy * LAUNCHES as f64 / 1e3);
-            println!("    frais          {:6.3} ms", fresh * LAUNCHES as f64 / 1e3);
-            println!("    frais + graph  {:6.3} ms", graph * LAUNCHES as f64 / 1e3);
+            println!("    fresh          {:6.3} ms", fresh * LAUNCHES as f64 / 1e3);
+            println!("    fresh + graph  {:6.3} ms", graph * LAUNCHES as f64 / 1e3);
             println!(
-                "\n  Le graph rend {:.3} ms contre le stream frais, {:.3} contre le legacy.",
+                "\n  The graph gives back {:.3} ms against the fresh stream, {:.3} against legacy.",
                 (fresh - graph) * LAUNCHES as f64 / 1e3,
                 (legacy - graph) * LAUNCHES as f64 / 1e3
             );
             println!(
-                "  ⚠️ PLAFOND, pas un gain acquis : ce noyau ne fait presque rien, donc son\n  \
-                 temps est presque tout du lancement. Sur `tv_slot`, dont le travail masque\n  \
-                 une partie du coût fixe, l'économie réelle est plus faible — et le décode\n  \
-                 complet a un cache KV à formes variables qu'un graph statique ne capture pas\n  \
-                 (cf. A3(b) de la spec du lot A)."
+                "  WARNING: this is a CEILING, not a gain in hand. This kernel does almost\n  \
+                 nothing, so its time is almost all launch. On `tv_slot`, whose work masks\n  \
+                 part of the fixed cost, the real saving is smaller. Full decode also has a\n  \
+                 KV cache of varying shapes that a static graph does not capture\n  \
+                 (see A3(b) of the lot A spec)."
             );
         }
         Ok(())

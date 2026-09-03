@@ -75,13 +75,13 @@ fn planes_words_decode_to_the_slot_content() {
         let (stream, _) = tr.stream(&idx, &gains, 1, n).expect("transcode planes14");
         let words = match &stream {
             HostStream::Planes14 { words } => words,
-            _ => panic!("layout planes14 demandé, autre flux rendu"),
+            _ => panic!("planes14 layout asked, another stream returned"),
         };
         // The last block's window must sit inside the buffer — the invariant
         // the end-of-stream padding exists to provide.
         assert!(
             PLANES14_BYTES * (n - 1) / 4 + 4 <= words.len(),
-            "n={n} : la fenêtre de 4 mots du dernier bloc sort du tampon"
+            "n={n}: the 4-word window of the last block falls outside the buffer"
         );
 
         let slot = transcode(&fd, &table, &idx, &gains, Layout::Slot32).expect("transcode slot32");
@@ -94,13 +94,13 @@ fn planes_words_decode_to_the_slot_content() {
                 for (i, g) in got.iter_mut().enumerate() {
                     let lvl = ((p[0] >> i) & 1 | ((p[1] >> i) & 1) << 1 | ((p[2] >> i) & 1) << 2)
                         as usize;
-                    assert!(lvl < rec.len as usize, "bloc {b}, slot {i} : niveau {lvl}");
+                    assert!(lvl < rec.len as usize, "block {b}, slot {i}: level {lvl}");
                     let v = rec.values[lvl];
                     *g = if (smask >> i) & 1 == 1 { -v } else { v };
                 }
             }
-            assert_eq!(gain, want_gain, "bloc {b} : gain");
-            assert_eq!(got, want_pt, "bloc {b} : point");
+            assert_eq!(gain, want_gain, "block {b}: gain");
+            assert_eq!(got, want_pt, "block {b}: point");
         }
     }
 }
@@ -143,7 +143,7 @@ fn the_layout_switch_is_honoured() {
     // move is a source dive.
     let msg = FusedLayout::parse(Some("planes12")).unwrap_err();
     for expected in ["planes14", "planes12x", "slot32", "golay70"] {
-        assert!(msg.contains(expected), "le refus ne cite pas « {expected} » : {msg}");
+        assert!(msg.contains(expected), "the refusal does not name \"{expected}\": {msg}");
     }
 }
 
@@ -161,7 +161,7 @@ fn payload_accounting_matches_the_layout() {
     let (s, bytes) = tr.stream(&idx, &gains, 1, n).unwrap();
     match s {
         HostStream::Planes14 { .. } => {}
-        _ => panic!("des bases sur le chemin planes14"),
+        _ => panic!("bases on the planes14 path"),
     }
     assert_eq!(bytes, (n * PLANES14_BYTES) as u64);
 
@@ -170,12 +170,12 @@ fn payload_accounting_matches_the_layout() {
     let rt = transcode(&fd, &table, &idx, &gains, Layout::Slot32).unwrap();
     match s {
         HostStream::Slot32 { words, bases } => {
-            assert_eq!(bases, rt.bases, "les bases doivent être celles du transcodeur");
+            assert_eq!(bases, rt.bases, "the bases must be the transcoder's");
             assert_eq!(bytes, rt.data.len() as u64 + rt.bases.len() as u64 * 4);
             // The five-word window's 20-byte pad, still there.
             assert!(words.len() * 4 >= rt.data.len() + 20);
         }
-        _ => panic!("layout slot32 demandé, autre flux rendu"),
+        _ => panic!("slot32 layout asked, another stream returned"),
     }
 }
 
@@ -190,10 +190,10 @@ fn a_mismatched_row_shape_is_refused() {
     let (idx, gains) = synthetic(48, 0xD4);
     for layout in [FusedLayout::Planes14, FusedLayout::Slot32] {
         let tr = Transcoder::new(layout).unwrap();
-        assert!(tr.stream(&idx, &gains, 6, 8).is_ok(), "{layout:?} : 6 × 8 = 48");
+        assert!(tr.stream(&idx, &gains, 6, 8).is_ok(), "{layout:?}: 6 × 8 = 48");
         assert!(
             tr.stream(&idx, &gains, 6, 9).is_err(),
-            "{layout:?} : 6 × 9 ≠ 48, et le flux ne doit pas se construire"
+            "{layout:?}: 6 × 9 ≠ 48, and the stream must not build"
         );
     }
 }

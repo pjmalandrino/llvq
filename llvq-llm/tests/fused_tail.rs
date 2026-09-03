@@ -77,7 +77,7 @@ fn the_narrowed_tail_is_the_binary16_rounding() {
         assert_eq!(
             got.to_bits(),
             want.to_bits(),
-            "{v} : {got} au lieu de {want}"
+            "{v}: {got} instead of {want}"
         );
         // Sign of zero survives, which is not automatic through a naive
         // truncation and is free through a correct one.
@@ -108,7 +108,7 @@ fn narrowing_the_tail_rounds_once() {
         assert_eq!(
             b,
             half::f16::from_f64(v).to_bits(),
-            "{v:e} : la route f32 et la route directe divergent"
+            "{v:e}: the f32 route and the direct route diverge"
         );
     }
 }
@@ -248,8 +248,8 @@ fn narrowing_the_tail_is_worth_less_on_a_model_whose_down_proj_has_none() {
         let at32 = whole_model_bpp(m, FILE_TAIL_BITS);
         assert!(
             (at32 - m.published_bpp_q8).abs() < 5e-4,
-            "{} : la formule rend {at32:.4} contre {:.4} publié — une des \
-             constantes de forme est fausse, et rien en dessous ne vaut",
+            "{}: the formula gives {at32:.4} against {:.4} published, one of the \
+             shape constants is wrong, and nothing below it holds",
             m.name,
             m.published_bpp_q8
         );
@@ -257,7 +257,7 @@ fn narrowing_the_tail_is_worth_less_on_a_model_whose_down_proj_has_none() {
         let at16 = whole_model_bpp(m, RUNTIME_TAIL_BITS);
         assert!(
             (at16 - want_bpp).abs() < 5e-4,
-            "{} : queue à {RUNTIME_TAIL_BITS} b → {at16:.4}, attendu {want_bpp:.4}",
+            "{}: tail at {RUNTIME_TAIL_BITS} b → {at16:.4}, expected {want_bpp:.4}",
             m.name
         );
 
@@ -267,10 +267,10 @@ fn narrowing_the_tail_is_worth_less_on_a_model_whose_down_proj_has_none() {
         let gain = at32 - at16;
         let closed = (FILE_TAIL_BITS - RUNTIME_TAIL_BITS) as f64 * m.tail_weights as f64
             / (m.linear_weights + m.embed_params + m.other_params) as f64;
-        assert!((gain - closed).abs() < 1e-9, "{} : forme close", m.name);
+        assert!((gain - closed).abs() < 1e-9, "{}: closed form", m.name);
         assert!(
             (gain - want_gain).abs() < 5e-4,
-            "{} : gain {gain:.4} b/param, attendu {want_gain:.4}",
+            "{}: gain {gain:.4} b/param, expected {want_gain:.4}",
             m.name
         );
     }
@@ -283,7 +283,7 @@ fn narrowing_the_tail_is_worth_less_on_a_model_whose_down_proj_has_none() {
         whole_model_bpp(m, FILE_TAIL_BITS) - whole_model_bpp(m, RUNTIME_TAIL_BITS)
     };
     let (g4, g8) = (saving(&MODELS[0]), saving(&MODELS[1]));
-    assert!(g8 < 0.6 * g4, "le gain 8B doit être nettement sous le 4B");
+    assert!(g8 < 0.6 * g4, "the 8B gain must sit clearly under the 4B one");
 }
 
 // ---------------------------------------------------------------------------
@@ -329,7 +329,7 @@ fn the_tail_epilogue_decides_what_rust_decides() {
         .arg(&out)
         .status()
         .expect("clang++ is on PATH");
-    assert!(st.success(), "la source de la queue f16 ne compile pas en C++ hôte");
+    assert!(st.success(), "the f16 tail source does not compile as host C++");
 
     let mut rng = llvq_core::SplitMix64::new(0xA7AC_0DE0);
     // As they arrive: f32 values out of the file, narrowed on the host.
@@ -358,7 +358,7 @@ fn the_tail_epilogue_decides_what_rust_decides() {
         .expect("fixture written");
     let res = child.wait_with_output().expect("host probe finishes");
     assert!(res.status.success(), "host probe failed");
-    assert_eq!(res.stdout.len(), D_OUT * 4, "la sonde a écrit autre chose");
+    assert_eq!(res.stdout.len(), D_OUT * 4, "the probe wrote something else");
     let got: Vec<f32> = res
         .stdout
         .chunks_exact(4)
@@ -383,16 +383,16 @@ fn the_tail_epilogue_decides_what_rust_decides() {
         assert_eq!(
             got[row].to_bits(),
             replay.to_bits(),
-            "ligne {row} : {} contre le rejeu f32 {replay}",
+            "row {row}: {} against the f32 replay {replay}",
             got[row]
         );
         assert!(
             got[row] != 0.0,
-            "ligne {row} nulle — un `h2f` bouché rendrait exactement ça"
+            "row {row} is zero, a stubbed `h2f` would give exactly that"
         );
         let e = (got[row] as f64 - want).abs() / scale.max(1e-12);
         worst = worst.max(e);
-        assert!(e < 1e-6, "ligne {row} : écart {e:.2e}·Σ|w·x|");
+        assert!(e < 1e-6, "row {row}: gap {e:.2e}·Σ|w·x|");
     }
 
     // An empty tail must be a zero, not a read: `d_in` a multiple of 24 is the
@@ -409,7 +409,7 @@ fn the_tail_epilogue_decides_what_rust_decides() {
     child.stdin.take().expect("stdin").write_all(&fx).expect("written");
     let res = child.wait_with_output().expect("host probe finishes");
     assert!(res.status.success());
-    assert_eq!(res.stdout, vec![0u8; 16], "queue vide : contribution non nulle");
+    assert_eq!(res.stdout, vec![0u8; 16], "empty tail: contribution not zero");
 
-    println!("tail_dot_h hôte : {D_OUT} lignes × {TAIL_W}, pire écart {worst:.1e}·Σ|w·x|");
+    println!("tail_dot_h host: {D_OUT} rows × {TAIL_W}, worst gap {worst:.1e}·Σ|w·x|");
 }

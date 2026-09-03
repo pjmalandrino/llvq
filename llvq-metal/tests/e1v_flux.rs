@@ -42,11 +42,11 @@ const FLUX: &str = include_str!("../shaders/e1v_flux.metal");
 fn region(src: &str, name: &str, start: &str, end: &str, inclusive: bool) -> String {
     let s = src
         .find(start)
-        .unwrap_or_else(|| panic!("{name} : l'ancre de début `{start}` a disparu"));
+        .unwrap_or_else(|| panic!("{name}: the start anchor `{start}` is gone"));
     let rest = &src[s..];
     let e = rest
         .find(end)
-        .unwrap_or_else(|| panic!("{name} : l'ancre de fin a disparu"));
+        .unwrap_or_else(|| panic!("{name}: the end anchor is gone"));
     let e = if inclusive { e + end.len() } else { e };
     rest[..e].to_string()
 }
@@ -76,13 +76,13 @@ fn the_two_arms_share_their_helpers_byte_for_byte() {
     let b = helpers(FLUX, "e1v_flux.metal");
     assert!(
         a.contains("struct BlockRec") && a.contains("walk_all") && a.len() > 1500,
-        "l'extraction ne rend pas la région attendue ({} octets) — l'ancre a bougé",
+        "the extraction does not return the expected region ({} bytes), the anchor moved",
         a.len()
     );
     assert_eq!(
         a, b,
-        "les deux bras ne partagent plus leurs auxiliaires : l'écart entre eux cesse d'être \
-         le prix de l'adressage"
+        "the two arms no longer share their helpers: the gap between them stops being \
+         the price of the addressing"
     );
 }
 
@@ -94,12 +94,12 @@ fn the_two_arms_share_their_decode_byte_for_byte() {
     let b = decode_body(FLUX, "e1v_flux.metal");
     assert!(
         a.contains("walk_all(cur") && a.contains("par ^=") && a.len() > 1500,
-        "l'extraction ne rend pas le corps de décodage ({} octets)",
+        "the extraction does not return the decode body ({} bytes)",
         a.len()
     );
     assert_eq!(
         a, b,
-        "le corps de décodage a divergé entre `marche-bloc` et `e1v-flux`"
+        "the decode body has diverged between `marche-bloc` and `e1v-flux`"
     );
 }
 
@@ -114,17 +114,17 @@ fn the_addressing_is_the_only_difference() {
         "read_small",
         "bases[gid / E1V_GROUP]",
     ] {
-        assert!(FLUX.contains(needle), "`{needle}` a disparu du bras E1v");
+        assert!(FLUX.contains(needle), "`{needle}` is gone from the E1v arm");
         assert!(
             !BLOCK.contains(needle),
-            "`{needle}` est apparu dans `binomial_block.metal`, dont le document est scellé"
+            "`{needle}` appeared in `binomial_block.metal`, whose document is sealed"
         );
     }
     // And the shared regions must not have swallowed it.
     let h = helpers(FLUX, "e1v_flux.metal");
     let d = decode_body(FLUX, "e1v_flux.metal");
     for needle in ["simd_prefix_exclusive_sum", "window96", "read_small"] {
-        assert!(!h.contains(needle) && !d.contains(needle), "`{needle}` est dans une région partagée");
+        assert!(!h.contains(needle) && !d.contains(needle), "`{needle}` is in a shared region");
     }
 }
 
@@ -146,13 +146,13 @@ fn the_shader_restates_the_streams_constants() {
     ] {
         let at = FLUX
             .find(decl)
-            .unwrap_or_else(|| panic!("la déclaration `{decl}` a disparu du shader"));
+            .unwrap_or_else(|| panic!("the declaration `{decl}` is gone from the shader"));
         let tail = &FLUX[at + decl.len()..];
         let lit: String = tail.chars().take_while(char::is_ascii_digit).collect();
         assert_eq!(
-            lit.parse::<usize>().expect("un littéral décimal"),
+            lit.parse::<usize>().expect("a decimal literal"),
             want,
-            "le shader et l'hôte ne sont pas d'accord sur `{decl}`"
+            "the shader and the host disagree on `{decl}`"
         );
     }
     // The header is 10 bits in the search crate too, which is where the writer
@@ -175,9 +175,9 @@ fn the_payload_widths_are_what_the_cursor_consumes() {
     let recs = block_records(&fd, &golay);
     let pay = e1v_payload_bits(&fd, &golay, &recs);
 
-    assert_eq!(pay[ORIGIN_IDX], 0, "l'origine ne dépense que son en-tête");
+    assert_eq!(pay[ORIGIN_IDX], 0, "the origin spends only its header");
     for (ci, &bits) in pay.iter().enumerate().take(fd.n_classes()) {
-        assert!(bits > 0, "classe {ci} : une charge utile vide");
+        assert!(bits > 0, "class {ci}: an empty payload");
     }
     // The pre-registration's §1 divulges 56 bits on 8 fields, class 323. That
     // is a **record**, header included; what the warp-scan sums is a
@@ -189,13 +189,13 @@ fn the_payload_widths_are_what_the_cursor_consumes() {
         .iter()
         .enumerate()
         .max_by_key(|(_, &b)| b)
-        .expect("la table n'est pas vide");
-    assert_eq!(at, 323, "la classe la plus large n'est plus celle du §1");
+        .expect("the table is not empty");
+    assert_eq!(at, 323, "the widest class is no longer the one in §1");
     assert_eq!(
         u64::from(*max) + llvq_search::cns::HEADER_BITS,
         56,
-        "le record le plus large du §1 fait 56 bits, en-tête compris ; la charge utile \
-         que la somme préfixe additionne en fait {max}"
+        "the widest record in §1 is 56 bits, header included; the payload that the \
+         prefix sum adds up is {max}"
     );
     // Ids no class takes, and which no block ever reads.
     for (id, &bits) in pay
@@ -204,6 +204,6 @@ fn the_payload_widths_are_what_the_cursor_consumes() {
         .take(ORIGIN_IDX)
         .skip(fd.n_classes())
     {
-        assert_eq!(bits, 0, "l'id {id} n'est aucune classe");
+        assert_eq!(bits, 0, "id {id} is no class");
     }
 }

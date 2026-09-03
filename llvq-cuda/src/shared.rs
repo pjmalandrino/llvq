@@ -6,15 +6,15 @@
 //! runs only if its widest rotation fits what **one block** may hold — and on
 //! sm_70 and later that is two numbers, not one:
 //!
-//!   * `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK` — 49 152 o on an
+//!   * `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK` — 49,152 bytes on an
 //!     L40S: what a block gets without asking;
-//!   * `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` — 101 376 o on
+//!   * `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN` — 101,376 bytes on
 //!     the same card: what it gets once the **function** has been opted in
 //!     with `cuFuncSetAttribute(…, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, …)`.
 //!
 //! Comparing against the first only is what refused Qwen3-14B on 2026-08-17
-//! (job `6a82f40ce55292eada79b526`, 0,24 $, exit 1 after 488 s): 17 408 × 4 =
-//! 69 632 o, over the default and comfortably under the opt-in. The kernel
+//! (job `6a82f40ce55292eada79b526`, $0.24, exit 1 after 488 s): 17,408 × 4 =
+//! 69,632 bytes, over the default and comfortably under the opt-in. The kernel
 //! was never the obstacle; the host's arithmetic was.
 //!
 //! ## Why the arithmetic lives here
@@ -103,20 +103,20 @@ pub fn rot_plan(n: usize, default_limit: usize, optin_limit: usize) -> Result<Fi
     // a reader hunting for an attribute the card does not have.
     let which = if top > default_limit {
         format!(
-            "la carte en offre {default_limit} par défaut et {top} après opt-in : c'est la borne \
-             D'OPT-IN qui est franchie, de {} o",
+            "the card offers {default_limit} by default and {top} after opt-in: the OPT-IN bound \
+             is the one crossed, by {} bytes",
             bytes - top
         )
     } else {
         format!(
-            "la carte en offre {default_limit} par défaut et n'annonce aucun opt-in au-delà : \
-             c'est la borne PAR DÉFAUT qui est franchie, de {} o",
+            "the card offers {default_limit} by default and announces no opt-in beyond it: the \
+             DEFAULT bound is the one crossed, by {} bytes",
             bytes - top
         )
     };
     Err(format!(
-        "rotation de largeur {n} : {bytes} o de partagée demandés, {which}, et il n'y a pas de \
-         recours côté hôte. Le noyau à un bloc ne convient pas à cette largeur (cf. rotate.cu)."
+        "rotation of width {n}: {bytes} shared bytes requested, {which}, and there is no \
+         host-side remedy. The one-block kernel does not suit this width (see rotate.cu)."
     ))
 }
 
@@ -142,22 +142,22 @@ mod tests {
     #[test]
     fn the_four_real_widths_land_where_the_card_says() {
         let want = [
-            (9_728usize, Ok(Fit::Default)),  // Qwen3-4B  — 38 912 o
-            (12_288, Ok(Fit::Default)),      // Qwen3-8B  — 49 152 o, ON the bound
-            (17_408, Ok(Fit::OptIn)),        // Qwen3-14B — 69 632 o, the job that failed
-            (25_600, Err(())),               // Qwen3-32B — 102 400 o, over both
+            (9_728usize, Ok(Fit::Default)),  // Qwen3-4B  — 38,912 bytes
+            (12_288, Ok(Fit::Default)),      // Qwen3-8B  — 49,152 bytes, ON the bound
+            (17_408, Ok(Fit::OptIn)),        // Qwen3-14B — 69,632 bytes, the job that failed
+            (25_600, Err(())),               // Qwen3-32B — 102,400 bytes, over both
         ];
         for (n, expect) in want {
             let got = rot_plan(n, L40S_DEFAULT, L40S_OPTIN);
             match (got, expect) {
-                (Ok(f), Ok(w)) => assert_eq!(f, w, "largeur {n}"),
+                (Ok(f), Ok(w)) => assert_eq!(f, w, "width {n}"),
                 (Err(_), Err(())) => {}
-                (g, _) => panic!("largeur {n} : {g:?} n'est pas ce que la carte permet"),
+                (g, _) => panic!("width {n}: {g:?} is not what the card allows"),
             }
         }
     }
 
-    /// The 8B sits **exactly** on the default bound — 12 288 × 4 = 49 152 —
+    /// The 8B sits **exactly** on the default bound — 12,288 × 4 = 49,152 —
     /// so the comparison is `<=` and one character decides whether the model
     /// that has been shipping all along still loads. A `<` here would refuse
     /// a width the card has been running since 2026-08-08.
@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(plan(L40S_OPTIN + 1, L40S_DEFAULT, L40S_OPTIN), None);
     }
 
-    /// The 32B misses the opt-in by 1 024 o — one kibibyte on 100, which is
+    /// The 32B misses the opt-in by 1,024 bytes — one kibibyte on 100, which is
     /// the reservation the driver keeps. The refusal must survive, and it
     /// must say by how much: a guard that let this through would corrupt
     /// silently, which is what `rotate.cu` promises it would do.
@@ -178,11 +178,11 @@ mod tests {
     fn the_32b_misses_the_optin_by_1024_bytes() {
         assert_eq!(rot_bytes(25_600) - L40S_OPTIN, 1_024);
         let e = rot_plan(25_600, L40S_DEFAULT, L40S_OPTIN).unwrap_err();
-        assert!(e.contains("102400"), "le message tait les octets demandés : {e}");
-        assert!(e.contains("49152"), "le message tait la borne par défaut : {e}");
-        assert!(e.contains("101376"), "le message tait la borne d'opt-in : {e}");
-        assert!(e.contains("OPT-IN"), "le message ne dit pas quelle borne est franchie : {e}");
-        assert!(e.contains("de 1024 o"), "le message tait de combien : {e}");
+        assert!(e.contains("102400"), "the message hides the bytes requested: {e}");
+        assert!(e.contains("49152"), "the message hides the default bound: {e}");
+        assert!(e.contains("101376"), "the message hides the opt-in bound: {e}");
+        assert!(e.contains("OPT-IN"), "the message does not say which bound is crossed: {e}");
+        assert!(e.contains("by 1024 bytes"), "the message hides by how much: {e}");
     }
 
     /// A driver that does not know the opt-in attribute reports 0 for it.
@@ -198,25 +198,25 @@ mod tests {
     }
 
     /// …and on such a card the refusal must not blame an opt-in that does not
-    /// exist. Same width, two cards, two different facts: 17 408 crosses the
+    /// exist. Same width, two cards, two different facts: 17,408 crosses the
     /// **default** where there is no opt-in, and would cross nothing at all on
     /// an L40S. A message that said "opt-in" in both cases would send the
     /// reader after an attribute the card never offered.
     #[test]
     fn the_refusal_names_the_bound_that_the_card_actually_has() {
         let none = rot_plan(17_408, L40S_DEFAULT, 0).unwrap_err();
-        assert!(none.contains("PAR DÉFAUT"), "{none}");
-        assert!(none.contains("aucun opt-in"), "{none}");
-        assert!(!none.contains("D'OPT-IN"), "borne d'opt-in invoquée sans opt-in : {none}");
-        assert!(none.contains("de 20480 o"), "le message tait de combien : {none}");
+        assert!(none.contains("DEFAULT"), "{none}");
+        assert!(none.contains("no opt-in"), "{none}");
+        assert!(!none.contains("OPT-IN"), "opt-in bound invoked with no opt-in: {none}");
+        assert!(none.contains("by 20480 bytes"), "the message hides by how much: {none}");
 
         let both = rot_plan(25_600, L40S_DEFAULT, L40S_OPTIN).unwrap_err();
-        assert!(both.contains("D'OPT-IN"), "{both}");
-        assert!(!both.contains("aucun opt-in"), "{both}");
+        assert!(both.contains("OPT-IN"), "{both}");
+        assert!(!both.contains("no opt-in"), "{both}");
     }
 
     /// `rot_bytes` is f32 per coordinate, and the section of
-    /// `docs/format-noyau.md` that quotes 69 632 o for the 14B depends on it.
+    /// `docs/format-noyau.md` that quotes 69,632 bytes for the 14B depends on it.
     /// Halving it — the f16-staging idea the doc names and does not adopt —
     /// would move every verdict in that table, which is why it is pinned
     /// rather than inlined.

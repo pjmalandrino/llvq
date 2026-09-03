@@ -93,8 +93,8 @@ impl FusedLayout {
             Some("slot32") => Ok(Self::Slot32),
             Some("golay70") => Ok(Self::Golay70),
             Some(other) => Err(format!(
-                "LLVQ_FUSED_LAYOUT={other} : valeurs admises « planes14 » (défaut), \
-                 « planes12x », « slot32 » et « golay70 »"
+                "LLVQ_FUSED_LAYOUT={other}: accepted values \"planes14\" (default), \
+                 \"planes12x\", \"slot32\" and \"golay70\""
             )),
         }
     }
@@ -139,7 +139,7 @@ impl EmbedMode {
             Some("f16") => Ok(Self::F16),
             Some("q8") => Ok(Self::Q8),
             Some(other) => Err(format!(
-                "LLVQ_EMBED={other} : valeurs admises « f16 » (défaut) et « q8 »"
+                "LLVQ_EMBED={other}: accepted values \"f16\" (default) and \"q8\""
             )),
         }
     }
@@ -182,7 +182,7 @@ pub fn embed_q8(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor,
         }
         llvq_artifact::RawData::Quant(q) if q.bits == 8 && q.group == EMBED_GROUP => Ok(t),
         llvq_artifact::RawData::Quant(q) => Err(format!(
-            "{} : int{} g{} porté par le fichier — le chemin q8 ne lit que int8 g{EMBED_GROUP}",
+            "{}: int{} g{} carried by the file, the q8 path reads only int8 g{EMBED_GROUP}",
             t.name, q.bits, q.group
         )),
     }
@@ -191,7 +191,7 @@ pub fn embed_q8(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor,
 /// Device bytes of the q8 embedding: `(packed, scales + biases)`.
 ///
 /// Pure arithmetic on the dims, so the announced footprint is testable
-/// without a card: on `[151936, 2560]` this is 388 956 160 + 24 309 760
+/// without a card: on `[151936, 2560]` this is 388,956,160 + 24,309,760
 /// bytes — the 413.3 MB the mission statement quotes.
 pub fn q8_device_bytes(dims: &[usize]) -> (u64, u64) {
     let row_len = dims.last().copied().unwrap_or(1).max(1);
@@ -271,16 +271,16 @@ pub fn take_embed_tables(
         let i = raw.iter().position(|t| t.name == name)?;
         Some(raw.swap_remove(i))
     }
-    let embed = take(raw, EMBED_NAME).ok_or_else(|| format!("ne porte pas {EMBED_NAME}"))?;
+    let embed = take(raw, EMBED_NAME).ok_or_else(|| format!("does not carry {EMBED_NAME}"))?;
     let embed = embed_q8(embed)?;
     let head = if tie {
         None
     } else {
         let t = take(raw, HEAD_NAME).ok_or_else(|| {
             format!(
-                "tie_word_embeddings=false, mais le fichier ne porte pas {HEAD_NAME} — \
-                 les deux extrémités sont déliées, et le chemin q8 ne remplace jamais \
-                 un lm_head manquant par l'embedding"
+                "tie_word_embeddings=false, but the file does not carry {HEAD_NAME}. The \
+                 two ends are untied, and the q8 path never substitutes the embedding for \
+                 a missing lm_head"
             )
         })?;
         Some(embed_q8(t)?)
@@ -349,18 +349,18 @@ impl EmbedReport {
     pub fn line(&self) -> String {
         let names: Vec<&str> = self.tables.iter().map(|(n, ..)| n.as_str()).collect();
         let which = if names.len() == 1 {
-            format!("1 table ({}, lm_head lié dessus)", names[0])
+            format!("1 table ({}, lm_head tied on it)", names[0])
         } else {
             format!("{} tables ({})", names.len(), names.join(" + "))
         };
         match self.mode {
             EmbedMode::F16 => format!(
-                "embedding : f16 (LLVQ_EMBED) — {which}, {:.1} Mo sur la carte",
+                "embedding: f16 (LLVQ_EMBED), {which}, {:.1} MB on the card",
                 self.total() as f64 / 1e6
             ),
             EmbedMode::Q8 => format!(
-                "embedding : q8 g64 (LLVQ_EMBED) — {which}, {:.1} Mo sur la carte \
-                 (int8 {:.1} + échelles/biais {:.1})",
+                "embedding: q8 g64 (LLVQ_EMBED), {which}, {:.1} MB on the card \
+                 (int8 {:.1} + scales/biases {:.1})",
                 self.total() as f64 / 1e6,
                 self.packed() as f64 / 1e6,
                 self.meta() as f64 / 1e6
@@ -527,8 +527,8 @@ impl FuseMode {
             None | Some("") | Some("0") => Ok(Self::Off),
             Some("1") => Ok(Self::On),
             Some(other) => Err(format!(
-                "LLVQ_FUSE={other} : valeurs admises « 0 » (défaut, un matvec par \
-                 projection) et « 1 » (un matvec par activation partagée)"
+                "LLVQ_FUSE={other}: accepted values \"0\" (default, one matvec per \
+                 projection) and \"1\" (one matvec per shared activation)"
             )),
         }
     }
@@ -570,18 +570,18 @@ pub fn check_fuse(
     }
     if seg_kernel_name(layout).is_none() {
         return Err(format!(
-            "LLVQ_FUSE=1 avec LLVQ_FUSED_LAYOUT={} : seul planes14 se segmente. Les \
-             exceptions de planes12x et golay70 sont indexées par la ligne LOCALE de leur \
-             matrice, et slot32 porte un pas par groupe de 32 blocs — une concaténation \
-             par lignes y rendrait des nombres finis, plausibles et faux.",
+            "LLVQ_FUSE=1 with LLVQ_FUSED_LAYOUT={}: only planes14 segments. The \
+             exceptions of planes12x and golay70 are indexed by the LOCAL row of their \
+             matrix, and slot32 carries one stride per group of 32 blocks. A row \
+             concatenation there would return finite, plausible, wrong numbers.",
             layout.name()
         ));
     }
     if share == crate::rotplan::RotShare::Off {
         return Err(
-            "LLVQ_FUSE=1 avec LLVQ_ROT_SHARE=0 : un groupe fusé est UN site, donc il tourne \
-             une fois par ligne quoi que dise le mode. Accepter la paire ferait bouger deux \
-             mécanismes dans un seul A/B. Poser LLVQ_ROT_SHARE=1 sur les DEUX bras."
+            "LLVQ_FUSE=1 with LLVQ_ROT_SHARE=0: a fused group is ONE site, so it rotates \
+             once per row whatever the mode says. Accepting the pair would move two \
+             mechanisms inside one A/B. Set LLVQ_ROT_SHARE=1 on BOTH arms."
                 .into(),
         );
     }
@@ -611,7 +611,7 @@ pub fn load_planes_sources(
         "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
         "llvq_golay.cuh" => Ok(GOLAY_CUH_EMBED),
         "tv_golay70_h.cu" => Ok(GOLAY70_H_CU_EMBED),
-        other => Err(format!("pas de copie embarquée de {other}")),
+        other => Err(format!("no embedded copy of {other}")),
     };
     match std::env::var("LLVQ_KERNEL_DIR") {
         Err(_) => Ok((
@@ -739,7 +739,7 @@ pub const TAIL_BYTES: u64 = 2;
 /// `rscale[row]` multiplies the whole accumulated block sum, so its rounding
 /// is a *relative* error on every quantized weight of the row at once, where
 /// the tail's is an absolute error on `d_in mod 24` of them. Different
-/// exposure, different decision — and 1 105 920 rows on the 4B is 4.4 MB, a
+/// exposure, different decision — and 1,105,920 rows on the 4B is 4.4 MB, a
 /// tenth of what the tail was costing.
 pub const ROW_SCALE_BYTES: u64 = 4;
 
@@ -804,7 +804,7 @@ pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
 ///
 /// Extracted from `load` so the accounting is a function with a name and a
 /// test rather than an expression inside a loop — `runtime_bytes` is the
-/// number `fusedrun` prints as "Go sur la carte" and that
+/// number `fusedrun` prints as "GB on the card" and that
 /// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
 /// here is published, not caught.
 pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
@@ -838,8 +838,8 @@ impl RotationTables {
         let (m, k) = (rot.pow2(), rot.odd());
         if k > ROT_KMAX {
             return Err(format!(
-                "largeur {n} : facteur impair {k} au-delà de KMAX={ROT_KMAX}. Le noyau de \
-                 rotation ne la traite pas — cf. llvq_rot.cuh."
+                "width {n}: odd factor {k} above KMAX={ROT_KMAX}. The rotation kernel does \
+                 not handle it, see llvq_rot.cuh."
             ));
         }
         let mut signbits = vec![0u32; n.div_ceil(32)];
@@ -924,22 +924,22 @@ pub fn planes_payload_words(n_blocks: usize) -> Option<usize> {
 pub fn splice_planes14(parts: &[(&HostStream, usize)]) -> Result<Vec<u32>, String> {
     let total: usize = parts.iter().map(|&(_, n)| n).sum();
     let want = planes_payload_words(total)
-        .ok_or_else(|| format!("{total} blocs au total — impair"))?;
+        .ok_or_else(|| format!("{total} blocks in total, an odd count"))?;
     let mut out = Vec::with_capacity(want + 1);
     for (i, &(s, n)) in parts.iter().enumerate() {
         let HostStream::Planes14 { words } = s else {
-            return Err(format!("segment {i} : flux qui n'est pas Planes14"));
+            return Err(format!("segment {i}: stream that is not Planes14"));
         };
         let pw = planes_payload_words(n).ok_or_else(|| {
             format!(
-                "segment {i} : {n} blocs — impair, donc 14·n n'est pas un multiple de 4 et \
-                 la frontière ne tombe pas sur un mot"
+                "segment {i}: {n} blocks, an odd count, so 14·n is not a multiple of 4 and \
+                 the boundary does not fall on a word"
             )
         })?;
         if words.len() != pw + 1 {
             return Err(format!(
-                "segment {i} : {} mots pour {n} blocs, {} attendus (charge utile {pw} + un \
-                 mot de bourrage de fin de flux)",
+                "segment {i}: {} words for {n} blocks, {} expected (payload {pw} + one \
+                 end-of-stream padding word)",
                 words.len(),
                 pw + 1
             ));
@@ -1000,9 +1000,9 @@ pub struct FusedGroup {
     /// Device bytes: the payload, [`matrix_side_bytes`] for the tail and the
     /// row scales, **and `gs_off`** — 4 bytes a fused row, which no other
     /// layout pays. On the published 4B that last term is the whole difference
-    /// between the two arms: 36 layers × 25 600 fused rows × 4 = 3 686 400
+    /// between the two arms: 36 layers × 25,600 fused rows × 4 = 3,686,400
     /// bytes, i.e. +0.0081 b/weight. Counted here rather than dropped, because
-    /// `runtime_bytes` is what `fusedrun` prints as "Go sur la carte".
+    /// `runtime_bytes` is what `fusedrun` prints as "GB on the card".
     pub bytes: u64,
 }
 
@@ -1022,28 +1022,28 @@ pub fn check_seg_spans(
     group_d_out: usize,
 ) -> Result<(), String> {
     if spans.is_empty() {
-        return Err(format!("{key} : groupe segmenté sans aucune partie"));
+        return Err(format!("{key}: segmented group with no part at all"));
     }
     let mut at = 0usize;
     for (i, &(rank, row0, d_out)) in spans.iter().enumerate() {
         if rank != i {
             return Err(format!(
-                "{key} : la projection en position {i} porte le rang {rank}. L'ordre des \
-                 lignes du groupe est celui de Act::consumers(), et le découpage de la \
-                 sortie en dépend."
+                "{key}: the projection at position {i} carries rank {rank}. The row order \
+                 of the group is the one of Act::consumers(), and the split of the output \
+                 depends on it."
             ));
         }
         if row0 != at {
             return Err(format!(
-                "{key} : la partie {i} commence à la ligne {row0}, {at} attendues — les \
-                 parties ne pavent pas le groupe."
+                "{key}: part {i} starts at row {row0}, {at} expected. The parts do not \
+                 tile the group."
             ));
         }
         at += d_out;
     }
     if at != group_d_out {
         return Err(format!(
-            "{key} : {at} lignes réparties sur les {group_d_out} du groupe fusé"
+            "{key}: the parts cover {at} rows of the fused group's {group_d_out}"
         ));
     }
     Ok(())
@@ -1091,8 +1091,7 @@ pub fn segment_matrices(
         let (layer, suffix) = llvq_artifact::split_name(&m.name).map_err(|e| e.to_string())?;
         let act = crate::rotplan::act_of_suffix(&suffix).ok_or_else(|| {
             format!(
-                "{} : « {suffix} » n'est le consommateur d'aucune des quatre activations \
-                 d'un bloc Qwen3",
+                "{}: \"{suffix}\" consumes none of the four activations of a Qwen3 block",
                 m.name
             )
         })?;
@@ -1137,7 +1136,7 @@ fn build_group(
         // An incomplete group is a broken file, never a degraded case: the
         // missing rows would silently shrink the fused matrix.
         return Err(format!(
-            "{key} : {} projections sur les {want} que cette activation nourrit ({})",
+            "{key}: {} projections out of the {want} this activation feeds ({})",
             parts.len(),
             act.consumers().join(", ")
         ));
@@ -1148,8 +1147,8 @@ fn build_group(
     };
     if rotation.is_none() {
         return Err(format!(
-            "{key} : {} n'a pas de rotation. Le chemin fusé ne sait pas lire une matrice \
-             quantifiée en base naturelle.",
+            "{key}: {} has no rotation. The fused path cannot read a matrix quantized in \
+             the natural basis.",
             parts[0].2.name
         ));
     }
@@ -1161,7 +1160,7 @@ fn build_group(
             .iter()
             .map(|(_, _, m)| (&m.stream, m.d_out * nblocks))
             .collect();
-        splice_planes14(&streams).map_err(|e| format!("{key} : {e}"))?
+        splice_planes14(&streams).map_err(|e| format!("{key}: {e}"))?
     };
 
     let mut d_out = 0usize;
@@ -1175,29 +1174,29 @@ fn build_group(
     for (i, (rank, suffix, m)) in parts.into_iter().enumerate() {
         if rank != i {
             return Err(format!(
-                "{key} : {} porte le rang {rank} en position {i} — deux projections de même \
-                 rang, ou un consommateur en double",
+                "{key}: {} carries rank {rank} at position {i}, so two projections share a \
+                 rank, or a consumer is duplicated",
                 m.name
             ));
         }
         if m.d_in != d_in {
             return Err(format!(
-                "{key} : {} prend d_in={}, {d_in} pour le groupe. Un groupe partage son \
-                 activation, donc son nombre de blocs et sa queue.",
+                "{key}: {} has d_in={}, the group has {d_in}. A group shares its \
+                 activation, hence its block count and its tail.",
                 m.name, m.d_in
             ));
         }
         if m.nblocks != nblocks || m.tail_w != tail_w {
             return Err(format!(
-                "{key} : {} découpe {} blocs et une queue de {}, contre {nblocks} et \
-                 {tail_w} pour le groupe",
+                "{key}: {} splits into {} blocks and a tail of {}, against {nblocks} and \
+                 {tail_w} for the group",
                 m.name, m.nblocks, m.tail_w
             ));
         }
         if m.rotation != rotation {
             return Err(format!(
-                "{key} : {} porte la rotation {:?}, {rotation:?} pour le groupe. Le hissage \
-                 donnerait à l'une la base de l'autre.",
+                "{key}: {} carries rotation {:?}, {rotation:?} for the group. Hoisting \
+                 would give one the basis of the other.",
                 m.name, m.rotation
             ));
         }
@@ -1207,14 +1206,14 @@ fn build_group(
         // sum, and then the *unfused* control arm could not be launched at all.
         if !m.d_out.is_multiple_of(8) {
             return Err(format!(
-                "{key} : {} a d_out={}, qui n'est pas un multiple de 8",
+                "{key}: {} has d_out={}, which is not a multiple of 8",
                 m.name, m.d_out
             ));
         }
         if m.rscale.len() != m.d_out || m.tail.len() != m.d_out * tail_w {
             return Err(format!(
-                "{key} : {} porte {} échelles de ligne et {} valeurs de queue pour {} \
-                 lignes de {tail_w}",
+                "{key}: {} carries {} row scales and {} tail values for {} \
+                 rows of {tail_w}",
                 m.name,
                 m.rscale.len(),
                 m.tail.len(),
@@ -1228,8 +1227,8 @@ fn build_group(
         let part_payload = (PLANES14_BYTES * m.d_out * nblocks) as u64;
         if m.bytes != part_payload + matrix_side_bytes(m.d_out, tail_w) {
             return Err(format!(
-                "{key} : {} facture {} octets, {} attendus (charge utile {part_payload} + \
-                 queue et échelles)",
+                "{key}: {} bills {} bytes, {} expected (payload {part_payload} + \
+                 tail and scales)",
                 m.name,
                 m.bytes,
                 part_payload + matrix_side_bytes(m.d_out, tail_w)
@@ -1256,7 +1255,7 @@ fn build_group(
 
     if !d_out.is_multiple_of(8) {
         return Err(format!(
-            "{key} : d_out={d_out} au total, qui n'est pas un multiple de 8"
+            "{key}: d_out={d_out} in total, which is not a multiple of 8"
         ));
     }
     if gs_off.len() != d_out
@@ -1265,8 +1264,8 @@ fn build_group(
         || gscale.len() != 2 * seg_parts.len()
     {
         return Err(format!(
-            "{key} : concaténation incohérente — {} gs_off, {} échelles, {} valeurs de \
-             queue, {} centroïdes pour {d_out} lignes de {tail_w} et {} parties",
+            "{key}: inconsistent concatenation, {} gs_off, {} scales, {} tail values, \
+             {} centroids for {d_out} rows of {tail_w} and {} parts",
             gs_off.len(),
             rscale.len(),
             tail.len(),
@@ -1337,11 +1336,11 @@ impl FusedModel {
     /// 🚨 **This function no longer reproduces those three bench numbers, and
     /// the gap is a real difference of objects, not a drift.** Since lot A7a
     /// the inference path holds the `KeepExact` tail as binary16 while every
-    /// bench arm (`planesbench`, and `rtbits`'s "b/poids noyau" column which
+    /// bench arm (`planesbench`, and `rtbits`'s "b/weight kernel" column which
     /// models it) still uploads `f32`. The whole difference is
     /// `16 · tail_weights / weights`: **−0.0747 b/weight on the published 4B**
-    /// (16 957 440 tail weights of 3 633 315 840) and **−0.0462 on the 8B**
-    /// (20 054 016 of 6 945 767 424), so `Planes14` reads 4.729 here against
+    /// (16,957,440 tail weights of 3,633,315,840) and **−0.0462 on the 8B**
+    /// (20,054,016 of 6,945,767,424), so `Planes14` reads 4.729 here against
     /// the bench's 4.804 at 4B, and 4.706 against 4.752 at 8B. Two
     /// accountings of two different residencies — never subtract one from the
     /// other and call it a measurement.
@@ -1426,7 +1425,7 @@ fn pack_plane_bytes(bytes: &[u8]) -> Vec<u32> {
 /// add a second pad; harmless zeros, but the byte accounting then no longer
 /// reads off the vector's length.
 fn pack_aligned_bytes(bytes: &[u8]) -> Vec<u32> {
-    assert!(bytes.len().is_multiple_of(4), "le transcodeur aligne son flux");
+    assert!(bytes.len().is_multiple_of(4), "the transcoder aligns its stream");
     bytes
         .chunks_exact(4)
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -1527,8 +1526,8 @@ fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>
         while e < exc_idx.len() && exc_idx[e] < hi {
             if e > 0 && exc_idx[e] <= exc_idx[e - 1] {
                 return Err(format!(
-                    "table d'exceptions non strictement croissante en {e} \
-                     ({} après {})",
+                    "exception table not strictly increasing at {e} \
+                     ({} after {})",
                     exc_idx[e],
                     exc_idx[e - 1]
                 ));
@@ -1539,7 +1538,7 @@ fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>
     }
     if e != exc_idx.len() {
         return Err(format!(
-            "{} exceptions au-delà du dernier bloc de la matrice ({} lignes × {nblocks})",
+            "{} exceptions past the last block of the matrix ({} rows × {nblocks})",
             exc_idx.len() - e,
             d_out
         ));
@@ -1551,7 +1550,7 @@ fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>
 ///
 /// The searcher is here rather than at the call site because of what it costs
 /// and what it means. `Planes12x` re-encodes every 5-level block — one exact
-/// `nearest_angular` over the m ≤ 12 ball, ~0.7 ms of one core each, 5 096 688
+/// `nearest_angular` over the m ≤ 12 ball, ~0.7 ms of one core each, 5,096,688
 /// of them on the published 4B — and the searcher carries the lattice tables
 /// that search needs. Holding it in a struct whose constructor knows the
 /// layout makes "the searcher exists exactly when the layout needs one" an
@@ -1588,8 +1587,8 @@ impl Transcoder {
             // before any timing. `Golay70` inherits the need: its exception
             // records are the same Planes14 records.
             if !(0..table.n_entries()).all(|e| table.record(e).len <= 5) {
-                return Err("une classe dépasse 5 niveaux : les plans de bits ne \
-                            peuvent pas la porter"
+                return Err("a class exceeds 5 levels: the bit planes cannot \
+                            carry it"
                     .into());
             }
         }
@@ -1638,7 +1637,7 @@ impl Transcoder {
     ) -> Result<(HostStream, u64), String> {
         if indices.len() != d_out * nblocks {
             return Err(format!(
-                "{} codes pour {d_out} lignes × {nblocks} blocs",
+                "{} codes for {d_out} rows × {nblocks} blocks",
                 indices.len()
             ));
         }
@@ -1661,7 +1660,7 @@ impl Transcoder {
                 let s = self
                     .searcher
                     .as_ref()
-                    .ok_or("Transcoder::new n'a pas construit de chercheur pour planes12x")?;
+                    .ok_or("Transcoder::new built no searcher for planes12x")?;
                 let pb: Planes12xBlocks =
                     transcode_planes12x(&self.fd, &self.table, s, indices, gains)
                         .map_err(|e| e.to_string())?;
@@ -1684,7 +1683,7 @@ impl Transcoder {
                 let g70 = self
                     .g70
                     .as_ref()
-                    .ok_or("Transcoder::new n'a pas construit de table pour golay70")?;
+                    .ok_or("Transcoder::new built no table for golay70")?;
                 let gb: Golay70Blocks =
                     transcode_golay70(&self.fd, &self.table, g70, indices, gains)
                         .map_err(|e| e.to_string())?;
@@ -1740,7 +1739,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // whose only symptom is a wrong number.
     if fuse == FuseMode::On && seg_kernel_name(layout).is_none() {
         return Err(format!(
-            "LLVQ_FUSE=1 avec LLVQ_FUSED_LAYOUT={} : seul planes14 se segmente (cf. \
+            "LLVQ_FUSE=1 with LLVQ_FUSED_LAYOUT={}: only planes14 segments (see \
              seg_kernel_name)",
             layout.name()
         ));
@@ -1751,8 +1750,8 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     let head = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     if !head.is_self_contained() {
         return Err(format!(
-            "{path} n'est qu'un artefact de projections (format v{}) — il ne peut pas \
-             tourner seul.",
+            "{path} is only a projections artifact (format v{}), it cannot run on its \
+             own.",
             head.version
         ));
     }
@@ -1769,7 +1768,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         // decode into garbage — silently.
         if m.centroids.len() != 2 {
             return Err(format!(
-                "{} : {} centroïdes, mais les noyaux codent 1 bit de gain en dur",
+                "{}: {} centroids, but the kernels hardcode 1 gain bit",
                 m.name,
                 m.centroids.len()
             ));
@@ -1857,10 +1856,10 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         raw,
         config_json: blobs
             .remove("config.json")
-            .ok_or_else(|| format!("{path} ne porte pas de config.json"))?,
+            .ok_or_else(|| format!("{path} carries no config.json"))?,
         tokenizer_json: blobs
             .remove("tokenizer.json")
-            .ok_or_else(|| format!("{path} ne porte pas de tokenizer.json"))?,
+            .ok_or_else(|| format!("{path} carries no tokenizer.json"))?,
         quantized_weights,
         carried_weights,
         file_bytes,
@@ -1882,7 +1881,7 @@ mod tests {
         assert_eq!(FuseMode::parse(Some("1")), Ok(FuseMode::On));
         for bad in ["on", "off", "true", "2", "1 ", "01", "yes", "planes14"] {
             let e = FuseMode::parse(Some(bad)).expect_err("must be refused");
-            assert!(e.contains(bad), "le message doit citer la valeur : {e}");
+            assert!(e.contains(bad), "the message must cite the value: {e}");
         }
     }
 
@@ -1898,21 +1897,21 @@ mod tests {
         );
         assert_eq!(fuse, FuseMode::Off);
         assert_eq!(share, crate::rotplan::RotShare::Off);
-        check_fuse(FusedLayout::Planes14, share, fuse).expect("les deux défauts se tiennent");
+        check_fuse(FusedLayout::Planes14, share, fuse).expect("the two defaults hold together");
         // And the pair this is guarding against, in both of its forms.
         let e = check_fuse(FusedLayout::Planes14, crate::rotplan::RotShare::Off, FuseMode::On)
-            .expect_err("On + RotShare::Off doit être refusé");
+            .expect_err("On + RotShare::Off must be refused");
         assert!(e.contains("LLVQ_ROT_SHARE"), "{e}");
         for layout in [FusedLayout::Planes12x, FusedLayout::Slot32, FusedLayout::Golay70] {
             let e = check_fuse(layout, crate::rotplan::RotShare::On, FuseMode::On)
-                .expect_err("seul planes14 se segmente");
-            assert!(e.contains(layout.name()), "le refus doit nommer le layout : {e}");
+                .expect_err("only planes14 segments");
+            assert!(e.contains(layout.name()), "the refusal must name the layout: {e}");
             // …and `Off` stays launchable on every layout, since it is the
             // control arm.
-            check_fuse(layout, crate::rotplan::RotShare::On, FuseMode::Off).expect("contrôle");
+            check_fuse(layout, crate::rotplan::RotShare::On, FuseMode::Off).expect("control");
         }
         check_fuse(FusedLayout::Planes14, crate::rotplan::RotShare::On, FuseMode::On)
-            .expect("la seule paire fusable");
+            .expect("the only fusable pair");
     }
 
     /// The three tables must describe the transform `Rotation` computes.
@@ -1979,7 +1978,7 @@ mod tests {
                 .map(|(a, b)| (a - b) * (a - b))
                 .sum::<f64>()
                 .sqrt();
-            assert!(dev / nrm < 1e-6, "n={n} : écart relatif {:.3e}", dev / nrm);
+            assert!(dev / nrm < 1e-6, "n={n}: relative deviation {:.3e}", dev / nrm);
         }
     }
 

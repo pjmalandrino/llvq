@@ -1,7 +1,7 @@
 //! **P5 §2.2 / C2 — the integral sweep of the CNS re-bijection.**
 //!
 //! `proofs/preregistration-p5-2026-08-14.md` §3, V0.d: every one of the
-//! **150 681 600 blocks** of the sealed Qwen3-4B goes archive index → CNS
+//! **150,681,600 blocks** of the sealed Qwen3-4B goes archive index → CNS
 //! record → point, and the point must equal `FastDecoder::decode`'s. Any
 //! discrepancy buries E1v without a timing (rule of the 08-11).
 //!
@@ -16,22 +16,22 @@
 //!   number per class, merged across threads, and a mismatch names the class.
 //! * **C1's raw width** — the CNS record's bits, averaged over the real class
 //!   mix. This is the number amendment É0 substitutes for the published
-//!   **51,87** bits/block: same composition, rounded **per kind** rather than
+//!   **51.87** bits/block: same composition, rounded **per kind** rather than
 //!   per stage, because per-stage rounding means a packed peel and a packed
 //!   peel means a division.
 //!
-//! ⚠️ **What this sweep does NOT give.** The *addressed* figure — 53,332
-//! bits/block FO/warp-scan, and the 2,3709 b/weight kernel that derives from it
+//! ⚠️ **What this sweep does NOT give.** The *addressed* figure — 53.332
+//! bits/block FO/warp-scan, and the 2.3709 b/weight kernel that derives from it
 //! — needs the group-of-32 addressing model, which lives in `radixstudy` and
 //! which P5 §4 forbids this side from reading. What is printed here is the
 //! **raw** width; converting it is a separate deliverable with its own
 //! accounting (P5 §1.1, §1.2), and doing it by eye would merge two
-//! comptabilités that the pre-registration spends a page separating.
+//! accountings that the pre-registration spends a page separating.
 //!
 //! ⚠️ **And the origin is not here.** The published 4B carries **zero** origin
 //! block, so no sweep of it will ever exercise that path. It is covered by
 //! `llvq_search::cns`'s own fixture, which pushes index 0 on purpose. Writing
-//! "proven on 150,7 M blocks" without that reserve would be false — P5 §2.2
+//! "proven on 150.7 M blocks" without that caveat would be false — P5 §2.2
 //! says so in as many words.
 //!
 //! `#[ignore]`d unconditionally: it reads a 981 MB archive that is not in the
@@ -98,27 +98,27 @@ fn the_sealed_artifact_cns_re_bijection_is_exact() {
                         .zip(&m.gains[lo..hi])
                         .enumerate()
                     {
-                        let gain = u8::try_from(g).expect("1 bit de gain");
+                        let gain = u8::try_from(g).expect("one gain bit");
                         let rec = cns_encode(&fd, idx, gain)
-                            .unwrap_or_else(|| panic!("{} bloc {}: index hors boule", m.name, lo + b));
+                            .unwrap_or_else(|| panic!("{} block {}: index outside the ball", m.name, lo + b));
                         let mut steps = 0u32;
                         let got = cns_decode_counted(&fd, &golay, &rec, &mut steps);
 
                         // C2 — the re-bijection closes against the archive.
                         let want = fd
                             .decode(idx)
-                            .unwrap_or_else(|| panic!("{} bloc {}: index hors boule", m.name, lo + b));
-                        assert_eq!(got, want, "{} bloc {}: CNS contre l'archive", m.name, lo + b);
-                        assert_eq!(rec.gain, gain, "{} bloc {}: gain", m.name, lo + b);
+                            .unwrap_or_else(|| panic!("{} block {}: index outside the ball", m.name, lo + b));
+                        assert_eq!(got, want, "{} block {}: CNS against the archive", m.name, lo + b);
+                        assert_eq!(rec.gain, gain, "{} block {}: gain", m.name, lo + b);
 
                         // C3.1 and C3.3.
                         local_max = local_max.max(steps);
-                        let ci = rec.class.expect("le 4B ne porte aucun bloc origine");
+                        let ci = rec.class.expect("the 4B carries no origin block");
                         match local[ci] {
                             None => local[ci] = Some(steps),
                             Some(s) => assert_eq!(
                                 s, steps,
-                                "{} bloc {}: classe {ci}, le compte de pas bouge avec le rang",
+                                "{} block {}: class {ci}, the step count moves with the rank",
                                 m.name,
                                 lo + b
                             ),
@@ -135,7 +135,7 @@ fn the_sealed_artifact_cns_re_bijection_is_exact() {
                             (None, x) => *a = x,
                             (Some(x), Some(y)) => assert_eq!(
                                 x, y,
-                                "classe {ci}: deux comptes de pas ({x} et {y}) — C3.3 rouge"
+                                "class {ci}: two step counts ({x} and {y}) — C3.3 red"
                             ),
                             _ => {}
                         }
@@ -157,20 +157,20 @@ fn the_sealed_artifact_cns_re_bijection_is_exact() {
 
     // The count is the assertion, not a decoration: a sweep that read one
     // matrix and stopped would print the same green line.
-    assert_eq!(n, 150_681_600, "le 4B publié fait 150 681 600 blocs");
-    assert!(steps <= MAX_STEPS, "C3.1 ROUGE — {steps} pas > {MAX_STEPS}");
+    assert_eq!(n, 150_681_600, "the published 4B has 150,681,600 blocks");
+    assert!(steps <= MAX_STEPS, "C3.1 RED — {steps} steps > {MAX_STEPS}");
     eprintln!(
-        "P5 C2/C3 — {n} blocs, {matrices} matrices, {touched} classes touchées.\n  \
-         C2  bijection : archive → CNS → point == FastDecoder::decode, 0 écart\n  \
-         C3.1 pas max  : {steps} / {MAX_STEPS}\n  \
-         C3.3 invariance par classe : verte sur les {touched} classes du fichier\n  \
-         largeur CNS  : {mean:.4} bits/bloc NUE, en-tête de 10 b compris — la \
-         comptabilité PAR GENRE\n               de l'amendement É0, à comparer aux 51,87 \
-         publiés pour la comptabilité PAR ÉTAGE.\n               ⚠️ NUE : le chiffre adressé \
-         (FO/warp-scan) demande le modèle d'adressage par\n               groupes de 32, que \
-         le §4 interdit à ce côté de lire. Autre livrable.\n  \
-         ⚠️ ORIGINE non exercée : le 4B n'en porte aucune. Elle est couverte par la \
-         fixture\n     de `llvq_search::cns`, jamais ici (P5 §2.2).",
+        "P5 C2/C3 — {n} blocks, {matrices} matrices, {touched} classes touched.\n  \
+         C2   bijection: archive → CNS → point == FastDecoder::decode, 0 deviation\n  \
+         C3.1 max steps: {steps} / {MAX_STEPS}\n  \
+         C3.3 per-class invariance: green on the {touched} classes of the file\n  \
+         CNS width    : {mean:.4} bits/block RAW, 10 b header included — the PER-KIND \
+         accounting\n               of amendment É0, to compare with the 51.87 \
+         published for the PER-STAGE accounting.\n               WARNING: RAW — the \
+         addressed figure (FO/warp-scan) needs the group-of-32\n               addressing \
+         model, which §4 forbids this side from reading. Another deliverable.\n  \
+         WARNING: ORIGIN not exercised — the 4B carries none. It is covered by the \
+         fixture\n     of `llvq_search::cns`, never here (P5 §2.2).",
         matrices = h.matrices
     );
 }

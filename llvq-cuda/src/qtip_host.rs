@@ -730,7 +730,7 @@ mod tests {
     }
 
     /// Rule 3's sign negates `.0` and leaves `.1` untouched — checked on all
-    /// 65 536 states, with a codebook whose entries are all positive and
+    /// 65,536 states, with a codebook whose entries are all positive and
     /// pairwise distinct, so "unchanged" and "negated" are distinguishable
     /// values and not two spellings of zero.
     ///

@@ -1,7 +1,7 @@
 //! # Gate G4 — Gaussian source at 2 bits/dim (paper Table 3)
 //!
 //! Codebook: ball Λ₂₄(13) ∪ {0} — N(13)+1 points, 1.9999 bits/dim.
-//! Reference run (20 000 eval blocks, seed 0x64A4_2026):
+//! Reference run (20,000 eval blocks, seed 0x64A4_2026):
 //!
 //! | method | bits/dim | MSE | retention |
 //! |---|---|---|---|

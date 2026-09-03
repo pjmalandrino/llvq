@@ -96,21 +96,21 @@ def calibration_windows(tok, want_windows: int, win: int):
                 break
     if len(ids) < need:
         raise Refused(
-            f"{len(ids)} tokens lus pour {need} demandés — le shard est trop court"
+            f"{len(ids)} tokens read for {need} requested, the shard is too short"
         )
     ids = ids[:need]
-    print(f"  documents C4 lus      {docs}")
-    print(f"  tokens de calibration {len(ids)} = {want_windows} × {win}")
-    print(f"  empreinte calibration {token_fingerprint(ids):016x}")
+    print(f"  C4 documents read     {docs}")
+    print(f"  calibration tokens    {len(ids)} = {want_windows} × {win}")
+    print(f"  calib fingerprint     {token_fingerprint(ids):016x}")
     return [ids[i * win : (i + 1) * win] for i in range(want_windows)]
 
 
 def bits_per_param(out_dir: Path, n_params: int) -> float:
-    """Octets réellement écrits ÷ paramètres. *Mesuré*, pas modélisé.
+    """Bytes actually written / parameters. *Measured*, not modelled.
 
-    C'est la comptabilité que le §7 du CLAUDE.md impose — b/param **modèle
-    entier, embedding compris** — et pour un dépôt sur disque elle se lit
-    directement, sans modéliser quoi que ce soit.
+    This is the accounting that §7 of CLAUDE.md requires: b/param **whole
+    model, embedding included**. For a directory on disk it reads straight off
+    the files, with nothing modelled.
     """
     total = sum(
         p.stat().st_size for p in out_dir.rglob("*") if p.suffix == ".safetensors"
@@ -130,26 +130,26 @@ def main(argv: list[str]) -> int:
     ap.add_argument(
         "--no-desc-act",
         action="store_true",
-        help="désactiver l'act-order — à déclarer dans tout chiffre publié",
+        help="disable act-order, to be declared in any published number",
     )
     args = ap.parse_args(argv)
 
     print(BANNER)
-    print(f"gptq_quantize — {args.model} @ {args.revision[:12]} → {args.bits} bits")
+    print(f"gptq_quantize: {args.model} @ {args.revision[:12]} → {args.bits} bits")
     print(BANNER)
 
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(args.model, revision=args.revision)
-    print(f"  modèle                {args.model} @ {args.revision[:12]}")
+    print(f"  model                 {args.model} @ {args.revision[:12]}")
     windows = calibration_windows(tok, args.n_calib, args.calib_len)
 
     try:
         from gptqmodel import GPTQModel, QuantizeConfig
     except ImportError as e:
         raise Refused(
-            "gptqmodel absent de l'image — l'installation au job a échoué, "
-            "et rien de lourd n'a tourné"
+            "gptqmodel missing from the image: the job-time install failed, "
+            "and nothing heavy has run"
         ) from e
 
     cfg = QuantizeConfig(
@@ -160,39 +160,37 @@ def main(argv: list[str]) -> int:
     )
     print(f"\n  bits {cfg.bits} · group_size {cfg.group_size} · desc_act {cfg.desc_act}")
 
-    # 🕳️ `GPTQModel.load(..., revision=…)` NE MARCHE PAS : gptqmodel 7.3.5
-    # forwarde ses kwargs inconnus jusqu'au constructeur du modèle, et
-    # `Qwen3ForCausalLM.__init__()` les refuse — mort en 2 min pour 0,05 $ le
+    # TRAP: `GPTQModel.load(..., revision=…)` DOES NOT WORK. gptqmodel 7.3.5
+    # forwards its unknown kwargs down to the model constructor, and
+    # `Qwen3ForCausalLM.__init__()` refuses them. Dead in 2 min for $0.05 on
     # 2026-08-30 (job 6a940b8f…).
     #
-    # La réparation ne consiste PAS à laisser tomber la révision : ce bras
-    # existe pour être comparable à des chiffres datés, et un artefact produit
-    # depuis « main » ne se compare à rien de daté. On résout la révision
-    # d'abord, on charge un chemin local ensuite.
+    # The fix is NOT to drop the revision: this arm exists to be comparable to
+    # dated numbers, and an artifact produced from "main" compares to nothing
+    # dated. We resolve the revision first, then load a local path.
     from huggingface_hub import snapshot_download
 
     local = snapshot_download(repo_id=args.model, revision=args.revision)
-    print(f"  révision résolue      {args.revision[:12]} → {local}")
+    print(f"  revision resolved     {args.revision[:12]} → {local}")
     model = GPTQModel.load(local, cfg)
 
-    # 🚨 LE DÉNOMINATEUR, ET IL A ÉTÉ FAUX. `sum(p.numel())` compte
-    # `embed_tokens` ET `lm_head` alors que Qwen3-4B a les têtes **liées** :
-    # 4 411 424 256 au lieu de 4 022 468 096, soit +9,67 % — exactement la part
-    # de l'embedding. Le job du 2026-08-30 a imprimé 3,182 b/param là où la
-    # bonne valeur est 3,489, et l'a mis en regard de nos 5,162.
+    # ALERT: THE DENOMINATOR, AND IT WAS WRONG. `sum(p.numel())` counts
+    # `embed_tokens` AND `lm_head` while Qwen3-4B has **tied** heads:
+    # 4,411,424,256 instead of 4,022,468,096, so +9.67%, exactly the embedding
+    # share. The 2026-08-30 job printed 3.182 b/param where the right value is
+    # 3.489, and set it against our 5.162.
     #
-    # C'est la règle n°1 du §7 enfreinte : « toute comparaison mémoire se dit en
-    # b/param MODÈLE ENTIER », et deux dénominateurs différents ne se comparent
-    # pas. Les deux sont désormais imprimés, étiquetés, et c'est le nôtre qui
-    # porte le b/param publiable.
+    # That breaks rule no. 1 of §7: "every memory comparison is said in b/param
+    # WHOLE MODEL", and two different denominators do not compare. Both are now
+    # printed and labelled, and ours carries the publishable b/param.
     raw = sum(p.numel() for p in model.model.parameters())
     tied = bool(getattr(model.model.config, "tie_word_embeddings", False))
     vocab = int(model.model.config.vocab_size)
     hidden = int(model.model.config.hidden_size)
     n_params = raw - (vocab * hidden if tied else 0)
-    print(f"  paramètres bruts      {raw}   (embed + lm_head comptés deux fois si liés)")
-    print(f"  têtes liées           {tied}")
-    print(f"  paramètres RÉELS      {n_params}   <-- le dénominateur publiable")
+    print(f"  raw parameters        {raw}   (embed + lm_head counted twice if tied)")
+    print(f"  tied heads            {tied}")
+    print(f"  REAL parameters       {n_params}   <-- the publishable denominator")
 
     model.quantize([{"input_ids": w} for w in windows])
 
@@ -203,10 +201,10 @@ def main(argv: list[str]) -> int:
 
     bpp = bits_per_param(out, n_params)
     bpp_raw = bits_per_param(out, raw)
-    print(f"\n  écrit                 {out}")
-    print(f"  b/param modèle entier {bpp:.3f}   (*mesuré*, dénominateur RÉEL)")
-    print(f"  (pour mémoire)        {bpp_raw:.3f}   avec le compte brut — NE PAS PUBLIER")
-    print("  repères               LLVQ 5,162 · AWQ 5,302 · MLX q4 4,50")
+    print(f"\n  written               {out}")
+    print(f"  b/param whole model   {bpp:.3f}   (*measured*, REAL denominator)")
+    print(f"  (reference only)      {bpp_raw:.3f}   with the raw count, DO NOT PUBLISH")
+    print("  reference points      LLVQ 5.162 · AWQ 5.302 · MLX q4 4.50")
     return 0
 
 

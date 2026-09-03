@@ -9,7 +9,7 @@
 // This file decodes **an archive index** — the 48-bit v1 index of a real block
 // of the sealed 4B — into a dot product against 24 activations, one block per
 // lane, and writes ONE float per block. It never writes the 24 decoded weights:
-// that was defect n°1 of the 2026-07-31 bench, which measured its own
+// that was defect no. 1 of the 2026-07-31 bench, which measured its own
 // uncoalesced stores and called the result a decoder.
 //
 // It contains no timing, no threshold and no claim. Nothing here predicts a
@@ -38,7 +38,7 @@
 //     MAX_KINDS is 8 because the *even off-support* problem needs 8 (the zero
 //     run is its own kind, fastdec.rs:40-47): a shader dimensioned on the old
 //     4-kind `decode_rank` (llvq-metal/src/bin/decode.rs:123) would decode half
-//     the file wrong, and the even coset is ~50 % of it.
+//     the file wrong, and the even coset is ~50% of it.
 //
 // (c) **Selection by mask arithmetic** (`sel_ul`/`sel_u`), the exact shape of
 //     rankdec.rs::sel. Two lanes that choose different kinds do not diverge;
@@ -103,10 +103,10 @@
 // Proof: M = (2^64 + e)/n exactly with 1 ≤ e ≤ n, so x·M/2^64 = x/n + x·e/(n·2^64);
 // writing x = qn + r, the floor is q iff r + x·e/2^64 < n, and x·e ≤ x·n < 2^64
 // gives it. Our x is m·c with c ≤ 24 and m ≤ the class cardinality, which is
-// ≤ N(13) = 280 974 212 784 720 < 2^48 — so x < 2^53 and the condition holds by
+// ≤ N(13) = 280,974,212,784,720 < 2^48 — so x < 2^53 and the condition holds by
 // a factor of 2^11 on the a-priori bound alone. Enumerated over the 383 classes
 // (harness of §6), the largest m0 of any arrangement problem is in fact
-// 5 354 228 880 < 2^33, giving m0·24 = 128 501 493 120 < 2^37: eight octaves of
+// 5,354,228,880 < 2^33, giving m0·24 = 128,501,493,120 < 2^37: eight octaves of
 // margin, not one. n = 1 has no representable multiplier and is handled by a
 // select (the quotient is x). This path is **exact for every input it can
 // receive**, needs no divisibility hypothesis, and is the one the
@@ -185,7 +185,7 @@
 //
 // ✅ **The algorithm has been executed and is right.** Every line below was
 // transcribed register for register into Rust and run against
-// `FastDecoder::decode`: **49 410 blocks decoded identically** — 43 probes per
+// `FastDecoder::decode`: **49,410 blocks decoded identically** — 43 probes per
 // class (both class boundaries, the midpoint, and 40 uniform draws) over all
 // **383 classes**, in all three `LLVQ_CASCADE_DIV` modes, plus the origin. The
 // comparison is an **equality on the 24 signed integer coordinates**, not a
@@ -194,7 +194,7 @@
 // and it is deliberately a slavish copy: it is a transcription check, NOT the
 // independently-written CPU reference of the pre-registration's §3 point 1, and
 // it does not discharge it — nor point 2's synthetic fixture, nor point 3's
-// 150 681 600-block sweep.
+// 150,681,600-block sweep.
 //
 // ❌ **This file has never been through a Metal compiler.** `xcrun metal` is not
 // installed on the machine it was written on (Xcode command-line tools only), so
@@ -554,7 +554,7 @@ kernel void cascade_uniform(device const ulong*      idx     [[buffer(0)]],
                             uint tid [[thread_index_in_threadgroup]])
 {
     // The activation is staged once per threadgroup and never re-read from
-    // device memory inside the loop — defect n°2 of the 2026-07-31 bench, which
+    // device memory inside the loop — defect no. 2 of the 2026-07-31 bench, which
     // made the floor kernel bandwidth-bound and hid what it was measuring.
     threadgroup float xs[DIM];
     if (tid < DIM) xs[tid] = x[tid];

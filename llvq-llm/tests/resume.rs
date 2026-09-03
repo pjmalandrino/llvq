@@ -418,7 +418,7 @@ fn a_shard_from_another_codebook_is_refused() {
     let a = s.at("a.llvq");
     segment_a(&map, &dev, &a, 1, Some(ROT), 13);
     let e = resume_error(&a, &s.at("o.llvq"), &expect(12, Some(ROT)), &dev, &map);
-    assert!(e.contains("coquille"), "{e}");
+    assert!(e.contains("shell"), "{e}");
 }
 
 /// A shard with **two** gain bits resumed under one — four magnitude levels
@@ -440,7 +440,7 @@ fn a_shard_with_another_gain_width_is_refused() {
     let a = s.at("a.llvq");
     segment_a_with(&map, &dev, &a, 1, Some(ROT), 12, 2);
     let e = resume_error(&a, &s.at("o.llvq"), &expect(12, Some(ROT)), &dev, &map);
-    assert!(e.contains("niveaux de gain"), "{e}");
+    assert!(e.contains("gain levels"), "{e}");
     // …and the same shard under its own gain width is accepted, or the guard
     // is a wall rather than a check.
     let mut model = fresh(&map, &dev);
@@ -515,7 +515,7 @@ fn a_shard_whose_records_are_out_of_order_is_refused() {
         w.finish().expect("finish");
     }
     let e = resume_error(&swapped, &s.at("o.llvq"), &expect(12, Some(ROT)), &dev, &map);
-    assert!(e.contains("attendue"), "{e}");
+    assert!(e.contains("expected"), "{e}");
 }
 
 /// A shard is a *prefix*, and `shard_extent` has to say how long a prefix.
@@ -558,7 +558,7 @@ fn a_torn_shard_is_truncated_to_whole_blocks() {
             // Fewer than one whole block survived. That is a refusal, not a
             // silent zero — resuming "from block 0" would quietly re-run the
             // whole model and overwrite a shard the operator wanted salvaged.
-            Err(e) => assert!(format!("{e}").contains("rien à reprendre"), "{e}"),
+            Err(e) => assert!(format!("{e}").contains("nothing to resume"), "{e}"),
         }
     }
 }
@@ -647,7 +647,7 @@ fn the_sidecar_round_trips_through_a_file() {
 fn a_missing_sidecar_is_refused() {
     let s = Scratch::new("nosidecar");
     let e = format!("{}", RunState::read(&s.at("absent.llvq")).unwrap_err());
-    assert!(e.contains("reprise"), "{e}");
+    assert!(e.contains("resume"), "{e}");
 }
 
 // --------------------------------------------------------------------------

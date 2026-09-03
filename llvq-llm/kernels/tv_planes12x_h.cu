@@ -5,8 +5,8 @@
 //
 // A 12-byte main stream whose every record decodes through at most four
 // magnitude levels, plus a per-matrix exception table carrying the exact
-// 14-byte Planes14 record of every 5-level block (5 096 688 of the published
-// 4B's 150 681 600, 3.3824 %). The main stream stores an *approximation* of
+// 14-byte Planes14 record of every 5-level block (5,096,688 of the published
+// 4B's 150,681,600, 3.3824 %). The main stream stores an *approximation* of
 // those blocks — their best L <= 4 direction, gain copied — so any consumer
 // owes them a correction of (exact − approx)·x before its result is the
 // Planes14 result. That is the whole layout: 4.342 b/weight at the bench

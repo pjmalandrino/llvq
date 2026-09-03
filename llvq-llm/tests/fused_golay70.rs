@@ -92,7 +92,7 @@ fn unwrap_g70(s: &HostStream) -> G70<'_> {
             exc_words,
             row_exc,
         },
-        _ => panic!("layout golay70 demandé, autre flux rendu"),
+        _ => panic!("golay70 layout asked for, another stream returned"),
     }
 }
 
@@ -111,11 +111,11 @@ fn the_golay70_unit_extends_planes12x() {
     assert_eq!(matvec_kernel_name(FusedLayout::Golay70), "tv_golay70_h");
     let p12 = planes_source_names(FusedLayout::Planes12x);
     let g70 = planes_source_names(FusedLayout::Golay70);
-    assert_eq!(&g70[..p12.len()], p12, "golay70 doit prolonger planes12x");
+    assert_eq!(&g70[..p12.len()], p12, "golay70 must extend planes12x");
     assert_eq!(&g70[p12.len()..], ["llvq_golay.cuh", "tv_golay70_h.cu"]);
 
-    let (parts, overridden) = load_planes_sources(FusedLayout::Golay70).expect("embarquées");
-    assert!(overridden.is_none(), "LLVQ_KERNEL_DIR ne doit pas être posé ici");
+    let (parts, overridden) = load_planes_sources(FusedLayout::Golay70).expect("embedded copies");
+    assert!(overridden.is_none(), "LLVQ_KERNEL_DIR must not be set here");
     assert_eq!(parts.len(), g70.len());
     let unit = parts.concat();
     // The v2 decoder and the pieces the kernel calls, by name.
@@ -128,18 +128,18 @@ fn the_golay70_unit_extends_planes12x() {
         "golay70_exc_combine",
         "LLVQ_GOLAY_CUH",
     ] {
-        assert!(unit.contains(symbol), "l'unité golay70 ne porte pas {symbol}");
+        assert!(unit.contains(symbol), "the golay70 unit carries no {symbol}");
     }
     // And neither bench kernel: `tv_golay70` memsets `y` and accumulates
     // with atomicAdd — the protocol this path replaces — and `tv_golay70_v1`
     // is the frozen witness arm, which has no business in inference.
     assert!(
         !unit.contains("void tv_golay70("),
-        "l'unité d'inférence embarque le noyau de banc tv_golay70"
+        "the inference unit embeds the bench kernel tv_golay70"
     );
     assert!(
         !unit.contains("void tv_golay70_v1("),
-        "l'unité d'inférence embarque le témoin tv_golay70_v1"
+        "the inference unit embeds the control tv_golay70_v1"
     );
 }
 
@@ -174,7 +174,7 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
         .expect("clang++ is on PATH");
     assert!(
         st.success(),
-        "la source Golay70 demi-stockante ne compile pas en C++ hôte"
+        "the half-storing Golay70 source does not compile as host C++"
     );
 
     let fd = FastDecoder::new();
@@ -182,10 +182,10 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
     let tr = Transcoder::new(FusedLayout::Golay70).unwrap();
     let (s, _) = tr.stream(&idx, &gains, D_OUT, NBLOCKS).unwrap();
     let g = unwrap_g70(&s);
-    assert!(!g.exc_idx.is_empty(), "la fixture doit exercer la correction");
+    assert!(!g.exc_idx.is_empty(), "the fixture must exercise the correction");
 
     let tab = gpu_class_table(&fd);
-    let g70t = tr.golay70_table().expect("table golay70 du transcodeur");
+    let g70t = tr.golay70_table().expect("the transcoder's golay70 table");
     let gtab = golay70_gpu_class_table(&fd, g70t);
     let cw = golay70_gpu_codewords(g70t);
     let mut rng = SplitMix64::new(0x5EED);
@@ -241,7 +241,7 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
     };
     let y = take_f32(D_OUT);
     let corr = take_f32(D_OUT);
-    assert!(r.is_empty(), "la sonde hôte a écrit plus qu'on ne lui demandait");
+    assert!(r.is_empty(), "the host probe wrote more than it was asked for");
 
     // The correction is zero exactly where a row has no exception, and
     // non-zero where it has one. The first half kills a correction pass that
@@ -252,9 +252,9 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
     for (row, &c) in corr.iter().enumerate() {
         let n_exc = g.row_exc[row + 1] - g.row_exc[row];
         if n_exc == 0 {
-            assert_eq!(c, 0.0, "ligne {row} sans exception, correction non nulle");
+            assert_eq!(c, 0.0, "row {row} has no exception, correction not zero");
         } else {
-            assert!(c != 0.0, "ligne {row} : {n_exc} exceptions et une correction nulle");
+            assert!(c != 0.0, "row {row}: {n_exc} exceptions and a zero correction");
         }
     }
 
@@ -268,7 +268,7 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
         for col in 0..NBLOCKS {
             let b = row * NBLOCKS + col;
             let Some(pt) = fd.decode(idx[b]) else {
-                assert_eq!(idx[b], 0, "index hors boule");
+                assert_eq!(idx[b], 0, "index outside the ball");
                 continue;
             };
             let Some(shell) = Leech::shell_index(&pt).filter(|&s| s > 0) else {
@@ -284,10 +284,10 @@ fn the_golay70_half_kernel_decides_what_rust_decides() {
         }
         let e = (y[row] as f64 - want).abs() / scale.max(1e-12);
         worst = worst.max(e);
-        assert!(e < TOL, "ligne {row} : écart {e:.2e}·Σ|w·x|");
+        assert!(e < TOL, "row {row}: gap {e:.2e}·Σ|w·x|");
     }
     println!(
-        "golay70_h hôte : {D_OUT} lignes, {} blocs, {} exceptions, pire écart \
+        "golay70_h host: {D_OUT} rows, {} blocks, {} exceptions, worst gap \
          {worst:.1e}·Σ|w·x|",
         idx.len(),
         g.exc_idx.len()
