@@ -1,35 +1,35 @@
-# Préreg <code> : <titre en une ligne> (<AAAA-MM-JJ>)
+# Prereg <code>: <one-line title> (<YYYY-MM-DD>)
 
-Statut : brouillon | tamponné le <date>, sha256 `<8 premiers>`.
-Coût : <estimé> $, plafond dur <timeout ou $>. Reste sur la vague : <$>.
-Code mesuré : commit `<7 car.>`.
+Status: draft | timestamped on <date>, sha256 `<first 8>`.
+Cost: <estimated> $, hard cap <timeout or $>. Wave budget left: <$>.
+Measured code: commit `<7 chars>`.
 
-Un préreg tamponné ne s'édite plus. Un écart s'écrit dans `<nom>-ECARTS.md`.
+A timestamped prereg is no longer edited. A deviation is written in `<name>-ECARTS.md`.
 
 ## Question
 
-<Une phrase. Puis trois lignes au plus : pourquoi elle n'a pas de réponse
-aujourd'hui, et ce qu'elle décide.>
+<One sentence. Then three lines at most: why it has no answer today, and what
+it decides.>
 
-## Dispositif
+## Setup
 
-<La commande verbatim, dans un bloc de code. Une variable par bras. Les
-témoins nommés, avec la mesure existante qu'ils reprennent le cas échéant.>
+<The verbatim command, in a code block. One variable per arm. The controls
+named, with the existing measurement they reuse where applicable.>
 
-## Contrôles
+## Controls
 
-<Liste numérotée. Si l'un tombe, aucun chiffre ne se publie.>
+<Numbered list. If one fails, no number gets published.>
 
-## Ce qui se publie, et ce qui ne se compare pas
+## What gets published, and what does not get compared
 
-<Deux listes courtes.>
+<Two short lists.>
 
-## Règle de décision
+## Decision rule
 
-<Un tableau. Les lignes doivent partitionner l'espace des résultats : tester
-trois valeurs plausibles et vérifier que chacune tombe dans exactement une
-ligne. Prévoir une ligne « sinon : non tranché, décision d'opérateur ».>
+<A table. The rows must partition the space of results: test three plausible
+values and check that each falls in exactly one row. Provide an "otherwise: not
+settled, operator decision" row.>
 
-## Prédiction signée
+## Signed prediction
 
-<Le chiffre attendu, le motif en deux lignes, la faille connue du motif.>
+<The expected number, the rationale in two lines, the known flaw in the rationale.>

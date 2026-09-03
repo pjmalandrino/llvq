@@ -1,35 +1,35 @@
-# Les documents du dépôt
+# The repository documents
 
-Par où reprendre, dans cet ordre :
+Where to resume, in this order:
 
-| document | contenu | s'édite ? |
+| document | content | edited? |
 |---|---|---|
-| [`ETAT.md`](ETAT.md) | où on en est : configuration servie, chiffres de tête, décisions ouvertes | oui, à chaque changement d'état |
-| [`ROADMAP.md`](ROADMAP.md) | la suite : pistes, gates, coûts, décisions attendues | oui |
-| [`HISTORIQUE.md`](HISTORIQUE.md) | le fil chronologique, une entrée par période | on ajoute en bas, on ne réécrit pas le passé |
-| [`METHODE.md`](METHODE.md) | les règles du laboratoire : préreg, chiffres, bruit, tests, machines | oui, quand une règle change |
-| [`STYLE.md`](STYLE.md) | comment on écrit ici | oui |
-| [`templates/`](templates/) | gabarits : expérience, préreg, journal, écarts | oui |
+| [`ETAT.md`](ETAT.md) | where things stand: served configuration, headline numbers, open decisions | yes, on every change of state |
+| [`ROADMAP.md`](ROADMAP.md) | what comes next: leads, gates, costs, decisions awaited | yes |
+| [`HISTORIQUE.md`](HISTORIQUE.md) | the chronological thread, one entry per period | append at the bottom, the past is not rewritten |
+| [`METHODE.md`](METHODE.md) | the lab rules: prereg, numbers, noise, tests, machines | yes, when a rule changes |
+| [`STYLE.md`](STYLE.md) | how we write here | yes |
+| [`templates/`](templates/) | templates: experiment, prereg, journal, deviations | yes |
 
-Les références sur l'objet publié et le noyau, à jour mais longues :
+Reference documents for the published object and the kernel, up to date but long:
 
-| document | contenu |
+| document | content |
 |---|---|
-| [`fiche-4b.md`](fiche-4b.md) | le Qwen3-4B publié, chiffre par chiffre, avec sa provenance |
-| [`format-noyau.md`](format-noyau.md) | le format en VRAM, les layouts, les pièges de mesure |
-| [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md) | la courbe d'échelle 4B, 8B, 14B |
-| [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md) | la campagne de mesure du 4B |
-| [`llvq-paper-notes.md`](llvq-paper-notes.md) | le papier source transcrit (cité par notre papier) |
-| [`qtip-provenance.md`](qtip-provenance.md) | d'où vient le noyau QTIP du banc, et pourquoi il n'est pas redistribué |
-| [`hf-model-card.md`](hf-model-card.md) | la carte du modèle sur Hugging Face |
+| [`fiche-4b.md`](fiche-4b.md) | the published Qwen3-4B, number by number, with its provenance |
+| [`format-noyau.md`](format-noyau.md) | the VRAM format, the layouts, the measurement pitfalls |
+| [`echelle-4b-8b-2026-08-08.md`](echelle-4b-8b-2026-08-08.md) | the scaling curve, 4B, 8B, 14B |
+| [`campagne-finale-2026-08-07.md`](campagne-finale-2026-08-07.md) | the 4B measurement campaign |
+| [`llvq-paper-notes.md`](llvq-paper-notes.md) | the source paper, transcribed (cited by our paper) |
+| [`qtip-provenance.md`](qtip-provenance.md) | where the bench's QTIP kernel comes from, and why it is not redistributed |
+| [`hf-model-card.md`](hf-model-card.md) | the model card on Hugging Face |
 
-Ce qui est figé et ne s'édite jamais :
+Frozen, never edited:
 
-| répertoire | contenu |
+| directory | content |
 |---|---|
-| [`mesures/`](mesures/) | un journal par mesure, daté, avec ses bruts |
-| [`data/`](data/) | les CSV : jobs et coûts, dumps MMLU par question, données des figures |
-| [`archive/`](archive/) | les documents d'époque : plans, passations, audits, brouillons. Ils peuvent contenir des affirmations démenties depuis |
-| [`../proofs/`](../proofs/) | les préregs tamponnés et leurs écarts |
+| [`mesures/`](mesures/) | one journal per measurement, dated, with its raw output |
+| [`data/`](data/) | the CSVs: jobs and costs, per-question MMLU dumps, figure data |
+| [`archive/`](archive/) | period documents: plans, handovers, audits, drafts. They may contain claims that have since been refuted |
+| [`../proofs/`](../proofs/) | the timestamped preregs and their deviations |
 
-Le code se lit depuis [`../CLAUDE.md`](../CLAUDE.md) (carte des crates, commandes, variables).
+Read the code starting from [`../CLAUDE.md`](../CLAUDE.md) (crate map, commands, variables).

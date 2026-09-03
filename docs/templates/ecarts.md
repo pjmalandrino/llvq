@@ -1,12 +1,12 @@
-# Écarts au préreg <code> (<AAAA-MM-JJ>)
+# Deviations from prereg <code> (<YYYY-MM-DD>)
 
-Le préreg `proofs/<fichier>.md` (sha256 `<8 premiers>`) est tamponné et ne
-s'édite pas. Ce qui s'en écarte s'écrit ici.
+The prereg `proofs/<file>.md` (sha256 `<first 8>`) is timestamped and is not
+edited. Whatever deviates from it is written here.
 
-## É1. <Titre en une ligne>
+## É1. <One-line title>
 
-- Ce qui a changé : <une phrase>
-- Pourquoi : <une phrase>
-- Ce que ça ne change pas : <les grandeurs publiées, et pourquoi>
-- Ce que ça change : <les grandeurs touchées>
-- Pour la prochaine fois : <la règle qui aurait évité l'écart>
+- What changed: <one sentence>
+- Why: <one sentence>
+- What it does not change: <the published quantities, and why>
+- What it does change: <the quantities affected>
+- For next time: <the rule that would have avoided the deviation>

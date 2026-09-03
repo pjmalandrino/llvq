@@ -1,31 +1,31 @@
-<TITRE EN CAPITALES> (<AAAA-MM-JJ>)
-==================================
-Préreg : proofs/<fichier>.md, sha256 <8 premiers>, tamponné avant le lancement.
-Écarts : proofs/<fichier>-ECARTS.md | aucun.
-Code : commit <7 car.>. Job : <id>, <carte>, <min>, <$>.
+<TITLE IN CAPITALS> (<YYYY-MM-DD>)
+=================================
+Prereg: proofs/<file>.md, sha256 <first 8>, timestamped before launch.
+Deviations: proofs/<file>-ECARTS.md | none.
+Code: commit <7 chars>. Job: <id>, <card>, <min>, <$>.
 
-DISPOSITIF
-----------
-<Trois lignes. Objet, variable unique, témoins.>
+SETUP
+-----
+<Three lines. Object, single variable, controls.>
 
-CONTRÔLES
----------
-1. <attendu> : <obtenu>, passe | échoue
+CONTROLS
+--------
+1. <expected>: <obtained>, passes | fails
 2. ...
 
-RÉSULTAT
---------
-<Le tableau. Valeurs, intervalles, tests.>
+RESULT
+------
+<The table. Values, intervals, tests.>
 
 VERDICT
 -------
-<La ligne de la règle de décision qui s'applique, citée. Ou : aucune ligne ne
-s'applique, voir ECARTS.>
+<The row of the decision rule that applies, quoted. Or: no row applies, see
+ECARTS.>
 
-CE QUE ÇA N'ÉTABLIT PAS
------------------------
-<Une réserve par ligne.>
+WHAT THIS DOES NOT ESTABLISH
+----------------------------
+<One caveat per line.>
 
 PROVENANCE
 ----------
-<Chemins des bruts, des dumps, des données.>
+<Paths to the raw outputs, the dumps, the data.>

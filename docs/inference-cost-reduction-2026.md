@@ -1,356 +1,341 @@
-# Réduction du coût d'inférence — veille & candidats à implémenter
+# Inference cost reduction: survey and candidates to implement
 
-**Date de la veille : juillet 2026**
-**Objectif : faire tenir des modèles plus gros sur du matériel local (souveraineté), à qualité constante.**
+**Survey date: July 2026**
+**Goal: fit bigger models on local hardware (sovereignty), at constant quality.**
 
 ---
 
-## 0. Avertissement méthodologique
+## 0. Method caveat
 
-Cette veille a été réalisée depuis un environnement dont la politique réseau bloque
-`arxiv.org`, `huggingface.co`, `openreview.net` et `semanticscholar.org` (403 sur le proxy
-d'egress). Conséquence directe sur le niveau de confiance :
+This survey was done from an environment whose network policy blocks `arxiv.org`,
+`huggingface.co`, `openreview.net` and `semanticscholar.org` (403 on the egress proxy). Direct
+consequence on the confidence level:
 
-| Source | Vérifié ? |
+| Source | Verified? |
 |---|---|
-| Existence, nom, date et description des dépôts GitHub | **Oui** — API GitHub interrogée directement |
-| Titres, numéros arXiv, dates de soumission | Probable — issus des résultats de recherche, non lus sur arXiv |
-| Chiffres de performance (× speedup, perplexité, tok/s) | **Non vérifiés** — repris des résumés, à revalider en lisant le PDF |
+| Existence, name, date and description of the GitHub repositories | **Yes**, GitHub API queried directly |
+| Titles, arXiv numbers, submission dates | Likely, from search results, not read on arXiv |
+| Performance numbers (× speedup, perplexity, tok/s) | **Not verified**, taken from the abstracts, to be re-checked by reading the PDF |
 
-**Premier geste avant tout code : relire les PDF depuis un poste non filtré** et confirmer les
-chiffres du tableau de la section 3. Les numéros arXiv donnés permettent d'y aller directement.
-
----
-
-## 1. Où est réellement l'argent
-
-Sur une inférence locale mono-utilisateur ou petit-batch (le cas « souveraineté »), le
-goulot n'est presque jamais le calcul : c'est **la mémoire et la bande passante mémoire**.
-Décomposition du budget VRAM :
-
-```
-VRAM = poids du modèle  +  KV cache  +  activations
-        └─ dominant en    └─ dominant en    └─ négligeable
-           batch 1,           contexte long     hors prefill
-           contexte court     (>32k tokens)
-```
-
-D'où quatre leviers, par ordre de rendement décroissant pour l'objectif « modèle plus gros
-sur la même machine » :
-
-1. **Quantification des poids** — le seul levier qui change la classe de modèle qu'on peut
-   charger. Passer de 4 bits à 3 bits fiables, c'est ~25 % de VRAM en moins, soit un 70B qui
-   entre là où seul un 50B entrait.
-2. **Compression / sparsification du KV cache** — décisif dès qu'on vise du contexte long
-   (RAG documentaire, analyse de corpus). C'est le levier qui explose en 2026.
-3. **Offload MoE intelligent (CPU/GPU/NVMe)** — permet de faire tourner des modèles dont les
-   poids ne tiennent *pas du tout* en VRAM. Le levier le plus spectaculaire, le plus
-   sensible à l'ingénierie système.
-4. **Décodage spéculatif** — améliore la latence, pas la capacité mémoire. Hors scope
-   principal ici, et le champ est déjà très outillé (EAGLE-3, TorchSpec).
+**First move before any code: re-read the PDFs from an unfiltered machine** and confirm the numbers
+in the section 3 table. The arXiv numbers given lead straight there.
 
 ---
 
-## 2. Le piège à éviter : TurboQuant
+## 1. Where the money actually is
 
-TurboQuant (Google, ICLR 2026 — quantification KV cache 3 bits, *data-oblivious*, sans
-calibration) est **le papier le plus médiatisé de l'année** sur le sujet, et c'est
-précisément pour ça qu'il faut s'en méfier comme sujet d'implémentation.
+On local single-user or small-batch inference (the "sovereignty" case), the bottleneck is almost
+never compute: it is **memory and memory bandwidth**. Breakdown of the VRAM budget:
 
-État constaté sur GitHub (juillet 2026) :
+```
+VRAM = model weights    +  KV cache  +  activations
+        └─ dominant in    └─ dominant in    └─ negligible
+           batch 1,          long context     outside prefill
+           short context     (>32k tokens)
+```
 
-| Dépôt | Étoiles | Créé |
+Hence four levers, in decreasing order of return for the goal "a bigger model on the same machine":
+
+1. **Weight quantization**, the only lever that changes the class of model you can load. Going
+   from 4 bits to reliable 3 bits cuts ~25% of the VRAM, so a 70B fits where only a 50B fit before.
+2. **KV cache compression and sparsification**, decisive as soon as you target long context
+   (document RAG, corpus analysis). This is the lever that is exploding in 2026.
+3. **Smart MoE offload (CPU/GPU/NVMe)**, which lets you run models whose weights do *not fit at
+   all* in VRAM. The most spectacular lever, and the most sensitive to systems engineering.
+4. **Speculative decoding**, which improves latency, not memory capacity. Out of the main scope
+   here, and the field is already well tooled (EAGLE-3, TorchSpec).
+
+---
+
+## 2. The trap to avoid: TurboQuant
+
+TurboQuant (Google, ICLR 2026: 3-bit KV cache quantization, *data-oblivious*, no calibration) is
+**the most publicized paper of the year** on the subject, and that is exactly why it is a bad
+implementation target.
+
+State observed on GitHub (July 2026):
+
+| Repository | Stars | Created |
 |---|---|---|
-| `TheTom/turboquant_plus` | ~7 000 | 25 mars 2026 |
-| `0xSero/turboquant` (kernels Triton + vLLM) | ~1 700 | 25 mars 2026 |
-| `scrya-com/rotorquant` (revendique de le battre) | ~1 040 | 26 mars 2026 |
-| `tonbistudio/turboquant-pytorch` | ~1 034 | 25 mars 2026 |
-| `mitkox/vllm-turboquant` | ~610 | 25 mars 2026 |
-| `AmesianX/TurboQuant` (portage llama.cpp) | ~92 | 29 mars 2026 |
+| `TheTom/turboquant_plus` | ~7,000 | 25 March 2026 |
+| `0xSero/turboquant` (Triton kernels + vLLM) | ~1,700 | 25 March 2026 |
+| `scrya-com/rotorquant` (claims to beat it) | ~1,040 | 26 March 2026 |
+| `tonbistudio/turboquant-pytorch` | ~1,034 | 25 March 2026 |
+| `mitkox/vllm-turboquant` | ~610 | 25 March 2026 |
+| `AmesianX/TurboQuant` (llama.cpp port) | ~92 | 29 March 2026 |
 
-Le papier est sorti et **cinq réimplémentations sérieuses existaient sous une semaine**,
-plus une discussion d'intégration ouverte sur `ggml-org/llama.cpp` (#20969). Il n'y a plus
-de valeur d'ingénierie à créer là : la place est prise, et un concurrent (`rotorquant`)
-prétend déjà faire mieux.
+The paper came out and **five serious reimplementations existed within a week**, plus an open
+integration discussion on `ggml-org/llama.cpp` (#20969). There is no engineering value left to
+create there: the slot is taken, and a competitor (`rotorquant`) already claims to do better.
 
-**Leçon transposable** : le signal « papier fraîchement publié » ne suffit pas. Le bon
-filtre est *fraîcheur × absence d'implémentation × levier réel sur la VRAM*. Le reste de ce
-document applique ce filtre.
+**Transferable lesson**: the "freshly published paper" signal is not enough. The right filter is
+*freshness × no implementation × real lever on VRAM*. The rest of this document applies that
+filter.
 
 ---
 
 ## 3. Shortlist
 
-Classement par ratio (valeur pour la souveraineté) / (effort d'ingénierie), en tenant compte
-de l'espace laissé libre.
+Ranked by the ratio (value for sovereignty) / (engineering effort), taking into account the space
+left open.
 
-### 3.1 — HARP : rotations apprises en remplacement du Hadamard fixe
+### 3.1 HARP: learned rotations replacing the fixed Hadamard
 
-- **arXiv** : 2605.29843 (mai 2026)
-- **Titre** : *HARP: Hadamard-Preconditioned Adaptive Rotation Processor for Extreme LLM Quantization*
-- **Code** : `brain-lab-research/HARP` — **0 étoile**, créé le 27 mai 2026, dernier commit
-  2 juillet 2026. Du code de recherche, pas un produit.
+- **arXiv**: 2605.29843 (May 2026)
+- **Title**: *HARP: Hadamard-Preconditioned Adaptive Rotation Processor for Extreme LLM Quantization*
+- **Code**: `brain-lab-research/HARP`, **0 stars**, created 27 May 2026, last commit
+  2 July 2026. Research code, not a product.
 
-**L'idée.** Toutes les méthodes PTQ modernes (QuIP#, QTIP, QuaRot, SpinQuant) reposent sur
-la *incoherence processing* : on multiplie les poids par une transformée de Hadamard
-randomisée (RHT) pour disperser les outliers avant quantification. Cette rotation est
-**fixe et aveugle** — la même pour toutes les couches, tous les modèles, tous les
-quantiseurs. HARP la remplace par une rotation **apprise sur les données de calibration**,
-paramétrée comme un produit d'étages block-orthogonaux « papillon » (structure FFT), donc
-peu coûteuse à appliquer. Elle s'initialise sur la RHT à une permutation près : le pire cas
-est donc de retrouver la performance actuelle.
+**The idea.** Every modern PTQ method (QuIP#, QTIP, QuaRot, SpinQuant) rests on *incoherence
+processing*: the weights are multiplied by a randomized Hadamard transform (RHT) to spread the
+outliers before quantization. That rotation is **fixed and blind**, the same for every layer,
+every model, every quantizer. HARP replaces it with a rotation **learned on the calibration
+data**, parameterized as a product of block-orthogonal "butterfly" stages (FFT structure), so it
+is cheap to apply. It initializes on the RHT up to a permutation, so the worst case is matching
+current performance.
 
-**Pourquoi ça vaut le coup.** C'est le levier n°1 (poids), sur la plage 2–4 bits, sur des
-modèles de 1B à 70B. Les chiffres annoncés (128 tok/s contre 61 tok/s en FP16, gain de
-perplexité et de précision zero-shot contre RHT fixe) sont *à vérifier*, mais la logique est
-solide : rendre adaptatif un composant jusqu'ici arbitraire.
+**Why it is worth it.** This is lever no. 1 (weights), over the 2–4 bit range, on models from 1B
+to 70B. The announced numbers (128 tok/s against 61 tok/s in FP16, a gain in perplexity and in
+zero-shot accuracy against fixed RHT) are *to be verified*, but the logic is solid: a component
+that was arbitrary until now becomes adaptive.
 
-**Le travail d'ingénieur.** Le papier fournit l'algorithme ; il manque tout l'aval.
-1. Reproduire le fit des rotations sur un modèle public (Qwen3, Llama, Mistral) et vérifier
-   qu'on bat bien RHT à budget de bits égal.
-2. Écrire le kernel de rotation papillon (Triton ou CUDA) — c'est là qu'est la vraie valeur,
-   parce qu'une rotation apprise mal implémentée annule son propre gain.
-3. Sérialiser au format GGUF / exposer via vLLM, sinon personne ne s'en sert.
-4. Gérer les dimensions non-puissances-de-2 (schedules mixed-radix), point que le papier
-   traite explicitement et que les implémentations naïves ratent.
+**The engineering work.** The paper gives the algorithm; everything downstream is missing.
+1. Reproduce the rotation fit on a public model (Qwen3, Llama, Mistral) and check that it really
+   beats RHT at equal bit budget.
+2. Write the butterfly rotation kernel (Triton or CUDA). That is where the real value sits,
+   because a badly implemented learned rotation cancels its own gain.
+3. Serialize to the GGUF format and expose it through vLLM, otherwise nobody uses it.
+4. Handle non-power-of-2 dimensions (mixed-radix schedules), a point the paper treats explicitly
+   and that naive implementations miss.
 
-**Deux réserves, ajoutées après relecture croisée avec §3.3.**
+**Two caveats, from cross-checking against §3.3.**
 
-*Sur la baseline.* Le chiffre mis en avant (128 tok/s contre 61 tok/s en FP16) compare au
-FP16. Ce n'est pas la comparaison qui décide : la RHT fixe est elle aussi bien plus rapide
-que le FP16. La seule question qui compte est **HARP contre RHT fixe à budget de bits égal**,
-en qualité *et* en débit — une rotation apprise coûte plus cher à l'exécution qu'un Hadamard
-(paramètres à charger, transformée moins fusionnable). À vérifier en premier dans le PDF.
+*On the baseline.* The headline number (128 tok/s against 61 tok/s in FP16) compares against FP16.
+That is not the comparison that decides: fixed RHT is also much faster than FP16. The only
+question that counts is **HARP against fixed RHT at equal bit budget**, in quality *and* in
+throughput. A learned rotation costs more at run time than a Hadamard (parameters to load, a
+transform that is harder to fuse). Check that first in the PDF.
 
-*Sur le plafond.* Les auteurs de LLVQ (§3.3) observent que la quantification vectorielle en
-haute dimension **réduit la dépendance au préconditionnement rotationnel** — leur variante
-sans rotation bat déjà E8P avec rotation. Si cela se confirme, HARP et LLVQ sont
-partiellement **substituables et non complémentaires** : améliorer la rotation rapporte
-d'autant moins que le quantiseur aval est bon. HARP garde toute sa valeur en amont d'un
-quantiseur scalaire ou basse dimension ; en amont de Leech, le gain marginal est incertain.
+*On the ceiling.* The LLVQ authors (§3.3) observe that high-dimensional vector quantization
+**reduces the dependence on rotational preconditioning**: their rotation-free variant already
+beats E8P with rotation. If that holds, HARP and LLVQ are partly **substitutable and not
+complementary**: improving the rotation pays less the better the downstream quantizer is. HARP
+keeps all its value ahead of a scalar or low-dimensional quantizer; ahead of Leech, the marginal
+gain is uncertain.
 
-**Effort** : 3–6 semaines. **Risque** : moyen — les gains peuvent fondre après quantification
-réelle, et le plafond ci-dessus est réel. **Place libre** : oui, largement.
+**Effort**: 3–6 weeks. **Risk**: medium, the gains can melt away after real quantization, and the
+ceiling above is real. **Open space**: yes, wide.
 
 ---
 
-### 3.2 — CoX-MoE : co-exécution CPU (AMX) / GPU pour les MoE
+### 3.2 CoX-MoE: CPU (AMX) / GPU co-execution for MoE
 
-- **arXiv** : 2605.17889 (mai 2026)
-- **Titre** : *CoX-MoE: Coalesced Expert Execution for High-Throughput MoE Inference with AMX-Enabled CPU-GPU Co-Execution*
-- **Code** : **aucun dépôt GitHub.** Recherche par nom exact : 0 résultat.
+- **arXiv**: 2605.17889 (May 2026)
+- **Title**: *CoX-MoE: Coalesced Expert Execution for High-Throughput MoE Inference with AMX-Enabled CPU-GPU Co-Execution*
+- **Code**: **no GitHub repository.** Search by exact name: 0 results.
 
-**L'idée.** Un modèle MoE n'active qu'une fraction de ses experts par token, mais tous les
-poids doivent être quelque part. L'approche classique garde les experts chauds en VRAM et
-les froids en RAM, avec un transfert PCIe à chaque miss — le transfert domine. CoX-MoE
-propose de **calculer les experts froids directement sur le CPU**, en exploitant les
-instructions Intel AMX (multiplication matricielle native sur Xeon Sapphire Rapids et
-suivants), et de *coalescer* les exécutions d'experts pour amortir les coûts fixes.
+**The idea.** A MoE model activates only a fraction of its experts per token, but all the weights
+have to be somewhere. The classic approach keeps the hot experts in VRAM and the cold ones in RAM,
+with a PCIe transfer on every miss, and the transfer dominates. CoX-MoE proposes to **compute the
+cold experts directly on the CPU**, using the Intel AMX instructions (native matrix multiply on
+Xeon Sapphire Rapids and later), and to *coalesce* expert executions to amortize the fixed costs.
 
-**Pourquoi c'est le meilleur candidat « souveraineté ».** Le parc on-premise français typique,
-ce n'est pas un cluster H100 : c'est un bi-Xeon récent avec beaucoup de RAM et une ou deux
-cartes de milieu de gamme. AMX est présent et massivement sous-exploité sur ce matériel. Un
-runtime qui sait faire tourner les experts froids sur le CPU au lieu de les rapatrier
-transforme un serveur généraliste en machine à MoE — c'est exactement l'écart entre « on ne
-peut pas héberger ce modèle » et « on l'héberge ».
+**Why it is the best "sovereignty" candidate.** The typical French on-premise fleet is not an H100
+cluster: it is a recent dual-Xeon with a lot of RAM and one or two mid-range cards. AMX is present
+and massively under-used on that hardware. A runtime that can run the cold experts on the CPU
+instead of pulling them back turns a general-purpose server into a MoE machine. That is exactly
+the gap between "we cannot host this model" and "we host it".
 
-**Le travail d'ingénieur.** Tout est à faire, et c'est du système, pas du ML :
-1. Kernel expert GEMM sur AMX (intrinsics `_tile_*`, ou via oneDNN) en INT8/BF16.
-2. Politique de placement chaud/froid et coalescing du batch d'experts.
-3. Pipeline asynchrone GPU ↔ CPU pour recouvrir calcul et transfert.
-4. Benchmark honnête contre l'existant : `llama.cpp` avec `--n-cpu-moe`, ktransformers,
-   et le récent `JustVugg/colibri` (~20 000 étoiles, créé le 1er juillet 2026, qui fait
-   tourner un MoE de 744B sur 25 Go de RAM en streamant les experts depuis le disque).
+**The engineering work.** Everything still has to be built, and it is systems work, not ML:
+1. Expert GEMM kernel on AMX (`_tile_*` intrinsics, or through oneDNN) in INT8/BF16.
+2. Hot/cold placement policy and coalescing of the expert batch.
+3. Asynchronous GPU ↔ CPU pipeline to overlap compute and transfer.
+4. Honest benchmark against what exists: `llama.cpp` with `--n-cpu-moe`, ktransformers, and the
+   recent `JustVugg/colibri` (~20,000 stars, created 1 July 2026, which runs a 744B MoE on 25 GB
+   of RAM by streaming the experts from disk).
 
-**Effort** : 6–10 semaines, compétences bas niveau requises. **Risque** : faible sur la
-faisabilité, élevé sur la reproduction exacte des chiffres. **Place libre** : totale.
+**Effort**: 6–10 weeks, low-level skills required. **Risk**: low on feasibility, high on
+reproducing the exact numbers. **Open space**: total.
 
-> Le voisinage immédiat, si CoX-MoE déçoit à la lecture : *Efficient CPU-GPU Collaborative
+> The immediate neighborhood, if CoX-MoE disappoints on reading: *Efficient CPU-GPU Collaborative
 > Inference for MoE-based LLMs on Memory-Limited Systems* (arXiv 2512.16473, ASP-DAC 2026),
-> *MoBiLE* (2510.12357, aucun dépôt trouvé) et *Dynamic Expert Quantization* (2511.15015),
-> qui garde les experts à fort trafic en haute précision et les autres en fallback basse
-> précision. Même levier, angles différents.
+> *MoBiLE* (2510.12357, no repository found) and *Dynamic Expert Quantization* (2511.15015), which
+> keeps the high-traffic experts in high precision and the rest in a low-precision fallback. Same
+> lever, different angles.
 
 ---
 
-### 3.3 — Quantification vectorielle par réseau de Leech
+### 3.3 Leech lattice vector quantization
 
-- **arXiv** : 2603.11021 (mars 2026) — sigle **LLVQ**
-- **Titre** : *Leech Lattice Vector Quantization for Efficient LLM Compression*
-- **Auteurs** : van der Ouderaa, van Baalen, Whatmough, Nagel — **Qualcomm AI Research**,
-  l'équipe de référence sur la quantification. Ce n'est pas un papier isolé.
-- **Code** : pas d'implémentation exploitable. Un seul dépôt existe,
-  `dmnunez1993/llvq-paper-reproduction` (notebook Jupyter, 0 étoile, créé le 22 mai 2026,
-  dernier commit le 2 juin) — une tentative de reproduction **dormante**.
+- **arXiv**: 2603.11021 (March 2026), acronym **LLVQ**
+- **Title**: *Leech Lattice Vector Quantization for Efficient LLM Compression*
+- **Authors**: van der Ouderaa, van Baalen, Whatmough, Nagel, **Qualcomm AI Research**, the
+  reference team on quantization. This is not an isolated paper.
+- **Code**: no usable implementation. A single repository exists,
+  `dmnunez1993/llvq-paper-reproduction` (Jupyter notebook, 0 stars, created 22 May 2026, last
+  commit 2 June), a **dormant** reproduction attempt.
 
-**L'idée.** La quantification scalaire perd par construction : quantifier chaque poids
-indépendamment ignore la structure du vecteur. La quantification vectorielle sur réseau
-exploite le fait qu'en dimension 24, le réseau de Leech est l'empilement de sphères optimal
-prouvé — le codebook théoriquement le meilleur possible à cette dimension.
+**The idea.** Scalar quantization loses by construction: quantizing each weight independently
+ignores the structure of the vector. Lattice vector quantization uses the fact that in dimension
+24 the Leech lattice is the proven optimal sphere packing, the theoretically best possible
+codebook at that dimension.
 
-**Le verrou que le papier lève.** Jusqu'ici la VQ sur réseau butait sur un dilemme : soit on
-matérialise le codebook (à 2 bits/dim sur 24 dims, cela ferait 2⁴⁸ entrées — impossible),
-soit on descend en dimension. C'est exactement pourquoi QuIP# a choisi **E8 en dimension 8**
-et pas Leech : son codebook E8P tient en 2¹⁶ entrées, ramenées à une table de 2⁸ par
-symétrie, donc en mémoire partagée GPU. LLVQ étend l'algorithme de recherche fondé sur le
-code de Golay étendu pour obtenir (i) un **indexage sans matérialiser le codebook**,
-(ii) une recherche angulaire sur une union de couches du réseau, (iii) un **noyau de
-déquantification entièrement parallélisable**. Les trois pièces algorithmiques dures sont
-donc traitées dans le papier.
+**The lock the paper lifts.** Until now lattice VQ ran into a dilemma: either materialize the
+codebook (at 2 bits/dim over 24 dims that would be 2⁴⁸ entries, impossible), or go down in
+dimension. That is exactly why QuIP# picked **E8 in dimension 8** and not Leech: its E8P codebook
+fits in 2¹⁶ entries, reduced to a table of 2⁸ by symmetry, hence in GPU shared memory. LLVQ
+extends the search algorithm based on the extended Golay code to get (i) **indexing without
+materializing the codebook**, (ii) an angular search over a union of lattice layers, (iii) a
+**fully parallelizable dequantization kernel**. The three hard algorithmic pieces are therefore
+handled in the paper.
 
-**Le résultat annoncé.** LLVQ dépasserait QuIP#, QTIP et PVQ — c'est-à-dire l'état de l'art
-réel, pas une baseline de complaisance. Un point mérite attention : la variante shape–gain
-avec GPTQ sphérique battrait E8P **même sans rotation**, les auteurs notant que la VQ en
-haute dimension *réduit intrinsèquement la dépendance au préconditionnement rotationnel*.
-Voir §3.1 pour la conséquence stratégique.
+**The announced result.** LLVQ is reported to beat QuIP#, QTIP and PVQ, the real state of the art,
+not a convenient baseline. One point deserves attention: the shape–gain variant with spherical
+GPTQ is reported to beat E8P **even without rotation**, the authors noting that high-dimensional
+VQ *intrinsically reduces the dependence on rotational preconditioning*. See §3.1 for the
+strategic consequence.
 
-**Le travail d'ingénieur.** Il ne s'agit ni de redériver Conway–Sloane, ni de deviner
-l'intention des auteurs : tout est spécifié. Le travail est en aval.
-1. Noyau de déquantification fusionné en production (Triton/CUDA), au niveau de ce que fait
-   `cnygaard/glq` pour E8 — c'est le juge de paix, un noyau lent annule le gain mémoire.
-2. Format de sérialisation et intégration GGUF / vLLM.
-3. Rejeu du protocole face à QTIP (`Cornell-RelaxML/qtip`) sur *notre* matériel.
+**The engineering work.** There is no Conway–Sloane to re-derive and no author intent to guess:
+everything is specified. The work is downstream.
+1. Production fused dequantization kernel (Triton/CUDA), at the level of what `cnygaard/glq` does
+   for E8. This one decides: a slow kernel cancels the memory gain.
+2. Serialization format and GGUF / vLLM integration.
+3. Replay of the protocol against QTIP (`Cornell-RelaxML/qtip`) on *our* hardware.
 
-**Effort** : 4–8 semaines. **Risque** : faible sur la correction (algorithme publié et
-exact), réel sur le débit du noyau. **Place libre** : oui — quatre mois après publication,
-personne n'a livré. La barrière à l'entrée est technique, donc protectrice.
-
----
-
-### 3.4 — Attention Editing : conversion GQA → MLA sur modèles déjà post-entraînés
-
-- **arXiv** : 2604.05688 (avril 2026)
-- **Titre** : *Attention Editing: A Versatile Framework for Cross-Architecture Attention Conversion*
-- **Code** : non trouvé.
-
-**L'idée.** MLA (Multi-head Latent Attention, l'attention de DeepSeek) compresse le KV cache
-d'un ordre de grandeur par rapport à GQA. Mais tous les modèles ouverts occidentaux
-(Llama, Qwen, Mistral) sont en GQA. TransMLA et MHA2MLA ont montré qu'on pouvait convertir
-*a posteriori* — mais sur les modèles de base uniquement. Attention Editing traite
-l'attention cible comme un module remplaçable appris, ce qui étend la conversion aux
-modèles **déjà instruits ou entraînés au raisonnement** — c'est-à-dire ceux qu'on déploie
-réellement.
-
-**Pourquoi c'est stratégique.** C'est le seul levier de la liste qui change
-l'*architecture* et non l'encodage. Le gain sur le KV cache se cumule avec la quantification
-des poids et n'est pas plafonné par le même mur. Concrètement : servir un modèle instruit
-souverain avec un contexte 4× plus long à VRAM constante.
-
-**Le travail d'ingénieur.** Pipeline de conversion reproductible sur un modèle cible
-(Mistral ou Qwen instruct), + évaluation de non-régression sérieuse — c'est là que ça se
-joue, parce que le risque d'abîmer l'alignement ou les capacités de raisonnement lors de
-l'édition est réel et c'est précisément ce que le papier prétend résoudre.
-
-**Effort** : 4–6 semaines dont beaucoup d'évaluation. **Risque** : élevé (dégradation
-silencieuse des capacités). **Place libre** : oui.
-
-> Voisin à lire en même temps : *GQLA / TransGQLA* (arXiv 2605.15250, mai 2026), qui vise le
-> compromis GQA-efficacité / MLA-compression avec adaptation au matériel.
+**Effort**: 4–8 weeks. **Risk**: low on correctness (published and exact algorithm), real on
+kernel throughput. **Open space**: yes. Four months after publication, nobody has shipped. The
+barrier to entry is technical, therefore protective.
 
 ---
 
-### 3.5 — RaBitQCache : attention sparse à budget adaptatif
+### 3.4 Attention Editing: GQA → MLA conversion on already post-trained models
 
-- **arXiv** : 2606.31519 (30 juin 2026, ICML'26) — **le plus frais de la liste**
-- **Code** : `Sakuraaa0/RaBitQCache` — dépôt officiel, ~14 étoiles.
+- **arXiv**: 2604.05688 (April 2026)
+- **Title**: *Attention Editing: A Versatile Framework for Cross-Architecture Attention Conversion*
+- **Code**: not found.
 
-**L'idée.** Les méthodes d'attention sparse récupèrent les top-k tokens du KV cache avec un
-budget *fixe*. RaBitQCache utilise une quantification binaire rotationnelle randomisée
-(RaBitQ, une technique venue des bases vectorielles) pour estimer les poids d'attention en
-arithmétique binaire-INT4. L'estimateur est **non biaisé avec borne d'erreur prouvée**, ce
-qui autorise une récupération **top-p adaptative** : le budget de tokens s'ajuste à la
-sparsité réelle de l'attention au lieu d'être deviné.
+**The idea.** MLA (Multi-head Latent Attention, DeepSeek's attention) compresses the KV cache by
+an order of magnitude against GQA. But every open Western model (Llama, Qwen, Mistral) is on GQA.
+TransMLA and MHA2MLA showed that conversion is possible *after the fact*, on base models only.
+Attention Editing treats the target attention as a learned replaceable module, which extends the
+conversion to models **already instruction-tuned or trained for reasoning**, the ones actually
+deployed.
 
-**Statut particulier.** Le code officiel existe — donc pas « en attente d'implémentation »
-au sens strict. Mais 14 étoiles, aucune intégration moteur, et c'est du code de papier ICML.
-Le travail disponible n'est pas la réimplémentation, c'est le **portage vers vLLM / SGLang /
-llama.cpp**, où il n'y a rien. Et l'auteur amont a un intérêt direct à voir arriver cette PR.
+**Why it is strategic.** This is the only lever on the list that changes the *architecture* and
+not the encoding. The KV cache gain stacks with weight quantization and is not capped by the same
+wall. In practice: serving a sovereign instruction-tuned model with a 4× longer context at
+constant VRAM.
 
-**Effort** : 2–4 semaines (le plus court de la liste, parce qu'on part de code qui tourne).
-**Risque** : faible. **Place libre** : oui côté intégration, non côté algo.
+**The engineering work.** A reproducible conversion pipeline on a target model (Mistral or Qwen
+instruct), plus a serious non-regression evaluation. That is where this one is won or lost, because
+the risk of damaging alignment or reasoning ability during the edit is real, and that is precisely
+what the paper claims to solve.
 
-> Concurrence directe dans le même créneau, à arbitrer à la lecture : *UNIQUE* (2605.27740,
-> top-k sparse universel à granularité page KV), *Fluxion* (2605.07719, sparse hybride avec
-> parallélisme CPU-GPU), *HiLS* (2607.02980, juillet 2026, attention hiérarchique
-> extrapolant à 64× la longueur d'entraînement), *OSCAR* (2605.17757, rotation covariante
-> pour KV 2 bits).
+**Effort**: 4–6 weeks, much of it evaluation. **Risk**: high (silent capability degradation).
+**Open space**: yes.
+
+> Neighbor to read at the same time: *GQLA / TransGQLA* (arXiv 2605.15250, May 2026), which aims at
+> the GQA-efficiency / MLA-compression trade-off with hardware adaptation.
 
 ---
 
-## 4. Tableau de décision
+### 3.5 RaBitQCache: sparse attention with an adaptive budget
 
-| # | Papier | arXiv | Levier | Code amont | Effort | Impact souveraineté |
+- **arXiv**: 2606.31519 (30 June 2026, ICML'26), **the freshest on the list**
+- **Code**: `Sakuraaa0/RaBitQCache`, the official repository, ~14 stars.
+
+**The idea.** Recent sparse attention methods retrieve the top-k tokens of the KV cache on a
+*fixed* budget. RaBitQCache uses a randomized rotational binary quantization (RaBitQ, a technique
+that comes from vector databases) to estimate the attention weights in binary-INT4 arithmetic. The
+estimator is **unbiased with a proven error bound**, which allows **adaptive top-p** retrieval:
+the token budget adjusts to the real sparsity of the attention instead of being guessed.
+
+**Special status.** The official code exists, so this is not "awaiting implementation" in the
+strict sense. But 14 stars, no engine integration, and it is ICML paper code. Reimplementation is
+not the available work. The available work is the **port to vLLM / SGLang / llama.cpp**, where
+there is nothing. And the upstream author has a direct interest in seeing that PR arrive.
+
+**Effort**: 2–4 weeks (the shortest on the list, because it starts from code that runs).
+**Risk**: low. **Open space**: yes on integration, no on the algorithm.
+
+> Direct competition in the same slot, to be arbitrated on reading: *UNIQUE* (2605.27740,
+> universal sparse top-k at KV page granularity), *Fluxion* (2605.07719, hybrid sparse with
+> CPU-GPU parallelism), *HiLS* (2607.02980, July 2026, hierarchical attention extrapolating to
+> 64× the training length), *OSCAR* (2605.17757, covariant rotation for 2-bit KV).
+
+---
+
+## 4. Decision table
+
+| # | Paper | arXiv | Lever | Upstream code | Effort | Sovereignty impact |
 |---|---|---|---|---|---|---|
-| 3.2 | **CoX-MoE** | 2605.17889 | Offload MoE | **Aucun** | 6–10 sem | ⭐⭐⭐⭐⭐ |
-| 3.3 | **Leech VQ (LLVQ)** | 2603.11021 | Poids | Repro dormante (0 ★) | 4–8 sem | ⭐⭐⭐⭐⭐ |
-| 3.1 | **HARP** | 2605.29843 | Poids | Squelette (0 ★) | 3–6 sem | ⭐⭐⭐ |
-| 3.4 | **Attention Editing** | 2604.05688 | Architecture / KV | Aucun | 4–6 sem | ⭐⭐⭐⭐ |
-| 3.5 | **RaBitQCache** | 2606.31519 | KV cache | Officiel (14 ★) | 2–4 sem | ⭐⭐⭐ |
-| — | ~~TurboQuant~~ | — | KV cache | 6+ impls, 12k ★ | — | **Saturé** |
+| 3.2 | **CoX-MoE** | 2605.17889 | MoE offload | **None** | 6–10 wks | 5/5 |
+| 3.3 | **Leech VQ (LLVQ)** | 2603.11021 | Weights | Dormant repro (0 stars) | 4–8 wks | 5/5 |
+| 3.1 | **HARP** | 2605.29843 | Weights | Skeleton (0 stars) | 3–6 wks | 3/5 |
+| 3.4 | **Attention Editing** | 2604.05688 | Architecture / KV | None | 4–6 wks | 4/5 |
+| 3.5 | **RaBitQCache** | 2606.31519 | KV cache | Official (14 stars) | 2–4 wks | 3/5 |
+| n/a | ~~TurboQuant~~ | n/a | KV cache | 6+ impls, 12k stars | n/a | **Saturated** |
 
 ---
 
-## 5. Séquencement proposé
+## 5. Proposed sequencing
 
-**Vague 0 — une semaine, avant tout code.**
-Construire le banc d'essai. Sans lui, aucune des cinq pistes n'est évaluable et on ne saura
-pas distinguer un vrai gain d'un artefact de mesure.
-- Matériel cible figé et documenté (le vrai parc, pas une H100 louée).
-- Métriques : VRAM pic, tok/s prefill, tok/s decode, perplexité **et** un benchmark métier
-  — pour ce contexte, une tâche d'extraction documentaire réelle plutôt qu'un MMLU. Les
-  métriques classiques masquent les régressions : c'est exactement le propos de *The
-  Illusion of Equivalency in Quantization* (arXiv 2607.08734, juillet 2026), qui montre que
-  perplexité et exactitude restent stables alors que les réponses individuelles changent
-  significativement. À lire avant de définir le protocole.
-- Baselines figées : FP16, GGUF Q4_K_M, AWQ/GPTQ 4 bits.
+**Wave 0, one week, before any code.**
+Build the test bench. Without it none of the five tracks is evaluable, and a real gain cannot be
+told apart from a measurement artifact.
+- Target hardware frozen and documented (the real fleet, not a rented H100).
+- Metrics: peak VRAM, prefill tok/s, decode tok/s, perplexity **and** a business benchmark. For
+  this context, a real document extraction task rather than an MMLU. The classic metrics hide
+  regressions: that is exactly the point of *The Illusion of Equivalency in Quantization* (arXiv
+  2607.08734, July 2026), which shows perplexity and accuracy staying stable while individual
+  answers change a great deal. To read before defining the protocol.
+- Frozen baselines: FP16, GGUF Q4_K_M, AWQ/GPTQ 4-bit.
 
-**Vague 1 — RaBitQCache (3.5).** Le plus court chemin vers un résultat publiable, sur du
-code qui tourne déjà. Sert à roder le banc d'essai et à établir la crédibilité de la
-démarche avec un risque minimal.
+**Wave 1, RaBitQCache (3.5).** The shortest path to a publishable result, on code that already
+runs. It shakes down the test bench and establishes the credibility of the approach at minimal
+risk.
 
-**Vague 2 — au choix selon le profil de l'équipe :**
-- profil système bas niveau → **CoX-MoE (3.2)**, le pari le plus rentable ;
-- profil ML/quantification → **Leech VQ (3.3)** en priorité, **HARP (3.1)** en repli.
+**Wave 2, chosen by the team's profile:**
+- low-level systems profile → **CoX-MoE (3.2)**, the most profitable bet;
+- ML/quantization profile → **Leech VQ (3.3)** first, **HARP (3.1)** as fallback.
 
-> ⚠️ Correction par rapport à la première version de ce document : 3.1 et 3.3 **ne se
-> composent pas** aussi bien qu'annoncé. LLVQ montre que la VQ en haute dimension réduit la
-> dépendance à la rotation ; les deux pistes se recouvrent donc partiellement. Il faut en
-> choisir une, pas les empiler en espérant additionner les gains.
+> 3.1 and 3.3 **do not compose** as well as advertised. LLVQ shows that high-dimensional VQ reduces
+> the dependence on rotation, so the two tracks partly overlap. One of them has to be chosen.
+> Stacking them and expecting the gains to add does not work.
 
-**Vague 3 — Attention Editing (3.4)**, une fois qu'on a un protocole d'évaluation
-suffisamment robuste pour détecter une dégradation subtile des capacités. Le faire plus tôt,
-c'est prendre le risque de conclure à tort.
+**Wave 3, Attention Editing (3.4)**, once the evaluation protocol is strong enough to detect a
+subtle degradation of capabilities. Doing it earlier means risking a wrong conclusion.
 
 ---
 
 ## 6. Sources
 
-Papiers :
-- [HARP — 2605.29843](https://arxiv.org/abs/2605.29843)
-- [CoX-MoE — 2605.17889](https://arxiv.org/pdf/2605.17889)
-- [Leech Lattice VQ — 2603.11021](https://arxiv.org/pdf/2603.11021)
-- [Attention Editing — 2604.05688](https://arxiv.org/pdf/2604.05688)
-- [RaBitQCache — 2606.31519](https://arxiv.org/abs/2606.31519)
-- [UNIQUE — 2605.27740](https://arxiv.org/abs/2605.27740)
-- [Fluxion — 2605.07719](https://arxiv.org/abs/2605.07719)
-- [HiLS — 2607.02980](https://arxiv.org/abs/2607.02980)
-- [The Illusion of Equivalency in Quantization — 2607.08734](https://arxiv.org/abs/2607.08734)
-- [GQLA — 2605.15250](https://arxiv.org/html/2605.15250v1)
-- [OSCAR — 2605.17757](https://arxiv.org/pdf/2605.17757)
-- [MoBiLE — 2510.12357](https://arxiv.org/html/2510.12357)
-- [Dynamic Expert Quantization — 2511.15015](https://arxiv.org/abs/2511.15015)
-- [CPU-GPU Collaborative MoE Inference — 2512.16473](https://arxiv.org/abs/2512.16473)
-- [Token Sparse Attention — 2602.03216](https://arxiv.org/abs/2602.03216)
-- [D2Quant — 2602.02546](https://arxiv.org/html/2602.02546v2)
-- [QTIP (référence sortante) — 2406.11235](https://arxiv.org/abs/2406.11235)
-- [QuIP# (codebook E8P) — 2402.04396](https://arxiv.org/abs/2402.04396)
-- [Grouped Lattice Vector Quantizers — 2510.20984](https://arxiv.org/pdf/2510.20984)
+Papers:
+- [HARP, 2605.29843](https://arxiv.org/abs/2605.29843)
+- [CoX-MoE, 2605.17889](https://arxiv.org/pdf/2605.17889)
+- [Leech Lattice VQ, 2603.11021](https://arxiv.org/pdf/2603.11021)
+- [Attention Editing, 2604.05688](https://arxiv.org/pdf/2604.05688)
+- [RaBitQCache, 2606.31519](https://arxiv.org/abs/2606.31519)
+- [UNIQUE, 2605.27740](https://arxiv.org/abs/2605.27740)
+- [Fluxion, 2605.07719](https://arxiv.org/abs/2605.07719)
+- [HiLS, 2607.02980](https://arxiv.org/abs/2607.02980)
+- [The Illusion of Equivalency in Quantization, 2607.08734](https://arxiv.org/abs/2607.08734)
+- [GQLA, 2605.15250](https://arxiv.org/html/2605.15250v1)
+- [OSCAR, 2605.17757](https://arxiv.org/pdf/2605.17757)
+- [MoBiLE, 2510.12357](https://arxiv.org/html/2510.12357)
+- [Dynamic Expert Quantization, 2511.15015](https://arxiv.org/abs/2511.15015)
+- [CPU-GPU Collaborative MoE Inference, 2512.16473](https://arxiv.org/abs/2512.16473)
+- [Token Sparse Attention, 2602.03216](https://arxiv.org/abs/2602.03216)
+- [D2Quant, 2602.02546](https://arxiv.org/html/2602.02546v2)
+- [QTIP (outgoing reference), 2406.11235](https://arxiv.org/abs/2406.11235)
+- [QuIP# (E8P codebook), 2402.04396](https://arxiv.org/abs/2402.04396)
+- [Grouped Lattice Vector Quantizers, 2510.20984](https://arxiv.org/pdf/2510.20984)
 
-Dépôts et écosystème :
+Repositories and ecosystem:
 - [Sakuraaa0/RaBitQCache](https://github.com/Sakuraaa0/RaBitQCache)
 - [brain-lab-research/HARP](https://github.com/brain-lab-research/HARP)
 - [Cornell-RelaxML/qtip](https://github.com/Cornell-RelaxML/qtip)
 - [JustVugg/colibri](https://github.com/JustVugg/colibri)
 - [NVIDIA/kvpress](https://github.com/NVIDIA/kvpress)
 - [ikawrakow/ik_llama.cpp](https://github.com/ikawrakow/ik_llama.cpp)
-- [Discussion TurboQuant sur llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/20969)
+- [TurboQuant discussion on llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/20969)

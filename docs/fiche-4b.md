@@ -1,95 +1,97 @@
-# Fiche 4B
+# 4B datasheet
 
-Registre de provenance de `Qwen3-4B-LLVQ-2bit` et de son noyau fusé : chaque chiffre du fichier publié y a sa ligne, avec
-source, instrument, dtype, protocole et étiquette (*mesuré*, *calculé*, *estimé*). Là où un document diverge de l'objet,
-l'objet gagne. État courant : [ETAT.md](ETAT.md) ; verdicts datés : [HISTORIQUE.md](HISTORIQUE.md) ; règles de mesure :
-[METHODE.md](METHODE.md) ; layouts CUDA : [format-noyau.md](format-noyau.md). Mesures Metal sur MacBook Pro Mac15,8, M3 Max,
-16 cœurs CPU, 40 cœurs GPU, 68 719 476 736 o (*mesuré*, `system_profiler`), crête 400 Go/s (*estimé*, spec) ; CUDA sur L40S.
+Provenance register of `Qwen3-4B-LLVQ-2bit` and its fused kernel: every number of the published file has its row here,
+with source, instrument, dtype, protocol and label (*measured*, *computed*, *estimated*). Where a document diverges from
+the object, the object wins. Current state: [ETAT.md](ETAT.md); dated verdicts: [HISTORIQUE.md](HISTORIQUE.md);
+measurement rules: [METHODE.md](METHODE.md); CUDA layouts: [format-noyau.md](format-noyau.md). Metal measurements on a
+MacBook Pro Mac15,8, M3 Max, 16 CPU cores, 40 GPU cores, 68,719,476,736 bytes (*measured*, `system_profiler`), peak
+400 GB/s (*estimated*, spec); CUDA on L40S.
 
-## 1. Identité
-| champ | valeur | étiquette, source |
+## 1. Identity
+| field | value | label, source |
 |---|---|---|
-| nom | `Pier-Jean/Qwen3-4B-LLVQ-2bit`, fichier `qwen3-4b-llvq.bin` | dépôt HF au commit `f00daa7bc1dd12a720304a4483f2219d10f15c96` |
-| taille | 1 770 527 533 o (1,771 Go) | *mesuré*, `shasum` ; `content-length` HF identique (2026-08-03) |
-| sha256 | `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0` | *mesuré*, identique au `x-linked-etag` HF |
-| magic | `LVQ2`, trois sections, parse à l'octet exact | *mesuré* |
-| scellement | 2026-07-31 17:56 (mtime) | *mesuré* |
-| binaire | commit `51d7c55` (2026-07-31 12:36:19) | *mesuré*, quatre indices (§4) |
-| copie locale | `/Users/pjmalandrino/qwen3-4b-llvq.bin` | même sha256 |
+| name | `Pier-Jean/Qwen3-4B-LLVQ-2bit`, file `qwen3-4b-llvq.bin` | HF repo at commit `f00daa7bc1dd12a720304a4483f2219d10f15c96` |
+| size | 1,770,527,533 B (1.771 GB) | *measured*, `shasum`; HF `content-length` identical (2026-08-03) |
+| sha256 | `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0` | *measured*, identical to the HF `x-linked-etag` |
+| magic | `LVQ2`, three sections, parses to the exact byte | *measured* |
+| sealing | 2026-07-31 17:56 (mtime) | *measured* |
+| binary | commit `51d7c55` (2026-07-31 12:36:19) | *measured*, four clues (§4) |
+| local copy | `/Users/pjmalandrino/qwen3-4b-llvq.bin` | same sha256 |
 
-Le dépôt HF contient `.gitattributes`, `LICENSE`, `README.md` et le `.bin` ; reproduction par `shasum -a 256` et
-`curl -sIL https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit/resolve/main/qwen3-4b-llvq.bin`. Le fichier se charge sans
-réseau ni checkpoint (`bin/run`, `bin/ppl`, `bin/mmlu`, `bin/fusedrun`, bancs `thesis`, `matvec`, `decreal`) et ne s'ouvre
-dans aucun autre moteur. Le widget HF ne le sert pas : `config.json` et `tokenizer.json` sont dans le `.bin`.
+The HF repo holds `.gitattributes`, `LICENSE`, `README.md` and the `.bin`; reproduce with `shasum -a 256` and
+`curl -sIL https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit/resolve/main/qwen3-4b-llvq.bin`. The file loads with no
+network and no checkpoint (`bin/run`, `bin/ppl`, `bin/mmlu`, `bin/fusedrun`, benchmarks `thesis`, `matvec`, `decreal`) and
+opens in no other engine. The HF widget does not serve it: `config.json` and `tokenizer.json` live inside the `.bin`.
 
-## 2. Contenu octet par octet
-| section | octets | contenu | étiquette |
+## 2. Byte-by-byte content
+| section | bytes | content | label |
 |---|---|---|---|
-| matrices | 980 790 202 | 252 matrices quantifiées | *mesuré* |
-| tenseurs bruts | 778 313 898 | 146 tenseurs f16 | *mesuré* |
-| blobs | 11 423 433 | `config.json` 726 o, `tokenizer.json` 11 422 654 o | *mesuré* |
-| total | 1 770 527 533 | = taille du fichier, écart 0 | *mesuré* |
+| matrices | 980,790,202 | 252 quantized matrices | *measured* |
+| raw tensors | 778,313,898 | 146 f16 tensors | *measured* |
+| blobs | 11,423,433 | `config.json` 726 B, `tokenizer.json` 11,422,654 B | *measured* |
+| total | 1,770,527,533 | = file size, difference 0 | *measured* |
 
-La section matrices se décompose en payload 980 770 752 o (7 846 166 016 bits, §5.3) et framing 19 450 o (*calculé* sur entrées
-mesurées, boucle à l'octet). Le framing compte l'en-tête 8, les noms 10 370, les métadonnées 252 × 28 et les préfixes 252 × 8.
+The matrix section splits into payload 980,770,752 bytes (7,846,166,016 bits, §5.3) and framing 19,450 bytes (*computed*
+on measured inputs, byte-exact loop). The framing counts the 8-byte header, 10,370 for the names, 252 × 28 of metadata
+and 252 × 8 of prefixes.
 
-| tenseurs portés | valeurs | étiquette |
+| carried tensors | values | label |
 |---|---|---|
-| `model.embed_tokens.weight` [151936, 2560] | 388 956 160 | *mesuré* |
-| normes : 36 × (2560 + 2560 + 128 + 128) + `model.norm` 2560 | 196 096 | *mesuré* |
-| total porté, 146 tenseurs | 389 152 256 | *mesuré* |
+| `model.embed_tokens.weight` [151936, 2560] | 388,956,160 | *measured* |
+| norms: 36 × (2560 + 2560 + 128 + 128) + `model.norm` 2560 | 196,096 | *measured* |
+| total carried, 146 tensors | 389,152,256 | *measured* |
 
-Pas de `lm_head` : `tie_word_embeddings` vaut `true`. Les 146 tenseurs sont égaux bit pour bit à f16(bf16 du checkpoint),
-146/146 vérifiés (*mesuré*). Les blobs sont des copies octet pour octet du checkpoint : sha256 de `tokenizer.json` =
-`aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4`, le blob HF amont. Tokens et prompts MMLU sont donc
-identiques entre les deux bras par construction. `config.json` : hidden 2560, intermediate 9728, 36 couches, head_dim 128,
-32 têtes, 8 KV, vocab 151 936, bfloat16 (*mesuré*). La constante `389_070_848` de `thesis.rs:432` ne correspond à aucun
-tenseur (2¹⁴ × 23 747), effet +0,03 % sur les tok/s : à corriger, jamais à citer.
+No `lm_head`: `tie_word_embeddings` is `true`. The 146 tensors are equal bit for bit to f16(checkpoint bf16), 146/146
+verified (*measured*). The blobs are byte-for-byte copies of the checkpoint: sha256 of `tokenizer.json` =
+`aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4`, the upstream HF blob. Tokens and MMLU prompts are
+therefore identical between the two arms by construction. `config.json`: hidden 2560, intermediate 9728, 36 layers,
+head_dim 128, 32 heads, 8 KV, vocab 151,936, bfloat16 (*measured*). The `389_070_848` constant in `thesis.rs:432`
+matches no tensor (2¹⁴ × 23,747), effect +0.03% on the tok/s: to be fixed, never to be quoted.
 
-## 3. Comptes de poids
-Relus dans les en-têtes de matrice (*mesuré*, 2026-08-03).
+## 3. Weight counts
+Read back from the matrix headers (*measured*, 2026-08-03).
 
-| grandeur | valeur | note |
+| quantity | value | note |
 |---|---|---|
-| matrices | 252 | 36 blocs × 7 projections |
-| poids de projection | 3 633 315 840 | fichier et `~/llvq-run-4b-artefact.log` |
-| dont quantifiés | 3 616 358 400 | |
-| dont queue `KeepExact` | 16 957 440 (0,4667 %) | 471 040 par couche |
-| blocs de 24 | 150 681 600 | relus, pas déduits |
-| lignes de sortie | 1 105 920 | les lignes vérifiées par le banc noyau ; aussi le nombre d'échelles de ligne |
-| centroïdes de gain | 504 | 2 × 252 |
-| blocs au niveau de gain 0 | 72 008 871 (47,79 %) | centroïde moyen 0,8723 |
-| blocs au niveau de gain 1 | 78 672 729 (52,21 %) | centroïde moyen 1,1146 ; 0 bloc codé à l'origine |
-| total paramètres du modèle | 4 022 468 096 | 3 633 315 840 + 389 152 256 (*calculé*) |
+| matrices | 252 | 36 blocks × 7 projections |
+| projection weights | 3,633,315,840 | file and `~/llvq-run-4b-artefact.log` |
+| of which quantized | 3,616,358,400 | |
+| of which `KeepExact` tail | 16,957,440 (0.4667%) | 471,040 per layer |
+| blocks of 24 | 150,681,600 | read back, not derived |
+| output rows | 1,105,920 | the rows verified by the kernel benchmark; also the number of row scales |
+| gain centroids | 504 | 2 × 252 |
+| blocks at gain level 0 | 72,008,871 (47.79%) | mean centroid 0.8723 |
+| blocks at gain level 1 | 78,672,729 (52.21%) | mean centroid 1.1146; 0 blocks coded at the origin |
+| total model parameters | 4,022,468,096 | 3,633,315,840 + 389,152,256 (*computed*) |
 
-Formes : q 4096 × 2560, k 1024 × 2560, v 1024 × 2560, o 2560 × 4096, gate et up 9728 × 2560, down 2560 × 9728. Queues :
-2560 % 24 = 16, 4096 % 24 = 16, 9728 % 24 = 8. Par matrice, la fraction de blocs au niveau 1 va de 0,4660 à 0,7604,
-médiane 0,5143 ; les centroïdes sont strictement croissants sur les 252, rapport moyen 1,2791. `~/llvq-q4b.llvq`
-(980 790 202 o, magic `LVQ1`) porte aux octets [8, 980 790 202) le même sha256 que le scellé,
-`5acd89c07afc143ce12ab5a04a4a24ba38f8bd7f0601d049e14e734715725a6b` (*mesuré*) : `bin/seal` ré-encode bit-identique. Son
-sha256 propre est `94f60e86…` ; c'est le fichier par défaut des trois bancs Metal (`thesis.rs:191`, `matvec.rs:503`,
-`decreal.rs:139`), donc l'objet des runs `thesis` du 08-01.
+Shapes: q 4096 × 2560, k 1024 × 2560, v 1024 × 2560, o 2560 × 4096, gate and up 9728 × 2560, down 2560 × 9728. Tails:
+2560 % 24 = 16, 4096 % 24 = 16, 9728 % 24 = 8. Per matrix, the fraction of blocks at level 1 runs from 0.4660 to 0.7604,
+median 0.5143; the centroids are strictly increasing over the 252, mean ratio 1.2791. `~/llvq-q4b.llvq`
+(980,790,202 bytes, magic `LVQ1`) carries over bytes [8, 980,790,202) the same sha256 as the sealed file,
+`5acd89c07afc143ce12ab5a04a4a24ba38f8bd7f0601d049e14e734715725a6b` (*measured*): `bin/seal` re-encodes bit-identical.
+Its own sha256 is `94f60e86…`; it is the default file of the three Metal benchmarks (`thesis.rs:191`, `matvec.rs:503`,
+`decreal.rs:139`), hence the object of the 08-01 `thesis` runs.
 
 ## 4. Configuration
-| réglage | valeur livrée | ce que fait le code | preuve |
+| setting | shipped value | what the code does | proof |
 |---|---|---|---|
-| codebook | `leech1c12` | `LeechShapeGain::with_caps(centroids, cap = 12, level_cap = 5)` | *mesuré* : `shell_cap = 12` sur 252/252 |
-| plafond de niveaux | aucun | `MAX_LEVELS_ANY = 5`, le maximum structurel | *mesuré* : le jeton `L<n>` date du commit `fabab22`, 25 h après le scellement |
-| index | 47 bits | `⌈log₂ N(12)⌉`, N(12) = 111 043 117 458 000 | *mesuré* : flux = nblocs × 6 o ; index max observé 111 043 117 450 038 |
-| gain | 1 bit, 2 centroïdes par matrice | Lloyd-Max, 40 itérations, normes de bloc relatives, poids tournés | *mesuré* : 2 centroïdes sur 252/252 |
-| bits par bloc | 47 + 1 = 48, 6 octets, MSB-first, sans bourrage | 2,000000 b/poids de code | *calculé*, exact |
-| échelles de ligne | 1 105 920 en f64 | `row_scale = sqrt(Σ row² / (d_in/24))`, figée avant la boucle | *mesuré* : 0 sur 1 105 920 représentable en f32, 0/504 centroïdes |
-| queue | `TailPolicy::KeepExact`, f32 sur disque | reçoit la rétroaction d'erreur, ne produit aucune erreur propre | *mesuré* |
-| rotation | entrée seule, graine `0x110FEED` | `Q = (Q_odd ⊗ H_m) D`, graine `base ^ (bloc<<32) ^ (act<<16)`, 144 graines distinctes | *mesuré* : 252 graines reproduites sans exception ; aucun `rotate_weight_cols` |
-| `group_scales` | off | arg 5 = `nogs`, et `ensure!(!cfg.group_scales)` à l'écriture | *mesuré* |
-| rétraction | `true`, no-op | `retraction_target()` rend `None` sous `retract_to_level` | *mesuré* |
-| amortissement | 1e-2, relatif à `mean(diag H)` | codé en dur au run | *mesuré* ; balayé au lot B, effet nul ([verdicts](archive/verdicts-lot-b-2026-08-06.md)) |
-| dtype | f32 partout | `var_builder(DType::F32)` littéral ; `LLVQ_DTYPE` postérieur | *mesuré* |
-| calibration | C4 validation shard 00000, 64 × 2048 = 131 072 tokens, préfixe contigu | `LLVQ_CALIB_SEED` n'existait pas | *mesuré* |
-| threads d'encodage | 16 | valeur résolue, ligne 1 du log | *mesuré* |
-| portée | 36 blocs sur 36, 252 matrices | | *mesuré* |
+| codebook | `leech1c12` | `LeechShapeGain::with_caps(centroids, cap = 12, level_cap = 5)` | *measured*: `shell_cap = 12` on 252/252 |
+| level cap | none | `MAX_LEVELS_ANY = 5`, the structural maximum | *measured*: the `L<n>` token dates from commit `fabab22`, 25 h after sealing |
+| index | 47 bits | `⌈log₂ N(12)⌉`, N(12) = 111,043,117,458,000 | *measured*: stream = nblocks × 6 B; max index observed 111,043,117,450,038 |
+| gain | 1 bit, 2 centroids per matrix | Lloyd-Max, 40 iterations, relative block norms, rotated weights | *measured*: 2 centroids on 252/252 |
+| bits per block | 47 + 1 = 48, 6 bytes, MSB-first, no padding | 2.000000 b/weight of code | *computed*, exact |
+| row scales | 1,105,920 in f64 | `row_scale = sqrt(Σ row² / (d_in/24))`, frozen before the loop | *measured*: 0 of 1,105,920 representable in f32, 0/504 centroids |
+| tail | `TailPolicy::KeepExact`, f32 on disk | receives the error feedback, produces no error of its own | *measured* |
+| rotation | input only, seed `0x110FEED` | `Q = (Q_odd ⊗ H_m) D`, seed `base ^ (block<<32) ^ (act<<16)`, 144 distinct seeds | *measured*: 252 seeds reproduced without exception; no `rotate_weight_cols` |
+| `group_scales` | off | arg 5 = `nogs`, and `ensure!(!cfg.group_scales)` at write time | *measured* |
+| retraction | `true`, no-op | `retraction_target()` returns `None` under `retract_to_level` | *measured* |
+| damping | 1e-2, relative to `mean(diag H)` | hard-coded at run time | *measured*; swept in batch B, no effect ([verdicts](archive/verdicts-lot-b-2026-08-06.md)) |
+| dtype | f32 everywhere | literal `var_builder(DType::F32)`; `LLVQ_DTYPE` came later | *measured* |
+| calibration | C4 validation shard 00000, 64 × 2048 = 131,072 tokens, contiguous prefix | `LLVQ_CALIB_SEED` did not exist | *measured* |
+| encoding threads | 16 | resolved value, line 1 of the log | *measured* |
+| scope | 36 blocks out of 36, 252 matrices | | *measured* |
 
-Ligne de commande qui a produit l'objet, puis scellement :
+Command line that produced the object, then sealing:
 ```bash
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=/Users/pjmalandrino/llvq-q4b.llvq \
 cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- \
@@ -97,370 +99,380 @@ cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- \
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- \
   /Users/pjmalandrino/llvq-q4b.llvq /Users/pjmalandrino/qwen3-4b-llvq.bin
 ```
-Positionnels au commit `51d7c55` : 0 n_calib, 1 calib_len, 2 n_eval, 3 eval_ctx, 4 device, 5 teste `== "gs"`, 6 codebook,
-7 limit, 8 `rot`, 9 absent. Le codebook `1c12` signifie gain 1 bit, coquille 12, pas de suffixe `f` ; toute valeur de
-limit ≥ 36 équivaut. Quatre indices datent le binaire. Le mtime du `.llvq` moins 14 447 s place le démarrage vers 12:40 ;
-les lignes « model dtype », « hessian damping » et « phases » sont absentes ; le compteur lit `block N/405`.
-`--features fast-linalg` n'est pas traçable : le garde-fou qui l'imprime est postérieur au run. Faits sur la recette :
-- La recette livrée est l'Algorithme 1 (shape-gain, reset de gain) plus une rotation d'incohérence en entrée ;
-  « Spherical GPTQ » nomme le crate, pas la recette.
-- La ligne de configuration des logs de `smoke` est un littéral codé en dur (« 0 gain bits, spherical retraction ») ;
-  seule la ligne de résultat `leech1c12` est fiable.
-- La rétraction de l'Eq. 17 est un no-op sous un gain codé : `quantize` a déjà posé le bloc sur la sphère du niveau.
-- L'Algorithme 3 (`refine_group_scales`) est doublement désactivé.
-- `block N/405` compte les 405 blocs de colonnes de `down_proj` (9728 / 24), pas des couches ; `/36` avant `51d7c55`.
+Positionals at commit `51d7c55`: 0 n_calib, 1 calib_len, 2 n_eval, 3 eval_ctx, 4 device, 5 tests `== "gs"`, 6 codebook,
+7 limit, 8 `rot`, 9 absent. The `1c12` codebook means 1 gain bit, shell 12, no `f` suffix; any limit value ≥ 36 is
+equivalent. Four clues date the binary. The `.llvq` mtime minus 14,447 s puts the start around 12:40; the "model dtype",
+"hessian damping" and "phases" lines are absent; the counter reads `block N/405`. `--features fast-linalg` is not
+traceable: the guard that prints it came after the run. Facts about the recipe:
+- The shipped recipe is Algorithm 1 (shape-gain, gain reset) plus an incoherence rotation on the input;
+  "Spherical GPTQ" names the crate, not the recipe.
+- The configuration line in `smoke`'s logs is a hard-coded literal ("0 gain bits, spherical retraction");
+  only the `leech1c12` result line is reliable.
+- The Eq. 17 retraction is a no-op under a coded gain: `quantize` has already put the block on the level's sphere.
+- Algorithm 3 (`refine_group_scales`) is disabled twice over.
+- `block N/405` counts the 405 column blocks of `down_proj` (9728 / 24), not layers; `/36` before `51d7c55`.
 
-La commande publiée reproduit la méthode sans reproduire les octets. Deux blocages (*mesuré*, git) :
+The published command reproduces the method without reproducing the bytes. Two blockers (*measured*, git):
 
-| blocage | fait | conséquence |
+| blocker | fact | consequence |
 |---|---|---|
-| corpus | le commit `aba3989` (2026-08-01) déplace `LLVQ_CALIB=c4` du shard 00000 au 00001 | la commande publiée calibre à HEAD sur un autre texte ; aucune ppl C4 de l'objet n'est produisible sans contamination |
-| conteneur | à `51d7c55` l'écrivain était `artifact2.rs`, magic `LVQ1`, `finish()` vide ; à HEAD `ArtifactWriter`, magic `LVQ2`, deux `u32` nuls | un re-run rend 980 790 210 o avec un autre magic ; les enregistrements de matrice restent comparables |
+| corpus | commit `aba3989` (2026-08-01) moves `LLVQ_CALIB=c4` from shard 00000 to shard 00001 | the published command calibrates at HEAD on different text; no C4 ppl of the object can be produced without contamination |
+| container | at `51d7c55` the writer was `artifact2.rs`, magic `LVQ1`, empty `finish()`; at HEAD `ArtifactWriter`, magic `LVQ2`, two zero `u32` | a re-run yields 980,790,210 B with a different magic; the matrix records stay comparable |
 
-Un tiers sur CUDA n'obtiendra pas les mêmes poids : `calib.rs` accumule AᵀA en f32 sur l'accélérateur, écart non chiffré.
+A third party on CUDA will not get the same weights: `calib.rs` accumulates AᵀA in f32 on the accelerator, difference
+not quantified.
 
-## 5. Les chiffres
-### 5.1 Perplexité
-Wikitext-2 test, ctx 4096, 12 fenêtres non chevauchantes, 49 140 tokens notés (4 095 × 12), logits f32 avant `log_softmax`.
+## 5. The numbers
+### 5.1 Perplexity
+Wikitext-2 test, ctx 4096, 12 non-overlapping windows, 49,140 scored tokens (4,095 × 12), f32 logits before `log_softmax`.
 
-| LLVQ | baseline | × | objet | dtype | instrument | trace | étiquette |
+| LLVQ | baseline | × | object | dtype | instrument | trace | label |
 |---|---|---|---|---|---|---|---|
-| 16,9617 | 12,2336 | 1,3865 | modèle en mémoire, avant et après réécriture des 252 projections | f32 | boucle `ppl` de `smoke` | `~/llvq-run-4b-artefact.log` | *mesuré* ; iso-conditions par construction, `verify_artifact` rattache ce modèle aux octets publiés |
-| 16,9415 | 12,2361 | 1,3845 | octets publiés contre checkpoint, empreinte `3f1baca9033bf251` des deux côtés | f16 | `bin/ppl`, Metal | corps du commit `8c17eff` ; rejoué `~/ppl-scelle-f16-2026-08-04.log`, `~/ppl-base-f16-2026-08-04.log` | *mesuré*, reproduit au dix-millième |
-| 16,9422 | 12,2369 | 1,385 | octets publiés, L40S, même empreinte | f16 | `bin/ppl`, CUDA | [a4-campagne](mesures/a4-campagne-2026-08-06.txt) | *mesuré* ; NLL par fenêtre dans [le brut](mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt) |
-| 16,9358 | 12,2369 | 1,384 | variante embedding q8 (`q4b-e8.llvq`) | f16 | `bin/ppl`, CUDA | LLVQ : [campagne finale bras 4](mesures/campagne-finale-bras4-2026-08-07.txt) ; baseline : a4-campagne, même empreinte | *mesuré* des deux côtés ; le × est *calculé* entre les deux journaux |
-| 15,3272 | | | overlay `~/llvq-q4b-c12.safetensors`, run de nuit, binaire antérieur au correctif `60068db`, 2,6923 b/poids réels, quantifieur du commit `db84454` | f32 | `smoke` | `~/llvq-run-nuit.log` | *mesuré*, hors référence |
-| 14,2684 / 15,2909 / 14,9104 | 12,2336 | | modèles en mémoire, cap 13, annoncés à 2,1117 b/poids, débit réel 2,7338 | f32 | `smoke` | lignes de tableau, aucun log | *mesuré*, hors référence ; le couple 14,2684 / 15,2909 est l'observation de dispersion du §5.7 |
+| 16.9617 | 12.2336 | 1.3865 | in-memory model, before and after rewriting the 252 projections | f32 | `ppl` loop of `smoke` | `~/llvq-run-4b-artefact.log` | *measured*; iso-conditions by construction, `verify_artifact` ties this model to the published bytes |
+| 16.9415 | 12.2361 | 1.3845 | published bytes against checkpoint, fingerprint `3f1baca9033bf251` on both sides | f16 | `bin/ppl`, Metal | body of commit `8c17eff`; replayed `~/ppl-scelle-f16-2026-08-04.log`, `~/ppl-base-f16-2026-08-04.log` | *measured*, reproduced to the ten-thousandth |
+| 16.9422 | 12.2369 | 1.385 | published bytes, L40S, same fingerprint | f16 | `bin/ppl`, CUDA | [a4-campagne](mesures/a4-campagne-2026-08-06.txt) | *measured*; per-window NLL in [the raw log](mesures/a4-campagne-4b-ppl-BRUT-2026-08-06.txt) |
+| 16.9358 | 12.2369 | 1.384 | q8 embedding variant (`q4b-e8.llvq`) | f16 | `bin/ppl`, CUDA | LLVQ: [final campaign arm 4](mesures/campagne-finale-bras4-2026-08-07.txt); baseline: a4-campagne, same fingerprint | *measured* on both sides; the × is *computed* between the two journals |
+| 15.3272 | | | overlay `~/llvq-q4b-c12.safetensors`, night run, binary predating the `60068db` fix, 2.6923 b/weight actual, quantizer of commit `db84454` | f32 | `smoke` | `~/llvq-run-nuit.log` | *measured*, not a reference |
+| 14.2684 / 15.2909 / 14.9104 | 12.2336 | | in-memory models, cap 13, announced at 2.1117 b/weight, actual rate 2.7338 | f32 | `smoke` | table rows, no log | *measured*, not a reference; the 14.2684 / 15.2909 pair is the spread observation of §5.7 |
 
-Invocations du couple f16, critère = même empreinte `3f1baca9033bf251` : `LLVQ_DTYPE=f16 cargo run --release -p llvq-llm
---features metal --bin ppl -- 4096 12 metal /Users/pjmalandrino/qwen3-4b-llvq.bin` (scellé) et `LLVQ_MODEL=Qwen/Qwen3-4B
-LLVQ_DTYPE=f16 … --bin ppl -- 4096 12 metal` (checkpoint) ; attendu 16,9415 / 12,2361.
+Invocations of the f16 pair, criterion = same fingerprint `3f1baca9033bf251`: `LLVQ_DTYPE=f16 cargo run --release -p
+llvq-llm --features metal --bin ppl -- 4096 12 metal /Users/pjmalandrino/qwen3-4b-llvq.bin` (sealed) and
+`LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_DTYPE=f16 … --bin ppl -- 4096 12 metal` (checkpoint); expected 16.9415 / 12.2361.
 
-Surcoût de log-vraisemblance sur sa propre baseline (*calculé*), la seule comparaison inter-papier qui tienne :
+Log-likelihood overhead over its own baseline (*computed*), the only cross-paper comparison that holds:
 
-| bras | Δ nats/token | vs QTIP |
+| arm | Δ nats/token | vs QTIP |
 |---|---|---|
-| nous, f32 | ln(16,9617) − ln(12,2336) = 0,326772 | +3,06 % |
-| nous, f16 sur le fichier | ln(16,9415) − ln(12,2361) = 0,325376 | +2,62 % |
-| QTIP (17,04 / 12,41) | 0,317061 | |
-| LLVQ 0 bit du papier (17,05 / 12,41) | 0,317648 | +0,19 % |
+| us, f32 | ln(16.9617) − ln(12.2336) = 0.326772 | +3.06% |
+| us, f16 on the file | ln(16.9415) − ln(12.2361) = 0.325376 | +2.62% |
+| QTIP (17.04 / 12.41) | 0.317061 | |
+| 0-bit LLVQ of the paper (17.05 / 12.41) | 0.317648 | +0.19% |
 
-Nous sommes au-dessus de QTIP et de la config 0 bit du papier avant de payer 8,5 % de bits en plus ([notes](llvq-paper-notes.md)).
+We sit above QTIP and above the paper's 0-bit config before paying 8.5% more bits ([notes](llvq-paper-notes.md)).
 
 ### 5.2 MMLU
-Hendrycks 5-shot, dev de la même matière, logits des tokens `" A".." D"` comparés en f32, une passe avant par question.
-2 280 questions sur 14 042 (40 par matière, 57 matières), tirage seedé `SplitMix64(0x6_11B0 ^ subject.len())` aux deux bras.
+Hendrycks 5-shot, dev split of the same subject, logits of the `" A".." D"` tokens compared in f32, one forward pass per
+question. 2,280 questions out of 14,042 (40 per subject, 57 subjects), seeded draw
+`SplitMix64(0x6_11B0 ^ subject.len())` on both arms.
 
-| bras | micro | macro | carte | dtype | trace | étiquette |
+| arm | micro | macro | card | dtype | trace | label |
 |---|---|---|---|---|---|---|
-| f16 checkpoint | 70,32 ± 1,28 | | L40S | f16 | [a4-campagne](mesures/a4-campagne-2026-08-06.txt), empreinte `65dcd53655e8bfa5` | *mesuré*, référence |
-| LLVQ, octets publiés | 55,59 ± 1,35 | | L40S | f16 | idem | *mesuré*, référence |
-| LLVQ, embedding q8 | 55,70 ± 1,35 | | L40S | f16 | [campagne finale bras 4](mesures/campagne-finale-bras4-2026-08-07.txt) | *mesuré* ; dans le bruit |
-| chute f16 → LLVQ | −14,73 pp, IC95 apparié [+11,98 ; +17,47] | | | | [mmlupair 4B/8B](mesures/mmlupair-4b-8b-2026-08-13.txt) | *calculé* ; papier −9,5 pp (60,7 / 70,2) |
-| f16 checkpoint | 70,42 ± 1,28 | 72,85 | Metal | f16 | [mmlu-micro-2026-08-02.log](mmlu-micro-2026-08-02.log), 2 620 s | *mesuré*, hors référence |
-| LLVQ, octets publiés | 56,09 ± 1,36 | 57,59 | Metal | f16 | même log, 2 805 s, profil par matière | *mesuré*, hors référence |
-| chute, Metal | −14,33 pp | −15,26 pp | | | | *calculé*, hors référence |
+| f16 checkpoint | 70.32 ± 1.28 | | L40S | f16 | [a4-campagne](mesures/a4-campagne-2026-08-06.txt), fingerprint `65dcd53655e8bfa5` | *measured*, reference |
+| LLVQ, published bytes | 55.59 ± 1.35 | | L40S | f16 | same | *measured*, reference |
+| LLVQ, q8 embedding | 55.70 ± 1.35 | | L40S | f16 | [final campaign arm 4](mesures/campagne-finale-bras4-2026-08-07.txt) | *measured*; within the noise |
+| drop f16 → LLVQ | −14.73 pp, paired 95% CI [+11.98; +17.47] | | | | [mmlupair 4B/8B](mesures/mmlupair-4b-8b-2026-08-13.txt) | *computed*; paper −9.5 pp (60.7 / 70.2) |
+| f16 checkpoint | 70.42 ± 1.28 | 72.85 | Metal | f16 | [mmlu-micro-2026-08-02.log](mmlu-micro-2026-08-02.log), 2,620 s | *measured*, not a reference |
+| LLVQ, published bytes | 56.09 ± 1.36 | 57.59 | Metal | f16 | same log, 2,805 s, per-subject profile | *measured*, not a reference |
+| drop, Metal | −14.33 pp | −15.26 pp | | | | *computed*, not a reference |
 
-« Micro » est un estimateur stratifié : les 57 taux sont repondérés par la population réelle de chaque matière.
-`professional_law` pèse 1 534 / 14 042 = 10,9 %, estimé sur 40 tirages. Le ± est une erreur-type stratifiée à 1 σ, pas
-un IC 95 % ; il exclut modèle, prompt et graine. La barre d'une différence est l'appariée (McNemar) : 0,43 pp à fichier
-constant, 0,79 à 1,44 pp entre modèles (*mesuré*, [KV q8](mesures/kvq8-4b-2026-08-15.txt), mmlupair 4B/8B). Validation
-du harnais : 70,42 contre 70,2 au papier, +0,22 pp, 0,17 σ (*calculé*). Le bras quantifié perd 0,50 pp entre Metal et
-L40S sur le même fichier, écart non vérifiable (log Metal antérieur aux empreintes). Profil (Metal) : `abstract_algebra`
-10/40, `professional_accounting` 10/40, `machine_learning` 12/40 ; `international_law` 33/40 ; barre par matière ±7 pp.
-Invocations Metal : `cargo run --release -p llvq-llm --features metal --bin mmlu -- Qwen/Qwen3-4B metal 40` et
-`… --bin mmlu -- /Users/pjmalandrino/qwen3-4b-llvq.bin metal 40` ; le `40` est la limite par matière qui définit les
-2 280 questions, et le `.bin` en positionnel prouve que le bras quantifié score les octets publiés.
+"Micro" is a stratified estimator: the 57 rates are reweighted by the real population of each subject.
+`professional_law` weighs 1,534 / 14,042 = 10.9%, estimated on 40 draws. The ± is a stratified standard error at 1 σ,
+not a 95% CI; it excludes model, prompt and seed. The bar on a difference is the paired one (McNemar): 0.43 pp at
+constant file, 0.79 to 1.44 pp between models (*measured*, [KV q8](mesures/kvq8-4b-2026-08-15.txt), mmlupair 4B/8B).
+Harness validation: 70.42 against 70.2 in the paper, +0.22 pp, 0.17 σ (*computed*). The quantized arm loses 0.50 pp
+between Metal and L40S on the same file, a difference that cannot be verified (the Metal log predates the fingerprints).
+Profile (Metal): `abstract_algebra` 10/40, `professional_accounting` 10/40, `machine_learning` 12/40;
+`international_law` 33/40; per-subject bar ±7 pp. Metal invocations:
+`cargo run --release -p llvq-llm --features metal --bin mmlu -- Qwen/Qwen3-4B metal 40` and
+`… --bin mmlu -- /Users/pjmalandrino/qwen3-4b-llvq.bin metal 40`; the `40` is the per-subject limit that defines the
+2,280 questions, and the positional `.bin` proves that the quantized arm scores the published bytes.
 
-### 5.3 Taille et débit
-Payload : 7 846 166 016 bits = 980 770 752 o (*calculé*). Somme : 150 681 600 × 48 + 1 105 920 × 64 + 504 × 64 + 16 957 440 × 32.
+### 5.3 Size and rate
+Payload: 7,846,166,016 bits = 980,770,752 bytes (*computed*). Sum: 150,681,600 × 48 + 1,105,920 × 64 + 504 × 64 +
+16,957,440 × 32.
 
-| dénominateur | b/poids | qui l'imprime | où il est publié | usage |
+| denominator | b/weight | what prints it | where it is published | use |
 |---|---|---|---|---|
-| 3 633 315 840 (projections, queue incluse) | 2,159506 | `bin/seal` | carte HF | le chiffre homogène, à afficher en nommant le dénominateur |
-| 3 616 358 400 (quantifiés seuls) | 2,169632 | `bin/smoke`, ligne « artifact: » | README, CLAUDE.md | variante conservatrice, ratio mixte |
-| comptabilité idéale (queue f16, échelles f16) | 2,070226 | `Report::bits_per_weight`, « effective rate » | | ne se cite jamais pour ce fichier : il décrit un fichier non écrit |
+| 3,633,315,840 (projections, tail included) | 2.159506 | `bin/seal` | HF card | the consistent number, to be shown with its denominator named |
+| 3,616,358,400 (quantized only) | 2.169632 | `bin/smoke`, "artifact:" line | README, CLAUDE.md | conservative variant, mixed ratio |
+| ideal accounting (f16 tail, f16 scales) | 2.070226 | `Report::bits_per_weight`, "effective rate" | | never quoted for this file: it describes a file that was never written |
 
-Décomposition sur 3 616 358 400 (*calculé*, boucle au septième chiffre) :
+Breakdown over 3,616,358,400 (*computed*, loop to the seventh digit):
 
-| poste | b/poids |
+| item | b/weight |
 |---|---|
-| code de réseau, 48 b/bloc | 2,000000 |
-| queue en f32 | 0,150051 |
-| échelles de ligne en f64 | 0,019572 |
-| centroïdes f64 | 0,0000089 |
-| total | 2,169632 (+8,48 % sur 2,000) |
-| si queue et échelles étaient f16 | 2,0799 (+4,0 %) |
+| lattice code, 48 b/block | 2.000000 |
+| tail in f32 | 0.150051 |
+| row scales in f64 | 0.019572 |
+| f64 centroids | 0.0000089 |
+| total | 2.169632 (+8.48% over 2.000) |
+| if tail and scales were f16 | 2.0799 (+4.0%) |
 
-Le gisement est la queue f32 → f16, 0,075026 b/poids ; les échelles f64 ne sont pas réductibles sans casser la preuve bit
-pour bit. `format.rs` documente 0,0146 (surcoût f64 sur f16), le README 0,020 (coût total) : deux conventions, aucune fausse.
+The headroom is the f32 → f16 tail, 0.075026 b/weight; the f64 scales cannot be reduced without breaking the
+bit-for-bit proof. `format.rs` documents 0.0146 (f64 overhead over f16), the README 0.020 (total cost): two conventions,
+neither false.
 
-| compression | valeur | étiquette |
+| compression | value | label |
 |---|---|---|
-| fichier | 1 770 527 533 o | *mesuré* |
-| FP16 équivalent | 4 022 468 096 × 2 = 8 044 936 192 o | *calculé* |
-| ratio | ×4,5438 | *mesuré*, imprimé par `bin/run` et `bin/seal` |
-| débit du modèle entier, embedding f16 | 3,5213 b/param | *calculé* |
-| `q4b-e8.llvq`, embedding int8 | 1 405 881 733 o, 2,7961 b/param | *mesuré* ; −0,02 % de ppl, en production ; section matrices bit-identique au scellé (format `LVQ3` d'époque), ce qui rattache 16,9358 et 55,70 aux mêmes 252 projections que 16,9415 et 55,59 |
-| `q4b-e4.llvq`, embedding int4 g64 | 1 211 403 653 o, 2,4093 b/param | *mesuré* ; +1,52 % de ppl, non publié ; section matrices bit-identique au scellé ([verdicts lot B](archive/verdicts-lot-b-2026-08-06.md) §B4) |
+| file | 1,770,527,533 B | *measured* |
+| FP16 equivalent | 4,022,468,096 × 2 = 8,044,936,192 B | *computed* |
+| ratio | ×4.5438 | *measured*, printed by `bin/run` and `bin/seal` |
+| whole-model rate, f16 embedding | 3.5213 b/param | *computed* |
+| `q4b-e8.llvq`, int8 embedding | 1,405,881,733 B, 2.7961 b/param | *measured*; −0.02% ppl, in production; matrix section bit-identical to the sealed file (then-current `LVQ3` format), which ties 16.9358 and 55.70 to the same 252 projections as 16.9415 and 55.59 |
+| `q4b-e4.llvq`, int4 g64 embedding | 1,211,403,653 B, 2.4093 b/param | *measured*; +1.52% ppl, not published; matrix section bit-identical to the sealed file ([batch B verdicts](archive/verdicts-lot-b-2026-08-06.md) §B4) |
 
-### 5.4 Coût de production
-| grandeur | valeur | trace | étiquette |
+### 5.4 Production cost
+| quantity | value | trace | label |
 |---|---|---|---|
-| durée du run | 14 447 s = 4,013 h | `~/llvq-run-4b-artefact.log`, « quantized 252 matrices … in 14447s » | *mesuré* |
-| par couche | min 328 s, max 592 s, moyenne 401 s | 36 lignes horodatées | *mesuré* |
-| threads | 16 | ligne 1 du log | *mesuré* |
-| coût | 0 $, M3 Max local | | *mesuré* |
-| profil par phase | aucun | l'instrumentation date du 2026-08-02 | non mesuré |
+| run duration | 14,447 s = 4.013 h | `~/llvq-run-4b-artefact.log`, "quantized 252 matrices … in 14447s" | *measured* |
+| per layer | min 328 s, max 592 s, mean 401 s | 36 timestamped lines | *measured* |
+| threads | 16 | line 1 of the log | *measured* |
+| cost | $0, local M3 Max | | *measured* |
+| per-phase profile | none | the instrumentation dates from 2026-08-02 | not measured |
 
-Deux durées retirées désignent deux autres runs. « ~3,5 h » est le run de nuit : 12 715 s, `~/llvq-run-nuit.log`,
-`leech1c12` sur un binaire antérieur à `60068db`, 2,6923 b/poids réels. « 3,45 h » est le run cap 13 : 2,1117 b/poids
-annoncés, 2,7338 réels. Seul 14 447 s = 4,013 h est le run publié ; il coûte +13,6 % sur le run de nuit (*calculé*)
-parce qu'il encode les index dans la boucle et écrit en flux.
+Two withdrawn durations refer to two other runs. "~3.5 h" is the night run: 12,715 s, `~/llvq-run-nuit.log`,
+`leech1c12` on a binary predating `60068db`, 2.6923 b/weight actual. "3.45 h" is the cap 13 run: 2.1117 b/weight
+announced, 2.7338 actual. Only 14,447 s = 4.013 h is the published run; it costs +13.6% over the night run (*computed*)
+because it encodes the indices inside the loop and writes as a stream.
 
-### 5.5 Preuve d'aller-retour
-`3633315840 weights identical, bit for bit` (*mesuré*, `~/llvq-run-4b-artefact.log`) : comparaison `to_bits()` sur les
-252 matrices, f32, queue comprise, après `decode_matrix` ; transportée aux octets publiés par l'identité des sections (§3).
-Elle ne couvre pas un run natif f16 ; le narrowing étant déterministe, `f16(decode(fichier))` est le bras MMLU.
+### 5.5 Round-trip proof
+`3633315840 weights identical, bit for bit` (*measured*, `~/llvq-run-4b-artefact.log`): `to_bits()` comparison over the
+252 matrices, f32, tail included, after `decode_matrix`; carried to the published bytes by the identity of the sections
+(§3). It does not cover a native f16 run; narrowing is deterministic, so `f16(decode(file))` is the MMLU arm.
 
-### 5.6 Débit servi sur ces octets
-| configuration | tok/s [plage] | Go carte | carte | source | étiquette |
+### 5.6 Served throughput on these bytes
+| configuration | tok/s [range] | GB on card | card | source | label |
 |---|---|---|---|---|---|
-| v1 servie : `planes14` + q8 + `ROT_SHARE=1` + `FUSE=1` | 100,6 [99,9–100,7] | 2,57 | L40S | [D1](mesures/d1-fusion-servie-2026-08-24.txt), [vague 2](mesures/vague2-fusion-8b-14b-2026-08-31.txt) | *mesuré*, médiane de 5 rounds |
-| `planes14` + q8, `ROT_SHARE=1/FUSE=0` (hissage seul) | 94,9 [94,1–95,2] | | L40S | D1 | *mesuré* |
-| `planes14` + q8, `ROT_SHARE=0/FUSE=0` | 87,0 [86,8–87,0] | 2,56 | L40S | [B2](mesures/b2-fusedrun-plages-2026-08-18.txt) | *mesuré* |
-| `planes12x` + q8 | 85,0 [84,7–85,1] | 2,36 | L40S | [G3](mesures/g-horloges-planes12x-2026-08-23.txt) | *mesuré* ; −2,3 % de débit pour −0,20 Go |
-| `planes14`, embedding f16 (tête identique) | 48,3 [48,1–48,3] | 2,93 | L40S | B2 | *mesuré* |
-| dense f16, notre chemin | 43,5 [43,4–43,5] | 8,04 | L40S | B2 | *mesuré* |
-| `bin/run` avec cache KV, décodé en mémoire | 42,7 | | L40S | [mini](mesures/mini-2026-08-05.txt) | *mesuré* |
+| served v1: `planes14` + q8 + `ROT_SHARE=1` + `FUSE=1` | 100.6 [99.9–100.7] | 2.57 | L40S | [D1](mesures/d1-fusion-servie-2026-08-24.txt), [wave 2](mesures/vague2-fusion-8b-14b-2026-08-31.txt) | *measured*, median of 5 rounds |
+| `planes14` + q8, `ROT_SHARE=1/FUSE=0` (hoisting only) | 94.9 [94.1–95.2] | | L40S | D1 | *measured* |
+| `planes14` + q8, `ROT_SHARE=0/FUSE=0` | 87.0 [86.8–87.0] | 2.56 | L40S | [B2](mesures/b2-fusedrun-plages-2026-08-18.txt) | *measured* |
+| `planes12x` + q8 | 85.0 [84.7–85.1] | 2.36 | L40S | [G3](mesures/g-horloges-planes12x-2026-08-23.txt) | *measured*; −2.3% throughput for −0.20 GB |
+| `planes14`, f16 embedding (same-head) | 48.3 [48.1–48.3] | 2.93 | L40S | B2 | *measured* |
+| dense f16, our path | 43.5 [43.4–43.5] | 8.04 | L40S | B2 | *measured* |
+| `bin/run` with KV cache, decoded in memory | 42.7 | | L40S | [mini](mesures/mini-2026-08-05.txt) | *measured* |
 
-Le rapport à tête identique, ×1,11 [1,11–1,11], mesure le noyau. Le brut ×2,00 [1,99–2,00] ne se publie jamais seul : le dense
-recopie 778 Mo de vocabulaire par token (*mesuré*, [phases](mesures/phases-2026-08-07.txt)). Fusion : ×1,061 [1,050–1,069]
-intra-job (*mesuré*, D1) ; divergence au dense au token 89 sur 128 sous chaque bras fusé, et 128 tokens identiques
-entre les deux bras fusés (F1 et F0).
+The same-head ratio, ×1.11 [1.11–1.11], measures the kernel. The raw ×2.00 [1.99–2.00] is never published alone: the
+dense arm re-copies 778 MB of vocabulary per token (*measured*, [phases](mesures/phases-2026-08-07.txt)). Fusion:
+×1.061 [1.050–1.069] within one job (*measured*, D1); divergence from the dense arm at token 89 of 128 under each fused
+arm, and 128 identical tokens between the two fused arms (F1 and F0).
 
-### 5.7 Barres d'erreur
-| barre | valeur | ce qu'elle couvre | source | étiquette |
+### 5.7 Error bars
+| bar | value | what it covers | source | label |
 |---|---|---|---|---|
-| σ de calibration, ppl | 5,2 % (0,8202 ppl), étendue 10,3 % sur 16,7425 / 15,8836 / 15,1027 | trois runs complets du 4B, graines 1/2/3, 21,45 $ | [F5](mesures/f5-graines-4b-2026-08-19.txt) | *mesuré* ; les trois paires appariées résolues (t +4,54 / +10,92 / +7,68) |
-| σ de calibration, MMLU | 2,92 pp, étendue 5,83 pp sur 58,02 / 52,19 / 55,17 | mêmes trois artefacts | [bruit MMLU](mesures/bruit-mmlu-graines-4b-2026-08-25.txt) | *mesuré* |
-| excès LLVQ sur f16, ppl | +38,45 % [+33,62 ; +43,45] | échantillonnage du corpus, apparié fenêtre par fenêtre, 12/12 | [ppl appariée](mesures/ppl-appariee-4b-2026-08-17.txt) | *calculé* sur NLL mesurées |
-| A/B à fichier constant | ±0,12 % ppl, SE 0,43 pp MMLU | intervalle apparié ; ne porte pas le σ de calibration | [KV q8](mesures/kvq8-4b-2026-08-15.txt) | *mesuré* |
-| observation n = 2 | 14,2684 contre 15,2909, écart 7,2 % | même quantifieur (écart 7,1e-15, test `under_the_old_retraction_shape_gain_was_direction_only`), cause non tranchée | lignes de tableau, aucun log | *mesuré* |
-| σ de 0,7 % (0,15 ppl) | 3 blocs de Qwen3-0.6B, lot B | pas la taille publiée : facteur 7 sous F5 | [verdicts lot B](archive/verdicts-lot-b-2026-08-06.md) | *mesuré* |
+| calibration σ, ppl | 5.2% (0.8202 ppl), range 10.3% over 16.7425 / 15.8836 / 15.1027 | three full 4B runs, seeds 1/2/3, $21.45 | [F5](mesures/f5-graines-4b-2026-08-19.txt) | *measured*; the three paired comparisons resolved (t +4.54 / +10.92 / +7.68) |
+| calibration σ, MMLU | 2.92 pp, range 5.83 pp over 58.02 / 52.19 / 55.17 | same three artifacts | [MMLU noise](mesures/bruit-mmlu-graines-4b-2026-08-25.txt) | *measured* |
+| LLVQ excess over f16, ppl | +38.45% [+33.62; +43.45] | corpus sampling, paired window by window, 12/12 | [paired ppl](mesures/ppl-appariee-4b-2026-08-17.txt) | *computed* on measured NLLs |
+| A/B at constant file | ±0.12% ppl, SE 0.43 pp MMLU | paired interval; does not carry the calibration σ | [KV q8](mesures/kvq8-4b-2026-08-15.txt) | *measured* |
+| n = 2 observation | 14.2684 against 15.2909, gap 7.2% | same quantizer (gap 7.1e-15, test `under_the_old_retraction_shape_gain_was_direction_only`), cause undecided | table rows, no log | *measured* |
+| σ of 0.7% (0.15 ppl) | 3 blocks of Qwen3-0.6B, batch B | not the published size: a factor 7 below F5 | [batch B verdicts](archive/verdicts-lot-b-2026-08-06.md) | *measured* |
 
-Le fichier publié est un tirage d'un processus à graine, calibré sur le shard 00000 d'avant ; il n'est pas un quatrième
-tirage. Les 0,08 point sous QTIP (16,9617 contre 17,04) sont sous la dispersion mesurée et ne se revendiquent pas.
+The published file is one draw from a seeded process, calibrated on the earlier shard 00000; it is not a fourth draw.
+The 0.08 point below QTIP (16.9617 against 17.04) sits under the measured spread and is not claimed.
 
-### 5.8 Coût du bit de gain
-Coder le gain coûte +3,17 % de perplexité pour −0,618 b/poids (*mesuré*, `~/llvq-ab-retraction.log`, 2026-07-31). A/B :
-Qwen3-0.6B, 3 blocs, ctx 2048, 12 fenêtres, baseline 19,5038.
+### 5.8 Cost of the gain bit
+Coding the gain costs +3.17% perplexity for −0.618 b/weight (*measured*, `~/llvq-ab-retraction.log`, 2026-07-31). A/B:
+Qwen3-0.6B, 3 blocks, ctx 2048, 12 windows, baseline 19.5038.
 
-| bras | codebook | b/poids | ppl | × |
+| arm | codebook | b/weight | ppl | × |
 |---|---|---|---|---|
-| A | `leech1c12`, gain porté (47 + 1 = 48 b/bloc) | 2,1656 | 21,4157 | 1,098 |
-| B | `leech1c12f`, magnitude f16 libre (47 + 16 = 63 b/bloc) | 2,7838 | 20,7582 | 1,064 |
+| A | `leech1c12`, carried gain (47 + 1 = 48 b/block) | 2.1656 | 21.4157 | 1.098 |
+| B | `leech1c12f`, free f16 magnitude (47 + 16 = 63 b/block) | 2.7838 | 20.7582 | 1.064 |
 
-Réserves : 3 blocs d'un 0.6B, et le suffixe `f` ne restaure que la magnitude libre. D'où un écart 4B (10,7 %, *calculé*
-sur 16,9617 contre 15,3272, §5.1) plus grand que l'écart 0.6B (3,2 %, *calculé* sur le tableau ci-dessus). Le gate à
-28 blocs du 0.6B rend, à 2,1656 b/poids, `leech0c13` 39,3309, `leech2c11` 39,5350, `leech1c12` 43,4865, `leech4c10`
-47,1537 (graine 0) (*mesuré*, [gate gain](mesures/gain-ab-gate-0.6b-2026-08-25.txt)). La graine 1 inverse le classement.
+Caveats: 3 blocks of a 0.6B, and the `f` suffix restores only the free magnitude. Hence a 4B gap (10.7%, *computed* on
+16.9617 against 15.3272, §5.1) larger than the 0.6B gap (3.2%, *computed* on the table above). The 28-block gate on the
+0.6B returns, at 2.1656 b/weight, `leech0c13` 39.3309, `leech2c11` 39.5350, `leech1c12` 43.4865, `leech4c10`
+47.1537 (seed 0) (*measured*, [gain gate](mesures/gain-ab-gate-0.6b-2026-08-25.txt)). Seed 1 reverses the ranking.
 
-### 5.9 Manques et points non tranchés
-Sur les dix-sept manques relevés le 2026-08-03, dix sont mesurés depuis (dates dans [HISTORIQUE.md](HISTORIQUE.md)),
-cinq restent (table ci-dessous), un était documentaire (`Cargo.toml`, README, commande ppl : 0 machine) et un n'a jamais
-été fait (débit et RSS du q4 MLX rejoués et loggués, ~2 min, devenu secondaire depuis l'AWQ).
-Mesurés : stdout des deux ppl f16 ; journal de `thesis` ([témoin](mesures/thesis-temoin-2026-08-04.txt), K1) ; ppl et MMLU
-du 4 bits (AWQ, §7) ; σ à la profondeur publiée (F5). Mesurés aussi : plafond L ≤ 4 (+4,75 % de ppl, *mesuré*,
-[verdicts lot B](archive/verdicts-lot-b-2026-08-06.md)) ; amortissement (20,6740 / 20,6643 / 20,6014, lot B) ; `Grouped32`
-et `Flat32` sur le modèle entier (K1) ; rotation GPU et noyau branché sur CUDA. Restent :
+### 5.9 Gaps and undecided points
+Of the seventeen gaps recorded on 2026-08-03, ten have been measured since (dates in [HISTORIQUE.md](HISTORIQUE.md)),
+five remain (table below), one was documentary (`Cargo.toml`, README, ppl command: 0 machine time) and one has never
+been done (MLX q4 throughput and RSS replayed and logged, ~2 min, secondary since AWQ).
+Measured: stdout of the two f16 ppl runs; `thesis` journal ([control](mesures/thesis-temoin-2026-08-04.txt), K1); ppl
+and MMLU of the 4-bit (AWQ, §7); σ at the published depth (F5). Also measured: the L ≤ 4 cap (+4.75% ppl, *measured*,
+[batch B verdicts](archive/verdicts-lot-b-2026-08-06.md)); damping (20.6740 / 20.6643 / 20.6014, batch B); `Grouped32`
+and `Flat32` on the whole model (K1); GPU rotation and the kernel wired up on CUDA. Remaining:
 
-| point | état |
+| point | state |
 |---|---|
-| écart de ppl entre shard 0 et shard 1 de calibration | non mesuré ; 2 runs de 3 blocs, ~50 min (*estimé*) |
-| `bin/seal` rejoué avec sa sortie | attendu 2,1595, 1,771 Go, fichier non identique (`LVQ2` + deux `u32`), ~10 min |
-| `k = 1` dans `llvq-bench` (`main.rs:109` boucle sur `[0, 2]`) | la ligne « union + 1 bit de gain » du tableau aux auteurs est recopiée de la Table 8 |
-| rétention du tableau aux auteurs | `retention_pct(mse, rate) = 100·(−½·log₂ mse)/rate` : sur la MSE arrondie 0,078 le banc imprime 92,01, le papier 92,14 sur sa MSE non arrondie (≈ 0,077718, SQNR 1,843) ; citer 92,14, ne jamais le recalculer depuis 0,078 |
-| contrôle de déterminisme, deux runs identiques | tranche si les 7,2 % de l'observation n = 2 sont du bruit numérique ou une configuration non consignée ; ~8,5 h (*estimé*) |
-| CSR | définition des tâches non transcrite ; 1 à 2 jours (*estimé*) |
-| mécanisme du pic RSS Metal à 17,41 Go | *estimé* : double résidence hôte/buffer, ou pool de tampons candle-metal |
-| gain incrémental de la rotation de sortie | la Table 9 du papier chiffre « aucune → Input+Output » (29,3 → 34,9), pas « Input → Input+Output » ; rien dans le code, bump de MAGIC requis |
-| coût de `gain_bits = 0` au 4B | non mesuré ; l'A/B du §5.8 compare 1 bit à magnitude libre |
-| écart CUDA contre Metal des poids produits | AᵀA accumulé en f32 sur l'accélérateur ; non chiffré |
+| ppl gap between calibration shard 0 and shard 1 | not measured; 2 runs of 3 blocks, ~50 min (*estimated*) |
+| `bin/seal` replayed on its own output | expected 2.1595, 1.771 GB, file not identical (`LVQ2` + two `u32`), ~10 min |
+| `k = 1` in `llvq-bench` (`main.rs:109` loops over `[0, 2]`) | the "union + 1 gain bit" row of the table sent to the authors is copied from Table 8 |
+| retention in the table sent to the authors | `retention_pct(mse, rate) = 100·(−½·log₂ mse)/rate`: on the rounded MSE 0.078 the benchmark prints 92.01, the paper 92.14 on its unrounded MSE (≈ 0.077718, SQNR 1.843); quote 92.14, never recompute it from 0.078 |
+| determinism control, two identical runs | decides whether the 7.2% of the n = 2 observation is numerical noise or an unrecorded configuration; ~8.5 h (*estimated*) |
+| CSR | task definition not transcribed; 1 to 2 days (*estimated*) |
+| mechanism of the 17.41 GB Metal RSS peak | *estimated*: dual host/buffer residency, or a candle-metal buffer pool |
+| incremental gain of the output rotation | Table 9 of the paper quantifies "none → Input+Output" (29.3 → 34.9), not "Input → Input+Output"; nothing in the code, a MAGIC bump required |
+| cost of `gain_bits = 0` on the 4B | not measured; the A/B of §5.8 compares 1 bit against a free magnitude |
+| CUDA against Metal difference in the weights produced | AᵀA accumulated in f32 on the accelerator; not quantified |
 
-## 6. Face au FP16
-| couple | iso-conditions | comment |
+## 6. Against FP16
+| pair | iso-conditions | how |
 |---|---|---|
-| ppl f32, 12,2336 / 16,9617 | garantie par construction | `smoke` tokenise une fois, un seul `test_ids`, une seule fermeture `ppl`, un seul objet modèle avant et après réécriture ; aucune empreinte à comparer |
-| ppl f16, 12,2361 / 16,9415 | empreinte `3f1baca9033bf251` identique | attendue par construction, le tokenizer scellé étant byte-identique au checkpoint |
-| MMLU, 70,32 / 55,59 | même binaire, même session, même dtype imprimé, mêmes 2 280 questions, même tokenizer, empreinte `65dcd53655e8bfa5` | le log Metal du 08-02 précède l'impression des empreintes |
+| f32 ppl, 12.2336 / 16.9617 | guaranteed by construction | `smoke` tokenizes once, a single `test_ids`, a single `ppl` closure, a single model object before and after rewriting; no fingerprint to compare |
+| f16 ppl, 12.2361 / 16.9415 | identical fingerprint `3f1baca9033bf251` | expected by construction: the sealed tokenizer is byte-identical to the checkpoint |
+| MMLU, 70.32 / 55.59 | same binary, same session, same printed dtype, same 2,280 questions, same tokenizer, fingerprint `65dcd53655e8bfa5` | the 08-02 Metal log predates the printing of fingerprints |
 
-Écart de protocole non contrôlé en f32 (*mesuré*) : le checkpoint est bf16, `seal` écrit les tenseurs portés en f16. Sur
-les 388 956 160 valeurs de l'embedding, 77 045 changent (1,98·10⁻⁴), 451 tombent à zéro, toutes sous 7,600·10⁻⁶ ; max |v|
-0,250, erreur absolue max 2,98·10⁻⁸. L'embedding étant le `lm_head`, l'écart entre dans les logits. À f16 les deux bras
-convergent, MMLU et ppl f16 sont propres. À f32, une ppl du fichier scellé ne se compare pas à la baseline du checkpoint
-sans le dire. Le couple 12,2336 / 16,9617 tourne en mémoire et n'est pas concerné. Résidu `from_mmaped_safetensors` contre
-`from_vec(f32).to_dtype()` : *estimé* négligeable. Le « FP16 » du banc n'est pas ce FP16 (§8.2).
+Uncontrolled protocol difference in f32 (*measured*): the checkpoint is bf16, `seal` writes the carried tensors in f16.
+Of the 388,956,160 embedding values, 77,045 change (1.98·10⁻⁴), 451 fall to zero, all below 7.600·10⁻⁶; max |v| 0.250,
+max absolute error 2.98·10⁻⁸. The embedding is the `lm_head`, so the difference enters the logits. In f16 the two
+arms converge, MMLU and f16 ppl are clean. In f32, a ppl of the sealed file is not compared to the checkpoint baseline
+without saying so. The 12.2336 / 16.9617 pair runs in memory and is unaffected. Residual `from_mmaped_safetensors`
+against `from_vec(f32).to_dtype()`: *estimated* negligible. The "FP16" of the benchmark is not this FP16 (§8.2).
 
-## 7. Face au 4 bits
-L'adversaire retenu est l'AWQ officiel de Qwen (décision du 2026-08-06), mesuré dans le même harnais à la même empreinte
-([a4-campagne](mesures/a4-campagne-2026-08-06.txt)). Le MLX q4 reste l'objet de la comparaison disque locale ; IQ2_XXS : [ETAT.md](ETAT.md) §3.
+## 7. Against 4-bit
+The chosen opponent is Qwen's official AWQ (decision of 2026-08-06), measured in the same harness at the same
+fingerprint ([a4-campagne](mesures/a4-campagne-2026-08-06.txt)). MLX q4 remains the object of the local disk
+comparison; IQ2_XXS: [ETAT.md](ETAT.md) §3.
 
-### 7.1 Sur le disque
-| objet | valeur | étiquette |
+### 7.1 On disk
+| object | value | label |
 |---|---|---|
-| MLX q4, `/Users/pjmalandrino/qwen3-4b-mlx-q4/` | `model.safetensors` 2 263 022 417 o, répertoire 2 274 510 217 o | *mesuré* |
-| recette | `mlx_lm.convert --hf-path Qwen/Qwen3-4B -q --q-bits 4 --q-group-size 64` | *mesuré*, `config.json` |
-| structure | 904 tenseurs : 253 U32, 253 `.scales`, 253 `.biases` bf16, 145 normes | *mesuré* |
-| embedding | quantifié aussi (253 = 252 projections + `embed_tokens`) | *mesuré* ; nous le portons en f16 ou en q8 |
-| débit | 4,500000 b/poids sur les poids quantifiés, 4,500561 tous poids | *calculé*, exact |
-| total | 4 022 468 096 poids des deux côtés | *calculé* |
-| AWQ w4 g128 officiel | 2,67 Go, 5,302 b/param dans son moteur | *mesuré* / *calculé* ([rtbits](mesures/rtbits-planes-8b-2026-08-09.txt)) |
+| MLX q4, `/Users/pjmalandrino/qwen3-4b-mlx-q4/` | `model.safetensors` 2,263,022,417 B, directory 2,274,510,217 B | *measured* |
+| recipe | `mlx_lm.convert --hf-path Qwen/Qwen3-4B -q --q-bits 4 --q-group-size 64` | *measured*, `config.json` |
+| structure | 904 tensors: 253 U32, 253 `.scales`, 253 bf16 `.biases`, 145 norms | *measured* |
+| embedding | quantized too (253 = 252 projections + `embed_tokens`) | *measured*; we carry it in f16 or in q8 |
+| rate | 4.500000 b/weight on the quantized weights, 4.500561 on all weights | *computed*, exact |
+| total | 4,022,468,096 weights on both sides | *computed* |
+| official AWQ w4 g128 | 2.67 GB, 5.302 b/param in its own engine | *measured* / *computed* ([rtbits](mesures/rtbits-planes-8b-2026-08-09.txt)) |
 
-### 7.2 Axe par axe
-| axe | LLVQ | 4 bits | verdict | étiquette |
+### 7.2 Axis by axis
+| axis | LLVQ | 4-bit | verdict | label |
 |---|---|---|---|---|
-| disque | 1 770 527 533 o, 3,5213 b/param (1,41 Go en q8) | MLX q4 2 263 022 417 o, 4,5006 ; AWQ 2,67 Go | ×1,2782 pour nous ; projections seules 2,1595 contre 4,5000, ×2,084 | *mesuré* des deux côtés |
-| VRAM, b/param modèle entier | 5,162 (`Planes14` + q8) ; 4,745 (`Planes12x` + q8) | AWQ 5,302 dans son moteur ; MLX q4 4,50 | sous l'AWQ réel de 2,6 % | *calculé* sur octets mesurés (rtbits) |
-| débit | ×1,11 [1,11–1,11] à tête identique chez nous | ×2,413 [2,412 ; 2,414] pour l'AWQ dans vLLM (200,49 tok/s contre 83,09 f16) | deux piles, deux témoins, aucun quotient licite | *mesuré*, [vLLM](mesures/awq-vllm-4b-2026-08-17.txt) |
-| ppl wikitext | ×1,385 | AWQ ×1,105 (13,5207 / 12,2369) | excès 0,385 contre 0,105, rapport 3,7 (*calculé*) | *mesuré*, a4-campagne |
-| MMLU micro | 55,59 (−14,73 pp) | AWQ 70,04 ± 1,25 (−0,28 pp, non résolu [−1,63 ; +2,13]) | écart apparié 14,45 pp [+11,60 ; +17,27] | *mesuré*, [mmlupair](mesures/mmlupair-4b-8b-2026-08-13.txt) |
+| disk | 1,770,527,533 B, 3.5213 b/param (1.41 GB in q8) | MLX q4 2,263,022,417 B, 4.5006; AWQ 2.67 GB | ×1.2782 for us; projections alone 2.1595 against 4.5000, ×2.084 | *measured* on both sides |
+| VRAM, b/param whole model | 5.162 (`Planes14` + q8); 4.745 (`Planes12x` + q8) | AWQ 5.302 in its own engine; MLX q4 4.50 | 2.6% below the real AWQ | *computed* on measured bytes (rtbits) |
+| throughput | ×1.11 [1.11–1.11] same-head on our side | ×2.413 [2.412; 2.414] for AWQ in vLLM (200.49 tok/s against 83.09 f16) | two stacks, two controls, no legitimate quotient | *measured*, [vLLM](mesures/awq-vllm-4b-2026-08-17.txt) |
+| wikitext ppl | ×1.385 | AWQ ×1.105 (13.5207 / 12.2369) | excess 0.385 against 0.105, ratio 3.7 (*computed*) | *measured*, a4-campagne |
+| MMLU micro | 55.59 (−14.73 pp) | AWQ 70.04 ± 1.25 (−0.28 pp, unresolved [−1.63; +2.13]) | paired gap 14.45 pp [+11.60; +17.27] | *measured*, [mmlupair](mesures/mmlupair-4b-8b-2026-08-13.txt) |
 
-Sur un 4B, le 4 bits domine partout sauf le disque ; l'écart MMLU à l'AWQ vaut 7,49 pp au 8B et 6,09 pp au 14B
-([ETAT.md](ETAT.md) §3). Notre harnais charge l'AWQ déquantifié en f16 : ni son débit ni sa mémoire ne se lisent chez nous.
+On a 4B, 4-bit dominates everywhere except disk; the MMLU gap to AWQ is 7.49 pp at 8B and 6.09 pp at 14B
+([ETAT.md](ETAT.md) §3). Our harness loads AWQ dequantized in f16: neither its throughput nor its memory can be read
+on our side.
 
-### 7.3 Les trois RAM
-| quantité | valeur | étiquette |
+### 7.3 The three RAM figures
+| quantity | value | label |
 |---|---|---|
-| MLX q4, « 2,39 Go » | pic de l'allocateur MLX (poids + KV + activations), prompt inconnu | *estimé*, aucune trace |
-| nous, « 3,28 Go » | arithmétique poids seuls du format `Slot32`, que `bin/run` ne charge jamais | *calculé*, hors sujet pour le runner |
-| nous, modèle résident de `bin/run` | 4 022 468 096 × 2 = 8 044 936 192 o | *calculé*, exact par construction |
-| nous, pic RSS de `bin/run` | CPU 9,79 Go (`cpu 12`) ; Metal 17,41 Go, reproductible à 0,0006 % sur 4 lancements, mécanisme inconnu | *mesuré*, `/usr/bin/time -l` |
-| nous, carte L40S sous `fusedrun` | 2,57 Go (v1), 2,56 (`Planes14` + q8), 2,36 (`Planes12x` + q8), compte d'octets hôte | *mesuré* ; D1 et vague 2 (2,57), B2 (2,56), G3 (2,36) |
+| MLX q4, "2.39 GB" | peak of the MLX allocator (weights + KV + activations), prompt unknown | *estimated*, no trace |
+| us, "3.28 GB" | weights-only arithmetic of the `Slot32` format, which `bin/run` never loads | *computed*, irrelevant for the runner |
+| us, resident model of `bin/run` | 4,022,468,096 × 2 = 8,044,936,192 B | *computed*, exact by construction |
+| us, RSS peak of `bin/run` | CPU 9.79 GB (`cpu 12`); Metal 17.41 GB, reproducible to 0.0006% over 4 launches, mechanism unknown | *measured*, `/usr/bin/time -l` |
+| us, L40S card under `fusedrun` | 2.57 GB (v1), 2.56 (`Planes14` + q8), 2.36 (`Planes12x` + q8), host byte count | *measured*; D1 and wave 2 (2.57), B2 (2.56), G3 (2.36) |
 
-À convention poids seuls, `Slot32` + `lm_head` f16 vaut 6,5245 b/poids contre 4,5006 pour le q4, ×1,45 contre nous
-(*calculé*).
+Under the weights-only convention, `Slot32` + f16 `lm_head` is 6.5245 b/weight against 4.5006 for q4, ×1.45 against us
+(*computed*).
 
-### 7.4 Débit
-| chiffre | inclut | exclut | étiquette |
+### 7.4 Throughput
+| number | includes | excludes | label |
 |---|---|---|---|
-| MLX 129,8 tok/s | 253 matmuls, attention, normes, RoPE, KV, lm_head, échantillonnage | prefill, chargement ; `--max-tokens 256`, prompt inconnu | *estimé*, aucune trace |
-| AWQ 200,49 tok/s [200,39 ; 200,61], vLLM 0.26.0, L40S, batch 1, 128 tokens | tout, prefill compris | autre pile : ne se divise avec rien de chez nous | *mesuré* |
-| `thesis` 10,46 ms | 252 matvec fusés, un token, mémoire froide | attention, normes, RoPE, KV, lm_head, rotation, transcodage | *mesuré*, Metal, 2 bras du 2026-08-01 ; le rapport à publier est celui de K1 (§8.4) |
-| `thesis` 78,2 tok/s | ci-dessus + lm_head modélisé | idem ; jamais exécuté | *calculé*, borne supérieure |
-| `bin/run` 2,2 à 7,6 tok/s, Metal f16 | tout, bout en bout | cache KV, noyau fusé | avant le cache KV (commit `9c24d26`) ; avec cache, 42,7 tok/s sur L40S (§5.6) |
-| `fusedrun` v1 100,6 tok/s [99,9–100,7] | tout, bout en bout ; divergence au dense au token 89 sur 128 | | *mesuré*, L40S, D1 |
+| MLX 129.8 tok/s | 253 matmuls, attention, norms, RoPE, KV, lm_head, sampling | prefill, loading; `--max-tokens 256`, prompt unknown | *estimated*, no trace |
+| AWQ 200.49 tok/s [200.39; 200.61], vLLM 0.26.0, L40S, batch 1, 128 tokens | everything, prefill included | another stack: no legitimate quotient with anything of ours | *measured* |
+| `thesis` 10.46 ms | 252 fused matvecs, one token, cold memory | attention, norms, RoPE, KV, lm_head, rotation, transcoding | *measured*, Metal, 2 arms of 2026-08-01; the ratio to publish is K1's (§8.4) |
+| `thesis` 78.2 tok/s | the above + modelled lm_head | same; never executed | *computed*, upper bound |
+| `bin/run` 2.2 to 7.6 tok/s, Metal f16 | everything, end to end | KV cache, fused kernel | before the KV cache (commit `9c24d26`); with the cache, 42.7 tok/s on L40S (§5.6) |
+| `fusedrun` v1 100.6 tok/s [99.9–100.7] | everything, end to end; divergence from the dense arm at token 89 of 128 | | *measured*, L40S, D1 |
 
-### 7.5 Régime où le 2 bits gagne
-Un seul axe est démontré : le disque, ×1,278. Le créneau structurel est la fenêtre mémoire où le 4 bits ne rentre pas.
-Elle vaut 12 à 21 % (*calculé*) : 4,50 / 3,727 = ×1,21 avec `Grouped32`, 4,50 / 4,034 = ×1,12 avec L ≤ 3. Recalcul 70B,
-Llama-3.1-70B, 70,554 Md, embedding et `lm_head` non liés (2,978 %) laissés en f16 (*calculé*) :
+### 7.5 Regime where 2-bit wins
+One axis alone is demonstrated: disk, ×1.278. The structural niche is the memory window where 4-bit does not fit. It is
+worth 12 to 21% (*computed*): 4.50 / 3.727 = ×1.21 with `Grouped32`, 4.50 / 4.034 = ×1.12 with L ≤ 3. Recomputation for
+70B, Llama-3.1-70B, 70.554 B params, embedding and `lm_head` untied (2.978%) left in f16 (*computed*):
 
-| | q4 | `Slot32` | L ≤ 3 | `Grouped32` | disque |
+| | q4 | `Slot32` | L ≤ 3 | `Grouped32` | disk |
 |---|---|---|---|---|---|
-| recalculé | 39,69 Go | 51,35 | 35,58 | 32,87 | 22,77 |
-| [face-au-4-bits.md](archive/face-au-4-bits.md) | 39,4 | 48,2 | 32,1 | 29,3 | 19,0 |
+| recomputed | 39.69 GB | 51.35 | 35.58 | 32.87 | 22.77 |
+| [face-au-4-bits.md](archive/face-au-4-bits.md) | 39.4 | 48.2 | 32.1 | 29.3 | 19.0 |
 
-Les chiffres d'archive appliquaient un débit projections seules à tous les poids, optimiste de 6 à 12 % pour nous. Quatre
-inconnues restent. La qualité à 70B : aucun 70B quantifié. Le cache KV : 320 Kio/token en f16, 2,68 Go à 8k (*calculé*).
-Le débit `Grouped32` servi. Le format rapide, `Planes14` à 4,804 b/poids noyau, plus gros que du 4 bits. Le triplet
-produit (8k, 5 Go, 32 GiB) borne b_max à 3,00 b/poids noyau ([ETAT.md](ETAT.md) §6). Le plafond L ≤ 4 est mort en
-qualité (+4,75 % de ppl, §5.9).
+The archive numbers applied a projections-only rate to all weights, optimistic by 6 to 12% for us. Four unknowns remain.
+Quality at 70B: no 70B has been quantized. The KV cache: 320 KiB/token in f16, 2.68 GB at 8k (*computed*). The served
+`Grouped32` throughput. The fast format, `Planes14` at 4.804 b/weight in the kernel, bigger than 4-bit. The product
+triplet (8k, 5 GB, 32 GiB) bounds b_max to 3.00 b/weight in the kernel ([ETAT.md](ETAT.md) §6). The L ≤ 4 cap is dead
+on quality (+4.75% ppl, §5.9).
 
-## 8. Le noyau fusé
-### 8.1 Protocole de `bin/thesis`
-Metal, un token, batch 1, 252 projections, mémoire froide par construction. Deux pipelines (`tv_f16`, `tv_slot`) ; table
-de 384 classes en buffer constant partagé (12 Ko) ; une activation `SplitMix64(0x6_7451)`, 16 384 f32 gaussiens, un seul
-buffer pour les deux bras. Par matrice : `read_matrix_raw`, `transcode(Slot32)`, reconstruction f64, arrondi f16,
-références `y_ref` / `y16_ref` en f64, upload de 6 buffers LLVQ et 1 buffer FP16 ; vérification (§8.3) avant toute
-mesure. Mesure : un command buffer par bras, 252 encoders, `d_out × 32` threads en groupes de 256, tuilage identique
-(128 blocs, 3 072 colonnes, 12 Ko de threadgroup memory). Chrono autour de `commit()` et `wait_until_completed()` ;
-7 passes, reps 0 et 1 jetées, minimum des 5 restantes pour les runs à deux bras : leur rapport est un quotient de deux
-minima, ce qui le disqualifie face à K1. Le banc à sept bras (K1) dispatche tous les bras à chaque round dans le même ordre et forme
-le rapport round par round, médiane et plage. Cinq asymétries, toutes contre LLVQ ou négligeables. FP16 mesuré d'abord ;
-soumission non soustraite ; queue lue en f32 contre f16 ; 9 binds contre 4 ; 12 Ko de table non comptés. Tout terme additif
-commun comprime le rapport : le 2,07× est un minorant du rapport ALU/mémoire pur.
+## 8. The fused kernel
+### 8.1 Protocol of `bin/thesis`
+Metal, one token, batch 1, 252 projections, cold memory by construction. Two pipelines (`tv_f16`, `tv_slot`); a table of
+384 classes in a shared constant buffer (12 kB); one activation `SplitMix64(0x6_7451)`, 16,384 Gaussian f32, a single
+buffer for both arms. Per matrix: `read_matrix_raw`, `transcode(Slot32)`, f64 reconstruction, f16 rounding, references
+`y_ref` / `y16_ref` in f64, upload of 6 LLVQ buffers and 1 FP16 buffer; verification (§8.3) before any measurement.
+Measurement: one command buffer per arm, 252 encoders, `d_out × 32` threads in groups of 256, identical tiling
+(128 blocks, 3,072 columns, 12 kB of threadgroup memory). Clock around `commit()` and `wait_until_completed()`;
+7 passes, reps 0 and 1 discarded, minimum of the remaining 5 for the two-arm runs: their ratio is a quotient of two
+minima, which disqualifies it against K1. The seven-arm benchmark (K1) dispatches every arm each round in the same order and
+forms the ratio round by round, median and range. Five asymmetries, all against LLVQ or negligible. FP16 measured first;
+submission not subtracted; tail read in f32 against f16; 9 binds against 4; 12 kB of table not counted. Any common
+additive term compresses the ratio: the 2.07× is a lower bound on the pure ALU/memory ratio.
 
-### 8.2 Le bras FP16
-`w16 = f16_bits(w)`, où `w` est la reconstruction f64 des blocs LLVQ dans la base tournée. Le bras FP16 lit les mêmes
-valeurs à l'arrondi près : il mesure un coût, sans rien dire de la qualité. Sur CUDA, `r = t(tv_f16) ÷ t(cuBLAS)` vaut
-1,024 (2 bras) et 1,015 (5 bras) sur L40S (*mesuré*, [F1](mesures/f1-cublasf16-2026-08-18.txt)). Sur A100 le même témoin
-est à 1,14× de cuBLAS (*mesuré*, [F4](mesures/f4-a100-2026-08-18.txt)). Sur Metal il n'a jamais été confronté à MPS ni à MLX.
+### 8.2 The FP16 arm
+`w16 = f16_bits(w)`, where `w` is the f64 reconstruction of the LLVQ blocks in the rotated basis. The FP16 arm reads the
+same values up to rounding: it measures a cost, and says nothing about quality. On CUDA, `r = t(tv_f16) ÷ t(cuBLAS)` is
+1.024 (2 arms) and 1.015 (5 arms) on L40S (*measured*, [F1](mesures/f1-cublasf16-2026-08-18.txt)). On the A100 the same
+control sits at 1.14× cuBLAS (*measured*, [F4](mesures/f4-a100-2026-08-18.txt)). On Metal it has never been put against
+MPS or MLX.
 
-### 8.3 Vérification numérique
-| grandeur | valeur | étiquette |
+### 8.3 Numerical verification
+| quantity | value | label |
 |---|---|---|
-| lignes vérifiées | 1 105 920, 252 matrices, les deux bras | *mesuré* |
-| métrique | max sur les lignes de \|got − want\| / max(Σ\|wᵢxᵢ\|, 1e-12), référence f64 | |
-| seuil dur | `assert!(e < 1e-3)`, avant toute mesure de temps | |
-| pire erreur LLVQ | 3,4·10⁻⁸ · Σ\|w·x\|, identique entre exécutions et fichiers | *mesuré* |
-| pire erreur FP16 | 2,8·10⁻⁸ | *mesuré* |
+| rows verified | 1,105,920, 252 matrices, both arms | *measured* |
+| metric | max over the rows of \|got − want\| / max(Σ\|wᵢxᵢ\|, 1e-12), f64 reference | |
+| hard threshold | `assert!(e < 1e-3)`, before any time measurement | |
+| worst LLVQ error | 3.4·10⁻⁸ · Σ\|w·x\|, identical across runs and files | *measured* |
+| worst FP16 error | 2.8·10⁻⁸ | *measured* |
 
-Réserves : granularité ligne (le bloc vit dans `bin/decreal`) ; le seuil est cinq ordres au-dessus de l'erreur, la preuve
-est le pire-erreur imprimé. `thesis` ne re-vérifie pas le transcodage contre `Indexer::decode` (ce verrou vit dans
-`llvq-artifact/tests/runtime_format.rs`). `slot_dot` code en dur `gain = hdr >> 9` (1 bit) ; `decreal` l'assert, `thesis` non.
+Caveats: row granularity (the block lives in `bin/decreal`); the threshold is five orders above the error, the proof is
+the printed worst error. `thesis` does not re-check the transcoding against `Indexer::decode` (that lock lives in
+`llvq-artifact/tests/runtime_format.rs`). `slot_dot` hard-codes `gain = hdr >> 9` (1 bit); `decreal` asserts it,
+`thesis` does not.
 
-### 8.4 Chiffres et dispersion
-| banc | FP16 | LLVQ `Slot32` | rapport | source | étiquette |
+### 8.4 Numbers and spread
+| benchmark | FP16 | LLVQ `Slot32` | ratio | source | label |
 |---|---|---|---|---|---|
-| 7 bras, 2026-08-05 | 21,728 ms, 7,27 Go | 10,496 ms, 2,50 Go, 5,510 b/poids | 2,03× [2,03–2,10], médiane round par round | [K1](mesures/k1-metal-2026-08-05.txt) | *mesuré*, le chiffre à publier |
-| 2 bras, trois invocations témoins | | | [2,029 ; 2,080] ; 7 bras : 2,03× · 2,06× · 2,09× | [témoin](mesures/thesis-temoin-2026-08-04.txt) | *mesuré* ; une valeur ponctuelle n'a pas de contenu |
-| 2 bras, 2026-08-01 | 21,691 ms, 335,0 Go/s | 10,460 ms, 239,2 Go/s | 2,0737× ; 2ᵉ passe 2,08× | README d'époque, aucun log | *mesuré* sur l'ordre de grandeur, suspect sur les décimales ; périmé par K1, les millisecondes ne se publient pas |
-| 2 bras, 2026-08-03, fichier scellé | 22,675 ms | 11,021 ms | 2,0574× | aucun log | *mesuré* sur l'ordre de grandeur, suspect sur les décimales ; périmé par K1 ; écarts à la ligne du 08-01 +4,5 % / +5,4 % / −0,8 % |
+| 7 arms, 2026-08-05 | 21.728 ms, 7.27 GB | 10.496 ms, 2.50 GB, 5.510 b/weight | 2.03× [2.03–2.10], median round by round | [K1](mesures/k1-metal-2026-08-05.txt) | *measured*, the number to publish |
+| 2 arms, three control invocations | | | [2.029; 2.080]; 7 arms: 2.03× · 2.06× · 2.09× | [control](mesures/thesis-temoin-2026-08-04.txt) | *measured*; a single point value has no content |
+| 2 arms, 2026-08-01 | 21.691 ms, 335.0 GB/s | 10.460 ms, 239.2 GB/s | 2.0737×; 2nd pass 2.08× | README of the time, no log | *measured* on the order of magnitude, suspect on the decimals; superseded by K1, the milliseconds are not published |
+| 2 arms, 2026-08-03, sealed file | 22.675 ms | 11.021 ms | 2.0574× | no log | *measured* on the order of magnitude, suspect on the decimals; superseded by K1; gaps to the 08-01 row +4.5% / +5.4% / −0.8% |
 
-Les millisecondes dérivent d'une invocation à l'autre ; octets, b/poids et pires erreurs se reproduisent au chiffre.
-Reproduction : `cargo run --release -p llvq-metal --bin thesis -- <scellé>` ; le défaut des trois bancs
-(`thesis.rs:191`, `matvec.rs:503`, `decreal.rs:139`) est `~/llvq-q4b.llvq`, non publié.
+The milliseconds drift from one invocation to the next; bytes, b/weight and worst errors reproduce to the digit.
+Reproduction: `cargo run --release -p llvq-metal --bin thesis -- <sealed>`; the default of the three benchmarks
+(`thesis.rs:191`, `matvec.rs:503`, `decreal.rs:139`) is `~/llvq-q4b.llvq`, not published.
 
-### 8.5 Ce que le rapport exclut
-Le rapport exclut l'attention entière (QKᵀ, softmax, AV, RoPE, cache KV) ; les 145 RMSNorm, dont `q_norm` / `k_norm` par
-tête ; la SwiGLU ; les résiduels. Il exclut aussi la rotation d'incohérence sur x, 144 par token, payée par le seul bras
-LLVQ, et le `lm_head` lié, rajouté analytiquement. Restent hors rapport l'échantillonnage sur 151 936 logits, le prefill
-et le transcodage. La rotation coûte 0,206 % des projections en arithmétique (1,499·10⁷ ops contre 7,267·10⁹ flops,
-*calculé*, `rotation.rs`). Sur CUDA, `rot_apply` rend 9,5e-8 contre f64 sur 8 formes et 8,05 µs à n = 2560 (*mesuré*,
-[rotation CUDA](mesures/rotation-cuda-2026-08-05.txt)), et le bout-en-bout du §5.6 la paie. Sur Metal, aucun noyau de
-rotation n'existe et `bin/run` décode en mémoire.
+### 8.5 What the ratio excludes
+The ratio excludes the whole of attention (QKᵀ, softmax, AV, RoPE, KV cache); the 145 RMSNorms, including per-head
+`q_norm` / `k_norm`; the SwiGLU; the residuals. It also excludes the incoherence rotation on x, 144 per token, paid by
+the LLVQ arm alone, and the tied `lm_head`, added analytically. Also outside the ratio: sampling over 151,936 logits,
+the prefill and the transcoding. The rotation costs 0.206% of the projections in arithmetic (1.499·10⁷ ops against
+7.267·10⁹ flops, *computed*, `rotation.rs`). On CUDA, `rot_apply` returns 9.5e-8 against f64 on 8 shapes and 8.05 µs at
+n = 2560 (*measured*, [CUDA rotation](mesures/rotation-cuda-2026-08-05.txt)), and the end-to-end of §5.6 pays for it.
+On Metal, no rotation kernel exists and `bin/run` decodes in memory.
 
-### 8.6 Les tok/s du banc
-Projections seules : 2,07×. Avec le `lm_head` f16 modélisé : 1,88× au plus. 78,2 tok/s n'est mesuré de rien.
-`thesis.rs:433-435` : `head_bytes = 389_070_848 × 2`, `bw = f16_bytes / t16` (335,0 Go/s), `head_s = 2,3228 ms` aux deux bras (*calculé*).
+### 8.6 The benchmark tok/s
+Projections alone: 2.07×. With the modelled f16 `lm_head`: 1.88× at most. 78.2 tok/s rests on no measurement.
+`thesis.rs:433-435`: `head_bytes = 389_070_848 × 2`, `bw = f16_bytes / t16` (335.0 GB/s), `head_s = 2.3228 ms` on both
+arms (*computed*).
 
-| bras | total | tok/s | étiquette |
+| arm | total | tok/s | label |
 |---|---|---|---|
-| FP16 | 24,014 ms | 41,64 | *calculé*, borne supérieure |
-| LLVQ | 12,783 ms | 78,23 | *calculé*, borne supérieure |
-| rapport | 1,879 | | majorant du bout-en-bout Metal |
+| FP16 | 24.014 ms | 41.64 | *computed*, upper bound |
+| LLVQ | 12.783 ms | 78.23 | *computed*, upper bound |
+| ratio | 1.879 | | upper bound on the Metal end-to-end |
 
-Ajouter une constante commune comprime le rapport (2,07 → 1,88) : le traitement est conservateur pour LLVQ. Les défauts
-réels : le `lm_head` n'est jamais exécuté, le reste du pas de décodage est exclu, la constante ne correspond à rien.
+Adding a common constant compresses the ratio (2.07 → 1.88): the treatment is conservative for LLVQ. The real defects:
+the `lm_head` is never executed, the rest of the decode step is excluded, the constant matches nothing.
 
-### 8.7 Échelle bits contre vitesse
-Une comptabilité (payload + adressage + queue f32 + échelles f32, sur tous les poids), un processus, sept bras entrelacés,
-7 rounds dont 2 jetés (*mesuré*, K1, Metal) :
+### 8.7 The bits-against-speed scale
+One accounting (payload + addressing + f32 tail + f32 scales, over all weights), one process, seven interleaved arms,
+7 rounds of which 2 discarded (*measured*, K1, Metal):
 
-| layout | b/poids, métrique étroite | b/poids, métrique noyau | vs FP16 | objet | étiquette |
+| layout | b/weight, narrow metric | b/weight, kernel metric | vs FP16 | object | label |
 |---|---|---|---|---|---|
-| `Grouped32` | 3,3548 (`rtbits`, 150 681 600 blocs, 6,5 s) | 3,498 → 1,589 Go | 0,69× [0,68–0,69] | modèle entier | *mesuré* |
-| `Flat32` | 4,54 (gate_proj) | 5,256 → 2,39 Go | 0,91× [0,91–0,91] | modèle entier | *mesuré* |
-| `Sorted32` | 4,75 | | 1,04× | gate_proj seul, `bin/matvec` | *mesuré* |
-| `Fixed96` | 4,000, structurel | | | jamais en matvec | *calculé* |
-| `Slot32` | 5,376 modèle / 5,375 gate_proj (`rtbits` 5,3756) | 5,510 → 2,50 Go | 2,03× [2,03–2,10] | modèle entier | *mesuré* |
-| FP16 | 16,000 | | 1,00× | | |
+| `Grouped32` | 3.3548 (`rtbits`, 150,681,600 blocks, 6.5 s) | 3.498 → 1.589 GB | 0.69× [0.68–0.69] | whole model | *measured* |
+| `Flat32` | 4.54 (gate_proj) | 5.256 → 2.39 GB | 0.91× [0.91–0.91] | whole model | *measured* |
+| `Sorted32` | 4.75 | | 1.04× | gate_proj alone, `bin/matvec` | *measured* |
+| `Fixed96` | 4.000, structural | | | never in matvec | *computed* |
+| `Slot32` | 5.376 model / 5.375 gate_proj (`rtbits` 5.3756) | 5.510 → 2.50 GB | 2.03× [2.03–2.10] | whole model | *measured* |
+| FP16 | 16.000 | | 1.00× | | |
 
-L'écart 5,51 contre 5,375 est un écart de métrique, pas d'objet : `rtbits` (modèle entier) et `matvec` (gate_proj)
-coïncident à 0,02 %. La courbe est non linéaire : `Flat32` économise 0,254 b/poids sur `Slot32` pour 2,27× le temps,
-`Grouped32` 2,012 pour 3,01× (*calculé*). `float4` rend 3,5 % sur LLVQ et 5,1 % sur FP16, rapport inchangé (*mesuré*,
-K1). La queue f32 pèse 2,71 % du trafic LLVQ (67 829 760 o sur 2 502 446 285) ; en f16, `Slot32` tombe à 5,435 b/poids
-(*calculé*). Les 335 Go/s du bras FP16 valent 83,8 % d'un pic de 400 Go/s supposé ; le « 93 % » est celui de gate_proj
-(370 Go/s). Sur CUDA, le layout servi est `Planes14` : 4,804 b/poids noyau, 2,14× [2,11–2,15] sur L40S (*mesuré*,
-[C1](mesures/c1-planesbench-2026-08-06.txt), [E2](mesures/e2-golay70-bench-2026-08-07.txt)). Il rend 1,14× [1,14–1,15]
-sur `Slot32` à contenu identique, et 0,79× sur A100 (*mesuré*, F4).
+The 5.51 against 5.375 gap is a gap of metric, not of object: `rtbits` (whole model) and `matvec` (gate_proj) agree to
+0.02%. The curve is non-linear: `Flat32` saves 0.254 b/weight over `Slot32` for 2.27× the time, `Grouped32` 2.012 for
+3.01× (*computed*). `float4` returns 3.5% on LLVQ and 5.1% on FP16, ratio unchanged (*measured*, K1). The f32 tail
+is 2.71% of LLVQ traffic (67,829,760 bytes of 2,502,446,285); in f16, `Slot32` drops to 5.435 b/weight (*computed*).
+The 335 GB/s of the FP16 arm are 83.8% of an assumed 400 GB/s peak; the "93%" is that of gate_proj (370 GB/s). On CUDA,
+the served layout is `Planes14`: 4.804 b/weight in the kernel, 2.14× [2.11–2.15] on L40S (*measured*,
+[C1](mesures/c1-planesbench-2026-08-06.txt), [E2](mesures/e2-golay70-bench-2026-08-07.txt)). It returns 1.14×
+[1.14–1.15] over `Slot32` at identical content, and 0.79× on the A100 (*measured*, F4).
 
-### 8.8 Transcodage au chargement
-| chiffre | ce qu'il est | étiquette |
+### 8.8 Transcoding at load
+| number | what it is | label |
 |---|---|---|
-| « ~3 s pour un 4B » | 150 681 600 × 243 ns / 12 cœurs, avec une parallélisation qui n'existe pas (`transcode()` mono-thread) | ~37 s mono-cœur (*calculé*) |
-| 128 s, `load_s` de `thesis` | couvre le dépaquetage de 981 Mo, la reconstruction f64, 3,63 Md de conversions f16, la référence CPU f64 et 7 uploads par matrice | *mesuré*, mal étiqueté |
-| transcodage seul | `bin/decreal` sur 16 777 216 blocs réels, `Fixed96` et `Grouped32` ; facteur ×8,98 puis ÷2 vers le modèle entier ; `Slot32` absent | *mesuré* |
-| `Planes14` / `Planes12x`, M3 Max, 16 threads | 84 s / 404 s (×4,8, recherche réseau à 5 niveaux par bloc) | *mesuré*, 2026-08-09 |
-| `Planes12x` sur carte louée | 1 340 s | *mesuré*, [G3](mesures/g-horloges-planes12x-2026-08-23.txt) |
+| "~3 s for a 4B" | 150,681,600 × 243 ns / 12 cores, with a parallelization that does not exist (`transcode()` is single-threaded) | ~37 s single-core (*computed*) |
+| 128 s, `load_s` of `thesis` | covers unpacking 981 MB, the f64 reconstruction, 3.63 billion f16 conversions, the f64 CPU reference and 7 uploads per matrix | *measured*, mislabelled |
+| transcoding alone | `bin/decreal` on 16,777,216 real blocks, `Fixed96` and `Grouped32`; factor ×8.98 then ÷2 towards the whole model; `Slot32` absent | *measured* |
+| `Planes14` / `Planes12x`, M3 Max, 16 threads | 84 s / 404 s (×4.8, 5-level lattice search per block) | *measured*, 2026-08-09 |
+| `Planes12x` on a rented card | 1,340 s | *measured*, [G3](mesures/g-horloges-planes12x-2026-08-23.txt) |

@@ -1,110 +1,109 @@
-# Piles isolées — un noyau par machine, deux backends (2026-08-30)
+# Isolated stacks: one kernel per machine, two backends (2026-08-30)
 
-> **État : PRÉPARÉ, NON LANCÉ.** Rien dans ce dossier n'a consommé une minute de
-> carte. Aucun job ne part sans go explicite de l'opérateur et sans le tampon du
-> pré-enregistrement (§7 du `CLAUDE.md`).
+> **Status: PREPARED, NOT LAUNCHED.** Nothing in this folder has consumed a
+> minute of card time. No job leaves without an explicit go from the operator and
+> without the timestamp on the preregistration (§7 of `CLAUDE.md`).
 
-## 1. La question
+## 1. The question
 
-Le dossier compare LLVQ au FP16 et à l'AWQ 4 bits. Il n'a **jamais mesuré la
-qualité d'un concurrent 2 bits** : le 17,04 de QTIP est une citation de la
-Table 6 du papier, pas une mesure de notre harnais — et F2 le dit lui-même
-(payload pseudo-aléatoire, « aucune phrase de qualité ne peut s'appuyer sur ce
-bras »). Tous nos verdicts qualité à 2 bits se comparent à un chiffre emprunté.
+The record compares LLVQ to FP16 and to 4-bit AWQ. It has **never measured the
+quality of a 2-bit competitor**: QTIP's 17.04 is quoted from Table 6 of the
+paper, not measured by our harness, and F2 says so itself (pseudo-random
+payload, "no quality claim can rest on this arm"). Every 2-bit quality verdict we
+hold compares against a borrowed number.
 
-Cette expérience y répond dans la forme voulue par l'opérateur : **une machine
-par bras, chacune avec son moteur natif et son propre noyau, les mêmes données,
-puis on éteint** — sur **deux backends**, **Metal** sur la machine de l'opérateur
-et **CUDA** sur HF Jobs.
+This experiment answers it in the shape the operator asked for: **one machine per
+arm, each with its native engine and its own kernel, the same data, then we shut
+down**. It runs on **two backends**, **Metal** on the operator's machine and
+**CUDA** on HF Jobs.
 
-## 2. Ce que le design permet et ce qu'il interdit
+## 2. What the design allows and what it forbids
 
-Des machines séparées ne coexistent jamais. La règle du 08-17 s'applique
-intégralement, et elle est *mesurée* : le témoin f16 de vLLM rend **83,09 tok/s**
-là où le nôtre rend **43,6** sur la même carte — l'écart bout-en-bout est dominé
-par le moteur, pas par le décodeur de poids.
+Separate machines never coexist. The 08-17 rule applies in full, and it is
+*measured*: the vLLM f16 control gives **83.09 tok/s** where ours gives **43.6**
+on the same card. The engine dominates the end-to-end gap; the weight decoder
+does not.
 
-🚨 **Et un backend est une pile au même titre qu'un moteur.** Le dossier a mesuré
-que les × ne se divisent même pas entre **deux cartes CUDA** : sur A100 aucun
-bras à décodage ne bat FP16 (`Planes14` 0,79× contre 2,14× sur L40S), et le ×1,78
-**est** le rapport d'horloges. Entre CUDA et Metal, l'interdiction est
-*a fortiori*.
+**A backend is a stack just as much as an engine is.** The record measured that
+the × do not divide even between **two CUDA cards**: on A100 no decoding arm
+beats FP16 (`Planes14` 0.79× against 2.14× on L40S), and the ×1.78 **is** the
+clock ratio. Between CUDA and Metal the ban holds *a fortiori*.
 
-| grandeur | comparable entre machines ? |
+| quantity | comparable across machines? |
 |---|---|
-| **mémoire**, b/param modèle entier | ✅ **directement** — compte d'octets, aucun moteur dedans |
-| **MMLU** micro | ✅ **directement** — ne dépend que du tokenizer et de 4 logprobs |
-| **perplexité** | ⚠️ **en rapport au témoin f16 de sa propre machine** |
-| **tok/s** | ⚠️ **en rapport au témoin f16 de sa propre machine** |
+| **memory**, b/param over the whole model | yes, **directly**, a byte count with no engine in it |
+| **MMLU** micro | yes, **directly**, it depends only on the tokenizer and 4 logprobs |
+| **perplexity** | caveat: **only as a ratio to the f16 control of its own machine** |
+| **tok/s** | caveat: **only as a ratio to the f16 control of its own machine** |
 
-**Le correctif est structurel** : chaque machine fait tourner **aussi son propre
-témoin f16**, sur les mêmes données. Chaque machine ne rend donc pas un nombre
-mais un **rapport**. C'est déjà la forme d'`ops/awq_speed.py`.
+**The fix is structural**: every machine **also runs its own f16 control**, on
+the same data. Each machine therefore returns a **ratio** rather than a bare
+number. `ops/awq_speed.py` already has this shape.
 
-## 3. Les fichiers
+## 3. The files
 
-| fichier | contenu |
+| file | contents |
 |---|---|
-| [`PROTOCOLE.md`](PROTOCOLE.md) | ce qu'on mesure et **ce que chaque nombre a le droit de conclure** |
-| [`MACHINES.md`](MACHINES.md) | une fiche par machine, par backend |
+| [`PROTOCOLE.md`](PROTOCOLE.md) | what we measure and **what each number is allowed to conclude** |
+| [`MACHINES.md`](MACHINES.md) | one datasheet per machine, per backend |
 
-## 4. Quel bras tourne où
+## 4. Which arm runs where
 
-| bras | CUDA (HF, payant) | Metal (Mac, 0 $) |
+| arm | CUDA (HF, paid) | Metal (Mac, $0) |
 |---|---|---|
-| **LLVQ 2 bits** | ✅ **servi** — `fusedrun` | ⚠️ **micro-banc + qualité** — pas de `fused_metal.rs` |
-| **AWQ 4 bits** | ✅ servi — vLLM | ❌ aucun moteur |
-| **GPTQ 2 bits** | ⚠️ artefact à produire | ❌ aucun moteur |
-| **`IQ2_XXS`** | ⚠️ servi — llama.cpp CUDA | ⚠️ **servi — llama.cpp Metal** |
-| **MLX 2 bits** | ❌ n'existe pas hors Apple | ⚠️ **servi — natif**, `q_bits=2` vérifié |
-| ~~QTIP~~ | ❌ pas d'artefact Qwen3 | ❌ |
+| **LLVQ 2-bit** | yes, **served**, `fusedrun` | caveat: **micro-benchmark + quality**, no `fused_metal.rs` |
+| **AWQ 4-bit** | yes, served, vLLM | no engine |
+| **GPTQ 2-bit** | caveat: artifact to produce | no engine |
+| **`IQ2_XXS`** | caveat: served, llama.cpp CUDA | caveat: **served, llama.cpp Metal** |
+| **MLX 2-bit** | no, does not exist outside Apple | caveat: **served, native**, `q_bits=2` verified |
+| ~~QTIP~~ | no Qwen3 artifact | no |
 
-🔎 **`IQ2_XXS` est le seul bras qui traverse les deux backends** — c'est le pont
-de l'expérience.
+**`IQ2_XXS` is the only arm that crosses both backends.** It is the bridge of the
+experiment.
 
-🚨 **QTIP est écarté, sur un fait vérifié le 2026-08-30** : relaxml ne publie que
-du Llama. Le porter coûterait *estimé* 10–20 $ plus un risque d'incompatibilité
-d'architecture. Sa **vitesse** est déjà mesurée par F2, dans la forme la plus
-forte qui soit (un seul processus, bras entrelacés, division licite : 2,27×
-[2,27–2,28]). Ce qui lui manque reste sa **qualité**.
+**QTIP is set aside, on a fact checked on 2026-08-30**: relaxml publishes Llama
+only. Porting it would cost *estimated* $10–20 plus a risk of architecture
+incompatibility. Its **speed** is already measured by F2, in the strongest form
+there is (one process, interleaved arms, a legitimate division: 2.27×
+[2.27–2.28]). Its **quality** is what is still missing.
 
-## 5. L'ordre, et il fait tomber le coût
+## 5. The order, and it brings the cost down
 
-**Tout ce qui peut être tranché sur Metal l'est avant de louer une carte.** C'est
-ce que le projet a fait historiquement — « un banc gratuit vaut mieux qu'une
-carte louée pour trouver les pièges de mesure ».
+**Everything that can be settled on Metal is settled before renting a card.**
+That is what the project has done historically: "a free benchmark beats a rented
+card for finding the measurement traps".
 
-| phase | où | coût |
+| phase | where | cost |
 |---|---|---|
-| **1** — C5 : confronter le témoin FP16 Metal à MPS / MLX / Accelerate | Mac | **0 $** |
-| **2** — produire `IQ2_XXS` (imatrix + quantize) et **MLX 2 bits** | Mac | **0 $** |
-| **3** — qualité LLVQ / MLX / `IQ2_XXS` sur Metal, + contrôle inter-backend C4 | Mac | **0 $** |
-| **4** — produire l'artefact GPTQ 2 bits | HF | ~0,5–1,0 $ |
-| **5** — machines CUDA : GPTQ (M3) et `IQ2_XXS` (M4) | HF | ~0,6 $ |
-| — | LLVQ (M1) et AWQ (M2) : **déjà mesurés** | 0 $ |
-| | **total** | **~1,1–1,6 $** |
+| **1**, C5: put the Metal FP16 control against MPS / MLX / Accelerate | Mac | **$0** |
+| **2**, produce `IQ2_XXS` (imatrix + quantize) and **2-bit MLX** | Mac | **$0** |
+| **3**, quality of LLVQ / MLX / `IQ2_XXS` on Metal, plus the C4 cross-backend control | Mac | **$0** |
+| **4**, produce the 2-bit GPTQ artifact | HF | ~$0.5–1.0 |
+| **5**, CUDA machines: GPTQ (M3) and `IQ2_XXS` (M4) | HF | ~$0.6 |
+| | LLVQ (M1) and AWQ (M2): **already measured** | $0 |
+| | **total** | **~$1.1–1.6** |
 
-Provenance : *estimé* par analogie avec le registre — `awq-vllm-4b` 0,11 $ pour
-5 rounds, `campagne-8b-qualite` 1,01 $ pour ppl+MMLU à trois bras.
+Provenance: *estimated* by analogy with the register: `awq-vllm-4b` $0.11 for 5
+rounds, `campagne-8b-qualite` $1.01 for ppl+MMLU on three arms.
 
-🚨 **La phase 1 est un préalable, pas une option.** Tant que C5 est rouge, aucun
-× Metal ne se publie : `docs/fiche-4b.md:438` le dit depuis longtemps — *« le
-2,07× est un rapport contre un noyau écrit par le même auteur. C'est l'angle
-hostile restant, non adressé. »* Sur CUDA, F1 a réglé l'équivalent (1,024× et
-1,015× de cuBLAS). Côté Metal, rien.
+**Phase 1 is a precondition, not an option.** As long as C5 is red, no Metal ×
+gets published. `docs/fiche-4b.md:438` has said so for a long time: *"the 2.07×
+is a ratio against a kernel written by the same author. That is the remaining
+hostile angle, unaddressed."* On CUDA, F1 settled the equivalent (1.024× and
+1.015× against cuBLAS). On the Metal side, nothing.
 
-## 6. Ce qui reste à trancher avant de lancer
+## 6. What must be settled before launching
 
-1. **Fixture MMLU pour llama.cpp** — son `--multiple-choice` attend un autre
-   format. Soit on la bâtit aux 2 280 questions avec le même `qhash`, soit
-   `IQ2_XXS` porte **ppl seule** au premier tour.
-2. **Périmètre** — combien de bras, et MLX entre-t-il ou non.
-3. **Le tampon** — le pré-enregistrement n'est pas écrit ; il ne le sera qu'une
-   fois 1 et 2 tranchés, et sera horodaté **avant la première milliseconde**.
+1. **MMLU fixture for llama.cpp.** Its `--multiple-choice` expects a different
+   format. Either we build the fixture over the 2,280 questions with the same
+   `qhash`, or `IQ2_XXS` carries **ppl only** on the first round.
+2. **Scope.** How many arms, and whether MLX is in or out.
+3. **The timestamp.** The preregistration is not written. It will be written once
+   1 and 2 are settled, and timestamped **before the first millisecond**.
 
-## 7. Deux dettes à solder pendant qu'on est sur le Mac — quasi gratuites
+## 7. Two debts to clear while we are on the Mac, near-free
 
-`docs/fiche-4b.md` marque **SUSPECT** le « 129,8 tok/s » et le « 2,39 Go » du q4
-MLX : *aucune trace — ni log, ni script, ni historique shell*. Son §563 les
-répare en **~2 min**. L'artefact q4 est déjà local (`~/qwen3-4b-mlx-q4`, 2,1 Go)
-et `mlx_lm 0.24.0` est installé.
+`docs/fiche-4b.md` marks the MLX q4 "129.8 tok/s" and "2.39 GB" as **SUSPECT**:
+*no trace, no log, no script, no shell history*. Its §563 repairs them in **~2
+min**. The q4 artifact is already local (`~/qwen3-4b-mlx-q4`, 2.1 GB) and
+`mlx_lm 0.24.0` is installed.

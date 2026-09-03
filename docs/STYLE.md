@@ -1,106 +1,100 @@
-# Règles d'écriture
+# Writing rules
 
-Ces règles valent pour tout document vivant du dépôt : `README.md`, `CLAUDE.md`,
-`docs/*.md`, les préregs à venir, les journaux à venir. Elles ne s'appliquent
-pas rétroactivement aux journaux de `docs/mesures/`, aux préregs tamponnés ni
-à `docs/archive/`, qui sont figés.
+These rules govern every living document in the repository: `README.md`, `CLAUDE.md`,
+`docs/*.md`, preregs to come, journals to come. They do not apply retroactively to the
+journals in `docs/mesures/`, to timestamped preregs, or to `docs/archive/`, which are frozen.
 
-## Le lecteur
+Documents are written in English. Conversation with the operator stays in French.
 
-Un humain pressé, compétent, qui n'a pas lu le reste du dépôt et qui doit
-pouvoir décider ou reprendre le travail avec ce seul document. On écrit pour
-lui. Pas pour la postérité, pas pour un agent, pas pour se couvrir.
+## The reader
 
-## Les six règles
+A competent human in a hurry, who has not read the rest of the repository, and who must be
+able to decide or resume the work from this document alone. Write for them. Not for
+posterity, not for an agent, not to cover yourself.
 
-1. **Le fait d'abord.** La première phrase d'une section donne le résultat,
-   avec son chiffre. La raison vient après. La réserve vient en dernier.
-2. **Une phrase, une idée, vingt mots.** Une phrase qui a deux virgules et un
-   « ce qui » se coupe en deux.
-3. **Un document vivant ne raconte pas sa propre histoire.** Quand un fait
-   change, on remplace la phrase. L'ancien fait va dans `HISTORIQUE.md` avec sa
-   date. Jamais de « cette ligne disait X, c'était faux » dans un document
-   vivant : c'est ce qui a fait grossir `CLAUDE.md` jusqu'à 2 971 lignes.
-4. **Un chiffre porte son étiquette une fois.** *mesuré*, *calculé* ou
-   *estimé*, avec un lien vers le journal, à sa première apparition. Ensuite on
-   le cite nu. On ne le recopie pas en prose dans trois documents.
-5. **Pas de bannières.** Aucun emoji, dans la prose comme dans les tableaux.
-   « Faux depuis le 08-21 : » ou « Réserve : » disent la même chose en mots.
-   Dans un tableau, « passe » et « échoue » remplacent les coches.
-6. **Pas de tournures d'IA.** Liste ci-dessous. Un document qui en contient
-   une se corrige avant d'être commité.
+## The six rules
 
-## Tournures interdites
+1. **Fact first.** The first sentence of a section gives the result, with its number. The
+   reason comes second. The caveat comes last.
+2. **One sentence, one idea, twenty words.** A sentence with two commas and a "which" gets
+   cut in two.
+3. **A living document does not narrate its own history.** When a fact changes, replace the
+   sentence. The old fact goes to `HISTORIQUE.md` with its date. Never write "this line said
+   X, it was wrong" in a living document. That is what grew `CLAUDE.md` to 2,971 lines.
+4. **A number carries its label once.** *measured*, *computed* or *estimated*, with a link to
+   its journal, at first appearance. After that, cite it bare. Do not copy it into the prose
+   of three separate documents.
+5. **No banners.** No emoji, in prose or in tables. "Wrong since 08-21:" and "Caveat:" say the
+   same thing in words. In a table, "passes" and "fails" replace check marks.
+6. **No AI phrasing.** List below. A document that contains one gets fixed before it is
+   committed.
 
-Grep-ables, donc vérifiables. Le tiret cadratin est interdit partout : deux
-phrases ou une virgule.
+## Banned phrasing
+
+Grep-able, therefore checkable. The em dash is banned everywhere: use two sentences or a comma.
 
 ```
-—  (tiret cadratin)
-autrement dit · en d'autres termes · c'est-à-dire que
-il faut le dire · il faut le savoir · et c'est le point · et c'est ça qui compte
-ce qui est acquis · ce qui n'est pas tranché · ce qui survit · ce qui reste vrai
-à dessein · il convient · force est de constater · cela étant · de fait · en somme
-notons que · rappelons que · soulignons que · il est à noter · pour mémoire
-et ce n'est pas rien · et ce n'est pas un détail · et il faut le dire deux fois
-la bonne lecture · la seule lecture autorisée · lu comme
-deux lectures · trois choses · en trois phrases · en une phrase
+—  (em dash)
+in other words · that is to say · simply put · put simply
+it is worth noting · it's important to note · note that · let us note · recall that
+that said · that being said · at the end of the day · ultimately (as filler)
+delve · seamless · leverage (as a verb) · robust (as filler) · comprehensive (as filler)
+what is settled · what remains open · what survives · what still holds
+crucially · notably · importantly · significantly (as filler)
+here's the thing · the key insight is · the takeaway is
+two readings · three things · in three sentences · in a word
 ```
 
-Ainsi que : les listes à trois éléments par réflexe, les parallélismes
-(« pas X, mais Y »), les questions rhétoriques, les phrases qui commentent la
-phrase précédente, le gras sur une phrase entière, les titres-slogans.
+Also banned: reflex three-item lists, the "not X, but Y" parallel, rhetorical questions,
+sentences that comment on the previous sentence, bold on a whole sentence, slogan headings.
 
-## Avant et après, sur du texte réel du dépôt
+## Before and after, on real repository text
 
-Avant (HISTORIQUE, 2026-08-18) :
+Before (HISTORIQUE, 2026-08-18):
 
-> 🆕 **LE FAIT NEUF QUE LES PLAGES RÉVÈLENT, et c'est le résultat de B2** : **à
-> tête identique — la seule formulation qui mesure le noyau — le gain est
-> STRICTEMENT CROISSANT avec la taille, ×1,11 → ×1,29 → ×1,41**, là où la série
-> brute (×2,00 · ×2,57 · ×2,55) **n'a aucun ordre**, dominée par le handicap
-> variable du bras dense.
+> 🆕 **THE NEW FACT THE RANGES REVEAL, and this is the B2 result**: **at identical head, the
+> only formulation that measures the kernel, the gain is STRICTLY INCREASING with size,
+> ×1.11 → ×1.29 → ×1.41**, where the raw series (×2.00 · ×2.57 · ×2.55) **has no order at
+> all**, dominated by the varying handicap of the dense arm.
 
-Après :
+After:
 
-> À tête identique, le gain du noyau croît avec la taille : ×1,11, ×1,29,
-> ×1,41 du 4B au 14B (*mesuré*, [B2](mesures/b2-fusedrun-plages-2026-08-18.txt)).
-> La série brute n'a pas d'ordre, parce que le bras dense est handicapé
-> différemment à chaque taille.
+> At identical head, the kernel gain grows with size: ×1.11, ×1.29, ×1.41 from 4B to 14B
+> (*measured*, [B2](mesures/b2-fusedrun-plages-2026-08-18.txt)). The raw series has no order,
+> because the dense arm is handicapped differently at each size.
 
-Avant (CLAUDE.md, en-tête) :
+Before (CLAUDE.md, header):
 
-> 🕳️ **RENVERSEMENT 1 — « tout travail de format plafonne à 4,77× FP16 » EST
-> MESURÉ FAUX, et c'est cet en-tête qui le portait.**
+> 🕳️ **REVERSAL 1: "all format work is capped at 4.77× FP16" IS MEASURED FALSE, and it is
+> this header that carried it.**
 
-Après, dans `ETAT.md` :
+After, in `ETAT.md`:
 
-> Le plancher `nullk` (4,77×) est celui de notre géométrie de lancement, pas de
-> la carte : QTIP passe dessous (2,246 ms contre 2,306).
+> The `nullk` floor (4.77×) belongs to our launch geometry, not to the card: QTIP goes below
+> it (2.246 ms against 2.306).
 
-Et dans `HISTORIQUE.md`, à la date :
+And in `HISTORIQUE.md`, at its date:
 
-> 2026-08-21. Le plafond de 4,77× annoncé depuis le 08-16 est réfuté par F2.
+> 2026-08-21. The 4.77× ceiling announced since 08-16 is refuted by F2.
 
-## Longueurs cibles
+## Target lengths
 
-| document | lignes | contenu |
+| document | lines | content |
 |---|---|---|
-| `README.md` | 120 | ce que c'est, les chiffres, comment lancer |
-| `CLAUDE.md` | 120 | règles pour l'agent, carte du dépôt |
-| `docs/ETAT.md` | 100 | config servie, chiffres de tête, décisions ouvertes |
-| `docs/HISTORIQUE.md` | 400 | une entrée par période, dix lignes chacune |
-| `docs/ROADMAP.md` | 150 | la suite, avec gates et coûts |
-| `docs/METHODE.md` | 150 | les règles du labo |
-| résumé d'expérience | 40 | gabarit `templates/experience.md` |
-| préreg | 80 | gabarit `templates/prereg.md` |
+| `README.md` | 120 | what it is, the numbers, how to run it |
+| `CLAUDE.md` | 120 | rules for the agent, repository map |
+| `docs/ETAT.md` | 100 | served config, headline numbers, open decisions |
+| `docs/HISTORIQUE.md` | 400 | one entry per period, ten lines each |
+| `docs/ROADMAP.md` | 150 | what comes next, with gates and costs |
+| `docs/METHODE.md` | 150 | the lab rules |
+| experiment summary | 40 | template `templates/experience.md` |
+| prereg | 80 | template `templates/prereg.md` |
 
-Un document qui dépasse sa cible de moitié se découpe ou se raccourcit. Il ne
-grossit pas.
+A document that exceeds its target by half gets split or cut. It does not grow.
 
-## Ce qui ne change pas
+## What does not change
 
-La rigueur. Chaque chiffre reste étiqueté, chaque préreg reste tamponné avant
-la première mesure, chaque écart à un préreg s'écrit à côté et jamais dedans,
-chaque prédiction signée reste opposable. Ces règles sont dans `METHODE.md`.
-C'est la forme qui devient directe, pas le fond qui s'allège.
+The rigour. Every number keeps its label, every prereg stays timestamped before the first
+measurement, every deviation from a prereg is written beside it and never inside it, every
+signed prediction stays on the record. Those rules live in `METHODE.md`. The form becomes
+direct, the substance does not get lighter.

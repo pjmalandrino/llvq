@@ -1,347 +1,339 @@
-# LLVQ en Rust — plan d'implémentation
+# LLVQ in Rust, implementation plan
 
-> 🗓️ **BANDEAU D'ÉTAT — dernière revue le 2026-08-08. Ce plan est exécuté
-> jusqu'à la Phase 6 comprise.** G1 à G6 sont verts ; la Phase 6 est faite sur
-> Metal **et** sur CUDA, et son gate est franchi : le noyau multi-coquilles
-> m ≤ 12 est fonctionnel, exact ligne à ligne contre la référence f64 sur les
-> 1 105 920 lignes du modèle, et il rend **2,03–2,09× le FP16** sur Metal,
-> **2,14×** sur L40S avec le layout binaire `Planes14`. Il est **branché** dans
-> le modèle (`fused_cuda` + `bin/fusedrun`) : 48,7 tok/s dans 2,96 Go contre
-> 43,6 dans 8,04. Le point 1 du gate (« reproduire le mono-couche à ≥ 1,36× »)
-> a été sauté : on est parti directement sur le multi-coquilles.
-> État complet : [`rapport-etat-2026-08-07.md`](archive/rapport-etat-2026-08-07.md).
-> ⚠️ Les phrases « le noyau multi-couches n'existe pas / n'existe nulle part »
-> décrivaient l'**état de l'art publié**, pas le nôtre, et c'est toujours ainsi
-> qu'il faut les lire — mais chez nous, il existe. Ce qui reste ouvert du plan
-> est l'**étape 5 de la Phase 5** : le benchmark métier d'extraction
-> documentaire, jamais construit.
+> **Status, last reviewed 2026-08-08. This plan is executed up to and including Phase 6.** G1 to G6
+> are green; Phase 6 is done on Metal **and** on CUDA, and its gate is passed: the multi-shell
+> kernel m ≤ 12 works, exact row by row against the f64 reference on the model's 1,105,920 rows,
+> and it delivers **2.03–2.09× FP16** on Metal, **2.14×** on L40S with the `Planes14` binary
+> layout. It is **wired** into the model (`fused_cuda` + `bin/fusedrun`): 48.7 tok/s in 2.96 GB
+> against 43.6 in 8.04. Point 1 of the gate ("reproduce the single-shell kernel at ≥ 1.36×") was
+> skipped: we went straight to multi-shell.
+> Full state: [`rapport-etat-2026-08-07.md`](archive/rapport-etat-2026-08-07.md).
+> Caveat: the sentences "the multi-shell kernel does not exist / exists nowhere" describe the
+> **published state of the art**, not ours, and that is still how they must be read. Here, it
+> exists. The one item left in the plan is **step 5 of Phase 5**: the document-extraction business
+> benchmark, never built.
 
-> **Papier : [Leech Lattice Vector Quantization for Efficient LLM Compression — arXiv:2603.11021](https://arxiv.org/abs/2603.11021)** (v2, 7 juillet 2026)
-> van der Ouderaa, van Baalen, Whatmough, Nagel — Qualcomm AI Research.
+> **Paper: [Leech Lattice Vector Quantization for Efficient LLM Compression, arXiv:2603.11021](https://arxiv.org/abs/2603.11021)** (v2, 2026-07-07)
+> van der Ouderaa, van Baalen, Whatmough, Nagel (Qualcomm AI Research).
 
-**Version 2 de ce plan — établie après lecture intégrale du PDF.** La v1 reposait sur des
-résumés de moteurs de recherche et contenait trois erreurs de fond, corrigées ici et
-signalées en §7.
+Version 2 of this plan, written after reading the full PDF. v1 relied on search-engine summaries
+and contained three substantive errors, corrected here and flagged in §7.
 
-Références indispensables, dans l'ordre de lecture :
+Required references, in reading order:
 
 1. **Adoul & Barth (1988)**, *Nearest neighbor algorithm for spherical codes from the Leech
-   lattice*, IEEE Trans. Inf. Theory 34(5):1188–1202. **C'est l'algorithme de base que LLVQ
-   étend.** Sans ce papier, la Phase 2 est infaisable.
-2. Conway & Sloane, *Sphere Packings, Lattices and Groups* (3ᵉ éd., 2013), ch. 10 —
-   construction de Λ₂₄ par le code de Golay étendu.
-3. [QuIP# — arXiv:2402.04396](https://arxiv.org/abs/2402.04396) : codebook E8P, baseline.
-4. [QTIP — arXiv:2406.11235](https://arxiv.org/abs/2406.11235) : la référence de vitesse.
-5. [GPTQ — arXiv:2210.17323](https://arxiv.org/abs/2210.17323) : la boucle de correction hessienne.
+   lattice*, IEEE Trans. Inf. Theory 34(5):1188–1202. **This is the base algorithm that LLVQ
+   extends.** Without this paper, Phase 2 is infeasible.
+2. Conway & Sloane, *Sphere Packings, Lattices and Groups* (3rd ed., 2013), ch. 10, construction
+   of Λ₂₄ from the extended Golay code.
+3. [QuIP#, arXiv:2402.04396](https://arxiv.org/abs/2402.04396): E8P codebook, baseline.
+4. [QTIP, arXiv:2406.11235](https://arxiv.org/abs/2406.11235): the speed reference.
+5. [GPTQ, arXiv:2210.17323](https://arxiv.org/abs/2210.17323): the Hessian correction loop.
 
 ---
 
-## 1. Ce que fait LLVQ, précisément
+## 1. What LLVQ does, precisely
 
-### 1.1 Le mur que le papier franchit
+### 1.1 The wall the paper gets past
 
-VQ en dimension *d* à *b* bits/dim ⇒ 2^(bd) mots de code. En dimension 24 à 2 bits/dim :
-2⁴⁸ points, soit ~280 To. Impossible à matérialiser — **c'est exactement pourquoi QuIP# a
-pris E8 en dimension 8**, dont le codebook E8P tient en 2¹⁶ entrées ramenées à une table de
-2⁸ par symétrie. LLVQ ne stocke rien : il calcule les points via la structure du code de
-Golay étendu.
+VQ in dimension *d* at *b* bits/dim ⇒ 2^(bd) codewords. In dimension 24 at 2 bits/dim: 2⁴⁸
+points, ~280 TB. Impossible to materialize. **That is exactly why QuIP# took E8 in
+dimension 8**, whose E8P codebook fits in 2¹⁶ entries reduced to a 2⁸ table by symmetry. LLVQ
+stores nothing: it computes the points from the structure of the extended Golay code.
 
-### 1.2 Construction (§2.3 du papier, Eq. 4–5)
+### 1.2 Construction (§2.3 of the paper, Eq. 4–5)
 
-`Λ₂₄ = (1/√8)·J`, avec `J = J_even ∪ J_odd ⊂ Z²⁴` :
+`Λ₂₄ = (1/√8)·J`, with `J = J_even ∪ J_odd ⊂ Z²⁴`:
 
 | | J_even | J_odd |
 |---|---|---|
-| (i) parité | `xᵢ ≡ 0 (mod 2)` | `xᵢ ≡ 1 (mod 2)` |
+| (i) parity | `xᵢ ≡ 0 (mod 2)` | `xᵢ ≡ 1 (mod 2)` |
 | (ii) Golay | `(x/2) mod 2 ∈ G₂₄` | `((x−1)/2) mod 2 ∈ G₂₄` |
-| (iii) somme | `Σxᵢ ≡ 0 (mod 8)` | `Σxᵢ ≡ 4 (mod 8)` |
+| (iii) sum | `Σxᵢ ≡ 0 (mod 8)` | `Σxᵢ ≡ 4 (mod 8)` |
 
-`G₂₄` = code de Golay binaire étendu [24,12,8], 4096 mots, poids de Hamming ∈ {0,8,12,16,24}.
-Avec la normalisation 1/√8, **le réseau est pair et unimodulaire** — donc de covolume 1, ce
-qui valide le calcul de dimensionnement de §3.
+`G₂₄` = extended binary Golay code [24,12,8], 4096 words, Hamming weights ∈ {0,8,12,16,24}. With
+the 1/√8 normalization, **the lattice is even and unimodular**, hence of covolume 1, which
+validates the sizing computation of §3.
 
-> ⚠️ Les congruences (iii) sont à revérifier sur l'Eq. (5) p. 4 : l'extraction de texte du
-> PDF brouille les chiffres en police mathématique. Le reste est certain.
+> Caveat: the (iii) congruences must be re-checked against Eq. (5) p. 4. The PDF text extraction
+> garbles digits set in a mathematical font. The rest is certain.
 
-### 1.3 Couches, classes, meneurs (§2.2, §2.4)
+### 1.3 Shells, classes, leaders (§2.2, §2.4)
 
-`Shell(m) = {v ∈ Λ₂₄ : ‖v‖² = 2m}`, m ≥ 2. Table 1 du papier :
+`Shell(m) = {v ∈ Λ₂₄ : ‖v‖² = 2m}`, m ≥ 2. Table 1 of the paper:
 
-| m | ‖v‖² | cardinal n(m) | cumul N(m) | bits/dim |
+| m | ‖v‖² | cardinality n(m) | cumulative N(m) | bits/dim |
 |---|---|---|---|---|
-| 2 | 4 | 196 560 | 196 560 | 0,75 |
-| 3 | 6 | 16 773 120 | 16 969 680 | 1,042 |
-| 4 | 8 | 398 034 000 | 415 003 680 | 1,208 |
-| 5 | 10 | 4 629 381 120 | 5 044 384 800 | 1,375 |
-| **13** | **26** | — | **280 974 212 784 720** | **2,000** |
-| 19 | 38 | — | 23 546 209 100 646 960 | 2,292 |
+| 2 | 4 | 196,560 | 196,560 | 0.75 |
+| 3 | 6 | 16,773,120 | 16,969,680 | 1.042 |
+| 4 | 8 | 398,034,000 | 415,003,680 | 1.208 |
+| 5 | 10 | 4,629,381,120 | 5,044,384,800 | 1.375 |
+| **13** | **26** | n/a | **280,974,212,784,720** | **2.000** |
+| 19 | 38 | n/a | 23,546,209,100,646,960 | 2.292 |
 
-**Le régime 2 bits/poids correspond à l'union des couches jusqu'à m = 13, norme au carré 26.**
+The 2 bits/weight regime is the union of the shells up to m = 13, squared norm 26.
 
-À l'intérieur d'une couche, les points se groupent en **classes** : ensembles stables par
-permutation de coordonnées et changement de signe, représentés par un **meneur** (le multiset
-canonique des valeurs absolues). Table 2 du papier donne les classes des couches 2, 3 et 4.
-Cardinal d'une classe :
+Inside a shell, the points group into **classes**: sets stable under coordinate permutation and
+sign change, represented by a **leader** (the canonical multiset of absolute values). Table 2 of
+the paper gives the classes of shells 2, 3 and 4. Cardinality of a class:
 
 ```
-|classe| = γ · 2^C · (24! / ∏ρ!) · (1 / ∏|q|!)
+|class| = γ · 2^C · (24! / ∏ρ!) · (1 / ∏|q|!)
 ```
-où γ = nombre de mots de Golay admissibles (**4096 pour les classes impaires**, γ ∈ {1, 759,
-2576, 759, 1} pour les paires selon le poids requis), 2^C les signes admissibles, puis les
-facteurs multinomiaux de permutation.
+where γ = the number of admissible Golay words (**4096 for the odd classes**, γ ∈ {1, 759, 2576,
+759, 1} for the even ones, depending on the required weight), 2^C the admissible signs, then the
+multinomial permutation factors.
 
-### 1.4 Les quatre contributions
+### 1.4 The four contributions
 
-1. **Indexage bijectif** hiérarchique (§3.2) : couche → classe → symétries locales. Les
-   symétries locales se décomposent en (r) raffinement de Golay, (s) motif de signes, (I″)
-   rang de permutation, par divisions et modulos successifs.
-2. **Recherche multi-couches** (§3.1) : Adoul–Barth ne traite qu'une couche, où le classement
-   par produit scalaire coïncide avec le classement euclidien. Dès qu'on unit plusieurs
-   couches, les normes varient et l'équivalence tombe — LLVQ ajoute deux métriques,
-   euclidienne (*spherical shaping*) et angulaire par cosinus (*shape–gain*).
-3. **Noyau de déquantification fusionné** (Annexe A et C).
-4. **Spherical GPTQ** (§3.3, Algorithme 1) : le rescaling standard du shape–gain, entrelacé
-   avec la rétropropagation d'erreur hessienne de GPTQ, s'interprète comme une **rétraction
-   sur un produit de sphères**. `ṽ = (‖v‖₂/‖av‖₂)·av`, et les résidus GPTQ se forment sur `ṽ`.
+1. Hierarchical **bijective indexing** (§3.2): shell → class → local symmetries. The local
+   symmetries decompose into (r) Golay refinement, (s) sign pattern, (I″) permutation rank, by
+   successive divisions and modulos.
+2. **Multi-shell search** (§3.1): Adoul–Barth handles one shell only, where dot-product ranking
+   coincides with Euclidean ranking. As soon as several shells are unioned, the norms vary and
+   the equivalence breaks. LLVQ adds two metrics, Euclidean (*spherical shaping*) and angular by
+   cosine (*shape–gain*).
+3. **Fused dequantization kernel** (Appendices A and C).
+4. **Spherical GPTQ** (§3.3, Algorithm 1): the standard shape–gain rescaling, interleaved with
+   GPTQ's Hessian error backpropagation, reads as a **retraction onto a product of spheres**.
+   `ṽ = (‖v‖₂/‖av‖₂)·av`, and the GPTQ residuals are formed on `ṽ`.
 
-### 1.5 L'asymétrie encodeur / décodeur
+### 1.5 The encoder / decoder asymmetry
 
-| | Quand | Nature |
+| | When | Nature |
 |---|---|---|
-| **Encodeur** (plus proche voisin) | hors ligne, 1× par modèle | Adoul–Barth : meneurs, placements Golay, motifs de signes, classement par produit scalaire |
-| **Décodeur** (index → vecteur) | **chaque GEMM** | petites tables statiques, div/mod entiers, reconstruction combinatoire locale |
+| **Encoder** (nearest neighbor) | offline, 1× per model | Adoul–Barth: leaders, Golay placements, sign patterns, dot-product ranking |
+| **Decoder** (index → vector) | **every GEMM** | small static tables, integer div/mod, local combinatorial reconstruction |
 
-Le papier est explicite (Annexe A.5) : « aucune dépendance entre vecteurs, aucun accès mémoire
-volumineux, trivialement parallélisable ». **C'est la raison pour laquelle le projet est
-viable.**
+The paper is explicit (Appendix A.5): "no dependency between vectors, no bulky memory access,
+trivially parallelizable". That is the reason the project is viable.
 
 ---
 
-## 2. L'ouverture d'ingénierie — ce que les auteurs n'ont pas fait
+## 2. The engineering opening, what the authors did not do
 
-C'est le point le plus important pour décider d'y aller, et il ressort noir sur blanc du
-papier (Annexe C) :
+This is the most important point for deciding to go ahead, and the paper states it in black and
+white (Appendix C):
 
-**Leur noyau CUDA ne traite qu'une seule couche, M = 3, « pour la simplicité ».** Le noyau
-multi-couches — celui qu'il faut pour le régime 2 bits/poids, m = 13 — **n'existe pas**.
+Their CUDA kernel handles a single shell, M = 3, "for simplicity". The multi-shell kernel, the
+one needed for the 2 bits/weight regime at m = 13, **does not exist**.
 
-**Leur noyau est plus lent que QTIP, et ils l'assument** : *« nous soulignons que ce travail
-ne vise pas à formuler des affirmations définitives sur les performances d'exécution
-optimisées, l'ingénierie de noyaux bas niveau pouvant vraisemblablement améliorer encore nos
-implémentations. Ces optimisations sont largement orthogonales à la contribution principale. »*
+**Their kernel is slower than QTIP, and they say so**: *"we stress that this work does not aim to
+make definitive claims about optimized runtime performance, since low-level kernel engineering
+could plausibly improve our implementations further. These optimizations are largely orthogonal
+to the main contribution."*
 
-Table 7 du papier, matvec 4096×4096 :
+Table 7 of the paper, 4096×4096 matvec:
 
-| Noyau | Temps |
+| Kernel | Time |
 |---|---|
-| FP16 matvec | 16,13 µs |
-| FP16 matvec (4096×4104) | 17,169 µs |
-| **LLVQ fusé (déquant + matvec)** | **11,194 µs — accélération 1,36–1,48× sur FP16** |
+| FP16 matvec | 16.13 µs |
+| FP16 matvec (4096×4104) | 17.169 µs |
+| **LLVQ fused (dequant + matvec)** | **11.194 µs, 1.36–1.48× speedup over FP16** |
 
-Traduction : les auteurs livrent la meilleure représentation de l'état de l'art, avec un
-noyau de démonstration mono-couche qu'ils déclarent eux-mêmes non optimisé. **L'écart entre
-la qualité de la représentation et la qualité de l'implémentation, c'est le projet.**
+The authors deliver the best representation in the state of the art, with a single-shell
+demonstration kernel they themselves declare unoptimized. The gap between the quality of the
+representation and the quality of the implementation is the project.
 
-Aucun code publié à ce jour. Seul dépôt existant : `dmnunez1993/llvq-paper-reproduction`
-(notebook, 0 étoile, dormant depuis le 2 juin 2026).
-
----
-
-## 3. Contrôle de dimensionnement
-
-Λ₂₄ étant unimodulaire, le nombre de points dans une boule de rayon R vaut `≈ V₂₄·R²⁴` avec
-`V₂₄ = π¹²/12! ≈ 1,930×10⁻³`. Pour 2⁴⁸ points : `R ≈ 5,19`, donc `‖v‖² ≈ 26,9`.
-
-**La Table 1 du papier donne 2,000 bits/dim à m = 13, soit ‖v‖² = 26.** L'estimation
-asymptotique et le décompte exact concordent. Ce calcul reste utile comme test de cohérence
-si l'implémentation des couches dérive.
+No code published to date. Only existing repository: `dmnunez1993/llvq-paper-reproduction`
+(notebook, 0 stars, dormant since 2026-06-02).
 
 ---
 
-## 4. Architecture Rust
+## 3. Sizing check
+
+Since Λ₂₄ is unimodular, the number of points in a ball of radius R is `≈ V₂₄·R²⁴` with
+`V₂₄ = π¹²/12! ≈ 1.930×10⁻³`. For 2⁴⁸ points: `R ≈ 5.19`, hence `‖v‖² ≈ 26.9`.
+
+Table 1 of the paper gives 2.000 bits/dim at m = 13, where ‖v‖² = 26. The asymptotic estimate
+and the exact count agree. This computation stays useful as a consistency test if the shell
+implementation drifts.
+
+---
+
+## 4. Rust architecture
 
 ```
 llvq/
-├── llvq-core/       # Golay, Λ₂₄, couches, classes, meneurs, indexage. #![no_std], 0 dépendance.
-├── llvq-search/     # Adoul–Barth + extension multi-couches, métriques euclidienne et angulaire.
-├── llvq-quant/      # shape–gain, Spherical GPTQ, hessiennes.  → faer
-├── llvq-kernels/    # noyau fusé CUDA (cudarc) + SIMD CPU (pulp) + wgpu.
-├── llvq-format/     # sérialisation, extension GGUF.
-├── llvq-engine/     # intégration mistral.rs / candle.
+├── llvq-core/       # Golay, Λ₂₄, shells, classes, leaders, indexing. #![no_std], 0 dependencies.
+├── llvq-search/     # Adoul–Barth + multi-shell extension, Euclidean and angular metrics.
+├── llvq-quant/      # shape–gain, Spherical GPTQ, Hessians.  → faer
+├── llvq-kernels/    # fused CUDA kernel (cudarc) + CPU SIMD (pulp) + wgpu.
+├── llvq-format/     # serialization, GGUF extension.
+├── llvq-engine/     # mistral.rs / candle integration.
 ├── llvq-cli/        # quantize | eval | bench
-└── llvq-bench/      # source gaussienne, perplexité, tok/s, VRAM
+└── llvq-bench/      # Gaussian source, perplexity, tok/s, VRAM
 ```
 
-| Besoin | Choix | Motif |
+| Need | Choice | Reason |
 |---|---|---|
-| Algèbre dense, Cholesky de H⁻¹ | **`faer`** | Pur Rust, pas de dépendance Fortran/BLAS. Build reproductible. |
-| GPU CUDA | **`cudarc`** + noyau CUDA C (NVRTC) | |
-| GPU portable | **`wgpu`** + WGSL (phase 8) | AMD, Intel Arc, Apple — l'argument souveraineté. |
-| SIMD CPU | **`pulp`** | AVX-512/AVX2/NEON sans nightly. |
-| Moteur | **`mistral.rs`**, sinon `candle` | |
-| Tests de propriété | **`proptest`** | Bijectivité de l'indexage (G3). |
-| Micro-bench | **`criterion`** | |
+| Dense algebra, Cholesky of H⁻¹ | **`faer`** | Pure Rust, no Fortran/BLAS dependency. Reproducible build. |
+| CUDA GPU | **`cudarc`** + CUDA C kernel (NVRTC) | |
+| Portable GPU | **`wgpu`** + WGSL (phase 8) | AMD, Intel Arc, Apple: the sovereignty argument. |
+| CPU SIMD | **`pulp`** | AVX-512/AVX2/NEON without nightly. |
+| Engine | **`mistral.rs`**, else `candle` | |
+| Property tests | **`proptest`** | Bijectivity of the indexing (G3). |
+| Micro-benchmark | **`criterion`** | |
 
-**Le noyau GPU ne sera pas en Rust.** Aucune chaîne Rust→GPU n'atteint le niveau d'un CUDA
-écrit à la main quand la cible est QTIP. CUDA C piloté par `cudarc` ; tout le reste en Rust.
-Contrainte « 100 % Rust » ⇒ `wgpu`/WGSL, en renonçant aux tensor cores.
+The GPU kernel will not be in Rust. No Rust→GPU toolchain reaches the level of hand-written CUDA
+when the target is QTIP. CUDA C driven by `cudarc`; everything else in Rust. A "100% Rust"
+constraint means `wgpu`/WGSL, giving up tensor cores.
 
 ---
 
-## 5. Phases et gates
+## 5. Phases and gates
 
-### Phase 0 — Transcription · 2 à 3 jours
-Récupérer Adoul & Barth (1988) — c'est le vrai prérequis, pas le papier LLVQ. Transcrire
-Table 1 (couches), Table 2 (classes et meneurs), Eq. 4–5 (congruences), Algorithme 1.
+### Phase 0, transcription · 2 to 3 days
+Get hold of Adoul & Barth (1988). That is the real prerequisite, not the LLVQ paper. Transcribe
+Table 1 (shells), Table 2 (classes and leaders), Eq. 4–5 (congruences), Algorithm 1.
 
-> **Gate G0** — Adoul & Barth en main et l'algorithme de recherche compris. Sinon, tout le
-> reste est bloqué : c'est le seul prérequis externe du projet.
+> **Gate G0.** Adoul & Barth in hand and the search algorithm understood. Otherwise everything
+> else is blocked: it is the project's only external prerequisite.
 
-### Phase 1 — Cœur mathématique · 1 à 2 semaines
-`llvq-core` : Golay `u32`, congruences, appartenance, énumération par couche/classe/meneur.
+### Phase 1, mathematical core · 1 to 2 weeks
+`llvq-core`: Golay `u32`, congruences, membership, enumeration by shell/class/leader.
 
-> **Gate G1 — invariants publics, vérifiables sans le papier.**
+> **Gate G1.** Public invariants, checkable without the paper.
 >
-> | Test | Attendu |
+> | Test | Expected |
 > |---|---|
-> | Mots de Golay | 4096 |
-> | Distribution des poids | 1 / 759 / 2576 / 759 / 1 |
-> | Distance minimale | 8 |
-> | ‖v‖² minimale de Λ₂₄ | 4 |
-> | Nombre de baisers | **196 560** |
-> | Shell(3), Shell(4) | 16 773 120 · 398 034 000 |
-> | Déterminant de Gram | 1 |
-> | Clôture additive | sur 10⁶ tirages |
-> | **Cardinaux de classes** | **doivent redonner la Table 2 du papier** |
+> | Golay words | 4096 |
+> | Weight distribution | 1 / 759 / 2576 / 759 / 1 |
+> | Minimum distance | 8 |
+> | Minimum ‖v‖² of Λ₂₄ | 4 |
+> | Kissing number | **196,560** |
+> | Shell(3), Shell(4) | 16,773,120 · 398,034,000 |
+> | Gram determinant | 1 |
+> | Additive closure | over 10⁶ draws |
+> | **Class cardinalities** | **must reproduce Table 2 of the paper** |
 
-### Phase 2 — Recherche du plus proche voisin · 2 à 3 semaines
-Adoul–Barth mono-couche, puis extension multi-couches avec les deux métriques.
+### Phase 2, nearest-neighbor search · 2 to 3 weeks
+Single-shell Adoul–Barth, then the multi-shell extension with the two metrics.
 
-> **Gate G2.** (1) Sur une couche, coïncidence exacte avec la recherche exhaustive sur 10⁵
-> tirages — l'algorithme est *exact*, tolérance zéro. (2) Multi-couches : le classement
-> angulaire doit différer du classement euclidien, et les deux doivent être corrects
-> séparément. (3) ≥ 10⁵ blocs/s/cœur (70 Md de poids ≈ 3×10⁹ blocs → ~15 min sur 32 cœurs).
+> **Gate G2.** (1) On a single shell, exact agreement with exhaustive search over 10⁵ draws. The
+> algorithm is *exact*, zero tolerance. (2) Multi-shell: the angular ranking must differ from the
+> Euclidean ranking, and both must be correct separately. (3) ≥ 10⁵ blocks/s/core (70 billion
+> weights ≈ 3×10⁹ blocks → ~15 min on 32 cores).
 
-### Phase 3 — Indexage bijectif · 1 à 2 semaines
-Hiérarchie couche → classe → (r, s, I″), linéarisation et délinéarisation par div/mod.
+### Phase 3, bijective indexing · 1 to 2 weeks
+Shell → class → (r, s, I″) hierarchy, linearization and delinearization by div/mod.
 
-> **Gate G3 — `proptest`.** Aller-retour exact dans les deux sens sur 10⁷ tirages ;
-> injectivité vérifiée exhaustivement sur Shell(2) (196 560 points, énumérable) ; tout index
-> du budget décode vers un point valide. **Une collision corrompt des poids en silence** —
-> c'est le pire mode de défaillance, il passe tous les tests de perplexité.
+> **Gate G3, `proptest`.** Exact round trip in both directions over 10⁷ draws; injectivity
+> checked exhaustively on Shell(2) (196,560 points, enumerable); every index in the budget decodes
+> to a valid point. **A collision corrupts weights silently.** It is the worst failure mode, and
+> it passes every perplexity test.
 
-### Phase 4 — Validation sur source gaussienne · 3 jours ⭐
-**Le meilleur gate du projet, et il ne nécessite aucun LLM.** Quantifier des échantillons
-i.i.d. `N(0,1)` et comparer à la Table 3 du papier, à 2 bits/dim :
+### Phase 4, validation on a Gaussian source · 3 days
+The best gate in the project, and it needs no LLM. Quantize i.i.d. `N(0,1)` samples and compare
+against Table 3 of the paper, at 2 bits/dim:
 
-| Méthode | dim | MSE ↓ | SQNR (bits) ↑ | Rétention ↑ |
+| Method | dim | MSE ↓ | SQNR (bits) ↑ | Retention ↑ |
 |---|---|---|---|---|
-| Uniforme | 1 | 0,1151 | 1,377 | 69 % |
-| Lloyd–Max | 1 | 0,1121 | 1,537 | 77 % |
-| E8 (cubique) | 8 | 0,1103 | 1,648 | 82,10 % |
-| **LLVQ spherical shaping** | 24 | 0,1084 | 1,798 | 89,14 % |
-| **LLVQ shape–gain** | 24 | **0,1078** | **1,849** | **92,11 %** |
-| Limite théorique | — | 0,0625 | 2 | 100 % |
+| Uniform | 1 | 0.1151 | 1.377 | 69% |
+| Lloyd–Max | 1 | 0.1121 | 1.537 | 77% |
+| E8 (cubic) | 8 | 0.1103 | 1.648 | 82.10% |
+| **LLVQ spherical shaping** | 24 | 0.1084 | 1.798 | 89.14% |
+| **LLVQ shape–gain** | 24 | **0.1078** | **1.849** | **92.11%** |
+| Theoretical limit | n/a | 0.0625 | 2 | 100% |
 
-> ⚠️ **Correction (constatée en phase 4)** : les colonnes MSE et SQNR de cette transcription
-> sont mutuellement incohérentes (−½log₂(0,1084) = 1,603 ≠ 1,798) — l'extraction texte du
-> PDF avait un encodage de police décalé et les chiffres des tableaux sont partiellement
-> corrompus. L'ancre auto-cohérente est la colonne **rétention** (89,14 % / 92,11 %). Notre
-> implémentation mesure MSE 0,0775 / rétention 92,23 % (spherical, β ajusté) à 1,9999
-> bits/dim — gate G4 atteint. À re-vérifier sur le PDF original en Phase 5.
+> **Correction (found in phase 4)**: the MSE and SQNR columns of this transcription are mutually
+> inconsistent (−½log₂(0.1084) = 1.603 ≠ 1.798). The PDF text extraction had a shifted font
+> encoding and the table digits are partly corrupted. The self-consistent anchor is the
+> **retention** column (89.14% / 92.11%). Our implementation measures MSE 0.0775 / retention
+> 92.23% (spherical, β tuned) at 1.9999 bits/dim, gate G4 reached. To be re-checked against the
+> original PDF in Phase 5.
 
-> **Gate G4.** Rétention ≥ 89 % en spherical shaping et ≥ 92 % en shape–gain. Contrôle
-> analytique gratuit : à 2 bits/dim, `MSE* = 2⁻²ᴿ = 0,0625` exactement — si votre limite
-> théorique ne tombe pas sur 0,0625, le protocole de mesure est faux avant même le
-> quantiseur. **Trois jours pour valider tout le cœur, avant d'avoir touché un modèle.**
+> **Gate G4.** Retention ≥ 89% in spherical shaping and ≥ 92% in shape–gain. Free analytical
+> check: at 2 bits/dim, `MSE* = 2⁻²ᴿ = 0.0625` exactly. If your theoretical limit does not land on
+> 0.0625, the measurement protocol is wrong before the quantizer is even involved. Three days to
+> validate the whole core, before touching a model.
 
-### Phase 5 — Spherical GPTQ et pipeline LLM · 2 à 3 semaines
-Algorithme 1 du papier : blocs de b = 24 canaux d'entrée, gauche à droite, `H = (1/N)AᵀA`,
-Cholesky de `H⁻¹`, lignes en parallèle, reset de gain `ṽ = ‖v‖₂·Q_dir(v/‖v‖₂)`, propagation
-du résidu sur les colonnes non traitées.
+### Phase 5, Spherical GPTQ and LLM pipeline · 2 to 3 weeks
+Algorithm 1 of the paper: blocks of b = 24 input channels, left to right, `H = (1/N)AᵀA`,
+Cholesky of `H⁻¹`, rows in parallel, gain reset `ṽ = ‖v‖₂·Q_dir(v/‖v‖₂)`, residual propagated onto
+the untreated columns.
 
-Calibration : **6 100 séquences de DCLM-edu** (même taille que QuIP#). Finetuning optionnel :
-uniquement les échelles d'entrée partagées par lignes, ~52 M tokens, < 0,001 bpw de surcoût.
+Calibration: **6,100 DCLM-edu sequences** (same size as QuIP#). Optional finetuning: only the
+input scales shared across rows, ~52M tokens, < 0.001 bpw of overhead.
 
-**Progression petit → gros** (décision projet) : d'abord **Qwen3-0.6B** en smoke test du
-pipeline, puis **Qwen3-4B** — le plus petit modèle pour lequel le papier publie des chiffres
-de référence (Table 6) — et seulement ensuite les 7B/8B. Chaque étape ne sert qu'à dérisquer
-la suivante.
+**Small → large progression** (project decision): first **Qwen3-0.6B** as a smoke test of the
+pipeline, then **Qwen3-4B**, the smallest model for which the paper publishes reference numbers
+(Table 6), and only then the 7B/8B. Each step exists only to de-risk the next.
 
-> **Gate G5 — reproduction, sur Qwen3-4B puis Llama-2 7B et Llama-3 8B à 2 bpw.** LLVQ doit battre
-> QuIP#/E8P et QTIP en perplexité Wikitext-2 (contexte 4096), MMLU et CSR, dans le pipeline
-> unifié de la Table 6. Écart de PPL ≤ 0,05 → validé. > 0,2 ou LLVQ ne bat pas QuIP# →
-> **point de sortie du projet**.
+> **Gate G5, reproduction, on Qwen3-4B then Llama-2 7B and Llama-3 8B at 2 bpw.** LLVQ must beat
+> QuIP#/E8P and QTIP on Wikitext-2 perplexity (context 4096), MMLU and CSR, in the unified
+> pipeline of Table 6. PPL gap ≤ 0.05 → validated. > 0.2 or LLVQ does not beat QuIP# →
+> **project exit point**.
 >
-> Ajouter le benchmark métier d'extraction documentaire ici, pas à la fin — cf.
+> Add the document-extraction business benchmark here, not at the end, cf.
 > [*The Illusion of Equivalency in Quantization*, arXiv:2607.08734](https://arxiv.org/abs/2607.08734).
 
-### Phase 6 — Noyau fusé · 3 à 4 semaines ⭐ *le cœur de la contribution*
-Deux objectifs distincts, dans cet ordre :
+### Phase 6, fused kernel · 3 to 4 weeks · *the core of the contribution*
+Two distinct objectives, in this order:
 
-1. **Reproduire** le noyau mono-couche M = 3 des auteurs : ≥ 1,36× sur le matvec FP16.
-2. **Dépasser** — c'est là qu'est la valeur ajoutée :
-   - **noyau multi-couches**, qui n'existe nulle part et qui conditionne le régime 2 bpw ;
-   - franchir la barre QTIP, que les auteurs n'ont pas cherché à atteindre.
+1. **Reproduce** the authors' single-shell M = 3 kernel: ≥ 1.36× on the FP16 matvec.
+2. **Go beyond**, which is where the added value sits:
+   - a **multi-shell kernel**, which exists nowhere and which conditions the 2 bpw regime;
+   - clearing the QTIP bar, which the authors did not try to reach.
 
-> **Gate G6.** (1) ≥ 1,36× sur FP16 en mono-couche. (2) Multi-couches m ≤ 13 fonctionnel et
-> exact face au décodeur de référence Rust. (3) Face à QTIP : à parité → objectif atteint ;
-> en deçà → livrer en documentant, une meilleure représentation à débit légèrement inférieur
-> reste utile quand le but est de faire *entrer* le modèle.
+> **Gate G6.** (1) ≥ 1.36× over FP16 in single-shell. (2) Multi-shell m ≤ 13 working and exact
+> against the Rust reference decoder. (3) Against QTIP: at parity → objective reached; below →
+> ship and document, a better representation at slightly lower throughput stays useful when the
+> goal is to make the model *fit*.
 
-### Phase 7 — Intégration moteur · 2 semaines
-`mistral.rs`, format de sérialisation, CLI.
+### Phase 7, engine integration · 2 weeks
+`mistral.rs`, serialization format, CLI.
 
-> **Gate G7 — sur le matériel réel.** VRAM pic, tok/s prefill et decode, perplexité,
-> benchmark métier. Question binaire : **un modèle qui n'entrait pas entre-t-il maintenant ?**
+> **Gate G7, on real hardware.** Peak VRAM, prefill and decode tok/s, perplexity, business
+> benchmark. Binary question: does a model that did not fit now fit?
 
-### Phase 8 — Portabilité · optionnel, 2 à 3 semaines
-`wgpu`/WGSL et chemin CPU SIMD. À arbitrer après G7.
+### Phase 8, portability · optional, 2 to 3 weeks
+`wgpu`/WGSL and the CPU SIMD path. To arbitrate after G7.
 
 ---
 
-## 6. Récapitulatif
+## 6. Summary
 
-| Phase | Durée | Gate | Si échec |
+| Phase | Duration | Gate | If it fails |
 |---|---|---|---|
-| 0 — Transcription + Adoul–Barth | 2–3 j | G0 | Bloquant |
-| 1 — Golay + Λ₂₄ | 1–2 sem | G1 : 196 560, Table 2 | Bug |
-| 2 — Recherche NN | 2–3 sem | G2 : exactitude + débit | Bug |
-| 3 — Indexage | 1–2 sem | G3 : bijectivité | Bug |
-| 4 — **Source gaussienne** | **3 j** | **G4 : rétention 92,11 %** | **Sortie** |
-| 5 — Spherical GPTQ + LLM | 2–3 sem | G5 : bat QuIP#/QTIP | **Sortie** |
-| 6 — Noyau fusé | 3–4 sem | G6 : 1,36× FP16, multi-couches | Livrer et documenter |
-| 7 — Intégration | 2 sem | G7 : bout en bout | — |
-| 8 — Portabilité | 2–3 sem | — | Optionnel |
+| 0, transcription + Adoul–Barth | 2–3 d | G0 | Blocking |
+| 1, Golay + Λ₂₄ | 1–2 wk | G1: 196,560, Table 2 | Bug |
+| 2, NN search | 2–3 wk | G2: exactness + throughput | Bug |
+| 3, indexing | 1–2 wk | G3: bijectivity | Bug |
+| 4, **Gaussian source** | **3 d** | **G4: retention 92.11%** | **Exit** |
+| 5, Spherical GPTQ + LLM | 2–3 wk | G5: beats QuIP#/QTIP | **Exit** |
+| 6, fused kernel | 3–4 wk | G6: 1.36× FP16, multi-shell | Ship and document |
+| 7, integration | 2 wk | G7: end to end | n/a |
+| 8, portability | 2–3 wk | n/a | Optional |
 
-**Total : 12–16 semaines.** Deux points de sortie, G4 et G5, tous deux avant l'investissement
-noyau. G4 en particulier coûte trois jours et valide tout le cœur mathématique **sans LLM**.
+**Total: 12–16 weeks.** Two exit points, G4 and G5, both before the kernel investment. G4 in
+particular costs three days and validates the whole mathematical core **without an LLM**.
 
 ---
 
-## 7. Ce que la v1 de ce plan disait de faux
+## 7. What v1 of this plan got wrong
 
-| v1 | Réalité |
+| v1 | Reality |
 |---|---|
-| « Décodeur type Conway–Sloane / Vardy–Be'ery par l'hexacode » | **Faux.** LLVQ étend **Adoul & Barth (1988)** : meneurs, placements Golay, motifs de signes, classement par produit scalaire. Autre famille algorithmique. |
-| « Le travail restant, c'est le noyau de production » | Incomplet. Le vrai trou est le **noyau multi-couches**, inexistant : les auteurs se limitent à M = 3. |
-| « Risque : noyau trop lent » | Surestimé. Leur noyau fait déjà 1,36–1,48× le FP16. La barre est connue, pas hypothétique. |
-| Étapes de validation floues | Remplacées par la **Table 3 (source gaussienne)** : trois jours, aucun LLM. |
-| 11–15 semaines | 12–16, avec un découpage réaliste de la Phase 6. |
+| "Conway–Sloane / Vardy–Be'ery style decoder through the hexacode" | **False.** LLVQ extends **Adoul & Barth (1988)**: leaders, Golay placements, sign patterns, dot-product ranking. A different algorithmic family. |
+| "The remaining work is the production kernel" | Incomplete. The real gap is the **multi-shell kernel**, which does not exist: the authors stop at M = 3. |
+| "Risk: kernel too slow" | Overstated. Their kernel already does 1.36–1.48× FP16. The bar is known, not hypothetical. |
+| Vague validation steps | Replaced by **Table 3 (Gaussian source)**: three days, no LLM. |
+| 11–15 weeks | 12–16, with a realistic split of Phase 6. |
 
-Reste vrai depuis la v1 : HARP et LLVQ sont **substituables, pas complémentaires**. Le papier
-le confirme directement (Table 5) — Spherical GPTQ réduit fortement la dépendance aux
-rotations de Hadamard, et LLVQ shape–gain reste compétitif sans aucune rotation. Améliorer la
-rotation en amont d'un quantiseur 24-dimensionnel rapporte peu.
+Still true since v1: HARP and LLVQ are **substitutable, not complementary**. The paper confirms it
+directly (Table 5). Spherical GPTQ strongly reduces the dependence on Hadamard rotations, and LLVQ
+shape–gain stays competitive with no rotation at all. Improving the rotation upstream of a
+24-dimensional quantizer buys little.
 
 ---
 
-## 8. Risques
+## 8. Risks
 
-| Risque | Probabilité | Parade |
+| Risk | Likelihood | Mitigation |
 |---|---|---|
-| Adoul & Barth (1988) difficile à obtenir ou à implémenter | **Élevée** | Gate G0. Papier IEEE de 1988, 15 pages. C'est le vrai chemin critique. |
-| Qualcomm publie son code | Moyenne | Quatre mois de silence. Et le noyau multi-couches + intégration moteur garde sa valeur. |
-| Chiffres non reproductibles | Faible | G4 puis G5, avant l'investissement noyau. |
-| Ne pas battre QTIP en vitesse | Moyenne | Les auteurs ne le battent pas non plus. Repli documenté acceptable. |
-| Collision d'indexage silencieuse | Faible mais **critique** | G3 par `proptest`, jamais relâché. |
+| Adoul & Barth (1988) hard to obtain or to implement | **High** | Gate G0. A 1988 IEEE paper, 15 pages. This is the real critical path. |
+| Qualcomm publishes its code | Medium | Four months of silence. And the multi-shell kernel + engine integration keeps its value. |
+| Numbers not reproducible | Low | G4 then G5, before the kernel investment. |
+| Not beating QTIP on speed | Medium | The authors do not beat it either. A documented fallback is acceptable. |
+| Silent indexing collision | Low but **critical** | G3 through `proptest`, never relaxed. |

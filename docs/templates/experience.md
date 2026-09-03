@@ -1,45 +1,45 @@
-# <Nom court de l'expérience> (<AAAA-MM-JJ>)
+# <Short name of the experiment> (<YYYY-MM-DD>)
 
-**Question.** <Une phrase.>
+**Question.** <One sentence.>
 
-**Réponse.** <Une phrase, avec le chiffre et son intervalle.>
+**Answer.** <One sentence, with the number and its interval.>
 
-## Dispositif
+## Setup
 
-- Objet : <le fichier, le modèle, la taille>
-- Variable unique : <ce qui change entre les bras>
-- Témoins : <ce qui ne change pas, et où ils ont déjà été mesurés>
-- Coût : <mesuré, en $ ou en heures de machine> ; durée <mesurée>
+- Object: <the file, the model, the size>
+- Single variable: <what changes between the arms>
+- Controls: <what does not change, and where they have already been measured>
+- Cost: <measured, in $ or in machine hours>; duration <measured>
 
-## Résultat
+## Result
 
-| bras | valeur | intervalle | source |
+| arm | value | interval | source |
 |---|---|---|---|
-| témoin | | | |
-| <bras 1> | | | |
+| control | | | |
+| <arm 1> | | | |
 
-## Contrôles
+## Controls
 
-| contrôle | attendu | obtenu | verdict |
+| control | expected | obtained | verdict |
 |---|---|---|---|
-| | | | passe / échoue |
+| | | | passes / fails |
 
-Si un contrôle échoue, rien ne se publie et la ligne « Réponse » le dit.
+If a control fails, nothing gets published and the "Answer" line says so.
 
-## Ce que ça n'établit pas
+## What this does not establish
 
-- <une réserve par ligne, la plus lourde en premier>
+- <one caveat per line, the heaviest first>
 
-## Décision
+## Decision
 
-<Ce que le résultat ouvre ou ferme, par la règle posée d'avance. Si la règle
-ne couvre pas le cas, le dire, et nommer qui décide.>
+<What the result opens or closes, by the rule laid down in advance. If the rule
+does not cover the case, say so, and name who decides.>
 
 ## Provenance
 
-- préreg : `proofs/<fichier>.md`, sha256 `<8 premiers>`, tamponné le <date>
-- écarts : `proofs/<fichier>-ECARTS.md` (ou « aucun »)
-- code : commit `<7 car.>`
-- job : `<id>`, <carte>, <minutes>, <$>
-- brut : `docs/mesures/<fichier>.txt` et `docs/mesures/<fichier>-brut/`
-- données : `docs/data/<...>`
+- prereg: `proofs/<file>.md`, sha256 `<first 8>`, timestamped on <date>
+- deviations: `proofs/<file>-ECARTS.md` (or "none")
+- code: commit `<7 chars>`
+- job: `<id>`, <card>, <minutes>, <$>
+- raw: `docs/mesures/<file>.txt` and `docs/mesures/<file>-brut/`
+- data: `docs/data/<...>`

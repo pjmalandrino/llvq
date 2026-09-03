@@ -1,72 +1,72 @@
-# QTIP : pourquoi ce noyau n'est pas dans le dépôt (2026-08-20)
+# QTIP: why this kernel is not in the repository (2026-08-20)
 
-Le bras de comparaison `qtip` du banc mesure le noyau matvec 2 bits publié par
-Cornell-RelaxML. Contrairement au bras AWQ, **son code n'est pas commité ici** :
-il est récupéré au moment du job par [`ops/fetch-qtip.sh`](../ops/fetch-qtip.sh).
+The `qtip` comparison arm of the benchmark measures the 2-bit matvec kernel
+published by Cornell-RelaxML. Unlike the AWQ arm, **its code is not committed
+here**: it is fetched at job time by [`ops/fetch-qtip.sh`](../ops/fetch-qtip.sh).
 
-## La raison, et elle n'est pas symétrique du bras AWQ
+## The reason, and it is not symmetric with the AWQ arm
 
 | | AWQ | QTIP |
 |---|---|---|
-| licence amont | MIT | **GPL v3** |
-| dans le dépôt | oui — `llvq-cuda/kernels/awq_gemv.cu`, `include_str!` | **non** |
-| chemin de chargement | embarqué, `LLVQ_KERNEL_DIR` en surcharge | `LLVQ_QTIP_DIR` (sa propre variable) |
+| upstream licence | MIT | **GPL v3** |
+| in the repository | yes: `llvq-cuda/kernels/awq_gemv.cu`, `include_str!` | **no** |
+| load path | embedded, `LLVQ_KERNEL_DIR` as override | `LLVQ_QTIP_DIR` (its own variable) |
 
-Le dépôt est sous MIT OU Apache-2.0. Redistribuer un fichier GPL v3 dedans
-obligerait à replacer l'ensemble sous GPL v3 — ce n'est pas le choix du projet.
-La récupération job-time évite la question sans rien perdre de la mesure.
+The repository is under MIT OR Apache-2.0. Redistributing a GPL v3 file inside
+it would put the whole repository under GPL v3, which is not the project's choice.
+Fetching at job time avoids the question without losing any of the measurement.
 
-⚠️ **Ce que la GPL contraint est la DISTRIBUTION, pas l'usage.** Exécuter un
-logiciel GPL pour produire une mesure, le patcher pour le compiler, le
-chronométrer, publier ses temps : rien de tout cela n'est restreint. 🕳️ Le plan
-du matin ([`plan-f2-qtip-2026-08-20.md`](plan-f2-qtip-2026-08-20.md)) présentait
-« sans exécuter une ligne de leur Python » comme une contrainte juridique ;
-c'était une confusion. C'était un choix de simplicité — et il se trouve qu'on
-n'en a pas eu besoin, le format ayant été dérivé du CUDA puis validé contre une
-transcription de leur code.
+What the GPL constrains is DISTRIBUTION, not use. Running GPL software to
+produce a measurement, patching it so it compiles, timing it, publishing its
+times: none of that is restricted. The morning plan
+([`plan-f2-qtip-2026-08-20.md`](archive/plan-f2-qtip-2026-08-20.md)) presented
+"without running a line of their Python" as a legal constraint; that was a
+confusion. Skipping their Python was a simplicity choice, and it turned out we
+did not need it: the format was derived from the CUDA, then validated against a
+transcription of their code.
 
-## Ce que le script fait, et ce qu'il refuse de faire
+## What the script does, and what it refuses to do
 
-1. Refuse d'écrire dans un répertoire non vide.
-2. Télécharge `inference.cu` et `inference.h` au commit **épinglé**
+1. Refuses to write into a non-empty directory.
+2. Downloads `inference.cu` and `inference.h` at the **pinned** commit
    `e90c6688c8dfae326a3a81b5eb032db7c6680ec0`.
-3. **Vérifie les deux sha256** et échoue bruyamment sinon. C'est le point qui
-   compte : un fichier amont qui changerait en silence déplacerait un chiffre
-   publié sans que rien ne le dise.
-4. Retire **quatre lignes mortes** — `#include <cuda/pipeline>`, `#include
+3. **Checks both sha256** and fails loudly otherwise. That is the point that
+   matters: an upstream file changing in silence would move a published number
+   and nothing would say so.
+4. Removes **four dead lines**: `#include <cuda/pipeline>`, `#include
    <mma.h>`, `#include <c10/cuda/CUDAStream.h>`, `using namespace nvcuda;`.
-   Chacune a été vérifiée à **zéro usage** dans le fichier le 2026-08-20 (le MMA
-   passe par de l'asm PTX inline, pas par l'API `wmma`), donc le code device
-   généré est inchangé : elles tombent parce que NVRTC ne porte ni torch ni
-   libcu++. Les macros `CHECK_CUDA`/`CHECK_CONTIGUOUS` contiennent `TORCH_CHECK`
-   mais ne sont jamais développées dans ce fichier — elles sont **laissées
-   telles quelles** plutôt qu'éditées.
-5. **Prouve** le patch après coup (re-grep des quatre lignes et de quatre
-   jetons résiduels) au lieu de faire confiance au filtre.
-6. Écrit un `PROVENANCE.txt` à côté : URL, commit, sha256 avant patch, lignes
-   retirées, date, et la mention de licence.
+   Each was verified to have **zero uses** in the file on 2026-08-20 (the MMA
+   goes through inline PTX asm, not the `wmma` API), so the generated device
+   code is unchanged: they are dropped because NVRTC carries neither torch nor
+   libcu++. The `CHECK_CUDA`/`CHECK_CONTIGUOUS` macros contain `TORCH_CHECK` but
+   are never expanded in this file, so they are **left as they are** rather than
+   edited.
+5. **Proves** the patch afterwards (re-grep of the four lines and four
+   residual tokens) instead of trusting the filter.
+6. Writes a `PROVENANCE.txt` beside it: URL, commit, sha256 before patch, lines
+   removed, date, and the licence notice.
 
-## 🚨 Sa propre variable, et pourquoi ce n'est pas cosmétique
+## Its own variable, and why that is not cosmetic
 
-Le noyau QTIP arrive par **`LLVQ_QTIP_DIR`**, jamais par `LLVQ_KERNEL_DIR`.
-Cette dernière signifie *« surcharge TOUS les noyaux depuis ce répertoire »* :
-chaque loader du banc y cherche **ses** fichiers et **échoue franchement** s'il
-n'en trouve pas un (`load_sources_many`, `llvq-cuda/src/lib.rs:230`). La pointer
-sur la sortie de `fetch-qtip.sh` casserait donc le banc entier sur un
-`matvec.cu: No such file or directory`. QTIP est une **addition**, pas une
-surcharge — deux variables distinctes, qui se composent.
+The QTIP kernel arrives through **`LLVQ_QTIP_DIR`**, never through
+`LLVQ_KERNEL_DIR`. The latter means *"override ALL kernels from this
+directory"*: every loader of the benchmark looks there for **its** files and
+**fails hard** if it does not find one (`load_sources_many`,
+`llvq-cuda/src/lib.rs:230`). Pointing it at the output of `fetch-qtip.sh` would
+therefore break the whole benchmark on a `matvec.cu: No such file or directory`.
+QTIP is an **addition**, not an override: two distinct variables that compose.
 
-Corollaire : seule la **moitié device** vient de ce répertoire. Les shims
-`extern "C"` qui donnent un nom au noyau sont à nous, commités, et embarqués
-dans le binaire — donc toujours présents et verrouillés sur la version qui les
-lance.
+Corollary: only the **device half** comes from that directory. The `extern "C"`
+shims that give the kernel a name are ours, committed, and embedded in the
+binary, so they are always present and locked to the version that launches them.
 
-## La limite honnête, à déclarer dans le papier
+## The honest limit, to be declared in the paper
 
-**Notre dépôt seul ne rejoue pas ce bras.** Il faut le réseau et le dépôt amont
-vivant au commit épinglé. Les autres bras du banc se rejouent hors ligne ; celui
--ci non. Si l'amont disparaît, les sha256 de `PROVENANCE.txt` permettent encore
-d'authentifier une copie retrouvée ailleurs, mais ils ne la fabriquent pas.
+Our repository alone does not replay this arm. It needs the network and the
+upstream repository alive at the pinned commit. The other arms of the benchmark
+replay offline; this one does not. If upstream disappears, the sha256 digests in
+`PROVENANCE.txt` can still authenticate a copy found elsewhere, but they cannot
+produce one.
 
-C'est le prix de la licence, il est déclaré, et il ne se contourne pas en
-copiant le fichier ici.
+That is the price of the licence. It is declared, and copying the file here does
+not work around it.
