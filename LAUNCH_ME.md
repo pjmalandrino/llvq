@@ -1,251 +1,152 @@
-# Faire tourner le modèle
+# Faire tourner le modèle publié
 
-Qwen3-4B quantifié à **2,1595 bits/poids** sur ses 3 633 315 840 poids de
-projection (2,1696 si l'on exclut la queue du dénominateur — même fichier, deux
-conventions, toutes deux exactes). **Un fichier de 1,771 Go**, qui démarre sans
-checkpoint, sans cache Hugging Face et sans réseau.
+Qwen3-4B quantifié à 2 bits sur le réseau de Leech tient dans un fichier de 1,771 Go (*mesuré*,
+[docs/fiche-4b.md](docs/fiche-4b.md)) qui démarre seul : sans checkpoint, sans cache Hugging Face,
+sans réseau. L'état courant du projet est dans [docs/ETAT.md](docs/ETAT.md), le fil des changements
+dans [docs/HISTORIQUE.md](docs/HISTORIQUE.md), les règles de mesure dans [docs/METHODE.md](docs/METHODE.md).
 
-📦 **[huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit)**
+## 1. Le fichier
 
-| | LLVQ 2 bits | FP16 | |
+`qwen3-4b-llvq.bin` fait 1 770 527 533 octets (*mesuré*, [docs/fiche-4b.md](docs/fiche-4b.md)) et
+vit sur le Hub : [huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit](https://huggingface.co/Pier-Jean/Qwen3-4B-LLVQ-2bit).
+Son sha256 est `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0`. Un hash
+différent est un autre fichier.
+
+| section | contenu | octets | provenance |
 |---|---|---|---|
-| sur disque | **1,771 Go** | 8,045 Go | **×4,54** |
-| perplexité WikiText-2, f16, **sur le fichier publié** | **16,9415** | 12,2361 | ×1,385 |
-| MMLU 5-shot, micro, **sur le fichier publié** *(CUDA/L40S, la valeur de la carte HF)* | **55,59 ± 1,35** | 70,32 ± 1,28 | −14,73 pp |
-| projections, un token *(noyau fusé, modèle entier)* | **10,5 – 11,0 ms** | 21,7 – 22,7 ms | **×2,06 – 2,08** |
-| + lm_head f16 ajouté **analytiquement** *(jamais exécuté)* | *78,2 tok/s calculé* | *41,6 calculé* | *×1,88 — un majorant* |
-| génération réelle de `bin/run` *(L40S, fichier scellé — cache KV depuis `9c24d26`)* | **42,7 tok/s mesurés** | — | — |
+| matrices | 252 projections quantifiées, 3 633 315 840 poids, index 47 bits + 1 bit de gain par bloc de 24 | 980 790 202 | *mesuré*, fiche-4b |
+| tenseurs f16 | 146 tenseurs portés : embedding 388 956 160 valeurs, normes 196 096 | 778 313 898 | *mesuré*, fiche-4b |
+| blobs | `config.json` (726 o), `tokenizer.json` (11 422 654 o) | 11 423 433 | *mesuré*, fiche-4b |
 
-🕳️ La ligne MMLU a porté **56,09 / 70,42 (−14,33 pp)** — le run Metal du
-2026-08-02 — jusqu'au 2026-08-18, pendant que la carte HF publiait 55,59 :
-deux surfaces publiques, deux chiffres pour la même cellule. La référence est
-la campagne CUDA du 08-06 (empreinte `65dcd53655e8bfa5`) ; l'écart de 0,50 pp
-entre les deux runs est documenté — et non expliqué — sur la carte.
+Les projections pèsent 2,1595 b/poids, queue incluse au dénominateur (*calculé*, fiche-4b ;
+2,1696 queue exclue, même fichier). Le modèle entier pèse 3,5213 b/param sur disque, embedding f16
+compris (*calculé*, fiche-4b). Le conteneur porte le magic `LVQ2`. Le format est défini par
+[`llvq-artifact`](llvq-artifact/), un crate à zéro dépendance. Son arbre fait 3 crates contre 261
+pour le côté modèle (*mesuré*, [README.md](README.md)).
 
-⚠️ **Les deux lignes de vitesse « projections » ne sont pas ce que fait
-`bin/run`.** Elles sont mesurées par `bin/thesis` (§ *Valider la thèse*), sur le
-même fichier et la même machine, avec le noyau fusé. Ce noyau n'est **pas
-branché** dans le runner portable : `bin/run` décode les poids en mémoire puis
-fait un matvec ordinaire — sa vitesse est celle du moteur, pas du noyau. Le
-chemin fusé dans le modèle existe ailleurs : `bin/fusedrun` (Linux + CUDA).
+Ce fichier n'est ni un GGUF, ni un AWQ, ni un safetensors. `transformers`, `llama.cpp`, vLLM et TGI
+ne le lisent pas. Le seul lecteur est ce dépôt. Un lecteur dans un autre langage n'existe pas ; il
+lui faudrait aussi `llvq-search` et `llvq-core` pour l'index de Leech.
 
-🕳️ Ce paragraphe a dit « 2,2 – 7,6 tok/s, débit décroissant, pas de cache KV,
-c'est le dernier chantier » jusqu'au 2026-08-18 — des mesures et un état
-**antérieurs au cache KV**, que `bin/run` a depuis le commit `9c24d26`
-(2026-08-05), épinglé par un test qui exige les mêmes tokens que le chemin non
-caché ; sur L40S le fichier scellé rend 42,7 tok/s
-([`docs/mesures/mini-2026-08-05.txt`](docs/mesures/mini-2026-08-05.txt)).
-`bin/run` n'a pas de mesure Mac post-cache — s'attendre à mieux que les
-2,2 – 7,6 tok/s d'époque, sans chiffre à promettre.
+## 2. Télécharger et lancer
 
----
-
-## En trois commandes
+Prérequis : Rust stable. Le téléchargement est la seule étape qui touche au réseau.
 
 ```bash
 git clone https://github.com/pjmalandrino/llvq && cd llvq
-```
-
-```bash
 hf download Pier-Jean/Qwen3-4B-LLVQ-2bit qwen3-4b-llvq.bin --local-dir .
+shasum -a 256 qwen3-4b-llvq.bin        # attendu : 9db213ef…84b0, 1 770 527 533 octets
 ```
 
-Vérifier les octets avant de leur faire confiance — l'empreinte attendue est
-celle de la fiche d'identité ([`docs/fiche-4b.md`](docs/fiche-4b.md), MESURE) :
-
-```bash
-shasum -a 256 qwen3-4b-llvq.bin
-```
-
-> attendu : `9db213ef9fa9d7d7000789a8a529ce9459ce9ba6002ef5a72fd5a1c05c1c84b0`
-> (1 770 527 533 octets — un hash différent signifie un téléchargement
-> tronqué ou un fichier qui n'est pas celui que cette page décrit).
+Générer sur Mac (Metal) ou sur toute machine (CPU) avec `bin/run`, le chemin dense :
 
 ```bash
 cargo run --release -p llvq-llm --features metal --bin run -- qwen3-4b-llvq.bin metal 24
 ```
 
-Sur autre chose qu'un Mac, enlever `--features metal` **et** remplacer le second
-`metal` par `cpu` — la feature cargo et l'argument sont deux choses distinctes,
-et demander `metal` sans la feature est une erreur. Le dernier argument est le
-nombre de tokens à générer.
+Hors Mac, retirer `--features metal` et remplacer l'argument `metal` par `cpu`. La feature cargo et
+l'argument sont deux choses distinctes ; demander `metal` sans la feature est une erreur. Le dernier
+argument est le nombre de tokens. Le programme imprime `252 quantized matrices + 146 carried
+tensors`, puis quatre prompts échantillonnés, donc non reproductibles à la lettre.
 
-Forme de la sortie :
+`bin/run` décode tous les poids en f16 : le modèle résident fait 8,045 Go quel que soit le fichier
+(*mesuré*, fiche-4b). Pic RSS : 9,79 Go en `cpu`, 17,41 Go en Metal (*mesuré*, fiche-4b). Compter
+10 Go de RAM libre en CPU et 17,4 Go en Metal. Débit : 42,7 tok/s sur L40S avec cache KV (*mesuré*,
+[docs/mesures/mini-2026-08-05.txt](docs/mesures/mini-2026-08-05.txt)) ; aucune mesure Mac depuis le
+cache KV.
 
-```
-loaded qwen3-4b-llvq.bin — 252 quantized matrices + 146 carried tensors
-   running at dtype f16
-
-── model
-   1.771 GB on disk against 8.045 GB in FP16  →  ×4.54
-   3633315840 weights quantized, 389152256 carried at f16
-
-── "The capital of France is"
-   → …
-```
-
-…puis trois autres prompts (l'alunissage de 1969, `def fibonacci(n):`,
-l'ébullition de l'eau). `bin/run` échantillonne : les continuations ne sont pas
-reproductibles à la lettre.
-
-**Prérequis** : Rust stable, et de la RAM libre — **~10 Go en `cpu` (9,79 Go de
-pic RSS mesuré), et au moins 17,4 Go en Metal (17,41 Go mesurés)**. Le lecteur
-décode tous les poids en mémoire : le modèle résident fait 8,045 Go de f16, quel
-que soit le poids du fichier sur disque. Rien d'autre pour **faire tourner le
-modèle** — pas de Python, pas de CUDA, pas de compte Hugging Face. (Le
-téléchargement et la vérification n° 4 sont les deux seules étapes qui touchent
-au réseau.)
-
-## Valider, dans l'ordre
-
-Quatre vérifications, de la plus rapide à la plus longue. Chacune répond à une
-question différente, et aucune ne demande de nous croire sur parole.
-
-### 1. Le cœur mathématique est-il juste ? — quelques minutes sur un clone frais
+Le chemin fusé, sur Linux + CUDA, est `bin/fusedrun`. Il décode et multiplie sans repasser par une
+matrice dense. La configuration servie v1 tient en trois variables :
 
 ```bash
-cargo test --release
+LLVQ_EMBED=q8 LLVQ_ROT_SHARE=1 LLVQ_FUSE=1 \
+  cargo run --release -p llvq-llm --features cuda --bin fusedrun -- qwen3-4b-llvq.bin 128
 ```
 
-Les tests marqués `ignored` dans la sortie sont les **sweeps d'archive
-scellée** : ils exigent l'artefact et se comptent en dizaines de minutes. Les
-lancer une fois le fichier téléchargé :
+| chemin | tok/s [plage] | Go carte | tokens gloutons | provenance |
+|---|---|---|---|---|
+| fusé, config v1 (`planes14` + q8 + rotation hissée + fusion) | 100,6 [99,9–100,7] | 2,57 | 128, divergence du dense au token 89 | *mesuré*, [d1-fusion-servie-2026-08-24.txt](docs/mesures/d1-fusion-servie-2026-08-24.txt) |
+| dense f16 (le bras compagnon) | 43,5 [43,4–43,5] | 8,04 | référence | *mesuré*, [b2-fusedrun-plages-2026-08-18.txt](docs/mesures/b2-fusedrun-plages-2026-08-18.txt) |
+
+Le rapport brut contre ce bras ne se cite jamais seul : il recopie 778 Mo de vocabulaire par
+token. Le rapport à tête identique, ×1,11 [1,11–1,11], mesure le noyau (*calculé* sur les médianes
+B2). NVRTC compile le noyau au démarrage ; `LLVQ_NVRTC_ARCH=compute_80` cible l'A100, où le même
+noyau rend 0,79× FP16 (*mesuré*, [f4-a100-2026-08-18.txt](docs/mesures/f4-a100-2026-08-18.txt)).
+
+## 3. Valider, dans l'ordre
+
+Quatre vérifications, de la plus rapide à la plus longue.
+
+| n° | question | commande | attendu | durée |
+|---|---|---|---|---|
+| 1 | le cœur mathématique est-il juste | `cargo test --release` | tout vert ; les tests `ignored` sont les sweeps d'archive | quelques minutes (*estimé*) |
+| 2 | le fichier est-il autonome | `env -i HOME=/nonexistent PATH=/usr/bin:/bin ./target/release/run qwen3-4b-llvq.bin cpu 12` | une réponse, sans cache HF ni réseau | 4 à 5 min (*estimé* ; 255,7 s *mesurés* avant le cache KV, [audit-publication-2026-08-03.md](docs/archive/audit-publication-2026-08-03.md)) |
+| 3 | la thèse tient-elle | `cargo run --release -p llvq-metal --bin thesis -- qwen3-4b-llvq.bin` | 1 105 920 lignes vérifiées, pire erreur 3,4e-8·Σ\|w·x\|, ×2,03 [2,03–2,10] (*mesuré*, banc 7 bras, médiane du rapport round par round, [k1-metal-2026-08-05.txt](docs/mesures/k1-metal-2026-08-05.txt)) | ~4 min (*estimé*), Mac, ~12 Go libres |
+| 4 | la qualité est-elle celle annoncée | les deux commandes `ppl` ci-dessous | 16,9415 contre 12,2361 (*mesuré*, fiche-4b), empreinte `3f1baca9033bf251` des deux côtés | ~15 min (*estimé*) plus le checkpoint la première fois |
+
+Étape 1. La boucle rapide couvre les invariants de Λ₂₄ (196 560 baisers, série thêta) et la
+recherche exacte contre la force brute. Elle couvre aussi la bijectivité de l'index 48 bits, la
+boucle GPTQ contre un minimiseur analytique indépendant, et les allers-retours bit pour bit des
+cinq formats runtime. Les sweeps d'archive se lancent une fois le fichier téléchargé et se comptent
+en dizaines de minutes : 17 min sans finir `llvq-artifact` le 2026-08-08, 10 min 51 s pour ses
+45 tests seuls (*mesuré*, [CLAUDE.md](CLAUDE.md) §2 et §7) :
 
 ```bash
 LLVQ_SEALED_ARTIFACT=$PWD/qwen3-4b-llvq.bin cargo test --release -- --include-ignored
 ```
 
-🕳️ Cette étape a promis « la totalité de la suite, sans un seul test ignoré,
-~2 min » jusqu'au 2026-08-18 — faux dans les deux sens depuis le 2026-08-08 :
-sans l'archive, les sweeps **échouent en nommant le fichier** (ils ne
-« sautent » plus, c'est voulu) ; avec elle, la suite complète se compte en
-dizaines de minutes, pas en minutes.
+Sans l'archive, ces sweeps échouent en nommant le fichier.
 
-La boucle rapide couvre les invariants de Λ₂₄ (nombre de baisers 196 560, série
-thêta), la recherche exacte du plus proche voisin contre la force brute, la
-bijectivité de l'index 48 bits, la boucle GPTQ contre un minimiseur analytique
-indépendant, et les allers-retours bit pour bit des cinq formats runtime.
+Étape 2. `HOME` inexistant et environnement vide : aucun cache Hugging Face n'est joignable. La
+mesure de 255,7 s précède le cache KV du commit `9c24d26` ; aucune mesure depuis.
 
-### 2. Le fichier est-il vraiment autonome ? — ~4-5 min
+Étape 3. `bin/thesis` transcode les 252 matrices vers le format noyau, vérifie chaque ligne de sortie
+contre une référence CPU f64, puis chronomètre un token de projections dans les deux formats. Il
+mesure `Slot32` sur Metal : FP16 21,9 ms médiane pour 7,27 Go lus, LLVQ 10,7 ms pour 2,50 Go
+(*mesuré*, [k1-metal-2026-08-05.txt](docs/mesures/k1-metal-2026-08-05.txt)). Le rapport est une
+plage : les millisecondes dérivent de 2,029× à 2,080× sur un binaire inchangé. Ce banc n'est pas
+le chemin servi, qui est `Planes14` sur CUDA. Sans argument il cherche `~/llvq-q4b.llvq`, un fichier
+de travail non publié.
 
-Environnement vide, `HOME` inexistant : aucun cache Hugging Face n'est
-joignable, aucune variable ne peut aider.
-
-```bash
-env -i HOME=/nonexistent PATH=/usr/bin:/bin ./target/release/run qwen3-4b-llvq.bin cpu 12
-```
-
-S'il répond, le fichier est bien le modèle entier. (255,7 s mesurées : c'est le
-chemin `cpu`, le plus lent — mesure antérieure au cache KV livré en `9c24d26`,
-s'attendre à mieux aujourd'hui.)
-
-### 3. La thèse tient-elle ? — ~4 min
-
-```bash
-cargo run --release -p llvq-metal --bin thesis -- qwen3-4b-llvq.bin
-```
-
-Prend le fichier, transcode ses 252 matrices vers le format noyau, **vérifie les
-1 105 920 lignes de sortie** contre une référence CPU en f64, puis mesure un
-token de projections dans les deux formats.
-
-Il faut un Mac (Metal) et ~12 Go de RAM libre. Le banc lit le fichier scellé
-téléchargé plus haut ; **sans argument il cherche `~/llvq-q4b.llvq`**, un
-fichier de travail qui n'est publié nulle part.
-
-Ordre de grandeur attendu, d'une exécution du 2026-08-01 : FP16 21,7 ms à
-7,27 Go lus, LLVQ fusé 10,5 ms à 2,50 Go, soit ×2,07 — et
-`pire erreur LLVQ 3.4e-8·Σ|w·x|` sur les 1 105 920 lignes. La dérive thermique
-déplace les temps de 4 à 5 % d'une exécution à l'autre ; **le rapport, lui, ne
-bouge que de 0,8 %**, et la ligne d'erreur est reproductible au chiffre près.
-
-### 4. La qualité est-elle celle annoncée ? — ~15 min, plus le téléchargement du checkpoint la première fois
+Étape 4. Perplexité WikiText-2, contexte 4096, 12 fenêtres, f16 des deux côtés :
 
 ```bash
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal qwen3-4b-llvq.bin
-```
-```bash
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal
 ```
 
-Perplexité WikiText-2 à 4096 de contexte, f16 des deux côtés, mêmes fenêtres.
-Attendu : **16,9415** contre **12,2361**, ×1,3846 — et la **même empreinte de
-tokens `3f1baca9033bf251`** sur les deux lignes de résultat. Si les empreintes
-diffèrent, le rapport ne veut rien dire : c'est à ça que sert la ligne.
+Attendu : 16,9415 sur le fichier scellé contre 12,2361 sur le checkpoint, soit ×1,3846 (*mesuré*,
+fiche-4b). Les deux lignes de résultat doivent porter la même empreinte de tokens.
 
-## Ce qu'on gagne, ce qu'on ne gagne pas
+## 4. Face au FP16 et au 4 bits
 
-**On gagne de la place sur le disque** : 8,045 Go → 1,771 Go, ×4,54.
+Au 4B, LLVQ passe devant l'AWQ sur le disque et sur la mémoire servie, et perd sur la qualité. La
+référence utile est le 4 bits : personne ne
+choisit entre 2 et 16 bits. Le 4 bits mesuré est l'AWQ officiel de Qwen, même carte,
+même harnais, mêmes empreintes de tokens.
 
-**Mais la bonne référence n'est pas le FP16.** Sur ce 4B, un 4 bits ordinaire
-(`mlx_lm.convert -q --q-bits 4 --q-group-size 64`, même machine, même
-checkpoint) fait 2,263 Go sur disque : notre fichier est **×1,28 plus petit,
-soit 22 % de disque en moins — et rien d'autre qui soit mesuré en notre
-faveur**. Il génère bien plus vite, et sa qualité n'a jamais été mesurée face à
-la nôtre : cette case-là est **vide, pas faible**. Analyse :
-[`docs/archive/face-au-4-bits.md`](docs/archive/face-au-4-bits.md).
-
-**On gagne de la vitesse, mais pas dans le runner portable** : le noyau fusé
-est écrit, vérifié et mesuré à ×2,06–2,08 sur les projections du modèle
-entier ; il n'est pas branché dans `bin/run` — le chemin fusé dans le modèle
-est `bin/fusedrun` (Linux + CUDA). `bin/run`, lui, a un cache KV depuis
-`9c24d26`.
-
-**On paie la vitesse en mémoire vive.** Le format que le noyau lit en RAM coûte
-**5,51 b/poids** sur les projections — plus que les **4,179 b/poids** que le
-noyau AWQ 4 bits lit dans la **même** comptabilité (banc à 7 bras du 2026-08-11,
-[`docs/data/echelle-formats.csv`](docs/data/echelle-formats.csv)). Le
-transcodage se fait au chargement, une fois. D'un même fichier on peut charger
-trois formats :
-
-> 🚨 **Cette phrase disait « 5,51 b/poids, soit plus que les 4,50 d'un 4 bits
-> ordinaire », et c'était la faute que l'errata du lot A qualifie de GRAVE —
-> corrigé le 2026-08-17.** Deux erreurs empilées : (a) 5,51 est un
-> b/**poids** de **projections seules**, 4,50 un b/**param** de **modèle
-> entier, embedding quantifié compris** — deux dénominateurs ; (b) le 4,50 est
-> le MLX q4 g64, un artefact qui n'est entré dans **aucune** campagne, alors
-> que le seul 4 bits mesuré est l'AWQ officiel de Qwen.
-> **Et dans la comptabilité licite la conclusion s'inverse** : en b/param
-> modèle entier, `Planes14` + embedding q8 pèse **5,162** contre **5,302**
-> pour l'AWQ officiel au 4B — **sous** le 4 bits déployé, et sous lui aussi au
-> 8B (5,322 contre 5,956) et au 14B (5,106 contre 5,404). Ce paragraphe
-> annonçait donc l'inverse de ce que la mesure dit.
-> ⚠️ Le reste de cette section décrit l'état du **2026-08-12** : le layout
-> servi n'est plus `Slot32` mais `Planes14` (4,804 b/poids), et le noyau est
-> branché dans `bin/fusedrun` depuis le 2026-08-06 — c'est `bin/run`, la démo
-> de génération, qui reste dense.
-
-| format en RAM | b/poids | projections en RAM | vitesse | mesurée sur |
+| axe | LLVQ 2 bits | FP16 | AWQ 4 bits officiel | provenance |
 |---|---|---|---|---|
-| `Grouped32` (masques imbriqués) | 3,50 | 1,59 Go | 0,68× le FP16 | `gate_proj` seul |
-| `Flat32` | 4,68 | 2,12 Go | 0,90× | `gate_proj` seul |
-| **`Slot32`** *(celui mesuré)* | **5,51** | **2,50 Go** | **2,06–2,08×** | **le modèle entier** |
+| disque | 1,771 Go | 8,045 Go | 2,67 Go | 1,771 et 8,045 *mesurés*, fiche-4b ; 2,67 *mesuré*, [campagne-finale-2026-08-07.md](docs/campagne-finale-2026-08-07.md) ; ×4,54 sur FP16 (*calculé*) |
+| RAM du chemin dense (`bin/run`) | 9,79 Go cpu, 17,41 Go Metal | 8,045 Go résidents | non mesuré chez nous | *mesuré*, fiche-4b |
+| VRAM du chemin fusé, b/param modèle entier | 2,56 Go, 5,162 (`Planes14` + q8 sans fusion) ; 2,57 Go en config v1, +3 686 400 octets | 8,04 Go, 16,0 | 5,302 dans son moteur | 2,56 Go *mesuré*, b2 ; 5,162 *calculé* sur octets mesurés, [rtbits-planes-8b-2026-08-09.txt](docs/mesures/rtbits-planes-8b-2026-08-09.txt) ; 2,57 Go et +3 686 400 o *mesurés*, d1 |
+| vitesse, L40S | 100,6 tok/s ; ×1,11 à tête identique | 43,5 tok/s | 200,5 tok/s dans vLLM, autre pile, ne se divise pas | *mesuré*, d1, b2, [awq-vllm-4b-2026-08-17.txt](docs/mesures/awq-vllm-4b-2026-08-17.txt) |
+| perplexité WikiText-2 | 16,9415 (×1,385) | 12,2361 | ×1,105 | *mesuré*, fiche-4b, [a4-campagne-2026-08-06.txt](docs/mesures/a4-campagne-2026-08-06.txt) |
+| MMLU 5-shot micro | 55,59 ± 1,35 | 70,32 ± 1,28 | 70,04 | *mesuré*, a4-campagne, empreinte `65dcd53655e8bfa5` |
 
-Métrique unique : charge utile + adressage + queue f32 + échelles de ligne, sur
-tous les poids de projection.
+Mémoire : LLVQ passe sous l'AWQ en b/param modèle entier, 5,162 contre 5,302. Toute comparaison
+mémoire se dit dans cette comptabilité, embedding compris ; un b/poids de projections contre un
+b/param de modèle entier trompe. Qualité : LLVQ perd 14,73 pp de MMLU là où le 4 bits en perd 0,28.
+Sur un 4B, le 4 bits domine partout sauf le disque. L'écart fond avec la taille (*mesuré* : 7,49 pp
+au 8B, [mmlupair-4b-8b-2026-08-13.txt](docs/mesures/mmlupair-4b-8b-2026-08-13.txt) ; 6,09 pp au 14B,
+[mmlupair-14b-2026-08-17.txt](docs/mesures/mmlupair-14b-2026-08-17.txt)) sans faire une loi
+d'échelle ; voir [docs/ETAT.md](docs/ETAT.md). Le noyau fusé n'est pas branché dans `bin/run` : la
+démo portable reste dense, le gain de vitesse vit dans `bin/fusedrun`.
 
-⚠️ **Aucun de ces trois formats n'est ce que charge `bin/run`.** Le runner livré
-décode en f16 dense : modèle résident 8,045 Go, pic RSS mesuré 9,79 Go en CPU et
-17,41 Go en Metal. Le gain de place est sur le disque.
+## 5. Refaire le modèle soi-même
 
-**Sur un 4B c'est une démonstration** — il tenait déjà partout. L'intérêt serait
-ailleurs : un 70B fait 140 Go en FP16 et ne tourne sur aucune machine locale. À
-ce taux il ferait ~23 Go sur disque — mais **33 Go en RAM avec `Grouped32` et
-51 Go avec `Slot32`**, soit *plus* que les ~40 Go d'un 4 bits. Aucun 70B n'a
-jamais été quantifié ici, et aucun cache KV n'est budgété dans ce calcul.
-
-## Refaire le modèle soi-même
-
-⚠️ **Cette commande reproduit la méthode, pas les octets** : le shard de
-calibration C4 est passé de `00000` à `00001` après le run publié, et le magic
-du conteneur a bougé. Un re-run aujourd'hui produit un fichier différent,
-également valide. La CI du dépôt (depuis le 2026-08-08 : clippy, tests, garde
-zéro-dépendance, sur les 6 crates CPU — pas de GPU) vérifie le code, pas les
-octets : rien n'automatise la reproduction de l'artefact.
-
-Quantifier depuis le checkpoint d'origine — **~4 h** sur un M3 Max (14 447 s
-mesurées). Le run vérifie son propre fichier en le décodant et en exigeant les
-poids évalués, bit pour bit :
+La quantification du 4B prend 4,01 h sur un M3 Max, 14 447 s (*mesuré*, fiche-4b). Le run vérifie
+son propre fichier en le décodant et en exigeant les poids évalués bit pour bit :
 
 ```bash
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq \
@@ -253,42 +154,29 @@ LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq \
   64 2048 12 4096 metal nogs leech1c12 999 rot
 ```
 
-Ce fichier ne porte que les projections quantifiées. Pour le rendre autonome —
-y sceller l'embedding, les normes, la config et le tokenizer :
+Positionnels : 64 fenêtres de 2048 tokens de calibration (131 072 tokens) ; 12 fenêtres de 4096
+pour l'évaluation ; backend `metal`. Puis `nogs`, échelles de groupe désactivées ; codebook
+`leech1c12`, boule Λ₂₄(12) et 1 bit de gain ; graine 999 ; rotation d'entrée. `fast-linalg` est
+requis en pratique : sans lui la factorisation est 40× plus lente pour un résultat bit-identique
+(*mesuré*, README). `LLVQ_THREADS=4` limite le pool d'encodage.
+
+Le fichier produit ne porte que les projections. Le rendre autonome, avec embedding, normes, config
+et tokenizer :
 
 ```bash
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin
 ```
 
-`LLVQ_THREADS=4` limite le pool d'encodage si la machine doit rester
-utilisable pendant ce temps.
+Cette recette reproduit la méthode sans reproduire les octets. Trois écarts au run publié, tous
+documentés dans fiche-4b. Le shard C4 de calibration est passé de `00000` à `00001` après le run.
+Le magic du conteneur est passé de `LVQ2` à `LVQ4`, qui stocke en plus l'empreinte du codebook.
+`calib.rs` accumule AᵀA en f32 sur l'accélérateur, donc un re-run sur CUDA rend d'autres poids,
+écart non chiffré. Un re-run rend 1,771 Go à 2,1595 b/poids dans un fichier non identique. La CI
+vérifie le code : clippy, tests, garde zéro dépendance sur les cinq crates du cœur (`llvq-core`, `llvq-search`, `llvq-quant`,
+`llvq-artifact`, `llvq-bench` ; [ci.yml](.github/workflows/ci.yml)). Elle ne vérifie pas
+les octets de l'artefact.
 
-## Le format
+## 6. Licence
 
-Défini par [`llvq-artifact`](llvq-artifact/) — **zéro dépendance**. Lire un
-modèle quantifié ne doit pas exiger un runtime de tenseurs : l'arbre complet de
-ce crate fait trois crates maison, contre **261 paquets** pour le côté modèle
-(291 avec `metal,fast-linalg`).
-
-```
-"LVQ2" · n_matrices · [matrices]  index 47 bits + gain, empaquetés dense
-                    · [tenseurs bruts]  ce que le quantifieur n'a pas touché, f16
-                    · [blobs]           config.json, tokenizer.json
-```
-
-Le format **sur disque** ne bouge pas : c'est le rang de permutation, optimal
-en bits. Les formats **runtime** du tableau ci-dessus en sont transcodés au
-chargement — `transcode()` est **mono-thread**, et son coût n'a jamais été
-chronométré pour `Slot32` — et ne touchent pas au fichier.
-
-⚠️ Ce n'est **ni** GGUF, **ni** AWQ, **ni** safetensors. `transformers`,
-`llama.cpp`, vLLM et TGI ne le lisent pas. Un lecteur dans un autre langage est
-tractable — c'est la raison d'être du crate sans dépendance — mais il n'existe
-pas encore, et il lui faudrait aussi `llvq-search` et `llvq-core` pour l'index
-de Leech.
-
-## Licence
-
-Le modèle est sous Apache 2.0, héritée de
-[Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Le code est
-MIT OR Apache-2.0.
+Le modèle est sous Apache 2.0, héritée de [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B). Le
+code est sous MIT OR Apache-2.0 ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
