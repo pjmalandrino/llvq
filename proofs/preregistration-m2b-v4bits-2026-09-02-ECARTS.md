@@ -72,3 +72,39 @@ La faille que le §6 déclarait s'est par ailleurs matérialisée : l'AWQ protè
 ses canaux saillants pendant sa calibration, cet affine nu ne protège rien, et
 **19,6 % du gain est perdu**. L'analogie « la perte sera une fraction de
 0,28 pp » était trop optimiste — elle vaut 0,88 pp sur cette seule matrice.
+
+## É4 — Le cas non couvert est tranché : « encaissable », décision d'opérateur du 2026-09-04
+
+**Ce qui est décidé.** Le cas `G4 = +3,60`, IC95 `[+1,47 ; +5,79]`, laissé sans
+ligne par le §5, est lu **encaissable**. Q5 (précision mixte sur `v_proj`)
+ouvre.
+
+**Le motif donné** : les deux axes bougent dans le bon sens en même temps.
+Qualité +3,60 pp de MMLU apparié (McNemar p = 2,0e-4). Mémoire **en baisse**,
+5,149 b/param contre 5,162 servi (*calculé*,
+[`m2b-v4bits-2026-09-02.txt`](../docs/mesures/m2b-v4bits-2026-09-02.txt)). Il
+n'y a pas d'arbitrage à rendre entre les deux : rien n'est payé.
+
+**Ce que cette décision n'est PAS.** Elle ne réinterprète pas la ligne 1 du
+§5, qui reste **échouée sur sa lettre** : la borne basse vaut 1,47 et ne
+dépasse jamais 1,50 sur huit graines de rééchantillonnage (É1). La règle
+tamponnée garde son trou ; elle n'est pas réparée après coup. La décision est
+prise sur les faits, par l'opérateur, comme É1 le prévoyait.
+
+**Ce que la décision ne règle pas, et qui reste à faire :**
+
+1. **Aucun noyau ne sert `v_proj` en quatre bits.** M2b mesure un int4 g128
+   *déquantifié* : la matrice repasse en f16 avant le matvec. Le +3,60 pp est
+   la qualité **du format**, pas celle d'un chemin servi. Le travail de Q5 est
+   le noyau — un second format dans le chemin fusé, ce qui rouvre la
+   disposition d'exécution (`ROADMAP.md` §2.2, dernier paragraphe). Tant qu'il
+   n'existe pas, la qualité servie de Q5 n'est pas mesurée.
+2. **Le +3,60 pp repose sur un seul fichier quantifié.** M2b est un A/B à
+   fichier constant : sa barre d'erreur propre est l'intervalle apparié, et le
+   nombre est solide *pour ce fichier*. Sa généralisation à un autre tirage de
+   calibration n'est pas testée ; c'est ce qu'achèterait le réplicat de M2 sur
+   une seconde graine.
+3. **Le gain de la matrice cible est ce qui reste après le passage en quatre
+   bits** : 80,4 % du gain f16, soit 0,88 pp perdus sur cette seule matrice
+   (É3). Un noyau qui protégerait les canaux saillants, comme le fait AWQ à sa
+   calibration, en rendrait une partie ; aucune mesure ne le chiffre.

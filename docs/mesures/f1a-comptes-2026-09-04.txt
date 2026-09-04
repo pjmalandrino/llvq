@@ -1,0 +1,182 @@
+F1a — LES COMPTES : le champ d'état de 8 bits tient, mais SEULEMENT sous un
+ordre de coordonnées en trio ; et le gabarit de table passe avec 2× de marge
+================================================================================
+Date     : 2026-09-04
+Nature   : *calculé*, arithmétique exacte, aucune carte, 0 $
+Outil    : llvq-bench/src/bin/f1count.rs, reproductible par
+           `cargo run --release -p llvq-bench --bin f1count`
+Source   : les 4 096 mots du code de Golay que construit llvq-core, déjà
+           épinglés contre la distribution de poids publiée par la suite G1 —
+           les comptes ci-dessous héritent de cette validation
+Critère  : docs/ROADMAP.md §2.2, F1a « compter les états et les alphabets pour
+           47 bits », adoption « tables ≤ 16 Kio par section »
+
+CE QU'ON COMPTE, ET POURQUOI C'EST EXACT
+-----------------------------------------
+Pour un code linéaire de longueur n et une coupe après i coordonnées, le
+treillis minimal porte
+
+    |S_i| = 2^(k − k_passé(i) − k_futur(i))
+
+où k_passé est la dimension du sous-code vivant entièrement sur les i
+premières coordonnées, k_futur celle du sous-code vivant sur les n−i
+dernières. Les deux se comptent par énumération sur 4 096 mots.
+
+Λ₂₄ ajoute DEUX bits à l'état du code, et pas un de plus. Un point de
+l'encastrement entier s'écrit xⱼ = p + 2cⱼ + 4kⱼ, avec p la parité partagée,
+c un mot de Golay, et Σk ≡ p (mod 2) — la troisième contrainte de
+`Leech::contains`, réduite dans son propre commentaire. Une section ultérieure
+a donc besoin de p (pour poser ses coordonnées) et de la parité courante de Σk
+(pour savoir ce que le reste doit). Deux bits, quatre états, qui multiplient le
+compte du code.
+
+RÉSULTAT 1 — L'ORDRE NATUREL NE TIENT PAS DANS 8 BITS
+-------------------------------------------------------
+Profil complet dans la sortie de l'outil. Aux deux coupes que F1 pratique :
+
+  coupe   k_passé  k_futur   états Golay   états Λ₂₄
+    8        0        4        2^8 = 256    2^10 = 1024
+   16        4        0        2^8 = 256    2^10 = 1024
+
+🚨 Il faudrait **10 bits** d'état, pas 8. Le mot de F1 passerait de 48 à
+50 bits, et l'argument « même budget que leech1c12 » tomberait avec.
+
+Le profil de l'ordre naturel est triangulaire (k_passé = max(0, i−12),
+k_futur = max(0, 12−i)) avec un pic de 2^12 états Golay au milieu : c'est la
+signature d'une matrice génératrice sous forme systématique, et c'est le pire
+cas pour un treillis.
+
+RÉSULTAT 2 — UN ORDRE EN TRIO RAMÈNE À EXACTEMENT 8 BITS
+----------------------------------------------------------
+Le seul levier est l'ordre des coordonnées : il faut faire monter
+k_passé + k_futur. Le cas extrême est une coupe qui isole un **octade** — le
+code de Golay raccourci sur un octade est le Reed-Muller [16, 5, 8] d'ordre 1,
+donc k_futur(8) passe de 4 à 5 pendant que k_passé(8) passe de 0 à 1.
+L'appliquer aux deux coupes demande que les 24 coordonnées se partagent en
+trois octades disjoints : un **trio**.
+
+Cherché et trouvé parmi les 759 octades du code :
+
+    0x00149f | 0x0f6840 | 0xf08320      (disjoints, réunion = les 24)
+
+  coupe   k_passé  k_futur   états Golay   états Λ₂₄
+    8        1        5        2^6 = 64     2^8 = 256
+   16        5        1        2^6 = 64     2^8 = 256
+
+✅ **Le champ `[état 8]` de la roadmap est juste — mais il présuppose un ordre
+en trio, ce que la roadmap n'écrit nulle part.** Ce n'est pas une convention de
+lecture : permuter les coordonnées change la carte d'index, donc
+`codebook_fingerprint`, donc c'est un format v2. La roadmap l'avait anticipé
+pour F1b ; ça remonte à F1a.
+
+RÉSULTAT 3 — LE GABARIT DE TABLE PASSE, ET LE ~13 BITS N'INDEXE PAS UNE TABLE
+------------------------------------------------------------------------------
+Le calcul naïf tue F1 : 256 états × 8 192 étiquettes × 8 coordonnées, c'est
+16 Mo par section contre un gabarit de 16 Kio. Mais un code en cosets ne
+fonctionne pas ainsi. Seuls les bits **codés** choisissent une branche ; le
+reste de l'étiquette adresse un point DANS le coset choisi, ce qui est de
+l'arithmétique et pas une table.
+
+Donc on compte les arêtes. Deux mots sont dans le même état à une coupe quand
+leur différence est dans L_passé ⊕ L_futur ; le représentant canonique est le
+plus petit mot de c ⊕ V, avec |V| = 64 ici, donc la réduction est exhaustive
+et non une réduction de base qui pourrait être subtilement fausse.
+
+    section du milieu : 1 024 arêtes distinctes sur 256 états
+                      = 4 BRANCHES PAR ÉTAT
+
+  table (état, branche) → 8 coordonnées
+      256 × 4 × 8 =  8 192 octets =  8,0 Kio   à un octet la coordonnée
+                     4 096 octets =  4,0 Kio   à quatre bits
+      gabarit : 16 Kio
+
+✅ **PASSE, avec un facteur 2 de marge dans le cas le plus large.**
+
+Contrôle de cohérence, qui ferme le compte : k_passé(8) = 1 donne 2 motifs par
+état d'arrivée en section 1, soit 512 arêtes ; 4 branches au milieu ; k_futur(16) = 1
+donne 2 motifs en section 3. 512 × 4 × 2 = **4 096**, exactement le nombre de
+mots du code. Aucune arête n'est inventée ni perdue.
+
+L'étiquette de ~13 bits se décompose donc en **2 bits codés** (la branche) et
+~11 bits qui adressent un point dans le coset, arithmétiquement.
+
+CE QUE ÇA NE DIT PAS
+---------------------
+· Rien sur la qualité. Le 89,10 % de rétention calculé le même jour
+  (ops/f1a_shaping.py) suppose trois boules INDÉPENDANTES ; ces 4 branches par
+  état sont précisément le chaînage que cette hypothèse ignore. De combien il
+  rattrape la forme, c'est F1b et rien d'autre.
+· La bijection n'est pas prouvée ici. On a compté les états, les arêtes et la
+  taille de table ; que la lecture [état][s₁][s₂][s₃] soit une bijection sur la
+  région de mise en forme reste à écrire.
+· Les ~11 bits « arithmétiques » supposent un décodage de rang dans E₈ qui n'a
+  pas été chiffré. E1v est mort exactement là — sur le coût du décodage en
+  ligne, pas sur les octets. À ne pas oublier avant F1d.
+· L'ordre en trio n'est pas optimisé : c'est le premier trouvé. Il n'en existe
+  pas de meilleur sur ce critère (8 bits est le minimum atteignable ici), mais
+  d'autres pourraient mieux se comporter sur la région de mise en forme.
+
+
+================================================================================
+CORRECTION DU 2026-09-04 (soir) — LE COMPTE DE BRANCHES CI-DESSUS EST FAUX,
+D'UN FACTEUR 4, ET LE CONTRÔLE DE COHÉRENCE NE L'A PAS VU
+================================================================================
+Trouvé par la relecture adverse de la spécification F1b (lentille « débit et
+comparabilité »), puis reproduit ici en corrigeant f1count.rs.
+
+L'ERREUR
+---------
+`edges` est construit à partir des mots de Golay et de cosets de Golay : il y a
+donc 2^6 = 64 états SOURCES dedans, pas les 256 que porte Λ₂₄ une fois ajoutés
+les deux bits (p, parité de Σk). J'ai divisé 1 024 arêtes par 256.
+
+  FAUX  : 1 024 / 256 =  4 branches par état,  2 bits codés
+  JUSTE : 1 024 /  64 = 16 branches par état,  4 bits codés
+
+LE CONTRÔLE DE COHÉRENCE A PASSÉ SUR LE MAUVAIS NOMBRE
+--------------------------------------------------------
+J'avais écrit « 512 × 4 × 2 = 4 096, exactement le nombre de mots du code.
+Aucune arête inventée ni perdue. » Le vrai compte est 128 × 16 × 2 = 4 096 :
+128 préfixes (2 par état × 64 états), 16 milieux, 2 suffixes.
+
+  512 × 4 = 2 048  et  128 × 16 = 2 048.
+
+🚨 Les deux erreurs se compensent EXACTEMENT, donc le contrôle rendait 4 096
+dans les deux cas. Un contrôle qui passe sur le nombre faux ne contrôle rien.
+C'est le même mode d'échec que le §É1 de la réplique M2 : un test qui ne
+discrimine pas.
+
+CE QUE ÇA FAIT AU GABARIT
+--------------------------
+  table (état, branche) → 8 coordonnées
+      256 × 16 × 8 = 32 768 octets = 32,0 Kio   à un octet la coordonnée
+                     16 384 octets = 16,0 Kio   à quatre bits
+      gabarit : 16 Kio
+
+  À un octet la coordonnée : DÉPASSE d'un facteur 2.
+  À quatre bits            : exactement au gabarit, zéro marge.
+
+🚨 LA CONCLUSION « F1a EST VERT, 8,0 Kio, MARGE DE 2× » EST RETIRÉE.
+
+CE QUI N'EST PAS RÉTABLI À LA PLACE
+------------------------------------
+Rien. Et c'est volontaire. Le « 8 coordonnées à un octet » de l'entrée était
+une majoration grossière de ma part, pas une dérivation : ce qu'une table de
+branche porte réellement est un motif de Golay restreint à la section, dont les
+coordonnées valent p + 2c_j ∈ {0,1,2,3} — deux bits, pas huit. Si c'est ce
+qu'on tabule, la table redescend très bas.
+
+Mais je ne remplace pas un chiffre faux par un chiffre que je n'ai pas vérifié,
+et surtout pas quatre heures après avoir annoncé que le gabarit passait. Ce que
+la table porte est une décision de conception, elle appartient à la spec F1b, et
+elle se mesure — elle ne s'annonce pas.
+
+CE QUI RESTE VRAI, ET N'EST PAS TOUCHÉ
+----------------------------------------
+Le compte d'états. 2^10 = 1 024 sous l'ordre naturel, 2^8 = 256 sous le trio.
+Il ne dépend pas de la division fautive, et il a été reconstruit
+indépendamment, en Python et depuis la construction du dépôt
+(clmul(m, 0xC75) + bit de parité 23), par deux des trois relectures : le trio,
+les 128 préfixes et 128 suffixes, les 2 par état différant de 0xff, les
+1 024 arêtes, et le fait que reconstruire le code DEPUIS le treillis rend
+exactement le code de Golay permuté, ensemble pour ensemble.

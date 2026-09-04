@@ -1,0 +1,156 @@
+RÉPLIQUE DE M2 SUR LA GRAINE 3 — l'effet de v_proj se reproduit, le
+classement des types de tête ne se reproduit pas
+================================================================================
+Date        : 2026-09-04
+Job         : 6a9a8cc1e686246ca69a0d2d, l40sx1, 71 min facturées, 2,14 $
+              (lancement annulé avant facturation : 6a9a8c90e686246ca69a0d24,
+              parti sans le secret HF_TOKEN, tué en SCHEDULING, 0,00 $)
+Préreg      : proofs/preregistration-m2-attribution-4b-2026-09-02.md §5,
+              tampon 71712e60 du 2026-09-02 — la réplique y est écrite
+              d'avance, aucun nouveau tampon n'a été posé
+Écarts      : …-ECARTS.md §É4 (quelle clause lit le résultat, déclarée AVANT
+              la mesure), §É5 (image NON reconstruite), §É6 (les deux contrôles)
+Objet scoré : hf://buckets/Pier-Jean/jobs-artifacts/f5-graines-2026-08-19/
+              seed3/q4b-s3-sealed.llvq, 1 770 528 125 octets
+Carte       : NVIDIA L40S, pilote 580.178.04. VRAM crête 12,902 Go,
+              moyenne 7,624 Go (4 259 échantillons sur 4 269 s)
+
+LES DEUX CONTRÔLES, POSÉS AVANT LE JOB (§É6)
+--------------------------------------------
+1. CONTRÔLE BAS — le bras « tel que livré » rend 55,17 % en micro et son dump
+   est IDENTIQUE OCTET POUR OCTET à docs/data/bruit-mmlu-graines/mmlu-s3.csv,
+   sha256 5f14bd3493ed809bd8d74a5b76b639ecc038e51489c7696867eafc1172e3dca9.
+   Le préreg demandait « ≥ 99,5 % de picks » ; c'est 100,000 %, sur 2 280
+   questions, à seize jours d'écart et sur deux jobs sans rapport. Le même
+   objet, scoré par le même binaire, rend le même octet.
+2. CONTRÔLE HAUT — « tout restauré » rend 70,32 %, au centième la valeur de M2
+   (m2-attribution-4b-2026-09-02.txt) et celle du checkpoint. Une fois les 252
+   matrices reprises du checkpoint, la graine du fichier quantifié ne compte
+   plus. Ce nombre croise les deux dépenses l'une par l'autre.
+Empreinte de tokens 65dcd53655e8bfa5 sur les onze bras.
+
+LES ONZE BRAS
+--------------
+Δ = restauré − livré, micro stratifié, bootstrap apparié stratifié par matière,
+10 000 tirages, graine 0xb0075eed, McNemar exact en regard. ⚠️ mmlupair rend
+livré − restauré, donc NÉGATIF ; ci-dessous −Δ, bornes inversées.
+
+  type restauré   gain (pp)   IC95 apparié        SE     McNemar p    % des poids
+  down_proj         +5,55     [+3,44 ; +7,75]    1,09    2,07e-11        24,7 %
+  up_proj           +4,31     [+2,29 ; +6,39]    1,04    7,18e-6         24,7 %
+  v_proj            +2,87     [+1,11 ; +4,68]    0,91    0,0006           2,6 %
+  gate_proj         +2,71     [+0,80 ; +4,61]    0,96    0,0002          24,7 %
+  o_proj            +2,08     [+0,32 ; +3,90]    0,91    0,0374          10,4 %
+  k_proj            +1,11     [−0,61 ; +2,91]    0,89    0,1529           2,6 %
+  q_proj            +0,49     [−1,22 ; +2,24]    0,88    0,6626          10,4 %
+
+  groupe attention  +5,08     [+2,72 ; +7,51]    1,22    2,44e-7         26,0 %
+  groupe MLP       +11,62     [+8,98 ; +14,34]   1,38    5,05e-32        74,0 %
+  TOUT (contrôle)  +15,15     [+12,51 ; +17,80]  1,37    7,40e-48       100,0 %
+
+🚨 CINQ écarts sur sept sont résolus, contre SEPT sur sept dans M2. q_proj
+(p = 0,66) et k_proj (p = 0,15) ont un IC qui contient zéro sur cette graine.
+
+CE QUE LA RÈGLE DU §5 TRANCHE, PAR LA CLAUSE DÉCLARÉE EN §É4
+-------------------------------------------------------------
+La cible v_proj est RETENUE. Son IC sur la graine 3, [+1,11 ; +4,68], recouvre
+celui du premier tirage, [+2,39 ; +6,61] ; l'intersection est [+2,39 ; +4,68],
+non vide. C'est la seconde clause du §5, la seule applicable (§É4).
+
+⚠️ MAIS LA CLAUSE NE DISCRIMINE RIEN, ET IL FAUT LE DIRE. Les IC des SEPT
+types se recouvrent entre les deux tirages. Un test que tout le monde passe ne
+distingue pas la cible retenue des six autres. C'est un défaut de la règle,
+pas du résultat — noté ici pour le prochain préreg qui écrira un critère de
+réplication.
+
+CE QUI BOUGE ENTRE LES DEUX TIRAGES, ET CE QUI NE BOUGE PAS
+------------------------------------------------------------
+Les deux tirages sont deux fichiers différents : la comparaison N'EST PAS
+appariée. L'écart se teste avec les SE en quadrature (règle de METHODE.md §3,
+appliquée aux tailles, transposée ici aux tirages).
+
+  type         M2      graine 3    écart   SE quad      z    résolu ?
+  gate_proj   +5,18     +2,71      −2,47    1,47     −1,68     non
+  down_proj   +2,96     +5,55      +2,59    1,58     +1,64     non
+  v_proj      +4,48     +2,87      −1,61    1,41     −1,14     non
+  q_proj      +1,85     +0,49      −1,36    1,21     −1,12     non
+  k_proj      +2,09     +1,11      −0,98    1,25     −0,78     non
+  up_proj     +4,94     +4,31      −0,63    1,54     −0,41     non
+  o_proj      +2,35     +2,08      −0,27    1,37     −0,20     non
+  attention   +6,90     +5,08      −1,82    1,86     −0,98     non
+  MLP        +10,78    +11,62      +0,84    1,90     +0,44     non
+  TOUT       +14,73    +15,15      +0,42    1,97     +0,21     non
+
+AUCUN écart entre tirages n'est résolu. Le plus grand, gate_proj, vaut
+z = −1,68.
+
+Ce qui bouge quand même, à l'œil et sans être résolu — le CLASSEMENT DE TÊTE :
+  M2       : gate > up > v > down > o > k > q
+  graine 3 : down > up > v > gate > o > k > q
+gate_proj passe de 1ᵉ à 4ᵉ, down_proj de 4ᵉ à 1ᵉ. Ce sont les deux plus grands
+écarts du tableau ci-dessus, et ce sont aussi les deux seuls qui changent le
+nom du coupable.
+
+Ce qui NE bouge pas :
+  · MLP ≫ attention sur les deux tirages, et l'écart entre tirages est le plus
+    petit du tableau (z = +0,44 pour le MLP, +0,21 pour le contrôle TOUT) ;
+  · v_proj est 3ᵉ sur les deux tirages, résolu sur les deux ;
+  · q_proj et k_proj ferment la marche sur les deux tirages.
+
+LA PRÉDICTION SIGNÉE DU §6, VRAIE ICI ET FAUSSE LÀ-BAS
+-------------------------------------------------------
+Le §6 du préreg annonçait, contre le prior de la littérature : « le plus grand
+Δ isolé sur down_proj ». M2 l'a réfutée (down 4ᵉ). La graine 3 la confirme
+(down 1ᵉ). Une prédiction vraie sur un tirage et fausse sur l'autre, avec un
+écart non résolu entre les deux, est la définition opérationnelle de la
+dépendance au tirage. Le §4 du préreg interdisait d'avance de lire les sept
+gains comme une décomposition ; il faut y ajouter que le CLASSEMENT des
+premiers n'est pas non plus une propriété du modèle.
+
+CE QUE ÇA FAIT À Q5, ET C'EST LÀ QUE ÇA COÛTE
+----------------------------------------------
+La porte de Q5 (docs/ROADMAP.md §2.3) demande ≥ +3,0 pp apparié pour
+≤ +0,10 b/poids. M2b l'a passée sur le fichier publié : +3,60 pp, soit 80,4 %
+du gain f16 de +4,48 (m2b-v4bits-2026-09-02.txt).
+
+Sur la graine 3, le plafond f16 de v_proj n'est plus +4,48 mais +2,87. En
+appliquant le même taux de survie :
+    0,804 × 2,87 = +2,31 pp   (*calculé*, PAS mesuré)
+soit SOUS la porte de +3,0. M2b n'a pas été rejoué sur la graine 3 ; ce nombre
+est une extrapolation à taux de survie constant, et le taux de survie lui-même
+n'a été mesuré qu'une fois.
+
+🚨 Autrement dit : la réplique ne tue pas v_proj — son effet est réel et
+reproduit, résolu sur les deux tirages. Elle tue la MARGE. Le +3,60 pp sur
+lequel l'arbitrage du 2026-09-04 s'est appuyé est le haut d'une plage dont le
+bas passe sous la porte. Ce que la décision « encaissable » a acheté vaut pour
+le fichier publié ; sa généralisation à un autre tirage n'est pas acquise.
+
+CE QUI NE SE DIT PAS
+---------------------
+· Rien sur la vitesse, rien sur une autre taille, rien sur la perplexité.
+· La somme des sept gains vaut +19,12 pp pour un déficit de +15,15 pp. Comme
+  dans M2, ce n'est pas une décomposition : les effets marginaux se recouvrent.
+· 55,17 contre 55,59 : deux tirages du même protocole, pas une dégradation.
+· Deux tirages ne font pas une distribution. La graine 1 (58,02 %) n'a jamais
+  reçu les onze bras ; un troisième point coûterait encore ~2,14 $.
+
+PROVENANCE DES OCTETS
+----------------------
+Dumps par question et sorties brutes des onze bras, au bucket :
+hf://buckets/Pier-Jean/jobs-artifacts/m2rep-graine3-4b-2026-09-04/
+(24 fichiers, mmlu-shipped.csv + mmlu-restore-{q,k,v,o,gate,up,down}_proj.csv
++ -attn + -mlp + -all, avec les .txt en regard, gpu.txt et artefact.txt).
+
+Rapatriés localement le 2026-09-04 (2,1 Mo, 0 $) — docs/data/m2rep-graine3/ :
+  1f5e692b782533ff3b3d0cee613d3488eb6da1719a5bf3a398cba4addaac52c0  mmlu-restore-all.csv
+  c41b48302816125544411016024a58638154eca76a1158aed39aa3e6d2939d48  mmlu-restore-attn.csv
+  af40aa46e56280ac984ee635d9e6f2aace922b4025780d3ce736d79af6e14879  mmlu-restore-down_proj.csv
+  aff0a68ecb2fd2f876d88fcbf72df52e7316be480eb31ea6ac6880e215182250  mmlu-restore-gate_proj.csv
+  95f6fab03a5662759cf0d08b0c9e57c1a922b61eedf0278d835f50dff1a404fb  mmlu-restore-k_proj.csv
+  861cc5e673c32a09d21dfc59c2fbcdc103fd5f39103856a83b2e76167f2f1803  mmlu-restore-mlp.csv
+  19ae96b9328a55358a6491a1ced9efc594e069453bb774361f6e85145a723a80  mmlu-restore-o_proj.csv
+  09a7755ebed47dc29a82107e73a86512571c4ada1c336e9c0ffd26599d269e0c  mmlu-restore-q_proj.csv
+  b10747779182ecfa9ef67219d5cde9c0018f4023658ec2798eaf0539b6e50bef  mmlu-restore-up_proj.csv
+  95ced55fb711c17d159f11491d5b1adcaf4095e54400f83195496b9e7ada8fe8  mmlu-restore-v_proj.csv
+  5f14bd3493ed809bd8d74a5b76b639ecc038e51489c7696867eafc1172e3dca9  mmlu-shipped.csv

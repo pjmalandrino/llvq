@@ -1,0 +1,93 @@
+M2b SUR LA GRAINE 3 — le gain int4 se confirme sur un second tirage, et le
+taux de survie sur lequel je l'avais extrapolé n'est pas stable
+================================================================================
+Date        : 2026-09-04
+Job         : 6a9abb71259f8e97255de73a, l40sx1, 15 min facturées, 0,45 $
+Préreg      : proofs/preregistration-m2b-graine3-2026-09-04.md, tamponné avant
+              le lancement (.ots présent)
+Objet scoré : hf://buckets/Pier-Jean/jobs-artifacts/f5-graines-2026-08-19/
+              seed3/q4b-s3-sealed.llvq, 1 770 528 125 octets
+Carte       : NVIDIA L40S. VRAM crête 11,718 Go, moyenne 6,977 Go (881 échant.)
+
+🚨 DÉPASSEMENT DE PLAFOND, DÉCLARÉ
+-----------------------------------
+Annoncé ~0,29 $ pour 10 min, coûté 0,45 $ pour 15. La vague 1 finit à
+5,05 $ sur un plafond de 5,00 — 1 % au-dessus. Le §2 du préreg posait que le
+timeout est un garde-fou machine et pas une autorisation de dépense, et qu'un
+dépassement se déclare plutôt qu'il ne se lisse. C'est fait. Aucun autre job
+ne part avant un plafond de vague 2.
+
+LES CONTRÔLES
+--------------
+1. Le bras livré rend 55,17 % et son dump a le sha256
+   5f14bd3493ed809bd8d74a5b76b639ecc038e51489c7696867eafc1172e3dca9 —
+   IDENTIQUE OCTET POUR OCTET à celui du 2026-08-25 et à celui de la réplique
+   de ce matin. Trois jobs indépendants, trois semaines, le même fichier de
+   2 280 réponses.
+2. Empreinte de tokens 65dcd53655e8bfa5 sur les deux bras.
+3. Le bras int4 imprime 36 matrices, 94 371 840 poids.
+
+LE RÉSULTAT
+------------
+  Δ = int4 − livré, micro stratifié, bootstrap apparié stratifié par matière,
+  10 000 tirages, graine 0xb0075eed, McNemar exact.
+
+  livré        55,17 %
+  v_proj int4  57,87 %
+  ────────────────────────────────────────────────────────
+  G4 = +2,71 pp   IC95 [+0,59 ; +4,93]   SE 1,11   p = 0,0106
+  contrôle non pondéré : +2,06 pp [+0,73 ; +3,43], 14,3 % de discordants
+
+CE QUE LA RÈGLE DU §5 TRANCHE
+------------------------------
+Ligne 1 : « IC95 entièrement > 0 ». L'IC est [+0,59 ; +4,93]. Le gain est
+CONFIRMÉ sur un second tirage. Le noyau de précision mixte se construit, et le
+chiffre servi se publie comme une plage sur deux tirages :
+
+  fichier publié   +3,60 pp  [+1,47 ; +5,79]   (m2b-v4bits-2026-09-02.txt)
+  graine 3         +2,71 pp  [+0,59 ; +4,93]   (ici)
+  ───────────────────────────────────────────
+  À PUBLIER : +2,71 à +3,60 pp. Jamais le seul +3,60.
+
+LA PRÉDICTION SIGNÉE EST JUSTE, SUR LE NOMBRE ET SUR LA CONCLUSION
+-------------------------------------------------------------------
+Le §6 posait « G4 entre +1,8 et +2,8 pp, IC95 entièrement au-dessus de 0 ».
+Mesuré +2,71, IC [+0,59 ; +4,93]. Les deux tiennent. C'est la première fois
+dans ce dossier qu'une prédiction signée est juste sur les deux à la fois : le
+2026-08-25 deux prédictions étaient fausses, le 09-02 une était juste sur le
+nombre et fausse sur la conclusion, le 09-04 au matin une était réfutée sur un
+tirage et confirmée sur l'autre.
+
+MAIS L'EXTRAPOLATION ÉTAIT BASSE DE 0,40 pp, ET C'EST LE VRAI RÉSULTAT
+------------------------------------------------------------------------
+m2rep-graine3-4b-2026-09-04.txt annonçait +2,31 pp, obtenu en appliquant au
+plafond f16 de cette graine (+2,87) le taux de survie mesuré une seule fois
+(80,4 %). Mesuré : +2,71.
+
+  taux de survie du gain f16 → int4 g128
+    fichier publié   3,60 / 4,48  =  80,4 %
+    graine 3         2,71 / 2,87  =  94,4 %
+
+🚨 Le taux varie de 14 POINTS entre deux tirages. Ce n'est donc pas une
+constante du format, et raisonner dessus comme sur une constante est ce que
+cette mesure corrige. Le +2,31 qui passait sous la porte Q5 de +3,0 était un
+artefact de mon extrapolation, pas une propriété du 4 bits.
+
+Ce que ça ne dit pas : pourquoi le taux varie. Deux points ne font pas une
+tendance, et aucune hypothèse n'est engagée ici.
+
+CE QUI NE SE DIT PAS
+---------------------
+· Le b/param n'est pas re-mesuré : 5,149 contre 5,162 est un calcul sur les
+  formes, identique d'un tirage à l'autre (m2b-v4bits-2026-09-02.txt).
+· Toujours aucun noyau ne sert v_proj en 4 bits. Les deux mesures déquantifient
+  en f16 avant le matvec. Le chantier de noyau est ouvert le 2026-09-04 et
+  tv_q4_h en est la première pièce.
+· Rien sur la vitesse, rien sur une autre taille, rien sur la perplexité.
+
+PROVENANCE DES OCTETS
+----------------------
+hf://buckets/Pier-Jean/jobs-artifacts/m2b-graine3-4b-2026-09-04/
+Dumps rapatriés dans docs/data/m2b-graine3/ :
+  5f14bd3493ed809bd8d74a5b76b639ecc038e51489c7696867eafc1172e3dca9  mmlu-shipped.csv
+  6d8b225690d7ad437147411e4c27317ebb40c1b0d30a31041efb1db341b76eb1  mmlu-v4.csv
