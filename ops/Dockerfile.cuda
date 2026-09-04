@@ -68,11 +68,15 @@ RUN cargo build --release --locked -p llvq-llm --bin seal
 # joining the one that has already been SIGKILLed once. Its kernels are not
 # compiled here at all — they ship as text and NVRTC compiles them at startup,
 # so tuning a tile size or a register cap never touches this image again.
-RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench
+RUN cargo build --release --locked -p llvq-cuda --bin preflight --bin matvec --bin rotbench --bin graphbench --bin planesbench --bin nullkbench --bin f1floorbench
 # `nullkbench` — vague 2 §A1 (2026-08-31) : le plancher sous deux géométries
 # de lancement. Son premier lancement est mort en 15 s sur `which` : ce
 # Dockerfile construit et copie des LISTES explicites, et compiler le crate
 # ne suffit pas — un bin absent des deux listes n'existe pas sur la cible.
+# `f1floorbench` — vague 2 (2026-09-04) : le plancher de la table du décodeur
+# F1. Sa table ne tient pas en mémoire partagée (3 336 Kio contre 99), donc la
+# question est le trafic L2, et ce banc y répond pour ~0,09 $ avant qu'on
+# écrive `tv_l3e8`. Même piège que ci-dessus : les DEUX listes.
 
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -119,6 +123,7 @@ COPY --from=build \
       /src/target/release/graphbench \
       /src/target/release/planesbench \
       /src/target/release/nullkbench \
+      /src/target/release/f1floorbench \
       /usr/local/bin/
 # The QTIP fetcher (F2). It is a script, not a binary, and the runtime stage
 # copies only binaries — so without this line the `qtip` arm cannot be prepared
