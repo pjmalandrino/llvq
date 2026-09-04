@@ -94,7 +94,10 @@ mod linux {
     /// The two figures F1 actually carries — 80 KiB for the odd-coset variant
     /// and 3,336 KiB for the full table — fall between measured points, which
     /// is what a bracket is for. The last point is the DRAM calibration: it
-    /// must be at least 20× the L2 or a "miss" is a third hit.
+    /// must be at least 20× the L2 or a "miss" is a third hit. ⚠️ The L40S
+    /// carries **96 MiB** of L2, not the 48 MB assumed when this bench was
+    /// designed — the guard below caught that on the first run, for $0.00, and
+    /// the DRAM point moved from 1 GiB (10.7×) to 4 GiB (41.7×).
     const FOOTPRINTS: [(&str, usize); 8] = [
         ("8 KiB", 2 * 1024),
         ("16 KiB", 4 * 1024),
@@ -103,7 +106,7 @@ mod linux {
         ("4 MiB", 1024 * 1024),
         ("16 MiB", 4 * 1024 * 1024),
         ("64 MiB", 16 * 1024 * 1024),
-        ("1 GiB", 256 * 1024 * 1024),
+        ("4 GiB", 1024 * 1024 * 1024),
     ];
 
     /// Hot sets placed in shared memory, in u32 entries, with the share of
@@ -289,12 +292,25 @@ mod linux {
 
         // The tables. Contents are never read for meaning, only folded.
         let mut rng = SplitMix64::new(0x00F1_2026_0905);
-        let biggest = FOOTPRINTS.iter().map(|&(_, n)| n).max().expect("non-empty");
+        // Host words only up to 64 MiB; beyond that the device is zeroed.
+        let biggest = FOOTPRINTS
+            .iter()
+            .map(|&(_, n)| n)
+            .filter(|&n| n <= 16 * 1024 * 1024)
+            .max()
+            .expect("non-empty");
         let words: Vec<u32> = (0..biggest).map(|_| rng.next() as u32).collect();
         let mut tables = Vec::new();
         for &(name, n) in FOOTPRINTS.iter() {
             assert!(n.is_power_of_two(), "{name}: the mask needs a power of two");
-            tables.push((name, n, cuda.up_u32(&words[..n])?));
+            // The DRAM point is 4 GiB. Uploading it would need 4 GiB of host
+            // RAM in a container whose limit nobody here knows, so it is
+            // allocated zeroed on the device instead. The contents are never
+            // read for meaning — only folded into a multiplier — so zeros time
+            // exactly as random words do, and the elision check runs on the
+            // 4 MiB arm, which does carry random contents.
+            let d = if n > words.len() { cuda.zeros_u32(n)? } else { cuda.up_u32(&words[..n])? };
+            tables.push((name, n, d));
         }
         let dram = FOOTPRINTS.last().expect("non-empty").1 * 4;
         if (dram as u64) < 20 * dev.l2_bytes as u64 {
