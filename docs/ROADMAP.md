@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next for the project, with its gates and its costs. State as of 2026-09-02. The past is
+What comes next for the project, with its gates and its costs. State as of 2026-09-04. The past is
 in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in `METHODE.md`.
 
 ## 1. Starting point
@@ -25,8 +25,8 @@ The kernel does not reopen the product question. At 100% of its byte bound, `Pla
 Quality decides what comes next. A lever that closes 4 to 6 pp of MMLU reopens the product
 question; without it, the product strand closes on the current conclusion. The research roadmap is
 adopted (D0, commit `1e8583c`) with a $5 cap for wave 1, defined as M2 plus a replicate on a second
-seed. M2 cost ~$2.17 (*computed* on the bucket timestamps,
-[m2-attribution-4b-2026-09-02](mesures/m2-attribution-4b-2026-09-02.txt)); the replicate has not run.
+seed. M2 cost ~$2.17 and the replicate $2.14 (*measured*,
+[m2rep-graine3-4b-2026-09-04](mesures/m2rep-graine3-4b-2026-09-04.txt)); wave 1 closes at $4.60 of 5.
 
 The paper is deposited on Zenodo (concept DOI 10.5281/zenodo.22133606) after TACO returned it without
 review on 2026-08-27. On 2026-09-02, a first arXiv submission (7927047) was refused: the PDF had been
@@ -51,7 +51,8 @@ wave by wave, never as a cumulative total.
 |---|---|---|---|---|---|
 | M1 | off-diagonal shrinkage of H, 0.6B, 28 blocks, 3 seeds | $0 | cross-seed range divided by 2, median held | ρ* = 1 | done, green |
 | M2 | MMLU attribution by projection type, constant file, 11 arms | ~$2.17 (*computed*) | measurement, reading criterion | none | done |
-| M2b | `v_proj` in int4 g128 dequantized, constant file | ~$0.29 (*computed*, [journal](mesures/m2b-v4bits-2026-09-02.txt)) | G4 ≥ 3.0 and CI > 1.5 | G4 < 1.5 | done, rule undecided |
+| M2rep | the same eleven arms on the seed-3 artifact of F5 | $2.14 (*measured*) | target holds across the two draws | attribution draw-dependent | done, target retained, ranking not |
+| M2b | `v_proj` in int4 g128 dequantized, constant file | ~$0.29 (*computed*, [journal](mesures/m2b-v4bits-2026-09-02.txt)) | G4 ≥ 3.0 and CI > 1.5 | G4 < 1.5 | done, read as cashable 09-04 |
 | M3 | attention entropy per layer; MMLU-STEM column in `mmlupair` | $0 | f16/sealed gap > 3 times the cross-window gap | none | to do |
 | M4 | tooling against drift | $0 | none, hygiene | none | to do, section 3 |
 
@@ -74,7 +75,7 @@ Attention as a whole gives +6.90, the MLP +10.78, everything +14.73. The two con
 picks out of 2,280. The literature prior on `k_proj` is refuted. The target is `v_proj`: 2.6% of the
 weights (*computed*, same journal) for +4.48 pp.
 
-M2b is delivered, without a verdict. `v_proj` in int4 g128 gives 59.19% of MMLU, +3.60 pp
+M2b is delivered. `v_proj` in int4 g128 gives 59.19% of MMLU, +3.60 pp
 [1.47; 5.79], McNemar 2.0e-4, or 80.4% of the f16 gain (*measured*,
 [m2b-v4bits-2026-09-02](mesures/m2b-v4bits-2026-09-02.txt)). Memory goes down: 5.149 b/param
 (*computed*, same journal). `Planes14` unfolds to 4.804 b/weight (*measured*,
@@ -84,6 +85,24 @@ would cost +0.263 b/param, that is 5.425 (*computed*, same journal), above AWQ. 
 entirely above 1.5; the lower bound is 1.47, and over eight bootstrap seeds it runs from 1.42 to
 1.49, never above 1.50 (*measured*, same journal). Lines 2 and 3 require G4 < 3.0
 ([preregistration-m2b-v4bits-2026-09-02-ECARTS](../proofs/preregistration-m2b-v4bits-2026-09-02-ECARTS.md)).
+
+On 2026-09-04 the operator reads the uncovered case as cashable: both axes move at once, +3.60 pp for
+−0.013 b/param, nothing is paid for the gain. Q5 opens. Line 1 stays failed on its letter and the rule
+is not repaired after the fact (same file, §É4). What the decision does not settle: M2b dequantizes
+`v_proj` to f16 before the matvec, so no kernel serves it in four bits and the served quality of Q5 is
+unmeasured; and the +3.60 pp rests on a single quantized file.
+
+The replicate ran on 2026-09-04, $2.14, on the seed-3 artifact of F5 (*measured*,
+[m2rep-graine3-4b-2026-09-04](mesures/m2rep-graine3-4b-2026-09-04.txt)). `v_proj` is retained by the
+preregistered clause, its CI [+1.11; +4.68] overlapping M2's [+2.39; +6.61], but no difference between
+draws is resolved and the head of the ranking swaps: `gate` from 1st to 4th, `down` from 4th to 1st.
+The f16 ceiling of `v_proj` falls to +2.87. M2b was then replayed on that same seed the same day, $0.45:
+**+2.71 pp [+0.59; +4.93]**, McNemar 0.0106 (*measured*,
+[m2b-graine3-4b-2026-09-04](mesures/m2b-graine3-4b-2026-09-04.txt)). The CI clears zero, so the gain is
+confirmed on a second draw and Q5 is adopted. The served figure is the range **+2.71 to +3.60 pp**. The
+survival rate of the f16 gain into int4 is 94.4% here against 80.4% on the published file, so it is not a
+constant and the +2.31 pp extrapolated from it was an artefact. Detail in [`ETAT.md`](ETAT.md) §5 ter and
+§5 quater.
 
 New knobs: `LLVQ_RESTORE_F16` and `LLVQ_RESTORE_Q4` (`mmlu`, `ppl`, require `LLVQ_MODEL`),
 `LLVQ_H_SHRINK` (`smoke`).
@@ -95,20 +114,82 @@ bits: `[state 8][s₁ ~13][s₂ ~13][s₃ ~13][gain 1]`. Decoding costs three lo
 
 | id | lead | cost (*measured* if done, `jobs.csv`; *estimated* otherwise) | adoption | kill | state |
 |---|---|---|---|---|---|
-| F1a | count states and alphabets for 47 bits, prove the bijection | $0, 1 week | tables ≤ 16 KiB per section | over budget, move to F2 | to do, first |
-| F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0, 1 week | retention ≥ 91.0% | < 90.3% | to do |
-| F1c | format v2, encoder, 0.6B 28 blocks | $0 | ppl within ±1 range of `leech1c12`; encoder ≤ 656 µs/block | out of band on 3 seeds | to do |
-| F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | t ≤ 1.15·t(QTIP); ≤ 2.20 b/weight kernel | t > 1.5·t(QTIP) | to do |
-| F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | ≤ 2.6 b/param; MMLU ≥ 55.59 − 2 SE | MMLU < 53% | to do |
+| F1a | count states and alphabets for 47 bits, prove the bijection | $0 (*measured*, one session) | **no gate** — a feasibility blocker: it must fit the card's 99 KiB opt-in, tile included | does not fit | states green, bijection **proved**; 92 KiB with the odd-coset restriction, 1,124 KiB without |
+| F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0, 1 week | **no gate** — a measurement: retention against an in-process ball-12 control, feeding F1c's signed prediction | none | to do |
+| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl within ±1 cross-seed range of `leech1c12`; encoder ≤ 656 µs/block | out of band on 3 seeds | **first gate of the axis** |
+| F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | **throughput + VRAM**: t ≤ t(`Planes14`) measured in the same process, and ≤ 2.20 b/weight kernel | t > t(`Planes14`), i.e. slower for fewer bytes | to do |
+| F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | **the four axes at once**: ≤ 2.6 b/param, MMLU ≥ 55.59 − 2 SE, tok/s ≥ 100.6, disk ≤ today's | MMLU < 53% | the axis's verdict |
 | F2 | sequential trellis + trellis shaping, A3 geometry only | like F1 | fallback if F1a or F1b dies | none | not budgeted |
 | F3 | per-row cap, 44 to 50 bits/block, guided by M2 | $7 | +2 pp paired MMLU at constant b/param | < +1 pp | after D3, conditional on F1c |
 
-F1b is under its kill from the estimate alone. The projected shaping loss is +7 to +9% of directional
-MSE (*estimated*,
-[projection-gains-2026-09-01](archive/projection-gains-2026-09-01.md) §1.4), which is a Gaussian
-retention of 88.9 to 89.6% (*estimated*, derived from that same +7-9%) against a kill at 90.3%.
-F1a must count the exact retention of the shaping region before any line of code. Otherwise F1 stops
-at its gate.
+F1b is under its kill, and since 2026-09-04 the number is exact rather than projected. If the shaping
+region is the product of three 8-dimensional balls, the retention is **89.10%** at 2.000 b/dim against a
+kill at 90.3% (*computed*, closed form, `ops/f1a_shaping.py`). The definition of retention is checked
+against a known value on the way: the served MSE gives back 92.14%, the number of
+[fiche-4b](fiche-4b.md). The sphere shaping gain is 0.7292 dB in dimension 8 against
+1.0958 dB in dimension 24; the 0.3666 dB lost is +8.81% of MSE on the served 0.077718
+([fiche-4b](fiche-4b.md)). This supersedes the bracket of 88.9 to 89.6% (*estimated*,
+[projection-gains-2026-09-01](archive/projection-gains-2026-09-01.md) §1.4).
+
+The product is a hypothesis, not the construction: the three sections are chained by the 8 state bits.
+What F1a has left to settle is how much that coupling buys back. The region must reach 0.8742 dB of
+shaping gain to clear the kill, that is 39.6% of the gap between the product and the 24-dimensional
+ball, and 0.9585 dB to be adopted at 91.0%, that is 62.6% of it (*computed*, same closed form). Below
+that, F1 stops at its gate.
+
+### 2.2 bis Three gates removed, 2026-09-04
+
+All three F1 gates were found unsound on the same day, each for a different reason. The operator's
+standing rule, set the same evening, is that **a gate is written on a fundamental criterion and
+never on a proxy** ([METHODE](METHODE.md) §1) — and all three were proxies: Gaussian retention,
+table kibibytes, a competitor's milliseconds in the competitor's own grid. So they are not
+rewritten on better thresholds; the two that cannot measure a fundamental criterion stop being
+gates, and the axis's decisions move to F1c, F1d and F1e where quality, throughput and VRAM are
+what is actually measured. What follows records why each fell, because the reasons are the
+evidence for the rule. ⚠️ They were audited *after* computing that F1 fails them
+as written, which is the shape of a moved goalpost. Two guards against that: no reason below uses
+an F1 result as its anchor, and removing a gate is not the same move as loosening one — the F
+axis now has **fewer** decision points, all of them later and all of them on measured
+fundamentals, so F1 has to survive perplexity at 0.6B and then MMLU, throughput and b/param at 4B
+before anything is adopted.
+
+**F1d — it fired on a free decoder.** As written the thresholds were 1.15 and 1.5 times QTIP's
+2.246 ms, measured in QTIP's own `<<<128, 1024, 64 KiB>>>` grid, while our launch floor alone is
+2.306 ms in ours ([format-noyau](format-noyau.md) §6 forbids that subtraction and hard rule 5
+forbids the division). A decoder costing *nothing*, reading the 0.98 GB its own 2.159 b/weight
+implies at the 836 GB/s net rate, lands at 2.306 + 1.17 = **3.48 ms** — past the old kill of
+3.369 ms. The gate fired on arithmetic that had nothing to do with F1. Restated on our own floor
+plus the arm's own traffic, which is the only comparison a single grid supports.
+
+**F1a — 16 KiB was a guess predicated on a factorization that does not hold.** The number came
+with the words "after factorizing bases × signs"
+([ROADMAP-RECHERCHE](archive/ROADMAP-RECHERCHE.md):130); the truncation study measured that
+factorization and the sign action leaves **67 orbits** on the end-section cosets and 9 on the
+middle, not one ([f1-regle-de-troncature](archive/f1-regle-de-troncature-2026-09-04.md)). The
+card's own attributes are measured and are the honest bound: on L40S,
+`MAX_SHARED_MEMORY_PER_BLOCK` 49,152 B, `_OPTIN` 101,376 B, per SM 102,400 B (*measured* at
+preflight, [format-noyau](format-noyau.md) §8). The matvec already stages a 12 KiB activation
+tile. So 3 × 16 KiB + tile = 60 KiB fits the opt-in; the 80 KiB odd-coset variant + tile = 92 KiB
+fits with 7 KiB to spare; the 1,112 KiB variant cannot be in shared at all and would live in L2,
+where 48 MB makes capacity a non-issue and latency the question. ⚠️ Fitting is not the same as
+being fast: 92 KiB per block against a 100 KiB per-SM budget is **one block per SM**, and A3
+measured eight occupancy variants without finding a portable one. The gate is therefore a
+feasibility bound, and occupancy moves to F1d where it can be measured.
+
+**F1b — the old gate could not be passed by anything.** "Retention ≥ 91.0%, kill < 90.3%" was
+set as "no worse than the shell-12 codebook we buried" ([ROADMAP-RECHERCHE](archive/ROADMAP-RECHERCHE.md):131).
+Shell 12 was buried for quantizing worse **at the same cost** — same 48 bits, same VRAM, strictly
+dominated ([BACKLOG](archive/BACKLOG.md):130). F1 is not dominated: it halves the VRAM. The gate
+imported a domination argument into a case with no domination, and the ceiling makes it
+unsatisfiable: any per-section region is a product of three 8-dimensional regions, the best of
+those is the ball, so 0.7292 dB is the maximum and the kill needs 0.8742 dB. A criterion no
+implementation can meet is a rejection wearing a gate's clothes.
+
+It is not replaced. Retention on a Gaussian source is two transpositions away from quality, and
+this repository has measured how loose the second one is: the paper's 4B reads 17.05 ppl for
+60.7% MMLU where ours reads 16.94 — better perplexity — for 55.59. **F1b therefore carries a
+measurement, not a gate**, and its number feeds the signed prediction F1c is read against. The
+first gate of the F axis is F1c, on perplexity.
 
 The served path freezes the gain field at 1 bit: 8 assertions, 4 shaders,
 `llvq-cuda/src/planes14_host.rs:113` refuses any other value (*measured*, grep). The v2 format of
@@ -124,7 +205,7 @@ the quantizer.
 | Q3 | beam GPTQ, K in {2, 4, 8} | $0, 10 h Mac | Δppl ≥ 2 ranges, σ not increased, encoder ≤ K times | < 1 range | to do |
 | Q4a | cross-layer equi-norm, VQ version | $0 | Δppl ≥ 2 ranges | < 1 range | to do |
 | Q4b | 24×24 maps on the activation side, diagonal first | $0 then $7 | diagonal Δppl ≥ 3%; full +2 pp | none | to do, full after Q6c |
-| Q5 | mixed precision on `v_proj` | $7 and a kernel | ≥ +3 pp paired for ≤ +0.10 b/weight | < +1.5 pp | quality measured by M2b, kernel to do |
+| Q5 | mixed precision on `v_proj` | $7 and a kernel | ≥ +3 pp paired for ≤ +0.10 b/weight | < +1.5 pp | adopted 09-04, +2.71 to +3.60 pp on two draws, kernel started |
 | Q6a | distillation of the format's free parameters, 0 extra bit | $3 | ≥ +3 pp paired | < +1.5 pp | to do, after M3 |
 | Q6b | EoRA / RILQ r ≤ 16 | $3 | ≥ +3 pp within ≤ +0.25 b/param | none | after Q6a |
 | Q6c | differentiable relaxation of the Leech search | $0 then $7 | T → 0 bit-exact; Q4b full +2 pp | none | after Q3 |
@@ -203,7 +284,7 @@ Any gain bought back in bytes fits inside a budget set in advance, in b/param ov
 
 | decision | deadline | default if silent |
 |---|---|---|
-| M2b: which §5 line applies to G4 = +3.60 [1.47; 5.79] | before any Q5 kernel | no line, Q5 does not open |
+| Q5 after the replicate: measure M2b on seed 3, restrict Q5 to the published file, or park it | before any Q5 kernel | nothing, Q5 does not open |
 | Q1: prereg with "ρ in [0.5; 0.9] to be re-estimated", size and seeds | before the first Q1 run | Q1 stays at 0.6B, 3 seeds |
 | wave 2 cap | before the first paid job | no job on a card |
 | `ots upgrade` of the eleven pending timestamps | after anchoring | un-upgraded timestamps in the repository |

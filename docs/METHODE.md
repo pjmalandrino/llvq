@@ -9,6 +9,20 @@ for. The templates are in `docs/templates/`.
   millisecond. Paid on 2026-08-07: the 1.6× criterion of `Golay70` has no
   earlier record than commit `caef2ac`, 52 min before the measurement
   (*measured*, git).
+- A gate is written on a **fundamental criterion**, never on a proxy for one.
+  The fundamental criteria are the repository's four axes — disk, VRAM,
+  throughput, quality — plus the three quantities that govern feasibility:
+  loadable model class, encoding cost, noise floor
+  ([projection-gains](archive/projection-gains-2026-09-01.md) §0). A stage that
+  cannot measure one of those carries a **measurement**, not a gate; the gate
+  moves to the stage where the criterion becomes measurable. Paid on
+  2026-09-04: the three F1 gates were all written on proxies — Gaussian
+  retention, table kibibytes, a competitor's milliseconds in the competitor's
+  own grid — and all three were found unsound the same day, one unsatisfiable
+  by construction, one resting on a factorization that does not hold, one
+  firing on a decoder costing nothing ([ROADMAP](ROADMAP.md) §2.2 bis). The Q
+  and M axes, whose gates were already on perplexity, MMLU and b/param, were
+  untouched by the same audit.
 - The prereg carries the adoption and kill criteria, in numbers, on the exact
   quantity they name. Paid on 2026-08-15: the walk passes at 0.3101 ns/block
   under the 0.45 gate, the block yields 0.6735 (*measured*,
