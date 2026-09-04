@@ -133,24 +133,25 @@ pub const TILE_BLOCKS: usize = 128;
 pub const ROT_KMAX: usize = 32;
 
 /// The CUDA sources, embedded so a run is reproducible from the binary alone.
-#[cfg(target_os = "linux")]
+///
+/// NOT gated on Linux, though everything that *launches* them is. `include_str!`
+/// costs nothing anywhere, and the gate meant no check outside a card could see
+/// that a source had no embedded copy — which is exactly how `f1floor.cu`
+/// reached a billed job on 2026-09-05 and died on `no embedded copy of
+/// f1floor.cu`, $0.01. `bin/cuhcheck` now asserts the mapping on every unit it
+/// parses, on any platform.
 pub const SLOT_CUH: &str = include_str!("../kernels/llvq_slot.cuh");
-#[cfg(target_os = "linux")]
 pub const PREFLIGHT_CU: &str = include_str!("../kernels/preflight.cu");
-#[cfg(target_os = "linux")]
 pub const MATVEC_CU: &str = include_str!("../kernels/matvec.cu");
-#[cfg(target_os = "linux")]
 pub const FLOOR_CUH: &str = include_str!("../kernels/llvq_floor.cuh");
-#[cfg(target_os = "linux")]
 pub const ROT_CUH: &str = include_str!("../kernels/llvq_rot.cuh");
-#[cfg(target_os = "linux")]
 pub const ROTATE_CU: &str = include_str!("../kernels/rotate.cu");
-#[cfg(target_os = "linux")]
 pub const E1V_CUH: &str = include_str!("../kernels/llvq_e1v.cuh");
-#[cfg(target_os = "linux")]
 pub const E1V_CU: &str = include_str!("../kernels/e1v.cu");
-#[cfg(target_os = "linux")]
 pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
+
+/// The F1 decoder-table floor (`bin/f1floorbench`).
+pub const F1FLOOR_CU: &str = include_str!("../kernels/f1floor.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -211,9 +212,13 @@ pub struct SourceSet {
     pub overridden_from: Option<String>,
 }
 
-#[cfg(target_os = "linux")]
-pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
-    let embedded = |n: &str| match n {
+/// The embedded copy of one kernel unit, by file name.
+///
+/// Split out of [`load_sources_many`] and left un-gated so a Mac can assert the
+/// table is complete. A name that parses in `bin/cuhcheck` but has no arm here
+/// builds an image, ships a binary, and dies on the card.
+pub fn embedded_source(name: &str) -> Result<&'static str, String> {
+    match name {
         "llvq_slot.cuh" => Ok(SLOT_CUH),
         "preflight.cu" => Ok(PREFLIGHT_CU),
         "matvec.cu" => Ok(MATVEC_CU),
@@ -221,10 +226,16 @@ pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
         "llvq_e1v.cuh" => Ok(E1V_CUH),
         "e1v.cu" => Ok(E1V_CU),
         "nullk.cu" => Ok(NULLK_CU),
+        "f1floor.cu" => Ok(F1FLOOR_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),
-    };
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
+    let embedded = embedded_source;
     match std::env::var("LLVQ_KERNEL_DIR") {
         Err(_) => Ok(SourceSet {
             parts: names

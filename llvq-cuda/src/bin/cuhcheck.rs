@@ -72,7 +72,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 16] = [
+const UNITS: [(&str, &[&str], &str); 17] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -91,6 +91,11 @@ const UNITS: [(&str, &[&str], &str); 16] = [
     ("rotate.cu", &["rotate.cu"], "the rotation, outside the loop"),
     ("e1v.cu", &["e1v.cu"], "the fused matvec, E1v row-aligned (P1c)"),
     ("nullk.cu", &["nullk.cu"], "the floor: same pass, no weight read (P4)"),
+    (
+        "preflight.cu",
+        &["preflight.cu"],
+        "the preflight probe — shipped by the table, so parsed here too",
+    ),
     (
         "f1floor.cu",
         &["f1floor.cu"],
@@ -179,7 +184,59 @@ fn main() {
          -DLLVQ_HOST_BUILD drops the PTX\n   branches, which nothing here reads. Correctness \
          is the mirror test's business, against the\n   Rust decoder; execution is a card's."
     );
-    if bad > 0 {
+    let missing = check_embedded();
+    if bad > 0 || missing > 0 {
         std::process::exit(1);
     }
+}
+
+/// The units that reach a card through `llvq_cuda::load_sources_many`, and
+/// therefore must have an arm in its table.
+///
+/// Not every unit does: `planesbench` and `golay70bench` carry their own
+/// `include_str!` of the layouts they candidate, which is why the list is
+/// explicit rather than "all of `UNITS`". A unit that ships neither way builds
+/// an image, ships a binary, and dies on the card.
+const TABLE_SHIPPED: [&str; 10] = [
+    "llvq_slot.cuh",
+    "preflight.cu",
+    "matvec.cu",
+    "llvq_floor.cuh",
+    "llvq_e1v.cuh",
+    "e1v.cu",
+    "nullk.cu",
+    "llvq_rot.cuh",
+    "rotate.cu",
+    "f1floor.cu",
+];
+
+/// Assert the table is complete, from any platform.
+///
+/// `f1floor.cu` reached a billed job on 2026-09-05 with no arm in that table
+/// and died on `no embedded copy of f1floor.cu` — $0.01, cheap only because the
+/// failure is immediate. Nothing caught it before: this file parsed the source
+/// from disk and never asked whether the binary carried it, and
+/// `load_sources_many` was gated on Linux so nothing off a card could see the
+/// table at all. Both halves are fixed: the table is un-gated, and this is the
+/// check.
+fn check_embedded() -> usize {
+    let mut missing = 0;
+    for unit in TABLE_SHIPPED.iter() {
+        if let Err(e) = llvq_cuda::embedded_source(unit) {
+            eprintln!("  {unit:<20} MANQUE une copie embarquée — {e}");
+            missing += 1;
+        }
+        if !UNITS.iter().any(|(u, _, _)| u == unit) {
+            eprintln!("  {unit:<20} shipped in the table but never parsed here");
+            missing += 1;
+        }
+    }
+    if missing == 0 {
+        println!(
+            "\n  les {} unités expédiées par la table ont leur copie embarquée, \
+             et sont toutes parsées ici",
+            TABLE_SHIPPED.len()
+        );
+    }
+    missing
 }
