@@ -25,6 +25,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod f1;
+
 use llvq_core::{SplitMix64, DIM};
 use llvq_search::{Searcher, Workspace};
 
