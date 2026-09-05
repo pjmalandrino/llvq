@@ -1,0 +1,72 @@
+F1 — L'ENCODEUR SUR DES BLOCS RÉELS DU 0,6B : 298 µs/bloc/cœur, identique au
+gaussien, parce que la rotation rend les blocs gaussiens
+================================================================================
+Date        : 2026-09-05, soir, Apple M3 Max, 0 $
+Nature      : *mesuré* — 20 000 blocs compensés et tournés de Qwen3-0.6B, tels
+              que reçus par `quantize` dans la boucle GPTQ servie (bloc
+              transformer 0, 7 matrices, échantillon à pas uniforme sur les
+              648 192 blocs), contre 20 000 blocs N(0,1) dans le même processus
+Code        : llvq-llm/examples/f1recdump.rs (l'enregistreur : un
+              BlockQuantizer qui délègue à LeechShapeGain leech1c12 et copie
+              chaque bloc ; boucle du bloc 0 recopiée de calib.rs ; rot, nogs,
+              wikitext-2 train 64×2048, damping 1e-2, Metal, LLVQ_THREADS=8,
+              --features metal,fast-linalg ; 64-74 s) ;
+              llvq-bench/examples/f1encreal.rs (le prototype de f1enclazy.rs
+              sur le dump, un cœur, nice 10)
+Dump        : blocks-0.6b-b0.f64 (20 000 × 24 f64 LE, 3,84 Mo,
+              sha256 65d4c16c8f4b169cc4cc40126ecaefc5ffa9c124b92989bfa35dac45a047d1bd,
+              identique sur deux enregistrements), rowscale-0.6b-b0.f64,
+              meta-0.6b-b0.csv — scratchpad de session, à recopier dans
+              docs/data/ si le dump doit servir de fixture
+Pourquoi    : le prototype (f1-encodeur-prototype-2026-09-05.txt) tirait sa
+              marge de l'élagage, mesuré sur des blocs N(0,1) ; la relecture
+              avait nommé « l'élagage sur des résidus GPTQ réels » comme
+              l'hypothèse la plus dangereuse. Elle est levée ici.
+
+LE RÉSULTAT (run 2, machine au repos ; run 1 à ±3 µs)
+-----------------------------------------------------
+  exactitude : 40 000 (bloc, échelle) — paresseux = exhaustif, 0 à coût égal,
+               0 hors Λ₂₄ (Leech::contains après point_to_natural)
+
+  un cœur, 2 échelles adaptatives (s₀, 1,14·s₀), α = 0,321        réel     gaussien
+    paresseux, règle tronquée [la config retenue] ............  297,5    296,8   µs/bloc
+    paresseux, règle complète ................................  389,9    386,7
+    exhaustif, règle tronquée ................................  515,0    515,1
+    exhaustif, règle complète ................................  826,5    830,5
+    base membre (part des 1 536 entrées par échelle) .........  55,5 %   55,6 %
+    résolutions complètes par échelle ........................  192,1    189,6
+
+  Rapport réel / gaussien = **1,00**. Porte F1c : 656 µs → 0,45 ×, comme sur
+  gaussien. Par matrice et par tiers de position de colonne (21 cases) :
+  288 à 304 µs/bloc, base membre 54,9 à 56,2 %, résolutions complètes 177 à
+  205 — aucune dérive avec la compensation accumulée (down_proj, colonnes
+  tardives : 303 µs, 55,5 %, 196).
+
+POURQUOI
+--------
+  Les blocs réels tournés SONT gaussiens : kurtosis des coordonnées 3,01
+  (gaussienne 3,00) ; ‖x‖ / échelle de ligne : quartiles 0,908 / 1,005 /
+  1,108, min 0,49, max 1,68. La rotation d'incohérence fait le travail.
+  L'hypothèse d'élagage ne repose donc pas sur « les poids » mais sur la
+  rotation servie — qui est dans le chemin depuis le 4B publié.
+
+RÉTENTION SUR LES MÊMES BLOCS
+-----------------------------
+  (règle F1b : 1 bit de gain sur la norme, centroïdes Lloyd-Max ajustés sur
+  les mêmes blocs, MSE / puissance moyenne)
+                          témoin boule-12   F1 rang, 2 éch.   Δ
+    réel .................  91,87 %          88,68 %          −3,20 pp   (apparié +0,00726 ± 0,00012)
+    gaussien .............  91,98 %          88,80 %          −3,18 pp
+  L'écart F1 − boule-12 est le même sur réel et sur gaussien. Les 88,68 ne se
+  comparent pas aux 88,89 du prototype (autre échantillon, centroïdes globaux
+  sur 7 matrices mélangées) ; seule la différence appariée compte.
+
+CE QUE ÇA NE DIT PAS
+--------------------
+  · Les résidus sont ceux de l'encodeur SERVI (boule-12) dans la boucle ;
+    sous un encodeur F1 en boucle ils diffèrent au second ordre. Non mesuré ;
+    c'est F1c qui le mesure, en perplexité.
+  · Un seul bloc transformer (le 0) ; wikitext-2 train et non c4 ; échantillon
+    à pas uniforme et non « les 20 000 premiers appels » (qui auraient tous
+    été les dix premières positions de colonne de q_proj).
+  · Rien sur la carte, rien sur tok/s.

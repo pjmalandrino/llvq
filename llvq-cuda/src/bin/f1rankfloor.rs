@@ -1,29 +1,42 @@
-//! The compiled floor of the F1 universal-table decoder: the word stream and
-//! the full decode, in `tv_nullk`'s geometry, checked on the card against the
-//! Rust reference before a millisecond is printed.
+//! The compiled floor of the F1 universal-table decoder: the word stream,
+//! the full decode, and three other arithmetics for the same decode, in
+//! `tv_nullk`'s geometry, checked on the card against the Rust reference and
+//! against each other before a millisecond is printed.
 //!
-//! Preregistered: `proofs/preregistration-f1-rang-plancher-2026-09-05.md`.
-//! Not a gate, and it kills nothing (§1): it says under what form `tv_l3e8`
-//! gets written, and whether the decoder is rewritten first.
+//! Preregistered twice, and neither is a gate (§1 of both): the floor,
+//! `proofs/preregistration-f1-rang-plancher-2026-09-05.md`, and the three
+//! variants against it, `proofs/preregistration-f1-rang-variantes-2026-09-05.md`.
+//! The second decides under which writing the decoder goes on, nothing else.
 //!
 //! ## The ladder, and why no arm is read alone
 //!
 //! ```text
-//!   nullk   the same pass without one byte of weights     (the floor, in THIS process)
-//!   word    nullk + the 6-byte word per block, folded into a float, no decode
-//!   f1r     word + the full decode: 3 rows, 3 pattern bytes, 24 coordinates, 24 FMAs
+//!   nullk    the same pass without one byte of weights     (the floor, in THIS process)
+//!   word     nullk + the 6-byte word per block, folded into a float, no decode
+//!   f1r      word + the full decode: 3 rows, 3 pattern bytes, 24 coordinates, 24 FMAs
+//!   f1r_v1   f1r, the floats built without the I2F pipe: byte lanes, a LOP3 sign mux, 2²³ bias
+//!   f1r_v2   f1r, the 3 dependent small-table loads replaced by F₂ algebra on the word
+//!   f1r_v3   f1r, the values from byte tables in registers, looked up by prmt
 //!
-//!   S  = t(word) − t(nullk)     the F1 stream in our geometry
-//!   Du = t(f1r)  − t(word)      table + arithmetic decode
-//!   T  = t(f1r)  − t(nullk)     what F1 spends on stream AND decode
+//!   S     = t(word)   − t(nullk)     the F1 stream in our geometry
+//!   Du    = t(f1r)    − t(word)      table + arithmetic decode
+//!   T     = t(f1r)    − t(nullk)     what F1 spends on stream AND decode
+//!   Du_vk = t(f1r_vk) − t(word)      read against Du of the SAME process
+//!   T_vk  = t(f1r_vk) − t(nullk)     read against T of the SAME process
 //! ```
 //!
-//! `T` is read against `B = t(Planes14) − t(nullk) = 2.797 ms` from another
-//! process (prereg §4): a difference read against a difference, never a time
-//! subtracted from another process's time. Three arms every round, in an
-//! order that ROTATES (round r opens with arm r mod 3 — the table floor's
-//! negative `Didx` was possibly a position effect), differences formed round
-//! by round, medians with ranges.
+//! `T` and the `T_vk` are read against `B = t(Planes14) − t(nullk) = 2.797 ms`
+//! from another process (floor prereg §4): a difference read against a
+//! difference, never a time subtracted from another process's time. Six arms
+//! every round, in an order that ROTATES (round r opens with arm r mod 6 — the
+//! table floor's negative `Didx` was possibly a position effect), differences
+//! formed round by round, medians with ranges. Fourteen rounds, two of warmup:
+//! twelve kept, a multiple of six, so every arm opens a round exactly twice.
+//!
+//! The three variants read the SAME word stream and the SAME 16 KiB table as
+//! `tv_f1r`, through the SAME argument list (`f1rank_v1.cu`, `f1rank_v2.cu`,
+//! `f1rank_v3.cu` copy `tv_f1r`'s signature argument for argument), so one
+//! launch routine serves the four table arms.
 //!
 //! ## The controls, and if one falls no number is printed
 //!
@@ -31,20 +44,45 @@
 //!    stream copy are decoded by `tv_f1r_dump` and compared coordinate by
 //!    coordinate to `llvq_bench::f1::rank::decode_word`, on words the host
 //!    replays from the mixer written once in `llvq_f1rank.cuh`;
-//! 2. nothing is elided: `f1r`'s output differs from `word`'s and `nullk`'s,
-//!    `word`'s from `nullk`'s;
+//! 2. nothing is elided: every table arm's output differs from `word`'s and
+//!    `nullk`'s, `word`'s from `nullk`'s;
 //! 3. everything is observable: every output row written, finite, not all zero;
 //! 4. the stream does not fit the L2: word bytes ≥ 4× the card's attribute;
 //! 5. one process, one geometry, `nullk`'s;
-//! 6. registers and local bytes of the three kernels, from the function
-//!    attributes.
+//! 6. registers and local bytes of the six kernels, from the function
+//!    attributes;
+//! 7. the variants compute what `tv_f1r` computes: on the last round's
+//!    outputs, for EVERY ROW of every shape, `|y_vk[r] − y[r]| ≤ 1e-5 · max(1, |y[r]|)`
+//!    — the prereg's §4.2, to the letter. The same 24 products per block,
+//!    summed in `tv_f1r`'s coordinate order, with at most one extra rounding
+//!    per block (V2 and V3 sum each block from zero and add; V1 runs
+//!    `tv_f1r`'s very FMA chain and is expected at Δ = 0). The rounding
+//!    drift of that reordering, replayed on the host with this bench's exact
+//!    arithmetic (32 lanes each chaining its blocks, the `warp_sum`
+//!    butterfly, the real table and word stream, all 30,720 rows): worst
+//!    3.3e-7 per row, no row anywhere near zero (`min |y| ≥ 279`, every
+//!    factor positive) — 30× under the tolerance (*computed*, review of
+//!    2026-09-05; a first draft of this gate rested on a synthetic model
+//!    that put 539 rows over it, and was wrong). A single wrong coordinate in
+//!    a single block moves a row by at least `min x · min rscale = 0.25`,
+//!    which is 3× the tolerance on `down_proj` (`max |y| ≈ 8,500`) and 6 to
+//!    10× elsewhere: thin on one shape, but control 1 already holds the
+//!    decode itself to the reference coordinate by coordinate; this control
+//!    catches a variant that computes something else. The shape's ∞-norm
+//!    reading is printed beside it, as information. A variant over the
+//!    tolerance is HORS JEU — its times are not printed — and the other arms
+//!    are read (prereg §6, first row); the times are refused wholesale only
+//!    if `tv_f1r` itself fails controls 1 to 5.
+//!
+//! Controls 2, 3 and 7 all read the outputs captured during the LAST round,
+//! one download per arm after its sync, outside every timed span.
 //!
 //! ## What this bench cannot be
 //!
 //! A production cost: no gain scale, uniform labels rather than a model's,
 //! no Planes14 in the process. A quality measurement: nothing here touches a
-//! model. What it is: the first F1 decoder compiled and verified on the card
-//! against a reference, which the table floor was not.
+//! model. What it is: four writings of the same decoder, compiled, verified on
+//! the card against one reference, and timed side by side.
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
@@ -66,9 +104,9 @@ mod linux {
     use llvq_cuda::TILE_BLOCKS;
     use std::time::Instant;
 
-    // Eleven rounds, two discarded: nine kept, a multiple of three, so with the
-    // rotating order every arm opens a round exactly three times.
-    const ROUNDS: usize = 11;
+    // Fourteen rounds, two discarded: twelve kept, a multiple of six, so with
+    // the rotating order every arm opens a round exactly twice.
+    const ROUNDS: usize = 14;
     const WARMUP: usize = 2;
     const THREADS: u32 = 256;
     const LAYERS: usize = 36;
@@ -83,6 +121,10 @@ mod linux {
     /// subtrahend. The ratio beside it is `5.103 / 2.306`.
     const B_MS: f64 = 2.797;
     const B_RATIO: f64 = 5.103 / 2.306;
+    /// Control 7: `|y_vk[r] − y[r]| ≤ TOL · max(1, |y[r]|)` on every row —
+    /// the prereg's §4.2 as written. The module header carries the replayed
+    /// drift (3.3e-7 worst) and the margin on a wrong coordinate.
+    const TOL: f64 = 1e-5;
 
     /// The seven projection shapes of Qwen3-4B — `planesbench`'s table and
     /// `nullkbench`'s, so 252 launches a round in the geometry every published
@@ -97,7 +139,13 @@ mod linux {
         ("down_proj", 2560, 9728),
     ];
 
-    const ARMS: [&str; 3] = ["nullk", "word", "f1r"];
+    /// The six arms, in the order the rotation walks them. Arms 2..6 are the
+    /// four table arms: `tv_f1r` and its three variants, one argument list.
+    const ARMS: [&str; 6] = ["nullk", "word", "f1r", "f1r_v1", "f1r_v2", "f1r_v3"];
+    /// The kernel behind each arm, same index.
+    const KERNELS: [&str; 6] = ["tv_nullk", "tv_f1r_word", "tv_f1r", "tv_f1r_v1", "tv_f1r_v2", "tv_f1r_v3"];
+    /// Index of `f1r` in [`ARMS`]; the variants are the arms after it.
+    const F1R: usize = 2;
 
     struct Shape {
         name: &'static str,
@@ -133,7 +181,9 @@ mod linux {
     struct Fns {
         nullk: cudarc::driver::CudaFunction,
         word: cudarc::driver::CudaFunction,
-        f1r: cudarc::driver::CudaFunction,
+        /// `tv_f1r`, `tv_f1r_v1`, `tv_f1r_v2`, `tv_f1r_v3` — [`ARMS`]`[F1R..]`,
+        /// launched by one routine with one argument list.
+        table: [cudarc::driver::CudaFunction; 4],
     }
 
     /// round_up(6·nblocks, 8) / 4.
@@ -293,8 +343,12 @@ mod linux {
         Ok(t.elapsed().as_secs_f64() * 1e3)
     }
 
-    /// One timed round of `tv_f1r`.
-    fn round_f1r(
+    /// One timed round of a table arm — `tv_f1r` or one of its three
+    /// variants, which copy its signature argument for argument:
+    /// `(words, row_stride_u32, rows, prefixes, branches, suffixes, rscale,
+    /// tail, x, y, nblocks, tail_w)`. `who` names the arm in an error.
+    fn round_table(
+        who: &str,
         cuda: &Cuda,
         f: &cudarc::driver::CudaFunction,
         shapes: &mut [Shape],
@@ -319,7 +373,7 @@ mod linux {
                     .arg(&mut s.y)
                     .arg(&s.nblocks)
                     .arg(&s.tail_w);
-                unsafe { b.launch(c) }.map_err(|e| format!("f1r/{}: {e}", s.name))?;
+                unsafe { b.launch(c) }.map_err(|e| format!("{who}/{}: {e}", s.name))?;
             }
         }
         cuda.sync()?;
@@ -339,7 +393,7 @@ mod linux {
         match k {
             0 => round_null(cuda, &fns.nullk, shapes, shared),
             1 => round_word(cuda, &fns.word, shapes, streams, shared),
-            _ => round_f1r(cuda, &fns.f1r, shapes, streams, tab, shared),
+            k => round_table(ARMS[k], cuda, &fns.table[k - F1R], shapes, streams, tab, shared),
         }
     }
 
@@ -349,33 +403,82 @@ mod linux {
         (s[s.len() / 2], s[0], s[s.len() - 1])
     }
 
-    /// Every output row written, finite, and different from every arm named
-    /// in `others`. The last part is what catches an elided load: a compiler
-    /// that deleted the fetches would leave the multiplier constant and the
-    /// output would match another arm's to the bit.
+    /// The output rows of every shape, as the last launch left them.
+    fn capture(cuda: &Cuda, shapes: &[Shape]) -> Result<Vec<Vec<f32>>, String> {
+        shapes.iter().map(|s| cuda.down_f32(&s.y)).collect()
+    }
+
+    /// Controls 2 and 3 on one arm's captured outputs: every row written,
+    /// finite, and different from every arm named in `others`. The last part
+    /// is what catches an elided load: a compiler that deleted the fetches
+    /// would leave the multiplier constant and the output would match
+    /// another arm's to the bit.
     fn observable(
-        cuda: &Cuda,
         shapes: &[Shape],
+        ys: &[Vec<f32>],
         others: &[(&str, &[Vec<f32>])],
         who: &str,
-    ) -> Result<Vec<Vec<f32>>, String> {
-        let mut out = Vec::new();
+    ) -> Result<(), String> {
         for (i, s) in shapes.iter().enumerate() {
-            let y = cuda.down_f32(&s.y)?;
+            let y = &ys[i];
+            if y.len() != s.d_out as usize {
+                return Err(format!("{who}/{}: {} rows captured for {} rows", s.name, y.len(), s.d_out));
+            }
             if y.iter().any(|v| !v.is_finite()) || y.iter().all(|v| *v == 0.0) {
                 return Err(format!("{who}/{}: output not observable", s.name));
             }
             for &(oname, oy) in others {
-                if y == oy[i] {
+                if *y == oy[i] {
                     return Err(format!(
                         "{who}/{}: output identical to {oname}'s — the loads were elided",
                         s.name
                     ));
                 }
             }
-            out.push(y);
         }
-        Ok(out)
+        Ok(())
+    }
+
+    /// What control 7 measured on one variant against `tv_f1r`.
+    struct Drift {
+        /// The gate: the largest `|Δ_r| / max(1, |y_r|)` over every row of
+        /// every shape; where it sits; how many rows read over [`TOL`].
+        worst: f64,
+        shape: usize,
+        row: usize,
+        over: usize,
+        /// Information, not the gate: the largest, over shapes, of
+        /// `max_r |Δ_r| / max(1, max_r |y_r|)` — the shape's ∞-norm reading.
+        worst_inf: f64,
+    }
+
+    /// Control 7, one variant: its captured outputs against `tv_f1r`'s, every
+    /// row of every shape. Measures and does not refuse: every variant is
+    /// measured before any is set aside, so one job says which shape and row
+    /// broke the tolerance, and by how much, for all three.
+    fn drift(shapes: &[Shape], y_ref: &[Vec<f32>], y_v: &[Vec<f32>], who: &str) -> Result<Drift, String> {
+        let mut d = Drift { worst: 0.0, shape: 0, row: 0, over: 0, worst_inf: 0.0 };
+        for (i, s) in shapes.iter().enumerate() {
+            let (a, b) = (&y_ref[i], &y_v[i]);
+            if a.len() != b.len() {
+                return Err(format!("control 7: {who}/{}: {} rows against f1r's {}", s.name, b.len(), a.len()));
+            }
+            let inf = a.iter().fold(0f64, |m, &y| m.max((y as f64).abs())).max(1.0);
+            for (r, (&y, &yv)) in a.iter().zip(b).enumerate() {
+                let abs = (yv as f64 - y as f64).abs();
+                let rel = abs / (y as f64).abs().max(1.0);
+                if rel > d.worst {
+                    d.worst = rel;
+                    d.shape = i;
+                    d.row = r;
+                }
+                if rel > TOL {
+                    d.over += 1;
+                }
+                d.worst_inf = d.worst_inf.max(abs / inf);
+            }
+        }
+        Ok(d)
     }
 
     /// Control 1: `tv_f1r_dump` against `decode_word`, every coordinate of
@@ -445,18 +548,29 @@ mod linux {
     }
 
     pub fn run() -> Result<(), String> {
+        // One string for NVRTC: the floor's four parts, then each variant's
+        // header and arm, then `nullk.cu`. `bin/cuhcheck` parses this very
+        // list as one unit, so a name two variants both define fails there.
         let base = llvq_cuda::load_sources_many(&[
             "llvq_slot.cuh",
             "matvec.cu",
             "llvq_f1rank.cuh",
             "f1rank.cu",
+            "llvq_f1rank_v1.cuh",
+            "f1rank_v1.cu",
+            "llvq_f1rank_v2.cuh",
+            "f1rank_v2.cu",
+            "llvq_f1rank_v3.cuh",
+            "f1rank_v3.cu",
             "nullk.cu",
         ])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
         let mut parts: Vec<&str> = vec![defines.as_str()];
         parts.extend(base.parts.iter().map(String::as_str));
         let src = KernelSource::new(&parts);
-        println!("F1 rank-table floor — the stream and the compiled decode, 252 launches, one process");
+        println!(
+            "F1 rank-table floor — the stream, the compiled decode and its three variants, 252 launches, one process"
+        );
         println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &base.overridden_from {
             println!("⚠️ kernel sources overridden from {d}; the sha256 above is the only provenance");
@@ -472,12 +586,12 @@ mod linux {
             dev.l2_bytes as f64 / (1024.0 * 1024.0)
         );
 
-        // Control 6: registers and local bytes, from the function attributes.
-        // Printed, and the prereg's thresholds (§7: ≤ 64 registers, 0 local)
-        // flagged beside them; a spill does not stop the run, it is the
-        // finding.
-        println!("\n  kernel attributes (prereg §7 reads: registers ≤ 64, local bytes = 0):");
-        for name in ["tv_nullk", "tv_f1r_word", "tv_f1r"] {
+        // Control 6: registers and local bytes of the six kernels, from the
+        // function attributes. Printed, and the preregs' thresholds (≤ 64
+        // registers, 0 local) flagged beside them; a spill does not stop the
+        // run, it is the finding.
+        println!("\n  kernel attributes (prereg reads: registers ≤ 64, local bytes = 0):");
+        for name in KERNELS {
             let r = cuda.report(name)?;
             let flag = if r.local_bytes != 0 {
                 "   🚨 LOCAL MEMORY: a spill on the hottest path"
@@ -518,9 +632,14 @@ mod linux {
         );
 
         let fns = Fns {
-            nullk: cuda.func("tv_nullk")?,
-            word: cuda.func("tv_f1r_word")?,
-            f1r: cuda.func("tv_f1r")?,
+            nullk: cuda.func(KERNELS[0])?,
+            word: cuda.func(KERNELS[1])?,
+            table: [
+                cuda.func(KERNELS[F1R])?,
+                cuda.func(KERNELS[F1R + 1])?,
+                cuda.func(KERNELS[F1R + 2])?,
+                cuda.func(KERNELS[F1R + 3])?,
+            ],
         };
         let f_dump = cuda.func("tv_f1r_dump")?;
         let f_fill = cuda.func("f1r_fill")?;
@@ -558,36 +677,82 @@ mod linux {
 
         // Interleaved rounds: every arm every round, the order rotating by
         // one each round, warmup discarded, differences formed ROUND BY
-        // ROUND and never as a quotient of minima.
-        let mut times: Vec<Vec<f64>> = vec![Vec::new(); ARMS.len()];
+        // ROUND and never as a quotient of minima. During the last round the
+        // outputs of every arm are captured — after its sync, before the
+        // next arm's clock starts — for controls 2, 3 and 7.
+        let n = ARMS.len();
+        let mut times: Vec<Vec<f64>> = vec![Vec::new(); n];
+        let mut last: Vec<Vec<Vec<f32>>> = vec![Vec::new(); n];
         for rep in 0..ROUNDS {
-            for pos in 0..ARMS.len() {
-                let k = (pos + rep) % ARMS.len();
+            for pos in 0..n {
+                let k = (pos + rep) % n;
                 let t = run_arm(k, &cuda, &fns, &mut shapes, &streams, &tab, tile)?;
                 if rep >= WARMUP {
                     times[k].push(t);
                 }
+                if rep + 1 == ROUNDS {
+                    last[k] = capture(&cuda, &shapes)?;
+                }
             }
         }
 
-        // Controls 2 and 3, on a dedicated untimed pass of each arm.
-        run_arm(0, &cuda, &fns, &mut shapes, &streams, &tab, tile)?;
-        let y_null = observable(&cuda, &shapes, &[], "nullk")?;
-        run_arm(1, &cuda, &fns, &mut shapes, &streams, &tab, tile)?;
-        let y_word = observable(&cuda, &shapes, &[("nullk", y_null.as_slice())], "word")?;
-        run_arm(2, &cuda, &fns, &mut shapes, &streams, &tab, tile)?;
-        observable(
-            &cuda,
-            &shapes,
-            &[("nullk", y_null.as_slice()), ("word", y_word.as_slice())],
-            "f1r",
-        )?;
-        println!("controls 2, 3: every output finite and written; f1r ≠ word ≠ nullk, f1r ≠ nullk");
+        // Controls 2 and 3, on the last round's outputs. A table arm is
+        // checked against `word` and `nullk`, not against `f1r`: V1 is
+        // EXPECTED to equal `f1r` to the bit (control 7), so that equality
+        // is not an elision.
+        observable(&shapes, &last[0], &[], ARMS[0])?;
+        observable(&shapes, &last[1], &[(ARMS[0], last[0].as_slice())], ARMS[1])?;
+        for k in F1R..n {
+            observable(
+                &shapes,
+                &last[k],
+                &[(ARMS[0], last[0].as_slice()), (ARMS[1], last[1].as_slice())],
+                ARMS[k],
+            )?;
+        }
+        println!("controls 2, 3: every output finite and written; f1r, f1r_v1, f1r_v2, f1r_v3 ≠ word ≠ nullk");
+
+        // Control 7: every variant against `tv_f1r`, every row of every
+        // shape, on the last round's outputs. Every variant is measured and
+        // printed; a variant over the tolerance is set aside (its times are
+        // not printed) and the other arms are read — prereg §6, first row.
+        let rows: u32 = shapes.iter().map(|s| s.d_out).sum();
+        let mut hors_jeu = vec![false; n];
+        for k in F1R + 1..n {
+            let d = drift(&shapes, &last[F1R], &last[k], ARMS[k])?;
+            let s = &shapes[d.shape];
+            println!(
+                "control 7: {:<7} per row, |Δ| / max(1, |y|) worst {:.2e} ({}, row {}: {} against f1r's {}), \
+                 {} of {rows} rows over {TOL:e}; max |Δ| / max|y| over a shape {:.2e} (information)",
+                ARMS[k],
+                d.worst,
+                s.name,
+                d.row,
+                last[k][d.shape][d.row],
+                last[F1R][d.shape][d.row],
+                d.over,
+                d.worst_inf
+            );
+            if d.worst > TOL {
+                hors_jeu[k] = true;
+                println!("control 7: {} is HORS JEU — it does not compute what tv_f1r computes; its times are not printed", ARMS[k]);
+            }
+        }
+        if hors_jeu.iter().all(|h| !h) {
+            println!(
+                "control 7: every variant equals f1r within {TOL:e} of each row, on all {rows} rows of the 7 shapes \
+                 (V1 runs f1r's FMA chain and is expected at 0)"
+            );
+        }
 
         println!(
-            "\n  {ROUNDS} rounds, {WARMUP} discarded; round r opens with arm r mod 3; every difference formed ROUND BY ROUND\n"
+            "\n  {ROUNDS} rounds, {WARMUP} discarded; round r opens with arm r mod {n}; every difference formed ROUND BY ROUND\n"
         );
         for (i, name) in ARMS.iter().enumerate() {
+            if hors_jeu[i] {
+                println!("  {name:<8}      hors jeu (contrôle 7)");
+                continue;
+            }
             let (m, lo, hi) = median_range(&times[i]);
             println!("  {name:<8} {m:8.3} ms  [{lo:.3}–{hi:.3}]");
         }
@@ -595,15 +760,38 @@ mod linux {
         let diff = |a: &[f64], b: &[f64]| -> Vec<f64> { a.iter().zip(b).map(|(x, y)| x - y).collect() };
         let (m, lo, hi) = median_range(&diff(&times[1], &times[0]));
         println!("\n  S  = word − nullk   {m:8.3} ms  [{lo:.3}–{hi:.3}]   the F1 stream in our geometry");
-        let (m, lo, hi) = median_range(&diff(&times[2], &times[1]));
+        let (m, lo, hi) = median_range(&diff(&times[F1R], &times[1]));
         println!("  Du = f1r − word     {m:8.3} ms  [{lo:.3}–{hi:.3}]   table + arithmetic decode (against D(16 KiB) = 0.663 ms of the table floor)");
-        let (m, lo, hi) = median_range(&diff(&times[2], &times[0]));
+        let (m, lo, hi) = median_range(&diff(&times[F1R], &times[0]));
         println!("  T  = f1r − nullk    {m:8.3} ms  [{lo:.3}–{hi:.3}]   stream AND decode, read against B = {B_MS} ms (Planes14 − nullk, ANOTHER process)");
-        let ratio: Vec<f64> = times[2].iter().zip(&times[0]).map(|(a, b)| a / b).collect();
+        let ratio: Vec<f64> = times[F1R].iter().zip(&times[0]).map(|(a, b)| a / b).collect();
         let (m, lo, hi) = median_range(&ratio);
         println!(
             "  t(f1r)/t(nullk)     {m:8.4}     [{lo:.4}–{hi:.4}]   against 5.103/2.306 = {B_RATIO:.2}, same reserve"
         );
+
+        // The variants: Du_vk and T_vk as the prereg names them, read against
+        // Du and T of THIS process, and the direct difference to f1r, round
+        // by round — the variant's own gain, negative is faster.
+        for k in F1R + 1..n {
+            if hors_jeu[k] {
+                continue;
+            }
+            let v = &ARMS[k][4..];
+            println!();
+            let (m, lo, hi) = median_range(&diff(&times[k], &times[1]));
+            println!("  Du_{v} = {} − word     {m:8.3} ms  [{lo:.3}–{hi:.3}]   read against Du", ARMS[k]);
+            let (m, lo, hi) = median_range(&diff(&times[k], &times[0]));
+            println!(
+                "  T_{v}  = {} − nullk    {m:8.3} ms  [{lo:.3}–{hi:.3}]   read against T of THIS process, B = {B_MS} ms as a scale",
+                ARMS[k]
+            );
+            let (m, lo, hi) = median_range(&diff(&times[k], &times[F1R]));
+            println!(
+                "  {} − f1r         {m:8.3} ms  [{lo:.3}–{hi:.3}]   the variant's own gain, negative is faster",
+                ARMS[k]
+            );
+        }
         println!("\n  WARNING: a FLOOR, not a cost. No gain scale, uniform labels rather than a model's,");
         println!("  and no Planes14 in this process. B is a scale to read T against, never a subtrahend:");
         println!("  no time here compares to a time from ANOTHER process.");

@@ -48,6 +48,37 @@ static inline float __int_as_float(int i) { float f; __builtin_memcpy(&f, &i, 4)
 static inline unsigned __float_as_uint(float f) { unsigned i; __builtin_memcpy(&i, &f, 4); return i; }
 static inline float __uint_as_float(unsigned i) { float f; __builtin_memcpy(&f, &i, 4); return f; }
 
+// PTX `prmt.b32` in its default mode, which is what `__byte_perm` compiles
+// to (an inline `prmt.b32 %0, %1, %2, %3` in the CUDA headers). The eight
+// source bytes are `{b, a}`: bytes 0..3 are `a`, byte 0 its least significant,
+// bytes 4..7 are `b`. Result byte k is chosen by control nibble k = s[4k+3:4k]:
+// its low 3 bits pick the source byte; its msb, when set, replaces the byte by
+// eight copies of that byte's own msb (0x00 or 0xff). Bits 16..31 of `s` are
+// not read — the ISA's pseudo-code masks each control nibble out of the low
+// 16 bits, and `llvq_f1rank_v3.cuh` leans on that by passing a whole table
+// row as the selector. Added for that header; `tests/f1rank_v3_matches_rust.rs`
+// checks this function against 16 hand-computed cases before it trusts it.
+//
+// ⚠️ This models the INSTRUCTION, not the intrinsic. The CUDA `__byte_perm`
+// ANDs the selector with 0x7777 before `prmt` (a `LOP.AND` in the SASS when
+// the selector is a register, folded when it is an immediate; NVIDIA forums
+// #17822, #22447; CUDA.jl #1424), so the sign-replication mode is unreachable
+// through it. Found by the adversarial review of 2026-09-05: V3's first
+// byte-mask relied on that mode and would have decoded wrong on the card
+// while passing here. No shipped header uses the mode any more
+// (`f1r_v3_bytemask` keeps it under `LLVQ_F1R_V3_SIGN_PRMT`, off).
+static inline unsigned __byte_perm(unsigned a, unsigned b, unsigned s) {
+    unsigned long long src = ((unsigned long long)b << 32) | a;
+    unsigned d = 0;
+    for (unsigned k = 0; k < 4; ++k) {
+        unsigned ctl  = (s >> (4 * k)) & 0xfu;
+        unsigned byte = (unsigned)(src >> (8 * (ctl & 7u))) & 0xffu;
+        if (ctl & 8u) byte = (byte & 0x80u) ? 0xffu : 0x00u;
+        d |= byte << (8 * k);
+    }
+    return d;
+}
+
 #define __shared__
 #define LLVQ_HOST_BUILD 1
 static inline void __syncthreads() {}

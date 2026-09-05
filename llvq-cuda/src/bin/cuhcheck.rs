@@ -72,7 +72,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 19] = [
+const UNITS: [(&str, &[&str], &str); 26] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -115,6 +115,62 @@ const UNITS: [(&str, &[&str], &str); 19] = [
         "f1rank.cu",
         &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "f1rank.cu"],
         "the F1 compiled floor: the stream, the decode, the dump, the fill",
+    ),
+    // The three arithmetics of the same decoder
+    // (`proofs/preregistration-f1-rang-variantes-2026-09-05.md`). Each
+    // variant `.cuh` includes nothing and assumes `llvq_slot.cuh` and
+    // `llvq_f1rank.cuh` before it — that is its unit; each `.cu` is assembled
+    // as the spec's contract reads: slot + matvec + f1rank.cuh + the variant
+    // .cuh + its .cu.
+    (
+        "llvq_f1rank_v1.cuh",
+        &["llvq_slot.cuh", "llvq_f1rank.cuh", "llvq_f1rank_v1.cuh"],
+        "F1 V1, no I2F: byte lanes, a LOP3 sign mux, the float by the 2²³ bias",
+    ),
+    (
+        "f1rank_v1.cu",
+        &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "llvq_f1rank_v1.cuh", "f1rank_v1.cu"],
+        "the arm tv_f1r_v1: tv_f1r's shell around f1r_dot_v1_acc",
+    ),
+    (
+        "llvq_f1rank_v2.cuh",
+        &["llvq_slot.cuh", "llvq_f1rank.cuh", "llvq_f1rank_v2.cuh"],
+        "F1 V2, no dependent loads: the trellis bytes by F₂ algebra on the word",
+    ),
+    (
+        "f1rank_v2.cu",
+        &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "llvq_f1rank_v2.cuh", "f1rank_v2.cu"],
+        "the arm tv_f1r_v2: tv_f1r's shell around f1r_dot_v2",
+    ),
+    (
+        "llvq_f1rank_v3.cuh",
+        &["llvq_slot.cuh", "llvq_f1rank.cuh", "llvq_f1rank_v3.cuh"],
+        "F1 V3, byte tables: the values in registers, looked up by prmt",
+    ),
+    (
+        "f1rank_v3.cu",
+        &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "llvq_f1rank_v3.cuh", "f1rank_v3.cu"],
+        "the arm tv_f1r_v3: tv_f1r's shell around f1r_dot_v3",
+    ),
+    // The whole string `bin/f1rankfloor` hands to NVRTC, in its order. The
+    // floor and the three variants share ONE translation unit on the card, so
+    // a name two of them both define fails here and not at job start.
+    (
+        "f1rankfloor",
+        &[
+            "llvq_slot.cuh",
+            "matvec.cu",
+            "llvq_f1rank.cuh",
+            "f1rank.cu",
+            "llvq_f1rank_v1.cuh",
+            "f1rank_v1.cu",
+            "llvq_f1rank_v2.cuh",
+            "f1rank_v2.cu",
+            "llvq_f1rank_v3.cuh",
+            "f1rank_v3.cu",
+            "nullk.cu",
+        ],
+        "the six-arm assembly of bin/f1rankfloor, as the one string NVRTC sees",
     ),
 ];
 
@@ -209,7 +265,7 @@ fn main() {
 /// `include_str!` of the layouts they candidate, which is why the list is
 /// explicit rather than "all of `UNITS`". A unit that ships neither way builds
 /// an image, ships a binary, and dies on the card.
-const TABLE_SHIPPED: [&str; 12] = [
+const TABLE_SHIPPED: [&str; 18] = [
     "llvq_slot.cuh",
     "preflight.cu",
     "matvec.cu",
@@ -222,6 +278,12 @@ const TABLE_SHIPPED: [&str; 12] = [
     "f1floor.cu",
     "llvq_f1rank.cuh",
     "f1rank.cu",
+    "llvq_f1rank_v1.cuh",
+    "f1rank_v1.cu",
+    "llvq_f1rank_v2.cuh",
+    "f1rank_v2.cu",
+    "llvq_f1rank_v3.cuh",
+    "f1rank_v3.cu",
 ];
 
 /// Assert the table is complete, from any platform.

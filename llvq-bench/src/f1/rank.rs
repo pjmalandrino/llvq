@@ -338,6 +338,131 @@ pub fn decode_word(word: u64, table: &RankTable, tr: &Trellis) -> [i32; 24] {
     y
 }
 
+/// Input bits of [`TrellisLinear`]: `s8` at bits 0..6, `b1` at bit 6, `b2`
+/// at bits 7..11, `b3` at bit 11 — the four trellis fields of a word in the
+/// order the word lays them, with the row indices between them left out.
+pub const LINEAR_IN_BITS: u32 = 12;
+
+/// The columns of [`TrellisLinear`] on the trellis of [`TRIO`](super::TRIO),
+/// derived on 2026-09-05 (`examples/f1linear.rs`): a counted fact like
+/// [`N0_MIXED`], not a parameter — [`TrellisLinear::derive`] is checked
+/// against it by a test, and `llvq-cuda/kernels/llvq_f1rank_v2.cuh` carries
+/// the same twelve numbers as immediates. Column `i` is `c1 | c2 << 8 |
+/// c3 << 16` contributed by input bit `i`; the constant term is zero.
+pub const LINEAR_COLUMNS: [u32; LINEAR_IN_BITS as usize] = [
+    0x2d002e, 0x3a005a, 0x740033, 0x03061e, 0x050963, 0x090578, // s8, bits 0..6
+    0x0000ff, // b1: the complementary prefix
+    0x2d1d00, 0x3a2b00, 0x744700, 0x638e00, // b2, bits 0..4
+    0xff0000, // b3: the complementary suffix
+];
+
+/// Pack the four trellis fields of a word into the input of [`TrellisLinear`].
+pub fn linear_input(s8: u32, b1: u32, b2: u32, b3: u32) -> u32 {
+    (s8 & 63) | (b1 & 1) << 6 | (b2 & 15) << 7 | (b3 & 1) << 11
+}
+
+/// The three pattern bytes of one path through the trellis, packed
+/// `c1 | c2 << 8 | c3 << 16`, read from the trellis's own tables — the truth
+/// [`TrellisLinear::patterns`] is compared to.
+pub fn trellis_patterns(tr: &Trellis, s8: u32, b1: u32, b2: u32, b3: u32) -> u32 {
+    let c1 = tr.prefixes[s8 as usize][b1 as usize];
+    let (c2, s16) = tr.branches[s8 as usize][b2 as usize];
+    let c3 = tr.suffixes[s16 as usize][b3 as usize];
+    c1 as u32 | (c2 as u32) << 8 | (c3 as u32) << 16
+}
+
+/// An affine model `f(x) = ⊕_i x_i·columns[i] ⊕ k` of a function on `n_in`
+/// bits, fitted at zero and at the unit vectors, and the number of inputs on
+/// which the model and the function disagree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AffineFit {
+    /// `f(0)`.
+    pub k: u32,
+    /// `f(e_i) ⊕ f(0)`, one per input bit.
+    pub columns: Vec<u32>,
+    /// Inputs, out of `2^n_in`, where `f` is not the model. Zero means `f`
+    /// is affine over F₂; zero with `k == 0` means linear.
+    pub violations: usize,
+}
+
+/// Fit `f` on `n_in` input bits and compare the fit to `f` on EVERY input.
+/// Exhaustive on purpose: an affine map is determined by `n_in + 1` values,
+/// so any disagreement anywhere is a disproof, and the domains here are at
+/// most 4,096 wide.
+pub fn affine_fit(n_in: u32, f: impl Fn(u32) -> u32) -> AffineFit {
+    let k = f(0);
+    let columns: Vec<u32> = (0..n_in).map(|i| f(1 << i) ^ k).collect();
+    let model = |x: u32| (0..n_in).filter(|&i| x >> i & 1 == 1).fold(k, |a, i| a ^ columns[i as usize]);
+    let violations = (0..1u32 << n_in).filter(|&x| f(x) != model(x)).count();
+    AffineFit { k, columns, violations }
+}
+
+/// The trellis as ONE F₂-linear map, `(s8, b1, b2, b3) ↦ (c1, c2, c3)`.
+///
+/// The three lookups of the decode — `prefixes[2·s8 + b1]`, `branches[16·s8 +
+/// b2]` giving `(c2, s16)`, `suffixes[2·s16 + b3]` — are linear in the cosets
+/// by construction, and it is a fact of the numbering, not of the algebra,
+/// that they are linear in the NUMBERS the word stores: `Trellis::new` sorts
+/// the canonical (smallest) coset representatives and numbers them in that
+/// order, and the smallest representatives of a subspace's cosets form a
+/// subspace whose numeric order is a linear coordinate (each coset's minimum
+/// is its member with zeros at the subspace's pivot bits, which is a linear
+/// reduction); the sixteen middle bytes of a state are a coset of one fixed
+/// 4-dimensional subspace (`examples/f1mids.rs`) and its sorted order is again
+/// linear. [`derive`](Self::derive) does not trust the argument: it fits the
+/// model and checks it on all 4,096 inputs, and `s16` is composed away, so a
+/// decoder needs twelve 24-bit columns and no table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrellisLinear {
+    /// `columns[i]`: `c1 | c2 << 8 | c3 << 16` contributed by input bit `i`
+    /// of [`linear_input`].
+    pub columns: [u32; LINEAR_IN_BITS as usize],
+}
+
+impl TrellisLinear {
+    /// Fit the composed map on `tr` and verify it on every one of the 4,096
+    /// inputs; `None` if the trellis is not linear (affine with a nonzero
+    /// constant included) under its numbering.
+    pub fn derive(tr: &Trellis) -> Option<Self> {
+        let fit = affine_fit(LINEAR_IN_BITS, |x| trellis_patterns(tr, x & 63, x >> 6 & 1, x >> 7 & 15, x >> 11 & 1));
+        if fit.violations != 0 || fit.k != 0 {
+            return None;
+        }
+        Some(Self { columns: fit.columns.try_into().expect("LINEAR_IN_BITS columns") })
+    }
+
+    /// `c1 | c2 << 8 | c3 << 16` for the four trellis fields, by algebra.
+    pub fn patterns(&self, s8: u32, b1: u32, b2: u32, b3: u32) -> u32 {
+        let x = linear_input(s8, b1, b2, b3);
+        self.columns.iter().enumerate().filter(|&(i, _)| x >> i & 1 == 1).fold(0, |a, (_, &c)| a ^ c)
+    }
+}
+
+/// [`decode_word`] with the trellis replaced by [`TrellisLinear`]: the same
+/// rows, the same [`val`], the pattern bytes by algebra. Written out rather
+/// than sharing a body with [`decode_word`], so the two paths stay
+/// independent and a test can compare them; this is what
+/// `llvq-cuda/kernels/llvq_f1rank_v2.cuh` mirrors.
+pub fn decode_word_linear(word: u64, table: &RankTable, lin: &TrellisLinear) -> [i32; 24] {
+    let w = split(word);
+    let cc = lin.patterns(w.s8, w.b1, w.b2, w.b3);
+
+    let row1 = table.rows[CLASS_ROWS * w.r as usize + w.i1 as usize];
+    let (row2, delta) = if (w.i2 as usize) < N0_MIXED {
+        (table.rows[w.i2 as usize], 0)
+    } else {
+        (table.rows[CLASS_ROWS + w.i2 as usize - N0_MIXED], 1)
+    };
+    let r3 = (w.p ^ w.r ^ delta) & 1;
+    let row3 = table.rows[CLASS_ROWS * r3 as usize + w.i3 as usize];
+
+    let mut y = [0i32; 24];
+    y[..8].copy_from_slice(&section(w.p, (cc & 0xff) as u8, row1));
+    y[8..16].copy_from_slice(&section(w.p, (cc >> 8 & 0xff) as u8, row2));
+    y[16..].copy_from_slice(&section(w.p, (cc >> 16 & 0xff) as u8, row3));
+    y
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,6 +687,89 @@ mod tests {
             }
             assert_eq!(reached, want, "p={p}: the middle index does not reach the mixed rows");
         }
+    }
+
+    /// The decision of 2026-09-05 (`examples/f1linear.rs`), pinned: each of
+    /// the three trellis maps, as the decoder reads them, is LINEAR over F₂ in
+    /// the bits of the numbers the word stores — `(s8, b1) → c1` on its 128
+    /// inputs, `(s8, b2) → (c2, s16)` on its 1,024, `(s16, b3) → c3` on its
+    /// 128 — with a zero constant term. The fit is exhaustive, so a numbering
+    /// that broke linearity anywhere would fail here, and no relabelling of
+    /// the word is needed for an algebraic decoder.
+    #[test]
+    fn the_three_trellis_maps_are_linear_under_the_current_numbering() {
+        let tr = Trellis::new();
+        let m1 = affine_fit(7, |x| tr.prefixes[(x & 63) as usize][(x >> 6 & 1) as usize] as u32);
+        let m2 = affine_fit(10, |x| {
+            let (c2, s16) = tr.branches[(x & 63) as usize][(x >> 6 & 15) as usize];
+            c2 as u32 | (s16 as u32) << 8
+        });
+        let m3 = affine_fit(7, |x| tr.suffixes[(x & 63) as usize][(x >> 6 & 1) as usize] as u32);
+        for (name, m) in [("(s8, b1) → c1", &m1), ("(s8, b2) → (c2, s16)", &m2), ("(s16, b3) → c3", &m3)] {
+            assert_eq!(m.violations, 0, "{name} is not affine: {} inputs off the model", m.violations);
+            assert_eq!(m.k, 0, "{name} has a constant term");
+        }
+        // The complementary prefix and suffix are the all-ones columns.
+        assert_eq!(m1.columns[6], 0xff);
+        assert_eq!(m3.columns[6], 0xff);
+    }
+
+    /// The composed map derives, its columns are the pinned ones, and it
+    /// reproduces the trellis's pattern bytes on all 64 × 2 × 16 × 2 paths.
+    #[test]
+    fn the_linear_columns_are_the_derived_ones_and_reproduce_every_path() {
+        let tr = Trellis::new();
+        let lin = TrellisLinear::derive(&tr).expect("the trellis is linear under its numbering");
+        assert_eq!(lin.columns, LINEAR_COLUMNS, "the derived columns are not the pinned ones");
+        for s8 in 0..GOLAY_STATES as u32 {
+            for b1 in 0..2 {
+                for b2 in 0..BRANCHES as u32 {
+                    for b3 in 0..2 {
+                        assert_eq!(
+                            lin.patterns(s8, b1, b2, b3),
+                            trellis_patterns(&tr, s8, b1, b2, b3),
+                            "s8={s8} b1={b1} b2={b2} b3={b3}: the algebra and the tables disagree"
+                        );
+                    }
+                }
+            }
+        }
+        // The input packing is a bijection onto 12 bits, field by field.
+        assert_eq!(linear_input(63, 1, 15, 1), (1 << LINEAR_IN_BITS) - 1);
+        assert_eq!(linear_input(0, 1, 0, 0), 1 << 6);
+        assert_eq!(linear_input(0, 0, 1, 0), 1 << 7);
+        assert_eq!(linear_input(0, 0, 0, 1), 1 << 11);
+    }
+
+    /// The algebraic decode is the table decode, on random words and under
+    /// every single-bit flip of them — so a column mistaken by one bit, which
+    /// only some words would reveal, is reached from 200 directions.
+    #[test]
+    fn decode_word_linear_is_decode_word() {
+        let (t, tr) = (RankTable::build(), Trellis::new());
+        let lin = TrellisLinear::derive(&tr).expect("linear");
+        let mut rng = SplitMix64::new(0xf12c_2026_0905);
+        for _ in 0..200 {
+            let wd = word(&mut rng);
+            assert_eq!(decode_word_linear(wd, &t, &lin), decode_word(wd, &t, &tr), "{wd:#014x}");
+            for bit in 0..WORD_BITS {
+                let f = wd ^ (1u64 << bit);
+                assert_eq!(decode_word_linear(f, &t, &lin), decode_word(f, &t, &tr), "{f:#014x} (bit {bit} of {wd:#014x})");
+            }
+        }
+    }
+
+    /// `affine_fit` tells a linear map from a non-linear one: XOR of two
+    /// inputs passes with the expected columns; AND of them is caught with
+    /// exactly the one violation it has.
+    #[test]
+    fn affine_fit_detects_non_linearity() {
+        let xor = affine_fit(2, |x| (x & 1) ^ (x >> 1 & 1));
+        assert_eq!((xor.k, &xor.columns[..], xor.violations), (0, &[1, 1][..], 0));
+        let and = affine_fit(2, |x| (x & 1) & (x >> 1 & 1));
+        assert_eq!((and.k, &and.columns[..], and.violations), (0, &[0, 0][..], 1));
+        let affine = affine_fit(3, |x| x ^ 5);
+        assert_eq!((affine.k, affine.violations), (5, 0));
     }
 
     /// Every bit below 47 moves the point, for every word; bit 47 never does.

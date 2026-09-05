@@ -157,6 +157,21 @@ pub const F1FLOOR_CU: &str = include_str!("../kernels/f1floor.cu");
 pub const F1RANK_CUH: &str = include_str!("../kernels/llvq_f1rank.cuh");
 pub const F1RANK_CU: &str = include_str!("../kernels/f1rank.cu");
 
+/// The three arithmetics of the same F1 decoder, timed against `tv_f1r` in
+/// one process by `bin/f1rankfloor`
+/// (`proofs/preregistration-f1-rang-variantes-2026-09-05.md`): V1 builds the
+/// floats without the I2F pipe, V2 replaces the three dependent small-table
+/// loads by F₂ algebra on the word's bits, V3 looks the values up in byte
+/// tables held in registers by `prmt`. Same word, same 16 KiB table, same
+/// launch signature as `tv_f1r`; each `.cuh` assumes `llvq_slot.cuh` and
+/// `llvq_f1rank.cuh` before it, each `.cu` its own `.cuh`.
+pub const F1RANK_V1_CUH: &str = include_str!("../kernels/llvq_f1rank_v1.cuh");
+pub const F1RANK_V1_CU: &str = include_str!("../kernels/f1rank_v1.cu");
+pub const F1RANK_V2_CUH: &str = include_str!("../kernels/llvq_f1rank_v2.cuh");
+pub const F1RANK_V2_CU: &str = include_str!("../kernels/f1rank_v2.cu");
+pub const F1RANK_V3_CUH: &str = include_str!("../kernels/llvq_f1rank_v3.cuh");
+pub const F1RANK_V3_CU: &str = include_str!("../kernels/f1rank_v3.cu");
+
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
 pub struct Sources {
@@ -233,6 +248,12 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "f1floor.cu" => Ok(F1FLOOR_CU),
         "llvq_f1rank.cuh" => Ok(F1RANK_CUH),
         "f1rank.cu" => Ok(F1RANK_CU),
+        "llvq_f1rank_v1.cuh" => Ok(F1RANK_V1_CUH),
+        "f1rank_v1.cu" => Ok(F1RANK_V1_CU),
+        "llvq_f1rank_v2.cuh" => Ok(F1RANK_V2_CUH),
+        "f1rank_v2.cu" => Ok(F1RANK_V2_CU),
+        "llvq_f1rank_v3.cuh" => Ok(F1RANK_V3_CUH),
+        "f1rank_v3.cu" => Ok(F1RANK_V3_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),
