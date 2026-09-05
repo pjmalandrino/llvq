@@ -197,6 +197,19 @@ pub fn block_records(fd: &FastDecoder, golay: &Golay) -> Vec<GpuBlockRec> {
     }
     out
 }
+
+/// [`block_records`] under the file's kind: the records describe the 383
+/// classes of the v1 ball, so a Trio header gets
+/// [`crate::runtime::require_ball`]'s refusal and no table.
+pub fn block_records_for_kind(
+    kind: crate::CodeKind,
+    fd: &FastDecoder,
+    golay: &Golay,
+) -> crate::Result<Vec<GpuBlockRec>> {
+    crate::runtime::require_ball(kind, "E1v block records")?;
+    Ok(block_records(fd, golay))
+}
+
 /// Entries of the payload-width table — one per value the 9-bit class field can
 /// hold, so the kernel indexes it with the header itself and never with a
 /// converted id.

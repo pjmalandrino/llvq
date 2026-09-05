@@ -397,6 +397,8 @@ fn main() -> Result<(), String> {
     let f = File::open(&path).map_err(|e| format!("open {path}: {e}"))?;
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+    // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
+    llvq_artifact::runtime::require_ball(h.kind(), "matvec (metal)").map_err(|e| e.to_string())?;
     let m = (0..h.matrices)
         .map(|_| llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix"))
         .find(|m| m.name.contains(&target))

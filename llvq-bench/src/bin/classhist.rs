@@ -60,6 +60,15 @@ fn main() {
     let f = File::open(&path).unwrap_or_else(|e| panic!("open {path}: {e}"));
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
+    // `class_of` would file every Trio word under some v1 class, and the
+    // histogram would be of nothing.
+    assert!(
+        h.kind() == llvq_artifact::CodeKind::Ball,
+        "{path}: a {} file (format v{}); classhist reads indices as v1 classes — \
+         no runtime layout for Trio before F1d",
+        h.kind(),
+        h.version
+    );
     for _ in 0..h.matrices {
         let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
         assert!(

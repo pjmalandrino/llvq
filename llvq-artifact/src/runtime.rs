@@ -52,7 +52,7 @@
 //! read once per row, not per block. This module owns the per-block stream
 //! only — the part whose format the kernel is married to.
 
-use crate::{Error, Result};
+use crate::{CodeKind, Error, Result};
 use llvq_core::{Golay, Point, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 // Planes12x only: the L = 5 swap re-encodes a block's direction, which needs
@@ -137,6 +137,14 @@ impl ClassTable {
             });
         }
         Self { recs, gain_bits }
+    }
+
+    /// [`Self::new`] under the file's kind: the table describes the 383
+    /// classes of the v1 ball, so a Trio header gets [`require_ball`]'s
+    /// refusal and no table.
+    pub fn for_kind(kind: CodeKind, fd: &FastDecoder, gain_bits: u32) -> Result<Self> {
+        require_ball(kind, "ClassTable")?;
+        Ok(Self::new(fd, gain_bits))
     }
 
     pub fn gain_bits(&self) -> u32 {
@@ -1325,6 +1333,13 @@ impl Golay70Table {
         }
     }
 
+    /// [`Self::new`] under the file's kind — a class table of the v1 ball,
+    /// refused for a Trio header by [`require_ball`].
+    pub fn for_kind(kind: CodeKind, fd: &FastDecoder) -> Result<Self> {
+        require_ball(kind, "Golay70Table")?;
+        Ok(Self::new(fd))
+    }
+
     /// Class entry `id` — [`ClassTable`]'s numbering (0 = origin).
     pub fn class(&self, id: usize) -> &Golay70Class {
         &self.classes[id]
@@ -1626,6 +1641,83 @@ pub fn transcode_golay70(
         exc_idx,
         exc_data,
     })
+}
+
+// ---------------------------------------------------------------------------
+// The kind gate: every VRAM layout here is a bijection of the v1 ball index
+// ---------------------------------------------------------------------------
+
+/// Refuse anything but a Ball file at the door of the runtime.
+///
+/// Every layout of this crate — the five [`Layout`]s, `Planes14`,
+/// `Planes12x`, `Golay70`, and `E1c`/`E1v` built on them — is a
+/// rearrangement of a v1 ball index: a class of the 383 and an arrangement
+/// inside it. A Trio word ([`llvq_search::trio`]) names no class; pushed
+/// through any of them it would transcode into a coherent stream of some
+/// other file's blocks, and the only symptom would be a wrong number. The
+/// served Trio layout, `trio48`, is F1d's (`docs/ROADMAP.md` §2.2 quater,
+/// step 6); until it exists the honest answer to a Trio header is this
+/// refusal, at every kind-aware entry — the `*_for_kind` twins of the
+/// transcoders and table builders — with `what` naming the layout or table.
+pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
+    match kind {
+        CodeKind::Ball => Ok(()),
+        CodeKind::Trio => Err(Error::Inconsistent {
+            name: what.to_string(),
+            detail: "no runtime layout for Trio before F1d".to_string(),
+        }),
+    }
+}
+
+/// [`transcode`] under the file's kind.
+pub fn transcode_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    table: &ClassTable,
+    indices: &[u64],
+    gains: &[u32],
+    layout: Layout,
+) -> Result<RuntimeBlocks> {
+    require_ball(kind, &format!("{layout:?}"))?;
+    transcode(fd, table, indices, gains, layout)
+}
+
+/// [`transcode_planes14`] under the file's kind.
+pub fn transcode_planes14_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    table: &ClassTable,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<PlanesBlocks> {
+    require_ball(kind, "Planes14")?;
+    transcode_planes14(fd, table, indices, gains)
+}
+
+/// [`transcode_planes12x`] under the file's kind.
+pub fn transcode_planes12x_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    table: &ClassTable,
+    s: &Searcher,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<Planes12xBlocks> {
+    require_ball(kind, "Planes12x")?;
+    transcode_planes12x(fd, table, s, indices, gains)
+}
+
+/// [`transcode_golay70`] under the file's kind.
+pub fn transcode_golay70_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    table: &ClassTable,
+    g70: &Golay70Table,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<Golay70Blocks> {
+    require_ball(kind, "Golay70")?;
+    transcode_golay70(fd, table, g70, indices, gains)
 }
 
 /// LSB-first bit writer over a pre-zeroed slice.

@@ -36,10 +36,22 @@ pub enum Error {
     ///
     /// The one failure that has no visible symptom: every index would still be
     /// in range, every point it decodes to would still be a lattice point, and
-    /// the weights would be wrong.
-    CodebookMismatch { stored: u64, computed: u64 },
+    /// the weights would be wrong. `which` names the map — the v1 ball's
+    /// ([`crate::codebook_fingerprint`]) or Trio's
+    /// ([`crate::codebook::trio_fingerprint`]) — since a v5 header carries
+    /// both and a reader that reported "a fingerprint" would leave the
+    /// operator guessing which build to go and find.
+    CodebookMismatch {
+        which: &'static str,
+        stored: u64,
+        computed: u64,
+    },
     /// A header version this writer cannot emit.
     UnknownVersion { version: u32 },
+    /// A v5 header names a code kind this reader does not know: a newer
+    /// writer, or a corrupted field. Refused at the header, before any width
+    /// is trusted — an unknown kind's records have no defined width.
+    UnknownCodeKind { tag: u32 },
     /// Underlying I/O failure.
     Io(std::io::Error),
 }
@@ -73,17 +85,27 @@ impl fmt::Display for Error {
                 "raw tensor encoding tag {tag} is unknown — file written by a \
                  newer writer, or corrupted"
             ),
-            Error::CodebookMismatch { stored, computed } => write!(
+            Error::CodebookMismatch {
+                which,
+                stored,
+                computed,
+            } => write!(
                 f,
-                "codebook fingerprint {stored:#018x} does not match this \
-                 build's {computed:#018x} — the file's indices were assigned \
-                 by a different index map (Golay order, class order or \
-                 mixed-radix composition), so decoding them here would yield \
-                 valid lattice points that are not the ones written"
+                "{which} codebook fingerprint {stored:#018x} does not match \
+                 this build's {computed:#018x} — the file's indices were \
+                 assigned by a different index map (Golay order, class order \
+                 or mixed-radix composition for the ball; trio, rows or \
+                 columns for Trio), so decoding them here would yield valid \
+                 lattice points that are not the ones written"
             ),
             Error::UnknownVersion { version } => {
                 write!(f, "no artifact format version {version} to write")
             }
+            Error::UnknownCodeKind { tag } => write!(
+                f,
+                "code kind {tag} is unknown (0 = Ball, 1 = Trio) — file \
+                 written by a newer writer, or corrupted"
+            ),
             Error::Io(e) => write!(f, "i/o: {e}"),
         }
     }

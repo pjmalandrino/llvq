@@ -37,6 +37,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 
+use llvq_artifact::CodeKind;
 use llvq_artifact::runtime::{
     transcode, transcode_golay70, transcode_planes12x, transcode_planes14, ClassTable,
     Golay70Blocks, Golay70Table, Layout, Planes12xBlocks, PlanesBlocks, RuntimeBlocks,
@@ -1571,10 +1572,21 @@ pub struct Transcoder {
 
 impl Transcoder {
     /// Build the tables for `layout`, checking up front what the layout needs
-    /// from the class table.
+    /// from the class table — for a Ball file, which every file before v5 is.
     pub fn new(layout: FusedLayout) -> Result<Self, String> {
+        Self::for_kind(layout, CodeKind::Ball)
+    }
+
+    /// [`Self::new`] under the file's [`CodeKind`]. Every layout here is a
+    /// rearrangement of a v1 ball index; a Trio header is refused at the
+    /// table, before a single block is looked at, with the artifact crate's
+    /// own words — `trio48`, the served Trio layout, is F1d's
+    /// (`docs/ROADMAP.md` §2.2 quater, step 6). Portable: this is the side of
+    /// the boundary a test on a machine without a card reaches.
+    pub fn for_kind(layout: FusedLayout, kind: CodeKind) -> Result<Self, String> {
         let fd = FastDecoder::new();
-        let table = ClassTable::new(&fd, 1);
+        let table = ClassTable::for_kind(kind, &fd, 1)
+            .map_err(|e| format!("{}: {e}", layout.name()))?;
         if matches!(
             layout,
             FusedLayout::Planes14 | FusedLayout::Planes12x | FusedLayout::Golay70
@@ -1756,7 +1768,9 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         ));
     }
 
-    let tr = Transcoder::new(layout)?;
+    // The header's kind, not a default: a Trio file is refused here, before
+    // any record is read through `read_matrix_raw` as a Ball record.
+    let tr = Transcoder::for_kind(layout, head.kind())?;
     let mut matrices = Vec::with_capacity(head.matrices as usize);
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
@@ -1882,6 +1896,32 @@ mod tests {
         for bad in ["on", "off", "true", "2", "1 ", "01", "yes", "planes14"] {
             let e = FuseMode::parse(Some(bad)).expect_err("must be refused");
             assert!(e.contains(bad), "the message must cite the value: {e}");
+        }
+    }
+
+    /// A Trio header has no runtime layout before F1d: every arm of
+    /// [`Transcoder::for_kind`] refuses it with the artifact crate's words,
+    /// and the Ball arm is `new` — same tables, same layout.
+    #[test]
+    fn a_trio_file_has_no_runtime_layout_before_f1d() {
+        for layout in [
+            FusedLayout::Planes14,
+            FusedLayout::Planes12x,
+            FusedLayout::Slot32,
+            FusedLayout::Golay70,
+        ] {
+            let e = Transcoder::for_kind(layout, CodeKind::Trio)
+                .err()
+                .unwrap_or_else(|| panic!("{}: a Trio header must be refused", layout.name()));
+            assert!(
+                e.contains("no runtime layout for Trio before F1d"),
+                "{}: the refusal must say why: {e}",
+                layout.name()
+            );
+            assert!(e.contains(layout.name()), "{}: the refusal must name the layout: {e}", layout.name());
+            let ball = Transcoder::for_kind(layout, CodeKind::Ball).expect("a Ball header builds");
+            assert_eq!(ball.layout(), layout);
+            assert_eq!(ball.class_table().n_entries(), Transcoder::new(layout).expect("new").class_table().n_entries());
         }
     }
 

@@ -29,17 +29,25 @@
 //! of `llvq-core`/`llvq-search`. The substitution is exact because the field
 //! *is* a pure function of those facts, and claim 2 is what establishes that
 //! a different codebook gives a different value.
+//!
+//! From v5 the header carries a second map, Trio's, and its own kind; the
+//! three claims are restated for it (`the_trio_map_is_the_published_one`,
+//! `the_trio_fingerprint_moves_with_every_ingredient`, and the v5 arms of the
+//! refusals), and a fourth is added: the default writer still writes v4, byte
+//! for byte, so no Ball file moved when Trio arrived.
 
 mod common;
 
 use llvq_artifact::{
-    codebook_fingerprint, decode_matrix, read_all, read_header, ArtifactWriter, Error,
-    QuantizedMatrix, MAGIC, MAGIC_V1, MAGIC_V2, MAGIC_V3, VERSION,
+    codebook_fingerprint, decode_matrix, read_all, read_header, trio_fingerprint, ArtifactWriter,
+    CodeKind, Error, QuantizedMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2,
+    MAGIC_V3, MAGIC_V4, MAGIC_V5, TRIO_SHELL_CAP, VERSION,
 };
 use llvq_core::{Point, SplitMix64, DIM};
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 use llvq_search::index::{Indexer, N13};
+use llvq_search::trio::{Trio, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, TRIO, WORD_BITS};
 
 /// The fingerprint of format v1 as this branch defines it.
 ///
@@ -56,6 +64,14 @@ use llvq_search::index::{Indexer, N13};
 /// The first case is the whole reason the constant is here. The failure
 /// message alone does not distinguish them; a human has to.
 const PUBLISHED_FINGERPRINT: u64 = 0x338f_420f_1186_6319;
+
+/// The fingerprint of the Trio map as step 3 pinned it (2026-09-05), the
+/// value every v5 Trio file carries. Same rule as [`PUBLISHED_FINGERPRINT`]:
+/// a failure here is either the map moving — `llvq_search::trio`'s trio,
+/// rows, columns or word layout, and with them every Trio file written so
+/// far and the card's decoders — or a deliberate edit to what
+/// `src/codebook.rs` hashes. Decide which before touching the number.
+const PUBLISHED_TRIO_FINGERPRINT: u64 = 0xebc7_5263_8c8d_b088;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -99,6 +115,31 @@ fn synthetic(ix: &Indexer, rng: &mut SplitMix64, name: &str) -> QuantizedMatrix 
     }
 }
 
+/// The same shape of matrix with Trio codes: labels drawn at random and
+/// decoded through the map, one gain bit, the sentinel cap.
+fn synthetic_trio(trio: &Trio, rng: &mut SplitMix64, name: &str) -> QuantizedMatrix {
+    let (d_out, d_in) = (3usize, 2 * DIM + 8);
+    let codes: Vec<BlockCode> = (0..d_out * (d_in / DIM))
+        .map(|_| BlockCode {
+            point: trio.decode(rng.next() & LABEL_MASK),
+            gain: (rng.next() & 1) as u32,
+        })
+        .collect();
+    QuantizedMatrix {
+        name: name.to_string(),
+        d_out,
+        d_in,
+        codes,
+        row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
+        centroids: vec![0.6, 1.2],
+        rotation_seed: Some(0x1234),
+        shell_cap: TRIO_SHELL_CAP,
+        tail: (0..d_out * (d_in % DIM))
+            .map(|_| f64::from(rng.next_gaussian() as f32))
+            .collect(),
+    }
+}
+
 /// A one-matrix `LVQ4` file, and the weights it should decode to.
 fn v4_file() -> (Vec<u8>, Vec<f32>) {
     let ix = Indexer::new();
@@ -113,8 +154,27 @@ fn v4_file() -> (Vec<u8>, Vec<f32>) {
     (buf, decode_matrix(&m))
 }
 
+/// A one-matrix `LVQ5` Trio file, and the weights it should decode to.
+fn v5_trio_file() -> (Vec<u8>, Vec<f32>) {
+    let trio = Trio::new();
+    let mut rng = SplitMix64::new(0xC0DE_7210);
+    let m = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.up_proj.weight");
+    let mut buf: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::with_kind(&mut buf, CodeKind::Trio, 1).expect("header");
+        w.push(&m).expect("write");
+        w.finish().expect("flush");
+    }
+    (buf, decode_matrix(&m))
+}
+
+/// Header geometry: magic(4) + count(4), + v1 fingerprint(8) from v4, + trio
+/// fingerprint(8) + kind(4) from v5.
+const V4_HEADER: usize = 16;
+const V5_HEADER: usize = 28;
+
 // ---------------------------------------------------------------------------
-// 1 — the map has not moved
+// 1 — the maps have not moved
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -129,8 +189,26 @@ fn the_index_map_is_the_published_one() {
     );
 }
 
+#[test]
+fn the_trio_map_is_the_published_one() {
+    assert_eq!(
+        trio_fingerprint(),
+        PUBLISHED_TRIO_FINGERPRINT,
+        "the Trio map changed: every v5 Trio file written so far, and the \
+         card's decoders, no longer agree with this build. Read the note on \
+         PUBLISHED_TRIO_FINGERPRINT before touching this constant. Computed: \
+         {:#018x}",
+        trio_fingerprint()
+    );
+    assert_ne!(
+        trio_fingerprint(),
+        codebook_fingerprint(),
+        "two maps, two domains, two numbers"
+    );
+}
+
 // ---------------------------------------------------------------------------
-// 2 — the fingerprint is a function of the map
+// 2 — the fingerprints are functions of their maps
 // ---------------------------------------------------------------------------
 
 /// Everything `codebook_fingerprint` digests, laid out so a test can perturb
@@ -367,21 +445,170 @@ fn the_fingerprint_moves_with_every_ingredient_of_the_map() {
     }
 }
 
+/// Everything `trio_fingerprint` digests, restated the same way: the inputs
+/// of the map and `decode` at the probed words.
+#[derive(Clone)]
+struct TrioIngredients {
+    domain: Vec<u8>,
+    dim: u64,
+    word_bits: u64,
+    label_bits: u64,
+    n0_mixed: u64,
+    trio: [u32; 3],
+    rows: Vec<u32>,
+    columns: Vec<u32>,
+    probes: Vec<(u64, Point)>,
+}
+
+fn trio_truth() -> TrioIngredients {
+    let trio = Trio::new();
+    let probes = [0u64, LABEL_MASK]
+        .into_iter()
+        .chain((0..64u64).map(|k| mix(1 + k) & LABEL_MASK))
+        .map(|w| (w, trio.decode(w)))
+        .collect();
+    TrioIngredients {
+        domain: b"llvq codebook fingerprint trio v1".to_vec(),
+        dim: DIM as u64,
+        word_bits: u64::from(WORD_BITS),
+        label_bits: u64::from(LABEL_BITS),
+        n0_mixed: N0_MIXED as u64,
+        trio: TRIO,
+        rows: trio.rows().to_vec(),
+        columns: LINEAR_COLUMNS.to_vec(),
+        probes,
+    }
+}
+
+fn trio_digest(g: &TrioIngredients) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    bytes(&mut h, &g.domain);
+    word(&mut h, g.dim);
+    word(&mut h, g.word_bits);
+    word(&mut h, g.label_bits);
+    word(&mut h, g.n0_mixed);
+    for &o in &g.trio {
+        word(&mut h, u64::from(o));
+    }
+    word(&mut h, g.rows.len() as u64);
+    for &r in &g.rows {
+        word(&mut h, u64::from(r));
+    }
+    word(&mut h, g.columns.len() as u64);
+    for &c in &g.columns {
+        word(&mut h, u64::from(c));
+    }
+    for (w, p) in &g.probes {
+        word(&mut h, *w);
+        p.iter().for_each(|v| bytes(&mut h, &v.to_le_bytes()));
+    }
+    h
+}
+
+/// The restatement agrees with the shipped digest, and each ingredient of
+/// the Trio map moves it: the trio of octads, a row of the table, an F₂
+/// column, the field widths, the mixed split, and `decode` itself — a
+/// coordinate of a probed point, and which words are probed.
+#[test]
+fn the_trio_fingerprint_moves_with_every_ingredient() {
+    let base = trio_truth();
+    assert_eq!(
+        trio_digest(&base),
+        trio_fingerprint(),
+        "the independent restatement disagrees with src/codebook.rs — one of \
+         the two changed without the other"
+    );
+
+    let mut perturbations: Vec<(&str, TrioIngredients)> = Vec::new();
+
+    let mut g = base.clone();
+    g.domain.push(b'!');
+    perturbations.push(("domain tag", g));
+
+    let mut g = base.clone();
+    g.dim += 1;
+    perturbations.push(("block dimension", g));
+
+    let mut g = base.clone();
+    g.word_bits += 1;
+    perturbations.push(("word width", g));
+
+    let mut g = base.clone();
+    g.label_bits -= 1;
+    perturbations.push(("label width", g));
+
+    let mut g = base.clone();
+    g.n0_mixed += 1;
+    perturbations.push(("mixed split", g));
+
+    // Two octads of the trio exchanged: the same 24 coordinates, sections
+    // swapped, every table intact.
+    let mut g = base.clone();
+    g.trio.swap(0, 1);
+    perturbations.push(("trio octad order", g));
+
+    // One row of the universal table: a rank vector moved by one.
+    let mut g = base.clone();
+    g.rows[1239] ^= 1;
+    perturbations.push(("a table row", g));
+
+    // Two rows transposed inside a class: the (cost, ρ) order.
+    let mut g = base.clone();
+    g.rows.swap(5, 6);
+    perturbations.push(("row order", g));
+
+    // One F₂ column of the trellis.
+    let mut g = base.clone();
+    g.columns[3] ^= 0x10;
+    perturbations.push(("a linear column", g));
+
+    // `decode` itself: a coordinate of a probed point — the walk or a field
+    // cut moved while every table stayed.
+    let mut g = base.clone();
+    g.probes[7].1[0] += 2;
+    perturbations.push(("a decoded coordinate", g));
+
+    // Two probed points exchanged: same set of points, different words.
+    let mut g = base.clone();
+    let (a, b) = (g.probes[3].1, g.probes[4].1);
+    g.probes[3].1 = b;
+    g.probes[4].1 = a;
+    perturbations.push(("word to point", g));
+
+    // A probe word: which words are looked at is part of the recipe.
+    let mut g = base.clone();
+    g.probes[9].0 ^= 1;
+    perturbations.push(("a probe word", g));
+
+    let want = trio_digest(&base);
+    for (what, g) in perturbations {
+        assert_ne!(
+            trio_digest(&g),
+            want,
+            "{what} can change without moving the Trio fingerprint — the \
+             field does not cover it"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 3 — a disagreeing file is refused
 // ---------------------------------------------------------------------------
 
 /// **The test the item exists for.** A file whose header names a codebook
 /// other than this build's must be refused, at the header, before a single
-/// index is decoded.
+/// index is decoded — for the v1 fingerprint of a v4 file, and for both
+/// fingerprints of a v5 file, each refusal naming which map disagreed.
 #[test]
 fn a_file_from_another_codebook_is_refused() {
     let (good, want) = v4_file();
 
     // The control: unpatched, it reads, and the weights come back.
     let head = read_header(&mut std::io::Cursor::new(&good)).expect("a fresh file must open");
-    assert_eq!(head.version, VERSION);
+    assert_eq!(head.version, DEFAULT_VERSION);
     assert_eq!(head.codebook, Some(codebook_fingerprint()));
+    assert_eq!(head.trio, None, "a v4 header has no Trio fingerprint");
+    assert_eq!(head.kind(), CodeKind::Ball);
     assert_eq!(
         decode_matrix(&read_all(&mut std::io::Cursor::new(&good)).expect("read")[0]),
         want
@@ -391,26 +618,53 @@ fn a_file_from_another_codebook_is_refused() {
     // what another codebook's map would have produced.
     let stored = u64::from_le_bytes(good[8..16].try_into().unwrap());
     assert_eq!(stored, codebook_fingerprint(), "the field is where we think");
+    refuse_patched(&good, 8, stored, codebook_fingerprint(), "v1 ball");
 
+    // The v5 file: both fields, each refused by its own name.
+    let (good5, want5) = v5_trio_file();
+    let head = read_header(&mut std::io::Cursor::new(&good5)).expect("a fresh v5 file must open");
+    assert_eq!(head.version, FIRST_KINDED_VERSION);
+    assert_eq!(head.codebook, Some(codebook_fingerprint()));
+    assert_eq!(head.trio, Some(trio_fingerprint()));
+    assert_eq!(head.kind(), CodeKind::Trio);
+    assert_eq!(
+        decode_matrix(&read_all(&mut std::io::Cursor::new(&good5)).expect("read")[0]),
+        want5
+    );
+    let v1 = u64::from_le_bytes(good5[8..16].try_into().unwrap());
+    let tr = u64::from_le_bytes(good5[16..24].try_into().unwrap());
+    assert_eq!((v1, tr), (codebook_fingerprint(), trio_fingerprint()), "the fields are where we think");
+    assert_eq!(u32::from_le_bytes(good5[24..28].try_into().unwrap()), CodeKind::Trio.tag());
+    refuse_patched(&good5, 8, v1, codebook_fingerprint(), "v1 ball");
+    refuse_patched(&good5, 16, tr, trio_fingerprint(), "Trio");
+}
+
+/// Patch the fingerprint at `at` to values other than `stored` and demand the
+/// named refusal, at the header and through `read_all`.
+fn refuse_patched(good: &[u8], at: usize, stored: u64, computed: u64, which: &str) {
     for other in [stored ^ 1, stored.wrapping_add(0xDEAD_BEEF), 0, u64::MAX] {
         if other == stored {
             continue;
         }
-        let mut bad = good.clone();
-        bad[8..16].copy_from_slice(&other.to_le_bytes());
+        let mut bad = good.to_vec();
+        bad[at..at + 8].copy_from_slice(&other.to_le_bytes());
 
         match read_header(&mut std::io::Cursor::new(&bad)) {
-            Err(Error::CodebookMismatch { stored: s, computed }) => {
+            Err(Error::CodebookMismatch {
+                which: w,
+                stored: s,
+                computed: c,
+            }) => {
+                assert_eq!(w, which, "the refusal must name the map that disagreed");
                 assert_eq!(s, other);
-                assert_eq!(computed, codebook_fingerprint());
+                assert_eq!(c, computed);
             }
-            Err(e) => panic!("wrong refusal for fingerprint {other:#x}: {e}"),
+            Err(e) => panic!("wrong refusal for {which} fingerprint {other:#x}: {e}"),
             Ok(_) => panic!(
-                "a file written against codebook {other:#x} was accepted by a \
-                 build whose codebook is {:#x} — its indices decode to valid \
+                "a file written against {which} codebook {other:#x} was accepted by a \
+                 build whose codebook is {computed:#x} — its indices decode to valid \
                  lattice points that are not the ones written, and nothing \
-                 downstream can tell",
-                codebook_fingerprint()
+                 downstream can tell"
             ),
         }
 
@@ -427,7 +681,7 @@ fn a_file_from_another_codebook_is_refused() {
 /// the two writes produces — must be refused rather than read as if the first
 /// eight bytes of the matrix record were a fingerprint.
 ///
-/// `llvq-bench/src/bin/lswap.rs` rebuilds a header exactly that way. This
+/// `llvq-bench/src/bin/lswap.rs` rebuilt a header exactly that way once. This
 /// pins the failure as *loud*: a stale writer cannot produce a file that
 /// silently reads as something else.
 #[test]
@@ -436,29 +690,78 @@ fn a_hand_rolled_v4_header_is_refused() {
     let mut bad: Vec<u8> = Vec::new();
     bad.extend_from_slice(MAGIC);
     bad.extend_from_slice(&good[4..8]); // the count
-    bad.extend_from_slice(&good[16..]); // straight to the matrix record
+    bad.extend_from_slice(&good[V4_HEADER..]); // straight to the matrix record
     assert!(
         matches!(
             read_header(&mut std::io::Cursor::new(&bad)),
-            Err(Error::CodebookMismatch { .. })
+            Err(Error::CodebookMismatch { which: "v1 ball", .. })
         ),
         "a v4 header missing its fingerprint must be refused, not read with \
          the matrix record's first eight bytes standing in for the field"
     );
 }
 
+/// The v5 shapes of the same mistake: a `LVQ5` magic over a v4 header (the
+/// Trio fingerprint and the kind missing), and over a bare `magic + count`.
+/// Each is refused at the first field that cannot be right, never read with
+/// record bytes standing in for header fields.
+#[test]
+fn a_hand_rolled_v5_header_is_refused() {
+    let (good, _) = v5_trio_file();
+
+    // A v4 writer's header under a v5 magic: the record's first eight bytes
+    // would be the Trio fingerprint.
+    let mut bad: Vec<u8> = Vec::new();
+    bad.extend_from_slice(MAGIC_V5);
+    bad.extend_from_slice(&good[4..V4_HEADER]); // count + v1 fingerprint
+    bad.extend_from_slice(&good[V5_HEADER..]); // straight to the matrix record
+    assert!(
+        matches!(
+            read_header(&mut std::io::Cursor::new(&bad)),
+            Err(Error::CodebookMismatch { which: "Trio", .. })
+        ),
+        "a v5 header missing its Trio fingerprint and kind must be refused at \
+         the Trio fingerprint"
+    );
+
+    // Bare `magic + count`.
+    let mut bad: Vec<u8> = Vec::new();
+    bad.extend_from_slice(MAGIC_V5);
+    bad.extend_from_slice(&good[4..8]);
+    bad.extend_from_slice(&good[V5_HEADER..]);
+    assert!(
+        matches!(
+            read_header(&mut std::io::Cursor::new(&bad)),
+            Err(Error::CodebookMismatch { which: "v1 ball", .. })
+        ),
+        "a v5 header with no fingerprint at all must be refused at the first"
+    );
+
+    // Both fingerprints right, the kind missing: the record's name length is
+    // not a kind.
+    let mut bad: Vec<u8> = Vec::new();
+    bad.extend_from_slice(&good[..24]);
+    bad.extend_from_slice(&good[V5_HEADER..]);
+    let name_len = "model.layers.0.mlp.up_proj.weight".len() as u32;
+    match read_header(&mut std::io::Cursor::new(&bad)) {
+        Err(Error::UnknownCodeKind { tag }) => assert_eq!(tag, name_len, "the name length, read as a kind"),
+        other => panic!("expected UnknownCodeKind, got {:?}", other.err()),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 4 — and the old files still open
 // ---------------------------------------------------------------------------
 
-/// Every legacy version must still read, with no fingerprint demanded.
+/// Every earlier version must still read, with no field demanded that it
+/// cannot have.
 ///
 /// Not negotiable: the Qwen3-4B artifact published on Hugging Face and cited
 /// in the paper's availability section is `LVQ2`, and it cannot grow a field
 /// retroactively. The matrix records are identical across versions, so a
-/// legacy file is a `LVQ4` file minus eight header bytes — which is exactly
-/// how the fixtures below are built, and exactly why the version bump is
-/// cheap.
+/// legacy file is a `LVQ4` file minus eight header bytes, and a v5 Ball file
+/// is the same file plus twelve — which is exactly how the fixtures below
+/// are built, and exactly why each version bump is cheap.
 #[test]
 fn legacy_headers_still_read() {
     let (v4, want) = v4_file();
@@ -467,7 +770,7 @@ fn legacy_headers_still_read() {
         let mut old: Vec<u8> = Vec::new();
         old.extend_from_slice(magic);
         old.extend_from_slice(&v4[4..8]);
-        old.extend_from_slice(&v4[16..]);
+        old.extend_from_slice(&v4[V4_HEADER..]);
 
         let head = read_header(&mut std::io::Cursor::new(&old))
             .unwrap_or_else(|e| panic!("a v{version} file must still open: {e}"));
@@ -477,6 +780,8 @@ fn legacy_headers_still_read() {
             head.codebook, None,
             "a v{version} file has no fingerprint to report"
         );
+        assert_eq!(head.trio, None);
+        assert_eq!(head.kind(), CodeKind::Ball, "every file before v5 is a Ball file");
         assert_eq!(head.is_self_contained(), version >= 2);
 
         let got = read_all(&mut std::io::Cursor::new(&old)).expect("legacy matrices");
@@ -487,6 +792,25 @@ fn legacy_headers_still_read() {
             "a v{version} file must decode to the same weights as the v4 one"
         );
     }
+
+    // v4 itself: the default writer's file, kind Ball by construction.
+    let head = read_header(&mut std::io::Cursor::new(&v4)).expect("v4 opens");
+    assert_eq!((head.version, head.kind(), head.trio), (4, CodeKind::Ball, None));
+
+    // v5 with kind Ball over the same records: the same weights through the
+    // same map, with both fingerprints checked on the way in.
+    let mut v5: Vec<u8> = Vec::new();
+    v5.extend_from_slice(MAGIC_V5);
+    v5.extend_from_slice(&v4[4..V4_HEADER]);
+    v5.extend_from_slice(&trio_fingerprint().to_le_bytes());
+    v5.extend_from_slice(&CodeKind::Ball.tag().to_le_bytes());
+    v5.extend_from_slice(&v4[V4_HEADER..]);
+    let head = read_header(&mut std::io::Cursor::new(&v5)).expect("a v5 Ball file must open");
+    assert_eq!(head.version, 5);
+    assert_eq!(head.kind(), CodeKind::Ball);
+    assert_eq!(head.trio, Some(trio_fingerprint()));
+    let got = read_all(&mut std::io::Cursor::new(&v5)).expect("v5 Ball matrices");
+    assert_eq!(decode_matrix(&got[0]), want, "a v5 Ball file decodes as the v4 one");
 }
 
 /// `write_header` must round-trip at every version, and refuse the ones that
@@ -494,8 +818,9 @@ fn legacy_headers_still_read() {
 ///
 /// This is the entry point a tool rewriting a file's matrix section is meant
 /// to call instead of hand-rolling `magic + count`
-/// (`llvq-bench/src/bin/lswap.rs` does exactly that). The geometry it hides is
-/// no longer constant across versions, which is the whole reason it exists.
+/// (`llvq-bench/src/bin/lswap.rs` did exactly that once). The geometry it
+/// hides is no longer constant across versions, which is the whole reason it
+/// exists: 8 bytes to v3, 16 at v4, 28 from v5.
 #[test]
 fn write_header_round_trips_at_every_version() {
     for version in 1..=VERSION {
@@ -503,8 +828,10 @@ fn write_header_round_trips_at_every_version() {
         llvq_artifact::write_header(&mut buf, version, 42).expect("write");
         assert_eq!(
             buf.len(),
-            if version >= llvq_artifact::FIRST_FINGERPRINTED_VERSION {
-                16
+            if version >= FIRST_KINDED_VERSION {
+                V5_HEADER
+            } else if version >= llvq_artifact::FIRST_FINGERPRINTED_VERSION {
+                V4_HEADER
             } else {
                 8
             },
@@ -518,6 +845,18 @@ fn write_header_round_trips_at_every_version() {
             (version >= llvq_artifact::FIRST_FINGERPRINTED_VERSION)
                 .then(codebook_fingerprint)
         );
+        assert_eq!(head.trio, (version >= FIRST_KINDED_VERSION).then(trio_fingerprint));
+        assert_eq!(head.kind(), CodeKind::Ball, "write_header writes the default kind");
+    }
+    // The kinded form at v5, both kinds.
+    for kind in [CodeKind::Ball, CodeKind::Trio] {
+        let mut buf: Vec<u8> = Vec::new();
+        llvq_artifact::write_header_kind(&mut buf, VERSION, 7, kind).expect("write");
+        assert_eq!(buf.len(), V5_HEADER);
+        assert_eq!(&buf[..4], MAGIC_V5);
+        assert_eq!(u32::from_le_bytes(buf[24..28].try_into().unwrap()), kind.tag());
+        let head = read_header(&mut std::io::Cursor::new(&buf)).expect("read back");
+        assert_eq!((head.version, head.matrices, head.kind()), (VERSION, 7, kind));
     }
     for bad in [0, VERSION + 1] {
         assert!(
@@ -529,6 +868,29 @@ fn write_header_round_trips_at_every_version() {
              neighbouring magic"
         );
     }
+}
+
+/// The default writer still writes v4, byte for byte what it wrote before
+/// Trio existed: `LVQ4`, the count, the v1 fingerprint, the records. No Ball
+/// file — the served 4B's path included — moved when the kind arrived.
+#[test]
+fn the_default_writer_still_writes_v4() {
+    let (file, _) = v4_file();
+    let mut head: Vec<u8> = Vec::new();
+    head.extend_from_slice(MAGIC_V4);
+    head.extend_from_slice(&1u32.to_le_bytes());
+    head.extend_from_slice(&PUBLISHED_FINGERPRINT.to_le_bytes());
+    assert_eq!(&file[..V4_HEADER], &head[..], "the default header is the v4 header, byte for byte");
+    assert_eq!(MAGIC, MAGIC_V4);
+    assert_eq!(DEFAULT_VERSION, 4);
+    assert_eq!(VERSION, 5);
+    let ix = Indexer::new();
+    let mut rng = SplitMix64::new(0xC0DE_B00C);
+    let m = synthetic(&ix, &mut rng, "model.layers.0.mlp.up_proj.weight");
+    let mut record: Vec<u8> = Vec::new();
+    llvq_artifact::write_matrix(&mut record, &ix, &m).expect("the Ball record, through the Ball writer");
+    assert_eq!(&file[V4_HEADER..V4_HEADER + record.len()], &record[..], "the record is the record");
+    assert_eq!(file.len(), V4_HEADER + record.len() + 8, "then the two zero counts of `finish`");
 }
 
 /// The real published archive, header only — the claim that matters stated
@@ -557,6 +919,7 @@ fn the_published_archive_still_opens() {
         head.codebook, None,
         "a pre-v4 archive cannot carry a fingerprint"
     );
+    assert_eq!(head.kind(), CodeKind::Ball);
     assert!(head.matrices > 0, "an archive with no matrices");
 
     // And its first matrix still decodes — the header check is not the point

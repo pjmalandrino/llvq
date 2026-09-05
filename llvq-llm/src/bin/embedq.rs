@@ -45,6 +45,16 @@ fn main() -> anyhow::Result<()> {
     let f = std::fs::File::open(&src)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = llvq_artifact::read_header(&mut r)?;
+    // The pass-through below rewrites the header with `ArtifactWriter::new`
+    // — a v4 Ball header — and copies every record as a Ball record. Over a
+    // Trio file that would produce a Ball file of Trio words: refused by name.
+    anyhow::ensure!(
+        head.kind() == llvq_artifact::CodeKind::Ball,
+        "{src}: a {} file (format v{}); embedq rewrites records as v1 Ball records — \
+         no runtime layout for Trio before F1d",
+        head.kind(),
+        head.version
+    );
     anyhow::ensure!(
         head.is_self_contained(),
         "{src} is a projections-only artifact — seal it first"

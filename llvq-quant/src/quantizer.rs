@@ -487,18 +487,7 @@ impl LeechShapeGain {
     /// the two is exactly the kind of thing that shows up as an unexplained
     /// perplexity three hours into a run.
     pub fn reconstruct(&self, code: &BlockCode, row_scale: f64, out: &mut [f64]) {
-        assert_eq!(out.len(), DIM);
-        match llvq_core::Leech::shell_index(&code.point) {
-            Some(m) if m > 0 => {
-                let picked = self.centroids[code.gain as usize] * row_scale;
-                let scale = picked / ((16 * m) as f64).sqrt();
-                for (o, &p) in out.iter_mut().zip(code.point.iter()) {
-                    *o = p as f64 * scale;
-                }
-            }
-            // The origin: a zero block, representable and reconstructed as is.
-            _ => out.fill(0.0),
-        }
+        reconstruct_shape_gain(code, &self.centroids, row_scale, out);
     }
 
     /// Bits per block this quantizer actually costs, given how it retracts.
@@ -698,6 +687,30 @@ pub fn row_scale(row: &[f64]) -> f64 {
         return 0.0;
     }
     (row.iter().map(|a| a * a).sum::<f64>() / (n / DIM).max(1) as f64).sqrt()
+}
+
+/// The shape-gain reconstruction, free of any searcher: `point · g / √(16 m)`
+/// with `g = centroids[gain] · row_scale` and `m` the point's shell, the
+/// origin reconstructed as zero.
+///
+/// One function for both sides of a file: [`LeechShapeGain::reconstruct`]
+/// calls it, and so does `llvq_artifact::decode_matrix`, which used to build
+/// a whole `LeechShapeGain` — a ball searcher included — per matrix to reach
+/// these six lines. The direction code is not looked at: a Trio point is a
+/// Λ₂₄ point like any other, and reconstructs through the same formula.
+pub fn reconstruct_shape_gain(code: &BlockCode, centroids: &[f64], row_scale: f64, out: &mut [f64]) {
+    assert_eq!(out.len(), DIM);
+    match llvq_core::Leech::shell_index(&code.point) {
+        Some(m) if m > 0 => {
+            let picked = centroids[code.gain as usize] * row_scale;
+            let scale = picked / ((16 * m) as f64).sqrt();
+            for (o, &p) in out.iter_mut().zip(code.point.iter()) {
+                *o = p as f64 * scale;
+            }
+        }
+        // The origin: a zero block, representable and reconstructed as is.
+        _ => out.fill(0.0),
+    }
 }
 
 /// Bits needed to index `Λ₂₄(cap) ∪ {0}` — `⌈log₂(N(cap) + 1)⌉`.

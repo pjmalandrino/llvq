@@ -12,11 +12,43 @@
 
 use llvq_core::{SplitMix64, DIM};
 use llvq_artifact::{
-    decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, QuantizedMatrix,
-    RawData, RawTensor,
+    decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, CodeKind,
+    QuantizedMatrix, RawData, RawTensor, TRIO_SHELL_CAP,
 };
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::index::Indexer;
+use llvq_search::trio::{Trio, LABEL_MASK};
+
+/// A Trio matrix: labels drawn at random and decoded through the map — the
+/// map is the only source of valid points — one gain bit, the sentinel cap.
+fn synthetic_trio(
+    trio: &Trio,
+    rng: &mut SplitMix64,
+    name: &str,
+    d_out: usize,
+    d_in: usize,
+    rotation_seed: Option<u64>,
+) -> QuantizedMatrix {
+    let codes: Vec<BlockCode> = (0..d_out * (d_in / DIM))
+        .map(|_| BlockCode {
+            point: trio.decode(rng.next() & LABEL_MASK),
+            gain: (rng.next() & 1) as u32,
+        })
+        .collect();
+    QuantizedMatrix {
+        name: name.to_string(),
+        d_out,
+        d_in,
+        codes,
+        row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
+        centroids: vec![0.7, 1.1],
+        rotation_seed,
+        shell_cap: TRIO_SHELL_CAP,
+        tail: (0..d_out * (d_in % DIM))
+            .map(|_| rng.next_gaussian() as f32 as f64)
+            .collect(),
+    }
+}
 
 /// Build a matrix whose codes are real lattice points, drawn by decoding
 /// random indices — the codebook is the only source of valid points.
@@ -189,6 +221,84 @@ fn every_stored_field_is_load_bearing() {
     let mut m = clone_of(&base);
     m.codes[0].point = ix.decode(12345).expect("a valid point");
     assert_ne!(decode_matrix(&m), want, "the lattice point is ignored");
+
+    // The kind — a header field, so it is corrupted in a file. A v5 Trio
+    // file whose tag is flipped to Ball must not decode to the same weights:
+    // the same 47-bit words through the other map are refused (a label past
+    // the ball) or different, never silently equal. And the converse.
+    let trio = Trio::new();
+    let t = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM, Some(0x1234));
+    let want_t = decode_matrix(&t);
+    let mut file: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::with_kind(&mut file, CodeKind::Trio, 1).expect("header");
+        w.push(&t).expect("write");
+        w.finish().expect("flush");
+    }
+    assert_eq!(u32::from_le_bytes(file[24..28].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want_t, "the control");
+    file[24..28].copy_from_slice(&CodeKind::Ball.tag().to_le_bytes());
+    match read_all(&mut &file[..]) {
+        Err(_) => {}
+        Ok(got) => assert_ne!(decode_matrix(&got[0]), want_t, "the kind is ignored by the reader"),
+    }
+
+    let mut file: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::with_version_kind(&mut file, 5, 1, CodeKind::Ball).expect("header");
+        w.push(&base).expect("write");
+        w.finish().expect("flush");
+    }
+    assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want, "the control");
+    file[24..28].copy_from_slice(&CodeKind::Trio.tag().to_le_bytes());
+    match read_all(&mut &file[..]) {
+        Err(_) => {}
+        Ok(got) => assert_ne!(decode_matrix(&got[0]), want, "the kind is ignored by the reader"),
+    }
+}
+
+/// The v5 passthrough: a Trio file read undecoded and written back through a
+/// writer built from its own header — version and kind — is the same bytes,
+/// and so is a v5 Ball file. What a `v4` tool does to a `v4` file, the same
+/// tool does to a `v5` one once it asks the header what it is copying.
+#[test]
+fn raw_passthrough_is_byte_identical_at_v5() {
+    let ix = Indexer::new();
+    let trio = Trio::new();
+    let mut rng = SplitMix64::new(0x6_F006);
+    let trio_mats = [
+        synthetic_trio(&trio, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, Some(7)),
+        synthetic_trio(&trio, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, None),
+    ];
+    let ball_mats = [
+        synthetic(&ix, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, 13, 2, Some(7)),
+        synthetic(&ix, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, 12, 2, None),
+    ];
+    for (kind, mats) in [(CodeKind::Trio, &trio_mats), (CodeKind::Ball, &ball_mats)] {
+        let mut original: Vec<u8> = Vec::new();
+        {
+            let mut w = ArtifactWriter::with_version_kind(&mut original, 5, mats.len() as u32, kind).expect("header");
+            for m in mats {
+                w.push(m).expect("write");
+            }
+            w.finish().expect("flush");
+        }
+
+        let mut r = std::io::Cursor::new(&original);
+        let head = llvq_artifact::read_header(&mut r).expect("header");
+        assert_eq!((head.version, head.kind()), (5, kind));
+        let mut copied: Vec<u8> = Vec::new();
+        {
+            let mut w = ArtifactWriter::with_version_kind(&mut copied, head.version, head.matrices, head.kind())
+                .expect("header");
+            for _ in 0..head.matrices {
+                let raw = llvq_artifact::read_matrix_raw_for_kind(&mut r, head.kind()).expect("read raw");
+                w.push_raw(&raw).expect("write raw");
+            }
+            w.finish().expect("flush");
+        }
+        assert_eq!(original, copied, "{kind}: passthrough must not change a single byte");
+    }
 }
 
 fn clone_of(m: &QuantizedMatrix) -> QuantizedMatrix {

@@ -609,6 +609,8 @@ fn run() -> Result<(), String> {
     let f = File::open(&path).map_err(|e| format!("open {path}: {e}"))?;
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+    // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
+    llvq_artifact::runtime::require_ball(h.kind(), "rankbench").map_err(|e| e.to_string())?;
     let mut file_hist = vec![0u64; fd.n_classes()];
     let mut origin_blocks = 0u64;
     let mut total = 0u64;

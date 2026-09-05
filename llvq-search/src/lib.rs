@@ -45,6 +45,7 @@ pub mod generic_ref;
 pub mod index;
 pub mod pack;
 pub mod rankdec;
+pub mod trio;
 
 use llvq_core::{Leech, Point, DIM};
 

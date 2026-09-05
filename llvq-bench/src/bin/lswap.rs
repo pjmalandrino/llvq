@@ -180,6 +180,15 @@ fn main() {
         panic!("open {src}: {e}");
     }));
     let h = read_header(&mut r).expect("valid artifact header");
+    // The swap re-encodes 5-level *classes*; a Trio word has none, and the
+    // output header below would be rewritten as a Ball header over it.
+    assert!(
+        h.kind() == llvq_artifact::CodeKind::Ball,
+        "{src}: a {} file (format v{}); lswap reads indices as v1 classes — \
+         no runtime layout for Trio before F1d",
+        h.kind(),
+        h.version
+    );
     // Write to a temporary path and rename only after `verify()` has passed:
     // an interrupted run must never leave a plausible-looking file at `dst`
     // (a truncated artifact opens fine and scores wrong).

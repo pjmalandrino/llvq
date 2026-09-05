@@ -41,7 +41,7 @@
 //! C4 asks one question — is transcoding to it within 2× of `Planes14`? — and
 //! the answer is a wall-clock, measured in `bin/e1vbench`, not predicted here.
 
-use crate::Result;
+use crate::{CodeKind, Result};
 use llvq_core::{Golay, DIM};
 use llvq_search::cns::{cns_encode, cns_layout, lg_ceil, CnsLayout, CnsRecord, HEADER_BITS};
 use llvq_search::fastdec::{FastDecoder, MAX_KINDS};
@@ -227,6 +227,33 @@ pub fn transcode_e1v_rows(
         "a row-aligned stream is cut into whole rows of {row_blocks} blocks"
     );
     transcode_groups(fd, golay, indices, gains, Some(row_blocks))
+}
+
+/// [`transcode_e1v`] under the file's kind — an E1v record is a class of the
+/// v1 ball with its arrangement, so a Trio header gets
+/// [`crate::runtime::require_ball`]'s refusal.
+pub fn transcode_e1v_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    golay: &Golay,
+    indices: &[u64],
+    gains: &[u32],
+) -> Result<E1vBlocks> {
+    crate::runtime::require_ball(kind, "E1v")?;
+    transcode_e1v(fd, golay, indices, gains)
+}
+
+/// [`transcode_e1v_rows`] under the file's kind.
+pub fn transcode_e1v_rows_for_kind(
+    kind: CodeKind,
+    fd: &FastDecoder,
+    golay: &Golay,
+    indices: &[u64],
+    gains: &[u32],
+    row_blocks: usize,
+) -> Result<E1vBlocks> {
+    crate::runtime::require_ball(kind, "E1v")?;
+    transcode_e1v_rows(fd, golay, indices, gains, row_blocks)
 }
 
 /// How many blocks each group holds, in stream order — the only thing the two
