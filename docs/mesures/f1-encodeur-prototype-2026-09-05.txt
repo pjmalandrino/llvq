@@ -1,0 +1,133 @@
+F1 — L'ENCODEUR DE PRODUCTION, PROTOTYPÉ : 290 µs/bloc/cœur contre une porte
+à 656, pour −0,16 pp de rétention, et les mêmes points que le banc
+================================================================================
+Date        : 2026-09-05, Apple M3 Max, 0 $, un cœur, nice 10
+Nature      : *mesuré* sur des blocs gaussiens ; une étude de conception, PAS la
+              mesure de porte de F1c (qui aura sa préreg et se fera sur des
+              blocs de poids réels — voir « ce que ça ne dit pas »)
+Code        : llvq-bench/examples/f1enclazy.rs (le prototype), f1encsolve.rs
+              (le résolveur en forme close), f1encprof.rs (où passe le temps du
+              banc), f1encrankscales.rs (combien d'échelles), f1encaudit.rs
+              (la forme close contre le module, 8^8 vecteurs), f1encscales.rs
+              (la même étude d'échelles sur les régions exactes)
+Reproduire  : nice -n 10 cargo run --release -p llvq-bench --example f1enclazy -- 200
+Provenance  : trois runs indépendants — l'auteur (f1enclazy-200.txt), son
+              relecteur adverse (audit-enc/f1enclazy-2000.txt, 2 000 blocs) et
+              l'opérateur de session (ce journal, 200 blocs) ; sorties brutes
+              dans le scratchpad de la session, chiffres reportés ci-dessous
+
+LA PORTE, ET D'OÙ ELLE VIENT
+----------------------------
+  F1c (docs/ROADMAP.md §2.2) : encodeur ≤ 656 µs/bloc/cœur. C'est un chiffre
+  d'ENCODEUR SEUL, celui de docs/HISTORIQUE.md (639 µs, `encbench`, G1-G4) ;
+  `encbench 2000` rejoué le 2026-09-05 : nearest_scaled N(0,1) 680 µs,
+  nearest_angular 709 µs, un cœur (*mesuré*, audit-enc/encbench-2000.txt).
+  ⚠️ Ce n'est PAS le run 4B tout compris : 14 447 s × 16 fils / 150 681 600
+  blocs = 1 534 µs/bloc/cœur, hessiennes et GPTQ inclus (*calculé*, fiche-4b).
+  La comparaison encodeur contre encodeur est donc la bonne ; sa dérivation
+  n'était écrite nulle part, elle l'est ici.
+
+OÙ PASSAIENT LES 240 ms DU BANC (*mesuré*, f1encprof, 40 blocs, un fil)
+-----------------------------------------------------------------------
+  237,0 ms/bloc à 18 échelles = 13,17 ms par (bloc, échelle).
+  Par (bloc, échelle) : 512 `nearest` + 512 `nearest_constrained`,
+  191 488 candidats = 191 488 tests d'appartenance (Vec, HashSet, 69 ns
+  chacun), 99,7 % du temps ; la jonction sur le treillis (8 192 sommes) fait
+  38-41 µs, 0,3 %. Milieu 36,8 %, fins 31,5 %, préfixes 31,4 %.
+  La base (arrondi D₈ à l'échelle 1,0) est déjà membre dans 47 % des
+  résolutions à s = 0,325 ; le gagnant vient de 1,0 dans 82 % des cas.
+
+LE RÉSOLVEUR EN FORME CLOSE (*mesuré*, f1encsolve, 300 cibles ; f1encaudit)
+----------------------------------------------------------------------------
+  Appartenance à une classe de la table universelle :
+      membre ⟺ cost(ρ) < C, ou cost(ρ) = C et ρ ≤ cut (ordre lexicographique)
+      cost(ρ) = Σ_j (2ρ_j + 1)²
+      classe 0 : C = 88, cut (1,1,0,3,0,0,1,1), 1 256 sous C + 792 sur C
+      classe 1 : C = 96, cut (0,0,2,2,2,0,1,1), 1 816 + 232
+      milieu   : C = 72, cut (3,0,0,0,1,0,1,0), 1 307 + 741, N0 = 1 240
+  Vérifiée contre `llvq_bench::f1::rank::RankTable::build()` sur les
+  16 777 216 vecteurs de {0..7}^8 : 0 désaccord sur les trois ensembles
+  (*mesuré*, f1encaudit). Fait trouvé par la relecture : (2ρ+1)² ≡ 9 mod 16
+  ssi ρ ∈ {1, 2}, donc classe = [cost ≡ 0 mod 16] — le test de classe est
+  redondant avec le coût, 0 violation sur {0..4}^8.
+  Équivalence avec le banc : 307 200 résolutions (cible, p, motif, parité),
+  0 désaccord de distance, 0 point différent à distance égale.
+  Coût par résolution : base seule 43,5 ns ; règle complète du banc
+  (8 rétrécissements) 242 ns ; tronquée à 3 rétrécissements 143 ns ; contre
+  ~9,4 µs par `nearest_constrained` au banc (×37). Jonction 4,4 µs.
+
+COMBIEN D'ÉCHELLES (*mesuré*, f1encrankscales, 2 000 blocs, mêmes blocs que F1b)
+--------------------------------------------------------------------------------
+  (a) grille 18 points 0,10·1,14^i (le banc) ..... 89,05 %   référence
+  1 point fixe s = 0,325 ......................... 86,53 %   −2,51 pp
+  3 points fixes consécutifs i = 8..10 ........... 88,31 %   −0,74 pp
+  5 points fixes consécutifs i = 7..11 ........... 88,93 %   −0,12 pp
+  1 échelle adaptative s = 0,321·‖x‖/√24 ......... 88,03 %   −1,02 pp
+  3 adaptatives, ratio 1,14 ...................... 88,91 %   −0,14 pp
+  2 adaptatives (s₀, 1,14·s₀), α = 0,321 ......... 88,89 %   −0,16 pp
+  5 adaptatives ................................... 89,04 %   −0,00 pp
+  L'échelle gagnante bouge d'un bloc à l'autre au-delà de ce que ‖x‖ prédit :
+  α = s·√24/‖x‖ a pour quartiles 0,284 / 0,321 / 0,350. Une seule échelle
+  coûte 1 pp ; deux adaptatives en coûtent 0,16.
+  ⚠️ α = 0,321 et la paire (s₀, 1,14·s₀) sont choisis sur les blocs
+  d'ÉVALUATION. La perte est plate entre α = 0,32 et 0,37 (relecture, 500
+  blocs), mais la préreg de F1c devra les fixer sur les blocs d'entraînement.
+
+LE PROTOTYPE (*mesuré*, f1enclazy, un cœur ; trois runs)
+--------------------------------------------------------
+  Conception : tables par coordonnée (6 par échelle) ; bases pour les 1 536
+  entrées de section (membre ⟹ valeur exacte, sinon borne inférieure = optimum
+  du coset) ; ≤ 2 jonctions d'amorçage donnant un chemin réalisable U ; une
+  passe sur les 8 192 chemins (meilleur chemin par entrée) ; résolution
+  complète des seules entrées dont ce meilleur chemin est sous U ; jonction
+  finale. N'élague que ce qui ne peut pas gagner.
+
+  exactitude : 600 (bloc, échelle) sur 200 blocs, 6 000 sur 2 000 : mêmes
+  points que le banc, 0 à coût égal, 0 hors Λ₂₄ (les trois runs)
+
+                                             auteur   relecteur   session
+                                             200 bl.   2 000 bl.   200 bl.
+  complet, 1 échelle ....................... 478      481         480   µs/bloc
+  paresseux, 1 échelle ..................... 255      258         263
+  paresseux, 2 éch. (s₀, 1,14·s₀), tronqué   294      296         290   ← retenu
+  paresseux, 2 éch., règle complète ........ 375      383         375
+  paresseux, 3 éch., tronqué ............... 653      662         650
+  paresseux, 3 éch., règle complète ........ 949      974         976
+  paresseux, grille 18 points .............. 8 478    8 430       8 412
+
+  rétention sur les 2 000 blocs du banc (règle F1b, témoin 92,00) :
+    3 adaptatives, règle complète ............ 88,91 %
+    3 adaptatives, tronquée .................. 88,91 %   Δ +0,00 (0 point changé)
+    2 adaptatives (s₀, 1,14·s₀), tronquée .... 88,89 %   Δ −0,03 pp, écart apparié
+                                                          +0,0016 ± 0,0003
+    1 adaptative ............................. 88,04 %   Δ −0,88 pp
+
+  Phases à 2 échelles tronquées, µs par (bloc, échelle) : tables 5, bases 31,
+  amorce 10, passe 39, survivants 57, finale 4 = 146 ; 183 résolutions
+  complètes par échelle sur 1 536.
+
+CE QUI EN SORT
+--------------
+  · 290-296 µs/bloc/cœur contre 656 : 0,45× la porte (*mesuré*, trois runs).
+    Sur le 4B (150 681 600 blocs, 12 fils) : ~62 min d'encodage seul
+    (*calculé*). 814× plus vite que le banc, dont 9× d'échelles en moins et
+    ~90× par (bloc, échelle).
+  · L'option « 3 échelles tronquées » est À la porte (650-662), pas dessous.
+  · Le prototype reproduit le banc point pour point : il n'introduit aucune
+    perte ; la perte de 0,16 pp est celle du nombre d'échelles.
+
+CE QUE ÇA NE DIT PAS
+--------------------
+  · Des blocs N(0,1), pas des poids. L'élagage (188 résolutions sur 1 536)
+    dépend du taux « base membre » (58 % ici à l'échelle adaptative, 0 % à
+    s = 0,10). Sur des résidus GPTQ tournés il n'est PAS mesuré ; l'exhaustif
+    à 2 échelles vaut 962 µs, au-dessus de la porte. C'est l'hypothèse la plus
+    dangereuse, et la première chose à mesurer (0 $, un dump de blocs du 0,6B).
+  · « −0,16 pp » n'est pas un critère de F1c. La porte de F1c est en
+    perplexité ; sa forme (appariée par graine, ρ fixé, prédiction signée)
+    est à l'opérateur.
+  · Le prototype porte sa propre copie de la table de rangs
+    (f1enclazy.rs:94-130) ; la comparaison au module `f1::rank` est faite
+    pour la table (f1encaudit), pas encore pour l'encodeur.
+  · La clé de rang empile ρ₀ en poids fort dans le prototype, en poids faible
+    dans `rank::pack` : une convention à unifier à la mise en production.
