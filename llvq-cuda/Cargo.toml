@@ -7,9 +7,15 @@ repository.workspace = true
 description = "CUDA port of the LLVQ fused kernel: the same Leech decoder, measured on an NVIDIA GPU."
 
 # Portable dependencies go here, unconditionally, exactly as in llvq-metal.
-# The shell has none yet: the shared host-side pieces (class table, f64
-# reference, transcoding) still live in llvq-metal and only move out at K0.
+# The shared host-side pieces (class table, f64 reference, transcoding) still
+# live in llvq-metal and only move out at K0. `llvq-bench` is here for one
+# reason: `bin/f1rankfloor` builds the F1 universal-table decoder's tables
+# from the reference module (`llvq_bench::f1::rank`) and checks the card's
+# decode against it, and `tests/f1rank_matches_rust.rs` does the same on the
+# Mac through clang++ — one dependency serves both. It is workspace-only:
+# no external crate, `forbid(unsafe_code)`.
 [dependencies]
+llvq-bench = { path = "../llvq-bench" }
 
 # NVIDIA-only by construction, and target-gated rather than feature-gated on
 # purpose: cudarc cannot build on macOS at all, whichever way it is asked.

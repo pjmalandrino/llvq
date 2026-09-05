@@ -153,6 +153,10 @@ pub const NULLK_CU: &str = include_str!("../kernels/nullk.cu");
 /// The F1 decoder-table floor (`bin/f1floorbench`).
 pub const F1FLOOR_CU: &str = include_str!("../kernels/f1floor.cu");
 
+/// The F1 universal-table decoder and its compiled floor (`bin/f1rankfloor`).
+pub const F1RANK_CUH: &str = include_str!("../kernels/llvq_f1rank.cuh");
+pub const F1RANK_CU: &str = include_str!("../kernels/f1rank.cu");
+
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
 pub struct Sources {
@@ -227,6 +231,8 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "e1v.cu" => Ok(E1V_CU),
         "nullk.cu" => Ok(NULLK_CU),
         "f1floor.cu" => Ok(F1FLOOR_CU),
+        "llvq_f1rank.cuh" => Ok(F1RANK_CUH),
+        "f1rank.cu" => Ok(F1RANK_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),

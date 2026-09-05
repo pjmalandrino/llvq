@@ -72,7 +72,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 17] = [
+const UNITS: [(&str, &[&str], &str); 19] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -104,6 +104,18 @@ const UNITS: [(&str, &[&str], &str); 17] = [
     // A3. Its `#ifndef` guards pull matvec.cu and llvq_planes.cuh from disk;
     // the seven entry points instantiate every template the device build will.
     ("planes_occ.cu", &["planes_occ.cu"], "A3: the occupancy variants of the fused Planes14"),
+    (
+        "llvq_f1rank.cuh",
+        &["llvq_f1rank.cuh"],
+        "the F1 universal-table decoder, one 48-bit word to 24 coordinates",
+    ),
+    // Assembled as `bin/f1rankfloor` hands it to `load_sources_many`, minus
+    // `nullk.cu`, which has its own line above.
+    (
+        "f1rank.cu",
+        &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "f1rank.cu"],
+        "the F1 compiled floor: the stream, the decode, the dump, the fill",
+    ),
 ];
 
 fn main() {
@@ -197,7 +209,7 @@ fn main() {
 /// `include_str!` of the layouts they candidate, which is why the list is
 /// explicit rather than "all of `UNITS`". A unit that ships neither way builds
 /// an image, ships a binary, and dies on the card.
-const TABLE_SHIPPED: [&str; 10] = [
+const TABLE_SHIPPED: [&str; 12] = [
     "llvq_slot.cuh",
     "preflight.cu",
     "matvec.cu",
@@ -208,6 +220,8 @@ const TABLE_SHIPPED: [&str; 10] = [
     "llvq_rot.cuh",
     "rotate.cu",
     "f1floor.cu",
+    "llvq_f1rank.cuh",
+    "f1rank.cu",
 ];
 
 /// Assert the table is complete, from any platform.

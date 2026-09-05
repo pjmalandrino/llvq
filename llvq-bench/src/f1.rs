@@ -36,6 +36,10 @@
 
 use llvq_core::Golay;
 
+/// The universal 16 KiB decoder table and the 48-bit word it decodes — the
+/// reference the CUDA header `llvq_f1rank.cuh` is checked against.
+pub mod rank;
+
 /// The trio: three disjoint octads of the Golay code covering all 24
 /// coordinates. Found by `bin/f1count.rs` as the first among the 759 octads;
 /// pinned here rather than searched, so this module and that binary cannot

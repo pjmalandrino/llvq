@@ -80,6 +80,7 @@ LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq cargo run --releas
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # sealed file expected 1.771 GB (measured, docs/fiche-4b.md)
 cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40
 cargo run --release -p llvq-cuda --bin nullkbench                     # the floor; every bin of the image goes in `cargo build --bin` AND the COPY of ops/Dockerfile.cuda
+CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets   # type-checks the Linux (cudarc) half of every CUDA bin on the Mac; the image itself probes nvcc
 uv run ops/awq_speed.py … | uv run ops/awq_dequant.py check           # AWQ: unpinned revision refused; locks L1/L2/L4
 cargo run --release -p llvq-llm --features metal --bin oracle              # forward pass vs candle, on every backend
 LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features metal --bin ppl -- 4096 12 metal <sealed>

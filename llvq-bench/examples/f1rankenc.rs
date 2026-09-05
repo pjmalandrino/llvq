@@ -37,99 +37,32 @@
 //! index quantile (points of lower norm / 2^w). That says how much of a table
 //! is actually hot, and whether "regions equiprobable" holds for `p`.
 
+use llvq_bench::f1::rank::{pack, rank_of, RankTable};
 use llvq_bench::f1::{Prepared, SectionSet, Trellis, SECTION};
 use llvq_core::SplitMix64;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// The rank-space table (same construction as f1shrink.rs)
+// The rank-space table: `f1::rank`, held here as membership sets
 // ---------------------------------------------------------------------------
 
-fn val(o: u32, rho: u32) -> i32 {
-    match o {
-        0 => {
-            if rho == 0 {
-                0
-            } else {
-                let m = 4 * rho.div_ceil(2) as i32;
-                if rho.is_multiple_of(2) { -m } else { m }
-            }
-        }
-        2 => {
-            let m = (2 + 4 * (rho / 2)) as i32;
-            if rho.is_multiple_of(2) { m } else { -m }
-        }
-        1 => {
-            let m = (2 * rho + 1) as i32;
-            if rho.is_multiple_of(2) { m } else { -m }
-        }
-        3 => {
-            let m = (2 * rho + 1) as i32;
-            if rho.is_multiple_of(2) { -m } else { m }
-        }
-        _ => unreachable!(),
-    }
-}
-
-/// Rank of `y` in the progression `o + 4Z`, or None if `y` is not in it or
-/// beyond rank 7.
-fn rank_of(o: u32, y: i32) -> Option<u32> {
-    if y.rem_euclid(4) != o as i32 {
-        return None;
-    }
-    (0..8u32).find(|&r| val(o, r) == y)
-}
-
-fn rank_class(rho: &[u32; SECTION]) -> u32 {
-    rho.iter().filter(|&&r| r == 1 || r == 2).count() as u32 & 1
-}
-
-fn pack(rho: &[u32; SECTION]) -> u32 {
-    rho.iter().enumerate().fold(0u32, |a, (j, &r)| a | (r << (4 * j)))
-}
-
-pub struct RankTable {
-    /// Per parity class: the 2048 lowest-cost rank vectors, as a membership set.
+/// The rows of [`RankTable`] as the sets the encoder's membership test needs.
+/// The construction lives in `llvq_bench::f1::rank`, where the CUDA decoder is
+/// checked against it; this is only its rows, hashed.
+pub struct Membership {
+    /// Per parity class: the 2048 lowest-cost rank vectors.
     class: [HashSet<u32>; 2],
     /// The 2048 lowest-cost overall.
     mixed: HashSet<u32>,
 }
 
-fn rank_table() -> RankTable {
-    fn walk(j: usize, acc: i64, cap: i64, rho: &mut [u32; SECTION], out: &mut Vec<([u32; SECTION], i64)>) {
-        if j == SECTION {
-            out.push((*rho, acc));
-            return;
+impl Membership {
+    fn new(t: &RankTable) -> Self {
+        Self {
+            class: [t.class_rows(0).iter().copied().collect(), t.class_rows(1).iter().copied().collect()],
+            mixed: t.mixed_rows().into_iter().collect(),
         }
-        for r in 0..8u32 {
-            let c = (2 * r as i64 + 1).pow(2);
-            if acc + c > cap {
-                break;
-            }
-            rho[j] = r;
-            walk(j + 1, acc + c, cap, rho, out);
-        }
-    }
-    let mut cap = 64i64;
-    loop {
-        let mut all = Vec::new();
-        walk(0, 0, cap, &mut [0; SECTION], &mut all);
-        all.sort_by_key(|&(r, c)| (c, r));
-        let c0: Vec<_> = all.iter().filter(|(r, _)| rank_class(r) == 0).take(2048).map(|&(r, _)| r).collect();
-        let c1: Vec<_> = all.iter().filter(|(r, _)| rank_class(r) == 1).take(2048).map(|&(r, _)| r).collect();
-        if c0.len() == 2048 && c1.len() == 2048 && all.len() >= 4096 {
-            let cost = |r: &[u32; SECTION]| r.iter().map(|&x| (2 * x as i64 + 1).pow(2)).sum::<i64>();
-            let kept = all.iter().take(4096).map(|&(_, c)| c).max().unwrap();
-            if kept < cap && cost(&c0[2047]) < cap && cost(&c1[2047]) < cap {
-                let mixed: Vec<_> = all.iter().take(2048).map(|&(r, _)| r).collect();
-                return RankTable {
-                    class: [c0.iter().map(pack).collect(), c1.iter().map(pack).collect()],
-                    mixed: mixed.iter().map(pack).collect(),
-                };
-            }
-        }
-        cap *= 2;
     }
 }
 
@@ -147,13 +80,13 @@ enum Mode {
 
 pub struct RankRegion {
     set: SectionSet,
-    table: Arc<RankTable>,
+    table: Arc<Membership>,
     mode: Mode,
     fallback: [i32; SECTION],
 }
 
 impl RankRegion {
-    fn new(set: SectionSet, table: Arc<RankTable>, mode: Mode) -> Self {
+    fn new(set: SectionSet, table: Arc<Membership>, mode: Mode) -> Self {
         let mut r = Self { set, table, mode, fallback: [0; SECTION] };
         // Lowest-norm member, found by growing a radius.
         let mut t = 8usize;
@@ -311,7 +244,7 @@ impl Region for RankRegion {
 /// exhaustive search over the region — the same control `examples/f1enc.rs`
 /// runs on the exact regions. Where it is not exact it can only return a point
 /// farther away, so the bench's loss for the universal table is an upper bound.
-fn encoder_exactness(table: Arc<RankTable>) {
+fn encoder_exactness(table: Arc<Membership>) {
     let t = Trellis::new();
     let mut rng = SplitMix64::new(0x5f1b_2026_0904);
     println!("{:<26} {:>7} {:>9} {:>10}   (exact region, same targets)", "région de rangs", "exact", "excès moy", "excès max");
@@ -361,5 +294,5 @@ fn encoder_exactness(table: Arc<RankTable>) {
 }
 
 fn main() {
-    encoder_exactness(Arc::new(rank_table()));
+    encoder_exactness(Arc::new(Membership::new(&RankTable::build())));
 }
