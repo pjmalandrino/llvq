@@ -306,17 +306,31 @@ order is MSB-first where the F1 word is little-endian (a transcoder is mandatory
 ±1 cross-seed range on 3 seeds" has no power at ρ = 1** (the range is ±11.7% of the median) — the gate's form is the
 operator's to set.
 
+**The same evening, the arithmetic rewritten three ways** ($0.00, 4 s of card after 50 min of queue; prereg stamped
+before; [f1-rang-variantes-2026-09-05](mesures/f1-rang-variantes-2026-09-05.txt),
+[ECARTS](../proofs/preregistration-f1-rang-variantes-2026-09-05-ECARTS.md)). Same word, same 16 KiB table, same
+format; three independently written kernels, each host-verified against the reference and, on the card, equal to
+`tv_f1r` on all 30,720 rows (V1 at Δ = 0, V2 and V3 at 3e-7). **V3 (values as bytes through PRMT, floats without the
+int→float pipe): `T = 1.694 ms` against `B = 2.797` — 0.61×; V1 (SWAR lanes, no I2F) 1.719; V2 (trellis patterns by
+F₂ algebra, no small table) 3.444, +0.11 on `tv_f1r`.** All three at 40 registers, 0 local. The 24 int→float
+conversions per block were ~1.6 of the ~2.0 ms of arithmetic; the dependent read chain cost nothing. The signed
+prediction was wrong on all four times, in the instructive direction (`Du_v3 < 1.3` had been named as the case where
+"the arithmetic was almost everything"). Projection, same reserves as the morning's floor (*estimated*): pass
+5.103 → 4.00 ms, **≈ 113 tok/s at the 4B, +12%**, for 1.36 GB instead of 2.57. The prereg's row: F1d takes v3 (v1
+equivalent within the ±0.1 ms resolution). F1d, with Planes14 in the same process, is what measures it.
+
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.03 spent: the table floor ($0.02) and the compiled decoder floor ($0.01). Content: F1b done at $0; the
+- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.04 spent: the table floor ($0.02), the compiled decoder floor ($0.01), the three arithmetics ($0.00, 4 s). Content: F1b done at $0; the
   ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
   Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
   can be tested**.
-- **Two decisions for the operator, 2026-09-05 evening.** (1) F1d with the compiled decoder as measured — 1.20× B,
-  ~95 tok/s projected at the 4B for half the VRAM — is written, or the decoder's arithmetic is reworked first (the
-  I2F conversions and the dependent read chain, ~2 ms, are kernel work not table work). (2) The form of F1c's quality
-  gate: the "±1 cross-seed range on 3 seeds" cannot resolve the expected effect at ρ = 1; a paired Δ per seed at a
-  fixed ρ with a signed prediction (+0.7 to +1.8 ppl on the 0.6B, *estimated* from +8.5% of MSE) is the proposal. Q5's served run moves to wave 3, after
+- **Decision (1) of the evening is taken by the measurement**: the operator's go ("test the decoder, else return to
+  the measured one") ran the three arithmetics; v3 is 0.61× B, and F1d is written with it (v1 equivalent). **Still
+  the operator's: (2) the form of F1c's quality gate** — the "±1 cross-seed range on 3 seeds" cannot resolve the
+  expected effect at ρ = 1; a paired Δ per seed at a fixed ρ with a signed prediction (+0.7 to +1.8 ppl on the 0.6B,
+  *estimated* from +8.5% of MSE) is the proposal. The encoder's real-block measurement is done (298 µs, ratio 1.00 to
+  Gaussian, [journal](mesures/f1-encodeur-blocs-reels-2026-09-05.txt)); the format-v2 work can start. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
   twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $97.56 (*measured*,
   `docs/data/jobs.csv`).

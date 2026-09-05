@@ -1,0 +1,115 @@
+F1 — TROIS ARITHMÉTIQUES POUR LE MÊME DÉCODEUR : la conversion entier → flottant
+était le coût ; sans elle, T = 1,69 ms contre B = 2,80 — sous Planes14
+================================================================================
+Date        : 2026-09-05, 19:38 (heure de Paris)
+Job         : 6a9c47d5e686246ca69a409d, l40sx1, 4 s de calcul (3 004 s
+              d'attente de carte), 0,00 $ ; vague 2 : 0,04 $ dépensés sur 2,00
+Préreg      : proofs/preregistration-f1-rang-variantes-2026-09-05.md
+              sha256 a3765c0a16def3834908120a6b5b71abaf074811e6bdb32cafe6fe1524297b9a
+              tamponné avant le lancement (.ots présent), code commit 2df33e7,
+              image construite sur 7f2fb1f
+Écarts      : proofs/preregistration-f1-rang-variantes-2026-09-05-ECARTS.md
+Code        : llvq-cuda/kernels/llvq_f1rank_v{1,2,3}.cuh, f1rank_v{1,2,3}.cu,
+              llvq-cuda/src/bin/f1rankfloor.rs (six bras)
+Sortie brute: hf://buckets/Pier-Jean/jobs-artifacts/f1-rang-variantes-2026-09-05/
+Nature      : *mesuré*, un plancher synthétique — pas une porte (préreg §1) ;
+              même mot, même table de 16 Kio, même format dans les six bras
+
+LA SORTIE BRUTE
+---------------
+  NVIDIA L40S, 580.178.04, 2520 MHz · 142 SM · L2 96 MiB
+  NVRTC source: 96468 bytes, sha256 3d6f38440b83e54399c6fade2166f11f00191b02bd321c4e436377f7f6cf22d3
+
+    tv_nullk      31 registers, 0 local bytes, sm_89
+    tv_f1r_word   40 registers, 0 local bytes, sm_89
+    tv_f1r        48 registers, 0 local bytes, sm_89
+    tv_f1r_v1     40 registers, 0 local bytes, sm_89
+    tv_f1r_v2     40 registers, 0 local bytes, sm_89
+    tv_f1r_v3     40 registers, 0 local bytes, sm_89
+  tables: rows 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, N0 = 1240
+  stream: 36 distinct copies × 7 shapes, 0.908 GB of words on the device (9.0× the L2)
+  control 1: 64512 blocks decoded on the card equal the Rust reference, every coordinate
+  controls 2, 3: every output finite and written; f1r, f1r_v1, f1r_v2, f1r_v3 ≠ word ≠ nullk
+  control 7: f1r_v1  per row, |Δ| / max(1, |y|) worst 0.00e0 (…), 0 of 30720 rows over 1e-5
+  control 7: f1r_v2  per row, |Δ| / max(1, |y|) worst 3.16e-7 (up_proj, row 7115: 772.50214 against f1r's 772.5024), 0 of 30720 rows over 1e-5
+  control 7: f1r_v3  per row, |Δ| / max(1, |y|) worst 3.16e-7 (up_proj, row 7115), 0 of 30720 rows over 1e-5
+  control 7: every variant equals f1r within 1e-5 of each row, on all 30720 rows of the 7 shapes
+
+    14 rounds, 2 discarded; round r opens with arm r mod 6; every difference formed ROUND BY ROUND
+
+    nullk       2.181 ms  [2.180–2.182]
+    word        2.825 ms  [2.822–2.828]
+    f1r         5.515 ms  [5.509–5.518]
+    f1r_v1      3.900 ms  [3.890–3.904]
+    f1r_v2      5.625 ms  [5.621–5.630]
+    f1r_v3      3.875 ms  [3.871–3.882]
+
+    S  = word − nullk      0.644 ms  [0.641–0.648]
+    Du = f1r − word        2.690 ms  [2.684–2.693]
+    T  = f1r − nullk       3.334 ms  [3.328–3.337]   contre B = 2.797 (autre processus)
+    t(f1r)/t(nullk)       2.5288     [2.5257–2.5304]
+
+    Du_v1 = f1r_v1 − word  1.074 ms  [1.065–1.082]
+    T_v1  = f1r_v1 − nullk 1.719 ms  [1.709–1.723]
+    f1r_v1 − f1r          -1.615 ms  [-1.625–-1.609]
+
+    Du_v2 = f1r_v2 − word  2.802 ms  [2.794–2.805]
+    T_v2  = f1r_v2 − nullk 3.444 ms  [3.440–3.449]
+    f1r_v2 − f1r           0.112 ms  [0.104–0.119]
+
+    Du_v3 = f1r_v3 − word  1.051 ms  [1.044–1.059]
+    T_v3  = f1r_v3 − nullk 1.694 ms  [1.691–1.701]
+    f1r_v3 − f1r          -1.639 ms  [-1.644–-1.627]
+
+LES CONTRÔLES DU §4
+-------------------
+  1. Mac : 12/12 harnais clang++ (base 2, V1 3, V2 2, V3 5), 10 000 mots × 2
+     par variante bit à bit, 2 M produits scalaires à 1e-5. PASSÉ (avant carte).
+  2. Carte : chaque variante = tv_f1r sur les 30 720 lignes, à 1e-5 par
+     ligne. PASSÉ — V1 à Δ = 0 exactement (même chaîne FMA), V2 et V3 à
+     3,16e-7 au pire (le rejeu hôte de la relecture disait 3,3e-7).
+  3. tv_f1r_dump = référence Rust sur 64 512 blocs. PASSÉ.
+  4. Élision : chaque bras de table ≠ word ≠ nullk. PASSÉ.
+  5. Sorties finies, un processus, flux 9,0 × L2, registres/locaux des six
+     noyaux imprimés (31 / 40 / 48 / 40 / 40 / 40, locaux 0). PASSÉ.
+  Reproductibilité du bras de référence : nullk 2,181 (2,194 à 14:53),
+  f1r 5,515 (5,540), T 3,334 (3,346) — à 0,4 % du run précédent.
+
+LE RÉSULTAT, CONTRE LA PRÉDICTION SIGNÉE (§7)
+---------------------------------------------
+  Du_v1 ... 1,074 ms   prédit 1,8 à 2,3    ❌ en dessous, mieux que prédit
+  Du_v2 ... 2,802 ms   prédit 2,0 à 2,5    ❌ au-dessus (+0,11 sur f1r)
+  Du_v3 ... 1,051 ms   prédit 1,6 à 2,2    ❌ en dessous, mieux que prédit
+  T_v* .... 1,694 ms   prédit 2,6 à 3,1    ❌ en dessous ; sous B de 1,10 ms
+  registres 40 / 40 / 40   prédit ≤ 48 / 56 / 48   ✅  ; locaux 0  ✅
+
+  La clause « fausse de façon instructive » du §7 a tiré : **Du_v3 < 1,3 ms
+  — l'arithmétique était presque tout.** Les 24 conversions entier →
+  flottant par bloc coûtaient ~1,6 des ~2,0 ms d'arithmétique ; la chaîne de
+  trois petites lectures dépendantes n'en coûtait aucune (V2 seul : +0,11 ms,
+  ce que V2 lui-même avait prédit « plat ou légèrement plus lent »).
+
+  Ligne du §6 qui s'applique : T_v* ≤ T − 0,3 → **F1d prend v\***. v* = v3
+  (1,694) ; v1 (1,719) est à 0,025 ms, sous la résolution de ±0,1 ms déclarée
+  — les deux sont à 40 registres, les deux valent. v3 par le nombre.
+
+CE QUE ÇA CHANGE
+----------------
+  Le décodeur F1 à table universelle, écrit sans I2F, dépense en flux ET
+  décodage **T = 1,69 ms là où Planes14 en dépense 2,80** (B, autre
+  processus) : **0,61 × B**. Projection (*estimé*, mêmes réserves que le
+  plancher de 14:53 : pas d'échelle de gain, étiquettes uniformes, pas de
+  Planes14 dans le processus) : passe 5,103 → 4,00 ms ; token 9,94 → 8,84 ms ;
+  **≈ 113 tok/s au 4B, +12 %**, pour 1,36 Go au lieu de 2,57. Ce matin le
+  même décodeur, écrit naïvement, projetait −5 %. C'est F1d qui le mesurera
+  avec Planes14 dans le même processus.
+
+CE QUE ÇA NE DIT PAS
+--------------------
+  · Toujours un plancher : ni échelle de gain, ni vraies étiquettes (l'accès
+    réel concentre ~70 % des lectures sur ~6 Kio de la table : la part
+    « table » de Du_v3 est plutôt pessimiste), ni Planes14 en face.
+  · V2 (motifs par algèbre F₂, zéro table de motif) coûte +0,11 ms seul ;
+    sa valeur est structurelle — plus de petites tables en L1 — et se juge
+    dans le noyau fusé, où la L1 est disputée par la tuile d'activation.
+  · Rien sur la qualité ; F1c reste la première porte de l'axe.
