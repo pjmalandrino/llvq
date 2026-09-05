@@ -1,0 +1,104 @@
+F1 — LE DÉCODEUR À TABLE UNIVERSELLE, COMPILÉ ET VÉRIFIÉ SUR LA CARTE :
+T = 3,346 ms contre B = 2,797, 48 registres, 0 octet local
+================================================================================
+Date        : 2026-09-05, 14:53 (heure de Paris)
+Job         : 6a9c101f259f8e97255e2d92, l40sx1, 17 s de calcul (159 s
+              d'ordonnancement), 0,01 $ ; vague 2 : 0,03 $ dépensés sur 2,00
+Préreg      : proofs/preregistration-f1-rang-plancher-2026-09-05.md
+              sha256 119b02d5f7aeca4396fee122e62aac0abfa005078f2a66a152bdefe8cb2c0c9b
+              tamponné avant le lancement (.ots présent), commit du code bc543ba
+Écarts      : proofs/preregistration-f1-rang-plancher-2026-09-05-ECARTS.md
+Code        : llvq-cuda/kernels/llvq_f1rank.cuh, f1rank.cu,
+              llvq-cuda/src/bin/f1rankfloor.rs ; référence
+              llvq-bench/src/f1/rank.rs ; image hf.co/spaces/Pier-Jean/llvq-runner-cuda
+              construite sur 271b8db (COMMIT du Space)
+Sortie brute: hf://buckets/Pier-Jean/jobs-artifacts/f1-rang-plancher-2026-09-05/
+              f1rankfloor.txt, gpu.txt
+Nature      : *mesuré*, un plancher synthétique — pas une porte (préreg §1),
+              mais le premier décodeur F1 VÉRIFIÉ SUR LA CARTE contre une
+              référence (contrôle 1)
+
+LA SORTIE BRUTE
+---------------
+  NVIDIA L40S, 580.178.04, 2520 MHz
+  F1 rank-table floor — the stream and the compiled decode, 252 launches, one process
+  NVRTC source: 52722 bytes, sha256 c666e84e9fa94a498d26541afd27fa0df978ef18f999d2a0a690dca1b9b9dd58
+  card: NVIDIA L40S · 142 SM · shared/block 49152 default, 101376 opt-in · L2 96 MiB
+
+    kernel attributes (prereg §7 reads: registers ≤ 64, local bytes = 0):
+    tv_nullk      31 registers, 0 local bytes, sm_89
+    tv_f1r_word   40 registers, 0 local bytes, sm_89
+    tv_f1r        48 registers, 0 local bytes, sm_89
+  tables: rows 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, N0 = 1240
+  stream: 36 distinct copies × 7 shapes, 0.908 GB of words on the device (9.0× the L2)
+  control 1: 64512 blocks decoded on the card equal the Rust reference, every coordinate
+  controls 2, 3: every output finite and written; f1r ≠ word ≠ nullk, f1r ≠ nullk
+
+    11 rounds, 2 discarded; round r opens with arm r mod 3; every difference formed ROUND BY ROUND
+
+    nullk       2.194 ms  [2.192–2.198]
+    word        2.838 ms  [2.836–2.844]
+    f1r         5.540 ms  [5.537–5.548]
+
+    S  = word − nullk      0.645 ms  [0.639–0.650]   the F1 stream in our geometry
+    Du = f1r − word        2.701 ms  [2.695–2.709]   table + arithmetic decode (against D(16 KiB) = 0.663 ms of the table floor)
+    T  = f1r − nullk       3.346 ms  [3.342–3.354]   stream AND decode, read against B = 2.797 ms (Planes14 − nullk, ANOTHER process)
+    t(f1r)/t(nullk)       2.5255     [2.5206–2.5294]   against 5.103/2.306 = 2.21, same reserve
+
+LES CONTRÔLES DU §5
+-------------------
+  1. Décodeur de la carte = référence Rust : 252 copies × 256 blocs = 64 512
+     blocs, chaque coordonnée. PASSÉ. (Avant la carte : 10 000 mots × 2 passes
+     par clang++ sur le Mac, 44 mutants du .cuh tués par ce harnais.)
+  2. Élision : f1r ≠ word ≠ nullk. PASSÉ.
+  3. Observable : sorties finies, écrites. PASSÉ.
+  4. Flux ≥ 4 × L2 : 0,908 Go = 9,0 ×. PASSÉ.
+  5. Un processus, la géométrie de nullk (nullk 2,194 ici ; 2,191 au plancher
+     du 05, 2,306 au banc F2). PASSÉ.
+  6. Registres et locaux imprimés : 31 / 40 / 48, 0 / 0 / 0. PASSÉ.
+
+LE RÉSULTAT, CONTRE LA PRÉDICTION SIGNÉE (§8)
+---------------------------------------------
+  S  ....... 0,645 ms   prédit 0,9 à 1,3   ❌ en dessous (É1)
+  Du ....... 2,701 ms   prédit 0,9 à 1,6   ❌ au-dessus, 1,7× le haut (É2)
+  T  ....... 3,346 ms   prédit 2,0 à 3,0   ❌ au-dessus ; 1,20 × B (É3)
+  registres  48         prédit 40 à 64     ✅
+  locaux     0          prédit 0           ✅
+
+  Ligne du §7 qui s'applique : « 2,797 < T ≤ 3,50 ms, registres ≤ 64,
+  locaux = 0 → F1d s'écrit, avec la projection publiée ; l'opérateur pèse
+  contre la VRAM et la classe. »
+  Projection (*estimé*) : T − B = +0,549 ms sur la passe de 252 lancements,
+  soit 5,103 → 5,652 ms ; sur un token de 9,94 ms : 10,49 ms → **95,3 tok/s
+  au 4B, −5,3 %** contre 100,6, pour 1,36 Go au lieu de 2,57. Sans l'échelle
+  de gain, sans étiquettes réelles, sans Planes14 dans le processus.
+
+CE QUE LA MESURE DIT DU DÉCODEUR
+--------------------------------
+  Du = 2,70 ms là où la table seule (16 Kio, accès uniforme) coûtait 0,663 au
+  plancher du 05 : **~2,0 ms d'arithmétique et de petites lectures** par
+  passe, soit ~13 ns par bloc, ~4 200 cycles par itération de warp de 32
+  blocs à 2,52 GHz sur 142 SM (*calculé*). Candidats (*estimé*, non mesurés
+  séparément) : les 24 conversions entier → flottant par bloc (le pipe I2F
+  est à 1/8 du débit des FMA sur sm_89 : 24 I2F ≈ 0,6 ms à eux seuls si non
+  masqués) ; la chaîne dépendante des trois petites lectures
+  s8 → branches → s16 → suffixes ; les ~8 opérations de sélection par
+  coordonnée de `f1r_val`. Ce sont trois chantiers de noyau connus
+  (magnitudes en flottant par LUT de registres ou PRMT, signes par XOR sur
+  x, motifs recalculés sur F₂ au lieu d'être lus) — le travail de F1d.
+
+  S = 0,645 ms pour 0,908 Go serait 1,41 To/s, plus que la HBM : S n'est pas
+  un débit. C'est ce que la lecture du mot ajoute à un plancher qui n'est
+  pas borné par la mémoire (nullk est de la latence et de l'occupation) ;
+  une partie du flux se cache sous lui. Seul T est un nombre à lire.
+
+CE QUE ÇA NE DIT PAS
+--------------------
+  · Rien sur la qualité (F1c) ni sur tok/s (F1d met Planes14 dans le même
+    processus). B vient d'un autre processus ; T/B = 1,20 est une lecture,
+    pas une soustraction.
+  · Étiquettes uniformes sur les 16 Kio : l'accès réel concentre ~70 % des
+    lectures sur ~6 Kio (f1rankbench), donc la part « table » de Du est
+    plutôt pessimiste ; la part arithmétique ne dépend pas des étiquettes.
+  · Pas d'échelle de gain (un FMUL par bloc, négligeable) ; pas de tuile
+    réduite ni de carveout posé (L1 = 28 Ko ici comme au plancher du 05).

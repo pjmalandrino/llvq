@@ -117,9 +117,9 @@ bits: `[state 8][s₁ ~13][s₂ ~13][s₃ ~13][gain 1]`. Decoding costs three lo
 | F1a | count states and alphabets for 47 bits, prove the bijection | $0 (*measured*, one session) | **no gate** — a feasibility blocker: it must fit the card's 99 KiB opt-in, tile included | does not fit | states green, bijection **proved**; 92 KiB with the odd-coset restriction, 1,124 KiB without |
 | F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0 (*measured*, 64 min Mac) | **no gate** — a measurement: retention against an in-process ball-12 control, feeding F1c's signed prediction | none | **done**: 89.55% against 92.00% (−2.45 pp), 12/16/11 89.38, 13/13/13 85.96 ([journal](mesures/f1b-retention-2026-09-04.txt)) |
 | F1 floor | decoder-table floor on L40S, `f1floorbench` | $0.02 (*measured*, three attempts) | **no gate** — a measurement of the lookups alone | none | **done**: D(8 KiB) 0.344, D(16 KiB) 0.663, L2 plateau 4.52 ms; the 67/9 table sits at 2.4–2.5× the F1d budget on the real access distribution; a **universal 16 KiB table** loses 0.6 pp of retention and prices under it ([journal](mesures/f1-plancher-table-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)) |
-| F1 ALU | floor of the universal-table decoder, compiled: word read + arithmetic decode + 16 KiB table, in `nullk`'s process | ≤ $0.10 (operator go, 2026-09-05) | **no gate** — a measurement informing F1d | none | prereg to write |
-| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl within ±1 cross-seed range of `leech1c12`; encoder ≤ 656 µs/block | out of band on 3 seeds | **first gate of the axis**; the bench encoder is at 240 ms/block, 366× the gate — a production encoder (Viterbi at fixed scale) comes first |
-| F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | **throughput + VRAM**: t ≤ t(`Planes14`) measured in the same process, and ≤ 2.20 b/weight kernel | t > t(`Planes14`), i.e. slower for fewer bytes | to do |
+| F1 ALU | floor of the universal-table decoder, compiled: word read + arithmetic decode + 16 KiB table, in `nullk`'s process | $0.01 (*measured*) | **no gate** — a measurement informing F1d | none | **done**: decoder verified on the card against the Rust reference (64,512 blocks), 48 registers, 0 local; T = 3.346 ms = 1.20 × B; the excess is arithmetic (~2 ms), not the table ([journal](mesures/f1-rang-plancher-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-rang-plancher-2026-09-05-ECARTS.md)) |
+| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl gate — form to be set by the operator (the ±1 cross-seed range has no power at ρ = 1; proposal: paired Δ per seed at fixed ρ, signed prediction); encoder ≤ 656 µs/block/core, encoder-only figure | out of band on 3 seeds | **first gate of the axis**; encoder prototype at 290–296 µs on Gaussian blocks ([journal](mesures/f1-encodeur-prototype-2026-09-05.txt)), to be measured on real GPTQ residues before the prereg |
+| F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | **throughput + VRAM**: t ≤ t(`Planes14`) measured in the same process, and ≤ 2.20 b/weight kernel | t > t(`Planes14`), i.e. slower for fewer bytes | the compiled decoder as written is 0.55 ms over B on the 252-launch pass (~95 tok/s projected at 4B); the kernel work is the int→float conversions and the dependent read chain, not the table; operator decides whether F1d is written now or after that rework |
 | F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | **the four axes at once**: kernel ≤ 3.00 b/weight (the triplet's b_max; "≤ 2.6 b/param whole model" was unreachable at 4B by construction with the q8 embedding, 2.76), MMLU ≥ 55.59 − 2 SE, tok/s ≥ 100.6, disk ≤ today's | MMLU < 53% | the axis's verdict; the tok/s threshold is the operator's to confirm |
 | F2 | sequential trellis + trellis shaping, A3 geometry only | like F1 | fallback if F1a or F1b dies | none | not budgeted |
 | F3 | per-row cap, 44 to 50 bits/block, guided by M2 | $7 | +2 pp paired MMLU at constant b/param | < +1 pp | after D3, conditional on F1c |
@@ -210,6 +210,16 @@ It also produced the decoder that fits: a universal 16 KiB rank table, −0.6 pp
 measured twice. What remains between here and F1c, in order: the compiled floor of that decoder (F1 ALU, ≤ $0.10),
 a production encoder against the 656 µs/block gate, then format v2 and the 0.6B run. Objective set by the operator:
 **an F1 that can be tested.**
+
+**Evening of 2026-09-05.** The compiled decoder ran: 1.20× B, 48 registers, verified on the card. The
+encoder was prototyped at 290–296 µs/block/core (gate 656), the bench's points returned. The format-v2 map is
+drawn: `llvq-search` (word map, rank table, trellis, encoder), `llvq-quant` (`F1ShapeGain: BlockQuantizer`),
+`llvq-artifact` (header v5 with a second fingerprint, `PUBLISHED_FINGERPRINT` untouched, a disk→word transcoder
+because the disk is MSB-first), `llvq-llm` wiring, then a 3-block pilot on the 0.6B — oracle, smoke,
+`verify_artifact`, seal, ppl — before the three seeds. Order, each step mutation-tested: (0) the encoder on real
+GPTQ residues, 0.5 d; (1) word map and trellis in `llvq-search`, 0.5 d; (2) the production encoder and
+`F1ShapeGain`, 1–2 d; (3) format v5, 1–2 d; (4) wiring and the pilot, 1 d; (5) the F1c prereg (gate form: operator)
+and the three seeds, 1 d + ~35 min of Mac per seed. *Estimated* 5–7 days.
 
 ### 2.3 Axis Q, quality
 

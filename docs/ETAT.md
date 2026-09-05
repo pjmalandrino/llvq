@@ -282,12 +282,41 @@ the 14B whatever the format. Two blockers the floor never named: the bench encod
 F1c's 656 µs gate, **366×** (*measured*), so a production encoder precedes any F1c; and F1e's "≤ 2.6 b/param" was
 unreachable at 4B by construction with the q8 embedding (2.76) — rewritten on the triplet's b_max.
 
+**The same afternoon, compiled and measured.** The universal-table decoder was written for the card
+(`llvq-cuda/kernels/llvq_f1rank.cuh`, reference `llvq_bench::f1::rank`), diffed against the Rust reference on the
+Mac through clang++ (10,000 words twice, 44 mutants killed), then run in `nullk`'s geometry for $0.01 (*measured*,
+[f1-rang-plancher-2026-09-05](mesures/f1-rang-plancher-2026-09-05.txt), prereg stamped before). On the card, 64,512
+blocks decode to the reference's coordinates; **48 registers, 0 local bytes**; `T = t(f1r) − t(nullk) = 3.346 ms`
+[3.342–3.354] against `B = 2.797` for Planes14 in another process — **1.20×**. The table costs 0.66 of it; the
+arithmetic and the three dependent small-table reads about 2.0 ms (*computed*; the 24 int→float conversions and the
+read chain are the suspects, *estimated*). Projection: +0.55 ms on the pass, **~95 tok/s at the 4B, −5%**, for
+1.36 GB instead of 2.57 (*estimated*, no gain scale, uniform labels, no Planes14 in-process). The prereg's own row:
+F1d is written with this decoder, and the operator weighs the throughput against the VRAM and the class.
+
+**The encoder, prototyped the same day** (*measured*, [f1-encodeur-prototype-2026-09-05](mesures/f1-encodeur-prototype-2026-09-05.txt),
+three independent runs): a closed-form membership test (cost < C, or = C and ρ ≤ a lexicographic cut; verified against
+`RankTable::build()` over all 8⁸ rank vectors) and a lazy trellis encoder that fully solves only the sections a bounded
+path could still win with: **290–296 µs/block/core** against F1c's 656 µs gate (an encoder-only figure: `encbench`
+gives 680–709 for the served encoders today), returning the bench's points on 6,000 (block, scale) pairs. Two adaptive
+scales cost 0.16 pp of retention (88.89 against 89.05); one costs 1 pp; three sit at the gate (650–662 µs). Unmeasured
+and load-bearing: the pruning rate on real GPTQ residues (the exhaustive variant is 962 µs); α fixed on evaluation
+blocks. The format-v2 integration map ([ROADMAP](ROADMAP.md) §2.2 ter) touches `llvq-search`, `llvq-quant`,
+`llvq-artifact` and the `llvq-llm` wiring, no shader and no served kernel; its counter-review found that the disk bit
+order is MSB-first where the F1 word is little-endian (a transcoder is mandatory), and that **F1c's gate "ppl within
+±1 cross-seed range on 3 seeds" has no power at ρ = 1** (the range is ±11.7% of the median) — the gate's form is the
+operator's to set.
+
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.02 spent on the table floor. Content: F1b done at $0; the
+- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.03 spent: the table floor ($0.02) and the compiled decoder floor ($0.01). Content: F1b done at $0; the
   ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
   Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
-  can be tested**. Q5's served run moves to wave 3, after
+  can be tested**.
+- **Two decisions for the operator, 2026-09-05 evening.** (1) F1d with the compiled decoder as measured — 1.20× B,
+  ~95 tok/s projected at the 4B for half the VRAM — is written, or the decoder's arithmetic is reworked first (the
+  I2F conversions and the dependent read chain, ~2 ms, are kernel work not table work). (2) The form of F1c's quality
+  gate: the "±1 cross-seed range on 3 seeds" cannot resolve the expected effect at ρ = 1; a paired Δ per seed at a
+  fixed ρ with a signed prediction (+0.7 to +1.8 ppl on the 0.6B, *estimated* from +8.5% of MSE) is the proposal. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
   twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $97.56 (*measured*,
   `docs/data/jobs.csv`).
