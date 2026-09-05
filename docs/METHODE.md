@@ -23,6 +23,17 @@ for. The templates are in `docs/templates/`.
   firing on a decoder costing nothing ([ROADMAP](ROADMAP.md) §2.2 bis). The Q
   and M axes, whose gates were already on perplexity, MMLU and b/param, were
   untouched by the same audit.
+- A **kill is the operator's decision**, taken on a fundamental criterion; a
+  floor, a bracket or a projection informs it and never pronounces it. Paid on
+  2026-09-05: the F1 decoder-table floor — a synthetic kernel that its own
+  prereg §1 declares non-decisional — was reported the same morning as "F1 is
+  dead on decode cost". The audit that followed found the bench geometry
+  starving L1 (28 KB, six blocks per SM, not eight), the shared-memory arms
+  confounding occupancy and per-block staging with placement, and a 16 KiB
+  universal table that the floor itself prices under the budget at 0.6 pp of
+  retention ([journal](mesures/f1-plancher-table-2026-09-05.txt),
+  [deviations](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)).
+  The number was right; the verdict was not the bench's to give.
 - The prereg carries the adoption and kill criteria, in numbers, on the exact
   quantity they name. Paid on 2026-08-15: the walk passes at 0.3101 ns/block
   under the 0.45 gate, the block yields 0.6735 (*measured*,

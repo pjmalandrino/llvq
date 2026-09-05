@@ -1,4 +1,4 @@
-# Project state as of 2026-09-04
+# Project state as of 2026-09-05
 
 ## 1. The project
 
@@ -154,13 +154,15 @@ review of the F1b spec). The closing check passed on the wrong number because th
 `cargo run --release -p llvq-bench --example f1table`). Under the only isometry the shipped kernel applies for free —
 a coordinate sign flip — the 256 end-section regions fall into **67 orbits** and the 16 middle ones into **9**, which
 is what an adversarial review reported and what this reproduces from an independent implementation. Coordinates reach
-|9|, so an entry is six bytes packed. The table is then 67 × 2¹² + 9 × 2¹⁵ entries: **3,336 KiB**, or 4,448 KiB at one
-byte per coordinate. Against the card's 101,376 B opt-in, tile included, that is **34× over**. It cannot be in shared
+|9|, but every coordinate of a section shares the parity p, so an entry stores (y − p)/2 ∈ [−5, 4] in four bits: **4 bytes**,
+and the table is 67 × 2¹² + 9 × 2¹⁵ entries = **2,224 KiB** (the six bytes and 3,336 KiB written on 09-04 counted the sign twice,
+[HISTORIQUE](HISTORIQUE.md)). Against the card's 101,376 B opt-in, tile included, that is **22× over**. It cannot be in shared
 memory, and the 16 KiB gate it was measured against was never the right bound.
 
-It fits L2 (48 MB), so the question is traffic, not capacity, and the traffic is the finding. A model pass over the
-4B's 3,633,315,840 projection weights is 151.4 M blocks, hence **454 M table lookups**; at one 32-byte sector each
-that is **14.5 GB of table reads against 0.98 GB of weight reads — fifteen to one**. `Planes14`, which ships, reads
+It fits L2 (96 MiB, *measured* at the attribute on 2026-09-05), so the question is traffic, not capacity, and the traffic is
+the finding. A model pass over the 4B's 3,633,315,840 projection weights is 150.7 M blocks (tail excluded), hence
+**452 M table lookups**; at one 32-byte sector each that is **14.5 GB of table reads against 0.98 GB of weight reads —
+fifteen to one**. Whether L2 absorbs that was measured on 2026-09-05 (§5 quinquies). `Planes14`, which ships, reads
 2.18 GB of DRAM at the 252-projection bench and decodes from a **12 KiB** constant table that is L1-resident. So F1
 reads 0.45× the DRAM bytes and asks for a table 275× larger. Whether L2 absorbs that is exactly what F1d measures,
 and nothing in this repository has measured L2 bandwidth.
@@ -237,10 +239,55 @@ four bits. Two points are not a trend and no cause is claimed.
 ⚠️ Cap overrun, declared: $0.29 announced, $0.45 spent. Wave 1 closes at **$5.05 on a $5.00 cap**, 1% over. Nothing
 else launches before a wave-2 cap is set.
 
+## 5 quinquies. The decoder-table floor and the universal table, 2026-09-05
+
+The floor ran on L40S for $0.01 after two failed attempts at $0.01 and $0.00 (*measured*,
+[f1-plancher-table-2026-09-05](mesures/f1-plancher-table-2026-09-05.txt); deviations in
+[ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)). Three uniform-random lookups per block, in
+`nullk`'s geometry, differenced round by round against a hash-only arm: **D(8 KiB) = 0.344 ms, D(16 KiB) = 0.663 ms,
+plateau 4.52 ms from 128 KiB to 16 MiB**, 10.6 ms at 64 MiB, 61.4 ms at 4 GiB. The plateau is a throughput — 3.2 TB/s
+of 32-byte sectors, 0.28 lookups per cycle per SM — not a latency (*computed*). The signed prediction was right on
+D(4 MiB) (4 to 10) and D(16 KiB) (< 1), wrong on the shared-memory arm (0.5 to 2 predicted, 5.097 measured).
+
+The same-day audit — six independent readings, three counter-verified, four $0 computations on the Mac — corrected the
+reading in five places. The bench runs at **six blocks per SM, not eight** (1,536 threads per SM), so the carveout is
+100 KB and **L1 is 28 KB**, 12 KiB of it taken by the activation tile: the 16 KiB point already misses 7.6% of its
+accesses and is not a pure-hit cost. The shared-memory arms confound occupancy (48 → 16 → 8 warps) and per-block staging
+(3.4 to 6.8 GB per pass) with placement, and their difference compares 8 warps against 48 — the cross-occupancy reading
+[format-noyau](format-noyau.md) §6 forbids, one level up; "placing the hot set is worse" is withdrawn, and QTIP's 1.82 G
+shared-memory lookups per pass in 2.246 ms (F2) stand as the counter-example. The real access distribution, which the
+prereg left as a bracket, is now **computed**: the hottest 16 KiB serve 17 to 21% of lookups, 48 KiB 34%, 128 KiB 44 to
+48% (*computed*, `llvq-bench/examples/f1accesscv.rs`, 27,376 blocks; three other implementations agree within 4 points).
+Holding the F1d budget H = 1.538 ms would need 71 to 77% under 16 KiB. For the 67/9 table as designed that gives
+**D ≈ 3.6 to 3.9 ms, 2.4 to 2.5× H** (*estimated*, linear mixing of the measured points). That is a fact about that
+table. It is not a kill: the prereg's own §1 says the floor decides nothing, and the operator's rule of 2026-09-05
+([METHODE](METHODE.md) §1) is that a kill is written on a fundamental criterion by the operator alone.
+
+What the audit produced instead is a decoder that fits the floor. A **universal rank table** — every section reads one
+shared table of 2 parity classes × 2,048 rank vectors × 4 bytes = **16 KiB**, the Golay pattern bytes coming from the
+state and branch bits — replaces the 528 per-region tables. For p = 1 its region is exactly the lowest-norm region; for
+p = 0 it is a compromise between two coordinate profiles. Measured twice on the F1b harness, same blocks, same process
+(*measured*, `llvq-bench/examples/f1rankbench.rs`): **89.05% against 89.69% for exact F1 on 2,000 blocks (−0.64 pp),
+88.88% against 89.48% on 4,000 (−0.61 pp)**, paired MSE loss 1.7 ± 0.2%, ball-12 control 92.00% both times, zero blocks
+outside Λ₂₄, encoder exact on 99.8% of section targets. The signed prediction before the run was a loss of 2.0 to 4.5 pp.
+On the measured curve that table costs 0.34 to 0.66 ms in today's geometry — under H — and the unknown moves to the
+arithmetic decode (~260 operations per block, *estimated*, never compiled), which is where E1v died at 79 registers.
+
+Projected on the fundamental criteria for the 4B (*estimated* unless stated; the arithmetic is in the audit reports):
+disk identical; VRAM 2.57 → **1.36 GB** and 5.162 → **2.76 b/param** whole model (*computed*); tok/s 100.6 → 82 to 98
+with the 67/9 table, ≈ 100 to 108 with the universal table *if* the ALU decode stays under 0.5 ms; ppl and MMLU
+unmeasured (F1c is the first gate); admissible class under the triplet 43.3 → 81 to 101 B parameters, the 70B fitting
+in 19.5 GB (*computed*) — though the `rot_apply` wall of [format-noyau](format-noyau.md) §8 closes the served path past
+the 14B whatever the format. Two blockers the floor never named: the bench encoder runs at 240 ms/block/core against
+F1c's 656 µs gate, **366×** (*measured*), so a production encoder precedes any F1c; and F1e's "≤ 2.6 b/param" was
+unreachable at 4B by construction with the q8 embedding (2.76) — rewritten on the triplet's b_max.
+
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04). Content: F1b and F1c on the Mac at $0, then F1d at ~$1.00 on
-  L40S — one paid job in the whole wave, and it only launches if F1c passes. Q5's served run moves to wave 3, after
+- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.02 spent on the table floor. Content: F1b done at $0; the
+  ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
+  Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
+  can be tested**. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
   twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $97.56 (*measured*,
   `docs/data/jobs.csv`).

@@ -1,0 +1,147 @@
+F1 — LE PLANCHER DE LA TABLE DU DÉCODEUR : 4,517 ms au plateau L2, 0,344 ms
+en L1, et une lecture corrigée le jour même
+================================================================================
+Date        : 2026-09-05, 01:03 (heure de Paris) ; job créé le 04 à 00:52
+Job         : 6a9b4b98e686246ca69a2b20, l40sx1, 18 s de calcul, 0,01 $
+              (deux tentatives avant : 6a9b40ef259f8e97255e06ff, 16 s, 0,01 $,
+              « no embedded copy of f1floor.cu » ; 6a9b4793e686246ca69a2ace,
+              6 s, 0,00 $, garde du point DRAM — L2 = 96 Mio, pas 48 Mo)
+Préreg      : proofs/preregistration-f1-plancher-table-2026-09-04.md,
+              tamponné avant le lancement (.ots présent)
+Écarts      : proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md
+Code        : llvq-cuda/kernels/f1floor.cu, llvq-cuda/src/bin/f1floorbench.rs,
+              commits 190d3a0, 0d6e5d8, 9222fec (branche f1/plancher-table)
+Carte       : NVIDIA L40S, 142 SM, 2 520 MHz, pilote 580.178.04 ;
+              partagée 49 152 o par bloc, 101 376 opt-in ; L2 96 Mio (mesuré)
+Nature      : *mesuré*, un plancher synthétique — aucun produit du modèle,
+              aucune référence f64. Ce banc NE DÉCIDE RIEN (préreg §1).
+
+LA SORTIE BRUTE
+---------------
+  F1 table floor — the lookups alone, 252 launches, one process
+  NVRTC source: 46883 bytes, sha256 00cebeab20c52171f36ba46e89b62b6589c55a0d076a3d54af9b7a47cb931fe0
+  card: NVIDIA L40S · 142 SM · shared/block 49152 default, 101376 opt-in · L2 96 MiB
+
+    9 rounds, 2 discarded; every difference formed ROUND BY ROUND
+
+    nullk                     2.191 ms  [2.189–2.192]
+    hash3                     2.087 ms  [2.086–2.088]
+    tab3 8 KiB                2.432 ms  [2.430–2.439]
+    tab3 16 KiB               2.751 ms  [2.748–2.753]
+    tab3 128 KiB              6.753 ms  [6.750–6.759]
+    tab3 1 MiB                6.661 ms  [6.656–6.665]
+    tab3 4 MiB                6.605 ms  [6.601–6.612]
+    tab3 16 MiB               6.692 ms  [6.687–6.696]
+    tab3 64 MiB              12.680 ms  [12.676–12.682]
+    tab3 4 GiB               63.507 ms  [63.487–63.517]
+    smem 24 KiB @16%          8.263 ms  [8.261–8.265]
+    smem-fill 24 KiB          4.930 ms  [4.928–4.933]
+    smem 48 KiB @33%         12.572 ms  [12.568–12.575]
+    smem-fill 48 KiB          7.474 ms  [7.468–7.479]
+
+    Didx = hash3 − nullk        -0.103 ms  [-0.104–-0.102]   the index source, which F1 gets free
+
+    D(S) = tab3(S) − hash3    THE TABLE ALONE
+      8 KiB        0.344 ms  [0.343–0.351]   L2 modélisée 100.0 %
+      16 KiB       0.663 ms  [0.661–0.666]   L2 modélisée 100.0 %
+      128 KiB      4.666 ms  [4.662–4.674]   L2 modélisée 100.0 %
+      1 MiB        4.573 ms  [4.567–4.578]   L2 modélisée 100.0 %
+      4 MiB        4.517 ms  [4.514–4.524]   L2 modélisée 100.0 %
+      16 MiB       4.604 ms  [4.599–4.608]   L2 modélisée 100.0 %
+      64 MiB      10.592 ms  [10.589–10.595]   L2 modélisée 100.0 %
+      4 GiB       61.419 ms  [61.400–61.431]   L2 modélisée   2.3 %
+
+    Dsm = smem − smem-fill    THE LOOKUPS WITH THE HOT SET PLACED
+    ⚠️ never against nullk: another occupancy, §6 of format-noyau forbids it
+      24 KiB       3.333 ms  [3.331–3.337]   36864 B/bloc → 2 bloc(s)/SM
+      48 KiB       5.097 ms  [5.093–5.104]   61440 B/bloc → 1 bloc(s)/SM
+
+LES CONTRÔLES DU §6
+-------------------
+  1. Élision : la sortie du bras 4 Mio diffère de celle de nullk (le banc
+     s'arrête sinon). Passé.
+  2. Observable : chaque ligne de sortie écrite, finie, non toute nulle. Passé.
+  3. Point DRAM : 4 Gio contre une L2 de 96 Mio = 42,7× (≥ 20×). Passé —
+     après que la tentative précédente a refusé de démarrer à 1 Gio (10,7×).
+  4. Un processus, une géométrie, 252 lancements. Passé.
+
+LE RÉSULTAT, LU COMME LE PRÉREG LE DEMANDE
+------------------------------------------
+  D(4 Mio), la table entière en L2 ......  4,517 ms   prédit 4 à 10     ✅
+  D(16 Kio) ............................  0,663 ms   prédit < 1        ✅
+  Didx ................................. −0,103 ms   prédit < 0,3      ✅ (mais négatif, voir É7)
+  Dsm(48 Kio) ..........................  5,097 ms   prédit 0,5 à 2    ❌ (et le bras ne mesure
+                                                                          pas ce qu'il visait, É3)
+
+  Budget du préreg §3 : H = B − S = 2,797 − 1,259 = 1,538 ms.
+  Le plateau 128 Kio → 16 Mio est plat à ±2 % : c'est un DÉBIT de secteurs,
+  452 M × 32 o / 4,517 ms = 3,2 To/s, 0,28 consultation par cycle et par SM
+  (*calculé*). Pas une latence : un modèle à latence pure rend 0,20 ms, 22×
+  sous la mesure. Dérouler la boucle n'y changera rien.
+  Point DRAM : 237 Go/s de secteurs aléatoires (*calculé*).
+
+CE QUE LE MATIN A LU DE TROP, ET CE QUE L'AUDIT DU JOUR A CORRIGÉ
+------------------------------------------------------------------
+  Six lectures adverses indépendantes, trois contre-vérifiées, quatre
+  calculs à 0 $ sur le Mac (800 à 27 376 blocs encodés). Détail dans les
+  écarts ; l'essentiel :
+
+  a. Géométrie : 6 blocs par SM, pas 8 (1 536 threads/SM ; occ.rs:435 le
+     sait). Carveout 100 Ko → L1 = 28 Ko, dont 12 Kio pris par la tuile
+     d'activation. C'est pourquoi 8 Kio tient (0,344) et 16 Kio rate déjà
+     7,6 % de ses accès (0,663). Le bas de l'encadrement du §5 n'est pas un
+     coût de hit pur. Une tuile de 16 blocs donnerait 112 Ko de L1 : jamais
+     mesuré, et le plancher nullk y bougerait.
+
+  b. La distribution d'accès réelle, que le §5 laissait ouverte, est CALCULÉE
+     (llvq-bench/examples/f1accesscv.rs et trois implémentations sans code
+     commun, d'accord à ±4 points) : les 16 Kio les plus chauds servent
+     17–21 % des consultations, 48 Kio 34 %, 128 Kio 44–48 %, 1 Mio 73–81 %.
+     Pour tenir H il faudrait 71–77 % sous 16 Kio. Avec la table 67/9 :
+     D_réel ≈ 3,6–3,9 ms = 2,4–2,5 × H (*estimé*, mélange linéaire des
+     points mesurés). L'encadrement du §5 est fermé, en haut.
+
+  c. Les bras mémoire partagée ne mesurent pas le placement. Leur ancre
+     absorbe la perte d'occupation (48 → 16 → 8 warps) et le rechargement
+     par bloc (138 240 blocs × 24/48 Kio = 3,4 / 6,8 Go par passe) ; Dsm
+     compare 8 warps à 48 sur les 67–83 % de consultations restées en L2.
+     C'est la comparaison entre occupations que format-noyau §6 interdit,
+     un cran plus haut. « Placer le jeu chaud aggrave » est RETIRÉ. Dans le
+     dépôt même, QTIP fait 1,8 milliard de lectures partagées par passe
+     (LUT 64 Kio, 1 bloc de 1 024 threads par SM) en 2,246 ms (F2).
+
+  d. Comptes : 150 681 600 blocs (queues exclues) → 452 044 800
+     consultations, pas 454 164 480 (−0,47 %). L'entrée tient en 4 octets
+     pour toute orbite (les 8 coordonnées d'une section ont la parité p ;
+     stocker (y−p)/2 ∈ [−5, 4]) : table 2 224 Kio, pas 3 336 (f1table.rs
+     comptait le signe deux fois). Aucun effet sur le plateau.
+
+  e. Didx négatif : bruit de génération de code ou d'ordre des bras, ±0,1 ms.
+     D(S) est formé contre hash3, la plus rapide des deux ancres, donc
+     pessimiste d'au plus 0,103 ms.
+
+  f. La phrase « F1 est mort », prononcée le matin sur ce plancher, est
+     retirée. Le §1 de ce préreg dit que ce banc ne décide rien ; la règle
+     d'opérateur du 05 dit qu'un kill s'arbitre sur un critère fondamental
+     et par l'opérateur seul (docs/METHODE.md §1).
+
+CE QUI EN SORT
+--------------
+  · La table 67/9 telle que dessinée coûte 2,4 à 2,5 × H sur la vraie
+    distribution. C'est un fait sur cette table, pas sur F1.
+  · Une table UNIVERSELLE de rangs de 16 Kio (une seule table pour les 528
+    régions, motifs calculés sur F₂) coûte, sur cette courbe, 0,34 à
+    0,66 ms dans la géométrie d'aujourd'hui — sous H — et perd 0,6 pp de
+    rétention contre F1 exact (*mesuré* deux fois, 2 000 et 4 000 blocs,
+    llvq-bench/examples/f1rankbench.rs ; journal à venir). L'inconnue qui
+    reste est le décodage arithmétique (~260 opérations par bloc, *estimé*,
+    jamais compilé) — là où E1v est mort. C'est le prochain plancher.
+  · Le banc de rejeu d'étiquettes réelles (0,02 $), dessiné dans l'audit,
+    ne sert qu'à une grosse table ; avec la table universelle la question
+    est l'ALU, pas la table.
+
+CE QUE CE JOURNAL NE DIT PAS
+----------------------------
+  Rien sur la perplexité, rien sur tok/s : F1c et F1d. Un plancher sans flux
+  de poids, sans étiquettes venant de ce flux, sans décodage. Un coût réel
+  est plus haut, pas plus bas.

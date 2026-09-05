@@ -115,10 +115,12 @@ bits: `[state 8][s₁ ~13][s₂ ~13][s₃ ~13][gain 1]`. Decoding costs three lo
 | id | lead | cost (*measured* if done, `jobs.csv`; *estimated* otherwise) | adoption | kill | state |
 |---|---|---|---|---|---|
 | F1a | count states and alphabets for 47 bits, prove the bijection | $0 (*measured*, one session) | **no gate** — a feasibility blocker: it must fit the card's 99 KiB opt-in, tile included | does not fit | states green, bijection **proved**; 92 KiB with the odd-coset restriction, 1,124 KiB without |
-| F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0, 1 week | **no gate** — a measurement: retention against an in-process ball-12 control, feeding F1c's signed prediction | none | to do |
-| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl within ±1 cross-seed range of `leech1c12`; encoder ≤ 656 µs/block | out of band on 3 seeds | **first gate of the axis** |
+| F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0 (*measured*, 64 min Mac) | **no gate** — a measurement: retention against an in-process ball-12 control, feeding F1c's signed prediction | none | **done**: 89.55% against 92.00% (−2.45 pp), 12/16/11 89.38, 13/13/13 85.96 ([journal](mesures/f1b-retention-2026-09-04.txt)) |
+| F1 floor | decoder-table floor on L40S, `f1floorbench` | $0.02 (*measured*, three attempts) | **no gate** — a measurement of the lookups alone | none | **done**: D(8 KiB) 0.344, D(16 KiB) 0.663, L2 plateau 4.52 ms; the 67/9 table sits at 2.4–2.5× the F1d budget on the real access distribution; a **universal 16 KiB table** loses 0.6 pp of retention and prices under it ([journal](mesures/f1-plancher-table-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)) |
+| F1 ALU | floor of the universal-table decoder, compiled: word read + arithmetic decode + 16 KiB table, in `nullk`'s process | ≤ $0.10 (operator go, 2026-09-05) | **no gate** — a measurement informing F1d | none | prereg to write |
+| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl within ±1 cross-seed range of `leech1c12`; encoder ≤ 656 µs/block | out of band on 3 seeds | **first gate of the axis**; the bench encoder is at 240 ms/block, 366× the gate — a production encoder (Viterbi at fixed scale) comes first |
 | F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | **throughput + VRAM**: t ≤ t(`Planes14`) measured in the same process, and ≤ 2.20 b/weight kernel | t > t(`Planes14`), i.e. slower for fewer bytes | to do |
-| F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | **the four axes at once**: ≤ 2.6 b/param, MMLU ≥ 55.59 − 2 SE, tok/s ≥ 100.6, disk ≤ today's | MMLU < 53% | the axis's verdict |
+| F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | **the four axes at once**: kernel ≤ 3.00 b/weight (the triplet's b_max; "≤ 2.6 b/param whole model" was unreachable at 4B by construction with the q8 embedding, 2.76), MMLU ≥ 55.59 − 2 SE, tok/s ≥ 100.6, disk ≤ today's | MMLU < 53% | the axis's verdict; the tok/s threshold is the operator's to confirm |
 | F2 | sequential trellis + trellis shaping, A3 geometry only | like F1 | fallback if F1a or F1b dies | none | not budgeted |
 | F3 | per-row cap, 44 to 50 bits/block, guided by M2 | $7 | +2 pp paired MMLU at constant b/param | < +1 pp | after D3, conditional on F1c |
 
@@ -195,6 +197,19 @@ The served path freezes the gain field at 1 bit: 8 assertions, 4 shaders,
 `llvq-cuda/src/planes14_host.rs:113` refuses any other value (*measured*, grep). The v2 format of
 F1c, the per-row cap of F3 and any Q arm that changes the code reopen the runtime layout on top of
 the quantizer.
+
+### 2.2 ter The floor, and who kills, 2026-09-05
+
+The decoder-table floor ran ($0.02, [journal](mesures/f1-plancher-table-2026-09-05.txt)) and was reported the
+same morning as a kill. It was not one: its prereg §1 says the floor decides nothing, and the operator's rule of
+the day — **a kill is written on a fundamental criterion and by the operator alone**, [METHODE](METHODE.md) §1 —
+puts the verdict elsewhere. The audit that followed kept the number (the 67/9 table sits at 2.4–2.5× the F1d
+budget on the real access distribution) and struck the reading (six blocks per SM, L1 28 KB, shared-memory arms
+confounded with occupancy and staging; [ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)).
+It also produced the decoder that fits: a universal 16 KiB rank table, −0.6 pp of retention against exact F1,
+measured twice. What remains between here and F1c, in order: the compiled floor of that decoder (F1 ALU, ≤ $0.10),
+a production encoder against the 656 µs/block gate, then format v2 and the 0.6B run. Objective set by the operator:
+**an F1 that can be tested.**
 
 ### 2.3 Axis Q, quality
 

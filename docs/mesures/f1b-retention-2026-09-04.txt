@@ -1,0 +1,126 @@
+F1b — LA RÉTENTION DU CODEBOOK À TROIS SECTIONS : 89,55 % contre un témoin
+boule-12 à 92,00 % dans le même processus, la prédiction signée disait 89,6
+================================================================================
+Date        : 2026-09-04, 23:39 (heure de Paris), Apple M3 Max, 0 $
+Préreg      : proofs/preregistration-f1b-2026-09-04.md
+              sha256 fe93b67de0bb2a0e7a6ac1a94cabd0769cf136b1dc7120bb9adeacc2f3502654
+              tamponné (.ots présent) AVANT la première mesure
+Écarts      : proofs/preregistration-f1b-2026-09-04-ECARTS.md
+Code        : commit 707b84f ; llvq-bench/src/bin/f1bench.rs
+              sha256 04aa81f5f058bf4991dcc0f680ee8e7fa77adf835b83fae0fe7994dc99e0df4a
+              llvq-bench/src/f1.rs
+              sha256 68ef55559a40639078f7f7a325a0fbf3aaab999e0d14a268f305f427de4f173d
+Commande    : cargo run --release -p llvq-bench --bin f1bench
+              (4 000 blocs d'entraînement pour les centroïdes, 16 000 d'évaluation,
+              graine 0x0f1b_2026_0904, débit 48/24 = 2,000 b/dim des deux côtés)
+Nature      : *mesuré* sur des blocs gaussiens i.i.d. ; ce n'est PAS une
+              perplexité et ce n'est pas une porte (préreg §1)
+
+⚠️ Ce journal est écrit le 2026-09-05 à partir de la sortie brute conservée
+dans la transcription de la session du 04 ; le run lui-même est celui du
+commit 707b84f. Il aurait dû être écrit le soir même.
+
+LA SORTIE BRUTE
+---------------
+  centroïdes de gain (1 bit, sur les normes) : [4.327430071549553, 5.464457773471739]
+
+  témoin boule-12 + 1 bit de gain : MSE 0.078016  rétention 92.00 %   (1.7 s)
+    le papier, Table 8, sur sa MSE non arrondie : MSE 0.077718  rétention 92.14 %
+    écart de banc : -0.14 point — à lire AVANT la ligne F1
+
+  F1 12/15/12 : MSE 0.083509  rétention 89.55 %   Δ témoin -2.45 pp   (64.1 min)
+  F1 12/16/11 (sur 2000 blocs) : MSE 0.083900  rétention 89.38 %   Δ témoin -2.62 pp   (7.3 min)
+  F1 13/13/13 (sur 2000 blocs) : MSE 0.092255  rétention 85.96 %   Δ témoin -6.05 pp   (7.7 min)
+
+  [exited with code 0]
+
+LE RÉSULTAT
+-----------
+  témoin boule-12 (interne, même processus)   92,00 %   prédit [91,9 ; 92,2]  ✅
+  F1 12/15/12, 16 000 blocs                   89,55 %   prédit 89,6 [88,8 ; 90,3]  ✅
+  Δ F1 − témoin                               −2,45 pp
+
+  Le témoin est la première mesure interne de la boule-12 à ce débit ; il
+  tombe 0,14 point sous la Table 8 du papier (92,14 sur sa MSE non arrondie).
+  L'écart de banc se lit sur le témoin, pas sur F1 : F1 est à −2,45 pp DU
+  TÉMOIN, mesuré dans le même processus sur les mêmes 16 000 blocs.
+
+  La prédiction signée (préreg §5) est juste à 0,05 point sur le nombre.
+  Le plafond fermé du produit de trois boules de dimension 8 est 89,10 % ;
+  F1 le dépasse de 0,45 point, ce que le §5 attribuait au chaînage par les
+  256 états. La borne « au-dessus de 90,3 » qui aurait rendu la prédiction
+  fausse de façon instructive n'est pas franchie.
+
+LES DEUX AUTRES DÉCOUPES, SUR 2 000 BLOCS
+-----------------------------------------
+  12/16/11   89,38 %   −0,17 pp sous 12/15/12
+  13/13/13   85,96 %   −3,59 pp sous 12/15/12
+
+  13/13/13 est la formulation littérale de la roadmap. L'implémenter telle
+  quelle aurait coûté 3,6 points et tué F1 pour une raison qui n'a rien à
+  voir avec l'idée de F1 : l'anisotropie de la découpe entière, le milieu
+  ayant besoin de plus de bits que les extrémités (il choisit sa branche ET
+  sa parité sortante, préreg de F1b et f1.rs, `Codebook`).
+
+  ⚠️ 2 000 blocs et non 16 000 : c'est un écart au §3 (« 20 000 blocs »),
+  déclaré en É2. L'ordre des trois découpes n'en dépend pas (les écarts font
+  17 et 359 centièmes pour une dispersion de l'ordre de 10 centièmes à
+  2 000 blocs), mais les deux nombres secondaires ne se citent qu'avec cette
+  mention.
+
+CE QUI A PRÉCÉDÉ CE RUN, ET QUI COMPTE
+--------------------------------------
+  Un pilote a rendu 64,65 % (Δ témoin −27,77 pp, 0,9 min). Diagnostic dans
+  llvq-bench/examples/f1scale.rs : le maximum de t = ⟨x,y⟩/‖y‖ est vers
+  s ≈ 0,344 et la grille d'échelle du pilote allait de 0,600 à 3,706 — entièrement
+  du mauvais côté du pic ; au-delà de s ≈ 1 l'encodeur s'effondre sur
+  l'origine. Grille corrigée à 0,10·1,14^i, i = 0..17 (0,10 à 0,93). Le run
+  suivant sur 2 000 blocs a rendu 90,27 % ; le nombre servi est celui des
+  16 000 blocs, 89,55 %. Aucun tampon n'a été refait : la grille n'est pas
+  dans le préreg, qui fixe la règle de score et le témoin, pas la grille.
+
+LES CONTRÔLES DU §4
+-------------------
+  1. Permutation : `perm(0x00149f) == 0x0000ff` etc. — remplacé dans le code
+     par le contrôle discriminant (ordre trio → 3/3 supports dans le code ;
+     identité et 5 ordres stridés → 0/15), parce que l'assertion littérale
+     est vraie par construction quel que soit TRIO. Test de f1.rs, vert.
+  2. Appartenance : tout point gagnant, permutation défaite, passe
+     `llvq_core::Leech::contains`. Test de f1.rs, vert, zéro exception.
+  3. Rangs par MOTIF : le DP de comptage est indexé par motif ; il coïncide
+     avec la force brute bac par bac et sur chaque point de la coquille de
+     bord. Tests de f1.rs, verts.
+  4. Bijection : les covolumes 2¹⁶ · 2¹² · 2¹⁶ / 256 = 2³⁶ = det(√8·Λ₂₄),
+     confirmés par comptage de points et non affirmés. Test de f1.rs, vert.
+  5. Suboptimalité de l'encodeur : le §4.5 demandait « le même encodeur à
+     balayage sur la boule-12 ». Ce n'est PAS ce qui a été fait — écart É1.
+     À la place : (a) l'encodeur de section est comparé à la recherche
+     exhaustive sur la région (llvq-bench/examples/f1enc.rs, 400 cibles par
+     section, graine 0x5f1b_2026_0904) et rend l'optimum EXACT dans 100 % des
+     cas sur les trois sections (rejoué le 2026-09-05, même résultat) ;
+     (b) le balayage d'échelle ne produit que des candidats réalisables, donc
+     il ne peut que SOUS-estimer F1 — le biais est à sens unique, contre F1.
+     Le témoin boule-12 est calculé par la réduction en coquilles exacte
+     (m ≤ 12) et non par un encodeur à balayage, donc il n'est pas affecté.
+
+  Les 14 tests de f1.rs ont été mutés avant d'être crus : 10 mutants, 9 tués,
+  le survivant (plage de k courte de 4) fermé par une garde permanente ; les
+  plages courtes de 1 à 3 sont équivalentes par énumération (message du
+  commit 707b84f).
+
+RÉPLICATION INDÉPENDANTE
+------------------------
+  Un prototype Python de la relecture adverse, sans code commun, a donné
+  92,05 / 89,81 / 85,95 pour les trois mêmes lignes (dans le commit 707b84f ;
+  le 89,81 est sur son propre tirage et sa troncature « exact 2^w », pas sur
+  les 16 000 blocs du banc). Accord au centième sur 13/13/13, à 0,26 point
+  sur 12/15/12.
+
+CE QUE ÇA NE DIT PAS
+--------------------
+  · Rien sur la perplexité ni sur MMLU : F1c est la première porte de l'axe
+    (docs/ROADMAP.md §2.2). La relation rétention → ppl n'est pas établie.
+  · Rien sur le décodeur : le coût de la table est mesuré le 2026-09-05
+    (docs/mesures/f1-plancher-table-2026-09-05.txt).
+  · Des blocs gaussiens, pas des poids ; l'anisotropie des vrais poids après
+    rotation n'est pas dans ce nombre.
