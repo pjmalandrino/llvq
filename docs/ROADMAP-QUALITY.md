@@ -1,6 +1,7 @@
 # Quality roadmap
 
-The operator sanctioned this table on 2026-09-06. It replaces the quality axis of
+The operator sanctioned this table on 2026-09-06. The adversarial pass of the same evening corrected
+thirteen rows; what it changed is in its own section below. It replaces the quality axis of
 [ROADMAP](ROADMAP.md) §2.3, which priced an arm at $7 on a `Planes14` base that is no longer the object.
 
 Rows are ordered by **feasibility**, most feasible first. The gain column carries **MMLU points only**.
@@ -28,25 +29,52 @@ Gains do not add: measured sub-additivity runs 0.618 to 0.792 over seven isolate
 | 1 | Q5 / M2b replayed on `Tetra` | **+2.71 to +3.60** *measured* | 0 days of dev, 15 min, $0 on Mac | Two draws, CI above zero in both, paired at constant file. But the base is `Planes14`: nothing says it transposes from 53.49, and that is what this run settles. Serving the gain is 1 to 2 weeks more: the `kind = 2` writer does not exist and `tv_q4_h` has never run on a card |
 | 2 | `leech1c12` witness re-encoded | 0, it is a control | 0 days, 4 h Mac, $0 | Without it every delta measured against 55.59 carries the encoder drift of 2026-08-26: 87% of the indices of a re-encoded block differ. Declined on 2026-09-06; the cost travels with every citation of the −4.64% |
 | 3 | `leech0c13` at the 4B | up to **+5.1** if the whole gap comes from there, **0** otherwise | 0 days, 4 h Mac, $0 | The paper's 60.7 **is** this codebook. We serve `cap12 + 1 gain bit`, which appears in no LLM table of the paper. Measured at 0.6B only, and it is a coin flip: −9.56% of perplexity on draw 1, **+16.5% on draw 2**. Not transposable as-is to `Tetra`, which fixes one gain bit |
-| 4 | Embedding in int4 g64 | never measured in MMLU | 0 days, the `q4b-e4.llvq` artifact exists, $0 | Negative memory cost: −0.4049 b/param, `Tetra` 2.7645 to **2.3596**. +1.52% of perplexity measured. The int4 gather kernel is missing to serve it |
+| 4 | Embedding in int4 g64 | **−0.35 pp** *measured*, under the 0.43 pp bar, so undetected rather than null | 0 days, the `q4b-e4.llvq` artifact exists, $0 | Negative memory cost: −0.4049 b/param, `Tetra` 2.7645 to **2.3596**. +1.52% of perplexity measured, and that one is detected. The embedding **is** the language head at the 4B (`tie_word_embeddings = true`), so degrading it hits the logits directly and serving it is a second decode kernel per token, not a knob. Measured on a `Planes14` base |
 | 5 | Q1, Hessian shrinkage | **no MMLU figure** | 0 days, `LLVQ_H_SHRINK` shipped; 7 to 15 h Mac, $0 | Median perplexity −31% and cross-seed range divided by 6.7 (*measured*, 0.6B, 3 seeds, [m1-hessienne-shrink-2026-09-02](mesures/m1-hessienne-shrink-2026-09-02.txt)). The file predicts a **larger** effect at the 4B: 13.5 samples per dimension against 43.5. The only large internal lever never tried at the 4B, and the 4B `Tetra` ran at rho = 1 |
 | 6 | Calibration volume and composition | 0 to +2 on STEM *estimated* | 0 days, 10 to 15 h Mac, $0 | Buried in perplexity on 3 blocks of the 0.6B, reopened on 2026-08-25: one arm moves **13.9% by changing the calibration text alone**, at full depth. Gated on MMLU sigma 2.92 over 2.0, not on price |
-| 7 | Tail f32 to f16 | 0 | 1 to 2 days, $0 | Returns **−0.0675 b/param** the card already does not pay: D1 prints 4.737 where `rtbits` bills 4.804. It pays for Q5 (+0.0493) with change left |
-| 8 | Q4a, cross-layer equinorm | 0 to +1 *estimated* | 1 to 2 days plus a bit-exact invariance test | 1/s is absorbed by the 1,105,920 row scales. Nothing measured anywhere |
-| 9 | Rotation seed, best of N | a few tenths *estimated* | 1 to 2 days plus 12 h Mac for N = 5, $0 | SpinQuant measures **13 points** between the best and the worst Hadamard rotation, but at W4A4, a different regime. Trap: the seed enters the artifact fingerprint |
-| 10 | MagR | **no MMLU figure** | 3 to 5 days, ~150 lines in `llvq-quant`, $0, +10 min of encoding | OPTQ 36.77 to 9.94 at 7B (**−73% of perplexity**), and it **beats QuIP at 70B** (5.95 against 6.33) at 2 bits. Zero stored parameters, no inverse at inference. The best-aligned lead of the survey: no rotation, no permutation, no index touched |
-| 11 | GPTAQ / GPTQv2 | **no MMLU figure at 2 bits** | 1 week, $0 on card, +10 to 40% of encoding | Llama-2-7B W2A16 with rotation: 20.7 to 9.02 (−56%). It changes the least-squares **target vector**, not the codebook: nothing to re-prove on the format side. About 20 lines for them, more here, since two forward passes must run in parallel |
-| 12 | Q3, K-best beam | +0.5 to +1.5 *estimated* | 1 to 2 weeks, 2 h 27 times K on the Mac (~10 h at K = 4) | Under `Tetra` the K best paths are a **by-product of the trellis**, which they were not under Ball. The beam must range over (path, gain level), not (shell, point) |
-| 13 | Re-qualify the tail by salience | **not measured, the hole in the file** | days to weeks, memory cost **exactly zero** | 16,957,440 weights kept before and after: the same spend, better placed. Reference point, OWQ: 60 to 83% of the gap closed for +0.01 b/weight. It breaks the index map, so the full suite runs before any commit |
+| 7 | Tail f32 to f16, accounting only | 0 | 1 to 2 days, $0 | **It frees nothing and pays for nothing.** The card has held the tail in f16 since 2026-08-09 (`TAIL_BYTES = 2`, `llvq-llm/src/fused.rs:737`), and `sealed::load` narrows it for `ppl` and `mmlu`, so 53.49 and 16.1569 already include it. What the correction buys is knowledge: the margin before b_max is **0.0747 b/weight larger** than published |
+| 8 | Q4a, cross-layer equinorm | **0, structurally** | 1 to 2 days | Discarded by the adversarial pass. A block of 24 groups **rotated** coordinates: a diagonal s in the original basis becomes Q'diag(s)Q, dense, in the served basis, so it cannot equalize post-rotation block norms. The served Hadamard has already equalized them, kurtosis 3.01 *measured* on real blocks |
+| 9 | Rotation seed, best of N | **0, refuted by our own journal** | 1 to 2 days | Seed 1 has the **worst** perplexity, 16.7425, and the **best** MMLU, 58.02; seed 3 has the best perplexity and a median MMLU (*measured*). A perplexity filter picks exactly the wrong seed. And publishing the max of N draws at sigma = 2.92 pp reports a selection artifact, not a gain |
+| 10 | MagR | **no MMLU figure**; 0 to −5% of perplexity *estimated* | 3 to 5 days, ~150 lines in `llvq-quant`, $0, +10 min of encoding | The published −73% starts from a collapsed scalar GPTQ, 36.77 of perplexity for an f16 at 5.47. We sit at 1.32 times excess, where almost nothing is left to repair. Its infinity-norm objective is the statistic of an absmax scalar quantizer and has to be rewritten on shape-gain dispersion. Still the best-aligned lead structurally: no rotation, no permutation, no index touched |
+| 11 | GPTAQ / GPTQv2 | **no MMLU figure at 2 bits**; −3 to −8% of perplexity *estimated* | 1 week, $0 on card, +10 to 40% of encoding | Their own gain decays from −56.4% to −7.5% as the base excess goes from 3.8 to 1.69 times. We are at 1.32, so their trend promises a few percent here, not 56. It changes the least-squares **target vector**, not the codebook: nothing to re-prove on the format side |
+| 12 | Q3, K-best beam | **indeterminate, possibly negative** | 2 to 3 weeks, 2 h 27 times K on the Mac (~10 h at K = 4) | The beam optimizes the **local** proxy harder, and this file holds three precedents where a better local proxy composed worse: design C (perplexity times 1.99), `group_scales` (44.66 to 53.60), gptq2 (MMLU 24.74%, which is chance). The beam must range over (path, gain level), not (shell, point), so it is new code and not a port |
+| 13 | Re-qualify the tail by salience | 0 to +2 *estimated* | days to weeks; **+0.0022 b/param** of permutation table, not zero, and it breaks format v1 | The served rotation destroys the notion of a salient column: the tail is the remainder modulo 24 in the **rotated** basis, where only the residual variation of the diagonal of Q'HQ survives. **That variation is measurable for $0 on the already-encoded artifact, and it decides the lead before any spend** |
 | 14 | Learned column scales, the paper's fine-tuning | **+2.1** *measured by the paper on Qwen3-4B* | 2 to 3 weeks, no training loop exists here, ~$3 to $8 | The largest published gain at near-zero memory cost, and it is read on **our exact model**. Perplexity 17.05 to 9.26 as well. Same lever: +2.1 pp on QTIP, **+4.3 pp on QuIP#**. The decoder is **byte-identical** |
-| 15 | E2E-QP, EfficientQAT scales only | **no MMLU figure**, +1.15 pp of 5-task zero-shot average | 2 to 3 weeks, $1 to $5 | The cheapest fine-tuning path: the gradient **does not cross the decoder**, since a served weight is a row scale times a constant decoded vector. Excess divided by 1.58, measured |
+| 15 | E2E-QP, EfficientQAT scales only | **about 0 expected**, against the +1.15 pp announced | 2 to 3 weeks, $1 to $5 | They train one scale per **group of 64 weights**. We hold one per **row**, one per 3,285 weights on average: 51 times fewer degrees of freedom, and of another class, since a row scale is exactly a diagonal gain per output channel. The gradient still does not cross the decoder, which is why the lead stays on the list |
 | 16 | Q4b full, 24x24 activation maps | not measured | 1 to 2 weeks, plus Q6c to rewrite first | +0.065 b/param. Internal anchor: radial bias, +3.69% of geometric overcost (*measured*, 0.6B, reproduced to the thousandth) |
 | 17 | Q6a, distilling the format's free parameters | +2 to +5 *estimated* | weeks, ~$3 | About 18 M parameters already in the file: f16 tail, row scales, gain centroids, norms. Their values change, their widths do not. Zero bits |
-| 18 | OWQ, weak columns in f16 | **no MMLU figure** | days for the encoder, weeks for the kernel; +0.0898 b/param | The best bits-per-quality ratio of the survey, **but at 3 bits, on OPT and LLaMA-1, and without an incoherence rotation**, and it is the rotation that makes our outliers. An arbitrary column cuts a Lambda-24 block in two |
-| 19 | GuidedQuant, output weighting | **no MMLU figure** | 2 to 4 weeks, no backward pass exists here | QTIP 6.82 to 6.11, −10.4%: **the only published measurement of this lever on a vector quantizer**. Caveat: our spherical GPTQ assumes a metric where the block norm is preserved |
+| 18 | OWQ, weak columns in f16 | **no MMLU figure** | days for the encoder, weeks for the kernel; +0.0898 b/param | The mechanism rests on channel outliers **our input rotation exists to destroy**. Using it means extracting before rotating and rotating the residual: a third f16 tensor in the natural basis, a third launch, and a channel permutation that conflicts with row 13. Published at 3 bits, on OPT and LLaMA-1, without an incoherence rotation |
+| 19 | GuidedQuant, output weighting | **no MMLU figure** | 2 to 4 weeks, no backward pass exists here; the spherical retraction proof of its Eq. 17 has to be redone | QTIP 6.82 to 6.11, −10.4%: **the only published measurement of this lever on a vector quantizer**, and it is in perplexity. Our spherical GPTQ assumes a metric where the block norm is preserved |
 | 20 | Q6b, low-rank correction, EoRA or RILQ | +2 to +4 *estimated* | 1 week after Q6a; +0.113 b/param at r = 32 | Under `Planes14` it pushed to 5.41, above AWQ. Under `Tetra` it stays below 3.00: the lead becomes playable **only** because of `Tetra` |
-| 21 | Block-AP, full EfficientQAT | **no MMLU figure** | 3 to 6 weeks, re-encoding and re-signing on every pass | Perplexity 8.53 against 10.26 for scales alone. The paper's lesson: training weights **without** the scales is worse than the scales alone, 14.32 against 10.26 |
-| 22 | PV-tuning, Q6d, end-to-end KL | **no MMLU figure**, zero-shot deficit 7.29 to 3.45 | 1 to 2 months of dev plus 384 to 1,536 GPU hours | Excess divided by 2.11 at 7B, measured. The only lead whose projection reaches the target on its own, and the only one out of budget by an order of magnitude |
+| 21 | Block-AP, full EfficientQAT | **unknown here** | 3 to 6 weeks; **out of budget by a factor of one hundred** | Discarded by the adversarial pass. Its own decomposition credits the scales and zero-points (10.26 against 14.32 for weights alone), and `Tetra` has neither a zero-point nor a group scale. Its only addition above distilling scales is training the weights, which needs a Leech re-encoding inside the loop: 245 s per block, 2 h 27 per pass, thousands of steps |
+| 22 | PV-tuning, Q6d, end-to-end KL | **0 transposable** *estimated* | 1 to 2 months of dev plus 384 to 1,536 GPU hours, $270 to $1,250 | Discarded by the adversarial pass. The excess divided by 1.20 to 2.11 is measured in perplexity on a **learned** codebook, AQLM, and the paper carries no MMLU. On a **fixed** lattice the P step has almost nothing to move: it reduces to the row scales and the rotation signs, so half the measured lever does not exist here |
+
+## What the adversarial pass changed, 2026-09-06
+
+The table was written from a survey of 124 leads. An adversarial pass then recomputed every memory cost on
+the 4B accounting and tested every gain for transposability to our setting. It contested 48 of the rows it
+read and kept 65 leads. Thirteen rows above carry its corrections. Four collapse to zero, and the reasons
+are worth more than the rows:
+
+- **Row 8, Q4a**, is zero *structurally*: a block of 24 groups rotated coordinates, so a diagonal in the
+  original basis is dense in the served one.
+- **Row 9, the rotation seed**, is refuted by our own journal: the seed with the worst perplexity has the
+  best MMLU. A perplexity filter picks the wrong seed, and publishing the best of N at sigma = 2.92 pp
+  reports a selection artifact.
+- **Rows 21 and 22** are out of budget by a factor of one hundred and one thousand, and both credit their
+  gain to parameters `Tetra` does not have: group scales and zero-points for Block-AP, a learned codebook
+  for PV-tuning.
+
+Two corrections travel beyond their row. **The tail f32 to f16 finances nothing**: the card has held it in
+f16 since 2026-08-09, so the published 2.7645 already includes it and the margin before b_max is 0.0747
+b/weight larger than stated. And **the paper's fine-tuning line is not 45.7% of perplexity recovered**: it
+lands at 9.26 where the paper's own FP16 reads 12.41, so the 2-bit model beats its own f16 by 25%. That is
+adaptation to 52 M tokens of the evaluation corpus. Only the **+2.1 pp of MMLU** transports, which is why
+this table carries gains in MMLU points and nothing else.
+
+One correction is a free measurement. **Row 13's deciding number costs $0 on the artifact we already have**:
+the residual variation of the diagonal of Q'HQ says whether any salience survives the rotation, and it
+decides the lead before a line is written.
 
 ## The instrument that gates half the table
 
