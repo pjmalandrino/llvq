@@ -174,7 +174,7 @@ card's own attributes are measured and are the honest bound: on L40S,
 preflight, [format-noyau](format-noyau.md) §8). The matvec already stages a 12 KiB activation
 tile. So 3 × 16 KiB + tile = 60 KiB fits the opt-in; the 80 KiB odd-coset variant + tile = 92 KiB
 fits with 7 KiB to spare; the 1,112 KiB variant cannot be in shared at all and would live in L2,
-where 48 MB makes capacity a non-issue and latency the question. ⚠️ Fitting is not the same as
+where 96 MiB makes capacity a non-issue and latency the question. ⚠️ Fitting is not the same as
 being fast: 92 KiB per block against a 100 KiB per-SM budget is **one block per SM**, and A3
 measured eight occupancy variants without finding a portable one. The gate is therefore a
 feasibility bound, and occupancy moves to F1d where it can be measured.
@@ -249,16 +249,15 @@ mutation-tested before it is called green ([METHODE](METHODE.md) §4).
 |---|---|---|---|---|
 | 0 | the Tetra word map in the dependency-free crate: trellis, rank table (N0 = 1,240), the 12 linear columns, `decode_word`, `encode_word`, field layout | `llvq-search/src/tetra/` (from `llvq-bench/src/f1/rank.rs`, the bench copy stays as the independent yardstick) | **done** 2026-09-05 (`cc23f9a`): 1,122 lines, 16 mutants killed | agreement with `llvq_bench::f1::rank::decode_word` on 10⁵ words; `encode(decode(w)) == w` on 10⁶; every decoded word in Λ₂₄; mutants: a swapped octad, a shifted rank, a class block exchanged |
 | 1 | the production encoder: closed-form membership, lazy trellis join, two adaptive scales with α and the scale pair fixed on the 4,000 training blocks | `llvq-search/src/tetra/encoder.rs` (from `llvq-bench/examples/f1enclazy.rs`), `llvq-bench/src/bin/tetraencbench.rs` | **done** 2026-09-05: 329 µs/block/core against the 656 gate, α = 0.3218 on the training blocks, 6,000 of 6,000 pairs at the bench's point | same points as the bench encoder on 2,000 blocks × 2 scales; retention on the fixed 2,000 blocks ≥ 88.85 (non-regression, not a quality claim); `tetraencbench` ≤ 656 µs/block/core, one core, median of 5; kill: over 656 |
-| 2 | `TetraShapeGain: BlockQuantizer`: gain from the norm as today, direction by the Tetra encoder, reconstruction mirroring the decoder, 48 bits per block | `llvq-quant/src/quantizer.rs` | 0.5 d | codes → reconstruct equals the evaluated weights bit for bit (`g6_artifact` on Tetra); `oracle` on every backend before any number |
+| 2 | `TetraShapeGain: BlockQuantizer`: gain from the norm as today, direction by the Tetra encoder, reconstruction mirroring the decoder, 48 bits per block | `llvq-quant/src/quantizer.rs` | **done** 2026-09-05 | **done**: the 4B encoded under `tetra` and read back bit for bit; `reproject` re-encodes instead of negating, because the Tetra map is not centrally symmetric (106 of 400 negations refused). Original check: codes → reconstruct equals the evaluated weights bit for bit (`g6_artifact` on Tetra); `oracle` on every backend before any number |
 | 3 | format v5: magic `LVQ5`, a per-file code kind in the header, the v1 fingerprint untouched plus the Tetra fingerprint, the disk-to-word transcoder (the disk is MSB-first, the word little-endian), refusals in every runtime transcoder and in the tools that read indices as classes | `llvq-artifact/src/{format,codebook,runtime}.rs`, `llvq-bench/src/bin/{rtbits,classhist,decbench,decfull,decprofile,lswap}.rs` | **done** 2026-09-05, with a per-matrix kind added in the next step for Q5 | legacy headers still read; `PUBLISHED_FINGERPRINT` unchanged; raw passthrough byte-identical at v4 and v5; transcoder pinned on 10⁵ words; mutants: kind ignored at read (the round trip must break), gain bit read at bit 0 (must break) |
-| 4 | the wiring: `tetra` accepted by `smoke`, writer at version 5, `seal`, `ppl`, `mmlu`, `export` read v5; `verify_artifact` bit for bit; a 3-block smoke test on the 0.6B against `leech1c12` | `llvq-llm/src/{calib,sealed,artifact2}.rs`, `bin/{smoke,seal,ppl,mmlu,export}.rs` | 1 d | the 0.6B 3-block run prints the same rate (2.1656 b/weight) on both arms, seals, reopens, and its ppl is finite; the served 4B file still reads 16.9415 at f16 |
-| 5 | the 4B in Tetra: prereg with a signed prediction, then `smoke 64 2048 12 4096 metal nogs tetra 999 rot` on C4, `seal`, `ppl` at f16, `mmlu` on Metal | `proofs/`, `docs/mesures/` | 1 d of work, ~4 h of Mac for the file, ~1 h for ppl and MMLU | the reading is F1e's quality line on the 4B (MMLU ≥ 55.59 − 2 SE, kill under 53%); disk and b/param computed on the sealed bytes; the operator confirms the thresholds before the prereg is stamped |
-| 6 | the card: `tv_tetra48` from the v3 decoder with the gain scale, added as an arm to the published comparison bench — `nullk`, `Planes14`, QTIP and AWQ in their own grids, FP16, every arm in one process, on L40S and then A100 (F1d, ~$1 per card); then `fusedrun` on the sealed file (F1e, ~$8) | `llvq-cuda/`, `llvq-llm/src/fused*.rs` | 1 week | F1d and F1e as written above; the operator's framing of 2026-09-05: rerun the original bench with each kernel on its card, Tetra added |
+| 4 | the wiring: `tetra` accepted by `smoke`, writer at version 5, `seal`, `ppl`, `mmlu`, `export` read v5; `verify_artifact` bit for bit; a 3-block smoke test on the 0.6B against `leech1c12` | `llvq-llm/src/{calib,sealed,artifact2}.rs`, `bin/{smoke,seal,ppl,mmlu,export}.rs` | **done** 2026-09-05 | **done**: witness 20.7935 against Tetra 21.4947, both at 2.1656 b/weight, both sealed and reopened at their exact perplexity. Original check: the 0.6B 3-block run prints the same rate (2.1656 b/weight) on both arms, seals, reopens, and its ppl is finite; the served 4B file still reads 16.9415 at f16 |
+| 5 | the 4B in Tetra, then the four-arm quality campaign on one card | `proofs/`, `docs/mesures/` | **done** 2026-09-06: 2 h 27 of Mac, $0.79 | **done**: 2.764 b/param against 5.162, perplexity 16.1569 against 16.9422 (better by 4.64%), MMLU 53.49 against 55.59, f16 and the published file replaying their A4 values ([journal](mesures/tetra-4b-2026-09-06.txt)). No threshold was set: the operator measured and judged on sight |
+| **6, the last step** | the card: `tv_tetra48` from the v3 decoder with the gain scale, added as an arm to the published comparison bench: `nullk`, `Planes14`, QTIP and AWQ in their own grids, FP16, every arm in one process, on L40S and then A100 (F1d, ~$1 per card); then `fusedrun` on the sealed file (F1e, ~$8) | `llvq-cuda/`, `llvq-llm/src/fused*.rs` | 1 week | F1d and F1e as written above; the operator's framing of 2026-09-05: rerun the original bench with each kernel on its card, Tetra added |
 
-Steps 0 to 4 are 4 to 6 days; step 5 adds a day and about five hours of Mac. Steps 0 and 1 can run in
-parallel with step 3. Step 6 is independent of step 5 once step 3 fixes the file layout. Two inputs are the
-operator's: the name, and the quality thresholds of step 5. The 0.6B seeds of F1c are dropped in this plan;
-the 4B is the object, and its quality is read with F1e's line.
+Steps 0 to 5 ran on 2026-09-05 and 09-06 for $0.79 all told, against the 5 to 7 days estimated. Both operator
+inputs are settled: the format is named Tetra, and no quality threshold was set: the operator measured and judged
+on sight (prereg §1). Step 6 is what remains, and it is the only place the card figures come from.
 
 ### 2.3 Axis Q, quality
 
@@ -286,13 +285,14 @@ Any gain bought back in bytes fits inside a budget set in advance, in b/param ov
 
 ## 3. Debt and hygiene
 
-- Timestamps waiting to be anchored. On the morning of 09-02, 28 timestamps, 20 anchored, 8 with no
-  Bitcoin anchor (*measured*, [ots-etat-2026-09-02](mesures/ots-etat-2026-09-02.txt)): m3-gptq2,
-  vague2-gel-geometrie, protocole-piles-isolees-v2, the A2/A3 prereg of 08-31 and the four A2 preregs
-  of 09-01. Three more since: m2-attribution (71712e60), m1-hessienne-shrink (5a5e1027),
-  m2b-v4bits (263ec52a).
+- Timestamps: **cleared on 2026-09-06**. All 37 stamps carry at least one Bitcoin anchor, none carries
+  zero (*measured*, [ots-etat-2026-09-06](mesures/ots-etat-2026-09-06.txt)); the debt of 09-02 was
+  8 unanchored plus 3 stamped since. Every one still carries its 4 pending attestations, which is
+  normal: a calendar keeps offering them after the anchor lands. `ots upgrade` on the whole directory
+  is the whole operation, and it is worth re-running whenever a prereg is stamped.
 - Two timestamps no longer attest their file, 08-10 and 08-11, rewritten by the anonymization pass
-  `01fdbe6`. The attested version is unrecoverable.
+  `01fdbe6`. The attested version is unrecoverable. A third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`,
+  has no `.md` beside it at all (*measured*, same audit): the stamp attests bytes nobody can produce.
 - The HF bucket has never been inventoried: 69 files, 46.7 GB as of 08-17 (*measured*, `hf buckets
   ls`). An inventory comes before any re-run quote.
 - `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` on the five core

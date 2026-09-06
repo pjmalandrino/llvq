@@ -1,2 +1,6 @@
 target/
 __pycache__/
+
+# `ots upgrade` writes a .bak beside every stamp it rewrites; the stamp is the
+# artefact, the backup is not.
+proofs/*.ots.bak

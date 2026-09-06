@@ -1,0 +1,132 @@
+TETRA AU 4B — LE FORMAT QUI NE DÉPLIE PAS : 2,764 b/param contre 5,162, une
+perplexité MEILLEURE de 4,64 %, et 2,10 points de MMLU en moins
+================================================================================
+Date        : 2026-09-06
+Jobs        : 6a9d3bfce686246ca69a5439, l40sx1, 26 min, 0,78 $ (le banc)
+              6a9d3b3d259f8e97255e6403, l40sx1, 16 s, 0,01 $ (mort sur
+              « hf: command not found » : l'image porte les binaires Rust,
+              pas le CLI ; les deux scellés passent par le bucket)
+              Vague 2 : 0,82 $ dépensés sur un plafond de 2,00
+Préreg      : proofs/preregistration-tetra-4b-2026-09-06.md
+              sha256 a5b065b65c330f7ac1ae7ef02ef81a8b4e48a85283836099bf73f66f34e63897
+              tamponné avant la première mesure
+Écarts      : proofs/preregistration-tetra-4b-2026-09-06-ECARTS.md (É1 à É3)
+Encodage    : Mac M3 Max, 2 h 27 (8 820 s), 245 s/bloc, 0 $
+Objet       : hf://buckets/Pier-Jean/jobs-artifacts/tetra-4b-2026-09-06/
+              qwen3-4b-tetra.bin, 1 770 529 149 octets
+Nature      : *mesuré* sur carte pour ppl et MMLU ; *calculé* pour les octets
+
+LE TABLEAU — quatre bras, une carte, un harnais, les mêmes empreintes
+----------------------------------------------------------------------
+  ppl : wikitext2, ctx 4096, 12 fenêtres, f16, empreinte 3f1baca9033bf251
+  MMLU : 5-shot, 2 280 questions sur 14 042, 57 matières, f16,
+         empreinte 65dcd53655e8bfa5
+
+  bras                    b/param    ppl        × f16     MMLU micro      macro
+  ----------------------------------------------------------------------------
+  f16                      16,000    12,2369    ×1        70,32 ± 1,28    72,76
+  AWQ 4 bits (Qwen)         5,302    13,5207    ×1,105    70,04 ± 1,25    70,79
+  LLVQ Planes14 (publié)    5,162    16,9422    ×1,385    55,59 ± 1,35    57,46
+  LLVQ Tetra                2,764    16,1569    ×1,320    53,49 ± 1,34    55,61
+
+  Les deux bras de référence rejouent leurs valeurs publiées au centième
+  (12,2369 et 16,9422 en perplexité, 70,32 et 55,59 en MMLU, campagne A4 du
+  2026-08-06) : le harnais d'évaluation n'a pas bougé, et c'est ce qui rend
+  les deux lignes neuves lisibles.
+
+TETRA CONTRE LE FORMAT SERVI
+-----------------------------
+  b/param modèle entier ....  5,1619 → 2,7645   ÷1,867   (*calculé*)
+      3 633 315 840 × 4,803977 + 388 956 160 × 8,5 + 196 096 × 16 = 20 763 630 625 bits
+      moins 64 bits par bloc sur 150 681 600 blocs               = 11 120 008 225 bits
+      ÷ 4 022 468 096 paramètres. La comptabilité est celle qui rend 5,162 pour le
+      format servi (rtbits-planes-8b-2026-08-09.txt l. 350-352). `rtbits` lui-même
+      REFUSE un fichier v5 : voir les écarts §É4.
+  b/poids noyau ............  4,8040 → 2,1498   ÷2,235
+  Go carte .................  2,595  → 1,390    (*calculé* ; c'est l'arithmétique
+      en b/param, pas le compte d'octets hôte que ETAT §2 donne à 2,57 pour le
+      format servi — les deux comptabilités ne se mélangent pas)
+  disque ...................  1 770 527 533 → 1 770 529 149 octets, +1 616
+  perplexité ...............  16,9422 → 16,1569   −4,64 %
+  MMLU micro ...............  55,59 → 53,49       −2,10 pp
+  coût d'encodage ..........  4 h 01 → 2 h 27     ÷1,64
+
+  Le format écrit 48 bits par bloc et en lit 48 : il ne déplie pas. C'est
+  toute la différence des b/poids noyau, et c'est ce que le décodeur compilé
+  du 2026-09-05 a vérifié sur la carte en lisant des mots de six octets
+  (docs/mesures/f1-rang-plancher-2026-09-05.txt).
+
+L'EXCÈS DE LOG-VRAISEMBLANCE — la seule comparaison inter-papier valide
+------------------------------------------------------------------------
+  (docs/fiche-4b.md §3.1 : ln(ppl) − ln(ppl du f16 de sa propre pile)
+
+  f16 ...................... 0
+  AWQ 4 bits ............... 0,0998 nats
+  LLVQ Planes14 ............ 0,3254 nats
+  LLVQ Tetra ............... 0,2779 nats
+  QTIP 2 bits (papier) ..... 0,3171 nats
+
+  Le dépôt écrivait « en excès de log-vraisemblance nous sommes 2,6 % moins
+  bons que QTIP ». Tetra est **12,4 % meilleur que QTIP** sur cette mesure,
+  et 14,6 % meilleur que le format servi.
+
+LES CONTRÔLES
+--------------
+  1. Oracle sur les deux backends du Mac avant l'encodage (règle dure 10) :
+     max |Δhidden| = 0,000e0 sur Metal et sur CPU.
+  2. Le fichier publié rejoue ses nombres dans le même job : 16,9422 et
+     55,59. PASSÉ. C'est ce qui borne la dérive du harnais d'évaluation.
+  3. Même débit des deux côtés : 2,1595 b/poids de projection, le chiffre du
+     fichier publié, À LA QUATRIÈME DÉCIMALE et non au dix-millionième comme le
+     préreg le demandait (écarts §É5). PASSÉ à cette précision.
+  4. `verify_artifact` : 3 633 315 840 poids relus du fichier, identiques bit
+     pour bit aux poids évalués pendant l'encodage. PASSÉ.
+  5. Empreintes de tokens identiques sur les huit évaluations. PASSÉ.
+  6. Zéro point hors Λ₂₄ : la garde de `Tetra::encode` refuse à l'écriture,
+     aucun refus. PASSÉ.
+  7. En-tête : magic LVQ5, kind Tetra, empreinte v1 INCHANGÉE
+     (0x338f420f11866319), empreinte Tetra 0x9c3060086c7a13e6. PASSÉ.
+  8. 🚨 CONTRÔLE 0 ÉCHOUÉ, voir les écarts §É3. Un bloc réencodé en
+     `leech1c12` aujourd'hui ne reproduit PAS le bloc 0 du fichier publié :
+     queue, gains et 87 % des indices diffèrent (82 à 91 % selon la matrice), alors que dimensions,
+     graine de rotation, centroïdes et échelles de ligne sont identiques.
+     Cause la plus probable, *non prouvée* : le commit 4a3e5f0 du 2026-08-26
+     a changé le volume de calibration demandé.
+
+LA PRÉDICTION SIGNÉE, ET ELLE EST FAUSSE
+-----------------------------------------
+  prédit : ppl +1,5 à +4 % (centre +2,5), MMLU −2,5 à 0 pp (centre −1,2)
+  mesuré : ppl −4,64 %, MMLU −2,10 pp
+
+  Le signe de la perplexité est inversé. La clause « fausse de façon
+  instructive » du préreg §6 nommait ce cas : « ppl sous +1 % — la rétention
+  gaussienne surestimerait la perte sur des poids réels ». C'est ce qui est
+  arrivé : 88,89 % de rétention gaussienne contre 92,00 pour la boule-12
+  prédisait +8,5 % de MSE, et la perplexité fait le contraire.
+  Le MMLU tombe dans la fourchette, à 0,9 pp du centre.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Les 1,390 Go carte sont *calculés*, pas mesurés. Tetra ne déplie pas par
+    construction, mais aucun noyau servi ne lit encore ce format : pas de
+    variante dans `FusedLayout`, pas d'échelle de gain dans le décodeur
+    compilé, pas de bras dans `planesbench`. Le débit et la VRAM carte sont
+    l'étape 6.
+  · L'écart Tetra−Planes14 contient le format ET la dérive de l'encodeur
+    depuis le 2026-08-26, et rien ici ne les sépare (É3). Un témoin
+    `leech1c12` réencodé aujourd'hui coûterait 4 h de Mac ; décision
+    d'opérateur du 2026-09-06 de ne pas le faire.
+  · Les −2,10 pp de MMLU sont sous le bruit de tirage de calibration au 4B
+    (2,92 pp) et à peine au-dessus du bruit d'échantillonnage (±1,35 par
+    bras). La perplexité s'améliore pendant que le MMLU baisse : c'est la
+    dissociation que le dossier porte déjà (le papier lit 17,05 ppl pour
+    60,7 de MMLU là où nous lisons 16,94 pour 55,59).
+  · Rien sur le 8B ni le 14B.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/tetra-4b-2026-09-06/ :
+    gpu.txt, ppl-{f16,awq,planes14,tetra}.txt, mmlu-{f16,awq,planes14,tetra}.txt,
+    qwen3-4b-tetra.bin, qwen3-4b-planes14.bin
+  Encodage : le journal du run, phases et s/bloc, dans la sortie de `smoke`.
+  Contrôle 0 : llvq-bench/examples/driftcheck.rs.

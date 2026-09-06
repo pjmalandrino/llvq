@@ -8,8 +8,9 @@ Loaded at the start of every session: where to resume and what we do not do. The
 Cut the inference cost of LLMs for sovereignty: fit bigger models on local hardware. The lever is the number of
 bits per weight; at 2 bits a 70B goes from 140 GB to 18 GB on disk (*computed*). In VRAM the served format unfolds
 the index to 4.804 b/weight (*measured*, `docs/mesures/e2-golay70-bench-2026-08-07.txt`). Under the product triplet
-in force, the largest admissible class is 43.3 billion parameters at 5.162 b/param; the 32B is the served object,
-the 70B does not fit (*computed*, `docs/ETAT.md` §6). We implement the LLVQ paper in Rust, vector quantization on
+in force, `Planes14` admits at most 43.3 billion parameters at 5.162 b/param and the 70B does not fit. The `Tetra`
+format of 2026-09-06 is the first under the triplet's b_max of 3.00, at 2.1498 kernel b/weight, which admits 81 to
+101 billion; no served kernel reads it yet, so the 32B is still the served object (*computed*, `docs/ETAT.md` §6). We implement the LLVQ paper in Rust, vector quantization on
 the Leech lattice Λ₂₄ ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The engineering contribution is the
 multi-shell fused kernel: dequantization and matvec in a single CUDA kernel.
 

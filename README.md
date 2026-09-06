@@ -132,7 +132,7 @@ path is 40× slower for a bit-identical result, *measured*,
 4.0 h on an M3 Max (*measured*, [docs/fiche-4b.md](docs/fiche-4b.md)); the
 full recipe is in [LAUNCH_ME.md](LAUNCH_ME.md).
 That recipe does not reproduce the bytes: the C4 calibration shard moved from `00000` to `00001` after the published run, and the container magic from `LVQ2` to `LVQ4` ([LAUNCH_ME.md](LAUNCH_ME.md)).
-A re-run is expected to yield the published file's figures, 1.771 GB at 2.1595 bits/weight (*estimated*: the seal replay is listed as pending in [docs/fiche-4b.md](docs/fiche-4b.md)), in a file that will not be byte-identical; that replay has not been run.
+That replay has now been run, on one transformer block, and it **does not reproduce the published file**: the tail, the gains and 87% of the indices differ, while the dimensions, the rotation seed, the gain centroids and the row scales are identical (*measured* on 2026-09-06, `llvq-bench/examples/driftcheck.rs`, [docs/ETAT.md](docs/ETAT.md) §4). The Hessians differ, most likely from the calibration-volume change of 2026-08-26. The published file's perplexity and MMLU therefore compare to nothing encoded after that date.
 `calib.rs` accumulates AᵀA in f32 on the accelerator, so a CUDA re-run gives different weights; that gap is not measured.
 
 ## Repository map

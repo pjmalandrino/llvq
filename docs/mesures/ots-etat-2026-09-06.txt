@@ -1,0 +1,368 @@
+==============================================================================
+ACTUAL STATE OF THE OpenTimestamps STAMPS  -  measured on 2026-09-06
+==============================================================================
+
+INSTRUMENT.  `ots info` (opentimestamps-client v0.7.2, installed from PyPI) and
+the python `opentimestamps` library, which deserializes the .ots and walks its
+attestations.  Every number below is *measured* on the bytes of the repository
+files; nothing is estimated.
+
+WARNING: WHAT IS NOT DONE HERE, AND WHY.  Verifying an anchor end to end means
+checking the committed Merkle root against the real block, which needs a Bitcoin
+node or a block explorer.  This script queries neither, whatever the state of
+the network.  It deserializes files, that is all.  This journal establishes what
+the FILES carry, not that the chain confirms it.
+(WARNING: access to the explorers and to the four calendars VARIES from one
+session to the next: blocked at 403 on 2026-08-26, open on 2026-08-27.  Do not
+read a missing anchor as a fact about the machine.)  The roots are printed at
+the end of the journal exactly so a third party can take that last step in one
+command.
+
+------------------------------------------------------------------------------
+1.  THE GREP THE CLAUDE.md LINE RESTS ON
+------------------------------------------------------------------------------
+
+CLAUDE.md (header and §7) states, "verified by grep on 2026-08-25":
+    16 .ots, each carrying 4 PendingAttestation and 0 BitcoinBlockHeaderAttestation,
+    "none has ever been upgraded".
+
+What the grep actually returns, on a file that carries four anchors:
+    grep -c BitcoinBlockHeaderAttestation    proofs/preregistration-p1-2026-08-13.md.ots  ->  0
+    grep -c PendingAttestation               proofs/preregistration-p1-2026-08-13.md.ots  ->  0
+
+Both return 0.  The .ots format stores an attestation type in an 8-byte binary
+tag, never as text: the class name appears only in the output RENDERED by
+`ots info`, and in the library source.  A grep on this format therefore cannot
+tell an anchored file from a pending one.  It returns 0 in both cases.
+
+Consequence for the two published numbers:
+  · the "0 BitcoinBlockHeaderAttestation" is what the instrument returned, and
+    it is WRONG.  The file above carries four;
+  · the "4 PendingAttestation" is RIGHT, but it does not come from this grep,
+    which returns 0 as well.  It was inferred ("the four calendars") and
+    presented as measured.
+
+------------------------------------------------------------------------------
+2.  WHAT THE FILES CARRY
+------------------------------------------------------------------------------
+
+document                                                 sha256 of .md   btc  pend
+preregistration-2026-08-10.md                            DOES NOT MATCH    4     4
+preregistration-2026-08-11.md                            DOES NOT MATCH    3     4
+preregistration-a2-a3-geometrie-2026-08-31.md            recomputes ok     3     4
+preregistration-a2-etape1-prealloc-2026-09-01.md         recomputes ok     4     4
+preregistration-a2-etape1b-etendu-2026-09-01.md          recomputes ok     4     4
+preregistration-a2-etapes2-3-graph-2026-09-01.md         recomputes ok     4     4
+preregistration-a2-transfert-8b-14b-2026-09-01.md        recomputes ok     3     4
+preregistration-b2-fusedrun-plages-2026-08-18.md         recomputes ok     3     4
+preregistration-b3-8b-seal-2026-08-18.md                 recomputes ok     3     4
+preregistration-bits-de-gain-2026-08-25.md               recomputes ok     3     4
+preregistration-bits-de-gain-suite-2026-08-25.md         recomputes ok     4     4
+preregistration-bruit-mmlu-graines-2026-08-25.md         recomputes ok     4     4
+preregistration-d1-2026-08-24.md                         recomputes ok     4     4
+preregistration-f1-cublasf16-2026-08-18.md               recomputes ok     3     4
+preregistration-f1-plancher-table-2026-09-04.md          recomputes ok     4     4
+preregistration-f1-rang-plancher-2026-09-05.md           recomputes ok     3     4
+preregistration-f1-rang-variantes-2026-09-05.md          recomputes ok     3     4
+preregistration-f1b-2026-09-04.md                        recomputes ok     4     4
+preregistration-f2-qtip-2026-08-20.md                    recomputes ok     3     4
+preregistration-f3-events-2026-08-18.md                  recomputes ok     4     4
+preregistration-f4-a100-2026-08-18.md                    recomputes ok     4     4
+preregistration-f5-graines-4b-2026-08-19.md              recomputes ok     4     4
+preregistration-f5-graines-4b-2026-08-19.v1-l4x4.md      .md missing       4     4
+preregistration-g-2026-08-23.md                          recomputes ok     4     4
+preregistration-m1-hessienne-shrink-2026-09-02.md        recomputes ok     3     4
+preregistration-m2-attribution-4b-2026-09-02.md          recomputes ok     3     4
+preregistration-m2b-graine3-2026-09-04.md                recomputes ok     3     4
+preregistration-m2b-v4bits-2026-09-02.md                 recomputes ok     3     4
+preregistration-m3-gptq2-2026-08-30.md                   recomputes ok     3     4
+preregistration-p1-2026-08-13.md                         recomputes ok     4     4
+preregistration-p1b-2026-08-15.md                        recomputes ok     4     4
+preregistration-p1c-2026-08-15.md                        recomputes ok     4     4
+preregistration-p5-2026-08-14.md                         recomputes ok     4     4
+preregistration-tetra-4b-2026-09-06.md                   recomputes ok     2     4
+preregistration-vague2-gel-geometrie-2026-08-31.md       recomputes ok     3     4
+preregistration-volume-calibration-2026-08-25.md         recomputes ok     4     4
+protocole-piles-isolees-v2-2026-08-31.md                 recomputes ok     4     4
+
+TOTAL: 37 stamps, of which 37 carry at least one Bitcoin anchor and
+0 carry none.  All carry the 4 pending attestations.
+
+The CLAUDE.md count ("16 .ots") is stale too: there are 37 of them,
+for 57 documents (README.md included).
+
+------------------------------------------------------------------------------
+3.  THE TWO STAMPS THAT NO LONGER ATTEST TO THEIR FILE
+------------------------------------------------------------------------------
+
+CLAUDE.md §7 already knew it, from memory: "the reverse defect did occur on the
+08-10 and the 08-11 preregs".  It is now machine-checkable, and the mechanism is
+named: commit 01fdbe6 (2026-08-19), the anonymization pass for TACO, rewrote
+those two documents.  An anchor attests to BYTES.  Rewriting a document destroys
+what its anchor proves.
+
+  preregistration-2026-08-10.md
+    the stamp commits to  21aa2f97a3fd7814d14a6743615840de666f4c7af756ad274b2bdb16b22d4f4d
+    the file hashes to    fa3140b444296220540f521cb9f6088e6bbcdb35407d0295f85cb0c58a3e8bc4
+  preregistration-2026-08-11.md
+    the stamp commits to  1903c32cedea94e31360ae5ea7b52d05d750ee078704d309aa5121ae71272ea9
+    the file hashes to    01a5c4d246964fcdb81368d2414b7a493c2f05a9b180fb21115309aec40a5192
+
+And the attested version is NOT recoverable: the 128 distinct .md blobs of the
+whole git history were hashed, and none yields either of these two digests.
+These two stamps therefore prove the prior existence of a text the repository no
+longer holds, under any revision.
+
+------------------------------------------------------------------------------
+4.  WHAT IS NOT TIMESTAMPED
+------------------------------------------------------------------------------
+
+    README.md
+    preregistration-2026-08-13.md
+    preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md
+    preregistration-a2-etapes2-3-graph-2026-09-01-ECARTS.md
+    preregistration-awq-vllm-2026-08-17.md
+    preregistration-e1v-cuda-2026-08-15.md
+    preregistration-f1-plancher-table-2026-09-04-ECARTS.md
+    preregistration-f1-rang-plancher-2026-09-05-ECARTS.md
+    preregistration-f1-rang-variantes-2026-09-05-ECARTS.md
+    preregistration-f1b-2026-09-04-ECARTS.md
+    preregistration-fusedrun14b-2026-08-17.md
+    preregistration-m1-hessienne-shrink-2026-09-02-ECARTS.md
+    preregistration-m2-attribution-4b-2026-09-02-ECARTS.md
+    preregistration-m2b-v4bits-2026-09-02-ECARTS.md
+    preregistration-m3-gptq2-2026-08-30-ECARTS.md
+    preregistration-p2-2026-08-14.md
+    preregistration-p3-2026-08-14.md
+    preregistration-p4-2026-08-14.md
+    preregistration-tetra-4b-2026-09-06-ECARTS.md
+    preregistration-vague2-gel-geometrie-2026-08-31-ECARTS.md
+    preregistration-variance-calibration-2026-08-26.md
+
+    (README.md is not a preregistration.)
+
+WARNING: preregistration-variance-calibration-2026-08-26.md is in this list, and
+    its own §3 requires the stamp before the first measured millisecond.  It
+    cannot be stamped from this machine: the four calendars are unreachable
+    (403).
+    To be done from a networked machine, before batch 1.
+
+------------------------------------------------------------------------------
+5.  COMMITTED MERKLE ROOTS  -  for third-party verification
+------------------------------------------------------------------------------
+
+Each line says: this file commits this root in the block at this height.
+Verification in one command, from a networked machine:
+
+    ots verify proofs/<file>.md.ots        (with a Bitcoin node)
+
+or, without a node, by comparing the root below to the block's merkle_root field:
+
+    curl -s https://blockstream.info/api/block-height/<height> \
+      | xargs -I{} curl -s https://blockstream.info/api/block/{} | jq -r .merkle_root
+
+
+  preregistration-2026-08-10.md
+    block 961851   9f26f002b3bc5d0a49c61e655f06dbc4baa294fa0604db4152540ca4ef7c7733
+    block 961853   d88034f0ee5da90208ca6ed9f9da72ff2a4723ee9bb18d90ba38464dce31a2a4
+    block 961896   9383179a8ad7467cf2cbb0e6e57aa3a3d798c3d7914e02aa578132aaed5c93ed
+    block 962551   bcbbbf1a9dfd9bcfb70ee4b617d7c894af25b1138aa2ec7d7bef81649c6a219b
+
+  preregistration-2026-08-11.md
+    block 961982   46a080f1bd0840cb8e4639d678bc5a8f8915ce7edc1ca71311d167cc654f67dc
+    block 961984   4b38906534287e02fc2280d84622a0e4e08c106aee49173f7aa95b56c738b06b
+    block 962013   55c6154fe550a2a9d36858c78eb188c93525cf2810d4003a38e0486c205bc0ac
+
+  preregistration-a2-a3-geometrie-2026-08-31.md
+    block 965001   d51c2c4540c0a7343e36ca0af8c9244d953c8a24710c985f0794d26b867a9db9
+    block 965045   670b9aab75182bc85269a7c17241aca794447dba47fc42c2ad46f5a64a1b1be0
+    block 965063   fe38c2618b6206911c7cebbd1b7cdaf52b5fbbd01db37d93c9e8dd31db312fb9
+
+  preregistration-a2-etape1-prealloc-2026-09-01.md
+    block 965008   6036c998b22d7c8356317f166661d9e0c2806cd529bc87c30ef82d77a6b16690
+    block 965011   b32be1bd112d3bce0d742b6fc7b222600780e98e5c722754064543a8be73e257
+    block 965045   670b9aab75182bc85269a7c17241aca794447dba47fc42c2ad46f5a64a1b1be0
+    block 965063   fe38c2618b6206911c7cebbd1b7cdaf52b5fbbd01db37d93c9e8dd31db312fb9
+
+  preregistration-a2-etape1b-etendu-2026-09-01.md
+    block 965014   e5d9fbc45a3fe77c34e9ce50a0d2379b9856cf90c1c626d3f1903cfc577d0863
+    block 965015   d624716801bf6768dfd953008f9a1917bb5a6685652de10daa8d9ee13a7c8b05
+    block 965045   670b9aab75182bc85269a7c17241aca794447dba47fc42c2ad46f5a64a1b1be0
+    block 965063   fe38c2618b6206911c7cebbd1b7cdaf52b5fbbd01db37d93c9e8dd31db312fb9
+
+  preregistration-a2-etapes2-3-graph-2026-09-01.md
+    block 965032   1c9fe241423af278eaf9108fe8f7c7a5cfd18a6eed6a45edf5d73b1c5fed5e0e
+    block 965040   b53dc5c6aa32815e6316b4c0451cf9c5d46f499f32df3d5211710682afdaa579
+    block 965045   670b9aab75182bc85269a7c17241aca794447dba47fc42c2ad46f5a64a1b1be0
+    block 965063   fe38c2618b6206911c7cebbd1b7cdaf52b5fbbd01db37d93c9e8dd31db312fb9
+
+  preregistration-a2-transfert-8b-14b-2026-09-01.md
+    block 965072   d04596d1e32904c9396572302dd0544e1e3d738fd5188df2b18fce2bac3c1788
+    block 965109   c35d97fe81c0e8866352a1359a11fe235e0531008af016808b86d9c2c88b11ee
+    block 965121   1f576bf1bb7788adead9ba295437d653e38455a674b771dbf400b2a205edd790
+
+  preregistration-b2-fusedrun-plages-2026-08-18.md
+    block 963094   3ee14d1937466fabfd9ef7c67bddfc07b3e6158022f0010a3b326deadb66dbaa
+    block 963098   f63ea6353c70ad014c2f8777a5800610af960228f629c92341594b0395acc9de
+    block 963102   2c0756b0c53ecdfef16b0ce69411e0e95ecfe8511562f0f31940722cc8945177
+
+  preregistration-b3-8b-seal-2026-08-18.md
+    block 963094   3ee14d1937466fabfd9ef7c67bddfc07b3e6158022f0010a3b326deadb66dbaa
+    block 963098   f63ea6353c70ad014c2f8777a5800610af960228f629c92341594b0395acc9de
+    block 963102   2c0756b0c53ecdfef16b0ce69411e0e95ecfe8511562f0f31940722cc8945177
+
+  preregistration-bits-de-gain-2026-08-25.md
+    block 964002   7879df779238f49537246e9eb04c130a03fc196d09843faa6df5c08403246317
+    block 964033   d0fc66cbc194874a82d3673195ff1cb9e62ca54a19d13b076f7f0bad3a8e87c1
+    block 964042   eca117610bb1c4bd2b4e0385a85e0fdb017cb5dbb078278270b5f58beb8c7639
+
+  preregistration-bits-de-gain-suite-2026-08-25.md
+    block 964019   a699f6b7115d802ed4683a28d0b0dfe3d94398db6f612068667e9dfd9bde4cac
+    block 964023   086d14cbece19986555c7628e320a781af663c42f66dd8da3a3e57cfbc980daa
+    block 964033   d0fc66cbc194874a82d3673195ff1cb9e62ca54a19d13b076f7f0bad3a8e87c1
+    block 964042   eca117610bb1c4bd2b4e0385a85e0fdb017cb5dbb078278270b5f58beb8c7639
+
+  preregistration-bruit-mmlu-graines-2026-08-25.md
+    block 964047   89e905454cc0def05eab2a48c1834b29f8b0e2ecf293965f315aa3573e4a2197
+    block 964057   4b132bfd4073cb3bbee29738f1f2e2584ac265e896453c5d3012b7cf23d85329
+    block 964090   52c639dd0bb9059aa52097b405d7a566950e76993b03971ce93225711d41913a
+    block 964094   1c67284c85d42a4e4fe7dfd861eae639f4436b00f27f86904c74b809c679b899
+
+  preregistration-d1-2026-08-24.md
+    block 963874   a87bbea77b20ea37584a7bb8916d1fff43e186e1be74fa00233669dc02b2bc2a
+    block 963879   4d9bf02aed4d835d26ec3f76e3fe2648d450c0b82c380a27bb7389e2fe5394ac
+    block 963914   02f52e213e95140de56938885bf16cab29b5c4fcaf8e03b723275367fb87d30d
+    block 963922   e16dc1b69bfa492d1acca78e769fea95f128e5a6b521956a4473a3f43bfc216d
+
+  preregistration-f1-cublasf16-2026-08-18.md
+    block 963094   3ee14d1937466fabfd9ef7c67bddfc07b3e6158022f0010a3b326deadb66dbaa
+    block 963098   f63ea6353c70ad014c2f8777a5800610af960228f629c92341594b0395acc9de
+    block 963102   2c0756b0c53ecdfef16b0ce69411e0e95ecfe8511562f0f31940722cc8945177
+
+  preregistration-f1-plancher-table-2026-09-04.md
+    block 965532   365e2b2852065104da42f7d4c5f383d564b03cde774a6713954de4811a97065a
+    block 965533   35660ed40db8f8a8cfa31b8ad1e6c379375e516f70b19b0ac3c82a70209ec5d4
+    block 965548   4bc2f8c64374fb3fad522b10fd79d125b8b1fbc0f0cc7167f10e20f7fcf700fb
+    block 965554   26086f09ab367b1188294229dc2a4ba9db55c3efc2392b2c03e999d8d66644a6
+
+  preregistration-f1-rang-plancher-2026-09-05.md
+    block 965613   760a46fe6bd484740e37828726c066527be906172fb33a0158a1a56855211287
+    block 965617   6d0c82c19135381ce8c95003a2000ee0570e7b4f816fe1d100db3055062b2adf
+    block 965642   4a736ea42edda1f93c7d193debb7c0dd236598b1fb794e7639a50d56bd377d27
+
+  preregistration-f1-rang-variantes-2026-09-05.md
+    block 965636   e1d2734708ba793aadb79e6f61ab022a9f4112a295548ddf28fe42f104c54173
+    block 965642   4a736ea42edda1f93c7d193debb7c0dd236598b1fb794e7639a50d56bd377d27
+    block 965689   70ed3939f034c82252245194b03be8b5dd3f75d2a0a517d79d50cad75adc8428
+
+  preregistration-f1b-2026-09-04.md
+    block 965517   0ea066573172d67cdbecd83d6d7903ec7d4bf913db4f0fa0184bcc0994ea8357
+    block 965521   7870eebccfeced286f3bcd61f5c41649f34193b3babdd9b4d44f3ee086061be0
+    block 965548   4bc2f8c64374fb3fad522b10fd79d125b8b1fbc0f0cc7167f10e20f7fcf700fb
+    block 965554   26086f09ab367b1188294229dc2a4ba9db55c3efc2392b2c03e999d8d66644a6
+
+  preregistration-f2-qtip-2026-08-20.md
+    block 963357   f2dffe15415f99cd8d5ca0b8824ce64cab2f7aac0b6619628a9d80aed3e7f0fa
+    block 963359   4226999ae646a6f971f0410272baea7781b5e40e8c626cdd24fdceb8b090ef05
+    block 963374   ad6024a071894d87e22771d54c6c7a903db2187682f85e3c4aeb06078ca9abf4
+
+  preregistration-f3-events-2026-08-18.md
+    block 963148   66205b29010b2fc5a17f33a16627893b0238ce7fb564c6e990051f8255380b93
+    block 963149   185a1788d12b452126e1d462829b7493aad3d7b8d444acad1cfcbea838661449
+    block 963155   bae42c30b687ed4d3766381d7549e3ba70bf2eece833f22394b1d62553c4f36f
+    block 963202   0645113c9540f3209419d60c408127f7311cee398916f2c970aed17fe3fa6cf8
+
+  preregistration-f4-a100-2026-08-18.md
+    block 963148   66205b29010b2fc5a17f33a16627893b0238ce7fb564c6e990051f8255380b93
+    block 963149   185a1788d12b452126e1d462829b7493aad3d7b8d444acad1cfcbea838661449
+    block 963155   bae42c30b687ed4d3766381d7549e3ba70bf2eece833f22394b1d62553c4f36f
+    block 963202   0645113c9540f3209419d60c408127f7311cee398916f2c970aed17fe3fa6cf8
+
+  preregistration-f5-graines-4b-2026-08-19.md
+    block 963160   06b89cb2acdc401e68436e94822af6ee0cdb55aa7f006acbb3075f6d5397ee32
+    block 963164   3c199feeef9dc26bc3c684a4e06ab96b1339f9ba4327e7356bf17a126dcb2fd3
+    block 963202   0645113c9540f3209419d60c408127f7311cee398916f2c970aed17fe3fa6cf8
+    block 963207   386b55af90bb5139e52c8b34500823b16f8eb053e1f04748a32004e3101567da
+
+  preregistration-f5-graines-4b-2026-08-19.v1-l4x4.md
+    block 963160   06b89cb2acdc401e68436e94822af6ee0cdb55aa7f006acbb3075f6d5397ee32
+    block 963164   3c199feeef9dc26bc3c684a4e06ab96b1339f9ba4327e7356bf17a126dcb2fd3
+    block 963202   0645113c9540f3209419d60c408127f7311cee398916f2c970aed17fe3fa6cf8
+    block 963207   386b55af90bb5139e52c8b34500823b16f8eb053e1f04748a32004e3101567da
+
+  preregistration-g-2026-08-23.md
+    block 963650   6258c150c3b8b97e0e40bf335ac2372b4f3d9f14b587337a528286a297f09ed1
+    block 963652   49ee1861002ff38e9fafc55e31b3ca36b77a1571be681369cbdd3b7e43de1a3f
+    block 963680   08ce0ad5717c5682c1057cf346211ee85ca8ed29ad905549c8104184b90ff86e
+    block 963688   5c299bcd67a34090d12db28ba90dab9a1e150a587e38b49126bb6e4b9912357f
+
+  preregistration-m1-hessienne-shrink-2026-09-02.md
+    block 965149   25baaf4df09c719ecfc5869c89cf53a4b1c8e96f44e58c4a87b911bcb4842351
+    block 965152   46e025634022f51ac766cc16d8be33c04068c0eb7e7a2f66930e022ca4185ece
+    block 965186   6152d13b240c34f870bdcd972a1bb73471e4a5b8f93afaa049a3105ac2131568
+
+  preregistration-m2-attribution-4b-2026-09-02.md
+    block 965149   25baaf4df09c719ecfc5869c89cf53a4b1c8e96f44e58c4a87b911bcb4842351
+    block 965152   46e025634022f51ac766cc16d8be33c04068c0eb7e7a2f66930e022ca4185ece
+    block 965186   6152d13b240c34f870bdcd972a1bb73471e4a5b8f93afaa049a3105ac2131568
+
+  preregistration-m2b-graine3-2026-09-04.md
+    block 965479   b810908ce884c89a39f68709725632b5d013b2b33e83980fb113243ce6a71548
+    block 965487   2bcb9b12d9c843344a2ce4363b879419b37e744870598b5fd4b357f2dd662fd4
+    block 965508   a305f0359135edc05b15c4dcefa54291296dbb2eb89b5182ffe95643aa922fc6
+
+  preregistration-m2b-v4bits-2026-09-02.md
+    block 965203   872a28cb3c9d2f9acb32100da0c38326de657f6233a3904f12b43a0bfb42a968
+    block 965204   273ccf735978c0cb25331bbc6f6aca02ae256fb679d4bf966d4e17680c1d355e
+    block 965230   41bc10306a06d9c9c50b8682fa67c43eb821e3469add5f57b09862588edbc2ca
+
+  preregistration-m3-gptq2-2026-08-30.md
+    block 964713   846797a1088dbd65fbdd3fb85c924db711a7c56cacf6dc854a9be16e6a2babc7
+    block 964715   149296c78726eb607d8c82d6314b1c9fdff8cba683691eb6072f9426ea7302f7
+    block 964741   b8def9343a3fb9f79a0f7bd9717a10e47634f3d5a6a567e39c82f42e3c98eae3
+
+  preregistration-p1-2026-08-13.md
+    block 962569   3aa33d74f606f7de49537ce44592828951b020752258ce6e4129fa7a20dfa49c
+    block 962572   3382935c492a704efe67d1066868c37a5a0443deddf33e11ea8d9561d8f6b969
+    block 962604   87755752d39c99d76ae9ae7db4e196459fb3074bd47f6b58a762d674fbcd36f4
+    block 962628   a602595b443eaddb24f34b6e8aa1a5f6a3659e2db96dbace4e4a3c1f7161ab7e
+
+  preregistration-p1b-2026-08-15.md
+    block 962581   ed49ebdea4408142ea7ebaead5dafaa6a2a80f3737a44d34d80f6495a64fbf4f
+    block 962587   bc97366f815e99ee3dc2cc58da5b47e5ca920b3a79590b583f7365d47b9a1931
+    block 962604   87755752d39c99d76ae9ae7db4e196459fb3074bd47f6b58a762d674fbcd36f4
+    block 962628   a602595b443eaddb24f34b6e8aa1a5f6a3659e2db96dbace4e4a3c1f7161ab7e
+
+  preregistration-p1c-2026-08-15.md
+    block 962628   a602595b443eaddb24f34b6e8aa1a5f6a3659e2db96dbace4e4a3c1f7161ab7e
+    block 962629   fd4ab5e2b2a0f38c458af79ab33ef6706a4d86ad0a4c1c73e222b0ccbb6cbe03
+    block 962631   8828f3173121bc5181ac662d25e31b283566e926dfe7da71e6368a0b2d209bdb
+    block 962676   762455a3935e53208292124742980464a3e75b1cd7d67d8e05d12d60a28005df
+
+  preregistration-p5-2026-08-14.md
+    block 962581   ed49ebdea4408142ea7ebaead5dafaa6a2a80f3737a44d34d80f6495a64fbf4f
+    block 962587   bc97366f815e99ee3dc2cc58da5b47e5ca920b3a79590b583f7365d47b9a1931
+    block 962604   87755752d39c99d76ae9ae7db4e196459fb3074bd47f6b58a762d674fbcd36f4
+    block 962628   a602595b443eaddb24f34b6e8aa1a5f6a3659e2db96dbace4e4a3c1f7161ab7e
+
+  preregistration-tetra-4b-2026-09-06.md
+    block 965726   c5e738d674b2fda4521bf191665b29d307a66275c7eb581d4f3aac44e3905df5
+    block 965730   14d3c50622700cf8e0f6c49f63b54e41878f8b4cd710fc8776f41dd4782d8818
+
+  preregistration-vague2-gel-geometrie-2026-08-31.md
+    block 964846   cf480c6d428e04126f50281ba55c73a2e4a170823c2c9b04d77a859eb3a59a2a
+    block 964848   5784c7dab006cedba2172ec6cce265b83b1f75c8a27a117f4b2df1165b151d9c
+    block 964865   20753f6442d675bf4984fa4353dd2c2e8571f12f8e187797d337bb1e85fd8901
+
+  preregistration-volume-calibration-2026-08-25.md
+    block 964047   89e905454cc0def05eab2a48c1834b29f8b0e2ecf293965f315aa3573e4a2197
+    block 964057   4b132bfd4073cb3bbee29738f1f2e2584ac265e896453c5d3012b7cf23d85329
+    block 964090   52c639dd0bb9059aa52097b405d7a566950e76993b03971ce93225711d41913a
+    block 964094   1c67284c85d42a4e4fe7dfd861eae639f4436b00f27f86904c74b809c679b899
+
+  protocole-piles-isolees-v2-2026-08-31.md
+    block 964841   304937a26db0c7a908c15a667c23ca96e528c0f02de60d612844466febc64f9b
+    block 964842   8f96eaad6edeae320e317c23bc154fff602e0e768f0ac9962574ef7e2b11f4cc
+    block 964848   5784c7dab006cedba2172ec6cce265b83b1f75c8a27a117f4b2df1165b151d9c
+    block 964865   20753f6442d675bf4984fa4353dd2c2e8571f12f8e187797d337bb1e85fd8901
+

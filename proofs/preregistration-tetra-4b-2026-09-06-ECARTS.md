@@ -57,7 +57,7 @@ l'est pas** (*mesuré*, 2026-09-06, `llvq-bench/examples/driftcheck.rs`) :
 ```
 
 Ce qui est **identique** : dimensions, genre de code, cap de coquille, graine de rotation, centroïdes
-de gain, échelles de ligne. Ce qui diffère : la queue, les gains, 82 % des indices.
+de gain, échelles de ligne. Ce qui diffère : la queue, les gains, 87 % des indices — 3 659 171 sur 4 185 600, de 82,4 % sur `v_proj` à 90,8 % sur `down_proj`.
 
 La forme de l'écart le situe. La queue est faite de poids conservés exacts **après** la compensation
 GPTQ ; elle diffère de 42 à 56 % de la magnitude des poids en moyenne — ni du bruit numérique
@@ -81,3 +81,34 @@ où le chiffre de Tetra sera cité : **l'écart mesuré entre Tetra et le fichie
 format ET la dérive du dépôt sur un mois, et rien ne les sépare.** Le contrôle 2 du §4 reste en
 place — le fichier publié est réévalué sur la carte dans le même job — mais il ne borne que la
 dérive du harnais d'évaluation, pas celle de l'encodeur.
+
+
+## É4 — `rtbits` ne lit pas un fichier v5, et le b/param est calculé à la main
+
+Le §5 du préreg annonce « b/param modèle entier | `bin/rtbits` sur le scellé ». `rtbits` **refuse** un
+fichier Tetra, et c'est le refus que l'étape 3 a posé exprès : il lit les index comme des classes v1,
+et aucun layout runtime ne sert Tetra avant F1d.
+
+Le chiffre est donc *calculé*, avec la comptabilité qui rend 5,162 pour le format servi
+(`docs/mesures/rtbits-planes-8b-2026-08-09.txt` l. 350-352), et l'arithmétique est écrite ici pour
+qu'elle soit refaisable :
+
+```
+  Planes14 : 3 633 315 840 × 4,803977  +  388 956 160 × 8,5  +  196 096 × 16
+           = 20 763 630 625 bits  ÷ 4 022 468 096  =  5,1619 b/param   (2,595 Go)
+  Tetra    : le même, moins 64 bits par bloc sur 150 681 600 blocs (112 → 48)
+           = 11 120 008 225 bits  ÷ 4 022 468 096  =  2,7645 b/param   (1,390 Go)
+```
+
+⚠️ Ces gigaoctets sont ceux de l'arithmétique en b/param, pas le compte d'octets hôte du moteur que
+`docs/ETAT.md` §2 donne à 2,57 Go pour le format servi. Les deux comptabilités diffèrent (queue en
+f16, `gs_off`) et il ne faut pas les mélanger : la ligne Tetra se lit contre le 2,595 de la même
+formule, jamais contre le 2,57 mesuré à l'hôte.
+
+## É5 — Le contrôle 3 est vérifié à la quatrième décimale, pas à la septième
+
+Le §4.3 demande le débit « au dix-millionième ». `smoke` n'imprime que quatre décimales, et sur un
+autre dénominateur (2,1696 sur les poids quantifiés seuls, soit 2,159507 une fois ramené aux
+3 633 315 840 poids de projection de `docs/fiche-4b.md`). Les deux artefacts diffèrent d'ailleurs de
+1 040 octets. Ce qui est vérifié, et que le journal aurait dû écrire ainsi : **2,1595 b/poids des
+deux côtés, à la quatrième décimale**.

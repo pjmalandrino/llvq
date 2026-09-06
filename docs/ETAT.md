@@ -1,4 +1,4 @@
-# Project state as of 2026-09-05
+# Project state as of 2026-09-06
 
 ## 1. The project
 
@@ -38,7 +38,20 @@ The dense f16 path yields 43.5 / 26.4 / 17.0 tok/s in 8.04 / 16.38 / 29.54 GB (*
 | f16 | 8.04 | 16.0 | 70.32 | ×1 |
 | AWQ w4 g128, official Qwen | 2.67 | 5.302 | 70.04 | ×1.105 |
 | LLVQ 2-bit, `Planes14` + q8 | 1.77 (1.41 in int8) | 5.162 | 55.59 | ×1.3845 |
+| **LLVQ 2-bit, `Tetra` + q8** | **1.77** | **2.764** | **53.49** | **×1.3203** |
 | IQ2_XXS, llama.cpp Metal | 1.25 (*measured*, 1,246,620,832 B) | 2.479 | 39.39 | ×2.6287 |
+
+The `Tetra` row is one campaign with the three above it: one L40S, one harness, the same token fingerprints, the
+published file and f16 replaying their A4 values to the hundredth (*measured*, [tetra-4b-2026-09-06](mesures/tetra-4b-2026-09-06.txt)).
+Against `Planes14` it holds the same disk and the same 48 bits a block, and halves the memory because it does not
+unfold: 2.1498 b/weight kernel against 4.8040 (*computed*, same accounting that gives 5.162). Its perplexity is
+**better** by 4.64% and its MMLU lower by 2.10 pp, an interval the calibration draw alone spans (2.92 pp). In excess
+log-likelihood: the only cross-paper comparison [fiche-4b](fiche-4b.md) §3.1 holds valid, it reads 0.2779 nats
+against `Planes14`'s 0.3254 and QTIP's 0.3171: **12.4% better than QTIP** where the repository was 2.6% worse.
+The 1.390 GB on card is *computed*, in the b/param arithmetic rather than the engine's host byte count: no served
+kernel reads Tetra yet, so throughput and card VRAM wait on step 6 of [ROADMAP](ROADMAP.md) §2.2 quater. The gap to
+`Planes14` holds the format together with a month of encoder drift, which control 0 measured and nothing here
+separates (§4).
 
 Disk: *measured*, ×4.54 over f16 ([fiche-4b.md](fiche-4b.md)). At 4B LLVQ wins disk and memory, loses quality. Neither
 the throughput nor the memory of AWQ can be read in our harness: it is dequantized to f16 there. Its b/param holds in
@@ -72,6 +85,16 @@ QTIP finishes the same projections in 2.246 ms, at 4.89× [4.89–4.90], reading
 (405 against 428). These × are L40S: on A100 none of our arms beats f16 (*measured*,
 [f4-a100-2026-08-18.txt](mesures/f4-a100-2026-08-18.txt)).
 
+The repository no longer reproduces its own published artifact. One transformer block re-encoded under
+`leech1c12` on 2026-09-06 differs from the published file's block 0 on the tail, the gains and 87% of the indices (82 to 91 by matrix),
+while the dimensions, the rotation seed, the gain centroids and the row scales are identical (*measured*,
+`llvq-bench/examples/driftcheck.rs`). The tail is weights kept exact after GPTQ compensation and it differs by 42 to
+56% of their magnitude: neither numerical noise nor two independent draws, so the Hessians differ and neither the
+rotation nor the quantizer does. Most likely cause, *not proved*: commit `4a3e5f0` of 2026-08-26 changed the
+calibration volume requested from 8,000,000 characters to `n_calib × calib_len × 6`. Consequence for every reader:
+A4's 16.9422 and 55.59 compare to nothing encoded after 2026-08-26, whatever its codebook. The evaluation harness,
+by contrast, is intact: the published file replays both numbers to the hundredth on 2026-09-06.
+
 The calibration-window draw carries σ = 5.2% in perplexity over three full 4B runs: 16.7425 / 15.8836 /
 15.1027 (*measured*, [f5-graines-4b-2026-08-19.txt](mesures/f5-graines-4b-2026-08-19.txt)), range 10.3% (*computed*).
 In MMLU it carries 2.92 pp (range 5.83 pp; *measured*,
@@ -97,7 +120,7 @@ replayed under v1.
 Results *measured*: [m1-hessienne-shrink-2026-09-02.txt](mesures/m1-hessienne-shrink-2026-09-02.txt),
 [m2-attribution-4b-2026-09-02.txt](mesures/m2-attribution-4b-2026-09-02.txt),
 [m2b-v4bits-2026-09-02.txt](mesures/m2b-v4bits-2026-09-02.txt). Durations and costs *computed* on the timestamps of the
-bucket ($1.80/h). Preregs timestamped before each job, Bitcoin anchoring pending. Wave 1: $2.46 spent out of 5.
+bucket ($1.80/h). Preregs timestamped before each job, every stamp Bitcoin-anchored since 2026-09-06. Wave 1: $2.46 spent out of 5.
 
 M2 points at `v_proj` (2.6% of the weights, *computed*, m2-attribution); the "k_proj and attention" prior is refuted.
 Serving `v_proj` in f16 would cost +0.263 b/param (5.425, above AWQ). In int4 g128 it gives back −0.013 (5.149)
@@ -319,30 +342,68 @@ prediction was wrong on all four times, in the instructive direction (`Du_v3 < 1
 5.103 → 4.00 ms, **≈ 113 tok/s at the 4B, +12%**, for 1.36 GB instead of 2.57. The prereg's row: F1d takes v3 (v1
 equivalent within the ±0.1 ms resolution). F1d, with Planes14 in the same process, is what measures it.
 
+## 5 sexies. Tetra at the 4B, 2026-09-06
+
+**2.7645 b/param against 5.1619, a perplexity better by 4.64% and an MMLU lower by 2.10 pp**, for the same disk
+(*measured* for quality, *computed* for bytes, [journal](mesures/tetra-4b-2026-09-06.txt)). `smoke` quantized the 4B under `tetra` in **2 h 27** on the Mac
+against the published run's 4 h 01, wrote 0.981 GB at 2.1595 b/weight of projections: the published rate to the
+fourth decimal: and `verify_artifact` read back all 3,633,315,840 weights bit for bit. Sealed, it is
+1,770,529,149 bytes against the published file's 1,770,527,533. Its quality is the fourth arm of the table in §3.
+
+What Tetra buys, and what it costs (*measured* for quality, *computed* for bytes,
+[journal](mesures/tetra-4b-2026-09-06.txt)):
+
+| | `Planes14`, published | `Tetra` |
+|---|---|---|
+| b/param whole model | 5.1619 | **2.7645**, ÷1.867 |
+| b/weight kernel | 4.8040 | **2.1498**, ÷2.235 |
+| GB on card | 2.595 | 1.390 (*computed*) |
+| disk | 1,770,527,533 B | 1,770,529,149 B |
+| perplexity, f16 | 16.9422 | **16.1569**, −4.64% |
+| MMLU micro | 55.59 ± 1.35 | 53.49 ± 1.34, −2.10 pp |
+| excess log-likelihood | 0.3254 nats | **0.2779 nats** |
+| encoding | 4 h 01 | 2 h 27 |
+
+The prereg's signed prediction was **wrong on the sign of perplexity**: +1.5 to +4% predicted, −4.64% measured,
+and right on MMLU to 0.9 pp. Its instructive clause named this case: Gaussian retention overstates the loss on real
+weights. The 88.89% against the ball-12 control's 92.00 implied +8.5% of MSE, and perplexity did the opposite.
+
+What is not established: the card figures, which need the served kernel (step 6); the separation of the format from
+the encoder drift of §4; and anything at 8B or 14B.
+
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), $0.04 spent: the table floor ($0.02), the compiled decoder floor ($0.01), the three arithmetics ($0.00, 4 s). Content: F1b done at $0; the
+- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), **$0.82 spent**: the table floor ($0.02), the compiled
+  decoder floor ($0.01), the three arithmetics ($0.00), and the Tetra 4B quality bench ($0.79, of which $0.01 on an
+  image without the `hf` CLI). Content: F1b done at $0; the
   ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
   Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
   can be tested**.
-- **Decision (1) of the evening is taken by the measurement**: the operator's go ("test the decoder, else return to
-  the measured one") ran the three arithmetics; v3 is 0.61× B, and F1d is written with it (v1 equivalent). **Still
-  the operator's: (2) the form of F1c's quality gate** — the "±1 cross-seed range on 3 seeds" cannot resolve the
-  expected effect at ρ = 1; a paired Δ per seed at a fixed ρ with a signed prediction (+0.7 to +1.8 ppl on the 0.6B,
-  *estimated* from +8.5% of MSE) is the proposal. The encoder's real-block measurement is done (298 µs, ratio 1.00 to
-  Gaussian, [journal](mesures/f1-encodeur-blocs-reels-2026-09-05.txt)); the format-v2 work can start. Q5's served run moves to wave 3, after
+- Both decisions of 2026-09-05 are settled by measurement. The three arithmetics gave v3 at 0.61× B, so F1d is
+  written with it; and no quality gate was set: the operator's decision of 2026-09-06 was to measure and judge on
+  sight, which the bench of §5 sexies did. What is now open, and it is one decision: **step 6**, the served kernel
+  `tv_tetra48` and the comparison bench with every kernel in its own grid on each card (2 to 4 days, ~$1). It turns
+  the last computed figure: 1.390 GB on card, and a throughput nothing has measured, into a measured one.
+- Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
+  (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $97.56 (*measured*,
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $98.38 (*measured*,
   `docs/data/jobs.csv`).
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the
   eleven arms. Two draws do not make a distribution, and the head of the ranking is what changed.
 - Product triplet in force (operator, 2026-08-16): 8k context, 5 GB margin, 32 GiB unit, offload as reference
-  only. It leaves 27.93 GB to the weights, so b_max = 3.00 kernel b/weight; `Planes14` exceeds it by 60%. The largest
-  admissible class is 43.3 billion parameters at 5.162 b/param (upper bound, embedding 9.7%) and 45.8 billion at
-  4.878 (embedding ~2%). The 32B is the served object, the 70B does not fit (*computed*,
+  only. It leaves 27.93 GB to the weights, so b_max = 3.00 kernel b/weight. `Planes14` exceeds it by 60% and every
+  layout before it did too. **`Tetra` is the first to pass, at 2.1498 kernel b/weight, 28% under the bar**
+  (*computed*, §5 sexies), which moves the admissible class from 43.3 billion parameters to 81 to 101 billion and
+  puts a 70B inside 19.5 GB (*computed*, §5 quinquies). What that does not yet buy: no served kernel reads Tetra, so
+  the 32B remains the served object until step 6 of [ROADMAP](ROADMAP.md) §2.2 quater, and the `rot_apply` wall of
+  [format-noyau](format-noyau.md) §8 still closes the served path past the 14B whatever the format. Under
+  `Planes14` the largest admissible class is 43.3 billion parameters at 5.162 b/param (upper bound, embedding 9.7%)
+  and 45.8 billion at 4.878 (embedding ~2%); the 70B does not fit (*computed*,
   [note-produit-2026-08-13.md](archive/note-produit-2026-08-13.md) §B bis).
-- Q1 prereg at 4B, `ots upgrade` of the three timestamps of 09-02 after anchoring: operator.
+- Q1 prereg at 4B: operator. The `ots upgrade` owed since 09-02 is done, and every stamp is anchored
+  (*measured*, [ots-etat-2026-09-06](mesures/ots-etat-2026-09-06.txt)).
 
 ## 7. Closed absent a new idea
 
