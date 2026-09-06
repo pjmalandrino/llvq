@@ -8,8 +8,32 @@
 
 use llvq_core::{SplitMix64, DIM};
 use llvq_quant::quantizer::{
-    fit_gain_centroids, row_scale, BlockQuantizer, LeechDirection, LeechShapeGain,
+    fit_gain_centroids, row_scale, BlockCode, BlockQuantizer, LeechDirection, LeechShapeGain,
+    TrioShapeGain,
 };
+use llvq_search::trio::Trio;
+
+/// The two 48-bit shape–gain arms: the exact ball at `cap = 12`, and the Trio
+/// word map. They spend the same budget on the same 24 weights — 47 bits of
+/// direction and one of gain — and differ only in how the direction is found
+/// and written down, so every property of the *gain* code has to hold on
+/// both. The tests below are written once and run twice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Arm {
+    Ball12,
+    Trio,
+}
+
+const ARMS: [Arm; 2] = [Arm::Ball12, Arm::Trio];
+
+impl Arm {
+    fn make(self, centroids: Vec<f64>) -> Box<dyn BlockQuantizer> {
+        match self {
+            Arm::Ball12 => Box::new(LeechShapeGain::with_shell_cap(centroids, 12)),
+            Arm::Trio => Box::new(TrioShapeGain::new(centroids)),
+        }
+    }
+}
 
 fn random_matrix(rng: &mut SplitMix64, d_out: usize, d_in: usize) -> Vec<f64> {
     // Rows deliberately at very different scales — that is what a per-row
@@ -33,35 +57,55 @@ fn the_gain_is_actually_quantized() {
     let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
     assert_eq!(centroids.len(), 2, "one gain bit means two levels");
 
-    let mut q = LeechShapeGain::new(centroids.clone());
-    assert_eq!(q.gain_bits(), 1);
-    let mut out = vec![0.0f64; DIM];
-    let mut distinct: Vec<f64> = Vec::new();
+    for arm in ARMS {
+        let mut q = arm.make(centroids.clone());
+        let mut out = vec![0.0f64; DIM];
+        let mut distinct: Vec<f64> = Vec::new();
 
-    for i in 0..d_out {
-        let row = &w[i * d_in..(i + 1) * d_in];
-        let rs = row_scale(row);
-        q.set_row_scale(rs);
-        for b in row.chunks_exact(DIM) {
-            q.quantize(b, &mut out);
-            let n = out.iter().map(|a| a * a).sum::<f64>().sqrt();
-            // The magnitude must be a level times the row scale.
-            let rel = n / rs;
-            assert!(
-                centroids.iter().any(|c| (c - rel).abs() < 1e-9),
-                "block magnitude {rel} is not one of the {} levels {centroids:?} \
-                 — the gain is not being quantized",
-                centroids.len()
-            );
-            if !distinct.iter().any(|d| (d - rel).abs() < 1e-9) {
-                distinct.push(rel);
+        for i in 0..d_out {
+            let row = &w[i * d_in..(i + 1) * d_in];
+            let rs = row_scale(row);
+            q.set_row_scale(rs);
+            for b in row.chunks_exact(DIM) {
+                q.quantize(b, &mut out);
+                let n = out.iter().map(|a| a * a).sum::<f64>().sqrt();
+                // The magnitude must be a level times the row scale.
+                let rel = n / rs;
+                assert!(
+                    centroids.iter().any(|c| (c - rel).abs() < 1e-9),
+                    "{arm:?}: block magnitude {rel} is not one of the {} levels \
+                     {centroids:?} — the gain is not being quantized",
+                    centroids.len()
+                );
+                // And it must be the level **nearest** the block's own
+                // relative norm. Without this the gain code could be
+                // systematically wrong — every level swapped for the other —
+                // and stay invisible: `quantize` and `reconstruct` would
+                // agree, so the round trip of `g6_artifact` seals bit for bit
+                // on a model that spends its one gain bit backwards.
+                let want = b.iter().map(|a| a * a).sum::<f64>().sqrt() / rs;
+                let picked = centroids
+                    .iter()
+                    .copied()
+                    .min_by(|a, c| (want - a).abs().total_cmp(&(want - c).abs()))
+                    .expect("two levels");
+                assert!(
+                    (rel - picked).abs() < 1e-9,
+                    "{arm:?}: block of relative norm {want} was put on level {rel}, \
+                     but {picked} is nearer among {centroids:?}"
+                );
+                if !distinct.iter().any(|d| (d - rel).abs() < 1e-9) {
+                    distinct.push(rel);
+                }
             }
         }
+        assert!(
+            distinct.len() > 1,
+            "{arm:?}: every block landed on the same level; the code is degenerate"
+        );
     }
-    assert!(
-        distinct.len() > 1,
-        "every block landed on the same level; the code is degenerate"
-    );
+    assert_eq!(LeechShapeGain::new(centroids.clone()).gain_bits(), 1);
+    assert_eq!(TrioShapeGain::new(centroids).gain_bits(), 1);
 }
 
 /// And the control: the direction-only quantizer does *not* quantize the
@@ -126,8 +170,8 @@ fn the_row_scale_is_load_bearing() {
     let w = random_matrix(&mut rng, d_out, d_in);
     let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
 
-    let err = |use_row_scale: bool| -> f64 {
-        let mut q = LeechShapeGain::new(centroids.clone());
+    let err = |arm: Arm, use_row_scale: bool| -> f64 {
+        let mut q = arm.make(centroids.clone());
         let mut out = vec![0.0f64; DIM];
         let mut e = 0.0;
         for i in 0..d_out {
@@ -140,12 +184,14 @@ fn the_row_scale_is_load_bearing() {
         }
         e
     };
-    let (with, without) = (err(true), err(false));
-    assert!(
-        with < without * 0.5,
-        "a per-row reference must matter a lot across rows spanning decades: \
-         {with} vs {without}"
-    );
+    for arm in ARMS {
+        let (with, without) = (err(arm, true), err(arm, false));
+        assert!(
+            with < without * 0.5,
+            "{arm:?}: a per-row reference must matter a lot across rows spanning \
+             decades: {with} vs {without}"
+        );
+    }
 }
 
 /// The index width must match the ball actually searched — that one bit is
@@ -219,4 +265,134 @@ fn capped_quantizer_stays_inside_its_ball() {
             assert!(m <= 12, "cap 12 violated: direction on shell {m}");
         }
     }
+}
+
+/// Every direction a `TrioShapeGain` emits is a **word of the map, in
+/// natural order** — the property the whole format rests on and the one a
+/// magnitude test cannot see.
+///
+/// Three things at once, because they fail differently. `Leech::contains`
+/// says the point is a lattice point at all. `Trio::encode` says the map has
+/// a word for it: it is the writer's own call, and it returns `None` for a
+/// point whose sections leave their row sets. `Trio::decode` of that word
+/// says the round trip closes.
+///
+/// **The mutant this is here for** is the coordinate order. `Encoder`
+/// permutes `x` into trio order, works there, and permutes back through
+/// `order()`; drop that last permutation and the point is still a Λ₂₄ point
+/// of the same norm — every magnitude assertion above still passes, the GPTQ
+/// residual barely moves — but it is the wrong point and `Trio::encode`
+/// refuses it. Applying `order` where its inverse belongs is caught the same
+/// way (`order` is not an involution).
+/// `TrioShapeGain::reconstruct` rebuilds the block from the code ALONE, and
+/// this pins it against an independent formula rather than against itself.
+///
+/// It exists because two mutants of that method survived the whole workspace
+/// on 2026-09-06: dropping the row scale, and reading the neighbouring
+/// centroid. `reconstruct` is what `reproject` calls, so those mutants live
+/// on the design-C path; the ball twin was killed by a design-C test and the
+/// Trio one was covered by nothing. The check here is deliberately NOT a
+/// round trip: `quantize` writing and `reconstruct` reading the same wrong
+/// convention would agree with each other and prove nothing.
+#[test]
+fn trio_reconstruct_is_the_centroid_the_row_scale_and_the_direction() {
+    let mut rng = SplitMix64::new(0x7_0007);
+    let (d_out, d_in) = (5usize, 3 * DIM);
+    let w = random_matrix(&mut rng, d_out, d_in);
+    let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
+    assert_eq!(centroids.len(), 2, "one gain bit");
+    let q = TrioShapeGain::new(centroids.clone());
+    let trio = Trio::new();
+
+    // Codes built here, not captured from `quantize`: the point is any word
+    // of the map, and the gain any level, so that a reconstruction reading
+    // the wrong level or forgetting the scale has nowhere to hide.
+    let mut out = vec![0.0f64; DIM];
+    for k in 0..64u64 {
+        let word = SplitMix64::new(0xC0DE_0000 + k).next() & ((1u64 << 47) - 1);
+        let point = trio.decode(word);
+        let norm = (point.iter().map(|&v| (v as f64) * (v as f64)).sum::<f64>()).sqrt();
+        if norm == 0.0 {
+            continue; // the origin carries no direction
+        }
+        for gain in 0..2u32 {
+            for &row_scale in &[1.0f64, 0.375, 17.25] {
+                let code = BlockCode { point, gain };
+                q.reconstruct(&code, row_scale, &mut out);
+                for (j, &got) in out.iter().enumerate() {
+                    let want = centroids[gain as usize] * row_scale * point[j] as f64 / norm;
+                    // Not bit equality: the reference divides by `√(16m)` read
+                    // from the shell index where this recomputes `‖y‖` from
+                    // the coordinates. The two are the same number and round
+                    // to within an ulp. Both mutants this test exists for move
+                    // the result by a factor, not by an ulp.
+                    let tol = 1e-12 * want.abs().max(1e-9);
+                    assert!(
+                        (got - want).abs() <= tol,
+                        "word {word:#x}, gain {gain}, row scale {row_scale}, coordinate {j}: \
+                         {got} against {want}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn every_trio_direction_is_a_word_of_the_map_in_natural_order() {
+    let mut rng = SplitMix64::new(0x6_0006);
+    let (d_out, d_in) = (6usize, 4 * DIM);
+    let w = random_matrix(&mut rng, d_out, d_in);
+    let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
+    let trio = Trio::new();
+    let leech = llvq_core::Leech::new();
+    let mut q = TrioShapeGain::new(centroids);
+    let mut out = vec![0.0f64; DIM];
+
+    let mut blocks = 0usize;
+    for i in 0..d_out {
+        let row = &w[i * d_in..(i + 1) * d_in];
+        q.set_row_scale(row_scale(row));
+        for b in row.chunks_exact(DIM) {
+            q.quantize(b, &mut out);
+            let code = q.last_code().expect("a Trio block always emits a code");
+            assert!(
+                leech.contains(&code.point),
+                "row {i} block {blocks}: {:?} is not in Λ24",
+                code.point
+            );
+            let word = trio
+                .encode(&code.point)
+                .unwrap_or_else(|| panic!("row {i} block {blocks}: the map has no word for {:?} — the point is not in natural order", code.point));
+            assert_eq!(trio.decode(word), code.point, "the word does not decode back");
+            assert_eq!(word >> 47, 0, "the encoder must leave the gain bit to the gain code");
+            blocks += 1;
+        }
+    }
+    assert_eq!(blocks, d_out * (d_in / DIM));
+}
+
+/// A Trio block is 48 bits — 47 of label, one of gain — and the type refuses
+/// any other shape of gain code at construction, where it is still a
+/// caller's mistake and not a file `llvq-artifact` cannot write.
+#[test]
+fn a_trio_block_is_forty_seven_bits_of_label_and_one_of_gain() {
+    let q = TrioShapeGain::new(vec![0.5, 1.5]);
+    assert_eq!(q.gain_bits(), 1);
+    assert_eq!(q.block_bits(), 48, "47 + 1, the budget of the served ball arm");
+    assert_eq!(q.block_len(), DIM);
+    assert_eq!(
+        q.block_bits(),
+        llvq_quant::quantizer::index_bits(12) + 1,
+        "Trio and the capped ball must cost the same, or the A/B compares nothing"
+    );
+    // The retraction is a no-op: the block is already on the level's sphere.
+    assert_eq!(q.retraction_target(1.234), None);
+}
+
+#[test]
+#[should_panic(expected = "the gain code has two levels")]
+fn a_trio_quantizer_refuses_a_gain_code_the_word_cannot_carry() {
+    // Four levels is two gain bits; the word has room for one.
+    let _ = TrioShapeGain::new(vec![0.25, 0.75, 1.25, 1.75]);
 }

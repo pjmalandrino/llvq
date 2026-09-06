@@ -34,16 +34,26 @@ fn main() -> anyhow::Result<()> {
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = llvq_artifact::read_header(&mut r)?;
     eprintln!(
-        "{src}: format v{}, {} quantized matrices",
-        head.version, head.matrices
+        "{src}: format v{}, {} quantized matrices, kinds {}",
+        head.version,
+        head.matrices,
+        head.kinds()
     );
-    let ix = llvq_search::index::Indexer::new();
-    let mut matrices = Vec::with_capacity(head.matrices as usize);
+    // Each record is decoded through the map it names, and its kind is kept
+    // beside it: the sealed file has to carry the same kinds as the source,
+    // record by record. Decoding here rather than copying raw is deliberate —
+    // an index outside its codebook must fail while the checkpoint is still
+    // being read, not the first time the sealed file is loaded to be scored.
+    let cbs = llvq_artifact::Codebooks::new();
+    let mut matrices: Vec<(llvq_artifact::CodeKind, llvq_artifact::QuantizedMatrix)> =
+        Vec::with_capacity(head.matrices as usize);
     for _ in 0..head.matrices {
-        matrices.push(llvq_artifact::read_matrix(&mut r, &ix)?);
+        let raw = llvq_artifact::read_matrix_raw(&mut r, head.version)?;
+        let kind = raw.kind;
+        matrices.push((kind, llvq_llm::artifact2::to_quantized(raw, &cbs)?));
     }
-    let quantized: HashSet<&str> = matrices.iter().map(|m| m.name.as_str()).collect();
-    let quantized_weights: usize = matrices.iter().map(|m| m.d_out * m.d_in).sum();
+    let quantized: HashSet<&str> = matrices.iter().map(|(_, m)| m.name.as_str()).collect();
+    let quantized_weights: usize = matrices.iter().map(|(_, m)| m.d_out * m.d_in).sum();
 
     // ---- everything the quantizer did not touch ----
     eprintln!("reading {repo} for the tensors the artifact is missing…");
@@ -96,9 +106,21 @@ fn main() -> anyhow::Result<()> {
         1 << 20,
         std::fs::File::create(&dst)?,
     );
-    let mut w = ArtifactWriter::new(out, matrices.len() as u32)?;
-    for m in &matrices {
-        w.push(m)?;
+    // The sealed file inherits the source's version and kinds. `max` with
+    // [`llvq_artifact::DEFAULT_VERSION`] is what upgrades a projections-only
+    // v1 file to a self-contained one — sealing at v1 would produce a file
+    // `Header::is_self_contained` refuses — and it leaves a v4 Ball source
+    // sealed at v4, byte for byte what it always was.
+    let version = head.version.max(llvq_artifact::DEFAULT_VERSION);
+    let mut w = ArtifactWriter::with_kinds(
+        out,
+        version,
+        matrices.len() as u32,
+        head.default_kind(),
+        head.kinds(),
+    )?;
+    for (kind, m) in &matrices {
+        w.push_kind(m, *kind)?;
     }
     let (code_bits, extra_bits) = w.seal(&raws, &blobs)?;
 

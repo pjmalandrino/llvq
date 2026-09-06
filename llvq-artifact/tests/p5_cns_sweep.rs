@@ -77,7 +77,7 @@ fn the_sealed_artifact_cns_re_bijection_is_exact() {
     let per_class: Mutex<Vec<Option<u32>>> = Mutex::new(vec![None; fd.n_classes()]);
 
     for _mi in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert_eq!(m.shell_cap, 12, "{}: the sealed file is leech1c12", m.name);
         let nchunks = m.indices.len().div_ceil(CHUNK);
         let next = AtomicUsize::new(0);

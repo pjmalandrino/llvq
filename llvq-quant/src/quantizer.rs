@@ -7,7 +7,10 @@
 
 use llvq_core::DIM;
 use llvq_search::generic::BallSearcher;
+use llvq_search::trio::{Encoder, Scratch, Trio, LABEL_BITS};
 use llvq_search::Searcher;
+use std::cell::RefCell;
+use std::sync::Arc;
 
 /// What a quantizer emitted for the block it just reconstructed — everything
 /// an artifact needs to rebuild that block, and nothing else.
@@ -600,6 +603,227 @@ impl BlockQuantizer for LeechShapeGain {
             point,
             gain: level as u32,
         };
+        self.reconstruct(&new, self.row_scale, out);
+        Some(new)
+    }
+}
+
+/// Shape–gain on the **Trio** word map: the direction from
+/// [`llvq_search::trio`], the magnitude from one gain bit relative to the
+/// per-row scale. 48 bits per block — the same budget as
+/// [`LeechShapeGain`] at `cap = 12`, spent differently (roadmap §2.2
+/// quater, step 2).
+///
+/// What differs from [`LeechShapeGain`] is how the direction is *found* and
+/// how it is *written down*; what does not differ is the reconstruction.
+/// A Trio point is a point of `√8·Λ₂₄` like any other, so both quantizers
+/// and `llvq_artifact`'s decoder go through the one
+/// [`reconstruct_shape_gain`] — which is why a Trio block seals bit for bit
+/// with no second formula to keep in step.
+///
+/// | | direction | index | decode |
+/// |---|---|---|---|
+/// | [`LeechShapeGain`] `cap = 12` | exact nearest neighbour in `Λ₂₄(12)` | bijective, 47 bits | a rank decomposition |
+/// | `TrioShapeGain` | the rank-region rule of [`Encoder`] | a 47-bit trellis word | three 11-bit table reads |
+///
+/// ## What the rule costs, and where that is read
+///
+/// The Trio encoder is **not** an exact nearest neighbour: on the F1b
+/// evaluation blocks it retains 88.89 % against the ball's 92.00 % at the
+/// same 2.000 b/dim (*measured*, `llvq-bench/tests/trio_encoder.rs`). That
+/// is Gaussian retention on fixed blocks and not a quality claim — two
+/// transpositions away from perplexity (`docs/ROADMAP.md` §2.2 bis) — and
+/// what it buys is the decode, which is the whole point of the format.
+///
+/// ## One gain bit, no more and no fewer
+///
+/// The word is 48 bits: [`LABEL_BITS`] for the point and bit 47 for the
+/// gain. Two centroids is therefore not a default but the only shape the
+/// format can carry, and `llvq_artifact`'s writer refuses any other.
+/// [`Self::new`] refuses it here as well, where a wrong centroid count is
+/// still a caller's mistake and not a file that cannot be written.
+///
+/// ## Cost of construction
+///
+/// [`Encoder`] carries the trellis, the closed-form bounds, the 4,096
+/// fallbacks and the row index. `Trio::new` plus two encoders plus the ball
+/// searchers come to 0.03 s in release and 0.53 s in debug (*measured* on an
+/// M3 Max, 2026-09-05: `trioencbench`'s "tables prêtes" line, and a probe in
+/// the test profile). The GPTQ loop calls `make_quantizer` once per thread
+/// and per layer — a few thousand times on a 4B — so [`Self::with_encoder`]
+/// exists to share one build across all of them; [`Self::new`] builds its
+/// own and is for tests and one-shot callers.
+pub struct TrioShapeGain {
+    enc: Arc<Encoder>,
+    /// The encoder's per-thread workspace, ~45 KiB. In a [`RefCell`]
+    /// because [`BlockQuantizer::reproject`] takes `&self` and still has to
+    /// encode; the borrow flag is one non-atomic check against a ~330 µs
+    /// encode, and it keeps the crate inside `forbid(unsafe_code)`.
+    scratch: RefCell<Scratch>,
+    /// Gain levels, relative to the row scale, ascending. Exactly two.
+    centroids: Vec<f64>,
+    row_scale: f64,
+    /// Code emitted by the most recent `quantize`, for artifact writing.
+    last: Option<BlockCode>,
+}
+
+impl TrioShapeGain {
+    /// `centroids` are gains **relative to the row scale**, as fitted by
+    /// [`fit_gain_centroids`] with `k_bits = 1`. Builds its own [`Encoder`];
+    /// see [`Self::with_encoder`] to share one.
+    pub fn new(centroids: Vec<f64>) -> Self {
+        Self::with_encoder(Self::encoder(), centroids)
+    }
+
+    /// One [`Encoder`], ready to be cloned into as many quantizers as there
+    /// are threads.
+    pub fn encoder() -> Arc<Encoder> {
+        Arc::new(Encoder::new(&Trio::new()))
+    }
+
+    /// Share an [`Encoder`] built once for the process.
+    ///
+    /// # Panics
+    /// Unless `centroids` holds exactly two levels — the one gain bit the
+    /// 48-bit word has room for.
+    pub fn with_encoder(enc: Arc<Encoder>, centroids: Vec<f64>) -> Self {
+        assert_eq!(
+            centroids.len(),
+            2,
+            "a Trio block is a 48-bit word: {LABEL_BITS} bits of label and one \
+             gain bit, so the gain code has two levels and not {}",
+            centroids.len()
+        );
+        Self {
+            enc,
+            scratch: RefCell::new(Scratch::new()),
+            centroids,
+            row_scale: 1.0,
+            last: None,
+        }
+    }
+
+    /// Bits spent per block on the gain — one, by construction.
+    pub fn gain_bits(&self) -> u32 {
+        self.centroids.len().next_power_of_two().trailing_zeros()
+    }
+
+    /// Bits per block: 47 of label and one of gain.
+    ///
+    /// Derived rather than written as 48, so that a change to either half
+    /// moves this number instead of silently disagreeing with it.
+    pub fn block_bits(&self) -> u32 {
+        LABEL_BITS + self.gain_bits()
+    }
+
+    /// Rebuild a block from its code alone — the decoder side of an artifact,
+    /// the same routine [`LeechShapeGain::reconstruct`] calls.
+    pub fn reconstruct(&self, code: &BlockCode, row_scale: f64, out: &mut [f64]) {
+        reconstruct_shape_gain(code, &self.centroids, row_scale, out);
+    }
+
+    /// The Trio point nearest the direction of `x`, by the encoder's rule.
+    ///
+    /// `x` is passed **as it is**, not normalized. The rule is scale-free —
+    /// `Encoder::encode` derives its two scales from `‖x‖` itself, so the
+    /// target it rounds is a function of `x/‖x‖` alone — and normalizing
+    /// first would only insert a division whose rounding the encoder would
+    /// then have to live with. Every point it returns is a word of the map
+    /// (`Trio::decode(word) == point` by construction, `Trio::encode(&point)
+    /// == Some(word)` pinned by `llvq_search::trio`'s own tests), which is
+    /// what makes the block writable.
+    fn direction(&self, x: &[f64; DIM]) -> llvq_core::Point {
+        let point = self.enc.encode(x, &mut self.scratch.borrow_mut()).point;
+        debug_assert!(
+            matches!(llvq_core::Leech::shell_index(&point), Some(m) if m > 0),
+            "the encoder returned a point off the shells of Λ₂₄ for a non-zero block"
+        );
+        point
+    }
+}
+
+impl BlockQuantizer for TrioShapeGain {
+    fn block_len(&self) -> usize {
+        DIM
+    }
+
+    fn set_row_scale(&mut self, scale: f64) {
+        self.row_scale = if scale > 0.0 { scale } else { 1.0 };
+    }
+
+    /// The block is already on the level's sphere, exactly as the decoder
+    /// will put it there: nothing to retract to. Same reasoning as
+    /// [`LeechShapeGain::retraction_target`] — a target of `norm_before`
+    /// would hand the magnitude back as a free float and cancel the gain
+    /// bit; a recomputed value of the *same* norm would cost a rounding the
+    /// decoder cannot mirror. Trio has no free-magnitude variant: the word
+    /// has a gain bit in it whether it is used or not.
+    fn retraction_target(&self, _norm_before: f64) -> Option<f64> {
+        None
+    }
+
+    fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
+        let x: &[f64; DIM] = v.try_into().expect("block must be 24 weights");
+        let norm = x.iter().map(|a| a * a).sum::<f64>().sqrt();
+        if norm == 0.0 {
+            out.fill(0.0);
+            // Word 0 is the origin — a zero block is representable, not an
+            // absence of code (`llvq_search::trio`, "Coordinate orders").
+            self.last = Some(BlockCode { point: [0; DIM], gain: 0 });
+            return;
+        }
+        // The gain code sees the block norm relative to its row, which is
+        // what makes a two-level code meaningful at all.
+        let level = nearest_level_index(&self.centroids, norm / self.row_scale);
+        let code = BlockCode {
+            point: self.direction(x),
+            gain: level as u32,
+        };
+        // The decoder's own routine rather than a second copy of its three
+        // lines: bit equality with the artifact is then true by
+        // construction, not by inspection.
+        reconstruct_shape_gain(&code, &self.centroids, self.row_scale, out);
+        self.last = Some(code);
+    }
+
+    fn last_code(&self) -> Option<BlockCode> {
+        self.last
+    }
+
+    /// Design C's re-projection: the solve's magnitude snapped to the nearest
+    /// gain level, the block rebuilt through [`reconstruct_shape_gain`].
+    ///
+    /// ⚠️ **The flip is not [`LeechShapeGain`]'s.** There, a solve that picked
+    /// a negative scale is honoured by negating the point, because `Λ₂₄` is
+    /// centrally symmetric. **The Trio map is not.** Under an even block
+    /// parity the residue class `o = 0` lists its values `0, +4, −4, +8, …`,
+    /// so negating a coordinate swaps its rank inside a pair — rank 1 costs
+    /// `(2·1+1)² = 9` and rank 2 costs 25 — and the section's rank vector can
+    /// leave the 2,048 rows its class holds; rank 7 (`+16`) has no negative
+    /// at all. `Trio::encode(−y)` would then return `None` and the matrix
+    /// could not be written. (Under an odd parity it *is* symmetric: `o = 3`
+    /// is `o = 1` negated term for term, and the pattern moves to the
+    /// complementary Golay codeword.)
+    ///
+    /// So a flipped block is **re-encoded** rather than negated. That keeps
+    /// the solve's decision — the one defect a round-trip test cannot see —
+    /// and returns a word the map actually has, at the cost of one encoder
+    /// call on a path design C alone reaches (`nogs` is the served mode).
+    fn reproject(&self, code: &BlockCode, norm: f64, out: &mut [f64]) -> Option<BlockCode> {
+        let flipped = out
+            .iter()
+            .zip(code.point.iter())
+            .map(|(o, &p)| o * p as f64)
+            .sum::<f64>()
+            < 0.0;
+        let point = if flipped {
+            let x: &[f64; DIM] = (&*out).try_into().expect("block must be 24 weights");
+            self.direction(x)
+        } else {
+            code.point
+        };
+        let level = nearest_level_index(&self.centroids, norm / self.row_scale);
+        let new = BlockCode { point, gain: level as u32 };
         self.reconstruct(&new, self.row_scale, out);
         Some(new)
     }

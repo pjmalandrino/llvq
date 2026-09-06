@@ -142,7 +142,7 @@ fn the_cns_addressed_width_is_what_it_is() {
     let (mut fo_stage, mut fo_kind, mut groups, mut total) = (0u64, 0u64, 0u64, 0u64);
 
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert_eq!(
             m.indices.len() % GROUP,
             0,

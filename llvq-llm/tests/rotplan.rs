@@ -650,6 +650,7 @@ fn synthetic_sealed(path: &std::path::Path, layers: usize, sabotage: bool) {
                 name: format!("model.layers.{layer}.{suffix}.weight"),
                 d_out,
                 d_in,
+                kind: llvq_artifact::CodeKind::Ball,
                 indices: (0..d_out).map(|_| 1 + rng.next() % N13).collect(),
                 gains: (0..d_out).map(|_| (rng.next() & 1) as u32).collect(),
                 row_scales: vec![1.0; d_out],
@@ -751,7 +752,7 @@ fn matrices_of(path: &std::path::Path) -> Vec<FusedMatrix> {
     );
     (0..head.matrices)
         .map(|_| {
-            let m = llvq_artifact::read_matrix_raw(&mut r).expect("matrix");
+            let m = llvq_artifact::read_matrix_raw(&mut r, head.version).expect("matrix");
             let rotation = m.rotation_seed.map(|s| (m.d_in, s));
             let mut fm = matrix(0, "self_attn.q_proj", m.d_in, rotation);
             fm.name = m.name;

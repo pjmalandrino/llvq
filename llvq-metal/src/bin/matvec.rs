@@ -398,9 +398,14 @@ fn main() -> Result<(), String> {
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
-    llvq_artifact::runtime::require_ball(h.kind(), "matvec (metal)").map_err(|e| e.to_string())?;
+    llvq_artifact::runtime::require_ball_kinds(h.kinds(), "matvec (metal)").map_err(|e| e.to_string())?;
     let m = (0..h.matrices)
-        .map(|_| llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix"))
+        .map(|_| {
+            let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
+            // The record's own kind, not only the header's declared set.
+            assert_eq!(m.kind, llvq_artifact::CodeKind::Ball, "{}: a {} record", m.name, m.kind);
+            m
+        })
         .find(|m| m.name.contains(&target))
         .ok_or_else(|| format!("no matrix matching {target:?}"))?;
     let (d_out, d_in) = (m.d_out, m.d_in);

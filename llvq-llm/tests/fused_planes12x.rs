@@ -707,7 +707,7 @@ fn transcode_of_the_sealed_model_matches_planes14() {
 
     for _ in 0..h.matrices {
         let t = Instant::now();
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         secs_read += t.elapsed().as_secs_f64();
         let nblocks = m.d_in / DIM;
         assert_eq!(

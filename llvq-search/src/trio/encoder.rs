@@ -28,9 +28,19 @@
 //! bound path and give a feasible cost `U`; one pass over the 8,192 paths
 //! gives every entry the best path through it; only the entries whose best
 //! path is under `U` are solved in full, the others cannot win and are
-//! dropped. Nothing that could beat `U` is pruned, so the answer is the
-//! rule's answer — checked point for point against the yardstick on 2,000
-//! evaluation blocks at two scales (`llvq-bench/tests/trio_encoder.rs`).
+//! dropped. On Gaussian blocks 13.6 % of the entry slots are solved in
+//! full, against 45.3 % with a bound of zero, which prunes nothing —
+//! `the_join_solves_a_small_fraction_of_the_entries` in this file pins the
+//! rate, so that mutant fails a test rather than a stopwatch.
+//!
+//! Nothing that could beat `U` is pruned, so the answer is the rule's
+//! answer **up to a tie**: the rule keeps the first candidate of its own
+//! enumeration among several at exactly equal distance, and this
+//! enumeration is not the bench's, so on an exact f64 tie the two can end
+//! on different points of the same cost. Checked point for point against
+//! the yardstick on the 2,000 evaluation blocks at three scales — 6,000 of
+//! 6,000 pairs at the bench's own point on 2026-09-05, no tie observed, but
+//! the test accepts one at equal cost (`llvq-bench/tests/trio_encoder.rs`).
 //!
 //! ## The two scales
 //!
@@ -197,6 +207,29 @@ struct Fallback {
     y: [i32; SECTION],
 }
 
+/// Entries the lazy pass had to take from a lower bound to an exact value,
+/// and the parity passes that offered them — the pruning of the module doc
+/// as a number rather than as a claim.
+///
+/// Test-only: the encoder must not pay a counter per entry in production,
+/// and the three `Scratch::count_*` below are empty functions outside
+/// `cfg(test)`.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Solved {
+    /// `end_resolve` calls, over the `2·END_ENTRIES` end slots of a pass.
+    end: u64,
+    /// `mid_resolve` calls, over the `2·MID_ENTRIES` middle slots of a pass.
+    mid: u64,
+    /// Parity passes, two per scale and four per block.
+    passes: u64,
+}
+
+/// Slots one parity pass offers the solver: `e1` and `e3` end entries, and
+/// both `δ` of every middle entry.
+#[cfg(test)]
+const SLOTS_PER_PASS: u64 = (2 * END_ENTRIES + 2 * MID_ENTRIES) as u64;
+
 /// Per-thread workspace: the coordinate tables of the three sections and the
 /// entries of the join. No allocation per block.
 pub struct Scratch {
@@ -207,6 +240,8 @@ pub struct Scratch {
     b1: [f64; END_ENTRIES],
     b2: [[f64; 2]; MID_ENTRIES],
     b3: [f64; END_ENTRIES],
+    #[cfg(test)]
+    solved: Solved,
 }
 
 impl Scratch {
@@ -219,7 +254,44 @@ impl Scratch {
             b1: [0.0; END_ENTRIES],
             b2: [[0.0; 2]; MID_ENTRIES],
             b3: [0.0; END_ENTRIES],
+            #[cfg(test)]
+            solved: Solved::default(),
         }
+    }
+
+    /// One end entry resolved in full. Nothing outside `cfg(test)`.
+    #[inline(always)]
+    fn count_end(&mut self) {
+        #[cfg(test)]
+        {
+            self.solved.end += 1;
+        }
+    }
+
+    /// One middle entry resolved in full.
+    #[inline(always)]
+    fn count_mid(&mut self) {
+        #[cfg(test)]
+        {
+            self.solved.mid += 1;
+        }
+    }
+
+    /// One parity pass started.
+    #[inline(always)]
+    fn count_pass(&mut self) {
+        #[cfg(test)]
+        {
+            self.solved.passes += 1;
+        }
+    }
+
+    /// The counters since the last call, then zero. The unit is the *slot*:
+    /// `passes · SLOTS_PER_PASS` is what the solver would have paid with no
+    /// pruning at all.
+    #[cfg(test)]
+    fn take_solved(&mut self) -> Solved {
+        core::mem::take(&mut self.solved)
     }
 }
 
@@ -585,6 +657,7 @@ impl Encoder {
     /// already found at the other parity: a path that cannot beat it cannot
     /// win either, so it seeds `U`.
     fn solve_parity(&self, p: u32, targets: &[[f64; SECTION]; 3], sc: &mut Scratch, u0: f64) -> Option<Winner> {
+        sc.count_pass();
         for (tab, t) in sc.tabs.iter_mut().zip(targets) {
             tab.build(t, p, &self.ranks);
         }
@@ -640,14 +713,17 @@ impl Encoder {
             let mut all = true;
             if !sc.e1[path.i1].exact {
                 sc.e1[path.i1] = self.end_resolve(&sc.tabs[0], &targets[0], 0, p, path.i1 / GOLAY_STATES, path.i1 % GOLAY_STATES);
+                sc.count_end();
                 all = false;
             }
             if !sc.e2[path.i2][path.delta].exact {
                 sc.e2[path.i2][path.delta] = self.mid_resolve(&sc.tabs[1], self.msets[path.i2 / BRANCHES][path.i2 % BRANCHES], path.delta as u32);
+                sc.count_mid();
                 all = false;
             }
             if !sc.e3[path.i3].exact {
                 sc.e3[path.i3] = self.end_resolve(&sc.tabs[2], &targets[2], 1, p, path.i3 / GOLAY_STATES, path.i3 % GOLAY_STATES);
+                sc.count_end();
                 all = false;
             }
             if all {
@@ -685,18 +761,21 @@ impl Encoder {
         for i1 in 0..END_ENTRIES {
             if !sc.e1[i1].exact && sc.b1[i1] < u {
                 sc.e1[i1] = self.end_resolve(&sc.tabs[0], &targets[0], 0, p, i1 / GOLAY_STATES, i1 % GOLAY_STATES);
+                sc.count_end();
             }
         }
         for i2 in 0..MID_ENTRIES {
             for d in 0..2usize {
                 if !sc.e2[i2][d].exact && sc.b2[i2][d] < u {
                     sc.e2[i2][d] = self.mid_resolve(&sc.tabs[1], self.msets[i2 / BRANCHES][i2 % BRANCHES], d as u32);
+                    sc.count_mid();
                 }
             }
         }
         for i3 in 0..END_ENTRIES {
             if !sc.e3[i3].exact && sc.b3[i3] < u {
                 sc.e3[i3] = self.end_resolve(&sc.tabs[2], &targets[2], 1, p, i3 / GOLAY_STATES, i3 % GOLAY_STATES);
+                sc.count_end();
             }
         }
         // 4. What is still unresolved cannot beat U: invisible to the join.
@@ -856,6 +935,7 @@ pub fn t_of(x: &[f64; DIM], y: &[i32; DIM]) -> f64 {
 mod tests {
     use super::*;
     use super::super::cost;
+    use llvq_core::SplitMix64;
 
     /// Every `ρ ∈ {0..4}⁸`, flat.
     fn all_to_four() -> impl Iterator<Item = [u32; SECTION]> {
@@ -934,5 +1014,48 @@ mod tests {
         }
         // The origin's own region: the zero section.
         assert_eq!(e.fb(0, 0, 0, 0).y, [0; SECTION]);
+    }
+
+    /// The pruning is the whole reason the join is cheap, and it is pinned
+    /// here as a **rate**, not as a duration: over 200 Gaussian blocks the
+    /// lazy pass takes 13.59 % of the entry slots from a lower bound to an
+    /// exact value, the rest never being solved at all.
+    ///
+    /// Both directions are held. A bound that prunes nothing — the `< u`
+    /// tests replaced by `true`, or `b1`/`b2`/`b3` filled with `0.0`
+    /// instead of `INFINITY` — pays for every entry a base left
+    /// unresolved and blows the ceiling; a bound that prunes everything —
+    /// the tests replaced by `false` — never solves anything and falls
+    /// under the floor. Without the floor the second family would only be
+    /// visible in `llvq-bench/tests/trio_encoder.rs`, which is release-only
+    /// and needs the bench in the same process.
+    ///
+    /// Measured on 2026-09-05, and deterministic — the same figure in debug
+    /// and in release: 13.59 % of the 409,600 slots, 6.37 % end and 7.22 %
+    /// middle. The mutants give 45.34 % (`b1`/`b2`/`b3` filled with `0.0`)
+    /// and 0.42 % (`< u` replaced by `< 0.0`, only the seed joins left). So
+    /// the ceiling of 20 % sits 1.47× above the recorded rate and 2.27×
+    /// below the first mutant, and the floor of 5 % 2.7× below the recorded
+    /// rate and 11.9× above the second.
+    #[test]
+    fn the_join_solves_a_small_fraction_of_the_entries() {
+        const BLOCKS: usize = 200;
+        let enc = Encoder::new(&Trio::new());
+        let mut sc = Scratch::new();
+        let mut rng = SplitMix64::new(0x0F1B_5017);
+        for _ in 0..BLOCKS {
+            let x: [f64; DIM] = core::array::from_fn(|_| rng.next_gaussian());
+            let code = enc.encode(&x, &mut sc);
+            assert!(code.t.is_finite(), "a Gaussian block is not the origin");
+        }
+        let s = sc.take_solved();
+        // Four parity passes a block: two scales, two block parities.
+        assert_eq!(s.passes, 4 * BLOCKS as u64, "encode runs two scales over two parities");
+        let slots = s.passes * SLOTS_PER_PASS;
+        let pct = |n: u64| 100.0 * n as f64 / slots as f64;
+        let (end, mid, all) = (pct(s.end), pct(s.mid), pct(s.end + s.mid));
+        println!("{BLOCKS} blocks, {slots} entry slots: {all:.2} % solved in full ({end:.2} % end, {mid:.2} % middle)");
+        assert!(all < 20.0, "the pruning has stopped pruning: {all:.2} % of the slots solved in full, against 13.59 % recorded");
+        assert!(all > 5.0, "only {all:.2} % of the slots solved: the bound test is pruning entries the rule needs");
     }
 }

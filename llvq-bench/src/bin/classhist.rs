@@ -63,14 +63,20 @@ fn main() {
     // `class_of` would file every Trio word under some v1 class, and the
     // histogram would be of nothing.
     assert!(
-        h.kind() == llvq_artifact::CodeKind::Ball,
+        h.is_ball_only(),
         "{path}: a {} file (format v{}); classhist reads indices as v1 classes — \
          no runtime layout for Trio before F1d",
-        h.kind(),
+        h.kinds(),
         h.version
     );
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
+        assert_eq!(
+            m.kind,
+            llvq_artifact::CodeKind::Ball,
+            "{}: a {} record in a {} file — classhist reads indices as v1 classes",
+            m.name, m.kind, h.kinds()
+        );
         assert!(
             m.shell_cap <= 13,
             "{}: shell cap {} exceeds the class table's 13",

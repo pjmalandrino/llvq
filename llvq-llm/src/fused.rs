@@ -1768,15 +1768,23 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         ));
     }
 
-    // The header's kind, not a default: a Trio file is refused here, before
-    // any record is read through `read_matrix_raw` as a Ball record.
-    let tr = Transcoder::for_kind(layout, head.kind())?;
+    // The header's whole set of kinds, not its default: one Trio matrix among
+    // four hundred Ball ones is a file this path cannot serve, and the refusal
+    // has to land here, before any record is read through `read_matrix_raw` as
+    // a Ball record.
+    llvq_artifact::runtime::require_ball_kinds(head.kinds(), layout.name())
+        .map_err(|e| e.to_string())?;
+    let tr = Transcoder::new(layout)?;
     let mut matrices = Vec::with_capacity(head.matrices as usize);
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
 
     for _ in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, head.version).map_err(|e| e.to_string())?;
+        // The record's own kind, not only the header's set: the set is a
+        // declaration, and a file whose header under-reports it would reach
+        // the transcoder here with a Trio record in hand.
+        llvq_artifact::runtime::require_ball(m.kind, layout.name()).map_err(|e| e.to_string())?;
         // Every decoder hard-codes one gain bit (`hdr >> 9`). A file with a
         // different gain width would transcode into a coherent stream and
         // decode into garbage — silently.

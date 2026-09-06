@@ -610,7 +610,7 @@ fn run() -> Result<(), String> {
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
-    llvq_artifact::runtime::require_ball(h.kind(), "rankbench").map_err(|e| e.to_string())?;
+    llvq_artifact::runtime::require_ball_kinds(h.kinds(), "rankbench").map_err(|e| e.to_string())?;
     let mut file_hist = vec![0u64; fd.n_classes()];
     let mut origin_blocks = 0u64;
     let mut total = 0u64;
@@ -619,7 +619,9 @@ fn run() -> Result<(), String> {
 
     let t0 = std::time::Instant::now();
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        // The record's own kind, not only the header's declared set.
+        llvq_artifact::runtime::require_ball(m.kind, "rankbench").map_err(|e| e.to_string())?;
         // Without this, an artifact with 2 gain bits would decode wrong classes
         // in silence: every MSL of this repo reads the gain with `take(c, 1)`.
         assert_eq!(

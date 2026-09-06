@@ -40,7 +40,7 @@ mod common;
 
 use llvq_artifact::{
     codebook_fingerprint, decode_matrix, read_all, read_header, trio_fingerprint, ArtifactWriter,
-    CodeKind, Error, QuantizedMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2,
+    CodeKind, Error, KindSet, QuantizedMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2,
     MAGIC_V3, MAGIC_V4, MAGIC_V5, TRIO_SHELL_CAP, VERSION,
 };
 use llvq_core::{Point, SplitMix64, DIM};
@@ -169,9 +169,9 @@ fn v5_trio_file() -> (Vec<u8>, Vec<f32>) {
 }
 
 /// Header geometry: magic(4) + count(4), + v1 fingerprint(8) from v4, + trio
-/// fingerprint(8) + kind(4) from v5.
+/// fingerprint(8) + default kind(4) + kinds present(4) from v5.
 const V4_HEADER: usize = 16;
-const V5_HEADER: usize = 28;
+const V5_HEADER: usize = 32;
 
 // ---------------------------------------------------------------------------
 // 1 — the maps have not moved
@@ -608,7 +608,7 @@ fn a_file_from_another_codebook_is_refused() {
     assert_eq!(head.version, DEFAULT_VERSION);
     assert_eq!(head.codebook, Some(codebook_fingerprint()));
     assert_eq!(head.trio, None, "a v4 header has no Trio fingerprint");
-    assert_eq!(head.kind(), CodeKind::Ball);
+    assert_eq!(head.default_kind(), CodeKind::Ball);
     assert_eq!(
         decode_matrix(&read_all(&mut std::io::Cursor::new(&good)).expect("read")[0]),
         want
@@ -626,7 +626,7 @@ fn a_file_from_another_codebook_is_refused() {
     assert_eq!(head.version, FIRST_KINDED_VERSION);
     assert_eq!(head.codebook, Some(codebook_fingerprint()));
     assert_eq!(head.trio, Some(trio_fingerprint()));
-    assert_eq!(head.kind(), CodeKind::Trio);
+    assert_eq!(head.default_kind(), CodeKind::Trio);
     assert_eq!(
         decode_matrix(&read_all(&mut std::io::Cursor::new(&good5)).expect("read")[0]),
         want5
@@ -635,6 +635,11 @@ fn a_file_from_another_codebook_is_refused() {
     let tr = u64::from_le_bytes(good5[16..24].try_into().unwrap());
     assert_eq!((v1, tr), (codebook_fingerprint(), trio_fingerprint()), "the fields are where we think");
     assert_eq!(u32::from_le_bytes(good5[24..28].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!(
+        u32::from_le_bytes(good5[28..32].try_into().unwrap()),
+        KindSet::of(CodeKind::Trio).bits(),
+        "a with_kind(Trio) file declares Trio and nothing else"
+    );
     refuse_patched(&good5, 8, v1, codebook_fingerprint(), "v1 ball");
     refuse_patched(&good5, 16, tr, trio_fingerprint(), "Trio");
 }
@@ -781,7 +786,7 @@ fn legacy_headers_still_read() {
             "a v{version} file has no fingerprint to report"
         );
         assert_eq!(head.trio, None);
-        assert_eq!(head.kind(), CodeKind::Ball, "every file before v5 is a Ball file");
+        assert_eq!(head.default_kind(), CodeKind::Ball, "every file before v5 is a Ball file");
         assert_eq!(head.is_self_contained(), version >= 2);
 
         let got = read_all(&mut std::io::Cursor::new(&old)).expect("legacy matrices");
@@ -795,7 +800,7 @@ fn legacy_headers_still_read() {
 
     // v4 itself: the default writer's file, kind Ball by construction.
     let head = read_header(&mut std::io::Cursor::new(&v4)).expect("v4 opens");
-    assert_eq!((head.version, head.kind(), head.trio), (4, CodeKind::Ball, None));
+    assert_eq!((head.version, head.default_kind(), head.trio), (4, CodeKind::Ball, None));
 
     // v5 with kind Ball over the same records: the same weights through the
     // same map, with both fingerprints checked on the way in.
@@ -804,11 +809,32 @@ fn legacy_headers_still_read() {
     v5.extend_from_slice(&v4[4..V4_HEADER]);
     v5.extend_from_slice(&trio_fingerprint().to_le_bytes());
     v5.extend_from_slice(&CodeKind::Ball.tag().to_le_bytes());
+    v5.extend_from_slice(&KindSet::BALL.bits().to_le_bytes());
+    // The records are v4 records — no kind tag — so this hand-built v5 file
+    // is a v5 header over a v4 body, and `read_all` must refuse it rather
+    // than read the first record's centroid count as a kind. Everything
+    // below is about the header alone.
+    let v5_header_only = v5.clone();
     v5.extend_from_slice(&v4[V4_HEADER..]);
     let head = read_header(&mut std::io::Cursor::new(&v5)).expect("a v5 Ball file must open");
     assert_eq!(head.version, 5);
-    assert_eq!(head.kind(), CodeKind::Ball);
+    assert_eq!(head.default_kind(), CodeKind::Ball);
+    assert_eq!(head.kinds(), KindSet::BALL);
     assert_eq!(head.trio, Some(trio_fingerprint()));
+    assert_eq!(v5_header_only.len(), V5_HEADER);
+
+    // The same records rewritten as v5 records — kind tag and all — decode to
+    // the same weights. That is the compatibility claim: the map did not
+    // change, only where the file says which map it is.
+    let ix = Indexer::new();
+    let mut rng = SplitMix64::new(0xC0DE_B00C);
+    let m = synthetic(&ix, &mut rng, "model.layers.0.mlp.up_proj.weight");
+    let mut v5: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::with_version_kind(&mut v5, 5, 1, CodeKind::Ball).expect("header");
+        w.push(&m).expect("write");
+        w.finish().expect("flush");
+    }
     let got = read_all(&mut std::io::Cursor::new(&v5)).expect("v5 Ball matrices");
     assert_eq!(decode_matrix(&got[0]), want, "a v5 Ball file decodes as the v4 one");
 }
@@ -820,7 +846,7 @@ fn legacy_headers_still_read() {
 /// to call instead of hand-rolling `magic + count`
 /// (`llvq-bench/src/bin/lswap.rs` did exactly that once). The geometry it
 /// hides is no longer constant across versions, which is the whole reason it
-/// exists: 8 bytes to v3, 16 at v4, 28 from v5.
+/// exists: 8 bytes to v3, 16 at v4, 32 from v5.
 #[test]
 fn write_header_round_trips_at_every_version() {
     for version in 1..=VERSION {
@@ -846,7 +872,7 @@ fn write_header_round_trips_at_every_version() {
                 .then(codebook_fingerprint)
         );
         assert_eq!(head.trio, (version >= FIRST_KINDED_VERSION).then(trio_fingerprint));
-        assert_eq!(head.kind(), CodeKind::Ball, "write_header writes the default kind");
+        assert_eq!(head.default_kind(), CodeKind::Ball, "write_header writes the default kind");
     }
     // The kinded form at v5, both kinds.
     for kind in [CodeKind::Ball, CodeKind::Trio] {
@@ -855,8 +881,10 @@ fn write_header_round_trips_at_every_version() {
         assert_eq!(buf.len(), V5_HEADER);
         assert_eq!(&buf[..4], MAGIC_V5);
         assert_eq!(u32::from_le_bytes(buf[24..28].try_into().unwrap()), kind.tag());
+        assert_eq!(u32::from_le_bytes(buf[28..32].try_into().unwrap()), KindSet::of(kind).bits());
         let head = read_header(&mut std::io::Cursor::new(&buf)).expect("read back");
-        assert_eq!((head.version, head.matrices, head.kind()), (VERSION, 7, kind));
+        assert_eq!((head.version, head.matrices, head.default_kind()), (VERSION, 7, kind));
+        assert_eq!(head.kinds(), KindSet::of(kind), "one kind declared, its own");
     }
     for bad in [0, VERSION + 1] {
         assert!(
@@ -888,7 +916,8 @@ fn the_default_writer_still_writes_v4() {
     let mut rng = SplitMix64::new(0xC0DE_B00C);
     let m = synthetic(&ix, &mut rng, "model.layers.0.mlp.up_proj.weight");
     let mut record: Vec<u8> = Vec::new();
-    llvq_artifact::write_matrix(&mut record, &ix, &m).expect("the Ball record, through the Ball writer");
+    llvq_artifact::write_matrix(&mut record, DEFAULT_VERSION, &ix, &m)
+        .expect("the Ball record, through the Ball writer");
     assert_eq!(&file[V4_HEADER..V4_HEADER + record.len()], &record[..], "the record is the record");
     assert_eq!(file.len(), V4_HEADER + record.len() + 8, "then the two zero counts of `finish`");
 }
@@ -919,12 +948,12 @@ fn the_published_archive_still_opens() {
         head.codebook, None,
         "a pre-v4 archive cannot carry a fingerprint"
     );
-    assert_eq!(head.kind(), CodeKind::Ball);
+    assert_eq!(head.default_kind(), CodeKind::Ball);
     assert!(head.matrices > 0, "an archive with no matrices");
 
     // And its first matrix still decodes — the header check is not the point
     // if the body no longer reads.
     let ix = Indexer::new();
-    let m = llvq_artifact::read_matrix(&mut r, &ix).expect("the first matrix must decode");
+    let m = llvq_artifact::read_matrix(&mut r, head.version, &ix).expect("the first matrix must decode");
     assert_eq!(m.codes.len(), m.d_out * (m.d_in / DIM));
 }

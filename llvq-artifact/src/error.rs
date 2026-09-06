@@ -5,6 +5,7 @@
 //! its slot is a perfectly valid index for a different lattice point, and a
 //! reader that shrugs would hand back plausible, wrong weights.
 
+use crate::{CodeKind, KindSet};
 use core::fmt;
 
 #[derive(Debug)]
@@ -48,10 +49,37 @@ pub enum Error {
     },
     /// A header version this writer cannot emit.
     UnknownVersion { version: u32 },
-    /// A v5 header names a code kind this reader does not know: a newer
-    /// writer, or a corrupted field. Refused at the header, before any width
-    /// is trusted — an unknown kind's records have no defined width.
+    /// A v5 header or record names a code kind this reader does not know: a
+    /// newer writer, or a corrupted field. Refused where it is read, before
+    /// any width is trusted — an unknown kind's records have no defined
+    /// width, and an unknown bit in the header's set is a matrix this build
+    /// cannot decode sitting somewhere in the file.
+    ///
+    /// [`crate::RESERVED_INT4G128_TAG`] is deliberately one of these: the
+    /// number is reserved for Q5's mixed-precision `v_proj`, and until that
+    /// writer exists a file carrying it is one this build must refuse rather
+    /// than misread.
     UnknownCodeKind { tag: u32 },
+    /// A record was pushed as a kind the file's header never declared.
+    ///
+    /// The header precedes every record and cannot be rewritten, so the set
+    /// of kinds a file may hold is fixed by [`crate::ArtifactWriter`]'s
+    /// constructor. Writing the record anyway would produce a file whose own
+    /// refusals — which read that set — lie about what is in it.
+    KindNotDeclared {
+        name: String,
+        kind: CodeKind,
+        declared: KindSet,
+    },
+    /// A record of one kind reached an entry point that reads another: a
+    /// Trio record handed to [`crate::read_matrix`], which decodes v1 ball
+    /// indices and nothing else. Not an `IndexOutOfRange` by luck — a
+    /// refusal by name, before the labels are put through the wrong map.
+    WrongCodeKind {
+        name: String,
+        want: CodeKind,
+        got: CodeKind,
+    },
     /// Underlying I/O failure.
     Io(std::io::Error),
 }
@@ -103,8 +131,24 @@ impl fmt::Display for Error {
             }
             Error::UnknownCodeKind { tag } => write!(
                 f,
-                "code kind {tag} is unknown (0 = Ball, 1 = Trio) — file \
-                 written by a newer writer, or corrupted"
+                "code kind {tag} is unknown (0 = Ball, 1 = Trio; 2 is reserved \
+                 for int4 g128 and has no writer yet) — file written by a \
+                 newer writer, or corrupted"
+            ),
+            Error::KindNotDeclared {
+                name,
+                kind,
+                declared,
+            } => write!(
+                f,
+                "{name}: a {kind} record under a header that declared {declared} — \
+                 the header is written before the records and cannot be revised, \
+                 so every kind a file may hold is declared when the writer is built"
+            ),
+            Error::WrongCodeKind { name, want, got } => write!(
+                f,
+                "{name}: a {got} record read through the {want} entry point — its \
+                 indices are in range for {want} and mean nothing there"
             ),
             Error::Io(e) => write!(f, "i/o: {e}"),
         }

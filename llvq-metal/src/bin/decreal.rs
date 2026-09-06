@@ -147,12 +147,14 @@ fn main() -> Result<(), String> {
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
-    llvq_artifact::runtime::require_ball(h.kind(), "decreal").map_err(|e| e.to_string())?;
+    llvq_artifact::runtime::require_ball_kinds(h.kinds(), "decreal").map_err(|e| e.to_string())?;
     let per_matrix = N.div_ceil(h.matrices as usize);
     let mut indices = Vec::with_capacity(N);
     let mut gains = Vec::with_capacity(N);
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        // The record's own kind, not only the header's declared set.
+        llvq_artifact::runtime::require_ball(m.kind, "decreal").map_err(|e| e.to_string())?;
         assert_eq!(
             m.centroids.len().next_power_of_two().trailing_zeros(),
             1,

@@ -9,7 +9,7 @@
 //! independent reading of the same bytes.
 
 use llvq_artifact::runtime::{transcode, ClassTable, Layout, FIXED96_BYTES, GROUP};
-use llvq_artifact::QuantizedMatrix;
+use llvq_artifact::{QuantizedMatrix, DEFAULT_VERSION};
 use llvq_core::SplitMix64;
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::fastdec::FastDecoder;
@@ -84,8 +84,8 @@ fn artifact_stream_to_runtime_is_bit_exact() {
     };
 
     let mut bytes = Vec::new();
-    llvq_artifact::write_matrix(&mut bytes, &ix, &m).expect("writes");
-    let raw = llvq_artifact::read_matrix_raw(&mut bytes.as_slice()).expect("reads");
+    llvq_artifact::write_matrix(&mut bytes, DEFAULT_VERSION, &ix, &m).expect("writes");
+    let raw = llvq_artifact::read_matrix_raw(&mut bytes.as_slice(), DEFAULT_VERSION).expect("reads");
     assert_eq!(raw.indices, indices, "raw indices survive the stream");
     assert_eq!(raw.gains, gains, "raw gains survive the stream");
 

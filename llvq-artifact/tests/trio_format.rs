@@ -31,9 +31,10 @@ use llvq_artifact::runtime::{
     ClassTable, Golay70Table, Layout,
 };
 use llvq_artifact::{
-    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_raw_for_kind,
-    read_matrix_with, write_matrix_raw_for_kind, write_matrix_with, ArtifactWriter, CodeKind, Codebook,
-    Error, QuantizedMatrix, RawMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC_V5, TRIO_SHELL_CAP,
+    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
+    write_matrix_raw, write_matrix_with, ArtifactWriter, CodeKind, Codebook, Codebooks, Error,
+    KindSet, QuantizedMatrix, RawMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC_V5,
+    TRIO_SHELL_CAP,
 };
 use llvq_core::{Golay, SplitMix64, DIM};
 use llvq_quant::quantizer::{BlockCode, LeechShapeGain};
@@ -149,13 +150,14 @@ fn the_gain_bit_sits_at_bit_47_on_disk() {
 fn a_trio_matrix_survives_a_round_trip() {
     let trio = Trio::new();
     let cb = Codebook::new(CodeKind::Trio);
+    let cbs = Codebooks::new();
     let mut rng = SplitMix64::new(0x7210_0003_0003);
     for (d_out, d_in) in [(4usize, 3 * DIM), (3, 100), (5, 5 * DIM)] {
         let m = synthetic_trio(&trio, &mut rng, "model.layers.0.self_attn.q_proj.weight", d_out, d_in);
         let mut bytes: Vec<u8> = Vec::new();
-        let bits = write_matrix_with(&mut bytes, &cb, &m).expect("write");
+        let bits = write_matrix_with(&mut bytes, FIRST_KINDED_VERSION, &cb, &m).expect("write");
         assert_eq!(bits, m.bits(), "48 bits a block is what the accounting says");
-        let got = read_matrix_with(&mut &bytes[..], &cb).expect("read");
+        let got = read_matrix_with(&mut &bytes[..], FIRST_KINDED_VERSION, &cbs).expect("read");
         assert_eq!(got.codes, m.codes, "codes differ for {d_out}×{d_in}");
         assert_eq!(got.shell_cap, TRIO_SHELL_CAP);
         assert_eq!(got.row_scales, m.row_scales);
@@ -163,7 +165,8 @@ fn a_trio_matrix_survives_a_round_trip() {
         assert_eq!(decode_matrix(&got), decode_matrix(&m));
 
         // The raw view holds the labels and the gain bits, nothing decoded.
-        let raw = read_matrix_raw_for_kind(&mut &bytes[..], CodeKind::Trio).expect("raw");
+        let raw = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("raw");
+        assert_eq!(raw.kind, CodeKind::Trio, "the record says what it is");
         for (b, (code, (&idx, &gain))) in m.codes.iter().zip(raw.indices.iter().zip(&raw.gains)).enumerate() {
             assert_eq!(idx, trio.encode(&code.point).expect("a Trio point"), "block {b}: label");
             assert_eq!(gain, code.gain, "block {b}: gain");
@@ -181,7 +184,9 @@ fn a_v5_trio_file_reads_end_to_end() {
     assert_eq!(&buf[..4], MAGIC_V5);
     let head = read_header(&mut &buf[..]).expect("a fresh v5 file must open");
     assert_eq!(head.version, FIRST_KINDED_VERSION);
-    assert_eq!(head.kind(), CodeKind::Trio);
+    assert_eq!(head.default_kind(), CodeKind::Trio);
+    assert_eq!(head.kinds(), KindSet::of(CodeKind::Trio), "one kind declared, its own");
+    assert!(!head.is_ball_only());
     assert_eq!(head.codebook, Some(llvq_artifact::codebook_fingerprint()));
     assert_eq!(head.trio, Some(llvq_artifact::trio_fingerprint()));
     assert!(head.is_self_contained(), "a v5 file is a sealed-shape file");
@@ -199,6 +204,12 @@ fn a_v5_trio_file_reads_end_to_end() {
 /// The same Trio record read as a Ball record — what a reader that ignored
 /// the kind would do — is not the same matrix: some label is past the ball
 /// and refused, or the points differ. Never silently equal.
+///
+/// Two refusals, one behind the other. [`read_matrix`] never gets that far:
+/// the record says Trio and it reads the v1 ball, so it stops by name. What
+/// would have happened had it not is the second half — the very same labels,
+/// which the sentinel cap keeps 47 bits wide either way, put through the
+/// `Indexer` by hand.
 #[test]
 fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
     let trio = Trio::new();
@@ -207,24 +218,43 @@ fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
     let mut rng = SplitMix64::new(0x7210_0003_0005);
     let m = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.gate_proj.weight", 8, 4 * DIM);
     let mut bytes: Vec<u8> = Vec::new();
-    write_matrix_with(&mut bytes, &cb, &m).expect("write");
+    write_matrix_with(&mut bytes, FIRST_KINDED_VERSION, &cb, &m).expect("write");
 
-    // The widths agree (the sentinel cap is what makes them), so the Ball
-    // reader gets the very same 47-bit labels...
-    let as_ball = read_matrix_raw(&mut &bytes[..]).expect("47-bit words read as 47-bit words");
-    let as_trio = read_matrix_raw_for_kind(&mut &bytes[..], CodeKind::Trio).expect("raw");
-    assert_eq!(as_ball.indices, as_trio.indices);
-    assert_eq!(as_ball.gains, as_trio.gains);
+    // The Ball entry point refuses the record by name, before a label goes
+    // through the wrong map.
+    match read_matrix(&mut &bytes[..], FIRST_KINDED_VERSION, &ix) {
+        Err(Error::WrongCodeKind { want, got, name }) => {
+            assert_eq!((want, got), (CodeKind::Ball, CodeKind::Trio));
+            assert_eq!(name, m.name);
+        }
+        other => panic!("expected WrongCodeKind, got {:?}", other.err()),
+    }
 
-    // ...and makes a different matrix of them.
-    match read_matrix(&mut &bytes[..], &ix) {
-        Err(Error::IndexOutOfRange { .. }) => {}
-        Err(e) => panic!("a Ball read of Trio words failed for the wrong reason: {e}"),
-        Ok(wrong) => {
-            assert_ne!(wrong.codes, m.codes, "Trio words read as ball indices gave the same points");
-            assert_ne!(decode_matrix(&wrong), decode_matrix(&m));
+    // The widths agree (the sentinel cap is what makes them), so the labels
+    // are the same 47-bit words on either reading...
+    let raw = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("raw");
+    assert_eq!(raw.kind, CodeKind::Trio);
+    for (b, &idx) in raw.indices.iter().enumerate() {
+        assert_eq!(idx, trio.encode(&m.codes[b].point).expect("a Trio point"));
+    }
+
+    // ...and the other map makes a different matrix of them: a label past the
+    // ball, or a point that is not the one written. Never silently equal.
+    let mut differ = 0usize;
+    let mut refused = 0usize;
+    for (b, &idx) in raw.indices.iter().enumerate() {
+        match ix.decode(idx) {
+            None => refused += 1,
+            Some(p) => differ += usize::from(p != m.codes[b].point),
         }
     }
+    assert_eq!(
+        refused + differ,
+        raw.indices.len(),
+        "{} of {} Trio labels decoded to their own point through the ball",
+        raw.indices.len() - refused - differ,
+        raw.indices.len()
+    );
 }
 
 /// A Trio writer needs v5: below it the header has nowhere to say what its
@@ -250,7 +280,9 @@ fn a_trio_writer_below_v5_is_refused() {
         );
     }
     let w = ArtifactWriter::with_kind(Vec::new(), CodeKind::Trio, 0).expect("v5");
-    assert_eq!(w.kind(), CodeKind::Trio);
+    assert_eq!(w.default_kind(), CodeKind::Trio);
+    assert_eq!(w.kinds(), KindSet::of(CodeKind::Trio));
+    assert_eq!(w.kinds_used(), KindSet::empty(), "nothing pushed, nothing used");
     assert_eq!(CodeKind::Trio.default_version(), FIRST_KINDED_VERSION);
     assert_eq!(CodeKind::Ball.default_version(), DEFAULT_VERSION);
     // And a v5 Ball writer is a thing: the kind is a field, not a version.
@@ -260,7 +292,7 @@ fn a_trio_writer_below_v5_is_refused() {
         .finish()
         .expect("flush");
     let head = read_header(&mut &buf[..]).expect("opens");
-    assert_eq!((head.version, head.kind()), (FIRST_KINDED_VERSION, CodeKind::Ball));
+    assert_eq!((head.version, head.default_kind()), (FIRST_KINDED_VERSION, CodeKind::Ball));
 }
 
 /// A Trio matrix must carry the sentinel cap and one gain bit; anything else
@@ -274,7 +306,7 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
 
     for cap in [0u32, 11, 13, 0xFFFF] {
         let m = QuantizedMatrix { shell_cap: cap, ..clone_of(&base) };
-        match write_matrix_with(&mut Vec::new(), &cb, &m) {
+        match write_matrix_with(&mut Vec::new(), FIRST_KINDED_VERSION, &cb, &m) {
             Err(Error::Inconsistent { detail, .. }) => {
                 assert!(detail.contains(&format!("shell cap {cap}")), "detail: {detail}")
             }
@@ -287,7 +319,7 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
             codes: base.codes.iter().map(|c| BlockCode { gain: c.gain.min(n_cent as u32 - 1), ..*c }).collect(),
             ..clone_of(&base)
         };
-        match write_matrix_with(&mut Vec::new(), &cb, &m) {
+        match write_matrix_with(&mut Vec::new(), FIRST_KINDED_VERSION, &cb, &m) {
             Err(Error::Inconsistent { detail, .. }) => {
                 assert!(detail.contains(&format!("{n_cent} centroids")), "detail: {detail}")
             }
@@ -300,6 +332,7 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
         name: base.name.clone(),
         d_out: base.d_out,
         d_in: base.d_in,
+        kind: CodeKind::Trio,
         indices: base.codes.iter().map(|c| trio.encode(&c.point).expect("Trio point")).collect(),
         gains: base.codes.iter().map(|c| c.gain).collect(),
         row_scales: base.row_scales.clone(),
@@ -309,16 +342,16 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
         tail: base.tail.clone(),
     };
     assert!(
-        matches!(write_matrix_raw_for_kind(&mut Vec::new(), CodeKind::Trio, &raw), Err(Error::Inconsistent { .. })),
+        matches!(write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw), Err(Error::Inconsistent { .. })),
         "a raw Trio record with cap 13 must be refused"
     );
     let raw = RawMatrix { shell_cap: TRIO_SHELL_CAP, centroids: vec![1.0], ..raw };
     assert!(
-        matches!(write_matrix_raw_for_kind(&mut Vec::new(), CodeKind::Trio, &raw), Err(Error::Inconsistent { .. })),
+        matches!(write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw), Err(Error::Inconsistent { .. })),
         "a raw Trio record with one centroid must be refused"
     );
     let raw = RawMatrix { centroids: base.centroids.clone(), ..raw };
-    write_matrix_raw_for_kind(&mut Vec::new(), CodeKind::Trio, &raw).expect("the honest record writes");
+    write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw).expect("the honest record writes");
 }
 
 /// A point the Trio map has no word for is `PointOutsideCodebook`, not a
@@ -332,7 +365,7 @@ fn a_point_off_the_trio_label_set_is_refused_by_the_writer() {
     let mut m = synthetic_trio(&trio, &mut rng, "m", 2, DIM);
     m.codes[1].point[5] += 1;
     assert_eq!(cb.encode(&m.codes[1].point), None);
-    match write_matrix_with(&mut Vec::new(), &cb, &m) {
+    match write_matrix_with(&mut Vec::new(), FIRST_KINDED_VERSION, &cb, &m) {
         Err(Error::PointOutsideCodebook { name }) => assert_eq!(name, "m"),
         other => panic!("expected PointOutsideCodebook, got {:?}", other.err()),
     }

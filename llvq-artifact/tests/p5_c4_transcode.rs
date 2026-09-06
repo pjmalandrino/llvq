@@ -56,7 +56,7 @@ fn the_e1v_transcode_is_within_twice_planes14() {
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
     let mut best: Option<(String, Vec<u64>, Vec<u32>)> = None;
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         if best.as_ref().is_none_or(|(_, i, _)| m.indices.len() > i.len()) {
             best = Some((m.name.clone(), m.indices.clone(), m.gains.clone()));
         }

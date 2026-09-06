@@ -1021,15 +1021,22 @@ fn sweep_file(fd: &FastDecoder, t: &WidthTable, path: &str) -> Sweep {
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
     // The widths are per v1 class; a Trio word would be filed under one.
     assert!(
-        h.kind() == llvq_artifact::CodeKind::Ball,
+        h.is_ball_only(),
         "{path}: a {} file (format v{}); radixstudy reads indices as v1 classes — \
          no runtime layout for Trio before F1d",
-        h.kind(),
+        h.kinds(),
         h.version
     );
     let mut s = Sweep::empty(fd.n_classes());
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
+        // The record's own kind, not only the header's declared set.
+        assert_eq!(
+            m.kind,
+            llvq_artifact::CodeKind::Ball,
+            "{}: a {} record in a {} file — radixstudy reads indices as v1 classes",
+            m.name, m.kind, h.kinds()
+        );
         s.push_matrix(fd, t, &m);
     }
     assert_eq!(s.matrices, u64::from(h.matrices), "matrices read ≠ matrices announced");
@@ -2082,6 +2089,7 @@ mod tests {
             name: name.to_string(),
             d_out: rows,
             d_in: per_row * DIM,
+            kind: llvq_artifact::CodeKind::Ball,
             // Real in-ball indices, so no block takes the origin tariff.
             indices: (0..blocks).map(|i| fd.class_range(i % fd.n_classes()).0).collect(),
             gains: vec![0; blocks],
@@ -2346,6 +2354,7 @@ mod tests {
             name: "synthetic".to_string(),
             d_out: 8,
             d_in: 48 * DIM,
+            kind: llvq_artifact::CodeKind::Ball,
             indices,
             gains: vec![0; blocks],
             row_scales: Vec::new(),
@@ -2467,7 +2476,7 @@ mod tests {
         let mut r = BufReader::with_capacity(1 << 20, f);
         let h = llvq_artifact::read_header(&mut r).expect("valid header");
         assert_eq!(h.version, 1, "the published 4B is an LVQ1, \"projections only\"");
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert_eq!(m.name, "model.layers.0.self_attn.q_proj.weight");
         assert_eq!((m.d_out, m.d_in), (4096, 2560));
 

@@ -308,7 +308,7 @@ fn read_raws(path: &std::path::Path) -> Option<Vec<RawTensor>> {
         return None;
     }
     for _ in 0..head.matrices {
-        llvq_artifact::read_matrix_raw(&mut r).ok()?;
+        llvq_artifact::read_matrix_raw(&mut r, head.version).ok()?;
     }
     let mut b = [0u8; 4];
     std::io::Read::read_exact(&mut r, &mut b).ok()?;

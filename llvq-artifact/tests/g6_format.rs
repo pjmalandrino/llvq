@@ -12,8 +12,8 @@
 
 use llvq_core::{SplitMix64, DIM};
 use llvq_artifact::{
-    decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, CodeKind,
-    QuantizedMatrix, RawData, RawTensor, TRIO_SHELL_CAP,
+    decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, CodeKind, KindSet,
+    QuantizedMatrix, RawData, RawTensor, DEFAULT_VERSION, FIRST_KINDED_VERSION, TRIO_SHELL_CAP,
 };
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::index::Indexer;
@@ -222,10 +222,15 @@ fn every_stored_field_is_load_bearing() {
     m.codes[0].point = ix.decode(12345).expect("a valid point");
     assert_ne!(decode_matrix(&m), want, "the lattice point is ignored");
 
-    // The kind — a header field, so it is corrupted in a file. A v5 Trio
-    // file whose tag is flipped to Ball must not decode to the same weights:
-    // the same 47-bit words through the other map are refused (a label past
-    // the ball) or different, never silently equal. And the converse.
+    // The kind — a record field from v5, so it is corrupted in a file. A v5
+    // Trio record whose tag is flipped to Ball must not decode to the same
+    // weights: the same 47-bit words through the other map are refused (a
+    // label past the ball) or different, never silently equal. And the
+    // converse. The header's default is patched along with the record's tag,
+    // since a header whose default is outside its own declared set is
+    // refused before any record is reached — one field at a time is not
+    // available here, and the mutant this kills is "the reader takes the
+    // kind from somewhere other than the record".
     let trio = Trio::new();
     let t = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM, Some(0x1234));
     let want_t = decode_matrix(&t);
@@ -237,7 +242,9 @@ fn every_stored_field_is_load_bearing() {
     }
     assert_eq!(u32::from_le_bytes(file[24..28].try_into().unwrap()), CodeKind::Trio.tag());
     assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want_t, "the control");
-    file[24..28].copy_from_slice(&CodeKind::Ball.tag().to_le_bytes());
+    let at = record_kind_at(&file, &t.name);
+    assert_eq!(u32::from_le_bytes(file[at..at + 4].try_into().unwrap()), CodeKind::Trio.tag());
+    patch_kind(&mut file, at, CodeKind::Ball);
     match read_all(&mut &file[..]) {
         Err(_) => {}
         Ok(got) => assert_ne!(decode_matrix(&got[0]), want_t, "the kind is ignored by the reader"),
@@ -250,17 +257,54 @@ fn every_stored_field_is_load_bearing() {
         w.finish().expect("flush");
     }
     assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want, "the control");
-    file[24..28].copy_from_slice(&CodeKind::Trio.tag().to_le_bytes());
+    let at = record_kind_at(&file, &base.name);
+    patch_kind(&mut file, at, CodeKind::Trio);
     match read_all(&mut &file[..]) {
         Err(_) => {}
         Ok(got) => assert_ne!(decode_matrix(&got[0]), want, "the kind is ignored by the reader"),
     }
+
+    // And the header's `kinds_present`, whose only reader is a refusal: a
+    // Ball-only file whose mask gains Trio must stop every runtime path, and
+    // the unpatched file must not. A field nothing consults is a field the
+    // format did not need.
+    let mut file: Vec<u8> = Vec::new();
+    {
+        let mut w = ArtifactWriter::with_version_kind(&mut file, 5, 1, CodeKind::Ball).expect("header");
+        w.push(&base).expect("write");
+        w.finish().expect("flush");
+    }
+    let head = llvq_artifact::read_header(&mut &file[..]).expect("the control opens");
+    llvq_artifact::runtime::require_ball_kinds(head.kinds(), "g6").expect("Ball only, so it passes");
+    file[28..32].copy_from_slice(&KindSet::BALL.with(CodeKind::Trio).bits().to_le_bytes());
+    let head = llvq_artifact::read_header(&mut &file[..]).expect("a Ball default in a Ball+Trio set");
+    assert!(
+        llvq_artifact::runtime::require_ball_kinds(head.kinds(), "g6").is_err(),
+        "kinds_present is ignored by the refusals"
+    );
+}
+
+/// Byte offset of a record's kind tag in a one-matrix v5 file: the header,
+/// then the name length, the name, `d_out`, `d_in` and the shell cap.
+fn record_kind_at(file: &[u8], name: &str) -> usize {
+    const V5_HEADER: usize = 32;
+    assert_eq!(
+        u32::from_le_bytes(file[V5_HEADER..V5_HEADER + 4].try_into().unwrap()) as usize,
+        name.len(),
+        "the record does not start where the header ends"
+    );
+    V5_HEADER + 4 + name.len() + 4 + 4 + 4
+}
+
+fn patch_kind(file: &mut [u8], at: usize, kind: CodeKind) {
+    file[at..at + 4].copy_from_slice(&kind.tag().to_le_bytes());
 }
 
 /// The v5 passthrough: a Trio file read undecoded and written back through a
-/// writer built from its own header — version and kind — is the same bytes,
-/// and so is a v5 Ball file. What a `v4` tool does to a `v4` file, the same
-/// tool does to a `v5` one once it asks the header what it is copying.
+/// writer built from its own header — version, default kind and declared set
+/// — is the same bytes, and so is a v5 Ball file and a mixed one. What a
+/// `v4` tool does to a `v4` file, the same tool does to a `v5` one once it
+/// asks the header what it is copying and lets each record say what it is.
 #[test]
 fn raw_passthrough_is_byte_identical_at_v5() {
     let ix = Indexer::new();
@@ -274,30 +318,54 @@ fn raw_passthrough_is_byte_identical_at_v5() {
         synthetic(&ix, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, 13, 2, Some(7)),
         synthetic(&ix, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, 12, 2, None),
     ];
-    for (kind, mats) in [(CodeKind::Trio, &trio_mats), (CodeKind::Ball, &ball_mats)] {
+    // Third arm: one Ball record and one Trio record in the same file, the
+    // shape Q5 will write. A passthrough that took the kind from the header
+    // would rewrite one of the two.
+    let mixed = [
+        synthetic(&ix, &mut rng, "model.layers.2.self_attn.v_proj.weight", 4, 2 * DIM, 12, 2, Some(3)),
+        synthetic_trio(&trio, &mut rng, "model.layers.2.mlp.down_proj.weight", 3, 3 * DIM, None),
+    ];
+    let both = KindSet::BALL.with(CodeKind::Trio);
+    for (kinds, mats) in [
+        (KindSet::of(CodeKind::Trio), &trio_mats[..]),
+        (KindSet::BALL, &ball_mats[..]),
+        (both, &mixed[..]),
+    ] {
+        let default = kinds.iter().next().expect("a non-empty set");
         let mut original: Vec<u8> = Vec::new();
         {
-            let mut w = ArtifactWriter::with_version_kind(&mut original, 5, mats.len() as u32, kind).expect("header");
-            for m in mats {
-                w.push(m).expect("write");
+            let mut w = ArtifactWriter::with_kinds(&mut original, 5, mats.len() as u32, default, kinds)
+                .expect("header");
+            for (i, m) in mats.iter().enumerate() {
+                // The mixed arm pushes each record as its own kind; the
+                // single-kind arms go through the default.
+                w.push_kind(m, if kinds == both && i == 1 { CodeKind::Trio } else { default })
+                    .expect("write");
             }
+            assert_eq!(w.kinds_used(), kinds, "{kinds}: the pushes and the declaration disagree");
             w.finish().expect("flush");
         }
 
         let mut r = std::io::Cursor::new(&original);
         let head = llvq_artifact::read_header(&mut r).expect("header");
-        assert_eq!((head.version, head.kind()), (5, kind));
+        assert_eq!((head.version, head.kinds()), (5, kinds));
         let mut copied: Vec<u8> = Vec::new();
         {
-            let mut w = ArtifactWriter::with_version_kind(&mut copied, head.version, head.matrices, head.kind())
-                .expect("header");
+            let mut w = ArtifactWriter::with_kinds(
+                &mut copied,
+                head.version,
+                head.matrices,
+                head.default_kind(),
+                head.kinds(),
+            )
+            .expect("header");
             for _ in 0..head.matrices {
-                let raw = llvq_artifact::read_matrix_raw_for_kind(&mut r, head.kind()).expect("read raw");
+                let raw = llvq_artifact::read_matrix_raw(&mut r, head.version).expect("read raw");
                 w.push_raw(&raw).expect("write raw");
             }
             w.finish().expect("flush");
         }
-        assert_eq!(original, copied, "{kind}: passthrough must not change a single byte");
+        assert_eq!(original, copied, "{kinds}: passthrough must not change a single byte");
     }
 }
 
@@ -329,7 +397,7 @@ fn a_point_above_the_shell_cap_is_refused() {
         .expect("shell 13 exists at the top of the ball");
     m.codes[0].point = big;
     let mut buf: Vec<u8> = Vec::new();
-    let err = write_matrix(&mut buf, &ix, &m).unwrap_err().to_string();
+    let err = write_matrix(&mut buf, DEFAULT_VERSION, &ix, &m).unwrap_err().to_string();
     assert!(
         err.contains("does not fit") || err.contains("shell cap"),
         "expected a refusal about the index width, got: {err}"
@@ -341,7 +409,8 @@ fn a_point_above_the_shell_cap_is_refused() {
 /// This is the contract that lets `embedq` rewrite a sealed file's raw-tensor
 /// section while copying 150 M blocks through untouched: no decode, no
 /// re-encode, no trust required. Any drift in field order or width between
-/// `write_matrix` and `write_matrix_raw` fails here.
+/// `write_matrix` and `write_matrix_raw` fails here — at v4, where the
+/// records carry no kind and the published artifact lives.
 #[test]
 fn raw_passthrough_is_byte_identical() {
     let ix = Indexer::new();
@@ -362,11 +431,13 @@ fn raw_passthrough_is_byte_identical() {
 
     let mut r = std::io::Cursor::new(&original);
     let head = llvq_artifact::read_header(&mut r).expect("header");
+    assert_eq!((head.version, head.kinds()), (DEFAULT_VERSION, KindSet::BALL));
+    assert!(head.version < FIRST_KINDED_VERSION, "the v4 arm must stay a v4 arm");
     let mut copied: Vec<u8> = Vec::new();
     {
         let mut w = ArtifactWriter::new(&mut copied, head.matrices).expect("header");
         for _ in 0..head.matrices {
-            let raw = llvq_artifact::read_matrix_raw(&mut r).expect("read raw");
+            let raw = llvq_artifact::read_matrix_raw(&mut r, head.version).expect("read raw");
             w.push_raw(&raw).expect("write raw");
         }
         w.finish().expect("flush");

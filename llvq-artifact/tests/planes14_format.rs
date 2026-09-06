@@ -258,7 +258,7 @@ fn the_sealed_artifact_decodes_identically_in_both_layouts() {
     let verified = AtomicU64::new(0);
 
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert!(m.shell_cap <= 13, "{}: cap {}", m.name, m.shell_cap);
         assert_eq!(m.centroids.len(), 2, "{}: not a 1-bit-gain matrix", m.name);
         let nchunks = m.indices.len().div_ceil(CHUNK);

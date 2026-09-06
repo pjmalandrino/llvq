@@ -328,7 +328,7 @@ fn the_sealed_artifact_planes12x_overlay_is_exact() {
     let payload_bits = AtomicU64::new(0);
 
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert_eq!(m.shell_cap, 12, "{}: the sealed file is leech1c12", m.name);
         assert_eq!(m.centroids.len(), 2, "{}: not a 1-bit-gain matrix", m.name);
         let nchunks = m.indices.len().div_ceil(CHUNK);

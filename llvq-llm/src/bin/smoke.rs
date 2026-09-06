@@ -238,6 +238,7 @@ const MAX_GAIN_BITS: u32 = 8;
 /// ```text
 /// identity | grid | direction
 /// leech[<gain>][c<shell>][L<levels>][f]
+/// trio[<gain>]
 /// ```
 ///
 /// in that order — `leech1c12L3` is the 8B configuration, `leech1c12f` charges
@@ -248,6 +249,14 @@ const MAX_GAIN_BITS: u32 = 8;
 ///
 /// * `strip_prefix("leech").unwrap_or("1")` — `leach1c12` became `leech1`:
 ///   the **full ball**, 48 index bits, a different rate and a different file;
+///
+/// `trio` is the Trio word map (roadmap §2.2 quater): 47 bits of label and one
+/// gain bit, the same 48 bits per block as `leech1c12` and deliberately so —
+/// the two arms are compared at a constant rate. It takes no shell, no level
+/// cap and no `f`: the map is one fixed label set, and the word has a gain bit
+/// whether or not it is spent. Each of those is refused by name rather than
+/// ignored, for the reason the whole of this function exists.
+///
 /// * `c.parse().unwrap_or(13)` — `leech1cx` became the full ball too;
 /// * `split_once('c')` is case-sensitive, so `leech1C12` also became the full
 ///   ball;
@@ -263,10 +272,13 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     if spec.starts_with("int") {
         return parse_int(spec);
     }
+    if spec.starts_with("trio") {
+        return parse_trio(spec);
+    }
     let grammar = "accepted values `identity`, `grid`, `direction`, \
-                   `int<bits>g<group>` and \
+                   `int<bits>g<group>`, `trio[<gain>]` and \
                    `leech[<gain>][c<shell>][L<levels>][f]` — \
-                   e.g. `int3g24`, `leech1`, `leech1c12`, `leech1c12L3`, `leech1c12f`";
+                   e.g. `int3g24`, `trio`, `leech1`, `leech1c12`, `leech1c12L3`, `leech1c12f`";
     let rest = spec
         .strip_prefix("leech")
         .ok_or_else(|| format!("codebook {spec:?}: {grammar}"))?;
@@ -328,6 +340,56 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
         free_magnitude,
         level_cap,
     })
+}
+
+/// Parse `trio[<gain>]` — the Trio word map.
+///
+/// **Nothing here falls back either**, and the fields it refuses are the ones
+/// `leech` accepts: a shell cap, a level cap and the free-magnitude `f`. Each
+/// would be silently meaningless on this map — there is one label set, and
+/// the gain bit is in the word whether or not it is used — and a run whose
+/// log printed `trio1c12` while the file was written without a cap is exactly
+/// the class of defect `parse_codebook` was rewritten for. `f` gets its own
+/// message because it is the one that would change the *rate*: 47 + 16 bits
+/// is not what this arm measures.
+///
+/// The gain is 1 or absent. `llvq_artifact`'s writer refuses any other count
+/// three hours into a run; refusing it here costs microseconds.
+fn parse_trio(spec: &str) -> Result<Codebook, String> {
+    let grammar = "grammar `trio[<gain>]` with `<gain>` = 1 — e.g. `trio` or `trio1`. \
+                   A Trio word is 47 bits of label and one gain bit: it takes no shell \
+                   cap (`c`), no level cap (`L`) and no free magnitude (`f`)";
+    let rest = spec
+        .strip_prefix("trio")
+        .ok_or_else(|| format!("codebook {spec:?}: {grammar}"))?;
+    // The `f` suffix is named on its own: `leech1c12f` is a documented arm at
+    // 63 bits per block, and someone typing `triof` is asking for a rate this
+    // map cannot have rather than making a typo.
+    if let Some(head) = rest.strip_suffix('f') {
+        return Err(format!(
+            "codebook {spec:?}: `trio{head}` plus a free magnitude — the gain bit is inside \
+             the 48-bit word, so there is nothing to free and the rate would not be the \
+             48 bits/block this arm exists to compare. {grammar}"
+        ));
+    }
+    let (gain, rest) = split_digits(rest);
+    if !rest.is_empty() {
+        return Err(format!("codebook {spec:?}: {rest:?} left over — {grammar}"));
+    }
+    let gain_bits: u32 = if gain.is_empty() {
+        1
+    } else {
+        gain.parse()
+            .map_err(|e| format!("codebook {spec:?}: gain {gain:?} unreadable ({e})"))?
+    };
+    if gain_bits != 1 {
+        return Err(format!(
+            "codebook {spec:?}: {gain_bits} gain bits — a Trio word carries exactly one, \
+             at bit {}. {grammar}",
+            llvq_search::trio::LABEL_BITS
+        ));
+    }
+    Ok(Codebook::Trio { gain_bits })
 }
 
 /// Parse `int<bits>g<groupe>` — the affine scalar arm.
@@ -488,6 +550,18 @@ fn codebook_line(spec: &str, c: &Codebook) -> String {
                 "on the gain grid"
             }
         ),
+        // Named for what separates it from the `leech1c12` arm it is compared
+        // against: the same 48 bits, a different map for the direction. The
+        // class count has no counterpart here — Trio's label set is one fixed
+        // trellis, not a union of shells — so the word's own geometry takes
+        // its place on the line.
+        Codebook::Trio { gain_bits } => format!(
+            "Trio word map, {} bits of label + {gain_bits} gain bit{}, \
+             3 octads of 8, {} rows per class, magnitude on the gain grid",
+            llvq_search::trio::LABEL_BITS,
+            if *gain_bits == 1 { "" } else { "s" },
+            llvq_search::trio::CLASS_ROWS
+        ),
     };
     format!("{spec} → {what}, {:.0} bits/block", c.block_bits())
 }
@@ -552,11 +626,16 @@ struct FileSink {
 }
 
 impl FileSink {
-    fn create(path: &str, n: u32) -> anyhow::Result<Self> {
+    /// `kind` is the run's codebook's ([`llvq_llm::calib::Codebook::code_kind`]),
+    /// and it fixes the format version too: v4 for Ball — byte for byte the
+    /// header every published file carries — and v5 for Trio, which is the
+    /// first version with anywhere to say so.
+    fn create(path: &str, n: u32, kind: llvq_llm::artifact2::CodeKind) -> anyhow::Result<Self> {
         let f = std::fs::File::create(path)?;
         Ok(Self {
-            w: llvq_llm::artifact2::ArtifactWriter::new(
+            w: llvq_llm::artifact2::ArtifactWriter::with_kind(
                 std::io::BufWriter::with_capacity(1 << 20, f),
+                kind,
                 n,
             )?,
             path: path.to_string(),
@@ -588,18 +667,48 @@ impl llvq_llm::calib::MatrixSink for FileSink {
 /// This is the whole point of writing a file rather than reporting a number:
 /// a rate you cannot decode is a claim, not a measurement. Done one matrix at
 /// a time — decoding Qwen3-4B in one go would be 14 GB.
-fn verify_artifact(path: &str, model: &Qwen3, dtype: DType) -> anyhow::Result<()> {
+fn verify_artifact(
+    path: &str,
+    model: &Qwen3,
+    dtype: DType,
+    want_kind: llvq_artifact::CodeKind,
+) -> anyhow::Result<()> {
     let f = std::fs::File::open(path)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = llvq_llm::artifact2::read_header(&mut r)?;
     let n = head.matrices;
-    eprintln!("verifying {n} matrices against the evaluated model…");
+    eprintln!(
+        "verifying {n} matrices against the evaluated model (v{}, kinds {})…",
+        head.version,
+        head.kinds()
+    );
     // One matrix at a time: a 4B model's codes are 14 GB of lattice points.
-    let ix = llvq_search::index::Indexer::new();
+    //
+    // Each record is decoded through the map the record NAMES, which alone
+    // proves nothing about the label: a file tagged Ball whose words are Trio
+    // decodes against its own tag and comes out consistent. Measured, and it
+    // is not a rare accident — 48.9% of Trio words decode to a point the ball
+    // indexer accepts (*measured*, adversarial review of 2026-09-06), so the
+    // writer's refusal is a coin flip per block, reliable only because a
+    // matrix has hundreds of thousands of them. So the label is checked here,
+    // against the codebook this run was asked for, before any weight is
+    // compared.
+    let cbs = llvq_llm::artifact2::Codebooks::new();
 
     let mut checked = 0usize;
     for _ in 0..n {
-        let m = &llvq_llm::artifact2::read_matrix(&mut r, &ix)?;
+        // Raw first, so the record's own label is read before anything is
+        // decoded through it.
+        let raw = llvq_llm::artifact2::read_matrix_raw(&mut r, head.version)?;
+        anyhow::ensure!(
+            raw.kind == want_kind,
+            "{}: the record says {} where this run wrote {}; the file is mislabelled \
+             and no weight comparison can see it",
+            raw.name,
+            raw.kind,
+            want_kind
+        );
+        let m = &llvq_llm::artifact2::to_quantized(raw, &cbs)?;
         let decoded = llvq_llm::artifact2::decode_matrix(m);
         // `name` is `model.layers.{b}.{proj}.weight`.
         let parts: Vec<&str> = m.name.split('.').collect();
@@ -1144,7 +1253,7 @@ fn main() -> anyhow::Result<()> {
     let mut sink = match &artifact_path {
         Some(p) => {
             eprintln!("writing the compressed artifact to {p}");
-            let s = FileSink::create(p, n_total as u32)?;
+            let s = FileSink::create(p, n_total as u32, codebook.code_kind())?;
             // Written **now**, not at the end: it describes the file being
             // produced, and a run killed at hour ten must leave a state that
             // names its own configuration rather than the previous run's at
@@ -1167,18 +1276,23 @@ fn main() -> anyhow::Result<()> {
     // assuming blocks below it already hold their quantized weights.
     let resumed = match (&resume_path, sink.as_mut()) {
         (Some(p), Some(s)) => {
+            // Trio stores `TRIO_SHELL_CAP` as a sentinel, not a cap — the
+            // same value the sink writes — so the shard check compares what
+            // the file actually carries on either arm.
             let (max_shell, gain_bits) = match codebook {
                 Codebook::ShapeGain {
                     max_shell,
                     gain_bits,
                     ..
                 } => (max_shell, gain_bits),
+                Codebook::Trio { gain_bits } => (llvq_artifact::TRIO_SHELL_CAP, gain_bits),
                 _ => anyhow::bail!(
                     "resume refused: only a shape-gain codebook writes an \
                      artifact, so only it can resume one"
                 ),
             };
             let expect = llvq_llm::artifact2::ShardExpect {
+                kind: codebook.code_kind(),
                 shell_cap: max_shell,
                 centroids: 1usize << gain_bits,
                 rotation_seed,
@@ -1224,7 +1338,7 @@ fn main() -> anyhow::Result<()> {
             bits as f64 / (report.weights - report.tail_weights) as f64,
             report.weights - report.tail_weights,
         );
-        verify_artifact(&path, &model, dtype)?;
+        verify_artifact(&path, &model, dtype, codebook.code_kind())?;
     }
 
     eprintln!(
@@ -1397,6 +1511,79 @@ mod tests {
             parse_codebook("direction").unwrap(),
             Codebook::Direction
         ));
+    }
+
+    /// The Trio arm parses, at one gain bit and nothing else.
+    ///
+    /// `trio` and `trio1` are the same object on purpose — the bare token is
+    /// what an operator types, and it must not mean "some default gain width"
+    /// the way `leech` had to be pinned to mean one bit.
+    #[test]
+    fn the_trio_arm_parses_and_never_falls_back() {
+        assert!(matches!(
+            parse_codebook("trio").unwrap(),
+            Codebook::Trio { gain_bits: 1 }
+        ));
+        assert!(matches!(
+            parse_codebook("trio1").unwrap(),
+            Codebook::Trio { gain_bits: 1 }
+        ));
+        for spec in [
+            "trio0",     // no gain bit: the word has one whether it is spent or not
+            "trio2",     // two: the word has room for one, at bit 47
+            "triof",     // free magnitude: `leech1c12f`'s arm, at a rate this map cannot have
+            "trio1f",    // …spelled the other way
+            "trioc12",   // a shell cap: Trio's label set is one fixed trellis
+            "trio1c12",  // …with the gain in front of it
+            "trio1L3",   // a level cap, same reason
+            "trioo",     // trailing junk
+            "trio ",     // the trailing space, the classic shell accident
+            "TRIO",      // the prefix is case-sensitive, as `leech` and `int` are
+            "Trio",
+            "trio-1",
+        ] {
+            assert!(
+                parse_codebook(spec).is_err(),
+                "{spec:?} was accepted instead of refused"
+            );
+        }
+    }
+
+    /// 🚨 The two 48-bit arms must report the **same** rate and the same block
+    /// length, or the A/B that reads them moves two things at once.
+    ///
+    /// This is the equality `bin/smoke`'s own step (c) checks to the fourth
+    /// decimal on a real run: 47 index bits over `Λ₂₄(12)` plus one gain bit
+    /// on one side, 47 bits of Trio label plus one gain bit on the other.
+    #[test]
+    fn the_trio_arm_spends_the_same_forty_eight_bits_as_the_ball() {
+        let t = parse_codebook("trio").unwrap();
+        let b = parse_codebook("leech1c12").unwrap();
+        assert_eq!(t.block_bits(), 48.0);
+        assert_eq!(t.block_bits(), b.block_bits());
+        assert_eq!(t.block_len(), 24);
+        assert_eq!(t.block_len(), b.block_len());
+        // …and they are not the same file: the kind is what says so, and it is
+        // the only thing that does.
+        assert_eq!(t.code_kind(), llvq_artifact::CodeKind::Trio);
+        assert_eq!(b.code_kind(), llvq_artifact::CodeKind::Ball);
+    }
+
+    /// The journal line has to name the map, not only the rate — the two arms
+    /// spend the same 48 bits, so a line that printed the rate alone would
+    /// describe both files identically.
+    #[test]
+    fn the_journal_line_names_the_trio_map() {
+        let t = codebook_line("trio", &parse_codebook("trio").unwrap());
+        assert!(t.contains("Trio"), "{t}");
+        assert!(t.contains("47 bits of label"), "{t}");
+        assert!(t.contains("1 gain bit,"), "{t}");
+        assert!(t.contains("48 bits/block"), "{t}");
+        // Nothing of the ball's vocabulary: no shell, no class count.
+        assert!(!t.contains("shell"), "{t}");
+        assert!(!t.contains("classes"), "{t}");
+        let b = codebook_line("leech1c12", &parse_codebook("leech1c12").unwrap());
+        assert_ne!(t, b, "the two 48-bit arms must not print the same line");
     }
 
     /// **The $12.61 test.** One letter off used to resolve to a *different*

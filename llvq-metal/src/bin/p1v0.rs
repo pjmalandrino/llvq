@@ -901,13 +901,15 @@ fn main() -> Result<(), String> {
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
-    llvq_artifact::runtime::require_ball(h.kind(), "p1v0").map_err(|e| e.to_string())?;
+    llvq_artifact::runtime::require_ball_kinds(h.kinds(), "p1v0").map_err(|e| e.to_string())?;
     let per_matrix = n_req.div_ceil(h.matrices as usize).max(1);
 
     let mut indices: Vec<u64> = Vec::with_capacity(n_req);
     let mut gains: Vec<u8> = Vec::with_capacity(n_req);
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        // The record's own kind, not only the header's declared set.
+        llvq_artifact::runtime::require_ball(m.kind, "p1v0").map_err(|e| e.to_string())?;
         // Both shaders hardcode ONE gain bit, like every other MSL of this
         // repo. Asserted BEFORE any work: with two, every field after the gain
         // is shifted by one and the walk arm would decode the wrong classes

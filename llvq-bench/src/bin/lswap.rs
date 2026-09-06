@@ -128,8 +128,8 @@ fn verify(src: &str, dst: &str, fd: &FastDecoder) -> u64 {
 
     let mut diffs = 0u64;
     for _ in 0..ha.matrices {
-        let ma = read_matrix_raw(&mut a).expect("source matrix");
-        let mb = read_matrix_raw(&mut b).expect("output matrix");
+        let ma = read_matrix_raw(&mut a, ha.version).expect("source matrix");
+        let mb = read_matrix_raw(&mut b, hb.version).expect("output matrix");
         assert_eq!(ma.name, mb.name);
         assert_eq!((ma.d_out, ma.d_in), (mb.d_out, mb.d_in), "{}", ma.name);
         assert_eq!(ma.shell_cap, mb.shell_cap, "{}", ma.name);
@@ -183,10 +183,10 @@ fn main() {
     // The swap re-encodes 5-level *classes*; a Trio word has none, and the
     // output header below would be rewritten as a Ball header over it.
     assert!(
-        h.kind() == llvq_artifact::CodeKind::Ball,
+        h.is_ball_only(),
         "{src}: a {} file (format v{}); lswap reads indices as v1 classes — \
          no runtime layout for Trio before F1d",
-        h.kind(),
+        h.kinds(),
         h.version
     );
     // Write to a temporary path and rename only after `verify()` has passed:
@@ -213,7 +213,15 @@ fn main() {
 
     let mut total = Stats::default();
     for mi in 0..h.matrices {
-        let mut m: RawMatrix = read_matrix_raw(&mut r).expect("valid matrix");
+        let mut m: RawMatrix = read_matrix_raw(&mut r, h.version).expect("valid matrix");
+        // The record's own kind, not only the header's declared set: the swap
+        // re-encodes 5-level classes, which a Trio word has none of.
+        assert_eq!(
+            m.kind,
+            llvq_artifact::CodeKind::Ball,
+            "{}: a {} record in a {} file — lswap reads indices as v1 classes",
+            m.name, m.kind, h.kinds()
+        );
         assert_eq!(
             m.shell_cap, SHELL_CAP,
             "{}: file is not a leech1c12 artifact",
@@ -240,7 +248,7 @@ fn main() {
             total.swapped - before,
             t0.elapsed().as_secs_f64()
         );
-        write_matrix_raw(&mut w, &m).expect("write matrix");
+        write_matrix_raw(&mut w, h.version, &m).expect("write matrix");
     }
     // Copy the raw-tensor and blob sections (or a projections-only file's two
     // zero counts) byte for byte.

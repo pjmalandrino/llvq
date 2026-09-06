@@ -152,6 +152,7 @@ fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConf
 
 fn expect(shell_cap: u32, rotation_seed: Option<u64>) -> ShardExpect {
     ShardExpect {
+        kind: llvq_artifact::CodeKind::Ball,
         shell_cap,
         centroids: 2,
         rotation_seed,
@@ -447,6 +448,7 @@ fn a_shard_with_another_gain_width_is_refused() {
     let o = s.at("ok.llvq");
     let mut sink = FileSink::create(&o, (matrices_per_block() * 2) as u32);
     let exp = ShardExpect {
+        kind: llvq_artifact::CodeKind::Ball,
         shell_cap: 12,
         centroids: 4,
         rotation_seed: Some(ROT),
@@ -504,7 +506,7 @@ fn a_shard_whose_records_are_out_of_order_is_refused() {
         let mut r = std::io::BufReader::new(std::fs::File::open(&a).expect("open"));
         let head = llvq_llm::artifact2::read_header(&mut r).expect("header");
         let mut ms: Vec<_> = (0..head.matrices)
-            .map(|_| llvq_llm::artifact2::read_matrix_raw(&mut r).expect("record"))
+            .map(|_| llvq_llm::artifact2::read_matrix_raw(&mut r, head.version).expect("record"))
             .collect();
         ms.swap(0, 1);
         let f = std::fs::File::create(&swapped).expect("create");

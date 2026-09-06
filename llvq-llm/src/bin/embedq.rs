@@ -49,10 +49,10 @@ fn main() -> anyhow::Result<()> {
     // — a v4 Ball header — and copies every record as a Ball record. Over a
     // Trio file that would produce a Ball file of Trio words: refused by name.
     anyhow::ensure!(
-        head.kind() == llvq_artifact::CodeKind::Ball,
+        head.is_ball_only(),
         "{src}: a {} file (format v{}); embedq rewrites records as v1 Ball records — \
          no runtime layout for Trio before F1d",
-        head.kind(),
+        head.kinds(),
         head.version
     );
     anyhow::ensure!(
@@ -65,9 +65,12 @@ fn main() -> anyhow::Result<()> {
     );
 
     let out = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&dst)?);
-    let mut w = ArtifactWriter::new(out, head.matrices)?;
+    // The file's own version, not the writer's default: a v5 record carries a
+    // kind tag and a v4 one does not, so a passthrough that changed the
+    // version would have to rewrite every record it claims to copy.
+    let mut w = ArtifactWriter::with_version(out, head.version, head.matrices)?;
     for i in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r)?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, head.version)?;
         w.push_raw(&m)?;
         if i % 36 == 0 {
             eprintln!("  {i:>3}/{}", head.matrices);

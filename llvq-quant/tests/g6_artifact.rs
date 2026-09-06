@@ -14,9 +14,36 @@ use llvq_quant::gptq::{
     quantize_layer_capturing, GptqConfig, TailPolicy, Weights,
 };
 use llvq_quant::linalg::GptqFactor;
-use llvq_quant::quantizer::{fit_gain_centroids, row_scale, BlockCode, LeechShapeGain};
+use llvq_quant::quantizer::{
+    fit_gain_centroids, reconstruct_shape_gain, row_scale, BlockCode, BlockQuantizer,
+    LeechShapeGain, TrioShapeGain,
+};
+use llvq_search::trio::Trio;
 
 const D_OUT: usize = 6;
+
+/// The two 48-bit direction codes the round trip has to hold for: the exact
+/// ball, and the Trio word map. They share their gain code, their per-row
+/// scale and — the point of the exercise — their reconstruction, which is the
+/// single [`reconstruct_shape_gain`] both this test and `llvq_artifact`'s
+/// `decode_matrix` call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Arm {
+    /// The ball at the given shell cap: 13 for the full ball, 12 or 11 for
+    /// the arms that buy gain bits with index bits.
+    Ball(u32),
+    /// Trio, which has one gain bit and no cap to choose.
+    Trio,
+}
+
+impl Arm {
+    fn make(self, centroids: Vec<f64>) -> Box<dyn BlockQuantizer> {
+        match self {
+            Arm::Ball(cap) => Box::new(LeechShapeGain::with_shell_cap(centroids, cap)),
+            Arm::Trio => Box::new(TrioShapeGain::new(centroids)),
+        }
+    }
+}
 
 fn random_hessian(rng: &mut SplitMix64, n: usize, samples: usize) -> Vec<f64> {
     let a: Vec<f64> = (0..samples * n).map(|_| rng.next_gaussian()).collect();
@@ -51,7 +78,7 @@ fn weights(rng: &mut SplitMix64, d_in: usize) -> Vec<f64> {
 
 /// Quantize a layer while capturing codes, then rebuild it from the codes
 /// alone and demand bit equality.
-fn round_trip(d_in: usize, cap: u32, gain_bits: u32, seed: u64) {
+fn round_trip(d_in: usize, arm: Arm, gain_bits: u32, seed: u64) {
     let mut rng = SplitMix64::new(seed);
     let base = weights(&mut rng, d_in);
     let h = random_hessian(&mut rng, d_in, 4 * d_in);
@@ -70,12 +97,12 @@ fn round_trip(d_in: usize, cap: u32, gain_bits: u32, seed: u64) {
     let nblocks = d_in / DIM;
     let mut codes: Vec<Option<BlockCode>> = vec![None; D_OUT * nblocks];
     let mut w = Weights::new(D_OUT, d_in, base.clone());
-    let mut q = LeechShapeGain::with_shell_cap(centroids.clone(), cap);
+    let mut q = arm.make(centroids.clone());
     quantize_layer_capturing(
         &mut w,
         &factor,
         None,
-        &mut q,
+        q.as_mut(),
         &cfg,
         Some(codes.as_mut_slice()),
     );
@@ -92,17 +119,30 @@ fn round_trip(d_in: usize, cap: u32, gain_bits: u32, seed: u64) {
         .map(|i| row_scale(&base[i * d_in..(i + 1) * d_in]))
         .collect();
 
+    // A Trio matrix goes to disk as a 48-bit word and comes back as a point,
+    // so the decoder this test stands in for is `Trio::decode ∘ Trio::encode`
+    // and not the identity. Running the codes through it here is what pins
+    // the writer's own refusal: `encode` returns `None` for anything the map
+    // has no word for.
+    let trio = (arm == Arm::Trio).then(Trio::new);
+
     let mut block = vec![0.0f64; DIM];
     for i in 0..D_OUT {
         for p in 0..nblocks {
-            let code = codes[i * nblocks + p].expect("checked above");
-            q.reconstruct(&code, scales[i], &mut block);
+            let mut code = codes[i * nblocks + p].expect("checked above");
+            if let Some(trio) = &trio {
+                let word = trio
+                    .encode(&code.point)
+                    .unwrap_or_else(|| panic!("row {i}, block {p}: the map has no word for {:?}", code.point));
+                code.point = trio.decode(word);
+            }
+            reconstruct_shape_gain(&code, &centroids, scales[i], &mut block);
             let want = &w.w[i * d_in + p * DIM..i * d_in + (p + 1) * DIM];
             for (k, (&got, &exp)) in block.iter().zip(want.iter()).enumerate() {
                 assert_eq!(
                     got.to_bits(),
                     exp.to_bits(),
-                    "row {i}, block {p}, coord {k}: decoded {got:e} but the \
+                    "{arm:?}, row {i}, block {p}, coord {k}: decoded {got:e} but the \
                      evaluated weight is {exp:e} (Δ = {:e}). The artifact would \
                      be a different model from the one measured.",
                     got - exp
@@ -115,18 +155,18 @@ fn round_trip(d_in: usize, cap: u32, gain_bits: u32, seed: u64) {
 #[test]
 fn codes_reconstruct_the_layer_bit_for_bit() {
     // Width a multiple of 24: no tail, every column is coded.
-    round_trip(4 * DIM, 13, 1, 0x6_A001);
+    round_trip(4 * DIM, Arm::Ball(13), 1, 0x6_A001);
 }
 
 #[test]
 fn codes_reconstruct_bit_for_bit_under_a_shell_cap() {
-    round_trip(4 * DIM, 12, 1, 0x6_A002);
+    round_trip(4 * DIM, Arm::Ball(12), 1, 0x6_A002);
 }
 
 #[test]
 fn codes_reconstruct_bit_for_bit_with_zero_gain_bits() {
     // One level for the whole tensor — the paper's true "zero gain bits".
-    round_trip(3 * DIM, 12, 0, 0x6_A003);
+    round_trip(3 * DIM, Arm::Ball(12), 0, 0x6_A003);
 }
 
 #[test]
@@ -134,14 +174,72 @@ fn codes_reconstruct_bit_for_bit_with_two_gain_bits() {
     // The third arm of the 48-bit split: Λ24(11) costs 46 index bits, so two
     // bits are left for the gain. Four levels had never been exercised through
     // the GPTQ loop — only through the file format and the runtime layouts.
-    round_trip(4 * DIM, 11, 2, 0x6_A006);
+    round_trip(4 * DIM, Arm::Ball(11), 2, 0x6_A006);
 }
 
 #[test]
 fn codes_reconstruct_bit_for_bit_beside_a_tail() {
     // 100 = 24·4 + 4: the tail stays exact and is stored verbatim, but the
     // four coded blocks must still round-trip.
-    round_trip(100, 12, 1, 0x6_A004);
+    round_trip(100, Arm::Ball(12), 1, 0x6_A004);
+}
+
+#[test]
+fn codes_reconstruct_the_layer_bit_for_bit_on_trio() {
+    // The step-2 gate: same property, same loop, the Trio word map instead of
+    // the ball. The reconstruction is the same function on both sides, so what
+    // this actually exercises is the encoder's point — its order, its
+    // membership of the map, and the level the gain code picked for it.
+    round_trip(4 * DIM, Arm::Trio, 1, 0x6_A007);
+}
+
+#[test]
+fn codes_reconstruct_bit_for_bit_on_trio_beside_a_tail() {
+    // 100 = 24·4 + 4, as for the ball: the four coded blocks round-trip and
+    // the tail is stored verbatim.
+    round_trip(100, Arm::Trio, 1, 0x6_A008);
+}
+
+/// Both 48-bit arms take the same three-block layer through the loop and
+/// leave a finite, comparable residual.
+///
+/// This is a sanity check on the *pair*, not a quality claim: Trio's rule is
+/// not the exact nearest neighbour, so its residual is expected to be the
+/// larger of the two, and the number that decides anything is a perplexity.
+/// What would fail here is an arm that returns NaN, or one whose residual is
+/// so far off the other's that the direction code is not being used at all —
+/// the shape a wrongly-ordered point, or a dropped row scale, takes.
+#[test]
+fn both_arms_leave_finite_residuals_on_three_blocks() {
+    let d_in = 3 * DIM;
+    let mut rng = SplitMix64::new(0x6_A009);
+    let base = weights(&mut rng, d_in);
+    let h = random_hessian(&mut rng, d_in, 4 * d_in);
+    let factor = GptqFactor::new(&h, d_in, 1e-2).expect("SPD");
+    let centroids = fit_gain_centroids(&base, D_OUT, d_in, DIM, 1, 40);
+    let cfg = GptqConfig {
+        block: DIM,
+        retract: true,
+        group_scales: false,
+        design_c: false,
+        lambda: 1e-2,
+        tail: TailPolicy::KeepExact,
+    };
+
+    let residual = |arm: Arm| -> f64 {
+        let mut w = Weights::new(D_OUT, d_in, base.clone());
+        let mut q = arm.make(centroids.clone());
+        quantize_layer_capturing(&mut w, &factor, None, q.as_mut(), &cfg, None);
+        assert!(w.w.iter().all(|v| v.is_finite()), "{arm:?} produced a non-finite weight");
+        w.w.iter().zip(base.iter()).map(|(a, b)| (a - b) * (a - b)).sum::<f64>()
+    };
+    let energy: f64 = base.iter().map(|a| a * a).sum();
+    let (ball, trio) = (residual(Arm::Ball(12)), residual(Arm::Trio));
+    println!("3 blocks × {D_OUT} rows: ball-12 residual {ball:.6e}, Trio {trio:.6e}, energy {energy:.6e}");
+    for (arm, r) in [("ball-12", ball), ("Trio", trio)] {
+        assert!(r.is_finite() && r > 0.0, "{arm}: residual {r} is not a finite loss");
+        assert!(r < 0.5 * energy, "{arm}: residual {r:.3e} against {energy:.3e} of signal — the direction code is not being used");
+    }
 }
 
 /// Splitting by rows must split the codes the same way.
@@ -174,12 +272,21 @@ fn parallel_capture_matches_serial_capture() {
     };
     let nblocks = d_in / DIM;
 
-    let run = |threads: usize| -> (Vec<f64>, Vec<Option<BlockCode>>) {
+    // One Trio encoder for the whole test: `make_quantizer` runs once per
+    // thread and per call, and the encoder's tables cost ~10 ms to build.
+    // Sharing them is also what `llvq-llm` will do on a real layer.
+    let shared = TrioShapeGain::encoder();
+
+    let run = |arm: Arm, threads: usize| -> (Vec<f64>, Vec<Option<BlockCode>>) {
         let mut w = Weights::new(d_out, d_in, base.clone());
         let mut codes = vec![None; d_out * nblocks];
         let cs = centroids.clone();
-        let make = move || -> Box<dyn llvq_quant::quantizer::BlockQuantizer> {
-            Box::new(LeechShapeGain::with_shell_cap(cs.clone(), 12))
+        let shared = shared.clone();
+        let make = move || -> Box<dyn BlockQuantizer> {
+            match arm {
+                Arm::Ball(cap) => Box::new(LeechShapeGain::with_shell_cap(cs.clone(), cap)),
+                Arm::Trio => Box::new(TrioShapeGain::with_encoder(shared.clone(), cs.clone())),
+            }
         };
         llvq_quant::gptq::quantize_layer_parallel_capturing(
             &mut w,
@@ -193,15 +300,17 @@ fn parallel_capture_matches_serial_capture() {
         (w.w, codes)
     };
 
-    let (w1, c1) = run(1);
-    for threads in [2usize, 3, 4, 8] {
-        let (wn, cn) = run(threads);
-        assert_eq!(w1, wn, "{threads} threads changed the weights");
-        assert_eq!(
-            c1, cn,
-            "{threads} threads changed the codes — the row split and the code \
-             split have drifted apart"
-        );
+    for arm in [Arm::Ball(12), Arm::Trio] {
+        let (w1, c1) = run(arm, 1);
+        for threads in [2usize, 3, 4, 8] {
+            let (wn, cn) = run(arm, threads);
+            assert_eq!(w1, wn, "{arm:?}: {threads} threads changed the weights");
+            assert_eq!(
+                c1, cn,
+                "{arm:?}: {threads} threads changed the codes — the row split and \
+                 the code split have drifted apart"
+            );
+        }
     }
 }
 

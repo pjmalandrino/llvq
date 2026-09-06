@@ -52,7 +52,7 @@
 //! read once per row, not per block. This module owns the per-block stream
 //! only — the part whose format the kernel is married to.
 
-use crate::{CodeKind, Error, Result};
+use crate::{CodeKind, Error, KindSet, Result};
 use llvq_core::{Golay, Point, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 // Planes12x only: the L = 5 swap re-encodes a block's direction, which needs
@@ -1647,7 +1647,7 @@ pub fn transcode_golay70(
 // The kind gate: every VRAM layout here is a bijection of the v1 ball index
 // ---------------------------------------------------------------------------
 
-/// Refuse anything but a Ball file at the door of the runtime.
+/// Refuse anything but a Ball **record** at the door of the runtime.
 ///
 /// Every layout of this crate — the five [`Layout`]s, `Planes14`,
 /// `Planes12x`, `Golay70`, and `E1c`/`E1v` built on them — is a
@@ -1656,9 +1656,13 @@ pub fn transcode_golay70(
 /// through any of them it would transcode into a coherent stream of some
 /// other file's blocks, and the only symptom would be a wrong number. The
 /// served Trio layout, `trio48`, is F1d's (`docs/ROADMAP.md` §2.2 quater,
-/// step 6); until it exists the honest answer to a Trio header is this
+/// step 6); until it exists the honest answer to a Trio record is this
 /// refusal, at every kind-aware entry — the `*_for_kind` twins of the
 /// transcoders and table builders — with `what` naming the layout or table.
+///
+/// From v5 the kind is a property of a record, so this is the per-record
+/// gate; [`require_ball_kinds`] is the one that reads a whole file's header.
+/// A tool that transcodes wants both, and for different reasons — see there.
 pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
     match kind {
         CodeKind::Ball => Ok(()),
@@ -1667,6 +1671,30 @@ pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
             detail: "no runtime layout for Trio before F1d".to_string(),
         }),
     }
+}
+
+/// [`require_ball`] for a whole file, from its header's [`KindSet`].
+///
+/// This is the one a tool calls at the header, and the default kind is not: a
+/// file whose records are Trio except for four int4 ones has a Trio default
+/// and is no more transcodable for it. The set is in the header, so the
+/// refusal costs the bytes of a header and lands before the first record —
+/// the difference between a tool that stops and one that prints a number
+/// about nothing. The message names the first kind that has no layout, so a
+/// Trio-only file refuses with exactly the sentence [`require_ball`] gives.
+///
+/// It does not replace the per-record gate, and the two cover different
+/// failures. The set is a **declaration**, enforced when the file is written
+/// ([`crate::Error::KindNotDeclared`]); a file this crate did not write can
+/// under-report it, and then only the record's own kind is left
+/// (`a_ball_header_over_a_trio_record_is_refused_at_the_record`). A tool that
+/// walks records calls this first, for the early stop, and [`require_ball`]
+/// on each record it is about to transcode.
+pub fn require_ball_kinds(kinds: KindSet, what: &str) -> Result<()> {
+    for kind in kinds.iter() {
+        require_ball(kind, what)?;
+    }
+    Ok(())
 }
 
 /// [`transcode`] under the file's kind.

@@ -55,10 +55,10 @@
 //! valid in form and wrong in substance — the failure mode this repo fears
 //! most. [`resume_from_shard`] therefore refuses unless, matrix by matrix:
 //! the record order is the one [`crate::calib::block_matrix_plan`] emits, the
-//! dimensions are the model's, the shell cap and centroid count are the
-//! resolved codebook's, and the stored rotation seed is exactly
+//! dimensions are the model's, the code kind, the shell cap and the centroid
+//! count are the resolved codebook's, and the stored rotation seed is exactly
 //! [`crate::calib::effective_rotation_seed`] of the resolved base. The
-//! codebook fingerprint is checked one level down, by
+//! codebook fingerprints are checked one level down, by
 //! [`llvq_artifact::read_header`].
 //!
 //! The rest of the configuration — calibration corpus, seed, window count and
@@ -68,8 +68,9 @@
 use std::io::Write;
 
 pub use llvq_artifact::{
-    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, split_name, write_matrix,
-    ArtifactWriter, Blob, Header, QuantizedMatrix, RawMatrix, RawTensor,
+    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
+    split_name, write_matrix, ArtifactWriter, Blob, CodeKind, Codebooks, Header, KindSet,
+    QuantizedMatrix, RawMatrix, RawTensor,
 };
 
 /// Decode an artifact straight into a model, one matrix at a time.
@@ -92,11 +93,14 @@ pub fn load(
     let f = std::fs::File::open(path.as_ref())?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = read_header(&mut r)?;
-    let ix = llvq_search::index::Indexer::new();
+    // One lazy map per kind, shared across the file's records: a Ball-only
+    // artifact never builds Trio's 16 KiB table, and a mixed one builds each
+    // map once rather than per record.
+    let cbs = Codebooks::new();
     let dtype = model.dtype();
     let mut weights = 0usize;
     for _ in 0..head.matrices {
-        let m = read_matrix(&mut r, &ix)?;
+        let m = read_matrix_with(&mut r, head.version, &cbs)?;
         weights += m.d_out * m.d_in;
         let w = decode_matrix(&m);
         let (b, proj) = split_name(&m.name)?;
@@ -178,19 +182,34 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
         // that does not exist, and the resume would start the model's second
         // half from the middle of the first one. In release builds Rust wraps
         // silently, so the check has to be written.
+        // From `LVQ5` a record carries its own code kind between the shell cap
+        // and the centroid count, so the fixed part is four bytes longer. A
+        // walk that skipped it would read the kind tag as a centroid count and
+        // land in the middle of the next record — the same class of failure
+        // the checked arithmetic below exists for, from a file that is not
+        // even torn.
+        let kinded = head.version >= llvq_artifact::FIRST_KINDED_VERSION;
+        let kind_bytes = if kinded { 4u64 } else { 0 };
         let Some(rest) = (|| {
             let after_name = at.checked_add(4)?.checked_add(u64::from(name_len))?;
-            if after_name.checked_add(28)? > end {
+            if after_name.checked_add(28)?.checked_add(kind_bytes)? > end {
                 return None;
             }
             r.seek(SeekFrom::Start(after_name)).ok()?;
             let d_out = u64::from(u32_at(&mut r)?);
             let d_in = u64::from(u32_at(&mut r)?);
             let _shell = u32_at(&mut r)?;
+            if kinded {
+                let _kind = u32_at(&mut r)?;
+            }
             let n_cent = u64::from(u32_at(&mut r)?);
-            // The fixed part behind the name: four `u32` dimensions, then the
-            // rotation seed (`u64`) and its flag (`u32`).
-            let payload = after_name.checked_add(16)?.checked_add(12)?;
+            // The fixed part behind the name: four `u32` dimensions, the code
+            // kind from v5, then the rotation seed (`u64`) and its flag
+            // (`u32`).
+            let payload = after_name
+                .checked_add(16)?
+                .checked_add(kind_bytes)?
+                .checked_add(12)?;
             let skip = n_cent
                 .checked_mul(8)?
                 .checked_add(d_out.checked_mul(8)?)?
@@ -236,6 +255,12 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
 /// The parts of the resolved codebook a shard *does* record, so a resume can
 /// check them matrix by matrix.
 pub struct ShardExpect {
+    /// Which map the shard's indices belong to. Not a cosmetic field: a Ball
+    /// index and a Trio word are both 47 bits at `shell_cap = 12`, so a shard
+    /// of the wrong kind reads without a single misaligned bit and decodes to
+    /// a different point at every block. The record carries its own kind from
+    /// v5, and this is what it is checked against.
+    pub kind: llvq_artifact::CodeKind,
     /// Shell cap of the direction code — what sets the index width.
     pub shell_cap: u32,
     /// Number of fitted gain levels, i.e. `1 << gain_bits`.
@@ -299,8 +324,11 @@ pub fn resume_from_shard<W: Write>(
 
     let f = std::fs::File::open(path)?;
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let _ = read_header(&mut r)?;
-    let ix = llvq_search::index::Indexer::new();
+    // The shard's own version: from v5 a record carries its code kind, and a
+    // passthrough that read it at the wrong version would copy a record shape
+    // that is not the one on disk.
+    let head = read_header(&mut r)?;
+    let cbs = Codebooks::new();
     let dtype = model.dtype();
     let plan = crate::calib::block_matrix_plan();
 
@@ -311,7 +339,7 @@ pub fn resume_from_shard<W: Write>(
     };
     for t in 0..blocks {
         for (act, proj) in &plan {
-            let raw = read_matrix_raw(&mut r)?;
+            let raw = read_matrix_raw(&mut r, head.version)?;
             // ---- the record has to be the one the loop would have written ----
             let want = crate::artifact::key(t, proj);
             anyhow::ensure!(
@@ -328,6 +356,15 @@ pub fn resume_from_shard<W: Write>(
                  same model",
                 (raw.d_out, raw.d_in),
                 dims
+            );
+            anyhow::ensure!(
+                raw.kind == expect.kind,
+                "{want}: the shard carries {} indices and this run writes {}. \
+                 Two maps in one file: both are 47 bits wide, so nothing \
+                 downstream would misread a byte — it would decode every \
+                 block of one half against the other half's codebook.",
+                raw.kind,
+                expect.kind
             );
             anyhow::ensure!(
                 raw.shell_cap == expect.shell_cap,
@@ -369,7 +406,7 @@ pub fn resume_from_shard<W: Write>(
             // above already carries them. Building the `QuantizedMatrix` by
             // hand rather than calling `read_matrix` is what lets one read of
             // the file serve all three jobs.
-            let m = to_quantized(raw, &ix)?;
+            let m = to_quantized(raw, &cbs)?;
             let w = decode_matrix(&m);
             let tensor =
                 candle_core::Tensor::from_vec(w, (m.d_out, m.d_in), device)?.to_dtype(dtype)?;
@@ -510,18 +547,25 @@ impl RunState {
     }
 }
 
-/// Decode a raw record's indices into lattice points.
+/// Decode a raw record's indices into lattice points, through the map the
+/// **record itself** names.
 ///
-/// [`read_matrix`] is this plus the read; splitting it out is what lets the
-/// resume read a record once and both copy and decode it.
-fn to_quantized(
-    raw: RawMatrix,
-    ix: &llvq_search::index::Indexer,
-) -> anyhow::Result<QuantizedMatrix> {
+/// [`read_matrix_with`] is this plus the read; splitting it out is what lets
+/// the resume read a record once and both copy and decode it, and what lets
+/// `seal` keep a record's kind while still decoding it.
+///
+/// The kind is the record's, never the header's default: a v5 file may hold
+/// both, and a Trio word decoded as a ball index is 47 bits that stay aligned
+/// with the stream and mean something else at every block.
+pub fn to_quantized(raw: RawMatrix, cbs: &Codebooks) -> anyhow::Result<QuantizedMatrix> {
+    let cb = cbs.get(raw.kind);
     let mut codes = Vec::with_capacity(raw.indices.len());
     for (&idx, &gain) in raw.indices.iter().zip(&raw.gains) {
-        let point = ix.decode(idx).ok_or_else(|| {
-            anyhow::anyhow!("{}: index {idx} outside the codebook", raw.name)
+        // The gain rides with the index because a Trio word carries it at bit
+        // 47 — `Codebook::decode` puts the word back together — while a ball
+        // index ignores it. One call site, both conventions.
+        let point = cb.decode(idx, gain).ok_or_else(|| {
+            anyhow::anyhow!("{}: index {idx} outside the {} codebook", raw.name, raw.kind)
         })?;
         codes.push(llvq_quant::quantizer::BlockCode { point, gain });
     }

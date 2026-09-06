@@ -243,7 +243,7 @@ fn the_row_aligned_cut_is_measured_on_the_sealed_artifact() {
     let mut shapes_seen: Vec<(usize, usize)> = Vec::new();
 
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         let row_blocks = m.d_in / DIM;
         assert_eq!(
             m.indices.len(),
@@ -394,7 +394,7 @@ fn the_sealed_artifact_e1v_stream_is_exact() {
     let bits = AtomicU64::new(0);
 
     for _ in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).expect("valid matrix");
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
         assert_eq!(m.shell_cap, 12, "{}: the sealed file is leech1c12", m.name);
         let nchunks = m.indices.len().div_ceil(CHUNK);
         let next = AtomicUsize::new(0);

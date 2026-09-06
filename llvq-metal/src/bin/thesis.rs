@@ -603,7 +603,7 @@ fn main() -> Result<(), String> {
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
-    llvq_artifact::runtime::require_ball(h.kind(), "thesis").map_err(|e| e.to_string())?;
+    llvq_artifact::runtime::require_ball_kinds(h.kinds(), "thesis").map_err(|e| e.to_string())?;
     let mut rng = SplitMix64::new(0x6_7451);
     let xmax: Vec<f32> = (0..16384).map(|_| rng.next_gaussian() as f32).collect();
     let bx = kernels[0].buffer(&xmax);
@@ -615,7 +615,9 @@ fn main() -> Result<(), String> {
     let mut n_weights = 0u64;
 
     for mi in 0..h.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r).map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        // The record's own kind, not only the header's declared set.
+        llvq_artifact::runtime::require_ball(m.kind, "thesis").map_err(|e| e.to_string())?;
         let (d_out, d_in) = (m.d_out, m.d_in);
         let nblocks = d_in / DIM;
         let tail_w = d_in % DIM;

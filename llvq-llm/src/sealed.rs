@@ -399,13 +399,17 @@ pub fn load_with_restored(
         head.version
     );
 
-    let ix = llvq_search::index::Indexer::new();
+    // One lazy map per code kind. A sealed v1/v4 file is Ball throughout and
+    // never builds Trio's tables; a v5 file is read through the map each
+    // record names, which is what lets a Trio file — and later a mixed one —
+    // load here with no second reader.
+    let cbs = llvq_artifact::Codebooks::new();
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
     let mut quantized_weights = 0usize;
     // One matrix at a time: a 4B model's lattice codes are 14 GB if held
     // together, and the decoded weights are handed to candle as they come.
     for _ in 0..head.matrices {
-        let m = llvq_artifact::read_matrix(&mut r, &ix)?;
+        let m = llvq_artifact::read_matrix_with(&mut r, head.version, &cbs)?;
         quantized_weights += m.d_out * m.d_in;
         let w = llvq_artifact::decode_matrix(&m);
         let t = Tensor::from_vec(w, (m.d_out, m.d_in), device)?.to_dtype(dtype)?;

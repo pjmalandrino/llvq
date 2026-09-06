@@ -32,7 +32,7 @@ use llvq_quant::gptq::{GptqConfig, Weights};
 use llvq_quant::linalg::GptqFactor;
 use llvq_quant::quantizer::{
     fit_gain_centroids, BlockQuantizer, Identity, LeechDirection, LeechShapeGain, ScalarGrid,
-    ScalarGroupwise,
+    ScalarGroupwise, TrioShapeGain,
 };
 use llvq_quant::rotation::Rotation;
 use std::collections::HashMap;
@@ -257,6 +257,25 @@ pub enum Codebook {
         /// the width of the runtime layout the fused kernel reads.
         level_cap: usize,
     },
+    /// The **Trio** word map of [`llvq_search::trio`]: the same 48 bits per
+    /// block as `leech1c12`, spent on a three-section trellis word instead of
+    /// a rank decomposition over `Λ₂₄(12)`. What it buys is the decode —
+    /// three 11-bit table reads against a rank walk — which is the whole
+    /// point of the format (`docs/ROADMAP.md` §2.2 quater).
+    ///
+    /// `gain_bits` is 1 and can be nothing else: the word is 47 bits of label
+    /// and one gain bit at bit 47, so a Trio matrix has exactly two gain
+    /// levels. The field is carried rather than assumed so that
+    /// [`Self::block_bits`] derives 48 from the two halves it is made of,
+    /// and so a future width would move the number instead of contradicting
+    /// it. `smoke`'s parser refuses any other value, and so does
+    /// `llvq_artifact`'s writer.
+    ///
+    /// There is no free-magnitude variant and no shell cap: the word has a
+    /// gain bit whether or not it is used, and the map is one fixed label
+    /// set. `shell_cap` is written as [`llvq_artifact::TRIO_SHELL_CAP`] in
+    /// the file, where it is a sentinel and not a cap.
+    Trio { gain_bits: u32 },
 }
 
 impl Codebook {
@@ -294,6 +313,11 @@ impl Codebook {
                 let magnitude = if *free_magnitude { 16 } else { *gain_bits };
                 (llvq_quant::quantizer::index_bits(*max_shell) + magnitude) as f64
             }
+            // 47 + 1 = 48, the same budget `leech1c12` spends — which is what
+            // makes the two arms comparable at a constant rate, and why the
+            // 0.6B witness run of step 4 demands the *same* b/weight line on
+            // both. Derived from the word's own halves, not written as 48.
+            Codebook::Trio { gain_bits } => (llvq_search::trio::LABEL_BITS + *gain_bits) as f64,
         }
     }
 
@@ -316,7 +340,22 @@ impl Codebook {
         match self {
             Codebook::ScalarGroup { group, .. } => *group,
             Codebook::Identity | Codebook::Grid { .. } | Codebook::Direction => llvq_core::DIM,
-            Codebook::ShapeGain { .. } => llvq_core::DIM,
+            Codebook::ShapeGain { .. } | Codebook::Trio { .. } => llvq_core::DIM,
+        }
+    }
+
+    /// Which map a file written with this codebook stores its indices in.
+    ///
+    /// The sink reads it to open its writer, and the resume reads it to
+    /// refuse a shard of the other kind. Written here, once, because the
+    /// codebook is what decides it: a `Codebook::Trio` run whose file said
+    /// `Ball` would produce 47-bit reads that stay aligned with the stream
+    /// and index the wrong map at every block — the failure mode the record's
+    /// kind field exists to make impossible.
+    pub fn code_kind(&self) -> llvq_artifact::CodeKind {
+        match self {
+            Codebook::Trio { .. } => llvq_artifact::CodeKind::Trio,
+            _ => llvq_artifact::CodeKind::Ball,
         }
     }
 }
@@ -551,6 +590,10 @@ pub fn quantize_model_capturing(
         "start = {start} and limit = {limit}: this run would quantize no block"
     );
     // Only shape–gain with a load-bearing gain code is describable by codes.
+    // Trio is shape–gain too — a different map for the direction, the same
+    // `(point, gain level)` pair on disk and the same
+    // `reconstruct_shape_gain` on the way back — and it has no free-magnitude
+    // variant to exclude.
     let capturing = sink.is_some();
     if capturing {
         anyhow::ensure!(
@@ -559,7 +602,7 @@ pub fn quantize_model_capturing(
                 Codebook::ShapeGain {
                     free_magnitude: false,
                     ..
-                }
+                } | Codebook::Trio { .. }
             ),
             "this codebook's reconstruction cannot be described by block codes; \
              writing an artifact for it would produce a file that decodes to \
@@ -571,6 +614,13 @@ pub fn quantize_model_capturing(
              code describes the result"
         );
     }
+    // The Trio encoder's tables — the trellis, the closed-form bounds, the
+    // 4,096 fallbacks and the row index — cost 0.03 s to build in release and
+    // have no business being rebuilt per matrix, let alone per thread: the
+    // loop calls `make_quantizer` once per thread and per matrix, a few
+    // thousand times on a 4B. One `Arc`, built here, cloned into every
+    // quantizer. `None` on every other codebook, so no other arm pays for it.
+    let trio_encoder = matches!(codebook, Codebook::Trio { .. }).then(TrioShapeGain::encoder);
     let t0 = std::time::Instant::now();
     let mut report = Report::default();
     let device = model.device().clone();
@@ -700,19 +750,25 @@ pub fn quantize_model_capturing(
                 // The gain levels are fitted to *this* matrix, in the basis it
                 // will be quantized in.
                 let gain = match codebook {
-                    Codebook::ShapeGain { gain_bits, .. } => Some(fit_gain_centroids(
-                        &weights.w,
-                        d_out,
-                        d_in,
-                        cfg.block,
-                        gain_bits,
-                        40,
-                    )),
+                    // Same fit for both maps, and deliberately so: the gain
+                    // code is the block magnitude relative to its row, which
+                    // knows nothing about how the direction is written down.
+                    Codebook::ShapeGain { gain_bits, .. } | Codebook::Trio { gain_bits } => {
+                        Some(fit_gain_centroids(
+                            &weights.w,
+                            d_out,
+                            d_in,
+                            cfg.block,
+                            gain_bits,
+                            40,
+                        ))
+                    }
                     _ => None,
                 };
                 // The closure takes `gain` by move; the sink needs the same
                 // levels to store them.
                 let gain_for_sink = gain.clone();
+                let trio_encoder = trio_encoder.clone();
                 let make = move || -> Box<dyn BlockQuantizer> {
                     match codebook {
                         Codebook::Identity => Box::new(Identity { block: cfg.block }),
@@ -745,6 +801,10 @@ pub fn quantize_model_capturing(
                                 q
                             })
                         }
+                        Codebook::Trio { .. } => Box::new(TrioShapeGain::with_encoder(
+                            trio_encoder.clone().expect("built for a Trio run"),
+                            gain.clone().expect("fitted above"),
+                        )),
                     }
                 };
                 // The row scales the loop will use, computed on the rotated
@@ -820,8 +880,13 @@ pub fn quantize_model_capturing(
                         .ok_or_else(|| {
                             anyhow::anyhow!("a quantized block emitted no code")
                         })?;
+                    // A Trio record has no shell cap to store; the field
+                    // carries `TRIO_SHELL_CAP` as the sentinel the format
+                    // pins, and `llvq_artifact` refuses a Trio record holding
+                    // anything else.
                     let max_shell = match codebook {
                         Codebook::ShapeGain { max_shell, .. } => max_shell,
+                        Codebook::Trio { .. } => llvq_artifact::TRIO_SHELL_CAP,
                         _ => unreachable!("checked when capturing was enabled"),
                     };
                     // The *effective* seed, not the run's base seed: the

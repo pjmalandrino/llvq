@@ -69,11 +69,13 @@ fn main() -> anyhow::Result<()> {
     // the incoherence rotation, and only then narrows. Doing any of that in
     // f32 changes the last bits, and the whole claim of the format is that it
     // does not — so the export goes through the same path a reader would.
-    let ix = llvq_search::index::Indexer::new();
+    // Read through the map each record names: a v5 Trio file exports the same
+    // way a v4 Ball one does, because `decode_matrix` is common to both.
+    let cbs = llvq_artifact::Codebooks::new();
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
     let mut quantized = 0usize;
     for i in 0..head.matrices {
-        let m = llvq_artifact::read_matrix(&mut r, &ix)?;
+        let m = llvq_artifact::read_matrix_with(&mut r, head.version, &cbs)?;
         quantized += m.d_out * m.d_in;
         let w = llvq_artifact::decode_matrix(&m);
         let t = Tensor::from_vec(w, (m.d_out, m.d_in), &device)?.to_dtype(DType::F16)?;
