@@ -1,20 +1,24 @@
 # Pré-enregistrement — le 4B en Tetra : le premier fichier `.llvq` du format, et sa qualité
 
-**Rédigé le 2026-09-06. Statut : BROUILLON.** Il ne sera commité et tamponné qu'après deux choses :
-le test de fumée du 0,6B (étape 4) vert, et la confirmation par l'opérateur des seuils du §5.
+**Rédigé le 2026-09-06, commité et TAMPONNÉ avant la première mesure.** Le test de fumée du 0,6B
+(étape 4) est vert : `docs/mesures/` le portera, en-tête v5, débit 2,1656 des deux côtés.
 Vague 2, plafond **2,00 $**, dépensé 0,04 $ ; **ce travail coûte 0,00 $** — tout tourne sur le Mac.
-Code mesuré : commit `__COMMIT__` (branche `f1/plancher-table`).
+Code mesuré : commit `be60dab` (branche `f1/plancher-table`).
 
 🚨 Une fois tamponné, ce fichier ne s'édite plus. Ce qui le corrige va dans un `-ECARTS.md`.
 
-## §1 — Ce que c'est, et ce que ça décide
+## §1 — Ce que c'est : une mesure, pas une porte
 
-C'est **une porte**, la première de l'axe F sur un critère fondamental : la qualité du format Tetra,
-lue sur le 4B, sur perplexité et MMLU. Les planchers du 05 (table, décodeur compilé, trois
-arithmétiques) ne décidaient rien ; celui-ci décide si Tetra mérite les mesures de carte (F1d, F1e).
+Décision d'opérateur du 2026-09-06 : **aucun seuil n'est fixé d'avance.** Ce préreg fixe le
+protocole, les contrôles et une prédiction signée ; il ne fixe pas de règle de décision. Le kill est
+l'affaire de l'opérateur (`docs/METHODE.md` §1) et il le prononcera sur les nombres, pas sur une
+table écrite avant de les voir.
 
-Le kill reste l'affaire de l'opérateur (`docs/METHODE.md` §1) : ce préreg lui donne la règle qu'il a
-confirmée à l'avance, pas un verdict automatique.
+Ce que ça produit : le 4B en Tetra, scellé, mesuré sur les critères fondamentaux que le Mac atteint
+— disque, b/param, perplexité, MMLU, coût d'encodage — dans la forme du tableau que `docs/ETAT.md`
+§2 tient pour les trois tailles servies. **Le débit et la VRAM carte n'y sont pas** : il n'existe pas
+de noyau Tetra servi, `FusedLayout` n'a pas de variante, et le décodeur v3 vérifié le 05 est un bras
+de plancher sans échelle de gain. Ce sont F1d et F1e, après l'étape 6.
 
 ## §2 — L'objet mesuré
 
@@ -101,30 +105,34 @@ bougé ; c'est le contrôle 2 du §4 qui s'en charge, en rejouant `ppl` sur le f
 7. Le fichier Tetra porte le magic `LVQ5`, le kind `Tetra`, l'empreinte v1 **inchangée** et l'empreinte
    Tetra épinglée.
 
-## §5 — La règle de décision, à confirmer par l'opérateur AVANT le tampon
+## §5 — Ce qui est publié, et contre quoi ça se lit
 
-Repères servis (*mesuré*, `docs/ETAT.md` §2) : ppl 16,94, MMLU micro 55,59, f16 70,32.
-Bruit de tirage de calibration au 4B : σ = 5,2 % en ppl, 2,92 pp en MMLU (*mesuré*, §4 de `ETAT`).
-Bruit d'un A/B à fichier constant : ±0,12 % en ppl, 0,43 pp en MMLU (*mesuré*, kvq8-4b).
-Ici les deux fichiers partagent le tirage de calibration (aucune graine, même préfixe contigu) mais
-pas le codebook. Le bruit de tirage ne s'applique donc pas au premier ordre ; il reste comme borne
-haute de ce que le contrôle 0 ne couvre pas, et c'est à ce titre qu'il figure dans la table.
+Le tableau des critères fondamentaux que le Mac atteint, pour le bras Tetra et pour le fichier
+publié mesuré le même jour avec le même binaire :
 
-| résultat, Tetra contre le fichier publié | suite |
+| critère | source |
 |---|---|
-| ppl ≤ +2,5 % **et** MMLU ≥ −1,5 pp | Tetra est adopté sur la qualité ; F1d et F1e s'écrivent |
-| ppl ≤ +5,2 % (un σ de tirage) **et** MMLU ≥ −2,92 pp (un σ) | dans le bruit : Tetra n'est ni adopté ni tué ; une seconde graine tranche (4 h de Mac de plus par bras) |
-| ppl > +10,3 % (l'étendue de trois tirages) **ou** MMLU < 53 % en absolu (la ligne F1e) | Tetra perd trop pour ce qu'il rend ; l'opérateur arbitre contre la VRAM divisée par deux |
-| autrement | non tranché, décision d'opérateur |
+| disque, octets | `shasum` et `ls` sur le scellé |
+| b/param modèle entier | `bin/rtbits` sur le scellé, embedding q8 compris |
+| perplexité wikitext2, f16, ctx 4096, 12 fenêtres | `bin/ppl`, empreinte de tokens imprimée |
+| MMLU micro, 5-shot, limite 40 par matière | `bin/mmlu`, empreinte de tokens imprimée |
+| coût d'encodage | ligne « quantification » de `smoke`, s/bloc et s/bloc/cœur |
 
-**Ce que la table ne fait pas** : elle ne compare pas Tetra à AWQ ni à QTIP. Le gain de Tetra est la
-VRAM (2,76 contre 5,162 b/param, *calculé*) et le débit projeté ; sa qualité se juge contre le format
-qu'il remplace, sur le même tirage.
+Repères servis, du même jour et du même binaire pour ppl et MMLU (le fichier publié est rejoué, pas
+recopié depuis `docs/ETAT.md` §2) : ppl 16,9415 et MMLU 55,59 attendus, f16 70,32 pour l'échelle.
+Bruit connu, pour lire les écarts et non pour trancher : tirage de calibration au 4B σ = 5,2 % en
+ppl et 2,92 pp en MMLU ; A/B à fichier constant ±0,12 % en ppl et 0,43 pp en MMLU (*mesuré*,
+`docs/ETAT.md` §4). Les deux fichiers partagent le tirage de calibration — aucune graine, même
+préfixe contigu — donc le bruit de tirage ne s'applique pas au premier ordre.
+
+**Ne se compare pas ici** : à AWQ, à QTIP, à IQ2_XXS. Ces bras existent dans `docs/ETAT.md` §3 et
+leur comparaison se fait sur le tableau complet, une fois le débit mesuré.
 
 ## §6 — Prédiction signée, opposable
 
-**ppl entre +1,5 % et +4 % du témoin, valeur centrale +2,5 %** ; **MMLU entre −2,5 et 0 pp,
-valeur centrale −1,2 pp**.
+**ppl entre +1,5 % et +4 % du fichier publié, valeur centrale +2,5 %** ; **MMLU entre −2,5 et 0 pp,
+valeur centrale −1,2 pp**. Le test de fumée du 0,6B, 3 blocs et une graine, a rendu +3,4 % de ppl
+(*mesuré*, étape 4) : dans la fourchette, et sans valeur probante à cette taille.
 
 Motif : la rétention gaussienne de Tetra est 88,89 % contre 92,00 pour la boule-12 servie
 (*mesuré*, `docs/mesures/f1-encodeur-blocs-reels-2026-09-05.txt` sur des blocs réels du 0,6B :
@@ -146,8 +154,13 @@ clause instructive nommait. Celle-ci est opposable, pas crédible d'avance.
 
 ## §7 — Le coût, et ce qui n'est pas mesuré ici
 
-~10 min pour le contrôle 0, ~4 h d'encodage Tetra, ~2 h d'évaluation des deux côtés :
-**~6 h de Mac, 0,00 $.** Le témoin publié n'est pas réencodé (décision d'opérateur du 2026-09-06),
-ce qui épargne 4 h et déplace la charge de la preuve sur le contrôle 0.
+~10 min pour le contrôle 0, ~3 h 10 d'encodage Tetra (l'encodeur est 1,5× plus rapide que celui
+qu'il remplace, *mesuré* à l'étape 4), ~1 min de scellement, 2 × 5 min de perplexité. Le MMLU est
+2 à 4 h par bras sur le Mac, ou 20 min par bras sur L40S pour ~1 $ : **le placement du MMLU est une
+décision d'opérateur, prise pendant que l'encodage tourne.** Total Mac : 8 à 12 h, ou 3 h 30 avec le
+MMLU sur carte.
+
+Le témoin publié n'est pas réencodé (décision d'opérateur du 2026-09-06), ce qui épargne 4 h et
+déplace la charge de la preuve sur le contrôle 0.
 Ne sont pas mesurés ici : le débit en tokens par seconde, la VRAM sur carte, la classe de modèle.
-Ce sont F1d et F1e, sur carte, après cette porte.
+Ce sont F1d et F1e, sur carte, après l'étape 6.
