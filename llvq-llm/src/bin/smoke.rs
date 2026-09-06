@@ -626,17 +626,39 @@ struct FileSink {
 }
 
 impl FileSink {
-    /// `kind` is the run's codebook's ([`llvq_llm::calib::Codebook::code_kind`]),
-    /// and it fixes the format version too: v4 for Ball — byte for byte the
-    /// header every published file carries — and v5 for Tetra, which is the
-    /// first version with anywhere to say so.
-    fn create(path: &str, n: u32, kind: llvq_llm::artifact2::CodeKind) -> anyhow::Result<Self> {
+    /// `kind` is the run's codebook's ([`llvq_llm::calib::Codebook::code_kind`])
+    /// and is the file's default; `int4` says whether the run will also write
+    /// int4 g128 records, which the header has to **declare** before the first
+    /// matrix — it is written by the constructor and cannot be revised.
+    ///
+    /// The version follows the declared set: v4 for a Ball-only file — byte
+    /// for byte the header every published file carries — and v5 as soon as
+    /// anything else is in it. Declaring a kind the run then never writes
+    /// would make every GPU binary refuse the file, so the flag is the run's
+    /// own decision and not a precaution.
+    fn create(
+        path: &str,
+        n: u32,
+        kind: llvq_llm::artifact2::CodeKind,
+        int4: bool,
+    ) -> anyhow::Result<Self> {
         let f = std::fs::File::create(path)?;
+        let mut kinds = llvq_llm::artifact2::KindSet::of(kind);
+        if int4 {
+            kinds.insert(llvq_llm::artifact2::CodeKind::Int4G128);
+        }
+        let version = if kinds.is_ball_only() {
+            llvq_artifact::DEFAULT_VERSION
+        } else {
+            llvq_artifact::FIRST_KINDED_VERSION
+        };
         Ok(Self {
-            w: llvq_llm::artifact2::ArtifactWriter::with_kind(
+            w: llvq_llm::artifact2::ArtifactWriter::with_kinds(
                 std::io::BufWriter::with_capacity(1 << 20, f),
-                kind,
+                version,
                 n,
+                kind,
+                kinds,
             )?,
             path: path.to_string(),
         })
@@ -660,96 +682,9 @@ impl llvq_llm::calib::MatrixSink for FileSink {
         // dependencies, `anyhow` included. The bridge converts.
         Ok(self.w.push(&m)?)
     }
-}
-
-/// Decode the artifact and demand the evaluated weights back, bit for bit.
-///
-/// This is the whole point of writing a file rather than reporting a number:
-/// a rate you cannot decode is a claim, not a measurement. Done one matrix at
-/// a time — decoding Qwen3-4B in one go would be 14 GB.
-fn verify_artifact(
-    path: &str,
-    model: &Qwen3,
-    dtype: DType,
-    want_kind: llvq_artifact::CodeKind,
-) -> anyhow::Result<()> {
-    let f = std::fs::File::open(path)?;
-    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
-    let head = llvq_llm::artifact2::read_header(&mut r)?;
-    let n = head.matrices;
-    eprintln!(
-        "verifying {n} matrices against the evaluated model (v{}, kinds {})…",
-        head.version,
-        head.kinds()
-    );
-    // One matrix at a time: a 4B model's codes are 14 GB of lattice points.
-    //
-    // Each record is decoded through the map the record NAMES, which alone
-    // proves nothing about the label: a file tagged Ball whose words are Tetra
-    // decodes against its own tag and comes out consistent. Measured, and it
-    // is not a rare accident — 48.9% of Tetra words decode to a point the ball
-    // indexer accepts (*measured*, adversarial review of 2026-09-06), so the
-    // writer's refusal is a coin flip per block, reliable only because a
-    // matrix has hundreds of thousands of them. So the label is checked here,
-    // against the codebook this run was asked for, before any weight is
-    // compared.
-    let cbs = llvq_llm::artifact2::Codebooks::new();
-
-    let mut checked = 0usize;
-    for _ in 0..n {
-        // Raw first, so the record's own label is read before anything is
-        // decoded through it.
-        let raw = llvq_llm::artifact2::read_matrix_raw(&mut r, head.version)?;
-        anyhow::ensure!(
-            raw.kind == want_kind,
-            "{}: the record says {} where this run wrote {}; the file is mislabelled \
-             and no weight comparison can see it",
-            raw.name,
-            raw.kind,
-            want_kind
-        );
-        let m = &llvq_llm::artifact2::to_quantized(raw, &cbs)?;
-        let decoded = llvq_llm::artifact2::decode_matrix(m);
-        // `name` is `model.layers.{b}.{proj}.weight`.
-        let parts: Vec<&str> = m.name.split('.').collect();
-        let b: usize = parts[2].parse()?;
-        let proj = parts[3..parts.len() - 1].join(".");
-        let want = model.blocks[b]
-            .linear(&proj)
-            .weight()
-            .to_dtype(DType::F32)?
-            .flatten_all()?
-            .to_vec1::<f32>()?;
-        anyhow::ensure!(
-            decoded.len() == want.len(),
-            "{}: decoded {} weights, model holds {}",
-            m.name,
-            decoded.len(),
-            want.len()
-        );
-        for (k, (g, e)) in decoded.iter().zip(want.iter()).enumerate() {
-            // The decoder works in f32; the model holds its weights at the
-            // run's dtype. At F32 this narrowing is the identity and the
-            // comparison is the one this proof has always made. At a half
-            // precision it becomes "the file decodes to the evaluated weights
-            // at the precision the model stores them" — see `eval::narrow`.
-            let g = llvq_llm::eval::narrow(*g, dtype);
-            anyhow::ensure!(
-                g.to_bits() == e.to_bits(),
-                "{name} weight {k}: artifact decodes {g:e}, model holds {e:e} \
-                 (Δ = {delta:e}). The file is a different model from the one \
-                 measured.",
-                name = m.name,
-                delta = g - e
-            );
-        }
-        checked += decoded.len();
+    fn push_int4(&mut self, m: llvq_llm::artifact2::Int4Matrix) -> anyhow::Result<()> {
+        Ok(self.w.push_int4(&m)?)
     }
-    eprintln!(
-        "  ✓ {checked} weights identical, bit for bit (at {})",
-        llvq_llm::eval::dtype_name(dtype)
-    );
-    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -838,6 +773,29 @@ fn main() -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("LLVQ_CALIB_SEED={s:?} is not an integer: {e}"))?,
         ),
         _ => None,
+    };
+    // Projection types written as int4 g128 instead of lattice codes — the
+    // mixed-precision `v_proj` of `docs/ROADMAP.md` §2.3. Empty by default, so
+    // an unset variable is the run that was always run, byte for byte.
+    //
+    // Refused rather than ignored on a name outside `PROJ_TYPES`: a
+    // misspelling here would silently produce a wholly lattice file under a
+    // label that says mixed.
+    let int4_types: Vec<String> = match std::env::var("LLVQ_INT4_TYPES") {
+        Ok(v) if !v.trim().is_empty() => {
+            let mut out: Vec<String> = Vec::new();
+            for t in v.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                anyhow::ensure!(
+                    llvq_llm::sealed::PROJ_TYPES.contains(&t),
+                    "LLVQ_INT4_TYPES={v:?}: {t:?} is not one of {:?}",
+                    llvq_llm::sealed::PROJ_TYPES
+                );
+                anyhow::ensure!(!out.contains(&t.to_string()), "LLVQ_INT4_TYPES: {t} twice");
+                out.push(t.to_string());
+            }
+            out
+        }
+        _ => Vec::new(),
     };
     // Hessian damping, relative to `mean(diag H)` — `H + λ·mean(diag H)·I`.
     //
@@ -1220,6 +1178,7 @@ fn main() -> anyhow::Result<()> {
     let t0 = std::time::Instant::now();
     let run = llvq_llm::calib::RunConfig {
         gptq: cfg,
+        int4_types: int4_types.clone(),
         damping,
         h_shrink,
         codebook,
@@ -1253,7 +1212,12 @@ fn main() -> anyhow::Result<()> {
     let mut sink = match &artifact_path {
         Some(p) => {
             eprintln!("writing the compressed artifact to {p}");
-            let s = FileSink::create(p, n_total as u32, codebook.code_kind())?;
+            let s = FileSink::create(
+                p,
+                n_total as u32,
+                codebook.code_kind(),
+                !int4_types.is_empty(),
+            )?;
             // Written **now**, not at the end: it describes the file being
             // produced, and a run killed at hour ten must leave a state that
             // names its own configuration rather than the previous run's at
@@ -1293,15 +1257,23 @@ fn main() -> anyhow::Result<()> {
             };
             let expect = llvq_llm::artifact2::ShardExpect {
                 kind: codebook.code_kind(),
+                int4_types: int4_types.clone(),
                 shell_cap: max_shell,
                 centroids: 1usize << gain_bits,
                 rotation_seed,
             };
             let scan =
                 llvq_llm::artifact2::resume_from_shard(&mut model, p, s.writer(), &expect, &device)?;
+            // Both halves, or a mixed shard reports fewer weights than the
+            // matrices it just copied: the scan keeps the two apart because
+            // they are billed at two rates, and this line is a count, not a
+            // rate.
             eprintln!(
                 "  ✓ {} matrices copied and reloaded ({} weights, {} blocks) in {:.1} s",
-                scan.matrices, scan.weights, scan.blocks, scan.seconds
+                scan.matrices,
+                scan.weights + scan.int4_weights,
+                scan.blocks,
+                scan.seconds
             );
             scan
         }
@@ -1328,35 +1300,88 @@ fn main() -> anyhow::Result<()> {
     report.weights += resumed.weights;
     report.tail_weights += resumed.tail_weights;
     report.rows += resumed.rows;
+    // The two halves are folded into the two totals the scan kept them in.
+    // Folding a resumed int4 matrix into `weights` would bill it at the
+    // lattice rate and make the same run report a different total for every
+    // block it happened to be interrupted at.
+    report.int4_matrices += resumed.int4_matrices;
+    report.int4_weights += resumed.int4_weights;
     if let Some(s) = sink {
         let (bits, path) = s.finish()?;
         let bytes = std::fs::metadata(&path)?.len();
+        // `bits` is the writer's whole payload, int4 records included, so the
+        // divisor has to be the whole file's coded weights — see
+        // [`Report::quantized_weights`]. The int4 half's own flat rate goes
+        // on its own line rather than into this average, because the average
+        // of two accountings is the number nobody can reproduce.
         eprintln!(
             "artifact: {:.3} GB on disk, payload {:.4} bits/weight over {} \
              quantized weights",
             bytes as f64 / 1e9,
-            bits as f64 / (report.weights - report.tail_weights) as f64,
-            report.weights - report.tail_weights,
+            bits as f64 / report.quantized_weights() as f64,
+            report.quantized_weights(),
         );
-        verify_artifact(&path, &model, dtype, codebook.code_kind())?;
+        if report.int4_matrices > 0 {
+            eprintln!(
+                "  a blend: {} of those weights are int4 g128 at a flat {:.4} b/weight",
+                report.int4_weights,
+                llvq_llm::calib::Report::int4_bits_per_weight(),
+            );
+        }
+        llvq_llm::artifact2::verify_artifact(
+            &path,
+            &model,
+            dtype,
+            codebook.code_kind(),
+            &int4_types,
+        )?;
     }
 
-    eprintln!(
-        "quantized {} matrices, {} weights ({:.4} bits/weight){}; \
-         this segment ran {:.0}s",
-        report.matrices,
-        report.weights,
-        report.bits_per_weight(),
-        if resumed.matrices > 0 {
-            format!(
-                ", of which {} matrices resumed from the shard",
-                resumed.matrices
-            )
-        } else {
-            String::new()
-        },
-        report.seconds
-    );
+    // A run with no int4 prints the line it has always printed. As soon as
+    // one projection is int4, `report.matrices` and `report.weights` are two
+    // different populations — the first counts it, the second does not — and
+    // one sentence carrying both, with the lattice rate between them, reads as
+    // the rate of the whole file. So the mixed case names its two halves
+    // instead. A run whose every projection is int4 has no lattice half at
+    // all, and `Report::bits_per_weight` has no block length to divide by.
+    let resumed_clause = if resumed.matrices > 0 {
+        format!(
+            ", of which {} matrices resumed from the shard",
+            resumed.matrices
+        )
+    } else {
+        String::new()
+    };
+    if report.int4_matrices == 0 {
+        eprintln!(
+            "quantized {} matrices, {} weights ({:.4} bits/weight){resumed_clause}; \
+             this segment ran {:.0}s",
+            report.matrices,
+            report.weights,
+            report.bits_per_weight(),
+            report.seconds
+        );
+    } else {
+        let lattice_matrices = report.matrices - report.int4_matrices;
+        if lattice_matrices > 0 {
+            eprintln!(
+                "quantized {lattice_matrices} matrices, {} weights on the lattice \
+                 ({:.4} bits/weight)",
+                report.weights,
+                report.bits_per_weight(),
+            );
+        }
+        eprintln!(
+            "and {} matrices, {} weights in int4 g128 ({:.4} bits/weight)",
+            report.int4_matrices,
+            report.int4_weights,
+            llvq_llm::calib::Report::int4_bits_per_weight(),
+        );
+        eprintln!(
+            "{} matrices in the file{resumed_clause}; this segment ran {:.0}s",
+            report.matrices, report.seconds
+        );
+    }
     // Where the time went, largest first. Which phase dominates flips with the
     // backend — Leech encoding on Metal, forward passes on a CPU-only job — so
     // the only way to know what to optimize (and which flavor to rent) is to

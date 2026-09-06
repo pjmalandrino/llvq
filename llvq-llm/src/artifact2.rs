@@ -69,8 +69,9 @@ use std::io::Write;
 
 pub use llvq_artifact::{
     decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
-    split_name, write_matrix, ArtifactWriter, Blob, CodeKind, Codebooks, Header, KindSet,
-    QuantizedMatrix, RawMatrix, RawTensor,
+    read_record, split_name, write_matrix, ArtifactWriter, Blob, CodeKind, Codebooks, Header,
+    Int4Matrix, KindSet, QuantizedMatrix, RawMatrix, RawTensor, Record, INT4G128_BITS,
+    INT4G128_GROUP,
 };
 
 /// Decode an artifact straight into a model, one matrix at a time.
@@ -100,17 +101,24 @@ pub fn load(
     let dtype = model.dtype();
     let mut weights = 0usize;
     for _ in 0..head.matrices {
-        let m = read_matrix_with(&mut r, head.version, &cbs)?;
-        weights += m.d_out * m.d_in;
-        let w = decode_matrix(&m);
-        let (b, proj) = split_name(&m.name)?;
-        let t = candle_core::Tensor::from_vec(w, (m.d_out, m.d_in), device)?.to_dtype(dtype)?;
+        // Through `read_record`, not `read_matrix_with`: a mixed file's int4
+        // records are weights and would be refused by the lattice reader.
+        let (name, d_out, d_in, w) = match read_record(&mut r, head.version)? {
+            Record::Lattice(raw) => {
+                let m = to_quantized(raw, &cbs)?;
+                let w = decode_matrix(&m);
+                (m.name, m.d_out, m.d_in, w)
+            }
+            Record::Int4(m) => (m.name.clone(), m.d_out, m.d_in, m.to_f32()),
+        };
+        weights += d_out * d_in;
+        let (b, proj) = split_name(&name)?;
+        let t = candle_core::Tensor::from_vec(w, (d_out, d_in), device)?.to_dtype(dtype)?;
         let lin = model.blocks[b].linear_mut(&proj);
         anyhow::ensure!(
-            lin.weight().dims() == [m.d_out, m.d_in],
-            "{}: artifact holds {:?}, model expects {:?}",
-            m.name,
-            [m.d_out, m.d_in],
+            lin.weight().dims() == [d_out, d_in],
+            "{name}: artifact holds {:?}, model expects {:?}",
+            [d_out, d_in],
             lin.weight().dims()
         );
         *lin = candle_nn::Linear::new(t, None);
@@ -199,9 +207,7 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
             let d_out = u64::from(u32_at(&mut r)?);
             let d_in = u64::from(u32_at(&mut r)?);
             let _shell = u32_at(&mut r)?;
-            if kinded {
-                let _kind = u32_at(&mut r)?;
-            }
+            let kind = if kinded { u32_at(&mut r)? } else { 0 };
             let n_cent = u64::from(u32_at(&mut r)?);
             // The fixed part behind the name: four `u32` dimensions, the code
             // kind from v5, then the rotation seed (`u64`) and its flag
@@ -210,10 +216,20 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
                 .checked_add(16)?
                 .checked_add(kind_bytes)?
                 .checked_add(12)?;
-            let skip = n_cent
-                .checked_mul(8)?
-                .checked_add(d_out.checked_mul(8)?)?
-                .checked_add(d_out.checked_mul(d_in % llvq_core::DIM as u64)?.checked_mul(4)?)?;
+            // An int4 record carries none of the three arrays a lattice
+            // record does: no centroids, no row scales, no tail. Walking it
+            // with the lattice formula overshoots by at least `d_out·8` bytes
+            // and reads a payload length out of the nibbles — a shard silently
+            // declared shorter than it is, and a resume that re-quantizes
+            // blocks already done under another configuration.
+            let skip = if kind == llvq_artifact::RESERVED_INT4G128_TAG {
+                0
+            } else {
+                n_cent
+                    .checked_mul(8)?
+                    .checked_add(d_out.checked_mul(8)?)?
+                    .checked_add(d_out.checked_mul(d_in % llvq_core::DIM as u64)?.checked_mul(4)?)?
+            };
             let code_len_at = payload.checked_add(skip)?;
             if code_len_at.checked_add(8)? > end {
                 return None;
@@ -261,6 +277,15 @@ pub struct ShardExpect {
     /// a different point at every block. The record carries its own kind from
     /// v5, and this is what it is checked against.
     pub kind: llvq_artifact::CodeKind,
+    /// Projection types this run writes as int4 g128 instead of lattice codes
+    /// — short names, `v_proj`, as `LLVQ_RESTORE_Q4` spells them. Empty for a
+    /// run whose every matrix is lattice, which is every published run.
+    ///
+    /// The kind is therefore a fact about a **matrix**, not about a shard: a
+    /// shard whose `v_proj` is Tetra where this run writes int4 is two
+    /// different models glued together, and one comparison against a single
+    /// run-wide kind would not see it.
+    pub int4_types: Vec<String>,
     /// Shell cap of the direction code — what sets the index width.
     pub shell_cap: u32,
     /// Number of fitted gain levels, i.e. `1 << gain_bits`.
@@ -272,6 +297,19 @@ pub struct ShardExpect {
     pub rotation_seed: Option<u64>,
 }
 
+impl ShardExpect {
+    /// The kind this run writes for `proj` — a full plan name
+    /// (`self_attn.v_proj`) or its short tail (`v_proj`).
+    pub fn kind_of(&self, proj: &str) -> llvq_artifact::CodeKind {
+        let short = proj.rsplit('.').next().unwrap_or(proj);
+        if self.int4_types.iter().any(|t| t == short) {
+            llvq_artifact::CodeKind::Int4G128
+        } else {
+            self.kind
+        }
+    }
+}
+
 /// What a shard turned out to hold, for the report line that has to describe
 /// the *whole* file rather than the segment that finished it.
 #[derive(Debug, Default, Clone)]
@@ -279,11 +317,22 @@ pub struct ShardScan {
     pub matrices: usize,
     /// Contiguous blocks `0..blocks`, all seven projections each.
     pub blocks: usize,
+    /// Weights the shard holds as **lattice** codes, and nothing else. An
+    /// int4 record's weights are counted in [`ShardScan::int4_weights`],
+    /// because this field is folded into [`crate::calib::Report::weights`]
+    /// and that one is the divisor of the lattice rate: a resumed `v_proj`
+    /// counted here would be billed at `block_bits` per 24 weights, a rate it
+    /// does not have, and the same run would report two different totals
+    /// depending on where it was interrupted.
     pub weights: u64,
     /// Weights that stayed at full precision in a tail.
     pub tail_weights: u64,
     /// Output rows, each carrying one scale.
     pub rows: u64,
+    /// Weights the shard holds as int4 g128 records, at 4.250 b/weight.
+    pub int4_weights: u64,
+    /// Matrices among them.
+    pub int4_matrices: usize,
     pub seconds: f64,
 }
 
@@ -339,77 +388,105 @@ pub fn resume_from_shard<W: Write>(
     };
     for t in 0..blocks {
         for (act, proj) in &plan {
-            let raw = read_matrix_raw(&mut r, head.version)?;
+            let rec = read_record(&mut r, head.version)?;
             // ---- the record has to be the one the loop would have written ----
             let want = crate::artifact::key(t, proj);
             anyhow::ensure!(
-                raw.name == want,
+                rec.name() == want,
                 "{}: expected matrix {want:?}, read {:?}. The record order is not the \
                  one the loop writes, so this file is the prefix of no run.",
                 path.display(),
-                raw.name
+                rec.name()
             );
             let dims = model.blocks[t].linear(proj).weight().dims2()?;
             anyhow::ensure!(
-                (raw.d_out, raw.d_in) == dims,
+                rec.dims() == dims,
                 "{want}: the shard carries {:?}, the model expects {:?}, not the \
                  same model",
-                (raw.d_out, raw.d_in),
+                rec.dims(),
                 dims
             );
+            // Per matrix, against the kind this run writes FOR THIS
+            // PROJECTION. A single run-wide kind would accept a shard whose
+            // `v_proj` is lattice where the run writes int4: the file would be
+            // well formed and hold two different quantizations of one model.
+            let want_kind = expect.kind_of(proj);
             anyhow::ensure!(
-                raw.kind == expect.kind,
-                "{want}: the shard carries {} indices and this run writes {}. \
-                 Two maps in one file: both are 47 bits wide, so nothing \
-                 downstream would misread a byte — it would decode every \
-                 block of one half against the other half's codebook.",
-                raw.kind,
-                expect.kind
+                rec.kind() == want_kind,
+                "{want}: the shard carries a {} record and this run writes {want_kind} for \
+                 {proj}. Two encodings of one projection in one file: both read without a \
+                 misaligned byte, and half the model would be the other half's quantization.",
+                rec.kind()
             );
-            anyhow::ensure!(
-                raw.shell_cap == expect.shell_cap,
-                "{want}: the shard was quantized with shell {} and this run uses \
-                 {}. Two codebooks in one file.",
-                raw.shell_cap,
-                expect.shell_cap
-            );
-            anyhow::ensure!(
-                raw.centroids.len() == expect.centroids,
-                "{want}: the shard carries {} gain levels and this run sets {}, \
-                 two rates in one file.",
-                raw.centroids.len(),
-                expect.centroids
-            );
-            // Derived, never read off the file: storing the base seed instead
-            // of the per-matrix one is a mistake this project has already made
-            // once, and it decodes to plausible garbage rather than failing.
-            let want_seed = expect
-                .rotation_seed
-                .map(|s| crate::calib::effective_rotation_seed(s, t, *act));
-            anyhow::ensure!(
-                raw.rotation_seed == want_seed,
-                "{want}: rotation seed {:?} in the shard, {want_seed:?} for this run. \
-                 The two halves of the model would be quantized in different bases.",
-                raw.rotation_seed
-            );
+            let (d_out, d_in) = rec.dims();
 
-            scan.weights += (raw.d_out * raw.d_in) as u64;
-            scan.tail_weights += (raw.d_out * (raw.d_in % llvq_core::DIM)) as u64;
-            scan.rows += raw.d_out as u64;
+            // Counted **inside** the arms and not above them: the two kinds
+            // go into two different totals, and one common increment would
+            // put int4 weights in the lattice rate's divisor.
+            match &rec {
+                Record::Lattice(raw) => {
+                    scan.weights += (d_out * d_in) as u64;
+                    anyhow::ensure!(
+                        raw.shell_cap == expect.shell_cap,
+                        "{want}: the shard was quantized with shell {} and this run uses \
+                         {}. Two codebooks in one file.",
+                        raw.shell_cap,
+                        expect.shell_cap
+                    );
+                    anyhow::ensure!(
+                        raw.centroids.len() == expect.centroids,
+                        "{want}: the shard carries {} gain levels and this run sets {}, \
+                         two rates in one file.",
+                        raw.centroids.len(),
+                        expect.centroids
+                    );
+                    // Derived, never read off the file: storing the base seed
+                    // instead of the per-matrix one is a mistake this project
+                    // has already made once, and it decodes to plausible
+                    // garbage rather than failing.
+                    let want_seed = expect
+                        .rotation_seed
+                        .map(|s| crate::calib::effective_rotation_seed(s, t, *act));
+                    anyhow::ensure!(
+                        raw.rotation_seed == want_seed,
+                        "{want}: rotation seed {:?} in the shard, {want_seed:?} for this run. \
+                         The two halves of the model would be quantized in different bases.",
+                        raw.rotation_seed
+                    );
+                    scan.tail_weights += (raw.d_out * (raw.d_in % llvq_core::DIM)) as u64;
+                    scan.rows += raw.d_out as u64;
+                }
+                Record::Int4(m) => {
+                    // The reader already refuses anything else; checked again
+                    // here so the message names the run rather than the file.
+                    anyhow::ensure!(
+                        m.group == INT4G128_GROUP && m.bits == INT4G128_BITS,
+                        "{want}: the shard carries int4 g{} at {} bits, this run writes g{} \
+                         at {INT4G128_BITS} bits.",
+                        m.group,
+                        m.bits,
+                        INT4G128_GROUP
+                    );
+                    scan.int4_weights += (d_out * d_in) as u64;
+                    scan.int4_matrices += 1;
+                }
+            }
 
             // ---- (2) copy the record on, untouched ----
-            out.push_raw(&raw)?;
+            out.push_record(&rec)?;
 
             // ---- (3) load it into the model ----
             //
-            // The indices are decoded here and never re-encoded: the copy
-            // above already carries them. Building the `QuantizedMatrix` by
-            // hand rather than calling `read_matrix` is what lets one read of
-            // the file serve all three jobs.
-            let m = to_quantized(raw, &cbs)?;
-            let w = decode_matrix(&m);
+            // A lattice record's indices are decoded here and never
+            // re-encoded: the copy above already carries them. Building the
+            // `QuantizedMatrix` by hand rather than calling `read_matrix` is
+            // what lets one read of the file serve all three jobs.
+            let w = match rec {
+                Record::Lattice(raw) => decode_matrix(&to_quantized(raw, &cbs)?),
+                Record::Int4(m) => m.to_f32(),
+            };
             let tensor =
-                candle_core::Tensor::from_vec(w, (m.d_out, m.d_in), device)?.to_dtype(dtype)?;
+                candle_core::Tensor::from_vec(w, (d_out, d_in), device)?.to_dtype(dtype)?;
             *model.blocks[t].linear_mut(proj) = candle_nn::Linear::new(tensor, None);
         }
     }
@@ -547,6 +624,109 @@ impl RunState {
     }
 }
 
+/// Decode the artifact and demand the evaluated weights back, bit for bit.
+///
+/// This is the whole point of writing a file rather than reporting a number:
+/// a rate you cannot decode is a claim, not a measurement. Done one matrix at
+/// a time — decoding Qwen3-4B in one go would be 14 GB.
+pub fn verify_artifact(
+    path: &str,
+    model: &crate::model::Qwen3,
+    dtype: candle_core::DType,
+    want_kind: llvq_artifact::CodeKind,
+    int4_types: &[String],
+) -> anyhow::Result<()> {
+    let f = std::fs::File::open(path)?;
+    let mut r = std::io::BufReader::with_capacity(1 << 20, f);
+    let head = read_header(&mut r)?;
+    let n = head.matrices;
+    eprintln!(
+        "verifying {n} matrices against the evaluated model (v{}, kinds {})…",
+        head.version,
+        head.kinds()
+    );
+    // One matrix at a time: a 4B model's codes are 14 GB of lattice points.
+    //
+    // Each record is decoded through the map the record NAMES, which alone
+    // proves nothing about the label: a file tagged Ball whose words are Tetra
+    // decodes against its own tag and comes out consistent. Measured, and it
+    // is not a rare accident — 48.9% of Tetra words decode to a point the ball
+    // indexer accepts (*measured*, adversarial review of 2026-09-06), so the
+    // writer's refusal is a coin flip per block, reliable only because a
+    // matrix has hundreds of thousands of them. So the label is checked here,
+    // against the codebook this run was asked for, before any weight is
+    // compared — and against the kind this run wrote FOR THAT PROJECTION, not
+    // against one kind for the whole run: a mixed file has two, and a single
+    // comparison would let either half wear the other's label.
+    let cbs = Codebooks::new();
+
+    let mut checked = 0usize;
+    for _ in 0..n {
+        // The record's own label is read before anything is decoded through it.
+        let rec = read_record(&mut r, head.version)?;
+        let name = rec.name().to_string();
+        // `name` is `model.layers.{b}.{proj}.weight`.
+        let parts: Vec<&str> = name.split('.').collect();
+        let b: usize = parts[2].parse()?;
+        let proj = parts[3..parts.len() - 1].join(".");
+        let short = proj.rsplit('.').next().unwrap_or(&proj);
+        let expect = if int4_types.iter().any(|t| t == short) {
+            llvq_artifact::CodeKind::Int4G128
+        } else {
+            want_kind
+        };
+        anyhow::ensure!(
+            rec.kind() == expect,
+            "{name}: the record says {} where this run wrote {expect} for {proj}; the file \
+             is mislabelled and no weight comparison can see it",
+            rec.kind()
+        );
+        // Both halves are proved the same way: what the file decodes to must
+        // be what was evaluated, bit for bit. A verification that skipped the
+        // int4 records would leave half a mixed file unproved.
+        let decoded = match rec {
+            Record::Lattice(raw) => {
+                let m = to_quantized(raw, &cbs)?;
+                decode_matrix(&m)
+            }
+            Record::Int4(m) => m.to_f32(),
+        };
+        let want = model.blocks[b]
+            .linear(&proj)
+            .weight()
+            .to_dtype(candle_core::DType::F32)?
+            .flatten_all()?
+            .to_vec1::<f32>()?;
+        anyhow::ensure!(
+            decoded.len() == want.len(),
+            "{name}: decoded {} weights, model holds {}",
+            decoded.len(),
+            want.len()
+        );
+        for (k, (g, e)) in decoded.iter().zip(want.iter()).enumerate() {
+            // The decoder works in f32; the model holds its weights at the
+            // run's dtype. At F32 this narrowing is the identity and the
+            // comparison is the one this proof has always made. At a half
+            // precision it becomes "the file decodes to the evaluated weights
+            // at the precision the model stores them" — see `eval::narrow`.
+            let g = crate::eval::narrow(*g, dtype);
+            anyhow::ensure!(
+                g.to_bits() == e.to_bits(),
+                "{name} weight {k}: artifact decodes {g:e}, model holds {e:e} \
+                 (Δ = {delta:e}). The file is a different model from the one \
+                 measured.",
+                delta = g - e
+            );
+        }
+        checked += decoded.len();
+    }
+    eprintln!(
+        "  ✓ {checked} weights identical, bit for bit (at {})",
+        crate::eval::dtype_name(dtype)
+    );
+    Ok(())
+}
+
 /// Decode a raw record's indices into lattice points, through the map the
 /// **record itself** names.
 ///
@@ -558,7 +738,7 @@ impl RunState {
 /// both, and a Tetra word decoded as a ball index is 47 bits that stay aligned
 /// with the stream and mean something else at every block.
 pub fn to_quantized(raw: RawMatrix, cbs: &Codebooks) -> anyhow::Result<QuantizedMatrix> {
-    let cb = cbs.get(raw.kind);
+    let cb = cbs.get(raw.kind)?;
     let mut codes = Vec::with_capacity(raw.indices.len());
     for (&idx, &gain) in raw.indices.iter().zip(&raw.gains) {
         // The gain rides with the index because a Tetra word carries it at bit

@@ -180,15 +180,17 @@ fn main() {
         panic!("open {src}: {e}");
     }));
     let h = read_header(&mut r).expect("valid artifact header");
-    // The swap re-encodes 5-level *classes*; a Tetra word has none, and the
-    // output header below would be rewritten as a Ball header over it.
-    assert!(
-        h.is_ball_only(),
-        "{src}: a {} file (format v{}); lswap reads indices as v1 classes — \
-         no runtime layout for Tetra before F1d",
-        h.kinds(),
-        h.version
-    );
+    // The swap re-encodes 5-level *classes*; a Tetra word has none, an int4
+    // record has no index at all, and the output header below would be
+    // rewritten as a Ball header over either. The refusal names the kind it
+    // read, because the two send an operator to two different places.
+    if let Err(e) = llvq_artifact::runtime::require_ball_kinds(h.kinds(), "lswap") {
+        panic!(
+            "{src}: a {} file (format v{}); lswap reads indices as v1 classes — {e}",
+            h.kinds(),
+            h.version
+        );
+    }
     // Write to a temporary path and rename only after `verify()` has passed:
     // an interrupted run must never leave a plausible-looking file at `dst`
     // (a truncated artifact opens fine and scores wrong).
@@ -216,12 +218,12 @@ fn main() {
         let mut m: RawMatrix = read_matrix_raw(&mut r, h.version).expect("valid matrix");
         // The record's own kind, not only the header's declared set: the swap
         // re-encodes 5-level classes, which a Tetra word has none of.
-        assert_eq!(
-            m.kind,
-            llvq_artifact::CodeKind::Ball,
-            "{}: a {} record in a {} file — lswap reads indices as v1 classes",
-            m.name, m.kind, h.kinds()
-        );
+        llvq_artifact::runtime::require_ball(m.kind, "lswap").unwrap_or_else(|e| {
+            panic!(
+                "{}: a {} record in a {} file — lswap reads indices as v1 classes; {e}",
+                m.name, m.kind, h.kinds()
+            )
+        });
         assert_eq!(
             m.shell_cap, SHELL_CAP,
             "{}: file is not a leech1c12 artifact",

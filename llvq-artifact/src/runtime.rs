@@ -1670,6 +1670,14 @@ pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
             name: what.to_string(),
             detail: "no runtime layout for Tetra before F1d".to_string(),
         }),
+        // A different sentence on purpose. The two refusals send an operator
+        // to two different places — F1d's transcoder for Tetra, a kernel that
+        // reads stored weights for int4 — and a copy of Tetra's wording here
+        // would send them to the wrong one.
+        CodeKind::Int4G128 => Err(Error::Inconsistent {
+            name: what.to_string(),
+            detail: "no runtime layout for Int4G128 records".to_string(),
+        }),
     }
 }
 

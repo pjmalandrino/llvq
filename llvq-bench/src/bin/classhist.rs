@@ -62,21 +62,21 @@ fn main() {
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
     // `class_of` would file every Tetra word under some v1 class, and the
     // histogram would be of nothing.
-    assert!(
-        h.is_ball_only(),
-        "{path}: a {} file (format v{}); classhist reads indices as v1 classes — \
-         no runtime layout for Tetra before F1d",
-        h.kinds(),
-        h.version
-    );
+    if let Err(e) = llvq_artifact::runtime::require_ball_kinds(h.kinds(), "classhist") {
+        panic!(
+            "{path}: a {} file (format v{}); classhist reads indices as v1 classes — {e}",
+            h.kinds(),
+            h.version
+        );
+    }
     for _ in 0..h.matrices {
         let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
-        assert_eq!(
-            m.kind,
-            llvq_artifact::CodeKind::Ball,
-            "{}: a {} record in a {} file — classhist reads indices as v1 classes",
-            m.name, m.kind, h.kinds()
-        );
+        llvq_artifact::runtime::require_ball(m.kind, "classhist").unwrap_or_else(|e| {
+            panic!(
+                "{}: a {} record in a {} file — classhist reads indices as v1 classes; {e}",
+                m.name, m.kind, h.kinds()
+            )
+        });
         assert!(
             m.shell_cap <= 13,
             "{}: shell cap {} exceeds the class table's 13",

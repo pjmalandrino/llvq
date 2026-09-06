@@ -183,6 +183,57 @@ five-level lattice search per block, hence the 4.8 factor and then the
 the trade-off. On the ten-arm benchmark, `Planes12x` runs at 0.93× [0.93–0.93]
 of `Planes14` on the projections alone; the rest of the model absorbs the gap.
 
+## 5 bis. The int4 g128 record on disk
+
+**A `.llvq` v5 may hold `v_proj` as affine int4 beside its lattice matrices,
+at 4.250 b/weight exactly** (option B, operator, 2026-09-06; the measurement
+is [ETAT](ETAT.md) §5 octies). The code is in; **no file has been re-encoded
+and no kernel reads the kind**, so this section describes a container, not a
+served path.
+
+The record shares the head of a lattice record up to its kind tag, then
+empties every lattice field and puts everything in the length-prefixed slot
+where the code stream would be. Little-endian, byte-aligned, no padding.
+
+| field | value |
+|---|---|
+| `name_len`, `name`, `d_out`, `d_in` | as any record |
+| `shell_cap` | `u32::MAX`, a sentinel |
+| `kind_tag` | 2 |
+| `n_centroids`, `rotation_seed`, `rotation_flag` | 0, 0, 0 |
+| `payload_len` | `24 + n/2 + 4·groups` bytes |
+| payload | `bits = 4`, `group = 128`, `packed_len = n/2`, the nibbles, `groups = d_out·(d_in/128)`, then `groups` f16 scales and `groups` f16 biases |
+
+`w[i] = scale[g]·q[i] + bias[g]`, `g = row·(d_in/128) + col/128`, in the
+**natural** basis: the decoder applies nothing after that line. The rate is
+`4 + 32/128 = 4.250` b/weight. AWQ w4 g128 packs its zero and holds 4.15625;
+the 0.09 b/weight difference is declared and against us.
+
+**Two nibble orders live in the same file.** A lattice index is packed
+MSB-first by `BitWriter` (`llvq-search/src/pack.rs`); an int4 payload is
+packed **low nibble first**, `packed[i/2] |= q << (4·(i%2))`, the convention
+`llvq_llm::embedquant` writes and `RawTensor::to_f32` reads. A reader that
+assumed one convention for both produces plausible, wrong weights. The same
+trap already exists between the disk and the card's Tetra decoders (§3); this
+adds an occurrence inside one record stream.
+
+Three fields make the record unreadable as a lattice one and a lattice record
+unreadable as this one. `u32::MAX` is above the supported ball, so an int4
+record whose tag is corrupted to Ball is refused before a class is
+enumerated, and it is not `TETRA_SHELL_CAP`, so the same record read as Tetra
+is refused too; in the other direction the int4 reader demands that sentinel,
+zero centroids and no rotation, and a Ball record contradicts all three. The
+head is deliberately **not** made readable by a lattice reader that ignores
+the kind: writing `d_out` constant row scales would have aligned the two at
+64 bits per output row, 0.025 b/weight on `v_proj`, for no information. The
+price of that choice is that the one generic record walker of the repository,
+`llvq_llm::artifact2::shard_extent`, has to know the branch.
+
+What no kernel does: `tv_q4_h.cu` is written and host-verified and **has
+never run on a card**. A mixed file loads today by decoding to the run dtype
+in `sealed.rs`, so it costs 4.250 b/weight on disk and 16 in VRAM for those
+matrices. The disk gain is real; no VRAM claim follows from the format.
+
 ## 6. The nullk floor
 
 A pass over the 252 projections that reads no weight byte costs 2.306 ms,
@@ -376,6 +427,15 @@ with each other.
 Sources: fiche-4b for the file, k1c-rtbits and e1c12-aligne for payload and
 `rtbits`, F2 for the kernel, b2-fusedrun-plages and g-horloges for
 inference, rtbits-14b for the whole model.
+
+A mixed file (§5 bis) has two rates and prints both. `bin/smoke` divides the
+whole payload, int4 records included, by the coded weights of both halves
+(`Report::quantized_weights`), and gives the int4 half its flat 4.250 on its
+own line. `Report::bits_per_weight` keeps the lattice divisor and describes
+the lattice half alone. No one of those three lines is the average of the
+other two, and the same file must print the same three whether it was encoded
+in one segment or resumed from a shard
+(`a_mixed_run_reports_the_same_totals_in_one_segment_or_two`).
 
 A "4.804" and a "4.729" side by side are two numerators. A bits↔speed scale
 aligns the bits and the speeds of one accounting and one run. Any memory

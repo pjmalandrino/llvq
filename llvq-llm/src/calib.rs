@@ -174,6 +174,13 @@ pub struct Report {
     /// that starts keeping them again should say so in its own log rather
     /// than be discovered by a machine that runs out of RAM.
     pub dense_hessian_bytes: u64,
+    /// Matrices written as int4 g128 rather than lattice codes, and the
+    /// weights they hold. Kept out of [`Report::weights`] on purpose:
+    /// [`Report::bits_per_weight`] is the **lattice** rate, and folding
+    /// 4.250 b/weight matrices into it would report a rate no half of the
+    /// file has. Zero on every published run.
+    pub int4_matrices: usize,
+    pub int4_weights: u64,
 }
 
 impl Report {
@@ -183,6 +190,33 @@ impl Report {
     ///
     /// Counting only the index is how a 2.73 bit/weight run got reported as
     /// 2.07; the magnitude has to be in here.
+    /// Bits an int4 g128 record occupies per weight: 4 for the nibble, 32
+    /// spread over a group of [`llvq_artifact::INT4G128_GROUP`] for the f16
+    /// scale and the f16 bias. Exactly 4.250.
+    pub fn int4_bits_per_weight() -> f64 {
+        f64::from(llvq_artifact::INT4G128_BITS) + 32.0 / llvq_artifact::INT4G128_GROUP as f64
+    }
+
+    /// Weights the file's records carry a **code** for, both halves of a
+    /// mixed file together — the divisor of the payload rate `bin/smoke`
+    /// prints, and the accounting `docs/format-noyau.md` §10 names "same bits
+    /// / quantized weights alone" (4B: 2.1696, against `bin/seal`'s 2.1595 on
+    /// all weights).
+    ///
+    /// Lattice tails are out because they are stored verbatim rather than
+    /// coded, which is the convention that table already publishes. Int4
+    /// weights are in, because the writer's `payload_bits` — the numerator of
+    /// that line — counts their record. Leaving them out of the divisor while
+    /// their bits sat in the numerator is how a mixed 4B run would have
+    /// printed 2.264 b/weight where the file holds 2.205 (*computed*).
+    pub fn quantized_weights(&self) -> u64 {
+        self.weights + self.int4_weights - self.tail_weights
+    }
+
+    /// The **lattice** rate: what the codes, tails and row scales of the
+    /// lattice half cost per weight of that half. It says nothing about a
+    /// mixed file's int4 half, whose rate is the flat
+    /// [`Report::int4_bits_per_weight`].
     pub fn bits_per_weight(&self) -> f64 {
         // `Report` derives `Default`, so this field can be zero — and a zero
         // divisor would hand back an infinite rate that reads as a bug
@@ -363,6 +397,16 @@ impl Codebook {
 /// How to run [`quantize_model`].
 pub struct RunConfig {
     pub gptq: GptqConfig,
+    /// Projection types stored as int4 g128 instead of lattice codes — short
+    /// names, `v_proj`, as `LLVQ_RESTORE_Q4` spells them.
+    ///
+    /// **Empty on every published path**, and that is not a default so much
+    /// as the whole safety of this field: a run with an empty list executes
+    /// the same instructions and writes the same bytes it did before the
+    /// field existed. A type named here skips GPTQ entirely — there is no
+    /// Hessian in an affine quantizer — and the block's later activations see
+    /// the dequantized weights, exactly as they see the lattice ones.
+    pub int4_types: Vec<String>,
     /// Hessian damping, relative to `mean(diag H)`.
     pub damping: f64,
     /// Off-diagonal shrinkage of the Hessian **estimate**, `ρ ∈ [0, 1]`:
@@ -516,6 +560,14 @@ struct ActFactor {
 /// lattice points.
 pub trait MatrixSink {
     fn push(&mut self, m: crate::artifact2::QuantizedMatrix) -> anyhow::Result<()>;
+    /// Receive a matrix stored as int4 g128 instead of lattice codes — the
+    /// mixed-precision `v_proj` of `docs/ROADMAP.md` §2.3.
+    ///
+    /// A separate entry and not a variant of [`MatrixSink::push`]: the two
+    /// carry nothing in common past the name and the dimensions, and a sink
+    /// that had to inspect a union to find out which it got would be one line
+    /// away from writing the wrong record kind.
+    fn push_int4(&mut self, m: llvq_artifact::Int4Matrix) -> anyhow::Result<()>;
 }
 
 pub fn quantize_model(
@@ -569,6 +621,7 @@ pub fn quantize_model_capturing(
 ) -> anyhow::Result<Report> {
     let RunConfig {
         gptq: cfg,
+        int4_types,
         damping,
         h_shrink,
         codebook,
@@ -729,6 +782,36 @@ pub fn quantize_model_capturing(
             } = &factors[&act];
             for name in act.consumers() {
                 let tp = std::time::Instant::now();
+                // The one decision point of the mixed path, and it is taken
+                // per matrix, before any Hessian is touched: a type in
+                // `int4_types` is stored group-affine in the natural basis
+                // and never sees GPTQ, a rotation or the lattice. With the
+                // list empty — every published run — this branch is not
+                // entered and the bytes below are the bytes that were always
+                // written.
+                let short = name.rsplit('.').next().unwrap_or(name);
+                if int4_types.iter().any(|ty| ty == short) {
+                    let lin = model.blocks[t].linear_mut(name);
+                    let w = lin.weight().clone();
+                    let (d_out, d_in) = w.dims2()?;
+                    let key = crate::artifact::key(t, name);
+                    let rec = crate::sealed::int4_record(&key, &w)?;
+                    // The block's later activations must see the weights the
+                    // file stores, exactly as they see the lattice ones: the
+                    // dequantized tensor goes back into the model here.
+                    let deq = Tensor::from_vec(rec.to_f32(), (d_out, d_in), &device)?
+                        .to_dtype(w.dtype())?;
+                    *lin = candle_nn::Linear::new(deq, None);
+                    if let Some(s) = sink.as_deref_mut() {
+                        s.push_int4(rec)?;
+                    }
+                    report.matrices += 1;
+                    report.int4_matrices += 1;
+                    report.int4_weights += (d_out * d_in) as u64;
+                    report.phases.write += tp.elapsed().as_secs_f64();
+                    progress(t, nblocks, name);
+                    continue;
+                }
                 let lin = model.blocks[t].linear_mut(name);
                 let w = lin.weight();
                 let (d_out, d_in) = w.dims2()?;

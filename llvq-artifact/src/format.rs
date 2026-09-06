@@ -45,6 +45,28 @@
 //! whichever record it reaches first, and the header precedes every record
 //! by construction.
 //!
+//! ## A record that stores its weights: `Int4G128`
+//!
+//! Tag 2 is [`CodeKind::Int4G128`]: `v_proj` served as affine int4 over
+//! groups of 128, beside Tetra matrices in one file (`docs/ROADMAP.md` §2.3).
+//! It stores `w = scale·q + bias` in the **natural** basis — 4 bits per
+//! weight plus an f16 scale and an f16 bias per group, 4.250 b/weight
+//! exactly — so its record has no centroids, no row scales, no tail and no
+//! rotation seed. [`read_record`] is the only entry that reads it;
+//! [`read_matrix_raw`] refuses it by name, which is what makes every
+//! lattice-only tool of this repository refuse it without being touched.
+//!
+//! Its head is deliberately **not** readable by a lattice reader that ignores
+//! the kind. Such a reader looks for the payload length after
+//! `n_cent·8 + d_out·8 + tail·4` bytes; on an int4 record it overshoots by at
+//! least `d_out·8` and takes a length out of the nibbles, which is a
+//! [`Error::Truncated`] and not a plausible matrix. Writing `d_out` constant
+//! row scales would have made the two heads agree at the cost of 64 bits per
+//! output row — 0.025 b/weight on `v_proj` — for no information, and this
+//! format counts its bits. The price of the choice is that the one generic
+//! record walker in the repository (`llvq_llm::artifact2::shard_extent`) has
+//! to know the branch.
+//!
 //! The record is otherwise unchanged: a Tetra record carries
 //! [`TETRA_SHELL_CAP`] in its `shell_cap` field and one gain bit. That kind
 //! tag is the only place a v5 record differs from a v4 one, which is why
@@ -143,37 +165,60 @@ pub enum CodeKind {
     /// The three-section trellis word of [`llvq_search::tetra`], fingerprinted
     /// by [`crate::codebook::tetra_fingerprint`].
     Tetra,
+    /// Affine int4 over groups of [`INT4G128_GROUP`] weights, stored rather
+    /// than indexed: no map, no fingerprint, nothing to be wrong about but the
+    /// arithmetic. [`Int4Matrix`] is the record.
+    Int4G128,
 }
 
-/// The tag reserved for Q5's `int4 g128` matrices — the mixed-precision
-/// `v_proj` of `docs/ROADMAP.md` §2.3, which will sit beside Tetra matrices in
-/// one file. Nothing writes it and nothing reads it: until that writer
-/// exists tag 2 is [`Error::UnknownCodeKind`] like any other value, and
-/// reserving it here is a promise about the *number* — so that Q5's files and
-/// this build's cannot disagree about what a 2 meant — not a half-implemented
-/// path. `the_reserved_int4_tag_is_refused` is what keeps the two halves of
-/// that promise together.
-pub const RESERVED_INT4G128_TAG: u32 = 2;
+/// The tag of Q5's `int4 g128` matrices, kept as a name because the promise
+/// it carried was about the *number*: a file written when tag 2 was reserved
+/// and a file written now cannot disagree about what a 2 means.
+/// [`write_matrix_int4`] is the writer that promise was waiting for.
+/// `the_int4_tag_is_the_int4_kind` holds the two halves together.
+pub const RESERVED_INT4G128_TAG: u32 = CodeKind::Int4G128.tag();
+
+/// What an [`CodeKind::Int4G128`] record carries in its `shell_cap` field.
+///
+/// A sentinel and not a cap: the record indexes no lattice, so the field has
+/// nothing true to say and is made to say something impossible instead.
+/// `u32::MAX` is above [`llvq_search::classes::MAX_SHELL`], so an int4 record
+/// whose tag is corrupted to Ball is refused by [`index_width`] before any
+/// class is enumerated, and it is not [`TETRA_SHELL_CAP`], so the same record
+/// read as Tetra is refused too. `the_sentinel_cap_is_illegal_for_both_lattice_kinds`
+/// is that argument, checked.
+pub const INT4G128_SHELL_CAP: u32 = u32::MAX;
+
+/// Bits per weight of an [`CodeKind::Int4G128`] record. The only value the
+/// reader and the writer accept.
+pub const INT4G128_BITS: u8 = 4;
+
+/// Weights per scale/bias pair. 128 to match the AWQ w4 g128 the cost table
+/// compares against; `llvq_llm::sealed::Q4_GROUP` is derived from this
+/// constant rather than written twice.
+pub const INT4G128_GROUP: usize = 128;
 
 impl CodeKind {
     /// Every kind this build knows, in tag order — what [`KindSet`] iterates
     /// and what a reader of an unknown tag is being measured against.
-    pub const ALL: [CodeKind; 2] = [CodeKind::Ball, CodeKind::Tetra];
+    pub const ALL: [CodeKind; 3] = [CodeKind::Ball, CodeKind::Tetra, CodeKind::Int4G128];
 
     /// The header and record tag.
     pub const fn tag(self) -> u32 {
         match self {
             Self::Ball => 0,
             Self::Tetra => 1,
+            Self::Int4G128 => 2,
         }
     }
 
-    /// The kind a tag names, or [`Error::UnknownCodeKind`] — which
-    /// [`RESERVED_INT4G128_TAG`] is, deliberately, until Q5's writer exists.
+    /// The kind a tag names, or [`Error::UnknownCodeKind`] for tag 3 and
+    /// above.
     pub fn from_tag(tag: u32) -> Result<Self> {
         match tag {
             0 => Ok(Self::Ball),
             1 => Ok(Self::Tetra),
+            2 => Ok(Self::Int4G128),
             _ => Err(Error::UnknownCodeKind { tag }),
         }
     }
@@ -188,15 +233,17 @@ impl CodeKind {
         match self {
             Self::Ball => "Ball",
             Self::Tetra => "Tetra",
+            Self::Int4G128 => "Int4G128",
         }
     }
 
     /// The version [`ArtifactWriter::with_kind`] emits for this kind:
-    /// [`DEFAULT_VERSION`] for Ball, [`FIRST_KINDED_VERSION`] for Tetra.
+    /// [`DEFAULT_VERSION`] for Ball, [`FIRST_KINDED_VERSION`] for everything
+    /// else. A v4 record has nowhere to put a kind tag.
     pub const fn default_version(self) -> u32 {
         match self {
             Self::Ball => DEFAULT_VERSION,
-            Self::Tetra => FIRST_KINDED_VERSION,
+            Self::Tetra | Self::Int4G128 => FIRST_KINDED_VERSION,
         }
     }
 }
@@ -322,10 +369,15 @@ pub enum Codebook {
 }
 
 impl Codebook {
-    pub fn new(kind: CodeKind) -> Self {
+    /// The map of a lattice kind. [`CodeKind::Int4G128`] is refused rather
+    /// than defaulted to the ball: an int4 record's bytes are weights, and a
+    /// caller handed the ball's map for them would decode nonsense without an
+    /// error.
+    pub fn new(kind: CodeKind) -> Result<Self> {
         match kind {
-            CodeKind::Ball => Self::Ball(Box::new(Indexer::new())),
-            CodeKind::Tetra => Self::Tetra(Box::new(Tetra::new())),
+            CodeKind::Ball => Ok(Self::Ball(Box::new(Indexer::new()))),
+            CodeKind::Tetra => Ok(Self::Tetra(Box::new(Tetra::new()))),
+            CodeKind::Int4G128 => Err(Error::NoCodebookForKind { kind }),
         }
     }
 
@@ -383,13 +435,19 @@ impl Codebooks {
         }
     }
 
-    /// The map of `kind`, built on the first record that needs it.
-    pub fn get(&self, kind: CodeKind) -> &Codebook {
+    /// The map of `kind`, built on the first record that needs it, or
+    /// [`Error::NoCodebookForKind`] for a kind that indexes nothing.
+    pub fn get(&self, kind: CodeKind) -> Result<&Codebook> {
         let slot = match kind {
             CodeKind::Ball => &self.ball,
             CodeKind::Tetra => &self.tetra,
+            CodeKind::Int4G128 => return Err(Error::NoCodebookForKind { kind }),
         };
-        slot.get_or_init(|| Codebook::new(kind))
+        if let Some(cb) = slot.get() {
+            return Ok(cb);
+        }
+        let built = Codebook::new(kind)?;
+        Ok(slot.get_or_init(|| built))
     }
 
     /// Whether the map of `kind` has been built — the cheap way to see that a
@@ -399,11 +457,19 @@ impl Codebooks {
         match kind {
             CodeKind::Ball => self.ball.get().is_some(),
             CodeKind::Tetra => self.tetra.get().is_some(),
+            // Never built: there is no map to build.
+            CodeKind::Int4G128 => false,
         }
     }
 }
 
 /// One quantized matrix, everything a decoder needs.
+///
+/// Lattice only: every field below is a fact about `(index, gain)` pairs on
+/// Λ₂₄. An [`CodeKind::Int4G128`] record has no shape in this type — no
+/// centroids, no row scales, no tail, no shell cap — and is [`Int4Matrix`]
+/// instead. Forcing it in here would give it four fields with nothing true to
+/// put in them, which is how a sentinel becomes a value somebody reads.
 pub struct QuantizedMatrix {
     pub name: String,
     pub d_out: usize,
@@ -521,6 +587,10 @@ fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
             }
             Ok(LABEL_BITS)
         }
+        CodeKind::Int4G128 => Err(Error::Inconsistent {
+            name: name.to_string(),
+            detail: "an Int4G128 record has no lattice index width".to_string(),
+        }),
     }
 }
 
@@ -528,6 +598,12 @@ fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
 /// 47: two centroids, no more, no fewer — a wider gain field would push the
 /// word past 48 bits and [`Codebook::decode`]'s `gain << 47` past the word.
 fn gain_width(kind: CodeKind, name: &str, n_centroids: usize) -> Result<u32> {
+    if kind == CodeKind::Int4G128 {
+        return Err(Error::Inconsistent {
+            name: name.to_string(),
+            detail: "an Int4G128 record has no gain field".to_string(),
+        });
+    }
     let gb = n_centroids.next_power_of_two().trailing_zeros();
     if kind == CodeKind::Tetra && gb != 1 {
         return Err(Error::Inconsistent {
@@ -563,6 +639,25 @@ fn put_record_head(
     rotation_seed: Option<u64>,
     tail: &[f64],
 ) -> Result<()> {
+    if kind == CodeKind::Int4G128
+        && (!centroids.is_empty()
+            || !row_scales.is_empty()
+            || !tail.is_empty()
+            || rotation_seed.is_some())
+    {
+        return Err(Error::Inconsistent {
+            name: name.to_string(),
+            detail: format!(
+                "an Int4G128 head with {} centroids, {} row scales, {} tail values and \
+                 rotation {}: none of the four has a reader, and a head that carried them \
+                 would put the payload length where nothing looks for it",
+                centroids.len(),
+                row_scales.len(),
+                tail.len(),
+                rotation_seed.is_some()
+            ),
+        });
+    }
     if version < FIRST_KINDED_VERSION && kind != CodeKind::Ball {
         return Err(Error::Inconsistent {
             name: name.to_string(),
@@ -605,6 +700,14 @@ fn write_codes(
     encode: &dyn Fn(&Point) -> Option<u64>,
     m: &QuantizedMatrix,
 ) -> Result<u64> {
+    // Before any width is derived: `index_width` would answer for a kind that
+    // has no codes at all.
+    if kind == CodeKind::Int4G128 {
+        return Err(Error::Inconsistent {
+            name: m.name.clone(),
+            detail: "an Int4G128 matrix has no lattice codes".to_string(),
+        });
+    }
     if m.codes.len() != m.d_out * m.nblocks() {
         return Err(Error::Inconsistent {
             name: m.name.clone(),
@@ -739,6 +842,15 @@ pub struct RawMatrix {
 /// licence to write a record the file's own reader would refuse.
 pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Result<u64> {
     let kind = m.kind;
+    // A `RawMatrix` is a lattice type; one carrying the int4 kind was built by
+    // hand. Writing it would put a lattice head over int4 bytes, which is the
+    // one shape no reader of this crate can tell from a torn file.
+    if kind == CodeKind::Int4G128 {
+        return Err(Error::NotALatticeRecord {
+            name: m.name.clone(),
+            kind,
+        });
+    }
     let nblocks = m.d_in / DIM;
     if m.indices.len() != m.d_out * nblocks || m.gains.len() != m.indices.len() {
         return Err(Error::Inconsistent {
@@ -811,6 +923,22 @@ pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Resu
 /// width from the field would read a Tetra record whose field had been
 /// corrupted to 13 as 48-bit words, in step with nothing.
 pub fn read_matrix_raw(r: &mut impl Read, version: u32) -> Result<RawMatrix> {
+    let head = get_record_head(r, version)?;
+    read_lattice_body(r, head)
+}
+
+/// Everything of a record up to and including its kind tag — the fields every
+/// kind shares, read in one place so the two bodies below cannot disagree
+/// about where they start.
+struct RecordHead {
+    name: String,
+    d_out: usize,
+    d_in: usize,
+    shell_cap: u32,
+    kind: CodeKind,
+}
+
+fn get_record_head(r: &mut impl Read, version: u32) -> Result<RecordHead> {
     let n = get_u32(r, "name length")? as usize;
     let name = get_bytes(r, n as u64, "name")?;
     let name = String::from_utf8(name).map_err(|_| Error::BadName)?;
@@ -825,6 +953,33 @@ pub fn read_matrix_raw(r: &mut impl Read, version: u32) -> Result<RawMatrix> {
     } else {
         CodeKind::Ball
     };
+    Ok(RecordHead {
+        name,
+        d_out,
+        d_in,
+        shell_cap,
+        kind,
+    })
+}
+
+/// The rest of a lattice record, after [`get_record_head`].
+///
+/// An [`CodeKind::Int4G128`] record is refused here, by name, before a width
+/// is derived. That refusal is what protects every lattice-only tool of this
+/// repository — the benches, the five Metal binaries, the two CUDA ones,
+/// `fused.rs`, `export` — without any of them being touched, and it holds
+/// even for a file whose header under-declares its own [`KindSet`].
+fn read_lattice_body(r: &mut impl Read, head: RecordHead) -> Result<RawMatrix> {
+    let RecordHead {
+        name,
+        d_out,
+        d_in,
+        shell_cap,
+        kind,
+    } = head;
+    if kind == CodeKind::Int4G128 {
+        return Err(Error::NotALatticeRecord { name, kind });
+    }
     // Validated before any width is derived: `index_bits` asserts on the
     // supported ball inside llvq-search, and a wild cap from a corrupted file
     // must be an `Err`, not a panic — for either kind.
@@ -893,6 +1048,338 @@ pub fn read_matrix_raw(r: &mut impl Read, version: u32) -> Result<RawMatrix> {
     })
 }
 
+
+// ---------------------------------------------------------------------------
+// The int4 g128 record
+// ---------------------------------------------------------------------------
+
+/// One matrix stored as affine int4 over groups of [`INT4G128_GROUP`], in the
+/// **natural** basis: `w = scale·q + bias`.
+///
+/// The reconstruction is the whole record. There is no map, no fingerprint,
+/// no rotation and no tail, so the failure modes a lattice record has do not
+/// exist here — and the one it does have, a group axis read along the wrong
+/// dimension, is why the groups are pinned to `d_in` in one place
+/// (`the_group_axis_runs_along_d_in`).
+///
+/// The encoder lives in `llvq_llm::embedquant`, not here: choosing `q` needs
+/// f32→f16 **rounding**, and this crate has no dependencies to round with.
+/// Decoding is exact widening and stays here, which is the same split
+/// [`crate::RawTensor`] already makes.
+pub struct Int4Matrix {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// [`INT4G128_BITS`]. Stored, not assumed, so a future width is a refusal
+    /// and not a misread.
+    pub bits: u8,
+    /// [`INT4G128_GROUP`], along `d_in`.
+    pub group: usize,
+    /// `d_out · d_in / 2` bytes, row-major, **low nibble first** — the
+    /// convention `llvq_llm::embedquant` writes and [`crate::RawTensor`]
+    /// reads. A lattice index in the same file is packed MSB-first by
+    /// [`BitWriter`]: two orders in one file, and a reader that assumed one
+    /// convention for both would produce plausible, wrong weights.
+    pub packed: Vec<u8>,
+    /// One IEEE binary16 per group, `d_out × (d_in / group)`, row-major.
+    pub scales: Vec<u16>,
+    /// Same shape and order.
+    pub biases: Vec<u16>,
+}
+
+impl Int4Matrix {
+    /// Groups per output row. An exact division: `d_in % group != 0` is
+    /// refused by the writer and the reader, because a short last group would
+    /// make the rate below wrong.
+    pub fn groups_per_row(&self) -> usize {
+        self.d_in.checked_div(self.group).unwrap_or(0)
+    }
+
+    /// Bits this matrix occupies in the stream, framing excluded —
+    /// `4 + 32/128 = 4.250` per weight exactly. Scale **and** bias are f16,
+    /// where AWQ w4 g128 packs its zero and holds 4.15625: a declared
+    /// difference of 0.09 b/weight, against us.
+    pub fn bits(&self) -> u64 {
+        self.packed.len() as u64 * 8 + (self.scales.len() + self.biases.len()) as u64 * 16
+    }
+
+    /// Rebuild the `d_out × d_in` weights, row-major, in the natural basis.
+    ///
+    /// Line for line the group-affine branch of
+    /// [`crate::RawTensor::to_f32`], on purpose: the file path and the
+    /// measurement path (`LLVQ_RESTORE_Q4`) have to agree bit for bit, and
+    /// `the_two_int4_paths_agree_bit_for_bit` is what would notice if they
+    /// stopped.
+    pub fn to_f32(&self) -> Vec<f32> {
+        let n = self.d_out * self.d_in;
+        let gpr = self.groups_per_row();
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let (row, col) = (i / self.d_in, i % self.d_in);
+            let g = row * gpr + col / self.group;
+            let qv = ((self.packed[i / 2] >> (4 * (i % 2))) & 0xf) as u32;
+            out.push(
+                crate::sealed::f16_to_f32(self.scales[g]) * qv as f32
+                    + crate::sealed::f16_to_f32(self.biases[g]),
+            );
+        }
+        out
+    }
+}
+
+/// One record of a v5 file, whatever its kind — the only thing that can be
+/// read from a mixed file without knowing what comes next.
+pub enum Record {
+    /// A Ball or Tetra record, undecoded.
+    Lattice(RawMatrix),
+    Int4(Int4Matrix),
+}
+
+impl Record {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Lattice(m) => &m.name,
+            Self::Int4(m) => &m.name,
+        }
+    }
+
+    pub fn kind(&self) -> CodeKind {
+        match self {
+            Self::Lattice(m) => m.kind,
+            Self::Int4(_) => CodeKind::Int4G128,
+        }
+    }
+
+    pub fn dims(&self) -> (usize, usize) {
+        match self {
+            Self::Lattice(m) => (m.d_out, m.d_in),
+            Self::Int4(m) => (m.d_out, m.d_in),
+        }
+    }
+}
+
+/// Read one record of any kind, from a file of version `version`.
+///
+/// The head is read once and the kind decides the body: a lattice kind goes
+/// to the same code [`read_matrix_raw`] runs, int4 to the reader below. This
+/// is the only entry point that can walk a mixed file, and the reason every
+/// other one refuses int4 rather than guessing.
+pub fn read_record(r: &mut impl Read, version: u32) -> Result<Record> {
+    let head = get_record_head(r, version)?;
+    match head.kind {
+        CodeKind::Int4G128 => Ok(Record::Int4(read_int4_body(r, head)?)),
+        CodeKind::Ball | CodeKind::Tetra => Ok(Record::Lattice(read_lattice_body(r, head)?)),
+    }
+}
+
+/// Write one record of any kind, at `version`, returning its payload bits.
+pub fn write_record(w: &mut impl Write, version: u32, rec: &Record) -> Result<u64> {
+    match rec {
+        Record::Lattice(m) => write_matrix_raw(w, version, m),
+        Record::Int4(m) => write_matrix_int4(w, version, m),
+    }
+}
+
+/// The payload of an int4 record, after [`get_record_head`].
+///
+/// Every field of the head is checked against what this crate writes, and
+/// each with its own message: three independent fields have to agree, so a
+/// lattice record whose kind tag was corrupted to 2 contradicts itself in
+/// three places rather than decoding to plausible weights
+/// (`a_lattice_record_read_as_int4_is_refused`).
+fn read_int4_body(r: &mut impl Read, head: RecordHead) -> Result<Int4Matrix> {
+    let RecordHead {
+        name,
+        d_out,
+        d_in,
+        shell_cap,
+        kind: _,
+    } = head;
+    let bad = |detail: String| Error::Inconsistent {
+        name: name.clone(),
+        detail,
+    };
+    if shell_cap != INT4G128_SHELL_CAP {
+        return Err(bad(format!(
+            "shell cap {shell_cap} on an Int4G128 record: it indexes no lattice and carries \
+             {INT4G128_SHELL_CAP} in that field"
+        )));
+    }
+    let n_cent = get_u32(r, "centroid count")? as usize;
+    if n_cent != 0 {
+        return Err(bad(format!(
+            "{n_cent} centroids on an Int4G128 record: its weights are stored, so it has no \
+             gain levels"
+        )));
+    }
+    let _seed = get_u64(r, "rotation seed")?;
+    let rot = get_u32(r, "rotation flag")?;
+    if rot != 0 {
+        return Err(bad(
+            "a rotation seed on an Int4G128 record: it is stored in the natural basis, and \
+             un-rotating it would decode plausible, wrong weights"
+                .to_string(),
+        ));
+    }
+
+    let payload_len = get_u64(r, "int4 payload length")?;
+    let payload = get_bytes(r, payload_len, "int4 payload")?;
+    let mut p = &payload[..];
+    let bits = get_u32(&mut p, "int4 bits")?;
+    let group = get_u32(&mut p, "int4 group")? as usize;
+    if bits != u32::from(INT4G128_BITS) {
+        return Err(bad(format!(
+            "{bits} bits on an Int4G128 record: the only width this format stores is \
+             {INT4G128_BITS}"
+        )));
+    }
+    if group != INT4G128_GROUP {
+        return Err(bad(format!(
+            "group {group} on an Int4G128 record: the only group this format stores is \
+             {INT4G128_GROUP}"
+        )));
+    }
+    if !d_in.is_multiple_of(group) {
+        return Err(bad(format!(
+            "d_in {d_in} is not a multiple of the group {group}: a short last group would \
+             cost more than {INT4G128_BITS} + 32/{INT4G128_GROUP} bits per weight and the \
+             rate would be wrong"
+        )));
+    }
+    let n = d_out
+        .checked_mul(d_in)
+        .ok_or(Error::Truncated { reading: "int4 payload" })?;
+    let packed_len = get_u64(&mut p, "int4 packed length")?;
+    if packed_len != (n / 2) as u64 {
+        return Err(bad(format!(
+            "{packed_len} packed bytes for {d_out}×{d_in} weights, expected {}",
+            n / 2
+        )));
+    }
+    let packed = get_bytes(&mut p, packed_len, "int4 packed")?;
+    let groups = get_u64(&mut p, "int4 group count")?;
+    let want_groups = (d_out * (d_in / group)) as u64;
+    if groups != want_groups {
+        return Err(bad(format!(
+            "{groups} groups for {d_out} rows of {d_in}, expected {want_groups}"
+        )));
+    }
+    let scales = get_u16s(&mut p, groups, "int4 scales")?;
+    let biases = get_u16s(&mut p, groups, "int4 biases")?;
+    if !p.is_empty() {
+        return Err(bad(format!(
+            "{} bytes left over in an Int4G128 payload of {payload_len}",
+            p.len()
+        )));
+    }
+    Ok(Int4Matrix {
+        name,
+        d_out,
+        d_in,
+        bits: INT4G128_BITS,
+        group,
+        packed,
+        scales,
+        biases,
+    })
+}
+
+fn get_u16s(r: &mut impl Read, n: u64, what: &'static str) -> Result<Vec<u16>> {
+    let bytes = get_bytes(r, n.checked_mul(2).ok_or(Error::Truncated { reading: what })?, what)?;
+    Ok(bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect())
+}
+
+/// Serialize one int4 record into a file of version `version`, returning the
+/// bits its payload occupies.
+///
+/// Every invariant is checked before a byte is written, for the same reason
+/// [`write_matrix_raw`]'s are: a writer that emitted a record its own reader
+/// refuses would put the failure a run away from its cause.
+pub fn write_matrix_int4(w: &mut impl Write, version: u32, m: &Int4Matrix) -> Result<u64> {
+    let bad = |detail: String| Error::Inconsistent {
+        name: m.name.clone(),
+        detail,
+    };
+    if version < FIRST_KINDED_VERSION {
+        return Err(bad(format!(
+            "an Int4G128 record needs format v{FIRST_KINDED_VERSION}: a v{version} record \
+             carries no code kind, and this one would read back as Ball"
+        )));
+    }
+    if m.bits != INT4G128_BITS {
+        return Err(bad(format!(
+            "{} bits: the only width this format stores is {INT4G128_BITS}",
+            m.bits
+        )));
+    }
+    if m.group != INT4G128_GROUP {
+        return Err(bad(format!(
+            "group {}: the only group this format stores is {INT4G128_GROUP}",
+            m.group
+        )));
+    }
+    if !m.d_in.is_multiple_of(m.group) {
+        return Err(bad(format!(
+            "d_in {} is not a multiple of the group {}",
+            m.d_in, m.group
+        )));
+    }
+    let n = m.d_out * m.d_in;
+    if m.packed.len() != n / 2 {
+        return Err(bad(format!(
+            "{} packed bytes for {}×{} weights, expected {}",
+            m.packed.len(),
+            m.d_out,
+            m.d_in,
+            n / 2
+        )));
+    }
+    let groups = m.d_out * m.groups_per_row();
+    if m.scales.len() != groups || m.biases.len() != groups {
+        return Err(bad(format!(
+            "{} scales and {} biases for {groups} groups",
+            m.scales.len(),
+            m.biases.len()
+        )));
+    }
+
+    put_record_head(
+        w,
+        version,
+        &m.name,
+        m.d_out,
+        m.d_in,
+        INT4G128_SHELL_CAP,
+        CodeKind::Int4G128,
+        &[],
+        &[],
+        None,
+        &[],
+    )?;
+
+    // Built in memory and then length-prefixed, so the stored length is the
+    // bytes written by construction rather than a formula that can drift from
+    // the field list below it.
+    let mut payload: Vec<u8> = Vec::with_capacity(16 + m.packed.len() + 8 + groups * 4);
+    put_u32(&mut payload, u32::from(m.bits))?;
+    put_u32(&mut payload, m.group as u32)?;
+    put_u64(&mut payload, m.packed.len() as u64)?;
+    payload.extend_from_slice(&m.packed);
+    put_u64(&mut payload, groups as u64)?;
+    for v in &m.scales {
+        payload.extend_from_slice(&v.to_le_bytes());
+    }
+    for v in &m.biases {
+        payload.extend_from_slice(&v.to_le_bytes());
+    }
+    put_u64(w, payload.len() as u64)?;
+    w.write_all(&payload)?;
+    Ok(m.bits())
+}
+
 /// Decode every `(index, gain)` of a raw record through `decode`.
 fn decode_codes(
     raw: RawMatrix,
@@ -926,6 +1413,11 @@ fn decode_codes(
 /// The refusal is the point: this entry has one map, and a caller that reaches
 /// a Tetra record through it wanted the ball. [`read_matrix_with`] is the entry
 /// that reads whatever the record says it is.
+///
+/// Neither can reach an [`CodeKind::Int4G128`] record: both go through
+/// [`read_matrix_raw`], which refuses one with [`Error::NotALatticeRecord`]
+/// before a width is derived. That is where the guarantee lives, so it is
+/// written here too rather than left implicit at two call sites.
 pub fn read_matrix(r: &mut impl Read, version: u32, ix: &Indexer) -> Result<QuantizedMatrix> {
     let raw = read_matrix_raw(r, version)?;
     if raw.kind != CodeKind::Ball {
@@ -947,7 +1439,7 @@ pub fn read_matrix_with(
     cbs: &Codebooks,
 ) -> Result<QuantizedMatrix> {
     let raw = read_matrix_raw(r, version)?;
-    let cb = cbs.get(raw.kind);
+    let cb = cbs.get(raw.kind)?;
     decode_codes(raw, &|idx, gain| cb.decode(idx, gain))
 }
 
@@ -1098,7 +1590,7 @@ impl<W: Write> ArtifactWriter<W> {
     /// kind, because the header cannot be rewritten to say so afterwards.
     pub fn push_kind(&mut self, m: &QuantizedMatrix, kind: CodeKind) -> Result<()> {
         self.declare(kind, &m.name)?;
-        let bits = write_matrix_with(&mut self.out, self.version, self.codebooks.get(kind), m)?;
+        let bits = write_matrix_with(&mut self.out, self.version, self.codebooks.get(kind)?, m)?;
         self.payload_bits += bits;
         self.matrices += 1;
         Ok(())
@@ -1112,6 +1604,26 @@ impl<W: Write> ArtifactWriter<W> {
         self.payload_bits += write_matrix_raw(&mut self.out, self.version, m)?;
         self.matrices += 1;
         Ok(())
+    }
+
+    /// Push an int4 record. Declared like any other kind, so a writer built
+    /// with `KindSet::of(Tetra)` refuses it before a byte is written: the
+    /// header is already on the disk and cannot be told about it afterwards.
+    pub fn push_int4(&mut self, m: &Int4Matrix) -> Result<()> {
+        self.declare(CodeKind::Int4G128, &m.name)?;
+        self.payload_bits += write_matrix_int4(&mut self.out, self.version, m)?;
+        self.matrices += 1;
+        Ok(())
+    }
+
+    /// Push a record of whatever kind it already is — what a passthrough of a
+    /// mixed file needs, and the only push that copies an int4 record without
+    /// re-quantizing it.
+    pub fn push_record(&mut self, rec: &Record) -> Result<()> {
+        match rec {
+            Record::Lattice(m) => self.push_raw(m),
+            Record::Int4(m) => self.push_int4(m),
+        }
     }
 
     /// The gate every push goes through: a kind the header did not declare is
@@ -1385,6 +1897,18 @@ fn check_fingerprint(stored: u64, computed: u64, which: &'static str) -> Result<
 /// safe for small models — see [`read_header`].
 pub fn read_all(r: &mut impl Read) -> Result<Vec<QuantizedMatrix>> {
     let h = read_header(r)?;
+    // At the header, not at the record: a file declaring int4 would otherwise
+    // fail somewhere in the middle with `NotALatticeRecord`, which is correct
+    // and late.
+    if h.kinds.contains(CodeKind::Int4G128) {
+        return Err(Error::Inconsistent {
+            name: "header".into(),
+            detail: format!(
+                "read_all decodes lattice records; this file declares {} — use read_record",
+                h.kinds
+            ),
+        });
+    }
     let cbs = Codebooks::new();
     (0..h.matrices)
         .map(|_| read_matrix_with(r, h.version, &cbs))

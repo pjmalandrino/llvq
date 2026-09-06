@@ -259,6 +259,16 @@ Steps 0 to 5 ran on 2026-09-05 and 09-06 for $0.79 all told, against the 5 to 7 
 inputs are settled: the format is named Tetra, and no quality threshold was set: the operator measured and judged
 on sight (prereg §1). Step 6 is what remains, and it is the only place the card figures come from.
 
+### 2.3 bis Q5, the mixed file
+
+The writer exists. Format v5 has a third kind, `Int4G128` at tag 2, and `ArtifactWriter::push_int4` writes it;
+`read_record` is the only entry that reads a mixed file, and every lattice-only tool refuses one by name.
+Integrated on 2026-09-06 as code, with **no re-encoding**: no `smoke` run, no sealed file, no job.
+
+What remains is a kernel that reads the kind 2. `tv_q4_h.cu` is written and host-verified and has never run on a
+card, and until one runs, a mixed file's int4 matrices are decoded to the run dtype at load: 4.250 b/weight on
+disk, the run dtype in VRAM. Sequenced after F1's verdict, as §5 of [ETAT](ETAT.md) records.
+
 ### 2.3 Axis Q, quality
 
 **Moved to [ROADMAP-QUALITY](ROADMAP-QUALITY.md), sanctioned by the operator on 2026-09-06.** That document

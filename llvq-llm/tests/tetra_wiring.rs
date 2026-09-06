@@ -101,6 +101,7 @@ fn windows(dev: &Device) -> Vec<Tensor> {
 fn run_config(codebook: Codebook, start: usize, limit: usize) -> RunConfig {
     RunConfig {
         h_shrink: 1.0,
+        int4_types: Vec::new(),
         gptq: GptqConfig {
             block: llvq_core::DIM,
             retract: true,
@@ -158,6 +159,9 @@ impl FileSink {
 impl MatrixSink for FileSink {
     fn push(&mut self, m: llvq_llm::artifact2::QuantizedMatrix) -> anyhow::Result<()> {
         Ok(self.0.push(&m)?)
+    }
+    fn push_int4(&mut self, m: llvq_llm::artifact2::Int4Matrix) -> anyhow::Result<()> {
+        Ok(self.0.push_int4(&m)?)
     }
 }
 
@@ -342,6 +346,7 @@ fn two_tetra_segments_produce_the_single_run_file() {
     let mut sink = FileSink::create(&b, (matrices_per_block() * blocks) as u32, CodeKind::Tetra);
     let expect = ShardExpect {
         kind: CodeKind::Tetra,
+        int4_types: Vec::new(),
         shell_cap: llvq_artifact::TETRA_SHELL_CAP,
         centroids: 2,
         rotation_seed: Some(ROT),
@@ -403,6 +408,7 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
         let mut sink = FileSink::create(&out, matrices_per_block() as u32 * 2, want);
         let expect = ShardExpect {
             kind: want,
+            int4_types: Vec::new(),
             shell_cap: if want == CodeKind::Tetra {
                 llvq_artifact::TETRA_SHELL_CAP
             } else {
@@ -414,8 +420,12 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
         let e = resume_from_shard(&mut model, shard, &mut sink.0, &expect, &dev)
             .expect_err("a shard of the other map was accepted")
             .to_string();
+        // The resume's **own** sentence, which the writer's `KindNotDeclared`
+        // does not contain: the per-projection kind check of `ShardExpect`
+        // rewrote this message when the int4 kind arrived, and an assertion on
+        // the names alone passes on the writer's refusal one line later.
         assert!(
-            e.contains("Two maps in one file"),
+            e.contains("Two encodings of one projection in one file"),
             "the resume itself must refuse, before the writer does: {e}"
         );
         assert!(e.contains(want.name()), "the refusal must name this run: {e}");

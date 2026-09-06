@@ -252,7 +252,10 @@ fn an_unknown_code_kind_is_refused_by_name() {
     let mut good = Vec::new();
     write_header(&mut good, FIRST_KINDED_VERSION, 3).unwrap();
     assert_eq!(good.len(), 32, "magic + count + two fingerprints + kind + kinds present");
-    for tag in [RESERVED_INT4G128_TAG, 7, u32::MAX] {
+    // 3 and not 2: tag 2 is `Int4G128` since Q5's writer exists, and leaving
+    // it here would leave a test whose name says "unknown" passing on a kind
+    // this build knows.
+    for tag in [RESERVED_INT4G128_TAG + 1, 7, u32::MAX] {
         let mut bytes = good.clone();
         bytes[24..28].copy_from_slice(&tag.to_le_bytes());
         match read_header(&mut &bytes[..]) {
@@ -260,8 +263,8 @@ fn an_unknown_code_kind_is_refused_by_name() {
             other => panic!("tag {tag}: expected UnknownCodeKind, got {:?}", other.err()),
         }
     }
-    // And the two known tags read back as themselves, default and set both.
-    for kind in [CodeKind::Ball, CodeKind::Tetra] {
+    // And every known tag reads back as itself, default and set both.
+    for kind in CodeKind::ALL {
         let mut bytes = good.clone();
         bytes[24..28].copy_from_slice(&kind.tag().to_le_bytes());
         bytes[28..32].copy_from_slice(&KindSet::of(kind).bits().to_le_bytes());
@@ -281,11 +284,13 @@ fn an_unknown_code_kind_is_refused_by_name() {
 fn an_unknown_kind_in_the_present_mask_is_refused_by_name() {
     let mut good = Vec::new();
     write_header(&mut good, FIRST_KINDED_VERSION, 3).unwrap();
+    // The lowest bit this build cannot name is now 3: bit 2 is `Int4G128`.
+    const UNKNOWN_BIT: u32 = RESERVED_INT4G128_TAG + 1;
     for (mask, want) in [
-        (1u32 << RESERVED_INT4G128_TAG, RESERVED_INT4G128_TAG),
-        (1 | 1 << RESERVED_INT4G128_TAG, RESERVED_INT4G128_TAG),
+        (1u32 << UNKNOWN_BIT, UNKNOWN_BIT),
+        (1 | 1 << UNKNOWN_BIT, UNKNOWN_BIT),
         (1 << 31, 31),
-        (u32::MAX, RESERVED_INT4G128_TAG),
+        (u32::MAX, UNKNOWN_BIT),
     ] {
         let mut bytes = good.clone();
         bytes[28..32].copy_from_slice(&mask.to_le_bytes());
@@ -378,13 +383,34 @@ fn an_unknown_kind_tag_on_a_record_is_refused_by_name() {
     let m = small_tetra_matrix();
     let good = v5_matrix_bytes(&m);
     let at = kind_at(&m);
-    for tag in [RESERVED_INT4G128_TAG, 9, u32::MAX] {
+    for tag in [RESERVED_INT4G128_TAG + 1, 9, u32::MAX] {
         let mut bytes = good.clone();
         bytes[at..at + 4].copy_from_slice(&tag.to_le_bytes());
         match read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION) {
             Err(Error::UnknownCodeKind { tag: t }) => assert_eq!(t, tag),
             other => panic!("tag {tag}: expected UnknownCodeKind, got {:?}", other.err()),
         }
+    }
+    // Tag 2 is a known kind now, and its refusal is a different one: the
+    // lattice reader stops at `NotALatticeRecord` before it derives a width.
+    // Left as an "unknown tag" case this would still fail, and for the wrong
+    // reason.
+    let mut bytes = good.clone();
+    bytes[at..at + 4].copy_from_slice(&RESERVED_INT4G128_TAG.to_le_bytes());
+    match read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION) {
+        Err(Error::NotALatticeRecord { name, kind }) => {
+            assert_eq!(name, m.name);
+            assert_eq!(kind, CodeKind::Int4G128);
+        }
+        other => panic!("tag 2: expected NotALatticeRecord, got {:?}", other.err()),
+    }
+    // And read as the record it claims to be, it contradicts itself: a Tetra
+    // record carries shell cap 12 where an int4 one carries u32::MAX.
+    match llvq_artifact::read_record(&mut &bytes[..], FIRST_KINDED_VERSION) {
+        Err(Error::Inconsistent { detail, .. }) => {
+            assert!(detail.contains("shell cap"), "{detail}")
+        }
+        other => panic!("tag 2: expected Inconsistent, got {:?}", other.map(|_| "a record")),
     }
 }
 

@@ -26,6 +26,19 @@ fn read_records(path: &str, want: usize) -> (u32, Vec<RawMatrix>) {
     let f = std::fs::File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"));
     let mut r = std::io::BufReader::with_capacity(1 << 22, f);
     let head = read_header(&mut r).unwrap_or_else(|e| panic!("{path}: {e}"));
+    // The comparison below reads `indices` and `gains` field by field, which
+    // only means anything for a v1 ball index: a Tetra word names no class and
+    // an int4 record has no index at all. There was no check here at all until
+    // the third kind was added, and a Tetra file would have been compared
+    // against a Ball one field by field, reporting a difference in the wrong
+    // units.
+    if let Err(e) = llvq_artifact::runtime::require_ball_kinds(head.kinds(), "driftcheck") {
+        panic!(
+            "{path}: a {} file (format v{}); driftcheck compares v1 ball records — {e}",
+            head.kinds(),
+            head.version
+        );
+    }
     let mut out = Vec::new();
     for _ in 0..head.matrices.min(want as u32) {
         out.push(read_matrix_raw(&mut r, head.version).unwrap_or_else(|e| panic!("{path}: {e}")));

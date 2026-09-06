@@ -18,11 +18,15 @@
 //! A file is a magic word, a matrix count, the writer's codebook fingerprint
 //! (from v5: two fingerprints, the file's default [`CodeKind`] and the set of
 //! kinds it declares), then that many matrices. Each matrix carries its name,
-//! dimensions, shell cap, its own code kind from v5 on, gain centroids, one
-//! scale per output row, the trailing columns that were left unquantized, and
-//! finally a dense bit stream of `(index, gain)` pairs — 47 or 48 bits for
-//! the index, `log2(centroids)` for the gain, packed back to back with no
-//! padding except at the very end.
+//! dimensions, shell cap and, from v5 on, its own code kind. What follows
+//! depends on that kind. A lattice record (`Ball`, `Tetra`) carries gain
+//! centroids, one scale per output row, the trailing columns that were left
+//! unquantized, and a dense bit stream of `(index, gain)` pairs — 47 or 48
+//! bits for the index, `log2(centroids)` for the gain, packed back to back
+//! with no padding except at the very end. An `Int4G128` record carries none
+//! of those: its payload is `4` bits per weight plus an f16 scale and an f16
+//! bias per group of 128, in the natural basis, and [`read_record`] is the
+//! only entry that reads it.
 //!
 //! The fingerprints and the kinds are the only fields that are not a
 //! dimension: the matrix record says how *wide* an index is, never what it
@@ -57,10 +61,11 @@ pub use codebook::{codebook_fingerprint, tetra_fingerprint};
 pub use error::Error;
 pub use format::{
     decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
-    split_name, write_header, write_header_kind, write_header_kinds, write_matrix,
-    write_matrix_raw, write_matrix_with, ArtifactWriter, CodeKind, Codebook, Codebooks, Header,
-    KindSet, QuantizedMatrix, RawMatrix, DEFAULT_VERSION, FIRST_FINGERPRINTED_VERSION,
-    FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2, MAGIC_V3, MAGIC_V4, MAGIC_V5,
+    read_record, split_name, write_header, write_header_kind, write_header_kinds, write_matrix,
+    write_matrix_int4, write_matrix_raw, write_matrix_with, write_record, ArtifactWriter, CodeKind,
+    Codebook, Codebooks, Header, Int4Matrix, KindSet, QuantizedMatrix, RawMatrix, Record,
+    DEFAULT_VERSION, FIRST_FINGERPRINTED_VERSION, FIRST_KINDED_VERSION, INT4G128_BITS,
+    INT4G128_GROUP, INT4G128_SHELL_CAP, MAGIC, MAGIC_V1, MAGIC_V2, MAGIC_V3, MAGIC_V4, MAGIC_V5,
     RESERVED_INT4G128_TAG, TETRA_SHELL_CAP, VERSION,
 };
 pub use sealed::{

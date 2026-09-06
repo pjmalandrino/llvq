@@ -80,7 +80,13 @@ pub enum RestorePrec {
 /// the cost table compares against. Our affine path stores scale *and* bias
 /// in f16, so the rate is `4 + 32/128 = 4.25` b/weight, not AWQ's 4.156 — a
 /// declared, unfavourable difference of 0.09 b/weight.
-pub const Q4_GROUP: usize = 128;
+///
+/// Derived from [`llvq_artifact::INT4G128_GROUP`] rather than written twice.
+/// The measurement path and the file path quantize the same weights, and two
+/// constants in two crates is exactly the drift that would have one of them
+/// write with one stride and the other read with the other
+/// (`the_two_group_constants_agree`).
+pub const Q4_GROUP: usize = llvq_artifact::INT4G128_GROUP;
 
 impl RestorePrec {
     pub fn describe(&self) -> String {
@@ -273,7 +279,10 @@ pub fn restore_projections(
 /// The round trip is the point: the returned tensor holds exactly the values a
 /// 4-bit store would reconstruct, so scoring it measures what four bits of
 /// information cost — without pretending a 4-bit kernel exists.
-fn quantize_dequantize_q4(
+/// Public only so `the_two_int4_paths_agree_bit_for_bit` can call it beside
+/// [`int4_record`]. Its body is untouched: it is the instrument the +3.47 pp
+/// was measured with, and a change here would move a published number.
+pub fn quantize_dequantize_q4(
     t: &Tensor,
     name: &str,
     group: usize,
@@ -296,6 +305,52 @@ fn quantize_dequantize_q4(
     Tensor::from_vec(q.to_f32(), dims, t.device())?
         .to_dtype(dtype)
         .map_err(anyhow::Error::from)
+}
+
+/// Turn one f32/f16 tensor into the int4 g128 record a `.llvq` v5 stores.
+///
+/// The quantizer is [`crate::embedquant::quantize_affine`] at `bits = 4`,
+/// `group = ` [`Q4_GROUP`] — the same call [`quantize_dequantize_q4`] makes,
+/// on the same bytes. That is the point: the arm that **measured** what int4
+/// `v_proj` is worth (+3.47 pp of MMLU, IC95 [+1.42; +5.57], for
+/// +0.0493 b/param) and the arm that **stores** it have to be the same
+/// arithmetic, or the measurement describes a file nobody wrote.
+/// `the_two_int4_paths_agree_bit_for_bit` is what would notice.
+///
+/// The encoder stays in this crate because the rounding f32→f16 needs the
+/// `half` crate; `llvq-artifact` keeps its zero dependencies and only decodes.
+pub fn int4_record(name: &str, t: &Tensor) -> anyhow::Result<llvq_artifact::Int4Matrix> {
+    let (d_out, d_in) = t.dims2()?;
+    anyhow::ensure!(
+        d_in % Q4_GROUP == 0,
+        "{name}: d_in {d_in} is not a multiple of the int4 group {Q4_GROUP}"
+    );
+    let bits: Vec<u16> = t
+        .flatten_all()?
+        .to_dtype(DType::F16)?
+        .to_vec1::<half::f16>()?
+        .into_iter()
+        .map(|v| v.to_bits())
+        .collect();
+    let raw = llvq_artifact::RawTensor {
+        name: name.to_string(),
+        dims: vec![d_out, d_in],
+        data: llvq_artifact::RawData::F16(bits),
+    };
+    let q = crate::embedquant::quantize_affine(&raw, llvq_artifact::INT4G128_BITS, Q4_GROUP)?;
+    let llvq_artifact::RawData::Quant(q) = q.data else {
+        anyhow::bail!("{name}: quantize_affine returned an unquantized tensor");
+    };
+    Ok(llvq_artifact::Int4Matrix {
+        name: name.to_string(),
+        d_out,
+        d_in,
+        bits: q.bits,
+        group: q.group,
+        packed: q.packed,
+        scales: q.scales,
+        biases: q.biases,
+    })
 }
 
 fn describe_source(s: &Source) -> String {
@@ -409,11 +464,23 @@ pub fn load_with_restored(
     // One matrix at a time: a 4B model's lattice codes are 14 GB if held
     // together, and the decoded weights are handed to candle as they come.
     for _ in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_with(&mut r, head.version, &cbs)?;
-        quantized_weights += m.d_out * m.d_in;
-        let w = llvq_artifact::decode_matrix(&m);
-        let t = Tensor::from_vec(w, (m.d_out, m.d_in), device)?.to_dtype(dtype)?;
-        tensors.insert(m.name, t);
+        // Through `read_record`: from v5 a file may hold int4 records beside
+        // its lattice ones, and this is the path every served harness takes.
+        let (name, d_out, d_in, w) = match llvq_artifact::read_record(&mut r, head.version)? {
+            llvq_artifact::Record::Lattice(raw) => {
+                let m = crate::artifact2::to_quantized(raw, &cbs)?;
+                let w = llvq_artifact::decode_matrix(&m);
+                (m.name, m.d_out, m.d_in, w)
+            }
+            // Decoded to f32 and handed to candle like any other matrix. It
+            // costs 4.250 b/weight on disk and the run dtype in memory: no
+            // kernel reads the stored nibbles, so no VRAM claim follows from
+            // this path.
+            llvq_artifact::Record::Int4(m) => (m.name.clone(), m.d_out, m.d_in, m.to_f32()),
+        };
+        quantized_weights += d_out * d_in;
+        let t = Tensor::from_vec(w, (d_out, d_in), device)?.to_dtype(dtype)?;
+        tensors.insert(name, t);
     }
 
     let n_raw = read_u32(&mut r)?;

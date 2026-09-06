@@ -21,6 +21,29 @@ use llvq_artifact::{ArtifactWriter, Blob, RawTensor};
 use llvq_llm::loader::Checkpoint;
 use std::collections::HashSet;
 
+/// One record on its way into the sealed file: a lattice matrix decoded (so a
+/// bad index fails while the checkpoint is still being read) and its kind, or
+/// an int4 matrix carried as it is.
+enum Sealing {
+    Lattice(llvq_artifact::CodeKind, llvq_artifact::QuantizedMatrix),
+    Int4(llvq_artifact::Int4Matrix),
+}
+
+impl Sealing {
+    fn name(&self) -> &str {
+        match self {
+            Self::Lattice(_, m) => &m.name,
+            Self::Int4(m) => &m.name,
+        }
+    }
+    fn weights(&self) -> usize {
+        match self {
+            Self::Lattice(_, m) => m.d_out * m.d_in,
+            Self::Int4(m) => m.d_out * m.d_in,
+        }
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let (src, dst) = match (a.first(), a.get(1)) {
@@ -45,15 +68,20 @@ fn main() -> anyhow::Result<()> {
     // an index outside its codebook must fail while the checkpoint is still
     // being read, not the first time the sealed file is loaded to be scored.
     let cbs = llvq_artifact::Codebooks::new();
-    let mut matrices: Vec<(llvq_artifact::CodeKind, llvq_artifact::QuantizedMatrix)> =
-        Vec::with_capacity(head.matrices as usize);
+    let mut matrices: Vec<Sealing> = Vec::with_capacity(head.matrices as usize);
     for _ in 0..head.matrices {
-        let raw = llvq_artifact::read_matrix_raw(&mut r, head.version)?;
-        let kind = raw.kind;
-        matrices.push((kind, llvq_llm::artifact2::to_quantized(raw, &cbs)?));
+        // An int4 record is carried across untouched: it holds its weights,
+        // so there is no map to check it against and nothing to re-encode.
+        matrices.push(match llvq_artifact::read_record(&mut r, head.version)? {
+            llvq_artifact::Record::Lattice(raw) => {
+                let kind = raw.kind;
+                Sealing::Lattice(kind, llvq_llm::artifact2::to_quantized(raw, &cbs)?)
+            }
+            llvq_artifact::Record::Int4(m) => Sealing::Int4(m),
+        });
     }
-    let quantized: HashSet<&str> = matrices.iter().map(|(_, m)| m.name.as_str()).collect();
-    let quantized_weights: usize = matrices.iter().map(|(_, m)| m.d_out * m.d_in).sum();
+    let quantized: HashSet<&str> = matrices.iter().map(Sealing::name).collect();
+    let quantized_weights: usize = matrices.iter().map(Sealing::weights).sum();
 
     // ---- everything the quantizer did not touch ----
     eprintln!("reading {repo} for the tensors the artifact is missing…");
@@ -119,9 +147,15 @@ fn main() -> anyhow::Result<()> {
         head.default_kind(),
         head.kinds(),
     )?;
-    for (kind, m) in &matrices {
-        w.push_kind(m, *kind)?;
+    for m in &matrices {
+        match m {
+            Sealing::Lattice(kind, m) => w.push_kind(m, *kind)?,
+            Sealing::Int4(m) => w.push_int4(m)?,
+        }
     }
+    // `code_bits` comes back from the writer, which adds each record's own
+    // payload — `Int4Matrix::bits()` included. The rate line below therefore
+    // counts the int4 half at its true 4.250 b/weight rather than at nothing.
     let (code_bits, extra_bits) = w.seal(&raws, &blobs)?;
 
     let bytes = std::fs::metadata(&dst)?.len();

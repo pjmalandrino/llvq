@@ -60,6 +60,16 @@ fn main() -> anyhow::Result<()> {
         "{path} is a projections-only artifact (format v{}); seal it first",
         head.version
     );
+    // At the header, naming the set. `read_matrix_with` refuses an int4
+    // record mid-file (`NotALatticeRecord`), which is correct and late: the
+    // export would already have written half a directory of tensors, and the
+    // half it wrote would look complete.
+    anyhow::ensure!(
+        !head.kinds().contains(llvq_artifact::CodeKind::Int4G128),
+        "{path}: a {} file. export decodes lattice records; it has no path for \
+         Int4G128 and would leave a directory missing every matrix it refused.",
+        head.kinds()
+    );
     std::fs::create_dir_all(&out)?;
     eprintln!("reading {path} — {} quantized matrices", head.matrices);
 

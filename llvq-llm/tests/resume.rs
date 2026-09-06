@@ -133,6 +133,7 @@ fn codebook() -> Codebook {
 fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConfig {
     RunConfig {
         h_shrink: 1.0,
+        int4_types: Vec::new(),
         gptq: GptqConfig {
             block: llvq_core::DIM,
             retract: true,
@@ -153,6 +154,7 @@ fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConf
 fn expect(shell_cap: u32, rotation_seed: Option<u64>) -> ShardExpect {
     ShardExpect {
         kind: llvq_artifact::CodeKind::Ball,
+        int4_types: Vec::new(),
         shell_cap,
         centroids: 2,
         rotation_seed,
@@ -201,6 +203,9 @@ impl FileSink {
 impl MatrixSink for FileSink {
     fn push(&mut self, m: llvq_llm::artifact2::QuantizedMatrix) -> anyhow::Result<()> {
         Ok(self.0.push(&m)?)
+    }
+    fn push_int4(&mut self, m: llvq_llm::artifact2::Int4Matrix) -> anyhow::Result<()> {
+        Ok(self.0.push_int4(&m)?)
     }
 }
 
@@ -449,6 +454,7 @@ fn a_shard_with_another_gain_width_is_refused() {
     let mut sink = FileSink::create(&o, (matrices_per_block() * 2) as u32);
     let exp = ShardExpect {
         kind: llvq_artifact::CodeKind::Ball,
+        int4_types: Vec::new(),
         shell_cap: 12,
         centroids: 4,
         rotation_seed: Some(ROT),

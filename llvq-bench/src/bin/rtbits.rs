@@ -535,24 +535,24 @@ fn main() {
         let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
         // Every accumulator below keys on a v1 class; a Tetra word names none,
         // and the class table would file it under some class all the same.
-        assert!(
-            h.is_ball_only(),
-            "{path}: a {} file (format v{}); rtbits reads indices as v1 classes — \
-             no runtime layout for Tetra before F1d",
-            h.kinds(),
-            h.version
-        );
+        if let Err(e) = llvq_artifact::runtime::require_ball_kinds(h.kinds(), "rtbits") {
+            panic!(
+                "{path}: a {} file (format v{}); rtbits reads indices as v1 classes — {e}",
+                h.kinds(),
+                h.version
+            );
+        }
         source = format!("{path} — {} matrices", h.matrices);
         for _ in 0..h.matrices {
             let m = llvq_artifact::read_matrix_raw(&mut r, h.version).expect("valid matrix");
             // The record's own kind, not only the header's declared set: the
             // set is what the writer promised, this is what the record is.
-            assert_eq!(
-                m.kind,
-                llvq_artifact::CodeKind::Ball,
-                "{}: a {} record in a {} file — rtbits reads indices as v1 classes",
-                m.name, m.kind, h.kinds()
-            );
+            llvq_artifact::runtime::require_ball(m.kind, "rtbits").unwrap_or_else(|e| {
+                panic!(
+                    "{}: a {} record in a {} file — rtbits reads indices as v1 classes; {e}",
+                    m.name, m.kind, h.kinds()
+                )
+            });
             // The class layout runs shells ascending, so the cap-c ball is a
             // strict prefix of the cap-13 layout: a table built for 13
             // decodes any cap ≤ 13 file identically.

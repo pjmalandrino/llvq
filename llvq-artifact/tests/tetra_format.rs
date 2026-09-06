@@ -124,7 +124,7 @@ fn the_disk_word_decodes_to_the_intended_point() {
 #[test]
 fn the_gain_bit_sits_at_bit_47_on_disk() {
     let tetra = Tetra::new();
-    let cb = Codebook::new(CodeKind::Tetra);
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
     let mut rng = SplitMix64::new(0x7210_0003_0002);
     let mut flipped = 0usize;
     for _ in 0..2_000 {
@@ -149,7 +149,7 @@ fn the_gain_bit_sits_at_bit_47_on_disk() {
 #[test]
 fn a_tetra_matrix_survives_a_round_trip() {
     let tetra = Tetra::new();
-    let cb = Codebook::new(CodeKind::Tetra);
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
     let cbs = Codebooks::new();
     let mut rng = SplitMix64::new(0x7210_0003_0003);
     for (d_out, d_in) in [(4usize, 3 * DIM), (3, 100), (5, 5 * DIM)] {
@@ -213,7 +213,7 @@ fn a_v5_tetra_file_reads_end_to_end() {
 #[test]
 fn a_tetra_record_read_as_ball_is_not_the_same_matrix() {
     let tetra = Tetra::new();
-    let cb = Codebook::new(CodeKind::Tetra);
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
     let ix = Indexer::new();
     let mut rng = SplitMix64::new(0x7210_0003_0005);
     let m = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.gate_proj.weight", 8, 4 * DIM);
@@ -300,7 +300,7 @@ fn a_tetra_writer_below_v5_is_refused() {
 #[test]
 fn a_tetra_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
     let tetra = Tetra::new();
-    let cb = Codebook::new(CodeKind::Tetra);
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
     let mut rng = SplitMix64::new(0x7210_0003_0006);
     let base = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.down_proj.weight", 2, 2 * DIM);
 
@@ -360,7 +360,7 @@ fn a_tetra_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
 #[test]
 fn a_point_off_the_tetra_label_set_is_refused_by_the_writer() {
     let tetra = Tetra::new();
-    let cb = Codebook::new(CodeKind::Tetra);
+    let cb = Codebook::new(CodeKind::Tetra).expect("Tetra has a map");
     let mut rng = SplitMix64::new(0x7210_0003_0007);
     let mut m = synthetic_tetra(&tetra, &mut rng, "m", 2, DIM);
     m.codes[1].point[5] += 1;
@@ -375,7 +375,7 @@ fn a_point_off_the_tetra_label_set_is_refused_by_the_writer() {
 /// not a map.
 #[test]
 fn the_ball_codebook_is_the_indexer() {
-    let cb = Codebook::new(CodeKind::Ball);
+    let cb = Codebook::new(CodeKind::Ball).expect("Ball has a map");
     let ix = Indexer::new();
     assert_eq!(cb.kind(), CodeKind::Ball);
     let mut rng = SplitMix64::new(0x7210_0003_0008);

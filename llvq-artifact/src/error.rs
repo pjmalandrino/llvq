@@ -55,10 +55,9 @@ pub enum Error {
     /// width, and an unknown bit in the header's set is a matrix this build
     /// cannot decode sitting somewhere in the file.
     ///
-    /// [`crate::RESERVED_INT4G128_TAG`] is deliberately one of these: the
-    /// number is reserved for Q5's mixed-precision `v_proj`, and until that
-    /// writer exists a file carrying it is one this build must refuse rather
-    /// than misread.
+    /// [`crate::RESERVED_INT4G128_TAG`] is no longer one of these: tag 2 is
+    /// [`CodeKind::Int4G128`], written by [`crate::write_matrix_int4`] and read
+    /// by [`crate::read_record`]. Tag 3 and above are.
     UnknownCodeKind { tag: u32 },
     /// A record was pushed as a kind the file's header never declared.
     ///
@@ -80,6 +79,22 @@ pub enum Error {
         want: CodeKind,
         got: CodeKind,
     },
+    /// A record whose kind stores weights rather than lattice indices reached
+    /// an entry point that reads `(index, gain)` pairs.
+    ///
+    /// An [`CodeKind::Int4G128`] record carries no centroids, no row scales
+    /// and no tail: its payload is a group-affine int4 block. Read as a
+    /// lattice record it would take the payload length out of the nibbles.
+    /// The refusal is at [`crate::read_matrix_raw`], which is what every
+    /// lattice-only tool of this repository already goes through, so one
+    /// check covers all of them.
+    NotALatticeRecord { name: String, kind: CodeKind },
+    /// A kind that indexes no lattice was asked for its map.
+    ///
+    /// [`CodeKind::Int4G128`] stores its weights; there is nothing to index
+    /// and nothing to look up. Returning the ball's map by default would hand
+    /// a caller a decoder for bytes that are not indices.
+    NoCodebookForKind { kind: CodeKind },
     /// Underlying I/O failure.
     Io(std::io::Error),
 }
@@ -131,9 +146,8 @@ impl fmt::Display for Error {
             }
             Error::UnknownCodeKind { tag } => write!(
                 f,
-                "code kind {tag} is unknown (0 = Ball, 1 = Tetra; 2 is reserved \
-                 for int4 g128 and has no writer yet) — file written by a \
-                 newer writer, or corrupted"
+                "code kind {tag} is unknown (0 = Ball, 1 = Tetra, 2 = Int4G128) \
+                 — file written by a newer writer, or corrupted"
             ),
             Error::KindNotDeclared {
                 name,
@@ -149,6 +163,16 @@ impl fmt::Display for Error {
                 f,
                 "{name}: a {got} record read through the {want} entry point — its \
                  indices are in range for {want} and mean nothing there"
+            ),
+            Error::NotALatticeRecord { name, kind } => write!(
+                f,
+                "{name}: a {kind} record read as a lattice matrix — its bytes are \
+                 group-affine int4, not (index, gain) pairs; read it through \
+                 read_record"
+            ),
+            Error::NoCodebookForKind { kind } => write!(
+                f,
+                "{kind} has no lattice map: its weights are stored, not indexed"
             ),
             Error::Io(e) => write!(f, "i/o: {e}"),
         }

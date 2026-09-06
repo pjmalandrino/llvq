@@ -20,8 +20,8 @@
 //!    stops a tool before it reads anything; the record's own kind stops it
 //!    at the record, which is what a file whose header under-reports its
 //!    kinds would otherwise slip past.
-//! 4. **Tag 2 stays shut.** `int4 g128` is reserved by number and refused by
-//!    this build, in the header, in the set and in a record.
+//! 4. **Tag 2 is `Int4G128`.** The number reserved for `int4 g128` is now a
+//!    kind this build writes; the record itself is `int4_format.rs`.
 //!
 //! In-memory bytes only: no sealed artifact, no `#[ignore]`, always in the
 //! fast loop.
@@ -245,12 +245,12 @@ fn a_single_kind_file_declares_one_kind() {
 fn a_single_kind_file_builds_only_its_own_map() {
     let cbs = Codebooks::new();
     assert!(!cbs.is_built(CodeKind::Ball) && !cbs.is_built(CodeKind::Tetra));
-    cbs.get(CodeKind::Ball);
+    cbs.get(CodeKind::Ball).expect("Ball has a map");
     assert!(cbs.is_built(CodeKind::Ball), "the map asked for is built");
     assert!(!cbs.is_built(CodeKind::Tetra), "the other one is not");
 
     let cbs = Codebooks::new();
-    cbs.get(CodeKind::Tetra);
+    cbs.get(CodeKind::Tetra).expect("Tetra has a map");
     assert!(cbs.is_built(CodeKind::Tetra));
     assert!(!cbs.is_built(CodeKind::Ball));
 }
@@ -415,6 +415,7 @@ fn a_ball_header_over_a_tetra_record_is_refused_at_the_record() {
                 }
                 other => panic!("a forged Tetra record reached the layout: {:?}", other.err()),
             },
+            CodeKind::Int4G128 => unreachable!("this file holds no int4 record"),
         }
     }
     // The bytes are otherwise untouched: the Ball record still decodes to its
@@ -437,34 +438,40 @@ fn a_ball_header_over_a_tetra_record_is_refused_at_the_record() {
 }
 
 // ---------------------------------------------------------------------------
-// 4 — the reserved tag
+// 4 — the third kind
 // ---------------------------------------------------------------------------
 
-/// Tag 2 is Q5's `int4 g128`, reserved by number and refused by this build —
-/// in a header's default, in its set, and in a record.
+/// Tag 2 is `Int4G128`, and the promise the number carried is kept.
 ///
-/// Reserving a number costs nothing and buys the one thing a format cannot
-/// retrofit: that Q5's files and this build's cannot disagree about what a 2
-/// meant. Until that writer exists the honest answer is a refusal.
+/// Reserving it cost nothing and bought the one thing a format cannot
+/// retrofit: that a file written while the tag was reserved and one written
+/// now cannot disagree about what a 2 meant. The record itself is
+/// `int4_format.rs`; what is checked here is that the number, the kind and
+/// the header's set moved together.
 #[test]
-fn the_reserved_int4_tag_is_refused() {
+fn the_int4_tag_is_the_int4_kind() {
     assert_eq!(RESERVED_INT4G128_TAG, 2);
-    for kind in CodeKind::ALL {
-        assert_ne!(kind.tag(), RESERVED_INT4G128_TAG, "{kind} took the reserved tag");
-    }
-    match CodeKind::from_tag(RESERVED_INT4G128_TAG) {
-        Err(Error::UnknownCodeKind { tag }) => assert_eq!(tag, RESERVED_INT4G128_TAG),
+    assert_eq!(CodeKind::Int4G128.tag(), RESERVED_INT4G128_TAG);
+    assert_eq!(CodeKind::from_tag(RESERVED_INT4G128_TAG).expect("tag 2"), CodeKind::Int4G128);
+    assert_eq!(CodeKind::ALL.len(), 3);
+    // The bit opens in the set by the same arithmetic, `1 << tag`.
+    let set = KindSet::from_bits(1 << RESERVED_INT4G128_TAG).expect("bit 2");
+    assert!(set.contains(CodeKind::Int4G128));
+    assert_eq!(set.to_string(), "Int4G128");
+    assert_eq!(
+        KindSet::from_bits(0b110).expect("Tetra+Int4G128").to_string(),
+        "Tetra+Int4G128"
+    );
+    // Tag 3 is the lowest one this build cannot name, and the message says 3.
+    match CodeKind::from_tag(3) {
+        Err(Error::UnknownCodeKind { tag }) => assert_eq!(tag, 3),
         other => panic!("expected UnknownCodeKind, got {:?}", other.map(|k| k.name())),
     }
-    match KindSet::from_bits(1 << RESERVED_INT4G128_TAG) {
-        Err(Error::UnknownCodeKind { tag }) => assert_eq!(tag, RESERVED_INT4G128_TAG),
+    match KindSet::from_bits(1 << 3) {
+        Err(Error::UnknownCodeKind { tag }) => assert_eq!(tag, 3),
         other => panic!("expected UnknownCodeKind, got {:?}", other.map(|s| s.to_string())),
     }
-    // The message says what the number is for, so an operator meeting a Q5
-    // file on an old build is told which half is missing.
-    let msg = KindSet::from_bits(1 << RESERVED_INT4G128_TAG).unwrap_err().to_string();
-    assert!(msg.contains("reserved"), "{msg}");
-    assert!(msg.contains("int4 g128"), "{msg}");
+    assert!(CodeKind::from_tag(3).unwrap_err().to_string().contains("Int4G128"));
     // And the known bits still parse, alone and together.
     assert_eq!(KindSet::from_bits(0b01).expect("Ball"), KindSet::BALL);
     assert_eq!(

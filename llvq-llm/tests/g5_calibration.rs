@@ -257,6 +257,7 @@ fn run(map: &VarMap, dev: &Device, k: Knobs) -> (Report, Vec<f32>) {
     let mut hidden = windows(dev);
     let cfg = RunConfig {
         h_shrink: 1.0,
+        int4_types: Vec::new(),
         gptq: GptqConfig {
             block: llvq_core::DIM,
             retract: true,

@@ -448,6 +448,13 @@ Against the served format, paired on the same questions: `Tetra` with `v_proj` i
 **Operator's decision, 2026-09-06: option B**, `v_proj` in int4 beside the `Tetra` matrices, **code only, no
 re-encoding**. B and C cost the same engineering, so B does not close C.
 
+Option B is integrated. Format v5 carries three kinds: `Ball`, `Tetra` and `Int4G128` at tag 2, the number that
+was reserved for it. A `.llvq` v5 can now hold `v_proj` at 4.250 b/weight beside its lattice matrices, and the
+writer, the reader, the resume walker and the run's own bit-for-bit verification all know the third kind
+(layout in [format-noyau](format-noyau.md) §5 bis). **No file has been re-encoded**, no run has been launched,
+and every published artifact still reads byte for byte. `LLVQ_INT4_TYPES` is empty by default, so a run that does
+not ask for int4 writes what it always wrote.
+
 What is not established: no arm is served, since `LLVQ_RESTORE_Q4` dequantizes to f16 before the matvec and
 `tv_q4_h.cu` has never run on a card; one calibration draw, one size, nothing at 8B; and the deficit B is
 said to buy back is itself unresolved, +2.59 pp with CI95 [−0.32; +5.58] over 650 discordant questions out
@@ -467,6 +474,9 @@ of 2,280.
   sight, which the bench of §5 sexies did. What is now open, and it is one decision: **step 6**, the served kernel
   `tv_tetra48` and the comparison bench with every kernel in its own grid on each card (2 to 4 days, ~$1). It turns
   the last computed figure: 1.390 GB on card, and a throughput nothing has measured, into a measured one.
+- Q5's served kernel. Nothing reads the kind 2: a mixed file loads by decoding to the run dtype, so it costs
+  4.250 b/weight on disk and 16 in VRAM for those matrices. The disk gain is real and no VRAM gain follows from
+  the format. `tv_q4_h.cu` is written and host-verified and has never run on a card.
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
