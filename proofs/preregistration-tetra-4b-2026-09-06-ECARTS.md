@@ -38,3 +38,46 @@ sur le Mac : ce sont des propriétés du fichier et de la course, pas du harnais
 Règle dure 10, `bin/oracle` avant tout chiffre : fait sur Metal et sur CPU, `max |Δhidden| = 0,000e0`
 des deux côtés sur le 4B (*mesuré*, 2026-09-06). C'est l'oracle du chemin d'**encodage**. L'oracle du
 chemin d'évaluation est celui de la carte, et il fait partie du job.
+
+## É3 — Le contrôle 0 échoue : l'encodeur ne reproduit plus le fichier publié
+
+Le §3 bis fait dépendre la lecture du préreg d'un contrôle : un bloc transformer réencodé en
+`leech1c12` aujourd'hui doit être identique octet pour octet au bloc 0 du fichier publié. **Il ne
+l'est pas** (*mesuré*, 2026-09-06, `llvq-bench/examples/driftcheck.rs`) :
+
+```
+  matrice                 queue                        gains          indices
+  q_proj    65 536 / 65 536 diffèrent   37 794 / 434 176   358 091 / 434 176
+  k_proj    16 384 / 16 384             9 455 / 108 544     89 574 / 108 544
+  v_proj    16 384 / 16 384             9 421 / 108 544     89 477 / 108 544
+  o_proj    40 960 / 40 960            52 171 / 435 200    380 580 / 435 200
+  gate      155 648 / 155 648         120 005 / 1 031 168   900 716 / 1 031 168
+  up        155 648 / 155 648         122 200 / 1 031 168   899 517 / 1 031 168
+  down       20 480 / 20 480          128 845 / 1 036 800   941 216 / 1 036 800
+```
+
+Ce qui est **identique** : dimensions, genre de code, cap de coquille, graine de rotation, centroïdes
+de gain, échelles de ligne. Ce qui diffère : la queue, les gains, 82 % des indices.
+
+La forme de l'écart le situe. La queue est faite de poids conservés exacts **après** la compensation
+GPTQ ; elle diffère de 42 à 56 % de la magnitude des poids en moyenne — ni du bruit numérique
+(1e-15), ni deux tirages indépendants (le rapport vaudrait 1,41). Les échelles de ligne et les
+centroïdes, invariants par rotation et calculés sur les poids seuls, sont intacts. **Ce sont donc les
+hessiennes qui diffèrent**, pas la rotation ni le quantificateur.
+
+Cause la plus probable, *non prouvée* : le commit `4a3e5f0` du 2026-08-26 a changé le volume de
+calibration demandé, de `c4_calibration(8_000_000)` à `c4_calibration(n_calib × calib_len × 6)`, soit
+786 432 caractères au lieu de 8 millions, et a remplacé un clamp silencieux par un `ensure!`. La
+ligne de journal d'aujourd'hui porte « 81 available » là où les 8 M caractères en offraient 847.
+
+**Portée du constat, au-delà de ce préreg** : le dépôt ne reproduit plus son propre artefact publié.
+La perplexité 16,9422 et le MMLU 55,59 de la campagne A4 ne sont comparables à aucun fichier encodé
+après le 2026-08-26, quel que soit son codebook.
+
+**Décision d'opérateur, 2026-09-06** : on continue sans témoin réencodé. Le préreg §3 bis
+prévoyait, si ce contrôle échouait, un arbitrage entre rejouer le témoin (4 h de Mac) et
+caractériser la dérive ; l'opérateur a tranché pour ni l'un ni l'autre. Conséquence, à porter partout
+où le chiffre de Tetra sera cité : **l'écart mesuré entre Tetra et le fichier publié contient le
+format ET la dérive du dépôt sur un mois, et rien ne les sépare.** Le contrôle 2 du §4 reste en
+place — le fichier publié est réévalué sur la carte dans le même job — mais il ne borne que la
+dérive du harnais d'évaluation, pas celle de l'encodeur.
