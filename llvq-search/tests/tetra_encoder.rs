@@ -1,14 +1,14 @@
-//! # The Trio encoder against the word map
+//! # The Tetra encoder against the word map
 //!
-//! What the encoder returns must be a Trio codeword and nothing else: its
-//! word must be the word `Trio::encode` gives its point, its point the point
-//! `Trio::decode` gives its word, in Λ₂₄, never the origin for a nonzero
+//! What the encoder returns must be a Tetra codeword and nothing else: its
+//! word must be the word `Tetra::encode` gives its point, its point the point
+//! `Tetra::decode` gives its word, in Λ₂₄, never the origin for a nonzero
 //! block. Its agreement with the bench's rule, and its retention, are in
-//! `llvq-bench/tests/trio_encoder.rs`, where the bench is visible.
+//! `llvq-bench/tests/tetra_encoder.rs`, where the bench is visible.
 
 use llvq_core::{Leech, SplitMix64, DIM};
-use llvq_search::trio::encoder::t_of;
-use llvq_search::trio::{Encoder, Scratch, Trio, LABEL_MASK};
+use llvq_search::tetra::encoder::t_of;
+use llvq_search::tetra::{Encoder, Scratch, Tetra, LABEL_MASK};
 
 /// Blocks per test: two thousand in release, two hundred in debug.
 const N: usize = if cfg!(debug_assertions) { 200 } else { 2_000 };
@@ -23,19 +23,19 @@ fn eval_blocks(n: usize) -> Vec<[f64; DIM]> {
 }
 
 /// (2) The word and the point of a code are the same object under the map:
-/// `Trio::encode(point) == Some(word)`, `Trio::decode(word) == point`, gain
+/// `Tetra::encode(point) == Some(word)`, `Tetra::decode(word) == point`, gain
 /// bit clear, `t` as stated.
 #[test]
 fn the_word_and_the_point_agree_with_the_map() {
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
     let mut sc = Scratch::new();
     for x in eval_blocks(N) {
         let code = enc.encode(&x, &mut sc);
         assert_eq!(code.word >> 47, 0, "the gain bit is set");
         assert_eq!(code.word & !LABEL_MASK, 0);
-        assert_eq!(trio.encode(&code.point), Some(code.word), "{:?}", code.point);
-        assert_eq!(trio.decode(code.word), code.point, "{:#014x}", code.word);
+        assert_eq!(tetra.encode(&code.point), Some(code.word), "{:?}", code.point);
+        assert_eq!(tetra.decode(code.word), code.point, "{:#014x}", code.word);
         assert_eq!(code.t, t_of(&x, &code.point));
         assert!(code.t.is_finite() && code.t > 0.0, "t = {} for a Gaussian block", code.t);
     }
@@ -49,8 +49,8 @@ fn the_word_and_the_point_agree_with_the_map() {
 /// alone.
 #[test]
 fn every_point_is_in_leech_and_never_the_origin() {
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
     let leech = Leech::new();
     let mut sc = Scratch::new();
     for (i, x) in eval_blocks(N).into_iter().enumerate() {
@@ -60,7 +60,7 @@ fn every_point_is_in_leech_and_never_the_origin() {
         assert!(leech.contains(&code.point), "block {i}: {:?} is outside Λ₂₄", code.point);
         assert_ne!(code.point, [0; DIM], "block {i} at scale {scale}: the origin");
         assert_ne!(code.word, 0);
-        assert_eq!(trio.encode(&code.point), Some(code.word), "block {i} at scale {scale}");
+        assert_eq!(tetra.encode(&code.point), Some(code.word), "block {i} at scale {scale}");
         assert!(code.point.iter().all(|v| v.abs() <= 10), "block {i}: {:?}", code.point);
         assert!(code.t > 0.0, "block {i} at scale {scale}: t = {}", code.t);
         // The code is a function of the direction: the same block at another
@@ -80,8 +80,8 @@ fn every_point_is_in_leech_and_never_the_origin() {
 /// winners on Gaussian blocks. A different pair is a different encoder.
 #[test]
 fn encode_is_the_better_of_its_two_scales() {
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
     let mut sc = Scratch::new();
     let mut wins = [0usize; 2];
     for x in eval_blocks(N) {
@@ -107,8 +107,8 @@ const _: () = assert!(Encoder::ALPHA > 0.2 && Encoder::ALPHA < 0.5 && Encoder::R
 fn the_encoder_is_shared_and_deterministic() {
     fn assert_sync<T: Sync + Send>() {}
     assert_sync::<Encoder>();
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
     let blocks = eval_blocks(N.min(400));
     let mut sc = Scratch::new();
     let first: Vec<_> = blocks.iter().map(|x| enc.encode(x, &mut sc)).collect();
@@ -127,18 +127,18 @@ fn the_encoder_is_shared_and_deterministic() {
     });
 }
 
-/// The truncated rule stays a Trio encoder: on blocks built so that two
+/// The truncated rule stays a Tetra encoder: on blocks built so that two
 /// coordinates of a section carry all its energy, and at a scale a hundred
 /// times too small — where three shrinks leave every middle pattern without
 /// a member and only the full rule's zero shrink finds one — every code is
-/// still a Trio codeword and never the origin. (Its `t` is not ordered
+/// still a Tetra codeword and never the origin. (Its `t` is not ordered
 /// against the full rule's: a farther point in the scaled metric can align
 /// better.)
 #[test]
 fn the_truncated_rule_stays_feasible() {
-    let trio = Trio::new();
-    let (full, cut) = (Encoder::new(&trio), Encoder::with_shrinks(&trio, 3));
-    let (leech, order) = (Leech::new(), *trio.order());
+    let tetra = Tetra::new();
+    let (full, cut) = (Encoder::new(&tetra), Encoder::with_shrinks(&tetra, 3));
+    let (leech, order) = (Leech::new(), *tetra.order());
     let mut rng = SplitMix64::new(0x7210_2026_0905_0011);
     let mut sc = Scratch::new();
     for i in 0..N {
@@ -160,7 +160,7 @@ fn the_truncated_rule_stays_feasible() {
         for code in [full.encode(&x, &mut sc), cut.encode(&x, &mut sc), cut.encode_at_scale(&x, tiny, &mut sc), full.encode_at_scale(&x, tiny, &mut sc)] {
             assert!(leech.contains(&code.point), "block {i}: outside Λ₂₄");
             assert_ne!(code.point, [0; DIM], "block {i}: the origin");
-            assert_eq!(trio.encode(&code.point), Some(code.word), "block {i}");
+            assert_eq!(tetra.encode(&code.point), Some(code.word), "block {i}");
         }
     }
 }

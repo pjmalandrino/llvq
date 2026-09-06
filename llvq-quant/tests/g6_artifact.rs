@@ -16,14 +16,14 @@ use llvq_quant::gptq::{
 use llvq_quant::linalg::GptqFactor;
 use llvq_quant::quantizer::{
     fit_gain_centroids, reconstruct_shape_gain, row_scale, BlockCode, BlockQuantizer,
-    LeechShapeGain, TrioShapeGain,
+    LeechShapeGain, TetraShapeGain,
 };
-use llvq_search::trio::Trio;
+use llvq_search::tetra::Tetra;
 
 const D_OUT: usize = 6;
 
 /// The two 48-bit direction codes the round trip has to hold for: the exact
-/// ball, and the Trio word map. They share their gain code, their per-row
+/// ball, and the Tetra word map. They share their gain code, their per-row
 /// scale and — the point of the exercise — their reconstruction, which is the
 /// single [`reconstruct_shape_gain`] both this test and `llvq_artifact`'s
 /// `decode_matrix` call.
@@ -32,15 +32,15 @@ enum Arm {
     /// The ball at the given shell cap: 13 for the full ball, 12 or 11 for
     /// the arms that buy gain bits with index bits.
     Ball(u32),
-    /// Trio, which has one gain bit and no cap to choose.
-    Trio,
+    /// Tetra, which has one gain bit and no cap to choose.
+    Tetra,
 }
 
 impl Arm {
     fn make(self, centroids: Vec<f64>) -> Box<dyn BlockQuantizer> {
         match self {
             Arm::Ball(cap) => Box::new(LeechShapeGain::with_shell_cap(centroids, cap)),
-            Arm::Trio => Box::new(TrioShapeGain::new(centroids)),
+            Arm::Tetra => Box::new(TetraShapeGain::new(centroids)),
         }
     }
 }
@@ -119,22 +119,22 @@ fn round_trip(d_in: usize, arm: Arm, gain_bits: u32, seed: u64) {
         .map(|i| row_scale(&base[i * d_in..(i + 1) * d_in]))
         .collect();
 
-    // A Trio matrix goes to disk as a 48-bit word and comes back as a point,
-    // so the decoder this test stands in for is `Trio::decode ∘ Trio::encode`
+    // A Tetra matrix goes to disk as a 48-bit word and comes back as a point,
+    // so the decoder this test stands in for is `Tetra::decode ∘ Tetra::encode`
     // and not the identity. Running the codes through it here is what pins
     // the writer's own refusal: `encode` returns `None` for anything the map
     // has no word for.
-    let trio = (arm == Arm::Trio).then(Trio::new);
+    let tetra = (arm == Arm::Tetra).then(Tetra::new);
 
     let mut block = vec![0.0f64; DIM];
     for i in 0..D_OUT {
         for p in 0..nblocks {
             let mut code = codes[i * nblocks + p].expect("checked above");
-            if let Some(trio) = &trio {
-                let word = trio
+            if let Some(tetra) = &tetra {
+                let word = tetra
                     .encode(&code.point)
                     .unwrap_or_else(|| panic!("row {i}, block {p}: the map has no word for {:?}", code.point));
-                code.point = trio.decode(word);
+                code.point = tetra.decode(word);
             }
             reconstruct_shape_gain(&code, &centroids, scales[i], &mut block);
             let want = &w.w[i * d_in + p * DIM..i * d_in + (p + 1) * DIM];
@@ -185,25 +185,25 @@ fn codes_reconstruct_bit_for_bit_beside_a_tail() {
 }
 
 #[test]
-fn codes_reconstruct_the_layer_bit_for_bit_on_trio() {
-    // The step-2 gate: same property, same loop, the Trio word map instead of
+fn codes_reconstruct_the_layer_bit_for_bit_on_tetra() {
+    // The step-2 gate: same property, same loop, the Tetra word map instead of
     // the ball. The reconstruction is the same function on both sides, so what
     // this actually exercises is the encoder's point — its order, its
     // membership of the map, and the level the gain code picked for it.
-    round_trip(4 * DIM, Arm::Trio, 1, 0x6_A007);
+    round_trip(4 * DIM, Arm::Tetra, 1, 0x6_A007);
 }
 
 #[test]
-fn codes_reconstruct_bit_for_bit_on_trio_beside_a_tail() {
+fn codes_reconstruct_bit_for_bit_on_tetra_beside_a_tail() {
     // 100 = 24·4 + 4, as for the ball: the four coded blocks round-trip and
     // the tail is stored verbatim.
-    round_trip(100, Arm::Trio, 1, 0x6_A008);
+    round_trip(100, Arm::Tetra, 1, 0x6_A008);
 }
 
 /// Both 48-bit arms take the same three-block layer through the loop and
 /// leave a finite, comparable residual.
 ///
-/// This is a sanity check on the *pair*, not a quality claim: Trio's rule is
+/// This is a sanity check on the *pair*, not a quality claim: Tetra's rule is
 /// not the exact nearest neighbour, so its residual is expected to be the
 /// larger of the two, and the number that decides anything is a perplexity.
 /// What would fail here is an arm that returns NaN, or one whose residual is
@@ -234,9 +234,9 @@ fn both_arms_leave_finite_residuals_on_three_blocks() {
         w.w.iter().zip(base.iter()).map(|(a, b)| (a - b) * (a - b)).sum::<f64>()
     };
     let energy: f64 = base.iter().map(|a| a * a).sum();
-    let (ball, trio) = (residual(Arm::Ball(12)), residual(Arm::Trio));
-    println!("3 blocks × {D_OUT} rows: ball-12 residual {ball:.6e}, Trio {trio:.6e}, energy {energy:.6e}");
-    for (arm, r) in [("ball-12", ball), ("Trio", trio)] {
+    let (ball, tetra) = (residual(Arm::Ball(12)), residual(Arm::Tetra));
+    println!("3 blocks × {D_OUT} rows: ball-12 residual {ball:.6e}, Tetra {tetra:.6e}, energy {energy:.6e}");
+    for (arm, r) in [("ball-12", ball), ("Tetra", tetra)] {
         assert!(r.is_finite() && r > 0.0, "{arm}: residual {r} is not a finite loss");
         assert!(r < 0.5 * energy, "{arm}: residual {r:.3e} against {energy:.3e} of signal — the direction code is not being used");
     }
@@ -272,10 +272,10 @@ fn parallel_capture_matches_serial_capture() {
     };
     let nblocks = d_in / DIM;
 
-    // One Trio encoder for the whole test: `make_quantizer` runs once per
+    // One Tetra encoder for the whole test: `make_quantizer` runs once per
     // thread and per call, and the encoder's tables cost ~10 ms to build.
     // Sharing them is also what `llvq-llm` will do on a real layer.
-    let shared = TrioShapeGain::encoder();
+    let shared = TetraShapeGain::encoder();
 
     let run = |arm: Arm, threads: usize| -> (Vec<f64>, Vec<Option<BlockCode>>) {
         let mut w = Weights::new(d_out, d_in, base.clone());
@@ -285,7 +285,7 @@ fn parallel_capture_matches_serial_capture() {
         let make = move || -> Box<dyn BlockQuantizer> {
             match arm {
                 Arm::Ball(cap) => Box::new(LeechShapeGain::with_shell_cap(cs.clone(), cap)),
-                Arm::Trio => Box::new(TrioShapeGain::with_encoder(shared.clone(), cs.clone())),
+                Arm::Tetra => Box::new(TetraShapeGain::with_encoder(shared.clone(), cs.clone())),
             }
         };
         llvq_quant::gptq::quantize_layer_parallel_capturing(
@@ -300,7 +300,7 @@ fn parallel_capture_matches_serial_capture() {
         (w.w, codes)
     };
 
-    for arm in [Arm::Ball(12), Arm::Trio] {
+    for arm in [Arm::Ball(12), Arm::Tetra] {
         let (w1, c1) = run(arm, 1);
         for threads in [2usize, 3, 4, 8] {
             let (wn, cn) = run(arm, threads);

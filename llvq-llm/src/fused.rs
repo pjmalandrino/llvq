@@ -1578,9 +1578,9 @@ impl Transcoder {
     }
 
     /// [`Self::new`] under the file's [`CodeKind`]. Every layout here is a
-    /// rearrangement of a v1 ball index; a Trio header is refused at the
+    /// rearrangement of a v1 ball index; a Tetra header is refused at the
     /// table, before a single block is looked at, with the artifact crate's
-    /// own words — `trio48`, the served Trio layout, is F1d's
+    /// own words — `tetra48`, the served Tetra layout, is F1d's
     /// (`docs/ROADMAP.md` §2.2 quater, step 6). Portable: this is the side of
     /// the boundary a test on a machine without a card reaches.
     pub fn for_kind(layout: FusedLayout, kind: CodeKind) -> Result<Self, String> {
@@ -1768,7 +1768,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         ));
     }
 
-    // The header's whole set of kinds, not its default: one Trio matrix among
+    // The header's whole set of kinds, not its default: one Tetra matrix among
     // four hundred Ball ones is a file this path cannot serve, and the refusal
     // has to land here, before any record is read through `read_matrix_raw` as
     // a Ball record.
@@ -1783,7 +1783,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
         let m = llvq_artifact::read_matrix_raw(&mut r, head.version).map_err(|e| e.to_string())?;
         // The record's own kind, not only the header's set: the set is a
         // declaration, and a file whose header under-reports it would reach
-        // the transcoder here with a Trio record in hand.
+        // the transcoder here with a Tetra record in hand.
         llvq_artifact::runtime::require_ball(m.kind, layout.name()).map_err(|e| e.to_string())?;
         // Every decoder hard-codes one gain bit (`hdr >> 9`). A file with a
         // different gain width would transcode into a coherent stream and
@@ -1907,22 +1907,22 @@ mod tests {
         }
     }
 
-    /// A Trio header has no runtime layout before F1d: every arm of
+    /// A Tetra header has no runtime layout before F1d: every arm of
     /// [`Transcoder::for_kind`] refuses it with the artifact crate's words,
     /// and the Ball arm is `new` — same tables, same layout.
     #[test]
-    fn a_trio_file_has_no_runtime_layout_before_f1d() {
+    fn a_tetra_file_has_no_runtime_layout_before_f1d() {
         for layout in [
             FusedLayout::Planes14,
             FusedLayout::Planes12x,
             FusedLayout::Slot32,
             FusedLayout::Golay70,
         ] {
-            let e = Transcoder::for_kind(layout, CodeKind::Trio)
+            let e = Transcoder::for_kind(layout, CodeKind::Tetra)
                 .err()
-                .unwrap_or_else(|| panic!("{}: a Trio header must be refused", layout.name()));
+                .unwrap_or_else(|| panic!("{}: a Tetra header must be refused", layout.name()));
             assert!(
-                e.contains("no runtime layout for Trio before F1d"),
+                e.contains("no runtime layout for Tetra before F1d"),
                 "{}: the refusal must say why: {e}",
                 layout.name()
             );

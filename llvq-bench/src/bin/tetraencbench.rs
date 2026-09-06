@@ -1,12 +1,12 @@
-//! Single-core throughput of the Trio encoder beside `nearest_angular`, in
+//! Single-core throughput of the Tetra encoder beside `nearest_angular`, in
 //! one process — `encbench`'s model (F1c's encoder line, roadmap §2.2).
 //!
-//! Usage: `nice -n 10 cargo run --release -p llvq-bench --bin trioencbench [-- n seed]`
+//! Usage: `nice -n 10 cargo run --release -p llvq-bench --bin tetraencbench [-- n seed]`
 //!
 //! The gate is encoder against encoder: F1c's 656 µs/block/core is the
 //! served ball encoder's own figure (`encbench`, `docs/HISTORIQUE.md`), so
 //! `nearest_angular` runs here on the same blocks and the two numbers stand
-//! side by side. Kill: the Trio median over 656. Blocks at mixed scales as
+//! side by side. Kill: the Tetra median over 656. Blocks at mixed scales as
 //! in `encbench`, 2,000 by default; five runs of the whole set, the median
 //! reported with the range; a checksum per line so that a speedup that moves
 //! a single point is visible.
@@ -15,7 +15,7 @@ use llvq_bench::gauss_block;
 use llvq_core::leech::DIM;
 use llvq_core::SplitMix64;
 use llvq_search::generic::BallSearcher;
-use llvq_search::trio::{Encoder, Scratch, Trio};
+use llvq_search::tetra::{Encoder, Scratch, Tetra};
 use llvq_search::Searcher;
 use std::time::Instant;
 
@@ -31,7 +31,7 @@ fn main() {
 
     let mut rng = SplitMix64::new(seed);
     // Mixed scales, as `encbench`: the adaptive scale removes the dependence
-    // for Trio, the angular search never had one — the same set serves both.
+    // for Tetra, the angular search never had one — the same set serves both.
     let mixed: Vec<[f64; DIM]> = (0..n)
         .map(|i| {
             let scale = 0.5 + 0.25 * (i % 8) as f64;
@@ -44,13 +44,13 @@ fn main() {
         .collect();
 
     let t0 = Instant::now();
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
-    let enc3 = Encoder::with_shrinks(&trio, 3);
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
+    let enc3 = Encoder::with_shrinks(&tetra, 3);
     let mut scratch = Scratch::new();
     let s = Searcher::new();
     let mut ball = BallSearcher::new();
-    println!("trioencbench — {n} blocs N(0,1) à échelles mixtes, graine {seed:#x}, un cœur, médiane de {RUNS} passes   (tables prêtes en {:.2} s)\n", t0.elapsed().as_secs_f64());
+    println!("tetraencbench — {n} blocs N(0,1) à échelles mixtes, graine {seed:#x}, un cœur, médiane de {RUNS} passes   (tables prêtes en {:.2} s)\n", t0.elapsed().as_secs_f64());
 
     // Warm-up: page in the tables, settle the branch predictor.
     for x in mixed.iter().take(n.min(64)) {
@@ -86,14 +86,14 @@ fn main() {
         median
     };
 
-    let trio_us = time("Trio encode, 2 scales, bench rule", &mut |x| enc.encode(x, &mut scratch).t);
-    let trio3_us = time("Trio encode, 2 scales, rule cut at 3 shrinks", &mut |x| enc3.encode(x, &mut scratch).t);
-    time("Trio encode_at_scale, 1 scale (s₀)", &mut |x| enc.encode_at_scale(x, Encoder::lower_scale(x).1, &mut scratch).t);
+    let tetra_us = time("Tetra encode, 2 scales, bench rule", &mut |x| enc.encode(x, &mut scratch).t);
+    let tetra3_us = time("Tetra encode, 2 scales, rule cut at 3 shrinks", &mut |x| enc3.encode(x, &mut scratch).t);
+    time("Tetra encode_at_scale, 1 scale (s₀)", &mut |x| enc.encode_at_scale(x, Encoder::lower_scale(x).1, &mut scratch).t);
     let angular_us = time("nearest_angular (Q_dir), the served encoder", &mut |x| ball.nearest_angular(&s, x).dot);
 
     println!(
-        "\nporte F1c (encodeur seul, ≤ {GATE_US:.0} µs/block/core) : Trio {trio_us:.1} → {}   ({:.2} de la porte ; règle tronquée {trio3_us:.1} ; nearest_angular {angular_us:.1} dans le même processus)",
-        if trio_us <= GATE_US { "PASSE" } else { "TUÉ" },
-        trio_us / GATE_US
+        "\nporte F1c (encodeur seul, ≤ {GATE_US:.0} µs/block/core) : Tetra {tetra_us:.1} → {}   ({:.2} de la porte ; règle tronquée {tetra3_us:.1} ; nearest_angular {angular_us:.1} dans le même processus)",
+        if tetra_us <= GATE_US { "PASSE" } else { "TUÉ" },
+        tetra_us / GATE_US
     );
 }

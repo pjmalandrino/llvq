@@ -140,7 +140,7 @@ impl ClassTable {
     }
 
     /// [`Self::new`] under the file's kind: the table describes the 383
-    /// classes of the v1 ball, so a Trio header gets [`require_ball`]'s
+    /// classes of the v1 ball, so a Tetra header gets [`require_ball`]'s
     /// refusal and no table.
     pub fn for_kind(kind: CodeKind, fd: &FastDecoder, gain_bits: u32) -> Result<Self> {
         require_ball(kind, "ClassTable")?;
@@ -1334,7 +1334,7 @@ impl Golay70Table {
     }
 
     /// [`Self::new`] under the file's kind — a class table of the v1 ball,
-    /// refused for a Trio header by [`require_ball`].
+    /// refused for a Tetra header by [`require_ball`].
     pub fn for_kind(kind: CodeKind, fd: &FastDecoder) -> Result<Self> {
         require_ball(kind, "Golay70Table")?;
         Ok(Self::new(fd))
@@ -1652,11 +1652,11 @@ pub fn transcode_golay70(
 /// Every layout of this crate — the five [`Layout`]s, `Planes14`,
 /// `Planes12x`, `Golay70`, and `E1c`/`E1v` built on them — is a
 /// rearrangement of a v1 ball index: a class of the 383 and an arrangement
-/// inside it. A Trio word ([`llvq_search::trio`]) names no class; pushed
+/// inside it. A Tetra word ([`llvq_search::tetra`]) names no class; pushed
 /// through any of them it would transcode into a coherent stream of some
 /// other file's blocks, and the only symptom would be a wrong number. The
-/// served Trio layout, `trio48`, is F1d's (`docs/ROADMAP.md` §2.2 quater,
-/// step 6); until it exists the honest answer to a Trio record is this
+/// served Tetra layout, `tetra48`, is F1d's (`docs/ROADMAP.md` §2.2 quater,
+/// step 6); until it exists the honest answer to a Tetra record is this
 /// refusal, at every kind-aware entry — the `*_for_kind` twins of the
 /// transcoders and table builders — with `what` naming the layout or table.
 ///
@@ -1666,9 +1666,9 @@ pub fn transcode_golay70(
 pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
     match kind {
         CodeKind::Ball => Ok(()),
-        CodeKind::Trio => Err(Error::Inconsistent {
+        CodeKind::Tetra => Err(Error::Inconsistent {
             name: what.to_string(),
-            detail: "no runtime layout for Trio before F1d".to_string(),
+            detail: "no runtime layout for Tetra before F1d".to_string(),
         }),
     }
 }
@@ -1676,18 +1676,18 @@ pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
 /// [`require_ball`] for a whole file, from its header's [`KindSet`].
 ///
 /// This is the one a tool calls at the header, and the default kind is not: a
-/// file whose records are Trio except for four int4 ones has a Trio default
+/// file whose records are Tetra except for four int4 ones has a Tetra default
 /// and is no more transcodable for it. The set is in the header, so the
 /// refusal costs the bytes of a header and lands before the first record —
 /// the difference between a tool that stops and one that prints a number
 /// about nothing. The message names the first kind that has no layout, so a
-/// Trio-only file refuses with exactly the sentence [`require_ball`] gives.
+/// Tetra-only file refuses with exactly the sentence [`require_ball`] gives.
 ///
 /// It does not replace the per-record gate, and the two cover different
 /// failures. The set is a **declaration**, enforced when the file is written
 /// ([`crate::Error::KindNotDeclared`]); a file this crate did not write can
 /// under-report it, and then only the record's own kind is left
-/// (`a_ball_header_over_a_trio_record_is_refused_at_the_record`). A tool that
+/// (`a_ball_header_over_a_tetra_record_is_refused_at_the_record`). A tool that
 /// walks records calls this first, for the early stop, and [`require_ball`]
 /// on each record it is about to transcode.
 pub fn require_ball_kinds(kinds: KindSet, what: &str) -> Result<()> {

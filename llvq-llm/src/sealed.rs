@@ -400,8 +400,8 @@ pub fn load_with_restored(
     );
 
     // One lazy map per code kind. A sealed v1/v4 file is Ball throughout and
-    // never builds Trio's tables; a v5 file is read through the map each
-    // record names, which is what lets a Trio file — and later a mixed one —
+    // never builds Tetra's tables; a v5 file is read through the map each
+    // record names, which is what lets a Tetra file — and later a mixed one —
     // load here with no second reader.
     let cbs = llvq_artifact::Codebooks::new();
     let mut tensors: HashMap<String, Tensor> = HashMap::new();

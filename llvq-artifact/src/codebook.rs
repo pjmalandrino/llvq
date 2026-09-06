@@ -48,32 +48,32 @@
 //!
 //! ## The second map
 //!
-//! From `LVQ5` on a file also names its [`crate::CodeKind`], and a Trio file's
-//! words are read through [`llvq_search::trio`] — a map with its own tables
-//! and its own ways to move. [`trio_fingerprint`] digests it on the same
-//! recipe: the inputs (trio, rows, columns, widths, split) and `decode` at
+//! From `LVQ5` on a file also names its [`crate::CodeKind`], and a Tetra file's
+//! words are read through [`llvq_search::tetra`] — a map with its own tables
+//! and its own ways to move. [`tetra_fingerprint`] digests it on the same
+//! recipe: the inputs (tetra, rows, columns, widths, split) and `decode` at
 //! probed words. Both fingerprints sit in a v5 header and both are checked,
 //! whichever kind the file is: the header describes the build that wrote it.
 
 use llvq_core::{Golay, DIM};
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 use llvq_search::index::{Indexer, N13};
-use llvq_search::trio::{Trio, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, TRIO, WORD_BITS};
+use llvq_search::tetra::{Tetra, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, TRIO, WORD_BITS};
 use std::sync::OnceLock;
 
 /// Domain tag — so this digest can never collide with another use of FNV in
 /// the tree, and so that changing what is hashed is itself a visible change.
 const DOMAIN: &[u8] = b"llvq codebook fingerprint v1";
 
-/// Domain tag of the Trio map's digest ([`trio_fingerprint`]) — a different
+/// Domain tag of the Tetra map's digest ([`tetra_fingerprint`]) — a different
 /// map under the same recipe, and never the same number by construction.
-const TRIO_DOMAIN: &[u8] = b"llvq codebook fingerprint trio v1";
+const TETRA_DOMAIN: &[u8] = b"llvq codebook fingerprint tetra v1";
 
-/// Scrambled probe words of the Trio digest, on top of the two edge words.
-/// Sixty-four, against the ball's two per class: Trio has no classes to
+/// Scrambled probe words of the Tetra digest, on top of the two edge words.
+/// Sixty-four, against the ball's two per class: Tetra has no classes to
 /// spread probes over, and its word is what the card reads, so the probes
 /// are what pin the trellis walk, the row lookups and the field cuts at once.
-const TRIO_SCRAMBLED_PROBES: u64 = 64;
+const TETRA_SCRAMBLED_PROBES: u64 = 64;
 
 const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -204,16 +204,16 @@ pub fn codebook_fingerprint() -> u64 {
     *FINGERPRINT.get_or_init(compute)
 }
 
-/// Fold one Trio word and the point it decodes to into the digest. Every
+/// Fold one Tetra word and the point it decodes to into the digest. Every
 /// 47-bit label decodes, so there is no `None` arm to record.
-fn trio_probe(h: &mut Fnv, trio: &Trio, word: u64) {
+fn tetra_probe(h: &mut Fnv, tetra: &Tetra, word: u64) {
     h.u64(word);
-    for v in trio.decode(word) {
+    for v in tetra.decode(word) {
         h.i32(v);
     }
 }
 
-/// The Trio map, on the v1 recipe: the inputs that determine it — the trio
+/// The Tetra map, on the v1 recipe: the inputs that determine it — the trio
 /// of octads, the 4,096 rows, the twelve F₂ columns, the field widths, the
 /// mixed split — and then `decode` itself at probed words, so a change to
 /// the walk or the field cuts that left every table intact still moves it.
@@ -221,9 +221,9 @@ fn trio_probe(h: &mut Fnv, trio: &Trio, word: u64) {
 /// (`2⁴⁷ − 1`: every field at its maximum at once); the scrambled ones come
 /// from the same [`mix`] as the ball's, seeded away from 0 so none of them
 /// is the origin again.
-fn compute_trio() -> u64 {
+fn compute_tetra() -> u64 {
     let mut h = Fnv::new();
-    h.bytes(TRIO_DOMAIN);
+    h.bytes(TETRA_DOMAIN);
     h.u64(DIM as u64);
     h.u64(u64::from(WORD_BITS));
     h.u64(u64::from(LABEL_BITS));
@@ -232,8 +232,8 @@ fn compute_trio() -> u64 {
         h.u64(u64::from(octad));
     }
 
-    let trio = Trio::new();
-    let rows = trio.rows();
+    let tetra = Tetra::new();
+    let rows = tetra.rows();
     h.u64(rows.len() as u64);
     for &row in rows.iter() {
         h.u64(u64::from(row));
@@ -243,22 +243,22 @@ fn compute_trio() -> u64 {
         h.u64(u64::from(col));
     }
 
-    trio_probe(&mut h, &trio, 0);
-    trio_probe(&mut h, &trio, LABEL_MASK);
-    for k in 0..TRIO_SCRAMBLED_PROBES {
-        trio_probe(&mut h, &trio, mix(1 + k) & LABEL_MASK);
+    tetra_probe(&mut h, &tetra, 0);
+    tetra_probe(&mut h, &tetra, LABEL_MASK);
+    for k in 0..TETRA_SCRAMBLED_PROBES {
+        tetra_probe(&mut h, &tetra, mix(1 + k) & LABEL_MASK);
     }
     h.0
 }
 
-/// Fingerprint of the Trio map **this build** reads a v5 Trio file through
-/// ([`crate::CodeKind::Trio`]).
+/// Fingerprint of the Tetra map **this build** reads a v5 Tetra file through
+/// ([`crate::CodeKind::Tetra`]).
 ///
 /// Same contract as [`codebook_fingerprint`], same failure it refuses: a
-/// Trio word from another build's map is in range and decodes to a lattice
+/// Tetra word from another build's map is in range and decodes to a lattice
 /// point here, and it is the wrong one. Computed once per process (one
-/// [`Trio::new`], which re-derives and asserts its tables, and 66 decodes).
-pub fn trio_fingerprint() -> u64 {
+/// [`Tetra::new`], which re-derives and asserts its tables, and 66 decodes).
+pub fn tetra_fingerprint() -> u64 {
     static FINGERPRINT: OnceLock<u64> = OnceLock::new();
-    *FINGERPRINT.get_or_init(compute_trio)
+    *FINGERPRINT.get_or_init(compute_tetra)
 }

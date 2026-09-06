@@ -1,6 +1,6 @@
-//! The production Trio encoder: the bench's rank-region rule at a few
+//! The production Tetra encoder: the bench's rank-region rule at a few
 //! hundred microseconds a block on one core — `llvq-bench/examples/f1enclazy.rs`
-//! brought into the dependency-free crate and written against [`Trio`]
+//! brought into the dependency-free crate and written against [`Tetra`]
 //! (roadmap §2.2 quater, step 1).
 //!
 //! ## The rule it reproduces
@@ -40,7 +40,7 @@
 //! on different points of the same cost. Checked point for point against
 //! the yardstick on the 2,000 evaluation blocks at three scales — 6,000 of
 //! 6,000 pairs at the bench's own point on 2026-09-05, no tie observed, but
-//! the test accepts one at equal cost (`llvq-bench/tests/trio_encoder.rs`).
+//! the test accepts one at equal cost (`llvq-bench/tests/tetra_encoder.rs`).
 //!
 //! ## The two scales
 //!
@@ -48,7 +48,7 @@
 //! block beyond what `‖x‖` predicts. [`Encoder::encode`] runs two adaptive
 //! scales, `ALPHA·‖x‖/√24` and `RATIO` times it, and keeps the point of larger
 //! `t = ⟨x, y⟩/‖y‖`. The pair is pinned on the 4,000 TRAINING blocks of the
-//! F1b seed by `llvq-bench/examples/trioscales.rs` ([`Encoder::ALPHA`]); the
+//! F1b seed by `llvq-bench/examples/tetrascales.rs` ([`Encoder::ALPHA`]); the
 //! prototype had fixed it on the evaluation blocks.
 //!
 //! ## Orders and the word
@@ -57,13 +57,13 @@
 //! trio order, works there, and returns the point in natural order together
 //! with its word. The point is assembled by the decoder's own formula from
 //! the `(p, pattern, row)` it chose — `val(p + 2·c_j, ρ_j)` — and the word
-//! from the same three rows, so `Trio::decode(word) == point` holds by
-//! construction; `Trio::encode(&point) == Some(word)` is what the tests pin.
+//! from the same three rows, so `Tetra::decode(word) == point` holds by
+//! construction; `Tetra::encode(&point) == Some(word)` is what the tests pin.
 //! The origin carries `t = −∞` (the bench's `t_of`), so a scale that lands
 //! there never wins; `encode` reaches it only for `x = 0`.
 
 use super::trellis::{BRANCHES, GOLAY_STATES};
-use super::{pack, rank_class, rank_of, unpack, val, Bound, Fields, Trio, CLASS_BOUNDS, CLASS_ROWS, MIXED_BOUND, N0_MIXED, SECTION};
+use super::{pack, rank_class, rank_of, unpack, val, Bound, Fields, Tetra, CLASS_BOUNDS, CLASS_ROWS, MIXED_BOUND, N0_MIXED, SECTION};
 use llvq_core::DIM;
 
 /// The shrinks of the candidate rule, in the order the bench applies them.
@@ -304,7 +304,7 @@ impl Default for Scratch {
 /// A block's code: the word (gain bit 0), the point in natural order, and
 /// `t = ⟨x, y⟩/‖y‖` — `−∞` on the origin.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TrioCode {
+pub struct TetraCode {
     pub word: u64,
     pub point: [i32; DIM],
     pub t: f64,
@@ -359,9 +359,9 @@ pub struct Encoder {
 
 impl Encoder {
     /// Lower adaptive scale, `s₀ = ALPHA·‖x‖/√24`. Pinned on the 4,000
-    /// TRAINING blocks of the F1b seed by `llvq-bench/examples/trioscales.rs`
+    /// TRAINING blocks of the F1b seed by `llvq-bench/examples/tetrascales.rs`
     /// on 2026-09-05, before the evaluation blocks were read (the raw output
-    /// is `trioscales-2026-09-05.txt` in the session's scratchpad):
+    /// is `tetrascales-2026-09-05.txt` in the session's scratchpad):
     ///
     /// ```text
     /// (a) grille 18 points 0,10·1,14^i, encodeur du banc : rétention 88.73 %
@@ -374,11 +374,11 @@ impl Encoder {
     ///   gagnante : (α*, 1,14·α*) à 88.58 %   →   ALPHA = 0.3218, RATIO = 1.1400
     /// les 2000 blocs d'ÉVALUATION, lus une fois :
     ///   témoin boule-12 + 1 bit de gain : rétention 92.00 %
-    ///   Trio, paire gagnante (α*, 1,14·α*) : rétention 88.89 %   Δ témoin -3.11 pp
+    ///   Tetra, paire gagnante (α*, 1,14·α*) : rétention 88.89 %   Δ témoin -3.11 pp
     /// ```
     ///
     /// Gaussian retention at 2.000 b/dim on fixed blocks, not a quality
-    /// claim; `llvq-bench/tests/trio_encoder.rs` guards the 88.89 as a
+    /// claim; `llvq-bench/tests/tetra_encoder.rs` guards the 88.89 as a
     /// non-regression. The prototype's eval-fixed 0.321 lands on the same
     /// 88.89 (same output, last line): the choice is flat around `α*`.
     pub const ALPHA: f64 = 0.3218;
@@ -387,21 +387,21 @@ impl Encoder {
     pub const RATIO: f64 = 1.14;
 
     /// The bench's rule.
-    pub fn new(trio: &Trio) -> Self {
-        Self::with_rule(trio, Rule::BENCH)
+    pub fn new(tetra: &Tetra) -> Self {
+        Self::with_rule(tetra, Rule::BENCH)
     }
 
     /// The rule truncated to `n` shrinks on every section — the prototype's
     /// fast configuration. A middle entry the truncated rule leaves without
     /// a member is re-solved under the full rule, so every `(pattern, δ)`
     /// stays feasible and the origin stays unreachable for `x ≠ 0`.
-    pub fn with_shrinks(trio: &Trio, n: usize) -> Self {
+    pub fn with_shrinks(tetra: &Tetra, n: usize) -> Self {
         assert!(n >= 1, "the rule needs its first shrink");
-        Self::with_rule(trio, Rule { end: n.min(END_SHRINKS), mid: n.min(MID_SHRINKS) })
+        Self::with_rule(tetra, Rule { end: n.min(END_SHRINKS), mid: n.min(MID_SHRINKS) })
     }
 
-    fn with_rule(trio: &Trio, rule: Rule) -> Self {
-        let (prefixes, suffixes, branches) = (*trio.prefixes(), *trio.suffixes(), *trio.branches());
+    fn with_rule(tetra: &Tetra, rule: Rule) -> Self {
+        let (prefixes, suffixes, branches) = (*tetra.prefixes(), *tetra.suffixes(), *tetra.branches());
 
         // The eight middle-byte sets, in order of first appearance.
         let mut msets: Vec<[u8; BRANCHES]> = Vec::new();
@@ -427,7 +427,7 @@ impl Encoder {
         let ranks: [[u8; 2 * K_REACH as usize + 1]; 4] =
             core::array::from_fn(|o| core::array::from_fn(|i| rank_of(o as u32, o as i32 + 4 * (i as i32 - K_REACH)).map_or(RANK_NONE, |r| r as u8)));
 
-        let rows = trio.rows();
+        let rows = tetra.rows();
         let mut index: Vec<(u32, u16)> = rows.iter().enumerate().map(|(i, &w)| (w, i as u16)).collect();
         index.sort_unstable();
 
@@ -458,7 +458,7 @@ impl Encoder {
         }
 
         Self {
-            order: *trio.order(),
+            order: *tetra.order(),
             prefixes,
             suffixes,
             branches,
@@ -806,7 +806,7 @@ impl Encoder {
 
     /// The word and the point of a winner: the point by the decoder's own
     /// formula from `(p, byte, row)`, the word from the rows' positions.
-    fn code_of(&self, x: &[f64; DIM], w: &Winner) -> TrioCode {
+    fn code_of(&self, x: &[f64; DIM], w: &Winner) -> TetraCode {
         let [(c1, k1), (c2, k2), (c3, k3)] = w.sections;
         let b1 = self.prefixes[w.s8].iter().position(|&b| b == c1).expect("a prefix byte of s8");
         let b2 = self.branches[w.s8].iter().position(|&(b, _)| b == c2).expect("a branch byte of s8");
@@ -842,13 +842,13 @@ impl Encoder {
                 point[self.order[SECTION * k + j] as usize] = v;
             }
         }
-        TrioCode { word, point, t: t_of(x, &point) }
+        TetraCode { word, point, t: t_of(x, &point) }
     }
 
-    /// The rule's answer at scale `s`: the nearest Trio point to `x/s` over
+    /// The rule's answer at scale `s`: the nearest Tetra point to `x/s` over
     /// both block parities, its word and its `t`. For tests and for the
     /// scale study; `encode` is the production call.
-    pub fn encode_at_scale(&self, x: &[f64; DIM], s: f64, scratch: &mut Scratch) -> TrioCode {
+    pub fn encode_at_scale(&self, x: &[f64; DIM], s: f64, scratch: &mut Scratch) -> TetraCode {
         assert!(s > 0.0 && s.is_finite(), "scale {s} is not a positive finite number");
         let targets: [[f64; SECTION]; 3] = core::array::from_fn(|k| core::array::from_fn(|j| x[self.order[SECTION * k + j] as usize] / s));
         let mut best: Option<Winner> = None;
@@ -873,10 +873,10 @@ impl Encoder {
     /// overflows, and a block so small that its scale would not be a normal
     /// number is encoded as its unit-max multiple — the code is a function
     /// of the direction, `t` scales back.
-    pub fn encode(&self, x: &[f64; DIM], scratch: &mut Scratch) -> TrioCode {
+    pub fn encode(&self, x: &[f64; DIM], scratch: &mut Scratch) -> TetraCode {
         let (m, s0) = Self::lower_scale(x);
         if m == 0.0 {
-            return TrioCode { word: 0, point: [0; DIM], t: f64::NEG_INFINITY };
+            return TetraCode { word: 0, point: [0; DIM], t: f64::NEG_INFINITY };
         }
         if s0.is_normal() {
             return self.two_scales(x, s0, scratch);
@@ -898,7 +898,7 @@ impl Encoder {
         (m, Self::ALPHA * m * unit_norm / (DIM as f64).sqrt())
     }
 
-    fn two_scales(&self, x: &[f64; DIM], s0: f64, scratch: &mut Scratch) -> TrioCode {
+    fn two_scales(&self, x: &[f64; DIM], s0: f64, scratch: &mut Scratch) -> TetraCode {
         let a = self.encode_at_scale(x, s0, scratch);
         let b = self.encode_at_scale(x, s0 * Self::RATIO, scratch);
         if b.t > a.t {
@@ -975,7 +975,7 @@ mod tests {
     /// are the decoder's.
     #[test]
     fn the_rank_table_inverts_val() {
-        let e = Encoder::new(&Trio::new());
+        let e = Encoder::new(&Tetra::new());
         for o in 0..4u32 {
             for k in -K_REACH..=K_REACH {
                 let r = e.ranks[o as usize][(k + K_REACH) as usize];
@@ -995,9 +995,9 @@ mod tests {
     /// rule, checked by enumerating the members of a few regions in full.
     #[test]
     fn the_fallbacks_are_the_least_norm_members() {
-        let trio = Trio::new();
-        let e = Encoder::new(&trio);
-        let rows = trio.rows();
+        let tetra = Tetra::new();
+        let e = Encoder::new(&tetra);
+        let rows = tetra.rows();
         for (kind, p, r, state) in [(0usize, 0u32, 0usize, 0usize), (0, 1, 1, 17), (1, 0, 1, 63), (1, 1, 0, 5)] {
             let fb = e.fb(kind, p, r, state);
             let patterns = if kind == 0 { e.prefixes[state] } else { e.suffixes[state] };
@@ -1027,7 +1027,7 @@ mod tests {
     /// unresolved and blows the ceiling; a bound that prunes everything —
     /// the tests replaced by `false` — never solves anything and falls
     /// under the floor. Without the floor the second family would only be
-    /// visible in `llvq-bench/tests/trio_encoder.rs`, which is release-only
+    /// visible in `llvq-bench/tests/tetra_encoder.rs`, which is release-only
     /// and needs the bench in the same process.
     ///
     /// Measured on 2026-09-05, and deterministic — the same figure in debug
@@ -1040,7 +1040,7 @@ mod tests {
     #[test]
     fn the_join_solves_a_small_fraction_of_the_entries() {
         const BLOCKS: usize = 200;
-        let enc = Encoder::new(&Trio::new());
+        let enc = Encoder::new(&Tetra::new());
         let mut sc = Scratch::new();
         let mut rng = SplitMix64::new(0x0F1B_5017);
         for _ in 0..BLOCKS {

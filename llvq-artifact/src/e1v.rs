@@ -230,7 +230,7 @@ pub fn transcode_e1v_rows(
 }
 
 /// [`transcode_e1v`] under the file's kind — an E1v record is a class of the
-/// v1 ball with its arrangement, so a Trio header gets
+/// v1 ball with its arrangement, so a Tetra header gets
 /// [`crate::runtime::require_ball`]'s refusal.
 pub fn transcode_e1v_for_kind(
     kind: CodeKind,

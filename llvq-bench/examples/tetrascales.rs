@@ -1,9 +1,9 @@
-//! Trio: `α` and the scale pair of the production encoder, fixed on the
+//! Tetra: `α` and the scale pair of the production encoder, fixed on the
 //! TRAINING blocks of the F1b seed — the prototype had fixed them on the
 //! evaluation blocks (`docs/mesures/f1-encodeur-prototype-2026-09-05.txt`,
 //! "⚠️ α = 0,321 et la paire … sont choisis sur les blocs d'ÉVALUATION").
 //!
-//! `nice -n 10 cargo run --release -p llvq-bench --example trioscales -- [threads]`
+//! `nice -n 10 cargo run --release -p llvq-bench --example tetrascales -- [threads]`
 //!
 //! ## The protocol, in the order it runs
 //!
@@ -18,7 +18,7 @@
 //!    give the same points. The winner is what `Encoder::ALPHA`/`RATIO` pin.
 //! 4. Only then the next 2,000 blocks of the stream, the evaluation set, are
 //!    read once: the ball-12 control in the same process, and the winner's
-//!    retention — the number `tests/trio_encoder.rs` guards.
+//!    retention — the number `tests/tetra_encoder.rs` guards.
 //!
 //! Blocks are handed to the bench encoder as drawn (it reads its input in
 //! trio order) and to the production encoder in the natural frame whose
@@ -32,8 +32,8 @@ use llvq_bench::f1::rankbook::{mse_shape_gain, t_ball12, Codebook, RankRegion};
 use llvq_bench::{gauss_block, lloyd_max, precompute13, retention_pct};
 use llvq_core::leech::DIM;
 use llvq_core::SplitMix64;
-use llvq_search::trio::encoder::t_of;
-use llvq_search::trio::{Encoder, Scratch, Trio};
+use llvq_search::tetra::encoder::t_of;
+use llvq_search::tetra::{Encoder, Scratch, Tetra};
 use llvq_search::Searcher;
 use std::time::Instant;
 
@@ -91,7 +91,7 @@ fn main() {
 
     let mut rng = SplitMix64::new(SEED);
     let train: Vec<[f64; DIM]> = (0..N_TRAIN).map(|_| gauss_block(&mut rng)).collect();
-    println!("Trio — α et la paire d'échelles fixés sur les {N_TRAIN} blocs d'ENTRAÎNEMENT (graine {SEED:#x}, les {N_TRAIN} premiers), {threads} fils, débit {rate:.3} b/dim\n");
+    println!("Tetra — α et la paire d'échelles fixés sur les {N_TRAIN} blocs d'ENTRAÎNEMENT (graine {SEED:#x}, les {N_TRAIN} premiers), {threads} fils, débit {rate:.3} b/dim\n");
 
     let xx: Vec<f64> = train.iter().map(|x| x.iter().map(|v| v * v).sum()).collect();
     let norms: Vec<f64> = xx.iter().map(|v| v.sqrt()).collect();
@@ -109,9 +109,9 @@ fn main() {
         (m, sd / (N_TRAIN as f64).sqrt())
     };
 
-    let trio = Trio::new();
-    let order = *trio.order();
-    let enc = Encoder::new(&trio);
+    let tetra = Tetra::new();
+    let order = *tetra.order();
+    let enc = Encoder::new(&tetra);
     let table = RankTable::build();
     let cb: Codebook<RankRegion> = Codebook::rank(&table);
 
@@ -214,12 +214,12 @@ fn main() {
         enc.encode_at_scale(&nat, s0, sc).t.max(enc.encode_at_scale(&nat, s1, sc).t)
     });
     let r_win_eval = ret_eval(&t_win);
-    println!("  Trio, paire gagnante {label:<22} : rétention {r_win_eval:.2} %   Δ témoin {:+.2} pp   ({:.1} s)", r_win_eval - r_ctrl, t0.elapsed().as_secs_f64());
+    println!("  Tetra, paire gagnante {label:<22} : rétention {r_win_eval:.2} %   Δ témoin {:+.2} pp   ({:.1} s)", r_win_eval - r_ctrl, t0.elapsed().as_secs_f64());
     let t0 = Instant::now();
     let t_const: Vec<f64> = par_map(&eval, threads, Scratch::new, |sc, _, x| enc.encode(&natural_frame(x, &order), sc).t);
     let r_const = ret_eval(&t_const);
     println!(
-        "  Trio, `Encoder::encode` (ALPHA {:.4}, RATIO {:.4}) : rétention {r_const:.2} %   Δ témoin {:+.2} pp   ({:.1} s){}",
+        "  Tetra, `Encoder::encode` (ALPHA {:.4}, RATIO {:.4}) : rétention {r_const:.2} %   Δ témoin {:+.2} pp   ({:.1} s){}",
         Encoder::ALPHA,
         Encoder::RATIO,
         r_const - r_ctrl,

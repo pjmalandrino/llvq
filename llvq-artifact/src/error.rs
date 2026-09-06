@@ -38,8 +38,8 @@ pub enum Error {
     /// The one failure that has no visible symptom: every index would still be
     /// in range, every point it decodes to would still be a lattice point, and
     /// the weights would be wrong. `which` names the map — the v1 ball's
-    /// ([`crate::codebook_fingerprint`]) or Trio's
-    /// ([`crate::codebook::trio_fingerprint`]) — since a v5 header carries
+    /// ([`crate::codebook_fingerprint`]) or Tetra's
+    /// ([`crate::codebook::tetra_fingerprint`]) — since a v5 header carries
     /// both and a reader that reported "a fingerprint" would leave the
     /// operator guessing which build to go and find.
     CodebookMismatch {
@@ -72,7 +72,7 @@ pub enum Error {
         declared: KindSet,
     },
     /// A record of one kind reached an entry point that reads another: a
-    /// Trio record handed to [`crate::read_matrix`], which decodes v1 ball
+    /// Tetra record handed to [`crate::read_matrix`], which decodes v1 ball
     /// indices and nothing else. Not an `IndexOutOfRange` by luck — a
     /// refusal by name, before the labels are put through the wrong map.
     WrongCodeKind {
@@ -122,8 +122,8 @@ impl fmt::Display for Error {
                 "{which} codebook fingerprint {stored:#018x} does not match \
                  this build's {computed:#018x} — the file's indices were \
                  assigned by a different index map (Golay order, class order \
-                 or mixed-radix composition for the ball; trio, rows or \
-                 columns for Trio), so decoding them here would yield valid \
+                 or mixed-radix composition for the ball; tetra, rows or \
+                 columns for Tetra), so decoding them here would yield valid \
                  lattice points that are not the ones written"
             ),
             Error::UnknownVersion { version } => {
@@ -131,7 +131,7 @@ impl fmt::Display for Error {
             }
             Error::UnknownCodeKind { tag } => write!(
                 f,
-                "code kind {tag} is unknown (0 = Ball, 1 = Trio; 2 is reserved \
+                "code kind {tag} is unknown (0 = Ball, 1 = Tetra; 2 is reserved \
                  for int4 g128 and has no writer yet) — file written by a \
                  newer writer, or corrupted"
             ),

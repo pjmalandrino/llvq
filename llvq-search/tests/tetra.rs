@@ -1,4 +1,4 @@
-//! # Trio — the word map, pinned from both sides
+//! # Tetra — the word map, pinned from both sides
 //!
 //! The worst failure of a codebook is the silent one: a word that decodes to
 //! a plausible point that is not the one encoded, or a point that encodes to
@@ -6,12 +6,12 @@
 //! both sides — `encode ∘ decode` on random labels, `decode` into Λ₂₄ and
 //! onto distinct points — and the refusals of `encode`, which are what a
 //! fingerprint over this map will rest on. The agreement with the bench's
-//! decoder is in `llvq-bench/tests/trio_yardstick.rs`, the only place both
+//! decoder is in `llvq-bench/tests/tetra_yardstick.rs`, the only place both
 //! crates are visible.
 
 use llvq_core::{Leech, SplitMix64, DIM};
-use llvq_search::trio::{
-    cost, pack, rank_class, unpack, val, Fields, Trio, CLASS_BOUNDS, CLASS_ROWS, LABEL_MASK, LINEAR_COLUMNS, MIXED_BOUND,
+use llvq_search::tetra::{
+    cost, pack, rank_class, unpack, val, Fields, Tetra, CLASS_BOUNDS, CLASS_ROWS, LABEL_MASK, LINEAR_COLUMNS, MIXED_BOUND,
     N0_MIXED, ROWS, SECTION, WORD_BITS,
 };
 
@@ -22,9 +22,9 @@ fn word(rng: &mut SplitMix64) -> u64 {
 
 /// A point in trio order from `p`, the three pattern bytes and the three
 /// rank vectors — the definition written forwards, then moved to natural
-/// order the same way `Trio::decode` does. Used to build points the
+/// order the same way `Tetra::decode` does. Used to build points the
 /// decoder never produces.
-fn assemble(t: &Trio, p: u32, bytes: [u8; 3], rhos: [[u32; SECTION]; 3]) -> [i32; DIM] {
+fn assemble(t: &Tetra, p: u32, bytes: [u8; 3], rhos: [[u32; SECTION]; 3]) -> [i32; DIM] {
     let mut natural = [0i32; DIM];
     for k in 0..3 {
         for j in 0..SECTION {
@@ -40,7 +40,7 @@ fn assemble(t: &Trio, p: u32, bytes: [u8; 3], rhos: [[u32; SECTION]; 3]) -> [i32
 #[test]
 fn every_label_round_trips_through_its_point() {
     const N: usize = if cfg!(debug_assertions) { 100_000 } else { 1_000_000 };
-    let t = Trio::new();
+    let t = Tetra::new();
     let mut rng = SplitMix64::new(0x7210_2026_0905_0002);
     for _ in 0..N {
         let w = word(&mut rng);
@@ -58,7 +58,7 @@ fn every_label_round_trips_through_its_point() {
 /// distinct points. Twenty thousand draws from 2⁴⁷ do not collide by chance.
 #[test]
 fn decoded_words_are_distinct_leech_points() {
-    let t = Trio::new();
+    let t = Tetra::new();
     let leech = Leech::new();
     let mut rng = SplitMix64::new(0x7210_2026_0905_0003);
     let mut seen = std::collections::HashSet::with_capacity(20_000);
@@ -75,7 +75,7 @@ fn decoded_words_are_distinct_leech_points() {
 /// (4) The origin is word 0, pinned in both directions.
 #[test]
 fn the_origin_is_word_zero() {
-    let t = Trio::new();
+    let t = Tetra::new();
     assert_eq!(t.decode(0), [0; DIM]);
     assert_eq!(t.encode(&[0; DIM]), Some(0));
     let f = Fields::split(0);
@@ -84,13 +84,13 @@ fn the_origin_is_word_zero() {
     assert_eq!(unpack(t.rows()[0]), [0; SECTION], "row 0 of class 0 is not the zero rank vector");
 }
 
-/// (4) `encode` refuses a point that is not exactly a Trio codeword: mixed
+/// (4) `encode` refuses a point that is not exactly a Tetra codeword: mixed
 /// parities, a pattern that is not Golay, a block with `Σk ≢ p`, a rank past
 /// the table. Each probe is one edit of a valid point; each is also checked
 /// against `Leech::contains` so the reason for the refusal is named.
 #[test]
-fn encode_refuses_what_is_not_a_trio_point() {
-    let t = Trio::new();
+fn encode_refuses_what_is_not_a_tetra_point() {
+    let t = Tetra::new();
     let leech = Leech::new();
     let mut rng = SplitMix64::new(0x7210_2026_0905_0004);
     for _ in 0..500 {
@@ -135,7 +135,7 @@ fn encode_refuses_what_is_not_a_trio_point() {
 /// region's and not the lattice's.
 #[test]
 fn the_boundary_shell_is_cut_at_the_pinned_vector() {
-    let t = Trio::new();
+    let t = Tetra::new();
     let leech = Leech::new();
     // Every ρ ∈ {0..4}⁸ at the boundary cost of a bound, sorted; the first one
     // past the cut is the probe.
@@ -196,7 +196,7 @@ fn the_boundary_shell_is_cut_at_the_pinned_vector() {
 /// whatever the other fields hold.
 #[test]
 fn the_linear_columns_are_the_trellis() {
-    let t = Trio::new();
+    let t = Tetra::new();
     let by_tables = |s8: usize, b1: usize, b2: usize, b3: usize| -> (u8, u8, u8) {
         let (c2, s16) = t.branches()[s8][b2];
         (t.prefixes()[s8][b1], c2, t.suffixes()[s16 as usize][b3])
@@ -228,7 +228,7 @@ fn the_linear_columns_are_the_trellis() {
 /// reaches; and the block boundaries of the table are where they should be.
 #[test]
 fn the_closed_form_bounds_are_the_last_rows() {
-    let t = Trio::new();
+    let t = Tetra::new();
     let key = |row: u32| (cost(&unpack(row)), unpack(row));
     let rows = t.rows();
     assert_eq!(rows.len(), ROWS);
@@ -256,7 +256,7 @@ fn the_closed_form_bounds_are_the_last_rows() {
 /// would fail here.
 #[test]
 fn every_label_bit_moves_the_point_and_the_gain_bit_does_not() {
-    let t = Trio::new();
+    let t = Tetra::new();
     let mut rng = SplitMix64::new(0x7210_2026_0905_0006);
     for _ in 0..200 {
         let w = word(&mut rng);

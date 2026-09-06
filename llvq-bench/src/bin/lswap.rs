@@ -180,12 +180,12 @@ fn main() {
         panic!("open {src}: {e}");
     }));
     let h = read_header(&mut r).expect("valid artifact header");
-    // The swap re-encodes 5-level *classes*; a Trio word has none, and the
+    // The swap re-encodes 5-level *classes*; a Tetra word has none, and the
     // output header below would be rewritten as a Ball header over it.
     assert!(
         h.is_ball_only(),
         "{src}: a {} file (format v{}); lswap reads indices as v1 classes — \
-         no runtime layout for Trio before F1d",
+         no runtime layout for Tetra before F1d",
         h.kinds(),
         h.version
     );
@@ -215,7 +215,7 @@ fn main() {
     for mi in 0..h.matrices {
         let mut m: RawMatrix = read_matrix_raw(&mut r, h.version).expect("valid matrix");
         // The record's own kind, not only the header's declared set: the swap
-        // re-encodes 5-level classes, which a Trio word has none of.
+        // re-encodes 5-level classes, which a Tetra word has none of.
         assert_eq!(
             m.kind,
             llvq_artifact::CodeKind::Ball,

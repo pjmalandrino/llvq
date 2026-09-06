@@ -1,8 +1,8 @@
-//! # Step 4 of the Trio plan: the wiring, end to end on a model
+//! # Step 4 of the Tetra plan: the wiring, end to end on a model
 //!
 //! `llvq-quant` proves the quantizer, `llvq-artifact` proves the format. What
 //! neither can prove is the seam this file exists for: that a run configured
-//! with `Codebook::Trio` writes a **v5 Trio file** whose records decode back
+//! with `Codebook::Tetra` writes a **v5 Tetra file** whose records decode back
 //! to the weights the model was left holding, bit for bit — the promise
 //! `bin/smoke`'s `verify_artifact` makes on every run that writes a file, and
 //! the only reason a rate is a measurement rather than a claim.
@@ -43,8 +43,8 @@ use llvq_quant::gptq::{GptqConfig, TailPolicy};
 const ROT: u64 = 0x11_0FEED;
 
 /// The two arms this step compares, at the same 48 bits per block.
-fn trio() -> Codebook {
-    Codebook::Trio { gain_bits: 1 }
+fn tetra() -> Codebook {
+    Codebook::Tetra { gain_bits: 1 }
 }
 
 fn ball() -> Codebook {
@@ -125,7 +125,7 @@ struct Scratch(std::path::PathBuf);
 
 impl Scratch {
     fn new(tag: &str) -> Self {
-        let p = std::env::temp_dir().join(format!("llvq-trio-{}-{tag}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("llvq-tetra-{}-{tag}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).expect("scratch dir");
         Self(p)
@@ -245,31 +245,31 @@ fn projections(m: &Qwen3) -> Vec<f32> {
 // The load-bearing test.
 // --------------------------------------------------------------------------
 
-/// **The whole of step 4, in one assertion.** A `Codebook::Trio` run writes a
-/// v5 file declaring Trio and nothing else, and every record in it decodes to
+/// **The whole of step 4, in one assertion.** A `Codebook::Tetra` run writes a
+/// v5 file declaring Tetra and nothing else, and every record in it decodes to
 /// the weights the run left in the model, bit for bit.
 ///
-/// It is also the mutation net for most of the wiring. Mapping the `trio`
-/// codebook to `LeechShapeGain` puts ball points under a Trio writer, which
-/// `Trio::encode` refuses; making `Codebook::code_kind` answer `Ball` writes a
-/// v4 Ball header over Trio words, which the ball indexer refuses; decoding
+/// It is also the mutation net for most of the wiring. Mapping the `tetra`
+/// codebook to `LeechShapeGain` puts ball points under a Tetra writer, which
+/// `Tetra::encode` refuses; making `Codebook::code_kind` answer `Ball` writes a
+/// v4 Ball header over Tetra words, which the ball indexer refuses; decoding
 /// the word without its gain bit, or in trio order, moves these bits.
 #[test]
-fn a_trio_run_writes_a_v5_trio_file_that_decodes_bit_for_bit() {
+fn a_tetra_run_writes_a_v5_tetra_file_that_decodes_bit_for_bit() {
     let dev = Device::Cpu;
     let s = Scratch::new("verify");
     let map = VarMap::new();
-    let path = s.at("trio.llvq");
-    let (report, model) = quantize(&map, &dev, &path, trio(), usize::MAX);
+    let path = s.at("tetra.llvq");
+    let (report, model) = quantize(&map, &dev, &path, tetra(), usize::MAX);
 
-    // The header says what the file is, before a record is read. `Trio` alone:
+    // The header says what the file is, before a record is read. `Tetra` alone:
     // a set that also carried Ball would let a Ball record through every
     // refusal written against `kinds()`.
     let f = std::fs::File::open(&path).expect("open");
     let head = read_header(&mut std::io::BufReader::new(f)).expect("header");
-    assert_eq!(head.version, 5, "a Trio file needs the first kinded version");
-    assert_eq!(head.default_kind(), CodeKind::Trio);
-    assert_eq!(head.kinds(), KindSet::of(CodeKind::Trio));
+    assert_eq!(head.version, 5, "a Tetra file needs the first kinded version");
+    assert_eq!(head.default_kind(), CodeKind::Tetra);
+    assert_eq!(head.kinds(), KindSet::of(CodeKind::Tetra));
     assert!(!head.is_ball_only(), "the runtime refusals read this");
     assert_eq!(head.matrices as usize, report.matrices);
 
@@ -288,16 +288,16 @@ fn a_trio_run_writes_a_v5_trio_file_that_decodes_bit_for_bit() {
 /// hour each.
 #[test]
 fn both_arms_report_the_same_rate_on_the_same_model() {
-    assert_eq!(trio().block_bits(), 48.0);
-    assert_eq!(trio().block_bits(), ball().block_bits());
-    assert_eq!(trio().block_len(), ball().block_len());
-    assert_eq!(trio().code_kind(), CodeKind::Trio);
+    assert_eq!(tetra().block_bits(), 48.0);
+    assert_eq!(tetra().block_bits(), ball().block_bits());
+    assert_eq!(tetra().block_len(), ball().block_len());
+    assert_eq!(tetra().code_kind(), CodeKind::Tetra);
     assert_eq!(ball().code_kind(), CodeKind::Ball);
 
     let dev = Device::Cpu;
     let s = Scratch::new("rate");
     let map = VarMap::new();
-    let (rt, _) = quantize(&map, &dev, &s.at("t.llvq"), trio(), usize::MAX);
+    let (rt, _) = quantize(&map, &dev, &s.at("t.llvq"), tetra(), usize::MAX);
     let (rb, _) = quantize(&map, &dev, &s.at("b.llvq"), ball(), usize::MAX);
     assert_eq!(rt.weights, rb.weights);
     assert_eq!(rt.tail_weights, rb.tail_weights);
@@ -315,34 +315,34 @@ fn both_arms_report_the_same_rate_on_the_same_model() {
     );
 }
 
-/// A Trio shard resumed on the Trio arm must produce the file a single run
+/// A Tetra shard resumed on the Tetra arm must produce the file a single run
 /// produces, byte for byte.
 ///
 /// This is the only place a v5 record is walked by `shard_extent` — which
 /// parses record headers by hand and had to learn the kind field's four bytes
-/// — and the only place `to_quantized` decodes a Trio record. A walk that
+/// — and the only place `to_quantized` decodes a Tetra record. A walk that
 /// skipped those four bytes reads the kind tag as a centroid count and lands
 /// mid-record; the byte comparison is what says so.
 #[test]
-fn two_trio_segments_produce_the_single_run_file() {
+fn two_tetra_segments_produce_the_single_run_file() {
     let dev = Device::Cpu;
     let s = Scratch::new("resume");
     let map = VarMap::new();
 
     let one = s.at("one.llvq");
-    let (_, whole) = quantize(&map, &dev, &one, trio(), usize::MAX);
+    let (_, whole) = quantize(&map, &dev, &one, tetra(), usize::MAX);
 
     let a = s.at("a.llvq");
-    quantize(&map, &dev, &a, trio(), 1);
+    quantize(&map, &dev, &a, tetra(), 1);
 
     let b = s.at("b.llvq");
     let mut model = fresh(&map, &dev);
     let mut hidden = windows(&dev);
     let blocks = model.blocks.len();
-    let mut sink = FileSink::create(&b, (matrices_per_block() * blocks) as u32, CodeKind::Trio);
+    let mut sink = FileSink::create(&b, (matrices_per_block() * blocks) as u32, CodeKind::Tetra);
     let expect = ShardExpect {
-        kind: CodeKind::Trio,
-        shell_cap: llvq_artifact::TRIO_SHELL_CAP,
+        kind: CodeKind::Tetra,
+        shell_cap: llvq_artifact::TETRA_SHELL_CAP,
         centroids: 2,
         rotation_seed: Some(ROT),
     };
@@ -351,7 +351,7 @@ fn two_trio_segments_produce_the_single_run_file() {
     quantize_model_capturing(
         &mut model,
         &mut hidden,
-        &run_config(trio(), scan.blocks, usize::MAX),
+        &run_config(tetra(), scan.blocks, usize::MAX),
         |_, _, _| {},
         Some(&mut sink),
     )
@@ -361,7 +361,7 @@ fn two_trio_segments_produce_the_single_run_file() {
     assert_eq!(
         std::fs::read(&one).expect("one"),
         std::fs::read(&b).expect("b"),
-        "two Trio segments must produce the single run's bytes"
+        "two Tetra segments must produce the single run's bytes"
     );
     assert_eq!(projections(&whole), projections(&model));
 }
@@ -369,7 +369,7 @@ fn two_trio_segments_produce_the_single_run_file() {
 /// A shard of the **other map** is refused **by the resume**, in both
 /// directions.
 ///
-/// Both indices are 47 bits wide at `shell_cap = 12` — and `TRIO_SHELL_CAP`
+/// Both indices are 47 bits wide at `shell_cap = 12` — and `TETRA_SHELL_CAP`
 /// *is* 12, so the shell check passes, the centroid count passes and the
 /// rotation seed passes. Such a splice misreads not one bit: it decodes every
 /// block of one half against the other half's codebook, and the file that
@@ -382,7 +382,7 @@ fn two_trio_segments_produce_the_single_run_file() {
 /// `KindNotDeclared` also names both maps — so an assertion on the names
 /// alone passed the mutant. That is only luck: it holds because this sink
 /// declares one kind, and a mixed-kind sink (Q5's, `v_proj` in int4 beside
-/// Trio) declares both and would let the splice through.
+/// Tetra) declares both and would let the splice through.
 #[test]
 fn a_shard_of_the_other_map_is_refused_both_ways() {
     let dev = Device::Cpu;
@@ -391,20 +391,20 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
 
     let ball_shard = s.at("ball.llvq");
     quantize(&map, &dev, &ball_shard, ball(), 1);
-    let trio_shard = s.at("trio.llvq");
-    quantize(&map, &dev, &trio_shard, trio(), 1);
+    let tetra_shard = s.at("tetra.llvq");
+    quantize(&map, &dev, &tetra_shard, tetra(), 1);
 
     for (shard, want, other) in [
-        (&ball_shard, CodeKind::Trio, CodeKind::Ball),
-        (&trio_shard, CodeKind::Ball, CodeKind::Trio),
+        (&ball_shard, CodeKind::Tetra, CodeKind::Ball),
+        (&tetra_shard, CodeKind::Ball, CodeKind::Tetra),
     ] {
         let mut model = fresh(&map, &dev);
         let out = s.at("out.llvq");
         let mut sink = FileSink::create(&out, matrices_per_block() as u32 * 2, want);
         let expect = ShardExpect {
             kind: want,
-            shell_cap: if want == CodeKind::Trio {
-                llvq_artifact::TRIO_SHELL_CAP
+            shell_cap: if want == CodeKind::Tetra {
+                llvq_artifact::TETRA_SHELL_CAP
             } else {
                 12
             },

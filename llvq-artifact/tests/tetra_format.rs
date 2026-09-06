@@ -1,22 +1,22 @@
-//! # Format v5 — a Trio file, from the word on disk to the refusals
+//! # Format v5 — a Tetra file, from the word on disk to the refusals
 //!
-//! Step 3 of the Trio plan (`docs/ROADMAP.md` §2.2 quater): the file says
+//! Step 3 of the Tetra plan (`docs/ROADMAP.md` §2.2 quater): the file says
 //! which map its indices belong to, and everything that reads a record or
 //! builds a VRAM layout consults that before any width. Three claims, each
 //! with its own evidence:
 //!
 //! 1. **The word on disk is the word.** `BitWriter` → `BitReader` →
-//!    `Trio::decode(idx | gain << 47)` returns the intended point on 10⁵
-//!    words; a whole Trio matrix survives `write_matrix_with` /
+//!    `Tetra::decode(idx | gain << 47)` returns the intended point on 10⁵
+//!    words; a whole Tetra matrix survives `write_matrix_with` /
 //!    `read_matrix_with` and `read_all`; the gain bit sits at bit 47 and
 //!    nowhere else.
 //! 2. **The kind is load-bearing.** The same record read as Ball is a
-//!    different matrix or an error; a Trio writer below v5 is refused; a Trio
+//!    different matrix or an error; a Tetra writer below v5 is refused; a Tetra
 //!    matrix with the wrong sentinel cap or the wrong gain width is refused
 //!    before a byte is written.
 //! 3. **Nothing downstream pretends.** Every runtime transcoder and table
 //!    builder has a `*_for_kind` twin that returns `Error::Inconsistent` with
-//!    "no runtime layout for Trio before F1d" on a Trio header, and the same
+//!    "no runtime layout for Tetra before F1d" on a Tetra header, and the same
 //!    stream as its original on a Ball one.
 //!
 //! The yardstick for the reconstruction — `decode_matrix` against the
@@ -34,26 +34,26 @@ use llvq_artifact::{
     decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
     write_matrix_raw, write_matrix_with, ArtifactWriter, CodeKind, Codebook, Codebooks, Error,
     KindSet, QuantizedMatrix, RawMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC_V5,
-    TRIO_SHELL_CAP,
+    TETRA_SHELL_CAP,
 };
 use llvq_core::{Golay, SplitMix64, DIM};
 use llvq_quant::quantizer::{BlockCode, LeechShapeGain};
 use llvq_search::fastdec::FastDecoder;
 use llvq_search::index::{Indexer, N13};
 use llvq_search::pack::{BitReader, BitWriter};
-use llvq_search::trio::{Trio, LABEL_BITS, LABEL_MASK};
+use llvq_search::tetra::{Tetra, LABEL_BITS, LABEL_MASK};
 use llvq_search::Searcher;
 
-const REFUSAL: &str = "no runtime layout for Trio before F1d";
+const REFUSAL: &str = "no runtime layout for Tetra before F1d";
 
-/// A Trio matrix: codes drawn as random labels through the map itself — the
+/// A Tetra matrix: codes drawn as random labels through the map itself — the
 /// map is the only source of valid points — with one gain bit and the
 /// sentinel cap.
-fn synthetic_trio(trio: &Trio, rng: &mut SplitMix64, name: &str, d_out: usize, d_in: usize) -> QuantizedMatrix {
+fn synthetic_tetra(tetra: &Tetra, rng: &mut SplitMix64, name: &str, d_out: usize, d_in: usize) -> QuantizedMatrix {
     let nblocks = d_in / DIM;
     let codes: Vec<BlockCode> = (0..d_out * nblocks)
         .map(|_| BlockCode {
-            point: trio.decode(rng.next() & LABEL_MASK),
+            point: tetra.decode(rng.next() & LABEL_MASK),
             gain: (rng.next() & 1) as u32,
         })
         .collect();
@@ -65,18 +65,18 @@ fn synthetic_trio(trio: &Trio, rng: &mut SplitMix64, name: &str, d_out: usize, d
         row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
         centroids: vec![0.7, 1.1],
         rotation_seed: Some(0x7210),
-        shell_cap: TRIO_SHELL_CAP,
+        shell_cap: TETRA_SHELL_CAP,
         tail: (0..d_out * (d_in % DIM)).map(|_| rng.next_gaussian() as f32 as f64).collect(),
     }
 }
 
-/// A one-matrix v5 Trio file, and the matrix it holds.
-fn trio_file(trio: &Trio, seed: u64) -> (Vec<u8>, QuantizedMatrix) {
+/// A one-matrix v5 Tetra file, and the matrix it holds.
+fn tetra_file(tetra: &Tetra, seed: u64) -> (Vec<u8>, QuantizedMatrix) {
     let mut rng = SplitMix64::new(seed);
-    let m = synthetic_trio(trio, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM + 8);
+    let m = synthetic_tetra(tetra, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM + 8);
     let mut buf: Vec<u8> = Vec::new();
     {
-        let mut w = ArtifactWriter::with_kind(&mut buf, CodeKind::Trio, 1).expect("header");
+        let mut w = ArtifactWriter::with_kind(&mut buf, CodeKind::Tetra, 1).expect("header");
         w.push(&m).expect("write");
         w.finish().expect("flush");
     }
@@ -94,7 +94,7 @@ fn trio_file(trio: &Trio, seed: u64) -> (Vec<u8>, QuantizedMatrix) {
 /// pins only what this crate writes.
 #[test]
 fn the_disk_word_decodes_to_the_intended_point() {
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let mut rng = SplitMix64::new(0x7210_0003_0001);
     let n = 100_000usize;
     let words: Vec<u64> = (0..n).map(|_| rng.next() & ((1u64 << 48) - 1)).collect();
@@ -113,7 +113,7 @@ fn the_disk_word_decodes_to_the_intended_point() {
         assert_eq!(u64::from(gain), w >> LABEL_BITS, "block {b}: gain bit");
         let word = idx | u64::from(gain) << LABEL_BITS;
         assert_eq!(word, w, "block {b}: the word is not reassembled");
-        assert_eq!(trio.decode(word), trio.decode(w), "block {b}: the point moved");
+        assert_eq!(tetra.decode(word), tetra.decode(w), "block {b}: the point moved");
     }
 }
 
@@ -123,18 +123,18 @@ fn the_disk_word_decodes_to_the_intended_point() {
 /// against — through `cb.decode` itself, on every label, not only by count.
 #[test]
 fn the_gain_bit_sits_at_bit_47_on_disk() {
-    let trio = Trio::new();
-    let cb = Codebook::new(CodeKind::Trio);
+    let tetra = Tetra::new();
+    let cb = Codebook::new(CodeKind::Tetra);
     let mut rng = SplitMix64::new(0x7210_0003_0002);
     let mut flipped = 0usize;
     for _ in 0..2_000 {
         let label = rng.next() & LABEL_MASK;
         for gain in 0..2u32 {
-            let want = trio.decode(label | u64::from(gain) << LABEL_BITS);
+            let want = tetra.decode(label | u64::from(gain) << LABEL_BITS);
             assert_eq!(cb.decode(label, gain), Some(want));
-            assert_eq!(want, trio.decode(label), "bit 47 is opaque to the decoder");
+            assert_eq!(want, tetra.decode(label), "bit 47 is opaque to the decoder");
             if gain == 1 && label & 1 == 0 {
-                let wrong = trio.decode(label | 1);
+                let wrong = tetra.decode(label | 1);
                 assert_ne!(wrong, want, "p flipped and the point did not move");
                 assert_ne!(cb.decode(label, gain), Some(wrong), "the gain bit landed on p");
                 flipped += 1;
@@ -144,51 +144,51 @@ fn the_gain_bit_sits_at_bit_47_on_disk() {
     assert!(flipped > 800, "half the labels have p = 0; {flipped} were checked");
 }
 
-/// A whole Trio matrix through `write_matrix_with` and back through
+/// A whole Tetra matrix through `write_matrix_with` and back through
 /// `read_matrix_with`: codes, gains, scales, tail and the decoded weights.
 #[test]
-fn a_trio_matrix_survives_a_round_trip() {
-    let trio = Trio::new();
-    let cb = Codebook::new(CodeKind::Trio);
+fn a_tetra_matrix_survives_a_round_trip() {
+    let tetra = Tetra::new();
+    let cb = Codebook::new(CodeKind::Tetra);
     let cbs = Codebooks::new();
     let mut rng = SplitMix64::new(0x7210_0003_0003);
     for (d_out, d_in) in [(4usize, 3 * DIM), (3, 100), (5, 5 * DIM)] {
-        let m = synthetic_trio(&trio, &mut rng, "model.layers.0.self_attn.q_proj.weight", d_out, d_in);
+        let m = synthetic_tetra(&tetra, &mut rng, "model.layers.0.self_attn.q_proj.weight", d_out, d_in);
         let mut bytes: Vec<u8> = Vec::new();
         let bits = write_matrix_with(&mut bytes, FIRST_KINDED_VERSION, &cb, &m).expect("write");
         assert_eq!(bits, m.bits(), "48 bits a block is what the accounting says");
         let got = read_matrix_with(&mut &bytes[..], FIRST_KINDED_VERSION, &cbs).expect("read");
         assert_eq!(got.codes, m.codes, "codes differ for {d_out}×{d_in}");
-        assert_eq!(got.shell_cap, TRIO_SHELL_CAP);
+        assert_eq!(got.shell_cap, TETRA_SHELL_CAP);
         assert_eq!(got.row_scales, m.row_scales);
         assert_eq!(got.tail, m.tail);
         assert_eq!(decode_matrix(&got), decode_matrix(&m));
 
         // The raw view holds the labels and the gain bits, nothing decoded.
         let raw = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("raw");
-        assert_eq!(raw.kind, CodeKind::Trio, "the record says what it is");
+        assert_eq!(raw.kind, CodeKind::Tetra, "the record says what it is");
         for (b, (code, (&idx, &gain))) in m.codes.iter().zip(raw.indices.iter().zip(&raw.gains)).enumerate() {
-            assert_eq!(idx, trio.encode(&code.point).expect("a Trio point"), "block {b}: label");
+            assert_eq!(idx, tetra.encode(&code.point).expect("a Tetra point"), "block {b}: label");
             assert_eq!(gain, code.gain, "block {b}: gain");
             assert!(idx < 1 << LABEL_BITS, "block {b}: the gain bit leaked into the label");
         }
     }
 }
 
-/// The whole file: `with_kind(Trio)` writes a v5 header whose kind is Trio,
+/// The whole file: `with_kind(Tetra)` writes a v5 header whose kind is Tetra,
 /// `read_header` reports it, `read_all` decodes through it.
 #[test]
-fn a_v5_trio_file_reads_end_to_end() {
-    let trio = Trio::new();
-    let (buf, m) = trio_file(&trio, 0x7210_0003_0004);
+fn a_v5_tetra_file_reads_end_to_end() {
+    let tetra = Tetra::new();
+    let (buf, m) = tetra_file(&tetra, 0x7210_0003_0004);
     assert_eq!(&buf[..4], MAGIC_V5);
     let head = read_header(&mut &buf[..]).expect("a fresh v5 file must open");
     assert_eq!(head.version, FIRST_KINDED_VERSION);
-    assert_eq!(head.default_kind(), CodeKind::Trio);
-    assert_eq!(head.kinds(), KindSet::of(CodeKind::Trio), "one kind declared, its own");
+    assert_eq!(head.default_kind(), CodeKind::Tetra);
+    assert_eq!(head.kinds(), KindSet::of(CodeKind::Tetra), "one kind declared, its own");
     assert!(!head.is_ball_only());
     assert_eq!(head.codebook, Some(llvq_artifact::codebook_fingerprint()));
-    assert_eq!(head.trio, Some(llvq_artifact::trio_fingerprint()));
+    assert_eq!(head.tetra, Some(llvq_artifact::tetra_fingerprint()));
     assert!(head.is_self_contained(), "a v5 file is a sealed-shape file");
 
     let got = read_all(&mut &buf[..]).expect("read");
@@ -201,22 +201,22 @@ fn a_v5_trio_file_reads_end_to_end() {
 // 2 — the kind is load-bearing
 // ---------------------------------------------------------------------------
 
-/// The same Trio record read as a Ball record — what a reader that ignored
+/// The same Tetra record read as a Ball record — what a reader that ignored
 /// the kind would do — is not the same matrix: some label is past the ball
 /// and refused, or the points differ. Never silently equal.
 ///
 /// Two refusals, one behind the other. [`read_matrix`] never gets that far:
-/// the record says Trio and it reads the v1 ball, so it stops by name. What
+/// the record says Tetra and it reads the v1 ball, so it stops by name. What
 /// would have happened had it not is the second half — the very same labels,
 /// which the sentinel cap keeps 47 bits wide either way, put through the
 /// `Indexer` by hand.
 #[test]
-fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
-    let trio = Trio::new();
-    let cb = Codebook::new(CodeKind::Trio);
+fn a_tetra_record_read_as_ball_is_not_the_same_matrix() {
+    let tetra = Tetra::new();
+    let cb = Codebook::new(CodeKind::Tetra);
     let ix = Indexer::new();
     let mut rng = SplitMix64::new(0x7210_0003_0005);
-    let m = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.gate_proj.weight", 8, 4 * DIM);
+    let m = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.gate_proj.weight", 8, 4 * DIM);
     let mut bytes: Vec<u8> = Vec::new();
     write_matrix_with(&mut bytes, FIRST_KINDED_VERSION, &cb, &m).expect("write");
 
@@ -224,7 +224,7 @@ fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
     // through the wrong map.
     match read_matrix(&mut &bytes[..], FIRST_KINDED_VERSION, &ix) {
         Err(Error::WrongCodeKind { want, got, name }) => {
-            assert_eq!((want, got), (CodeKind::Ball, CodeKind::Trio));
+            assert_eq!((want, got), (CodeKind::Ball, CodeKind::Tetra));
             assert_eq!(name, m.name);
         }
         other => panic!("expected WrongCodeKind, got {:?}", other.err()),
@@ -233,9 +233,9 @@ fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
     // The widths agree (the sentinel cap is what makes them), so the labels
     // are the same 47-bit words on either reading...
     let raw = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("raw");
-    assert_eq!(raw.kind, CodeKind::Trio);
+    assert_eq!(raw.kind, CodeKind::Tetra);
     for (b, &idx) in raw.indices.iter().enumerate() {
-        assert_eq!(idx, trio.encode(&m.codes[b].point).expect("a Trio point"));
+        assert_eq!(idx, tetra.encode(&m.codes[b].point).expect("a Tetra point"));
     }
 
     // ...and the other map makes a different matrix of them: a label past the
@@ -251,39 +251,39 @@ fn a_trio_record_read_as_ball_is_not_the_same_matrix() {
     assert_eq!(
         refused + differ,
         raw.indices.len(),
-        "{} of {} Trio labels decoded to their own point through the ball",
+        "{} of {} Tetra labels decoded to their own point through the ball",
         raw.indices.len() - refused - differ,
         raw.indices.len()
     );
 }
 
-/// A Trio writer needs v5: below it the header has nowhere to say what its
+/// A Tetra writer needs v5: below it the header has nowhere to say what its
 /// records are, and `with_kind` picks v5 on its own.
 #[test]
-fn a_trio_writer_below_v5_is_refused() {
+fn a_tetra_writer_below_v5_is_refused() {
     for version in 1..FIRST_KINDED_VERSION {
-        match ArtifactWriter::with_version_kind(Vec::new(), version, 1, CodeKind::Trio) {
+        match ArtifactWriter::with_version_kind(Vec::new(), version, 1, CodeKind::Tetra) {
             Err(Error::Inconsistent { name, detail }) => {
                 assert_eq!(name, "header");
                 assert!(detail.contains(&format!("v{version}")), "detail: {detail}");
-                assert!(detail.contains("Trio"), "detail: {detail}");
+                assert!(detail.contains("Tetra"), "detail: {detail}");
             }
             Err(e) => panic!("v{version}: wrong refusal {e}"),
-            Ok(_) => panic!("a Trio writer at v{version} was built: its records would read as Ball"),
+            Ok(_) => panic!("a Tetra writer at v{version} was built: its records would read as Ball"),
         }
         assert!(
             matches!(
-                llvq_artifact::write_header_kind(&mut Vec::new(), version, 1, CodeKind::Trio),
+                llvq_artifact::write_header_kind(&mut Vec::new(), version, 1, CodeKind::Tetra),
                 Err(Error::Inconsistent { .. })
             ),
-            "write_header_kind must refuse v{version} for Trio too"
+            "write_header_kind must refuse v{version} for Tetra too"
         );
     }
-    let w = ArtifactWriter::with_kind(Vec::new(), CodeKind::Trio, 0).expect("v5");
-    assert_eq!(w.default_kind(), CodeKind::Trio);
-    assert_eq!(w.kinds(), KindSet::of(CodeKind::Trio));
+    let w = ArtifactWriter::with_kind(Vec::new(), CodeKind::Tetra, 0).expect("v5");
+    assert_eq!(w.default_kind(), CodeKind::Tetra);
+    assert_eq!(w.kinds(), KindSet::of(CodeKind::Tetra));
     assert_eq!(w.kinds_used(), KindSet::empty(), "nothing pushed, nothing used");
-    assert_eq!(CodeKind::Trio.default_version(), FIRST_KINDED_VERSION);
+    assert_eq!(CodeKind::Tetra.default_version(), FIRST_KINDED_VERSION);
     assert_eq!(CodeKind::Ball.default_version(), DEFAULT_VERSION);
     // And a v5 Ball writer is a thing: the kind is a field, not a version.
     let mut buf: Vec<u8> = Vec::new();
@@ -295,14 +295,14 @@ fn a_trio_writer_below_v5_is_refused() {
     assert_eq!((head.version, head.default_kind()), (FIRST_KINDED_VERSION, CodeKind::Ball));
 }
 
-/// A Trio matrix must carry the sentinel cap and one gain bit; anything else
+/// A Tetra matrix must carry the sentinel cap and one gain bit; anything else
 /// is refused before a byte is written, by both writers.
 #[test]
-fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
-    let trio = Trio::new();
-    let cb = Codebook::new(CodeKind::Trio);
+fn a_tetra_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
+    let tetra = Tetra::new();
+    let cb = Codebook::new(CodeKind::Tetra);
     let mut rng = SplitMix64::new(0x7210_0003_0006);
-    let base = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.down_proj.weight", 2, 2 * DIM);
+    let base = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.down_proj.weight", 2, 2 * DIM);
 
     for cap in [0u32, 11, 13, 0xFFFF] {
         let m = QuantizedMatrix { shell_cap: cap, ..clone_of(&base) };
@@ -327,13 +327,13 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
         }
     }
 
-    // The raw writer under a Trio kind: same two invariants.
+    // The raw writer under a Tetra kind: same two invariants.
     let raw = RawMatrix {
         name: base.name.clone(),
         d_out: base.d_out,
         d_in: base.d_in,
-        kind: CodeKind::Trio,
-        indices: base.codes.iter().map(|c| trio.encode(&c.point).expect("Trio point")).collect(),
+        kind: CodeKind::Tetra,
+        indices: base.codes.iter().map(|c| tetra.encode(&c.point).expect("Tetra point")).collect(),
         gains: base.codes.iter().map(|c| c.gain).collect(),
         row_scales: base.row_scales.clone(),
         centroids: base.centroids.clone(),
@@ -343,26 +343,26 @@ fn a_trio_matrix_with_the_wrong_cap_or_gain_width_is_refused() {
     };
     assert!(
         matches!(write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw), Err(Error::Inconsistent { .. })),
-        "a raw Trio record with cap 13 must be refused"
+        "a raw Tetra record with cap 13 must be refused"
     );
-    let raw = RawMatrix { shell_cap: TRIO_SHELL_CAP, centroids: vec![1.0], ..raw };
+    let raw = RawMatrix { shell_cap: TETRA_SHELL_CAP, centroids: vec![1.0], ..raw };
     assert!(
         matches!(write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw), Err(Error::Inconsistent { .. })),
-        "a raw Trio record with one centroid must be refused"
+        "a raw Tetra record with one centroid must be refused"
     );
     let raw = RawMatrix { centroids: base.centroids.clone(), ..raw };
     write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &raw).expect("the honest record writes");
 }
 
-/// A point the Trio map has no word for is `PointOutsideCodebook`, not a
-/// truncated or neighbouring label: a Trio point with one coordinate's parity
+/// A point the Tetra map has no word for is `PointOutsideCodebook`, not a
+/// truncated or neighbouring label: a Tetra point with one coordinate's parity
 /// flipped is off the label set by construction.
 #[test]
-fn a_point_off_the_trio_label_set_is_refused_by_the_writer() {
-    let trio = Trio::new();
-    let cb = Codebook::new(CodeKind::Trio);
+fn a_point_off_the_tetra_label_set_is_refused_by_the_writer() {
+    let tetra = Tetra::new();
+    let cb = Codebook::new(CodeKind::Tetra);
     let mut rng = SplitMix64::new(0x7210_0003_0007);
-    let mut m = synthetic_trio(&trio, &mut rng, "m", 2, DIM);
+    let mut m = synthetic_tetra(&tetra, &mut rng, "m", 2, DIM);
     m.codes[1].point[5] += 1;
     assert_eq!(cb.encode(&m.codes[1].point), None);
     match write_matrix_with(&mut Vec::new(), FIRST_KINDED_VERSION, &cb, &m) {
@@ -398,27 +398,27 @@ fn is_refusal(r: &Result<(), Error>) -> bool {
     matches!(r, Err(Error::Inconsistent { detail, .. }) if detail == REFUSAL)
 }
 
-/// The gate itself: `Ok` for Ball, the named `Inconsistent` for Trio.
+/// The gate itself: `Ok` for Ball, the named `Inconsistent` for Tetra.
 #[test]
-fn the_gate_refuses_trio_by_name() {
+fn the_gate_refuses_tetra_by_name() {
     require_ball(CodeKind::Ball, "anything").expect("Ball passes");
-    match require_ball(CodeKind::Trio, "Planes14") {
+    match require_ball(CodeKind::Tetra, "Planes14") {
         Err(Error::Inconsistent { name, detail }) => {
             assert_eq!(name, "Planes14");
             assert_eq!(detail, REFUSAL);
         }
         other => panic!("expected Inconsistent, got {:?}", other.err()),
     }
-    assert!(is_refusal(&require_ball(CodeKind::Trio, "x")));
-    let msg = require_ball(CodeKind::Trio, "ClassTable").unwrap_err().to_string();
+    assert!(is_refusal(&require_ball(CodeKind::Tetra, "x")));
+    let msg = require_ball(CodeKind::Tetra, "ClassTable").unwrap_err().to_string();
     assert_eq!(msg, format!("ClassTable: {REFUSAL}"));
 }
 
 /// Every runtime transcoder and table builder, through its `*_for_kind`
-/// twin: the refusal on Trio, and the very same stream as the original on
+/// twin: the refusal on Tetra, and the very same stream as the original on
 /// Ball — the twin adds a gate, not a layout.
 #[test]
-fn every_runtime_transcoder_refuses_a_trio_header() {
+fn every_runtime_transcoder_refuses_a_tetra_header() {
     let fd = FastDecoder::new();
     let golay = Golay::new();
     let ix = Indexer::new();
@@ -430,17 +430,17 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
     let _ = &ix;
 
     // Tables.
-    assert!(ClassTable::for_kind(CodeKind::Trio, &fd, 1).is_err());
+    assert!(ClassTable::for_kind(CodeKind::Tetra, &fd, 1).is_err());
     let table = ClassTable::for_kind(CodeKind::Ball, &fd, 1).expect("Ball table");
     let plain = ClassTable::new(&fd, 1);
     assert_eq!(table.n_entries(), plain.n_entries());
     for e in 0..table.n_entries() {
         assert_eq!(table.record(e).width, plain.record(e).width, "entry {e}");
     }
-    assert!(Golay70Table::for_kind(CodeKind::Trio, &fd).is_err());
+    assert!(Golay70Table::for_kind(CodeKind::Tetra, &fd).is_err());
     let g70 = Golay70Table::for_kind(CodeKind::Ball, &fd).expect("Ball g70");
     assert_eq!(g70.n_entries(), Golay70Table::new(&fd).n_entries());
-    assert!(block_records_for_kind(CodeKind::Trio, &fd, &golay).is_err());
+    assert!(block_records_for_kind(CodeKind::Tetra, &fd, &golay).is_err());
     let recs = block_records_for_kind(CodeKind::Ball, &fd, &golay).expect("Ball records");
     assert_eq!(recs.len(), block_records(&fd, &golay).len());
 
@@ -451,7 +451,7 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
     // The five class layouts.
     for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         refused(
-            transcode_for_kind(CodeKind::Trio, &fd, &table, &indices, &gains, layout).map(|_| ()),
+            transcode_for_kind(CodeKind::Tetra, &fd, &table, &indices, &gains, layout).map(|_| ()),
             &format!("{layout:?}"),
         );
         let a = transcode_for_kind(CodeKind::Ball, &fd, &table, &indices, &gains, layout).expect("Ball");
@@ -459,7 +459,7 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
         assert_eq!((a.data, a.bases), (b.data, b.bases), "{layout:?}: the twin changed the stream");
     }
     // Planes14.
-    refused(transcode_planes14_for_kind(CodeKind::Trio, &fd, &table, &indices, &gains).map(|_| ()), "Planes14");
+    refused(transcode_planes14_for_kind(CodeKind::Tetra, &fd, &table, &indices, &gains).map(|_| ()), "Planes14");
     assert_eq!(
         transcode_planes14_for_kind(CodeKind::Ball, &fd, &table, &indices, &gains).expect("Ball").data,
         transcode_planes14(&fd, &table, &indices, &gains).expect("plain").data
@@ -467,7 +467,7 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
     // Planes12x.
     let s = Searcher::new();
     refused(
-        transcode_planes12x_for_kind(CodeKind::Trio, &fd, &table, &s, &indices, &gains).map(|_| ()),
+        transcode_planes12x_for_kind(CodeKind::Tetra, &fd, &table, &s, &indices, &gains).map(|_| ()),
         "Planes12x",
     );
     let a = transcode_planes12x_for_kind(CodeKind::Ball, &fd, &table, &s, &indices, &gains).expect("Ball");
@@ -475,20 +475,20 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
     assert_eq!((a.data, a.exc_idx, a.exc_data), (b.data, b.exc_idx, b.exc_data));
     // Golay70.
     refused(
-        transcode_golay70_for_kind(CodeKind::Trio, &fd, &table, &g70, &indices, &gains).map(|_| ()),
+        transcode_golay70_for_kind(CodeKind::Tetra, &fd, &table, &g70, &indices, &gains).map(|_| ()),
         "Golay70",
     );
     let a = transcode_golay70_for_kind(CodeKind::Ball, &fd, &table, &g70, &indices, &gains).expect("Ball");
     let b = transcode_golay70(&fd, &table, &g70, &indices, &gains).expect("plain");
     assert_eq!((a.data, a.exc_idx, a.exc_data), (b.data, b.exc_idx, b.exc_data));
     // E1v, both cuts.
-    refused(transcode_e1v_for_kind(CodeKind::Trio, &fd, &golay, &indices, &gains).map(|_| ()), "E1v");
+    refused(transcode_e1v_for_kind(CodeKind::Tetra, &fd, &golay, &indices, &gains).map(|_| ()), "E1v");
     assert_eq!(
         transcode_e1v_for_kind(CodeKind::Ball, &fd, &golay, &indices, &gains).expect("Ball").data,
         transcode_e1v(&fd, &golay, &indices, &gains).expect("plain").data
     );
     refused(
-        transcode_e1v_rows_for_kind(CodeKind::Trio, &fd, &golay, &indices, &gains, 16).map(|_| ()),
+        transcode_e1v_rows_for_kind(CodeKind::Tetra, &fd, &golay, &indices, &gains, 16).map(|_| ()),
         "E1v rows",
     );
     assert_eq!(
@@ -503,15 +503,15 @@ fn every_runtime_transcoder_refuses_a_trio_header() {
 
 /// `decode_matrix` no longer builds a `LeechShapeGain` per matrix; the free
 /// function it calls must be the quantizer's own reconstruction, bit for
-/// bit, on a Ball matrix and on a Trio one.
+/// bit, on a Ball matrix and on a Tetra one.
 #[test]
 fn decode_matrix_is_the_quantizers_reconstruction() {
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let ix = Indexer::new();
     let mut rng = SplitMix64::new(0x7210_0003_000a);
-    let mut mats = vec![synthetic_trio(&trio, &mut rng, "trio", 3, 2 * DIM + 8)];
+    let mut mats = vec![synthetic_tetra(&tetra, &mut rng, "tetra", 3, 2 * DIM + 8)];
     // A Ball matrix at cap 12 with an origin block, a tail and no rotation.
-    let mut ball = synthetic_trio(&trio, &mut rng, "ball", 3, 2 * DIM + 8);
+    let mut ball = synthetic_tetra(&tetra, &mut rng, "ball", 3, 2 * DIM + 8);
     ball.rotation_seed = None;
     for c in &mut ball.codes {
         c.point = loop {
@@ -527,7 +527,7 @@ fn decode_matrix_is_the_quantizers_reconstruction() {
     mats.push(ball);
 
     for m in &mats {
-        let q = LeechShapeGain::with_shell_cap(m.centroids.clone(), TRIO_SHELL_CAP);
+        let q = LeechShapeGain::with_shell_cap(m.centroids.clone(), TETRA_SHELL_CAP);
         let nblocks = m.d_in / DIM;
         let tail_w = m.d_in % DIM;
         let mut w = vec![0.0f64; m.d_out * m.d_in];

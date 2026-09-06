@@ -900,7 +900,7 @@ fn main() -> Result<(), String> {
 
     let mut r = BufReader::new(f);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
-    // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
+    // A v5 Tetra file has no runtime layout yet: refused here by name, never read as a Ball.
     llvq_artifact::runtime::require_ball_kinds(h.kinds(), "p1v0").map_err(|e| e.to_string())?;
     let per_matrix = n_req.div_ceil(h.matrices as usize).max(1);
 

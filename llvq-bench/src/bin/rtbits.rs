@@ -533,12 +533,12 @@ fn main() {
         let f = File::open(&path).unwrap_or_else(|e| panic!("open {path}: {e}"));
         let mut r = BufReader::new(f);
         let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
-        // Every accumulator below keys on a v1 class; a Trio word names none,
+        // Every accumulator below keys on a v1 class; a Tetra word names none,
         // and the class table would file it under some class all the same.
         assert!(
             h.is_ball_only(),
             "{path}: a {} file (format v{}); rtbits reads indices as v1 classes — \
-             no runtime layout for Trio before F1d",
+             no runtime layout for Tetra before F1d",
             h.kinds(),
             h.version
         );

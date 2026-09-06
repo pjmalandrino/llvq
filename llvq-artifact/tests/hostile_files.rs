@@ -16,7 +16,7 @@
 use llvq_artifact::{
     read_blob, read_header, read_matrix_raw, read_raw, write_header, write_header_kinds,
     write_matrix_raw, CodeKind, Error, KindSet, RawMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION,
-    RESERVED_INT4G128_TAG, TRIO_SHELL_CAP, VERSION,
+    RESERVED_INT4G128_TAG, TETRA_SHELL_CAP, VERSION,
 };
 
 /// A minimal valid matrix: one row, two 24-blocks, cap 12 (47-bit indices),
@@ -37,15 +37,15 @@ fn small_matrix() -> RawMatrix {
     }
 }
 
-/// The same shape as a Trio record: the sentinel cap, two centroids (the one
+/// The same shape as a Tetra record: the sentinel cap, two centroids (the one
 /// gain bit), two 47-bit labels. Raw records are unvalidated labels, so no
 /// map is needed to build one.
-fn small_trio_matrix() -> RawMatrix {
+fn small_tetra_matrix() -> RawMatrix {
     RawMatrix {
-        kind: CodeKind::Trio,
+        kind: CodeKind::Tetra,
         gains: vec![0, 1],
         centroids: vec![0.7, 1.1],
-        shell_cap: TRIO_SHELL_CAP,
+        shell_cap: TETRA_SHELL_CAP,
         ..small_matrix()
     }
 }
@@ -261,7 +261,7 @@ fn an_unknown_code_kind_is_refused_by_name() {
         }
     }
     // And the two known tags read back as themselves, default and set both.
-    for kind in [CodeKind::Ball, CodeKind::Trio] {
+    for kind in [CodeKind::Ball, CodeKind::Tetra] {
         let mut bytes = good.clone();
         bytes[24..28].copy_from_slice(&kind.tag().to_le_bytes());
         bytes[28..32].copy_from_slice(&KindSet::of(kind).bits().to_le_bytes());
@@ -300,11 +300,11 @@ fn an_unknown_kind_in_the_present_mask_is_refused_by_name() {
     // no file: two fields that disagree, and which one is right decides how
     // every record is read.
     let mut bytes = good.clone();
-    bytes[24..28].copy_from_slice(&CodeKind::Trio.tag().to_le_bytes());
+    bytes[24..28].copy_from_slice(&CodeKind::Tetra.tag().to_le_bytes());
     match read_header(&mut &bytes[..]) {
         Err(Error::Inconsistent { name, detail }) => {
             assert_eq!(name, "header");
-            assert!(detail.contains("Trio"), "detail: {detail}");
+            assert!(detail.contains("Tetra"), "detail: {detail}");
         }
         other => panic!("expected Inconsistent, got {:?}", other.err()),
     }
@@ -314,7 +314,7 @@ fn an_unknown_kind_in_the_present_mask_is_refused_by_name() {
             &mut Vec::new(),
             FIRST_KINDED_VERSION,
             1,
-            CodeKind::Trio,
+            CodeKind::Tetra,
             KindSet::BALL
         ),
         Err(Error::Inconsistent { .. })
@@ -327,7 +327,7 @@ fn a_v5_header_cut_short_is_truncated_at_the_named_field() {
     write_header(&mut bytes, FIRST_KINDED_VERSION, 3).unwrap();
     for (len, field) in [
         (12usize, "codebook fingerprint"),
-        (20, "trio fingerprint"),
+        (20, "tetra fingerprint"),
         (26, "code kind"),
         (30, "code kinds present"),
     ] {
@@ -341,13 +341,13 @@ fn a_v5_header_cut_short_is_truncated_at_the_named_field() {
 }
 
 #[test]
-fn a_wild_shell_cap_on_a_trio_record_is_refused_not_a_panic() {
-    // The Trio reader takes its width from the kind, never from the field —
+fn a_wild_shell_cap_on_a_tetra_record_is_refused_not_a_panic() {
+    // The Tetra reader takes its width from the kind, never from the field —
     // but the field is still checked, and a value that is not the sentinel
     // is a record this crate never wrote. Neither 65535 (past the ball,
     // where the Ball path would have asserted) nor 13 (a perfectly good
     // Ball cap, 48 bits wide) may be read.
-    let m = small_trio_matrix();
+    let m = small_tetra_matrix();
     let good = v5_matrix_bytes(&m);
     let at = shell_cap_at(&m);
     for cap in [0xFFFFu32, 13, 11, 0] {
@@ -356,7 +356,7 @@ fn a_wild_shell_cap_on_a_trio_record_is_refused_not_a_panic() {
         match read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION) {
             Err(Error::Inconsistent { detail, .. }) => {
                 assert!(detail.contains(&format!("shell cap {cap}")), "cap {cap}: detail {detail}");
-                assert!(detail.contains("Trio"), "cap {cap}: the refusal names the kind: {detail}");
+                assert!(detail.contains("Tetra"), "cap {cap}: the refusal names the kind: {detail}");
             }
             other => panic!("cap {cap}: expected Inconsistent, got {:?}", other.err()),
         }
@@ -375,7 +375,7 @@ fn a_wild_shell_cap_on_a_trio_record_is_refused_not_a_panic() {
 /// A record's kind tag is refused on the same terms as the header's.
 #[test]
 fn an_unknown_kind_tag_on_a_record_is_refused_by_name() {
-    let m = small_trio_matrix();
+    let m = small_tetra_matrix();
     let good = v5_matrix_bytes(&m);
     let at = kind_at(&m);
     for tag in [RESERVED_INT4G128_TAG, 9, u32::MAX] {
@@ -396,7 +396,7 @@ fn an_unknown_kind_tag_on_a_record_is_refused_by_name() {
 /// code here silently misreads every record of the other version.
 #[test]
 fn a_v5_record_read_as_v4_is_not_the_same_record() {
-    let m = small_trio_matrix();
+    let m = small_tetra_matrix();
     let v5 = v5_matrix_bytes(&m);
     match read_matrix_raw(&mut &v5[..], DEFAULT_VERSION) {
         Err(_) => {}
@@ -407,7 +407,7 @@ fn a_v5_record_read_as_v4_is_not_the_same_record() {
         ),
     }
     // The Ball record of the same shape, the other way round: its centroid
-    // count (1) is read as a kind tag (Trio), and the widths that follow are
+    // count (1) is read as a kind tag (Tetra), and the widths that follow are
     // taken from the wrong map.
     let v4 = matrix_bytes(&small_matrix());
     match read_matrix_raw(&mut &v4[..], FIRST_KINDED_VERSION) {
@@ -421,11 +421,11 @@ fn a_v5_record_read_as_v4_is_not_the_same_record() {
 }
 
 #[test]
-fn a_trio_record_with_a_wide_gain_field_is_refused_not_a_panic() {
-    // Centroid count patched to 4: two gain bits, a 49-bit block. The Trio
+fn a_tetra_record_with_a_wide_gain_field_is_refused_not_a_panic() {
+    // Centroid count patched to 4: two gain bits, a 49-bit block. The Tetra
     // word has one gain bit at bit 47; refused before the (now short)
     // centroid list is even read.
-    let m = small_trio_matrix();
+    let m = small_tetra_matrix();
     let mut bytes = v5_matrix_bytes(&m);
     let at = kind_at(&m) + 4;
     for n in [4u32, 1, 3] {
@@ -439,7 +439,7 @@ fn a_trio_record_with_a_wide_gain_field_is_refused_not_a_panic() {
         }
     }
     // The writer refuses the same record before a byte goes out.
-    let wide = RawMatrix { centroids: vec![0.5, 0.7, 0.9, 1.1], ..small_trio_matrix() };
+    let wide = RawMatrix { centroids: vec![0.5, 0.7, 0.9, 1.1], ..small_tetra_matrix() };
     assert!(matches!(
         write_matrix_raw(&mut bytes, FIRST_KINDED_VERSION, &wide),
         Err(Error::Inconsistent { .. })
@@ -447,13 +447,13 @@ fn a_trio_record_with_a_wide_gain_field_is_refused_not_a_panic() {
 }
 
 #[test]
-fn a_hostile_trio_record_still_round_trips_when_honest() {
-    let m = small_trio_matrix();
+fn a_hostile_tetra_record_still_round_trips_when_honest() {
+    let m = small_tetra_matrix();
     let bytes = v5_matrix_bytes(&m);
-    // A v5 Trio record and a v5 Ball record of the same shape differ in
+    // A v5 Tetra record and a v5 Ball record of the same shape differ in
     // exactly four bytes — the kind tag — and nowhere else: the widths are
     // the same 47 + 1, which is what the sentinel cap is for.
-    let ball = v5_matrix_bytes(&RawMatrix { kind: CodeKind::Ball, ..small_trio_matrix() });
+    let ball = v5_matrix_bytes(&RawMatrix { kind: CodeKind::Ball, ..small_tetra_matrix() });
     let at = kind_at(&m);
     assert_eq!(bytes.len(), ball.len(), "the two kinds changed the record shape");
     assert_eq!(bytes[..at], ball[..at], "the record head before the tag moved");
@@ -461,22 +461,22 @@ fn a_hostile_trio_record_still_round_trips_when_honest() {
     assert_ne!(bytes[at..at + 4], ball[at..at + 4], "the tag is not written");
 
     let back = read_matrix_raw(&mut &bytes[..], FIRST_KINDED_VERSION).expect("an honest record must read");
-    assert_eq!(back.kind, CodeKind::Trio);
+    assert_eq!(back.kind, CodeKind::Tetra);
     assert_eq!(back.indices, m.indices);
     assert_eq!(back.gains, m.gains);
     assert_eq!(back.centroids, m.centroids);
-    assert_eq!(back.shell_cap, TRIO_SHELL_CAP);
-    // A label past 47 bits is refused on the Trio path as on the Ball one.
-    let wide = RawMatrix { indices: vec![3, 1u64 << 47], ..small_trio_matrix() };
+    assert_eq!(back.shell_cap, TETRA_SHELL_CAP);
+    // A label past 47 bits is refused on the Tetra path as on the Ball one.
+    let wide = RawMatrix { indices: vec![3, 1u64 << 47], ..small_tetra_matrix() };
     match write_matrix_raw(&mut Vec::new(), FIRST_KINDED_VERSION, &wide) {
         Err(Error::IndexTooWide { index, bits, .. }) => assert_eq!((index, bits), (1u64 << 47, 47)),
         other => panic!("expected IndexTooWide, got {:?}", other.err()),
     }
-    // And a Trio record cannot be written into a v4 file at all: there is
+    // And a Tetra record cannot be written into a v4 file at all: there is
     // nowhere to put its tag, and it would read back as Ball.
-    match write_matrix_raw(&mut Vec::new(), DEFAULT_VERSION, &small_trio_matrix()) {
+    match write_matrix_raw(&mut Vec::new(), DEFAULT_VERSION, &small_tetra_matrix()) {
         Err(Error::Inconsistent { detail, .. }) => {
-            assert!(detail.contains("Trio"), "detail: {detail}");
+            assert!(detail.contains("Tetra"), "detail: {detail}");
             assert!(detail.contains("v5"), "detail: {detail}");
         }
         other => panic!("expected Inconsistent, got {:?}", other.err()),

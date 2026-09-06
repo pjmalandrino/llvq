@@ -1,6 +1,6 @@
-//! # The Trio encoder against the bench
+//! # The Tetra encoder against the bench
 //!
-//! Two claims of `llvq_search::trio::Encoder`, each against the bench in the
+//! Two claims of `llvq_search::tetra::Encoder`, each against the bench in the
 //! same process: at one scale it returns the points of the bench's
 //! rank-region codebook (`llvq_bench::f1::rankbook`, the copy of
 //! `examples/f1rankbench.rs`), and on the fixed 2,000 evaluation blocks of the
@@ -18,8 +18,8 @@ use llvq_bench::f1::rankbook::{mse_shape_gain, t_ball12, Codebook, RankRegion};
 use llvq_bench::{gauss_block, lloyd_max, precompute13, retention_pct};
 use llvq_core::leech::DIM;
 use llvq_core::SplitMix64;
-use llvq_search::trio::encoder::t_of;
-use llvq_search::trio::{Encoder, Scratch, Trio};
+use llvq_search::tetra::encoder::t_of;
+use llvq_search::tetra::{Encoder, Scratch, Tetra};
 use llvq_search::Searcher;
 
 const SEED: u64 = 0x0f1b_2026_0904;
@@ -63,9 +63,9 @@ const STRESS: f64 = 2.5;
 #[cfg_attr(debug_assertions, ignore)]
 fn encode_at_scale_returns_the_bench_points_on_the_evaluation_blocks() {
     let (_, eval) = blocks();
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
-    let order = *trio.order();
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
+    let order = *tetra.order();
     let cb: Codebook<RankRegion> = Codebook::rank(&RankTable::build());
     let sqrt_dim = (DIM as f64).sqrt();
 
@@ -127,11 +127,11 @@ fn retention_on_the_fixed_blocks_does_not_regress() {
     let ctrl = retention_pct(mse_shape_gain(&xx, &t_ctrl, &centroids), rate);
     assert!((ctrl - 92.00).abs() < 0.05, "the ball-12 control reads {ctrl:.2} %, the journal's is 92.00");
 
-    let trio = Trio::new();
-    let enc = Encoder::new(&trio);
-    let order = *trio.order();
+    let tetra = Tetra::new();
+    let enc = Encoder::new(&tetra);
+    let order = *tetra.order();
     let chunk = eval.len().div_ceil(threads());
-    let t_trio: Vec<f64> = std::thread::scope(|s| {
+    let t_tetra: Vec<f64> = std::thread::scope(|s| {
         let handles: Vec<_> = eval
             .chunks(chunk)
             .map(|blocks| {
@@ -152,7 +152,7 @@ fn retention_on_the_fixed_blocks_does_not_regress() {
             .collect();
         handles.into_iter().flat_map(|h| h.join().expect("thread")).collect()
     });
-    let trio_pct = retention_pct(mse_shape_gain(&xx, &t_trio, &centroids), rate);
-    println!("ball-12 control {ctrl:.2} %, Trio {trio_pct:.2} %, Δ {:+.2} pp on {N_EVAL} fixed blocks", trio_pct - ctrl);
-    assert!(trio_pct >= 88.85, "Trio retention {trio_pct:.2} % is under 88.85 on the fixed blocks (control {ctrl:.2})");
+    let tetra_pct = retention_pct(mse_shape_gain(&xx, &t_tetra, &centroids), rate);
+    println!("ball-12 control {ctrl:.2} %, Tetra {tetra_pct:.2} %, Δ {:+.2} pp on {N_EVAL} fixed blocks", tetra_pct - ctrl);
+    assert!(tetra_pct >= 88.85, "Tetra retention {tetra_pct:.2} % is under 88.85 on the fixed blocks (control {ctrl:.2})");
 }

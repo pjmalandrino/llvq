@@ -1019,11 +1019,11 @@ fn sweep_file(fd: &FastDecoder, t: &WidthTable, path: &str) -> Sweep {
     let f = File::open(path).unwrap_or_else(|e| panic!("open {path}: {e}"));
     let mut r = BufReader::with_capacity(1 << 20, f);
     let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
-    // The widths are per v1 class; a Trio word would be filed under one.
+    // The widths are per v1 class; a Tetra word would be filed under one.
     assert!(
         h.is_ball_only(),
         "{path}: a {} file (format v{}); radixstudy reads indices as v1 classes — \
-         no runtime layout for Trio before F1d",
+         no runtime layout for Tetra before F1d",
         h.kinds(),
         h.version
     );

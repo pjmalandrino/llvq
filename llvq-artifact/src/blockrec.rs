@@ -199,7 +199,7 @@ pub fn block_records(fd: &FastDecoder, golay: &Golay) -> Vec<GpuBlockRec> {
 }
 
 /// [`block_records`] under the file's kind: the records describe the 383
-/// classes of the v1 ball, so a Trio header gets
+/// classes of the v1 ball, so a Tetra header gets
 /// [`crate::runtime::require_ball`]'s refusal and no table.
 pub fn block_records_for_kind(
     kind: crate::CodeKind,

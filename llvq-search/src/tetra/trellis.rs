@@ -61,7 +61,7 @@ pub(super) struct Trellis {
 /// octad 2's. Refuses to exist unless the trio is three disjoint octads of
 /// the code covering the 24 — a wrong constant would still permute, still
 /// decode, and quantize a different lattice.
-fn trio_order(g: &Golay) -> [u32; 24] {
+fn tetra_order(g: &Golay) -> [u32; 24] {
     let [a, b, c] = TRIO;
     for w in TRIO {
         assert!(g.contains(w), "{w:#010x} is not a Golay codeword");
@@ -130,7 +130,7 @@ pub fn linear_input(s8: u32, b1: u32, b2: u32, b3: u32) -> u32 {
 impl Trellis {
     pub(super) fn new() -> Self {
         let g = Golay::new();
-        let order = trio_order(&g);
+        let order = tetra_order(&g);
         let words: Vec<u32> = g.codewords().iter().map(|&w| permute(w, &order)).collect();
 
         // The state of every codeword at one cut.
@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn echelon_reduction_is_the_coset_minimum() {
         let g = Golay::new();
-        let order = trio_order(&g);
+        let order = tetra_order(&g);
         let words: Vec<u32> = g.codewords().iter().map(|&w| permute(w, &order)).collect();
         for cut in [8u32, 16] {
             let low = (1u32 << cut) - 1;

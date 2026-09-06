@@ -22,8 +22,8 @@ use llvq_quant::gptq::{
     TailPolicy, Weights,
 };
 use llvq_quant::linalg::GptqFactor;
-use llvq_quant::quantizer::{fit_gain_centroids, row_scale, BlockCode, LeechShapeGain, TrioShapeGain};
-use llvq_search::trio::Trio;
+use llvq_quant::quantizer::{fit_gain_centroids, row_scale, BlockCode, LeechShapeGain, TetraShapeGain};
+use llvq_search::tetra::Tetra;
 
 const D_OUT: usize = 6;
 const NBLK: usize = 3;
@@ -536,11 +536,11 @@ fn reproject_follows_a_negative_scale() {
     assert!(align > 0.0, "reconstruction disagrees with the emitted code");
 }
 
-/// The Trio twin of the test above, and it does **not** flip the point.
+/// The Tetra twin of the test above, and it does **not** flip the point.
 ///
 /// `LeechShapeGain` follows a negative solve scale by negating its lattice
 /// point, on the strength of `Λ₂₄` being centrally symmetric. That argument
-/// does not carry to the Trio *map*: a section stores the rank of each
+/// does not carry to the Tetra *map*: a section stores the rank of each
 /// coordinate in its residue class, listed outward from zero with the
 /// positive member of a tied pair first, so negating a coordinate swaps its
 /// rank inside a pair — rank 1 costs `(2·1+1)² = 9`, rank 2 costs 25 — and
@@ -552,14 +552,14 @@ fn reproject_follows_a_negative_scale() {
 /// This test holds both halves. The count: on 400 Gaussian blocks the map
 /// refuses the negation of 106 of them, every one of even parity, so the
 /// naive flip would hand `ArtifactWriter` a point it cannot encode. And the
-/// behaviour: `TrioShapeGain::reproject` re-encodes instead, so the block
+/// behaviour: `TetraShapeGain::reproject` re-encodes instead, so the block
 /// ends on the solve's side of the sphere with a code the map has a word
 /// for, and rebuilding it from that word gives the block back bit for bit.
 #[test]
-fn trio_reprojects_a_negative_scale_by_re_encoding() {
+fn tetra_reprojects_a_negative_scale_by_re_encoding() {
     use llvq_quant::quantizer::BlockQuantizer;
-    let trio = Trio::new();
-    let mut q = TrioShapeGain::new(vec![0.6, 1.4]);
+    let tetra = Tetra::new();
+    let mut q = TetraShapeGain::new(vec![0.6, 1.4]);
     let mut rng = SplitMix64::new(0xC_0011);
     let mut rec = vec![0.0f64; DIM];
 
@@ -569,11 +569,11 @@ fn trio_reprojects_a_negative_scale_by_re_encoding() {
         let v: Vec<f64> = (0..DIM).map(|_| rng.next_gaussian()).collect();
         q.set_row_scale(row_scale(&v));
         q.quantize(&v, &mut rec);
-        let code = q.last_code().expect("Trio always emits a code");
+        let code = q.last_code().expect("Tetra always emits a code");
 
         // Half one: the map is not closed under negation.
         let neg: llvq_core::Point = core::array::from_fn(|j| -code.point[j]);
-        if trio.encode(&neg).is_none() {
+        if tetra.encode(&neg).is_none() {
             refused += 1;
             refused_odd += usize::from(code.point[0].rem_euclid(2) == 1);
         }
@@ -582,15 +582,15 @@ fn trio_reprojects_a_negative_scale_by_re_encoding() {
         let norm = rec.iter().map(|a| a * a).sum::<f64>().sqrt();
         assert!(norm > 0.0, "degenerate probe block");
         let mut blk: Vec<f64> = rec.iter().map(|a| -a).collect();
-        let new = q.reproject(&code, norm, &mut blk).expect("Trio reprojects");
+        let new = q.reproject(&code, norm, &mut blk).expect("Tetra reprojects");
         let dot: f64 = blk.iter().zip(rec.iter()).map(|(a, b)| a * b).sum();
         assert!(dot < 0.0, "the reprojected block must lie on the solve's side of the sphere");
 
         // Sealable: the point is a word, and the word rebuilds the block.
-        let word = trio
+        let word = tetra
             .encode(&new.point)
             .expect("re-encoding must return a point the map has a word for");
-        assert_eq!(trio.decode(word), new.point);
+        assert_eq!(tetra.decode(word), new.point);
         let mut back = vec![0.0f64; DIM];
         q.reconstruct(&new, row_scale(&v), &mut back);
         for (k, (&a, &b)) in back.iter().zip(blk.iter()).enumerate() {

@@ -1,7 +1,7 @@
 //! # A code kind per matrix — the file Q5 will write
 //!
-//! Step C of the Trio plan (`docs/ROADMAP.md` §2.2 quater, step 3's
-//! follow-up). Q5 serves `v_proj` in int4 g128 beside Trio matrices (§2.3),
+//! Step C of the Tetra plan (`docs/ROADMAP.md` §2.2 quater, step 3's
+//! follow-up). Q5 serves `v_proj` in int4 g128 beside Tetra matrices (§2.3),
 //! so *which map* stopped being a fact about a file the moment that was
 //! adopted. From v5 every record carries its own [`CodeKind`], the header
 //! keeps a default for [`ArtifactWriter::push`], and it gains a [`KindSet`]:
@@ -9,7 +9,7 @@
 //!
 //! Four claims, each with its own evidence:
 //!
-//! 1. **A mixed file round-trips.** Ball and Trio records in one file decode
+//! 1. **A mixed file round-trips.** Ball and Tetra records in one file decode
 //!    to their own weights, through the map each record names, and a raw
 //!    passthrough reproduces the bytes (`g6_format` holds the byte-identity;
 //!    here it is the decode).
@@ -30,13 +30,13 @@ use llvq_artifact::runtime::{require_ball, require_ball_kinds, transcode_planes1
 use llvq_artifact::{
     decode_matrix, read_all, read_header, read_matrix_raw, write_header_kinds, ArtifactWriter,
     CodeKind, Codebooks, Error, KindSet, QuantizedMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION,
-    RESERVED_INT4G128_TAG, TRIO_SHELL_CAP,
+    RESERVED_INT4G128_TAG, TETRA_SHELL_CAP,
 };
 use llvq_core::{SplitMix64, DIM};
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::fastdec::FastDecoder;
 use llvq_search::index::Indexer;
-use llvq_search::trio::{Trio, LABEL_MASK};
+use llvq_search::tetra::{Tetra, LABEL_MASK};
 
 /// A Ball matrix at cap 12: points drawn by decoding indices, the only source
 /// of valid ones.
@@ -65,12 +65,12 @@ fn ball_matrix(ix: &Indexer, rng: &mut SplitMix64, name: &str, d_out: usize, d_i
     }
 }
 
-/// A Trio matrix: labels through the map itself, one gain bit, the sentinel
+/// A Tetra matrix: labels through the map itself, one gain bit, the sentinel
 /// cap.
-fn trio_matrix(trio: &Trio, rng: &mut SplitMix64, name: &str, d_out: usize, d_in: usize) -> QuantizedMatrix {
+fn tetra_matrix(tetra: &Tetra, rng: &mut SplitMix64, name: &str, d_out: usize, d_in: usize) -> QuantizedMatrix {
     let codes: Vec<BlockCode> = (0..d_out * (d_in / DIM))
         .map(|_| BlockCode {
-            point: trio.decode(rng.next() & LABEL_MASK),
+            point: tetra.decode(rng.next() & LABEL_MASK),
             gain: (rng.next() & 1) as u32,
         })
         .collect();
@@ -82,28 +82,28 @@ fn trio_matrix(trio: &Trio, rng: &mut SplitMix64, name: &str, d_out: usize, d_in
         row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
         centroids: vec![0.7, 1.1],
         rotation_seed: Some(0x7210),
-        shell_cap: TRIO_SHELL_CAP,
+        shell_cap: TETRA_SHELL_CAP,
         tail: (0..d_out * (d_in % DIM)).map(|_| rng.next_gaussian() as f32 as f64).collect(),
     }
 }
 
 /// The two matrices of every mixed fixture here, and the file that holds
-/// them: a Ball `v_proj` and a Trio `down_proj`, in that order.
+/// them: a Ball `v_proj` and a Tetra `down_proj`, in that order.
 fn mixed_file() -> (Vec<u8>, [QuantizedMatrix; 2]) {
     let ix = Indexer::new();
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let mut rng = SplitMix64::new(0xC0DE_11ED);
     let mats = [
         ball_matrix(&ix, &mut rng, "model.layers.0.self_attn.v_proj.weight", 4, 3 * DIM + 8),
-        trio_matrix(&trio, &mut rng, "model.layers.0.mlp.down_proj.weight", 3, 2 * DIM),
+        tetra_matrix(&tetra, &mut rng, "model.layers.0.mlp.down_proj.weight", 3, 2 * DIM),
     ];
-    let both = KindSet::BALL.with(CodeKind::Trio);
+    let both = KindSet::BALL.with(CodeKind::Tetra);
     let mut buf: Vec<u8> = Vec::new();
     {
-        let mut w = ArtifactWriter::with_kinds(&mut buf, FIRST_KINDED_VERSION, 2, CodeKind::Trio, both)
+        let mut w = ArtifactWriter::with_kinds(&mut buf, FIRST_KINDED_VERSION, 2, CodeKind::Tetra, both)
             .expect("header");
         w.push_kind(&mats[0], CodeKind::Ball).expect("the Ball record");
-        w.push(&mats[1]).expect("the Trio record, through the default");
+        w.push(&mats[1]).expect("the Tetra record, through the default");
         assert_eq!(w.kinds_used(), both);
         w.finish().expect("flush");
     }
@@ -142,17 +142,17 @@ fn kind_tag_at(file: &[u8], names: [&str; 2], i: usize) -> usize {
 // 1 — a mixed file round-trips
 // ---------------------------------------------------------------------------
 
-/// Ball and Trio in one file: each record decodes through the map it names,
+/// Ball and Tetra in one file: each record decodes through the map it names,
 /// and the header's default decides nothing about the other one.
 #[test]
 fn a_mixed_file_round_trips() {
     let (file, mats) = mixed_file();
     let head = read_header(&mut &file[..]).expect("a mixed file opens");
     assert_eq!(head.version, FIRST_KINDED_VERSION);
-    assert_eq!(head.default_kind(), CodeKind::Trio, "the default is one of the two");
-    assert_eq!(head.kinds(), KindSet::BALL.with(CodeKind::Trio));
+    assert_eq!(head.default_kind(), CodeKind::Tetra, "the default is one of the two");
+    assert_eq!(head.kinds(), KindSet::BALL.with(CodeKind::Tetra));
     assert!(!head.is_ball_only());
-    assert_eq!(head.kinds().to_string(), "Ball+Trio");
+    assert_eq!(head.kinds().to_string(), "Ball+Tetra");
 
     let got = read_all(&mut &file[..]).expect("read");
     assert_eq!(got.len(), 2);
@@ -168,7 +168,7 @@ fn a_mixed_file_round_trips() {
     let kinds: Vec<CodeKind> = (0..head.matrices)
         .map(|_| read_matrix_raw(&mut r, head.version).expect("record").kind)
         .collect();
-    assert_eq!(kinds, vec![CodeKind::Ball, CodeKind::Trio]);
+    assert_eq!(kinds, vec![CodeKind::Ball, CodeKind::Tetra]);
 }
 
 /// A mixed file copied record by record keeps each record's kind.
@@ -176,7 +176,7 @@ fn a_mixed_file_round_trips() {
 /// `g6_format::raw_passthrough_is_byte_identical_at_v5` pins the bytes; this
 /// pins what the bytes mean, which is the half a passthrough that took the
 /// kind from the writer's default would get wrong — it would rewrite the Ball
-/// record as Trio, or the Trio one as Ball, and the copy would still be a
+/// record as Tetra, or the Tetra one as Ball, and the copy would still be a
 /// well-formed file.
 #[test]
 fn a_mixed_passthrough_keeps_each_record_kind() {
@@ -204,7 +204,7 @@ fn a_mixed_passthrough_keeps_each_record_kind() {
     let kinds: Vec<CodeKind> = (0..2)
         .map(|_| read_matrix_raw(&mut r, FIRST_KINDED_VERSION).expect("record").kind)
         .collect();
-    assert_eq!(kinds, vec![CodeKind::Ball, CodeKind::Trio], "a record changed map in the copy");
+    assert_eq!(kinds, vec![CodeKind::Ball, CodeKind::Tetra], "a record changed map in the copy");
     let got = read_all(&mut &copied[..]).expect("the copy decodes");
     for (g, m) in got.iter().zip(&mats) {
         assert_eq!(decode_matrix(g), decode_matrix(m), "{}: the copy moved the weights", m.name);
@@ -237,21 +237,21 @@ fn a_single_kind_file_declares_one_kind() {
     assert_eq!(raw.kind, CodeKind::Ball, "a legacy record is a Ball record");
 }
 
-/// A Ball-only file never builds Trio's tables, and a Trio-only file never
+/// A Ball-only file never builds Tetra's tables, and a Tetra-only file never
 /// builds the ball's. The maps are lazy because neither is cheap — 383
 /// classes enumerated one way, a 16 KiB table and a trellis re-derived and
 /// asserted the other.
 #[test]
 fn a_single_kind_file_builds_only_its_own_map() {
     let cbs = Codebooks::new();
-    assert!(!cbs.is_built(CodeKind::Ball) && !cbs.is_built(CodeKind::Trio));
+    assert!(!cbs.is_built(CodeKind::Ball) && !cbs.is_built(CodeKind::Tetra));
     cbs.get(CodeKind::Ball);
     assert!(cbs.is_built(CodeKind::Ball), "the map asked for is built");
-    assert!(!cbs.is_built(CodeKind::Trio), "the other one is not");
+    assert!(!cbs.is_built(CodeKind::Tetra), "the other one is not");
 
     let cbs = Codebooks::new();
-    cbs.get(CodeKind::Trio);
-    assert!(cbs.is_built(CodeKind::Trio));
+    cbs.get(CodeKind::Tetra);
+    assert!(cbs.is_built(CodeKind::Tetra));
     assert!(!cbs.is_built(CodeKind::Ball));
 }
 
@@ -263,21 +263,21 @@ fn a_single_kind_file_builds_only_its_own_map() {
 ///
 /// This is the mutant the whole design rests on: the header is written before
 /// the first matrix and cannot be revised, so if `push_kind` did not check
-/// the declared set, a Trio record would land in a file whose header says
+/// the declared set, a Tetra record would land in a file whose header says
 /// Ball — and every refusal that reads that header would wave it through.
 #[test]
 fn a_push_of_an_undeclared_kind_is_refused() {
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let mut rng = SplitMix64::new(0x_C0DE_0002);
-    let m = trio_matrix(&trio, &mut rng, "model.layers.0.mlp.gate_proj.weight", 2, 2 * DIM);
+    let m = tetra_matrix(&tetra, &mut rng, "model.layers.0.mlp.gate_proj.weight", 2, 2 * DIM);
 
     let mut buf: Vec<u8> = Vec::new();
     let mut w = ArtifactWriter::with_version_kind(&mut buf, FIRST_KINDED_VERSION, 1, CodeKind::Ball)
         .expect("a v5 Ball writer");
-    match w.push_kind(&m, CodeKind::Trio) {
+    match w.push_kind(&m, CodeKind::Tetra) {
         Err(Error::KindNotDeclared { name, kind, declared }) => {
             assert_eq!(name, m.name);
-            assert_eq!(kind, CodeKind::Trio);
+            assert_eq!(kind, CodeKind::Tetra);
             assert_eq!(declared, KindSet::BALL);
         }
         other => panic!("expected KindNotDeclared, got {:?}", other.err()),
@@ -297,11 +297,11 @@ fn a_push_of_an_undeclared_kind_is_refused() {
         FIRST_KINDED_VERSION,
         1,
         CodeKind::Ball,
-        KindSet::BALL.with(CodeKind::Trio),
+        KindSet::BALL.with(CodeKind::Tetra),
     )
     .expect("a mixed writer");
-    w.push_kind(&m, CodeKind::Trio).expect("declared, so written");
-    assert_eq!(w.kinds_used(), KindSet::of(CodeKind::Trio));
+    w.push_kind(&m, CodeKind::Tetra).expect("declared, so written");
+    assert_eq!(w.kinds_used(), KindSet::of(CodeKind::Tetra));
     w.finish().expect("flush");
     assert_eq!(decode_matrix(&read_all(&mut &buf[..]).expect("read")[0]), decode_matrix(&m));
 
@@ -318,12 +318,12 @@ fn a_push_of_an_undeclared_kind_is_refused() {
 }
 
 /// A header whose default is outside its own declared set is refused at the
-/// writer, and a Trio kind below v5 is refused whichever entry it comes
+/// writer, and a Tetra kind below v5 is refused whichever entry it comes
 /// through.
 #[test]
 fn a_header_that_contradicts_itself_is_refused() {
     assert!(matches!(
-        write_header_kinds(&mut Vec::new(), FIRST_KINDED_VERSION, 1, CodeKind::Trio, KindSet::BALL),
+        write_header_kinds(&mut Vec::new(), FIRST_KINDED_VERSION, 1, CodeKind::Tetra, KindSet::BALL),
         Err(Error::Inconsistent { .. })
     ));
     assert!(matches!(
@@ -336,11 +336,11 @@ fn a_header_that_contradicts_itself_is_refused() {
             version,
             1,
             CodeKind::Ball,
-            KindSet::BALL.with(CodeKind::Trio),
+            KindSet::BALL.with(CodeKind::Tetra),
         ) {
             Err(Error::Inconsistent { name, detail }) => {
                 assert_eq!(name, "header");
-                assert!(detail.contains("Ball+Trio"), "detail: {detail}");
+                assert!(detail.contains("Ball+Tetra"), "detail: {detail}");
                 assert!(detail.contains(&format!("v{version}")), "detail: {detail}");
             }
             other => panic!("v{version}: expected Inconsistent, got {:?}", other.err()),
@@ -357,19 +357,19 @@ fn a_header_that_contradicts_itself_is_refused() {
 
 /// The header's set refuses a mixed file before a record is read.
 #[test]
-fn the_header_set_refuses_a_file_with_one_trio_matrix() {
+fn the_header_set_refuses_a_file_with_one_tetra_matrix() {
     let (file, _) = mixed_file();
     let head = read_header(&mut &file[..]).expect("opens");
     match require_ball_kinds(head.kinds(), "planes14") {
         Err(Error::Inconsistent { name, detail }) => {
             assert_eq!(name, "planes14");
-            assert_eq!(detail, "no runtime layout for Trio before F1d");
+            assert_eq!(detail, "no runtime layout for Tetra before F1d");
         }
-        other => panic!("expected the Trio refusal, got {:?}", other.err()),
+        other => panic!("expected the Tetra refusal, got {:?}", other.err()),
     }
     // The default alone would have waved a Ball-defaulted mixed file through:
     // this is why the refusals read the set.
-    let both = KindSet::BALL.with(CodeKind::Trio);
+    let both = KindSet::BALL.with(CodeKind::Tetra);
     require_ball(CodeKind::Ball, "planes14").expect("the default of such a file passes");
     assert!(require_ball_kinds(both, "planes14").is_err(), "the set does not");
     // Ball alone passes, at every entry.
@@ -377,7 +377,7 @@ fn the_header_set_refuses_a_file_with_one_trio_matrix() {
 }
 
 /// A file whose header under-reports its kinds — a Ball-only header over a
-/// record that says Trio — is stopped at the record.
+/// record that says Tetra — is stopped at the record.
 ///
 /// The header's set is a declaration, checked when the file is written; a
 /// file that was not written by this crate can still lie about it. The
@@ -386,10 +386,10 @@ fn the_header_set_refuses_a_file_with_one_trio_matrix() {
 /// the forged record would then transcode into a coherent stream of some
 /// other file's blocks, and the only symptom would be a wrong number.
 #[test]
-fn a_ball_header_over_a_trio_record_is_refused_at_the_record() {
+fn a_ball_header_over_a_tetra_record_is_refused_at_the_record() {
     let (mut file, mats) = mixed_file();
     let names = ["model.layers.0.self_attn.v_proj.weight", "model.layers.0.mlp.down_proj.weight"];
-    // Forge it: the header declares Ball alone, while record 1 keeps its Trio
+    // Forge it: the header declares Ball alone, while record 1 keeps its Tetra
     // tag. No writer of this crate produces such a file.
     file[24..28].copy_from_slice(&CodeKind::Ball.tag().to_le_bytes());
     file[28..32].copy_from_slice(&KindSet::BALL.bits().to_le_bytes());
@@ -400,7 +400,7 @@ fn a_ball_header_over_a_trio_record_is_refused_at_the_record() {
     read_header(&mut r).expect("header");
     let fd = FastDecoder::new();
     let table = ClassTable::new(&fd, 1);
-    for (i, want) in [CodeKind::Ball, CodeKind::Trio].into_iter().enumerate() {
+    for (i, want) in [CodeKind::Ball, CodeKind::Tetra].into_iter().enumerate() {
         let m = read_matrix_raw(&mut r, FIRST_KINDED_VERSION).expect("record");
         assert_eq!(m.kind, want, "record {i}: the kind must come from the record");
         let gains: Vec<u32> = m.gains.clone();
@@ -409,11 +409,11 @@ fn a_ball_header_over_a_trio_record_is_refused_at_the_record() {
             CodeKind::Ball => {
                 out.expect("a Ball record transcodes");
             }
-            CodeKind::Trio => match out {
+            CodeKind::Tetra => match out {
                 Err(Error::Inconsistent { detail, .. }) => {
-                    assert_eq!(detail, "no runtime layout for Trio before F1d")
+                    assert_eq!(detail, "no runtime layout for Tetra before F1d")
                 }
-                other => panic!("a forged Trio record reached the layout: {:?}", other.err()),
+                other => panic!("a forged Tetra record reached the layout: {:?}", other.err()),
             },
         }
     }
@@ -421,17 +421,17 @@ fn a_ball_header_over_a_trio_record_is_refused_at_the_record() {
     // own weights, so what was refused is the record and not the file.
     let got = read_all(&mut &file[..]).expect("the forged file still reads");
     assert_eq!(decode_matrix(&got[0]), decode_matrix(&mats[0]));
-    // The record's tag is where the walk says it is, and it still says Trio:
+    // The record's tag is where the walk says it is, and it still says Tetra:
     // the forgery was in the header and nowhere else.
     let at = kind_tag_at(&file, names, 1);
-    assert_eq!(u32::from_le_bytes(file[at..at + 4].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!(u32::from_le_bytes(file[at..at + 4].try_into().unwrap()), CodeKind::Tetra.tag());
     assert_eq!(kind_tag_at(&file, names, 0), 32 + 4 + names[0].len() + 4 + 4 + 4);
     // Every layout, not only Planes14 — one call each through the generic
     // entry, which is what `fusedrun` and the benches reach.
     for layout in [Layout::Fixed96, Layout::Grouped32, Layout::Flat32, Layout::Sorted32, Layout::Slot32] {
         assert!(
-            llvq_artifact::runtime::transcode_for_kind(CodeKind::Trio, &fd, &table, &[0], &[0], layout).is_err(),
-            "{layout:?} accepted a Trio record"
+            llvq_artifact::runtime::transcode_for_kind(CodeKind::Tetra, &fd, &table, &[0], &[0], layout).is_err(),
+            "{layout:?} accepted a Tetra record"
         );
     }
 }
@@ -469,7 +469,7 @@ fn the_reserved_int4_tag_is_refused() {
     assert_eq!(KindSet::from_bits(0b01).expect("Ball"), KindSet::BALL);
     assert_eq!(
         KindSet::from_bits(0b11).expect("both"),
-        KindSet::BALL.with(CodeKind::Trio)
+        KindSet::BALL.with(CodeKind::Tetra)
     );
     assert_eq!(KindSet::from_bits(0).expect("empty"), KindSet::empty());
     assert_eq!(KindSet::empty().to_string(), "none");

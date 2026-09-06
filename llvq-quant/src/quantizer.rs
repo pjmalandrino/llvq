@@ -7,7 +7,7 @@
 
 use llvq_core::DIM;
 use llvq_search::generic::BallSearcher;
-use llvq_search::trio::{Encoder, Scratch, Trio, LABEL_BITS};
+use llvq_search::tetra::{Encoder, Scratch, Tetra, LABEL_BITS};
 use llvq_search::Searcher;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -608,29 +608,29 @@ impl BlockQuantizer for LeechShapeGain {
     }
 }
 
-/// Shape–gain on the **Trio** word map: the direction from
-/// [`llvq_search::trio`], the magnitude from one gain bit relative to the
+/// Shape–gain on the **Tetra** word map: the direction from
+/// [`llvq_search::tetra`], the magnitude from one gain bit relative to the
 /// per-row scale. 48 bits per block — the same budget as
 /// [`LeechShapeGain`] at `cap = 12`, spent differently (roadmap §2.2
 /// quater, step 2).
 ///
 /// What differs from [`LeechShapeGain`] is how the direction is *found* and
 /// how it is *written down*; what does not differ is the reconstruction.
-/// A Trio point is a point of `√8·Λ₂₄` like any other, so both quantizers
+/// A Tetra point is a point of `√8·Λ₂₄` like any other, so both quantizers
 /// and `llvq_artifact`'s decoder go through the one
-/// [`reconstruct_shape_gain`] — which is why a Trio block seals bit for bit
+/// [`reconstruct_shape_gain`] — which is why a Tetra block seals bit for bit
 /// with no second formula to keep in step.
 ///
 /// | | direction | index | decode |
 /// |---|---|---|---|
 /// | [`LeechShapeGain`] `cap = 12` | exact nearest neighbour in `Λ₂₄(12)` | bijective, 47 bits | a rank decomposition |
-/// | `TrioShapeGain` | the rank-region rule of [`Encoder`] | a 47-bit trellis word | three 11-bit table reads |
+/// | `TetraShapeGain` | the rank-region rule of [`Encoder`] | a 47-bit trellis word | three 11-bit table reads |
 ///
 /// ## What the rule costs, and where that is read
 ///
-/// The Trio encoder is **not** an exact nearest neighbour: on the F1b
+/// The Tetra encoder is **not** an exact nearest neighbour: on the F1b
 /// evaluation blocks it retains 88.89 % against the ball's 92.00 % at the
-/// same 2.000 b/dim (*measured*, `llvq-bench/tests/trio_encoder.rs`). That
+/// same 2.000 b/dim (*measured*, `llvq-bench/tests/tetra_encoder.rs`). That
 /// is Gaussian retention on fixed blocks and not a quality claim — two
 /// transpositions away from perplexity (`docs/ROADMAP.md` §2.2 bis) — and
 /// what it buys is the decode, which is the whole point of the format.
@@ -646,14 +646,14 @@ impl BlockQuantizer for LeechShapeGain {
 /// ## Cost of construction
 ///
 /// [`Encoder`] carries the trellis, the closed-form bounds, the 4,096
-/// fallbacks and the row index. `Trio::new` plus two encoders plus the ball
+/// fallbacks and the row index. `Tetra::new` plus two encoders plus the ball
 /// searchers come to 0.03 s in release and 0.53 s in debug (*measured* on an
-/// M3 Max, 2026-09-05: `trioencbench`'s "tables prêtes" line, and a probe in
+/// M3 Max, 2026-09-05: `tetraencbench`'s "tables prêtes" line, and a probe in
 /// the test profile). The GPTQ loop calls `make_quantizer` once per thread
 /// and per layer — a few thousand times on a 4B — so [`Self::with_encoder`]
 /// exists to share one build across all of them; [`Self::new`] builds its
 /// own and is for tests and one-shot callers.
-pub struct TrioShapeGain {
+pub struct TetraShapeGain {
     enc: Arc<Encoder>,
     /// The encoder's per-thread workspace, ~45 KiB. In a [`RefCell`]
     /// because [`BlockQuantizer::reproject`] takes `&self` and still has to
@@ -667,7 +667,7 @@ pub struct TrioShapeGain {
     last: Option<BlockCode>,
 }
 
-impl TrioShapeGain {
+impl TetraShapeGain {
     /// `centroids` are gains **relative to the row scale**, as fitted by
     /// [`fit_gain_centroids`] with `k_bits = 1`. Builds its own [`Encoder`];
     /// see [`Self::with_encoder`] to share one.
@@ -678,7 +678,7 @@ impl TrioShapeGain {
     /// One [`Encoder`], ready to be cloned into as many quantizers as there
     /// are threads.
     pub fn encoder() -> Arc<Encoder> {
-        Arc::new(Encoder::new(&Trio::new()))
+        Arc::new(Encoder::new(&Tetra::new()))
     }
 
     /// Share an [`Encoder`] built once for the process.
@@ -690,7 +690,7 @@ impl TrioShapeGain {
         assert_eq!(
             centroids.len(),
             2,
-            "a Trio block is a 48-bit word: {LABEL_BITS} bits of label and one \
+            "a Tetra block is a 48-bit word: {LABEL_BITS} bits of label and one \
              gain bit, so the gain code has two levels and not {}",
             centroids.len()
         );
@@ -722,15 +722,15 @@ impl TrioShapeGain {
         reconstruct_shape_gain(code, &self.centroids, row_scale, out);
     }
 
-    /// The Trio point nearest the direction of `x`, by the encoder's rule.
+    /// The Tetra point nearest the direction of `x`, by the encoder's rule.
     ///
     /// `x` is passed **as it is**, not normalized. The rule is scale-free —
     /// `Encoder::encode` derives its two scales from `‖x‖` itself, so the
     /// target it rounds is a function of `x/‖x‖` alone — and normalizing
     /// first would only insert a division whose rounding the encoder would
     /// then have to live with. Every point it returns is a word of the map
-    /// (`Trio::decode(word) == point` by construction, `Trio::encode(&point)
-    /// == Some(word)` pinned by `llvq_search::trio`'s own tests), which is
+    /// (`Tetra::decode(word) == point` by construction, `Tetra::encode(&point)
+    /// == Some(word)` pinned by `llvq_search::tetra`'s own tests), which is
     /// what makes the block writable.
     fn direction(&self, x: &[f64; DIM]) -> llvq_core::Point {
         let point = self.enc.encode(x, &mut self.scratch.borrow_mut()).point;
@@ -742,7 +742,7 @@ impl TrioShapeGain {
     }
 }
 
-impl BlockQuantizer for TrioShapeGain {
+impl BlockQuantizer for TetraShapeGain {
     fn block_len(&self) -> usize {
         DIM
     }
@@ -756,7 +756,7 @@ impl BlockQuantizer for TrioShapeGain {
     /// [`LeechShapeGain::retraction_target`] — a target of `norm_before`
     /// would hand the magnitude back as a free float and cancel the gain
     /// bit; a recomputed value of the *same* norm would cost a rounding the
-    /// decoder cannot mirror. Trio has no free-magnitude variant: the word
+    /// decoder cannot mirror. Tetra has no free-magnitude variant: the word
     /// has a gain bit in it whether it is used or not.
     fn retraction_target(&self, _norm_before: f64) -> Option<f64> {
         None
@@ -768,7 +768,7 @@ impl BlockQuantizer for TrioShapeGain {
         if norm == 0.0 {
             out.fill(0.0);
             // Word 0 is the origin — a zero block is representable, not an
-            // absence of code (`llvq_search::trio`, "Coordinate orders").
+            // absence of code (`llvq_search::tetra`, "Coordinate orders").
             self.last = Some(BlockCode { point: [0; DIM], gain: 0 });
             return;
         }
@@ -795,12 +795,12 @@ impl BlockQuantizer for TrioShapeGain {
     ///
     /// ⚠️ **The flip is not [`LeechShapeGain`]'s.** There, a solve that picked
     /// a negative scale is honoured by negating the point, because `Λ₂₄` is
-    /// centrally symmetric. **The Trio map is not.** Under an even block
+    /// centrally symmetric. **The Tetra map is not.** Under an even block
     /// parity the residue class `o = 0` lists its values `0, +4, −4, +8, …`,
     /// so negating a coordinate swaps its rank inside a pair — rank 1 costs
     /// `(2·1+1)² = 9` and rank 2 costs 25 — and the section's rank vector can
     /// leave the 2,048 rows its class holds; rank 7 (`+16`) has no negative
-    /// at all. `Trio::encode(−y)` would then return `None` and the matrix
+    /// at all. `Tetra::encode(−y)` would then return `None` and the matrix
     /// could not be written. (Under an odd parity it *is* symmetric: `o = 3`
     /// is `o = 1` negated term for term, and the pattern moves to the
     /// complementary Golay codeword.)
@@ -920,7 +920,7 @@ pub fn row_scale(row: &[f64]) -> f64 {
 /// One function for both sides of a file: [`LeechShapeGain::reconstruct`]
 /// calls it, and so does `llvq_artifact::decode_matrix`, which used to build
 /// a whole `LeechShapeGain` — a ball searcher included — per matrix to reach
-/// these six lines. The direction code is not looked at: a Trio point is a
+/// these six lines. The direction code is not looked at: a Tetra point is a
 /// Λ₂₄ point like any other, and reconstructs through the same formula.
 pub fn reconstruct_shape_gain(code: &BlockCode, centroids: &[f64], row_scale: f64, out: &mut [f64]) {
     assert_eq!(out.len(), DIM);

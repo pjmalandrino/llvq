@@ -94,7 +94,7 @@ pub fn load(
     let mut r = std::io::BufReader::with_capacity(1 << 20, f);
     let head = read_header(&mut r)?;
     // One lazy map per kind, shared across the file's records: a Ball-only
-    // artifact never builds Trio's 16 KiB table, and a mixed one builds each
+    // artifact never builds Tetra's 16 KiB table, and a mixed one builds each
     // map once rather than per record.
     let cbs = Codebooks::new();
     let dtype = model.dtype();
@@ -256,7 +256,7 @@ pub fn shard_extent(path: impl AsRef<std::path::Path>) -> anyhow::Result<(usize,
 /// check them matrix by matrix.
 pub struct ShardExpect {
     /// Which map the shard's indices belong to. Not a cosmetic field: a Ball
-    /// index and a Trio word are both 47 bits at `shell_cap = 12`, so a shard
+    /// index and a Tetra word are both 47 bits at `shell_cap = 12`, so a shard
     /// of the wrong kind reads without a single misaligned bit and decodes to
     /// a different point at every block. The record carries its own kind from
     /// v5, and this is what it is checked against.
@@ -555,13 +555,13 @@ impl RunState {
 /// `seal` keep a record's kind while still decoding it.
 ///
 /// The kind is the record's, never the header's default: a v5 file may hold
-/// both, and a Trio word decoded as a ball index is 47 bits that stay aligned
+/// both, and a Tetra word decoded as a ball index is 47 bits that stay aligned
 /// with the stream and mean something else at every block.
 pub fn to_quantized(raw: RawMatrix, cbs: &Codebooks) -> anyhow::Result<QuantizedMatrix> {
     let cb = cbs.get(raw.kind);
     let mut codes = Vec::with_capacity(raw.indices.len());
     for (&idx, &gain) in raw.indices.iter().zip(&raw.gains) {
-        // The gain rides with the index because a Trio word carries it at bit
+        // The gain rides with the index because a Tetra word carries it at bit
         // 47 — `Codebook::decode` puts the word back together — while a ball
         // index ignores it. One call site, both conventions.
         let point = cb.decode(idx, gain).ok_or_else(|| {

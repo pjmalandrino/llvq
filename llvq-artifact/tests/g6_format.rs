@@ -13,16 +13,16 @@
 use llvq_core::{SplitMix64, DIM};
 use llvq_artifact::{
     decode_matrix, read_all, read_raw, write_matrix, write_raw, ArtifactWriter, CodeKind, KindSet,
-    QuantizedMatrix, RawData, RawTensor, DEFAULT_VERSION, FIRST_KINDED_VERSION, TRIO_SHELL_CAP,
+    QuantizedMatrix, RawData, RawTensor, DEFAULT_VERSION, FIRST_KINDED_VERSION, TETRA_SHELL_CAP,
 };
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::index::Indexer;
-use llvq_search::trio::{Trio, LABEL_MASK};
+use llvq_search::tetra::{Tetra, LABEL_MASK};
 
-/// A Trio matrix: labels drawn at random and decoded through the map — the
+/// A Tetra matrix: labels drawn at random and decoded through the map — the
 /// map is the only source of valid points — one gain bit, the sentinel cap.
-fn synthetic_trio(
-    trio: &Trio,
+fn synthetic_tetra(
+    tetra: &Tetra,
     rng: &mut SplitMix64,
     name: &str,
     d_out: usize,
@@ -31,7 +31,7 @@ fn synthetic_trio(
 ) -> QuantizedMatrix {
     let codes: Vec<BlockCode> = (0..d_out * (d_in / DIM))
         .map(|_| BlockCode {
-            point: trio.decode(rng.next() & LABEL_MASK),
+            point: tetra.decode(rng.next() & LABEL_MASK),
             gain: (rng.next() & 1) as u32,
         })
         .collect();
@@ -43,7 +43,7 @@ fn synthetic_trio(
         row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
         centroids: vec![0.7, 1.1],
         rotation_seed,
-        shell_cap: TRIO_SHELL_CAP,
+        shell_cap: TETRA_SHELL_CAP,
         tail: (0..d_out * (d_in % DIM))
             .map(|_| rng.next_gaussian() as f32 as f64)
             .collect(),
@@ -223,7 +223,7 @@ fn every_stored_field_is_load_bearing() {
     assert_ne!(decode_matrix(&m), want, "the lattice point is ignored");
 
     // The kind — a record field from v5, so it is corrupted in a file. A v5
-    // Trio record whose tag is flipped to Ball must not decode to the same
+    // Tetra record whose tag is flipped to Ball must not decode to the same
     // weights: the same 47-bit words through the other map are refused (a
     // label past the ball) or different, never silently equal. And the
     // converse. The header's default is patched along with the record's tag,
@@ -231,19 +231,19 @@ fn every_stored_field_is_load_bearing() {
     // refused before any record is reached — one field at a time is not
     // available here, and the mutant this kills is "the reader takes the
     // kind from somewhere other than the record".
-    let trio = Trio::new();
-    let t = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM, Some(0x1234));
+    let tetra = Tetra::new();
+    let t = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.up_proj.weight", 4, 3 * DIM, Some(0x1234));
     let want_t = decode_matrix(&t);
     let mut file: Vec<u8> = Vec::new();
     {
-        let mut w = ArtifactWriter::with_kind(&mut file, CodeKind::Trio, 1).expect("header");
+        let mut w = ArtifactWriter::with_kind(&mut file, CodeKind::Tetra, 1).expect("header");
         w.push(&t).expect("write");
         w.finish().expect("flush");
     }
-    assert_eq!(u32::from_le_bytes(file[24..28].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!(u32::from_le_bytes(file[24..28].try_into().unwrap()), CodeKind::Tetra.tag());
     assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want_t, "the control");
     let at = record_kind_at(&file, &t.name);
-    assert_eq!(u32::from_le_bytes(file[at..at + 4].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!(u32::from_le_bytes(file[at..at + 4].try_into().unwrap()), CodeKind::Tetra.tag());
     patch_kind(&mut file, at, CodeKind::Ball);
     match read_all(&mut &file[..]) {
         Err(_) => {}
@@ -258,14 +258,14 @@ fn every_stored_field_is_load_bearing() {
     }
     assert_eq!(decode_matrix(&read_all(&mut &file[..]).expect("read")[0]), want, "the control");
     let at = record_kind_at(&file, &base.name);
-    patch_kind(&mut file, at, CodeKind::Trio);
+    patch_kind(&mut file, at, CodeKind::Tetra);
     match read_all(&mut &file[..]) {
         Err(_) => {}
         Ok(got) => assert_ne!(decode_matrix(&got[0]), want, "the kind is ignored by the reader"),
     }
 
     // And the header's `kinds_present`, whose only reader is a refusal: a
-    // Ball-only file whose mask gains Trio must stop every runtime path, and
+    // Ball-only file whose mask gains Tetra must stop every runtime path, and
     // the unpatched file must not. A field nothing consults is a field the
     // format did not need.
     let mut file: Vec<u8> = Vec::new();
@@ -276,8 +276,8 @@ fn every_stored_field_is_load_bearing() {
     }
     let head = llvq_artifact::read_header(&mut &file[..]).expect("the control opens");
     llvq_artifact::runtime::require_ball_kinds(head.kinds(), "g6").expect("Ball only, so it passes");
-    file[28..32].copy_from_slice(&KindSet::BALL.with(CodeKind::Trio).bits().to_le_bytes());
-    let head = llvq_artifact::read_header(&mut &file[..]).expect("a Ball default in a Ball+Trio set");
+    file[28..32].copy_from_slice(&KindSet::BALL.with(CodeKind::Tetra).bits().to_le_bytes());
+    let head = llvq_artifact::read_header(&mut &file[..]).expect("a Ball default in a Ball+Tetra set");
     assert!(
         llvq_artifact::runtime::require_ball_kinds(head.kinds(), "g6").is_err(),
         "kinds_present is ignored by the refusals"
@@ -300,7 +300,7 @@ fn patch_kind(file: &mut [u8], at: usize, kind: CodeKind) {
     file[at..at + 4].copy_from_slice(&kind.tag().to_le_bytes());
 }
 
-/// The v5 passthrough: a Trio file read undecoded and written back through a
+/// The v5 passthrough: a Tetra file read undecoded and written back through a
 /// writer built from its own header — version, default kind and declared set
 /// — is the same bytes, and so is a v5 Ball file and a mixed one. What a
 /// `v4` tool does to a `v4` file, the same tool does to a `v5` one once it
@@ -308,26 +308,26 @@ fn patch_kind(file: &mut [u8], at: usize, kind: CodeKind) {
 #[test]
 fn raw_passthrough_is_byte_identical_at_v5() {
     let ix = Indexer::new();
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let mut rng = SplitMix64::new(0x6_F006);
-    let trio_mats = [
-        synthetic_trio(&trio, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, Some(7)),
-        synthetic_trio(&trio, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, None),
+    let tetra_mats = [
+        synthetic_tetra(&tetra, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, Some(7)),
+        synthetic_tetra(&tetra, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, None),
     ];
     let ball_mats = [
         synthetic(&ix, &mut rng, "model.layers.0.self_attn.q_proj.weight", 4, 3 * DIM + 16, 13, 2, Some(7)),
         synthetic(&ix, &mut rng, "model.layers.1.mlp.gate_proj.weight", 3, 2 * DIM, 12, 2, None),
     ];
-    // Third arm: one Ball record and one Trio record in the same file, the
+    // Third arm: one Ball record and one Tetra record in the same file, the
     // shape Q5 will write. A passthrough that took the kind from the header
     // would rewrite one of the two.
     let mixed = [
         synthetic(&ix, &mut rng, "model.layers.2.self_attn.v_proj.weight", 4, 2 * DIM, 12, 2, Some(3)),
-        synthetic_trio(&trio, &mut rng, "model.layers.2.mlp.down_proj.weight", 3, 3 * DIM, None),
+        synthetic_tetra(&tetra, &mut rng, "model.layers.2.mlp.down_proj.weight", 3, 3 * DIM, None),
     ];
-    let both = KindSet::BALL.with(CodeKind::Trio);
+    let both = KindSet::BALL.with(CodeKind::Tetra);
     for (kinds, mats) in [
-        (KindSet::of(CodeKind::Trio), &trio_mats[..]),
+        (KindSet::of(CodeKind::Tetra), &tetra_mats[..]),
         (KindSet::BALL, &ball_mats[..]),
         (both, &mixed[..]),
     ] {
@@ -339,7 +339,7 @@ fn raw_passthrough_is_byte_identical_at_v5() {
             for (i, m) in mats.iter().enumerate() {
                 // The mixed arm pushes each record as its own kind; the
                 // single-kind arms go through the default.
-                w.push_kind(m, if kinds == both && i == 1 { CodeKind::Trio } else { default })
+                w.push_kind(m, if kinds == both && i == 1 { CodeKind::Tetra } else { default })
                     .expect("write");
             }
             assert_eq!(w.kinds_used(), kinds, "{kinds}: the pushes and the declaration disagree");

@@ -2008,7 +2008,7 @@ mod linux {
                 let f = std::fs::File::open(&path).map_err(|e| format!("open {path}: {e}"))?;
                 let mut r = std::io::BufReader::new(f);
                 let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
-                // A v5 Trio file has no runtime layout yet: refused here by name, never read as a Ball.
+                // A v5 Tetra file has no runtime layout yet: refused here by name, never read as a Ball.
                 llvq_artifact::runtime::require_ball_kinds(h.kinds(), "planesbench").map_err(|e| e.to_string())?;
                 println!("  {path} — {} matrices", h.matrices);
                 source = format!("the published model ({path})");

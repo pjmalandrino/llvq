@@ -26,27 +26,27 @@
 //! ## A code kind per record (`LVQ5`)
 //!
 //! An index has always been a v1 ball index — 47 or 48 bits, one of 383
-//! classes. Trio ([`llvq_search::trio`]) is a second map from 47 bits to Λ₂₄
-//! with the same width and none of the same meaning: a Trio word read as a
+//! classes. Tetra ([`llvq_search::tetra`]) is a second map from 47 bits to Λ₂₄
+//! with the same width and none of the same meaning: a Tetra word read as a
 //! ball index is in range, decodes to a lattice point, and is wrong. So the
-//! file says which map it uses, beside a second fingerprint for the Trio
+//! file says which map it uses, beside a second fingerprint for the Tetra
 //! map, and every reader of a record consults the kind before it trusts any
 //! width.
 //!
 //! *Which* map is a fact about a matrix, not about a file. Q5 serves
-//! `v_proj` in int4 g128 beside Trio matrices (`docs/ROADMAP.md` §2.3), and
+//! `v_proj` in int4 g128 beside Tetra matrices (`docs/ROADMAP.md` §2.3), and
 //! one header field cannot say that. So from `LVQ5` every record carries its
 //! own [`CodeKind`] tag, immediately after its shell cap, and the header
 //! carries two facts instead of one: the file's **default** kind — what
 //! [`ArtifactWriter::push`] writes — and [`KindSet`], the kinds the file
 //! declares it may hold. The set is what refusals read
-//! ([`crate::runtime::require_ball_kinds`]): a tool with no layout for Trio
-//! has to stop at the header of a file with one Trio matrix in it, not at
+//! ([`crate::runtime::require_ball_kinds`]): a tool with no layout for Tetra
+//! has to stop at the header of a file with one Tetra matrix in it, not at
 //! whichever record it reaches first, and the header precedes every record
 //! by construction.
 //!
-//! The record is otherwise unchanged: a Trio record carries
-//! [`TRIO_SHELL_CAP`] in its `shell_cap` field and one gain bit. That kind
+//! The record is otherwise unchanged: a Tetra record carries
+//! [`TETRA_SHELL_CAP`] in its `shell_cap` field and one gain bit. That kind
 //! tag is the only place a v5 record differs from a v4 one, which is why
 //! every record entry point below takes the file's `version` — a v5 record
 //! read as v4 mistakes its kind tag for a centroid count, a v4 record read
@@ -59,7 +59,7 @@ use llvq_core::{Point, DIM};
 use llvq_quant::quantizer::{index_bits, reconstruct_shape_gain, BlockCode};
 use llvq_search::index::Indexer;
 use llvq_search::pack::{BitReader, BitWriter};
-use llvq_search::trio::{Trio, LABEL_BITS};
+use llvq_search::tetra::{Tetra, LABEL_BITS};
 use std::io::{Read, Write};
 use std::sync::OnceLock;
 
@@ -73,10 +73,10 @@ use std::sync::OnceLock;
 /// f16 (see [`crate::sealed`]). `LVQ4` appends the writer's codebook
 /// fingerprint to the header (see [`crate::codebook`]), the first field of
 /// the whole format that describes what an index *means* rather than how
-/// wide it is. `LVQ5` appends the Trio fingerprint, the file's default
+/// wide it is. `LVQ5` appends the Tetra fingerprint, the file's default
 /// [`CodeKind`] and the [`KindSet`] its records may be — and gives every
 /// record a kind of its own, which is what a mixed file needs. All
-/// five are readable; `LVQ4` is written for Ball, `LVQ5` for Trio. The
+/// five are readable; `LVQ4` is written for Ball, `LVQ5` for Tetra. The
 /// matrix records are identical across the first four versions — which is
 /// what lets a tool copy them between two of those files untouched; a `LVQ5`
 /// record adds its code kind, so a copy across that boundary passes each
@@ -96,7 +96,7 @@ pub const VERSION: u32 = 5;
 /// Deliberately not [`VERSION`]: a Ball file gains nothing from a v5 header,
 /// and holding the default at 4 keeps every Ball file — the served 4B's
 /// path included — byte-identical to what the same writer produced before
-/// Trio existed (`the_default_writer_still_writes_v4`). A Trio file cannot
+/// Tetra existed (`the_default_writer_still_writes_v4`). A Tetra file cannot
 /// be a v4 file, and [`ArtifactWriter::with_kind`] picks its version from
 /// the kind.
 pub const DEFAULT_VERSION: u32 = 4;
@@ -111,26 +111,26 @@ pub const DEFAULT_VERSION: u32 = 4;
 pub const FIRST_FINGERPRINTED_VERSION: u32 = 4;
 
 /// First version whose header carries a default [`CodeKind`], the set of
-/// kinds its records may be ([`KindSet`]) and the Trio fingerprint, and whose
+/// kinds its records may be ([`KindSet`]) and the Tetra fingerprint, and whose
 /// **records** each carry their own kind. Every file below it is a Ball file
 /// of Ball records: there was nothing else to be.
 pub const FIRST_KINDED_VERSION: u32 = 5;
 
-/// What a Trio record carries in its `shell_cap` field.
+/// What a Tetra record carries in its `shell_cap` field.
 ///
-/// The field is not read for Trio; 12 keeps `index_bits` at 47 so a reader
+/// The field is not read for Tetra; 12 keeps `index_bits` at 47 so a reader
 /// that ignored the kind would at least fail loudly on the fingerprint, not
 /// silently on the width — its 47-bit reads would stay aligned with the
 /// stream, and every one of them would be an index into the wrong map. The
 /// reader consults the record's kind BEFORE any width ([`read_matrix_raw`]),
-/// takes Trio's width from [`LABEL_BITS`], and refuses a Trio record whose
+/// takes Tetra's width from [`LABEL_BITS`], and refuses a Tetra record whose
 /// field holds anything else: such a record was never written by this crate.
-pub const TRIO_SHELL_CAP: u32 = 12;
+pub const TETRA_SHELL_CAP: u32 = 12;
 
 /// Which map turns a matrix's indices into lattice points.
 ///
 /// Stored as a `u32` tag in the v5 header (the file's default) and in every
-/// v5 record (`0 = Ball`, `1 = Trio`); a tag this build does not know is
+/// v5 record (`0 = Ball`, `1 = Tetra`); a tag this build does not know is
 /// [`Error::UnknownCodeKind`], refused where it is read — past an unknown
 /// kind neither the header's set nor the record's width means anything.
 /// Every file before v5 is `Ball`.
@@ -140,13 +140,13 @@ pub enum CodeKind {
     /// [`llvq_search::index::Indexer`], fingerprinted by
     /// [`crate::codebook_fingerprint`].
     Ball,
-    /// The three-section trellis word of [`llvq_search::trio`], fingerprinted
-    /// by [`crate::codebook::trio_fingerprint`].
-    Trio,
+    /// The three-section trellis word of [`llvq_search::tetra`], fingerprinted
+    /// by [`crate::codebook::tetra_fingerprint`].
+    Tetra,
 }
 
 /// The tag reserved for Q5's `int4 g128` matrices — the mixed-precision
-/// `v_proj` of `docs/ROADMAP.md` §2.3, which will sit beside Trio matrices in
+/// `v_proj` of `docs/ROADMAP.md` §2.3, which will sit beside Tetra matrices in
 /// one file. Nothing writes it and nothing reads it: until that writer
 /// exists tag 2 is [`Error::UnknownCodeKind`] like any other value, and
 /// reserving it here is a promise about the *number* — so that Q5's files and
@@ -158,13 +158,13 @@ pub const RESERVED_INT4G128_TAG: u32 = 2;
 impl CodeKind {
     /// Every kind this build knows, in tag order — what [`KindSet`] iterates
     /// and what a reader of an unknown tag is being measured against.
-    pub const ALL: [CodeKind; 2] = [CodeKind::Ball, CodeKind::Trio];
+    pub const ALL: [CodeKind; 2] = [CodeKind::Ball, CodeKind::Tetra];
 
     /// The header and record tag.
     pub const fn tag(self) -> u32 {
         match self {
             Self::Ball => 0,
-            Self::Trio => 1,
+            Self::Tetra => 1,
         }
     }
 
@@ -173,7 +173,7 @@ impl CodeKind {
     pub fn from_tag(tag: u32) -> Result<Self> {
         match tag {
             0 => Ok(Self::Ball),
-            1 => Ok(Self::Trio),
+            1 => Ok(Self::Tetra),
             _ => Err(Error::UnknownCodeKind { tag }),
         }
     }
@@ -187,16 +187,16 @@ impl CodeKind {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ball => "Ball",
-            Self::Trio => "Trio",
+            Self::Tetra => "Tetra",
         }
     }
 
     /// The version [`ArtifactWriter::with_kind`] emits for this kind:
-    /// [`DEFAULT_VERSION`] for Ball, [`FIRST_KINDED_VERSION`] for Trio.
+    /// [`DEFAULT_VERSION`] for Ball, [`FIRST_KINDED_VERSION`] for Tetra.
     pub const fn default_version(self) -> u32 {
         match self {
             Self::Ball => DEFAULT_VERSION,
-            Self::Trio => FIRST_KINDED_VERSION,
+            Self::Tetra => FIRST_KINDED_VERSION,
         }
     }
 }
@@ -211,8 +211,8 @@ impl fmt::Display for CodeKind {
 /// `kinds_present` bitmask, `1 << tag` per kind.
 ///
 /// It exists because the header is the only place a refusal can be cheap and
-/// early. A tool with no runtime layout for Trio must stop before it reads
-/// the first record of a file that holds one Trio matrix among four hundred
+/// early. A tool with no runtime layout for Tetra must stop before it reads
+/// the first record of a file that holds one Tetra matrix among four hundred
 /// Ball ones; the default kind alone cannot tell it that, and walking the
 /// records to find out is the read the refusal was meant to avoid.
 ///
@@ -295,7 +295,7 @@ impl From<CodeKind> for KindSet {
 }
 
 impl fmt::Display for KindSet {
-    /// `Ball`, `Trio`, `Ball+Trio` — and `none` for the empty set, which no
+    /// `Ball`, `Tetra`, `Ball+Tetra` — and `none` for the empty set, which no
     /// header may carry ([`read_header`] refuses one) but a message about a
     /// refused header still has to print.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -315,47 +315,47 @@ impl fmt::Display for KindSet {
 /// The map of one [`CodeKind`], built once per process and shared across
 /// matrices — building either enumerates tables that have no business being
 /// rebuilt per record (383 classes for the ball, a 16 KiB table and a
-/// trellis, all re-derived and asserted, for Trio).
+/// trellis, all re-derived and asserted, for Tetra).
 pub enum Codebook {
     Ball(Box<Indexer>),
-    Trio(Box<Trio>),
+    Tetra(Box<Tetra>),
 }
 
 impl Codebook {
     pub fn new(kind: CodeKind) -> Self {
         match kind {
             CodeKind::Ball => Self::Ball(Box::new(Indexer::new())),
-            CodeKind::Trio => Self::Trio(Box::new(Trio::new())),
+            CodeKind::Tetra => Self::Tetra(Box::new(Tetra::new())),
         }
     }
 
     pub fn kind(&self) -> CodeKind {
         match self {
             Self::Ball(_) => CodeKind::Ball,
-            Self::Trio(_) => CodeKind::Trio,
+            Self::Tetra(_) => CodeKind::Tetra,
         }
     }
 
     /// The index of a point, or `None` for a point the map has no word for.
-    /// A Trio word comes back with its gain bit (bit 47) clear.
+    /// A Tetra word comes back with its gain bit (bit 47) clear.
     pub fn encode(&self, point: &Point) -> Option<u64> {
         match self {
             Self::Ball(ix) => ix.encode(point),
-            Self::Trio(trio) => trio.encode(point),
+            Self::Tetra(tetra) => tetra.encode(point),
         }
     }
 
     /// The point of a stored `(index, gain)` pair.
     ///
-    /// For Trio the pair is put back together as the 48-bit word the kernel
+    /// For Tetra the pair is put back together as the 48-bit word the kernel
     /// will read, `index | gain << 47`, before decoding — the gain bit is
-    /// opaque to [`Trio::decode`], but the word is the unit of the format,
+    /// opaque to [`Tetra::decode`], but the word is the unit of the format,
     /// and a reader that assembled it with the gain at any other bit would
     /// decode a different point (`the_gain_bit_sits_at_bit_47_on_disk`).
     pub fn decode(&self, index: u64, gain: u32) -> Option<Point> {
         match self {
             Self::Ball(ix) => ix.decode(index),
-            Self::Trio(trio) => Some(trio.decode(index | u64::from(gain) << LABEL_BITS)),
+            Self::Tetra(tetra) => Some(tetra.decode(index | u64::from(gain) << LABEL_BITS)),
         }
     }
 }
@@ -365,21 +365,21 @@ impl Codebook {
 /// A v5 file may hold records of more than one kind, so a reader cannot pick
 /// its map up front; and neither map is free to build — 383 classes
 /// enumerated for the ball, a 16 KiB table and a trellis re-derived and
-/// asserted for Trio — so a file with no Trio record must not pay for Trio's.
+/// asserted for Tetra — so a file with no Tetra record must not pay for Tetra's.
 /// One lazy slot per kind is both. `OnceLock` rather than `Option` so the
 /// maps come out of a `&self`: [`ArtifactWriter`] holds this beside the sink
 /// it borrows mutably, and a `&mut self` here would make the two collide.
 #[derive(Default)]
 pub struct Codebooks {
     ball: OnceLock<Codebook>,
-    trio: OnceLock<Codebook>,
+    tetra: OnceLock<Codebook>,
 }
 
 impl Codebooks {
     pub const fn new() -> Self {
         Self {
             ball: OnceLock::new(),
-            trio: OnceLock::new(),
+            tetra: OnceLock::new(),
         }
     }
 
@@ -387,18 +387,18 @@ impl Codebooks {
     pub fn get(&self, kind: CodeKind) -> &Codebook {
         let slot = match kind {
             CodeKind::Ball => &self.ball,
-            CodeKind::Trio => &self.trio,
+            CodeKind::Tetra => &self.tetra,
         };
         slot.get_or_init(|| Codebook::new(kind))
     }
 
     /// Whether the map of `kind` has been built — the cheap way to see that a
-    /// Ball-only file never touched Trio's tables
-    /// (`a_ball_only_file_never_builds_the_trio_map`).
+    /// Ball-only file never touched Tetra's tables
+    /// (`a_ball_only_file_never_builds_the_tetra_map`).
     pub fn is_built(&self, kind: CodeKind) -> bool {
         match kind {
             CodeKind::Ball => self.ball.get().is_some(),
-            CodeKind::Trio => self.trio.get().is_some(),
+            CodeKind::Tetra => self.tetra.get().is_some(),
         }
     }
 }
@@ -417,7 +417,7 @@ pub struct QuantizedMatrix {
     /// Seed of the incoherence rotation, or `None` for the natural basis.
     pub rotation_seed: Option<u64>,
     /// Shell cap of the direction code, which sets the index width for a
-    /// Ball matrix; [`TRIO_SHELL_CAP`] on a Trio matrix, where it is a
+    /// Ball matrix; [`TETRA_SHELL_CAP`] on a Tetra matrix, where it is a
     /// sentinel and not a cap.
     pub shell_cap: u32,
     /// Trailing columns kept at full precision, `d_out × (d_in % 24)`
@@ -492,8 +492,8 @@ fn get_bytes(r: &mut impl Read, n: u64, what: &'static str) -> Result<Vec<u8>> {
 ///
 /// Ball: the cap sets the width, and a cap past the supported ball is an
 /// `Err` here rather than an assert inside llvq-search's class enumeration.
-/// Trio: the width is [`LABEL_BITS`] whatever the field says, and the field
-/// must say [`TRIO_SHELL_CAP`] — a Trio record with any other value was not
+/// Tetra: the width is [`LABEL_BITS`] whatever the field says, and the field
+/// must say [`TETRA_SHELL_CAP`] — a Tetra record with any other value was not
 /// written by this crate, and the only honest reading of it is a refusal.
 fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
     match kind {
@@ -509,13 +509,13 @@ fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
             }
             Ok(index_bits(shell_cap))
         }
-        CodeKind::Trio => {
-            if shell_cap != TRIO_SHELL_CAP {
+        CodeKind::Tetra => {
+            if shell_cap != TETRA_SHELL_CAP {
                 return Err(Error::Inconsistent {
                     name: name.to_string(),
                     detail: format!(
-                        "shell cap {shell_cap} on a Trio record: the field is not read for \
-                         Trio and is written as {TRIO_SHELL_CAP}"
+                        "shell cap {shell_cap} on a Tetra record: the field is not read for \
+                         Tetra and is written as {TETRA_SHELL_CAP}"
                     ),
                 });
             }
@@ -524,17 +524,17 @@ fn index_width(kind: CodeKind, name: &str, shell_cap: u32) -> Result<u32> {
     }
 }
 
-/// The gain width of a record. A Trio word has exactly one gain bit, at bit
+/// The gain width of a record. A Tetra word has exactly one gain bit, at bit
 /// 47: two centroids, no more, no fewer — a wider gain field would push the
 /// word past 48 bits and [`Codebook::decode`]'s `gain << 47` past the word.
 fn gain_width(kind: CodeKind, name: &str, n_centroids: usize) -> Result<u32> {
     let gb = n_centroids.next_power_of_two().trailing_zeros();
-    if kind == CodeKind::Trio && gb != 1 {
+    if kind == CodeKind::Tetra && gb != 1 {
         return Err(Error::Inconsistent {
             name: name.to_string(),
             detail: format!(
-                "{n_centroids} centroids on a Trio record: a Trio word carries one gain bit \
-                 at bit {LABEL_BITS}, so a Trio matrix has two"
+                "{n_centroids} centroids on a Tetra record: a Tetra word carries one gain bit \
+                 at bit {LABEL_BITS}, so a Tetra matrix has two"
             ),
         });
     }
@@ -597,7 +597,7 @@ fn put_record_head(
 }
 
 /// Serialize one matrix through `encode`, returning the bits its payload
-/// occupies. The Ball and Trio writers differ only in the map.
+/// occupies. The Ball and Tetra writers differ only in the map.
 fn write_codes(
     w: &mut impl Write,
     version: u32,
@@ -639,11 +639,11 @@ fn write_codes(
     )?;
 
     // The disk word. `push(idx, ib); push(gain, gb)` MSB-first (`pack.rs`),
-    // so a Trio block's 48 bits sit big-endian across six bytes, its `p` bit
+    // so a Tetra block's 48 bits sit big-endian across six bytes, its `p` bit
     // last. The card's decoders (`llvq_f1rank*.cuh`) read a little-endian
     // 48-bit word, bit 0 = `p` in the lowest byte: that reordering is F1d's
-    // transcoder (`trio48`, roadmap §2.2 quater step 6), not this crate's,
-    // and nothing here produces a device stream for Trio
+    // transcoder (`tetra48`, roadmap §2.2 quater step 6), not this crate's,
+    // and nothing here produces a device stream for Tetra
     // (`runtime::require_ball`).
     let mut bw = BitWriter::with_capacity(m.codes.len() as u64 * (ib + gb) as u64);
     for c in &m.codes {
@@ -682,9 +682,9 @@ pub fn write_matrix(
 }
 
 /// Serialize one matrix through a [`Codebook`], which is what fixes the
-/// record's kind: Ball → the v1 index, Trio → the Trio word
+/// record's kind: Ball → the v1 index, Tetra → the Tetra word
 /// ([`Error::PointOutsideCodebook`] for a point the map refuses, which for
-/// Trio means a point off its label set).
+/// Tetra means a point off its label set).
 pub fn write_matrix_with(
     w: &mut impl Write,
     version: u32,
@@ -806,9 +806,9 @@ pub fn write_matrix_raw(w: &mut impl Write, version: u32, m: &RawMatrix) -> Resu
 /// (`a_v5_record_read_as_v4_is_not_the_same_record`).
 ///
 /// The kind then decides the index width before the record's own `shell_cap`
-/// is looked at ([`index_width`]): for Trio the width is [`LABEL_BITS`] and
-/// the field is only checked to be [`TRIO_SHELL_CAP`]. A reader that took the
-/// width from the field would read a Trio record whose field had been
+/// is looked at ([`index_width`]): for Tetra the width is [`LABEL_BITS`] and
+/// the field is only checked to be [`TETRA_SHELL_CAP`]. A reader that took the
+/// width from the field would read a Tetra record whose field had been
 /// corrupted to 13 as 48-bit words, in step with nothing.
 pub fn read_matrix_raw(r: &mut impl Read, version: u32) -> Result<RawMatrix> {
     let n = get_u32(r, "name length")? as usize;
@@ -924,7 +924,7 @@ fn decode_codes(
 /// kind by name.
 ///
 /// The refusal is the point: this entry has one map, and a caller that reaches
-/// a Trio record through it wanted the ball. [`read_matrix_with`] is the entry
+/// a Tetra record through it wanted the ball. [`read_matrix_with`] is the entry
 /// that reads whatever the record says it is.
 pub fn read_matrix(r: &mut impl Read, version: u32, ix: &Indexer) -> Result<QuantizedMatrix> {
     let raw = read_matrix_raw(r, version)?;
@@ -939,8 +939,8 @@ pub fn read_matrix(r: &mut impl Read, version: u32, ix: &Indexer) -> Result<Quan
 }
 
 /// Read back what [`write_matrix_with`] wrote, through the map the **record**
-/// names: Ball → `Indexer::decode(idx)`, Trio →
-/// `Trio::decode(idx | gain << 47)`.
+/// names: Ball → `Indexer::decode(idx)`, Tetra →
+/// `Tetra::decode(idx | gain << 47)`.
 pub fn read_matrix_with(
     r: &mut impl Read,
     version: u32,
@@ -960,7 +960,7 @@ pub fn read_matrix_with(
 /// and the whole claim of this format is that it does not. The per-block
 /// reconstruction is [`reconstruct_shape_gain`], the same function the
 /// quantizer's own `reconstruct` calls: no direction code is consulted, so a
-/// Ball and a Trio matrix rebuild through the same lines.
+/// Ball and a Tetra matrix rebuild through the same lines.
 pub fn decode_matrix(m: &QuantizedMatrix) -> Vec<f32> {
     let nblocks = m.nblocks();
     let tail_w = m.d_in % DIM;
@@ -1031,7 +1031,7 @@ impl<W: Write> ArtifactWriter<W> {
     }
 
     /// A writer for `kind` and nothing else, at the version the kind calls for
-    /// ([`CodeKind::default_version`]): v4 for Ball, v5 for Trio.
+    /// ([`CodeKind::default_version`]): v4 for Ball, v5 for Tetra.
     pub fn with_kind(out: W, kind: CodeKind, n_matrices: u32) -> Result<Self> {
         Self::with_version_kind(out, kind.default_version(), n_matrices, kind)
     }
@@ -1169,7 +1169,7 @@ impl<W: Write> ArtifactWriter<W> {
 /// [`FIRST_KINDED_VERSION`] on which maps its records may belong to.
 pub struct Header {
     /// 1 for projections only; 2+ for a self-contained file. 3 adds tagged
-    /// raw-tensor encodings; 4 adds the codebook fingerprint; 5 adds the Trio
+    /// raw-tensor encodings; 4 adds the codebook fingerprint; 5 adds the Tetra
     /// fingerprint, the default code kind and the set of kinds present.
     pub version: u32,
     pub matrices: u32,
@@ -1181,11 +1181,11 @@ pub struct Header {
     /// codebook is not this build's, so reaching a `Header` at all means the
     /// indices about to be read mean what the writer meant.
     pub codebook: Option<u64>,
-    /// The writer's Trio fingerprint, checked the same way against
-    /// [`crate::codebook::trio_fingerprint`]; `None` below v5. Carried and
+    /// The writer's Tetra fingerprint, checked the same way against
+    /// [`crate::codebook::tetra_fingerprint`]; `None` below v5. Carried and
     /// checked by a v5 Ball file too — the header describes the build, not
     /// only the map in use.
-    pub trio: Option<u64>,
+    pub tetra: Option<u64>,
     /// The kind the file's writer used by default. It is **not** what a
     /// record is read as — the record says that itself — and it is not what a
     /// refusal reads either: see [`Self::kinds`].
@@ -1204,8 +1204,8 @@ impl Header {
 
     /// The kind [`ArtifactWriter::push`] used, and nothing more. A tool that
     /// wants to know whether it can handle this file asks [`Self::kinds`]:
-    /// the default of a file whose `v_proj` records are int4 is still Trio,
-    /// and a Trio-only reader that trusted it would walk into the int4 record
+    /// the default of a file whose `v_proj` records are int4 is still Tetra,
+    /// and a Tetra-only reader that trusted it would walk into the int4 record
     /// four hundred records later.
     pub fn default_kind(&self) -> CodeKind {
         self.default_kind
@@ -1294,7 +1294,7 @@ pub fn write_header_kinds(
         put_u64(w, crate::codebook_fingerprint())?;
     }
     if version >= FIRST_KINDED_VERSION {
-        put_u64(w, crate::codebook::trio_fingerprint())?;
+        put_u64(w, crate::codebook::tetra_fingerprint())?;
         put_u32(w, kind.tag())?;
         put_u32(w, kinds.bits())?;
     }
@@ -1339,11 +1339,11 @@ pub fn read_header(r: &mut impl Read) -> Result<Header> {
     } else {
         None
     };
-    let (trio, kind, kinds) = if version >= FIRST_KINDED_VERSION {
-        let trio = check_fingerprint(
-            get_u64(r, "trio fingerprint")?,
-            crate::codebook::trio_fingerprint(),
-            "Trio",
+    let (tetra, kind, kinds) = if version >= FIRST_KINDED_VERSION {
+        let tetra = check_fingerprint(
+            get_u64(r, "tetra fingerprint")?,
+            crate::codebook::tetra_fingerprint(),
+            "Tetra",
         )?;
         let kind = CodeKind::from_tag(get_u32(r, "code kind")?)?;
         let kinds = KindSet::from_bits(get_u32(r, "code kinds present")?)?;
@@ -1356,7 +1356,7 @@ pub fn read_header(r: &mut impl Read) -> Result<Header> {
                 ),
             });
         }
-        (Some(trio), kind, kinds)
+        (Some(tetra), kind, kinds)
     } else {
         (None, CodeKind::Ball, KindSet::BALL)
     };
@@ -1364,7 +1364,7 @@ pub fn read_header(r: &mut impl Read) -> Result<Header> {
         version,
         matrices,
         codebook,
-        trio,
+        tetra,
         default_kind: kind,
         kinds,
     })

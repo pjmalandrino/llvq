@@ -30,24 +30,24 @@
 //! *is* a pure function of those facts, and claim 2 is what establishes that
 //! a different codebook gives a different value.
 //!
-//! From v5 the header carries a second map, Trio's, and its own kind; the
-//! three claims are restated for it (`the_trio_map_is_the_published_one`,
-//! `the_trio_fingerprint_moves_with_every_ingredient`, and the v5 arms of the
+//! From v5 the header carries a second map, Tetra's, and its own kind; the
+//! three claims are restated for it (`the_tetra_map_is_the_published_one`,
+//! `the_tetra_fingerprint_moves_with_every_ingredient`, and the v5 arms of the
 //! refusals), and a fourth is added: the default writer still writes v4, byte
-//! for byte, so no Ball file moved when Trio arrived.
+//! for byte, so no Ball file moved when Tetra arrived.
 
 mod common;
 
 use llvq_artifact::{
-    codebook_fingerprint, decode_matrix, read_all, read_header, trio_fingerprint, ArtifactWriter,
+    codebook_fingerprint, decode_matrix, read_all, read_header, tetra_fingerprint, ArtifactWriter,
     CodeKind, Error, KindSet, QuantizedMatrix, DEFAULT_VERSION, FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2,
-    MAGIC_V3, MAGIC_V4, MAGIC_V5, TRIO_SHELL_CAP, VERSION,
+    MAGIC_V3, MAGIC_V4, MAGIC_V5, TETRA_SHELL_CAP, VERSION,
 };
 use llvq_core::{Point, SplitMix64, DIM};
 use llvq_quant::quantizer::BlockCode;
 use llvq_search::fastdec::{FastDecoder, MAX_LEVELS};
 use llvq_search::index::{Indexer, N13};
-use llvq_search::trio::{Trio, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, TRIO, WORD_BITS};
+use llvq_search::tetra::{Tetra, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, TRIO, WORD_BITS};
 
 /// The fingerprint of format v1 as this branch defines it.
 ///
@@ -65,13 +65,19 @@ use llvq_search::trio::{Trio, LABEL_BITS, LABEL_MASK, LINEAR_COLUMNS, N0_MIXED, 
 /// message alone does not distinguish them; a human has to.
 const PUBLISHED_FINGERPRINT: u64 = 0x338f_420f_1186_6319;
 
-/// The fingerprint of the Trio map as step 3 pinned it (2026-09-05), the
-/// value every v5 Trio file carries. Same rule as [`PUBLISHED_FINGERPRINT`]:
-/// a failure here is either the map moving — `llvq_search::trio`'s trio,
-/// rows, columns or word layout, and with them every Trio file written so
-/// far and the card's decoders — or a deliberate edit to what
-/// `src/codebook.rs` hashes. Decide which before touching the number.
-const PUBLISHED_TRIO_FINGERPRINT: u64 = 0xebc7_5263_8c8d_b088;
+/// The fingerprint of the Tetra map, the value every v5 Tetra file carries.
+/// Same rule as [`PUBLISHED_FINGERPRINT`]: a failure here is either the map
+/// moving — `llvq_search::tetra`'s trio of octads, rows, columns or word
+/// layout, and with them every Tetra file written so far and the card's
+/// decoders — or a deliberate edit to what `src/codebook.rs` hashes. Decide
+/// which before touching the number.
+///
+/// Moved once, on 2026-09-06, when the format was renamed from Trio to Tetra
+/// and the hash's domain string with it (`0xebc7_5263_8c8d_b088` before). No
+/// file outside a scratch directory carried the old value: the rename landed
+/// the day the first artifact was written, and that is why it was done then
+/// rather than later.
+const PUBLISHED_TETRA_FINGERPRINT: u64 = 0x9c30_6008_6c7a_13e6;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -115,13 +121,13 @@ fn synthetic(ix: &Indexer, rng: &mut SplitMix64, name: &str) -> QuantizedMatrix 
     }
 }
 
-/// The same shape of matrix with Trio codes: labels drawn at random and
+/// The same shape of matrix with Tetra codes: labels drawn at random and
 /// decoded through the map, one gain bit, the sentinel cap.
-fn synthetic_trio(trio: &Trio, rng: &mut SplitMix64, name: &str) -> QuantizedMatrix {
+fn synthetic_tetra(tetra: &Tetra, rng: &mut SplitMix64, name: &str) -> QuantizedMatrix {
     let (d_out, d_in) = (3usize, 2 * DIM + 8);
     let codes: Vec<BlockCode> = (0..d_out * (d_in / DIM))
         .map(|_| BlockCode {
-            point: trio.decode(rng.next() & LABEL_MASK),
+            point: tetra.decode(rng.next() & LABEL_MASK),
             gain: (rng.next() & 1) as u32,
         })
         .collect();
@@ -133,7 +139,7 @@ fn synthetic_trio(trio: &Trio, rng: &mut SplitMix64, name: &str) -> QuantizedMat
         row_scales: (0..d_out).map(|_| 1e-3 + rng.next_f64()).collect(),
         centroids: vec![0.6, 1.2],
         rotation_seed: Some(0x1234),
-        shell_cap: TRIO_SHELL_CAP,
+        shell_cap: TETRA_SHELL_CAP,
         tail: (0..d_out * (d_in % DIM))
             .map(|_| f64::from(rng.next_gaussian() as f32))
             .collect(),
@@ -154,21 +160,21 @@ fn v4_file() -> (Vec<u8>, Vec<f32>) {
     (buf, decode_matrix(&m))
 }
 
-/// A one-matrix `LVQ5` Trio file, and the weights it should decode to.
-fn v5_trio_file() -> (Vec<u8>, Vec<f32>) {
-    let trio = Trio::new();
+/// A one-matrix `LVQ5` Tetra file, and the weights it should decode to.
+fn v5_tetra_file() -> (Vec<u8>, Vec<f32>) {
+    let tetra = Tetra::new();
     let mut rng = SplitMix64::new(0xC0DE_7210);
-    let m = synthetic_trio(&trio, &mut rng, "model.layers.0.mlp.up_proj.weight");
+    let m = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.up_proj.weight");
     let mut buf: Vec<u8> = Vec::new();
     {
-        let mut w = ArtifactWriter::with_kind(&mut buf, CodeKind::Trio, 1).expect("header");
+        let mut w = ArtifactWriter::with_kind(&mut buf, CodeKind::Tetra, 1).expect("header");
         w.push(&m).expect("write");
         w.finish().expect("flush");
     }
     (buf, decode_matrix(&m))
 }
 
-/// Header geometry: magic(4) + count(4), + v1 fingerprint(8) from v4, + trio
+/// Header geometry: magic(4) + count(4), + v1 fingerprint(8) from v4, + tetra
 /// fingerprint(8) + default kind(4) + kinds present(4) from v5.
 const V4_HEADER: usize = 16;
 const V5_HEADER: usize = 32;
@@ -190,18 +196,18 @@ fn the_index_map_is_the_published_one() {
 }
 
 #[test]
-fn the_trio_map_is_the_published_one() {
+fn the_tetra_map_is_the_published_one() {
     assert_eq!(
-        trio_fingerprint(),
-        PUBLISHED_TRIO_FINGERPRINT,
-        "the Trio map changed: every v5 Trio file written so far, and the \
+        tetra_fingerprint(),
+        PUBLISHED_TETRA_FINGERPRINT,
+        "the Tetra map changed: every v5 Tetra file written so far, and the \
          card's decoders, no longer agree with this build. Read the note on \
-         PUBLISHED_TRIO_FINGERPRINT before touching this constant. Computed: \
+         PUBLISHED_TETRA_FINGERPRINT before touching this constant. Computed: \
          {:#018x}",
-        trio_fingerprint()
+        tetra_fingerprint()
     );
     assert_ne!(
-        trio_fingerprint(),
+        tetra_fingerprint(),
         codebook_fingerprint(),
         "two maps, two domains, two numbers"
     );
@@ -445,49 +451,49 @@ fn the_fingerprint_moves_with_every_ingredient_of_the_map() {
     }
 }
 
-/// Everything `trio_fingerprint` digests, restated the same way: the inputs
+/// Everything `tetra_fingerprint` digests, restated the same way: the inputs
 /// of the map and `decode` at the probed words.
 #[derive(Clone)]
-struct TrioIngredients {
+struct TetraIngredients {
     domain: Vec<u8>,
     dim: u64,
     word_bits: u64,
     label_bits: u64,
     n0_mixed: u64,
-    trio: [u32; 3],
+    tetra: [u32; 3],
     rows: Vec<u32>,
     columns: Vec<u32>,
     probes: Vec<(u64, Point)>,
 }
 
-fn trio_truth() -> TrioIngredients {
-    let trio = Trio::new();
+fn tetra_truth() -> TetraIngredients {
+    let tetra = Tetra::new();
     let probes = [0u64, LABEL_MASK]
         .into_iter()
         .chain((0..64u64).map(|k| mix(1 + k) & LABEL_MASK))
-        .map(|w| (w, trio.decode(w)))
+        .map(|w| (w, tetra.decode(w)))
         .collect();
-    TrioIngredients {
-        domain: b"llvq codebook fingerprint trio v1".to_vec(),
+    TetraIngredients {
+        domain: b"llvq codebook fingerprint tetra v1".to_vec(),
         dim: DIM as u64,
         word_bits: u64::from(WORD_BITS),
         label_bits: u64::from(LABEL_BITS),
         n0_mixed: N0_MIXED as u64,
-        trio: TRIO,
-        rows: trio.rows().to_vec(),
+        tetra: TRIO,
+        rows: tetra.rows().to_vec(),
         columns: LINEAR_COLUMNS.to_vec(),
         probes,
     }
 }
 
-fn trio_digest(g: &TrioIngredients) -> u64 {
+fn tetra_digest(g: &TetraIngredients) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     bytes(&mut h, &g.domain);
     word(&mut h, g.dim);
     word(&mut h, g.word_bits);
     word(&mut h, g.label_bits);
     word(&mut h, g.n0_mixed);
-    for &o in &g.trio {
+    for &o in &g.tetra {
         word(&mut h, u64::from(o));
     }
     word(&mut h, g.rows.len() as u64);
@@ -506,20 +512,20 @@ fn trio_digest(g: &TrioIngredients) -> u64 {
 }
 
 /// The restatement agrees with the shipped digest, and each ingredient of
-/// the Trio map moves it: the trio of octads, a row of the table, an F₂
+/// the Tetra map moves it: the trio of octads, a row of the table, an F₂
 /// column, the field widths, the mixed split, and `decode` itself — a
 /// coordinate of a probed point, and which words are probed.
 #[test]
-fn the_trio_fingerprint_moves_with_every_ingredient() {
-    let base = trio_truth();
+fn the_tetra_fingerprint_moves_with_every_ingredient() {
+    let base = tetra_truth();
     assert_eq!(
-        trio_digest(&base),
-        trio_fingerprint(),
+        tetra_digest(&base),
+        tetra_fingerprint(),
         "the independent restatement disagrees with src/codebook.rs — one of \
          the two changed without the other"
     );
 
-    let mut perturbations: Vec<(&str, TrioIngredients)> = Vec::new();
+    let mut perturbations: Vec<(&str, TetraIngredients)> = Vec::new();
 
     let mut g = base.clone();
     g.domain.push(b'!');
@@ -544,8 +550,8 @@ fn the_trio_fingerprint_moves_with_every_ingredient() {
     // Two octads of the trio exchanged: the same 24 coordinates, sections
     // swapped, every table intact.
     let mut g = base.clone();
-    g.trio.swap(0, 1);
-    perturbations.push(("trio octad order", g));
+    g.tetra.swap(0, 1);
+    perturbations.push(("tetra octad order", g));
 
     // One row of the universal table: a rank vector moved by one.
     let mut g = base.clone();
@@ -580,12 +586,12 @@ fn the_trio_fingerprint_moves_with_every_ingredient() {
     g.probes[9].0 ^= 1;
     perturbations.push(("a probe word", g));
 
-    let want = trio_digest(&base);
+    let want = tetra_digest(&base);
     for (what, g) in perturbations {
         assert_ne!(
-            trio_digest(&g),
+            tetra_digest(&g),
             want,
-            "{what} can change without moving the Trio fingerprint — the \
+            "{what} can change without moving the Tetra fingerprint — the \
              field does not cover it"
         );
     }
@@ -607,7 +613,7 @@ fn a_file_from_another_codebook_is_refused() {
     let head = read_header(&mut std::io::Cursor::new(&good)).expect("a fresh file must open");
     assert_eq!(head.version, DEFAULT_VERSION);
     assert_eq!(head.codebook, Some(codebook_fingerprint()));
-    assert_eq!(head.trio, None, "a v4 header has no Trio fingerprint");
+    assert_eq!(head.tetra, None, "a v4 header has no Tetra fingerprint");
     assert_eq!(head.default_kind(), CodeKind::Ball);
     assert_eq!(
         decode_matrix(&read_all(&mut std::io::Cursor::new(&good)).expect("read")[0]),
@@ -621,27 +627,27 @@ fn a_file_from_another_codebook_is_refused() {
     refuse_patched(&good, 8, stored, codebook_fingerprint(), "v1 ball");
 
     // The v5 file: both fields, each refused by its own name.
-    let (good5, want5) = v5_trio_file();
+    let (good5, want5) = v5_tetra_file();
     let head = read_header(&mut std::io::Cursor::new(&good5)).expect("a fresh v5 file must open");
     assert_eq!(head.version, FIRST_KINDED_VERSION);
     assert_eq!(head.codebook, Some(codebook_fingerprint()));
-    assert_eq!(head.trio, Some(trio_fingerprint()));
-    assert_eq!(head.default_kind(), CodeKind::Trio);
+    assert_eq!(head.tetra, Some(tetra_fingerprint()));
+    assert_eq!(head.default_kind(), CodeKind::Tetra);
     assert_eq!(
         decode_matrix(&read_all(&mut std::io::Cursor::new(&good5)).expect("read")[0]),
         want5
     );
     let v1 = u64::from_le_bytes(good5[8..16].try_into().unwrap());
     let tr = u64::from_le_bytes(good5[16..24].try_into().unwrap());
-    assert_eq!((v1, tr), (codebook_fingerprint(), trio_fingerprint()), "the fields are where we think");
-    assert_eq!(u32::from_le_bytes(good5[24..28].try_into().unwrap()), CodeKind::Trio.tag());
+    assert_eq!((v1, tr), (codebook_fingerprint(), tetra_fingerprint()), "the fields are where we think");
+    assert_eq!(u32::from_le_bytes(good5[24..28].try_into().unwrap()), CodeKind::Tetra.tag());
     assert_eq!(
         u32::from_le_bytes(good5[28..32].try_into().unwrap()),
-        KindSet::of(CodeKind::Trio).bits(),
-        "a with_kind(Trio) file declares Trio and nothing else"
+        KindSet::of(CodeKind::Tetra).bits(),
+        "a with_kind(Tetra) file declares Tetra and nothing else"
     );
     refuse_patched(&good5, 8, v1, codebook_fingerprint(), "v1 ball");
-    refuse_patched(&good5, 16, tr, trio_fingerprint(), "Trio");
+    refuse_patched(&good5, 16, tr, tetra_fingerprint(), "Tetra");
 }
 
 /// Patch the fingerprint at `at` to values other than `stored` and demand the
@@ -707,15 +713,15 @@ fn a_hand_rolled_v4_header_is_refused() {
 }
 
 /// The v5 shapes of the same mistake: a `LVQ5` magic over a v4 header (the
-/// Trio fingerprint and the kind missing), and over a bare `magic + count`.
+/// Tetra fingerprint and the kind missing), and over a bare `magic + count`.
 /// Each is refused at the first field that cannot be right, never read with
 /// record bytes standing in for header fields.
 #[test]
 fn a_hand_rolled_v5_header_is_refused() {
-    let (good, _) = v5_trio_file();
+    let (good, _) = v5_tetra_file();
 
     // A v4 writer's header under a v5 magic: the record's first eight bytes
-    // would be the Trio fingerprint.
+    // would be the Tetra fingerprint.
     let mut bad: Vec<u8> = Vec::new();
     bad.extend_from_slice(MAGIC_V5);
     bad.extend_from_slice(&good[4..V4_HEADER]); // count + v1 fingerprint
@@ -723,10 +729,10 @@ fn a_hand_rolled_v5_header_is_refused() {
     assert!(
         matches!(
             read_header(&mut std::io::Cursor::new(&bad)),
-            Err(Error::CodebookMismatch { which: "Trio", .. })
+            Err(Error::CodebookMismatch { which: "Tetra", .. })
         ),
-        "a v5 header missing its Trio fingerprint and kind must be refused at \
-         the Trio fingerprint"
+        "a v5 header missing its Tetra fingerprint and kind must be refused at \
+         the Tetra fingerprint"
     );
 
     // Bare `magic + count`.
@@ -785,7 +791,7 @@ fn legacy_headers_still_read() {
             head.codebook, None,
             "a v{version} file has no fingerprint to report"
         );
-        assert_eq!(head.trio, None);
+        assert_eq!(head.tetra, None);
         assert_eq!(head.default_kind(), CodeKind::Ball, "every file before v5 is a Ball file");
         assert_eq!(head.is_self_contained(), version >= 2);
 
@@ -800,14 +806,14 @@ fn legacy_headers_still_read() {
 
     // v4 itself: the default writer's file, kind Ball by construction.
     let head = read_header(&mut std::io::Cursor::new(&v4)).expect("v4 opens");
-    assert_eq!((head.version, head.default_kind(), head.trio), (4, CodeKind::Ball, None));
+    assert_eq!((head.version, head.default_kind(), head.tetra), (4, CodeKind::Ball, None));
 
     // v5 with kind Ball over the same records: the same weights through the
     // same map, with both fingerprints checked on the way in.
     let mut v5: Vec<u8> = Vec::new();
     v5.extend_from_slice(MAGIC_V5);
     v5.extend_from_slice(&v4[4..V4_HEADER]);
-    v5.extend_from_slice(&trio_fingerprint().to_le_bytes());
+    v5.extend_from_slice(&tetra_fingerprint().to_le_bytes());
     v5.extend_from_slice(&CodeKind::Ball.tag().to_le_bytes());
     v5.extend_from_slice(&KindSet::BALL.bits().to_le_bytes());
     // The records are v4 records — no kind tag — so this hand-built v5 file
@@ -820,7 +826,7 @@ fn legacy_headers_still_read() {
     assert_eq!(head.version, 5);
     assert_eq!(head.default_kind(), CodeKind::Ball);
     assert_eq!(head.kinds(), KindSet::BALL);
-    assert_eq!(head.trio, Some(trio_fingerprint()));
+    assert_eq!(head.tetra, Some(tetra_fingerprint()));
     assert_eq!(v5_header_only.len(), V5_HEADER);
 
     // The same records rewritten as v5 records — kind tag and all — decode to
@@ -871,11 +877,11 @@ fn write_header_round_trips_at_every_version() {
             (version >= llvq_artifact::FIRST_FINGERPRINTED_VERSION)
                 .then(codebook_fingerprint)
         );
-        assert_eq!(head.trio, (version >= FIRST_KINDED_VERSION).then(trio_fingerprint));
+        assert_eq!(head.tetra, (version >= FIRST_KINDED_VERSION).then(tetra_fingerprint));
         assert_eq!(head.default_kind(), CodeKind::Ball, "write_header writes the default kind");
     }
     // The kinded form at v5, both kinds.
-    for kind in [CodeKind::Ball, CodeKind::Trio] {
+    for kind in [CodeKind::Ball, CodeKind::Tetra] {
         let mut buf: Vec<u8> = Vec::new();
         llvq_artifact::write_header_kind(&mut buf, VERSION, 7, kind).expect("write");
         assert_eq!(buf.len(), V5_HEADER);
@@ -899,7 +905,7 @@ fn write_header_round_trips_at_every_version() {
 }
 
 /// The default writer still writes v4, byte for byte what it wrote before
-/// Trio existed: `LVQ4`, the count, the v1 fingerprint, the records. No Ball
+/// Tetra existed: `LVQ4`, the count, the v1 fingerprint, the records. No Ball
 /// file — the served 4B's path included — moved when the kind arrived.
 #[test]
 fn the_default_writer_still_writes_v4() {

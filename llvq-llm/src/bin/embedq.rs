@@ -47,11 +47,11 @@ fn main() -> anyhow::Result<()> {
     let head = llvq_artifact::read_header(&mut r)?;
     // The pass-through below rewrites the header with `ArtifactWriter::new`
     // — a v4 Ball header — and copies every record as a Ball record. Over a
-    // Trio file that would produce a Ball file of Trio words: refused by name.
+    // Tetra file that would produce a Ball file of Tetra words: refused by name.
     anyhow::ensure!(
         head.is_ball_only(),
         "{src}: a {} file (format v{}); embedq rewrites records as v1 Ball records — \
-         no runtime layout for Trio before F1d",
+         no runtime layout for Tetra before F1d",
         head.kinds(),
         head.version
     );

@@ -27,7 +27,7 @@
 //! The fingerprints and the kinds are the only fields that are not a
 //! dimension: the matrix record says how *wide* an index is, never what it
 //! *means*, and a reader whose codebook disagrees with the writer's — or
-//! reads a Trio word as a ball index — would decode plausible, wrong weights
+//! reads a Tetra word as a ball index — would decode plausible, wrong weights
 //! without an error. See [`codebook`] and [`format`](CodeKind).
 //!
 //! ## What it does not carry
@@ -53,7 +53,7 @@ pub mod e1v;
 pub mod runtime;
 mod sealed;
 
-pub use codebook::{codebook_fingerprint, trio_fingerprint};
+pub use codebook::{codebook_fingerprint, tetra_fingerprint};
 pub use error::Error;
 pub use format::{
     decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
@@ -61,7 +61,7 @@ pub use format::{
     write_matrix_raw, write_matrix_with, ArtifactWriter, CodeKind, Codebook, Codebooks, Header,
     KindSet, QuantizedMatrix, RawMatrix, DEFAULT_VERSION, FIRST_FINGERPRINTED_VERSION,
     FIRST_KINDED_VERSION, MAGIC, MAGIC_V1, MAGIC_V2, MAGIC_V3, MAGIC_V4, MAGIC_V5,
-    RESERVED_INT4G128_TAG, TRIO_SHELL_CAP, VERSION,
+    RESERVED_INT4G128_TAG, TETRA_SHELL_CAP, VERSION,
 };
 pub use sealed::{
     f16_to_f32, read_blob, read_raw, write_blob, write_raw, Blob, QuantData, RawData, RawTensor,

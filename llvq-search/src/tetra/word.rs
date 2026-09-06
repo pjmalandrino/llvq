@@ -1,4 +1,4 @@
-//! The 48-bit Trio word: ten fields, cut apart and joined back.
+//! The 48-bit Tetra word: ten fields, cut apart and joined back.
 //!
 //! Bit 0 is the least significant bit of the `u64`. A block is six bytes and
 //! the word is their little-endian reading — which is NOT the order the

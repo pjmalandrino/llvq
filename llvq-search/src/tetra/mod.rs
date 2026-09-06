@@ -1,12 +1,12 @@
-//! Trio — Λ₂₄ on a 48-bit word of three sections, the format of roadmap lead
+//! Tetra — Λ₂₄ on a 48-bit word of three sections, the format of roadmap lead
 //! F1 (`docs/ROADMAP.md` §2.2 quater, step 0).
 //!
 //! The served v1 index is 47 bits into a ball with no table, unfolded to
-//! 4.804 b/weight in VRAM. Trio reorders the 24 coordinates by three disjoint
+//! 4.804 b/weight in VRAM. Tetra reorders the 24 coordinates by three disjoint
 //! octads of the Golay code ([`TRIO`]) so that the code is a three-section
 //! trellis with 64 states at each cut; a block is then `p`, a path through
 //! that trellis, and three 11-bit rows of one universal 16 KiB table
-//! ([`Trio::rows`]) — read from VRAM as it is written on disk.
+//! ([`Tetra::rows`]) — read from VRAM as it is written on disk.
 //!
 //! A point of the integer embedding is `y_j = p + 2·c_j + 4·k_j` with `p` the
 //! shared parity, `c` a Golay codeword and `Σk ≡ p (mod 2)`. In trio order
@@ -25,7 +25,7 @@
 //! ```
 //!
 //! `llvq_bench::f1::rank` is the independent yardstick this module is pinned
-//! to (`llvq-bench/tests/trio_yardstick.rs`): it was written first, measured
+//! to (`llvq-bench/tests/tetra_yardstick.rs`): it was written first, measured
 //! (−0.6 pp of retention against exact F1, 2026-09-05) and reproduced on the
 //! card; this module re-derives the same objects from `llvq_core::Golay` and
 //! the definitions above, with its own construction, and agrees with it word
@@ -34,7 +34,7 @@
 //!
 //! ## What is pinned at construction
 //!
-//! [`Trio::new`] refuses to exist unless: the trio is three disjoint octads
+//! [`Tetra::new`] refuses to exist unless: the trio is three disjoint octads
 //! of the code; each cut carries 64 states and the middle 1,024 edges; the
 //! mixed split is [`N0_MIXED`]; no row exceeds rank 4; the three closed-form
 //! bounds are [`CLASS_BOUNDS`] and [`MIXED_BOUND`]; and the trellis is the
@@ -42,9 +42,9 @@
 //!
 //! ## Coordinate orders
 //!
-//! [`Trio::decode`] and [`Trio::encode`] speak the repository's NATURAL order
-//! — what `Leech::contains`, GPTQ and the artifact use. Trio order exists
-//! only inside the word; [`Trio::decode_trio_order`] exposes it for the
+//! [`Tetra::decode`] and [`Tetra::encode`] speak the repository's NATURAL order
+//! — what `Leech::contains`, GPTQ and the artifact use. Tetra order exists
+//! only inside the word; [`Tetra::decode_trio_order`] exposes it for the
 //! yardstick. The origin is word 0: `p = 0`, state 0, prefix/middle/suffix
 //! bytes 0, and the all-zero rank vector, which is row 0 of class 0.
 //!
@@ -63,7 +63,7 @@ mod rank;
 mod trellis;
 mod word;
 
-pub use encoder::{Encoder, Scratch, TrioCode};
+pub use encoder::{Encoder, Scratch, TetraCode};
 pub use rank::{cost, pack, rank_class, rank_of, unpack, val, Bound, CLASS_BOUNDS, MAX_RANK, MIXED_BOUND};
 pub use trellis::{linear_input, BRANCHES, EDGES, GOLAY_STATES};
 pub use word::{Fields, LABEL_MASK, LAYOUT, WORD_MASK};
@@ -101,7 +101,7 @@ pub const LINEAR_IN_BITS: u32 = 12;
 /// contributed by bit `i` of [`linear_input`]; no constant term. Derived on
 /// 2026-09-05, equal to `llvq_bench::f1::rank::LINEAR_COLUMNS`, carried as
 /// immediates by the card's `v2` decoder; re-derived and asserted by
-/// [`Trio::new`].
+/// [`Tetra::new`].
 pub const LINEAR_COLUMNS: [u32; LINEAR_IN_BITS as usize] = [
     0x2d002e, 0x3a005a, 0x740033, 0x03061e, 0x050963, 0x090578, // s8, bits 0..6
     0x0000ff, // b1: the complementary prefix
@@ -110,12 +110,12 @@ pub const LINEAR_COLUMNS: [u32; LINEAR_IN_BITS as usize] = [
 ];
 
 /// The word map: the trellis, the table, and their inverses.
-pub struct Trio {
+pub struct Tetra {
     trellis: trellis::Trellis,
     table: rank::Table,
 }
 
-impl Trio {
+impl Tetra {
     /// Build from `llvq_core::Golay`; panics on any invariant of the module
     /// doc that does not hold.
     pub fn new() -> Self {
@@ -190,16 +190,16 @@ impl Trio {
 
     /// The point of a word, in natural order.
     pub fn decode(&self, word: u64) -> [i32; DIM] {
-        let trio = self.decode_trio_order(word);
+        let tetra = self.decode_trio_order(word);
         let mut natural = [0i32; DIM];
-        for (j, &v) in trio.iter().enumerate() {
+        for (j, &v) in tetra.iter().enumerate() {
             natural[self.trellis.order[j] as usize] = v;
         }
         natural
     }
 
     /// The word of a point given in natural order, gain bit 0; `None` unless
-    /// the point is exactly a Trio codeword (module doc).
+    /// the point is exactly a Tetra codeword (module doc).
     pub fn encode(&self, point: &[i32; DIM]) -> Option<u64> {
         let p = point[0].rem_euclid(2);
         if point.iter().any(|&v| v.rem_euclid(2) != p) {
@@ -232,7 +232,7 @@ impl Trio {
     }
 }
 
-impl Default for Trio {
+impl Default for Tetra {
     fn default() -> Self {
         Self::new()
     }

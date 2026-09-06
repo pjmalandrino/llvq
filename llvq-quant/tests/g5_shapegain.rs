@@ -9,11 +9,11 @@
 use llvq_core::{SplitMix64, DIM};
 use llvq_quant::quantizer::{
     fit_gain_centroids, row_scale, BlockCode, BlockQuantizer, LeechDirection, LeechShapeGain,
-    TrioShapeGain,
+    TetraShapeGain,
 };
-use llvq_search::trio::Trio;
+use llvq_search::tetra::Tetra;
 
-/// The two 48-bit shape–gain arms: the exact ball at `cap = 12`, and the Trio
+/// The two 48-bit shape–gain arms: the exact ball at `cap = 12`, and the Tetra
 /// word map. They spend the same budget on the same 24 weights — 47 bits of
 /// direction and one of gain — and differ only in how the direction is found
 /// and written down, so every property of the *gain* code has to hold on
@@ -21,16 +21,16 @@ use llvq_search::trio::Trio;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Arm {
     Ball12,
-    Trio,
+    Tetra,
 }
 
-const ARMS: [Arm; 2] = [Arm::Ball12, Arm::Trio];
+const ARMS: [Arm; 2] = [Arm::Ball12, Arm::Tetra];
 
 impl Arm {
     fn make(self, centroids: Vec<f64>) -> Box<dyn BlockQuantizer> {
         match self {
             Arm::Ball12 => Box::new(LeechShapeGain::with_shell_cap(centroids, 12)),
-            Arm::Trio => Box::new(TrioShapeGain::new(centroids)),
+            Arm::Tetra => Box::new(TetraShapeGain::new(centroids)),
         }
     }
 }
@@ -105,7 +105,7 @@ fn the_gain_is_actually_quantized() {
         );
     }
     assert_eq!(LeechShapeGain::new(centroids.clone()).gain_bits(), 1);
-    assert_eq!(TrioShapeGain::new(centroids).gain_bits(), 1);
+    assert_eq!(TetraShapeGain::new(centroids).gain_bits(), 1);
 }
 
 /// And the control: the direction-only quantizer does *not* quantize the
@@ -267,42 +267,42 @@ fn capped_quantizer_stays_inside_its_ball() {
     }
 }
 
-/// Every direction a `TrioShapeGain` emits is a **word of the map, in
+/// Every direction a `TetraShapeGain` emits is a **word of the map, in
 /// natural order** — the property the whole format rests on and the one a
 /// magnitude test cannot see.
 ///
 /// Three things at once, because they fail differently. `Leech::contains`
-/// says the point is a lattice point at all. `Trio::encode` says the map has
+/// says the point is a lattice point at all. `Tetra::encode` says the map has
 /// a word for it: it is the writer's own call, and it returns `None` for a
-/// point whose sections leave their row sets. `Trio::decode` of that word
+/// point whose sections leave their row sets. `Tetra::decode` of that word
 /// says the round trip closes.
 ///
 /// **The mutant this is here for** is the coordinate order. `Encoder`
 /// permutes `x` into trio order, works there, and permutes back through
 /// `order()`; drop that last permutation and the point is still a Λ₂₄ point
 /// of the same norm — every magnitude assertion above still passes, the GPTQ
-/// residual barely moves — but it is the wrong point and `Trio::encode`
+/// residual barely moves — but it is the wrong point and `Tetra::encode`
 /// refuses it. Applying `order` where its inverse belongs is caught the same
 /// way (`order` is not an involution).
-/// `TrioShapeGain::reconstruct` rebuilds the block from the code ALONE, and
+/// `TetraShapeGain::reconstruct` rebuilds the block from the code ALONE, and
 /// this pins it against an independent formula rather than against itself.
 ///
 /// It exists because two mutants of that method survived the whole workspace
 /// on 2026-09-06: dropping the row scale, and reading the neighbouring
 /// centroid. `reconstruct` is what `reproject` calls, so those mutants live
 /// on the design-C path; the ball twin was killed by a design-C test and the
-/// Trio one was covered by nothing. The check here is deliberately NOT a
+/// Tetra one was covered by nothing. The check here is deliberately NOT a
 /// round trip: `quantize` writing and `reconstruct` reading the same wrong
 /// convention would agree with each other and prove nothing.
 #[test]
-fn trio_reconstruct_is_the_centroid_the_row_scale_and_the_direction() {
+fn tetra_reconstruct_is_the_centroid_the_row_scale_and_the_direction() {
     let mut rng = SplitMix64::new(0x7_0007);
     let (d_out, d_in) = (5usize, 3 * DIM);
     let w = random_matrix(&mut rng, d_out, d_in);
     let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
     assert_eq!(centroids.len(), 2, "one gain bit");
-    let q = TrioShapeGain::new(centroids.clone());
-    let trio = Trio::new();
+    let q = TetraShapeGain::new(centroids.clone());
+    let tetra = Tetra::new();
 
     // Codes built here, not captured from `quantize`: the point is any word
     // of the map, and the gain any level, so that a reconstruction reading
@@ -310,7 +310,7 @@ fn trio_reconstruct_is_the_centroid_the_row_scale_and_the_direction() {
     let mut out = vec![0.0f64; DIM];
     for k in 0..64u64 {
         let word = SplitMix64::new(0xC0DE_0000 + k).next() & ((1u64 << 47) - 1);
-        let point = trio.decode(word);
+        let point = tetra.decode(word);
         let norm = (point.iter().map(|&v| (v as f64) * (v as f64)).sum::<f64>()).sqrt();
         if norm == 0.0 {
             continue; // the origin carries no direction
@@ -339,14 +339,14 @@ fn trio_reconstruct_is_the_centroid_the_row_scale_and_the_direction() {
 }
 
 #[test]
-fn every_trio_direction_is_a_word_of_the_map_in_natural_order() {
+fn every_tetra_direction_is_a_word_of_the_map_in_natural_order() {
     let mut rng = SplitMix64::new(0x6_0006);
     let (d_out, d_in) = (6usize, 4 * DIM);
     let w = random_matrix(&mut rng, d_out, d_in);
     let centroids = fit_gain_centroids(&w, d_out, d_in, DIM, 1, 40);
-    let trio = Trio::new();
+    let tetra = Tetra::new();
     let leech = llvq_core::Leech::new();
-    let mut q = TrioShapeGain::new(centroids);
+    let mut q = TetraShapeGain::new(centroids);
     let mut out = vec![0.0f64; DIM];
 
     let mut blocks = 0usize;
@@ -355,16 +355,16 @@ fn every_trio_direction_is_a_word_of_the_map_in_natural_order() {
         q.set_row_scale(row_scale(row));
         for b in row.chunks_exact(DIM) {
             q.quantize(b, &mut out);
-            let code = q.last_code().expect("a Trio block always emits a code");
+            let code = q.last_code().expect("a Tetra block always emits a code");
             assert!(
                 leech.contains(&code.point),
                 "row {i} block {blocks}: {:?} is not in Λ24",
                 code.point
             );
-            let word = trio
+            let word = tetra
                 .encode(&code.point)
                 .unwrap_or_else(|| panic!("row {i} block {blocks}: the map has no word for {:?} — the point is not in natural order", code.point));
-            assert_eq!(trio.decode(word), code.point, "the word does not decode back");
+            assert_eq!(tetra.decode(word), code.point, "the word does not decode back");
             assert_eq!(word >> 47, 0, "the encoder must leave the gain bit to the gain code");
             blocks += 1;
         }
@@ -372,19 +372,19 @@ fn every_trio_direction_is_a_word_of_the_map_in_natural_order() {
     assert_eq!(blocks, d_out * (d_in / DIM));
 }
 
-/// A Trio block is 48 bits — 47 of label, one of gain — and the type refuses
+/// A Tetra block is 48 bits — 47 of label, one of gain — and the type refuses
 /// any other shape of gain code at construction, where it is still a
 /// caller's mistake and not a file `llvq-artifact` cannot write.
 #[test]
-fn a_trio_block_is_forty_seven_bits_of_label_and_one_of_gain() {
-    let q = TrioShapeGain::new(vec![0.5, 1.5]);
+fn a_tetra_block_is_forty_seven_bits_of_label_and_one_of_gain() {
+    let q = TetraShapeGain::new(vec![0.5, 1.5]);
     assert_eq!(q.gain_bits(), 1);
     assert_eq!(q.block_bits(), 48, "47 + 1, the budget of the served ball arm");
     assert_eq!(q.block_len(), DIM);
     assert_eq!(
         q.block_bits(),
         llvq_quant::quantizer::index_bits(12) + 1,
-        "Trio and the capped ball must cost the same, or the A/B compares nothing"
+        "Tetra and the capped ball must cost the same, or the A/B compares nothing"
     );
     // The retraction is a no-op: the block is already on the level's sphere.
     assert_eq!(q.retraction_target(1.234), None);
@@ -392,7 +392,7 @@ fn a_trio_block_is_forty_seven_bits_of_label_and_one_of_gain() {
 
 #[test]
 #[should_panic(expected = "the gain code has two levels")]
-fn a_trio_quantizer_refuses_a_gain_code_the_word_cannot_carry() {
+fn a_tetra_quantizer_refuses_a_gain_code_the_word_cannot_carry() {
     // Four levels is two gain bits; the word has room for one.
-    let _ = TrioShapeGain::new(vec![0.25, 0.75, 1.25, 1.75]);
+    let _ = TetraShapeGain::new(vec![0.25, 0.75, 1.25, 1.75]);
 }
