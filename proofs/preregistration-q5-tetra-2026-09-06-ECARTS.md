@@ -46,3 +46,65 @@ transfert ont été lancés à 19:26, treize minutes avant le tampon. Le préreg
 déclare. Leurs valeurs attendues (53,49 et 55,59) étaient publiées avant d'être
 mesurées sur Metal, donc aucun degré de liberté n'a pu être exploité. Si le
 transfert dépasse 0,5 pp sur l'un des deux, tout repart sur carte.
+
+## É4 — Le contrôle 6 est posé en absolu ; la lecture appariée est meilleure, et elle est plus dure
+
+**Ce que le préreg demande** : « `Planes14` publié doit rendre 55,59 et Tetra
+53,49 [...] si l'écart final dépasse 0,5 pp sur l'un des deux, tout repart sur
+carte ».
+
+**Ce qui est mesuré** :
+
+| bras | carte | Metal | écart brut |
+|---|---|---|---|
+| `Planes14` publié | 55,59 | **56,09** | +0,50 |
+| `Tetra` | 53,49 | **53,50** | +0,01 |
+
+Le contrôle passe : 0,50 ne dépasse pas 0,5, et 0,01 est nul. Mais il passe à la
+barre sur le premier bras, et l'absolu n'est pas la bonne lecture.
+
+**Apparié** (`bin/mmlupair`, dump carte de `docs/data/mmlu-dumps/mmlu-4b-llvq.csv`
+contre le dump Metal, mêmes 2 280 questions, même empreinte) : **7 questions
+basculent sur 2 280**, 2 dans un sens et 5 dans l'autre, 99,7 % de concordance,
+McNemar exact **p = 0,45**. Le Δ non pondéré vaut −0,13 pp, IC95
+[−0,34 ; +0,06], qui contient zéro. Les +0,50 pp du micro stratifié viennent de
+**où** quatre de ces sept bascules tombent : `professional law` pèse 10,9 % de la
+strate à lui seul et porte −0,27 des −0,50.
+
+**Ce que ça change pour ce travail** : rien, et pour une raison qui doit être
+écrite. Les quatre bras T0 à T3 tournent tous sur Metal et l'inférence est
+déterministe, donc `Gf`, `G4` et `Ga` sont des différences appariées
+intra-Metal. L'écart au CUDA est commun à tous les bras et ne réapparaît pas
+dans les gains.
+
+**Ce que le préreg aurait dû écrire** : un contrôle apparié, avec un seuil sur le
+nombre de questions discordantes, plutôt qu'une comparaison de deux nombres
+absolus dont l'un est pondéré par des strates.
+
+## É5 — Le témoin livre gratuitement l'intervalle apparié du banc du 4B, et il contient zéro
+
+Les deux dumps Metal permettent la mesure que le banc du 2026-09-06 n'avait pas
+faite, faute de `LLVQ_MMLU_DUMP`. Hors périmètre de ce préreg, consigné ici
+parce que c'est le témoin de ce travail qui la produit.
+
+`Planes14` contre `Tetra`, appariés, même device, mêmes questions :
+
+```
+  Δ micro stratifié   = +2,59 pp   IC95 [-0,32 ; +5,58]   SE 1,50 pp
+  Δ non pondéré       = +1,75 pp   IC95 [-0,14 ; +3,69]   SE 0,98 pp
+  McNemar exact       p = 0,1260
+  discordantes        650 sur 2 280, soit 28,5 % — 345 d'un côté, 305 de l'autre
+```
+
+**Les deux intervalles contiennent zéro.** Le coût MMLU de Tetra au 4B n'est pas
+résolu par ce protocole. Et 28,5 % de questions discordantes pour un écart net
+de 1,75 pp dit que le changement de format **rebrasse** les réponses plutôt
+qu'il ne dégrade uniformément.
+
+Conséquence sur le journal du 8B, qui ne s'édite pas : il lit « l'écart-type
+apparié de la différence est de l'ordre de 1,1 pp (repère des campagnes M2 à
+fichier constant). 3,91 pp fait ~3,5 SE ». Ce repère est trop petit. Les
+campagnes M2 comparent le **même** fichier ; ici deux fichiers différents
+donnent une SE appariée **mesurée à 1,50 pp**. Sur ce repère, les 3,91 pp du 8B
+font **~2,6 SE**, pas 3,5. L'intervalle propre au 8B demande ses propres dumps,
+que son banc n'a pas écrits.
