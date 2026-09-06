@@ -1,0 +1,129 @@
+CHANTIER 1 — Q5 REJOUÉ SUR TETRA : L'ATTRIBUTION TRANSPOSE. `v_proj` en int4
+rend +3,47 pp de MMLU pour +0,0493 b/param, soit 70,4 points par b/param
+================================================================================
+Date        : 2026-09-06
+Job         : 6a9dc052e686246ca69a6695, l40sx1, 20 min, 0,60 $
+              Vague 2 : 2,32 $ sur un plafond de 2,00 — dépassement de 16 %,
+              arbitré par l'opérateur au lancement
+Préreg      : proofs/preregistration-q5-tetra-2026-09-06.md
+              sha256 866aaa2681eae679a729e44e63498657f8f00b5c741a94e3f6bcec2b21e67379
+              tamponné le 2026-09-06 à 19:39, avant tout bras de traitement
+Écarts      : proofs/preregistration-q5-tetra-2026-09-06-ECARTS.md (É1 à É5)
+Objet       : hf://buckets/Pier-Jean/jobs-artifacts/tetra-4b-2026-09-06/
+              qwen3-4b-tetra.bin, 1 770 529 149 octets, format v5, kind Tetra
+Nature      : *mesuré* pour la qualité ; *calculé* pour les octets
+
+LE TABLEAU — quatre bras, une carte, un processus, le même fichier
+--------------------------------------------------------------------
+  MMLU : 5-shot, 2 280 questions sur 14 042, 57 matières, f16,
+         empreinte 65dcd53655e8bfa5 sur les quatre bras
+
+  bras                        MMLU     Δ vs T0   IC95 apparié      b/param
+  ---------------------------------------------------------------------------
+  T0  Tetra nu                53,49      —           —              2,7645
+  T1  v_proj en f16           58,10    +4,62   [+2,33 ; +6,93]     non servable
+  T2  v_proj en int4 g128     56,95    +3,47   [+1,42 ; +5,57]      2,8138
+  T3  attention en int4 g128  58,48    +4,99   [+2,18 ; +7,90]      3,2572
+
+  Bootstrap stratifié par matière, 10 000 tirages, graine 0xb0075eed, correction
+  de population finie. McNemar exact : 5,0e−6 (T1), 8,6e−5 (T2), 3,9e−8 (T3).
+  Les trois écarts sont RÉSOLUS : aucun IC ne contient zéro.
+
+  T0 rejoue 53,49 — la valeur du banc du même jour, au centième.
+
+LA RÈGLE DE DÉCISION DU PRÉREG §5
+----------------------------------
+  Première ligne : « G4 ≥ +2,5 pp, IC95 entièrement > +1,0 ».
+  Mesuré : G4 = +3,47 et son IC démarre à +1,42.
+  LA PREMIÈRE LIGNE S'APPLIQUE. L'attribution transpose de Planes14 à Tetra.
+
+  Taux de survie f16 → int4, s = G4/Gf :
+      stratifié      3,47 / 4,62 = 0,751
+      non pondéré    3,38 / 3,68 = 0,918
+  Sous Planes14 : 0,804 et 0,944 (*mesuré*, m2b-v4bits et m2b-graine3). Deux
+  points de chaque côté, et ils se recouvrent.
+
+OÙ PLACER LES BITS — le tableau qui a décidé l'arbitrage
+---------------------------------------------------------
+  ce qu'on restaure        gain      coût b/param    rendement
+  ---------------------------------------------------------------------
+  v_proj seul            +3,47 pp      +0,0493      70,4 pp par b/param
+  attention entière      +4,99 pp      +0,4927      10,1
+  l'incrément entre eux  +1,52 pp      +0,4434       3,4
+
+  Restaurer dix fois plus de poids ajoute un tiers de gain. La sous-additivité
+  est ici mesurée sur Tetra, et non extrapolée des facteurs 0,641 et 0,776
+  mesurés sous Planes14.
+
+  Marge produit consommée (b_max = 3,00 b/poids noyau, Tetra à 2,1498) :
+      v_proj seul        2,2044 → 6,4 % de la marge de 0,8502
+      attention entière  2,6953 → 64,2 %
+
+CONTRE LE FORMAT SERVI AUJOURD'HUI
+-----------------------------------
+  Appariés sur les mêmes 2 280 questions, dump carte de `Planes14` publié
+  (docs/data/mmlu-dumps/mmlu-4b-llvq.csv) contre les bras de ce job.
+
+  Tetra + v_proj int4    56,95 vs 55,59   +1,36 pp  IC95 [−1,50 ; +4,22]
+      b/param 2,8138 vs 5,1619, ÷1,83
+  Tetra + attention int4 58,48 vs 55,59   +2,89 pp  IC95 [−0,06 ; +5,86]
+      b/param 3,2572 vs 5,1619, ÷1,58
+
+  Les deux IC stratifiés contiennent zéro ou l'effleurent. La formule exacte est
+  donc « qualité au moins égale au format servi, pour 55 % de sa mémoire ». Le
+  contrôle non pondéré exclut zéro pour l'attention (+3,73 [+1,87 ; +5,58]) et
+  pas pour v_proj seul (+1,54 [−0,33 ; +3,42]).
+
+L'ARBITRAGE DE L'OPÉRATEUR, 2026-09-06
+---------------------------------------
+  Option B retenue : `v_proj` en int4 g128 à côté des matrices Tetra.
+  Motifs, dans l'ordre : le rendement (70,4 contre 3,4 pour l'incrément) ; la
+  marge produit préservée (6,4 % consommés contre 64,2, donc Q6b, OWQ et Q4b
+  restent empilables) ; et le fait que B et C coûtent le même travail, donc
+  choisir B ne ferme pas C.
+  Décision d'intégration : le code seulement, aucun réencodage.
+
+LES CONTRÔLES
+--------------
+  1. Empreinte de tokens 65dcd53655e8bfa5, 2 280 questions, sur les quatre bras.
+     PASSÉ.
+  2. Artefact 1 770 529 149 octets, en-tête v5, kind Tetra. PASSÉ.
+  3. T1 et T2 impriment 36 matrices et 94 371 840 poids restaurés ; T3 en
+     imprime 144 et 943 718 400. PASSÉ, aux comptes attendus.
+  4. Les quatre dumps par question écrits avec leur trailer, 2 286 lignes
+     chacun. PASSÉ.
+  5. T0, T1 et T2 distincts au centième. PASSÉ.
+  6. Transfert de harnais CUDA → Metal : voir les écarts §É4. Le contrôle passe
+     et le travail est finalement retourné sur carte, où tous les bras publiés
+     ont tourné.
+
+LA PRÉDICTION SIGNÉE — deux justes, deux fausses
+--------------------------------------------------
+  prédit : Gf +3,5 à +6,5 · G4 +2,8 à +5,5 · s 0,78 à 0,95 · Ga +5,0 à +8,5
+  mesuré : Gf +4,62 · G4 +3,47 · s 0,751 stratifié · Ga +4,99
+
+  Gf et G4 tombent dans leurs fourchettes. s est sous la borne basse sur la
+  lecture stratifiée et dedans sur la lecture non pondérée (0,918). Ga rate la
+  borne basse de 0,01 point.
+  La clause instructive du préreg (« G4 sous +1,0 ») ne se déclenche pas : le
+  déficit de Tetra n'est donc pas diffus au point que v_proj n'y puisse rien.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Aucun bras n'est servi. `LLVQ_RESTORE_Q4` quantifie puis DÉQUANTIFIE en f16
+    avant le produit. Ces chiffres sont un coût d'information, pas la qualité
+    d'un noyau lisant quatre bits. `tv_q4_h.cu` n'a jamais tourné sur carte.
+  · Le déficit de Tetra contre Planes14 n'est pas résolu au 4B : +2,59 pp
+    stratifié, IC95 [−0,32 ; +5,58], et 650 questions discordantes sur 2 280
+    (écarts §É5). Donc « B rachète le déficit » suppose un déficit non prouvé.
+  · Un seul tirage de calibration, une seule taille. Rien au 8B, où le déficit
+    de Tetra est deux fois plus grand.
+  · Le +1,36 pp contre le format servi contient aussi la dérive d'encodeur du
+    2026-08-26, comme tout écart mesuré contre le fichier publié.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/q5-tetra-2026-09-06/ :
+    gpu.txt, artefact.txt, t0.txt, t1.txt, t2.txt, t3.txt,
+    t0.csv, t1-vf16.csv, t2-vq4.csv, t3-attnq4.csv
+  Appariements : `cargo run --release -p llvq-llm --bin mmlupair`.

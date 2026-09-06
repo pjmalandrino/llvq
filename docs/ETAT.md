@@ -421,12 +421,44 @@ itself, the encoder drift of §4, and the fact that the published 8B was quantiz
 accumulates AᵀA in f32 on the accelerator while `Tetra` was encoded on Metal; why quality degrades with size at
 all; and anything at 14B.
 
+## 5 octies. Chantier 1: Q5 replayed on Tetra, 2026-09-06
+
+**`v_proj` restored to int4 g128 is worth +3.47 pp of MMLU for +0.0493 b/param, and the attribution
+transposes from `Planes14` to `Tetra`** (*measured*, [journal](mesures/q5-tetra-2026-09-06.txt), prereg stamped
+before the first treatment arm). Four arms, one card, one process, one file, the same token fingerprint.
+
+| arm | MMLU | paired vs T0 | CI95 | McNemar | b/param |
+|---|---|---|---|---|---|
+| T0, `Tetra` bare | 53.49 | — | — | — | 2.7645 |
+| T1, `v_proj` f16 | 58.10 | +4.62 | [+2.33; +6.93] | 5.0e-6 | not servable |
+| T2, `v_proj` int4 g128 | **56.95** | **+3.47** | [+1.42; +5.57] | 8.6e-5 | **2.8138** |
+| T3, attention int4 g128 | 58.48 | +4.99 | [+2.18; +7.90] | 3.9e-8 | 3.2572 |
+
+T0 replays the bench's 53.49 to the hundredth. All three gaps are resolved. Survival from f16 to int4 is
+0.751 stratified and 0.918 unweighted, against 0.804 and 0.944 under `Planes14`.
+
+**Where the bits go, and it is not close.** `v_proj` alone yields **70.4 MMLU points per b/param**; the whole
+attention yields 10.1; the increment between them 3.4. And the product margin, 0.8502 b/weight before b_max:
+`v_proj` alone spends **6.4%** of it, the whole attention **64.2%**.
+
+Against the served format, paired on the same questions: `Tetra` with `v_proj` in int4 reads **56.95 for
+2.8138 b/param against 55.59 for 5.1619** — quality at least equal for 55% of the memory. The gap itself,
++1.36 pp, carries CI95 [−1.50; +4.22] and is not resolved.
+
+**Operator's decision, 2026-09-06: option B**, `v_proj` in int4 beside the `Tetra` matrices, **code only, no
+re-encoding**. B and C cost the same engineering, so B does not close C.
+
+What is not established: no arm is served, since `LLVQ_RESTORE_Q4` dequantizes to f16 before the matvec and
+`tv_q4_h.cu` has never run on a card; one calibration draw, one size, nothing at 8B; and the deficit B is
+said to buy back is itself unresolved, +2.59 pp with CI95 [−0.32; +5.58] over 650 discordant questions out
+of 2,280.
+
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), **$1.72 spent**: the table floor ($0.02), the compiled
+- Wave 2 closed at **$2.32 against its $2.00 cap** (operator, 2026-09-04), a 16% overrun arbitrated at launch: the table floor ($0.02), the compiled
   decoder floor ($0.01), the three arithmetics ($0.00), the Tetra 4B quality bench ($0.79, of which $0.01 on an
-  image without the `hf` CLI), and the Tetra 8B bench ($0.90, three arms; the AWQ arm was dropped to stay under the
-  cap). Content: F1b done at $0; the
+  image without the `hf` CLI), the Tetra 8B bench ($0.90, three arms; the AWQ arm was dropped to stay under the
+  cap), and chantier 1 ($0.60, four arms). Content: F1b done at $0; the
   ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
   Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
   can be tested**.
@@ -438,7 +470,7 @@ all; and anything at 14B.
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $99.28 (*measured*,
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $99.88 (*measured*,
   `docs/data/jobs.csv`).
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the
