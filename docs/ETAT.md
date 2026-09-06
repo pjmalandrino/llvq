@@ -369,13 +369,64 @@ and right on MMLU to 0.9 pp. Its instructive clause named this case: Gaussian re
 weights. The 88.89% against the ball-12 control's 92.00 implied +8.5% of MSE, and perplexity did the opposite.
 
 What is not established: the card figures, which need the served kernel (step 6); the separation of the format from
-the encoder drift of §4; and anything at 8B or 14B.
+the encoder drift of §4; and anything at 14B.
+
+## 5 septies. Tetra at the 8B, 2026-09-06: the memory holds, the quality does not
+
+**3.0672 b/param against 5.3220, but a perplexity 0.73% WORSE than the served format and an MMLU lower by
+3.91 pp** (*measured* for quality, *computed* for bytes, [journal](mesures/tetra-8b-2026-09-06.txt)). Three arms in
+one process, same token fingerprints; the published `Planes14` file replays its 10.97 and its 65.52, so the harness
+did not move. `smoke` quantized the 8B in **4 h 41** on the Mac and `verify_artifact` read back all
+6,945,767,424 weights bit for bit.
+
+| | `Planes14`, published | `Tetra` |
+|---|---|---|
+| b/param whole model | 5.3220 | **3.0672**, ÷1.735 |
+| b/weight kernel | 4.7520 | **2.0931**, ÷2.270 |
+| GB on card | 5.449 | 3.140 (*computed*) |
+| disk | 4,324,243,889 B | 4,324,244,913 B |
+| perplexity, f16 | 10.9682 | 11.0478, **+0.73%** |
+| MMLU micro | 65.52 ± 1.31 | 61.61 ± 1.32, **−3.91 pp** |
+| excess log-likelihood | 0.1989 nats | 0.2061 nats, **1.036×** |
+| encoding | — | 4 h 41 |
+
+**Both quality axes turn against `Tetra` between the 4B and the 8B**, and the memory ratio degrades with them:
+
+| | 4B | 8B |
+|---|---|---|
+| b/param, `Planes14` → `Tetra` | ÷1.867 | ÷1.735 |
+| embedding as a share of params | 9.67% | 15.20% (untied heads) |
+| perplexity, `Tetra` − `Planes14` | −4.64% | +0.73% |
+| MMLU, `Tetra` − `Planes14` | −2.10 pp | −3.91 pp |
+| excess, `Tetra` / `Planes14` | 0.854 | 1.036 |
+
+The memory line is arithmetic: `Tetra` does not touch the embedding, so the larger the embedding the less the
+division bites. In b/weight **kernel** the ratio improves instead, ÷2.235 → ÷2.270. The b/param figure is the
+comparable one (hard rule 6).
+
+The MMLU gap is **resolved at the 8B and was not at the 4B**: 3.91 pp is ~3.5 paired SE against ~1.5 for the 4B's
+2.10 pp. The exact paired CI needs the per-question dumps, which are in the bucket and cost $0 to pair.
+
+The perplexity measured **during encoding**, on Metal in f32, predicted the card's f16 figure to the fourth
+decimal: ×1.2287 against ×1.2201 in-process, ×1.2289 against ×1.2201 on the card. The wrong sign was visible five
+hours before the job.
+
+🚨 **This bench ran without a prereg**, against hard rule 2. It cannot be repaired: stamping now would attest to
+bytes written after the measurement. Its numbers are raw facts and **they gate nothing**; any decision they inform
+needs a fresh prereg written before its own measurement. The 8B is outside the publication perimeter, which limits
+the damage without excusing it.
+
+What is not established: the card figures; the separation of the format from three confounded causes — the format
+itself, the encoder drift of §4, and the fact that the published 8B was quantized **on a card** where `calib.rs`
+accumulates AᵀA in f32 on the accelerator while `Tetra` was encoded on Metal; why quality degrades with size at
+all; and anything at 14B.
 
 ## 6. Open decisions
 
-- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), **$0.82 spent**: the table floor ($0.02), the compiled
-  decoder floor ($0.01), the three arithmetics ($0.00), and the Tetra 4B quality bench ($0.79, of which $0.01 on an
-  image without the `hf` CLI). Content: F1b done at $0; the
+- Wave 2 is open, **$2.00 cap** (operator, 2026-09-04), **$1.72 spent**: the table floor ($0.02), the compiled
+  decoder floor ($0.01), the three arithmetics ($0.00), the Tetra 4B quality bench ($0.79, of which $0.01 on an
+  image without the `hf` CLI), and the Tetra 8B bench ($0.90, three arms; the AWQ arm was dropped to stay under the
+  cap). Content: F1b done at $0; the
   ALU floor of the universal-table decoder at ≤ $0.10 (operator go, 2026-09-05); a production encoder, then F1c on the
   Mac at $0; then F1d at ~$1.00 on L40S, only if F1c passes. Objective set by the operator on 2026-09-05: **an F1 that
   can be tested**.
@@ -387,7 +438,7 @@ the encoder drift of §4; and anything at 8B or 14B.
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $98.38 (*measured*,
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $99.28 (*measured*,
   `docs/data/jobs.csv`).
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the

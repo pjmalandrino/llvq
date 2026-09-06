@@ -261,27 +261,14 @@ on sight (prereg §1). Step 6 is what remains, and it is the only place the card
 
 ### 2.3 Axis Q, quality
 
-| id | lead | cost (*measured* if done, `jobs.csv`; *estimated* otherwise) | adoption | kill | state |
-|---|---|---|---|---|---|
-| Q1 | H shrinkage in production, ρ in [0.5; 0.9] | $0 at 0.6B, $7 at 4B | range ÷ 2 held, median ≤ +range | none | to do, opened by M1 |
-| Q2 | asymmetric target and output weighting | $0 then $7 | Δppl ≥ 2 ranges, 3 seeds | < 1 range | to do |
-| Q3 | beam GPTQ, K in {2, 4, 8} | $0, 10 h Mac | Δppl ≥ 2 ranges, σ not increased, encoder ≤ K times | < 1 range | to do |
-| Q4a | cross-layer equi-norm, VQ version | $0 | Δppl ≥ 2 ranges | < 1 range | to do |
-| Q4b | 24×24 maps on the activation side, diagonal first | $0 then $7 | diagonal Δppl ≥ 3%; full +2 pp | none | to do, full after Q6c |
-| Q5 | mixed precision on `v_proj` | $7 and a kernel | ≥ +3 pp paired for ≤ +0.10 b/weight | < +1.5 pp | adopted 09-04, +2.71 to +3.60 pp on two draws, kernel started |
-| Q6a | distillation of the format's free parameters, 0 extra bit | $3 | ≥ +3 pp paired | < +1.5 pp | to do, after M3 |
-| Q6b | EoRA / RILQ r ≤ 16 | $3 | ≥ +3 pp within ≤ +0.25 b/param | none | after Q6a |
-| Q6c | differentiable relaxation of the Leech search | $0 then $7 | T → 0 bit-exact; Q4b full +2 pp | none | after Q3 |
-| Q6d | end-to-end KL distillation, PV-tuning | tens of dollars | ≥ +6 pp paired | none | over the cap, explicit go |
-| Q7 | corpus composition, DCLM-edu, 3 seeds | $15 | ≥ +3 pp paired STEM | < +1.5 pp | after M1 and M3 |
+**Moved to [ROADMAP-QUALITY](ROADMAP-QUALITY.md), sanctioned by the operator on 2026-09-06.** That document
+is the quality roadmap: 22 leads ordered by feasibility, gains in MMLU points only, with the 2-bit
+competitive landscape and what the field does that we do not.
 
-Q3 pays for the encoder K times. Two leads have never been tried on it: reusing an octad's partition
-for its complement (half the even partitions saved, *computed*) and `pulp` SIMD. Pre-seeding is ruled
-out, oracle ceiling 1.37× even and 1.07× odd (*measured*, `bin/encbench`, 2026-07-28): the bound is
-too loose. The profiler has never been used.
-
-The Q6 and Q7 gates are read in paired MMLU-STEM: perplexity does not see the collapse of reasoning.
-Any gain bought back in bytes fits inside a budget set in advance, in b/param over the whole model.
+Two facts made the table above obsolete. An arm no longer costs $7: the Mac encodes a 4B under `Tetra` in
+2 h 27 for $0, and Metal reproduces the L40S MMLU harness to within two questions out of 600, which cancel
+(*measured*, 2026-09-06). And every gain in it was measured on a `Planes14` base that is no longer the
+served object.
 
 ## 3. Debt and hygiene
 

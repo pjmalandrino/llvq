@@ -19,7 +19,8 @@ multi-shell fused kernel: dequantization and matvec in a single CUDA kernel.
 Read in this order; each document stands on its own at its level.
 
 1. `docs/ETAT.md`: served config, headline numbers, open decisions.
-2. `docs/ROADMAP.md`: what comes next, with its gates and its costs.
+2. `docs/ROADMAP.md`: what comes next, with its gates and its costs; `docs/ROADMAP-QUALITY.md` is the
+   quality axis, sanctioned 2026-09-06, ordered by feasibility.
 3. `docs/HISTORIQUE.md`: the chronological thread, one entry per period.
 4. `docs/METHODE.md`: the lab rules, preregs, labels, retention.
 5. `docs/STYLE.md`: the writing rules for every living document.

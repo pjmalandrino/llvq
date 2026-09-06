@@ -1,0 +1,160 @@
+TETRA AU 8B — LA MÉMOIRE TIENT (3,067 b/param contre 5,322), LA QUALITÉ NON :
+la perplexité passe DERRIÈRE le format servi et le MMLU perd 3,91 points
+================================================================================
+Date        : 2026-09-06
+Job         : 6a9d975de686246ca69a5f82, l40sx1, 30 min, 0,90 $
+              Vague 2 : 1,72 $ dépensés sur un plafond de 2,00
+Préreg      : 🚨 AUCUN. Voir « LE DÉFAUT DE PROTOCOLE » ci-dessous.
+Encodage    : Mac M3 Max, 4 h 41 (16 830 s), 468 s/bloc, 36 blocs, 0 $
+Objet       : hf://buckets/Pier-Jean/jobs-artifacts/tetra-8b-2026-09-06/
+              qwen3-8b-tetra.bin, 4 324 244 913 octets
+              qwen3-8b-planes14.bin, 4 324 243 889 octets
+Nature      : *mesuré* sur carte pour ppl et MMLU ; *calculé* pour les octets
+
+LE TABLEAU — trois bras, une carte, un harnais, les mêmes empreintes
+----------------------------------------------------------------------
+  ppl : wikitext2, ctx 4096, 12 fenêtres, f16, empreinte 3f1baca9033bf251
+  MMLU : 5-shot, 2 280 questions sur 14 042, 57 matières, f16,
+         empreinte 65dcd53655e8bfa5
+
+  bras                    b/param    ppl        × f16     MMLU micro      macro
+  ----------------------------------------------------------------------------
+  f16                      16,000     8,9899    ×1        —               —
+  LLVQ Planes14 (publié)    5,322    10,9682    ×1,2201   65,52 ± 1,31    66,67
+  LLVQ Tetra                3,067    11,0478    ×1,2289   61,61 ± 1,32    64,69
+
+  Pas de bras AWQ : à quatre bras le job coûtait ~1,56 $ et sortait du
+  plafond de vague. Le bras Planes14 rejoue ses valeurs publiées (10,97 et
+  65,52, campagne du 2026-08-08) : le harnais n'a pas bougé, et c'est ce qui
+  rend la ligne Tetra lisible.
+
+TETRA CONTRE LE FORMAT SERVI, AU 8B
+------------------------------------
+  b/param modèle entier ....  5,3220 → 3,0672   ÷1,735   (*calculé*)
+      288 571 392 blocs × 48 b + 20 054 016 × 32 + 1 400 832 × 32
+        = 14 537 981 952 bits de linéaires  (÷ 6 945 767 424 = 2,0931 b/poids noyau)
+      + 1 244 659 712 × 8,5 + 308 224 × 16 = 25 122 521 088 bits
+      ÷ 8 190 735 360 paramètres. Comptabilité de rtbits-planes-8b-2026-08-09.txt.
+  b/poids noyau ............  4,7520 → 2,0931   ÷2,270
+  Go carte .................  5,449  → 3,140    (*calculé*)
+  contre AWQ 8B réel .......  5,956  → 3,067    ÷1,942
+  disque ...................  4 324 243 889 → 4 324 244 913 octets, +1 024
+      Les deux fichiers pèsent le même poids : l'archive écrit 48 bits par
+      bloc dans les deux cas. Toute la différence est en VRAM, au dépliage.
+  perplexité ...............  10,9682 → 11,0478   +0,73 %
+  MMLU micro ...............  65,52 → 61,61       −3,91 pp
+  coût d'encodage ..........  4 h 41 (jamais mesuré sous leech1c12 au 8B)
+
+  b/poids noyau Tetra au 8B, forme close (même dérivation que Planes14) :
+      2 + (32 − 2)·f + 32·(lignes/poids), f = fraction de poids en queue
+      8B : 2 + 30·0,0028873 + 32·2,0168e−4 = 2,09307
+      4B : 2 + 30·0,0046672 + 32·3,0438e−4 = 2,14976
+  Le 8B est 0,057 b/poids SOUS le 4B pour la même raison que Planes14 :
+  down_proj n'a pas de queue (12 288 = 24 × 512 exactement).
+
+L'EXCÈS DE LOG-VRAISEMBLANCE
+-----------------------------
+  f16 ...................... 0
+  LLVQ Planes14 ............ 0,1989 nats
+  LLVQ Tetra ............... 0,2061 nats
+
+  Tetra est 3,64 % PIRE que le format servi sur cette mesure. Au 4B il était
+  14,6 % meilleur (0,2779 contre 0,3254). Le signe s'inverse entre les deux
+  tailles.
+
+CE QUE LA COMPARAISON 4B ↔ 8B ÉTABLIT
+--------------------------------------
+                                4B            8B         sens
+  ----------------------------------------------------------------
+  b/param   Planes14 → Tetra    ÷1,867        ÷1,735     se dégrade
+  part de l'embedding           9,67 %       15,20 %     l'explique
+  ppl       Tetra − Planes14    −4,64 %       +0,73 %    s'inverse
+  MMLU      Tetra − Planes14    −2,10 pp     −3,91 pp    double
+  excès     Tetra / Planes14     0,854        1,036      s'inverse
+
+  1. LA MÉMOIRE. Le rapport se dégrade de 1,867 à 1,735 pour une raison
+     entièrement comptable : Tetra ne touche pas l'embedding, qui pèse
+     9,67 % des paramètres au 4B et 15,20 % au 8B (têtes déliées). En b/poids
+     NOYAU le rapport s'améliore au contraire, ÷2,235 → ÷2,270. Les deux
+     chiffres sont vrais ; c'est le b/param modèle entier qui est la grandeur
+     comparable (règle dure 6).
+
+  2. LA QUALITÉ. Les deux axes bougent contre Tetra en passant du 4B au 8B.
+     La perplexité passe de meilleure de 4,64 % à pire de 0,73 %. Le MMLU
+     passe de −2,10 pp à −3,91 pp.
+
+     Sur le MMLU, l'écart est cette fois RÉSOLU, et il ne l'était pas au 4B :
+     à 2 280 questions appariées, l'erreur d'échantillonnage seule est de
+     ±1,31 par bras et l'écart-type apparié de la différence est de l'ordre
+     de 1,1 pp (repère des campagnes M2 à fichier constant). 3,91 pp fait
+     ~3,5 SE. Au 4B, 2,10 pp faisait ~1,5 SE.
+     ⚠️ L'IC apparié exact demande les dumps par question, qui sont dans le
+     bucket et n'ont pas été appariés. C'est une mesure à 0 $.
+
+  3. LA PRÉDICTION D'ENCODAGE TRANSFÈRE À LA QUATRIÈME DÉCIMALE.
+     En cours d'encodage, sur Metal, en f32, `smoke` lisait ×1,2287 pour
+     Tetra contre ×1,2201 pour le publié. Le banc carte en f16 lit ×1,2289
+     et ×1,2201. La perplexité mesurée pendant l'encodage prédit donc la
+     perplexité de sortie, et le mauvais signe était visible 5 h avant le job.
+
+LES CONTRÔLES
+--------------
+  1. Oracle sur les deux backends du Mac avant l'encodage (règle dure 10) :
+     max |Δhidden| = 0,000e0 sur Metal et sur CPU. PASSÉ.
+  2. Le fichier publié rejoue ses nombres dans le même job : 10,9682 contre
+     10,97 publié, 65,52 contre 65,52. PASSÉ.
+  3. `verify_artifact` : 6 945 767 424 poids relus du fichier, identiques bit
+     pour bit aux poids évalués pendant l'encodage. PASSÉ.
+  4. Empreintes de tokens identiques sur les cinq évaluations. PASSÉ.
+  5. Zéro point hors Λ₂₄ : la garde de `Tetra::encode` refuse à l'écriture,
+     aucun refus. PASSÉ.
+  6. 🚨 CONTRÔLE 0 : NON FAIT. Le fichier 8B publié date du 2026-08-18
+     (b3-8b-reseal), donc d'AVANT le commit 4a3e5f0 du 2026-08-26 qui a
+     changé le volume de calibration demandé. La dérive d'encodeur établie
+     au 4B (87 % des indices d'un bloc réencodé diffèrent) s'applique donc
+     ici aussi, et rien ne la sépare de l'effet de format.
+
+LE DÉFAUT DE PROTOCOLE — écrit ici parce qu'il ne peut pas être réparé
+-----------------------------------------------------------------------
+  🚨 Ce banc a tourné SANS pré-enregistrement. La règle dure 2 de CLAUDE.md
+  et le §1 de METHODE.md sont sans condition : « un préreg écrit et tamponné
+  vient avant la première milliseconde. » Il n'y en a pas eu, donc il n'y a
+  ni critère d'adoption écrit d'avance, ni prédiction signée, ni règle de
+  décision partitionnante pour cette mesure.
+
+  Ce n'est pas rattrapable : tamponner maintenant attesterait d'octets écrits
+  après la mesure. Conséquence pratique : les nombres de ce journal sont des
+  FAITS BRUTS utilisables, et ils ne peuvent servir de porte à rien. Toute
+  décision qu'ils informeraient doit être prise sur un préreg neuf, écrit
+  avant sa propre mesure.
+
+  Le 8B est hors du périmètre de publication (le 4B + le noyau fusé), ce qui
+  atténue la portée du défaut mais ne l'excuse pas.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Les 3,140 Go carte sont *calculés*. Aucun noyau servi ne lit Tetra :
+    pas de variante dans `FusedLayout`, pas de bras dans `planesbench`.
+    Le débit et la VRAM carte restent l'étape 6.
+  · L'écart Tetra−Planes14 contient le format, la dérive d'encodeur depuis
+    le 2026-08-26, ET un troisième terme propre au 8B : le fichier publié a
+    été quantifié SUR CARTE, où `calib.rs` accumule AᵀA en f32 sur
+    l'accélérateur, tandis que Tetra a été encodé sur Metal. Trois causes,
+    un écart, aucune séparation.
+  · Pourquoi la qualité se dégrade avec la taille. La part d'embedding
+    explique la mémoire, pas la qualité : l'embedding est identique dans les
+    deux bras. Les candidats non départagés sont la profondeur (36 blocs
+    contre 36 au 4B — même profondeur, donc ce n'est pas ça), la largeur
+    (d_in 4096/12288 contre 2560/4096/9728), et l'absence de queue sur
+    down_proj au 8B, qui met 26 % des poids entièrement dans le format là
+    où le 4B en gardait une fraction en f32.
+  · Rien sur le 14B.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/tetra-8b-2026-09-06/ :
+    ppl-{f16,planes14,tetra}.txt, mmlu-{planes14,tetra}.txt,
+    qwen3-8b-tetra.bin, qwen3-8b-planes14.bin
+  Encodage : journal du run (phases et s/bloc) ; quantization 14 696 s (87,3 %),
+    factorization 1 430 s (8,5 %), capture 614 s (3,7 %).
+  Comptabilité 8B : docs/mesures/rtbits-planes-8b-2026-08-09.txt §2 et §3.
