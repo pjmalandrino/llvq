@@ -1,0 +1,130 @@
+M1 ET M1b — L'AXE LIGNE DU CHANTIER 14 EST UN SEUL NOMBRE : le correctif radial
+vaut +1,65 pp de MMLU, gratuit, et 1 105 920 optima par ligne n'ajoutent rien
+================================================================================
+Date        : 2026-09-07
+Jobs        : 6a9ea58ae686246ca69a7f67, l40sx1, 13 min, 0,38 $  (M1, bras A et B)
+              6a9ebebee686246ca69a830a, l40sx1,  6 min, 0,19 $  (M1b, bras B')
+Préregs     : proofs/preregistration-m1-rho-2026-09-07.md,   sha256 ac83cdc28a20…
+              proofs/preregistration-m1b-rho-exact-2026-09-07.md, sha256 535af730ca75…
+              tous deux tamponnés avant leur mesure
+Écarts      : proofs/preregistration-m1-rho-2026-09-07-ECARTS.md
+Outil       : llvq-bench/examples/rhoapply.rs
+Nature      : *mesuré* pour la qualité ; aucun réencodage, seul `row_scales` change
+
+LE FAIT QUI OUVRAIT LE CHANTIER
+--------------------------------
+  L'encodeur choisit le niveau de gain sur la NORME du bloc
+  (llvq-quant/src/quantizer.rs:558-559 et :777). Le papier le choisit par
+  moindres carrés contre la direction retenue (llvq-paper-notes.md:195).
+  Chaque bloc servi est donc trop long, et les échelles de ligne ne l'absorbent
+  pas : gptq.rs:245 les fixe AVANT la boucle, à la RMS de la ligne originale.
+
+LE TABLEAU
+-----------
+  MMLU : 5-shot, 2 280 questions, empreinte 65dcd53655e8bfa5, l40sx1
+  ppl  : wikitext2, ctx 4096, 12 fenêtres, f16, empreinte 3f1baca9033bf251
+
+  bras                              MMLU      ppl        b/param
+  ---------------------------------------------------------------
+  Tetra, référence                  53,49    16,1569     2,7645
+  A   toutes les échelles × ρ       55,14    17,6981     2,7645
+  B   chaque échelle × ρ_i (M1)     28,11    67,53       2,7645
+  B'  chaque échelle × ρ̃_i (exact)  55,09    17,8746     2,7645
+
+  ρ mesuré sur les vrais poids : 0,929234 global.
+  Sur blocs simulés, M0 donnait 0,960745 : le biais réel est de 7,1 % et non
+  3,9 %, parce que le désaccord d'échelle de la production s'ajoute au 1/cos θ.
+
+LES APPARIEMENTS
+-----------------
+  A contre Tetra      +1,65 pp   IC95 [−0,18 ; +3,54]   McNemar p = 0,062
+  B' contre Tetra     +1,61 pp   IC95 [−0,15 ; +3,44]   McNemar p = 0,066
+  B' contre A         −0,04 pp   IC95 [−1,17 ; +1,05]   McNemar p = 0,922
+                      4,6 % de questions discordantes seulement
+
+  LE CHIFFRE QUI TRANCHE : 1 105 920 optima par ligne et UN SEUL NOMBRE rendent
+  le même modèle, à 0,04 pp. La deuxième ligne du §5 de M1b s'applique.
+
+  L'axe ligne du chantier 14 est donc clos sur un constant. M0 le disait sur
+  blocs simulés ; M1b le confirme sur les vrais poids avec la formule exacte.
+
+LE BRAS B DE M1 A DÉTRUIT LE MODÈLE, ET LA CAUSE ÉTAIT MA FORMULE
+-------------------------------------------------------------------
+  B rend 28,11 de MMLU quand le hasard est à 25,0, et 67,5 de perplexité, tout
+  en étant MEILLEUR que A sur l'objectif (‖ΔW‖² 0,11959 contre 0,11981).
+
+  La ligne décodée est AFFINE en ρ et non linéaire : r_i(ρ) = ρ·B_i + T_i, où
+  T_i est la queue KeepExact, que `row_scales` ne met pas à l'échelle. La
+  formule du §2 de M1, ⟨w,r⟩/⟨r,r⟩, range donc T des deux côtés du quotient. Et
+  gptq.rs:56-59 dit que la queue REÇOIT le retour d'erreur de tous les blocs
+  antérieurs, donc ⟨w,T⟩ ≠ ‖T‖².
+
+  L'effet, mesuré :
+
+    ρ de M1        sd 0,035584   min 0,261051
+    ρ̃ exact        sd 0,015761   min 0,706148
+
+  Par type, l'anomalie était entièrement là :
+    gate_proj      sd 0,059313 → 0,017211   min 0,261051 → 0,766655
+    les six autres types bougent de moins de 0,4 % en sd.
+
+  Une ligne ramenée à 26 % de sa longueur est une ligne supprimée. C'était de
+  l'arithmétique, pas une propriété du modèle.
+
+LE CORRECTIF AMÉLIORE LE MMLU ET DÉGRADE LA PERPLEXITÉ
+--------------------------------------------------------
+  A : MMLU +1,65 pp, perplexité +9,54 %.
+  B' : MMLU +1,61 pp, perplexité +10,63 %.
+
+  Une correction qui rapproche les poids de la vérité au sens de ‖ΔW‖²
+  améliore les réponses et dégrade la perplexité. C'est la quatrième
+  dissociation du dossier et la plus nette : les précédentes étaient
+  leech0c13 (21,5 % de ppl pour zéro MMLU), Tetra contre Planes14, et l'effet
+  de device.
+
+  La cause probable, *non prouvée* : ‖ΔW‖² est le cas H = I, et l'objectif
+  servi est Tr(ΔW H ΔWᵀ). Rien ici ne mesure la forme pondérée.
+
+LES CONTRÔLES
+--------------
+  1. Empreinte 65dcd53655e8bfa5, 2 280 questions, sur les quatre bras. PASSÉ.
+  2. Les trois artefacts font 980 791 242 octets, comme la source. PASSÉ.
+  3. Idempotence : ρ = 1 partout rend le sha256 de la source, bit pour bit.
+     PASSÉ — et ce contrôle a attrapé un défaut réel au premier passage :
+     `ArtifactWriter::finish` écrit deux compteurs u32 en fin de fichier que
+     l'outil perdait, huit octets.
+  4. Octet par octet : 7,7 M d'octets diffèrent, ZÉRO hors des zones
+     `row_scales`, et les 252 enregistrements commencent aux mêmes offsets
+     absolus. Vérifié par une revue avec son propre parseur. PASSÉ.
+  5. sd(ρ̃) = 0,015761 sous le seuil de 0,020 du §4 de M1b. PASSÉ.
+  6. Quatre inégalités : 2,391624e5 ≤ 2,392246e5 ≤ 2,396572e5 ≤ 2,497122e5.
+     PASSÉ.
+  7. Orientation de B et T établie par trois routes indépendantes, dont une
+     somme de ‖B‖² tirée de la disposition du mot de 48 bits sans décoder un
+     seul point du réseau : 2,028196e6 contre 2,028197e6, soit 6,6e−7. PASSÉ.
+
+LES PRÉDICTIONS SIGNÉES
+------------------------
+  M1  : ΔM entre 0 et +1,0, centre +0,3, et ρ_global réel entre 0,955 et 0,968.
+        Mesuré +1,65 et 0,929234. FAUSSE sur les deux.
+  M1b : M' entre 54,4 et 55,9, donc la deuxième ligne.
+        Mesuré 55,09. JUSTE.
+
+  Dix-huit prédictions signées sur ce dossier, huit fausses.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · La forme pondérée par la hessienne. Tout ici minimise ‖ΔW‖², et M1 vient
+    de montrer que la différence n'est pas académique — le bras B, meilleur sur
+    cet objectif, détruit le modèle.
+  · Que le +1,65 pp soit réel : son IC stratifié contient zéro des deux côtés.
+    Le contrôle non pondéré l'exclut (+1,27 [+0,15 ; +2,40] pour A).
+  · Ce que le correctif vaut une fois empilé sur le volume et sur Q5. La
+    sous-additivité mesurée entre calibration et précision est 0,562, et rien
+    ne dit qu'elle vaut pour ce gain-ci.
+  · Rien sur l'axe colonne, qui reste la seconde moitié du chantier 14.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/m1-rho-2026-09-07/ et m1b-rho-2026-09-07/
+  Outil : llvq-bench/examples/rhoapply.rs, mode par défaut et `--exact`.
