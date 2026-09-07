@@ -1,15 +1,25 @@
-//! M1 — the radial correction applied to a finished artifact, both arms.
+//! M1 and M1b — the radial correction applied to a finished artifact.
 //!
-//! The preregistration is `proofs/preregistration-m1-rho-2026-09-07.md`
-//! (sha256 `ac83cdc2…`, timestamped before this file existed). It fixes the
-//! two arms, the six controls and the decision rule. **This bench decides
-//! nothing**: it writes two artifacts and prints numbers.
+//! Two preregistrations, two modes, one code path up to the point where the
+//! artifacts are written. **This bench decides nothing**: it writes files and
+//! prints numbers.
+//!
+//! * **M1**, the default. `proofs/preregistration-m1-rho-2026-09-07.md`
+//!   (sha256 `ac83cdc2…`). Two arms, six controls, and the ρ its §2 fixes.
+//! * **M1b**, `--exact`. `proofs/preregistration-m1b-rho-exact-2026-09-07.md`
+//!   (sha256 `535af730…`). One arm, five controls, and the ρ̃ its §2 derives —
+//!   the exact minimiser of the same objective over the parameter that
+//!   actually moves. It exists because M1's arm B collapsed (MMLU 28.11
+//!   against 53.49 for Tetra) while *improving* `‖ΔW‖²`, and the cause is the
+//!   affine term the paragraph below names.
 //!
 //! ```text
-//!   ρ_i      = ⟨w_i , r_i⟩ / ⟨r_i , r_i⟩          (prereg §2, verbatim)
+//!   ρ_i      = ⟨w_i , r_i⟩ / ⟨r_i , r_i⟩          (M1 §2, verbatim)
 //!   ρ_global = Σ_i ⟨w_i, r_i⟩ / Σ_i ⟨r_i, r_i⟩
-//!   arm A: every row scale × ρ_global
-//!   arm B: row scale i × ρ_i
+//!   ρ̃_i      = ⟨w_i − T_i , B_i⟩ / ⟨B_i , B_i⟩    (M1b §2)
+//!   arm A:  every row scale × ρ_global            (M1)
+//!   arm B:  row scale i × ρ_i                     (M1)
+//!   arm B′: row scale i × ρ̃_i                     (M1b, --exact)
 //! ```
 //!
 //! `w_i` is the checkpoint row, `r_i` the row [`llvq_artifact::decode_matrix`]
@@ -86,12 +96,18 @@
 //! ## Usage
 //!
 //! ```text
-//! cargo run --release -p llvq-bench --example rhoapply -- <artifact.llvq> [checkpoint] [out-dir]
+//! cargo run --release -p llvq-bench --example rhoapply -- [--exact] <artifact.llvq> [checkpoint] [out-dir]
 //! ```
 //!
 //! `checkpoint` is a local directory or a Hub repo id resolved in the local
 //! cache (default `Qwen/Qwen3-4B`); `out-dir` defaults to the artifact's own
 //! directory. Nothing is re-encoded and no job is launched.
+//!
+//! `--exact` selects M1b: the same steps 1 to 3, then the five controls of its
+//! §4 — size, a byte-by-byte comparison against the source outside the
+//! `row_scales` zones, idempotence, `sd(ρ̃)` under 0.020, and the four
+//! inequalities of §4.5 — and **one** artifact, `q4b-tetra-rhotilde.llvq`.
+//! Arms A and B are not written in that mode, and the M1 mode is untouched.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -815,6 +831,221 @@ fn rewrite(
 }
 
 // ---------------------------------------------------------------------------
+// The byte-by-byte control (M1b §4.2)
+// ---------------------------------------------------------------------------
+
+/// Byte ranges of `path` that hold `row_scales`, half-open, in file order.
+///
+/// The offset is derived from the record layout `put_record_head` writes —
+/// name, `d_out`, `d_in`, shell cap, kind tag from v5, centroid count,
+/// rotation seed and flag, then the centroids — and then **verified** against
+/// the file: the eight bytes at each computed slot must be the bit pattern
+/// [`llvq_artifact::read_matrix_raw`] returned for that scale. A layout model
+/// off by one field would not survive that comparison, so the ranges this
+/// returns are the row-scale zones and not a guess about them.
+fn row_scale_ranges(path: &Path) -> Result<Vec<(u64, u64)>, String> {
+    let mut r = BufReader::with_capacity(1 << 22, File::open(path).map_err(|e| e.to_string())?);
+    let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+    let mut ranges = Vec::with_capacity(h.matrices as usize);
+    let mut expect: Vec<Vec<u64>> = Vec::with_capacity(h.matrices as usize);
+    for _ in 0..h.matrices {
+        let before = r.stream_position().map_err(|e| e.to_string())?;
+        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        let after = r.stream_position().map_err(|e| e.to_string())?;
+        let kind_tag = u64::from(h.version >= llvq_artifact::FIRST_KINDED_VERSION);
+        let prefix = 4 + m.name.len() as u64      // name length, then the name
+            + 4 + 4 + 4                            // d_out, d_in, shell cap
+            + 4 * kind_tag                         // the record's code kind
+            + 4                                    // centroid count
+            + 8 + 4                                // rotation seed, rotation flag
+            + 8 * m.centroids.len() as u64;
+        let start = before + prefix;
+        let end = start + 8 * m.row_scales.len() as u64;
+        if end > after {
+            return Err(format!(
+                "{}: the row-scale slot [{start}, {end}) runs past the record that ends at {after}",
+                m.name
+            ));
+        }
+        ranges.push((start, end));
+        expect.push(m.row_scales.iter().map(|s| s.to_bits()).collect());
+    }
+    drop(r);
+
+    let mut f = File::open(path).map_err(|e| e.to_string())?;
+    let mut buf = Vec::new();
+    for (&(start, end), scales) in ranges.iter().zip(&expect) {
+        f.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+        buf.resize((end - start) as usize, 0u8);
+        f.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        for (k, &bits) in scales.iter().enumerate() {
+            let mut w = [0u8; 8];
+            w.copy_from_slice(&buf[8 * k..8 * k + 8]);
+            if u64::from_le_bytes(w) != bits {
+                return Err(format!(
+                    "the row-scale zone model is wrong: scale {k} at offset {} reads {:#018x}, \
+                     the record reader says {bits:#018x}",
+                    start + 8 * k as u64,
+                    u64::from_le_bytes(w)
+                ));
+            }
+        }
+    }
+    Ok(ranges)
+}
+
+/// Compare two files byte by byte and split the differing bytes into those
+/// that fall inside `ranges` and those that fall outside.
+///
+/// Returns `(inside, outside, first_outside, total)`. The prereg's control is
+/// `outside == 0`; `inside` is reported because a rewrite that changed nothing
+/// at all would also pass `outside == 0`.
+fn diff_against(
+    src: &Path,
+    dst: &Path,
+    ranges: &[(u64, u64)],
+) -> Result<(u64, u64, Option<u64>, u64), String> {
+    let mut a = BufReader::with_capacity(1 << 22, File::open(src).map_err(|e| e.to_string())?);
+    let mut b = BufReader::with_capacity(1 << 22, File::open(dst).map_err(|e| e.to_string())?);
+    let mut ba = vec![0u8; 1 << 22];
+    let mut bb = vec![0u8; 1 << 22];
+    let (mut inside, mut outside, mut first_outside, mut off) = (0u64, 0u64, None, 0u64);
+    let mut ri = 0usize;
+    loop {
+        let n = read_up_to(&mut a, &mut ba)?;
+        let m = read_up_to(&mut b, &mut bb)?;
+        if n != m {
+            return Err(format!("the two files disagree in length at offset {off}"));
+        }
+        if n == 0 {
+            break;
+        }
+        // The common case is a chunk with no difference at all; the slice
+        // comparison settles it without touching a single byte by hand.
+        if ba[..n] != bb[..n] {
+            for k in 0..n {
+                if ba[k] == bb[k] {
+                    continue;
+                }
+                let at = off + k as u64;
+                while ri < ranges.len() && ranges[ri].1 <= at {
+                    ri += 1;
+                }
+                if ri < ranges.len() && at >= ranges[ri].0 {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                    first_outside.get_or_insert(at);
+                }
+            }
+        }
+        off += n as u64;
+    }
+    Ok((inside, outside, first_outside, off))
+}
+
+/// `read` until the buffer is full or the file ends. `Read::read` is allowed
+/// to return short, and a short read here would misalign the two files.
+fn read_up_to(r: &mut impl Read, buf: &mut [u8]) -> Result<usize, String> {
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..]).map_err(|e| e.to_string())? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    Ok(n)
+}
+
+// ---------------------------------------------------------------------------
+// The closed form, checked against the vectors it claims to minimise
+// ---------------------------------------------------------------------------
+
+/// Cross-check `ρ̃ = ⟨w − T, B⟩ / ⟨B, B⟩` on real rows, without using the
+/// accumulators that produced it.
+///
+/// For each probed row the objective `‖w − (ρ·B + T)‖²` is summed **from the
+/// three vectors** on a grid of ρ, and two things are required:
+///
+/// * the grid minimum sits on the grid point nearest `ρ̃`;
+/// * the parabola through three points taken *away* from `ρ̃` (centred on
+///   ρ = 1, so the check cannot pass by cancellation) has its vertex at `ρ̃`
+///   to better than `1e-9` relative.
+///
+/// Returns the worst relative vertex error over the probed rows.
+fn grid_check(
+    name: &str,
+    w: &[f32],
+    rr: &[f32],
+    tt: &[f32],
+    d_in: usize,
+    probes: &[usize],
+) -> Result<f64, String> {
+    // `‖w − (ρ·B + T)‖²` for one row, summed straight from the vectors.
+    let direct = |i: usize, rho: f64| -> f64 {
+        let mut s = 0.0f64;
+        for k in i * d_in..(i + 1) * d_in {
+            let (wk, rk, tk) = (f64::from(w[k]), f64::from(rr[k]), f64::from(tt[k]));
+            let d = wk - tk - rho * (rk - tk);
+            s += d * d;
+        }
+        s
+    };
+    let mut worst = 0.0f64;
+    println!("  {name}, {} rows probed", probes.len());
+    println!(
+        "    {:>8} {:>12} {:>12} {:>12} {:>12}",
+        "row", "ρ̃ closed", "ρ̃ vertex", "rel err", "grid argmin"
+    );
+    for &i in probes {
+        let (mut ub, mut bb) = (0.0f64, 0.0f64);
+        for k in i * d_in..(i + 1) * d_in {
+            let (wk, rk, tk) = (f64::from(w[k]), f64::from(rr[k]), f64::from(tt[k]));
+            ub += (wk - tk) * (rk - tk);
+            bb += (rk - tk) * (rk - tk);
+        }
+        let rho_tilde = ub / bb;
+
+        // Vertex of the parabola through ρ = 1 − h, 1, 1 + h. Centred on 1 and
+        // not on ρ̃: at ρ̃ the outer difference is exactly zero and the test
+        // would pass on any input.
+        let h = 0.05f64;
+        let (jm, j0, jp) = (direct(i, 1.0 - h), direct(i, 1.0), direct(i, 1.0 + h));
+        let vertex = 1.0 - h * (jp - jm) / (2.0 * (jp - 2.0 * j0 + jm));
+        let rel = (vertex - rho_tilde).abs() / rho_tilde.abs();
+        worst = worst.max(rel);
+
+        // The grid: 21 points of step 0.01 around ρ̃. Its minimum must be the
+        // point nearest ρ̃, which is index 10 by construction.
+        let step = 0.01f64;
+        let mut best = (0usize, f64::INFINITY);
+        for g in 0..21usize {
+            let rho = rho_tilde + (g as f64 - 10.0) * step;
+            let j = direct(i, rho);
+            if j < best.1 {
+                best = (g, j);
+            }
+        }
+        println!("    {i:>8} {rho_tilde:>12.8} {vertex:>12.8} {rel:>12.3e} {:>12}", best.0);
+        if best.0 != 10 {
+            return Err(format!(
+                "{name} row {i}: the grid minimum is at index {} and not at ρ̃ (index 10). \
+                 The closed form does not minimise the objective it is derived from.",
+                best.0
+            ));
+        }
+        if rel > 1e-9 {
+            return Err(format!(
+                "{name} row {i}: the vertex of the measured parabola is {vertex:.12} and the \
+                 closed form gives {rho_tilde:.12}, {rel:.3e} relative — beyond 1e-9."
+            ));
+        }
+    }
+    println!("    worst relative error {worst:.3e}, under 1e-9. ρ̃ = ⟨w−T, B⟩/⟨B, B⟩ confirmed.\n");
+    Ok(worst)
+}
+
+// ---------------------------------------------------------------------------
 // Statistics
 // ---------------------------------------------------------------------------
 
@@ -966,6 +1197,11 @@ fn variance_levels(values: &[f64], mats: &[MatStat]) -> (f64, f64, f64, f64) {
     (between_type, between_mat, within, total)
 }
 
+/// The record every probe of this bench uses: layer 0 `gate_proj`, the widest
+/// ρ spread of the file, so a check that passes there passes on the worst
+/// record the artifact has.
+const PROBE_INDEX: usize = 4;
+
 /// M0, `docs/mesures/m0-echelles-2026-09-07.txt`: the optimal row multiplier
 /// on gaussian blocks, and the mean cosine that produced it.
 const M0_RHO: f64 = 0.960745;
@@ -988,10 +1224,24 @@ fn main() {
 
 fn run() -> Result<(), String> {
     sha256_selftest();
-    let mut args = std::env::args().skip(1);
+    let mut positional: Vec<String> = Vec::new();
+    let mut exact = false;
+    for a in std::env::args().skip(1) {
+        match a.as_str() {
+            "--exact" => exact = true,
+            _ if a.starts_with("--") => {
+                return Err(format!(
+                    "unknown flag {a}: the only one is --exact \
+                     (usage: rhoapply [--exact] <artifact.llvq> [checkpoint] [out-dir])"
+                ));
+            }
+            _ => positional.push(a),
+        }
+    }
+    let mut args = positional.into_iter();
     let artifact = PathBuf::from(
         args.next()
-            .ok_or("usage: rhoapply <artifact.llvq> [checkpoint] [out-dir]")?,
+            .ok_or("usage: rhoapply [--exact] <artifact.llvq> [checkpoint] [out-dir]")?,
     );
     let ck_spec = args.next().unwrap_or_else(|| {
         std::env::var("LLVQ_MODEL").unwrap_or_else(|_| "Qwen/Qwen3-4B".to_string())
@@ -1005,7 +1255,15 @@ fn run() -> Result<(), String> {
     };
 
     let (src_sha, src_bytes) = sha256_file(&artifact).map_err(|e| e.to_string())?;
-    println!("M1 — rhoapply, arms A and B of preregistration-m1-rho-2026-09-07.md");
+    if exact {
+        println!(
+            "M1b — rhoapply --exact, the single arm of \
+             preregistration-m1b-rho-exact-2026-09-07.md"
+        );
+        println!("      ρ̃_i = ⟨w_i − T_i, B_i⟩ / ⟨B_i, B_i⟩   (§2). Arms A and B are not written.");
+    } else {
+        println!("M1 — rhoapply, arms A and B of preregistration-m1-rho-2026-09-07.md");
+    }
     println!("source   {}", artifact.display());
     println!("         {src_bytes} bytes, sha256 {src_sha}");
     let ck_dir = resolve_checkpoint(&ck_spec)?;
@@ -1070,6 +1328,13 @@ fn run() -> Result<(), String> {
         let tt = decode_scaled(&raw, &cb, &|_| 0.0);
         let (layer, proj) = llvq_artifact::split_name(&raw.name).map_err(|e| e.to_string())?;
         let n = raw.d_in;
+        if mi == PROBE_INDEX {
+            // The closed form checked against the objective itself, on the
+            // record with the widest ρ spread, before a single ρ̃ is used.
+            println!("\n  the closed form ρ̃ against ‖w − (ρ·B + T)‖² on the vectors");
+            let probes: Vec<usize> = (0..5).map(|k| k * (raw.d_out - 1) / 4).collect();
+            grid_check(&raw.name, &w, &rr, &tt, n, &probes)?;
+        }
         let first = rows.len();
         let mut rhos = Vec::with_capacity(raw.d_out);
         for i in 0..raw.d_out {
@@ -1533,6 +1798,268 @@ fn run() -> Result<(), String> {
     println!("        threshold; costs the same file, and separates the radial bias from the");
     println!("        scale defect on small rows. Writing either is an operator decision.\n");
 
+    // ---- M1b, --exact: the five controls of its §4, then one artifact.
+    if exact {
+        // The extreme row first. The closed form was checked in step 3 on five
+        // spread rows of the widest record; the row that carries the smallest
+        // ρ̃ of the whole file is the one a formula error would show on, so it
+        // gets the same treatment before anything is written.
+        let (arg_min, _) = rho_tilde_all
+            .iter()
+            .enumerate()
+            .fold((0usize, f64::INFINITY), |(bi, bv), (i, &v)| {
+                if v < bv { (i, v) } else { (bi, bv) }
+            });
+        let mk = mats
+            .iter()
+            .position(|m| arg_min >= m.first && arg_min < m.first + m.len)
+            .ok_or("the row with the smallest ρ̃ belongs to no matrix")?;
+        println!("\n  the closed form on the extreme row of the file");
+        {
+            let mut rs = BufReader::with_capacity(
+                1 << 22,
+                File::open(&artifact).map_err(|e| e.to_string())?,
+            );
+            let hs = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
+            let mut got = None;
+            for mi in 0..hs.matrices as usize {
+                let m =
+                    llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
+                if mi == mk {
+                    got = Some(m);
+                    break;
+                }
+            }
+            let m = got.ok_or("the extreme record is absent")?;
+            let w = ck.tensor(&m.name, m.d_out, m.d_in)?;
+            let rr = decode_scaled(&m, &cb, &|_| 1.0);
+            let tt = decode_scaled(&m, &cb, &|_| 0.0);
+            grid_check(&m.name, &w, &rr, &tt, m.d_in, &[arg_min - mats[mk].first])?;
+        }
+
+        // ---- Control 4: the dispersion, published before the decision to
+        // write. The prereg stops the bench above 0.020.
+        let mut st = rho_tilde_all.clone();
+        st.sort_by(f64::total_cmp);
+        let (mt, sdt) = mean_sd(&rho_tilde_all);
+        println!("CONTROL 4 (prereg §4.4) — the distribution of ρ̃ over {} rows", st.len());
+        println!(
+            "  mean {mt:.6}   sd {sdt:.6}   min {:.6}   max {:.6}",
+            st[0],
+            st[st.len() - 1]
+        );
+        print!("  deciles");
+        for d in 1..10 {
+            print!(" {:.4}", quantiles(&st, f64::from(d) / 10.0));
+        }
+        println!();
+        println!("  the same rows under M1's ρ: sd {sd:.6}, min {:.6}", {
+            let mut s2 = rho_all.clone();
+            s2.sort_by(f64::total_cmp);
+            s2[0]
+        });
+        println!("  by projection type — the column M1 read as per-row structure");
+        println!(
+            "  {:<18} {:>8} {:>10} {:>10} {:>10} {:>10} {:>12} {:>10}",
+            "type", "rows", "mean ρ̃", "sd ρ̃", "min ρ̃", "max ρ̃", "sd ρ (M1)", "min ρ (M1)"
+        );
+        for ty in &types {
+            let mut v: Vec<f64> = Vec::new();
+            let mut vm: Vec<f64> = Vec::new();
+            for mm in mats.iter().filter(|m| m.proj == *ty) {
+                v.extend_from_slice(mm.slice(&rho_tilde_all));
+                vm.extend_from_slice(mm.slice(&rho_all));
+            }
+            let (m, s) = mean_sd(&v);
+            let mn = v.iter().cloned().fold(f64::INFINITY, f64::min);
+            let mx = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let (_, sm) = mean_sd(&vm);
+            let mnm = vm.iter().cloned().fold(f64::INFINITY, f64::min);
+            println!(
+                "  {ty:<18} {:>8} {m:>10.6} {s:>10.6} {mn:>10.6} {mx:>10.6} {sm:>12.6} {mnm:>10.6}",
+                v.len()
+            );
+        }
+        if sdt > 0.020 {
+            return Err(format!(
+                "CONTROL 4 FAILED: sd(ρ̃) = {sdt:.6} is above 0.020, so the formula in this bench \
+                 is not the one of §2 of the preregistration. No artifact is produced and no \
+                 number above may be published."
+            ));
+        }
+        println!("  sd(ρ̃) = {sdt:.6} is under 0.020: control 4 passes.\n");
+
+        // ---- Control 5: the four inequalities.
+        println!("CONTROL 5 (prereg §4.5) — the four inequalities of the objective");
+        println!("  ‖ΔW‖²(ρ̃)      {dw2_b_exact:.9e}   rel {:.6}", dw2_b_exact / sum_ww);
+        println!("  ‖ΔW‖²(B, M1)  {dw2_b:.9e}   rel {:.6}", dw2_b / sum_ww);
+        println!("  ‖ΔW‖²(A, M1)  {dw2_a:.9e}   rel {:.6}", dw2_a / sum_ww);
+        println!("  ‖ΔW‖²(orig)   {dw2_orig:.9e}   rel {:.6}", dw2_orig / sum_ww);
+        println!("  M1's journal:  orig 2.497121948e5   A 2.396572380e5   B 2.392246240e5");
+        if !(dw2_b_exact <= dw2_b && dw2_b <= dw2_a && dw2_a <= dw2_orig) {
+            return Err(
+                "CONTROL 5 FAILED: ‖ΔW‖²(ρ̃) ≤ ‖ΔW‖²(B) ≤ ‖ΔW‖²(A) ≤ ‖ΔW‖²(original) is \
+                 violated. That is a tool defect and not a result; nothing is published."
+                    .into(),
+            );
+        }
+        println!("  the four hold, in that order. Control 5 passes.");
+        // Row by row as well: §2 says ρ̃ beats M1's ρ on every single row.
+        let worse = rows
+            .iter()
+            .filter(|s| s.j(s.rho_tilde()) > s.j(s.rho()) + 1e-12 * s.uu.abs())
+            .count();
+        println!(
+            "  rows where ρ̃ is worse than M1's ρ on the objective: {worse} of {}\n",
+            rows.len()
+        );
+        if worse != 0 {
+            return Err("ρ̃ does not minimise the per-row objective it is derived from".into());
+        }
+
+        // ---- The artifact.
+        println!("STEP 4 — the artifact");
+        let p_path = out_dir.join("q4b-tetra-rhotilde.llvq");
+        let t = Instant::now();
+        let (p_sha, p_bytes) = rewrite(&artifact, &p_path, &|mi, i| {
+            rho_tilde_all[mats[mi].first + i]
+        })?;
+        println!("  written in {:.1?}", t.elapsed());
+        println!("  arm B′  {}", p_path.display());
+        println!("          {p_bytes} bytes, sha256 {p_sha}");
+
+        // Control 1: the size.
+        if p_bytes != src_bytes {
+            return Err(format!(
+                "CONTROL 1 FAILED (prereg §4.2): {p_bytes} bytes against {src_bytes} for the source"
+            ));
+        }
+        println!("  CONTROL 1: {p_bytes} bytes, the size of the source, to the byte.");
+
+        // Control 2: byte by byte, against the row-scale zones of the source.
+        let ranges = row_scale_ranges(&artifact)?;
+        let zone_bytes: u64 = ranges.iter().map(|(a, b)| b - a).sum();
+        let (inside, outside, first, total) = diff_against(&artifact, &p_path, &ranges)?;
+        println!(
+            "  CONTROL 2: {} row-scale zones, {zone_bytes} bytes of {total} ({:.4} % of the file)",
+            ranges.len(),
+            100.0 * zone_bytes as f64 / total as f64
+        );
+        println!(
+            "             bytes that differ from the source: {inside} inside those zones, \
+             {outside} outside"
+        );
+        if outside != 0 {
+            return Err(format!(
+                "CONTROL 2 FAILED (prereg §4.2): {outside} bytes differ outside the row-scale \
+                 zones, the first at offset {}. The rewrite touched something else.",
+                first.unwrap_or(0)
+            ));
+        }
+        println!("             every differing byte is a row scale. Control 2 passes.");
+
+        // The scales on disk are the ones that were asked for. The count of
+        // scales that actually moved comes from here and not from `inside`: a
+        // ρ̃ near 1 changes the low bytes of a double and leaves its sign and
+        // exponent alone, so differing *bytes* undercount differing *scales*.
+        {
+            let mut rr =
+                BufReader::with_capacity(1 << 22, File::open(&p_path).map_err(|e| e.to_string())?);
+            let h = llvq_artifact::read_header(&mut rr).map_err(|e| e.to_string())?;
+            let mut rs = BufReader::with_capacity(
+                1 << 22,
+                File::open(&artifact).map_err(|e| e.to_string())?,
+            );
+            let _ = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
+            let mut worst = 0.0f64;
+            let mut moved = 0usize;
+            for mm in &mats {
+                let got =
+                    llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
+                let src =
+                    llvq_artifact::read_matrix_raw(&mut rs, h.version).map_err(|e| e.to_string())?;
+                for (i, (&g, &s)) in got.row_scales.iter().zip(&src.row_scales).enumerate() {
+                    let expect = s * rho_tilde_all[mm.first + i];
+                    worst = worst.max((g - expect).abs() / expect.abs());
+                    if g.to_bits() != s.to_bits() {
+                        moved += 1;
+                    }
+                }
+            }
+            println!(
+                "  re-read: worst relative row-scale error {worst:.3e}; {moved} of {} scales \
+                 carry a different bit pattern than the source",
+                rows.len()
+            );
+            if worst > 0.0 {
+                return Err("the artifact does not carry the scales it was written with".into());
+            }
+        }
+
+        // ---- Step 5: the file on disk decodes to what the numbers claim.
+        println!("STEP 5 — one record re-decoded out of the written file");
+        let mut rr =
+            BufReader::with_capacity(1 << 22, File::open(&p_path).map_err(|e| e.to_string())?);
+        let h = llvq_artifact::read_header(&mut rr).map_err(|e| e.to_string())?;
+        let mut got = None;
+        for mi in 0..h.matrices as usize {
+            let m = llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
+            if mi == PROBE_INDEX {
+                got = Some(m);
+                break;
+            }
+        }
+        let m = got.ok_or("probe record absent")?;
+        let w = ck.tensor(&m.name, m.d_out, m.d_in)?;
+        let rv = decode_scaled(&m, &cb, &|_| 1.0);
+        let measured: f64 = w
+            .iter()
+            .zip(&rv)
+            .map(|(a, b)| (f64::from(*a) - f64::from(*b)).powi(2))
+            .sum();
+        let src = {
+            let mut rs = BufReader::with_capacity(
+                1 << 22,
+                File::open(&artifact).map_err(|e| e.to_string())?,
+            );
+            let hs = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
+            let mut out = None;
+            for mi in 0..hs.matrices as usize {
+                let x =
+                    llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
+                if mi == PROBE_INDEX {
+                    out = Some(x);
+                    break;
+                }
+            }
+            out.ok_or("probe record absent from the source")?
+        };
+        let rr0 = decode_scaled(&src, &cb, &|_| 1.0);
+        let tt0 = decode_scaled(&src, &cb, &|_| 0.0);
+        let n = src.d_in;
+        let mut predicted = 0.0f64;
+        for i in 0..src.d_out {
+            let rho = rho_tilde_all[mats[PROBE_INDEX].first + i];
+            for k in i * n..(i + 1) * n {
+                let (wk, rk, tk) = (f64::from(w[k]), f64::from(rr0[k]), f64::from(tt0[k]));
+                predicted += (wk - tk - rho * (rk - tk)).powi(2);
+            }
+        }
+        println!(
+            "  {}  ‖ΔW‖² measured {measured:.9e}  predicted {predicted:.9e}  rel {:.3e}",
+            m.name,
+            (measured - predicted).abs() / predicted
+        );
+        if (measured - predicted).abs() / predicted > 1e-6 {
+            return Err(
+                "the file on disk does not decode to what the affine form predicted".into()
+            );
+        }
+        println!("  the written file decodes to the weights the numbers above describe.");
+        println!("\nDone. The bench decides nothing; §5 of the M1b preregistration does, after MMLU.");
+        return Ok(());
+    }
+
     // ---- Step 4: the two artifacts.
     println!("STEP 4 — the two artifacts");
     let a_path = out_dir.join("q4b-tetra-rhoA.llvq");
@@ -1583,7 +2110,6 @@ fn run() -> Result<(), String> {
     // affine form predicted for it. A rewrite that corrupted an index or a
     // centroid would pass every control above and fail here.
     println!("STEP 5 — one record re-decoded out of each written file");
-    let probe_index = 4usize; // layer 0 gate_proj, the widest ρ spread
     for (tag, path, per_row) in [("A", &a_path, false), ("B", &b_path, true)] {
         let mut rr =
             BufReader::with_capacity(1 << 22, File::open(path).map_err(|e| e.to_string())?);
@@ -1591,7 +2117,7 @@ fn run() -> Result<(), String> {
         let mut got = None;
         for mi in 0..h.matrices as usize {
             let m = llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
-            if mi == probe_index {
+            if mi == PROBE_INDEX {
                 got = Some(m);
                 break;
             }
@@ -1616,7 +2142,7 @@ fn run() -> Result<(), String> {
             for mi in 0..hs.matrices as usize {
                 let x =
                     llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
-                if mi == probe_index {
+                if mi == PROBE_INDEX {
                     out = Some(x);
                     break;
                 }
@@ -1627,7 +2153,7 @@ fn run() -> Result<(), String> {
         let tt0 = decode_scaled(&src, &cb, &|_| 0.0);
         let n = src.d_in;
         let mut predicted = 0.0f64;
-        for (i, rho) in rho_of[probe_index].iter().enumerate() {
+        for (i, rho) in rho_of[PROBE_INDEX].iter().enumerate() {
             let rho = if per_row { *rho } else { rho_global };
             for k in i * n..(i + 1) * n {
                 let (wk, rk, tk) = (f64::from(w[k]), f64::from(rr0[k]), f64::from(tt0[k]));
