@@ -1,0 +1,132 @@
+M0 — L'AXE LIGNE DU CHANTIER 14 EST UNE CONSTANTE : ρ* = 0,960745 à toutes les
+longueurs de ligne, et cette seule constante rend 97,6 % de ce que la règle du
+papier achèterait
+================================================================================
+Date        : 2026-09-07
+Machine     : Apple M3 Max, CPU seul, 12 fils, 0,1 min, 0,00 $
+Préreg      : proofs/preregistration-m0-echelles-2026-09-07.md
+              sha256 a75d847dc038f94e62aa…, tamponné avant la première exécution
+Écarts      : proofs/preregistration-m0-echelles-2026-09-07-ECARTS.md (É1 à É4)
+Banc        : llvq-bench/examples/rowshrink.rs
+Nature      : *mesuré* sur blocs simulés ; aucun modèle, aucune carte, aucun MMLU
+
+LE FAIT QUI OUVRAIT LE CHANTIER, vérifié dans le code avant la mesure
+----------------------------------------------------------------------
+  llvq-quant/src/quantizer.rs:558-559 (Leech) et :777 (Tetra) choisissent le
+  niveau de gain sur la NORME du bloc. Le papier (llvq-paper-notes.md:195) le
+  choisit par moindres carrés contre la direction retenue, β* = ‖x‖·cos θ.
+  llvq-quant/src/gptq.rs:245 fixe les échelles de ligne AVANT la boucle de
+  blocs, à la RMS de la ligne originale — elles n'absorbent donc pas ce biais.
+
+LES QUATRE NOMBRES DU §3
+-------------------------
+  200 000 blocs gaussiens, graine 0x0f1b20260907, encodeur Tetra de production,
+  centroïdes ajustés une fois pour tous les blocs comme fit_gain_centroids.
+
+  bras servi (niveau sur ‖x‖/s)         106 blocs/ligne   405 blocs/ligne
+  ---------------------------------------------------------------------------
+  ρ*                                      0,960745          0,960745
+  R, réduction d'objectif                  1,7935 %          1,7921 %
+  σ(ρ*)                                   0,006533          0,003204
+  σ / (1 − ρ*)                              0,1664            0,0816
+
+  bras du papier (niveau sur τ, centroïdes réajustés)
+  ρ*                                      1,000000          1,000000
+  R                                        0,0000 %          0,0000 %
+  σ(ρ*)                                   0,006770          0,003358
+
+  cos θ moyen 0,960740, donc δ̄ = 0,039260.
+
+LE CHIFFRE QUI RÉPOND À LA QUESTION
+------------------------------------
+  rétention, bras servi, t = 1 .................. 88,77 %
+  rétention, bras servi, t = ρ* ................. 89,42 %   (+0,6522 pp)
+  rétention, règle du papier par bloc ........... 89,44 %   (+0,6680 pp)
+
+  UNE SEULE CONSTANTE REND 97,6 % DE CE QUE LA RÈGLE PAR BLOC ACHÈTERAIT.
+  Choisir le niveau bloc par bloc n'ajoute que +0,0158 pp.
+
+  Le correctif ne coûte AUCUN bit, aucun champ de format, et ne touche pas la
+  carte d'index : il multiplie les 1 105 920 échelles de ligne par 0,960745.
+
+σ(ρ*) NE MESURE PAS DE STRUCTURE PAR LIGNE, ET LE BANC LE PROUVE
+------------------------------------------------------------------
+  Balayage de la longueur de ligne, hors des quatre nombres du préreg :
+
+    blocs/ligne     ρ*         σ         σ·√n      σ/(1−ρ*)
+    ------------------------------------------------------------
+        6        0,960742   0,024979   0,061185     0,6363
+       24        0,960742   0,013381   0,065555     0,3409
+      106        0,960745   0,006533   0,067260     0,1664
+      405        0,960745   0,003204   0,064478     0,0816
+     1600        0,960745   0,001657   0,066287     0,0422
+
+  ρ* est IDENTIQUE à la sixième décimale sur un facteur 266 de longueur de
+  ligne. σ·√n varie de 9,9 % sur la même plage : σ suit une loi en 1/√n, c'est
+  une statistique d'échantillonnage et non une propriété de ligne.
+
+  Décomposition de σ, par ligne : ρ* = G · C avec G le résidu du code de gain
+  sur les normes et C le canal angulaire.
+      G   moyenne 1,040842   écart-type 0,003523   part de variance +101,6 %
+      C   moyenne 0,960783   écart-type 0,000389   part de variance   +1,5 %
+      covariance                                   part de variance   −3,1 %
+
+  σ EST À 98,5 % LE BRUIT DU CODE DE GAIN À 1 BIT, pas le canal angulaire que
+  le chantier voudrait corriger.
+
+LES CONTRÔLES
+--------------
+  1. Identité de reconstruction : ‖y‖² − 16·coquille = 0 exactement ;
+     quantize() contre c·s·û à 1,07e−16 relatif ; reconstruct_shape_gain()
+     bit pour bit égal à quantize() ; TetraCode::t égal à ⟨x,y⟩/‖y‖ à 0. PASSÉ.
+  2. Forme close contre évaluation directe de J(t) sur 63 valeurs de t :
+     écart relatif au pire 1,78e−14. PASSÉ, très au-delà du 1e−9 demandé.
+  3. Rétention recoupée contre les 88,89 % du journal F1b : écart 0,10 à
+     0,12 pp, sous le seuil de 0,5. PASSÉ.
+  4. row_scale sur les poids contre la RMS des normes de bloc : 4,4e−15.
+     fit_gain_centroids contre lloyd_max : 1,1e−14. PASSÉ.
+  5. Blocs mélangés avant groupement : σ = 0,003198 contre 0,003204. Les lignes
+     sont échangeables, comme la simulation le suppose. PASSÉ.
+
+LA RÈGLE DE DÉCISION DU §5 NE TRANCHE PAS, ET C'EST UN DÉFAUT DU PRÉREG
+-------------------------------------------------------------------------
+  Les deux premières conditions de la première ligne passent aux deux tailles :
+  ρ* = 0,9607 est dans [0,95 ; 0,97], R = 1,79 % est sous 3 %.
+  La troisième, σ ≤ 0,15·(1 − ρ*), PASSE à 405 blocs (0,0816) et ÉCHOUE à
+  106 blocs (0,1664). La première ligne s'applique à une taille, la troisième
+  ligne — la zone grise — à l'autre.
+
+  Le balayage explique pourquoi : sous la loi en 1/√n, σ croise 0,15·(1 − ρ*)
+  à 120 blocs par ligne et 0,40·(1 − ρ*) à 17. **La porte du §5 est une porte
+  sur la longueur de ligne, pas sur la structure.** Voir les écarts §É1.
+
+  Ce que le banc établit malgré la porte mal posée : ρ* ne dépend pas de la
+  ligne, et la constante rend 97,6 % du gain. M2, la forme close par ligne, n'a
+  rien à exploiter. M1 reste, et il devient la seule mesure qui compte.
+
+LA PRÉDICTION SIGNÉE — deux justes sur trois, la troisième était impossible
+-----------------------------------------------------------------------------
+  prédit : ρ* ∈ [0,95 ; 0,97] · R ∈ [1 ; 3] % · σ ≤ 0,15·(1 − ρ*) aux deux tailles
+  mesuré : ρ* = 0,960745 · R = 1,79 % · σ/(1−ρ*) = 0,0816 et 0,1664
+
+  Le motif du §6 prédisait σ par sd(1 − cos θ)/√n, soit 0,000377 à 405 blocs.
+  Mesuré 0,003358 : **le motif sous-prédit d'un facteur 8,9**, parce qu'il
+  attribuait σ au canal angulaire alors qu'il vient du code de gain. C'est cette
+  erreur seule qui fait échouer la troisième borne à 106 blocs.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Aucun point de MMLU. La rétention est un intermédiaire, pas un critère
+    fondamental : +0,65 pp de rétention peut valoir zéro point de MMLU, et ce
+    dossier en a la preuve (leech0c13 déplace 21,5 % de perplexité pour un
+    MMLU indiscernable). C'est M1 qui mesure.
+  · Les blocs sont gaussiens et les échelles de ligne sont prises sur les blocs
+    encodés. La production les fixe sur la ligne ORIGINALE avant la boucle GPTQ,
+    puis quantifie des résidus dont les normes ont dérivé. Ce désaccord d'échelle
+    est absent ici, donc ρ* chiffre le biais radial 1/cos θ SEUL.
+  · Rien sur l'axe colonne, qui reste la seconde moitié du chantier 14.
+
+PROVENANCE
+-----------
+  llvq-bench/examples/rowshrink.rs, `cargo run --release -p llvq-bench --example rowshrink`.
+  Sortie complète rejouée par l'opérateur le 2026-09-07.
