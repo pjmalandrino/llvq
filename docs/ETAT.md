@@ -460,6 +460,35 @@ What is not established: no arm is served, since `LLVQ_RESTORE_Q4` dequantizes t
 said to buy back is itself unresolved, +2.59 pp with CI95 [−0.32; +5.58] over 650 discordant questions out
 of 2,280.
 
+## 5 nonies. Chantier 3: the paper's codebook, 2026-09-07
+
+**`leech0c13` reads 19.6093 of perplexity and 54.67 of MMLU here, against `Tetra`'s 16.1569 and 53.49, at an
+identical rate** (*measured*, [journal](mesures/leech0c13-2026-09-07.txt), prereg stamped before the first
+second of encoding). The paper's own LLM configuration, encoded at the 4B for the first time, one variable
+against `Tetra`: the codebook.
+
+| arm | ideal rate | perplexity | MMLU micro |
+|---|---|---|---|
+| f16 | — | 12.2369 | 70.32 |
+| `Tetra` | 2.0702 | **16.1569** | 53.49 |
+| `Planes14` published | 2.0702 | 16.9422 | 55.59 |
+| `leech0c13` | 2.0702 | **19.6093** | 54.67 |
+| *the paper's `leech0c13`* | — | *17.05* | *60.7* |
+
+**Our three arms are indistinguishable in MMLU while their perplexities span 21.5%.** Paired: `leech0c13`
+against `Tetra` is +1.19 pp, CI95 [−1.54; +3.98], McNemar p = 0.79; against the published file, −0.92 pp,
+CI95 [−3.55; +1.78]. Both contain zero.
+
+**The codebook is exonerated**, which is the prereg's third line. The 5.1-point gap to the paper lies in what
+surrounds the codebook: a calibration volume about 95 times ours, the corpus, the rotation. The reservation is
+in the deviations — the interval's upper bound reaches 57.5, so only the "carries the bulk" line, at 58.5, is
+robustly excluded.
+
+Two things the run establishes beyond its own question. The rate held at 2.0702 on both arms, so the
+comparison is at constant bits and section 4 of the prereg never fired. And **the perplexity measured during
+encoding predicted the card's for the third time**: 19.6243 in f32 on Metal against 19.6093 in f16 on the
+card. An encoding's perplexity can be read for $0, hours before a card is paid for.
+
 ## 6. Open decisions
 
 - Wave 2 closed at **$2.32 against its $2.00 cap** (operator, 2026-09-04), a 16% overrun arbitrated at launch: the table floor ($0.02), the compiled
@@ -480,7 +509,7 @@ of 2,280.
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $99.88 (*measured*,
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $100.21 (*measured*,
   `docs/data/jobs.csv`).
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the

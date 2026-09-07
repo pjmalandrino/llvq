@@ -1,0 +1,110 @@
+CHANTIER 3 — LE CODEBOOK DU PAPIER EST INNOCENTÉ : il déplace la perplexité de
+21,5 % et le MMLU de rien de mesurable. Les 5,1 points d'écart sont ailleurs.
+================================================================================
+Date        : 2026-09-07
+Encodage    : Mac M3 Max, 3 h 55 (14 100 s), 386 s/bloc, 36 blocs, 0 $
+              worktree isolé à 07eb114 (le dépôt principal était en travaux)
+Job         : 6a9e08bc259f8e97255e8fc2, l40sx1, 11 min, 0,33 $
+Préreg      : proofs/preregistration-leech0c13-2026-09-06.md
+              sha256 9ecd46f8be09e2f74ac09334…
+              tamponné AVANT la première seconde d'encodage
+Objet       : hf://buckets/Pier-Jean/jobs-artifacts/leech0c13-2026-09-07/
+              qwen3-4b-leech0c13.bin, 1 770 526 109 octets
+Nature      : *mesuré* pour la qualité ; *calculé* pour les octets
+
+LA QUESTION
+------------
+  Le papier lit 17,05 de perplexité pour 60,7 de MMLU sur Qwen3-4B avec
+  `leech0c13`. Nous lisons 16,94 pour 55,59 avec `leech1c12` : MEILLEURS en
+  perplexité, 5,1 points moins bons en MMLU. Et `cap12 + 1 bit de gain`, ce que
+  nous servons, n'apparaît dans AUCUNE table LLM du papier.
+  Ce banc encode leur codebook chez nous, une seule variable.
+
+LE TABLEAU
+-----------
+  ppl : wikitext2, ctx 4096, 12 fenêtres, f16, empreinte 3f1baca9033bf251
+  MMLU : 5-shot, 2 280 questions, 57 matières, f16, empreinte 65dcd53655e8bfa5
+
+  bras                       débit idéal   ppl carte   MMLU micro   × f16
+  ---------------------------------------------------------------------------
+  f16                           —           12,2369      70,32       ×1
+  Tetra                       2,0702        16,1569      53,49       ×1,320
+  Planes14 publié             2,0702        16,9422      55,59       ×1,385
+  leech0c13 (le papier)       2,0702      **19,6093**   **54,67**    ×1,604
+  ---------------------------------------------------------------------------
+  le papier, son leech0c13      —           17,05        60,7         —
+
+  DÉBIT IDENTIQUE À LA QUATRIÈME DÉCIMALE SUR LES TROIS BRAS MAISON. Le §4 du
+  préreg, qui prévoyait de tout republier en b/param si le débit bougeait, ne
+  s'applique pas : `leech0c13` écrit 48 bits par bloc comme les deux autres,
+  383 classes, 0 bit de gain, coquille ≤ 13, niveaux ≤ 5.
+
+LE RÉSULTAT, APPARIÉ
+---------------------
+  Bootstrap stratifié par matière, 10 000 tirages, graine 0xb0075eed.
+
+  leech0c13 contre Tetra        Δ = +1,19 pp   IC95 [−1,54 ; +3,98]
+      McNemar p = 0,7859 · 664 discordantes sur 2 280 (29,1 %)
+  leech0c13 contre Planes14     Δ = −0,92 pp   IC95 [−3,55 ; +1,78]
+      McNemar p = 0,1900
+
+  LES DEUX IC CONTIENNENT ZÉRO. Les trois bras maison — 53,49, 54,67, 55,59 —
+  sont indiscernables en MMLU, pendant que leurs perplexités couvrent 16,16 à
+  19,61, soit 21,5 % d'étendue.
+
+  C'EST LE FAIT DU JOUR : le choix de codebook déplace la perplexité d'un
+  cinquième et le MMLU de rien de mesurable.
+
+LA RÈGLE DE DÉCISION DU PRÉREG §5
+----------------------------------
+  M = 54,67 < 55,5 → TROISIÈME LIGNE.
+  « Le codebook est innocenté. L'écart au papier est notre pipeline — volume de
+  calibration, composition du corpus, rotation. Les chantiers de calibration et
+  de finetuning prennent la tête de la roadmap, et le débat sur le codebook
+  servi se ferme. »
+
+  Réserve, écrite aux écarts §É1 : la borne haute de l'IC contre Tetra atteint
+  57,5, donc la frontière entre la troisième et la deuxième ligne (55,5) est
+  DANS l'intervalle. Ce qui est robuste, c'est que la première ligne (58,5) est
+  hors de l'intervalle : le codebook ne porte PAS l'essentiel des 5,1 points.
+
+LA PRÉDICTION SIGNÉE — juste
+-----------------------------
+  prédit : M entre 53 et 57, centre 55, donc la troisième ligne.
+  mesuré : M = 54,67, à 0,33 du centre.
+
+  Motif écrit à la signature : le papier calibre sur ~95 fois notre volume de
+  tokens, et ce dépôt a mesuré qu'un bras se déplace de 13,9 % en ne changeant
+  que le texte de calibration. Le volume et le corpus portaient plus que le
+  codebook. C'est ce que la mesure dit.
+
+  Douze prédictions signées sur ce dossier, sept fausses, cinq justes.
+
+LA PERPLEXITÉ D'ENCODAGE PRÉDIT LA PERPLEXITÉ DE CARTE — troisième point
+--------------------------------------------------------------------------
+  mesuré pendant l'encodage, sur Metal, en f32 : 19,6243
+  mesuré sur carte, en f16                    : 19,6093
+  écart : 0,08 %
+
+  Troisième confirmation après le 8B (×1,2287 prédit, ×1,2289 mesuré) et le 4B.
+  Conséquence pratique : la qualité en perplexité d'un encodage se lit POUR 0 $
+  avant de payer une carte. Un mauvais signe se voit des heures à l'avance.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Que le papier a tort. Il change quatre choses à la fois par rapport à nous :
+    codebook, volume de calibration, corpus et rotation. Ce banc en change UNE,
+    contre notre propre Tetra. Il dit ce que le codebook vaut CHEZ NOUS.
+  · Où sont les 5,1 points. Il en écarte une cause, il n'en désigne aucune.
+    Les candidats restants sont le volume (×95 chez eux) et la composition.
+  · Rien sur Tetra comme format servi : `leech0c13` est un codebook Ball, il
+    déplie comme les autres et n'a pas de mot de 48 bits à champs fixes.
+  · Un seul tirage de calibration.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/leech0c13-2026-09-07/ :
+    gpu.txt, artefact.txt, ppl.txt, mmlu.txt, mmlu-leech0c13.csv,
+    qwen3-4b-leech0c13.bin
+  Appariements : `cargo run --release -p llvq-llm --bin mmlupair`, contre
+  le dump t0.csv du chantier 1 et docs/data/mmlu-dumps/mmlu-4b-llvq.csv.
