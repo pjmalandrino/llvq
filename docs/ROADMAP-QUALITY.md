@@ -28,7 +28,7 @@ Gains do not add: measured sub-additivity runs 0.618 to 0.792 over seven isolate
 |---|---|---|---|---|
 | 1 | Q5 served: `v_proj` in int4 g128 | **+3.47** *measured on `Tetra`*, CI95 [+1.42; +5.57] | **Done as a measurement** ($0.60, 2026-09-06). Serving it is the `kind = 2` writer, in progress, then `tv_q4_h` on a card | **70.4 MMLU points per b/param**, twenty times the rate of the whole attention. Costs +0.0493 b/param, 6.4% of the margin before b_max. `Tetra` with it reads 56.95 for 2.8138 b/param against the served format's 55.59 for 5.1619. Operator's decision of 2026-09-06: option B, code only, no re-encoding. No arm is served yet: `LLVQ_RESTORE_Q4` dequantizes to f16 before the matvec |
 | 2 | `leech1c12` witness re-encoded | 0, it is a control | 0 days, 4 h Mac, $0 | Without it every delta measured against 55.59 carries the encoder drift of 2026-08-26: 87% of the indices of a re-encoded block differ. Declined on 2026-09-06; the cost travels with every citation of the −4.64% |
-| 3 | `leech0c13` at the 4B | **+1.19**, CI95 [−1.54; +3.98] — *measured, not resolved* | **Done** (3 h 55 of Mac, $0.33, 2026-09-07) | **The codebook is exonerated.** It reads 19.6093 of perplexity against `Tetra`'s 16.1569, 21.5% worse, at an identical rate of 2.0702, and 54.67 of MMLU against 53.49, indistinguishable. Our three arms are indistinguishable in MMLU while their perplexities span a fifth. The 5.1-point gap to the paper is in the calibration volume, the corpus or the rotation, and rows 6 and 14 inherit it |
+| 3 | `leech0c13` at the 4B | **+1.19**, CI95 [−1.54; +3.98] — *measured, not resolved* | **Measured, and the verdict is suspended** (3 h 55 of Mac, $0.33, 2026-09-07) | **Measured in the wrong regime.** The paper's Table 10 gives no-gain-bit codebooks the win only under **Spherical GPTQ**; under Euclidean, which is what we ran, it gives them the loss (1B: 25.1 against 27.7). This arm must be replayed after the spherical retraction lands. What held: It reads 19.6093 of perplexity against `Tetra`'s 16.1569, 21.5% worse, at an identical rate of 2.0702, and 54.67 of MMLU against 53.49, indistinguishable. Our three arms are indistinguishable in MMLU while their perplexities span a fifth. The 5.1-point gap to the paper is in the calibration volume, the corpus or the rotation, and rows 6 and 14 inherit it |
 | 4 | Embedding in int4 g64 | **−0.35 pp** *measured*, under the 0.43 pp bar, so undetected rather than null | 0 days, the `q4b-e4.llvq` artifact exists, $0 | Negative memory cost: −0.4049 b/param, `Tetra` 2.7645 to **2.3596**. +1.52% of perplexity measured, and that one is detected. The embedding **is** the language head at the 4B (`tie_word_embeddings = true`), so degrading it hits the logits directly and serving it is a second decode kernel per token, not a knob. Measured on a `Planes14` base |
 | 5 | Q1, Hessian shrinkage | **no MMLU figure** | 0 days, `LLVQ_H_SHRINK` shipped; 7 to 15 h Mac, $0 | Median perplexity −31% and cross-seed range divided by 6.7 (*measured*, 0.6B, 3 seeds, [m1-hessienne-shrink-2026-09-02](mesures/m1-hessienne-shrink-2026-09-02.txt)). The file predicts a **larger** effect at the 4B: 13.5 samples per dimension against 43.5. The only large internal lever never tried at the 4B, and the 4B `Tetra` ran at rho = 1 |
 | 6 | Calibration volume and composition | 0 to +2 on STEM *estimated* | 0 days, 10 to 15 h Mac, $0 | Buried in perplexity on 3 blocks of the 0.6B, reopened on 2026-08-25: one arm moves **13.9% by changing the calibration text alone**, at full depth. Gated on MMLU sigma 2.92 over 2.0, not on price |
@@ -75,6 +75,34 @@ this table carries gains in MMLU points and nothing else.
 One correction is a free measurement. **Row 13's deciding number costs $0 on the artifact we already have**:
 the residual variation of the diagonal of Q'HQ says whether any salience survives the rotation, and it
 decides the lead before a line is written.
+
+## Six rows added on 2026-09-07, from the paper re-read and the free hunt
+
+The paper was re-read page by page against our 324 lines of notes, and a five-angle hunt looked for
+free leads the survey had never listed. What follows is what survived an adversarial pruning, with
+the two figures I recomputed myself on our own dumps.
+
+| # | Name | Gain, MMLU pp | Feasibility | Comment |
+|---|---|---|---|---|
+| A | **Proportional MMLU sampling plan** | **0** — it moves the bar, not the score | half a day, $0 | The sampling error falls from **1.339 to 0.916 pp** at the same budget, a factor 1.46, or the same bar with **1,180 questions instead of 2,280** (*measured*, recomputed on `mmlu-4b-llvq.csv` with the repository's own stratified formula, which reproduces the published ±1.35). Three of our unresolved intervals — `Tetra` against `Planes14`, the radial correction, Q5 on V32 — would then exclude zero. Samples nest, since `select` shuffles by seed then truncates, so no existing dump is broken |
+| B | **Output temperature** | unknown in MMLU, by construction invisible to an argmax | half a day plus one Metal run, $0 | Our logits carry a slope of **0.4660** against f16 where AWQ carries **0.9599** (*measured*, 9,120 centred logits over the paired dumps). A positive scalar cannot move an argmax but it flattens a distribution, so **part of our ×1.32 perplexity excess is output calibration and not lost information**. One scalar folded into the final RMSNorm weight removes it at zero bits, and it may change the denominator of the four dissociations |
+| C | **Intra-block sequencing** | unknown on both axes | 1 to 2 days, $0, encoding 2 h 27 to ~3 h 15 | `calib.rs:705-720` captures the block's four Hessians in one forward with the **original** weights, then quantizes all seven matrices. So `o_proj` is calibrated on an attention context its own q/k/v never quantized, and `down_proj` on an unquantized `act(gate)·up`. The module header at `calib.rs:1-13` denounces exactly this at the block level and the code commits it inside the block. 35% of the file is calibrated on an input the served model never sees |
+| D | **Block-of-24 sweep order** | unknown | 1 day, $0 | `gptq.rs:255` sweeps left to right and `linalg.rs:68` factors without pivoting; neither order was ever justified by a measurement. This permutes the **order of visit**, not the contents of a block nor the order of records, so it costs no table and does not break format v1 — which is why the *Discarded* row on channel permutation does not apply |
+| E | **Massive activations in H** | unknown | half a day to 1 day, $0 | `calib.rs:55-62` accumulates with no mask and no clipping. The internal hint is M1's own optimum at rho in [0.5; 0.9], which is what one would expect if a handful of rows of A dominated the covariance. Distinct from row 5, which regularizes **after** H is formed |
+| F | **Cyclic option marginalisation** | at most +1 | one arm, ~$0.76 | The position bias is real and large: we under-pick B by 177 and over-pick C by 174 where f16 and AWQ are balanced (*measured*, same dumps). The per-letter additive fix is **dead** — oracle +1.05 pp, cross-validated **−0.51 pp** over ten folds — so the bias is question-dependent, not a global shift, and only the four-rotation average survives |
+
+**D and E are settled by one free measurement**, the same one row 13 already asks for: the residual
+spread of the diagonal of Q'HQ aggregated per block of 24, on the artifact we already have. One
+measurement decides three rows.
+
+**Row A is the most valuable line of the whole table and it yields no MMLU point.** It does not change
+any number we have measured; it changes what we are allowed to say about them.
+
+Two corrections the re-read forced elsewhere. **Removing the input rotation costs us 5.1 points**, not
+the +2.5 an earlier reading claimed: the paper's no-rotation record of 37.4 belongs to *spherical
+shaping*, and for our own shape-gain family Table 9 reads 34.9 with rotation against 29.8 without. And
+the paper's default correction **is** Spherical GPTQ — rows without a qualifier are spherical, the
+Euclidean ones say so — which is what suspends row 3.
 
 ## The instrument that gates half the table
 
