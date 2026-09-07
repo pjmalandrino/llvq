@@ -107,7 +107,7 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_FUSE_AB` | `1` | `fusedrun`: both arms of the fusion in a single process, the shape of D1 |
 | `LLVQ_TIME_PHASES` | `1` | `fusedrun`: per-phase profile, outside the published protocol |
 | `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` | evaluation dtype; comparing ppl and MMLU requires the same on both sides |
-| `LLVQ_CALIB` | `wikitext2` (default), `c4`, `wikitext2-test` | `smoke`: calibration corpus; `c4` is the paper's protocol |
+| `LLVQ_CALIB` | `wikitext2` (default), `c4`, `dclm-edu`, `wikitext2-test` | `smoke`: calibration corpus; `dclm-edu` is the paper's own set, `c4` the out-of-domain control |
 | `LLVQ_ARTIFACT` | path | `smoke`: writes the compressed artifact, packed indices; absent, nothing is written |
 | `LLVQ_RESUME` | path of a shard | `smoke`: resume from that shard; requires `LLVQ_ARTIFACT` |
 | `LLVQ_SEALED_ARTIFACT` | path | `llvq-artifact` archive tests: moves the search for the sealed file (`tests/common/mod.rs`) |

@@ -324,7 +324,10 @@ published value.
   the codebook. Journal: `docs/mesures/f2-p3-qtip-banc-2026-08-21.txt`; the
   stamped document could not be edited, so the erratum is recorded in the
   journal instead — which is the rule, not an evasion (§5).
-- **`LLVQ_DATASET_REV` cannot pin a commit.** One variable covers three
+- **`LLVQ_DATASET_REV` cannot pin a commit.** One variable covers four
   dataset repositories, and a SHA is valid in only one of them; corpus
   pinning therefore works at the granularity of a branch name. This is a
-  known weakness of the reproducibility tooling, not an oversight.
+  known weakness of the reproducibility tooling, not an oversight. What a run
+  reads is recorded instead: a bounded corpus read prints the commit `hf_hub`
+  resolved (`llvq-llm/src/corpus.rs`, `BoundedRead::revision`), so a figure is
+  auditable after the fact even when it cannot be pinned in advance.

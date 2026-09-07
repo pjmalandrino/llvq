@@ -19,8 +19,9 @@
 //!     `quantize` has already placed the block on the nearest level's sphere,
 //!     so Eq. 17's retraction is a no-op (`docs/fiche-4b.md` §2.3).
 //!
-//! Environment knobs: `LLVQ_MODEL`, `LLVQ_CALIB` (`c4` for the paper's
-//! out-of-domain setup), `LLVQ_ARTIFACT`, `LLVQ_RESUME`, `LLVQ_THREADS`,
+//! Environment knobs: `LLVQ_MODEL`, `LLVQ_CALIB` (`dclm-edu` for the paper's
+//! own calibration set, `c4` for the out-of-domain control), `LLVQ_ARTIFACT`,
+//! `LLVQ_RESUME`, `LLVQ_THREADS`,
 //! `LLVQ_DAMPING`, `LLVQ_DTYPE`, and `LLVQ_CALIB_SEED` — the last one draws
 //! the calibration windows at random offsets instead of taking a prefix, which
 //! is how a **run-to-run error bar** gets measured. Three seeds on 3 blocks is
@@ -194,6 +195,11 @@ fn parse_rotation(v: Option<&str>) -> Result<Option<u64>, String> {
 enum CalibCorpus {
     Wikitext2Train,
     C4,
+    /// The paper's own calibration set: web text filtered for educational
+    /// content, i.e. the domain MMLU examines. The arm that tests whether our
+    /// 5.1-point MMLU gap at a *better* perplexity is a calibration-domain
+    /// effect (`llvq_llm::corpus::DCLM_EDU_REPO`).
+    DclmEdu,
     /// Deliberate contamination — calibrate on the very text the eval windows
     /// score. Bounds the ceiling of the calibration family; nobody ships it.
     Wikitext2Test,
@@ -207,10 +213,11 @@ impl CalibCorpus {
         match v {
             None | Some("") | Some("wikitext2") => Ok(Self::Wikitext2Train),
             Some("c4") => Ok(Self::C4),
+            Some("dclm-edu") => Ok(Self::DclmEdu),
             Some("wikitext2-test") => Ok(Self::Wikitext2Test),
             Some(other) => Err(format!(
                 "LLVQ_CALIB={other}: accepted values `wikitext2` (default), \
-                 `c4` and `wikitext2-test`"
+                 `c4`, `dclm-edu` and `wikitext2-test`"
             )),
         }
     }
@@ -219,9 +226,22 @@ impl CalibCorpus {
         match self {
             Self::Wikitext2Train => "wikitext2",
             Self::C4 => "c4",
+            Self::DclmEdu => "dclm-edu",
             Self::Wikitext2Test => "wikitext2-test",
         }
     }
+}
+
+/// Characters of raw text to ask a bounded corpus for, for `n_calib` windows
+/// of `calib_len` tokens.
+///
+/// Sized from what the run asked for, never from a literal. Six characters per
+/// token is the 4.61 lot B measured on C4
+/// (`docs/archive/verdicts-lot-b-2026-08-06.md:33`) plus margin, and the
+/// margin only avoids a needless second read: what guarantees the volume is
+/// the window count checked below.
+fn calib_chars(n_calib: usize, calib_len: usize) -> usize {
+    n_calib.saturating_mul(calib_len).saturating_mul(6)
 }
 
 /// Gain bits this binary will accept. The published configurations use 0, 1
@@ -1072,12 +1092,24 @@ fn main() -> anyhow::Result<()> {
             // published volume was served ~13× — the `min` below did it
             // without a word in the log. A calibration-volume ladder built on
             // that would have published two rungs measuring the same point.
+            llvq_llm::corpus::c4_calibration(calib_chars(n_calib, calib_len))?
+        }
+        CalibCorpus::DclmEdu => {
+            // The paper's calibration set. One shard holds 186 times the
+            // characters asked for here at most, so the read is bounded by
+            // rows and its cost is printed: a corpus this size is where an OOM
+            // comes from, and a bound nobody reads back is a bound nobody
+            // trusts.
             //
-            // Six characters per token is the measured 4.61 plus margin. It
-            // only avoids a needless second read: what actually guarantees
-            // the volume is the `ensure!` below.
-            let want = n_calib.saturating_mul(calib_len).saturating_mul(6);
-            llvq_llm::corpus::c4_calibration(want)?
+            // The printed line also carries the commit that was read.
+            // `LLVQ_DATASET_REV` cannot pin this corpus, because the same
+            // variable covers the wikitext repo this run reads two hundred
+            // lines above; the journal records the revision instead of the
+            // command line claiming it.
+            let (text, stats) =
+                llvq_llm::corpus::dclm_edu_calibration(calib_chars(n_calib, calib_len))?;
+            eprintln!("  {}", stats.report());
+            text
         }
         CalibCorpus::Wikitext2Test => {
             // The calibration *oracle* (pistes-battre-q4.md P3): deliberate
@@ -1916,15 +1948,43 @@ mod tests {
         );
         assert_eq!(CalibCorpus::parse(Some("c4")).unwrap(), CalibCorpus::C4);
         assert_eq!(
+            CalibCorpus::parse(Some("dclm-edu")).unwrap(),
+            CalibCorpus::DclmEdu
+        );
+        assert_eq!(
             CalibCorpus::parse(Some("wikitext2-test")).unwrap(),
             CalibCorpus::Wikitext2Test
         );
-        for bad in ["c44", "C4", "wikitext", "wikitext2-train", "dclm-edu"] {
+        for bad in ["c44", "wikitext", "wikitext2-train", "dclm", "DCLM-edu"] {
             assert!(
                 CalibCorpus::parse(Some(bad)).is_err(),
                 "{bad:?} was accepted"
             );
         }
+    }
+
+    /// The refusal must name every accepted value, the new one included: the
+    /// message is the only documentation the operator reads at 2 a.m.
+    #[test]
+    fn the_refusal_names_every_accepted_value() {
+        let msg = CalibCorpus::parse(Some("dclmedu")).unwrap_err();
+        for c in [
+            CalibCorpus::Wikitext2Train,
+            CalibCorpus::C4,
+            CalibCorpus::DclmEdu,
+            CalibCorpus::Wikitext2Test,
+        ] {
+            assert!(msg.contains(c.name()), "{msg:?} does not name {}", c.name());
+        }
+    }
+
+    /// The budget follows the request. A literal here is what served ~13× the
+    /// asked volume in silence before lot B.
+    #[test]
+    fn the_calibration_budget_follows_the_request() {
+        assert_eq!(calib_chars(64, 2048), 64 * 2048 * 6);
+        assert!(calib_chars(2048, 2048) > calib_chars(64, 2048));
+        assert_eq!(calib_chars(usize::MAX, 2), usize::MAX);
     }
 
     /// Names printed in the journal have to parse back, or a log cannot be
@@ -1938,6 +1998,7 @@ mod tests {
         for c in [
             CalibCorpus::Wikitext2Train,
             CalibCorpus::C4,
+            CalibCorpus::DclmEdu,
             CalibCorpus::Wikitext2Test,
         ] {
             assert_eq!(CalibCorpus::parse(Some(c.name())).unwrap(), c);
