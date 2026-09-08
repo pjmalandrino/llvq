@@ -6,7 +6,11 @@
 //!
 //! * without an explicit `arch`, NVRTC compiles for `compute_75` by default,
 //!   silently. The guard is not to trust the option but to read
-//!   `binary_version()` back off the loaded function and assert it.
+//!   `binary_version()` back off the loaded function and assert it — as an
+//!   **order**, `binary >= compiled_for`, since PTX is forward-compatible and
+//!   a card newer than the request JITs to its own sm. The predicate lives in
+//!   `crate::arch_binary_ok`, outside this `cfg(linux)` module, so the dev
+//!   machine can mutate it.
 //! * `use_fast_math: Some(true)` only emits `--fmad=true`, which is NVRTC's
 //!   default anyway. The field is a no-op in both directions; anything real
 //!   goes through `options`.
@@ -43,8 +47,8 @@ pub fn arch() -> &'static str {
     })
 }
 
-/// The sm the loaded function must report — derived from [`arch()`], never a
-/// second constant that could drift from it.
+/// The sm the loaded function must report **at least** — derived from
+/// [`arch()`], never a second constant that could drift from it.
 fn arch_binary_version() -> i32 {
     arch()
         .strip_prefix("compute_")
@@ -412,11 +416,40 @@ impl Cuda {
             binary_version: g(f.binary_version())?,
             max_threads: g(f.max_threads_per_block())?,
         };
-        if rep.binary_version != arch_binary_version() {
+        // The property is an ORDER, not an equality, and this guard tested the
+        // equality until 2026-09-08.
+        //
+        // NVRTC emits PTX, and PTX is forward-compatible: the driver JITs a
+        // `compute_NN` module for any sm ≥ NN. `ops/run.py` says exactly that
+        // where it pins `MIN_COMPUTE_CAP` — *"the driver can JIT it for any
+        // sm ≥ 89, and for nothing below"*. So a function loaded from
+        // `compute_89` PTX on an sm_120 card reports `binary_version = 120`,
+        // which is the mechanism working, not failing.
+        //
+        // The equality happened to hold everywhere it had been exercised —
+        // `compute_89` on L40S (sm_89), `compute_80` on A100 (sm_80) in F4 —
+        // because each run named its own card's sm. The first card newer than
+        // its `LLVQ_NVRTC_ARCH` was an RTX PRO 6000 on 2026-09-08, and the
+        // guard refused a run that was entirely correct. `compute_120` was not
+        // the way out either: the image is CUDA 12.4 and sm_120 arrived in
+        // 12.8, so its NVRTC cannot name that architecture at all.
+        //
+        // Nothing is lost by relaxing it. The failure the message names — a
+        // silent fallback to `compute_75` — was never caught by the equality:
+        // on a card of sm ≥ the request, `binary_version` reports the DEVICE's
+        // sm whatever PTX it was JITted from, so both readings agree. What the
+        // order does catch, and the equality also caught, is the real defect:
+        // a module that ran BELOW the architecture it was compiled for, which
+        // cannot describe the card the numbers are attributed to.
+        //
+        // The card's own name is printed beside every figure (`Device::name`),
+        // so a reader still sees which silicon a number came from — and rule 5
+        // forbids dividing a × across cards whether or not this guard fires.
+        if !crate::arch_binary_ok(rep.binary_version, arch_binary_version()) {
             return Err(format!(
-                "{name}: compiled for sm_{}, not sm_{}. NVRTC falls back to \
-                 compute_75 when no architecture is given, silently — nothing measured on this \
-                 module would describe the card.",
+                "{name}: ran on sm_{}, BELOW the sm_{} it was compiled for. PTX is \
+                 forward-compatible only, so nothing measured on this module describes \
+                 the card.",
                 rep.binary_version,
                 arch_binary_version()
             ));
