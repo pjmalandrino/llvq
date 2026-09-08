@@ -123,3 +123,38 @@ attribuer cette part au domaine.
 Le contrôle qui séparerait les deux est gratuit en conception : un bras C4 dont
 les documents courts sont filtrés à ≥ 3 ko avant concaténation, à volume de
 tokens constant. Il n'est pas lancé et ne le sera pas sans go.
+
+---
+
+*Les écarts É1 à É4 ci-dessus ont été écrits avant le lancement, par la revue du chantier de
+code. Les suivants sont écrits après la mesure. Un heredoc de l'auteur les a écrasés le
+2026-09-08 à 03:15 ; ils sont restaurés depuis `7f48c8a^`.*
+
+## É5 — La règle du §5 est posée sur un point là où l'intervalle décide
+
+`ΔC = −0,55` tombe sous le seuil de −0,5 de la quatrième ligne, « le corpus
+nuit ». **En substance, non** : l'IC95 va de −3,21 à +2,13, le contrôle non
+pondéré est **de signe opposé** (+1,05), et McNemar donne 0,347. Il n'y a aucun
+effet mesurable, dans aucun sens, et la lecture juste est la troisième ligne —
+le corpus n'explique rien.
+
+C'est le même défaut que celui écrit en É1 du préreg M0 : une porte posée sur
+une estimation ponctuelle alors que l'intervalle est ce qui tranche. **Deux fois
+en deux jours.** Les prochains préregs poseront leurs seuils sur les bornes de
+l'IC, pas sur le point.
+
+## É6 — La prédiction signée était juste sur la perplexité et fausse sur le MMLU
+
+Le §6 prédit `ΔC` entre 0 et +3 avec un centre à +1,2, et une perplexité
+dégradée de 2 à 10 %. Mesuré : **−0,55** et **+2,12 %**.
+
+Le motif du §2 se décompose donc en deux moitiés, et une seule tient. Le
+déplacement de domaine **est réel et mesurable** — la hessienne a bougé, la
+perplexité de texte web s'est dégradée exactement comme prédit. Ce qui ne tient
+pas est le second maillon : rien ne dit que cette hessienne-là serve mieux le
+MMLU, et la mesure dit qu'elle ne le sert pas.
+
+## É7 — Le préreg annonçait ~14 $ et le job en a coûté 13,50
+
+Enveloppe tenue. Le plafond de timeout à 200 min, posé après qu'un plafond de
+120 eut tué V32 à la fin de son travail, n'a pas eu à servir : 147 min.

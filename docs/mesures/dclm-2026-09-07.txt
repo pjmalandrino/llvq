@@ -1,0 +1,105 @@
+DCLM-EDU — LE CORPUS DE CALIBRATION DU PAPIER N'EXPLIQUE PAS L'ÉCART : la
+perplexité se dégrade de 2,12 % comme prévu, le MMLU ne suit pas
+================================================================================
+Date        : 2026-09-08 (job lancé le 09-07)
+Job         : 6a9f0ee6e686246ca69a8e9a, rtx-pro-6000x2 (--any-flavor), 147 min, 13,50 $
+Préreg      : proofs/preregistration-dclm-2026-09-07.md
+              sha256 9e10776aa961a5155ddb…, tamponné avant l'encodage
+Écarts      : proofs/preregistration-dclm-2026-09-07-ECARTS.md
+Objet       : hf://buckets/Pier-Jean/jobs-artifacts/dclm-2026-09-07/
+Nature      : *mesuré* pour la qualité
+
+LE FAIT QUI OUVRAIT LE BANC, jamais transcrit avant le 2026-09-07
+------------------------------------------------------------------
+  Papier, page 7, section 5, première phrase :
+  « we compute (GPTQ-style) layer-wise Hessians on 6,100 sequences from
+    DCLM-edu, matching the calibration set size used in prior work »
+  Le mot DCLM n'apparaît nulle part dans les 324 lignes de nos notes de
+  lecture. Nous calibrons sur wikitext2 ou C4.
+
+LE TABLEAU
+-----------
+  Une seule variable contre V32 : le corpus. Même modèle, même volume, même
+  codebook, même mode, même rotation, même carte, même image, même graine.
+
+  bras                        tokens      ppl carte   MMLU micro
+  ---------------------------------------------------------------
+  V32, corpus C4            4 194 304     15,8620      55,29
+  DCLM-edu                  4 194 304     16,1984      54,74
+  ---------------------------------------------------------------
+                                          +2,12 %      −0,55 pp
+
+  apparié sur 2 280 questions :
+    Δ micro stratifié   −0,55 pp   IC95 [−3,21 ; +2,13]   SE 1,35
+    Δ non pondéré       +1,05 pp   IC95 [−0,71 ; +2,88]   SE 0,92
+    McNemar exact       p = 0,3469 · 598 discordantes sur 2 280 (26,2 %)
+
+  LES DEUX LECTURES SONT DE SIGNE OPPOSÉ ET LES DEUX IC CONTIENNENT ZÉRO.
+
+LA MOITIÉ DU MÉCANISME S'EST PRODUITE
+--------------------------------------
+  Le §2 du préreg posait : calibrer sur du texte éducatif déplace la hessienne
+  vers les directions du domaine de MMLU, AU DÉTRIMENT de la vraisemblance de
+  texte web.
+
+  La première moitié est mesurée : la perplexité se dégrade de 2,12 %, dans la
+  fourchette de 2 à 10 % prédite. Le déplacement de domaine est réel.
+  La seconde ne s'est pas produite : la hessienne a bougé, le MMLU n'a pas suivi.
+
+  C'est la cinquième dissociation du dossier, et la première qui joue CONTRE
+  l'hypothèse qui l'invoquait.
+
+LA RÈGLE DE DÉCISION DU §5
+---------------------------
+  À la lettre : ΔC = −0,55 ≤ −0,5, donc la quatrième ligne, « le corpus nuit ».
+  En substance : non. L'IC va de −3,21 à +2,13, le contrôle non pondéré est de
+  signe opposé, McNemar donne 0,347. C'est la TROISIÈME ligne — le corpus
+  n'explique rien — et la règle a le même défaut que celle de M0 : elle est
+  posée sur une estimation ponctuelle là où l'intervalle décide. Voir les écarts.
+
+LES CONTRÔLES
+--------------
+  1. Empreinte 65dcd53655e8bfa5, 2 280 questions. PASSÉ.
+  2. Débit effectif 2,0702 b/poids, identique à Tetra et à V32. PASSÉ.
+  3. Le journal du run imprime le corpus : « dclm-edu, 2048 × 2048 = 4194304
+     tokens ». C'était le contrôle qui aurait invalidé tout le banc. PASSÉ.
+  4. Lecture bornée du parquet : « 25 186 212 chars for 25 165 824 asked,
+     3 968 of 776 000 rows, 1 of 1 row groups, revision dbad8ad712244827… ».
+     0,51 % des lignes lues, et la révision est consignée. PASSÉ.
+  5. La perplexité d'encodage (16,2212 en f32) prédit celle de la carte
+     (16,1984 en f16) à 0,14 %. Cinquième confirmation. PASSÉ.
+
+LA PRÉDICTION SIGNÉE — à moitié juste, et c'est la moitié qui instruit
+------------------------------------------------------------------------
+  prédit : ΔC entre 0 et +3, centre +1,2 · perplexité dégradée de 2 à 10 %
+  mesuré : ΔC = −0,55 · perplexité +2,12 %
+
+  Dix-neuf prédictions signées sur ce dossier, neuf fausses.
+
+CE QUE ÇA FERME
+----------------
+  Les trois causes candidates externes de l'écart de 5,1 pp au papier sont
+  épuisées :
+    le codebook   suspendu — mesuré sous GPTQ euclidien, le régime où le
+                  papier le donne perdant
+    le volume     +2,98 pp, explique au mieux 58 % de l'écart
+    le corpus     rien
+
+  Ce qui reste est la MÉCANIQUE DU PIPELINE : GPTQ sphérique, politique de
+  gain, métrique de recherche. C'est ce que la troisième ligne du §5 annonçait.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  · Que DCLM-edu ne servirait à rien sous une autre mécanique. Le papier
+    l'emploie AVEC le GPTQ sphérique ; nous l'avons employé sans.
+  · Un seul tirage, un seul shard lu depuis sa première ligne — 3 968 documents
+    consécutifs, pas un échantillon du corpus.
+  · La longueur des séquences du papier n'est pas donnée page 7, donc « 6 100
+    séquences » ne se convertit pas en tokens avec certitude.
+
+PROVENANCE
+-----------
+  hf://buckets/Pier-Jean/jobs-artifacts/dclm-2026-09-07/ :
+    gpu.txt, smoke.txt, seal.txt, ppl.txt, mmlu.txt, mmlu.csv, qwen3-4b-dclm.bin
+  Corpus : HuggingFaceTB/dclm-edu, data/000_00000.parquet,
+    révision dbad8ad71224482740cd9c9d353591adbf62fe04.
