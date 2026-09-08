@@ -171,6 +171,18 @@ pub const F1RANK_V2_CUH: &str = include_str!("../kernels/llvq_f1rank_v2.cuh");
 pub const F1RANK_V2_CU: &str = include_str!("../kernels/f1rank_v2.cu");
 pub const F1RANK_V3_CUH: &str = include_str!("../kernels/llvq_f1rank_v3.cuh");
 pub const F1RANK_V3_CU: &str = include_str!("../kernels/f1rank_v3.cu");
+/// The served Tetra decode over the v3 word decode: the gain bit, the
+/// magnitude, the trio permutation and the origin. Verified bit for bit
+/// against `llvq_search::tetra` and `llvq_quant::reconstruct_shape_gain` by
+/// `tests/tetra48_matches_rust.rs`, through the same `clang++` shim.
+pub const TETRA48_CUH: &str = include_str!("../kernels/llvq_tetra48.cuh");
+pub const TETRA48_V3G_CU: &str = include_str!("../kernels/tetra48_v3g.cu");
+/// Planes14, the served layout, as a bench arm — so a Tetra time and a
+/// Planes14 time can be formed in ONE process. `docs/mesures/f1-rang-*` had
+/// to read `B = 2.797 ms` off another process and said so; that is what these
+/// two entries exist to end.
+pub const PLANES_CUH: &str = include_str!("../kernels/llvq_planes.cuh");
+pub const PLANES_CU: &str = include_str!("../kernels/planes.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -254,6 +266,10 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "f1rank_v2.cu" => Ok(F1RANK_V2_CU),
         "llvq_f1rank_v3.cuh" => Ok(F1RANK_V3_CUH),
         "f1rank_v3.cu" => Ok(F1RANK_V3_CU),
+        "llvq_tetra48.cuh" => Ok(TETRA48_CUH),
+        "tetra48_v3g.cu" => Ok(TETRA48_V3G_CU),
+        "llvq_planes.cuh" => Ok(PLANES_CUH),
+        "planes.cu" => Ok(PLANES_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),

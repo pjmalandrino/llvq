@@ -100,7 +100,10 @@ mod linux {
     use llvq_bench::f1::rank::{branch_words, decode_word, prefix_bytes, suffix_bytes, RankTable};
     use llvq_bench::f1::Trellis;
     use llvq_core::{SplitMix64, DIM};
+    use llvq_artifact::runtime::ClassTable;
     use llvq_cuda::gpu::{Cuda, KernelSource};
+    use llvq_search::fastdec::FastDecoder;
+    use llvq_search::tetra::Tetra;
     use llvq_cuda::TILE_BLOCKS;
     use std::time::Instant;
 
@@ -139,13 +142,48 @@ mod linux {
         ("down_proj", 2560, 9728),
     ];
 
-    /// The six arms, in the order the rotation walks them. Arms 2..6 are the
+    /// The eight arms, in the order the rotation walks them. Arms 2..6 are the
     /// four table arms: `tv_f1r` and its three variants, one argument list.
-    const ARMS: [&str; 6] = ["nullk", "word", "f1r", "f1r_v1", "f1r_v2", "f1r_v3"];
+    /// Arms 6 and 7 were added on 2026-09-08 and are of a different nature —
+    /// see [`V3G`] and [`PLANES`].
+    const ARMS: [&str; 8] =
+        ["nullk", "word", "f1r", "f1r_v1", "f1r_v2", "f1r_v3", "f1r_v3g", "planes14"];
     /// The kernel behind each arm, same index.
-    const KERNELS: [&str; 6] = ["tv_nullk", "tv_f1r_word", "tv_f1r", "tv_f1r_v1", "tv_f1r_v2", "tv_f1r_v3"];
-    /// Index of `f1r` in [`ARMS`]; the variants are the arms after it.
+    const KERNELS: [&str; 8] = [
+        "tv_nullk",
+        "tv_f1r_word",
+        "tv_f1r",
+        "tv_f1r_v1",
+        "tv_f1r_v2",
+        "tv_f1r_v3",
+        "tv_f1r_v3g",
+        "tv_planes",
+    ];
+    /// Index of `f1r` in [`ARMS`]; the three variants are the arms after it.
     const F1R: usize = 2;
+    /// `f1r_v3g`: the **served** Tetra decode — v3 plus the gain bit, the
+    /// magnitude, the trio permutation and the origin. It does NOT compute
+    /// what `tv_f1r` computes and is deliberately outside control 7: its
+    /// arithmetic is pinned by `tests/tetra48_matches_rust.rs` on the dev
+    /// machine and by control 8 on the card.
+    const V3G: usize = 6;
+    /// `planes14`: the served layout, **in this process**. Every F1 journal so
+    /// far had to read `B = 2.797 ms` off another one and said so
+    /// (`f1-rang-plancher-2026-09-05.txt:97`, *"B vient d'un autre processus"*).
+    /// This arm is what ends that, and it is the arm the whole run exists for:
+    /// a Tetra time and a Planes14 time formed round by round, same rounds,
+    /// same rotation, same clock.
+    const PLANES: usize = 7;
+    /// The gain centroids both served arms are given, `planesbench`'s own, so
+    /// the two layouts are scaled by the same two numbers.
+    const GSCALE: [f32; 2] = [0.625, 1.375];
+    /// Entries of the inverse-norm table of `llvq_tetra48.cuh`.
+    const TETRA48_SHELLS: usize = 32;
+    /// Planes14's uniform record stride, `llvq_planes.cuh`.
+    const PLANES_STRIDE: usize = 14;
+    /// `ClassRec` table, as `planesbench` builds it: 512 entries of 6 u32.
+    const TABLE_ENTRIES: usize = 512;
+    const REC_WORDS: usize = 6;
 
     struct Shape {
         name: &'static str,
@@ -184,6 +222,42 @@ mod linux {
         /// `tv_f1r`, `tv_f1r_v1`, `tv_f1r_v2`, `tv_f1r_v3` — [`ARMS`]`[F1R..]`,
         /// launched by one routine with one argument list.
         table: [cudarc::driver::CudaFunction; 4],
+        /// `tv_f1r_v3g`: the table list plus `gscale` and `invnorm`.
+        v3g: cudarc::driver::CudaFunction,
+        /// `tv_planes`: a different stream, a different table, its own list.
+        planes: cudarc::driver::CudaFunction,
+    }
+
+    /// The two constants the served Tetra decode adds, uploaded once.
+    struct Tetra48 {
+        gscale: cudarc::driver::CudaSlice<f32>,
+        invnorm: cudarc::driver::CudaSlice<f32>,
+    }
+
+    /// Planes14's own table and gain pair.
+    struct PlanesTab {
+        tab: cudarc::driver::CudaSlice<u32>,
+        gscale: cudarc::driver::CudaSlice<f32>,
+    }
+
+    /// `1/sqrt(16 m)`, entry 0 zero — the origin, reconstructed without a
+    /// branch and without a division. `m <= 27` on this codebook, derived over
+    /// the whole table by `llvq-bench/examples/tetrashell.rs`; 32 is that
+    /// bound rounded up, and `llvq_tetra48.cuh` masks with it.
+    fn invnorm_table() -> Vec<f32> {
+        let mut t = vec![0.0f32; TETRA48_SHELLS];
+        for (m, e) in t.iter_mut().enumerate().skip(1) {
+            *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+        }
+        t
+    }
+
+    /// u32 of one Planes14 stream copy for a shape: `14` bytes per block over
+    /// `d_out · nblocks` blocks, plus the four-word read window of the last
+    /// record (`llvq_planes.cuh`, "The read window").
+    fn planes_words(d_out: u32, nblocks: u32) -> usize {
+        let blocks = d_out as usize * nblocks as usize;
+        (PLANES_STRIDE * blocks + 16).div_ceil(4)
     }
 
     /// round_up(6·nblocks, 8) / 4.
@@ -380,19 +454,100 @@ mod linux {
         Ok(t.elapsed().as_secs_f64() * 1e3)
     }
 
+    /// One timed round of `tv_f1r_v3g` — the table list with `gscale` and
+    /// `invnorm` spliced in after `suffixes`, exactly where the kernel
+    /// declares them.
+    #[allow(clippy::too_many_arguments)]
+    fn round_tetra(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        shapes: &mut [Shape],
+        streams: &[Vec<Stream>],
+        tab: &Tables,
+        t48: &Tetra48,
+        shared: u32,
+    ) -> Result<f64, String> {
+        let t = Instant::now();
+        for layer in streams.iter() {
+            for (s, st) in shapes.iter_mut().zip(layer.iter()) {
+                let c = cfg(s, shared);
+                let mut b = cuda.stream().launch_builder(f);
+                b.arg(&st.words)
+                    .arg(&s.stride_u32)
+                    .arg(&tab.rows)
+                    .arg(&tab.prefixes)
+                    .arg(&tab.branches)
+                    .arg(&tab.suffixes)
+                    .arg(&t48.gscale)
+                    .arg(&t48.invnorm)
+                    .arg(&s.rscale)
+                    .arg(&s.tail)
+                    .arg(&s.x)
+                    .arg(&mut s.y)
+                    .arg(&s.nblocks)
+                    .arg(&s.tail_w);
+                unsafe { b.launch(c) }.map_err(|e| format!("f1r_v3g/{}: {e}", s.name))?;
+            }
+        }
+        cuda.sync()?;
+        Ok(t.elapsed().as_secs_f64() * 1e3)
+    }
+
+    /// One timed round of `tv_planes` — the served layout, on its own stream.
+    ///
+    /// `tv_planes` addresses blocks **flat**, `row · nblocks + j` at a uniform
+    /// 14-byte stride, where every F1 arm addresses them through a per-row u32
+    /// stride. That difference is the layout, not the harness: it is what
+    /// makes Planes14 read 14 bytes where Tetra reads 6, and it is the whole
+    /// quantity the run exists to price.
+    fn round_planes(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        shapes: &mut [Shape],
+        streams: &[Vec<Stream>],
+        pt: &PlanesTab,
+        shared: u32,
+    ) -> Result<f64, String> {
+        let t = Instant::now();
+        for layer in streams.iter() {
+            for (s, st) in shapes.iter_mut().zip(layer.iter()) {
+                let c = cfg(s, shared);
+                let mut b = cuda.stream().launch_builder(f);
+                b.arg(&st.words)
+                    .arg(&pt.tab)
+                    .arg(&pt.gscale)
+                    .arg(&s.rscale)
+                    .arg(&s.tail)
+                    .arg(&s.x)
+                    .arg(&mut s.y)
+                    .arg(&s.nblocks)
+                    .arg(&s.tail_w);
+                unsafe { b.launch(c) }.map_err(|e| format!("planes14/{}: {e}", s.name))?;
+            }
+        }
+        cuda.sync()?;
+        Ok(t.elapsed().as_secs_f64() * 1e3)
+    }
+
     /// Arm `k` of [`ARMS`], one round.
+    #[allow(clippy::too_many_arguments)]
     fn run_arm(
         k: usize,
         cuda: &Cuda,
         fns: &Fns,
         shapes: &mut [Shape],
         streams: &[Vec<Stream>],
+        pstreams: &[Vec<Stream>],
         tab: &Tables,
+        t48: &Tetra48,
+        pt: &PlanesTab,
         shared: u32,
     ) -> Result<f64, String> {
         match k {
             0 => round_null(cuda, &fns.nullk, shapes, shared),
             1 => round_word(cuda, &fns.word, shapes, streams, shared),
+            V3G => round_tetra(cuda, &fns.v3g, shapes, streams, tab, t48, shared),
+            PLANES => round_planes(cuda, &fns.planes, shapes, pstreams, pt, shared),
             k => round_table(ARMS[k], cuda, &fns.table[k - F1R], shapes, streams, tab, shared),
         }
     }
@@ -547,6 +702,103 @@ mod linux {
         Ok(checked)
     }
 
+    /// Control 8: `tv_tetra48_dump` against `llvq_search::tetra` and the
+    /// reconstruction the artifact reader uses.
+    ///
+    /// Control 1 pins `tv_f1r` against `llvq_bench::f1::rank::decode_word`,
+    /// the bench yardstick. This one deliberately reaches for the **production**
+    /// module instead — `Tetra::decode`, in natural order, plus the exact
+    /// `centroids[g] / sqrt(16 m)` of `reconstruct_shape_gain` — because the
+    /// permutation and the magnitude are precisely what the yardstick cannot
+    /// see: it speaks trio order and applies no scale.
+    ///
+    /// The tolerance is relative and generous by design. The claim being
+    /// checked is that the card runs the arithmetic the `clang++` harness
+    /// already proved bit for bit (`tests/tetra48_matches_rust.rs`); a wrong
+    /// permutation or an unsigned `__dp4a` misses by orders of magnitude, not
+    /// by an ulp.
+    #[allow(clippy::too_many_arguments)]
+    fn dump_check_tetra(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        shapes: &[Shape],
+        streams: &[Vec<Stream>],
+        tab: &Tables,
+        t48: &Tetra48,
+        tetra: &Tetra,
+        inv: &[f32],
+    ) -> Result<usize, String> {
+        let ndump = NDUMP;
+        let mut out = cuda.zeros_f32(NDUMP as usize * DIM)?;
+        let mut checked = 0usize;
+        let mut worst = 0.0f64;
+        for (s, st) in shapes.iter().zip(streams[0].iter()) {
+            let c = cudarc::driver::LaunchConfig {
+                grid_dim: (NDUMP.div_ceil(THREADS), 1, 1),
+                block_dim: (THREADS, 1, 1),
+                shared_mem_bytes: 0,
+            };
+            {
+                let mut b = cuda.stream().launch_builder(f);
+                b.arg(&st.words)
+                    .arg(&s.stride_u32)
+                    .arg(&tab.rows)
+                    .arg(&tab.prefixes)
+                    .arg(&tab.branches)
+                    .arg(&tab.suffixes)
+                    .arg(&t48.gscale)
+                    .arg(&t48.invnorm)
+                    .arg(&mut out)
+                    .arg(&s.nblocks)
+                    .arg(&ndump);
+                unsafe { b.launch(c) }.map_err(|e| format!("tetra48 dump/{}: {e}", s.name))?;
+            }
+            cuda.sync()?;
+            let got = cuda.down_f32(&out)?;
+            let nrows = NDUMP.div_ceil(s.nblocks);
+            let bytes = host_bytes(st.seed, (nrows * s.stride_u32 + 2) as usize);
+            for j in 0..NDUMP {
+                let (row, jb) = (j / s.nblocks, j % s.nblocks);
+                let word = host_word(&bytes, s.stride_u32, row, jb);
+                let y = tetra.decode(word);
+                let n2: u32 = y.iter().map(|&v| (v * v) as u32).sum();
+                if !n2.is_multiple_of(16) {
+                    return Err(format!(
+                        "{}: word {word:#014x} decodes to ‖y‖² = {n2}, not a multiple of 16",
+                        s.name
+                    ));
+                }
+                let m = (n2 / 16) as usize;
+                if m >= TETRA48_SHELLS {
+                    return Err(format!(
+                        "{}: word {word:#014x} lands on shell {m}, past the {TETRA48_SHELLS}-entry table",
+                        s.name
+                    ));
+                }
+                let g = ((word >> 47) & 1) as usize;
+                let scale = GSCALE[g] as f64 * inv[m] as f64;
+                for (k, &v) in y.iter().enumerate() {
+                    let want = v as f64 * scale;
+                    let g = got[j as usize * DIM + k] as f64;
+                    let d = (g - want).abs() / want.abs().max(1.0);
+                    worst = worst.max(d);
+                    if d > TOL {
+                        return Err(format!(
+                            "{}: word {word:#014x} coordinate {k}: card {g}, llvq_search {want} (|Δ|rel {d:.2e})",
+                            s.name
+                        ));
+                    }
+                }
+            }
+            checked += NDUMP as usize;
+        }
+        println!(
+            "control 8: {checked} blocks SERVED on the card equal llvq_search::tetra scaled by \
+             reconstruct_shape_gain, every coordinate, worst |Δ|rel {worst:.2e}"
+        );
+        Ok(checked)
+    }
+
     pub fn run() -> Result<(), String> {
         // One string for NVRTC: the floor's four parts, then each variant's
         // header and arm, then `nullk.cu`. `bin/cuhcheck` parses this very
@@ -562,6 +814,13 @@ mod linux {
             "f1rank_v2.cu",
             "llvq_f1rank_v3.cuh",
             "f1rank_v3.cu",
+            // The served Tetra decode and its arm — after v3, which it builds
+            // on, and after matvec.cu, whose `warp_sum` it reduces with.
+            "llvq_tetra48.cuh",
+            "tetra48_v3g.cu",
+            // Planes14, so the comparison is formed in ONE process.
+            "llvq_planes.cuh",
+            "planes.cu",
             "nullk.cu",
         ])?;
         let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
@@ -631,6 +890,42 @@ mod linux {
             table.n0_mixed
         );
 
+        // The served Tetra decode's two constants: 128 bytes and 8, against a
+        // 16 KiB table already in flight. If `f1r_v3g` is slower than
+        // `f1r_v3`, it is the six `__dp4a` and the two multiplies.
+        let inv = invnorm_table();
+        let t48 = Tetra48 { gscale: cuda.up_f32(&GSCALE)?, invnorm: cuda.up_f32(&inv)? };
+        let tetra = Tetra::new();
+
+        // Planes14's `ClassRec` table, built exactly as `planesbench` builds
+        // it — same source, same normalisation, same origin convention — so
+        // the arm in this process is the arm the published bench times.
+        let fd = FastDecoder::new();
+        let ctab = ClassTable::new(&fd, 1);
+        assert!(
+            (0..ctab.n_entries()).all(|e| ctab.record(e).len <= 5),
+            "a class exceeds 5 levels: Planes14's three bit-planes are no longer enough"
+        );
+        let mut ptab = vec![0u32; TABLE_ENTRIES * REC_WORDS];
+        for e in 0..TABLE_ENTRIES {
+            ptab[e * REC_WORDS + REC_WORDS - 1] = 1;
+        }
+        for ci in 0..fd.n_classes() {
+            let lv = fd.levels(ci);
+            let norm = ((16 * lv.shell) as f64).sqrt();
+            let base = (1 + ci) * REC_WORDS;
+            for k in 0..lv.len {
+                ptab[base + k] = ((lv.values[k] as f64 / norm) as f32).to_bits();
+            }
+            ptab[base + REC_WORDS - 1] = lv.len as u32;
+        }
+        let pt = PlanesTab { tab: cuda.up_u32(&ptab)?, gscale: cuda.up_f32(&GSCALE)? };
+        println!(
+            "planes14: ClassRec table {} B, {} classes, stride {PLANES_STRIDE} B/block",
+            TABLE_ENTRIES * REC_WORDS * 4,
+            fd.n_classes()
+        );
+
         let fns = Fns {
             nullk: cuda.func(KERNELS[0])?,
             word: cuda.func(KERNELS[1])?,
@@ -640,6 +935,8 @@ mod linux {
                 cuda.func(KERNELS[F1R + 2])?,
                 cuda.func(KERNELS[F1R + 3])?,
             ],
+            v3g: cuda.func(KERNELS[V3G])?,
+            planes: cuda.func(KERNELS[PLANES])?,
         };
         let f_dump = cuda.func("tv_f1r_dump")?;
         let f_fill = cuda.func("f1r_fill")?;
@@ -657,6 +954,26 @@ mod linux {
             }
             streams.push(layer);
         }
+        // Planes14's own stream: 14 bytes a block against Tetra's 6, flat
+        // over `d_out · nblocks` blocks rather than row-strided. Filled by the
+        // SAME `f1r_fill`, so neither layout gets a friendlier generator; a
+        // random 9-bit class field lands in 0..511, inside the 512-entry
+        // table, and `planes_dot` selects values by a predicated tree over the
+        // three plane bits — never `vals[idx]` — so its cost does not depend
+        // on which class a block draws. That is what makes a random stream a
+        // fair timing stream for this layout and it is asserted, not assumed,
+        // by control 3.
+        let mut pstreams: Vec<Vec<Stream>> = Vec::with_capacity(LAYERS);
+        let mut ptotal_bytes = 0u64;
+        for _ in 0..LAYERS {
+            let mut layer = Vec::with_capacity(shapes.len());
+            for s in shapes.iter() {
+                let n = planes_words(s.d_out, s.nblocks);
+                ptotal_bytes += n as u64 * 4;
+                layer.push(fill(&cuda, &f_fill, &mut rng, n)?);
+            }
+            pstreams.push(layer);
+        }
         cuda.sync()?;
         println!(
             "stream: {LAYERS} distinct copies × {} shapes, {:.3} GB of words on the device ({:.1}× the L2)",
@@ -664,6 +981,18 @@ mod linux {
             total_bytes as f64 / 1e9,
             total_bytes as f64 / dev.l2_bytes as f64
         );
+        println!(
+            "stream planes14: {:.3} GB ({:.1}× the L2), {:.3}× the Tetra stream — the layout's whole claim",
+            ptotal_bytes as f64 / 1e9,
+            ptotal_bytes as f64 / dev.l2_bytes as f64,
+            ptotal_bytes as f64 / total_bytes as f64
+        );
+        if ptotal_bytes < 4 * dev.l2_bytes as u64 {
+            return Err(format!(
+                "the planes14 stream is {ptotal_bytes} B against an L2 of {} B; below 4× it is a hit rate",
+                dev.l2_bytes
+            ));
+        }
         if total_bytes < 4 * dev.l2_bytes as u64 {
             return Err(format!(
                 "the word stream is {total_bytes} B against an L2 of {} B; below 4× it is a hit rate, not a stream",
@@ -674,6 +1003,8 @@ mod linux {
         // Control 1 before any round.
         let checked = dump_check(&cuda, &f_dump, &shapes, &streams, &tab, &table, &tr)?;
         println!("control 1: {checked} blocks decoded on the card equal the Rust reference, every coordinate");
+        let f_dump48 = cuda.func("tv_tetra48_dump")?;
+        dump_check_tetra(&cuda, &f_dump48, &shapes, &streams, &tab, &t48, &tetra, &inv)?;
 
         // Interleaved rounds: every arm every round, the order rotating by
         // one each round, warmup discarded, differences formed ROUND BY
@@ -686,7 +1017,7 @@ mod linux {
         for rep in 0..ROUNDS {
             for pos in 0..n {
                 let k = (pos + rep) % n;
-                let t = run_arm(k, &cuda, &fns, &mut shapes, &streams, &tab, tile)?;
+                let t = run_arm(k, &cuda, &fns, &mut shapes, &streams, &pstreams, &tab, &t48, &pt, tile)?;
                 if rep >= WARMUP {
                     times[k].push(t);
                 }
@@ -710,7 +1041,9 @@ mod linux {
                 ARMS[k],
             )?;
         }
-        println!("controls 2, 3: every output finite and written; f1r, f1r_v1, f1r_v2, f1r_v3 ≠ word ≠ nullk");
+        println!(
+            "controls 2, 3: every output finite and written; f1r, f1r_v1, f1r_v2, f1r_v3, f1r_v3g, planes14 ≠ word ≠ nullk"
+        );
 
         // Control 7: every variant against `tv_f1r`, every row of every
         // shape, on the last round's outputs. Every variant is measured and
@@ -718,7 +1051,7 @@ mod linux {
         // not printed) and the other arms are read — prereg §6, first row.
         let rows: u32 = shapes.iter().map(|s| s.d_out).sum();
         let mut hors_jeu = vec![false; n];
-        for k in F1R + 1..n {
+        for k in F1R + 1..V3G {
             let d = drift(&shapes, &last[F1R], &last[k], ARMS[k])?;
             let s = &shapes[d.shape];
             println!(
@@ -773,7 +1106,7 @@ mod linux {
         // The variants: Du_vk and T_vk as the prereg names them, read against
         // Du and T of THIS process, and the direct difference to f1r, round
         // by round — the variant's own gain, negative is faster.
-        for k in F1R + 1..n {
+        for k in F1R + 1..V3G {
             if hors_jeu[k] {
                 continue;
             }
@@ -792,9 +1125,43 @@ mod linux {
                 ARMS[k]
             );
         }
-        println!("\n  WARNING: a FLOOR, not a cost. No gain scale, uniform labels rather than a model's,");
-        println!("  and no Planes14 in this process. B is a scale to read T against, never a subtrahend:");
-        println!("  no time here compares to a time from ANOTHER process.");
+        // THE LINE THE RUN EXISTS FOR. Both arms served — the gain bit read,
+        // the point normalised, the coordinates in natural order on one side;
+        // the published layout on the other — in ONE process, over the same
+        // rounds, with the difference formed round by round.
+        if !hors_jeu[V3G] && !hors_jeu[PLANES] {
+            println!("\n  ── the two served arms, IN THIS PROCESS ──");
+            let (m, lo, hi) = median_range(&diff(&times[V3G], &times[PLANES]));
+            println!(
+                "  v3g − planes14      {m:8.3} ms  [{lo:.3}–{hi:.3}]   negative is Tetra faster, same clock"
+            );
+            let r: Vec<f64> = times[V3G].iter().zip(&times[PLANES]).map(|(a, b)| a / b).collect();
+            let (m, lo, hi) = median_range(&r);
+            println!("  t(v3g)/t(planes14)  {m:8.4}     [{lo:.4}–{hi:.4}]   the RAW ratio");
+            let rn: Vec<f64> = times[V3G]
+                .iter()
+                .zip(&times[PLANES])
+                .zip(&times[0])
+                .map(|((a, b), z)| (a - z) / (b - z))
+                .collect();
+            let (m, lo, hi) = median_range(&rn);
+            println!(
+                "  (v3g−nullk)/(planes14−nullk) {m:6.4} [{lo:.4}–{hi:.4}]   the SAME-HEAD ratio, launch floor removed (rule 4)"
+            );
+            let (m, lo, hi) = median_range(&diff(&times[V3G], &times[V3G - 1]));
+            println!(
+                "  v3g − f1r_v3        {m:8.3} ms  [{lo:.3}–{hi:.3}]   what serving costs over the floor: \
+                 the gain bit, the magnitude, the permutation, the origin"
+            );
+        }
+
+        println!("\n  WARNING: still a FLOOR for the six original arms — uniform labels rather than a");
+        println!("  model's, one launch shape rather than a token. What is NEW on 2026-09-08 is that");
+        println!("  `v3g` and `planes14` are both SERVED decodes in ONE process, so their ratio is a");
+        println!("  measurement and not a reading. B = {B_MS} ms stays what it always was: a scale from");
+        println!("  ANOTHER process, printed beside T and never subtracted from anything here.");
+        println!("  This bench does not give tok/s: 48% of a token is outside the matmuls (attribution");
+        println!("  of 2026-08-05), so a kernel ratio compresses end to end. F1e is what measures that.");
         Ok(())
     }
 }

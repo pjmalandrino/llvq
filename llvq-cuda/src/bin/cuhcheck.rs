@@ -72,7 +72,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 26] = [
+const UNITS: [(&str, &[&str], &str); 28] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -152,9 +152,29 @@ const UNITS: [(&str, &[&str], &str); 26] = [
         &["llvq_slot.cuh", "matvec.cu", "llvq_f1rank.cuh", "llvq_f1rank_v3.cuh", "f1rank_v3.cu"],
         "the arm tv_f1r_v3: tv_f1r's shell around f1r_dot_v3",
     ),
+    (
+        "llvq_tetra48.cuh",
+        &["llvq_slot.cuh", "llvq_f1rank.cuh", "llvq_f1rank_v3.cuh", "llvq_tetra48.cuh"],
+        "the SERVED Tetra decode: the gain bit, the magnitude, the trio permutation, the origin",
+    ),
+    (
+        "tetra48_v3g.cu",
+        &[
+            "llvq_slot.cuh",
+            "matvec.cu",
+            "llvq_f1rank.cuh",
+            "llvq_f1rank_v3.cuh",
+            "llvq_tetra48.cuh",
+            "tetra48_v3g.cu",
+        ],
+        "the arm tv_f1r_v3g and its dump: tv_f1r_v3's shell around tetra48_dot",
+    ),
     // The whole string `bin/f1rankfloor` hands to NVRTC, in its order. The
-    // floor and the three variants share ONE translation unit on the card, so
-    // a name two of them both define fails here and not at job start.
+    // floor, the three variants, the served Tetra arm and Planes14 share ONE
+    // translation unit on the card, so a name two of them both define fails
+    // here and not at job start — which is the point of adding `planes.cu` to
+    // this list on 2026-09-08: it was only ever assembled by `planesbench`,
+    // and it now has to coexist with the F1 family.
     (
         "f1rankfloor",
         &[
@@ -168,9 +188,13 @@ const UNITS: [(&str, &[&str], &str); 26] = [
             "f1rank_v2.cu",
             "llvq_f1rank_v3.cuh",
             "f1rank_v3.cu",
+            "llvq_tetra48.cuh",
+            "tetra48_v3g.cu",
+            "llvq_planes.cuh",
+            "planes.cu",
             "nullk.cu",
         ],
-        "the six-arm assembly of bin/f1rankfloor, as the one string NVRTC sees",
+        "the eight-arm assembly of bin/f1rankfloor, as the one string NVRTC sees",
     ),
 ];
 
@@ -265,7 +289,7 @@ fn main() {
 /// `include_str!` of the layouts they candidate, which is why the list is
 /// explicit rather than "all of `UNITS`". A unit that ships neither way builds
 /// an image, ships a binary, and dies on the card.
-const TABLE_SHIPPED: [&str; 18] = [
+const TABLE_SHIPPED: [&str; 22] = [
     "llvq_slot.cuh",
     "preflight.cu",
     "matvec.cu",
@@ -284,6 +308,13 @@ const TABLE_SHIPPED: [&str; 18] = [
     "f1rank_v2.cu",
     "llvq_f1rank_v3.cuh",
     "f1rank_v3.cu",
+    "llvq_tetra48.cuh",
+    "tetra48_v3g.cu",
+    // `planes.cu` and its header now ship BOTH ways: `planesbench` keeps its
+    // own `include_str!`, and `bin/f1rankfloor` reaches them through the
+    // table so the two served layouts can be timed in one process.
+    "llvq_planes.cuh",
+    "planes.cu",
 ];
 
 /// Assert the table is complete, from any platform.
