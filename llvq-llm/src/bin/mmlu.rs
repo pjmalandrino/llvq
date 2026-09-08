@@ -63,6 +63,35 @@
 //! the −0.28 pp that carries "4-bit is indistinguishable from f16 at 4B" cannot
 //! be tested without paying for those runs a second time.
 //!
+//! ## The sampling plan (`LLVQ_MMLU_ALLOC`)
+//!
+//! The reported figure is the stratified micro, which weights each subject by
+//! its population, and MMLU's populations span a factor of 15. Giving all 57
+//! subjects the same 40 questions therefore spends the budget where it buys the
+//! least. Spending the same 2,280 questions in proportion to the populations
+//! takes the **accuracy** bar from 1.355 pp to 0.925 pp, a factor of 1.464
+//! (*computed*, `docs/data/mmlu-dumps/mmlu-4b-llvq.csv`), and the same 1.355 pp
+//! bar can be had for 1,191 questions instead of 2,280.
+//!
+//! The intervals this campaign publishes are paired, and their factor is a
+//! different number. Recomputed on the eight pairs of dumps on disk, holding
+//! each subject's variance of per-question differences fixed and moving only
+//! the counts, it runs from 1.32 (8B llvq/f16) to 1.65 (14B llvq/awq)
+//! (*computed*, `docs/data/mmlu-dumps/`). Quote the range, and use 1.32 when a
+//! conclusion has to survive the worst case.
+//!
+//! None of that reaches a number already paid for. The proportional plan is not
+//! a re-reading of an existing dump: at this budget it asks 630 questions the
+//! flat plan never asked and drops 630 it did ask, so the two samples nest
+//! subject by subject and neither contains the other (see
+//! `the_plan_on_the_real_populations`). `bin/mmlupair` refuses two dumps whose
+//! question sets differ, and `bin/mmlu` has no resume, so re-barring a
+//! published result costs one full MMLU run per arm. The plan is for runs not
+//! yet paid for.
+//!
+//! `flat` is the default, so a run that sets nothing draws exactly the sample
+//! every dump on disk was drawn with. See [`Alloc`].
+//!
 //! ## Attribution arms (`LLVQ_RESTORE_F16`)
 //!
 //! `LLVQ_RESTORE_F16=k_proj` (a comma list of the seven projection types, or
@@ -98,6 +127,13 @@ fn pretty(subject: &str) -> String {
 ///
 /// The seed depends only on the *length* of the subject name, so the sample is
 /// identical across models by construction rather than by convention.
+///
+/// The shuffle runs over the whole subject and *then* truncates, so two depths
+/// nest: the shallower sample is a prefix of the deeper one. One branch escapes
+/// that, and [`Alloc`] can reach it: when `limit >= picked.len()` nothing is
+/// shuffled and the stratum comes back in parquet order. The sample is then the
+/// whole stratum, so it still contains every shallower sample **as a set**,
+/// which is all a join on `(subject, index)` needs; only the row order differs.
 fn select<'a>(items: &[&'a MmluItem], subject: &str, limit: usize) -> Vec<(usize, &'a MmluItem)> {
     let mut picked: Vec<(usize, &'a MmluItem)> = items.iter().copied().enumerate().collect();
     if limit < picked.len() {
@@ -108,6 +144,169 @@ fn select<'a>(items: &[&'a MmluItem], subject: &str, limit: usize) -> Vec<(usize
         picked.truncate(limit);
     }
     picked
+}
+
+/// Floor on the questions asked of any one subject.
+///
+/// The stratified variance divides by `n−1` (see [`micro_stderr`]), so a
+/// stratum of one contributes no bar at all and a stratum of zero contributes
+/// no estimate. Two is the smallest count that leaves both defined.
+const MIN_PER_SUBJECT: usize = 2;
+
+/// How the question budget is spread over the subjects, from `LLVQ_MMLU_ALLOC`.
+///
+/// The reported figure is the stratified micro (see [`micro`]), which weights
+/// each subject by its population, and MMLU's populations span a factor of 15.
+/// A flat allocation therefore spends most of the budget where it buys the
+/// least: `abstract_algebra` carries weight 100/14042 and gets the same 40
+/// questions as `professional_law`, which carries 1534/14042. Spending the
+/// same 2,280 questions in proportion to the weights divides the accuracy bar
+/// by 1.464, and the paired bar by 1.32 to 1.65 depending on the arm. The
+/// module note gives both, with what they cost.
+///
+/// `Flat` is the default, and a run that sets nothing draws exactly the
+/// questions it drew before — same sample, same token fingerprint. That
+/// control is what keeps every dump already on disk joinable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Alloc {
+    /// `limit` questions per subject, whatever the subject holds.
+    Flat,
+    /// A total budget spread in proportion to the populations. `None` takes
+    /// the budget from the positional limit, as `limit × subjects`, which is
+    /// the constant-budget comparison against `Flat`.
+    Proportional(Option<usize>),
+}
+
+impl Alloc {
+    fn from_env() -> anyhow::Result<Self> {
+        Self::parse(&std::env::var("LLVQ_MMLU_ALLOC").unwrap_or_default())
+    }
+
+    /// An unknown value is refused rather than defaulted: a sampling plan that
+    /// silently falls back to another one is an A/B that lies about its own
+    /// error bar.
+    fn parse(raw: &str) -> anyhow::Result<Self> {
+        let raw = raw.trim();
+        if raw.is_empty() || raw == "flat" {
+            return Ok(Alloc::Flat);
+        }
+        if raw == "proportional" {
+            return Ok(Alloc::Proportional(None));
+        }
+        if let Some(total) = raw.strip_prefix("proportional=") {
+            let total: usize = total.parse().map_err(|_| {
+                anyhow::anyhow!("LLVQ_MMLU_ALLOC=proportional=<total>: {total:?} is not a count")
+            })?;
+            anyhow::ensure!(total > 0, "LLVQ_MMLU_ALLOC=proportional=0 asks for no question");
+            return Ok(Alloc::Proportional(Some(total)));
+        }
+        anyhow::bail!(
+            "LLVQ_MMLU_ALLOC={raw:?} is not a sampling plan. Accepted: \
+             `flat` (default, `limit` per subject), `proportional` (budget = \
+             limit × subjects), `proportional=<total questions>`"
+        )
+    }
+
+    /// Questions to ask of each subject, in the order of `populations`.
+    ///
+    /// The proportional plan is the largest-remainder method under two
+    /// constraints: never below [`MIN_PER_SUBJECT`], never above the stratum's
+    /// own population. Remainders are compared as integers — `n·ΣN − B·N` — so
+    /// the plan is exactly reproducible and does not depend on a rounding mode.
+    fn plan(&self, populations: &[usize], limit: usize) -> anyhow::Result<Vec<usize>> {
+        match self {
+            Alloc::Flat => Ok(populations.iter().map(|&n| n.min(limit)).collect()),
+            Alloc::Proportional(explicit) => {
+                let subjects = populations.len();
+                anyhow::ensure!(subjects > 0, "no subject to spread a budget over");
+                let total_pop: usize = populations.iter().sum();
+                anyhow::ensure!(total_pop > 0, "the subjects hold no question");
+                let budget = match explicit {
+                    Some(b) => *b,
+                    None => {
+                        anyhow::ensure!(
+                            limit != usize::MAX,
+                            "LLVQ_MMLU_ALLOC=proportional with no limit has no budget to \
+                             spread: pass a limit, whose budget is limit × subjects, or \
+                             write LLVQ_MMLU_ALLOC=proportional=<total questions>. A \
+                             census already scores every stratum whole."
+                        );
+                        limit
+                            .checked_mul(subjects)
+                            .ok_or_else(|| anyhow::anyhow!("limit × subjects overflows"))?
+                    }
+                };
+                let floors: Vec<usize> =
+                    populations.iter().map(|&n| MIN_PER_SUBJECT.min(n)).collect();
+                let floor_total: usize = floors.iter().sum();
+                anyhow::ensure!(
+                    budget >= floor_total,
+                    "a budget of {budget} questions cannot give {MIN_PER_SUBJECT} to each \
+                     of {subjects} subjects: the stratified variance divides by n−1, so a \
+                     stratum below that contributes no bar"
+                );
+                // A budget that covers the whole split is a census, and every
+                // stratum is scored whole. Returning it here keeps the branch
+                // below on the strict inequality it needs to terminate.
+                if budget >= total_pop {
+                    return Ok(populations.to_vec());
+                }
+                // Distance from the exact share, scaled by ΣN to stay integral.
+                let off = |n: usize, pop: usize| -> i128 {
+                    n as i128 * total_pop as i128 - budget as i128 * pop as i128
+                };
+                let mut n: Vec<usize> = populations
+                    .iter()
+                    .zip(&floors)
+                    .map(|(&pop, &floor)| {
+                        let quota =
+                            (budget as u128 * pop as u128 / total_pop as u128) as usize;
+                        quota.clamp(floor, pop)
+                    })
+                    .collect();
+                let mut placed: usize = n.iter().sum();
+                // Lifting small strata to the floor can overshoot; take the
+                // excess back from whoever sits furthest above its exact share.
+                while placed > budget {
+                    let take = (0..subjects)
+                        .filter(|&i| n[i] > floors[i])
+                        .max_by_key(|&i| (off(n[i], populations[i]), std::cmp::Reverse(i)))
+                        .expect("the floors fit inside the budget");
+                    n[take] -= 1;
+                    placed -= 1;
+                }
+                while placed < budget {
+                    let give = (0..subjects)
+                        .filter(|&i| n[i] < populations[i])
+                        .min_by_key(|&i| (off(n[i], populations[i]), i))
+                        .expect("the budget fits inside the population");
+                    n[give] += 1;
+                    placed += 1;
+                }
+                Ok(n)
+            }
+        }
+    }
+
+    /// One line for the dump header and the result line. An arm whose sampling
+    /// plan is not printed with its bar is an arm nobody can re-read.
+    fn describe(&self, plan: &[usize]) -> String {
+        let name = match self {
+            Alloc::Flat => "flat",
+            Alloc::Proportional(_) => "proportional",
+        };
+        let total: usize = plan.iter().sum();
+        let (lo, hi) = (
+            plan.iter().copied().min().unwrap_or(0),
+            plan.iter().copied().max().unwrap_or(0),
+        );
+        let spread = if lo == hi {
+            format!("{lo} per subject")
+        } else {
+            format!("{lo}..{hi} per subject")
+        };
+        format!("{name}, {spread}, {total} questions")
+    }
 }
 
 /// One worked example, or the scored question when `answer` is `None`.
@@ -302,6 +501,9 @@ fn main() -> anyhow::Result<()> {
     // mode travels by value from this line down to every `KvCache`. An unknown
     // name is an error, never a silent fallback — a typo would make an A/B lie.
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
+    // Resolved here too, before the model is even fetched: a typo in a sampling
+    // plan must cost a second, not an hour of forward passes.
+    let alloc = Alloc::from_env()?;
 
     // ---- the model: the shipped artifact, or the reference checkpoint ----
     //
@@ -404,6 +606,27 @@ fn main() -> anyhow::Result<()> {
         dev.len()
     );
 
+    // ---- the sampling plan ----
+    //
+    // How many questions each subject gets, decided before the first forward
+    // pass and printed with the score. `Flat` is the default and reproduces
+    // every dump on disk question for question.
+    let populations: Vec<usize> = by_subject.values().map(Vec::len).collect();
+    let take_per_subject = alloc.plan(&populations, limit)?;
+    let alloc_note = alloc.describe(&take_per_subject);
+    eprintln!("allocation: {alloc_note}");
+    let whole: usize = take_per_subject
+        .iter()
+        .zip(&populations)
+        .filter(|(&n, &pop)| n == pop && pop > 0)
+        .count();
+    if whole > 0 && alloc != Alloc::Flat {
+        eprintln!(
+            "  {whole} subject(s) taken whole: those strata are scored in parquet order \
+             and carry no sampling error"
+        );
+    }
+
     // ---- score ----
     //
     // `LLVQ_MMLU_DUMP` writes one line per question — see [`dump_row`] for what
@@ -425,6 +648,7 @@ fn main() -> anyhow::Result<()> {
                     limit.to_string()
                 }
             )?;
+            writeln!(w, "# alloc={alloc_note}")?;
             writeln!(w, "{DUMP_COLUMNS}")?;
             eprintln!("dumping per-question results to {p}");
             Some(w)
@@ -439,7 +663,7 @@ fn main() -> anyhow::Result<()> {
     let t0 = std::time::Instant::now();
     let mut total = 0usize;
     let mut per_subject: Vec<SubjectScore> = Vec::new();
-    for (subject, items) in &by_subject {
+    for ((subject, items), &take) in by_subject.iter().zip(&take_per_subject) {
         let prefix = {
             let mut s = format!(
                 "The following are multiple choice questions (with answers) about {}.\n\n",
@@ -452,7 +676,7 @@ fn main() -> anyhow::Result<()> {
         };
         // Seeded shuffle, then take: reproducible, and unbiased in a way
         // that `take(limit)` on an ordered corpus is not.
-        let picked = select(items, subject, limit);
+        let picked = select(items, subject, take);
         let (mut sr, mut st) = (0usize, 0usize);
         for (index, it) in picked.iter() {
             let prompt = format!("{prefix}{}", block(it, None));
@@ -562,7 +786,7 @@ fn main() -> anyhow::Result<()> {
     }
     if total < population {
         println!(
-            "  sample: {total}/{population} questions, {:.1} % — \
+            "  sample: {total}/{population} questions, {:.1} %, allocation {alloc_note}\n  \
              ± is the sampling error alone",
             100.0 * total as f64 / population as f64
         );
@@ -798,5 +1022,283 @@ mod tests {
         };
         assert_eq!(micro_stderr(&one(100, 100)), 0.0, "a census cannot have sampling error");
         assert!(micro_stderr(&one(100, 1_000)) > 0.0, "100 of 1,000 is a sample");
+    }
+
+    /// The control that is not negotiable: a run that asks for nothing draws
+    /// exactly the sample every dump on disk was drawn with. `Flat` only ever
+    /// hands `select` `min(limit, N)`, and `select` truncates on the same
+    /// condition, so the two arguments are interchangeable at every depth.
+    #[test]
+    fn the_default_allocation_is_todays_sample() {
+        assert_eq!(Alloc::parse("").unwrap(), Alloc::Flat);
+        assert_eq!(Alloc::parse("flat").unwrap(), Alloc::Flat);
+        assert_eq!(Alloc::Flat.plan(&[100, 1_534, 545], 40).unwrap(), vec![40, 40, 40]);
+        assert_eq!(Alloc::Flat.plan(&[100, 1_534, 545], 200).unwrap(), vec![100, 200, 200]);
+        assert_eq!(
+            Alloc::Flat.plan(&[100, 1_534, 545], usize::MAX).unwrap(),
+            vec![100, 1_534, 545]
+        );
+
+        let items = corpus(500);
+        let refs: Vec<&MmluItem> = items.iter().collect();
+        for limit in [1usize, 40, 499, 500, 900, usize::MAX] {
+            let today: Vec<usize> = select(&refs, "professional_law", limit)
+                .iter()
+                .map(|(i, _)| *i)
+                .collect();
+            let take = Alloc::Flat.plan(&[refs.len()], limit).unwrap()[0];
+            let now: Vec<usize> = select(&refs, "professional_law", take)
+                .iter()
+                .map(|(i, _)| *i)
+                .collect();
+            assert_eq!(today, now, "the flat plan moved the sample at limit={limit}");
+        }
+    }
+
+    /// Inside one subject, the two plans nest: both draws come from the same
+    /// shuffle of the stratum, so the shallower is a prefix of the deeper.
+    ///
+    /// That is a per-stratum property and nothing more. It does **not** make
+    /// either sample a subset of the other over the 57 subjects, because the
+    /// proportional plan goes deeper on some and shallower on others.
+    /// `the_plan_on_the_real_populations` counts what that costs on the real
+    /// populations.
+    #[test]
+    fn the_proportional_sample_is_a_per_stratum_prefix_of_the_flat_one() {
+        let items = corpus(500);
+        let refs: Vec<&MmluItem> = items.iter().collect();
+        let pops = vec![100usize, 500, 1_534];
+        let flat = Alloc::Flat.plan(&pops, 40).unwrap();
+        let prop = Alloc::Proportional(None).plan(&pops, 40).unwrap();
+        assert_eq!(flat.iter().sum::<usize>(), prop.iter().sum::<usize>(), "same budget");
+        // The middle subject is the one this corpus can actually draw from.
+        let (a, b) = (flat[1].min(prop[1]), flat[1].max(prop[1]));
+        assert!(a < b, "the two plans must differ, or the test proves nothing");
+        let deep: Vec<usize> = select(&refs, "professional_law", b)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        let shallow: Vec<usize> = select(&refs, "professional_law", a)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        assert_eq!(shallow, deep[..a].to_vec(), "the shallower draw must be a prefix");
+    }
+
+    /// The branch where `select` does not shuffle, pinned instead of avoided.
+    /// A stratum allocated its whole population comes back in parquet order,
+    /// which is a different *order* from the flat sample but a superset of its
+    /// *content*, and the dump joins on `(subject, index)`.
+    #[test]
+    fn a_stratum_taken_whole_still_contains_the_flat_sample() {
+        let items = corpus(60);
+        let refs: Vec<&MmluItem> = items.iter().collect();
+        let whole: Vec<usize> = select(&refs, "professional_law", 60)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        assert_eq!(whole, (0..60).collect::<Vec<_>>(), "a whole stratum keeps parquet order");
+        let flat: Vec<usize> = select(&refs, "professional_law", 40)
+            .iter()
+            .map(|(i, _)| *i)
+            .collect();
+        assert_ne!(flat, whole[..40].to_vec(), "the order differs, and that is the trap");
+        assert!(
+            flat.iter().all(|i| whole.contains(i)),
+            "a whole stratum must contain every shallower sample"
+        );
+        // The plan is what keeps that the only case: it never asks a subject
+        // for more than it holds.
+        assert_eq!(
+            Alloc::Proportional(Some(300)).plan(&[10, 1_000], usize::MAX).unwrap(),
+            vec![3, 297],
+            "the small stratum gets its share, not a quarter of the budget"
+        );
+        assert_eq!(
+            Alloc::Proportional(Some(990)).plan(&[10, 1_000], usize::MAX).unwrap(),
+            vec![10, 980],
+            "a stratum is never asked for more than it holds"
+        );
+        assert_eq!(
+            Alloc::Proportional(Some(5_000)).plan(&[60, 40], usize::MAX).unwrap(),
+            vec![60, 40],
+            "a budget above the population is a census"
+        );
+    }
+
+    /// No subject falls to 0 or 1, at any budget the plan accepts, and a budget
+    /// that cannot pay the floor is refused rather than quietly rounded away.
+    #[test]
+    fn the_floor_keeps_every_stratum_estimable() {
+        let pops = vec![100usize, 1_534, 545, 100];
+        for budget in [8usize, 9, 60, 137, 2_279] {
+            let n = Alloc::Proportional(Some(budget)).plan(&pops, usize::MAX).unwrap();
+            assert_eq!(n.iter().sum::<usize>(), budget, "budget {budget}: {n:?}");
+            assert!(n.iter().all(|&x| x >= MIN_PER_SUBJECT), "budget {budget}: {n:?}");
+            assert!(
+                n.iter().zip(&pops).all(|(&x, &pop)| x <= pop),
+                "budget {budget}: {n:?}"
+            );
+        }
+        assert!(
+            Alloc::Proportional(Some(7)).plan(&pops, usize::MAX).is_err(),
+            "7 questions cannot give 2 to each of 4 subjects"
+        );
+    }
+
+    /// The plan is proportional where it is free to be: the big stratum gets
+    /// its share of the budget, not its share of the subjects.
+    #[test]
+    fn the_budget_follows_the_population() {
+        let pops = vec![100usize, 1_534, 545];
+        let n = Alloc::Proportional(None).plan(&pops, 40).unwrap();
+        assert_eq!(n.iter().sum::<usize>(), 120);
+        // 120 · 1534/2179 = 84.5, 120 · 100/2179 = 5.5, 120 · 545/2179 = 30.0
+        assert_eq!(n, vec![6, 84, 30]);
+        assert!(n[1] > n[0] * 10, "the weighted stratum must get the budget");
+    }
+
+    /// `micro_stderr` must stay correct once the allocation stops being equal.
+    /// The value is hand-computed from the formula, term by term, so a change
+    /// that quietly assumes a common `n` fails here.
+    #[test]
+    fn the_stderr_formula_holds_under_an_unequal_allocation() {
+        let scores = vec![
+            SubjectScore { subject: "small".into(), right: 5, scored: 10, population: 100 },
+            SubjectScore { subject: "big".into(), right: 40, scored: 50, population: 1_500 },
+        ];
+        let (w1, w2) = (100.0 / 1600.0_f64, 1_500.0 / 1600.0_f64);
+        let expect = (w1 * w1 * (0.25 / 9.0) * (1.0 - 10.0 / 100.0)
+            + w2 * w2 * (0.16 / 49.0) * (1.0 - 50.0 / 1_500.0))
+            .sqrt();
+        assert!(
+            (micro_stderr(&scores) - expect).abs() < 1e-15,
+            "{} against {expect}",
+            micro_stderr(&scores)
+        );
+    }
+
+    /// The point of the whole thing: at one budget, the proportional plan
+    /// carries a smaller bar than the flat one.
+    #[test]
+    fn proportional_shrinks_the_bar_at_constant_budget() {
+        let pops = vec![100usize, 1_500];
+        let rates = [0.25_f64, 0.80];
+        let bar = |n: &[usize]| {
+            let s: Vec<SubjectScore> = n
+                .iter()
+                .zip(&pops)
+                .zip(&rates)
+                .enumerate()
+                .map(|(i, ((&scored, &population), &rate))| SubjectScore {
+                    subject: format!("s{i}"),
+                    right: (scored as f64 * rate).round() as usize,
+                    scored,
+                    population,
+                })
+                .collect();
+            micro_stderr(&s)
+        };
+        let flat = Alloc::Flat.plan(&pops, 40).unwrap();
+        let prop = Alloc::Proportional(None).plan(&pops, 40).unwrap();
+        assert_eq!(flat.iter().sum::<usize>(), prop.iter().sum::<usize>());
+        assert_eq!(prop, vec![5, 75]);
+        assert!(bar(&prop) < bar(&flat), "{} against {}", bar(&prop), bar(&flat));
+    }
+
+    /// An unknown plan is refused, and a proportional census with no budget is
+    /// refused too: there is nothing to spread.
+    #[test]
+    fn an_unknown_allocation_is_refused() {
+        assert_eq!(Alloc::parse("proportional").unwrap(), Alloc::Proportional(None));
+        assert_eq!(
+            Alloc::parse("proportional=1200").unwrap(),
+            Alloc::Proportional(Some(1_200))
+        );
+        for bad in ["neyman", "prop", "proportional=0", "proportional=x", "PROPORTIONAL", "1"] {
+            assert!(Alloc::parse(bad).is_err(), "{bad:?} must be refused");
+        }
+        assert!(Alloc::Proportional(None).plan(&[100, 200], usize::MAX).is_err());
+    }
+
+    /// The plan is printed, so it is part of the record and not of the folklore.
+    #[test]
+    fn the_plan_is_printed_with_its_numbers() {
+        assert_eq!(
+            Alloc::Flat.describe(&[40, 40, 40]),
+            "flat, 40 per subject, 120 questions"
+        );
+        assert_eq!(
+            Alloc::Proportional(None).describe(&[6, 84, 30]),
+            "proportional, 6..84 per subject, 120 questions"
+        );
+    }
+
+    /// The 57 populations of MMLU's `test` split, in the subject order the
+    /// harness walks (alphabetical, from a `BTreeMap`). Read off
+    /// `docs/data/mmlu-dumps/mmlu-4b-llvq.csv`, which carries each subject's
+    /// population on every row.
+    const MMLU_TEST: [usize; 57] = [
+        100, 135, 152, 100, 265, 144, 100, 100, 100, 173, 102, 100, 235, 114, 145, 378, 126,
+        100, 310, 203, 100, 165, 198, 193, 390, 270, 238, 151, 545, 216, 204, 237, 223, 131,
+        121, 108, 163, 112, 103, 234, 100, 783, 346, 895, 306, 311, 324, 282, 1534, 272, 612,
+        110, 245, 201, 100, 166, 171,
+    ];
+
+    /// The plan behind the headline number, pinned on the real populations.
+    ///
+    /// At the budget of the published run (2,280 questions, 40 per subject),
+    /// the proportional plan runs from 16 to 249 questions and no stratum is
+    /// taken whole, so `select` shuffles everywhere and each subject's draw
+    /// nests with the dumps on disk. Subject by subject, and no further: the
+    /// test counts the 630 questions the plan drops and the 630 it adds. The
+    /// accuracy bar it carries is 0.925 pp against 1.355 pp flat, the factor
+    /// the module note gives.
+    #[test]
+    fn the_plan_on_the_real_populations() {
+        assert_eq!(MMLU_TEST.iter().sum::<usize>(), 14_042);
+        let flat = Alloc::Flat.plan(&MMLU_TEST, 40).unwrap();
+        let prop = Alloc::Proportional(None).plan(&MMLU_TEST, 40).unwrap();
+        assert_eq!(flat.iter().sum::<usize>(), 2_280);
+        assert_eq!(prop.iter().sum::<usize>(), 2_280, "the budget is held constant");
+        assert_eq!(prop.iter().copied().min(), Some(16), "abstract_algebra, N = 100");
+        assert_eq!(prop.iter().copied().max(), Some(249), "professional_law, N = 1534");
+        assert_eq!(prop[41], 127, "N = 783");
+        assert!(
+            prop.iter().zip(&MMLU_TEST).all(|(&n, &pop)| n < pop),
+            "no stratum is taken whole at this budget, so every subject nests"
+        );
+        // Nesting is per stratum, and the two samples are not nested as sets:
+        // 40 subjects of 57 go below 40 questions, which drops 630 of the 2,280
+        // questions the dumps on disk carry and puts 630 new ones in their
+        // place. A dump drawn under this plan is a new exam, not a re-reading.
+        let shallower = flat.iter().zip(&prop).filter(|(f, p)| p < f).count();
+        let dropped: usize =
+            flat.iter().zip(&prop).map(|(&f, &p)| f.saturating_sub(p)).sum();
+        let added: usize = flat.iter().zip(&prop).map(|(&f, &p)| p.saturating_sub(f)).sum();
+        assert_eq!((shallower, dropped, added), (40, 630, 630));
+        // Halving the budget is still legal, still floored, still capped.
+        let half = Alloc::Proportional(Some(1_191)).plan(&MMLU_TEST, usize::MAX).unwrap();
+        assert_eq!(half.iter().sum::<usize>(), 1_191);
+        assert!(half.iter().all(|&n| n >= MIN_PER_SUBJECT));
+    }
+
+    /// Ties are broken toward the lowest subject index, in both directions.
+    /// MMLU has fourteen subjects of exactly 100 questions, so ties are the
+    /// normal case, not the corner one: a plan that resolved them by hash order
+    /// would draw a different sample on every run and no dump would join.
+    #[test]
+    fn ties_are_broken_deterministically() {
+        // The floors overshoot by one, and the two equal strata are equally far
+        // from their exact share, so the trim loop must choose between them.
+        assert_eq!(
+            Alloc::Proportional(Some(7)).plan(&[100, 100, 2], usize::MAX).unwrap(),
+            vec![2, 3, 2]
+        );
+        // Same on the way up: one question left to place, two equal claims.
+        assert_eq!(
+            Alloc::Proportional(Some(606)).plan(&[100, 100, 1_000], usize::MAX).unwrap(),
+            vec![51, 50, 505]
+        );
     }
 }
