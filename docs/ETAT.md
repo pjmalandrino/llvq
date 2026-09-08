@@ -509,8 +509,13 @@ card. An encoding's perplexity can be read for $0, hours before a card is paid f
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $100.21 (*measured*,
-  `docs/data/jobs.csv`).
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: **$134.14** (*measured*,
+  sum of the 119 priced rows of `docs/data/jobs.csv` on 2026-09-08; the $100.21 this line carried until then
+  predated the volume, DCLM, ρ and Q5-on-V32 jobs, which alone are $33.93).
+- **Superseded on 2026-09-08 by the operator: Q5's served run is the wave-3 object, and it is Tetra plus
+  `v_proj` in int4 encoded on the Mac** — the "build it twice" argument above assumed F1c would produce a format
+  v2, and the format froze at v5 on 2026-09-05 instead. The plan is `docs/ROADMAP.md` §2.2 quinquies; the draft
+  prereg is `proofs/BROUILLON-preregistration-tetra-q5-servi.md`, unstamped and authorising nothing.
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the
   eleven arms. Two draws do not make a distribution, and the head of the ranking is what changed.
