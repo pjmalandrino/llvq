@@ -37,7 +37,14 @@
 #ifndef LLVQ_TETRA48_CUH
 #define LLVQ_TETRA48_CUH
 
+// Guarded, and the guard is not decoration: NVRTC has no filesystem, so the
+// host concatenates the parts and an unconditional `#include` is a
+// **catastrophic error** on the card while `clang++` — which does have one —
+// resolves it happily and says nothing. That is exactly how this file reached
+// a billed job on 2026-09-08 and died in NVRTC at line 2043.
+#ifndef LLVQ_F1RANK_V3_CUH
 #include "llvq_f1rank_v3.cuh"
+#endif
 
 // Entries of the inverse-norm table: `m` runs 0..27 on this codebook and 32 is
 // that bound rounded up. The host builder asserts the real maximum rather than

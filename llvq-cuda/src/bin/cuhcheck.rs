@@ -277,9 +277,75 @@ fn main() {
          is the mirror test's business, against the\n   Rust decoder; execution is a card's."
     );
     let missing = check_embedded();
-    if bad > 0 || missing > 0 {
+    let unguarded = check_include_guards(&dir);
+    if bad > 0 || missing > 0 || unguarded > 0 {
         std::process::exit(1);
     }
+}
+
+/// Every `#include "…"` in the kernel tree must sit under an `#ifndef`.
+///
+/// **This check exists because nothing above it can find this defect.** The
+/// parse runs `clang++`, which has a filesystem and resolves an unconditional
+/// include without a word. NVRTC has none: the host concatenates the parts,
+/// and an unguarded include is a *catastrophic error* at job start, after the
+/// card is rented and the image pulled.
+///
+/// `llvq_tetra48.cuh` shipped exactly that on 2026-09-08 — clean parse here,
+/// clean clippy on both targets, five green bit-exactness tests, and
+/// `NVRTC_ERROR_COMPILATION, cannot open source file "llvq_f1rank_v3.cuh"` at
+/// line 2043 on the card. The instance is fixed; this is the class.
+///
+/// The guard must be within three non-blank lines above the include, which is
+/// the shape every header in the tree already uses:
+///
+/// ```text
+///   #ifndef LLVQ_SLOT_CUH
+///   #include "llvq_slot.cuh"
+///   #endif
+/// ```
+fn check_include_guards(dir: &std::path::Path) -> usize {
+    let mut bad = 0usize;
+    let mut files: Vec<_> = std::fs::read_dir(dir)
+        .expect("kernels/ is readable")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            matches!(p.extension().and_then(|e| e.to_str()), Some("cu") | Some("cuh"))
+        })
+        .collect();
+    files.sort();
+    for f in &files {
+        let text = std::fs::read_to_string(f).expect("kernel source is readable");
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, l) in lines.iter().enumerate() {
+            let t = l.trim_start();
+            if !t.starts_with("#include \"") {
+                continue;
+            }
+            let guarded = lines[i.saturating_sub(3)..i]
+                .iter()
+                .filter(|x| !x.trim().is_empty())
+                .any(|x| x.trim_start().starts_with("#ifndef"));
+            if !guarded {
+                bad += 1;
+                println!(
+                    "  🚨 {}:{}: unguarded {} — NVRTC has no filesystem, this is a catastrophic \
+                     error on the card and clang++ resolves it in silence",
+                    f.file_name().unwrap_or_default().to_string_lossy(),
+                    i + 1,
+                    t
+                );
+            }
+        }
+    }
+    if bad == 0 {
+        println!(
+            "\n  every #include of the {} kernel sources sits under an #ifndef: nothing in this \
+             tree can reach NVRTC asking for a file",
+            files.len()
+        );
+    }
+    bad
 }
 
 /// The units that reach a card through `llvq_cuda::load_sources_many`, and
