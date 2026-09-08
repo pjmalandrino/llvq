@@ -282,6 +282,141 @@ fn correction_is_the_analytic_minimizer() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The residual convention, under a live retraction
+// ---------------------------------------------------------------------------
+
+/// The error the loop propagates is the error the layer keeps.
+///
+/// `correction_is_the_analytic_minimizer` pins the correction with
+/// `retract: false`, where the block the quantizer returns and the block the
+/// loop stores are the same vector. Under `retract: true` they need not be,
+/// and nothing else in this crate separates them: a loop that stored `Q(v)`
+/// while propagating `w̃ − k̂·Q(v)` passes every other test here. It would be a
+/// different algorithm. Appendix I writes one object on both lines: `Ŵ` is the
+/// retracted block, `Ŵ` is what the layer keeps, and `E ← W̃ − Ŵ`. The
+/// correction of Appendix F.2 minimizes the proxy for the perturbation the
+/// layer really introduces, so propagating any other vector `δ'` in place of
+/// the true `δ` leaves an excess `(δ−δ')ᵀ H_QR H_RR⁻¹ H_RQ (δ−δ')`, a positive
+/// semi-definite form: never negative, and zero only when the two agree.
+///
+/// The test therefore reads `E` back off the **output** weights and demands
+/// the remaining columns be exactly `+E H_QR H_RR⁻¹`. Two guards keep it from
+/// passing vacuously: the retraction must have moved the block (the grid
+/// output has a different norm from the input) and must have landed it back on
+/// the input's own sphere.
+#[test]
+fn the_propagated_error_is_the_error_the_layer_stores() {
+    let mut rng = SplitMix64::new(0x5_0009);
+    let (d_out, d_in, b) = (7, 16, 4);
+    let h = random_hessian(&mut rng, d_in, 64, 1e-2);
+    let f = GptqFactor::new(&h, d_in, 0.0).expect("SPD");
+    let w0 = random_weights(&mut rng, d_out, d_in);
+
+    let mut weights = Weights::new(d_out, d_in, w0.clone());
+    let cfg = GptqConfig {
+        block: b,
+        retract: true,
+        group_scales: false,
+        design_c: false,
+        lambda: 0.0,
+        tail: TailPolicy::Reject,
+    };
+    // Coarse on the first block, exact afterwards, as in
+    // `correction_is_the_analytic_minimizer`: the remaining columns then carry
+    // one correction and nothing else. The default `retraction_target` is the
+    // input norm, so the retraction is live and moves the block.
+    const STEP: f64 = 0.75;
+    struct FirstBlockOnly {
+        b: usize,
+        seen: usize,
+        rows: usize,
+    }
+    impl BlockQuantizer for FirstBlockOnly {
+        fn block_len(&self) -> usize {
+            self.b
+        }
+        fn quantize(&mut self, v: &[f64], out: &mut [f64]) {
+            if self.seen < self.rows {
+                for (o, &a) in out.iter_mut().zip(v.iter()) {
+                    *o = (a / STEP).round() * STEP;
+                }
+            } else {
+                out.copy_from_slice(v);
+            }
+            self.seen += 1;
+        }
+    }
+    let mut q = FirstBlockOnly {
+        b,
+        seen: 0,
+        rows: d_out,
+    };
+    quantize_layer(&mut weights, &f, None, &mut q, &cfg);
+
+    let norm = |v: &[f64]| v.iter().map(|a| a * a).sum::<f64>().sqrt();
+    for i in 0..d_out {
+        let orig = &w0[i * d_in..i * d_in + b];
+        let raw: Vec<f64> = orig.iter().map(|a| (a / STEP).round() * STEP).collect();
+        let kept = &weights.w[i * d_in..i * d_in + b];
+        assert!(
+            (norm(&raw) / norm(orig) - 1.0).abs() > 1e-3,
+            "row {i}: the grid output already sits on the input sphere, so this \
+             test would hold whatever the loop propagated"
+        );
+        assert!(
+            (norm(kept) / norm(orig) - 1.0).abs() <= 1e-12,
+            "row {i}: the retraction did not put the stored block back on the \
+             input sphere"
+        );
+    }
+
+    // E, read off the weights the layer keeps, not the block the quantizer
+    // returned.
+    let mut e = vec![0.0f64; d_out * b];
+    for i in 0..d_out {
+        for k in 0..b {
+            e[i * b + k] = w0[i * d_in + k] - weights.w[i * d_in + k];
+        }
+    }
+
+    // Reference: E H_QR H_RR⁻¹, solved densely, as in the test above.
+    let r = d_in - b;
+    let mut hqr = vec![0.0f64; b * r];
+    for i in 0..b {
+        for j in 0..r {
+            hqr[i * r + j] = h[i * d_in + (b + j)];
+        }
+    }
+    let mut hrr = vec![0.0f64; r * r];
+    for i in 0..r {
+        for j in 0..r {
+            hrr[i * r + j] = h[(b + i) * d_in + (b + j)];
+        }
+    }
+    let mut yt = vec![0.0f64; r * d_out];
+    for i in 0..d_out {
+        for j in 0..r {
+            let v: f64 = (0..b).map(|k| e[i * b + k] * hqr[k * r + j]).sum();
+            yt[j * d_out + i] = v;
+        }
+    }
+    let xt = gauss_solve(&hrr, r, &yt, d_out);
+
+    for i in 0..d_out {
+        for j in 0..r {
+            let got = weights.w[i * d_in + (b + j)] - w0[i * d_in + (b + j)];
+            let want = xt[j * d_out + i];
+            assert!(
+                (got - want).abs() <= 1e-7,
+                "row {i}, col {}: the columns were compensated for {want}, but the \
+                 layer stores an error of {got}",
+                b + j
+            );
+        }
+    }
+}
+
 #[test]
 fn identity_quantizer_leaves_the_layer_untouched() {
     let mut rng = SplitMix64::new(0x5_0005);

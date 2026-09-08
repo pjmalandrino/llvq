@@ -90,6 +90,10 @@ struct Dump {
     label: String,
     dtype: String,
     limit: String,
+    /// The sampling plan, from `# alloc=`. Empty when the header does not carry
+    /// it: every dump written before `LLVQ_MMLU_ALLOC` existed was drawn flat,
+    /// so an absent field reads as `flat` and prints as unstated.
+    alloc: String,
     fingerprint: u64,
     /// `(subject, parquet index)` → row. A `BTreeMap` because every downstream
     /// number — the join order, the bootstrap draws — has to be reproducible,
@@ -122,6 +126,7 @@ impl Dump {
         );
 
         let (mut label, mut dtype, mut limit) = (String::new(), String::new(), String::new());
+        let mut alloc = String::new();
         let mut columns: Option<Vec<&str>> = None;
         let mut rows: BTreeMap<(String, usize), Row> = BTreeMap::new();
         let mut trailer: Option<(u64, usize)> = None;
@@ -136,6 +141,7 @@ impl Dump {
                         "model" => label = v.to_string(),
                         "dtype" => dtype = v.to_string(),
                         "limit" => limit = v.to_string(),
+                        "alloc" => alloc = v.to_string(),
                         _ => {}
                     }
                 }
@@ -187,9 +193,28 @@ impl Dump {
             label,
             dtype,
             limit,
+            alloc,
             fingerprint,
             rows,
         })
+    }
+
+    /// The plan's family name, with an absent field read as `flat`.
+    fn alloc_name(&self) -> &str {
+        if self.alloc.is_empty() {
+            "flat"
+        } else {
+            self.alloc.split(',').next().unwrap_or("flat").trim()
+        }
+    }
+
+    /// The plan as the header line shows it.
+    fn alloc_shown(&self) -> &str {
+        if self.alloc.is_empty() {
+            "flat (unstated)"
+        } else {
+            &self.alloc
+        }
     }
 
     fn subject_population(&self) -> BTreeMap<&str, usize> {
@@ -294,6 +319,24 @@ impl Stratum {
 /// cannot share a run fingerprint because the census also scored 11,762
 /// others. It never waives the per-question check below.
 fn pair(a: &Dump, b: &Dump, intersect: bool) -> anyhow::Result<Vec<Stratum>> {
+    // The sampling plan comes first, and `--intersect` does not waive it, any
+    // more than it waives the per-question hash. Two plans ask two different
+    // sets of questions, and scoring their overlap renormalizes the stratum
+    // weights onto a plan that is neither of them. `bin/mmlu` states the rule
+    // the other way round: an arm whose sampling plan is not printed with its
+    // bar is an arm nobody can re-read.
+    anyhow::ensure!(
+        a.alloc_name() == b.alloc_name()
+            && (a.alloc.is_empty() || b.alloc.is_empty() || a.alloc == b.alloc),
+        "sampling plans differ: {} was drawn under {:?}, {} under {:?}. Scoring \
+         the overlap of two plans, which is what --intersect would do here, \
+         weights the subjects under neither. Re-run both arms under one plan.",
+        a.path,
+        a.alloc_shown(),
+        b.path,
+        b.alloc_shown()
+    );
+
     // The headline gate. Two arms are comparable because they were asked the
     // same questions in the same words; that used to be established by reading
     // the code, and this is where it becomes a check on the data.
@@ -608,6 +651,7 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
         a.limit,
         b.limit
     );
+    println!("sampling plan: {} / {}", a.alloc_shown(), b.alloc_shown());
     println!(
         "run fingerprint: {:016x} / {:016x}{}",
         a.fingerprint,
@@ -991,6 +1035,39 @@ mod tests {
         assert!(err.contains("question sets differ"), "{err}");
         let strata = pair(&a, &b, true).unwrap();
         assert_eq!(strata.iter().map(Stratum::n).sum::<usize>(), 2, "the overlap");
+    }
+
+    /// The sampling plan is part of the exam, and `--intersect` does not waive
+    /// it. An absent `# alloc=` field is a flat dump: the option postdates
+    /// every dump on disk, so the field's absence carries information.
+    #[test]
+    fn dumps_of_different_sampling_plans_are_refused() {
+        let with = |text: String, plan: &str| {
+            text.replace("# limit=40\n", &format!("# limit=40\n# alloc={plan}\n"))
+        };
+        let old = Dump::parse(&two_rows(3), "a.csv").unwrap();
+        assert_eq!(old.alloc_name(), "flat", "an absent field means flat");
+        let prop = Dump::parse(
+            &with(two_rows(2), "proportional, 16..249 per subject, 2280 questions"),
+            "b.csv",
+        )
+        .unwrap();
+        assert_eq!(prop.alloc_name(), "proportional");
+        for intersect in [false, true] {
+            let err = pair(&old, &prop, intersect).unwrap_err().to_string();
+            assert!(err.contains("sampling plans differ"), "{err}");
+        }
+        // Same name, different budget: still two exams.
+        let small = Dump::parse(
+            &with(two_rows(3), "proportional, 8..131 per subject, 1191 questions"),
+            "c.csv",
+        )
+        .unwrap();
+        assert!(pair(&prop, &small, true).is_err(), "one name, two budgets");
+        // A stated flat plan pairs with a dump written before the field existed.
+        let stated = Dump::parse(&with(two_rows(2), "flat, 40 per subject, 2280 questions"), "d.csv")
+            .unwrap();
+        assert!(pair(&old, &stated, false).is_ok());
     }
 
     /// The per-question hash is *not* waivable. Same question id, different
