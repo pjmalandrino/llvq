@@ -57,10 +57,18 @@ use crate::TILE_BLOCKS;
 /// comparing it to the others would compare two things.
 pub const TILE_MIN: usize = 32;
 
-/// Largest tile the shared budget admits: `512 · 24 · 4` = 49,152 B, exactly
+/// Largest tile the shared budget admits **at the 24-float stride**:
+/// `512 · 24 · 4` = 49,152 B, exactly
 /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK` on every card measured
 /// here. Past it the launch fails at run time on the card, which is the worst
 /// place to find out.
+///
+/// The stride is not universal. The A3 arms `pad` and `mr2p` stage at
+/// [`crate::occ::XS_PAD`] = 28 floats a block (`occ::XS_STRIDE`), where the
+/// same 512 would ask for 57,344 B and be refused by the driver. Those arms
+/// are refused off the served tile outright — see
+/// [`crate::occ::refuse_off_served_tile`] — so this bound is the one that
+/// applies to every launch that can actually happen.
 pub const TILE_MAX: usize = 512;
 
 /// Measured optima, one row per architecture: `(sm, blocks, journal)`.
@@ -113,7 +121,8 @@ pub struct Tile {
 }
 
 impl Tile {
-    /// Bytes of dynamic shared memory one CTA stages, `blocks · DIM · 4`.
+    /// Bytes of dynamic shared memory one CTA stages at the 24-float stride:
+    /// `blocks · DIM · 4`.
     ///
     /// Through [`crate::occ::XS_DIM`] rather than `llvq_core::DIM`, for the
     /// reason stated there: `llvq-core` is a Linux-only dependency of this
@@ -121,11 +130,22 @@ impl Tile {
     /// the real dimension by `occ`'s own test, so this reuses one pin instead
     /// of adding a second literal that could drift from it.
     ///
-    /// The single place this product is formed. It fed the `#define` at one
-    /// call site and the launch parameter at another, as two independent
-    /// expressions over one `const`; with a resolved value they must come from
-    /// one function or they will drift, and a launch whose shared parameter
-    /// disagrees with the compiled tile overruns without a diagnostic.
+    /// Every launch that reads a resolved tile forms its shared bytes here,
+    /// and that is the point: the `#define` and the launch parameter were two
+    /// independent expressions over one `const`, safe only while the const
+    /// could not move.
+    ///
+    /// 🕳️ It is **not** the only place the product is formed in this crate.
+    /// [`crate::occ::shared_bytes`] forms it again, clamping at
+    /// [`crate::TILE_BLOCKS`] directly, and it is the live launch argument of
+    /// the A3 section (`planesbench` :3310, :3318, :3328). Threading the
+    /// resolved tile through `occ` would not be enough either: `planes_occ.cu`
+    /// branches on `nblocks <= TILE_BLOCKS` at :259 and :416, so the `pers`
+    /// arm takes a *different code path* below the tile and would report two
+    /// algorithms under one name. That section is off by default
+    /// (`occ::parse_seg_arms(None)` is empty) and off F1d's path, so it is
+    /// refused off the served tile rather than resized — see
+    /// [`crate::occ::refuse_off_served_tile`].
     pub fn shared_bytes(&self) -> u32 {
         (self.blocks * crate::occ::XS_DIM * 4) as u32
     }

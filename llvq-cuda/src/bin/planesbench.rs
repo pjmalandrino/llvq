@@ -93,8 +93,13 @@ mod linux {
     include!("../seg_host.rs");
     include!("../e1v_host.rs");
 
-    /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
-    /// source by the host so the staging size and the tiling are one constant.
+    /// The **served** tile, kept as the A3 section's pin and as the fallback
+    /// of [`llvq_cuda::tile`].
+    ///
+    /// Every other consumer here reads a resolved `tile::Tile` instead. The
+    /// doc line this replaces read "3072 columns, 12 KB" as a literal; that is
+    /// `128 · 24 · 4` = 12,288 B, and it stopped being a constant on
+    /// 2026-09-10 — an arithmetic, not a number.
     use llvq_cuda::TILE_BLOCKS;
     const THREADS: u32 = 256;
     const GSCALE: [f32; 2] = [0.625, 1.375];
@@ -1102,6 +1107,20 @@ mod linux {
                 seg_arms.iter().map(|&a| llvq_cuda::occ::SEG_ARM_NAMES[a]).collect::<Vec<_>>().join(",")
             );
         }
+        // The tile, resolved HERE for the reason `seg_arms` is parsed here:
+        // it opens the card, and a refusal that fires after three minutes of
+        // transcoding on a rented card is worth nothing. It has to precede the
+        // source anyway — it is a `#define` in it.
+        let tile = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        println!("{}", tile.provenance());
+        // The A3 arms size their launches from the constant and `occ_pers`
+        // changes branch at the tile boundary, so the two selections are
+        // refused together rather than measured apart.
+        llvq_cuda::occ::refuse_off_served_tile(
+            &seg_arms,
+            tile.source == llvq_cuda::tile::TileSource::Served,
+        )?;
+
         let g70_needed = union.has(arms::GOLAY70V1) || union.has(arms::GOLAY70V2);
 
         // Parts concatenated in dependency order: llvq_planes.cuh needs
@@ -1139,7 +1158,7 @@ mod linux {
             Some((cuh, glue)) => (cuh.as_str(), glue.as_str()),
             None => ("", ""),
         };
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        let defines = tile.define();
         let parts = [
             defines.as_str(),
             base.parts[0].as_str(),
@@ -1179,6 +1198,9 @@ mod linux {
             qtip_glue,
         ];
         let src = KernelSource::new(&parts);
+        // On the assembled text: the one place where what NVRTC compiles and
+        // what this report prints are both visible.
+        tile.assert_defined_in(&src.text);
         println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &base.overridden_from {
             println!("  WARNING: Slot32 SOURCES OVERRIDDEN from {d}");
@@ -2156,7 +2178,7 @@ mod linux {
         let f_nullk = cuda.func("tv_nullk")?;
         let f_f16 = cuda.func("tv_f16")?;
         let f_awq = cuda.func("awq_gemv_g128")?;
-        let shared = (TILE_BLOCKS * DIM * 4) as u32;
+        let shared = tile.shared_bytes();
 
         // Each closure is called only if its arm is in the current phase; the
         // named `expect` turns any sequencing error into a readable panic
