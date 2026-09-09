@@ -57,6 +57,7 @@ struct float4 { float x, y, z, w; };
 static inline unsigned __shfl_xor_sync(unsigned, unsigned v, int, int = 32) { return v; }
 static inline void __syncwarp(unsigned = 0xffffffffu) {}
 static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return o; }
+static inline float __shfl_down_sync(unsigned, float v, int, int = 32) { return v; }
 "#;
 
 /// The units, each a list of sources concatenated **in the order the host
@@ -72,7 +73,7 @@ static inline float atomicAdd(float* a, float v) { float o = *a; *a += v; return
 /// The `.cu` files carry `#ifndef` guards that pull their dependencies from
 /// disk. `planes.cu` says so in its own header, *"and only resolve from disk
 /// under a host clang++ syntax check"*. They need no list of their own.
-const UNITS: [(&str, &[&str], &str); 28] = [
+const UNITS: [(&str, &[&str], &str); 29] = [
     ("llvq_slot.cuh", &["llvq_slot.cuh"], "Slot32, the fallback layout"),
     ("llvq_planes.cuh", &["llvq_planes.cuh"], "Planes14, the served layout"),
     ("llvq_planes12.cuh", &["llvq_planes12.cuh"], "Planes12x, the sparse overlay"),
@@ -196,6 +197,40 @@ const UNITS: [(&str, &[&str], &str); 28] = [
         ],
         "the eight-arm assembly of bin/f1rankfloor, as the one string NVRTC sees",
     ),
+    // The whole string `bin/planesbench` hands to NVRTC, in its order — the
+    // largest translation unit this repository builds, and since 2026-09-10
+    // the first to make the F1 family coexist with `golay70`, `planes12`,
+    // `e1v`, the A3 variants and the AWQ competitor. None of those pairings
+    // had ever been parsed together.
+    //
+    // The QTIP pair is deliberately absent: it is fetched, GPL v3, never
+    // committed here, and a machine without the fetch compiles the same string
+    // as every published run.
+    (
+        "planesbench",
+        &[
+            "llvq_slot.cuh",
+            "matvec.cu",
+            "llvq_planes.cuh",
+            "planes.cu",
+            "planes_seg.cu",
+            "llvq_planes12.cuh",
+            "planes12.cu",
+            "llvq_golay.cuh",
+            "golay70.cu",
+            "awq_gemv.cu",
+            "golay70_v1.cu",
+            "llvq_e1v.cuh",
+            "e1v.cu",
+            "nullk.cu",
+            "planes_occ.cu",
+            "llvq_f1rank.cuh",
+            "llvq_f1rank_v3.cuh",
+            "llvq_tetra48.cuh",
+            "tetra48_v3g.cu",
+        ],
+        "the twelve-arm assembly of bin/planesbench, as the one string NVRTC sees",
+    ),
 ];
 
 fn main() {
@@ -234,14 +269,44 @@ fn main() {
         print!("  {label:<20} ");
         std::io::stdout().flush().ok();
         let tu = tmp.join(format!("{label}.cpp"));
+        // 🚨 A composite unit is ASSEMBLED, not included — and the difference
+        // is the whole value of the check.
+        //
+        // Every source here carries `#ifndef X / #include "x.cuh" / #endif`,
+        // and with the kernel directory on the include path clang++ resolves
+        // that include FROM DISK. So a source left out of a composite list is
+        // silently pulled back in and the unit passes. Measured on
+        // 2026-09-10: with the planesbench list, dropping `llvq_f1rank_v3.cuh`,
+        // `llvq_tetra48.cuh` or `matvec.cu` each exited 0.
+        //
+        // NVRTC has no filesystem. It sees exactly the text the host
+        // concatenated, in exactly that order, and an unsatisfied guard is a
+        // catastrophic error on the card. So a composite unit is built the way
+        // the host builds it — the texts, in order — and compiled with the
+        // kernel directory OFF the include path, which is what makes a missing
+        // or misordered entry fail here the way it would fail there.
+        //
+        // Single-source units keep the include form: what they check is that
+        // a header stands alone and pulls its own dependencies, which is a
+        // different question and a true one.
+        let assembled = sources.len() > 1;
         let mut src = String::from(SUPPLEMENT);
         for s in sources {
-            src.push_str(&format!("#include \"{s}\"\n"));
+            if assembled {
+                let text = std::fs::read_to_string(dir.join(s))
+                    .unwrap_or_else(|e| panic!("{label}: {s}: {e}"));
+                src.push_str(&format!("\n// ---- {s} ----\n"));
+                src.push_str(&text);
+                src.push('\n');
+            } else {
+                src.push_str(&format!("#include \"{s}\"\n"));
+            }
         }
         src.push_str("int main(){return 0;}\n");
         std::fs::write(&tu, src).expect("write translation unit");
 
-        let out = Command::new(&cc)
+        let mut cmd = Command::new(&cc);
+        let out = cmd
             // `LLVQ_HOST_BUILD` is the crate's OWN host mode, not an
             // invention of this binary: `llvq_rot.cuh` and `matvec.cu` both
             // branch on it to replace an inline-PTX `cvt.f32.f16` with a
@@ -259,12 +324,14 @@ fn main() {
             // the tile changes what parses. What a resolved tile would add
             // here is a dependence on the environment of whoever runs the
             // check — the one thing a parse gate must not have.
-            .arg(format!("-DTILE_BLOCKS={}u", llvq_cuda::TILE_BLOCKS))
-            .arg("-I")
-            .arg(&dir)
-            .arg(&tu)
-            .output()
-            .expect("run the compiler");
+            .arg(format!("-DTILE_BLOCKS={}u", llvq_cuda::TILE_BLOCKS));
+        // The kernel directory is on the path for a single-source unit, which
+        // is testing exactly that resolution, and OFF it for an assembled one,
+        // which is testing that nothing needs it.
+        if !assembled {
+            out.arg("-I").arg(&dir);
+        }
+        let out = out.arg(&tu).output().expect("run the compiler");
         if out.status.success() {
             println!("parse: {what}");
         } else {
