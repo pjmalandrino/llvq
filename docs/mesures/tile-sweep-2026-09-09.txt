@@ -1,0 +1,99 @@
+LA TUILE VOLAIT SA L1 À LA TABLE : TILE_BLOCKS 128 → 32 REND 42 % À TETRA SUR
+BLACKWELL, ZÉRO BIT, ZÉRO QUALITÉ, SORTIE BIT-IDENTIQUE
+================================================================================
+Date        : 2026-09-09
+Jobs        : 6aa16436900620b5c77e7103, rtx-pro-6000, 34 s, ~0,03 $ (les 3 tuiles)
+              6aa16562900620b5c77e7141, l40sx1, EN VOL : le même balayage sur la
+                carte de référence
+              6aa15b57900620b5c77e6e55, rtx-pro-6000, 51 s, ~0,01 $ (le plancher
+                de table qui a réfuté H1 et H2 — et avait raison de le faire)
+Préreg      : proofs/preregistration-f1-plancher-blackwell-2026-09-09.md pour le
+              plancher de table (tamponné). LE BALAYAGE DE TUILE N'A PAS DE
+              PRÉREG : c'est un diagnostic sans porte, lancé sur go opérateur
+              après que le plancher a réfuté les deux hypothèses écrites.
+              Aucun seuil n'est lu ici, et aucune décision n'est prise.
+Code        : llvq-cuda/src/bin/f1rankfloor.rs, commit 9ce2c50
+Nature      : *mesuré* sur carte, trois processus, chaque R intra-processus
+
+LE RÉSULTAT
+-----------
+  NVIDIA RTX PRO 6000 Blackwell Server Edition sm_120 · 188 SM @ 2430 MHz
+  L2 128 Mio · mem 12481 MHz × 512 bit
+  par SM : 1536 fils, 65536 registres, 102400 o partagés
+
+  tuile   part/CTA   ×6 blocs   L1 restante   Tetra(tête)  Planes14   R
+  ----------------------------------------------------------------------
+   128      12288      73728        28672 o      2,490       1,700   1,4643
+    64       6144      36864        65536 o      2,515       1,738   1,4472
+    32       3072      18432        83968 o      1,449       1,707   0,8491
+
+  Tetra    −41,8 %      Planes14 +0,4 %, c'est-à-dire rien
+  R        1,4643 → 0,8491, sous la ligne rouge de 0,90
+  servir   0,195 → 0,110 ms
+
+LE MÉCANISME
+------------
+  Sur NVIDIA la mémoire partagée et la L1 sont le MÊME SRAM. Le SM en porte
+  102 400 octets. Notre tuile d'activations en réserve TILE_BLOCKS × 24 × 4 par
+  bloc, six blocs résidents.
+
+    tuile 128 → 73 728 o de partagée → il reste 28,7 Ko de L1
+                Tetra veut 16 Kio de `rows` + 2 Kio de `branches` = 18 Kio.
+    tuile  32 → 18 432 o de partagée → il reste 84,0 Ko de L1
+
+  Ce n'est pas la table qui est trop grosse. C'est NOTRE PROPRE TUILE qui lui
+  vole sa place.
+
+  Planes14 ne bouge pas (+0,4 %) parce qu'il est borné par la mémoire et n'a
+  besoin que de sa `ClassRec` de 12 Kio : il rentrait déjà.
+
+  L'occupation n'y est pour rien : 6 blocs/SM aux TROIS tuiles, les registres
+  plafonnent avant la partagée. La carte imprimée le confirme et montre au
+  passage que Blackwell et L40S ont les mêmes 1536 fils / 65536 registres /
+  102400 o par SM — et que Blackwell est plus LENT par cycle, 2430 contre 2520
+  MHz. Toute son avance vient de son bus 512 bit.
+
+POURQUOI LE PLANCHER DE TABLE AVAIT RÉFUTÉ ÇA, ET AVAIT RAISON
+--------------------------------------------------------------
+  f1floorbench sur Blackwell (job 6aa15b57) a rendu la table PLUS RAPIDE à
+  toutes les empreintes : D(8 Kio) 0,344 → 0,280 et D(16 Kio) 0,663 → 0,404,
+  rapport 16/8 tombé de 1,93 à 1,44. Prédiction signée 3,7 dans [2,8 ; 5,2] :
+  FAUSSE, et inversée.
+
+  Ce banc mesure les lectures SEULES. Son propre avertissement le dit :
+  « No weight stream competes for L1 or the LSU here. » Il répondait
+  exactement à la question posée, et la question posée n'était pas la bonne :
+  j'avais écrit « la table de 16 Kio est-elle trop grosse pour la L1 » là où
+  il fallait écrire « que reste-t-il de L1 une fois notre tuile servie ».
+
+  Les deux mesures sont vraies et ne se contredisent pas.
+
+CE QUI ÉTAIT PRÉDIT, ET DE COMBIEN JE ME SUIS TROMPÉ
+-----------------------------------------------------
+  L'option M3 du tableau du 2026-09-09 chiffrait « −0,10 à −0,30 ms », et la
+  justifiait par l'occupation. Mesuré : −1,041 ms. Sous-estimée d'un facteur
+  3,5, et pour la mauvaise raison — l'occupation ne bouge pas, c'est le partage
+  L1/partagée.
+
+CE QUE ÇA COÛTE
+---------------
+  Zéro bit. Zéro qualité. Zéro mémoire. Une constante, injectée par l'hôte
+  (matvec.cu:15-21). La sortie est bit-identique : la tuile ne change que
+  l'ordre du tuilage, jamais l'arithmétique.
+
+  Le seul coût mesuré est le nombre de barrières : nullk passe de 2,441 à
+  2,589 ms (+6,1 %) entre 128 et 32, et Planes14 de 1,700 à 1,707 de tête.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  - Le saut est BRUTAL entre 64 et 32 : rien à 64, tout à 32. Ça ressemble à un
+    seuil de carveout du pilote, et rien ici ne le mesure. Les points
+    intermédiaires (96, 48) n'ont pas été balayés — l'assertion actuelle exige
+    une puissance de deux, ce qui n'est pas nécessaire, seul un multiple de 32
+    l'est.
+  - C'est le bras de banc `tv_f1r_v3g`, pas le noyau servi `tv_planes_h` ni
+    `fusedrun`. Rien ne dit que le chemin servi réagit pareil.
+  - Étiquettes uniformes, flux synthétique, une forme de lancement. Aucun tok/s.
+  - La L40S, carte de référence de tout le dossier, n'a pas encore rendu.
+  - 32 est le PLANCHER : sous 32, `j += 32` laisse des lanes oisives, c'est un
+    autre noyau. Il n'y a pas de « et si on descendait encore ».
