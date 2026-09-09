@@ -274,8 +274,11 @@ D(4 MiB) (4 to 10) and D(16 KiB) (< 1), wrong on the shared-memory arm (0.5 to 2
 
 The same-day audit — six independent readings, three counter-verified, four $0 computations on the Mac — corrected the
 reading in five places. The bench runs at **six blocks per SM, not eight** (1,536 threads per SM), so the carveout is
-100 KB and **L1 is 28 KB**, 12 KiB of it taken by the activation tile: the 16 KiB point already misses 7.6% of its
-accesses and is not a pure-hit cost. The shared-memory arms confound occupancy (48 → 16 → 8 warps) and per-block staging
+100 KB and **L1 is 28 KB at the served tile of 128**, 12 KiB of it taken by the activation tile: the 16 KiB point
+already misses 7.6% of its accesses and is not a pure-hit cost. That sentence is a fact about a tile, not about a card,
+and the tile has been a knob since 2026-09-10 (`LLVQ_TILE_BLOCKS`, `llvq-cuda/src/tile.rs`): at tile 32 the same six
+blocks stage 3 KiB each and leave **84 KB** of L1, which is what the sweep measured and what moved Tetra by −41.8% on
+sm_120 (*measured*, [tile sweep](mesures/tile-sweep-2026-09-09.txt)). The shared-memory arms confound occupancy (48 → 16 → 8 warps) and per-block staging
 (3.4 to 6.8 GB per pass) with placement, and their difference compares 8 warps against 48 — the cross-occupancy reading
 [format-noyau](format-noyau.md) §6 forbids, one level up; "placing the hot set is worse" is withdrawn, and QTIP's 1.82 G
 shared-memory lookups per pass in 2.246 ms (F2) stand as the counter-example. The real access distribution, which the
