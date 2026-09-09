@@ -80,6 +80,12 @@ pub enum FusedLayout {
     Planes12x,
     Slot32,
     Golay70,
+    /// The Tetra word, read as it is written. The only layout here that does
+    /// **not** unfold a ball index into a kernel-shaped record — it addresses
+    /// blocks row-strided rather than flat, because a six-byte record is not
+    /// u32-aligned and a row must start on a boundary or every row after the
+    /// first reads at a shifted phase (`llvq_artifact::tetra48`).
+    Tetra48,
 }
 
 impl FusedLayout {
@@ -93,9 +99,10 @@ impl FusedLayout {
             Some("planes12x") => Ok(Self::Planes12x),
             Some("slot32") => Ok(Self::Slot32),
             Some("golay70") => Ok(Self::Golay70),
+            Some("tetra48") => Ok(Self::Tetra48),
             Some(other) => Err(format!(
                 "LLVQ_FUSED_LAYOUT={other}: accepted values \"planes14\" (default), \
-                 \"planes12x\", \"slot32\" and \"golay70\""
+                 \"planes12x\", \"slot32\", \"golay70\" and \"tetra48\""
             )),
         }
     }
@@ -112,6 +119,7 @@ impl FusedLayout {
             Self::Planes12x => "planes12x",
             Self::Slot32 => "slot32",
             Self::Golay70 => "golay70",
+            Self::Tetra48 => "tetra48",
         }
     }
 }
@@ -398,6 +406,19 @@ const PLANES12_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_plan
 const PLANES12X_H_CU_EMBED: &str = include_str!("../kernels/tv_planes12x_h.cu");
 const GOLAY_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_golay.cuh");
 const GOLAY70_H_CU_EMBED: &str = include_str!("../kernels/tv_golay70_h.cu");
+// Tetra48's four. The first three come from `llvq-cuda` verbatim — the F1
+// decoder chain the bench of 2026-09-08 measured and the served decode
+// `tests/tetra48_matches_rust.rs` pins bit for bit — and the fourth is this
+// crate's own half-storing entry point.
+const F1RANK_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_f1rank.cuh");
+const F1RANK_V3_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_f1rank_v3.cuh");
+const TETRA48_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_tetra48.cuh");
+const TETRA48_H_CU_EMBED: &str = include_str!("../kernels/tv_tetra48_h.cu");
+/// The int4 g128 projection kernel, for the mixed files `LLVQ_INT4_TYPES`
+/// writes. Not a layout source: it is orthogonal to the lattice layout — a
+/// mixed file carries int4 records **beside** Tetra or Ball ones — so it is
+/// selected by the file's `KindSet` and not by `LLVQ_FUSED_LAYOUT`.
+const Q4_H_CU_EMBED: &str = include_str!("../kernels/tv_q4_h.cu");
 
 /// The bit-plane sources a layout needs, **in NVRTC concatenation order**.
 ///
@@ -457,8 +478,45 @@ pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
             "llvq_golay.cuh",
             "tv_golay70_h.cu",
         ],
+        // A list of its own, and it shares nothing with the four above: Tetra
+        // names no class, so `llvq_planes.cuh` and its ClassRec table have no
+        // meaning here. What it needs is the F1 decoder chain the bench proved,
+        // plus the served decode on top.
+        FusedLayout::Tetra48 => &[
+            "llvq_f1rank.cuh",
+            "llvq_f1rank_v3.cuh",
+            "llvq_tetra48.cuh",
+            "tv_tetra48_h.cu",
+        ],
     }
 }
+
+/// The int4 g128 projection source, for a file that carries `Int4G128` records.
+///
+/// It lives here rather than in `fused_cuda.rs` for the reason this whole
+/// module is unconditional: `fused_cuda.rs` is `cfg(target_os = "linux",
+/// feature = "cuda")` and the development machine is a Mac, so a source list
+/// that lived there could not be reached by a test until it had already
+/// reached a card. `tv_q4_h.cu` has **never run on a GPU** — it is verified as
+/// host C++ by `tests/proj_q4.rs` and by nothing else — which makes it exactly
+/// the file whose plumbing should be checkable without one.
+///
+/// `LLVQ_KERNEL_DIR` overrides it on the same all-or-nothing terms as
+/// [`load_planes_sources`].
+pub fn load_int4_sources() -> Result<(String, Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((Q4_H_CU_EMBED.to_string(), None)),
+        Ok(dir) => {
+            let p = std::path::Path::new(&dir).join("tv_q4_h.cu");
+            let text = std::fs::read_to_string(&p)
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: tv_q4_h.cu: {e}"))?;
+            Ok((text, Some(dir)))
+        }
+    }
+}
+
+/// The `extern "C"` entry point [`load_int4_sources`] defines.
+pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
 
 /// The `extern "C"` matvec entry point `layout` launches.
 pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
@@ -467,6 +525,7 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
         FusedLayout::Planes12x => "tv_planes12x_h",
         FusedLayout::Slot32 => "tv_slot_h",
         FusedLayout::Golay70 => "tv_golay70_h",
+        FusedLayout::Tetra48 => "tv_tetra48_h",
     }
 }
 
@@ -612,6 +671,10 @@ pub fn load_planes_sources(
         "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
         "llvq_golay.cuh" => Ok(GOLAY_CUH_EMBED),
         "tv_golay70_h.cu" => Ok(GOLAY70_H_CU_EMBED),
+        "llvq_f1rank.cuh" => Ok(F1RANK_CUH_EMBED),
+        "llvq_f1rank_v3.cuh" => Ok(F1RANK_V3_CUH_EMBED),
+        "llvq_tetra48.cuh" => Ok(TETRA48_CUH_EMBED),
+        "tv_tetra48_h.cu" => Ok(TETRA48_H_CU_EMBED),
         other => Err(format!("no embedded copy of {other}")),
     };
     match std::env::var("LLVQ_KERNEL_DIR") {
@@ -701,6 +764,21 @@ pub enum HostStream {
         /// [`row_offsets`] check, same reason as the `Planes12x` field: one
         /// warp per row, no memset, no atomic (`kernels/tv_golay70_h.cu`).
         row_exc: Vec<u32>,
+    },
+    Tetra48 {
+        /// The 48-bit words as `u32`, **row-strided**: `stride_u32` words per
+        /// output row, the row's six-byte records at its start and the rest
+        /// zero. Every other stream here is flat over the matrix's blocks;
+        /// this one is not, and the reason is alignment rather than taste —
+        /// a six-byte record at `6·b` is u32-aligned only every second block,
+        /// so `f1r_load`'s two-word window would read at a shifted phase on
+        /// every row after the first. `llvq_artifact::tetra48` builds the
+        /// stride, rounds it to eight bytes so the last block's window fits,
+        /// and asserts that rather than assuming it.
+        words: Vec<u32>,
+        /// Words per row. The kernel's second argument; a stream whose stride
+        /// disagrees with it returns finite, plausible, wrong numbers.
+        stride_u32: u32,
     },
 }
 
@@ -1667,6 +1745,26 @@ impl Transcoder {
                         .map_err(|e| e.to_string())?;
                 let bytes = pb.data.len() as u64;
                 Ok((HostStream::Planes14 { words: pack_plane_bytes(&pb.data) }, bytes))
+            }
+            // The one arm that consults neither the fast decoder nor the class
+            // table: a Tetra word names no class, so there is nothing to look
+            // up and nothing to re-encode. The pad IS counted in `bytes` here,
+            // unlike Slot32's read-window slack, because it is not slack — the
+            // row stride is the format, the kernel reads over it every row, and
+            // a rate that dropped it would be the 2026-07-31 accounting error
+            // in a new place.
+            FusedLayout::Tetra48 => {
+                let tb = llvq_artifact::tetra48::transcode_tetra48(
+                    indices, gains, d_out, nblocks,
+                )
+                .map_err(|e| e.to_string())?;
+                let bytes = tb.data.len() as u64;
+                let stride_u32 = u32::try_from(tb.stride_u32)
+                    .map_err(|_| format!("row stride {} overflows u32", tb.stride_u32))?;
+                Ok((
+                    HostStream::Tetra48 { words: pack_plane_bytes(&tb.data), stride_u32 },
+                    bytes,
+                ))
             }
             FusedLayout::Planes12x => {
                 let s = self
