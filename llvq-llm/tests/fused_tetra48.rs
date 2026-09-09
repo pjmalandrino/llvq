@@ -130,3 +130,82 @@ fn the_int4_kernel_ships_with_its_entry_point() {
         );
     }
 }
+
+// --------------------------------------------------------------------------
+// The kind gate: which layout may serve which record
+// --------------------------------------------------------------------------
+
+use llvq_artifact::{CodeKind, KindSet};
+use llvq_llm::fused::{check_kinds, lattice_kind, serves_kind};
+
+/// Each layout reads exactly one lattice map, and reads no other.
+///
+/// This is the gate that keeps a Tetra word from being read as a ball index.
+/// Neither direction fails loudly: a Tetra word names no class, a ball index
+/// decodes to a different point, and both return finite, plausible, wrong
+/// weights. That is the whole reason the gate exists.
+#[test]
+fn a_layout_reads_its_own_lattice_and_no_other() {
+    for layout in LAYOUTS {
+        let own = lattice_kind(layout);
+        assert!(serves_kind(layout, own), "{}: its own map", layout.name());
+        for kind in [CodeKind::Ball, CodeKind::Tetra] {
+            if kind != own {
+                assert!(
+                    !serves_kind(layout, kind),
+                    "{} must not read {kind:?}",
+                    layout.name()
+                );
+            }
+        }
+    }
+    assert_eq!(lattice_kind(FusedLayout::Tetra48), CodeKind::Tetra);
+    for layout in [FusedLayout::Planes14, FusedLayout::Planes12x, FusedLayout::Golay70] {
+        assert_eq!(lattice_kind(layout), CodeKind::Ball, "{}", layout.name());
+    }
+}
+
+/// int4 is served by every layout, because no layout transcodes it.
+///
+/// `tv_q4_h` reads stored weights; it consults neither a class table nor a
+/// word map. That orthogonality is exactly what makes a mixed file possible,
+/// and pinning it here keeps a future layout from accidentally claiming int4
+/// as its own.
+#[test]
+fn int4_is_orthogonal_to_the_layout() {
+    for layout in LAYOUTS {
+        assert!(serves_kind(layout, CodeKind::Int4G128), "{}", layout.name());
+    }
+}
+
+/// A header set is accepted whole or refused by name, before any record.
+#[test]
+fn the_header_set_is_gated_before_the_first_record() {
+    let mixed_tetra = {
+        let mut k = KindSet::of(CodeKind::Tetra);
+        k.insert(CodeKind::Int4G128);
+        k
+    };
+    let mixed_ball = {
+        let mut k = KindSet::of(CodeKind::Ball);
+        k.insert(CodeKind::Int4G128);
+        k
+    };
+    // The object step 6.0 produced.
+    assert!(check_kinds(FusedLayout::Tetra48, mixed_tetra).is_ok(), "tetra + int4");
+    // And the one Q5 was first measured on.
+    assert!(check_kinds(FusedLayout::Planes14, mixed_ball).is_ok(), "ball + int4");
+    // Crossed, both ways.
+    let e = check_kinds(FusedLayout::Planes14, mixed_tetra).expect_err("ball layout, tetra file");
+    assert!(e.contains("Tetra"), "{e}");
+    assert!(e.contains("planes14"), "{e}");
+    let e = check_kinds(FusedLayout::Tetra48, mixed_ball).expect_err("tetra layout, ball file");
+    assert!(e.contains("Ball"), "{e}");
+    // A pure file of the wrong map is refused too — the set has one member.
+    assert!(check_kinds(FusedLayout::Tetra48, KindSet::of(CodeKind::Ball)).is_err());
+    assert!(check_kinds(FusedLayout::Planes14, KindSet::of(CodeKind::Tetra)).is_err());
+    // And an int4-only file is accepted by every layout: nothing to transcode.
+    for layout in LAYOUTS {
+        assert!(check_kinds(layout, KindSet::of(CodeKind::Int4G128)).is_ok(), "{}", layout.name());
+    }
+}

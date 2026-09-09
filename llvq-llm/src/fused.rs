@@ -491,6 +491,67 @@ pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
     }
 }
 
+/// The lattice [`CodeKind`] a layout reads — the one it transcodes.
+///
+/// Not the only kind it can *serve*: see [`check_kinds`].
+pub fn lattice_kind(layout: FusedLayout) -> CodeKind {
+    match layout {
+        FusedLayout::Planes14
+        | FusedLayout::Planes12x
+        | FusedLayout::Slot32
+        | FusedLayout::Golay70 => CodeKind::Ball,
+        FusedLayout::Tetra48 => CodeKind::Tetra,
+    }
+}
+
+/// Whether `layout` can serve a record of `kind`.
+///
+/// Two kinds, and they arrive by different routes:
+///
+/// * the layout's own [`lattice_kind`], which its transcoder turns into a
+///   kernel stream — and **only** that one. A Tetra word read as a ball index
+///   names a class it does not have; a ball index read as a Tetra word decodes
+///   to a different lattice point. Neither fails: both return plausible,
+///   wrong weights, which is why `require_ball` exists and why this does not
+///   soften it for the eleven sites that still use it;
+/// * [`CodeKind::Int4G128`], which no layout transcodes at all. An int4 record
+///   is stored group-affine in the natural basis — never GPTQ, never the
+///   rotation, never the lattice (`calib.rs:793-812`) — and is served by
+///   `tv_q4_h`, which is orthogonal to the layout. That is what makes a mixed
+///   file possible: the two kinds do not share a code path, so they do not
+///   have to share a layout.
+pub fn serves_kind(layout: FusedLayout, kind: CodeKind) -> bool {
+    kind == CodeKind::Int4G128 || kind == lattice_kind(layout)
+}
+
+/// [`serves_kind`] over a whole header set, refused by name.
+///
+/// This replaces `require_ball_kinds` on the fused path, and replacing it is
+/// the point: that function was written when every layout read a ball index,
+/// and it refuses `Tetra` and `Int4G128` unconditionally. It is still right
+/// everywhere it is still called — a `ClassTable` consumer cannot read either.
+/// Here the layout decides.
+///
+/// The early stop matters: the set is in the header, so a file this path
+/// cannot serve is refused for the cost of a header rather than after 130
+/// seconds of transcoding.
+pub fn check_kinds(layout: FusedLayout, kinds: llvq_artifact::KindSet) -> Result<(), String> {
+    for kind in kinds.iter() {
+        if !serves_kind(layout, kind) {
+            return Err(format!(
+                "LLVQ_FUSED_LAYOUT={}: this file declares a {kind:?} record, which {} \
+                 cannot read. It transcodes {:?} and carries {:?} beside it; any other \
+                 kind names a different map and would decode to plausible, wrong weights.",
+                layout.name(),
+                layout.name(),
+                lattice_kind(layout),
+                CodeKind::Int4G128,
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The int4 g128 projection source, for a file that carries `Int4G128` records.
 ///
 /// It lives here rather than in `fused_cuda.rs` for the reason this whole
