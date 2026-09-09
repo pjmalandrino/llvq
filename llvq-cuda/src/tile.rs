@@ -135,6 +135,35 @@ impl Tile {
         format!("#define TILE_BLOCKS {}u\n", self.blocks)
     }
 
+    /// Refuse a source whose tile is not this one.
+    ///
+    /// The invariant nothing else can hold: **the tile a report prints is the
+    /// tile NVRTC compiled**. The value travels as a `#define` into a text of
+    /// tens of thousands of lines assembled from thirty-odd files by the host,
+    /// and a stale, duplicated or missing define changes the kernel's staging
+    /// while every number keeps the old label. None of that is a compile
+    /// error, on either side — a second `#define` of the same macro is a
+    /// warning NVRTC does not fail on, and a report reads its own variable.
+    ///
+    /// Exactly one define, and it is this tile. Checked on the text handed to
+    /// NVRTC, after assembly, which is the only place both facts are true at
+    /// once.
+    pub fn assert_defined_in(&self, src_text: &str) {
+        let n = src_text.matches("#define TILE_BLOCKS").count();
+        assert_eq!(
+            n, 1,
+            "the assembled source carries {n} `#define TILE_BLOCKS`, not 1: \
+             the tile NVRTC compiles would not be the tile this run reports"
+        );
+        assert!(
+            src_text.contains(self.define().trim_end()),
+            "the assembled source defines a tile that is not {} ({}): \
+             every figure of this run would carry the wrong tile",
+            self.blocks,
+            self.provenance()
+        );
+    }
+
     /// One line for the report header, naming the value and its provenance.
     pub fn provenance(&self) -> String {
         match self.source {
@@ -326,6 +355,35 @@ mod tests {
         for good in [32usize, 64, 128, 256, 512] {
             assert_eq!(parse_request(&good.to_string()), Ok(TileRequest::Fixed(good)));
         }
+    }
+
+    /// The guard that makes a stale, missing or duplicated define loud. The
+    /// defect it is for cannot fail to compile on either side of the boundary.
+    #[test]
+    fn the_source_must_carry_this_tile_and_only_this_tile() {
+        let t = Tile { blocks: 64, source: TileSource::Env };
+        t.assert_defined_in("#define TILE_BLOCKS 64u\n__global__ void k() {}");
+        // Same shape as `fused_segment.rs`: the four refusals below are the
+        // point of the test, so their backtraces are not test output.
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        // Assembled with a leftover define from another part.
+        let two = std::panic::catch_unwind(|| {
+            t.assert_defined_in("#define TILE_BLOCKS 64u\n#define TILE_BLOCKS 128u\n")
+        });
+        // The host resolved 64 and the source says 128 — the exact shape of a
+        // knob threaded to one call site and not the other.
+        let stale = std::panic::catch_unwind(|| t.assert_defined_in("#define TILE_BLOCKS 128u\n"));
+        // No define at all: `matvec.cu` `#error`s, but only once it reaches
+        // NVRTC — on a rented card, in a billed job.
+        let none = std::panic::catch_unwind(|| t.assert_defined_in("__global__ void k() {}"));
+        // 64 must not be satisfied by a source defining 640.
+        let wider = std::panic::catch_unwind(|| t.assert_defined_in("#define TILE_BLOCKS 640u\n"));
+        std::panic::set_hook(prev);
+        assert!(two.is_err(), "two defines accepted");
+        assert!(stale.is_err(), "a stale define accepted");
+        assert!(none.is_err(), "a missing define accepted");
+        assert!(wider.is_err(), "a prefix match accepted: the trailing `u` is what separates 64 from 640");
     }
 
     /// Provenance is never empty and never silent about a departure from the

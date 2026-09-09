@@ -57,6 +57,52 @@ fn arch_binary_version() -> i32 {
         .expect("arch() guarantees the number")
 }
 
+/// The primary context, opened once and kept for the process.
+///
+/// `cuDevicePrimaryCtxRetain` is refcounted, so this and every `Cuda::new`
+/// hold the *same* context rather than each creating one. Keeping it here
+/// matters for [`probe_compute_cap`]: if the probe's handle were dropped
+/// before a kernel was compiled it would be the last one, the driver would
+/// destroy the context, and the next constructor would pay to build it again.
+///
+/// Never released, like the string [`arch`] leaks, and for the same reason —
+/// it lives exactly as long as the process that needs it.
+fn primary_ctx() -> Result<&'static Arc<CudaContext>, String> {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<Arc<CudaContext>> = OnceLock::new();
+    if let Some(c) = ONCE.get() {
+        return Ok(c);
+    }
+    let ctx = CudaContext::new(0).map_err(|e| format!("no CUDA device: {e}"))?;
+    // A race here is harmless: `get_or_init` keeps one handle, the loser's
+    // `Arc` drops and releases its own retain, and the refcount balances.
+    Ok(ONCE.get_or_init(|| ctx))
+}
+
+/// The compute capability of a context's device. The single reader of those
+/// two attributes: [`DeviceReport`] goes through it too, so a report and a
+/// probe cannot disagree about the card they describe.
+pub fn compute_cap_of(ctx: &CudaContext) -> Result<(i32, i32), String> {
+    let a = |x: Attr| ctx.attribute(x).map_err(|e| format!("attribute: {e}"));
+    Ok((
+        a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?,
+        a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?,
+    ))
+}
+
+/// The card's capability, **before** any kernel source exists.
+///
+/// `Cuda::new` compiles NVRTC inside its constructor, and since 2026-09-10 the
+/// tile is a `#define` in that source ([`crate::tile`]). So the capability has
+/// to be readable before the text is assembled, which `Cuda::device()` — a
+/// method on the already-compiled object — cannot do. A caller that resolves
+/// its tile from this and then compiles is reading one card and describing the
+/// same one; there is no second device to confuse it with, because
+/// [`primary_ctx`] and every constructor share ordinal 0.
+pub fn probe_compute_cap() -> Result<(i32, i32), String> {
+    compute_cap_of(primary_ctx()?)
+}
+
 /// What the card and the loaded kernel say about themselves.
 ///
 /// Every field is *read*, never assumed. The repository has already retracted
@@ -328,10 +374,7 @@ impl Cuda {
         let a = |x: Attr| self.ctx.attribute(x).map_err(|e| format!("attribute: {e}"));
         Ok(DeviceReport {
             name: self.ctx.name().map_err(|e| format!("device name: {e}"))?,
-            compute_cap: (
-                a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?,
-                a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?,
-            ),
+            compute_cap: compute_cap_of(&self.ctx)?,
             sm_count: a(Attr::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)?,
             l2_bytes: a(Attr::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)?,
             shared_per_block: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)?,
