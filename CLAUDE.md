@@ -121,6 +121,7 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_INT4_TYPES` | projection types separated by commas | `smoke`: those types written as int4 g128 records instead of lattice codes; empty by default, and an empty list writes what the run always wrote |
 | `LLVQ_THREADS` | integer | cap of the encoding pool (`smoke`); ncpu−4 and `nice` on a shared machine |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
+| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, or a power of two in 32..=512 | blocks of the activation one CTA stages in shared memory, a host-injected `#define`: unset is the served 128 on every card, `auto` reads the measured row for this card (`llvq-cuda/src/tile.rs`) and falls back to 128 where none was measured; any other value refused by name. Zero bits, bit-identical output — and it is what the two-card discrepancy turned on |
 | `LLVQ_TIME_EVENTS` | `1` | device span by CUDA events (`planesbench`), outside the published protocol |
 | `LLVQ_BENCH_ARMS` | phases separated by `;` | arms of `planesbench`; unknown name refused |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
