@@ -69,3 +69,49 @@ porte les octets qu'un bras lit pour une matrice.
 Ce sont deux comptabilités et elles ne se comparent pas. La porte de 2,20 se
 lit sur celle du banc, pour le fichier que le banc a lu, et le dossier ne doit
 pas mélanger les deux — c'est la règle des trois comptabilités jamais mêlées.
+
+## É5 — Une relecture adverse la veille du lancement : huit défauts, dont quatre à moi
+
+Lancée pendant la construction de l'image, avant toute dépense. Quatre
+lentilles sur le diff de la nuit, chaque trouvaille passée à un réfutateur
+instruit de réfuter par défaut. Vingt-trois verdicts, **quatorze confirmés**.
+
+**Ce qui aurait faussé un chiffre du tableau de F1d :**
+
+| défaut | ce qu'il aurait imprimé |
+|---|---|
+| aucune garde sur l'appariement par nom | zéro matrice appariée → **0,000 b/poids**, la porte de 2,20 passée sur rien, et `verify_arm` rendant sa meilleure valeur |
+| `worst` initialisé à 0,0 face au sentinelle `NEG_INFINITY` | un bras qui n'a **rien** vérifié imprime `0.0e0`, lu comme un accord parfait — et le commentaire du plancher affirme depuis P4 qu'il imprime `-inf` |
+| le plancher éligible au titre de « bras le plus léger » | « 0,8× la L2 lue », donc *on mesure le cache*, sous le tableau même dont le rapport décide la tuerie |
+| l'avertissement de support inégal imprimé sans condition | **faux** sur le fichier Tetra pur, accolé à la ligne que lit la porte |
+| le grand livre de la fusion A4 sans `gs_off` | `+0,00 %` présenté comme une vérification, alors que le bras fusé lit `d_out · 4` de plus |
+| le rembourrage de ligne facturé | **2,159** là où le dossier publie 2,1498 |
+
+**Le renversement.** J'avais décidé de facturer le rembourrage et de l'annoncer.
+Le réfutateur m'a renversé avec les mots du dépôt lui-même — `planesbench` deux
+cents lignes plus haut : « Upload paddings are NOT billed… billing ours here
+would mix two byte accountings », et `e1v_host.rs:35` : « the landing pad is not
+counted ». L'argument qui tranche est la colonne : la ligne Planes14 reproduit
+le 4,8040 de `ETAT`. Une colonne dont cinq lignes sur six reproduisent le
+dossier a une ligne fausse, et c'était la mienne.
+
+Corrigé au commit `2315370`. **La prédiction P5 (2,158) est donc caduque avant
+la mesure** : avec la convention respectée, la colonne doit imprimer **2,150**,
+et c'est cela qu'il faut lire. Une prédiction écrite contre une comptabilité
+fausse ne se juge pas.
+
+**Trois faux positifs**, tous réfutés en allant au code : le libellé du rapport
+à tête égale de `tile.rs` (le journal étiquette ses colonnes « tête », nullk
+déjà retranché) ; l'ordre de dispatch figé (mécanisme réel, magnitude mesurée
+négligeable) ; l'absence d'avertissement de support sur la ligne vs FP16.
+
+**Deux défauts préexistants** ont été corrigés au passage — le sentinelle et le
+plancher — et aucun n'a été introduit cette nuit. Ils imprimaient depuis P4 et
+depuis le 2026-08-18 respectivement ; le second est visible dans
+`docs/mesures/f1-cublasf16-2026-08-18.txt:110`.
+
+## É6 — L'image
+
+Reconstruite au commit **`2315370`**, qui porte les huit correctifs. Les deux
+constructions précédentes (`88c2294`, `205b9d5`) sont abandonnées sans avoir
+servi.
