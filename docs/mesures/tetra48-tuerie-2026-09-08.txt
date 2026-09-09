@@ -119,18 +119,40 @@ LA RÉSERVE, ET ELLE EST SÉRIEUSE
   arithmétique donnerait R ~ 0,67, soit VERT. C'est précisément le calcul que
   la règle 5 interdit et que ce banc existait pour remplacer.
 
-  Un signe que l'architecture pèse : t(f1r)/t(nullk) vaut 2,4584 ici contre
-  2,21 en référence L40S. Le décodage F1 est relativement PLUS cher sur
-  Blackwell.
+  🚨 CORRECTION du 2026-09-09. Cette section affirmait : « t(f1r)/t(nullk) vaut
+  2,4584 ici contre 2,21 en référence L40S, le décodage F1 est relativement
+  PLUS cher sur Blackwell ». C'est FAUX, et la réfutation était imprimée dans
+  la sortie L40S que j'avais sous les yeux :
+
+      L40S, EN PROCESSUS      t(f1r)/t(nullk) = 2,4822  [2,4679–2,4956]
+      Blackwell, EN PROCESSUS                   2,4584
+
+  Le décodage F1 est donc relativement MOINS cher sur Blackwell, pas plus. Le
+  2,21 que j'avais cité est le 5,103/2,306 de F2 — UN AUTRE PROCESSUS — que la
+  ligne de sortie affiche justement comme repère et jamais comme terme de
+  comparaison. J'ai transporté un rapport entre processus dans le journal même
+  qui existe pour ne plus le faire (règle 5).
+
+  Ce qui SURVIT : les deux termes qui portaient réellement l'argument sont
+  intra-processus des deux côtés, et ils tiennent — `f1r_v2 − f1r` change de
+  signe (+0,203 sur L40S, −0,294 sur Blackwell) et `Du_v3` va de 0,928 à
+  1,947 ms. Le mécanisme a d'ailleurs été trouvé le lendemain et il n'est pas
+  celui-là : c'est la tuile qui volait sa L1 à la table
+  (mesures/tile-sweep-2026-09-09.txt).
 
   Le job 6aa10ba8 rejoue le même banc sur l40sx1. Tant qu'il n'a pas rendu, ce
   journal établit un R intra-processus sur UNE carte, et une seule.
 
 CE QUE ÇA N'ÉTABLIT PAS
 -----------------------
-  - aucun tok/s : 48 % du temps par token est hors des matmuls (attribution du
-    2026-08-05), donc un rapport noyau se comprime bout en bout ; c'est F1e
-    qui mesure le débit servi ;
+  - aucun tok/s. Un rapport noyau se comprime bout en bout, et c'est F1e qui
+    mesure le débit servi. ⚠️ La sortie brute du binaire cite ici « 48 % du
+    temps par token hors des matmuls » : CE CHIFFRE NE DOIT PAS ÊTRE REPRIS.
+    Il vient de docs/archive/audit-perf-noyau-cuda-2026-08-05.md:243, il est
+    MESURÉ SUR METAL, et l'archive le désavoue deux fois comme « une
+    soustraction jamais confirmée par chronomètres »
+    (pistes-facteurs-cles-2026-08-05.md:207, spec-lot-a-2026-08-05.md:71-74).
+    Son dénominateur est un token DENSE. Le message du binaire sera corrigé ;
   - rien sur la qualité : v_proj en int4 n'est pas dans ce banc, et tv_q4_h
     n'a toujours jamais tourné sur une carte ;
   - rien au-delà du 4B : les sept formes sont celles du Qwen3-4B ;
