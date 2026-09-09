@@ -104,12 +104,48 @@ mod linux {
     use llvq_cuda::gpu::{Cuda, KernelSource};
     use llvq_search::fastdec::FastDecoder;
     use llvq_search::tetra::Tetra;
-    use llvq_cuda::TILE_BLOCKS;
+    /// Blocks staged per tile — `llvq_cuda::TILE_BLOCKS` unless
+    /// `LLVQ_TILE_BLOCKS` overrides it.
+    ///
+    /// The tile is the one knob that trades shared memory for barrier count,
+    /// and **no journal has ever varied it**. It is worth varying now: on
+    /// 2026-09-08 the served Tetra decode measured 1.47× Planes14 on sm_120
+    /// and 0.58× on sm_89, and the table floor of 2026-09-09 refuted both the
+    /// capacity and the clock explanations — the table is *faster* on
+    /// Blackwell at every footprint. What is left is the geometry, and the
+    /// tile is what sets residency: `TILE_BLOCKS · 24 · 4` bytes per CTA.
+    ///
+    /// 32 is the floor. Below it `for (j = jlo + lane; j < jhi; j += 32)`
+    /// leaves lanes idle, which is a different kernel, not a smaller tile.
+    fn tile_blocks() -> usize {
+        match std::env::var("LLVQ_TILE_BLOCKS") {
+            Ok(v) => {
+                let n: usize = v.parse().unwrap_or_else(|e| {
+                    panic!("LLVQ_TILE_BLOCKS={v:?}: expected an integer ({e})")
+                });
+                assert!(
+                    (32..=512).contains(&n) && n.is_power_of_two(),
+                    "LLVQ_TILE_BLOCKS={n}: expected a power of two in 32..=512; \
+                     below 32 the lane stride idles lanes and it is another kernel"
+                );
+                n
+            }
+            Err(_) => llvq_cuda::TILE_BLOCKS,
+        }
+    }
     use std::time::Instant;
 
-    // Fourteen rounds, two discarded: twelve kept, a multiple of six, so with
-    // the rotating order every arm opens a round exactly twice.
-    const ROUNDS: usize = 14;
+    // Eighteen rounds, two discarded: sixteen kept, a multiple of EIGHT, so
+    // with the rotating order every arm opens a round exactly twice.
+    //
+    // It was fourteen until 2026-09-09, written when there were six arms, and
+    // the comment still claimed the property the constant no longer had: at
+    // fourteen with eight arms, `f1r`/`v1`/`v2`/`v3` opened two rounds and
+    // `nullk`/`word`/`v3g`/`planes14` one. That did **not** bias R — all three
+    // of its terms were in the once-opening group, checked arm by arm — but it
+    // did bias `v3g − f1r_v3`, which crosses the two groups, and the invariant
+    // a comment asserts has to be the one the code holds.
+    const ROUNDS: usize = 18;
     const WARMUP: usize = 2;
     const THREADS: u32 = 256;
     const LAYERS: usize = 36;
@@ -823,7 +859,8 @@ mod linux {
             "planes.cu",
             "nullk.cu",
         ])?;
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        let tb = tile_blocks();
+        let defines = format!("#define TILE_BLOCKS {tb}u\n");
         let mut parts: Vec<&str> = vec![defines.as_str()];
         parts.extend(base.parts.iter().map(String::as_str));
         let src = KernelSource::new(&parts);
@@ -836,19 +873,42 @@ mod linux {
         }
         let cuda = Cuda::new(&src)?;
         let dev = cuda.device()?;
+        // The whole residency card, not a third of it.
+        //
+        // Until 2026-09-09 this line printed the name, the SM count, the two
+        // shared-per-BLOCK limits and the L2 — and none of the three numbers
+        // that decide how many CTAs an SM actually holds. That is what the
+        // two-card split turned on, and the fields were in `DeviceReport` the
+        // whole time. The older L40S journals even printed the clock; this
+        // bench had lost it.
         println!(
-            "card: {} · {} SM · shared/block {} default, {} opt-in · L2 {:.0} MiB",
+            "card: {} sm_{}{} · {} SM @ {:.0} MHz · L2 {:.0} MiB · mem {:.0} MHz × {} bit",
             dev.name,
+            dev.compute_cap.0,
+            dev.compute_cap.1,
             dev.sm_count,
-            dev.shared_per_block,
-            dev.shared_per_block_optin,
-            dev.l2_bytes as f64 / (1024.0 * 1024.0)
+            dev.clock_khz as f64 / 1000.0,
+            dev.l2_bytes as f64 / (1024.0 * 1024.0),
+            dev.mem_clock_khz as f64 / 1000.0,
+            dev.mem_bus_bits
+        );
+        println!(
+            "  per SM: {} threads, {} registers, {} B shared · per block: {} B default, {} opt-in",
+            dev.max_threads_per_sm, dev.regs_per_sm, dev.shared_per_sm,
+            dev.shared_per_block, dev.shared_per_block_optin
         );
 
         // Control 6: registers and local bytes of the six kernels, from the
         // function attributes. Printed, and the preregs' thresholds (≤ 64
         // registers, 0 local) flagged beside them; a spill does not stop the
         // run, it is the finding.
+        // The tile in bytes: the one term of residency this bench controls.
+        let tile = (tb * DIM * 4) as u32;
+        println!(
+            "\n  tile: {tb} blocks = {tile} B of shared per CTA{}",
+            if tb == llvq_cuda::TILE_BLOCKS { String::new() }
+            else { format!("  ⚠️ LLVQ_TILE_BLOCKS overrides the served {}", llvq_cuda::TILE_BLOCKS) }
+        );
         println!("\n  kernel attributes (prereg reads: registers ≤ 64, local bytes = 0):");
         for name in KERNELS {
             let r = cuda.report(name)?;
@@ -859,13 +919,28 @@ mod linux {
             } else {
                 ""
             };
+            // Residency beside the register count, because the register
+            // count alone does not say what it costs. `occ::residency` is a
+            // model and an upper bound (it rounds the granules down); it is
+            // printed as one, and it is the same arithmetic `A3` sized its
+            // persistent grid with.
+            let ctas = llvq_cuda::occ::residency(
+                r.num_regs as u32,
+                THREADS,
+                tile,
+                dev.max_threads_per_sm as u32,
+                dev.regs_per_sm as u32,
+                dev.shared_per_sm as u32,
+            );
+            let warps = ctas * THREADS / 32;
+            let full = 100.0 * (ctas * THREADS) as f64 / dev.max_threads_per_sm as f64;
             println!(
-                "  {:<12} {:>3} registers, {} local bytes, sm_{}{flag}",
+                "  {:<12} {:>3} registers, {} local bytes, sm_{} · {ctas} CTA/SM = {warps} warps \
+                 = {full:.0}% of the SM (model){flag}",
                 r.name, r.num_regs, r.local_bytes, r.binary_version
             );
         }
 
-        let tile = (TILE_BLOCKS * DIM * 4) as u32;
         let mut rng = SplitMix64::new(SEED);
         let mut shapes = build(&cuda, &mut rng)?;
 
