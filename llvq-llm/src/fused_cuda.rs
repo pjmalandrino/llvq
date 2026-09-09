@@ -113,6 +113,28 @@ enum DeviceStream {
         exc_words: CudaSlice<u32>,
         row_exc: CudaSlice<u32>,
     },
+    Tetra48 {
+        /// The 48-bit words, **row-strided**: the only stream here that is not
+        /// flat over the matrix's blocks. `llvq_artifact::tetra48` explains
+        /// why — a six-byte record is u32-aligned only every second block.
+        words: CudaSlice<u32>,
+        /// Words per row. Carried beside the buffer rather than recomputed at
+        /// the launch site: the transcoder rounds it to eight bytes so the
+        /// last block's read window fits, and a launch that re-derived it from
+        /// `nblocks` with a different rounding would read at a shifted phase.
+        stride_u32: u32,
+    },
+}
+
+/// The five constant arrays `tv_tetra48_h` reads, uploaded once and shared by
+/// every matrix — the `g70_tabs` pattern, and for the same reason: they are
+/// properties of the codebook, not of a projection.
+struct TetraTabs {
+    rows: CudaSlice<u32>,
+    prefixes: CudaSlice<u32>,
+    branches: CudaSlice<u16>,
+    suffixes: CudaSlice<u32>,
+    invnorm: CudaSlice<f32>,
 }
 
 /// One projection's weights, on the device.
@@ -203,6 +225,11 @@ pub struct FusedRuntime {
     /// codeword table and the 512-entry `GolayClassRec` table — present
     /// exactly when the layout is `Golay70`, the `f_emb` pattern.
     g70_tabs: Option<(CudaSlice<u32>, CudaSlice<u32>)>,
+    /// The Tetra constant tables, present exactly when the layout is
+    /// `Tetra48` — the `f_emb` pattern, where the `Some` is the
+    /// *authorisation*: no launch path can reach a table the source list never
+    /// carried.
+    tetra_tabs: Option<TetraTabs>,
     rotations: HashMap<RotKey, RotBuffers>,
     /// The q8 embedding kernels, `(gather, lm_head matvec)` — present exactly
     /// when the runtime was built with [`EmbedMode::Q8`], which is when their
@@ -350,6 +377,23 @@ impl FusedRuntime {
         // matrix — built from the same `Golay70Table` derivation the
         // transcoder encoded against (`fused::golay70_gpu_class_table`), so
         // encoder and decoder cannot drift apart.
+        // The Tetra tables, from the SAME `llvq_search::tetra::Tetra` the
+        // encoder used — `crate::fused::tetra48_tables` owns the shapes and is
+        // checked on a machine without a card.
+        let tetra_tabs = match model.layout {
+            FusedLayout::Tetra48 => {
+                let tb = crate::fused::tetra48_tables(&llvq_search::tetra::Tetra::new());
+                Some(TetraTabs {
+                    rows: cuda.up_u32(&tb.rows).map_err(candle_core::Error::msg)?,
+                    prefixes: cuda.up_u32(&tb.prefixes).map_err(candle_core::Error::msg)?,
+                    branches: cuda.up_u16(&tb.branches).map_err(candle_core::Error::msg)?,
+                    suffixes: cuda.up_u32(&tb.suffixes).map_err(candle_core::Error::msg)?,
+                    invnorm: cuda.up_f32(&tb.invnorm).map_err(candle_core::Error::msg)?,
+                })
+            }
+            _ => None,
+        };
+
         let g70_tabs = match model.layout {
             FusedLayout::Golay70 => {
                 let g70 = llvq_artifact::runtime::Golay70Table::new(&fd);
@@ -428,6 +472,7 @@ impl FusedRuntime {
                 f_matvec,
                 f_matvec_seg,
                 tab,
+                tetra_tabs,
                 g70_tabs,
                 rotations,
                 f_emb,
@@ -976,6 +1021,32 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
                     shared,
                 )
                 .map_err(candle_core::Error::msg)?,
+            DeviceStream::Tetra48 { words, stride_u32 } => {
+                let t = self.rt.tetra_tabs.as_ref().ok_or_else(|| {
+                    candle_core::Error::msg(
+                        "tetra48 stream without its constant tables: the runtime was built \
+                         for another layout",
+                    )
+                })?;
+                launch_tetra48_h(
+                    &self.rt.cuda,
+                    &self.rt.f_matvec,
+                    words,
+                    *stride_u32,
+                    t,
+                    &self.proj.gscale,
+                    &self.proj.rscale,
+                    &self.proj.tail,
+                    xr,
+                    &mut y,
+                    self.proj.nblocks,
+                    self.proj.tail_w,
+                    self.proj.d_out as u32,
+                    THREADS,
+                    shared,
+                )
+                .map_err(candle_core::Error::msg)?
+            }
             DeviceStream::Planes14 { words } => launch_planes_h(
                 &self.rt.cuda,
                 &self.rt.f_matvec,
@@ -1270,6 +1341,59 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     Ok(())
 }
 
+/// `tv_tetra48_h(words, row_stride_u32, rows, prefixes, branches, suffixes,
+/// gscale, invnorm, rscale, tail, x, y, nblocks, tail_w)`.
+///
+/// The grid is `launch_planes_h`'s, unchanged — one warp per row, eight rows a
+/// block — so a residency comparison between the two served layouts is like
+/// for like. What differs is the second argument: `row_stride_u32`, which
+/// Planes14 does not have because it addresses blocks flat. Passing the wrong
+/// stride there does not fail; it reads every row after the first at a shifted
+/// phase and returns plausible, wrong weights, which is why it travels with
+/// the buffer in [`DeviceStream::Tetra48`] rather than being re-derived here.
+#[allow(clippy::too_many_arguments)]
+fn launch_tetra48_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaSlice<u32>,
+    stride_u32: u32,
+    t: &TetraTabs,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    nblocks: u32,
+    tail_w: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(words)
+        .arg(&stride_u32)
+        .arg(&t.rows)
+        .arg(&t.prefixes)
+        .arg(&t.branches)
+        .arg(&t.suffixes)
+        .arg(gscale)
+        .arg(&t.invnorm)
+        .arg(rscale)
+        .arg(tail)
+        .arg(x)
+        .arg(y)
+        .arg(&nblocks)
+        .arg(&tail_w);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_h: {e}"))?;
+    Ok(())
+}
+
 /// The segmented twin of [`launch_planes_h`] — same grid, one extra array.
 ///
 /// `gs_off` sits between `gscale` and `rscale`, which is `tv_planes_seg_h`'s
@@ -1434,6 +1558,12 @@ fn upload_matrix(
             words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
             bases: cuda.up_u32(bases).map_err(candle_core::Error::msg)?,
         },
+        (HostStream::Tetra48 { words, stride_u32 }, FusedLayout::Tetra48) => {
+            DeviceStream::Tetra48 {
+                words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
+                stride_u32: *stride_u32,
+            }
+        }
         (HostStream::Planes14 { words }, FusedLayout::Planes14) => DeviceStream::Planes14 {
             words: cuda.up_u32(words).map_err(candle_core::Error::msg)?,
         },

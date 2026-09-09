@@ -209,3 +209,55 @@ fn the_header_set_is_gated_before_the_first_record() {
         assert!(check_kinds(layout, KindSet::of(CodeKind::Int4G128)).is_ok(), "{}", layout.name());
     }
 }
+
+/// The four constant tables, in the shapes the kernel declares.
+///
+/// Sizes first, because a table of the right content at the wrong length is a
+/// read past the end on a card and nothing at all here.
+#[test]
+fn the_constant_tables_have_the_shapes_the_kernel_declares() {
+    use llvq_llm::fused::tetra48_tables;
+    let t = llvq_search::tetra::Tetra::new();
+    let tb = tetra48_tables(&t);
+    assert_eq!(tb.rows.len(), 4096, "two classes of 2048");
+    assert_eq!(tb.rows.len() * 4, 16_384, "16 KiB, the figure the floor swept");
+    assert_eq!(tb.prefixes.len(), 32, "128 bytes packed four to a u32");
+    assert_eq!(tb.suffixes.len(), 32);
+    assert_eq!(tb.branches.len(), 1024, "64 states x 16 branches");
+    assert_eq!(tb.invnorm.len(), llvq_artifact::tetra48::TETRA48_SHELLS);
+
+    // The byte tables carry the map's own bytes, at byte i.
+    for s in 0..64usize {
+        for b in 0..2usize {
+            let at = 2 * s + b;
+            let got = (tb.prefixes[at / 4] >> (8 * (at % 4))) as u8;
+            assert_eq!(got, t.prefixes()[s][b], "prefixes[{s}][{b}]");
+            let got = (tb.suffixes[at / 4] >> (8 * (at % 4))) as u8;
+            assert_eq!(got, t.suffixes()[s][b], "suffixes[{s}][{b}]");
+        }
+        for b in 0..16usize {
+            let (byte, s16) = t.branches()[s][b];
+            assert_eq!(tb.branches[16 * s + b], byte as u16 | (s16 as u16) << 8);
+        }
+    }
+}
+
+/// `invnorm[0]` is zero, and that entry is the whole handling of the origin.
+///
+/// Word 0 is a legal code and `1/||y||` is a division by zero there. The
+/// kernel has no branch for it; it has this table entry.
+#[test]
+fn the_inverse_norm_table_carries_the_origin_as_zero() {
+    use llvq_llm::fused::tetra48_tables;
+    let tb = tetra48_tables(&llvq_search::tetra::Tetra::new());
+    assert_eq!(tb.invnorm[0], 0.0, "the origin");
+    for (m, &v) in tb.invnorm.iter().enumerate().skip(1) {
+        let want = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+        assert_eq!(v, want, "m = {m}");
+        assert!(v > 0.0 && v.is_finite());
+    }
+    // Strictly decreasing: a bigger shell is a smaller scale.
+    for m in 2..tb.invnorm.len() {
+        assert!(tb.invnorm[m] < tb.invnorm[m - 1], "m = {m}");
+    }
+}

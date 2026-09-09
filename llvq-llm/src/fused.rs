@@ -563,6 +563,69 @@ pub fn check_kinds(layout: FusedLayout, kinds: llvq_artifact::KindSet) -> Result
     Ok(())
 }
 
+/// The four constant tables `tv_tetra48_h` reads, in the shapes it declares.
+///
+/// Built here rather than in `fused_cuda.rs` for the reason that module gives
+/// about `golay70_gpu_class_table`: encoder and decoder must not drift, so the
+/// tables come from the **same** `llvq_search::tetra::Tetra` the encoder used,
+/// and they are built where a machine without a card can check them.
+///
+/// The two byte tables travel packed four to a `u32`, little-endian. The kernel
+/// casts nothing — it declares `const unsigned char*` and reads byte `i` at
+/// byte `i`, which on a little-endian device is what this packing put there.
+/// `bin/f1rankfloor` uploads them the same way and its card-side control 1
+/// pins the result against the Rust reference.
+pub struct Tetra48Tables {
+    /// 4,096 rank rows, two classes of 2,048. 16 KiB.
+    pub rows: Vec<u32>,
+    /// `prefixes[2·s8 + b1]`, 128 bytes packed into 32 u32.
+    pub prefixes: Vec<u32>,
+    /// `branches[16·s8 + b2]` = `byte | s16 << 8`, 1,024 u16.
+    pub branches: Vec<u16>,
+    /// `suffixes[2·s16 + b3]`, 128 bytes packed into 32 u32.
+    pub suffixes: Vec<u32>,
+    /// `1/√(16 m)` with entry 0 **zero** — the origin, reconstructed without a
+    /// branch and without a division. `llvq_artifact::tetra48::TETRA48_SHELLS`
+    /// entries; `m ≤ 27` on this codebook.
+    pub invnorm: Vec<f32>,
+}
+
+pub fn tetra48_tables(t: &llvq_search::tetra::Tetra) -> Tetra48Tables {
+    let pack = |b: &[u8]| -> Vec<u32> {
+        b.chunks(4)
+            .map(|c| {
+                let mut w = [0u8; 4];
+                w[..c.len()].copy_from_slice(c);
+                u32::from_le_bytes(w)
+            })
+            .collect()
+    };
+    let mut prefixes = Vec::with_capacity(128);
+    let mut suffixes = Vec::with_capacity(128);
+    for s in 0..64usize {
+        prefixes.extend_from_slice(&t.prefixes()[s]);
+        suffixes.extend_from_slice(&t.suffixes()[s]);
+    }
+    let mut branches = Vec::with_capacity(1024);
+    for s in 0..64usize {
+        for b in 0..16usize {
+            let (byte, s16) = t.branches()[s][b];
+            branches.push(byte as u16 | (s16 as u16) << 8);
+        }
+    }
+    let mut invnorm = vec![0.0f32; llvq_artifact::tetra48::TETRA48_SHELLS];
+    for (m, e) in invnorm.iter_mut().enumerate().skip(1) {
+        *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+    }
+    Tetra48Tables {
+        rows: t.rows().to_vec(),
+        prefixes: pack(&prefixes),
+        branches,
+        suffixes: pack(&suffixes),
+        invnorm,
+    }
+}
+
 /// The int4 g128 projection source, for a file that carries `Int4G128` records.
 ///
 /// It lives here rather than in `fused_cuda.rs` for the reason this whole
