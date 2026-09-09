@@ -103,3 +103,59 @@ Commit `e21c8eb`.
 
 **~0,02 $ de plomberie**, à réconcilier sur le registre. Le banc lui-même n'a
 pas encore tourné, et sa prédiction signée reste intacte et non lue.
+
+## É4 — La garde d'architecture testait une égalité, et a refusé un run correct
+
+**Job `6aa0397b32d5d0c22c5addbf`, `rtx-pro-6000`, mort ~20 s après `RUNNING`.**
+
+```
+tv_nullk: compiled for sm_120, not sm_89.
+```
+
+`gpu.rs:415` exigeait `binary_version == arch_binary_version()`. Or NVRTC émet
+du PTX et le PTX est compatible **vers l'avant** : le pilote JIT un module
+`compute_89` pour n'importe quel sm ≥ 89 — la phrase même avec laquelle
+`ops/run.py` épingle `MIN_COMPUTE_CAP`. Une RTX PRO 6000 rend 120 parce que le
+mécanisme **fonctionne**.
+
+`compute_120` n'était pas une issue : l'image est CUDA 12.4 et sm_120 est
+arrivé en 12.8, donc son NVRTC ne connaît pas cette architecture.
+
+L'égalité tenait partout où elle avait été exercée — `compute_89` sur L40S,
+`compute_80` sur A100 en F4 — parce que chaque run nommait le sm de sa propre
+carte. La première carte plus récente que son `LLVQ_NVRTC_ARCH` l'a cassée.
+
+Corrigé en ordre : `binary >= compiled_for`. Rien n'est perdu — le repli
+silencieux vers `compute_75` que l'ancien message invoquait n'était déjà pas
+attrapé par l'égalité, puisque sur une carte de sm ≥ la demande
+`binary_version` rend le sm du **device** quel que soit le PTX d'origine.
+
+Le prédicat est sorti du module `cfg(linux)` vers `crate::arch_binary_ok`, pour
+la raison que `lib.rs` donne déjà à propos de `f16_bits` : la machine de dev
+n'a pas de CUDA, et un prédicat que personne ne peut muter sur la machine de
+dev est un prédicat que personne ne vérifie. Trois mutants tués — retour à
+l'égalité (le bug d'origine), garde désactivée, sens inversé. Commit `c878c2e`.
+
+## É5 — Le banc a tourné sur RTX PRO 6000, pas sur la L40S de §5
+
+**Écart de protocole, déclaré avant d'être exploité.**
+
+Le job `6aa01d85900620b5c77e27bd` sur `l40sx1` a attendu **99 minutes** sans
+jamais démarrer, au-delà du maximum historique de 50 min
+(`f1-rang-variantes-2026-09-05`). Sur go de l'opérateur, un job parallèle a été
+lancé sur `rtx-pro-6000` ; il a rendu en 46 s et le L40S a été annulé **en
+file, sans jamais démarrer — 0 $, jamais facturé**.
+
+Conséquence, écrite d'avance dans le prereg §5 et tenue :
+
+- les **absolus** de la prédiction signée (nullk 2,18 ; f1r_v3 3,88) sont
+  ancrés L40S et **ne sont pas lus** ;
+- **R est lu**, parce qu'il est intra-processus : les deux bras tournent dans
+  le même processus, sur les mêmes tours, sur la même horloge, et la règle 5
+  n'est pas sollicitée.
+
+Ce qui reste ouvert et que ce banc ne tranche pas : le verdict dépend-il de
+l'architecture. Indice mesuré — `t(f1r)/t(nullk)` vaut **2,4584** ici contre
+**2,21** en référence L40S, donc le décodage F1 est relativement plus cher sur
+Blackwell. Le job `6aa10ba8900620b5c77e5a7d` rejoue le même banc sur `l40sx1`
+pour répondre.
