@@ -493,6 +493,17 @@ mod linux {
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
         bytes: u64,
+        /// The part of `bytes` that is row padding, and nothing else.
+        ///
+        /// Not a curiosity: it is the whole difference between this column and
+        /// the `rtbits` kernel rate the dossier publishes. `llvq_search::pack`
+        /// writes the DISK stream dense, MSB-first, with no row padding; the
+        /// kernel word is little-endian and **row-strided**, every row rounded
+        /// up to a u32 boundary so `f1r_load`'s six-byte window on the last
+        /// block stays inside the row. So the same file is 2.1498 b/weight on
+        /// disk and ~0.4 % more in VRAM, and both numbers are right. Printed,
+        /// so a reader never has to discover that difference by subtracting.
+        pad_bytes: u64,
         /// Weights this arm covers. NOT the matrix's: `v_proj` is int4 in the
         /// served file and has no lattice arm, so the Tetra arm's b/weight
         /// denominator is its own and every arm's column is now formed from
@@ -1441,6 +1452,14 @@ mod linux {
         if let Some(d) = &base.overridden_from {
             println!("  WARNING: Slot32 SOURCES OVERRIDDEN from {d}");
         }
+        // The four F1/Tetra fragments were the only ones whose override was
+        // never announced. `load_sources_many` returns it and it was dropped:
+        // every `tetra48` figure — b/weight, ms, GB/s, the ratio, the register
+        // report on `tv_f1r_v3g` — would have been attributed to the committed
+        // kernel while a substituted one produced them.
+        if let Some(d) = &f1.overridden_from {
+            println!("  WARNING: F1/Tetra48 SOURCES OVERRIDDEN from {d}");
+        }
         if let Some(d) = &planes_overridden {
             println!("  WARNING: Planes14 SOURCES OVERRIDDEN from {d}");
         }
@@ -2373,6 +2392,7 @@ mod linux {
                             ty.chunks_mut(chunk).zip(tsc.chunks_mut(chunk)).enumerate()
                         {
                             let (blocks, t, x, td) = (&t.blocks, t, &x, &td);
+                            let name = s.name.as_str();
                             sc.spawn(move || {
                                 let mut wrow = vec![0.0f64; d_in];
                                 for lr in 0..yc.len() {
@@ -2400,7 +2420,7 @@ mod linux {
                                             0,
                                             "{}: block {b} of row {row} has |y|² = {n2}, not a \
                                              multiple of 16",
-                                            t.d_out
+                                            name
                                         );
                                         let k = t.centroids[gain as usize] as f64
                                             * t.rscale[row] as f64
@@ -2462,6 +2482,8 @@ mod linux {
                         bytes: t.blocks.data.len() as u64
                             + (d_out * tail_w) as u64 * 4
                             + d_out as u64 * 4,
+                        pad_bytes: t.blocks.data.len() as u64
+                            - (llvq_artifact::tetra48::TETRA48_BYTES * d_out * nblocks) as u64,
                         weights: (d_out * d_in) as u64,
                         y_ref: ty,
                         scale: tsc,
@@ -2575,6 +2597,36 @@ mod linux {
                 }
                 for s in &srcs {
                     mats.push(build(s)?);
+                }
+                // 🚨 Nothing checked that the two files' names agreed, and a
+                // total mismatch is the quietest failure this bench can have:
+                // the Tetra arm covers no matrix, its bytes and its weights
+                // are both zero, `bpw` divides by `max(1)` and prints
+                // **0.000 b/weight** — under the 2.20 gate, which then passes
+                // on nothing — while `verify_arm` reports its best possible
+                // error and the timed pass launches nothing at all.
+                //
+                // So the match is a fact of the run, printed, and a Tetra
+                // record with no home is refused. On the pure Tetra file that
+                // is 252 of 252; on the served mixed one, 216 of 252, the 36
+                // `v_proj` being int4 and having no lattice arm.
+                if !tetra.is_empty() {
+                    let matched = mats.iter().filter(|m| m.tetra.is_some()).count();
+                    println!(
+                        "  tetra48: {matched} of {} matrices matched by name, from {} Tetra \
+                         records",
+                        mats.len(),
+                        tetra.len()
+                    );
+                    if matched != tetra.len() {
+                        return Err(format!(
+                            "the two files do not name the same projections: {} Tetra records, \
+                             {matched} of them found a matrix in the ball file. A record with no \
+                             home would drop out of the timed pass in silence, and the b/weight \
+                             column would divide by weights nobody read.",
+                            tetra.len()
+                        ));
+                    }
                 }
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
@@ -2922,7 +2974,14 @@ mod linux {
                           d_y: &mut cudarc::driver::CudaSlice<f32>,
                           d_yh: &mut Option<cudarc::driver::CudaSlice<u16>>|
          -> Result<f64, String> {
-            let mut worst = 0.0f64;
+            // 🕳️ Seeded at 0.0, so an arm whose every matrix returned
+            // `NEG_INFINITY` folded to **0.0** and printed `0.0e0` — which
+            // reads as perfect agreement with the reference. The floor arm's
+            // own comment says it "prints as `-inf`, which nobody reads as a
+            // measured error": that was the intent and the seed defeated it,
+            // silently, since P4 added the arm. It also caught the Tetra arm,
+            // whose unmatched matrices return the same value.
+            let mut worst = f64::NEG_INFINITY;
             for m in mats {
                 let e = match a {
                     // QTIP writes f32, so it is held to OUR threshold. Its
@@ -3169,6 +3228,9 @@ mod linux {
             let covered = |a: usize| -> usize {
                 mats.iter().filter(|m| arm_weights(m, a) > 0).count()
             };
+            // Rule 8: a number carries its accounting. This column and the
+            // `rtbits` kernel rate differ by exactly this, and by nothing else.
+            let tetra_pad: u64 = mats.iter().filter_map(|m| m.tetra.as_ref()).map(|t| t.pad_bytes).sum();
             let t_f16 = &times[arms::FP16];
             let phase_tag = if n_phases > 1 {
                 format!("  [phase {}/{}: {}]", pi + 1, n_phases, phase.label())
@@ -3212,6 +3274,17 @@ mod linux {
                 );
             }
             println!("  {}", "-".repeat(80));
+            if phase.has(arms::TETRA48) && tetra_pad > 0 {
+                let b = bytes_of(arms::TETRA48);
+                println!(
+                    "  tetra48's b/weight counts {:.1} MB of ROW PADDING ({:.2}% of its {:.2} GB):                      the disk\n  stream is dense MSB-first and the kernel word is row-strided, so                      the same file is\n  ~{:.4} b/weight on disk and {:.4} in VRAM. Both are right;                      they are not the same\n  accounting, and `rtbits` prints the first.",
+                    tetra_pad as f64 / 1e6,
+                    100.0 * tetra_pad as f64 / b as f64,
+                    b as f64 / 1e9,
+                    (b - tetra_pad) as f64 * 8.0 / weights_of(arms::TETRA48).max(1) as f64,
+                    bpw(arms::TETRA48),
+                );
+            }
             for a in arms::DISPLAY_ORDER {
                 if a == arms::FP16 || !phase.has(a) {
                     continue;
@@ -3284,16 +3357,27 @@ mod linux {
                 pair(
                     arms::TETRA48,
                     arms::PLANES14,
-                    "(>1 = Tetra faster — see the two caveats below)",
+                    match nt == np {
+                        true => "(>1 = Tetra faster; DIFFERENT FILES, same 252 matrices — a layout ratio)",
+                        false => "(>1 = Tetra faster — see the caveat below)",
+                    },
                 );
-                println!(
-                    "    ⚠️ DIFFERENT FILES, and NOT the same support: Tetra launched over \
-                     {nt} matrices,\n       Planes14 over {np}. The {} `v_proj` of the served \
-                     file are int4 g128 and\n       are read by another kernel, so this is a \
-                     LAYOUT ratio over unequal passes,\n       not a same-content one. b/weight \
-                     is per arm and divides by what that arm read.",
-                    np.saturating_sub(nt)
-                );
+                // 🕳️ Printed unconditionally, and FALSE on the file F1d runs.
+                // The prereg chose the PURE Tetra file precisely so the two
+                // arms cover the same 252 matrices; a warning saying they do
+                // not would travel into the dossier attached to the one line
+                // the throughput gate reads, and a valid equal-support ratio
+                // would be discounted for a reason that does not exist.
+                if nt != np {
+                    println!(
+                        "    ⚠️ NOT the same support: Tetra launched over {nt} matrices, \
+                         Planes14 over {np}.\n       The {} missing are int4 g128 in the Tetra \
+                         file and are read by another kernel,\n       so this ratio is formed \
+                         over unequal passes. b/weight is per arm and divides\n       by what \
+                         that arm read.",
+                        np.saturating_sub(nt)
+                    );
+                }
             }
             println!("\n  source: {source}");
             let light = arms::DISPLAY_ORDER
@@ -3303,7 +3387,17 @@ mod linux {
                     // — the synthetic path, or a run given no Tetra file — and
                     // 0 wins a `min_by_key` outright. The paragraph below then
                     // calls it "the lightest arm" and divides the L2 by it.
-                    a != arms::FP16 && a != arms::AWQ && phase.has(a) && bytes_of(a) > 0
+                    //
+                    // 🕳️ And the FLOOR wins it whenever it is selected: `nullk`
+                    // reads no weight by definition, so its bytes are the tail
+                    // and the row scales alone — ~72 MB against Planes14's
+                    // ~2.1 GB. The paragraph would then report 0.8× the L2 and
+                    // condemn a run that measures DRAM perfectly well, on the
+                    // arm that was built to read nothing. It is excluded for
+                    // the reason FP16 and AWQ are: the sentence is about the
+                    // LLVQ arms' traffic.
+                    a != arms::FP16 && a != arms::AWQ && a != arms::NULLK
+                        && phase.has(a) && bytes_of(a) > 0
                 })
                 .min_by_key(|&a| bytes_of(a));
             if let Some(la) = light {
@@ -3348,6 +3442,23 @@ mod linux {
                     389_070_848f64 / 1e6,
                     head_s * 1e3,
                     with_head.join(", ")
+                );
+            }
+            // 🚨 Hard rule 4 wants the same-head ratio BESIDE the raw one, and
+            // hard rule 7 wants it formed round by round, never as a quotient
+            // of two minima. The paragraph above gives neither for a PAIR: its
+            // entries are per-arm × against FP16, and each is built from
+            // `spread(...).0`, a minimum. For F1d's headline — the one line a
+            // kill is read off — the two rules are met here explicitly.
+            if phase.has(arms::TETRA48) && phase.has(arms::PLANES14) {
+                let head = |v: &[f64]| -> Vec<f64> { v.iter().map(|t| t + head_s).collect() };
+                let (lo, md, hi) = spread(per_round(
+                    &head(&times[arms::PLANES14]),
+                    &head(&times[arms::TETRA48]),
+                ));
+                println!(
+                    "  tetra48 vs planes14, SAME HEAD : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                     (the f16 lm_head added to BOTH arms, round by round)"
                 );
             }
             println!(
