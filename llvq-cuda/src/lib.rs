@@ -59,6 +59,13 @@ pub mod occ;
 // themselves are GPL v3 and are never committed here; see the module header.
 pub mod qtip_host;
 
+// Portable for the reason `occ` is, and with the same bill attached: the tile
+// is a host-injected constant that reaches a rented card through an
+// `#define`, the development machine has no CUDA, and a knob that arrived
+// wrong there would cost a billed job to notice. The table, the refusals and
+// the policy are all tested here, where tests are free.
+pub mod tile;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
