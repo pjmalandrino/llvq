@@ -94,6 +94,66 @@ CE QUE ÇA N'ÉTABLIT PAS
   - C'est le bras de banc `tv_f1r_v3g`, pas le noyau servi `tv_planes_h` ni
     `fusedrun`. Rien ne dit que le chemin servi réagit pareil.
   - Étiquettes uniformes, flux synthétique, une forme de lancement. Aucun tok/s.
-  - La L40S, carte de référence de tout le dossier, n'a pas encore rendu.
+  - (résolu ci-dessous : la L40S a rendu.)
   - 32 est le PLANCHER : sous 32, `j += 32` laisse des lanes oisives, c'est un
     autre noyau. Il n'y a pas de « et si on descendait encore ».
+
+
+================================================================================
+LA L40S A RENDU — L'OPTIMUM N'EST PAS AU MÊME ENDROIT SUR LES DEUX CARTES
+================================================================================
+Job         : 6aa16562900620b5c77e7141, l40sx1, 30 s de calcul après 3 h 39 de
+              file d'attente, ~0,02 $
+Carte       : NVIDIA L40S sm_89 · 142 SM @ 2520 MHz · L2 96 Mio
+              mem 9001 MHz × 384 bit · par SM 1536 fils, 65536 registres,
+              102400 o partagés — IDENTIQUES à Blackwell sauf la mémoire
+
+  carte      tuile   part/CTA   Tetra tête   Planes14 tête        R
+  ------------------------------------------------------------------
+  L40S         128      12288       1,640          2,834     0,5784
+  L40S          64       6144       1,291          2,766     0,4668   ← optimum
+  L40S          32       3072       1,296          2,755     0,4704
+  Blackwell    128      12288       2,490          1,700     1,4643
+  Blackwell     64       6144       2,515          1,738     1,4472
+  Blackwell     32       3072       1,449          1,707     0,8491   ← optimum
+
+  L40S      : R 0,5784 → 0,4668 à la tuile 64, soit −19,3 %
+              Tetra devient ×2,14 plus rapide que Planes14 (brut ×1,43)
+  Blackwell : R 1,4643 → 0,8491 à la tuile 32, soit −42,0 %
+
+LES DEUX FAITS
+--------------
+  1. LA TUILE GAGNE SUR LES DEUX CARTES, ET LE GAIN EST ENTIÈREMENT POUR TETRA.
+     Planes14 bouge de −2,8 % au mieux sur L40S et +0,4 % sur Blackwell. Il est
+     borné par la mémoire et n'a besoin que de sa ClassRec de 12 Kio : il
+     rentrait déjà. Tetra est borné par son décodage et récupère sa L1.
+
+  2. L'OPTIMUM DIFFÈRE : 64 SUR ADA, 32 SUR BLACKWELL.
+     Sur L40S tout arrive à 64 et 32 est très légèrement pire (0,4704 contre
+     0,4668) — les barrières coûtent ce que la L1 rapporte encore. Sur
+     Blackwell rien à 64 et tout à 32.
+
+     Les deux cartes ont la MÊME partagée par SM (102 400 o) et les MÊMES
+     limites par bloc. Ce n'est donc pas une différence de capacité : c'est le
+     découpage L1/partagée du pilote, dont les paliers ne tombent pas au même
+     endroit selon l'architecture. Rien ici ne le mesure directement — ce banc
+     ne lit aucun compteur matériel, et la plateforme les refuse (F3).
+
+CONSÉQUENCE POUR LE CHEMIN SERVI
+--------------------------------
+  TILE_BLOCKS n'a pas une valeur servie : il en a une PAR ARCHITECTURE. C'est
+  une constante injectée par l'hôte (matvec.cu:15-21), donc elle peut être
+  choisie au chargement à partir du `compute_cap` que gpu.rs lit déjà. Décision
+  d'opérateur, et elle touche Planes14 autant que Tetra.
+
+  ⚠️ Et une prudence qui vaut pour les deux cartes : la tuile change aussi
+  `nullk`, donc les têtes ne sont pas comparables d'une tuile à l'autre. Seuls
+  les R le sont, chacun formé dans son propre processus.
+
+CE QUE ÇA N'ÉTABLIT TOUJOURS PAS
+--------------------------------
+  - Le point de bascule n'est pas encadré : rien entre 64 et 32 sur Blackwell,
+    rien entre 128 et 64 sur L40S. L'assertion actuelle exige une puissance de
+    deux, ce qui n'est pas nécessaire — seul un multiple de 32 l'est.
+  - C'est le bras de banc tv_f1r_v3g, pas le noyau servi ni fusedrun.
+  - Aucun tok/s.
