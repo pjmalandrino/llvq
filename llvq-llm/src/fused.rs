@@ -538,10 +538,21 @@ pub fn serves_kind(layout: FusedLayout, kind: CodeKind) -> bool {
 pub fn check_kinds(layout: FusedLayout, kinds: llvq_artifact::KindSet) -> Result<(), String> {
     for kind in kinds.iter() {
         if !serves_kind(layout, kind) {
+            // The message names the layout that DOES read the kind, when one
+            // exists. A refusal that only says no sends an operator to read
+            // source; this one sends them to `LLVQ_FUSED_LAYOUT`.
+            let go = match kind {
+                CodeKind::Tetra => " Serve it with LLVQ_FUSED_LAYOUT=tetra48.",
+                CodeKind::Ball => {
+                    " Serve it with LLVQ_FUSED_LAYOUT=planes14 (or planes12x, slot32, golay70)."
+                }
+                CodeKind::Int4G128 => "",
+            };
             return Err(format!(
                 "LLVQ_FUSED_LAYOUT={}: this file declares a {kind:?} record, which {} \
-                 cannot read. It transcodes {:?} and carries {:?} beside it; any other \
-                 kind names a different map and would decode to plausible, wrong weights.",
+                 cannot read — it transcodes {:?} and carries {:?} beside it, and any \
+                 other kind names a different map that would decode to plausible, wrong \
+                 weights.{go}",
                 layout.name(),
                 layout.name(),
                 lattice_kind(layout),
@@ -865,6 +876,39 @@ pub struct FusedMatrix {
     /// reads: the payload, whatever addressing the layout carries beside it
     /// (`Slot32`'s bases, `Planes12x`'s exception table and row offsets), and
     /// [`matrix_side_bytes`] for the tail and the row scales.
+    pub bytes: u64,
+}
+
+/// One `Int4G128` projection, uploaded as it is stored.
+///
+/// Deliberately **not** a variant of [`FusedMatrix`]. That struct carries a
+/// `gscale`, a `rscale`, a `tail` and a `rotation`, and an int4 record has
+/// none of the four: it is stored group-affine in the natural basis, never
+/// GPTQ, never the rotation, never the lattice (`calib.rs:793-812`). Folding
+/// it in would mean four `Option`s on the hot struct and a reader who cannot
+/// tell which combinations are legal. A separate list says it once.
+///
+/// The weights are the file's own bytes. Nothing here decodes, rescales or
+/// reorders them — `tv_q4_h` reads `scale · (q − zero)` off exactly these
+/// three arrays, and `tests/proj_q4.rs` pins that arithmetic against
+/// [`llvq_artifact::Int4Matrix::to_f32`] on the development machine.
+pub struct FusedInt4 {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// Groups along `d_in`; `d_in / group` per output row.
+    pub group: usize,
+    /// `d_out · d_in / 2` bytes, row-major, **low nibble first**. A lattice
+    /// index in the same file is packed MSB-first: two orders in one file, and
+    /// a reader that assumed one convention for both would produce plausible,
+    /// wrong weights.
+    pub packed: Vec<u8>,
+    /// One binary16 per group, `d_out × (d_in / group)`, row-major.
+    pub scales: Vec<u16>,
+    /// Same shape, same order.
+    pub biases: Vec<u16>,
+    /// Bytes this matrix costs at runtime: the three arrays, and nothing else.
+    /// There is no tail and no row scale to add.
     pub bytes: u64,
 }
 
@@ -1445,6 +1489,12 @@ pub struct FusedModel {
     /// The row-concatenated groups, empty under [`FuseMode::Off`] — where this
     /// struct is then byte-identical to what shipped before this lot.
     pub groups: Vec<FusedGroup>,
+    /// The `Int4G128` projections, empty for every file written before
+    /// `LLVQ_INT4_TYPES` existed — which is every published artifact. They sit
+    /// beside the lattice matrices rather than among them because they share
+    /// no code path with them: a different kernel, a different basis, a
+    /// different packing order.
+    pub int4: Vec<FusedInt4>,
     pub rotations: HashMap<RotKey, RotationTables>,
     /// Embedding and norms, carried verbatim, **still in the file's own
     /// encoding** — f16 bits, or int8 g64 for an `embedq` output. Decoding is
@@ -1931,22 +1981,56 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // four hundred Ball ones is a file this path cannot serve, and the refusal
     // has to land here, before any record is read through `read_matrix_raw` as
     // a Ball record.
-    llvq_artifact::runtime::require_ball_kinds(head.kinds(), layout.name())
-        .map_err(|e| e.to_string())?;
-    let tr = Transcoder::new(layout)?;
+    check_kinds(layout, head.kinds())?;
+    let tr = Transcoder::for_kind(layout, lattice_kind(layout))?;
     let mut matrices = Vec::with_capacity(head.matrices as usize);
+    let mut int4: Vec<FusedInt4> = Vec::new();
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
 
     for _ in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r, head.version).map_err(|e| e.to_string())?;
+        // `read_record` and not `read_matrix_raw`: the latter reads every
+        // record as a lattice body whatever its kind tag says, which for an
+        // int4 record is not a refusal but a misparse — it would consume the
+        // wrong number of bytes and desynchronise every record after it.
+        let rec = llvq_artifact::read_record(&mut r, head.version).map_err(|e| e.to_string())?;
         // The record's own kind, not only the header's set: the set is a
         // declaration, and a file whose header under-reports it would reach
-        // the transcoder here with a Tetra record in hand.
-        llvq_artifact::runtime::require_ball(m.kind, layout.name()).map_err(|e| e.to_string())?;
-        // Every decoder hard-codes one gain bit (`hdr >> 9`). A file with a
-        // different gain width would transcode into a coherent stream and
-        // decode into garbage — silently.
+        // the transcoder here with the wrong map in hand.
+        if !serves_kind(layout, rec.kind()) {
+            return Err(format!(
+                "{}: a {:?} record in a file served as {}",
+                rec.name(),
+                rec.kind(),
+                layout.name()
+            ));
+        }
+        let m = match rec {
+            llvq_artifact::Record::Int4(q) => {
+                // Nothing to transcode: the kernel reads these bytes. The
+                // weights count toward the model's quantized total exactly as
+                // a lattice matrix's do — they are quantized, just not by us.
+                quantized_weights += q.d_out * q.d_in;
+                let bytes = (q.packed.len() + 2 * q.scales.len() + 2 * q.biases.len()) as u64;
+                int4.push(FusedInt4 {
+                    name: q.name,
+                    d_out: q.d_out,
+                    d_in: q.d_in,
+                    group: q.group,
+                    packed: q.packed,
+                    scales: q.scales,
+                    biases: q.biases,
+                    bytes,
+                });
+                continue;
+            }
+            llvq_artifact::Record::Lattice(m) => m,
+        };
+        // Every lattice decoder hard-codes one gain bit (`hdr >> 9`). A file
+        // with a different gain width would transcode into a coherent stream
+        // and decode into garbage — silently. Lattice-only since 2026-09-09:
+        // an int4 record carries no centroid at all, so this check used to
+        // fire on exactly the record a mixed file most needs.
         if m.centroids.len() != 2 {
             return Err(format!(
                 "{}: {} centroids, but the kernels hardcode 1 gain bit",
@@ -2030,6 +2114,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     }
 
     Ok(FusedModel {
+        int4,
         layout,
         matrices,
         groups,
