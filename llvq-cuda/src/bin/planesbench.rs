@@ -2442,7 +2442,26 @@ mod linux {
                         gscale: cuda.up_f32(&t.centroids)?,
                         rscale: cuda.up_f32(&t.rscale)?,
                         tail: cuda.up_f32(if t.tail.is_empty() { &[0.0f32] } else { &t.tail })?,
-                        bytes: t.blocks.data.len() as u64,
+                        // The stream PLUS the tail and the row scales, like
+                        // every other arm here (`SlotArm` :2113, `PlanesArm`
+                        // :2122, `P12Arm` :2164): this column is what the
+                        // kernel READS for one matrix, not what the format
+                        // spends on codes. It was the stream alone, which
+                        // would have understated Tetra's b/weight against
+                        // every arm it is printed beside.
+                        //
+                        // And the PADDED length, where Planes14 counts its
+                        // unpadded stream — not an inconsistency, a difference
+                        // between the two layouts. Planes14 is flat at a
+                        // uniform 14-byte stride and its 4-byte pad is a read
+                        // window past the end; Tetra pads EVERY ROW to a u32
+                        // boundary and the kernel reads over that pad on every
+                        // row. `Tetra48Blocks::bits_per_weight` says the same,
+                        // and names the accounting error of 2026-07-31 that
+                        // omitting it would repeat.
+                        bytes: t.blocks.data.len() as u64
+                            + (d_out * tail_w) as u64 * 4
+                            + d_out as u64 * 4,
                         weights: (d_out * d_in) as u64,
                         y_ref: ty,
                         scale: tsc,
