@@ -326,6 +326,20 @@ impl ArmSet {
         self.bits |= 1u32 << arm;
     }
 
+    /// Take an arm out of a set.
+    ///
+    /// Exists for exactly one case, and it should stay that way: a DEFAULT
+    /// selection narrowed because the run was not given what the arm needs.
+    /// `runnable()` says a kernel exists, not that this invocation can feed
+    /// it — `tetra48` needs a second file, and a bare `planesbench <ball>` is
+    /// the invocation every published run used. Narrowing it loudly is right;
+    /// narrowing an EXPLICIT `LLVQ_BENCH_ARMS` would be a selection the
+    /// operator did not make, so callers refuse instead.
+    pub fn remove(&mut self, arm: usize) {
+        debug_assert!(arm < N_ARMS);
+        self.bits &= !(1u32 << arm);
+    }
+
     pub fn is_superset_of(self, other: ArmSet) -> bool {
         self.bits & other.bits == other.bits
     }

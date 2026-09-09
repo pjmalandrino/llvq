@@ -1218,7 +1218,30 @@ mod linux {
         // changes the buffers and the dispatch, never the compiled text nor
         // the register report (the opposite would redo É1).
         let arms_var = std::env::var("LLVQ_BENCH_ARMS").ok();
-        let phases = arms::parse_phases(arms_var.as_deref())?;
+        let mut phases = arms::parse_phases(arms_var.as_deref())?;
+        // The Tetra arm needs a SECOND file, and `runnable()` cannot know
+        // whether this invocation was given one: it says a kernel exists, not
+        // that anything can feed it.
+        //
+        // A bare `planesbench <ball.llvq>` is the invocation every published
+        // run used, so a DEFAULT selection is narrowed rather than refused —
+        // loudly, on its own line, because an arm that vanishes without a word
+        // is the failure this whole step is about. An EXPLICIT
+        // `LLVQ_BENCH_ARMS=…,tetra48,…` is refused instead, further down: that
+        // is a selection the operator made, and narrowing it would be making
+        // a different one for them.
+        let tetra_path = std::env::args().nth(2);
+        if tetra_path.is_none() && arms_var.is_none() {
+            for p in phases.iter_mut() {
+                p.remove(arms::TETRA48);
+            }
+            println!(
+                "no second file: the tetra48 arm is OUT of this run. It reads a Tetra file, \
+                 which\n  cannot be the same file as the ball arms' — pass it as the second \
+                 argument."
+            );
+        }
+        let phases = phases;
         let union: ArmSet = {
             let mut u = ArmSet::empty();
             for p in &phases {
@@ -1746,7 +1769,6 @@ mod linux {
         let mut tetra: std::collections::HashMap<String, TetraSrc> =
             std::collections::HashMap::new();
         let mut tetra_int4 = 0usize;
-        let tetra_path = std::env::args().nth(2);
         if let Some(path) = &tetra_path {
             let f = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
             let mut r = std::io::BufReader::new(f);

@@ -615,7 +615,12 @@ mod tests {
                 t *= 2;
             }
         }
-        assert!(crate::tile::TILE_MAX * XS_PAD * 4 > ALLOWANCE, "the padded overflow is gone: re-read this test");
+        let widest = crate::tile::TILE_MAX * XS_PAD * 4;
+        assert_eq!(
+            widest - ALLOWANCE,
+            8_192,
+            "the padded stride no longer overruns at TILE_MAX: this test's premise moved"
+        );
     }
 
     /// The L40S numbers of the design note: 40 registers, 256 threads,
