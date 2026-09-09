@@ -1304,10 +1304,7 @@ mod linux {
         // The A3 arms size their launches from the constant and `occ_pers`
         // changes branch at the tile boundary, so the two selections are
         // refused together rather than measured apart.
-        llvq_cuda::occ::refuse_off_served_tile(
-            &seg_arms,
-            tile.source == llvq_cuda::tile::TileSource::Served,
-        )?;
+        llvq_cuda::occ::refuse_off_served_tile(&seg_arms, tile.blocks)?;
 
         let g70_needed = union.has(arms::GOLAY70V1) || union.has(arms::GOLAY70V2);
 

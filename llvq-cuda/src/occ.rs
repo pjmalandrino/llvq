@@ -162,12 +162,20 @@ pub fn slice(nblocks: u32, nsplit: u32, s: u32) -> (u32, u32) {
 /// and F1d does not run it. So it is refused by name rather than rebuilt: a
 /// refusal costs nothing anyone is using, and threading a tile through four
 /// functions would still leave the branch.
-pub fn refuse_off_served_tile(seg_arms: &[usize], tile_is_served: bool) -> Result<(), String> {
-    if seg_arms.is_empty() || tile_is_served {
+///
+/// 🕳️ It took the *provenance* of the tile and not its **value**, and that was
+/// wrong in two directions at once. `LLVQ_TILE_BLOCKS=128` gives
+/// `TileSource::Env` at 128 blocks and was refused — with a message saying
+/// "a tile other than the served 128" about a tile that IS 128. And
+/// `LLVQ_TILE_BLOCKS=auto` on a card with no measured row falls back to 128
+/// and was refused the same way. What this section cannot survive is a
+/// different NUMBER; where that number came from is nobody's business here.
+pub fn refuse_off_served_tile(seg_arms: &[usize], tile_blocks: usize) -> Result<(), String> {
+    if seg_arms.is_empty() || tile_blocks == crate::TILE_BLOCKS {
         return Ok(());
     }
     Err(format!(
-        "LLVQ_SEG_ARMS={} with a tile other than the served {}: refused. The A3 arms \
+        "LLVQ_SEG_ARMS={} at tile {tile_blocks}, not the served {}: refused. The A3 arms \
          size their launches from the constant, not from the resolved tile, and \
          `occ_pers` changes branch at `nblocks <= TILE_BLOCKS` — below the tile the \
          2560-wide sites lose the single-stage path, which is another algorithm under \
@@ -485,13 +493,31 @@ mod tests {
     #[test]
     fn the_a3_arms_are_refused_off_the_served_tile() {
         // Nothing selected: nothing to refuse, whatever the tile.
-        assert!(refuse_off_served_tile(&[], true).is_ok());
-        assert!(refuse_off_served_tile(&[], false).is_ok());
+        assert!(refuse_off_served_tile(&[], crate::TILE_BLOCKS).is_ok());
+        assert!(refuse_off_served_tile(&[], 32).is_ok());
         // The served tile: the section runs as it always has.
-        assert!(refuse_off_served_tile(&[PERS], true).is_ok());
+        assert!(refuse_off_served_tile(&[PERS], crate::TILE_BLOCKS).is_ok());
+        // 🕳️ And the served VALUE, however it was reached. Both of these
+        // resolve to 128 and were refused while this took the provenance
+        // instead: `LLVQ_TILE_BLOCKS=128` (an explicit request that happens to
+        // be the served number), and `LLVQ_TILE_BLOCKS=auto` on a card absent
+        // from `TILE_BY_SM`, which falls back to it.
+        for req in [
+            crate::tile::TileRequest::Fixed(crate::TILE_BLOCKS),
+            crate::tile::TileRequest::Auto,
+        ] {
+            let t = crate::tile::resolve_with(req, (8, 0));
+            assert_eq!(t.blocks, crate::TILE_BLOCKS);
+            assert!(
+                refuse_off_served_tile(&[PERS], t.blocks).is_ok(),
+                "refused a tile of {} because of where it came from ({:?})",
+                t.blocks,
+                t.source
+            );
+        }
         // Any other tile, and it is refused by name — both variables, so the
         // operator knows which of the two to drop.
-        let e = refuse_off_served_tile(&[PERS, SK1], false).expect_err("must refuse");
+        let e = refuse_off_served_tile(&[PERS, SK1], 32).expect_err("must refuse");
         assert!(e.contains("LLVQ_SEG_ARMS"), "{e}");
         assert!(e.contains("LLVQ_TILE_BLOCKS"), "{e}");
         assert!(e.contains("pers") && e.contains("sk1"), "{e}");

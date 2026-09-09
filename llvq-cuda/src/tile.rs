@@ -365,6 +365,46 @@ mod tests {
         );
     }
 
+    /// No binary may fork the knob again.
+    ///
+    /// 🕳️ `request()` reads the environment through a `OnceLock`, so a binary
+    /// that never calls it never reads `LLVQ_TILE_BLOCKS` — and says nothing.
+    /// On 2026-09-10 four still did: `nullkbench` and `f1floorbench` wrote
+    /// their own `#define` from the constant, `matvec` and `graphbench` each
+    /// carried a private `const TILE_BLOCKS = 128`. `LLVQ_TILE_BLOCKS=32
+    /// nullkbench` printed a tile-128 floor with no line saying so, and the
+    /// journal records nullk moving 6.1 % between those two tiles — a wrong
+    /// subtrahend, carried across processes into the very same-head ratio hard
+    /// rule 4 exists to protect.
+    ///
+    /// Nothing could detect that: silence is what an unread `OnceLock` does.
+    /// So the tree is the detector. Every binary spends its tile through
+    /// [`Tile::define`] and [`Tile::shared_bytes`], and a new one that writes
+    /// the `#define` itself fails here rather than on a card.
+    #[test]
+    fn no_binary_writes_its_own_tile() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/bin");
+        let mut seen = 0;
+        for e in std::fs::read_dir(&dir).expect("src/bin") {
+            let path = e.expect("dir entry").path();
+            if path.extension().and_then(|x| x.to_str()) != Some("rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read bin");
+            seen += 1;
+            for banned in ["#define TILE_BLOCKS ", "const TILE_BLOCKS"] {
+                assert!(
+                    !text.contains(banned),
+                    "{}: writes `{banned}` itself. Spend the tile through \
+                     `tile::resolve` — a private one is invisible to \
+                     LLVQ_TILE_BLOCKS and to every reader of the output",
+                    path.display()
+                );
+            }
+        }
+        assert!(seen >= 8, "only {seen} binaries scanned: the directory moved");
+    }
+
     #[test]
     fn every_refusal_names_the_variable() {
         for bad in ["0", "16", "1024", "96", "-64", "", "yes", "128b", "AUTO"] {

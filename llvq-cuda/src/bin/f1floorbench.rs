@@ -68,7 +68,6 @@ mod linux {
     use cudarc::driver::PushKernelArg;
     use llvq_core::{SplitMix64, DIM};
     use llvq_cuda::gpu::{Cuda, KernelSource};
-    use llvq_cuda::TILE_BLOCKS;
     use std::time::Instant;
 
     const ROUNDS: usize = 9;
@@ -275,7 +274,14 @@ mod linux {
 
     pub fn run() -> Result<(), String> {
         let base = llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "f1floor.cu", "nullk.cu"])?;
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        // The tile, resolved from the card before the source exists — it is a
+        // `#define` in that text. Wired on 2026-09-10: this binary carried its
+        // own reading of TILE_BLOCKS and never looked at `LLVQ_TILE_BLOCKS`,
+        // so a sweep that moved the knob moved every OTHER binary and left
+        // this one printing a tile-128 figure with no line saying so.
+        let tl = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        println!("{}", tl.provenance());
+        let defines = tl.define();
         let mut parts: Vec<&str> = vec![defines.as_str()];
         parts.extend(base.parts.iter().map(String::as_str));
         let src = KernelSource::new(&parts);
@@ -287,7 +293,7 @@ mod linux {
             dev.name, dev.sm_count, dev.shared_per_block, dev.shared_per_block_optin,
             dev.l2_bytes as f64 / (1024.0 * 1024.0));
 
-        let tile = (TILE_BLOCKS * DIM * 4) as u32;
+        let tile = tl.shared_bytes();
         let mut shapes = build(&cuda)?;
 
         // The tables. Contents are never read for meaning, only folded.
