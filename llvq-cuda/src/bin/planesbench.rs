@@ -493,16 +493,14 @@ mod linux {
         rscale: cudarc::driver::CudaSlice<f32>,
         tail: cudarc::driver::CudaSlice<f32>,
         bytes: u64,
-        /// The part of `bytes` that is row padding, and nothing else.
+        /// The row padding, which `bytes` deliberately does NOT include.
         ///
-        /// Not a curiosity: it is the whole difference between this column and
-        /// the `rtbits` kernel rate the dossier publishes. `llvq_search::pack`
-        /// writes the DISK stream dense, MSB-first, with no row padding; the
-        /// kernel word is little-endian and **row-strided**, every row rounded
-        /// up to a u32 boundary so `f1r_load`'s six-byte window on the last
-        /// block stays inside the row. So the same file is 2.1498 b/weight on
-        /// disk and ~0.4 % more in VRAM, and both numbers are right. Printed,
-        /// so a reader never has to discover that difference by subtracting.
+        /// It is real VRAM — the stream allocated and uploaded IS the padded
+        /// one — and it is not billed, exactly as the slot arm's 20-byte pad
+        /// and the planes arm's 4-byte pad are not. Carried so the run can say
+        /// how much VRAM it holds without billing it into a rate, which is the
+        /// difference between the two accountings this repository refuses to
+        /// mix.
         pad_bytes: u64,
         /// Weights this arm covers. NOT the matrix's: `v_proj` is int4 in the
         /// served file and has no lattice arm, so the Tetra arm's b/weight
@@ -1807,7 +1805,9 @@ mod linux {
                     llvq_artifact::Record::Lattice(m) => {
                         if m.kind != llvq_artifact::CodeKind::Tetra {
                             return Err(format!(
-                                "{path}: {} is a {} record. The second path is the Tetra file;                                  the first is the ball one, and swapping them is the one mistake                                  that would otherwise run",
+                                "{path}: {} is a {} record. The second path is the \
+                                 Tetra file; the first is the ball one, and swapping \
+                                 them is the one mistake that would otherwise run",
                                 m.name,
                                 m.kind.name()
                             ));
@@ -2479,7 +2479,27 @@ mod linux {
                         // row. `Tetra48Blocks::bits_per_weight` says the same,
                         // and names the accounting error of 2026-07-31 that
                         // omitting it would repeat.
-                        bytes: t.blocks.data.len() as u64
+                        // The UNPADDED stream, which is this repository's
+                        // stated convention and not a choice made here: the
+                        // Planes14 arm ignores its 4-byte pad — "billing ours
+                        // here would mix two byte accountings, the exact
+                        // mistake the K-1 lot eliminated" — and
+                        // `e1v_host.rs:35` says it outright, "the landing pad
+                        // is not counted".
+                        //
+                        // Tetra's row pad is that same species. `stride_u32`
+                        // rounds each row to EIGHT bytes and its own doc says
+                        // why: "what covers the last block's two-word read
+                        // window". On the 4B's shapes `6·nblocks` is already a
+                        // multiple of 4 at nblocks 106 and 170, so none of
+                        // those bytes is alignment — they are landing window.
+                        //
+                        // The decisive check is the column itself: Planes14's
+                        // row reproduces ETAT's 4.8040. A column where five
+                        // rows reproduce the record and the sixth does not has
+                        // one wrong row, and billing the pad would print 2.159
+                        // for a file the dossier publishes at 2.1498.
+                        bytes: (llvq_artifact::tetra48::TETRA48_BYTES * d_out * nblocks) as u64
                             + (d_out * tail_w) as u64 * 4
                             + d_out as u64 * 4,
                         pad_bytes: t.blocks.data.len() as u64
@@ -3256,6 +3276,13 @@ mod linux {
                 "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}",
                 "format", "min ms", "med ms", "max ms", "GB read", "b/weight", "GB/s(min)"
             );
+            // 🚨 The tile, ON the table. Its provenance is printed once, some
+            // thirty lines and a three-minute transcode earlier, and F1d runs
+            // THREE processes at three tiles into one journal: a reader
+            // comparing two tables would have to scroll past a transcode to
+            // learn which is which, and the numbers only differ by the thing
+            // that is off-screen.
+            println!("  {}", tile.provenance());
             for a in arms::DISPLAY_ORDER {
                 if !phase.has(a) {
                     continue;
@@ -3275,14 +3302,12 @@ mod linux {
             }
             println!("  {}", "-".repeat(80));
             if phase.has(arms::TETRA48) && tetra_pad > 0 {
-                let b = bytes_of(arms::TETRA48);
                 println!(
-                    "  tetra48's b/weight counts {:.1} MB of ROW PADDING ({:.2}% of its {:.2} GB):                      the disk\n  stream is dense MSB-first and the kernel word is row-strided, so                      the same file is\n  ~{:.4} b/weight on disk and {:.4} in VRAM. Both are right;                      they are not the same\n  accounting, and `rtbits` prints the first.",
+                    "  tetra48 also HOLDS {:.1} MB of row landing pad, NOT billed above — the \
+                     convention\n  the slot arm's 20-byte pad and the planes arm's 4-byte pad \
+                     already follow.\n  Real VRAM, not a rate: `stride_u32` rounds each row to \
+                     eight bytes so the last\n  block's six-byte window cannot fault.",
                     tetra_pad as f64 / 1e6,
-                    100.0 * tetra_pad as f64 / b as f64,
-                    b as f64 / 1e9,
-                    (b - tetra_pad) as f64 * 8.0 / weights_of(arms::TETRA48).max(1) as f64,
-                    bpw(arms::TETRA48),
                 );
             }
             for a in arms::DISPLAY_ORDER {
@@ -3744,9 +3769,18 @@ mod linux {
                 let slot_bytes = rt.data.len() as u64
                     + rt.bases.len() as u64 * 4
                     + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4
+                    // `gs_off`, as for the planes arm below.
                     + seg.d_out as u64 * 4;
+                // 🕳️ `gs_off` was missing. The FUSED kernel reads one extra
+                // u32 a row naming that row's centroid pair
+                // (`kernels/planes_seg.cu`) and the unfused one does not — it
+                // is the only byte fusion ADDS. Without it the ledger below
+                // printed `+0.00%` and the sentence beside it called that a
+                // verification.
                 let planes_bytes = pdata.len() as u64
                     + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4
                     + seg.d_out as u64 * 4;
 
                 let mut sbytes = rt.data.clone();
