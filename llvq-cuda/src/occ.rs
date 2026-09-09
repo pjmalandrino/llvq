@@ -558,6 +558,66 @@ mod tests {
         assert_eq!(over - 49_152, 8_192, "the padded stride overruns by 8 KiB at TILE_MAX");
     }
 
+    /// Every tile that can actually reach a launch fits the per-block shared
+    /// allowance, at the stride that launch uses.
+    ///
+    /// `Tile::shared_bytes()` hardcodes the 24-float stride and `TILE_MAX` is
+    /// justified against it: 512 · 24 · 4 = 49,152 B, exactly the default
+    /// allowance. At the padded stride the same tile would ask 57,344 and the
+    /// driver would refuse the launch on the card.
+    ///
+    /// That is safe **only because** `refuse_off_served_tile` keeps the two
+    /// padded arms at the served tile — and until now that coupling lived in a
+    /// doc comment, where nothing enforces it. Here it is arithmetic: relax
+    /// the refusal and this test goes red on the development machine instead
+    /// of the launch going red on a billed job.
+    #[test]
+    fn no_tile_that_can_launch_overflows_the_shared_allowance() {
+        /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK`, the default
+        /// allowance on every card this repository has measured. The opt-in
+        /// limit is larger and no arm here asks for it.
+        const ALLOWANCE: usize = 49_152;
+
+        // The 24-float arms take any admissible tile.
+        let mut t = crate::tile::TILE_MIN;
+        while t <= crate::tile::TILE_MAX {
+            let want = crate::tile::Tile {
+                blocks: t,
+                source: crate::tile::TileSource::Env,
+            }
+            .shared_bytes() as usize;
+            assert_eq!(want, t * XS_DIM * 4);
+            assert!(want <= ALLOWANCE, "tile {t} at stride {XS_DIM} asks {want} B");
+            t *= 2;
+        }
+
+        // The padded arms take ONE tile, because the refusal leaves them one.
+        for a in [PAD, MR2P] {
+            assert_eq!(XS_STRIDE[a], XS_PAD);
+            let served = crate::TILE_BLOCKS * XS_PAD * 4;
+            assert!(
+                served <= ALLOWANCE,
+                "{}: the served tile asks {served} B at the padded stride",
+                SEG_ARM_NAMES[a]
+            );
+            // And every other admissible tile is unreachable BY REFUSAL, not
+            // by arithmetic: the next power of two up already overflows.
+            let mut t = crate::tile::TILE_MIN;
+            while t <= crate::tile::TILE_MAX {
+                if t != crate::TILE_BLOCKS {
+                    assert!(
+                        refuse_off_served_tile(&[a], t).is_err(),
+                        "{}: tile {t} is not refused, and it would ask {} B",
+                        SEG_ARM_NAMES[a],
+                        t * XS_PAD * 4
+                    );
+                }
+                t *= 2;
+            }
+        }
+        assert!(crate::tile::TILE_MAX * XS_PAD * 4 > ALLOWANCE, "the padded overflow is gone: re-read this test");
+    }
+
     /// The L40S numbers of the design note: 40 registers, 256 threads,
     /// 12,288 bytes → 6 CTAs an SM, 852 on 142 SM — the `852` every comment
     /// quotes. Padded staging (14,336 bytes) still allows 7 by shared memory, so
