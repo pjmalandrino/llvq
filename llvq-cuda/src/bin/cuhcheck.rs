@@ -252,6 +252,13 @@ fn main() {
             .arg(&shim_dir)
             // The tiling `matvec.cu` `#error`s without, read from the one place
             // it is defined rather than retyped here.
+            //
+            // The **served** constant, deliberately, and not a resolved
+            // `tile::Tile`: this is a syntax check on a machine with no card,
+            // so there is no capability to resolve against, and no value of
+            // the tile changes what parses. What a resolved tile would add
+            // here is a dependence on the environment of whoever runs the
+            // check — the one thing a parse gate must not have.
             .arg(format!("-DTILE_BLOCKS={}u", llvq_cuda::TILE_BLOCKS))
             .arg("-I")
             .arg(&dir)

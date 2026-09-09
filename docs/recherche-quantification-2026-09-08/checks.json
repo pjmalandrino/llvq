@@ -1,0 +1,43 @@
+{
+  "status": "pass",
+  "tests": {
+    "kronq_compensation": {
+      "expected_suffix": "-2/5",
+      "left_weights": [
+        1,
+        7,
+        101
+      ],
+      "all_derivatives_zero": true
+    },
+    "schur_factor": {
+      "schur": [
+        [
+          "1/4"
+        ]
+      ],
+      "factor_product": [
+        [
+          "1/4"
+        ]
+      ]
+    },
+    "gptq2d": {
+      "exact_cases": 25,
+      "dimensions": "1..5 squared",
+      "trajectory_equal": true
+    },
+    "output_coupling": {
+      "independent_cost": 0.91238,
+      "coupled_candidate_cost": 0.05038,
+      "coupled_wins": true
+    },
+    "fisher_mean_field": {
+      "exact_A": 4.0,
+      "exact_B": 100.0,
+      "mean_field_A": 202.0,
+      "mean_field_B": 50.5,
+      "ranking_reversed": true
+    }
+  }
+}

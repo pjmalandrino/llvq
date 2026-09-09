@@ -104,35 +104,6 @@ mod linux {
     use llvq_cuda::gpu::{Cuda, KernelSource};
     use llvq_search::fastdec::FastDecoder;
     use llvq_search::tetra::Tetra;
-    /// Blocks staged per tile — `llvq_cuda::TILE_BLOCKS` unless
-    /// `LLVQ_TILE_BLOCKS` overrides it.
-    ///
-    /// The tile is the one knob that trades shared memory for barrier count,
-    /// and **no journal has ever varied it**. It is worth varying now: on
-    /// 2026-09-08 the served Tetra decode measured 1.47× Planes14 on sm_120
-    /// and 0.58× on sm_89, and the table floor of 2026-09-09 refuted both the
-    /// capacity and the clock explanations — the table is *faster* on
-    /// Blackwell at every footprint. What is left is the geometry, and the
-    /// tile is what sets residency: `TILE_BLOCKS · 24 · 4` bytes per CTA.
-    ///
-    /// 32 is the floor. Below it `for (j = jlo + lane; j < jhi; j += 32)`
-    /// leaves lanes idle, which is a different kernel, not a smaller tile.
-    fn tile_blocks() -> usize {
-        match std::env::var("LLVQ_TILE_BLOCKS") {
-            Ok(v) => {
-                let n: usize = v.parse().unwrap_or_else(|e| {
-                    panic!("LLVQ_TILE_BLOCKS={v:?}: expected an integer ({e})")
-                });
-                assert!(
-                    (32..=512).contains(&n) && n.is_power_of_two(),
-                    "LLVQ_TILE_BLOCKS={n}: expected a power of two in 32..=512; \
-                     below 32 the lane stride idles lanes and it is another kernel"
-                );
-                n
-            }
-            Err(_) => llvq_cuda::TILE_BLOCKS,
-        }
-    }
     use std::time::Instant;
 
     // Eighteen rounds, two discarded: sixteen kept, a multiple of EIGHT, so
@@ -859,11 +830,17 @@ mod linux {
             "planes.cu",
             "nullk.cu",
         ])?;
-        let tb = tile_blocks();
-        let defines = format!("#define TILE_BLOCKS {tb}u\n");
+        // Resolved from the card before the source exists, because the tile
+        // is a `#define` in it. `Cuda::new` builds its own context inside the
+        // constructor, so the capability has to come from a probe that opens
+        // the same primary context first and keeps it — `Cuda::device()` is
+        // only reachable once the module is already compiled at some tile.
+        let tile = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        let defines = tile.define();
         let mut parts: Vec<&str> = vec![defines.as_str()];
         parts.extend(base.parts.iter().map(String::as_str));
         let src = KernelSource::new(&parts);
+        tile.assert_defined_in(&src.text);
         println!(
             "F1 rank-table floor — the stream, the compiled decode and its three variants, 252 launches, one process"
         );
@@ -903,11 +880,13 @@ mod linux {
         // registers, 0 local) flagged beside them; a spill does not stop the
         // run, it is the finding.
         // The tile in bytes: the one term of residency this bench controls.
-        let tile = (tb * DIM * 4) as u32;
+        // Its provenance travels with it — a figure measured at a tile nobody
+        // can reconstruct is not a measurement, and since 2026-09-10 the tile
+        // can come from the card as well as from the environment.
         println!(
-            "\n  tile: {tb} blocks = {tile} B of shared per CTA{}",
-            if tb == llvq_cuda::TILE_BLOCKS { String::new() }
-            else { format!("  ⚠️ LLVQ_TILE_BLOCKS overrides the served {}", llvq_cuda::TILE_BLOCKS) }
+            "\n  {} = {} B of shared per CTA",
+            tile.provenance(),
+            tile.shared_bytes()
         );
         println!("\n  kernel attributes (prereg reads: registers ≤ 64, local bytes = 0):");
         for name in KERNELS {
@@ -927,7 +906,7 @@ mod linux {
             let ctas = llvq_cuda::occ::residency(
                 r.num_regs as u32,
                 THREADS,
-                tile,
+                tile.shared_bytes(),
                 dev.max_threads_per_sm as u32,
                 dev.regs_per_sm as u32,
                 dev.shared_per_sm as u32,
@@ -1092,7 +1071,7 @@ mod linux {
         for rep in 0..ROUNDS {
             for pos in 0..n {
                 let k = (pos + rep) % n;
-                let t = run_arm(k, &cuda, &fns, &mut shapes, &streams, &pstreams, &tab, &t48, &pt, tile)?;
+                let t = run_arm(k, &cuda, &fns, &mut shapes, &streams, &pstreams, &tab, &t48, &pt, tile.shared_bytes())?;
                 if rep >= WARMUP {
                     times[k].push(t);
                 }

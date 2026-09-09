@@ -49,8 +49,6 @@ use crate::fused::{
 /// Threads per block for `tv_slot`: 256 = eight rows per block, the shape the
 /// bench has always measured.
 const THREADS: u32 = 256;
-/// Blocks staged per tile — must equal the `TILE_BLOCKS` handed to NVRTC.
-const TILE_BLOCKS: usize = 128;
 /// Entries in the device class table. The class field is nine bits, so 512
 /// are addressable while 384 exist; the tail stays the origin so a truncated
 /// or corrupt index cannot address out of bounds.
@@ -210,6 +208,18 @@ impl FusedSegProj {
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
+    /// The tile this module was **compiled** with, resolved from the card
+    /// before the source was assembled.
+    ///
+    /// It lived here as a second `const TILE_BLOCKS = 128`, unlinked from
+    /// `llvq_cuda::TILE_BLOCKS` — the defect that constant's own comment warns
+    /// against, *"the Metal side carried it for months, TILE_BLOCKS defined
+    /// twice, unlinked"*, reintroduced across the crate boundary. Held as one
+    /// value because it feeds two things that must never disagree: the
+    /// `#define` NVRTC compiled and the shared bytes every launch asks for.
+    /// A launch whose shared parameter is smaller than the compiled tile
+    /// overruns its staging area with no diagnostic.
+    tile: llvq_cuda::tile::Tile,
     f_rot: CudaFunction,
     /// Whichever entry point [`matvec_kernel_name`] gave for the layout — one
     /// kernel per runtime, chosen with the layout, so a stream and a kernel
@@ -265,6 +275,14 @@ impl FusedRuntime {
     ) -> candle_core::Result<(Self, Vec<FusedProj>, Vec<FusedSegProj>)> {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
+        // Before the source is assembled, not after: the tile is a `#define`
+        // in that text, and `Cuda::device()` is a method on the compiled
+        // module. The stream already carries its context, so no probe is
+        // needed here — unlike the two benches, which build their source
+        // before any context exists.
+        let tile = llvq_cuda::tile::resolve(
+            llvq_cuda::gpu::compute_cap_of(stream.context()).map_err(candle_core::Error::msg)?,
+        );
 
         // The Slot32 translation unit is bit-identical to what shipped before
         // the layout switch existed — that arm is the comparison and the
@@ -282,7 +300,7 @@ impl FusedRuntime {
             EmbedMode::F16 => None,
             EmbedMode::Q8 => Some(load_emb_sources().map_err(candle_core::Error::msg)?),
         };
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        let defines = tile.define();
         let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
@@ -299,6 +317,9 @@ impl FusedRuntime {
             }
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
+        // On the assembled text, which is the only place where "what NVRTC
+        // compiles" and "what this runtime reports" are both visible.
+        tile.assert_defined_in(&src.text);
         // The five binaries of `llvq-cuda` print this and the served path never
         // did, while `fused::load_planes_sources` cites "the printed sha256" as
         // the justification of its all-or-nothing override policy. A lot that
@@ -306,10 +327,11 @@ impl FusedRuntime {
         // formality: without this line, a run with `LLVQ_KERNEL_DIR` set is
         // traceable by a directory name and nothing else.
         println!(
-            "NVRTC source: {} bytes, sha256 {} ({} parts)",
+            "NVRTC source: {} bytes, sha256 {} ({} parts), {}",
             src.text.len(),
             src.sha256,
-            parts.len()
+            parts.len(),
+            tile.provenance()
         );
         let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
 
@@ -468,6 +490,7 @@ impl FusedRuntime {
         Ok((
             Self {
                 cuda,
+                tile,
                 f_rot,
                 f_matvec,
                 f_matvec_seg,
@@ -995,7 +1018,7 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
         //    grid is exact and there is no bounds guard.
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
-        let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
+        let shared = self.rt.tile.shared_bytes();
 
         // One arm per layout. The Planes14 arm has no bases to pass — the
         // variant carries none — and the Slot32 arm is the exact call that
@@ -1261,7 +1284,7 @@ impl candle_core::CustomOp1 for FusedSegOp<'_> {
         // the same commit.
         let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.group.d_out) }
             .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
-        let shared = (TILE_BLOCKS * llvq_core::DIM * 4) as u32;
+        let shared = self.rt.tile.shared_bytes();
 
         launch_planes_seg_h(
             &self.rt.cuda,
