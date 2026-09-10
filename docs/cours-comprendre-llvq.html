@@ -1,0 +1,1692 @@
+<title>Comprendre LLVQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&display=swap">
+<style>
+/* ============================================================
+   Tokens. Light on bare :root, dark redefined twice so the
+   viewer's explicit choice wins in both directions.
+   Hues extend docs/cours-layouts-runtime.html.
+   ============================================================ */
+:root {
+  --paper:        #f6f8fa;
+  --surface:      #ffffff;
+  --sunken:       #eef1f6;
+  --ink:          #16202b;
+  --muted:        #55647a;
+  --faint:        #8492a4;
+  --line:         #dee4ec;
+  --line-strong:  #bfc9d8;
+  --accent:       #2e6bd6;
+
+  /* une teinte par partie */
+  --p1: #2e6bd6;   --p1-tint: #e5edfb;
+  --p2: #16806a;   --p2-tint: #ddefea;
+  --p3: #96660f;   --p3-tint: #f4ecdb;
+  --p4: #7b4aa6;   --p4-tint: #eee6f6;
+
+  /* provenance */
+  --prov-m-bg: #e2f0e8;  --prov-m-ink: #14603a;
+  --prov-c-bg: #e5edfb;  --prov-c-ink: #274f9e;
+  --prov-e-bg: #f4ecdb;  --prov-e-ink: #7d5710;
+
+  --ok-bg:   #e2f0e8;  --ok-ink:   #14603a;
+  --warn-bg: #f7ead6;  --warn-ink: #855313;
+  --dead-bg: #f7e3dd;  --dead-ink: #9c3820;
+  --new-bg:  #eee6f6;  --new-ink:  #63398c;
+
+  --code-bg: #edf0f5;
+  --shadow: 0 1px 2px rgba(20,32,46,.05), 0 8px 24px -16px rgba(20,32,46,.22);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:       #11151c;
+    --surface:     #182029;
+    --sunken:      #141b23;
+    --ink:         #e3e9f1;
+    --muted:       #97a5b8;
+    --faint:       #6d7b8d;
+    --line:        #29323e;
+    --line-strong: #3b4655;
+    --accent:      #6597ee;
+
+    --p1: #6597ee;   --p1-tint: #17233a;
+    --p2: #34ab8e;   --p2-tint: #102a26;
+    --p3: #cb9633;   --p3-tint: #2a2213;
+    --p4: #a97ed4;   --p4-tint: #241a31;
+
+    --prov-m-bg: #12301f;  --prov-m-ink: #79cf9d;
+    --prov-c-bg: #17233a;  --prov-c-ink: #8fb3f5;
+    --prov-e-bg: #2a2213;  --prov-e-ink: #d9b26a;
+
+    --ok-bg:   #12301f;  --ok-ink:   #79cf9d;
+    --warn-bg: #2e2412;  --warn-ink: #dcb066;
+    --dead-bg: #331a13;  --dead-ink: #e08b6c;
+    --new-bg:  #241a31;  --new-ink:  #bf9ae4;
+
+    --code-bg: #202935;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"] {
+  --paper:       #11151c;
+  --surface:     #182029;
+  --sunken:      #141b23;
+  --ink:         #e3e9f1;
+  --muted:       #97a5b8;
+  --faint:       #6d7b8d;
+  --line:        #29323e;
+  --line-strong: #3b4655;
+  --accent:      #6597ee;
+
+  --p1: #6597ee;   --p1-tint: #17233a;
+  --p2: #34ab8e;   --p2-tint: #102a26;
+  --p3: #cb9633;   --p3-tint: #2a2213;
+  --p4: #a97ed4;   --p4-tint: #241a31;
+
+  --prov-m-bg: #12301f;  --prov-m-ink: #79cf9d;
+  --prov-c-bg: #17233a;  --prov-c-ink: #8fb3f5;
+  --prov-e-bg: #2a2213;  --prov-e-ink: #d9b26a;
+
+  --ok-bg:   #12301f;  --ok-ink:   #79cf9d;
+  --warn-bg: #2e2412;  --warn-ink: #dcb066;
+  --dead-bg: #331a13;  --dead-ink: #e08b6c;
+  --new-bg:  #241a31;  --new-ink:  #bf9ae4;
+
+  --code-bg: #202935;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.7);
+}
+
+/* ============================================================ base */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation: none !important; transition: none !important; }
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Source Serif 4", Charter, Cambria, Georgia, serif;
+  font-size: 17.5px;
+  line-height: 1.64;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 46rem; margin: 0 auto; padding-inline: 1.25rem; padding-block: 0 5rem; }
+.wide { max-width: 57rem; margin-inline: auto; }
+
+h1, h2, h3, h4, .sans { font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; }
+h1 { font-size: clamp(2.1rem, 6vw, 3.1rem); line-height: 1.04; font-weight: 700; letter-spacing: -.028em; margin: .5rem 0 1rem; text-wrap: balance; }
+h2 { font-size: 1.62rem; line-height: 1.18; font-weight: 650; letter-spacing: -.016em; margin: 0 0 .35rem; text-wrap: balance; }
+h3 { font-size: 1.02rem; font-weight: 600; letter-spacing: -.004em; margin: 2rem 0 .55rem; }
+h4 { font-size: .78rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 .6rem; }
+p  { margin: 0 0 1.05rem; }
+a  { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+ul, ol { padding-left: 1.15rem; margin: 0 0 1.05rem; }
+li { margin-bottom: .38rem; }
+strong { font-weight: 700; }
+hr.rule { border: 0; border-top: 1px solid var(--line); margin: 3.5rem 0; }
+
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace; font-size: .855em; }
+code { background: var(--code-bg); padding: .1em .34em; border-radius: 4px; }
+.num { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; font-size: .93em; }
+
+.eyebrow {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .7rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--muted); display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
+}
+.lede { font-size: 1.16rem; line-height: 1.5; color: var(--muted); margin-bottom: .9rem; text-wrap: pretty; }
+.meta { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .84rem; line-height: 1.55; color: var(--faint); }
+
+/* provenance et statuts */
+.prov {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .63rem; font-weight: 600; letter-spacing: .085em; text-transform: uppercase;
+  border-radius: 3px; padding: .1rem .34rem; white-space: nowrap; vertical-align: .14em;
+}
+.prov.m { background: var(--prov-m-bg); color: var(--prov-m-ink); }
+.prov.c { background: var(--prov-c-bg); color: var(--prov-c-ink); }
+.prov.e { background: var(--prov-e-bg); color: var(--prov-e-ink); }
+.chip {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: .67rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  border-radius: 99px; padding: .16rem .56rem; white-space: nowrap;
+}
+.chip.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.chip.warn { background: var(--warn-bg); color: var(--warn-ink); }
+.chip.dead { background: var(--dead-bg); color: var(--dead-ink); }
+.chip.new { background: var(--new-bg); color: var(--new-ink); }
+
+/* ============================================================ en-tête */
+header.top { padding-block: 3.2rem 1rem; }
+.tagrow { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.4rem; }
+.brandmark {
+  font-family: "IBM Plex Mono", monospace; font-size: .7rem; font-weight: 500;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--faint);
+}
+.verifbox {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: var(--surface); border-radius: 0 10px 10px 0;
+  padding: 1.05rem 1.2rem; margin: 1.8rem 0 0; font-size: .95rem; box-shadow: var(--shadow);
+}
+.verifbox p:last-child { margin-bottom: 0; }
+.verifbox h4 { color: var(--accent); }
+
+/* ============================================================ sommaire */
+.toc { margin: 3rem 0 1rem; }
+.toc-part { margin-bottom: 1.6rem; }
+.toc-part > .parthead {
+  display: flex; align-items: baseline; gap: .6rem; margin-bottom: .55rem;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+.toc-part .pnum {
+  font-family: "IBM Plex Mono", monospace; font-size: .72rem; font-weight: 600;
+  letter-spacing: .1em; color: var(--hue); text-transform: uppercase;
+}
+.toc-part .ptitle { font-size: .93rem; font-weight: 600; color: var(--ink); }
+.toc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .55rem; }
+@media (max-width: 560px) { .toc-grid { grid-template-columns: 1fr; } }
+.toc-card {
+  display: block; text-decoration: none; color: inherit;
+  background: var(--surface); border: 1px solid var(--line);
+  border-top: 2px solid var(--hue);
+  border-radius: 3px 3px 8px 8px; padding: .7rem .8rem .75rem;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.toc-card:hover { border-color: var(--line-strong); border-top-color: var(--hue); transform: translateY(-1px); }
+.toc-card .n {
+  font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-weight: 600;
+  color: var(--hue); letter-spacing: .06em; display: block; margin-bottom: .18rem;
+}
+.toc-card .t { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .87rem; font-weight: 500; line-height: 1.3; }
+
+/* ============================================================ leçons */
+.lesson { scroll-margin-top: 1rem; padding-top: 3.4rem; }
+.lesson-head { border-top: 2px solid var(--hue); padding-top: 1rem; margin-bottom: 1.3rem; }
+.lesson-head .eyebrow { color: var(--hue); }
+.lesson-head .obj {
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .92rem;
+  color: var(--muted); margin: .5rem 0 0;
+}
+.dot { width: .55em; height: .55em; border-radius: 50%; display: inline-block; background: var(--hue); flex: none; }
+
+/* trois temps */
+.beat { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .72rem; font-weight: 600;
+  letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
+  display: flex; align-items: center; gap: .6rem; margin: 2.2rem 0 .7rem; }
+.beat::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* le calcul : bloc réglé, sans bordure complète */
+.calc {
+  background: var(--sunken); border-radius: 8px; padding: 1rem 1.15rem;
+  margin: 1.1rem 0; font-size: .96rem;
+}
+.calc p:last-child { margin-bottom: 0; }
+.calc .q { font-weight: 600; }
+.calc .a { color: var(--muted); }
+.calc .a b { color: var(--ink); }
+
+/* dans le dépôt : panneau ancré, rail de la partie */
+.anchor {
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--hue); border-radius: 0 10px 10px 0;
+  padding: 1.1rem 1.25rem; margin: 1.1rem 0 0; box-shadow: var(--shadow);
+}
+.anchor > h4 { color: var(--hue); display: flex; align-items: center; gap: .5rem; }
+.anchor p:last-child, .anchor ul:last-child, .anchor .tbl-scroll:last-child { margin-bottom: 0; }
+.anchor ul { margin-bottom: .8rem; }
+.anchor .src {
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .78rem;
+  color: var(--faint); margin-top: .85rem; padding-top: .7rem; border-top: 1px solid var(--line);
+}
+
+/* encarts */
+.note { border-left: 2px solid var(--line-strong); padding: .1rem 0 .1rem 1rem; margin: 1.4rem 0; font-size: .96rem; color: var(--muted); }
+.note b, .note strong { color: var(--ink); }
+.note.flag { border-left-color: var(--dead-ink); }
+.note.flag strong:first-child { color: var(--dead-ink); }
+
+/* ============================================================ tables */
+.tbl-scroll { overflow-x: auto; margin: 1.2rem 0; }
+table { border-collapse: collapse; width: 100%; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .87rem; }
+th, td { padding: .48rem .7rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: baseline; }
+th { font-size: .69rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+td.n, th.n { text-align: right; }
+td.n { font-family: "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; font-size: .83rem; white-space: nowrap; }
+tr.hl td { background: var(--sunken); font-weight: 600; }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* ============================================================ figures */
+figure { margin: 1.8rem 0; }
+figure svg { display: block; width: 100%; height: auto; max-width: 100%; }
+.fig-scroll { overflow-x: auto; }
+.fig-scroll svg { min-width: 560px; }
+figcaption {
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .8rem; line-height: 1.5;
+  color: var(--faint); margin-top: .6rem; text-wrap: pretty;
+}
+figcaption b { color: var(--muted); font-weight: 600; }
+.s-line   { stroke: var(--line-strong); stroke-width: 1; fill: none; }
+.s-thin   { stroke: var(--line); stroke-width: 1; fill: none; }
+.s-ink    { stroke: var(--ink); stroke-width: 1.4; fill: none; }
+.s-hue    { stroke: var(--hue); stroke-width: 1.6; fill: none; }
+.t-lbl    { fill: var(--muted); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 11.5px; }
+.t-sm     { fill: var(--faint); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 10.5px; }
+.t-num    { fill: var(--ink); font-family: "IBM Plex Mono", monospace; font-size: 11.5px; }
+.t-numsm  { fill: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 10px; }
+.t-hd     { fill: var(--ink); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 12px; font-weight: 600; }
+.t-hue    { fill: var(--hue); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: 11.5px; font-weight: 600; }
+.box-s    { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+.box-k    { fill: var(--sunken); stroke: var(--line); stroke-width: 1; }
+.box-t    { fill: var(--tint); stroke: var(--hue); stroke-width: 1; }
+
+/* champs de bits */
+.bits-scroll { overflow-x: auto; padding-bottom: .3rem; margin: 1rem 0 .5rem; }
+.bits { display: flex; --bit: 5.4px; min-width: max-content; }
+.field {
+  border: 1px solid var(--line-strong); border-right-width: 0;
+  padding: .34rem .12rem .28rem; text-align: center;
+  font-family: "IBM Plex Mono", monospace; font-size: .68rem; line-height: 1.25;
+  color: var(--ink); background: var(--surface); overflow: hidden; white-space: nowrap;
+}
+.field:first-child { border-radius: 5px 0 0 5px; }
+.field:last-child { border-right-width: 1px; border-radius: 0 5px 5px 0; }
+.field small { display: block; color: var(--muted); font-size: .6rem; }
+.f-hdr { background: var(--code-bg); }
+.f-dat { background: var(--tint); }
+.f-pad { background: transparent; border-style: dashed; color: var(--faint); }
+.bits-note { font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .78rem; color: var(--faint); margin: .1rem 0 0; }
+
+/* ============================================================ pied */
+footer { margin-top: 4rem; padding-top: 1.4rem; border-top: 1px solid var(--line); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .82rem; color: var(--faint); }
+footer a { color: var(--muted); }
+.reflist { display: grid; gap: .85rem; margin: 1.2rem 0; }
+.ref { display: grid; grid-template-columns: 1.6rem 1fr; gap: .7rem; align-items: baseline; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .87rem; line-height: 1.45; }
+.ref .rn { font-family: "IBM Plex Mono", monospace; font-size: .78rem; color: var(--faint); }
+.ref .rt { color: var(--ink); font-weight: 600; }
+.ref .rd { color: var(--muted); }
+
+/* glossaire */
+.gloss { display: grid; grid-template-columns: repeat(2, 1fr); gap: .1rem 1.6rem; margin: 1.2rem 0; }
+@media (max-width: 620px) { .gloss { grid-template-columns: 1fr; } }
+.gloss div { padding: .55rem 0; border-bottom: 1px solid var(--line); font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .86rem; line-height: 1.45; }
+.gloss b { display: block; color: var(--ink); font-weight: 600; }
+.gloss span { color: var(--muted); }
+
+/* bascule de thème */
+.themetog {
+  position: fixed; top: .9rem; right: .9rem; z-index: 20;
+  font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .7rem; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+  background: var(--surface); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 99px;
+  padding: .34rem .7rem; cursor: pointer; box-shadow: var(--shadow);
+}
+.themetog:hover { color: var(--ink); border-color: var(--line-strong); }
+</style>
+
+<button class="themetog" id="themetog" type="button">Thème</button>
+
+<div class="wrap">
+
+<header class="top">
+  <p class="brandmark">Les cahiers de recherche appliquée · Édition 09.2026</p>
+  <h1>Comprendre LLVQ</h1>
+  <p class="lede">De la géométrie des poids au modèle qui répond sur ton GPU. Douze cours, douze exercices corrigés, et pour chacun le chiffre mesuré du dépôt qui lui donne son échelle réelle.</p>
+  <div class="tagrow">
+    <span class="chip ok">12 cours</span>
+    <span class="chip ok">12 corrigés vérifiés</span>
+    <span class="chip new">13<sup>e</sup> cours ajouté</span>
+    <span class="chip warn">3 corrections</span>
+  </div>
+  <p class="meta">Révisé le 2026-09-10 contre <code>pjmalandrino/llvq</code> à <code>6937458</code>. Chaque nombre attribué au projet porte son étiquette (<span class="prov m">mesuré</span> <span class="prov c">calculé</span> <span class="prov e">estimé</span>) et le journal qui le produit. Les schémas pédagogiques restent des constructions originales, les nombres fictifs sont signalés comme tels.</p>
+
+  <div class="verifbox">
+    <h4>Ce que la révision a changé</h4>
+    <p>La version d'origine annonçait en page 2 que le dépôt n'avait pas pu être consulté. Il l'est maintenant. Les douze corrigés sont refaits à la main et <strong>les douze sont justes</strong>. Trois affirmations sont corrigées, listées à la fin. Et chaque cours gagne un troisième temps, <em>Dans le dépôt</em>, qui remplace l'exemple fictif par la mesure réelle : le vrai codebook, le vrai enregistrement de 14 octets, le vrai plancher de noyau, la vraie barre de bruit de MMLU.</p>
+  </div>
+</header>
+
+<nav class="toc" aria-label="Sommaire">
+  <div class="toc-part" style="--hue: var(--p1)">
+    <div class="parthead"><span class="pnum">Partie I</span><span class="ptitle">Comprendre le calcul</span></div>
+    <div class="toc-grid">
+      <a class="toc-card" href="#c01" style="--hue: var(--p1)"><span class="n">01</span><span class="t">Des nombres au calcul</span></a>
+      <a class="toc-card" href="#c02" style="--hue: var(--p1)"><span class="n">02</span><span class="t">Le voyage d'un token</span></a>
+      <a class="toc-card" href="#c03" style="--hue: var(--p1)"><span class="n">03</span><span class="t">Quantifier sans mystère</span></a>
+    </div>
+  </div>
+  <div class="toc-part" style="--hue: var(--p2)">
+    <div class="parthead"><span class="pnum">Partie II</span><span class="ptitle">Comprendre la géométrie</span></div>
+    <div class="toc-grid">
+      <a class="toc-card" href="#c04" style="--hue: var(--p2)"><span class="n">04</span><span class="t">Du scalaire au vecteur</span></a>
+      <a class="toc-card" href="#c05" style="--hue: var(--p2)"><span class="n">05</span><span class="t">Leech, en 24 dimensions</span></a>
+      <a class="toc-card" href="#c06" style="--hue: var(--p2)"><span class="n">06</span><span class="t">Préparer la géométrie</span></a>
+    </div>
+  </div>
+  <div class="toc-part" style="--hue: var(--p3)">
+    <div class="parthead"><span class="pnum">Partie III</span><span class="ptitle">Comprendre l'implémentation</span></div>
+    <div class="toc-grid">
+      <a class="toc-card" href="#c07" style="--hue: var(--p3)"><span class="n">07</span><span class="t">Quantifier ce qui compte</span></a>
+      <a class="toc-card" href="#c08" style="--hue: var(--p3)"><span class="n">08</span><span class="t">Des indices aux octets</span></a>
+      <a class="toc-card" href="#c09" style="--hue: var(--p3)"><span class="n">09</span><span class="t">Faire travailler le GPU</span></a>
+    </div>
+  </div>
+  <div class="toc-part" style="--hue: var(--p4)">
+    <div class="parthead"><span class="pnum">Partie IV</span><span class="ptitle">Comprendre les résultats</span></div>
+    <div class="toc-grid">
+      <a class="toc-card" href="#c10" style="--hue: var(--p4)"><span class="n">10</span><span class="t">Moins de bits ne suffit pas</span></a>
+      <a class="toc-card" href="#c11" style="--hue: var(--p4)"><span class="n">11</span><span class="t">Mesurer la qualité</span></a>
+      <a class="toc-card" href="#c12" style="--hue: var(--p4)"><span class="n">12</span><span class="t">Du résultat au modèle</span></a>
+    </div>
+  </div>
+  <div class="toc-part" style="--hue: var(--faint)">
+    <div class="parthead"><span class="pnum">Annexes</span><span class="ptitle">Ce qui rend un chiffre crédible</span></div>
+    <div class="toc-grid">
+      <a class="toc-card" href="#c13" style="--hue: var(--faint)"><span class="n">13</span><span class="t">La méthode du laboratoire</span></a>
+      <a class="toc-card" href="#synthese" style="--hue: var(--faint)"><span class="n">§</span><span class="t">Protocole de travail</span></a>
+      <a class="toc-card" href="#errata" style="--hue: var(--faint)"><span class="n">§</span><span class="t">Vérification et errata</span></a>
+    </div>
+  </div>
+</nav>
+
+<!-- ==================== PARTIE I ==================== -->
+
+<section class="lesson" id="c01" style="--hue: var(--p1); --tint: var(--p1-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 01 / 12 · Partie I, comprendre le calcul</p>
+    <h2>Des nombres au calcul</h2>
+    <p class="obj">Objectif : lire une projection linéaire et savoir ce que représente un poids.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 640 200" role="img" aria-label="Une matrice 3 par 2 multiplie un vecteur de dimension 2 et produit un vecteur de dimension 3 ; chaque ligne produit un nombre.">
+      <text class="t-sm" x="70" y="34">POIDS W (3 × 2)</text>
+      <text class="t-sm" x="190" y="34">ACTIVATION x</text>
+      <text class="t-sm" x="268" y="34">SORTIE y</text>
+
+      <path class="s-line" d="M76 46 L70 46 L70 164 L76 164"/>
+      <path class="s-line" d="M148 46 L154 46 L154 164 L148 164"/>
+      <text class="t-num" x="91" y="70" text-anchor="middle">1</text>
+      <text class="t-num" x="133" y="70" text-anchor="middle">2</text>
+      <text class="t-num" x="91" y="110" text-anchor="middle">0</text>
+      <text class="t-num" x="133" y="110" text-anchor="middle">−1</text>
+      <text class="t-num" x="91" y="150" text-anchor="middle">3</text>
+      <text class="t-num" x="133" y="150" text-anchor="middle">1</text>
+
+      <text class="t-lbl" x="172" y="110" text-anchor="middle">×</text>
+
+      <path class="s-line" d="M196 66 L190 66 L190 144 L196 144"/>
+      <path class="s-line" d="M226 66 L232 66 L232 144 L226 144"/>
+      <text class="t-num" x="211" y="90" text-anchor="middle">2</text>
+      <text class="t-num" x="211" y="130" text-anchor="middle">1</text>
+
+      <text class="t-lbl" x="250" y="110" text-anchor="middle">=</text>
+
+      <rect class="box-t" x="268" y="46" width="46" height="118" rx="4"/>
+      <text class="t-num" x="291" y="70" text-anchor="middle">4</text>
+      <text class="t-num" x="291" y="110" text-anchor="middle">−1</text>
+      <text class="t-num" x="291" y="150" text-anchor="middle">7</text>
+
+      <line class="s-thin" x1="330" y1="64" x2="356" y2="64"/>
+      <line class="s-thin" x1="330" y1="104" x2="356" y2="104"/>
+      <line class="s-thin" x1="330" y1="144" x2="356" y2="144"/>
+      <text class="t-numsm" x="362" y="68">1×2 + 2×1 = 4</text>
+      <text class="t-numsm" x="362" y="108">0×2 + (−1)×1 = −1</text>
+      <text class="t-numsm" x="362" y="148">3×2 + 1×1 = 7</text>
+      <text class="t-sm" x="362" y="180">y&#8305; = Σ&#11388; W&#8305;&#11388; x&#11388;. Une ligne, une somme de produits.</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 01.</b> Une matrice transforme un vecteur d'entrée en vecteur de sortie. Chaque ligne produit un nombre, et c'est cette opération que le modèle répète des centaines de milliards de fois.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Un LLM contient des tableaux de nombres appris. Un <strong>poids</strong> est un coefficient de ces tableaux ; une <strong>activation</strong> est une valeur calculée pour le texte en cours. Les poids sont fixes pendant l'inférence, les activations changent à chaque entrée. Quantifier les poids et quantifier les activations sont donc deux opérations différentes, avec des contraintes différentes.</p>
+
+  <p>Un vecteur est une liste ordonnée de nombres, sa dimension est la longueur de cette liste. Une matrice <code>W</code> de forme <span class="num">m × n</span> prend un vecteur <code>x</code> de dimension <span class="num">n</span> et produit <code>y</code> de dimension <span class="num">m</span> : <code>y = Wx</code>. Pour mesurer un écart, deux outils suffisent. La norme euclidienne <code>‖v‖</code> est la racine de la somme des carrés, elle mesure une longueur. Le produit scalaire <code>u·v</code> relie longueur et angle par <code>u·v = ‖u‖‖v‖cos θ</code>. Deux vecteurs peuvent avoir la même longueur et des directions différentes : cette distinction porte tout le cours 06.</p>
+
+  <p>Appelons <code>Ŵ</code> la matrice reconstruite et <code>E = Ŵ − W</code> son erreur. La sortie change de <code>Δy = Ex</code>. Une erreur de 0,1 sur un coefficient vaut 0,1 fois l'activation correspondante : le même écart est insignifiant ou décisif selon les données qui traversent la couche. <strong>La géométrie des poids ne dit pas encore la qualité du modèle</strong>, et c'est la raison d'être des cours 07 et 11.</p>
+
+  <p>Découper 24 coefficients d'une matrice crée un vecteur de dimension 24. Ce n'est ni un espace de 24 sujets, ni 24 neurones indépendants : c'est un regroupement numérique choisi pour l'encodage. Il faudra reconstruire ces coefficients dans le bon ordre pour retrouver le calcul voulu.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Un poids passe de 0,80 à 0,75. Que devient sa contribution à la sortie si l'activation vaut 2 ? Et si elle vaut 20 ?</p>
+    <p class="a">L'erreur du poids est <b>−0,05</b>. La contribution change de <b>−0,10</b> puis de <b>−1,00</b>. Une erreur identique est amplifiée dix fois plus dans le second cas.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le 4B servi, en chiffres de forme</h4>
+    <p>Les matrices dont parle ce cours ont des dimensions précises. Le <code>Qwen3-4B</code> publié porte 36 blocs de 7 projections, soit <strong>252 matrices quantifiées</strong> et <span class="num">3 633 315 840</span> poids de projection, découpés en <span class="num">150 681 600</span> blocs de 24. Ses <span class="num">1 105 920</span> lignes de sortie sont exactement les <code>m</code> de ce cours.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>projection</th><th class="n">forme</th><th>projection</th><th class="n">forme</th></tr></thead>
+      <tbody>
+        <tr><td><code>q_proj</code></td><td class="n">4096 × 2560</td><td><code>o_proj</code></td><td class="n">2560 × 4096</td></tr>
+        <tr><td><code>k_proj</code></td><td class="n">1024 × 2560</td><td><code>gate_proj</code></td><td class="n">9728 × 2560</td></tr>
+        <tr><td><code>v_proj</code></td><td class="n">1024 × 2560</td><td><code>up_proj</code></td><td class="n">9728 × 2560</td></tr>
+        <tr><td colspan="2"></td><td><code>down_proj</code></td><td class="n">2560 × 9728</td></tr>
+      </tbody>
+    </table></div>
+    <p>Et <code>Δy = Ex</code> n'est pas une abstraction : c'est le test qui valide chaque format. Toute disposition VRAM est vérifiée contre une référence <code>f64</code> sur les <span class="num">1 105 920</span> lignes du 4B, seuil <span class="num">1e−5</span>. Les pires erreurs observées valent <span class="num">2,2e−8 · Σ|w·x|</span>, soit l'arrondi de l'accumulation et rien d'autre.</p>
+    <p class="src">Formes et comptes <span class="prov m">mesuré</span>, relus dans les en-têtes du fichier scellé (<code>docs/fiche-4b.md</code> §2, §3). Erreurs de reconstruction <span class="prov m">mesuré</span>, <code>mesures/e2-golay70-bench-2026-08-07.txt</code>.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c02" style="--hue: var(--p1); --tint: var(--p1-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 02 / 12 · Partie I, comprendre le calcul</p>
+    <h2>Le voyage d'un token</h2>
+    <p class="obj">Objectif : situer les matrices quantifiées dans un Transformer, et savoir quel périmètre de temps on mesure.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 290" role="img" aria-label="Un bloc Transformer : l'attention porte q, k, v et o, le MLP porte gate, up et down ; sous la fusion servie, q+k+v deviennent un seul lancement et gate+up un autre.">
+      <text class="t-sm" x="14" y="20">UN BLOC · 7 PROJECTIONS · ×36 = 252 MATRICES</text>
+
+      <!-- entrée -->
+      <rect class="box-k" x="14" y="96" width="56" height="36" rx="5"/>
+      <text class="t-lbl" x="42" y="119" text-anchor="middle">x</text>
+
+      <!-- attention -->
+      <rect class="box-s" x="96" y="46" width="200" height="140" rx="8"/>
+      <text class="t-hd" x="112" y="68">Attention</text>
+      <text class="t-sm" x="112" y="84">32 têtes Q · 8 têtes KV (GQA)</text>
+      <rect class="box-t" x="112" y="94" width="52" height="30" rx="4"/>
+      <text class="t-num" x="138" y="113" text-anchor="middle">q</text>
+      <rect class="box-t" x="170" y="94" width="52" height="30" rx="4"/>
+      <text class="t-num" x="196" y="113" text-anchor="middle">k</text>
+      <rect class="box-t" x="228" y="94" width="52" height="30" rx="4"/>
+      <text class="t-num" x="254" y="113" text-anchor="middle">v</text>
+      <rect class="box-k" x="112" y="138" width="168" height="30" rx="4"/>
+      <text class="t-num" x="196" y="157" text-anchor="middle">o</text>
+      <path class="s-hue" d="M112 90 L280 90" stroke-dasharray="4 3"/>
+      <text class="t-hue" x="196" y="84" text-anchor="middle" style="font-size:10px">fusés en un lancement</text>
+
+      <!-- MLP -->
+      <rect class="box-s" x="322" y="46" width="200" height="140" rx="8"/>
+      <text class="t-hd" x="338" y="68">MLP à porte</text>
+      <text class="t-sm" x="338" y="84">intermediate 9 728</text>
+      <rect class="box-t" x="338" y="94" width="80" height="30" rx="4"/>
+      <text class="t-num" x="378" y="113" text-anchor="middle">gate</text>
+      <rect class="box-t" x="424" y="94" width="80" height="30" rx="4"/>
+      <text class="t-num" x="464" y="113" text-anchor="middle">up</text>
+      <rect class="box-k" x="338" y="138" width="166" height="30" rx="4"/>
+      <text class="t-num" x="421" y="157" text-anchor="middle">down</text>
+      <path class="s-hue" d="M338 90 L504 90" stroke-dasharray="4 3"/>
+      <text class="t-hue" x="421" y="84" text-anchor="middle" style="font-size:10px">fusés en un lancement</text>
+
+      <!-- sortie -->
+      <rect class="box-k" x="548" y="96" width="56" height="36" rx="5"/>
+      <text class="t-lbl" x="576" y="119" text-anchor="middle">y</text>
+
+      <defs><marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g style="color: var(--line-strong)">
+        <line class="s-line" x1="70" y1="114" x2="90" y2="114" marker-end="url(#a2)"/>
+        <line class="s-line" x1="296" y1="114" x2="316" y2="114" marker-end="url(#a2)"/>
+        <line class="s-line" x1="522" y1="114" x2="542" y2="114" marker-end="url(#a2)"/>
+      </g>
+
+      <!-- résiduels -->
+      <path class="s-thin" d="M84 100 C 84 26, 308 26, 308 100" stroke-dasharray="3 3"/>
+      <path class="s-thin" d="M310 100 C 310 26, 534 26, 534 100" stroke-dasharray="3 3"/>
+      <text class="t-sm" x="196" y="34" text-anchor="middle">chemin résiduel</text>
+      <text class="t-sm" x="421" y="34" text-anchor="middle">chemin résiduel</text>
+
+      <!-- barre du bas -->
+      <line class="s-thin" x1="14" y1="212" x2="646" y2="212"/>
+      <text class="t-lbl" x="14" y="234">Sans fusion : <tspan class="t-num">252</tspan> matvecs par jeton au 4B.</text>
+      <text class="t-hue" x="14" y="254">Avec <tspan class="t-num">LLVQ_FUSE=1</tspan> : <tspan class="t-num">144</tspan> lancements. Au 14B, 280 deviennent 160.</text>
+      <text class="t-sm" x="14" y="274">Les q, k, v partagent une entrée, donc une rotation et un lancement. Idem gate et up.</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 02.</b> Vue simplifiée d'un bloc, normalisations omises. La fusion servie n'est pas une optimisation cosmétique : elle change le nombre de lancements de noyau, et le cours 10 montre que ce nombre coûte à lui seul un plancher de temps.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Le tokenizer découpe le texte en unités et leur attribue des identifiants. Une table d'embeddings associe à chaque identifiant un vecteur, les blocs Transformer modifient ces représentations, une projection finale produit des logits sur le vocabulaire. Le softmax les convertit en probabilités, la règle de décodage choisit le prochain token.</p>
+
+  <p>Deux familles de calculs se partagent le bloc. <strong>L'attention</strong> permet aux positions d'utiliser l'information d'autres positions autorisées : Q et K construisent les scores, V fournit les valeurs combinées. <strong>Le MLP</strong> transforme ensuite la représentation de chaque position ; dans les variantes à porte on trouve <code>gate_proj</code>, <code>up_proj</code> et <code>down_proj</code>. Ces grandes matrices sont les cibles naturelles de la compression.</p>
+
+  <p>Deux moments très différents se cachent derrière le mot « inférence ». Le <strong>prefill</strong> traite le prompt, avec beaucoup de positions disponibles en parallèle. Le <strong>decode</strong> génère ensuite les tokens un par un. À petit batch, un token mobilise beaucoup de lectures de poids pour peu de réutilisation : un format peut être excellent en decode et sans intérêt en prefill.</p>
+
+  <p>Pendant la génération on garde les clés et valeurs des positions passées pour éviter de les recalculer : c'est le <strong>cache KV</strong>. Sa taille croît avec le batch, la longueur du contexte, le nombre de couches et le nombre de têtes KV. En GQA, plusieurs têtes de requêtes partagent des têtes KV. Compresser les poids ne compresse pas ce cache, et le cours 12 montre que ce détail décide de ce qui tient sur une carte.</p>
+
+  <p>Enfin, pourquoi une petite perturbation change une réponse. Une erreur modifie une activation, traverse d'autres projections, des normalisations, des fonctions non linéaires. À la sortie, si deux tokens ont des scores voisins, la perturbation peut inverser leur ordre ; le token choisi change alors le contexte de toutes les étapes suivantes. Une faible erreur moyenne ne garantit donc pas une conversation identique.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Ton noyau accélère les projections de poids de 2×. Ces projections représentaient 60 % du temps total. Quelle accélération globale maximale obtiens-tu, si le reste ne change pas ?</p>
+    <p class="a">Le nouveau temps vaut <b>0,60 / 2 + 0,40 = 0,70</b> fois l'ancien. Le gain total est <b>1 / 0,70 ≈ 1,43×</b>. C'est la loi d'Amdahl, et elle mord bien plus tôt qu'on ne le croit.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Amdahl, mesuré : le plancher vaut 45 % de la passe</h4>
+    <p>Le dépôt a mesuré sa propre fraction incompressible. Un noyau témoin, <code>tv_nullk</code>, refait la passe complète des 252 projections en gardant la grille, le tuilage, les deux barrières, la mise en mémoire partagée de l'activation, la réduction et l'écriture de <code>y</code>. Il <strong>ne lit aucun octet de poids</strong> et ne décode rien.</p>
+    <p>Il coûte <strong><span class="num">2,306 ms</span></strong>, contre <span class="num">5,103 ms</span> pour le bras servi. Le plancher vaut donc <strong>45,2 % du temps</strong>, et un décodeur parfaitement gratuit plafonnerait la passe à <span class="num">5,103 / 2,306 = 2,21×</span>. C'est le 60 % de l'exercice, mesuré sur l'objet réel, et c'est la raison pour laquelle la fusion de la figure 02 existe : à 144 lancements au lieu de 252, le plancher lui-même tombe de <span class="num">2,200</span> à <span class="num">1,794 ms</span>, soit <span class="num">3,76 µs</span> par lancement.</p>
+    <p class="src">L40S, un seul processus, 7 rondes dont 2 écartées. <span class="prov m">mesuré</span>, <code>mesures/f2-p3-qtip-banc-2026-08-21.txt</code> et <code>mesures/a1-nullk-252-144-2026-08-31.txt</code>. Le cache KV en int8 est livré (<code>LLVQ_KV=q8</code>), mesuré, et n'est pas le défaut : contexte court seulement.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c03" style="--hue: var(--p1); --tint: var(--p1-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 03 / 12 · Partie I, comprendre le calcul</p>
+    <h2>Quantifier sans mystère</h2>
+    <p class="obj">Objectif : comprendre bits, niveaux, échelles, et ne jamais confondre quatre nombres qui se ressemblent.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>Quantifier consiste à remplacer une valeur par un représentant dans un ensemble limité. Avec <span class="num">b</span> bits on dispose d'au plus <span class="num">2<sup>b</sup></span> codes distincts : 4 codes à 2 bits, 16 à 4 bits. Un <code>float16</code> occupe 16 bits, mais ses valeurs ne sont pas uniformément espacées ; la quantification entière utilise le plus souvent une grille régulière après mise à l'échelle.</p>
+
+  <p>L'échelle donne un sens au code. Dans une quantification affine on écrit <code>ŵ = s(q − z)</code>, où <code>q</code> est un entier, <code>s</code> l'échelle et <code>z</code> le point zéro. L'encodage arrondit <code>w/s + z</code> puis le borne à l'intervalle autorisé. Une grille trop étroite écrête les grandes valeurs, une grille trop large gaspille de la précision près de zéro. On peut partager une échelle entre tous les poids, par canal, ou par groupe : des groupes plus petits s'adaptent mieux aux amplitudes locales, mais ajoutent des métadonnées.</p>
+
+  <div class="note flag">
+    <p><strong>Le piège central de tout le domaine.</strong> « 2 bits pour les codes » n'implique pas « 2 bits par paramètre pour le modèle ». Il faut compter les échelles, les exceptions, les tenseurs gardés plus précis, et la façon dont le format est réellement chargé en VRAM. Une annonce en bits doit toujours préciser <em>quel</em> périmètre elle désigne.</p>
+  </div>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Un groupe de 128 poids utilise 2 bits par poids et une échelle de 16 bits. Quel coût moyen obtiens-tu, en ignorant tout autre surcoût ?</p>
+    <p class="a"><b>(128 × 2 + 16) / 128 = 2,125</b> bits par poids. Avec des groupes de 32 et la même échelle : <b>2,5</b> bits par poids. La métadonnée coûte quatre fois plus cher au groupe court.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le même objet, quatre nombres, aucun n'est faux</h4>
+    <p>Le fichier publié du 4B illustre le piège mieux qu'un exemple fictif. Un bloc de 24 poids y tient en <strong>48 bits</strong> : un index de 47 bits dans la boule Λ₂₄(12) et un bit de gain. C'est <span class="num">2,000</span> b/poids de code exactement. Voici ce que ce même objet coûte selon le périmètre.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 660 262" role="img" aria-label="Quatre comptabilités du même fichier 4B : 2,000 bits par poids de code, 2,1595 dans le fichier scellé, 4,804 en VRAM sous Planes14, 5,162 par paramètre du modèle entier.">
+        <line class="s-thin" x1="212" y1="40" x2="212" y2="222"/>
+        <line class="s-thin" x1="284" y1="40" x2="284" y2="222"/>
+        <line class="s-thin" x1="356" y1="40" x2="356" y2="222"/>
+        <line class="s-thin" x1="428" y1="40" x2="428" y2="222"/>
+        <line class="s-thin" x1="500" y1="40" x2="500" y2="222"/>
+        <line class="s-thin" x1="572" y1="40" x2="572" y2="222"/>
+        <line class="s-thin" x1="644" y1="40" x2="644" y2="222"/>
+        <text class="t-numsm" x="212" y="34" text-anchor="middle">0</text>
+        <text class="t-numsm" x="284" y="34" text-anchor="middle">1</text>
+        <text class="t-numsm" x="356" y="34" text-anchor="middle">2</text>
+        <text class="t-numsm" x="428" y="34" text-anchor="middle">3</text>
+        <text class="t-numsm" x="500" y="34" text-anchor="middle">4</text>
+        <text class="t-numsm" x="572" y="34" text-anchor="middle">5</text>
+        <text class="t-numsm" x="644" y="34" text-anchor="middle">6</text>
+        <text class="t-sm" x="428" y="20" text-anchor="middle">BITS PAR POIDS</text>
+
+        <text class="t-lbl" x="8" y="62">code du bloc</text>
+        <rect class="box-t" x="212" y="48" width="144" height="22" rx="3"/>
+        <text class="t-num" x="366" y="64">2,000</text>
+        <text class="t-sm" x="8" y="76">48 bits / 24</text>
+
+        <text class="t-lbl" x="8" y="112">fichier scellé</text>
+        <rect class="box-t" x="212" y="98" width="155.5" height="22" rx="3"/>
+        <text class="t-num" x="378" y="114">2,1595</text>
+        <text class="t-sm" x="8" y="126">+ échelles de ligne, queue exacte</text>
+
+        <text class="t-lbl" x="8" y="162">noyau, en VRAM</text>
+        <rect class="box-t" x="212" y="148" width="345.9" height="22" rx="3"/>
+        <text class="t-num" x="568" y="164">4,804</text>
+        <text class="t-sm" x="8" y="176">Planes14 : l'index est déplié</text>
+
+        <text class="t-lbl" x="8" y="212">modèle entier</text>
+        <rect class="box-t" x="212" y="198" width="371.7" height="22" rx="3"/>
+        <text class="t-num" x="594" y="214">5,162</text>
+        <text class="t-sm" x="8" y="226">+ embedding q8, 9,67 % des paramètres</text>
+
+        <line class="s-thin" x1="8" y1="240" x2="652" y2="240"/>
+        <text class="t-sm" x="8" y="256">Pour référence, le même modèle en f16 coûte 16,0 b/paramètre, hors échelle de ce graphique.</text>
+      </svg>
+      </div>
+      <figcaption><b>Figure 03.</b> Le facteur entre le premier et le dernier barreau vaut <span class="num">2,58</span>. Le fichier ne ment pas, la VRAM non plus : ce sont deux quantités différentes du même objet.</figcaption>
+    </figure>
+
+    <p>Le saut de <span class="num">2,1595</span> à <span class="num">4,804</span> est le prix d'entrée de la famille : aucune table ne peut adresser <span class="num">1,1·10¹⁴</span> points de réseau, donc le chargement <strong>déplie</strong> l'index en plans de bits que le GPU lit par décalages et masques. Le cours 08 montre cet enregistrement, le cours 10 montre ce que le dépliage coûte, et le format <code>Tetra</code> de 2026-09-06 est la première réponse : <span class="num">2,1498</span> b/poids noyau pour le même disque.</p>
+    <p>Le dépôt s'interdit donc de publier un chiffre mémoire autrement qu'en <strong>b/paramètre sur le modèle entier, embedding compris</strong>. C'est sa règle dure numéro 6, et elle existe parce que les sept autres comptabilités du projet donnent sept nombres tous exacts.</p>
+    <p class="src">Comptabilités <span class="prov c">calculé</span> sur des octets <span class="prov m">mesuré</span> : <code>docs/format-noyau.md</code> §10 (le tableau de provenance en huit lignes), <code>docs/fiche-4b.md</code> §5.3, <code>mesures/rtbits-14b-2026-08-17.txt</code>. Comparaison : AWQ w4 g128 tient <span class="num">4,15625</span> b/poids, l'int4 g128 du dépôt <span class="num">4 + 32/128 = 4,250</span>.</p>
+  </div>
+</section>
+
+<!-- ==================== PARTIE II ==================== -->
+
+<section class="lesson" id="c04" style="--hue: var(--p2); --tint: var(--p2-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 04 / 12 · Partie II, comprendre la géométrie</p>
+    <h2>Passer du scalaire au vecteur</h2>
+    <p class="obj">Objectif : comprendre pourquoi coder plusieurs poids ensemble peut aider, et ce que ça coûte.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 268" role="img" aria-label="À gauche, des choix indépendants par axe découpent le plan en rectangles ; à droite, un choix conjoint autorise des régions hexagonales. Le même point d'entrée tombe dans deux régions de forme différente.">
+      <defs>
+        <polygon id="hx" points="0,-20 -17.3,-10 -17.3,10 0,20 17.3,10 17.3,-10"/>
+        <clipPath id="clipR"><rect x="352" y="58" width="278" height="164"/></clipPath>
+      </defs>
+
+      <text class="t-hd" x="20" y="34">Scalaire : un choix par axe</text>
+      <text class="t-sm" x="20" y="50">les régions sont des rectangles, imposés</text>
+      <rect class="box-s" x="20" y="58" width="278" height="164" rx="6"/>
+      <g class="s-thin">
+        <line x1="54" y1="58" x2="54" y2="222"/><line x1="88" y1="58" x2="88" y2="222"/>
+        <line x1="122" y1="58" x2="122" y2="222"/><line x1="156" y1="58" x2="156" y2="222"/>
+        <line x1="190" y1="58" x2="190" y2="222"/><line x1="224" y1="58" x2="224" y2="222"/>
+        <line x1="258" y1="58" x2="258" y2="222"/>
+        <line x1="20" y1="91" x2="298" y2="91"/><line x1="20" y1="124" x2="298" y2="124"/>
+        <line x1="20" y1="157" x2="298" y2="157"/><line x1="20" y1="190" x2="298" y2="190"/>
+      </g>
+      <rect x="156" y="124" width="34" height="33" fill="var(--tint)" stroke="var(--hue)" stroke-width="1.4"/>
+      <g fill="var(--faint)">
+        <circle cx="37" cy="74.5" r="1.8"/><circle cx="71" cy="74.5" r="1.8"/><circle cx="105" cy="74.5" r="1.8"/><circle cx="139" cy="74.5" r="1.8"/><circle cx="173" cy="74.5" r="1.8"/><circle cx="207" cy="74.5" r="1.8"/><circle cx="241" cy="74.5" r="1.8"/><circle cx="278" cy="74.5" r="1.8"/>
+        <circle cx="37" cy="107.5" r="1.8"/><circle cx="71" cy="107.5" r="1.8"/><circle cx="105" cy="107.5" r="1.8"/><circle cx="139" cy="107.5" r="1.8"/><circle cx="173" cy="107.5" r="1.8"/><circle cx="207" cy="107.5" r="1.8"/><circle cx="241" cy="107.5" r="1.8"/><circle cx="278" cy="107.5" r="1.8"/>
+        <circle cx="37" cy="173.5" r="1.8"/><circle cx="71" cy="173.5" r="1.8"/><circle cx="105" cy="173.5" r="1.8"/><circle cx="139" cy="173.5" r="1.8"/><circle cx="173" cy="173.5" r="1.8"/><circle cx="207" cy="173.5" r="1.8"/><circle cx="241" cy="173.5" r="1.8"/><circle cx="278" cy="173.5" r="1.8"/>
+        <circle cx="37" cy="206.5" r="1.8"/><circle cx="71" cy="206.5" r="1.8"/><circle cx="105" cy="206.5" r="1.8"/><circle cx="139" cy="206.5" r="1.8"/><circle cx="173" cy="206.5" r="1.8"/><circle cx="207" cy="206.5" r="1.8"/><circle cx="241" cy="206.5" r="1.8"/><circle cx="278" cy="206.5" r="1.8"/>
+        <circle cx="37" cy="140.5" r="1.8"/><circle cx="71" cy="140.5" r="1.8"/><circle cx="105" cy="140.5" r="1.8"/><circle cx="139" cy="140.5" r="1.8"/><circle cx="207" cy="140.5" r="1.8"/><circle cx="241" cy="140.5" r="1.8"/><circle cx="278" cy="140.5" r="1.8"/>
+      </g>
+      <circle cx="173" cy="140.5" r="3.2" fill="var(--hue)"/>
+      <circle cx="181" cy="149" r="3" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
+      <line x1="181" y1="149" x2="174.5" y2="142" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <text class="t-hd" x="352" y="34">Vectoriel : le couple est choisi</text>
+      <text class="t-sm" x="352" y="50">les régions peuvent être hexagonales</text>
+      <rect class="box-s" x="352" y="58" width="278" height="164" rx="6"/>
+      <g clip-path="url(#clipR)" fill="none" stroke="var(--line)" stroke-width="1">
+        <use href="#hx" x="375" y="80"/><use href="#hx" x="409.6" y="80"/><use href="#hx" x="444.3" y="80"/><use href="#hx" x="478.9" y="80"/><use href="#hx" x="513.6" y="80"/><use href="#hx" x="548.2" y="80"/><use href="#hx" x="582.9" y="80"/>
+        <use href="#hx" x="392.3" y="110"/><use href="#hx" x="426.9" y="110"/><use href="#hx" x="461.6" y="110"/><use href="#hx" x="496.2" y="110"/><use href="#hx" x="530.9" y="110"/><use href="#hx" x="565.5" y="110"/><use href="#hx" x="600.2" y="110"/>
+        <use href="#hx" x="375" y="140"/><use href="#hx" x="409.6" y="140"/><use href="#hx" x="478.9" y="140"/><use href="#hx" x="513.6" y="140"/><use href="#hx" x="548.2" y="140"/><use href="#hx" x="582.9" y="140"/>
+        <use href="#hx" x="392.3" y="170"/><use href="#hx" x="426.9" y="170"/><use href="#hx" x="461.6" y="170"/><use href="#hx" x="496.2" y="170"/><use href="#hx" x="530.9" y="170"/><use href="#hx" x="565.5" y="170"/><use href="#hx" x="600.2" y="170"/>
+        <use href="#hx" x="375" y="200"/><use href="#hx" x="409.6" y="200"/><use href="#hx" x="444.3" y="200"/><use href="#hx" x="478.9" y="200"/><use href="#hx" x="513.6" y="200"/><use href="#hx" x="548.2" y="200"/><use href="#hx" x="582.9" y="200"/>
+      </g>
+      <g clip-path="url(#clipR)">
+        <use href="#hx" x="444.3" y="140" fill="var(--tint)" stroke="var(--hue)" stroke-width="1.4"/>
+      </g>
+      <g fill="var(--faint)">
+        <circle cx="375" cy="80" r="1.8"/><circle cx="409.6" cy="80" r="1.8"/><circle cx="444.3" cy="80" r="1.8"/><circle cx="478.9" cy="80" r="1.8"/><circle cx="513.6" cy="80" r="1.8"/><circle cx="548.2" cy="80" r="1.8"/><circle cx="582.9" cy="80" r="1.8"/>
+        <circle cx="392.3" cy="110" r="1.8"/><circle cx="426.9" cy="110" r="1.8"/><circle cx="461.6" cy="110" r="1.8"/><circle cx="496.2" cy="110" r="1.8"/><circle cx="530.9" cy="110" r="1.8"/><circle cx="565.5" cy="110" r="1.8"/><circle cx="600.2" cy="110" r="1.8"/>
+        <circle cx="375" cy="140" r="1.8"/><circle cx="409.6" cy="140" r="1.8"/><circle cx="478.9" cy="140" r="1.8"/><circle cx="513.6" cy="140" r="1.8"/><circle cx="548.2" cy="140" r="1.8"/><circle cx="582.9" cy="140" r="1.8"/>
+        <circle cx="392.3" cy="170" r="1.8"/><circle cx="426.9" cy="170" r="1.8"/><circle cx="461.6" cy="170" r="1.8"/><circle cx="496.2" cy="170" r="1.8"/><circle cx="530.9" cy="170" r="1.8"/><circle cx="565.5" cy="170" r="1.8"/><circle cx="600.2" cy="170" r="1.8"/>
+        <circle cx="375" cy="200" r="1.8"/><circle cx="409.6" cy="200" r="1.8"/><circle cx="444.3" cy="200" r="1.8"/><circle cx="478.9" cy="200" r="1.8"/><circle cx="513.6" cy="200" r="1.8"/><circle cx="548.2" cy="200" r="1.8"/><circle cx="582.9" cy="200" r="1.8"/>
+      </g>
+      <circle cx="444.3" cy="140" r="3.2" fill="var(--hue)"/>
+      <circle cx="452.3" cy="148.5" r="3" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
+      <line x1="452.3" y1="148.5" x2="445.8" y2="141.5" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 2"/>
+
+      <text class="t-sm" x="20" y="246">Le cercle noir est le vecteur à coder, le point plein son représentant. À densité égale de représentants, la région</text>
+      <text class="t-sm" x="20" y="262">hexagonale a une distance moyenne au centre plus faible que le carré. Grilles illustratives 2D, aucune projection de Leech.</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 04.</b> Ce que le codage conjoint achète n'est pas d'abord la corrélation : c'est la <em>forme</em> des régions de décision. En dimension 24, ce gain de forme atteint son maximum connu, et c'est tout l'argument de LLVQ.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>En quantification vectorielle on prend <span class="num">d</span> poids à la fois. Un index choisit un vecteur <code>c</code> parmi <span class="num">K</span> représentants, le <strong>codebook</strong>. La reconstruction du bloc est <code>c</code>, éventuellement multiplié par une échelle. Avec des indices de longueur fixe, le coût minimal de l'index est <code>ceil(log₂ K)</code> bits, donc ce nombre divisé par <span class="num">d</span> pour le coût par poids.</p>
+
+  <p>Coder conjointement autorise des régions de décision différentes des cases rectangulaires qu'imposent des choix scalaires indépendants. Cela répartit mieux l'erreur dans l'espace, <strong>même pour des coordonnées indépendantes</strong>. Le bénéfice dépend de la source, du débit et du quantificateur ; à très faible débit, aucune géométrie ne garantit à elle seule le score final d'un LLM.</p>
+
+  <p>Reste le prix d'un dictionnaire naïf. À 2 bits par dimension, un bloc de 24 nombres dispose de 48 bits d'index, donc jusqu'à <span class="num">2⁴⁸</span> choix. Une table exhaustive devient gigantesque. Une structure mathématique peut définir les représentants <em>implicitement</em>, et la question passe de « où stocker tous les vecteurs ? » à « comment reconstruire vite celui qu'on demande ? ». Trois familles y répondent : un codebook explicite qu'on lit par index, un codebook structuré décrit par des règles (réseau, symétries, décompositions), un système à treillis qui décrit des séquences de choix avec un état. QTIP exploite la dernière, LLVQ la deuxième.</p>
+
+  <p>Encodeur et décodeur n'ont enfin pas les mêmes contraintes. L'encodeur cherche une bonne approximation et peut explorer beaucoup de candidats, puisqu'il tourne avant le service. Le décodeur reconstruit pendant l'inférence : il doit être rapide et prévisible. Une recherche plus coûteuse peut améliorer la qualité sans changer la taille du fichier ; une indexation plus compacte peut ralentir le décodeur.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Une table contient tous les vecteurs possibles à 2 bits par dimension, avec <span class="num">d = 24</span>. Chaque vecteur est stocké en <code>float16</code>. Quelle mémoire faudrait-il ?</p>
+    <p class="a"><b>2⁴⁸ × 24 × 2 octets ≈ 13,5 pétaoctets</b> décimaux. C'est un calcul théorique pour une table exhaustive, pas la taille d'un codebook réellement matérialisé.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le vrai codebook, et l'asymétrie encodeur / décodeur en heures</h4>
+    <p>Le codebook servi n'est pas hypothétique : c'est la boule Λ₂₄(12), qui contient <strong><span class="num">111 043 117 458 000</span> points</strong>, soit <span class="num">1,11·10¹⁴</span>. Il tient donc dans <strong>47 bits</strong>, auxquels s'ajoute 1 bit de gain. L'exercice ci-dessus décrit presque exactement cet objet : une table explicite de ces points en <code>f16</code> pèserait <span class="num">5,33</span> pétaoctets. Le dépôt inscrit le verdict noir sur blanc dans son tableau des trois chemins de lecture : <em>table de correspondance, impossible pour le réseau de Leech</em>. Pour comparaison, l'état de treillis de QTIP tient dans <span class="num">2 KiB</span> et le codebook E8P de QuIP# dans <span class="num">2¹⁶</span> entrées.</p>
+    <p>L'asymétrie du dernier paragraphe se lit aussi en heures. L'encodeur du 4B tourne <strong>une fois</strong>, en <span class="num">4 h 01</span> sur un M3 Max, à <span class="num">639</span> à <span class="num">709 µs</span> par bloc et par cœur. Le décodeur, lui, traite <span class="num">150 681 600</span> blocs <strong>à chaque passe de modèle</strong>, et doit le faire en quelques millisecondes.</p>
+    <p class="src">Cardinal de la boule <span class="prov c">calculé</span>, verrouillé par le test <code>classes_reproduce_theta_series</code> de <code>llvq-core</code>. Chemins de lecture : <code>docs/format-noyau.md</code> §1. Durées <span class="prov m">mesuré</span>, <code>docs/fiche-4b.md</code> §3.4 et <code>encbench</code>.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c05" style="--hue: var(--p2); --tint: var(--p2-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 05 / 12 · Partie II, comprendre la géométrie</p>
+    <h2>Leech : penser en 24 dimensions</h2>
+    <p class="obj">Objectif : séparer réseau, coquille, codebook fini et indexation. Quatre objets, quatre rôles.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 250" role="img" aria-label="Un réseau est infini ; une coquille regroupe les points de même norme ; le codebook fini est l'union des coquilles jusqu'à m égale 12, adressée par un mot de 48 bits.">
+      <text class="t-sm" x="20" y="26">RÉSEAU : ENSEMBLE INFINI · COQUILLE : MÊME NORME · CODEBOOK : UNION FINIE</text>
+      <circle cx="150" cy="132" r="92" fill="none" stroke="var(--hue)" stroke-width="1.4" stroke-dasharray="5 4"/>
+      <circle cx="150" cy="132" r="70" class="s-thin"/>
+      <circle cx="150" cy="132" r="48" class="s-thin"/>
+      <circle cx="150" cy="132" r="26" class="s-thin"/>
+      <g fill="var(--faint)">
+        <circle cx="176" cy="132" r="2.4"/><circle cx="132" cy="113" r="2.4"/><circle cx="132" cy="151" r="2.4"/><circle cx="150" cy="106" r="2.4"/>
+        <circle cx="198" cy="132" r="2.4"/><circle cx="184" cy="98" r="2.4"/><circle cx="116" cy="98" r="2.4"/><circle cx="102" cy="132" r="2.4"/><circle cx="116" cy="166" r="2.4"/><circle cx="184" cy="166" r="2.4"/><circle cx="150" cy="180" r="2.4"/>
+        <circle cx="220" cy="132" r="2.4"/><circle cx="200" cy="82" r="2.4"/><circle cx="150" cy="62" r="2.4"/><circle cx="100" cy="82" r="2.4"/><circle cx="80" cy="132" r="2.4"/><circle cx="100" cy="182" r="2.4"/><circle cx="150" cy="202" r="2.4"/><circle cx="200" cy="182" r="2.4"/>
+      </g>
+      <g fill="var(--faint)" opacity=".45">
+        <circle cx="242" cy="132" r="2.4"/><circle cx="150" cy="40" r="2.4"/><circle cx="58" cy="132" r="2.4"/><circle cx="150" cy="224" r="2.4"/><circle cx="215" cy="67" r="2.4"/><circle cx="85" cy="67" r="2.4"/><circle cx="85" cy="197" r="2.4"/><circle cx="215" cy="197" r="2.4"/>
+      </g>
+      <circle cx="150" cy="132" r="3" fill="var(--ink)"/>
+      <text class="t-numsm" x="150" y="126" text-anchor="middle">0</text>
+      <line class="s-line" x1="150" y1="132" x2="212" y2="94"/>
+      <text class="t-sm" x="216" y="90">coquille m</text>
+      <text class="t-hue" x="150" y="238" text-anchor="middle">frontière du codebook : m ≤ 12</text>
+      <text class="t-sm" x="266" y="238">hors du codebook, le réseau continue</text>
+
+      <line class="s-thin" x1="290" y1="46" x2="290" y2="212"/>
+
+      <text class="t-hd" x="320" y="60">Ce que le mot de 48 bits adresse</text>
+      <rect class="box-t" x="320" y="74" width="230" height="34" rx="4"/>
+      <text class="t-num" x="435" y="96" text-anchor="middle">index dans la boule · 47 bits</text>
+      <rect class="box-k" x="554" y="74" width="76" height="34" rx="4"/>
+      <text class="t-num" x="592" y="96" text-anchor="middle">gain · 1</text>
+      <text class="t-sm" x="320" y="126">soit 48 bits pour 24 poids = 2,000 b/poids de code</text>
+
+      <text class="t-lbl" x="320" y="156">N(12) =</text>
+      <text class="t-num" x="386" y="156">111 043 117 458 000 points</text>
+      <text class="t-lbl" x="320" y="176">Λ₂₄(12) :</text>
+      <text class="t-num" x="386" y="176">301 classes d'équivalence</text>
+      <text class="t-lbl" x="320" y="196">baiser :</text>
+      <text class="t-num" x="386" y="196">196 560 voisins à la norme 4</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 05.</b> Une coquille regroupe les points de même distance à l'origine ; le codebook est l'union des coquilles jusqu'à <span class="num">m = 12</span>. L'analogie est en 2D et n'est pas à l'échelle : le vrai objet vit en dimension 24, et son cardinal tient dans 47 bits.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Un réseau est l'ensemble des combinaisons entières d'une base de vecteurs, <code>Λ = {Bk : k entier}</code>. La grille carrée en est un exemple en deux dimensions. Le réseau de Leech vit en dimension 24 et possède des propriétés géométriques remarquables. Son optimalité pour l'empilement de sphères ne signifie <strong>pas</strong> qu'il optimise automatiquement toute erreur de quantification, ni tout benchmark.</p>
+
+  <p>Un réseau contient une infinité de points, un index de taille fixe n'en adresse qu'un nombre fini : il faut donc définir un sous-ensemble admissible. Une <strong>coquille</strong> rassemble les points de même norme. On peut aussi normaliser des points pour obtenir des directions, et dans ce cas l'objet codé change : l'amplitude doit être traitée séparément, ce que fait le schéma forme-gain du cours 06.</p>
+
+  <p>Le mot « code » apparaît deux fois dans ce domaine et désigne deux choses. Un <strong>code correcteur</strong> est un ensemble de mots binaires respectant des contraintes ; le code de Golay étendu en est un. Dans une construction de réseau, ce type de structure sert à définir les configurations de coordonnées admissibles. LLVQ ne corrige pas les erreurs de raisonnement du modèle comme un canal télécom corrige des bits abîmés : ici la perte principale est le remplacement volontaire des poids.</p>
+
+  <p>Indexer n'est pas quantifier. Prenons un ensemble de 3 familles de 10 objets : un identifiant global de 0 à 29 se sépare en famille (quotient par 10) et position (reste), et l'objet se reconstruit sans stocker de liste. Sur une géométrie structurée le principe se complique, et le coût des divisions, permutations et décisions se paie sur le GPU.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Un réseau est infini, mais tu utilises un index de 48 bits. Combien de représentants peux-tu adresser au maximum ? Qu'est-ce qui manque pour définir le quantificateur ?</p>
+    <p class="a">Au plus <b>2⁴⁸</b> représentants. Il faut encore définir <b>lesquels</b> sont autorisés, leur indexation, les échelles éventuelles, et la règle qui associe un bloc d'entrée à un représentant.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>« Leech est exceptionnel » a été testé, et le résultat est nuancé</h4>
+    <p>La mise en garde du principe n'est pas rhétorique : le dépôt l'a payée en heures de carte. Le 2026-09-07, le codebook <strong>de l'article lui-même</strong> (<code>leech0c13</code>, la configuration LLM publiée) a été encodé sur le 4B, une seule variable contre le format <code>Tetra</code> : le codebook. Même modèle, même corpus C4, mêmes <span class="num">131 072</span> jetons de calibration, même rotation, même appareil, <strong>et le débit idéal identique à <span class="num">2,0702</span></strong>.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>bras</th><th class="n">débit idéal</th><th class="n">perplexité</th><th class="n">MMLU micro</th></tr></thead>
+      <tbody>
+        <tr><td>f16, référence</td><td class="n">—</td><td class="n">12,2369</td><td class="n">70,32</td></tr>
+        <tr class="hl"><td><code>Tetra</code></td><td class="n">2,0702</td><td class="n">16,1569</td><td class="n">53,49</td></tr>
+        <tr><td><code>Planes14</code> publié</td><td class="n">2,0702</td><td class="n">16,9422</td><td class="n">55,59</td></tr>
+        <tr><td><code>leech0c13</code>, l'article</td><td class="n">2,0702</td><td class="n">19,6093</td><td class="n">54,67</td></tr>
+      </tbody>
+    </table></div>
+    <p>Les trois bras sont <strong>indiscernables en MMLU</strong> alors que leurs perplexités s'étalent sur <span class="num">21,5 %</span>. Apparié, <code>leech0c13</code> contre <code>Tetra</code> vaut <span class="num">+1,19 pp</span>, IC95 <span class="num">[−1,54 ; +3,98]</span>, McNemar <span class="num">p = 0,79</span> ; contre le fichier publié, <span class="num">−0,92 pp</span>, IC95 <span class="num">[−3,55 ; +1,78]</span>. Les deux intervalles contiennent zéro.</p>
+    <p>Le codebook est donc <strong>exonéré</strong>. L'écart de 5,1 points qui sépare le dépôt du chiffre de l'article ne vient pas de la géométrie mais de ce qui l'entoure : un volume de calibration environ 95 fois supérieur, le corpus, la rotation.</p>
+    <p class="src"><span class="prov m">mesuré</span>, préenregistrement tamponné avant la première seconde d'encodage, <code>mesures/leech0c13-2026-09-07.txt</code>. Le 301 de la figure corrige un 383 publié en interne le 2026-08-04 <span class="prov c">calculé</span>, <code>enumerate_classes</code>.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c06" style="--hue: var(--p2); --tint: var(--p2-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 06 / 12 · Partie II, comprendre la géométrie</p>
+    <h2>Préparer la géométrie des poids</h2>
+    <p class="obj">Objectif : comprendre rotations, échelles, forme et gain, et pourquoi la rotation décide de tout.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 262" role="img" aria-label="À gauche, une rotation réoriente un nuage anisotrope et redistribue son étendue entre les axes sans changer sa forme. À droite, la décomposition forme-gain : le gain optimal est la projection, et il reste une erreur orthogonale de norme w sinus thêta.">
+      <text class="t-hd" x="20" y="26">Une rotation redistribue, elle ne blanchit pas</text>
+      <g class="s-thin">
+        <line x1="34" y1="180" x2="164" y2="180"/><line x1="34" y1="180" x2="34" y2="62"/>
+        <line x1="198" y1="180" x2="328" y2="180"/><line x1="198" y1="180" x2="198" y2="62"/>
+      </g>
+      <ellipse cx="99" cy="122" rx="56" ry="17" fill="var(--tint)" stroke="var(--hue)" stroke-width="1.2" opacity=".85"/>
+      <g fill="var(--ink)"><circle cx="58" cy="126" r="1.8"/><circle cx="74" cy="118" r="1.8"/><circle cx="90" cy="124" r="1.8"/><circle cx="106" cy="118" r="1.8"/><circle cx="122" cy="126" r="1.8"/><circle cx="138" cy="120" r="1.8"/></g>
+      <ellipse cx="263" cy="122" rx="56" ry="17" fill="var(--tint)" stroke="var(--hue)" stroke-width="1.2" opacity=".85" transform="rotate(-42 263 122)"/>
+      <g fill="var(--ink)"><circle cx="234" cy="151" r="1.8"/><circle cx="246" cy="139" r="1.8"/><circle cx="257" cy="130" r="1.8"/><circle cx="268" cy="116" r="1.8"/><circle cx="280" cy="104" r="1.8"/><circle cx="292" cy="93" r="1.8"/></g>
+      <line x1="43" y1="188" x2="155" y2="188" stroke="var(--hue)" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="220" y1="188" x2="306" y2="188" stroke="var(--hue)" stroke-width="3.5" stroke-linecap="round"/>
+      <text class="t-sm" x="34" y="204">étendue sur l'axe x : large</text>
+      <text class="t-sm" x="198" y="204">plus courte, l'énergie passe sur y</text>
+      <text class="t-numsm" x="34" y="228">Wx = (WRᵀ)(Rx), RᵀR = I</text>
+      <text class="t-sm" x="34" y="246">Sans quantification, la sortie est inchangée. Les</text>
+      <text class="t-sm" x="34" y="260">distances aussi. Seules les variances par axe bougent.</text>
+
+      <line class="s-thin" x1="356" y1="40" x2="356" y2="234"/>
+
+      <text class="t-hd" x="386" y="26">Forme et gain : ce qu'un scalaire ne rattrape pas</text>
+      <line class="s-thin" x1="400" y1="190" x2="640" y2="190"/>
+      <line class="s-thin" x1="400" y1="190" x2="400" y2="60"/>
+      <line x1="400" y1="190" x2="614" y2="112" stroke="var(--line-strong)" stroke-width="1.2" stroke-dasharray="4 3"/>
+      <text class="t-sm" x="618" y="110">direction c</text>
+      <line x1="400" y1="190" x2="540" y2="72" stroke="var(--ink)" stroke-width="1.8"/>
+      <text class="t-num" x="546" y="70">w</text>
+      <line x1="400" y1="190" x2="558" y2="132" stroke="var(--hue)" stroke-width="2.4"/>
+      <text class="t-hue" x="500" y="176">α*c, la projection</text>
+      <line x1="540" y1="72" x2="558" y2="132" stroke="var(--hue)" stroke-width="1.4" stroke-dasharray="3 3"/>
+      <text class="t-hue" x="566" y="100">‖w‖ sin θ</text>
+      <path class="s-line" d="M432 179 A 34 34 0 0 0 434 166" fill="none"/>
+      <text class="t-numsm" x="440" y="176">θ</text>
+      <circle cx="540" cy="72" r="3" fill="var(--ink)"/>
+      <circle cx="558" cy="132" r="3" fill="var(--hue)"/>
+      <text class="t-numsm" x="386" y="216">α* = (w·c)/(c·c),  erreur résiduelle = ‖w‖² sin²θ</text>
+      <text class="t-sm" x="386" y="234">Un gain parfait laisse la composante orthogonale intacte.</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 06.</b> Deux leviers distincts. À gauche on change de repère avant la perte, sans rien coûter en bits. À droite on sépare direction et amplitude, et l'erreur d'angle survit à tout choix d'échelle.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Avant de quantifier, on peut changer les coordonnées du calcul puis compenser ce changement. Pour une matrice orthogonale <code>R</code>, on a <code>RᵀR = I</code>, donc <code>Wx = (WRᵀ)(Rx)</code> : sans quantification la sortie est inchangée. L'intérêt vient de la manière dont les nouvelles coordonnées se prêtent à la grille, qui n'est pas invariante par rotation. Une rotation peut répartir une grande composante entre plusieurs axes ; elle ne supprime ni l'énergie du vecteur ni ses directions sensibles. QuIP# utilise des transformations de Hadamard randomisées dans son traitement d'incohérence ; une Hadamard normalisée est orthogonale et s'applique de façon structurée, donc vite.</p>
+
+  <p>Pour un bloc <code>w</code> non nul, on écrit <code>w = r·u</code> avec <code>r = ‖w‖</code> et <code>‖u‖ = 1</code>. <code>u</code> décrit la direction, <code>r</code> l'amplitude : c'est le schéma <strong>forme-gain</strong>. Pour un candidat <code>c</code> non nul, minimiser <code>‖w − αc‖²</code> sur un scalaire réel donne <code>α* = (w·c)/(c·c)</code>, et <code>α* = w·c</code> si <code>c</code> est unitaire. Une contrainte de positivité ou un alphabet de gains impose ensuite une projection : <strong>le gain optimal continu n'est pas le gain stocké</strong>.</p>
+
+  <p>Si <code>w</code> et <code>c</code> forment un angle <code>θ</code>, l'erreur minimale avec gain réel vaut <code>‖w‖² sin²θ</code>. Quand les directions diffèrent, même un gain parfait laisse une composante orthogonale ; inversement, une direction parfaite est dégradée par un gain mal codé. Cette décomposition dit quelle expérience lancer : chercher de meilleures directions, ou améliorer les amplitudes.</p>
+
+  <p>Enfin, pour une diagonale inversible <code>D</code>, on a <code>Wx = (WD)(D⁻¹x)</code>. Ce rééquilibrage ne coûte aucun bit supplémentaire, à condition de préserver les compensations dans tout le graphe. « Zéro bit supplémentaire » veut dire que l'information est déduite, partagée ou déjà disponible ; elle ne disparaît pas. Toute correction doit avoir une règle identique dans l'encodeur et dans le runtime, et son coût de calcul doit être compté.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Avec <span class="num">w = (3, 4)</span> et un candidat unitaire <span class="num">c = (1, 0)</span>, trouve le gain optimal et l'erreur quadratique résiduelle.</p>
+    <p class="a"><b>α* = 3.</b> La reconstruction vaut <span class="num">(3, 0)</span> et l'erreur <span class="num">(0, −4)</span>, donc une erreur quadratique de <b>16</b>. Choisir le gain égal à <span class="num">‖w‖ = 5</span> donnerait ici <b>20</b> : préserver la norme n'est pas minimiser l'erreur.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Sans rotation, la perplexité fait 191,90</h4>
+    <p>Le résultat le plus spectaculaire de l'article LLVQ est une ablation, et il justifie à lui seul ce cours. Sur Llama-2 7B sans fine-tuning, référence <span class="num">5,12</span> :</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>correction</th><th>Hadamard</th><th class="n">Wiki ↓</th><th class="n">MMLU ↑</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td>GPTQ euclidien</td><td>aucune</td><td class="n">191,90</td><td class="n">24,0</td></tr>
+        <tr><td>GPTQ euclidien</td><td>entrée</td><td class="n">6,80</td><td class="n">35,1</td></tr>
+        <tr class="hl"><td>GPTQ sphérique</td><td>aucune</td><td class="n">6,90</td><td class="n">37,4</td></tr>
+        <tr><td>GPTQ sphérique</td><td>entrée</td><td class="n">6,70</td><td class="n">35,1</td></tr>
+      </tbody>
+    </table></div>
+    <p>La dérive radiale est le mode d'échec dominant, et préserver la norme le supprime. Le <strong>GPTQ sphérique</strong> retrouve seul, sans aucune rotation, ce que la rotation apportait. C'est le §3.3 de l'article, et c'est la raison pour laquelle le nom « Spherical GPTQ » désigne dans ce dépôt le crate <code>llvq-quant</code>, pas la recette servie.</p>
+    <p><strong>Et forme-gain bat le façonnage sphérique.</strong> Sur Qwen3-4B sans fine-tuning : façonnage sphérique <span class="num">21,80</span> de perplexité et <span class="num">50,5</span> de MMLU, forme-gain à 0 bit de gain <span class="num">17,05</span> et <span class="num">60,7</span>. L'heuristique « <span class="num">1/n</span> des bits au gain » donnerait 2 bits pour <span class="num">n = 24</span> ; l'optimum empirique de l'article est <strong>1 bit</strong>, avec <code>norm(Λ₂₄(12))</code>, à <span class="num">92,14 %</span> de rétention. C'est exactement le codebook servi, <code>leech1c12</code>.</p>
+    <p>La recette du dépôt est donc l'Algorithme 1 (forme-gain, remise à zéro du gain) plus une rotation d'incohérence <strong>sur l'entrée seulement</strong>, partagée par groupe de projections (<code>LLVQ_ROT_SHARE=1</code>). Le garde-fou <code>check_fuse</code> refuse <code>FUSE=1</code> avec <code>ROT_SHARE=0</code> : un groupe fusionné est un site de rotation unique, et un delta ne doit porter qu'un mécanisme.</p>
+    <p class="src">Tables 6, 8 et 9 de l'article, transcrites par rendu d'image le 2026-08-04 (<code>docs/llvq-paper-notes.md</code>) : l'extraction texte du PDF est corrompue et double les chiffres. <code>α*</code> de l'exercice est le <code>β* = (qᵀw)/(qᵀq)</code> de l'annexe F.1, où le quantificateur de forme est invariant d'échelle, donc sans recherche linéaire.</p>
+  </div>
+</section>
+
+<!-- ==================== PARTIE III ==================== -->
+
+<section class="lesson" id="c07" style="--hue: var(--p3); --tint: var(--p3-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 07 / 12 · Partie III, comprendre l'implémentation</p>
+    <h2>Quantifier ce qui compte vraiment</h2>
+    <p class="obj">Objectif : relier calibration, Hessienne et erreur fonctionnelle. Toutes les erreurs ne coûtent pas le même prix.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 246" role="img" aria-label="Avec H égale diag(1, 9), deux erreurs de même longueur euclidienne ont des coûts différents : l'erreur horizontale coûte 0,01 et la verticale 0,09, neuf fois plus.">
+      <text class="t-sm" x="20" y="26">MÊME LONGUEUR, IMPACT DIFFÉRENT · CONTOURS DE PERTE CONSTANTE POUR H = diag(1, 9)</text>
+      <ellipse cx="230" cy="140" rx="36" ry="12" fill="none" stroke="var(--hue)" stroke-width="1.4"/>
+      <ellipse cx="230" cy="140" rx="108" ry="36" fill="none" stroke="var(--hue)" stroke-width="1.4" opacity=".55"/>
+      <ellipse cx="230" cy="140" rx="180" ry="60" fill="none" stroke="var(--hue)" stroke-width="1.2" opacity=".3"/>
+      <g class="s-thin"><line x1="42" y1="140" x2="418" y2="140"/><line x1="230" y1="66" x2="230" y2="214"/></g>
+      <defs><marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g style="color: var(--ink)">
+        <line x1="230" y1="140" x2="266" y2="140" stroke="currentColor" stroke-width="2.2" marker-end="url(#a7)"/>
+        <line x1="230" y1="140" x2="230" y2="104" stroke="currentColor" stroke-width="2.2" marker-end="url(#a7)"/>
+      </g>
+      <text class="t-num" x="274" y="136">e₁ = (0,1 ; 0)</text>
+      <text class="t-numsm" x="274" y="150">e₁ᵀHe₁ = 0,01</text>
+      <text class="t-num" x="240" y="96">e₂ = (0 ; 0,1)</text>
+      <text class="t-numsm" x="240" y="82">e₂ᵀHe₂ = 0,09, neuf fois plus</text>
+      <circle cx="266" cy="140" r="3" fill="var(--ink)"/>
+      <circle cx="230" cy="104" r="3" fill="var(--ink)"/>
+      <text class="t-sm" x="42" y="230">e₁ reste sur le premier contour ; e₂, de même longueur, en traverse deux. Une recherche du plus proche voisin</text>
+      <text class="t-sm" x="42" y="244">sous la métrique ordinaire choisit donc parfois un candidat moins intéressant pour le fonctionnement réel.</text>
+
+      <line class="s-thin" x1="446" y1="46" x2="446" y2="214"/>
+      <text class="t-hd" x="472" y="66">L'objectif local</text>
+      <text class="t-numsm" x="472" y="90">L = ‖(Ŵ − W)X‖²F</text>
+      <text class="t-numsm" x="472" y="112">H = XXᵀ / N</text>
+      <text class="t-numsm" x="472" y="134">L = tr(E H Eᵀ)</text>
+      <text class="t-sm" x="472" y="160">H décrit les seconds moments des</text>
+      <text class="t-sm" x="472" y="176">activations. Ce n'est une covariance</text>
+      <text class="t-sm" x="472" y="192">que si les données sont centrées.</text>
+      <text class="t-sm" x="472" y="212">Hessienne par ligne : 2H.</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 07.</b> Les ellipses représentent une métrique locale, apprise sur un corpus de calibration. Elles disent quelle erreur la couche tolère, et c'est cette information que GPTQ exploite pour compenser au lieu d'arrondir.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Sur des entrées de calibration <code>X</code> rangées en colonnes, on cherche à minimiser <code>‖(Ŵ − W)X‖²F</code>. La norme de Frobenius additionne les carrés de tous les éléments : on compare les <strong>sorties</strong> de la couche, pas seulement ses coefficients. En posant <code>E = Ŵ − W</code> et <code>H = XXᵀ/N</code>, l'erreur moyenne vaut <code>tr(EHEᵀ)</code>. Pour cette perte quadratique locale, la Hessienne par ligne vaut <code>2H</code> ; ce n'est pas la Hessienne exacte de toute la perte linguistique, et l'article le dit lui-même.</p>
+
+  <p>Des méthodes comme GPTQ exploitent cette information du second ordre pour guider la quantification et <strong>compenser</strong> les erreurs. L'intuition : si un poids est figé sur une valeur approchée, d'autres poids encore modifiables peuvent absorber une partie de son effet. L'ordre de traitement importe, et la correction s'implémente par une résolution triangulaire, jamais par une inversion explicite.</p>
+
+  <p>Plus de calibration ne signifie pas mécaniquement plus de qualité. Augmenter le nombre de jetons stabilise les statistiques, mais répéter des textes semblables n'apporte pas autant que couvrir des situations utiles. Le domaine, les longueurs, la tokenisation comptent. On régularise souvent <code>H</code>, par exemple avec <code>λI</code>, pour éviter des calculs instables dans des directions insuffisamment observées ; le réglage de <code>λ</code> modifie aussi l'objectif effectif.</p>
+
+  <p>Un mot sur le diagnostic. Si un encodage CPU et un encodage GPU donnent des qualités différentes, le matériel n'est pas une explication suffisante. Il faut comparer les mêmes poids, candidats, données, graines et paramètres, puis examiner précision numérique, réductions parallèles, recherche approximative, départage des égalités, erreurs de code. Mesurer la perte locale <em>avant</em> MMLU localise le problème.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Tu doubles la calibration et MMLU progresse. Peut-on conclure que le gain vient seulement d'une meilleure estimation de H ?</p>
+    <p class="a"><b>Non.</b> Le corpus, sa diversité, les graines ou d'autres paramètres ont pu changer. Il faut une comparaison contrôlée, des métriques locales, et idéalement plusieurs tirages pour isoler ce mécanisme.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le tirage de calibration pèse plus lourd que son volume</h4>
+    <p>Le corrigé ci-dessus est exactement la leçon que le dépôt a payée. Deux mesures encadrent la question.</p>
+    <p><strong>Le volume rapporte peu.</strong> L'oracle de volume rend <span class="num">−1,6 %</span> de perplexité, et multiplier les jetons par 13 en rend <span class="num">−1,2 %</span>. La montée en volume au 4B n'a jamais démarré, précisément parce que le bruit la dépasse.</p>
+    <p><strong>Le tirage rapporte beaucoup, et dans les deux sens.</strong> Trois passes complètes du 4B, seule la fenêtre de calibration changeant, donnent <span class="num">16,7425</span>, <span class="num">15,8836</span> et <span class="num">15,1027</span> de perplexité : un écart-type de <strong><span class="num">5,2 %</span></strong> et une étendue de <span class="num">10,3 %</span>. En MMLU, le même tirage porte <strong><span class="num">2,92 pp</span></strong> d'écart-type. Autrement dit, un effet de 2 points de MMLU mesuré sur un seul tirage n'est pas un effet.</p>
+    <p><strong>Le shrink de la Hessienne, lui, mord.</strong> L'expérience M1 remplace <code>H</code> par <code>ρH + (1−ρ)diag H</code> sur le 0,6B, 28 blocs, 3 graines :</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>ρ</th><th class="n">perplexité médiane</th><th class="n">étendue</th></tr></thead>
+      <tbody>
+        <tr><td>1,0, la Hessienne pleine</td><td class="n">39,6042</td><td class="n">4,6214</td></tr>
+        <tr class="hl"><td>0,9</td><td class="n">27,0812</td><td class="n">3,1498</td></tr>
+        <tr><td>0,7</td><td class="n">27,4944</td><td class="n">0,6847</td></tr>
+        <tr><td>0,5</td><td class="n">27,9506</td><td class="n">2,9771</td></tr>
+      </tbody>
+    </table></div>
+    <p>La prédiction signée avant l'expérience était que <span class="num">ρ* = 1</span>, donc que le levier serait mort. Elle est réfutée : à <span class="num">n = 3</span>, la partie fiable est le signe et l'ordre de grandeur, une médiane <span class="num">−12</span> de perplexité.</p>
+    <p><strong>Et l'attribution par type de projection réserve une surprise.</strong> Onze bras, chaque type de projection restauré en f16 à fichier constant : <code>gate</code> <span class="num">+5,18</span>, <code>up</code> <span class="num">+4,94</span>, <code>v</code> <span class="num">+4,48</span>, <code>down</code> <span class="num">+2,96</span>, <code>o</code> <span class="num">+2,35</span>, <code>k</code> <span class="num">+2,09</span>, <code>q</code> <span class="num">+1,85 pp</span>. Le MLP vaut <span class="num">+10,78</span> contre <span class="num">+6,90</span> pour l'attention : l'a priori « c'est <code>k_proj</code> et l'attention » est réfuté. Rejoué sur une deuxième graine, l'ordre de tête bouge (<code>gate</code> passe 1<sup>er</sup> → 4<sup>e</sup>, <code>down</code> 4<sup>e</sup> → 1<sup>er</sup>) sans qu'aucune différence entre tirages ne soit résolue. Deux tirages ne font pas une distribution.</p>
+    <p class="src">Volume <span class="prov m">mesuré</span>, <code>archive/verdicts-lot-b-2026-08-06.md</code>. Graines <span class="prov m">mesuré</span>, <code>mesures/f5-graines-4b-2026-08-19.txt</code> et <code>mesures/bruit-mmlu-graines-4b-2026-08-25.txt</code>. M1 et M2 <span class="prov m">mesuré</span>, <code>mesures/m1-hessienne-shrink-2026-09-02.txt</code>, <code>mesures/m2-attribution-4b-2026-09-02.txt</code>, réplicat <code>mesures/m2rep-graine3-4b-2026-09-04.txt</code>.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c08" style="--hue: var(--p3); --tint: var(--p3-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 08 / 12 · Partie III, comprendre l'implémentation</p>
+    <h2>Des indices aux octets</h2>
+    <p class="obj">Objectif : comprendre packing, alignement et formats de service. Un format plus gros peut être plus rapide.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>Trois représentations peuvent coexister pour un même contenu. Le <strong>quantificateur</strong> choisit des représentants. Un <strong>format compact</strong> les sérialise. Un <strong>format de service</strong> les organise pour l'inférence. Un transcodage sans perte change la représentation binaire en conservant les poids reconstruits ; il peut <em>augmenter</em> la taille pour rendre le décodage plus simple, et il faut le distinguer d'une requantification, qui modifie les valeurs.</p>
+
+  <p>Le <strong>packing</strong> assemble plusieurs codes dans des mots mémoire. L'<strong>alignement</strong> facilite certaines lectures mais ajoute parfois des cases inutilisées, le <strong>padding</strong>. Une table d'exceptions réserve un chemin spécial à certains blocs. Le GPU transporte des transactions mémoire, pas des fractions abstraites de bit : une représentation mathématiquement compacte peut provoquer des lectures supplémentaires.</p>
+
+  <p>Un <strong>plan de bits</strong> est la clé de tout ce qui suit. Prenons les entiers 1, 2 et 3 codés sur deux bits : <code>01</code>, <code>10</code>, <code>11</code>. Le plan de poids faible contient <code>1, 0, 1</code>, le plan de poids fort <code>0, 1, 1</code>, et chaque valeur se reconstruit par <code>b₀ + 2b₁</code>. Des masques et décalages traitent alors plusieurs coordonnées ensemble, sans divergence.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Un modèle possède 90 % de poids à 2,8 bits et 10 % à 16 bits, surcoûts inclus dans chaque catégorie. Quel coût moyen ?</p>
+    <p class="a"><b>0,90 × 2,8 + 0,10 × 16 = 4,12</b> bits par paramètre. Une petite fraction de paramètres non quantifiés change fortement le bilan, et c'est pourquoi la moyenne d'un format mixte doit être pondérée par le nombre de poids de chaque catégorie.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Les deux vrais enregistrements, au bit près</h4>
+    <p>Le budget fictif de l'exercice devient concret ici. Voici les deux formats du dépôt, à la même échelle, avec la seule chose qui les sépare.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 660 306" role="img" aria-label="Sur disque, Planes14 et Tetra pèsent tous deux 48 bits par bloc. En VRAM, Planes14 se déplie sur 112 bits alors que Tetra lit son mot de 48 bits tel quel.">
+        <text class="t-sm" x="8" y="26">SUR DISQUE · <tspan class="t-num">48</tspan> BITS PAR BLOC DE 24 POIDS, POUR LES DEUX FORMATS</text>
+        <rect x="60" y="36" width="235" height="26" rx="3" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+        <text class="t-num" x="177" y="54" text-anchor="middle">index dans la boule Λ₂₄(12) · 47</text>
+        <rect x="295" y="36" width="5" height="26" fill="var(--code-bg)" stroke="var(--line-strong)" stroke-width="1"/>
+        <text class="t-numsm" x="310" y="54">gain · 1</text>
+        <text class="t-sm" x="378" y="54">1 770 527 533 o (Planes14) · 1 770 529 149 o (Tetra)</text>
+
+        <text class="t-sm" x="8" y="98">EN VRAM · PLANES14 SE DÉPLIE SUR <tspan class="t-num">112</tspan> BITS = 14 OCTETS EXACTS, STRIDE UNIFORME 14·b</text>
+        <g stroke="var(--hue)" stroke-width="1">
+          <rect x="60"  y="108" width="45"  height="30" rx="3" fill="var(--code-bg)"/>
+          <rect x="105" y="108" width="5"   height="30" fill="var(--code-bg)"/>
+          <rect x="110" y="108" width="120" height="30" fill="var(--tint)"/>
+          <rect x="230" y="108" width="120" height="30" fill="var(--tint)"/>
+          <rect x="350" y="108" width="120" height="30" fill="var(--tint)"/>
+          <rect x="470" y="108" width="120" height="30" fill="var(--tint)"/>
+          <rect x="590" y="108" width="30"  height="30" rx="3" fill="none" stroke-dasharray="3 3"/>
+        </g>
+        <text class="t-num" x="82"  y="127" text-anchor="middle">classe</text><text class="t-numsm" x="82" y="150" text-anchor="middle">9</text>
+        <text class="t-num" x="170" y="127" text-anchor="middle">smask</text><text class="t-numsm" x="170" y="150" text-anchor="middle">24</text>
+        <text class="t-num" x="290" y="127" text-anchor="middle">plan₀</text><text class="t-numsm" x="290" y="150" text-anchor="middle">24</text>
+        <text class="t-num" x="410" y="127" text-anchor="middle">plan₁</text><text class="t-numsm" x="410" y="150" text-anchor="middle">24</text>
+        <text class="t-num" x="530" y="127" text-anchor="middle">plan₂</text><text class="t-numsm" x="530" y="150" text-anchor="middle">24</text>
+        <text class="t-numsm" x="605" y="150" text-anchor="middle">6</text>
+        <text class="t-sm" x="605" y="127" text-anchor="middle" style="fill:var(--faint)">pad</text>
+        <line class="s-thin" x1="107" y1="138" x2="107" y2="160"/>
+        <text class="t-numsm" x="112" y="168">gain, 1 bit</text>
+        <text class="t-sm" x="272" y="168">niveau du slot j = plan₀[j] | plan₁[j]≪1 | plan₂[j]≪2</text>
+
+        <text class="t-sm" x="8" y="204">EN VRAM · TETRA LIT SON MOT DE <tspan class="t-num">48</tspan> BITS TEL QUEL, MÊME ÉCHELLE</text>
+        <g stroke="var(--hue)" stroke-width="1">
+          <rect x="60"  y="214" width="5"  height="30" fill="var(--code-bg)"/>
+          <rect x="65"  y="214" width="5"  height="30" fill="var(--code-bg)"/>
+          <rect x="70"  y="214" width="30" height="30" fill="var(--tint)"/>
+          <rect x="100" y="214" width="5"  height="30" fill="var(--code-bg)"/>
+          <rect x="105" y="214" width="55" height="30" fill="var(--tint)"/>
+          <rect x="160" y="214" width="20" height="30" fill="var(--tint)"/>
+          <rect x="180" y="214" width="55" height="30" fill="var(--tint)"/>
+          <rect x="235" y="214" width="5"  height="30" fill="var(--code-bg)"/>
+          <rect x="240" y="214" width="55" height="30" fill="var(--tint)"/>
+          <rect x="295" y="214" width="5"  height="30" fill="var(--code-bg)"/>
+        </g>
+        <text class="t-num" x="85"  y="233" text-anchor="middle">s8</text><text class="t-numsm" x="85" y="256" text-anchor="middle">6</text>
+        <text class="t-num" x="132" y="233" text-anchor="middle">i1</text><text class="t-numsm" x="132" y="256" text-anchor="middle">11</text>
+        <text class="t-num" x="170" y="233" text-anchor="middle">b2</text><text class="t-numsm" x="170" y="256" text-anchor="middle">4</text>
+        <text class="t-num" x="207" y="233" text-anchor="middle">i2</text><text class="t-numsm" x="207" y="256" text-anchor="middle">11</text>
+        <text class="t-num" x="267" y="233" text-anchor="middle">i3</text><text class="t-numsm" x="267" y="256" text-anchor="middle">11</text>
+        <text class="t-sm" x="316" y="236">cinq champs de 1 bit : p, r, b1, b3, gain</text>
+        <line class="s-thin" x1="8" y1="272" x2="652" y2="272"/>
+        <text class="t-hue" x="8" y="290">4,804 b/poids noyau contre 2,1498 : tout l'écart est là, et pas un octet sur le disque.</text>
+      </svg>
+      </div>
+      <figcaption><b>Figure 08.</b> Les deux fichiers scellés du même 4B pèsent <span class="num">1 770 527 533</span> et <span class="num">1 770 529 149</span> octets, à 1 616 octets près : les 48 bits par bloc sont identiques. Ce que <code>Tetra</code> change est le dépliage, donc la VRAM et la bande passante, pas le disque.</figcaption>
+    </figure>
+
+    <p><strong>Ce que fait <code>Planes14</code>.</strong> L'assignation des niveaux est recodée en binaire : trois plans couvrent jusqu'à huit niveaux, le codebook en utilise au plus cinq. Une voie décode un bloc en 24 étapes fixes, trois tests de bit pour le niveau, un bit pour le signe, <strong>zéro divergence</strong>, et lit quatre à cinq mots de 32 bits. Le stride est uniforme, donc pas de table de bases. Sur les <span class="num">150 681 600</span> blocs du 4B, <span class="num">65,9 %</span> portent quatre niveaux et moins de <span class="num">0,1 %</span> en portent un ou deux.</p>
+
+    <p><strong>Ce que fait <code>Tetra</code>.</strong> Le mot décrit un chemin dans un treillis : un état de Golay au niveau 8, trois sections de 11 bits qui adressent chacune les <span class="num">2 048</span> vecteurs de plus faible coût de leur classe, et des bits de branche. Le nom vient de ses quatre champs, <code>[état][s₁][s₂][s₃]</code>, le découpage reposant sur un <em>trio</em> de trois octades disjointes du code de Golay. Tout mot de 48 bits est une étiquette valide : le décodage est une bijection des <span class="num">2⁴⁷</span> étiquettes sur <span class="num">2⁴⁷</span> points du réseau.</p>
+
+    <div class="note flag">
+      <p><strong>Correction apportée à la version d'origine.</strong> Le cours décrivait <code>Tetra</code> comme « une représentation plus compacte ». Sur disque, elle ne l'est pas : les deux fichiers pèsent le même poids, à 1 616 octets près sur 1,77 Go. La compression est entièrement en VRAM, <span class="num">4,804 → 2,1498</span> b/poids noyau, soit <span class="num">÷2,235</span>.</p>
+    </div>
+
+    <p><strong>Et le transcodage a un prix, payé à chaque chargement.</strong> Déplier le 4B en <code>Planes14</code> coûte <span class="num">84 s</span> sur un M3 Max à 16 fils, <span class="num">130,9 s</span> au chargement de <code>fusedrun</code> sur L40S. La variante <code>Planes12x</code>, plus compacte de <span class="num">0,46</span> b/poids, refait une recherche de réseau par bloc : <span class="num">404 s</span> sur Mac et <span class="num">1 340 s</span> sur carte louée. Elle reste hors défaut pour cette seule raison.</p>
+    <p class="src">Enregistrement <code>Planes14</code> : <code>llvq-cuda/src/planes14_host.rs</code>, décrit dans <code>docs/format-noyau.md</code> §3. Mot <code>Tetra</code> : <code>llvq-search/src/tetra/word.rs</code>. Tailles scellées et durées <span class="prov m">mesuré</span>, <code>mesures/tetra-4b-2026-09-06.txt</code> et <code>docs/format-noyau.md</code> §5.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c09" style="--hue: var(--p3); --tint: var(--p3-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 09 / 12 · Partie III, comprendre l'implémentation</p>
+    <h2>Faire travailler le GPU</h2>
+    <p class="obj">Objectif : comprendre tuiles, registres et lectures mémoire, et pourquoi l'optimum change de carte.</p>
+  </div>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+    <svg viewBox="0 0 660 288" role="img" aria-label="La hiérarchie mémoire d'un GPU, et l'effet mesuré de la taille de tuile : à tuile 128 l'activation prend 12 KiB et laisse 28 KB de L1, à tuile 32 elle prend 3 KiB et laisse 84 KB.">
+      <text class="t-sm" x="8" y="24">DE LA VRAM AU REGISTRE · CHAQUE NIVEAU EST PLUS PETIT ET PLUS RAPIDE</text>
+      <rect class="box-s" x="8" y="34" width="150" height="92" rx="6"/>
+      <text class="t-hd" x="20" y="54">VRAM</text>
+      <text class="t-num" x="20" y="74">2,18 Go lus</text>
+      <text class="t-sm" x="20" y="90">par passe de 252</text>
+      <text class="t-sm" x="20" y="106">projections, Planes14</text>
+
+      <rect class="box-s" x="176" y="34" width="138" height="92" rx="6"/>
+      <text class="t-hd" x="188" y="54">Cache L2</text>
+      <text class="t-num" x="188" y="74">96 MiB</text>
+      <text class="t-sm" x="188" y="90">mesuré à l'attribut</text>
+      <text class="t-sm" x="188" y="106">sur L40S</text>
+
+      <rect class="box-t" x="332" y="34" width="150" height="92" rx="6"/>
+      <text class="t-hd" x="344" y="54">L1 / partagée</text>
+      <text class="t-num" x="344" y="74">28 KB ou 84 KB</text>
+      <text class="t-sm" x="344" y="90">selon la tuile, à six</text>
+      <text class="t-sm" x="344" y="106">blocs par SM</text>
+
+      <rect class="box-s" x="500" y="34" width="152" height="92" rx="6"/>
+      <text class="t-hd" x="512" y="54">Registres</text>
+      <text class="t-num" x="512" y="74">31 à 79 par fil</text>
+      <text class="t-sm" x="512" y="90">au-delà, débordement</text>
+      <text class="t-sm" x="512" y="106">en mémoire locale</text>
+
+      <defs><marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+      <g style="color: var(--line-strong)" class="s-line">
+        <line x1="158" y1="80" x2="172" y2="80" marker-end="url(#a9)"/>
+        <line x1="314" y1="80" x2="328" y2="80" marker-end="url(#a9)"/>
+        <line x1="482" y1="80" x2="496" y2="80" marker-end="url(#a9)"/>
+      </g>
+
+      <line class="s-thin" x1="8" y1="150" x2="652" y2="150"/>
+      <text class="t-sm" x="8" y="172">CE QUE LA TUILE CHANGE · ZÉRO BIT, SORTIE IDENTIQUE AU BIT PRÈS</text>
+
+      <rect class="box-k" x="8" y="182" width="316" height="92" rx="6"/>
+      <text class="t-hd" x="24" y="204">Tuile 128, la valeur servie</text>
+      <rect x="24" y="216" width="132" height="18" fill="var(--hue)" opacity=".8"/>
+      <rect x="156" y="216" width="144" height="18" fill="var(--line)"/>
+      <text class="t-numsm" x="24" y="250">12 KiB d'activation</text>
+      <text class="t-numsm" x="180" y="250">28 KB de L1 restants</text>
+      <text class="t-sm" x="24" y="266">le point à 16 KiB manque déjà 7,6 % de ses accès</text>
+
+      <rect class="box-k" x="336" y="182" width="316" height="92" rx="6"/>
+      <text class="t-hd" x="352" y="204">Tuile 32</text>
+      <rect x="352" y="216" width="33" height="18" fill="var(--hue)" opacity=".8"/>
+      <rect x="385" y="216" width="243" height="18" fill="var(--line)"/>
+      <text class="t-numsm" x="352" y="250">3 KiB</text>
+      <text class="t-numsm" x="420" y="250">84 KB de L1 restants</text>
+      <text class="t-sm" x="352" y="266">et Tetra gagne 41,8 % sur sm_120</text>
+    </svg>
+    </div>
+    <figcaption><b>Figure 09.</b> Le paramètre de tuile ne change aucun bit du format et rend une sortie identique. Il déplace seulement ce qui tient dans le cache le plus proche, et c'est sur lui qu'a basculé le verdict entre deux cartes.</figcaption>
+  </figure>
+
+  <p class="beat">Le principe</p>
+
+  <p>Un noyau est une fonction exécutée sur le GPU par de nombreux fils. Dans CUDA, les fils sont regroupés en blocs et exécutés par groupes de 32 appelés <strong>warps</strong>. Les registres stockent les variables proches du calcul, la mémoire partagée sert à coopérer dans un bloc, caches et VRAM complètent la hiérarchie. La disponibilité de chaque ressource limite ce qui peut s'exécuter simultanément.</p>
+
+  <p><strong>Tuiler</strong> une matrice consiste à traiter un sous-bloc à la fois, ce qui permet de réutiliser des activations, des poids reconstruits ou des résultats partiels. Une grande tuile amortit certains coûts mais demande plus de stockage temporaire ; une petite tuile libère des ressources au prix de travail répété. Un vecteur de 24 coordonnées ne correspond naturellement à aucune granularité matérielle : ce n'est pas une impossibilité, c'est un problème de <em>mapping</em>, et la valeur « tuile 32 » doit toujours préciser ce qu'elle compte.</p>
+
+  <p>Les registres deviennent vite le goulot. Un fil garde indices, masques, coefficients et accumulateurs vivants pendant le calcul ; plus il en conserve, moins de warps résident, et moins les latences sont masquées. Si des variables débordent vers la mémoire locale, les accès coûtent davantage. Réduire les registres n'est pourtant pas un objectif absolu : recalculer trop de valeurs peut être pire.</p>
+
+  <p>Enfin, des accès voisins se regroupent en transactions efficaces ; des adresses dispersées en demandent davantage. Un <em>lookup</em> de table est rapide si les données sont réutilisées dans les caches, lent si les accès sont irréguliers. Une reconstruction par calcul évite des lectures mais ajoute des instructions et des dépendances : c'est un arbitrage entre mémoire et calcul, et il se profile.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Une tuile plus petite accélère ton kernel. Quelle explication peux-tu donner immédiatement ? Quelle preuve faut-il encore chercher ?</p>
+    <p class="a"><b>Seulement qu'elle convient mieux au cas mesuré.</b> Une pression moindre sur les registres est une hypothèse ; il faut consulter les ressources compilées et le profil, puis vérifier les autres dimensions du problème.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Deux cartes, la même configuration, des verdicts opposés</h4>
+    <p>Le corrigé décrit une prudence. Le dépôt l'a mesurée <strong>deux fois</strong>, et les deux fois la carte a retourné la conclusion.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>bras</th><th class="n">L40S (Ada)</th><th class="n">autre carte</th><th>ce qui bascule</th></tr></thead>
+      <tbody>
+        <tr class="hl"><td><code>Planes14</code> contre f16</td><td class="n">2,15×</td><td class="n">0,79× (A100)</td><td>l'horloge</td></tr>
+        <tr class="hl"><td><code>Tetra</code> contre <code>Planes14</code>, tuile servie</td><td class="n">1,17×</td><td class="n">0,82× (RTX PRO 6000)</td><td>la tuile</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Le premier cas est expliqué.</strong> Les deux cartes tournent épinglées à leur boost maximal, <span class="num">2 520 MHz</span> sur L40S et <span class="num">1 410</span> sur A100, un rapport de <span class="num">1,787</span>. La f16 convertit la HBM (<span class="num">661 → 1 052 Go/s</span>) tandis que nos bras retombent (<span class="num">428 → 250</span>) : sur A100 ils sont bornés par le calcul par SM. L'ordre interne de nos dispositions tient, l'échelle contre f16 se renverse en bloc. Les compteurs d'occupation, eux, sont refusés par la plateforme (<code>ERR_NVGPUCTRPERM</code>) : le profil que réclame le corrigé n'est pas toujours disponible.</p>
+    <p><strong>Le second n'est pas clos.</strong> Sur Blackwell, descendre la tuile à 32 ramène <code>Tetra</code> à <span class="num">1,03×</span>, un intervalle qui contient 1. La mémoire, elle, ne dépend pas de la carte : <span class="num">0,98 Go</span> lus par passe contre <span class="num">2,18</span>, et le banc réimprime <span class="num">2,150</span> b/poids, la valeur calculée. <strong>Une mesure de vitesse est locale à sa carte ; une mesure d'octets ne l'est pas.</strong></p>
+    <p><strong>Les registres, en chiffres du dépôt.</strong> La piste E1v est morte à <span class="num">79</span> registres. Le décodeur de rang compilé plus tard tient à <span class="num">48</span> registres et <span class="num">0</span> octet local ; réécrit trois fois, il descend à <span class="num">40</span>. Le noyau témoin en utilise <span class="num">31</span>. Sur ces trois réécritures, la prédiction signée était fausse <strong>sur les quatre temps</strong>, dans la direction instructive : les 24 conversions entier vers flottant coûtaient <span class="num">~1,6 ms</span> des <span class="num">~2,0</span> attribués à l'arithmétique, et la chaîne de lectures dépendantes ne coûtait rien.</p>
+    <p class="src">Cartes <span class="prov m">mesuré</span>, <code>mesures/f4-a100-2026-08-18.txt</code>, <code>mesures/g-horloges-planes12x-2026-08-23.txt</code>, <code>mesures/f1d-2026-09-10.txt</code>. Tuile <span class="prov m">mesuré</span>, <code>mesures/tile-sweep-2026-09-09.txt</code> ; le bouton est <code>LLVQ_TILE_BLOCKS</code>, <code>llvq-cuda/src/tile.rs</code>. Registres <span class="prov m">mesuré</span>, <code>mesures/f1-rang-variantes-2026-09-05.txt</code>.</p>
+  </div>
+</section>
+
+<!-- ==================== PARTIE IV ==================== -->
+
+<section class="lesson" id="c10" style="--hue: var(--p4); --tint: var(--p4-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 10 / 12 · Partie IV, comprendre les résultats</p>
+    <h2>Pourquoi moins de bits ne suffit pas</h2>
+    <p class="obj">Objectif : raisonner sur les limites de vitesse, et savoir quand un ratio corrigé est un mensonge.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>Le temps est au moins contraint par les octets à transporter et les opérations à exécuter. Une approximation de plancher est <code>max(octets / débit mémoire, opérations / débit calcul)</code>. Ce modèle suppose qu'on décrit correctement le travail et le matériel, et il n'inclut pas toutes les limites : décodage entier, synchronisation ou faible parallélisme peuvent dominer.</p>
+
+  <p>La compression échange du trafic contre du travail. Un format compact réduit les lectures de poids, mais il faut extraire ses codes et reconstruire les valeurs ; si ce travail coûte plus que les lectures économisées, le noyau ralentit. Fusionner déquantification et produit évite d'écrire les poids décompressés en VRAM, au prix d'une pression accrue sur les registres.</p>
+
+  <p>Attention enfin au numérateur. Diviser la taille logique des poids par le temps donne un <em>débit effectif</em>, qui n'est pas le trafic physique de la VRAM : caches, relectures et transactions partielles interviennent. Quand on compare des formats, il faut préciser « octets utiles », « octets sérialisés » ou « octets mesurés par le profileur ».</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">A prend 1,8 ms, B 1,4 ms et la référence 0,6 ms. Calcule R corrigé et le speedup brut de B par rapport à A.</p>
+    <p class="a"><b>R = 0,8 / 1,2 ≈ 0,667</b> : B utilise deux tiers du temps corrigé de A. Le speedup brut vaut <b>1,8 / 1,4 ≈ 1,29×</b>, le speedup corrigé <b>1 / R = 1,50×</b>. Deux chiffres, deux périmètres, et ils ne se remplacent pas.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le plancher existe, il est mesuré, et il ne se soustrait pas d'une autre grille</h4>
+    <p>La « référence » de l'exercice porte un nom ici : <code>nullk</code>. Elle refait la passe complète des 252 projections du 4B, garde la grille, le tuilage, les deux barrières, l'activation en mémoire partagée, la réduction et l'écriture de <code>y</code>, et ne lit <strong>aucun octet de poids</strong>. Voici les dix bras du banc, un seul processus, L40S.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 660 296" role="img" aria-label="Temps de la passe de 252 projections sur L40S : le noyau témoin coûte 2,306 ms sans lire un octet de poids, Planes14 5,103 ms, la f16 10,994 ms. QTIP et AWQ tournent dans leur propre grille, dont le plancher ne se soustrait pas.">
+        <text class="t-sm" x="8" y="22">TEMPS D'UNE PASSE DE 252 PROJECTIONS, 4B, L40S · MÉDIANES SUR 7 RONDES DONT 2 ÉCARTÉES</text>
+        <g class="s-thin">
+          <line x1="168" y1="40" x2="168" y2="230"/><line x1="251.5" y1="40" x2="251.5" y2="230"/>
+          <line x1="335" y1="40" x2="335" y2="230"/><line x1="418.4" y1="40" x2="418.4" y2="230"/>
+          <line x1="501.9" y1="40" x2="501.9" y2="230"/><line x1="585.4" y1="40" x2="585.4" y2="230"/>
+        </g>
+        <text class="t-numsm" x="168" y="36" text-anchor="middle">0</text>
+        <text class="t-numsm" x="251.5" y="36" text-anchor="middle">2</text>
+        <text class="t-numsm" x="335" y="36" text-anchor="middle">4</text>
+        <text class="t-numsm" x="418.4" y="36" text-anchor="middle">6</text>
+        <text class="t-numsm" x="501.9" y="36" text-anchor="middle">8</text>
+        <text class="t-numsm" x="585.4" y="36" text-anchor="middle">10 ms</text>
+
+        <text class="t-lbl" x="8" y="62"><tspan class="mono">nullk</tspan>, le plancher</text>
+        <rect x="168" y="48" width="96.25" height="20" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+        <text class="t-numsm" x="272" y="62">2,306 · 0,07 Go</text>
+
+        <text class="t-lbl" x="8" y="94">QTIP, concurrent</text>
+        <rect x="168" y="80" width="93.75" height="20" rx="2" fill="none" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="4 3"/>
+        <text class="t-numsm" x="272" y="94">2,246 · 0,91 Go · 405 Go/s</text>
+
+        <text class="t-lbl" x="8" y="126">AWQ w4g128</text>
+        <rect x="168" y="112" width="135.74" height="20" rx="2" fill="none" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="4 3"/>
+        <text class="t-numsm" x="312" y="126">3,252 · 1,90 Go · 584 Go/s</text>
+
+        <text class="t-lbl" x="8" y="158"><tspan class="mono">Planes14</tspan>, servi</text>
+        <rect x="168" y="144" width="96.25" height="20" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+        <rect x="264.25" y="144" width="116.74" height="20" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+        <text class="t-numsm" x="390" y="158">5,103 · 2,18 Go · 428 Go/s</text>
+
+        <text class="t-lbl" x="8" y="190">f16, contrôle maison</text>
+        <rect x="168" y="176" width="96.25" height="20" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+        <rect x="264.25" y="176" width="362.63" height="20" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1" opacity=".6"/>
+        <text class="t-numsm" x="352" y="190" style="fill:var(--ink)">10,994 · 7,27 Go · 661 Go/s</text>
+
+        <line x1="264.25" y1="44" x2="264.25" y2="212" stroke="var(--hue)" stroke-width="1.2" stroke-dasharray="4 3"/>
+        <text class="t-hue" x="268" y="224">plancher de lancement : 2,306 ms, soit 45,2 % du bras servi</text>
+
+        <line class="s-thin" x1="8" y1="240" x2="652" y2="240"/>
+        <rect x="8" y="250" width="14" height="10" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+        <text class="t-sm" x="28" y="259">plancher, aucune lecture de poids</text>
+        <rect x="228" y="250" width="14" height="10" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+        <text class="t-sm" x="248" y="259">lecture et décodage des poids</text>
+        <rect x="452" y="250" width="14" height="10" fill="none" stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 2"/>
+        <text class="t-sm" x="472" y="259">autre grille de lancement</text>
+        <text class="t-sm" x="8" y="278">Soustraire le plancher d'un bras tracé en pointillés est illégitime : AWQ rendrait 2 006 Go/s net, au-dessus de la HBM,</text>
+        <text class="t-sm" x="8" y="292">et QTIP un net négatif. Entre formats à débits différents, la quantité comparable est le Go/s.</text>
+      </svg>
+      </div>
+      <figcaption><b>Figure 10.</b> Les deux barres pleines partagent la même grille de lancement, donc leur plancher se soustrait : <code>Planes14</code> achète <span class="num">3,11×</span> net (<span class="num">8,691 ms</span> de trafic f16 contre <span class="num">2,797</span>). Les deux barres en pointillés tournent dans leur propre grille, et la même soustraction y produit des absurdités physiques.</figcaption>
+    </figure>
+
+    <p>Trois conséquences que ce banc impose au dépôt, et qui sont devenues des règles dures.</p>
+    <ul>
+      <li><strong>Jamais un ratio brut seul.</strong> Le gain de noyau à tête <code>lm_head</code> identique vaut <span class="num">×1,11</span>, <span class="num">×1,29</span>, <span class="num">×1,41</span> du 4B au 14B : croissant. La série brute (<span class="num">×2,00</span>, <span class="num">×2,57</span>, <span class="num">×2,55</span>) n'a aucun ordre, parce que le bras dense est handicapé différemment à chaque taille.</li>
+      <li><strong>Jamais un × divisé entre cartes ou entre piles.</strong> AWQ et QTIP se comparent en Go/s : <span class="num">584</span>, <span class="num">428</span>, <span class="num">405</span> pour AWQ, <code>Planes14</code> et QTIP. Le décodage de <code>Planes14</code> coûte environ <span class="num">7 %</span> du temps de trafic, <span class="num">779</span> Go/s net contre <span class="num">836</span>.</li>
+      <li><strong>Jamais un quotient de deux minima.</strong> Sur un banc, <span class="num">21,728 / 10,126</span> donne <span class="num">2,19</span> là où la médiane formée ronde par ronde donne <span class="num">2,14× [2,10–2,16]</span>.</li>
+    </ul>
+    <p class="src"><span class="prov m">mesuré</span>, <code>mesures/f2-p3-qtip-banc-2026-08-21.txt</code>, <code>mesures/nullk-plancher-2026-08-16.txt</code>, <code>mesures/b2-fusedrun-plages-2026-08-18.txt</code>, <code>mesures/k1-metal-2026-08-05.txt</code>. La charge utile du bras QTIP est pseudo-aléatoire : aucune affirmation de qualité ne repose dessus.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c11" style="--hue: var(--p4); --tint: var(--p4-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 11 / 12 · Partie IV, comprendre les résultats</p>
+    <h2>Mesurer la qualité sans se raconter d'histoire</h2>
+    <p class="obj">Objectif : relier erreur locale, perplexité, MMLU et incertitude. Aucune de ces mesures ne se convertit dans une autre.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>L'erreur sur les poids vérifie la fidélité numérique. L'erreur de sortie sur la calibration vérifie un comportement local. Ces mesures sont rapides et localisent une dégradation, mais ne capturent ni les interactions entre couches ni les décisions finales.</p>
+
+  <p>Sur une suite de jetons, la perte moyenne <code>L</code> est la moyenne de <code>−ln p(jeton observé | contexte)</code>, et la <strong>perplexité</strong> vaut <code>exp(L)</code>. Plus elle est basse, mieux le modèle attribue de la probabilité au texte observé, pour ce protocole. Comparer deux perplexités exige les mêmes données, le même tokenizer et les mêmes conventions de contexte.</p>
+
+  <p><strong>MMLU</strong> est une évaluation de connaissances et de raisonnement à choix multiples. Le score dépend du prompt, des exemples few-shot et de la méthode de lecture des réponses. Il ne mesure pas toutes les qualités conversationnelles, et un seuil comme 60 % est un repère de projet, pas une frontière scientifique.</p>
+
+  <p>Un dernier réflexe à prendre : ne pas transformer le benchmark final en jeu de réglage. On explore sur un jeu de développement, on réserve une évaluation distincte pour confirmer. Si l'on essaie beaucoup de variantes et qu'on garde la meilleure sur le même test, le score est optimiste.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Si la perplexité passe de 12 à 16 avec un protocole identique, quel est l'excès de perte ? Et à 60 % de bonnes réponses sur N = 14 042 items, quelle erreur standard binomiale ?</p>
+    <p class="a">Excès : <b>ln(16 / 12) ≈ 0,288 nat par jeton</b>. C'est une différence de log-probabilité moyenne, pas une perte de 28,8 points MMLU. Erreur standard : <b>√(0,6 × 0,4 / 14 042) ≈ 0,41 point</b>, soit environ <b>±0,81</b> point à 95 %. Ce calcul suppose des items indépendants et une moyenne par question.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Trois bras, 21,5 % d'écart en perplexité, aucune différence en MMLU</h4>
+    <p>La leçon « ces métriques ne se convertissent pas les unes dans les autres » a une démonstration dans le dépôt, et elle est spectaculaire. Trois formats, un seul processus, la même carte, les mêmes empreintes de jetons, le <strong>débit idéal identique</strong> à <span class="num">2,0702</span>.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 660 276" role="img" aria-label="Les perplexités de Tetra, Planes14 et leech0c13 s'étalent de 16,16 à 19,61 alors que leurs scores MMLU, avec leurs barres d'erreur, se recouvrent tous.">
+        <text class="t-sm" x="8" y="20">PERPLEXITÉ WIKITEXT, PLUS BAS EST MIEUX</text>
+        <g class="s-thin"><line x1="100" y1="34" x2="100" y2="112"/><line x1="235" y1="34" x2="235" y2="112"/><line x1="370" y1="34" x2="370" y2="112"/><line x1="505" y1="34" x2="505" y2="112"/><line x1="640" y1="34" x2="640" y2="112"/></g>
+        <text class="t-numsm" x="100" y="30" text-anchor="middle">12</text><text class="t-numsm" x="235" y="30" text-anchor="middle">14</text><text class="t-numsm" x="370" y="30" text-anchor="middle">16</text><text class="t-numsm" x="505" y="30" text-anchor="middle">18</text><text class="t-numsm" x="640" y="30" text-anchor="middle">20</text>
+        <line x1="116" y1="34" x2="116" y2="112" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text class="t-numsm" x="120" y="46">f16 : 12,2369</text>
+        <text class="t-lbl" x="8" y="66"><tspan class="mono">Tetra</tspan></text>
+        <circle cx="380.6" cy="62" r="4.5" fill="var(--hue)"/><text class="t-num" x="392" y="66">16,1569</text>
+        <text class="t-lbl" x="8" y="86"><tspan class="mono">Planes14</tspan></text>
+        <circle cx="433.6" cy="82" r="4.5" fill="var(--hue)"/><text class="t-num" x="445" y="86">16,9422</text>
+        <text class="t-lbl" x="8" y="106"><tspan class="mono">leech0c13</tspan></text>
+        <circle cx="613.6" cy="102" r="4.5" fill="var(--hue)"/><text class="t-num" x="606" y="106" text-anchor="end">19,6093</text>
+        <path d="M380.6 122 L613.6 122" stroke="var(--hue)" stroke-width="1.2"/>
+        <path d="M380.6 118 L380.6 126 M613.6 118 L613.6 126" stroke="var(--hue)" stroke-width="1.2"/>
+        <text class="t-hue" x="440" y="138">21,5 % d'étalement</text>
+
+        <text class="t-sm" x="8" y="164">MMLU MICRO, PLUS HAUT EST MIEUX · MOUSTACHES À ±1 σ STRATIFIÉ</text>
+        <g class="s-thin"><line x1="100" y1="178" x2="100" y2="252"/><line x1="223" y1="178" x2="223" y2="252"/><line x1="345" y1="178" x2="345" y2="252"/><line x1="468" y1="178" x2="468" y2="252"/><line x1="591" y1="178" x2="591" y2="252"/></g>
+        <text class="t-numsm" x="100" y="174" text-anchor="middle">50</text><text class="t-numsm" x="223" y="174" text-anchor="middle">55</text><text class="t-numsm" x="345" y="174" text-anchor="middle">60</text><text class="t-numsm" x="468" y="174" text-anchor="middle">65</text><text class="t-numsm" x="591" y="174" text-anchor="middle">70</text>
+        <line x1="598.7" y1="178" x2="598.7" y2="252" stroke="var(--ink)" stroke-width="1" stroke-dasharray="3 3"/>
+        <text class="t-numsm" x="524" y="190">f16 : 70,32</text>
+        <text class="t-lbl" x="8" y="210"><tspan class="mono">Tetra</tspan></text>
+        <line x1="152.8" y1="206" x2="218.6" y2="206" stroke="var(--hue)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="185.7" cy="206" r="4.5" fill="var(--hue)"/><text class="t-num" x="228" y="210">53,49</text>
+        <text class="t-lbl" x="8" y="228"><tspan class="mono">leech0c13</tspan></text>
+        <line x1="181.7" y1="224" x2="247.5" y2="224" stroke="var(--hue)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="214.6" cy="224" r="4.5" fill="var(--hue)"/><text class="t-num" x="257" y="228">54,67</text>
+        <text class="t-lbl" x="8" y="246"><tspan class="mono">Planes14</tspan></text>
+        <line x1="204.3" y1="242" x2="270.1" y2="242" stroke="var(--hue)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="237.2" cy="242" r="4.5" fill="var(--hue)"/><text class="t-num" x="280" y="246">55,59</text>
+        <text class="t-hue" x="8" y="270">Les trois moustaches se recouvrent, et les intervalles appariés contiennent zéro.</text>
+      </svg>
+      </div>
+      <figcaption><b>Figure 11.</b> Le même écart de format, lu sur deux instruments, donne un ordre net et un match nul. Une différence de perplexité ne prédit pas une différence de MMLU, et l'inverse est aussi vrai.</figcaption>
+    </figure>
+
+    <p><strong>Le protocole du dépôt, et une correction à la version d'origine.</strong> Le calcul binomial ci-dessus est juste, et il décrit un protocole que ce projet ne lance pas. MMLU y est tiré à <span class="num">2 280</span> questions sur <span class="num">14 042</span>, soit 40 par matière sur 57, avec un tirage à graine identique sur les deux bras. Le score publié est <strong>micro</strong>, un estimateur stratifié qui repondère les 57 taux par la population réelle de chaque matière : <code>professional_law</code> pèse à lui seul <span class="num">1 534 / 14 042 = 10,9 %</span>. Le <span class="num">±</span> affiché est une erreur standard stratifiée <strong>à 1 σ, pas un IC à 95 %</strong>, et il exclut le modèle, le prompt et la graine.</p>
+
+    <p><strong>Trois barres, un ordre de grandeur d'écart entre elles.</strong> Les confondre est l'erreur la plus coûteuse du domaine.</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>barre</th><th class="n">valeur</th><th>ce qu'elle autorise</th></tr></thead>
+      <tbody>
+        <tr><td>SE marginale sur un bras</td><td class="n">±1,35 pp</td><td>situer un score, jamais comparer</td></tr>
+        <tr class="hl"><td>barre appariée, fichier constant</td><td class="n">0,43 pp</td><td>un A/B de configuration, McNemar</td></tr>
+        <tr><td>barre appariée, deux fichiers</td><td class="n">0,79 à 1,50 pp</td><td>comparer deux modèles</td></tr>
+        <tr class="hl"><td>σ du tirage de calibration</td><td class="n">2,92 pp</td><td>rien en dessous n'est un effet</td></tr>
+      </tbody>
+    </table></div>
+    <p>Un écart de <span class="num">2,10 pp</span> entre deux fichiers encodés avec deux tirages différents tient donc <em>entièrement</em> dans le bruit du tirage. Un écart de <span class="num">0,43 pp</span> à fichier constant, lui, est mesurable.</p>
+
+    <p><strong>Le format redistribue plus qu'il ne dégrade.</strong> Entre <code>Planes14</code> et <code>Tetra</code>, l'écart apparié vaut <span class="num">+2,59 pp</span> avec IC95 <span class="num">[−0,32 ; +5,58]</span>, pour <strong><span class="num">650</span> questions discordantes sur <span class="num">2 280</span></strong>. Les deux formats se trompent largement sur des questions différentes ; la moyenne le cache.</p>
+
+    <p><strong>L'excès de log-vraisemblance est la seule comparaison inter-articles qui tienne.</strong> C'est exactement le <code>ln(16/12)</code> de l'exercice, appliqué à chaque pile contre <em>sa propre</em> référence f16 :</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>bras</th><th class="n">Δ nats/jeton</th><th class="n">contre QTIP</th></tr></thead>
+      <tbody>
+        <tr><td><code>Planes14</code>, f16 sur le fichier</td><td class="n">0,3254</td><td class="n">+2,62 %</td></tr>
+        <tr><td>QTIP</td><td class="n">0,3171</td><td class="n">—</td></tr>
+        <tr><td>LLVQ 0 bit de l'article</td><td class="n">0,3176</td><td class="n">+0,19 %</td></tr>
+        <tr class="hl"><td><code>Tetra</code></td><td class="n">0,2779</td><td class="n">−12,4 %</td></tr>
+      </tbody>
+    </table></div>
+    <p>Une dernière observation, gratuite et rentable : <strong>la perplexité mesurée pendant l'encodage a prédit celle de la carte trois fois de suite</strong>, à la quatrième décimale. Un encodage se lit pour <span class="num">0 $</span>, des heures avant qu'une carte ne soit payée.</p>
+    <p class="src">Trois bras <span class="prov m">mesuré</span>, <code>mesures/leech0c13-2026-09-07.txt</code>. Protocole MMLU <code>docs/fiche-4b.md</code> §5.2. Barres <span class="prov m">mesuré</span>, <code>mesures/kvq8-4b-2026-08-15.txt</code>, <code>mesures/mmlupair-4b-8b-2026-08-13.txt</code>, <code>mesures/bruit-mmlu-graines-4b-2026-08-25.txt</code>. Excès <span class="prov c">calculé</span>, <code>docs/fiche-4b.md</code> §3.1.</p>
+  </div>
+</section>
+
+<section class="lesson" id="c12" style="--hue: var(--p4); --tint: var(--p4-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 12 / 12 · Partie IV, comprendre les résultats</p>
+    <h2>Du résultat au modèle utilisable</h2>
+    <p class="obj">Objectif : relier architectures, budget VRAM et diffusion. Le fichier de poids ne fait pas tout.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>Un modèle dense utilise ses couches à chaque jeton. Un <strong>MoE</strong> sélectionne des experts via un routeur : réduire le nombre de paramètres actifs diminue une partie du calcul, mais pas nécessairement la mémoire des poids résidents. Les experts rares sont aussi moins couverts par la calibration, et le routeur doit être évalué avec eux.</p>
+
+  <p>Un modèle plus gros n'est pas une règle de trois. La taille cachée, le nombre de couches, les têtes KV et la distribution des poids changent ; le padding et les noyaux peuvent moins bien convenir aux nouvelles formes. Il faut d'abord vérifier le chargement, le mapping des tenseurs et la correction numérique, puis mesurer qualité et performance. Un gain observé sur un 4B reste un résultat sur ce modèle.</p>
+
+  <p>Enfin, une diffusion conversationnelle exige un tokenizer, un chat template, une configuration et un runtime qui comprend le format. Compresser un modèle base ne lui apprend pas à suivre des instructions, et un upload de tenseurs ne crée pas de compatibilité avec les runtimes courants.</p>
+
+  <p class="beat">Le calcul</p>
+  <div class="calc">
+    <p class="q">Un MoE a 30 milliards de paramètres au total, dont 3 milliards actifs par jeton. À 3 bits par paramètre, les poids résidents occupent-ils 1,125 ou 11,25 Go ?</p>
+    <p class="a"><b>11,25 Go</b> si tous les paramètres sont stockés en VRAM à ce coût moyen. Les <span class="num">1,125 Go</span> décrivent seulement le volume des paramètres actifs, pas le stockage total. Un offload change le bilan, avec ses propres coûts.</p>
+  </div>
+
+  <p class="beat">Dans le dépôt</p>
+  <div class="anchor">
+    <h4>Le triplet produit, et le mur qui n'a rien à voir avec les bits</h4>
+    <p>Le budget de l'exercice existe ici sous forme de décision datée. Le <strong>triplet produit</strong> en vigueur fixe 8k de contexte, 5 Go de marge et une unité de 32 Gio. Il laisse <span class="num">27,93 Go</span> aux poids, donc un plafond <code>b_max</code> de <strong><span class="num">3,00</span> b/poids noyau</strong>. Tout le reste en découle.</p>
+
+    <figure>
+      <div class="fig-scroll">
+      <svg viewBox="0 0 660 252" role="img" aria-label="Le triplet produit laisse 27,93 Go aux poids sur une unité de 32 Gio, soit un plafond de 3,00 bits par poids noyau ; Planes14 le dépasse de 60 pour cent et Tetra passe 28 pour cent en dessous.">
+        <text class="t-sm" x="8" y="22">LE BUDGET · UNITÉ DE 32 GIO = 34,36 GO</text>
+        <rect x="8" y="32" width="524" height="30" rx="3" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+        <rect x="532" y="32" width="26" height="30" fill="var(--code-bg)" stroke="var(--line-strong)" stroke-width="1"/>
+        <rect x="558" y="32" width="94" height="30" fill="var(--code-bg)" stroke="var(--line-strong)" stroke-width="1"/>
+        <text class="t-num" x="270" y="51" text-anchor="middle">poids : 27,93 Go</text>
+        <text class="t-numsm" x="545" y="51" text-anchor="middle">KV</text>
+        <text class="t-numsm" x="605" y="51" text-anchor="middle">marge 5 Go</text>
+
+        <text class="t-sm" x="8" y="104">LE PLAFOND QUI EN DÉCOULE · B/POIDS NOYAU</text>
+        <g class="s-thin"><line x1="8" y1="116" x2="8" y2="196"/><line x1="136" y1="116" x2="136" y2="196"/><line x1="264" y1="116" x2="264" y2="196"/><line x1="392" y1="116" x2="392" y2="196"/><line x1="520" y1="116" x2="520" y2="196"/><line x1="648" y1="116" x2="648" y2="196"/></g>
+        <text class="t-numsm" x="8" y="112">0</text><text class="t-numsm" x="136" y="112">1</text><text class="t-numsm" x="264" y="112">2</text><text class="t-numsm" x="392" y="112">3</text><text class="t-numsm" x="520" y="112">4</text><text class="t-numsm" x="648" y="112">5</text>
+        <rect x="8" y="124" width="275.2" height="26" rx="3" fill="var(--tint)" stroke="var(--hue)" stroke-width="1.4"/>
+        <text class="t-num" x="292" y="142">Tetra 2,1498</text>
+        <text class="t-sm" x="292" y="156" style="fill:var(--hue)">28 % sous la barre · classe admissible 81 à 101 milliards</text>
+        <rect x="8" y="166" width="614.9" height="26" rx="3" fill="none" stroke="var(--line-strong)" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <text class="t-num" x="240" y="184">Planes14 4,804</text>
+        <text class="t-sm" x="352" y="184">60 % au-dessus · classe admissible 43,3 milliards</text>
+        <line x1="392" y1="118" x2="392" y2="200" stroke="var(--ink)" stroke-width="1.6"/>
+        <text class="t-hd" x="396" y="212">b_max = 3,00</text>
+        <line class="s-thin" x1="8" y1="226" x2="652" y2="226"/>
+        <text class="t-sm" x="8" y="244">Un 70B entre dans 19,5 Go sous Tetra. Sous Planes14 il n'entre pas, et aucune disposition antérieure ne passait la barre.</text>
+      </svg>
+      </div>
+      <figcaption><b>Figure 12.</b> Le plafond n'est pas une opinion : c'est une division. Il transforme un gain de format en une classe de modèles, et <code>Tetra</code> est la première disposition du dépôt à le franchir.</figcaption>
+    </figure>
+
+    <p><strong>Le chemin servi tourne, et c'est frais du 2026-09-10.</strong> Le noyau <code>Tetra</code> a tourné dans le modèle pour la première fois : <strong><span class="num">92,9 tok/s [92,4–93,0]</span> dans <span class="num">1,36 Go</span></strong>, à <span class="num">2,084</span> b/poids d'inférence, contre <span class="num">43,0 tok/s</span> dans <span class="num">8,04 Go</span> pour le bras dense du même processus : <span class="num">×2,14</span> de vitesse et <span class="num">÷5,91</span> de mémoire. Trois réserves accompagnent le chiffre, et aucune n'est cosmétique : le rapport <code>Tetra</code> / <code>Planes14</code> <strong>n'est pas formé</strong> (deux processus, la règle 5 l'interdit) ; ces passes tournent à <code>FUSE=0</code> et <code>ROT_SHARE=0</code>, donc la barre servie de 100,6 tok/s n'est pas comparable ; et un écart de <span class="num">1,85×</span> entre embedding q8 et f16 reste inexpliqué.</p>
+
+    <p><strong>Et le mur qui décide de tout, sans rapport avec les bits.</strong> La rotation d'incohérence <code>rot_apply</code> enchaîne <code>log₂ m</code> étages séparés par des barrières, et CUDA n'a pas de barrière entre blocs. C'est donc un noyau à bloc unique qui met <em>toute</em> l'activation en mémoire partagée f32. La plus large est l'entrée de <code>down_proj</code> :</p>
+    <div class="tbl-scroll"><table>
+      <thead><tr><th>modèle</th><th class="n">intermediate</th><th class="n">partagée demandée</th><th>défaut 49 152 o</th><th>opt-in 101 376 o</th></tr></thead>
+      <tbody>
+        <tr><td>4B</td><td class="n">9 728</td><td class="n">38 912 o</td><td>passe</td><td>passe</td></tr>
+        <tr><td>8B</td><td class="n">12 288</td><td class="n">49 152 o</td><td>passe, à l'octet près</td><td>passe</td></tr>
+        <tr><td>14B</td><td class="n">17 408</td><td class="n">69 632 o</td><td>échoue</td><td>passe</td></tr>
+        <tr class="hl"><td>32B</td><td class="n">25 600</td><td class="n">102 400 o</td><td>échoue</td><td>échoue, de 1 024 o</td></tr>
+      </tbody>
+    </table></div>
+    <p>Le 32B est refusé par <strong>1 024 octets</strong>, la réserve du pilote. Ce mur est le même sous chaque format et ferme le chemin servi au-delà du 14B, quel que soit le nombre de bits. Un garde-fou qui le laisserait passer produirait une corruption silencieuse ; le premier job 14B a d'ailleurs échoué proprement, sortie 1 après 488 s, pour <span class="num">0,24 $</span> et zéro jeton.</p>
+
+    <p><strong>Le fichier de poids ne fait vraiment pas tout.</strong> Le <code>.llvq</code> publié transporte lui-même sa configuration (<span class="num">726</span> octets) et son tokenizer (<span class="num">11 422 654</span> octets), copies conformes du checkpoint, ce qui garantit que les jetons et les prompts MMLU sont identiques entre les deux bras <em>par construction</em>. En contrepartie il ne s'ouvre dans aucun autre moteur, et le widget Hugging Face ne le sert pas.</p>
+    <p class="src">Triplet et classes <span class="prov c">calculé</span>, <code>docs/ETAT.md</code> §6. Chemin servi <span class="prov m">mesuré</span>, <code>mesures/f1e0-2026-09-10.txt</code>, préenregistrement tamponné avant. Mur de mémoire partagée <span class="prov m">mesuré</span> aux attributs du préflight, <code>docs/format-noyau.md</code> §8. Contenu du fichier <span class="prov m">mesuré</span>, <code>docs/fiche-4b.md</code> §2.</p>
+  </div>
+</section>
+
+<!-- ==================== COURS 13, AJOUTÉ ==================== -->
+
+<section class="lesson" id="c13" style="--hue: var(--accent); --tint: var(--p1-tint)">
+  <div class="lesson-head">
+    <p class="eyebrow"><span class="dot"></span>Cours 13 / 12 · Ajouté à la révision</p>
+    <h2>Ce qui rend un chiffre crédible</h2>
+    <p class="obj">Objectif : comprendre la discipline qui sépare un résultat d'une impression. C'est la partie du projet qui ne s'achète pas.</p>
+  </div>
+
+  <p class="beat">Le principe</p>
+
+  <p>Les douze cours précédents enseignent des mécanismes. Celui-ci enseigne le protocole qui décide si un mécanisme a été démontré, et il manquait à la version d'origine. Le dépôt LLVQ en tient une version écrite et appliquée, et elle explique la moitié de ses conclusions.</p>
+
+  <h3>Un nombre porte son étiquette, une fois</h3>
+  <p>Trois étiquettes, jamais mélangées. <span class="prov m">mesuré</span> sort d'un instrument, avec le journal qui le contient. <span class="prov c">calculé</span> est une arithmétique sur des entrées mesurées. <span class="prov e">estimé</span> est une projection, et elle reste à tester. L'étiquette apparaît à la première occurrence, avec le lien vers son journal, et le nombre se cite nu ensuite. La règle a un effet secondaire précieux : elle rend visible le moment où une projection est citée comme un résultat.</p>
+
+  <h3>Le préenregistrement est tamponné avant la première mesure</h3>
+  <p>Avant chaque expérience payante, un document déclare la question, le protocole, les seuils de décision et une <strong>prédiction signée</strong>. Il est horodaté, ancré sur Bitcoin depuis le 2026-09-06, et jamais modifié après coup : les écarts s'écrivent <em>à côté</em>, dans un fichier séparé. Le bénéfice n'est pas moral, il est méthodologique : un seuil écrit après la mesure n'est plus un seuil.</p>
+  <p>L'intérêt des prédictions signées est qu'elles échouent, et que l'échec enseigne. Sur <code>Tetra</code> au 4B, la prédiction annonçait une perplexité <em>dégradée</em> de 1,5 à 4 % ; la mesure a rendu <strong>−4,64 %</strong>, fausse sur le signe, et juste à 0,9 point près sur MMLU. La clause instructive du préenregistrement nommait exactement ce cas : la rétention gaussienne surestime la perte sur des poids réels. Sur les trois réécritures d'un décodeur, la prédiction était fausse sur les quatre temps mesurés.</p>
+
+  <h3>Une mesure se publie en médiane avec son étendue</h3>
+  <p>Trois invocations du <em>même binaire non modifié</em>, à octets et erreurs identiques, rendent <span class="num">2,029×</span>, <span class="num">2,050×</span> et <span class="num">2,080×</span>. Un effet de quelques pour cent ne se tranche donc pas entre deux invocations. Les ratios se forment ronde par ronde, jamais comme quotient de deux minima, et tous les bras tournent dans un seul processus, entrelacés, dans le même ordre à chaque ronde.</p>
+
+  <h3>Les résultats négatifs restent au dossier</h3>
+  <p>C'est ce qui empêche de refaire les mêmes détours, et le dépôt en garde un registre explicite.</p>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>piste</th><th class="n">résultat</th><th class="n">critère</th><th>état</th></tr></thead>
+    <tbody>
+      <tr><td>E1v, décodage arithmétique</td><td class="n">0,25× f16</td><td class="n">1,60×</td><td><span class="chip dead">clos</span></td></tr>
+      <tr><td><code>Golay70</code> v2</td><td class="n">1,77×</td><td class="n">2,0× horodaté</td><td><span class="chip dead">clos</span></td></tr>
+      <tr><td>E3, décodage de l'index</td><td class="n">3,0444 b/poids</td><td class="n">2,60</td><td><span class="chip dead">clos</span></td></tr>
+      <tr><td>Embedding int4 g64</td><td class="n">+1,52 % de ppl</td><td>—</td><td><span class="chip dead">clos, int8 servi</span></td></tr>
+      <tr><td>CUDA Graphs servi</td><td class="n">+12,6 % de débit</td><td class="n">+47 % de VRAM</td><td><span class="chip warn">rouvrable à 2k</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Et les manquements sont écrits aussi</h3>
+  <p>Deux exemples que le dépôt consigne contre lui-même. Un banc complet sur le 8B a tourné <strong>sans préenregistrement</strong>, contre sa propre règle 2 ; il ne peut pas être réparé, puisque tamponner après coup attesterait d'octets écrits après la mesure. Ses nombres restent des faits bruts et <em>ne conditionnent rien</em>.</p>
+  <p>Plus lourd : <strong>le dépôt ne reproduit plus son propre artefact publié</strong>. Un bloc réencodé aujourd'hui diffère du fichier publié sur la queue, les gains et 87 % des indices, alors que les dimensions, la graine de rotation et les centroïdes sont identiques. La cause la plus probable, <em>non prouvée</em>, est un commit du 2026-08-26 qui a changé le volume de calibration demandé. La conséquence est écrite pour tout lecteur : les chiffres de référence du fichier publié ne se comparent à rien d'encodé après cette date.</p>
+
+  <div class="note">
+    <p><strong>La question directrice, à se poser avant chaque expérience.</strong> Quel objet ai-je changé : les représentants, la recherche, le stockage, le noyau, ou l'évaluation ? Et quelle mesure permet de vérifier l'effet attendu ?</p>
+  </div>
+  <p class="src" style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:.8rem;color:var(--faint)">Sources : <code>docs/METHODE.md</code>, <code>docs/ETAT.md</code> §4 et §7, <code>proofs/</code> pour les préenregistrements et leurs fichiers d'écarts, <code>docs/data/jobs.csv</code> pour le registre des jobs payés.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ==================== SYNTHÈSE ==================== -->
+
+<section id="synthese" style="--hue: var(--accent)">
+  <p class="eyebrow" style="color:var(--accent)"><span class="dot"></span>Synthèse</p>
+  <h2>Transformer une intuition en expérience</h2>
+  <p class="obj" style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:.92rem;color:var(--muted);margin:.5rem 0 1.4rem">Cinq étapes, dans cet ordre. Chacune évite une erreur qui a déjà coûté cher au projet.</p>
+
+  <h3>1. Énoncer une cause testable</h3>
+  <p>« La perte de qualité vient surtout d'une mauvaise estimation du gain des blocs. » Préciser ce que l'hypothèse prédit : meilleure erreur locale à mêmes directions, mêmes métadonnées, même budget. Une hypothèse qui ne prédit rien de mesurable n'est pas une hypothèse.</p>
+
+  <h3>2. Construire une comparaison contrôlée</h3>
+  <p>Garder le modèle, les blocs, le corpus et les graines. Ne modifier <em>qu'une</em> règle. Conserver les indices, les gains et les pertes par couche, pour pouvoir expliquer un résultat global. Pour une nouvelle disposition, commencer par prouver l'équivalence de reconstruction : c'est ce qui distingue un bug de représentation d'un changement d'arrondi.</p>
+
+  <h3>3. Mesurer du local vers le global</h3>
+  <p>D'abord reconstruction et erreurs de sortie, puis perplexité et banc de développement. Ne lancer l'évaluation finale qu'une fois le choix fixé. Pour une optimisation GPU, vérifier d'abord la correction, puis le noyau, enfin la génération complète. Le dépôt a une version dure de cette règle : muter le code avant de déclarer une porte verte, et faire passer l'oracle sur chaque backend.</p>
+
+  <h3>4. Séparer une observation de son explication</h3>
+  <p>« La tuile 32 gagne sur cette carte » est une observation. « Elle gagne parce qu'elle évite des débordements de registres » est une explication à confirmer par le profil. « Elle gagnera sur tous les GPU » est une généralisation qui exige d'autres mesures, et le cours 09 montre qu'elle serait fausse.</p>
+
+  <h3>5. Publier le compromis complet</h3>
+  <p>Un résultat utile associe qualité, bits réels par paramètre, VRAM maximale, latence et coût d'encodage, à protocole égal. Et garder les essais négatifs : ils limitent les explications possibles.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ==================== AIDE-MÉMOIRE ==================== -->
+
+<section id="glossaire">
+  <p class="eyebrow"><span class="dot" style="background:var(--faint)"></span>Aide-mémoire</p>
+  <h2>Les mots à savoir distinguer</h2>
+  <p class="meta" style="margin:.5rem 0 0">Conventions : Go = 10⁹ octets, Gio = 2³⁰ octets, 1 octet = 8 bits.</p>
+
+  <div class="gloss">
+    <div><b>Poids / activation</b><span>Coefficient appris / valeur calculée pour une entrée.</span></div>
+    <div><b>Dimension / nombre de bits</b><span>Nombre de coordonnées / budget de représentation.</span></div>
+    <div><b>Codebook / index</b><span>Ensemble des représentants / identifiant d'un représentant.</span></div>
+    <div><b>Réseau / codebook fini</b><span>Grille infinie / ensemble effectivement adressable.</span></div>
+    <div><b>Norme / direction</b><span>Amplitude du vecteur / orientation du vecteur.</span></div>
+    <div><b>Rotation / blanchiment</b><span>Changement orthogonal de repère / transformation des seconds moments vers l'identité.</span></div>
+    <div><b>Calibration / évaluation</b><span>Données pour choisir la compression / données pour mesurer le résultat.</span></div>
+    <div><b>Erreur poids / erreur sortie</b><span>Écart entre coefficients / effet de cet écart sur les activations.</span></div>
+    <div><b>Encodage / décodage</b><span>Choisir une représentation / reconstruire ses valeurs.</span></div>
+    <div><b>Transcodage / requantification</b><span>Changer le format sans perte / choisir de nouvelles valeurs approchées.</span></div>
+    <div><b>Packing / padding</b><span>Assembler des codes / ajouter de l'espace pour l'organisation.</span></div>
+    <div><b>Tuile / bloc de quantification</b><span>Morceau de travail du noyau / groupe de poids codés ensemble.</span></div>
+    <div><b>Prefill / decode</b><span>Traiter le prompt / générer les jetons suivants.</span></div>
+    <div><b>Débit / latence</b><span>Quantité traitée par seconde / durée pour obtenir un résultat.</span></div>
+    <div><b>Paramètres totaux / actifs</b><span>Poids du modèle / poids utilisés pour un jeton, notamment en MoE.</span></div>
+    <div><b>PPL / MMLU</b><span>Prédiction probabiliste du texte / réussite à des questions.</span></div>
+    <div><b>Mesure / projection</b><span>Résultat observé / estimation conditionnelle encore à tester.</span></div>
+    <div><b>Dépliage</b><span>Transcoder un index compact en champs que le GPU lit par masques. Coûte des octets, gagne du temps.</span></div>
+    <div><b>Plancher de lancement</b><span>Temps d'une passe qui ne lit aucun poids. Ici 45,2 % du bras servi.</span></div>
+    <div><b>Barre appariée</b><span>Incertitude sur une différence entre deux bras évalués sur les mêmes questions. Bien plus fine que la barre marginale.</span></div>
+    <div><b>Tirage de calibration</b><span>Le choix des fenêtres. Porte 5,2 % de perplexité et 2,92 pp de MMLU à lui seul.</span></div>
+    <div><b>Comptabilité</b><span>Le périmètre d'un chiffre de bits : code, fichier, noyau, modèle entier. Huit coexistent dans ce dépôt.</span></div>
+    <div><b>Même tête</b><span>Ratio formé avec la même couche de sortie des deux côtés. Le seul qui mesure le noyau.</span></div>
+    <div><b>Prédiction signée</b><span>Ce qu'on annonce avant de mesurer, et qu'on ne réécrit pas après.</span></div>
+  </div>
+
+  <p style="margin-top:1.4rem"><strong>Formules repères.</strong> <code>y = Wx</code> · <code>Δy = (Ŵ − W)x</code> · <code>b = bits du bloc / nombre de poids</code> · <code>mémoire poids = Nb/8</code> · <code>PPL = exp(L)</code> · <code>α* = (w·c)/(c·c)</code> · <code>erreur d'angle = ‖w‖² sin²θ</code> · <code>speedup = temps ancien / temps nouveau</code>.</p>
+</section>
+
+<hr class="rule">
+
+<!-- ==================== ERRATA ==================== -->
+
+<section id="errata">
+  <p class="eyebrow"><span class="dot" style="background:var(--accent)"></span>Vérification</p>
+  <h2>Ce qui a été contrôlé, corrigé, ajouté</h2>
+  <p class="obj" style="font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:.92rem;color:var(--muted);margin:.5rem 0 1.4rem">Le cours d'origine a été relu contre le dépôt <code>pjmalandrino/llvq</code> au commit <code>6937458</code>, ses journaux de mesure et ses notes de lecture de l'article.</p>
+
+  <h3>Les principes tiennent</h3>
+  <p>Les douze corrigés ont été refaits à la main et <strong>les douze sont justes</strong>, y compris les deux plus faciles à rater : les 13,5 pétaoctets de la table exhaustive (<span class="num">2⁴⁸ × 48</span> octets) et le rapport corrigé <span class="num">R = 0,667</span> avec son speedup brut de <span class="num">1,29×</span>. Les définitions de <code>H = XXᵀ/N</code>, de la Hessienne par ligne à <code>2H</code>, du gain optimal <code>α* = (w·c)/(c·c)</code>, de l'erreur d'angle <code>‖w‖² sin²θ</code> et de <code>PPL = exp(L)</code> correspondent à l'article. Le <code>α*</code> du cours 06 est exactement le <code>β*</code> de l'annexe F.1.</p>
+  <p>Deux mises en garde du cours d'origine sont non seulement justes mais <strong>vérifiées expérimentalement par le dépôt</strong>, ce que la version d'origine ne pouvait pas savoir : « Leech est exceptionnel n'est pas une conclusion expérimentale » (cours 05, confirmé par le bras <code>leech0c13</code>) et « soustraire un plancher suppose que le coût retiré est comparable » (cours 10, confirmé par les 2 006 Go/s absurdes d'AWQ).</p>
+
+  <h3>Trois corrections</h3>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>où</th><th>ce qui était écrit</th><th>ce qui est mesuré</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Cours 08</td>
+        <td><code>Tetra</code> est « une représentation plus compacte »</td>
+        <td>Pas sur disque : <span class="num">1 770 529 149</span> o contre <span class="num">1 770 527 533</span>, mêmes 48 bits par bloc. Le gain est en VRAM, <span class="num">4,804 → 2,1498</span> b/poids noyau.</td>
+      </tr>
+      <tr>
+        <td>Cours 11</td>
+        <td>±0,81 point à 95 % sur N = 14 042</td>
+        <td>Arithmétique juste, protocole différent : le projet tire <span class="num">2 280</span> questions, publie un micro stratifié, et son <span class="num">±1,35</span> est une SE à 1 σ. La barre opérante est appariée.</td>
+      </tr>
+      <tr>
+        <td>Référence 5</td>
+        <td>Cohn et al. 2019 pour l'optimalité d'empilement</td>
+        <td>L'empilement en dimension 24 est Cohn, Kumar, Miller, Radchenko et Viazovska (2016). L'optimalité universelle de 2019 l'implique, donc l'affirmation tient ; la citation vise le mauvais théorème.</td>
+      </tr>
+    </tbody>
+  </table></div>
+  <p>Une quatrième mention est simplement périmée : la note de périmètre annonçait que le dépôt et la PR n'avaient pas pu être consultés. Ils l'ont été.</p>
+
+  <h3>Ce que la révision ajoute</h3>
+  <div class="tbl-scroll"><table>
+    <thead><tr><th>cours</th><th>ce qui remplace l'exemple générique</th></tr></thead>
+    <tbody>
+      <tr><td>01</td><td>Les sept formes réelles du 4B, et le test <code>Δy = Ex</code> sur 1 105 920 lignes contre une référence f64.</td></tr>
+      <tr><td>02</td><td>Amdahl mesuré : le plancher vaut 45,2 % de la passe, la fusion fait tomber 252 lancements à 144.</td></tr>
+      <tr><td>03</td><td>L'échelle des quatre comptabilités du même fichier, de 2,000 à 5,162 b/poids.</td></tr>
+      <tr><td>04</td><td>Le vrai codebook : N(12) = 1,11·10¹⁴ points, 47 bits, et une table explicite à 5,33 Po.</td></tr>
+      <tr><td>05</td><td>Le codebook de l'article encodé et mesuré : exonéré, à 21,5 % de perplexité près.</td></tr>
+      <tr><td>06</td><td>L'ablation de rotation à 191,90 de perplexité, et forme-gain contre façonnage sphérique.</td></tr>
+      <tr><td>07</td><td>Le shrink de Hessienne, l'attribution par type de projection, et le bruit qui domine le volume.</td></tr>
+      <tr><td>08</td><td>Les deux enregistrements réels, champ par champ, à la même échelle.</td></tr>
+      <tr><td>09</td><td>Deux renversements mesurés entre cartes, et le bouton de tuile qui ne change aucun bit.</td></tr>
+      <tr><td>10</td><td>Le banc à dix bras, et la démonstration que la soustraction du plancher devient absurde hors grille.</td></tr>
+      <tr><td>11</td><td>Trois bras indiscernables en MMLU à 21,5 % d'écart de perplexité, et le tableau des quatre barres.</td></tr>
+      <tr><td>12</td><td>Le triplet produit, le mur de mémoire partagée à 1 024 octets près, et le chemin servi du 2026-09-10.</td></tr>
+      <tr class="hl"><td>13</td><td>Cours entièrement nouveau : préenregistrement, prédictions signées, étendues, résultats négatifs, manquements.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note flag">
+    <p><strong>Ce que cette révision ne fait pas.</strong> Elle ne relit ni le code Rust ligne à ligne, ni les journaux bruts au-delà de ceux qu'elle cite. Les nombres attribués au projet viennent de ses documents vivants et de ses journaux de mesure, avec leur étiquette d'origine. Quand un document et l'objet divergent, la règle du dépôt est que l'objet gagne : le fichier scellé, le journal.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ==================== RÉFÉRENCES ==================== -->
+
+<section id="references">
+  <p class="eyebrow"><span class="dot" style="background:var(--faint)"></span>Pour approfondir</p>
+  <h2>Les lectures de référence</h2>
+
+  <div class="reflist">
+    <div class="ref"><span class="rn">1</span><span><span class="rt">LLVQ, le socle publié.</span> <span class="rd">T. F. A. van der Ouderaa, M. van Baalen, P. Whatmough, M. Nagel, <em>Leech Lattice Vector Quantization for Efficient LLM Compression</em>, Qualcomm AI Research, v2 du 7 juillet 2026. Construction et indexation, cours 04 et 05. <a href="https://arxiv.org/abs/2603.11021">arxiv.org/abs/2603.11021</a></span></span></div>
+    <div class="ref"><span class="rn">2</span><span><span class="rt">QuIP#, rotation et géométrie.</span> <span class="rd">A. Tseng et al., 2024. Pour situer Hadamard et E8, cours 06. <a href="https://arxiv.org/abs/2402.04396">arxiv.org/abs/2402.04396</a></span></span></div>
+    <div class="ref"><span class="rn">3</span><span><span class="rt">QTIP, une autre structure de code.</span> <span class="rd">A. Tseng et al., 2024. L'alternative par treillis à une table exhaustive, cours 04 et 10. <a href="https://arxiv.org/abs/2406.11235">arxiv.org/abs/2406.11235</a></span></span></div>
+    <div class="ref"><span class="rn">4</span><span><span class="rt">GPTQ, sensibilité et compensation.</span> <span class="rd">E. Frantar et al., 2022. Le second ordre, cours 07. <a href="https://arxiv.org/abs/2210.17323">arxiv.org/abs/2210.17323</a></span></span></div>
+    <div class="ref"><span class="rn">5</span><span><span class="rt">La géométrie de Leech.</span> <span class="rd">Pour l'empilement en dimension 24 : H. Cohn, A. Kumar, S. D. Miller, D. Radchenko, M. Viazovska, <em>The sphere packing problem in dimension 24</em>, 2016. Pour l'optimalité universelle, les mêmes auteurs, 2019. Ne pas confondre le théorème avec une garantie sur MMLU, ce que le cours 05 mesure. <a href="https://arxiv.org/abs/1603.06518">arxiv.org/abs/1603.06518</a> · <a href="https://arxiv.org/abs/1902.05438">arxiv.org/abs/1902.05438</a></span></span></div>
+    <div class="ref"><span class="rn">6</span><span><span class="rt">Le GPU en pratique.</span> <span class="rd">NVIDIA, <em>CUDA C++ Best Practices Guide</em>. Accès mémoire et ressources, cours 09. <a href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/">docs.nvidia.com</a></span></span></div>
+    <div class="ref"><span class="rn">7</span><span><span class="rt">L'évaluation MMLU.</span> <span class="rd">D. Hendrycks et al., <em>Measuring Massive Multitask Language Understanding</em>, 2020. L'objectif du benchmark, cours 11. <a href="https://arxiv.org/abs/2009.03300">arxiv.org/abs/2009.03300</a></span></span></div>
+  </div>
+
+  <h3>Et dans le dépôt, par ordre de lecture</h3>
+  <div class="reflist">
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/ETAT.md</span> <span class="rd">Configuration servie, chiffres de tête, décisions ouvertes. À lire en premier.</span></span></div>
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/format-noyau.md</span> <span class="rd">Le format VRAM, le matvec fusé, les huit comptabilités et les pièges de mesure. Le socle des cours 08, 09 et 10.</span></span></div>
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/fiche-4b.md</span> <span class="rd">Registre de provenance de l'objet publié : chaque nombre, sa source, son instrument, son étiquette.</span></span></div>
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/llvq-paper-notes.md</span> <span class="rd">L'article transcrit par rendu d'image, tables 3, 6, 7, 8 et 9 comprises. Ne jamais rouvrir le PDF au texte.</span></span></div>
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/METHODE.md</span> <span class="rd">Les règles du laboratoire, source du cours 13.</span></span></div>
+    <div class="ref"><span class="rn">§</span><span><span class="rt">docs/cours-layouts-runtime.html</span> <span class="rd">Le cours frère, qui détaille les quatre dispositions VRAM et leur échelle mesurée.</span></span></div>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Comprendre LLVQ</strong>, édition 09.2026, révisée le 2026-09-10 contre <code>pjmalandrino/llvq</code>. Douze cours d'origine vérifiés, trois corrections, un cours ajouté.</p>
+  <p>Les schémas et les exercices sont des constructions pédagogiques originales. Les nombres attribués au projet portent leur étiquette et leur journal ; les exemples fictifs sont signalés comme tels. Manuscrit sur Zenodo, DOI 10.5281/zenodo.22133606.</p>
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var b = document.getElementById('themetog');
+  if (!b) return;
+  b.addEventListener('click', function () {
+    var r = document.documentElement;
+    var cur = r.getAttribute('data-theme');
+    var sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next;
+    if (cur === 'dark') next = 'light';
+    else if (cur === 'light') next = 'dark';
+    else next = sysDark ? 'light' : 'dark';
+    r.setAttribute('data-theme', next);
+    b.textContent = next === 'dark' ? 'Clair' : 'Sombre';
+  });
+})();
+</script>
