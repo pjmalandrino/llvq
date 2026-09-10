@@ -1813,7 +1813,20 @@ fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>
 pub struct Transcoder {
     layout: FusedLayout,
     fd: FastDecoder,
-    table: ClassTable,
+    /// The v1 ball's class table — `Some` exactly when the LAYOUT reads a
+    /// class, which is every layout but `Tetra48`. The `searcher`/`g70`
+    /// pattern: the `Some` is the authorisation, so no arm can reach a table
+    /// its format does not have.
+    ///
+    /// 🕳️ It was unconditional, and `ClassTable::for_kind` refuses a Tetra
+    /// kind by design — the table describes 383 ball classes and a Tetra word
+    /// names none. So `LLVQ_FUSED_LAYOUT=tetra48` died on the served file with
+    /// "no runtime layout for Tetra before F1d" **before reading one block**,
+    /// on the first card run of the served path (2026-09-10, $0.02). The
+    /// record gates of step 6.6 were open; this one was upstream of them and
+    /// nothing on the Mac reached it, because building a `Transcoder` is what
+    /// a card run does first.
+    table: Option<ClassTable>,
     /// `Some` exactly for [`FusedLayout::Planes12x`].
     searcher: Option<Searcher>,
     /// `Some` exactly for [`FusedLayout::Golay70`] — the class table
@@ -1837,8 +1850,19 @@ impl Transcoder {
     /// the boundary a test on a machine without a card reaches.
     pub fn for_kind(layout: FusedLayout, kind: CodeKind) -> Result<Self, String> {
         let fd = FastDecoder::new();
-        let table = ClassTable::for_kind(kind, &fd, 1)
-            .map_err(|e| format!("{}: {e}", layout.name()))?;
+        // Built for the layouts that READ a class. `Tetra48` reads a rank and
+        // a trellis, so asking for the ball's table would refuse a file the
+        // layout serves perfectly well — and asking for it is what refused
+        // one. The ball layouts keep the check exactly as it was: a Tetra file
+        // under `planes14` still dies here, by name, before a block is read.
+        let table = match layout {
+            FusedLayout::Tetra48 => None,
+            _ => Some(
+                ClassTable::for_kind(kind, &fd, 1)
+                    .map_err(|e| format!("{}: {e}", layout.name()))?,
+            ),
+        };
+        if let Some(table) = table.as_ref() {
         if matches!(
             layout,
             FusedLayout::Planes14 | FusedLayout::Planes12x | FusedLayout::Golay70
@@ -1855,6 +1879,7 @@ impl Transcoder {
                             carry it"
                     .into());
             }
+        }
         }
         let searcher = matches!(layout, FusedLayout::Planes12x).then(Searcher::new);
         let g70 = matches!(layout, FusedLayout::Golay70).then(|| Golay70Table::new(&fd));
@@ -1875,8 +1900,19 @@ impl Transcoder {
         &self.fd
     }
 
-    pub fn class_table(&self) -> &ClassTable {
-        &self.table
+    /// The class table of a layout that has one, or a refusal naming the
+    /// layout that does not. Only the ball arms of [`Self::stream`] call it,
+    /// and each of them is unreachable for `Tetra48` — so this error is a
+    /// guard against a future arm, not a path any caller takes today.
+    fn ball_table(&self) -> Result<&ClassTable, String> {
+        self.table.as_ref().ok_or_else(|| {
+            format!("{}: this layout reads no class table", self.layout.name())
+        })
+    }
+
+    /// `None` for `Tetra48`, which reads no class. See the field.
+    pub fn class_table(&self) -> Option<&ClassTable> {
+        self.table.as_ref()
     }
 
     /// Transcode one matrix's raw codes into the words of the chosen layout.
@@ -1907,7 +1943,7 @@ impl Transcoder {
         }
         match self.layout {
             FusedLayout::Slot32 => {
-                let rt = transcode(&self.fd, &self.table, indices, gains, Layout::Slot32)
+                let rt = transcode(&self.fd, self.ball_table()?, indices, gains, Layout::Slot32)
                     .map_err(|e| e.to_string())?;
                 let bytes = rt.data.len() as u64 + rt.bases.len() as u64 * 4;
                 let words = pack_words(&rt);
@@ -1915,7 +1951,7 @@ impl Transcoder {
             }
             FusedLayout::Planes14 => {
                 let pb: PlanesBlocks =
-                    transcode_planes14(&self.fd, &self.table, indices, gains)
+                    transcode_planes14(&self.fd, self.ball_table()?, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let bytes = pb.data.len() as u64;
                 Ok((HostStream::Planes14 { words: pack_plane_bytes(&pb.data) }, bytes))
@@ -1946,7 +1982,7 @@ impl Transcoder {
                     .as_ref()
                     .ok_or("Transcoder::new built no searcher for planes12x")?;
                 let pb: Planes12xBlocks =
-                    transcode_planes12x(&self.fd, &self.table, s, indices, gains)
+                    transcode_planes12x(&self.fd, self.ball_table()?, s, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let row_exc = row_offsets(&pb.exc_idx, d_out, nblocks)?;
                 let bytes = pb.data.len() as u64
@@ -1969,7 +2005,7 @@ impl Transcoder {
                     .as_ref()
                     .ok_or("Transcoder::new built no table for golay70")?;
                 let gb: Golay70Blocks =
-                    transcode_golay70(&self.fd, &self.table, g70, indices, gains)
+                    transcode_golay70(&self.fd, self.ball_table()?, g70, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let row_exc = row_offsets(&gb.exc_idx, d_out, nblocks)?;
                 // Same accounting rule as every arm: what the vectors hold,
@@ -2214,11 +2250,19 @@ mod tests {
         }
     }
 
-    /// A Tetra header has no runtime layout before F1d: every arm of
-    /// [`Transcoder::for_kind`] refuses it with the artifact crate's words,
-    /// and the Ball arm is `new` — same tables, same layout.
+    /// A Tetra header has no runtime layout **among the ball ones**: each of
+    /// the four refuses it with the artifact crate's words, and the Ball arm
+    /// is `new` — same tables, same layout.
+    ///
+    /// 🕳️ This test swept the four ball layouts and stopped there, so
+    /// `Tetra48` never passed through `for_kind` on this machine at all. The
+    /// layout that the whole of step 6 exists to serve was the one layout the
+    /// portable test did not build — and it died on a card, at $0.02, on the
+    /// first run of the served path, before reading a single block. A sweep
+    /// that omits the subject is not a sweep. `Tetra48` is a POSITIVE case
+    /// below, which is what makes the omission impossible to repeat.
     #[test]
-    fn a_tetra_file_has_no_runtime_layout_before_f1d() {
+    fn a_tetra_file_has_no_runtime_layout_among_the_ball_ones() {
         for layout in [
             FusedLayout::Planes14,
             FusedLayout::Planes12x,
@@ -2236,8 +2280,34 @@ mod tests {
             assert!(e.contains(layout.name()), "{}: the refusal must name the layout: {e}", layout.name());
             let ball = Transcoder::for_kind(layout, CodeKind::Ball).expect("a Ball header builds");
             assert_eq!(ball.layout(), layout);
-            assert_eq!(ball.class_table().n_entries(), Transcoder::new(layout).expect("new").class_table().n_entries());
+            assert_eq!(
+                ball.class_table().expect("a ball layout has a class table").n_entries(),
+                Transcoder::new(layout)
+                    .expect("new")
+                    .class_table()
+                    .expect("a ball layout has a class table")
+                    .n_entries()
+            );
         }
+
+        // And the layout that serves Tetra BUILDS on a Tetra header, with no
+        // class table at all — a Tetra word names no class, so asking for the
+        // ball's 383 of them is what refused a file this layout serves.
+        let t = Transcoder::for_kind(FusedLayout::Tetra48, CodeKind::Tetra)
+            .expect("tetra48 must build on a Tetra header");
+        assert_eq!(t.layout(), FusedLayout::Tetra48);
+        assert!(t.class_table().is_none(), "tetra48 must hold no class table");
+
+        // A BALL file under `tetra48` is still refused — not here, where the
+        // layout needs no table, but at the record gate. What this asserts is
+        // that dropping the table did not drop that: the two refusals are
+        // different, and only one of them was ever this function's business.
+        assert!(
+            Transcoder::for_kind(FusedLayout::Tetra48, CodeKind::Ball).is_ok(),
+            "the table is not where a Ball file under tetra48 is refused"
+        );
+        assert!(!serves_kind(FusedLayout::Tetra48, CodeKind::Ball));
+        assert!(serves_kind(FusedLayout::Tetra48, CodeKind::Tetra));
     }
 
     /// The default is `Off`, and it *has* to be: [`check_fuse`] refuses `On`

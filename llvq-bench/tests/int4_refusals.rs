@@ -93,12 +93,33 @@ fn refuses(bin: &std::path::Path, args: &[&str], path: &std::path::Path) {
 }
 
 #[test]
-fn rtbits_refuses_a_mixed_file_by_name() {
+fn rtbits_prices_a_mixed_file_instead_of_refusing_it() {
+    // 🕳️ This demanded a REFUSAL, and it had been red since step 6.7 without
+    // anyone reading past a truncated test log.
+    //
+    // 6.7 gave `rtbits` a v5 path on purpose: the served object of 2026-09-08
+    // is a mixed file, and a tool that prices formats has to be able to price
+    // the one that ships. Every OTHER binary in this file still refuses —
+    // `classhist`, `lswap`, `radixstudy` key on a v1 class, and a Tetra word
+    // names none, so a plausible-looking histogram would be worse than none.
+    //
+    // What is checked here is that the pricing HAPPENS and that it separates
+    // the two kinds, which is the whole point of a mixed accounting.
     let p = mixed_file("int4-rtbits.llvq");
-    refuses(
-        std::path::Path::new(env!("CARGO_BIN_EXE_rtbits")),
-        &[p.to_str().unwrap()],
-        &p,
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_rtbits"))
+        .arg(p.to_str().unwrap())
+        .output()
+        .expect("run rtbits");
+    let text = String::from_utf8_lossy(&out.stdout).to_string()
+        + &String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "rtbits must price a v5 file, not refuse it:\n{text}");
+    assert!(
+        text.contains("lattice matrices") && text.contains("int4 matrices"),
+        "the two kinds must be priced apart, each with its own rate:\n{text}"
+    );
+    assert!(
+        text.contains("kernel b/weight"),
+        "the accounting must be named, never left for a reader to guess:\n{text}"
     );
 }
 
