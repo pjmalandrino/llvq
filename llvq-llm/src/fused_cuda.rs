@@ -153,6 +153,51 @@ pub struct FusedProj {
     rotation: Option<RotKey>,
 }
 
+/// One `v_proj` served as affine int4 g128, on the device.
+///
+/// It shares nothing with [`FusedProj`] and that is the point: an int4 record
+/// carries stored weights in the **natural basis** — never GPTQ, never the
+/// rotation, never a lattice index — so it has no rotation key, no gain scale,
+/// no row scale and no tail. `calib.rs` writes it that way and `tv_q4_h.cu`
+/// reads exactly those three arrays.
+/// What [`FusedRuntime::new`] hands back: the runtime, and the three lists of
+/// projections it uploaded — lattice, segmented, int4. Three because the model
+/// indexes all three by the same `(layer, name)` pair and none of them can be
+/// derived from another.
+type Loaded = (FusedRuntime, Vec<FusedProj>, Vec<FusedSegProj>, Vec<FusedInt4Proj>);
+
+pub struct FusedInt4Proj {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// `ceil(d_in / 128)`, the scale/bias pairs a row carries. Passed to the
+    /// kernel rather than recomputed there, "so the host and the device cannot
+    /// disagree about the rounding up" — the kernel's own words.
+    gpr: u32,
+    /// The nibble stream as u32 words, little-endian. The disk stream is
+    /// bytes, **low nibble first**, at the global flat index `row · d_in + c`;
+    /// a lattice index in the same file is packed MSB-first. Two orders in one
+    /// file, and reading one with the other's convention gives plausible,
+    /// wrong weights.
+    wq: CudaSlice<u32>,
+    scales: CudaSlice<u16>,
+    biases: CudaSlice<u16>,
+    /// The whole activation staged in shared, `d_in · 4` — this kernel does
+    /// NOT tile, because its `d_in` is a hidden size. Held here so the launch
+    /// and the load-time check against the device limit are one number.
+    shared: u32,
+    pub bytes: u64,
+}
+
+impl FusedInt4Proj {
+    /// Always `None`: stored in the natural basis, so there is no activation
+    /// to carry and nothing to check a key against. `model::Proj` reads this
+    /// exactly as it reads a dense projection's.
+    pub fn rotation(&self) -> Option<RotKey> {
+        None
+    }
+}
+
 impl FusedProj {
     /// The rotation this matrix was quantized under. Read by `model::Proj` to
     /// tag the activation it prepares, and by nothing else.
@@ -240,6 +285,18 @@ pub struct FusedRuntime {
     /// *authorisation*: no launch path can reach a table the source list never
     /// carried.
     tetra_tabs: Option<TetraTabs>,
+    /// `tv_q4_h` — present exactly when the file carried an int4 record, which
+    /// is when its source was appended to the translation unit. The
+    /// `f_emb`/`tetra_tabs` pattern: the `Some` is the authorisation.
+    ///
+    /// 🕳️ Keyed on the SOURCE being in the unit and never on the layout. The
+    /// register report asked for `tv_planes_seg_h` because its condition was
+    /// "the layout is not Slot32", and the Tetra unit does not carry that
+    /// source: `named symbol not found`, on a rented card, after a full load
+    /// (2026-09-10). int4 is orthogonal to the layout — that orthogonality is
+    /// what makes a mixed file possible — so the layout could not answer this
+    /// question even in principle.
+    f_int4: Option<CudaFunction>,
     rotations: HashMap<RotKey, RotBuffers>,
     /// The q8 embedding kernels, `(gather, lm_head matvec)` — present exactly
     /// when the runtime was built with [`EmbedMode::Q8`], which is when their
@@ -272,7 +329,7 @@ impl FusedRuntime {
         device: &Device,
         emode: EmbedMode,
         fuse: FuseMode,
-    ) -> candle_core::Result<(Self, Vec<FusedProj>, Vec<FusedSegProj>)> {
+    ) -> candle_core::Result<Loaded> {
         let dev = device.as_cuda_device()?.clone();
         let stream = dev.cuda_stream();
         // Before the source is assembled, not after: the tile is a `#define`
@@ -300,6 +357,15 @@ impl FusedRuntime {
             EmbedMode::F16 => None,
             EmbedMode::Q8 => Some(load_emb_sources().map_err(candle_core::Error::msg)?),
         };
+        // Appended when the FILE carried an int4 record, never when the layout
+        // suggests one: int4 is orthogonal to the lattice layout, which is the
+        // whole reason a mixed file can be served at all. Its composition
+        // contract is `llvq_slot.cuh` then `matvec.cu` — the first two parts of
+        // every unit — so it goes last and nothing before it moves.
+        let int4 = match model.int4.is_empty() {
+            true => None,
+            false => Some(crate::fused::load_int4_sources().map_err(candle_core::Error::msg)?),
+        };
         let defines = tile.define();
         let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
@@ -314,6 +380,12 @@ impl FusedRuntime {
             parts.push(es.as_str());
             if let Some(d) = overridden {
                 eprintln!("WARNING: emb_q8 SOURCE OVERRIDDEN from {d}");
+            }
+        }
+        if let Some((cu, overridden)) = &int4 {
+            parts.push(cu.as_str());
+            if let Some(d) = overridden {
+                eprintln!("WARNING: tv_q4_h SOURCE OVERRIDDEN from {d}");
             }
         }
         let src = llvq_cuda::gpu::KernelSource::new(&parts);
@@ -359,6 +431,11 @@ impl FusedRuntime {
         if emb.is_some() {
             spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
         }
+        // Same rule as the segmented kernel above: reported exactly when its
+        // source is in the unit, which here is exactly when `int4` is `Some`.
+        if int4.is_some() {
+            spill_checked.push(crate::fused::INT4_KERNEL_NAME);
+        }
         for name in spill_checked {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
@@ -366,6 +443,13 @@ impl FusedRuntime {
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
+        let f_int4 = match int4.is_some() {
+            true => Some(
+                cuda.func(crate::fused::INT4_KERNEL_NAME)
+                    .map_err(candle_core::Error::msg)?,
+            ),
+            false => None,
+        };
         // Looked up only when both the layout and the caller allow it: the
         // `Some` is the authorisation, so `forward_rotated_seg` has nothing to
         // fall back on rather than something to check.
@@ -493,6 +577,10 @@ impl FusedRuntime {
         for g in &model.groups {
             seg_projs.push(upload_group(&cuda, g, model.layout)?);
         }
+        let mut int4_projs = Vec::with_capacity(model.int4.len());
+        for q in &model.int4 {
+            int4_projs.push(upload_int4(&cuda, q, shared_limit)?);
+        }
 
         Ok((
             Self {
@@ -503,6 +591,7 @@ impl FusedRuntime {
                 f_matvec_seg,
                 tab,
                 tetra_tabs,
+                f_int4,
                 g70_tabs,
                 rotations,
                 f_emb,
@@ -512,6 +601,7 @@ impl FusedRuntime {
             },
             projs,
             seg_projs,
+            int4_projs,
         ))
     }
 
@@ -550,6 +640,38 @@ impl FusedRuntime {
     /// `y = W' xr` for one activation already in the rotated basis. `xr` is
     /// [`Self::rotate`]'s f32 output; `out_dims` is the *caller's* shape, so
     /// the result keeps the caller's rank, exactly as a `Linear` would.
+    /// `y = W x` for an int4 projection, from the activation in its **natural**
+    /// basis — there is no rotated form, and asking for one would be asking for
+    /// a basis the weights were never quantized in.
+    ///
+    /// The one conversion in this file: `tv_q4_h` takes `x` in f32, "as in
+    /// every projection kernel of this family", while the model carries f16.
+    /// The rotated arms get their f32 for free because `rot_apply` produces it;
+    /// this arm has no rotation to produce it, so it widens here. Not hidden in
+    /// the kernel: the reference this path is checked against —
+    /// `RawTensor::to_f32` — is f32 arithmetic, and narrowing the activation
+    /// first would make the served row disagree with the row the file decodes
+    /// to, which is the whole correctness test.
+    pub fn forward_int4(
+        &self,
+        proj: &FusedInt4Proj,
+        x: &Tensor,
+        out_dims: &[usize],
+    ) -> candle_core::Result<Tensor> {
+        let out_shape = {
+            let mut d = out_dims.to_vec();
+            *d.last_mut().expect("rank >= 1") = proj.d_out;
+            Shape::from(d)
+        };
+        let xf = x.to_dtype(candle_core::DType::F32)?.contiguous()?;
+        let op = FusedInt4Op {
+            rt: self,
+            proj,
+            out_shape,
+        };
+        xf.apply_op1_no_bwd(&op)
+    }
+
     pub fn forward_rotated(
         &self,
         proj: &FusedProj,
@@ -1156,6 +1278,75 @@ impl candle_core::CustomOp1 for FusedOp<'_> {
     }
 }
 
+/// `y = W x` for one int4 projection.
+///
+/// Its own type rather than an arm of [`FusedOp`], for the reason `RotSegOp`
+/// is its own: the two carry different borrows and share no field. This one
+/// has no rotation, no gain scale, no row scale and no tail to reach for.
+struct FusedInt4Op<'a> {
+    rt: &'a FusedRuntime,
+    proj: &'a FusedInt4Proj,
+    out_shape: Shape,
+}
+
+impl candle_core::CustomOp1 for FusedInt4Op<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-fused-int4-matvec"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the LLVQ int4 kernel has no CPU path")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let x = storage.as_cuda_slice::<f32>()?;
+        // A range, not an offset and a length — `FusedOp` records what taking
+        // the second field for a length costs, and it costs the same here.
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
+        let len = end - start;
+        if len != self.proj.d_in {
+            candle_core::bail!(
+                "{}: activation of {len} values for d_in={}",
+                self.proj.name,
+                self.proj.d_in
+            );
+        }
+        // The kernel indexes `x` from the base pointer and takes no offset, so
+        // a nonzero start would read the wrong slice and return finite,
+        // plausible, wrong numbers.
+        if start != 0 {
+            candle_core::bail!(
+                "{}: activation at offset {start}, and the kernel reads from the base",
+                self.proj.name
+            );
+        }
+        let f = self.rt.f_int4.as_ref().ok_or_else(|| {
+            candle_core::Error::msg(
+                "an int4 projection on a runtime built without `tv_q4_h`: its source \
+                 is appended only when the file carried an int4 record",
+            )
+        })?;
+        let mut y = unsafe { self.rt.device.cuda_stream().alloc::<f16>(self.proj.d_out) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
+        launch_q4_h(&self.rt.cuda, f, self.proj, x, &mut y, THREADS)
+            .map_err(candle_core::Error::msg)?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
+            self.out_shape.clone(),
+        ))
+    }
+}
+
 /// [`RotOp`] for a fused group — the same launch, keyed on the group's shared
 /// rotation instead of one matrix's.
 ///
@@ -1381,6 +1572,136 @@ fn launch_planes_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
 /// stride there does not fail; it reads every row after the first at a shifted
 /// phase and returns plausible, wrong weights, which is why it travels with
 /// the buffer in [`DeviceStream::Tetra48`] rather than being re-derived here.
+#[allow(clippy::too_many_arguments)]
+/// One int4 record onto the card: three arrays, no transcode.
+///
+/// The kernel reads these bytes as they sit on disk — that is what
+/// distinguishes a stored-weight format from a lattice one — so the only work
+/// here is the byte-to-u32 view and four checks the kernel's own header asks
+/// the host to make.
+fn upload_int4(
+    cuda: &llvq_cuda::gpu::Cuda,
+    q: &crate::fused::FusedInt4,
+    shared_limit: usize,
+) -> candle_core::Result<FusedInt4Proj> {
+    // The four the kernel names, each because the arithmetic below it breaks
+    // silently otherwise rather than faulting.
+    if q.group != 128 {
+        candle_core::bail!("{}: group {} — `tv_q4_h` hard-codes 128", q.name, q.group);
+    }
+    if !q.d_in.is_multiple_of(8) {
+        candle_core::bail!(
+            "{}: d_in {} is not a multiple of 8, so a row does not start on a u32 \\
+             and every row after the first would read at a shifted nibble",
+            q.name,
+            q.d_in
+        );
+    }
+    if !q.d_out.is_multiple_of(THREADS as usize / 32) {
+        candle_core::bail!(
+            "{}: d_out {} does not fill whole blocks of {} rows, and the kernel \\
+             carries no bounds guard",
+            q.name,
+            q.d_out,
+            THREADS / 32
+        );
+    }
+    let gpr = q.d_in.div_ceil(q.group);
+    if q.scales.len() != q.d_out * gpr || q.biases.len() != q.d_out * gpr {
+        candle_core::bail!(
+            "{}: {} scales and {} biases for {} rows × {gpr} groups",
+            q.name,
+            q.scales.len(),
+            q.biases.len(),
+            q.d_out
+        );
+    }
+    if q.packed.len() != q.d_out * q.d_in / 2 {
+        candle_core::bail!(
+            "{}: {} packed bytes for {} × {} nibbles",
+            q.name,
+            q.packed.len(),
+            q.d_out,
+            q.d_in
+        );
+    }
+    // The whole activation, not a tile: `d_in` here is a hidden size. Checked
+    // against the card rather than assumed — the projection kernels tile
+    // because their `d_in` can be an intermediate size, and this one must not
+    // inherit a bound it does not share.
+    let shared = q.d_in * 4;
+    if shared > shared_limit {
+        candle_core::bail!(
+            "{}: staging {} values needs {shared} B of shared, the card allows {shared_limit}",
+            q.name,
+            q.d_in
+        );
+    }
+    // Little-endian, so byte `b` of the stream is bits `8b` of the word and
+    // nibble `i` stays at `4 · (i % 8)` — which is what `(p >> 4k) & 0xf`
+    // reads. The disk order is low-nibble-first; a big-endian view here would
+    // transpose every pair of columns and produce plausible, wrong weights.
+    let words: Vec<u32> = q
+        .packed
+        .chunks_exact(4)
+        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect();
+    if words.len() * 4 != q.packed.len() {
+        candle_core::bail!(
+            "{}: {} packed bytes is not a whole number of u32 words",
+            q.name,
+            q.packed.len()
+        );
+    }
+    Ok(FusedInt4Proj {
+        name: q.name.clone(),
+        d_out: q.d_out,
+        d_in: q.d_in,
+        gpr: gpr as u32,
+        wq: cuda.up_u32(&words).map_err(candle_core::Error::msg)?,
+        scales: cuda.up_u16(&q.scales).map_err(candle_core::Error::msg)?,
+        biases: cuda.up_u16(&q.biases).map_err(candle_core::Error::msg)?,
+        shared: shared as u32,
+        bytes: q.bytes,
+    })
+}
+
+/// `tv_q4_h(wq, scales, biases, x, y, d_in, gpr)` — the served int4 matvec.
+///
+/// One warp a row and 256-thread blocks, like every projection kernel here,
+/// and NO tile: the activation is staged whole, so `shared` comes off the
+/// projection rather than off `Tile`.
+fn launch_q4_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    p: &FusedInt4Proj,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<T>,
+    threads: u32,
+) -> Result<(), String> {
+    let d_out = p.d_out as u32;
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: p.shared,
+    };
+    let d_in = p.d_in as u32;
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(&p.wq)
+        .arg(&p.scales)
+        .arg(&p.biases)
+        .arg(x)
+        .arg(y)
+        .arg(&d_in)
+        .arg(&p.gpr);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_h: {e}"))?;
+    Ok(())
+}
+
+// Fifteen, and every one of them is a pointer the kernel takes: bundling them
+// into a struct would put a second description of the argument list beside the
+// `extern "C"` one, which is the drift this file spends its comments avoiding.
 #[allow(clippy::too_many_arguments)]
 fn launch_tetra48_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
     cuda: &llvq_cuda::gpu::Cuda,
@@ -1848,8 +2169,13 @@ pub fn load_with(
     let rot_launches = crate::rotplan::rot_launches(share, &model.matrices, &model.groups);
     let matvec_launches =
         crate::rotplan::matvec_launches_per_token(&model.matrices, &model.groups);
-    let projections =
-        model.matrices.len() + model.groups.iter().map(|g| g.parts.len()).sum::<usize>();
+    // Every projection the model holds, int4 included: the count sits beside a
+    // launch count on the next two lines, and one that omitted 36 of 252 would
+    // make the launches per token read as an inconsistency rather than as the
+    // fact they are.
+    let projections = model.matrices.len()
+        + model.groups.iter().map(|g| g.parts.len()).sum::<usize>()
+        + model.int4.len();
     println!(
         "shared rotation: {} (LLVQ_ROT_SHARE), {rot_launches} rot_launches/token \
          for {projections} projections",
@@ -1896,7 +2222,7 @@ pub fn load_with(
         ),
     };
 
-    let (rt, projs, seg_projs) = FusedRuntime::new(&model, device, emode, fuse)?;
+    let (rt, projs, seg_projs, int4_projs) = FusedRuntime::new(&model, device, emode, fuse)?;
     let rt = Arc::new(rt);
 
     // Index every uploaded projection by the pair `Block::new_with` asks for —
@@ -1912,6 +2238,20 @@ pub fn load_with(
         by_site.insert(
             (layer, proj),
             crate::model::Proj::Fused { rt: rt.clone(), proj: Arc::new(p) },
+        );
+    }
+    // The int4 records, indexed by the same pair. They are never part of a
+    // group: `fused::segment_matrices` reads `model.matrices`, which holds
+    // lattice records only, so a `v_proj` served as int4 simply is not offered
+    // to the fusion — and `model::group_forward` would refuse a mixed group
+    // anyway, at `check_key`, because this projection's key is `None` and a
+    // rotated group's is not.
+    for q in int4_projs {
+        let (layer, proj) = llvq_artifact::split_name(&q.name)
+            .map_err(|e| candle_core::Error::msg(e.to_string()))?;
+        by_site.insert(
+            (layer, proj),
+            crate::model::Proj::FusedInt4 { rt: rt.clone(), proj: Arc::new(q) },
         );
     }
     // The row order comes from `fused::segment_matrices`, which read it off
@@ -2002,9 +2342,8 @@ pub fn load_with(
     let total_sites = by_site.len();
     let mut claimed = 0usize;
     let mut take = |layer: usize, name: &str| {
-        by_site.remove(&(layer, name.to_string())).map(|p| {
+        by_site.remove(&(layer, name.to_string())).inspect(|_| {
             claimed += 1;
-            p
         })
     };
     // `(ie, ih)` is `(0, 0)` when the ends are tied — two clones of one `Arc`,

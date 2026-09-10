@@ -955,6 +955,7 @@ pub struct FusedMatrix {
 /// reorders them — `tv_q4_h` reads `scale · (q − zero)` off exactly these
 /// three arrays, and `tests/proj_q4.rs` pins that arithmetic against
 /// [`llvq_artifact::Int4Matrix::to_f32`] on the development machine.
+#[derive(Clone)]
 pub struct FusedInt4 {
     pub name: String,
     pub d_out: usize,
@@ -1054,6 +1055,28 @@ pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
 /// number `fusedrun` prints as "GB on the card" and that
 /// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
 /// here is published, not caught.
+/// Device bytes the quantized projections occupy — every list the model holds.
+///
+/// A function with a name and a test rather than an expression inside `load`,
+/// for the reason [`matrix_side_bytes`] gives: this is the number `fusedrun`
+/// prints as "GB on the card" and the numerator
+/// [`FusedModel::runtime_bits_per_weight`] divides, so a term missing here is
+/// published rather than caught.
+///
+/// 🕳️ The `int4` term WAS missing, and on one side of that division only:
+/// `quantized_weights` counts an int4 record's weights while this sum did not
+/// count its bytes. On the served mixed file that is 2.030 b/weight printed
+/// against a true 2.141, and a footprint 50 MB light.
+pub fn runtime_bytes_of(
+    matrices: &[FusedMatrix],
+    groups: &[FusedGroup],
+    int4: &[FusedInt4],
+) -> u64 {
+    matrices.iter().map(|m| m.bytes).sum::<u64>()
+        + groups.iter().map(|g| g.bytes).sum::<u64>()
+        + int4.iter().map(|q| q.bytes).sum::<u64>()
+}
+
 pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
     (d_out * tail_w) as u64 * TAIL_BYTES + d_out as u64 * ROW_SCALE_BYTES
 }
@@ -2193,8 +2216,16 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // vectors and adds `gs_off`, so an accumulator carried through the read
     // loop would have to be corrected twice. One sum over what the model
     // actually holds cannot drift from what it holds.
-    let runtime_bytes = matrices.iter().map(|m| m.bytes).sum::<u64>()
-        + groups.iter().map(|g| g.bytes).sum::<u64>();
+    //
+    // 🕳️ The int4 term was missing, and it was missing on ONE side of a
+    // division. `quantized_weights` counts an int4 record's weights — it says
+    // so where it does it, "they are quantized, just not by us" — so
+    // `runtime_bits_per_weight` divided a numerator without those bytes by a
+    // denominator with those weights. On the served mixed file that prints
+    // **2.030 b/weight where the truth is 2.141**, and a card footprint 50 MB
+    // light, on the line `fusedrun` publishes. Nothing failed; the number was
+    // simply wrong, and the test below now divides the two the same way.
+    let runtime_bytes = runtime_bytes_of(&matrices, &groups, &int4);
 
     let n_raw = read_u32(&mut r)?;
     let mut raw = Vec::with_capacity(n_raw as usize);
@@ -2248,6 +2279,65 @@ mod tests {
             let e = FuseMode::parse(Some(bad)).expect_err("must be refused");
             assert!(e.contains(bad), "the message must cite the value: {e}");
         }
+    }
+
+    /// The int4 bytes are counted, and they are counted where the weights are.
+    ///
+    /// 🕳️ The regression this pins is not hypothetical: `runtime_bytes`
+    /// summed the lattice matrices and the fused groups and stopped, while
+    /// `quantized_weights` counted an int4 record's weights — "they are
+    /// quantized, just not by us". A numerator missing a term whose weights
+    /// are in the denominator understates every b/weight the runtime prints,
+    /// and nothing fails.
+    #[test]
+    fn the_int4_bytes_reach_the_footprint_the_runtime_prints() {
+        let q = FusedInt4 {
+            name: "model.layers.0.self_attn.v_proj.weight".into(),
+            d_out: 1024,
+            d_in: 2560,
+            group: 128,
+            packed: Vec::new(),
+            scales: Vec::new(),
+            biases: Vec::new(),
+            // What one served `v_proj` actually costs: 1024·2560/2 packed,
+            // plus 1024·20 groups of one binary16 scale and one binary16 bias.
+            bytes: 1024 * 2560 / 2 + 1024 * 20 * 2 * 2,
+        };
+        assert_eq!(q.bytes, 1_392_640);
+        // The term that was missing, alone, so its absence cannot hide behind
+        // the other two.
+        assert_eq!(runtime_bytes_of(&[], &[], std::slice::from_ref(&q)), q.bytes);
+        assert_eq!(runtime_bytes_of(&[], &[], &[]), 0);
+        // Over the served file's 36 of them, against the hand arithmetic: the
+        // whole term is 50.1 MB, which is what the printed line was light by.
+        let all: Vec<FusedInt4> = (0..36)
+            .map(|l| FusedInt4 { name: format!("model.layers.{l}.self_attn.v_proj.weight"), ..q.clone() })
+            .collect();
+        assert_eq!(runtime_bytes_of(&[], &[], &all), 50_135_040);
+    }
+
+    /// The name the host hands the driver is the name the embedded source
+    /// defines, and the group it hard-codes is the format's.
+    ///
+    /// `fused_cuda.rs` looks `INT4_KERNEL_NAME` up on a card and nowhere else,
+    /// so a typo in it is a `named symbol not found` at the end of a load —
+    /// which is exactly how `tv_planes_seg_h` was found, on a rented card.
+    #[test]
+    fn the_int4_kernel_names_and_constants_match_its_source() {
+        let src = Q4_H_CU_EMBED;
+        assert!(
+            src.contains(&format!("__global__ void {INT4_KERNEL_NAME}(")),
+            "`{INT4_KERNEL_NAME}` is not defined by the source the host appends"
+        );
+        // The group is the format's constant on both sides of the boundary.
+        assert!(
+            src.contains(&format!("#define LLVQ_Q4_GROUP {}u", llvq_artifact::INT4G128_GROUP)),
+            "the kernel's group and `INT4G128_GROUP` disagree"
+        );
+        // It needs `matvec.cu` (h2f, f2h, warp_sum) and nothing else, and that
+        // file is the second part of EVERY unit — so appending this source
+        // last is always legal, whatever the layout.
+        assert!(src.contains("#ifndef TILE_COLS"), "the composition guard moved");
     }
 
     /// Every kernel a runtime looks up has its SOURCE in that runtime's unit.

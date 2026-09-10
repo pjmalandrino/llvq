@@ -418,6 +418,19 @@ pub enum Proj {
         rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
         proj: std::sync::Arc<crate::fused_cuda::FusedProj>,
     },
+    /// One projection served as affine int4 g128 — `v_proj` in the mixed file
+    /// the operator chose on 2026-09-08.
+    ///
+    /// It behaves like [`Proj::Dense`] in every respect that matters to the
+    /// caller and like [`Proj::Fused`] in none: the weights are STORED, in the
+    /// **natural basis**, so there is no rotation to carry, no key to check
+    /// against, and `prepare` hands back the activation untouched. What it
+    /// shares with the fused arms is only that a kernel reads it.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    FusedInt4 {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        proj: std::sync::Arc<crate::fused_cuda::FusedInt4Proj>,
+    },
     /// One part of a row-concatenated group — q, k or v of one layer, or gate
     /// or up. The whole group is launched **once**, by [`group_forward`], and
     /// the result is narrowed back into the parts; there is no per-projection
@@ -516,6 +529,11 @@ impl Proj {
             Proj::Dense(_) => None,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => proj.rotation(),
+            // Stored in the natural basis, so there is nothing to carry and
+            // nothing for `check_key` to compare — exactly the dense answer,
+            // and for exactly the dense reason.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => None,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, .. } => group.rotation(),
         }
@@ -529,6 +547,8 @@ impl Proj {
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => &proj.name,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => &proj.name,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, rank, .. } => group.part_name(*rank),
         }
     }
@@ -539,6 +559,8 @@ impl Proj {
             Proj::Dense(l) => l.weight().dim(0),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => Ok(proj.d_out),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => Ok(proj.d_out),
             // The **part**, not the group: this is the width of the tensor the
             // caller gets back, which is what every consumer reshapes on.
             #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -564,6 +586,12 @@ impl Proj {
                 key: proj.rotation(),
                 t: rt.rotate(proj, x)?,
             }),
+            // No `rot_apply`: the weights are quantized in the basis the
+            // activation already arrives in. Byte for byte the dense arm's
+            // answer, which is what makes `check_key` accept both in one group
+            // and refuse a rotated one beside them.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => Ok(Rotated { key: None, t: x.clone() }),
             // One `rot_apply` for the whole group: the parts share one `d_in`
             // and one rotation key by construction, checked at load time.
             #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -589,6 +617,12 @@ impl Proj {
             Proj::Dense(l) => l.forward(x),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { rt, proj } => rt.forward_rotated(proj, &r.t, x.dims()),
+            // `x`, not `r.t` — the dense arm's choice, and the same one: `r.t`
+            // IS `x` here, and reading it from the argument the caller handed
+            // in is what keeps that true if `prepare` ever stops being the
+            // identity for this arm.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { rt, proj } => rt.forward_int4(proj, x, x.dims()),
             // Deliberately unreachable, and it must stay that way: a launch per
             // projection here would compute the group's whole width and then
             // throw most of it away — silently, and at three times the cost.
@@ -620,6 +654,11 @@ impl Proj {
                 "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
             ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => panic!(
+                "{} is served as int4: the quantizer only works on a dense model",
+                proj.name
+            ),
         }
     }
 
@@ -635,6 +674,11 @@ impl Proj {
             Proj::FusedSeg { group, rank, .. } => panic!(
                 "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
+            ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => panic!(
+                "{} is served as int4: the quantizer only works on a dense model",
+                proj.name
             ),
         }
     }
@@ -840,9 +884,9 @@ impl<'a> SegPlan<'a> {
         // the same reason: its two arms would coincide, and calling it would
         // suggest a control that is gone.
         let mut per_row = Vec::with_capacity(rows);
-        for row in 0..rows {
-            let r = self.rt.rotate_group(self.group, &slices[row])?;
-            per_row.push(self.rt.forward_rotated_seg(self.group, &r, slices[row].dims())?);
+        for slice in slices.iter().take(rows) {
+            let r = self.rt.rotate_group(self.group, slice)?;
+            per_row.push(self.rt.forward_rotated_seg(self.group, &r, slice.dims())?);
         }
         // `[rows, group.d_out]`, then one view per projection on the last axis.
         let stacked = Tensor::cat(&per_row, 0)?;

@@ -345,6 +345,7 @@ fn main() -> anyhow::Result<()> {
             if std::env::var("LLVQ_GRAPH_DIAG").ok().as_deref() == Some("1") {
                 let mut next = prefill(&f.model, &mut caches)?;
                 let mut offset = ids.len();
+                #[allow(clippy::explicit_counter_loop)]
                 for tok in 0..12usize {
                     f.model.refresh_step(&st, next, offset)?;
                     let inp: u32 = st.debug_input()?;
