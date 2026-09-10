@@ -123,6 +123,78 @@ __device__ __forceinline__ float tetra48_dot(u32 lo,
     return acc * gscale[g] * invnorm[m];
 }
 
+// The same block dot, against R activation rows at once.
+//
+// ## Why it exists
+//
+// `tetra48_dot` reads ONE activation row, so a prompt of N tokens decodes the
+// whole weight stream N times: 0.97 GB re-read per token on the served 4B, and
+// one launch per row per matrix. A 5-shot MMLU question is several hundred
+// tokens, which is both 200,000 launches and 776 GB of reads — and the host
+// refuses past 256 rows outright rather than look like a hang.
+//
+// The weight is what costs. The activation is 96 bytes a block. So the word is
+// decoded ONCE and applied to R rows, and the stream is read R times less.
+// This is what every quantized-inference stack does for its prefill, and the
+// reason they all carry two kernels: one row for decoding a token, many rows
+// for swallowing a prompt.
+//
+// ## What must not change, and how it is held
+//
+// **The result is bit-identical to R calls of `tetra48_dot`, and that is a
+// requirement rather than a consequence.** Two things would break it and both
+// are one keystroke away:
+//
+//   * the 24 FMAs of a row must keep their order. They do: the same two
+//     unrolled loops, the same `TETRA48_ORDER`, per row.
+//   * the two scales must keep their association. `tetra48_dot` returns
+//     `acc * gscale[g] * invnorm[m]`, which is `(acc · g) · inv` — NOT
+//     `acc · (g · inv)`. Hoisting `gscale[g] * invnorm[m]` out of the row loop
+//     would be the obvious optimisation and it is wrong: the two differ by one
+//     ULP on roughly one word in a thousand. The repository has already paid
+//     for that association once, in a test that modelled it the other way.
+//
+// `tests/host_tetra48.cpp` runs both routes on the same fixture and the Rust
+// side compares them bit for bit, so this is checked on a machine with no
+// card rather than asserted in this comment.
+//
+// `row_stride` is in floats and separates the rows inside the caller's shared
+// staging; the caller owns that layout.
+template <unsigned R>
+__device__ __forceinline__ void tetra48_dot_rows(u32 lo,
+                                                 u32 hi16,
+                                                 const F1rTables& t,
+                                                 const float* __restrict__ xb,
+                                                 u32 row_stride,
+                                                 const float* __restrict__ gscale,
+                                                 const float* __restrict__ invnorm,
+                                                 float* acc)
+{
+    // Decoded once. This is the whole point: the six quads, the shell sum and
+    // the gain bit do not depend on the activation.
+    u32 q[6];
+    f1r_v3_quads(lo, hi16, t, q);
+    u32 m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+    u32 g = (hi16 >> 15) & 1u;
+    const float gs = gscale[g];
+    const float iv = invnorm[m];
+
+#pragma unroll
+    for (unsigned r = 0; r < R; ++r) {
+        const float* __restrict__ xr = xb + r * row_stride;
+        float a = 0.0f;
+#pragma unroll
+        for (u32 i = 0; i < 6u; ++i) {
+#pragma unroll
+            for (u32 j = 0; j < 4u; ++j) {
+                a = __fmaf_rn(f1r_v3_float(q[i], j), xr[TETRA48_ORDER[4u * i + j]], a);
+            }
+        }
+        // `(a · gs) · iv`, left to right, exactly as `tetra48_dot` returns it.
+        acc[r] += a * gs * iv;
+    }
+}
+
 // The 24 reconstructed values in **natural** order, for the host check.
 //
 // The same bytes, the same float construction and the same two scales as the

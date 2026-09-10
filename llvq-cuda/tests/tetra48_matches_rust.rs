@@ -134,6 +134,10 @@ struct Out {
     y: Vec<f32>,
     dot: Vec<f32>,
     n2: Vec<u32>,
+    /// `tetra48_dot_rows<4>` accumulated over EVERY word, four activation
+    /// rows a call, staged at a padded stride: `ceil(nx/4) × 4`. The tail
+    /// rows fold onto activation 0 and are ignored by the comparison.
+    dot_rows: Vec<f32>,
 }
 
 fn run(bin: &std::path::Path, tb: &Tables, gscale: [f32; 2], invnorm: &[f32; SHELLS], words: &[u64], x: &[f32]) -> Out {
@@ -169,15 +173,28 @@ fn run(bin: &std::path::Path, tb: &Tables, gscale: [f32; 2], invnorm: &[f32; SHE
 
     let n = words.len();
     let (ny, nd) = (n * DIM, n * nx);
-    assert_eq!(res.stdout.len(), 4 * (ny + nd + n), "harness wrote the wrong number of bytes");
+    let nb = nx.div_ceil(ROWS);
+    let nr = nb * ROWS;
+    assert_eq!(
+        res.stdout.len(),
+        4 * (ny + nd + n + nr),
+        "harness wrote the wrong number of bytes"
+    );
     let f32s = |b: &[u8]| -> Vec<f32> { b.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect() };
     let u32s = |b: &[u8]| -> Vec<u32> { b.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect() };
     Out {
         y: f32s(&res.stdout[..4 * ny]),
         dot: f32s(&res.stdout[4 * ny..4 * (ny + nd)]),
-        n2: u32s(&res.stdout[4 * (ny + nd)..]),
+        n2: u32s(&res.stdout[4 * (ny + nd)..4 * (ny + nd + n)]),
+        dot_rows: f32s(&res.stdout[4 * (ny + nd + n)..]),
     }
 }
+
+/// Rows a batched call carries. Four, and the bound is shared memory: the
+/// kernel stages `ROWS · TILE_BLOCKS · 24 · 4` bytes, and at the served tile
+/// of 128 that is 49,152 — exactly the per-block allowance. Eight would need
+/// the tile halved, which is the knob the two-card split turned on.
+const ROWS: usize = 4;
 
 /// Random 48-bit words, with the origin and both gain bits over one label
 /// forced in: every 48-bit value is a label, so a uniform draw is a fair sweep
@@ -318,6 +335,59 @@ fn the_served_value_matches_the_reconstruction() {
             assert!(out.y[i * DIM..(i + 1) * DIM].iter().all(|&v| v == 0.0), "the origin decoded non-zero");
         }
     }
+}
+
+/// Level 5: four rows a call is the same answer as four calls, BIT FOR BIT.
+///
+/// The batched path exists to read the weight stream R times less on a prompt
+/// — 776 GB a question becomes 194 at R = 4 — and it may not change one bit of
+/// the answer while doing it. That is a requirement, not a consequence: the
+/// obvious optimisation is to hoist `gscale[g] * invnorm[m]` out of the row
+/// loop, and it is wrong. `tetra48_dot` returns `(acc · g) · inv`, and
+/// `acc · (g · inv)` differs by one ULP on roughly one word in a thousand.
+/// This repository has already paid for that association once.
+///
+/// Both routes run on the SAME fixture inside the same harness, so a
+/// disagreement is a disagreement between two implementations and not a shared
+/// error — the argument the file header makes for the whole test.
+#[test]
+fn four_rows_at_once_is_four_calls_bit_for_bit() {
+    let t = Tetra::new();
+    let bin = build_harness("rows");
+    let tb = tables(&t);
+    let w = words(0x7e_42a4_0004);
+    let gscale = [0.481_562_5f32, 1.372_25f32];
+    let inv = invnorm_table();
+    let x = activations(0x4, N_X);
+    let out = run(&bin, &tb, gscale, &inv, &w, &x);
+
+    let nb = N_X.div_ceil(ROWS);
+    for k in 0..N_X {
+        // What a row of the kernel accumulates: the per-block dots of that
+        // activation, summed in word order, in f32. Formed here rather than
+        // read from the harness, so the two routes are two implementations.
+        let want = w
+            .iter()
+            .enumerate()
+            .fold(0.0f32, |a, (i, _)| a + out.dot[i * N_X + k]);
+        let got = out.dot_rows[(k / ROWS) * ROWS + k % ROWS];
+        assert_eq!(
+            want.to_bits(),
+            got.to_bits(),
+            "activation {k}: one row at a time accumulates to {want:e}, four rows at once \
+             give {got:e}. The batched path changed the answer, which it may not."
+        );
+    }
+    assert_eq!(out.dot_rows.len(), nb * ROWS, "the batched block is the wrong size");
+    // And it is not vacuous: a fixture of origins would pass the equality
+    // above on a table of zeros.
+    let nonzero = out.dot.iter().filter(|v| **v != 0.0).count();
+    assert!(
+        nonzero > out.dot.len() / 2,
+        "only {nonzero} of {} dots are non-zero: the fixture is degenerate and the \
+         equality above proves nothing",
+        out.dot.len()
+    );
 }
 
 /// Level 4: the dot, bit for bit, against the same `__fmaf_rn` chain in Rust.

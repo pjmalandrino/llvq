@@ -29,6 +29,12 @@
 //        u32[n]     `tetra48_n2` — the raw shell sum, so the Rust side can
 //                   assert `n2 % 16 == 0` and `n2/16 <= 27` on every word
 //                   rather than trusting the header's comment
+//        f32[ceil(nx/4)*4]  `tetra48_dot_rows<4>` accumulated over EVERY word,
+//                   four activation rows a call, staged at a PADDED stride.
+//                   The Rust side requires each entry to equal the f32 sum of
+//                   the column above, in word order, bit for bit — the batched
+//                   path exists to read the weight stream R times less, and it
+//                   may not change one bit of the answer while doing it
 //
 // Every function executed here is scalar register arithmetic — no warp
 // primitive, no shared memory, no barrier — so this is the real code, not a
@@ -45,6 +51,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 // Nothing here launches, but the shim declares these `extern` and a header
@@ -80,6 +87,18 @@ int main() {
     std::vector<float> y(static_cast<std::size_t>(n) * LLVQ_DIM, 0.0f);
     std::vector<float> dot(static_cast<std::size_t>(n) * nx, 0.0f);
     std::vector<unsigned> n2(n, 0u);
+    // The batched route, on the SAME words and the SAME activations: four rows
+    // a call, `nx` rounded up, the tail rows reading activation 0 again (the
+    // Rust side ignores them — what it compares is the first `nx`).
+    const unsigned R = 4u;
+    const unsigned nb = (nx + R - 1u) / R;
+    // ⚠️ NOT `LLVQ_DIM`. The kernel's rows sit inside a shared tile and are
+    // separated by a stride the caller owns, so a `tetra48_dot_rows` that
+    // ignored its `row_stride` and stepped by 24 would be invisible against a
+    // staging that happens to be packed. Three floats of padding make the two
+    // different numbers.
+    const unsigned STRIDE = LLVQ_DIM + 3u;
+    std::vector<float> dot_rows(static_cast<std::size_t>(nb) * R, 0.0f);
 
     for (unsigned i = 0; i < n; ++i) {
         const unsigned long long w = words[i];
@@ -101,6 +120,30 @@ int main() {
 
     std::fwrite(y.data(), sizeof(float), y.size(), stdout);
     std::fwrite(dot.data(), sizeof(float), dot.size(), stdout);
+    // The batched route, accumulating over EVERY word into one `acc` — which
+    // is what a row of the kernel does over the blocks of that row. Running it
+    // once per word with a fresh accumulator would not tell `acc[r] +=` from
+    // `acc[r] =`.
+    for (unsigned b = 0; b < nb; ++b) {
+        float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        std::vector<float> stage(static_cast<std::size_t>(R) * STRIDE, 0.0f);
+        for (unsigned r = 0; r < R; ++r) {
+            const unsigned k = b * R + r;
+            std::memcpy(stage.data() + static_cast<std::size_t>(r) * STRIDE,
+                        x.data() + static_cast<std::size_t>(k < nx ? k : 0) * LLVQ_DIM,
+                        LLVQ_DIM * sizeof(float));
+        }
+        for (unsigned i = 0; i < n; ++i) {
+            const unsigned long long w = words[i];
+            tetra48_dot_rows<4u>(static_cast<u32>(w), static_cast<u32>(w >> 32), t,
+                                 stage.data(), STRIDE, gscale.data(), invnorm.data(), acc);
+        }
+        for (unsigned r = 0; r < R; ++r) {
+            dot_rows[static_cast<std::size_t>(b) * R + r] = acc[r];
+        }
+    }
+
     std::fwrite(n2.data(), sizeof(unsigned), n2.size(), stdout);
+    std::fwrite(dot_rows.data(), sizeof(float), dot_rows.size(), stdout);
     return 0;
 }
