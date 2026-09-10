@@ -1,0 +1,98 @@
+F1d — LE DÉCODAGE TETRA SERVI, BRAS DU BANC PUBLIÉ, DEUX FICHIERS UN PROCESSUS
+================================================================================
+Préreg      : proofs/preregistration-f1d-2026-09-10.md, tamponné 4 calendriers
+              AVANT la première mesure ; écarts É1 à É6 dans le -ECARTS.md
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit 2315370
+Nature      : *mesuré* sur carte ; chaque rapport formé TOUR PAR TOUR dans un
+              seul processus, sur le modèle réel et ses vraies étiquettes
+Fichiers    : deux, tous deux déjà dans le seau, rien téléversé
+              balle : tetra-4b-2026-09-06/qwen3-4b-planes14.bin  1 770 527 533 o
+              tetra : tetra-4b-2026-09-06/qwen3-4b-tetra.bin     1 770 529 149 o
+              (+1 616 o, l'écart que la ROADMAP consigne pour Tetra)
+
+================================================================================
+BLACKWELL — JOB 6aa1ebf421047bf1b0371174, rtx-pro-6000, 37 min, 1,67 $
+================================================================================
+NVIDIA RTX PRO 6000 Blackwell Server Edition, 188 SM, L2 134,2 Mo
+252 matrices, 3,63 G poids, 618 s de construction, 7 tours dont 2 jetés
+
+LE RÉSULTAT
+-----------
+  tuile   Planes14   Tetra48   tetra48/planes14   avec la tête f16
+  ------------------------------------------------------------------
+   128     4,102 ms  5,026 ms   0,82× [0,81–0,82]   0,84× [0,84–0,84]
+    64     4,315     5,023      0,86× [0,85–0,92]   0,88× [0,87–0,93]
+    32     4,277     4,154      1,03× [0,99–1,07]   1,03× [0,99–1,06]
+
+  (>1 = Tetra plus rapide. Médianes ; les intervalles sont formés tour par tour.)
+
+  LA PORTE DE DÉBIT TOMBE À LA TUILE SERVIE ET PASSE À L'OPTIMUM DE LA CARTE.
+  Et à 32 l'intervalle CONTIENT 1 : les deux formats sont égaux dans la mesure.
+  « Tetra plus rapide » n'est pas une phrase que ce tableau autorise.
+
+LA MÉMOIRE
+----------
+  b/poids noyau, dénominateur du bras : Tetra 2,150 contre Planes14 4,804.
+  C'est le 2,1498 du dossier REPRODUIT — la colonne facture le flux non
+  rembourré, la convention que les six autres bras suivent déjà.
+  Octets lus par passe : 0,98 Go contre 2,18. La porte de 2,20 b/poids passe.
+  Le flux HOLD en plus 4,2 Mo de rembourrage de ligne, non facturé, la même
+  convention que le pad de 20 octets de Slot32.
+
+CE QUI EST VÉRIFIÉ AVANT TOUT CHRONO
+------------------------------------
+  252 sur 252 matrices appariées PAR NOM. Erreur pire du bras Tetra contre sa
+  propre référence f64 : 2,0e-8·Σ|w·x|, seuil 1e-5.
+  tv_f1r_v3g : 40 registres, 0 octet local, sm_120 — dans une unité de
+  traduction de douze bras, pas les huit de f1rankfloor.
+  nullk : -inf, et c'est le correctif de cette nuit qui le fait dire ; il
+  imprimait 0.0e0 depuis P4, lu comme un accord parfait.
+
+LE MÉCANISME DE LA TUILE SE TRANSPORTE DU SYNTHÉTIQUE AU MODÈLE RÉEL
+--------------------------------------------------------------------
+  R = (Tetra − nullk)/(Planes14 − nullk), *calculé* depuis les MÉDIANES du
+  tableau — ce n'est PAS une médiane formée tour par tour, et la règle 7
+  interdit de la publier comme telle. Donnée pour la forme, pas pour le chiffre.
+
+  tuile          128     64      32
+  banc synthé.  1,4643  1,4472  0,8491   (tile-sweep-2026-09-09.txt)
+  modèle réel   1,611   1,419   0,919
+
+  L'effondrement entre 64 et 32 est là, et de la même ampleur : −41 % sur le
+  banc, −35 % ici. Le mécanisme trouvé sur un flux synthétique n'était pas un
+  artefact du flux.
+
+LES PRÉDICTIONS SIGNÉES
+-----------------------
+  P1  rapport brut à 128 : prédit 1,35× dans [1,10 ; 1,65]
+      mesuré 5,026/4,102 = 1,225                                    JUSTE
+  P3  « à 32 le rapport tombe sous 0,95× » : AMBIGUË, et c'est ma faute.
+      Sous la lecture temps, 4,154/4,277 = 0,971 : FAUSSE.
+      Sous la lecture plancher retranché, 0,919 : juste.
+      Une prédiction qui ne nomme pas sa quantité ne se juge pas.
+  P4  « Planes14 bouge de moins de ±4 % d'une tuile à l'autre »
+      mesuré +5,2 % (4,102 → 4,315)                                 FAUSSE
+      Planes14 bouge plus que le balayage synthétique ne le disait (+0,4 %).
+      La ligne de base n'est donc PAS insensible à la tuile sur un modèle réel.
+  P5  caduque avant la mesure (écart É5) ; la colonne imprime 2,150
+  P6  40 registres, 0 local                                         JUSTE
+
+CE QUE CE BANC N'ÉTABLIT PAS
+----------------------------
+  - Aucun tok/s. 48 % d'un jeton est hors des matmuls, un rapport de noyau se
+    comprime de bout en bout. C'est F1e.
+  - Aucune qualité. Le fichier Tetra pur est celui à 53,49 MMLU ; l'objet servi
+    est à 56,95 et n'est pas ce qui a tourné ici.
+  - tv_q4_h n'a toujours jamais tourné sur carte.
+  - La section A3 est hors du run : elle dimensionne ses lancements sur la
+    constante et occ_pers change de branche au seuil, donc elle est refusée
+    hors tuile servie.
+  - Les trois tuiles sont trois PROCESSUS. Rien ici ne divise un × entre eux.
+
+================================================================================
+L40S — JOB 6aa1ec1d5527934177ebe813, l40sx1 — EN FILE À L'HEURE OÙ CECI S'ÉCRIT
+================================================================================
+La carte sur laquelle TOUS les chiffres publiés ont tourné. Le balayage du
+2026-09-09 y donne l'optimum à 64 et un R de 0,4668, soit Tetra ×2,14 plus
+rapide que Planes14 — l'inverse exact de ce que Blackwell vient de rendre.
+Tant qu'elle n'a pas rendu, ce journal ne conclut rien sur le format.
