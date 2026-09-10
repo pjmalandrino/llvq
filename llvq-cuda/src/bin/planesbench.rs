@@ -4375,6 +4375,8 @@ mod linux {
             let sb_fus = fused_bytes(|f| f.slot_bytes, |m| arm_bytes(m, arms::SLOT32));
             let pb_sep = unfused_bytes(|m| arm_bytes(m, arms::PLANES14));
             let pb_fus = fused_bytes(|f| f.planes_bytes, |m| arm_bytes(m, arms::PLANES14));
+            // The only byte fusion adds, on either layout: one u32 a fused row.
+            let gs_off_bytes: u64 = fused.iter().map(|f| f.gs_off.len() as u64 * 4).sum();
 
             println!(
                 "\n  Cost — {ROUNDS} rounds, {WARMUP} discarded, FOUR arms interleaved, \
@@ -4432,11 +4434,15 @@ mod linux {
                 100.0 * (pb_fus as f64 - pb_sep as f64) / pb_sep as f64
             );
             println!(
-                "  Slot32 can move: its stride is the widest record of a group of 32, and\n  \
-                 the concatenation regroups at segment boundaries. Planes14 cannot — 14 \
-                 bytes\n  per block, no bases table — so the +0.00% above is a verification, \
-                 not a\n  measurement (tests/planes_segment_matches_unfused.rs). A byte gain \
-                 would be a\n  confounder, not a bonus."
+                "  Slot32's STREAM can move: its stride is the widest record of a group of \
+                 32,\n  and the concatenation regroups at segment boundaries. Planes14's \
+                 cannot — 14\n  bytes per block, no bases table. What BOTH pay is `gs_off`, one \
+                 u32 a fused\n  row naming that row's centroid pair: {:.1} MB over the 72 \
+                 groups, and it is the\n  only byte fusion adds. It was missing from this ledger \
+                 until 2026-09-10, which\n  printed +0.00% and called that a verification \
+                 (tests/planes_segment_matches_unfused.rs).\n  Any gain BEYOND this would be a \
+                 confounder, not a bonus.",
+                (gs_off_bytes as f64) / 1e6
             );
             println!(
                 "\n  WARNING: THIS BLOCK PRODUCES NO RATIO AGAINST FP16, and authorizes\n  \
