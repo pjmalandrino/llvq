@@ -2250,6 +2250,70 @@ mod tests {
         }
     }
 
+    /// Every kernel a runtime looks up has its SOURCE in that runtime's unit.
+    ///
+    /// 🕳️ The one invariant `fused_cuda.rs` cannot check for itself: that file
+    /// does not compile on this machine — it needs nvcc and a Linux cross
+    /// toolchain — so a name it asks the driver for is only ever tested on a
+    /// rented card, at the end of a load. On 2026-09-10 it asked for
+    /// `tv_planes_seg_h` on the `Tetra48` build, whose list shares nothing
+    /// with the ball layouts, and the run died after compiling, loading and
+    /// reporting 216 projections. Two of the three names it looks up are
+    /// pinned here instead, where the check is free.
+    ///
+    /// `Slot32` is the exception and stays one: its kernel lives in the base
+    /// list every layout gets (`llvq_slot.cuh`, `matvec.cu`), not in the
+    /// per-layout list, which is precisely what keeps its translation unit
+    /// bit-identical to what shipped before any layout switch existed.
+    #[test]
+    fn every_layout_only_names_kernels_its_own_unit_carries() {
+        for layout in [
+            FusedLayout::Slot32,
+            FusedLayout::Planes14,
+            FusedLayout::Planes12x,
+            FusedLayout::Golay70,
+            FusedLayout::Tetra48,
+        ] {
+            let srcs = planes_source_names(layout);
+            // The segmented kernel, ONE WAY ONLY — and the asymmetry is the
+            // point. `Planes12x` and `Golay70` carry `tv_planes_seg_h.cu` and
+            // cannot launch it: it is compiled so the register report stays a
+            // drift detector on those builds, which the list's own header
+            // argues at length. So *compiled* is a superset of *launchable*,
+            // and only the implication holds — a layout that can launch it
+            // must have it.
+            //
+            // Which is why `fused_cuda`'s register report keys on the SOURCE
+            // LIST and not on either the layout or `seg_kernel_name`: on
+            // `Tetra48` all three answers differ, and it picked the wrong one.
+            if seg_kernel_name(layout).is_some() {
+                assert!(
+                    srcs.contains(&"tv_planes_seg_h.cu"),
+                    "{}: launches `tv_planes_seg_h` and its unit does not carry it: {srcs:?}",
+                    layout.name()
+                );
+            }
+            // Tetra48 has neither, and that is the case that crashed: it is
+            // not Slot32, so "not Slot32" reported a kernel it never had.
+            if layout == FusedLayout::Tetra48 {
+                assert!(seg_kernel_name(layout).is_none());
+                assert!(!srcs.contains(&"tv_planes_seg_h.cu"));
+            }
+            // The matvec kernel: its own `.cu` is in the list, except Slot32's
+            // which is in the base list every unit already carries.
+            let m = matvec_kernel_name(layout);
+            if layout != FusedLayout::Slot32 {
+                assert!(
+                    srcs.contains(&format!("{m}.cu").as_str()),
+                    "{}: looks up `{m}` and carries no `{m}.cu`: {srcs:?}",
+                    layout.name()
+                );
+            } else {
+                assert!(srcs.is_empty(), "Slot32's unit is the base list and nothing else");
+            }
+        }
+    }
+
     /// A Tetra header has no runtime layout **among the ball ones**: each of
     /// the four refuses it with the artifact crate's words, and the Ball arm
     /// is `new` — same tables, same layout.

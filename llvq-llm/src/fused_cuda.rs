@@ -341,12 +341,19 @@ impl FusedRuntime {
         // result. Checked on the kernel this runtime will actually launch.
         let matvec_name = matvec_kernel_name(model.layout);
         let mut spill_checked = vec![matvec_name, "rot_apply"];
-        // In the translation unit whenever the bit-plane sources are — so the
-        // register report covers it on the Planes12x and Golay70 builds too,
-        // where it is compiled and never launched. `local_bytes == 0` is a
-        // contract, not a diagnostic: a spill costs occupancy without changing
-        // a result, so no correctness test can ever see it.
-        if planes.is_some() {
+        // In the translation unit whenever ITS SOURCE is — read off the one
+        // list that decides, never inferred from "the layout is not Slot32".
+        //
+        // 🕳️ It was `planes.is_some()`, which is true for every layout but
+        // Slot32 — including `Tetra48`, whose list shares nothing with the
+        // ball ones and carries no `tv_planes_seg_h.cu`. So the served Tetra
+        // path compiled, loaded, reported 216 projections and 0.92 GB on the
+        // card, and then died asking the driver for a symbol its own unit had
+        // never contained: `no kernel tv_planes_seg_h: named symbol not found`
+        // (2026-09-10, $0.03, the second card run of the served path). The
+        // register report is a contract, and a contract that names a kernel
+        // the build does not have is a crash rather than a check.
+        if crate::fused::planes_source_names(model.layout).contains(&"tv_planes_seg_h.cu") {
             spill_checked.push("tv_planes_seg_h");
         }
         if emb.is_some() {
