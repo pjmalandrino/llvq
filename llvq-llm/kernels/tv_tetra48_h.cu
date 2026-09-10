@@ -87,3 +87,124 @@ extern "C" __global__ void tv_tetra48_h(const u32* __restrict__ words,
         y[row] = f2h(acc * rscale[row] + tv);
     }
 }
+
+// How many activation rows one launch carries. Host-injected, like
+// TILE_BLOCKS, and bounded by SHARED MEMORY rather than chosen: the staging is
+// `TETRA48_ROWS · TILE_BLOCKS · LLVQ_DIM · 4` bytes, which at the served tile
+// of 128 is 49,152 at four rows — exactly the per-block allowance every card
+// here reports. Eight would need the tile halved, and the tile is the knob the
+// two-card split of 2026-09-09 turned on.
+#ifndef TETRA48_ROWS
+#define TETRA48_ROWS 4u
+#endif
+
+// `tv_tetra48_h` over TETRA48_ROWS activation rows at once — the prefill path.
+//
+// ## What it is for
+//
+// The one-row kernel above decodes the whole weight stream once per row, so a
+// prompt of N tokens reads it N times: on the served 4B a 5-shot MMLU question
+// is several hundred tokens, i.e. 776 GB of re-reads and 200,000 launches, and
+// `model::MAX_ROWS` refuses past 256 outright rather than look like a hang.
+//
+// Here the word is decoded ONCE and applied to R rows, so the stream is read R
+// times less. Every quantized-inference stack carries this second kernel and
+// for the same reason: prefill and decode are two regimes, one compute-bound
+// and one bandwidth-bound.
+//
+// ## What it does not change
+//
+// **The answer, bit for bit.** `tetra48_dot_rows` keeps the 24 FMAs of a row
+// in their order and keeps `(acc · g) · inv` unhoisted;
+// `tests/tetra48_matches_rust.rs` proves both routes agree on the same fixture
+// and six mutants are killed there, including the hoisted scales.
+//
+// And the ONE-row kernel above is untouched. Decode-time numbers stay attached
+// to the kernel that produced them; this entry point is additional, never a
+// replacement.
+//
+// ## The two things the host owes it
+//
+//   * `shared = TETRA48_ROWS · TILE_BLOCKS · LLVQ_DIM · 4`, checked against
+//     the card's per-block allowance — this kernel is loaded through `func`,
+//     with no opt-in, so the DEFAULT allowance is the bound;
+//   * `n_rows <= TETRA48_ROWS`. Rows past it fold onto row 0 for the staging,
+//     which keeps the reads in bounds, and are not stored.
+//
+// Like every arm of the family there is deliberately no early `return`: one
+// before `__syncthreads()` deadlocks and would break `warp_sum`'s full-warp
+// mask. The host asserts `d_out % 8 == 0`.
+extern "C" __global__ void tv_tetra48_rows_h(const u32* __restrict__ words,
+                                             u32 row_stride_u32,
+                                             const u32* __restrict__ rows,
+                                             const unsigned char* __restrict__ prefixes,
+                                             const unsigned short* __restrict__ branches,
+                                             const unsigned char* __restrict__ suffixes,
+                                             const float* __restrict__ gscale,
+                                             const float* __restrict__ invnorm,
+                                             const float* __restrict__ rscale,
+                                             const unsigned short* __restrict__ tail,
+                                             const float* __restrict__ x,
+                                             unsigned short* __restrict__ y,
+                                             u32 nblocks,
+                                             u32 tail_w,
+                                             u32 n_rows,
+                                             u32 d_in,
+                                             u32 d_out)
+{
+    extern __shared__ float xs[];
+    u32 lane = threadIdx.x & 31u;
+    u32 row  = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+    const u32* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    // One accumulator a row, in registers. This is what bounds TETRA48_ROWS
+    // from the other side: the one-row kernel reports 40 registers against a
+    // contract of 64.
+    float acc[TETRA48_ROWS];
+#pragma unroll
+    for (u32 r = 0; r < TETRA48_ROWS; ++r) acc[r] = 0.0f;
+
+    // Rows are separated in shared by a whole tile, so `tetra48_dot_rows`
+    // steps by this and never by LLVQ_DIM.
+    const u32 xs_stride = TILE_BLOCKS * LLVQ_DIM;
+
+    u32 ntiles = (nblocks + TILE_BLOCKS - 1u) / TILE_BLOCKS;
+    for (u32 t = 0; t < ntiles; ++t) {
+        u32 jlo = t * TILE_BLOCKS;
+        u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;
+        u32 n   = (jhi - jlo) * LLVQ_DIM;
+        __syncthreads();
+#pragma unroll
+        for (u32 r = 0; r < TETRA48_ROWS; ++r) {
+            // A row past `n_rows` reads row 0 again rather than off the end.
+            // Its output is computed and discarded, which costs one row of
+            // arithmetic on the last launch of a prompt and nothing else.
+            const float* __restrict__ xr = x + (u64)(r < n_rows ? r : 0u) * d_in;
+            for (u32 i = threadIdx.x; i < n; i += blockDim.x) {
+                xs[r * xs_stride + i] = xr[jlo * LLVQ_DIM + i];
+            }
+        }
+        __syncthreads();
+
+        for (u32 j = jlo + lane; j < jhi; j += 32u) {
+            u32 lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            tetra48_dot_rows<TETRA48_ROWS>(lo, hi16, tab,
+                                           xs + (j - jlo) * LLVQ_DIM, xs_stride,
+                                           gscale, invnorm, acc);
+        }
+    }
+
+    // Reduced row by row. The loop is entered by every lane — `warp_sum` is a
+    // shuffle and a lane that skipped it would hang the others.
+#pragma unroll
+    for (u32 r = 0; r < TETRA48_ROWS; ++r) {
+        float a = warp_sum(acc[r]);
+        if (lane == 0 && r < n_rows) {
+            const float* __restrict__ xr = x + (u64)r * d_in;
+            float tv = tail_dot_h(tail, xr + nblocks * LLVQ_DIM, row, tail_w);
+            y[(u64)r * d_out + row] = f2h(a * rscale[row] + tv);
+        }
+    }
+}
+

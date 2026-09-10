@@ -35,3 +35,15 @@ metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda", "dep:llvq-cuda"]
 cudnn = ["cuda", "candle-core/cudnn"]
 fast-linalg = ["llvq-quant/fast-linalg"]
+
+# Portable and unconditional, exactly as `llvq-cuda` takes the core crates in
+# ITS dev-dependencies and for the same reason. The comment above is about the
+# shipped graph: `cudarc` is target-gated INSIDE `llvq-cuda`, so on macOS that
+# crate builds without it — which is why `cargo test -p llvq-cuda` runs here.
+#
+# What it buys: `llvq_cuda::embedded_source` is deliberately un-gated, "so a
+# Mac can assert the table is complete". `tests/served_unit.rs` compiles the
+# served translation unit from THOSE texts rather than from a list retyped by
+# hand, on a machine with no card.
+[dev-dependencies]
+llvq-cuda = { path = "../llvq-cuda" }
