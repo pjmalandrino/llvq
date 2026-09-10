@@ -48,8 +48,13 @@ unfold: 2.1498 b/weight kernel against 4.8040 (*computed*, same accounting that 
 **better** by 4.64% and its MMLU lower by 2.10 pp, an interval the calibration draw alone spans (2.92 pp). In excess
 log-likelihood: the only cross-paper comparison [fiche-4b](fiche-4b.md) §3.1 holds valid, it reads 0.2779 nats
 against `Planes14`'s 0.3254 and QTIP's 0.3171: **12.4% better than QTIP** where the repository was 2.6% worse.
-The 1.390 GB on card is *computed*, in the b/param arithmetic rather than the engine's host byte count: no served
-kernel reads Tetra yet, so throughput and card VRAM wait on step 6 of [ROADMAP](ROADMAP.md) §2.2 quater. The gap to
+The 1.390 GB on card is *computed*, in the b/param arithmetic rather than the engine's host byte count. **The
+throughput is now measured, and it depends on the card** (F1d, 2026-09-10, [journal](mesures/f1d-2026-09-10.txt)):
+against `Planes14` in one process on the real file, Tetra is **1.17×** on an L40S at the served tile and **0.82×** on
+an RTX PRO 6000 — the same configuration, opposite verdicts. On Blackwell it takes the tile down to 32 to reach 1.03×,
+an interval containing 1. The memory does not depend on the card: 0.98 GB read a pass against 2.18, and the bench's own
+column prints **2.150**, reproducing the 2.1498 above. What still waits on F1e is `fusedrun`: `tv_tetra48_h` has never
+run inside the model, and no tok/s exists. The gap to
 `Planes14` holds the format together with a month of encoder drift, which control 0 measured and nothing here
 separates (§4).
 
@@ -359,7 +364,9 @@ What Tetra buys, and what it costs (*measured* for quality, *computed* for bytes
 | | `Planes14`, published | `Tetra` |
 |---|---|---|
 | b/param whole model | 5.1619 | **2.7645**, ÷1.867 |
-| b/weight kernel | 4.8040 | **2.1498**, ÷2.235 |
+| b/weight kernel | 4.8040 | **2.1498**, ÷2.235 (*measured* 2.150 by the bench, [F1d](mesures/f1d-2026-09-10.txt)) |
+| kernel time, one token, L40S at the served tile | 5.081 ms | **4.355 ms**, ×1.17 (*measured*) |
+| kernel time, one token, RTX PRO 6000, same tile | 4.102 ms | 5.026 ms, ×0.82 (*measured*) |
 | GB on card | 2.595 | 1.390 (*computed*) |
 | disk | 1,770,527,533 B | 1,770,529,149 B |
 | perplexity, f16 | 16.9422 | **16.1569**, −4.64% |
