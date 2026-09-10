@@ -30,8 +30,19 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates build-essential pkg-config libssl-dev \
  && rm -rf /var/lib/apt/lists/*
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
- && /root/.cargo/bin/rustup component add clippy
+# 🕳️ The toolchain is INSTALLED BY NAME, at build time, and the name comes from
+# the repository's own `rust-toolchain.toml` — 1.95.0, pinned there on
+# 2026-08-10 because "the compiler is a measurement parameter".
+#
+# Installing "whatever stable is current" instead cost a full toolchain
+# download on EVERY run: rustup reads the pinned file the moment it enters the
+# bind-mounted repo, and a `--rm` container keeps nothing. Five components over
+# the operator's connection, per check, for a check whose whole point is to be
+# six seconds. Named here, it is one download into an image layer.
+ARG RUST_TOOLCHAIN=1.95.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+        --component clippy rustfmt
 ENV PATH=/root/.cargo/bin:$PATH
 # Out of the bind mount, so the host's 16 GB `target/` is neither read nor
 # grown, and a check here cannot invalidate a build there.

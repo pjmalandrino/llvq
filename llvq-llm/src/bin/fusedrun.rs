@@ -193,6 +193,87 @@ fn main() -> anyhow::Result<()> {
         // eagerly, or replayed from the captured graph. Correctness gate
         // first (identical tokens everywhere), numbers second, round by round.
         // Phase prereg 802006c5 (frozen thresholds).
+        // ---- LLVQ_PREFILL_TOKENS: what a prompt costs through the kernel ----
+        //
+        // A MEASUREMENT MODE, never a served config — the `LLVQ_TIME_PHASES`
+        // and `LLVQ_GRAPH_AB` rule. Unset, this binary is byte-identical to
+        // the published protocol.
+        //
+        // It answers one question and no other: how long does the fused path
+        // take to swallow N tokens? That is what decides whether a real MMLU
+        // census can run through the kernel at all. The census scores 14,042
+        // 5-shot questions of several hundred tokens each, and the dense path
+        // does the whole thing in 26 minutes because it issues ONE matmul a
+        // projection a question. The kernel issues `ceil(N / PREFILL_ROWS)`,
+        // and this prints the constant that multiplies.
+        //
+        // No dense arm, no generation, no comparison: a number and its spread.
+        if let Ok(v) = std::env::var("LLVQ_PREFILL_TOKENS") {
+            use candle_core::IndexOp;
+            let n: usize = v
+                .parse()
+                .map_err(|e| anyhow::anyhow!("LLVQ_PREFILL_TOKENS={v:?}: {e}"))?;
+            if n == 0 {
+                anyhow::bail!("LLVQ_PREFILL_TOKENS=0: there is nothing to time");
+            }
+            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+            let t = Instant::now();
+            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            f.model.set_kv_store(kv_store);
+            let load = t.elapsed().as_secs_f64();
+            // The ids do not matter for a timing — the kernel has no
+            // data-dependent branch — so the prompt is repeated to length
+            // rather than a corpus being fetched for it.
+            let seed = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
+            println!(
+                "prefill: {n} tokens, layout {}, loaded in {load:.1} s",
+                llvq_llm::fused::FusedLayout::from_env()
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .name()
+            );
+            let mut ms: Vec<f64> = Vec::new();
+            // Six passes, the first discarded: the first on CUDA pays kernel
+            // selection, allocator growth and the clock ramp.
+            for round in 0..6usize {
+                let mut caches = f.model.fresh_caches();
+                let input = candle_core::Tensor::from_slice(&ids, (1, n), &device)?;
+                let t = Instant::now();
+                let h = f.model.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+                let l = h.dim(1)?;
+                let last = h.narrow(1, l - 1, 1)?;
+                // The logits too: that is what a scoring pass reads, and
+                // leaving them out would time three quarters of the question.
+                let _ = f.model.project_head(&last)?.i((0, 0))?.to_dtype(candle_core::DType::F32)?;
+                device.synchronize()?;
+                if round > 0 {
+                    ms.push(t.elapsed().as_secs_f64() * 1e3);
+                }
+            }
+            ms.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            let (lo, med, hi) = (ms[0], ms[ms.len() / 2], ms[ms.len() - 1]);
+            println!(
+                "  {med:8.1} ms a prefill of {n} tokens  [{lo:.1}–{hi:.1}], 5 rounds",
+            );
+            println!(
+                "  {:8.3} ms a token of prompt — multiply by the prompt and by the questions",
+                med / n as f64
+            );
+            println!(
+                "\n  A 14,042-question census at this rate, if a 5-shot prompt is {n} tokens:\n  \
+                 {:.2} h of compute. The dense path does the same census in 26 min, because it\n  \
+                 issues ONE matmul a projection a question where this issues ceil({n}/{}).",
+                med * 14_042.0 / 1000.0 / 3600.0,
+                llvq_cuda::tile::PREFILL_ROWS
+            );
+            return Ok(());
+        }
+
         if std::env::var("LLVQ_GRAPH_AB").ok().as_deref() == Some("1") {
             use candle_core::IndexOp;
             use llvq_llm::kvq::KvStore;

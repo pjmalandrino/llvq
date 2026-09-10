@@ -21,5 +21,6 @@ exec docker run --rm --platform linux/arm64 \
   -v "$PWD":/src \
   -v llvq-ctarget:/ctarget \
   -v llvq-cargo-registry:/root/.cargo/registry \
+  -v llvq-rustup:/root/.rustup \
   llvq-check cargo "${@:-check}" ${@:+} \
   $([ $# -eq 0 ] && echo "--locked -p llvq-llm --features cuda --all-targets")

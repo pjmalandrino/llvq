@@ -718,6 +718,11 @@ impl FusedRuntime {
     ///
     /// `xr` is `[n_rows, d_in]` f32 and contiguous — the caller stacks the
     /// rotated rows, which is what makes this one launch instead of `n_rows`.
+    /// Whether this runtime's layout carries a kernel that takes several rows.
+    pub fn has_rows_kernel(&self) -> bool {
+        self.f_matvec_rows.is_some()
+    }
+
     pub fn forward_rotated_rows(
         &self,
         proj: &FusedProj,
