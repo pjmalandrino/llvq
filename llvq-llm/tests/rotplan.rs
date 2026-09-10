@@ -300,6 +300,10 @@ fn run(
             share,
             &g.sites,
             g.rows.len(),
+            // Every site of the simulator carries a key, so the predicate is
+            // constant here — the mixed case is exercised by the unit test in
+            // `rotplan.rs` itself, which is where a `None` key can be built.
+            |_: &Site| true,
             |s: &Site, row: usize| -> Result<HostRotated, String> {
                 Ok(rot.rotate(s.key, &g.rows[row]))
             },

@@ -372,8 +372,23 @@ pub fn arms_are_discriminating(prompt_len: usize, n_new: usize) -> bool {
 ///
 /// ```text
 /// Off:  for site: for row: prepare(site,row); apply(site,row)
-/// On:   for row: prepare(sites[0],row); for site: apply(site,row)
+/// On:   for row: prepare(REP,row); for site: apply(site,row)   [if it shares]
+///                                 else      prepare(site,row); apply(site,row)
 /// ```
+///
+/// `shares` says whether a site takes the group's rotation. A site that does
+/// not is **not disagreeing** with the group: it consumes the activation in
+/// the basis it already arrives in, and handing it the group's rotated form
+/// would hand it a basis its weights were never quantized in — which
+/// [`check_key`] refuses, by design.
+///
+/// 🕳️ Before 2026-09-10 `On` prepared from `sites[0]` unconditionally and
+/// handed that to everyone. That was right while every projection of a group
+/// was a lattice one. It stopped being right when the served object became a
+/// mixed file: its `v_proj` is int4, stored group-affine in the NATURAL basis,
+/// so a q+k+v group under `LLVQ_ROT_SHARE=1` — the served setting — failed at
+/// `check_key` with the group's own key. The refusal was correct and the
+/// sharing was wrong.
 ///
 /// `Off` is exactly the order `FusedRuntime::forward` issued before this lot —
 /// rotation then matvec, projection by projection, row by row — which is what
@@ -384,6 +399,7 @@ pub fn drive_rows<P, R, T, E>(
     share: RotShare,
     sites: &[P],
     rows: usize,
+    shares: impl Fn(&P) -> bool,
     prepare: impl Fn(&P, usize) -> Result<R, E>,
     apply: impl Fn(&P, &R, usize) -> Result<T, E>,
 ) -> Result<Vec<Vec<T>>, E> {
@@ -401,13 +417,28 @@ pub fn drive_rows<P, R, T, E>(
             }
         }
         RotShare::On => {
+            // The representative is the first site that HAS a rotation to
+            // share — not `sites[0]`, which may be one that has none.
+            let rep = sites.iter().position(&shares);
             for row in 0..rows {
-                // The group's representative. Every other site is required to
-                // agree with it — `check_key`, called from `apply`, is what
-                // turns "they agree" from an assumption into a failure.
-                let r = prepare(&sites[0], row)?;
+                // Prepared once a row, and only if anyone shares it. Every
+                // site that does is required to agree with it — `check_key`,
+                // called from `apply`, is what turns "they agree" from an
+                // assumption into a failure.
+                let shared = match rep {
+                    Some(i) => Some(prepare(&sites[i], row)?),
+                    None => None,
+                };
                 for (s, site) in sites.iter().enumerate() {
-                    out[s].push(apply(site, &r, row)?);
+                    match (&shared, shares(site)) {
+                        (Some(r), true) => out[s].push(apply(site, r, row)?),
+                        // Its own, which for a natural-basis projection is the
+                        // activation untouched and launches nothing.
+                        _ => {
+                            let r = prepare(site, row)?;
+                            out[s].push(apply(site, &r, row)?);
+                        }
+                    }
                 }
             }
         }
@@ -480,10 +511,71 @@ mod tests {
             RotShare::On,
             &[] as &[u32],
             4,
+            |_: &u32| true,
             |_: &u32, _| Err::<u32, String>("never".into()),
             |_: &u32, _: &u32, _| Err::<u32, String>("never".into()),
         )
         .expect("empty group");
         assert!(out.is_empty());
+    }
+
+    /// A site with no rotation gets its OWN, and the sharers still share one.
+    ///
+    /// 🕳️ The served object's `v_proj` is int4, stored in the natural basis.
+    /// Under `RotShare::On` — the served setting — `drive_rows` used to prepare
+    /// from `sites[0]` and hand that to everyone, so a q+k+v group failed at
+    /// `check_key` with the group's own key. Correct refusal, wrong sharing.
+    #[test]
+    fn a_site_without_a_rotation_takes_no_share_of_the_group_s() {
+        // `true` where a site has a key. q and k share; v (int4) does not.
+        let sites = [true, true, false];
+        let prepared = std::cell::RefCell::new(Vec::<(usize, usize)>::new());
+        let out: Vec<Vec<usize>> = drive_rows(
+            RotShare::On,
+            &sites,
+            2,
+            |has: &bool| *has,
+            |has: &bool, row: usize| -> Result<usize, String> {
+                prepared.borrow_mut().push((row, usize::from(*has)));
+                // The "rotation" is 10·row for a sharer, 0 for a natural-basis
+                // site — so `apply` below can tell which one it was handed.
+                Ok(if *has { 10 * row + 1 } else { 0 })
+            },
+            |has: &bool, r: &usize, _row: usize| -> Result<usize, String> {
+                // The check the real `apply` makes: a natural-basis site must
+                // never see a rotated form.
+                if !*has && *r != 0 {
+                    return Err("a natural-basis site was handed a rotation".into());
+                }
+                Ok(*r)
+            },
+        )
+        .expect("the mixed group must drive");
+
+        // One prepare a row for the two sharers TOGETHER, plus one for the
+        // site that does not share: two rows × two prepares.
+        assert_eq!(prepared.borrow().len(), 4);
+        assert_eq!(*prepared.borrow(), vec![(0, 1), (0, 0), (1, 1), (1, 0)]);
+        // q and k saw the SAME rotation, v saw none.
+        assert_eq!(out[0], vec![1, 11]);
+        assert_eq!(out[1], vec![1, 11]);
+        assert_eq!(out[2], vec![0, 0]);
+    }
+
+    /// And a group where NOBODY shares still runs: the representative is an
+    /// `Option`, not `sites[0]`.
+    #[test]
+    fn a_group_of_natural_basis_sites_needs_no_representative() {
+        let sites = [false, false];
+        let out: Vec<Vec<usize>> = drive_rows(
+            RotShare::On,
+            &sites,
+            1,
+            |has: &bool| *has,
+            |_: &bool, row: usize| Ok::<usize, String>(row),
+            |_: &bool, r: &usize, _| Ok::<usize, String>(*r),
+        )
+        .expect("no representative needed");
+        assert_eq!(out, vec![vec![0], vec![0]]);
     }
 }

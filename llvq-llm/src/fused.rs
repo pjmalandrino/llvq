@@ -952,9 +952,17 @@ pub struct FusedMatrix {
 /// tell which combinations are legal. A separate list says it once.
 ///
 /// The weights are the file's own bytes. Nothing here decodes, rescales or
-/// reorders them — `tv_q4_h` reads `scale · (q − zero)` off exactly these
+/// reorders them — `tv_q4_h` reads **`scale · q + bias`** off exactly these
 /// three arrays, and `tests/proj_q4.rs` pins that arithmetic against
 /// [`llvq_artifact::Int4Matrix::to_f32`] on the development machine.
+///
+/// 🕳️ This said `scale · (q − zero)` until 2026-09-10, which is the OTHER
+/// affine convention — the one where the offset is subtracted from the
+/// quantum before scaling. `embedquant` stores `bias = min` and the kernel
+/// spells the two roundings out (`__fmul_rn` then `__fadd_rn`, never
+/// contracted) precisely so a served row equals the row the file decodes to.
+/// A doc naming the wrong convention is what a second implementation would
+/// have been written against.
 #[derive(Clone)]
 pub struct FusedInt4 {
     pub name: String,
