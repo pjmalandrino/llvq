@@ -71,6 +71,32 @@ pub const TILE_MIN: usize = 32;
 /// applies to every launch that can actually happen.
 pub const TILE_MAX: usize = 512;
 
+/// Activation rows one prefill launch carries.
+///
+/// Bounded by shared memory, not chosen: the batched kernel stages
+/// `PREFILL_ROWS · tile · 24 · 4` bytes, and it is loaded through `func` with
+/// no opt-in, so the bound is the DEFAULT per-block allowance — 49,152 B on
+/// every card measured here. At the served tile of 128 that is exactly four
+/// rows.
+///
+/// It exists because the one-row kernel decodes the whole weight stream once
+/// per row: a 5-shot MMLU question is several hundred tokens, i.e. 776 GB of
+/// re-reads and 200,000 launches on the served 4B, and the host refuses past
+/// `model::MAX_ROWS` rather than look like a hang. At four rows the stream is
+/// read four times less.
+///
+/// ⚠️ It trades against the tile, and the tile is the knob the two-card split
+/// turned on. Eight rows would need the tile halved to 64 — which is the
+/// measured optimum on sm_89 and would be a different served configuration.
+/// Neither is chosen here; [`prefill_shared_bytes`] is what says whether a
+/// pair fits.
+pub const PREFILL_ROWS: usize = 4;
+
+/// Bytes the batched kernel stages for `rows` activation rows at `blocks`.
+pub fn prefill_shared_bytes(rows: usize, blocks: usize) -> usize {
+    rows * blocks * crate::occ::XS_DIM * 4
+}
+
 /// Measured optima, one row per architecture: `(sm, blocks, journal)`.
 ///
 /// `sm` is `major · 10 + minor`, the form NVIDIA prints and the form
@@ -285,6 +311,31 @@ mod tests {
     const L40S: (i32, i32) = (8, 9);
     const BLACKWELL: (i32, i32) = (12, 0);
     const A100: (i32, i32) = (8, 0);
+
+    /// Four rows at the served tile is exactly the per-block allowance, and
+    /// eight is not. The pair is arithmetic, never a preference.
+    #[test]
+    fn the_prefill_rows_and_the_tile_fit_the_card_together() {
+        const ALLOWANCE: usize = 49_152;
+        assert_eq!(prefill_shared_bytes(PREFILL_ROWS, TILE_BLOCKS), ALLOWANCE);
+        assert!(prefill_shared_bytes(PREFILL_ROWS, TILE_BLOCKS) <= ALLOWANCE);
+        // One more row does not fit at the served tile — which is why
+        // PREFILL_ROWS is 4 and not 5, and why 8 would need the tile halved.
+        assert!(prefill_shared_bytes(PREFILL_ROWS + 1, TILE_BLOCKS) > ALLOWANCE);
+        assert_eq!(prefill_shared_bytes(8, 64), ALLOWANCE);
+        // And the one-row path is unchanged: it stages what it always did.
+        assert_eq!(
+            prefill_shared_bytes(1, TILE_BLOCKS),
+            Tile { blocks: TILE_BLOCKS, source: TileSource::Served }.shared_bytes() as usize
+        );
+        // Every measured tile row admits at least one row of prefill.
+        for &(sm, blocks, _) in &TILE_BY_SM {
+            assert!(
+                prefill_shared_bytes(1, blocks) <= ALLOWANCE,
+                "sm_{sm}: even one row does not fit at tile {blocks}"
+            );
+        }
+    }
 
     #[test]
     fn sm_is_major_ten_plus_minor() {

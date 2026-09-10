@@ -684,6 +684,23 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
 ///    bases table is per group, so a concatenation that regroups across a
 ///    segment boundary moves the byte total. `tv_slot_seg` exists at the bench
 ///    and wiring it is a separate lot with its own measurement.
+/// The PREFILL entry point a layout carries, if it has one.
+///
+/// `Some` exactly when the layout's unit defines a kernel that takes several
+/// activation rows a launch. Only `Tetra48` does today, and the shape is
+/// `seg_kernel_name`'s deliberately: an `Option` the runtime turns into an
+/// authorisation, so no path can reach a kernel the unit never carried.
+///
+/// The one-row entry point of every layout is untouched and stays the decode
+/// path — this is the second kernel every quantized-inference stack carries,
+/// not a replacement for the first.
+pub fn rows_kernel_name(layout: FusedLayout) -> Option<&'static str> {
+    match layout {
+        FusedLayout::Tetra48 => Some("tv_tetra48_rows_h"),
+        _ => None,
+    }
+}
+
 pub fn seg_kernel_name(layout: FusedLayout) -> Option<&'static str> {
     match layout {
         FusedLayout::Planes14 => Some("tv_planes_seg_h"),
@@ -2396,6 +2413,17 @@ mod tests {
             if layout == FusedLayout::Tetra48 {
                 assert!(seg_kernel_name(layout).is_none());
                 assert!(!srcs.contains(&"tv_planes_seg_h.cu"));
+            }
+            // The prefill entry point, same rule: named only where the unit
+            // carries the source that defines it. `tests/served_unit.rs`
+            // checks the other half — that the source really defines it.
+            if let Some(n) = rows_kernel_name(layout) {
+                assert_eq!(n, "tv_tetra48_rows_h");
+                assert!(
+                    srcs.contains(&"tv_tetra48_h.cu"),
+                    "{}: names `{n}` and carries no source that defines it",
+                    layout.name()
+                );
             }
             // The matvec kernel: its own `.cu` is in the list, except Slot32's
             // which is in the base list every unit already carries.

@@ -285,6 +285,13 @@ pub struct FusedRuntime {
     /// *authorisation*: no launch path can reach a table the source list never
     /// carried.
     tetra_tabs: Option<TetraTabs>,
+    /// Bytes the prefill kernel stages, formed once so the launch and the
+    /// check against the card are one number.
+    prefill_shared: u32,
+    /// `tv_tetra48_rows_h` — present exactly when the layout carries a prefill
+    /// kernel. The decode path never reaches it: at one row the one-row kernel
+    /// is what runs, and every decode-time number stays attached to it.
+    f_matvec_rows: Option<CudaFunction>,
     /// `tv_q4_h` — present exactly when the file carried an int4 record, which
     /// is when its source was appended to the translation unit. The
     /// `f_emb`/`tetra_tabs` pattern: the `Some` is the authorisation.
@@ -366,7 +373,11 @@ impl FusedRuntime {
             true => None,
             false => Some(crate::fused::load_int4_sources().map_err(candle_core::Error::msg)?),
         };
-        let defines = tile.define();
+    let defines = format!(
+            "{}#define TETRA48_ROWS {}u\n",
+            tile.define(),
+            llvq_cuda::tile::PREFILL_ROWS
+        );
         let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
@@ -436,6 +447,13 @@ impl FusedRuntime {
         if int4.is_some() {
             spill_checked.push(crate::fused::INT4_KERNEL_NAME);
         }
+        // Keyed on the same answer the lookup uses. It carries one accumulator
+        // a row on top of the one-row kernel's 40 registers, so a spill here
+        // is the number that says PREFILL_ROWS is too high — and a spill is a
+        // hard stop, not a diagnostic.
+        if let Some(n) = crate::fused::rows_kernel_name(model.layout) {
+            spill_checked.push(n);
+        }
         for name in spill_checked {
             let r = cuda.report(name).map_err(candle_core::Error::msg)?;
             if r.local_bytes != 0 {
@@ -443,6 +461,28 @@ impl FusedRuntime {
             }
         }
         let f_matvec = cuda.func(matvec_name).map_err(candle_core::Error::msg)?;
+        // The prefill entry point. `Some` is the authorisation, and it is
+        // keyed on the LAYOUT naming one — which `fused.rs` pins to the source
+        // list, so the pair cannot drift the way `tv_planes_seg_h` did.
+        // Formed from the SAME tile the module was compiled at, and refused
+        // against the card rather than assumed: this kernel is loaded through
+        // `func` with no opt-in, so the default per-block allowance is the
+        // bound. At the served tile of 128 four rows is exactly 49,152.
+        let prefill_shared =
+            llvq_cuda::tile::prefill_shared_bytes(llvq_cuda::tile::PREFILL_ROWS, tile.blocks);
+        if crate::fused::rows_kernel_name(model.layout).is_some() && prefill_shared > shared_limit {
+            candle_core::bail!(
+                "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \\
+                 and the card allows {shared_limit}",
+                llvq_cuda::tile::PREFILL_ROWS,
+                tile.blocks
+            );
+        }
+        let prefill_shared = prefill_shared as u32;
+        let f_matvec_rows = match crate::fused::rows_kernel_name(model.layout) {
+            Some(n) => Some(cuda.func(n).map_err(candle_core::Error::msg)?),
+            None => None,
+        };
         let f_int4 = match int4.is_some() {
             true => Some(
                 cuda.func(crate::fused::INT4_KERNEL_NAME)
@@ -591,6 +631,8 @@ impl FusedRuntime {
                 f_matvec_seg,
                 tab,
                 tetra_tabs,
+                prefill_shared,
+                f_matvec_rows,
                 f_int4,
                 g70_tabs,
                 rotations,
@@ -670,6 +712,31 @@ impl FusedRuntime {
             out_shape,
         };
         xf.apply_op1_no_bwd(&op)
+    }
+
+    /// `y = W X` for `n_rows` rotated rows, one launch.
+    ///
+    /// `xr` is `[n_rows, d_in]` f32 and contiguous — the caller stacks the
+    /// rotated rows, which is what makes this one launch instead of `n_rows`.
+    pub fn forward_rotated_rows(
+        &self,
+        proj: &FusedProj,
+        xr: &Tensor,
+        n_rows: usize,
+    ) -> candle_core::Result<Tensor> {
+        if n_rows == 0 || n_rows > llvq_cuda::tile::PREFILL_ROWS {
+            candle_core::bail!(
+                "{n_rows} rows for a kernel compiled at {}",
+                llvq_cuda::tile::PREFILL_ROWS
+            );
+        }
+        let op = FusedRowsOp {
+            rt: self,
+            proj,
+            n_rows,
+            out_shape: Shape::from(vec![n_rows, proj.d_out]),
+        };
+        xr.apply_op1_no_bwd(&op)
     }
 
     pub fn forward_rotated(
@@ -1347,6 +1414,101 @@ impl candle_core::CustomOp1 for FusedInt4Op<'_> {
     }
 }
 
+/// `y = W X` for up to `PREFILL_ROWS` rotated activation rows at once.
+///
+/// The prefill counterpart of [`FusedOp`]. It exists so a prompt is not
+/// decoded once per token: the one-row kernel reads the whole weight stream
+/// per row, and a 5-shot MMLU question is several hundred rows.
+struct FusedRowsOp<'a> {
+    rt: &'a FusedRuntime,
+    proj: &'a FusedProj,
+    n_rows: usize,
+    out_shape: Shape,
+}
+
+impl candle_core::CustomOp1 for FusedRowsOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-fused-matvec-rows"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the LLVQ fused kernel has no CPU path")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let xr = storage.as_cuda_slice::<f32>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation"))?;
+        let len = end - start;
+        if len != self.n_rows * self.proj.d_in {
+            candle_core::bail!(
+                "{} rows of {} values arrived as {len}",
+                self.n_rows,
+                self.proj.d_in
+            );
+        }
+        if start != 0 {
+            candle_core::bail!("activation at offset {start}, and the kernel reads from the base");
+        }
+        let f = self.rt.f_matvec_rows.as_ref().ok_or_else(|| {
+            candle_core::Error::msg(
+                "a prefill launch on a runtime whose layout carries no rows kernel",
+            )
+        })?;
+        let t = self.rt.tetra_tabs.as_ref().ok_or_else(|| {
+            candle_core::Error::msg("the rows kernel without the Tetra constant tables")
+        })?;
+        let words = match &self.proj.stream {
+            DeviceStream::Tetra48 { words, .. } => words,
+            _ => candle_core::bail!("the rows kernel on a stream that is not Tetra48"),
+        };
+        let stride_u32 = match &self.proj.stream {
+            DeviceStream::Tetra48 { stride_u32, .. } => *stride_u32,
+            _ => unreachable!("checked above"),
+        };
+        let mut y = unsafe {
+            self.rt
+                .device
+                .cuda_stream()
+                .alloc::<f16>(self.n_rows * self.proj.d_out)
+        }
+        .map_err(|e| candle_core::Error::msg(format!("alloc y: {e}")))?;
+        launch_tetra48_rows_h(
+            &self.rt.cuda,
+            f,
+            words,
+            stride_u32,
+            t,
+            &self.proj.gscale,
+            &self.proj.rscale,
+            &self.proj.tail,
+            xr,
+            &mut y,
+            self.proj.nblocks,
+            self.proj.tail_w,
+            self.n_rows as u32,
+            self.proj.d_in as u32,
+            self.proj.d_out as u32,
+            THREADS,
+            self.rt.prefill_shared,
+        )
+        .map_err(candle_core::Error::msg)?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
+            self.out_shape.clone(),
+        ))
+    }
+}
+
 /// [`RotOp`] for a fused group — the same launch, keyed on the group's shared
 /// rotation instead of one matrix's.
 ///
@@ -1696,6 +1858,64 @@ fn launch_q4_h<T: candle_core::cuda_backend::cudarc::driver::DeviceRepr>(
         .arg(&d_in)
         .arg(&p.gpr);
     unsafe { b.launch(cfg) }.map_err(|e| format!("tv_q4_h: {e}"))?;
+    Ok(())
+}
+
+/// `tv_tetra48_rows_h(...)` — the prefill launch, `n_rows` activation rows.
+///
+/// Same grid as the one-row kernel: one warp an output row, eight rows a
+/// block. What changes is the shared request — `PREFILL_ROWS` rows of tile
+/// instead of one — and the three sizes the kernel needs to address a batch.
+#[allow(clippy::too_many_arguments)]
+fn launch_tetra48_rows_h(
+    cuda: &llvq_cuda::gpu::Cuda,
+    f: &CudaFunction,
+    words: &CudaSlice<u32>,
+    stride_u32: u32,
+    t: &TetraTabs,
+    gscale: &CudaSlice<f32>,
+    rscale: &CudaSlice<f32>,
+    tail: &CudaSlice<u16>,
+    x: &CudaSlice<f32>,
+    y: &mut CudaSlice<f16>,
+    nblocks: u32,
+    tail_w: u32,
+    n_rows: u32,
+    d_in: u32,
+    d_out: u32,
+    threads: u32,
+    shared: u32,
+) -> Result<(), String> {
+    assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    assert!(
+        n_rows as usize <= llvq_cuda::tile::PREFILL_ROWS,
+        "{n_rows} rows for a kernel compiled at {}",
+        llvq_cuda::tile::PREFILL_ROWS
+    );
+    let cfg = LaunchConfig {
+        grid_dim: (d_out * 32 / threads, 1, 1),
+        block_dim: (threads, 1, 1),
+        shared_mem_bytes: shared,
+    };
+    let mut b = cuda.stream().launch_builder(f);
+    b.arg(words)
+        .arg(&stride_u32)
+        .arg(&t.rows)
+        .arg(&t.prefixes)
+        .arg(&t.branches)
+        .arg(&t.suffixes)
+        .arg(gscale)
+        .arg(&t.invnorm)
+        .arg(rscale)
+        .arg(tail)
+        .arg(x)
+        .arg(y)
+        .arg(&nblocks)
+        .arg(&tail_w)
+        .arg(&n_rows)
+        .arg(&d_in)
+        .arg(&d_out);
+    unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_rows_h: {e}"))?;
     Ok(())
 }
 
