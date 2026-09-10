@@ -468,17 +468,13 @@ impl FusedRuntime {
         // against the card rather than assumed: this kernel is loaded through
         // `func` with no opt-in, so the default per-block allowance is the
         // bound. At the served tile of 128 four rows is exactly 49,152.
+        // The VALUE here, where the tile is known; the CHECK against the card
+        // ninety lines down, where `shared_limit` is read from the driver.
+        // They were one statement and it named `shared_limit` before that line
+        // existed — which this machine could not see, because the file needs
+        // nvcc, and which the Space build reported in two errors.
         let prefill_shared =
             llvq_cuda::tile::prefill_shared_bytes(llvq_cuda::tile::PREFILL_ROWS, tile.blocks);
-        if crate::fused::rows_kernel_name(model.layout).is_some() && prefill_shared > shared_limit {
-            candle_core::bail!(
-                "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \\
-                 and the card allows {shared_limit}",
-                llvq_cuda::tile::PREFILL_ROWS,
-                tile.blocks
-            );
-        }
-        let prefill_shared = prefill_shared as u32;
         let f_matvec_rows = match crate::fused::rows_kernel_name(model.layout) {
             Some(n) => Some(cuda.func(n).map_err(candle_core::Error::msg)?),
             None => None,
@@ -567,6 +563,22 @@ impl FusedRuntime {
         // through `func`, with no opt-in. Widening it here would loosen a
         // guard on a kernel that never asked the driver for anything.
         let shared_limit = dev_report.shared_per_block as usize;
+
+        // The prefill staging, refused against the card rather than assumed:
+        // that kernel is loaded through `func` with no opt-in, so the DEFAULT
+        // per-block allowance is its bound — the same argument the rotation
+        // makes just below. At the served tile of 128, four rows is exactly
+        // 49,152 B, so this refuses nothing that exists today and names the
+        // pair that would stop fitting.
+        if crate::fused::rows_kernel_name(model.layout).is_some() && prefill_shared > shared_limit {
+            candle_core::bail!(
+                "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \\
+                 and the card allows {shared_limit}",
+                llvq_cuda::tile::PREFILL_ROWS,
+                tile.blocks
+            );
+        }
+        let prefill_shared = prefill_shared as u32;
 
         // The rotation is the one staging that can exceed the default — and
         // comparing it against `shared_limit` is what refused Qwen3-14B on
