@@ -91,3 +91,198 @@ CHIFFRES DE VRAM, LES PREMIERS *MESURÉS* DE CE FORMAT
   configuration servie, et l'écart de la ligne f16 est l'embedding, pas le
   format. Les 2,084 b/poids d'inférence ne se comparent NI au 2,1498 du
   dossier NI au 2,150 du banc : queue en binary16 ici, en f32 là.
+
+
+================================================================================
+F1e §0 bis — L'OBJET SERVI ENTIER, SUR CARTE
+================================================================================
+Job         : 6aa2e9385527934177ec1e4c, l40sx1, 5 min 32 s, 0,17 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda
+Objet       : /out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin, 1 794 564 765 o
+              **252 matrices : 216 Tetra + 36 v_proj en int4 g128.** L'objet
+              arbitré le 2026-09-08, celui qui vaut 56,95 de MMLU.
+Nature      : *mesuré*
+Ce que le §0 ci-dessus ne disait pas : il mesurait le fichier Tetra PUR. Ici
+c'est le produit.
+
+CE QUE ÇA A RENDU
+-----------------
+  bras (même job, même carte, même fichier)   tok/s              Go carte
+  ---------------------------------------------------------------------------
+  fusé, ROT_SHARE=1 (le réglage servi)   100,8 [100,4–100,8]      1,39
+  fusé, ROT_SHARE=0                       94,2 [ 93,9– 94,7]      1,39
+  dense f16 (même processus)              43,0 [ 43,0– 43,0]      8,04
+
+  Contre le bras dense de son PROPRE processus, au réglage servi :
+  **×2,35 [×2,34–×2,35] de vitesse, ÷5,81 de mémoire.**
+
+  256 jetons identiques au bras dense DANS LES DEUX BRAS. Pas un seul écart.
+  `oracle` MATCH (règle dure 10).
+
+  Le partage de rotation vaut +7,0 % : 216 lancements de rotation par jeton
+  tombent à 144, et le débit monte de 94,2 à 100,8. Deux processus séparés,
+  même fichier, même carte, mêmes autres drapeaux.
+
+  2,140 b/poids, comptabilité INFERENCE (queue en binary16). Ne se compare NI
+  au 2,1498 du dossier NI au 2,150 du banc, qui facturent en f32.
+  Fichier 1,79 Go sur disque, 1,39 Go sur la carte : deux comptabilités qui ne
+  se comparent pas non plus, l'une porte des index compacts, l'autre la
+  disposition dépliée que le noyau lit vite.
+
+  VRAM : projections 0,97 Go + porté 0,41 = 1,39 Go, contre 1,390 *calculé*
+  dans ETAT. L'accord est exact à la troisième décimale.
+
+CE QUE ÇA CORRIGE DANS LE §0
+-----------------------------
+  La réserve 1 disait que la barre de 100,6 tok/s se lirait « à ses drapeaux ».
+  C'est fait : 100,8 tok/s à ROT_SHARE=1. La barre publiée était mesurée en
+  1,85× plus de mémoire (2,57 Go contre 1,39). **Même vitesse, 1,85× moins de
+  mémoire** — et sans la fusion de projections que la barre publiée avait,
+  puisque Tetra n'a pas de noyau segmenté.
+
+UN DÉFAUT DE MESURE, TROUVÉ EN LISANT CE LOG
+---------------------------------------------
+  La ligne imprimée dit :
+
+      216 matvec_launches/token for 252 projections (0 groups + 216 lone)
+
+  Elle se lit « 36 projections ne coûtent aucun lancement ». C'est faux : les
+  36 `v_proj` en int4 lancent `tv_q4_h`, un lancement chacune.
+
+  `rotplan::matvec_launches_per_token(singles, groups)` rend
+  `singles.len() + groups.len()`. Les int4 vivent dans un troisième vecteur
+  (`Vec<FusedInt4Proj>`) que la fonction ne voit pas. Le chiffre est donc faux
+  de 36 exactement, et il l'est depuis que l'objet mixte existe.
+
+  Ce n'est pas une erreur du noyau : les jetons sont justes, la mémoire est
+  juste, la vitesse est juste. C'est un chiffre faux imprimé À CÔTÉ d'une
+  mesure — et le commentaire de la fonction dit lui-même à quoi il sert :
+  « a gate reading "128 tokens identiques" while both arms issued 252 matvecs
+  proves the tokens and nothing about the lot ». Un compteur qui sous-compte
+  affaiblit exactement la garde qu'il existe pour armer.
+
+
+================================================================================
+F1e §0 ter — CE QUE COÛTE UN PRÉREMPLISSAGE PAR LE NOYAU
+================================================================================
+Job         : 6aa321505527934177ec2d0d, l40sx1, 1 min 36 s, 0,05 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda, source NVRTC 94 819 o
+              sha256 722f6140… — 9 286 octets de plus que le job précédent
+              (85 533 o, sha256 90ebbf08…), c'est le noyau par lots qui entre.
+Objet       : le fichier servi, drapeaux servis (ROT_SHARE=1, EMBED=q8)
+Mode        : LLVQ_PREFILL_TOKENS, mode de MESURE, jamais une config servie
+Nature      : *mesuré*, deux longueurs, 5 passes chacune après une passe jetée
+But         : remplacer par un chiffre l'estimation « 4 à 8 h » du recensement
+              MMLU par le noyau.
+
+CE QUE ÇA A RENDU
+-----------------
+  jetons de prompt      ms par préremplissage        ms par jeton
+  ---------------------------------------------------------------
+      200               1 059,6 [1 059,0–1 060,1]        5,298
+      800               4 364,0 [4 357,4–4 369,1]        5,455
+
+  Droite sur les deux points : **5,507 ms par jeton, ordonnée −41,9 ms.**
+  Autrement dit le coût est linéaire en longueur et il n'y a PAS de coût fixe
+  par passe. L'ordonnée légèrement négative est l'attention, qui est en N².
+
+  Le binaire imprime une projection sur 14 042 questions. **CE N'EST PAS LE
+  RECENSEMENT DE CE PROJET.** Toutes les barres publiées sont mesurées sur
+  2 280 questions — 40 par sujet, 57 sujets (`mmlu-appariee.csv`, colonne
+  `n_questions` ; `q5-tetra-2026-09-06.txt:18`) — et `mmlupair` refuse deux
+  dumps de plans différents, donc un run par le noyau doit prendre celles-là.
+
+  Longueur réelle des prompts, *mesurée* sur le Mac à 0 $ (tokenizer Qwen3-4B,
+  parquet `cais/mmlu` en cache, `block()` de `bin/mmlu.rs` reproduit
+  caractère pour caractère) :
+
+    sujets les plus longs                moyenne   min    max
+    -------------------------------------------------------------
+    high_school_european_history           2 796  2 581  3 096
+    high_school_us_history                 2 218  2 050  2 429
+    professional_law                       1 636  1 419  2 149
+    high_school_world_history              1 429  1 208  1 831
+    ...
+    world_religions                          254    240    288
+
+    recensement de 2 280 questions : **1 382 608 jetons de prompt**,
+    moyenne **606 jetons** par question.
+
+  Donc, *calculé* sur la pente mesurée :
+
+    recensement 2 280 questions   **2,12 h = 3,81 $** sur L40S
+    split complet 14 042          14,93 h = 26,88 $
+
+  Le chemin dense fait le recensement de 2 280 en **26 min et 0,78 $**.
+
+  ⚠️ La pente vient de deux points à 200 et 800 jetons. À 3 096 jetons
+  l'attention en N² la fait monter — *estimé* +10 %, jamais mesuré.
+
+LE NOYAU REFUSERAIT 239 DES 2 280 QUESTIONS
+--------------------------------------------
+  `model::group_forward` plafonne à `MAX_ROWS × batch` = 256 × 4 = **1 024
+  rangées**. Neuf sujets dépassent, cinq ENTIÈREMENT :
+
+    sujet                              refusées   sur   plus long
+    --------------------------------------------------------------
+    professional_law                      1 534  1 534     2 149
+    high_school_world_history               237    237     1 831
+    security_studies                        245    245     1 398
+    high_school_us_history                  204    204     2 429
+    high_school_european_history            165    165     3 096
+    professional_medicine                   250    272     1 326
+    college_medicine                          5    173     1 377
+    high_school_computer_science              1    100     1 143
+    high_school_statistics                    1    216     1 060
+
+  2 642 des 14 042 du split complet, soit 18,8 %. Sur un recensement à 40 par
+  sujet : **239 questions sur 2 280, 10,5 %**.
+
+  Ce n'est PAS une limite matérielle. Le commentaire de `MAX_ROWS` le dit :
+  « The cap is on LAUNCHES, and `MAX_ROWS` was that budget when a launch
+  carried one row. » C'est un garde-fou contre un appelant qui lancerait trop,
+  et il n'a jamais été relu depuis que le lot existe. Admettre le plus long
+  prompt du split demande `MAX_ROWS ≥ 774` à `PREFILL_ROWS = 4`.
+  **Décision opérateur : c'est une constante servie qui change.**
+
+LE RÉSULTAT QUI COMPTE N'EST PAS CELUI-LÀ
+------------------------------------------
+  Un préremplissage de 800 jetons lit les projections 200 fois — une fois par
+  lot de 4 rangées — soit **194 Go en 4,364 s = 44,5 Go/s**.
+
+  La L40S en fait 864. Le noyau tourne donc à **5,1 % de la bande passante**.
+
+  LE PRÉREMPLISSAGE N'EST PAS LIMITÉ PAR LA MÉMOIRE. Il est limité par le
+  nombre d'opérations lancées. Le lot de 4 rangées a divisé le flux de poids
+  par 4 et le temps par 1,8 seulement : 5,507 ms par jeton de prompt contre
+  9,92 ms par jeton de décodage. Si le flux avait été le facteur limitant, le
+  rapport aurait été 4.
+
+  Le compte, par lot de 4 rangées :
+
+    216 lancements de matvec Tetra      (le noyau par lots, une par projection)
+    864 recopies (`Tensor::cat`)        (4 par projection Tetra, une par rangée)
+    144 lancements int4                 (les 36 `v_proj` n'ont PAS de noyau par
+                                         lots, elles repassent rangée par rangée)
+    144 lancements de rotation
+    ------------------------------------------------------------------------
+  ~1 368 opérations par lot, ~274 000 par préremplissage de 800 jetons, à
+  16 µs pièce. C'est un profil de lancement, pas un profil de bande passante.
+
+  Deux choses sautent aux yeux dans ce tableau. **Les recopies sont le premier
+  poste**, 864 sur 1 368 : concaténer 4 rangées coûte 4 copies sur la carte, et
+  c'est le prix payé pour ne faire qu'un lancement de matvec au lieu de quatre.
+  Et **les int4 ne profitent pas du lot** : `rows_kernel_name` ne rend un nom
+  que pour `Tetra48`, donc les 36 `v_proj` coûtent 4 lancements par lot au lieu
+  d'un, soit 144 des 1 368.
+
+  Ce que ça dit de la suite : le gisement est dans les recopies et les
+  lancements, pas dans le format. **Le format n'est pas le problème ici.**
+
+CE QUE CE N'EST PAS
+-------------------
+  Pas un MMLU. C'est le coût d'une passe avant sur un prompt de longueur
+  donnée, mesuré sur des identifiants répétés — le noyau n'a aucune branche
+  qui dépende de la donnée, donc le contenu du prompt ne change pas le temps.
+  Le recensement multiplierait ce chiffre par 14 042 ET ajouterait le
+  découpage en sujets, l'échantillonnage et l'écriture des dumps.

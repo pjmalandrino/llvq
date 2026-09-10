@@ -300,11 +300,27 @@ pub fn rot_launches(
 /// Printed on `bin/fusedrun`'s arm line for the reason [`rot_launches`] is
 /// printed there: a gate reading "128 tokens identiques" while both arms issued
 /// 252 matvecs proves the tokens and nothing about the lot.
+///
+/// ## Why `int4` is a third argument and not an oversight
+///
+/// The served object of 2026-09-08 is mixed: 216 lattice records and 36
+/// `v_proj` in int4 g128. Those 36 live in their own vector because they take
+/// their own kernel (`tv_q4_h`), and for one decode token each costs **one
+/// launch**, exactly like a lone lattice projection. They neither fuse nor
+/// group, so the term is a plain count.
+///
+/// Omitting it printed `216 matvec_launches/token for 252 projections` on the
+/// first card run of the served object (job `6aa2e938`, 2026-09-10) — a line
+/// that reads as "36 projections cost no launch". The tokens, the memory and
+/// the speed on that run were right; only this number was wrong. It is the
+/// number the sentence above says the gate rests on, so a counter that
+/// undercounts weakens precisely the guard it exists to arm.
 pub fn matvec_launches_per_token(
     singles: &[FusedMatrix],
     groups: &[crate::fused::FusedGroup],
+    int4: usize,
 ) -> usize {
-    singles.len() + groups.len()
+    singles.len() + groups.len() + int4
 }
 
 /// Whether a run of this shape can tell the two [`crate::fused::FuseMode`] arms

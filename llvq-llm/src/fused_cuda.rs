@@ -2405,7 +2405,7 @@ pub fn load_with(
     // while looking green.
     let rot_launches = crate::rotplan::rot_launches(share, &model.matrices, &model.groups);
     let matvec_launches =
-        crate::rotplan::matvec_launches_per_token(&model.matrices, &model.groups);
+        crate::rotplan::matvec_launches_per_token(&model.matrices, &model.groups, model.int4.len());
     // Every projection the model holds, int4 included: the count sits beside a
     // launch count on the next two lines, and one that omitted 36 of 252 would
     // make the launches per token read as an inconsistency rather than as the
@@ -2420,10 +2420,11 @@ pub fn load_with(
     );
     println!(
         "projection fusion: {} (LLVQ_FUSE), {matvec_launches} matvec_launches/token \
-         for {projections} projections ({} groups + {} lone)",
+         for {projections} projections ({} groups + {} lone + {} int4)",
         fuse.name(),
         model.groups.len(),
-        model.matrices.len()
+        model.matrices.len(),
+        model.int4.len()
     );
     // The accounting is named on the line, because since lot A7a this number
     // is deliberately *not* the bench's: the tail is resident at binary16

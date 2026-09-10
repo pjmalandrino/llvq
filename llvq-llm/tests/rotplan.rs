@@ -27,7 +27,8 @@ use llvq_llm::fused::{
 };
 use llvq_llm::model::Act;
 use llvq_llm::rotplan::{
-    act_of_suffix, check_key, check_rotation_partition, drive_rows, rot_launches_per_token,
+    act_of_suffix, check_key, check_rotation_partition, drive_rows, matvec_launches_per_token,
+    rot_launches_per_token,
     rotation_sites, RotShare, RotSite,
 };
 use llvq_quant::rotation::Rotation;
@@ -509,6 +510,44 @@ fn the_hoist_actually_hoists() {
     let m = model_4b_shaped(36, 0x11);
     assert_eq!(rot_launches_per_token(RotShare::On, &m), 144);
     assert_eq!(rot_launches_per_token(RotShare::Off, &m), 252);
+}
+
+/// **T10.** The matvec counter counts the int4 projections too.
+///
+/// The served object of 2026-09-08 is mixed: 216 lattice records plus 36
+/// `v_proj` in int4 g128, and the int4 records live in their own vector
+/// because they take their own kernel. Each still costs one launch a decode
+/// token.
+///
+/// The first card run of that object (job `6aa2e938`, 2026-09-10) printed
+/// `216 matvec_launches/token for 252 projections` — the denominator counted
+/// the int4, the numerator did not. Nothing else on that run was wrong: the
+/// tokens matched the dense arm, the memory and the speed were real. Only the
+/// number the fusion gate rests on was short by exactly 36.
+///
+/// Pinned here rather than beside the printing, because `fused_cuda.rs`
+/// compiles on no machine this suite runs on.
+#[test]
+fn the_matvec_counter_counts_the_int4_projections() {
+    let all = model_4b_shaped(36, 0x11);
+    assert_eq!(all.len(), 252, "36 layers x 7 projections");
+
+    // The served split: the `v_proj` leave the lattice vector for their own.
+    // `FusedMatrix` is not `Clone` — it owns a weight stream — so the vector is
+    // consumed and rebuilt rather than filtered by reference.
+    let (v_proj, lattice): (Vec<FusedMatrix>, Vec<FusedMatrix>) =
+        model_4b_shaped(36, 0x11).into_iter().partition(|m| m.name.contains("v_proj"));
+    let int4 = v_proj.len();
+    assert_eq!((lattice.len(), int4), (216, 36), "the served object of 2026-09-08");
+
+    // What the model issues: one launch a projection, whichever kernel reads it.
+    assert_eq!(matvec_launches_per_token(&lattice, &[], int4), 252);
+
+    // And the number that shipped, which is what this test exists to refuse.
+    assert_ne!(matvec_launches_per_token(&lattice, &[], int4), lattice.len());
+
+    // A pure-lattice file is unchanged: the term is a count, not a rescaling.
+    assert_eq!(matvec_launches_per_token(&all, &[], 0), 252);
 }
 
 /// **T9.** The hoist is not gated on the runtime layout.
