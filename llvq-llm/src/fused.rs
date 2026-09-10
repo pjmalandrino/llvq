@@ -684,6 +684,13 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
 ///    bases table is per group, so a concatenation that regroups across a
 ///    segment boundary moves the byte total. `tv_slot_seg` exists at the bench
 ///    and wiring it is a separate lot with its own measurement.
+pub fn seg_kernel_name(layout: FusedLayout) -> Option<&'static str> {
+    match layout {
+        FusedLayout::Planes14 => Some("tv_planes_seg_h"),
+        _ => None,
+    }
+}
+
 /// The PREFILL entry point a layout carries, if it has one.
 ///
 /// `Some` exactly when the layout's unit defines a kernel that takes several
@@ -697,13 +704,6 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
 pub fn rows_kernel_name(layout: FusedLayout) -> Option<&'static str> {
     match layout {
         FusedLayout::Tetra48 => Some("tv_tetra48_rows_h"),
-        _ => None,
-    }
-}
-
-pub fn seg_kernel_name(layout: FusedLayout) -> Option<&'static str> {
-    match layout {
-        FusedLayout::Planes14 => Some("tv_planes_seg_h"),
         _ => None,
     }
 }
