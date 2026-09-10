@@ -3476,15 +3476,52 @@ mod linux {
             // `spread(...).0`, a minimum. For F1d's headline — the one line a
             // kill is read off — the two rules are met here explicitly.
             if phase.has(arms::TETRA48) && phase.has(arms::PLANES14) {
-                let head = |v: &[f64]| -> Vec<f64> { v.iter().map(|t| t + head_s).collect() };
+                // 🚨 TWO corrections, and this repository already uses the
+                // phrase "same head" for the SECOND one. The F1 journals mean
+                // *the launch floor removed* by it (`f1rankfloor` prints
+                // "(v3g−nullk)/(planes14−nullk) … the SAME-HEAD ratio, launch
+                // floor removed (rule 4)"), while this file's own paragraph
+                // means *the f16 lm_head added*. They are different
+                // quantities and they move in opposite directions: the floor
+                // is common to both arms and pushes any ratio TOWARD 1, the
+                // head is common too and pushes it toward 1 as well, but from
+                // a different baseline. Printing one of them under the other's
+                // name is how a dossier ends up comparing two things.
+                //
+                // So both are printed, each named for what it does, and both
+                // formed round by round — never a quotient of two medians,
+                // which is what a reader would otherwise compute off the table
+                // above and which hard rule 7 forbids.
+                let add = |v: &[f64], d: f64| -> Vec<f64> { v.iter().map(|t| t + d).collect() };
                 let (lo, md, hi) = spread(per_round(
-                    &head(&times[arms::PLANES14]),
-                    &head(&times[arms::TETRA48]),
+                    &add(&times[arms::PLANES14], head_s),
+                    &add(&times[arms::TETRA48], head_s),
                 ));
                 println!(
-                    "  tetra48 vs planes14, SAME HEAD : {md:.2}× [{lo:.2}–{hi:.2}]  \
-                     (the f16 lm_head added to BOTH arms, round by round)"
+                    "  tetra48 vs planes14, WITH THE F16 HEAD : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                     (the lm_head added to BOTH arms, round by round)"
                 );
+                if phase.has(arms::NULLK) {
+                    // The F1 dossier's same-head ratio, the one `f1rankfloor`
+                    // prints: the launch floor removed from BOTH arms, round
+                    // by round, so this run's number and that bench's are the
+                    // same function of the same measurement.
+                    let sub = |v: &[f64]| -> Vec<f64> {
+                        v.iter()
+                            .zip(&times[arms::NULLK])
+                            .map(|(t, f)| (t - f).max(f64::MIN_POSITIVE))
+                            .collect()
+                    };
+                    let (lo, md, hi) = spread(per_round(
+                        &sub(&times[arms::PLANES14]),
+                        &sub(&times[arms::TETRA48]),
+                    ));
+                    println!(
+                        "  tetra48 vs planes14, FLOOR REMOVED : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                         (nullk subtracted from BOTH, round by round — the F1 journals' \
+                         \"same head\")"
+                    );
+                }
             }
             println!(
                 "\n  WARNING: NEVER compare this line by line with the Metal figure, and never\n  \
