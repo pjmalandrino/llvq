@@ -16,7 +16,7 @@
 //!    before a byte is written.
 //! 3. **Nothing downstream pretends.** Every runtime transcoder and table
 //!    builder has a `*_for_kind` twin that returns `Error::Inconsistent` with
-//!    "no runtime layout for Tetra before F1d" on a Tetra header, and the same
+//!    "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none" on a Tetra header, and the same
 //!    stream as its original on a Ball one.
 //!
 //! The yardstick for the reconstruction — `decode_matrix` against the
@@ -44,7 +44,7 @@ use llvq_search::pack::{BitReader, BitWriter};
 use llvq_search::tetra::{Tetra, LABEL_BITS, LABEL_MASK};
 use llvq_search::Searcher;
 
-const REFUSAL: &str = "no runtime layout for Tetra before F1d";
+const REFUSAL: &str = "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none";
 
 /// A Tetra matrix: codes drawn as random labels through the map itself — the
 /// map is the only source of valid points — with one gain bit and the

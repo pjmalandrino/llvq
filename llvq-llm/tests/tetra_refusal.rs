@@ -52,7 +52,7 @@ fn embedq_refuses_a_tetra_file_by_name() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "embedq accepted a Tetra file:\n{stderr}");
     assert!(
-        stderr.contains("no runtime layout for Tetra before F1d"),
+        stderr.contains("no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none"),
         "the refusal must say why:\n{stderr}"
     );
     assert!(stderr.contains(src.to_str().unwrap()), "the refusal must name the file:\n{stderr}");
@@ -64,7 +64,7 @@ fn embedq_refuses_a_tetra_file_by_name() {
     // read as a Ball record, on every layout that reads the ball map.
     //
     // ⚠️ This assertion changed on 2026-09-09 and the change is the point.
-    // It used to demand the sentence "no runtime layout for Tetra before F1d".
+    // It used to demand the sentence "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none".
     // That sentence was TRUE when it was written and is now FALSE: `tetra48`
     // is the runtime layout, `llvq_artifact::tetra48` is its transcoder and
     // `tv_tetra48_h` its kernel. The four below still refuse a Tetra file, and

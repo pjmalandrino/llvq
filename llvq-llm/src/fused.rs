@@ -1821,7 +1821,7 @@ pub struct Transcoder {
     /// 🕳️ It was unconditional, and `ClassTable::for_kind` refuses a Tetra
     /// kind by design — the table describes 383 ball classes and a Tetra word
     /// names none. So `LLVQ_FUSED_LAYOUT=tetra48` died on the served file with
-    /// "no runtime layout for Tetra before F1d" **before reading one block**,
+    /// "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none" **before reading one block**,
     /// on the first card run of the served path (2026-09-10, $0.02). The
     /// record gates of step 6.6 were open; this one was upstream of them and
     /// nothing on the Mac reached it, because building a `Transcoder` is what
@@ -2273,7 +2273,7 @@ mod tests {
                 .err()
                 .unwrap_or_else(|| panic!("{}: a Tetra header must be refused", layout.name()));
             assert!(
-                e.contains("no runtime layout for Tetra before F1d"),
+                e.contains("no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none"),
                 "{}: the refusal must say why: {e}",
                 layout.name()
             );

@@ -18,7 +18,7 @@ use llvq_search::tetra::Tetra;
 use std::path::PathBuf;
 use std::process::Command;
 
-const REFUSAL: &str = "no runtime layout for Tetra before F1d";
+const REFUSAL: &str = "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none";
 
 /// A one-matrix v5 Tetra file, two blocks, on disk.
 fn tetra_file(name: &str) -> PathBuf {

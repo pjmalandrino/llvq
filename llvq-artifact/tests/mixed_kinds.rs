@@ -363,7 +363,7 @@ fn the_header_set_refuses_a_file_with_one_tetra_matrix() {
     match require_ball_kinds(head.kinds(), "planes14") {
         Err(Error::Inconsistent { name, detail }) => {
             assert_eq!(name, "planes14");
-            assert_eq!(detail, "no runtime layout for Tetra before F1d");
+            assert_eq!(detail, "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none");
         }
         other => panic!("expected the Tetra refusal, got {:?}", other.err()),
     }
@@ -411,7 +411,7 @@ fn a_ball_header_over_a_tetra_record_is_refused_at_the_record() {
             }
             CodeKind::Tetra => match out {
                 Err(Error::Inconsistent { detail, .. }) => {
-                    assert_eq!(detail, "no runtime layout for Tetra before F1d")
+                    assert_eq!(detail, "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none")
                 }
                 other => panic!("a forged Tetra record reached the layout: {:?}", other.err()),
             },

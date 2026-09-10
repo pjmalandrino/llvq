@@ -1668,12 +1668,17 @@ pub fn require_ball(kind: CodeKind, what: &str) -> Result<()> {
         CodeKind::Ball => Ok(()),
         CodeKind::Tetra => Err(Error::Inconsistent {
             name: what.to_string(),
-            detail: "no runtime layout for Tetra before F1d".to_string(),
+            detail: "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none".to_string(),
         }),
         // A different sentence on purpose. The two refusals send an operator
-        // to two different places — F1d's transcoder for Tetra, a kernel that
-        // reads stored weights for int4 — and a copy of Tetra's wording here
-        // would send them to the wrong one.
+        // to two different places — `LLVQ_FUSED_LAYOUT=tetra48` for Tetra, a
+        // kernel that reads stored weights for int4 — and a copy of Tetra's
+        // wording here would send them to the wrong one.
+        //
+        // Both sentences named F1d until 2026-09-10, which read as "this will
+        // work once F1d has run". F1d ran. Neither refusal changed, because
+        // neither was ever about F1d: this table reads ball classes and it
+        // always will.
         CodeKind::Int4G128 => Err(Error::Inconsistent {
             name: what.to_string(),
             detail: "no runtime layout for Int4G128 records".to_string(),
