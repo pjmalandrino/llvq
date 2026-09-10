@@ -1,0 +1,93 @@
+F1e §0 — LE CHEMIN SERVI TOURNE-T-IL SUR UNE CARTE ?
+================================================================================
+Préreg      : proofs/preregistration-f1e0-2026-09-10.md, tamponné AVANT le
+              premier lancement ; écarts É1 à É6 dans le -ECARTS.md
+Nature      : *mesuré* sur L40S, quatre jobs, 0,43 $ en tout
+But         : ne PAS dépenser les 8 $ de F1e pour découvrir qu'un noyau ne
+              charge pas. `tv_q4_h` n'avait jamais tourné sur une carte, et
+              `tv_tetra48_h` n'avait jamais tourné DANS le modèle.
+
+CE QUE ÇA A RENDU
+-----------------
+  Le noyau Tetra servi tourne, et il est juste : **256 jetons identiques au
+  bras dense** sur le fichier Tetra pur, embedding q8.
+
+  bras (même job, même carte, mêmes drapeaux)   tok/s          Go carte  b/poids
+  ---------------------------------------------------------------------------
+  Tetra48                                92,9 [92,4–93,0]        1,36     2,084
+  Planes14                               86,4 [86,2–86,5]        2,56     4,729
+  dense f16                              43,0 [43,0–43,1]        8,04       —
+
+  Contre le bras dense de son PROPRE processus, Tetra : ×2,14 [×2,13–×2,15] de
+  vitesse, ÷5,91 de mémoire.
+
+  ⚠️ LE RAPPORT TETRA/PLANES14 N'EST PAS FORMÉ. Deux `fusedrun`, deux
+  processus ; la règle 5 l'interdit. Les deux chiffres se lisent côte à côte.
+
+TROIS RÉSERVES, ET AUCUNE N'EST COSMÉTIQUE
+------------------------------------------
+  1. LA BARRE DE 100,6 tok/s N'EST PAS COMPARABLE. Ces runs tournent à
+     `LLVQ_FUSE=0` et `LLVQ_ROT_SHARE=0` ; la configuration servie est 1/1.
+     LES DEUX bras sont sous la barre (92,9 et 86,4), donc l'écart vient du
+     protocole et pas du format. La barre se lira dans F1e, à ses drapeaux.
+
+  2. LA DIVERGENCE N'EST PAS UN SIGNAL. Sur trois bras, DEUX ont divergé de
+     leur référence dense — Planes14 au jeton 89, Tetra-f16 au jeton 20 — et
+     Tetra-q8 a fait 256 jetons identiques. Sur 256 jetons en décodage glouton
+     une différence f16 minuscule finit par basculer un tie-break. La
+     correspondance exacte de Tetra est de la CHANCE, pas une preuve, et il
+     s'en est fallu d'une vérification que ce journal ne dise le contraire.
+
+  3. UN ÉCART NON EXPLIQUÉ. Le même Tetra, même fichier, rend **50,2 tok/s**
+     avec l'embedding en f16 contre 92,9 en q8. L'embedding seul (777,9 Mo
+     contre 413,3) ne vaut pas 1,85×. Le mécanisme plausible — q8 passe par
+     `tv_q8_h`, f16 par un matmul candle, et le `lm_head` est lié à
+     l'embedding donc lu à chaque jeton — n'est PAS mesuré ici, donc rien
+     n'est conclu.
+
+CE QUE CE N'EST PAS
+-------------------
+  Le fichier Tetra PUR, 252 enregistrements réseau, l'objet à 53,49 MMLU.
+  PAS l'objet servi arbitré le 2026-09-08, qui porte 36 `v_proj` en int4 et
+  vaut 56,95. Ce journal mesure le FORMAT, pas le produit.
+
+LES TROIS ÉCHECS QUI ONT PRÉCÉDÉ, ET CE QU'ILS ONT COÛTÉ
+--------------------------------------------------------
+  Q5 du préreg prédisait « quelque chose refuse au premier essai, 60 % ».
+  Trois fois, en fait, et c'est exactement à ça que servait cette étape :
+  chaque défaut a coûté deux ou trois centimes au lieu d'être découvert au
+  milieu d'un recensement à 8 $.
+
+  essai  coût     ce qui a refusé
+  -------------------------------------------------------------------------
+    1    0,02 $   `ClassTable` bâtie inconditionnellement : le chemin servi
+                  demandait la table de classes DE LA BALLE. Le test portable
+                  balayait les quatre dispositions de balle et s'arrêtait là —
+                  la disposition que toute l'étape 6 existe pour servir était
+                  la seule qu'il ne construisait jamais.
+    2    0,03 $   `no kernel tv_planes_seg_h: named symbol not found`. Le
+                  rapport de registres était conditionné par « la disposition
+                  n'est pas Slot32 » ; l'unité Tetra ne porte pas cette source.
+    3    0,03 $   `cannot find tensor …v_proj.weight`. LA DETTE DU LANCEUR :
+                  `FusedModel.int4` est peuplé au chargement et consommé par
+                  personne. Prédit en lisant `model::pick` sur le Mac avant de
+                  lancer — la question n'était pas *si* mais *si ça hurle*.
+
+  `oracle` a rendu MATCH aux trois essais et au run final (règle dure 10).
+
+  Aucun des trois n'était une erreur de type. Un `cargo check` ne les aurait
+  pas vus. Ce qui les voit, ce sont les tests portables ajoutés depuis, qui
+  construisent le PLAN du runtime — liste de sources, noms de noyaux — sans
+  carte. `ops/Dockerfile.check` (2026-09-10) supprime la classe d'à côté, les
+  erreurs de type, qui coûtaient douze minutes de build chacune.
+
+CHIFFRES DE VRAM, LES PREMIERS *MESURÉS* DE CE FORMAT
+-----------------------------------------------------
+  Tetra, embedding q8   : projections 0,95 Go + porté 0,41 = **1,36 Go**
+  Tetra, embedding f16  : projections 0,95 Go + porté 0,78 = **1,72 Go**
+  Planes14, q8          : projections 2,15 Go + porté 0,41 = **2,56 Go**
+
+  À comparer aux 1,390 Go *calculés* de `ETAT` : l'accord est à 2 % sur la
+  configuration servie, et l'écart de la ligne f16 est l'embedding, pas le
+  format. Les 2,084 b/poids d'inférence ne se comparent NI au 2,1498 du
+  dossier NI au 2,150 du banc : queue en binary16 ici, en f32 là.
