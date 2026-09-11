@@ -49,3 +49,49 @@ l'expliquer coûtait moins que de le porter dans un recensement à 3,75 $.
 ## Second temps — le recensement
 
 À écrire après le job : P3 à P7, et le verdict de §5.
+
+## Écart majeur, déclaré le 2026-09-11 — l'objectif est le SPLIT COMPLET
+
+Le préreg est tamponné et ne bouge pas ; ceci le corrige à côté, et c'est le
+plus gros écart du document.
+
+**L'opérateur rappelle que le postulat de base du chantier est MMLU sur les
+14 042 questions, pas sur l'échantillon de 2 280.** Le préreg a été écrit sur
+2 280 parce que c'est le plan de toutes les barres déjà publiées du dépôt ; il
+n'a pas remonté au postulat. C'est une erreur de rédaction du préreg, pas une
+décision prise puis changée.
+
+**Ce que le job en cours reste :** `6aa414dd` mesure deux bras sur 2 280. Il a
+été laissé finir sur instruction. Sa valeur n'est pas le chiffre publiable —
+c'est **P4**, l'écart apparié noyau − dense sur poids identiques, qui dit si
+le noyau CUDA calcule juste. Un split complet par un noyau faux coûterait
+19 $ pour rien. Le recensement 2 280 est donc le contrôle, pas le résultat.
+
+**Ce que le split complet demande, chiffré sur la pente mesurée**
+(3,929 ms/jeton, 9,76 M jetons de prompt contre 1,38 M, ×7,06) :
+
+| bras | durée | coût |
+|---|---|---|
+| Tetra, noyau servi | 10,65 h | 19,17 $ |
+| Tetra, dense, même fichier mixte | 2,67 h | 4,80 $ |
+| f16 (rejeu obligatoire, voir ci-dessous) | 2,67 h | 4,80 $ |
+| Planes14 (rejeu obligatoire) | 2,67 h | 4,80 $ |
+| **total** | **18,7 h** | **33,57 $** |
+
+**Pourquoi f16 et Planes14 doivent être rejoués.** Les dix-neuf dumps de
+`docs/data/mmlu-dumps/` portent tous `# limit=40`, 2 280 questions, empreinte
+`65dcd53655e8bfa5`. `bin/mmlupair` refuse deux dumps de plans différents
+(`mmlupair.rs`, champs `limit` et `fingerprint`). Un Tetra sur 14 042 ne
+s'apparie donc avec **aucun** chiffre existant du dossier : ni les 70,32 de
+f16, ni les 55,59 de Planes14, ni les 56,95 de Tetra. Le split complet n'est
+pas « le même tableau en plus grand », c'est un dossier neuf.
+
+**Deux leviers avant de payer**, tous deux déjà chiffrés dans
+`docs/audit-livrable-2026-09-11.md` : `regroup` (a), −20 % *estimé*, code
+portable ; et le noyau int4 par lots, −8 % *estimé*. Ensemble ils ramènent le
+bras noyau de 19,17 $ à **~13,80 $** et le total à **~28 $**.
+
+**Le plafond de la vague 3 est 20 $, dont 4,58 $ dépensés.** Le programme
+complet ne rentre pas. C'est une décision d'opérateur : relever le plafond,
+ou réduire le programme (par exemple noyau + dense en full, sans rejouer f16
+et Planes14, et le tableau à quatre reste au plan 2 280 à côté).
