@@ -553,14 +553,453 @@ footer a { color: var(--muted); }
 
   <p>Le tokenizer découpe le texte en unités et leur attribue des identifiants. Une table d'embeddings associe à chaque identifiant un vecteur, les blocs Transformer modifient ces représentations, une projection finale produit des logits sur le vocabulaire. Le softmax les convertit en probabilités, la règle de décodage choisit le prochain token.</p>
 
+  <figure class="wide">
+    <div class="fig-scroll">
+<svg viewBox="0 0 660 306" role="img" aria-label="Le trajet complet : le texte devient des identifiants, la table d'embeddings les transforme en vecteurs, 36 blocs les modifient, la tete de sortie produit 151 936 logits, le softmax des probabilites, la regle de decodage un jeton, qui rejoint le contexte.">
+<defs><marker id="av" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+<text class="t-sm" x="8" y="22">UNE ITÉRATION COMPLÈTE · LES FORMES SONT CELLES DU QWEN3-4B</text>
+<rect class="box-k" x="8" y="44" width="84" height="46" rx="5"/>
+<text class="t-lbl" x="50" y="66" text-anchor="middle">texte</text>
+<text class="t-numsm" x="50" y="82" text-anchor="middle">« Le chat »</text>
+<rect class="box-s" x="114" y="44" width="96" height="46" rx="5"/>
+<text class="t-hd" x="162" y="66" text-anchor="middle">tokenizer</text>
+<text class="t-sm" x="162" y="82" text-anchor="middle">découpe</text>
+<rect class="box-k" x="232" y="44" width="86" height="46" rx="5"/>
+<text class="t-lbl" x="275" y="66" text-anchor="middle">identifiants</text>
+<text class="t-numsm" x="275" y="82" text-anchor="middle">1 234 · 5 678</text>
+<rect class="box-t" x="340" y="44" width="140" height="46" rx="5"/>
+<text class="t-hd" x="410" y="64" text-anchor="middle">table d'embeddings</text>
+<text class="t-numsm" x="410" y="82" text-anchor="middle">151 936 × 2 560</text>
+<rect class="box-s" x="516" y="36" width="128" height="46" rx="5"/>
+<rect class="box-s" x="510" y="44" width="128" height="46" rx="5"/>
+<rect class="box-t" x="504" y="52" width="128" height="46" rx="5"/>
+<text class="t-hd" x="568" y="72" text-anchor="middle">36 blocs</text>
+<text class="t-numsm" x="568" y="90" text-anchor="middle">7 projections chacun</text>
+<g style="color: var(--line-strong)" class="s-line">
+<line x1="94" y1="67" x2="110" y2="67" marker-end="url(#av)"/>
+<line x1="212" y1="67" x2="228" y2="67" marker-end="url(#av)"/>
+<line x1="320" y1="67" x2="336" y2="67" marker-end="url(#av)"/>
+<line x1="482" y1="67" x2="498" y2="67" marker-end="url(#av)"/>
+</g>
+<path class="s-line" d="M568 98 L568 126 L360 126 L360 156" style="color: var(--line-strong)" marker-end="url(#av)"/>
+<text class="t-sm" x="558" y="118" text-anchor="end">vecteur de 2 560</text>
+<rect class="box-s" x="430" y="162" width="212" height="46" rx="5"/>
+<text class="t-hd" x="536" y="182" text-anchor="middle">tête de sortie → logits</text>
+<text class="t-numsm" x="536" y="200" text-anchor="middle">151 936 scores</text>
+<rect class="box-t" x="300" y="162" width="112" height="46" rx="5"/>
+<text class="t-hd" x="356" y="182" text-anchor="middle">softmax</text>
+<text class="t-sm" x="356" y="200" text-anchor="middle">probabilités</text>
+<rect class="box-s" x="168" y="162" width="114" height="46" rx="5"/>
+<text class="t-hd" x="225" y="182" text-anchor="middle">décodage</text>
+<text class="t-sm" x="225" y="200" text-anchor="middle">glouton ici</text>
+<rect class="box-k" x="60" y="162" width="90" height="46" rx="5"/>
+<text class="t-lbl" x="105" y="182" text-anchor="middle">jeton</text>
+<text class="t-numsm" x="105" y="200" text-anchor="middle">« dort »</text>
+<g style="color: var(--line-strong)" class="s-line">
+<line x1="428" y1="185" x2="414" y2="185" marker-end="url(#av)"/>
+<line x1="298" y1="185" x2="284" y2="185" marker-end="url(#av)"/>
+<line x1="166" y1="185" x2="152" y2="185" marker-end="url(#av)"/>
+</g>
+<path d="M105 208 L105 244 L275 244 L275 92" fill="none" stroke="var(--hue)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#av)" style="color: var(--hue)"/>
+<text class="t-hue" x="285" y="240">le jeton rejoint le contexte, et tout recommence</text>
+<line class="s-thin" x1="8" y1="262" x2="652" y2="262"/>
+<text class="t-sm" x="8" y="280">La tête de sortie du 4B <tspan class="t-num">n'existe pas</tspan> comme tenseur séparé : <tspan class="mono" style="fill:var(--ink)">tie_word_embeddings</tspan> vaut vrai, donc</text>
+<text class="t-sm" x="8" y="296">c'est la table d'embeddings relue dans l'autre sens. Elle est lue à chaque jeton, et elle pèse 388 956 160 poids.</text>
+</svg>
+    </div>
+    <figcaption><b>Figure 02a.</b> Une itération produit un jeton, puis recommence avec ce jeton dans le contexte. Le détail qui surprend : le 4B n'a pas de tête de sortie séparée. <code>tie_word_embeddings</code> vaut vrai, donc la table d'embeddings est relue dans l'autre sens pour produire les 151 936 logits.</figcaption>
+  </figure>
+
   <p>Deux familles de calculs se partagent le bloc. <strong>L'attention</strong> permet aux positions d'utiliser l'information d'autres positions autorisées : Q et K construisent les scores, V fournit les valeurs combinées. <strong>Le MLP</strong> transforme ensuite la représentation de chaque position ; dans les variantes à porte on trouve <code>gate_proj</code>, <code>up_proj</code> et <code>down_proj</code>. Ces grandes matrices sont les cibles naturelles de la compression.</p>
+
+  <p>Le détail qui compte pour la suite est la façon dont les scores se forment. Les scores viennent de <code>QKᵀ / √128</code>, où 128 est la dimension d'une tête. Un masque causal met à <code>−∞</code> tout ce qu'une position n'a pas le droit de lire, le softmax normalise chaque ligne, et les poids obtenus combinent les lignes de V. Le 4B partage ses têtes : <strong>32 têtes de requête pour 8 têtes clé-valeur</strong>, quatre requêtes par groupe.</p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+<svg viewBox="0 0 660 474" role="img" aria-label="L'interieur de l'attention : trois projections d'entree aux formes reelles du 4B, un groupe GQA ou quatre tetes de requete partagent une tete cle et une tete valeur, puis la matrice de scores masquee, passee au softmax et multipliee par V.">
+<defs><marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+<text class="t-sm" x="8" y="26">1 · LES TROIS PROJECTIONS D'ENTRÉE, FORMES RÉELLES DU 4B</text>
+<rect class="box-k" x="8" y="40" width="64" height="42" rx="5"/>
+<text class="t-num" x="40" y="60" text-anchor="middle">x</text>
+<text class="t-numsm" x="40" y="76" text-anchor="middle">2 560</text>
+<g style="color: var(--line-strong)" class="s-line"><line x1="74" y1="61" x2="90" y2="61" marker-end="url(#aa)"/></g>
+<rect class="box-t" x="96" y="40" width="168" height="42" rx="5"/>
+<text class="t-num" x="180" y="60" text-anchor="middle">q_proj</text>
+<text class="t-numsm" x="180" y="76" text-anchor="middle">4096 × 2560</text>
+<text class="t-sm" x="180" y="98" text-anchor="middle">32 têtes × 128</text>
+<rect class="box-t" x="288" y="40" width="160" height="42" rx="5"/>
+<text class="t-num" x="368" y="60" text-anchor="middle">k_proj</text>
+<text class="t-numsm" x="368" y="76" text-anchor="middle">1024 × 2560</text>
+<text class="t-sm" x="368" y="98" text-anchor="middle">8 têtes × 128</text>
+<rect class="box-t" x="472" y="40" width="160" height="42" rx="5"/>
+<text class="t-num" x="552" y="60" text-anchor="middle">v_proj</text>
+<text class="t-numsm" x="552" y="76" text-anchor="middle">1024 × 2560</text>
+<text class="t-sm" x="552" y="98" text-anchor="middle">8 têtes × 128</text>
+<line class="s-thin" x1="8" y1="114" x2="652" y2="114"/>
+<text class="t-sm" x="8" y="136">2 · UN GROUPE GQA · QUATRE TÊTES DE REQUÊTE PARTAGENT UNE CLÉ ET UNE VALEUR</text>
+<rect class="box-t" x="20" y="150" width="44" height="26" rx="4"/>
+<text class="t-numsm" x="42" y="167" text-anchor="middle">q1</text>
+<path class="s-line" d="M42 176 L120 198" style="color: var(--line-strong)"/>
+<rect class="box-t" x="72" y="150" width="44" height="26" rx="4"/>
+<text class="t-numsm" x="94" y="167" text-anchor="middle">q2</text>
+<path class="s-line" d="M94 176 L120 198" style="color: var(--line-strong)"/>
+<rect class="box-t" x="124" y="150" width="44" height="26" rx="4"/>
+<text class="t-numsm" x="146" y="167" text-anchor="middle">q3</text>
+<path class="s-line" d="M146 176 L120 198" style="color: var(--line-strong)"/>
+<rect class="box-t" x="176" y="150" width="44" height="26" rx="4"/>
+<text class="t-numsm" x="198" y="167" text-anchor="middle">q4</text>
+<path class="s-line" d="M198 176 L120 198" style="color: var(--line-strong)"/>
+<circle cx="120" cy="200" r="3" fill="var(--hue)"/>
+<path class="s-line" d="M120 202 L88 216" style="color: var(--line-strong)" marker-end="url(#aa)"/>
+<path class="s-line" d="M120 202 L156 216" style="color: var(--line-strong)" marker-end="url(#aa)"/>
+<rect class="box-k" x="56" y="222" width="56" height="26" rx="4"/>
+<text class="t-numsm" x="84" y="239" text-anchor="middle">k1</text>
+<rect class="box-k" x="128" y="222" width="56" height="26" rx="4"/>
+<text class="t-numsm" x="156" y="239" text-anchor="middle">v1</text>
+<text class="t-sm" x="20" y="266">8 groupes identiques au 4B</text>
+<text class="t-lbl" x="240" y="156">Ce que GQA achète</text>
+<text class="t-sm" x="240" y="176">32 têtes de requête, 8 têtes KV, head_dim 128.</text>
+<text class="t-sm" x="240" y="194">Le calcul des scores garde ses 32 têtes ;</text>
+<text class="t-sm" x="240" y="212">seul le <tspan class="mono" style="fill:var(--ink)">cache</tspan> rétrécit, parce qu'il n'y a que</text>
+<text class="t-sm" x="240" y="230">8 clés et 8 valeurs à garder au lieu de 32.</text>
+<text class="t-hue" x="240" y="256">Sans GQA, le cache du schéma suivant</text>
+<text class="t-hue" x="240" y="272">serait quatre fois plus gros.</text>
+<line class="s-thin" x1="8" y1="290" x2="652" y2="290"/>
+<text class="t-sm" x="8" y="308">3 · POUR UNE TÊTE ET SIX POSITIONS · LA LIGNE i EST CE QUE LA POSITION i A LE DROIT DE LIRE</text>
+<text class="t-numsm" x="107" y="330" text-anchor="middle">S = Q K&#7488; / &#8730;128</text>
+<rect x="62" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="62" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="62" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="62" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="62" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="62" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="77" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="92" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="107" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="122" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="137" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<text class="t-numsm" x="277" y="330" text-anchor="middle">+ masque causal</text>
+<rect x="232" y="338" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="262" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="277" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="292" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="307" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="232" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="353" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="262" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="277" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="292" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="307" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="232" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="262" y="368" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="277" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="292" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="307" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="232" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="262" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="277" y="383" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="292" y="383" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="307" y="383" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="232" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="262" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="277" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="292" y="398" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="307" y="398" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="232" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="247" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="262" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="277" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="292" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<rect x="307" y="413" width="15" height="15" fill="var(--tint)" stroke="var(--line)" stroke-width=".8"/>
+<text class="t-numsm" x="447" y="330" text-anchor="middle">softmax par ligne</text>
+<rect x="402" y="338" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="432" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="447" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="462" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="477" y="338" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="402" y="353" width="15" height="15" fill="var(--hue)" fill-opacity="0.54" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="353" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<rect x="432" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="447" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="462" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="477" y="353" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="402" y="368" width="15" height="15" fill="var(--hue)" fill-opacity="0.42" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="368" width="15" height="15" fill="var(--hue)" fill-opacity="0.66" stroke="var(--line)" stroke-width=".8"/>
+<rect x="432" y="368" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<rect x="447" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="462" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="477" y="368" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="402" y="383" width="15" height="15" fill="var(--hue)" fill-opacity="0.36" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="383" width="15" height="15" fill="var(--hue)" fill-opacity="0.54" stroke="var(--line)" stroke-width=".8"/>
+<rect x="432" y="383" width="15" height="15" fill="var(--hue)" fill-opacity="0.72" stroke="var(--line)" stroke-width=".8"/>
+<rect x="447" y="383" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<rect x="462" y="383" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="477" y="383" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="402" y="398" width="15" height="15" fill="var(--hue)" fill-opacity="0.324" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="398" width="15" height="15" fill="var(--hue)" fill-opacity="0.468" stroke="var(--line)" stroke-width=".8"/>
+<rect x="432" y="398" width="15" height="15" fill="var(--hue)" fill-opacity="0.612" stroke="var(--line)" stroke-width=".8"/>
+<rect x="447" y="398" width="15" height="15" fill="var(--hue)" fill-opacity="0.756" stroke="var(--line)" stroke-width=".8"/>
+<rect x="462" y="398" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<rect x="477" y="398" width="15" height="15" fill="none" stroke="var(--line-strong)" stroke-width=".8" stroke-dasharray="2 2"/>
+<rect x="402" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.3" stroke="var(--line)" stroke-width=".8"/>
+<rect x="417" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.42" stroke="var(--line)" stroke-width=".8"/>
+<rect x="432" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.54" stroke="var(--line)" stroke-width=".8"/>
+<rect x="447" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.66" stroke="var(--line)" stroke-width=".8"/>
+<rect x="462" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.78" stroke="var(--line)" stroke-width=".8"/>
+<rect x="477" y="413" width="15" height="15" fill="var(--hue)" fill-opacity="0.9" stroke="var(--line)" stroke-width=".8"/>
+<g style="color: var(--line-strong)" class="s-line">
+<line x1="166" y1="383" x2="226" y2="383" marker-end="url(#aa)"/>
+<line x1="336" y1="383" x2="396" y2="383" marker-end="url(#aa)"/>
+<line x1="506" y1="383" x2="546" y2="383" marker-end="url(#aa)"/>
+</g>
+<text class="t-numsm" x="196" y="378" text-anchor="middle">−∞</text>
+<text class="t-numsm" x="366" y="378" text-anchor="middle">exp</text>
+<rect class="box-t" x="552" y="338" width="90" height="90" rx="4"/>
+<text class="t-num" x="597" y="378" text-anchor="middle">× V</text>
+<text class="t-numsm" x="597" y="396" text-anchor="middle">puis o_proj</text>
+<text class="t-sm" x="8" y="450">Les cases en pointillés sont l'avenir : mises à −∞ avant le softmax, elles reçoivent un poids nul.</text>
+<text class="t-sm" x="8" y="466">Le dégradé de la troisième grille figure des poids d'attention, pas des valeurs mesurées.</text>
+</svg>
+    </div>
+    <figcaption><b>Figure 02b.</b> Les scores sont une matrice carrée en nombre de positions, et le masque causal en annule la moitié supérieure avant le softmax. GQA ne touche ni au masque ni au nombre de têtes de requête : il réduit le nombre de clés et de valeurs à conserver, ce qui est exactement ce que mesure le schéma 02d.</figcaption>
+  </figure>
 
   <p>Deux moments très différents se cachent derrière le mot « inférence ». Le <strong>prefill</strong> traite le prompt, avec beaucoup de positions disponibles en parallèle. Le <strong>decode</strong> génère ensuite les tokens un par un. À petit batch, un token mobilise beaucoup de lectures de poids pour peu de réutilisation : un format peut être excellent en decode et sans intérêt en prefill.</p>
 
-  <p>Pendant la génération on garde les clés et valeurs des positions passées pour éviter de les recalculer : c'est le <strong>cache KV</strong>. Sa taille croît avec le batch, la longueur du contexte, le nombre de couches et le nombre de têtes KV. En GQA, plusieurs têtes de requêtes partagent des têtes KV. Compresser les poids ne compresse pas ce cache, et le cours 12 montre que ce détail décide de ce qui tient sur une carte.</p>
+  <figure class="wide">
+    <div class="fig-scroll">
+<svg viewBox="0 0 660 296" role="img" aria-label="En prefill, la matrice de poids multiplie T colonnes d'activation et chaque octet de poids sert T fois. En decode, elle multiplie une seule colonne et chaque octet ne sert qu'une fois.">
+<text class="t-hd" x="8" y="26">Prefill · le prompt, T positions d'un coup</text>
+<rect class="box-t" x="20" y="48" width="52" height="118" rx="3"/>
+<text class="t-num" x="46" y="112" text-anchor="middle">W</text>
+<text class="t-numsm" x="46" y="180" text-anchor="middle">m × n</text>
+<text class="t-lbl" x="84" y="112">×</text>
+<rect class="box-k" x="104" y="48" width="104" height="118" rx="3"/>
+<line x1="117" y1="48" x2="117" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="130" y1="48" x2="130" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="143" y1="48" x2="143" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="156" y1="48" x2="156" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="169" y1="48" x2="169" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="182" y1="48" x2="182" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<line x1="195" y1="48" x2="195" y2="166" stroke="var(--line-strong)" stroke-width=".7"/>
+<text class="t-numsm" x="156" y="180" text-anchor="middle">n × T</text>
+<text class="t-lbl" x="220" y="112">=</text>
+<rect class="box-s" x="238" y="48" width="72" height="118" rx="3"/>
+<text class="t-numsm" x="274" y="180" text-anchor="middle">m × T</text>
+<text class="t-hue" x="20" y="208">chaque octet de W sert T fois</text>
+<text class="t-sm" x="20" y="226">le calcul domine · produit matrice-matrice</text>
+<line class="s-thin" x1="330" y1="14" x2="330" y2="240"/>
+<text class="t-hd" x="352" y="26">Decode · un jeton, puis le suivant</text>
+<rect class="box-t" x="364" y="48" width="52" height="118" rx="3"/>
+<text class="t-num" x="390" y="112" text-anchor="middle">W</text>
+<text class="t-numsm" x="390" y="180" text-anchor="middle">m × n</text>
+<text class="t-lbl" x="428" y="112">×</text>
+<rect class="box-k" x="448" y="48" width="13" height="118" rx="2"/>
+<text class="t-numsm" x="454" y="180" text-anchor="middle">n × 1</text>
+<text class="t-lbl" x="478" y="112">=</text>
+<rect class="box-s" x="496" y="48" width="13" height="118" rx="2"/>
+<text class="t-numsm" x="502" y="180" text-anchor="middle">m × 1</text>
+<text class="t-hue" x="364" y="208">chaque octet de W sert une fois</text>
+<text class="t-sm" x="364" y="226">la mémoire domine · produit matrice-vecteur</text>
+<line class="s-thin" x1="8" y1="252" x2="652" y2="252"/>
+<text class="t-sm" x="8" y="270">Un format compact réduit les octets lus. En decode ces octets ne sont amortis sur rien, donc le gain se voit</text>
+<text class="t-sm" x="8" y="288">directement sur le temps. En prefill ils étaient déjà amortis sur T positions, et le même format peut ne rien rapporter.</text>
+</svg>
+    </div>
+    <figcaption><b>Figure 02c.</b> La matrice de poids est la même des deux côtés ; seule la largeur de l'activation change. C'est cette largeur qui décide si le temps est borné par le calcul ou par les octets, et donc si un format compact rapporte quelque chose. Le cours 10 mesure ce régime.</figcaption>
+  </figure>
+
+  <p>Pendant la génération on garde les clés et valeurs des positions passées pour éviter de les recalculer : c'est le <strong>cache KV</strong>. Sa taille croît avec le batch, la longueur du contexte, le nombre de couches et le nombre de têtes KV. En GQA, plusieurs têtes de requêtes partagent des têtes KV, et c'est le cache qui rétrécit, pas le calcul des scores. Compresser les poids ne compresse pas ce cache, et le cours 12 montre que ce détail décide de ce qui tient sur une carte.</p>
+
+  <figure class="wide">
+    <div class="fig-scroll">
+<svg viewBox="0 0 660 336" role="img" aria-label="Le cache KV grandit d'une colonne par jeton genere, dans chaque couche et chaque tete KV. Au 4B a 8k de contexte il pese 1,208 Go en f16, soit 89 pour cent des poids Tetra mesures sur carte.">
+<defs><marker id="ak" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+<text class="t-sm" x="8" y="24">CE QUI S'AJOUTE À CHAQUE JETON GÉNÉRÉ · UNE COLONNE, DANS CHAQUE COUCHE ET CHAQUE TÊTE KV</text>
+<text class="t-hd" x="26" y="72" text-anchor="middle">K</text>
+<rect class="box-k" x="42" y="38" width="140" height="62" rx="3"/>
+<line x1="56" y1="38" x2="56" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="70" y1="38" x2="70" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="84" y1="38" x2="84" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="98" y1="38" x2="98" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="112" y1="38" x2="112" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="126" y1="38" x2="126" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="140" y1="38" x2="140" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="154" y1="38" x2="154" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="168" y1="38" x2="168" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="250" y1="38" x2="250" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="264" y1="38" x2="264" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="278" y1="38" x2="278" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="292" y1="38" x2="292" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="306" y1="38" x2="306" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="320" y1="38" x2="320" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="334" y1="38" x2="334" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="348" y1="38" x2="348" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<line x1="362" y1="38" x2="362" y2="100" stroke="var(--line)" stroke-width=".7"/>
+<rect x="168" y="38" width="14" height="62" fill="var(--hue)" fill-opacity=".35" stroke="var(--hue)" stroke-width="1.2"/>
+<text class="t-numsm" x="112" y="114" text-anchor="middle">jetons passés</text>
+<text class="t-hd" x="220" y="72" text-anchor="middle">V</text>
+<rect class="box-k" x="236" y="38" width="140" height="62" rx="3"/>
+<rect x="362" y="38" width="14" height="62" fill="var(--hue)" fill-opacity=".35" stroke="var(--hue)" stroke-width="1.2"/>
+<text class="t-numsm" x="306" y="114" text-anchor="middle">jetons passés</text>
+<path class="s-line" d="M428 56 L382 56" style="color: var(--hue)" stroke="var(--hue)" marker-end="url(#ak)"/>
+<text class="t-hue" x="434" y="60">le jeton t</text>
+<text class="t-sm" x="434" y="84">128 valeurs par tête,</text>
+<text class="t-sm" x="434" y="100">× 8 têtes KV, × 36 couches,</text>
+<text class="t-sm" x="434" y="116">× 2 pour K et V</text>
+<text class="t-num" x="434" y="138">= 144 Kio / jeton</text>
+<line class="s-thin" x1="8" y1="150" x2="652" y2="150"/>
+<text class="t-sm" x="8" y="166">AU 4B · CONTEXTE 8k · LOT 1</text>
+<line class="s-thin" x1="190.0" y1="182" x2="190.0" y2="286"/>
+<text class="t-numsm" x="190.0" y="178" text-anchor="middle">0</text>
+<line class="s-thin" x1="272.0" y1="182" x2="272.0" y2="286"/>
+<text class="t-numsm" x="272.0" y="178" text-anchor="middle">1</text>
+<line class="s-thin" x1="354.0" y1="182" x2="354.0" y2="286"/>
+<text class="t-numsm" x="354.0" y="178" text-anchor="middle">2</text>
+<line class="s-thin" x1="436.0" y1="182" x2="436.0" y2="286"/>
+<text class="t-numsm" x="436.0" y="178" text-anchor="middle">3</text>
+<line class="s-thin" x1="518.0" y1="182" x2="518.0" y2="286"/>
+<text class="t-numsm" x="518.0" y="178" text-anchor="middle">4</text>
+<line class="s-thin" x1="600.0" y1="182" x2="600.0" y2="286"/>
+<text class="t-numsm" x="600.0" y="178" text-anchor="middle">5 Go</text>
+<text class="t-lbl" x="8" y="202">cache KV, f16</text>
+<rect x="190" y="190" width="99.1" height="16" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<text class="t-numsm" x="295.1" y="202">1,208</text>
+<text class="t-lbl" x="8" y="226">cache KV, q8</text>
+<rect x="190" y="214" width="49.5" height="16" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<text class="t-numsm" x="245.5" y="226">0,604</text>
+<text class="t-lbl" x="8" y="250">cache sans GQA, f16</text>
+<rect x="190" y="238" width="396.2" height="16" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<text class="t-numsm" x="592.2" y="250">4,832</text>
+<text class="t-lbl" x="8" y="274">poids Tetra, sur carte</text>
+<rect x="190" y="262" width="111.5" height="16" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="307.5" y="274">1,360</text>
+<text class="t-hue" x="8" y="308">Le cache en f16 pèse 88,8 % des poids, et le quantificateur ne le touche pas :</text>
+<text class="t-hue" x="8" y="326">c'est de la mémoire d'activation, pas de la mémoire de poids.</text>
+
+</svg>
+    </div>
+    <figcaption><b>Figure 02d.</b> L'arithmétique est <span class="prov c">calculé</span> sur la configuration du 4B (36 couches, 8 têtes KV, head_dim 128) ; la barre des poids est <span class="prov m">mesuré</span> sur carte, <code>mesures/f1e0-2026-09-10.txt</code>. À 8k de contexte, le cache en f16 pèse presque autant que les poids compressés.</figcaption>
+  </figure>
 
   <p>Enfin, pourquoi une petite perturbation change une réponse. Une erreur modifie une activation, traverse d'autres projections, des normalisations, des fonctions non linéaires. À la sortie, si deux tokens ont des scores voisins, la perturbation peut inverser leur ordre ; le token choisi change alors le contexte de toutes les étapes suivantes. Une faible erreur moyenne ne garantit donc pas une conversation identique.</p>
 
+  <figure class="wide">
+    <div class="fig-scroll">
+<svg viewBox="0 0 660 300" role="img" aria-label="Une erreur minuscule inverse l'ordre de deux logits voisins, le jeton choisi change, et les deux trajectoires different ensuite sur toute la suite.">
+<defs><marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><polygon points="0,0 10,5 0,10" fill="currentColor"/></marker></defs>
+<text class="t-sm" x="8" y="24">1 · À LA SORTIE, DEUX JETONS AUX SCORES VOISINS</text>
+<text class="t-hd" x="24" y="52">f16</text>
+<rect x="24" y="72" width="26" height="78" rx="2" fill="var(--hue)" stroke="var(--hue)" stroke-width="1"/>
+<text class="t-numsm" x="37" y="166" text-anchor="middle">A</text>
+<text class="t-hue" x="37" y="66" text-anchor="middle" style="font-size:10px">choisi</text>
+<rect x="58" y="76" width="26" height="74" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="71" y="166" text-anchor="middle">B</text>
+<rect x="92" y="110" width="26" height="40" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="105" y="166" text-anchor="middle">C</text>
+<rect x="126" y="128" width="26" height="22" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="139" y="166" text-anchor="middle">D</text>
+<line class="s-line" x1="18" y1="150" x2="154" y2="150"/>
+<text class="t-hd" x="188" y="52">quantifié</text>
+<rect x="188" y="76" width="26" height="74" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="201" y="166" text-anchor="middle">A</text>
+<rect x="222" y="73" width="26" height="77" rx="2" fill="var(--hue)" stroke="var(--hue)" stroke-width="1"/>
+<text class="t-numsm" x="235" y="166" text-anchor="middle">B</text>
+<text class="t-hue" x="235" y="67" text-anchor="middle" style="font-size:10px">choisi</text>
+<rect x="256" y="109" width="26" height="41" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="269" y="166" text-anchor="middle">C</text>
+<rect x="290" y="129" width="26" height="21" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-numsm" x="303" y="166" text-anchor="middle">D</text>
+<line class="s-line" x1="182" y1="150" x2="318" y2="150"/>
+<path class="s-line" d="M156 100 L182 100" style="color: var(--hue)" stroke="var(--hue)" marker-end="url(#ad)"/>
+<text class="t-hue" x="132" y="90" text-anchor="middle" style="font-size:10px">erreur</text>
+<text class="t-sm" x="24" y="188">L'écart entre A et B était de l'ordre du millième. Il a suffi.</text>
+<line class="s-thin" x1="352" y1="14" x2="352" y2="200"/>
+<text class="t-sm" x="374" y="24">2 · ET TOUTE LA SUITE CHANGE</text>
+<text class="t-lbl" x="374" y="58">dense f16</text>
+<rect x="374" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="389" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="404" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="419" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="434" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="449" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="464" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="479" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="494" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="509" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="524" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="539" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="554" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="569" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="584" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="599" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="614" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="629" y="64" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<text class="t-lbl" x="374" y="98">quantifié</text>
+<rect x="374" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="389" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="404" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="419" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="434" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="449" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="464" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="479" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="494" y="104" width="12" height="18" rx="2" fill="var(--line)" stroke="var(--line-strong)" stroke-width="1"/>
+<rect x="509" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="524" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="539" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="554" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="569" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="584" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="599" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="614" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<rect x="629" y="104" width="12" height="18" rx="2" fill="var(--tint)" stroke="var(--hue)" stroke-width="1"/>
+<line x1="503" y1="52" x2="503" y2="132" stroke="var(--hue)" stroke-width="1.4" stroke-dasharray="4 3"/>
+<text class="t-hue" x="499" y="146" text-anchor="end">le premier jeton qui diffère</text>
+<text class="t-sm" x="374" y="168">Avant ce point les deux bras sont comparables jeton</text>
+<text class="t-sm" x="374" y="184">à jeton. Après, ils ne comparent plus rien.</text>
+<line class="s-thin" x1="8" y1="212" x2="652" y2="212"/>
+<text class="t-sm" x="8" y="232">CE QUE LE DÉPÔT OBSERVE, EN DÉCODAGE GLOUTON CONTRE SON PROPRE BRAS DENSE</text>
+<text class="t-lbl" x="8" y="254">Planes14, les trois dispositions servies</text>
+<text class="t-num" x="400" y="254">divergence au jeton 89</text>
+<text class="t-lbl" x="8" y="272">Tetra, embedding f16</text>
+<text class="t-num" x="400" y="272">jeton 20</text>
+<text class="t-lbl" x="8" y="290">Tetra, embedding q8</text>
+<text class="t-num" x="400" y="290">256 jetons identiques</text>
+</svg>
+    </div>
+    <figcaption><b>Figure 02e.</b> Les deux histogrammes sont illustratifs. Les trois lignes du bas sont <span class="prov m">mesuré</span> en décodage glouton, chaque bras contre le bras dense de son propre processus (<code>docs/format-noyau.md</code> §4 et <code>mesures/f1e0-2026-09-10.txt</code>). Le journal de <code>Tetra</code> ajoute que ses 256 jetons identiques sont de la chance, pas une preuve.</figcaption>
+  </figure>
   <p class="beat">Le calcul</p>
   <div class="calc">
     <p class="q">Ton noyau accélère les projections de poids de 2×. Ces projections représentaient 60 % du temps total. Quelle accélération globale maximale obtiens-tu, si le reste ne change pas ?</p>
