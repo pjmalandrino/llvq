@@ -52,7 +52,7 @@ fn embedq_refuses_a_tetra_file_by_name() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "embedq accepted a Tetra file:\n{stderr}");
     assert!(
-        stderr.contains("no runtime layout for Tetra before F1d"),
+        stderr.contains("no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none"),
         "the refusal must say why:\n{stderr}"
     );
     assert!(stderr.contains(src.to_str().unwrap()), "the refusal must name the file:\n{stderr}");
@@ -61,7 +61,15 @@ fn embedq_refuses_a_tetra_file_by_name() {
 
     // And the fused loader itself, which is what `fusedrun` and the CUDA
     // path go through: refused at the header's kind, before any record is
-    // read as a Ball record, on every layout.
+    // read as a Ball record, on every layout that reads the ball map.
+    //
+    // ⚠️ This assertion changed on 2026-09-09 and the change is the point.
+    // It used to demand the sentence "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none".
+    // That sentence was TRUE when it was written and is now FALSE: `tetra48`
+    // is the runtime layout, `llvq_artifact::tetra48` is its transcoder and
+    // `tv_tetra48_h` its kernel. The four below still refuse a Tetra file, and
+    // the reason is sharper than it was — they read a different map, not an
+    // absent one — so the refusal now names the layout that does read it.
     for layout in [
         llvq_llm::fused::FusedLayout::Planes14,
         llvq_llm::fused::FusedLayout::Planes12x,
@@ -71,9 +79,10 @@ fn embedq_refuses_a_tetra_file_by_name() {
         let e = llvq_llm::fused::load(src.to_str().unwrap(), layout)
             .err()
             .unwrap_or_else(|| panic!("{}: fused::load accepted a Tetra file", layout.name()));
+        assert!(e.contains("Tetra"), "{}: the refusal must name the kind: {e}", layout.name());
         assert!(
-            e.contains("no runtime layout for Tetra before F1d"),
-            "{}: the refusal must say why: {e}",
+            e.contains("LLVQ_FUSED_LAYOUT=tetra48"),
+            "{}: the refusal must name the layout that reads it: {e}",
             layout.name()
         );
     }

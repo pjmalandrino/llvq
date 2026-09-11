@@ -85,6 +85,7 @@ mod linux {
     use llvq_cuda::{f16_bits, f16_to_f64};
     use llvq_search::fastdec::FastDecoder;
     use llvq_search::index::N13;
+    use llvq_search::tetra::Tetra;
     use llvq_search::Searcher;
     use std::time::Instant;
 
@@ -93,8 +94,13 @@ mod linux {
     include!("../seg_host.rs");
     include!("../e1v_host.rs");
 
-    /// Blocks staged per tile: 3072 columns, 12 KB. Injected into the kernel
-    /// source by the host so the staging size and the tiling are one constant.
+    /// The **served** tile, kept as the A3 section's pin and as the fallback
+    /// of [`llvq_cuda::tile`].
+    ///
+    /// Every other consumer here reads a resolved `tile::Tile` instead. The
+    /// doc line this replaces read "3072 columns, 12 KB" as a literal; that is
+    /// `128 · 24 · 4` = 12,288 B, and it stopped being a constant on
+    /// 2026-09-10 — an arithmetic, not a number.
     use llvq_cuda::TILE_BLOCKS;
     const THREADS: u32 = 256;
     const GSCALE: [f32; 2] = [0.625, 1.375];
@@ -467,6 +473,63 @@ mod linux {
         kernel: String,
     }
 
+    /// The served Tetra arm: the second file's stream and its own everything.
+    ///
+    /// It carries its own `gscale`, `rscale` and `tail` — a `Mat` already has
+    /// all three, and they belong to the FIRST file. Same projection, same
+    /// shape, different quantization: reusing the first file's would decode
+    /// this stream against another file's scales, which is a silent wrong
+    /// number and not a crash. Its reference and its error denominator are its
+    /// own for the same reason the AWQ and QTIP arms' are.
+    struct TetraArm {
+        /// Little-endian, **row-strided** words. Not flat: a 6-byte record at
+        /// `6·b` is not 4-aligned, so a row must start on a u32 boundary or
+        /// every row after the first reads at a shifted phase.
+        words: Staged<u32>,
+        /// The stream's OWN stride, never recomputed at launch — the E1v
+        /// argument, and it is asserted against `tetra48::stride_u32` below.
+        stride_u32: u32,
+        gscale: cudarc::driver::CudaSlice<f32>,
+        rscale: cudarc::driver::CudaSlice<f32>,
+        tail: cudarc::driver::CudaSlice<f32>,
+        bytes: u64,
+        /// The row padding, which `bytes` deliberately does NOT include.
+        ///
+        /// It is real VRAM — the stream allocated and uploaded IS the padded
+        /// one — and it is not billed, exactly as the slot arm's 20-byte pad
+        /// and the planes arm's 4-byte pad are not. Carried so the run can say
+        /// how much VRAM it holds without billing it into a rate, which is the
+        /// difference between the two accountings this repository refuses to
+        /// mix.
+        pad_bytes: u64,
+        /// Weights this arm covers. NOT the matrix's: `v_proj` is int4 in the
+        /// served file and has no lattice arm, so the Tetra arm's b/weight
+        /// denominator is its own and every arm's column is now formed from
+        /// the weights that arm actually read.
+        weights: u64,
+        y_ref: Vec<f64>,
+        scale: Vec<f64>,
+    }
+
+    /// One matrix of the **second** file, already in the served stream.
+    ///
+    /// The indices and gains are dropped as soon as they are transcoded: the
+    /// reference below decodes the packed words back through
+    /// `Tetra48Blocks::decode_block`, which is the stronger check anyway — a
+    /// mistake in the packing is then a disagreement between two routes and
+    /// not an error both sides share. It also halves what this list costs:
+    /// `srcs` already holds ~1.8 GB of host RAM for the first file.
+    struct TetraSrc {
+        d_out: usize,
+        d_in: usize,
+        blocks: llvq_artifact::tetra48::Tetra48Blocks,
+        /// The **second** file's centroid pair, not the first's. Same
+        /// projection, different quantization, different gain scale.
+        centroids: [f32; 2],
+        rscale: Vec<f32>,
+        tail: Vec<f32>,
+    }
+
     struct Mat {
         name: String,
         d_out: usize,
@@ -478,6 +541,7 @@ mod linux {
         p12: Option<P12Arm>,
         g70: Option<G70Arm>,
         e1v: Option<E1vArm>,
+        tetra: Option<TetraArm>,
         awq: Option<AwqArm>,
         qtip: Option<QtipArm>,
         // The FP16 witness and the shared inputs, always built: fp16 cannot
@@ -499,6 +563,62 @@ mod linux {
     /// for an arm that was not built, which has no table row to print it in
     /// anyway. v1 and v2 share the golay70 row: same buffers, same bytes, by
     /// construction.
+    /// `1/sqrt(16 m)`, entry 0 the origin — reconstructed without a branch and
+    /// without a division. `m ≤ 27` on this codebook, derived over the whole
+    /// table by `llvq-bench/examples/tetrashell.rs`; 32 is that bound rounded
+    /// up, and `llvq_tetra48.cuh` masks with it. Same table `bin/f1rankfloor`
+    /// builds, same three lines, because it is the same kernel.
+    fn invnorm_table() -> Vec<f32> {
+        let mut t = vec![0.0f32; llvq_artifact::tetra48::TETRA48_SHELLS];
+        for (m, e) in t.iter_mut().enumerate().skip(1) {
+            *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+        }
+        t
+    }
+
+    /// Bytes into little-endian u32, zero-padded — the rank table's prefix and
+    /// suffix streams are `u8` and the upload path is `u32`.
+    fn pack_u8(b: &[u8]) -> Vec<u32> {
+        b.chunks(4)
+            .map(|c| {
+                let mut w = [0u8; 4];
+                w[..c.len()].copy_from_slice(c);
+                u32::from_le_bytes(w)
+            })
+            .collect()
+    }
+
+    /// The four rank-table buffers the F1 decoder walks, plus the two
+    /// constants the served Tetra decode adds. Uploaded once for the run.
+    struct TetraTabs {
+        rows: cudarc::driver::CudaSlice<u32>,
+        prefixes: cudarc::driver::CudaSlice<u32>,
+        branches: cudarc::driver::CudaSlice<u16>,
+        suffixes: cudarc::driver::CudaSlice<u32>,
+        invnorm: cudarc::driver::CudaSlice<f32>,
+    }
+
+    /// The weights an arm's bytes cover, for one matrix.
+    ///
+    /// 🕳️ It was `n_weights`, one accumulator for the whole table, and that
+    /// was correct only while every arm read every matrix. The served Tetra
+    /// arm does not: 36 of the 252 projections are `v_proj`, stored as int4
+    /// g128 and read by another kernel. Dividing its bytes by all 252
+    /// projections' weights understates its b/weight by the `v_proj` share —
+    /// 94,371,840 of 3,633,315,840 weights, **2.597 %** (*computed*, from the
+    /// seven shapes over 36 layers), which turns a true 2.1576 into a printed
+    /// 2.1017. Both clear an F1d gate of 2.20, so it would not have flipped
+    /// the verdict; it would have published a wrong number, which is worse for
+    /// being survivable.
+    ///
+    /// Every arm now divides by what it actually read.
+    fn arm_weights(m: &Mat, a: usize) -> u64 {
+        match a {
+            arms::TETRA48 => m.tetra.as_ref().map_or(0, |x| x.weights),
+            _ => (m.d_out * m.d_in) as u64,
+        }
+    }
+
     fn arm_bytes(m: &Mat, a: usize) -> u64 {
         match a {
             arms::SLOT32 => m.slot.as_ref().map_or(0, |x| x.bytes),
@@ -506,6 +626,7 @@ mod linux {
             arms::PLANES12X => m.p12.as_ref().map_or(0, |x| x.bytes),
             arms::GOLAY70V1 | arms::GOLAY70V2 => m.g70.as_ref().map_or(0, |x| x.bytes),
             arms::E1V => m.e1v.as_ref().map_or(0, |x| x.bytes),
+            arms::TETRA48 => m.tetra.as_ref().map_or(0, |x| x.bytes),
             // The floor reads NO weight, which is its definition. What is
             // left is what every LLVQ arm uploads anyway: the f32 tail and
             // the row scales. Its table row will therefore show a near-zero
@@ -569,6 +690,45 @@ mod linux {
         b.arg(words).arg(tab).arg(gscale).arg(rscale).arg(tail).arg(x).arg(y)
             .arg(&nblocks).arg(&tail_w);
         unsafe { b.launch(cfg) }.map_err(|e| format!("tv_planes: {e}"))?;
+        Ok(())
+    }
+
+    /// `tv_f1r_v3g(words, row_stride_u32, rows, prefixes, branches, suffixes,
+    /// gscale, invnorm, rscale, tail, x, y, nblocks, tail_w)` — the served
+    /// Tetra decode.
+    ///
+    /// Two things differ from every ball arm above, and both are the layout.
+    /// The words are **row-strided**, so the kernel takes a stride where the
+    /// others take nothing: a 6-byte record at `6·b` is not 4-aligned, and a
+    /// row that did not start on a u32 boundary would read every block after
+    /// the first at a shifted phase. And the four table pointers are the F1
+    /// rank decoder's, not a `ClassRec` table: Tetra resolves a magnitude
+    /// through a trellis rank, where the ball layouts index a class.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_tetra48(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        row_stride_u32: u32,
+        tabs: &TetraTabs,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(&row_stride_u32)
+            .arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
+            .arg(gscale).arg(&tabs.invnorm).arg(rscale).arg(tail)
+            .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_f1r_v3g: {e}"))?;
         Ok(())
     }
 
@@ -1067,7 +1227,30 @@ mod linux {
         // changes the buffers and the dispatch, never the compiled text nor
         // the register report (the opposite would redo É1).
         let arms_var = std::env::var("LLVQ_BENCH_ARMS").ok();
-        let phases = arms::parse_phases(arms_var.as_deref())?;
+        let mut phases = arms::parse_phases(arms_var.as_deref())?;
+        // The Tetra arm needs a SECOND file, and `runnable()` cannot know
+        // whether this invocation was given one: it says a kernel exists, not
+        // that anything can feed it.
+        //
+        // A bare `planesbench <ball.llvq>` is the invocation every published
+        // run used, so a DEFAULT selection is narrowed rather than refused —
+        // loudly, on its own line, because an arm that vanishes without a word
+        // is the failure this whole step is about. An EXPLICIT
+        // `LLVQ_BENCH_ARMS=…,tetra48,…` is refused instead, further down: that
+        // is a selection the operator made, and narrowing it would be making
+        // a different one for them.
+        let tetra_path = std::env::args().nth(2);
+        if tetra_path.is_none() && arms_var.is_none() {
+            for p in phases.iter_mut() {
+                p.remove(arms::TETRA48);
+            }
+            println!(
+                "no second file: the tetra48 arm is OUT of this run. It reads a Tetra file, \
+                 which\n  cannot be the same file as the ball arms' — pass it as the second \
+                 argument."
+            );
+        }
+        let phases = phases;
         let union: ArmSet = {
             let mut u = ArmSet::empty();
             for p in &phases {
@@ -1077,6 +1260,48 @@ mod linux {
             }
             u
         };
+        // 🚨 Every arm this binary can DISPATCH, and nothing else.
+        //
+        // `arms::HAS_KERNEL` says an arm's kernel exists **in the repository**;
+        // it does not say this binary has a branch for it, and the two drifted
+        // on 2026-09-09. `HAS_KERNEL[TETRA48]` went true when the arm entered
+        // the registry, `parse_phases(None)` returns `ArmSet::runnable()`, and
+        // for one day a bare `planesbench <model.llvq>` selected arm 17 and
+        // reached `unreachable!("unknown arm")` — after the three minutes of
+        // transcoding, on a rented card, with nothing on the development Mac
+        // able to see it: this file is entirely `cfg(target_os = "linux")` and
+        // the failure is a runtime panic, not a type error.
+        //
+        // So the list is stated here and checked in the first second. It is
+        // hand-written because nothing can derive it from three `match` arms —
+        // but a hand-written list that fails loud and early is worth a great
+        // deal more than a derived one that fails late.
+        for a in union.iter() {
+            let dispatched = matches!(
+                a,
+                arms::SLOT32
+                    | arms::PLANES14
+                    | arms::PLANES12X
+                    | arms::GOLAY70V1
+                    | arms::GOLAY70V2
+                    | arms::E1V
+                    | arms::TETRA48
+                    | arms::NULLK
+                    | arms::FP16
+                    | arms::CUBLASF16
+                    | arms::AWQ
+                    | arms::QTIP
+            );
+            if !dispatched {
+                return Err(format!(
+                    "planesbench cannot dispatch \"{}\" (arm {a}). It is registered in \
+                     `arms.rs` and `HAS_KERNEL` says its kernel exists, but this binary has \
+                     no branch for it — wire it, or take it out of the selection. Refused \
+                     here rather than in `unreachable!` three minutes from now.",
+                    arms::ARM_NAMES[a]
+                ));
+            }
+        }
         if arms_var.is_some() {
             println!("LLVQ_BENCH_ARMS selection:");
             for (k, p) in phases.iter().enumerate() {
@@ -1102,6 +1327,17 @@ mod linux {
                 seg_arms.iter().map(|&a| llvq_cuda::occ::SEG_ARM_NAMES[a]).collect::<Vec<_>>().join(",")
             );
         }
+        // The tile, resolved HERE for the reason `seg_arms` is parsed here:
+        // it opens the card, and a refusal that fires after three minutes of
+        // transcoding on a rented card is worth nothing. It has to precede the
+        // source anyway — it is a `#define` in it.
+        let tile = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        println!("{}", tile.provenance());
+        // The A3 arms size their launches from the constant and `occ_pers`
+        // changes branch at the tile boundary, so the two selections are
+        // refused together rather than measured apart.
+        llvq_cuda::occ::refuse_off_served_tile(&seg_arms, tile.blocks)?;
+
         let g70_needed = union.has(arms::GOLAY70V1) || union.has(arms::GOLAY70V2);
 
         // Parts concatenated in dependency order: llvq_planes.cuh needs
@@ -1134,12 +1370,34 @@ mod linux {
         // contribute nothing to the translation unit — and, deliberately,
         // nothing to its hash either, so a machine without the fetch compiles
         // the SAME source as every published run.
+        // The F1 family and the served Tetra decode (6.8a, 2026-09-10).
+        // Always in the unit, selected or not, for the reason A3 is: the unit
+        // never varies with the selection, so every arm's sha256 moves
+        // together or none does.
+        //
+        // The order is the caller's contract, stated identically in two files
+        // (`tv_tetra48_h.cu:36-37`, `tetra48_v3g.cu:24-25`): llvq_slot.cuh,
+        // matvec.cu, llvq_f1rank.cuh, llvq_f1rank_v3.cuh, llvq_tetra48.cuh,
+        // then the arm. The first two are already `base.parts[0..1]` at the
+        // head, so the four below go at the END of the unit — adding an arm
+        // must never move a fragment of an arm that carries a published
+        // number, and appending is the only placement that cannot.
+        //
+        // `f1rank.cu` and the v1/v2 variants are NOT here: `tetra48_v3g.cu`
+        // names only the three headers, and `cuhcheck` assembles exactly that
+        // unit.
+        let f1 = llvq_cuda::load_sources_many(&[
+            "llvq_f1rank.cuh",
+            "llvq_f1rank_v3.cuh",
+            "llvq_tetra48.cuh",
+            "tetra48_v3g.cu",
+        ])?;
         let qtip_src = load_qtip_sources()?;
         let (qtip_cuh, qtip_glue) = match &qtip_src {
             Some((cuh, glue)) => (cuh.as_str(), glue.as_str()),
             None => ("", ""),
         };
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        let defines = tile.define();
         let parts = [
             defines.as_str(),
             base.parts[0].as_str(),
@@ -1177,11 +1435,28 @@ mod linux {
             // shims, which name it.
             qtip_cuh,
             qtip_glue,
+            // Last of all, and after QTIP for the same rule QTIP arrived
+            // under. Nothing before this line moves by one notch.
+            f1.parts[0].as_str(),
+            f1.parts[1].as_str(),
+            f1.parts[2].as_str(),
+            f1.parts[3].as_str(),
         ];
         let src = KernelSource::new(&parts);
+        // On the assembled text: the one place where what NVRTC compiles and
+        // what this report prints are both visible.
+        tile.assert_defined_in(&src.text);
         println!("NVRTC source: {} bytes, sha256 {}", src.text.len(), src.sha256);
         if let Some(d) = &base.overridden_from {
             println!("  WARNING: Slot32 SOURCES OVERRIDDEN from {d}");
+        }
+        // The four F1/Tetra fragments were the only ones whose override was
+        // never announced. `load_sources_many` returns it and it was dropped:
+        // every `tetra48` figure — b/weight, ms, GB/s, the ratio, the register
+        // report on `tv_f1r_v3g` — would have been attributed to the committed
+        // kernel while a substituted one produced them.
+        if let Some(d) = &f1.overridden_from {
+            println!("  WARNING: F1/Tetra48 SOURCES OVERRIDDEN from {d}");
         }
         if let Some(d) = &planes_overridden {
             println!("  WARNING: Planes14 SOURCES OVERRIDDEN from {d}");
@@ -1268,6 +1543,13 @@ mod linux {
             // something else (E1v-CUDA preregistration §5.4).
             "tv_e1v",
             "tv_nullk",
+            // The served Tetra decode. A kernel of OURS, so it falls into the
+            // hard-stop branch below and a spill kills the run — which is what
+            // F1d wants: the 6.4 kill read `num_regs ≤ 40` and
+            // `local_bytes == 0` off this very function, and this is the only
+            // evidence that NVRTC accepts it in a translation unit this much
+            // larger than `f1rankfloor`'s.
+            "tv_f1r_v3g",
             // A3: the seven occupancy kernels, reported even when no arm is
             // selected. This is the only proof that NVRTC accepts them, and
             // `mr4` (four planes_dot in flight per lane) is the designated
@@ -1369,6 +1651,40 @@ mod linux {
         }
         let d_tab = cuda.up_u32(&tab)?;
 
+        // The served Tetra decode's tables: the universal 16 KiB rank table,
+        // the trellis's three streams, and `1/sqrt(16 m)`. Built by the
+        // reference (`llvq_bench::f1`) and uploaded once — `bin/f1rankfloor`
+        // builds them from the same four calls, and a second construction here
+        // would be a second thing to keep in step.
+        let tetra_tabs = match union.has(arms::TETRA48) {
+            false => None,
+            true => {
+                let tr = llvq_bench::f1::Trellis::new();
+                let table = llvq_bench::f1::rank::RankTable::build();
+                assert_eq!(table.rows.len(), 4096, "the rank table is not 4096 rows");
+                assert_eq!(
+                    table.n0_mixed, 1240,
+                    "RankTable::n0_mixed is {}, F1R_N0_MIXED in llvq_f1rank.cuh is 1240: \
+                     the split of the mixed order differs",
+                    table.n0_mixed
+                );
+                println!(
+                    "tetra48: rank table {} B, prefixes 128 B, branches 2048 B, suffixes 128 B, \
+                     invnorm {} B, N0 = {}",
+                    table.rows.len() * 4,
+                    llvq_artifact::tetra48::TETRA48_SHELLS * 4,
+                    table.n0_mixed
+                );
+                Some(TetraTabs {
+                    rows: cuda.up_u32(&table.rows)?,
+                    prefixes: cuda.up_u32(&pack_u8(&llvq_bench::f1::rank::prefix_bytes(&tr)))?,
+                    branches: cuda.up_u16(&llvq_bench::f1::rank::branch_words(&tr))?,
+                    suffixes: cuda.up_u32(&pack_u8(&llvq_bench::f1::rank::suffix_bytes(&tr)))?,
+                    invnorm: cuda.up_f32(&invnorm_table())?,
+                })
+            }
+        };
+
         // The Golay70 arm's two constant tables: the dedicated class table
         // (residue pairs / level values + mod-4 flags + coset flag) and the
         // canonical 4096-codeword table (16 KiB) the 12-bit rank resolves
@@ -1447,6 +1763,93 @@ mod linux {
         let searcher = Searcher::new();
 
         let phase0 = phases[0];
+        // ---- the SECOND file, read before the first ----------------------
+        //
+        // Tetra and Planes14 cannot share a file: they are different code
+        // alphabets, and the served Tetra file also carries its `v_proj` as
+        // int4 g128. So the bench takes two paths and reads each format from
+        // its own — every arm still in ONE process, which is what rule 5 is
+        // about, and what F1d promises.
+        //
+        // Read FIRST, and entirely, for the reason `LLVQ_SEG_ARMS` is parsed
+        // in the first second: a bad path or an unreadable record must kill
+        // the job before the three minutes of transcoding the first file
+        // costs, not after.
+        //
+        // `read_record` is the only entry that walks a mixed file
+        // (`format.rs:1167`). Every other one — `read_matrix_raw` included,
+        // which is what this bench used for four months — refuses an int4
+        // record AFTER `get_record_head` has consumed the head, and the body
+        // has no length prefix a stranded reader could skip over. That is
+        // deliberate (`format.rs:1899-1907`), and it is why the loop below
+        // does not simply filter.
+        let mut tetra: std::collections::HashMap<String, TetraSrc> =
+            std::collections::HashMap::new();
+        let mut tetra_int4 = 0usize;
+        if let Some(path) = &tetra_path {
+            let f = std::fs::File::open(path).map_err(|e| format!("open {path}: {e}"))?;
+            let mut r = std::io::BufReader::new(f);
+            let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+            for _ in 0..h.matrices {
+                match llvq_artifact::read_record(&mut r, h.version).map_err(|e| e.to_string())? {
+                    llvq_artifact::Record::Int4(m) => {
+                        // Counted, never timed. `v_proj` is stored weights, a
+                        // second kernel's business (`tv_q4_h`), and the arm
+                        // measured here is the lattice decode. What matters is
+                        // that the count reaches the report: an arm covering
+                        // 216 of 252 matrices is not comparable, launch for
+                        // launch, to one covering 252.
+                        tetra_int4 += 1;
+                        let _ = m;
+                    }
+                    llvq_artifact::Record::Lattice(m) => {
+                        if m.kind != llvq_artifact::CodeKind::Tetra {
+                            return Err(format!(
+                                "{path}: {} is a {} record. The second path is the \
+                                 Tetra file; the first is the ball one, and swapping \
+                                 them is the one mistake that would otherwise run",
+                                m.name,
+                                m.kind.name()
+                            ));
+                        }
+                        assert_eq!(
+                            m.centroids.len(),
+                            2,
+                            "{}: the tetra decode hard-codes 1 gain bit",
+                            m.name
+                        );
+                        let nblocks = m.d_in / DIM;
+                        let blocks = llvq_artifact::tetra48::transcode_tetra48(
+                            &m.indices, &m.gains, m.d_out, nblocks,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        tetra.insert(
+                            m.name.clone(),
+                            TetraSrc {
+                                d_out: m.d_out,
+                                d_in: m.d_in,
+                                blocks,
+                                centroids: [m.centroids[0] as f32, m.centroids[1] as f32],
+                                rscale: m.row_scales.iter().map(|&v| v as f32).collect(),
+                                tail: m.tail.iter().map(|&v| v as f32).collect(),
+                            },
+                        );
+                    }
+                }
+            }
+            println!(
+                "  {path} — {} matrices: {} Tetra, {tetra_int4} int4 g128 (counted, not timed)",
+                h.matrices,
+                tetra.len()
+            );
+        }
+        if union.has(arms::TETRA48) && tetra.is_empty() {
+            return Err("tetra48 is selected and no Tetra file was given. Pass the ball file \
+                        as the first argument and the Tetra file as the SECOND — the two \
+                        formats do not share a file. Or drop tetra48 from LLVQ_BENCH_ARMS."
+                .to_string());
+        }
+
         let build = |s: &Src| -> Result<Mat, String> {
             let (d_out, d_in) = (s.d_out, s.d_in);
             let nblocks = d_in / DIM;
@@ -1952,6 +2355,162 @@ mod linux {
                 false => None,
             };
 
+            // ---- the served Tetra arm, from the SECOND file --------------
+            //
+            // Matched by NAME, not by position: the two files hold the same
+            // 252 projections of the same model, but 36 of them are int4 in
+            // the served one and have no lattice arm at all. A positional
+            // match would pair `v_proj` of one file with `o_proj` of the other
+            // and decode a stream against another projection's scales — which
+            // produces numbers, not an error.
+            let tetra_arm = match tetra.get(&s.name) {
+                None => None,
+                Some(t) => {
+                    assert_eq!(
+                        (t.d_out, t.d_in),
+                        (d_out, d_in),
+                        "{}: the two files disagree on the shape",
+                        s.name
+                    );
+                    // The stream's own stride, checked against what the layout
+                    // derives rather than trusted — the E1v argument
+                    // (`:2185-2189`): a stride recomputed at launch is a second
+                    // formula that can drift from the one that wrote the bytes.
+                    assert_eq!(
+                        t.blocks.stride_u32,
+                        llvq_artifact::tetra48::stride_u32(nblocks),
+                        "{}: the stream's row stride is not the one the layout derives",
+                        s.name
+                    );
+                    let mut ty = vec![0.0f64; d_out];
+                    let mut tsc = vec![0.0f64; d_out];
+                    // Built once and shared: `Tetra::new()` builds the trio's
+                    // tables, and one per row-chunk would dominate the build.
+                    let td = Tetra::new();
+                    std::thread::scope(|sc| {
+                        for (ci, (yc, scc)) in
+                            ty.chunks_mut(chunk).zip(tsc.chunks_mut(chunk)).enumerate()
+                        {
+                            let (blocks, t, x, td) = (&t.blocks, t, &x, &td);
+                            let name = s.name.as_str();
+                            sc.spawn(move || {
+                                let mut wrow = vec![0.0f64; d_in];
+                                for lr in 0..yc.len() {
+                                    let row = ci * chunk + lr;
+                                    wrow.fill(0.0);
+                                    for b in 0..nblocks {
+                                        // Decoded back OUT of the packed bytes,
+                                        // never from the indices that produced
+                                        // them — those were dropped at read.
+                                        // A packing mistake is then a
+                                        // disagreement between two routes.
+                                        let (pt, gain) = blocks.decode_block(td, row, b);
+                                        let n2: i64 =
+                                            pt.iter().map(|&v| (v as i64) * (v as i64)).sum();
+                                        if n2 == 0 {
+                                            continue; // the origin, and its row is already zero
+                                        }
+                                        // `n2 = 16 m` on Λ₂₄, always. If it is
+                                        // not, the decode is wrong and every
+                                        // number after it is a fiction — the
+                                        // kernel indexes `invnorm[n2 >> 4]`
+                                        // and would silently take a neighbour.
+                                        assert_eq!(
+                                            n2 % 16,
+                                            0,
+                                            "{}: block {b} of row {row} has |y|² = {n2}, not a \
+                                             multiple of 16",
+                                            name
+                                        );
+                                        let k = t.centroids[gain as usize] as f64
+                                            * t.rscale[row] as f64
+                                            / (n2 as f64).sqrt();
+                                        for (i, &v) in pt.iter().enumerate() {
+                                            wrow[b * DIM + i] = v as f64 * k;
+                                        }
+                                    }
+                                    for w in 0..tail_w {
+                                        wrow[nblocks * DIM + w] = t.tail[row * tail_w + w] as f64;
+                                    }
+                                    let (mut a, mut ss) = (0.0f64, 0.0f64);
+                                    for c in 0..d_in {
+                                        let v = wrow[c] * x[c] as f64;
+                                        a += v;
+                                        ss += v.abs();
+                                    }
+                                    yc[lr] = a;
+                                    scc[lr] = ss;
+                                }
+                            });
+                        }
+                    });
+                    let words: Vec<u32> = t
+                        .blocks
+                        .data
+                        .chunks_exact(4)
+                        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                        .collect();
+                    assert_eq!(
+                        words.len(),
+                        d_out * t.blocks.stride_u32,
+                        "{}: the stream is not a whole number of row strides",
+                        s.name
+                    );
+                    Some(TetraArm {
+                        words: up_or_hold_u32(words, phase0.has(arms::TETRA48))?,
+                        stride_u32: t.blocks.stride_u32 as u32,
+                        gscale: cuda.up_f32(&t.centroids)?,
+                        rscale: cuda.up_f32(&t.rscale)?,
+                        tail: cuda.up_f32(if t.tail.is_empty() { &[0.0f32] } else { &t.tail })?,
+                        // The stream PLUS the tail and the row scales, like
+                        // every other arm here (`SlotArm` :2113, `PlanesArm`
+                        // :2122, `P12Arm` :2164): this column is what the
+                        // kernel READS for one matrix, not what the format
+                        // spends on codes. It was the stream alone, which
+                        // would have understated Tetra's b/weight against
+                        // every arm it is printed beside.
+                        //
+                        // And the PADDED length, where Planes14 counts its
+                        // unpadded stream — not an inconsistency, a difference
+                        // between the two layouts. Planes14 is flat at a
+                        // uniform 14-byte stride and its 4-byte pad is a read
+                        // window past the end; Tetra pads EVERY ROW to a u32
+                        // boundary and the kernel reads over that pad on every
+                        // row. `Tetra48Blocks::bits_per_weight` says the same,
+                        // and names the accounting error of 2026-07-31 that
+                        // omitting it would repeat.
+                        // The UNPADDED stream, which is this repository's
+                        // stated convention and not a choice made here: the
+                        // Planes14 arm ignores its 4-byte pad — "billing ours
+                        // here would mix two byte accountings, the exact
+                        // mistake the K-1 lot eliminated" — and
+                        // `e1v_host.rs:35` says it outright, "the landing pad
+                        // is not counted".
+                        //
+                        // Tetra's row pad is that same species. `stride_u32`
+                        // rounds each row to EIGHT bytes and its own doc says
+                        // why: "what covers the last block's two-word read
+                        // window". On the 4B's shapes `6·nblocks` is already a
+                        // multiple of 4 at nblocks 106 and 170, so none of
+                        // those bytes is alignment — they are landing window.
+                        //
+                        // The decisive check is the column itself: Planes14's
+                        // row reproduces ETAT's 4.8040. A column where five
+                        // rows reproduce the record and the sixth does not has
+                        // one wrong row, and billing the pad would print 2.159
+                        // for a file the dossier publishes at 2.1498.
+                        bytes: (llvq_artifact::tetra48::TETRA48_BYTES * d_out * nblocks) as u64
+                            + (d_out * tail_w) as u64 * 4
+                            + d_out as u64 * 4,
+                        pad_bytes: t.blocks.data.len() as u64
+                            - (llvq_artifact::tetra48::TETRA48_BYTES * d_out * nblocks) as u64,
+                        weights: (d_out * d_in) as u64,
+                        y_ref: ty,
+                        scale: tsc,
+                    })
+                }
+            };
+
             Ok(Mat {
                 name: s.name.clone(),
                 d_out,
@@ -1961,6 +2520,7 @@ mod linux {
                 slot,
                 planes,
                 e1v: e1v_arm,
+                tetra: tetra_arm,
                 p12,
                 g70,
                 awq,
@@ -1978,8 +2538,14 @@ mod linux {
         };
 
         println!(
-            "\nBuild: Slot32 transcode (reference, always){}{}{}{}, exact-reconstruction \
+            "\nBuild: Slot32 transcode (reference, always){}{}{}{}{}, exact-reconstruction \
              proofs of the arms that were built…",
+            if union.has(arms::TETRA48) {
+                ", Tetra48 (SECOND FILE — its own reference, decoded back out of the \
+                 packed words)"
+            } else {
+                ""
+            },
             if union.has(arms::PLANES14) { ", Planes14" } else { "" },
             if union.has(arms::PLANES12X) {
                 ", Planes12x (L = 5 → L ≤ 4 swap included)"
@@ -2002,6 +2568,7 @@ mod linux {
         let mut n_weights = 0u64;
         let source;
 
+
         match std::env::args().nth(1) {
             // ---- the published model ----
             Some(path) => {
@@ -2011,7 +2578,19 @@ mod linux {
                 // A v5 Tetra file has no runtime layout yet: refused here by name, never read as a Ball.
                 llvq_artifact::runtime::require_ball_kinds(h.kinds(), "planesbench").map_err(|e| e.to_string())?;
                 println!("  {path} — {} matrices", h.matrices);
-                source = format!("the published model ({path})");
+                // The provenance line every published table is read through.
+                // With two files it has to name BOTH, and their record counts:
+                // a reader who sees one path will read the whole table as one
+                // file's, and the Tetra row is not.
+                source = match &tetra_path {
+                    None => format!("the published model ({path})"),
+                    Some(t) => format!(
+                        "TWO FILES — ball: {path} ({} records); tetra: {t} ({} Tetra + \
+                         {tetra_int4} int4 g128). The arms do not all read the same bytes",
+                        h.matrices,
+                        tetra.len()
+                    ),
+                };
                 for _ in 0..h.matrices {
                     let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
                     // The record's own kind, not only the header's declared set.
@@ -2038,6 +2617,36 @@ mod linux {
                 }
                 for s in &srcs {
                     mats.push(build(s)?);
+                }
+                // 🚨 Nothing checked that the two files' names agreed, and a
+                // total mismatch is the quietest failure this bench can have:
+                // the Tetra arm covers no matrix, its bytes and its weights
+                // are both zero, `bpw` divides by `max(1)` and prints
+                // **0.000 b/weight** — under the 2.20 gate, which then passes
+                // on nothing — while `verify_arm` reports its best possible
+                // error and the timed pass launches nothing at all.
+                //
+                // So the match is a fact of the run, printed, and a Tetra
+                // record with no home is refused. On the pure Tetra file that
+                // is 252 of 252; on the served mixed one, 216 of 252, the 36
+                // `v_proj` being int4 and having no lattice arm.
+                if !tetra.is_empty() {
+                    let matched = mats.iter().filter(|m| m.tetra.is_some()).count();
+                    println!(
+                        "  tetra48: {matched} of {} matrices matched by name, from {} Tetra \
+                         records",
+                        mats.len(),
+                        tetra.len()
+                    );
+                    if matched != tetra.len() {
+                        return Err(format!(
+                            "the two files do not name the same projections: {} Tetra records, \
+                             {matched} of them found a matrix in the ball file. A record with no \
+                             home would drop out of the timed pass in silence, and the b/weight \
+                             column would divide by weights nobody read.",
+                            tetra.len()
+                        ));
+                    }
                 }
             }
             // ---- synthetic, real shapes, repeated past the L2 ----
@@ -2154,9 +2763,13 @@ mod linux {
         let f_golay70_v1 = cuda.func("tv_golay70_v1")?;
         let f_e1v = cuda.func("tv_e1v")?;
         let f_nullk = cuda.func("tv_nullk")?;
+        // Plain `func`, not `func_dynamic_shared`: `tv_f1r_v3g` stages the
+        // same tile every other arm passes through `shared`, well under the
+        // default per-block allowance. Only QTIP needs the opt-in.
+        let f_tetra48 = cuda.func("tv_f1r_v3g")?;
         let f_f16 = cuda.func("tv_f16")?;
         let f_awq = cuda.func("awq_gemv_g128")?;
-        let shared = (TILE_BLOCKS * DIM * 4) as u32;
+        let shared = tile.shared_bytes();
 
         // Each closure is called only if its arm is in the current phase; the
         // named `expect` turns any sequencing error into a readable panic
@@ -2201,6 +2814,23 @@ mod linux {
                 d_e1vcw.as_ref().expect("E1v tables not uploaded"),
                 &m.gscale, &m.rscale, &m.tail, &d_x, y,
                 a.row_blocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
+            )
+        };
+        // Returns Ok on a matrix with NO Tetra arm rather than panicking, and
+        // that is the arm's defining asymmetry: 36 of the 252 projections are
+        // `v_proj`, stored as int4 g128 in the served file, and read by a
+        // second kernel that is not this one. So a timed pass of this arm
+        // carries 216 launches where every ball arm carries 252. The count is
+        // printed beside every ratio it enters — see the pair line.
+        let run_tetra48 = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
+            let Some(a) = m.tetra.as_ref() else {
+                return Ok(());
+            };
+            launch_tetra48(
+                &cuda, &f_tetra48, a.words.dev(), a.stride_u32,
+                tetra_tabs.as_ref().expect("tetra48 tables not uploaded"),
+                &a.gscale, &a.rscale, &a.tail, &d_x, y,
+                m.nblocks as u32, m.tail_w as u32, m.d_out as u32, THREADS, shared,
             )
         };
         let run_planes12x =
@@ -2364,7 +2994,14 @@ mod linux {
                           d_y: &mut cudarc::driver::CudaSlice<f32>,
                           d_yh: &mut Option<cudarc::driver::CudaSlice<u16>>|
          -> Result<f64, String> {
-            let mut worst = 0.0f64;
+            // 🕳️ Seeded at 0.0, so an arm whose every matrix returned
+            // `NEG_INFINITY` folded to **0.0** and printed `0.0e0` — which
+            // reads as perfect agreement with the reference. The floor arm's
+            // own comment says it "prints as `-inf`, which nobody reads as a
+            // measured error": that was the intent and the seed defeated it,
+            // silently, since P4 added the arm. It also caught the Tetra arm,
+            // whose unmatched matrices return the same value.
+            let mut worst = f64::NEG_INFINITY;
             for m in mats {
                 let e = match a {
                     // QTIP writes f32, so it is held to OUR threshold. Its
@@ -2392,6 +3029,28 @@ mod linux {
                         assert!(e < AWQ_TOL, "{} / AWQ: {e:.2e}·Σ|w·x|", m.name);
                         e
                     }
+                    // The served Tetra arm, held to `TOL` and not `AWQ_TOL`:
+                    // its output is f32, so nothing is forgiven it. Its
+                    // reference is its OWN — the second file's weights are not
+                    // the first's, so neither `m.y_ref` nor `m.y16_ref`
+                    // describes them, the same situation as AWQ and QTIP and
+                    // the same answer.
+                    //
+                    // A matrix with no Tetra arm is skipped, not verified
+                    // against a stale `d_y`: the launch would not have run and
+                    // the buffer would still hold the previous arm's output,
+                    // which is the one way this check could pass on nothing.
+                    arms::TETRA48 => match m.tetra.as_ref() {
+                        None => f64::NEG_INFINITY,
+                        Some(t) => {
+                            run_tetra48(m, d_y)?;
+                            cuda.sync()?;
+                            let got = cuda.down_f32(d_y)?;
+                            let e = worst_error(&got[..m.d_out], &t.y_ref, &t.scale);
+                            assert!(e < TOL, "{} / tetra48: {e:.2e}·Σ|w·x|", m.name);
+                            e
+                        }
+                    },
                     // cuBLAS: same tolerance as AWQ and for the same reason,
                     // the output is rounded to binary16 by GemmEx (C in
                     // R_16F), not because anything is forgiven it. Its
@@ -2489,6 +3148,15 @@ mod linux {
                     stage_up_u32(&cuda, &mut a.exc_idx)?;
                     stage_up_u32(&cuda, &mut a.exc_words)?;
                 }
+                if added.has(arms::TETRA48) {
+                    // `if let`, not `expect`: a matrix whose `v_proj` is int4
+                    // has no Tetra arm and nothing to stage. Every other arm
+                    // here is built for every matrix, which is why they can
+                    // afford to panic.
+                    if let Some(a) = m.tetra.as_mut() {
+                        stage_up_u32(&cuda, &mut a.words)?;
+                    }
+                }
                 if added.has(arms::E1V) {
                     let a = m.e1v.as_mut().expect("e1v arm not built");
                     stage_up_u32(&cuda, &mut a.data)?;
@@ -2569,6 +3237,20 @@ mod linux {
                       phase: ArmSet,
                       times: &[Vec<f64>; arms::N_ARMS]| {
             let bytes_of = |a: usize| -> u64 { mats.iter().map(|m| arm_bytes(m, a)).sum() };
+            // The arm's own denominator, never the table's. `n_weights` stays
+            // what it always was — the model's weight count, printed once in
+            // the header — but it is no longer what a b/weight column divides
+            // by, because not every arm reads every matrix any more.
+            let weights_of = |a: usize| -> u64 { mats.iter().map(|m| arm_weights(m, a)).sum() };
+            let bpw = |a: usize| -> f64 { bytes_of(a) as f64 * 8.0 / weights_of(a).max(1) as f64 };
+            // How many matrices an arm's timed pass actually launched. Equal
+            // for every ball arm; 216 of 252 for the served Tetra one.
+            let covered = |a: usize| -> usize {
+                mats.iter().filter(|m| arm_weights(m, a) > 0).count()
+            };
+            // Rule 8: a number carries its accounting. This column and the
+            // `rtbits` kernel rate differ by exactly this, and by nothing else.
+            let tetra_pad: u64 = mats.iter().filter_map(|m| m.tetra.as_ref()).map(|t| t.pad_bytes).sum();
             let t_f16 = &times[arms::FP16];
             let phase_tag = if n_phases > 1 {
                 format!("  [phase {}/{}: {}]", pi + 1, n_phases, phase.label())
@@ -2594,6 +3276,13 @@ mod linux {
                 "  {:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}",
                 "format", "min ms", "med ms", "max ms", "GB read", "b/weight", "GB/s(min)"
             );
+            // 🚨 The tile, ON the table. Its provenance is printed once, some
+            // thirty lines and a three-minute transcode earlier, and F1d runs
+            // THREE processes at three tiles into one journal: a reader
+            // comparing two tables would have to scroll past a transcode to
+            // learn which is which, and the numbers only differ by the thing
+            // that is off-screen.
+            println!("  {}", tile.provenance());
             for a in arms::DISPLAY_ORDER {
                 if !phase.has(a) {
                     continue;
@@ -2607,11 +3296,20 @@ mod linux {
                     md * 1e3,
                     hi * 1e3,
                     b as f64 / 1e9,
-                    b as f64 * 8.0 / n_weights as f64,
+                    bpw(a),
                     b as f64 / lo / 1e9
                 );
             }
             println!("  {}", "-".repeat(80));
+            if phase.has(arms::TETRA48) && tetra_pad > 0 {
+                println!(
+                    "  tetra48 also HOLDS {:.1} MB of row landing pad, NOT billed above — the \
+                     convention\n  the slot arm's 20-byte pad and the planes arm's 4-byte pad \
+                     already follow.\n  Real VRAM, not a rate: `stride_u32` rounds each row to \
+                     eight bytes so the last\n  block's six-byte window cannot fault.",
+                    tetra_pad as f64 / 1e6,
+                );
+            }
             for a in arms::DISPLAY_ORDER {
                 if a == arms::FP16 || !phase.has(a) {
                     continue;
@@ -2628,7 +3326,7 @@ mod linux {
                          (COMPETITOR — reads {:.3} b/weight;\n  the comparable quantity \
                          is the GB/s, not this ratio)",
                         arms::DISPLAY_NAMES[a],
-                        bytes_of(a) as f64 * 8.0 / n_weights as f64
+                        bpw(a)
                     );
                 } else {
                     println!(
@@ -2671,11 +3369,60 @@ mod linux {
                 "(>1 = v2 faster; SAME buffers, same exact y — the ratio of the \
                  v2 campaign)",
             );
+            // F1d's gate reads THIS line, and it is the one omission on the
+            // printing path that would have been silent: every other consumer
+            // of an arm picks it up from `DISPLAY_ORDER` automatically, and
+            // `pair` is a closure called at four fixed sites that iterate
+            // nothing. Without the fifth call the bench would build the Tetra
+            // buffers, verify the arm against its own f64 reference, dispatch
+            // it in every round, print its table row and its vs-FP16 line —
+            // and never print the ratio the whole step exists to measure.
+            if phase.has(arms::TETRA48) && phase.has(arms::PLANES14) {
+                let (nt, np) = (covered(arms::TETRA48), covered(arms::PLANES14));
+                pair(
+                    arms::TETRA48,
+                    arms::PLANES14,
+                    match nt == np {
+                        true => "(>1 = Tetra faster; DIFFERENT FILES, same 252 matrices — a layout ratio)",
+                        false => "(>1 = Tetra faster — see the caveat below)",
+                    },
+                );
+                // 🕳️ Printed unconditionally, and FALSE on the file F1d runs.
+                // The prereg chose the PURE Tetra file precisely so the two
+                // arms cover the same 252 matrices; a warning saying they do
+                // not would travel into the dossier attached to the one line
+                // the throughput gate reads, and a valid equal-support ratio
+                // would be discounted for a reason that does not exist.
+                if nt != np {
+                    println!(
+                        "    ⚠️ NOT the same support: Tetra launched over {nt} matrices, \
+                         Planes14 over {np}.\n       The {} missing are int4 g128 in the Tetra \
+                         file and are read by another kernel,\n       so this ratio is formed \
+                         over unequal passes. b/weight is per arm and divides\n       by what \
+                         that arm read.",
+                        np.saturating_sub(nt)
+                    );
+                }
+            }
             println!("\n  source: {source}");
             let light = arms::DISPLAY_ORDER
                 .into_iter()
                 .filter(|&a| {
-                    a != arms::FP16 && a != arms::AWQ && phase.has(a)
+                    // `bytes_of` is 0 for an arm whose buffers were not built
+                    // — the synthetic path, or a run given no Tetra file — and
+                    // 0 wins a `min_by_key` outright. The paragraph below then
+                    // calls it "the lightest arm" and divides the L2 by it.
+                    //
+                    // 🕳️ And the FLOOR wins it whenever it is selected: `nullk`
+                    // reads no weight by definition, so its bytes are the tail
+                    // and the row scales alone — ~72 MB against Planes14's
+                    // ~2.1 GB. The paragraph would then report 0.8× the L2 and
+                    // condemn a run that measures DRAM perfectly well, on the
+                    // arm that was built to read nothing. It is excluded for
+                    // the reason FP16 and AWQ are: the sentence is about the
+                    // LLVQ arms' traffic.
+                    a != arms::FP16 && a != arms::AWQ && a != arms::NULLK
+                        && phase.has(a) && bytes_of(a) > 0
                 })
                 .min_by_key(|&a| bytes_of(a));
             if let Some(la) = light {
@@ -2721,6 +3468,60 @@ mod linux {
                     head_s * 1e3,
                     with_head.join(", ")
                 );
+            }
+            // 🚨 Hard rule 4 wants the same-head ratio BESIDE the raw one, and
+            // hard rule 7 wants it formed round by round, never as a quotient
+            // of two minima. The paragraph above gives neither for a PAIR: its
+            // entries are per-arm × against FP16, and each is built from
+            // `spread(...).0`, a minimum. For F1d's headline — the one line a
+            // kill is read off — the two rules are met here explicitly.
+            if phase.has(arms::TETRA48) && phase.has(arms::PLANES14) {
+                // 🚨 TWO corrections, and this repository already uses the
+                // phrase "same head" for the SECOND one. The F1 journals mean
+                // *the launch floor removed* by it (`f1rankfloor` prints
+                // "(v3g−nullk)/(planes14−nullk) … the SAME-HEAD ratio, launch
+                // floor removed (rule 4)"), while this file's own paragraph
+                // means *the f16 lm_head added*. They are different
+                // quantities and they move in opposite directions: the floor
+                // is common to both arms and pushes any ratio TOWARD 1, the
+                // head is common too and pushes it toward 1 as well, but from
+                // a different baseline. Printing one of them under the other's
+                // name is how a dossier ends up comparing two things.
+                //
+                // So both are printed, each named for what it does, and both
+                // formed round by round — never a quotient of two medians,
+                // which is what a reader would otherwise compute off the table
+                // above and which hard rule 7 forbids.
+                let add = |v: &[f64], d: f64| -> Vec<f64> { v.iter().map(|t| t + d).collect() };
+                let (lo, md, hi) = spread(per_round(
+                    &add(&times[arms::PLANES14], head_s),
+                    &add(&times[arms::TETRA48], head_s),
+                ));
+                println!(
+                    "  tetra48 vs planes14, WITH THE F16 HEAD : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                     (the lm_head added to BOTH arms, round by round)"
+                );
+                if phase.has(arms::NULLK) {
+                    // The F1 dossier's same-head ratio, the one `f1rankfloor`
+                    // prints: the launch floor removed from BOTH arms, round
+                    // by round, so this run's number and that bench's are the
+                    // same function of the same measurement.
+                    let sub = |v: &[f64]| -> Vec<f64> {
+                        v.iter()
+                            .zip(&times[arms::NULLK])
+                            .map(|(t, f)| (t - f).max(f64::MIN_POSITIVE))
+                            .collect()
+                    };
+                    let (lo, md, hi) = spread(per_round(
+                        &sub(&times[arms::PLANES14]),
+                        &sub(&times[arms::TETRA48]),
+                    ));
+                    println!(
+                        "  tetra48 vs planes14, FLOOR REMOVED : {md:.2}× [{lo:.2}–{hi:.2}]  \
+                         (nullk subtracted from BOTH, round by round — the F1 journals' \
+                         \"same head\")"
+                    );
+                }
             }
             println!(
                 "\n  WARNING: NEVER compare this line by line with the Metal figure, and never\n  \
@@ -2808,6 +3609,11 @@ mod linux {
                             arms::E1V => run_e1v(m, &mut d_y)?,
                             arms::NULLK => run_nullk(m, &mut d_y)?,
                             arms::QTIP => run_qtip(m, &mut d_y)?,
+                            // Last, because it registered last: registration
+                            // order is dispatch order, and inserting it
+                            // anywhere else would move the dispatch of an arm
+                            // that carries a published number.
+                            arms::TETRA48 => run_tetra48(m, &mut d_y)?,
                             _ => unreachable!("unknown arm"),
                         }
                     }
@@ -3000,9 +3806,18 @@ mod linux {
                 let slot_bytes = rt.data.len() as u64
                     + rt.bases.len() as u64 * 4
                     + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4
+                    // `gs_off`, as for the planes arm below.
                     + seg.d_out as u64 * 4;
+                // 🕳️ `gs_off` was missing. The FUSED kernel reads one extra
+                // u32 a row naming that row's centroid pair
+                // (`kernels/planes_seg.cu`) and the unfused one does not — it
+                // is the only byte fusion ADDS. Without it the ledger below
+                // printed `+0.00%` and the sentence beside it called that a
+                // verification.
                 let planes_bytes = pdata.len() as u64
                     + (seg.d_out * seg.tail_w) as u64 * 4
+                    + seg.d_out as u64 * 4
                     + seg.d_out as u64 * 4;
 
                 let mut sbytes = rt.data.clone();
@@ -3597,6 +4412,8 @@ mod linux {
             let sb_fus = fused_bytes(|f| f.slot_bytes, |m| arm_bytes(m, arms::SLOT32));
             let pb_sep = unfused_bytes(|m| arm_bytes(m, arms::PLANES14));
             let pb_fus = fused_bytes(|f| f.planes_bytes, |m| arm_bytes(m, arms::PLANES14));
+            // The only byte fusion adds, on either layout: one u32 a fused row.
+            let gs_off_bytes: u64 = fused.iter().map(|f| f.gs_off.len() as u64 * 4).sum();
 
             println!(
                 "\n  Cost — {ROUNDS} rounds, {WARMUP} discarded, FOUR arms interleaved, \
@@ -3654,11 +4471,15 @@ mod linux {
                 100.0 * (pb_fus as f64 - pb_sep as f64) / pb_sep as f64
             );
             println!(
-                "  Slot32 can move: its stride is the widest record of a group of 32, and\n  \
-                 the concatenation regroups at segment boundaries. Planes14 cannot — 14 \
-                 bytes\n  per block, no bases table — so the +0.00% above is a verification, \
-                 not a\n  measurement (tests/planes_segment_matches_unfused.rs). A byte gain \
-                 would be a\n  confounder, not a bonus."
+                "  Slot32's STREAM can move: its stride is the widest record of a group of \
+                 32,\n  and the concatenation regroups at segment boundaries. Planes14's \
+                 cannot — 14\n  bytes per block, no bases table. What BOTH pay is `gs_off`, one \
+                 u32 a fused\n  row naming that row's centroid pair: {:.1} MB over the 72 \
+                 groups, and it is the\n  only byte fusion adds. It was missing from this ledger \
+                 until 2026-09-10, which\n  printed +0.00% and called that a verification \
+                 (tests/planes_segment_matches_unfused.rs).\n  Any gain BEYOND this would be a \
+                 confounder, not a bonus.",
+                (gs_off_bytes as f64) / 1e6
             );
             println!(
                 "\n  WARNING: THIS BLOCK PRODUCES NO RATIO AGAINST FP16, and authorizes\n  \

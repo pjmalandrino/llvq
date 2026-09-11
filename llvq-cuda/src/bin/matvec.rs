@@ -55,7 +55,6 @@ mod linux {
 
     /// Blocks staged per tile: 3072 columns, 12 KB. Emitted into the kernel
     /// source by the host so the staging size and the tiling are one constant.
-    const TILE_BLOCKS: usize = 128;
     const THREADS: u32 = 256;
     const GSCALE: [f32; 2] = [0.625, 1.375];
     const TABLE_ENTRIES: usize = 512;
@@ -185,7 +184,14 @@ mod linux {
         // NVRTC has no filesystem, so the host does the including.
         let sources =
             llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "llvq_floor.cuh"])?;
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        // The tile, resolved from the card before the source exists — it is a
+        // `#define` in that text. Wired on 2026-09-10: this binary carried its
+        // own reading of TILE_BLOCKS and never looked at `LLVQ_TILE_BLOCKS`,
+        // so a sweep that moved the knob moved every OTHER binary and left
+        // this one printing a tile-128 figure with no line saying so.
+        let tile = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        println!("{}", tile.provenance());
+        let defines = tile.define();
         let parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
@@ -572,7 +578,7 @@ mod linux {
 
         let f_slot = cuda.func("tv_slot")?;
         let f_f16 = cuda.func("tv_f16")?;
-        let shared = (TILE_BLOCKS * DIM * 4) as u32;
+        let shared = tile.shared_bytes();
 
         let run_slot = |m: &Mat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
             cuda.launch_slot(

@@ -28,7 +28,7 @@ use candle_transformers::models::qwen3::Config;
 
 use crate::fused::RotKey;
 use crate::kvq::KvMode;
-use crate::rotplan::{check_key, drive_rows, RotShare};
+use crate::rotplan::{check_key, drive_rows_batched, RotShare};
 
 /// Which activation a capture callback is being handed.
 ///
@@ -418,6 +418,19 @@ pub enum Proj {
         rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
         proj: std::sync::Arc<crate::fused_cuda::FusedProj>,
     },
+    /// One projection served as affine int4 g128 — `v_proj` in the mixed file
+    /// the operator chose on 2026-09-08.
+    ///
+    /// It behaves like [`Proj::Dense`] in every respect that matters to the
+    /// caller and like [`Proj::Fused`] in none: the weights are STORED, in the
+    /// **natural basis**, so there is no rotation to carry, no key to check
+    /// against, and `prepare` hands back the activation untouched. What it
+    /// shares with the fused arms is only that a kernel reads it.
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    FusedInt4 {
+        rt: std::sync::Arc<crate::fused_cuda::FusedRuntime>,
+        proj: std::sync::Arc<crate::fused_cuda::FusedInt4Proj>,
+    },
     /// One part of a row-concatenated group — q, k or v of one layer, or gate
     /// or up. The whole group is launched **once**, by [`group_forward`], and
     /// the result is narrowed back into the parts; there is no per-projection
@@ -499,6 +512,60 @@ impl Rotated {
 /// survives because a 2048-token scoring window would issue half a million
 /// launches and look like a hang; `bin/ppl` keeps the dense path.
 pub const MAX_ROWS: usize = 256;
+// ⚠️ Read it as a LAUNCH budget, not a row budget, and read it as the budget
+// of the paths that spend ONE launch a row: the segmented kernel, and every
+// layout that carries no rows kernel. A decode step never approaches it — a
+// decode step is one row.
+//
+// The batched prefill path has its own budget, [`MAX_PREFILL_ROWS`], because
+// it bounds a different quantity. Until 2026-09-11 it did not: the cap read
+// `MAX_ROWS · batch`, so raising one raised the other, and a served layout's
+// segmented path would have moved for a reason that has nothing to do with it.
+
+/// Most rows the batched prefill path may take in one call.
+///
+/// ## Why it is not [`MAX_ROWS`] times the batch
+///
+/// It was, and the arithmetic was right: a chunk of `batch` rows spends one
+/// launch, so the same launch budget admits `batch` times the rows. What was
+/// wrong is that it tied two paths together. `MAX_ROWS` also bounds the
+/// segmented kernel, which is served under `Planes14` and takes one launch a
+/// row; moving the prefill bound would have moved that one too, four-fold,
+/// with no measurement behind it.
+///
+/// ## Where 4,096 comes from
+///
+/// From the census, not from a round number. The longest 5-shot MMLU prompt
+/// under the Qwen3 tokenizer is **3,096 tokens** — `high_school_european_history`,
+/// whose subject mean is 2,796 (*measured* 2026-09-11 from the cached
+/// `cais/mmlu` parquet, `docs/mesures/f1e0-2026-09-10.txt`). The previous
+/// bound of 1,024 refused **239 of the 2,280** questions every published bar
+/// is measured on — five subjects entirely, `professional_law` and four
+/// histories. 4,096 admits the whole split and leaves a third of itself spare.
+///
+/// ## What it costs to be wrong high
+///
+/// The original cap existed because "a 2048-token scoring window would issue
+/// half a million launches and look like a hang". That reason survives, and
+/// now it has a number instead of a guess: at the *measured* 5.507 ms a
+/// prompt token, 4,096 rows is 23 s of prefill. Slow, bounded, and not a
+/// hang. `bin/ppl` still keeps the dense path for its 4,096-token window.
+pub const MAX_PREFILL_ROWS: usize = 4096;
+
+/// Which of the two budgets a chunk of `batch` rows answers to.
+///
+/// Two budgets because two shapes of work, and a function rather than an
+/// expression inline because this is the line that decides whether a census
+/// question is scored or refused — the kind of line that has to be reachable
+/// from a test on a machine with no card.
+pub fn row_cap(batch: usize) -> usize {
+    match batch > 1 {
+        // One launch a chunk: bounded by the longest prompt the census holds.
+        true => MAX_PREFILL_ROWS,
+        // One launch a row: the budget that has always been a launch budget.
+        false => MAX_ROWS,
+    }
+}
 
 impl Proj {
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
@@ -516,6 +583,11 @@ impl Proj {
             Proj::Dense(_) => None,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => proj.rotation(),
+            // Stored in the natural basis, so there is nothing to carry and
+            // nothing for `check_key` to compare — exactly the dense answer,
+            // and for exactly the dense reason.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => None,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, .. } => group.rotation(),
         }
@@ -529,6 +601,8 @@ impl Proj {
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => &proj.name,
             #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => &proj.name,
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::FusedSeg { group, rank, .. } => group.part_name(*rank),
         }
     }
@@ -539,6 +613,8 @@ impl Proj {
             Proj::Dense(l) => l.weight().dim(0),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { proj, .. } => Ok(proj.d_out),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => Ok(proj.d_out),
             // The **part**, not the group: this is the width of the tensor the
             // caller gets back, which is what every consumer reshapes on.
             #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -564,6 +640,12 @@ impl Proj {
                 key: proj.rotation(),
                 t: rt.rotate(proj, x)?,
             }),
+            // No `rot_apply`: the weights are quantized in the basis the
+            // activation already arrives in. Byte for byte the dense arm's
+            // answer, which is what makes `check_key` accept both in one group
+            // and refuse a rotated one beside them.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => Ok(Rotated { key: None, t: x.clone() }),
             // One `rot_apply` for the whole group: the parts share one `d_in`
             // and one rotation key by construction, checked at load time.
             #[cfg(all(target_os = "linux", feature = "cuda"))]
@@ -571,6 +653,145 @@ impl Proj {
                 key: group.rotation(),
                 t: rt.rotate_group(group, x)?,
             }),
+        }
+    }
+
+    /// [`Self::prepare`] for a whole chunk of rows, one launch.
+    ///
+    /// `xs` is `[len, d_in]` and **contiguous** — `group_forward` narrows it out
+    /// of the one allocation `row_block` reshapes, so the rows are already
+    /// `d_in` apart and nothing is copied to make them so.
+    ///
+    /// ## A chunk of one is [`Self::prepare`], verbatim
+    ///
+    /// Same discipline as [`Self::forward_rows`], and for a sharper reason
+    /// here: `rotate` refuses `rows != 1` and `rotate_rows` would launch a
+    /// grid of one block, which is the same arithmetic through a second entry
+    /// point. Taking the one-row path is what keeps every decode step on the
+    /// code `bin/oracle` certifies.
+    ///
+    /// ## What batches and what does not
+    ///
+    /// `Dense` and `FusedInt4` consume the activation in the basis it arrives
+    /// in, so their "rotation" is the chunk itself and costs nothing at any
+    /// length. `Fused` takes the rows kernel. `FusedSeg` does not batch — its
+    /// group is one launch already and `batches_rows` is false for it, so
+    /// `group_forward` never asks it for a chunk of more than one; asking
+    /// anyway is refused by `rotate_group`, by name, rather than silently
+    /// rotating the first row and using it for four.
+    pub fn prepare_rows(&self, xs: &Tensor) -> Result<Rotated> {
+        let rows = xs.dim(0)?;
+        if rows == 1 {
+            return self.prepare(xs);
+        }
+        match self {
+            Proj::Dense(_) => Ok(Rotated { key: None, t: xs.clone() }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, proj } => Ok(Rotated {
+                key: proj.rotation(),
+                t: rt.rotate_rows(proj, xs, rows)?,
+            }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => Ok(Rotated { key: None, t: xs.clone() }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { rt, group, .. } => Ok(Rotated {
+                key: group.rotation(),
+                t: rt.rotate_group(group, xs)?,
+            }),
+        }
+    }
+
+    /// Whether a chunk of this projection is one launch rather than one a row.
+    ///
+    /// Read only to choose the chunk size — the answer changes the SHAPE of
+    /// the work and never its result, because a chunk of a projection that
+    /// says `false` fans out through `forward_with` row by row.
+    pub fn batches_rows(&self) -> bool {
+        match self {
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, .. } => rt.has_rows_kernel(),
+            _ => false,
+        }
+    }
+
+    /// `y = W X` for a whole chunk of rows, one launch where the layout has a
+    /// kernel that takes several.
+    ///
+    /// ## What it is, and what it is not
+    ///
+    /// It is a fallback that sometimes goes fast, never a second arithmetic.
+    /// A chunk of ONE row is [`Self::forward_with`] verbatim — not a batch of
+    /// one — and an arm whose layout carries no rows kernel fans out through
+    /// the same function, row by row. So every result this returns is a result
+    /// `forward_with` would have returned, and the fast path is proved
+    /// bit-identical to it by `tetra48_matches_rust.rs`.
+    ///
+    /// ## Why a chunk of one is not a batch of one
+    ///
+    /// `Tensor::cat` of a one-element slice returns that element **verbatim**,
+    /// layout included. The rows here are `row_views`' narrows — views at
+    /// offset `r · d_in` into one allocation — so a "batch" of one would hand
+    /// the kernel a view at a nonzero offset. `FusedRowsOp` refuses that rather
+    /// than reading the wrong slice, which is the right failure and still a
+    /// failure. Taking the one-row path is what makes it not arise.
+    ///
+    /// ## What it buys, stated honestly
+    ///
+    /// BYTES, not launches. `Tensor::cat` copies each row into a fresh
+    /// allocation, so a chunk of four costs four copies plus one matvec where
+    /// four rows cost four matvecs — the launch count barely moves, and on a
+    /// q+k+v chunk it goes UP. What falls is the weight stream: `q_proj`'s
+    /// words are read once instead of four times, and the stream is what
+    /// costs. On the served 4B that is 776 GB a question against 194.
+    pub fn forward_rows(&self, r: &Rotated, xs: &Tensor, len: usize) -> Result<Vec<Tensor>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        if xs.dim(0)? != len {
+            candle_core::bail!("{} rows of activation for a chunk of {len}", xs.dim(0)?);
+        }
+        // One row is the one-row path, byte for byte.
+        if len == 1 {
+            return Ok(vec![self.forward_with(r, xs)?]);
+        }
+        match self {
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, proj } if rt.has_rows_kernel() => {
+                check_key(self.site_name(), self.rot_key(), r.key)
+                    .map_err(candle_core::Error::msg)?;
+                // No `Tensor::cat` here any more, and that is the point of the
+                // whole change: `prepare_rows` rotated the chunk in one launch
+                // and its output is already `[len, d_in]` contiguous, which is
+                // the shape this kernel wants. Stacking it cost one device copy
+                // a row — 864 a chunk on the served 4B, the largest single term
+                // in the prefill's operation count.
+                //
+                // And one `check_key` covers the chunk because there is one
+                // rotation for the chunk. The loop that checked every row's key
+                // against the first went with the vector of rotations it was
+                // checking: a chunk cannot mix two sites' rotations when it
+                // holds one.
+                let y = rt.forward_rotated_rows(proj, &r.t, len)?;
+                (0..len).map(|i| y.narrow(0, i, 1)).collect()
+            }
+            // Dense, int4, a segmented part, or a layout with no rows kernel:
+            // the same function, one row at a time. `tv_q4_h` takes no row
+            // count and no offset, so int4 is here by construction and not by
+            // omission.
+            //
+            // `r.t` is narrowed along with `xs`. In practice only `Dense` and
+            // `FusedInt4` reach here with `len > 1` — a `Fused` whose layout
+            // has no rows kernel is never given a chunk, because `batch` is 1
+            // unless some projection of the group batches — and for both of
+            // those `forward_with` reads `x` and not `r.t`. The narrow is
+            // still done, because "in practice" is not a contract and a view
+            // costs nothing.
+            _ => (0..len)
+                .map(|i| {
+                    let one = Rotated { key: r.key, t: r.t.narrow(0, i, 1)? };
+                    self.forward_with(&one, &xs.narrow(0, i, 1)?)
+                })
+                .collect(),
         }
     }
 
@@ -589,6 +810,12 @@ impl Proj {
             Proj::Dense(l) => l.forward(x),
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { rt, proj } => rt.forward_rotated(proj, &r.t, x.dims()),
+            // `x`, not `r.t` — the dense arm's choice, and the same one: `r.t`
+            // IS `x` here, and reading it from the argument the caller handed
+            // in is what keeps that true if `prepare` ever stops being the
+            // identity for this arm.
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { rt, proj } => rt.forward_int4(proj, x, x.dims()),
             // Deliberately unreachable, and it must stay that way: a launch per
             // projection here would compute the group's whole width and then
             // throw most of it away — silently, and at three times the cost.
@@ -620,6 +847,11 @@ impl Proj {
                 "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
             ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => panic!(
+                "{} is served as int4: the quantizer only works on a dense model",
+                proj.name
+            ),
         }
     }
 
@@ -635,6 +867,11 @@ impl Proj {
             Proj::FusedSeg { group, rank, .. } => panic!(
                 "{} is a fused projection: the quantizer only works on a dense model",
                 group.part_name(*rank)
+            ),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { proj, .. } => panic!(
+                "{} is served as int4: the quantizer only works on a dense model",
+                proj.name
             ),
         }
     }
@@ -653,12 +890,56 @@ impl Proj {
 /// that can be silently wrong — a transposed row order returns finite,
 /// plausible, wrong tokens — so it lives in two functions that a CPU tensor
 /// can exercise.
+/// Rows one prefill launch carries, or 1 where that crate is not linked.
+///
+/// A thin reader rather than a direct use, because `llvq-cuda` is this crate's
+/// dependency only under `cuda` — and the chunk size is arithmetic the
+/// non-CUDA build still has to compute, at the value that makes the loop the
+/// one that shipped.
+fn prefill_rows_of(projs: &[&Proj]) -> usize {
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    {
+        // From the RUNTIME that will take the chunk, not from the constant.
+        // Under `LLVQ_PREFILL` a unit is compiled at eight or sixteen rows and
+        // `tile::PREFILL_ROWS` still reads four; handing a chunk of eight to a
+        // kernel compiled at four is the silent corruption the pair exists to
+        // prevent, and `forward_rotated_rows` would refuse it — after the
+        // chunking had already decided the shape of the work.
+        //
+        // Every projection of a group shares one runtime (one layout, one
+        // load), so the first that batches answers for the group.
+        for p in projs {
+            if let Proj::Fused { rt, .. } = p {
+                if rt.has_rows_kernel() {
+                    return rt.prefill_rows();
+                }
+            }
+        }
+        1
+    }
+    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    {
+        let _ = projs;
+        1
+    }
+}
+
 pub fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
+    let flat = row_block(x)?;
+    (0..flat.dim(0)?).map(|r| flat.narrow(0, r, 1)).collect()
+}
+
+/// The same rows as ONE contiguous `[rows, d_in]` tensor.
+///
+/// What [`row_views`] narrows out of, handed over whole. A caller that wants a
+/// chunk narrows it once and gets a view; a caller that wanted a vector of
+/// single rows and then stacked four of them back together was paying a device
+/// copy a row to rebuild a shape it already had.
+pub fn row_block(x: &Tensor) -> Result<Tensor> {
     let dims = x.dims();
     let d_in = *dims.last().expect("rank >= 1");
     let rows: usize = dims[..dims.len() - 1].iter().product();
-    let flat = x.contiguous()?.reshape((rows, d_in))?;
-    (0..rows).map(|r| flat.narrow(0, r, 1)).collect()
+    x.contiguous()?.reshape((rows, d_in))
 }
 
 /// Reassemble one projection's per-row results into the caller's shape.
@@ -719,22 +1000,45 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
 
     let dims = x.dims();
     let rows: usize = dims[..dims.len() - 1].iter().product();
-    if rows > MAX_ROWS {
+    // The chunk: `PREFILL_ROWS` where a projection of this group can spend it,
+    // and ONE everywhere else — which is the loop that shipped, unchanged, for
+    // every layout that carries no rows kernel and for every group of one row.
+    //
+    // It changes the shape of the work and never its result: a projection that
+    // cannot batch fans out through `forward_with`, row by row, inside the same
+    // chunk. So a mixed q+k+v group of the served file issues one launch for q,
+    // one for k, and four for the `v_proj` that is int4.
+    let batch = match rows > 1 {
+        true => prefill_rows_of(projs),
+        false => 1,
+    };
+    let cap = row_cap(batch);
+    if rows > cap {
         candle_core::bail!(
-            "{}: {rows} vectors at once, more than {MAX_ROWS}. The fused kernel is a \
-             matvec, it loops, so the cost is linear. The scoring pass keeps the \
-             dense path.",
-            projs[0].site_name()
+            "{}: {rows} vectors at once, more than {cap} (at {batch} rows a launch, \
+             {} launches a projection). Past that the loop issues more launches than \
+             it does arithmetic; `bin/ppl`'s 4096-token window keeps the dense path.",
+            projs[0].site_name(),
+            rows.div_ceil(batch)
         );
     }
-    let slices = row_views(x)?;
-
-    let per_site = drive_rows(
+    // The rows as ONE contiguous `[rows, d_in]`, not as a vector of views: a
+    // chunk is then `narrow(0, row0, len)`, which is a view into it and costs
+    // nothing, and the rotation kernel can read `len` rows from one pointer.
+    let flat = row_block(x)?;
+    let per_site = drive_rows_batched(
         share,
         projs,
         rows,
-        |p: &&Proj, row: usize| p.prepare(&slices[row]),
-        |p: &&Proj, r: &Rotated, row: usize| p.forward_with(r, &slices[row]),
+        batch,
+        // A projection with no rotation key takes no share of the group's:
+        // `Proj::Dense` and `Proj::FusedInt4` both consume the activation in
+        // the basis it arrives in.
+        |p: &&Proj| p.rot_key().is_some(),
+        |p: &&Proj, row0: usize, len: usize| p.prepare_rows(&flat.narrow(0, row0, len)?),
+        |p: &&Proj, r: &Rotated, row0: usize, len: usize| {
+            p.forward_rows(r, &flat.narrow(0, row0, len)?, len)
+        },
     )?;
 
     per_site
@@ -840,9 +1144,9 @@ impl<'a> SegPlan<'a> {
         // the same reason: its two arms would coincide, and calling it would
         // suggest a control that is gone.
         let mut per_row = Vec::with_capacity(rows);
-        for row in 0..rows {
-            let r = self.rt.rotate_group(self.group, &slices[row])?;
-            per_row.push(self.rt.forward_rotated_seg(self.group, &r, slices[row].dims())?);
+        for slice in slices.iter().take(rows) {
+            let r = self.rt.rotate_group(self.group, slice)?;
+            per_row.push(self.rt.forward_rotated_seg(self.group, &r, slice.dims())?);
         }
         // `[rows, group.d_out]`, then one view per projection on the last axis.
         let stacked = Tensor::cat(&per_row, 0)?;

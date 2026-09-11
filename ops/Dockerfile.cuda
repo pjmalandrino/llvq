@@ -142,6 +142,20 @@ COPY --from=build /src/ops/fetch-qtip.sh /usr/local/bin/fetch-qtip.sh
 # DANS l'étage build, qui les marque exécutables lui-même. Seul un fichier venu
 # de l'arbre téléversé a besoin de cette ligne.
 RUN chmod +x /usr/local/bin/fetch-qtip.sh
+# The served configurations. They are the other half of the shipped object —
+# a `.llvq` alone does not say which VRAM layout reads it, whether the
+# embedding is quantized, or whether the group's rotation is hoisted — and
+# `LLVQ_CONFIG` is what puts `fusedrun` and `mmlu` on the served path instead
+# of on their measurement defaults, none of which is the served value.
+#
+# Data, not binaries, so they come from the uploaded tree like `fetch-qtip.sh`
+# and not from the build stage. Nothing here is executed, so no `chmod`.
+COPY --from=build /src/configs/ /usr/local/share/llvq/configs/
+# And the one the runbook names, checked by name: a `COPY` of an empty or
+# absent directory does not fail, it produces an empty directory, and the
+# failure would then move from this build to a billed job at
+# `served.rs` reading the file.
+RUN test -f /usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
 ENV HF_HOME=/scratch/hf
 WORKDIR /scratch
 # Space runtime only — a Job always overrides the command.

@@ -103,24 +103,56 @@ fn export_refuses_a_mixed_file_by_name() {
 }
 
 #[test]
-fn the_gpu_bins_refuse_a_mixed_file_off_a_card() {
-    // `fused::load` is what `fusedrun` and the CUDA path go through, and the
-    // refusal is at the header's `KindSet`: before any record is read, before
-    // any device is opened, on every layout, on a machine with no card.
-    let src = mixed_file("int4-fused.llvq");
-    for layout in [
-        llvq_llm::fused::FusedLayout::Planes14,
-        llvq_llm::fused::FusedLayout::Planes12x,
-        llvq_llm::fused::FusedLayout::Slot32,
-        llvq_llm::fused::FusedLayout::Golay70,
-    ] {
-        let e = llvq_llm::fused::load(src.to_str().unwrap(), layout)
-            .err()
-            .unwrap_or_else(|| panic!("{}: fused::load accepted a mixed file", layout.name()));
+fn a_mixed_file_is_served_by_the_ball_layouts_and_a_tetra_record_is_not() {
+    // 🕳️ This asserted the opposite until 2026-09-10, and it had been red
+    // since step 6.6 without anyone reading past a truncated test log.
+    //
+    // Before 6.6 the fused path refused a mixed file outright, on every
+    // layout, at the header's `KindSet`. 6.6 removed that DELIBERATELY:
+    // `serves_kind` is `kind == Int4G128 || kind == lattice_kind(layout)`,
+    // because an int4 record is read by `tv_q4_h`, which is orthogonal to the
+    // lattice layout — that orthogonality is the whole reason a mixed file can
+    // be served at all, and the served object of 2026-09-08 is one.
+    //
+    // So the kind gate is tested for what it now IS: it lets int4 through on
+    // every layout, and it stops a lattice record whose kind the layout does
+    // not read.
+    use llvq_llm::fused::{check_kinds, FusedLayout};
+    let ball = [
+        FusedLayout::Planes14,
+        FusedLayout::Planes12x,
+        FusedLayout::Slot32,
+        FusedLayout::Golay70,
+    ];
+    for layout in ball {
+        check_kinds(layout, KindSet::of(CodeKind::Ball).with(CodeKind::Int4G128)).unwrap_or_else(
+            |e| panic!("{}: a Ball+int4 file must be served since 6.6: {e}", layout.name()),
+        );
+        let e = check_kinds(layout, KindSet::of(CodeKind::Tetra).with(CodeKind::Int4G128))
+            .expect_err("a Tetra record has no ball layout");
         assert!(
-            e.contains("no runtime layout for Int4G128 records"),
-            "{}: the refusal must say why, and name int4 rather than Tetra: {e}",
+            e.contains("LLVQ_FUSED_LAYOUT=tetra48"),
+            "{}: the refusal must send the operator to the layout that DOES read it: {e}",
             layout.name()
         );
     }
+    // And the reverse: `tetra48` reads no ball record, and says where to go.
+    let e = check_kinds(FusedLayout::Tetra48, KindSet::of(CodeKind::Ball))
+        .expect_err("a Ball record has no tetra48 layout");
+    assert!(e.contains("planes14"), "the refusal must name a ball layout: {e}");
+    check_kinds(FusedLayout::Tetra48, KindSet::of(CodeKind::Tetra).with(CodeKind::Int4G128))
+        .expect("the served object's own kind set");
+
+    // The fixture itself is still refused by `load`, and NOT by kind: its
+    // lattice record carries `rotation_seed: None`, and the fused path cannot
+    // read a matrix quantized in the natural basis. Asserted so that nobody
+    // reads this file's refusal as a kind refusal again.
+    let src = mixed_file("int4-fused.llvq");
+    let e = llvq_llm::fused::load(src.to_str().unwrap(), FusedLayout::Planes14)
+        .err()
+        .expect("the fixture is unrotated and cannot be served");
+    assert!(
+        e.contains("no rotation in the file"),
+        "the fixture must fail on its rotation, not on its kinds: {e}"
+    );
 }

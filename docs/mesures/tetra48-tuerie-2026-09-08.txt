@@ -1,0 +1,172 @@
+TETRA SERVI CONTRE PLANES14, DANS UN SEUL PROCESSUS : R = 1,47 — LE FORMAT QUI
+LIT 2,3 FOIS MOINS D'OCTETS EST 1,47 FOIS PLUS LENT
+================================================================================
+Date        : 2026-09-08
+Jobs        : 6aa063a6900620b5c77e389c, rtx-pro-6000, 10 s, ~0,02 $ (le banc)
+              6aa0117132d5d0c22c5ad753, l40sx1, 20 s, ~0,01 $ (É1, le -lc avalé)
+              6aa01601900620b5c77e257c, l40sx1, 20 s, ~0,01 $ (É3, include non gardé)
+              6aa0397b32d5d0c22c5addbf, rtx-pro-6000, 20 s, ~0,02 $ (É5, la garde
+                d'architecture en égalité)
+              6aa01d85900620b5c77e27bd, l40sx1, ANNULÉ EN FILE après 99 min sans
+                jamais démarrer — 0 $, jamais facturé
+              6aa10ba8900620b5c77e5a7d, l40sx1, EN VOL au moment d'écrire : le
+                même banc sur la carte de référence
+Préreg      : proofs/preregistration-tetra48-tuerie-2026-09-08.md
+              sha256 d60850bd6ed1c5fe28872a5660d82d1a4a215870b8fb71071d2a0120c96b7af9
+              tamponné avant la première seconde de carte, quatre calendriers
+Écarts      : proofs/preregistration-tetra48-tuerie-2026-09-08-ECARTS.md (É1 à É3)
+              É4 et É5 à ajouter : la carte, et la garde d'architecture
+Code        : llvq-cuda/kernels/{llvq_tetra48.cuh,tetra48_v3g.cu},
+              llvq-cuda/src/bin/f1rankfloor.rs (huit bras), commit c878c2e
+Nature      : *mesuré* sur carte ; le débit en Go/s est *calculé* sur des octets
+              nominaux et un temps mesuré, jamais un compteur matériel
+
+LE VERDICT
+----------
+  R = (v3g − nullk) / (planes14 − nullk) = 1,4693  [1,4585 ; 1,4812]
+
+  La porte du préreg §4 : ROUGE si R >= 0,90, borne basse comprise.
+  Borne basse 1,4585. ROUGE, et de loin.
+
+  Prédiction signée : 0,63, fourchette [0,55 ; 0,75]. FAUSSE, et du mauvais côté.
+
+LA SORTIE BRUTE
+---------------
+  NVIDIA RTX PRO 6000 Blackwell Server Edition · 188 SM · L2 128 MiB
+  NVRTC source: 117574 bytes, sha256 5767a27862d5409555b85e50329a983d344a456a7fdbd8ce29052e4fb4a3e15e
+
+    tv_nullk      34 registres, 0 octet local, sm_120
+    tv_f1r_word   40 ...
+    tv_f1r        47
+    tv_f1r_v1     40
+    tv_f1r_v2     44
+    tv_f1r_v3     40
+    tv_f1r_v3g    40 registres, 0 octet local, sm_120
+    tv_planes     40 registres, 0 octet local, sm_120
+
+  flux tetra    : 0,908 Go (6,8 × la L2)
+  flux planes14 : 2,110 Go (15,7 × la L2), 2,322 × le flux tetra
+
+  14 tours, 2 écartés ; le tour r ouvre avec le bras r mod 8 ; toute différence
+  formée TOUR PAR TOUR
+
+    nullk       2,442 ms  [2,441–2,447]
+    word        2,839 ms  [2,821–2,848]
+    f1r         6,001 ms  [5,986–6,028]
+    f1r_v1      4,832 ms  [4,817–4,851]
+    f1r_v2      5,707 ms  [5,697–5,716]
+    f1r_v3      4,786 ms  [4,770–4,808]
+    f1r_v3g     4,967 ms  [4,955–4,979]
+    planes14    4,163 ms  [4,151–4,179]
+
+    v3g − planes14                0,804 ms  [0,792–0,824]
+    t(v3g)/t(planes14)           1,1934    [1,1899–1,1984]   brut
+    (v3g−nullk)/(planes14−nullk) 1,4693    [1,4585–1,4812]   tête identique
+    v3g − f1r_v3                  0,184 ms  [0,149–0,197]
+
+LES CONTRÔLES — TOUS VERTS
+--------------------------
+  1. 64 512 blocs décodés sur carte = la référence Rust, chaque coordonnée
+  8. 1 792 blocs SERVIS sur carte = llvq_search::tetra::Tetra::decode mis à
+     l'échelle par reconstruct_shape_gain, chaque coordonnée, pire |Δ|rel 5,31e-8
+  2,3. toute sortie finie, écrite, et ≠ word ≠ nullk sur les huit bras
+  7. chaque variante = tv_f1r à 1e-5 par ligne sur les 30 720 lignes
+  6. tv_f1r_v3g : 40 registres, 0 octet local — la porte dure PASSE
+
+  Le noyau est JUSTE. Il est LENT. Ces deux faits sont mesurés séparément et
+  aucun n'excuse l'autre.
+
+CE QUE ÇA VEUT DIRE
+-------------------
+  Planes14 lit 2,322 fois plus d'octets et va 1,47 fois plus vite.
+
+  En débit effectif, la seule grandeur que la règle 5 autorise entre formats
+  (*calculé* sur octets nominaux / temps de bras, la comptabilité de F2) :
+
+    planes14   2,110 Go / 4,163 ms =  507 Go/s
+    tetra v3g  0,908 Go / 4,967 ms =  183 Go/s
+
+  Pour mémoire, F2 sur L40S donnait Planes14 à 428 Go/s et QTIP à 405
+  (mesures/f2-p3-qtip-banc-2026-08-21.txt). Planes14 tient donc son régime ;
+  Tetra tourne à 36 % de celui-ci.
+
+  Tout l'argument de Tetra — « le format ne déplie pas, six octets par bloc
+  contre quatorze » — est VRAI sur les octets et NE SE TRANSFORME PAS en temps.
+  Planes14 est borné par la mémoire et la sature ; Tetra est borné par son
+  décodage et laisse les deux tiers de la bande passante inutilisés.
+
+  La recherche du 2026-09-08 (docs/recherche-decodage-kernel-2026-09-08.md §5)
+  avait posé la borne optimiste : si Tetra tenait le régime de Planes14 sans
+  surcoût de décodage, il ferait 3,56 ms, soit 1,43 fois PLUS VITE. Mesuré :
+  1,47 fois plus lent. L'écart entre la borne et la mesure est d'un facteur
+  2,1, et c'est l'arithmétique de décodage.
+
+CE QUI ÉTAIT JUSTE DANS LA PRÉDICTION
+-------------------------------------
+  v3g − f1r_v3 = 0,184 ms contre +0,18 ms prédits.
+
+  Le coût de SERVIR — le bit de gain, la magnitude par six __dp4a, la
+  permutation trio, l'origine — est exactement celui annoncé. L'erreur de
+  prédiction n'est pas là. Elle est dans le décodage lui-même, dont le coût
+  face à un Planes14 MESURÉ au lieu de TRANSPORTÉ était sous-estimé d'un
+  facteur deux.
+
+LA RÉSERVE, ET ELLE EST SÉRIEUSE
+--------------------------------
+  Ceci est sm_120, pas la L40S de tout le dossier.
+
+  Avec le B = 2,797 transporté d'un autre processus sur L40S, la même
+  arithmétique donnerait R ~ 0,67, soit VERT. C'est précisément le calcul que
+  la règle 5 interdit et que ce banc existait pour remplacer.
+
+  🚨 CORRECTION du 2026-09-09. Cette section affirmait : « t(f1r)/t(nullk) vaut
+  2,4584 ici contre 2,21 en référence L40S, le décodage F1 est relativement
+  PLUS cher sur Blackwell ». C'est FAUX, et la réfutation était imprimée dans
+  la sortie L40S que j'avais sous les yeux :
+
+      L40S, EN PROCESSUS      t(f1r)/t(nullk) = 2,4822  [2,4679–2,4956]
+      Blackwell, EN PROCESSUS                   2,4584
+
+  Le décodage F1 est donc relativement MOINS cher sur Blackwell, pas plus. Le
+  2,21 que j'avais cité est le 5,103/2,306 de F2 — UN AUTRE PROCESSUS — que la
+  ligne de sortie affiche justement comme repère et jamais comme terme de
+  comparaison. J'ai transporté un rapport entre processus dans le journal même
+  qui existe pour ne plus le faire (règle 5).
+
+  Ce qui SURVIT : les deux termes qui portaient réellement l'argument sont
+  intra-processus des deux côtés, et ils tiennent — `f1r_v2 − f1r` change de
+  signe (+0,203 sur L40S, −0,294 sur Blackwell) et `Du_v3` va de 0,928 à
+  1,947 ms. Le mécanisme a d'ailleurs été trouvé le lendemain et il n'est pas
+  celui-là : c'est la tuile qui volait sa L1 à la table
+  (mesures/tile-sweep-2026-09-09.txt).
+
+  Le job 6aa10ba8 rejoue le même banc sur l40sx1. Tant qu'il n'a pas rendu, ce
+  journal établit un R intra-processus sur UNE carte, et une seule.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  - aucun tok/s. Un rapport noyau se comprime bout en bout, et c'est F1e qui
+    mesure le débit servi. ⚠️ La sortie brute du binaire cite ici « 48 % du
+    temps par token hors des matmuls » : CE CHIFFRE NE DOIT PAS ÊTRE REPRIS.
+    Il vient de docs/archive/audit-perf-noyau-cuda-2026-08-05.md:243, il est
+    MESURÉ SUR METAL, et l'archive le désavoue deux fois comme « une
+    soustraction jamais confirmée par chronomètres »
+    (pistes-facteurs-cles-2026-08-05.md:207, spec-lot-a-2026-08-05.md:71-74).
+    Son dénominateur est un token DENSE. Le message du binaire sera corrigé ;
+  - rien sur la qualité : v_proj en int4 n'est pas dans ce banc, et tv_q4_h
+    n'a toujours jamais tourné sur une carte ;
+  - rien au-delà du 4B : les sept formes sont celles du Qwen3-4B ;
+  - étiquettes uniformes, flux synthétique : c'est un plancher, pas F1d.
+
+  LE KILL N'EST PAS PRONONCÉ ICI. Règle du 2026-09-05 : un kill est à
+  l'opérateur, sur un critère fondamental. Le critère a parlé sur une carte.
+
+CE QUI SURVIT QUOI QU'IL ARRIVE
+-------------------------------
+  - le B en processus, un chiffre que docs/format-noyau.md §6 n'avait jamais eu ;
+  - llvq_tetra48.cuh et ses cinq tests : le décodage servi de n'importe quel
+    format qui ne déplie pas, vérifié bit à bit sur le Mac à 0 $ ;
+  - le contrôle 8, qui relie pour la première fois une sortie carte au module
+    de production llvq_search::tetra plutôt qu'à l'étalon de banc ;
+  - cuhcheck qui refuse tout #include non gardé, et la garde d'architecture
+    devenue un ordre — deux défauts de classe fermés en chemin.

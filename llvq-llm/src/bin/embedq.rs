@@ -51,7 +51,7 @@ fn main() -> anyhow::Result<()> {
     anyhow::ensure!(
         head.is_ball_only(),
         "{src}: a {} file (format v{}); embedq rewrites records as v1 Ball records — \
-         no runtime layout for Tetra before F1d",
+         no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none",
         head.kinds(),
         head.version
     );

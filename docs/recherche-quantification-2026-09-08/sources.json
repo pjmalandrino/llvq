@@ -1,0 +1,50 @@
+{
+  "date_checked": "2026-09-08",
+  "scope": "arXiv papers posted in the preceding two months relevant to LLVQ",
+  "papers": [
+    {
+      "key": "kronq",
+      "title": "KronQ: LLM Quantization via Kronecker-Factored Hessian",
+      "arxiv": "2607.07964",
+      "version_used": "v2",
+      "posted": "2026-08-08",
+      "url": "https://arxiv.org/html/2607.07964v2",
+      "html_sha256": "77d6e3c140ce5d1e741aa839f716254f89ca8fb9ece6558892520972a2403941",
+      "code_url": "https://github.com/Intelligent-Computing-Lab-Panda/KronQ",
+      "code_commit": "c1f84d2f556a2906bd8ac8e0faebe42a9faaf10b"
+    },
+    {
+      "key": "gptq2d",
+      "title": "GPTQ-2D: Efficient Two-Sided Quantization",
+      "arxiv": "2607.27042",
+      "version_used": "v1",
+      "posted": "2026-07-29",
+      "url": "https://arxiv.org/html/2607.27042",
+      "html_sha256": "d18b550f960b941dbf8aac22fe97506e872d281183f1f896e7740cb7774fd11c"
+    },
+    {
+      "key": "bakron",
+      "title": "BaKron: Backpropagation-Free Kronecker-Factored Quantization",
+      "arxiv": "2608.06291",
+      "version_used": "v1",
+      "posted": "2026-08-06",
+      "url": "https://arxiv.org/html/2608.06291",
+      "html_sha256": "28e8f752fd931b2a73dc5454841674922bdbf0a85f07a4e272c463d3e5205ffd"
+    },
+    {
+      "key": "realq",
+      "title": "REAL-Q: E2E LLM Quantization via Dynamic Gradient Descent",
+      "arxiv": "2609.00049",
+      "version_used": "v1",
+      "posted": "2026-08-30",
+      "url": "https://arxiv.org/html/2609.00049",
+      "html_sha256": "eb7b34dd58ace1d0cdbf02b0b56d1e16e867ec41a3ccd12143246bd72dce9d4e"
+    }
+  ],
+  "local_checks": {
+    "script": "checks.py",
+    "result": "checks.json",
+    "command": "python3 docs/recherche-quantification-2026-09-08/checks.py",
+    "model_or_gpu_run": false
+  }
+}

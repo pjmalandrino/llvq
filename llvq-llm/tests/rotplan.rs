@@ -25,9 +25,11 @@ use llvq_core::{SplitMix64, DIM};
 use llvq_llm::fused::{
     planes_source_names, FusedLayout, FusedMatrix, HostStream, RotKey, Transcoder,
 };
-use llvq_llm::model::Act;
+use llvq_llm::model::{row_cap, Act, MAX_PREFILL_ROWS, MAX_ROWS};
+use llvq_cuda::tile::PREFILL_ROWS;
 use llvq_llm::rotplan::{
-    act_of_suffix, check_key, check_rotation_partition, drive_rows, rot_launches_per_token,
+    act_of_suffix, check_key, check_rotation_partition, drive_rows, matvec_launches_per_token,
+    rot_launches_per_token,
     rotation_sites, RotShare, RotSite,
 };
 use llvq_quant::rotation::Rotation;
@@ -300,6 +302,10 @@ fn run(
             share,
             &g.sites,
             g.rows.len(),
+            // Every site of the simulator carries a key, so the predicate is
+            // constant here — the mixed case is exercised by the unit test in
+            // `rotplan.rs` itself, which is where a `None` key can be built.
+            |_: &Site| true,
             |s: &Site, row: usize| -> Result<HostRotated, String> {
                 Ok(rot.rotate(s.key, &g.rows[row]))
             },
@@ -505,6 +511,79 @@ fn the_hoist_actually_hoists() {
     let m = model_4b_shaped(36, 0x11);
     assert_eq!(rot_launches_per_token(RotShare::On, &m), 144);
     assert_eq!(rot_launches_per_token(RotShare::Off, &m), 252);
+}
+
+/// **T10.** The matvec counter counts the int4 projections too.
+///
+/// The served object of 2026-09-08 is mixed: 216 lattice records plus 36
+/// `v_proj` in int4 g128, and the int4 records live in their own vector
+/// because they take their own kernel. Each still costs one launch a decode
+/// token.
+///
+/// The first card run of that object (job `6aa2e938`, 2026-09-10) printed
+/// `216 matvec_launches/token for 252 projections` — the denominator counted
+/// the int4, the numerator did not. Nothing else on that run was wrong: the
+/// tokens matched the dense arm, the memory and the speed were real. Only the
+/// number the fusion gate rests on was short by exactly 36.
+///
+/// Pinned here rather than beside the printing, because `fused_cuda.rs`
+/// compiles on no machine this suite runs on.
+#[test]
+fn the_matvec_counter_counts_the_int4_projections() {
+    let all = model_4b_shaped(36, 0x11);
+    assert_eq!(all.len(), 252, "36 layers x 7 projections");
+
+    // The served split: the `v_proj` leave the lattice vector for their own.
+    // `FusedMatrix` is not `Clone` — it owns a weight stream — so the vector is
+    // consumed and rebuilt rather than filtered by reference.
+    let (v_proj, lattice): (Vec<FusedMatrix>, Vec<FusedMatrix>) =
+        model_4b_shaped(36, 0x11).into_iter().partition(|m| m.name.contains("v_proj"));
+    let int4 = v_proj.len();
+    assert_eq!((lattice.len(), int4), (216, 36), "the served object of 2026-09-08");
+
+    // What the model issues: one launch a projection, whichever kernel reads it.
+    assert_eq!(matvec_launches_per_token(&lattice, &[], int4), 252);
+
+    // And the number that shipped, which is what this test exists to refuse.
+    assert_ne!(matvec_launches_per_token(&lattice, &[], int4), lattice.len());
+
+    // A pure-lattice file is unchanged: the term is a count, not a rescaling.
+    assert_eq!(matvec_launches_per_token(&all, &[], 0), 252);
+}
+
+/// **T11.** The two row budgets are two budgets, and the prefill one admits
+/// the whole MMLU census.
+///
+/// The longest 5-shot MMLU prompt under the Qwen3 tokenizer is 3,096 tokens
+/// (`high_school_european_history`, measured 2026-09-11 from the cached
+/// `cais/mmlu` parquet). Until that day the prefill bound was `MAX_ROWS *
+/// batch` = 1,024, which refused 239 of the 2,280 questions every published
+/// bar is measured on — five subjects entirely.
+///
+/// Two statements here, and a check of one passes on a change that breaks the
+/// other:
+///
+///  * the batched path admits the longest prompt in the split. This is also
+///    what kills a collapse back to `MAX_ROWS * batch`: 256 x 4 is 1,024, and
+///    1,024 < 3,096;
+///  * the per-row paths did NOT move. `MAX_ROWS` also bounds the segmented
+///    kernel, served under `Planes14`, and the whole point of splitting the
+///    constants was that raising one must not raise that.
+#[test]
+fn the_prefill_budget_admits_the_census_and_leaves_the_other_alone() {
+    // The longest 5-shot prompt in the MMLU test split, in tokens.
+    const LONGEST_MMLU_PROMPT: usize = 3096;
+
+    assert!(
+        row_cap(PREFILL_ROWS) >= LONGEST_MMLU_PROMPT,
+        "a census question of {LONGEST_MMLU_PROMPT} tokens would be refused at {}",
+        row_cap(PREFILL_ROWS)
+    );
+    assert_eq!(row_cap(PREFILL_ROWS), MAX_PREFILL_ROWS);
+
+    // One launch a row is still bounded by the launch budget, unmoved.
+    assert_eq!(row_cap(1), MAX_ROWS);
+    assert_eq!(MAX_ROWS, 256, "the segmented kernel's bound must not drift here");
 }
 
 /// **T9.** The hoist is not gated on the runtime layout.

@@ -18,7 +18,7 @@ use llvq_search::tetra::Tetra;
 use std::path::PathBuf;
 use std::process::Command;
 
-const REFUSAL: &str = "no runtime layout for Tetra before F1d";
+const REFUSAL: &str = "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none";
 
 /// A one-matrix v5 Tetra file, two blocks, on disk.
 fn tetra_file(name: &str) -> PathBuf {
@@ -60,9 +60,38 @@ fn refuses(bin: &str, args: &[&str], path: &std::path::Path) {
 }
 
 #[test]
-fn rtbits_refuses_a_tetra_file_by_name() {
+fn rtbits_prices_a_tetra_file_instead_of_refusing_it() {
+    // 🕳️ The second of two tests this file's sibling `int4_refusals.rs` also
+    // carried: both demanded a refusal `rtbits` stopped issuing at step 6.7,
+    // both were red from that day, and neither was read.
+    //
+    // 6.7 is why: the served object is a v5 file and a tool that prices
+    // formats has to price the one that ships. Every other binary here still
+    // refuses, and for a reason that has not moved — `classhist`, `lswap` and
+    // `radixstudy` key on a v1 class, and a Tetra word names none.
     let p = tetra_file("tetra-rtbits.llvq");
-    refuses(env!("CARGO_BIN_EXE_rtbits"), &[p.to_str().unwrap()], &p);
+    let out = Command::new(env!("CARGO_BIN_EXE_rtbits"))
+        .arg(p.to_str().unwrap())
+        .output()
+        .expect("run rtbits");
+    let text = String::from_utf8_lossy(&out.stdout).to_string()
+        + &String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "rtbits must price a Tetra file, not refuse it:\n{text}");
+    assert!(
+        text.contains("lattice matrices"),
+        "the lattice records must be priced:\n{text}"
+    );
+    assert!(
+        text.contains("kernel b/weight"),
+        "the accounting must be named, never left for a reader to guess:\n{text}"
+    );
+    // And it must refuse to print a CLASS statistic: every accumulator of that
+    // tool keys on a v1 class and a Tetra word names none, so a plausible
+    // histogram would be worse than its absence. `rtbits` says so itself.
+    assert!(
+        text.contains("NO CLASS STATISTIC IS PRINTED"),
+        "pricing a Tetra file must not silently drop the class caveat:\n{text}"
+    );
 }
 
 #[test]

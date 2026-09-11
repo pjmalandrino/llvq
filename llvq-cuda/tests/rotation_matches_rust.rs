@@ -85,7 +85,7 @@ fn run_case(
     n: usize,
     seed: u64,
     pad: f32,
-) -> (Vec<f64>, Vec<Vec<f32>>) {
+) -> (Vec<f64>, Vec<Vec<f32>>, Vec<f32>) {
     let rot = Rotation::new(n, seed);
     let (m, k) = (rot.pow2(), rot.odd());
     assert!(k <= KMAX, "case n={n} has k={k}, past the kernel's cap");
@@ -144,24 +144,30 @@ fn run_case(
         .expect("fixture written");
     let out = child.wait_with_output().expect("driver finished");
     assert!(out.status.success(), "driver failed on n={n}");
+    // Four vectors of `n` floats, then the three `rot_apply_rows` residuals.
     assert_eq!(
         out.stdout.len(),
-        4 * n * 4,
+        4 * n * 4 + ROWS_CASES * 4,
         "driver returned {} bytes for n={n}",
         out.stdout.len()
     );
 
-    let got: Vec<Vec<f32>> = out
+    let f32s: Vec<f32> = out
         .stdout
-        .chunks_exact(n * 4)
-        .map(|c| {
-            c.chunks_exact(4)
-                .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                .collect()
-        })
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect();
-    (want, got)
+    let got: Vec<Vec<f32>> = f32s[..4 * n].chunks_exact(n).map(<[f32]>::to_vec).collect();
+    let rows_worst: Vec<f32> = f32s[4 * n..].to_vec();
+    (want, got, rows_worst)
 }
+
+/// How many row counts the driver runs `rot_apply_rows` at: 1, 3 and 4.
+///
+/// Three because they are three different statements — a grid of one, a short
+/// tail chunk, and a full `PREFILL_ROWS` one — and the tail is where an
+/// off-by-one in the grid would land.
+const ROWS_CASES: usize = 3;
 
 /// Relative error in the norm, and the worst single coordinate measured
 /// against a *typical* one.
@@ -196,7 +202,7 @@ fn the_cuda_rotation_computes_what_the_rust_rotation_computes() {
     let mut worst_max = 0.0f64;
 
     for (n, seed) in CASES {
-        let (want, got) = run_case(&driver, n, seed, 0.0);
+        let (want, got, _) = run_case(&driver, n, seed, 0.0);
         let widths = [1u32, 7, 32, 256];
 
         for (arm, g) in got.iter().enumerate() {
@@ -226,6 +232,36 @@ fn the_cuda_rotation_computes_what_the_rust_rotation_computes() {
     eprintln!("worst over {} shapes: relative {worst_rel:.3e}, coordinate {worst_max:.3e}", CASES.len());
 }
 
+/// `rot_apply_rows` row `r` IS `rot_apply` of row `r`, bit for bit.
+///
+/// Both sides are the real kernels — the batched one driven at `blockIdx.x =
+/// r`, the single-row one on that row alone — so this is not a replay and
+/// cannot drift from one. The driver builds the batch with the rows `n + 8`
+/// apart, deliberately not `n`: the kernel reads the input at
+/// `x_off + r * row_stride` and writes the output at `r * n`, two quantities
+/// that are equal in every model this repository serves. A kernel that used
+/// one of them for both is right on every real shape and wrong here.
+///
+/// Exact equality, not a tolerance. The two paths run the same helpers on the
+/// same values in the same order; there is no reassociation to round
+/// differently, so any difference at all is an addressing bug.
+#[test]
+#[cfg_attr(debug_assertions, ignore = "compiles C++ and runs eight widths, run in release")]
+fn the_batched_rotation_is_the_single_row_one_row_by_row() {
+    let driver = build_driver();
+    for (n, seed) in CASES {
+        let (_, _, rows_worst) = run_case(&driver, n, seed, 0.0);
+        assert_eq!(rows_worst.len(), ROWS_CASES);
+        for (i, &w) in rows_worst.iter().enumerate() {
+            assert_eq!(
+                w, 0.0,
+                "n={n}, {} rows: the batched rotation differs from the single-row one by {w:e}",
+                [1usize, 3, 4][i]
+            );
+        }
+    }
+}
+
 /// The rotation is orthogonal, so it must preserve the norm — a property the
 /// diff against Rust cannot check, since a shared misconception would satisfy
 /// both. This is the independent one.
@@ -244,7 +280,7 @@ fn the_cuda_rotation_preserves_the_norm() {
             .sum::<f64>()
             .sqrt();
 
-        let (_, got) = run_case(&driver, n, seed, 0.0);
+        let (_, got, _) = run_case(&driver, n, seed, 0.0);
         let after = got[0].iter().map(|&g| g as f64 * g as f64).sum::<f64>().sqrt();
         let rel = (after - before).abs() / before;
         assert!(rel < 1e-5, "n={n}: norm {before:.9} became {after:.9} ({rel:.3e})");
@@ -272,9 +308,9 @@ fn the_cuda_rotation_preserves_the_norm() {
 fn the_mix_ignores_whatever_pads_the_small_block() {
     let driver = build_driver();
     for (n, seed) in CASES {
-        let (_, clean) = run_case(&driver, n, seed, 0.0);
+        let (_, clean, _) = run_case(&driver, n, seed, 0.0);
         for pad in [1.0f32, -3.5e12, 7.25e-9] {
-            let (_, dirty) = run_case(&driver, n, seed, pad);
+            let (_, dirty, _) = run_case(&driver, n, seed, pad);
             assert_eq!(
                 clean, dirty,
                 "n={n}: padding `small` with {pad} changed the result"

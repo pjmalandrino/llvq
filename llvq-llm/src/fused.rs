@@ -80,6 +80,12 @@ pub enum FusedLayout {
     Planes12x,
     Slot32,
     Golay70,
+    /// The Tetra word, read as it is written. The only layout here that does
+    /// **not** unfold a ball index into a kernel-shaped record — it addresses
+    /// blocks row-strided rather than flat, because a six-byte record is not
+    /// u32-aligned and a row must start on a boundary or every row after the
+    /// first reads at a shifted phase (`llvq_artifact::tetra48`).
+    Tetra48,
 }
 
 impl FusedLayout {
@@ -93,9 +99,10 @@ impl FusedLayout {
             Some("planes12x") => Ok(Self::Planes12x),
             Some("slot32") => Ok(Self::Slot32),
             Some("golay70") => Ok(Self::Golay70),
+            Some("tetra48") => Ok(Self::Tetra48),
             Some(other) => Err(format!(
                 "LLVQ_FUSED_LAYOUT={other}: accepted values \"planes14\" (default), \
-                 \"planes12x\", \"slot32\" and \"golay70\""
+                 \"planes12x\", \"slot32\", \"golay70\" and \"tetra48\""
             )),
         }
     }
@@ -112,6 +119,7 @@ impl FusedLayout {
             Self::Planes12x => "planes12x",
             Self::Slot32 => "slot32",
             Self::Golay70 => "golay70",
+            Self::Tetra48 => "tetra48",
         }
     }
 }
@@ -347,7 +355,12 @@ impl EmbedReport {
 
     /// The load-time line — it names how many tables it is counting, so a
     /// reader can tell a tied model from an untied one without doing division.
-    pub fn line(&self) -> String {
+    ///
+    /// `source` is what decided the mode: `"LLVQ_EMBED"` in bench mode, the
+    /// served config's name on the served path. Printed in place of the
+    /// variable name, for the reason `fused_cuda::load_resolved` gives: a
+    /// served log must not attribute a choice to a variable nobody set.
+    pub fn line(&self, source: &str) -> String {
         let names: Vec<&str> = self.tables.iter().map(|(n, ..)| n.as_str()).collect();
         let which = if names.len() == 1 {
             format!("1 table ({}, lm_head tied on it)", names[0])
@@ -356,11 +369,11 @@ impl EmbedReport {
         };
         match self.mode {
             EmbedMode::F16 => format!(
-                "embedding: f16 (LLVQ_EMBED), {which}, {:.1} MB on the card",
+                "embedding: f16 ({source}), {which}, {:.1} MB on the card",
                 self.total() as f64 / 1e6
             ),
             EmbedMode::Q8 => format!(
-                "embedding: q8 g64 (LLVQ_EMBED), {which}, {:.1} MB on the card \
+                "embedding: q8 g64 ({source}), {which}, {:.1} MB on the card \
                  (int8 {:.1} + scales/biases {:.1})",
                 self.total() as f64 / 1e6,
                 self.packed() as f64 / 1e6,
@@ -398,6 +411,19 @@ const PLANES12_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_plan
 const PLANES12X_H_CU_EMBED: &str = include_str!("../kernels/tv_planes12x_h.cu");
 const GOLAY_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_golay.cuh");
 const GOLAY70_H_CU_EMBED: &str = include_str!("../kernels/tv_golay70_h.cu");
+// Tetra48's four. The first three come from `llvq-cuda` verbatim — the F1
+// decoder chain the bench of 2026-09-08 measured and the served decode
+// `tests/tetra48_matches_rust.rs` pins bit for bit — and the fourth is this
+// crate's own half-storing entry point.
+const F1RANK_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_f1rank.cuh");
+const F1RANK_V3_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_f1rank_v3.cuh");
+const TETRA48_CUH_EMBED: &str = include_str!("../../llvq-cuda/kernels/llvq_tetra48.cuh");
+const TETRA48_H_CU_EMBED: &str = include_str!("../kernels/tv_tetra48_h.cu");
+/// The int4 g128 projection kernel, for the mixed files `LLVQ_INT4_TYPES`
+/// writes. Not a layout source: it is orthogonal to the lattice layout — a
+/// mixed file carries int4 records **beside** Tetra or Ball ones — so it is
+/// selected by the file's `KindSet` and not by `LLVQ_FUSED_LAYOUT`.
+const Q4_H_CU_EMBED: &str = include_str!("../kernels/tv_q4_h.cu");
 
 /// The bit-plane sources a layout needs, **in NVRTC concatenation order**.
 ///
@@ -457,8 +483,180 @@ pub fn planes_source_names(layout: FusedLayout) -> &'static [&'static str] {
             "llvq_golay.cuh",
             "tv_golay70_h.cu",
         ],
+        // A list of its own, and it shares nothing with the four above: Tetra
+        // names no class, so `llvq_planes.cuh` and its ClassRec table have no
+        // meaning here. What it needs is the F1 decoder chain the bench proved,
+        // plus the served decode on top.
+        FusedLayout::Tetra48 => &[
+            "llvq_f1rank.cuh",
+            "llvq_f1rank_v3.cuh",
+            "llvq_tetra48.cuh",
+            "tv_tetra48_h.cu",
+        ],
     }
 }
+
+/// The lattice [`CodeKind`] a layout reads — the one it transcodes.
+///
+/// Not the only kind it can *serve*: see [`check_kinds`].
+pub fn lattice_kind(layout: FusedLayout) -> CodeKind {
+    match layout {
+        FusedLayout::Planes14
+        | FusedLayout::Planes12x
+        | FusedLayout::Slot32
+        | FusedLayout::Golay70 => CodeKind::Ball,
+        FusedLayout::Tetra48 => CodeKind::Tetra,
+    }
+}
+
+/// Whether `layout` can serve a record of `kind`.
+///
+/// Two kinds, and they arrive by different routes:
+///
+/// * the layout's own [`lattice_kind`], which its transcoder turns into a
+///   kernel stream — and **only** that one. A Tetra word read as a ball index
+///   names a class it does not have; a ball index read as a Tetra word decodes
+///   to a different lattice point. Neither fails: both return plausible,
+///   wrong weights, which is why `require_ball` exists and why this does not
+///   soften it for the eleven sites that still use it;
+/// * [`CodeKind::Int4G128`], which no layout transcodes at all. An int4 record
+///   is stored group-affine in the natural basis — never GPTQ, never the
+///   rotation, never the lattice (`calib.rs:793-812`) — and is served by
+///   `tv_q4_h`, which is orthogonal to the layout. That is what makes a mixed
+///   file possible: the two kinds do not share a code path, so they do not
+///   have to share a layout.
+pub fn serves_kind(layout: FusedLayout, kind: CodeKind) -> bool {
+    kind == CodeKind::Int4G128 || kind == lattice_kind(layout)
+}
+
+/// [`serves_kind`] over a whole header set, refused by name.
+///
+/// This replaces `require_ball_kinds` on the fused path, and replacing it is
+/// the point: that function was written when every layout read a ball index,
+/// and it refuses `Tetra` and `Int4G128` unconditionally. It is still right
+/// everywhere it is still called — a `ClassTable` consumer cannot read either.
+/// Here the layout decides.
+///
+/// The early stop matters: the set is in the header, so a file this path
+/// cannot serve is refused for the cost of a header rather than after 130
+/// seconds of transcoding.
+pub fn check_kinds(layout: FusedLayout, kinds: llvq_artifact::KindSet) -> Result<(), String> {
+    for kind in kinds.iter() {
+        if !serves_kind(layout, kind) {
+            // The message names the layout that DOES read the kind, when one
+            // exists. A refusal that only says no sends an operator to read
+            // source; this one sends them to `LLVQ_FUSED_LAYOUT`.
+            let go = match kind {
+                CodeKind::Tetra => " Serve it with LLVQ_FUSED_LAYOUT=tetra48.",
+                CodeKind::Ball => {
+                    " Serve it with LLVQ_FUSED_LAYOUT=planes14 (or planes12x, slot32, golay70)."
+                }
+                CodeKind::Int4G128 => "",
+            };
+            return Err(format!(
+                "LLVQ_FUSED_LAYOUT={}: this file declares a {kind:?} record, which {} \
+                 cannot read — it transcodes {:?} and carries {:?} beside it, and any \
+                 other kind names a different map that would decode to plausible, wrong \
+                 weights.{go}",
+                layout.name(),
+                layout.name(),
+                lattice_kind(layout),
+                CodeKind::Int4G128,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The four constant tables `tv_tetra48_h` reads, in the shapes it declares.
+///
+/// Built here rather than in `fused_cuda.rs` for the reason that module gives
+/// about `golay70_gpu_class_table`: encoder and decoder must not drift, so the
+/// tables come from the **same** `llvq_search::tetra::Tetra` the encoder used,
+/// and they are built where a machine without a card can check them.
+///
+/// The two byte tables travel packed four to a `u32`, little-endian. The kernel
+/// casts nothing — it declares `const unsigned char*` and reads byte `i` at
+/// byte `i`, which on a little-endian device is what this packing put there.
+/// `bin/f1rankfloor` uploads them the same way and its card-side control 1
+/// pins the result against the Rust reference.
+pub struct Tetra48Tables {
+    /// 4,096 rank rows, two classes of 2,048. 16 KiB.
+    pub rows: Vec<u32>,
+    /// `prefixes[2·s8 + b1]`, 128 bytes packed into 32 u32.
+    pub prefixes: Vec<u32>,
+    /// `branches[16·s8 + b2]` = `byte | s16 << 8`, 1,024 u16.
+    pub branches: Vec<u16>,
+    /// `suffixes[2·s16 + b3]`, 128 bytes packed into 32 u32.
+    pub suffixes: Vec<u32>,
+    /// `1/√(16 m)` with entry 0 **zero** — the origin, reconstructed without a
+    /// branch and without a division. `llvq_artifact::tetra48::TETRA48_SHELLS`
+    /// entries; `m ≤ 27` on this codebook.
+    pub invnorm: Vec<f32>,
+}
+
+pub fn tetra48_tables(t: &llvq_search::tetra::Tetra) -> Tetra48Tables {
+    let pack = |b: &[u8]| -> Vec<u32> {
+        b.chunks(4)
+            .map(|c| {
+                let mut w = [0u8; 4];
+                w[..c.len()].copy_from_slice(c);
+                u32::from_le_bytes(w)
+            })
+            .collect()
+    };
+    let mut prefixes = Vec::with_capacity(128);
+    let mut suffixes = Vec::with_capacity(128);
+    for s in 0..64usize {
+        prefixes.extend_from_slice(&t.prefixes()[s]);
+        suffixes.extend_from_slice(&t.suffixes()[s]);
+    }
+    let mut branches = Vec::with_capacity(1024);
+    for s in 0..64usize {
+        for b in 0..16usize {
+            let (byte, s16) = t.branches()[s][b];
+            branches.push(byte as u16 | (s16 as u16) << 8);
+        }
+    }
+    let mut invnorm = vec![0.0f32; llvq_artifact::tetra48::TETRA48_SHELLS];
+    for (m, e) in invnorm.iter_mut().enumerate().skip(1) {
+        *e = (1.0f64 / ((16 * m) as f64).sqrt()) as f32;
+    }
+    Tetra48Tables {
+        rows: t.rows().to_vec(),
+        prefixes: pack(&prefixes),
+        branches,
+        suffixes: pack(&suffixes),
+        invnorm,
+    }
+}
+
+/// The int4 g128 projection source, for a file that carries `Int4G128` records.
+///
+/// It lives here rather than in `fused_cuda.rs` for the reason this whole
+/// module is unconditional: `fused_cuda.rs` is `cfg(target_os = "linux",
+/// feature = "cuda")` and the development machine is a Mac, so a source list
+/// that lived there could not be reached by a test until it had already
+/// reached a card. `tv_q4_h.cu` has **never run on a GPU** — it is verified as
+/// host C++ by `tests/proj_q4.rs` and by nothing else — which makes it exactly
+/// the file whose plumbing should be checkable without one.
+///
+/// `LLVQ_KERNEL_DIR` overrides it on the same all-or-nothing terms as
+/// [`load_planes_sources`].
+pub fn load_int4_sources() -> Result<(String, Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((Q4_H_CU_EMBED.to_string(), None)),
+        Ok(dir) => {
+            let p = std::path::Path::new(&dir).join("tv_q4_h.cu");
+            let text = std::fs::read_to_string(&p)
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: tv_q4_h.cu: {e}"))?;
+            Ok((text, Some(dir)))
+        }
+    }
+}
+
+/// The `extern "C"` entry point [`load_int4_sources`] defines.
+pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
 
 /// The `extern "C"` matvec entry point `layout` launches.
 pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
@@ -467,6 +665,7 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
         FusedLayout::Planes12x => "tv_planes12x_h",
         FusedLayout::Slot32 => "tv_slot_h",
         FusedLayout::Golay70 => "tv_golay70_h",
+        FusedLayout::Tetra48 => "tv_tetra48_h",
     }
 }
 
@@ -493,6 +692,23 @@ pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
 pub fn seg_kernel_name(layout: FusedLayout) -> Option<&'static str> {
     match layout {
         FusedLayout::Planes14 => Some("tv_planes_seg_h"),
+        _ => None,
+    }
+}
+
+/// The PREFILL entry point a layout carries, if it has one.
+///
+/// `Some` exactly when the layout's unit defines a kernel that takes several
+/// activation rows a launch. Only `Tetra48` does today, and the shape is
+/// `seg_kernel_name`'s deliberately: an `Option` the runtime turns into an
+/// authorisation, so no path can reach a kernel the unit never carried.
+///
+/// The one-row entry point of every layout is untouched and stays the decode
+/// path — this is the second kernel every quantized-inference stack carries,
+/// not a replacement for the first.
+pub fn rows_kernel_name(layout: FusedLayout) -> Option<&'static str> {
+    match layout {
+        FusedLayout::Tetra48 => Some("tv_tetra48_rows_h"),
         _ => None,
     }
 }
@@ -612,6 +828,10 @@ pub fn load_planes_sources(
         "tv_planes12x_h.cu" => Ok(PLANES12X_H_CU_EMBED),
         "llvq_golay.cuh" => Ok(GOLAY_CUH_EMBED),
         "tv_golay70_h.cu" => Ok(GOLAY70_H_CU_EMBED),
+        "llvq_f1rank.cuh" => Ok(F1RANK_CUH_EMBED),
+        "llvq_f1rank_v3.cuh" => Ok(F1RANK_V3_CUH_EMBED),
+        "llvq_tetra48.cuh" => Ok(TETRA48_CUH_EMBED),
+        "tv_tetra48_h.cu" => Ok(TETRA48_H_CU_EMBED),
         other => Err(format!("no embedded copy of {other}")),
     };
     match std::env::var("LLVQ_KERNEL_DIR") {
@@ -702,6 +922,21 @@ pub enum HostStream {
         /// warp per row, no memset, no atomic (`kernels/tv_golay70_h.cu`).
         row_exc: Vec<u32>,
     },
+    Tetra48 {
+        /// The 48-bit words as `u32`, **row-strided**: `stride_u32` words per
+        /// output row, the row's six-byte records at its start and the rest
+        /// zero. Every other stream here is flat over the matrix's blocks;
+        /// this one is not, and the reason is alignment rather than taste —
+        /// a six-byte record at `6·b` is u32-aligned only every second block,
+        /// so `f1r_load`'s two-word window would read at a shifted phase on
+        /// every row after the first. `llvq_artifact::tetra48` builds the
+        /// stride, rounds it to eight bytes so the last block's window fits,
+        /// and asserts that rather than assuming it.
+        words: Vec<u32>,
+        /// Words per row. The kernel's second argument; a stream whose stride
+        /// disagrees with it returns finite, plausible, wrong numbers.
+        stride_u32: u32,
+    },
 }
 
 /// One projection, transcoded and ready to upload.
@@ -726,6 +961,48 @@ pub struct FusedMatrix {
     /// reads: the payload, whatever addressing the layout carries beside it
     /// (`Slot32`'s bases, `Planes12x`'s exception table and row offsets), and
     /// [`matrix_side_bytes`] for the tail and the row scales.
+    pub bytes: u64,
+}
+
+/// One `Int4G128` projection, uploaded as it is stored.
+///
+/// Deliberately **not** a variant of [`FusedMatrix`]. That struct carries a
+/// `gscale`, a `rscale`, a `tail` and a `rotation`, and an int4 record has
+/// none of the four: it is stored group-affine in the natural basis, never
+/// GPTQ, never the rotation, never the lattice (`calib.rs:793-812`). Folding
+/// it in would mean four `Option`s on the hot struct and a reader who cannot
+/// tell which combinations are legal. A separate list says it once.
+///
+/// The weights are the file's own bytes. Nothing here decodes, rescales or
+/// reorders them — `tv_q4_h` reads **`scale · q + bias`** off exactly these
+/// three arrays, and `tests/proj_q4.rs` pins that arithmetic against
+/// [`llvq_artifact::Int4Matrix::to_f32`] on the development machine.
+///
+/// 🕳️ This said `scale · (q − zero)` until 2026-09-10, which is the OTHER
+/// affine convention — the one where the offset is subtracted from the
+/// quantum before scaling. `embedquant` stores `bias = min` and the kernel
+/// spells the two roundings out (`__fmul_rn` then `__fadd_rn`, never
+/// contracted) precisely so a served row equals the row the file decodes to.
+/// A doc naming the wrong convention is what a second implementation would
+/// have been written against.
+#[derive(Clone)]
+pub struct FusedInt4 {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    /// Groups along `d_in`; `d_in / group` per output row.
+    pub group: usize,
+    /// `d_out · d_in / 2` bytes, row-major, **low nibble first**. A lattice
+    /// index in the same file is packed MSB-first: two orders in one file, and
+    /// a reader that assumed one convention for both would produce plausible,
+    /// wrong weights.
+    pub packed: Vec<u8>,
+    /// One binary16 per group, `d_out × (d_in / group)`, row-major.
+    pub scales: Vec<u16>,
+    /// Same shape, same order.
+    pub biases: Vec<u16>,
+    /// Bytes this matrix costs at runtime: the three arrays, and nothing else.
+    /// There is no tail and no row scale to add.
     pub bytes: u64,
 }
 
@@ -808,6 +1085,28 @@ pub fn tail_f16_bits(tail: &[f64]) -> Vec<u16> {
 /// number `fusedrun` prints as "GB on the card" and that
 /// [`FusedModel::runtime_bits_per_weight`] divides, so an arithmetic slip
 /// here is published, not caught.
+/// Device bytes the quantized projections occupy — every list the model holds.
+///
+/// A function with a name and a test rather than an expression inside `load`,
+/// for the reason [`matrix_side_bytes`] gives: this is the number `fusedrun`
+/// prints as "GB on the card" and the numerator
+/// [`FusedModel::runtime_bits_per_weight`] divides, so a term missing here is
+/// published rather than caught.
+///
+/// 🕳️ The `int4` term WAS missing, and on one side of that division only:
+/// `quantized_weights` counts an int4 record's weights while this sum did not
+/// count its bytes. On the served mixed file that is 2.030 b/weight printed
+/// against a true 2.141, and a footprint 50 MB light.
+pub fn runtime_bytes_of(
+    matrices: &[FusedMatrix],
+    groups: &[FusedGroup],
+    int4: &[FusedInt4],
+) -> u64 {
+    matrices.iter().map(|m| m.bytes).sum::<u64>()
+        + groups.iter().map(|g| g.bytes).sum::<u64>()
+        + int4.iter().map(|q| q.bytes).sum::<u64>()
+}
+
 pub fn matrix_side_bytes(d_out: usize, tail_w: usize) -> u64 {
     (d_out * tail_w) as u64 * TAIL_BYTES + d_out as u64 * ROW_SCALE_BYTES
 }
@@ -1306,6 +1605,12 @@ pub struct FusedModel {
     /// The row-concatenated groups, empty under [`FuseMode::Off`] — where this
     /// struct is then byte-identical to what shipped before this lot.
     pub groups: Vec<FusedGroup>,
+    /// The `Int4G128` projections, empty for every file written before
+    /// `LLVQ_INT4_TYPES` existed — which is every published artifact. They sit
+    /// beside the lattice matrices rather than among them because they share
+    /// no code path with them: a different kernel, a different basis, a
+    /// different packing order.
+    pub int4: Vec<FusedInt4>,
     pub rotations: HashMap<RotKey, RotationTables>,
     /// Embedding and norms, carried verbatim, **still in the file's own
     /// encoding** — f16 bits, or int8 g64 for an `embedq` output. Decoding is
@@ -1561,7 +1866,20 @@ fn row_offsets(exc_idx: &[u32], d_out: usize, nblocks: usize) -> Result<Vec<u32>
 pub struct Transcoder {
     layout: FusedLayout,
     fd: FastDecoder,
-    table: ClassTable,
+    /// The v1 ball's class table — `Some` exactly when the LAYOUT reads a
+    /// class, which is every layout but `Tetra48`. The `searcher`/`g70`
+    /// pattern: the `Some` is the authorisation, so no arm can reach a table
+    /// its format does not have.
+    ///
+    /// 🕳️ It was unconditional, and `ClassTable::for_kind` refuses a Tetra
+    /// kind by design — the table describes 383 ball classes and a Tetra word
+    /// names none. So `LLVQ_FUSED_LAYOUT=tetra48` died on the served file with
+    /// "no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none" **before reading one block**,
+    /// on the first card run of the served path (2026-09-10, $0.02). The
+    /// record gates of step 6.6 were open; this one was upstream of them and
+    /// nothing on the Mac reached it, because building a `Transcoder` is what
+    /// a card run does first.
+    table: Option<ClassTable>,
     /// `Some` exactly for [`FusedLayout::Planes12x`].
     searcher: Option<Searcher>,
     /// `Some` exactly for [`FusedLayout::Golay70`] — the class table
@@ -1585,8 +1903,19 @@ impl Transcoder {
     /// the boundary a test on a machine without a card reaches.
     pub fn for_kind(layout: FusedLayout, kind: CodeKind) -> Result<Self, String> {
         let fd = FastDecoder::new();
-        let table = ClassTable::for_kind(kind, &fd, 1)
-            .map_err(|e| format!("{}: {e}", layout.name()))?;
+        // Built for the layouts that READ a class. `Tetra48` reads a rank and
+        // a trellis, so asking for the ball's table would refuse a file the
+        // layout serves perfectly well — and asking for it is what refused
+        // one. The ball layouts keep the check exactly as it was: a Tetra file
+        // under `planes14` still dies here, by name, before a block is read.
+        let table = match layout {
+            FusedLayout::Tetra48 => None,
+            _ => Some(
+                ClassTable::for_kind(kind, &fd, 1)
+                    .map_err(|e| format!("{}: {e}", layout.name()))?,
+            ),
+        };
+        if let Some(table) = table.as_ref() {
         if matches!(
             layout,
             FusedLayout::Planes14 | FusedLayout::Planes12x | FusedLayout::Golay70
@@ -1603,6 +1932,7 @@ impl Transcoder {
                             carry it"
                     .into());
             }
+        }
         }
         let searcher = matches!(layout, FusedLayout::Planes12x).then(Searcher::new);
         let g70 = matches!(layout, FusedLayout::Golay70).then(|| Golay70Table::new(&fd));
@@ -1623,8 +1953,19 @@ impl Transcoder {
         &self.fd
     }
 
-    pub fn class_table(&self) -> &ClassTable {
-        &self.table
+    /// The class table of a layout that has one, or a refusal naming the
+    /// layout that does not. Only the ball arms of [`Self::stream`] call it,
+    /// and each of them is unreachable for `Tetra48` — so this error is a
+    /// guard against a future arm, not a path any caller takes today.
+    fn ball_table(&self) -> Result<&ClassTable, String> {
+        self.table.as_ref().ok_or_else(|| {
+            format!("{}: this layout reads no class table", self.layout.name())
+        })
+    }
+
+    /// `None` for `Tetra48`, which reads no class. See the field.
+    pub fn class_table(&self) -> Option<&ClassTable> {
+        self.table.as_ref()
     }
 
     /// Transcode one matrix's raw codes into the words of the chosen layout.
@@ -1655,7 +1996,7 @@ impl Transcoder {
         }
         match self.layout {
             FusedLayout::Slot32 => {
-                let rt = transcode(&self.fd, &self.table, indices, gains, Layout::Slot32)
+                let rt = transcode(&self.fd, self.ball_table()?, indices, gains, Layout::Slot32)
                     .map_err(|e| e.to_string())?;
                 let bytes = rt.data.len() as u64 + rt.bases.len() as u64 * 4;
                 let words = pack_words(&rt);
@@ -1663,10 +2004,30 @@ impl Transcoder {
             }
             FusedLayout::Planes14 => {
                 let pb: PlanesBlocks =
-                    transcode_planes14(&self.fd, &self.table, indices, gains)
+                    transcode_planes14(&self.fd, self.ball_table()?, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let bytes = pb.data.len() as u64;
                 Ok((HostStream::Planes14 { words: pack_plane_bytes(&pb.data) }, bytes))
+            }
+            // The one arm that consults neither the fast decoder nor the class
+            // table: a Tetra word names no class, so there is nothing to look
+            // up and nothing to re-encode. The pad IS counted in `bytes` here,
+            // unlike Slot32's read-window slack, because it is not slack — the
+            // row stride is the format, the kernel reads over it every row, and
+            // a rate that dropped it would be the 2026-07-31 accounting error
+            // in a new place.
+            FusedLayout::Tetra48 => {
+                let tb = llvq_artifact::tetra48::transcode_tetra48(
+                    indices, gains, d_out, nblocks,
+                )
+                .map_err(|e| e.to_string())?;
+                let bytes = tb.data.len() as u64;
+                let stride_u32 = u32::try_from(tb.stride_u32)
+                    .map_err(|_| format!("row stride {} overflows u32", tb.stride_u32))?;
+                Ok((
+                    HostStream::Tetra48 { words: pack_plane_bytes(&tb.data), stride_u32 },
+                    bytes,
+                ))
             }
             FusedLayout::Planes12x => {
                 let s = self
@@ -1674,7 +2035,7 @@ impl Transcoder {
                     .as_ref()
                     .ok_or("Transcoder::new built no searcher for planes12x")?;
                 let pb: Planes12xBlocks =
-                    transcode_planes12x(&self.fd, &self.table, s, indices, gains)
+                    transcode_planes12x(&self.fd, self.ball_table()?, s, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let row_exc = row_offsets(&pb.exc_idx, d_out, nblocks)?;
                 let bytes = pb.data.len() as u64
@@ -1697,7 +2058,7 @@ impl Transcoder {
                     .as_ref()
                     .ok_or("Transcoder::new built no table for golay70")?;
                 let gb: Golay70Blocks =
-                    transcode_golay70(&self.fd, &self.table, g70, indices, gains)
+                    transcode_golay70(&self.fd, self.ball_table()?, g70, indices, gains)
                         .map_err(|e| e.to_string())?;
                 let row_exc = row_offsets(&gb.exc_idx, d_out, nblocks)?;
                 // Same accounting rule as every arm: what the vectors hold,
@@ -1772,22 +2133,56 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // four hundred Ball ones is a file this path cannot serve, and the refusal
     // has to land here, before any record is read through `read_matrix_raw` as
     // a Ball record.
-    llvq_artifact::runtime::require_ball_kinds(head.kinds(), layout.name())
-        .map_err(|e| e.to_string())?;
-    let tr = Transcoder::new(layout)?;
+    check_kinds(layout, head.kinds())?;
+    let tr = Transcoder::for_kind(layout, lattice_kind(layout))?;
     let mut matrices = Vec::with_capacity(head.matrices as usize);
+    let mut int4: Vec<FusedInt4> = Vec::new();
     let mut rotations: HashMap<RotKey, RotationTables> = HashMap::new();
     let mut quantized_weights = 0usize;
 
     for _ in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_raw(&mut r, head.version).map_err(|e| e.to_string())?;
+        // `read_record` and not `read_matrix_raw`: the latter reads every
+        // record as a lattice body whatever its kind tag says, which for an
+        // int4 record is not a refusal but a misparse — it would consume the
+        // wrong number of bytes and desynchronise every record after it.
+        let rec = llvq_artifact::read_record(&mut r, head.version).map_err(|e| e.to_string())?;
         // The record's own kind, not only the header's set: the set is a
         // declaration, and a file whose header under-reports it would reach
-        // the transcoder here with a Tetra record in hand.
-        llvq_artifact::runtime::require_ball(m.kind, layout.name()).map_err(|e| e.to_string())?;
-        // Every decoder hard-codes one gain bit (`hdr >> 9`). A file with a
-        // different gain width would transcode into a coherent stream and
-        // decode into garbage — silently.
+        // the transcoder here with the wrong map in hand.
+        if !serves_kind(layout, rec.kind()) {
+            return Err(format!(
+                "{}: a {:?} record in a file served as {}",
+                rec.name(),
+                rec.kind(),
+                layout.name()
+            ));
+        }
+        let m = match rec {
+            llvq_artifact::Record::Int4(q) => {
+                // Nothing to transcode: the kernel reads these bytes. The
+                // weights count toward the model's quantized total exactly as
+                // a lattice matrix's do — they are quantized, just not by us.
+                quantized_weights += q.d_out * q.d_in;
+                let bytes = (q.packed.len() + 2 * q.scales.len() + 2 * q.biases.len()) as u64;
+                int4.push(FusedInt4 {
+                    name: q.name,
+                    d_out: q.d_out,
+                    d_in: q.d_in,
+                    group: q.group,
+                    packed: q.packed,
+                    scales: q.scales,
+                    biases: q.biases,
+                    bytes,
+                });
+                continue;
+            }
+            llvq_artifact::Record::Lattice(m) => m,
+        };
+        // Every lattice decoder hard-codes one gain bit (`hdr >> 9`). A file
+        // with a different gain width would transcode into a coherent stream
+        // and decode into garbage — silently. Lattice-only since 2026-09-09:
+        // an int4 record carries no centroid at all, so this check used to
+        // fire on exactly the record a mixed file most needs.
         if m.centroids.len() != 2 {
             return Err(format!(
                 "{}: {} centroids, but the kernels hardcode 1 gain bit",
@@ -1851,8 +2246,16 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     // vectors and adds `gs_off`, so an accumulator carried through the read
     // loop would have to be corrected twice. One sum over what the model
     // actually holds cannot drift from what it holds.
-    let runtime_bytes = matrices.iter().map(|m| m.bytes).sum::<u64>()
-        + groups.iter().map(|g| g.bytes).sum::<u64>();
+    //
+    // 🕳️ The int4 term was missing, and it was missing on ONE side of a
+    // division. `quantized_weights` counts an int4 record's weights — it says
+    // so where it does it, "they are quantized, just not by us" — so
+    // `runtime_bits_per_weight` divided a numerator without those bytes by a
+    // denominator with those weights. On the served mixed file that prints
+    // **2.030 b/weight where the truth is 2.141**, and a card footprint 50 MB
+    // light, on the line `fusedrun` publishes. Nothing failed; the number was
+    // simply wrong, and the test below now divides the two the same way.
+    let runtime_bytes = runtime_bytes_of(&matrices, &groups, &int4);
 
     let n_raw = read_u32(&mut r)?;
     let mut raw = Vec::with_capacity(n_raw as usize);
@@ -1871,6 +2274,7 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     }
 
     Ok(FusedModel {
+        int4,
         layout,
         matrices,
         groups,
@@ -1907,11 +2311,153 @@ mod tests {
         }
     }
 
-    /// A Tetra header has no runtime layout before F1d: every arm of
-    /// [`Transcoder::for_kind`] refuses it with the artifact crate's words,
-    /// and the Ball arm is `new` — same tables, same layout.
+    /// The int4 bytes are counted, and they are counted where the weights are.
+    ///
+    /// 🕳️ The regression this pins is not hypothetical: `runtime_bytes`
+    /// summed the lattice matrices and the fused groups and stopped, while
+    /// `quantized_weights` counted an int4 record's weights — "they are
+    /// quantized, just not by us". A numerator missing a term whose weights
+    /// are in the denominator understates every b/weight the runtime prints,
+    /// and nothing fails.
     #[test]
-    fn a_tetra_file_has_no_runtime_layout_before_f1d() {
+    fn the_int4_bytes_reach_the_footprint_the_runtime_prints() {
+        let q = FusedInt4 {
+            name: "model.layers.0.self_attn.v_proj.weight".into(),
+            d_out: 1024,
+            d_in: 2560,
+            group: 128,
+            packed: Vec::new(),
+            scales: Vec::new(),
+            biases: Vec::new(),
+            // What one served `v_proj` actually costs: 1024·2560/2 packed,
+            // plus 1024·20 groups of one binary16 scale and one binary16 bias.
+            bytes: 1024 * 2560 / 2 + 1024 * 20 * 2 * 2,
+        };
+        assert_eq!(q.bytes, 1_392_640);
+        // The term that was missing, alone, so its absence cannot hide behind
+        // the other two.
+        assert_eq!(runtime_bytes_of(&[], &[], std::slice::from_ref(&q)), q.bytes);
+        assert_eq!(runtime_bytes_of(&[], &[], &[]), 0);
+        // Over the served file's 36 of them, against the hand arithmetic: the
+        // whole term is 50.1 MB, which is what the printed line was light by.
+        let all: Vec<FusedInt4> = (0..36)
+            .map(|l| FusedInt4 { name: format!("model.layers.{l}.self_attn.v_proj.weight"), ..q.clone() })
+            .collect();
+        assert_eq!(runtime_bytes_of(&[], &[], &all), 50_135_040);
+    }
+
+    /// The name the host hands the driver is the name the embedded source
+    /// defines, and the group it hard-codes is the format's.
+    ///
+    /// `fused_cuda.rs` looks `INT4_KERNEL_NAME` up on a card and nowhere else,
+    /// so a typo in it is a `named symbol not found` at the end of a load —
+    /// which is exactly how `tv_planes_seg_h` was found, on a rented card.
+    #[test]
+    fn the_int4_kernel_names_and_constants_match_its_source() {
+        let src = Q4_H_CU_EMBED;
+        assert!(
+            src.contains(&format!("__global__ void {INT4_KERNEL_NAME}(")),
+            "`{INT4_KERNEL_NAME}` is not defined by the source the host appends"
+        );
+        // The group is the format's constant on both sides of the boundary.
+        assert!(
+            src.contains(&format!("#define LLVQ_Q4_GROUP {}u", llvq_artifact::INT4G128_GROUP)),
+            "the kernel's group and `INT4G128_GROUP` disagree"
+        );
+        // It needs `matvec.cu` (h2f, f2h, warp_sum) and nothing else, and that
+        // file is the second part of EVERY unit — so appending this source
+        // last is always legal, whatever the layout.
+        assert!(src.contains("#ifndef TILE_COLS"), "the composition guard moved");
+    }
+
+    /// Every kernel a runtime looks up has its SOURCE in that runtime's unit.
+    ///
+    /// 🕳️ The one invariant `fused_cuda.rs` cannot check for itself: that file
+    /// does not compile on this machine — it needs nvcc and a Linux cross
+    /// toolchain — so a name it asks the driver for is only ever tested on a
+    /// rented card, at the end of a load. On 2026-09-10 it asked for
+    /// `tv_planes_seg_h` on the `Tetra48` build, whose list shares nothing
+    /// with the ball layouts, and the run died after compiling, loading and
+    /// reporting 216 projections. Two of the three names it looks up are
+    /// pinned here instead, where the check is free.
+    ///
+    /// `Slot32` is the exception and stays one: its kernel lives in the base
+    /// list every layout gets (`llvq_slot.cuh`, `matvec.cu`), not in the
+    /// per-layout list, which is precisely what keeps its translation unit
+    /// bit-identical to what shipped before any layout switch existed.
+    #[test]
+    fn every_layout_only_names_kernels_its_own_unit_carries() {
+        for layout in [
+            FusedLayout::Slot32,
+            FusedLayout::Planes14,
+            FusedLayout::Planes12x,
+            FusedLayout::Golay70,
+            FusedLayout::Tetra48,
+        ] {
+            let srcs = planes_source_names(layout);
+            // The segmented kernel, ONE WAY ONLY — and the asymmetry is the
+            // point. `Planes12x` and `Golay70` carry `tv_planes_seg_h.cu` and
+            // cannot launch it: it is compiled so the register report stays a
+            // drift detector on those builds, which the list's own header
+            // argues at length. So *compiled* is a superset of *launchable*,
+            // and only the implication holds — a layout that can launch it
+            // must have it.
+            //
+            // Which is why `fused_cuda`'s register report keys on the SOURCE
+            // LIST and not on either the layout or `seg_kernel_name`: on
+            // `Tetra48` all three answers differ, and it picked the wrong one.
+            if seg_kernel_name(layout).is_some() {
+                assert!(
+                    srcs.contains(&"tv_planes_seg_h.cu"),
+                    "{}: launches `tv_planes_seg_h` and its unit does not carry it: {srcs:?}",
+                    layout.name()
+                );
+            }
+            // Tetra48 has neither, and that is the case that crashed: it is
+            // not Slot32, so "not Slot32" reported a kernel it never had.
+            if layout == FusedLayout::Tetra48 {
+                assert!(seg_kernel_name(layout).is_none());
+                assert!(!srcs.contains(&"tv_planes_seg_h.cu"));
+            }
+            // The prefill entry point, same rule: named only where the unit
+            // carries the source that defines it. `tests/served_unit.rs`
+            // checks the other half — that the source really defines it.
+            if let Some(n) = rows_kernel_name(layout) {
+                assert_eq!(n, "tv_tetra48_rows_h");
+                assert!(
+                    srcs.contains(&"tv_tetra48_h.cu"),
+                    "{}: names `{n}` and carries no source that defines it",
+                    layout.name()
+                );
+            }
+            // The matvec kernel: its own `.cu` is in the list, except Slot32's
+            // which is in the base list every unit already carries.
+            let m = matvec_kernel_name(layout);
+            if layout != FusedLayout::Slot32 {
+                assert!(
+                    srcs.contains(&format!("{m}.cu").as_str()),
+                    "{}: looks up `{m}` and carries no `{m}.cu`: {srcs:?}",
+                    layout.name()
+                );
+            } else {
+                assert!(srcs.is_empty(), "Slot32's unit is the base list and nothing else");
+            }
+        }
+    }
+
+    /// A Tetra header has no runtime layout **among the ball ones**: each of
+    /// the four refuses it with the artifact crate's words, and the Ball arm
+    /// is `new` — same tables, same layout.
+    ///
+    /// 🕳️ This test swept the four ball layouts and stopped there, so
+    /// `Tetra48` never passed through `for_kind` on this machine at all. The
+    /// layout that the whole of step 6 exists to serve was the one layout the
+    /// portable test did not build — and it died on a card, at $0.02, on the
+    /// first run of the served path, before reading a single block. A sweep
+    /// that omits the subject is not a sweep. `Tetra48` is a POSITIVE case
+    /// below, which is what makes the omission impossible to repeat.
+    #[test]
+    fn a_tetra_file_has_no_runtime_layout_among_the_ball_ones() {
         for layout in [
             FusedLayout::Planes14,
             FusedLayout::Planes12x,
@@ -1922,15 +2468,41 @@ mod tests {
                 .err()
                 .unwrap_or_else(|| panic!("{}: a Tetra header must be refused", layout.name()));
             assert!(
-                e.contains("no runtime layout for Tetra before F1d"),
+                e.contains("no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none"),
                 "{}: the refusal must say why: {e}",
                 layout.name()
             );
             assert!(e.contains(layout.name()), "{}: the refusal must name the layout: {e}", layout.name());
             let ball = Transcoder::for_kind(layout, CodeKind::Ball).expect("a Ball header builds");
             assert_eq!(ball.layout(), layout);
-            assert_eq!(ball.class_table().n_entries(), Transcoder::new(layout).expect("new").class_table().n_entries());
+            assert_eq!(
+                ball.class_table().expect("a ball layout has a class table").n_entries(),
+                Transcoder::new(layout)
+                    .expect("new")
+                    .class_table()
+                    .expect("a ball layout has a class table")
+                    .n_entries()
+            );
         }
+
+        // And the layout that serves Tetra BUILDS on a Tetra header, with no
+        // class table at all — a Tetra word names no class, so asking for the
+        // ball's 383 of them is what refused a file this layout serves.
+        let t = Transcoder::for_kind(FusedLayout::Tetra48, CodeKind::Tetra)
+            .expect("tetra48 must build on a Tetra header");
+        assert_eq!(t.layout(), FusedLayout::Tetra48);
+        assert!(t.class_table().is_none(), "tetra48 must hold no class table");
+
+        // A BALL file under `tetra48` is still refused — not here, where the
+        // layout needs no table, but at the record gate. What this asserts is
+        // that dropping the table did not drop that: the two refusals are
+        // different, and only one of them was ever this function's business.
+        assert!(
+            Transcoder::for_kind(FusedLayout::Tetra48, CodeKind::Ball).is_ok(),
+            "the table is not where a Ball file under tetra48 is refused"
+        );
+        assert!(!serves_kind(FusedLayout::Tetra48, CodeKind::Ball));
+        assert!(serves_kind(FusedLayout::Tetra48, CodeKind::Tetra));
     }
 
     /// The default is `Off`, and it *has* to be: [`check_fuse`] refuses `On`

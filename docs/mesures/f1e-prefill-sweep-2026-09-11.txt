@@ -1,0 +1,56 @@
+F1e — CE QUE VAUT LE LOT DE RANGÉES AU PRÉREMPLISSAGE
+================================================================================
+Jobs        : 6aa434a85527934177ec8488 (essai 1, 0,06 $, échec utile)
+              6aa442b421047bf1b0377bed (le balayage, 2 min 24 s, 0,07 $)
+Objet       : le fichier servi, drapeaux servis, 606 jetons — la longueur
+              moyenne *mesurée* d'un prompt MMLU 5-shot
+Mode        : LLVQ_PREFILL=rows:tile, mode de MESURE, jamais une config servie
+Nature      : *mesuré*, 5 passes après une passe jetée, un processus par paire
+
+CE QUE ÇA A RENDU
+-----------------
+    paire      ms par jeton de prompt      facteur      passes sur le flux
+    ------------------------------------------------------------------------
+    4:128 (servi)      3,861                 —                152
+    8:64               3,456              ×1,12                76
+    16:32              3,267              ×1,18                38
+    8:128              REFUSÉ par son nom : 98 304 B contre 49 152
+
+  Les trois paires stagent exactement 49 152 octets — c'est le PRODUIT que
+  l'allocation borne. Et le garde-fou passe aux trois : argmax 6722 identique,
+  et `max |Δlogit|` **rigoureusement le même**, 4,688e-2, aux trois réglages.
+  Le découpage ne touche pas un bit. C'est ce que la conception promettait et
+  c'est vérifié sur carte.
+
+LA PRÉDICTION ÉTAIT ×2,5. C'EST ×1,18.
+---------------------------------------
+  Et c'est le résultat qui compte, parce qu'il tue les deux hypothèses que
+  j'ai défendues dans la journée :
+
+  * **pas le flux de poids.** 152 passes réduites à 38 — 147 Go par question
+    ramenés à 37 — rendent 18 %. Le préremplissage tourne à 7 % de la bande
+    passante de la L40S et il ne s'en approche pas plus en lisant quatre fois
+    moins.
+  * **pas les lancements.** Quadrupler les rangées par paquet divise par
+    quatre les 216 lancements de matvec ET les 144 de rotation. 18 %.
+
+  Le coût est ailleurs, et il n'a jamais été profilé : attention en N²,
+  normes, résiduels, cache KV, embedding. `LLVQ_TIME_PHASES` existe pour ça et
+  n'a jamais été passé sur ce chemin.
+
+CE QUE ÇA FAIT AU SPLIT COMPLET PAR LE NOYAU
+---------------------------------------------
+    4:128   10,47 h = 18,84 $
+    8:64     9,37 h = 16,87 $
+    16:32    8,86 h = 15,94 $   (*calculé* sur 9,76 M jetons de prompt)
+
+  Aucun ne rentre dans les 11,81 $ restants. Et l'achat serait mauvais de
+  toute façon : le bras dense au complet donne 56,37 pour 0,70 $, et le noyau
+  est à −0,14 pp du dense, *mesuré* sur 2 280 questions avec 3 discordantes.
+  Payer 15,94 $ pour re-vérifier 0,14 pp n'est pas un achat.
+
+LA PAIRE SERVIE NE BOUGE PAS
+-----------------------------
+  4:128 reste la paire servie. ×1,18 sur le préremplissage ne justifie pas de
+  déplacer une constante servie, et le décodage — le régime où le noyau gagne
+  ×2,36 — ne verrait rien du tout. `LLVQ_PREFILL` reste un mode de mesure.

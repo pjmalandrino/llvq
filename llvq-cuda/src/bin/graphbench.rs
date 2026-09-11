@@ -44,7 +44,6 @@ mod linux {
     use llvq_cuda::gpu::{Cuda, KernelSource};
     use std::time::Instant;
 
-    const TILE_BLOCKS: usize = 128;
     const THREADS: u32 = 256;
     const TABLE_ENTRIES: usize = 512;
     const REC_WORDS: usize = 6;
@@ -66,7 +65,14 @@ mod linux {
     pub fn run() -> Result<(), String> {
         let sources =
             llvq_cuda::load_sources_many(&["llvq_slot.cuh", "matvec.cu", "llvq_floor.cuh"])?;
-        let defines = format!("#define TILE_BLOCKS {TILE_BLOCKS}u\n");
+        // The tile, resolved from the card before the source exists — it is a
+        // `#define` in that text. Wired on 2026-09-10: this binary carried its
+        // own reading of TILE_BLOCKS and never looked at `LLVQ_TILE_BLOCKS`,
+        // so a sweep that moved the knob moved every OTHER binary and left
+        // this one printing a tile-128 figure with no line saying so.
+        let tile = llvq_cuda::tile::resolve(llvq_cuda::gpu::probe_compute_cap()?);
+        println!("{}", tile.provenance());
+        let defines = tile.define();
         let parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
@@ -93,7 +99,7 @@ mod linux {
             let tab = cuda.up_u32(&vec![1u32; TABLE_ENTRIES * REC_WORDS])?;
             let x = cuda.zeros_f32(D_IN)?;
             let mut y = cuda.zeros_f32(D_OUT)?;
-            let shared = (TILE_BLOCKS * 24 * 4) as u32;
+            let shared = tile.shared_bytes();
 
             let one = |y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
                 cuda.launch_floor(

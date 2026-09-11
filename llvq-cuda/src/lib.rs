@@ -59,12 +59,42 @@ pub mod occ;
 // themselves are GPL v3 and are never committed here; see the module header.
 pub mod qtip_host;
 
+// Portable for the reason `occ` is, and with the same bill attached: the tile
+// is a host-injected constant that reaches a rented card through an
+// `#define`, the development machine has no CUDA, and a knob that arrived
+// wrong there would cost a billed job to notice. The table, the refusals and
+// the policy are all tested here, where tests are free.
+pub mod tile;
+
 /// f32 → binary16 bits, round to nearest even.
 ///
 /// Portable on purpose, unlike everything else in this file: the rotation
 /// kernel is checked on the development Mac as well as on a card, so both
 /// sides need this and neither can be behind `cfg(linux)`. `llvq_metal` and
 /// `bin/matvec.rs` carry their own copies — the shared home is lot K0.
+/// Does a function that reports `binary` describe a card, given it was
+/// compiled for `compiled_for`?
+///
+/// **An order, not an equality.** NVRTC emits PTX and PTX is forward-compatible:
+/// the driver JITs a `compute_NN` module for any sm ≥ NN, and for nothing
+/// below — the very sentence `ops/run.py` pins `MIN_COMPUTE_CAP` with. So a
+/// kernel built for `compute_89` and run on an sm_120 card reports 120, and
+/// that is the mechanism working.
+///
+/// `gpu.rs::report` tested the equality until 2026-09-08. It held everywhere it
+/// had been exercised — `compute_89` on L40S, `compute_80` on A100 in F4 —
+/// because each run named its own card's sm, and it refused a perfectly
+/// correct run the first time a card was newer than its `LLVQ_NVRTC_ARCH`
+/// (RTX PRO 6000, sm_120; and `compute_120` was no way out, the image is
+/// CUDA 12.4 and sm_120 arrived in 12.8).
+///
+/// Portable on purpose, like [`f16_bits`]: `gpu.rs` is `cfg(target_os =
+/// "linux")` and the development machine has no CUDA, so a predicate nobody
+/// can mutate on the dev machine is a predicate nobody checks.
+pub fn arch_binary_ok(binary: i32, compiled_for: i32) -> bool {
+    binary >= compiled_for
+}
+
 pub fn f16_bits(x: f32) -> u16 {
     let b = x.to_bits();
     let sign = ((b >> 16) & 0x8000) as u16;
@@ -171,6 +201,18 @@ pub const F1RANK_V2_CUH: &str = include_str!("../kernels/llvq_f1rank_v2.cuh");
 pub const F1RANK_V2_CU: &str = include_str!("../kernels/f1rank_v2.cu");
 pub const F1RANK_V3_CUH: &str = include_str!("../kernels/llvq_f1rank_v3.cuh");
 pub const F1RANK_V3_CU: &str = include_str!("../kernels/f1rank_v3.cu");
+/// The served Tetra decode over the v3 word decode: the gain bit, the
+/// magnitude, the trio permutation and the origin. Verified bit for bit
+/// against `llvq_search::tetra` and `llvq_quant::reconstruct_shape_gain` by
+/// `tests/tetra48_matches_rust.rs`, through the same `clang++` shim.
+pub const TETRA48_CUH: &str = include_str!("../kernels/llvq_tetra48.cuh");
+pub const TETRA48_V3G_CU: &str = include_str!("../kernels/tetra48_v3g.cu");
+/// Planes14, the served layout, as a bench arm — so a Tetra time and a
+/// Planes14 time can be formed in ONE process. `docs/mesures/f1-rang-*` had
+/// to read `B = 2.797 ms` off another process and said so; that is what these
+/// two entries exist to end.
+pub const PLANES_CUH: &str = include_str!("../kernels/llvq_planes.cuh");
+pub const PLANES_CU: &str = include_str!("../kernels/planes.cu");
 
 /// Where the two sources come from, and whether that was the committed copy.
 #[cfg(target_os = "linux")]
@@ -254,6 +296,10 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "f1rank_v2.cu" => Ok(F1RANK_V2_CU),
         "llvq_f1rank_v3.cuh" => Ok(F1RANK_V3_CUH),
         "f1rank_v3.cu" => Ok(F1RANK_V3_CU),
+        "llvq_tetra48.cuh" => Ok(TETRA48_CUH),
+        "tetra48_v3g.cu" => Ok(TETRA48_V3G_CU),
+        "llvq_planes.cuh" => Ok(PLANES_CUH),
+        "planes.cu" => Ok(PLANES_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),
         "rotate.cu" => Ok(ROTATE_CU),
         other => Err(format!("no embedded copy of {other}")),
@@ -281,5 +327,30 @@ pub fn load_sources_many(names: &[&str]) -> Result<SourceSet, String> {
                 .collect::<Result<_, _>>()?,
             overridden_from: Some(dir),
         }),
+    }
+}
+
+#[cfg(test)]
+mod arch_tests {
+    use super::arch_binary_ok;
+
+    /// The three readings that matter, and the reason each is what it is.
+    #[test]
+    fn the_architecture_check_is_an_order_and_not_an_equality() {
+        // The card is exactly what was asked for: L40S under compute_89,
+        // A100 under compute_80 (F4, 2026-08-19).
+        assert!(arch_binary_ok(89, 89));
+        assert!(arch_binary_ok(80, 80));
+        // The card is NEWER than the PTX: the driver JITted forward, which is
+        // the documented mechanism and what an RTX PRO 6000 does with a
+        // compute_89 module. Refusing this cost a job on 2026-09-08.
+        assert!(arch_binary_ok(120, 89));
+        assert!(arch_binary_ok(90, 89));
+        // The card is OLDER: the module cannot have run as compiled, so no
+        // number on it describes the card. This is the defect the guard is
+        // for, and the only one.
+        assert!(!arch_binary_ok(75, 89));
+        assert!(!arch_binary_ok(80, 89));
+        assert!(!arch_binary_ok(88, 89));
     }
 }

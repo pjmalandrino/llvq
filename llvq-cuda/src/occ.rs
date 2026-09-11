@@ -137,6 +137,68 @@ pub fn slice(nblocks: u32, nsplit: u32, s: u32) -> (u32, u32) {
     (lo, hi)
 }
 
+/// Refuse the A3 section at any tile but the served one.
+///
+/// The A3 arms read [`crate::TILE_BLOCKS`] twice over, and neither reading can
+/// see a resolved [`crate::tile::Tile`]:
+///
+///  * [`shared_bytes`] clamps at the const, and it is the **live** dynamic
+///    shared argument of every A3 launch (`planesbench` :3310, :3318, :3328).
+///    Compile the kernel at 32 and it would still be handed 128 tiles' worth
+///    of staging, or the reverse — silently, since a launch never reports the
+///    tile it was compiled for;
+///  * [`tiles`], and through it [`sk_nsplit`] and [`sk_site_bit_exact`], set
+///    the split-K split count from the same const.
+///
+/// And resizing them would not be enough. `kernels/planes_occ.cu` branches on
+/// `nblocks <= TILE_BLOCKS` at `occ_rows_tiles` (:259) and `occ_pers` (:416):
+/// the 2560-wide sites carry 106 blocks, so at the served 128 they take the
+/// single-stage branch the kernel's own comment calls *"the whole persistence
+/// dividend"*, and at 64 or 32 they do not. That is not a tile-sized arm, it
+/// is **another algorithm under the same arm name and the same table row** —
+/// the one defect a benchmark must never ship.
+///
+/// The section is opt-in and empty by default ([`parse_seg_arms`] of `None`),
+/// and F1d does not run it. So it is refused by name rather than rebuilt: a
+/// refusal costs nothing anyone is using, and threading a tile through four
+/// functions would still leave the branch.
+///
+/// 🕳️ It took the *provenance* of the tile and not its **value**, and that was
+/// wrong in two directions at once. `LLVQ_TILE_BLOCKS=128` gives
+/// `TileSource::Env` at 128 blocks and was refused — with a message saying
+/// "a tile other than the served 128" about a tile that IS 128. And
+/// `LLVQ_TILE_BLOCKS=auto` on a card with no measured row falls back to 128
+/// and was refused the same way. What this section cannot survive is a
+/// different NUMBER; where that number came from is nobody's business here.
+pub fn refuse_off_served_tile(seg_arms: &[usize], tile_blocks: usize) -> Result<(), String> {
+    if seg_arms.is_empty() || tile_blocks == crate::TILE_BLOCKS {
+        return Ok(());
+    }
+    Err(format!(
+        "LLVQ_SEG_ARMS={} at tile {tile_blocks}, not the served {}: refused. The A3 arms \
+         size their launches from the constant, not from the resolved tile, and \
+         `occ_pers` changes branch at `nblocks <= TILE_BLOCKS` — below the tile the \
+         2560-wide sites lose the single-stage path, which is another algorithm under \
+         the same name. Drop LLVQ_TILE_BLOCKS, or drop LLVQ_SEG_ARMS.",
+        seg_arms
+            .iter()
+            .map(|&a| SEG_ARM_NAMES[a])
+            .collect::<Vec<_>>()
+            .join(","),
+        crate::TILE_BLOCKS
+    ))
+}
+
+/// Whether the single-stage branch of `occ_rows_tiles`/`occ_pers` applies —
+/// `planes_occ.cu` :259 and :416, the persistence dividend.
+///
+/// Exposed so the refusal above can be justified by arithmetic rather than by
+/// a comment: at the served 128 a 2560-wide site (106 blocks) takes it and at
+/// 64 it does not.
+pub fn pers_single_stage(nblocks: u32, tile: usize) -> bool {
+    nblocks <= tile as u32
+}
+
 /// Tiles of `TILE_BLOCKS` a row of `nblocks` blocks stages.
 pub fn tiles(nblocks: u32) -> u32 {
     nblocks.div_ceil(TILE_BLOCKS as u32)
@@ -424,6 +486,141 @@ mod tests {
         assert!(mr_grid(1028, 256, 1).is_err());
         assert_eq!(mr_grid(1032, 256, 1).unwrap(), 129, "1032 = 8 × 129: whole CTAs");
         assert!(mr_grid(2568, 256, 2).is_err());
+    }
+
+    /// The A3 section is refused off the served tile, and the arithmetic that
+    /// justifies the refusal is checked rather than asserted in prose.
+    #[test]
+    fn the_a3_arms_are_refused_off_the_served_tile() {
+        // Nothing selected: nothing to refuse, whatever the tile.
+        assert!(refuse_off_served_tile(&[], crate::TILE_BLOCKS).is_ok());
+        assert!(refuse_off_served_tile(&[], 32).is_ok());
+        // The served tile: the section runs as it always has.
+        assert!(refuse_off_served_tile(&[PERS], crate::TILE_BLOCKS).is_ok());
+        // 🕳️ And the served VALUE, however it was reached. Both of these
+        // resolve to 128 and were refused while this took the provenance
+        // instead: `LLVQ_TILE_BLOCKS=128` (an explicit request that happens to
+        // be the served number), and `LLVQ_TILE_BLOCKS=auto` on a card absent
+        // from `TILE_BY_SM`, which falls back to it.
+        for req in [
+            crate::tile::TileRequest::Fixed(crate::TILE_BLOCKS),
+            crate::tile::TileRequest::Auto,
+        ] {
+            let t = crate::tile::resolve_with(req, (8, 0));
+            assert_eq!(t.blocks, crate::TILE_BLOCKS);
+            assert!(
+                refuse_off_served_tile(&[PERS], t.blocks).is_ok(),
+                "refused a tile of {} because of where it came from ({:?})",
+                t.blocks,
+                t.source
+            );
+        }
+        // Any other tile, and it is refused by name — both variables, so the
+        // operator knows which of the two to drop.
+        let e = refuse_off_served_tile(&[PERS, SK1], 32).expect_err("must refuse");
+        assert!(e.contains("LLVQ_SEG_ARMS"), "{e}");
+        assert!(e.contains("LLVQ_TILE_BLOCKS"), "{e}");
+        assert!(e.contains("pers") && e.contains("sk1"), "{e}");
+
+        // Why it is a refusal and not a resize: a 2560-wide site carries
+        // 2560/24 = 106 blocks, which is under the served 128 and over both
+        // measured rows. The arm changes branch, not size.
+        let nb = 2560 / XS_DIM as u32;
+        assert_eq!(nb, 106);
+        assert!(pers_single_stage(nb, crate::TILE_BLOCKS));
+        assert!(!pers_single_stage(nb, 64));
+        assert!(!pers_single_stage(nb, 32));
+        // A 4096-wide site is over every tile: that one never had the
+        // dividend, so it is not what the refusal protects.
+        assert!(!pers_single_stage(4096 / XS_DIM as u32, crate::TILE_BLOCKS));
+        // The branch is `nblocks <= TILE_BLOCKS` in `planes_occ.cu` (:259,
+        // :416), inclusive. A site of exactly one tile takes the single-stage
+        // path; a strict `<` here would put it on the other branch and the
+        // refusal would be justified by an arithmetic the kernel does not run.
+        assert!(pers_single_stage(crate::TILE_BLOCKS as u32, crate::TILE_BLOCKS));
+        assert!(!pers_single_stage(crate::TILE_BLOCKS as u32 + 1, crate::TILE_BLOCKS));
+    }
+
+    /// The padded arms do not stage at 24 floats, which is why
+    /// `tile::Tile::shared_bytes` cannot speak for them.
+    #[test]
+    fn two_a3_arms_stage_at_the_padded_stride() {
+        assert_eq!(XS_STRIDE[PAD], XS_PAD);
+        assert_eq!(XS_STRIDE[MR2P], XS_PAD);
+        assert_ne!(XS_PAD, XS_DIM);
+        // At the tile module's ceiling the padded stride asks for more than
+        // the default per-block allowance every card here reports (49,152 B),
+        // which is the second reason those arms are refused rather than
+        // resized. Written as a subtraction so the margin is the number, and
+        // so a ceiling that grows cannot make the check vacuous.
+        let over = crate::tile::TILE_MAX * XS_PAD * 4;
+        assert_eq!(over, 57_344);
+        assert_eq!(over - 49_152, 8_192, "the padded stride overruns by 8 KiB at TILE_MAX");
+    }
+
+    /// Every tile that can actually reach a launch fits the per-block shared
+    /// allowance, at the stride that launch uses.
+    ///
+    /// `Tile::shared_bytes()` hardcodes the 24-float stride and `TILE_MAX` is
+    /// justified against it: 512 · 24 · 4 = 49,152 B, exactly the default
+    /// allowance. At the padded stride the same tile would ask 57,344 and the
+    /// driver would refuse the launch on the card.
+    ///
+    /// That is safe **only because** `refuse_off_served_tile` keeps the two
+    /// padded arms at the served tile — and until now that coupling lived in a
+    /// doc comment, where nothing enforces it. Here it is arithmetic: relax
+    /// the refusal and this test goes red on the development machine instead
+    /// of the launch going red on a billed job.
+    #[test]
+    fn no_tile_that_can_launch_overflows_the_shared_allowance() {
+        /// `CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK`, the default
+        /// allowance on every card this repository has measured. The opt-in
+        /// limit is larger and no arm here asks for it.
+        const ALLOWANCE: usize = 49_152;
+
+        // The 24-float arms take any admissible tile.
+        let mut t = crate::tile::TILE_MIN;
+        while t <= crate::tile::TILE_MAX {
+            let want = crate::tile::Tile {
+                blocks: t,
+                source: crate::tile::TileSource::Env,
+            }
+            .shared_bytes() as usize;
+            assert_eq!(want, t * XS_DIM * 4);
+            assert!(want <= ALLOWANCE, "tile {t} at stride {XS_DIM} asks {want} B");
+            t *= 2;
+        }
+
+        // The padded arms take ONE tile, because the refusal leaves them one.
+        for a in [PAD, MR2P] {
+            assert_eq!(XS_STRIDE[a], XS_PAD);
+            let served = crate::TILE_BLOCKS * XS_PAD * 4;
+            assert!(
+                served <= ALLOWANCE,
+                "{}: the served tile asks {served} B at the padded stride",
+                SEG_ARM_NAMES[a]
+            );
+            // And every other admissible tile is unreachable BY REFUSAL, not
+            // by arithmetic: the next power of two up already overflows.
+            let mut t = crate::tile::TILE_MIN;
+            while t <= crate::tile::TILE_MAX {
+                if t != crate::TILE_BLOCKS {
+                    assert!(
+                        refuse_off_served_tile(&[a], t).is_err(),
+                        "{}: tile {t} is not refused, and it would ask {} B",
+                        SEG_ARM_NAMES[a],
+                        t * XS_PAD * 4
+                    );
+                }
+                t *= 2;
+            }
+        }
+        let widest = crate::tile::TILE_MAX * XS_PAD * 4;
+        assert_eq!(
+            widest - ALLOWANCE,
+            8_192,
+            "the padded stride no longer overruns at TILE_MAX: this test's premise moved"
+        );
     }
 
     /// The L40S numbers of the design note: 40 registers, 256 threads,

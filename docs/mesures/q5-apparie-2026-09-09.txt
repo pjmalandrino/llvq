@@ -1,0 +1,93 @@
+L'ÉCHELLE APPARIÉE DU CHANTIER 1 CONTRE LE FORMAT SERVI : TETRA + Q5 EST
+INDISCERNABLE DE PLANES14, ET « TETRA EST MOINS BON » NE L'ÉTAIT JAMAIS NON PLUS
+================================================================================
+Date        : 2026-09-09
+Jobs        : AUCUN. Quatre appariements sur des dumps qui existaient déjà,
+              calculés en local, 0 $, quelques secondes de CPU.
+              Dumps A : hf://buckets/Pier-Jean/jobs-artifacts/q5-tetra-2026-09-06/
+                        {t0,t1-vf16,t2-vq4,t3-attnq4}.csv (job 6a9dc052, L40S)
+              Dump B : docs/data/mmlu-dumps/mmlu-4b-llvq.csv (Planes14 publié)
+Préreg      : aucun, et il n'en faut pas : ce sont les mêmes mesures que le
+              2026-09-06, relues avec l'instrument prévu pour ça. Le prereg du
+              chantier 1 (q5-tetra-2026-09-06, tamponné) couvre les mesures.
+Outil       : llvq-llm/src/bin/mmlupair — bootstrap stratifié par matière,
+              10 000 tirages, graine 0xb0075eed, correction de population finie,
+              McNemar exact sur les discordances non pondérées
+Nature      : *calculé* sur des dumps *mesurés* ; aucune nouvelle seconde de carte
+
+CE QUI EST NOUVEAU
+------------------
+  Le chantier 1 avait publié quatre TAUX et un seul écart apparié — celui à
+  fichier constant. Contre le format SERVI, il n'y avait que des différences de
+  moyennes. Ces quatre lignes-là n'existaient pas.
+
+L'ÉCHELLE
+---------
+  2 280 questions appariées, 57 matières, f16 des deux côtés, limite 40/40,
+  plan d'échantillonnage plat des deux côtés, empreinte de run IDENTIQUE
+  (65dcd53655e8bfa5) — les deux bras ont lu les mêmes questions dans les mêmes
+  mots.
+
+  comparaison                          Δ micro   IC95              McNemar   résolu
+  ------------------------------------------------------------------------------
+  Tetra nu       contre Planes14      −2,11 pp  [−5,04 ; +0,81]    0,1077    NON
+  Tetra + Q5     contre Planes14      +1,36 pp  [−1,50 ; +4,22]    0,1820    NON
+  Tetra + attn4  contre Planes14      +2,89 pp  [−0,06 ; +5,86]    0,0008    LITIGIEUX
+  Q5, MÊME FICHIER (T2 contre T0)     +3,47 pp  [+1,42 ; +5,57]    8,6e-5    OUI
+
+  SE : 1,48 / 1,44 / 1,50 pp à fichiers différents, 1,07 pp à fichier constant.
+  L'écart de régime entre les deux barres est le fait central de ce tableau.
+
+LES DEUX CHOSES QUE ÇA CHANGE
+-----------------------------
+  1. « TETRA EST MOINS BON DE 2,10 pp » N'A JAMAIS ÉTÉ ÉTABLI.
+     Le dossier porte ce déficit depuis le 2026-09-06 et le cite comme un fait.
+     Son IC est [−5,04 ; +0,81] et McNemar rend 0,108. C'est une INDÉCISION, pas
+     un déficit. Le chiffre a été lu comme un résultat parce que personne n'avait
+     formé l'intervalle.
+
+  2. L'ÉGALITÉ DE TETRA + Q5 EST UNE MESURE, PLUS UNE PRUDENCE.
+     +1,36 pp en faveur de Tetra + Q5, IC [−1,50 ; +4,22]. L'intervalle contient
+     zéro : les deux formats sont indiscernables sur ce protocole. Prédiction
+     écrite avant le calcul — « l'IC contiendra zéro » — juste.
+
+     Énoncé qui en découle, et dont les DEUX moitiés sont mesurées :
+     qualité indiscernable du format servi, pour 54,5 % de la mémoire.
+
+LE CAS LITIGIEUX, ET IL EST OUVERT
+----------------------------------
+  Tetra + attention entière en int4 (T3) rend McNemar p = 0,0008 — franchement
+  résolu — pendant que l'IC bootstrap stratifié rate zéro de 0,06 pp.
+
+  Les deux statistiques ne testent pas la même chose : McNemar porte sur les
+  discordances NON PONDÉRÉES (Δ non pondéré +3,73 pp), le bootstrap sur le micro
+  STRATIFIÉ repondéré par les populations réelles. Quand elles divergent à la
+  frontière, on cite les deux ou aucune.
+
+  C'est la seule configuration mesurée où Tetra dépasse le format servi. Elle
+  coûte 3,2572 b/param, soit 63,1 % de la mémoire servie, et son noyau reste à
+  2,690 b/poids — SOUS b_max = 3,00. Elle avait été écartée par l'opérateur le
+  2026-09-06 au profit de l'option B, à une date où cet intervalle n'existait
+  pas. Décision à rouvrir ou à confirmer, à l'opérateur.
+
+LES MATIÈRES QUI PORTENT L'ÉCART (Tetra + Q5 contre Planes14)
+-------------------------------------------------------------
+  high school macroeconomics    +20,0 pp × poids  2,8 % = +0,555 pp
+  professional law               −5,0 pp × poids 10,9 % = −0,546 pp
+  high school psychology        +12,5 pp × poids  3,9 % = +0,485 pp
+  professional psychology       +10,0 pp × poids  4,4 % = +0,436 pp
+  professional accounting       +17,5 pp × poids  2,0 % = +0,351 pp
+
+  28,5 % des questions sont discordantes (342 contre 307). Deux formats qui
+  rendent le même taux ne rendent pas les mêmes réponses.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  - Le contrôle 0 reste ÉCHOUÉ : le dépôt ne reproduit plus son artefact publié
+    depuis le 2026-08-26, donc chaque ligne contre Planes14 porte le format ET
+    la dérive d'encodeur. Le témoin coûte 4 h de Mac à 0 $ et n'a pas tourné.
+  - Un seul tirage de calibration. σ vaut 2,92 pp au 4B, plus large que trois
+    des quatre écarts ci-dessus.
+  - Les 56,95 et 58,48 sont des configurations obtenues par RESTAURATION, pas
+    des fichiers. L'étape 6.0 en cours écrit le premier.
+  - Rien au-delà du 4B.

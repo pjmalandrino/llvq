@@ -10,7 +10,7 @@ bits per weight; at 2 bits a 70B goes from 140 GB to 18 GB on disk (*computed*).
 the index to 4.804 b/weight (*measured*, `docs/mesures/e2-golay70-bench-2026-08-07.txt`). Under the product triplet
 in force, `Planes14` admits at most 43.3 billion parameters at 5.162 b/param and the 70B does not fit. The `Tetra`
 format of 2026-09-06 is the first under the triplet's b_max of 3.00, at 2.1498 kernel b/weight, which admits 81 to
-101 billion; no served kernel reads it yet, so the 32B is still the served object (*computed*, `docs/ETAT.md` §6). We implement the LLVQ paper in Rust, vector quantization on
+101 billion; the served kernel `tv_tetra48_h` runs it in the model since 2026-09-10 — the 4B served object (216 `Tetra` + 36 `v_proj` int4, q8 embedding, `configs/qwen3-4b-tetra-q5.json`) gives 101.5 tok/s in 1.39 GB at `ROT_SHARE=1`, 256 tokens identical to the dense arm (*measured*, `docs/mesures/f1e0-2026-09-10.txt`). No model above 14B is served: the `rot_apply` wall of `docs/format-noyau.md` §8 closes the path whatever the format, and the 32B point has never been encoded (*computed*, `docs/ETAT.md` §6). We implement the LLVQ paper in Rust, vector quantization on
 the Leech lattice Λ₂₄ ([arXiv:2603.11021](https://arxiv.org/abs/2603.11021)). The engineering contribution is the
 multi-shell fused kernel: dequantization and matvec in a single CUDA kernel.
 
@@ -80,7 +80,8 @@ cargo run --release -p llvq-cuda --bin planesbench -- <model.llvq>   # Linux + C
 LLVQ_MODEL=Qwen/Qwen3-4B LLVQ_CALIB=c4 LLVQ_ARTIFACT=q4b.llvq cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- 64 2048 12 4096 metal nogs leech1c12 999 rot   # requantize the 4B (4.01 h = 14,447 s on M3 Max, measured, docs/fiche-4b.md §3.4)
 #   positional: n_calib · calib_len · n_eval · eval_ctx · device · gs/nogs · codebook (suffix f = free magnitude, L<n> = cap) · limit · rot
 LLVQ_MODEL=Qwen/Qwen3-4B cargo run --release -p llvq-llm --bin seal -- q4b.llvq qwen3-4b-llvq.bin   # sealed file expected 1.771 GB (measured, docs/fiche-4b.md)
-cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40
+cargo run --release -p llvq-llm --features metal --bin mmlu -- <checkpoint|sealed> metal 40   # the dense reconstruction: every published bar
+LLVQ_CONFIG=configs/qwen3-4b-tetra-q5.json cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40   # THROUGH the served kernel; the dump says which on its `# arithmetic=` line
 cargo run --release -p llvq-cuda --bin nullkbench                     # the floor; every bin of the image goes in `cargo build --bin` AND the COPY of ops/Dockerfile.cuda
 CUDARC_CUDA_VERSION=12040 cargo clippy --target x86_64-unknown-linux-gnu -p llvq-cuda --all-targets   # type-checks the Linux (cudarc) half of every CUDA bin on the Mac; the image itself probes nvcc
 uv run ops/awq_speed.py … | uv run ops/awq_dequant.py check           # AWQ: unpinned revision refused; locks L1/L2/L4
@@ -99,11 +100,12 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70` | VRAM layout of the fused kernel; any other value is refused |
-| `LLVQ_EMBED` | `f16` (default), `q8` | embedding quantized at load; `q8` is the served config |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. There is no built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted |
+| `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value is refused |
+| `LLVQ_EMBED` | `f16` (default), `q8` | embedding quantized at load; `q8` in both served configs (`Planes14` v1 and `Tetra48`) |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
-| `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` |
-| `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `1`; `FUSE=1` with `ROT_SHARE=0` refused |
+| `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` (both objects) |
+| `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `1` under `Planes14` v1, `0` under `Tetra48` (no segmented kernel, a fact about the layout — `configs/README.md`); `FUSE=1` with `ROT_SHARE=0` refused |
 | `LLVQ_FUSE_AB` | `1` | `fusedrun`: both arms of the fusion in a single process, the shape of D1 |
 | `LLVQ_TIME_PHASES` | `1` | `fusedrun`: per-phase profile, outside the published protocol |
 | `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` | evaluation dtype; comparing ppl and MMLU requires the same on both sides |
@@ -121,11 +123,13 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_INT4_TYPES` | projection types separated by commas | `smoke`: those types written as int4 g128 records instead of lattice codes; empty by default, and an empty list writes what the run always wrote |
 | `LLVQ_THREADS` | integer | cap of the encoding pool (`smoke`); ncpu−4 and `nice` on a shared machine |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
+| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, or a power of two in 32..=512 | blocks of the activation one CTA stages in shared memory, a host-injected `#define`: unset is the served 128 on every card, `auto` reads the measured row for this card (`llvq-cuda/src/tile.rs`) and falls back to 128 where none was measured; any other value refused by name. Zero bits, bit-identical output — and it is what the two-card discrepancy turned on |
 | `LLVQ_TIME_EVENTS` | `1` | device span by CUDA events (`planesbench`), outside the published protocol |
+| `LLVQ_PREFILL_TOKENS` | integer ≥ 1 | `fusedrun`: times a prefill of N prompt tokens through the kernel, six passes, first discarded; then its gate — the same N in one call against N calls of one token (`rows == 1`, the unbatched path by construction), refused on a different argmax. Measurement mode; the one accepted beside `LLVQ_CONFIG` |
 | `LLVQ_BENCH_ARMS` | phases separated by `;` | arms of `planesbench`; unknown name refused |
 | `LLVQ_QTIP_DIR` | directory | upstream QTIP kernel, GPL v3, not redistributed (`docs/qtip-provenance.md`) |
 
-`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB` and `LLVQ_SEG_ARMS` are measurement modes, never a served config.
+`LLVQ_KV_PREALLOC`, `LLVQ_GRAPH_AB`, `LLVQ_SEG_ARMS`, `LLVQ_TIME_PHASES`, `LLVQ_TIME_EVENTS` and `LLVQ_PREFILL_TOKENS` are measurement modes, never a served config; every one of them is refused by name beside `LLVQ_CONFIG`, except `LLVQ_PREFILL_TOKENS`, which is the served path's own gate.
 
 ## Hard rules
 

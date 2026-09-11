@@ -94,6 +94,13 @@ struct Dump {
     /// it: every dump written before `LLVQ_MMLU_ALLOC` existed was drawn flat,
     /// so an absent field reads as `flat` and prints as unstated.
     alloc: String,
+    /// The served-side keys a dump written after 2026-09-11 carries — `config`,
+    /// `arithmetic`, `layout`, `embed`, `rot_share`, `fuse`, `kv` — in the
+    /// order they appear. Absent from every older dump, which is why they are
+    /// a list rather than fields: a dump that lacks them is printed as
+    /// "arithmetic unstated", not refused, because all nineteen on disk lack
+    /// them and every one of them was a dense reconstruction.
+    served: Vec<(String, String)>,
     fingerprint: u64,
     /// `(subject, parquet index)` → row. A `BTreeMap` because every downstream
     /// number — the join order, the bootstrap draws — has to be reproducible,
@@ -127,6 +134,7 @@ impl Dump {
 
         let (mut label, mut dtype, mut limit) = (String::new(), String::new(), String::new());
         let mut alloc = String::new();
+        let mut served: Vec<(String, String)> = Vec::new();
         let mut columns: Option<Vec<&str>> = None;
         let mut rows: BTreeMap<(String, usize), Row> = BTreeMap::new();
         let mut trailer: Option<(u64, usize)> = None;
@@ -142,6 +150,8 @@ impl Dump {
                         "dtype" => dtype = v.to_string(),
                         "limit" => limit = v.to_string(),
                         "alloc" => alloc = v.to_string(),
+                        "config" | "arithmetic" | "layout" | "embed" | "rot_share" | "fuse"
+                        | "kv" => served.push((k.to_string(), v.to_string())),
                         _ => {}
                     }
                 }
@@ -194,6 +204,7 @@ impl Dump {
             dtype,
             limit,
             alloc,
+            served,
             fingerprint,
             rows,
         })
@@ -641,8 +652,8 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
     let n: usize = strata.iter().map(Stratum::n).sum();
 
     println!("\n{}", "=".repeat(72));
-    println!("A = {}\n    {}", a.label, a.path);
-    println!("B = {}\n    {}", b.label, b.path);
+    println!("A = {}\n    {}\n    {}", a.label, a.path, served_line(&a.served));
+    println!("B = {}\n    {}\n    {}", b.label, b.path, served_line(&b.served));
     println!(
         "{n} paired questions, {} subjects · dtype {} / {} · limit {} / {}",
         strata.len(),
@@ -763,6 +774,14 @@ fn report(a: &Dump, b: &Dump, opt: &Options) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// The served keys of a dump on one line, or the honest word for their absence.
+fn served_line(served: &[(String, String)]) -> String {
+    match served.is_empty() {
+        true => "arithmetic unstated (a dump written before 2026-09-11: dense reconstruction)".into(),
+        false => served.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(", "),
+    }
 }
 
 #[cfg(test)]

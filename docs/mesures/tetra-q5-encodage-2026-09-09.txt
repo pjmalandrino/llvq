@@ -1,0 +1,111 @@
+ÉTAPE 6.0 — L'OBJET SERVI EXISTE : TETRA + v_proj EN INT4, 1,795 Go, VÉRIFIÉ BIT
+POUR BIT. ET LA PERPLEXITÉ VA DANS LE MAUVAIS SENS.
+================================================================================
+Date        : 2026-09-09
+Job         : AUCUN. Mac M3 Max, 7 100 s = 1 h 58, 0 $.
+Préreg      : proofs/preregistration-tetra-q5-encodage-2026-09-09.md
+              sha256 c084a47c00f0a0509783fdbe8c544f38709fdcec4feb5ac971ec1f91909027d2
+              tamponné avant le premier bloc, quatre calendriers
+Écarts      : proofs/preregistration-tetra-q5-encodage-2026-09-09-ECARTS.md
+Code        : commit 5872f9c
+Objet       : ~/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin, 1 794 564 765 octets
+              format v5, 252 matrices, kinds Tetra+Int4G128
+Nature      : *mesuré* sur le Mac ; la ppl est f32 en mémoire, PAS la ppl carte f16
+
+CE QUE LE FICHIER CONTIENT
+--------------------------
+  216 matrices sur le réseau      3 538 944 000 poids   2,0696 b/poids
+   36 matrices en int4 g128           94 371 840 poids   4,2500 b/poids
+  ----------------------------------------------------------------------
+  252 matrices                     3 633 315 840 poids
+
+  payload annoncé par smoke : 2,2224 b/poids sur 3 616 948 224 poids quantifiés
+  payload annoncé par seal   : 2,2124 b/poids sur 3 633 315 840
+  Les deux dénominateurs diffèrent des colonnes de queue (KeepExact). Aucun des
+  deux n'est le b/param modèle entier, et AUCUN INSTRUMENT NE L'IMPRIME encore
+  (rtbits refuse un v5, rtbits.rs:538). C'est l'étape 6.7.
+
+  disque : 1 794 564 765 o = 3,5691 b/param
+           contre 1 770 529 149 o = 3,5213 pour le Tetra nu
+           ×4,48 contre les 8,045 Go du FP16
+  Le fichier ne demande ni checkpoint, ni cache, ni réseau.
+
+LA PRÉDICTION SIGNÉE, LUE CONTRE LE RÉSULTAT
+--------------------------------------------
+  grandeur            prédit                    mesuré        verdict
+  ----------------------------------------------------------------------
+  durée               2 h 35 [2 h 10 ; 3 h 10]  1 h 58        FAUX, hors plage
+  enregistrements int4 36 exactement            36            JUSTE
+  ppl                 16,10 [15,90 ; 16,40]     16,3161       plage OUI, SENS NON
+  taille              +0,5 à +2,5 Mo            +24,0 Mo      FAUX, facteur ~10
+  vérification        bit pour bit              bit pour bit  JUSTE
+
+  Deux sur cinq. Et la taille est la faute la plus bête du dossier : j'avais
+  l'incrément (+0,0493 b/param) et je ne l'ai pas multiplié.
+  0,0493 × 4 022 468 096 / 8 = 24,8 Mo. J'ai écrit « +0,5 à +2,5 Mo ».
+
+LE RÉSULTAT QUI COMPTE : LA PERPLEXITÉ SE DÉGRADE
+-------------------------------------------------
+  Tetra nu     ppl carte f16    16,1569   ×1,3203
+  Tetra + Q5   ppl Metal f32    16,3161   ×1,334
+
+  ⚠️ Les deux ne sont PAS la même comptabilité. La relation ppl f32 d'encodage
+  → ppl carte f16 a été confirmée trois fois à 0,1 % près (leech0c13 19,6243 →
+  19,6093 ; dclm 16,2212 → 16,1984 ; le 8B à la quatrième décimale), mais
+  aucune ppl f32 d'encodage n'existe pour le Tetra nu du 2026-09-06. La
+  comparaison propre est le RAPPORT à la ligne de base f32 du même run :
+  ×1,334 ici contre ×1,3203 sur carte. Environ +1 %, et le signe est robuste.
+
+  J'avais prédit une amélioration, en raisonnant « int4 g128 à 4,25 bits est
+  plus précis que le réseau à 2,07 ». C'est le contraire.
+
+  MÉCANISME PLAUSIBLE, écrit comme hypothèse : calib.rs:793-812 range les
+  v_proj en affine par groupe DANS LA BASE NATURELLE — jamais GPTQ, jamais la
+  rotation, jamais le réseau. Elles gagnent des bits et PERDENT la compensation
+  d'erreur. Plus de précision brute, moins de correction. Rien ici ne le
+  prouve ; le bras qui trancherait est un encodage où v_proj passerait par
+  GPTQ à 4 bits, et il n'existe pas.
+
+  LA SIXIÈME DISSOCIATION DU DOSSIER, et elle a la forme des précédentes :
+      Q5              +3,47 pp de MMLU (résolu, McNemar 8,6e-5)   ppl +1 %
+      M1 (radial)     +1,65 pp de MMLU (non résolu)               ppl +9,5 %
+  Deux leviers qui achètent du MMLU en payant de la perplexité.
+
+LES SIX CONTRÔLES
+-----------------
+  C1  en-tête {Tetra, Int4G128}                              PASSÉ
+  C2  36 enregistrements int4 sur 252                        PASSÉ
+  C3  débit imprimé — RELEVÉ, PAS GATÉ (préreg §4)           relevé ci-dessus
+  C4  verify_artifact : 3 633 315 840 poids identiques
+      bit pour bit contre le modèle évalué, à f32            PASSÉ
+  C5  perplexité finie du scellé                             PASSÉ, 16,3161
+  C6  taille                                                 +24,0 Mo
+
+  C6 tue définitivement la ligne « disque ≤ celui d'aujourd'hui » du plan F1e.
+  Tetra nu était déjà +1 616 o au-dessus du publié ; le mixte est +24 Mo.
+
+LES PHASES
+----------
+  quantification    5 793,5 s   81,6 %
+  factorisation       853,5 s   12,0 %
+  capture (passe 1)   394,9 s    5,6 %
+  transfert f64        29,0 s    0,4 %
+  écriture             28,5 s    0,4 %
+  avance (passe 2)      0,8 s    0,0 %
+
+  197 s/bloc contre 245 pour le Tetra nu : les 36 v_proj ne voient ni GPTQ ni
+  le réseau, donc elles ne coûtent presque rien. C'est aussi pourquoi la durée
+  est sortie sous ma fourchette.
+
+CE QUE ÇA N'ÉTABLIT PAS
+-----------------------
+  - Aucune MMLU. Elle doit reproduire les 56,95 mesurés par restauration le
+    2026-09-06 ; int4_wiring.rs:51 (the_two_int4_paths_agree_bit_for_bit) est
+    une raison de le prédire, pas de s'en dispenser.
+  - Aucune ppl CARTE. Celle-ci est f32 sur Metal.
+  - Aucun débit servi : tv_q4_h n'a jamais tourné sur une carte, et le
+    chargeur mixte refuse encore ce fichier en trois endroits (6.5, 6.6).
+  - Le contrôle 0 reste échoué depuis le 2026-08-26 : tout écart contre
+    Planes14 porte le format ET la dérive d'encodeur. Le témoin coûte 4 h de
+    Mac à 0 $ et n'a pas tourné.
+  - Un seul tirage. σ vaut 2,92 pp de MMLU et 5,2 % de ppl au 4B.

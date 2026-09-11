@@ -23,3 +23,4 @@ pub mod loader;
 pub mod model;
 pub mod rotplan;
 pub mod sealed;
+pub mod served;

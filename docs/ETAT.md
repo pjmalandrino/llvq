@@ -48,8 +48,13 @@ unfold: 2.1498 b/weight kernel against 4.8040 (*computed*, same accounting that 
 **better** by 4.64% and its MMLU lower by 2.10 pp, an interval the calibration draw alone spans (2.92 pp). In excess
 log-likelihood: the only cross-paper comparison [fiche-4b](fiche-4b.md) §3.1 holds valid, it reads 0.2779 nats
 against `Planes14`'s 0.3254 and QTIP's 0.3171: **12.4% better than QTIP** where the repository was 2.6% worse.
-The 1.390 GB on card is *computed*, in the b/param arithmetic rather than the engine's host byte count: no served
-kernel reads Tetra yet, so throughput and card VRAM wait on step 6 of [ROADMAP](ROADMAP.md) §2.2 quater. The gap to
+The 1.390 GB on card is *computed*, in the b/param arithmetic rather than the engine's host byte count. **The
+throughput is now measured, and it depends on the card** (F1d, 2026-09-10, [journal](mesures/f1d-2026-09-10.txt)):
+against `Planes14` in one process on the real file, Tetra is **1.17×** on an L40S at the served tile and **0.82×** on
+an RTX PRO 6000 — the same configuration, opposite verdicts. On Blackwell it takes the tile down to 32 to reach 1.03×,
+an interval containing 1. The memory does not depend on the card: 0.98 GB read a pass against 2.18, and the bench's own
+column prints **2.150**, reproducing the 2.1498 above. What still waits on F1e is `fusedrun`: `tv_tetra48_h` has never
+run inside the model, and no tok/s exists. The gap to
 `Planes14` holds the format together with a month of encoder drift, which control 0 measured and nothing here
 separates (§4).
 
@@ -274,8 +279,11 @@ D(4 MiB) (4 to 10) and D(16 KiB) (< 1), wrong on the shared-memory arm (0.5 to 2
 
 The same-day audit — six independent readings, three counter-verified, four $0 computations on the Mac — corrected the
 reading in five places. The bench runs at **six blocks per SM, not eight** (1,536 threads per SM), so the carveout is
-100 KB and **L1 is 28 KB**, 12 KiB of it taken by the activation tile: the 16 KiB point already misses 7.6% of its
-accesses and is not a pure-hit cost. The shared-memory arms confound occupancy (48 → 16 → 8 warps) and per-block staging
+100 KB and **L1 is 28 KB at the served tile of 128**, 12 KiB of it taken by the activation tile: the 16 KiB point
+already misses 7.6% of its accesses and is not a pure-hit cost. That sentence is a fact about a tile, not about a card,
+and the tile has been a knob since 2026-09-10 (`LLVQ_TILE_BLOCKS`, `llvq-cuda/src/tile.rs`): at tile 32 the same six
+blocks stage 3 KiB each and leave **84 KB** of L1, which is what the sweep measured and what moved Tetra by −41.8% on
+sm_120 (*measured*, [tile sweep](mesures/tile-sweep-2026-09-09.txt)). The shared-memory arms confound occupancy (48 → 16 → 8 warps) and per-block staging
 (3.4 to 6.8 GB per pass) with placement, and their difference compares 8 warps against 48 — the cross-occupancy reading
 [format-noyau](format-noyau.md) §6 forbids, one level up; "placing the hot set is worse" is withdrawn, and QTIP's 1.82 G
 shared-memory lookups per pass in 2.246 ms (F2) stand as the counter-example. The real access distribution, which the
@@ -356,7 +364,9 @@ What Tetra buys, and what it costs (*measured* for quality, *computed* for bytes
 | | `Planes14`, published | `Tetra` |
 |---|---|---|
 | b/param whole model | 5.1619 | **2.7645**, ÷1.867 |
-| b/weight kernel | 4.8040 | **2.1498**, ÷2.235 |
+| b/weight kernel | 4.8040 | **2.1498**, ÷2.235 (*measured* 2.150 by the bench, [F1d](mesures/f1d-2026-09-10.txt)) |
+| kernel time, one token, L40S at the served tile | 5.081 ms | **4.355 ms**, ×1.17 (*measured*) |
+| kernel time, one token, RTX PRO 6000, same tile | 4.102 ms | 5.026 ms, ×0.82 (*measured*) |
 | GB on card | 2.595 | 1.390 (*computed*) |
 | disk | 1,770,527,533 B | 1,770,529,149 B |
 | perplexity, f16 | 16.9422 | **16.1569**, −4.64% |
@@ -509,8 +519,13 @@ card. An encoding's perplexity can be read for $0, hours before a card is paid f
 - Not decided, and cheap: a `leech1c12` witness re-encoded today would separate Tetra from the encoder drift of §4
   (4 h of Mac, $0). The operator declined on 2026-09-06; the consequence travels with every citation of the −4.64%. Q5's served run moves to wave 3, after
   F1's verdict: F1c produces a format v2, so sealing a v1 artifact with `v_proj` in int4 now would be building it
-  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: $100.21 (*measured*,
-  `docs/data/jobs.csv`).
+  twice. Wave 1's $0.05 overrun stays recorded against wave 1. Project total to date: **$134.14** (*measured*,
+  sum of the 119 priced rows of `docs/data/jobs.csv` on 2026-09-08; the $100.21 this line carried until then
+  predated the volume, DCLM, ρ and Q5-on-V32 jobs, which alone are $33.93).
+- **Superseded on 2026-09-08 by the operator: Q5's served run is the wave-3 object, and it is Tetra plus
+  `v_proj` in int4 encoded on the Mac** — the "build it twice" argument above assumed F1c would produce a format
+  v2, and the format froze at v5 on 2026-09-05 instead. The plan is `docs/ROADMAP.md` §2.2 quinquies; the draft
+  prereg is `proofs/BROUILLON-preregistration-tetra-q5-servi.md`, unstamped and authorising nothing.
 - Not in wave 2, and not asked for: F1e (~$8, only if F1c and F1d pass), Q1 at 4B (~$7), the 32B point (~$62).
 - A third draw for the attribution, ~$2.14 and a wave-2 cap, operator. Seed 1 (58.02% MMLU) never received the
   eleven arms. Two draws do not make a distribution, and the head of the ranking is what changed.

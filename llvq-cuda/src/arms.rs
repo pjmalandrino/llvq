@@ -71,8 +71,14 @@ pub const ARM_NAMES: [&str; N_ARMS] = [
     // dispatch order of every arm that produced a published number is fixed
     // before a job, never while one runs.
     "qtip",
+    // F1d — the served Tetra decode on a REAL `.llvq`. Registered last, and the
+    // rule that put every arm above it there applies unchanged. This one is
+    // the first arm in the registry whose stream is not a ball index: it reads
+    // 48-bit words through `llvq_artifact::tetra48`, row-strided, and names no
+    // class at all.
+    "tetra48",
 ];
-pub const N_ARMS: usize = 17;
+pub const N_ARMS: usize = 18;
 
 pub const SLOT32: usize = 0;
 pub const PLANES14: usize = 1;
@@ -108,6 +114,14 @@ pub const E1V: usize = 15;
 /// own variable, not the `LLVQ_KERNEL_DIR` that overrides our kernels, since
 /// this is an addition and not an override (`docs/qtip-provenance.md`).
 pub const QTIP: usize = 16;
+
+/// F1d's arm: `tv_f1r_v3g` on a real Tetra file.
+///
+/// The kernel is the one the floor of 2026-09-08 measured, unchanged — what
+/// changes is its input. The floor fed it a host-generated mixer stream and
+/// said so; this arm feeds it the words of an actual artifact, which is the
+/// difference between a decode's speed and a format's.
+pub const TETRA48: usize = 17;
 
 /// The six arms of the 2026-08-10 job — phase 1 of P4 §2.4, which reproduces
 /// the published run.
@@ -173,6 +187,11 @@ pub const HAS_KERNEL: [bool; N_ARMS] = [
     // flag flips in P2, in the same commit that shows a device compile — not
     // before, and not on the strength of a host-side test.
     false,
+    // tetra48. TRUE, and on the strength of a device compile rather than a
+    // host-side test: `tv_f1r_v3g` loaded, reported 40 registers and 0 local
+    // bytes, and ran on both an L40S and a Blackwell on 2026-09-08/09
+    // (`docs/mesures/tetra48-tuerie-2026-09-08.txt`, `tile-sweep-2026-09-09.txt`).
+    true,
 ];
 
 /// Arms whose kernel exists but **not in this repository**, and which are
@@ -234,18 +253,23 @@ pub const DISPLAY_NAMES: [&str; N_ARMS] = [
     "LLVQ E1c12",
     "LLVQ E1v",
     "QTIP 2 bits",
+    "LLVQ Tetra48",
 ];
 
 /// The order a table PRINTS its rows in — cosmetic, and deliberately not the
 /// dispatch order: the witness first, v2 under v1, the competitor last.
 ///
 /// Its length is its own, not [`N_ARMS`]: an arm with no kernel has no row.
-pub const DISPLAY_ORDER: [usize; 11] = [
+pub const DISPLAY_ORDER: [usize; 12] = [
     // The floor first: it is the quantity every other row is read against, and
     // putting it at the top saves the reader from hunting for it. cublasf16
     // sits right under our own witness, so the two rows every published ×
     // divides are read one under the other.
-    NULLK, FP16, CUBLASF16, SLOT32, PLANES14, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
+    // TETRA48 sits with the in-house layouts, under the one it is read
+    // against. It is added here in the same commit that registers it — the
+    // defect the note below records cost a job its declared deliverable, and
+    // it cost it silently.
+    NULLK, FP16, CUBLASF16, SLOT32, PLANES14, TETRA48, PLANES12X, GOLAY70V1, GOLAY70V2, E1V, AWQ,
     // 🚨 The two competitors at the end of the table, together. QTIP got here
     // on 2026-08-20 and its absence was a SILENT defect of a particular kind:
     // everything `planesbench` prints iterates over this table, so the bench
@@ -300,6 +324,20 @@ impl ArmSet {
     pub fn insert(&mut self, arm: usize) {
         debug_assert!(arm < N_ARMS);
         self.bits |= 1u32 << arm;
+    }
+
+    /// Take an arm out of a set.
+    ///
+    /// Exists for exactly one case, and it should stay that way: a DEFAULT
+    /// selection narrowed because the run was not given what the arm needs.
+    /// `runnable()` says a kernel exists, not that this invocation can feed
+    /// it — `tetra48` needs a second file, and a bare `planesbench <ball>` is
+    /// the invocation every published run used. Narrowing it loudly is right;
+    /// narrowing an EXPLICIT `LLVQ_BENCH_ARMS` would be a selection the
+    /// operator did not make, so callers refuse instead.
+    pub fn remove(&mut self, arm: usize) {
+        debug_assert!(arm < N_ARMS);
+        self.bits &= !(1u32 << arm);
     }
 
     pub fn is_superset_of(self, other: ArmSet) -> bool {

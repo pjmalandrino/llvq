@@ -253,11 +253,58 @@ mutation-tested before it is called green ([METHODE](METHODE.md) §4).
 | 3 | format v5: magic `LVQ5`, a per-file code kind in the header, the v1 fingerprint untouched plus the Tetra fingerprint, the disk-to-word transcoder (the disk is MSB-first, the word little-endian), refusals in every runtime transcoder and in the tools that read indices as classes | `llvq-artifact/src/{format,codebook,runtime}.rs`, `llvq-bench/src/bin/{rtbits,classhist,decbench,decfull,decprofile,lswap}.rs` | **done** 2026-09-05, with a per-matrix kind added in the next step for Q5 | legacy headers still read; `PUBLISHED_FINGERPRINT` unchanged; raw passthrough byte-identical at v4 and v5; transcoder pinned on 10⁵ words; mutants: kind ignored at read (the round trip must break), gain bit read at bit 0 (must break) |
 | 4 | the wiring: `tetra` accepted by `smoke`, writer at version 5, `seal`, `ppl`, `mmlu`, `export` read v5; `verify_artifact` bit for bit; a 3-block smoke test on the 0.6B against `leech1c12` | `llvq-llm/src/{calib,sealed,artifact2}.rs`, `bin/{smoke,seal,ppl,mmlu,export}.rs` | **done** 2026-09-05 | **done**: witness 20.7935 against Tetra 21.4947, both at 2.1656 b/weight, both sealed and reopened at their exact perplexity. Original check: the 0.6B 3-block run prints the same rate (2.1656 b/weight) on both arms, seals, reopens, and its ppl is finite; the served 4B file still reads 16.9415 at f16 |
 | 5 | the 4B in Tetra, then the four-arm quality campaign on one card | `proofs/`, `docs/mesures/` | **done** 2026-09-06: 2 h 27 of Mac, $0.79 | **done**: 2.764 b/param against 5.162, perplexity 16.1569 against 16.9422 (better by 4.64%), MMLU 53.49 against 55.59, f16 and the published file replaying their A4 values ([journal](mesures/tetra-4b-2026-09-06.txt)). No threshold was set: the operator measured and judged on sight |
-| **6, the last step** | the card: `tv_tetra48` from the v3 decoder with the gain scale, added as an arm to the published comparison bench: `nullk`, `Planes14`, QTIP and AWQ in their own grids, FP16, every arm in one process, on L40S and then A100 (F1d, ~$1 per card); then `fusedrun` on the sealed file (F1e, ~$8) | `llvq-cuda/`, `llvq-llm/src/fused*.rs` | 1 week | F1d and F1e as written above; the operator's framing of 2026-09-05: rerun the original bench with each kernel on its card, Tetra added |
+| **6, the last step** | the card: `tv_tetra48` from the v3 decoder with the gain scale, added as an arm to the published comparison bench: `nullk`, `Planes14`, QTIP and AWQ in their own grids, FP16, every arm in one process, on L40S and then A100 (F1d, ~$1 per card); then `fusedrun` on the sealed file (F1e, ~$8) | `llvq-cuda/`, `llvq-llm/src/fused*.rs` | 1 week | F1d and F1e as written above; the operator's framing of 2026-09-05: rerun the original bench with each kernel on its card, Tetra added. **Broken out into ten sub-steps in §2.2 quinquies**, because the served object the operator chose on 2026-09-08 is a *mixed* file and that adds a second kernel to the critical path |
 
 Steps 0 to 5 ran on 2026-09-05 and 09-06 for $0.79 all told, against the 5 to 7 days estimated. Both operator
 inputs are settled: the format is named Tetra, and no quality threshold was set: the operator measured and judged
 on sight (prereg §1). Step 6 is what remains, and it is the only place the card figures come from.
+
+### 2.2 quinquies Step 6 in ten pieces, planned 2026-09-08
+
+**The served object, chosen by the operator on 2026-09-08: `Tetra` with `v_proj` in int4 g128, encoded on the
+Mac at the published calibration volume.** That is arm T2 of chantier 1 — **56.95 MMLU** paired against
+Tetra's 53.49, `+3.47 pp` CI95 `[+1.42; +5.57]`, McNemar 5.0e-6 (*measured*,
+[Q5 on Tetra](mesures/q5-tetra-2026-09-06.txt)) — at **2.8138 b/param** (*computed*). Not V32's 57.17: that
+base needs the ×32 calibration volume, which fits on no rentable card under 96 GB and cost $13.60 the once it
+ran, and whose incremental `+1.95 pp` has a CI that contains zero.
+
+The choice has one consequence that changes the critical path: **the file is mixed, so two kernels are served,
+not one.** `tv_tetra48` reads the 5/6 of the projections that are lattice; `tv_q4_h` reads `v_proj`. The second
+exists — 116 lines, verified as host C++ by `llvq-llm/tests/proj_q4.rs` — and **has never run on a card**, nor
+is it named in any NVRTC source list (`llvq-llm/src/fused.rs:428-461`, `fused_cuda.rs:63`).
+
+The three refusals the mixed file meets, all in `load_with`, all deliberate:
+`fused.rs:1775` on the header's whole `KindSet`; `:1787` per record; and `:1791-1797`, *"the kernels hardcode
+1 gain bit"* — an int4 record carries no centroid at all, so that one fires on the record we most want.
+
+The write side needs nothing: `smoke` already declares `{Tetra, Int4G128}` when `LLVQ_INT4_TYPES` is set
+(`bin/smoke.rs:666-670`), `calib.rs:793-812` stores those matrices group-affine in the natural basis — never
+GPTQ, never the rotation, never the lattice — and feeds the dequantized tensor back so the block's later
+activations see the weights the file stores. `seal` carries int4 records through unchanged (`bin/seal.rs:153`).
+
+| step | what it produces | files | effort (*estimated*) | check, written before the step |
+|---|---|---|---|---|
+| 6.0 | **the artefact**, on the Mac: `tetra` plus `LLVQ_INT4_TYPES=v_proj`, then `seal` | — | 2 h 30, $0 | the run prints **one** rate and it is 2.8138 b/param; the header declares `{Tetra, Int4G128}` and the record count of `v_proj` is 36 of 252; `verify_artifact` bit for bit; sealed ppl finite and within 1% of 16.16 |
+| 6.1 | **the served decode**: the gain bit, the magnitude, the trio permutation, the origin | `llvq-cuda/kernels/llvq_tetra48.cuh`, `tests/{host_tetra48.cpp,tetra48_matches_rust.rs}` | **done** 2026-09-08, $0 | **done**: decode and permutation bit for bit against `Tetra::decode`, shell sum exact on integers, dot bit for bit against the same `__fmaf_rn` chain, gain ratio to 1e-5. Mutants killed: permutation swapped, `__dp4a` unsigned, shell read without the shift, gain bit at 46 |
+| 6.2 | the disk-to-word transcoder and `Layout::Tetra48`: the stream is MSB-first, the word little-endian | `llvq-artifact/src/runtime.rs`, `llvq-artifact/src/tetra48.rs` | 1 d | round trip pinned on 10⁵ words against `Fields::split`/`join`; the flat stream's trailing pad covers `f1r_load`'s six-byte window at both parities of `n`; mutants: the two byte orders swapped, the pad dropped |
+| 6.3 | the bench kernel `tv_tetra48` and its arm, **with `Planes14` in the same process** on a synthetic stream | `llvq-cuda/kernels/tetra48.cu`, `src/bin/f1rankfloor.rs`, `src/bin/cuhcheck.rs` | 1 d | every arm against its own f64 reference before any timing; `UNITS` and `TABLE_SHIPPED` counts bumped; the in-process `B` is a number `format-noyau.md` §6 has never had, and it survives any Tetra verdict |
+| **6.4** | **the early kill**, 20 s of L40S | — | **~$0.02** | `num_regs ≤ 40` and `local_bytes == 0` read off the loaded function (`gpu.rs:402-425`), and `t ≤ 0.90 × B` in-process. **Red here and the $8 of F1e is never spent.** Medians with ranges round by round; the same-head ratio beside the raw one |
+| 6.5 | the served kernels: `tv_tetra48_h.cu`, and `tv_q4_h.cu` embedded for the first time | `llvq-llm/kernels/`, `llvq-llm/src/fused.rs`, `fused_cuda.rs` | 2 d | **`tv_tetra48_h` DONE 2026-09-10**: it ran inside the model on an L40S, 252 projections, 256 tokens identical to the dense arm, 92.9 tok/s and 1.36 GB (*measured*, [F1e §0](mesures/f1e0-2026-09-10.txt)). **`tv_q4_h` still has never run on a card**: it is embedded, host-verified by `tests/proj_q4.rs`, and absent from every source list a runtime assembles |
+| 6.6 | the mixed loader: the three refusals opened, per kind and not wholesale | `fused.rs`, `runtime.rs` | 2 d | **the READER is done**: `check_kinds`/`serves_kind` decide by layout, `read_record` walks the mixed file, `FusedModel.int4` is populated. **The LAUNCHER is not**: `fused_cuda.rs` does not mention int4, so the 36 `v_proj` reach `model::pick` with no weights and a card run dies naming the missing tensor (*measured* 2026-09-10, $0.03). That launcher is the last piece of the served object |
+| 6.7 | `rtbits` prices a mixed file instead of refusing it | `llvq-bench/src/bin/rtbits.rs:538` | 0.5 d | the printed b/param equals the hand arithmetic of `q5-tetra-2026-09-06.txt` to the fourth decimal — 2.8138 — or the discrepancy is the finding |
+| 6.8a | **the bench itself**: `planesbench` reads a SECOND file through `read_record`, dispatches arm 17, bills b/weight per arm, resolves the tile before the source, and gains a composite `cuhcheck` unit assembled by text rather than by `#include` | `llvq-cuda/src/bin/{planesbench,cuhcheck}.rs`, `src/tile.rs`, `src/occ.rs` | **done** 2026-09-10, $0 | **done**: a bare `planesbench` panicked on arm 17 at `unreachable!` after three minutes of transcoding and now refuses in its first second; five `cuhcheck` mutants that survived the `#include` design are killed; the planesbench assembly parses as one string |
+| 6.8 | **F1d**, RTX PRO 6000 then L40S | — | **~$0.60 for both** | `t ≤ t(Planes14)` in the same process **at the served tile of 128**, and `≤ 2.20 b/weight` kernel on the arm's own denominator; kill if slower for fewer bytes. The gate is unreadable without a tile: the optimum is 64 on sm_89 and 32 on sm_120, and on sm_120 Tetra fails at 128 and passes at 32 (*measured*, [tile sweep](mesures/tile-sweep-2026-09-09.txt)). Three columns per card, prereg `proofs/preregistration-f1d-2026-09-10.md` |
+| 6.9 | **F1e**, `fusedrun` on the sealed file, paired MMLU | — | **~$8** | **§0 done 2026-09-10, $0.43**: `oracle` MATCH, then the served Tetra kernel measured on the PURE Tetra file — 92.9 tok/s [92.4–93.0] and 1.36 GB against Planes14's 86.4 [86.2–86.5] and 2.56 GB, same job, same card, same flags (`FUSE=0`, `ROT_SHARE=0`, q8 embedding); the two are NOT divided, they are two processes. ⚠️ the 100.6 tok/s bar was set at the SERVED flags and neither arm here ran them. **The MMLU census is not run**, and it waits on the int4 launcher and on the operator's arbitration of F1d |
+
+**Two gates are kills, not measurements**, and that is what orders the table: F1d fires if the kernel is slower
+than `Planes14` for fewer bytes, F1e if MMLU falls under 53%. So 6.4 exists — $0.02 and twenty seconds buys the
+signal that decides whether 6.5 to 6.9 are worth two weeks. Everything before it is $0 on the Mac, and
+6.1 to 6.3 survive a kill: the decoder is the decoder of any format that does not unfold.
+
+**What the operator still owes the prereg**, and none of it can be read off the code: whether F1e is a statement
+about the *format* (then the comparison object is `Tetra` bare at 53.49) or about the *served product* (then it
+is this mixed file); which SE the phrase "55.59 − 2 SE" means, the per-arm 1.35 or the paired ≈1.40; and whether
+"disk ≤ today's" is a real gate, since Tetra is already +1,616 bytes over the published file.
 
 ### 2.3 bis Q5, the mixed file
 

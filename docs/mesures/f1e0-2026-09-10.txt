@@ -1,0 +1,419 @@
+F1e §0 — LE CHEMIN SERVI TOURNE-T-IL SUR UNE CARTE ?
+================================================================================
+Préreg      : proofs/preregistration-f1e0-2026-09-10.md, tamponné AVANT le
+              premier lancement ; écarts É1 à É6 dans le -ECARTS.md
+Nature      : *mesuré* sur L40S, quatre jobs, 0,43 $ en tout
+But         : ne PAS dépenser les 8 $ de F1e pour découvrir qu'un noyau ne
+              charge pas. `tv_q4_h` n'avait jamais tourné sur une carte, et
+              `tv_tetra48_h` n'avait jamais tourné DANS le modèle.
+
+CE QUE ÇA A RENDU
+-----------------
+  Le noyau Tetra servi tourne, et il est juste : **256 jetons identiques au
+  bras dense** sur le fichier Tetra pur, embedding q8.
+
+  bras (même job, même carte, mêmes drapeaux)   tok/s          Go carte  b/poids
+  ---------------------------------------------------------------------------
+  Tetra48                                92,9 [92,4–93,0]        1,36     2,084
+  Planes14                               86,4 [86,2–86,5]        2,56     4,729
+  dense f16                              43,0 [43,0–43,1]        8,04       —
+
+  Contre le bras dense de son PROPRE processus, Tetra : ×2,14 [×2,13–×2,15] de
+  vitesse, ÷5,91 de mémoire.
+
+  ⚠️ LE RAPPORT TETRA/PLANES14 N'EST PAS FORMÉ. Deux `fusedrun`, deux
+  processus ; la règle 5 l'interdit. Les deux chiffres se lisent côte à côte.
+
+TROIS RÉSERVES, ET AUCUNE N'EST COSMÉTIQUE
+------------------------------------------
+  1. LA BARRE DE 100,6 tok/s N'EST PAS COMPARABLE. Ces runs tournent à
+     `LLVQ_FUSE=0` et `LLVQ_ROT_SHARE=0` ; la configuration servie est 1/1.
+     LES DEUX bras sont sous la barre (92,9 et 86,4), donc l'écart vient du
+     protocole et pas du format. La barre se lira dans F1e, à ses drapeaux.
+
+  2. LA DIVERGENCE N'EST PAS UN SIGNAL. Sur trois bras, DEUX ont divergé de
+     leur référence dense — Planes14 au jeton 89, Tetra-f16 au jeton 20 — et
+     Tetra-q8 a fait 256 jetons identiques. Sur 256 jetons en décodage glouton
+     une différence f16 minuscule finit par basculer un tie-break. La
+     correspondance exacte de Tetra est de la CHANCE, pas une preuve, et il
+     s'en est fallu d'une vérification que ce journal ne dise le contraire.
+
+  3. UN ÉCART NON EXPLIQUÉ. Le même Tetra, même fichier, rend **50,2 tok/s**
+     avec l'embedding en f16 contre 92,9 en q8. L'embedding seul (777,9 Mo
+     contre 413,3) ne vaut pas 1,85×. Le mécanisme plausible — q8 passe par
+     `tv_q8_h`, f16 par un matmul candle, et le `lm_head` est lié à
+     l'embedding donc lu à chaque jeton — n'est PAS mesuré ici, donc rien
+     n'est conclu.
+
+CE QUE CE N'EST PAS
+-------------------
+  Le fichier Tetra PUR, 252 enregistrements réseau, l'objet à 53,49 MMLU.
+  PAS l'objet servi arbitré le 2026-09-08, qui porte 36 `v_proj` en int4 et
+  vaut 56,95. Ce journal mesure le FORMAT, pas le produit.
+
+LES TROIS ÉCHECS QUI ONT PRÉCÉDÉ, ET CE QU'ILS ONT COÛTÉ
+--------------------------------------------------------
+  Q5 du préreg prédisait « quelque chose refuse au premier essai, 60 % ».
+  Trois fois, en fait, et c'est exactement à ça que servait cette étape :
+  chaque défaut a coûté deux ou trois centimes au lieu d'être découvert au
+  milieu d'un recensement à 8 $.
+
+  essai  coût     ce qui a refusé
+  -------------------------------------------------------------------------
+    1    0,02 $   `ClassTable` bâtie inconditionnellement : le chemin servi
+                  demandait la table de classes DE LA BALLE. Le test portable
+                  balayait les quatre dispositions de balle et s'arrêtait là —
+                  la disposition que toute l'étape 6 existe pour servir était
+                  la seule qu'il ne construisait jamais.
+    2    0,03 $   `no kernel tv_planes_seg_h: named symbol not found`. Le
+                  rapport de registres était conditionné par « la disposition
+                  n'est pas Slot32 » ; l'unité Tetra ne porte pas cette source.
+    3    0,03 $   `cannot find tensor …v_proj.weight`. LA DETTE DU LANCEUR :
+                  `FusedModel.int4` est peuplé au chargement et consommé par
+                  personne. Prédit en lisant `model::pick` sur le Mac avant de
+                  lancer — la question n'était pas *si* mais *si ça hurle*.
+
+  `oracle` a rendu MATCH aux trois essais et au run final (règle dure 10).
+
+  Aucun des trois n'était une erreur de type. Un `cargo check` ne les aurait
+  pas vus. Ce qui les voit, ce sont les tests portables ajoutés depuis, qui
+  construisent le PLAN du runtime — liste de sources, noms de noyaux — sans
+  carte. `ops/Dockerfile.check` (2026-09-10) supprime la classe d'à côté, les
+  erreurs de type, qui coûtaient douze minutes de build chacune.
+
+CHIFFRES DE VRAM, LES PREMIERS *MESURÉS* DE CE FORMAT
+-----------------------------------------------------
+  Tetra, embedding q8   : projections 0,95 Go + porté 0,41 = **1,36 Go**
+  Tetra, embedding f16  : projections 0,95 Go + porté 0,78 = **1,72 Go**
+  Planes14, q8          : projections 2,15 Go + porté 0,41 = **2,56 Go**
+
+  À comparer aux 1,390 Go *calculés* de `ETAT` : l'accord est à 2 % sur la
+  configuration servie, et l'écart de la ligne f16 est l'embedding, pas le
+  format. Les 2,084 b/poids d'inférence ne se comparent NI au 2,1498 du
+  dossier NI au 2,150 du banc : queue en binary16 ici, en f32 là.
+
+
+================================================================================
+F1e §0 bis — L'OBJET SERVI ENTIER, SUR CARTE
+================================================================================
+Job         : 6aa2e9385527934177ec1e4c, l40sx1, 5 min 32 s, 0,17 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda
+Objet       : /out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin, 1 794 564 765 o
+              **252 matrices : 216 Tetra + 36 v_proj en int4 g128.** L'objet
+              arbitré le 2026-09-08, celui qui vaut 56,95 de MMLU.
+Nature      : *mesuré*
+Ce que le §0 ci-dessus ne disait pas : il mesurait le fichier Tetra PUR. Ici
+c'est le produit.
+
+CE QUE ÇA A RENDU
+-----------------
+  bras (même job, même carte, même fichier)   tok/s              Go carte
+  ---------------------------------------------------------------------------
+  fusé, ROT_SHARE=1 (le réglage servi)   100,8 [100,4–100,8]      1,39
+  fusé, ROT_SHARE=0                       94,2 [ 93,9– 94,7]      1,39
+  dense f16 (même processus)              43,0 [ 43,0– 43,0]      8,04
+
+  Contre le bras dense de son PROPRE processus, au réglage servi :
+  **×2,35 [×2,34–×2,35] de vitesse, ÷5,81 de mémoire.**
+
+  256 jetons identiques au bras dense DANS LES DEUX BRAS. Pas un seul écart.
+  `oracle` MATCH (règle dure 10).
+
+  Le partage de rotation vaut +7,0 % : 216 lancements de rotation par jeton
+  tombent à 144, et le débit monte de 94,2 à 100,8. Deux processus séparés,
+  même fichier, même carte, mêmes autres drapeaux.
+
+  2,140 b/poids, comptabilité INFERENCE (queue en binary16). Ne se compare NI
+  au 2,1498 du dossier NI au 2,150 du banc, qui facturent en f32.
+  Fichier 1,79 Go sur disque, 1,39 Go sur la carte : deux comptabilités qui ne
+  se comparent pas non plus, l'une porte des index compacts, l'autre la
+  disposition dépliée que le noyau lit vite.
+
+  VRAM : projections 0,97 Go + porté 0,41 = 1,39 Go, contre 1,390 *calculé*
+  dans ETAT. L'accord est exact à la troisième décimale.
+
+CE QUE ÇA CORRIGE DANS LE §0
+-----------------------------
+  La réserve 1 disait que la barre de 100,6 tok/s se lirait « à ses drapeaux ».
+  C'est fait : 100,8 tok/s à ROT_SHARE=1. La barre publiée était mesurée en
+  1,85× plus de mémoire (2,57 Go contre 1,39). **Même vitesse, 1,85× moins de
+  mémoire** — et sans la fusion de projections que la barre publiée avait,
+  puisque Tetra n'a pas de noyau segmenté.
+
+UN DÉFAUT DE MESURE, TROUVÉ EN LISANT CE LOG
+---------------------------------------------
+  La ligne imprimée dit :
+
+      216 matvec_launches/token for 252 projections (0 groups + 216 lone)
+
+  Elle se lit « 36 projections ne coûtent aucun lancement ». C'est faux : les
+  36 `v_proj` en int4 lancent `tv_q4_h`, un lancement chacune.
+
+  `rotplan::matvec_launches_per_token(singles, groups)` rend
+  `singles.len() + groups.len()`. Les int4 vivent dans un troisième vecteur
+  (`Vec<FusedInt4Proj>`) que la fonction ne voit pas. Le chiffre est donc faux
+  de 36 exactement, et il l'est depuis que l'objet mixte existe.
+
+  Ce n'est pas une erreur du noyau : les jetons sont justes, la mémoire est
+  juste, la vitesse est juste. C'est un chiffre faux imprimé À CÔTÉ d'une
+  mesure — et le commentaire de la fonction dit lui-même à quoi il sert :
+  « a gate reading "128 tokens identiques" while both arms issued 252 matvecs
+  proves the tokens and nothing about the lot ». Un compteur qui sous-compte
+  affaiblit exactement la garde qu'il existe pour armer.
+
+
+================================================================================
+F1e §0 ter — CE QUE COÛTE UN PRÉREMPLISSAGE PAR LE NOYAU
+================================================================================
+Job         : 6aa321505527934177ec2d0d, l40sx1, 1 min 36 s, 0,05 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda, source NVRTC 94 819 o
+              sha256 722f6140… — 9 286 octets de plus que le job précédent
+              (85 533 o, sha256 90ebbf08…), c'est le noyau par lots qui entre.
+Objet       : le fichier servi, drapeaux servis (ROT_SHARE=1, EMBED=q8)
+Mode        : LLVQ_PREFILL_TOKENS, mode de MESURE, jamais une config servie
+Nature      : les ms et tok/s sont *mesurés* ; pentes, ordonnées, Go/s, µs par
+              opération, heures et dollars de recensement sont *calculés*
+But         : remplacer par un chiffre l'estimation « 4 à 8 h » du recensement
+              MMLU par le noyau.
+
+CE QUE ÇA A RENDU
+-----------------
+  jetons de prompt      ms par préremplissage        ms par jeton
+  ---------------------------------------------------------------
+      200               1 059,6 [1 059,0–1 060,1]        5,298
+      800               4 364,0 [4 357,4–4 369,1]        5,455
+
+  Droite sur les deux points : **5,507 ms par jeton, ordonnée −41,9 ms.**
+  Autrement dit le coût est linéaire en longueur et il n'y a PAS de coût fixe
+  par passe. L'ordonnée légèrement négative est l'attention, qui est en N².
+
+  Le binaire imprime une projection sur 14 042 questions. **CE N'EST PAS LE
+  RECENSEMENT DE CE PROJET.** Toutes les barres publiées sont mesurées sur
+  2 280 questions — 40 par sujet, 57 sujets (`mmlu-appariee.csv`, colonne
+  `n_questions` ; `q5-tetra-2026-09-06.txt:18`) — et `mmlupair` refuse deux
+  dumps de plans différents, donc un run par le noyau doit prendre celles-là.
+
+  Longueur réelle des prompts, *mesurée* sur le Mac à 0 $ (tokenizer Qwen3-4B,
+  parquet `cais/mmlu` en cache, `block()` de `bin/mmlu.rs` reproduit
+  caractère pour caractère) :
+
+    sujets les plus longs                moyenne   min    max
+    -------------------------------------------------------------
+    high_school_european_history           2 796  2 581  3 096
+    high_school_us_history                 2 218  2 050  2 429
+    professional_law                       1 636  1 419  2 149
+    high_school_world_history              1 429  1 208  1 831
+    ...
+    world_religions                          254    240    288
+
+    recensement de 2 280 questions : **1 382 608 jetons de prompt**,
+    moyenne **606 jetons** par question.
+
+  Donc, *calculé* sur la pente mesurée :
+
+    recensement 2 280 questions   **2,12 h = 3,81 $** sur L40S
+    split complet 14 042          14,93 h = 26,88 $
+
+  Le chemin dense fait le recensement de 2 280 en **26 min et 0,78 $**.
+
+  ⚠️ La pente vient de deux points à 200 et 800 jetons. À 3 096 jetons
+  l'attention en N² la fait monter — *estimé* +10 %, jamais mesuré.
+
+LE NOYAU REFUSERAIT 239 DES 2 280 QUESTIONS
+--------------------------------------------
+  `model::group_forward` plafonne à `MAX_ROWS × batch` = 256 × 4 = **1 024
+  rangées**. Neuf sujets dépassent, cinq ENTIÈREMENT :
+
+    sujet                              refusées   sur   plus long
+    --------------------------------------------------------------
+    professional_law                      1 534  1 534     2 149
+    high_school_world_history               237    237     1 831
+    security_studies                        245    245     1 398
+    high_school_us_history                  204    204     2 429
+    high_school_european_history            165    165     3 096
+    professional_medicine                   250    272     1 326
+    college_medicine                          5    173     1 377
+    high_school_computer_science              1    100     1 143
+    high_school_statistics                    1    216     1 060
+
+  2 642 des 14 042 du split complet, soit 18,8 %. Sur un recensement à 40 par
+  sujet : **239 questions sur 2 280, 10,5 %**.
+
+  Ce n'est PAS une limite matérielle. Le commentaire de `MAX_ROWS` le dit :
+  « The cap is on LAUNCHES, and `MAX_ROWS` was that budget when a launch
+  carried one row. » C'est un garde-fou contre un appelant qui lancerait trop,
+  et il n'a jamais été relu depuis que le lot existe. Admettre le plus long
+  prompt du split demande `MAX_ROWS ≥ 774` à `PREFILL_ROWS = 4`.
+  **Décision opérateur : c'est une constante servie qui change.**
+
+LE RÉSULTAT QUI COMPTE N'EST PAS CELUI-LÀ
+------------------------------------------
+  Un préremplissage de 800 jetons lit les projections 200 fois — une fois par
+  lot de 4 rangées — soit **194 Go en 4,364 s = 44,5 Go/s**.
+
+  La L40S en fait 864. Le noyau tourne donc à **5,1 % de la bande passante**.
+
+  LE PRÉREMPLISSAGE N'EST PAS LIMITÉ PAR LA MÉMOIRE. Il est limité par le
+  nombre d'opérations lancées. Le lot de 4 rangées a divisé le flux de poids
+  par 4 et le temps par 1,8 seulement : 5,507 ms par jeton de prompt contre
+  9,92 ms par jeton de décodage. Si le flux avait été le facteur limitant, le
+  rapport aurait été 4.
+
+  Le compte, par lot de 4 rangées, tel que mesuré :
+
+    576 lancements de rotation          (144 groupes x 4 rangées : la rotation
+                                         était PAR RANGÉE, le lot ne la batchait
+                                         pas — les 144 imprimés sont par JETON)
+    864 recopies (`Tensor::cat`)        (4 par projection Tetra, une par rangée)
+    216 lancements de matvec Tetra      (le noyau par lots, une par projection)
+    144 lancements int4                 (les 36 `v_proj` n'ont PAS de noyau par
+                                         lots, elles repassent rangée par rangée)
+    ------------------------------------------------------------------------
+  ~1 800 opérations par lot, ~360 000 par préremplissage de 800 jetons, à
+  12 µs pièce. C'est un profil de lancement, pas un profil de bande passante.
+
+  Deux postes sur quatre, 1 440 sur 1 800, sont du travail que le lot était
+  censé supprimer et ne supprimait pas :
+
+  * **les recopies.** Concaténer 4 rangées coûte 4 copies sur la carte. C'est
+    le prix payé pour ne faire qu'un lancement de matvec au lieu de quatre — et
+    la forme ainsi reconstruite, `[4, d_in]` contiguë, est celle que la
+    rotation aurait pu produire directement.
+  * **la rotation.** `drive_rows_batched` appelait `prepare` une fois par
+    rangée. Son propre commentaire le disait : « A rotation is per row and
+    batching the matvec does not batch it. » C'était une constatation, pas une
+    nécessité : le noyau de rotation met un vecteur entier en mémoire partagée
+    et une rangée est indépendante des autres, donc la grille peut porter les
+    rangées.
+
+  Et **les int4 ne profitent pas du lot** : `rows_kernel_name` ne rend un nom
+  que pour `Tetra48`, donc les 36 `v_proj` coûtent 4 lancements par lot au lieu
+  d'un, soit 144 des 1 800.
+
+  Ce que ça dit de la suite : le gisement est dans les recopies et les
+  lancements, pas dans le format. **Le format n'est pas le problème ici.**
+
+CE QUE CE N'EST PAS
+-------------------
+  Pas un MMLU. C'est le coût d'une passe avant sur un prompt de longueur
+  donnée, mesuré sur des identifiants répétés — le noyau n'a aucune branche
+  qui dépende de la donnée, donc le contenu du prompt ne change pas le temps.
+  Le recensement multiplierait ce chiffre par 14 042 ET ajouterait le
+  découpage en sujets, l'échantillonnage et l'écriture des dumps.
+
+
+================================================================================
+F1e §0 quater — CE QUE VAUT LA ROTATION PAR LOTS
+================================================================================
+Préreg      : proofs/preregistration-f1e0-prefill-2026-09-11.md, tamponné AVANT
+              le lancement ; scores dans le -ECARTS.md
+Job         : 6aa3a6c121047bf1b0374fda, l40sx1, 3 min 59 s, 0,12 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit 0c2d798
+              source NVRTC 98 431 o, sha256 dfa2d44b… (94 819 o avant)
+Objet       : le fichier servi, drapeaux servis, MÊME carte, MÊMES longueurs
+              qu'au job 6aa32150 — seul le CODE a changé
+Nature      : les ms sont *mesurées* ; TOUT rapport entre les deux jobs est
+              *calculé, inter-job, rapporté et non publié* (règle 8, METHODE)
+
+CE QUE ÇA A RENDU
+-----------------
+  jetons de prompt    avant (6aa32150)          après (6aa3a6c1)
+  ---------------------------------------------------------------------
+      200            1 059,6 ms                  **762,4** [761,1–762,9]
+      800            4 364,0 ms                **3 119,7** [3 117,7–3 126,8]
+
+  Par longueur, quotient des médianes, enveloppe formée passe par passe
+  (règle 7), *calculé* entre deux jobs :
+
+      200 jetons : ×1,390 [1,388 ; 1,393]
+      800 jetons : ×1,399 [1,394 ; 1,401]
+
+  Pente : 5,507 → 3,929 ms par jeton de prompt, soit ×1,402 — *calculé* sur
+  deux pentes de deux points chacune, et ce chiffre SORT des deux enveloppes
+  ci-dessus. C'est le rapport des médianes par longueur qui se lit ; la pente
+  est une ligne secondaire. Ordonnée : −41,9 → −23,4 ms, pas de coût fixe.
+
+  ⚠️ Deux jobs, deux processus. Le rapport ×1,402 est formé sur deux PENTES,
+  chacune tirée de deux points mesurés dans son propre processus, à fichier,
+  carte, drapeaux et longueurs identiques. Ce n'est pas un quotient de deux
+  minima (règle 7) ni un × traversant deux cartes (règle 5).
+
+  Recensement de 2 280 questions (*calculé* sur pente + ordonnée) :
+  **2,09 h et 3,76 $  →  1,49 h et 2,69 $.**
+
+LE GARDE-FOU, QUE CE MODE N'AVAIT PAS
+--------------------------------------
+  N jetons en un appel contre N appels d'un jeton — le second est `rows == 1`
+  par construction, donc le chemin NON batché, sans drapeau ni second build.
+
+    200 jetons : max |Δlogit| 6,836e-2 sur une échelle de 2,412e1, argmax 785 = 785
+    800 jetons : max |Δlogit| 5,566e-2 sur une échelle de 2,588e1, argmax 785 = 785
+
+  0,28 % et 0,22 % : le niveau du f16, pas celui d'un mauvais indexage.
+  Et le protocole servi : **256 jetons identiques au bras dense**, 101,5 tok/s
+  en 1,39 Go, ×2,36 contre le dense de son propre processus. `oracle` MATCH.
+
+CE QUE LE CHIFFRE DIT DU MODÈLE DE COÛT
+----------------------------------------
+  Le préreg prédisait 6,5 ms d'économie par paquet, en supposant ~5 µs de
+  surcoût par lancement. *Calculé* entre les deux jobs : **6,22 ms**, soit
+  **4,80 µs par opération supprimée** (1 296 d'entre elles). Le modèle tient.
+
+  Et il se retourne, ce qui est le plus utile ici :
+
+    1 296 opérations supprimées :  4,80 µs pièce            (*calculé*)
+      504 opérations restantes : **30,9 µs pièce**, 6,4× plus cher (*calculé*
+                                 — et voir l'addendum du 2026-09-11 : 648)
+
+  Les restantes ne sont plus des lancements vides. C'est le flux de poids,
+  l'attention en N², les normes. Bande passante (*calculée*) : 44,5 →
+  **62,2 Go/s**, soit **7,2 % des 864** de la L40S. Moins limité par les lancements qu'avant, et
+  toujours pas par la mémoire.
+
+LE POSTE SUIVANT, CHIFFRÉ AVEC CETTE CONSTANTE
+-----------------------------------------------
+  `regroup` recolle les rangées d'un site avec `Tensor::cat` : une recopie par
+  rangée et par site, **1 008 par paquet**. À 4,80 µs *mesurés* : **4,84 ms**.
+
+  Le supprimer donnerait 15,60 → 10,76 ms par paquet, **2,690 ms par jeton**
+  (×1,45 de plus), et le recensement à **1,03 h et 1,86 $** (*estimé*, sur une
+  constante mesurée et une hypothèse de proportionnalité qui a tenu une fois).
+
+  C'est autant que ce que la rotation par lots vient de rendre.
+
+CE QUE CE N'EST TOUJOURS PAS
+-----------------------------
+  Pas un MMLU. `bin/mmlu` charge par `sealed::load_with_restored`, une
+  reconstruction dense : il n'a pas de bras noyau. C'est la dernière pièce
+  entre ces chiffres et un vrai recensement par le noyau.
+
+
+--------------------------------------------------------------------------------
+ADDENDUM du 2026-09-11 — après l'audit du livrable (docs/audit-livrable-2026-09-11.md)
+--------------------------------------------------------------------------------
+  Deux corrections à ce qui précède, laissées à côté plutôt que réécrites.
+
+  1. ÉTIQUETTES. Les sections §0 ter et §0 quater portaient « Nature : *mesuré* »
+     en tête, ce qui étiquetait en bloc des pentes, des Go/s et des dollars.
+     Seuls les ms et les tok/s sont mesurés ; tout rapport entre les jobs
+     6aa32150 et 6aa3a6c1 est *calculé, inter-job*, et la méthode le veut
+     « rapporté et non publié ». Le ×1,402 est un rapport de pentes qui sort
+     des enveloppes par longueur (×1,390 et ×1,399) ; ce sont elles qui se
+     lisent. Les en-têtes sont corrigés ; le -ECARTS.md du préreg, tamponné,
+     garde son « Mesuré : 6,22 ms » et ce paragraphe le corrige.
+
+  2. LE DÉCOMPTE OUBLIAIT 144 CASTS. Les 36 `v_proj` int4 passent rangée par
+     rangée, et chaque rangée paie `x.to_dtype(F32).contiguous()` avant
+     `tv_q4_h` (`fused_cuda.rs`, `forward_int4`) : un lancement de plus par
+     rangée, 144 par paquet, qu'aucun tableau ci-dessus ne compte. Le compte
+     par paquet est donc 1 944 → **648**, pas 1 800 → 504, et le résiduel
+     par opération restante est **24,1 µs**, pas 30,9. La constante de
+     4,80 µs et la projection sur `regroup` ne bougent pas : les 1 296
+     supprimées sont les mêmes.
+
+  3. MÉMOIRE EN b/param (règle 6). ÷5,81 est un quotient d'octets sur carte,
+     même dénominateur des deux côtés ; le chiffre qui se compare est
+     2,8138 b/param modèle entier (*calculé*, comptabilité q5-tetra-2026-09-06).
+     Et le 1,39 Go de la §0 bis se comparait au 1,390 *calculé* de ETAT, qui
+     est celui du fichier PUR ; le mixte se calcule à 1,415 Go — l'écart de
+     2 % est celui des deux comptabilités, octets hôte contre b/param.

@@ -79,6 +79,25 @@ static inline unsigned __byte_perm(unsigned a, unsigned b, unsigned s) {
     return d;
 }
 
+// PTX `dp4a.s32.s32`: the four bytes of `a` and of `b` read as **signed**
+// int8, dotted, accumulated into `c`. This IS semantics — the device
+// instruction has exactly this definition and no rounding — so a probe that
+// executes `tetra48_n2` through it exercises the real arithmetic.
+//
+// The signedness is the whole content of the function and the reason it gets
+// its own mutant: `llvq_tetra48.cuh` reaches the signed reading by XOR-ing the
+// biased bytes with `0x80`, and an unsigned `dp4a` would return `Σ (val+128)²`
+// — a number that is wrong by a factor of roughly 170 and never negative, so
+// it cannot be caught by a sign check.
+static inline int __dp4a(int a, int b, int c) {
+    for (unsigned k = 0; k < 4; ++k) {
+        int x = (signed char)((unsigned)a >> (8 * k));
+        int y = (signed char)((unsigned)b >> (8 * k));
+        c += x * y;
+    }
+    return c;
+}
+
 #define __shared__
 #define LLVQ_HOST_BUILD 1
 static inline void __syncthreads() {}

@@ -6,7 +6,11 @@
 //!
 //! * without an explicit `arch`, NVRTC compiles for `compute_75` by default,
 //!   silently. The guard is not to trust the option but to read
-//!   `binary_version()` back off the loaded function and assert it.
+//!   `binary_version()` back off the loaded function and assert it — as an
+//!   **order**, `binary >= compiled_for`, since PTX is forward-compatible and
+//!   a card newer than the request JITs to its own sm. The predicate lives in
+//!   `crate::arch_binary_ok`, outside this `cfg(linux)` module, so the dev
+//!   machine can mutate it.
 //! * `use_fast_math: Some(true)` only emits `--fmad=true`, which is NVRTC's
 //!   default anyway. The field is a no-op in both directions; anything real
 //!   goes through `options`.
@@ -43,14 +47,60 @@ pub fn arch() -> &'static str {
     })
 }
 
-/// The sm the loaded function must report — derived from [`arch()`], never a
-/// second constant that could drift from it.
+/// The sm the loaded function must report **at least** — derived from
+/// [`arch()`], never a second constant that could drift from it.
 fn arch_binary_version() -> i32 {
     arch()
         .strip_prefix("compute_")
         .expect("arch() guarantees the prefix")
         .parse()
         .expect("arch() guarantees the number")
+}
+
+/// The primary context, opened once and kept for the process.
+///
+/// `cuDevicePrimaryCtxRetain` is refcounted, so this and every `Cuda::new`
+/// hold the *same* context rather than each creating one. Keeping it here
+/// matters for [`probe_compute_cap`]: if the probe's handle were dropped
+/// before a kernel was compiled it would be the last one, the driver would
+/// destroy the context, and the next constructor would pay to build it again.
+///
+/// Never released, like the string [`arch`] leaks, and for the same reason —
+/// it lives exactly as long as the process that needs it.
+fn primary_ctx() -> Result<&'static Arc<CudaContext>, String> {
+    use std::sync::OnceLock;
+    static ONCE: OnceLock<Arc<CudaContext>> = OnceLock::new();
+    if let Some(c) = ONCE.get() {
+        return Ok(c);
+    }
+    let ctx = CudaContext::new(0).map_err(|e| format!("no CUDA device: {e}"))?;
+    // A race here is harmless: `get_or_init` keeps one handle, the loser's
+    // `Arc` drops and releases its own retain, and the refcount balances.
+    Ok(ONCE.get_or_init(|| ctx))
+}
+
+/// The compute capability of a context's device. The single reader of those
+/// two attributes: [`DeviceReport`] goes through it too, so a report and a
+/// probe cannot disagree about the card they describe.
+pub fn compute_cap_of(ctx: &CudaContext) -> Result<(i32, i32), String> {
+    let a = |x: Attr| ctx.attribute(x).map_err(|e| format!("attribute: {e}"));
+    Ok((
+        a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?,
+        a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?,
+    ))
+}
+
+/// The card's capability, **before** any kernel source exists.
+///
+/// `Cuda::new` compiles NVRTC inside its constructor, and since 2026-09-10 the
+/// tile is a `#define` in that source ([`crate::tile`]). So the capability has
+/// to be readable before the text is assembled, which `Cuda::device()` — a
+/// method on the already-compiled object — cannot do. A caller that resolves
+/// its tile from this and then compiles is reading one card and describing the
+/// same one; there is no second device to confuse it with, because
+/// [`primary_ctx`] and every constructor share ordinal 0.
+pub fn probe_compute_cap() -> Result<(i32, i32), String> {
+    compute_cap_of(primary_ctx()?)
 }
 
 /// What the card and the loaded kernel say about themselves.
@@ -324,10 +374,7 @@ impl Cuda {
         let a = |x: Attr| self.ctx.attribute(x).map_err(|e| format!("attribute: {e}"));
         Ok(DeviceReport {
             name: self.ctx.name().map_err(|e| format!("device name: {e}"))?,
-            compute_cap: (
-                a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)?,
-                a(Attr::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR)?,
-            ),
+            compute_cap: compute_cap_of(&self.ctx)?,
             sm_count: a(Attr::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)?,
             l2_bytes: a(Attr::CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE)?,
             shared_per_block: a(Attr::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)?,
@@ -412,11 +459,40 @@ impl Cuda {
             binary_version: g(f.binary_version())?,
             max_threads: g(f.max_threads_per_block())?,
         };
-        if rep.binary_version != arch_binary_version() {
+        // The property is an ORDER, not an equality, and this guard tested the
+        // equality until 2026-09-08.
+        //
+        // NVRTC emits PTX, and PTX is forward-compatible: the driver JITs a
+        // `compute_NN` module for any sm ≥ NN. `ops/run.py` says exactly that
+        // where it pins `MIN_COMPUTE_CAP` — *"the driver can JIT it for any
+        // sm ≥ 89, and for nothing below"*. So a function loaded from
+        // `compute_89` PTX on an sm_120 card reports `binary_version = 120`,
+        // which is the mechanism working, not failing.
+        //
+        // The equality happened to hold everywhere it had been exercised —
+        // `compute_89` on L40S (sm_89), `compute_80` on A100 (sm_80) in F4 —
+        // because each run named its own card's sm. The first card newer than
+        // its `LLVQ_NVRTC_ARCH` was an RTX PRO 6000 on 2026-09-08, and the
+        // guard refused a run that was entirely correct. `compute_120` was not
+        // the way out either: the image is CUDA 12.4 and sm_120 arrived in
+        // 12.8, so its NVRTC cannot name that architecture at all.
+        //
+        // Nothing is lost by relaxing it. The failure the message names — a
+        // silent fallback to `compute_75` — was never caught by the equality:
+        // on a card of sm ≥ the request, `binary_version` reports the DEVICE's
+        // sm whatever PTX it was JITted from, so both readings agree. What the
+        // order does catch, and the equality also caught, is the real defect:
+        // a module that ran BELOW the architecture it was compiled for, which
+        // cannot describe the card the numbers are attributed to.
+        //
+        // The card's own name is printed beside every figure (`Device::name`),
+        // so a reader still sees which silicon a number came from — and rule 5
+        // forbids dividing a × across cards whether or not this guard fires.
+        if !crate::arch_binary_ok(rep.binary_version, arch_binary_version()) {
             return Err(format!(
-                "{name}: compiled for sm_{}, not sm_{}. NVRTC falls back to \
-                 compute_75 when no architecture is given, silently — nothing measured on this \
-                 module would describe the card.",
+                "{name}: ran on sm_{}, BELOW the sm_{} it was compiled for. PTX is \
+                 forward-compatible only, so nothing measured on this module describes \
+                 the card.",
                 rep.binary_version,
                 arch_binary_version()
             ));
@@ -740,6 +816,54 @@ impl Cuda {
         b.arg(xin).arg(signbits).arg(small).arg(xout).arg(&n).arg(&m).arg(&k).arg(&inv)
             .arg(&x_off);
         unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply: {e}"))?;
+        Ok(())
+    }
+
+    /// [`Self::launch_rot`] for `n_rows` activations, one launch.
+    ///
+    /// The grid carries the rows and the block carries one row, so the shared
+    /// memory per block is what one row always needed — `n * 4` — and the
+    /// bound `max_d_in` checks at load time holds at any `n_rows`.
+    ///
+    /// `grid.x` is `n_rows` exactly. The kernel has no bounds guard, so a
+    /// grid wider than the output would overrun it; that is asserted here,
+    /// once a call, rather than branched on by every thread.
+    #[allow(clippy::too_many_arguments)]
+    pub fn launch_rot_rows<T: cudarc::driver::DeviceRepr>(
+        &self,
+        f: &CudaFunction,
+        xin: &CudaSlice<T>,
+        signbits: &CudaSlice<u32>,
+        small: &CudaSlice<f32>,
+        xout: &mut CudaSlice<f32>,
+        n: u32,
+        m: u32,
+        k: u32,
+        inv: f32,
+        x_off: u32,
+        row_stride: u32,
+        n_rows: u32,
+        threads: u32,
+    ) -> Result<(), String> {
+        if n_rows == 0 {
+            return Err("rot_apply_rows: zero rows".to_string());
+        }
+        let want = (n as usize) * (n_rows as usize);
+        if xout.len() < want {
+            return Err(format!(
+                "rot_apply_rows: {n_rows} rows of {n} need {want} floats, the output holds {}",
+                xout.len()
+            ));
+        }
+        let cfg = LaunchConfig {
+            grid_dim: (n_rows, 1, 1),
+            block_dim: (threads, 1, 1),
+            shared_mem_bytes: n * 4,
+        };
+        let mut b = self.stream.launch_builder(f);
+        b.arg(xin).arg(signbits).arg(small).arg(xout).arg(&n).arg(&m).arg(&k).arg(&inv)
+            .arg(&x_off).arg(&row_stride);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("rot_apply_rows: {e}"))?;
         Ok(())
     }
 

@@ -1,0 +1,51 @@
+# A type-checker for the half of this workspace the development machine cannot
+# compile — and nothing else.
+#
+# WHY IT EXISTS. `llvq-llm/src/fused_cuda.rs` is `cfg(all(target_os = "linux",
+# feature = "cuda"))`. On the Mac it is not compiled by anything: five C crates
+# in its tree need a Linux toolchain (`openssl-sys`, `ring`, `zstd-sys`,
+# `onig_sys`) and `candle-kernels` needs **nvcc**. So until 2026-09-10 a type
+# error in the served launcher was found by building the Space image — twelve
+# minutes — or by a rented card.
+#
+# WHAT IT DOES NOT BUY, and the reason this header says so. Both failures of
+# 2026-09-10 were **runtime**: a `ClassTable` refusing a Tetra kind at load,
+# and a register report asking the driver for a kernel its own translation
+# unit never carried. A type-checker sees neither. What catches those is a
+# PORTABLE test that builds the runtime's plan without a card, and this image
+# is not a substitute for writing them.
+#
+# It runs NATIVELY on Apple Silicon: `nvidia/cuda:12.4.1-devel-ubuntu22.04`
+# publishes an arm64 manifest, so nothing is emulated. The target triple is
+# then aarch64 rather than x86_64, which changes nothing for a type check —
+# `target_os = "linux"` is what the cfg reads — and nvcc emits the same PTX.
+#
+# It builds NOTHING of the workspace: the sources are bind-mounted at run time
+# and `cargo check` is the command. Rebuilding this image is only ever about
+# the toolchain.
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+ENV CUDA_COMPUTE_CAP=89
+ENV DEBIAN_FRONTEND=noninteractive
+# The same four the served image installs, and for the same reasons.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl ca-certificates build-essential pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+# 🕳️ The toolchain is INSTALLED BY NAME, at build time, and the name comes from
+# the repository's own `rust-toolchain.toml` — 1.95.0, pinned there on
+# 2026-08-10 because "the compiler is a measurement parameter".
+#
+# Installing "whatever stable is current" instead cost a full toolchain
+# download on EVERY run: rustup reads the pinned file the moment it enters the
+# bind-mounted repo, and a `--rm` container keeps nothing. Five components over
+# the operator's connection, per check, for a check whose whole point is to be
+# six seconds. Named here, it is one download into an image layer.
+ARG RUST_TOOLCHAIN=1.95.0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+        --component clippy rustfmt
+ENV PATH=/root/.cargo/bin:$PATH
+# Out of the bind mount, so the host's 16 GB `target/` is neither read nor
+# grown, and a check here cannot invalidate a build there.
+ENV CARGO_TARGET_DIR=/ctarget
+WORKDIR /src
+CMD ["cargo", "check", "--locked", "-p", "llvq-llm", "--features", "cuda", "--all-targets"]

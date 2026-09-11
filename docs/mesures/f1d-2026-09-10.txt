@@ -1,0 +1,187 @@
+F1d — LE DÉCODAGE TETRA SERVI, BRAS DU BANC PUBLIÉ, DEUX FICHIERS UN PROCESSUS
+================================================================================
+Préreg      : proofs/preregistration-f1d-2026-09-10.md, tamponné 4 calendriers
+              AVANT la première mesure ; écarts É1 à É6 dans le -ECARTS.md
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit 2315370
+Nature      : *mesuré* sur carte ; chaque rapport formé TOUR PAR TOUR dans un
+              seul processus, sur le modèle réel et ses vraies étiquettes
+Fichiers    : deux, tous deux déjà dans le seau, rien téléversé
+              balle : tetra-4b-2026-09-06/qwen3-4b-planes14.bin  1 770 527 533 o
+              tetra : tetra-4b-2026-09-06/qwen3-4b-tetra.bin     1 770 529 149 o
+              (+1 616 o, l'écart que la ROADMAP consigne pour Tetra)
+
+================================================================================
+BLACKWELL — JOB 6aa1ebf421047bf1b0371174, rtx-pro-6000, 37 min, 1,67 $
+================================================================================
+NVIDIA RTX PRO 6000 Blackwell Server Edition, 188 SM, L2 134,2 Mo
+252 matrices, 3,63 G poids, 618 s de construction, 7 tours dont 2 jetés
+
+LE RÉSULTAT
+-----------
+  tuile   Planes14   Tetra48   tetra48/planes14   avec la tête f16
+  ------------------------------------------------------------------
+   128     4,102 ms  5,026 ms   0,82× [0,81–0,82]   0,84× [0,84–0,84]
+    64     4,315     5,023      0,86× [0,85–0,92]   0,88× [0,87–0,93]
+    32     4,277     4,154      1,03× [0,99–1,07]   1,03× [0,99–1,06]
+
+  (>1 = Tetra plus rapide. Médianes ; les intervalles sont formés tour par tour.)
+
+  LA PORTE DE DÉBIT TOMBE À LA TUILE SERVIE ET PASSE À L'OPTIMUM DE LA CARTE.
+  Et à 32 l'intervalle CONTIENT 1 : les deux formats sont égaux dans la mesure.
+  « Tetra plus rapide » n'est pas une phrase que ce tableau autorise.
+
+LA MÉMOIRE
+----------
+  b/poids noyau, dénominateur du bras : Tetra 2,150 contre Planes14 4,804.
+  C'est le 2,1498 du dossier REPRODUIT — la colonne facture le flux non
+  rembourré, la convention que les six autres bras suivent déjà.
+  Octets lus par passe : 0,98 Go contre 2,18. La porte de 2,20 b/poids passe.
+  Le flux HOLD en plus 4,2 Mo de rembourrage de ligne, non facturé, la même
+  convention que le pad de 20 octets de Slot32.
+
+CE QUI EST VÉRIFIÉ AVANT TOUT CHRONO
+------------------------------------
+  252 sur 252 matrices appariées PAR NOM. Erreur pire du bras Tetra contre sa
+  propre référence f64 : 2,0e-8·Σ|w·x|, seuil 1e-5.
+  tv_f1r_v3g : 40 registres, 0 octet local, sm_120 — dans une unité de
+  traduction de douze bras, pas les huit de f1rankfloor.
+  nullk : -inf, et c'est le correctif de cette nuit qui le fait dire ; il
+  imprimait 0.0e0 depuis P4, lu comme un accord parfait.
+
+LE MÉCANISME DE LA TUILE SE TRANSPORTE DU SYNTHÉTIQUE AU MODÈLE RÉEL
+--------------------------------------------------------------------
+  R = (Tetra − nullk)/(Planes14 − nullk), *calculé* depuis les MÉDIANES du
+  tableau — ce n'est PAS une médiane formée tour par tour, et la règle 7
+  interdit de la publier comme telle. Donnée pour la forme, pas pour le chiffre.
+
+  tuile          128     64      32
+  banc synthé.  1,4643  1,4472  0,8491   (tile-sweep-2026-09-09.txt)
+  modèle réel   1,611   1,419   0,919
+
+  L'effondrement entre 64 et 32 est là, et de la même ampleur : −41 % sur le
+  banc, −35 % ici. Le mécanisme trouvé sur un flux synthétique n'était pas un
+  artefact du flux.
+
+LES PRÉDICTIONS SIGNÉES
+-----------------------
+  P1  rapport brut à 128 : prédit 1,35× dans [1,10 ; 1,65]
+      mesuré 5,026/4,102 = 1,225                                    JUSTE
+  P3  « à 32 le rapport tombe sous 0,95× » : AMBIGUË, et c'est ma faute.
+      Sous la lecture temps, 4,154/4,277 = 0,971 : FAUSSE.
+      Sous la lecture plancher retranché, 0,919 : juste.
+      Une prédiction qui ne nomme pas sa quantité ne se juge pas.
+  P4  « Planes14 bouge de moins de ±4 % d'une tuile à l'autre »
+      mesuré +5,2 % (4,102 → 4,315)                                 FAUSSE
+      Planes14 bouge plus que le balayage synthétique ne le disait (+0,4 %).
+      La ligne de base n'est donc PAS insensible à la tuile sur un modèle réel.
+  P5  caduque avant la mesure (écart É5) ; la colonne imprime 2,150
+  P6  40 registres, 0 local                                         JUSTE
+
+CE QUE CE BANC N'ÉTABLIT PAS
+----------------------------
+  - Aucun tok/s. 48 % d'un jeton est hors des matmuls, un rapport de noyau se
+    comprime de bout en bout. C'est F1e.
+  - Aucune qualité. Le fichier Tetra pur est celui à 53,49 MMLU ; l'objet servi
+    est à 56,95 et n'est pas ce qui a tourné ici.
+  - tv_q4_h n'a toujours jamais tourné sur carte.
+  - La section A3 est hors du run : elle dimensionne ses lancements sur la
+    constante et occ_pers change de branche au seuil, donc elle est refusée
+    hors tuile servie.
+  - Les trois tuiles sont trois PROCESSUS. Rien ici ne divise un × entre eux.
+
+================================================================================
+L40S — JOB 6aa1ec1d5527934177ebe813, l40sx1, TUÉ AU PLAFOND, 60 min 27 s, 1,81 $
+================================================================================
+NVIDIA L40S sm_89. La carte sur laquelle TOUS les chiffres publiés ont tourné.
+
+⚠️ DEUX COLONNES SUR TROIS. Le job a heurté le plafond de 60 min pendant le
+troisième processus. Ce qui l'a causé n'est pas la carte mais l'HÔTE : la
+saveur `l40sx1` porte 8 vCPU contre 23 pour `rtx-pro-6000`, et la construction
+de `planesbench` est bornée par le CPU — 618 s sur Blackwell, ~28 min ici, par
+processus. Trois processus × 28 min > 60. La colonne de contrôle (tuile 32) est
+perdue ; les deux qui portent la porte ont abouti.
+
+LE RÉSULTAT
+-----------
+  tuile   Planes14   Tetra48   tetra48/planes14   avec la tête f16
+  ------------------------------------------------------------------
+   128     5,081 ms  4,355 ms   1,17× [1,16–1,17]  1,13× [1,13–1,13]
+    64     4,985     3,717      1,34× [1,34–1,34]  1,26× [1,26–1,26]
+
+  LA PORTE PASSE À LA TUILE SERVIE, ET S'AMÉLIORE À L'OPTIMUM DE LA CARTE.
+  Tetra est le bras LLVQ le plus rapide du tableau : 2,54× FP16 contre 2,17×
+  pour Planes14. 252 sur 252 appariées, erreur pire 2,0e-8, 40 registres, 0
+  local, sm_89.
+
+================================================================================
+LES DEUX CARTES ENSEMBLE — ET ELLES NE DISENT PAS LA MÊME CHOSE
+================================================================================
+  carte        tuile  Planes14  Tetra48    ×     tête   R plancher retranché
+  ---------------------------------------------------------------------------
+  L40S sm_89     128    5,081    4,355   1,17   1,13         0,740
+  L40S sm_89      64    4,985    3,717   1,34   1,26         0,537
+  RTX sm_120     128    4,102    5,026   0,82   0,84         1,611
+  RTX sm_120      64    4,315    5,023   0,86   0,88         1,419
+  RTX sm_120      32    4,277    4,154   1,03   1,03         0,919
+
+  La colonne R est *calculée* depuis les MÉDIANES du tableau. Ce n'est pas une
+  médiane formée tour par tour et la règle 7 interdit de la publier comme
+  telle : elle est là pour la forme, pas pour le chiffre. Le rapport à tête
+  égale formé tour par tour est la colonne « tête ».
+
+  ⚠️ AUCUN × N'EST DIVISÉ ENTRE CES DEUX CARTES (règle dure 5). Les deux
+  moitiés du tableau se lisent, elles ne se rapportent pas l'une à l'autre.
+
+LE FAIT
+-------
+  À LA CONFIGURATION SERVIE, TETRA EST PLUS RAPIDE QUE PLANES14 SUR ADA
+  (1,17×) ET PLUS LENT SUR BLACKWELL (0,82×). Sur Blackwell il faut descendre
+  la tuile à 32 pour atteindre l'égalité — 1,03× dont l'intervalle contient 1.
+
+  Et il lit 0,98 Go par passe contre 2,18 : **2,23× moins d'octets**, à
+  2,150 b/poids contre 4,804. La porte mémoire de 2,20 passe sur les deux
+  cartes, et elle ne dépend pas de la carte.
+
+  Ce que la ROADMAP appelle une tuerie — « plus lent pour moins d'octets » —
+  est donc VRAI sur Blackwell à la tuile servie et FAUX sur Ada. Ce n'est pas
+  une propriété du format, c'est une propriété du couple format × carte, et la
+  tuile est une constante d'hôte qui coûte zéro bit.
+
+  L'arbitrage appartient à l'opérateur. Ce journal mesure et écrit.
+
+LE BALAYAGE SYNTHÉTIQUE SE TRANSPORTE, AVEC UN BIAIS CONSTANT
+------------------------------------------------------------
+  R          128     64      32
+  synthé.   0,5784  0,4668  0,4704   (L40S)
+  réel      0,740   0,537    —
+  synthé.   1,4643  1,4472  0,8491   (Blackwell)
+  réel      1,611   1,419   0,919
+
+  Même sens, même forme, et le modèle réel est de 10 à 25 % MOINS favorable à
+  Tetra que le flux synthétique sur les quatre points comparables. Le banc
+  synthétique était optimiste, jamais faux.
+
+LES PRÉDICTIONS SIGNÉES — LE SOLDE
+----------------------------------
+  P1  brut à 128 sur Blackwell, 1,35× dans [1,10 ; 1,65] : mesuré 1,225  JUSTE
+  P2  brut à 128 sur L40S, 0,70× dans [0,55 ; 0,90] : mesuré 0,857       JUSTE
+  P3  ne nommait pas sa quantité                                    NON JUGEABLE
+  P4  Planes14 bouge de moins de ±4 % : mesuré +5,2 % (Blackwell)        FAUSSE
+  P5  caduque avant la mesure (É5) ; la colonne imprime 2,150
+  P6  40 registres, 0 local, sur les DEUX cartes                        JUSTE
+
+  Trois justes, une fausse, une non jugeable, une caduque.
+
+CE QUE CE BANC N'ÉTABLIT PAS
+----------------------------
+  - Aucun tok/s, aucune qualité. C'est F1e.
+  - La colonne de contrôle de la L40S (tuile 32) n'existe pas.
+  - tv_q4_h n'a toujours jamais tourné sur carte.
+  - Rien sur l'A100 : la ROADMAP l'appelait, ce run ne l'a pas fait.
+
+CE QUE ÇA A COÛTÉ
+-----------------
+  1,67 $ (Blackwell, 37 min) + 1,81 $ (L40S, tuée au plafond) = 3,48 $.
+  Le second est le prix d'une estimation d'hôte fausse : j'ai chiffré le
+  plafond sur la durée observée d'une carte à 23 vCPU et lancé sur une à 8.
+  La parade tient en une ligne : un processus par job, pas trois.

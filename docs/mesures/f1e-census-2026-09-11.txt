@@ -1,0 +1,83 @@
+F1e — LE RECENSEMENT MMLU PAR LE NOYAU SERVI, ET LE SPLIT COMPLET
+================================================================================
+Préreg      : proofs/preregistration-f1e-census-2026-09-11.md, tamponné à de89530
+              avant le lancement ; scores dans le -ECARTS.md
+Jobs        : 6aa414dd21047bf1b0376b72 (2 bras, 2 280 questions, 95 min, 2,85 $)
+              6aa442b45527934177ec8b6b (split complet, dense, 24 min, 0,70 $)
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda
+Objet       : /out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin (1 794 564 765 o),
+              conf /usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
+Nature      : *mesuré*
+
+1. LE NOYAU CUDA EST JUSTE — PREMIÈRE MESURE MMLU D'UN NOYAU LLVQ
+-----------------------------------------------------------------
+  Deux bras, même fichier, mêmes 2 280 questions, empreinte 65dcd53655e8bfa5.
+  Seule l'arithmétique diffère.
+
+    bras                                   MMLU micro
+    ---------------------------------------------------
+    dense, reconstruction par candle          55,52
+    noyau servi (tv_tetra48_h + rows + q4)    55,66
+
+    Δ apparié = **−0,14 pp**, IC95 [−0,31 ; −0,01], SE 0,08
+    **3 questions discordantes sur 2 280 (0,1 %)** — A✓B✗ = 0, A✗B✓ = 3
+    McNemar p = 0,2500
+
+  2 277 questions sur 2 280 donnent le même choix. Les trois écarts sont des
+  tie-breaks f16 : MMLU choisit entre quatre logits qui peuvent tenir dans un
+  ulp, et c'est exactement pourquoi « les jetons correspondent » (prouvé par
+  `fusedrun` en septembre) ne portait pas jusqu'ici.
+
+  Le critère d'arrêt du préreg était 1,44 pp. On est à 0,14 — dix fois sous.
+
+2. LE SPLIT COMPLET
+--------------------
+    2 280 questions (échantillon)   micro 55,52 ± 1,33   macro 57,76
+    **14 042 questions (complet)**  **micro 56,37 ± 0,00**   macro **58,42**
+
+  ± 0,00 parce qu'il n'y a plus d'échantillon : toutes les questions sont
+  notées. L'échantillon **sous-estimait de 0,85 pp** en restant dans sa propre
+  barre — ce que le plancher de bruit de ±1,4 pp ne permettait pas de voir.
+
+  ⚠️ Empreinte a74a6d6213602979, `limit=census`. Les dix-neuf dumps de
+  `docs/data/mmlu-dumps/` sont à `limit=40` et `mmlupair` refuse deux plans :
+  ce 56,37 est un score ABSOLU, comparable au papier et à rien d'autre du
+  dépôt tant que f16 et Planes14 ne sont pas rejoués au complet (1,86 $ les
+  deux, *calculé* sur le bras dense mesuré ici).
+
+3. CE QUE ÇA DIT FACE AU PAPIER — ET C'EST LE VRAI SUJET
+---------------------------------------------------------
+    papier, Table 6, Qwen3-4B      nous
+    ------------------------------------------------------------
+    FP16   70,2                    70,32 (échantillon) — le protocole colle
+    LLVQ   60,7                    **56,37**  → **−4,3 pp**
+    QTIP   57,4                    **56,37**  → **−1,0 pp**
+
+  Le FP16 tombe à 0,12 pp du papier, donc le protocole n'est pas en cause.
+  **Nous sommes 4,3 pp sous l'implémentation LLVQ du papier, sur le même
+  modèle et à un budget de bits comparable, et 1,0 pp sous QTIP.**
+
+  C'est le chantier qualité, et il n'a plus d'excuse de bruit : à 14 042
+  questions il n'y a plus de barre d'échantillonnage du tout.
+
+4. LES SEPT PRÉDICTIONS SIGNÉES
+--------------------------------
+    P1  la porte servie s'ouvre au premier essai, 70 %      JUSTE
+    P2  le garde-fou à 203 jetons passe, 80 %               JUSTE
+    P3  dense mixte 56,5 [55,0 ; 58,0]                      JUSTE (55,52, bas)
+    P4  noyau − dense 0,0 pp [−1,4 ; +1,4]                  JUSTE (−0,14)
+    P5  discordantes 3 % [1 ; 6]                            **FAUSSE** (0,1 %)
+    P6  durée du bras noyau 1,65 h [1,4 ; 2,0]              JUSTE (1,514 h)
+    P7  rien ne refuse, 60 %                                JUSTE
+
+  P5 est fausse d'un facteur 30, et dans le bon sens : je prédisais que
+  l'ordre d'accumulation en f16 ferait basculer des dizaines de questions. Il
+  en bascule trois. Le noyau est bien plus proche du dense que je ne le
+  croyais.
+
+5. UN CHIFFRE CORRIGÉ AU PASSAGE
+---------------------------------
+  Le bras dense fait **4 min 22 s** sur 2 280 questions, pas 26 min. Le 26 min
+  qui circulait dans mes estimations depuis le 2026-09-10 était faux, et il
+  gonflait d'un facteur 6 le coût de toute comparaison dense. Le full dense
+  coûte 0,70 $, pas 4,80.

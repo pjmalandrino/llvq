@@ -342,6 +342,169 @@ impl Shapes {
     }
 }
 
+/// The rate accounting of a v5 file — Tetra words, int4 records, or both.
+///
+/// **A different report, not a relaxed one.** Everything above this function
+/// keys on a v1 class: masks, level histograms, slot strides, the Planes14 and
+/// E1c projections. A Tetra word names no class and an int4 record names no
+/// lattice point at all, so none of that has a value here and none of it is
+/// printed. What is left is the arithmetic — the one thing the dossier needs
+/// an instrument for, since three independent hand reconstructions of this
+/// file's b/param disagree in the fourth decimal.
+///
+/// Two accountings are printed side by side and the difference between them is
+/// not cosmetic: `side_bits` charges the `KeepExact` tail at **f32**, and the
+/// served path has stored it at **f16** since 2026-08-09
+/// (`llvq_llm::fused::TAIL_BYTES = 2`). Every published kernel b/weight in the
+/// record carries the f32 figure. Printing both is how a reader sees which one
+/// a number came from instead of guessing.
+struct V5Rate {
+    /// Lattice records: their shapes, and the stream bits they spend.
+    lattice: Shapes,
+    lattice_stream_bits: u64,
+    lattice_matrices: u64,
+    /// int4 records: weights, and the bits the three arrays actually occupy.
+    int4_weights: u64,
+    int4_bits: u64,
+    int4_matrices: u64,
+}
+
+impl V5Rate {
+    /// Bits per weight the kernel reads, over **all** projection weights.
+    ///
+    /// `tail_f32` selects the tail width: `true` reproduces the accounting
+    /// every published figure used, `false` the width the card actually holds.
+    fn kernel_bpw(&self, tail_f32: bool) -> f64 {
+        let tail = if tail_f32 { F32_BITS } else { 16 };
+        let side = self.lattice.tail_weights * tail + self.lattice.rows * F32_BITS;
+        let bits = self.lattice_stream_bits + side + self.int4_bits;
+        bits as f64 / (self.lattice.weights + self.int4_weights) as f64
+    }
+}
+
+/// Walk a v5 file and print its rate accounting, then stop.
+///
+/// The header has already been read; this consumes the records. It prints no
+/// class statistic, no layout projection and no traffic model, because none of
+/// them has a meaning for a map that names no class — and printing a plausible
+/// one would be worse than printing nothing.
+fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
+    let mut a = V5Rate {
+        lattice: Shapes::default(),
+        lattice_stream_bits: 0,
+        lattice_matrices: 0,
+        int4_weights: 0,
+        int4_bits: 0,
+        int4_matrices: 0,
+    };
+    let mut gain_widths: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+
+    for _ in 0..h.matrices {
+        match llvq_artifact::read_record(r, h.version).expect("valid record") {
+            llvq_artifact::Record::Lattice(m) => {
+                a.lattice.push(m.d_out, m.d_in);
+                // The word is the unit of the format: `LABEL_BITS` of index
+                // and one gain bit, whatever the shell cap field says.
+                let per_block = llvq_search::tetra::WORD_BITS as u64;
+                a.lattice_stream_bits += (m.d_out * (m.d_in / DIM)) as u64 * per_block;
+                a.lattice_matrices += 1;
+                gain_widths.insert(m.centroids.len());
+            }
+            llvq_artifact::Record::Int4(q) => {
+                a.int4_weights += (q.d_out * q.d_in) as u64;
+                // The three arrays as they are stored, not a nominal 4.25:
+                // a shape whose `d_in` is not a multiple of the group would
+                // spend more, and the file is what is being priced.
+                a.int4_bits +=
+                    (q.packed.len() as u64 + 2 * q.scales.len() as u64 + 2 * q.biases.len() as u64)
+                        * 8;
+                a.int4_matrices += 1;
+            }
+        }
+    }
+
+    // The carried tensors, read the way the ball path reads them: a u32 count
+    // then one framed tensor each, and the same two names count as embedding.
+    // Two readers of one section would be two chances to disagree about what
+    // "b/param whole model" divides by.
+    let (mut carried_params, mut carried_bits, mut carried_embed) = (0u64, 0u64, 0u64);
+    if h.is_self_contained() {
+        let mut b = [0u8; 4];
+        r.read_exact(&mut b).expect("raw-tensor count");
+        for _ in 0..u32::from_le_bytes(b) {
+            let t = llvq_artifact::read_raw(r, h.version).expect("valid raw tensor");
+            carried_params += t.len() as u64;
+            carried_bits += t.bytes() * 8;
+            if matches!(t.name.as_str(), "model.embed_tokens.weight" | "lm_head.weight") {
+                carried_embed += t.len() as u64;
+            }
+        }
+    }
+
+    let lat_w = a.lattice.weights;
+    let total_q = lat_w + a.int4_weights;
+    println!("\n  ── {path} — format v{}, kinds {} ──", h.version, h.kinds());
+    println!(
+        "  {} lattice matrices, {lat_w} weights at {:.4} b/weight of stream",
+        a.lattice_matrices,
+        a.lattice_stream_bits as f64 / lat_w.max(1) as f64
+    );
+    println!(
+        "  {} int4 matrices,    {} weights at {:.4} b/weight, side data included",
+        a.int4_matrices,
+        a.int4_weights,
+        a.int4_bits as f64 / a.int4_weights.max(1) as f64
+    );
+    println!(
+        "  tail {} weights, {} row scales — the side data every arm uploads",
+        a.lattice.tail_weights, a.lattice.rows
+    );
+    assert_eq!(
+        gain_widths.iter().copied().collect::<Vec<_>>(),
+        vec![2usize],
+        "{path}: gain widths {gain_widths:?}; every decoder hard-codes one gain bit"
+    );
+
+    println!("\n  kernel b/weight, over {total_q} projection weights");
+    println!(
+        "    tail at f32 (the accounting every published figure used) ... {:.4}",
+        a.kernel_bpw(true)
+    );
+    println!(
+        "    tail at f16 (the width the card has held since 2026-08-09) .. {:.4}",
+        a.kernel_bpw(false)
+    );
+
+    if carried_params > 0 {
+        let other = carried_params - carried_embed;
+        let embed_q8 = 8.0 + EMBED_GROUP_BITS / EMBED_GROUP;
+        let lin_f32 = (total_q, a.kernel_bpw(true));
+        let lin_f16 = (total_q, a.kernel_bpw(false));
+        println!(
+            "\n  b/param WHOLE MODEL over {} parameters ({carried_embed} embedding, {other} norms)",
+            total_q + carried_params
+        );
+        println!("  {:<22}{:>14}{:>14}", "tail width", "embed f16", "embed q8");
+        for (name, lin) in [("f32 (published)", lin_f32), ("f16 (served)", lin_f16)] {
+            println!(
+                "  {name:<22}{:>14.4}{:>14.4}",
+                model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
+                model_bpw(&[lin, (carried_embed, embed_q8), (other, 16.0)])
+            );
+        }
+        println!(
+            "  carried MEASURED in the file: {:.4} b/param",
+            carried_bits as f64 / carried_params as f64
+        );
+    } else {
+        println!("\n  projections-only file: no whole-model b/param without an embedding.");
+    }
+
+    println!(
+        "\n  NO CLASS STATISTIC IS PRINTED. Every accumulator of this tool keys on a v1\n           class — masks, level histograms, slot strides, the Planes14 and E1c projections —\n           and a Tetra word names none. A plausible-looking histogram here would be worse\n           than its absence."
+    );
+}
+
 /// Bits per parameter of the **whole model**: a weighted mean of `(count,
 /// bits per parameter)` groups over their total count.
 ///
@@ -534,13 +697,13 @@ fn main() {
         let mut r = BufReader::new(f);
         let h = llvq_artifact::read_header(&mut r).expect("valid artifact header");
         // Every accumulator below keys on a v1 class; a Tetra word names none,
-        // and the class table would file it under some class all the same.
-        if let Err(e) = llvq_artifact::runtime::require_ball_kinds(h.kinds(), "rtbits") {
-            panic!(
-                "{path}: a {} file (format v{}); rtbits reads indices as v1 classes — {e}",
-                h.kinds(),
-                h.version
-            );
+        // and the class table would file it under some class all the same. So
+        // a file that is not ball-only takes a different report — the rate
+        // arithmetic, with no class histogram and no claim to one — and this
+        // function ends there.
+        if llvq_artifact::runtime::require_ball_kinds(h.kinds(), "rtbits").is_err() {
+            report_v5(&path, &mut r, &h);
+            return;
         }
         source = format!("{path} — {} matrices", h.matrices);
         for _ in 0..h.matrices {
