@@ -63,7 +63,14 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 const N_WORDS: usize = 4_000;
-const N_X: usize = 32;
+/// Activations in the fixture. **37, not 32, and not a multiple of any of
+/// [`ROW_SWEEP`].**
+///
+/// 32 divides 4, 8 and 16, so every chunk was full and the fold at
+/// `r < n_rows ? r : 0` — the line that keeps a short chunk's reads in bounds
+/// — was never taken on any machine. 37 leaves a tail of 1 at R = 4 and of 5
+/// at R = 8 and 16, which is the shape half the census prompts end on.
+const N_X: usize = 37;
 const SHELLS: usize = 32;
 /// The bound `llvq-bench/examples/tetrashell.rs` derives over the whole table.
 const MAX_SHELL: u32 = 27;
@@ -134,10 +141,12 @@ struct Out {
     y: Vec<f32>,
     dot: Vec<f32>,
     n2: Vec<u32>,
-    /// `tetra48_dot_rows<4>` accumulated over EVERY word, four activation
-    /// rows a call, staged at a padded stride: `ceil(nx/4) × 4`. The tail
-    /// rows fold onto activation 0 and are ignored by the comparison.
-    dot_rows: Vec<f32>,
+    /// `tetra48_dot_rows<R>` accumulated over EVERY word, `R` activation rows
+    /// a call, staged at a padded stride — one `nx`-long block per R in
+    /// [`ROW_SWEEP`], in that order. The tail rows of the last chunk fold onto
+    /// activation 0 and the harness drops them, so every block is `nx` long
+    /// and all three answer to ONE reference.
+    dot_rows: Vec<Vec<f32>>,
 }
 
 fn run(bin: &std::path::Path, tb: &Tables, gscale: [f32; 2], invnorm: &[f32; SHELLS], words: &[u64], x: &[f32]) -> Out {
@@ -173,8 +182,7 @@ fn run(bin: &std::path::Path, tb: &Tables, gscale: [f32; 2], invnorm: &[f32; SHE
 
     let n = words.len();
     let (ny, nd) = (n * DIM, n * nx);
-    let nb = nx.div_ceil(ROWS);
-    let nr = nb * ROWS;
+    let nr = nx * ROW_SWEEP.len();
     assert_eq!(
         res.stdout.len(),
         4 * (ny + nd + n + nr),
@@ -186,15 +194,25 @@ fn run(bin: &std::path::Path, tb: &Tables, gscale: [f32; 2], invnorm: &[f32; SHE
         y: f32s(&res.stdout[..4 * ny]),
         dot: f32s(&res.stdout[4 * ny..4 * (ny + nd)]),
         n2: u32s(&res.stdout[4 * (ny + nd)..4 * (ny + nd + n)]),
-        dot_rows: f32s(&res.stdout[4 * (ny + nd + n)..]),
+        dot_rows: f32s(&res.stdout[4 * (ny + nd + n)..])
+            .chunks_exact(nx)
+            .map(<[f32]>::to_vec)
+            .collect(),
     }
 }
 
-/// Rows a batched call carries. Four, and the bound is shared memory: the
-/// kernel stages `ROWS · TILE_BLOCKS · 24 · 4` bytes, and at the served tile
-/// of 128 that is 49,152 — exactly the per-block allowance. Eight would need
-/// the tile halved, which is the knob the two-card split turned on.
-const ROWS: usize = 4;
+/// The row counts a batched call can carry, swept by the harness.
+///
+/// The bound is shared memory and it bounds the PRODUCT `rows × tile`, not
+/// either factor: 4×128, 8×64 and 16×32 all stage 49,152 bytes, the per-block
+/// allowance. Since 2026-09-11 the prefill kernel has its own `TETRA48_TILE`,
+/// so quadrupling the rows costs no shared memory and no decode number — and
+/// four times fewer passes over the weight stream is the whole cost of a
+/// prefill.
+///
+/// `tetra48_dot_rows<R>` is a template, and R = 8 and 16 had been instantiated
+/// NOWHERE — not on a machine, not on a card — until this sweep ran them.
+const ROW_SWEEP: [usize; 3] = [4, 8, 16];
 
 /// Random 48-bit words, with the origin and both gain bits over one label
 /// forced in: every 48-bit value is a label, so a uniform draw is a fair sweep
@@ -351,7 +369,7 @@ fn the_served_value_matches_the_reconstruction() {
 /// disagreement is a disagreement between two implementations and not a shared
 /// error — the argument the file header makes for the whole test.
 #[test]
-fn four_rows_at_once_is_four_calls_bit_for_bit() {
+fn a_batched_call_is_its_rows_one_at_a_time_bit_for_bit() {
     let t = Tetra::new();
     let bin = build_harness("rows");
     let tb = tables(&t);
@@ -361,24 +379,28 @@ fn four_rows_at_once_is_four_calls_bit_for_bit() {
     let x = activations(0x4, N_X);
     let out = run(&bin, &tb, gscale, &inv, &w, &x);
 
-    let nb = N_X.div_ceil(ROWS);
-    for k in 0..N_X {
-        // What a row of the kernel accumulates: the per-block dots of that
-        // activation, summed in word order, in f32. Formed here rather than
-        // read from the harness, so the two routes are two implementations.
-        let want = w
-            .iter()
-            .enumerate()
-            .fold(0.0f32, |a, (i, _)| a + out.dot[i * N_X + k]);
-        let got = out.dot_rows[(k / ROWS) * ROWS + k % ROWS];
-        assert_eq!(
-            want.to_bits(),
-            got.to_bits(),
-            "activation {k}: one row at a time accumulates to {want:e}, four rows at once \
-             give {got:e}. The batched path changed the answer, which it may not."
-        );
+    assert_eq!(out.dot_rows.len(), ROW_SWEEP.len(), "one block a row count");
+    for (block, rows) in out.dot_rows.iter().zip(ROW_SWEEP) {
+        assert_eq!(block.len(), N_X, "the batched block is the wrong size at R = {rows}");
+        for (k, got) in block.iter().enumerate() {
+            // What a row of the kernel accumulates: the per-block dots of that
+            // activation, summed in word order, in f32. Formed here rather
+            // than read from the harness, so the two routes are two
+            // implementations — and ONE reference for all three row counts,
+            // which is what makes R = 8 and 16 a test rather than a rerun.
+            let want = w
+                .iter()
+                .enumerate()
+                .fold(0.0f32, |a, (i, _)| a + out.dot[i * N_X + k]);
+            assert_eq!(
+                want.to_bits(),
+                got.to_bits(),
+                "activation {k} at R = {rows}: one row at a time accumulates to {want:e}, \
+                 {rows} rows at once give {got:e}. The batched path changed the answer, \
+                 which it may not — at any R."
+            );
+        }
     }
-    assert_eq!(out.dot_rows.len(), nb * ROWS, "the batched block is the wrong size");
     // And it is not vacuous: a fixture of origins would pass the equality
     // above on a table of zeros.
     let nonzero = out.dot.iter().filter(|v| **v != 0.0).count();

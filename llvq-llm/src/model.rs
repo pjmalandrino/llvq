@@ -896,13 +896,30 @@ impl Proj {
 /// dependency only under `cuda` — and the chunk size is arithmetic the
 /// non-CUDA build still has to compute, at the value that makes the loop the
 /// one that shipped.
-fn llvq_cuda_prefill_rows() -> usize {
+fn prefill_rows_of(projs: &[&Proj]) -> usize {
     #[cfg(all(target_os = "linux", feature = "cuda"))]
     {
-        llvq_cuda::tile::PREFILL_ROWS
+        // From the RUNTIME that will take the chunk, not from the constant.
+        // Under `LLVQ_PREFILL` a unit is compiled at eight or sixteen rows and
+        // `tile::PREFILL_ROWS` still reads four; handing a chunk of eight to a
+        // kernel compiled at four is the silent corruption the pair exists to
+        // prevent, and `forward_rotated_rows` would refuse it — after the
+        // chunking had already decided the shape of the work.
+        //
+        // Every projection of a group shares one runtime (one layout, one
+        // load), so the first that batches answers for the group.
+        for p in projs {
+            if let Proj::Fused { rt, .. } = p {
+                if rt.has_rows_kernel() {
+                    return rt.prefill_rows();
+                }
+            }
+        }
+        1
     }
     #[cfg(not(all(target_os = "linux", feature = "cuda")))]
     {
+        let _ = projs;
         1
     }
 }
@@ -991,8 +1008,8 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
     // cannot batch fans out through `forward_with`, row by row, inside the same
     // chunk. So a mixed q+k+v group of the served file issues one launch for q,
     // one for k, and four for the `v_proj` that is int4.
-    let batch = match rows > 1 && projs.iter().any(|p| p.batches_rows()) {
-        true => llvq_cuda_prefill_rows(),
+    let batch = match rows > 1 {
+        true => prefill_rows_of(projs),
         false => 1,
     };
     let cap = row_cap(batch);

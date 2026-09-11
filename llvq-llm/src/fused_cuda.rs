@@ -292,6 +292,10 @@ pub struct FusedRuntime {
     /// Bytes the prefill kernel stages, formed once so the launch and the
     /// check against the card are one number.
     prefill_shared: u32,
+    /// The `(rows, tile)` the prefill kernel was COMPILED at. The launch bound
+    /// and the `#define`s come from this one value, so a runtime that staged
+    /// one pair and launched another cannot exist.
+    prefill: llvq_cuda::tile::Prefill,
     /// `tv_tetra48_rows_h` — present exactly when the layout carries a prefill
     /// kernel. The decode path never reaches it: at one row the one-row kernel
     /// is what runs, and every decode-time number stays attached to it.
@@ -377,11 +381,12 @@ impl FusedRuntime {
             true => None,
             false => Some(crate::fused::load_int4_sources().map_err(candle_core::Error::msg)?),
         };
-    let defines = format!(
-            "{}#define TETRA48_ROWS {}u\n",
-            tile.define(),
-            llvq_cuda::tile::PREFILL_ROWS
-        );
+        // The prefill pair, resolved once and refused here if it does not fit
+        // — before NVRTC sees a byte. `LLVQ_PREFILL` is a measurement mode:
+        // it moves no bit of any answer, only how many passes over the weight
+        // stream a prompt costs.
+        let prefill = llvq_cuda::tile::Prefill::resolve().map_err(candle_core::Error::msg)?;
+        let defines = format!("{}{}", tile.define(), prefill.defines());
         let mut parts: Vec<&str> = std::iter::once(defines.as_str())
             .chain(sources.parts.iter().map(String::as_str))
             .collect();
@@ -414,11 +419,12 @@ impl FusedRuntime {
         // formality: without this line, a run with `LLVQ_KERNEL_DIR` set is
         // traceable by a directory name and nothing else.
         println!(
-            "NVRTC source: {} bytes, sha256 {} ({} parts), {}, target {}",
+            "NVRTC source: {} bytes, sha256 {} ({} parts), {}, {}, target {}",
             src.text.len(),
             src.sha256,
             parts.len(),
             tile.provenance(),
+            prefill.provenance(),
             // `LLVQ_NVRTC_ARCH` is the one variable below the served door that
             // the config deliberately does not refuse — it names the card, not
             // the object — so it is printed here, where a journal copies from.
@@ -449,6 +455,16 @@ impl FusedRuntime {
         }
         if emb.is_some() {
             spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
+        }
+        // 🚨 The prefill kernel, reported exactly when its source is in the
+        // unit — and it is the arm where a spill is most likely and would cost
+        // the most. `float acc[TETRA48_ROWS]` is one register a row: four is
+        // nothing, sixteen is a sixth of a thread's 64-register budget at full
+        // occupancy, and a spill there turns the accumulator into local memory
+        // — which is DRAM, on the one kernel whose whole point is to touch
+        // DRAM less. The report is what says so before a prompt is timed.
+        if let Some(n) = crate::fused::rows_kernel_name(model.layout) {
+            spill_checked.push(n);
         }
         // Same rule as the segmented kernel above: reported exactly when its
         // source is in the unit, which here is exactly when `int4` is `Some`.
@@ -481,8 +497,7 @@ impl FusedRuntime {
         // They were one statement and it named `shared_limit` before that line
         // existed — which this machine could not see, because the file needs
         // nvcc, and which the Space build reported in two errors.
-        let prefill_shared =
-            llvq_cuda::tile::prefill_shared_bytes(llvq_cuda::tile::PREFILL_ROWS, tile.blocks);
+        let prefill_shared = prefill.shared_bytes();
         let f_matvec_rows = match crate::fused::rows_kernel_name(model.layout) {
             Some(n) => Some(cuda.func(n).map_err(candle_core::Error::msg)?),
             None => None,
@@ -582,8 +597,8 @@ impl FusedRuntime {
             candle_core::bail!(
                 "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \
                  and the card allows {shared_limit}",
-                llvq_cuda::tile::PREFILL_ROWS,
-                tile.blocks
+                prefill.rows,
+                prefill.tile
             );
         }
         let prefill_shared = prefill_shared as u32;
@@ -659,6 +674,7 @@ impl FusedRuntime {
                 tab,
                 tetra_tabs,
                 prefill_shared,
+                prefill,
                 f_matvec_rows,
                 f_int4,
                 g70_tabs,
@@ -780,6 +796,16 @@ impl FusedRuntime {
         self.f_matvec_rows.is_some()
     }
 
+    /// Rows this runtime's prefill kernel was COMPILED to take.
+    ///
+    /// `model::group_forward` chunks by it. Read from the runtime and not from
+    /// `tile::PREFILL_ROWS`, because under `LLVQ_PREFILL` they differ — and a
+    /// chunk of eight handed to a kernel compiled at four is exactly the
+    /// silent corruption the pair exists to prevent.
+    pub fn prefill_rows(&self) -> usize {
+        self.prefill.rows
+    }
+
     /// `y = W X` for `n_rows` rotated rows, one launch.
     ///
     /// `xr` is `[n_rows, d_in]` f32, contiguous, and based at offset zero —
@@ -792,10 +818,10 @@ impl FusedRuntime {
         xr: &Tensor,
         n_rows: usize,
     ) -> candle_core::Result<Tensor> {
-        if n_rows == 0 || n_rows > llvq_cuda::tile::PREFILL_ROWS {
+        if n_rows == 0 || n_rows > self.prefill.rows {
             candle_core::bail!(
                 "{n_rows} rows for a kernel compiled at {}",
-                llvq_cuda::tile::PREFILL_ROWS
+                self.prefill.rows
             );
         }
         let op = FusedRowsOp {

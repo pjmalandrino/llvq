@@ -88,14 +88,34 @@ extern "C" __global__ void tv_tetra48_h(const u32* __restrict__ words,
     }
 }
 
-// How many activation rows one launch carries. Host-injected, like
-// TILE_BLOCKS, and bounded by SHARED MEMORY rather than chosen: the staging is
-// `TETRA48_ROWS · TILE_BLOCKS · LLVQ_DIM · 4` bytes, which at the served tile
-// of 128 is 49,152 at four rows — exactly the per-block allowance every card
-// here reports. Eight would need the tile halved, and the tile is the knob the
-// two-card split of 2026-09-09 turned on.
+// How many activation rows one launch carries, and over how many blocks it
+// tiles the activation. Both host-injected, and the PAIR is what the shared
+// memory bounds: the staging is `TETRA48_ROWS · TETRA48_TILE · LLVQ_DIM · 4`
+// bytes against a per-block allowance of 49,152 on every card here.
+//
+// ## Why this kernel has its own tile
+//
+// It used to read `TILE_BLOCKS`, the decode tile, and four rows at 128 filled
+// the allowance exactly — so eight rows meant halving a served constant that
+// the two-card split of 2026-09-09 turned on, and every published decode
+// number with it. They are two different jobs: the decode tile trades against
+// the decoder's table in L1, on a kernel that reads ONE row; this one trades
+// against ROWS, on a kernel whose cost is how often it re-reads the weight
+// stream. One knob each.
+//
+// The PRODUCT is what the allowance bounds, not either factor: 4×128, 8×64
+// and 16×32 all stage 49,152 bytes. Four times the rows for the same byte, and
+// four times fewer passes over the stream — which is the whole cost of a
+// prefill, and the reason a dense f16 GEMM beats this kernel on a prompt while
+// losing to it by 2.36× on a decode (*measured*, f1e0-2026-09-10.txt).
+//
+// `TETRA48_TILE` defaults to `TILE_BLOCKS`, so a unit that injects neither is
+// byte for byte what it always was.
 #ifndef TETRA48_ROWS
 #define TETRA48_ROWS 4u
+#endif
+#ifndef TETRA48_TILE
+#define TETRA48_TILE TILE_BLOCKS
 #endif
 
 // `tv_tetra48_h` over TETRA48_ROWS activation rows at once — the prefill path.
@@ -125,7 +145,7 @@ extern "C" __global__ void tv_tetra48_h(const u32* __restrict__ words,
 //
 // ## The two things the host owes it
 //
-//   * `shared = TETRA48_ROWS · TILE_BLOCKS · LLVQ_DIM · 4`, checked against
+//   * `shared = TETRA48_ROWS · TETRA48_TILE · LLVQ_DIM · 4`, checked against
 //     the card's per-block allowance — this kernel is loaded through `func`,
 //     with no opt-in, so the DEFAULT allowance is the bound;
 //   * `n_rows <= TETRA48_ROWS`. Rows past it fold onto row 0 for the staging,
@@ -166,12 +186,12 @@ extern "C" __global__ void tv_tetra48_rows_h(const u32* __restrict__ words,
 
     // Rows are separated in shared by a whole tile, so `tetra48_dot_rows`
     // steps by this and never by LLVQ_DIM.
-    const u32 xs_stride = TILE_BLOCKS * LLVQ_DIM;
+    const u32 xs_stride = TETRA48_TILE * LLVQ_DIM;
 
-    u32 ntiles = (nblocks + TILE_BLOCKS - 1u) / TILE_BLOCKS;
+    u32 ntiles = (nblocks + TETRA48_TILE - 1u) / TETRA48_TILE;
     for (u32 t = 0; t < ntiles; ++t) {
-        u32 jlo = t * TILE_BLOCKS;
-        u32 jhi = jlo + TILE_BLOCKS < nblocks ? jlo + TILE_BLOCKS : nblocks;
+        u32 jlo = t * TETRA48_TILE;
+        u32 jhi = jlo + TETRA48_TILE < nblocks ? jlo + TETRA48_TILE : nblocks;
         u32 n   = (jhi - jlo) * LLVQ_DIM;
         __syncthreads();
 #pragma unroll

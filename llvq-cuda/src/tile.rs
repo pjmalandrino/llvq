@@ -85,16 +85,138 @@ pub const TILE_MAX: usize = 512;
 /// `model::MAX_ROWS` rather than look like a hang. At four rows the stream is
 /// read four times less.
 ///
-/// ⚠️ It trades against the tile, and the tile is the knob the two-card split
-/// turned on. Eight rows would need the tile halved to 64 — which is the
-/// measured optimum on sm_89 and would be a different served configuration.
-/// Neither is chosen here; [`prefill_shared_bytes`] is what says whether a
-/// pair fits.
+/// ⚠️ It trades against the PREFILL tile, `TETRA48_TILE`, which since
+/// 2026-09-11 is not the decode tile: the product is what the shared memory
+/// bounds, and 4×128, 8×64 and 16×32 all stage the same 49,152 bytes. See
+/// [`Prefill`], which is what resolves the pair; this constant is the served
+/// row count and the default of that resolution.
 pub const PREFILL_ROWS: usize = 4;
+
+/// The tile the PREFILL kernel uses, paired with [`PREFILL_ROWS`].
+///
+/// Not [`TILE_BY_SM`] and not the served 128: a different kernel with a
+/// different trade. The decode tile trades the activation against the
+/// decoder's table in L1 on a kernel that reads one row; this one trades
+/// against ROWS on a kernel whose cost is how often it re-reads the weight
+/// stream.
+pub const PREFILL_TILE: usize = 128;
+
+/// The per-block shared-memory allowance a CUDA block gets without opting in.
+///
+/// The prefill kernel is loaded through `func`, with no opt-in, so this is the
+/// bound — not the 164 KB an `sm_89` SM can be asked for.
+pub const SHARED_DEFAULT: usize = 49_152;
 
 /// Bytes the batched kernel stages for `rows` activation rows at `blocks`.
 pub fn prefill_shared_bytes(rows: usize, blocks: usize) -> usize {
     rows * blocks * crate::occ::XS_DIM * 4
+}
+
+/// A resolved `(rows, tile)` pair for the prefill kernel, and where it came
+/// from.
+///
+/// ## Why a pair and not two constants
+///
+/// Because the card bounds their PRODUCT and nothing else. Reading them
+/// separately is how a run ends up staging 98,304 bytes against an allowance
+/// of 49,152 — a launch that fails at best and reads another block's staging
+/// at worst. [`Prefill::resolve`] is the only place either value is chosen,
+/// and it refuses a pair that does not fit before anything is compiled.
+///
+/// ## The measurement knob
+///
+/// `LLVQ_PREFILL` takes `rows:tile` — `8:64`, `16:32` — and is a MEASUREMENT
+/// mode, never a served config: it changes no bit of any answer (the kernel's
+/// FMA order is per row and the tiling only decides how much activation is
+/// staged at a time) and it changes how long a prompt takes. Unset, the served
+/// pair. The provenance is printed beside the bytes it decides, like the
+/// decode tile's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Prefill {
+    pub rows: usize,
+    pub tile: usize,
+    pub from_env: bool,
+}
+
+impl Prefill {
+    /// The served pair: what every unit compiles without `LLVQ_PREFILL`.
+    pub const SERVED: Self = Self { rows: PREFILL_ROWS, tile: PREFILL_TILE, from_env: false };
+
+    /// Resolve from `LLVQ_PREFILL`, refusing a pair that does not fit.
+    pub fn resolve() -> Result<Self, String> {
+        match std::env::var("LLVQ_PREFILL") {
+            Err(_) => Ok(Self::SERVED),
+            Ok(v) => Self::parse(&v),
+        }
+    }
+
+    pub fn parse(v: &str) -> Result<Self, String> {
+        let (r, t) = v.split_once(':').ok_or_else(|| {
+            format!("LLVQ_PREFILL={v:?}: expected `rows:tile`, e.g. `8:64` or `16:32`")
+        })?;
+        let rows: usize = r
+            .parse()
+            .map_err(|_| format!("LLVQ_PREFILL={v:?}: {r:?} is not a row count"))?;
+        let tile: usize = t
+            .parse()
+            .map_err(|_| format!("LLVQ_PREFILL={v:?}: {t:?} is not a tile"))?;
+        Self::of(rows, tile, true)
+    }
+
+    /// The one gate. Every refusal names the number that is wrong.
+    pub fn of(rows: usize, tile: usize, from_env: bool) -> Result<Self, String> {
+        if rows == 0 || rows > 64 {
+            return Err(format!(
+                "LLVQ_PREFILL rows={rows}: the kernel keeps one accumulator a row in \
+                 registers (`float acc[TETRA48_ROWS]`), so 1..=64 is the range a launch \
+                 can hold without spilling"
+            ));
+        }
+        if !(TILE_MIN..=TILE_MAX).contains(&tile) || !tile.is_power_of_two() {
+            return Err(format!(
+                "LLVQ_PREFILL tile={tile}: a power of two in {TILE_MIN}..={TILE_MAX}, as \
+                 for the decode tile — the staging loop strides by it"
+            ));
+        }
+        let b = prefill_shared_bytes(rows, tile);
+        if b > SHARED_DEFAULT {
+            return Err(format!(
+                "LLVQ_PREFILL {rows}:{tile} stages {b} B and a block is given \
+                 {SHARED_DEFAULT} B without opting in. The PRODUCT is the bound: \
+                 {}:{} fits, and so does {}:{}",
+                rows,
+                SHARED_DEFAULT / (rows * crate::occ::XS_DIM * 4),
+                SHARED_DEFAULT / (tile * crate::occ::XS_DIM * 4),
+                tile
+            ));
+        }
+        Ok(Self { rows, tile, from_env })
+    }
+
+    pub fn shared_bytes(&self) -> usize {
+        prefill_shared_bytes(self.rows, self.tile)
+    }
+
+    /// The two `#define`s the host injects, in the order the kernel reads them.
+    pub fn defines(&self) -> String {
+        format!(
+            "#define TETRA48_ROWS {}u\n#define TETRA48_TILE {}u\n",
+            self.rows, self.tile
+        )
+    }
+
+    pub fn provenance(&self) -> String {
+        let src = match self.from_env {
+            true => "LLVQ_PREFILL",
+            false => "served pair",
+        };
+        format!(
+            "prefill {}x{} ({src}), {} B staged of {SHARED_DEFAULT}",
+            self.rows,
+            self.tile,
+            self.shared_bytes()
+        )
+    }
 }
 
 /// Measured optima, one row per architecture: `(sm, blocks, journal)`.
@@ -306,6 +428,90 @@ pub fn resolve(compute_cap: (i32, i32)) -> Tile {
 
 #[cfg(test)]
 mod tests {
+    /// The three pairs that stage the same byte, and the one that does not.
+    ///
+    /// This is the whole point of splitting the prefill tile from the decode
+    /// tile: the allowance bounds the PRODUCT, so rows can be quadrupled by
+    /// quartering the tile at no cost in shared memory — and four times fewer
+    /// passes over the weight stream is the whole cost of a prefill.
+    #[test]
+    fn the_allowance_bounds_the_product_and_not_either_factor() {
+        for (rows, tile) in [(4, 128), (8, 64), (16, 32)] {
+            let p = Prefill::of(rows, tile, true).expect("{rows}:{tile} must fit");
+            assert_eq!(p.shared_bytes(), SHARED_DEFAULT, "{rows}x{tile}");
+        }
+        // The served pair is one of them, and it is the first.
+        assert_eq!(Prefill::SERVED.rows, 4);
+        assert_eq!(Prefill::SERVED.tile, 128);
+        assert_eq!(Prefill::SERVED.shared_bytes(), SHARED_DEFAULT);
+        // The served pair and the same pair asked for by name are equal in
+        // every field but their provenance, and the provenance is what a
+        // journal reads to know whether a number came from a measurement mode.
+        let asked = Prefill::of(4, 128, true).expect("the served pair, by name");
+        assert_ne!(asked, Prefill::SERVED, "the provenance must distinguish them");
+        assert_eq!((asked.rows, asked.tile), (Prefill::SERVED.rows, Prefill::SERVED.tile));
+        assert!(Prefill::SERVED.provenance().contains("served pair"));
+        assert!(asked.provenance().contains("LLVQ_PREFILL"));
+
+        // 🚨 Doubling the rows WITHOUT halving the tile overruns, and is
+        // refused by name rather than launched. A kernel that staged 98,304 B
+        // against a 49,152 B allowance reads another block's staging.
+        let e = Prefill::of(8, 128, true).expect_err("8x128 stages twice the allowance");
+        assert!(e.contains("98304"), "the refusal must name the bytes: {e}");
+        assert!(e.contains("49152"), "and the allowance: {e}");
+    }
+
+    /// `LLVQ_PREFILL` takes `rows:tile` and refuses everything else by name.
+    #[test]
+    fn the_prefill_knob_parses_a_pair_and_refuses_the_rest() {
+        assert_eq!(Prefill::parse("8:64").expect("a pair"), Prefill { rows: 8, tile: 64, from_env: true });
+        assert_eq!(Prefill::parse("16:32").expect("a pair").shared_bytes(), SHARED_DEFAULT);
+        for bad in ["8", "8x64", "8:64:2", "0:128", "4:100", "4:16", "eight:64", ""] {
+            let e = Prefill::parse(bad).unwrap_err();
+            assert!(e.contains("LLVQ_PREFILL"), "{bad:?}: {e}");
+        }
+        // A tile below the decode tile's own floor is refused for the same
+        // reason it is there: the staging loop strides by it.
+        assert!(Prefill::parse(&format!("4:{}", TILE_MIN)).is_ok());
+        assert!(Prefill::parse(&format!("4:{}", TILE_MIN / 2)).is_err());
+    }
+
+    /// The defines are the two the kernel guards, in the order it reads them.
+    ///
+    /// Byte-checked rather than described: `fused_cuda` concatenates this
+    /// string into the text NVRTC compiles and prints its sha256, so a space
+    /// here is a different translation unit in every journal.
+    #[test]
+    fn the_defines_are_what_the_kernel_guards() {
+        assert_eq!(
+            Prefill::SERVED.defines(),
+            "#define TETRA48_ROWS 4u\n#define TETRA48_TILE 128u\n"
+        );
+        assert_eq!(
+            Prefill::of(16, 32, true).expect("fits").defines(),
+            "#define TETRA48_ROWS 16u\n#define TETRA48_TILE 32u\n"
+        );
+        let src = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../llvq-llm/kernels/tv_tetra48_h.cu"),
+        )
+        .expect("the kernel source ships beside this crate");
+        for name in ["TETRA48_ROWS", "TETRA48_TILE"] {
+            assert!(
+                src.contains(&format!("#ifndef {name}")),
+                "the kernel must guard {name}, or an injected define is a redefinition"
+            );
+        }
+        // And the rows kernel must not read the DECODE tile any more: that is
+        // the coupling this lot removed, and a single `TILE_BLOCKS` left in its
+        // body would silently restore it.
+        let rows_kernel = &src[src.find("void tv_tetra48_rows_h").expect("the rows entry point")..];
+        assert!(
+            !rows_kernel.contains("TILE_BLOCKS"),
+            "the rows kernel reads TILE_BLOCKS again: rows and the decode tile are coupled"
+        );
+    }
+
     use super::*;
 
     const L40S: (i32, i32) = (8, 9);
