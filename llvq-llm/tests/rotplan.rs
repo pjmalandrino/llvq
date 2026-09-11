@@ -25,7 +25,8 @@ use llvq_core::{SplitMix64, DIM};
 use llvq_llm::fused::{
     planes_source_names, FusedLayout, FusedMatrix, HostStream, RotKey, Transcoder,
 };
-use llvq_llm::model::Act;
+use llvq_llm::model::{row_cap, Act, MAX_PREFILL_ROWS, MAX_ROWS};
+use llvq_cuda::tile::PREFILL_ROWS;
 use llvq_llm::rotplan::{
     act_of_suffix, check_key, check_rotation_partition, drive_rows, matvec_launches_per_token,
     rot_launches_per_token,
@@ -548,6 +549,41 @@ fn the_matvec_counter_counts_the_int4_projections() {
 
     // A pure-lattice file is unchanged: the term is a count, not a rescaling.
     assert_eq!(matvec_launches_per_token(&all, &[], 0), 252);
+}
+
+/// **T11.** The two row budgets are two budgets, and the prefill one admits
+/// the whole MMLU census.
+///
+/// The longest 5-shot MMLU prompt under the Qwen3 tokenizer is 3,096 tokens
+/// (`high_school_european_history`, measured 2026-09-11 from the cached
+/// `cais/mmlu` parquet). Until that day the prefill bound was `MAX_ROWS *
+/// batch` = 1,024, which refused 239 of the 2,280 questions every published
+/// bar is measured on — five subjects entirely.
+///
+/// Two statements here, and a check of one passes on a change that breaks the
+/// other:
+///
+///  * the batched path admits the longest prompt in the split. This is also
+///    what kills a collapse back to `MAX_ROWS * batch`: 256 x 4 is 1,024, and
+///    1,024 < 3,096;
+///  * the per-row paths did NOT move. `MAX_ROWS` also bounds the segmented
+///    kernel, served under `Planes14`, and the whole point of splitting the
+///    constants was that raising one must not raise that.
+#[test]
+fn the_prefill_budget_admits_the_census_and_leaves_the_other_alone() {
+    // The longest 5-shot prompt in the MMLU test split, in tokens.
+    const LONGEST_MMLU_PROMPT: usize = 3096;
+
+    assert!(
+        row_cap(PREFILL_ROWS) >= LONGEST_MMLU_PROMPT,
+        "a census question of {LONGEST_MMLU_PROMPT} tokens would be refused at {}",
+        row_cap(PREFILL_ROWS)
+    );
+    assert_eq!(row_cap(PREFILL_ROWS), MAX_PREFILL_ROWS);
+
+    // One launch a row is still bounded by the launch budget, unmoved.
+    assert_eq!(row_cap(1), MAX_ROWS);
+    assert_eq!(MAX_ROWS, 256, "the segmented kernel's bound must not drift here");
 }
 
 /// **T9.** The hoist is not gated on the runtime layout.

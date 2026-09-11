@@ -512,13 +512,60 @@ impl Rotated {
 /// survives because a 2048-token scoring window would issue half a million
 /// launches and look like a hang; `bin/ppl` keeps the dense path.
 pub const MAX_ROWS: usize = 256;
-// ⚠️ Read it as a LAUNCH budget, not a row budget: `group_forward` admits
-// `MAX_ROWS · batch` rows, because a chunk of `batch` rows costs one launch.
-// At the served `PREFILL_ROWS = 4` that is 1,024 rows — which is what lets a
-// 5-shot MMLU question, several hundred tokens, go through the kernel instead
-// of a dense reconstruction. The dense reconstruction is what the census used
-// to run on, and MMLU picks its answer from four logits that can sit within an
-// f16 ulp of each other, so "the tokens match" did not carry.
+// ⚠️ Read it as a LAUNCH budget, not a row budget, and read it as the budget
+// of the paths that spend ONE launch a row: the segmented kernel, and every
+// layout that carries no rows kernel. A decode step never approaches it — a
+// decode step is one row.
+//
+// The batched prefill path has its own budget, [`MAX_PREFILL_ROWS`], because
+// it bounds a different quantity. Until 2026-09-11 it did not: the cap read
+// `MAX_ROWS · batch`, so raising one raised the other, and a served layout's
+// segmented path would have moved for a reason that has nothing to do with it.
+
+/// Most rows the batched prefill path may take in one call.
+///
+/// ## Why it is not [`MAX_ROWS`] times the batch
+///
+/// It was, and the arithmetic was right: a chunk of `batch` rows spends one
+/// launch, so the same launch budget admits `batch` times the rows. What was
+/// wrong is that it tied two paths together. `MAX_ROWS` also bounds the
+/// segmented kernel, which is served under `Planes14` and takes one launch a
+/// row; moving the prefill bound would have moved that one too, four-fold,
+/// with no measurement behind it.
+///
+/// ## Where 4,096 comes from
+///
+/// From the census, not from a round number. The longest 5-shot MMLU prompt
+/// under the Qwen3 tokenizer is **3,096 tokens** — `high_school_european_history`,
+/// whose subject mean is 2,796 (*measured* 2026-09-11 from the cached
+/// `cais/mmlu` parquet, `docs/mesures/f1e0-2026-09-10.txt`). The previous
+/// bound of 1,024 refused **239 of the 2,280** questions every published bar
+/// is measured on — five subjects entirely, `professional_law` and four
+/// histories. 4,096 admits the whole split and leaves a third of itself spare.
+///
+/// ## What it costs to be wrong high
+///
+/// The original cap existed because "a 2048-token scoring window would issue
+/// half a million launches and look like a hang". That reason survives, and
+/// now it has a number instead of a guess: at the *measured* 5.507 ms a
+/// prompt token, 4,096 rows is 23 s of prefill. Slow, bounded, and not a
+/// hang. `bin/ppl` still keeps the dense path for its 4,096-token window.
+pub const MAX_PREFILL_ROWS: usize = 4096;
+
+/// Which of the two budgets a chunk of `batch` rows answers to.
+///
+/// Two budgets because two shapes of work, and a function rather than an
+/// expression inline because this is the line that decides whether a census
+/// question is scored or refused — the kind of line that has to be reachable
+/// from a test on a machine with no card.
+pub fn row_cap(batch: usize) -> usize {
+    match batch > 1 {
+        // One launch a chunk: bounded by the longest prompt the census holds.
+        true => MAX_PREFILL_ROWS,
+        // One launch a row: the budget that has always been a launch budget.
+        false => MAX_ROWS,
+    }
+}
 
 impl Proj {
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
@@ -888,18 +935,14 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
         true => llvq_cuda_prefill_rows(),
         false => 1,
     };
-    // The cap is on LAUNCHES, and `MAX_ROWS` was that budget when a launch
-    // carried one row. A chunk of `batch` rows spends one launch, so the same
-    // budget admits `batch` times the rows — the constant did not move, the
-    // number of rows one launch answers for did.
-    let cap = MAX_ROWS * batch;
+    let cap = row_cap(batch);
     if rows > cap {
         candle_core::bail!(
-            "{}: {rows} vectors at once, more than {cap} ({MAX_ROWS} launches a \
-             projection at {batch} rows a launch). Past that the loop issues more \
-             launches than it does arithmetic; `bin/ppl`'s 4096-token window keeps \
-             the dense path.",
-            projs[0].site_name()
+            "{}: {rows} vectors at once, more than {cap} (at {batch} rows a launch, \
+             {} launches a projection). Past that the loop issues more launches than \
+             it does arithmetic; `bin/ppl`'s 4096-token window keeps the dense path.",
+            projs[0].site_name(),
+            rows.div_ceil(batch)
         );
     }
     let slices = row_views(x)?;
