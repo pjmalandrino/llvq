@@ -173,6 +173,10 @@ fn main() -> anyhow::Result<()> {
         // A/B (the `check_fuse` rule), and each arm line prints it below so a
         // wiring miss shows as `cat` instead of silently measuring it.
         let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Resolved here, beside `kv_store`, and for the same reason: one read
+        // of the outside world, at the top, so no path below can pick up a
+        // different answer. `None` is the bench; `Some` is the runner.
+        let served = llvq_llm::served::Served::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
         // Whether to run the extra fenced pass after each arm's published
@@ -353,6 +357,75 @@ fn main() -> anyhow::Result<()> {
                     argmax(&stepwise)
                 );
             }
+            return Ok(());
+        }
+
+        // ---- LLVQ_CONFIG: the served path, and nothing beside it ----------
+        //
+        // The runner, as opposed to the bench. Everything below this block
+        // exists to compare arms: two `LLVQ_FUSE` modes, and a DENSE arm that
+        // loads 8.04 GB of f16 weights so the fused tokens have something to
+        // be identical to. That is the right shape for a measurement and the
+        // wrong shape for serving — an object that fits in 1.39 GB should not
+        // need six times itself on the card to start.
+        //
+        // So: with a served config, one arm, no dense reference, no ratio.
+        // Without one, this binary is byte for byte the bench it has always
+        // been, and every number in `docs/mesures/` keeps the protocol that
+        // produced it.
+        //
+        // The correctness of this path is not asserted here and it would be
+        // dishonest to imply it: it is asserted by the bench, on the same
+        // file, where a dense arm exists to disagree.
+        if let Some(cfg) = &served {
+            println!("{}", cfg.provenance());
+            let t = Instant::now();
+            let f = llvq_llm::fused_cuda::load_resolved(
+                &path,
+                &device,
+                dtype,
+                cfg.layout,
+                cfg.embed,
+                cfg.rot_share,
+                cfg.fuse,
+                cfg.kv,
+            )?;
+            let load_s = t.elapsed().as_secs_f64();
+            let ids = f
+                .tokenizer
+                .encode(PROMPT, false)
+                .map_err(|e| anyhow::anyhow!("{e}"))?
+                .get_ids()
+                .to_vec();
+            f.model.generate(&ids, n_new, &mut NoCapture)?;
+            let mut rounds = Vec::with_capacity(ROUNDS_TIMED);
+            let mut tokens: Vec<u32> = Vec::new();
+            for round in 0..ROUNDS_TIMED {
+                let t = Instant::now();
+                let out = f.model.generate(&ids, n_new, &mut NoCapture)?;
+                rounds.push(n_new as f64 / t.elapsed().as_secs_f64());
+                match round {
+                    0 => tokens = out,
+                    _ if out != tokens => println!(
+                        "  WARNING: the round {round} tokens differ from round 0. \
+                         Nondeterministic decode, to investigate before publishing"
+                    ),
+                    _ => {}
+                }
+            }
+            let (rate, lo, hi) = rate_stats(&rounds);
+            let bytes = f.runtime_bytes + f.carried_bytes;
+            println!(
+                "served : loaded in {load_s:6.1} s, {rate:6.1} tok/s [{lo:.1}–{hi:.1}, \
+                 {ROUNDS_TIMED} rounds], {:.2} GB on the card",
+                bytes as f64 / 1e9
+            );
+            println!("  {}", f.tokenizer.decode(&tokens, true).unwrap_or_default());
+            println!(
+                "\n  No dense arm on this path, so no ratio and no token comparison. \
+                 Both are the bench's\n  business: unset LLVQ_CONFIG and it runs, on \
+                 this same file."
+            );
             return Ok(());
         }
 

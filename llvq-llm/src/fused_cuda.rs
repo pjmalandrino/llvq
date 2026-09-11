@@ -2508,6 +2508,38 @@ pub fn load_with(
     dtype: DType,
     fuse: FuseMode,
 ) -> candle_core::Result<FusedSealed> {
+    // The layout, the embedding mode and the hoist come from the environment
+    // here — this is the measurement door, and every A/B in `docs/mesures/`
+    // turns one of those variables between two processes.
+    let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
+    let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
+    let share = crate::rotplan::RotShare::from_env().map_err(candle_core::Error::msg)?;
+    // 🕳️ **F16 here by ALIGNMENT, not by default.** `bin/fusedrun` loads its
+    // dense arm with `KvMode::F16` hardcoded (`fusedrun.rs:173`): its question
+    // is the fused kernel, not the cache. The fused arm must take the same
+    // one, or the comparison gains a second variable — which is what this
+    // workstream spends its time forbidding. The served door takes the value
+    // its config names, and answers a different question.
+    load_resolved(path, device, dtype, layout, emode, share, fuse, crate::kvq::KvMode::F16)
+}
+
+/// [`load_with`] with the four choices already decided.
+///
+/// The served door. `crate::served::Served` reads them from a file and hands
+/// them over, so nothing between that file and the transcoder consults the
+/// environment — which is what makes the file the authority rather than a
+/// suggestion that an unset variable could quietly outvote.
+#[allow(clippy::too_many_arguments)]
+pub fn load_resolved(
+    path: &str,
+    device: &Device,
+    dtype: DType,
+    layout: FusedLayout,
+    emode: EmbedMode,
+    share: crate::rotplan::RotShare,
+    fuse: FuseMode,
+    kv: crate::kvq::KvMode,
+) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
 
     if dtype != DType::F16 {
@@ -2519,12 +2551,10 @@ pub fn load_with(
         );
     }
 
-    // The layout and the embedding mode are resolved once, before any
-    // transcoding, and printed next to the device bytes they decide — an A/B
-    // where the arm has to be inferred from a byte count is not an A/B.
-    let layout = FusedLayout::from_env().map_err(candle_core::Error::msg)?;
-    let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
-    let share = crate::rotplan::RotShare::from_env().map_err(candle_core::Error::msg)?;
+    // The layout and the embedding mode arrive resolved and are printed next
+    // to the device bytes they decide — an A/B where the arm has to be
+    // inferred from a byte count is not an A/B.
+    //
     // Both refusals before the 145 s transcode, not after it: a job that pays
     // for a load and then discovers its two variables are incompatible has
     // spent the money for nothing.
@@ -2733,20 +2763,17 @@ pub fn load_with(
             );
         }
     }
-    // 🕳️ **The KV cache is F16 here, and it is F16 by ALIGNMENT, not by default.**
-    // `bin/fusedrun` loads its dense arm with `KvMode::F16` hardcoded
-    // (`fusedrun.rs:173`): its question is the fused kernel, not the cache. The
-    // fused arm must therefore take the same one, or the comparison would gain
-    // a second variable, which is exactly what this workstream spends its time
-    // forbidding.
+    // The KV mode arrives as an argument. `load_with` pins it to F16 for the
+    // alignment its own comment gives; the served door passes what its config
+    // names. Either way it is decided above this line, not here.
     //
     // 🚨 These two calls stopped compiling when `KvMode` arrived (KV q8,
     // 2026-08-15): this file is under `cfg(cuda)`, so NO development machine
     // type-checks it, and the breakage only surfaced at the first image build,
     // 255 s of CI, on 2026-08-16. `--features cuda` is not covered by
     // `cargo clippy --all-targets` on a Mac, and it is the same class of blind
-    // spot as the `planesbench` wiring of the same day.
-    let kv = crate::kvq::KvMode::F16;
+    // spot as the `planesbench` wiring of the same day. `ops/check-cuda.sh`
+    // closes it in a third of a second.
     let mut qwen = match &quant_embed {
         None => crate::model::Qwen3::new_with(&config, vb, &mut take, kv)?,
         Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(

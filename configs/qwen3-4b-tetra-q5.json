@@ -1,0 +1,8 @@
+{
+  "layout": "tetra48",
+  "embed": "q8",
+  "rot_share": "1",
+  "fuse": "0",
+  "kv": "f16",
+  "note": "Qwen3-4B, Tetra + 36 v_proj int4 g128, arbitrated 2026-09-08. fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined."
+}

@@ -513,7 +513,64 @@ fn main() -> anyhow::Result<()> {
     // Resolved once, like `kv_mode`: the restoration travels by value into the
     // loader, and an unknown name is an error rather than a fallback.
     let restore = llvq_llm::sealed::RestoreF16::from_env().map_err(anyhow::Error::msg)?;
-    let (model, tok, label, restore_note) = if llvq_llm::sealed::is_sealed_path(&model_arg) {
+    // ---- the served arm: the kernel, not a reconstruction of it ----
+    //
+    // 🕳️ Until 2026-09-11 this binary had TWO arms and neither was the served
+    // object. `sealed::load_with_restored` rebuilds every projection into a
+    // dense f16 tensor and multiplies with candle; the fused kernel it exists
+    // to score never ran. That is not a detail here: MMLU picks its answer
+    // from four logits that can sit within an f16 ulp of each other, so
+    // "the tokens match" — which is what `bin/fusedrun` proves — does not
+    // carry to "the score is the same".
+    //
+    // The arm is entered only by `LLVQ_CONFIG` naming a served config, and
+    // never by inference from the file: every published bar in this
+    // repository was measured on the dense arm, and a binary that silently
+    // switched would make the next one incomparable to all of them while
+    // looking like a bug fix.
+    let served = llvq_llm::served::Served::from_env().map_err(anyhow::Error::msg)?;
+    let (model, tok, label, restore_note) = if let Some(cfg) = &served {
+        anyhow::ensure!(
+            llvq_llm::sealed::is_sealed_path(&model_arg),
+            "LLVQ_CONFIG names a served config, but {model_arg} is not a sealed file.              The served path reads a .llvq; a checkpoint has nothing to transcode."
+        );
+        anyhow::ensure!(
+            restore.is_empty(),
+            "LLVQ_RESTORE_F16={} beside LLVQ_CONFIG: a restoration takes matrices out              of the served object, so the two together would score neither.",
+            restore.describe()
+        );
+        eprintln!("{}", cfg.provenance());
+        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        {
+            let f = llvq_llm::fused_cuda::load_resolved(
+                &model_arg,
+                &device,
+                dtype,
+                cfg.layout,
+                cfg.embed,
+                cfg.rot_share,
+                cfg.fuse,
+                // The KV mode rides the config too, so one file decides every
+                // choice and `LLVQ_KV` cannot move half of them.
+                cfg.kv,
+            )?;
+            (
+                f.model,
+                f.tokenizer,
+                format!("{model_arg} [LLVQ 2-bit, SERVED KERNEL, {}]", cfg.layout.name()),
+                None,
+            )
+        }
+        #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+        {
+            anyhow::bail!(
+                "LLVQ_CONFIG={} asks for the served kernel, which needs Linux, an \
+                 NVIDIA card and --features cuda. Unset it to score the dense \
+                 reconstruction instead — and say which one produced the number.",
+                cfg.path.display()
+            )
+        }
+    } else if llvq_llm::sealed::is_sealed_path(&model_arg) {
         // A restoration reads the checkpoint the file was sealed from, named by
         // `LLVQ_MODEL` as for `bin/seal` — required here, because its default
         // elsewhere is Qwen3-0.6B and a 4B file would only find out at the

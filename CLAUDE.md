@@ -99,7 +99,8 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 
 | variable | values | effect |
 |---|---|---|
-| `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70` | VRAM layout of the fused kernel; any other value is refused |
+| `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. There is no built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted |
+| `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value is refused |
 | `LLVQ_EMBED` | `f16` (default), `q8` | embedding quantized at load; `q8` is the served config |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
 | `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` |
