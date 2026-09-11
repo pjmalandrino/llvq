@@ -313,8 +313,11 @@ fn main() -> anyhow::Result<()> {
             }
             println!(
                 "  (the kernel issues ceil({n}/{}) launches a projection a question; the dense\n  \
-                 path issues ONE, and does the 2,280 in 26 min)",
-                llvq_cuda::tile::PREFILL_ROWS
+                 path issues ONE and does the 2,280 in 4 min 22 s — *measured*, job 6aa414dd)",
+                // What this unit COMPILED at, not the served constant: under
+                // `LLVQ_PREFILL` they differ, and the whole point of the line
+                // is to say how many launches THIS run issues.
+                f.prefill.rows
             );
 
             // ---- THE GATE, and this mode had none --------------------------

@@ -476,6 +476,38 @@ mod tests {
         assert!(Prefill::parse(&format!("4:{}", TILE_MIN / 2)).is_err());
     }
 
+    /// 🕳️ No SERVED CONSTANT may bound a launch, anywhere in the host.
+    ///
+    /// The first card sweep of `LLVQ_PREFILL` (2026-09-11, $0.06) compiled a
+    /// unit at eight rows, chunked at eight, and then refused the launch:
+    /// `8 rows for a kernel compiled at 4`. `launch_tetra48_rows_h` asserted
+    /// against `PREFILL_ROWS` — the served constant vetoing a measurement of
+    /// itself — and `bin/fusedrun` printed `ceil(N/4)` for a run that issued
+    /// `ceil(N/8)`. Both read the constant where they had to read the pair the
+    /// unit was COMPILED at.
+    ///
+    /// This pins the rule textually, because the type system cannot: a bound
+    /// or a launch-count report that names `tile::PREFILL_ROWS` is wrong by
+    /// construction, and only a comment may mention it.
+    #[test]
+    fn no_launch_in_the_host_is_bounded_by_the_served_constant() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        for rel in ["llvq-llm/src/fused_cuda.rs", "llvq-llm/src/model.rs", "llvq-llm/src/bin/fusedrun.rs"] {
+            let src = std::fs::read_to_string(root.join(rel)).expect("{rel} reads");
+            for (i, line) in src.lines().enumerate() {
+                let code = line.split("//").next().unwrap_or("");
+                assert!(
+                    !code.contains("PREFILL_ROWS") || code.contains("MAX_PREFILL_ROWS"),
+                    "{rel}:{}: `{}` reads the served constant in CODE. The prefill row \
+                     count of a launch is `FusedRuntime::prefill` — what the unit was \
+                     compiled at — and the two differ under LLVQ_PREFILL.",
+                    i + 1,
+                    line.trim()
+                );
+            }
+        }
+    }
+
     /// The defines are the two the kernel guards, in the order it reads them.
     ///
     /// Byte-checked rather than described: `fused_cuda` concatenates this

@@ -295,7 +295,7 @@ pub struct FusedRuntime {
     /// The `(rows, tile)` the prefill kernel was COMPILED at. The launch bound
     /// and the `#define`s come from this one value, so a runtime that staged
     /// one pair and launched another cannot exist.
-    prefill: llvq_cuda::tile::Prefill,
+    pub prefill: llvq_cuda::tile::Prefill,
     /// `tv_tetra48_rows_h` — present exactly when the layout carries a prefill
     /// kernel. The decode path never reaches it: at one row the one-row kernel
     /// is what runs, and every decode-time number stays attached to it.
@@ -1679,6 +1679,9 @@ impl candle_core::CustomOp1 for FusedRowsOp<'_> {
             self.proj.d_out as u32,
             THREADS,
             self.rt.prefill_shared,
+            // The same `Prefill` that produced the `#define` and the shared
+            // bytes above. One value, three uses, no way for them to disagree.
+            self.rt.prefill_rows(),
         )
         .map_err(candle_core::Error::msg)?;
         Ok((
@@ -2064,12 +2067,24 @@ fn launch_tetra48_rows_h(
     d_out: u32,
     threads: u32,
     shared: u32,
+    // Rows the unit was COMPILED at — `FusedRuntime::prefill_rows`, never
+    // `tile::PREFILL_ROWS`.
+    rows: usize,
 ) -> Result<(), String> {
     assert_eq!(d_out % (threads / 32), 0, "rows must fill whole blocks");
+    // 🕳️ This asserted against `tile::PREFILL_ROWS`, the SERVED constant, on a
+    // launcher whose kernel is compiled at whatever the runtime resolved.
+    // Under `LLVQ_PREFILL=8:64` the unit compiled at eight rows, the model
+    // chunked at eight, and this line refused eight "for a kernel compiled at
+    // 4" — a served constant vetoing a measurement of itself. Found on the
+    // first card sweep, 2026-09-11, $0.06.
+    //
+    // `rows` is now the pair the CALLER compiled, so the two cannot disagree:
+    // there is one row count in this launch, and it came from the same
+    // `Prefill` as the `#define` and the `shared` below.
     assert!(
-        n_rows as usize <= llvq_cuda::tile::PREFILL_ROWS,
-        "{n_rows} rows for a kernel compiled at {}",
-        llvq_cuda::tile::PREFILL_ROWS
+        n_rows > 0 && n_rows as usize <= rows,
+        "{n_rows} rows for a kernel compiled at {rows}"
     );
     let cfg = LaunchConfig {
         grid_dim: (d_out * 32 / threads, 1, 1),
@@ -2474,6 +2489,10 @@ pub struct FusedSealed {
     pub config: candle_transformers::models::qwen3::Config,
     /// The runtime layout the projections were transcoded to.
     pub layout: FusedLayout,
+    /// The `(rows, tile)` the PREFILL kernel was compiled at. Carried out of
+    /// the runtime because a binary that prints "ceil(N/4) launches" while its
+    /// unit was compiled at eight is describing a run that did not happen.
+    pub prefill: llvq_cuda::tile::Prefill,
     /// How the embedding and tied `lm_head` sit on the device.
     pub embed_mode: EmbedMode,
     /// Whether a shared activation is rotated once per group (`LLVQ_ROT_SHARE`).
@@ -2841,6 +2860,8 @@ pub fn load_resolved(
         tokenizer,
         config,
         layout,
+        // From the runtime that compiled it, not from a second resolution.
+        prefill: rt.prefill,
         embed_mode: emode,
         rot_share: share,
         rot_launches,
