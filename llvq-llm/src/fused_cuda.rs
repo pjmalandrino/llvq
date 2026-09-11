@@ -414,11 +414,15 @@ impl FusedRuntime {
         // formality: without this line, a run with `LLVQ_KERNEL_DIR` set is
         // traceable by a directory name and nothing else.
         println!(
-            "NVRTC source: {} bytes, sha256 {} ({} parts), {}",
+            "NVRTC source: {} bytes, sha256 {} ({} parts), {}, target {}",
             src.text.len(),
             src.sha256,
             parts.len(),
-            tile.provenance()
+            tile.provenance(),
+            // `LLVQ_NVRTC_ARCH` is the one variable below the served door that
+            // the config deliberately does not refuse — it names the card, not
+            // the object — so it is printed here, where a journal copies from.
+            llvq_cuda::gpu::arch()
         );
         let cuda = llvq_cuda::gpu::Cuda::on_stream(stream, &src).map_err(candle_core::Error::msg)?;
 
@@ -576,7 +580,7 @@ impl FusedRuntime {
         // pair that would stop fitting.
         if crate::fused::rows_kernel_name(model.layout).is_some() && prefill_shared > shared_limit {
             candle_core::bail!(
-                "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \\
+                "the prefill kernel stages {prefill_shared} B ({} rows at tile {}), \
                  and the card allows {shared_limit}",
                 llvq_cuda::tile::PREFILL_ROWS,
                 tile.blocks
@@ -2493,11 +2497,6 @@ pub struct FusedSealed {
 /// arm narrows the same columns to the run's dtype. At F32 that argument is
 /// false and the tail would be the one place the fused path is coarser than
 /// its reference. Refusing beats carrying a silently weaker claim.
-pub fn load(path: &str, device: &Device, dtype: DType) -> candle_core::Result<FusedSealed> {
-    let fuse = crate::fused::FuseMode::from_env().map_err(candle_core::Error::msg)?;
-    load_with(path, device, dtype, fuse)
-}
-
 /// [`load`] with the fusion mode named by the caller rather than read from the
 /// environment — what lets `bin/fusedrun` run both arms in one process, each
 /// dropped before the next loads, so the card holds one arm at a time and the
@@ -2515,12 +2514,12 @@ pub fn load_with(
     let emode = EmbedMode::from_env().map_err(candle_core::Error::msg)?;
     let share = crate::rotplan::RotShare::from_env().map_err(candle_core::Error::msg)?;
     // 🕳️ **F16 here by ALIGNMENT, not by default.** `bin/fusedrun` loads its
-    // dense arm with `KvMode::F16` hardcoded (`fusedrun.rs:173`): its question
+    // dense arm with `KvMode::F16` hardcoded (the dense arm of `bin/fusedrun`): its question
     // is the fused kernel, not the cache. The fused arm must take the same
     // one, or the comparison gains a second variable — which is what this
     // workstream spends its time forbidding. The served door takes the value
     // its config names, and answers a different question.
-    load_resolved(path, device, dtype, layout, emode, share, fuse, crate::kvq::KvMode::F16)
+    load_resolved(path, device, dtype, layout, emode, share, fuse, crate::kvq::KvMode::F16, None)
 }
 
 /// [`load_with`] with the four choices already decided.
@@ -2539,8 +2538,15 @@ pub fn load_resolved(
     share: crate::rotplan::RotShare,
     fuse: FuseMode,
     kv: crate::kvq::KvMode,
+    // `Some("LLVQ_CONFIG")` from the served door, `None` from `load_with`. The
+    // three choice lines below print it in place of the variable names, so a
+    // served log does not attribute its choices to variables nobody set —
+    // which is the ambiguity `crate::served` was written against. In bench
+    // mode the variable names stay: they tell an A/B reader which one flipped.
+    source: Option<&str>,
 ) -> candle_core::Result<FusedSealed> {
     use std::sync::Arc;
+    let from = |var: &str| source.unwrap_or(var).to_string();
 
     if dtype != DType::F16 {
         candle_core::bail!(
@@ -2576,14 +2582,16 @@ pub fn load_resolved(
         + model.groups.iter().map(|g| g.parts.len()).sum::<usize>()
         + model.int4.len();
     println!(
-        "shared rotation: {} (LLVQ_ROT_SHARE), {rot_launches} rot_launches/token \
+        "shared rotation: {} ({}), {rot_launches} rot_launches/token \
          for {projections} projections",
-        share.name()
+        share.name(),
+        from("LLVQ_ROT_SHARE")
     );
     println!(
-        "projection fusion: {} (LLVQ_FUSE), {matvec_launches} matvec_launches/token \
+        "projection fusion: {} ({}), {matvec_launches} matvec_launches/token \
          for {projections} projections ({} groups + {} lone + {} int4)",
         fuse.name(),
+        from("LLVQ_FUSE"),
         model.groups.len(),
         model.matrices.len(),
         model.int4.len()
@@ -2594,10 +2602,11 @@ pub fn load_resolved(
     // 4B. A reader comparing 4.729 to a published 4.804 must be able to see
     // from the log itself that they are two residencies, not a regression.
     println!(
-        "fused layout: {} (LLVQ_FUSED_LAYOUT), projections {:.2} GB on the card, \
+        "fused layout: {} ({}), projections {:.2} GB on the card, \
          {:.3} b/weight (INFERENCE accounting: KeepExact tail in binary16; \
          the bench bills its own in f32)",
         layout.name(),
+        from("LLVQ_FUSED_LAYOUT"),
         model.runtime_bytes as f64 / 1e9,
         model.runtime_bits_per_weight()
     );

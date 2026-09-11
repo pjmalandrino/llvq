@@ -658,8 +658,8 @@ impl Proj {
 
     /// [`Self::prepare`] for a whole chunk of rows, one launch.
     ///
-    /// `xs` is `[len, d_in]` and **contiguous** — `row_chunk` narrows it out
-    /// of the one allocation `row_views` reshapes, so the rows are already
+    /// `xs` is `[len, d_in]` and **contiguous** — `group_forward` narrows it out
+    /// of the one allocation `row_block` reshapes, so the rows are already
     /// `d_in` apart and nothing is copied to make them so.
     ///
     /// ## A chunk of one is [`Self::prepare`], verbatim

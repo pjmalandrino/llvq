@@ -532,14 +532,20 @@ fn main() -> anyhow::Result<()> {
     let (model, tok, label, restore_note) = if let Some(cfg) = &served {
         anyhow::ensure!(
             llvq_llm::sealed::is_sealed_path(&model_arg),
-            "LLVQ_CONFIG names a served config, but {model_arg} is not a sealed file.              The served path reads a .llvq; a checkpoint has nothing to transcode."
+            "LLVQ_CONFIG names a served config, but {model_arg} is not a sealed file. \
+             The served path reads a .llvq; a checkpoint has nothing to transcode."
         );
         anyhow::ensure!(
             restore.is_empty(),
-            "LLVQ_RESTORE_F16={} beside LLVQ_CONFIG: a restoration takes matrices out              of the served object, so the two together would score neither.",
+            "{}={} beside LLVQ_CONFIG: a restoration takes matrices out \
+             of the served object, so the two together would score neither.",
+            match restore.prec() {
+                llvq_llm::sealed::RestorePrec::F16 => "LLVQ_RESTORE_F16",
+                llvq_llm::sealed::RestorePrec::Q4 { .. } => "LLVQ_RESTORE_Q4",
+            },
             restore.describe()
         );
-        eprintln!("{}", cfg.provenance());
+        println!("{}", cfg.provenance());
         #[cfg(all(target_os = "linux", feature = "cuda"))]
         {
             let f = llvq_llm::fused_cuda::load_resolved(
@@ -553,6 +559,7 @@ fn main() -> anyhow::Result<()> {
                 // The KV mode rides the config too, so one file decides every
                 // choice and `LLVQ_KV` cannot move half of them.
                 cfg.kv,
+                Some("LLVQ_CONFIG"),
             )?;
             (
                 f.model,
@@ -706,6 +713,27 @@ fn main() -> anyhow::Result<()> {
                 }
             )?;
             writeln!(w, "# alloc={alloc_note}")?;
+            // Which arithmetic scored the file, and every served choice — as
+            // separate keys, never the free-text note (a newline in it would
+            // split the header). `mmlupair` prints them under A = / B =; a
+            // reader without this line cannot tell a kernel dump from a dense
+            // one of the same file, and that pair is exactly the census.
+            match &served {
+                Some(cfg) => {
+                    writeln!(w, "# config={}", cfg.path.display())?;
+                    writeln!(w, "# arithmetic=served kernel")?;
+                    writeln!(w, "# layout={}", cfg.layout.name())?;
+                    writeln!(w, "# embed={}", cfg.embed.name())?;
+                    writeln!(w, "# rot_share={}", cfg.rot_share.name())?;
+                    writeln!(w, "# fuse={}", cfg.fuse.name())?;
+                    writeln!(w, "# kv={}", cfg.kv.name())?;
+                }
+                None => {
+                    writeln!(w, "# config=none")?;
+                    writeln!(w, "# arithmetic=dense reconstruction")?;
+                    writeln!(w, "# kv={}", kv_mode.name())?;
+                }
+            }
             writeln!(w, "{DUMP_COLUMNS}")?;
             eprintln!("dumping per-question results to {p}");
             Some(w)
@@ -744,14 +772,30 @@ fn main() -> anyhow::Result<()> {
                 .to_vec();
             scored_ids.extend_from_slice(&ids);
             let input = Tensor::new(ids.as_slice(), &device)?.unsqueeze(0)?;
-            let logits = model.logits(&input, &mut NoCapture)?;
             // Last position, as f32 — the comparison is between four values
             // that can sit within an f16 ulp of each other.
-            let last = logits.dim(1)? - 1;
-            let row: Vec<f32> = logits
-                .i((0, last))?
-                .to_dtype(DType::F32)?
-                .to_vec1()?;
+            //
+            // On the served arm the hidden states are narrowed to that
+            // position BEFORE the head: `tv_q8_h` is one launch a row, each
+            // streaming the 413 MB int8 table, and projecting 600 rows to read
+            // one was ~15 % of the prompt's cost (*estimated* on the measured
+            // 0.598 ms a row, phases-2026-08-07). The scored row is
+            // bit-identical either way — the launches are independent. The
+            // dense arm keeps `logits` whole: it is the call every published
+            // bar was measured through, and it does not move.
+            let last_row = match &served {
+                Some(_) => {
+                    let h = model.hidden(&input, &mut NoCapture)?;
+                    let l = h.dim(1)?;
+                    model.project_head(&h.narrow(1, l - 1, 1)?)?.i((0, 0))?
+                }
+                None => {
+                    let logits = model.logits(&input, &mut NoCapture)?;
+                    let last = logits.dim(1)? - 1;
+                    logits.i((0, last))?
+                }
+            };
+            let row: Vec<f32> = last_row.to_dtype(DType::F32)?.to_vec1()?;
             let options = [
                 row[answer_ids[0] as usize],
                 row[answer_ids[1] as usize],

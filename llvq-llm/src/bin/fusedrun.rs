@@ -177,6 +177,24 @@ fn main() -> anyhow::Result<()> {
         // of the outside world, at the top, so no path below can pick up a
         // different answer. `None` is the bench; `Some` is the runner.
         let served = llvq_llm::served::Served::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+        // The served path takes no measurement mode. Each of these turns this
+        // binary into a bench of one thing, and a bench needs its arms named
+        // by variables — that is what `LLVQ_CONFIG` exists to replace. Refused
+        // by name rather than silently dropped, which is what happened before
+        // the audit of 2026-09-11 found it. `LLVQ_PREFILL_TOKENS` is the one
+        // exception, handled below: it is the served path's own gate.
+        if served.is_some() {
+            for var in ["LLVQ_GRAPH_AB", "LLVQ_GRAPH_DIAG", "LLVQ_KV_AB", "LLVQ_FUSE_AB",
+                        "LLVQ_TIME_PHASES", "LLVQ_KV_PREALLOC", "LLVQ_SEG_ARMS"] {
+                if let Ok(v) = std::env::var(var) {
+                    anyhow::bail!(
+                        "{var}={v:?} beside LLVQ_CONFIG: that is a measurement mode, and the \
+                         served path runs one arm with no comparison to name. Unset it, or \
+                         unset LLVQ_CONFIG and run the bench."
+                    );
+                }
+            }
+        }
         println!("{device:?}, dtype {dtype:?}, {n_new} tokens\n");
 
         // Whether to run the extra fenced pass after each arm's published
@@ -220,9 +238,26 @@ fn main() -> anyhow::Result<()> {
             if n == 0 {
                 anyhow::bail!("LLVQ_PREFILL_TOKENS=0: there is nothing to time");
             }
-            let fuse = llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
             let t = Instant::now();
-            let mut f = llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?;
+            // Through the served door when there is a config, so the object
+            // timed is the object served. It was `load_with` — the bench door
+            // — for every config, and `LLVQ_CONFIG=… LLVQ_PREFILL_TOKENS=800`
+            // would have timed planes14 at f16 while printing a provenance
+            // naming variables nobody set. Found by the audit of 2026-09-11.
+            let mut f = match &served {
+                Some(cfg) => {
+                    println!("{}", cfg.provenance());
+                    llvq_llm::fused_cuda::load_resolved(
+                        &path, &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse,
+                        cfg.kv, Some("LLVQ_CONFIG"),
+                    )?
+                }
+                None => {
+                    let fuse =
+                        llvq_llm::fused::FuseMode::from_env().map_err(|e| anyhow::anyhow!("{e}"))?;
+                    llvq_llm::fused_cuda::load_with(&path, &device, dtype, fuse)?
+                }
+            };
             f.model.set_kv_store(kv_store);
             let load = t.elapsed().as_secs_f64();
             // The ids do not matter for a timing — the kernel has no
@@ -235,12 +270,7 @@ fn main() -> anyhow::Result<()> {
                 .get_ids()
                 .to_vec();
             let ids: Vec<u32> = (0..n).map(|i| seed[i % seed.len()]).collect();
-            println!(
-                "prefill: {n} tokens, layout {}, loaded in {load:.1} s",
-                llvq_llm::fused::FusedLayout::from_env()
-                    .map_err(|e| anyhow::anyhow!("{e}"))?
-                    .name()
-            );
+            println!("prefill: {n} tokens, layout {}, loaded in {load:.1} s", f.layout.name());
             let mut ms: Vec<f64> = Vec::new();
             // Six passes, the first discarded: the first on CUDA pays kernel
             // selection, allocator growth and the clock ramp.
@@ -389,6 +419,7 @@ fn main() -> anyhow::Result<()> {
                 cfg.rot_share,
                 cfg.fuse,
                 cfg.kv,
+                Some("LLVQ_CONFIG"),
             )?;
             let load_s = t.elapsed().as_secs_f64();
             let ids = f

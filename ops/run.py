@@ -750,6 +750,11 @@ UPLOAD_ALLOW = (
     "rust-toolchain.toml",
     "llvq-*/**",
     "ops/fetch-qtip.sh",
+    # The served configurations. `ops/Dockerfile.cuda` copies this directory
+    # into the runtime image, and a `COPY` whose source was never uploaded
+    # fails the build after its twelve-minute compile — the third time this
+    # two-lists trap bit (rust-toolchain.toml, fetch-qtip.sh, and now this).
+    "configs/**",
 )
 UPLOAD_IGNORE = ("**/target/**", "**/*.log")
 
@@ -1211,13 +1216,22 @@ def _expected_repos() -> set[str]:
 
 
 def _timeout_minutes(t: str) -> float:
-    """`30m`, `2h`, `90s` → minutes. Used only to print a worst-case cost."""
-    unit, n = t[-1], t[:-1]
+    """`30m`, `2h`, `90s` → minutes. Used to print a worst-case cost.
+
+    Refuses what it cannot read instead of returning 0.0: `2h30m` used to
+    print "at worst 0.00 $" and launch, and a ceiling nobody can read is not a
+    ceiling. One unit only — that is what the HF API takes.
+    """
+    unit, n = t[-1:], t[:-1]
     try:
         v = float(n)
     except ValueError:
-        return 0.0
-    return {"s": v / 60, "m": v, "h": v * 60}.get(unit, 0.0)
+        v = None
+    if v is None or unit not in ("s", "m", "h") or v <= 0:
+        raise SystemExit(
+            f"--timeout {t!r}: write a number and ONE unit, e.g. 20m, 2h, 90s"
+        )
+    return {"s": v / 60, "m": v, "h": v * 60}[unit]
 
 
 def cmd_monitor(args) -> int:
@@ -1531,8 +1545,13 @@ def main() -> int:
     b.add_argument("--flavor", default="l40sx1")
     b.add_argument("--any-flavor", action="store_true",
                    help="override the whitelist, to be declared in every published figure")
-    b.add_argument("--timeout", default="30m",
-                   help="the real cost ceiling: the estimator only holds for a quantization")
+    # No default. The docstring of `cmd_bench` has said "mandatory and has no
+    # silent default" since the subcommand existed, and the argument said
+    # `30m`; the first job that difference would certainly have killed is the
+    # served-arm MMLU census, 1.49 h on an L40S (*computed*, f1e0 §0 quater).
+    b.add_argument("--timeout", required=True,
+                   help="the real cost ceiling, e.g. 20m or 2h: the estimator only holds "
+                        "for a quantization. The served-arm MMLU census needs 2h or more")
     b.add_argument("--mount-model", default=None,
                    help="Hub repository to mount read-only (e.g. Pier-Jean/Qwen3-4B-LLVQ-2bit)")
     b.add_argument("--model-mount", default="/model")

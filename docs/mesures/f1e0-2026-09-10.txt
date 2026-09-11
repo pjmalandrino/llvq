@@ -171,7 +171,8 @@ Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda, source NVRTC 94 819 o
               (85 533 o, sha256 90ebbf08…), c'est le noyau par lots qui entre.
 Objet       : le fichier servi, drapeaux servis (ROT_SHARE=1, EMBED=q8)
 Mode        : LLVQ_PREFILL_TOKENS, mode de MESURE, jamais une config servie
-Nature      : *mesuré*, deux longueurs, 5 passes chacune après une passe jetée
+Nature      : les ms et tok/s sont *mesurés* ; pentes, ordonnées, Go/s, µs par
+              opération, heures et dollars de recensement sont *calculés*
 But         : remplacer par un chiffre l'estimation « 4 à 8 h » du recensement
               MMLU par le noyau.
 
@@ -311,7 +312,8 @@ Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit 0c2d798
               source NVRTC 98 431 o, sha256 dfa2d44b… (94 819 o avant)
 Objet       : le fichier servi, drapeaux servis, MÊME carte, MÊMES longueurs
               qu'au job 6aa32150 — seul le CODE a changé
-Nature      : *mesuré*
+Nature      : les ms sont *mesurées* ; TOUT rapport entre les deux jobs est
+              *calculé, inter-job, rapporté et non publié* (règle 8, METHODE)
 
 CE QUE ÇA A RENDU
 -----------------
@@ -320,8 +322,16 @@ CE QUE ÇA A RENDU
       200            1 059,6 ms                  **762,4** [761,1–762,9]
       800            4 364,0 ms                **3 119,7** [3 117,7–3 126,8]
 
-  Pente : **5,507 → 3,929 ms par jeton de prompt, soit ×1,402.**
-  Ordonnée : −41,9 → −23,4 ms. Toujours pas de coût fixe par passe.
+  Par longueur, quotient des médianes, enveloppe formée passe par passe
+  (règle 7), *calculé* entre deux jobs :
+
+      200 jetons : ×1,390 [1,388 ; 1,393]
+      800 jetons : ×1,399 [1,394 ; 1,401]
+
+  Pente : 5,507 → 3,929 ms par jeton de prompt, soit ×1,402 — *calculé* sur
+  deux pentes de deux points chacune, et ce chiffre SORT des deux enveloppes
+  ci-dessus. C'est le rapport des médianes par longueur qui se lit ; la pente
+  est une ligne secondaire. Ordonnée : −41,9 → −23,4 ms, pas de coût fixe.
 
   ⚠️ Deux jobs, deux processus. Le rapport ×1,402 est formé sur deux PENTES,
   chacune tirée de deux points mesurés dans son propre processus, à fichier,
@@ -346,17 +356,18 @@ LE GARDE-FOU, QUE CE MODE N'AVAIT PAS
 CE QUE LE CHIFFRE DIT DU MODÈLE DE COÛT
 ----------------------------------------
   Le préreg prédisait 6,5 ms d'économie par paquet, en supposant ~5 µs de
-  surcoût par lancement. **Mesuré : 6,22 ms**, soit **4,80 µs par opération
-  supprimée** (1 296 d'entre elles). Le modèle tient.
+  surcoût par lancement. *Calculé* entre les deux jobs : **6,22 ms**, soit
+  **4,80 µs par opération supprimée** (1 296 d'entre elles). Le modèle tient.
 
   Et il se retourne, ce qui est le plus utile ici :
 
-    1 296 opérations supprimées :  4,80 µs pièce
-      504 opérations restantes : **30,9 µs pièce**, 6,4× plus cher
+    1 296 opérations supprimées :  4,80 µs pièce            (*calculé*)
+      504 opérations restantes : **30,9 µs pièce**, 6,4× plus cher (*calculé*
+                                 — et voir l'addendum du 2026-09-11 : 648)
 
   Les restantes ne sont plus des lancements vides. C'est le flux de poids,
-  l'attention en N², les normes. Bande passante : 44,5 → **62,2 Go/s**, soit
-  **7,2 % des 864** de la L40S. Moins limité par les lancements qu'avant, et
+  l'attention en N², les normes. Bande passante (*calculée*) : 44,5 →
+  **62,2 Go/s**, soit **7,2 % des 864** de la L40S. Moins limité par les lancements qu'avant, et
   toujours pas par la mémoire.
 
 LE POSTE SUIVANT, CHIFFRÉ AVEC CETTE CONSTANTE
@@ -375,3 +386,34 @@ CE QUE CE N'EST TOUJOURS PAS
   Pas un MMLU. `bin/mmlu` charge par `sealed::load_with_restored`, une
   reconstruction dense : il n'a pas de bras noyau. C'est la dernière pièce
   entre ces chiffres et un vrai recensement par le noyau.
+
+
+--------------------------------------------------------------------------------
+ADDENDUM du 2026-09-11 — après l'audit du livrable (docs/audit-livrable-2026-09-11.md)
+--------------------------------------------------------------------------------
+  Deux corrections à ce qui précède, laissées à côté plutôt que réécrites.
+
+  1. ÉTIQUETTES. Les sections §0 ter et §0 quater portaient « Nature : *mesuré* »
+     en tête, ce qui étiquetait en bloc des pentes, des Go/s et des dollars.
+     Seuls les ms et les tok/s sont mesurés ; tout rapport entre les jobs
+     6aa32150 et 6aa3a6c1 est *calculé, inter-job*, et la méthode le veut
+     « rapporté et non publié ». Le ×1,402 est un rapport de pentes qui sort
+     des enveloppes par longueur (×1,390 et ×1,399) ; ce sont elles qui se
+     lisent. Les en-têtes sont corrigés ; le -ECARTS.md du préreg, tamponné,
+     garde son « Mesuré : 6,22 ms » et ce paragraphe le corrige.
+
+  2. LE DÉCOMPTE OUBLIAIT 144 CASTS. Les 36 `v_proj` int4 passent rangée par
+     rangée, et chaque rangée paie `x.to_dtype(F32).contiguous()` avant
+     `tv_q4_h` (`fused_cuda.rs`, `forward_int4`) : un lancement de plus par
+     rangée, 144 par paquet, qu'aucun tableau ci-dessus ne compte. Le compte
+     par paquet est donc 1 944 → **648**, pas 1 800 → 504, et le résiduel
+     par opération restante est **24,1 µs**, pas 30,9. La constante de
+     4,80 µs et la projection sur `regroup` ne bougent pas : les 1 296
+     supprimées sont les mêmes.
+
+  3. MÉMOIRE EN b/param (règle 6). ÷5,81 est un quotient d'octets sur carte,
+     même dénominateur des deux côtés ; le chiffre qui se compare est
+     2,8138 b/param modèle entier (*calculé*, comptabilité q5-tetra-2026-09-06).
+     Et le 1,39 Go de la §0 bis se comparait au 1,390 *calculé* de ETAT, qui
+     est celui du fichier PUR ; le mixte se calcule à 1,415 Go — l'écart de
+     2 % est celui des deux comptabilités, octets hôte contre b/param.
