@@ -95,3 +95,40 @@ bras noyau de 19,17 $ à **~13,80 $** et le total à **~28 $**.
 complet ne rentre pas. C'est une décision d'opérateur : relever le plafond,
 ou réduire le programme (par exemple noyau + dense en full, sans rejouer f16
 et Planes14, et le tableau à quatre reste au plan 2 280 à côté).
+
+## Second temps — le recensement, scoré
+
+| # | prédit | mesuré | verdict |
+|---|---|---|---|
+| P3 | dense mixte 56,5 [55,0 ; 58,0] | **55,52** | **juste**, bas de l'intervalle |
+| P4 | noyau − dense 0,0 pp [−1,4 ; +1,4] | **−0,14 pp**, 3 discordantes sur 2 280 | **juste** |
+| P5 | discordantes 3 % [1 ; 6] | **0,1 %** | **FAUSSE**, facteur 30 |
+| P6 | durée du bras noyau 1,65 h [1,4 ; 2,0] | **1,514 h** | **juste** |
+| P7 | rien ne refuse au premier essai, 60 % | rien | **juste** |
+
+Six sur sept sur les deux temps. **P5 est fausse et dans le bon sens** : je
+prédisais que l'ordre d'accumulation en f16 ferait basculer des dizaines de
+questions, il en bascule trois. Le noyau est plus proche du dense que le
+préreg ne l'imaginait.
+
+**§5 — le critère d'arrêt n'est pas déclenché.** |−0,14| contre une barre de
+1,44 pp. Le noyau calcule juste et le chiffre est publiable.
+
+## Écarts au protocole du §2
+
+1. **Un troisième job, non prévu : le split complet.** Le préreg couvrait deux
+   bras sur 2 280. L'opérateur a demandé les 14 042 en cours de route et le
+   bras dense y a été lancé (job `6aa442b4…8b6b`, 0,70 $, 56,37 micro). C'est
+   hors préreg — le même manquement que celui déclaré au §0, et déclaré ici
+   plutôt que tu. Ce que ça change à la lecture du préreg : rien, P3 à P7
+   portaient sur les 2 280 et s'y jugent.
+
+2. **Un chiffre du préreg était faux.** §6 costait le bras dense à ~26 min et
+   0,78 $ *calculés* sur `f1e0:216`. Mesuré : **4 min 22 s**. Le coût du
+   recensement était donc surestimé, et toute comparaison dense du dossier
+   avec lui.
+
+3. **Le balayage `LLVQ_PREFILL` n'est pas dans ce préreg** (jobs `6aa434a8` et
+   `6aa442b4…7bed`, 0,13 $ ensemble) : il mesure le coût, pas la qualité, et
+   son journal est `docs/mesures/f1e-prefill-sweep-2026-09-11.txt`. Il n'a
+   déplacé aucune constante servie.
