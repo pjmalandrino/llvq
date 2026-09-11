@@ -91,3 +91,7 @@ C=/usr/local/share/llvq/configs/qwen3-4b-tetra-q5.json
 
 Steps 2–3 are the smoke test; steps 4–6 need a stamped prereg first (hard
 rule 2), and the census needs the operator's go with the cost announced.
+
+Steps 2–3 ran green on 2026-09-11 (jobs `6aa40f3a`, `6aa4108b`, `6aa41263`,
+0.17 $). Step 5 is `ops/jobs/f1e-census.sh`, one command, prereg stamped —
+not launched, by the operator's choice.
