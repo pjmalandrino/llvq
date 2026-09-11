@@ -2704,14 +2704,14 @@ pub fn load_resolved(
             let carried = crate::fused::carried_embed_tables(&model.raw);
             println!(
                 "{}",
-                crate::fused::EmbedReport::new(EmbedMode::F16, &carried).line()
+                crate::fused::EmbedReport::new(EmbedMode::F16, &carried).line(&from("LLVQ_EMBED"))
             );
             None
         }
         Some(tables) => {
             let to_upload = tables.buffers();
             let report = crate::fused::EmbedReport::new(EmbedMode::Q8, &to_upload);
-            println!("{}", report.line());
+            println!("{}", report.line(&from("LLVQ_EMBED")));
             let mut uploaded: Vec<Arc<QuantEmbed>> = Vec::with_capacity(to_upload.len());
             for (t, (_, packed, sb)) in to_upload.iter().zip(&report.tables) {
                 let q = rt.upload_embed_q8(t)?;

@@ -355,7 +355,12 @@ impl EmbedReport {
 
     /// The load-time line — it names how many tables it is counting, so a
     /// reader can tell a tied model from an untied one without doing division.
-    pub fn line(&self) -> String {
+    ///
+    /// `source` is what decided the mode: `"LLVQ_EMBED"` in bench mode, the
+    /// served config's name on the served path. Printed in place of the
+    /// variable name, for the reason `fused_cuda::load_resolved` gives: a
+    /// served log must not attribute a choice to a variable nobody set.
+    pub fn line(&self, source: &str) -> String {
         let names: Vec<&str> = self.tables.iter().map(|(n, ..)| n.as_str()).collect();
         let which = if names.len() == 1 {
             format!("1 table ({}, lm_head tied on it)", names[0])
@@ -364,11 +369,11 @@ impl EmbedReport {
         };
         match self.mode {
             EmbedMode::F16 => format!(
-                "embedding: f16 (LLVQ_EMBED), {which}, {:.1} MB on the card",
+                "embedding: f16 ({source}), {which}, {:.1} MB on the card",
                 self.total() as f64 / 1e6
             ),
             EmbedMode::Q8 => format!(
-                "embedding: q8 g64 (LLVQ_EMBED), {which}, {:.1} MB on the card \
+                "embedding: q8 g64 ({source}), {which}, {:.1} MB on the card \
                  (int8 {:.1} + scales/biases {:.1})",
                 self.total() as f64 / 1e6,
                 self.packed() as f64 / 1e6,

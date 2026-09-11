@@ -653,15 +653,15 @@ fn the_accounting_carries_both_tables() {
     assert_eq!(f16r.tables.len(), 2, "two tables carried, two counted");
     assert_eq!(f16r.total(), (rows * d * 2 * 2) as u64, "both tables, f16");
     assert_eq!(f16r.meta(), 0, "f16 carries no scales");
-    assert!(f16r.line().contains("2 tables"), "{}", f16r.line());
-    assert!(f16r.line().contains(HEAD_NAME), "{}", f16r.line());
+    assert!(f16r.line("LLVQ_EMBED").contains("2 tables"), "{}", f16r.line("LLVQ_EMBED"));
+    assert!(f16r.line("LLVQ_EMBED").contains(HEAD_NAME), "{}", f16r.line("LLVQ_EMBED"));
 
     // f16, tied: one table, and the line says the head sits on it.
     let tied = carried_list(rows, d, false);
     let tied_r = EmbedReport::new(EmbedMode::F16, &carried_embed_tables(&tied));
     assert_eq!(tied_r.total(), (rows * d * 2) as u64, "one table, f16");
-    assert!(tied_r.line().contains("1 table ("), "{}", tied_r.line());
-    assert!(tied_r.line().contains("lm_head tied"), "{}", tied_r.line());
+    assert!(tied_r.line("LLVQ_EMBED").contains("1 table ("), "{}", tied_r.line("LLVQ_EMBED"));
+    assert!(tied_r.line("LLVQ_EMBED").contains("lm_head tied"), "{}", tied_r.line("LLVQ_EMBED"));
 
     // q8, untied: both tables counted, payload and metadata separately.
     let mut raw = carried_list(rows, d, true);
@@ -672,7 +672,7 @@ fn the_accounting_carries_both_tables() {
     assert_eq!(q8r.packed(), p1 * 2, "int8 payload of both tables");
     assert_eq!(q8r.meta(), s1 * 2, "scales and biases of both tables");
     assert_eq!(q8r.total(), (p1 + s1) * 2);
-    assert!(q8r.line().contains("2 tables"), "{}", q8r.line());
+    assert!(q8r.line("LLVQ_EMBED").contains("2 tables"), "{}", q8r.line("LLVQ_EMBED"));
     assert!(q8r.total() < f16r.total(), "q8 must be the smaller of the two");
 
     // q8, tied: one buffer, and the report says so.
@@ -680,7 +680,7 @@ fn the_accounting_carries_both_tables() {
     let tied_t = take_embed_tables(&mut raw, true).expect("tied");
     let tied_q8 = EmbedReport::new(EmbedMode::Q8, &tied_t.buffers());
     assert_eq!(tied_q8.total(), p1 + s1, "one table, q8");
-    assert!(tied_q8.line().contains("1 table ("), "{}", tied_q8.line());
+    assert!(tied_q8.line("LLVQ_EMBED").contains("1 table ("), "{}", tied_q8.line("LLVQ_EMBED"));
 }
 
 /// A shape-only stand-in: [`EmbedReport`] reads a table's name and dims and
@@ -702,11 +702,11 @@ fn the_printed_line_announces_every_table() {
     let two = [shape_only(EMBED_NAME, &dims), shape_only(HEAD_NAME, &dims)];
     let refs: Vec<&RawTensor> = two.iter().collect();
 
-    let f16_line = EmbedReport::new(EmbedMode::F16, &refs).line();
+    let f16_line = EmbedReport::new(EmbedMode::F16, &refs).line("LLVQ_EMBED");
     assert!(f16_line.contains("2489.3 MB"), "f16 line under-reports: {f16_line}");
     assert!(!f16_line.contains("1244.7 MB"), "f16 line announces one table: {f16_line}");
 
-    let q8_line = EmbedReport::new(EmbedMode::Q8, &refs).line();
+    let q8_line = EmbedReport::new(EmbedMode::Q8, &refs).line("LLVQ_EMBED");
     assert!(q8_line.contains("1322.5 MB"), "q8 line under-reports: {q8_line}");
     assert!(!q8_line.contains("661.2 MB"), "q8 line announces one table: {q8_line}");
     assert!(q8_line.contains("int8 1244.7"), "q8 payload split wrong: {q8_line}");
@@ -714,7 +714,7 @@ fn the_printed_line_announces_every_table() {
 
     // Tied: one table, and the figure is that one table's.
     let one = [shape_only(EMBED_NAME, &dims)];
-    let tied = EmbedReport::new(EmbedMode::Q8, &one.iter().collect::<Vec<_>>()).line();
+    let tied = EmbedReport::new(EmbedMode::Q8, &one.iter().collect::<Vec<_>>()).line("LLVQ_EMBED");
     assert!(tied.contains("661.2 MB"), "tied q8 line: {tied}");
     assert!(tied.contains("1 table ("), "tied q8 line: {tied}");
 }
