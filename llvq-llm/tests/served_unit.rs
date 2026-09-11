@@ -169,8 +169,42 @@ fn every_layout_s_translation_unit_parses() {
 #[test]
 fn the_served_unit_carries_the_kernels_the_runtime_looks_up() {
     let e = entry_points(&assembled(FusedLayout::Tetra48, &served_names()));
-    for want in ["rot_apply", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h"] {
+    for want in
+        ["rot_apply", "rot_apply_rows", "tv_tetra48_h", "tv_tetra48_rows_h", "tv_q4_h"]
+    {
         assert!(e.contains(&want.to_string()), "the served unit defines no `{want}`: {e:?}");
+    }
+}
+
+/// Both rotation entry points are in EVERY layout's unit, because the register
+/// report names them for every layout.
+///
+/// 🕳️ This is the shape of the defect that cost a job on 2026-09-10: the
+/// register report asked the driver for `tv_planes_seg_h` on a unit that never
+/// carried it, and `no kernel: named symbol not found` arrived after the
+/// transcode, on a rented card. `rot_apply_rows` went into that same list on
+/// 2026-09-11. It is safe — `rotate.cu` is in the four-file base set every
+/// unit loads, unconditionally — and "it is safe" is what the previous one
+/// looked like too, which is why it is asserted here instead.
+#[test]
+fn every_unit_carries_both_rotation_entry_points() {
+    for layout in [
+        FusedLayout::Slot32,
+        FusedLayout::Planes14,
+        FusedLayout::Planes12x,
+        FusedLayout::Golay70,
+        FusedLayout::Tetra48,
+    ] {
+        let mut names = BASE.to_vec();
+        names.extend(llvq_llm::fused::planes_source_names(layout));
+        let e = entry_points(&assembled(layout, &names));
+        for want in ["rot_apply", "rot_apply_rows"] {
+            assert!(
+                e.contains(&want.to_string()),
+                "{}: the unit defines no `{want}`, and the register report asks for it: {e:?}",
+                layout.name()
+            );
+        }
     }
 }
 

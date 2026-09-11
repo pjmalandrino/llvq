@@ -258,23 +258,36 @@ LE RÉSULTAT QUI COMPTE N'EST PAS CELUI-LÀ
   9,92 ms par jeton de décodage. Si le flux avait été le facteur limitant, le
   rapport aurait été 4.
 
-  Le compte, par lot de 4 rangées :
+  Le compte, par lot de 4 rangées, tel que mesuré :
 
-    216 lancements de matvec Tetra      (le noyau par lots, une par projection)
+    576 lancements de rotation          (144 groupes x 4 rangées : la rotation
+                                         était PAR RANGÉE, le lot ne la batchait
+                                         pas — les 144 imprimés sont par JETON)
     864 recopies (`Tensor::cat`)        (4 par projection Tetra, une par rangée)
+    216 lancements de matvec Tetra      (le noyau par lots, une par projection)
     144 lancements int4                 (les 36 `v_proj` n'ont PAS de noyau par
                                          lots, elles repassent rangée par rangée)
-    144 lancements de rotation
     ------------------------------------------------------------------------
-  ~1 368 opérations par lot, ~274 000 par préremplissage de 800 jetons, à
-  16 µs pièce. C'est un profil de lancement, pas un profil de bande passante.
+  ~1 800 opérations par lot, ~360 000 par préremplissage de 800 jetons, à
+  12 µs pièce. C'est un profil de lancement, pas un profil de bande passante.
 
-  Deux choses sautent aux yeux dans ce tableau. **Les recopies sont le premier
-  poste**, 864 sur 1 368 : concaténer 4 rangées coûte 4 copies sur la carte, et
-  c'est le prix payé pour ne faire qu'un lancement de matvec au lieu de quatre.
+  Deux postes sur quatre, 1 440 sur 1 800, sont du travail que le lot était
+  censé supprimer et ne supprimait pas :
+
+  * **les recopies.** Concaténer 4 rangées coûte 4 copies sur la carte. C'est
+    le prix payé pour ne faire qu'un lancement de matvec au lieu de quatre — et
+    la forme ainsi reconstruite, `[4, d_in]` contiguë, est celle que la
+    rotation aurait pu produire directement.
+  * **la rotation.** `drive_rows_batched` appelait `prepare` une fois par
+    rangée. Son propre commentaire le disait : « A rotation is per row and
+    batching the matvec does not batch it. » C'était une constatation, pas une
+    nécessité : le noyau de rotation met un vecteur entier en mémoire partagée
+    et une rangée est indépendante des autres, donc la grille peut porter les
+    rangées.
+
   Et **les int4 ne profitent pas du lot** : `rows_kernel_name` ne rend un nom
   que pour `Tetra48`, donc les 36 `v_proj` coûtent 4 lancements par lot au lieu
-  d'un, soit 144 des 1 368.
+  d'un, soit 144 des 1 800.
 
   Ce que ça dit de la suite : le gisement est dans les recopies et les
   lancements, pas dans le format. **Le format n'est pas le problème ici.**

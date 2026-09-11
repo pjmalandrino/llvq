@@ -422,9 +422,18 @@ pub fn drive_rows<P, R, T, E>(
     // One row a call is a batch of one, and that is the whole relationship:
     // there is ONE mechanism, and the per-row path is its degenerate case.
     // Anything else would be two descriptions of the sharing rule.
-    drive_rows_batched(share, sites, rows, 1, shares, prepare, |p, rs, row0| {
-        Ok(vec![apply(p, rs[0], row0)?])
-    })
+    drive_rows_batched(
+        share,
+        sites,
+        rows,
+        1,
+        shares,
+        // `len` is 1 at every call, because `batch` is: the chunking loop
+        // above takes `batch.min(rows - lo)`. Not asserted, because an assert
+        // on a value the same function computed is a comment that panics.
+        |p, row0, _len| prepare(p, row0),
+        |p, r, row0, _len| Ok(vec![apply(p, r, row0)?]),
+    )
 }
 
 /// [`drive_rows`], `batch` rows a call.
@@ -439,9 +448,13 @@ pub fn drive_rows<P, R, T, E>(
 ///
 /// ## What `batch` does NOT change
 ///
-///  * the number of `prepare` calls — one a row a site that does not share,
-///    one a row for the group that does. A rotation is per row and batching
-///    the matvec does not batch it;
+///  * the ORDER of the `prepare` calls, and which site owns which rotation.
+///    What it DOES change, since 2026-09-11, is their number: `prepare` is
+///    called once a CHUNK, not once a row, and is handed `(row0, len)`. The
+///    rotation kernel takes a row a block, so a chunk of four is one launch
+///    where it was four — 144 rotation launches a chunk on the served 4B
+///    instead of 576 — and its output lands contiguous, which is what
+///    removed the `Tensor::cat` that used to stack the rows for the matvec;
 ///  * the ORDER of the results. `out[site][row]` is indexed by row, and the
 ///    chunks are walked in increasing row order;
 ///  * the sharing rule. Under [`RotShare::On`] one rotation a row serves every
@@ -461,8 +474,8 @@ pub fn drive_rows_batched<P, R, T, E>(
     rows: usize,
     batch: usize,
     shares: impl Fn(&P) -> bool,
-    prepare: impl Fn(&P, usize) -> Result<R, E>,
-    apply_rows: impl Fn(&P, &[&R], usize) -> Result<Vec<T>, E>,
+    prepare: impl Fn(&P, usize, usize) -> Result<R, E>,
+    apply_rows: impl Fn(&P, &R, usize, usize) -> Result<Vec<T>, E>,
 ) -> Result<Vec<Vec<T>>, E> {
     let mut out: Vec<Vec<T>> = (0..sites.len()).map(|_| Vec::with_capacity(rows)).collect();
     if sites.is_empty() {
@@ -483,12 +496,8 @@ pub fn drive_rows_batched<P, R, T, E>(
         RotShare::Off => {
             for (s, site) in sites.iter().enumerate() {
                 for &(lo, len) in &chunks {
-                    let mut rot: Vec<R> = Vec::with_capacity(len);
-                    for row in lo..lo + len {
-                        rot.push(prepare(site, row)?);
-                    }
-                    let refs: Vec<&R> = rot.iter().collect();
-                    let got = apply_rows(site, &refs, lo)?;
+                    let rot = prepare(site, lo, len)?;
+                    let got = apply_rows(site, &rot, lo, len)?;
                     if got.len() != len {
                         // Not an assert: the caller owns the kernel and this is
                         // its contract, so it must be able to see the message.
@@ -507,35 +516,23 @@ pub fn drive_rows_batched<P, R, T, E>(
                 // site that does is required to agree with it — `check_key`,
                 // called from `apply_rows`, is what turns "they agree" from an
                 // assumption into a failure.
-                let shared: Option<Vec<R>> = match rep {
-                    Some(i) => {
-                        let mut v = Vec::with_capacity(len);
-                        for row in lo..lo + len {
-                            v.push(prepare(&sites[i], row)?);
-                        }
-                        Some(v)
-                    }
+                let shared: Option<R> = match rep {
+                    Some(i) => Some(prepare(&sites[i], lo, len)?),
                     None => None,
                 };
                 for (s, site) in sites.iter().enumerate() {
-                    let own: Option<Vec<R>> = match (&shared, shares(site)) {
+                    let own: Option<R> = match (&shared, shares(site)) {
                         (Some(_), true) => None,
                         // Its own, which for a natural-basis projection is the
                         // activation untouched and launches nothing.
-                        _ => {
-                            let mut v = Vec::with_capacity(len);
-                            for row in lo..lo + len {
-                                v.push(prepare(site, row)?);
-                            }
-                            Some(v)
-                        }
+                        _ => Some(prepare(site, lo, len)?),
                     };
-                    let refs: Vec<&R> = match (&own, &shared) {
-                        (Some(v), _) => v.iter().collect(),
-                        (None, Some(v)) => v.iter().collect(),
+                    let rot: &R = match (&own, &shared) {
+                        (Some(v), _) => v,
+                        (None, Some(v)) => v,
                         (None, None) => unreachable!("no rotation for a site that shares none"),
                     };
-                    let got = apply_rows(site, &refs, lo)?;
+                    let got = apply_rows(site, rot, lo, len)?;
                     if got.len() != len {
                         refuse_count(s, lo, len, got.len());
                     }
@@ -651,12 +648,14 @@ mod tests {
                 rows,
                 batch,
                 |h: &bool| *h,
-                |_: &bool, row: usize| Ok::<usize, String>(row),
-                |_: &bool, rs: &[&usize], row0: usize| {
-                    seen.borrow_mut().push((row0, rs.len()));
-                    // The answer IS the rotation, so a chunk that reordered or
-                    // reindexed its rows shows up in `out`.
-                    Ok::<Vec<usize>, String>(rs.iter().map(|r| **r).collect())
+                |_: &bool, row0: usize, _len: usize| Ok::<usize, String>(row0),
+                |_: &bool, r: &usize, row0: usize, len: usize| {
+                    seen.borrow_mut().push((row0, len));
+                    // The answer is derived from what `prepare` was TOLD, not
+                    // from what `apply` was told. The two agree here by
+                    // construction, and a chunk prepared at the wrong offset
+                    // still shows up in `out`.
+                    Ok::<Vec<usize>, String>((*r..*r + len).collect())
                 },
             )
             .expect("drives");
@@ -701,8 +700,8 @@ mod tests {
                     asked,
                     asked,
                     |h: &bool| *h,
-                    |_: &bool, row: usize| Ok::<usize, String>(row),
-                    move |_: &bool, _: &[&usize], _| {
+                    |_: &bool, row0: usize, _len: usize| Ok::<usize, String>(row0),
+                    move |_: &bool, _: &usize, _, _| {
                         Ok::<Vec<usize>, String>(vec![0; answered])
                     },
                 )
@@ -726,8 +725,8 @@ mod tests {
                 8,
                 4,
                 |h: &bool| *h,
-                |_: &bool, row: usize| Ok::<usize, String>(row),
-                move |_: &bool, _: &[&usize], _| {
+                |_: &bool, row0: usize, _len: usize| Ok::<usize, String>(row0),
+                move |_: &bool, _: &usize, _, _| {
                     n.set(n.get() + 1);
                     // 3 then 5: eight in total, four asked each time.
                     Ok::<Vec<usize>, String>(vec![0; if n.get() == 1 { 3 } else { 5 }])
@@ -753,8 +752,8 @@ mod tests {
                 8,
                 4,
                 |h: &bool| *h,
-                |_: &bool, row: usize| Ok::<usize, String>(row),
-                move |_: &bool, _: &[&usize], _| {
+                |_: &bool, row0: usize, _len: usize| Ok::<usize, String>(row0),
+                move |_: &bool, _: &usize, _, _| {
                     n.set(n.get() + 1);
                     Ok::<Vec<usize>, String>(vec![0; if n.get() == 1 { 3 } else { 4 }])
                 },
@@ -792,13 +791,13 @@ mod tests {
             3,
             1,
             |h: &bool| *h,
-            |h: &bool, row: usize| {
-                log_b.borrow_mut().push(format!("prep {h} {row}"));
-                Ok::<usize, String>(row * 10 + usize::from(*h))
+            |h: &bool, row0: usize, _len: usize| {
+                log_b.borrow_mut().push(format!("prep {h} {row0}"));
+                Ok::<usize, String>(row0 * 10 + usize::from(*h))
             },
-            |h: &bool, rs: &[&usize], row0: usize| {
+            |h: &bool, r: &usize, row0: usize, _len: usize| {
                 log_b.borrow_mut().push(format!("app {h} {row0}"));
-                Ok::<Vec<usize>, String>(vec![*rs[0]])
+                Ok::<Vec<usize>, String>(vec![*r])
             },
         )
         .expect("batched at one");
@@ -806,10 +805,16 @@ mod tests {
         assert_eq!(*log_a.borrow(), *log_b.borrow(), "the two loops disagree on the call order");
     }
 
-    /// Under `On`, a chunk prepares the group's rotation ONCE a row — not once
-    /// a row a site — and the sites that share it all see the same value.
+    /// Under `On`, a chunk prepares the group's rotation ONCE — not once a
+    /// site, and since 2026-09-11 not once a row either — and the sites that
+    /// share it all see the same value.
+    ///
+    /// The number this pins is the one the batched rotation moved: four rows
+    /// of a three-site group used to cost eight `prepare` calls, and cost two.
+    /// On the served 4B at `LLVQ_ROT_SHARE=1` that is 144 rotation launches a
+    /// chunk instead of 576.
     #[test]
-    fn a_chunk_prepares_the_shared_rotation_once_a_row() {
+    fn a_chunk_prepares_the_shared_rotation_once() {
         let sites = [true, true, false];
         let preps = std::cell::RefCell::new(0usize);
         let out: Vec<Vec<usize>> = drive_rows_batched(
@@ -818,15 +823,17 @@ mod tests {
             4,
             4,
             |h: &bool| *h,
-            |h: &bool, row: usize| {
+            |h: &bool, row0: usize, _len: usize| {
                 *preps.borrow_mut() += 1;
-                Ok::<usize, String>(if *h { 100 + row } else { row })
+                Ok::<usize, String>(if *h { 100 + row0 } else { row0 })
             },
-            |_: &bool, rs: &[&usize], _| Ok::<Vec<usize>, String>(rs.iter().map(|r| **r).collect()),
+            |_: &bool, r: &usize, _, len: usize| {
+                Ok::<Vec<usize>, String>((0..len).map(|i| *r + i).collect())
+            },
         )
         .expect("drives");
-        // Four rows: four for the group, four for the site that shares none.
-        assert_eq!(*preps.borrow(), 8, "the shared rotation was prepared per site");
+        // One chunk: one for the group, one for the site that shares none.
+        assert_eq!(*preps.borrow(), 2, "the shared rotation was prepared per site or per row");
         assert_eq!(out[0], vec![100, 101, 102, 103]);
         assert_eq!(out[1], out[0], "the two sharers saw different rotations");
         assert_eq!(out[2], vec![0, 1, 2, 3], "the natural-basis site was handed the group's");
@@ -885,6 +892,8 @@ mod tests {
             &sites,
             1,
             |has: &bool| *has,
+            // `drive_rows`, not `drive_rows_batched`: its `prepare` is still
+            // per row, because a chunk of one has no length to be told.
             |_: &bool, row: usize| Ok::<usize, String>(row),
             |_: &bool, r: &usize, _| Ok::<usize, String>(*r),
         )

@@ -264,13 +264,95 @@ fn main() -> anyhow::Result<()> {
                 "  {:8.3} ms a token of prompt — multiply by the prompt and by the questions",
                 med / n as f64
             );
+            // The census of this repository is 2,280 questions — 40 a subject
+            // over 57 — not the 14,042 of the full split: every published bar
+            // is measured on that sample and `mmlupair` refuses two dumps of
+            // different plans. Both are printed, because the second is what a
+            // reader who knows MMLU and not this repository will expect.
+            for (label, q) in [("the census of this repository", 2_280.0f64),
+                               ("the whole MMLU test split   ", 14_042.0f64)] {
+                println!(
+                    "  {label}: {:>6} questions -> {:5.2} h at {n} tokens a prompt",
+                    q as u64,
+                    med * q / 1000.0 / 3600.0
+                );
+            }
             println!(
-                "\n  A 14,042-question census at this rate, if a 5-shot prompt is {n} tokens:\n  \
-                 {:.2} h of compute. The dense path does the same census in 26 min, because it\n  \
-                 issues ONE matmul a projection a question where this issues ceil({n}/{}).",
-                med * 14_042.0 / 1000.0 / 3600.0,
+                "  (the kernel issues ceil({n}/{}) launches a projection a question; the dense\n  \
+                 path issues ONE, and does the 2,280 in 26 min)",
                 llvq_cuda::tile::PREFILL_ROWS
             );
+
+            // ---- THE GATE, and this mode had none --------------------------
+            //
+            // A timing is not a result. What is timed here is the BATCHED
+            // path — `group_forward` takes `PREFILL_ROWS` rows a launch as
+            // soon as `rows > 1` — and an addressing bug in it would make
+            // this loop faster and wrong at once.
+            //
+            // The second arm needs no flag and no second build: fed ONE token
+            // at a time against the same growing cache, every call has
+            // `rows == 1`, so `batch` is 1 and the per-row path runs. Same
+            // weights, same kernels, same order of layers; the only thing
+            // that differs is the chunking this lot changed.
+            //
+            // Not bit-exact, and saying so is the point: attention over `n`
+            // rows at once accumulates in a different order from `n` steps of
+            // one row, so the two agree to f16 and not beyond. What a wrong
+            // row offset produces is not an ulp.
+            let mut caches = f.model.fresh_caches();
+            let input = candle_core::Tensor::from_slice(&ids, (1, n), &device)?;
+            let h = f.model.hidden_cached(&input, 0, &mut caches, &mut NoCapture)?;
+            let l = h.dim(1)?;
+            let batched: Vec<f32> = f
+                .model
+                .project_head(&h.narrow(1, l - 1, 1)?)?
+                .i((0, 0))?
+                .to_dtype(candle_core::DType::F32)?
+                .to_vec1()?;
+
+            let mut one_at_a_time = f.model.fresh_caches();
+            let mut last_row: Option<candle_core::Tensor> = None;
+            for (pos, id) in ids.iter().enumerate() {
+                let step = candle_core::Tensor::from_slice(&[*id], (1, 1), &device)?;
+                last_row =
+                    Some(f.model.hidden_cached(&step, pos, &mut one_at_a_time, &mut NoCapture)?);
+            }
+            let stepwise: Vec<f32> = f
+                .model
+                .project_head(&last_row.expect("n >= 1 rows"))?
+                .i((0, 0))?
+                .to_dtype(candle_core::DType::F32)?
+                .to_vec1()?;
+
+            let worst = batched
+                .iter()
+                .zip(&stepwise)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            let scale = batched.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+            let argmax = |v: &[f32]| {
+                v.iter()
+                    .enumerate()
+                    .fold((0usize, f32::NEG_INFINITY), |(bi, bv), (i, &x)| {
+                        if x > bv { (i, x) } else { (bi, bv) }
+                    })
+                    .0
+            };
+            println!(
+                "\n  gate: {n} tokens in one call against {n} calls of one token\n  \
+                 max |delta logit| = {worst:.3e} on a scale of {scale:.3e}, argmax {} vs {}",
+                argmax(&batched),
+                argmax(&stepwise)
+            );
+            if argmax(&batched) != argmax(&stepwise) {
+                anyhow::bail!(
+                    "the batched prefill and the per-row one pick different tokens: \
+                     {} against {}",
+                    argmax(&batched),
+                    argmax(&stepwise)
+                );
+            }
             return Ok(());
         }
 

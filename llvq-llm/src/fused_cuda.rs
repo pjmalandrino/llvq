@@ -266,6 +266,10 @@ pub struct FusedRuntime {
     /// overruns its staging area with no diagnostic.
     tile: llvq_cuda::tile::Tile,
     f_rot: CudaFunction,
+    /// `rot_apply` with the rows in the grid — one launch a chunk instead of
+    /// one a row. Not an `Option`: `rotate.cu` is in every layout's source
+    /// list, because every layout rotates, so the symbol is in every unit.
+    f_rot_rows: CudaFunction,
     /// Whichever entry point [`matvec_kernel_name`] gave for the layout — one
     /// kernel per runtime, chosen with the layout, so a stream and a kernel
     /// of different layouts cannot meet.
@@ -423,7 +427,7 @@ impl FusedRuntime {
         // in registers, and a spill costs occupancy without changing a
         // result. Checked on the kernel this runtime will actually launch.
         let matvec_name = matvec_kernel_name(model.layout);
-        let mut spill_checked = vec![matvec_name, "rot_apply"];
+        let mut spill_checked = vec![matvec_name, "rot_apply", "rot_apply_rows"];
         // In the translation unit whenever ITS SOURCE is — read off the one
         // list that decides, never inferred from "the layout is not Slot32".
         //
@@ -605,6 +609,12 @@ impl FusedRuntime {
         let f_rot = cuda
             .func_dynamic_shared("rot_apply", rot_bytes as u32)
             .map_err(candle_core::Error::msg)?;
+        // Same bound, and it is the same bound for a reason: the rows variant
+        // puts one row in a block and the rows in the grid, so its shared
+        // memory per block is one row's, unchanged at any chunk length.
+        let f_rot_rows = cuda
+            .func_dynamic_shared("rot_apply_rows", rot_bytes as u32)
+            .map_err(candle_core::Error::msg)?;
 
         let mut rotations = HashMap::new();
         for (&key, t) in &model.rotations {
@@ -639,6 +649,7 @@ impl FusedRuntime {
                 cuda,
                 tile,
                 f_rot,
+                f_rot_rows,
                 f_matvec,
                 f_matvec_seg,
                 tab,
@@ -691,6 +702,40 @@ impl FusedRuntime {
         x.apply_op1_no_bwd(&op)
     }
 
+    /// [`Self::rotate`] for `n_rows` activations, ONE launch.
+    ///
+    /// `x` is `[n_rows, d_in]` f16 and contiguous — `model::row_block` narrows
+    /// it out of one allocation, so its rows are `d_in` apart and no copy was
+    /// made to put them there. The result is `[n_rows, d_in]` f32, contiguous,
+    /// which is exactly what `forward_rotated_rows` reads.
+    ///
+    /// That last sentence is the whole point. Before this, a chunk was rotated
+    /// a row at a time into `n_rows` separate allocations and then stacked with
+    /// `Tensor::cat` — one device copy a row — to rebuild the very shape the
+    /// matvec wanted. Now the shape comes out of the rotation.
+    pub fn rotate_rows(
+        &self,
+        proj: &FusedProj,
+        x: &Tensor,
+        n_rows: usize,
+    ) -> candle_core::Result<Tensor> {
+        let dims = x.dims();
+        let d_in = *dims.last().expect("rank >= 1");
+        if d_in != proj.d_in {
+            candle_core::bail!("{} expects d_in={}, got {d_in}", proj.name, proj.d_in);
+        }
+        let rows: usize = dims[..dims.len() - 1].iter().product();
+        if rows != n_rows {
+            candle_core::bail!("{}: {rows} rows of activation for {n_rows}", proj.name);
+        }
+        if n_rows == 0 {
+            candle_core::bail!("{}: a rotation of zero rows", proj.name);
+        }
+        let x = x.to_dtype(DType::F16)?;
+        let op = RotRowsOp { rt: self, proj, n_rows };
+        x.apply_op1_no_bwd(&op)
+    }
+
     /// `y = W' xr` for one activation already in the rotated basis. `xr` is
     /// [`Self::rotate`]'s f32 output; `out_dims` is the *caller's* shape, so
     /// the result keeps the caller's rank, exactly as a `Linear` would.
@@ -726,15 +771,17 @@ impl FusedRuntime {
         xf.apply_op1_no_bwd(&op)
     }
 
-    /// `y = W X` for `n_rows` rotated rows, one launch.
-    ///
-    /// `xr` is `[n_rows, d_in]` f32 and contiguous — the caller stacks the
-    /// rotated rows, which is what makes this one launch instead of `n_rows`.
     /// Whether this runtime's layout carries a kernel that takes several rows.
     pub fn has_rows_kernel(&self) -> bool {
         self.f_matvec_rows.is_some()
     }
 
+    /// `y = W X` for `n_rows` rotated rows, one launch.
+    ///
+    /// `xr` is `[n_rows, d_in]` f32, contiguous, and based at offset zero —
+    /// [`RotRowsOp`] allocates it, so all three hold by construction. It used
+    /// to be built by `Tensor::cat` of `n_rows` single-row rotations, one
+    /// device copy each; the rotation produces the shape now.
     pub fn forward_rotated_rows(
         &self,
         proj: &FusedProj,
@@ -1104,6 +1151,91 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
 struct RotOp<'a> {
     rt: &'a FusedRuntime,
     proj: &'a FusedProj,
+}
+
+/// `rot_apply_rows` as a candle op: `[n_rows, d_in]` f16 in, the same shape in
+/// f32 rotated out.
+///
+/// Deliberately a second op rather than a row count on [`RotOp`]: a chunk of
+/// one takes the one-row path — `model::Proj::prepare_rows` short-circuits —
+/// so every decode step stays on the kernel `bin/oracle` certifies, and this
+/// one is reached only by a prefill.
+struct RotRowsOp<'a> {
+    rt: &'a FusedRuntime,
+    proj: &'a FusedProj,
+    n_rows: usize,
+}
+
+impl candle_core::CustomOp1 for RotRowsOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-rot-apply-rows"
+    }
+
+    fn cpu_fwd(
+        &self,
+        _: &candle_core::CpuStorage,
+        _: &Layout,
+    ) -> candle_core::Result<(candle_core::CpuStorage, Shape)> {
+        candle_core::bail!("the LLVQ rotation has no CPU path")
+    }
+
+    fn cuda_fwd(
+        &self,
+        storage: &CudaStorage,
+        layout: &Layout,
+    ) -> candle_core::Result<(CudaStorage, Shape)> {
+        let all = storage.as_cuda_slice::<f16>()?;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg("non-contiguous activation chunk"))?;
+        let want = self.proj.d_in * self.n_rows;
+        if end - start != want {
+            candle_core::bail!(
+                "activation of {} values for {} rows of d_in={}",
+                end - start,
+                self.n_rows,
+                self.proj.d_in
+            );
+        }
+        let rot = match self.proj.rotation {
+            None => candle_core::bail!(
+                "{}: artifact without rotation, path not covered, see fused_cuda.rs",
+                self.proj.name
+            ),
+            Some(key) => self
+                .rt
+                .rotations
+                .get(&key)
+                .ok_or_else(|| candle_core::Error::msg(format!("rotation {key:?} missing")))?,
+        };
+        let mut xr = unsafe { self.rt.device.cuda_stream().alloc::<f32>(want) }
+            .map_err(|e| candle_core::Error::msg(format!("alloc rot rows: {e}")))?;
+        self.rt
+            .cuda
+            .launch_rot_rows(
+                &self.rt.f_rot_rows,
+                all,
+                &rot.signbits,
+                &rot.small,
+                &mut xr,
+                rot.n,
+                rot.m,
+                rot.k,
+                rot.inv,
+                start as u32,
+                // The input rows are `d_in` apart, which is `rot.n` today and
+                // is not the same statement: `rot.n` describes the transform,
+                // `d_in` describes the buffer.
+                self.proj.d_in as u32,
+                self.n_rows as u32,
+                rot.threads,
+            )
+            .map_err(candle_core::Error::msg)?;
+        Ok((
+            CudaStorage::wrap_cuda_slice(xr, self.rt.device.clone()),
+            Shape::from(vec![self.n_rows, self.proj.d_in]),
+        ))
+    }
 }
 
 impl candle_core::CustomOp1 for RotOp<'_> {

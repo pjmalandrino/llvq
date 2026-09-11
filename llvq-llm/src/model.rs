@@ -656,6 +656,51 @@ impl Proj {
         }
     }
 
+    /// [`Self::prepare`] for a whole chunk of rows, one launch.
+    ///
+    /// `xs` is `[len, d_in]` and **contiguous** — `row_chunk` narrows it out
+    /// of the one allocation `row_views` reshapes, so the rows are already
+    /// `d_in` apart and nothing is copied to make them so.
+    ///
+    /// ## A chunk of one is [`Self::prepare`], verbatim
+    ///
+    /// Same discipline as [`Self::forward_rows`], and for a sharper reason
+    /// here: `rotate` refuses `rows != 1` and `rotate_rows` would launch a
+    /// grid of one block, which is the same arithmetic through a second entry
+    /// point. Taking the one-row path is what keeps every decode step on the
+    /// code `bin/oracle` certifies.
+    ///
+    /// ## What batches and what does not
+    ///
+    /// `Dense` and `FusedInt4` consume the activation in the basis it arrives
+    /// in, so their "rotation" is the chunk itself and costs nothing at any
+    /// length. `Fused` takes the rows kernel. `FusedSeg` does not batch — its
+    /// group is one launch already and `batches_rows` is false for it, so
+    /// `group_forward` never asks it for a chunk of more than one; asking
+    /// anyway is refused by `rotate_group`, by name, rather than silently
+    /// rotating the first row and using it for four.
+    pub fn prepare_rows(&self, xs: &Tensor) -> Result<Rotated> {
+        let rows = xs.dim(0)?;
+        if rows == 1 {
+            return self.prepare(xs);
+        }
+        match self {
+            Proj::Dense(_) => Ok(Rotated { key: None, t: xs.clone() }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::Fused { rt, proj } => Ok(Rotated {
+                key: proj.rotation(),
+                t: rt.rotate_rows(proj, xs, rows)?,
+            }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedInt4 { .. } => Ok(Rotated { key: None, t: xs.clone() }),
+            #[cfg(all(target_os = "linux", feature = "cuda"))]
+            Proj::FusedSeg { rt, group, .. } => Ok(Rotated {
+                key: group.rotation(),
+                t: rt.rotate_group(group, xs)?,
+            }),
+        }
+    }
+
     /// Whether a chunk of this projection is one launch rather than one a row.
     ///
     /// Read only to choose the chunk size — the answer changes the SHAPE of
@@ -698,49 +743,54 @@ impl Proj {
     /// q+k+v chunk it goes UP. What falls is the weight stream: `q_proj`'s
     /// words are read once instead of four times, and the stream is what
     /// costs. On the served 4B that is 776 GB a question against 194.
-    pub fn forward_rows(&self, r: &[&Rotated], x: &[Tensor]) -> Result<Vec<Tensor>> {
-        if r.len() != x.len() {
-            candle_core::bail!("{} rotations for {} rows", r.len(), x.len());
-        }
-        if r.is_empty() {
+    pub fn forward_rows(&self, r: &Rotated, xs: &Tensor, len: usize) -> Result<Vec<Tensor>> {
+        if len == 0 {
             return Ok(Vec::new());
         }
+        if xs.dim(0)? != len {
+            candle_core::bail!("{} rows of activation for a chunk of {len}", xs.dim(0)?);
+        }
         // One row is the one-row path, byte for byte.
-        if r.len() == 1 {
-            return Ok(vec![self.forward_with(r[0], &x[0])?]);
+        if len == 1 {
+            return Ok(vec![self.forward_with(r, xs)?]);
         }
         match self {
             #[cfg(all(target_os = "linux", feature = "cuda"))]
             Proj::Fused { rt, proj } if rt.has_rows_kernel() => {
-                check_key(self.site_name(), self.rot_key(), r[0].key)
+                check_key(self.site_name(), self.rot_key(), r.key)
                     .map_err(candle_core::Error::msg)?;
-                // Every rotation of a chunk is the same site's, so one check
-                // covers them — asserted rather than assumed, because a chunk
-                // built from two sites' rotations is exactly the mistake this
-                // shape invites.
-                for one in r {
-                    if one.key != r[0].key {
-                        candle_core::bail!(
-                            "{}: a chunk mixing rotations {:?} and {:?}",
-                            self.site_name(),
-                            r[0].key,
-                            one.key
-                        );
-                    }
-                }
-                let rows: Vec<Tensor> = r.iter().map(|one| one.t.clone()).collect();
-                let xr = Tensor::cat(&rows, 0)?.contiguous()?;
-                let y = rt.forward_rotated_rows(proj, &xr, r.len())?;
-                (0..r.len()).map(|i| y.narrow(0, i, 1)).collect()
+                // No `Tensor::cat` here any more, and that is the point of the
+                // whole change: `prepare_rows` rotated the chunk in one launch
+                // and its output is already `[len, d_in]` contiguous, which is
+                // the shape this kernel wants. Stacking it cost one device copy
+                // a row — 864 a chunk on the served 4B, the largest single term
+                // in the prefill's operation count.
+                //
+                // And one `check_key` covers the chunk because there is one
+                // rotation for the chunk. The loop that checked every row's key
+                // against the first went with the vector of rotations it was
+                // checking: a chunk cannot mix two sites' rotations when it
+                // holds one.
+                let y = rt.forward_rotated_rows(proj, &r.t, len)?;
+                (0..len).map(|i| y.narrow(0, i, 1)).collect()
             }
             // Dense, int4, a segmented part, or a layout with no rows kernel:
             // the same function, one row at a time. `tv_q4_h` takes no row
             // count and no offset, so int4 is here by construction and not by
             // omission.
-            _ => r
-                .iter()
-                .zip(x)
-                .map(|(one, xi)| self.forward_with(one, xi))
+            //
+            // `r.t` is narrowed along with `xs`. In practice only `Dense` and
+            // `FusedInt4` reach here with `len > 1` — a `Fused` whose layout
+            // has no rows kernel is never given a chunk, because `batch` is 1
+            // unless some projection of the group batches — and for both of
+            // those `forward_with` reads `x` and not `r.t`. The narrow is
+            // still done, because "in practice" is not a contract and a view
+            // costs nothing.
+            _ => (0..len)
+                .map(|i| {
+                    let one = Rotated { key: r.key, t: r.t.narrow(0, i, 1)? };
+                    self.forward_with(&one, &xs.narrow(0, i, 1)?)
+                })
                 .collect(),
         }
     }
@@ -858,11 +908,21 @@ fn llvq_cuda_prefill_rows() -> usize {
 }
 
 pub fn row_views(x: &Tensor) -> Result<Vec<Tensor>> {
+    let flat = row_block(x)?;
+    (0..flat.dim(0)?).map(|r| flat.narrow(0, r, 1)).collect()
+}
+
+/// The same rows as ONE contiguous `[rows, d_in]` tensor.
+///
+/// What [`row_views`] narrows out of, handed over whole. A caller that wants a
+/// chunk narrows it once and gets a view; a caller that wanted a vector of
+/// single rows and then stacked four of them back together was paying a device
+/// copy a row to rebuild a shape it already had.
+pub fn row_block(x: &Tensor) -> Result<Tensor> {
     let dims = x.dims();
     let d_in = *dims.last().expect("rank >= 1");
     let rows: usize = dims[..dims.len() - 1].iter().product();
-    let flat = x.contiguous()?.reshape((rows, d_in))?;
-    (0..rows).map(|r| flat.narrow(0, r, 1)).collect()
+    x.contiguous()?.reshape((rows, d_in))
 }
 
 /// Reassemble one projection's per-row results into the caller's shape.
@@ -945,7 +1005,10 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
             rows.div_ceil(batch)
         );
     }
-    let slices = row_views(x)?;
+    // The rows as ONE contiguous `[rows, d_in]`, not as a vector of views: a
+    // chunk is then `narrow(0, row0, len)`, which is a view into it and costs
+    // nothing, and the rotation kernel can read `len` rows from one pointer.
+    let flat = row_block(x)?;
     let per_site = drive_rows_batched(
         share,
         projs,
@@ -955,9 +1018,9 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
         // `Proj::Dense` and `Proj::FusedInt4` both consume the activation in
         // the basis it arrives in.
         |p: &&Proj| p.rot_key().is_some(),
-        |p: &&Proj, row: usize| p.prepare(&slices[row]),
-        |p: &&Proj, r: &[&Rotated], row0: usize| {
-            p.forward_rows(r, &slices[row0..row0 + r.len()])
+        |p: &&Proj, row0: usize, len: usize| p.prepare_rows(&flat.narrow(0, row0, len)?),
+        |p: &&Proj, r: &Rotated, row0: usize, len: usize| {
+            p.forward_rows(r, &flat.narrow(0, row0, len)?, len)
         },
     )?;
 

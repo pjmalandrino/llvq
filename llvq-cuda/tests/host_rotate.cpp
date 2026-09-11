@@ -25,6 +25,8 @@
 //   in : u32 n, u32 m, u32 k, f32 inv, u32 words[(n+31)/32],
 //        f32 small[KMAX*KMAX], u16 xin[n]
 //   out: f32 out[n] × 4   — widths 1, 7, 32, 256 in that order
+//        f32 worst[3]     — rot_apply_rows against rot_apply, at 1, 3 and 4
+//                           rows; every one of them must be exactly 0
 
 #include "host_shim.h"
 
@@ -123,6 +125,56 @@ int main()
         std::fill(out.begin(), out.end(), 0.0f);
         replay(xin.data(), signbits.data(), small.data(), out.data(), n, m, k, inv, w);
         std::fwrite(out.data(), sizeof(float), n, stdout);
+    }
+
+    // ---- rot_apply_rows: the same kernel, the rows in the grid -------------
+    //
+    // The property, and it is the only one that needs a new fixture: row `r`
+    // of a batched rotation is the single-row rotation of row `r` of the
+    // input. Both sides are the REAL kernels — `rot_apply_rows` driven at
+    // `blockIdx.x = r`, `rot_apply` on that row alone — so this is not a
+    // replay and cannot drift from one.
+    //
+    // 🚨 The input rows are `n + STRIDE_PAD` apart, deliberately NOT `n`. The
+    // kernel reads the input at `x_off + r * row_stride` and writes the output
+    // at `r * n`, and those are two different quantities that are equal in
+    // every model this repository serves. A kernel that used `n` for both, or
+    // `row_stride` for both, is right on every real shape and wrong here.
+    //
+    // The rows are distinct — row `r` is the fixture cyclically shifted by `r`
+    // — so reading the wrong row is a wrong answer rather than a lucky one.
+    {
+        const u32 STRIDE_PAD = 8u;
+        const u32 stride = n + STRIDE_PAD;
+        for (u32 rows : {1u, 3u, 4u}) {
+            std::vector<unsigned short> batch((size_t)stride * rows, 0u);
+            for (u32 r = 0; r < rows; ++r)
+                for (u32 i = 0; i < n; ++i)
+                    batch[(size_t)r * stride + i] = xin[(i + r) % n];
+
+            std::vector<float> many((size_t)n * rows, 0.0f);
+            blockDim.x = 1;
+            threadIdx.x = 0;
+            for (u32 r = 0; r < rows; ++r) {
+                blockIdx.x = r;
+                rot_apply_rows(batch.data(), signbits.data(), small.data(), many.data(),
+                               n, m, k, inv, 0u, stride);
+            }
+            blockIdx.x = 0;
+
+            float worst = 0.0f;
+            std::vector<float> one(n);
+            for (u32 r = 0; r < rows; ++r) {
+                std::fill(one.begin(), one.end(), 0.0f);
+                rot_apply(batch.data() + (size_t)r * stride, signbits.data(), small.data(),
+                          one.data(), n, m, k, inv, 0u);
+                for (u32 i = 0; i < n; ++i) {
+                    float d = many[(size_t)r * n + i] - one[i];
+                    worst = std::max(worst, d < 0.0f ? -d : d);
+                }
+            }
+            std::fwrite(&worst, sizeof(float), 1, stdout);
+        }
     }
     return 0;
 }
