@@ -299,3 +299,79 @@ CE QUE CE N'EST PAS
   qui dépende de la donnée, donc le contenu du prompt ne change pas le temps.
   Le recensement multiplierait ce chiffre par 14 042 ET ajouterait le
   découpage en sujets, l'échantillonnage et l'écriture des dumps.
+
+
+================================================================================
+F1e §0 quater — CE QUE VAUT LA ROTATION PAR LOTS
+================================================================================
+Préreg      : proofs/preregistration-f1e0-prefill-2026-09-11.md, tamponné AVANT
+              le lancement ; scores dans le -ECARTS.md
+Job         : 6aa3a6c121047bf1b0374fda, l40sx1, 3 min 59 s, 0,12 $
+Image       : hf.co/spaces/Pier-Jean/llvq-runner-cuda au commit 0c2d798
+              source NVRTC 98 431 o, sha256 dfa2d44b… (94 819 o avant)
+Objet       : le fichier servi, drapeaux servis, MÊME carte, MÊMES longueurs
+              qu'au job 6aa32150 — seul le CODE a changé
+Nature      : *mesuré*
+
+CE QUE ÇA A RENDU
+-----------------
+  jetons de prompt    avant (6aa32150)          après (6aa3a6c1)
+  ---------------------------------------------------------------------
+      200            1 059,6 ms                  **762,4** [761,1–762,9]
+      800            4 364,0 ms                **3 119,7** [3 117,7–3 126,8]
+
+  Pente : **5,507 → 3,929 ms par jeton de prompt, soit ×1,402.**
+  Ordonnée : −41,9 → −23,4 ms. Toujours pas de coût fixe par passe.
+
+  ⚠️ Deux jobs, deux processus. Le rapport ×1,402 est formé sur deux PENTES,
+  chacune tirée de deux points mesurés dans son propre processus, à fichier,
+  carte, drapeaux et longueurs identiques. Ce n'est pas un quotient de deux
+  minima (règle 7) ni un × traversant deux cartes (règle 5).
+
+  Recensement de 2 280 questions (*calculé* sur pente + ordonnée) :
+  **2,09 h et 3,76 $  →  1,49 h et 2,69 $.**
+
+LE GARDE-FOU, QUE CE MODE N'AVAIT PAS
+--------------------------------------
+  N jetons en un appel contre N appels d'un jeton — le second est `rows == 1`
+  par construction, donc le chemin NON batché, sans drapeau ni second build.
+
+    200 jetons : max |Δlogit| 6,836e-2 sur une échelle de 2,412e1, argmax 785 = 785
+    800 jetons : max |Δlogit| 5,566e-2 sur une échelle de 2,588e1, argmax 785 = 785
+
+  0,28 % et 0,22 % : le niveau du f16, pas celui d'un mauvais indexage.
+  Et le protocole servi : **256 jetons identiques au bras dense**, 101,5 tok/s
+  en 1,39 Go, ×2,36 contre le dense de son propre processus. `oracle` MATCH.
+
+CE QUE LE CHIFFRE DIT DU MODÈLE DE COÛT
+----------------------------------------
+  Le préreg prédisait 6,5 ms d'économie par paquet, en supposant ~5 µs de
+  surcoût par lancement. **Mesuré : 6,22 ms**, soit **4,80 µs par opération
+  supprimée** (1 296 d'entre elles). Le modèle tient.
+
+  Et il se retourne, ce qui est le plus utile ici :
+
+    1 296 opérations supprimées :  4,80 µs pièce
+      504 opérations restantes : **30,9 µs pièce**, 6,4× plus cher
+
+  Les restantes ne sont plus des lancements vides. C'est le flux de poids,
+  l'attention en N², les normes. Bande passante : 44,5 → **62,2 Go/s**, soit
+  **7,2 % des 864** de la L40S. Moins limité par les lancements qu'avant, et
+  toujours pas par la mémoire.
+
+LE POSTE SUIVANT, CHIFFRÉ AVEC CETTE CONSTANTE
+-----------------------------------------------
+  `regroup` recolle les rangées d'un site avec `Tensor::cat` : une recopie par
+  rangée et par site, **1 008 par paquet**. À 4,80 µs *mesurés* : **4,84 ms**.
+
+  Le supprimer donnerait 15,60 → 10,76 ms par paquet, **2,690 ms par jeton**
+  (×1,45 de plus), et le recensement à **1,03 h et 1,86 $** (*estimé*, sur une
+  constante mesurée et une hypothèse de proportionnalité qui a tenu une fois).
+
+  C'est autant que ce que la rotation par lots vient de rendre.
+
+CE QUE CE N'EST TOUJOURS PAS
+-----------------------------
+  Pas un MMLU. `bin/mmlu` charge par `sealed::load_with_restored`, une
+  reconstruction dense : il n'a pas de bras noyau. C'est la dernière pièce
+  entre ces chiffres et un vrai recensement par le noyau.
