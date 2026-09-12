@@ -1,0 +1,72 @@
+gainrule — Tetra, production encoder, seed 0xf1b20260904, 4000 training blocks, 20000 evaluation blocks, 4 threads, rate 2.000 b/dim
+
+gain centroids fitted on norms       [4.327430071549553, 5.464457773471739]
+gain centroids fitted on projections [4.149588026702076, 5.243042666175433]
+
+cos θ between a block and its Tetra direction: mean 0.9608, sd 0.0077, median 0.9618, 1st percentile 0.9369
+the ratio 2/(1+cos θ) the norm rule pays at the continuous optimum: 1.0200
+
+arm                                       MSE   retention     paired gap against A levels moved
+A, shipped: norms, round the norm    0.085418      88.73%  +0.00000 +- 0.00000        0.0%   worse
+B: norm centroids, round t           0.084383      89.17%  -0.00103 +- 0.00003       10.8%
+C: projection centroids, round t     0.083772      89.43%  -0.00165 +- 0.00005        1.9%
+E: C rescaled to A's mean norm       0.085374      88.75%  -0.00004 +- 0.00002       10.6%
+D: free gain, the bound              0.076929      92.51%  -0.00849 +- 0.00009        0.0%
+
+mean block norm 4.8492; mean reconstructed norm: A 4.8525, B 4.7298, C 4.6588, continuous optimum 4.6589
+radial drift against A: B -2.53%, C -3.99%
+
+The shipped rule with its centroids scaled by k, same decision on the norm:
+       k          MSE   retention      mean norm
+    0.90     0.087381      87.91%         4.3673
+    0.91     0.086290      88.37%         4.4158
+    0.92     0.085397      88.74%         4.4643
+    0.93     0.084704      89.04%         4.5128
+    0.94     0.084209      89.25%         4.5614
+    0.95     0.083913      89.37%         4.6099
+    0.96     0.083816      89.42%         4.6584
+    0.97     0.083918      89.37%         4.7069
+    0.98     0.084219      89.24%         4.7555
+    0.99     0.084719      89.03%         4.8040
+    1.00     0.085418      88.73%         4.8525
+    1.01     0.086316      88.36%         4.9010
+    1.02     0.087412      87.90%         4.9496
+    1.03     0.088708      87.37%         4.9981
+    1.04     0.090202      86.77%         5.0466
+best k 0.96 at MSE 0.083816 (89.42% retention); arm C reads 0.083772 (89.43%)
+gainrule — Tetra, production encoder, seed 0x309, 4000 training blocks, 20000 evaluation blocks, 4 threads, rate 2.000 b/dim
+
+gain centroids fitted on norms       [4.29074177074354, 5.416945901387787]
+gain centroids fitted on projections [4.118108896524199, 5.199947068045051]
+
+cos θ between a block and its Tetra direction: mean 0.9608, sd 0.0075, median 0.9618, 1st percentile 0.9375
+the ratio 2/(1+cos θ) the norm rule pays at the continuous optimum: 1.0200
+
+arm                                       MSE   retention     paired gap against A levels moved
+A, shipped: norms, round the norm    0.084998      88.91%  +0.00000 +- 0.00000        0.0%   worse
+B: norm centroids, round t           0.083955      89.36%  -0.00104 +- 0.00002       11.2%
+C: projection centroids, round t     0.083561      89.53%  -0.00144 +- 0.00005        1.9%
+E: C rescaled to A's mean norm       0.084961      88.93%  -0.00004 +- 0.00002       10.9%
+D: free gain, the bound              0.076675      92.63%  -0.00832 +- 0.00008        0.0%
+
+mean block norm 4.8461; mean reconstructed norm: A 4.8382, B 4.7123, C 4.6480, continuous optimum 4.6563
+radial drift against A: B -2.60%, C -3.93%
+
+The shipped rule with its centroids scaled by k, same decision on the norm:
+       k          MSE   retention      mean norm
+    0.90     0.087433      87.89%         4.3544
+    0.91     0.086300      88.36%         4.4028
+    0.92     0.085364      88.76%         4.4511
+    0.93     0.084627      89.07%         4.4995
+    0.94     0.084086      89.30%         4.5479
+    0.95     0.083744      89.45%         4.5963
+    0.96     0.083599      89.51%         4.6447
+    0.97     0.083653      89.49%         4.6930
+    0.98     0.083903      89.38%         4.7414
+    0.99     0.084352      89.19%         4.7898
+    1.00     0.084998      88.91%         4.8382
+    1.01     0.085842      88.55%         4.8866
+    1.02     0.086884      88.12%         4.9350
+    1.03     0.088123      87.61%         4.9833
+    1.04     0.089560      87.03%         5.0317
+best k 0.96 at MSE 0.083599 (89.51% retention); arm C reads 0.083561 (89.53%)
