@@ -430,5 +430,213 @@ def main():
                   f"accuracy {accuracy(a, ks):5.2f} against f16 {accuracy(g16, ks):5.2f}")
 
 
+# ---------------------------------------------------------------------------
+# Self-test. Rule 10: mutate the code before calling a gate green.
+# ---------------------------------------------------------------------------
+
+def _synth(f16, keys, beta, sd, rng, where="all"):
+    """A synthetic arm: beta * f16 logits + gaussian noise. `where` says which
+    options the noise lands on, at constant total variance."""
+    out = {}
+    for k in keys:
+        L = f16[k]["logits"]
+        order = sorted(range(4), key=lambda i: -L[i])
+        if where == "all":
+            w = [1.0] * 4
+        elif where == "tail":
+            w = [0.0] * 4
+            for i in order[2:]:
+                w[i] = math.sqrt(2.0)          # same sum of squares over the four
+        else:
+            raise ValueError(where)
+        v = [beta * L[i] + w[i] * rng.gauss(0, sd) for i in range(4)]
+        out[k] = dict(population=f16[k]["population"], answer=f16[k]["answer"],
+                      pick=max(range(4), key=lambda i: v[i]), logits=v)
+        out[k]["correct"] = int(out[k]["pick"] == out[k]["answer"])
+    return out
+
+
+def _fit_law(f16, arms, keys_snr, keys_acc):
+    pts = [(fidelity(f16, a, keys_snr)[3], accuracy(a, keys_acc)) for a in arms]
+    lx = [math.log(s) for s, _ in pts]
+    ly = [y for _, y in pts]
+    n = len(lx)
+    mlx, mly = sum(lx) / n, sum(ly) / n
+    c = sum((lx[i] - mlx) * (ly[i] - mly) for i in range(n)) / sum((x - mlx) ** 2 for x in lx)
+    a = mly - c * mlx
+    r = [ly[i] - (a + c * lx[i]) for i in range(n)]
+    return a, c, math.sqrt(sum(x * x for x in r) / n), r
+
+
+def selftest():
+    rng = random.Random(SEED)
+    f16 = load(F16)
+    keys = sorted(f16)
+    ok = True
+
+    print("S1. Oracle: build an arm with a known beta and sigma, ask the estimator for them.")
+    print(f"   {'beta in':>8} {'sigma in':>9} {'beta out':>9} {'sigma out':>10} "
+          f"{'expected sigma out':>19} {'verdict':>9}")
+    for beta, sd in ((0.466, 1.638), (0.960, 0.988), (1.000, 0.100), (0.250, 3.000)):
+        a = _synth(f16, keys, beta, sd, rng)
+        b, sdc, _, _ = fidelity(f16, a, keys)
+        want = sd * math.sqrt(3.0 / 4.0)          # centring removes a quarter of the variance
+        good = abs(b - beta) < 0.03 * beta and abs(sdc - want) < 0.03 * want
+        ok &= good
+        print(f"   {beta:8.3f} {sd:9.3f} {b:9.3f} {sdc:10.3f} {want:19.3f} "
+              f"{'passes' if good else 'FAILS':>9}")
+
+    print("\n   Round trip on the accuracy: an arm built at (beta, sd), then the simulator")
+    print("   fed the pair the estimator reads back. One arm is one draw, so the bar is its")
+    print("   own spread, not zero.")
+    for beta, sd in ((0.466, 1.638), (0.960, 0.988)):
+        draws = [_synth(f16, keys, beta, sd, rng) for _ in range(12)]
+        got = [accuracy(a, keys) for a in draws]
+        mu = sum(got) / len(got)
+        spread = math.sqrt(sum((x - mu) ** 2 for x in got) / (len(got) - 1))
+        b, sdc, _, _ = fidelity(f16, draws[0], keys)
+        sim, _ = simulate(f16, keys, b, sdc * math.sqrt(4 / 3), 40, rng)
+        good = abs(sim - mu) < 1.0
+        ok &= good
+        print(f"   beta {beta:.3f} sd {sd:.3f}: twelve arms average {mu:.2f} "
+              f"(spread {spread:.2f}), simulator says {sim:.2f}  "
+              f"{'passes' if good else 'FAILS':>9}")
+
+    print("\nS2. Mutants, on the real published dump. Each must move a headline number.")
+    arm = load(ARMS["planes14"])
+    ks = sorted(set(f16) & set(arm))
+    b_ref, sd_ref, sx, snr_ref = fidelity(f16, arm, ks)
+    n = 4 * len(ks)
+
+    def _fit(xs, ys):
+        mx, my = sum(xs) / n, sum(ys) / n
+        vx = sum((x - mx) ** 2 for x in xs) / n
+        b = sum((xs[i] - mx) * (ys[i] - my) for i in range(n)) / n / vx
+        res = [ys[i] - my - b * (xs[i] - mx) for i in range(n)]
+        return b, math.sqrt(sum(e * e for e in res) / n), math.sqrt(vx)
+
+    raw = _fit([v for k in ks for v in f16[k]["logits"]],
+               [v for k in ks for v in arm[k]["logits"]])
+    snr_raw = raw[0] * raw[2] / raw[1]
+    killed = abs(snr_raw - snr_ref) > 0.05 * snr_ref
+    ok &= killed
+    print(f"   {'no centring within a question':<34} SNR {snr_raw:6.3f} against "
+          f"{snr_ref:.3f}  {'killed' if killed else 'SURVIVES':>9}")
+    back = _fit([v for k in ks for v in centred(arm, k)],
+                [v for k in ks for v in centred(f16, k)])
+    killed = abs(back[0] - b_ref) > 0.05 * b_ref
+    ok &= killed
+    print(f"   {'regression run backwards':<34} beta {back[0]:6.3f} against "
+          f"{b_ref:.3f}  {'killed' if killed else 'SURVIVES':>9}")
+    m_bad, _ = simulate(f16, ks, b_ref, sd_ref, 60, rng)
+    m_ok, _ = simulate(f16, ks, b_ref, sd_ref * math.sqrt(4 / 3), 60, rng)
+    killed = abs(m_bad - m_ok) > 1.0
+    ok &= killed
+    print(f"   {'simulation without sqrt(4/3)':<34} {m_bad:6.2f} against {m_ok:.2f}  "
+          f"{'killed' if killed else 'SURVIVES':>9}")
+    shuffled = dict(arm)
+    perm = ks[:]
+    rng.shuffle(perm)
+    swapped = {k: arm[perm[i]] for i, k in enumerate(ks)}
+    b_s, sd_s, _, snr_s = fidelity(f16, swapped, ks)
+    killed = snr_s < 0.3 * snr_ref
+    ok &= killed
+    print(f"   {'arm paired to the wrong questions':<34} SNR {snr_s:6.3f} against "
+          f"{snr_ref:.3f}  {'killed' if killed else 'SURVIVES':>9}")
+
+    print("\nS3. Power. Twelve synthetic arms spanning the measured SNR range; in the second")
+    print("   world half of them get their noise only on the options f16 ranks third and")
+    print("   fourth, at the same total variance. Those arms are better than their SNR says.")
+    snrs = [1.03 + i * (2.43 - 1.03) / 11 for i in range(12)]
+    subs = sorted(set(k[0] for k in keys))
+    rng2 = random.Random(SEED + 1)
+    probe = _synth(f16, keys, 0.5, 1.0, rng2)
+    sx_ref = fidelity(f16, probe, keys)[2]
+    detected = None
+    for label, mix in (("no second axis", 0), ("half the arms tilted", 1)):
+        built, tilt = [], []
+        for i, s in enumerate(snrs):
+            sd = 0.5 * sx_ref / s
+            where = "tail" if (mix and i % 2) else "all"
+            built.append(_synth(f16, keys, 0.5, sd, rng2, where))
+            tilt.append(where == "tail")
+        sh = subs[:]
+        rng2.shuffle(sh)
+        ka = [k for k in keys if k[0] in set(sh[:28])]
+        kb = [k for k in keys if k[0] in set(sh[28:])]
+        _, _, rms, res = _fit_law(f16, built, ka, kb)
+        if mix:
+            detected = (sum(res[i] for i in range(12) if tilt[i]) / sum(tilt)
+                        - sum(res[i] for i in range(12) if not tilt[i]) / (12 - sum(tilt)))
+            print(f"   {label:<22} rms {rms:5.2f} pp, tilted arms {detected:+.2f} pp "
+                  f"above the rest")
+        else:
+            print(f"   {label:<22} rms {rms:5.2f} pp")
+    print("   The rms is a weak detector of a second axis; the group contrast is the one to use.")
+
+    print("\nS4. Group contrast on the real arms, with the detector S3 qualified.")
+    real = {nm: load(p) for nm, p in ARMS.items()}
+    kr = sorted(set(f16) & set.intersection(*[set(a) for a in real.values()]))
+    names = [nm for nm in real if not nm.startswith("awq")]
+    g1 = [nm for nm in names if nm.startswith("M2:") or nm == "planes14"]
+    g2 = [nm for nm in names if nm.startswith("M2rep") or nm.startswith("M2b3") or nm == "seed3"]
+
+    def _contrast(kk):
+        pts = [(math.log(fidelity(f16, real[nm], kk)[3]), accuracy(real[nm], kk), nm)
+               for nm in names]
+        N = len(pts)
+        mlx = sum(p[0] for p in pts) / N
+        mly = sum(p[1] for p in pts) / N
+        c = (sum((p[0] - mlx) * (p[1] - mly) for p in pts)
+             / sum((p[0] - mlx) ** 2 for p in pts))
+        a0 = mly - c * mlx
+        r = {p[2]: p[1] - (a0 + c * p[0]) for p in pts}
+        return (sum(r[nm] for nm in g1) / len(g1) - sum(r[nm] for nm in g2) / len(g2)), r
+
+    obs, r0 = _contrast(kr)
+    boot = []
+    for _ in range(300):
+        boot.append(_contrast([kr[rng.randrange(len(kr))] for _ in range(len(kr))])[0])
+    boot.sort()
+    print(f"   published-file arms minus seed-3-file arms: {obs:+.2f} pp, "
+          f"bootstrap CI95 [{boot[7]:+.2f}; {boot[292]:+.2f}]")
+    print(f"   the law therefore excludes a second axis larger than about "
+          f"{max(abs(boot[7]), abs(boot[292])):.1f} pp, and no smaller one is resolved.")
+
+    print("\nS5. Bootstrap over questions, 400 resamples, on the headline quantities.")
+    for nm in ("awq4", "planes14", "tetra"):
+        a = real[nm]
+        bs, ns, fl = [], [], []
+        for _ in range(400):
+            samp = [kr[rng.randrange(len(kr))] for _ in range(len(kr))]
+            b, sd, sxx, _ = fidelity(f16, a, samp)
+            bs.append(b)
+            ns.append(100 * sd ** 2 / (b * b * sxx * sxx + sd ** 2))
+            fl.append(100 * sum(1 for k in samp if shape_corr(f16, a, k) < 0) / len(samp))
+
+        def ci(v):
+            v = sorted(v)
+            return v[int(0.025 * len(v))], v[int(0.975 * len(v))]
+
+        b, sd, sxx, _ = fidelity(f16, a, kr)
+        print(f"   {nm:<10} beta {b:.3f} [{ci(bs)[0]:.3f}; {ci(bs)[1]:.3f}]   noise share "
+              f"{100 * sd ** 2 / (b * b * sxx * sxx + sd ** 2):.1f}% "
+              f"[{ci(ns)[0]:.1f}; {ci(ns)[1]:.1f}]   reversed "
+              f"{100 * sum(1 for k in kr if shape_corr(f16, a, k) < 0) / len(kr):.1f}% "
+              f"[{ci(fl)[0]:.1f}; {ci(fl)[1]:.1f}]")
+
+    print("\nS6. The reversal threshold is a choice. The share at other cuts:")
+    print(f"   {'cut on rho_q':>13}" + "".join(f"{n:>12}" for n in ("awq4", "planes14", "tetra")))
+    for cut in (-0.5, -0.25, 0.0, 0.25, 0.5):
+        line = f"   {cut:>13.2f}"
+        for nm in ("awq4", "planes14", "tetra"):
+            line += f"{100 * sum(1 for k in kr if shape_corr(f16, real[nm], k) < cut) / len(kr):11.1f}%"
+        print(line)
+
+    print("\n" + ("self-test passes" if ok else "SELF-TEST FAILS"))
+    return 0 if ok else 1
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    raise SystemExit(selftest() if "selftest" in sys.argv[1:] else main())

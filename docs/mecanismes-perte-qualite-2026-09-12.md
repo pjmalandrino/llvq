@@ -5,7 +5,9 @@ writes the four option logits verbatim so that a later analysis can rank them
 (`llvq-llm/src/bin/mmlu.rs:448`); the accuracy keeps one argmax per question. This document
 reads the logits back, on the 37 dumps already on disk. It is *computed* throughout, on
 *measured* dumps, and cost $0. The accounting is reproduced by `uv run ops/logit_snr.py`, whose
-output is the journal [logit-snr-4b-2026-09-12](mesures/logit-snr-4b-2026-09-12.txt). No run was
+output is the journal [logit-snr-4b-2026-09-12](mesures/logit-snr-4b-2026-09-12.txt). Its
+estimator is qualified by `uv run ops/logit_snr.py selftest`, four mutants and a power test,
+journal [logit-snr-selftest-2026-09-12](mesures/logit-snr-selftest-2026-09-12.txt). No run was
 started and no decision is taken here.
 
 The estimator is the repository's own: accuracy stratified by subject population, which
@@ -19,18 +21,20 @@ regress `y = beta * x + e` over the 9,120 values of the bank. Two numbers come o
 share of the reference signal that survives quantization, and `sd(e)`, what replaces it. Their
 ratio is the fidelity, `SNR = beta * sd(x) / sd(e)`.
 
-| arm | beta | sd(e) | SNR | noise share of the served logit variance | MMLU |
+| arm | beta [CI95] | sd(e) | SNR | noise share of the served logit variance | MMLU |
 |---|---|---|---|---|---|
-| AWQ w4 g128 | 0.960 | 0.856 | 3.656 | 7.0% | 70.04 |
-| `Planes14`, published | 0.466 | 1.418 | 1.071 | 46.6% | 55.59 |
-| `Tetra` | 0.458 | 1.451 | 1.029 | 48.6% | 53.49 |
+| AWQ w4 g128 | 0.960 [0.954; 0.967] | 0.856 | 3.656 | 7.0% [6.5; 7.6] | 70.04 |
+| `Planes14`, published | 0.466 [0.453; 0.479] | 1.418 | 1.071 | 46.6% [44.7; 48.6] | 55.59 |
+| `Tetra` | 0.458 [0.444; 0.474] | 1.451 | 1.029 | 48.6% [46.4; 50.6] | 53.49 |
 | `Tetra` + `v_proj` int4 | 0.498 | 1.443 | 1.125 | 44.1% | 56.95 |
+
+Intervals are bootstrap over questions, 400 resamples.
 
 Read the third column first. Almost half of the logit variance the served 4B produces is
 quantization noise, and just under half of the reference signal survives. AWQ, at a rate 1.9
 times ours, loses 4% of the signal and carries 7% of noise.
 
-## One scalar accounts for the whole family
+## One scalar accounts for the family, to within three points
 
 Fit `acc = a + c ln(SNR)` on 28 arms: two codebooks, three calibration draws, seven projection
 types restored to f16, two restored to int4, two aggregates, two base files, two seeds of the
@@ -38,12 +42,17 @@ attribution campaign. The fit is `acc = 54.60 + 14.60 ln(SNR)` with an rms resid
 against a per-arm sampling error of 1.41 pp.
 
 The relation is partly mechanical, since both quantities are read on the same four logits. What
-is measured is the absence of a second axis. Read the SNR on 28 subjects and the accuracy on the
+the fit adds is a bound on a second axis. Read the SNR on 28 subjects and the accuracy on the
 other 29, and the law holds out of sample at 1.74 pp of rms residual, where the arms spread over
-3.33 pp and one arm's sampling error on 29 subjects is 1.59 pp. At equal logit fidelity, none of
-our design choices produces a better MMLU. The codebook does not, which is what the
-`leech0c13` campaign of 2026-09-07 found the expensive way. Neither does the calibration draw,
-the restored matrix, nor the format.
+3.33 pp and one arm's sampling error on 29 subjects is 1.59 pp.
+
+The rms is a weak detector, and the self-test measures how weak: a synthetic second axis worth
+1.34 pp moves it from 1.23 to 1.40. The contrast between groups of arms is the detector with
+power, and on the real arms it reads +1.58 pp between the eleven scored on the published file and
+the twelve scored on the seed-3 file, bootstrap CI95 [−0.48; +3.25]. A second axis above about
+3 pp is excluded, and one below it is not resolved. Inside that bound, no design choice of ours
+shows up: neither the codebook, which the `leech0c13` campaign of 2026-09-07 found the
+expensive way, nor the calibration draw, the restored matrix or the format.
 
 The law prices the work. One MMLU point costs a factor 1.071 on the SNR, that is a division of
 the noise-to-signal ratio by 1.15. Reading 65 at the 4B needs the SNR of the served `Tetra` arm
@@ -74,7 +83,8 @@ should go.
 ## A reversal on part of the bank
 
 Take the correlation between the four f16 logits of a question and the four the arm produces.
-For AWQ, 0.7% of the bank comes out negative. For the five LLVQ encodings, 11.1 to 15.6%. On
+For AWQ, 0.7% of the bank comes out negative [0.3; 1.0]. For the five LLVQ encodings, 11.1 to
+15.6% (`Planes14` [10.4; 13.2], `Tetra` [14.1; 17.2]). On
 those questions the arm scores 10.8 to 15.2%, below the 25% of a coin, while f16 scores 53.5 to
 62.4%. The arm answers something else on those questions, and holds it as firmly as f16 held the
 right one.
@@ -173,6 +183,10 @@ late.
 The law is fitted on arms whose SNR runs 1.03 to 2.43. AWQ at 3.66 sits 3.48 pp under its
 extrapolation, which is expected of a logarithm against a ceiling of 70.32 and is not evidence
 about the law inside its range.
+
+Zero is one cut among several. At −0.25 the shares are 0.2% for AWQ against 7.5 and 9.5%, at
++0.25 they are 1.3% against 17.7 and 21.8%. The ratio to AWQ holds across the cuts; the absolute
+level is a choice.
 
 The 4 to 7 points of excess reversal are a coupling between the error and the question. This
 document does not say what the coupling is. The obvious candidate, that the broken questions
