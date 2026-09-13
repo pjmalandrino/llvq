@@ -1,0 +1,138 @@
+L01 SUR L'OBJET SERVI : LE CORRECTIF RADIAL REND +1,23 pp, IL N'EST PAS RÉSOLU,
+ET SUR LE COMPTE BRUT IL NE FAIT RIEN (2026-09-13)
+================================================================================
+Préreg      : preregistration-m1-rho-2026-09-07.md, tamponné, avec les écarts
+              É5 (le fichier et le device changent), É6 (le bras B relancé alors
+              que É1 disait qu'il mourrait) et É7 (le §5 n'a pas de ligne pour
+              ce cas). Le préreg décrit le Tetra nu sur carte ; ce bras tourne
+              sur le mixte servi, sur Metal.
+Code        : branche claude/fine-tuning-cost-mmlu-gain-kic9ua, commit 338dc86
+Job         : aucun. **0,00 $.** Mac seul, aucune carte, aucun bucket.
+              ~3,4 h de M3 Max, `nice 10`.
+Nature      : *mesuré* pour les taux, *calculé* pour les intervalles
+
+MONTAGE
+-------
+  Trois bras, même fichier aux échelles de ligne près, même device, mêmes
+  2 280 questions, empreinte `65dcd53655e8bfa5` sur les trois (contrôle §4.1).
+
+    témoin   ~/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin   l'objet servi
+    A        rhoA.bin    ρ uniforme = 0,929433
+    B        rhoB.bin    ρ_i par ligne, formule du §2
+
+  Les deux artefacts font **1 794 564 765 octets**, la taille exacte du servi :
+  seul le contenu de `row_scales` change (contrôle §4.2).
+
+  **Pourquoi un troisième bras.** Le §4.6 fixe le témoin à `t0.csv`, un dump
+  carte du Tetra nu à 53,49. Le fichier servi lit 55,52 sur carte, et le dépôt
+  a mesuré le device à −1,18 pp ailleurs : apparier un bras Metal contre un
+  dump carte aurait confondu le correctif et la carte. Le témoin est donc
+  re-mesuré sur Metal.
+
+RÉSULTAT 0, GRATUIT — L'EFFET DEVICE SUR CE FICHIER EST NUL
+------------------------------------------------------------
+    carte L40S (dump publié du 2026-09-11)   55,52
+    Metal   (témoin d'aujourd'hui)           55,70
+
+    Δ = **−0,18 pp**, IC95 [−0,46 ; +0,04], McNemar p = 0,6875
+    6 discordantes sur 2 280 (**0,3 %**)
+
+  Le −1,18 pp mesuré ailleurs ne se transpose pas ici. Sur l'objet servi le
+  device est borné à 0,46 pp au pire et n'est pas résolu. Le troisième bras
+  était une assurance, pas une nécessité — mais elle a coûté 0,00 $.
+
+RÉSULTAT 1 — LE BRAS A, ET SES DEUX STATISTIQUES NE DISENT PAS LA MÊME CHOSE
+------------------------------------------------------------------------------
+    statistique              témoin      A        Δ         IC95              SE
+    ---------------------------------------------------------------------------
+    micro stratifié (publ.)   55,70    56,93   +1,23   [−0,50 ; +3,06]   0,91
+    non pondéré (McNemar)     57,85    57,98   +0,13   [−0,95 ; +1,24]   0,56
+
+    McNemar exact : A✓B✗ = 112, A✗B✓ = 115, concordantes 2 053
+                    **p = 0,8944**, 10,0 % de discordantes
+
+  **NON RÉSOLU sur les deux axes**, et l'écart entre eux est un facteur 10.
+
+  Sur le compte brut de questions le correctif ne fait **rien** : 112 gagnées
+  contre 115 perdues. Le +1,23 pp vient de la re-pondération par la population
+  des 57 matières, et `professional law` seul — poids 10,9 % — en porte +0,819.
+
+  C'est le motif inverse de T3 (t3-genou-2026-09-12), où le brut résolvait et le
+  stratifié non. Ici ni l'un ni l'autre ne résout.
+
+CE QUE ÇA DIT CONTRE LA LECTURE DE 2026-09-07
+----------------------------------------------
+    base                              ΔM       IC95              McNemar
+    -------------------------------------------------------------------
+    Tetra nu, carte (2026-09-07)    +1,65   [−0,18 ; +3,54]   p = 0,062
+    mixte servi, Metal (ce jour)    +1,23   [−0,50 ; +3,06]   p = 0,8944
+
+  Les deux lectures sont cohérentes en point et toutes deux non résolues. Ce qui
+  change, c'est le **compte brut** : p = 0,062 sur la base nue, p = 0,894 sur la
+  base servie. Le signal par question qui était presque là a disparu.
+
+  La ligne L01 de ROADMAP-QUALITY annonçait « **+1,0** [−0,3 ; +2,5], *mesuré*
+  sur Tetra nu (+1,65), *calculé* sur la base servie ». Le calculé est confirmé
+  en point — 1,23 contre 1,0 annoncé — et l'intervalle mesuré est plus large que
+  celui qui était annoncé.
+
+RÉSULTAT 2 — LE BRAS B EST MORT, ET C'ÉTAIT ÉCRIT
+---------------------------------------------------
+    témoin 55,70 · B **29,79** (le hasard est à 25,0)
+    Δ = −25,91 pp, IC95 [−29,10 ; −22,62], p = 2,3e−86, 44,6 % de discordantes
+
+  É1 établit depuis le 2026-09-07 que la formule du §2 est fausse : la ligne
+  décodée est **affine** en ρ (`r_i(ρ) = ρ·B_i + T_i`, la queue `KeepExact`
+  n'est pas mise à l'échelle), et le bras B de ce jour-là avait rendu 28,11 pour
+  cette raison. `rhoapply` calcule la forme corrigée `ρ̃_i` et la publie, mais
+  écrit `ρ_i` parce que le §2 tamponné fixe la formule.
+
+  **Le bras a été relancé quand même.** ~70 min de Mac, 0,00 $. Voir É6.
+
+  Ce que ça n'ouvre pas : É3 a déjà mesuré le bras corrigé (M1b), et `B'` rend
+  le même modèle que `A` à **0,04 pp** (p = 0,922). L'axe ligne est un seul
+  nombre, et cette conclusion ne dépend pas du fichier.
+
+VERDICT — LA QUATRIÈME LIGNE DU §5, POUR LA SECONDE FOIS
+----------------------------------------------------------
+  « B pire que A de plus de 0,43 pp → **rien n'est décidé** ». Elle s'applique,
+  et pour la raison de É6 et non pour celle qu'elle nomme.
+
+  Mais le bras A, lui, ne tombe dans **aucune** ligne du §5 : ΔM = 1,23 tient le
+  seuil de 1,0 de la ligne 1 et pas sa condition d'intervalle, et dépasse le
+  plafond de la ligne 2. Voir É7. À 2 280 questions la demi-largeur appariée à
+  fichier constant vaut 1,7 pp pour un effet de 1,23 : **aucun seuil de ce
+  préreg n'est testable sur cet échantillon**, quel que soit le chiffre obtenu.
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  - Que le correctif radial soit réel sur l'objet servi. Son IC contient zéro
+    des deux côtés, sur les deux statistiques.
+  - Qu'il soit nul. +1,23 pp est le point, et l'échantillon ne peut pas le
+    séparer de zéro.
+  - Rien sur la perplexité : elle n'a pas été mesurée sur ces trois bras. É4
+    note que le correctif la dégradait de 9,5 % sur la base nue.
+  - Rien sur un chemin servi : les trois bras déquantifient vers f16 avant le
+    matvec, aucun octet de 4 bits n'est lu par un noyau.
+  - Rien au-delà du 4B.
+
+CE QUI TRANCHERAIT
+-------------------
+  Le split complet, 14 042 questions, où il n'y a plus d'échantillon donc plus
+  de barre : SE appariée ~0,17 pp, un effet de 1,2 pp s'y résout. **0,70 $ par
+  bras sur L40S**, ou ~5,4 h de Mac. Deux bras suffisent — témoin et A ; B est
+  clos par É6.
+
+PROVENANCE
+----------
+  Sorties brutes : ~/l01-2026-09-13/ (chain.log, l01-witness.csv, l01-armA.csv,
+  l01-armB.csv, rhoA.bin, rhoB.bin). Reproductible :
+
+    ./target/release/mmlupair ~/l01-2026-09-13/l01-witness.csv \
+                              ~/l01-2026-09-13/l01-armA.csv \
+                              ~/l01-2026-09-13/l01-armB.csv
+
+  Bootstrap : 10 000 tirages, graine 0xb0075eed, correction de population finie.
+  ρ_global = 0,929433 sur 216 enregistrements réseau, |Δ| = 0,031312 contre le
+  0,960745 de M0 — au-dessus du seuil de 0,020 du §4.4, publié comme il l'exige
+  (l01-rhoapply-mixte-2026-09-13.txt).
