@@ -1,0 +1,120 @@
+L01: `rhoapply` WALKS THE SERVED MIXED FILE, AND rho ON IT IS 0.929433
+(2026-09-13)
+================================================================================
+Prereg      : `proofs/preregistration-m1-rho-2026-09-07.md`, stamped, is the one
+              this tool implements; it was written for the BARE Tetra file and
+              says nothing about a mixed one. Nothing is preregistered here and
+              nothing needs to be: no model is scored, no arm is published. The
+              MMLU arm L01 asks for has NOT run and needs an operator go.
+Code        : branch claude/fine-tuning-cost-mmlu-gain-kic9ua, this commit.
+              `cargo build --release -p llvq-bench --example rhoapply`
+Job         : none. **0.00 $.** Mac only, no card, no bucket.
+Nature      : *measured* for every figure below; the files are on disk
+
+WHAT WAS WRONG
+--------------
+  `rhoapply` walked the artifact with `read_matrix_raw`, which refuses an int4
+  g128 record by name (`Error::NotALatticeRecord`, `llvq-artifact/src/format.rs`).
+  The served 4B is **mixed** — 216 `Tetra` records and 36 `v_proj` in int4 g128
+  — so the tool died at the third record and left a truncated output file
+  behind it. Eighteen record-walks in the file had the same defect.
+
+  The fix is `read_record` / `write_record`, the only pair that can walk a
+  mixed file, behind one helper (`next_raw`) that returns `None` for an int4
+  record. L01's safety property then holds **by construction**: an int4 record
+  has no `row_scales` for a factor to reach, so `v_proj` is never scaled
+  without a name check that a renamed projection could defeat.
+
+  One alignment trap, and it would have been a wrong file rather than a crash:
+  `rho_of` is indexed by record position and `rewrite` asks for `(mi, i)`, so
+  an int4 record must push an **empty** row and not be skipped. Dropping the
+  entry shifts every rho after the first int4 record onto the wrong matrix.
+
+ON THE SERVED FILE
+------------------
+  rhoapply ~/tetra-q5-2026-09-09/q4b-tetra-q5.llvq Qwen/Qwen3-4B /tmp/rho
+
+    source            1 004 826 858 bytes, sha256 3a0f30ae2c3f2363...
+    header            v5, 252 matrices, default kind Tetra, kinds Tetra+Int4G128
+    walk              **216 lattice records + 36 int4 g128 = 252**
+    row scales        1 069 056
+
+  STEP 1  r_i(rho) = rho.B_i + T_i, rows independent. PROVED on
+          `model.layers.0.self_attn.k_proj.weight`, probe row 341: exactly one
+          row moved out of 1 024, affinity 7.434e-8, intercept 8.412e-3 (the
+          tail, which no row scale reaches).
+
+  STEP 2  **IDEMPOTENCE: IDENTICAL, BYTE FOR BYTE.** rho = 1 everywhere
+          reproduces the source's sha256 and its 1 004 826 858 bytes on the
+          MIXED file. This is the gate L01's own cell asks for first, and it
+          is the one the tool could not even reach before today.
+
+  STEP 3  **rho_global = 0.929433** on the served file (*measured*, 1 069 056
+          rows, 83 s). The published 0.929234 was measured on the **bare**
+          Tetra file's 252 lattice records; the served file's 216 give
+          0.929433, a move of 0.0002. The closed form rho~ = <w-T, B>/<B, B>
+          is confirmed against the vertex solve to 7.9e-14 relative.
+          M0's gaussian rho* is 0.960745, |delta| = 0.031312 — the prereg's
+          §4.4 flags anything over 0.020, and this is still over it.
+
+  STEP 4  Two arms written, both 1 004 826 858 bytes, the source's size to the
+          byte: A uniform at rho_global, B per row at rho_i. Both touched
+          **216 lattice records, 1 069 056 row scales, and 0 int4 records** —
+          the tool now counts and prints this rather than implying it, and
+          refuses to continue if the two arms touched different records.
+
+  STEP 5  One record re-decoded out of each written file:
+          arm A ||dW||^2 measured 2.072443800e3 against predicted, rel 2.191e-11
+          arm B ||dW||^2 measured 2.057643989e3 against predicted, rel 2.051e-11
+
+  Byte diff against the source, computed outside the tool: **7 454 392 bytes
+  differ of 1 004 826 858 (0.7419 %)**, in 1 093 728 runs against 1 069 056 row
+  scales (*measured*). Arm B differs in 7 454 388.
+
+WHAT LOCKS IT
+-------------
+  `llvq-artifact/tests/int4_format.rs::a_row_scale_rewrite_leaves_every_int4_byte_alone`:
+  builds a Tetra/int4/Tetra file, locates the int4 record's byte span with the
+  format's own walker, and asserts that a row-scale rewrite at rho = 1 is
+  byte-identical and that at rho = 0.929234 **not one byte of the int4 span
+  moves** while the file as a whole does. Two mutants run against it:
+
+    M1  the rewrite also touches an int4 field   killed
+    M2  rho = 1 is no longer the identity        killed
+
+  The assertion is on bytes and not on fields: a re-serialization that produced
+  equal fields through a different encoding would still be a rewritten
+  `v_proj`.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+  - **No quality number.** L01's cell asks for one full-split arm ($0.70 on
+    L40S or ~50 min on the Mac) at the 0.43 pp bar. It has not run, and it
+    needs an operator go. The +1.0 pp in the table is *computed* on the served
+    base from a +1.65 pp *measured* on bare Tetra.
+  - The two written arms are in a scratch directory, not published, not sealed
+    and not scored.
+  - The stamped prereg of 2026-09-07 was written for the bare file. Running an
+    arm on the mixed file is a deviation and needs its own declaration.
+  - L01 and the gain-rule shrink k = 0.96 of
+    `claude/analyse-comportements-couteux-85ypbr` are the **same degree of
+    freedom**: `reconstruct_shape_gain` computes `centroids[gain] * row_scale`,
+    so a constant on the centroids and a constant on the row scales are one
+    operation on the decoded weights. The stack's counting rule says they count
+    once. Nothing here double-counts them, and nothing here has scored either.
+
+PROVENANCE
+----------
+  Reproducible from the repository, ~3 min once built:
+
+    cargo build --release -p llvq-bench --example rhoapply
+    ./target/release/examples/rhoapply \
+      ~/tetra-q5-2026-09-09/q4b-tetra-q5.llvq Qwen/Qwen3-4B <out-dir>
+
+  Full release suite, `cargo test --release --features metal -- --include-ignored`:
+  **530 passed, 1 failed, 0 ignored over 90 suites** (*measured*). The one
+  failure is `llvq-llm/tests/embed_q8.rs::real_rows_match_the_sealed_q8_file`,
+  which needs `~/q4b-e8.llvq` — absent from this machine. It fails and names
+  the artifact rather than skipping, which is CLAUDE.md hard rule 10 working as
+  written, and it is unrelated to this change. `cargo clippy --all-targets`:
+  zero warnings.
