@@ -1,0 +1,149 @@
+T3 CONTRE L'OBJET SERVI : L'INCRÉMENT VAUT +1,52 pp ET IL N'EST PAS RÉSOLU
+SUR LA STATISTIQUE PUBLIÉE (2026-09-12)
+================================================================================
+Préreg      : aucun. Ce n'est pas une mesure du modèle : c'est l'appariement
+              de quatre dumps DÉJÀ mesurés et commités (chantier 1, 2026-09-06,
+              job 6a9dc052 ; recensement du 2026-09-11, job 6aa414dd). Aucun
+              jeton n'est réévalué, aucun poids n'est lu.
+              Écrit AVANT le tampon du préreg du palier 0 et divulgué dans son
+              §0 bis, comme le §6 « divulgation datée » l'exige.
+Code        : commit 7d62cff, `cargo build --release -p llvq-llm --bin mmlupair`
+Job         : aucun. **0,00 $.** Conteneur de session, aucune carte.
+Nature      : *mesuré* pour les taux (ils viennent des dumps),
+              *calculé* pour les intervalles et les b/param
+
+MONTAGE
+-------
+  Trois dumps du chantier 1, même fichier Tetra pur (1 770 529 149 octets),
+  mêmes 2 280 questions, empreinte 65dcd53655e8bfa5 sur les trois :
+
+    docs/data/mmlu-dumps/mmlu-4b-tetra.csv        T0, Tetra nu
+    docs/data/mmlu-dumps/mmlu-4b-tetra-q5.csv     T2, v_proj int4 g128
+    docs/data/mmlu-dumps/mmlu-4b-tetra-attn4.csv  T3, attention int4 g128
+
+  Plus un quatrième pour le résultat 2, autre fichier, mêmes questions
+  (recensement du 2026-09-11, job 6aa414dd) :
+
+    docs/data/mmlu-dumps/mmlu-4b-tetra-q5-file-dense.csv   objet servi, bras dense
+
+  La question : ETAT §5 octies apparie T2 et T3 contre T0, jamais l'un contre
+  l'autre. Or `v_proj` est servi en int4 depuis le 2026-09-08, donc **T2 est la
+  base réelle** et l'incrément de T3 au-dessus d'elle n'a jamais reçu d'IC.
+
+CONTRÔLES
+---------
+  1. T0→T2 doit rejouer −3,47 pp [−5,57 ; −1,42] : obtenu **−3,47 pp
+     [−5,57 ; −1,42]**, McNemar 8,609e−5. PASSE, au centième et sur les deux
+     bornes.
+  2. T0→T3 doit rejouer −4,99 pp [−7,90 ; −2,18] : obtenu **−4,99 pp
+     [−7,90 ; −2,18]**, McNemar 3,946e−8. PASSE.
+  3. Empreinte identique sur les trois dumps : 65dcd53655e8bfa5. PASSE.
+  4. Plan d'échantillonnage identique (flat, limit 40) : PASSE.
+
+  Les deux premiers contrôles rejouent des nombres publiés à partir des octets
+  commités : l'outil et les dumps sont les bons.
+
+RÉSULTAT — T2 → T3, l'incrément que l'attention entière ajoute au servi
+-----------------------------------------------------------------------
+    statistique                    T2       T3        Δ        IC95            SE
+    ---------------------------------------------------------------------------
+    micro stratifié (publiée)    56,95    58,48    +1,52   [−1,12 ; +4,22]   1,37
+    non pondéré (McNemar)        58,99    61,18    +2,19   [+0,66 ; +3,72]   0,79
+
+    McNemar exact : A✓B✗ = 184, A✗B✓ = 234, concordantes 1 862
+                    p = 0,0164 (z = −2,45), 18,3 % de discordantes
+
+  **LES DEUX STATISTIQUES SE CONTREDISENT, ET C'EST LE RÉSULTAT.**
+
+  Sur le compte brut de questions, T3 bat l'objet servi et l'écart est résolu
+  (p = 0,016). Sur la statistique que le dépôt publie — le micro stratifié,
+  re-pondéré par la population réelle des 57 matières — **l'écart n'est pas
+  résolu** : son IC95 contient zéro.
+
+  Où passe la différence : deux matières lourdes tirent dans le sens INVERSE
+  du gain (moral scenarios +7,5 pp pour T2, poids 6,4 % ; high school
+  psychology +7,5 pp, poids 3,9 %) et compensent presque les matières où T3
+  gagne (professional psychology −10,0 pp, philosophy −17,5 pp, elementary
+  mathematics −12,5 pp). Le gain de T3 est réel mais **concentré dans des
+  matières que la pondération MMLU dégonfle**.
+
+RÉSULTAT 2, GRATUIT LUI AUSSI — le ré-encodage ne coûte rien de mesurable
+--------------------------------------------------------------------------
+  Même outil, `--intersect`, deux fichiers différents sur les mêmes 2 280
+  questions et la même empreinte :
+
+    A = Tetra pur + `LLVQ_RESTORE_Q4=v_proj`      (T2, carte, 2026-09-06)  56,95
+    B = fichier mixte RÉELLEMENT ré-encodé, bras dense (carte, 2026-09-11)  55,52
+
+    Δ = **+1,43 pp**, IC95 [−1,42 ; +4,38], SE 1,47
+    McNemar : 317 / 289 discordantes, **p = 0,2727** — NON RÉSOLU
+
+  Le « coût du ré-encodage » de 1,43 pp qui circulait depuis le recensement
+  **n'est pas résolu** : le chemin `RESTORE_Q4`, qui prend les poids du
+  checkpoint sans compensation GPTQ, ne se distingue pas d'un encodage réel à
+  cette taille d'échantillon. C'est ce qui rend le crible du palier 0
+  légitime : il n'est pas prouvé optimiste.
+
+  Réserve : deux variables changent entre A et B — le tirage d'encodage et la
+  compensation GPTQ. Un non-résolu sur une comparaison confondue ne prouve
+  l'innocuité d'aucune des deux.
+
+CE QUE ÇA COÛTE, EN FACE
+-------------------------
+    +1,52 pp pour +0,4435 b/param = **3,43 points par b/param** (*calculé*)
+    contre 70,4 pour `v_proj` seul, et 62 % de la marge de 0,7186 b/param qui
+    reste avant le b_max du triplet produit.
+
+VERDICT — pour le dimensionnement du palier 0, et il est net
+-------------------------------------------------------------
+  La demi-largeur de l'IC apparié sur la statistique publiée vaut **2,67 pp**
+  à 2 280 questions pour un effet de 1,52. Les sous-ensembles que le palier 0
+  veut cribler (`v+k`, `v+o`, `v+k+o`) portent des incréments ATTENDUS de 0,5 à
+  1,5 pp, tous **strictement plus petits** que celui qui vient d'échouer à se
+  résoudre.
+
+  **Aucun bras du palier 0 à 2 280 questions ne peut résoudre son propre
+  effet.** Ce n'est plus une prédiction signée, c'est une conséquence
+  arithmétique de ce tableau. Le crible gratuit rendra un classement et trois
+  estimations ponctuelles, rien de plus — et le plan proportionnel (ligne A de
+  la roadmap qualité, barre ÷1,32 à 1,65) ne suffit pas non plus : à 2 280
+  questions il amènerait l'IC de +1,52 à [−0,51 ; +3,55] au pire et
+  [−0,11 ; +3,15] au mieux (*calculé* sur la SE mesurée de 1,37), qui contient
+  encore zéro dans les deux cas.
+
+  Ce qui résout, et c'est mesuré : le **split complet**, 14 042 questions, où
+  il n'y a plus d'échantillon donc plus de barre (*mesuré*, recensement du
+  2026-09-11, « ± 0,00 »). Il coûte **0,70 $ par bras** sur L40S (24 min,
+  *mesuré*, job 6aa442b4).
+
+CE QUE ÇA N'ÉTABLIT PAS
+------------------------
+  - Rien sur `k`, `o` ou `q` pris séparément sous Tetra : aucun dump n'existe.
+    Les rangs cités ailleurs (`o` +2,35 puis +2,08 ; `k` +2,09 puis +1,11 ;
+    `q` +1,85 puis +0,49) sont des bras **f16 sous Planes14**, pas int4 sous
+    Tetra.
+  - Rien sur un chemin servi. T2 et T3 déquantifient vers f16 avant le matvec ;
+    aucun octet de 4 bits n'est lu par un noyau dans ces deux dumps.
+  - Rien sur le fichier servi réel : ces deux bras vivent sur le Tetra pur.
+    L'objet mixte ré-encodé lit 1,43 pp plus bas que T2, écart NON résolu
+    (résultat 2), sur une comparaison où deux variables bougent.
+  - Un seul tirage de calibration, une seule taille, un seul device (carte).
+
+PROVENANCE
+----------
+  Sorties brutes : scratchpad de session, `pair-t0.txt` et `pair-t2t3.txt`,
+  reproductibles en une commande depuis le dépôt :
+
+    cargo build --release -p llvq-llm --bin mmlupair
+    D=docs/data/mmlu-dumps
+    ./target/release/mmlupair $D/mmlu-4b-tetra.csv $D/mmlu-4b-tetra-q5.csv \
+                              $D/mmlu-4b-tetra-attn4.csv          # contrôles 1 et 2
+    ./target/release/mmlupair $D/mmlu-4b-tetra-q5.csv \
+                              $D/mmlu-4b-tetra-attn4.csv          # résultat 1
+    ./target/release/mmlupair $D/mmlu-4b-tetra-q5.csv \
+                              $D/mmlu-4b-tetra-q5-file-dense.csv --intersect   # résultat 2
+
+  sha256 (16 premiers) des dumps : q5 83b40de2d38715e8 · attn4 de3c0c315969a70f
+  Bootstrap : 10 000 tirages, graine 0xb0075eed, correction de population finie.
+  Comptes de poids et b/param : dimensions de docs/fiche-4b.md §2, méthode
+  reproduisant le +0,0493 et le +0,4927 d'ETAT §5 octies.
