@@ -103,12 +103,50 @@ WHAT THE INSTRUMENT IS LOCKED BY
   `|E[x]|^2 <= E[|x|^2] = tr(H)`. Both are exact, both cost one line, and
   neither would have been written without running the mutant.
 
+THE CONSUMER, SAME DAY: THREE ROWS OF THE EIGHT, NOT EIGHT
+-----------------------------------------------------------
+  `llvq-bench/examples/hstats.rs` reads the dump and prints four sections. It
+  is an example and not a bin, so it needs no line in Cargo.toml, none in
+  `ops/Dockerfile.cuda` (which builds only `-p llvq-llm` and `-p llvq-cuda`)
+  and none in `UPLOAD_ALLOW`. `llvq-bench` keeps its four workspace
+  dependencies and its `forbid(unsafe_code)`.
+
+  It answers **three** of L36's eight rows, and says so in its own output:
+
+    L05   share of tr(H) carried by token positions 0..3, and by the top 1%
+          and top 0.1% of tokens by norm. Exact, not a proxy: `tr(H)` is
+          `S_t |x_t|^2 / N`, and the dump carries every `|x_t|^2`.
+    L14   spread of diag(Q'HQ) within each block of 24 — max/min and the
+          coefficient of variation — against the encoder's sweep order.
+    L19   the same diagonal on the KeepExact tail columns, against the
+          matrix's median column.
+
+  The other five — L02, L23, L24, L25, L27 — need `dW = W - W_hat`, so the
+  **checkpoint** beside the artifact. `llvq-bench` cannot read one: the
+  checkpoint reader is in `llvq-llm` behind `hf-hub`. They belong in an
+  `llvq-llm` example and are deliberately not attempted, because a section
+  that silently answered half its row would be worse than an absent one.
+
+  Section 3 refuses a natural-basis dump by name. Both rows ask about the
+  blocks of 24 the encoder quantizes, which exist only in the rotated basis;
+  a natural-basis diagonal would print a plausible number about a different
+  matrix.
+
+  ⚠️ Run on the 256-token wiring dump, it prints numbers. **They are not a
+  measurement of anything** and no row moves on them. Two of them are worth
+  writing down only as a reason to run the real thing: the rotated diagonal is
+  **not** flat (median max/min 1.93 to 3.98 per block of 24, CV 0.17 to 0.40),
+  so L14 and L19 do not close for free; and one emission — block 1, MlpOut —
+  puts **61% of its trace in the top 1% of tokens**, which is the shape row E
+  predicts for massive activations. At 256 tokens that is three tokens, and
+  three tokens are not evidence.
+
 WHAT THIS DOES NOT ESTABLISH
 -----------------------------
   - Nothing about any row of the quality table. 256 tokens is a wiring check;
     the per-block traces above are not a measurement of anything.
-  - The consumer does not exist. `llvq-bench --example hstats` is unwritten, so
-    no row is decided yet. The capture is half of L36.
+  - No row is decided. The consumer exists for three rows of the eight and was
+    run only on 256 tokens; the five weight-dependent rows have no tool at all.
   - L36 decides **eight** rows, not the ten the survey claims. L06's own cell
     asks for a paired re-encode and L15's for kurtosis on `f1recdump` blocks;
     neither reads H, and no statistic in this dump answers them.
