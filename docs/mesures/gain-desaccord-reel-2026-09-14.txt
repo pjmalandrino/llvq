@@ -1,0 +1,190 @@
+STAGE 0 BIS: THE SAME TWO RULES, ON REAL COMPENSATED GPTQ RESIDUES (2026-09-14)
+===============================================================================
+Plan: docs/plan-decision-gain-tetra-2026-09-14.md, stage 0 bis.
+Prereg: none, and none owed. This measures no fundamental criterion. It reads
+  the geometry of a decision on blocks already dumped and spends nothing
+  (METHODE.md section 1).
+Code: ops/gain_disagree_real.py, sha256 ab593e45143fa193, written against 9805446.
+Dumps: produced by commit 09e0f65 (branch recherche/tetra-schur-2026-09-14),
+  run of 2026-09-14 06:59:31Z, at /Users/pjmalandrino/tetra-schur-pilot-2026-09-14.
+Cost: $0. 0.15 s of CPU on the Mac, warm cache, of which the digest check of the
+  60 files read is most. No model loaded, nothing encoded, no network reached.
+Operator go: given 2026-09-14, for the dumps rather than a fresh capture.
+
+WHAT THIS ANSWERS
+------------------
+Stage 0 ran on Gaussian blocks and named its own limit: the angular part is a
+codebook property and should carry, the norm distribution is not and is what
+sets the width of the disagreement band. Stage 0 bis settles both on the blocks
+the quantizer actually sees.
+
+It needed no new capture. The Schur pilot already walked the served policy down
+48 rows of Qwen3-0.6B, shadowing every full block, and dumped for each of them
+the two statistics the two rules read. Its `working` array is compensated by
+`commit` after every block, its row scale is frozen before the loop, and its
+centroids come from `fit_gain_centroids` on the rotated uncompensated weights,
+which is what llvq-llm/src/calib.rs does in production. So the population is the
+production one on all three counts.
+
+THE SETUP
+----------
+2,016 shadow blocks: two calibration seeds, self_attn.q_proj and mlp.gate_proj,
+layers 0, 13 and 27, four rows per cell, 42 full blocks per row. Qwen3-0.6B, one
+gain bit, 47-bit label, 48-bit word. Rate, format and decoder are identical in
+every arm below, as in stage 0.
+
+Rule A, served: the centroid nearest ||x|| / row_scale (quantizer.rs:777).
+Rule B, Euclidean optimum: the centroid nearest <x,u> / row_scale.
+Rule C, Schur-conditioned: absent from stage 0, present here because the pilot
+  held a real Hessian factor. It is reported for its distance to A and B only.
+
+THE FOUR CONTROLS
+------------------
+1 passes. The algebraic cost model agrees with the costs the pilot's decoder
+     wrote on all 4,032 candidate costs, worst gap 4.770e-17 against a largest
+     cost of 2.167e-02.
+2 passes. Both rules recompute from their own raw statistic with 0 mismatches
+     on 2,016 blocks. Neither rule is read from the dump and believed.
+3 passes. Two mutants fail their designated control and only theirs.
+     --mutate cost scales the block norm by 1.0001: control 1 moves to 2.105e-05
+     and trips. --mutate rule swaps what the two rules picked without touching
+     either statistic: control 1 stays green, control 2 reads 204 and 204
+     mismatches and trips.
+4 passes. A dump whose bytes moved is refused by digest, and a dump absent from
+     outputs.sha256 is refused by name. Both were exercised on a clone. Two
+     consecutive runs are byte identical.
+
+THE RESULT
+-----------
+Disagreement A against B: 204 of 2,016 blocks, 10.119 %.
+Direction: 204 go down a level, 0 go up. One sided, as on the synthetic source.
+Gain occupancy at level 1: 56.696 % under A, 46.577 % under B.
+Mean cos(x,u) = 0.961088.
+C against A: 206 blocks, 10.218 %. C against B: 54 blocks, 2.679 %.
+
+Against stage 0, which ran on 42,400 Gaussian blocks:
+
+  quantity                      synthetic     real        carries
+  disagreement rate             10.892 %      10.119 %    yes
+  mean cos(x,u)                 0.960791      0.961088    yes, to 0.03 %
+  occupancy at level 1, served  45.901 %      56.696 %    no, 10.8 pp apart
+  median ||x|| / row_scale      0.9860        1.0120      no
+
+Stage 0's own prediction is confirmed on both halves. The angular geometry is a
+codebook property and transfers. The norm distribution does not: compensation
+pushes relative block norms up, so the served rule sits higher on the ladder
+than any Gaussian draw suggests.
+
+THE 2X2, AND THE ONE ARM THAT REVERSES
+---------------------------------------
+Errors are normalized by the source energy of the same blocks, 4.151386e+01 over
+48,384 coordinates, because real weights carry their own scale and a raw mse per
+dimension would not compare to anything.
+
+  arm                                nmse       retention   sq. error   synthetic
+  served rule, served centroids      0.084087   89.2992 %   +0.0000 %   reference
+  euclid rule, served centroids      0.083136   89.7095 %   -1.1311 %   -1.2224 %
+  served rule, shrunk centroids      0.084483   89.1299 %   +0.4705 %   -0.8818 %
+  euclid rule, shrunk centroids      0.083747   89.4455 %   -0.4048 %   -1.9789 %
+
+The rule holds: -1.1311 % here against -1.2224 % on the synthetic source.
+
+The centroid scalar reverses. It cost -0.8818 % on Gaussian blocks and buys
++0.4705 % here, and it takes two thirds of the rule's gain with it when the two
+are applied together. The mechanism is the one the row above names. The served
+centroids are fitted on uncompensated weights, compensation then raises the
+relative norms the decision reads, so the served pair already sits low for the
+distribution it meets; multiplying it by 0.961088 over-corrects.
+
+Per cell, 12 cells of 168 blocks each (docs/data/gain-desaccord-reel-2026-09-14.csv):
+the rule wins in 12 cells of 12, from -0.6475 % to -1.5287 %. The centroid
+scalar loses in 8 of 12. The rule survives restatement by family and by depth;
+the scalar does not, and one aggregate favourable number was hiding eight
+unfavourable cells.
+
+Depth is where the disagreement concentrates: 14.881 % on gate_proj at layer 27
+against 7.738 % on q_proj at layer 13.
+
+WHAT THE PLAN'S WRITTEN RULE SAYS, AND WHAT IT COLLIDES WITH
+-------------------------------------------------------------
+The stage 0 bis rule reads: under 1 % stop, 1 to 10 % go to stage 1, over 10 %
+continue and keep stage 3 first. The rate is 10.119 %, so the third line fires
+by 0.119 points, on 2,016 blocks. The family is not closed.
+
+But stage 3 is the centroid stage, and the same measurement refutes its only
+proposed mechanism. The trigger points at a stage the measurement that triggered
+it just emptied. This is recorded, not resolved: it is an operator decision.
+
+LIMITS
+-------
+2,016 blocks, not 42,400. Two projection families of seven, three depths of 28,
+one model of 0.6 billion parameters, two calibration seeds. Rows are four per
+cell at fixed spread positions (0, 682, 1364, 2047 of q_proj's 2,048), not a
+random sample of rows. Blocks inside a row are sequentially dependent, so the
+count is not a count of independent draws and no confidence interval is computed
+from it.
+
+Capture ran the original checkpoint in f32 through every layer, so the
+activations are not those of a sequentially quantized model
+(docs/tetra-schur-local.md). That affects the Hessian and therefore rule C. It
+does not affect A against B, which read the weights, not the activations.
+
+The shrink scalar tested here is stage 0's scalar, the mean cosine. A centroid
+pair refitted on the compensated distribution is a different object and is
+unmeasured. What this run refutes is the correction stage 0 proposed, not every
+correction of the centroids.
+
+Nothing here is a quality claim. Retention is Shannon retention at a fixed rate,
+two transpositions away from perplexity (ROADMAP.md section 2.2 bis), and the
+file holds three cases where a better local proxy composed worse (ETAT.md
+section 7). The 21.5 % perplexity gap between leech0c13 and Tetra bought an MMLU
+difference of 1.18 pp, CI95 [-1.54; +3.98]. Any MMLU arm on this lever reports
+noise until row A of ROADMAP-QUALITY.md lands.
+
+COMMANDS
+---------
+uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 \
+    --csv docs/data/gain-desaccord-reel-2026-09-14.csv
+uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 --mutate cost
+uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 --mutate rule
+
+RAW OUTPUT
+-----------
+=== gain_disagree_real ===
+pilot           /Users/pjmalandrino/tetra-schur-pilot-2026-09-14
+verified        166 entries in outputs.sha256
+blocks          2016 shadow comparisons, compensated GPTQ residues
+decoder check   worst |algebra - dumped cost| over 4032 costs: 4.770e-17  (largest cost 2.167e-02)
+rule check      A mismatches 0, B mismatches 0 of 2016
+
+--- disagreement ---
+served vs euclid  204 of 2016 blocks, 10.119 %
+  euclid picks lower level  204   higher level  0
+gain occupancy    served 56.696 % at level 1, euclid 46.577 %
+C vs A            206 of 2016 blocks, 10.218 %
+C vs B            54 of 2016 blocks, 2.679 %
+
+--- by family and depth ---
+  gate_proj  layer  0  n  336  disagree  9.524 %   mean cos 0.960996
+  gate_proj  layer 13  n  336  disagree  8.929 %   mean cos 0.961104
+  gate_proj  layer 27  n  336  disagree 14.881 %   mean cos 0.960982
+  q_proj     layer  0  n  336  disagree  9.524 %   mean cos 0.960481
+  q_proj     layer 13  n  336  disagree  7.738 %   mean cos 0.961098
+  q_proj     layer 27  n  336  disagree 10.119 %   mean cos 0.961864
+  seed-1              n 1008  disagree 10.615 %   mean cos 0.960954
+  seed-2              n 1008  disagree  9.623 %   mean cos 0.961221
+
+--- geometry ---
+cos(x, u)             0.9180  0.9360  0.9517  0.9575  0.9621  0.9660  0.9692  0.9747  0.9827
+norm / row_scale      0.5365  0.6793  0.8364  0.9141  1.0120  1.1168  1.2060  1.3706  1.5129
+mean cos          0.961088   so the euclidean target sits 3.891 % below the norm
+
+--- 2x2, normalized mse and retention at 2.000 b/dim ---
+source energy     4.151386e+01 over 48384 coordinates
+served rule, served centroids    nmse 0.084087   retention 89.2992 %   sq. error +0.0000 %
+euclid rule, served centroids    nmse 0.083136   retention 89.7095 %   sq. error -1.1311 %
+served rule, shrunk centroids    nmse 0.084483   retention 89.1299 %   sq. error +0.4705 %
+euclid rule, shrunk centroids    nmse 0.083747   retention 89.4455 %   sq. error -0.4048 %
+
+shrink scalar     0.961088, the mean cosine of these blocks
+csv               docs/data/gain-desaccord-reel-2026-09-14.csv

@@ -39,6 +39,7 @@ comma**, and `check_tables.py::check_csv_shape` enforces it.
 | `mmlu-dumps/` | the MMLU dumps **question by question**, 3 sizes × 3 arms, the raw material of the pairs above | 4B/8B/14B campaigns; the three 14B files committed on 2026-08-17 (see the bucket lesson below) |
 | `jobs.csv` | every GPU job: id, duration, cost, what it measured | ops/run.py monitor |
 | **`campagne-14b-vitesse-2/`** | the **raw output** of the four steps of the served 14B, as the job wrote it into the mounted bucket | job `6a83121be55292eada79b611`; summary in [`mesures/fusedrun-14b-2026-08-17.txt`](../mesures/fusedrun-14b-2026-08-17.txt) |
+| **`gain-desaccord-reel-2026-09-14.csv`** | stage 0 bis of the Tetra gain plan: 12 cells (2 seeds x 2 projection families x 3 depths) of 168 compensated Qwen3-0.6B blocks - disagreement between the served and the Euclidean gain rule; per-level occupancy; mean cos(x,u); the three non-served arms of the 2x2 as squared error relative to that cell's own served arm | [gain-desaccord-reel-2026-09-14](../mesures/gain-desaccord-reel-2026-09-14.txt), written by `ops/gain_disagree_real.py` from the pilot dumps of `09e0f65` |
 
 ### Why the SERVED 14B cells go into no CSV (2026-08-17)
 

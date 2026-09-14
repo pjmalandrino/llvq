@@ -33,23 +33,33 @@ first-order effect on reconstruction.
 
 ## 2. Corrections of fact
 
-The submitted plan asks the agent to locate components that are absent, and does not use the
-ones that are present.
+**Revised 2026-09-14, and the first four rows reverse.** This table was written from a Linux
+container that could reach neither the Documents working tree nor `huggingface.co`. Its verdicts
+were true of the committed tree and false of the machine. The submitted plan was describing work
+that existed, uncommitted, in the Documents working tree and in no other copy: not on `origin`,
+not in a stash. It is now committed as `recherche/tetra-schur-2026-09-14`, at `09e0f65`, and it
+is what answers stage 0 bis in §4. What follows is the corrected table; the crossed-out reading
+is kept in [HISTORIQUE](HISTORIQUE.md) rather than here.
 
 | Claim in the submitted plan | State of the repository, 2026-09-14 |
 |---|---|
-| A direction-conditioned arm named `tetrapost` | No occurrence in any file |
-| An existing Schur computation and Schur pilot | No occurrence in any `.rs`; the derivation exists in [hypothese-metrique-tetra](hypothese-metrique-tetra-2026-09-08.md) §"The metric needed at a block decision" |
-| Pilot entries under `/Users/pjmalandrino/tetra-schur-pilot-2026-09-14` | Not reachable from a Linux session; not verified |
-| 10.77 s of pilot cost | No trace; unusable as a basis under hard rule 8 |
+| A direction-conditioned arm named `tetrapost` | Present, `TetraShapeGain::with_post_shape_gain` |
+| An existing Schur computation and Schur pilot | Present, `llvq-quant/src/schur.rs` and `llvq-llm/src/tetra_diag.rs` |
+| Pilot entries under `/Users/pjmalandrino/tetra-schur-pilot-2026-09-14` | Present, 79 MB per seed, two seeds, with an output digest manifest |
+| 10.77 s of pilot cost | Measured, `run-events.jsonl:129`, run of 2026-09-14 06:59:31Z |
 | Blocks and KeepExact to be identified | Present, `llvq-quant/src/gptq.rs:260` |
 
-Three assets the submitted plan renames instead of citing. The Schur scoring primitive is
-`GptqFactor::solve_block`, which already computes the triangular solve whose squared norm is
-the conditional cost. Its algebraic identity is already checked by
+The last row stands, and so does what follows it. The Schur scoring primitive is
+`GptqFactor::solve_block`, which computes the triangular solve whose squared norm is the
+conditional cost; `schur.rs` calls it rather than reimplementing it, which is the right shape.
+Its algebraic identity is checked by
 [checks.py](recherche-quantification-2026-09-08/checks.py). The A/B/C arm table already exists,
 with the same three definitions, in [hypothese-metrique-tetra](hypothese-metrique-tetra-2026-09-08.md)
 §"A staged discrimination protocol".
+
+The lesson is about method, not about this lead. A session that cannot see the working tree
+cannot report absence, only failure to find, and this document reported absence four times. The
+one durable guard is that every number here names the file it was read from.
 
 ## 3. The structural fact that sets every cost
 
@@ -129,6 +139,27 @@ Run on a Gaussian source, not on GPTQ residues. The go was for real residues, an
 `huggingface.co` is refused by this session's egress policy, so no checkpoint could be fetched.
 The angular part of the question is a codebook property and carries. The distribution of
 `‖x‖ / row_scale` is not, and it is what sets the width of the band.
+
+### Result of stage 0 bis, 2026-09-14
+
+Both predictions of the paragraph above hold (*measured*, 2,016 compensated blocks of
+Qwen3-0.6B, [gain-desaccord-reel-2026-09-14](mesures/gain-desaccord-reel-2026-09-14.txt)). It
+needed no capture: the Schur pilot of `recherche/tetra-schur-2026-09-14` had already walked the
+served policy down 144 rows and dumped, for every full block, the two statistics the two rules
+read, against a frozen row scale and centroids fitted as `calib.rs` fits them.
+
+| quantity | synthetic | real | carries |
+|---|---|---|---|
+| disagreement rate | 10.892 % | 10.119 % | yes |
+| mean `cos(x,u)` | 0.960791 | 0.961088 | yes, to 0.03 % |
+| occupancy at level 1, served | 45.901 % | 56.696 % | no, 10.8 pp apart |
+| median `‖x‖ / row_scale` | 0.9860 | 1.0120 | no |
+
+The rate is 10.119 %, so the third line of the decision table fires again, by 0.119 points. The
+shift stays one sided: 204 blocks down, none up. Rule C is present here, since the pilot held a
+real factor; it differs from A on 10.218 % of blocks and from B on 2.679 %.
+
+The consequence for stage 3 is in §7, and it is not the one stage 0 expected.
 
 ## 5. Stage 1: the branch harness
 
@@ -230,6 +261,38 @@ What the scalar is on real blocks is unmeasured. The mean cosine is a codebook p
 Gaussian source; production blocks are compensated residues, and one encoding pass over one
 matrix would settle it.
 
+### Result on real blocks, 2026-09-14: the scalar reverses
+
+Stage 0 bis settles it, and against this stage (*measured*, same 2,016 compensated blocks,
+[gain-desaccord-reel-2026-09-14](mesures/gain-desaccord-reel-2026-09-14.txt)).
+
+| arm | real, squared error | synthetic |
+|---|---|---|
+| served rule, served centroids | reference | reference |
+| Euclidean rule, served centroids | −1.1311 % | −1.2224 % |
+| served rule, shrunk centroids | **+0.4705 %** | −0.8818 % |
+| Euclidean rule, shrunk centroids | −0.4048 % | −1.9789 % |
+
+The rule holds within a tenth of a point. The scalar changes sign, and applied with the rule it
+removes two thirds of the rule's gain.
+
+The mechanism is the one §4 measures. The served centroids are fitted on uncompensated weights;
+compensation then raises the relative norms the decision reads, median 0.9860 to 1.0120, and
+occupancy 45.901 % to 56.696 %. The served pair already sits low against the distribution it
+meets, so shrinking it by 0.961088 pushes it further the wrong way.
+
+Per cell it is not close. Over the twelve cells of
+[gain-desaccord-reel](data/gain-desaccord-reel-2026-09-14.csv) the rule wins in twelve, from
+−0.6475 % to −1.5287 %; the scalar loses in eight. The rule survives the restatement gate G2
+already imposes on stage 2, and the scalar does not. One favourable aggregate was covering eight
+unfavourable cells.
+
+So stage 3 as written is refuted, and what refutes it is the measurement whose own decision rule
+raised it to first priority. A centroid pair refitted on the *compensated* distribution is a
+different object, and it is unmeasured; this result closes the scalar, not every correction of
+the centroids. That refit needs an encoding pass, so it is no longer the free multiply this
+section claimed, and it belongs behind stage 1 rather than ahead of it.
+
 ## 8. Stage 4: one encoding arm, and what it can say
 
 Gated on G2 and on stage 3. Two hours and a half of Mac per arm, zero dollars
@@ -274,24 +337,24 @@ the reason the stage 4 gate is on perplexity rather than on the proxy.
 | Stage | Wall time | Dollars | Machine | Prereg |
 |---|---|---|---|---|
 | 0, disagreement rate, synthetic | done, 22 s of CPU | 0 | any CPU | none needed |
-| 0 bis, the same on GPTQ residues | 1 day | 0 | any machine that reaches the model | none needed |
+| 0 bis, the same on GPTQ residues | done, 0.15 s of CPU | 0 | the Mac, on existing dumps | none needed |
 | 1, branch harness | 1 to 2 days | 0 | any CPU | none needed |
 | 2, regret table | 1 day | 0 | any CPU | none needed |
-| 3, centroid scalar, synthetic | done, in the same run | 0 | any CPU | none needed |
+| 3, centroid scalar | done, and refuted | 0 | any CPU | none needed |
 | 4, one encoding arm | 2 h 27 of Mac per arm | 0 | Mac | stamped, before the first second |
 
-Total before any decision that costs money: three to four days of development and zero dollars.
-Stages 1 to 3 run on a laptop and need no checkpoint, no GPU and no artifact.
+Total before any decision that costs money: two to three days of development and zero dollars.
+Stages 1 and 2 run on a laptop and need no checkpoint, no GPU and no artifact.
 
-Stage 0 bis is the one that needs a machine this session does not have. It re-runs stage 0 on
-the blocks the quantizer actually sees, by wrapping `TetraShapeGain` the way
-`llvq-llm/examples/f1recdump.rs` wraps `LeechShapeGain`, on one transformer block of
-Qwen3-0.6B. It settles the two quantities the synthetic run cannot: the real disagreement rate,
-and the real mean cosine on compensated residues.
+Stage 0 bis cost a day less than this table first priced it, and no capture at all. It was
+budgeted as a re-run of stage 0 on blocks the quantizer actually sees, by wrapping
+`TetraShapeGain` the way `llvq-llm/examples/f1recdump.rs` wraps `LeechShapeGain`. The Schur
+pilot had already dumped those blocks, so the work was an analysis of existing files:
+`ops/gain_disagree_real.py`, which loads no model and refuses any dump whose digest has moved.
 
-Stop conditions, written now: a disagreement rate under 1 % at stage 0 bis, a regret that does
-not survive per-family restatement at stage 2, or a centroid scalar within the encoder's own
-reproducibility at stage 3.
+Stop conditions, written now: a regret that does not survive per-family restatement at stage 2,
+or a centroid refit within the encoder's own reproducibility. The stage 0 bis stop condition,
+a disagreement rate under 1 %, did not fire: the rate is 10.119 %.
 
 ## 11. Artifacts
 
