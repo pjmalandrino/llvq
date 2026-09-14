@@ -93,7 +93,8 @@ uv run --with opentimestamps ops/otsaudit.py                              # stat
 ```
 
 Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-bench` also include `rtbits`
-(b/param accounting) and `radixstudy` (E3). `rankbench` refuses to start without
+(b/param accounting), `radixstudy` (E3) and `gaindisagree` (the Tetra gain decision, stages 0 and 3 of
+`docs/plan-decision-gain-tetra-2026-09-14.md`, 22 s of CPU and no model). `rankbench` refuses to start without
 `proofs/preregistration-p1-2026-08-13.md.ots`.
 
 ### Environment variables

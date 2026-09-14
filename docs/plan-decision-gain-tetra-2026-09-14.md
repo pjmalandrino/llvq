@@ -112,6 +112,24 @@ Decision rule, written before the measurement:
 The submitted plan places this test in its Lot 3, after the whole harness is written. It
 belongs first, because it can close the programme for one day of work.
 
+### Result, 2026-09-14
+
+The rate is 10.892 %, so the third line of the table fires (*measured*, 42,400 Gaussian blocks,
+[gain-desaccord-tetra-2026-09-14](mesures/gain-desaccord-tetra-2026-09-14.txt)). The family is
+not closed and stage 3 moves ahead of stage 1.
+
+Every disagreement goes the same way. The Euclidean rule moves 4,618 blocks down a level and
+none up, which is what the algebra requires. Gain occupancy at the upper level falls from
+45.901 % to 35.009 %. Mean `cos(x,u)` is 0.960791, so the magnitude the encoder can reach sits
+3.921 % under the norm the served rule reads.
+
+Rule C is absent from this run. It needs a real Hessian factor, so it waits for a model.
+
+Run on a Gaussian source, not on GPTQ residues. The go was for real residues, and
+`huggingface.co` is refused by this session's egress policy, so no checkpoint could be fetched.
+The angular part of the question is a codebook property and carries. The distribution of
+`‖x‖ / row_scale` is not, and it is what sets the width of the band.
+
 ## 5. Stage 1: the branch harness
 
 One to two days, zero dollars, no model run.
@@ -180,15 +198,37 @@ distribution. And under rule B or C the estimator that the decision compares aga
 centroids is `⟨x,u⟩`, not `‖x‖`, so the two levels sit at the wrong place for the rule that
 reads them.
 
-The selection rule moves one block only when it sits near the crossover, which is a
-second-order effect. The centroids move every block's reconstruction, which is first order.
-Refitting them on the correct statistic costs one extra scan at encode time, changes no format
-byte, and is a slice of row 17 of [ROADMAP-QUALITY](ROADMAP-QUALITY.md), rated +2 to +5 pp
-*estimated*.
+Refitting them on the correct statistic changes no format byte, and it is a slice of row 17 of
+[ROADMAP-QUALITY](ROADMAP-QUALITY.md), rated +2 to +5 pp *estimated*.
 
-Measure on the stage 0 dump, at zero cost: the shift in the fitted centroids when the fit uses
-the compensated blocks and `⟨x,u⟩`, and the resulting change in mean squared block error at
-fixed direction and fixed rate.
+### Result, 2026-09-14
+
+Both mechanisms are real and they nearly add. Moved separately the rule is worth −1.2224 % of
+squared error and the centroids −0.8818 %; moved together they give −1.9789 %, which is 0.95 of
+the sum (*measured*, [gain-desaccord-tetra-2026-09-14](mesures/gain-desaccord-tetra-2026-09-14.txt)).
+Retention at 2.000 b/dim goes from 88.7633 % to 89.4842 %, a paired within-protocol delta of
++0.7209 pp at identical rate, format and decoder.
+
+| arm | mse per dimension | squared error |
+|---|---|---|
+| served rule, served centroids | 0.085346 | reference |
+| Euclidean rule, served centroids | 0.084303 | −1.2224 % |
+| served rule, shrunk centroids | 0.084593 | −0.8818 % |
+| Euclidean rule, shrunk centroids | 0.083657 | −1.9789 % |
+
+The refit is a single scalar. Centroids fitted on `⟨x,u⟩` read 0.851060 and 1.072421 against the
+served 0.885784 and 1.115576, which is the served pair times 0.9607 and 0.9613. Multiplying the
+served pair by the mean cosine reproduces the refit arms to the fourth decimal of the mse. The
+correction therefore costs one multiply at fit time, and not the extra encoding pass a true
+refit would need.
+
+Two claims of the first draft of this document fall. The selection rule is the larger of the
+two mechanisms here, not the smaller, so calling it second order was wrong. And the centroid
+correction is cheaper than stated, since a scalar replaces the refit.
+
+What the scalar is on real blocks is unmeasured. The mean cosine is a codebook property under a
+Gaussian source; production blocks are compensated residues, and one encoding pass over one
+matrix would settle it.
 
 ## 8. Stage 4: one encoding arm, and what it can say
 
@@ -233,17 +273,24 @@ the reason the stage 4 gate is on perplexity rather than on the proxy.
 
 | Stage | Wall time | Dollars | Machine | Prereg |
 |---|---|---|---|---|
-| 0, disagreement rate | 1 day | 0 | any CPU | none needed |
+| 0, disagreement rate, synthetic | done, 22 s of CPU | 0 | any CPU | none needed |
+| 0 bis, the same on GPTQ residues | 1 day | 0 | any machine that reaches the model | none needed |
 | 1, branch harness | 1 to 2 days | 0 | any CPU | none needed |
 | 2, regret table | 1 day | 0 | any CPU | none needed |
-| 3, centroid refit, measured | 0.5 day | 0 | any CPU | none needed |
+| 3, centroid scalar, synthetic | done, in the same run | 0 | any CPU | none needed |
 | 4, one encoding arm | 2 h 27 of Mac per arm | 0 | Mac | stamped, before the first second |
 
-Total before any decision that costs money: four to five days of development and zero dollars.
-Stages 0 to 3 run on a laptop and need no checkpoint, no GPU and no artifact.
+Total before any decision that costs money: three to four days of development and zero dollars.
+Stages 1 to 3 run on a laptop and need no checkpoint, no GPU and no artifact.
 
-Stop conditions, written now: a disagreement rate under 1 % at stage 0, a regret that does not
-survive per-family restatement at stage 2, or a centroid shift under the encoder's own
+Stage 0 bis is the one that needs a machine this session does not have. It re-runs stage 0 on
+the blocks the quantizer actually sees, by wrapping `TetraShapeGain` the way
+`llvq-llm/examples/f1recdump.rs` wraps `LeechShapeGain`, on one transformer block of
+Qwen3-0.6B. It settles the two quantities the synthetic run cannot: the real disagreement rate,
+and the real mean cosine on compensated residues.
+
+Stop conditions, written now: a disagreement rate under 1 % at stage 0 bis, a regret that does
+not survive per-family restatement at stage 2, or a centroid scalar within the encoder's own
 reproducibility at stage 3.
 
 ## 11. Artifacts

@@ -1,0 +1,149 @@
+STAGE 0 OF THE TETRA GAIN-DECISION PLAN: NORM RULE AGAINST EUCLIDEAN OPTIMUM (2026-09-14)
+==========================================================================================
+Plan: docs/plan-decision-gain-tetra-2026-09-14.md, stages 0 and 3.
+Prereg: none, and none owed. This measures no fundamental criterion. It reads the
+  geometry of a decision on a synthetic block source and spends nothing
+  (METHODE.md section 1, "a stage that cannot measure one of those carries a
+  measurement, not a gate").
+Code: commit 1a85e4e plus llvq-bench/src/bin/gaindisagree.rs, binary sha256 a3718a6b3b852843.
+Cost: $0. 22 s of CPU in a Linux container, 4 cores, no GPU. Two runs.
+Operator go: given 2026-09-14 for a container run.
+
+WHAT WAS ASKED AND WHAT WAS RUN INSTEAD
+----------------------------------------
+The go was for stage 0 on real GPTQ residues, which needs Qwen3-0.6B and the
+wikitext-2 parquet. huggingface.co is refused by this session's egress policy
+(403 on CONNECT, recorded by the proxy at 21:11:50Z). No model, no checkpoint
+and no block dump exist in the container. The model-free half of stage 0 was run
+instead: the angular geometry of the encoder, which is a codebook property and
+needs no model. The trajectory half stays unmeasured and is named in LIMITS.
+
+THE SETUP
+----------
+Blocks are Gaussian draws from the F1b seed 0x0f1b20260904 through
+llvq_bench::gauss_block, the population the 88.89 % retention figure was read
+on. 40 training rows and 400 evaluation rows, disjoint, 106 blocks per row,
+which is the count of full blocks in a 2560-wide Qwen3-4B matrix. Centroids come
+from llvq_quant::quantizer::fit_gain_centroids at k_bits = 1, called exactly as
+calib.rs:840 calls it. Directions come from the production TetraShapeGain. One
+gain bit, 47-bit label, 48-bit word: the rate, the format and the decoder are
+identical in every arm below.
+
+Rule A, served: the centroid nearest ||x|| / row_scale (quantizer.rs:777).
+Rule B, Euclidean optimum over the same two levels: the centroid nearest
+  <x,u> / row_scale, where u is the unit direction of the encoded point. With
+  two admissible gains B is the oracle, so A's regret is exact and B's is zero.
+Rule C, the Schur-conditioned score, is absent: it needs a real Hessian factor.
+
+THE THREE CONTROLS
+-------------------
+1 passes. The algebraic cost model agrees with the production decoder
+     reconstruct_shape_gain on all 84,800 candidate costs, worst gap 4.619e-14.
+2 passes. A mutant that scales the point norm by 1.0001 moves that gap to
+     8.502e-3 and trips the assertion. The check is not vacuous.
+3 passes. Two consecutive runs are identical on every line except the clock.
+
+THE RESULT
+-----------
+Disagreement A against B: 4,618 of 42,400 blocks, 10.892 %.
+Direction: 4,618 go down a level, 0 go up. The shift is one sided, as the
+  algebra requires, since <x,u> = ||x|| cos(theta) <= ||x||.
+Gain occupancy at level 1: 45.901 % under A, 35.009 % under B.
+Mean cos(x,u) = 0.960791, so the reachable magnitude sits 3.921 % below the
+  block norm the served rule compares against.
+
+The 2x2. Rule and centroids are separate mechanisms, so both are moved
+separately and then together. Retention is at 2.000 b/dim and is a
+within-protocol control, not the published 88.89 %, which uses the bench's own
+frame and gain handling.
+
+  arm                                mse/dim    retention   delta pp   sq. error
+  served rule, served centroids      0.085346   88.7633 %    +0.0000    +0.0000 %
+  euclid rule, served centroids      0.084303   89.2069 %    +0.4436    -1.2224 %
+  served rule, refit centroids       0.084601   89.0795 %    +0.3162    -0.8728 %
+  served rule, shrunk centroids      0.084593   89.0828 %    +0.3195    -0.8818 %
+  euclid rule, refit centroids       0.083658   89.4837 %    +0.7204    -1.9775 %
+  euclid rule, shrunk centroids      0.083657   89.4842 %    +0.7209    -1.9789 %
+
+The refit is a scalar. Centroids fitted on <x,u> read 0.851060 / 1.072421
+against the served 0.885784 / 1.115576, which is the served pair multiplied by
+0.9607 and 0.9613. Multiplying the served pair by the mean cosine 0.960730
+reproduces the refit arms to the fourth decimal of the mse, 0.084593 against
+0.084601 and 0.083657 against 0.083658. A refit therefore costs one multiply at
+fit time and not an encoding pass over the matrix.
+
+THE VERDICT AGAINST THE PLAN'S WRITTEN RULE
+--------------------------------------------
+The plan's stage 0 rule reads: under 1 % stop, 1 to 10 % continue, over 10 %
+continue and raise stage 3 to first priority. The rate is 10.892 %, so the
+third line fires. The family is not closed.
+
+Both mechanisms are real and they are close to additive: -1.2224 % and
+-0.8818 % separately, -1.9789 % together, so 0.95 of the sum where the file's
+seven isolated arms ran 0.618 to 0.792 of sub-additivity.
+
+The plan's claim that the centroids are first order and the selection rule
+second order does not hold. The rule is the larger of the two here.
+
+LIMITS
+-------
+The source is Gaussian, not GPTQ residues. Production hands the quantizer a
+block already rewritten by the error feedback of every earlier column, against a
+row scale fitted before that feedback ran. Rotated blocks of a real matrix have
+kurtosis 3.01 (ROADMAP-QUALITY.md row 8), which justifies the Gaussian source for
+the angular part and not for the trajectory part. The cos(x,u) distribution is a
+codebook property and should carry; the ||x|| / row_scale distribution is not,
+and it is what sets the width of the disagreement band.
+
+Nothing here is a quality claim. Retention is Shannon retention at a fixed rate,
+two transpositions away from perplexity (ROADMAP.md section 2.2 bis), and the
+file holds three cases where a better local proxy composed worse (ETAT.md
+section 7). The 21.5 % perplexity gap between leech0c13 and Tetra bought an MMLU
+difference of 1.18 pp, CI95 [-1.54; +3.98].
+
+COMMAND
+--------
+cargo run --release -p llvq-bench --bin gaindisagree
+
+RAW OUTPUT
+-----------
+=== gaindisagree ===
+seed            0x00000f1b20260904  (F1b)
+train           40 rows x 106 blocks
+eval            400 rows x 106 blocks
+centroids       0.885784  1.115576
+midpoint        1.000680
+encoded         42400 blocks in 21.8 s, 0 at the origin
+decoder check   worst |algebra - reconstruct_shape_gain| over 84800 costs: 4.619e-14
+
+--- disagreement ---
+served vs euclid  4618 of 42400 blocks, 10.892 %
+  euclid picks lower level  4618   higher level  0
+gain occupancy    served 45.901 % at level 1, euclid 35.009 %
+
+--- cost of the served rule ---
+mse/dim           served 0.085346   euclid 0.084303
+squared error      served rule wastes 1.2224 % of its own total
+retention at 2.000 b/dim   served 88.7633 %   euclid 89.2069 %   delta +0.4436 pp
+regret on disagreed blocks, squared error per block
+  mean            0.229883
+  quantiles            min 0.0003  p1 0.0054  p10 0.0434  p25 0.1116  med 0.2233  p75 0.3325  p90 0.4186  p99 0.5827  max 0.9172
+  mean regret is 11.223 % of the mean block error (2.0483)
+
+--- centroids ---
+fitted on norms   0.885784  1.115576   (the served fit, 4240 training blocks)
+fitted on <x,u>   0.851060  1.072421   (same blocks, same rate, same format)
+shrunk by mean cos 0.850999  1.071767   (served pair x 0.960730, one multiply)
+
+--- 2x2, mse per dimension and retention at 2.000 b/dim ---
+served rule, served centroids    mse 0.085346   retention 88.7633 %   delta +0.0000 pp   error +0.0000 %
+euclid rule, served centroids    mse 0.084303   retention 89.2069 %   delta +0.4436 pp   error -1.2224 %
+served rule, refit centroids     mse 0.084601   retention 89.0795 %   delta +0.3162 pp   error -0.8728 %
+served rule, shrunk centroids    mse 0.084593   retention 89.0828 %   delta +0.3195 pp   error -0.8818 %
+euclid rule, refit centroids     mse 0.083658   retention 89.4837 %   delta +0.7204 pp   error -1.9775 %
+euclid rule, shrunk centroids    mse 0.083657   retention 89.4842 %   delta +0.7209 pp   error -1.9789 %
+
+--- geometry ---
+cos(x, u)              min 0.8949  p1 0.9370  p10 0.9511  p25 0.9568  med 0.9618  p75 0.9658  p90 0.9692  p99 0.9753  max 0.9855
+norm / row_scale       min 0.4955  p1 0.6745  p10 0.8084  p25 0.8911  med 0.9860  p75 1.0844  p90 1.1754  p99 1.3368  max 1.5715
+mean cos          0.960791   so the euclidean target sits 3.921 % below the norm
