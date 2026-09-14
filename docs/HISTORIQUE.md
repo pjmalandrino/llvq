@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-06. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-14. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -463,3 +463,14 @@ The project's chronological thread, one entry per period, from 2026-07-24 to 202
 - **The three arithmetics on the card** ($0.00, 4 s of card after 50 min of queue; prereg stamped, sha256 `a3765c0a…`; [journal](mesures/f1-rang-variantes-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-rang-variantes-2026-09-05-ECARTS.md)): every variant equal to `tv_f1r` on all 30,720 rows (V1 at Δ = 0 exactly, V2 and V3 at 3.16e-7 — the review's host replay had said 3.3e-7), all three at 40 registers and 0 local. **V3: T = 1.694 ms against B = 2.797 — 0.61×; V1 1.719; V2 3.444 (+0.11 on `tv_f1r`).** The 24 int→float conversions per block were ~1.6 of the ~2.0 ms of arithmetic measured at 14:53; the dependent chain of small-table reads cost nothing. The signed prediction was wrong on all four times, in the direction its own instructive clause had named (`Du_v3 < 1.3`). Reproducibility of the reference arms across the two jobs: 0.4%. The prereg's row: F1d takes v3, v1 equivalent within the ±0.1 ms resolution. Projected, same reserves as the morning's floor: ≈ 113 tok/s at the 4B, +12%, for half the VRAM (*estimated*) — where the naive writing of the same decoder projected −5% five hours earlier.
 - **Trio, steps 0, 1 and 3, built and reviewed the same night** ($0; three builders, three adversarial reviewers; commit `cc23f9a`). Step 0: `llvq_search::trio`, 1,122 lines, rebuilt from `llvq_core::Golay` with its own construction and asserting at construction the trio, the 64 states, the 1,024 edges, N0 = 1,240, the closed-form bounds and the 12 F₂ columns; `decode` in natural order, `encode` the inverse refusing every non-codeword; held to the bench's decoder on 10⁵ words, 10⁶ round trips, 16 mutants killed. Step 1: the production encoder, allocation-free and `Sync`, the bench's rule to the letter (6,000 of 6,000 pairs at the bench's point), α = 0.3218 and the pair (α, 1.14 α) fixed on the 4,000 training blocks before the evaluation blocks were read once (88.89% against 92.00); **329 µs/block/core** against `nearest_angular`'s 687 in the same process (*measured*, `trioencbench`, reproduced by the reviewer at 328 and 327), gate 656; the truncated rule stays a knob at 246. Step 3: format v5 (`LVQ5`), the kind in the header, the Trio fingerprint beside the untouched v1 one, encode/decode by kind, refusals in every runtime transcoder, in the fused loader and in every tool that would read a Trio index as a Ball class — seven cuda/metal bins the review found unguarded included; the default writer still writes v4 byte for byte. The review's other finding: the per-file kind cannot carry Q5's `v_proj` in int4 beside Trio matrices; a per-matrix kind goes in before any Trio file is sealed.
 - Kept from the audit's ten example files, four: `f1accesscv` (real access, held-out), `f1shrink` (orbit counts under signed permutations 67/9 → 6/3, second moments, six-section trellis), `f1rankbench` and `f1rankenc` (the universal table and its encoder's exactness). Operator go, 2026-09-05: journals, the ALU floor of the universal decoder at ≤ $0.10, and the objective **an F1 that can be tested**.
+
+
+## 2026-09-14. Tetra gains-only Schur pilot
+
+The local pilot completed in 10.77 seconds at zero remote cost (*measured*, [journal](mesures/tetra-schur-pilot-2026-09-14.txt)).
+The 5–15 minute estimate was too high. Protocol and input manifest were timestamped before capture.
+Schur lowers mean selection regret in both seeds, but only five scheduled decisions differ from Euclidean post-shape selection.
+Three are terminal blocks. The two interior cases have opposite signs on the regularized rollout loss.
+The signed prediction holds in seed 1 and understates the relative reduction in seed 2.
+The former guide's unrun status is replaced by [the completed results](tetra-schur-pilot-2026-09-14.md).
+No served policy, kernel or quality claim changes.

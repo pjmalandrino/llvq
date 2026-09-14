@@ -362,7 +362,7 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
     })
 }
 
-/// Parse `tetra[<gain>]` — the Tetra word map.
+/// Parse `tetra[<gain>][post]` — the Tetra word map.
 ///
 /// **Nothing here falls back either**, and the fields it refuses are the ones
 /// `leech` accepts: a shell cap, a level cap and the free-magnitude `f`. Each
@@ -376,7 +376,7 @@ fn parse_codebook(spec: &str) -> Result<Codebook, String> {
 /// The gain is 1 or absent. `llvq_artifact`'s writer refuses any other count
 /// three hours into a run; refusing it here costs microseconds.
 fn parse_tetra(spec: &str) -> Result<Codebook, String> {
-    let grammar = "grammar `tetra[<gain>]` with `<gain>` = 1 — e.g. `tetra` or `tetra1`. \
+    let grammar = "grammar `tetra[<gain>][post]` with `<gain>` = 1 — e.g. `tetra`, `tetra1` or `tetrapost`. \
                    A Tetra word is 47 bits of label and one gain bit: it takes no shell \
                    cap (`c`), no level cap (`L`) and no free magnitude (`f`)";
     let rest = spec
@@ -392,6 +392,10 @@ fn parse_tetra(spec: &str) -> Result<Codebook, String> {
              48 bits/block this arm exists to compare. {grammar}"
         ));
     }
+    let (rest, post_shape_gain) = match rest.strip_suffix("post") {
+        Some(head) => (head, true),
+        None => (rest, false),
+    };
     let (gain, rest) = split_digits(rest);
     if !rest.is_empty() {
         return Err(format!("codebook {spec:?}: {rest:?} left over — {grammar}"));
@@ -409,7 +413,7 @@ fn parse_tetra(spec: &str) -> Result<Codebook, String> {
             llvq_search::tetra::LABEL_BITS
         ));
     }
-    Ok(Codebook::Tetra { gain_bits })
+    Ok(Codebook::Tetra { gain_bits, post_shape_gain })
 }
 
 /// Parse `int<bits>g<groupe>` — the affine scalar arm.
@@ -575,12 +579,20 @@ fn codebook_line(spec: &str, c: &Codebook) -> String {
         // class count has no counterpart here — Tetra's label set is one fixed
         // trellis, not a union of shells — so the word's own geometry takes
         // its place on the line.
-        Codebook::Tetra { gain_bits } => format!(
+        Codebook::Tetra {
+            gain_bits,
+            post_shape_gain,
+        } => format!(
             "Tetra word map, {} bits of label + {gain_bits} gain bit{}, \
-             3 octads of 8, {} rows per class, magnitude on the gain grid",
+             3 octads of 8, {} rows per class, magnitude on the gain grid, gain selected {}",
             llvq_search::tetra::LABEL_BITS,
             if *gain_bits == 1 { "" } else { "s" },
-            llvq_search::tetra::CLASS_ROWS
+            llvq_search::tetra::CLASS_ROWS,
+            if *post_shape_gain {
+                "after direction"
+            } else {
+                "from source norm"
+            }
         ),
     };
     format!("{spec} → {what}, {:.0} bits/block", c.block_bits())
@@ -868,6 +880,8 @@ fn main() -> anyhow::Result<()> {
     // things, and the artifact it produced would have a hole or an overlap
     // that nothing downstream detects.
     let resume_path = std::env::var("LLVQ_RESUME").ok().filter(|p| !p.is_empty());
+    codebook.validate_encoding_mode(group_scales, design_c, resume_path.is_some())
+        .map_err(anyhow::Error::msg)?;
     if let Some(r) = &resume_path {
         // A resume that writes nothing throws away the copy of the shard it
         // just made *and* the blocks it just paid for.
@@ -1281,7 +1295,7 @@ fn main() -> anyhow::Result<()> {
                     gain_bits,
                     ..
                 } => (max_shell, gain_bits),
-                Codebook::Tetra { gain_bits } => (llvq_artifact::TETRA_SHELL_CAP, gain_bits),
+                Codebook::Tetra { gain_bits, .. } => (llvq_artifact::TETRA_SHELL_CAP, gain_bits),
                 _ => anyhow::bail!(
                     "resume refused: only a shape-gain codebook writes an \
                      artifact, so only it can resume one"
@@ -1579,11 +1593,31 @@ mod tests {
     fn the_tetra_arm_parses_and_never_falls_back() {
         assert!(matches!(
             parse_codebook("tetra").unwrap(),
-            Codebook::Tetra { gain_bits: 1 }
+            Codebook::Tetra {
+                gain_bits: 1,
+                post_shape_gain: false
+            }
         ));
         assert!(matches!(
             parse_codebook("tetra1").unwrap(),
-            Codebook::Tetra { gain_bits: 1 }
+            Codebook::Tetra {
+                gain_bits: 1,
+                post_shape_gain: false
+            }
+        ));
+        assert!(matches!(
+            parse_codebook("tetrapost").unwrap(),
+            Codebook::Tetra {
+                gain_bits: 1,
+                post_shape_gain: true
+            }
+        ));
+        assert!(matches!(
+            parse_codebook("tetra1post").unwrap(),
+            Codebook::Tetra {
+                gain_bits: 1,
+                post_shape_gain: true
+            }
         ));
         for spec in [
             "tetra0",     // no gain bit: the word has one whether it is spent or not
@@ -1624,6 +1658,10 @@ mod tests {
         // the only thing that does.
         assert_eq!(t.code_kind(), llvq_artifact::CodeKind::Tetra);
         assert_eq!(b.code_kind(), llvq_artifact::CodeKind::Ball);
+        assert_eq!(
+            parse_codebook("tetrapost").unwrap().block_bits(),
+            48.0
+        );
     }
 
     /// The journal line has to name the map, not only the rate — the two arms
@@ -1639,6 +1677,13 @@ mod tests {
         // Nothing of the ball's vocabulary: no shell, no class count.
         assert!(!t.contains("shell"), "{t}");
         assert!(!t.contains("classes"), "{t}");
+        assert!(t.contains("from source norm"), "{t}");
+        let post = codebook_line("tetrapost", &parse_codebook("tetrapost").unwrap());
+        assert!(post.contains("after direction"), "{post}");
+        assert_ne!(
+            t, post,
+            "the experimental arm must be explicit in the journal"
+        );
         let b = codebook_line("leech1c12", &parse_codebook("leech1c12").unwrap());
         assert_ne!(t, b, "the two 48-bit arms must not print the same line");
     }

@@ -554,8 +554,8 @@ impl BlockQuantizer for LeechShapeGain {
             return;
         }
         let f = self.ball.nearest_angular(&self.searcher, x);
-        // The gain code sees the block norm relative to its row, which is
-        // what makes a two-level code meaningful at all.
+        // Both gain rules express the selected magnitude relative to the row,
+        // which is what makes a two-level code meaningful across matrices.
         let g = norm / self.row_scale;
         let level = nearest_level_index(&self.centroids, g);
         let picked = self.centroids[level] * self.row_scale;
@@ -663,6 +663,10 @@ pub struct TetraShapeGain {
     /// Gain levels, relative to the row scale, ascending. Exactly two.
     centroids: Vec<f64>,
     row_scale: f64,
+    /// Select the gain after the direction, by the projection of the source
+    /// block onto that direction. Off preserves the shipped norm-nearest
+    /// Tetra rule for an explicit A/B.
+    post_shape_gain: bool,
     /// Code emitted by the most recent `quantize`, for artifact writing.
     last: Option<BlockCode>,
 }
@@ -699,8 +703,17 @@ impl TetraShapeGain {
             scratch: RefCell::new(Scratch::new()),
             centroids,
             row_scale: 1.0,
+            post_shape_gain: false,
             last: None,
         }
+    }
+
+    /// Choose the stored gain after the direction, as in optimal
+    /// shape-conditioned gain quantization. The word and its decoder do not
+    /// change; only the encoder's choice of bit 47 does.
+    pub fn with_post_shape_gain(mut self) -> Self {
+        self.post_shape_gain = true;
+        self
     }
 
     /// Bits spent per block on the gain — one, by construction.
@@ -774,9 +787,29 @@ impl BlockQuantizer for TetraShapeGain {
         }
         // The gain code sees the block norm relative to its row, which is
         // what makes a two-level code meaningful at all.
-        let level = nearest_level_index(&self.centroids, norm / self.row_scale);
+        let point = self.direction(x);
+        let level = if self.post_shape_gain {
+            // For unit direction u = point / ||point||, the continuous gain
+            // minimizing ||x - g u||^2 is <x,u>. Snapping that value to the
+            // same two stored centroids therefore minimizes reconstruction
+            // error over the two gain words for this fixed direction.
+            let point_norm = point
+                .iter()
+                .map(|&p| (p as f64) * (p as f64))
+                .sum::<f64>()
+                .sqrt();
+            let projected = x
+                .iter()
+                .zip(point.iter())
+                .map(|(&a, &p)| a * p as f64)
+                .sum::<f64>()
+                / point_norm;
+            nearest_level_index(&self.centroids, projected / self.row_scale)
+        } else {
+            nearest_level_index(&self.centroids, norm / self.row_scale)
+        };
         let code = BlockCode {
-            point: self.direction(x),
+            point,
             gain: level as u32,
         };
         // The decoder's own routine rather than a second copy of its three
@@ -810,6 +843,10 @@ impl BlockQuantizer for TetraShapeGain {
     /// and returns a word the map actually has, at the cost of one encoder
     /// call on a path design C alone reaches (`nogs` is the served mode).
     fn reproject(&self, code: &BlockCode, norm: f64, out: &mut [f64]) -> Option<BlockCode> {
+        assert!(
+            !self.post_shape_gain,
+            "tetrapost reprojection is not supported; disable Design C"
+        );
         let flipped = out
             .iter()
             .zip(code.point.iter())

@@ -309,10 +309,31 @@ pub enum Codebook {
     /// gain bit whether or not it is used, and the map is one fixed label
     /// set. `shell_cap` is written as [`llvq_artifact::TETRA_SHELL_CAP`] in
     /// the file, where it is a sentinel and not a cap.
-    Tetra { gain_bits: u32 },
+    Tetra {
+        gain_bits: u32,
+        /// Choose the gain after the Tetra direction from its projection,
+        /// rather than from the source norm. Encoding-only: the 48-bit word
+        /// and decoder are unchanged.
+        post_shape_gain: bool,
+    },
 }
 
 impl Codebook {
+    /// Experimental post-shape encoding has no validated reprojection or resume path.
+    pub fn validate_encoding_mode(
+        &self,
+        group_scales: bool,
+        design_c: bool,
+        resuming: bool,
+    ) -> Result<(), String> {
+        if matches!(self, Self::Tetra { post_shape_gain: true, .. })
+            && (group_scales || design_c || resuming)
+        {
+            return Err("tetrapost requires nogs, no Design C and no resume; gain-policy provenance must not be mixed".into());
+        }
+        Ok(())
+    }
+
     /// Bits per 24-weight block, gain included. The per-row scale is one f16
     /// per output row and is counted separately by [`Report`].
     pub fn block_bits(&self) -> f64 {
@@ -351,7 +372,7 @@ impl Codebook {
             // makes the two arms comparable at a constant rate, and why the
             // 0.6B witness run of step 4 demands the *same* b/weight line on
             // both. Derived from the word's own halves, not written as 48.
-            Codebook::Tetra { gain_bits } => (llvq_search::tetra::LABEL_BITS + *gain_bits) as f64,
+            Codebook::Tetra { gain_bits, .. } => (llvq_search::tetra::LABEL_BITS + *gain_bits) as f64,
         }
     }
 
@@ -634,6 +655,8 @@ pub fn quantize_model_capturing(
     let (damping, threads, start, limit) = (*damping, *threads, *start, *limit);
     let rotation_seed = *rotation_seed;
     let h_shrink = *h_shrink;
+    codebook.validate_encoding_mode(cfg.group_scales, cfg.design_c, start != 0)
+        .map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
         (0.0..=1.0).contains(&h_shrink),
         "h_shrink = {h_shrink}: ρ must be in [0, 1] (1 = H as is)"
@@ -836,7 +859,7 @@ pub fn quantize_model_capturing(
                     // Same fit for both maps, and deliberately so: the gain
                     // code is the block magnitude relative to its row, which
                     // knows nothing about how the direction is written down.
-                    Codebook::ShapeGain { gain_bits, .. } | Codebook::Tetra { gain_bits } => {
+                    Codebook::ShapeGain { gain_bits, .. } | Codebook::Tetra { gain_bits, .. } => {
                         Some(fit_gain_centroids(
                             &weights.w,
                             d_out,
@@ -884,10 +907,13 @@ pub fn quantize_model_capturing(
                                 q
                             })
                         }
-                        Codebook::Tetra { .. } => Box::new(TetraShapeGain::with_encoder(
-                            tetra_encoder.clone().expect("built for a Tetra run"),
-                            gain.clone().expect("fitted above"),
-                        )),
+                        Codebook::Tetra { post_shape_gain, .. } => {
+                            let q = TetraShapeGain::with_encoder(
+                                tetra_encoder.clone().expect("built for a Tetra run"),
+                                gain.clone().expect("fitted above"),
+                            );
+                            Box::new(if post_shape_gain { q.with_post_shape_gain() } else { q })
+                        }
                     }
                 };
                 // The row scales the loop will use, computed on the rotated

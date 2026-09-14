@@ -1,0 +1,498 @@
+Tetra Schur software verification, 2026-09-14
+
+Base: main at 7d62cff, uncommitted implementation plus supplied tetrapost patch.
+Scope: software correctness and local input preparation only.
+No pretrained-model capture, rollout measurement, MMLU, GPU job or paid job launched.
+Remote expenditure: $0 (no remote execution).
+
+Results (measured by the commands below): 79 quant tests and 31 llm tests passed.
+The 9 Schur tests also passed with fast-linalg. Total: 119 test executions.
+Metal all-target check, warning-denying Clippy and optimized binary build passed.
+Four intentional mutants failed their designated tests; source restored afterwards.
+New Rust files pass rustfmt --check; git diff --check passes.
+Workspace-wide rustfmt remains outside the green checks: existing formatting failures
+were observed during the patch-application turn. No global reformat was performed.
+
+Prepared inputs: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14
+Two seeds; 7,968 direction-call upper bound and 151,388,160 array bytes (computed by inspect).
+This storage count is not peak resident memory and these calls have not been executed.
+The preregistration remains a draft without an OTS timestamp.
+
+
+COMMAND: cargo test -p llvq-quant
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.01s
+     Running unittests src/lib.rs (target/debug/deps/llvq_quant-58fcc12fa5840964)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/g5_design_c.rs (target/debug/deps/g5_design_c-0496ab7fab7ac493)
+
+running 10 tests
+test design_c_without_hessian_is_refused - should panic ... ok
+test design_c_and_group_scales_are_mutually_exclusive - should panic ... ok
+test reproject_follows_a_negative_scale ... ok
+test design_c_result_is_sealable_bit_for_bit ... ok
+test parallel_design_c_matches_serial_exactly ... ok
+test the_default_path_never_reads_the_hessian ... ok
+test design_c_strictly_lowers_the_proxy_below_the_published_path ... ok
+test design_c_matches_the_composed_reference ... ok
+test design_c_decisions_are_scale_invariant ... ok
+test tetra_reprojects_a_negative_scale_by_re_encoding ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.75s
+
+     Running tests/g5_gptq.rs (target/debug/deps/g5_gptq-a1bc98847a2ac8b7)
+
+running 18 tests
+test correction_is_the_analytic_minimizer ... ok
+test damping_is_applied_relative_to_the_mean_diagonal ... ok
+test group_scales_are_unity_when_the_directions_are_exact ... ok
+test identity_quantizer_leaves_the_layer_untouched ... ok
+test keep_exact_tail_is_never_snapped_to_the_grid ... ok
+test reject_tail_panics - should panic ... ok
+test cholesky_and_triangular_inverse_are_exact ... ok
+test the_propagated_error_is_the_error_the_layer_stores ... ok
+test retraction_preserves_every_row_block_norm ... ok
+test gptq_factor_satisfies_its_defining_identity ... ok
+test parallel_matches_serial_exactly ... ok
+test zero_block_is_handled ... ok
+test group_scales_strictly_lower_the_proxy ... ok
+test group_scale_ridge_is_scale_invariant ... ok
+test gptq_beats_round_to_nearest_on_the_proxy ... ok
+test leech_direction_is_norm_preserving_and_lands_on_the_lattice ... ok
+test tetra_post_shape_gain_minimizes_over_the_two_stored_gains ... ok
+test spherical_gptq_beats_feedback_free_leech_on_the_proxy ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.29s
+
+     Running tests/g5_retraction.rs (target/debug/deps/g5_retraction-1408f1a12c1fb957)
+
+running 6 tests
+test the_row_scale_is_announced_once_per_row_not_once_per_block ... ok
+test block_magnitudes_after_a_layer_pass_are_still_quantized ... ok
+test without_retraction_the_gain_codebook_changes_the_output ... ok
+test with_retraction_the_gain_codebook_still_changes_the_output ... ok
+test under_the_old_retraction_shape_gain_was_direction_only ... ok
+test the_claimed_rate_matches_what_the_reconstruction_needs ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/g5_rotation.rs (target/debug/deps/g5_rotation-fccd04bc3e1ca3ff)
+
+running 4 tests
+test rotating_weights_and_inputs_preserves_the_layer ... ok
+test transpose_undoes_the_rotation ... ok
+test hessian_rotation_matches_a_dense_product ... ok
+test rotation_is_orthogonal_on_every_width ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/g5_shapegain.rs (target/debug/deps/g5_shapegain-76309d71bb1335ab)
+
+running 10 tests
+test index_width_follows_the_shell_cap ... ok
+test direction_only_keeps_the_magnitude_free ... ok
+test capped_quantizer_stays_inside_its_ball ... ok
+test a_tetra_quantizer_refuses_a_gain_code_the_word_cannot_carry - should panic ... ok
+test a_tetra_block_is_forty_seven_bits_of_label_and_one_of_gain ... ok
+test tetra_reconstruct_is_the_centroid_the_row_scale_and_the_direction ... ok
+test every_tetra_direction_is_a_word_of_the_map_in_natural_order ... ok
+test error_decreases_with_gain_bits ... ok
+test the_gain_is_actually_quantized ... ok
+test the_row_scale_is_load_bearing ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.58s
+
+     Running tests/g6_artifact.rs (target/debug/deps/g6_artifact-7c26fadc603f9487)
+
+running 10 tests
+test codes_reconstruct_bit_for_bit_with_zero_gain_bits ... ok
+test codes_reconstruct_bit_for_bit_under_a_shell_cap ... ok
+test codes_reconstruct_bit_for_bit_with_two_gain_bits ... ok
+test the_free_magnitude_variant_cannot_round_trip ... ok
+test codes_reconstruct_the_layer_bit_for_bit ... ok
+test codes_reconstruct_bit_for_bit_beside_a_tail ... ok
+test codes_reconstruct_bit_for_bit_on_tetra_beside_a_tail ... ok
+test codes_reconstruct_the_layer_bit_for_bit_on_tetra ... ok
+test both_arms_leave_finite_residuals_on_three_blocks ... ok
+test parallel_capture_matches_serial_capture ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+     Running tests/scalar_groupwise.rs (target/debug/deps/scalar_groupwise-fa44ec27ba678dd0)
+
+running 12 tests
+test an_extent_that_overflows_does_not_produce_nan ... ok
+test degenerate_groups_come_back_exactly ... ok
+test the_clamp_keeps_a_tie_group_on_the_grid ... ok
+test more_bits_is_strictly_better ... ok
+test the_grid_is_fitted_per_group_not_globally ... ok
+test the_range_is_extended_to_include_zero ... ok
+test the_reported_block_length_is_the_group ... ok
+test the_rounding_mode_is_ties_to_even ... ok
+test no_weight_is_further_than_half_a_step ... ok
+test zero_is_exactly_representable_in_every_group ... ok
+test an_exhaustive_nearest_level_search_agrees ... ok
+test the_transcription_matches_upstream ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/schur.rs (target/debug/deps/schur-dfdea9b99b1d47e8)
+
+running 9 tests
+test reserved_output_error_has_an_independent_scalar_reference ... ok
+test exact_tiny_suffix_gap_and_nested_horizons ... ok
+test schur_matches_independent_elimination_with_nonempty_prefix_and_damping ... ok
+test diagonal_has_no_feedback_and_isotropic_rankings_agree ... ok
+test constructed_post_gain_crossing_scale_ties_zero_and_threshold ... ok
+test anisotropic_metric_changes_the_gain_ranking_and_predicts_full_block_loss ... ok
+test disabled_post_mode_matches_the_parent_norm_rule_and_refuses_reprojection ... ok
+test production_post_gain_propagates_its_own_error_into_the_second_block ... ok
+test witness_and_every_branch_reproduce_production_gptq_with_exact_tail ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.24s
+
+   Doc-tests llvq_quant
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+COMMAND: cargo test -p llvq-llm --test tetra_diag --test tetra_wiring --bin smoke
+   Compiling llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-artifact)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+   Compiling llvq-bench v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-bench)
+   Compiling llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-cuda)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.24s
+     Running unittests src/bin/smoke.rs (target/debug/deps/smoke-e5ff66c48cfeffd0)
+
+running 24 tests
+test tests::an_unknown_calibration_corpus_is_refused ... ok
+test tests::a_misspelled_rotation_is_refused ... ok
+test tests::a_misspelled_mode_is_refused ... ok
+test tests::a_malformed_positional_is_refused_not_defaulted ... ok
+test tests::every_window_fits_in_the_corpus ... ok
+test tests::no_seed_is_the_contiguous_prefix ... ok
+test tests::a_misspelled_codebook_is_refused ... ok
+test tests::printed_names_parse_back ... ok
+test tests::seeded_windows_leave_the_prefix ... ok
+test tests::seeds_are_reproducible_and_distinct ... ok
+test tests::an_empty_codebook_is_refused ... ok
+test tests::the_calibration_budget_follows_the_request ... ok
+test tests::the_block_length_follows_the_codebook_and_the_rate_follows_it ... ok
+test tests::out_of_range_caps_are_refused ... ok
+test tests::the_journal_line_names_the_tetra_map ... ok
+test tests::the_class_count_is_the_documented_one ... ok
+test tests::the_refusal_names_every_accepted_value ... ok
+test tests::the_scalar_arm_parses_and_never_falls_back ... ok
+test tests::the_tetra_arm_parses_and_never_falls_back ... ok
+test tests::the_tetra_arm_spends_the_same_forty_eight_bits_as_the_ball ... ok
+test tests::windows_are_distinct ... ok
+test tests::the_documented_spellings_still_resolve ... ok
+test tests::the_journal_line_reports_the_real_gain_bits ... ok
+test tests::the_journal_line_separates_a_free_magnitude ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tetra_diag.rs (target/debug/deps/tetra_diag-ddc7e457feb948be)
+
+running 2 tests
+test selection_is_dimension_only_and_rejects_oversampling ... ok
+test local_capture_replay_oracle_provenance_and_corruption_refusal ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.02s
+
+     Running tests/tetra_wiring.rs (target/debug/deps/tetra_wiring-75ef4d3c8e4a1237)
+
+running 5 tests
+test a_tetra_run_writes_a_v5_tetra_file_that_decodes_bit_for_bit ... ok
+test post_shape_run_round_trips_and_unsupported_modes_are_refused ... ok
+test a_shard_of_the_other_map_is_refused_both_ways ... ok
+test two_tetra_segments_produce_the_single_run_file ... ok
+test both_arms_report_the_same_rate_on_the_same_model ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.80s
+
+
+COMMAND: cargo test -p llvq-quant --features fast-linalg --test schur
+   Compiling bytemuck v1.25.2
+   Compiling num-traits v0.2.19
+   Compiling once_cell v1.21.4
+   Compiling nano-gemm-core v0.2.1
+   Compiling syn v2.0.119
+   Compiling raw-cpuid v11.6.0
+   Compiling crossbeam-queue v0.3.13
+   Compiling crossbeam-channel v0.5.16
+   Compiling atomic-wait v1.1.0
+   Compiling generativity v1.2.1
+   Compiling equator v0.6.0
+   Compiling rayon v1.12.0
+   Compiling nano-gemm-f32 v0.2.1
+   Compiling nano-gemm-f64 v0.2.1
+   Compiling dyn-stack v0.13.2
+   Compiling crossbeam v0.8.4
+   Compiling thiserror-impl v1.0.69
+   Compiling enum-as-inner v0.6.1
+   Compiling equator-macro v0.2.1
+   Compiling equator-macro v0.4.2
+   Compiling num-complex v0.4.6
+   Compiling equator v0.4.2
+   Compiling equator v0.2.2
+   Compiling thiserror v1.0.69
+   Compiling pulp v0.22.3
+   Compiling nano-gemm-c32 v0.2.1
+   Compiling nano-gemm-c64 v0.2.1
+   Compiling qd v0.8.0
+   Compiling spindle v0.2.6
+   Compiling faer-traits v0.24.0
+   Compiling nano-gemm v0.2.2
+   Compiling sysctl v0.6.0
+   Compiling gemm-common v0.19.0
+   Compiling gemm-f32 v0.19.0
+   Compiling gemm-f64 v0.19.0
+   Compiling gemm-c32 v0.19.0
+   Compiling gemm-c64 v0.19.0
+   Compiling gemm v0.19.0
+   Compiling faer v0.24.4
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 00s
+     Running tests/schur.rs (target/debug/deps/schur-e8145f74ee1cad85)
+
+running 9 tests
+test reserved_output_error_has_an_independent_scalar_reference ... ok
+test exact_tiny_suffix_gap_and_nested_horizons ... ok
+test schur_matches_independent_elimination_with_nonempty_prefix_and_damping ... ok
+test diagonal_has_no_feedback_and_isotropic_rankings_agree ... ok
+test constructed_post_gain_crossing_scale_ties_zero_and_threshold ... ok
+test anisotropic_metric_changes_the_gain_ranking_and_predicts_full_block_loss ... ok
+test disabled_post_mode_matches_the_parent_norm_rule_and_refuses_reprojection ... ok
+test production_post_gain_propagates_its_own_error_into_the_second_block ... ok
+test witness_and_every_branch_reproduce_production_gptq_with_exact_tail ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.34s
+
+
+COMMAND: cargo check -p llvq-llm --features metal,fast-linalg --all-targets
+    Checking llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Checking llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-artifact)
+    Checking llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Checking llvq-bench v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-bench)
+    Checking llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 50.33s
+
+COMMAND: cargo clippy --all-targets -- -D warnings
+    Checking llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Checking llvq-search v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-search)
+    Checking llvq-core v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-core)
+    Checking llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-artifact)
+    Checking llvq-bench v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-bench)
+    Checking llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Checking llvq-metal v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-metal)
+    Checking llvq-cuda v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-cuda)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 13s
+
+COMMAND: nice -n 10 cargo build --release -p llvq-llm --features metal,fast-linalg --bin tetra_schur
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+   Compiling llvq-artifact v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-artifact)
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 30.61s
+
+COMMAND: python3 ops/prepare_tetra_schur.py /Users/pjmalandrino/tetra-schur-pilot-2026-09-14
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json
+{
+  "bundle_array_bytes": 75694080,
+  "calibration_tokens": 2048,
+  "checkpoint_disk_bytes": 1503300328,
+  "design_c": false,
+  "device": "metal",
+  "dtype": "f32",
+  "encoder_calls_upper_bound": 3984,
+  "gain_policy": "source-norm witness",
+  "group_scales": false,
+  "label": "computed, no inference",
+  "prefix": "checkpoint-f32",
+  "projection_count": 6,
+  "row_count": 24,
+  "tail": "KeepExact",
+  "validation_tokens": 512,
+  "wall_time": "unmeasured"
+}
+
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json
+{
+  "bundle_array_bytes": 75694080,
+  "calibration_tokens": 2048,
+  "checkpoint_disk_bytes": 1503300328,
+  "design_c": false,
+  "device": "metal",
+  "dtype": "f32",
+  "encoder_calls_upper_bound": 3984,
+  "gain_policy": "source-norm witness",
+  "group_scales": false,
+  "label": "computed, no inference",
+  "prefix": "checkpoint-f32",
+  "projection_count": 6,
+  "row_count": 24,
+  "tail": "KeepExact",
+  "validation_tokens": 512,
+  "wall_time": "unmeasured"
+}
+
+Prepared two plans, token sets and a SHA-256 manifest. No capture, replay or model evaluation was launched.
+
+COMMAND: shasum -a 256 -c /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/preparation-manifest.sha256
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/validation.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/validation.json: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/Cargo.lock: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/quantizer.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/gptq.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/linalg.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/rotation.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/tetra_diag.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/bin/tetra_schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/model.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/calib.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/loader.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/ops/prepare_tetra_schur.py: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/proofs/BROUILLON-preregistration-tetra-schur-2026-09-14.md: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/train-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/validation-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/config.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/tokenizer.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors: OK
+
+MUTATION SUMMARY
+[
+  {
+    "mutant": "wrong_metric",
+    "exit": 101,
+    "killed": true
+  },
+  {
+    "mutant": "missing_prefix",
+    "exit": 101,
+    "killed": true
+  },
+  {
+    "mutant": "wrong_feedback",
+    "exit": 101,
+    "killed": true
+  },
+  {
+    "mutant": "disabled_post",
+    "exit": 101,
+    "killed": true
+  }
+]
+
+MUTANT: wrong_metric
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.27s
+     Running tests/schur.rs (target/debug/deps/schur-dfdea9b99b1d47e8)
+
+running 1 test
+test schur_matches_independent_elimination_with_nonempty_prefix_and_damping ... FAILED
+
+failures:
+
+---- schur_matches_independent_elimination_with_nonempty_prefix_and_damping stdout ----
+
+thread 'schur_matches_independent_elimination_with_nonempty_prefix_and_damping' (2576239) panicked at llvq-quant/tests/schur.rs:65:5:
+3.970148258837386 != 7.632069540666222
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    schur_matches_independent_elimination_with_nonempty_prefix_and_damping
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p llvq-quant --test schur`
+
+MUTANT: missing_prefix
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.26s
+     Running tests/schur.rs (target/debug/deps/schur-dfdea9b99b1d47e8)
+
+running 1 test
+test witness_and_every_branch_reproduce_production_gptq_with_exact_tail ... FAILED
+
+failures:
+
+---- witness_and_every_branch_reproduce_production_gptq_with_exact_tail stdout ----
+
+thread 'witness_and_every_branch_reproduce_production_gptq_with_exact_tail' (2576541) panicked at llvq-quant/tests/schur.rs:65:5:
+2.1339125664381036 != 3.8764552880055287
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    witness_and_every_branch_reproduce_production_gptq_with_exact_tail
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 2.85s
+
+error: test failed, to rerun pass `-p llvq-quant --test schur`
+
+MUTANT: wrong_feedback
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.26s
+     Running tests/schur.rs (target/debug/deps/schur-dfdea9b99b1d47e8)
+
+running 1 test
+test witness_and_every_branch_reproduce_production_gptq_with_exact_tail ... FAILED
+
+failures:
+
+---- witness_and_every_branch_reproduce_production_gptq_with_exact_tail stdout ----
+
+thread 'witness_and_every_branch_reproduce_production_gptq_with_exact_tail' (2576838) panicked at llvq-quant/tests/schur.rs:229:5:
+assertion `left == right` failed
+  left: [-0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.8102448898577268, -1.3504081497628782, 0.2700816299525756, 0.8102448898577268, 0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -1.3504081497628782, -0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, -0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -1.3504081497628782, -0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.8102448898577268, -1.3504081497628782, 0.2700816299525756, 0.8102448898577268, 0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, -0.446248603553226, 0.6910910592992304, 0.6974658411683421]
+ right: [-0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.8102448898577268, -1.3504081497628782, 0.2700816299525756, 0.8102448898577268, 0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, -0.8102448898577268, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -1.3504081497628782, -0.2700816299525756, 0.8102448898577268, 0.8102448898577268, -0.2700816299525756, -0.8102448898577268, 0.0, 1.0803265198103025, 1.0803265198103025, -0.5401632599051512, -1.6204897797154536, 0.0, 1.0803265198103025, 0.5401632599051512, -0.5401632599051512, -0.5401632599051512, 0.5401632599051512, 1.0803265198103025, 0.0, -0.5401632599051512, -0.5401632599051512, 0.5401632599051512, 1.0803265198103025, 0.0, -0.5401632599051512, -0.5401632599051512, 0.5401632599051512, 1.0803265198103025, 0.0, -1.0803265198103025, -0.5696844223380177, 0.9252996575729295, 0.9843567422821948]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    witness_and_every_branch_reproduce_production_gptq_with_exact_tail
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.99s
+
+error: test failed, to rerun pass `-p llvq-quant --test schur`
+
+MUTANT: disabled_post
+   Compiling llvq-quant v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.72s
+     Running tests/schur.rs (target/debug/deps/schur-dfdea9b99b1d47e8)
+
+running 1 test
+test constructed_post_gain_crossing_scale_ties_zero_and_threshold ... FAILED
+
+failures:
+
+---- constructed_post_gain_crossing_scale_ties_zero_and_threshold stdout ----
+
+thread 'constructed_post_gain_crossing_scale_ties_zero_and_threshold' (2577157) panicked at llvq-quant/tests/schur.rs:307:9:
+assertion `left == right` failed
+  left: (1, 1)
+ right: (1, 0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    constructed_post_gain_crossing_scale_ties_zero_and_threshold
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.51s
+
+error: test failed, to rerun pass `-p llvq-quant --test schur`

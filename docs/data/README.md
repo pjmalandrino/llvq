@@ -403,3 +403,10 @@ ban itself (CLAUDE.md, cheatsheet, note-produit, HISTORIQUE), or archive, or, in
 comparisons (5.510 against the 4.179 of the AWQ kernel, `echelle-formats.csv`).
 `docs/fiche-4b.md:392` does compare 4.50 to 3.727/4.034, which are **whole
 model** b/param (verified: they re-derive from its 70B table).
+
+## Tetra Schur local pilot
+
+`tetra-schur-pilot-2026-09-14.csv` records per-projection, depth and seed selection regrets.
+The accompanying JSON retains the independent numerical audit and the changed branch sites.
+Source: [raw pilot journal](../mesures/tetra-schur-pilot-2026-09-14.txt).
+`ops/analyze_tetra_schur.py` recomputes the quantities from retained local arrays; no model quality score is inferred.
