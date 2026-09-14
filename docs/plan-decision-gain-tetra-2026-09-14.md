@@ -28,8 +28,11 @@ while the largest quality lever ever measured on this file is Q5 at +3.47 pp.
 | 6, predictor | Defer | Two candidates and one bit leave almost nothing to learn |
 | 7, closed loop | Defer behind row A | Its endpoint does not exist until the MMLU sampling plan changes |
 
-One stage is added, stage 3 below, and it is the only part of this programme with a
-first-order effect on reconstruction.
+One stage is added, stage 3 below, on the claim that it is the only part of this programme with
+a first-order effect on reconstruction. **That claim is dead**: measured on real blocks
+(§7), the best possible placement of the two centroids is worth 0.0258 % of squared error, and
+the choice between them is worth 1.13 %. The first-order effect is the selection rule, which is
+what stages 0, 1 and 2 are about.
 
 ## 2. Corrections of fact
 
@@ -288,10 +291,30 @@ already imposes on stage 2, and the scalar does not. One favourable aggregate wa
 unfavourable cells.
 
 So stage 3 as written is refuted, and what refutes it is the measurement whose own decision rule
-raised it to first priority. A centroid pair refitted on the *compensated* distribution is a
-different object, and it is unmeasured; this result closes the scalar, not every correction of
-the centroids. That refit needs an encoding pass, so it is no longer the free multiply this
-section claimed, and it belongs behind stage 1 rather than ahead of it.
+raised it to first priority.
+
+**Audit, asked for the same day: it is not the scalar that is wrong, it is the stage.** Four
+checks on the paragraph above (*measured*, `--audit` of the same instrument, same journal).
+
+- Swept over `[0.90, 1.15]`, the *best* rescaling of the served pair is **1.0145**, and it buys
+  **−0.0258 %**. The correction goes up, not down, which is what the norm distribution predicts
+  — and its entire size is a fortieth of the rule's. Rescaling the centroids is not a small
+  lever; it is not a lever.
+- A full Lloyd-Max refit, fitted on one seed and scored on the other, reads −0.1063 % and
+  −0.0445 % on `⟨x,u⟩`, and +1.5501 % and +0.2265 % on `‖x‖`. Nothing there is both negative and
+  stable. Those fits see 168 blocks where production sees 86,016, so the one-parameter sweep
+  above, not this, carries the verdict.
+- Cell by cell with every cell weighted once: the rule −1.1009 % mean and 12 of 12; the mean
+  cosine +0.4350 % and 4 of 12; the best scalar +0.0333 % and 6 of 12, the coin toss a null
+  lever should read.
+- And the rule is not repairing a bad pair. Each rule at its own optimum, the served one reaches
+  −0.0258 % and the Euclidean one −1.1316 %, a gap of 1.1058 points; the Euclidean optimum sits
+  at 0.9990, so the served centroids are already its pair. Per cell, each rule at its own best
+  scalar, the Euclidean rule still wins 12 of 12 by 0.55 to 0.87 points.
+
+Stage 3 is therefore closed, not deferred: no placement of two centroids is worth more than
+0.03 % on this population, and the entire gain of this lead is in which of the two the encoder
+picks. Stage 1 becomes the next open stage.
 
 ## 8. Stage 4: one encoding arm, and what it can say
 
@@ -340,7 +363,7 @@ the reason the stage 4 gate is on perplexity rather than on the proxy.
 | 0 bis, the same on GPTQ residues | done, 0.15 s of CPU | 0 | the Mac, on existing dumps | none needed |
 | 1, branch harness | 1 to 2 days | 0 | any CPU | none needed |
 | 2, regret table | 1 day | 0 | any CPU | none needed |
-| 3, centroid scalar | done, and refuted | 0 | any CPU | none needed |
+| 3, the centroids | done, and closed | 0 | any CPU | none needed |
 | 4, one encoding arm | 2 h 27 of Mac per arm | 0 | Mac | stamped, before the first second |
 
 Total before any decision that costs money: two to three days of development and zero dollars.
@@ -352,9 +375,10 @@ budgeted as a re-run of stage 0 on blocks the quantizer actually sees, by wrappi
 pilot had already dumped those blocks, so the work was an analysis of existing files:
 `ops/gain_disagree_real.py`, which loads no model and refuses any dump whose digest has moved.
 
-Stop conditions, written now: a regret that does not survive per-family restatement at stage 2,
-or a centroid refit within the encoder's own reproducibility. The stage 0 bis stop condition,
-a disagreement rate under 1 %, did not fire: the rate is 10.119 %.
+Stop conditions, written now: a regret that does not survive per-family restatement at stage 2.
+The stage 0 bis condition, a rate under 1 %, did not fire — the rate is 10.119 %. The stage 3
+condition, a centroid correction within the encoder's own reproducibility, did fire: the best
+rescaling of the pair is worth 0.0258 %.
 
 ## 11. Artifacts
 

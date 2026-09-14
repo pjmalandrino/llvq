@@ -145,10 +145,167 @@ def arm_energy(blocks, shrink, euclidean_rule):
     return total
 
 
+def lloyd_max(values, iters=40):
+    """`fit_gain_centroids` at `k_bits = 1`: quantile init, then Lloyd sweeps.
+
+    Reproduced here rather than imported, so a refit can be scored on the
+    compensated statistics the dumps carry without re-running the encoder.
+    """
+    g = sorted(values)
+    k = 2
+    c = [g[(2 * j + 1) * len(g) // (2 * k)] for j in range(k)]
+    for _ in range(iters):
+        total = [0.0] * k
+        count = [0] * k
+        for v in g:
+            j = min(range(k), key=lambda a: abs(v - c[a]))
+            total[j] += v
+            count[j] += 1
+        for j in range(k):
+            if count[j]:
+                c[j] = total[j] / count[j]
+        c.sort()
+    return c
+
+
+def best_scalar(blocks, euclidean_rule, base):
+    """The shrink (or stretch) of the served pair that minimizes squared error.
+
+    One parameter, so it is the estimate least exposed to the noise of a small
+    sample, and it bounds what any rescaling of the centroids can be worth.
+    """
+    best = (float("inf"), None)
+    step = 0.0005
+    s = 0.90
+    while s <= 1.15 + step / 2:
+        total = arm_energy(blocks, s, euclidean_rule)
+        if total < best[0]:
+            best = (total, s)
+        s += step
+    return best[1], 100.0 * (best[0] - base) / base
+
+
+def audit(blocks, cells, mean_cos):
+    """Four ways the headline could be an artefact, and what each one reads.
+
+    The 2x2 moves one scalar in one direction and sums over blocks of very
+    different weight scales. That leaves four questions open, and a negative
+    result on a lever is only worth as much as the search behind it.
+    """
+    base = arm_energy(blocks, 1.0, False)
+    print()
+    print("=== audit ===")
+
+    print("A. is the mean cosine even the right scalar?")
+    s_served, gain_served = best_scalar(blocks, False, base)
+    print(
+        f"   served rule, best scalar {s_served:.4f}   {gain_served:+.4f} %"
+        f"   (mean cosine {mean_cos:.4f} gives "
+        f"{100.0 * (arm_energy(blocks, mean_cos, False) - base) / base:+.4f} %)"
+    )
+    print(
+        "   the correction goes UP, not down"
+        if s_served > 1.0
+        else "   the correction goes down"
+    )
+
+    print("B. a full refit, fitted and evaluated on disjoint seeds")
+    seeds = sorted({b["seed"] for b in blocks})
+    for fit_seed in seeds:
+        fit = [b for b in blocks if b["seed"] == fit_seed]
+        ev = [b for b in blocks if b["seed"] != fit_seed]
+        if not fit or not ev:
+            continue
+        ev_base = arm_energy(ev, 1.0, False)
+        by_norm, by_euclid = {}, {}
+        for family, layer in cells:
+            g = [b for b in fit if b["family"] == family and b["layer"] == layer]
+            if g:
+                by_norm[(family, layer)] = lloyd_max([b["norm"] / b["scale"] for b in g])
+                by_euclid[(family, layer)] = lloyd_max(
+                    [b["projected"] / b["scale"] for b in g]
+                )
+        cos_fit = sum(b["projected"] / b["norm"] for b in fit) / len(fit)
+
+        def scored(pairs, euclidean_rule):
+            total = 0.0
+            for b in ev:
+                centroids = pairs.get((b["family"], b["layer"]), b["centroids"])
+                statistic = (b["projected"] if euclidean_rule else b["norm"]) / b["scale"]
+                total += squared_error(b, centroids[nearest2(centroids, statistic)])
+            return 100.0 * (total - ev_base) / ev_base
+
+        print(f"   fit on {fit_seed}, evaluated on the rest (its cosine {cos_fit:.6f})")
+        print(
+            f"     its cosine as a scalar      "
+            f"{100.0 * (arm_energy(ev, cos_fit, False) - ev_base) / ev_base:+.4f} %"
+        )
+        print(f"     Lloyd-Max refit on ||x||    {scored(by_norm, False):+.4f} %")
+        print(f"     Lloyd-Max refit on <x,u>    {scored(by_euclid, False):+.4f} %")
+        print(
+            f"     euclid rule, served pair    "
+            f"{100.0 * (arm_energy(ev, 1.0, True) - ev_base) / ev_base:+.4f} %"
+        )
+
+    print("C. every cell counts once, instead of by its weight scale")
+    for name, shrink, euclidean_rule in (
+        ("euclid rule", 1.0, True),
+        ("mean-cosine scalar", mean_cos, False),
+        ("best scalar", s_served, False),
+    ):
+        deltas = []
+        for seed in seeds:
+            for family, layer in cells:
+                g = [
+                    b
+                    for b in blocks
+                    if b["seed"] == seed and b["family"] == family and b["layer"] == layer
+                ]
+                if not g:
+                    continue
+                cell_base = arm_energy(g, 1.0, False)
+                deltas.append(100.0 * (arm_energy(g, shrink, euclidean_rule) - cell_base) / cell_base)
+        deltas.sort()
+        mid = len(deltas) // 2
+        median = deltas[mid] if len(deltas) % 2 else (deltas[mid - 1] + deltas[mid]) / 2
+        print(
+            f"   {name:<20} mean {sum(deltas) / len(deltas):+.4f} %   "
+            f"median {median:+.4f} %   min {deltas[0]:+.4f}   max {deltas[-1]:+.4f}   "
+            f"wins {sum(1 for d in deltas if d < 0)}/{len(deltas)}"
+        )
+
+    print("D. does the rule survive centroids placed for the OTHER rule?")
+    s_euclid, gain_euclid = best_scalar(blocks, True, base)
+    print(f"   served rule at its own best scalar   {gain_served:+.4f} %")
+    print(f"   euclid rule at its own best scalar   {gain_euclid:+.4f} % (at {s_euclid:.4f})")
+    print(f"   the gap, each rule at its best        {gain_euclid - gain_served:+.4f} points")
+    wins = 0
+    total_cells = 0
+    for seed in seeds:
+        for family, layer in cells:
+            g = [
+                b
+                for b in blocks
+                if b["seed"] == seed and b["family"] == family and b["layer"] == layer
+            ]
+            if not g:
+                continue
+            cell_base = arm_energy(g, 1.0, False)
+            total_cells += 1
+            if best_scalar(g, True, cell_base)[1] < best_scalar(g, False, cell_base)[1]:
+                wins += 1
+    print(f"   per cell, each rule at its own best scalar: euclid wins {wins}/{total_cells}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pilot_dir", type=pathlib.Path)
     parser.add_argument("--csv", type=pathlib.Path, help="per-cell table")
+    parser.add_argument(
+        "--audit",
+        action="store_true",
+        help="four robustness checks on the 2x2 above",
+    )
     parser.add_argument(
         "--mutate",
         choices=("cost", "rule"),
@@ -268,6 +425,9 @@ def main():
         )
     print()
     print(f"shrink scalar     {mean_cos:.6f}, the mean cosine of these blocks")
+
+    if args.audit:
+        audit(blocks, cells, mean_cos)
 
     if args.csv:
         # One row per (seed, family, depth) cell. The four arms are given as

@@ -4,7 +4,7 @@ Plan: docs/plan-decision-gain-tetra-2026-09-14.md, stage 0 bis.
 Prereg: none, and none owed. This measures no fundamental criterion. It reads
   the geometry of a decision on blocks already dumped and spends nothing
   (METHODE.md section 1).
-Code: ops/gain_disagree_real.py, sha256 ab593e45143fa193, written against 9805446.
+Code: ops/gain_disagree_real.py, sha256 baaad834aab1f370, written against 9805446.
 Dumps: produced by commit 09e0f65 (branch recherche/tetra-schur-2026-09-14),
   run of 2026-09-14 06:59:31Z, at /Users/pjmalandrino/tetra-schur-pilot-2026-09-14.
 Cost: $0. 0.15 s of CPU on the Mac, warm cache, of which the digest check of the
@@ -105,15 +105,59 @@ unfavourable cells.
 Depth is where the disagreement concentrates: 14.881 % on gate_proj at layer 27
 against 7.738 % on q_proj at layer 13.
 
+AUDIT OF THE PARAGRAPH ABOVE, ASKED FOR AND RUN
+------------------------------------------------
+The 2x2 moves one scalar in one direction and sums over blocks of very different
+weight scales. A negative result on a lever is worth what the search behind it is
+worth, so four ways it could be an artefact were tested. It survives all four,
+and two of them make the verdict stronger than the 2x2 stated it.
+
+A. The mean cosine is not the best scalar, and no scalar is worth anything.
+   Swept over [0.90, 1.15] at 0.0005, the best rescaling of the served pair is
+   1.0145 and it buys -0.0258 % of squared error. Two readings follow. The
+   correction goes UP, which is what the norm distribution above predicts and the
+   opposite of what stage 0 proposed. And its whole size is 0.026 %, against
+   1.13 % for the rule: rescaling the centroids is not a small lever, it is not a
+   lever.
+
+B. A full refit does no better, fitted and evaluated on disjoint seeds.
+   Lloyd-Max re-run on the compensated statistics of one seed, per family and
+   depth, then scored on the other: -0.1063 % and -0.0445 % when fitted on
+   <x,u>, +1.5501 % and +0.2265 % when fitted on ||x||. The rule on the same
+   split reads -1.0290 % and -1.2323 %, so it is the only arm that is both
+   negative and stable. The refit arms are fitted on 168 blocks where production
+   fits on 86,016, so their spread is partly estimation noise; that is why the
+   single-parameter sweep of A, not this, carries the verdict.
+
+C. The headline does not come from the aggregation.
+   Scored per cell and averaged with every cell counting once: the rule -1.1009 %
+   mean, -1.2357 % median, 12 of 12 cells; the mean-cosine scalar +0.4350 % mean,
+   4 of 12; the best scalar +0.0333 % mean, 6 of 12, which is the coin toss a
+   null lever should read.
+
+D. The rule is not compensating for badly placed centroids.
+   Give each rule its own best scalar and compare the two optima: the served rule
+   reaches -0.0258 %, the Euclidean rule -1.1316 %, a gap of 1.1058 points. The
+   Euclidean rule's own optimum sits at 0.9990, so the served centroids are
+   already the right pair for it and every point of the gain comes from the
+   choice, not the placement. Per cell, with each rule at its own best scalar in
+   that cell, the Euclidean rule still wins 12 of 12, by 0.55 to 0.87 points.
+
+What this does not remove: 2,016 blocks, two projection families, one 0.6B model,
+and squared error rather than perplexity. The limits below stand unchanged.
+
 WHAT THE PLAN'S WRITTEN RULE SAYS, AND WHAT IT COLLIDES WITH
 -------------------------------------------------------------
 The stage 0 bis rule reads: under 1 % stop, 1 to 10 % go to stage 1, over 10 %
 continue and keep stage 3 first. The rate is 10.119 %, so the third line fires
 by 0.119 points, on 2,016 blocks. The family is not closed.
 
-But stage 3 is the centroid stage, and the same measurement refutes its only
-proposed mechanism. The trigger points at a stage the measurement that triggered
-it just emptied. This is recorded, not resolved: it is an operator decision.
+But stage 3 is the centroid stage, and the same measurement empties it. The
+audit above closes it for good: the best possible placement of the two centroids
+is worth 0.0258 %, against 1.13 % for the choice between them. So the trigger
+points at a stage with nothing in it, and the next open stage is stage 1, the
+branch harness. That is not a paradox to arbitrate, it is a stage that measured
+itself out.
 
 LIMITS
 -------
@@ -129,10 +173,10 @@ activations are not those of a sequentially quantized model
 (docs/tetra-schur-local.md). That affects the Hessian and therefore rule C. It
 does not affect A against B, which read the weights, not the activations.
 
-The shrink scalar tested here is stage 0's scalar, the mean cosine. A centroid
-pair refitted on the compensated distribution is a different object and is
-unmeasured. What this run refutes is the correction stage 0 proposed, not every
-correction of the centroids.
+The refit arms of audit B are fitted on 168 blocks per cell where production
+fits on 86,016, so their spread is partly estimation noise and they bound the
+refit loosely. The verdict on the centroids rests on audit A, one parameter swept
+exhaustively, which no amount of sample noise moves by a percent.
 
 Nothing here is a quality claim. Retention is Shannon retention at a fixed rate,
 two transpositions away from perplexity (ROADMAP.md section 2.2 bis), and the
@@ -147,6 +191,7 @@ uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14
     --csv docs/data/gain-desaccord-reel-2026-09-14.csv
 uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 --mutate cost
 uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 --mutate rule
+uv run --offline python ops/gain_disagree_real.py ~/tetra-schur-pilot-2026-09-14 --audit
 
 RAW OUTPUT
 -----------
@@ -188,3 +233,27 @@ euclid rule, shrunk centroids    nmse 0.083747   retention 89.4455 %   sq. error
 
 shrink scalar     0.961088, the mean cosine of these blocks
 csv               docs/data/gain-desaccord-reel-2026-09-14.csv
+=== audit ===
+A. is the mean cosine even the right scalar?
+   served rule, best scalar 1.0145   -0.0258 %   (mean cosine 0.9611 gives +0.4705 %)
+   the correction goes UP, not down
+B. a full refit, fitted and evaluated on disjoint seeds
+   fit on seed-1, evaluated on the rest (its cosine 0.960954)
+     its cosine as a scalar      +0.5068 %
+     Lloyd-Max refit on ||x||    +1.5501 %
+     Lloyd-Max refit on <x,u>    -0.1063 %
+     euclid rule, served pair    -1.0290 %
+   fit on seed-2, evaluated on the rest (its cosine 0.961221)
+     its cosine as a scalar      +0.4106 %
+     Lloyd-Max refit on ||x||    +0.2265 %
+     Lloyd-Max refit on <x,u>    -0.0445 %
+     euclid rule, served pair    -1.2323 %
+C. every cell counts once, instead of by its weight scale
+   euclid rule          mean -1.1009 %   median -1.2357 %   min -1.5287   max -0.6475   wins 12/12
+   mean-cosine scalar   mean +0.4350 %   median +0.7231 %   min -0.5947   max +1.3222   wins 4/12
+   best scalar          mean +0.0333 %   median +0.0554 %   min -0.5624   max +0.7685   wins 6/12
+D. does the rule survive centroids placed for the OTHER rule?
+   served rule at its own best scalar   -0.0258 %
+   euclid rule at its own best scalar   -1.1316 % (at 0.9990)
+   the gap, each rule at its best        -1.1058 points
+   per cell, each rule at its own best scalar: euclid wins 12/12
