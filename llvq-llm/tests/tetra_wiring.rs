@@ -44,7 +44,10 @@ const ROT: u64 = 0x11_0FEED;
 
 /// The two arms this step compares, at the same 48 bits per block.
 fn tetra() -> Codebook {
-    Codebook::Tetra { gain_bits: 1 }
+    Codebook::Tetra {
+        gain_bits: 1,
+        post_shape_gain: false,
+    }
 }
 
 fn ball() -> Codebook {
@@ -435,4 +438,19 @@ fn a_shard_of_the_other_map_is_refused_both_ways() {
             "…and the record it stopped at: {e}"
         );
     }
+}
+
+#[test]
+fn post_shape_run_round_trips_and_unsupported_modes_are_refused() {
+    let post = Codebook::Tetra { gain_bits: 1, post_shape_gain: true };
+    for (group, design, resume) in [(true,false,false),(false,true,false),(false,false,true)] {
+        assert!(post.validate_encoding_mode(group,design,resume).unwrap_err().contains("tetrapost"));
+    }
+    assert!(post.validate_encoding_mode(false,false,false).is_ok());
+    let dev=Device::Cpu;
+    let s=Scratch::new("post");
+    let map=VarMap::new();
+    let path=s.at("post.llvq");
+    let (report,model)=quantize(&map,&dev,&path,post,usize::MAX);
+    assert_eq!(verify(&path,&model),report.weights as usize);
 }

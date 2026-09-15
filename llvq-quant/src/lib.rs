@@ -40,3 +40,4 @@ pub mod gptq;
 pub mod linalg;
 pub mod quantizer;
 pub mod rotation;
+pub mod schur;
