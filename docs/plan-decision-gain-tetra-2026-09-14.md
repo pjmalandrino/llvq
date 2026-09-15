@@ -7,6 +7,16 @@ closed loop, and adds one lead the submitted plan does not carry.
 Dated 2026-09-14, written against `7d62cff`. It is not a timestamped prereg and it authorises
 no spend and no run.
 
+> **CLOSED 2026-09-15.** The lead is dead, measured end to end. The Euclidean rule costs
+> **+4.026 % of perplexity** on Qwen3-0.6B at identical rate, format and decoder, against a
+> local gain of 1.13 % of squared error (*measured*,
+> [tetrapost-ppl-0.6b-2026-09-15](mesures/tetrapost-ppl-0.6b-2026-09-15.txt)). The mechanism is
+> measured too: the rule shrinks every reconstructed block by 2.9 % on average, one-sidedly,
+> because its target `⟨x,u⟩` never exceeds `‖x‖`. It trades an unbiased error for a smaller
+> biased one, and 28 layers see the bias that squared error cannot. §9 of this document argued
+> the lead was unlike the repository's three precedents; it is the fourth. The rest of the
+> document is kept as written, with its stages marked.
+
 ## 1. What changed and why
 
 The submitted plan prices its first stage from an unverifiable pilot figure and its last stage
@@ -316,7 +326,7 @@ Stage 3 is therefore closed, not deferred: no placement of two centroids is wort
 0.03 % on this population, and the entire gain of this lead is in which of the two the encoder
 picks. Stage 1 becomes the next open stage.
 
-## 8. Stage 4: one encoding arm, and what it can say
+## 8. Stage 4: one encoding arm — RUN 2026-09-15, and it closed the lead
 
 Gated on G2 and on stage 3. Two hours and a half of Mac per arm, zero dollars
 ([ROADMAP-QUALITY](ROADMAP-QUALITY.md)).
@@ -336,7 +346,16 @@ A prereg with an `ots` stamp comes before this stage and not before the earlier 
 stages 0 to 3 measure no fundamental criterion (hard rules 1 and 2,
 [METHODE](METHODE.md) §1).
 
-## 9. The three precedents, and why this lead is not one of them
+## 9. The three precedents, and why this lead is not one of them — WRONG, it is the fourth
+
+> **The argument below is the one that failed, and it is worth keeping for that.** It checked
+> that rule C leaves the compensation loop, the row scale, the direction and the format
+> untouched, and concluded the lead did not share the mechanism of the three failures. What it
+> never checked is what the decision does *in aggregate*: changing which of two admissible codes
+> is written changes the distribution of the amplitude written, and this rule changes it in one
+> direction on every block of the model. That is the same class of defect as `group_scales`.
+> The lesson generalises: a selection rule is not local just because each decision is.
+
 
 The repository holds three cases where a better local proxy composed worse: design C at ×1.99
 of perplexity, `group_scales` at 44.66 to 53.60, and gptq2 at 24.74 % of MMLU, which is chance
