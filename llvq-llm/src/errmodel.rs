@@ -88,6 +88,53 @@ impl Sensitivity {
         (self.curvature > 0.0).then(|| -self.gradient / self.curvature)
     }
 
+    /// The best `δ` the quadratic admits on `[−trust, +trust]`.
+    ///
+    /// Measured curvatures are not reliably positive: a loss surface probed
+    /// away from its own minimum is concave in plenty of directions, and on a
+    /// first run of this map most of them were. [`Sensitivity::optimum`]
+    /// returns `None` there, which is honest and useless — the map would rank
+    /// nothing. Minimizing the same quadratic over a bounded interval is
+    /// defined for every sign of curvature and never extrapolates past the
+    /// region the probes actually cover.
+    ///
+    /// * `h > 0`: the interior minimum `−g/h`, clamped into the interval.
+    /// * `h < 0`: concave, so the minimum is at an endpoint — the one the
+    ///   gradient points down towards. With `g = 0` **both** endpoints are
+    ///   equal minima and neither is the centre, which is the maximum; `+trust`
+    ///   is returned by convention, and the tie is real rather than arbitrary
+    ///   precision.
+    /// * `h = 0`: linear, so the endpoint against the gradient, and `0` for a
+    ///   direction the loss does not see at all.
+    ///
+    /// `trust` is in the same units as `δ`. A sane one is a small multiple of
+    /// [`Sensitivity::step`]: beyond that the quadratic is being believed
+    /// where nothing was measured.
+    pub fn optimum_within(&self, trust: f64) -> f64 {
+        let t = trust.abs();
+        if self.curvature > 0.0 {
+            (-self.gradient / self.curvature).clamp(-t, t)
+        } else if self.gradient > 0.0 {
+            -t
+        } else if self.gradient < 0.0 {
+            t
+        } else if self.curvature < 0.0 {
+            // Flat gradient on a concave arc: the centre is the worst point of
+            // the interval, and the two endpoints tie for the best.
+            t
+        } else {
+            0.0
+        }
+    }
+
+    /// Predicted loss change of moving this matrix alone to
+    /// [`Sensitivity::optimum_within`]. Never positive: `δ = 0` is always
+    /// available, so the minimum over an interval containing it cannot be worse.
+    pub fn best_gain_within(&self, trust: f64) -> f64 {
+        let d = self.optimum_within(trust);
+        self.gradient * d + 0.5 * self.curvature * d * d
+    }
+
     /// Predicted loss change of moving this matrix alone to its optimum. Never
     /// positive: it is `−g²/(2h)`.
     pub fn best_gain(&self) -> f64 {
@@ -204,6 +251,49 @@ impl Surrogate {
         let mut v = self.terms.clone();
         v.sort_by(|a, b| a.best_gain().total_cmp(&b.best_gain()));
         v
+    }
+
+    /// The same ranking under a trust region, which is the one to use on
+    /// measured data: see [`Sensitivity::optimum_within`].
+    pub fn ranked_within(&self, trust: f64) -> Vec<Sensitivity> {
+        let mut v = self.terms.clone();
+        v.sort_by(|a, b| a.best_gain_within(trust).total_cmp(&b.best_gain_within(trust)));
+        v
+    }
+
+    /// Scale vector over the trust region, one entry per matrix.
+    pub fn argmin_within(&self, trust: f64) -> Vec<(usize, f64)> {
+        self.terms
+            .iter()
+            .map(|t| (t.matrix, t.optimum_within(trust)))
+            .collect()
+    }
+
+    /// Predicted loss change at [`Surrogate::argmin_within`].
+    pub fn claimed_gain_within(&self, trust: f64) -> f64 {
+        self.terms.iter().map(|t| t.best_gain_within(trust)).sum()
+    }
+
+    /// How many probed directions came back concave or flat. A map where this
+    /// is most of the matrices is not wrong, but it is telling the caller that
+    /// the run does not sit near a minimum of its own loss, and that every
+    /// move it proposes is an endpoint of the trust region rather than a
+    /// stationary point.
+    pub fn non_convex(&self) -> usize {
+        self.terms.iter().filter(|t| t.curvature <= 0.0).count()
+    }
+
+    /// Directions the loss does not see at all — zero gradient and zero
+    /// curvature. In Qwen3 these are real and expected: `q_proj` and `k_proj`
+    /// feed a per-head RMS norm, which is scale invariant, so a scale error on
+    /// them costs exactly nothing. A map that reported them as `NaN` would be
+    /// hiding a fact worth knowing.
+    pub fn scale_invariant(&self) -> Vec<usize> {
+        self.terms
+            .iter()
+            .filter(|t| t.gradient == 0.0 && t.curvature == 0.0)
+            .map(|t| t.matrix)
+            .collect()
     }
 }
 
@@ -400,6 +490,54 @@ mod tests {
         let s = Surrogate::new(0.0, terms).unwrap();
         let order: Vec<_> = s.ranked().iter().map(|t| t.matrix).collect();
         assert_eq!(order, vec![1, 0, 2], "most negative gain first, flat last");
+    }
+
+    #[test]
+    fn trust_region_minimum_is_the_true_minimum_of_the_quadratic() {
+        // Checked against a brute-force scan of the same quadratic, for every
+        // sign of curvature: the closed form has no case it silently gets
+        // wrong, which is the whole reason it replaced `-g/h`.
+        let trust = 0.05;
+        for &(g, h) in &[
+            (0.5, 3.0),    // convex, interior minimum
+            (1.0, 1.0),    // convex, minimum outside the region
+            (-2.0, -25.0), // concave, gradient down: upper edge
+            (2.0, -25.0),  // concave, gradient up: lower edge
+            (0.0, -5.0),   // concave, flat gradient: stay put
+            (0.0, 0.0),    // invisible direction
+            (-1.0, 0.0),   // linear descent
+        ] {
+            let t = Sensitivity { matrix: 0, gradient: g, curvature: h, step: 0.01 };
+            let d = t.optimum_within(trust);
+            assert!(d.abs() <= trust + 1e-12, "left the trust region: {d}");
+            let f = |x: f64| g * x + 0.5 * h * x * x;
+            let mut best = f64::INFINITY;
+            for i in 0..=20_000 {
+                let x = -trust + 2.0 * trust * (i as f64) / 20_000.0;
+                best = best.min(f(x));
+            }
+            assert!(
+                f(d) <= best + 1e-9,
+                "(g={g}, h={h}): closed form {d} gives {}, scan found {best}",
+                f(d)
+            );
+            assert!(t.best_gain_within(trust) <= 1e-12, "a move that raises the loss");
+        }
+    }
+
+    #[test]
+    fn non_convex_and_invariant_directions_are_counted_not_hidden() {
+        let terms = vec![
+            Sensitivity { matrix: 0, gradient: 1.0, curvature: 2.0, step: 0.01 },
+            Sensitivity { matrix: 1, gradient: -1.0, curvature: -2.0, step: 0.01 },
+            Sensitivity { matrix: 2, gradient: 0.0, curvature: 0.0, step: 0.01 },
+        ];
+        let s = Surrogate::new(0.0, terms).unwrap();
+        assert_eq!(s.non_convex(), 2, "the concave one and the flat one");
+        assert_eq!(s.scale_invariant(), vec![2]);
+        // The invariant direction proposes no move and claims no gain.
+        assert_eq!(s.terms[2].optimum_within(0.05), 0.0);
+        assert_eq!(s.terms[2].best_gain_within(0.05), 0.0);
     }
 
     #[test]
