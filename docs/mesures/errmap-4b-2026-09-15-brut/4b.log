@@ -1,0 +1,131 @@
+    Finished `release` profile [optimized] target(s) in 0.13s
+     Running `target/release/errmap 64 2048 12 2048 metal`
+=== errmap ===
+model           Qwen/Qwen3-4B
+probe step      ±0.04
+trust region    ±0.12
+projections     self_attn.v_proj, self_attn.o_proj, mlp.gate_proj, mlp.up_proj, mlp.down_proj
+dtype / device  f32 / Metal(MetalDevice(DeviceId(1)))
+
+quantizing 36 blocks…
+  block 1/36
+  block 1/36
+  block 1/36
+  block 1/36
+  block 1/36
+  block 1/36
+  block 1/36
+  block 9/36
+  block 9/36
+  block 9/36
+  block 9/36
+  block 9/36
+  block 9/36
+  block 9/36
+  block 17/36
+  block 17/36
+  block 17/36
+  block 17/36
+  block 17/36
+  block 17/36
+  block 17/36
+  block 25/36
+  block 25/36
+  block 25/36
+  block 25/36
+  block 25/36
+  block 25/36
+  block 25/36
+  block 33/36
+  block 33/36
+  block 33/36
+  block 33/36
+  block 33/36
+  block 33/36
+  block 33/36
+  block 36/36
+  block 36/36
+  block 36/36
+  block 36/36
+  block 36/36
+  block 36/36
+  block 36/36
+  252 matrices, 2.0702 bits/weight, 7397s
+
+probe baseline NLL  2.96919845   (held-in calibration text)
+eval  baseline NLL  2.75731782   (perplexity 15.7575, held out)
+probing 180 matrices, 360 evaluations…
+  1/180  16s elapsed
+  17/180  323s elapsed
+  33/180  631s elapsed
+  49/180  933s elapsed
+  65/180  1232s elapsed
+  81/180  1532s elapsed
+  97/180  1833s elapsed
+  113/180  2134s elapsed
+  129/180  2436s elapsed
+  145/180  2738s elapsed
+  161/180  3041s elapsed
+  177/180  3346s elapsed
+  180/180  3403s elapsed
+
+shape of the surface: 180 of 180 directions concave or flat, 1 invisible to the loss
+  invisible directions are all of: mlp.gate_proj
+
+--- the ten matrices where a scale error costs most ---
+  matrix                           gradient    curvature     scale    gain(NLL)
+  blocks.35.mlp.gate_proj        -3.6866e-1     0.0000e0   1.12000   -4.4239e-2
+  blocks.34.mlp.gate_proj        -1.8545e-1     0.0000e0   1.12000   -2.2254e-2
+  blocks.35.self_attn.v_proj      1.1570e-1     0.0000e0   0.88000   -1.3884e-2
+  blocks.35.self_attn.o_proj      1.1570e-1     0.0000e0   0.88000   -1.3884e-2
+  blocks.34.mlp.up_proj          -1.0357e-1     0.0000e0   1.12000   -1.2428e-2
+  blocks.34.mlp.down_proj        -1.0356e-1     0.0000e0   1.12000   -1.2427e-2
+  blocks.18.mlp.down_proj        -9.5714e-2     0.0000e0   1.12000   -1.1486e-2
+  blocks.18.mlp.up_proj          -9.5708e-2     0.0000e0   1.12000   -1.1485e-2
+  blocks.17.self_attn.o_proj      9.0222e-2     0.0000e0   0.88000   -1.0827e-2
+  blocks.17.self_attn.v_proj      9.0220e-2     0.0000e0   0.88000   -1.0826e-2
+
+claimed by the map, all matrices at their own optimum: -6.894352e-1 of NLL
+  which is 9.7744 of perplexity, from 19.4763
+
+split A  2.75731782  (wikitext-2 test)
+split B  3.29527127  (c4)
+
+--- trust region sweep, all matrices at their own optimum ---
+       T at edge      claimed       move A       move B  realized     err A
+   0.030     180    -0.172359    -0.130093    -0.105120     0.755   +0.2452
+   0.040     180    -0.229812    -0.151024    -0.119199     0.657   +0.3428
+   0.060     180    -0.344718    -0.161738    -0.119553     0.469   +0.5308
+  realized = measured move / claimed move; 1.0 would be a model that delivers
+
+--- baselines at T = 0.04, 180 matrices moved ---
+  arm                                     move A      move B
+  the map                              -0.151024   -0.119199
+  random sign and size, draw 1         +0.005177   +0.011512
+  random sign and size, draw 2         -0.002934   -0.014233
+  random sign and size, draw 3         +0.016964   +0.006959
+  the map's signs, constant size       -0.151024   -0.119199
+  one global scale 0.99                +0.008892   +0.007398
+  one global scale 1.01                -0.006959   -0.006414
+  one global scale 1.02                -0.013241   -0.011754
+model restored, NLL 2.75731782
+
+csv             docs/data/errmap-4b-2026-09-15.csv
+    12947.58 real     74117.16 user      1422.67 sys
+         14282915840  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            21924968  page reclaims
+              493075  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  15  messages sent
+                  22  messages received
+                   0  signals received
+             3854297  voluntary context switches
+            21797059  involuntary context switches
+     619633697327380  instructions retired
+     196228086412681  cycles elapsed
+         85415294128  peak memory footprint

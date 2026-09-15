@@ -1,0 +1,90 @@
+THE MAP AT THE 4B: -14.9 % OF PERPLEXITY, AND ONE TEST THAT WAS VOID (2026-09-15)
+==================================================================================
+Code: errmap at 8d28594, cheap mode (one-sided probes, eps 0.04, 3 windows,
+  q/k skipped). Cost: $0, 3 h 36 of Mac, 18:38:11Z to 22:13:58Z.
+  Peak resident 14.28 GB, against the 27 GB the launch estimated.
+Data: docs/data/errmap-4b-2026-09-15.csv. Raw log in the -brut directory.
+
+THE RESULT
+-----------
+Qwen3-4B, 252 matrices quantized, 180 probed (5 types x 36 blocks).
+
+  corpus            before      after     change
+  wikitext-2 test   15.7575    13.4044   -14.93 %   (T = 0.06)
+  C4                26.9847    23.9440   -11.27 %   (T = 0.06)
+
+At T = 0.04: -14.02 % and -11.24 %. At identical rate, format and decoder, and
+the correction is one scalar per matrix on centroids that are already stored per
+matrix.
+
+MY PROJECTION WAS WRONG BY A FACTOR OF TWO
+--------------------------------------------
+Before the run I estimated -2 % to -8 %, reasoning that the 4B is far less
+degraded than the 0.6B (x1.32 against x2.15) and so has less to recover. The
+measured figure is -14.93 %.
+
+The reasoning was wrong in a way worth recording: the recoverable error is not a
+fixed fraction of the degradation. The 0.6B recovered 33.5 % of its excess, the
+4B recovers 60 % of its own — a smaller excess, a larger share of it. Depth
+apparently helps the correction rather than hurting it, which is the opposite of
+what "less to recover" assumed.
+
+THE TRUST OPTIMUM MOVED WITH SIZE
+-----------------------------------
+      T     claimed     measured A   realized
+    0.030  -0.172359   -0.130093      0.755
+    0.040  -0.229812   -0.151024      0.657
+    0.060  -0.344718   -0.161738      0.469
+
+On the 0.6B the optimum was 0.04 and 0.06 was already worse. Here 0.06 is the
+best of the three and the curve has not turned over, so the true optimum is at
+or beyond it and this grid does not bracket it.
+
+Realization is also uniformly higher than on the 0.6B (0.755 against 0.583 at
+T = 0.03): the surrogate is MORE faithful on the larger model, not less.
+
+BASELINES
+----------
+  arm                                  wikitext-2      C4
+  the map                               -0.151024    -0.119199
+  random sign and size, draw 1          +0.005177    +0.011512
+  random sign and size, draw 2          -0.002934    -0.014233
+  random sign and size, draw 3          +0.016964    +0.006959
+  the map's signs, constant size        -0.151024    -0.119199
+  one global scale 0.99                 +0.008892    +0.007398
+  one global scale 1.01                 -0.006959    -0.006414
+  one global scale 1.02                 -0.013241    -0.011754
+
+Random perturbations of the same size: between +0.017 and -0.003. The map is 51x
+the best of three draws, and two of the three make the model worse.
+
+Global scales are not useless here, unlike on the 0.6B: 1.02 buys -0.0132. The
+map is still 11.4x that. So the 4B does carry a small global component that the
+0.6B did not, and the per-matrix structure remains an order of magnitude larger.
+
+THE TEST THAT WAS VOID, AND IT IS MY ERROR
+--------------------------------------------
+"The map's signs, constant size" reads -0.151024 — identical to the map, to the
+digit. That is not a finding. In one-sided mode the curvature is reported as
+zero, so `optimum_within` already returns ±T by sign: the map IS a map of signs,
+and the arm compared it with itself.
+
+The 96.2 % figure from the 0.6B came from a two-sided map, where the arm meant
+something. Nothing here confirms or refutes it, and the run design should have
+caught that before spending the arm. It is recorded rather than quietly dropped.
+
+WHAT THIS IS NOT
+-----------------
+The evaluation baseline is 15.7575, not the 16.1569 of ROADMAP-QUALITY: that
+figure comes from a different evaluation protocol. This run is internally
+consistent — the same 12 windows of 2048 before and after — but its absolute
+perplexities are not the published ones and must not be quoted against them.
+
+MMLU is not measured and is not licensed. At the repository's own exchange rate
+(21.5 % of perplexity bought 1.18 pp, CI95 [-1.54; +3.98]), 14.93 % would be
+worth about 0.8 pp — against a sampling error of 1.339 pp today and 0.916 pp
+after row A of ROADMAP-QUALITY. That is below the noise, though less far below
+than the 0.1 to 0.4 pp estimated before this run.
+
+One seed, one calibration corpus, one model of each size. The three shortcuts
+were applied together and remain unseparated.
