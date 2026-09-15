@@ -1,0 +1,95 @@
+    Finished `release` profile [optimized] target(s) in 0.11s
+     Running `target/release/errmap 64 2048 12 2048 metal`
+=== errmap ===
+model           Qwen/Qwen3-0.6B
+probe step      ±0.01
+trust region    ±0.03
+projections     self_attn.q_proj, self_attn.k_proj, self_attn.v_proj, self_attn.o_proj, mlp.gate_proj, mlp.up_proj, mlp.down_proj
+dtype / device  f32 / Metal(MetalDevice(DeviceId(1)))
+
+quantizing 28 blocks…
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  196 matrices, 2.1656 bits/weight, 824s
+
+baseline NLL    3.73498720   (perplexity 41.8875)
+probing 196 matrices, 392 evaluations…
+  1/196  36s elapsed
+  17/196  650s elapsed
+  33/196  1279s elapsed
+  49/196  1914s elapsed
+  65/196  2549s elapsed
+  81/196  3189s elapsed
+  97/196  3831s elapsed
+  113/196  4473s elapsed
+  129/196  5115s elapsed
+  145/196  5757s elapsed
+  161/196  6401s elapsed
+  177/196  7046s elapsed
+  193/196  7689s elapsed
+  196/196  7810s elapsed
+
+shape of the surface: 13 of 196 directions concave or flat, 1 invisible to the loss
+  invisible directions are all of: self_attn.q_proj
+
+--- the ten matrices where a scale error costs most ---
+  matrix                           gradient    curvature     scale    gain(NLL)
+  blocks.27.mlp.gate_proj        -3.7770e-1     1.3837e0   1.03000   -1.0708e-2
+  blocks.0.self_attn.o_proj      -3.7966e-1     2.0574e0   1.03000   -1.0464e-2
+  blocks.0.self_attn.v_proj      -3.7966e-1     2.0592e0   1.03000   -1.0463e-2
+  blocks.27.mlp.down_proj        -3.2729e-1     1.2457e0   1.03000   -9.2581e-3
+  blocks.27.mlp.up_proj          -3.2728e-1     1.2465e0   1.03000   -9.2575e-3
+  blocks.6.self_attn.o_proj       2.8372e-1    9.1399e-1   0.97000   -8.1002e-3
+  blocks.6.self_attn.v_proj       2.8371e-1    9.1498e-1   0.97000   -8.0995e-3
+  blocks.16.self_attn.o_proj      1.9743e-1    1.5664e-1   0.97000   -5.8524e-3
+  blocks.16.self_attn.v_proj      1.9743e-1    1.5743e-1   0.97000   -5.8519e-3
+  blocks.17.self_attn.o_proj      1.6248e-1    1.8546e-1   0.97000   -4.7908e-3
+
+claimed by the map, all matrices at their own optimum: -3.012554e-1 of NLL
+  which is 30.9921 of perplexity, from 41.8875
+
+pooled single scale from the map: 0.99456
+  the sweep of 2026-09-15 measured its minimum at 1.02 by re-encoding
+  a gap here is the size of the compensation's reaction, not an error
+
+--- validation: the top 8 matrices moved together ---
+  predicted NLL 3.66278407   measured 3.66946134
+  absolute error +6.6773e-3
+  error as a fraction of the predicted move: +0.0925
+  sign of the move: prediction and measurement agree
+  model restored to baseline, NLL 3.73498720
+
+csv             docs/data/errmap-0.6b-2026-09-15.csv
