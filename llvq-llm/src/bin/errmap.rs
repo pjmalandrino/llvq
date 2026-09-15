@@ -352,6 +352,7 @@ fn main() -> anyhow::Result<()> {
         2 * targets.len()
     );
 
+    let one_sided = std::env::var("LLVQ_ERRMAP_ONESIDED").map(|v| v == "1").unwrap_or(false);
     let loaded: Option<Vec<Sensitivity>> = match std::env::var("LLVQ_ERRMAP_LOAD") {
         Ok(path) if !path.is_empty() => {
             let m = load_map(std::path::Path::new(&path), &targets)?;
@@ -410,19 +411,29 @@ fn main() -> anyhow::Result<()> {
             set_scaled(&mut model, t, &original, scale)?;
             probe_nll(&model)
         };
-        let minus = Probe {
-            matrix: index,
-            delta: -eps,
-            loss: at(1.0 - eps)?,
-        };
-        let plus = Probe {
-            matrix: index,
-            delta: eps,
-            loss: at(1.0 + eps)?,
+        let sensitivity = if one_sided {
+            // Half the evaluations, and no curvature. Justified by measurement,
+            // not by thrift: 96.2 % of the reachable gain comes from the SIGN
+            // of the gradient (docs/mesures/c4-baselines-0.6b-2026-09-15.txt),
+            // and a sign survives a one-sided difference. Curvature is reported
+            // as zero, which makes `optimum_within` return ±trust by sign —
+            // exactly the map of directions this mode is for, and never a
+            // fabricated interior optimum.
+            let plus = at(1.0 + eps)?;
+            Sensitivity {
+                matrix: index,
+                gradient: (plus - base) / eps,
+                curvature: 0.0,
+                step: eps,
+            }
+        } else {
+            let minus = Probe { matrix: index, delta: -eps, loss: at(1.0 - eps)? };
+            let plus = Probe { matrix: index, delta: eps, loss: at(1.0 + eps)? };
+            differentiate(base, minus, plus).map_err(anyhow::Error::msg)?
         };
         set_scaled(&mut model, t, &original, 1.0)?;
         originals.push(original);
-        terms.push(differentiate(base, minus, plus).map_err(anyhow::Error::msg)?);
+        terms.push(sensitivity);
         if index % 16 == 0 || index + 1 == targets.len() {
             eprintln!(
                 "  {}/{}  {:.0}s elapsed",
@@ -433,6 +444,40 @@ fn main() -> anyhow::Result<()> {
         }
     }
     let surrogate = Surrogate::new(base, terms).map_err(anyhow::Error::msg)?;
+
+    // A cheap map is only worth its saving if it agrees with the expensive one
+    // where it matters. What matters is the sign, so that is what is scored,
+    // on the matrices the reference itself can see.
+    if let Ok(path) = std::env::var("LLVQ_ERRMAP_COMPARE") {
+        let reference = load_map(std::path::Path::new(&path), &targets)?;
+        let gmax = reference.iter().fold(0.0f64, |m, s| m.max(s.gradient.abs()));
+        let visible: Vec<usize> = reference
+            .iter()
+            .filter(|s| s.gradient.abs() > 1e-3 * gmax)
+            .map(|s| s.matrix)
+            .collect();
+        let agree = visible
+            .iter()
+            .filter(|&&i| surrogate.terms[i].gradient.signum() == reference[i].gradient.signum())
+            .count();
+        let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+        for &i in &visible {
+            let (x, y) = (reference[i].gradient, surrogate.terms[i].gradient);
+            sxy += x * y;
+            sxx += x * x;
+            syy += y * y;
+        }
+        println!("\n--- agreement with {path} ---");
+        println!(
+            "  sign agreement on the reference's {} visible matrices: {}/{} ({:.2} %)",
+            visible.len(),
+            agree,
+            visible.len(),
+            100.0 * agree as f64 / visible.len() as f64
+        );
+        println!("  cosine between gradient vectors: {:.6}", sxy / (sxx * syy).sqrt());
+        println!("  regression slope, cheap on reference: {:.4}", sxy / sxx);
+    }
 
     // ---- the map ----
     // Four orders of magnitude below the rest is the measured gap for q/k.
