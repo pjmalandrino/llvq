@@ -87,6 +87,48 @@ impl Target {
     }
 }
 
+/// Reads a map written by an earlier run, keyed by (layer, projection).
+///
+/// Sensitivities cost two model evaluations each and do not change when the
+/// question does. Re-measuring them to ask a second question of the same run is
+/// two hours spent reproducing numbers already on disk, so a map is loaded and
+/// spot-checked rather than recomputed. The spot check is not optional: a map
+/// from a different quantization describes a different model, and nothing in
+/// the file itself would say so.
+fn load_map(path: &std::path::Path, targets: &[Target]) -> anyhow::Result<Vec<Sensitivity>> {
+    let text = std::fs::read_to_string(path)?;
+    let mut lines = text.lines();
+    let header = lines.next().context("empty map")?;
+    anyhow::ensure!(
+        header.starts_with("layer,projection,gradient,curvature"),
+        "{}: not an errmap CSV (header reads {header:?})",
+        path.display()
+    );
+    let mut found: std::collections::HashMap<(usize, String), (f64, f64, f64)> =
+        std::collections::HashMap::new();
+    for (n, line) in lines.enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split(',').collect();
+        anyhow::ensure!(f.len() >= 7, "{}: line {} has {} fields", path.display(), n + 2, f.len());
+        found.insert(
+            (f[0].parse()?, f[1].to_string()),
+            (f[2].parse()?, f[3].parse()?, f[6].parse()?),
+        );
+    }
+    targets
+        .iter()
+        .enumerate()
+        .map(|(index, t)| {
+            let (gradient, curvature, step) = *found
+                .get(&(t.layer, t.proj.to_string()))
+                .with_context(|| format!("{} is absent from {}", t.name(), path.display()))?;
+            Ok(Sensitivity { matrix: index, gradient, curvature, step })
+        })
+        .collect()
+}
+
 /// Replaces one projection's weights by `scale ×` the tensor given, and returns
 /// nothing: the caller owns the original and is responsible for putting it back.
 fn set_scaled(model: &mut Qwen3, t: &Target, original: &Tensor, scale: f64) -> anyhow::Result<()> {
@@ -290,10 +332,59 @@ fn main() -> anyhow::Result<()> {
         2 * targets.len()
     );
 
+    let loaded: Option<Vec<Sensitivity>> = match std::env::var("LLVQ_ERRMAP_LOAD") {
+        Ok(path) if !path.is_empty() => {
+            let m = load_map(std::path::Path::new(&path), &targets)?;
+            println!("loaded {} sensitivities from {path}", m.len());
+            Some(m)
+        }
+        _ => None,
+    };
     let mut terms: Vec<Sensitivity> = Vec::with_capacity(targets.len());
     let mut originals: Vec<Tensor> = Vec::with_capacity(targets.len());
     let probe_start = std::time::Instant::now();
+    // A loaded map still needs every original tensor kept, and it needs three
+    // matrices re-probed: a map describes one quantization, and applying it to
+    // another would be silently wrong rather than loudly wrong.
+    let spot: Vec<usize> = match &loaded {
+        Some(_) => {
+            let mut r = llvq_core::SplitMix64::new(0x0059_0715);
+            (0..3).map(|_| (r.next() % targets.len() as u64) as usize).collect()
+        }
+        None => Vec::new(),
+    };
     for (index, t) in targets.iter().enumerate() {
+        if let Some(map) = &loaded {
+            let original = model.blocks[t.layer].linear(t.proj).weight().clone();
+            if spot.contains(&index) {
+                let mut at = |scale: f64| -> anyhow::Result<f64> {
+                    set_scaled(&mut model, t, &original, scale)?;
+                    probe_nll(&model)
+                };
+                let minus = Probe { matrix: index, delta: -eps, loss: at(1.0 - eps)? };
+                let plus = Probe { matrix: index, delta: eps, loss: at(1.0 + eps)? };
+                set_scaled(&mut model, t, &original, 1.0)?;
+                let fresh = differentiate(base, minus, plus).map_err(anyhow::Error::msg)?;
+                let want = map[index];
+                let scale = want.gradient.abs().max(1e-9);
+                let drift = (fresh.gradient - want.gradient).abs() / scale;
+                println!(
+                    "  spot check {:<28} gradient {:+.6e} against {:+.6e}, drift {:.3}",
+                    t.name(),
+                    fresh.gradient,
+                    want.gradient,
+                    drift
+                );
+                anyhow::ensure!(
+                    drift < 0.05,
+                    "{} drifted {drift:.3} from the loaded map: it describes another run",
+                    t.name()
+                );
+            }
+            originals.push(original);
+            terms.push(map[index]);
+            continue;
+        }
         let original = model.blocks[t.layer].linear(t.proj).weight().clone();
         let mut at = |scale: f64| -> anyhow::Result<f64> {
             set_scaled(&mut model, t, &original, scale)?;
@@ -530,6 +621,56 @@ fn main() -> anyhow::Result<()> {
             "  1.0 = the predicted gain appears in full on data the map never saw; \n               0.0 = none of it does, and the map fitted the evaluation set"
         );
     }
+    // ---- how far to believe the parabola ----
+    //
+    // 147 of 196 optima sit at the edge of the trust region, so the region and
+    // not the curvature is what bounds the map. Widening it claims more and
+    // predicts worse, and where that trade sits is a measurement. The claims
+    // alone already bound the sweep: past T = 0.08 the model asserts a
+    // quantized perplexity below the f32 model's own, which is impossible, so
+    // the grid stops before the parabola starts inventing.
+    if let Ok(spec) = std::env::var("LLVQ_ERRMAP_TRUST_SWEEP") {
+        let widths: Vec<f64> = spec
+            .split(',')
+            .map(|s| s.trim().parse::<f64>().context("LLVQ_ERRMAP_TRUST_SWEEP is a comma list"))
+            .collect::<anyhow::Result<_>>()?;
+        println!("\n--- trust region sweep, all matrices at their own optimum ---");
+        println!(
+            "  {:>6} {:>7} {:>12} {:>12} {:>12} {:>9} {:>9}",
+            "T", "at edge", "claimed", "move A", "move B", "realized", "err A"
+        );
+        for &w in &widths {
+            anyhow::ensure!(w > 0.0 && w <= 0.5, "trust width {w} is outside (0, 0.5]");
+            let moves: Vec<(usize, f64)> = surrogate
+                .terms
+                .iter()
+                .map(|s| (s.matrix, s.optimum_within(w)))
+                .filter(|&(_, d)| d != 0.0)
+                .collect();
+            let at_edge = moves.iter().filter(|(_, d)| (d.abs() - w).abs() < 1e-12).count();
+            let claimed = surrogate.predict(&moves) - base;
+            for &(index, delta) in &moves {
+                set_scaled(&mut model, &targets[index], &originals[index], 1.0 + delta)?;
+            }
+            let ma = nll(&model)? - base_a;
+            let mb = if have_b { nll_range(&model, n_eval, 2 * n_eval)? - base_b } else { f64::NAN };
+            for &(index, _) in &moves {
+                set_scaled(&mut model, &targets[index], &originals[index], 1.0)?;
+            }
+            println!(
+                "  {:>6.3} {:>7} {:>+12.6} {:>+12.6} {:>+12.6} {:>9.3} {:>+9.4}",
+                w,
+                at_edge,
+                claimed,
+                ma,
+                mb,
+                ma / claimed,
+                (ma - claimed) / claimed.abs()
+            );
+        }
+        println!("  realized = measured move / claimed move; 1.0 would be a model that delivers");
+    }
+
     let restored = nll(&model)?;
     anyhow::ensure!(
         (restored - base_a).abs() < 1e-12,

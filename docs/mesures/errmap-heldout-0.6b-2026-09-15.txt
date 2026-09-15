@@ -16,12 +16,32 @@ map was fitted on is scored.
 
 THE HEADLINE
 -------------
-Transfer to the held-out split: mean +0.9149, median +0.8982, min +0.6455,
-max +1.1961. Ninety-one percent of the predicted improvement appears on text the
-map never read.
+Corrected 2026-09-15 after an external review, on three counts. The first
+version of this section read "mean transfer +0.9149", called the error
+"conservative", and let a reader infer that ranking was preserved. One of those
+was the wrong word, one was a figure that flattered, and one was untested.
 
-Sign disagreements: 0 of 30 scorable points. The model never mistakes the
-direction of a move.
+Transfer, defined four ways over the 30 scorable points:
+
+  (a) mean of per-point ratios measured/predicted      +0.9148
+  (b) median of the same                               +0.8978
+  (c) slope of the regression through the origin       +0.7528
+  (d) slope with an intercept                          +0.7025  (intercept -0.0086)
+      Pearson correlation of predicted against measured +0.9900
+
+(a) is what the first version published and it is the weakest of the four: it
+weights a tiny move exactly like a large one, and the model is accurate on tiny
+moves. (c) weights by the size of the move and is the honest headline.
+
+**The model overstates the gain by about 25 %, and it does so almost linearly**
+— correlation 0.990 between predicted and measured. That is not conservative, it
+is OPTIMISTIC, and the earlier wording had it backwards. It is also the useful
+form of wrong: a systematic factor can be divided out, an erratic one cannot.
+
+Sign disagreements: 0 of 30. And the ranking, which the first version never
+tested: Spearman +0.9973 between predicted and measured order, 5 inverted pairs
+out of 435 (1.15 %). The five best configurations by prediction are the five
+best by measurement, in the same order. Direction transfers, and so does order.
 
 THE DOMAIN OF VALIDITY, WHICH IS THE POINT
 -------------------------------------------
@@ -40,8 +60,10 @@ Prediction error as a fraction of the predicted move, split B (held out):
 The structure is exactly what a diagonal model predicts of itself: the error
 grows with the number of matrices moved and with the size of the move, because
 both grow the cross terms the surrogate does not carry. It is also always the
-same sign — the surrogate OVERSTATES the gain, never understates it, so its
-ranking is conservative rather than optimistic.
+same sign: the surrogate OVERSTATES the gain, which makes it optimistic. What
+saves the ranking is not the sign of the error but its regularity — the same
+overstatement applies across configurations, so order survives (Spearman
++0.9973) even though magnitude does not.
 
 Read as a rule: **the model predicts within 15 % up to 16 matrices at full
 amplitude, and within 20 % up to 140 matrices at half amplitude. It degrades to
@@ -78,6 +100,29 @@ being in series requires.
 Pooled single scale from the map: 0.99040, against the sweep's re-encoded
 minimum of 1.02. The two still differ in sign, and the reason is unchanged:
 post-hoc scaling and re-encoding are different operations.
+
+IS IT JUST "MANY MATRICES WERE UNDER-SCALED"?
+----------------------------------------------
+The external review's sharpest objection: with 147 of 196 optima at the region's
+edge, the map may have found one systematic direction rather than a per-matrix
+structure. That is testable on the map itself, and it is refuted.
+
+Of the 140 matrices the loss can see, **72 want dilating and 68 want shrinking**
+— 51.4 % against 48.6 %. The corrections contradict each other almost exactly,
+which is why a single global scalar, swept over four re-encoded arms, bought
+0.836 % where the per-matrix map measures 17.9 %. There is no global direction
+to find; the content of the map is the disagreement between matrices.
+
+WHAT IS STILL UNTESTED
+-----------------------
+Baselines this run does not carry, all named by the same review:
+  - corrections of random SIGN and size, rather than a random subset of the
+    map's own corrections, which is what `random k` is here and is therefore a
+    much weaker control than its name suggests;
+  - a heuristic built from the local error, which is what the map is supposed
+    to beat;
+  - validation on a different corpus (C4 or dclm-edu), which is the difference
+    between generalizing across splits and generalizing at all.
 
 LIMITS
 -------
