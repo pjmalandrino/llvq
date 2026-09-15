@@ -1,0 +1,100 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 16.16s
+     Running `target/release/errmap 64 2048 12 2048 metal`
+=== errmap ===
+model           Qwen/Qwen3-0.6B
+probe step      ±0.01
+trust region    ±0.03
+projections     self_attn.q_proj, self_attn.k_proj, self_attn.v_proj, self_attn.o_proj, mlp.gate_proj, mlp.up_proj, mlp.down_proj
+dtype / device  f32 / Metal(MetalDevice(DeviceId(1)))
+
+quantizing 28 blocks…
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  196 matrices, 2.1656 bits/weight, 856s
+
+probe baseline NLL  3.97311713   (held-in calibration text)
+eval  baseline NLL  3.73498720   (perplexity 41.8875, held out)
+probing 196 matrices, 392 evaluations…
+loaded 196 sensitivities from docs/data/errmap-heldout-0.6b-2026-09-15.csv
+  spot check blocks.3.self_attn.q_proj    gradient +8.945064e-6 against +8.945064e-6, drift 0.000
+  spot check blocks.15.mlp.up_proj        gradient -5.010280e-2 against -5.010280e-2, drift 0.000
+  spot check blocks.23.mlp.gate_proj      gradient -4.421993e-2 against -4.421993e-2, drift 0.000
+
+shape of the surface: 41 of 196 directions concave or flat, 44 invisible to the loss
+  invisible directions are all of: self_attn.k_proj, self_attn.q_proj
+
+--- the ten matrices where a scale error costs most ---
+  matrix                           gradient    curvature     scale    gain(NLL)
+  blocks.0.self_attn.v_proj      -4.6356e-1     1.9113e0   1.03000   -1.3047e-2
+  blocks.0.self_attn.o_proj      -4.6353e-1     1.9116e0   1.03000   -1.3046e-2
+  blocks.27.mlp.gate_proj        -3.5514e-1     1.4321e0   1.03000   -1.0010e-2
+  blocks.6.self_attn.v_proj       3.2586e-1    6.8877e-1   0.97000   -9.4658e-3
+  blocks.6.self_attn.o_proj       3.2587e-1    6.9116e-1   0.97000   -9.4651e-3
+  blocks.27.mlp.down_proj        -3.0718e-1     1.2717e0   1.03000   -8.6433e-3
+  blocks.27.mlp.up_proj          -3.0718e-1     1.2726e0   1.03000   -8.6427e-3
+  blocks.16.self_attn.o_proj      2.0496e-1    1.6548e-1   0.97000   -6.0744e-3
+  blocks.16.self_attn.v_proj      2.0495e-1    1.6489e-1   0.97000   -6.0742e-3
+  blocks.1.mlp.up_proj           -1.9710e-1    6.0260e-1   1.03000   -5.6418e-3
+
+claimed by the map, all matrices at their own optimum: -3.384775e-1 of NLL
+  which is 37.8882 of perplexity, from 53.1499
+
+pooled single scale from the map: 0.99040
+  the sweep of 2026-09-15 measured its minimum at 1.02 by re-encoding
+  a gap here is the size of the compensation's reaction, not an error
+
+split A  3.73498720  (wikitext-2 test)
+split B  4.47613212  (c4)
+
+--- trust region sweep, all matrices at their own optimum ---
+       T at edge      claimed       move A       move B  realized     err A
+   0.030     166    -0.338477    -0.197401    -0.217233     0.583   +0.4168
+   0.040     164    -0.442035    -0.215984    -0.239059     0.489   +0.5114
+   0.060     161    -0.635894    -0.190766    -0.212027     0.300   +0.7000
+  realized = measured move / claimed move; 1.0 would be a model that delivers
+
+--- baselines at T = 0.04, 195 matrices moved ---
+  arm                                     move A      move B
+  the map                              -0.215984   -0.239059
+  random sign and size, draw 1         +0.036497   +0.051635
+  random sign and size, draw 2         -0.017648   -0.023827
+  random sign and size, draw 3         -0.020355   -0.012818
+  the map's signs, constant size       -0.207733   -0.228919
+  one global scale 0.99                -0.001509   -0.002647
+  one global scale 1.01                +0.004332   +0.006079
+  one global scale 1.02                +0.011510   +0.015649
+model restored, NLL 3.73498720

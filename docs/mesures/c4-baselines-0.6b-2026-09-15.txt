@@ -1,0 +1,84 @@
+THE MAP ON ANOTHER CORPUS, AND WHAT IT IS ACTUALLY DOING (2026-09-15)
+======================================================================
+Code: errmap at 5f4f2c7, map loaded from disk, three matrices re-probed
+  (drift 0.000 on all three). Cost: $0, 25 min of Mac, 17:14:15Z to 17:38:54Z.
+Map: docs/data/errmap-heldout-0.6b-2026-09-15.csv, probed on wikitext-2 train.
+Raw log in the -brut directory.
+
+Written to answer three objections from an external review of the 17.9 % result.
+
+1. DOES IT SURVIVE A DIFFERENT CORPUS? YES, AND IT IS LARGER THERE
+-------------------------------------------------------------------
+The probes read wikitext-2 train, which is also GPTQ's calibration corpus here,
+so a gain seen on wikitext-2 test could have been the map re-tuning the model to
+one style. C4 is a different domain and nothing about it was used to build the
+map.
+
+  corpus              perplexity before    after      change
+  wikitext-2 test         41.8875         33.7508    -19.43 %
+  C4                      87.8941         69.2050    -21.26 %
+
+The correction transfers, and transfers slightly better out of domain than in
+it. Whatever it repairs is not a property of Wikipedia text.
+
+2. WOULD ANY PERTURBATION OF THAT SIZE DO? NO, BY AN ORDER OF MAGNITUDE
+------------------------------------------------------------------------
+All arms move the same 195 matrices by at most 0.04, and are scored on both
+corpora. Moves are in NLL; negative is better.
+
+  arm                                  wikitext-2      C4
+  the map                               -0.215984    -0.239059
+  random sign and size, draw 1          +0.036497    +0.051635
+  random sign and size, draw 2          -0.017648    -0.023827
+  random sign and size, draw 3          -0.020355    -0.012818
+  the map's signs, constant size        -0.207733    -0.228919
+  one global scale 0.99                 -0.001509    -0.002647
+  one global scale 1.01                 +0.004332    +0.006079
+  one global scale 1.02                 +0.011510    +0.015649
+
+A random perturbation of the same magnitude ranges from +0.036 (worse than doing
+nothing) to -0.020. The map is **10.6x** the best of three random draws, and the
+draws disagree among themselves on sign. Perturbation size is not what produces
+the gain.
+
+3. IS IT ONE GLOBAL DIRECTION? NO, BY TWO ORDERS OF MAGNITUDE
+--------------------------------------------------------------
+No global scale does anything post hoc: 0.99 buys -0.0015, 1.01 and 1.02 both
+make it worse. The map is **143x** the best of them. This is the same fact the
+map already showed structurally — 72 matrices want dilating and 68 shrinking —
+now measured end to end.
+
+Note the 1.02 row. Four re-encoded arms measured 1.02 as the best GLOBAL
+multiplier, worth -0.836 % of perplexity. Applied post hoc it is worse than
+doing nothing. The two operations are not interchangeable and this is the
+cleanest demonstration of it in the file.
+
+4. THE RESULT THAT CUTS THE CLAIM DOWN: 96 % OF THE GAIN IS THE SIGN
+----------------------------------------------------------------------
+Moving every matrix by the SAME amount, 0.04, in the direction the map says —
+throwing away every magnitude it computed — buys -0.207733 against the map's
+-0.215984.
+
+**96.2 % of the gain is in knowing which way each matrix should move. 3.8 % is
+in knowing by how much.**
+
+That is a real limit on what this instrument is. The quadratic surrogate ranks
+configurations almost perfectly (Spearman +0.9973) and predicts their sizes to
+within 25 % — but nearly all of the achievable gain is reachable from the SIGN
+of the gradient alone, which is the cheapest thing the probes produce and needs
+neither curvature, nor a trust region, nor an optimum.
+
+It does not make the model useless: the signs come from the model, and 3.8 % of
+a 19 % gain is not nothing. It does mean the honest description is "a map of
+which direction each matrix is mis-scaled", with a second-order refinement worth
+a twentieth of it — and not "a fine-grained predictive model of the error".
+
+WHAT IS STILL NOT TESTED
+-------------------------
+A heuristic built from the local error, `tr(E H Eᵀ)`, which would be the real
+competitor: the Hessians are not kept past quantization, so it needs its own run.
+Until then, "the map beats a local-error rule" is unmeasured.
+
+One model, one seed. The baseline arms move 195 matrices including the scale
+invariant ones, whose moves do nothing by construction; that dilutes nothing but
+should be tightened before these numbers are quoted as per-matrix counts.
