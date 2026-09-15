@@ -283,15 +283,28 @@ impl Surrogate {
         self.terms.iter().filter(|t| t.curvature <= 0.0).count()
     }
 
-    /// Directions the loss does not see at all — zero gradient and zero
-    /// curvature. In Qwen3 these are real and expected: `q_proj` and `k_proj`
-    /// feed a per-head RMS norm, which is scale invariant, so a scale error on
-    /// them costs exactly nothing. A map that reported them as `NaN` would be
-    /// hiding a fact worth knowing.
-    pub fn scale_invariant(&self) -> Vec<usize> {
+    /// Directions the loss does not see, to within `tol` of the largest
+    /// sensitivity in the map.
+    ///
+    /// In Qwen3 these are real and expected: `q_proj` and `k_proj` feed a
+    /// per-head RMS norm, which is scale invariant, so a scale error on them
+    /// costs exactly nothing. The *measurement* of that zero cannot be exact —
+    /// an f32 evaluation differenced by `2ε` leaves a residue four orders of
+    /// magnitude below the rest — so the test is relative, not `== 0.0`.
+    /// An exact-equality test finds them on one evaluation corpus and misses
+    /// them on the next, which is how a structural fact gets lost.
+    pub fn scale_invariant(&self, tol: f64) -> Vec<usize> {
+        let gmax = self
+            .terms
+            .iter()
+            .fold(0.0f64, |m, t| m.max(t.gradient.abs()));
+        let hmax = self
+            .terms
+            .iter()
+            .fold(0.0f64, |m, t| m.max(t.curvature.abs()));
         self.terms
             .iter()
-            .filter(|t| t.gradient == 0.0 && t.curvature == 0.0)
+            .filter(|t| t.gradient.abs() <= tol * gmax && t.curvature.abs() <= tol * hmax)
             .map(|t| t.matrix)
             .collect()
     }
@@ -534,7 +547,17 @@ mod tests {
         ];
         let s = Surrogate::new(0.0, terms).unwrap();
         assert_eq!(s.non_convex(), 2, "the concave one and the flat one");
-        assert_eq!(s.scale_invariant(), vec![2]);
+        assert_eq!(s.scale_invariant(1e-3), vec![2]);
+        // The relative test is the point: a direction four orders of magnitude
+        // below the rest is invariant in the model and merely non-zero in the
+        // arithmetic, and an exact-equality test would miss it.
+        let noisy = vec![
+            Sensitivity { matrix: 0, gradient: 1.0, curvature: 2.0, step: 0.01 },
+            Sensitivity { matrix: 1, gradient: 1e-5, curvature: 3e-5, step: 0.01 },
+        ];
+        let s2 = Surrogate::new(0.0, noisy).unwrap();
+        assert_eq!(s2.scale_invariant(1e-3), vec![1]);
+        assert!(s2.scale_invariant(1e-9).is_empty(), "a tight tolerance finds none");
         // The invariant direction proposes no move and claims no gain.
         assert_eq!(s.terms[2].optimum_within(0.05), 0.0);
         assert_eq!(s.terms[2].best_gain_within(0.05), 0.0);

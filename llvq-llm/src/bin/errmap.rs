@@ -34,8 +34,7 @@
 //!
 //! Environment: `LLVQ_ERRMAP_EPS` (default 0.01), `LLVQ_ERRMAP_OUT` (CSV path),
 //! `LLVQ_ERRMAP_TYPES` (comma-separated projection names, default all seven),
-//! `LLVQ_ERRMAP_TOP` (how many matrices the validation combination moves,
-//! default 8), `LLVQ_ERRMAP_BLOCKS` (bound on the transformer blocks quantized
+//! `LLVQ_ERRMAP_BLOCKS` (bound on the transformer blocks quantized
 //! and probed, default all). `LLVQ_MODEL` picks the checkpoint.
 
 use anyhow::Context;
@@ -118,7 +117,6 @@ fn main() -> anyhow::Result<()> {
         eps.is_finite() && eps > 0.0 && eps < 0.5,
         "LLVQ_ERRMAP_EPS must be in (0, 0.5), got {eps}"
     );
-    let top = env_usize("LLVQ_ERRMAP_TOP", 8)?;
     // Blocks to quantize AND to probe. The two must be the same set: probing a
     // block the loop never touched would measure the sensitivity of an f32
     // matrix and report it as a calibration figure.
@@ -171,15 +169,20 @@ fn main() -> anyhow::Result<()> {
     // The NLL rather than its exponential: the surrogate is a second-order
     // expansion, and expanding a perplexity would model `exp` of the thing
     // that is actually additive over windows.
-    let nll = |m: &Qwen3| -> anyhow::Result<f64> {
+    // Two disjoint window ranges of the same corpus. Split A is what the map
+    // was fitted on; split B is never used to fit anything, so it is the only
+    // number that says whether the map generalizes rather than memorizes.
+    let have_b = test_ids.len() / eval_ctx >= 2 * n_eval;
+    let nll_range = |m: &Qwen3, from: usize, to: usize| -> anyhow::Result<f64> {
         let (mut total, mut count) = (0.0, 0usize);
-        for w in 0..n_eval {
+        for w in from..to {
             let (n, c) = m.window_nll(&test_ids[w * eval_ctx..(w + 1) * eval_ctx], &mut NoCapture)?;
             total += n;
             count += c;
         }
         Ok(total / count as f64)
     };
+    let nll = |m: &Qwen3| nll_range(m, 0, n_eval);
 
     let train_text = hf_parquet_text(
         "Salesforce/wikitext",
@@ -195,6 +198,29 @@ fn main() -> anyhow::Result<()> {
         train_ids.len() >= n_calib * calib_len,
         "calibration corpus is shorter than {n_calib} × {calib_len} tokens"
     );
+    // The probes read CALIBRATION text, never the evaluation corpus. Reading
+    // the same windows for both is what a first version did, and its held-out
+    // transfer measured -0.008: the map reproduced its own evaluation set and
+    // predicted nothing beyond it. A surrogate fitted on the set it is scored
+    // on is not a predictive model, it is a lookup of that set.
+    let probe_windows = env_usize("LLVQ_ERRMAP_PROBE_WINDOWS", 8)?;
+    anyhow::ensure!(
+        train_ids.len() >= (n_calib + probe_windows) * calib_len,
+        "corpus too short for {n_calib} calibration windows plus {probe_windows} probe windows"
+    );
+    let probe_ids: Vec<u32> =
+        train_ids[n_calib * calib_len..(n_calib + probe_windows) * calib_len].to_vec();
+    let probe_nll = |m: &Qwen3| -> anyhow::Result<f64> {
+        let (mut total, mut count) = (0.0, 0usize);
+        for w in 0..probe_windows {
+            let (n, c) =
+                m.window_nll(&probe_ids[w * calib_len..(w + 1) * calib_len], &mut NoCapture)?;
+            total += n;
+            count += c;
+        }
+        Ok(total / count as f64)
+    };
+
     let mut hidden: Vec<Tensor> = Vec::with_capacity(n_calib);
     for w in 0..n_calib {
         let ids = &train_ids[w * calib_len..(w + 1) * calib_len];
@@ -245,9 +271,11 @@ fn main() -> anyhow::Result<()> {
         t0.elapsed().as_secs_f64()
     );
 
-    // ---- the baseline the whole map is an expansion around ----
-    let base = nll(&model)?;
-    println!("\nbaseline NLL    {base:.8}   (perplexity {:.4})", base.exp());
+    // ---- the baselines: one per corpus the map is scored against ----
+    let base = probe_nll(&model)?;
+    let base_eval = nll(&model)?;
+    println!("\nprobe baseline NLL  {base:.8}   (held-in calibration text)");
+    println!("eval  baseline NLL  {base_eval:.8}   (perplexity {:.4}, held out)", base_eval.exp());
 
     // ---- probes ----
     let probed_blocks = limit.min(model.blocks.len());
@@ -269,7 +297,7 @@ fn main() -> anyhow::Result<()> {
         let original = model.blocks[t.layer].linear(t.proj).weight().clone();
         let mut at = |scale: f64| -> anyhow::Result<f64> {
             set_scaled(&mut model, t, &original, scale)?;
-            nll(&model)
+            probe_nll(&model)
         };
         let minus = Probe {
             matrix: index,
@@ -296,7 +324,8 @@ fn main() -> anyhow::Result<()> {
     let surrogate = Surrogate::new(base, terms).map_err(anyhow::Error::msg)?;
 
     // ---- the map ----
-    let invariant = surrogate.scale_invariant();
+    // Four orders of magnitude below the rest is the measured gap for q/k.
+    let invariant = surrogate.scale_invariant(1e-3);
     println!(
         "\nshape of the surface: {} of {} directions concave or flat, {} invisible to the loss",
         surrogate.non_convex(),
@@ -355,55 +384,158 @@ fn main() -> anyhow::Result<()> {
         println!("  a gap here is the size of the compensation's reaction, not an error");
     }
 
-    // ---- the held-out test: a combination the probes never saw ----
-    let moves: Vec<(usize, f64)> = surrogate
-        .ranked_within(trust)
-        .iter()
-        .take(top)
-        .map(|s| (s.matrix, s.optimum_within(trust)))
-        .filter(|&(_, d)| d != 0.0)
+    // ---- the validation plan ----
+    //
+    // One combination tells almost nothing: it says the surrogate worked once,
+    // at one size, in the one regime its own ranking favours. What a predictive
+    // model owes is a domain — how large a move, over how many matrices, before
+    // its error stops being small. So the plan sweeps both, picks matrices two
+    // ways, and scores every point on a split the map never saw.
+    let sizes: Vec<usize> = [1usize, 2, 4, 8, 16, 32, 64, 140]
+        .into_iter()
+        .filter(|&k| k <= surrogate.terms.len())
         .collect();
-    if !moves.is_empty() {
-        println!(
-            "\n--- validation: the top {} matrices moved together ---",
-            moves.len()
-        );
-        let predicted = surrogate.predict(&moves);
-        for &(index, delta) in &moves {
-            set_scaled(&mut model, &targets[index], &originals[index], 1.0 + delta)?;
-        }
-        let measured = nll(&model)?;
-        for &(index, _) in &moves {
-            set_scaled(&mut model, &targets[index], &originals[index], 1.0)?;
-        }
-        let r = Residual {
-            predicted,
-            measured,
-            base,
-        };
-        println!("  predicted NLL {predicted:.8}   measured {measured:.8}");
-        println!("  absolute error {:+.4e}", r.absolute());
-        match r.relative_to_move() {
-            Some(rel) => println!("  error as a fraction of the predicted move: {rel:+.4}"),
-            None => println!("  the surrogate predicted no move; no ratio is meaningful"),
-        }
-        println!(
-            "  sign of the move: {}",
-            if r.agrees_in_sign() {
-                "prediction and measurement agree"
-            } else {
-                "DISAGREE — the map cannot rank what it cannot sign"
+    let amplitudes = [0.5f64, 1.0];
+    let ranked: Vec<Sensitivity> = surrogate.ranked_within(trust);
+    // Matrices the loss can actually see. Including the scale-invariant ones
+    // would pad every combination with terms that move nothing, and flatter
+    // the error by diluting it.
+    let visible: Vec<Sensitivity> = ranked
+        .iter()
+        .copied()
+        .filter(|s| s.gradient != 0.0 || s.curvature != 0.0)
+        .collect();
+    let mut rng = llvq_core::SplitMix64::new(0xe22_0915);
+
+    println!("\n--- validation plan: {} points ---", sizes.len() * amplitudes.len() * 2);
+    // Moves, not absolute losses: the surrogate predicts a *change*, the two
+    // splits have different baselines, and a table of absolute NLLs hides
+    // whether a gain transferred at all.
+    println!(
+        "  {:<10} {:>4} {:>6} {:>11} {:>11} {:>11} {:>9} {:>9}",
+        "selection", "k", "alpha", "move pred", "move A", "move B", "err A", "err B"
+    );
+    let mut worst_a: f64 = 0.0;
+    let mut worst_b: f64 = 0.0;
+    let mut sign_failures = 0usize;
+    // How much of the predicted improvement actually appears on the split the
+    // map was never fitted on. One is full transfer, zero is none, and
+    // negative means the move hurt where it was supposed to help.
+    let mut transfer: Vec<f64> = Vec::new();
+    // Both validation splits are held out from the probes by construction now;
+    // B additionally checks that A is not itself a lucky stretch of text.
+    let base_a = base_eval;
+    let base_b = if have_b { nll_range(&model, n_eval, 2 * n_eval)? } else { f64::NAN };
+    for &k in &sizes {
+        for &alpha in &amplitudes {
+            for pick in ["top", "random"] {
+                let chosen: Vec<Sensitivity> = if pick == "top" {
+                    visible.iter().copied().take(k).collect()
+                } else {
+                    // Sampling without replacement, so a "random" combination
+                    // is a genuine subset and not a multiset of one matrix.
+                    let mut pool: Vec<Sensitivity> = visible.clone();
+                    let mut out = Vec::with_capacity(k);
+                    for _ in 0..k.min(pool.len()) {
+                        let i = (rng.next() % pool.len() as u64) as usize;
+                        out.push(pool.swap_remove(i));
+                    }
+                    out
+                };
+                let moves: Vec<(usize, f64)> = chosen
+                    .iter()
+                    .map(|s| (s.matrix, alpha * s.optimum_within(trust)))
+                    .filter(|&(_, d)| d != 0.0)
+                    .collect();
+                if moves.is_empty() {
+                    continue;
+                }
+                let predicted = surrogate.predict(&moves);
+                for &(index, delta) in &moves {
+                    set_scaled(&mut model, &targets[index], &originals[index], 1.0 + delta)?;
+                }
+                let measured_a = nll(&model)?;
+                let measured_b = if have_b {
+                    nll_range(&model, n_eval, 2 * n_eval)?
+                } else {
+                    f64::NAN
+                };
+                for &(index, _) in &moves {
+                    set_scaled(&mut model, &targets[index], &originals[index], 1.0)?;
+                }
+                // The surrogate predicts a CHANGE, measured on the probe
+                // corpus; each validation split carries it from its own base.
+                let move_predicted = predicted - base;
+                let ra = Residual {
+                    predicted: base_a + move_predicted,
+                    measured: measured_a,
+                    base: base_a,
+                };
+                let rel_a = ra.relative_to_move().unwrap_or(f64::NAN);
+                // Split B has its own baseline, and the surrogate's predicted
+                // *change* is what transfers — not its predicted absolute loss.
+                let rel_b = if have_b {
+                    let moved = move_predicted;
+                    (measured_b - (base_b + moved)) / moved.abs()
+                } else {
+                    f64::NAN
+                };
+                let move_pred = move_predicted;
+                let move_a = measured_a - base_a;
+                let move_b = measured_b - base_b;
+                // A predicted move at the level of the evaluation's own
+                // precision makes every ratio meaningless, so it is shown and
+                // excluded from the worst case rather than allowed to dominate.
+                let scorable = move_pred.abs() > 1e-3;
+                if scorable {
+                    if !ra.agrees_in_sign() {
+                        sign_failures += 1;
+                    }
+                    worst_a = worst_a.max(rel_a.abs());
+                    if rel_b.is_finite() {
+                        worst_b = worst_b.max(rel_b.abs());
+                    }
+                    transfer.push(move_b / move_pred);
+                }
+                println!(
+                    "  {:<10} {:>4} {:>6.2} {:>+11.6} {:>+11.6} {:>+11.6} {:>+9.4} {:>+9.4}{}",
+                    pick,
+                    moves.len(),
+                    alpha,
+                    move_pred,
+                    move_a,
+                    move_b,
+                    rel_a,
+                    rel_b,
+                    if scorable { "" } else { "  (below precision, not scored)" }
+                );
             }
-        );
-        // Restoring is not optional: a later evaluation on a model left
-        // perturbed would silently measure the combination instead of the run.
-        let restored = nll(&model)?;
-        anyhow::ensure!(
-            (restored - base).abs() < 1e-12,
-            "the model did not come back to its baseline: {restored} against {base}"
-        );
-        println!("  model restored to baseline, NLL {restored:.8}");
+        }
     }
+    println!(
+        "\nworst |error| as a fraction of the move: split A {worst_a:.4}, split B {worst_b:.4}"
+    );
+    println!("sign disagreements: {sign_failures}");
+    if !transfer.is_empty() {
+        let mut v = transfer.clone();
+        v.sort_by(f64::total_cmp);
+        let mean = v.iter().sum::<f64>() / v.len() as f64;
+        println!(
+            "transfer to the held-out split: mean {mean:+.4}, median {:+.4}, min {:+.4}, max {:+.4}",
+            v[v.len() / 2],
+            v[0],
+            v[v.len() - 1]
+        );
+        println!(
+            "  1.0 = the predicted gain appears in full on data the map never saw; \n               0.0 = none of it does, and the map fitted the evaluation set"
+        );
+    }
+    let restored = nll(&model)?;
+    anyhow::ensure!(
+        (restored - base_a).abs() < 1e-12,
+        "the model did not come back to its baseline: {restored} against {base_a}"
+    );
+    println!("model restored, NLL {restored:.8}");
 
     if let Ok(path) = std::env::var("LLVQ_ERRMAP_OUT") {
         use std::io::Write;
