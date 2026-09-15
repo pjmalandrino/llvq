@@ -450,6 +450,23 @@ pub struct RunConfig {
     /// variant is a large relative damping under another name, and is not
     /// what M1 sweeps.
     pub h_shrink: f64,
+    /// Multiplies the fitted gain centroids of every matrix. `1.0` is the
+    /// published path and skips the multiply, so shipped bytes are untouched.
+    ///
+    /// The hypothesis it exists to test: the reconstruction the served rule
+    /// writes is not centred on the block it replaces. Measured on 2,016
+    /// compensated blocks of Qwen3-0.6B, the mean amplitude placed is
+    /// **0.99336** of the block norm — a systematic 0.66 % shrink
+    /// (`docs/mesures/tetrapost-ppl-0.6b-2026-09-15.txt`). That journal also
+    /// measures what a *larger* shrink costs: moving the bias to −2.93 % cost
+    /// 4.026 % of perplexity. If the relation is monotone through zero,
+    /// removing the residual 0.66 % is worth something, and it is free — the
+    /// centroids are already fitted per matrix, so scaling them changes no
+    /// bit of the format, no table and no decoder.
+    ///
+    /// It is a knob of that measurement, not a served setting: nothing in
+    /// `configs/` sets it, and the published path is `1.0`.
+    pub gain_scale: f64,
     pub codebook: Codebook,
     pub threads: usize,
     /// First block to quantize. Blocks below it are **advanced only** — they
@@ -645,6 +662,7 @@ pub fn quantize_model_capturing(
         int4_types,
         damping,
         h_shrink,
+        gain_scale,
         codebook,
         threads,
         start,
@@ -655,6 +673,11 @@ pub fn quantize_model_capturing(
     let (damping, threads, start, limit) = (*damping, *threads, *start, *limit);
     let rotation_seed = *rotation_seed;
     let h_shrink = *h_shrink;
+    let gain_scale = *gain_scale;
+    anyhow::ensure!(
+        gain_scale.is_finite() && gain_scale > 0.0,
+        "gain_scale = {gain_scale}: the centroid multiplier must be finite and positive"
+    );
     codebook.validate_encoding_mode(cfg.group_scales, cfg.design_c, start != 0)
         .map_err(anyhow::Error::msg)?;
     anyhow::ensure!(
@@ -860,14 +883,17 @@ pub fn quantize_model_capturing(
                     // code is the block magnitude relative to its row, which
                     // knows nothing about how the direction is written down.
                     Codebook::ShapeGain { gain_bits, .. } | Codebook::Tetra { gain_bits, .. } => {
-                        Some(fit_gain_centroids(
-                            &weights.w,
-                            d_out,
-                            d_in,
-                            cfg.block,
-                            gain_bits,
-                            40,
-                        ))
+                        let mut levels =
+                            fit_gain_centroids(&weights.w, d_out, d_in, cfg.block, gain_bits, 40);
+                        // At 1.0 the multiply is skipped rather than applied,
+                        // so the published path is bit-identical and not
+                        // merely equal to within a rounding.
+                        if gain_scale != 1.0 {
+                            for c in &mut levels {
+                                *c *= gain_scale;
+                            }
+                        }
+                        Some(levels)
                     }
                     _ => None,
                 };

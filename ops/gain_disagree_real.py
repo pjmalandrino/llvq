@@ -297,10 +297,69 @@ def audit(blocks, cells, mean_cos):
     print(f"   per cell, each rule at its own best scalar: euclid wins {wins}/{total_cells}")
 
 
+def bias_map(blocks, cells):
+    """Where each rule places an amplitude that is not the block's own norm.
+
+    The 2026-09-15 arm measured that this bias is what costs perplexity: a rule
+    shrinking every block by 2.93 % lost 4.026 %, where squared error said it
+    should win. So the quantity worth mapping over the model is not where the
+    rules disagree, it is where the reconstruction is off-centre and by how
+    much. Reported per rule and per cell, as the mean of `placed / ‖x‖`.
+    """
+    print()
+    print("=== bias map: mean placed amplitude over block norm ===")
+    seeds = sorted({b["seed"] for b in blocks})
+
+    def mean_bias(group, rule):
+        return sum(
+            b["centroids"][b[rule]] * b["scale"] / b["norm"] for b in group
+        ) / len(group)
+
+    for rule, label in (("served", "served rule"), ("euclid", "euclid rule"), ("schur", "Schur rule")):
+        print(f"  {label:<14} whole sample {mean_bias(blocks, rule):.5f}"
+              f"   ({100.0 * (mean_bias(blocks, rule) - 1.0):+.2f} %)")
+    print()
+    print(f"  {'cell':<26} {'served':>10} {'euclid':>10} {'Schur':>10}")
+    for seed in seeds:
+        for family, layer in cells:
+            g = [
+                b
+                for b in blocks
+                if b["seed"] == seed and b["family"] == family and b["layer"] == layer
+            ]
+            if not g:
+                continue
+            name = f"{seed} {family} L{layer}"
+            print(
+                f"  {name:<26} {mean_bias(g, 'served'):>10.5f} "
+                f"{mean_bias(g, 'euclid'):>10.5f} {mean_bias(g, 'schur'):>10.5f}"
+            )
+    served = [
+        mean_bias(
+            [b for b in blocks if b["seed"] == s and b["family"] == f and b["layer"] == y],
+            "served",
+        )
+        for s in seeds
+        for f, y in cells
+        if [b for b in blocks if b["seed"] == s and b["family"] == f and b["layer"] == y]
+    ]
+    print()
+    print(
+        f"  served-rule bias across cells: min {min(served):.5f}  max {max(served):.5f}"
+        f"  spread {100.0 * (max(served) - min(served)):.2f} points"
+    )
+    print("  a spread this size is what decides whether one scalar can serve the whole model")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("pilot_dir", type=pathlib.Path)
     parser.add_argument("--csv", type=pathlib.Path, help="per-cell table")
+    parser.add_argument(
+        "--bias-map",
+        action="store_true",
+        help="mean placed amplitude over block norm, per rule and per cell",
+    )
     parser.add_argument(
         "--audit",
         action="store_true",
@@ -428,6 +487,9 @@ def main():
 
     if args.audit:
         audit(blocks, cells, mean_cos)
+
+    if args.bias_map:
+        bias_map(blocks, cells)
 
     if args.csv:
         # One row per (seed, family, depth) cell. The four arms are given as

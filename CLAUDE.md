@@ -117,6 +117,7 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_CALIB_SEED` | integer | calibration windows drawn at random instead of the prefix (`smoke`) |
 | `LLVQ_DAMPING` | float | relative damping of the Hessian (`smoke`) |
 | `LLVQ_H_SHRINK` | ρ in [0, 1], default `1` | `H ← ρ·H + (1−ρ)·diag(H)` before rotation (`smoke`, M1 knob) |
+| `LLVQ_GAIN_SCALE` | float in [0.5, 2], default `1` | `smoke`: multiplies the fitted gain centroids of every matrix. `1` skips the multiply, so the published path is bit-identical. Measurement knob of the reconstruction bias, never a served setting |
 | `LLVQ_RESTORE_F16` | projection types separated by commas, or `all` | `mmlu`, `ppl`: those types taken from the checkpoint in f16, the rest as served |
 | `LLVQ_RESTORE_Q4` | same list | same in int4 g128; setting both is refused |
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |

@@ -482,6 +482,7 @@ fn windows(cfg: &Config, seq: usize, n: usize, dev: &Device) -> Vec<Tensor> {
 fn mixed_run(int4_types: Vec<String>, start: usize, limit: usize) -> llvq_llm::calib::RunConfig {
     llvq_llm::calib::RunConfig {
         h_shrink: 1.0,
+        gain_scale: 1.0,
         int4_types,
         gptq: llvq_quant::gptq::GptqConfig {
             block: llvq_core::DIM,

@@ -865,6 +865,20 @@ fn main() -> anyhow::Result<()> {
         (0.0..=1.0).contains(&h_shrink),
         "LLVQ_H_SHRINK must be in [0, 1] (1 = H as estimated), got {h_shrink}"
     );
+    // Multiplies the fitted gain centroids of every matrix. Unset is 1, the
+    // published path, and 1 is not a multiply by one: `calib` skips it.
+    // Measurement knob of the reconstruction bias, `calib::RunConfig`.
+    let gain_scale = match std::env::var("LLVQ_GAIN_SCALE") {
+        Ok(s) => s
+            .parse::<f64>()
+            .map_err(|_| anyhow::anyhow!("LLVQ_GAIN_SCALE={s:?} is not a number"))?,
+        Err(_) => 1.0,
+    };
+    anyhow::ensure!(
+        gain_scale.is_finite() && (0.5..=2.0).contains(&gain_scale),
+        "LLVQ_GAIN_SCALE must be in [0.5, 2] (1 = the fit as it stands), got {gain_scale}"
+    );
+
     // `LLVQ_ARTIFACT=<path>` writes the real compressed artifact: packed
     // lattice indices, not reconstructions. The file's size is the bit rate.
     let artifact_path = std::env::var("LLVQ_ARTIFACT")
@@ -992,6 +1006,14 @@ fn main() -> anyhow::Result<()> {
             "ρ·H + (1−ρ)·diag H, natural basis — M1"
         } else {
             "H as is, published path"
+        }
+    );
+    eprintln!(
+        "  gain_scale   {gain_scale} ({})",
+        if gain_scale == 1.0 {
+            "centroids as fitted, published path"
+        } else {
+            "fitted centroids multiplied — reconstruction-bias knob"
         }
     );
     eprintln!(
@@ -1227,6 +1249,7 @@ fn main() -> anyhow::Result<()> {
         int4_types: int4_types.clone(),
         damping,
         h_shrink,
+        gain_scale,
         codebook,
         threads,
         start,
@@ -1529,6 +1552,7 @@ fn main() -> anyhow::Result<()> {
     // not printed with its number is an A/B nobody can re-read six weeks later.
     println!("hessian damping          = {damping:e}");
     println!("hessian shrink ρ         = {h_shrink}");
+    println!("gain centroid scale      = {gain_scale}");
     println!("dtype / device           = {dt} / {device:?}");
     Ok(())
 }
