@@ -1,0 +1,129 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 17.06s
+     Running `target/release/errmap 64 2048 12 2048 metal`
+=== errmap ===
+model           Qwen/Qwen3-0.6B
+probe step      ±0.01
+trust region    ±0.03
+projections     self_attn.q_proj, self_attn.k_proj, self_attn.v_proj, self_attn.o_proj, mlp.gate_proj, mlp.up_proj, mlp.down_proj
+dtype / device  f32 / Metal(MetalDevice(DeviceId(1)))
+
+quantizing 28 blocks…
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  196 matrices, 2.1656 bits/weight, 791s
+
+probe baseline NLL  3.97311713   (held-in calibration text)
+eval  baseline NLL  3.73498720   (perplexity 41.8875, held out)
+probing 196 matrices, 392 evaluations…
+loaded 196 sensitivities from docs/data/errmap-heldout-0.6b-2026-09-15.csv
+  spot check blocks.3.self_attn.q_proj    gradient +8.945064e-6 against +8.945064e-6, drift 0.000
+  spot check blocks.15.mlp.up_proj        gradient -5.010280e-2 against -5.010280e-2, drift 0.000
+  spot check blocks.23.mlp.gate_proj      gradient -4.421993e-2 against -4.421993e-2, drift 0.000
+
+shape of the surface: 41 of 196 directions concave or flat, 44 invisible to the loss
+  invisible directions are all of: self_attn.k_proj, self_attn.q_proj
+
+--- the ten matrices where a scale error costs most ---
+  matrix                           gradient    curvature     scale    gain(NLL)
+  blocks.0.self_attn.v_proj      -4.6356e-1     1.9113e0   1.03000   -1.3047e-2
+  blocks.0.self_attn.o_proj      -4.6353e-1     1.9116e0   1.03000   -1.3046e-2
+  blocks.27.mlp.gate_proj        -3.5514e-1     1.4321e0   1.03000   -1.0010e-2
+  blocks.6.self_attn.v_proj       3.2586e-1    6.8877e-1   0.97000   -9.4658e-3
+  blocks.6.self_attn.o_proj       3.2587e-1    6.9116e-1   0.97000   -9.4651e-3
+  blocks.27.mlp.down_proj        -3.0718e-1     1.2717e0   1.03000   -8.6433e-3
+  blocks.27.mlp.up_proj          -3.0718e-1     1.2726e0   1.03000   -8.6427e-3
+  blocks.16.self_attn.o_proj      2.0496e-1    1.6548e-1   0.97000   -6.0744e-3
+  blocks.16.self_attn.v_proj      2.0495e-1    1.6489e-1   0.97000   -6.0742e-3
+  blocks.1.mlp.up_proj           -1.9710e-1    6.0260e-1   1.03000   -5.6418e-3
+
+claimed by the map, all matrices at their own optimum: -3.384775e-1 of NLL
+  which is 37.8882 of perplexity, from 53.1499
+
+pooled single scale from the map: 0.99040
+  the sweep of 2026-09-15 measured its minimum at 1.02 by re-encoding
+  a gap here is the size of the compensation's reaction, not an error
+
+--- validation plan: 32 points ---
+  selection     k  alpha   move pred      move A      move B     err A     err B
+  top           1   0.50   -0.006738   -0.005485   -0.006046   +0.1861   +0.1028
+  random        1   0.50   -0.000000   +0.000000   -0.000000   +1.0000   -7.0000  (below precision, not scored)
+  top           1   1.00   -0.013047   -0.010687   -0.011719   +0.1809   +0.1018
+  random        1   1.00   -0.000000   +0.000000   +0.000000   +2.0667   +2.0667  (below precision, not scored)
+  top           2   0.50   -0.013476   -0.010763   -0.011801   +0.2013   +0.1243
+  random        2   0.50   -0.003555   -0.003432   -0.004025   +0.0344   -0.1324
+  top           2   1.00   -0.026093   -0.020548   -0.022178   +0.2125   +0.1500
+  random        2   1.00   -0.001676   -0.001909   -0.001652   -0.1393   +0.0141
+  top           4   0.50   -0.023453   -0.020223   -0.021748   +0.1377   +0.0727
+  random        4   0.50   -0.010420   -0.009567   -0.010647   +0.0818   -0.0218
+  top           4   1.00   -0.045568   -0.038526   -0.040796   +0.1545   +0.1047
+  random        4   1.00   -0.006039   -0.005992   -0.006424   +0.0077   -0.0638
+  top           8   0.50   -0.040248   -0.035580   -0.037755   +0.1160   +0.0619
+  random        8   0.50   -0.004443   -0.004387   -0.004797   +0.0125   -0.0798
+  top           8   1.00   -0.078394   -0.065526   -0.068556   +0.1641   +0.1255
+  random        8   1.00   -0.014271   -0.013941   -0.017069   +0.0231   -0.1961
+  top          16   0.50   -0.062514   -0.053626   -0.057287   +0.1422   +0.0836
+  random       16   0.50   -0.017499   -0.015139   -0.016641   +0.1349   +0.0490
+  top          16   1.00   -0.122297   -0.098078   -0.103747   +0.1980   +0.1517
+  random       16   1.00   -0.032999   -0.027635   -0.033168   +0.1626   -0.0051
+  top          32   0.50   -0.097032   -0.078013   -0.084494   +0.1960   +0.1292
+  random       32   0.50   -0.036345   -0.031298   -0.034505   +0.1389   +0.0506
+  top          32   1.00   -0.189996   -0.137163   -0.146998   +0.2781   +0.2263
+  random       32   1.00   -0.056485   -0.050024   -0.058270   +0.1144   -0.0316
+  top          64   0.50   -0.138453   -0.105290   -0.115477   +0.2395   +0.1659
+  random       64   0.50   -0.058804   -0.049525   -0.056204   +0.1578   +0.0442
+  top          64   1.00   -0.270636   -0.175023   -0.190395   +0.3533   +0.2965
+  random       64   1.00   -0.129809   -0.097968   -0.110447   +0.2453   +0.1492
+  top         140   0.50   -0.174520   -0.128191   -0.141648   +0.2655   +0.1884
+  random      140   0.50   -0.118989   -0.094214   -0.104700   +0.2082   +0.1201
+  top         140   1.00   -0.338448   -0.197401   -0.218475   +0.4167   +0.3545
+  random      140   1.00   -0.208391   -0.144083   -0.163048   +0.3086   +0.2176
+
+worst |error| as a fraction of the move: split A 0.4167, split B 0.3545
+sign disagreements: 0
+transfer to the held-out split: mean +0.9149, median +0.8982, min +0.6455, max +1.1961
+  1.0 = the predicted gain appears in full on data the map never saw; 
+               0.0 = none of it does, and the map fitted the evaluation set
+
+--- trust region sweep, all matrices at their own optimum ---
+       T at edge      claimed       move A       move B  realized     err A
+   0.030     166    -0.338477    -0.197401    -0.218475     0.583   +0.4168
+   0.040     164    -0.442035    -0.215984    -0.239896     0.489   +0.5114
+   0.050     164    -0.541171    -0.213559    -0.239313     0.395   +0.6054
+   0.060     161    -0.635894    -0.190766    -0.217692     0.300   +0.7000
+   0.080     160    -0.812509    -0.086918    -0.117283     0.107   +0.8930
+  realized = measured move / claimed move; 1.0 would be a model that delivers
+model restored, NLL 3.73498720
