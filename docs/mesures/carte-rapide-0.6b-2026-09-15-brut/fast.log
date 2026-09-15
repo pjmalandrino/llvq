@@ -1,0 +1,94 @@
+   Compiling llvq-llm v0.1.0 (/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm)
+    Finished `release` profile [optimized] target(s) in 16.22s
+     Running `target/release/errmap 64 2048 12 2048 metal`
+=== errmap ===
+model           Qwen/Qwen3-0.6B
+probe step      ±0.04
+trust region    ±0.12
+projections     self_attn.v_proj, self_attn.o_proj, mlp.gate_proj, mlp.up_proj, mlp.down_proj
+dtype / device  f32 / Metal(MetalDevice(DeviceId(1)))
+
+quantizing 28 blocks…
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 1/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 9/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 17/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 25/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  block 28/28
+  196 matrices, 2.1656 bits/weight, 882s
+
+probe baseline NLL  4.07261842   (held-in calibration text)
+eval  baseline NLL  3.73498720   (perplexity 41.8875, held out)
+probing 140 matrices, 280 evaluations…
+  1/140  5s elapsed
+  17/140  80s elapsed
+  33/140  155s elapsed
+  49/140  239s elapsed
+  65/140  326s elapsed
+  81/140  410s elapsed
+  97/140  491s elapsed
+  113/140  572s elapsed
+  129/140  653s elapsed
+  140/140  710s elapsed
+
+--- agreement with docs/data/errmap-heldout-0.6b-2026-09-15.csv ---
+  sign agreement on the reference's 140 visible matrices: 130/140 (92.86 %)
+  cosine between gradient vectors: 0.984944
+  regression slope, cheap on reference: 0.9133
+
+shape of the surface: 140 of 140 directions concave or flat, 2 invisible to the loss
+  invisible directions are all of: mlp.down_proj, mlp.up_proj
+
+--- the ten matrices where a scale error costs most ---
+  matrix                           gradient    curvature     scale    gain(NLL)
+  blocks.0.self_attn.v_proj      -3.6722e-1     0.0000e0   1.12000   -4.4067e-2
+  blocks.0.self_attn.o_proj      -3.6722e-1     0.0000e0   1.12000   -4.4067e-2
+  blocks.27.mlp.gate_proj        -3.2877e-1     0.0000e0   1.12000   -3.9453e-2
+  blocks.6.self_attn.o_proj       3.2247e-1     0.0000e0   0.88000   -3.8697e-2
+  blocks.6.self_attn.v_proj       3.2247e-1     0.0000e0   0.88000   -3.8696e-2
+  blocks.27.mlp.down_proj        -2.8658e-1     0.0000e0   1.12000   -3.4389e-2
+  blocks.27.mlp.up_proj          -2.8657e-1     0.0000e0   1.12000   -3.4389e-2
+  blocks.16.self_attn.o_proj      2.2291e-1     0.0000e0   0.88000   -2.6750e-2
+  blocks.16.self_attn.v_proj      2.2291e-1     0.0000e0   0.88000   -2.6749e-2
+  blocks.21.self_attn.o_proj      1.8178e-1     0.0000e0   0.88000   -2.1814e-2
+
+claimed by the map, all matrices at their own optimum: -1.359464e0 of NLL
+  which is 15.0768 of perplexity, from 58.7105
+
+split A  3.73498720  (wikitext-2 test)
+split B  4.47613212  (c4)
+
+--- trust region sweep, all matrices at their own optimum ---
+       T at edge      claimed       move A       move B  realized     err A
+   0.040     140    -0.453155    -0.218098    -0.247711     0.481   +0.5187
+  realized = measured move / claimed move; 1.0 would be a model that delivers
+model restored, NLL 3.73498720
