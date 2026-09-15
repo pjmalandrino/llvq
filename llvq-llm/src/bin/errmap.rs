@@ -214,17 +214,37 @@ fn main() -> anyhow::Result<()> {
     // Two disjoint window ranges of the same corpus. Split A is what the map
     // was fitted on; split B is never used to fit anything, so it is the only
     // number that says whether the map generalizes rather than memorizes.
-    let have_b = test_ids.len() / eval_ctx >= 2 * n_eval;
-    let nll_range = |m: &Qwen3, from: usize, to: usize| -> anyhow::Result<f64> {
+    // Split B is the real generalization test, and which corpus it reads is the
+    // whole question. Another slice of wikitext-2 shows the map survives a
+    // different sample of the SAME text; C4 shows it survives a different
+    // domain. The probes read wikitext-2 train, which is also GPTQ's own
+    // calibration corpus, so a gain that exists only on wikitext would be the
+    // map re-tuning the model to one style rather than repairing quantization.
+    let split_b = std::env::var("LLVQ_ERRMAP_SPLIT_B").unwrap_or_else(|_| "wikitext2".into());
+    let b_ids: Vec<u32> = match split_b.as_str() {
+        "wikitext2" => test_ids
+            .get(n_eval * eval_ctx..2 * n_eval * eval_ctx)
+            .unwrap_or_default()
+            .to_vec(),
+        "c4" => tok
+            .encode(llvq_llm::corpus::c4_validation(4_000_000)?, false)
+            .map_err(anyhow::Error::msg)?
+            .get_ids()
+            .to_vec(),
+        other => anyhow::bail!("LLVQ_ERRMAP_SPLIT_B={other:?}: expected wikitext2 or c4"),
+    };
+    let have_b = b_ids.len() / eval_ctx >= n_eval;
+    let nll_over = |m: &Qwen3, ids: &[u32], from: usize, to: usize| -> anyhow::Result<f64> {
         let (mut total, mut count) = (0.0, 0usize);
         for w in from..to {
-            let (n, c) = m.window_nll(&test_ids[w * eval_ctx..(w + 1) * eval_ctx], &mut NoCapture)?;
+            let (n, c) = m.window_nll(&ids[w * eval_ctx..(w + 1) * eval_ctx], &mut NoCapture)?;
             total += n;
             count += c;
         }
         Ok(total / count as f64)
     };
-    let nll = |m: &Qwen3| nll_range(m, 0, n_eval);
+    let nll_range = |m: &Qwen3, _from: usize, _to: usize| nll_over(m, &b_ids, 0, n_eval);
+    let nll = |m: &Qwen3| nll_over(m, &test_ids, 0, n_eval);
 
     let train_text = hf_parquet_text(
         "Salesforce/wikitext",
@@ -498,6 +518,13 @@ fn main() -> anyhow::Result<()> {
         .collect();
     let mut rng = llvq_core::SplitMix64::new(0xe22_0915);
 
+    let base_a = base_eval;
+    let base_b = if have_b { nll_range(&model, n_eval, 2 * n_eval)? } else { f64::NAN };
+    println!(
+        "\nsplit A  {base_a:.8}  (wikitext-2 test)\nsplit B  {base_b:.8}  ({split_b})"
+    );
+    let run_plan = std::env::var("LLVQ_ERRMAP_PLAN").map(|v| v != "0").unwrap_or(true);
+    if run_plan {
     println!("\n--- validation plan: {} points ---", sizes.len() * amplitudes.len() * 2);
     // Moves, not absolute losses: the surrogate predicts a *change*, the two
     // splits have different baselines, and a table of absolute NLLs hides
@@ -513,10 +540,6 @@ fn main() -> anyhow::Result<()> {
     // map was never fitted on. One is full transfer, zero is none, and
     // negative means the move hurt where it was supposed to help.
     let mut transfer: Vec<f64> = Vec::new();
-    // Both validation splits are held out from the probes by construction now;
-    // B additionally checks that A is not itself a lucky stretch of text.
-    let base_a = base_eval;
-    let base_b = if have_b { nll_range(&model, n_eval, 2 * n_eval)? } else { f64::NAN };
     for &k in &sizes {
         for &alpha in &amplitudes {
             for pick in ["top", "random"] {
@@ -621,6 +644,7 @@ fn main() -> anyhow::Result<()> {
             "  1.0 = the predicted gain appears in full on data the map never saw; \n               0.0 = none of it does, and the map fitted the evaluation set"
         );
     }
+    }
     // ---- how far to believe the parabola ----
     //
     // 147 of 196 optima sit at the edge of the trust region, so the region and
@@ -669,6 +693,74 @@ fn main() -> anyhow::Result<()> {
             );
         }
         println!("  realized = measured move / claimed move; 1.0 would be a model that delivers");
+    }
+
+    // ---- baselines, because "better than nothing" is not a claim ----
+    //
+    // The map moves 196 matrices and gets a large number. Three things could
+    // produce a large number: the map being right, ANY set of moves of that
+    // size being right, or one global direction being right. These separate
+    // them, and the review that asked for them was right that `random k` above
+    // does not: that one draws a random SUBSET of the map's own corrections,
+    // which still carries the map's signs and sizes.
+    if std::env::var("LLVQ_ERRMAP_BASELINES").map(|v| v != "0").unwrap_or(true) {
+        let width = env_f64("LLVQ_ERRMAP_BASELINE_TRUST", 0.04)?;
+        let visible_idx: Vec<usize> = surrogate
+            .terms
+            .iter()
+            .filter(|s| s.optimum_within(width) != 0.0)
+            .map(|s| s.matrix)
+            .collect();
+        println!("\n--- baselines at T = {width}, {} matrices moved ---", visible_idx.len());
+        println!("  {:<34} {:>11} {:>11}", "arm", "move A", "move B");
+        let mut measure = |name: &str, moves: &[(usize, f64)]| -> anyhow::Result<()> {
+            for &(index, delta) in moves {
+                set_scaled(&mut model, &targets[index], &originals[index], 1.0 + delta)?;
+            }
+            let a = nll(&model)? - base_a;
+            let b = if have_b { nll_range(&model, n_eval, 2 * n_eval)? - base_b } else { f64::NAN };
+            for &(index, _) in moves {
+                set_scaled(&mut model, &targets[index], &originals[index], 1.0)?;
+            }
+            println!("  {name:<34} {a:>+11.6} {b:>+11.6}");
+            Ok(())
+        };
+
+        let map_moves: Vec<(usize, f64)> = surrogate
+            .terms
+            .iter()
+            .map(|s| (s.matrix, s.optimum_within(width)))
+            .filter(|&(_, d)| d != 0.0)
+            .collect();
+        measure("the map", &map_moves)?;
+
+        // Random sign and size over the same matrices: the null hypothesis
+        // that any perturbation of this magnitude would do.
+        let mut r = llvq_core::SplitMix64::new(0x0ba5_0915);
+        for trial in 1..=3 {
+            let moves: Vec<(usize, f64)> = visible_idx
+                .iter()
+                .map(|&i| {
+                    let u = (r.next() >> 11) as f64 / (1u64 << 53) as f64;
+                    (i, width * (2.0 * u - 1.0))
+                })
+                .collect();
+            measure(&format!("random sign and size, draw {trial}"), &moves)?;
+        }
+        // The map's signs with a constant size, which asks how much of the
+        // gain is in knowing WHICH WAY each matrix should go rather than by
+        // how much.
+        let signs: Vec<(usize, f64)> = map_moves
+            .iter()
+            .map(|&(i, d)| (i, width * d.signum()))
+            .collect();
+        measure("the map's signs, constant size", &signs)?;
+        // One global scale for every matrix, the arm the four re-encoded
+        // sweeps measured at 1.02.
+        for s in [0.99, 1.01, 1.02] {
+            let moves: Vec<(usize, f64)> = visible_idx.iter().map(|&i| (i, s - 1.0)).collect();
+            measure(&format!("one global scale {s}"), &moves)?;
+        }
     }
 
     let restored = nll(&model)?;
