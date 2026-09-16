@@ -313,6 +313,23 @@ fn main() -> anyhow::Result<()> {
         limit,
         rotation_seed: Some(0x110feed),
     };
+    // An artifact already on disk is a quantized model that took two hours to
+    // make. Loading it costs seconds, and — this is the part that matters — it
+    // is the SAME object the file holds, so a map probed here describes what
+    // `bin/mmlu` and `bin/ppl` will read. Two quantizations with identical
+    // settings are not the same model: the loop is sequential, so a rounding
+    // difference at block 2 is amplified through the remaining blocks, and one
+    // measured 6.6 % of perplexity by block 36
+    // (docs/mesures/errmap-4b-2026-09-15.txt).
+    let from_artifact = std::env::var("LLVQ_ERRMAP_ARTIFACT").ok().filter(|p| !p.is_empty());
+    if let Some(path) = &from_artifact {
+        let t0 = std::time::Instant::now();
+        let (matrices, weights) = llvq_llm::artifact2::load(&mut model, path, &device)?;
+        println!(
+            "\nloaded {matrices} matrices, {weights} weights from {path} in {:.1}s",
+            t0.elapsed().as_secs_f64()
+        );
+    } else {
     println!("\nquantizing {} blocks…", limit.min(model.blocks.len()));
     let t0 = std::time::Instant::now();
     let report = llvq_llm::calib::quantize_model_capturing(
@@ -332,6 +349,7 @@ fn main() -> anyhow::Result<()> {
         report.bits_per_weight(),
         t0.elapsed().as_secs_f64()
     );
+    }
 
     // ---- the baselines: one per corpus the map is scored against ----
     let base = probe_nll(&model)?;
@@ -806,6 +824,36 @@ fn main() -> anyhow::Result<()> {
             let moves: Vec<(usize, f64)> = visible_idx.iter().map(|&i| (i, s - 1.0)).collect();
             measure(&format!("one global scale {s}"), &moves)?;
         }
+    }
+
+    // ---- write the corrected model out ----
+    //
+    // Every arm above restores the weights, which is right for a measurement
+    // and useless for a deliverable: the best model this binary ever holds is
+    // gone the moment it is scored. This applies the map once more and saves,
+    // so the corrected object exists as a file that `bin/ppl` and `bin/mmlu`
+    // can read.
+    if let Ok(path) = std::env::var("LLVQ_ERRMAP_SAVE") {
+        let width = env_f64("LLVQ_ERRMAP_SAVE_TRUST", 0.04)?;
+        let moves: Vec<(usize, f64)> = surrogate
+            .terms
+            .iter()
+            .map(|s| (s.matrix, s.optimum_within(width)))
+            .filter(|&(_, d)| d != 0.0)
+            .collect();
+        for &(index, delta) in &moves {
+            set_scaled(&mut model, &targets[index], &originals[index], 1.0 + delta)?;
+        }
+        let corrected = nll(&model)?;
+        llvq_llm::artifact::save(&model, &path)?;
+        println!(
+            "\nsaved the corrected model to {path} at T = {width}: {} matrices moved, NLL {corrected:.8}, perplexity {:.4}",
+            moves.len(),
+            corrected.exp()
+        );
+        // Left applied on purpose: the process ends here and the file is what
+        // matters. The restore check below is skipped for the same reason.
+        return Ok(());
     }
 
     let restored = nll(&model)?;
