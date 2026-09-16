@@ -25,4 +25,5 @@ pub mod model;
 pub mod rotplan;
 pub mod sealed;
 pub mod served;
+pub mod tempfit;
 pub mod tetra_diag;
