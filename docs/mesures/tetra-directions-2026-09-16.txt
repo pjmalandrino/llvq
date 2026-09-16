@@ -1,0 +1,91 @@
+ALTERNATIVE DIRECTIONS: A LOCAL GAIN THAT DOES NOT SURVIVE CHAINING (2026-09-16)
+=================================================================================
+Code: llvq-llm/src/bin/tetraalt.rs. Cost: $0, 40 s of Mac total over two runs.
+Data: the Schur pilot's 2,016 compensated blocks and their Hessians.
+Raw log in the -brut directory.
+
+THE QUESTION
+-------------
+Tetra picks its direction by Euclidean distance — a Viterbi through the
+three-section trellis, over both parities, already a joint choice over the 24
+dimensions. That choice ignores H. Measured on the 4B's rotated Hessians, two
+errors of equal norm cost between 0.60 and 1.69 times the isotropic value,
+p5 to p95, a spread of 2.84x. So a slightly worse direction landing in a quiet
+subspace could beat the nearest one.
+
+Note on the rotation: an orthogonal rotation preserves the spectrum of the full
+Hessian. It redistributes sensitivity across coordinates; it does not remove it.
+An earlier draft of this programme claimed the rotation made the criterion
+Euclidean-correct, and that was wrong.
+
+WHAT IS SCORED
+---------------
+The conditional cost after the continuous suffix is re-optimized,
+`||e U_BB^-1||^2`, not a raw block of H: GPTQ compensates a block's error onto
+the columns that follow, so the raw block is not what the loop pays.
+
+Candidates are the encoder's own answer at 15 scales, deduplicated — 3.60
+distinct points a block. These are reachable through the production rule, not
+the K best paths of the trellis. The served choice is always among them, so the
+selection score cannot get worse.
+
+RESULT 1: AT A FIXED STATE, THE GAIN IS REAL
+----------------------------------------------
+  K    blocks changed    conditional gain    on reserved activations
+  2        13.00 %            1.139 %              0.474 %
+  4        28.52 %            2.223 %              1.765 %
+  6        29.96 %            2.393 %              1.918 %
+  8        29.96 %            2.393 %              1.918 %
+
+Thirty percent of blocks prefer another direction, for 2.393 % of conditional
+cost. The curve stops at K = 6 because the generator runs out of distinct
+candidates at 3.60, not because the seam is exhausted.
+
+⚠️ The two columns do NOT treat the suffix alike — the first re-optimizes it
+continuously, the second leaves it compensated — so their ratio is a comparison
+of two different gains and NOT a transfer rate. An earlier reading of this table
+called it "80 % transfer"; that was wrong.
+
+RESULT 2: CHAINED, IT COLLAPSES
+---------------------------------
+The table above is measured at states the SERVED policy reached. Letting the
+selector drive — choose, commit what was chosen, advance from there — changes
+every later state. The same 48 rows, walked twice:
+
+  cell                  rows   rollout gain   reserved gain
+  mlp.gate_proj    L0      8       +3.796 %       -1.005 %
+  mlp.gate_proj    L13     8       +1.329 %       -0.749 %
+  mlp.gate_proj    L27     8       +2.876 %       +5.372 %
+  self_attn.q_proj L0      8       +8.573 %       +5.552 %
+  self_attn.q_proj L13     8       -0.086 %       -7.008 %
+  self_attn.q_proj L27     8       +0.752 %       -9.881 %
+  all                     48       +0.911 %       -8.763 %
+
+On the objective the loop itself minimizes, the gain falls from 2.393 % per
+block to **0.911 % chained** — two thirds evaporate. On reserved activations it
+turns **negative, -8.763 %**.
+
+Choosing better at every step makes the whole worse. The compensation absorbs
+whatever it is given; handing it a locally better error changes what the later
+columns must catch up, and the balance is unfavourable.
+
+LIMITS
+-------
+48 rows, eight per cell, and the per-cell spread runs from +5.55 % to -9.88 %.
+The global sign is clear; the magnitude is not. Two cells gain substantially.
+
+The generator is poor — 3.60 candidates a block. A real K-best would explore
+more, but nothing here suggests it would flip the sign: the failure is not that
+the candidate is bad, it is that choosing better locally hurts what follows.
+
+Only two projection families, one model, one seed. And this measures a proxy:
+nothing here is perplexity and nothing is MMLU.
+
+WHAT IT SETTLES
+----------------
+Row 12 of ROADMAP-QUALITY, the K-best beam, was rated "indeterminate, possibly
+negative" at 2 to 3 weeks of work and ~10 h of Mac at K = 4. It is now measured
+with the candidates that can be produced today, for 40 seconds: the local gain
+exists and does not survive the chain. Funding a better generator to feed a
+selector that loses when chained has no case, and the row can be closed rather
+than left open.
