@@ -32,11 +32,29 @@ fn main() -> anyhow::Result<()> {
     let (mut level0, mut level1) = (0u64, 0u64);
     let mut centroid_counts = BTreeSet::new();
     let mut widths = BTreeSet::new();
+    // The two levels as a pair, per matrix: whether `r` is a live knob at all
+    // depends on both being non-zero and distinct, and that is a fact about
+    // the file rather than about the format.
+    let mut ratios: Vec<f64> = Vec::new();
+    let (mut zero_low, mut equal_pair, mut negative) = (0usize, 0usize, 0usize);
     for _ in 0..head.matrices {
         match llvq_artifact::read_record(&mut r, head.version)? {
             llvq_artifact::Record::Lattice(m) => {
                 lattice += 1;
                 centroid_counts.insert(m.centroids.len());
+                if m.centroids.len() == 2 {
+                    let (c0, c1) = (m.centroids[0], m.centroids[1]);
+                    if c0 < 0.0 || c1 < 0.0 {
+                        negative += 1;
+                    }
+                    if c0 == 0.0 {
+                        zero_low += 1;
+                    } else if c0 == c1 {
+                        equal_pair += 1;
+                    } else {
+                        ratios.push(c1 / c0);
+                    }
+                }
                 if !m.tail.is_empty() {
                     with_tail += 1;
                     tail_values += m.tail.len();
@@ -71,6 +89,23 @@ fn main() -> anyhow::Result<()> {
     // populated: an artifact that put every block on one level would make the
     // second gain parameter a no-op, and that has to be read off the file
     // rather than assumed from the format having a bit.
+    if !ratios.is_empty() {
+        let mut sorted = ratios.clone();
+        sorted.sort_by(f64::total_cmp);
+        let q = |f: f64| sorted[((sorted.len() - 1) as f64 * f).round() as usize];
+        println!(
+            "  level ratio      c1/c0 over {} matrices: min {:.4}, p50 {:.4}, max {:.4}",
+            sorted.len(),
+            sorted[0],
+            q(0.5),
+            sorted[sorted.len() - 1]
+        );
+    }
+    println!(
+        "  special values   {zero_low} records with c0 = 0, {equal_pair} with c0 = c1, \
+         {negative} with a negative level"
+    );
+
     let share = level1 as f64 / blocks as f64;
     if !(0.01..=0.99).contains(&share) {
         println!("  NOTE: the two levels are not both populated — a ratio between them is a no-op");
