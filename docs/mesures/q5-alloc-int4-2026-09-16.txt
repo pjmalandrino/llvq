@@ -1,0 +1,89 @@
+WHERE PRECISION IS WORTH BITS: SIX TYPES AT INT4, ON THE SERVED Q5 (2026-09-16)
+================================================================================
+Job 6aaa9d1ff76d6a098a710dbf, rtx-pro-6000 (--any-flavor; the whitelist holds
+l40sx1 alone, and the guard is for SPEED ratios, which an MMLU count is not).
+68 min billed, 3.12 $ — against the 2.29 $ its 50m timeout was announced to cap.
+The timeout does not cut on the minute; the run was killed on its last command
+after every arm had written.
+
+⚠️ THIS IS AN EXPLORATION, NOT A RESULT
+-----------------------------------------
+Six arms were compared and the intervals below are INDIVIDUAL 95 % intervals
+with no correction for that multiplicity. They select a candidate. They
+establish nothing, and the best of six is biased upward by construction.
+The confirmation is preregistered separately
+(proofs/preregistration-oproj-int4-full-2026-09-16.md).
+
+THE SETUP
+----------
+Seven arms of the SAME served Q5 file: the shipped object, then one arm per
+projection type taken back from the checkpoint at int4 g128. `LLVQ_RESTORE_Q4`
+reads the CHECKPOINT tensor and round-trips it through the affine quantizer
+(`sealed.rs:545-551`), so it measures the information cost of four bits — it
+does not re-quantize the already-degraded Tetra weights, which would measure
+nothing. Verified in source before the launch.
+
+Constant file is NOT constant memory: every arm reconstructs densely, so the
+engine's VRAM says nothing about the served cost. The surcharge is computed on
+the 4B's shapes, in b/param of the whole model (hard rule 6).
+
+THE TABLE
+----------
+  type        Δ stratified   CI95 individual      b/param   model at
+  down_proj      +3.79    [+1.52 ; +6.11]        +0.4641     3.2286  OVER
+  o_proj         +2.77    [+1.04 ; +4.56]        +0.1954     2.9599  fits
+  up_proj        +1.88    [-0.15 ; +3.95]        +0.4641     3.2286  OVER
+  q_proj         +1.81    [+0.04 ; +3.64]        +0.1954     2.9599  fits
+  k_proj         +1.30    [-0.78 ; +3.52]        +0.0489     2.8134  fits
+  gate_proj      +0.97    [-1.09 ; +3.00]        +0.4641     3.2286  OVER
+
+Shipped reference 55.87 % micro. b_max is 3.00 and the served file 2.7645.
+
+TWO STATISTICS, AND THEY ARE NOT THE SAME
+-------------------------------------------
+`mmlupair` prints both and labels which one McNemar tests. At limit=40 the
+sample is flat at 40 a subject while populations are not, so the two diverge:
+
+  arm          Δ pooled (what McNemar tests)   Δ stratified (published)
+  gate_proj              +2.33                        +0.99
+  up_proj                +2.20                        +1.86
+  o_proj                 +2.20                        +2.76
+  down_proj              +4.13                        +3.79
+
+So gate_proj's p = 0.0056 tests +2.33, not the +0.97 of the table, and there is
+no contradiction with an interval that spans zero — the two describe different
+quantities. A first reading of this run quoted McNemar p-values against
+stratified deltas and ranked the arms by Bonferroni on that mismatch. The table
+above is ranked on the stratified interval alone, which is the one that belongs
+with the published number.
+
+WHAT THE f16 TABLE DOES NOT SAY
+---------------------------------
+M2 (2026-09-02) measured the same types restored at f16: gate +5.18, up +4.94,
+v +4.48, down +2.96, o +2.35, k +2.09, q +1.85 pp. The int4 order is different —
+gate first at f16 and last here, down fourth at f16 and first here. **Sensitivity
+to total quantization does not predict the gain of an intermediate precision.**
+
+Two arms read above their f16 figure. That is not an impossibility: f16 is not a
+mathematical upper bound on int4 in a partially quantized model, where errors
+interact, and M2 ran against a different object with a different reference. The
+two tables are not on a common scale.
+
+WHAT IS SELECTED
+-----------------
+`o_proj`: +2.77 pp for +0.1954 b/param, which lands the model at 2.9599 under a
+b_max of 3.00. It is the only arm that is both the largest measured gain in
+budget and inside it.
+
+`down_proj` measured more, +3.79, and is over budget as a whole type. It is NOT
+dropped: restoring a subset of its layers is a lead of its own, and the gain
+should not be assumed proportional to the number of layers restored.
+
+`k_proj` has the best apparent yield per bit, 26.6 pp per b/param, and the
+widest interval. That makes its estimate IMPRECISE, not lucky: nothing here
+shows its yield is an artefact, only that 2,280 questions cannot resolve it.
+
+WHAT IT ANSWERS
+----------------
+Yes: a lack of precision, in specific places, is part of what caps Tetra.
+down_proj alone is worth almost four points. The ceiling is not reached.
