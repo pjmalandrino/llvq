@@ -36,7 +36,7 @@
 #
 # ⚠️ limit=40, so these dumps pair among themselves and with no census dump.
 #
-# ⚠️ FLAVOR: l4x1 with --any-flavor, because the whitelist holds l40sx1 alone.
+# ⚠️ FLAVOR: rtx-pro-6000 with --any-flavor, because the whitelist holds l40sx1 alone.
 # The guard exists for SPEED ratios, which are not comparable across cards; an
 # MMLU score is a count of correct answers and is not a ratio. The flavor is
 # named here and must be named in any published figure from this job.
@@ -45,7 +45,7 @@ O=/out/q5-alloc-2026-09-16
 F=/out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin
 uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
-  --flavor l4x1 --any-flavor --timeout 3h \
+  --flavor rtx-pro-6000 --any-flavor --timeout 50m \
   --bucket Pier-Jean/jobs-artifacts --out-mount /out \
   --name q5-alloc-int4 \
   "mkdir -p $O" \
