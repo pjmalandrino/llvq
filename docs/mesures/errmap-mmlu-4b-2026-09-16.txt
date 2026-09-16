@@ -82,6 +82,67 @@ interval. The 1.339 pp sampling error that gates row A of ROADMAP-QUALITY is for
 UNPAIRED arms; a paired comparison on the full split is a different instrument
 and it works.
 
+WHY IT DEGRADES: MEASURED ON THE DUMPS, NO EXTRA RUN
+------------------------------------------------------
+The dumps carry the four logits of every question, so the mechanism is
+recoverable without spending anything further.
+
+1. THE SAME DISSOCIATION INSIDE MMLU ITSELF. Softmax over the four options, on
+   the same 14,015 paired questions:
+
+     arm         NLL on the options    accuracy
+     witness         1.31933            51.26 %
+     corrected       1.25384            48.18 %
+                     -4.96 %            -3.08 pp
+
+   The corrected model is BETTER at predicting the right answer's probability
+   and WORSE at picking it. This is not "perplexity on prose against MMLU": it
+   is negative log-likelihood and accuracy on the SAME questions, moving in
+   opposite directions.
+
+2. THE LOGITS COLLAPSE. Mean spread between best and worst option falls from
+   4.0474 to 2.7323, -32.5 %; the top-two margin from 2.1092 to 1.3527, -35.9 %.
+   The corrected model is a third less decisive.
+
+3. THE PRIOR SURVIVES THE COLLAPSE. Mean logit of each letter, as a deviation
+   from the four-option mean:
+
+     witness    A -0.225   B +0.487   C +0.480   D -0.742
+     corrected  A -0.212   B +0.467   C +0.216   D -0.471
+
+   B's prior falls 4 % while the scale falls 32 %, so RELATIVE to the spread it
+   grows from 12.0 % to 17.1 %. The evidence shrinks and the prejudice does not.
+
+4. WHAT THE MODEL ANSWERS. The corrected arm picks B on 39.27 % of questions
+   against the witness's 32.75 %, where B is right 24.63 % of the time. On the
+   1,457 questions it loses, it answers B on 44.8 % of them.
+
+5. THE CONTROL THAT SEPARATES THE TWO EFFECTS. Rescaling the corrected logits
+   back to the witness's spread (factor 1.481) gives NLL 1.44776 — worse than
+   either arm — and accuracy 48.06 %, unchanged. Argmax is invariant under
+   scaling, so:
+
+     the collapse explains the NLL GAIN and explains none of the accuracy LOSS.
+
+   The loss comes from the RELATIVE movement of the logits, i.e. from the prior
+   gaining weight, not from the scale.
+
+THE MECHANISM, STATED ONCE
+---------------------------
+NLL is a proper scoring rule: it rewards calibration, and a quantized model is
+over-confident, so shrinking its logits improves NLL. Accuracy rewards
+discrimination, and shrinking the evidence while leaving the prior intact lets
+the prior decide more often.
+
+**The correction buys calibration and pays with discrimination.** The map did
+exactly what it was asked — minimize held-out NLL — and that objective is
+partly satisfied by becoming less sure, which costs nothing in NLL and costs
+answers in a four-way choice.
+
+This is why the lead is dead as a quality lever, and it is also a warning with a
+scope wider than this lead: any post-hoc optimization of NLL can be paid for in
+this coin, and perplexity alone will never show the bill.
+
 WHAT IS NOT MEASURED
 ---------------------
 Whether a smaller T keeps some perplexity gain without the MMLU loss. T = 0.06
