@@ -30,17 +30,21 @@ use llvq_artifact as format;
 use std::collections::HashMap;
 use std::io::{BufReader, BufWriter};
 
-/// `blocks.<layer>.<projection>` for the names an errmap CSV carries, matched
-/// against whatever the artifact calls its records.
-fn wanted(layer: usize, proj: &str) -> [String; 2] {
-    [
-        format!("blocks.{layer}.{proj}"),
-        format!("blocks.{layer}.{}", proj.rsplit('.').next().unwrap_or(proj)),
-    ]
+/// The artifact's own key for a record, through the artifact's own splitter.
+///
+/// Reconstructing the name here instead cost a silent no-op on the first run:
+/// records are `model.layers.<n>.<proj>.weight` and the guess was
+/// `blocks.<n>.<proj>`, so every lookup missed and `artscale` reported "252
+/// untouched" while writing a byte-identical copy. `split_name` is what the
+/// reader uses, so it cannot drift from the file.
+fn key_of(name: &str) -> anyhow::Result<(usize, String)> {
+    let (layer, proj) = llvq_artifact::split_name(name)
+        .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
+    Ok((layer, proj))
 }
 
 /// One scale per matrix, read from the map at the given trust half-width.
-fn scales(path: &str, trust: f64) -> anyhow::Result<HashMap<String, f64>> {
+fn scales(path: &str, trust: f64) -> anyhow::Result<HashMap<(usize, String), f64>> {
     let text = std::fs::read_to_string(path)?;
     let mut lines = text.lines();
     let header = lines.next().context("empty map")?;
@@ -69,9 +73,7 @@ fn scales(path: &str, trust: f64) -> anyhow::Result<HashMap<String, f64>> {
         } else {
             0.0
         };
-        for name in wanted(layer, f[1]) {
-            out.insert(name, 1.0 + d);
-        }
+        out.insert((layer, f[1].to_string()), 1.0 + d);
     }
     Ok(out)
 }
@@ -99,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     for _ in 0..head.matrices {
         let mut rec = format::read_record(&mut r, head.version)?;
         match &mut rec {
-            format::Record::Lattice(m) => match by_name.get(&m.name) {
+            format::Record::Lattice(m) => match by_name.get(&key_of(&m.name)?) {
                 // 1.0 is skipped rather than multiplied: a matrix the map does
                 // not move must come out byte for byte identical, so that a
                 // diff of the two files shows exactly what was corrected.
@@ -117,6 +119,13 @@ fn main() -> anyhow::Result<()> {
         format::write_record(&mut w, head.version, &rec)?;
     }
     println!("{} matrices: {scaled} rescaled, {untouched} untouched, {int4} int4", head.matrices);
+    anyhow::ensure!(
+        scaled > 0,
+        "no matrix matched the map: {} entries were read and none of the {} records \
+         share a (layer, projection) key with them",
+        by_name.len(),
+        head.matrices
+    );
     println!("largest correction applied: {:.4} %", 100.0 * worst);
     println!("written to {}", a[1]);
     Ok(())
