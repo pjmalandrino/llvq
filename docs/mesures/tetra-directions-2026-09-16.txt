@@ -81,11 +81,18 @@ the candidate is bad, it is that choosing better locally hurts what follows.
 Only two projection families, one model, one seed. And this measures a proxy:
 nothing here is perplexity and nothing is MMLU.
 
-WHAT IT SETTLES
-----------------
+WHAT IT SETTLES, AND WHAT IT DOES NOT
+--------------------------------------
 Row 12 of ROADMAP-QUALITY, the K-best beam, was rated "indeterminate, possibly
-negative" at 2 to 3 weeks of work and ~10 h of Mac at K = 4. It is now measured
-with the candidates that can be produced today, for 40 seconds: the local gain
-exists and does not survive the chain. Funding a better generator to feed a
-selector that loses when chained has no case, and the row can be closed rather
-than left open.
+negative" at 2 to 3 weeks of work and ~10 h of Mac at K = 4.
+
+What is measured: a scale-sweep selector, on this pilot, gains 2.4 % locally and
+loses 8.8 % chained. Funding a better generator to feed THAT selector has no
+case today.
+
+What is NOT measured, and an earlier draft of this file overstated: K-best is
+not refuted. A beam ranging over (path, gain level) explores a different
+candidate set, and the failure here is of one selector on 48 rows of one pilot,
+not of the idea. The row moves to PAUSED, not closed — reopening it needs a
+reason to think a richer beam behaves differently when chained, which this file
+does not supply and does not exclude.
