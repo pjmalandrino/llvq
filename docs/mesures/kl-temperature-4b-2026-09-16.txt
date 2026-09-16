@@ -20,9 +20,13 @@ fit never saw.
   T* = 1.07216 (beta 0.93270), one number for the whole model.
 
 So 97.5 % of the divergence on held-out text of the same domain, and 99.1 % on
-another domain, is NOT a temperature. The quantized model is slightly
-over-confident relative to the dense one, and flattening it by 7 % is worth
-almost nothing.
+another domain, is not removed by ONE GLOBAL temperature fitted on this corpus.
+That claim is narrower than "is not a scale", and the difference matters: a
+scale deformation that varies with the context is not a global temperature, and
+would sit untouched inside the remainder. This measurement cannot see it.
+
+The quantized model is slightly over-confident relative to the dense one, and
+flattening it by 7 % is worth almost nothing.
 
 WHAT THIS REFUTES, AND IT IS MINE
 ----------------------------------
@@ -48,12 +52,19 @@ and it is bit-identical at T = 1 and at T*: 6093/8184 both times. It must be,
 since a positive scaling preserves an argmax, so this is a check on the harness
 rather than a result. The harness agrees with its own claim.
 
-Two facts worth keeping beside it. The dense and quantized models already
-disagree on the top token at a quarter of all positions. And the same
-temperature fitted on wikitext transfers its FRACTION to C4 (2.33 % -> 0.93 %
-of a smaller gap) while the absolute divergences differ by 35 %, so the
-divergence level is a property of the text and the fraction is a property of
-the model.
+Two facts worth keeping beside it, both stated smaller than they look.
+
+The dense and quantized models disagree on the top token at a quarter of all
+positions. That is NOT a quarter of recoverable errors: many of those positions
+are near-ties where the two top logits are within noise of each other, and the
+dense model is not a ground truth -- it is wrong on plenty of them too. The
+number bounds nothing on its own.
+
+The fraction a temperature removes moves from 2.49 % to 0.93 % between the two
+validation corpora, a factor of 2.7 on two samples of 4,092 positions. That is
+not enough to call the fraction a property of the model, and the earlier draft
+of this journal did call it that, wrongly. What is robust is only this: the
+effect is small on both corpora.
 
 DEVIATION FROM RULE 2
 ----------------------
@@ -79,6 +90,15 @@ overlaps the 64 x 2048 windows GPTQ calibrates on -- but the artifact's own
 calibration was not re-read from the file to confirm that offset, it is the
 `smoke` default assumed to hold.
 
-The artifact is the uncorrected Tetra 4B, deliberately: the reference has to be
-frozen before anything is fitted against it, and the corrected arm is the one
-whose MMLU loss started this.
+WHICH ARTIFACT, AND WHAT THAT SCOPES
+-------------------------------------
+The artifact is the UNCORRECTED Tetra 4B -- no gain rescaling from the errmap
+map, no `artscale` pass. That is deliberate: the reference has to be frozen
+before anything is fitted against it, and it is the right reference for the
+question the next pilot asks.
+
+It also bounds what this answers. The arm whose MMLU loss started all of this is
+the CORRECTED one, and its logits are not these logits -- its option spread had
+collapsed 32.5 %. So this measurement does not refute, or confirm, any
+explanation of that arm's behaviour. It says what a temperature is worth on the
+reference the pilot would start from, and nothing about the corrected arm.
