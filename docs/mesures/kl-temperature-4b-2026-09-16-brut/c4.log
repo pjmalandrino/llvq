@@ -1,0 +1,23 @@
+kltemp: one temperature between a quantized model and its teacher
+  checkpoint  Qwen/Qwen3-4B
+  artifact    /Users/pjmalandrino/llvq-4b-tetra.llvq (0.981 GB)
+  splits      fit 4 × 1024, validation 4 × 1024 on c4
+  skipped     131072 tokens of the training corpus
+  dtype       F32 on metal
+
+dense pass: 8 windows, 151936 tokens of vocabulary, 12s
+loaded 252 matrices, 3633315840 weights in 37.0s
+quantized pass: 11s
+
+KL(dense ‖ quantized), nats per position
+  split        at T = 1     at T*        removed
+  fit          0.381028     0.372136      2.33 %
+  validation   0.464936     0.460625      0.93 %
+
+  T* = 1.07216 (beta 0.93270), fitted on 4092 positions, scored on 4092
+  the parabola through the bracketing triple puts it at beta 0.93605
+
+top-1 agreement with the dense model: 5987/8184 = 73.1549 % at T = 1, 73.1549 % at T*
+  identical, as a positive scaling must be — the harness agrees with its own claim
+
+What this does and does not say: 0.9 % of the divergence on held-out text is one number, and that share cannot move an answer. The rest is not thereby shown to matter.
