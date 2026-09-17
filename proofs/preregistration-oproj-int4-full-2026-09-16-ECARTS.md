@@ -27,3 +27,50 @@ second question. So:
 **Primary: `--no-fpc`.** It is also the wider, more conservative interval, and it
 is chosen without knowing which reading excludes zero. The FPC interval is
 published beside it, labelled, and does not carry the decision.
+
+## E2. Control 2 did not pass as written
+
+**Recorded BEFORE the paired result was computed.**
+
+§6 control 2 requires the reference arm to reproduce the exploration's shipped
+arm on the 2,280 shared questions, "pick for pick". It does on **2,268 of
+2,280**. Twelve picks differ (and six on the o_proj arm, informatively).
+
+The cause is visible in the logits and is not a harness fault. The exploration
+ran on `rtx-pro-6000` and the census on `l40sx1`, both in f16, and f16 kernels
+differ across cards in the last bits. Every one of the six differing picks
+inspected sits on an exact or near-exact tie — for example
+`abstract_algebra,80`: logits 23.953125 / 23.609375 / **23.953125** / 23.3125 on
+one card, where options A and C tie exactly, and 23.96875 / … / 23.953125 on the
+other, where they no longer do. A tie broken differently is a different pick.
+
+What it does and does not touch: it bears on whether the census is the same
+object as the exploration, and the answer is "yes, up to tie-breaking across
+cards". It does **not** enter the primary result, because the two arms being
+compared both ran in one job, on one card, question for question. The control
+was written too strictly for a cross-card rerun, and that is the prereg's
+error, recorded here rather than waived.
+
+## E3. What "did not take part in the selection" means, exactly
+
+**Decided BEFORE the paired result was computed.**
+
+A question is identified by `(subject, index)`, its position in the test split.
+Verified: all 2,280 exploration rows carry the same text hash at the same
+`(subject, index)` in the census. The exploration's sample is a seeded shuffle,
+not the first 40 by index, so a positional rule would have been wrong.
+
+MMLU's test split repeats some question texts — 27 hashes appear twice, 54
+rows. Seven held-out rows share their text with a selection question:
+`college_physics` 3, 27, 77, 97; `high_school_psychology` 396;
+`professional_psychology` 478; `us_foreign_policy` 32.
+
+- **Primary: 11,762 rows**, the complement of the 2,280 selection rows by
+  `(subject, index)`. It is the population §3 names by count.
+- **Sensitivity: 11,755 rows**, those seven removed, since their text was seen
+  during selection. Published beside the primary. If the two disagree in
+  conclusion, that is reported, and the stricter one is the one to believe.
+
+Subset dumps carry a fingerprint derived from the census's (`sha256` of the
+census fingerprint plus the subset name, first 16 hex digits), identical on both
+arms, so no file claims to be the run it was cut from.
