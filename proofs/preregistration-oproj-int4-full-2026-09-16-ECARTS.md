@@ -74,3 +74,32 @@ rows. Seven held-out rows share their text with a selection question:
 Subset dumps carry a fingerprint derived from the census's (`sha256` of the
 census fingerprint plus the subset name, first 16 hex digits), identical on both
 arms, so no file claims to be the run it was cut from.
+
+## E4. The budget claim of §1 compares two different units
+
+**Found after the result, while checking the decision row's "within budget".**
+It does not move the quality result; it changes why the budget holds.
+
+§1 says the +0.1954 b/param surcharge "keeps the model under `b_max` = 3.00
+(2.7645 → 2.9599)". Those two figures are **whole-model b/param**, embedding
+included (hard rule 6). `b_max` = 3.00 is **kernel b/weight** on the projection
+weights (`docs/ETAT.md:533`, the triplet's 27.93 GB left to the weights). The
+exploration journal made the same comparison. It is a unit mismatch, and it
+happened to give the right answer for the wrong reason.
+
+Redone in kernel b/weight, over the 3,633,315,840 projection weights, with
+Tetra at 2.1498 and int4 g128 at 4.250 (*computed*):
+
+| how the int4 matrices are held in VRAM | shipped Q5 | + `o_proj` int4 | against 3.00 |
+|---|---|---|---|
+| served by a native int4 kernel | 2.2044 | **2.4226** | under, 0.58 of margin |
+| dequantized to f16 | 2.5095 | **3.9485** | **over** |
+
+Which one applies today: the served Q5 measures 0.97 GB of projections on card
+(`docs/mesures/f1e0-2026-09-10.txt`), against 1.001 GB computed for the native
+path and 1.140 GB for the dequantized one. `v_proj` is served natively.
+
+So `o_proj` at int4 fits **on condition that it too is served by the native int4
+kernel**. That kernel serves `v_proj`, 1024 × 2560; `o_proj` is 2560 × 4096, and
+the kernel has not been verified on that shape. Until it is, "within budget" is
+conditional, and the adoption decision has to know it.
