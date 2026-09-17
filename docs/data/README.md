@@ -42,6 +42,8 @@ comma**, and `check_tables.py::check_csv_shape` enforces it.
 | **`gain-desaccord-reel-2026-09-14.csv`** | stage 0 bis of the Tetra gain plan: 12 cells (2 seeds x 2 projection families x 3 depths) of 168 compensated Qwen3-0.6B blocks - disagreement between the served and the Euclidean gain rule; per-level occupancy; mean cos(x,u); the three non-served arms of the 2x2 as squared error relative to that cell's own served arm | [gain-desaccord-reel-2026-09-14](../mesures/gain-desaccord-reel-2026-09-14.txt), written by `ops/gain_disagree_real.py` from the pilot dumps of `09e0f65` |
 | **`errmap-0.6b-2026-09-15.csv`** | the sensitivity map: 196 matrices of Qwen3-0.6B x {gradient; curvature; trust-region optimal scale; claimed NLL gain; probe step} - the NLL derivative with respect to a scale error on each matrix | [errmap-0.6b-2026-09-15](../mesures/errmap-0.6b-2026-09-15.txt); written by `bin/errmap`. NOTE: probes and validation share the wikitext-2 test split; the gains are fitted on the evaluation set and are optimistic |
 | **`errmap-heldout-0.6b-2026-09-15.csv`** | the same map, probed on calibration text and validated on held-out test text - 196 matrices x {gradient; curvature; trust-region optimal scale; claimed NLL gain; probe step} | [errmap-heldout-0.6b-2026-09-15](../mesures/errmap-heldout-0.6b-2026-09-15.txt). Supersedes `errmap-0.6b-2026-09-15.csv`, whose probes read the evaluation set; transfer to held-out text is +0.91 here against -0.008 there |
+| **`errmap-4b-2026-09-15.csv`** | the same map at Qwen3-4B, cheap mode: 180 matrices x {gradient; curvature; trust-region optimal scale; claimed NLL gain; probe step} - one-sided probes; eps 0.04; 3 windows; q and k skipped | [errmap-4b-2026-09-15](../mesures/errmap-4b-2026-09-15.txt); written by `bin/errmap`. The map claims -14.93 % of perplexity at T = 0.06; applied to the artifact it LOSES 3.06 pp of MMLU ([errmap-mmlu-4b-2026-09-16](../mesures/errmap-mmlu-4b-2026-09-16.txt)), so no row of this file is a quality gain |
+| **`errmap-4b-artefact-2026-09-16.csv`** | the per-matrix factors as they were applied to the artifact: 180 matrices x {factor at T = 0.06; record index; gain centroids before and after} | [errmap-mmlu-4b-2026-09-16](../mesures/errmap-mmlu-4b-2026-09-16.txt), written by `bin/artscale`. It multiplies CENTROIDS; the map was fitted by probing the reconstructed TENSOR, and the two coincide only where the tail is empty, which on the 4B is nowhere (`bin/artstat`, 252 records of 252) |
 
 ### Why the SERVED 14B cells go into no CSV (2026-08-17)
 
@@ -363,6 +365,23 @@ alone, see errata-rapport-lot-a); speed ratios = median of the ratios formed
 round by round, with range; MMLU micro = the paper's protocol, ± = sampling
 error alone; the phases are bounded by synchronization (they attribute, their
 sum does not make a tok/s).
+
+### The sampling plans in `mmlu-dumps/` (2026-09-17)
+
+`mmlupair` refuses two dumps of different plans, so the plan decides what can be compared for
+$0 and what costs a full run. The 35 dumps fall into three groups (*measured*, read from the
+`# end fingerprint=` line of each file).
+
+| plan | fingerprint | questions | dumps | written by |
+|---|---|---|---|---|
+| `flat`, 40 per subject | `65dcd53655e8bfa5` | 2,280 | 24 | every campaign since 2026-08-01, including the seven arms of the int4 allocation of 2026-09-16 (`mmlu-shipped`, `mmlu-{q,k,v,o,gate,up,down}_proj`) |
+| `flat`, census | `a74a6d6213602979` | 14,042 | 4 | the census of 2026-09-11 and the two confirmations that followed (`mmlu-q5-{shipped,oproj}-FULL`, `mmlu-{temoin,corrige}-FULL`) |
+| no fingerprint line | none | 2,280 | 7 | the foreign-stack arms (vLLM, GGUF, HF), which pair with neither group by fingerprint |
+
+Consequence, and it is the one that costs money: an arm measured at `limit=40` cannot be
+paired against the census, and re-barring a published arm on the census plan means re-running
+it. The +1.55 pp of o_proj is on the census plan; the +3.79 pp of down_proj is on the 2,280
+plan, and the two do not pair.
 
 ## Provenance labels: what is MEASURED, what is COMPUTED
 
