@@ -41,6 +41,20 @@ use std::collections::HashMap;
 pub struct Hessian {
     sum: Tensor,
     scale: f64,
+    /// Running `Σx/N`, the activation's **first** moment.
+    ///
+    /// `None` on every encoding, which is why it is an `Option` and not a
+    /// second field the served path pays for: `H = AᵀA/N` is a second moment
+    /// about the origin and carries no `E[x]`, so a bias correction
+    /// `b = ΔW·E[x]` is not derivable from a retained Hessian however dense.
+    /// The capture path of [`capture_model_hessians`] asks for it explicitly.
+    mean: Option<Tensor>,
+    /// Per-row `‖x‖²`, in stream order, `None` unless asked for.
+    ///
+    /// Kept as a flat host vector and not a device tensor: it is one f32 per
+    /// calibration token against `n²` for `H`, and every reader of it wants
+    /// the individual rows, not a reduction.
+    norms: Option<Vec<f32>>,
 }
 
 impl Hessian {
@@ -48,6 +62,26 @@ impl Hessian {
         Ok(Self {
             sum: Tensor::zeros((width, width), DType::F32, device)?,
             scale: 1.0 / total_rows as f64,
+            mean: None,
+            norms: None,
+        })
+    }
+
+    /// [`Hessian::new`], also accumulating `E[x]` and the per-row `‖x‖²`.
+    ///
+    /// Only the capture path calls this. The two extra reductions are a
+    /// `(n,)` sum and a `(rows,)` norm per window — negligible beside the
+    /// `n × n` GEMM — but they are opt-in so that no encoding can acquire
+    /// them by accident and change what it writes.
+    pub fn with_moments(
+        width: usize,
+        device: &Device,
+        total_rows: usize,
+    ) -> candle_core::Result<Self> {
+        Ok(Self {
+            mean: Some(Tensor::zeros((width,), DType::F32, device)?),
+            norms: Some(Vec::new()),
+            ..Self::new(width, device, total_rows)?
         })
     }
 
@@ -57,6 +91,14 @@ impl Hessian {
         let a = x.reshape(((), w))?.to_dtype(DType::F32)?.contiguous()?;
         let g = (a.t()?.contiguous()?.matmul(&a)? * self.scale)?;
         self.sum = (&self.sum + g)?;
+        if let Some(m) = &self.mean {
+            // Same `1/N` pre-scaling as `sum`, for the same reason: the
+            // running total stays O(1) instead of growing with the corpus.
+            self.mean = Some((m + (a.sum(0)? * self.scale)?)?);
+        }
+        if let Some(n) = &mut self.norms {
+            n.extend(a.sqr()?.sum(1)?.to_vec1::<f32>()?);
+        }
         Ok(())
     }
 
@@ -69,6 +111,20 @@ impl Hessian {
             .into_iter()
             .map(|v| v as f64)
             .collect())
+    }
+
+    /// `E[x]`, `None` unless built by [`Hessian::with_moments`].
+    pub fn mean_f64(&self) -> candle_core::Result<Option<Vec<f64>>> {
+        self.mean
+            .as_ref()
+            .map(|m| Ok(m.to_vec1::<f32>()?.into_iter().map(|v| v as f64).collect()))
+            .transpose()
+    }
+
+    /// Per-row `‖x‖²` in stream order, `None` unless built by
+    /// [`Hessian::with_moments`].
+    pub fn token_norms(&self) -> Option<&[f32]> {
+        self.norms.as_deref()
     }
 }
 
@@ -492,6 +548,14 @@ pub struct RunConfig {
     pub rotation_seed: Option<u64>,
 }
 
+/// Base seed of the incoherence rotation. Historical value — changing it
+/// re-quantizes every model differently, so it is a constant, not a knob.
+///
+/// Public, and in this module rather than in `bin/smoke.rs`, because the
+/// capture pass of L36 has to rebuild the *encoding's* basis: a capture
+/// rotated by any other seed describes a matrix that model never saw.
+pub const ROTATION_SEED: u64 = 0x11_0FEED;
+
 /// Quantize every block of `model` in place, sequentially.
 ///
 /// `hidden` holds one `(1, seq, hidden_size)` tensor per calibration window,
@@ -606,6 +670,209 @@ pub trait MatrixSink {
     /// that had to inspect a union to find out which it got would be one line
     /// away from writing the wrong record kind.
     fn push_int4(&mut self, m: llvq_artifact::Int4Matrix) -> anyhow::Result<()>;
+}
+
+/// Which basis a captured Hessian is expressed in.
+///
+/// It travels *with* the data and is never inferred downstream. `H` and
+/// `Q H Qᵀ` have the same shape, the same symmetry and the same trace, so a
+/// dump that does not say which one it holds is not merely ambiguous: every
+/// statistic read off it — the diagonal spread of
+/// [`capture_model_hessians`]'s own callers, the off-diagonal mass, the
+/// leading directions — is silently attributed to the wrong basis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HBasis {
+    /// As accumulated, before any rotation.
+    Natural,
+    /// `Q H Qᵀ`, the basis the encoder factors and quantizes in.
+    Rotated,
+}
+
+impl HBasis {
+    /// The spelling used in a dump's metadata, and parsed back by readers.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            HBasis::Natural => "natural",
+            HBasis::Rotated => "rotated",
+        }
+    }
+}
+
+/// One activation's captured second moment, handed over for writing.
+///
+/// Borrowed and not owned, so the capture loop keeps the buffers and a sink
+/// that only wants a reduction never pays for a copy of an `n × n` matrix.
+pub struct CapturedHessian<'a> {
+    pub block: usize,
+    pub act: Act,
+    pub n: usize,
+    pub basis: HBasis,
+    /// The seed `Q` was built from, `None` when no rotation was applied.
+    /// Without it a `Rotated` dump cannot be reproduced, since the rotation
+    /// is derived per (block, activation) by [`effective_rotation_seed`].
+    pub rotation_seed: Option<u64>,
+    /// Dense row-major `n × n`, f64.
+    pub h: &'a [f64],
+    /// `E[x]`, in the **natural** basis, `n` long. Present on both emissions.
+    pub mean: Option<&'a [f64]>,
+    /// Per-row `‖x‖²`, natural basis, one per calibration token.
+    pub token_norms: Option<&'a [f32]>,
+}
+
+/// Receives each activation's dense Hessian as the capture pass produces it.
+///
+/// The mirror of [`MatrixSink`], and separate from it for the same reason:
+/// nothing a Hessian sink wants is a matrix of codes, and a sink that had to
+/// inspect a union to find out which it got would be one line away from
+/// writing the wrong record.
+pub trait HessianSink {
+    fn push_hessian(&mut self, h: CapturedHessian<'_>) -> anyhow::Result<()>;
+}
+
+/// What a capture pass is allowed to vary.
+///
+/// Deliberately a subset of [`RunConfig`]: a capture must reproduce the
+/// encoding's `H`, so everything that shapes `H` is here and nothing that
+/// shapes the *codes* is. A field that does not change `H` has no business
+/// in this struct.
+#[derive(Debug, Clone, Copy)]
+pub struct CaptureConfig {
+    /// `H ← ρ·H + (1 − ρ)·diag(H)`, applied in the natural basis, exactly as
+    /// [`quantize_model_capturing`] applies it. `1.0` is the published path.
+    pub h_shrink: f64,
+    /// The encoding's base rotation seed. **Must** be the one the file under
+    /// study was written with, or the `Rotated` emission describes a basis
+    /// that model never used.
+    pub rotation_seed: Option<u64>,
+    /// Emit the natural-basis `H` as well as the rotated one. Doubles the
+    /// bytes; the rotated one alone is what the encoder saw.
+    pub emit_natural: bool,
+}
+
+/// Capture every block's Hessians with the weights left alone.
+///
+/// ## Why this is not [`quantize_model`] with the quantizer removed
+///
+/// The block loop costs two forward passes per block because the weights
+/// change underneath it: pass 1 collects `H` against the original weights,
+/// pass 2 re-runs the block with the quantized ones to produce the input of
+/// block `t + 1`. Here nothing is quantized, so those two passes are the
+/// same pass, and one forward per block carries both the accumulation and
+/// the hidden states forward. That is the whole cost difference: on the 4B
+/// the capture phase of a published run is 394.9 s against 6 h 58 for the
+/// encoder (*measured*, `docs/fiche-4b.md` §3.4).
+///
+/// `model` is `&Qwen3` and not `&mut`: the weights must not move, and the
+/// borrow checker is a cheaper guarantee than a comment.
+///
+/// ## What it does not do
+///
+/// It does not factor. `GptqFactor::new` is a Cholesky of `n × n` and no
+/// statistic this exists to serve reads `L` — they read `H`, its diagonal,
+/// its leading directions, or a moment. Anything that needs the factor has
+/// `quantize_model` already.
+pub fn capture_model_hessians(
+    model: &Qwen3,
+    hidden: &mut [Tensor],
+    cfg: &CaptureConfig,
+    sink: &mut dyn HessianSink,
+    mut progress: impl FnMut(usize, usize),
+) -> anyhow::Result<Phases> {
+    anyhow::ensure!(
+        (0.0..=1.0).contains(&cfg.h_shrink),
+        "h_shrink = {}: ρ must be in [0, 1] (1 = H as is)",
+        cfg.h_shrink
+    );
+    let device = model.device().clone();
+    let nblocks = model.blocks.len();
+    let total_rows: usize = hidden.iter().map(|h| h.dim(1).unwrap_or(0)).sum();
+    anyhow::ensure!(total_rows > 0, "no calibration data");
+
+    let mut phases = Phases::default();
+    for t in 0..nblocks {
+        progress(t, nblocks);
+        let tp = std::time::Instant::now();
+        let mut cap = BlockCapture {
+            target: t,
+            acc: HashMap::new(),
+        };
+        for act in Act::ALL {
+            let w = act.width(model.config());
+            cap.acc
+                .insert(act, Hessian::with_moments(w, &device, total_rows)?);
+        }
+        // One forward, not two: it accumulates `H` **and** produces the next
+        // block's input, because the weights it reads are the weights the
+        // next block will read too.
+        let mask = model.causal_mask_for(&hidden[0])?;
+        for h in hidden.iter_mut() {
+            let next = model.blocks[t].forward(&*h, model.rotary(), &mask, t, &mut cap)?;
+            *h = next;
+        }
+        phases.capture += tp.elapsed().as_secs_f64();
+
+        let tp = std::time::Instant::now();
+        for act in Act::ALL {
+            let acc = cap
+                .acc
+                .remove(&act)
+                .expect("every activation is inserted once, above");
+            let n = act.width(model.config());
+            let mut h = acc.to_f64()?;
+            let mean = acc.mean_f64()?;
+            let norms = acc.token_norms();
+            // The published order, and it is load-bearing: M1 shrinks on the
+            // estimate, in the natural basis, **before** the rotation. Doing
+            // it after would shrink a different matrix.
+            if cfg.h_shrink < 1.0 {
+                shrink_off_diagonal(&mut h, n, cfg.h_shrink);
+            }
+            if cfg.emit_natural {
+                sink.push_hessian(CapturedHessian {
+                    block: t,
+                    act,
+                    n,
+                    basis: HBasis::Natural,
+                    rotation_seed: None,
+                    h: &h,
+                    mean: mean.as_deref(),
+                    token_norms: norms,
+                })?;
+            }
+            match cfg.rotation_seed {
+                Some(s) => {
+                    let seed = effective_rotation_seed(s, t, act);
+                    Rotation::new(n, seed).rotate_hessian(&mut h);
+                    sink.push_hessian(CapturedHessian {
+                        block: t,
+                        act,
+                        n,
+                        basis: HBasis::Rotated,
+                        rotation_seed: Some(seed),
+                        h: &h,
+                        mean: mean.as_deref(),
+                        token_norms: norms,
+                    })?;
+                }
+                // No rotation was configured, so the natural basis *is* the
+                // basis the encoder factored in. Emit it under that name
+                // rather than leaving the caller with nothing.
+                None if !cfg.emit_natural => sink.push_hessian(CapturedHessian {
+                    block: t,
+                    act,
+                    n,
+                    basis: HBasis::Natural,
+                    rotation_seed: None,
+                    h: &h,
+                    mean: mean.as_deref(),
+                    token_norms: norms,
+                })?,
+                None => {}
+            }
+        }
+        phases.factor += tp.elapsed().as_secs_f64();
+    }
+    Ok(phases)
 }
 
 pub fn quantize_model(

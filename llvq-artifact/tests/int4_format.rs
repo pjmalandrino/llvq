@@ -596,6 +596,114 @@ fn require_ball_names_int4_and_not_tetra() {
     assert!(llvq_artifact::runtime::require_ball(CodeKind::Ball, "Planes14").is_ok());
 }
 
+/// **L01's lock.** A `row_scales` rewrite of a mixed file must leave every
+/// byte of its int4 records alone.
+///
+/// This is the property `llvq-bench --example rhoapply` rests on, and until
+/// 2026-09-13 nothing held it: `rhoapply` walked the file with
+/// `read_matrix_raw`, which refuses an int4 record by name, so on the served
+/// 4B — 216 Tetra records and 36 `v_proj` in int4 g128 — it died at the third
+/// record and left a truncated output behind. The fix is `read_record` /
+/// `write_record`, and the safety property L01 asks for (`v_proj` is never
+/// scaled) then holds **by construction**: an int4 record has no `row_scales`
+/// for a factor to reach, so no name check is needed and no renamed
+/// projection can defeat one.
+///
+/// The assertion is on bytes and not on fields, because a re-serialization
+/// that happened to produce equal fields through a different encoding would
+/// still be a rewritten `v_proj`.
+#[test]
+fn a_row_scale_rewrite_leaves_every_int4_byte_alone() {
+    let tetra = Tetra::new();
+    let mut rng = SplitMix64::new(0x1_0001);
+    let t0 = tetra_matrix(&tetra, &mut rng, "model.layers.0.self_attn.q_proj.weight", 2, 2 * DIM);
+    let i0 = int4_matrix("model.layers.0.self_attn.v_proj.weight", 2, 256);
+    let t1 = tetra_matrix(&tetra, &mut rng, "model.layers.0.self_attn.o_proj.weight", 1, 3 * DIM);
+
+    let build = || {
+        let mut file = Vec::new();
+        {
+            let mut w = ArtifactWriter::with_kinds(
+                &mut file,
+                FIRST_KINDED_VERSION,
+                3,
+                CodeKind::Tetra,
+                KindSet::of(CodeKind::Tetra).with(CodeKind::Int4G128),
+            )
+            .expect("header");
+            w.push(&t0).expect("tetra 0");
+            w.push_int4(&i0).expect("int4");
+            w.push(&t1).expect("tetra 1");
+            w.finish().expect("finish");
+        }
+        file
+    };
+    let source = build();
+
+    // The int4 record's bytes, located in the source by the only thing that
+    // can walk a mixed file, so the span is the format's and not a guess.
+    let int4_span = {
+        let mut r = &source[..];
+        let head = llvq_artifact::read_header(&mut r).expect("header");
+        let after_header = source.len() - r.len();
+        let mut at = after_header;
+        let mut span = None;
+        for _ in 0..head.matrices {
+            let before = at;
+            let rec = read_record(&mut r, head.version).expect("record");
+            at = source.len() - r.len();
+            if matches!(rec, Record::Int4(_)) {
+                span = Some(before..at);
+            }
+        }
+        span.expect("the file carries an int4 record")
+    };
+    assert!(int4_span.len() > 64, "an empty span would make this vacuous");
+
+    // `rhoapply`'s rewrite, in miniature: read every record, multiply the
+    // lattice row scales, write every record back.
+    let rewrite = |factor: f64| -> Vec<u8> {
+        let mut r = &source[..];
+        let head = llvq_artifact::read_header(&mut r).expect("header");
+        let mut out = Vec::new();
+        llvq_artifact::write_header_kinds(
+            &mut out,
+            head.version,
+            head.matrices,
+            head.default_kind(),
+            head.kinds(),
+        )
+        .expect("header");
+        for _ in 0..head.matrices {
+            let mut rec = read_record(&mut r, head.version).expect("record");
+            if let Record::Lattice(m) = &mut rec {
+                for sc in m.row_scales.iter_mut() {
+                    *sc *= factor;
+                }
+            }
+            llvq_artifact::write_record(&mut out, head.version, &rec).expect("write");
+        }
+        std::io::copy(&mut r, &mut out).expect("trailer");
+        out
+    };
+
+    // rho = 1 is the idempotence control: the whole file, byte for byte.
+    assert_eq!(rewrite(1.0), source, "rho = 1 is not a no-op on a mixed file");
+
+    // rho = 0.929 moves the lattice records and must not move the int4 one.
+    let scaled = rewrite(0.929_234);
+    assert_eq!(scaled.len(), source.len(), "a rewrite changed the file length");
+    assert_eq!(
+        scaled[int4_span.clone()],
+        source[int4_span.clone()],
+        "the int4 record moved under a row-scale rewrite: v_proj was scaled"
+    );
+    assert_ne!(
+        scaled, source,
+        "nothing moved at all, so this test would pass on a tool that does nothing"
+    );
+}
+
 /// A Tetra matrix: labels through the map itself, one gain bit, the sentinel
 /// cap.
 fn tetra_matrix(

@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-15. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-15, with ten entries owed between 2026-09-07 and 2026-09-12. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -404,6 +404,44 @@ The project's chronological thread, one entry per period, from 2026-07-24 to 202
 - **Control 0 failed, and it matters beyond this measurement**: one block re-encoded under `leech1c12` today does not reproduce the published file's block 0: tail, gains and 87% of indices differ (82 to 91% by matrix) while dimensions, rotation seed, gain centroids and row scales are identical. The tail is weights kept exact after GPTQ compensation and it differs by 42 to 56% of their magnitude, so the Hessians differ and neither the rotation nor the quantizer does. Most likely cause, *not proved*: commit `4a3e5f0` of 2026-08-26 changed the calibration volume from 8,000,000 characters to `n_calib × calib_len × 6`. **The repository no longer reproduces its own published artifact**, so A4's numbers compare to nothing encoded after that date. The evaluation harness is intact. Operator's decision: proceed without re-encoding a witness, so the gap to `Planes14` holds the format and the drift together.
 - Cost of the day: $0.79, of which $0.01 on a job that died in 16 seconds because the measurement image carries the Rust binaries and not the `hf` CLI. Both sealed files went through the bucket instead. Wave 2 stands at $0.82 of $2.00.
 - What is left of the plan: step 6 alone, the served kernel `tv_tetra48` and the comparison bench with every kernel in its own grid. It is what turns 1.390 GB on card and an unmeasured throughput into measurements.
+
+## 2026-09-13. L36's capture half, and the quality roadmap folded onto the served object
+
+- **The capture pass exists** (`capture_model_hessians`, the `HessianSink` trait, `HBasis`,
+  `Hessian::with_moments`, and the `hcapture` binary): one pass over the calibration set with the served
+  weights, keeping the dense Hessian the encoder throws away. It quantizes nothing. The served loop is
+  untouched — a capture needs no `GptqFactor`, so it gets its own loop, and one forward per block does
+  both the accumulation and the next block's input because the weights do not move.
+- `CalibCorpus`, `calib_chars`, `window_starts` and `ROTATION_SEED` moved out of `bin/smoke.rs` into
+  `corpus.rs` and `calib.rs`. Not a tidy-up: a capture has to draw the *same* windows as the encoding it
+  describes, and a copy would have drifted invisibly.
+- Wiring check on the served 4B, 2 × 128 tokens, **$0, no card**: 144 emissions over 36 blocks, capture
+  7.2 s, **reduce 126.3 s** (*measured*, [l36-capture-2026-09-13](mesures/l36-capture-2026-09-13.txt)).
+  The cost is in the reduce — the f64 readback and the rotation — which is 17.5× the capture and does
+  **not** scale with the calibration volume. The survey's "one Mac hour" rested on pass 1's 394.9 s,
+  which is the capture phase alone; the real total at the served volume is *estimated* under 15 min.
+- Ten tests, five mutants, all five dead. Two of them survived the first version of the tests, which
+  checked length, sign and non-zero — every shape property and no arithmetic one. What kills them is
+  `Σ‖x‖²/N = tr(H)` and Jensen's `‖E[x]‖² ≤ tr(H)`, both exact and both one line.
+- **L36 decides eight rows, not the ten the survey claimed**: L06's cell asks for a paired re-encode and
+  L15's for kurtosis on `f1recdump` blocks, and neither reads `H`. The consumer, `hstats`, is unwritten,
+  so no row is decided yet.
+- **[ROADMAP-QUALITY](ROADMAP-QUALITY.md) folded with the survey of 2026-09-12**, on the operator's
+  instruction. Replaced, and recorded here with its date: its accounting header rested on bare `Tetra`
+  — *"Base: `Tetra` at the 4B, 2.7645 b/param, MMLU 53.49, perplexity 16.1569. … The margin before the
+  product triplet's b_max is 0.7679 b/param. … An MMLU arm costs $0 on the Mac"*. All four are now
+  false or misleading: the base is the served mixed object at 2.8138 b/param and **56.37 on the full
+  split**; the margin is **0.7956 kernel b/weight** (0.7679 b/param was bare Tetra's 0.8502 kernel
+  b/weight converted at 0.903255, and mixing the two accountings is the subtraction to refuse); and an
+  arm on the full split — the only plan that resolves anything — costs **$0.70**, not $0.
+- Eleven cells of that table carry a dated correction in place, and eighteen rows are added. Row 6's
+  gain moved from "0 to +2 on STEM *estimated*" to **+0.8 to +1.4**: the +2.98 pp of the ×32 arm is
+  card-vs-card on a *naked* base, and the direct served-base reading is **+0.22**.
+- **Still owed, and not done here**: `ROADMAP`:44 and :297 and `ETAT` §7 are stale; this file owes ten
+  more entries from 2026-09-07 to 2026-09-12 covering **$42.14**; and five rows of `data/jobs.csv` cite
+  three journals that exist in no commit of any ref — `volume-2026-09-07.txt` ($19.54),
+  `q5-sur-v32-2026-09-07.txt` ($0.32), `m3-gptq-2026-08-30.txt` ($0.05). The first two carry the
+  numbers row 6 now rests on, so writing them needs the bucket.
 
 ## 2026-09-07. Chantier 3: the paper's codebook is exonerated, and perplexity moves a fifth while MMLU does not move at all
 

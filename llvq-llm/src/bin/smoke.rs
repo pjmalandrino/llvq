@@ -99,18 +99,17 @@
 use candle_core::{DType, Tensor};
 
 use llvq_llm::calib::Codebook;
-use llvq_llm::corpus::{hf_parquet_text, wikitext2_test};
+use llvq_llm::corpus::wikitext2_test;
 use llvq_llm::loader::Checkpoint;
 use llvq_llm::model::{NoCapture, Qwen3};
 use llvq_quant::gptq::{GptqConfig, TailPolicy};
+use llvq_llm::calib::ROTATION_SEED;
+use llvq_llm::corpus::{calib_chars, window_starts, CalibCorpus};
 
 /// The positional layout, quoted in every refusal so the reader can count.
 const USAGE: &str = "n_calib calib_len n_eval eval_ctx device mode codebook \
                      blocks rotation [dump_path]";
 
-/// Base seed of the incoherence rotation. Historical value — changing it
-/// re-quantizes every model differently, so it is a constant, not a knob.
-const ROTATION_SEED: u64 = 0x11_0FEED;
 
 /// A positional argument, parsed **strictly**.
 ///
@@ -185,64 +184,6 @@ fn parse_rotation(v: Option<&str>) -> Result<Option<u64>, String> {
     }
 }
 
-/// Which corpus the Hessians are built on, from `LLVQ_CALIB`.
-///
-/// Unknown values used to fall through to wikitext-2 **train** while the log
-/// line printed the string that was asked for — so an archived log could read
-/// `calib c44` on a run calibrated on wikitext. That is the same shape of
-/// defect as the codebook one, on the other input of the same run.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum CalibCorpus {
-    Wikitext2Train,
-    C4,
-    /// The paper's own calibration set: web text filtered for educational
-    /// content, i.e. the domain MMLU examines. The arm that tests whether our
-    /// 5.1-point MMLU gap at a *better* perplexity is a calibration-domain
-    /// effect (`llvq_llm::corpus::DCLM_EDU_REPO`).
-    DclmEdu,
-    /// Deliberate contamination — calibrate on the very text the eval windows
-    /// score. Bounds the ceiling of the calibration family; nobody ships it.
-    Wikitext2Test,
-}
-
-impl CalibCorpus {
-    /// Empty means unset here, unlike the positionals: that is the contract
-    /// [`llvq_llm::fused::FusedLayout::parse`] already fixed for environment
-    /// variables, and `FOO=${UNSET}` is a normal way to write "leave it alone".
-    fn parse(v: Option<&str>) -> Result<Self, String> {
-        match v {
-            None | Some("") | Some("wikitext2") => Ok(Self::Wikitext2Train),
-            Some("c4") => Ok(Self::C4),
-            Some("dclm-edu") => Ok(Self::DclmEdu),
-            Some("wikitext2-test") => Ok(Self::Wikitext2Test),
-            Some(other) => Err(format!(
-                "LLVQ_CALIB={other}: accepted values `wikitext2` (default), \
-                 `c4`, `dclm-edu` and `wikitext2-test`"
-            )),
-        }
-    }
-
-    fn name(self) -> &'static str {
-        match self {
-            Self::Wikitext2Train => "wikitext2",
-            Self::C4 => "c4",
-            Self::DclmEdu => "dclm-edu",
-            Self::Wikitext2Test => "wikitext2-test",
-        }
-    }
-}
-
-/// Characters of raw text to ask a bounded corpus for, for `n_calib` windows
-/// of `calib_len` tokens.
-///
-/// Sized from what the run asked for, never from a literal. Six characters per
-/// token is the 4.61 lot B measured on C4
-/// (`docs/archive/verdicts-lot-b-2026-08-06.md:33`) plus margin, and the
-/// margin only avoids a needless second read: what guarantees the volume is
-/// the window count checked below.
-fn calib_chars(n_calib: usize, calib_len: usize) -> usize {
-    n_calib.saturating_mul(calib_len).saturating_mul(6)
-}
 
 /// Gain bits this binary will accept. The published configurations use 0, 1
 /// and 2; `Planes14`, the reference runtime layout, freezes the field at one
@@ -598,56 +539,6 @@ fn codebook_line(spec: &str, c: &Codebook) -> String {
     format!("{spec} → {what}, {:.0} bits/block", c.block_bits())
 }
 
-/// Where each calibration window starts in the tokenized corpus.
-///
-/// `seed = None` reproduces the historical behaviour — a contiguous prefix
-/// from token 0 — and stays the default, because that is what every published
-/// run used and silently moving it would orphan those numbers.
-///
-/// But a fixed prefix makes run-to-run variance **unmeasurable**, and that is
-/// the gap worth closing: several conclusions in this project rest on 3–7 %
-/// differences whose noise floor nobody knows. `LLVQ_CALIB_SEED=<n>` draws the
-/// windows at random offsets over the whole corpus, which is what GPTQ, QuIP#
-/// and QTIP all do, and which makes "run it under three seeds and look at the
-/// spread" possible.
-///
-/// ⚠️ Do **not** expect a perplexity gain from it. Under `LLVQ_CALIB=c4` the
-/// corpus is already hundreds of unrelated web documents concatenated, so "the
-/// first 500 documents of a crawl" and "500 documents drawn at random" are
-/// nearly the same sample. The deliverable here is the error bar, not the
-/// mean — and if the three seeds land far apart, that is itself the finding.
-fn window_starts(n: usize, ntokens: usize, len: usize, seed: Option<u64>) -> Vec<usize> {
-    let Some(seed) = seed else {
-        return (0..n).map(|w| w * len).collect();
-    };
-    assert!(ntokens >= len, "corpus shorter than one window");
-    // Offsets are unaligned on purpose: aligning them to multiples of `len`
-    // would sample the same grid the prefix already walks, only in a different
-    // order, and would not probe the corpus any more widely.
-    let span = (ntokens - len + 1) as u64;
-    let mut rng = llvq_core::SplitMix64::new(seed);
-    let mut seen = std::collections::HashSet::with_capacity(n);
-    let mut out = Vec::with_capacity(n);
-    // Distinct windows: a repeated one would weight its tokens twice in the
-    // Hessian for nothing. `span` dwarfs `n` on any corpus large enough to
-    // calibrate on, so the retry budget is a formality — but an unbounded
-    // loop on a short corpus would hang instead of reporting.
-    for _ in 0..(64 * n).max(1024) {
-        if out.len() == n {
-            break;
-        }
-        let s = (rng.next() % span) as usize;
-        if seen.insert(s) {
-            out.push(s);
-        }
-    }
-    assert_eq!(
-        out.len(),
-        n,
-        "corpus too short to draw {n} distinct windows of {len}"
-    );
-    out
-}
 
 /// Streams matrices to disk as they are quantized. Buffered, because the
 /// index stream is written in 6-byte units and 151 M of them through an
@@ -1114,53 +1005,7 @@ fn main() -> anyhow::Result<()> {
 
     // ---- calibration windows ----
     eprintln!("tokenizing calibration set ({})…", calib.name());
-    let train = match calib {
-        CalibCorpus::C4 => {
-            // A different shard from the one `bin/ppl` evaluates on —
-            // otherwise calibrating on C4 and scoring on C4 is the same text
-            // twice.
-            // Sized from what this run asked for, not from a literal.
-            //
-            // 🕳️ The literal was `8_000_000`, and lot B measured what it
-            // actually yields: **847 windows of 2048**
-            // (`docs/archive/verdicts-lot-b-2026-08-06.md:33`), i.e. 4.61
-            // characters per token. Any run asking for more than ~13× the
-            // published volume was served ~13× — the `min` below did it
-            // without a word in the log. A calibration-volume ladder built on
-            // that would have published two rungs measuring the same point.
-            llvq_llm::corpus::c4_calibration(calib_chars(n_calib, calib_len))?
-        }
-        CalibCorpus::DclmEdu => {
-            // The paper's calibration set. One shard holds 186 times the
-            // characters asked for here at most, so the read is bounded by
-            // rows and its cost is printed: a corpus this size is where an OOM
-            // comes from, and a bound nobody reads back is a bound nobody
-            // trusts.
-            //
-            // The printed line also carries the commit that was read.
-            // `LLVQ_DATASET_REV` cannot pin this corpus, because the same
-            // variable covers the wikitext repo this run reads two hundred
-            // lines above; the journal records the revision instead of the
-            // command line claiming it.
-            let (text, stats) =
-                llvq_llm::corpus::dclm_edu_calibration(calib_chars(n_calib, calib_len))?;
-            eprintln!("  {}", stats.report());
-            text
-        }
-        CalibCorpus::Wikitext2Test => {
-            // The calibration *oracle* (pistes-battre-q4.md P3): deliberate
-            // contamination — calibrate on the very text the eval windows
-            // score. Not a config anyone ships; it bounds the ceiling of the
-            // whole calibration family (volume, corpus, length) in one
-            // 3-block run.
-            wikitext2_test()?
-        }
-        CalibCorpus::Wikitext2Train => hf_parquet_text(
-            "Salesforce/wikitext",
-            "wikitext-2-raw-v1/train-00000-of-00001.parquet",
-        )?
-        .join("\n\n"),
-    };
+    let train = calib.text(calib_chars(n_calib, calib_len))?;
     let train_ids = tok
         .encode(train.as_str(), false)
         .map_err(|e| anyhow::anyhow!("{e}"))?
