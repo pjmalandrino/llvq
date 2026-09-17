@@ -142,7 +142,13 @@ Both carry 252 lattice records and 0 int4 (*measured*, `artstat`). Neither is th
 object, which holds 216 lattice records and 36 int4. No mixed file exists on this Mac: the
 four other local artifacts are 252-lattice files too. The served Q5 lives where the card runs
 read it, and the diagnostic reference for the codebook is therefore the bare `Tetra` file.
-The eight-byte size difference between the two files is not explained here.
+The eight-byte size difference is trailing slack, and it is worth knowing before `artscale`
+is used as an instrument. The bare file ends with eight zero bytes after its last record; the
+corrected file ends at the record (*measured*, `cmp` and `xxd`, 2026-09-17). The forty bytes
+before that point are identical in both. `artscale` rewrites a header and then walks records
+(`artscale.rs:96-119`), so it emits no trailing slack. A byte-identical round trip through it
+is therefore impossible on this file, and L37's record transplant needs its own idempotence
+control before it relies on that path.
 
 ## 9. Data provenance
 
