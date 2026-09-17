@@ -88,3 +88,51 @@ WHAT THIS DOES NOT ESTABLISH
   model size.
 - Adoption. That is the operator's decision on the quality axis, now with a
   confirmed gain and a budget that holds on one condition.
+
+IS 58 NEW? THE EARLIER 58S, PAIRED
+-----------------------------------
+Added the same day, because four different "58"s were in circulation and one of
+them made this result look like no progress. Computed from dumps already on
+disk (docs/data/mmlu-dumps/), $0, mmlupair --no-fpc. Every dump below shares
+fingerprint 65dcd53655e8bfa5: the same 2,280 questions.
+
+  figure  what it was                                              comparable?
+  58.48   Tetra file of 09-06 + q,k,v,o restored at int4, 2,280 q  yes, below
+  58.10   Tetra file of 09-06 + v_proj restored at f16, 2,280 q    no: not servable
+  58.02   "seed 1" of F5, 2026-08-19, 2,280 q                      no: predates Tetra
+  58.42   the served Q5 file, census                               no: MACRO; its micro is 56.37
+
+The two 58s that compare, face to face on the same 2,280 questions:
+
+                          09-06 (T3)                 today
+  int4 matrices           144 (q, k, v, o)           72 (v, o)
+  base file               tetra-4b-2026-09-06        tetra-q5-2026-09-09
+  MMLU, 2,280 q           58.48                      58.64
+  MMLU, census            never measured             58.07
+  confirmed held-out      no                         yes
+  cost                    3.2572 b/param             2.9599 b/param, 2.4226 kernel b/w
+
+  paired: +0.16 pp, CI95 [-2.97 ; +2.73]. Not resolved: the same level.
+
+So o_proj does not reach a quality the project had never seen. It reaches the
+level T3 reached, with half the int4 matrices, which is what brings it inside
+the budget. The two arms start from files encoded on different days, so this
+does NOT show that q and k at int4 were worth nothing: that comparison is
+confounded with the encoding.
+
+Why it looked like no progress: the served file sits a notch under the 09-06
+encoding on these questions. Same recipe (Tetra + v_proj int4), two encodings:
+
+  encoding of 09-06, v_proj restored at int4    56.95
+  served file, encoded 09-09 with v_proj int4   55.52
+  paired: +1.43 pp, CI95 [-1.53 ; +4.51]. Not resolved.
+
+Consistent with the calibration noise measured on 2026-08-25: 2.92 pp of
+standard deviation between two calibration seeds at the 4B
+(docs/mesures/bruit-mmlu-graines-4b-2026-08-25.txt). The served file came out of
+a less lucky draw, and o_proj brought it back to the level.
+
+The practical rule this leaves: on 2,280 questions, two DIFFERENT encodings
+cannot be told apart below about 3 pp. Every MMLU figure before this one was on
+that sample. 58.07 is the first on the full test split, confirmed on questions
+outside the selection.
