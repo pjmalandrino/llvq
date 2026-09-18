@@ -5,7 +5,7 @@ target is a better trade of functional quality against served memory and speed, 
 geometric error and not crossing 60 MMLU. Opened 2026-09-17 on branch
 `claude/tetra-quality-map-plan-t8ojq2`, which is never merged into `main` by operator decision.
 
-Running cost: **$1.42 spent** on the `down_proj` confirmation of 2026-09-18, everything else $0. About 1 h 30 of Mac and 4.8 GB of disk.
+Running cost: **$7.77 spent** on six card jobs of 2026-09-18, everything else $0. About 5 h of Mac and 7 GB of disk.
 
 | # | step | status | what it produced | cost |
 |---|---|---|---|---|
@@ -20,23 +20,27 @@ Running cost: **$1.42 spent** on the `down_proj` confirmation of 2026-09-18, eve
 
 ## The MMLU line, 2026-09-18
 
-`down_proj` at int4 is confirmed at **+4.05 pp** on 11,762 held-out questions, CI95
-[+3.28; +4.83] ([downproj-int4-full](mesures/downproj-int4-full-2026-09-18.txt)). The served
-object goes from 56.37 to **60.44 micro** on the full split, against the paper's LLVQ at 60.7.
-The gap to the paper was −4.33 pp a week ago and is **−0.26**.
-
-It was unblocked by step 1: the arm had been dropped on a budget computed in the wrong unit. In
-kernel b/weight it is 2.2044 to 2.7226, under b_max, on one condition: a native int4 kernel for
-9728 x 2560, which has never run.
-
-| arm | kernel b/weight | b/param whole | MMLU micro | held-out gain |
+| arm | kernel b/weight | b/param | MMLU micro | source |
 |---|---|---|---|---|
-| v, shipped | 2.2044 | 2.8126 | 56.37 | reference |
-| v + o | 2.4226 | 3.0097 | 58.07 | +1.55 |
-| v + down | 2.7226 | 3.2807 | **60.44** | **+4.05** |
-| v + o + down | 2.9408 | 3.4778 | not measured | not measured |
+| f16, 4B | 16.000 | 16.000 | **70.14** | [f16-full](mesures/f16-full-2026-09-18.txt) |
+| Q5 served | 2.2044 | 2.8126 | 56.37 | census of 09-11 |
+| + o_proj | 2.4226 | 3.0097 | 58.07 | [oproj](mesures/oproj-int4-full-2026-09-17.txt) |
+| + down_proj | 2.7226 | 3.2807 | 60.44 | [downproj](mesures/downproj-int4-full-2026-09-18.txt) |
+| **+ o + down** | **2.9408** | 3.4778 | **61.76** | [vod](mesures/vod-int4-full-2026-09-18.txt) |
+| bare Tetra, 8B | 2.1498 | 3.0672 | 63.85 | [vod-8b](mesures/vod-8b-2026-09-18.txt) |
+| **8B + v + o + down** | **2.9260** | n/a | **68.03** | same |
 
-Per bit: `down_proj` returns 7.82 pp per kernel b/weight against `o_proj`'s 7.10.
+Four things the afternoon settled.
+
+1. **The gains add to 96.3 %** between types, and to **86.9 %** between slices of one type. A
+   knapsack over matrices is a legitimate model, and it should carry the 86.9.
+2. **`down_proj`'s gain is concentrated**: the middle twelve layers return +2.41 pp for a third
+   of the bits, **13.95 pp per kernel b/weight against 7.82** for the whole type. The late
+   twelve change 3.9 % of the model's answers.
+3. **The lever fades with size**: 7.32 pp per b/weight at the 4B, **5.39 at the 8B**. Buying
+   quality with bits has a decreasing return in scale, which is a problem at 14B and beyond.
+4. **The f16 reference exists**, so every gap in this repository is now a same-population
+   quantity: 13.77 pp and not 13.95.
 
 ## What step 4 settled, and where it points
 

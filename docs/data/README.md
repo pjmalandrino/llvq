@@ -376,8 +376,11 @@ $0 and what costs a full run. The 35 dumps fall into three groups (*measured*, r
 | plan | fingerprint | questions | dumps | written by |
 |---|---|---|---|---|
 | `flat`, 40 per subject | `65dcd53655e8bfa5` | 2,280 | 24 | every campaign since 2026-08-01, including the seven arms of the int4 allocation of 2026-09-16 (`mmlu-shipped`, `mmlu-{q,k,v,o,gate,up,down}_proj`) |
-| `flat`, census | `a74a6d6213602979` | 14,042 | 4 | the census of 2026-09-11 and the two confirmations that followed (`mmlu-q5-{shipped,oproj}-FULL`, `mmlu-{temoin,corrige}-FULL`) |
+| `flat`, census | `a74a6d6213602979` | 14,042 | **12** | the census of 2026-09-11 and everything after it: `mmlu-q5-{shipped,oproj,downproj,vod}-FULL`, `mmlu-q5-down-{0-11,12-23,24-35}`, `mmlu-{temoin,corrige}-FULL`, `mmlu-4b-f16-FULL`, and the first two 8B dumps ever scored on this plan, `mmlu-8b-{tetra,vod}-FULL` |
 | no fingerprint line | none | 2,280 | 7 | the foreign-stack arms (vLLM, GGUF, HF), which pair with neither group by fingerprint |
+
+The census group is where every 2026-09-18 result lives, and `mmlu-4b-f16-FULL` is its
+denominator: the first f16 ever scored on the 14,042 questions, 70.14 micro.
 
 Consequence, and it is the one that costs money: an arm measured at `limit=40` cannot be
 paired against the census, and re-barring a published arm on the census plan means re-running

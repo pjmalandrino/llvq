@@ -1,0 +1,63 @@
+THE F16 REFERENCE ON THE FULL SPLIT: 70.14, AND EVERY PUBLISHED GAP NOW HAS ONE
+POPULATION (2026-09-18)
+================================================================================
+Job 6aad0dd951992417dfcc68a4, l40sx1, 23 min billed, $0.68 against the $0.72
+announced. Queued 20 min behind our own card, unbilled.
+Prereg: proofs/preregistration-f16-full-2026-09-18.md, stamped
+  sha256 2719b5b52f449818addb5521f54138e7d6b1f568c105fd7923389587b1e0e804,
+  four calendars, before the launch. No deviation.
+Data: docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv
+Nature: *measured*
+
+THE RESULT
+-----------
+  Qwen3-4B, f16, 14,042 questions   **70.14 micro / 72.36 macro**
+
+  prereg point 70.3, interval [69.0, 71.6]   INSIDE, 0.16 from the point
+  the paper's Table 6 FP16                   70.2, so 0.06 apart
+
+WHY IT WAS OWED
+----------------
+Every sentence of the form "N points below f16" in this repository divided a
+full-split number by a 2,280-question estimate. The estimate is 70.32 and it had
+never been checked against the population it stands for.
+
+It now is, and the estimate was **0.18 pp high**, not low. The served object's
+own sample sat 0.85 pp **below** its full value, so the two shifts have opposite
+signs and the sample bias is not systematic. The prereg named a result above
+71.6 as the one that would have meant every published gap here is too small.
+That did not happen.
+
+WHAT IT REPAIRS IMMEDIATELY
+----------------------------
+  gap to f16, before this run   70.32 - 56.37 = 13.95, two populations
+  gap to f16, now               **70.14 - 56.37 = 13.77**, one population
+
+The `v + o + down` prereg of the same afternoon built its point estimate on the
+13.95, and its deviation E1 records the recomputation: the point moves from
++5.15 to +5.22 against a measured +5.39.
+
+And the retained fraction of f16 becomes a same-population quantity:
+
+  arm                     micro    retained
+  Q5 served               56.37     80.4 %
+  + o_proj                58.07     82.8 %
+  + down_proj             60.44     86.2 %
+  + o + down              61.76     88.1 %
+  8B Tetra                63.85     n/a, no 8B f16 on this split
+  8B + v + o + down       68.03     n/a
+
+METHOD NOTE WORTH KEEPING
+--------------------------
+The prereg's point was not a guess. It is the population-reweighted estimate of
+the existing 2,280 dump, recomputed the same day, and that recomputation
+reproduces both the published 70.32 and the served object's published 55.52 **to
+the hundredth**. What that establishes on its own: the "micro" this repository
+publishes on a sample is already a stratified estimate, not a raw count. The raw
+count on the f16 sample is 72.76.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about any quantized arm. This is one number and a denominator.
+- Nothing about the 8B or the 14B, whose f16 exists only on the 2,280 sample.
+- Nothing about perplexity.

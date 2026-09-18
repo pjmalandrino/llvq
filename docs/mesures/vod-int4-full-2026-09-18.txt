@@ -1,0 +1,86 @@
+V + O + DOWN AT INT4: 61.76 MICRO, AND THE GAINS ADD TO 96 % (2026-09-18)
+================================================================================
+Job 6aad0b8051992417dfcc6867, l40sx1, 47 min billed, $1.40 against the $1.42
+announced. Peak VRAM 12.166 GB.
+Prereg: proofs/preregistration-vod-int4-full-2026-09-18.md, stamped
+  sha256 48c319fec8b463bc44741ec5a50f070d09ebffbe92d2f19788724a28a2c48320,
+  four calendars, before the launch. Deviation E1 beside it.
+Data: docs/data/mmlu-dumps/mmlu-q5-vod-FULL.csv
+Raw: vod-int4-full-2026-09-18-brut/
+Nature: *measured*
+
+THE RESULT
+-----------
+Two arms of the same served Q5 file, full split, one job, one card.
+
+  shipped                  56.37 micro / 58.42 macro
+  o_proj + down_proj       61.76 micro / 63.94 macro
+
+  paired, full split       +5.39 pp   CI95 [+4.65 ; +6.14]   SE 0.38
+  McNemar                  1,063 against 1,820 discordant, p = 1.6e-45
+  discordance              20.5 %
+
+Decision row 1 of section 5: >= +4.5 pp and the interval excludes zero. The
+combination holds.
+
+THE NUMBER THIS RUN EXISTED FOR
+--------------------------------
+  arithmetic sum of the two confirmed arms   +5.60 pp
+  multiplicative model, the prereg's point   +5.15 pp
+  **measured**                               **+5.39 pp**
+
+So **the gains add to 96.3 %**, and the interaction costs 0.21 pp. That is what
+makes a knapsack over matrices a legitimate model rather than a hope, and it is
+the only measurement of additivity in this repository.
+
+THE PER-BIT GATE, WHICH SAYS NO
+--------------------------------
+The prereg computed the bar before the run: `down_proj` alone returns 7.82 pp
+per kernel b/weight, so the combination had to exceed **+5.76 pp** to be better
+value per bit.
+
+  o_proj alone     +1.55 pp / 0.2182 = 7.10 pp per kernel b/weight
+  down_proj alone  +4.05 pp / 0.5182 = 7.82
+  v + o + down     +5.39 pp / 0.7364 = **7.32**
+
+Adding `o_proj` on top of `down_proj` returns +1.32 pp for 0.2182, that is 6.05
+pp per b/weight, below both. **The arm gains more and is worth less per bit.**
+Under a tight budget the allocation would be `down_proj` alone. The budget is
+not tight: 2.9408 fits under b_max with 0.0592 to spare.
+
+THE BUDGET
+-----------
+  v + o + down   2.9408 kernel b/weight native, 7.3661 dequantized
+                 3.4778 b/param whole model
+  margin under b_max  0.0592
+
+*computed* on 3,633,315,840 projection weights, `Tetra` 2.1498, int4 g128 4.250,
+the b/param column anchored on the 2.8126 `rtbits` measured on the served file.
+
+WHERE IT PUTS THE OBJECT
+-------------------------
+The paper's Table 6, Qwen3-4B, no fine-tuning: LLVQ 60.7, QTIP 57.4. With
+fine-tuning: LLVQ 62.8, QTIP 59.5. This arm reads **61.76**.
+
+Above their best non-fine-tuned by 1.06 and above their fine-tuned QTIP by 2.26.
+**At 47 % more bits**: their 60.7 is at 2.000 kernel b/weight and this is at
+2.9408. Per bit they are ahead, and the rate-comparable line is our bare `Tetra`
+at 2.1498, which reads 53.49 on the 2,280 sample.
+
+CONTROLS
+---------
+1. Identical fingerprint a74a6d6213602979 on both arms, 14,042 questions.
+2. The reference arm is byte-identical to the committed dumps of 2026-09-17 and
+   of the `down_proj` job, `cmp` clean. Three jobs, the same bytes.
+3. Both dumps committed.
+4. `oracle` ran first.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about serving it. Dense reconstruction of dequantized int4 tensors, no
+  file carries either type as int4 records, and no kernel has run on 2560 x 4096
+  or 9728 x 2560. Without native kernels the arm reads 7.3661 kernel b/weight.
+- Nothing about a third or fourth type: `q_proj`, `k_proj`, `gate_proj` and
+  `up_proj` carry exploration figures with no multiplicity correction.
+- Nothing about throughput: two more int4 shapes mean two more kernels.
+- Nothing about perplexity, another model or another size.

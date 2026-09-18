@@ -1,0 +1,88 @@
+THE ALLOCATION TRANSPOSES TO THE 8B, WEAKLY: +4.18 PP AND 26 % LESS PER BIT
+(2026-09-18)
+================================================================================
+Job 6aad466652d0dbd7f1d6a262, l40sx1, 69 min billed, $2.07 against the $2.85
+announced. Peak VRAM 20.358 GB.
+Prereg: proofs/preregistration-vod-8b-2026-09-18.md, stamped
+  sha256 25d9990e78a83f0b..., four calendars, before the launch. No deviation.
+Data: docs/data/mmlu-dumps/mmlu-8b-{tetra,vod}-FULL.csv
+Nature: *measured*
+
+THE RESULT
+-----------
+Two arms of the bare `Tetra` 8B, full split, one job, one card. The 8B has no Q5
+mix, so `v_proj` sits inside the arm rather than in the baseline.
+
+  bare Tetra 8B              63.85 micro / 65.14 macro
+  v + o + down at int4       68.03 micro / 69.78 macro
+
+  paired    +4.18 pp   CI95 [+3.48 ; +4.89]   SE 0.36
+  McNemar   979 against 1,566 discordant, p = 1.9e-31, 18.1 % discordant
+
+Both predictions landed inside: the gain against +7.0 [+3.0, +11.0] and the
+reference against 62.5 [60.5, 64.5]. The gain is in the **bottom third** of its
+interval, which fires decision row 2.
+
+DECISION ROW 2: IT TRANSPOSES WEAKLY
+-------------------------------------
+  4B, the o + down increment   +5.39 pp / 0.7364 = 7.32 pp per kernel b/weight
+  8B, v + o + down             +4.18 pp / 0.7762 = **5.39**
+
+**26 % less per bit at twice the size.** The caveat, and it is real: the two
+increments are not the same one. The 8B's includes `v_proj`, and the bare
+`Tetra` 4B has never been scored on the full split, so no strictly paired
+comparison exists. What the number does say is that nothing about the 8B's
+larger error made the allocation pay better there.
+
+THE BUDGET TRANSPOSES ALMOST EXACTLY
+-------------------------------------
+*computed*, 6,945,767,424 projection weights, `Tetra` 2.1498, int4 g128 4.250:
+
+  arm             int4 weights   kernel b/weight   margin under 3.00
+  Tetra nu                   0        2.1498            0.8502
+  v                150,994,944        2.1955            0.8045
+  v + o            754,974,720        2.3781            0.6219
+  v + o + down   2,566,914,048        **2.9260**        **0.0740**
+
+against the 4B's 2.9408 and 0.0592.
+
+TWO THINGS THIS RUN GIVES AWAY FOR FREE
+----------------------------------------
+1. **The first 8B dumps on the census plan.** No 8B had ever been scored on the
+   14,042 questions.
+2. **The 2,280 sample under-estimated the 8B by 2.24 pp**, 61.61 against 63.85,
+   where it under-estimated the 4B by 0.85. Nearly three times the shift. Any
+   8B figure in this repository read on the sample is low by about two points.
+
+WHERE IT PUTS THE 8B
+---------------------
+68.03 micro at 2.9260 kernel b/weight, 6.27 pp above the 4B's best arm. The
+paper's 4B numbers are not a comparison for it, and no 8B f16 exists on this
+split, so the retained fraction cannot be stated on one population.
+
+WHAT IT SAYS ABOUT THE CAP
+---------------------------
+The lever loses 26 % of its return per bit from 4B to 8B. If that continues,
+buying quality with bits pays little at 14B and beyond, which is where the
+memory argument actually lives. The two levers that are **free in bits**,
+calibration and compensation, have no measured reason to fade with size, and
+the diagnostic of the same morning put the compensation at 7.5 times the
+codebook.
+
+CONTROLS
+---------
+1. One job, one card, one fingerprint on both arms.
+2. The treatment arm's log declares `v_proj,o_proj,down_proj at int4 g128
+   (dequantized)`, 108 matrices.
+3. 14,042 questions scored on both.
+4. Both dumps committed.
+5. `oracle` ran first.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about serving it: dense reconstruction of dequantized int4, and no
+  kernel has run on any 8B shape.
+- Nothing about the 14B, which exists only as `Planes14` with no `Tetra`
+  encoding, and which the `rot_apply` wall closes anyway.
+- Nothing about slicing at the 8B: the three types were taken whole.
+- Nothing about perplexity, which is not measured here.

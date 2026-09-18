@@ -1,0 +1,86 @@
+model: /out/tetra-8b-2026-09-06/qwen3-8b-tetra.bin [LLVQ 2-bit, sealed]
+device: Cuda(CudaDevice(DeviceId(1))), dtype f16
+loading MMLU…
+14042 questions, 57 subjects, 285 dev examples
+
+allocation: flat, 100..1534 per subject, 14042 questions
+dumping per-question results to /out/vod-8b-2026-09-18/mmlu-8b-tetra-FULL.csv
+  abstract algebra                          36/100    36.0 %   (micro 36.00 %, 7s)
+  anatomy                                   77/135    57.0 %   (micro 48.09 %, 15s)
+  astronomy                                118/152    77.6 %   (micro 59.69 %, 29s)
+  business ethics                           74/100    74.0 %   (micro 62.63 %, 38s)
+  clinical knowledge                       190/265    71.7 %   (micro 65.82 %, 56s)
+  college biology                          100/144    69.4 %   (micro 66.41 %, 67s)
+  college chemistry                         41/100    41.0 %   (micro 63.86 %, 76s)
+  college computer science                  57/100    57.0 %   (micro 63.23 %, 89s)
+  college mathematics                       43/100    43.0 %   (micro 61.54 %, 99s)
+  college medicine                         118/173    68.2 %   (micro 62.38 %, 113s)
+  college physics                           46/102    45.1 %   (micro 61.18 %, 121s)
+  computer security                         74/100    74.0 %   (micro 62.00 %, 128s)
+  conceptual physics                       156/235    66.4 %   (micro 62.57 %, 142s)
+  econometrics                              70/114    61.4 %   (micro 62.50 %, 153s)
+  electrical engineering                    92/145    63.4 %   (micro 62.57 %, 164s)
+  elementary mathematics                   233/378    61.6 %   (micro 62.42 %, 198s)
+  formal logic                              67/126    53.2 %   (micro 61.97 %, 210s)
+  global facts                              42/100    42.0 %   (micro 61.22 %, 217s)
+  high school biology                      246/310    79.4 %   (micro 63.11 %, 242s)
+  high school chemistry                    119/203    58.6 %   (micro 62.82 %, 258s)
+  high school computer science              77/100    77.0 %   (micro 63.25 %, 271s)
+  high school european history             133/165    80.6 %   (micro 64.08 %, 380s)
+  high school geography                    158/198    79.8 %   (micro 64.94 %, 393s)
+  high school government and politics      161/193    83.4 %   (micro 65.87 %, 408s)
+  high school macroeconomics               259/390    66.4 %   (micro 65.92 %, 433s)
+  high school mathematics                  114/270    42.2 %   (micro 64.50 %, 457s)
+  high school microeconomics               189/238    79.4 %   (micro 65.24 %, 474s)
+  high school physics                       71/151    47.0 %   (micro 64.68 %, 488s)
+  high school psychology                   442/545    81.1 %   (micro 66.33 %, 532s)
+  high school statistics                   127/216    58.8 %   (micro 66.04 %, 560s)
+  high school us history                   160/204    78.4 %   (micro 66.47 %, 657s)
+  high school world history                194/237    81.9 %   (micro 67.07 %, 718s)
+  human aging                              150/223    67.3 %   (micro 67.08 %, 732s)
+  human sexuality                           91/131    69.5 %   (micro 67.13 %, 741s)
+  international law                         87/121    71.9 %   (micro 67.22 %, 753s)
+  jurisprudence                             76/108    70.4 %   (micro 67.27 %, 760s)
+  logical fallacies                        118/163    72.4 %   (micro 67.39 %, 773s)
+  machine learning                          46/112    41.1 %   (micro 66.96 %, 785s)
+  management                                80/103    77.7 %   (micro 67.12 %, 791s)
+  marketing                                204/234    87.2 %   (micro 67.76 %, 808s)
+  medical genetics                          70/100    70.0 %   (micro 67.80 %, 814s)
+  miscellaneous                            598/783    76.4 %   (micro 68.62 %, 864s)
+  moral disputes                           233/346    67.3 %   (micro 68.57 %, 892s)
+  moral scenarios                          379/895    42.3 %   (micro 66.07 %, 988s)
+  nutrition                                213/306    69.6 %   (micro 66.18 %, 1017s)
+  philosophy                               197/311    63.3 %   (micro 66.09 %, 1038s)
+  prehistory                               226/324    69.8 %   (micro 66.21 %, 1066s)
+  professional accounting                  145/282    51.4 %   (micro 65.82 %, 1099s)
+  professional law                         713/1534   46.5 %   (micro 63.38 %, 1559s)
+  professional medicine                    159/272    58.5 %   (micro 63.27 %, 1610s)
+  professional psychology                  401/612    65.5 %   (micro 63.38 %, 1666s)
+  public relations                          68/110    61.8 %   (micro 63.36 %, 1674s)
+  security studies                         180/245    73.5 %   (micro 63.55 %, 1724s)
+  sociology                                154/201    76.6 %   (micro 63.74 %, 1739s)
+  us foreign policy                         80/100    80.0 %   (micro 63.86 %, 1747s)
+  virology                                  88/166    53.0 %   (micro 63.73 %, 1758s)
+  world religions                          126/171    73.7 %   (micro 63.85 %, 1768s)
+
+/out/tetra-8b-2026-09-06/qwen3-8b-tetra.bin [LLVQ 2-bit, sealed]
+MMLU 5-shot — 14042 questions scored out of 14042, 57 subjects, dtype f16, tokens a74a6d6213602979
+  --------------------------------------------------------
+  best:
+    marketing                                 87.2 %
+    high school government and politics       83.4 %
+    high school world history                 81.9 %
+  worst:
+    abstract algebra                          36.0 %
+    college chemistry                         41.0 %
+    machine learning                          41.1 %
+  --------------------------------------------------------
+  MMLU (micro, = paper) = 63.85 % ± 0.00  [kv f16]
+  MMLU (macro, per subject) = 65.14 %
+
+  Dump written. Two arms are compared on the dumps, not on these two
+  lines: `cargo run --release -p llvq-llm --bin mmlupair -- <a> <b>`.
+
+  Paper reference points (Qwen3-4B, Table 6): FP16 70.2 · LLVQ 60.7 · QTIP 57.4.
+  If FP16 does not land near 70, the protocol is what needs fixing,
+  not the model.
