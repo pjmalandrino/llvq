@@ -114,8 +114,8 @@ candidate again on the memory axis, not a decided arm.
 
 ## 6. Hypothesis, with no artifact in the repository
 
-`tetrahist` and PGMR have zero occurrences in any `.rs`, `.md`, `.txt` or `.py` file
-(*measured*, 2026-09-17). Three independent E8 codebooks do not exist here either, and the
+`tetrahist` has zero occurrences in any `.rs`, `.md`, `.txt` or `.py` file (*measured*,
+2026-09-17). Three independent E8 codebooks do not exist here either, and the
 only E8 figure in the record is published, QuIP# E8P12 at 21.15 perplexity and 48.6 MMLU. A
 multi-shell Leech comparison has parts: `llvq-core` carries the shells, and `leech1c12` and
 `leech0c13` were measured. Q6a is row 17 of `ROADMAP-QUALITY`, at +2 to +5 pp *estimated* for
@@ -126,10 +126,18 @@ about 18 M free parameters and zero bits, and no training loop exists in this re
 | lead | verdict |
 |---|---|
 | K-best beam, row 12 | paused, not refuted. One selector failed on 48 rows of one pilot |
-| gain centroid rescaling | closed by the MMLU loss; the T sweep was cancelled before billing |
+| gain centroid rescaling, the operator's PGMR | closed by the MMLU loss; the T sweep was cancelled before billing |
 | Euclidean gain rule | closed, 4 % of perplexity |
 | centroid scalar | not a small lever, not a lever |
 | Tetra gain rule as a served change | +0.02 pp once its shrink is held fixed |
+
+PGMR is the operator's name for the gain centroid rescaling axis (operator, 2026-09-18). It
+appears under that name in no file, which is why an earlier reading filed it as a lead with no
+artifact. It has two members, and both are closed. The per-matrix map bought 17.4 % of
+perplexity at the 4B and lost 3.06 pp of MMLU on 14,042 questions. The single global scalar
+bought 0.836 % of perplexity at the 0.6B, and applied post hoc it was worse than the sweep
+that found it. The axis is the sharpest case in this repository of a better proxy composing
+worse, and the two metrics move in opposite directions with both resolved.
 
 ## 8. The two references, by fingerprint
 
