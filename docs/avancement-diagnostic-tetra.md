@@ -12,7 +12,7 @@ Running cost: **$0**. No card, no job. About 15 min of Mac and 4.7 GB of disk.
 | 1 | Reconcile the state | **done** 09-17 | [etat-reconcilie-2026-09-17](etat-reconcilie-2026-09-17.md). Four distinct rho named; the int4 budget redone in kernel b/weight, where every type fits | $0, 4 h |
 | 2 | Fix the references and the accounting | **done** 09-18 | [references-comptabilite-2026-09-18](mesures/references-comptabilite-2026-09-18.txt). Both references fingerprinted, accounting read off the files; the served object's recorded sha256 was its prereg's | $0, 2 bucket reads |
 | 3 | A reusable set of real dumps | **done** 09-18 | [tetra-diag-4b-2026-09-18](mesures/tetra-diag-4b-2026-09-18.txt). 30 cells, 120 rows at the 4B, three arms; the pilot's volume inflates held-out regret 2.8 to 19 times | $0, 5 min, 4.7 GB |
-| 4 | Tetra against two geometric references | **blocked on code** | nothing. Three independent E8 codebooks do not exist in the repository | to be costed |
+| 4 | Tetra against two geometric references | **arbitration prepared** 09-18 | [arbitrage-e8-2026-09-18](arbitrage-e8-2026-09-18.md). The paper's E8 number is confounded; lattice theory bounds the gap at 9.0 % of MSE, so E8 is a simplicity probe, not a quality hunt. Prediction registered at 3.2 points of retention | option A: ~1 day, ~300 lines, $0 |
 | 5 | The rho factorial, if it is a new experiment | **reframed by step 1** | rho_H cannot be varied alone: selection and compensation come from one `GptqFactor` | to be costed |
 | 6a | `tetrahist` and a concrete compaction | **not started** | nothing exists under that name | to be costed |
 | 6b | Q6a, distilling the format's free parameters | **not started** | row 17 of `ROADMAP-QUALITY`, +2 to +5 pp *estimated*, ~18 M parameters, zero bits | audit owed first |
@@ -33,8 +33,10 @@ on the v64 arm. That run read its -8.763 % off the pilot's volume.
 1. **The two adoption gates.** o_proj needs a `kind = 2` writer and a native int4 kernel on
    2560 x 4096, which has only ever run on 1024 x 2560. `down_proj` needs the held-out
    confirmation o_proj received, and its budget objection is withdrawn.
-2. **Step 4 without E8.** If a reference E8 implementation is not fundable, the geometric
-   diagnostic reduces to `Tetra` against multi-shell Leech and loses its external comparison.
+2. **Step 4, the E8 option.** Three options are costed in the dossier. Option A is ~1 day and
+   ~300 lines in `llvq-bench`, because E8's norm-10 codebook is 455 kB and brute-forces, where
+   Λ₂₄ needed 7,138 lines. It also verifies two constants the repository cites without
+   transcribing.
 3. **PGMR's letters.** Filed as the gain centroid rescaling axis, which is the only lever in
    the record that gained perplexity and was abandoned. A second reading is possible: the
    pilot carries a `projected_gain` field, and the projection gain rule is a different lever
