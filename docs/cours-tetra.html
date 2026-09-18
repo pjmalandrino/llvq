@@ -1,0 +1,819 @@
+<title>Tetra, de Leech à la VRAM</title>
+
+<style>
+  /* ---------- jetons : clair (défaut), sombre système, sombre forcé ---------- */
+  :root {
+    --paper: #fafbfc;
+    --surface: #ffffff;
+    --ink: #1c2733;
+    --muted: #5a6879;
+    --faint: #8b98a8;
+    --line: #dde3ea;
+    --line-strong: #c3ccd6;
+    --accent: #2e6bd6;
+
+    --c-golay: #a06e14;   /* le code */
+    --c-leech: #6a4fb6;   /* le réseau */
+    --c-tetra: #0d7a6b;   /* le format */
+    --c-p14:   #2e6bd6;   /* Planes14, le point de comparaison */
+    --c-dense: #7d8a99;   /* f16 */
+
+    --t-golay: #f4ecdb;
+    --t-leech: #eae5f7;
+    --t-tetra: #dcf0ec;
+    --t-p14:   #e3ecfa;
+    --t-pad:   #eef1f5;
+
+    --chip-ok-bg: #e2f2e8;    --chip-ok-ink: #1a6b3c;
+    --chip-warn-bg: #fbeedb;  --chip-warn-ink: #8a5a10;
+    --chip-off-bg: #eef1f5;   --chip-off-ink: #4d5a68;
+
+    --code-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181f;
+      --surface: #1b212b;
+      --ink: #e3e8ef;
+      --muted: #93a0b0;
+      --faint: #6c7887;
+      --line: #2b333f;
+      --line-strong: #3c4654;
+      --accent: #4a80e0;
+
+      --c-golay: #c08c2c;
+      --c-leech: #9b83e0;
+      --c-tetra: #2ba894;
+      --c-p14:   #4a80e0;
+      --c-dense: #8d9aa9;
+
+      --t-golay: #2a2416;
+      --t-leech: #211d33;
+      --t-tetra: #11302b;
+      --t-p14:   #1a2637;
+      --t-pad:   #232a35;
+
+      --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
+      --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
+      --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
+
+      --code-bg: #232a35;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181f;
+    --surface: #1b212b;
+    --ink: #e3e8ef;
+    --muted: #93a0b0;
+    --faint: #6c7887;
+    --line: #2b333f;
+    --line-strong: #3c4654;
+    --accent: #4a80e0;
+
+    --c-golay: #c08c2c;
+    --c-leech: #9b83e0;
+    --c-tetra: #2ba894;
+    --c-p14:   #4a80e0;
+    --c-dense: #8d9aa9;
+
+    --t-golay: #2a2416;
+    --t-leech: #211d33;
+    --t-tetra: #11302b;
+    --t-p14:   #1a2637;
+    --t-pad:   #232a35;
+
+    --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
+    --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
+    --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
+
+    --code-bg: #232a35;
+  }
+
+  /* ---------- base ---------- */
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+    font-size: 17px;
+    line-height: 1.62;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding-block: 3.5rem 5rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+  .wide { max-width: 56rem; margin-left: auto; margin-right: auto; }
+
+  h1, h2, h3, .sans {
+    font-family: "Avenir Next", "Segoe UI", -apple-system, system-ui, sans-serif;
+  }
+  h1 { font-size: 2.1rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; margin: 0.4rem 0 0.9rem; text-wrap: balance; }
+  h2 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.01em; margin: 3rem 0 0.8rem; text-wrap: balance; }
+  h3 { font-size: 1.05rem; font-weight: 600; margin: 1.8rem 0 0.5rem; }
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  .eyebrow {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .lede { font-size: 1.12rem; color: var(--muted); margin-bottom: 0.4rem; }
+  .meta { font-size: 0.85rem; color: var(--faint); }
+
+  .secnum { color: var(--faint); font-weight: 500; margin-right: 0.5rem; font-variant-numeric: tabular-nums; }
+
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+
+  .num { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.92em; font-variant-numeric: tabular-nums; }
+
+  .prov {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.66rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--faint); border: 1px solid var(--line-strong); border-radius: 3px;
+    padding: 0.05rem 0.3rem; white-space: nowrap; vertical-align: 0.12em;
+  }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 0.9rem 1.1rem;
+    margin: 1.4rem 0;
+    font-size: 0.95rem;
+  }
+  .callout.warn { border-left-color: var(--c-golay); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .chip {
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    border-radius: 99px; padding: 0.14rem 0.6rem; white-space: nowrap;
+  }
+  .chip.ok   { background: var(--chip-ok-bg);   color: var(--chip-ok-ink); }
+  .chip.warn { background: var(--chip-warn-bg); color: var(--chip-warn-ink); }
+  .chip.off  { background: var(--chip-off-bg);  color: var(--chip-off-ink); }
+
+  /* ---------- blocs de formule ---------- */
+  .formula {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 1.1rem 0;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.84rem;
+    line-height: 1.75;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .formula b { color: var(--c-tetra); font-weight: 600; }
+
+  /* ---------- diagrammes de bits ---------- */
+  .bits-scroll { overflow-x: auto; padding-bottom: 0.4rem; margin: 0.9rem 0 0.4rem; }
+  .bits { display: flex; align-items: stretch; --bit: 11px; min-width: max-content; }
+  .bits.small { --bit: 5.1px; }
+  .field {
+    border: 1px solid var(--line-strong);
+    border-right-width: 0;
+    padding: 0.32rem 0.15rem 0.26rem;
+    text-align: center;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    line-height: 1.25;
+    color: var(--ink);
+    background: var(--surface);
+    overflow: hidden; white-space: nowrap;
+  }
+  .field:first-child { border-radius: 6px 0 0 6px; }
+  .field:last-child { border-right-width: 1px; border-radius: 0 6px 6px 0; }
+  .field small { display: block; color: var(--muted); font-size: 0.62rem; }
+  .f-par   { background: var(--t-leech); }
+  .f-golay { background: var(--t-golay); }
+  .f-rank  { background: var(--t-tetra); }
+  .f-gain  { background: var(--code-bg); }
+  .f-p14   { background: var(--t-p14); }
+  .f-pad   { background: transparent; border-style: dashed; color: var(--faint); }
+  .bits-note { font-size: 0.8rem; color: var(--faint); margin-top: 0.3rem; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    font-size: 0.8rem; color: var(--muted); margin: 0.5rem 0 1rem;
+  }
+  .swatch { width: 0.65em; height: 0.65em; border-radius: 2px; display: inline-block; margin-right: 0.4em; border: 1px solid var(--line-strong); }
+
+  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.35rem; }
+
+  /* ---------- tables ---------- */
+  .tbl-scroll { overflow-x: auto; margin: 1.2rem 0; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font-size: 0.9rem;
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  }
+  th, td { padding: 0.5rem 0.7rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-size: 0.72rem; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line-strong);
+  }
+  td.n, th.n { text-align: right; }
+  td.n { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  tr.hl td { background: var(--surface); font-weight: 600; }
+
+  /* ---------- figures ---------- */
+  figure { margin: 1.8rem 0; }
+  figcaption { font-size: 0.82rem; color: var(--faint); margin-top: 0.6rem; font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+  .fig-scroll { overflow-x: auto; }
+  .fig-scroll svg { min-width: 560px; width: 100%; height: auto; display: block; }
+
+  .dg-box   { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+  .dg-fill-golay { fill: var(--t-golay); stroke: var(--c-golay); stroke-width: 1; }
+  .dg-fill-leech { fill: var(--t-leech); stroke: var(--c-leech); stroke-width: 1; }
+  .dg-fill-tetra { fill: var(--t-tetra); stroke: var(--c-tetra); stroke-width: 1; }
+  .dg-fill-p14   { fill: var(--t-p14);   stroke: var(--c-p14);   stroke-width: 1; }
+  .dg-fill-flat  { fill: var(--code-bg); stroke: var(--line-strong); stroke-width: 1; }
+  .dg-t     { fill: var(--ink); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 12.5px; }
+  .dg-t.b   { font-weight: 600; }
+  .dg-m     { fill: var(--muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; }
+  .dg-f     { fill: var(--faint); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 10.5px; }
+  .dg-k     { fill: var(--faint); font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
+  .dg-a     { stroke: var(--line-strong); stroke-width: 1.4; fill: none; }
+  .dg-a.hot { stroke: var(--c-tetra); stroke-width: 1.8; }
+  .dg-a.dash{ stroke-dasharray: 4 3; }
+  .dg-head  { fill: var(--line-strong); }
+  .dg-head-hot { fill: var(--c-tetra); }
+  .dg-bar-dense { fill: var(--c-dense); }
+  .dg-bar-p14   { fill: var(--c-p14); }
+  .dg-bar-tetra { fill: var(--c-tetra); }
+  .dg-rule  { stroke: var(--line); stroke-width: 1; }
+
+  footer { margin-top: 4rem; padding-top: 1.2rem; border-top: 1px solid var(--line); font-size: 0.82rem; color: var(--faint); }
+  footer ul { padding-left: 1.1rem; }
+  footer li { margin-bottom: 0.2rem; }
+  footer code { background: none; padding: 0; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">LLVQ · format Tetra · mini-cours</div>
+  <h1>Tetra, de Leech à la VRAM</h1>
+  <p class="lede">Comment 24 poids d'un LLM deviennent 48 bits sur un réseau de dimension 24, et comment ces 48 bits se relisent dans un noyau CUDA sans jamais se déplier.</p>
+  <p class="meta">Rédigé le 2026-09-18. Chiffres du format datés du 2026-09-06, chiffres de carte des 2026-09-10 et 2026-09-11, L40S. Chaque nombre porte son étiquette et son journal.</p>
+</header>
+
+<div class="callout">
+  <p><strong>Le fil en une phrase.</strong> La version v1 code un bloc de 24 poids par le rang du point dans une boule de <span class="num">1,1 · 10¹⁴</span> points, ce qui est optimal en bits et indécodable dans un noyau, donc le runtime le déplie à 14 octets par bloc. Tetra choisit un autre ensemble de points du même réseau, de sorte que les 47 bits se découpent en un mot lisible directement : <strong>6 octets en VRAM au lieu de 14</strong>, sans dépliage.</p>
+</div>
+
+<h2><span class="secnum">1</span>Ce qu'un bloc doit porter</h2>
+
+<p>Le fichier scellé code chaque bloc de 24 poids sur <strong>48 bits</strong> : 47 bits d'index de point et 1 bit de gain, soit <span class="num">2,000</span> b/poids de code <span class="prov">calculé</span>. C'est le régime « 2 bits » du projet, et c'est la seule chose qui ne change pas entre v1 et Tetra.</p>
+
+<p>Ce qui change est la question d'après. Pendant l'inférence, chaque projection lit tout le flux de poids une fois par jeton. L'index doit donc se relire <em>à l'intérieur</em> du produit matrice-vecteur, dans les bulles de latence mémoire, sans matérialiser une matrice dense. Trois chemins existent, et deux sont fermés :</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>chemin</th><th>ce qu'il demande</th><th>verdict</th></tr></thead>
+  <tbody>
+    <tr><td>table de correspondance</td><td>1,1 · 10¹⁴ entrées pour la boule Λ₂₄(12)</td><td>impossible, sans appel</td></tr>
+    <tr><td>décodage arithmétique en ligne</td><td>rang, cosets, Golay dans le noyau</td><td>fermé, tous les bras limités par le calcul (E1v à 0,25× f16 <span class="prov">mesuré</span>)</td></tr>
+    <tr class="hl"><td>dépliage au chargement</td><td>transcoder l'index en plans de bits</td><td>servi depuis 2026-08 sous le nom <code>Planes14</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Le dépliage est le prix d'entrée de la famille : il transforme 2,000 bits d'information en <span class="num">4,804</span> b/poids en VRAM, payés à la vitesse de la mémoire <span class="prov">mesuré</span>. Tetra est la première construction du dépôt qui ne le paie pas.</p>
+
+<h2><span class="secnum">2</span>Λ₂₄ en coordonnées entières</h2>
+
+<p>Le réseau de Leech se construit à partir du code de Golay binaire étendu <span class="num">[24, 12, 8]</span>, qui compte 4 096 mots, de distribution de poids <span class="num">1 + 759·x⁸ + 2576·x¹² + 759·x¹⁶ + x²⁴</span>. Les 759 mots de poids 8 sont les <strong>octades</strong>, et elles reviennent au cœur de Tetra.</p>
+
+<p>Dans le plongement entier <span class="num">√8·Λ₂₄ ⊂ Z²⁴</span>, l'appartenance est un test exact à trois conditions, sans flottant et sans tolérance.</p>
+
+<figure class="wide">
+  <div class="fig-scroll">
+  <svg viewBox="0 0 640 392" role="img" aria-label="Les trois conditions d'appartenance à Λ₂₄ dans le plongement entier, avec la colonne coset pair et la colonne coset impair">
+    <defs>
+      <marker id="ar1" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head" points="0,0 10,4 0,8"/>
+      </marker>
+    </defs>
+
+    <rect class="dg-fill-flat" x="120" y="8" width="400" height="38" rx="7"/>
+    <text class="dg-t b" x="320" y="32" text-anchor="middle">x, un bloc de 24 entiers</text>
+
+    <line class="dg-a" x1="320" y1="46" x2="320" y2="70" marker-end="url(#ar1)"/>
+
+    <rect class="dg-fill-leech" x="60" y="74" width="520" height="66" rx="7"/>
+    <text class="dg-t b" x="76" y="96">(i) parité uniforme</text>
+    <line class="dg-rule" x1="320" y1="104" x2="320" y2="132"/>
+    <text class="dg-m" x="76" y="126">pair : tous les xⱼ pairs</text>
+    <text class="dg-m" x="336" y="126">impair : tous les xⱼ impairs</text>
+
+    <line class="dg-a" x1="320" y1="140" x2="320" y2="164" marker-end="url(#ar1)"/>
+
+    <rect class="dg-fill-golay" x="60" y="168" width="520" height="66" rx="7"/>
+    <text class="dg-t b" x="76" y="190">(ii) le motif mod 4 est un mot de Golay</text>
+    <line class="dg-rule" x1="320" y1="198" x2="320" y2="226"/>
+    <text class="dg-m" x="76" y="220">{j : xⱼ ≡ 2 mod 4} ∈ G₂₄</text>
+    <text class="dg-m" x="336" y="220">{j : xⱼ ≡ 3 mod 4} ∈ G₂₄</text>
+
+    <line class="dg-a" x1="320" y1="234" x2="320" y2="258" marker-end="url(#ar1)"/>
+
+    <rect class="dg-fill-leech" x="60" y="262" width="520" height="66" rx="7"/>
+    <text class="dg-t b" x="76" y="284">(iii) la somme</text>
+    <line class="dg-rule" x1="320" y1="292" x2="320" y2="320"/>
+    <text class="dg-m" x="76" y="314">Σxⱼ ≡ 0 mod 8</text>
+    <text class="dg-m" x="336" y="314">Σxⱼ ≡ 4 mod 8</text>
+
+    <line class="dg-a" x1="320" y1="328" x2="320" y2="352" marker-end="url(#ar1)"/>
+
+    <rect class="dg-fill-tetra" x="120" y="356" width="400" height="36" rx="7"/>
+    <text class="dg-t b" x="320" y="379" text-anchor="middle">x ∈ √8·Λ₂₄</text>
+
+    <text class="dg-k" x="60" y="66">coset pair</text>
+    <text class="dg-k" x="336" y="66">coset impair</text>
+  </svg>
+  </div>
+  <figcaption>Les trois conditions de <code>llvq_core::Leech::contains</code>, telles que le code les teste, dans cet ordre. La colonne gauche est le coset pair, la colonne droite le coset impair. Aucun autre test n'existe : l'appartenance est décidée par ces trois lignes.</figcaption>
+</figure>
+
+<p>Avec la normalisation <span class="num">1/√8</span> le réseau est pair et unimodulaire. La couche <span class="num">m</span> est <span class="num">{v : ‖v‖² = 2m}</span>, soit <span class="num">‖x‖² = 16m</span> dans le plongement entier. La couche minimale est <span class="num">m = 2</span> avec <span class="num">196 560</span> vecteurs, le nombre de contacts de Λ₂₄. La suite thêta continue à 16 773 120 puis 398 034 000 puis 4 629 381 120, et la boule cumulée jusqu'à <span class="num">m = 12</span> contient <span class="num">111 043 117 458 000</span> points : d'où les 47 bits d'index.</p>
+
+<div class="callout">
+  <p><strong>Ces constantes ne viennent pas de l'article.</strong> Le nombre de contacts, les coefficients de la suite thêta et la distribution de poids du code de Golay sont publics et vérifiés par énumération exhaustive dans <code>llvq-core/tests/g1_invariants.rs</code>. Un générateur faux ne survit pas aux tests.</p>
+</div>
+
+<h2><span class="secnum">3</span>Du poids au bloc</h2>
+
+<p>Avant le réseau, trois transformations, et elles sont les mêmes pour v1 et pour Tetra.</p>
+
+<figure class="wide">
+  <div class="fig-scroll">
+  <svg viewBox="0 0 700 272" role="img" aria-label="La chaîne d'encodage : rotation d'incohérence, GPTQ et échelle de ligne, découpage en blocs de 24, code forme-gain, mot de 48 bits ; et la rotation appliquée à l'activation au moment de l'inférence">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head" points="0,0 10,4 0,8"/>
+      </marker>
+      <marker id="ar2h" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head-hot" points="0,0 10,4 0,8"/>
+      </marker>
+    </defs>
+
+    <text class="dg-k" x="8" y="20">hors ligne, une fois par modèle</text>
+
+    <rect class="dg-fill-flat" x="8" y="30" width="96" height="52" rx="7"/>
+    <text class="dg-t b" x="56" y="52" text-anchor="middle">W</text>
+    <text class="dg-f" x="56" y="70" text-anchor="middle">f16, dense</text>
+
+    <line class="dg-a" x1="104" y1="56" x2="140" y2="56" marker-end="url(#ar2)"/>
+    <text class="dg-f" x="122" y="46" text-anchor="middle">Qᵀ</text>
+
+    <rect class="dg-fill-leech" x="140" y="30" width="126" height="52" rx="7"/>
+    <text class="dg-t b" x="203" y="52" text-anchor="middle">W′ = W Qᵀ</text>
+    <text class="dg-f" x="203" y="70" text-anchor="middle">rotation d'incohérence</text>
+
+    <line class="dg-a" x1="266" y1="56" x2="302" y2="56" marker-end="url(#ar2)"/>
+
+    <rect class="dg-fill-flat" x="302" y="30" width="128" height="52" rx="7"/>
+    <text class="dg-t b" x="366" y="52" text-anchor="middle">GPTQ</text>
+    <text class="dg-f" x="366" y="70" text-anchor="middle">+ échelle de ligne</text>
+
+    <line class="dg-a" x1="430" y1="56" x2="466" y2="56" marker-end="url(#ar2)"/>
+
+    <rect class="dg-fill-flat" x="466" y="30" width="110" height="52" rx="7"/>
+    <text class="dg-t b" x="521" y="52" text-anchor="middle">blocs de 24</text>
+    <text class="dg-f" x="521" y="70" text-anchor="middle">le long de la ligne</text>
+
+    <line class="dg-a" x1="576" y1="56" x2="612" y2="56" marker-end="url(#ar2)"/>
+
+    <rect class="dg-fill-tetra" x="612" y="30" width="80" height="52" rx="7"/>
+    <text class="dg-t b" x="652" y="52" text-anchor="middle">48 bits</text>
+    <text class="dg-f" x="652" y="70" text-anchor="middle">par bloc</text>
+
+    <line class="dg-rule" x1="8" y1="106" x2="692" y2="106"/>
+
+    <text class="dg-k" x="8" y="130">le code d'un bloc, en deux morceaux</text>
+
+    <rect class="dg-fill-leech" x="8" y="142" width="330" height="56" rx="7"/>
+    <text class="dg-t b" x="24" y="164">forme : le point du réseau</text>
+    <text class="dg-m" x="24" y="185">47 bits, normalisé par ‖y‖ = √(16m)</text>
+
+    <rect class="dg-fill-golay" x="352" y="142" width="340" height="56" rx="7"/>
+    <text class="dg-t b" x="368" y="164">gain : 1 bit</text>
+    <text class="dg-m" x="368" y="185">2 centroïdes par matrice, × échelle de ligne</text>
+
+    <text class="dg-k" x="8" y="222">à l'inférence, par jeton</text>
+    <rect class="dg-fill-flat" x="8" y="232" width="80" height="30" rx="6"/>
+    <text class="dg-t" x="48" y="252" text-anchor="middle">x, f16</text>
+    <line class="dg-a hot" x1="88" y1="247" x2="148" y2="247" marker-end="url(#ar2h)"/>
+    <text class="dg-f" x="118" y="239" text-anchor="middle">rot_apply</text>
+    <rect class="dg-fill-tetra" x="148" y="232" width="90" height="30" rx="6"/>
+    <text class="dg-t" x="193" y="252" text-anchor="middle">Qx, f32</text>
+    <line class="dg-a hot" x1="238" y1="247" x2="298" y2="247" marker-end="url(#ar2h)"/>
+    <text class="dg-f" x="268" y="239" text-anchor="middle">matvec</text>
+    <rect class="dg-fill-flat" x="298" y="232" width="80" height="30" rx="6"/>
+    <text class="dg-t" x="338" y="252" text-anchor="middle">y, f16</text>
+    <text class="dg-f" x="392" y="252">le noyau ne dé-tourne jamais</text>
+  </svg>
+  </div>
+  <figcaption>La chaîne complète. La rotation est portée par les poids hors ligne et par l'activation en ligne, parce que <span class="num">y = W x = (W Qᵀ)(Q x)</span>. Se tromper de sens produit des nombres finis, plausibles et faux, sans aucune erreur.</figcaption>
+</figure>
+
+<p><strong>La rotation d'incohérence</strong> est <span class="num">Q = (Q_impair ⊗ H_m) D</span>, avec <span class="num">D</span> un tirage de signes, <span class="num">H_m</span> la transformée de Walsh-Hadamard normalisée et <span class="num">Q_impair</span> un petit bloc orthogonal pour la partie non puissance de deux. Elle existe parce qu'un quantificateur de réseau suppose une entrée à peu près isotrope, et que les lignes de poids réelles ne le sont pas : elles portent des canaux aberrants sur lesquels un dictionnaire de dimension 24 dépenserait toute sa résolution.</p>
+
+<p><strong>Le code forme-gain</strong> sépare la direction et la magnitude. La direction est le point du réseau, la magnitude est un bit qui choisit entre deux centroïdes de norme par matrice. La reconstruction est une seule formule, écrite une fois et appelée par l'encodeur comme par le décodeur :</p>
+
+<div class="formula">w[j]  =  y[j] · centroids[g] · rscale / <b>√(16 m)</b>        avec  m = ‖y‖² / 16
+
+le point est donc normalisé, puis remis à l'échelle. m = 0 est l'origine, reconstruite en zéros.</div>
+
+<p>Sur le 4B publié, <span class="num">0,4667 %</span> des poids ne passent pas par le réseau : c'est la queue <code>KeepExact</code>, gardée exacte après compensation GPTQ, parce que 2560 et 4096 ne sont pas des multiples de 24 <span class="prov">mesuré</span>.</p>
+
+<h2><span class="secnum">4</span>v1 : l'index de la boule, et pourquoi il se déplie</h2>
+
+<p>La v1 code la direction par le <strong>rang du point dans la boule Λ₂₄(12)</strong>, une bijection sur <span class="num">111 043 117 458 000</span> points, qui tient sur 47 bits et en laisse un pour le gain. C'est optimal : aucun autre codage du même ensemble ne fait mieux.</p>
+
+<p>Pour relire ce rang dans un noyau, il faudrait une table de 1,1 · 10¹⁴ entrées, ou refaire le calcul de rang par bloc. Le runtime fait donc un troisième choix : au chargement, chaque index est <strong>transcodé</strong> en un enregistrement que le GPU lit par décalages et masques. C'est <code>Planes14</code>, 112 bits soit 14 octets par bloc, à décalage uniforme.</p>
+
+<div class="bits-scroll"><div class="bits small">
+  <div class="field f-p14" style="width:calc(var(--bit)*9)">classe<small>9</small></div>
+  <div class="field f-gain" style="width:calc(var(--bit)*3);min-width:2rem">g<small>1</small></div>
+  <div class="field f-p14" style="width:calc(var(--bit)*24)">smask<small>24</small></div>
+  <div class="field f-p14" style="width:calc(var(--bit)*24)">plan₀<small>24</small></div>
+  <div class="field f-p14" style="width:calc(var(--bit)*24)">plan₁<small>24</small></div>
+  <div class="field f-p14" style="width:calc(var(--bit)*24)">plan₂<small>24</small></div>
+  <div class="field f-pad" style="width:calc(var(--bit)*6)">0<small>6</small></div>
+</div>
+<p class="bits-note"><code>Planes14</code>, 112 bits. Le niveau du slot j est <code>plan₀[j] | plan₁[j] &lt;&lt; 1 | plan₂[j] &lt;&lt; 2</code>, index dans une table constante de 384 entrées ; <code>smask</code> porte les signes.</p></div>
+
+<p>Une voie décode ce bloc en 24 tours fixes, trois tests de bit et un bit de signe, sans divergence. Le décodage est presque gratuit, et c'est bien le problème : il coûte <span class="num">4,6667</span> b/poids de charge utile et <span class="num">4,804</span> b/poids en comptabilité noyau, pour 2,000 bits d'information. <strong>On a payé de la mémoire pour acheter de l'arithmétique.</strong></p>
+
+<h2><span class="secnum">5</span>Tetra : réordonner les 24 coordonnées</h2>
+
+<p>Tetra part d'une observation sur la construction du réseau. Tout point du plongement entier s'écrit</p>
+
+<div class="formula">y[j]  =  <b>p</b>  +  2·<b>c</b>[j]  +  4·<b>k</b>[j]     avec  p ∈ {0,1} la parité partagée,
+                                  c un mot de Golay,
+                                  k ∈ Z²⁴  tel que  <b>Σk ≡ p (mod 2)</b></div>
+
+<p>Les conditions (i) et (ii) de la section 2 sont absorbées par la forme même de l'écriture, et la condition (iii) devient une seule contrainte de parité sur la somme des <span class="num">k</span>. Un point du réseau est donc : un bit, un mot de Golay, et un vecteur d'entiers portant un bit de parité globale.</p>
+
+<h3>Le trio, et pourquoi le code devient un treillis</h3>
+
+<p>Le code de Golay se lit comme un treillis : on coupe les 24 coordonnées en sections et on suit les états admissibles à chaque coupe. Sous l'ordre naturel du dépôt, chaque coupe porte 1 024 états et le mot déborde. Sous un ordre qui découpe les 24 coordonnées en <strong>trois octades disjointes</strong>, un <em>trio</em> trouvé parmi les 759 octades, chaque coupe ne porte plus que <span class="num">64</span> états de code, et les champs tiennent <span class="prov">calculé</span>.</p>
+
+<figure class="wide">
+  <div class="fig-scroll">
+  <svg viewBox="0 0 700 300" role="img" aria-label="Les 24 coordonnées naturelles réparties en trois octades disjointes, puis le treillis à trois sections avec ses deux coupes à 64 états">
+    <defs>
+      <marker id="ar3" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head" points="0,0 10,4 0,8"/>
+      </marker>
+    </defs>
+
+    <text class="dg-k" x="8" y="18">ordre naturel, 24 coordonnées</text>
+
+    <rect class="dg-fill-tetra" x="8"   y="28" width="24" height="24" rx="3"/><text class="dg-m" x="20"  y="45" text-anchor="middle">0</text>
+    <rect class="dg-fill-tetra" x="36"  y="28" width="24" height="24" rx="3"/><text class="dg-m" x="48"  y="45" text-anchor="middle">1</text>
+    <rect class="dg-fill-tetra" x="64"  y="28" width="24" height="24" rx="3"/><text class="dg-m" x="76"  y="45" text-anchor="middle">2</text>
+    <rect class="dg-fill-tetra" x="92"  y="28" width="24" height="24" rx="3"/><text class="dg-m" x="104" y="45" text-anchor="middle">3</text>
+    <rect class="dg-fill-tetra" x="120" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="132" y="45" text-anchor="middle">4</text>
+    <rect class="dg-fill-p14"   x="148" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="160" y="45" text-anchor="middle">5</text>
+    <rect class="dg-fill-golay" x="176" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="188" y="45" text-anchor="middle">6</text>
+    <rect class="dg-fill-tetra" x="204" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="216" y="45" text-anchor="middle">7</text>
+    <rect class="dg-fill-p14"   x="232" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="244" y="45" text-anchor="middle">8</text>
+    <rect class="dg-fill-p14"   x="260" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="272" y="45" text-anchor="middle">9</text>
+    <rect class="dg-fill-tetra" x="288" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="300" y="45" text-anchor="middle">10</text>
+    <rect class="dg-fill-golay" x="316" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="328" y="45" text-anchor="middle">11</text>
+    <rect class="dg-fill-tetra" x="344" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="356" y="45" text-anchor="middle">12</text>
+    <rect class="dg-fill-golay" x="372" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="384" y="45" text-anchor="middle">13</text>
+    <rect class="dg-fill-golay" x="400" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="412" y="45" text-anchor="middle">14</text>
+    <rect class="dg-fill-p14"   x="428" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="440" y="45" text-anchor="middle">15</text>
+    <rect class="dg-fill-golay" x="456" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="468" y="45" text-anchor="middle">16</text>
+    <rect class="dg-fill-golay" x="484" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="496" y="45" text-anchor="middle">17</text>
+    <rect class="dg-fill-golay" x="512" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="524" y="45" text-anchor="middle">18</text>
+    <rect class="dg-fill-golay" x="540" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="552" y="45" text-anchor="middle">19</text>
+    <rect class="dg-fill-p14"   x="568" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="580" y="45" text-anchor="middle">20</text>
+    <rect class="dg-fill-p14"   x="596" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="608" y="45" text-anchor="middle">21</text>
+    <rect class="dg-fill-p14"   x="624" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="636" y="45" text-anchor="middle">22</text>
+    <rect class="dg-fill-p14"   x="652" y="28" width="24" height="24" rx="3"/><text class="dg-m" x="664" y="45" text-anchor="middle">23</text>
+
+    <line class="dg-a" x1="350" y1="60" x2="350" y2="86" marker-end="url(#ar3)"/>
+    <text class="dg-f" x="360" y="78">permutation trio, constante, coût nul à la compilation</text>
+
+    <text class="dg-k" x="8" y="108">ordre trio : trois octades disjointes</text>
+
+    <rect class="dg-fill-tetra" x="8" y="118" width="216" height="40" rx="6"/>
+    <text class="dg-t b" x="116" y="136" text-anchor="middle">section 1</text>
+    <text class="dg-m" x="116" y="152" text-anchor="middle">0 1 2 3 4 7 10 12</text>
+
+    <rect class="dg-fill-golay" x="240" y="118" width="216" height="40" rx="6"/>
+    <text class="dg-t b" x="348" y="136" text-anchor="middle">section 2</text>
+    <text class="dg-m" x="348" y="152" text-anchor="middle">6 11 13 14 16 17 18 19</text>
+
+    <rect class="dg-fill-p14" x="472" y="118" width="216" height="40" rx="6"/>
+    <text class="dg-t b" x="580" y="136" text-anchor="middle">section 3</text>
+    <text class="dg-m" x="580" y="152" text-anchor="middle">5 8 9 15 20 21 22 23</text>
+
+    <line class="dg-a dash" x1="232" y1="112" x2="232" y2="232"/>
+    <line class="dg-a dash" x1="464" y1="112" x2="464" y2="232"/>
+
+    <text class="dg-m" x="232" y="200" text-anchor="middle">s8</text>
+    <text class="dg-f" x="232" y="216" text-anchor="middle">64 états</text>
+
+    <text class="dg-m" x="464" y="200" text-anchor="middle">s16</text>
+    <text class="dg-f" x="464" y="216" text-anchor="middle">64 états</text>
+
+    <text class="dg-f" x="116" y="200" text-anchor="middle">2 préfixes par état</text>
+    <text class="dg-m" x="116" y="216" text-anchor="middle">b1 : 1 bit</text>
+    <text class="dg-f" x="348" y="200" text-anchor="middle">16 branches par état</text>
+    <text class="dg-m" x="348" y="216" text-anchor="middle">b2 : 4 bits</text>
+    <text class="dg-f" x="580" y="200" text-anchor="middle">2 suffixes par état</text>
+    <text class="dg-m" x="580" y="216" text-anchor="middle">b3 : 1 bit</text>
+
+    <line class="dg-rule" x1="8" y1="248" x2="692" y2="248"/>
+    <text class="dg-t" x="8" y="272">6 + 1 + 4 + 1 = <tspan class="dg-t b">12 bits</tspan> de chemin, et 2¹² = 4 096 : le treillis énumère exactement le code.</text>
+    <text class="dg-f" x="8" y="290">1 024 arêtes au milieu sur 64 états, soit 16 branches ; l'application est F₂-linéaire, portée en immédiats par le décodeur.</text>
+  </svg>
+  </div>
+  <figcaption>Le trio pinné dans <code>llvq-search/src/tetra/mod.rs</code>, trouvé parmi les 759 octades et vérifié disjoint à la construction. Les couleurs distinguent les trois octades dans l'ordre naturel. Les 12 bits de chemin sont exactement les 12 bits d'information du code de Golay.</figcaption>
+</figure>
+
+<h3>La table universelle de rangs</h3>
+
+<p>Reste à coder les <span class="num">k</span>. Dans une section, chaque coordonnée vaut <span class="num">y[j] = o[j] + 4·k[j]</span> avec <span class="num">o[j] = p + 2·c[j] ∈ {0,1,2,3}</span> fixé par le bit de parité et l'octet de Golay de la section. La table ne stocke donc <strong>aucun point</strong> : elle stocke des <em>vecteurs de rangs</em>. La coordonnée j est le ρ[j]-ième membre de sa classe de résidu, listé vers l'extérieur depuis zéro, le membre positif d'une paire d'abord.</p>
+
+<div class="formula">o = 0 :   0,  +4,  −4,  +8,  −8, +12, −12, +16
+o = 2 :  +2,  −2,  +6,  −6, +10, −10, +14, −14
+o = 1 :  +1,  −3,  +5,  −7,  +9, −11, +13, −15
+o = 3 :  −1,  +3,  −5,  +7,  −9, +11, −13, +15</div>
+
+<p>Les vecteurs sont ordonnés par <span class="num">coût(ρ) = Σⱼ (2ρ[j] + 1)²</span>, égalités départagées lexicographiquement. La table garde les 2 048 meilleurs de chaque classe de parité, soit <strong>4 096 lignes de u32, un rang par quartet : 16 Kio</strong>. Aucun rang n'y dépasse 4, donc <span class="num">|y[j]| ≤ 10</span> sur tout le format.</p>
+
+<p>Le bit que le treillis doit filer entre les sections, la parité de <span class="num">Σk</span>, est une fonction de <span class="num">ρ</span> seul : sous <span class="num">o ∈ {0,1,2}</span> les <span class="num">k</span> impairs sont aux rangs <span class="num">{1,2,5,6}</span>, sous <span class="num">o = 3</span> à leur complémentaire, et un mot de Golay rencontre chaque octade du trio en un nombre pair de coordonnées, donc les bascules s'annulent sur les huit. <strong>C'est ce qui permet à une seule table de servir tous les motifs de tous les états.</strong> La contrainte <span class="num">Σk ≡ p</span> se file alors en trois temps : la section 1 déclare sa classe <span class="num">r</span>, la section 2 tombe dans un ordre mixte dont la classe atteinte est <span class="num">δ</span>, et la section 3 est forcée dans la classe <span class="num">p ⊕ r ⊕ δ</span>.</p>
+
+<h3>Le mot de 48 bits</h3>
+
+<div class="bits-scroll"><div class="bits">
+  <div class="field f-par" style="width:calc(var(--bit)*3);min-width:1.8rem">p<small>1</small></div>
+  <div class="field f-par" style="width:calc(var(--bit)*3);min-width:1.8rem">r<small>1</small></div>
+  <div class="field f-golay" style="width:calc(var(--bit)*6)">s8<small>6</small></div>
+  <div class="field f-golay" style="width:calc(var(--bit)*3);min-width:1.8rem">b1<small>1</small></div>
+  <div class="field f-rank" style="width:calc(var(--bit)*11)">i1<small>11</small></div>
+  <div class="field f-golay" style="width:calc(var(--bit)*4)">b2<small>4</small></div>
+  <div class="field f-rank" style="width:calc(var(--bit)*11)">i2<small>11</small></div>
+  <div class="field f-golay" style="width:calc(var(--bit)*3);min-width:1.8rem">b3<small>1</small></div>
+  <div class="field f-rank" style="width:calc(var(--bit)*11)">i3<small>11</small></div>
+  <div class="field f-gain" style="width:calc(var(--bit)*3);min-width:1.8rem">g<small>1</small></div>
+</div>
+<p class="bits-note">48 bits exactement, bit 0 en poids faible du u64. Les champs pavent 0..48 sans trou, et <code>Fields::join</code> refuse un champ trop large plutôt que de le tronquer : un index tronqué est un index valide pour un autre point.</p></div>
+
+<div class="legend">
+  <span><span class="swatch" style="background:var(--t-leech)"></span>parité : p partagée, r la classe de la section 1</span>
+  <span><span class="swatch" style="background:var(--t-golay)"></span>chemin de Golay : 12 bits</span>
+  <span><span class="swatch" style="background:var(--t-tetra)"></span>lignes de la table : 3 × 11 bits</span>
+  <span><span class="swatch" style="background:var(--code-bg)"></span>gain : 1 bit, jamais décodé par le format</span>
+</div>
+
+<p>Le compte tombe juste : <span class="num">1 + 1 + 12 + 33 = 47</span> bits d'étiquette, plus le bit de gain. Et à la différence de la boule, <strong>tout mot de 48 bits est une étiquette</strong> : le décodage est une bijection des 2⁴⁷ étiquettes sur 2⁴⁷ points du réseau. Il n'y a pas d'index hors domaine à valider au chargement.</p>
+
+<div class="callout warn">
+  <p><strong>Tetra n'indexe pas la boule, et ce n'est pas le même ensemble de points.</strong> La boule Λ₂₄(12) contient 111 043 117 458 000 points, Tetra en nomme 140 737 488 355 328, et il atteint des couches jusqu'à <span class="num">m = 27</span>. L'encodeur n'est donc pas un plus proche voisin exact : sur les blocs d'évaluation F1b il retient <span class="num">88,89 %</span> contre <span class="num">92,00 %</span> pour la boule, à 2,000 b/dim des deux côtés <span class="prov">mesuré</span>. C'est une rétention gaussienne sur blocs fixes, pas une mesure de qualité de modèle : la qualité réelle est en section 7, et elle va dans l'autre sens au 4B.</p>
+</div>
+
+<h2><span class="secnum">6</span>En VRAM : la disposition <code>tetra48</code></h2>
+
+<p>Le mot écrit par l'encodeur est le mot que lit le noyau. Le transcodage au chargement n'ajoute rien et ne retire rien : il change deux conventions, et rien d'autre.</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th></th><th>sur disque</th><th>en VRAM</th></tr></thead>
+  <tbody>
+    <tr><td>ordre des bits</td><td>MSB d'abord, dense, 47 bits d'index puis 1 de gain, bout à bout</td><td>petit-boutiste, 48 bits dans 6 octets</td></tr>
+    <tr><td>adressage</td><td>un flux continu par matrice</td><td>par lignes, <code>stride_u32</code> mots u32 par ligne</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Les lignes sont espacées parce qu'un enregistrement de 6 octets n'est pas aligné sur 4 : la lecture prend <code>row[(3j) &gt;&gt; 1]</code> et le mot suivant, donc une ligne doit démarrer sur une frontière de u32, sinon toutes les lignes après la première lisent à une phase décalée. Le pas est <span class="num">arrondi_sup(6·nblocs, 8) / 4</span>, et l'arrondi à 8 et non 4 couvre la fenêtre de deux mots du dernier bloc.</p>
+
+<h3>Ce que la carte porte à côté du flux</h3>
+
+<p>Cinq tables, constantes pour tout le modèle, et elles tiennent dans <span class="num">18 816</span> octets <span class="prov">calculé</span> :</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>table</th><th class="n">entrées</th><th class="n">octets</th><th>rôle</th></tr></thead>
+  <tbody>
+    <tr><td><code>rows</code></td><td class="n">4 096 × u32</td><td class="n">16 384</td><td>les vecteurs de rangs, 2 classes de 2 048</td></tr>
+    <tr><td><code>branches</code></td><td class="n">1 024 × u16</td><td class="n">2 048</td><td>arêtes du milieu : octet de motif et état suivant</td></tr>
+    <tr><td><code>prefixes</code></td><td class="n">128 × u8</td><td class="n">128</td><td>octet de la section 1, indexé par [s8][b1]</td></tr>
+    <tr><td><code>suffixes</code></td><td class="n">128 × u8</td><td class="n">128</td><td>octet de la section 3, indexé par [s16][b3]</td></tr>
+    <tr><td><code>invnorm</code></td><td class="n">32 × f32</td><td class="n">128</td><td>1/√(16m), entrée 0 mise à zéro pour l'origine</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Le décodage d'un bloc, dans l'ordre où le noyau le fait</h3>
+
+<figure class="wide">
+  <div class="fig-scroll">
+  <svg viewBox="0 0 700 366" role="img" aria-label="Le décodage d'un bloc Tetra : le mot de 48 bits donne le chemin de treillis et trois lignes de la table de rangs, qui se combinent en 24 valeurs, puis la norme par dp4a et le gain closent le produit">
+    <defs>
+      <marker id="ar4" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head" points="0,0 10,4 0,8"/>
+      </marker>
+    </defs>
+
+    <rect class="dg-fill-flat" x="240" y="8" width="220" height="34" rx="6"/>
+    <text class="dg-t b" x="350" y="30" text-anchor="middle">6 octets lus en VRAM</text>
+
+    <line class="dg-a" x1="300" y1="42" x2="200" y2="70" marker-end="url(#ar4)"/>
+    <line class="dg-a" x1="400" y1="42" x2="500" y2="70" marker-end="url(#ar4)"/>
+
+    <rect class="dg-fill-golay" x="20" y="74" width="300" height="88" rx="6"/>
+    <text class="dg-t b" x="36" y="96">chemin : p, s8, b1, b2, b3</text>
+    <text class="dg-m" x="36" y="118">prefixes[s8][b1] → c1</text>
+    <text class="dg-m" x="36" y="136">branches[s8][b2] → c2, s16</text>
+    <text class="dg-m" x="36" y="154">suffixes[s16][b3] → c3</text>
+
+    <rect class="dg-fill-tetra" x="380" y="74" width="300" height="88" rx="6"/>
+    <text class="dg-t b" x="396" y="96">rangs : r, i1, i2, i3</text>
+    <text class="dg-m" x="396" y="118">rows[2048·r + i1]</text>
+    <text class="dg-m" x="396" y="136">rows[i2] ou rows[2048 + i2 − 1240] → δ</text>
+    <text class="dg-m" x="396" y="154">rows[2048·(p⊕r⊕δ) + i3]</text>
+
+    <line class="dg-a" x1="170" y1="162" x2="290" y2="190" marker-end="url(#ar4)"/>
+    <line class="dg-a" x1="530" y1="162" x2="410" y2="190" marker-end="url(#ar4)"/>
+
+    <rect class="dg-fill-leech" x="140" y="194" width="420" height="56" rx="6"/>
+    <text class="dg-t b" x="350" y="216" text-anchor="middle">y[8k + j] = val( p + 2·bit_j(c_k) , quartet_j(ligne_k) )</text>
+    <text class="dg-f" x="350" y="236" text-anchor="middle">24 valeurs, en registres, jamais en mémoire locale</text>
+
+    <line class="dg-a" x1="260" y1="250" x2="180" y2="278" marker-end="url(#ar4)"/>
+    <line class="dg-a" x1="440" y1="250" x2="520" y2="278" marker-end="url(#ar4)"/>
+
+    <rect class="dg-fill-flat" x="20" y="282" width="300" height="72" rx="6"/>
+    <text class="dg-t b" x="36" y="304">magnitude</text>
+    <text class="dg-m" x="36" y="323">‖y‖² par 6 × __dp4a</text>
+    <text class="dg-m" x="36" y="340">m = ‖y‖² &gt;&gt; 4, puis invnorm[m]</text>
+
+    <rect class="dg-fill-flat" x="380" y="282" width="300" height="72" rx="6"/>
+    <text class="dg-t b" x="396" y="304">produit</text>
+    <text class="dg-m" x="396" y="323">24 FMA contre l'activation en shared</text>
+    <text class="dg-m" x="396" y="340">× gscale[g], puis × échelle de ligne</text>
+  </svg>
+  </div>
+  <figcaption>Le chemin de <code>tetra48_dot</code>. La norme sort du même octet que la valeur : les octets décodés sont biaisés de 128, un XOR par <code>0x80808080</code> les rend signés, et six <code>__dp4a</code> accumulent Σy² sans conversion. Comme <span class="num">‖y‖² = 16m</span> par définition de la couche, le décalage de 4 bits n'est pas un arrondi ; un reste voudrait dire que le décodage a quitté le réseau.</figcaption>
+</figure>
+
+<p>Deux détails d'implémentation portent l'essentiel de la vitesse. Les valeurs sont des <strong>octets</strong>, tirés de tables tenues en registres par l'instruction <code>prmt</code> : une paire de registres est une table de 8 octets, et un <code>prmt</code> fait quatre consultations. Et le passage à la virgule flottante évite le pipe de conversion entier vers flottant : l'octet biaisé est placé sous <code>0x4b0000__</code>, qui vaut exactement <span class="num">2²³ + octet</span>, et un <code>FADD</code> de <span class="num">−(2²³ + 128)</span> rend la valeur. Le compte est d'environ <strong>141 instructions par bloc, 40 registres, 0 octet local</strong>, contre environ 380 plus 24 conversions pour la version naïve <span class="prov">calculé</span>.</p>
+
+<h3>Six octets contre quatorze</h3>
+
+<figure class="wide">
+  <div class="fig-scroll">
+  <svg viewBox="0 0 700 282" role="img" aria-label="Comparaison : Planes14 occupe 14 octets par bloc de 24 poids, Tetra 6 octets, et les gigaoctets sur carte du modèle 4B pour les trois bras">
+    <defs>
+      <marker id="ar5" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="8" markerHeight="7" orient="auto">
+        <polygon class="dg-head" points="0,0 10,4 0,8"/>
+      </marker>
+    </defs>
+
+    <text class="dg-k" x="8" y="18">un bloc de 24 poids en VRAM, à l'échelle</text>
+
+    <text class="dg-t b" x="8" y="46">Planes14</text>
+    <rect class="dg-fill-p14" x="100" y="30" width="336" height="24" rx="4"/>
+    <text class="dg-m" x="268" y="47" text-anchor="middle">14 octets, index déplié</text>
+    <text class="dg-m" x="448" y="47">4,6667 b/poids</text>
+
+    <text class="dg-t b" x="8" y="86">Tetra</text>
+    <rect class="dg-fill-tetra" x="100" y="70" width="144" height="24" rx="4"/>
+    <text class="dg-m" x="172" y="87" text-anchor="middle">6 octets</text>
+    <text class="dg-m" x="256" y="87">2,0000 b/poids, le mot du disque</text>
+
+    <line class="dg-rule" x1="8" y1="112" x2="692" y2="112"/>
+
+    <text class="dg-k" x="8" y="136">Qwen3-4B, octets sur carte, embedding q8</text>
+
+    <text class="dg-t" x="8" y="166">dense f16</text>
+    <rect class="dg-bar-dense" x="120" y="152" width="520" height="20" rx="3"/>
+    <text class="dg-m" x="650" y="167">8,04 Go</text>
+
+    <text class="dg-t" x="8" y="200">Planes14</text>
+    <rect class="dg-bar-p14" x="120" y="186" width="166" height="20" rx="3"/>
+    <text class="dg-m" x="296" y="201">2,56 Go</text>
+
+    <text class="dg-t" x="8" y="234">Tetra pur</text>
+    <rect class="dg-bar-tetra" x="120" y="220" width="88" height="20" rx="3"/>
+    <text class="dg-m" x="218" y="235">1,36 Go</text>
+
+    <text class="dg-t" x="8" y="268">Tetra servi</text>
+    <rect class="dg-bar-tetra" x="120" y="254" width="90" height="20" rx="3"/>
+    <text class="dg-m" x="220" y="269">1,39 Go, avec 36 v_proj en int4</text>
+
+  </svg>
+  </div>
+  <figcaption>Les quatre barres sont mesurées sur L40S, au même compteur d'octets hôte ; les 0,41 Go de tenseurs portés (embedding q8, normes) sont communs aux trois bras quantifiés. Le rapport des octets par bloc est 14/6 = 2,33 ; le rapport des comptabilités noyau est 4,804 / 2,1498 = 2,235, l'écart venant de la queue f32 et des échelles de ligne, communes aux deux. Sur le modèle entier le rapport retombe à 1,87, parce que l'embedding ne se quantifie pas par le réseau.</figcaption>
+</figure>
+
+<div class="callout">
+  <p><strong>Un objet, plusieurs comptabilités, et elles ne se comparent pas entre elles.</strong> Un « 2,1498 » et un « 2,084 » côte à côte sont deux numérateurs, pas une contradiction.</p>
+</div>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>comptabilité</th><th>ce qu'elle compte</th><th class="n">Tetra</th><th class="n">Planes14</th></tr></thead>
+  <tbody>
+    <tr><td>charge utile</td><td>bits d'enregistrement / poids quantifiés</td><td class="n">2,0000</td><td class="n">4,6667</td></tr>
+    <tr><td>noyau</td><td>+ queue f32 + échelles de ligne f32</td><td class="n">2,1498</td><td class="n">4,8040</td></tr>
+    <tr><td>inférence</td><td>même chose, queue en binary16</td><td class="n">2,084</td><td class="n">4,729</td></tr>
+    <tr class="hl"><td>modèle entier</td><td>octets sur carte / tous les paramètres, embedding compris</td><td class="n">2,7645</td><td class="n">5,1619</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>La ligne qui se compare à un concurrent est la dernière, et c'est une règle du dépôt, pas une préférence. L'objet servi, qui porte 36 <code>v_proj</code> en int4 g128 à côté des 216 matrices Tetra, s'y lit à <span class="num">2,8138</span> b/param <span class="prov">calculé</span>.</p>
+
+<h2><span class="secnum">7</span>Ce que ça donne, mesuré</h2>
+
+<p>Le noyau servi <code>tv_tetra48_h</code> tourne dans le modèle depuis le 2026-09-10. Les chiffres ci-dessous sont ceux de la L40S, quatre travaux, 0,43 $ en tout <span class="prov">mesuré</span>.</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>bras</th><th class="n">tok/s [plage]</th><th class="n">Go carte</th><th>conditions</th></tr></thead>
+  <tbody>
+    <tr><td>dense f16</td><td class="n">43,0 [43,0–43,0]</td><td class="n">8,04</td><td>même processus, la référence</td></tr>
+    <tr><td>Planes14, fichier publié</td><td class="n">100,6 [99,9–100,7]</td><td class="n">2,57</td><td>configuration servie v1, avec fusion de projections. Autre travail, autre processus</td></tr>
+    <tr class="hl"><td>Tetra, objet servi</td><td class="n">100,8 [100,4–100,8]</td><td class="n">1,39</td><td>ROT_SHARE=1, sans fusion : Tetra n'a pas de noyau segmenté</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Même vitesse, 1,85 fois moins de mémoire</strong>, et sans la fusion de projections dont la barre publiée bénéficiait. Contre le bras dense de son propre processus, l'objet servi rend <span class="num">×2,35</span> [×2,34–×2,35] de vitesse et <span class="num">÷5,81</span> de mémoire. Un travail plus tardif, avec la rotation par lots, lit <span class="num">101,5</span> tok/s dans les mêmes 1,39 Go. Sur 256 jetons en décodage glouton, la sortie est <strong>identique au bras dense, sans un seul écart</strong>.</p>
+
+<h3>Le format, à protocole égal</h3>
+
+<p>Un seul banc, une carte, les mêmes empreintes de jetons, sur 2 280 questions et par reconstruction dense des deux côtés <span class="prov">mesuré</span>.</p>
+
+<div class="tbl-scroll">
+<table>
+  <thead><tr><th>qualité, Qwen3-4B</th><th class="n">Planes14 publié</th><th class="n">Tetra pur</th></tr></thead>
+  <tbody>
+    <tr><td>perplexité wikitext, f16</td><td class="n">16,9422</td><td class="n">16,1569, −4,64 %</td></tr>
+    <tr><td>log-vraisemblance en excès</td><td class="n">0,3254 nats</td><td class="n">0,2779 nats</td></tr>
+    <tr><td>MMLU micro</td><td class="n">55,59 ± 1,35</td><td class="n">53,49 ± 1,34</td></tr>
+    <tr><td>encodage sur M3 Max</td><td class="n">4 h 01</td><td class="n">2 h 27</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>La perplexité va dans le sens inverse de la rétention gaussienne de la section 5 : la préenregistration prévoyait +1,5 à +4 %, la mesure donne −4,64 %. La rétention surestime la perte sur des poids réels. En log-vraisemblance en excès, la seule comparaison inter-papier valide du dossier, Tetra lit 0,2779 nats contre 0,3171 pour QTIP, soit <strong>12,4 % mieux</strong> là où le dépôt était 2,6 % moins bon.</p>
+
+<h3>Le noyau lui-même, recensé le 2026-09-11</h3>
+
+<p>Deux bras sur le <em>même</em> fichier servi et les mêmes 2 280 questions, seule l'arithmétique différant : <strong>la reconstruction dense lit 55,52 et le noyau servi 55,66</strong>. L'écart apparié est de <span class="num">−0,14 pp</span>, IC95 [−0,31 ; −0,01], sur <strong>3 questions discordantes sur 2 280</strong>, soit 0,1 % <span class="prov">mesuré</span>. Le critère d'arrêt préenregistré était 1,44 pp. C'est la première mesure MMLU d'un noyau CUDA du dépôt, et elle est d'accord avec sa référence ; les trois écarts sont des égalités départagées en f16.</p>
+
+<p>Le même jour, le split complet, <span class="num">14 042</span> questions et donc plus aucune erreur d'échantillonnage : <strong>56,37 micro, 58,42 macro</strong>. L'échantillon de 2 280 sous-estimait de 0,85 pp tout en restant dans sa propre barre, ce qu'un plancher de bruit de ±1,4 pp ne peut pas montrer.</p>
+
+<div class="callout warn">
+  <p><strong>Face au papier, le déficit n'a plus d'excuse de bruit.</strong> Table 6 du papier sur ce modèle : FP16 70,2, LLVQ 60,7, QTIP 57,4. Notre f16 lit 70,32, donc le protocole n'est pas en cause. Nous lisons 56,37, soit <span class="num">4,3 pp</span> sous l'implémentation LLVQ du papier et <span class="num">1,0 pp</span> sous QTIP. Ce 56,37 est un score absolu, comparable au papier et à rien d'autre du dépôt tant que f16 et <code>Planes14</code> ne sont pas rejoués au complet : son empreinte de plan diffère de celle des dix-neuf dumps à 40 questions par sujet, et l'appariement les refuse.</p>
+</div>
+
+<p>Le 56,95 cité lors de l'arbitrage du 2026-09-08 est un <em>autre objet</em> : le fichier Tetra pur avec <code>v_proj</code> restauré en int4 au chargement, noté par reconstruction dense. Le fichier mixte livré n'avait alors été noté sur aucun bras.</p>
+
+<p>Le triplet produit en vigueur (contexte 8k, marge de 5 Go, unité de 32 Gio) laisse 27,93 Go aux poids, soit <span class="num">b_max = 3,00</span> b/poids noyau. <code>Planes14</code> dépasse cette barre de 60 %. <strong>Tetra est le premier format du dépôt à passer</strong>, à 2,1498, soit 28 % sous la barre, ce qui déplace la classe admissible de 43,3 milliards de paramètres à 81 à 101 milliards et met un 70B dans 19,5 Go <span class="prov">calculé</span>.</p>
+
+<h2><span class="secnum">8</span>Ce qui n'est pas établi</h2>
+
+<ul>
+  <li><strong>Le déficit de qualité face au papier est ouvert, et c'est le vrai chantier.</strong> 4,3 pp sous l'implémentation LLVQ du papier sur 14 042 questions, sans barre d'échantillonnage où se cacher. Le dictionnaire est disculpé : le codebook du papier, encodé ici, lit 19,6093 de perplexité contre 16,1569 pour Tetra au même débit. Ce qui reste : un volume de calibration environ 95 fois le nôtre, le corpus, la rotation.</li>
+  <li><strong>Le 56,37 ne se compare à rien d'autre du dépôt</strong> tant que f16 et <code>Planes14</code> ne sont pas rejoués sur le split complet, ce qui coûte 1,86 $ pour les deux <span class="prov">calculé</span>.</li>
+  <li><strong>La qualité se retourne au 8B</strong> : perplexité 0,73 % pire que le format servi et MMLU inférieur de 3,91 pp, un écart résolu alors que celui du 4B ne l'est pas. Ce banc a tourné sans préenregistration et ne décide rien.</li>
+  <li><strong>Le rapport Tetra / Planes14 dans le modèle n'est pas formé.</strong> Les deux chiffres viennent de deux processus, et la règle du dépôt interdit d'en faire un quotient. Ils se lisent côte à côte.</li>
+  <li><strong>Le × dépend de la carte.</strong> Sur le banc, Tetra est ×1,17 sur L40S au pas de tuile servi et ×0,82 sur RTX PRO 6000, même configuration, verdicts opposés ; à tuile 32 la Blackwell remonte à 1,03×, un intervalle qui contient 1. La mémoire, elle, ne dépend pas de la carte.</li>
+  <li><strong>Le mur de <code>rot_apply</code> ferme le chemin servi au-delà du 14B</strong>, quel que soit le format : la rotation est un noyau à bloc unique qui met toute l'activation en mémoire partagée, et le 32B demande 102 400 octets contre 101 376 disponibles en opt-in. Il manque 1 024 octets, la réserve du pilote.</li>
+  <li><strong>Le dépôt ne reproduit plus son propre artefact publié</strong> depuis un changement de volume de calibration du 2026-08-26. Le −4,64 % de perplexité tient donc le format et une dérive d'encodeur ensemble, et rien ici ne les sépare. Un témoin réencodé aujourd'hui coûterait 4 h de Mac et 0 $.</li>
+</ul>
+
+<footer>
+  <p>Sources primaires, à lire dans cet ordre pour aller plus loin.</p>
+  <ul>
+    <li><code>llvq-core/src/{golay,leech}.rs</code> : le code, le réseau, les trois conditions et la suite thêta, avec leurs tests d'invariants</li>
+    <li><code>llvq-search/src/tetra/{mod,word,rank,trellis}.rs</code> : le trio, le mot, la table universelle, ce que l'encodeur refuse</li>
+    <li><code>llvq-artifact/src/tetra48.rs</code> : les deux conventions, l'espacement des lignes et le pad</li>
+    <li><code>llvq-cuda/kernels/{llvq_f1rank_v3,llvq_tetra48}.cuh</code> : le décodage servi, avec ses comptes d'instructions en tête de fichier</li>
+    <li><code>docs/format-noyau.md</code> : les comptabilités, le plancher <code>nullk</code>, le mur de mémoire partagée, les pièges de mesure</li>
+    <li><code>docs/mesures/{tetra-4b-2026-09-06,f1d-2026-09-10,f1e0-2026-09-10,f1e-census-2026-09-11}.txt</code> : les journaux dont sortent tous les nombres de ce cours</li>
+    <li><code>docs/ETAT.md</code> §5 sexies à §5 nonies pour le format. Attention : <code>ETAT.md</code> ne porte pas encore le recensement du 2026-09-11, et la règle du dépôt donne alors raison au journal</li>
+  </ul>
+  <p>Article de référence : van der Ouderaa, van Baalen, Whatmough, Nagel, <em>LLVQ</em>, <a href="https://arxiv.org/abs/2603.11021">arXiv:2603.11021</a>, transcrit dans <code>docs/llvq-paper-notes.md</code>.</p>
+</footer>
+
+</div>
