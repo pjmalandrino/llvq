@@ -5,7 +5,7 @@ target is a better trade of functional quality against served memory and speed, 
 geometric error and not crossing 60 MMLU. Opened 2026-09-17 on branch
 `claude/tetra-quality-map-plan-t8ojq2`, which is never merged into `main` by operator decision.
 
-Running cost: **$1.44 announced** for the `down_proj` confirmation job of 2026-09-18, everything else $0. About 1 h 30 of Mac and 4.8 GB of disk.
+Running cost: **$1.42 spent** on the `down_proj` confirmation of 2026-09-18, everything else $0. About 1 h 30 of Mac and 4.8 GB of disk.
 
 | # | step | status | what it produced | cost |
 |---|---|---|---|---|
@@ -17,6 +17,26 @@ Running cost: **$1.44 announced** for the `down_proj` confirmation job of 2026-0
 | 6a | `tetrahist` and a concrete compaction | **not started** | nothing exists under that name | to be costed |
 | 6b | Q6a, distilling the format's free parameters | **not started** | row 17 of `ROADMAP-QUALITY`, +2 to +5 pp *estimated*, ~18 M parameters, zero bits | audit owed first |
 | 7 | One ambitious branch | **waiting on 4** | the choice follows the diagnostics | n/a |
+
+## The MMLU line, 2026-09-18
+
+`down_proj` at int4 is confirmed at **+4.05 pp** on 11,762 held-out questions, CI95
+[+3.28; +4.83] ([downproj-int4-full](mesures/downproj-int4-full-2026-09-18.txt)). The served
+object goes from 56.37 to **60.44 micro** on the full split, against the paper's LLVQ at 60.7.
+The gap to the paper was −4.33 pp a week ago and is **−0.26**.
+
+It was unblocked by step 1: the arm had been dropped on a budget computed in the wrong unit. In
+kernel b/weight it is 2.2044 to 2.7226, under b_max, on one condition: a native int4 kernel for
+9728 x 2560, which has never run.
+
+| arm | kernel b/weight | b/param whole | MMLU micro | held-out gain |
+|---|---|---|---|---|
+| v, shipped | 2.2044 | 2.8126 | 56.37 | reference |
+| v + o | 2.4226 | 3.0097 | 58.07 | +1.55 |
+| v + down | 2.7226 | 3.2807 | **60.44** | **+4.05** |
+| v + o + down | 2.9408 | 3.4778 | not measured | not measured |
+
+Per bit: `down_proj` returns 7.82 pp per kernel b/weight against `o_proj`'s 7.10.
 
 ## What step 4 settled, and where it points
 

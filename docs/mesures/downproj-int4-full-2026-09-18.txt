@@ -1,0 +1,95 @@
+DOWN_PROJ AT INT4 IS CONFIRMED AT +4.05 PP, AND THE SIGNED PREDICTION IS WRONG
+(2026-09-18)
+================================================================================
+Job 6aacfb175c02253cfb146f2a, l40sx1, 47 min billed, $1.42 against the $1.44
+announced. Peak VRAM 11.974 GB.
+Prereg: proofs/preregistration-downproj-int4-full-2026-09-18.md, stamped
+  sha256 155fcda3d1d8f47e54a23e564ad65a45552ec3e9a370211dd614551e9cc1326a,
+  four calendars, before the launch. Deviation E1 beside it: the prediction
+  failed in the direction the prereg named against itself.
+Data: docs/data/mmlu-dumps/mmlu-q5-shipped-FULL.csv and mmlu-q5-downproj-FULL.csv
+Raw: downproj-int4-full-2026-09-18-brut/, both dumps, both logs, the split script
+Nature: *measured*
+
+THE RESULT, AS THE PREREG NAMED IT
+-----------------------------------
+Two arms of the same served Q5 file, full MMLU test split, one job, one card.
+Primary: the paired gain on the 11,762 questions that took no part in the
+selection, stratified bootstrap without finite population correction.
+
+  down_proj at int4 against shipped   +4.05 pp   CI95 [+3.28 ; +4.83]  SE 0.40
+  the 2,280 selection questions       +4.26 pp   CI95 [+1.93 ; +6.66]
+  held-out strict, 11,755             +4.05 pp
+  McNemar, held-out                   846 against 1,320 discordant, p = 1.9e-24
+
+  full split   shipped 56.37 micro / 58.42 macro
+               down_proj 60.44 micro / 62.67 macro
+
+Decision row 1 of section 5: >= +1.5 pp and the interval excludes zero. The gain
+is real. Adoption is the operator's decision, and the condition below binds it.
+
+THE PREDICTION WAS WRONG, AND THE PREREG SAID HOW IT WOULD BE
+--------------------------------------------------------------
+Predicted +1.5 to +3.0 pp, point +2.1, reasoning that the winner's curse would
+take half of the exploration's +3.79 as it took half of `o_proj`'s +2.77. The
+prereg also wrote: "a point estimate at or above +3.79 would mean the selection
+bias did not operate on the largest of six arms, which would itself need
+explaining."
+
+Measured +4.05, above the exploration. The bias did not operate.
+
+The explanation is post-hoc and is labelled as such. The winner's curse bites
+hardest when the true effect sits near the noise floor. On the 2,280-question
+subset the paired SE is 1.19 pp, so `o_proj`'s explored +2.77 stood 2.3 standard
+errors above zero and was half noise. `down_proj`'s true effect is +4.05 with an
+SE of 0.40 on the held-out split: it clears the noise by so much that being
+picked best of six barely inflated it. One case each. This is not promoted to a
+rule.
+
+THE BUDGET
+-----------
+  arm            int4 weights   kernel b/w native   dequantized   b/param whole
+  v (shipped)      94,371,840        2.2044            2.5095        2.8126
+  v + o           471,859,200        2.4226            3.9485        3.0097
+  v + down        990,904,320        2.7226            5.9271        3.2807
+
+*computed* on 3,633,315,840 projection weights with `Tetra` at 2.1498 and int4
+g128 at 4.250; the b/param column starts from the 2.8126 `rtbits` measured on
+the served file. b_max is 3.00 in kernel b/weight, which is the unit the
+exploration got wrong and `etat-reconcilie-2026-09-17` repaired.
+
+Per bit, against the other confirmed arm:
+
+  o_proj     +1.55 pp for +0.2182 kernel b/weight   =  7.10 pp per b/weight
+  down_proj  +4.05 pp for +0.5182 kernel b/weight   =  7.82 pp per b/weight
+
+`down_proj` is better per bit and 2.6 times larger in absolute terms, for 2.38
+times the weights.
+
+WHERE THIS PUTS THE OBJECT
+---------------------------
+The paper's Table 6 gives LLVQ 60.7 and QTIP 57.4 on Qwen3-4B, and our protocol
+reproduces its FP16 within 0.12 on the sample. This arm reads **60.44**.
+
+The gap to the paper's LLVQ was −4.33 pp on 2026-09-11. It is **−0.26 pp**.
+
+CONTROLS
+---------
+1. Identical run fingerprint on both arms, a74a6d6213602979, 14,042 questions.
+2. The reference arm is **byte-identical** to the committed dump of 2026-09-17,
+   `cmp` clean. Two jobs a day apart, the same bytes: the engine did not drift.
+3. 14,042 questions scored on both arms.
+4. Both dumps committed.
+5. `oracle` ran first on the backend.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- **Nothing about serving it.** The quality is measured by dense reconstruction
+  of a dequantized int4 tensor, which prices four bits of information and is not
+  the served path. No file carries `down_proj` as int4 records, and no kernel has
+  run on 9728 x 2560. The 2.7226 assumes that kernel; without it the arm reads
+  5.9271 and is far over b_max.
+- Nothing about combining it with `o_proj`. v + o + down computes to 2.9408
+  kernel b/weight, which fits with 0.0592 of margin, and the gains are not
+  additive. That arm is not measured here.
+- Nothing about perplexity, another model or another size.
