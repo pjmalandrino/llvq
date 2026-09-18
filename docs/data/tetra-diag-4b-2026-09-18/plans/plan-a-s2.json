@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "checkpoint": "/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c",
+  "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+  "calibration": "/Users/pjmalandrino/tetra-diag-4b-2026-09-18/seed-2/calibration.json",
+  "validation": "/Users/pjmalandrino/tetra-diag-4b-2026-09-18/seed-2/validation.json",
+  "device": "metal",
+  "layers": [0, 17, 35],
+  "projections": ["self_attn.q_proj", "self_attn.o_proj", "mlp.gate_proj"],
+  "rows_per_projection": 4,
+  "snapshots_per_row": 3,
+  "damping": 0.01,
+  "h_shrink": 1.0,
+  "rotation_seed": 17891053
+}
