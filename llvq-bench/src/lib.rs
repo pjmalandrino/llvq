@@ -25,6 +25,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod e8;
 pub mod f1;
 
 use llvq_core::{SplitMix64, DIM};

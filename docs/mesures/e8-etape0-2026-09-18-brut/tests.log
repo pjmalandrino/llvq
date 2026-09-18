@@ -1,0 +1,177 @@
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running unittests src/lib.rs (target/release/deps/llvq_bench-2c5916ba58566ddc)
+
+running 8 tests
+test e8::tests::e8_gram_determinant_is_one ... ok
+test e8::tests::e8_kissing_number_240 ... ok
+test e8::tests::e8_rejects_near_misses ... ok
+test e8::tests::e8_decoder_returns_lattice_points ... ok
+test e8::tests::e8_minimum_norm_is_two ... ok
+test e8::tests::e8_membership_of_every_enumerated_point ... ok
+test e8::tests::e8_theta_matches_240_sigma3 ... ok
+test e8::tests::e8_decoder_agrees_with_brute_force ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 27 filtered out; finished in 0.17s
+
+     Running unittests src/bin/arrbits.rs (target/release/deps/arrbits-80e849d872b638f7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/betasweep.rs (target/release/deps/betasweep-997d68a74c66e375)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/cholbench.rs (target/release/deps/cholbench-81c3888e8f9915f6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/classhist.rs (target/release/deps/classhist-5514fe69b15896c0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/classprofile.rs (target/release/deps/classprofile-e02a183e969625fa)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/decbench.rs (target/release/deps/decbench-b84f879d072b50b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/decfast.rs (target/release/deps/decfast-d5dfc455a058c7d9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/decfull.rs (target/release/deps/decfull-c8a6572406a9f5f5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/decprofile.rs (target/release/deps/decprofile-d3724c361a3ce95d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/e8bench.rs (target/release/deps/e8bench-65e866e9d8e85403)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/encbench.rs (target/release/deps/encbench-383d27580f43afb5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/f1bench.rs (target/release/deps/f1bench-c4f4f255e6f40a5e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/f1count.rs (target/release/deps/f1count-5788bba21a306dc4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/gaindisagree.rs (target/release/deps/gaindisagree-b05b7ee9bb742a9f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/lcap.rs (target/release/deps/lcap-c5ce91b8ec5e53bc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/release/deps/llvq_bench-2dc51682ebbf57d8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/lswap.rs (target/release/deps/lswap-5cd8a1e29e8df372)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/radixstudy.rs (target/release/deps/radixstudy-48bb4c75b1cc0fc5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rtbits.rs (target/release/deps/rtbits-e2453a0884d40536)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running unittests src/bin/tetraencbench.rs (target/release/deps/tetraencbench-25920ffd6c3154fb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/bench_matches_production.rs (target/release/deps/bench_matches_production-446f0e3f71c7cdff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/g4_full.rs (target/release/deps/g4_full-e94a1f3f72e427f8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/g4_prelim.rs (target/release/deps/g4_prelim-5f601073f606c4d0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/int4_refusals.rs (target/release/deps/int4_refusals-ee0fa82db7baa4cc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/tetra_encoder.rs (target/release/deps/tetra_encoder-0b22ee2293b3f0bf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/tetra_refusals.rs (target/release/deps/tetra_refusals-ab1efe4193865a3b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/tetra_yardstick.rs (target/release/deps/tetra_yardstick-1ce125a3aa069d0f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
