@@ -2,7 +2,11 @@
 
 <style>
   /* ---------- jetons : clair (défaut), sombre système, sombre forcé ---------- */
+  /* Thème clair fixe : la page ne suit pas le thème du lecteur.
+     color-scheme le dit aussi au navigateur, pour les barres de défilement. */
   :root {
+    color-scheme: light;
+
     --paper: #fafbfc;
     --surface: #ffffff;
     --ink: #1c2733;
@@ -29,64 +33,6 @@
     --chip-off-bg: #eef1f5;   --chip-off-ink: #4d5a68;
 
     --code-bg: #eef1f5;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --paper: #14181f;
-      --surface: #1b212b;
-      --ink: #e3e8ef;
-      --muted: #93a0b0;
-      --faint: #6c7887;
-      --line: #2b333f;
-      --line-strong: #3c4654;
-      --accent: #4a80e0;
-
-      --c-golay: #c08c2c;
-      --c-leech: #9b83e0;
-      --c-tetra: #2ba894;
-      --c-p14:   #4a80e0;
-      --c-dense: #8d9aa9;
-
-      --t-golay: #2a2416;
-      --t-leech: #211d33;
-      --t-tetra: #11302b;
-      --t-p14:   #1a2637;
-      --t-pad:   #232a35;
-
-      --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
-      --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
-      --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
-
-      --code-bg: #232a35;
-    }
-  }
-  :root[data-theme="dark"] {
-    --paper: #14181f;
-    --surface: #1b212b;
-    --ink: #e3e8ef;
-    --muted: #93a0b0;
-    --faint: #6c7887;
-    --line: #2b333f;
-    --line-strong: #3c4654;
-    --accent: #4a80e0;
-
-    --c-golay: #c08c2c;
-    --c-leech: #9b83e0;
-    --c-tetra: #2ba894;
-    --c-p14:   #4a80e0;
-    --c-dense: #8d9aa9;
-
-    --t-golay: #2a2416;
-    --t-leech: #211d33;
-    --t-tetra: #11302b;
-    --t-p14:   #1a2637;
-    --t-pad:   #232a35;
-
-    --chip-ok-bg: #16311f;   --chip-ok-ink: #7fd6a0;
-    --chip-warn-bg: #322611; --chip-warn-ink: #e0b467;
-    --chip-off-bg: #252c36;  --chip-off-ink: #a7b3c2;
-
-    --code-bg: #232a35;
   }
 
   /* ---------- base ---------- */
