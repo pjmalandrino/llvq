@@ -62,6 +62,29 @@ fn second_moment(n: usize, side: f64, q: impl Fn(&[f64; E8DIM]) -> [f64; E8DIM])
 }
 
 fn main() {
+    // `e8bench dump <path>` writes the verified codebook for the stage 1
+    // analysis to read. The analysis re-checks what it reads, because a
+    // codebook that crossed a file boundary is a codebook that can have been
+    // truncated.
+    let a: Vec<String> = std::env::args().collect();
+    if (a.len() == 3 || a.len() == 4) && a[1] == "dump" {
+        let cap: i32 = a.get(3).map(|v| v.parse().expect("cap")).unwrap_or(10);
+        let book = enumerate(cap);
+        let mut out = String::with_capacity(book.len() * 24);
+        for y in &book {
+            for (i, c) in y.iter().enumerate() {
+                if i > 0 {
+                    out.push(' ');
+                }
+                out.push_str(&c.to_string());
+            }
+            out.push('\n');
+        }
+        std::fs::write(&a[2], out).expect("write the codebook");
+        println!("wrote {} points of E8 (norm <= {cap}) in doubled coordinates to {}", book.len(), a[2]);
+        return;
+    }
+
     println!("E8 stage 0 — invariants, rate ladder, normalized second moment");
     println!("seed {SEED:#x}, label: measured for the moments, computed for the counts\n");
 

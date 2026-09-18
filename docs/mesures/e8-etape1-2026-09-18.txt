@@ -1,0 +1,118 @@
+E8 STAGE 1: THE PRIMARY QUESTION IS VOID, AND THE BY-PRODUCT IS THAT TETRA'S
+RESIDUAL COSTS 6.8 TIMES LESS THAN AN ISOTROPIC ONE OF THE SAME ENERGY
+(2026-09-18)
+================================================================================
+Prereg      : proofs/preregistration-e8-etape1-2026-09-18.md, stamped
+              sha256 7b75b465cf8be967be747f45983d480ccce0d470be74b69109d8d14be9114c54
+              before the first block, four calendars.
+              Deviations E1 to E6 beside it. **E3 voids the primary result.**
+Code        : ops/e8_stage1.py at this commit, reading the codebook that
+              llvq-bench/src/e8.rs emits and stage 0 verified.
+Job         : none. $0. Mac, 5 s a run, two runs.
+Data        : the v64 arm of docs/data/tetra-diag-4b-2026-09-18, 10 cells,
+              40 rows, 6,204 complete 24-dimensional blocks, rotated basis
+Nature      : *measured*; the rates are *computed*
+Raw         : e8-etape1-2026-09-18-brut/, both runs and their per-row records
+
+WHAT IS VOID, AND WHY IT IS STATED FIRST
+-----------------------------------------
+The prereg compares arm A, `Tetra` as the dump recorded it, against arm B, a
+product of three E8 codes. Arm A is a **sequential GPTQ encode**: `diagnose_row`
+takes a `GptqFactor` and carries a `working` vector, so its error is fed forward
+through the Schur factor of the cell's Hessian. Arm B, as section 2 of the
+prereg specifies it, is a plain per-block nearest neighbour with no
+compensation.
+
+The arms therefore differ in the codebook AND in whether they know H. The
+primary ratio measures the second at least as much as the first, so **no
+statement about E8 against Leech follows from this run**. That is the same
+confound the arbitration dossier criticized in the paper's own E8 row,
+reproduced here in my own protocol, and found by a control that was not in it
+(E6).
+
+THE NUMBERS, WHICH ARE REAL
+----------------------------
+Arm B at the norm-8 cap, 26,640 points, 15-bit index, 45 bits plus one gain
+bit: **1.9167 b/weight against Tetra's measured 1.9907**, so arm B runs on
+3.7 % fewer bits.
+
+  family      blocks   MSE A      MSE B      B/A     cos A     cos B
+  down_proj     1620   1.7287e-1  1.2037e-1  0.6963  0.92353   0.94982
+  gate_proj     1272   1.4197e-1  1.1313e-1  0.7969  0.93465   0.95018
+  o_proj        2040   1.5796e-1  1.1165e-1  0.7068  0.92624   0.95065
+  q_proj        1272   1.3639e-1  1.0954e-1  0.8032  0.93641   0.95044
+  POOLED        6204   1.5990e-1  1.1441e-1  0.7155  0.93154   0.95036
+
+A plain E8 cubed encode at fewer bits carries 28.4 % less unweighted error than
+the served format, and is better aligned by 0.019 of cosine. At the norm-10 cap
+(2.0417 b/weight) the ratio is 0.6062 and the cosine gap 0.028.
+
+And the Hessian-weighted metric goes the other way, by more:
+
+  family      J_A        J_B        B/A      A/isotropic   B/isotropic
+  down_proj   2.5357e-2  9.0673e-2  3.5759      0.199         1.012
+  gate_proj   1.5493e-2  6.2624e-2  4.0420      0.256         1.303
+  o_proj      1.7062e-2  1.1356e-1  6.6556      0.097         0.901
+  q_proj      1.9079e-2  1.0040e-1  5.2621      0.150         0.965
+  POOLED      1.8026e-2  9.2041e-2  5.1060      0.148         0.996
+
+THE BY-PRODUCT, AND IT IS THE RESULT WORTH KEEPING
+---------------------------------------------------
+The isotropic column is what makes the pair readable. For a residual of the
+same energy in a random direction, `E[e'He] = |e|^2 tr(H)/n` exactly, so the
+ratio to that value separates how much error an arm makes from where it puts
+it.
+
+  Arm B sits at **0.996 of isotropic**. A plain nearest-neighbour encode puts
+  its residual nowhere in particular, which is what one would expect and is
+  now measured.
+
+  Arm A sits at **0.148 of isotropic**, from 0.097 on `o_proj` to 0.256 on
+  `gate_proj`. The served pipeline's residual costs **6.8 times less** than a
+  random residual of its own energy.
+
+So the compensation buys a factor of 6.8 in the H-weighted cost, and pays for it
+with 40 % more unweighted energy than a plain encode at fewer bits. Both halves
+of that trade are measured here on real rotated blocks, which the record did not
+have.
+
+WHAT THIS CHANGES FOR THE ARBITRATION
+--------------------------------------
+The dossier asked whether the 24-dimensional block needs the Leech lattice, and
+bounded the lattice difference at 9.0 % of MSE. This run cannot answer it, and
+it also shows the question is smaller than the one beside it: a factor of 6.8
+sits in where the error goes, against a bound of 1.09 on how much error the
+lattice makes.
+
+Stage 1 proper needs arm B **inside the same GPTQ loop**, sharing the Schur
+factor, the gain levels and the row scale, so the only difference left is the
+direction codebook. That is a new prereg. Its signed prediction follows from
+this file: if compensation is what the 6.8 buys, arm B's `J_A/isotropic` should
+fall from 0.996 toward 0.148, and whatever gap remains is the lattice.
+
+CONTROLS
+---------
+  1  a zero block gives a zero dot in arm B                        passes
+  2  a block already in the codebook reconstructs exactly          passes, 1e-12 relative
+  3a |witness| against centroid * row_scale, every block           passes, 1.110e-16
+  3b block 0 against the replay's euclidean at the chosen level    passes, 3.469e-18
+  4  one pass, same blocks, same order, paired by block            by construction
+  5  the analytic arm B error against the assembled row            passes, 6.638e-15
+  6  the isotropic reference, added, and it found E3               reported above
+
+Control 3 as the prereg wrote it was not runnable: `witness` is the encoding of
+the original row and `shadow` describes the compensated blocks, and they agree
+only at block 0 (E1).
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about E8 against Leech, by E3.
+- Nothing about quality. `J_local` is a local activation metric over one
+  projection, not the model's loss, not perplexity, not MMLU.
+- The 0.148 is measured on `Tetra` with GPTQ against `Tetra` with nothing. It
+  is not attributed to the lattice, to the trellis or to the gain rule, and
+  this file separates none of those.
+- `down_proj` carries 1.7 calibration samples per dimension even on the v64
+  arm, so its Hessian is rank-deficient and its J column is the weakest of the
+  four.
+- Three layers of 36, four rows of thousands, one model, one calibration seed.
