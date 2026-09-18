@@ -525,3 +525,30 @@ No served policy, kernel or quality claim changes.
 - **The mechanism is measured, not inferred.** The Euclidean rule moves every disagreed block *down* a level — 204 of 204 on real blocks, 4,618 of 4,618 on synthetic ones — because `⟨x,u⟩ = ‖x‖·cos θ ≤ ‖x‖`. Mean amplitude placed over block norm: **0.99336** under the served rule, **0.97073** under the Euclidean one, a systematic **2.9 % shrink** (*measured*, same pilot dumps). It buys squared error by trading an unbiased error for a smaller **biased** one. A centred error partly cancels down 28 layers; a one-sided shrink of every block accumulates.
 - **The plan's §9 is the claim that failed, and it is the transferable lesson.** It argued this lead was unlike the three precedents (design C, `group_scales`, gptq2) because rule C leaves the compensation loop, the row scale, the direction and the format untouched. It checked that the procedure around the decision was intact and never checked what the decision does in aggregate. Changing which of two admissible codes is written changes the distribution of the amplitude written — the same class of defect as `group_scales`. **A selection rule is not local just because each of its decisions is.** The repository now holds four cases, not three.
 - Kept from the dead lead: `ops/gain_disagree_real.py` and its audit, which answered a one-day question in 0.15 s from dumps already on disk; and the fact, still standing, that the served rule and the Euclidean optimum disagree on 10.119 % of real blocks. What is refuted is that the disagreement should be resolved the Euclidean way.
+
+## 2026-09-17 and 18. The state reconciled, and two accounting errors found in it
+
+A container reading a 2026-09-11 HEAD concluded that the experiments of 09-16 and 09-17 were
+missing. They were on the Mac, in 57 commits ahead of `main`. The state is written once, for
+`main..HEAD`, in [`etat-reconcilie-2026-09-17.md`](etat-reconcilie-2026-09-17.md), with each
+result tied to its code, parameters and data. Operator decision: no merge into `main`, and the
+38 leads of `claude/fine-tuning-cost-mmlu-gain-kic9ua` stay out of scope.
+
+Four distinct quantities are called rho in the repository. The negative conditional rollout of
+09-16 ran at rho_H = 1.0, inherited from the Schur pilot bundles, and `tetraalt.rs` has no rho
+of its own. Under rho_H, selection and compensation come from one `GptqFactor` and are
+inseparable; row scales never move with it.
+
+Every projection type fits under b_max in int4 natively. The allocation journal of 09-16 set
+whole-model b/param against a b_max in kernel b/weight, and only the o_proj row was ever
+redone. Redone for all six: `down_proj` reads 2.7226 kernel b/weight, not the 3.2286 that put
+it out of budget, and v + o + down reads 2.9408 (*computed*). The condition is a native int4
+kernel for the shape, which has run on `v_proj`'s alone.
+
+The served object's recorded sha256 was the sha256 of its encoding prereg, propagated from a
+journal's `Prereg` line into the f1e census prereg and then into `configs/README.md`. The
+object's own digest is `ae31087a...2263` (*measured*, two bucket downloads,
+[references-comptabilite-2026-09-18](mesures/references-comptabilite-2026-09-18.txt)). The byte
+count was right, which is why every size check passed. And the served b/param read off the file
+is 2.7475 at the f16 tail the card has held since 2026-08-09, against the 2.8138 *computed*
+that `configs/README` carried.

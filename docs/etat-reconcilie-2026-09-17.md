@@ -143,8 +143,37 @@ worse, and the two metrics move in opposite directions with both resolved.
 
 | file | sha256 | bytes | content |
 |---|---|---|---|
-| `~/llvq-4b-tetra.llvq` | `eadc9ef3c3f6478c` | 980,791,242 | bare `Tetra`, 252 lattice records, no correction |
-| `~/llvq-4b-corrige.llvq` | `aec6761635c6dfb1` | 980,791,234 | the same codes with the map's centroids at T = 0.06 |
+| `qwen3-4b-tetra.bin` (sealed) | `0adb7cfd02ed7402` | 1,770,529,149 | reference 1, bare `Tetra`, 252 lattice records |
+| `~/llvq-4b-tetra.llvq` | `eadc9ef3c3f6478c` | 980,791,242 | the same projections, artifact container |
+| `qwen3-4b-tetra-q5.bin` (sealed) | `ae31087a4b72494d` | 1,794,564,765 | reference 2, 216 lattice + 36 `v_proj` int4 |
+| `~/llvq-4b-corrige.llvq` | `aec6761635c6dfb1` | 980,791,234 | bare `Tetra` with the map's centroids at T = 0.06 |
+
+Accounting read off the two references (*measured*, `rtbits`,
+[references-comptabilite-2026-09-18](mesures/references-comptabilite-2026-09-18.txt)).
+
+| quantity | bare Tetra | served Q5 |
+|---|---|---|
+| code stream, b/weight | 1.9907 | 1.9908 lattice, 4.2500 int4 |
+| tail weights | 16,957,440 | 16,367,616 |
+| row scales | 1,105,920 | 1,069,056 |
+| kernel b/weight, tail f32 | 2.1498 | 2.2030 |
+| kernel b/weight, tail f16 as served | 2.0751 | 2.1309 |
+| b/param whole model, q8 embed, tail f32 | 2.7645 | 2.8126 |
+| b/param whole model, q8 embed, tail f16 as served | 2.6970 | 2.7475 |
+
+Reference 1 validates the instrument: 2.7645 and 2.1498 reproduce the published figures
+exactly. Two *computed* figures in the record move by a rounding's worth. `configs/README`
+gave the served object 2.8138 b/param against 2.8126 read off the file, and the o_proj journal
+gave the served base 2.2044 kernel b/weight against 2.2030. No verdict moves, and the closest
+arm to b_max sits 0.059 away. The served object's own sha256 had never been recorded: the
+digest three documents carried was its encoding prereg's, and the deviation is written beside
+the f1e census prereg.
+
+Reference 2 is not reproducible locally. The sealed file is its only copy, the bucket its only
+home, and no `.llvq` of it exists anywhere. The best validated hybrid, v + o at 58.07, is not
+even that file: it is that file plus `LLVQ_RESTORE_Q4=o_proj` against the checkpoint, so it is
+a recipe and not an artifact. Serving it needs a `kind = 2` writer and a native int4 kernel on
+2560 x 4096.
 
 Both carry 252 lattice records and 0 int4 (*measured*, `artstat`). Neither is the served Q5
 object, which holds 216 lattice records and 36 int4. No mixed file exists on this Mac: the
@@ -172,6 +201,22 @@ Ten files of `docs/data/` predate this window and are declared nowhere:
 `echelle-formats-a100.csv`, `f5-nll`, `knee-seeds.csv`, `m2-attribution`, `m2b-graine3`,
 `m2rep-graine3`, `moe-routing-gptoss20b-2026-08-12.json`. They are outside this scope and
 recorded here as debt.
+
+## 11. The two adoption gates, as they actually stand
+
+**o_proj.** The quality is confirmed on held-out questions and the budget holds. What is
+missing is the serving path, in two parts. The int4 kernel `tv_q4_h` runs today on `v_proj`'s
+1024 x 2560 and has never run on 2560 x 4096. And the writer emits `kind = 2` records for
+`v_proj` only, so no file carries o_proj as int4. Until both exist, 58.07 is a quality result
+measured by dense reconstruction, not a served number.
+
+**down_proj.** No relaunch of the exploration is owed. Its +3.79 pp is measured, and what it
+lacks is the same confirmation o_proj received: a full-split arm on questions the selection
+never saw, against a stamped prereg. The budget objection is withdrawn, since 2.7226 kernel
+b/weight sits under b_max. The serving path is heavier than o_proj's, at 896,532,480 weights
+against 377,487,360, and it needs the same two parts.
+
+Both gates are the operator's, and neither is a measurement this document can take.
 
 ## 10. What this document does not establish
 

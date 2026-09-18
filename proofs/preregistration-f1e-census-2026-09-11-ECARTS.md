@@ -132,3 +132,32 @@ préreg ne l'imaginait.
    `6aa442b4…7bed`, 0,13 $ ensemble) : il mesure le coût, pas la qualité, et
    son journal est `docs/mesures/f1e-prefill-sweep-2026-09-11.txt`. Il n'a
    déplacé aucune constante servie.
+
+## É-obj. Le sha256 du §1 est celui du préreg d'encodage, pas celui de l'objet (2026-09-18)
+
+Le §1 du préreg donne l'objet comme `qwen3-4b-tetra-q5.bin`, 1 794 564 765
+octets, sha256 `c084a47c00f0a0509783fdbe8c544f38709fdcec4feb5ac971ec1f91909027d2`.
+
+Ce condensat est celui de
+`proofs/preregistration-tetra-q5-encodage-2026-09-09.md`, vérifié par `shasum`
+sur le préreg lui-même. Le journal d'encodage du 2026-09-09 le porte sur sa
+ligne `Préreg`, aux lignes 6 à 8, et donne l'objet aux lignes 11 et 12 avec un
+nombre d'octets et **aucun** condensat. Le §1 a pris le premier pour le second.
+
+Le condensat de l'objet, mesuré le 2026-09-18 sur la copie du bucket, deux
+téléchargements indépendants :
+
+    sha256 ae31087a4b72494d52394f2cf2070da37a845c0a7d4aded65d5bdb0bd18b2263
+
+Le nombre d'octets du §1 est juste. C'est pourquoi l'erreur a survécu : tout
+contrôle par la taille passait.
+
+**Ce que cela ne change pas.** Le recensement a tourné sur le fichier du
+bucket, à `/out/tetra-q5-2026-09-09/`, désigné par son chemin et non par son
+condensat. Les 56,37 micro et 58,42 macro portent donc sur l'objet que le
+condensat mesuré identifie aujourd'hui. Aucun chiffre ne bouge.
+
+**Ce que cela change.** Un préreg futur qui épingle un objet doit hacher
+l'objet, pas recopier une ligne `Préreg` d'un journal. Le préreg tamponné n'est
+pas modifié ; `configs/README.md` l'est, et porte désormais le condensat mesuré.
+Journal : `docs/mesures/references-comptabilite-2026-09-18.txt`.
