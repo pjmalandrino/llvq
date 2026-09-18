@@ -5,18 +5,34 @@ target is a better trade of functional quality against served memory and speed, 
 geometric error and not crossing 60 MMLU. Opened 2026-09-17 on branch
 `claude/tetra-quality-map-plan-t8ojq2`, which is never merged into `main` by operator decision.
 
-Running cost: **$0**. No card, no job. About 25 min of Mac and 4.8 GB of disk.
+Running cost: **$1.44 announced** for the `down_proj` confirmation job of 2026-09-18, everything else $0. About 1 h 30 of Mac and 4.8 GB of disk.
 
 | # | step | status | what it produced | cost |
 |---|---|---|---|---|
 | 1 | Reconcile the state | **done** 09-17 | [etat-reconcilie-2026-09-17](etat-reconcilie-2026-09-17.md). Four distinct rho named; the int4 budget redone in kernel b/weight, where every type fits | $0, 4 h |
 | 2 | Fix the references and the accounting | **done** 09-18 | [references-comptabilite-2026-09-18](mesures/references-comptabilite-2026-09-18.txt). Both references fingerprinted, accounting read off the files; the served object's recorded sha256 was its prereg's | $0, 2 bucket reads |
 | 3 | A reusable set of real dumps | **done** 09-18 | [tetra-diag-4b-2026-09-18](mesures/tetra-diag-4b-2026-09-18.txt). 30 cells, 120 rows at the 4B, three arms; the pilot's volume inflates held-out regret 2.8 to 19 times | $0, 5 min, 4.7 GB |
-| 4 | Tetra against two geometric references | **stage 0 done, stage 1 void** 09-18 | [arbitrage-e8-2026-09-18](arbitrage-e8-2026-09-18.md) frames it; [e8-etape0](mesures/e8-etape0-2026-09-18.txt) verifies G(E8) to +0.002 %; [e8-etape1](mesures/e8-etape1-2026-09-18.txt) is void on its primary question (deviation E3: arm A is a GPTQ witness, arm B a plain encode) and returns a by-product worth more, Tetra's residual at **0.148 of isotropic** | $0 so far. Stage 1 proper: a new prereg, ~1 h |
+| 4 | Tetra against two geometric references | **done** 09-18 | [arbitrage-e8](arbitrage-e8-2026-09-18.md) frames it; [etape0](mesures/e8-etape0-2026-09-18.txt) verifies G(E8) to +0.002 %; [etape1](mesures/e8-etape1-2026-09-18.txt) is void (E3) and returns the isotropic finding; [etape1bis](mesures/e8-etape1bis-2026-09-18.txt) settles it inside the loop: **J_B/J_A = 1.047** at 2.6 % more bits, 1.290 at 3.7 % fewer, **1.146 at equal rate** against a predicted 1.09 | $0, ~1 h of Mac |
 | 5 | The rho factorial, if it is a new experiment | **reframed by step 1** | rho_H cannot be varied alone: selection and compensation come from one `GptqFactor` | to be costed |
 | 6a | `tetrahist` and a concrete compaction | **not started** | nothing exists under that name | to be costed |
 | 6b | Q6a, distilling the format's free parameters | **not started** | row 17 of `ROADMAP-QUALITY`, +2 to +5 pp *estimated*, ~18 M parameters, zero bits | audit owed first |
 | 7 | One ambitious branch | **waiting on 4** | the choice follows the diagnostics | n/a |
+
+## What step 4 settled, and where it points
+
+Inside the production loop, at equal bits, E8 cubed costs **1.146** of Tetra's Hessian-weighted
+error (*computed* from two measured arms). The arbitration dossier predicted 1.09 from the ratio
+of normalized second moments. The lattice is worth what theory says and no more, and that the
+bound holds at 2 bits per dimension with shape-gain, a regime it was not derived for, was not
+obvious before the run.
+
+Against that, the compensation moves the same metric by a factor of **7.5**. So the leads that
+touch H, the visit order and the calibration volume outrank the ones that touch the codebook,
+and that reorders step 7.
+
+E8 survives as a **simplification** candidate, not a quality one: 455 kB of table and a table
+scan against 7,138 lines and a trellis, for 4.7 % of weighted error at 2.6 % more bits. Whether
+that trade is worth taking is a kernel question this diagnostic does not answer.
 
 ## What the next step should read
 

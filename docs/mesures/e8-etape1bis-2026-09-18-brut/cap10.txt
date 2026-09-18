@@ -1,0 +1,26 @@
+10 cells, cap 10
+
+  layer-0-mlp-gate_proj              n  2560 rows 4 :   10.1 s
+  layer-0-self_attn-o_proj           n  4096 rows 4 :   90.3 s
+  layer-0-self_attn-q_proj           n  2560 rows 4 :   10.0 s
+  layer-17-mlp-gate_proj             n  2560 rows 4 :   10.0 s
+  layer-17-self_attn-o_proj          n  4096 rows 4 :   90.3 s
+  layer-17-self_attn-q_proj          n  2560 rows 4 :   10.0 s
+  layer-35-mlp-gate_proj             n  2560 rows 4 :   10.1 s
+  layer-35-self_attn-o_proj          n  4096 rows 4 :   89.1 s
+  layer-35-self_attn-q_proj          n  2560 rows 4 :   10.0 s
+  layer-17-mlp-down_proj             n  9728 rows 4 : 1108.6 s
+
+family            rows         J_A         J_B   J B/A       err A       err B   e B/A   A/iso   B/iso    cos A    cos B
+down_proj            4  1.0072e-01  1.0551e-01  1.0476  9.9206e+00  1.0333e+01  1.0416  0.1978  0.1978  0.92353  0.92056
+gate_proj           12  1.4618e-01  1.5134e-01  1.0353  1.9714e+00  2.0559e+00  1.0429  0.2028  0.1995  0.93465  0.93182
+o_proj              12  1.9049e-01  1.9916e-01  1.0455  1.4823e+01  1.5343e+01  1.0351  0.0892  0.0907  0.92624  0.92416
+q_proj              12  2.1964e-01  2.3190e-01  1.0558  1.8215e+00  1.8852e+00  1.0350  0.1433  0.1439  0.93641  0.93391
+POOLED              40  6.5702e-01  6.8791e-01  1.0470  2.8536e+01  2.9617e+01  1.0379  0.1342  0.1349  0.93154  0.92902
+
+PRIMARY  J_B/J_A = 1.0470   prereg 1.09, interval [0.95, 1.30] -> INSIDE
+second   unweighted B/A = 1.0379   interval [0.95, 1.30] -> INSIDE
+gate     |B/iso - A/iso| = 0.0008   must be below 0.05 -> PASSES
+fourth   cos A - cos B = +0.00252   interval [0.000, +0.020] -> INSIDE
+
+[exited with code 0]
