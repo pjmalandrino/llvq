@@ -494,3 +494,49 @@ fn an_untagged_v2_raw_tensor_still_reads() {
         Ok(bad) => assert_ne!(bad.name, t.name, "a tagged record must not read as untagged"),
     }
 }
+
+#[test]
+fn decode_raw_reaches_the_same_matrix_as_read_matrix_with() {
+    // `export` walks `read_record` so it can step over an int4 record, then
+    // decodes the lattice arm with `decode_raw`. That pair must land on the
+    // same matrix the `read_matrix_with` path produces, or a mixed file would
+    // export different weights than a pure one.
+    let tetra = Tetra::new();
+    let mut rng = SplitMix64::new(0x0DEC_0DE0);
+    let m = synthetic_tetra(&tetra, &mut rng, "model.layers.0.mlp.up_proj.weight", 3, 2 * DIM + 8, Some(9));
+    let mut buf: Vec<u8> = Vec::new();
+    {
+        let mut w = llvq_artifact::ArtifactWriter::with_kind(&mut buf, llvq_artifact::CodeKind::Tetra, 1)
+            .expect("header");
+        w.push(&m).expect("write");
+        w.finish().expect("flush");
+    }
+    let cbs = llvq_artifact::Codebooks::new();
+
+    let via_matrix = {
+        let mut r = std::io::Cursor::new(buf.clone());
+        let h = llvq_artifact::read_header(&mut r).expect("header");
+        llvq_artifact::read_matrix_with(&mut r, h.version, &cbs).expect("read_matrix_with")
+    };
+    let via_record = {
+        let mut r = std::io::Cursor::new(buf);
+        let h = llvq_artifact::read_header(&mut r).expect("header");
+        match llvq_artifact::read_record(&mut r, h.version).expect("read_record") {
+            llvq_artifact::Record::Lattice(raw) => {
+                llvq_artifact::decode_raw(raw, &cbs).expect("decode_raw")
+            }
+            llvq_artifact::Record::Int4(_) => panic!("a lattice record was written"),
+        }
+    };
+
+    assert_eq!(via_record.name, via_matrix.name);
+    assert_eq!(via_record.codes, via_matrix.codes);
+    assert_eq!(via_record.row_scales, via_matrix.row_scales);
+    assert_eq!(via_record.centroids, via_matrix.centroids);
+    assert_eq!(via_record.tail, via_matrix.tail);
+    assert_eq!(
+        llvq_artifact::decode_matrix(&via_record),
+        llvq_artifact::decode_matrix(&via_matrix),
+        "the two paths must rebuild the same weights"
+    );
+}
