@@ -5,7 +5,7 @@ target is a better trade of functional quality against served memory and speed, 
 geometric error and not crossing 60 MMLU. Opened 2026-09-17 on branch
 `claude/tetra-quality-map-plan-t8ojq2`, which is never merged into `main` by operator decision.
 
-Running cost: **$7.77 spent** on six card jobs of 2026-09-18, everything else $0. About 5 h of Mac and 7 GB of disk.
+Running cost: **$13.50 spent** on ten card jobs of 2026-09-18, everything else $0. About 10 h of Mac.
 
 | # | step | status | what it produced | cost |
 |---|---|---|---|---|
@@ -18,11 +18,23 @@ Running cost: **$7.77 spent** on six card jobs of 2026-09-18, everything else $0
 | 6b | Q6a, distilling the format's free parameters | **not started** | row 17 of `ROADMAP-QUALITY`, +2 to +5 pp *estimated*, ~18 M parameters, zero bits | audit owed first |
 | 7 | One ambitious branch | **waiting on 4** | the choice follows the diagnostics | n/a |
 
+## The base, as of 2026-09-19
+
+**The new reference is the DCLM-calibrated Q5 file**, operator decision of 2026-09-19:
+`~/qwen3-4b-dclm.bin`, 1,794,564,765 bytes, sha256 `471f3988`, **57.95 micro** on the full
+split at **2.2044 kernel b/weight and 2.8126 b/param**. It is not served: no `configs/` entry
+names it and its codes were never published.
+
+Every arm from now on is read against 57.95, not 56.37.
+
 ## The MMLU line, 2026-09-18
 
 | arm | kernel b/weight | b/param | MMLU micro | source |
 |---|---|---|---|---|
 | f16, 4B | 16.000 | 16.000 | **70.14** | [f16-full](mesures/f16-full-2026-09-18.txt) |
+| bare Tetra, 4B | 2.1498 | 2.7645 | 54.64 | [tetra-nu](mesures/tetra-nu-full-2026-09-18.txt) |
+| **Q5 + DCLM, the new base** | **2.2044** | **2.8126** | **57.95** | [dclm-4b](mesures/dclm-4b-2026-09-18.txt) |
+| Q5 + DCLM at 4x volume | 2.2044 | 2.8126 | 56.76 | [dclm-v4](mesures/dclm-v4-2026-09-18.txt) |
 | Q5 served | 2.2044 | 2.8126 | 56.37 | census of 09-11 |
 | + o_proj | 2.4226 | 3.0097 | 58.07 | [oproj](mesures/oproj-int4-full-2026-09-17.txt) |
 | + down_proj | 2.7226 | 3.2807 | 60.44 | [downproj](mesures/downproj-int4-full-2026-09-18.txt) |
