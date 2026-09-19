@@ -1,0 +1,63 @@
+THE PAPER'S CORPUS IS WORTH +1.58 PP FOR ZERO BITS (2026-09-18)
+================================================================================
+Job 6aad610d52d0dbd7f1d6a83d, l40sx1, 23 min billed, $0.69 against $0.72
+announced. Encoding: 1 h 47 of Mac, $0.
+Prereg: proofs/preregistration-dclm-4b-2026-09-18.md, stamped
+  sha256 fdef055c2605fb35..., four calendars, before the arm.
+Data: docs/data/mmlu-dumps/mmlu-4b-dclm-FULL.csv
+Nature: *measured*
+
+THE RESULT
+-----------
+Same recipe, same rate, same bit count. Only the calibration text changes.
+
+  calibrated C4    (served object)   56.37 micro / 58.42 macro
+  calibrated dclm-edu                **57.95** / 59.82
+
+  paired    +1.58 pp   CI95 [+0.71 ; +2.49]   SE 0.45
+  McNemar   1,911 against 2,133 discordant, p = 5.0e-04, 28.8 % discordant
+
+Both files are 1,794,564,765 bytes and differ in sha256, `ae31087a` against
+`471f3988`. Same byte count, different content, which is what a corpus change
+should produce.
+
+Prereg point 56.9, interval [53.5, 60.3]: inside, above the point. Row 6 of
+`ROADMAP-QUALITY` estimated +0.8 to +1.4 pp for the composition of the
+calibration set. Measured +1.58, just above the top of its range.
+
+WHAT ONE DRAW CAN AND CANNOT SAY
+---------------------------------
+Two statements, both true, and confusing them is the trap this file exists to
+avoid.
+
+  * **These two files differ**, resolved: +1.58 [+0.71; +2.49], p = 5e-4,
+    question by question on 14,042.
+  * **Attributing that to the corpus rather than to the draw is not resolved.**
+    Another draw of the same recipe moves by 2.92 pp (job 6a8df156, 3 seeds at
+    the 4B). The paired interval answers "do these files differ", not "is the
+    corpus the cause".
+
+The 28.8 % discordance is the highest of any arm on 2026-09-18; the int4 arms,
+which swap matrices in one file, sit at 13 to 20 %. Two encodings disagree on
+far more questions than one file with matrices replaced.
+
+THE PHASE PROFILE, WHICH DECIDED THE NEXT RUN
+----------------------------------------------
+  quantization    5243.0 s   81.8 %
+  factorization    770.7 s   12.0 %
+  capture          337.2 s    5.3 %
+  rest              57.7 s    0.9 %
+
+Only the capture scales with the calibration volume, at 2.573 ms a token. That
+put the paper's 12,492,800 tokens at 8.9 h of capture and about 10.6 h of
+encoding, and it is why the volume arm was attempted at all. The estimate was
+right on time and wrong on memory: see `dclm-v4-2026-09-18`.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- No significance on a one-point effect: one draw, 2.92 pp of noise.
+- Nothing about bare `Tetra`: this arm carries `v_proj` at int4, 2.2044 kernel
+  b/weight, so the corpus effect on the 252-matrix file is unmeasured.
+- Nothing about the volume, which is the other half of row 6.
+- Nothing about perplexity beyond the 16.2415 read at encoding time, against
+  16.3161 for C4 at the same accounting.

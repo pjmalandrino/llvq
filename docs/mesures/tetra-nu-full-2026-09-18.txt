@@ -1,0 +1,66 @@
+BARE TETRA ON THE FULL SPLIT: 54.64, AND THE SAMPLE WAS 1.15 PP LOW (2026-09-18)
+================================================================================
+Job 6aada72a51992417dfcc7e89, **rtx-pro-6000** with `--any-flavor`, 55 min
+billed, **$2.51** against the $0.83 announced. The overrun is analysed below and
+it is a finding about the card, not about the model.
+Prereg: proofs/preregistration-tetra-nu-full-2026-09-18.md, stamped
+  sha256 b7f16ad923e0e5d3..., four calendars, before the run.
+Data: docs/data/mmlu-dumps/mmlu-4b-tetra-FULL.csv
+Nature: *measured*
+
+THE RESULT
+-----------
+  bare Tetra 4B, 14,042 questions   **54.64 micro / 55.91 macro**
+
+  prereg point 53.5, interval [52.1, 54.8]   INSIDE, near the top
+  the 2,280 sample read 53.49                the sample was **1.15 pp low**
+
+This is the baseline of every claim of the form "the paper's quality at the
+paper's rate". It had never been measured: bare `Tetra` existed only as a
+2,280-question figure.
+
+WHAT IT REPAIRS
+----------------
+  gap to the paper's 60.7 at comparable rate   **6.06 pp**, not the 7.2 the
+                                               sample implied
+
+And it prices `v_proj` at int4 properly, on one population:
+
+  bare Tetra 54.64 against the served Q5 56.37
+  paired **+1.73 pp** CI95 [+0.87 ; +2.59], p = 9.0e-05
+
+Chantier 1 had read that step at +3.47 pp on the 2,280 sample. On the full
+split it is half that. The sample over-stated the one int4 step the served
+object actually ships.
+
+THE SAMPLE-TO-FULL SHIFT HAS NO STABLE SIGN
+--------------------------------------------
+  arm              sample   full     shift
+  f16 4B           70.32    70.14    **-0.18**
+  served Q5        55.52    56.37    +0.85
+  bare Tetra       53.49    54.64    +1.15
+  Tetra 8B         61.61    63.85    +2.24
+
+Four measurements, four different shifts, one of them negative. No correction
+factor exists, and any figure quoted from the sample carries about two points of
+uncertainty in an unknown direction.
+
+THE CARD, AND IT COST $1.68 TO LEARN
+-------------------------------------
+This arm and the `dclm-v4` arm both ran on rtx-pro-6000 because the l40sx1 pool
+was saturated all day. Both billed 55 min for the same 14,042-question MMLU that
+l40sx1 does in 23.
+
+  l40sx1          23 min at $1.80/h = $0.72
+  rtx-pro-6000    55 min at $2.75/h = **$2.51**
+
+**2.4 times slower and 1.5 times dearer an hour**, so 3.5 times the cost. The
+reasoning that a faster card at a higher rate cancels out is false for this
+workload: candle's CUDA path is not tuned for compute cap 120. The rule that
+follows: waiting 30 min for an l40sx1 beats starting at once on an rtx.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about calibration: this is the C4 encoding of 2026-09-06.
+- Nothing about int4, which is the point of the arm.
+- Nothing about the 8B's bare figure, which is 63.85 from its own job.

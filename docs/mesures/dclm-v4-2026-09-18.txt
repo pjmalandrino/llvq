@@ -1,0 +1,75 @@
+FOUR TIMES THE CALIBRATION VOLUME COSTS 1.20 PP: THE VOLUME AXIS IS CLOSED
+(2026-09-18)
+================================================================================
+Job 6aadad8c52d0dbd7f1d6bcc9, rtx-pro-6000 with `--any-flavor`, 55 min billed,
+$2.51 against the $0.83 announced; see `tetra-nu-full-2026-09-18` for the card.
+Encoding: 2 h 41 of Mac, $0. A first attempt at eight times was killed.
+Prereg: proofs/preregistration-dclm-v4-2026-09-18.md, stamped
+  sha256 1c8a94a3ea452b25..., four calendars, before the encoding finished.
+Data: docs/data/mmlu-dumps/mmlu-4b-dclm-v4-FULL.csv
+Nature: *measured*
+
+THE RESULT, AND IT GOES THE WRONG WAY
+--------------------------------------
+Corpus held at DCLM-edu, volume 131,072 to 524,288 tokens, everything else
+identical.
+
+  dclm x1   57.95 micro / 59.82 macro
+  dclm x4   **56.76** / 58.73
+
+  paired    **-1.20 pp**   CI95 [-2.06 ; -0.39]   SE 0.43
+  McNemar   1,907 against 1,739 discordant, p = 0.0057, 26.0 % discordant
+
+Four times the calibration undid three quarters of what the corpus bought:
+57.95 falls back to 56.76, against the C4 object's 56.37.
+
+Perplexity said the same before the arm ran: **16.6109 against 16.2415** at x1,
+2.3 % worse, same accounting. For once the two metrics agree, and they agree on
+a loss.
+
+Prereg point +0.8, interval [-2.1, +3.7]: the measurement is inside and on the
+wrong side. Decision row 3 fires: **more calibration hurts, record it and stop
+the volume axis.**
+
+That verdict is what the arm was bought for, and it saves the $5 of the
+a100-large at thirty-two times.
+
+THE MECHANISM THE PREREG NAMED IS NOT REFUTED, IT IS UNTESTED
+--------------------------------------------------------------
+Section 2 predicted the effect would pass through `down_proj`, the only
+activation short of samples: 13.5 per dimension at x1 against 51 for q, k, gate
+and up. Nothing in this arm separates the types, so the mechanism is neither
+confirmed nor refuted. What is measured is the sign of the whole.
+
+A reading that fits and is not established: more windows from a **contiguous
+prefix** of one shard may add redundant text rather than coverage, and a
+Hessian averaged over more of the same thing is not better determined, only
+smoother. `LLVQ_CALIB_SEED` draws windows at random instead of the prefix and
+has never been used on this axis.
+
+WHAT THE EIGHT-TIMES ATTEMPT COST, AND WHY IT WAS KILLED
+---------------------------------------------------------
+It ran 105 min to block 16 of 36 at 393 s a block, against 178 at x1. The Mac
+reached **0.8 GB free, 23.2 GB in the compressor, 20.8 GB of swap and 1.4 TB of
+swapouts**. Killing it returned the machine to 53.2 GB free within seconds.
+
+The volume ceiling on that machine is memory, not time, and the estimate that
+put the paper's volume at 10.6 h was right on time and silent on memory. The
+activations of every window stay alive while the loop advances them block by
+block: 20.97 MB a window at 2,048 tokens and hidden 2,560 in f32, so the
+paper's 6,100 sequences need **128 GB**. No flavor in `ops/run.py` holds that;
+the h200's 141 GB VRAM is the closest and still short with the model loaded.
+
+A phase anomaly worth recording rather than explaining: `advance (pass 2)` took
+0.7 s at x1 and 1,120 s at x4. A factor of 1,600 for a factor of 4 in volume is
+not accounted for by the volume, and nothing here diagnoses it.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- No significance on a one-point effect: one draw, 2.92 pp of re-encoding noise,
+  and -1.20 sits well inside that band. The honest statement is "no benefit
+  visible at four times, and the point estimate is negative".
+- Nothing about the paper's factor of 95, which is out of reach on this machine
+  and on every rentable single card in the list.
+- Nothing about random window draws, which is the untested variant above.
+- Nothing about bare `Tetra`: this arm carries `v_proj` at int4.
