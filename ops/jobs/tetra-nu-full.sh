@@ -17,7 +17,7 @@ O=/out/tetra-nu-full-2026-09-18
 F=/out/tetra-4b-2026-09-06/qwen3-4b-tetra.bin
 uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
-  --flavor l40sx1 --timeout 1h \
+  --flavor rtx-pro-6000 --any-flavor --timeout 1h \
   --bucket Pier-Jean/jobs-artifacts --out-mount /out \
   --name tetra-nu-full \
   "mkdir -p $O" \

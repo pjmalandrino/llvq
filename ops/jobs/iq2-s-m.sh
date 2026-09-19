@@ -17,7 +17,7 @@ M=/out/m4-iq2-cuda-1b57b7d3
 O=/out/iq2-s-m-2026-09-18
 uv run ops/run.py bench \
   --image ghcr.io/ggml-org/llama.cpp:full-cuda \
-  --flavor l40sx1 --timeout 1h \
+  --flavor rtx-pro-6000 --any-flavor --timeout 1h \
   --bucket Pier-Jean/jobs-artifacts --out-mount /out \
   --name iq2-s-m \
   "mkdir -p $O ; ls -l $M/qwen3-4b-f16.gguf $M/mmlu-prompts.jsonl" \
