@@ -116,3 +116,26 @@ WHAT THIS DOES NOT ESTABLISH
   repaired.
 - The code that produced sigma is not in the tree. It is pinned by the archive's
   sha256 and nothing else.
+
+================================================================================
+CORRECTION (2026-09-20)
+--------------------------------------------------------------------------------
+The block "AND IT IS TWICE WHAT THE PAPER READS" is wrong twice.
+
+**Wrong row.** The +2.1 quoted there is Table 6's **0-gain-bit** row,
+60.7 -> 62.8. Our object carries a gain bit, so the comparable row is
+shape-gain 2 bit, **59.3 -> 60.9, a delta of +1.6**.
+
+**Wrong framing.** Table 6 carries five no-FT / FT pairs, and the gain falls
+with the base: 48.6 -> 52.9 (+4.3), 50.5 -> 54.9 (+4.4), 57.4 -> 59.5 (+2.1),
+59.3 -> 60.9 (+1.6), 60.7 -> 62.8 (+2.1). Fitted, gain = 15.974 - 0.2364 x base,
+r = -0.9564. At our base of 54.64 that predicts **+3.06**, and +4.30 was read.
+The excess over the paper's own trend is **+1.24 pp**, not a doubling.
+
+The DCLM arm of 2026-09-20 then measured +3.15 where that regression predicted
++2.27, so the base-dependence is real and weaker than their fit. Both readings
+were recorded before that result, in
+proofs/preregistration-dclm-rowscales-2026-09-19-ECARTS.md.
+
+Found by the workflow of 2026-09-19 whose verification stage died on a spend
+limit; the regression was recomputed by hand before being written.

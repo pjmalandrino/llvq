@@ -40,6 +40,7 @@ Every arm from now on is read against 57.95, not 56.37.
 | + down_proj | 2.7226 | 3.2807 | 60.44 | [downproj](mesures/downproj-int4-full-2026-09-18.txt) |
 | **+ o + down** | **2.9408** | 3.4778 | **61.76** | [vod](mesures/vod-int4-full-2026-09-18.txt) |
 | **bare Tetra + trained row scales** | **2.1498** | **2.7645** | **58.94** | [tetranu-rowscales](mesures/tetranu-rowscales-2026-09-19.txt) |
+| **Q5 + DCLM + trained row scales** | **2.2044** | **2.8126** | **61.11** | [dclm-rowscales](mesures/dclm-rowscales-2026-09-20.txt) |
 | bare Tetra, 8B | 2.1498 | 3.0672 | 63.85 | [vod-8b](mesures/vod-8b-2026-09-18.txt) |
 | **8B + v + o + down** | **2.9260** | n/a | **68.03** | same |
 
