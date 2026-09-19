@@ -1,0 +1,62 @@
+THE WRITE-BACK FOR TRAINED ROW SCALES, AND ITS TWO CONTROLS (2026-09-19)
+================================================================================
+Tool: llvq-llm/src/bin/rowscale.rs
+Subject: /Users/pjmalandrino/qwen3-4b-dclm.bin, the DCLM base, 1,794,564,765 bytes
+Cost: $0, local, no GPU
+Nature: *measured*
+
+WHAT IT DOES
+-------------
+Folds a vector of per-row multipliers into an artifact's `row_scales`. It is
+`rhoapply` driven by a vector instead of a constant. That generalization cost
+almost nothing: `rhoapply`'s own `rewrite` already takes a factor of
+(matrix, row), so the per-row case was in the signature and never exercised.
+
+Zero bits. No code moves, no index byte changes, the decoder stays
+byte-identical.
+
+CONTROL 1, IDEMPOTENCE
+-----------------------
+Sigma set to 1.0 on every row of two matrices, 13,824 row scales.
+
+  0 scaled, 216 untouched, 36 int4 passed through
+  cmp against the input: BYTE-IDENTICAL
+
+A multiplier of exactly 1.0 is skipped rather than multiplied, so an untouched
+row leaves the file alone. The 36 int4 records are passed through by kind and
+counted. `v_proj` is served at int4 and holds no `row_scales`, so it is never
+scaled, the same exclusion `rhoapply` makes by construction.
+
+CONTROL 2, SURGERY
+-------------------
+One row of one matrix set to 1.5, everything else at 1.0.
+
+  1 scaled, 215 untouched, 36 int4 passed through
+  differing bytes: 7, contiguous, offsets 14,701,156 to 14,701,162
+  file size unchanged: 1,794,564,765 on both sides
+
+The f64 at offset 14,701,156 reads 0.09519850600183147 before and
+0.14279775900274722 after, a ratio of 1.5000000000000002. That is the f64
+rounding of the product, so the edit landed on the scale and nowhere else.
+
+Seven bytes and not eight because one byte of the mantissa happens to agree.
+The row-scale array is not 8-byte aligned in the file: its offset is
+`record start + a variable-length prefix`, the name included. So the test is
+that the differing bytes are contiguous and span at most eight, not that they
+sit in an aligned word.
+
+THE SUITE
+----------
+11 tests, 8 mutants, 8 killed. Four tests run `fold` on an in-memory Tetra
+artifact built with `ArtifactWriter::with_kind`, which is what covers the
+write path; the earlier version tested only the parser and left the writer to
+the two controls above.
+
+Mutants killed: multiply even by 1.0, replace instead of multiply, drop the
+trailing bytes, accept any sigma length, never record the deviation, skip the
+name normalization, miscount a scaled matrix, never count rows.
+
+WHAT IS STILL MISSING
+----------------------
+The trainer. `ops/llvqtune/` is written and not committed. Nothing has trained
+a sigma yet, so this tool has only ever folded hand-written vectors.
