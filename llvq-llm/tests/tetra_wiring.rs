@@ -103,6 +103,7 @@ fn windows(dev: &Device) -> Vec<Tensor> {
 
 fn run_config(codebook: Codebook, start: usize, limit: usize) -> RunConfig {
     RunConfig {
+        sequential_block: false,
         h_shrink: 1.0,
         gain_scale: 1.0,
         int4_types: Vec::new(),

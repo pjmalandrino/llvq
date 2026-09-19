@@ -132,6 +132,7 @@ fn codebook() -> Codebook {
 
 fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConfig {
     RunConfig {
+        sequential_block: false,
         h_shrink: 1.0,
         gain_scale: 1.0,
         int4_types: Vec::new(),

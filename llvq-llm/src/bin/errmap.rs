@@ -295,6 +295,8 @@ fn main() -> anyhow::Result<()> {
         post_shape_gain: false,
     };
     let run = RunConfig {
+        // A probe, never the sequential-block path.
+        sequential_block: false,
         gptq: GptqConfig {
             block: codebook.block_len(),
             retract: true,

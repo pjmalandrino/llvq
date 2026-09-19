@@ -18,7 +18,7 @@ what it does about that instead of pretending otherwise.
 |---|---|---|---|---|---|
 | A | Random window draws | **running** 2026-09-19 | 1 h 47 | $0.72 | encode `seed 1` at x1 |
 | B | Row 5, `h_shrink` at the 4B | planned | 3 x 1 h 47 | $0 first | perplexity spread before any MMLU |
-| C | Row C, intra-block sequencing | planned | 1 h 47 per arm | $0.72 | write the split capture |
+| C | Row C, intra-block sequencing | **code landed** 2026-09-19 | 1 h 47 per arm | $0.72 | encode with `LLVQ_SEQ_BLOCK=1` |
 
 ---
 

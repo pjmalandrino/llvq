@@ -546,6 +546,21 @@ pub struct RunConfig {
     /// input — q/k/v, and gate/up — necessarily share it too, which is what
     /// makes rotating the single shared Hessian legitimate.
     pub rotation_seed: Option<u64>,
+    /// Row C of `ROADMAP-QUALITY`: capture each activation's `H` **after** the
+    /// matrices upstream of it in the same block have been quantized.
+    ///
+    /// The published path is `false`, and the module header explains why that
+    /// is a defect rather than a choice: the loop is sequential **across**
+    /// blocks and simultaneous **inside** one. With `false`, `o_proj` is
+    /// calibrated on an attention output its own q, k and v never quantized,
+    /// and `down_proj` on an `act(gate) * up` that was never quantized. That
+    /// is 35 % of the file calibrated on an input the served model never sees.
+    ///
+    /// With `true` the block runs four capture passes instead of one, in the
+    /// causal order of [`Act::ALL`], and each one sees the weights the file
+    /// will actually store. The capture is 5.3 % of an encoding, so the cost
+    /// is about a sixth more wall clock and no bits at all.
+    pub sequential_block: bool,
 }
 
 /// Base seed of the incoherence rotation. Historical value — changing it
@@ -935,6 +950,7 @@ pub fn quantize_model_capturing(
         start,
         limit,
         rotation_seed,
+        sequential_block,
     } = run;
     let codebook = *codebook;
     let (damping, threads, start, limit) = (*damping, *threads, *start, *limit);
@@ -1015,321 +1031,343 @@ pub fn quantize_model_capturing(
             report.phases.advance += tp.elapsed().as_secs_f64();
             continue;
         }
-        // ---- pass 1: collect H with the original weights ----
-        let tp = std::time::Instant::now();
-        let mut cap = BlockCapture {
-            target: t,
-            acc: HashMap::new(),
-        };
-        for act in Act::ALL {
-            let w = act.width(model.config());
-            cap.acc.insert(act, Hessian::new(w, &device, total_rows)?);
-        }
+        // ---- row C: how many capture passes this block takes ----
+        //
+        // One, and every activation of the block is captured against the
+        // ORIGINAL weights: `o_proj` sees an attention output its own q, k
+        // and v never quantized, `down_proj` an `act(gate) * up` that was
+        // never quantized. That is the published path, and the module header
+        // above denounces exactly it at the block level.
+        //
+        // Four, in the causal order of `Act::ALL`, and each capture sees the
+        // weights the file will store, because the quantizer writes them back
+        // into the model as it goes. The loop below is unchanged otherwise:
+        // the same capture, the same factorization, the same seven matrices,
+        // restricted to one stage at a time.
+        // The causal mask does not depend on the stage, and pass 2 below
+        // needs it after this loop has ended.
         let mask = model.causal_mask_for(&hidden[0])?;
-        for h in hidden.iter() {
-            let _ = model.blocks[t].forward(h, model.rotary(), &mask, t, &mut cap)?;
-        }
-        report.phases.capture += tp.elapsed().as_secs_f64();
-
-        // ---- factor once per activation, not once per matrix ----
-        let tp = std::time::Instant::now();
-        let keep_hessian = needs_dense_hessian(cfg);
-        let mut kept_bytes = 0u64;
-        let mut factors: HashMap<Act, ActFactor> = HashMap::new();
-        for act in Act::ALL {
-            // Taken out of the capture map, not borrowed from it: the device
-            // accumulator is `n × n` f32 (2.6 GB for `down_proj` at 32B) and
-            // is dead the instant it has been read out. Holding all four of
-            // them until the end of the block, as indexing did, keeps that
-            // memory alive across the factorizations — the moment the block
-            // needs it most.
-            let mut h = cap
-                .acc
-                .remove(&act)
-                .expect("every activation is inserted once, above")
-                .to_f64()?;
-            let n = act.width(model.config());
-            // M1 — see `RunConfig::h_shrink`. On the estimate, before the
-            // rotation; skipped entirely on the published path.
-            if h_shrink < 1.0 {
-                shrink_off_diagonal(&mut h, n, h_shrink);
-            }
-            // Quantizing in a rotated basis means the Hessian has to move
-            // with it: H' = Q H Qᵀ, since x' = Q x.
-            let rot = rotation_seed.map(|s| {
-                Rotation::new(n, effective_rotation_seed(s, t, act))
-            });
-            if let Some(q) = &rot {
-                q.rotate_hessian(&mut h);
-            }
-            let factor = GptqFactor::new(&h, n, damping)
-                .map_err(|e| anyhow::anyhow!("block {t}, {act:?}: {e}"))?;
-            // `h` is dropped here unless a downstream reader exists — the
-            // decision is taken from the flags, so re-enabling `group_scales`
-            // or `design_c` restores it with no other change.
-            let hessian = if keep_hessian {
-                kept_bytes += (n as u64) * (n as u64) * std::mem::size_of::<f64>() as u64;
-                Some(h)
-            } else {
-                None
+        let stages: Vec<Vec<Act>> = if *sequential_block {
+            Act::ALL.iter().map(|a| vec![*a]).collect()
+        } else {
+            vec![Act::ALL.to_vec()]
+        };
+        for stage in &stages {
+            // ---- pass 1: collect H with the original weights ----
+            let tp = std::time::Instant::now();
+            let mut cap = BlockCapture {
+                target: t,
+                acc: HashMap::new(),
             };
-            factors.insert(
-                act,
-                ActFactor {
+            for act in stage.iter().copied() {
+                let w = act.width(model.config());
+                cap.acc.insert(act, Hessian::new(w, &device, total_rows)?);
+            }
+            for h in hidden.iter() {
+                let _ = model.blocks[t].forward(h, model.rotary(), &mask, t, &mut cap)?;
+            }
+            report.phases.capture += tp.elapsed().as_secs_f64();
+
+            // ---- factor once per activation, not once per matrix ----
+            let tp = std::time::Instant::now();
+            let keep_hessian = needs_dense_hessian(cfg);
+            let mut kept_bytes = 0u64;
+            let mut factors: HashMap<Act, ActFactor> = HashMap::new();
+            for act in stage.iter().copied() {
+                // Taken out of the capture map, not borrowed from it: the device
+                // accumulator is `n × n` f32 (2.6 GB for `down_proj` at 32B) and
+                // is dead the instant it has been read out. Holding all four of
+                // them until the end of the block, as indexing did, keeps that
+                // memory alive across the factorizations — the moment the block
+                // needs it most.
+                let mut h = cap
+                    .acc
+                    .remove(&act)
+                    .expect("every activation is inserted once, above")
+                    .to_f64()?;
+                let n = act.width(model.config());
+                // M1 — see `RunConfig::h_shrink`. On the estimate, before the
+                // rotation; skipped entirely on the published path.
+                if h_shrink < 1.0 {
+                    shrink_off_diagonal(&mut h, n, h_shrink);
+                }
+                // Quantizing in a rotated basis means the Hessian has to move
+                // with it: H' = Q H Qᵀ, since x' = Q x.
+                let rot = rotation_seed.map(|s| {
+                    Rotation::new(n, effective_rotation_seed(s, t, act))
+                });
+                if let Some(q) = &rot {
+                    q.rotate_hessian(&mut h);
+                }
+                let factor = GptqFactor::new(&h, n, damping)
+                    .map_err(|e| anyhow::anyhow!("block {t}, {act:?}: {e}"))?;
+                // `h` is dropped here unless a downstream reader exists — the
+                // decision is taken from the flags, so re-enabling `group_scales`
+                // or `design_c` restores it with no other change.
+                let hessian = if keep_hessian {
+                    kept_bytes += (n as u64) * (n as u64) * std::mem::size_of::<f64>() as u64;
+                    Some(h)
+                } else {
+                    None
+                };
+                factors.insert(
+                    act,
+                    ActFactor {
+                        factor,
+                        hessian,
+                        rotation: rot,
+                    },
+                );
+            }
+            report.dense_hessian_bytes = report.dense_hessian_bytes.max(kept_bytes);
+
+            report.phases.factor += tp.elapsed().as_secs_f64();
+
+            // ---- quantize the seven matrices ----
+            for act in stage.iter().copied() {
+                let ActFactor {
                     factor,
                     hessian,
                     rotation: rot,
-                },
-            );
-        }
-        report.dense_hessian_bytes = report.dense_hessian_bytes.max(kept_bytes);
-
-        report.phases.factor += tp.elapsed().as_secs_f64();
-
-        // ---- quantize the seven matrices ----
-        for act in Act::ALL {
-            let ActFactor {
-                factor,
-                hessian,
-                rotation: rot,
-            } = &factors[&act];
-            for name in act.consumers() {
-                let tp = std::time::Instant::now();
-                // The one decision point of the mixed path, and it is taken
-                // per matrix, before any Hessian is touched: a type in
-                // `int4_types` is stored group-affine in the natural basis
-                // and never sees GPTQ, a rotation or the lattice. With the
-                // list empty — every published run — this branch is not
-                // entered and the bytes below are the bytes that were always
-                // written.
-                let short = name.rsplit('.').next().unwrap_or(name);
-                if int4_types.iter().any(|ty| ty == short) {
-                    let lin = model.blocks[t].linear_mut(name);
-                    let w = lin.weight().clone();
-                    let (d_out, d_in) = w.dims2()?;
-                    let key = crate::artifact::key(t, name);
-                    let rec = crate::sealed::int4_record(&key, &w)?;
-                    // The block's later activations must see the weights the
-                    // file stores, exactly as they see the lattice ones: the
-                    // dequantized tensor goes back into the model here.
-                    let deq = Tensor::from_vec(rec.to_f32(), (d_out, d_in), &device)?
-                        .to_dtype(w.dtype())?;
-                    *lin = candle_nn::Linear::new(deq, None);
-                    if let Some(s) = sink.as_deref_mut() {
-                        s.push_int4(rec)?;
+                } = &factors[&act];
+                for name in act.consumers() {
+                    let tp = std::time::Instant::now();
+                    // The one decision point of the mixed path, and it is taken
+                    // per matrix, before any Hessian is touched: a type in
+                    // `int4_types` is stored group-affine in the natural basis
+                    // and never sees GPTQ, a rotation or the lattice. With the
+                    // list empty — every published run — this branch is not
+                    // entered and the bytes below are the bytes that were always
+                    // written.
+                    let short = name.rsplit('.').next().unwrap_or(name);
+                    if int4_types.iter().any(|ty| ty == short) {
+                        let lin = model.blocks[t].linear_mut(name);
+                        let w = lin.weight().clone();
+                        let (d_out, d_in) = w.dims2()?;
+                        let key = crate::artifact::key(t, name);
+                        let rec = crate::sealed::int4_record(&key, &w)?;
+                        // The block's later activations must see the weights the
+                        // file stores, exactly as they see the lattice ones: the
+                        // dequantized tensor goes back into the model here.
+                        let deq = Tensor::from_vec(rec.to_f32(), (d_out, d_in), &device)?
+                            .to_dtype(w.dtype())?;
+                        *lin = candle_nn::Linear::new(deq, None);
+                        if let Some(s) = sink.as_deref_mut() {
+                            s.push_int4(rec)?;
+                        }
+                        report.matrices += 1;
+                        report.int4_matrices += 1;
+                        report.int4_weights += (d_out * d_in) as u64;
+                        report.phases.write += tp.elapsed().as_secs_f64();
+                        progress(t, nblocks, name);
+                        continue;
                     }
-                    report.matrices += 1;
-                    report.int4_matrices += 1;
-                    report.int4_weights += (d_out * d_in) as u64;
-                    report.phases.write += tp.elapsed().as_secs_f64();
-                    progress(t, nblocks, name);
-                    continue;
-                }
-                let lin = model.blocks[t].linear_mut(name);
-                let w = lin.weight();
-                let (d_out, d_in) = w.dims2()?;
-                let flat: Vec<f64> = w
-                    .to_dtype(DType::F32)?
-                    .flatten_all()?
-                    .to_vec1::<f32>()?
-                    .into_iter()
-                    .map(|v| v as f64)
-                    .collect();
-                report.phases.transfer += tp.elapsed().as_secs_f64();
-                let tp = std::time::Instant::now();
-                let mut weights = Weights::new(d_out, d_in, flat);
-                // W' = W Qᵀ, quantize there, then Ŵ = Ŵ' Q — a drop-in
-                // replacement that needs no runtime transform.
-                if let Some(q) = rot {
-                    q.rotate_weight_rows(&mut weights.w, d_out);
-                }
-                // The gain levels are fitted to *this* matrix, in the basis it
-                // will be quantized in.
-                let gain = match codebook {
-                    // Same fit for both maps, and deliberately so: the gain
-                    // code is the block magnitude relative to its row, which
-                    // knows nothing about how the direction is written down.
-                    Codebook::ShapeGain { gain_bits, .. } | Codebook::Tetra { gain_bits, .. } => {
-                        let mut levels =
-                            fit_gain_centroids(&weights.w, d_out, d_in, cfg.block, gain_bits, 40);
-                        // At 1.0 the multiply is skipped rather than applied,
-                        // so the published path is bit-identical and not
-                        // merely equal to within a rounding.
-                        if gain_scale != 1.0 {
-                            for c in &mut levels {
-                                *c *= gain_scale;
+                    let lin = model.blocks[t].linear_mut(name);
+                    let w = lin.weight();
+                    let (d_out, d_in) = w.dims2()?;
+                    let flat: Vec<f64> = w
+                        .to_dtype(DType::F32)?
+                        .flatten_all()?
+                        .to_vec1::<f32>()?
+                        .into_iter()
+                        .map(|v| v as f64)
+                        .collect();
+                    report.phases.transfer += tp.elapsed().as_secs_f64();
+                    let tp = std::time::Instant::now();
+                    let mut weights = Weights::new(d_out, d_in, flat);
+                    // W' = W Qᵀ, quantize there, then Ŵ = Ŵ' Q — a drop-in
+                    // replacement that needs no runtime transform.
+                    if let Some(q) = rot {
+                        q.rotate_weight_rows(&mut weights.w, d_out);
+                    }
+                    // The gain levels are fitted to *this* matrix, in the basis it
+                    // will be quantized in.
+                    let gain = match codebook {
+                        // Same fit for both maps, and deliberately so: the gain
+                        // code is the block magnitude relative to its row, which
+                        // knows nothing about how the direction is written down.
+                        Codebook::ShapeGain { gain_bits, .. } | Codebook::Tetra { gain_bits, .. } => {
+                            let mut levels =
+                                fit_gain_centroids(&weights.w, d_out, d_in, cfg.block, gain_bits, 40);
+                            // At 1.0 the multiply is skipped rather than applied,
+                            // so the published path is bit-identical and not
+                            // merely equal to within a rounding.
+                            if gain_scale != 1.0 {
+                                for c in &mut levels {
+                                    *c *= gain_scale;
+                                }
+                            }
+                            Some(levels)
+                        }
+                        _ => None,
+                    };
+                    // The closure takes `gain` by move; the sink needs the same
+                    // levels to store them.
+                    let gain_for_sink = gain.clone();
+                    let tetra_encoder = tetra_encoder.clone();
+                    let make = move || -> Box<dyn BlockQuantizer> {
+                        match codebook {
+                            Codebook::Identity => Box::new(Identity { block: cfg.block }),
+                            Codebook::Grid { step } => Box::new(ScalarGrid {
+                                block: cfg.block,
+                                step,
+                            }),
+                            // `cfg.block` is the group: the caller sets it from
+                            // `Codebook::block_len`, and `quantize_layer` asserts
+                            // the two agree.
+                            Codebook::ScalarGroup { bits, .. } => Box::new(ScalarGroupwise {
+                                block: cfg.block,
+                                bits,
+                            }),
+                            Codebook::Direction => Box::new(LeechDirection::new()),
+                            Codebook::ShapeGain {
+                                max_shell,
+                                free_magnitude,
+                                level_cap,
+                                ..
+                            } => {
+                                let q = LeechShapeGain::with_caps(
+                                    gain.clone().expect("fitted above"),
+                                    max_shell,
+                                    level_cap,
+                                );
+                                Box::new(if free_magnitude {
+                                    q.with_free_magnitude()
+                                } else {
+                                    q
+                                })
+                            }
+                            Codebook::Tetra { post_shape_gain, .. } => {
+                                let q = TetraShapeGain::with_encoder(
+                                    tetra_encoder.clone().expect("built for a Tetra run"),
+                                    gain.clone().expect("fitted above"),
+                                );
+                                Box::new(if post_shape_gain { q.with_post_shape_gain() } else { q })
                             }
                         }
-                        Some(levels)
-                    }
-                    _ => None,
-                };
-                // The closure takes `gain` by move; the sink needs the same
-                // levels to store them.
-                let gain_for_sink = gain.clone();
-                let tetra_encoder = tetra_encoder.clone();
-                let make = move || -> Box<dyn BlockQuantizer> {
-                    match codebook {
-                        Codebook::Identity => Box::new(Identity { block: cfg.block }),
-                        Codebook::Grid { step } => Box::new(ScalarGrid {
-                            block: cfg.block,
-                            step,
-                        }),
-                        // `cfg.block` is the group: the caller sets it from
-                        // `Codebook::block_len`, and `quantize_layer` asserts
-                        // the two agree.
-                        Codebook::ScalarGroup { bits, .. } => Box::new(ScalarGroupwise {
-                            block: cfg.block,
-                            bits,
-                        }),
-                        Codebook::Direction => Box::new(LeechDirection::new()),
-                        Codebook::ShapeGain {
-                            max_shell,
-                            free_magnitude,
-                            level_cap,
-                            ..
-                        } => {
-                            let q = LeechShapeGain::with_caps(
-                                gain.clone().expect("fitted above"),
-                                max_shell,
-                                level_cap,
-                            );
-                            Box::new(if free_magnitude {
-                                q.with_free_magnitude()
-                            } else {
-                                q
-                            })
-                        }
-                        Codebook::Tetra { post_shape_gain, .. } => {
-                            let q = TetraShapeGain::with_encoder(
-                                tetra_encoder.clone().expect("built for a Tetra run"),
-                                gain.clone().expect("fitted above"),
-                            );
-                            Box::new(if post_shape_gain { q.with_post_shape_gain() } else { q })
-                        }
-                    }
-                };
-                // The row scales the loop will use, computed on the rotated
-                // weights *before* quantization — exactly as `quantize_layer`
-                // fixes them internally. Recomputing them afterwards would
-                // read the quantized row and give different values.
-                let row_scales: Vec<f64> = if capturing {
-                    (0..d_out)
-                        .map(|i| {
-                            llvq_quant::quantizer::row_scale(
-                                &weights.w[i * d_in..(i + 1) * d_in],
-                            )
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-                // Named for what it counts — 24-column blocks in a row —
-                // because `nblocks` in this function already means the
-                // model's transformer-block count, and shadowing it fed
-                // the wrong number to `progress`.
-                let row_blocks = d_in / cfg.block;
-                let mut codes = capturing.then(|| vec![None; d_out * row_blocks]);
-                llvq_quant::gptq::quantize_layer_parallel_capturing(
-                    &mut weights,
-                    factor,
-                    // The Hessian feeds the end-of-layer closed-form scale
-                    // solve, which both flags run (design C then re-projects
-                    // its result back onto the gain grid). It is `Some`
-                    // exactly when [`needs_dense_hessian`] said to keep it —
-                    // the flags are consulted there and nowhere else, so the
-                    // two sites cannot drift apart.
-                    hessian.as_deref(),
-                    &make,
-                    cfg,
-                    threads,
-                    codes.as_deref_mut(),
-                );
-                // Narrow the tail to the precision it is *stored* at, before
-                // anything else reads it.
-                //
-                // The tail is kept "exact", but exact in f64 is not something
-                // an artifact can carry — and the un-rotation mixes every
-                // column into every other, so one rounded tail column shifts
-                // the whole row by an ulp. Rounding here, in the rotated basis
-                // and before the un-rotation, is what makes the file and the
-                // evaluated model the same object rather than nearly the same.
-                if capturing {
-                    let tail_w = d_in % cfg.block;
-                    for i in 0..d_out {
-                        let at = i * d_in + row_blocks * cfg.block;
-                        for v in weights.w[at..at + tail_w].iter_mut() {
-                            *v = *v as f32 as f64;
-                        }
-                    }
-                }
-                report.phases.quantize += tp.elapsed().as_secs_f64();
-                // The tail is read here, in the rotated basis, because that is
-                // what the decoder rebuilds before un-rotating.
-                let tp = std::time::Instant::now();
-                if let Some(s) = sink.as_deref_mut() {
-                    let tail_w = d_in % cfg.block;
-                    let mut tail = Vec::with_capacity(d_out * tail_w);
-                    for i in 0..d_out {
-                        let at = i * d_in + row_blocks * cfg.block;
-                        tail.extend_from_slice(&weights.w[at..at + tail_w]);
-                    }
-                    let codes = codes
-                        .take()
-                        .expect("allocated when capturing")
-                        .into_iter()
-                        .collect::<Option<Vec<_>>>()
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("a quantized block emitted no code")
-                        })?;
-                    // A Tetra record has no shell cap to store; the field
-                    // carries `TETRA_SHELL_CAP` as the sentinel the format
-                    // pins, and `llvq_artifact` refuses a Tetra record holding
-                    // anything else.
-                    let max_shell = match codebook {
-                        Codebook::ShapeGain { max_shell, .. } => max_shell,
-                        Codebook::Tetra { .. } => llvq_artifact::TETRA_SHELL_CAP,
-                        _ => unreachable!("checked when capturing was enabled"),
                     };
-                    // The *effective* seed, not the run's base seed: the
-                    // rotation is per (block, activation). Storing the base
-                    // one would un-rotate every matrix with block 0's
-                    // transform and silently scramble the model.
-                    let eff_seed = rotation_seed
-                        .map(|s| effective_rotation_seed(s, t, act));
-                    s.push(crate::artifact2::QuantizedMatrix {
-                        name: crate::artifact::key(t, name),
-                        d_out,
-                        d_in,
-                        codes,
-                        row_scales,
-                        centroids: gain_for_sink.expect("shape-gain fits centroids"),
-                        rotation_seed: eff_seed,
-                        shell_cap: max_shell,
-                        tail,
-                    })?;
-                }
-                report.phases.write += tp.elapsed().as_secs_f64();
-                let tp = std::time::Instant::now();
-                if let Some(q) = rot {
-                    q.unrotate_weight_rows(&mut weights.w, d_out);
-                }
-                let recon: Vec<f32> = weights.w.iter().map(|v| *v as f32).collect();
-                let t2 = Tensor::from_vec(recon, (d_out, d_in), &device)?
-                    .to_dtype(w.dtype())?;
-                *lin = candle_nn::Linear::new(t2, None);
-                report.phases.transfer += tp.elapsed().as_secs_f64();
+                    // The row scales the loop will use, computed on the rotated
+                    // weights *before* quantization — exactly as `quantize_layer`
+                    // fixes them internally. Recomputing them afterwards would
+                    // read the quantized row and give different values.
+                    let row_scales: Vec<f64> = if capturing {
+                        (0..d_out)
+                            .map(|i| {
+                                llvq_quant::quantizer::row_scale(
+                                    &weights.w[i * d_in..(i + 1) * d_in],
+                                )
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    // Named for what it counts — 24-column blocks in a row —
+                    // because `nblocks` in this function already means the
+                    // model's transformer-block count, and shadowing it fed
+                    // the wrong number to `progress`.
+                    let row_blocks = d_in / cfg.block;
+                    let mut codes = capturing.then(|| vec![None; d_out * row_blocks]);
+                    llvq_quant::gptq::quantize_layer_parallel_capturing(
+                        &mut weights,
+                        factor,
+                        // The Hessian feeds the end-of-layer closed-form scale
+                        // solve, which both flags run (design C then re-projects
+                        // its result back onto the gain grid). It is `Some`
+                        // exactly when [`needs_dense_hessian`] said to keep it —
+                        // the flags are consulted there and nowhere else, so the
+                        // two sites cannot drift apart.
+                        hessian.as_deref(),
+                        &make,
+                        cfg,
+                        threads,
+                        codes.as_deref_mut(),
+                    );
+                    // Narrow the tail to the precision it is *stored* at, before
+                    // anything else reads it.
+                    //
+                    // The tail is kept "exact", but exact in f64 is not something
+                    // an artifact can carry — and the un-rotation mixes every
+                    // column into every other, so one rounded tail column shifts
+                    // the whole row by an ulp. Rounding here, in the rotated basis
+                    // and before the un-rotation, is what makes the file and the
+                    // evaluated model the same object rather than nearly the same.
+                    if capturing {
+                        let tail_w = d_in % cfg.block;
+                        for i in 0..d_out {
+                            let at = i * d_in + row_blocks * cfg.block;
+                            for v in weights.w[at..at + tail_w].iter_mut() {
+                                *v = *v as f32 as f64;
+                            }
+                        }
+                    }
+                    report.phases.quantize += tp.elapsed().as_secs_f64();
+                    // The tail is read here, in the rotated basis, because that is
+                    // what the decoder rebuilds before un-rotating.
+                    let tp = std::time::Instant::now();
+                    if let Some(s) = sink.as_deref_mut() {
+                        let tail_w = d_in % cfg.block;
+                        let mut tail = Vec::with_capacity(d_out * tail_w);
+                        for i in 0..d_out {
+                            let at = i * d_in + row_blocks * cfg.block;
+                            tail.extend_from_slice(&weights.w[at..at + tail_w]);
+                        }
+                        let codes = codes
+                            .take()
+                            .expect("allocated when capturing")
+                            .into_iter()
+                            .collect::<Option<Vec<_>>>()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("a quantized block emitted no code")
+                            })?;
+                        // A Tetra record has no shell cap to store; the field
+                        // carries `TETRA_SHELL_CAP` as the sentinel the format
+                        // pins, and `llvq_artifact` refuses a Tetra record holding
+                        // anything else.
+                        let max_shell = match codebook {
+                            Codebook::ShapeGain { max_shell, .. } => max_shell,
+                            Codebook::Tetra { .. } => llvq_artifact::TETRA_SHELL_CAP,
+                            _ => unreachable!("checked when capturing was enabled"),
+                        };
+                        // The *effective* seed, not the run's base seed: the
+                        // rotation is per (block, activation). Storing the base
+                        // one would un-rotate every matrix with block 0's
+                        // transform and silently scramble the model.
+                        let eff_seed = rotation_seed
+                            .map(|s| effective_rotation_seed(s, t, act));
+                        s.push(crate::artifact2::QuantizedMatrix {
+                            name: crate::artifact::key(t, name),
+                            d_out,
+                            d_in,
+                            codes,
+                            row_scales,
+                            centroids: gain_for_sink.expect("shape-gain fits centroids"),
+                            rotation_seed: eff_seed,
+                            shell_cap: max_shell,
+                            tail,
+                        })?;
+                    }
+                    report.phases.write += tp.elapsed().as_secs_f64();
+                    let tp = std::time::Instant::now();
+                    if let Some(q) = rot {
+                        q.unrotate_weight_rows(&mut weights.w, d_out);
+                    }
+                    let recon: Vec<f32> = weights.w.iter().map(|v| *v as f32).collect();
+                    let t2 = Tensor::from_vec(recon, (d_out, d_in), &device)?
+                        .to_dtype(w.dtype())?;
+                    *lin = candle_nn::Linear::new(t2, None);
+                    report.phases.transfer += tp.elapsed().as_secs_f64();
 
-                report.matrices += 1;
-                report.weights += (d_out * d_in) as u64;
-                report.tail_weights += (d_out * (d_in % cfg.block)) as u64;
-                report.rows += d_out as u64;
-                report.block_bits = codebook.block_bits();
-                report.block_len = codebook.block_len();
-                progress(t, nblocks, name);
+                    report.matrices += 1;
+                    report.weights += (d_out * d_in) as u64;
+                    report.tail_weights += (d_out * (d_in % cfg.block)) as u64;
+                    report.rows += d_out as u64;
+                    report.block_bits = codebook.block_bits();
+                    report.block_len = codebook.block_len();
+                    progress(t, nblocks, name);
+                }
             }
-        }
 
+        }
         // ---- pass 2: advance the activations through the quantized block ----
         let tp = std::time::Instant::now();
         let mut none = crate::model::NoCapture;

@@ -237,6 +237,7 @@ struct Knobs {
     design_c: bool,
     lambda: f64,
     rotation_seed: Option<u64>,
+    sequential_block: bool,
 }
 
 impl Default for Knobs {
@@ -247,6 +248,7 @@ impl Default for Knobs {
             design_c: false,
             lambda: 1e-2,
             rotation_seed: None,
+            sequential_block: false,
         }
     }
 }
@@ -256,6 +258,7 @@ fn run(map: &VarMap, dev: &Device, k: Knobs) -> (Report, Vec<f32>) {
     let mut model = fresh(map, dev);
     let mut hidden = windows(dev);
     let cfg = RunConfig {
+        sequential_block: k.sequential_block,
         h_shrink: 1.0,
         gain_scale: 1.0,
         int4_types: Vec::new(),
@@ -453,5 +456,91 @@ fn an_exact_codebook_refines_to_unity_scales() {
                  unity scales, got {a:e} from {b:e}"
             );
         }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// Row C: the block is sequential inside, not only across
+// ---------------------------------------------------------------------------
+
+/// Four capture passes a block are not one capture pass a block.
+///
+/// The published path captures every activation of a block against the
+/// ORIGINAL weights, so `o_proj` is calibrated on an attention output its own
+/// q, k and v never quantized. With `sequential_block` the capture of each
+/// activation happens after the matrices upstream of it have been quantized
+/// and written back, so the Hessians differ and so must the codes.
+///
+/// Asserted as a difference rather than as a direction: nothing here says the
+/// sequential path is better, only that it is a different computation. Which
+/// one wins on the exam is what `docs/plan-qualite-gratuite-2026-09-19.md`
+/// section C exists to measure, and a unit test cannot answer it.
+#[test]
+fn sequential_block_changes_the_weights() {
+    let dev = Device::Cpu;
+    let map = VarMap::new();
+    let (flat, w_flat) = run(&map, &dev, Knobs { codebook: Codebook::Direction, ..Knobs::default() });
+    let (seq, w_seq) = run(
+        &map,
+        &dev,
+        Knobs { codebook: Codebook::Direction, sequential_block: true, ..Knobs::default() },
+    );
+    assert_eq!(
+        flat.matrices, seq.matrices,
+        "both paths quantize the same seven matrices a block"
+    );
+    assert_eq!(w_flat.len(), w_seq.len());
+    let differing = w_flat
+        .iter()
+        .zip(&w_seq)
+        .filter(|(a, b)| (**a - **b).abs() > 0.0)
+        .count();
+    assert!(
+        differing > 0,
+        "the sequential path produced identical weights: the flag does nothing"
+    );
+}
+
+/// The first activation of a block cannot move, and that is the control.
+///
+/// `Act::Attn` is upstream of everything inside its block, so nothing has been
+/// quantized before its capture in either path. Its matrices must therefore
+/// come out identical, and a difference there would mean the stage loop
+/// reordered something it had no business reordering.
+#[test]
+fn sequential_block_leaves_the_first_activation_alone() {
+    let dev = Device::Cpu;
+    let map = VarMap::new();
+    let mut a = fresh(&map, &dev);
+    let mut b = fresh(&map, &dev);
+    let mut ha = windows(&dev);
+    let mut hb = windows(&dev);
+    let base = |seq: bool| RunConfig {
+        sequential_block: seq,
+        h_shrink: 1.0,
+        gain_scale: 1.0,
+        int4_types: Vec::new(),
+        gptq: GptqConfig {
+            block: llvq_core::DIM,
+            retract: true,
+            group_scales: false,
+            design_c: false,
+            lambda: 1e-2,
+            tail: TailPolicy::KeepExact,
+        },
+        damping: 1e-2,
+        codebook: Codebook::Direction,
+        threads: 1,
+        start: 0,
+        limit: 1,
+        rotation_seed: None,
+    };
+    quantize_model(&mut a, &mut ha, &base(false), |_, _, _| {}).expect("flat runs");
+    quantize_model(&mut b, &mut hb, &base(true), |_, _, _| {}).expect("sequential runs");
+    for name in ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj"] {
+        let wa = a.blocks[0].linear_mut(name).weight().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let wb = b.blocks[0].linear_mut(name).weight().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        assert_eq!(wa, wb, "{name} is upstream of everything and must not move");
     }
 }

@@ -1089,7 +1089,18 @@ fn main() -> anyhow::Result<()> {
     // right here and not be discovered later.
     let n_total = per_block * n_target;
     let t0 = std::time::Instant::now();
+    // Row C of `ROADMAP-QUALITY`, off by default: with it the block captures
+    // each activation AFTER the matrices upstream of it in the same block
+    // have been quantized, four passes instead of one. Refused by name rather
+    // than coerced, like every other switch here.
+    let sequential_block = match std::env::var("LLVQ_SEQ_BLOCK").ok().as_deref() {
+        None | Some("") | Some("0") => false,
+        Some("1") => true,
+        Some(o) => anyhow::bail!("LLVQ_SEQ_BLOCK={o}: accepted values `0` (default) and `1`"),
+    };
+
     let run = llvq_llm::calib::RunConfig {
+        sequential_block,
         gptq: cfg,
         int4_types: int4_types.clone(),
         damping,

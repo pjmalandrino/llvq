@@ -122,6 +122,7 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_RESTORE_Q4` | same list | same in int4 g128; setting both is refused |
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget is spread over the 57 subjects; `flat` draws exactly the sample of every dump on disk, `proportional` weights by population and, at equal budget, divides the accuracy bar by 1.46 and the paired bar by 1.32 to 1.65. It asks other questions: `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
+| `LLVQ_SEQ_BLOCK` | `0` (default), `1` | `smoke`: row C. Captures each activation's `H` **after** the matrices upstream of it in the same block are quantized, four passes a block instead of one. `0` is the published path and is bit-identical; any other value is refused by name |
 | `LLVQ_INT4_TYPES` | projection types separated by commas | `smoke`: those types written as int4 g128 records instead of lattice codes; empty by default, and an empty list writes what the run always wrote |
 | `LLVQ_THREADS` | integer | cap of the encoding pool (`smoke`); ncpu−4 and `nice` on a shared machine |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
