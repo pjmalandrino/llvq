@@ -1,4 +1,4 @@
-61.11 AT 2.697 B/PARAM: THE TRAINED SCALES PASS THE PAPER'S NON-FT LINE (2026-09-20)
+61.11 AT 2.7475 B/PARAM: THE TRAINED SCALES PASS THE PAPER'S NON-FT LINE (2026-09-20)
 ================================================================================
 Training: job 6aaeeddc52d0dbd7f1d70916, l40sx1, 1.71 h in the loop, about $4.00.
 Scoring:  job 6aaf099f52d0dbd7f1d7121b, l40sx1, about $0.72.
@@ -32,13 +32,17 @@ The fold: 216 scaled, 0 untouched, 36 int4 passed through, the file keeps its
 WHERE IT SITS
 --------------
 In the accounting the card has held since 2026-08-09, tail at f16, this object
-is **2.6970 b/param** whole model with a q8 embedding, not the 2.8126 the f32
-accounting prints (`rtbits`).
+is **2.7475 b/param** whole model with a q8 embedding, not the 2.8126 the f32
+accounting prints (`rtbits` on the sealed file, 2026-09-20).
+
+(An earlier revision of this journal wrote 2.6970. That is the **bare Tetra**
+figure, 252 lattice records and no int4. This object carries 36 int4 records
+for `v_proj` at 4.25 b/weight, which is the difference.)
 
   llama.cpp UD-IQ2_XXS        38.87 (2,280-question plan)   2.4967 b/param
   QTIP (3INST), paper         57.4                          about 2
   LLVQ paper, no FT           60.7                          about 2.61
-  **this object**             **61.11**                     **2.6970**
+  **this object**             **61.11**                     **2.7475**
   LLVQ paper, fine-tuned      62.8                          about 2.61
 
 It passes the paper's non-fine-tuned line. It sits **1.69 pp under** the paper's
@@ -117,3 +121,42 @@ WHAT THIS DOES NOT ESTABLISH
 - Nothing about the 8B. One model.
 - The IQ2 line is read on the 2,280-question plan, not the full split, and the
   two other llama.cpp rungs failed to build or to write.
+
+PERPLEXITY IS RECOVERED AND MMLU IS NOT: THE SHARPEST DISSOCIATION IN THE FILE
+------------------------------------------------------------------------------
+Measured 2026-09-20 on the Mac, Metal, $0. Same harness and the same token
+fingerprint `3f1baca9033bf251` as every row of `docs/fiche-4b.md` section 5:
+`LLVQ_DTYPE=f16 ... --bin ppl -- 4096 12 metal <sealed>`.
+
+  f16 checkpoint                 12.2361   x1.0000   (fiche-4b)
+  Planes14, published            16.9415   x1.3845   (fiche-4b)
+  DCLM base, before training     16.2509   x1.3281   (measured here)
+  **+ trained row scales**       **12.3268**  **x1.0074**  (measured here)
+
+The training moves perplexity by **-24.1 %**, for zero bits, by changing
+1,069,056 row scales and nothing else.
+
+And then:
+
+  perplexity, ratio to f16      **1.0074**, recovered to within 0.74 %
+  MMLU, against f16's 70.14     **61.11**, nine points short
+
+This repository already holds five dissociations where perplexity improved and
+MMLU did not follow. **This one runs the other way and is larger than all of
+them**: perplexity is essentially repaired while MMLU stays nine points down.
+
+Two consequences.
+
+**Perplexity is no longer a usable quality gate on this object.** Any decision
+gated on it would now read this model as solved.
+
+**It is expected, and the paper shows it too.** The training objective is KL
+against the dense model on text, which is what perplexity measures; MMLU is a
+different task. The paper's Table 6 carries the same effect at larger amplitude:
+its fine-tuned sg-0bit reads Wiki 9.26 where its own FP16 baseline reads 12.41,
+so its fine-tuned 2-bit models are *below* f16 perplexity while their MMLU
+stays 7.4 points under. Ours is the weaker version of the same phenomenon, on
+an object whose perplexity we can attribute to one lever.
+
+What it does NOT license: reading the 1.0074 as "quality preserved". It is
+preserved on the metric the lever was trained against.
