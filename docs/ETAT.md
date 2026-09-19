@@ -53,8 +53,10 @@ throughput is now measured, and it depends on the card** (F1d, 2026-09-10, [jour
 against `Planes14` in one process on the real file, Tetra is **1.17×** on an L40S at the served tile and **0.82×** on
 an RTX PRO 6000 — the same configuration, opposite verdicts. On Blackwell it takes the tile down to 32 to reach 1.03×,
 an interval containing 1. The memory does not depend on the card: 0.98 GB read a pass against 2.18, and the bench's own
-column prints **2.150**, reproducing the 2.1498 above. What still waits on F1e is `fusedrun`: `tv_tetra48_h` has never
-run inside the model, and no tok/s exists. The gap to
+column prints **2.150**, reproducing the 2.1498 above. `tv_tetra48_h` **runs inside the model** since 2026-09-10
+(F1e §0, four jobs, $0.43, [journal](mesures/f1e0-2026-09-10.txt)): pure Tetra 92.9 tok/s in 1.36 GB at `FUSE=0
+ROT_SHARE=0`, the served mixed object **101.5 tok/s in 1.39 GB** at `ROT_SHARE=1`, and **256 tokens identical to the
+dense arm**. Two processes, two configurations, no ratio between them (rule 5). The gap to
 `Planes14` holds the format together with a month of encoder drift, which control 0 measured and nothing here
 separates (§4).
 
@@ -533,8 +535,8 @@ card. An encoding's perplexity can be read for $0, hours before a card is paid f
   only. It leaves 27.93 GB to the weights, so b_max = 3.00 kernel b/weight. `Planes14` exceeds it by 60% and every
   layout before it did too. **`Tetra` is the first to pass, at 2.1498 kernel b/weight, 28% under the bar**
   (*computed*, §5 sexies), which moves the admissible class from 43.3 billion parameters to 81 to 101 billion and
-  puts a 70B inside 19.5 GB (*computed*, §5 quinquies). What that does not yet buy: no served kernel reads Tetra, so
-  the 32B remains the served object until step 6 of [ROADMAP](ROADMAP.md) §2.2 quater, and the `rot_apply` wall of
+  puts a 70B inside 19.5 GB (*computed*, §5 quinquies). A served kernel does read Tetra since 2026-09-10, in the
+  model and on a card (§5 above). What that does not yet buy: the `rot_apply` wall of
   [format-noyau](format-noyau.md) §8 still closes the served path past the 14B whatever the format. Under
   `Planes14` the largest admissible class is 43.3 billion parameters at 5.162 b/param (upper bound, embedding 9.7%)
   and 45.8 billion at 4.878 (embedding ~2%); the 70B does not fit (*computed*,
