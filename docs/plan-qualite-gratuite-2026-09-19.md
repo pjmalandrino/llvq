@@ -16,9 +16,21 @@ what it does about that instead of pretending otherwise.
 
 | # | lead | state | Mac | card | next action |
 |---|---|---|---|---|---|
-| A | Random window draws | **running** 2026-09-19 | 1 h 47 | $0.72 | encode `seed 1` at x1 |
-| B | Row 5, `h_shrink` at the 4B | planned | 3 x 1 h 47 | $0 first | perplexity spread before any MMLU |
-| C | Row C, intra-block sequencing | **code landed** 2026-09-19 | 1 h 47 per arm | $0.72 | encode with `LLVQ_SEQ_BLOCK=1` |
+| A1 | Random windows, x1 volume | **encoding** since 06:18 | 1 h 47 | $0.72 | seal and score |
+| **C** | Row C, intra-block sequencing | **code landed**, 2 tests, 3 mutants dead | 2 h 05 | $0.72 | **next on the Mac** |
+| A2 | Random windows, x4 volume | queued | 2 h 41 | $0.72 | only if A1 moves |
+| B | Row 5, `h_shrink` at the 4B | planned | 6 x 1 h 47 | $0 first | perplexity spread, no card |
+
+**The Mac is the bottleneck and runs one encoding at a time.** The order above is by prior, not
+by cost: C is a measured defect in the code, A1 follows a measured negative, A2 only earns its
+2 h 41 if A1 shows the sampler matters at all, and B is ten hours for a question about noise
+rather than about score.
+
+Dropped 2026-09-19: the IQ2_S and IQ2_M comparison, after two failures and $0.29
+([iq2m-2026-09-19](mesures/iq2m-2026-09-19.txt)). What it leaves standing is enough: llama.cpp's
+most aggressive rung loses by 15.77 points while weighing 0.27 b/param **less** than bare
+`Tetra`. Its first failure is a finding in its own right, `llama-quantize` refusing IQ2_S
+without an imatrix, so their 2-bit rungs are calibrated objects exactly as ours are.
 
 ---
 
