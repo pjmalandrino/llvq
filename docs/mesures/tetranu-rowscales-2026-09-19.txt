@@ -1,0 +1,118 @@
+TRAINING THE ROW SCALES IS WORTH +4.30 PP FOR ZERO BITS (2026-09-19)
+================================================================================
+Training: job 6aaebe1652d0dbd7f1d6fcfb, l40sx1, 1.71 h in the loop, about $3.90.
+Scoring:  job 6aaedc8251992417dfcca8a5, l40sx1, about $0.72.
+Prereg:   proofs/preregistration-tetranu-rowscales-2026-09-19.md, stamped
+          sha256 1f703eb0342538cfd4ff4fa9..., four calendars, before the run.
+          Deviations E1 to E10 in the -ECARTS.md beside it.
+Data:     docs/mesures/tetranu-rowscales-2026-09-19-brut/ (journal, probe)
+          docs/mesures/tetranu-ft-mmlu-2026-09-19-brut/ (dump, log)
+Objects:  ~/qwen3-4b-tetra-ft.bin  sha256 207f6eb0bd6f94dd...
+          ~/tetranu-sigma.json     sha256 6851cd316127f9cd...
+Code:     ops/llvqtune, archive sha256 b7ec5de4eb417826... in the bucket
+Nature:   *measured*
+
+THE RESULT
+-----------
+Same file width, same codes, same codebook, same calibration. 1,069,056
+`row_scales` change value and nothing else does.
+
+  bare Tetra                     54.64 micro / 55.91 macro
+  + trained row scales         **58.94** / 60.78
+
+  rate      2.1498 kernel b/weight, 2.7645 b/param, both sides
+  paired    +4.30 pp
+  McNemar   1,352 won against 748 lost, p = 4.440e-40, z = -13.18
+  discordant 15.0 % of the questions
+  census on both sides, fingerprint a74a6d6213602979, 14,042 questions
+
+The fold is surgical: `rowscale` reports 216 scaled, 36 untouched, 0 int4, the
+file keeps its 1,770,529,149 bytes and 6,953,069 of them differ.
+
+THE PREDICTION WAS WRONG BY TEN
+--------------------------------
+Signed in the prereg: +1.0 pp [-0.5, +2.5]. Revised DOWN to +0.4 [-0.8, +1.6]
+in E7, before the scoring arm, on the flat training curve. Measured +4.30.
+
+The revision made it worse, and its reasoning is the error this repository
+documents five times over: a 7.5 % fall in KL on DCLM-edu was read as a small
+lever. It bought 4.30 pp. KL on a calibration corpus and MMLU are not on the
+same scale, and the author treated one as a proxy for the other.
+
+Recorded because the file's rule is that a signed prediction is scored whether
+it flatters or not. This one does not.
+
+WHAT THE TRAINING CURVE DID, AND WHY IT MISLED
+-----------------------------------------------
+  9,681 steps, 19,826,688 tokens, 0.6367 s a step, 48 checkpoints
+  KL first quarter 0.2820, last quarter 0.2608, a fall of 7.5 %
+  by windows: 0.2929 0.2710 0.2699 0.2664 0.2570 0.2561 0.2621 0.2595
+
+Everything is acquired before step 1,210, which is 2.4 M tokens. The remaining
+17.4 M move nothing. So the paper's 52 M would not have changed this, and the
+data budget was never the binding constraint.
+
+The curve is flat and the MMLU moved 4.30 pp. Whatever the row scales fix, the
+KL on held-out DCLM-edu text barely sees it.
+
+WHAT THE TRAINING FOUND
+------------------------
+  mean 0.99900   sd 0.03463   p1 0.9057   p99 1.0858   min 0.3889   max 1.6205
+  133,082 rows, 12.4 %, moved by more than 5 %
+
+No global component. The mean sits at 1.0 and individual rows move. Whatever
+L01's radial constant rho = 0.929 is, a global fit does not converge to it, and
+the +1.23 pp L01 read stratified (with +0.13 pp unweighted, p = 0.8944) is not
+this lever.
+
+WHERE IT SITS AGAINST EVERYTHING ELSE
+--------------------------------------
+Under the law of mecanismes-perte-qualite (acc = 54.60 + 14.60 ln SNR), a gain
+converts to a division of the noise power.
+
+  trained row scales, measured here        +4.30 pp   noise / 1.80
+  Spherical GPTQ, the paper's Table 9      +1.90      / 1.30
+  the DCLM-edu corpus                      +1.58      / 1.24
+  down_proj@12-23 at int4                  +1.38      / 1.21
+
+Closing the 6.06 pp to the paper needs / 2.29. This one lever brings 1.80 of it,
+and it costs no bit. It is the largest single lever this project has measured.
+
+AND IT IS TWICE WHAT THE PAPER READS
+-------------------------------------
+The paper measures +2.1 pp for the same lever on the same model (Table 6, LLVQ
+shape-gain 2 bit, 59.3 without fine-tuning against 60.9 with, and +2.1 is the
+figure ROADMAP-QUALITY row 14 carries). We read +4.30 on Qwen3-4B.
+
+Doubling a published effect is a claim that needs a mechanism, not a
+celebration. Three readings, none settled here:
+
+  (a) Our starting point is worse. Their 60.7 is a better object than our 54.64,
+      so there is more to recover. A lever that removes a fixed fraction of the
+      error returns more pp on a worse base.
+  (b) Our scales were further from optimal to begin with. `gptq.rs:245` fixes
+      them to the original row RMS BEFORE the loop, and the gain level is chosen
+      on the block norm rather than by least squares on the retained direction.
+      Two defects the paper does not have, both of which a trained scale repairs.
+  (c) Their "+2.1" may not be this lever. The paper's recommended configuration
+      is 0 gain bits, where the magnitude is carried by the direction code; ours
+      has a gain bit. The same training may be doing different work.
+
+Reading (b) is the one that would transfer, and it is testable: measure the
+distance between our shipped row scales and the trained ones, per matrix, and
+see whether the matrices that moved most are the ones whose gain rule disagrees
+most (the disagreement is already measured in gain-desaccord-tetra-2026-09-14).
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about the served object. This is bare Tetra, calibrated on C4, the
+  worst base the project holds. The lever has never seen the DCLM base and the
+  two may not add.
+- Nothing about serving it. The measurement is a dense reconstruction, the same
+  protocol every published bar uses, and the fused kernel reads the same
+  `row_scales`, but no kernel has run on this file.
+- E8 stands: the trainer split its columns in the natural basis while the
+  artifact's tail is stored rotated. Bounded at 1.2e-4 relative, stated, not
+  repaired.
+- The code that produced sigma is not in the tree. It is pinned by the archive's
+  sha256 and nothing else.

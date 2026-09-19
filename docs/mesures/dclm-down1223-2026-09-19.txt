@@ -74,3 +74,23 @@ WHAT IT LEAVES
 We stand 1.37 pp under the paper's non-fine-tuned LLVQ, 60.7, at 2.9686
 b/param. The remaining levers that stay under 3.00 cost zero bits and all
 require a training loop: ROADMAP-QUALITY rows 14, 17 and 20 at r = 16.
+
+================================================================================
+CORRECTION (2026-09-19, same day, after an audit)
+--------------------------------------------------------------------------------
+The block "WHAT THIS CLOSES" above is WRONG and is retracted. It subtracted a
+whole-model b/param figure from b_max = 3.00, which `docs/ETAT.md:533` defines
+in kernel b/weight. In the triplet's own unit the arm sits at 2.3771 with
+**0.6229** of margin, not 0.0314.
+
+The two arms it killed are inside the budget: down_proj full at 2.7226 and
++ o_proj at 2.5953, and v + o + down at 2.9408. All three under 3.00.
+
+And both of the first two were already MEASURED over the gate on 2026-09-18:
+down_proj full reads 60.44 and v + o + down reads 61.76.
+
+What does block the axis is that no kernel has run on 9728 x 2560 or 2560 x 4096,
+so those rates assume kernels that do not exist; without them the arms read
+5.9271 and 7.3661 kernel b/weight. See the -ECARTS.md beside the prereg.
+
+This is the unit error `etat-reconcilie-2026-09-17.md` was written to repair.
