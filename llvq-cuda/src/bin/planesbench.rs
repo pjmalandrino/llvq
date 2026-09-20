@@ -4594,11 +4594,24 @@ mod linux {
             let (ds_lo, ds_md, ds_hi) = spread(ds);
             let (dp_lo, dp_md, dp_hi) = spread(dp);
             let (rr_lo, rr_md, rr_hi) = spread(rr);
-            // The Tetra delta, formed round by round like the other two.
-            let dt: Vec<f64> = tt.iter().zip(&tts).map(|(a, b)| (a - b) * 1e3).collect();
-            let (_, t_sep, _) = spread(tt);
-            let (_, t_fus, _) = spread(tts);
-            let (dt_lo, dt_md, dt_hi) = spread(dt);
+            // The Tetra delta, formed round by round like the other two —
+            // and ONLY when the arms ran. Skipping arms 4 and 5 leaves their
+            // series empty, and `spread` indexes the median: on 2026-09-20
+            // that panicked at the very end of a 25-minute job, after the
+            // table it exists for had already been printed. A `continue` was
+            // added without reading what consumed its result.
+            let tetra_timed = !tt.is_empty() && !tts.is_empty();
+            let (dt_lo, dt_md, dt_hi, t_sep, t_fus) = match tetra_timed {
+                false => (0.0, 0.0, 0.0, 0.0, 0.0),
+                true => {
+                    let dt: Vec<f64> =
+                        tt.iter().zip(&tts).map(|(a, b)| (a - b) * 1e3).collect();
+                    let (_, ts_, _) = spread(tt);
+                    let (_, tf_, _) = spread(tts);
+                    let (lo, md, hi) = spread(dt);
+                    (lo, md, hi, ts_, tf_)
+                }
+            };
 
             let n_sep = mats.len();
             let n_fus = fused.len()
@@ -4657,6 +4670,10 @@ mod linux {
             // a fusion that fused nothing must say so, not disappear.
             let tb_sep = unfused_bytes(|m| arm_bytes(m, arms::TETRA48));
             let tb_fus = fused_bytes(|f| f.tetra_bytes, |m| arm_bytes(m, arms::TETRA48));
+            if !tetra_timed {
+                println!("  Tetra48 fusion: not timed (LLVQ_SEG_TETRA unset)");
+            }
+            if tetra_timed {
             println!(
                 "  {:<34}{:>10.3} ms\n  {:<34}{:>10.3} ms",
                 "Tetra48, separate matrices",
@@ -4678,6 +4695,7 @@ mod linux {
                     0.0
                 }
             );
+            }
             println!(
                 "  gain Slot32   : {ds_md:.3} ms [{ds_lo:.3}–{ds_hi:.3}]  ({:.1}%)",
                 100.0 * ds_md / (s_sep * 1e3)
