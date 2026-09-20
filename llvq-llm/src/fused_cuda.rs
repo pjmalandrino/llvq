@@ -250,6 +250,127 @@ impl FusedSegProj {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The CUDA adapters: the device port of `crate::device`, implemented here.
+//
+// Each owns its runtime AND its buffers, which is the whole shape of the port.
+// The model holds `Arc<dyn LatticeProj>` and cannot tell a card from a fake.
+// Nothing below computes: every method forwards to the inherent method that
+// already shipped, so the served arithmetic is unchanged by construction.
+// ---------------------------------------------------------------------------
+
+/// One `Tetra` or `Planes` projection on a card.
+pub struct CudaLattice {
+    rt: std::sync::Arc<FusedRuntime>,
+    proj: FusedProj,
+}
+
+impl crate::device::LatticeProj for CudaLattice {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn rotation(&self) -> Option<RotKey> {
+        self.proj.rotation()
+    }
+    fn prepare(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.rotate(&self.proj, x)
+    }
+    fn prepare_rows(&self, xs: &Tensor, rows: usize) -> candle_core::Result<Tensor> {
+        self.rt.rotate_rows(&self.proj, xs, rows)
+    }
+    fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated(&self.proj, xr, out_dims)
+    }
+    /// The runtime's two answers, collapsed into the one number the port
+    /// asks for. `has_rows_kernel` false and `prefill_rows` four could once
+    /// disagree; `1` here says the same thing the `bool` said, and cannot.
+    fn rows_per_launch(&self) -> usize {
+        match self.rt.has_rows_kernel() {
+            true => self.rt.prefill_rows(),
+            false => 1,
+        }
+    }
+    fn matvec_rows(&self, xr: &Tensor, n_rows: usize) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated_rows(&self.proj, xr, n_rows)
+    }
+}
+
+/// One projection served as affine int4 g128 on a card.
+pub struct CudaInt4 {
+    rt: std::sync::Arc<FusedRuntime>,
+    proj: FusedInt4Proj,
+}
+
+impl crate::device::Int4Proj for CudaInt4 {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_int4(&self.proj, x, out_dims)
+    }
+}
+
+/// One row-concatenated group on a card, launched once for every part.
+pub struct CudaSeg {
+    rt: std::sync::Arc<FusedRuntime>,
+    group: FusedSegProj,
+}
+
+impl crate::device::SegGroup for CudaSeg {
+    fn name(&self) -> &str {
+        &self.group.name
+    }
+    fn d_out(&self) -> usize {
+        self.group.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.group.d_in
+    }
+    fn rotation(&self) -> Option<RotKey> {
+        self.group.rotation()
+    }
+    fn part_name(&self, rank: usize) -> &str {
+        self.group.part_name(rank)
+    }
+    fn prepare(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.rotate_group(&self.group, x)
+    }
+    fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated_seg(&self.group, xr, out_dims)
+    }
+}
+
+/// The q8 embedding table on a card, and the `lm_head` that may share it.
+///
+/// `q` stays an `Arc` rather than being owned, because a tied model uploads
+/// ONE table and points both ends at it. Two `CudaEmbed` values then share one
+/// buffer, which is what the load-time tie check asserts.
+pub struct CudaEmbed {
+    rt: std::sync::Arc<FusedRuntime>,
+    q: std::sync::Arc<QuantEmbed>,
+}
+
+impl crate::device::QuantEmbedTable for CudaEmbed {
+    fn gather(&self, ids: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.embed(&self.q, ids)
+    }
+    fn project(&self, h: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.lm_head(&self.q, h)
+    }
+}
+
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
@@ -2691,7 +2812,7 @@ pub fn load_resolved(
             llvq_artifact::split_name(&p.name).map_err(|e| candle_core::Error::msg(e.to_string()))?;
         by_site.insert(
             (layer, proj),
-            crate::model::Proj::Fused { rt: rt.clone(), proj: Arc::new(p) },
+            crate::model::Proj::Lattice(Arc::new(CudaLattice { rt: rt.clone(), proj: p })),
         );
     }
     // The int4 records, indexed by the same pair. They are never part of a
@@ -2705,19 +2826,24 @@ pub fn load_resolved(
             .map_err(|e| candle_core::Error::msg(e.to_string()))?;
         by_site.insert(
             (layer, proj),
-            crate::model::Proj::FusedInt4 { rt: rt.clone(), proj: Arc::new(q) },
+            crate::model::Proj::Int4(Arc::new(CudaInt4 { rt: rt.clone(), proj: q })),
         );
     }
     // The row order comes from `fused::segment_matrices`, which read it off
     // `Act::consumers()`; `model::SegPlan::of` re-derives it from these very
     // fields and refuses a group that does not tile. Two places, one table.
     for (g, group) in model.groups.iter().zip(seg_projs) {
-        let group = Arc::new(group);
+        // OUTSIDE the loop, and the single sharpest line of the port. One
+        // `Arc` per group, cloned into each part: `SegPlan::of` recognises a
+        // group by `Arc::ptr_eq` on it. Built inside the loop instead, every
+        // comparison goes false and the served path dies at the first token,
+        // type-correct and card-only.
+        let group: Arc<dyn crate::device::SegGroup> =
+            Arc::new(CudaSeg { rt: rt.clone(), group });
         for part in &g.parts {
             by_site.insert(
                 (part.layer, part.proj.clone()),
-                crate::model::Proj::FusedSeg {
-                    rt: rt.clone(),
+                crate::model::Proj::GroupPart {
                     group: group.clone(),
                     row0: part.row0,
                     d_out: part.d_out,
@@ -2834,14 +2960,14 @@ pub fn load_resolved(
             &config,
             vb,
             &mut take,
-            crate::model::Embed::Q8 {
+            crate::model::Embed::Q8(Arc::new(CudaEmbed {
                 rt: rt.clone(),
                 q: bufs[*ie].clone(),
-            },
-            crate::model::Head::Q8 {
+            })),
+            crate::model::Head::Q8(Arc::new(CudaEmbed {
                 rt: rt.clone(),
                 q: bufs[*ih].clone(),
-            },
+            })),
             kv,
         )?,
     };

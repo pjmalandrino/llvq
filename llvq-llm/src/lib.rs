@@ -13,6 +13,7 @@ pub mod artifact;
 pub mod artifact2;
 pub mod calib;
 pub mod corpus;
+pub mod device;
 pub mod embedquant;
 pub mod errmodel;
 pub mod eval;
