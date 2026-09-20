@@ -281,7 +281,14 @@ fn main() -> anyhow::Result<()> {
     let kv_mode = llvq_llm::kvq::KvMode::from_env().map_err(anyhow::Error::msg)?;
     let kv_store = llvq_llm::kvq::KvStore::from_env().map_err(anyhow::Error::msg)?;
 
+    // Announced BEFORE the load, not after. A sealed 4B takes about eighty
+    // seconds to rebuild on Metal, and a prompt that appears out of eighty
+    // seconds of silence reads as a hang.
+    print!("loading {} on {dev_name}… ", a[0]);
+    std::io::stdout().flush()?;
+    let t0 = std::time::Instant::now();
     let mut sealed = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
+    println!("{:.1} s", t0.elapsed().as_secs_f64());
     sealed.model.set_kv_store(kv_store);
     let limit = sealed.model.config().max_position_embeddings;
     let tok = &sealed.tokenizer;
@@ -302,7 +309,6 @@ fn main() -> anyhow::Result<()> {
     // them apart.
     let show_ids = env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0;
 
-    println!("{} on {dev_name}", a[0]);
     println!(
         "  temp {:.2}, top_p {:.2}, max {} new tokens a turn",
         sampler.temp, sampler.top_p, max_new
@@ -384,6 +390,7 @@ fn main() -> anyhow::Result<()> {
         )?;
         offset += ids.len();
 
+        let t_turn = std::time::Instant::now();
         let mut n = 0usize;
         // The answer so far, in ids and in the text already written. The two
         // are kept side by side because a token does not map to a character.
@@ -441,7 +448,15 @@ fn main() -> anyhow::Result<()> {
         if show_ids {
             println!("\n  ids: {said:?}");
         }
-        println!("\n");
+        // A REPL's rate, and labelled as one. The project's throughput figures
+        // come from `fusedrun` and `planesbench`, which hold a protocol this
+        // loop does not: no warmup, no rounds, no interleaving, and a CPU
+        // sampler in the middle of every step.
+        let secs = t_turn.elapsed().as_secs_f64();
+        println!(
+            "\n  {n} tokens in {secs:.1} s ({:.1} tok/s, this REPL's rate and not a measurement)\n",
+            n as f64 / secs.max(1e-9)
+        );
     }
 }
 
