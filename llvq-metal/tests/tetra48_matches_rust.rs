@@ -82,7 +82,7 @@ fn decode_on_metal(data: &[u8], stride: usize, nblocks: usize, rows: usize) -> D
 
     // `data` is the packed byte stream; the kernel reads it as u32, which is what
     // `stride_u32` counts. A Metal buffer is page aligned, so the view is legal.
-    assert!(data.len() % 4 == 0, "the stream must be a whole number of words");
+    assert!(data.len().is_multiple_of(4), "the stream must be a whole number of words");
     let b_words = k.buffer(data);
     let b_rows = k.buffer(&table.rows);
     let b_pref = k.buffer(&prefix_bytes(&tr));
@@ -163,7 +163,7 @@ fn the_msl_decoder_returns_the_rust_lattice_point() {
             // not a property of the code, so it is pinned here: if it ever
             // stops holding, this fails before the kernel does.
             let l1: i32 = want.iter().map(|v| v.abs()).sum();
-            assert_eq!(l1 % 2, 0, "row {row}, block {j}: sum|v| = {l1} is odd");
+            assert_eq!(l1 & 1, 0, "row {row}, block {j}: sum|v| = {l1} is odd");
             if want.iter().any(|&v| v != 0) {
                 nonzero += 1;
             }
