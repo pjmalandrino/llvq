@@ -84,6 +84,16 @@ speed verdict cannot rest on it unexplained.
 ## 5. The one thing the table does not say
 
 Every quality cell here is a **dense reconstruction**, the protocol behind every published bar
-in this repository. The fused kernel reads the same records, and F1e section 0 measured the
-served Tetra kernel in the model at 101.5 tok/s with 256 tokens identical to the dense arm, but
-**that was the 2026-09-10 object, not this one**. The fine-tuned file has never run on a card.
+in this repository.
+
+**This file now also runs on a card**, through the served kernel, against its own dense arm in
+the same process: **98.3 tok/s in 1.39 GB against 43.4 in 8.04**, x2.27 and /5.78, with 32
+tokens identical and `oracle` MATCH
+([dclm-ft-fusedrun](mesures/dclm-ft-fusedrun-2026-09-20.txt)). The object that scores 61.11 is
+the object that serves.
+
+Two reservations kept rather than rounded away. The check covered **32 tokens**, where F1e
+section 0 covered 256 on the 2026-09-10 object; the 256-token pass waits for the authorized
+throughput work and is done once, on the improved object. And that run reads 2.140 b/weight on
+the card against the bench's 2.148, because the bench bills the tail in f32 while the card
+holds it in binary16 — part of the 3 % the bench prereg left open.
