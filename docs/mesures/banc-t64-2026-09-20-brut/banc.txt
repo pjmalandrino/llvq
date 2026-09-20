@@ -1,0 +1,166 @@
+LLVQ_BENCH_ARMS selection:
+  phase 1/2: slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk
+  phase 2/2: slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk,tetra48
+tile 64 (served: measured optimum for sm_89)
+NVRTC source: 189387 bytes, sha256 664b916aaa901d795687210c5494c332344d8f3739e569199bd3f73cb3abd94b
+
+NVIDIA L40S: 142 SM, L2 100.7 MB (read), 49152 B of shared memory per block
+  tv_slot     40 registers, 0 local bytes, sm_89
+  tv_slot_seg  40 registers, 0 local bytes, sm_89
+  tv_f16      42 registers, 0 local bytes, sm_89
+  tv_planes   40 registers, 0 local bytes, sm_89
+  tv_planes_seg  40 registers, 0 local bytes, sm_89
+  tv_planes12x  40 registers, 0 local bytes, sm_89
+  tv_golay70  40 registers, 0 local bytes, sm_89
+  tv_golay70_v1  40 registers, 0 local bytes, sm_89
+  awq_gemv_g128  32 registers, 0 local bytes, sm_89
+  tv_e1v      79 registers, 0 local bytes, sm_89
+  tv_nullk    31 registers, 0 local bytes, sm_89
+  tv_f1r_v3g  40 registers, 0 local bytes, sm_89
+  tv_planes_pad  40 registers, 0 local bytes, sm_89
+  tv_planes_mr2  48 registers, 0 local bytes, sm_89
+  tv_planes_mr4  64 registers, 0 local bytes, sm_89
+  tv_planes_mr2p  48 registers, 0 local bytes, sm_89
+  tv_planes_pers  40 registers, 0 local bytes, sm_89
+  tv_planes_sk  40 registers, 0 local bytes, sm_89
+  tv_planes_persall  48 registers, 0 local bytes, sm_89
+tetra48: rank table 16384 B, prefixes 128 B, branches 2048 B, suffixes 128 B, invnorm 128 B, N0 = 1240
+  /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin — 252 matrices: 216 Tetra, 36 int4 g128 (counted, not timed)
+
+Build: Slot32 transcode (reference, always), Tetra48 (SECOND FILE — its own reference, decoded back out of the packed words), Planes14, Planes12x (L = 5 → L ≤ 4 swap included), Golay70 (origin holes + E2 exceptions), AWQ w4g128, exact-reconstruction proofs of the arms that were built…
+  /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin — 252 matrices
+  tetra48: 216 of 252 matrices matched by name, from 216 Tetra records
+  d_y: 9728 f32, the table and nothing else (section A4 has its own)
+  252 matrices, 3.63 G weights, in 1468 s, block-by-block proofs of the arms that were built
+  L = 5 exceptions: 5096688 out of 150681600 blocks (3.3824%), corrected in the same launch
+  E2 exceptions (parity-violating or L = 5): 11204181 out of 150681600 blocks (7.4357%), corrected in the same launch
+
+Verifying every row against the f64 reference…
+  1105920 rows, threshold 1e-5 (AWQ, cublasf16: 1e-3, binary16 output) — worst errors slot32 2.2e-8, planes14 2.2e-8, planes12x 2.9e-8, golay70v1 4.1e-8, fp16 3.0e-8, awq 5.8e-5, golay70v2 3.4e-8, cublasf16 5.7e-5, nullk -inf ·Σ|w·x|
+
+ONE TOKEN — 252 matrices, one stream, 9 arms interleaved  [phase 1/2: slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk]
+  7 rounds, 2 discarded; the ratios are formed ROUND BY ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   med ms   max ms  GB read b/weight GB/s(min)
+  tile 64 (served: measured optimum for sm_89)
+  floor (nullk)             2.287    2.289    2.292     0.07    0.159       32
+  FP16 (128 bits)          10.965   10.976   10.981     7.27   16.000      663
+  FP16 cuBLAS              10.822   10.825   10.834     7.27   16.000      671
+  LLVQ Slot32               5.718    5.726    5.737     2.50    5.510      438
+  LLVQ Planes14             4.994    5.000    5.005     2.18    4.804      437
+  LLVQ Planes12x            5.359    5.368    5.372     1.97    4.342      368
+  LLVQ Golay70 v1           8.057    8.062    8.073     1.63    3.589      202
+  LLVQ Golay70 v2           6.009    6.013    6.016     1.63    3.589      271
+  AWQ w4g128                3.255    3.257    3.261     1.90    4.179      583
+  --------------------------------------------------------------------------------
+  floor (nullk)    vs FP16     : 4.80× [4.78–4.80]
+  FP16 cuBLAS      vs FP16     : 1.01× [1.01–1.01]
+  LLVQ Slot32      vs FP16     : 1.92× [1.91–1.92]
+  LLVQ Planes14    vs FP16     : 2.20× [2.19–2.20]
+  LLVQ Planes12x   vs FP16     : 2.04× [2.04–2.05]
+  LLVQ Golay70 v1  vs FP16     : 1.36× [1.36–1.36]
+  LLVQ Golay70 v2  vs FP16     : 1.83× [1.82–1.83]
+  AWQ w4g128       vs FP16     : 3.37× [3.37–3.37]  (COMPETITOR — reads 4.179 b/weight;
+  the comparable quantity is the GB/s, not this ratio)
+  planes14   vs slot32    : 1.14× [1.14–1.15]  (>1 = Planes14 faster, same content decoded)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x faster; memset + correction included, same exact y)
+  golay70v1  vs planes12x : 0.67× [0.66–0.67]  (>1 = Golay70 v1 faster; memset + correction included, same exact y)
+  golay70v2  vs golay70v1 : 1.34× [1.34–1.34]  (>1 = v2 faster; SAME buffers, same exact y — the ratio of the v2 campaign)
+
+  source: TWO FILES — ball: /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin (252 records); tetra: /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin (216 Tetra + 36 int4 g128). The arms do not all read the same bytes
+  1630 MB distinct per pass on the lightest arm (LLVQ Golay70 v1), which is 16.2× the L2 read.
+  Under 1× we would be measuring the cache and not the DRAM — the trap that
+  made every LLVQ measurement before 2026-07-31 optimistic.
+
+  With the unquantized f16 lm_head (389 M weights, 1.17 ms at the measured FP16
+  throughput, added to the LLVQ arms): floor (nullk) 3.51×, FP16 cuBLAS 1.01×, LLVQ Slot32 1.76×, LLVQ Planes14 1.97×, LLVQ Planes12x 1.86×, LLVQ Golay70 v1 1.31×, LLVQ Golay70 v2 1.69×.
+  Norms, activations, attention and rotation are measured neither here nor there.
+
+  WARNING: NEVER compare this line by line with the Metal figure, and never
+  subtract it from a bin/matvec run: other rounds, other NVRTC translation unit.
+  Every arm against its own f64 reference; the ratios form round by round,
+  inside one process.
+
+— phase 2/2: upload of the arms added (tetra48) —
+
+Verifying every row against the f64 reference…
+  1105920 rows, threshold 1e-5 (AWQ, cublasf16: 1e-3, binary16 output) — worst errors tetra48 2.1e-8 ·Σ|w·x|
+
+ONE TOKEN — 252 matrices, one stream, 10 arms interleaved  [phase 2/2: slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk,tetra48]
+  7 rounds, 2 discarded; the ratios are formed ROUND BY ROUND
+  --------------------------------------------------------------------------------
+  format                   min ms   med ms   max ms  GB read b/weight GB/s(min)
+  tile 64 (served: measured optimum for sm_89)
+  floor (nullk)             2.288    2.289    2.294     0.07    0.159       32
+  FP16 (128 bits)          10.970   10.973   10.979     7.27   16.000      662
+  FP16 cuBLAS              10.821   10.828   10.834     7.27   16.000      672
+  LLVQ Slot32               5.725    5.732    5.742     2.50    5.510      437
+  LLVQ Planes14             4.993    4.997    4.999     2.18    4.804      437
+  LLVQ Tetra48              3.421    3.424    3.428     0.95    2.148      278
+  LLVQ Planes12x            5.363    5.366    5.371     1.97    4.342      368
+  LLVQ Golay70 v1           8.059    8.064    8.066     1.63    3.589      202
+  LLVQ Golay70 v2           6.016    6.016    6.037     1.63    3.589      271
+  AWQ w4g128                3.257    3.261    3.261     1.90    4.179      583
+  --------------------------------------------------------------------------------
+  tetra48 also HOLDS 4.1 MB of row landing pad, NOT billed above — the convention
+  the slot arm's 20-byte pad and the planes arm's 4-byte pad already follow.
+  Real VRAM, not a rate: `stride_u32` rounds each row to eight bytes so the last
+  block's six-byte window cannot fault.
+  floor (nullk)    vs FP16     : 4.79× [4.79–4.80]
+  FP16 cuBLAS      vs FP16     : 1.01× [1.01–1.01]
+  LLVQ Slot32      vs FP16     : 1.91× [1.91–1.92]
+  LLVQ Planes14    vs FP16     : 2.20× [2.19–2.20]
+  LLVQ Tetra48     vs FP16     : 3.21× [3.20–3.21]
+  LLVQ Planes12x   vs FP16     : 2.05× [2.04–2.05]
+  LLVQ Golay70 v1  vs FP16     : 1.36× [1.36–1.36]
+  LLVQ Golay70 v2  vs FP16     : 1.82× [1.82–1.82]
+  AWQ w4g128       vs FP16     : 3.37× [3.36–3.37]  (COMPETITOR — reads 4.179 b/weight;
+  the comparable quantity is the GB/s, not this ratio)
+  planes14   vs slot32    : 1.15× [1.15–1.15]  (>1 = Planes14 faster, same content decoded)
+  planes12x  vs planes14  : 0.93× [0.93–0.93]  (>1 = Planes12x faster; memset + correction included, same exact y)
+  golay70v1  vs planes12x : 0.67× [0.67–0.67]  (>1 = Golay70 v1 faster; memset + correction included, same exact y)
+  golay70v2  vs golay70v1 : 1.34× [1.34–1.34]  (>1 = v2 faster; SAME buffers, same exact y — the ratio of the v2 campaign)
+  tetra48    vs planes14  : 1.46× [1.46–1.46]  (>1 = Tetra faster — see the caveat below)
+    ⚠️ NOT the same support: Tetra launched over 216 matrices, Planes14 over 252.
+       The 36 missing are int4 g128 in the Tetra file and are read by another kernel,
+       so this ratio is formed over unequal passes. b/weight is per arm and divides
+       by what that arm read.
+
+  source: TWO FILES — ball: /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin (252 records); tetra: /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin (216 Tetra + 36 int4 g128). The arms do not all read the same bytes
+  950 MB distinct per pass on the lightest arm (LLVQ Tetra48), which is 9.4× the L2 read.
+  Under 1× we would be measuring the cache and not the DRAM — the trap that
+  made every LLVQ measurement before 2026-07-31 optimistic.
+
+  With the unquantized f16 lm_head (389 M weights, 1.17 ms at the measured FP16
+  throughput, added to the LLVQ arms): floor (nullk) 3.51×, FP16 cuBLAS 1.01×, LLVQ Slot32 1.76×, LLVQ Planes14 1.97×, LLVQ Tetra48 2.64×, LLVQ Planes12x 1.86×, LLVQ Golay70 v1 1.32×, LLVQ Golay70 v2 1.69×.
+  Norms, activations, attention and rotation are measured neither here nor there.
+  tetra48 vs planes14, WITH THE F16 HEAD : 1.34× [1.34–1.34]  (the lm_head added to BOTH arms, round by round)
+  tetra48 vs planes14, FLOOR REMOVED : 2.39× [2.38–2.39]  (nullk subtracted from BOTH, round by round — the F1 journals' "same head")
+
+  WARNING: NEVER compare this line by line with the Metal figure, and never
+  subtract it from a bin/matvec run: other rounds, other NVRTC translation unit.
+  Every arm against its own f64 reference; the ratios form round by round,
+  inside one process.
+
+Δ_contrôle — drift of the common arms between consecutive phases
+  phases 1→2 slot32     med    5.726 →    5.732 ms (+0.10%), vs FP16 1.917 → 1.914 (-0.13%)
+  phases 1→2 planes14   med    5.000 →    4.997 ms (-0.08%), vs FP16 2.195 → 2.197 (+0.06%)
+  phases 1→2 planes12x  med    5.368 →    5.366 ms (-0.03%), vs FP16 2.045 → 2.046 (+0.05%)
+  phases 1→2 golay70v1  med    8.062 →    8.064 ms (+0.03%), vs FP16 1.361 → 1.361 (+0.03%)
+  phases 1→2 fp16       med   10.976 →   10.973 ms (-0.03%)
+  phases 1→2 awq        med    3.257 →    3.261 ms (+0.13%), vs FP16 3.369 → 3.366 (-0.11%)
+  phases 1→2 golay70v2  med    6.013 →    6.016 ms (+0.05%), vs FP16 1.825 → 1.824 (-0.08%)
+  phases 1→2 cublasf16  med   10.825 →   10.828 ms (+0.03%), vs FP16 1.014 → 1.014 (-0.02%)
+  phases 1→2 nullk      med    2.289 →    2.289 ms (-0.00%), vs FP16 4.795 → 4.793 (-0.04%)
+  Δ_contrôle (max |Δ| of the ratios vs FP16) = 0.13%; max intra-run half-range = 0.19% (golay70v2); R = 0.19%
+
+  fusion: 72 groups (180 matrices → 72), transcoded in 77 s
+
+  Fusion (A4) — output against the unfused matrices
+  bit-exact against the unfused arms: 72 groups on Slot32 and Planes14, 0 on Tetra48
+  Tetra fusion not requested (LLVQ_SEG_TETRA unset): `tv_tetra48_seg` is compiled and not exercised here
+  72 groups, 921600 rows — identical BIT FOR BIT, on Slot32 AND on Planes14
+
+thread 'main' (63) panicked at llvq-cuda/src/bin/planesbench.rs:654:11:
+index out of bounds: the len is 0 but the index is 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
