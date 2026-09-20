@@ -11,7 +11,7 @@
 #
 # Cost: a few minutes on l40sx1, about $0.30, timeout 1 h.
 set -euo pipefail
-O=/out/banc-tetra-2026-09-20
+O=/out/banc-tetra-fuse-2026-09-20
 B=/out/ball-ref-2026-09-20/qwen3-4b-llvq.bin   # ball arms
 F=/out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin  # tetra48, SECOND argument
 P1=slot32,planes14,planes12x,golay70v1,fp16,awq,golay70v2,cublasf16,nullk
@@ -19,7 +19,7 @@ uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
   --flavor l40sx1 --timeout 1h \
   --bucket Pier-Jean/jobs-artifacts --out-mount /out \
-  --name banc-tetra \
+  --name banc-tetra-fuse \
   "mkdir -p $O" \
   'nvidia-smi --query-gpu=name,memory.total --format=csv' \
   "echo '== the ten arms, phase 2 adds tetra48 ==' ; date ; \
