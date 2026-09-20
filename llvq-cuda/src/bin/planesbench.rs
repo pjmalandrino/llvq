@@ -1389,6 +1389,22 @@ mod linux {
         let (p12cuh, p12cu, planes12_overridden) = load_planes12_sources()?;
         let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
         let (segcu, seg_overridden) = load_planes_seg_source()?;
+        // The Tetra fusion arm, OFF by default. Its bit-exact comparison is
+        // fatal when it runs — that is the whole point of it — and on
+        // 2026-09-20 it fired and took the ten-arm cost table down with it,
+        // before the table was printed. An experimental arm must not be able
+        // to do that to the table the bench exists for.
+        //
+        // Refused by name on any other value, like every flag in this file.
+        let seg_tetra = match std::env::var("LLVQ_SEG_TETRA").as_deref() {
+            Err(_) | Ok("0") => false,
+            Ok("1") => true,
+            Ok(v) => {
+                return Err(format!(
+                    "LLVQ_SEG_TETRA={v:?}: the values are 0 and 1, and unset is 0"
+                ))
+            }
+        };
         let (awqcu, awq_overridden) = load_awq_source()?;
         let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
@@ -3920,7 +3936,8 @@ mod linux {
                 // any member is missing from `tetra`, which is what the served
                 // object's int4 `v_proj` does to a q+k+v group: the pair that
                 // survives is q+k, and gate+up.
-                let (twords, tstride, tetra_bytes) = match union.has(arms::TETRA48)
+                let (twords, tstride, tetra_bytes) = match seg_tetra
+                    && union.has(arms::TETRA48)
                     && idx.iter().all(|&i| tetra.contains_key(&srcs[i].name))
                 {
                     false => (None, 0u32, 0u64),
@@ -4067,10 +4084,16 @@ mod linux {
                 fused.len()
             );
             if tetra_checked == 0 {
-                println!(
-                    "  ⚠️ NO Tetra group was checked: no fused group has a Tetra stream, so \
-                     `tv_tetra48_seg` is compiled and UNPROVEN in this run"
-                );
+                match seg_tetra {
+                    false => println!(
+                        "  Tetra fusion not requested (LLVQ_SEG_TETRA unset): \
+                         `tv_tetra48_seg` is compiled and not exercised here"
+                    ),
+                    true => println!(
+                        "  ⚠️ LLVQ_SEG_TETRA=1 and NO Tetra group was checked: no fused group \
+                         has a Tetra stream, so `tv_tetra48_seg` is compiled and UNPROVEN"
+                    ),
+                }
             }
             println!(
                 "  {} groups, {} rows — identical BIT FOR BIT, on Slot32 AND on Planes14",
@@ -4461,6 +4484,13 @@ mod linux {
             let mut tn: Vec<Vec<f64>> = vec![Vec::new(); seg_arms.len()];
             for rep in 0..ROUNDS {
                 for (arm, ta) in tf.iter_mut().enumerate() {
+                    // Arms 4 and 5 are the Tetra pair. Without a fused stream
+                    // they would measure the same launches twice and print a
+                    // delta of zero, which reads as "the fusion is worth
+                    // nothing" rather than "the fusion did not run".
+                    if arm >= 4 && !fused.iter().any(|f| f.twords.is_some()) {
+                        continue;
+                    }
                     let tin = Instant::now();
                     match arm {
                         // 0/2: everything separate. 1/3: the fusible groups
