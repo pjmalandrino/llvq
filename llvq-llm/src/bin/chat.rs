@@ -49,6 +49,15 @@ struct Marks {
     im_end: u32,
     eot: u32,
     nl: u32,
+    /// The id of `"\n\n"`, which is ONE token (271) and not two of `nl`.
+    /// Qwen3's own template prefills the empty reasoning block with it, and a
+    /// model trained on 271 does not read 198 twice as the same thing — which
+    /// is exactly what the first attempt got wrong.
+    nl2: u32,
+    /// `<think>` and `</think>`, present on Qwen3 and absent on a model that
+    /// does not reason out loud. `Option`, because this binary must not refuse
+    /// an artifact for lacking them.
+    think: Option<(u32, u32)>,
 }
 
 impl Marks {
@@ -64,11 +73,22 @@ impl Marks {
             .first()
             .copied()
             .context("the tokenizer encodes a newline to nothing")?;
+        let nl2 = t
+            .encode("\n\n", false)
+            .map_err(|e| anyhow::anyhow!("{e}"))?
+            .get_ids()
+            .first()
+            .copied()
+            .context("the tokenizer encodes a blank line to nothing")?;
         Ok(Marks {
             im_start: id("<|im_start|>")?,
             im_end: id("<|im_end|>")?,
             eot: id("<|endoftext|>")?,
             nl,
+            nl2,
+            think: t
+                .token_to_id("<think>")
+                .zip(t.token_to_id("</think>")),
         })
     }
 
@@ -106,7 +126,21 @@ fn turn(
 }
 
 /// The assistant's opening, which carries no body: the model writes it.
-fn open_assistant(t: &tokenizers::Tokenizer, m: &Marks) -> anyhow::Result<Vec<u32>> {
+///
+/// With `think` false the opening is PRE-FILLED with an empty reasoning block,
+/// `<think>\n\n</think>\n\n`, which is how Qwen3 is told not to reason out
+/// loud. It is not a stop token and not a filter: the block is closed before
+/// the model writes a word, so there is nothing to strip afterwards and the
+/// budget goes to the answer.
+///
+/// Off by default here. A 48-token budget on the first smoke went entirely into
+/// the model thinking about the question, which is correct behaviour and a
+/// useless chat.
+fn open_assistant(
+    t: &tokenizers::Tokenizer,
+    m: &Marks,
+    think: bool,
+) -> anyhow::Result<Vec<u32>> {
     let mut v = vec![m.im_start];
     v.extend(
         t.encode("assistant", false)
@@ -114,6 +148,14 @@ fn open_assistant(t: &tokenizers::Tokenizer, m: &Marks) -> anyhow::Result<Vec<u3
             .get_ids(),
     );
     v.push(m.nl);
+    if !think {
+        if let Some((open, close)) = m.think {
+            v.push(open);
+            v.push(m.nl2);
+            v.push(close);
+            v.push(m.nl2);
+        }
+    }
     Ok(v)
 }
 
@@ -217,11 +259,23 @@ fn main() -> anyhow::Result<()> {
         state: env_f32("LLVQ_CHAT_SEED", 0.0)? as u64 ^ 0x5EED_5EED_5EED_5EED,
     };
     let max_new: usize = env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize;
+    let think = env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0;
 
     println!("{} on {dev_name}", a[0]);
     println!(
         "  temp {:.2}, top_p {:.2}, max {} new tokens a turn",
         sampler.temp, sampler.top_p, max_new
+    );
+    println!(
+        "  reasoning {}{}",
+        match think {
+            true => "on",
+            false => "off",
+        },
+        match marks.think {
+            None => " (this artifact has no think tokens)",
+            Some(_) => "",
+        }
     );
     println!("  /reset drops the conversation, /bye leaves\n");
 
@@ -268,7 +322,7 @@ fn main() -> anyhow::Result<()> {
         }
 
         let mut ids = turn(tok, &marks, "user", line)?;
-        ids.extend(open_assistant(tok, &marks)?);
+        ids.extend(open_assistant(tok, &marks, think)?);
         let dev = sealed.model.device();
         let mut h = sealed.model.hidden_cached(
             &Tensor::from_slice(&ids, (1, ids.len()), dev)?,
