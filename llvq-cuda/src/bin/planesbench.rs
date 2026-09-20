@@ -732,6 +732,44 @@ mod linux {
         Ok(())
     }
 
+    /// `tv_tetra48_seg` — `launch_tetra48` with one pointer more.
+    ///
+    /// The only difference is `gs_off`, inserted right after `gscale`, because
+    /// a row-concatenation of Tetra matrices carries one gain pair per segment
+    /// and the kernel resolves which pair a row owns. Everything else is
+    /// identical, deliberately: the words concatenate without re-encoding —
+    /// segments sharing `d_in` share `nblocks` and therefore `row_stride_u32` —
+    /// and `invnorm` is a property of the lattice rather than of a projection,
+    /// so both are passed exactly as the unfused arm passes them.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_tetra48_seg(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        row_stride_u32: u32,
+        tabs: &TetraTabs,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(&row_stride_u32)
+            .arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
+            .arg(gscale).arg(gs_off).arg(&tabs.invnorm).arg(rscale).arg(tail)
+            .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_seg: {e}"))?;
+        Ok(())
+    }
+
     /// `tv_planes_seg(words, tab, gscale, gs_off, rscale, tail, x, y, nblocks,
     /// tail_w)` — `tv_planes` over a row-concatenation of projections sharing
     /// an input, with one extra table naming each row's centroid pair.
@@ -2707,6 +2745,13 @@ mod linux {
             tail: cudarc::driver::CudaSlice<f32>,
             slot_bytes: u64,
             planes_bytes: u64,
+            /// The Tetra stream of the same concatenation, present only when
+            /// `tetra48` is in the selection. `Option` and not a sentinel: a
+            /// group whose members are not all Tetra has no such stream, and
+            /// an empty `CudaSlice` would launch and read garbage.
+            twords: Option<cudarc::driver::CudaSlice<u32>>,
+            tstride: u32,
+            tetra_bytes: u64,
             /// Indices into `mats` of the matrices this one replaces, in row
             /// order — the fused output must equal their outputs concatenated.
             parts: Vec<usize>,
@@ -3839,6 +3884,50 @@ mod linux {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
+                // The Tetra stream of the same concatenation. It costs no
+                // transcoding step of its own: `transcode_tetra48` takes the
+                // indices and gains `seg_concat` already produced, and rows
+                // sharing `d_in` share `row_stride_u32`, so concatenating by
+                // rows is concatenating the word arrays.
+                //
+                // Only built when the arm is selected. A group is skipped when
+                // any member is missing from `tetra`, which is what the served
+                // object's int4 `v_proj` does to a q+k+v group: the pair that
+                // survives is q+k, and gate+up.
+                let (twords, tstride, tetra_bytes) = match union.has(arms::TETRA48)
+                    && idx.iter().all(|&i| tetra.contains_key(&srcs[i].name))
+                {
+                    false => (None, 0u32, 0u64),
+                    true => {
+                        let tb = llvq_artifact::tetra48::transcode_tetra48(
+                            &seg.indices, &seg.gains, seg.d_out, seg.nblocks,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        // `data` is bytes; the kernel reads u32. Same
+                        // conversion and same assertion as the unfused arm,
+                        // because a stream that is not a whole number of row
+                        // strides would read every row after the first at a
+                        // shifted phase.
+                        let twords: Vec<u32> = tb
+                            .data
+                            .chunks_exact(4)
+                            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                            .collect();
+                        assert_eq!(
+                            twords.len(),
+                            seg.d_out * tb.stride_u32,
+                            "{key}: the fused Tetra stream is not a whole number of row strides"
+                        );
+                        // The same ledger the two ball arms keep, with the same
+                        // `gs_off` line: it is the only byte fusion ADDS.
+                        let bytes = tb.data.len() as u64
+                            + (seg.d_out * seg.tail_w) as u64 * 4
+                            + seg.d_out as u64 * 4
+                            + seg.d_out as u64 * 4;
+                        (Some(cuda.up_u32(&twords)?), tb.stride_u32 as u32, bytes)
+                    }
+                };
+
                 fused.push(FusedMat {
                     name: key.clone(),
                     d_out: seg.d_out,
@@ -3854,6 +3943,9 @@ mod linux {
                         .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
                     slot_bytes,
                     planes_bytes,
+                    twords,
+                    tstride,
+                    tetra_bytes,
                     parts: idx.clone(),
                 });
             }
