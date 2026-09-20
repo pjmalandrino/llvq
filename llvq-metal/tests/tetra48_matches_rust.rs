@@ -76,7 +76,7 @@ struct Decoded {
 
 /// Compile the MSL, upload the tables and the words, decode every block.
 fn decode_on_metal(data: &[u8], stride: usize, nblocks: usize, rows: usize) -> Decoded {
-    let k = Kernel::new(SOURCE, "tetra48_probe").expect("the MSL compiles and carries the probe");
+    let k = Kernel::new_exact(SOURCE, "tetra48_probe").expect("the MSL compiles and carries the probe");
     let table = RankTable::build();
     let tr = Trellis::new();
 

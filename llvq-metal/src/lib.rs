@@ -47,10 +47,42 @@ mod gpu {
 
     impl Kernel {
         /// Compile `source` and take `name` out of it.
+        ///
+        /// Metal's fast math is left ON, which is its default and what every
+        /// benchmark in this crate was measured under. Use
+        /// [`Self::new_exact`] for anything that must reproduce bits.
         pub fn new(source: &str, name: &str) -> Result<Self, String> {
+            Self::compile(source, name, true)
+        }
+
+        /// [`Self::new`] with Metal's fast math turned OFF.
+        ///
+        /// ## Why this exists
+        ///
+        /// Metal enables fast math by default, which lets the compiler
+        /// reassociate and CONTRACT: `a * b + c` becomes an `fma`, which is a
+        /// different number because the product is not rounded first.
+        ///
+        /// That is harmless for a benchmark and fatal for the Tetra kernel,
+        /// whose gate is equality against a host reference rather than a
+        /// tolerance. Measured on 2026-09-20: with fast math on, the matvec
+        /// landed one to two ulp from the reference on every row, which is
+        /// exactly the size of error a tolerance would have hidden and a
+        /// genuine defect would also have produced.
+        ///
+        /// The CUDA side has no equivalent switch because NVRTC does not
+        /// contract across a statement by default, and the kernel spells out
+        /// `__fmaf_rn` where it wants the fused form.
+        pub fn new_exact(source: &str, name: &str) -> Result<Self, String> {
+            Self::compile(source, name, false)
+        }
+
+        fn compile(source: &str, name: &str, fast_math: bool) -> Result<Self, String> {
             let device = Device::system_default().ok_or("no Metal device")?;
+            let opts = CompileOptions::new();
+            opts.set_fast_math_enabled(fast_math);
             let library = device
-                .new_library_with_source(source, &CompileOptions::new())
+                .new_library_with_source(source, &opts)
                 .map_err(|e| format!("shader compilation failed: {e}"))?;
             let function = library
                 .get_function(name, None)

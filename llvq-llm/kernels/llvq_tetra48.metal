@@ -44,6 +44,22 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Every multiply-add in this file is EXACTLY what is written.
+//
+// Metal is clang, and clang contracts `a * b + c` into an `fma` unless told
+// not to. `fma` rounds once where the written form rounds twice, so the two
+// are different numbers. That is invisible in a benchmark and fatal here: the
+// gate is equality against a host reference, and on 2026-09-20 the contraction
+// put the matvec one to two ulp off on every row, which is the size of error a
+// tolerance would have hidden and a real defect would also have produced.
+//
+// Turning Metal's fast math off is necessary and NOT sufficient: it stops the
+// reassociation and leaves the contraction. This stops the contraction.
+//
+// Where fusion IS wanted the code calls `fma` by name, which is what the CUDA
+// original does with `__fmaf_rn`. One decision, written down, on both sides.
+#pragma clang fp contract(off)
+
 // Class-0 rows in the middle section's mixed order. Mirrors
 // `RankTable::n0_mixed`, which the Rust builder asserts equals 1240.
 #define F1R_N0_MIXED 1240u
@@ -288,4 +304,98 @@ kernel void tetra48_probe(const device uint*   words    [[buffer(0)]],
     // carry and that the scale depends on.
     shell[gid * 2u + 0u] = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
     shell[gid * 2u + 1u] = (hi16 >> 15) & 1u;
+}
+
+// ---------------------------------------------------------------------------
+// The matvec: one SIMD-group a row, the activation staged in threadgroup
+// memory. The Metal twin of `llvq-llm/kernels/tv_tetra48_h.cu`.
+// ---------------------------------------------------------------------------
+
+// Blocks of the activation one threadgroup stages.
+//
+// Host-injected by prepending a `#define`, the way the CUDA side injects it
+// through NVRTC. The default is 64, which is the measured optimum on sm_89
+// (`docs/mesures/tuile-l40s-2026-09-20.txt`). NOTHING is measured on Apple:
+// the mechanism there is different, because 18,688 B of tables and a tile of
+// 64 both fit in the 32,768 B of threadgroup memory, so the eviction that
+// costs sm_89 19.1 % need not happen at all. Treat this number as a
+// placeholder with a provenance, not as a tuned value.
+#ifndef LLVQ_TILE_BLOCKS
+#define LLVQ_TILE_BLOCKS 64u
+#endif
+
+/// The butterfly, written out rather than `simd_sum`.
+///
+/// `simd_sum` does not specify its reduction order, and floating-point
+/// addition is not associative, so a kernel built on it cannot promise the
+/// same bits twice across drivers. CUDA's `warp_sum` is an explicit
+/// `__shfl_xor_sync` butterfly; this is the same one, lane for lane, which is
+/// what lets the gate demand equality against a host reference.
+inline float warp_sum(float v)
+{
+    for (ushort k = 16; k > 0; k >>= 1) {
+        v += simd_shuffle_xor(v, k);
+    }
+    return v;
+}
+
+kernel void tv_tetra48_metal(const device uint*   words          [[buffer(0)]],
+                             constant uint&       row_stride_u32 [[buffer(1)]],
+                             const device uint*   rows           [[buffer(2)]],
+                             const device uchar*  prefixes       [[buffer(3)]],
+                             const device ushort* branches       [[buffer(4)]],
+                             const device uchar*  suffixes       [[buffer(5)]],
+                             const device float*  gscale         [[buffer(6)]],
+                             const device float*  invnorm        [[buffer(7)]],
+                             const device float*  rscale         [[buffer(8)]],
+                             const device half*   tail           [[buffer(9)]],
+                             const device float*  x              [[buffer(10)]],
+                             device float*        y              [[buffer(11)]],
+                             constant uint&       nblocks        [[buffer(12)]],
+                             constant uint&       tail_w         [[buffer(13)]],
+                             threadgroup float*   xs             [[threadgroup(0)]],
+                             uint tid  [[thread_position_in_threadgroup]],
+                             uint gid  [[thread_position_in_grid]],
+                             uint tgs  [[threads_per_threadgroup]],
+                             uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        // Two barriers, not one, for the reason matvec.cu gives: the second
+        // orders the fill against the readers, the first stops the next fill
+        // from racing a straggler still reading the previous tile. `ntiles`
+        // depends only on `nblocks`, so both stay uniform across the group.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        // Multiply-then-add, not `fma`: this is the association the CUDA
+        // epilogue has, and the only thing that may differ between the two
+        // paths is the stored width of the weight, never the arithmetic.
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv += float(tail[row * tail_w + i]) * xt[i];
+        }
+        y[row] = acc * rscale[row] + tv;
+    }
 }
