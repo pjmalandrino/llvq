@@ -220,6 +220,40 @@ impl Sampler {
     }
 }
 
+/// Positions this turn would need: the prompt, plus the worst case of the
+/// answer, plus the two tokens that close the assistant's message.
+///
+/// RoPE's tables are built once to `max_position_embeddings` rows, so walking
+/// past them is not a slow path, it is an opaque candle error thousands of
+/// steps into a conversation. `generate`'s own header records the same edge at
+/// `max_new = 0`. Checked BEFORE the prefill, because a refusal after it would
+/// leave the cache holding half a turn.
+fn turn_fits(offset: usize, prompt: usize, max_new: usize, limit: usize) -> bool {
+    offset
+        .checked_add(prompt)
+        .and_then(|n| n.checked_add(max_new))
+        .and_then(|n| n.checked_add(CLOSE_LEN))
+        .is_some_and(|n| n <= limit)
+}
+
+/// `<|im_end|>` and the newline that follow every assistant turn.
+const CLOSE_LEN: usize = 2;
+
+/// The part of a decoded answer that is safe to print now.
+///
+/// A character outside the ASCII range spans several tokens, and decoding a
+/// sequence that ends mid-character yields a TRAILING U+FFFD. Printing it puts
+/// a replacement character on screen that the next token would have completed
+/// — which is what the first two attempts did, once per token and then once
+/// per character.
+///
+/// So the tail of replacements is held back. It costs nothing: the next token
+/// either completes the character, and it appears whole, or the answer ends
+/// and the character was genuinely broken.
+fn printable(full: &str) -> &str {
+    full.trim_end_matches('\u{FFFD}')
+}
+
 fn env_f32(key: &str, default: f32) -> anyhow::Result<f32> {
     match std::env::var(key) {
         Err(_) => Ok(default),
@@ -249,6 +283,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut sealed = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
     sealed.model.set_kv_store(kv_store);
+    let limit = sealed.model.config().max_position_embeddings;
     let tok = &sealed.tokenizer;
     let marks = Marks::resolve(tok)?;
     let stops = marks.stops();
@@ -260,6 +295,12 @@ fn main() -> anyhow::Result<()> {
     };
     let max_new: usize = env_f32("LLVQ_CHAT_MAX_NEW", 512.0)? as usize;
     let think = env_f32("LLVQ_CHAT_THINK", 0.0)? != 0.0;
+    // `LLVQ_CHAT_IDS=1` prints the raw ids of each answer. Kept rather than
+    // deleted after the hunt it was written for: a replacement character on
+    // screen has three possible causes — a partial decode, a byte-fallback
+    // token the model really emitted, and a terminal — and only the ids tell
+    // them apart.
+    let show_ids = env_f32("LLVQ_CHAT_IDS", 0.0)? != 0.0;
 
     println!("{} on {dev_name}", a[0]);
     println!(
@@ -277,6 +318,7 @@ fn main() -> anyhow::Result<()> {
             Some(_) => "",
         }
     );
+    println!("  context {limit} positions");
     println!("  /reset drops the conversation, /bye leaves\n");
 
     // The cache and the position are the conversation. They are built once and
@@ -313,9 +355,11 @@ fn main() -> anyhow::Result<()> {
             "" => continue,
             "/bye" => return Ok(()),
             "/reset" => {
+                // Read BEFORE the reset. Printing it after set `offset` to zero
+                // and reported that every conversation released nothing.
+                println!("  conversation dropped, {offset} positions released\n");
                 caches = sealed.model.fresh_caches();
                 offset = 0;
-                println!("  conversation dropped, {} tokens released\n", offset);
                 continue;
             }
             _ => {}
@@ -323,6 +367,14 @@ fn main() -> anyhow::Result<()> {
 
         let mut ids = turn(tok, &marks, "user", line)?;
         ids.extend(open_assistant(tok, &marks, think)?);
+        if !turn_fits(offset, ids.len(), max_new, limit) {
+            println!(
+                "  this turn needs {} positions of the {limit} this model has, and {offset} \
+                 are already held.\n  /reset to start over.\n",
+                offset + ids.len() + max_new + CLOSE_LEN
+            );
+            continue;
+        }
         let dev = sealed.model.device();
         let mut h = sealed.model.hidden_cached(
             &Tensor::from_slice(&ids, (1, ids.len()), dev)?,
@@ -333,21 +385,34 @@ fn main() -> anyhow::Result<()> {
         offset += ids.len();
 
         let mut n = 0usize;
+        // The answer so far, in ids and in the text already written. The two
+        // are kept side by side because a token does not map to a character.
+        let mut said: Vec<u32> = Vec::new();
+        let mut shown = String::new();
         loop {
             let logits = sealed.model.logits_last(&h)?.i((0, 0))?;
             let next = sampler.pick(&logits)?;
             if stops.contains(&next) {
                 break;
             }
-            // Decoded one token at a time. A multi-byte character arrives in
-            // pieces, and `decode` on a partial sequence yields the replacement
-            // character rather than failing, which is the right behaviour for a
-            // stream and the wrong one for a transcript.
-            print!(
-                "{}",
-                tok.decode(&[next], false).map_err(|e| anyhow::anyhow!("{e}"))?
-            );
-            std::io::stdout().flush()?;
+            // NOT `decode(&[next])`. A character outside the ASCII range
+            // arrives across several tokens, and decoding one in isolation
+            // yields U+FFFD — which the first version printed, three of them,
+            // in place of an emoji.
+            //
+            // So the whole answer is decoded each time and only the NEW SUFFIX
+            // is written. A partial character simply does not extend the
+            // string yet, and appears whole on the token that completes it.
+            // Quadratic in `decode` calls, on hundreds of tokens, against a
+            // forward pass a thousand times dearer.
+            said.push(next);
+            let full = tok.decode(&said, false).map_err(|e| anyhow::anyhow!("{e}"))?;
+            let safe = printable(&full);
+            if let Some(fresh) = safe.strip_prefix(shown.as_str()) {
+                print!("{fresh}");
+                std::io::stdout().flush()?;
+                shown = safe.to_string();
+            }
 
             n += 1;
             if n >= max_new {
@@ -373,6 +438,9 @@ fn main() -> anyhow::Result<()> {
             &mut NoCapture,
         )?;
         offset += close.len();
+        if show_ids {
+            println!("\n  ids: {said:?}");
+        }
         println!("\n");
     }
 }
@@ -413,6 +481,48 @@ mod tests {
             let id = s.pick(&l).expect("a token");
             assert!(id == 1 || id == 3, "the nucleus returned {id}");
         }
+    }
+
+    #[test]
+    fn a_trailing_replacement_is_held_back_and_a_settled_one_is_not() {
+        assert_eq!(printable("Hello"), "Hello");
+        assert_eq!(printable("Hello \u{FFFD}"), "Hello ");
+        assert_eq!(printable("Hello \u{FFFD}\u{FFFD}"), "Hello ");
+        // Only the TAIL is held: a replacement the model really produced in
+        // the middle of settled text stays, or the stream would rewind.
+        assert_eq!(printable("a\u{FFFD}b"), "a\u{FFFD}b");
+        assert_eq!(printable("\u{FFFD}"), "");
+    }
+
+    #[test]
+    fn the_stream_never_rewinds_what_it_printed() {
+        // The invariant the loop rests on: what is safe to print only grows.
+        let steps = ["", "H", "He", "He\u{FFFD}", "He\u{1F600}", "He\u{1F600}!"];
+        let mut shown = String::new();
+        for full in steps {
+            let safe = printable(full);
+            if let Some(fresh) = safe.strip_prefix(shown.as_str()) {
+                shown.push_str(fresh);
+            }
+            assert!(safe.starts_with(shown.as_str()) || shown.starts_with(safe));
+        }
+        assert_eq!(shown, "He\u{1F600}!");
+    }
+
+    #[test]
+    fn a_turn_that_would_overrun_the_context_is_refused() {
+        // Exactly full fits; one more position does not.
+        assert!(turn_fits(0, 10, 88, 100));
+        assert!(!turn_fits(0, 10, 89, 100));
+        assert!(turn_fits(90, 4, 4, 100));
+        assert!(!turn_fits(91, 4, 4, 100));
+    }
+
+    #[test]
+    fn the_fit_check_cannot_overflow_into_a_pass() {
+        // A saturating add would wrap to a small number and report room.
+        assert!(!turn_fits(usize::MAX - 1, 4, 4, 100));
+        assert!(!turn_fits(0, usize::MAX, 4, usize::MAX));
     }
 
     #[test]
