@@ -25,18 +25,34 @@
 //! not a different shape, which is the failure this whole file is shaped
 //! against.
 //!
-//! ## The mutation run, and the one mutant that is equivalent
+//! ## The mutation run
 //!
-//! Four mutants of `model.rs`, three killed: `forward_with` reading the
-//! caller's activation instead of the prepared one, `Arc::ptr_eq` always true,
-//! `prefill_rows_of` never batching, and a part's view starting at row 0.
+//! Seven mutants of `model.rs`, seven killed, re-run after an adversarial
+//! review of 2026-09-20:
 //!
-//! A fifth is EQUIVALENT and is recorded rather than chased: making the int4
-//! arm read `r.t` instead of `x`. `Proj::Int4`'s `prepare` returns the
-//! activation untouched, and `check_key` refuses any `Rotated` whose key is
-//! not `None`, so every value that arm can ever accept has `r.t == x`. The
-//! argument choice there is documentation of intent, not a behaviour. A test
-//! that appeared to cover it would be testing its own fake.
+//!   1. `forward_with` reads the caller's activation, not the prepared one
+//!   2. `Arc::ptr_eq` on the group always true
+//!   3. `prefill_rows_of` never batches
+//!   4. `batches_rows` always false
+//!   5. the int4 arm reads `r.t` instead of `x`
+//!   6. a part's view starts at row 0
+//!   7. `prepare_rows` wired to `prepare`
+//!
+//! Two of those are here because the first draft of this file was wrong.
+//!
+//! Mutant 5 was recorded as EQUIVALENT, on the argument that `check_key`
+//! refuses any `Rotated` whose key is not `None`, so `r.t == x` always. The
+//! inference is invalid: on that arm the expected key IS `None`, so every
+//! `None`-keyed `Rotated` is accepted whatever tensor it carries, which is the
+//! hole `Rotated`'s own doc describes. It is a behaviour, and
+//! `the_int4_arm_reads_the_callers_activation` kills it.
+//!
+//! Mutant 7 was not planted at all. The review found it: wiring
+//! `Proj::prepare_rows`'s lattice arm to `d.prepare(xs)` left this file 11/11,
+//! `cargo clippy` at 0 and `ops/check-cuda.sh` at 0, and died only on a card,
+//! at the first prefill chunk, where `FusedRuntime::rotate` refuses
+//! `rows != 1`. The fakes were interchangeable where the adapters are not.
+//! They now refuse what the adapters refuse, and they log which entry ran.
 
 use candle_core::{DType, Device, Result, Tensor};
 use llvq_llm::device::{Int4Proj, LatticeProj, SegGroup};
@@ -102,11 +118,24 @@ impl LatticeProj for FakeLattice {
     fn rotation(&self) -> Option<RotKey> {
         self.key
     }
+    /// Refuses more than one row, exactly as `FusedRuntime::rotate` does
+    /// (`fused_cuda.rs`, "rotation requested for N vectors"). A fake that
+    /// accepted a chunk here would let the model call `prepare` where it owes
+    /// `prepare_rows`, and that wiring dies on a card and nowhere else.
     fn prepare(&self, x: &Tensor) -> Result<Tensor> {
+        let d = x.dims();
+        let rows: usize = d[..d.len() - 1].iter().product();
+        if rows != 1 {
+            candle_core::bail!("{}: rotation requested for {rows} vectors", self.name);
+        }
+        self.note("prepare".into());
         x.broadcast_matmul(&self.rot)
     }
     fn prepare_rows(&self, xs: &Tensor, rows: usize) -> Result<Tensor> {
-        assert_ne!(rows, 1, "the caller takes prepare() at one row");
+        if rows != xs.dim(0)? {
+            candle_core::bail!("{}: {rows} asked of a chunk of {}", self.name, xs.dim(0)?);
+        }
+        self.note(format!("prepare_rows({rows})"));
         xs.broadcast_matmul(&self.rot)
     }
     fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
@@ -425,8 +454,8 @@ fn a_batching_projection_takes_one_launch_and_not_four() -> Result<()> {
 
     assert_eq!(
         fake.launches(),
-        vec![format!("matvec_rows({rows})")],
-        "four rows are one launch of four, not four launches of one"
+        vec![format!("prepare_rows({rows})"), format!("matvec_rows({rows})")],
+        "four rows are one rotation and one matvec, not four of each"
     );
     Ok(())
 }
@@ -451,6 +480,116 @@ fn a_non_batching_projection_takes_one_launch_a_row() -> Result<()> {
     let p = Proj::Lattice(fake.clone());
     group_forward(&[&p], &xs, RotShare::Off)?;
 
-    assert_eq!(fake.launches(), vec!["matvec(1)"; rows], "one launch a row");
+    let want: Vec<String> = (0..rows)
+        .flat_map(|_| ["prepare".to_string(), "matvec(1)".to_string()])
+        .collect();
+    assert_eq!(fake.launches(), want, "one rotation and one matvec a row");
+    Ok(())
+}
+
+/// The wiring `prepare_rows` owes the rows kernel, observed.
+///
+/// Added after an adversarial review reproduced this: wiring
+/// `Proj::prepare_rows`'s lattice arm to `d.prepare(xs)` left device_seam
+/// 11/11, clippy 0 and `ops/check-cuda.sh` 0, and died only on a card, at the
+/// first prefill chunk, because `FusedRuntime::rotate` refuses `rows != 1`.
+/// The fake now refuses it too, and the launch log names which entry ran.
+#[test]
+fn a_chunk_is_rotated_by_prepare_rows_and_never_by_prepare() -> Result<()> {
+    let dev = Device::Cpu;
+    let rows = 4usize;
+    let v: Vec<f32> = (0..rows * D_IN).map(|i| (i as f32 * 0.19).cos()).collect();
+    let xs = Tensor::from_vec(v, (rows, D_IN), &dev)?;
+
+    let fake = Arc::new(FakeLattice {
+        name: "000.q_proj".into(),
+        w: matrix(4, D_IN, 0.11, &dev)?,
+        rot: permutation(D_IN, &dev)?,
+        key: Some((D_IN, 0xA5A5)),
+        rows_per_launch: rows,
+        log: std::sync::Mutex::new(Vec::new()),
+    });
+    let p = Proj::Lattice(fake.clone());
+    group_forward(&[&p], &xs, RotShare::Off)?;
+
+    assert_eq!(
+        fake.launches(),
+        vec![format!("prepare_rows({rows})"), format!("matvec_rows({rows})")],
+        "a chunk takes prepare_rows then matvec_rows, and neither one-row entry"
+    );
+    Ok(())
+}
+
+/// One row takes `prepare`, which is the entry the rotation kernel accepts.
+#[test]
+fn one_row_is_rotated_by_prepare() -> Result<()> {
+    let dev = Device::Cpu;
+    let fake = Arc::new(FakeLattice {
+        name: "000.q_proj".into(),
+        w: matrix(4, D_IN, 0.11, &dev)?,
+        rot: permutation(D_IN, &dev)?,
+        key: Some((D_IN, 0xA5A5)),
+        rows_per_launch: 1,
+        log: std::sync::Mutex::new(Vec::new()),
+    });
+    let p = Proj::Lattice(fake.clone());
+    group_forward(&[&p], &x1(&dev)?, RotShare::Off)?;
+    assert_eq!(fake.launches(), vec!["prepare", "matvec(1)"], "one row, one-row entries");
+    Ok(())
+}
+
+/// The int4 arm reads the CALLER's activation and not the prepared one.
+///
+/// This is the mutant an earlier draft of this file wrongly called equivalent.
+/// A `Rotated` carrying a DIFFERENT activation with the same `None` key passes
+/// `check_key`, so the two readings are distinguishable and the choice is a
+/// behaviour after all.
+#[test]
+fn the_int4_arm_reads_the_callers_activation() -> Result<()> {
+    let dev = Device::Cpu;
+    let w = matrix(4, D_IN, 0.31, &dev)?;
+    let p = Proj::Int4(Arc::new(FakeInt4 { name: "000.v_proj".into(), w: w.clone() }));
+
+    // A second activation, and a `Rotated` built from it. `Proj::Dense` and
+    // `Proj::Int4` both hand back `key: None`, so `check_key` accepts this.
+    let other: Vec<f32> = (0..D_IN).map(|i| (i as f32) * -0.5 - 3.0).collect();
+    let other = Tensor::from_vec(other, (1, D_IN), &dev)?;
+    let r = p.prepare(&other)?;
+
+    let x = x1(&dev)?;
+    let got = p.forward_with(&r, &x)?;
+    let want_x = x.matmul(&w.t()?)?;
+    let want_other = other.matmul(&w.t()?)?;
+    assert!(close(&got, &want_x)? < 1e-6, "it read the caller's x");
+    assert!(close(&got, &want_other)? > 1e-3, "and not the tensor the Rotated carried");
+    Ok(())
+}
+
+/// `SegPlan::run` over several rows: the cat, the narrow and the reshape.
+///
+/// The single-row group test exercises the case the code's own comment calls
+/// trivially contiguous. This one is the case that is not.
+#[test]
+fn a_group_over_several_rows_narrows_each_part_correctly() -> Result<()> {
+    let dev = Device::Cpu;
+    let widths = [4usize, 2, 2];
+    let rows = 3usize;
+    let (g, parts) = group(&dev, &widths)?;
+    let refs: Vec<&Proj> = parts.iter().collect();
+    let v: Vec<f32> = (0..rows * D_IN).map(|i| (i as f32 * 0.13).sin()).collect();
+    let xs = Tensor::from_vec(v, (rows, D_IN), &dev)?;
+
+    let out = group_forward(&refs, &xs, RotShare::On)?;
+    let whole = g.matvec(&g.prepare(&xs.narrow(0, 0, 1)?)?, &[1, D_IN])?;
+
+    let mut row0 = 0;
+    for (i, &d) in widths.iter().enumerate() {
+        assert_eq!(out[i].dims(), &[rows, d], "part {i} keeps its width over {rows} rows");
+        // Row 0 of each part must match the group's own row 0, narrowed.
+        let got0 = out[i].narrow(0, 0, 1)?;
+        let want0 = whole.narrow(1, row0, d)?;
+        assert!(close(&got0, &want0)? < 1e-6, "part {i}, row 0, rows {row0}..{}", row0 + d);
+        row0 += d;
+    }
     Ok(())
 }

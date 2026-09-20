@@ -563,11 +563,13 @@ fn main() -> anyhow::Result<()> {
                 cfg.kv,
                 Some("LLVQ_CONFIG"),
             )
+            // The context, not a remedy. The old `cfg(not(cuda))` arm could
+            // advise unsetting the variable because it knew the cause; this
+            // wrapper sees every failure the loader can return and must not
+            // prescribe one fix for all of them.
             .map_err(|e| {
                 anyhow::anyhow!(
-                    "LLVQ_CONFIG={} asks for the served kernel: {e}. Unset it to score \
-                     the dense reconstruction instead — and say which one produced the \
-                     number.",
+                    "LLVQ_CONFIG={} asks for the served kernel, and loading it failed: {e}",
                     cfg.path.display()
                 )
             })?;

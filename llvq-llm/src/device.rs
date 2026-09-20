@@ -32,7 +32,14 @@ use candle_core::{Result, Tensor};
 /// the driver into a CPU-only build. Ten lines here cost less than that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Prefill {
-    /// Rows a single launch takes. `1` means there is no prefill kernel.
+    /// Rows a single launch of the prefill kernel takes.
+    ///
+    /// NOT a statement about whether such a kernel exists: the resolver
+    /// answers 4 for every layout, while only some layouts carry the kernel.
+    /// Ask [`LatticeProj::rows_per_launch`] for that, which is per projection
+    /// and is the number the chunking reads. This field is what a binary
+    /// PRINTS, and printing 4 where the unit was compiled at 8 describes a run
+    /// that did not happen.
     pub rows: usize,
     /// Activation blocks one CTA stages, the `TILE_BLOCKS` the unit compiled at.
     pub tile: usize,
@@ -87,8 +94,11 @@ pub trait LatticeProj: Send + Sync {
     /// four.
     fn matvec_rows(&self, _xr: &Tensor, n_rows: usize) -> Result<Tensor> {
         candle_core::bail!(
-            "{}: {n_rows} rows asked of a projection that takes one a launch",
-            self.name()
+            "{}: {n_rows} rows asked of a projection that declared \
+             rows_per_launch = {} and implements no rows kernel. An adapter \
+             that raises that number owes this method too",
+            self.name(),
+            self.rows_per_launch()
         )
     }
 }
@@ -138,8 +148,14 @@ pub trait SegGroup: Send + Sync {
 
 /// The embedding table, and the `lm_head` that may be the same buffer.
 ///
-/// One trait for both ends because a tied model holds two clones of one
-/// `Arc`. `Arc::ptr_eq` on the two is then the tie itself.
+/// One trait for both ends because a tied model reads one table twice.
+///
+/// ⚠️ The tie is NOT observable from here. A backend wraps each end in its own
+/// handle, so `Arc::ptr_eq` on an `Embed::Q8` and a `Head::Q8` is false
+/// whether the model is tied or not. The check that matters lives at the
+/// loader, on the buffers themselves: `fused_cuda::load_resolved` compares the
+/// two uploaded tables against `config.tie_word_embeddings` and refuses a
+/// mismatch. A Metal loader owes the same check.
 pub trait QuantEmbedTable: Send + Sync {
     /// Token ids `(.., l)` to hidden states `(.., l, d)`.
     fn gather(&self, ids: &Tensor) -> Result<Tensor>;

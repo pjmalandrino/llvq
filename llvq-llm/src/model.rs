@@ -1139,10 +1139,10 @@ impl<'a> SegPlan<'a> {
 /// The token embedding: a dense f16 table, or the int8 g64 payload the fused
 /// runtime keeps on the device (`LLVQ_EMBED=q8`).
 ///
-/// Same design as [`Proj`]: an enum, not a trait object, and the quantized
-/// arm exists only on a CUDA build — the gather kernel lives beside the fused
-/// matvec and compiles nowhere else. The dense arm is byte-for-byte the code
-/// that produced every published number.
+/// Same design as [`Proj`]: an enum whose device arm is a trait object, so it
+/// compiles and runs on every target and a CPU fake drives it under
+/// `cargo test`. The dense arm is byte-for-byte the code that produced every
+/// published number.
 pub enum Embed {
     Dense(Embedding),
     Q8(std::sync::Arc<dyn crate::device::QuantEmbedTable>),
