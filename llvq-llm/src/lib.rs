@@ -20,6 +20,8 @@ pub mod eval;
 pub mod fused;
 #[cfg(all(target_os = "linux", feature = "cuda"))]
 pub mod fused_cuda;
+#[cfg(all(target_os = "macos", feature = "metal"))]
+pub mod fused_metal;
 pub mod kvq;
 pub mod loader;
 pub mod model;
