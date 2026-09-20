@@ -990,7 +990,7 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
         rows,
         batch,
         // A projection with no rotation key takes no share of the group's:
-        // `Proj::Dense` and `Proj::FusedInt4` both consume the activation in
+        // `Proj::Dense` and `Proj::Int4` both consume the activation in
         // the basis it arrives in.
         |p: &&Proj| p.rot_key().is_some(),
         |p: &&Proj, row0: usize, len: usize| p.prepare_rows(&flat.narrow(0, row0, len)?),

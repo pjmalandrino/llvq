@@ -2293,6 +2293,62 @@ pub fn load_with(path: &str, layout: FusedLayout, fuse: FuseMode) -> Result<Fuse
     })
 }
 
+// ---------------------------------------------------------------------------
+// What a backend's loader hands back.
+//
+// It lived in `fused_cuda.rs` until the device port, where it was reachable
+// only on a CUDA build. A second loader then had no return type, so "Metal
+// writes one new file" was false. Every field but one was already portable.
+// ---------------------------------------------------------------------------
+
+/// A model rebuilt from a sealed artifact **with its projections still
+/// encoded**, plus what it took to do so.
+pub struct FusedSealed {
+    pub model: crate::model::Qwen3,
+    pub tokenizer: tokenizers::Tokenizer,
+    pub config: candle_transformers::models::qwen3::Config,
+    /// The runtime layout the projections were transcoded to.
+    pub layout: FusedLayout,
+    /// The `(rows, tile)` the PREFILL kernel was compiled at. Carried out of
+    /// the runtime because a binary that prints "ceil(N/4) launches" while its
+    /// unit was compiled at eight is describing a run that did not happen.
+    ///
+    /// [`crate::device::Prefill`] and not `llvq_cuda::tile::Prefill`, which
+    /// holds the same three fields. `llvq-cuda` is target-gated on Linux and
+    /// pulls `cudarc` there, so naming it from this module would drag the
+    /// driver into a CPU-only build. The adapter converts at its boundary.
+    pub prefill: crate::device::Prefill,
+    /// How the embedding and tied `lm_head` sit on the device.
+    pub embed_mode: EmbedMode,
+    /// Whether a shared activation is rotated once per group (`LLVQ_ROT_SHARE`).
+    pub rot_share: crate::rotplan::RotShare,
+    /// `rot_apply` launches one decode token costs. Printed on both arms: a
+    /// gate showing identical tokens at 252 launches each proves nothing.
+    pub rot_launches: usize,
+    /// Whether the projections that share an activation were row-concatenated
+    /// into one launch (`LLVQ_FUSE`).
+    pub fuse: FuseMode,
+    /// Matvec launches one decode token costs — 252 unfused on the published
+    /// 4B, 144 fused. Printed on the arm line for the same reason
+    /// [`Self::rot_launches`] is: a gate showing identical tokens while both
+    /// arms issued 252 matvecs proves the tokens and nothing about the lot.
+    pub matvec_launches: usize,
+    pub quantized_weights: usize,
+    pub carried_weights: usize,
+    /// Size of the file on disk.
+    pub file_bytes: u64,
+    /// Bytes the projections occupy on the device — the number that decides
+    /// whether a model fits, and the one a disk figure must never stand in for.
+    pub runtime_bytes: u64,
+    /// Bytes the carried tensors occupy on the device: `2 · carried_weights`
+    /// under `LLVQ_EMBED=f16`, the int8 payload of **every** embedding table
+    /// plus the f16 norms under `q8` — one table when the model ties its two
+    /// ends, two when it unties them. `carried_weights · 2` must no longer
+    /// stand in for this: that identity is exactly what q8 breaks, by −365 MB
+    /// on the tied 4B and −1.17 GB on the untied 8B.
+    pub carried_bytes: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
