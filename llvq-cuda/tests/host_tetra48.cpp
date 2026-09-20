@@ -45,9 +45,21 @@
 // and LLVQ_DIM, the base decoder header gives `F1rTables` and
 // `F1R_N0_MIXED`, the v3 variant next, the served header last.
 #include "../kernels/llvq_slot.cuh"
+// matvec.cu next, for TILE_BLOCKS and warp_sum, which the segmented kernel
+// below needs and which the bench also concatenates before the arms.
+#define TILE_BLOCKS 128u
+#include "../kernels/matvec.cu"
 #include "../kernels/llvq_f1rank.cuh"
 #include "../kernels/llvq_f1rank_v3.cuh"
 #include "../kernels/llvq_tetra48.cuh"
+
+// Including the segmented kernel compiles `tv_tetra48_seg`, so a syntax or
+// type error in it costs two seconds here instead of a billed job. Read that
+// literally: nothing in this file establishes that the KERNEL is correct. It
+// has a barrier and a warp shuffle, and this driver is single-threaded, so it
+// reproduces neither. Its arithmetic is proved on the card by the bench's
+// bit-exact comparison against `tv_f1r_v3g`, and nowhere else.
+#include "../kernels/tetra48_seg.cu"
 
 #include <cstdio>
 #include <cstdlib>
@@ -59,6 +71,12 @@
 Dim3 blockIdx{0, 0, 0};
 Dim3 threadIdx{0, 0, 0};
 Dim3 blockDim{1, 1, 1};
+
+// `extern __shared__ float xs[]` is the card's dynamic allocation; the shim
+// turns `__shared__` into nothing, so the host needs one real definition. Same
+// line, same reason, as `host_planes.cpp`. Nothing below reads it: it exists so
+// the kernels link, which is what makes the syntax check a link check too.
+float xs[TILE_BLOCKS * LLVQ_DIM];
 
 template <typename T>
 static std::vector<T> read_n(std::FILE* f, std::size_t n, const char* what) {
