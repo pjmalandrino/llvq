@@ -24,16 +24,23 @@
 //!
 //! ## What this module ships, and what it deliberately does not
 //!
-//! It ships the **mechanism** — one parser, one table, one resolved value with
-//! its provenance. It does **not** ship the policy: with `LLVQ_TILE_BLOCKS`
-//! unset the answer is [`crate::TILE_BLOCKS`] = 128, the value every published
-//! number was measured at. The two rows of [`TILE_BY_SM`] were measured on
-//! `bin/f1rankfloor`, a *synthetic* bench with its own shapes, not on the
-//! served kernel with the real model's `nblocks` per projection. Promoting a
-//! synthetic optimum to a served default without measuring it on the served
-//! path is the class of error this repository keeps catching. F1d measures all
-//! three columns on the real path; the operator flips the default afterwards,
-//! by changing one arm of [`resolve_with`].
+//! It ships the mechanism AND, since 2026-09-20, the policy: with
+//! `LLVQ_TILE_BLOCKS` unset the answer is the measured row for the card, and
+//! [`crate::TILE_BLOCKS`] = 128 only where no row exists.
+//!
+//! That flip waited for a served-path measurement, because the rows of
+//! [`TILE_BY_SM`] started out on `bin/f1rankfloor`, a *synthetic* bench with
+//! its own shapes, and "promoting a synthetic optimum to a served default
+//! without measuring it on the served path" is the class of error this
+//! repository keeps catching. Both rows now cite a served-path journal:
+//! `f1d-2026-09-10` for sm_120, `tuile-l40s-2026-09-20` for sm_89.
+//!
+//! The sm_89 run is also what makes the mechanism a measurement rather than a
+//! story. Across 128, 64 and 32 the Tetra arm moved **19.1 %** while the
+//! Planes14 arm moved **1.5 %**: the tile is not changing occupancy globally,
+//! it is taking L1 from a decoder table that only Tetra has.
+//!
+//! **Every figure published before 2026-09-20 was measured at 128.**
 //!
 //! ## Why the provenance travels with the value
 //!
@@ -230,8 +237,8 @@ impl Prefill {
 /// footprint and the L1 policy of that specific architecture, and two measured
 /// points are not a law.
 pub const TILE_BY_SM: [(i32, usize, &str); 2] = [
-    (89, 64, "docs/mesures/tile-sweep-2026-09-09.txt"),
-    (120, 32, "docs/mesures/tile-sweep-2026-09-09.txt"),
+    (89, 64, "docs/mesures/tuile-l40s-2026-09-20.txt (served path)"),
+    (120, 32, "docs/mesures/f1d-2026-09-10.txt (served path)"),
 ];
 
 /// What `LLVQ_TILE_BLOCKS` asked for.
@@ -334,15 +341,28 @@ impl Tile {
 
     /// One line for the report header, naming the value and its provenance.
     pub fn provenance(&self) -> String {
+        // The ⚠️ marks a departure from the SERVED POLICY, and since
+        // 2026-09-20 that policy is the table. So a measured row is no longer
+        // a departure and no longer warns; only an explicit override is.
+        //
+        // Every arm still names the card where the value depends on it. A
+        // default that varies by architecture makes a figure irreproducible
+        // unless the architecture is on the same line.
         match self.source {
-            TileSource::Served => format!("tile {} (served constant)", self.blocks),
-            TileSource::Env => format!("tile {} (⚠️ LLVQ_TILE_BLOCKS overrides the served {TILE_BLOCKS})", self.blocks),
+            TileSource::Served => format!(
+                "tile {} (served constant, the policy before 2026-09-20)",
+                self.blocks
+            ),
+            TileSource::Env => format!(
+                "tile {} (⚠️ LLVQ_TILE_BLOCKS overrides the served policy)",
+                self.blocks
+            ),
             TileSource::Table(sm) => format!(
-                "tile {} (⚠️ measured optimum for sm_{sm}, not the served {TILE_BLOCKS})",
+                "tile {} (served: measured optimum for sm_{sm})",
                 self.blocks
             ),
             TileSource::AutoNoRow(sm) => format!(
-                "tile {} (⚠️ LLVQ_TILE_BLOCKS=auto, but sm_{sm} has no measured row: served constant)",
+                "tile {} (served fallback: sm_{sm} has no measured row)",
                 self.blocks
             ),
         }
@@ -400,9 +420,25 @@ pub fn sm_of(compute_cap: (i32, i32)) -> i32 {
 pub fn resolve_with(req: TileRequest, compute_cap: (i32, i32)) -> Tile {
     let sm = sm_of(compute_cap);
     match req {
-        TileRequest::Served => Tile {
-            blocks: TILE_BLOCKS,
-            source: TileSource::Served,
+        // **The line that flipped, 2026-09-20.** Until then this arm returned
+        // TILE_BLOCKS on every card, because the only per-card optima came
+        // from `f1rankfloor`, a synthetic bench. `tuile-l40s-2026-09-20`
+        // measured the three columns on the SERVED path on an L40S: Tetra
+        // 4.078 ms at 128 against 3.423 at 64, +16.1 %, while Planes14 moved
+        // 1.5 % across the same three tiles. The mechanism this module claims
+        // — the tile steals L1 from the decoder table — is what that contrast
+        // shows, so the table is now the default and not an opt-in.
+        //
+        // Every figure published BEFORE 2026-09-20 was measured at 128.
+        TileRequest::Served => match TILE_BY_SM.iter().find(|&&(s, _, _)| s == sm) {
+            Some(&(_, blocks, _)) => Tile {
+                blocks,
+                source: TileSource::Table(sm),
+            },
+            None => Tile {
+                blocks: TILE_BLOCKS,
+                source: TileSource::AutoNoRow(sm),
+            },
         },
         TileRequest::Fixed(n) => Tile {
             blocks: n,
@@ -601,17 +637,40 @@ mod tests {
         }
     }
 
-    /// The policy, stated as a test: an unset environment is the served
-    /// constant on **every** card, including the two that have a measured row.
-    /// This is what makes today's figures comparable to every published one.
+    /// The policy, stated as a test. It flipped on 2026-09-20: an unset
+    /// environment now reads the measured row for the card, and falls back to
+    /// the constant only where no row was measured on the served path.
     #[test]
-    fn unset_is_the_served_constant_on_every_card() {
+    fn unset_reads_the_measured_row_and_falls_back_where_none_exists() {
+        let l40s = resolve_with(TileRequest::Served, L40S);
+        assert_eq!(l40s.blocks, 64, "sm_89 was measured at 64 on the served path");
+        assert_eq!(l40s.source, TileSource::Table(89));
+
+        let bw = resolve_with(TileRequest::Served, BLACKWELL);
+        assert_eq!(bw.blocks, 32);
+        assert_eq!(bw.source, TileSource::Table(120));
+
+        // sm_80 has no row. It gets the constant and says so, rather than
+        // being interpolated to 48.
+        let a100 = resolve_with(TileRequest::Served, A100);
+        assert_eq!(a100.blocks, TILE_BLOCKS);
+        assert_eq!(a100.source, TileSource::AutoNoRow(80));
+
+        assert_eq!(TILE_BLOCKS, 128, "the fallback constant moved without this test moving");
+    }
+
+    /// Unset and `auto` now resolve identically. `auto` survives as an explicit
+    /// opt-in, and the day a card is served at something other than its
+    /// measured row this test is what breaks.
+    #[test]
+    fn unset_and_auto_agree_on_every_card() {
         for cap in [L40S, BLACKWELL, A100] {
-            let t = resolve_with(TileRequest::Served, cap);
-            assert_eq!(t.blocks, TILE_BLOCKS);
-            assert_eq!(t.source, TileSource::Served);
+            assert_eq!(
+                resolve_with(TileRequest::Served, cap),
+                resolve_with(TileRequest::Auto, cap),
+                "the two requests diverged"
+            );
         }
-        assert_eq!(TILE_BLOCKS, 128, "the served constant moved without this test moving");
     }
 
     #[test]
@@ -736,17 +795,28 @@ mod tests {
     }
 
     /// Provenance is never empty and never silent about a departure from the
-    /// served constant: a figure measured at another tile must say so on the
-    /// same line, or it is not reconstructible.
+    /// served POLICY. Since 2026-09-20 that policy is the table, so a measured
+    /// row no longer warns and an explicit override still does.
     #[test]
-    fn a_tile_that_is_not_the_served_one_says_so() {
-        assert!(!resolve_with(TileRequest::Served, L40S).provenance().contains('⚠'));
+    fn only_an_explicit_override_warns() {
         for t in [
+            resolve_with(TileRequest::Served, L40S),
+            resolve_with(TileRequest::Served, A100),
             resolve_with(TileRequest::Auto, L40S),
             resolve_with(TileRequest::Auto, A100),
-            resolve_with(TileRequest::Fixed(32), L40S),
         ] {
-            assert!(t.provenance().contains('⚠'), "{}", t.provenance());
+            assert!(!t.provenance().contains('⚠'), "{}", t.provenance());
         }
+        let forced = resolve_with(TileRequest::Fixed(32), L40S);
+        assert!(forced.provenance().contains('⚠'), "{}", forced.provenance());
+    }
+
+    /// The card is on the line wherever the value depends on it. A default
+    /// that varies by architecture is irreproducible without it.
+    #[test]
+    fn a_card_dependent_tile_names_its_card() {
+        assert!(resolve_with(TileRequest::Served, L40S).provenance().contains("sm_89"));
+        assert!(resolve_with(TileRequest::Served, BLACKWELL).provenance().contains("sm_120"));
+        assert!(resolve_with(TileRequest::Served, A100).provenance().contains("sm_80"));
     }
 }
