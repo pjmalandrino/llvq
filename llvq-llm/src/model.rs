@@ -1837,6 +1837,20 @@ impl Qwen3 {
     /// [`Self::generate_uncached`] keeps the old quadratic path as a witness.
     /// The two must return the same tokens; `bin/run` checks it under
     /// `LLVQ_VERIFY_CACHE=1`.
+    /// The logits of the LAST position of `h`, in f32.
+    ///
+    /// `generate` does this inline, in three lines it owns. A caller driving
+    /// its own decode loop — `bin/chat`, which needs to sample, stop on a
+    /// token and stream — needs the same three and has no access to `head`.
+    ///
+    /// Exposing the OPERATION rather than the field: `Head` stays private, and
+    /// the day it changes shape this signature does not.
+    pub fn logits_last(&self, h: &Tensor) -> Result<Tensor> {
+        let l = h.dim(1)?;
+        let last = h.narrow(1, l - 1, 1)?;
+        self.head.project(&last)?.to_dtype(DType::F32)
+    }
+
     pub fn generate(
         &self,
         tokens: &[u32],
