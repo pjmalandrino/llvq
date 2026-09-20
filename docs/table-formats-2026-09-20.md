@@ -7,14 +7,17 @@ are not measured and are listed with their cost in section 4.
 
 | | cold storage | VRAM read a pass | kernel median | ppl | MMLU |
 |---|---|---|---|---|---|
-| **f16** | 8.04 GB · 16.000 | 7.27 GB · 16.000 b/w | 10.994 ms · 661 GB/s | **12.2361** | **70.14** |
-| **AWQ w4 g128** | 2.67 GB · 5.302 | 1.90 GB · 4.179 b/w | 3.252 ms · 584 GB/s | **13.5207** | 70.04 ⚠ |
-| **QTIP 3INST** | TBD | 0.91 GB · 2.000 b/w | 2.246 ms · 405 GB/s | 17.04 📄 | 57.4 📄 |
+| **f16** | 8.04 GB · 16.000 | 7.27 GB · 16.000 b/w | 11.109 ms · 654 GB/s | **12.2361** | **70.14** |
+| **AWQ w4 g128** | 2.67 GB · 5.302 | 1.90 GB · 4.179 b/w | 3.249 ms · 585 GB/s | **13.5207** | 70.04 ⚠ |
+| **QTIP 3INST** | TBD | 0.91 GB · 2.000 b/w | 2.246 ms · 405 GB/s 🕐 | 17.04 📄 | 57.4 📄 |
 | **IQ2_XXS** | 1.26 GB · 2.4967 | TBD | TBD | TBD | 38.87 ⚠ |
-| **Tetra, fine-tuned** | **1.79 GB · 2.7475** | 0.98 GB · 2.150 b/w | **TBD** | **12.3268** | **61.11** |
+| **Tetra, fine-tuned** | **1.79 GB · 2.7475** | **0.95 GB · 2.148 b/w** | **4.107 ms · 232 GB/s** | **12.3268** | **61.11** |
 
 ⚠ MMLU on the 2,280-question plan, not the 14,042 census. 📄 the paper's number, read in the
-paper's harness, not ours.
+paper's harness, not ours. 🕐 measured 2026-08-21 in ANOTHER process; every other kernel cell
+comes from the 2026-09-20 run, and `docs/data/README.md` forbids putting rounds from two
+processes side by side. The common baseline does reproduce: Planes14 read 5.133 ms in August
+and 5.135 in September, 0.04 % apart.
 
 ## 2. What each column means, and the traps in it
 
@@ -44,7 +47,7 @@ a gap of +1.15 pp. Cells on different plans must not be subtracted.
 
 | cell | journal |
 |---|---|
-| ten-arm bench, all `ms`/`GB`/`GB/s` | `docs/data/echelle-formats.csv`, from f2-p3-qtip-banc-2026-08-21 |
+| ten-arm bench, all `ms`/`GB`/`GB/s` | `docs/data/echelle-formats.csv`, rewritten from banc-tetra-2026-09-20; the QTIP row alone is from f2-p3-qtip-banc-2026-08-21 |
 | f16 ppl 12.2361 · Planes14 16.9415 | `docs/fiche-4b.md` section 5 |
 | AWQ ppl 13.5207, x1.105 | same |
 | AWQ cold storage 2.67 GB, 5.302 | `rtbits-planes-8b-2026-08-09` |
@@ -58,11 +61,25 @@ a gap of +1.15 pp. Cells on different plans must not be subtracted.
 
 | # | cell | cost | why it matters |
 |---|---|---|---|
-| 1 | **Tetra kernel median** | ~$0.30 | the headline row's headline cell. Running 2026-09-20, prereg `95fb0166` |
+| ~~1~~ | ~~Tetra kernel median~~ | ~~done~~ | **4.107 ms, 0.95 GB, 232 GB/s** ([banc-tetra](mesures/banc-tetra-2026-09-20.txt)) |
 | 2 | QTIP in the SAME process as Tetra | ~$0.30 plus a flag | `arms.rs` has `HAS_KERNEL[qtip] = false` and refuses the name. Without this the QTIP row comes from another process, which `docs/data/README.md` forbids |
 | 3 | IQ2_XXS ppl, VRAM, kernel median | ~$0.72 | three empty cells on the most widely deployed 2-bit format |
 | 4 | QTIP cold storage | $0 to compute if a file exists | no QTIP Qwen3-4B is published; the paper's authors quantized it themselves |
 | 5 | AWQ and IQ2 MMLU on the census | $0.72 each | to remove the two-plan footnote |
+
+## 4 bis. The column that is NOT tokens a second
+
+`med_ms` times 252 projection matvecs for one token. It is not a token: 48 % of a
+token is outside the matmuls. Dividing 1000 by it gives 243.5 for Tetra, and the
+measured end-to-end figure is **101.5 tok/s** (F1e section 0, in the model, L40S,
+1.39 GB). The bench's 1.25x against Planes14 becomes **1.15x** end to end,
+88.5 to 101.5 tok/s.
+
+No end-to-end figure exists for QTIP. None has ever run in a model here.
+
+And the floor: `nullk` reads no weight and takes 2.340 ms. QTIP's 2.246 ms sits
+**below it**, which the August journal flags with a permanent reservation. A
+speed verdict cannot rest on it unexplained.
 
 ## 5. The one thing the table does not say
 

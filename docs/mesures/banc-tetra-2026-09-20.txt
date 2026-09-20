@@ -1,0 +1,97 @@
+TETRA IN THE BENCH: 4.107 MS, 0.95 GB, AND THE DECODE BECOMES THE BOTTLENECK (2026-09-20)
+================================================================================
+Job       : 6aaf7c1052d0dbd7f1d72c3e, l40sx1, 27 min billed, about $0.81.
+            A first launch, 6aaf7b6852d0dbd7f1d72c28, was refused at arm
+            selection for about $0.10 and produced no number (E1).
+Prereg    : proofs/preregistration-banc-tetra-2026-09-20.md, stamped
+            sha256 95fb0166d0736b1b9d284185..., before the first launch.
+            Deviations E1 to E3 in the -ECARTS.md beside it.
+Data      : docs/mesures/banc-tetra-2026-09-20-brut/banc.txt (190 lines)
+Table     : docs/data/echelle-formats.csv, rewritten from this run
+Subjects  : ball arms   /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin, 1,770,527,533 B
+            tetra48     /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin, sha256 f8c1c903...
+Nature    : *measured*
+
+THE RESULT
+-----------
+One token, 252 matrices, one stream, ten arms interleaved, 7 rounds with 2
+discarded, ratios formed round by round. Tile 128, the served constant.
+
+  format              min ms   med ms   max ms  GB read  b/weight  GB/s(min)
+  floor (nullk)        2.332    2.340    2.343     0.07     0.159      31
+  FP16                11.106   11.109   11.111     7.27    16.000     654
+  FP16 cuBLAS         10.811   10.816   10.826     7.27    16.000     672
+  Slot32               5.851    5.866    5.871     2.50     5.510     428
+  Planes14             5.129    5.135    5.141     2.18     4.804     425
+  **Tetra48**          4.105  **4.107**  4.124   **0.95**   2.148   **232**
+  Planes12x            5.530    5.543    5.554     1.97     4.342     357
+  Golay70 v1           8.225    8.245    8.247     1.63     3.589     198
+  Golay70 v2           6.232    6.240    6.264     1.63     3.589     262
+  AWQ w4g128           3.246    3.249    3.257     1.90     4.179     585
+
+  tetra48 vs planes14                     **1.25x** [1.25-1.25]
+  tetra48 vs planes14, with the f16 head    1.19x [1.19-1.19]
+  tetra48 vs planes14, floor removed        1.58x [1.57-1.58]
+  tetra48 vs FP16                           2.70x [2.69-2.71]
+
+Correctness in the same process: worst error **2.1e-8** against a 1e-5
+threshold, over 1,105,920 rows. 216 of 252 matrices matched by name, the other
+36 being the int4 `v_proj` records.
+
+THE PREDICTION, ARBITRATED
+---------------------------
+  median ms         predicted 4.36 [3.9, 4.9]     measured 4.107   INSIDE
+  ratio vs FP16     predicted 2.52 [2.24, 2.82]   measured 2.70    INSIDE
+  ratio vs Planes14 predicted 1.17 [1.04, 1.31]   measured 1.25    INSIDE
+  GB read a pass    predicted 0.98 [0.96, 1.00]   measured 0.95    **OUTSIDE**
+
+Three of four. The prereg said a departure on GB read "would be a defect in one
+of them", meaning `rtbits`'s stream accounting or the bench's counter. It is
+3 % and it is not resolved here. `rtbits` reads 1.9908 b/weight of stream over
+3,633,315,840 weights; the bench bills 0.95 GB at 2.148 b/weight and states that
+it does NOT bill tetra48's 4.1 MB row landing pad, following the convention the
+slot arm's 20-byte pad and the planes arm's 4-byte pad already set. That pad is
+0.4 % of the stream and does not close a 3 % gap.
+
+THE FINDING BESIDE THE HEADLINE
+--------------------------------
+Read the GB/s column. Tetra sustains **232 GB/s** where Planes14 sustains 425
+and AWQ 585, on the same card in the same process.
+
+So Tetra reads 2.3 times fewer bytes than Planes14 and is only 1.25 times
+faster: it is no longer traffic-bound. Against the FP16 arm's 654 GB/s it turns
+**35 %** of its byte bound into time, where Planes14 turns 65 % and AWQ 89 %.
+
+That is the decode, and it is the same mechanism `tile-sweep-2026-09-09`
+measured from the other side: the Tetra word costs three 11-bit table reads, the
+tables have to stay resident, and TILE_BLOCKS 128 -> 32 returned 42 % on
+Blackwell by leaving them their L1. This run used the served 128 and did not
+sweep. Whether 128 is also wrong on sm_89 is now the obvious question, and it is
+cheap.
+
+AGAINST QTIP, WITH ITS RESERVATION
+-----------------------------------
+QTIP is NOT in this run: `arms.rs` carries HAS_KERNEL[qtip] = false and refuses
+the name. Its row in `echelle-formats.csv` is the 2026-08-21 measurement, a
+different process, which `docs/data/README.md` forbids putting beside others.
+The prereg states that before the fact.
+
+The common baseline reproduces: Planes14 read 5.133 ms in August and 5.135 here,
+0.04 % apart. On that basis QTIP's 2.246 ms is **1.83x** Tetra's 4.107.
+
+**And the August journal's own reservation stands**: t(QTIP) 2.246 ms is BELOW
+the bench's floor, t(nullk) 2.340 ms here and 2.306 then. A kernel that reads
+weights cannot beat one that reads none. Until that is explained, 1.83x is not a
+number to publish as a speed verdict.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- **Nothing in tokens a second.** This times 252 projection matvecs, not a
+  token. The repository has measured that 48 % of a token is outside the
+  matmuls, and the end-to-end figures show it: Planes14 88.5 tok/s against
+  Tetra 101.5, a ratio of 1.15 where this bench reads 1.25.
+- Nothing about quality. The ball arms read the August object and tetra48 reads
+  the September fine-tuned one, two different models (E2). For a kernel bench
+  that is the intended setup; no quality claim is taken from it.
+- Nothing about other cards. One L40S, the served tile.
+- The 3 % on GB read is open.
