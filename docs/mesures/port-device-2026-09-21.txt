@@ -1,0 +1,86 @@
+THE DEVICE PORT COSTS NOTHING ON A CARD, AND BOTH MY INTERVALS WERE WRONG (2026-09-21)
+================================================================================
+Job     : 6ab087f252d0dbd7f1d769f7, l40sx1, about $0.12 (233 s of card).
+Prereg  : proofs/preregistration-port-device-2026-09-21.md, stamped
+          sha256 9d4d6b99401c5183..., before the first launch.
+Deviations: proofs/preregistration-port-device-2026-09-21-ECARTS.md
+Data    : /out/port-device-2026-09-21/arm-a-tile128.txt, arm-b-default.txt
+Subject : /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin, the 61.11 MMLU object.
+Flags   : LLVQ_FUSED_LAYOUT=tetra48 EMBED=q8 ROT_SHARE=1 FUSE=0 KV=f16.
+Nature  : *measured*
+
+THE RESULT
+-----------
+  arm                    tile     tok/s          range        GB    tokens
+  reference 2026-09-20    128      98.3     [97.5-98.6]      1.39    32 ok
+  A, this run             128    **99.3**   [96.6-99.8]      1.39    32 ok
+  B, this run              64   **105.8**  [104.5-106.5]     1.39    32 ok
+
+`oracle` MATCH before either arm, per hard rule 10.
+
+THE PORT IS FREE, AND THE CONTROL IS EXACT
+-------------------------------------------
+Arm A's NVRTC source hashes **b848b0c2ca1f97e3...**, which is the sha256 the
+reference journal records. Byte for byte the same kernel source, the same
+file, the same flags, the same tile. The only thing that changed between the
+two is the dispatch: 40 `cfg` sites and two concrete CUDA types became one
+`Arc<dyn LatticeProj>`.
+
+99.3 against 98.3, ranges [96.6-99.8] against [97.5-98.6], overlapping over
+most of their width. There is no cost to find. The dynamic dispatch was
+*computed* at 0.010 % to 0.025 % of a decode step and is, as far as this bench
+can see, not there.
+
+**32 tokens identical to the dense arm on both arms**, which is the gate that
+mattered. A dispatch refactor that moved one token would be reverted whatever
+it measured.
+
+BOTH SIGNED PREDICTIONS WERE WRONG, IN OPPOSITE DIRECTIONS
+-----------------------------------------------------------
+  arm A    predicted [97.0, 98.8]    measured **99.3**    OUTSIDE, above
+  arm B    predicted [110, 120]      measured **105.8**   OUTSIDE, below
+  VRAM     predicted 1.39 GB         measured 1.39 GB     correct
+
+Arm A. The interval was built from the reference's median and allowed only
+downward movement plus its own noise. It ignored that these are two separate
+jobs, possibly on two physical cards: arm A's own range is [96.6-99.8], 3.2 %
+wide, against the reference's 1.1 %. Between-job spread is three times
+within-job spread, and the interval was narrower than the wrong one of the
+two.
+
+Arm B is the interesting error, and it is a units error of a family this
+repository has caught before.
+
+`tuile-l40s-2026-09-20` measures the tile at **+16.1 %** on the projection
+bench: 4.078 ms to 3.423 ms. I carried the PERCENTAGE across to a different
+total and damped it by hand. The percentage does not carry. What carries is
+the **absolute** saving, 0.655 ms a token, because the tile changes the matvec
+and nothing else:
+
+  arm A step   1 / 99.3   = 10.07 ms
+  minus                     0.655 ms   (the tile's measured saving)
+  arm B step              =  9.42 ms  ->  106.2 tok/s
+  measured                                **105.8**
+
+0.4 % out. The arithmetic I should have done was available before the run, in
+a journal written the day before. Taking a ratio measured on one total and
+re-applying it to another is the same shape as reading b/param where a
+document means b/weight, which cost this repository two arms in September.
+
+WHAT THIS SETTLES
+------------------
+- The device port is free at the throughput the bench can see, and it is now
+  the served dispatch on both backends.
+- The served number for the fine-tuned object moves from 98.3 to **105.8
+  tok/s in 1.39 GB**, x2.44 against its own dense arm in the same process.
+  That gain is the TILE, measured on 2026-09-20, not the port.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing at 256 tokens. The prereg named 256 and the run did 32, which is
+  `fusedrun`'s default and which the job script failed to override. That is
+  written in the deviations file and the claim stands at 32.
+- Nothing about Metal, which has no loader and runs no model.
+- Nothing about quality. No MMLU here.
+- Nothing about the segmented kernel, still failing its bit-exact comparison
+  and still off.
