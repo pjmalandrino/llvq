@@ -1851,16 +1851,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "candle-core",
+ "candle-metal-kernels",
  "candle-nn",
  "candle-transformers",
  "flate2",
  "half",
  "hf-hub",
  "llvq-artifact",
+ "llvq-bench",
  "llvq-core",
  "llvq-cuda",
  "llvq-quant",
  "llvq-search",
+ "objc2-metal",
  "parquet",
  "serde",
  "serde_json",
@@ -1872,6 +1875,7 @@ name = "llvq-metal"
 version = "0.1.0"
 dependencies = [
  "llvq-artifact",
+ "llvq-bench",
  "llvq-core",
  "llvq-search",
  "metal",

@@ -546,9 +546,11 @@ fn main() -> anyhow::Result<()> {
             restore.describe()
         );
         println!("{}", cfg.provenance());
-        #[cfg(all(target_os = "linux", feature = "cuda"))]
+        // No `cfg` here any more. `served::load_resolved` picks the backend
+        // this build carries and refuses by name when it carries none, so the
+        // Mac compiles and RUNS this arm down to the refusal.
         {
-            let f = llvq_llm::fused_cuda::load_resolved(
+            let f = llvq_llm::served::load_resolved(
                 &model_arg,
                 &device,
                 dtype,
@@ -560,21 +562,22 @@ fn main() -> anyhow::Result<()> {
                 // choice and `LLVQ_KV` cannot move half of them.
                 cfg.kv,
                 Some("LLVQ_CONFIG"),
-            )?;
+            )
+            // The context, not a remedy. The old `cfg(not(cuda))` arm could
+            // advise unsetting the variable because it knew the cause; this
+            // wrapper sees every failure the loader can return and must not
+            // prescribe one fix for all of them.
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "LLVQ_CONFIG={} asks for the served kernel, and loading it failed: {e}",
+                    cfg.path.display()
+                )
+            })?;
             (
                 f.model,
                 f.tokenizer,
                 format!("{model_arg} [LLVQ 2-bit, SERVED KERNEL, {}]", cfg.layout.name()),
                 None,
-            )
-        }
-        #[cfg(not(all(target_os = "linux", feature = "cuda")))]
-        {
-            anyhow::bail!(
-                "LLVQ_CONFIG={} asks for the served kernel, which needs Linux, an \
-                 NVIDIA card and --features cuda. Unset it to score the dense \
-                 reconstruction instead — and say which one produced the number.",
-                cfg.path.display()
             )
         }
     } else if llvq_llm::sealed::is_sealed_path(&model_arg) {

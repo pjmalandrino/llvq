@@ -47,10 +47,49 @@ mod gpu {
 
     impl Kernel {
         /// Compile `source` and take `name` out of it.
+        ///
+        /// Metal's fast math is left ON, which is its default and what every
+        /// benchmark in this crate was measured under. Use
+        /// [`Self::new_exact`] for anything that must reproduce bits.
         pub fn new(source: &str, name: &str) -> Result<Self, String> {
+            Self::compile(source, name, true)
+        }
+
+        /// [`Self::new`] with Metal's fast math turned OFF.
+        ///
+        /// ## Why this exists
+        ///
+        /// Metal enables fast math by default, which lets the compiler
+        /// reassociate and CONTRACT: `a * b + c` becomes an `fma`, which is a
+        /// different number because the product is not rounded first.
+        ///
+        /// That is harmless for a benchmark and was thought fatal for the
+        /// Tetra kernel. Measured on 2026-09-20: with fast math on and no
+        /// pragma, the matvec landed one to two ulp from the reference on
+        /// every row.
+        ///
+        /// ⚠️ It is NOT what fixed that, and an audit of 2026-09-21 corrected
+        /// this comment. `llvq_tetra48.metal` carries
+        /// `#pragma clang fp contract(off)`, and with that in the source the
+        /// answer is the same either way, measured. This switch is belt and
+        /// braces. It matters that the belt is the pragma, because the shipped
+        /// path compiles through candle with default options and never calls
+        /// this function.
+        ///
+        /// The CUDA side has no equivalent switch, and not because NVRTC
+        /// declines to contract: it compiles with `--fmad=true` and DOES
+        /// contract within a statement. The Metal shader now spells out `fma`
+        /// at the two sites where the CUDA one contracts, so the two agree.
+        pub fn new_exact(source: &str, name: &str) -> Result<Self, String> {
+            Self::compile(source, name, false)
+        }
+
+        fn compile(source: &str, name: &str, fast_math: bool) -> Result<Self, String> {
             let device = Device::system_default().ok_or("no Metal device")?;
+            let opts = CompileOptions::new();
+            opts.set_fast_math_enabled(fast_math);
             let library = device
-                .new_library_with_source(source, &CompileOptions::new())
+                .new_library_with_source(source, &opts)
                 .map_err(|e| format!("shader compilation failed: {e}"))?;
             let function = library
                 .get_function(name, None)
