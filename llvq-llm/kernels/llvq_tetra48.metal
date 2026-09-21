@@ -881,3 +881,104 @@ kernel void tv_tetra48_metal_lut(const device uint*   words          [[buffer(0)
 // for no arithmetic. This ends in `half(...)` instead and the adapter keeps
 // what it is handed.
 // ---------------------------------------------------------------------------
+
+// The same table in THREADGROUP memory. `constant` is optimised for uniform
+// access and this index varies per lane, so the space may be the wrong one.
+// 256 bytes, copied once a threadgroup.
+inline float tetra48_dot_lutg(uint lo,
+                             uint hi16,
+                              F1rTables t,
+                              const threadgroup float* vlut,
+                             const threadgroup float* xb,
+                             const device float* gscale,
+                             const device float* invnorm)
+{
+    F1rV3Block b = f1r_v3_fetch(lo, hi16, t);
+    uint cs[3] = { b.c1, b.c2, b.c3 };
+    uint rs[3] = { b.row1, b.row2, b.row3 };
+    float acc = 0.0f;
+    float n2 = 0.0f;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        uint c = cs[sec];
+        uint row = rs[sec];
+        for (uint j = 0u; j < 8u; ++j) {
+            uint o = b.p + 2u * ((c >> j) & 1u);
+            uint rho = (row >> (4u * j)) & 15u;
+            float v = vlut[(o << 4) | rho];
+            n2 = fma(v, v, n2);
+            acc = fma(v, xb[TETRA48_ORDER[sec * 8u + j]], acc);
+        }
+    }
+    // The squares are integers bounded by 24 * 32^2 = 24,576, so the f32 sum
+    // is exact and the truncation below is the integer one.
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+
+kernel void tv_tetra48_metal_lutg(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                 threadgroup float*   vlut           [[threadgroup(1)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    for (uint i = tid; i < 64u; i += tgs) vlut[i] = F1R_VAL[i];
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lutg(lo, hi16, tab, vlut, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tv_tetra48_metal_ar` storing f16, which is what the CUDA twin does.
+//
+// The model runs in f16. With an f32 store the adapter narrows afterwards,
+// one candle launch a projection: 290 of the path's 688 launches a token,
+// for no arithmetic. This ends in `half(...)` instead and the adapter keeps
+// what it is handed.
+// ---------------------------------------------------------------------------

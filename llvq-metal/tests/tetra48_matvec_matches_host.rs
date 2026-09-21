@@ -240,7 +240,7 @@ fn run_with(f: &Fixture, exact: bool) -> Vec<f32> {
 /// The same, naming the kernel, so the threadgroup-pinned variant is judged
 /// by this file's reference rather than by the kernel it is meant to replace.
 fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
-    let pinned = name.ends_with("_tg");
+    let pinned = name.ends_with("_tg") || name.ends_with("_lutg");
     let k = match exact {
         true => Kernel::new_exact(SOURCE, name),
         false => Kernel::new(SOURCE, name),
@@ -288,7 +288,10 @@ fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
         enc.set_bytes(12, 4, &nb as *const u32 as *const std::ffi::c_void);
         enc.set_bytes(13, 4, &tw as *const u32 as *const std::ffi::c_void);
         enc.set_threadgroup_memory_length(0, tg_bytes);
-        if pinned {
+        if name.ends_with("_lutg") {
+            // The 64 value floats, 256 B.
+            enc.set_threadgroup_memory_length(1, 256);
+        } else if pinned {
             // 4,096 u32 + 1,024 u16 + 128 + 128 = 18,688 B, which with the
             // tile's 6,144 fits Apple's 32,768.
             enc.set_threadgroup_memory_length(1, 4096 * 4);
@@ -392,7 +395,7 @@ fn the_same_source_gives_the_same_numbers_with_fast_math_either_way() {
 fn the_pinned_variant_matches_the_host_too() {
     for (d_out, nblocks, tail_w) in [(64usize, TILE, 8usize), (32, 3 * TILE + 17, 5), (16, TILE + 1, 0)] {
         let f = fixture(0x7E_48B0 + d_out as u64, d_out, nblocks, tail_w);
-        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut"] {
+        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut", "tv_tetra48_metal_lutg"] {
             let got = run_named(&f, true, name);
             let want = reference(&f);
             for (i, (g, w)) in got.iter().zip(&want).enumerate() {

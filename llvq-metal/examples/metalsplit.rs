@@ -80,7 +80,7 @@ fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
 /// The same, at a chosen tile. The tile is a host-injected `#define`, the
 /// shape the CUDA side uses through NVRTC.
 fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
-    let pinned = name.ends_with("_tg");
+    let pinned = name.ends_with("_tg") || name.ends_with("_lutg");
     let src = format!("#define LLVQ_TILE_BLOCKS {tile}u\n{TETRA_SRC}");
     let nblocks = d_in / DIM;
     let tail_w = d_in % DIM;
@@ -127,7 +127,9 @@ fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
             enc.set_bytes(12, 4, &nb as *const u32 as *const c_void);
             enc.set_bytes(13, 4, &tw as *const u32 as *const c_void);
             enc.set_threadgroup_memory_length(0, tg);
-            if pinned {
+            if name.ends_with("_lutg") {
+                enc.set_threadgroup_memory_length(1, 256);
+            } else if pinned {
                 enc.set_threadgroup_memory_length(1, 4096 * 4);
                 enc.set_threadgroup_memory_length(2, 1024 * 2);
                 enc.set_threadgroup_memory_length(3, 128);
@@ -140,7 +142,12 @@ fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
 }
 
 fn time_rotation(n: usize) -> f64 {
-    let k = Kernel::new_exact(ROT_SRC, "rot_apply_metal").expect("compiles");
+    time_rotation_named(n, "rot_apply_metal")
+}
+
+fn time_rotation_named(n: usize, name: &str) -> f64 {
+    let staged = name.contains("_tg_");
+    let k = Kernel::new_exact(ROT_SRC, name).expect("compiles");
     let b_xin = k.buffer(&vec![0x3c00u16; n]);
     let b_sign = k.buffer(&vec![0u32; n.div_ceil(32)]);
     let b_small = k.buffer(&[0.0f32]);
@@ -165,6 +172,9 @@ fn time_rotation(n: usize) -> f64 {
             enc.set_bytes(7, 4, &kk as *const u32 as *const c_void);
             enc.set_bytes(8, 4, &inv as *const f32 as *const c_void);
             enc.set_bytes(9, 4, &x_off as *const u32 as *const c_void);
+            if staged {
+                enc.set_threadgroup_memory_length(0, (n * 4) as u64);
+            }
         });
         t.push(r.seconds * 1e6 / K as f64);
     }
@@ -214,10 +224,10 @@ fn main() {
 
     // 36 layers. Per layer: q, k, o at hidden, gate and up at intermediate
     // output, down at intermediate input. v_proj is int4 and is not timed here.
+    let rot_total = 36.0 * (3.0 * rot_hidden + rot_inter) / 1000.0;
     let per_layer_mv = 3.0 * mv_hidden + 2.0 * mv_up + mv_down;
     let mv_total = 36.0 * per_layer_mv / 1000.0;
     // `rot_share=1`: four rotations a layer, one per activation site.
-    let rot_total = 36.0 * (3.0 * rot_hidden + rot_inter) / 1000.0;
     println!("projected, 36 layers:");
     println!("  {MATVEC_LAUNCHES} matvec launches   {mv_total:7.2} ms a token");
     println!("  {ROT_LAUNCHES} rotation launches {rot_total:7.2} ms a token");
@@ -230,12 +240,25 @@ fn main() {
     let lu_hidden = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_lut");
     let lu_up = time_matvec_named(INTERMEDIATE, HIDDEN, "tv_tetra48_metal_lut");
     let lu_down = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_lut");
+    // The rotation with the transform staged in threadgroup memory, which
+    // only n <= 8192 admits. Three of four rotations a layer are n = 2560.
+    let rtg = time_rotation_named(HIDDEN, "rot_apply_tg_metal");
+    println!("rotation n={HIDDEN} staged {rtg:8.1} us  {:+6.1} %", 100.0 * (rtg / rot_hidden - 1.0));
+    let rot_mixed = 36.0 * (3.0 * rtg + rot_inter) / 1000.0;
+    println!("  144 launches, 108 staged  {rot_mixed:7.2} ms a token, was {rot_total:.2}\n");
+
     println!("value looked up in 64 constant floats:");
     println!("  {HIDDEN}x{HIDDEN}   {lu_hidden:8.1} us  {:+6.1} % vs computed", 100.0 * (lu_hidden / ar_hidden - 1.0));
     println!("  {INTERMEDIATE}x{HIDDEN}   {lu_up:8.1} us  {:+6.1} %", 100.0 * (lu_up / ar_up - 1.0));
     println!("  {HIDDEN}x{INTERMEDIATE}   {lu_down:8.1} us  {:+6.1} %", 100.0 * (lu_down / ar_down - 1.0));
     let lu_total = 36.0 * (3.0 * lu_hidden + 2.0 * lu_up + lu_down) / 1000.0;
     println!("  252 launches          {lu_total:7.2} ms a token\n");
+
+    let lg = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_lutg");
+    let lg2 = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_lutg");
+    println!("the 64 floats in threadgroup memory instead of constant:");
+    println!("  {HIDDEN}x{HIDDEN}   {lg:8.1} us  {:+6.1} %", 100.0 * (lg / lu_hidden - 1.0));
+    println!("  {HIDDEN}x{INTERMEDIATE}   {lg2:8.1} us  {:+6.1} %\n", 100.0 * (lg2 / lu_down - 1.0));
 
     println!("tile sweep on the arithmetic kernel, {HIDDEN}x{HIDDEN} and {HIDDEN}x{INTERMEDIATE}:");
     for tile in [32usize, 64, 128, 256] {

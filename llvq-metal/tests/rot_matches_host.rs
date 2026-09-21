@@ -421,7 +421,14 @@ fn compile(name: &'static str, exact: bool) -> Rc<Kernel> {
 
 /// `rot_apply_metal` on one activation.
 fn run_metal(f: &Fixture, r: &Run) -> Vec<f32> {
-    let kern = compile("rot_apply_metal", r.exact);
+    run_metal_named(f, r, "rot_apply_metal")
+}
+
+/// The same, naming the kernel, so the threadgroup-staged variant is judged
+/// by the CUDA text like its device-memory twin.
+fn run_metal_named(f: &Fixture, r: &Run, name: &'static str) -> Vec<f32> {
+    let staged = name.contains("_tg_");
+    let kern = compile(name, r.exact);
 
     // One threadgroup, always. `Kernel::dispatch` clamps the group size to
     // what the pipeline accepts but leaves the total alone, so asking for more
@@ -463,6 +470,11 @@ fn run_metal(f: &Fixture, r: &Run) -> Vec<f32> {
         enc.set_bytes(7, 4, &k as *const u32 as *const c_void);
         enc.set_bytes(8, 4, &inv as *const f32 as *const c_void);
         enc.set_bytes(9, 4, &x_off as *const u32 as *const c_void);
+        if staged {
+            // The whole transform, in threadgroup memory. Admissible only
+            // while `n * 4` fits Apple's 32,768 B.
+            enc.set_threadgroup_memory_length(0, (f.n * 4) as u64);
+        }
     });
 
     unsafe { kern.read::<f32>(&b_out, f.n) }
@@ -778,4 +790,24 @@ fn the_shader_forbids_contraction() {
         SOURCE.contains("#pragma clang fp contract(off)"),
         "the shader must forbid `a * b + c` becoming an fma"
     );
+}
+
+/// The threadgroup-staged rotation computes what the device one does.
+///
+/// Same gate, same CUDA text. It exists to move eleven times less traffic and
+/// a faster rotation that moves a number is worth nothing.
+#[test]
+fn the_threadgroup_staged_rotation_matches_the_device_one() {
+    for n in [256usize, 1024, 4096, 8192] {
+        let f = fixture(n, 0x7E_4D00 + n as u64, 0.0);
+        // 8192 floats is 32,768 B, exactly Apple's limit, so this sweep
+        // reaches the boundary the host checks.
+        assert!(n * 4 <= 32_768, "the staged variant is admissible here");
+        let r = Run { nthreads: 1024, x_off: 3, exact: true, dummy_small: f.k == 1 };
+        let a = run_metal(&f, &r);
+        let b = run_metal_named(&f, &r, "rot_apply_tg_metal");
+        for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+            assert_eq!(x, y, "n={n}: coordinate {i}, device {x} against staged {y}");
+        }
+    }
 }

@@ -73,7 +73,7 @@ const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
 /// the register allocation of a kernel no correctness test can see move.
 fn source_of(name: &str) -> Result<&'static str> {
     match name {
-        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" => Ok(SRC_TETRA),
+        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" => Ok(SRC_TETRA),
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" => Ok(SRC_Q4),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
@@ -486,7 +486,10 @@ impl CustomOp1 for TetraMatvec<'_> {
         // `tv_tetra48_metal_ar` computes the value instead, which is what the
         // SCALAR CUDA decoder always did, and measures 25 to 34 percent faster.
         // `_lut` then replaces the ten-operation computation with ONE indexed
-        // load from 64 constant floats, and takes a further 9 to 16 percent.
+        // load from 64 constant floats, and takes a further 9 to 16 percent. `_lutg`
+        // moves those 64 floats from `constant` to `threadgroup`, worth 9 to
+        // 18 more: `constant` is optimised for UNIFORM access and this index
+        // varies per lane.
         // Cumulative against the faithful port: 19.85 ms a token to 12.66
         // (`llvq-metal/examples/metalsplit.rs`).
         //

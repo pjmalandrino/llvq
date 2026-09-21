@@ -348,3 +348,92 @@ kernel void rot_apply_rows_metal(const device ushort* xin        [[buffer(0)]],
         rot_mix(s, small, out, m, k, inv, tid, nthreads);
     }
 }
+
+
+// ---------------------------------------------------------------------------
+// The same rotation with the transform staged in THREADGROUP memory.
+//
+// ## What it buys, and where it stops
+//
+// `rot_apply_metal` keeps its working set in device memory because the
+// largest served width, n = 9728, needs 38,912 B against Apple's 32,768. So
+// every one of the log2(m) butterfly stages crosses global memory: for
+// n = 2560 that is 11 stages of 10 KB read and written, 220 KB, to transform
+// 10 KB of data.
+//
+// Staged in threadgroup memory it is 10 KB in and 10 KB out, once. Eleven
+// times less traffic.
+//
+// ⚠️ ADMISSIBLE ONLY FOR n <= 8192. The host checks it and falls back. Three
+// of the four rotations a layer are n = 2560 under `rot_share=1`, so 108 of
+// the served 144 launches a token take this path and 36 do not.
+//
+// The threadgroup barrier is `mem_threadgroup` here, not `mem_device`: what
+// is being ordered is threadgroup memory. One threadgroup owns the whole
+// transform, which is what makes a barrier sufficient at all.
+// ---------------------------------------------------------------------------
+
+inline void rot_mix_tg(const threadgroup float* s,
+                    const device float* small,
+                    device float* xout,
+                    uint m,
+                    uint k,
+                    float inv,
+                    uint tid,
+                    uint nthreads)
+{
+    for (uint j = tid; j < m; j += nthreads) {
+        float col[LLVQ_ROT_KMAX];
+#pragma clang loop unroll(full)
+        for (uint t = 0u; t < LLVQ_ROT_KMAX; ++t) {
+            uint src = (t < k ? t : 0u) * m + j;
+            col[t] = t < k ? s[src] * inv : 0.0f;
+        }
+        for (uint g = 0u; g < k; ++g) {
+            float acc = 0.0f;
+#pragma clang loop unroll(full)
+            for (uint t = 0u; t < LLVQ_ROT_KMAX; ++t)
+                acc = fma(small[g * LLVQ_ROT_KMAX + t], col[t], acc);
+            xout[g * m + j] = acc;
+        }
+    }
+}
+
+
+kernel void rot_apply_tg_metal(const device ushort* xin      [[buffer(0)]],
+                               const device uint*   signbits [[buffer(1)]],
+                               const device float*  small    [[buffer(2)]],
+                               device float*        xout     [[buffer(3)]],
+                               constant uint&       n        [[buffer(5)]],
+                               constant uint&       m        [[buffer(6)]],
+                               constant uint&       k        [[buffer(7)]],
+                               constant float&      inv      [[buffer(8)]],
+                               constant uint&       x_off    [[buffer(9)]],
+                               threadgroup float*   s        [[threadgroup(0)]],
+                               uint tid      [[thread_position_in_threadgroup]],
+                               uint nthreads [[threads_per_threadgroup]])
+{
+    for (uint i = tid; i < n; i += nthreads) {
+        float v = rot_h2f(xin[x_off + i]);
+        s[i] = ((signbits[i >> 5] >> (i & 31u)) & 1u) ? -v : v;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint len = 1u; len < m; len <<= 1) {
+        uint npairs = n >> 1;
+        for (uint pp = tid; pp < npairs; pp += nthreads) {
+            uint j = (pp / len) * (len << 1) + (pp % len);
+            float a = s[j];
+            float b = s[j + len];
+            s[j] = a + b;
+            s[j + len] = a - b;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (k == 1u) {
+        for (uint i = tid; i < n; i += nthreads) xout[i] = s[i] * inv;
+    } else {
+        rot_mix_tg(s, small, xout, m, k, inv, tid, nthreads);
+    }
+}
