@@ -63,16 +63,23 @@ mod gpu {
         /// reassociate and CONTRACT: `a * b + c` becomes an `fma`, which is a
         /// different number because the product is not rounded first.
         ///
-        /// That is harmless for a benchmark and fatal for the Tetra kernel,
-        /// whose gate is equality against a host reference rather than a
-        /// tolerance. Measured on 2026-09-20: with fast math on, the matvec
-        /// landed one to two ulp from the reference on every row, which is
-        /// exactly the size of error a tolerance would have hidden and a
-        /// genuine defect would also have produced.
+        /// That is harmless for a benchmark and was thought fatal for the
+        /// Tetra kernel. Measured on 2026-09-20: with fast math on and no
+        /// pragma, the matvec landed one to two ulp from the reference on
+        /// every row.
         ///
-        /// The CUDA side has no equivalent switch because NVRTC does not
-        /// contract across a statement by default, and the kernel spells out
-        /// `__fmaf_rn` where it wants the fused form.
+        /// ⚠️ It is NOT what fixed that, and an audit of 2026-09-21 corrected
+        /// this comment. `llvq_tetra48.metal` carries
+        /// `#pragma clang fp contract(off)`, and with that in the source the
+        /// answer is the same either way, measured. This switch is belt and
+        /// braces. It matters that the belt is the pragma, because the shipped
+        /// path compiles through candle with default options and never calls
+        /// this function.
+        ///
+        /// The CUDA side has no equivalent switch, and not because NVRTC
+        /// declines to contract: it compiles with `--fmad=true` and DOES
+        /// contract within a statement. The Metal shader now spells out `fma`
+        /// at the two sites where the CUDA one contracts, so the two agree.
         pub fn new_exact(source: &str, name: &str) -> Result<Self, String> {
             Self::compile(source, name, false)
         }

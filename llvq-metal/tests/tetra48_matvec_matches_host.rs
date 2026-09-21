@@ -216,19 +216,29 @@ fn reference(f: &Fixture) -> Vec<f32> {
         // Multiply-then-add, not `fma`: the epilogue's own association.
         let mut tv = 0f32;
         let xt = &f.x[f.nblocks * DIM..];
+        // `mul_add` at both sites, because the CUDA twin contracts there
+        // and the shader now does too. See the shader's epilogue comment.
         for (i, xi) in xt.iter().enumerate().take(f.tail_w) {
-            tv += f.tail[row * f.tail_w + i].to_f32() * xi;
+            tv = f.tail[row * f.tail_w + i].to_f32().mul_add(*xi, tv);
         }
-        // `acc * rscale + tv`, rounding twice, which is the association the
-        // CUDA epilogue has and which `#pragma clang fp contract(off)` in the
-        // shader now guarantees Metal keeps.
-        *out = lanes[0] * f.rscale[row] + tv;
+        *out = lanes[0].mul_add(f.rscale[row], tv);
     }
     y
 }
 
 fn run_on_metal(f: &Fixture) -> Vec<f32> {
-    let k = Kernel::new_exact(SOURCE, "tv_tetra48_metal").expect("the matvec compiles");
+    run_with(f, true)
+}
+
+/// `exact` chooses whether Metal's fast math is off. The answer must not
+/// depend on it; `the_same_source_gives_the_same_numbers_with_fast_math_either_way`
+/// is what says so.
+fn run_with(f: &Fixture, exact: bool) -> Vec<f32> {
+    let k = match exact {
+        true => Kernel::new_exact(SOURCE, "tv_tetra48_metal"),
+        false => Kernel::new(SOURCE, "tv_tetra48_metal"),
+    }
+    .expect("the matvec compiles");
     let table = RankTable::build();
     let tr = Trellis::new();
     let invnorm = invnorm_table();
@@ -330,5 +340,29 @@ fn a_different_activation_gives_a_different_answer() {
     let want = reference(&f);
     for (i, (g, w)) in b.iter().zip(&want).enumerate() {
         assert_eq!(g, w, "row {i} after the shift");
+    }
+}
+
+/// The pragma, not the compile option, is what carries the arithmetic.
+///
+/// This matters because the SHIPPED path does not use `new_exact`:
+/// `llvq-llm/src/fused_metal.rs` compiles the same source through candle with
+/// `None` options, which is Metal's default and has fast math ON. If the
+/// arithmetic depended on the option, the gate and the shipped path would be
+/// two different kernels and this whole file would be judging the wrong one.
+///
+/// An audit of 2026-09-21 found `new_exact`'s doc claiming fast math off was
+/// required. It is not, once `#pragma clang fp contract(off)` is in the
+/// source. Turning it off stays as belt and braces, and this test is what
+/// makes the belt checkable.
+#[test]
+fn the_same_source_gives_the_same_numbers_with_fast_math_either_way() {
+    let f = fixture(0x7E_48A4, 32, TILE + 9, 6);
+    let exact = run_with(&f, true);
+    let fast = run_with(&f, false);
+    let want = reference(&f);
+    for (i, ((a, b), w)) in exact.iter().zip(&fast).zip(&want).enumerate() {
+        assert_eq!(a, b, "row {i}: fast math moved the answer, {a} against {b}");
+        assert_eq!(a, w, "row {i}: and neither matches the host reference");
     }
 }

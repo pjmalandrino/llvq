@@ -170,7 +170,26 @@ impl Int4Proj for FakeInt4 {
     fn d_in(&self) -> usize {
         self.w.dim(1).expect("2-D")
     }
+    /// Refuses more than one vector and a non-zero start offset, exactly as
+    /// `CudaInt4::matvec` does (`fused_cuda.rs`, "activation of {len} values
+    /// for d_in=" and the offset guard beside it).
+    ///
+    /// e1d2c9e claimed the fakes refuse what the adapters refuse. It was true
+    /// of `FakeLattice` alone until an audit of 2026-09-21 said so.
     fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> Result<Tensor> {
+        let d = x.dims();
+        let rows: usize = d[..d.len() - 1].iter().product();
+        if rows != 1 {
+            candle_core::bail!("{}: {rows} vectors for a single-vector kernel", self.name);
+        }
+        if d[d.len() - 1] != self.d_in() {
+            candle_core::bail!(
+                "{}: activation of {} values for d_in={}",
+                self.name,
+                d[d.len() - 1],
+                self.d_in()
+            );
+        }
         let mut shape = out_dims.to_vec();
         *shape.last_mut().expect("rank >= 1") = self.d_out();
         x.broadcast_matmul(&self.w.t()?)?.reshape(shape)
@@ -204,7 +223,13 @@ impl SegGroup for FakeSeg {
             .get(rank)
             .map_or("(part outside the group)", String::as_str)
     }
+    /// Refuses the wrong `d_in`, as `rotate_group` does. A group is one
+    /// launch, so it never batches and the row count is the caller's business.
     fn prepare(&self, x: &Tensor) -> Result<Tensor> {
+        let d = x.dims();
+        if d[d.len() - 1] != self.d_in() {
+            candle_core::bail!("{} expects d_in={}, got {}", self.name, self.d_in(), d[d.len() - 1]);
+        }
         x.broadcast_matmul(&self.rot)
     }
     fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> Result<Tensor> {

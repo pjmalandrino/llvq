@@ -11,11 +11,13 @@
 // Three CUDA intrinsics have no MSL equivalent. Each is replaced by an
 // expression proved equal rather than by something that looks similar.
 //
-//   __byte_perm(a, b, s)   PRMT. Written out below as `prmt`, including the
-//                          sign-replication mode bit 3 of each selector nibble
-//                          selects. The CUDA side relies on the plain mode
-//                          only, but a port that silently dropped the other
-//                          would be right until a table changed.
+//   __byte_perm(a, b, s)   PRMT. Written out below as `prmt`. The sign mode
+//                          bit 3 selects is implemented for completeness and
+//                          is UNREACHABLE from the CUDA side, which ANDs its
+//                          selector with 0x7777 before the instruction. So it
+//                          is dead code that documents the instruction, not
+//                          the insurance an earlier draft of this comment
+//                          claimed it was.
 //
 //   __dp4a(s, s, acc)      Four-way signed byte dot product. Written out as
 //                          four multiplies. The operands are lattice
@@ -308,7 +310,14 @@ kernel void tetra48_probe(const device uint*   words    [[buffer(0)]],
 
 // ---------------------------------------------------------------------------
 // The matvec: one SIMD-group a row, the activation staged in threadgroup
-// memory. The Metal twin of `llvq-llm/kernels/tv_tetra48_h.cu`.
+// memory. The Metal counterpart of `llvq-llm/kernels/tv_tetra48_h.cu`.
+//
+// NOT its twin, and an audit of 2026-09-21 made the word precise. `y` here is
+// `device float*`; the CUDA one is `unsigned short*` written through `f2h`.
+// The arithmetic up to the store is the same, including the two `fma` in the
+// epilogue, but this kernel does not narrow. Storing f16 is what an inference
+// runtime wants and is a later lot; narrowing here without a gate that
+// compares the two widths would be a claim rather than a change.
 // ---------------------------------------------------------------------------
 
 // Blocks of the activation one threadgroup stages.
@@ -388,14 +397,24 @@ kernel void tv_tetra48_metal(const device uint*   words          [[buffer(0)]],
 
     acc = warp_sum(acc);
     if (lane == 0u) {
-        // Multiply-then-add, not `fma`: this is the association the CUDA
-        // epilogue has, and the only thing that may differ between the two
-        // paths is the stored width of the weight, never the arithmetic.
+        // `fma` at BOTH sites, and this was wrong until an audit caught it.
+        //
+        // The CUDA twin writes `tv += h2f(...) * xt[i]` and
+        // `y[row] = f2h(acc * rscale[row] + tv)` as plain expressions, and
+        // `llvq-cuda/src/gpu.rs:14` records that NVRTC compiles with
+        // `--fmad=true`, "NVRTC's default anyway". So on the card both
+        // contract into an FFMA and round ONCE. An earlier version of this
+        // file copied the SOURCE and, under `contract(off)`, rounded twice.
+        //
+        // Measured: over two million random (acc, rscale, tv) triples in the
+        // ranges this kernel sees, the two forms give a different f32 on
+        // 27 % of them. The two host references could not see it, because
+        // both were written from this shader rather than from the card.
         float tv = 0.0f;
         const device float* xt = x + nblocks * 24u;
         for (uint i = 0u; i < tail_w; ++i) {
-            tv += float(tail[row * tail_w + i]) * xt[i];
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
         }
-        y[row] = acc * rscale[row] + tv;
+        y[row] = fma(acc, rscale[row], tv);
     }
 }

@@ -88,6 +88,22 @@ fn f32_to_f16_bits(v: f32) -> u16 {
     sign | ((exp as u16) << 10) | m
 }
 
+fn plain_runtime(dev: &Device, tile: usize) -> MetalRuntime {
+    let table = RankTable::build();
+    let tr = Trellis::new();
+    MetalRuntime::new(
+        dev,
+        &table.rows,
+        &prefix_bytes(&tr),
+        &branch_words(&tr),
+        &suffix_bytes(&tr),
+        &invnorm_table(),
+        tile,
+        false,
+    )
+    .expect("the runtime builds")
+}
+
 struct Bench {
     rt: MetalRuntime,
     proj: MetalTetraProj,
@@ -309,4 +325,126 @@ fn a_ragged_d_out_is_refused_at_upload() {
         panic!("12 rows is not a whole number of threadgroups and must be refused");
     };
     assert!(err.to_string().contains("not a multiple"), "must say why: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// The refusals. Each was MISSING until an audit of 2026-09-21, and each has a
+// CUDA twin that already refused it, in one case with a comment saying the
+// check had already cost a run.
+// ---------------------------------------------------------------------------
+
+/// An activation shorter than `d_in` reads past the buffer and returns
+/// finite, plausible, wrong numbers.
+#[test]
+fn a_short_activation_is_refused() {
+    let Some(b) = build(0x7E_49B0, 16, TILE, 4) else { panic!("needs Metal") };
+    let dev = Device::new_metal(0).expect("Metal");
+    let short = &b.x[..b.x.len() - 1];
+    for d in [dev, Device::Cpu] {
+        let x = Tensor::from_slice(short, (1, short.len()), &d).expect("upload");
+        let err = b.rt.matvec(&b.proj, &x).expect_err("one value short");
+        assert!(err.to_string().contains("for d_in="), "must name d_in: {err}");
+    }
+}
+
+/// Several vectors at once. The kernel is a matvec and the output is
+/// allocated at `d_out`, so accepting them would hand back a tensor whose
+/// shape claims more elements than its storage holds.
+#[test]
+fn a_multi_row_activation_is_refused() {
+    let Some(b) = build(0x7E_49B1, 16, TILE, 4) else { panic!("needs Metal") };
+    let dev = Device::new_metal(0).expect("Metal");
+    let d_in = b.x.len();
+    let mut two = b.x.clone();
+    two.extend_from_slice(&b.x);
+    for d in [dev, Device::Cpu] {
+        let x = Tensor::from_slice(&two, (2, d_in), &d).expect("upload");
+        let err = b.rt.matvec(&b.proj, &x).expect_err("two vectors");
+        assert!(err.to_string().contains("vectors at once"), "must say so: {err}");
+    }
+}
+
+/// A non-contiguous activation. `metal_fwd` refused it before the audit and
+/// `cpu_fwd` did not, so the two arms did not implement the same function.
+#[test]
+fn a_non_contiguous_activation_is_refused_on_both_arms() {
+    let Some(b) = build(0x7E_49B2, 16, TILE, 4) else { panic!("needs Metal") };
+    let dev = Device::new_metal(0).expect("Metal");
+    let d_in = b.x.len();
+    let mut two = b.x.clone();
+    two.extend_from_slice(&b.x);
+    for d in [dev, Device::Cpu] {
+        // A transpose makes the last axis strided without copying.
+        let x = Tensor::from_slice(&two, (2, d_in), &d)
+            .expect("upload")
+            .t()
+            .expect("transpose")
+            .narrow(0, 0, 1)
+            .expect("narrow");
+        let err = b.rt.matvec(&b.proj, &x).expect_err("strided");
+        let m = err.to_string();
+        assert!(
+            m.contains("contiguous") || m.contains("for d_in="),
+            "must refuse by name: {m}"
+        );
+    }
+}
+
+/// A truncated weight stream. `rscale` and `tail` were checked at upload and
+/// the stream was not.
+#[test]
+fn a_truncated_stream_is_refused_at_upload() {
+    let dev = Device::new_metal(0).expect("Metal");
+    let rt = plain_runtime(&dev, TILE);
+    let (d_out, nblocks) = (8usize, 4usize);
+    let n = d_out * nblocks;
+    let stream = transcode_tetra48(&vec![0u64; n], &vec![0u32; n], d_out, nblocks).expect("ok");
+    let short = &stream.data[..stream.data.len() - 4];
+    let out = rt.upload(
+        "000.q_proj", d_out, nblocks * DIM, nblocks, stream.stride_u32,
+        short, &[0.625, 1.375], &vec![1.0f32; d_out], &[],
+    );
+    let Err(err) = out else { panic!("a stream one word short must be refused") };
+    assert!(err.to_string().contains("stream bytes"), "must say so: {err}");
+}
+
+/// A stride that does not match `nblocks`. The kernel multiplies by it for
+/// every row, so a wrong one walks off the end after a few rows.
+#[test]
+fn a_wrong_row_stride_is_refused_at_upload() {
+    let dev = Device::new_metal(0).expect("Metal");
+    let rt = plain_runtime(&dev, TILE);
+    let (d_out, nblocks) = (8usize, 4usize);
+    let n = d_out * nblocks;
+    let stream = transcode_tetra48(&vec![0u64; n], &vec![0u32; n], d_out, nblocks).expect("ok");
+    let out = rt.upload(
+        "000.q_proj", d_out, nblocks * DIM, nblocks, stream.stride_u32 + 1,
+        &stream.data, &[0.625, 1.375], &vec![1.0f32; d_out], &[],
+    );
+    let Err(err) = out else { panic!("a stride that does not match nblocks must be refused") };
+    assert!(err.to_string().contains("row stride"), "must say so: {err}");
+}
+
+/// A tile of 512 passed a validator copied from the CUDA contract and then
+/// asked for 49,152 B of threadgroup memory against Apple's 32,768.
+#[test]
+fn a_tile_beyond_apples_threadgroup_memory_is_refused() {
+    let dev = Device::new_metal(0).expect("Metal");
+    let table = RankTable::build();
+    let tr = Trellis::new();
+    let out = MetalRuntime::new(
+        &dev, &table.rows, &prefix_bytes(&tr), &branch_words(&tr),
+        &suffix_bytes(&tr), &invnorm_table(), 512, false,
+    );
+    let Err(err) = out else { panic!("512 blocks stage 49152 B and must be refused") };
+    assert!(err.to_string().contains("32768"), "must name the limit: {err}");
+    // 256 is the largest that fits, and it is accepted.
+    assert!(
+        MetalRuntime::new(
+            &dev, &table.rows, &prefix_bytes(&tr), &branch_words(&tr),
+            &suffix_bytes(&tr), &invnorm_table(), 256, false,
+        )
+        .is_ok(),
+        "256 stages 24576 B and fits"
+    );
 }

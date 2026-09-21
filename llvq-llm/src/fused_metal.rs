@@ -119,21 +119,38 @@ pub struct MetalRuntime {
 }
 
 /// f16 bits widened exactly, which is what the shader's `float(half)` does.
+///
+/// A transcription of `h2f` in `llvq-cuda/kernels/matvec.cu:44-77`, branch for
+/// branch, and it is a transcription because an earlier version here was
+/// written from memory and was wrong on 4,094 of the 65,536 patterns: every
+/// subnormal had its exponent one too low and its mantissa shifted one too
+/// far, and there was no `exp == 31` arm at all, so infinities came back as
+/// 65536 and NaN payloads were lost. The gate could not see it, because its
+/// fixtures draw from a Gaussian and never produce one.
 fn h2f(h: u16) -> f32 {
     let h = h as u32;
     let sign = (h & 0x8000) << 16;
     let exp = (h >> 10) & 0x1f;
-    let mant = h & 0x3ff;
-    if exp == 0 {
-        if mant == 0 {
-            return f32::from_bits(sign);
+    let mut man = h & 0x3ff;
+    let bits = if exp == 0 {
+        if man == 0 {
+            sign
+        } else {
+            // Normalise: shift until the hidden bit appears, one exponent a shift.
+            let mut e = 127 - 15 + 1;
+            while man & 0x400 == 0 {
+                man <<= 1;
+                e -= 1;
+            }
+            sign | (e << 23) | ((man & 0x3ff) << 13)
         }
-        let shift = mant.leading_zeros() - 21;
-        let e = 127 - 15 - shift;
-        let m = (mant << (shift + 1)) & 0x3ff;
-        return f32::from_bits(sign | (e << 23) | (m << 13));
-    }
-    f32::from_bits(sign | ((exp + 127 - 15) << 23) | (mant << 13))
+    } else if exp == 31 {
+        // inf / NaN, payload kept.
+        sign | 0x7f80_0000 | (man << 13)
+    } else {
+        sign | ((exp + 127 - 15) << 23) | (man << 13)
+    };
+    f32::from_bits(bits)
 }
 
 impl MetalRuntime {
@@ -158,8 +175,17 @@ impl MetalRuntime {
             candle_core::Device::Metal(d) => d.clone(),
             other => candle_core::bail!("the Metal runtime wants a Metal device, got {other:?}"),
         };
-        if !tile.is_power_of_two() || !(32..=512).contains(&tile) {
-            candle_core::bail!("tile {tile} is not a power of two in 32..=512");
+        // 32..=256, not the CUDA contract's 32..=512. The staging is
+        // `tile * 24 * 4` bytes against Apple's 32,768 B of threadgroup
+        // memory, so 341 blocks is the ceiling and 256 the largest power of
+        // two under it. 512 would ask for 49,152 B, pass a validator copied
+        // from the wrong platform, and abort the process at dispatch.
+        if !tile.is_power_of_two() || !(32..=256).contains(&tile) {
+            candle_core::bail!(
+                "tile {tile} is not a power of two in 32..=256. Apple stages \
+                 {} B for it against a limit of 32768",
+                tile * llvq_core::DIM * 4
+            );
         }
         let tables = MetalTables {
             rows: dev.new_buffer_with_data(rows)?,
@@ -211,6 +237,24 @@ impl MetalRuntime {
         }
         if tail.len() != d_out * tail_w {
             candle_core::bail!("{name}: {} tail values for {d_out}x{tail_w}", tail.len());
+        }
+        // The stream, which the kernel indexes as `words + row * row_stride_u32`
+        // with no bound of its own. `rscale` and `tail` were checked and this
+        // was not, which is the asymmetry an audit of 2026-09-21 named.
+        let want_stride = llvq_artifact::tetra48::stride_u32(nblocks);
+        if row_stride_u32 != want_stride {
+            candle_core::bail!(
+                "{name}: row stride {row_stride_u32} for {nblocks} blocks, which wants \
+                 {want_stride}"
+            );
+        }
+        let want_bytes = d_out * row_stride_u32 * 4;
+        if words.len() != want_bytes {
+            candle_core::bail!(
+                "{name}: {} stream bytes for {d_out} rows of {row_stride_u32} words, which \
+                 wants {want_bytes}",
+                words.len()
+            );
         }
         // Metal refuses a zero-length buffer and hands back a null pointer,
         // the same wall cudarc puts up. A `d_in` that is a multiple of 24 has
@@ -287,6 +331,50 @@ struct TetraMatvec<'a> {
     proj: &'a MetalTetraProj,
 }
 
+impl TetraMatvec<'_> {
+    /// What both arms owe the caller before either computes anything.
+    ///
+    /// Added after an audit of 2026-09-21 found `metal_fwd` checking dtype and
+    /// contiguity and nothing else, while `cpu_fwd` checked only the dtype.
+    /// The CUDA twin refuses all of this by name at `fused_cuda.rs:1491`, with
+    /// a comment saying the missing check already cost one run.
+    fn check(&self, dtype: DType, layout: &Layout) -> Result<()> {
+        let p = self.proj;
+        if dtype != DType::F32 {
+            candle_core::bail!("{}: f32 only, got {dtype:?}", p.name);
+        }
+        if !layout.is_contiguous() {
+            candle_core::bail!(
+                "{}: the activation must be contiguous. The kernel indexes it linearly \
+                 from one base and cannot honour a stride",
+                p.name
+            );
+        }
+        let dims = layout.dims();
+        let d_in = *dims.last().unwrap_or(&0);
+        if d_in != p.d_in {
+            candle_core::bail!(
+                "{}: activation of {d_in} values for d_in={}. A short one reads past the \
+                 buffer and returns finite, plausible, wrong numbers",
+                p.name,
+                p.d_in
+            );
+        }
+        // One vector a launch, like the CUDA twin. The output is allocated at
+        // `d_out` elements, so accepting several rows would hand back a tensor
+        // whose shape claims more than its storage holds.
+        let rows: usize = dims[..dims.len().saturating_sub(1)].iter().product();
+        if rows != 1 {
+            candle_core::bail!(
+                "{}: {rows} vectors at once. This kernel is a matvec and takes one; the \
+                 row loop belongs to the caller",
+                p.name
+            );
+        }
+        Ok(())
+    }
+}
+
 impl CustomOp1 for TetraMatvec<'_> {
     fn name(&self) -> &'static str {
         "tetra48-matvec"
@@ -312,6 +400,7 @@ impl CustomOp1 for TetraMatvec<'_> {
                 self.proj.name
             ),
         };
+        self.check(storage.dtype(), layout)?;
         let x = match storage {
             CpuStorage::F32(v) => &v[layout.start_offset()..],
             other => candle_core::bail!("{}: f32 only, got {:?}", self.proj.name, other.dtype()),
@@ -343,10 +432,12 @@ impl CustomOp1 for TetraMatvec<'_> {
             }
             let mut tv = 0f32;
             let xt = &x[p.nblocks * llvq_core::DIM..];
+            // `mul_add` at both sites: the CUDA twin contracts there under
+            // NVRTC's `--fmad=true`, and the shader now spells it out.
             for (i, xi) in xt.iter().enumerate().take(p.tail_w) {
-                tv += h2f(hp.tail[row * p.tail_w + i]) * xi;
+                tv = h2f(hp.tail[row * p.tail_w + i]).mul_add(*xi, tv);
             }
-            *out = lanes[0] * hp.rscale[row] + tv;
+            *out = lanes[0].mul_add(hp.rscale[row], tv);
         }
         let mut dims = layout.dims().to_vec();
         *dims.last_mut().expect("rank >= 1") = p.d_out;
@@ -354,13 +445,8 @@ impl CustomOp1 for TetraMatvec<'_> {
     }
 
     fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        self.check(storage.dtype(), layout)?;
         let p = self.proj;
-        if storage.dtype() != DType::F32 {
-            candle_core::bail!("{}: f32 only, got {:?}", p.name, storage.dtype());
-        }
-        if !layout.is_contiguous() {
-            candle_core::bail!("{}: the activation must be contiguous", p.name);
-        }
         let dev = storage.device().clone();
         let pipe = self.rt.pipeline("tv_tetra48_metal")?;
 
@@ -549,4 +635,70 @@ fn host_quads(t: &HostTables, lo: u32, hi16: u32) -> [u32; 6] {
         quad(row3, c3 & 0xf),
         quad(row3 >> 16, c3 >> 4),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::h2f;
+
+    /// The IEEE definition of binary16, in f64, from the fields.
+    ///
+    /// Not a second copy of `h2f`: this computes the VALUE from the exponent
+    /// and the significand, where `h2f` assembles a bit pattern. A shared
+    /// mistake would have to be a mistake about IEEE itself.
+    fn ieee_half(h: u16) -> Option<f64> {
+        let s = if h & 0x8000 != 0 { -1.0f64 } else { 1.0 };
+        let e = ((h >> 10) & 0x1f) as i32;
+        let m = (h & 0x3ff) as f64;
+        match e {
+            // Subnormal: no hidden bit, fixed exponent of -14.
+            0 => Some(s * (m / 1024.0) * 2f64.powi(-14)),
+            // inf / NaN, which the caller checks separately.
+            31 => None,
+            _ => Some(s * (1.0 + m / 1024.0) * 2f64.powi(e - 15)),
+        }
+    }
+
+    /// All 65,536 patterns. The subnormal and inf arms were both wrong until
+    /// an audit of 2026-09-21, and the gate's Gaussian fixtures never drew one.
+    #[test]
+    fn h2f_widens_every_binary16_pattern() {
+        let mut checked = 0u32;
+        for b in 0u32..=0xffff {
+            let h = b as u16;
+            let got = h2f(h);
+            match ieee_half(h) {
+                Some(want) => {
+                    assert_eq!(
+                        got,
+                        want as f32,
+                        "0x{b:04x}: h2f {got:e} against the IEEE value {want:e}"
+                    );
+                    checked += 1;
+                }
+                None => {
+                    // exp == 31: infinity when the significand is zero, NaN otherwise.
+                    if h & 0x3ff == 0 {
+                        assert!(got.is_infinite(), "0x{b:04x} is an infinity");
+                        assert_eq!(got.is_sign_negative(), h & 0x8000 != 0, "0x{b:04x} sign");
+                    } else {
+                        assert!(got.is_nan(), "0x{b:04x} is a NaN");
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 65_536, "every pattern is judged");
+    }
+
+    /// The three patterns the earlier version got wrong, named.
+    #[test]
+    fn the_patterns_an_earlier_h2f_got_wrong() {
+        // The smallest positive subnormal: 2^-24.
+        assert_eq!(h2f(0x0001), 2f32.powi(-24));
+        // The largest subnormal: 1023 * 2^-24.
+        assert_eq!(h2f(0x03ff), 1023.0 * 2f32.powi(-24));
+        // Positive infinity, which an earlier version returned as 65536.
+        assert!(h2f(0x7c00).is_infinite() && h2f(0x7c00) > 0.0);
+    }
 }
