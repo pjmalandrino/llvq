@@ -74,7 +74,14 @@ fn time_matvec(d_out: usize, d_in: usize) -> f64 {
 }
 
 fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
+    time_matvec_tile(d_out, d_in, name, TILE)
+}
+
+/// The same, at a chosen tile. The tile is a host-injected `#define`, the
+/// shape the CUDA side uses through NVRTC.
+fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
     let pinned = name.ends_with("_tg");
+    let src = format!("#define LLVQ_TILE_BLOCKS {tile}u\n{TETRA_SRC}");
     let nblocks = d_in / DIM;
     let tail_w = d_in % DIM;
     let mut rng = SplitMix64::new(0x7E_4C01);
@@ -85,7 +92,7 @@ fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
     let gains: Vec<u32> = (0..n).map(|_| (rng.next() & 1) as u32).collect();
     let stream = transcode_tetra48(&indices, &gains, d_out, nblocks).expect("transcodes");
 
-    let k = Kernel::new_exact(TETRA_SRC, name).expect("compiles");
+    let k = Kernel::new_exact(&src, name).expect("compiles");
     let table = llvq_bench::f1::rank::RankTable::build();
     let tr = llvq_bench::f1::Trellis::new();
     let b_words = k.buffer(&stream.data);
@@ -100,7 +107,7 @@ fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
     let b_x = k.buffer(&vec![0.5f32; d_in]);
     let b_y = k.empty::<f32>(d_out);
     let (stride, nb, tw) = (stream.stride_u32 as u32, nblocks as u32, tail_w as u32);
-    let tg = (TILE * DIM * 4) as u64;
+    let tg = (tile * DIM * 4) as u64;
 
     let mut t = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
@@ -215,6 +222,29 @@ fn main() {
     println!("  {MATVEC_LAUNCHES} matvec launches   {mv_total:7.2} ms a token");
     println!("  {ROT_LAUNCHES} rotation launches {rot_total:7.2} ms a token");
     println!("  sum                    {:7.2} ms", mv_total + rot_total);
+    // The tile is a host-injected define and the served value, 64, was
+    // measured on sm_89 and never here. Apple's threadgroup memory is not
+    // shared with a cache, so the mechanism that made it matter on NVIDIA
+    // does not obviously transfer.
+    // The value looked up in 64 constant floats instead of computed.
+    let lu_hidden = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_lut");
+    let lu_up = time_matvec_named(INTERMEDIATE, HIDDEN, "tv_tetra48_metal_lut");
+    let lu_down = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_lut");
+    println!("value looked up in 64 constant floats:");
+    println!("  {HIDDEN}x{HIDDEN}   {lu_hidden:8.1} us  {:+6.1} % vs computed", 100.0 * (lu_hidden / ar_hidden - 1.0));
+    println!("  {INTERMEDIATE}x{HIDDEN}   {lu_up:8.1} us  {:+6.1} %", 100.0 * (lu_up / ar_up - 1.0));
+    println!("  {HIDDEN}x{INTERMEDIATE}   {lu_down:8.1} us  {:+6.1} %", 100.0 * (lu_down / ar_down - 1.0));
+    let lu_total = 36.0 * (3.0 * lu_hidden + 2.0 * lu_up + lu_down) / 1000.0;
+    println!("  252 launches          {lu_total:7.2} ms a token\n");
+
+    println!("tile sweep on the arithmetic kernel, {HIDDEN}x{HIDDEN} and {HIDDEN}x{INTERMEDIATE}:");
+    for tile in [32usize, 64, 128, 256] {
+        let a = time_matvec_tile(HIDDEN, HIDDEN, "tv_tetra48_metal_ar", tile);
+        let b = time_matvec_tile(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_ar", tile);
+        println!("  tile {tile:3}   {a:7.1} us   {b:7.1} us   staged {:6} B", tile * DIM * 4);
+    }
+    println!();
+
     println!("\nthe measured step is 29.8 ms at 33.6 tok/s.");
     println!("what the sum does not reach is the host's, and is a different search.");
 }

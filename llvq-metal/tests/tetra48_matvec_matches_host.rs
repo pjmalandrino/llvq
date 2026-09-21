@@ -392,7 +392,7 @@ fn the_same_source_gives_the_same_numbers_with_fast_math_either_way() {
 fn the_pinned_variant_matches_the_host_too() {
     for (d_out, nblocks, tail_w) in [(64usize, TILE, 8usize), (32, 3 * TILE + 17, 5), (16, TILE + 1, 0)] {
         let f = fixture(0x7E_48B0 + d_out as u64, d_out, nblocks, tail_w);
-        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar"] {
+        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut"] {
             let got = run_named(&f, true, name);
             let want = reference(&f);
             for (i, (g, w)) in got.iter().zip(&want).enumerate() {
