@@ -91,7 +91,7 @@ const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
 /// the register allocation of a kernel no correctness test can see move.
 fn source_of(name: &str) -> Result<&'static str> {
     match name {
-        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" | "tv_tetra48_metal_ilp" => Ok(SRC_TETRA),
+        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" | "tv_tetra48_metal_ilp" | "tv_tetra48_metal_u2" | "tv_tetra48_metal_c3" => Ok(SRC_TETRA),
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" => Ok(SRC_Q4),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
@@ -119,6 +119,13 @@ pub struct MetalTables {
     suffixes: Arc<Buffer>,
     /// `1/sqrt(16 m)`, entry 0 the origin.
     invnorm: Arc<Buffer>,
+    /// `suffixes[2 * ((branches[16*s8 + b2] >> 8) & 63) + b3]`, precomposed.
+    ///
+    /// 64 x 16 x 2 = 2,048 bytes. It holds no new information: it is the two
+    /// tables it is built from, composed, so the value is unchanged. What it
+    /// removes is the DEPENDENCY, which was the second load waiting on the
+    /// first.
+    c3_of: Arc<Buffer>,
     /// Host copies, kept only so `cpu_fwd` can serve as the oracle. `None` on
     /// a served model, where the CPU arm refuses instead.
     host: Option<HostTables>,
@@ -156,6 +163,8 @@ struct HostProj {
 
 /// The device, the tables and the compiled pipelines.
 pub struct MetalRuntime {
+    /// The matvec this runtime launches. See `metal_fwd`.
+    kernel: &'static str,
     device: candle_core::MetalDevice,
     tables: MetalTables,
     tile: usize,
@@ -195,6 +204,44 @@ fn h2f(h: u16) -> f32 {
         sign | ((exp + 127 - 15) << 23) | (man << 13)
     };
     f32::from_bits(bits)
+}
+
+/// The suffix table composed with the branch table that indexes it.
+///
+/// `suffixes` is read at `2 * s16 + b3` where `s16` is the high byte of
+/// `branches[16 * s8 + b2]`, masked to the 64 Golay states. So the composition
+/// is indexed by `(s8, b2, b3)` and holds exactly what the two-step read
+/// would have returned.
+fn compose_c3(branches: &[u16], suffixes: &[u8]) -> Vec<u8> {
+    let mut t = vec![0u8; 64 * 16 * 2];
+    for s8 in 0..64usize {
+        for b2 in 0..16usize {
+            let s16 = ((branches[16 * s8 + b2] >> 8) & 63) as usize;
+            for b3 in 0..2usize {
+                t[((s8 * 16 + b2) << 1) | b3] = suffixes[2 * s16 + b3];
+            }
+        }
+    }
+    t
+}
+
+
+/// The matvec named by `LLVQ_METAL_KERNEL`, or the served one.
+fn kernel_from_env() -> &'static str {
+    const SERVED: &str = "tv_tetra48_metal_lut";
+    match std::env::var("LLVQ_METAL_KERNEL").ok().as_deref() {
+        None => SERVED,
+        Some("lut") => SERVED,
+        Some("c3") => "tv_tetra48_metal_c3",
+        Some("ar") => "tv_tetra48_metal_ar",
+        Some("u2") => "tv_tetra48_metal_u2",
+        Some("ilp") => "tv_tetra48_metal_ilp",
+        Some("plain") => "tv_tetra48_metal",
+        Some(other) => {
+            eprintln!("LLVQ_METAL_KERNEL={other:?} is not a matvec of this file; serving {SERVED}");
+            SERVED
+        }
+    }
 }
 
 impl MetalRuntime {
@@ -237,6 +284,7 @@ impl MetalRuntime {
             branches: dev.new_buffer_with_data(branches)?,
             suffixes: dev.new_buffer_with_data(suffixes)?,
             invnorm: dev.new_buffer_with_data(invnorm)?,
+            c3_of: dev.new_buffer_with_data(&compose_c3(branches, suffixes))?,
             host: keep_host.then(|| HostTables {
                 rows: rows.to_vec(),
                 prefixes: prefixes.to_vec(),
@@ -246,6 +294,7 @@ impl MetalRuntime {
             }),
         };
         Ok(Self {
+            kernel: kernel_from_env(),
             device: dev,
             tables,
             tile,
@@ -514,7 +563,16 @@ impl CustomOp1 for TetraMatvec<'_> {
         // Both are proven equal to the same host reference. The faithful port
         // is kept as the reference implementation and as the thing the
         // arithmetic one is diffed against.
-        let pipe = self.rt.pipeline("tv_tetra48_metal_lut")?;
+        // `LLVQ_METAL_KERNEL` picks the matvec, for A/B only.
+        //
+        // A MEASUREMENT MODE, never a served setting. It exists because this
+        // machine drifts: the same binary measured 49.7 tok/s in the morning
+        // and 23.1 after three hours of compiling, so two numbers taken an
+        // hour apart compare the thermals and not the kernels. Interleaving
+        // two kernels in ONE process is the only honest A/B here.
+        //
+        // Unset, the served kernel is `_lut` and nothing changes.
+        let pipe = self.rt.pipeline(self.rt.kernel)?;
 
         let out = dev.new_buffer(p.d_out, DType::F32, "tetra48-matvec")?;
         let enc = dev.command_encoder()?;
@@ -540,6 +598,7 @@ impl CustomOp1 for TetraMatvec<'_> {
         set_param(&enc, 11, (&*out, 0usize));
         set_param(&enc, 12, nb);
         set_param(&enc, 13, tw);
+        set_param(&enc, 14, (&*self.rt.tables.c3_of, 0usize));
 
         // Not optional, and not an error if omitted: the kernel would run to
         // completion and write zeros. The tile in the length and the tile in
@@ -554,6 +613,7 @@ impl CustomOp1 for TetraMatvec<'_> {
             &*self.rt.tables.prefixes,
             &*self.rt.tables.branches,
             &*self.rt.tables.suffixes,
+            &*self.rt.tables.c3_of,
             &*p.gscale,
             &*self.rt.tables.invnorm,
             &*p.rscale,
@@ -1324,10 +1384,18 @@ impl MetalRuntime {
                 branches: dev.new_buffer_with_data(&t.branches)?,
                 suffixes: dev.new_buffer_with_data(&t.suffixes)?,
                 invnorm: dev.new_buffer_with_data(&t.invnorm)?,
+                // `Tetra48Tables` packs the suffix bytes into `u32` for the
+                // CUDA upload path; unpacked here because the composition is
+                // indexed by byte.
+                c3_of: dev.new_buffer_with_data(&compose_c3(
+                    &t.branches,
+                    &t.suffixes.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>(),
+                ))?,
                 // A served model keeps no host copy: it would pay for the
                 // tables twice and its CPU arm is not a fallback.
                 host: None,
             },
+            kernel: kernel_from_env(),
             device: dev,
             tile,
             pipelines: RwLock::new(HashMap::new()),

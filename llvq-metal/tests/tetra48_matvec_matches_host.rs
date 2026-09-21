@@ -413,7 +413,7 @@ fn the_pinned_variant_matches_the_host_too() {
         // guard, so a `d_out` below 32 would compute and STORE past the
         // output. The served widths are 2560 and 9728, both multiples of 32.
         let f = fixture(0x7E_48B0 + d_out as u64, d_out, nblocks, tail_w);
-        let mut names = vec!["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut", "tv_tetra48_metal_lutg"];
+        let mut names = vec!["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut", "tv_tetra48_metal_lutg", "tv_tetra48_metal_u2"];
         if d_out.is_multiple_of(32) {
             names.push("tv_tetra48_metal_ilp");
         }

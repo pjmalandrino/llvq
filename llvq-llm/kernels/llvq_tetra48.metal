@@ -1073,3 +1073,220 @@ kernel void tv_tetra48_metal_ilp(const device uint*   words          [[buffer(0)
 // what it is handed.
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// The served kernel, two blocks an iteration. Bit-identical by construction.
+// ---------------------------------------------------------------------------
+kernel void tv_tetra48_metal_u2(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Two blocks an iteration, each keeping its place in the sum.
+        //
+        // The lane still takes j, j+32, j+64, ... in that order and `acc`
+        // still receives them in that order, so this is BIT-IDENTICAL to the
+        // single-block loop. What changes is that the two decodes are
+        // independent, so their three-deep dependent load chains overlap
+        // instead of running end to end.
+        //
+        // That is what the roofline asks for: 22 % of the bandwidth and 19 %
+        // of the ALU means the kernel is waiting, not working.
+        uint j = jlo + lane;
+        for (; j + 32u < jhi; j += 64u) {
+            uint lo0, hi0, lo1, hi1;
+            f1r_load(wrow, j, lo0, hi0);
+            f1r_load(wrow, j + 32u, lo1, hi1);
+            float d0 = tetra48_dot_lut(lo0, hi0, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+            float d1 = tetra48_dot_lut(lo1, hi1, tab, xs + (j + 32u - jlo) * 24u, gscale, invnorm);
+            acc += d0;
+            acc += d1;
+        }
+        for (; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tv_tetra48_metal_ar` storing f16, which is what the CUDA twin does.
+//
+// The model runs in f16. With an f32 store the adapter narrows afterwards,
+// one candle launch a projection: 290 of the path's 688 launches a token,
+// for no arithmetic. This ends in `half(...)` instead and the adapter keeps
+// what it is handed.
+// ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// The decode with the two-deep table chain collapsed to one.
+//
+// `f1r_v3_fetch` reads `branches[16*s8 + b2]`, takes the suffix state out of
+// its high byte, and only THEN can read `suffixes[2*s16 + b3]`. Two dependent
+// loads, and the second cannot start until the first returns.
+//
+// `c3_of[(s8*16 + b2)*2 + b3]` is that composition, precomputed: 64 x 16 x 2
+// bytes, 2,048 in all. The host builds it from the same two tables, so the
+// VALUE is unchanged and this is bit-identical.
+//
+// What it buys is that prefixes, branches and c3_of are now INDEPENDENT, so
+// their latencies overlap. The roofline says the kernel is waiting rather
+// than working, and this is the wait it can actually remove.
+// ---------------------------------------------------------------------------
+inline float tetra48_dot_c3(uint lo,
+                            uint hi16,
+                            F1rTables t,
+                            const device uchar* c3_of,
+                            const threadgroup float* xb,
+                            const device float* gscale,
+                            const device float* invnorm)
+{
+    uint p  = lo & 1u;
+    uint r  = (lo >> 1) & 1u;
+    uint s8 = (lo >> 2) & 63u;
+    uint b1 = (lo >> 8) & 1u;
+    uint i1 = (lo >> 9) & 0x7ffu;
+    uint b2 = (lo >> 20) & 15u;
+    uint i2 = ((lo >> 24) | ((hi16 & 7u) << 8)) & 0x7ffu;
+    uint b3 = (hi16 >> 3) & 1u;
+    uint i3 = (hi16 >> 4) & 0x7ffu;
+
+    // Three independent loads where there used to be a chain of two plus one.
+    uint c1 = t.prefixes[2u * s8 + b1];
+    uint c2 = t.branches[16u * s8 + b2] & 0xffu;
+    uint c3 = c3_of[((s8 * 16u + b2) << 1) | b3];
+
+    uint row1 = t.rows[2048u * r + i1];
+    bool mid = i2 < F1R_N0_MIXED;
+    uint idx2 = mid ? i2 : (2048u - F1R_N0_MIXED) + i2;
+    uint row2 = t.rows[idx2];
+    uint delta = mid ? 0u : 1u;
+    uint r3 = (p ^ r ^ delta) & 1u;
+    uint row3 = t.rows[2048u * r3 + i3];
+
+    uint cs[3] = { c1, c2, c3 };
+    uint rs[3] = { row1, row2, row3 };
+    float acc = 0.0f;
+    float n2 = 0.0f;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        uint c = cs[sec];
+        uint row = rs[sec];
+        for (uint jj = 0u; jj < 8u; ++jj) {
+            uint o = p + 2u * ((c >> jj) & 1u);
+            uint rho = (row >> (4u * jj)) & 15u;
+            float v = F1R_VAL[(o << 4) | rho];
+            n2 = fma(v, v, n2);
+            acc = fma(v, xb[TETRA48_ORDER[sec * 8u + jj]], acc);
+        }
+    }
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+kernel void tv_tetra48_metal_c3(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                const device uchar*  c3_of          [[buffer(14)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_c3(lo, hi16, tab, c3_of, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tv_tetra48_metal_ar` storing f16, which is what the CUDA twin does.
+//
+// The model runs in f16. With an f32 store the adapter narrows afterwards,
+// one candle launch a projection: 290 of the path's 688 launches a token,
+// for no arithmetic. This ends in `half(...)` instead and the adapter keeps
+// what it is handed.
+// ---------------------------------------------------------------------------
+
