@@ -52,6 +52,24 @@ const LANES: usize = 32;
 /// `row < d_out` guard, exactly like the CUDA one, so `d_out` must be a
 /// multiple of the rows a group covers. Asserted at upload.
 const GROUP: usize = 256;
+/// Lanes `tv_tetra48_metal_ilp` gives one output row, and why the served
+/// path does NOT use it.
+///
+/// Eight lanes instead of 32 gives each lane 13 blocks rather than 3.3, which
+/// is what the roofline asks for: the 32-lane kernel reaches 22 % of the
+/// measured 340 GB/s AND 19 % of the measured 12.5 TFLOPS, and a kernel that
+/// saturates neither is waiting on latency.
+///
+/// It works, and it is refused. The lane count is part of the ARITHMETIC:
+/// each lane accumulates a different subset and the butterfly has a different
+/// depth, so the answer moves in the last bits. Measured 2026-09-21: the
+/// 60-token identity against the dense arm BREAKS at token 57, "dans
+/// l'atmosphere" becoming "dans la atmosphere", while the throughput gain in
+/// situ is 5 percent, 48.1 to 50.4 tok/s. The isolated bench had promised 15.
+///
+/// Five percent is not worth the property the whole path is gated on.
+#[allow(dead_code)]
+const ROW_LANES: usize = 8;
 /// Threadgroup memory an M3 Max offers, measured 2026-09-20 through
 /// `MTLDevice.maxThreadgroupMemoryLength`.
 ///
@@ -73,7 +91,7 @@ const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
 /// the register allocation of a kernel no correctness test can see move.
 fn source_of(name: &str) -> Result<&'static str> {
     match name {
-        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" => Ok(SRC_TETRA),
+        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" | "tv_tetra48_metal_arh" | "tv_tetra48_metal_lut" | "tv_tetra48_metal_lutg" | "tv_tetra48_metal_ilp" => Ok(SRC_TETRA),
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" => Ok(SRC_Q4),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),

@@ -982,3 +982,94 @@ kernel void tv_tetra48_metal_lutg(const device uint*   words          [[buffer(0
 // for no arithmetic. This ends in `half(...)` instead and the adapter keeps
 // what it is handed.
 // ---------------------------------------------------------------------------
+
+
+// ---------------------------------------------------------------------------
+// The same matvec with FEWER lanes a row.
+// ---------------------------------------------------------------------------
+#ifndef LLVQ_ROW_LANES
+#define LLVQ_ROW_LANES 8u
+#endif
+
+kernel void tv_tetra48_metal_ilp(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    // FEWER lanes a row, so each lane takes more blocks.
+    //
+    // At d_in = 2560 a row is 106 blocks. Spread over 32 lanes that is 3.3
+    // blocks a lane, and the loop body holds a THREE-DEEP dependent load
+    // chain: branches, then the suffix state it names, then the suffix. Three
+    // trips give the compiler nothing to overlap it with.
+    //
+    // The roofline says why that matters: this kernel reaches 22 % of the
+    // measured 340 GB/s AND 19 % of the measured 12.5 TFLOPS. Neither is
+    // saturated, which is the signature of a latency bound rather than a
+    // throughput one.
+    //
+    // With LLVQ_ROW_LANES = 8 each lane takes 13 blocks and one SIMD-group
+    // covers four rows. The reduction then runs over 8 lanes with masks 4, 2
+    // and 1, which stay inside an aligned group of eight and never cross into
+    // a neighbouring row.
+    uint row = gid / LLVQ_ROW_LANES;
+    uint sub = lane & (LLVQ_ROW_LANES - 1u);
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + sub; j < jhi; j += LLVQ_ROW_LANES) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_lut(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    for (ushort k = LLVQ_ROW_LANES / 2u; k > 0u; k >>= 1) {
+        acc += simd_shuffle_xor(acc, k);
+    }
+    if (sub == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tv_tetra48_metal_ar` storing f16, which is what the CUDA twin does.
+//
+// The model runs in f16. With an f32 store the adapter narrows afterwards,
+// one candle launch a projection: 290 of the path's 688 launches a token,
+// for no arithmetic. This ends in `half(...)` instead and the adapter keeps
+// what it is handed.
+// ---------------------------------------------------------------------------
+

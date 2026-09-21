@@ -43,6 +43,7 @@ const ROT_LAUNCHES: usize = 144;
 const TILE: usize = 64;
 const LANES: usize = 32;
 const GROUP: usize = 256;
+const ROW_LANES: usize = 8;
 const ROUNDS: usize = 12;
 /// Dispatches inside ONE command buffer.
 ///
@@ -81,6 +82,8 @@ fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
 /// shape the CUDA side uses through NVRTC.
 fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
     let pinned = name.ends_with("_tg") || name.ends_with("_lutg");
+    // The ILP variant gives a row fewer lanes, so the grid shrinks with it.
+    let row_lanes = if name.ends_with("_ilp") { ROW_LANES } else { LANES };
     let src = format!("#define LLVQ_TILE_BLOCKS {tile}u\n{TETRA_SRC}");
     let nblocks = d_in / DIM;
     let tail_w = d_in % DIM;
@@ -111,7 +114,7 @@ fn time_matvec_tile(d_out: usize, d_in: usize, name: &str, tile: usize) -> f64 {
 
     let mut t = Vec::with_capacity(ROUNDS);
     for _ in 0..ROUNDS {
-        let r = k.dispatch_many((d_out * LANES) as u64, GROUP as u64, K, |enc, _| {
+        let r = k.dispatch_many((d_out * row_lanes) as u64, GROUP as u64, K, |enc, _| {
             enc.set_buffer(0, Some(&b_words), 0);
             enc.set_bytes(1, 4, &stride as *const u32 as *const c_void);
             enc.set_buffer(2, Some(&b_rows), 0);
@@ -256,6 +259,16 @@ fn main() {
 
     let lg = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_lutg");
     let lg2 = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_lutg");
+    let ip = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_ilp");
+    let ip2 = time_matvec_named(INTERMEDIATE, HIDDEN, "tv_tetra48_metal_ilp");
+    let ip3 = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_ilp");
+    println!("{ROW_LANES} lanes a row instead of 32:");
+    println!("  {HIDDEN}x{HIDDEN}   {ip:8.1} us  {:+6.1} %", 100.0 * (ip / lu_hidden - 1.0));
+    println!("  {INTERMEDIATE}x{HIDDEN}   {ip2:8.1} us  {:+6.1} %", 100.0 * (ip2 / lu_up - 1.0));
+    println!("  {HIDDEN}x{INTERMEDIATE}   {ip3:8.1} us  {:+6.1} %", 100.0 * (ip3 / lu_down - 1.0));
+    let ip_total = 36.0 * (3.0 * ip + 2.0 * ip2 + ip3) / 1000.0;
+    println!("  252 launches          {ip_total:7.2} ms a token\n");
+
     println!("the 64 floats in threadgroup memory instead of constant:");
     println!("  {HIDDEN}x{HIDDEN}   {lg:8.1} us  {:+6.1} %", 100.0 * (lg / lu_hidden - 1.0));
     println!("  {HIDDEN}x{INTERMEDIATE}   {lg2:8.1} us  {:+6.1} %\n", 100.0 * (lg2 / lu_down - 1.0));

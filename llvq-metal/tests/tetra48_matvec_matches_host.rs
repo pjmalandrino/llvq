@@ -175,17 +175,28 @@ fn fixture(seed: u64, d_out: usize, nblocks: usize, tail_w: usize) -> Fixture {
 
 /// The kernel's arithmetic, on the host, in the kernel's order.
 fn reference(f: &Fixture) -> Vec<f32> {
+    reference_lanes(f, LANES)
+}
+
+/// The kernel's arithmetic at a chosen lane count.
+///
+/// The lane count is part of the ARITHMETIC, not just the shape: each lane
+/// accumulates a different subset of blocks and the butterfly has a different
+/// depth, so 8 lanes and 32 lanes give answers that differ in the last bits.
+/// A reference that assumed 32 would judge the 8-lane kernel against the wrong
+/// algorithm, which is what it did until 2026-09-21.
+fn reference_lanes(f: &Fixture, lanes: usize) -> Vec<f32> {
     let tetra = Tetra::new();
     let invnorm = invnorm_table();
     let ntiles = f.nblocks.div_ceil(TILE);
     let mut y = vec![0f32; f.d_out];
 
     for (row, out) in y.iter_mut().enumerate() {
-        let mut lanes = [0f32; LANES];
+        let mut acc_l = vec![0f32; lanes];
         for t in 0..ntiles {
             let jlo = t * TILE;
             let jhi = (jlo + TILE).min(f.nblocks);
-            for (lane, acc) in lanes.iter_mut().enumerate() {
+            for (lane, acc) in acc_l.iter_mut().enumerate() {
                 let mut j = jlo + lane;
                 while j < jhi {
                     let (point, gain) = f.stream.decode_block(&tetra, row, j);
@@ -201,17 +212,19 @@ fn reference(f: &Fixture) -> Vec<f32> {
                         }
                     }
                     *acc += d * f.gscale[gain as usize] * invnorm[m];
-                    j += LANES;
+                    j += lanes;
                 }
             }
         }
-        // The `__shfl_xor` butterfly, lane for lane.
-        for k in [16usize, 8, 4, 2, 1] {
-            let mut next = [0f32; LANES];
+        // The butterfly, lane for lane, over `lanes` and not always 32.
+        let mut k = lanes / 2;
+        while k > 0 {
+            let mut next = vec![0f32; lanes];
             for (l, n) in next.iter_mut().enumerate() {
-                *n = lanes[l] + lanes[l ^ k];
+                *n = acc_l[l] + acc_l[l ^ k];
             }
-            lanes = next;
+            acc_l = next;
+            k >>= 1;
         }
         // Multiply-then-add, not `fma`: the epilogue's own association.
         let mut tv = 0f32;
@@ -221,7 +234,7 @@ fn reference(f: &Fixture) -> Vec<f32> {
         for (i, xi) in xt.iter().enumerate().take(f.tail_w) {
             tv = f.tail[row * f.tail_w + i].to_f32().mul_add(*xi, tv);
         }
-        *out = lanes[0].mul_add(f.rscale[row], tv);
+        *out = acc_l[0].mul_add(f.rscale[row], tv);
     }
     y
 }
@@ -241,6 +254,8 @@ fn run_with(f: &Fixture, exact: bool) -> Vec<f32> {
 /// by this file's reference rather than by the kernel it is meant to replace.
 fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
     let pinned = name.ends_with("_tg") || name.ends_with("_lutg");
+    // The ILP variant gives a row 8 lanes, so its grid is a quarter.
+    let row_lanes = if name.ends_with("_ilp") { 8 } else { LANES };
     let k = match exact {
         true => Kernel::new_exact(SOURCE, name),
         false => Kernel::new(SOURCE, name),
@@ -272,7 +287,7 @@ fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
     let tw = f.tail_w as u32;
     let tg_bytes = (TILE * DIM * 4) as u64;
 
-    k.dispatch((f.d_out * LANES) as u64, GROUP as u64, |enc| {
+    k.dispatch((f.d_out * row_lanes) as u64, GROUP as u64, |enc| {
         enc.set_buffer(0, Some(&b_words), 0);
         enc.set_bytes(1, 4, &stride as *const u32 as *const std::ffi::c_void);
         enc.set_buffer(2, Some(&b_rows), 0);
@@ -394,10 +409,20 @@ fn the_same_source_gives_the_same_numbers_with_fast_math_either_way() {
 #[test]
 fn the_pinned_variant_matches_the_host_too() {
     for (d_out, nblocks, tail_w) in [(64usize, TILE, 8usize), (32, 3 * TILE + 17, 5), (16, TILE + 1, 0)] {
+        // The ILP variant covers 32 rows a threadgroup and carries no row
+        // guard, so a `d_out` below 32 would compute and STORE past the
+        // output. The served widths are 2560 and 9728, both multiples of 32.
         let f = fixture(0x7E_48B0 + d_out as u64, d_out, nblocks, tail_w);
-        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut", "tv_tetra48_metal_lutg"] {
+        let mut names = vec!["tv_tetra48_metal_tg", "tv_tetra48_metal_ar", "tv_tetra48_metal_lut", "tv_tetra48_metal_lutg"];
+        if d_out.is_multiple_of(32) {
+            names.push("tv_tetra48_metal_ilp");
+        }
+        for name in names {
             let got = run_named(&f, true, name);
-            let want = reference(&f);
+            let want = match name.ends_with("_ilp") {
+                true => reference_lanes(&f, 8),
+                false => reference(&f),
+            };
             for (i, (g, w)) in got.iter().zip(&want).enumerate() {
                 assert_eq!(g, w, "{name} d_out={d_out} nblocks={nblocks}: row {i}, {g} against host {w}");
             }
