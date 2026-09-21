@@ -1,6 +1,6 @@
 # History
 
-The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-06. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
+The project's chronological thread, one entry per period, from 2026-07-24 to 2026-09-15, with ten entries owed between 2026-09-07 and 2026-09-12. The current state is in ETAT.md, the lab rules in METHODE.md, shipped with this file; until they are in `docs/`, [CLAUDE.md](../CLAUDE.md) is authoritative.
 
 ## 2026-07-24 to 07-28. Foundations, G1 to G4
 
@@ -405,6 +405,44 @@ The project's chronological thread, one entry per period, from 2026-07-24 to 202
 - Cost of the day: $0.79, of which $0.01 on a job that died in 16 seconds because the measurement image carries the Rust binaries and not the `hf` CLI. Both sealed files went through the bucket instead. Wave 2 stands at $0.82 of $2.00.
 - What is left of the plan: step 6 alone, the served kernel `tv_tetra48` and the comparison bench with every kernel in its own grid. It is what turns 1.390 GB on card and an unmeasured throughput into measurements.
 
+## 2026-09-13. L36's capture half, and the quality roadmap folded onto the served object
+
+- **The capture pass exists** (`capture_model_hessians`, the `HessianSink` trait, `HBasis`,
+  `Hessian::with_moments`, and the `hcapture` binary): one pass over the calibration set with the served
+  weights, keeping the dense Hessian the encoder throws away. It quantizes nothing. The served loop is
+  untouched — a capture needs no `GptqFactor`, so it gets its own loop, and one forward per block does
+  both the accumulation and the next block's input because the weights do not move.
+- `CalibCorpus`, `calib_chars`, `window_starts` and `ROTATION_SEED` moved out of `bin/smoke.rs` into
+  `corpus.rs` and `calib.rs`. Not a tidy-up: a capture has to draw the *same* windows as the encoding it
+  describes, and a copy would have drifted invisibly.
+- Wiring check on the served 4B, 2 × 128 tokens, **$0, no card**: 144 emissions over 36 blocks, capture
+  7.2 s, **reduce 126.3 s** (*measured*, [l36-capture-2026-09-13](mesures/l36-capture-2026-09-13.txt)).
+  The cost is in the reduce — the f64 readback and the rotation — which is 17.5× the capture and does
+  **not** scale with the calibration volume. The survey's "one Mac hour" rested on pass 1's 394.9 s,
+  which is the capture phase alone; the real total at the served volume is *estimated* under 15 min.
+- Ten tests, five mutants, all five dead. Two of them survived the first version of the tests, which
+  checked length, sign and non-zero — every shape property and no arithmetic one. What kills them is
+  `Σ‖x‖²/N = tr(H)` and Jensen's `‖E[x]‖² ≤ tr(H)`, both exact and both one line.
+- **L36 decides eight rows, not the ten the survey claimed**: L06's cell asks for a paired re-encode and
+  L15's for kurtosis on `f1recdump` blocks, and neither reads `H`. The consumer, `hstats`, is unwritten,
+  so no row is decided yet.
+- **[ROADMAP-QUALITY](ROADMAP-QUALITY.md) folded with the survey of 2026-09-12**, on the operator's
+  instruction. Replaced, and recorded here with its date: its accounting header rested on bare `Tetra`
+  — *"Base: `Tetra` at the 4B, 2.7645 b/param, MMLU 53.49, perplexity 16.1569. … The margin before the
+  product triplet's b_max is 0.7679 b/param. … An MMLU arm costs $0 on the Mac"*. All four are now
+  false or misleading: the base is the served mixed object at 2.8138 b/param and **56.37 on the full
+  split**; the margin is **0.7956 kernel b/weight** (0.7679 b/param was bare Tetra's 0.8502 kernel
+  b/weight converted at 0.903255, and mixing the two accountings is the subtraction to refuse); and an
+  arm on the full split — the only plan that resolves anything — costs **$0.70**, not $0.
+- Eleven cells of that table carry a dated correction in place, and eighteen rows are added. Row 6's
+  gain moved from "0 to +2 on STEM *estimated*" to **+0.8 to +1.4**: the +2.98 pp of the ×32 arm is
+  card-vs-card on a *naked* base, and the direct served-base reading is **+0.22**.
+- **Still owed, and not done here**: `ROADMAP`:44 and :297 and `ETAT` §7 are stale; this file owes ten
+  more entries from 2026-09-07 to 2026-09-12 covering **$42.14**; and five rows of `data/jobs.csv` cite
+  three journals that exist in no commit of any ref — `volume-2026-09-07.txt` ($19.54),
+  `q5-sur-v32-2026-09-07.txt` ($0.32), `m3-gptq-2026-08-30.txt` ($0.05). The first two carry the
+  numbers row 6 now rests on, so writing them needs the bucket.
+
 ## 2026-09-07. Chantier 3: the paper's codebook is exonerated, and perplexity moves a fifth while MMLU does not move at all
 
 - **`leech0c13`, the paper's own LLM configuration, encoded at the 4B for the first time** (3 h 55 on the Mac at $0, then $0.33 of L40S; prereg stamped before the first second, sha256 `9ecd46f8…`; [journal](mesures/leech0c13-2026-09-07.txt), [deviations](../proofs/preregistration-leech0c13-2026-09-06-ECARTS.md)). One variable against the `Tetra` of 2026-09-06: the codebook. Same model, same C4 corpus, same 131,072 tokens, same rotation, same device.
@@ -463,3 +501,54 @@ The project's chronological thread, one entry per period, from 2026-07-24 to 202
 - **The three arithmetics on the card** ($0.00, 4 s of card after 50 min of queue; prereg stamped, sha256 `a3765c0a…`; [journal](mesures/f1-rang-variantes-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-rang-variantes-2026-09-05-ECARTS.md)): every variant equal to `tv_f1r` on all 30,720 rows (V1 at Δ = 0 exactly, V2 and V3 at 3.16e-7 — the review's host replay had said 3.3e-7), all three at 40 registers and 0 local. **V3: T = 1.694 ms against B = 2.797 — 0.61×; V1 1.719; V2 3.444 (+0.11 on `tv_f1r`).** The 24 int→float conversions per block were ~1.6 of the ~2.0 ms of arithmetic measured at 14:53; the dependent chain of small-table reads cost nothing. The signed prediction was wrong on all four times, in the direction its own instructive clause had named (`Du_v3 < 1.3`). Reproducibility of the reference arms across the two jobs: 0.4%. The prereg's row: F1d takes v3, v1 equivalent within the ±0.1 ms resolution. Projected, same reserves as the morning's floor: ≈ 113 tok/s at the 4B, +12%, for half the VRAM (*estimated*) — where the naive writing of the same decoder projected −5% five hours earlier.
 - **Trio, steps 0, 1 and 3, built and reviewed the same night** ($0; three builders, three adversarial reviewers; commit `cc23f9a`). Step 0: `llvq_search::trio`, 1,122 lines, rebuilt from `llvq_core::Golay` with its own construction and asserting at construction the trio, the 64 states, the 1,024 edges, N0 = 1,240, the closed-form bounds and the 12 F₂ columns; `decode` in natural order, `encode` the inverse refusing every non-codeword; held to the bench's decoder on 10⁵ words, 10⁶ round trips, 16 mutants killed. Step 1: the production encoder, allocation-free and `Sync`, the bench's rule to the letter (6,000 of 6,000 pairs at the bench's point), α = 0.3218 and the pair (α, 1.14 α) fixed on the 4,000 training blocks before the evaluation blocks were read once (88.89% against 92.00); **329 µs/block/core** against `nearest_angular`'s 687 in the same process (*measured*, `trioencbench`, reproduced by the reviewer at 328 and 327), gate 656; the truncated rule stays a knob at 246. Step 3: format v5 (`LVQ5`), the kind in the header, the Trio fingerprint beside the untouched v1 one, encode/decode by kind, refusals in every runtime transcoder, in the fused loader and in every tool that would read a Trio index as a Ball class — seven cuda/metal bins the review found unguarded included; the default writer still writes v4 byte for byte. The review's other finding: the per-file kind cannot carry Q5's `v_proj` in int4 beside Trio matrices; a per-matrix kind goes in before any Trio file is sealed.
 - Kept from the audit's ten example files, four: `f1accesscv` (real access, held-out), `f1shrink` (orbit counts under signed permutations 67/9 → 6/3, second moments, six-section trellis), `f1rankbench` and `f1rankenc` (the universal table and its encoder's exactness). Operator go, 2026-09-05: journals, the ALU floor of the universal decoder at ≤ $0.10, and the objective **an F1 that can be tested**.
+## 2026-09-14. Tetra gains-only Schur pilot
+
+The local pilot completed in 10.77 seconds at zero remote cost (*measured*, [journal](mesures/tetra-schur-pilot-2026-09-14.txt)).
+The 5–15 minute estimate was too high. Protocol and input manifest were timestamped before capture.
+Schur lowers mean selection regret in both seeds, but only five scheduled decisions differ from Euclidean post-shape selection.
+Three are terminal blocks. The two interior cases have opposite signs on the regularized rollout loss.
+The signed prediction holds in seed 1 and understates the relative reduction in seed 2.
+The former guide's unrun status is replaced by [the completed results](tetra-schur-pilot-2026-09-14.md).
+No served policy, kernel or quality claim changes.
+
+## 2026-09-14. The Tetra gain rule against the Euclidean optimum
+
+- **The served gain rule is not the Euclidean optimum, and the gap is measurable without a model.** A Tetra block decodes to `c_g · row_scale · u`; the served encoder picks the centroid nearest `‖x‖ / row_scale` (`quantizer.rs:777`), while the argmin of `‖x − a u‖²` over the same two levels is the one nearest `⟨x,u⟩ / row_scale`. Since `⟨x,u⟩ ≤ ‖x‖` the correction is one sided and can only move a block down. On 42,400 Gaussian blocks of the F1b source the two rules differ on **10.892 %**, 4,618 down and 0 up, mean `cos(x,u)` 0.960791 (*measured*, `llvq-bench/src/bin/gaindisagree.rs`, [journal](mesures/gain-desaccord-tetra-2026-09-14.txt)). Cost: 22 s of CPU, $0.
+- **The same measurement on real compensated residues, and it needed no capture.** 2,016 shadow blocks of Qwen3-0.6B, two seeds, `q_proj` and `gate_proj` at layers 0, 13 and 27: disagreement **10.119 %**, 204 down and 0 up, mean `cos(x,u)` **0.961088** (*measured*, `ops/gain_disagree_real.py`, [journal](mesures/gain-desaccord-reel-2026-09-14.txt), [per-cell CSV](data/gain-desaccord-reel-2026-09-14.csv)). The synthetic run's own prediction is confirmed on both halves: the angular geometry is a codebook property and transfers to 0.03 %; the norm distribution does not, and compensation moves occupancy at the upper level from 45.901 % to 56.696 % and the median `‖x‖ / row_scale` from 0.9860 to 1.0120. Cost: 0.15 s of CPU, $0.
+- **The centroid scalar reverses on real blocks, and one aggregate was hiding eight cells.** Shrinking the fitted pair by the mean cosine is worth −0.8818 % of squared error on Gaussian blocks and **+0.4705 %** on compensated ones, and applied with the rule it removes two thirds of the rule's gain (−1.9789 % against −0.4048 %). The rule itself holds: −1.2224 % synthetic against **−1.1311 %** real. Per cell the rule wins in **12 of 12**, from −0.6475 % to −1.5287 %, and the scalar loses in 8 of 12 (*measured*, same journal). The mechanism is the row above: the centroids are fitted on uncompensated weights, compensation then raises the norms the decision reads, so the served pair already sits low and shrinking it over-corrects. Stage 3 is closed, not deferred: an audit the same day swept the rescaling of the pair over [0.90, 1.15] and found the best at **1.0145** — *upward*, as the norm distribution predicts — worth **−0.0258 %**, a fortieth of the rule; a full Lloyd-Max refit fitted and scored on disjoint seeds reads −0.11 % at best on `⟨x,u⟩` and +1.55 % at worst on `‖x‖`; and with each rule at its own best scalar the Euclidean rule still wins 12 cells of 12 by 0.55 to 0.87 points, so the gain is in the choice and not in the placement.
+- **A plan reported absence four times from a session that could not see the working tree.** [plan-decision-gain-tetra](plan-decision-gain-tetra-2026-09-14.md) §2 recorded `tetrapost`, the Schur code, the pilot directory and the 10.77 s figure as having no occurrence anywhere. All four existed, uncommitted, in the Documents working tree and in no other copy — not on `origin`, not in a stash. They are now `recherche/tetra-schur-2026-09-14` at `09e0f65`, and it is their dumps that answered stage 0 bis for 0.15 s instead of the budgeted day. The verdicts were true of the committed tree and false of the machine; a session that cannot see the tree can report failure to find, never absence.
+- Nothing above is a quality claim. Retention is Shannon retention at a fixed rate, two transpositions from perplexity, and any MMLU arm on this lever reports noise until row A of [ROADMAP-QUALITY](ROADMAP-QUALITY.md) lands. The anchor stands: 21.5 % of perplexity between `leech0c13` and Tetra bought 1.18 pp of MMLU, CI95 [−1.54; +3.98].
+## 2026-09-15. The Euclidean gain rule, end to end: dead
+
+- **A local gain of 1.13 % bought a loss of 4.026 %, and the lead is closed.** Two encodings of Qwen3-0.6B, identical in every respect but the word `tetra` against `tetrapost`: perplexity **41.8875** against **43.5739**, degradation ×2.148 against ×2.234, effective rate **2.1656 b/weight on both** (*measured*, 31 min of Mac, $0, [journal](mesures/tetrapost-ppl-0.6b-2026-09-15.txt)). The f32 baseline reads 19.5038 on both arms, which is the M1 journal's own value of 2026-09-02, so this is that protocol at the digit.
+- **The prediction was signed, stamped and refuted.** The prereg predicted B below A by 0.2 % to 1.2 %; B came out above by 4.026 %, wrong sign and three times outside its own interval ([prereg](../proofs/preregistration-tetrapost-ppl-0.6b-2026-09-15.md), [deviations](../proofs/preregistration-tetrapost-ppl-0.6b-2026-09-15-ECARTS.md)). Its own clause — beyond 3 %, doubt the measurement before the hypothesis — fired and was discharged by the four controls: same rate, same baseline, same 440,401,920 weights, one word of configuration apart. The decision rule stopped the queue after the first pair, so seeds 1 and 2 were never run: 31 min spent of the 3 h authorised.
+- **The mechanism is measured, not inferred.** The Euclidean rule moves every disagreed block *down* a level — 204 of 204 on real blocks, 4,618 of 4,618 on synthetic ones — because `⟨x,u⟩ = ‖x‖·cos θ ≤ ‖x‖`. Mean amplitude placed over block norm: **0.99336** under the served rule, **0.97073** under the Euclidean one, a systematic **2.9 % shrink** (*measured*, same pilot dumps). It buys squared error by trading an unbiased error for a smaller **biased** one. A centred error partly cancels down 28 layers; a one-sided shrink of every block accumulates.
+- **The plan's §9 is the claim that failed, and it is the transferable lesson.** It argued this lead was unlike the three precedents (design C, `group_scales`, gptq2) because rule C leaves the compensation loop, the row scale, the direction and the format untouched. It checked that the procedure around the decision was intact and never checked what the decision does in aggregate. Changing which of two admissible codes is written changes the distribution of the amplitude written — the same class of defect as `group_scales`. **A selection rule is not local just because each of its decisions is.** The repository now holds four cases, not three.
+- Kept from the dead lead: `ops/gain_disagree_real.py` and its audit, which answered a one-day question in 0.15 s from dumps already on disk; and the fact, still standing, that the served rule and the Euclidean optimum disagree on 10.119 % of real blocks. What is refuted is that the disagreement should be resolved the Euclidean way.
+
+## 2026-09-17 and 18. The state reconciled, and two accounting errors found in it
+
+A container reading a 2026-09-11 HEAD concluded that the experiments of 09-16 and 09-17 were
+missing. They were on the Mac, in 57 commits ahead of `main`. The state is written once, for
+`main..HEAD`, in [`etat-reconcilie-2026-09-17.md`](etat-reconcilie-2026-09-17.md), with each
+result tied to its code, parameters and data. Operator decision: no merge into `main`, and the
+38 leads of `claude/fine-tuning-cost-mmlu-gain-kic9ua` stay out of scope.
+
+Four distinct quantities are called rho in the repository. The negative conditional rollout of
+09-16 ran at rho_H = 1.0, inherited from the Schur pilot bundles, and `tetraalt.rs` has no rho
+of its own. Under rho_H, selection and compensation come from one `GptqFactor` and are
+inseparable; row scales never move with it.
+
+Every projection type fits under b_max in int4 natively. The allocation journal of 09-16 set
+whole-model b/param against a b_max in kernel b/weight, and only the o_proj row was ever
+redone. Redone for all six: `down_proj` reads 2.7226 kernel b/weight, not the 3.2286 that put
+it out of budget, and v + o + down reads 2.9408 (*computed*). The condition is a native int4
+kernel for the shape, which has run on `v_proj`'s alone.
+
+The served object's recorded sha256 was the sha256 of its encoding prereg, propagated from a
+journal's `Prereg` line into the f1e census prereg and then into `configs/README.md`. The
+object's own digest is `ae31087a...2263` (*measured*, two bucket downloads,
+[references-comptabilite-2026-09-18](mesures/references-comptabilite-2026-09-18.txt)). The byte
+count was right, which is why every size check passed. And the served b/param read off the file
+is 2.7475 at the f16 tail the card has held since 2026-08-09, against the 2.8138 *computed*
+that `configs/README` carried.

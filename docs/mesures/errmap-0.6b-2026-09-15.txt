@@ -1,0 +1,105 @@
+THE FULL SENSITIVITY MAP OF QWEN3-0.6B (2026-09-15)
+====================================================
+Prereg: proofs/preregistration-errmap-0.6b-2026-09-15.md, stamped before the run.
+Code: errmap at 286605d. Cost: $0, 2 h 25 of Mac, 09:44:39Z to 12:09:37Z.
+Data: docs/data/errmap-0.6b-2026-09-15.csv. Raw log in the -brut directory.
+
+THE DEFECT, FIRST
+------------------
+The probes and the validation both read wikitext-2 test. The map is therefore
+FITTED ON THE EVALUATION SET, and every gain below is optimistic by an unknown
+amount. Nothing here is a quality claim, and the first correction owed is probes
+on one split and validation on another. It is stated first because a reader who
+takes one number away should take this one.
+
+THE FOUR PREREGISTERED PREDICTIONS
+-----------------------------------
+1 REFUTED, and not narrowly. Predicted: a majority of directions concave or
+     flat. Measured: 13 of 196, 6.6 %. The two-block pilot read 9 of 14 and was
+     a pathological regime — 8 calibration windows against 64. The quantized run
+     sits near a minimum of its own loss in 93 % of directions, so the trust
+     region is a guard rail and not the load-bearing part it looked like.
+2 CONFIRMED, with its wording corrected. Predicted: q_proj and k_proj read
+     exactly zero on all 28 blocks. Measured: not exactly zero, but four orders
+     of magnitude below every other type — max |g| of 9.9e-6 for q_proj and
+     3.1e-5 for k_proj against 3.8e-1 elsewhere, medians 3e-6 and 5e-6 against
+     5e-2. That residue is the f32 evaluation's own noise divided by 2ε. The
+     invariance is exact; the measurement is not, and "exactly zero" was a
+     claim about arithmetic rather than about the model.
+3 CONFIRMED, and better than its bound. Predicted: the held-out combination
+     agrees in sign and errs by under 50 % of the predicted move. Measured:
+     +9.25 % of the move, correct sign. Predicted NLL 3.66278, measured 3.66946,
+     from a baseline of 3.73499.
+4 CONFIRMED. Predicted: the pooled single scale differs from the sweep's 1.02.
+     Measured: 0.99456. It differs in SIGN, not merely in size, which is more
+     than the prediction asked for and is treated below.
+
+THE MAP
+--------
+Baseline NLL 3.73499, perplexity 41.8875 — the `tetra` arm of this morning.
+
+  the ten costliest directions        gradient    curvature    scale   gain(NLL)
+  blocks.27.mlp.gate_proj           -3.7770e-1    1.3837e0    1.030   -1.071e-2
+  blocks.0.self_attn.o_proj         -3.7966e-1    2.0574e0    1.030   -1.046e-2
+  blocks.0.self_attn.v_proj         -3.7966e-1    2.0592e0    1.030   -1.046e-2
+  blocks.27.mlp.down_proj           -3.2729e-1    1.2457e0    1.030   -9.258e-3
+  blocks.27.mlp.up_proj             -3.2728e-1    1.2465e0    1.030   -9.258e-3
+  blocks.6.self_attn.o_proj          2.8372e-1    9.1399e-1   0.970   -8.100e-3
+  blocks.6.self_attn.v_proj          2.8371e-1    9.1498e-1   0.970   -8.100e-3
+  blocks.16.self_attn.o_proj         1.9743e-1    1.5664e-1   0.970   -5.852e-3
+  blocks.16.self_attn.v_proj         1.9743e-1    1.5743e-1   0.970   -5.852e-3
+  blocks.17.self_attn.o_proj         1.6248e-1    1.8546e-1   0.970   -4.791e-3
+
+Paired projections agree to four digits — v with o, up with down — which is what
+being in series requires and is the run's own consistency check.
+
+Gain by type, as a share of what the map claims:
+  v_proj 24.5 %, o_proj 24.5 %, gate_proj 17.9 %, up_proj 16.6 %,
+  down_proj 16.6 %, k_proj 0.0 %, q_proj 0.0 %.
+
+By depth: layers 0-9 carry 41.6 %, 10-18 28.7 %, 19-27 29.7 %.
+
+It is diffuse. The single best matrix carries 3.6 % of the claimed gain, the top
+ten 27.5 %, and it takes 100 matrices to reach 93.6 %. There are no hot spots.
+
+THE RESULT THAT MATTERS
+------------------------
+The corrections do not point the same way. Of the 140 matrices that are not q or
+k, 76 want to be dilated and 64 to be shrunk. There is no global scale error:
+there is a per-matrix disagreement whose mean is nearly nothing.
+
+That is why the sweep's global scalar bought only 0.836 %. A single number is
+averaging over corrections that cancel. It also explains the sign flip of
+prediction 4: the pooled post-hoc scale is 0.99456 and the re-encoded sweep's
+minimum is 1.02, and neither is a summary of the other.
+
+Measured, not extrapolated: moving 8 matrices of 196 took the NLL from 3.73499
+to 3.66946, which is 41.8875 to 39.2295 of perplexity, -6.35 %, at identical
+rate, format and decoder. Subject to the defect at the top of this file.
+
+The map claims -3.0126e-1 of NLL over all 196, which would be 30.99 of
+perplexity. That number is an additive extrapolation over 196 terms, 147 of them
+pinned at the edge of the trust region, and it is NOT supported by anything here.
+The 8-matrix figure is.
+
+WHAT FELL WITH PREDICTION 1
+----------------------------
+An interpretation written yesterday: that the three objectives order monotonically
+by how much of the stack they see — 0.906 for the weights, 0.999 for the layer,
+1.02 for the model. The map breaks it. The model's own optimum at FIXED CODES is
+0.99456, which sits beside the layer's 0.999 and not beyond it. The 1.02 belongs
+to re-encoding, which changes which level each block picks and what later
+columns are compensated against.
+
+So the gap is not an horizon effect. Two of the three objectives agree closely
+once the comparison is made at fixed codes, and the odd one out differs by being
+a different operation. The horizon story needs the depth experiment or it should
+be dropped.
+
+LIMITS
+-------
+The defect at the top. One model, one seed, one corpus. ε = 0.01 and a trust
+region of 0.03, with 147 of 196 optima at that edge, so the map is bounded by
+its own guard rail rather than by curvature. Cross terms unmeasured; the only
+evidence they are small is the 9.25 % of the 8-matrix test. Post-hoc scaling is
+not re-encoding.

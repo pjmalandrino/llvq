@@ -1,0 +1,65 @@
+HOW FAR TO BELIEVE THE PARABOLA: THE TRUST REGION, MEASURED (2026-09-15)
+=========================================================================
+Code: errmap at 086b5b4, map loaded rather than re-probed.
+Cost: $0, 39 min of Mac, 16:26:24Z to 17:05:36Z. Raw log in the -brut dir.
+Map: docs/data/errmap-heldout-0.6b-2026-09-15.csv, probed on calibration text.
+
+THE MAP RELOADS EXACTLY
+------------------------
+196 sensitivities read from disk rather than re-measured, and three matrices
+re-probed at random to check the map still describes the model in memory:
+
+  blocks.3.self_attn.q_proj    +8.945064e-6 against +8.945064e-6   drift 0.000
+  blocks.15.mlp.up_proj        -5.010280e-2 against -5.010280e-2   drift 0.000
+  blocks.23.mlp.gate_proj      -4.421993e-2 against -4.421993e-2   drift 0.000
+
+Bit-identical on all three, which is what a deterministic quantizer owes and is
+worth checking rather than assuming. This is what makes every later question
+cost minutes: the two hours of probes are spent once.
+
+THE RESULT
+-----------
+All 196 matrices at their own optimum within a region of half-width T, measured
+on held-out text:
+
+    T      at edge     claimed      measured   realized    perplexity
+  0.030    166/196    -0.338477    -0.197401     0.583      34.3838   -17.91 %
+  0.040    164/196    -0.442035    -0.215984     0.489      33.7508   -19.43 %
+  0.050    164/196    -0.541171    -0.213559     0.395      33.8327   -19.23 %
+  0.060    161/196    -0.635894    -0.190766     0.300      34.6127   -17.37 %
+  0.080    160/196    -0.812509    -0.086918     0.107      38.4005    -8.32 %
+
+Baseline 41.8875. "Realized" is the measured move over the claimed one.
+
+**The real optimum is T = 0.04**, worth 19.43 % against the 17.91 % of the
+region used so far — a further 1.5 points. Past it the measured gain falls while
+the claim keeps rising, and by T = 0.08 the model delivers 11 % of what it
+promises.
+
+WHAT THIS SAYS ABOUT THE INSTRUMENT
+------------------------------------
+The claimed column is monotone and the measured one is not. The surrogate has no
+idea where it stops being valid: it will keep promising more for any T it is
+given, and at T = 0.20 it promises a quantized perplexity of 8.90 against the
+f32 model's own 19.50, which is impossible.
+
+So the domain is not derivable from the model. It is a measurement, and this
+sweep is how it is taken. That is a property of the method and not a defect of
+this map: a second-order expansion carries no information about its own radius
+of convergence.
+
+The arithmetic bound and the empirical one agree on which side to be. The claims
+become physically absurd past T ~ 0.08 (a quantized perplexity below f32), and
+the measured realization collapses to 0.107 at exactly that point.
+
+LIMITS
+-------
+One model, one map, one corpus. The grid is five points and the maximum lies
+between 0.04 and 0.05; nothing here resolves it finer, and refining it would be
+fitting the grid to this one run.
+
+Every T moves all 196 matrices at once, so this sweeps the amplitude axis at
+fixed breadth. The breadth axis was swept in
+errmap-heldout-0.6b-2026-09-15.txt, at fixed T.
+
+The correction remains post-hoc scaling of quantized weights, not re-encoding.

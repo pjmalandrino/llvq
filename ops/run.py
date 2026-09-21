@@ -954,7 +954,17 @@ def cmd_publish(args) -> int:
     )
     print(f"\nimage: hf.co/spaces/{repo_id}")
     print(f"build: https://huggingface.co/spaces/{repo_id}  (follow the logs)")
-    print("\nWait for the build to reach RUNNING before launching a Job.")
+    # 🚨 NOT "RUNNING". This Space is an IMAGE, not an application: it builds
+    # and then sits at APP_STARTING forever, because nothing is served. Waiting
+    # for RUNNING waits for a state that never arrives — measured on
+    # 2026-09-20, 30 minutes of polling for nothing. The image is usable as
+    # soon as BUILDING is over.
+    print(
+        "\nWait for the build to leave BUILDING before launching a Job. The Space then"
+        "\nsits at APP_STARTING and STAYS there: it is an image, nothing is served, and"
+        "\nRUNNING never arrives. Poll for the stage to stop being BUILDING, and treat"
+        "\nBUILD_ERROR / CONFIG_ERROR as the failures."
+    )
     return 0
 
 

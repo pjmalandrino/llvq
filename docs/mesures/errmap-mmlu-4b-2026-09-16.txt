@@ -1,0 +1,156 @@
+THE CORRECTION GAINS 17 % OF PERPLEXITY AND LOSES 3 POINTS OF MMLU (2026-09-16)
+================================================================================
+Job 6aaa4e4e5527934177ee9455, l40sx1, 45 min billed, 1.36 $.
+Two arms of ONE file: Qwen3-4B Tetra as written, and the same file with the gain
+centroids of 180 matrices multiplied by the sensitivity map's factors at
+T = 0.06. 360 f64 numbers apart, 2.1696 b/weight both, same codes, same row
+scales, same header.
+Dumps: docs/data/mmlu-dumps/mmlu-{temoin,corrige}-FULL.csv, 14,042 questions each.
+
+THE RESULT
+-----------
+  arm        perplexity wikitext-2    MMLU micro    MMLU macro
+  witness         16.7988              51.25 %       53.31 %
+  corrected       13.8771              48.19 %       49.55 %
+  change          -17.4 %              -3.06 pp      -3.76 pp
+
+Paired, on the full split, same 14,042 questions, run fingerprint identical
+(a74a6d6213602979 on both):
+
+  McNemar exact, unweighted
+    A✓B✗ = 1457   A✗B✓ = 1027   concordant = 11,558
+    17.7 % of the questions are DISCORDANT
+    p = 6.193e-18, z = +8.63
+  paired bootstrap stratified by subject, 10,000 draws
+    Δ = +3.06 pp in favour of the WITNESS, CI95 [+3.06 ; +3.06]
+
+The population is measured in full, so the interval has no sampling width. The
+gap is not noise and is not marginal: it is 3 points, and it is against the
+correction.
+
+WHAT THIS KILLS
+----------------
+The lead, as a quality lever. A 17.4 % improvement in perplexity produced a
+3.06 pp LOSS of MMLU. Not an absence of gain — a loss, at p = 6e-18.
+
+This is the fifth case on file of a better local proxy composing worse, and by
+far the sharpest. The previous anchor was leech0c13: 21.5 % of perplexity for
++1.18 pp of MMLU, CI95 [-1.54; +3.98], i.e. unresolved. Here the two axes move
+in OPPOSITE directions and both are resolved.
+
+17.7 % of questions change answer. The correction does not degrade uniformly, it
+reshuffles the model deeply. The subjects carrying the gap are knowledge ones —
+miscellaneous +4.3, professional psychology +5.6, high school biology +8.1,
+high school psychology +4.2, elementary mathematics +5.6.
+
+THE LESSON, AND IT IS AGAINST THE DAY'S OWN ARGUMENT
+------------------------------------------------------
+This programme spent a day establishing that GPTQ optimizes the wrong objective:
+its layer error is not the model's loss, three optima were measured at 0.906,
+0.999 and 1.02, and a closed form proved the middle one exactly.
+
+The instrument built to fix that optimizes `L(model)` — the NLL on held-out
+wikitext. It does so well: transfer +0.75 by regression slope, Spearman +0.997
+on configuration ranking, gains reproduced on C4, 10x better than random
+perturbations and 143x better than a global scale. Every claim about PREDICTING
+PERPLEXITY held.
+
+And the perplexity it predicts is also not the objective. The map moved the
+model along a direction that lowers next-token loss on encyclopedic prose and
+costs it the discrimination a four-way question needs.
+
+So the day's thesis survives in a harder form than it was stated: **the error is
+not the objective, at every level we have looked at.** Weight error is not layer
+error; layer error is not held-out NLL; held-out NLL is not the capability the
+benchmark measures. Each step, the objective that was "obviously" better turned
+out to be the wrong one, and each step it took a measurement to find out.
+
+WHAT SURVIVES
+--------------
+The instrument, exactly as far as it was validated: it predicts and ranks
+PERPLEXITY effects at a measured accuracy, on models it was probed on. Nothing
+in this file contradicts that.
+
+The method too — probe, model, predict, validate out of sample, confront
+baselines. It is what made this negative result cheap and certain instead of
+plausible: 1.36 $ and 45 minutes to close a lead that perplexity alone would
+have sold as a 17 % win.
+
+And a hard fact for the repository: an MMLU arm on this file discriminates far
+better than assumed. 14,042 paired questions resolve a 3 pp gap to a flat
+interval. The 1.339 pp sampling error that gates row A of ROADMAP-QUALITY is for
+UNPAIRED arms; a paired comparison on the full split is a different instrument
+and it works.
+
+WHY IT DEGRADES: MEASURED ON THE DUMPS, NO EXTRA RUN
+------------------------------------------------------
+The dumps carry the four logits of every question, so the mechanism is
+recoverable without spending anything further.
+
+1. THE SAME DISSOCIATION INSIDE MMLU ITSELF. Softmax over the four options, on
+   the same 14,015 paired questions:
+
+     arm         NLL on the options    accuracy
+     witness         1.31933            51.26 %
+     corrected       1.25384            48.18 %
+                     -4.96 %            -3.08 pp
+
+   The corrected model is BETTER at predicting the right answer's probability
+   and WORSE at picking it. This is not "perplexity on prose against MMLU": it
+   is negative log-likelihood and accuracy on the SAME questions, moving in
+   opposite directions.
+
+2. THE LOGITS COLLAPSE. Mean spread between best and worst option falls from
+   4.0474 to 2.7323, -32.5 %; the top-two margin from 2.1092 to 1.3527, -35.9 %.
+   The corrected model is a third less decisive.
+
+3. THE PRIOR SURVIVES THE COLLAPSE. Mean logit of each letter, as a deviation
+   from the four-option mean:
+
+     witness    A -0.225   B +0.487   C +0.480   D -0.742
+     corrected  A -0.212   B +0.467   C +0.216   D -0.471
+
+   B's prior falls 4 % while the scale falls 32 %, so RELATIVE to the spread it
+   grows from 12.0 % to 17.1 %. The evidence shrinks and the prejudice does not.
+
+4. WHAT THE MODEL ANSWERS. The corrected arm picks B on 39.27 % of questions
+   against the witness's 32.75 %, where B is right 24.63 % of the time. On the
+   1,457 questions it loses, it answers B on 44.8 % of them.
+
+5. THE CONTROL THAT SEPARATES THE TWO EFFECTS. Rescaling the corrected logits
+   back to the witness's spread (factor 1.481) gives NLL 1.44776 — worse than
+   either arm — and accuracy 48.06 %, unchanged. Argmax is invariant under
+   scaling, so:
+
+     the collapse explains the NLL GAIN and explains none of the accuracy LOSS.
+
+   The loss comes from the RELATIVE movement of the logits, i.e. from the prior
+   gaining weight, not from the scale.
+
+THE MECHANISM, STATED ONCE
+---------------------------
+NLL is a proper scoring rule: it rewards calibration, and a quantized model is
+over-confident, so shrinking its logits improves NLL. Accuracy rewards
+discrimination, and shrinking the evidence while leaving the prior intact lets
+the prior decide more often.
+
+**The correction buys calibration and pays with discrimination.** The map did
+exactly what it was asked — minimize held-out NLL — and that objective is
+partly satisfied by becoming less sure, which costs nothing in NLL and costs
+answers in a four-way choice.
+
+This is why the lead is dead as a quality lever, and it is also a warning with a
+scope wider than this lead: any post-hoc optimization of NLL can be paid for in
+this coin, and perplexity alone will never show the bill.
+
+WHAT IS NOT MEASURED
+---------------------
+Whether a smaller T keeps some perplexity gain without the MMLU loss. T = 0.06
+was chosen as the perplexity optimum, and nothing here says the two axes cross
+at the same place — the sign of the MMLU effect at T = 0.02 or 0.01 is unknown.
+
+Whether the loss is the correction's direction or its magnitude. The 96 % figure
+from the 0.6B says the signs carry the perplexity gain; nothing says they carry
+the MMLU loss.
+
+One model, one file, one benchmark.

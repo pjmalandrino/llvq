@@ -1,0 +1,19 @@
+codebook re-checked: 56880 points, norms [2, 4, 6, 8, 10], kissing 240, theta exact
+rate: 16 bits an index, 48 + 1 gain = 2.0417 b/weight against Tetra's measured 1.9907
+controls 1 and 2 pass: zero block zero, codebook block exact
+control 3a: |witness| against centroid*row_scale, worst gap 1.110e-16
+control 3b: block 0 against the replay's euclidean, worst gap 3.469e-18
+control 5: analytic arm B error against the assembled row, worst relative 5.499e-15
+control 4: one pass, same blocks, same order, paired by block
+
+family                  rows  blocks        MSE A        MSE B   ratio    cos A    cos B        J_A        J_B  J ratio    A/iso   B/iso
+down_proj                  4    1620 1.728690e-01 1.026400e-01  0.5937  0.92353  0.95890 2.5357e-02 7.6286e-02   3.0085    0.199   1.022
+gate_proj                 12    1272 1.419692e-01 9.524112e-02  0.6709  0.93465  0.95895 1.5493e-02 5.4027e-02   3.4872    0.256   1.335
+o_proj                    12    2040 1.579624e-01 9.440369e-02  0.5976  0.92624  0.95921 1.7062e-02 1.2392e-01   7.2630    0.097   1.168
+q_proj                    12    1272 1.363862e-01 9.192845e-02  0.6740  0.93641  0.95905 1.9079e-02 7.3290e-02   3.8413    0.150   0.838
+POOLED                    40    6204 1.598968e-01 9.693209e-02  0.6062  0.93154  0.95905 1.8026e-02 8.3000e-02   4.6044    0.148   1.069
+
+PRIMARY: MSE ratio B/A pooled = 0.6062
+prereg point 1.09, interval [1.00, 1.20] -> OUTSIDE
+cos A - cos B = -0.02751  (prereg +0.005, interval [+0.002, +0.010])
+arm B rate stated above; Tetra measured 1.9907 b/weight of stream

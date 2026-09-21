@@ -1,0 +1,138 @@
+O_PROJ AT INT4 IS CONFIRMED: +1.55 PP ON 11,762 QUESTIONS THE SELECTION NEVER SAW (2026-09-17)
+==============================================================================================
+Job 6aaab349f76d6a098a711098, l40sx1, 48 min billed, $1.44. Queued on
+2026-09-16, completed overnight. Prereg: proofs/preregistration-oproj-int4-full-2026-09-16.md
+(timestamped), deviations E1 to E4 beside it.
+Data: docs/data/mmlu-dumps/mmlu-q5-shipped-FULL.csv and mmlu-q5-oproj-FULL.csv.
+Raw pairings, run logs and the split script in the -brut directory.
+
+THE RESULT, AS THE PREREG NAMED IT
+-----------------------------------
+Two arms of the same served Q5 file, full MMLU test split, one job, one card.
+Primary: the paired gain on the 11,762 questions that did not take part in the
+selection, paired stratified bootstrap WITHOUT finite population correction
+(the reading fixed in E1 before the number existed).
+
+  o_proj at int4 against shipped     +1.55 pp    CI95 [+0.91 ; +2.20]    SE 0.33
+  pooled control                     +1.58 pp    CI95 [+0.94 ; +2.23]
+  McNemar, pooled                    836 against 650 discordant, p = 1.5e-6
+
+Decision row 1 of §5: >= +1.2 pp and the interval excludes zero. The gain is
+real. Adoption is the operator's decision, and E4 below conditions it.
+
+The signed prediction was +1.2 to +2.5 pp, set deliberately below the
+exploration's +2.77 because a best-of-six is biased upward. It lands inside.
+
+EVERY OTHER CUT, EACH LABELLED FOR WHAT IT IS
+----------------------------------------------
+  set                                   n       gain      CI95
+  held-out, strict (E3, 7 duplicates)   11,755  +1.55    [+0.92 ; +2.20]
+  held-out, WITH fpc (not the decision) 11,762  +1.55    [+1.28 ; +1.82]
+  selection questions, census run        2,280  +3.12    [+1.24 ; +5.09]
+  all questions (CONTAINS the selection) 14,042 +1.69    [+1.10 ; +2.26]
+
+The full-split figure is not independent: 2,280 of its questions chose the arm.
+It is published because it is the bar a reader will look for, and this line is
+here so nobody reads it as the confirmation.
+
+THE WINNER'S CURSE, MEASURED
+-----------------------------
+On the questions that selected it, the arm reads +3.12 pp. On the questions that
+did not, +1.55. Half the selected effect was selection. This is the reason the
+prereg's prediction sat below the exploration's figure, and the reason every
+future best-of-N on 2,280 questions should be read at about half its face value
+until confirmed.
+
+THE REFERENCE REPRODUCES THE CENSUS OF 2026-09-11
+--------------------------------------------------
+Shipped arm: micro 56.37 %, macro 58.42 %, fingerprint a74a6d6213602979. The
+census of 2026-09-11 (docs/mesures/f1e-census-2026-09-11.txt) read micro 56.37,
+macro 58.42, same fingerprint. Five days, a different job, the same bar to the
+hundredth. The o_proj arm: micro 58.07 %.
+
+CONTROLS
+---------
+1. Identical run fingerprint, question by question: OK.
+2. Reference reproduces the exploration's shipped picks on the 2,280: 2,268 of
+   2,280, not all. Cross-card f16 tie-breaking, rtx-pro-6000 against l40sx1;
+   every inspected difference sits on an exact or near-exact logit tie. Does not
+   enter the primary result, whose two arms ran on one card. Recorded as E2.
+3. 14,042 questions scored on both arms: OK.
+4. Both dumps kept whole: committed.
+
+THE BUDGET, CORRECTED
+----------------------
+The prereg and the exploration journal both said the arm fits because the model
+goes 2.7645 -> 2.9599 "under b_max = 3.00". Those are whole-model b/param;
+b_max is kernel b/weight. Wrong comparison (E4). Redone in the right unit
+(computed, 3,633,315,840 projection weights, Tetra 2.1498, int4 g128 4.250):
+
+  int4 served natively        2.2044 -> 2.4226 kernel b/weight   under 3.00
+  int4 dequantized to f16     2.5095 -> 3.9485 kernel b/weight   OVER 3.00
+
+The served Q5 measures 0.97 GB of projections on card, which matches the native
+path (1.001 GB computed) and not the dequantized one (1.140). So the arm fits IF
+o_proj is served by the native int4 kernel, as v_proj already is. That kernel
+has run on v_proj's shape, 1024 x 2560, and never on o_proj's, 2560 x 4096.
+
+In whole-model b/param, the unit hard rule 6 asks for in comparisons: 2.7645 ->
+2.9599 (computed). That figure stands; only its comparison to b_max was wrong.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- The quality was measured by dense reconstruction (arithmetic=dense in both
+  dumps), not through the served kernel. The kernel was shown to match dense to
+  3 discordant questions in 2,280 on 2026-09-11, on v_proj; not on o_proj.
+- Served throughput with a second int4 projection type: not measured.
+- Anything about perplexity, other allocations, down_proj subsets, or another
+  model size.
+- Adoption. That is the operator's decision on the quality axis, now with a
+  confirmed gain and a budget that holds on one condition.
+
+IS 58 NEW? THE EARLIER 58S, PAIRED
+-----------------------------------
+Added the same day, because four different "58"s were in circulation and one of
+them made this result look like no progress. Computed from dumps already on
+disk (docs/data/mmlu-dumps/), $0, mmlupair --no-fpc. Every dump below shares
+fingerprint 65dcd53655e8bfa5: the same 2,280 questions.
+
+  figure  what it was                                              comparable?
+  58.48   Tetra file of 09-06 + q,k,v,o restored at int4, 2,280 q  yes, below
+  58.10   Tetra file of 09-06 + v_proj restored at f16, 2,280 q    no: not servable
+  58.02   "seed 1" of F5, 2026-08-19, 2,280 q                      no: predates Tetra
+  58.42   the served Q5 file, census                               no: MACRO; its micro is 56.37
+
+The two 58s that compare, face to face on the same 2,280 questions:
+
+                          09-06 (T3)                 today
+  int4 matrices           144 (q, k, v, o)           72 (v, o)
+  base file               tetra-4b-2026-09-06        tetra-q5-2026-09-09
+  MMLU, 2,280 q           58.48                      58.64
+  MMLU, census            never measured             58.07
+  confirmed held-out      no                         yes
+  cost                    3.2572 b/param             2.9599 b/param, 2.4226 kernel b/w
+
+  paired: +0.16 pp, CI95 [-2.97 ; +2.73]. Not resolved: the same level.
+
+So o_proj does not reach a quality the project had never seen. It reaches the
+level T3 reached, with half the int4 matrices, which is what brings it inside
+the budget. The two arms start from files encoded on different days, so this
+does NOT show that q and k at int4 were worth nothing: that comparison is
+confounded with the encoding.
+
+Why it looked like no progress: the served file sits a notch under the 09-06
+encoding on these questions. Same recipe (Tetra + v_proj int4), two encodings:
+
+  encoding of 09-06, v_proj restored at int4    56.95
+  served file, encoded 09-09 with v_proj int4   55.52
+  paired: +1.43 pp, CI95 [-1.53 ; +4.51]. Not resolved.
+
+Consistent with the calibration noise measured on 2026-08-25: 2.92 pp of
+standard deviation between two calibration seeds at the 4B
+(docs/mesures/bruit-mmlu-graines-4b-2026-08-25.txt). The served file came out of
+a less lucky draw, and o_proj brought it back to the level.
+
+The practical rule this leaves: on 2,280 questions, two DIFFERENT encodings
+cannot be told apart below about 3 pp. Every MMLU figure before this one was on
+that sample. 58.07 is the first on the full test split, confirmed on questions
+outside the selection.

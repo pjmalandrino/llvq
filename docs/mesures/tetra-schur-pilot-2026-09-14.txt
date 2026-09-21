@@ -1,0 +1,747 @@
+Tetra Schur pilot, 2026-09-14. Raw retained output.
+
+Operator go: both seeds, local capture plus replay, 1,800-second ceiling, no remote expenditure.
+Protocol: proofs/preregistration-tetra-schur-2026-09-14.md, timestamped before capture.
+Inputs: proofs/tetra-schur-inputs-2026-09-14.sha256, timestamped before capture.
+Both OpenTimestamps receipts match their files. Four calendar receipts each; Bitcoin anchors pending at launch.
+
+Started 2026-09-14T06:59:31.613158Z. Completed 2026-09-14T06:59:42.383216Z.
+Elapsed 10.770209040987538 seconds, measured by the supervisor monotonic clock.
+The 5-15 minute estimate was an overestimate. No sample was dropped or changed.
+Remote expenditure $0, no rented job. Peak capture RSS 2,935,635,968 bytes;
+peak macOS memory footprint 7,681,281,360 bytes (measured by /usr/bin/time -l).
+These are process resource counters, not a model VRAM accounting.
+
+48 rows, 2,016 shadow blocks, 144 branch sites, 288 complete continuations (measured traces).
+Schur versus post-shape differs on 54 shadow blocks and 5 branch sites.
+Three changed branch sites are the last full block, with only the continuous KeepExact tail remaining.
+The two interior changes, both seed 2, have opposite signs on the regularized rollout loss.
+All five changed branch sites lower reserved-output loss in this sample.
+The per-seed mean regret summaries weight each of six projection-depth cells equally, as preregistered.
+Relative regret changes are computed from these means, not changes in total model loss or MMLU.
+
+Post-run independent audit: ops/analyze_tetra_schur.py uses NumPy 2.2.6 on retained arrays.
+Direct dense quadratic forms, direct Schur elimination, conditional-center gradients,
+reserved-activation projections and code reconstruction agree on all 288 continuations.
+No additional capture, branch selection or model evaluation is performed by this audit.
+The positional breakdown is descriptive, added after the run; it changes no primary outcome.
+
+Full arrays and traces retained locally:
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14
+Derived data: docs/data/tetra-schur-pilot-2026-09-14.{json,csv}
+
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/timestamp.log
+Submitting to remote calendar https://a.pool.opentimestamps.org
+Submitting to remote calendar https://b.pool.opentimestamps.org
+Submitting to remote calendar https://a.pool.eternitywall.com
+Submitting to remote calendar https://ots.btc.catallaxy.com
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/timestamp-audit.json
+[
+  {
+    "file": "proofs/preregistration-tetra-schur-2026-09-14.md",
+    "sha256_matches": true,
+    "pending_calendars": [
+      "https://bob.btc.calendar.opentimestamps.org",
+      "https://alice.btc.calendar.opentimestamps.org",
+      "https://finney.calendar.eternitywall.com",
+      "https://btc.calendar.catallaxy.com"
+    ],
+    "bitcoin_heights": []
+  },
+  {
+    "file": "proofs/tetra-schur-inputs-2026-09-14.sha256",
+    "sha256_matches": true,
+    "pending_calendars": [
+      "https://bob.btc.calendar.opentimestamps.org",
+      "https://alice.btc.calendar.opentimestamps.org",
+      "https://finney.calendar.eternitywall.com",
+      "https://btc.calendar.catallaxy.com"
+    ],
+    "bitcoin_heights": []
+  }
+]
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/manifest-verified-before-run.log
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/validation.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/validation.json: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/Cargo.lock: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/quantizer.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/gptq.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/linalg.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/rotation.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/tetra_diag.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/bin/tetra_schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/model.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/calib.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/loader.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/ops/prepare_tetra_schur.py: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/proofs/BROUILLON-preregistration-tetra-schur-2026-09-14.md: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/train-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/validation-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/config.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/tokenizer.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/proofs/preregistration-tetra-schur-2026-09-14.md: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/supervise.py: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/source-diff.patch: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/source-status.txt: OK
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/run-events.jsonl
+{"kind": "start", "ceiling_seconds": 1800, "binary": "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "remote_cost_usd": 0, "cpu_threads": 12, "utc": "2026-09-14T06:59:31.613158+00:00", "elapsed_seconds": 0.0002832910104189068}
+{"kind": "step_start", "name": "seed-1-capture", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "capture", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture.log", "utc": "2026-09-14T06:59:31.613373+00:00", "elapsed_seconds": 0.0003599580086302012}
+{"kind": "step_end", "name": "seed-1-capture", "exit_code": 0, "utc": "2026-09-14T06:59:34.909854+00:00", "elapsed_seconds": 3.296859416004736}
+{"kind": "step_start", "name": "seed-1-layer-0-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-0-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-self_attn-q_proj.log", "utc": "2026-09-14T06:59:34.909957+00:00", "elapsed_seconds": 3.296945665992098}
+{"kind": "step_end", "name": "seed-1-layer-0-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:35.303138+00:00", "elapsed_seconds": 3.690141125000082}
+{"kind": "step_start", "name": "seed-1-layer-0-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-0-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-mlp-gate_proj.log", "utc": "2026-09-14T06:59:35.303240+00:00", "elapsed_seconds": 3.6902282910014037}
+{"kind": "step_end", "name": "seed-1-layer-0-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:35.651077+00:00", "elapsed_seconds": 4.038084083003923}
+{"kind": "step_start", "name": "seed-1-layer-13-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-13-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-self_attn-q_proj.log", "utc": "2026-09-14T06:59:35.651180+00:00", "elapsed_seconds": 4.038169333012775}
+{"kind": "step_end", "name": "seed-1-layer-13-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:35.997718+00:00", "elapsed_seconds": 4.3847236660076305}
+{"kind": "step_start", "name": "seed-1-layer-13-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-13-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-mlp-gate_proj.log", "utc": "2026-09-14T06:59:35.997814+00:00", "elapsed_seconds": 4.384806749993004}
+{"kind": "step_end", "name": "seed-1-layer-13-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:36.341433+00:00", "elapsed_seconds": 4.728438124991953}
+{"kind": "step_start", "name": "seed-1-layer-27-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-27-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-self_attn-q_proj.log", "utc": "2026-09-14T06:59:36.341531+00:00", "elapsed_seconds": 4.7285204580111895}
+{"kind": "step_end", "name": "seed-1-layer-27-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:36.683270+00:00", "elapsed_seconds": 5.07027791600558}
+{"kind": "step_start", "name": "seed-1-layer-27-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/layer-27-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-mlp-gate_proj.log", "utc": "2026-09-14T06:59:36.683397+00:00", "elapsed_seconds": 5.070388583000749}
+{"kind": "step_end", "name": "seed-1-layer-27-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:37.026037+00:00", "elapsed_seconds": 5.413046125002438}
+{"kind": "step_start", "name": "seed-2-capture", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "capture", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture.log", "utc": "2026-09-14T06:59:37.026133+00:00", "elapsed_seconds": 5.413122083002236}
+{"kind": "step_end", "name": "seed-2-capture", "exit_code": 0, "utc": "2026-09-14T06:59:40.171966+00:00", "elapsed_seconds": 8.558971874997951}
+{"kind": "step_start", "name": "seed-2-layer-0-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-0-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-self_attn-q_proj.log", "utc": "2026-09-14T06:59:40.172074+00:00", "elapsed_seconds": 8.55906512500951}
+{"kind": "step_end", "name": "seed-2-layer-0-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:40.521400+00:00", "elapsed_seconds": 8.908412749995477}
+{"kind": "step_start", "name": "seed-2-layer-0-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-0-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-mlp-gate_proj.log", "utc": "2026-09-14T06:59:40.521504+00:00", "elapsed_seconds": 8.9084962909983}
+{"kind": "step_end", "name": "seed-2-layer-0-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:40.911727+00:00", "elapsed_seconds": 9.298743749997811}
+{"kind": "step_start", "name": "seed-2-layer-13-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-13-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-self_attn-q_proj.log", "utc": "2026-09-14T06:59:40.911869+00:00", "elapsed_seconds": 9.298861124989344}
+{"kind": "step_end", "name": "seed-2-layer-13-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:41.259234+00:00", "elapsed_seconds": 9.646243166003842}
+{"kind": "step_start", "name": "seed-2-layer-13-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-13-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-mlp-gate_proj.log", "utc": "2026-09-14T06:59:41.259374+00:00", "elapsed_seconds": 9.646366583008785}
+{"kind": "step_end", "name": "seed-2-layer-13-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:41.654360+00:00", "elapsed_seconds": 10.04137329099467}
+{"kind": "step_start", "name": "seed-2-layer-27-self_attn-q_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-27-self_attn-q_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-self_attn-q_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-self_attn-q_proj.log", "utc": "2026-09-14T06:59:41.654505+00:00", "elapsed_seconds": 10.041499000013573}
+{"kind": "step_end", "name": "seed-2-layer-27-self_attn-q_proj", "exit_code": 0, "utc": "2026-09-14T06:59:41.996363+00:00", "elapsed_seconds": 10.383373040996958}
+{"kind": "step_start", "name": "seed-2-layer-27-mlp-gate_proj", "command": ["/usr/bin/time", "-l", "/usr/bin/nice", "-n", "10", "/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur", "replay", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/layer-27-mlp-gate_proj.json", "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-mlp-gate_proj"], "log": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-mlp-gate_proj.log", "utc": "2026-09-14T06:59:41.996464+00:00", "elapsed_seconds": 10.383457165997243}
+{"kind": "step_end", "name": "seed-2-layer-27-mlp-gate_proj", "exit_code": 0, "utc": "2026-09-14T06:59:42.383092+00:00", "elapsed_seconds": 10.770105291012442}
+{"kind": "complete", "remote_cost_usd": 0, "utc": "2026-09-14T06:59:42.383216+00:00", "elapsed_seconds": 10.770209040987538}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json
+{
+  "version": 1,
+  "checkpoint": "/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+  "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "calibration": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/calibration.json",
+  "validation": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/validation.json",
+  "device": "metal",
+  "layers": [
+    0,
+    13,
+    27
+  ],
+  "projections": [
+    "self_attn.q_proj",
+    "mlp.gate_proj"
+  ],
+  "rows_per_projection": 4,
+  "snapshots_per_row": 3,
+  "damping": 0.01,
+  "h_shrink": 1.0,
+  "rotation_seed": 17891053
+}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture.log
+oracle MATCH on metal, relative 0e0
+captured layer 0, self_attn.q_proj, 4 rows, elapsed 2.4s
+captured layer 0, mlp.gate_proj, 4 rows, elapsed 2.5s
+captured layer 13, self_attn.q_proj, 4 rows, elapsed 2.8s
+captured layer 13, mlp.gate_proj, 4 rows, elapsed 2.9s
+captured layer 27, self_attn.q_proj, 4 rows, elapsed 3.2s
+captured layer 27, mlp.gate_proj, 4 rows, elapsed 3.3s
+        3.27 real         2.22 user         0.68 sys
+          2935635968  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              240173  page reclaims
+                  43  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  44  voluntary context switches
+                1437  involuntary context switches
+         20189462427  instructions retired
+         10369327113  cycles elapsed
+          7679823280  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/oracle.json
+{"max_abs":0.0,"relative":0.0,"threshold":0.0001}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/capture/capture-complete.json
+{"label":"measured capture wall time","seconds":3.255426125}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.08s
+self_attn.q_proj row 1364, 0.08s
+self_attn.q_proj row 2047, 0.08s
+        0.35 real         0.38 user         0.05 sys
+            89292800  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5851  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+                2936  involuntary context switches
+          4971704252  instructions retired
+          1552929156  cycles elapsed
+            83673616  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[18,21,7],"encoder_calls_upper_bound":664,"factor_seconds":0.019971333,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":0,"mean_rollout_regret_ABC":[0.000027732601268497757,0.000027732601268497757,0.000027732601268497757],"mean_validation_regret_ABC":[0.000013270022729978408,0.000013270022729978408,0.000013270022729978408],"projection":"self_attn.q_proj","row_count":4,"seconds":0.327680958,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.07s
+mlp.gate_proj row 1023, 0.07s
+mlp.gate_proj row 2047, 0.07s
+mlp.gate_proj row 3071, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            88899584  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5822  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                2896  involuntary context switches
+          4746200442  instructions retired
+          1481226354  cycles elapsed
+            83263992  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-0-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[19,20,5],"encoder_calls_upper_bound":664,"factor_seconds":0.019592458,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":0,"mean_rollout_regret_ABC":[0.00011790440667034422,0.00004216594403477379,0.00004216594403477379],"mean_validation_regret_ABC":[0.00034835381199860006,0.0002616216845388562,0.0002616216845388562],"projection":"mlp.gate_proj","row_count":4,"seconds":0.308581958,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.07s
+self_attn.q_proj row 1364, 0.07s
+self_attn.q_proj row 2047, 0.08s
+        0.33 real         0.37 user         0.05 sys
+            88604672  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5815  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                2866  involuntary context switches
+          4825446810  instructions retired
+          1514382001  cycles elapsed
+            82985488  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[15,15,4],"encoder_calls_upper_bound":664,"factor_seconds":0.019880667,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":13,"mean_rollout_regret_ABC":[0.00005960270201476681,0.00005960270201476681,0.00005960270201476681],"mean_validation_regret_ABC":[0.0005088039357638006,0.0005088039357638006,0.0005088039357638006],"projection":"self_attn.q_proj","row_count":4,"seconds":0.314802125,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.08s
+mlp.gate_proj row 1023, 0.07s
+mlp.gate_proj row 2047, 0.07s
+mlp.gate_proj row 3071, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            88670208  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5822  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                2914  involuntary context switches
+          4790424471  instructions retired
+          1499586750  cycles elapsed
+            83051024  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-13-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[14,12,4],"encoder_calls_upper_bound":664,"factor_seconds":0.019328916,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":13,"mean_rollout_regret_ABC":[0.000049874635911528036,0.000049874635911528036,0.000049874635911528036],"mean_validation_regret_ABC":[0.0006556388303865581,0.0006556388303865581,0.0006556388303865581],"projection":"mlp.gate_proj","row_count":4,"seconds":0.313112833,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.07s
+self_attn.q_proj row 1364, 0.07s
+self_attn.q_proj row 2047, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            88571904  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5807  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                2893  involuntary context switches
+          4709607187  instructions retired
+          1471612263  cycles elapsed
+            82936312  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[18,16,4],"encoder_calls_upper_bound":664,"factor_seconds":0.019574375,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":27,"mean_rollout_regret_ABC":[0.027399156913505234,0.018595243313577443,0.017667961181633274],"mean_validation_regret_ABC":[0.1849145483219056,0.15218324442660125,0.1518811115984413],"projection":"self_attn.q_proj","row_count":4,"seconds":0.30719675,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.07s
+mlp.gate_proj row 1023, 0.08s
+mlp.gate_proj row 2047, 0.08s
+mlp.gate_proj row 3071, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            88784896  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5808  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   3  voluntary context switches
+                2857  involuntary context switches
+          4818459894  instructions retired
+          1501504811  cycles elapsed
+            83149304  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/layer-27-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":1,"disagreements_AB_AC_BC":[23,23,4],"encoder_calls_upper_bound":664,"factor_seconds":0.01935675,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":27,"mean_rollout_regret_ABC":[0.0015438528806820406,0.0012356681474902664,0.0012356681474902664],"mean_validation_regret_ABC":[0.014021293458960441,0.011627435635360962,0.011627435635360962],"projection":"mlp.gate_proj","row_count":4,"seconds":0.314829875,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json
+{
+  "version": 1,
+  "checkpoint": "/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca",
+  "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+  "calibration": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/calibration.json",
+  "validation": "/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/validation.json",
+  "device": "metal",
+  "layers": [
+    0,
+    13,
+    27
+  ],
+  "projections": [
+    "self_attn.q_proj",
+    "mlp.gate_proj"
+  ],
+  "rows_per_projection": 4,
+  "snapshots_per_row": 3,
+  "damping": 0.01,
+  "h_shrink": 1.0,
+  "rotation_seed": 17891053
+}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture.log
+oracle MATCH on metal, relative 0e0
+captured layer 0, self_attn.q_proj, 4 rows, elapsed 2.2s
+captured layer 0, mlp.gate_proj, 4 rows, elapsed 2.3s
+captured layer 13, self_attn.q_proj, 4 rows, elapsed 2.6s
+captured layer 13, mlp.gate_proj, 4 rows, elapsed 2.7s
+captured layer 27, self_attn.q_proj, 4 rows, elapsed 3.0s
+captured layer 27, mlp.gate_proj, 4 rows, elapsed 3.1s
+        3.11 real         2.23 user         0.66 sys
+          2901213184  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              239898  page reclaims
+                  18  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  29  voluntary context switches
+                1322  involuntary context switches
+         20148154245  instructions retired
+         10290568688  cycles elapsed
+          7681281360  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/oracle.json
+{"max_abs":0.0,"relative":0.0,"threshold":0.0001}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/capture/capture-complete.json
+{"label":"measured capture wall time","seconds":3.089409791}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.08s
+self_attn.q_proj row 1364, 0.08s
+self_attn.q_proj row 2047, 0.07s
+        0.34 real         0.37 user         0.04 sys
+            88145920  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5776  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+                2505  involuntary context switches
+          4894164994  instructions retired
+          1521235418  cycles elapsed
+            82526736  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[14,18,6],"encoder_calls_upper_bound":664,"factor_seconds":0.018431,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":0,"mean_rollout_regret_ABC":[0.00003488581514473706,0.00003488581514473706,0.00003488581514473706],"mean_validation_regret_ABC":[9.43968440456649e-6,9.43968440456649e-6,9.43968440456649e-6],"projection":"self_attn.q_proj","row_count":4,"seconds":0.321206292,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.07s
+mlp.gate_proj row 1023, 0.07s
+mlp.gate_proj row 2047, 0.08s
+mlp.gate_proj row 3071, 0.07s
+        0.34 real         0.37 user         0.05 sys
+            89374720  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5860  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   1  voluntary context switches
+                2824  involuntary context switches
+          4848474377  instructions retired
+          1520372732  cycles elapsed
+            83739128  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-0-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[13,14,1],"encoder_calls_upper_bound":664,"factor_seconds":0.01967975,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":0,"mean_rollout_regret_ABC":[0.00005290553361455533,0.000045039623377658494,0.000045039623377658494],"mean_validation_regret_ABC":[0.0006966346732109448,0.0007656779616757744,0.0007656779616757744],"projection":"mlp.gate_proj","row_count":4,"seconds":0.319274458,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.07s
+self_attn.q_proj row 1364, 0.07s
+self_attn.q_proj row 2047, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            88162304  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5787  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   5  voluntary context switches
+                3064  involuntary context switches
+          4734368817  instructions retired
+          1480806887  cycles elapsed
+            82526712  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[11,14,3],"encoder_calls_upper_bound":664,"factor_seconds":0.02024325,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":13,"mean_rollout_regret_ABC":[0.00012930938451487166,0.00012930938451487166,0.0001717693609888333],"mean_validation_regret_ABC":[0.0005466007065617235,0.0005466007065617235,0.00046207493752141953],"projection":"self_attn.q_proj","row_count":4,"seconds":0.308508667,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.08s
+mlp.gate_proj row 1023, 0.07s
+mlp.gate_proj row 2047, 0.07s
+mlp.gate_proj row 3071, 0.07s
+        0.34 real         0.37 user         0.05 sys
+            88211456  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5781  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   2  voluntary context switches
+                2769  involuntary context switches
+          4814697355  instructions retired
+          1510691574  cycles elapsed
+            82575864  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-13-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[16,15,1],"encoder_calls_upper_bound":664,"factor_seconds":0.019554375,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":13,"mean_rollout_regret_ABC":[0.00013951250216222158,0.00013951250216222158,0.00013951250216222158],"mean_validation_regret_ABC":[0.0006676908212396577,0.0006676908212396577,0.0006676908212396577],"projection":"mlp.gate_proj","row_count":4,"seconds":0.317327541,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-self_attn-q_proj.log
+self_attn.q_proj row 0, 0.07s
+self_attn.q_proj row 682, 0.07s
+self_attn.q_proj row 1364, 0.07s
+self_attn.q_proj row 2047, 0.07s
+        0.33 real         0.36 user         0.04 sys
+            89931776  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5892  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+                2814  involuntary context switches
+          4693904819  instructions retired
+          1456158078  cycles elapsed
+            84296184  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-self_attn-q_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[16,13,7],"encoder_calls_upper_bound":664,"factor_seconds":0.019084958,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":27,"mean_rollout_regret_ABC":[0.000088133272177419,0.000088133272177419,0.0],"mean_validation_regret_ABC":[0.132953874844445,0.132953874844445,0.12490965940577899],"projection":"self_attn.q_proj","row_count":4,"seconds":0.304891708,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-mlp-gate_proj.log
+mlp.gate_proj row 0, 0.06s
+mlp.gate_proj row 1023, 0.08s
+mlp.gate_proj row 2047, 0.07s
+mlp.gate_proj row 3071, 0.07s
+        0.33 real         0.36 user         0.05 sys
+            89178112  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                5842  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   0  voluntary context switches
+                2795  involuntary context switches
+          4776349509  instructions retired
+          1491807169  cycles elapsed
+            83558928  peak memory footprint
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/layer-27-mlp-gate_proj/summary.json
+{"array_bytes_computed":12615680,"calibration_seed":2,"disagreements_AB_AC_BC":[27,25,8],"encoder_calls_upper_bound":664,"factor_seconds":0.020020292,"inference_unit":"projection x depth x seed; blocks are not independent replicates","label":"measured diagnostic, not MMLU","layer":27,"mean_rollout_regret_ABC":[0.00030073622145928777,0.0009956954964984905,0.00017707311425774314],"mean_validation_regret_ABC":[0.006889186230601391,0.009314477706752618,0.005834144398071825],"projection":"mlp.gate_proj","row_count":4,"seconds":0.310650084,"shadow_count":168,"snapshot_count":12}
+
+FILE: /Users/pjmalandrino/tetra-schur-pilot-2026-09-14/analysis.log
+{
+  "seconds_measured": 10.770209040987538,
+  "audited_snapshots": 144,
+  "audited_branches": 288,
+  "independent_dense_audit_max_absolute_errors": {
+    "loss": 1.7763568394002505e-14,
+    "validation": 2.6645352591003757e-15,
+    "conditional": 8.881784197001252e-16,
+    "prefix": 1.3100631690576847e-14,
+    "gradient": 1.723066134218243e-13
+  },
+  "seeds": [
+    {
+      "seed": 1,
+      "cell_count": 6,
+      "shadow_count": 1008,
+      "disagreements_AB_AC_BC": [
+        107,
+        107,
+        28
+      ],
+      "changed_snapshot_count": 1,
+      "mean_rollout_regret_ABC": [
+        0.0048663540233420685,
+        0.003335047890716212,
+        0.0031805008687255175
+      ],
+      "rollout_relative_reduction_C_vs_B_percent": 4.634027068124203,
+      "rollout_relative_reduction_B_vs_A_percent": 31.46721601594864,
+      "mean_validation_regret_ABC": [
+        0.03341031806362416,
+        0.027541669089230236,
+        0.027491313617870244
+      ],
+      "validation_relative_reduction_C_vs_B_percent": 0.18283376797842976,
+      "validation_relative_reduction_B_vs_A_percent": 17.565378944367126
+    },
+    {
+      "seed": 2,
+      "cell_count": 6,
+      "shadow_count": 1008,
+      "disagreements_AB_AC_BC": [
+        97,
+        99,
+        26
+      ],
+      "changed_snapshot_count": 4,
+      "mean_rollout_regret_ABC": [
+        0.0001242471215121821,
+        0.0002387626823125664,
+        9.471340265519892e-05
+      ],
+      "rollout_relative_reduction_C_vs_B_percent": 60.331572028827885,
+      "rollout_relative_reduction_B_vs_A_percent": -92.16757652542991,
+      "mean_validation_regret_ABC": [
+        0.02362723782674388,
+        0.024042960287513224,
+        0.022108114534782036
+      ],
+      "validation_relative_reduction_C_vs_B_percent": 8.047452267082333,
+      "validation_relative_reduction_B_vs_A_percent": -1.7595051263198602
+    }
+  ],
+  "changed_BC_snapshots": [
+    {
+      "seed": 1,
+      "layer": 27,
+      "projection": "self_attn.q_proj",
+      "row": 1364,
+      "block": 41,
+      "choices_ABC": [
+        1,
+        1,
+        0
+      ],
+      "rollout_delta_CB": -0.01112738558333004,
+      "validation_delta_CB": -0.0036255939379192803,
+      "future_full_blocks": 0
+    },
+    {
+      "seed": 2,
+      "layer": 13,
+      "projection": "self_attn.q_proj",
+      "row": 682,
+      "block": 20,
+      "choices_ABC": [
+        1,
+        1,
+        0
+      ],
+      "rollout_delta_CB": 0.0005095197176875396,
+      "validation_delta_CB": -0.0010143092284836466,
+      "future_full_blocks": 21
+    },
+    {
+      "seed": 2,
+      "layer": 27,
+      "projection": "self_attn.q_proj",
+      "row": 0,
+      "block": 41,
+      "choices_ABC": [
+        1,
+        1,
+        0
+      ],
+      "rollout_delta_CB": -0.0010575992661290279,
+      "validation_delta_CB": -0.09653058526399239,
+      "future_full_blocks": 0
+    },
+    {
+      "seed": 2,
+      "layer": 27,
+      "projection": "mlp.gate_proj",
+      "row": 1023,
+      "block": 0,
+      "choices_ABC": [
+        1,
+        0,
+        1
+      ],
+      "rollout_delta_CB": -0.008339511300470434,
+      "validation_delta_CB": -0.029103497713814735,
+      "future_full_blocks": 41
+    },
+    {
+      "seed": 2,
+      "layer": 27,
+      "projection": "mlp.gate_proj",
+      "row": 2047,
+      "block": 41,
+      "choices_ABC": [
+        1,
+        1,
+        0
+      ],
+      "rollout_delta_CB": -0.0014839572864185357,
+      "validation_delta_CB": -0.012660501990354789,
+      "future_full_blocks": 0
+    }
+  ]
+}
+
+POST-RUN FROZEN INPUT CHECK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-1/validation.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/calibration.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/inspection.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/plan.json: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/seed-2/validation.json: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/Cargo.lock: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/quantizer.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/gptq.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/linalg.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-quant/src/rotation.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/tetra_diag.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/bin/tetra_schur.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/model.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/calib.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/llvq-llm/src/loader.rs: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/ops/prepare_tetra_schur.py: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/proofs/BROUILLON-preregistration-tetra-schur-2026-09-14.md: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/target/release/tetra_schur: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/train-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/datasets--Salesforce--wikitext/snapshots/b08601e04326c79dfdd32d625aee71d232d685c3/wikitext-2-raw-v1/validation-00000-of-00001.parquet: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/config.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/tokenizer.json: OK
+/Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors: OK
+/Users/pjmalandrino/Documents/Pro/workspace/poc/llvq/proofs/preregistration-tetra-schur-2026-09-14.md: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/supervise.py: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/source-diff.patch: OK
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/source-status.txt: OK
+
+OUTPUT MANIFEST
+/Users/pjmalandrino/tetra-schur-pilot-2026-09-14/outputs.sha256
+SHA256: 7c6295b2bd8e286e14ee80873e11f9b0a64f74189e28ac474300e74563ef85ed

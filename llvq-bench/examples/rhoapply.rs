@@ -121,6 +121,30 @@ use llvq_quant::quantizer::BlockCode;
 
 const DIM: usize = 24;
 
+/// Read one record of a v5 file, returning `None` for an int4 g128 one.
+///
+/// ## Why every walk in this file needs it
+///
+/// The served 4B is **mixed**: 216 `Tetra` records and 36 `v_proj` in int4
+/// g128 (`configs/qwen3-4b-tetra-q5.json`). `read_matrix_raw` refuses an int4
+/// record by name — `Error::NotALatticeRecord`, `format.rs` — so before this
+/// helper existed every walk here died at the third record of the served file
+/// and left a truncated output behind it. `read_record` is the only entry
+/// point that can walk a mixed file.
+///
+/// `None` and not an error, because an int4 record is not a failure and not a
+/// lattice record either: it is group-affine in the **natural** basis, it has
+/// no `row_scales`, and there is nothing for ρ to multiply. That is also the
+/// safety property L01 asks for — `v_proj` is never scaled, and it is never
+/// scaled *by construction* rather than by a name check that a renamed
+/// projection would defeat.
+fn next_raw(r: &mut impl Read, version: u32) -> Result<Option<RawMatrix>, String> {
+    match llvq_artifact::read_record(r, version).map_err(|e| e.to_string())? {
+        llvq_artifact::Record::Lattice(m) => Ok(Some(m)),
+        llvq_artifact::Record::Int4(_) => Ok(None),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SHA-256, because a core crate has no dependencies
 // ---------------------------------------------------------------------------
@@ -711,6 +735,9 @@ fn prove_row_scale(raw: &RawMatrix, cb: &Codebook, out_dir: &Path) -> Result<(),
         // what a reader of the artifact sees.
         let mut r = BufReader::with_capacity(1 << 20, File::open(&path).map_err(|e| e.to_string())?);
         let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
+        // A one-record file this function wrote two lines ago from a lattice
+        // record, so `read_matrix_raw` is right here and `next_raw` would only
+        // hide a bug.
         let back = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
         decoded.push(decode_scaled(&back, cb, &|_| 1.0));
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -788,19 +815,32 @@ fn clone_raw(m: &RawMatrix) -> RawMatrix {
 // The rewrite
 // ---------------------------------------------------------------------------
 
+/// What one rewrite touched, so the tool can state it rather than imply it.
+#[derive(Default, Clone, Copy)]
+struct RewriteCounts {
+    /// Records whose `row_scales` were multiplied.
+    lattice: usize,
+    /// Records copied through by kind, with no `row_scales` to touch.
+    int4: usize,
+    /// Row scales multiplied, over every lattice record.
+    scales: u64,
+}
+
 /// Copy `src` to `dst` changing nothing but the contents of `row_scales`.
 ///
 /// Every other field — the indices, the gains, the centroids, the rotation
 /// seed, the tail, the shell cap, the header and its two fingerprints — goes
-/// through [`llvq_artifact::read_matrix_raw`] and
-/// [`llvq_artifact::write_matrix_raw`] untouched, which is the pair whose
-/// byte-identity is pinned by `raw_passthrough_is_byte_identical`. Nothing is
-/// decoded and nothing is re-encoded.
+/// through [`llvq_artifact::read_record`] and [`llvq_artifact::write_record`]
+/// untouched, whose lattice arm is the pair whose byte-identity is pinned by
+/// `raw_passthrough_is_byte_identical`. Nothing is decoded and nothing is
+/// re-encoded, and an **int4 g128** record — the served `v_proj` — is copied
+/// through by kind with no `row_scales` to touch.
 fn rewrite(
     src: &Path,
     dst: &Path,
     factor: &dyn Fn(usize, usize) -> f64,
-) -> Result<(String, u64), String> {
+) -> Result<(String, u64, RewriteCounts), String> {
+    let mut counts = RewriteCounts::default();
     let mut r = BufReader::with_capacity(1 << 22, File::open(src).map_err(|e| e.to_string())?);
     let h = llvq_artifact::read_header(&mut r).map_err(|e| e.to_string())?;
     let mut w = HashWriter {
@@ -811,11 +851,24 @@ fn rewrite(
     llvq_artifact::write_header_kinds(&mut w, h.version, h.matrices, h.default_kind, h.kinds)
         .map_err(|e| e.to_string())?;
     for mi in 0..h.matrices as usize {
-        let mut m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
-        for (i, s) in m.row_scales.iter_mut().enumerate() {
-            *s *= factor(mi, i);
+        // `read_record`/`write_record` and not the raw pair: the served file is
+        // mixed, and an int4 record has no `row_scales` for ρ to reach. It is
+        // copied through by kind, so `v_proj` is left alone by construction.
+        let mut rec = llvq_artifact::read_record(&mut r, h.version).map_err(|e| e.to_string())?;
+        match &mut rec {
+            llvq_artifact::Record::Lattice(m) => {
+                counts.lattice += 1;
+                counts.scales += m.row_scales.len() as u64;
+                for (i, s) in m.row_scales.iter_mut().enumerate() {
+                    *s *= factor(mi, i);
+                }
+            }
+            // Nothing is touched, and nothing *can* be: the factor is never
+            // asked for. Counted so the caller can say so out loud rather than
+            // leaving the reader to trust a branch.
+            llvq_artifact::Record::Int4(_) => counts.int4 += 1,
         }
-        llvq_artifact::write_matrix_raw(&mut w, h.version, &m).map_err(|e| e.to_string())?;
+        llvq_artifact::write_record(&mut w, h.version, &rec).map_err(|e| e.to_string())?;
     }
     // Everything after the last record, copied verbatim. On a v3+ file that
     // is at least the two section counts `ArtifactWriter::finish` writes
@@ -827,7 +880,7 @@ fn rewrite(
     std::io::copy(&mut r, &mut w).map_err(|e| e.to_string())?;
     w.flush().map_err(|e| e.to_string())?;
     let bytes = w.bytes;
-    Ok((w.hash.finish(), bytes))
+    Ok((w.hash.finish(), bytes, counts))
 }
 
 // ---------------------------------------------------------------------------
@@ -850,7 +903,12 @@ fn row_scale_ranges(path: &Path) -> Result<Vec<(u64, u64)>, String> {
     let mut expect: Vec<Vec<u64>> = Vec::with_capacity(h.matrices as usize);
     for _ in 0..h.matrices {
         let before = r.stream_position().map_err(|e| e.to_string())?;
-        let m = llvq_artifact::read_matrix_raw(&mut r, h.version).map_err(|e| e.to_string())?;
+        // An int4 record spans bytes like any other and holds no `row_scales`;
+        // it must be consumed so the next `before` is right, and skipped so the
+        // model does not claim a zone inside it.
+        let Some(m) = next_raw(&mut r, h.version)? else {
+            continue;
+        };
         let after = r.stream_position().map_err(|e| e.to_string())?;
         let kind_tag = u64::from(h.version >= llvq_artifact::FIRST_KINDED_VERSION);
         let prefix = 4 + m.name.len() as u64      // name length, then the name
@@ -1279,8 +1337,21 @@ fn run() -> Result<(), String> {
     let cb = Codebook::new(header.default_kind).map_err(|e| e.to_string())?;
 
     // ---- Step 1: the foundation, on the second record (the smallest one).
-    let _ = llvq_artifact::read_matrix_raw(&mut r, header.version).map_err(|e| e.to_string())?;
-    let probe = llvq_artifact::read_matrix_raw(&mut r, header.version).map_err(|e| e.to_string())?;
+    // The second *lattice* record, not the second record: on a mixed file the
+    // second record can be an int4 `v_proj`, which carries no `row_scales` and
+    // would prove nothing about them.
+    let mut seen = 0usize;
+    let probe = loop {
+        match next_raw(&mut r, header.version)? {
+            Some(m) => {
+                seen += 1;
+                if seen == 2 {
+                    break m;
+                }
+            }
+            None => continue,
+        }
+    };
     drop(r);
     prove_row_scale(&probe, &cb, &out_dir)?;
     drop(probe);
@@ -1289,8 +1360,13 @@ fn run() -> Result<(), String> {
     println!("STEP 2 — idempotence: ρ = 1 everywhere");
     let id_path = out_dir.join("rhoapply-identity.llvq");
     let t = Instant::now();
-    let (id_sha, id_bytes) = rewrite(&artifact, &id_path, &|_, _| 1.0)?;
+    let (id_sha, id_bytes, id_counts) = rewrite(&artifact, &id_path, &|_, _| 1.0)?;
     println!("  wrote {} bytes in {:.1?}", id_bytes, t.elapsed());
+    println!(
+        "  {} lattice records, {} row scales multiplied; {} int4 g128 records copied \
+         through by kind, with no row scale to touch",
+        id_counts.lattice, id_counts.scales, id_counts.int4
+    );
     println!("  sha256 source   {src_sha}");
     println!("  sha256 rewrite  {id_sha}");
     if id_sha != src_sha || id_bytes != src_bytes {
@@ -1322,7 +1398,16 @@ fn run() -> Result<(), String> {
     let mut above_one = 0usize;
     let t = Instant::now();
     for mi in 0..header.matrices as usize {
-        let raw = llvq_artifact::read_matrix_raw(&mut r, header.version).map_err(|e| e.to_string())?;
+        // int4 records carry no `row_scales`, so no ρ is defined for them and
+        // none is written. An **empty** row of `rho_of` and not a skipped one:
+        // `rho_of` is indexed by record position, and `rewrite`'s factor is
+        // asked for `(mi, i)`. Dropping the entry would shift every ρ after
+        // the first int4 record onto the wrong matrix — which is a wrong file,
+        // not a crash, on any file whose widths happen to agree.
+        let Some(raw) = next_raw(&mut r, header.version)? else {
+            rho_of.push(Vec::new());
+            continue;
+        };
         let w = ck.tensor(&raw.name, raw.d_out, raw.d_in)?;
         let rr = decode_scaled(&raw, &cb, &|_| 1.0);
         let tt = decode_scaled(&raw, &cb, &|_| 0.0);
@@ -1823,8 +1908,9 @@ fn run() -> Result<(), String> {
             let hs = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
             let mut got = None;
             for mi in 0..hs.matrices as usize {
-                let m =
-                    llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
+                let Some(m) = next_raw(&mut rs, hs.version)? else {
+                    continue;
+                };
                 if mi == mk {
                     got = Some(m);
                     break;
@@ -1921,7 +2007,7 @@ fn run() -> Result<(), String> {
         println!("STEP 4 — the artifact");
         let p_path = out_dir.join("q4b-tetra-rhotilde.llvq");
         let t = Instant::now();
-        let (p_sha, p_bytes) = rewrite(&artifact, &p_path, &|mi, i| {
+        let (p_sha, p_bytes, _) = rewrite(&artifact, &p_path, &|mi, i| {
             rho_tilde_all[mats[mi].first + i]
         })?;
         println!("  written in {:.1?}", t.elapsed());
@@ -1974,10 +2060,14 @@ fn run() -> Result<(), String> {
             let mut worst = 0.0f64;
             let mut moved = 0usize;
             for mm in &mats {
-                let got =
-                    llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
-                let src =
-                    llvq_artifact::read_matrix_raw(&mut rs, h.version).map_err(|e| e.to_string())?;
+                // Both files carry the same records in the same order, so an
+                // int4 on one side is an int4 on the other; skipping the pair
+                // keeps the two walks aligned.
+                let (Some(got), Some(src)) =
+                    (next_raw(&mut rr, h.version)?, next_raw(&mut rs, h.version)?)
+                else {
+                    continue;
+                };
                 for (i, (&g, &s)) in got.row_scales.iter().zip(&src.row_scales).enumerate() {
                     let expect = s * rho_tilde_all[mm.first + i];
                     worst = worst.max((g - expect).abs() / expect.abs());
@@ -2003,7 +2093,9 @@ fn run() -> Result<(), String> {
         let h = llvq_artifact::read_header(&mut rr).map_err(|e| e.to_string())?;
         let mut got = None;
         for mi in 0..h.matrices as usize {
-            let m = llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
+            let Some(m) = next_raw(&mut rr, h.version)? else {
+                continue;
+            };
             if mi == PROBE_INDEX {
                 got = Some(m);
                 break;
@@ -2025,8 +2117,9 @@ fn run() -> Result<(), String> {
             let hs = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
             let mut out = None;
             for mi in 0..hs.matrices as usize {
-                let x =
-                    llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
+                let Some(x) = next_raw(&mut rs, hs.version)? else {
+                    continue;
+                };
                 if mi == PROBE_INDEX {
                     out = Some(x);
                     break;
@@ -2065,9 +2158,31 @@ fn run() -> Result<(), String> {
     let a_path = out_dir.join("q4b-tetra-rhoA.llvq");
     let b_path = out_dir.join("q4b-tetra-rhoB.llvq");
     let t = Instant::now();
-    let (a_sha, a_bytes) = rewrite(&artifact, &a_path, &|_, _| rho_global)?;
-    let (b_sha, b_bytes) = rewrite(&artifact, &b_path, &|mi, i| rho_of[mi][i])?;
+    let (a_sha, a_bytes, a_counts) = rewrite(&artifact, &a_path, &|_, _| rho_global)?;
+    let (b_sha, b_bytes, b_counts) = rewrite(&artifact, &b_path, &|mi, i| rho_of[mi][i])?;
     println!("  written in {:.1?}", t.elapsed());
+    // The two arms differ only in the factor, so they must have touched exactly
+    // the same records. A mismatch would mean one of them walked the file
+    // differently, which is the failure a size check cannot see.
+    if (a_counts.lattice, a_counts.int4, a_counts.scales)
+        != (b_counts.lattice, b_counts.int4, b_counts.scales)
+    {
+        return Err(format!(
+            "the two arms touched different records: A {}/{}/{}, B {}/{}/{} \
+             (lattice/int4/scales)",
+            a_counts.lattice,
+            a_counts.int4,
+            a_counts.scales,
+            b_counts.lattice,
+            b_counts.int4,
+            b_counts.scales
+        ));
+    }
+    println!(
+        "  both arms: {} lattice records scaled, {} row scales, {} int4 g128 records \
+         untouched — `v_proj` is never scaled, and it is never scaled by construction",
+        a_counts.lattice, a_counts.scales, a_counts.int4
+    );
     println!("  arm A  {}", a_path.display());
     println!("         {a_bytes} bytes, sha256 {a_sha}");
     println!("  arm B  {}", b_path.display());
@@ -2090,8 +2205,14 @@ fn run() -> Result<(), String> {
         let _ = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
         let mut worst = 0.0f64;
         for rhos in &rho_of {
-            let got = llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
-            let src = llvq_artifact::read_matrix_raw(&mut rs, h.version).map_err(|e| e.to_string())?;
+            // `rho_of` is indexed by record position and carries an empty row
+            // for an int4 record, so the two walks stay in step: one `rhos`
+            // per record, skipped or not.
+            let (Some(got), Some(src)) =
+                (next_raw(&mut rr, h.version)?, next_raw(&mut rs, h.version)?)
+            else {
+                continue;
+            };
             for ((&g, &s), &rho) in got.row_scales.iter().zip(&src.row_scales).zip(rhos) {
                 let expect = s * if per_row { rho } else { rho_global };
                 worst = worst.max((g - expect).abs() / expect.abs());
@@ -2116,7 +2237,9 @@ fn run() -> Result<(), String> {
         let h = llvq_artifact::read_header(&mut rr).map_err(|e| e.to_string())?;
         let mut got = None;
         for mi in 0..h.matrices as usize {
-            let m = llvq_artifact::read_matrix_raw(&mut rr, h.version).map_err(|e| e.to_string())?;
+            let Some(m) = next_raw(&mut rr, h.version)? else {
+                continue;
+            };
             if mi == PROBE_INDEX {
                 got = Some(m);
                 break;
@@ -2140,8 +2263,9 @@ fn run() -> Result<(), String> {
             let hs = llvq_artifact::read_header(&mut rs).map_err(|e| e.to_string())?;
             let mut out = None;
             for mi in 0..hs.matrices as usize {
-                let x =
-                    llvq_artifact::read_matrix_raw(&mut rs, hs.version).map_err(|e| e.to_string())?;
+                let Some(x) = next_raw(&mut rs, hs.version)? else {
+                    continue;
+                };
                 if mi == PROBE_INDEX {
                     out = Some(x);
                     break;

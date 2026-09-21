@@ -1,0 +1,110 @@
+THE DIAGNOSTIC DUMP SET AT THE 4B: 30 CELLS, AND THE PILOT'S CALIBRATION VOLUME
+INFLATES ITS HELD-OUT REGRET BY 2.8 TO 19 TIMES (2026-09-18)
+================================================================================
+Prereg      : none, and none is owed. Nothing about model quality is measured.
+              This extends an existing dump set and reports its shape
+              (METHODE.md section 1).
+Code        : commit df87530, `tetra_schur` built with `metal,fast-linalg`.
+              `oracle MATCH on metal, relative 0e0` on all six captures.
+Job         : none. $0. Mac M3 Max, `nice 10`, about 5 min of wall clock.
+Data        : ~/tetra-diag-4b-2026-09-18, 4.7 GB, 409 files fingerprinted in
+              docs/data/tetra-diag-4b-2026-09-18/outputs.sha256. Plans and the
+              30 per-cell summaries are committed beside it.
+Nature      : *measured* for the counts, the rates and the regrets; *computed*
+              for the samples-per-dimension ratios
+
+WHY IT WAS BUILT, AND WHAT DID NOT NEED BUILDING
+-------------------------------------------------
+The Schur pilot of 2026-09-14 already satisfies the six items the diagnostic
+asks a dump to carry. Verified field by field on a 4B row: original weights
+(`diagnostic.original`), the quantizer's compensated input
+(`snapshots[].working`), the served reconstruction with its codes and gain
+(`witness`, `witness_codes`, `branches[].gain`), the conditional metric with
+its provenance (`branches[].continuous_lower_bound` over a fingerprinted
+Hessian file), calibration and held-out activations in SEPARATE files
+(`hessian.f64le` and `validation.f64le`), and the seed, the visit order, rho_H
+and the pinned checkpoint. Nothing in the schema was missing.
+
+What was missing is coverage. The pilot is Qwen3-0.6B, two projection families,
+three layers, four rows, two seeds. The served object is the 4B.
+
+THE SET
+--------
+Qwen3-4B, pinned snapshot 1cfa9a7208912126459214e8b04321603b3df60c, f32, Metal,
+damping 0.01, rho_H = 1.0, rotation seed 17891053. Calibration is wikitext-2
+train, held-out validation is wikitext-2 validation, and the test split is
+touched by neither.
+
+  arm            cells  rows  shadows  calibration tokens  array bytes
+  capture-a          9    36     4584               2,048  831,356,928
+  capture-b          1     4     1620               2,048  797,229,056
+  capture-a-s2       9    36     4584               2,048  831,356,928
+  capture-b-s2       1     4     1620               2,048  797,229,056
+  capture-a-v64      9    36     4584              16,384  831,356,928
+  capture-b-v64      1     4     1620              16,384  797,229,056
+  total             30   120    18612                       4,885,757,952
+
+Arm `a` is layers 0, 17 and 35 crossed with `self_attn.q_proj`,
+`self_attn.o_proj` and `mlp.gate_proj`. Arm `b` is `mlp.down_proj` at layer 17
+alone, because its Hessian is 757 MB a cell against 52 MB. `s2` is calibration
+and validation seed 2. `v64` is seed 1 at eight times the calibration volume,
+against the SAME held-out set, so the volume comparison is paired.
+
+`self_attn.v_proj` cannot be in any arm: the pilot refuses it by name, because
+the served recipe holds it in int4 and it carries no lattice code.
+
+  family              n     blocks a row   shadows a cell   factor time
+  self_attn.q_proj  2,560           106              424       0.129 s
+  self_attn.o_proj  4,096           170              680       0.462 s
+  mlp.gate_proj     2,560           106              424       0.122 s
+  mlp.down_proj     9,728           405            1,620       3.922 s
+
+THE DEFECT, MEASURED BEFORE ANYTHING IS READ FROM THE SET
+----------------------------------------------------------
+At the pilot's volume every Hessian at the 4B is rank-deficient. Samples per
+dimension, 2,048 tokens over n (*computed*): 0.80 for q_proj and gate_proj,
+0.50 for o_proj, **0.21 for down_proj**. What makes those matrices invertible is
+the damping, not the data.
+
+The v64 arm prices that. Same cell, same seed, same rotation, same held-out set,
+eight times the calibration:
+
+  family            held-out regret 2,048   at 16,384   ratio
+  self_attn.q_proj          4.725e-04       1.677e-04    2.8
+  self_attn.o_proj          1.625e-03       4.577e-04    3.6
+  mlp.gate_proj             6.012e-04       1.652e-04    3.6
+  mlp.down_proj             4.770e-03       2.517e-04   19.0
+
+The held-out regret falls in every family, by 2.8 to 19 times. On the
+calibration side the direction is not consistent: q_proj falls 2.1 times and
+gate_proj 3.4, while o_proj rises 1.2 and down_proj rises 5.0.
+
+So a regret read at the pilot's volume is mostly a statement about the sample
+deficit. The high-volume arm is the one later work should read, and the
+low-volume arm is kept as the control that compares to the 0.6B pilot.
+
+WHAT THIS PUTS UNDER SUSPICION, AND WHAT IT DOES NOT REFUTE
+------------------------------------------------------------
+The alternative-directions run of 2026-09-16 read its held-out number off the
+pilot's dumps, at the pilot's volume. Its -8.763 % was therefore scored against
+activations whose regret scale this file measures as 2.8 to 19 times too large.
+
+That is a flag, not a refutation. A gain ratio and a regret magnitude are not
+the same quantity, and nothing here recomputes that run. Recomputing it on the
+v64 arm is the cheapest way to find out, and it is not done in this file.
+
+NAMING
+-------
+The quantity the branches carry is a LOCAL activation metric over one
+projection, computed from a calibration Hessian with damping. It is J_local. It
+is not the model's loss, it is not perplexity, and no MMLU statement follows
+from it.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about quality. No token was evaluated, no arm was scored.
+- Three layers of 36 and four rows of thousands. The rows are chosen by
+  `positions`, on dimensions alone, before any outcome exists.
+- One model. The 0.6B pilot and this set share a schema, not a conclusion.
+- `mlp.up_proj` and `self_attn.k_proj` are absent, and `down_proj` sits at one
+  layer of three.

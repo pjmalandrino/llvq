@@ -1,0 +1,124 @@
+THE TWO REFERENCES, FINGERPRINTED AND ACCOUNTED: AND THE SERVED OBJECT'S SHA256
+WAS NEVER ITS OWN (2026-09-18)
+================================================================================
+Prereg      : none, and none is owed. Nothing is measured about the model here.
+              This reads two files with `rtbits` and `artstat` and hashes them
+              (METHODE.md section 1).
+Code        : commit ab6edfd. `cargo build --release -p llvq-bench --bin rtbits`
+              and `-p llvq-llm --bin artstat`.
+Job         : none. $0. Mac only, no card. Two bucket reads, bandwidth alone,
+              30 s each.
+Nature      : *measured* for the hashes, the counts and the rates; *computed*
+              for the hypothetical arms of section 4
+
+WHY THIS WAS RUN
+-----------------
+Point 2 of the diagnostic asks for two fixed references and, for each, the bits
+of the codes, the side data, the b/weight of projections, the b/param of the
+whole model and the resident memory on the native path. Four of those five had
+never been read off the served object. The fifth needs a card.
+
+1. THE SERVED OBJECT'S RECORDED SHA256 IS THE PREREG'S
+-------------------------------------------------------
+`configs/README.md` carried `c084a47c...27d2` as the sha256 of
+`qwen3-4b-tetra-q5.bin`. That digest is the sha256 of
+`proofs/preregistration-tetra-q5-encodage-2026-09-09.md`, verified by `shasum`
+on the prereg file itself.
+
+The chain is traceable. The encoding journal of 2026-09-09 writes the digest on
+its `Prereg` line, at lines 6 to 8, and gives the object at lines 11 and 12
+with a byte count and NO digest. The f1e census prereg of 2026-09-11 then put
+that digest under the heading "the object", citing the journal. `configs/README`
+inherited it.
+
+The object's own digest, measured today:
+
+  qwen3-4b-tetra-q5.bin   1,794,564,765 B
+  sha256 ae31087a4b72494d52394f2cf2070da37a845c0a7d4aded65d5bdb0bd18b2263
+
+Two independent downloads of the bucket copy give that digest, so it is not a
+transfer artifact. The byte count matches the record exactly, which is why the
+mismatch survived: every check that compared sizes passed.
+
+The f1e census prereg is timestamped and is not edited. The deviation is
+written beside it, in its -ECARTS file.
+
+2. THE TWO REFERENCES
+----------------------
+Reference 1, for diagnosing the codebook and the encoder: bare `Tetra`, no
+mixed precision, no post-hoc correction.
+
+  sealed   qwen3-4b-tetra.bin        1,770,529,149 B  sha256 0adb7cfd02ed7402
+  artifact ~/llvq-4b-tetra.llvq        980,791,242 B  sha256 eadc9ef3c3f6478c
+
+Both carry the same projections: 252 lattice records, 1.9907 b/weight of
+stream, 16,957,440 tail weights, 1,105,920 row scales, identical to the fourth
+decimal in both containers.
+
+Reference 2, for measuring an improvement useful to deployment: the served Q5
+object, 216 `Tetra` records and 36 `v_proj` int4 g128.
+
+  sealed   qwen3-4b-tetra-q5.bin     1,794,564,765 B  sha256 ae31087a4b72494d
+
+No `.llvq` of it exists on this Mac and none is in the bucket. The sealed file
+is the only copy, and the bucket is the only place it lives.
+
+3. THE ACCOUNTING, READ OFF THE FILES
+--------------------------------------
+  quantity                                  bare Tetra      served Q5
+  ------------------------------------------------------------------------
+  lattice records                                  252            216
+  int4 records                                       0             36
+  lattice weights                          3,633,315,840  3,538,944,000
+  code stream, b/weight                           1.9907         1.9908
+  int4 weights                                         0     94,371,840
+  int4, b/weight with side data                        0         4.2500
+  tail weights                                16,957,440     16,367,616
+  row scales                                   1,105,920      1,069,056
+  ------------------------------------------------------------------------
+  kernel b/weight, tail f32 (published)           2.1498         2.2030
+  kernel b/weight, tail f16 (served)              2.0751         2.1309
+  b/param whole model, q8 embed, tail f32         2.7645         2.8126
+  b/param whole model, q8 embed, tail f16         2.6970         2.7475
+  b/param whole model, f16 embed, tail f32        3.4897         3.5378
+  carried in the file, measured                  16.0000        16.0000
+
+Whole model is 4,022,468,096 parameters, of which 388,956,160 of embedding and
+196,096 of norms, read in the file.
+
+The instrument is validated by reference 1: 2.7645 b/param reproduces the
+published figure exactly, and 2.1498 kernel b/weight reproduces the `ETAT`
+table.
+
+Two figures in the record move.
+
+  * `configs/README` gives the served object 2.8138 b/param, *computed*. Read
+    off the file it is **2.8126**, 0.0012 lower, 0.04 %.
+  * The o_proj journal of 2026-09-17 gives the served base 2.2044 kernel
+    b/weight, *computed* from a uniform 2.1498 over every type. Read off the
+    file it is **2.2030**, 0.0014 lower.
+
+Neither gap moves a verdict. Both are recorded because a *computed* figure and
+a *measured* one should not share a name.
+
+And the figure the project ought to quote for the served object is **2.7475
+b/param**, not 2.8126. The card has held the tail in f16 since 2026-08-09
+(`TAIL_BYTES = 2`, `llvq-llm/src/fused.rs`), so the f32 column prices a width
+nothing serves. Row 7 of `ROADMAP-QUALITY` already says the margin is 0.0747
+kernel b/weight larger than published. This measures it on the served object.
+
+4. THE HYPOTHETICAL ARMS, RECOMPUTED
+-------------------------------------
+Section 3 of `etat-reconcilie-2026-09-17.md` prices the int4 allocation arms
+with the uniform 2.1498. Those figures are *computed* and they stand, with the
+measured base 0.0014 below the computed one. No arm sits within 0.0014 of
+b_max: the closest is v + o + down at 2.9408 against 3.00.
+
+5. WHAT THIS DOES NOT ESTABLISH
+--------------------------------
+- Resident memory on the native path. That needs a card. The record cites 0.97
+  GB of projections and 1.39 GB served at `ROT_SHARE=1`, and this run measures
+  neither.
+- Anything about quality. No token was evaluated.
+- The int4 side-data rate of 4.2500 is the tool's constant for g128, not a
+  count of the file's int4 bytes.

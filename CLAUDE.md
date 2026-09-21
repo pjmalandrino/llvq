@@ -93,7 +93,8 @@ uv run --with opentimestamps ops/otsaudit.py                              # stat
 ```
 
 Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-bench` also include `rtbits`
-(b/param accounting) and `radixstudy` (E3). `rankbench` refuses to start without
+(b/param accounting), `radixstudy` (E3) and `gaindisagree` (the Tetra gain decision, stages 0 and 3 of
+`docs/plan-decision-gain-tetra-2026-09-14.md`, 22 s of CPU and no model). `rankbench` refuses to start without
 `proofs/preregistration-p1-2026-08-13.md.ots`.
 
 ### Environment variables
@@ -116,14 +117,16 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 | `LLVQ_CALIB_SEED` | integer | calibration windows drawn at random instead of the prefix (`smoke`) |
 | `LLVQ_DAMPING` | float | relative damping of the Hessian (`smoke`) |
 | `LLVQ_H_SHRINK` | ρ in [0, 1], default `1` | `H ← ρ·H + (1−ρ)·diag(H)` before rotation (`smoke`, M1 knob) |
+| `LLVQ_GAIN_SCALE` | float in [0.5, 2], default `1` | `smoke`: multiplies the fitted gain centroids of every matrix. `1` skips the multiply, so the published path is bit-identical. Measurement knob of the reconstruction bias, never a served setting |
 | `LLVQ_RESTORE_F16` | projection types separated by commas, or `all` | `mmlu`, `ppl`: those types taken from the checkpoint in f16, the rest as served |
 | `LLVQ_RESTORE_Q4` | same list | same in int4 g128; setting both is refused |
 | `LLVQ_MODEL` | HF repo or local directory | checkpoint; required by `RESTORE_*`, never a default in `mmlu` |
 | `LLVQ_MMLU_ALLOC` | `flat` (default), `proportional`, `proportional=<total>` | `mmlu`: how the budget is spread over the 57 subjects; `flat` draws exactly the sample of every dump on disk, `proportional` weights by population and, at equal budget, divides the accuracy bar by 1.46 and the paired bar by 1.32 to 1.65. It asks other questions: `mmlupair` refuses two dumps of different plans, so re-barring a published arm costs a full run |
+| `LLVQ_SEQ_BLOCK` | `0` (default), `1` | `smoke`: row C. Captures each activation's `H` **after** the matrices upstream of it in the same block are quantized, four passes a block instead of one. `0` is the published path and is bit-identical; any other value is refused by name |
 | `LLVQ_INT4_TYPES` | projection types separated by commas | `smoke`: those types written as int4 g128 records instead of lattice codes; empty by default, and an empty list writes what the run always wrote |
 | `LLVQ_THREADS` | integer | cap of the encoding pool (`smoke`); ncpu−4 and `nice` on a shared machine |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
-| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, or a power of two in 32..=512 | blocks of the activation one CTA stages in shared memory, a host-injected `#define`: unset is the served 128 on every card, `auto` reads the measured row for this card (`llvq-cuda/src/tile.rs`) and falls back to 128 where none was measured; any other value refused by name. Zero bits, bit-identical output — and it is what the two-card discrepancy turned on |
+| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, or a power of two in 32..=512 | blocks of the activation one CTA stages in shared memory, a host-injected `#define`. **Since 2026-09-20 unset reads the measured row for the card** — 64 on sm_89, 32 on sm_120 — and falls back to 128 only where no row exists; `auto` is now the same thing, kept as an explicit opt-in; any other value refused by name and marked ⚠ in the provenance. Zero bits, bit-identical output. On the served path it is worth **+16.1 %** to Tetra and 1.5 % to Planes14 ([tuile-l40s](docs/mesures/tuile-l40s-2026-09-20.txt)), which is the measurement of the mechanism: the tile steals L1 from the decoder table. Every figure published before 2026-09-20 was measured at 128 |
 | `LLVQ_TIME_EVENTS` | `1` | device span by CUDA events (`planesbench`), outside the published protocol |
 | `LLVQ_PREFILL_TOKENS` | integer ≥ 1 | `fusedrun`: times a prefill of N prompt tokens through the kernel, six passes, first discarded; then its gate — the same N in one call against N calls of one token (`rows == 1`, the unbatched path by construction), refused on a different argmax. Measurement mode; the one accepted beside `LLVQ_CONFIG` |
 | `LLVQ_BENCH_ARMS` | phases separated by `;` | arms of `planesbench`; unknown name refused |

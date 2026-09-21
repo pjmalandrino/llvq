@@ -1,0 +1,31 @@
+
+========================================================================
+A = /out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin [LLVQ 2-bit, sealed]
+    /Users/pjmalandrino/llvq-oproj-full-2026-09-16/mmlu-shipped-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/tetra-q5-2026-09-09/qwen3-4b-tetra-q5.bin [LLVQ 2-bit, sealed; restored o_proj at int4 g128 (dequantized) (36 matrices, 377487360 weights) from Qwen/Qwen3-4B@main]
+    /Users/pjmalandrino/llvq-oproj-full-2026-09-16/mmlu-oproj-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  56.37 %   B  58.07 %   Δ = -1.69 pp   ← the published number
+  unweighted (pooled) A  56.37 %   B  58.07 %   Δ = -1.69 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 755   A✗B✓ = 993   concordant = 12294   (12.4 % of the questions are discordant)
+  p = 1.370e-8   (z normal = -5.69)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -1.69 pp   CI95 [-2.26 ; -1.10]   SE 0.30 pp
+  unweighted control = -1.69 pp   CI95 [-2.26 ; -1.10]   SE 0.30 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -2.8 pp × weight  6.4 % = -0.178 pp
+  professional psychology                   -4.1 pp × weight  4.4 % = -0.178 pp
+  professional law                          -1.6 pp × weight 10.9 % = -0.171 pp
+  high school biology                       -5.2 pp × weight  2.2 % = -0.114 pp
+  high school statistics                    -6.5 pp × weight  1.5 % = -0.100 pp

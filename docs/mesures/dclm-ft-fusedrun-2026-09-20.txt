@@ -1,0 +1,71 @@
+THE FINE-TUNED OBJECT RUNS ON A CARD: 98.3 TOK/S IN 1.39 GB (2026-09-20)
+================================================================================
+Job     : 6aaf855552d0dbd7f1d72e3b, l40sx1, about $0.30.
+Data    : docs/mesures/dclm-ft-fusedrun-2026-09-20-brut/fusedrun.txt
+Subject : /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin, sha256 f8c1c903b753fe34...
+          216 Tetra + 36 int4, the object that reads 61.11 MMLU and ppl 12.3268.
+Flags   : LLVQ_FUSED_LAYOUT=tetra48 EMBED=q8 ROT_SHARE=1 FUSE=0 KV=f16,
+          the served config spelled out. NVRTC sha256 b848b0c2..., tile 128,
+          prefill 4x128, 49,152 B staged of 49,152, target compute_89.
+Nature  : *measured*
+
+WHAT IT SETTLES
+----------------
+Every quality cell of docs/table-formats-2026-09-20.md carried the same caveat:
+the figures are dense reconstructions and **this file had never run on a card**.
+It has now, through the served kernel, against its own dense arm in the same
+process.
+
+  arm                             tok/s              GB on card
+  fused, served flags        **98.3** [97.5-98.6]      **1.39**
+  dense f16, same process        43.4 [43.4-43.4]        8.04
+
+  **x2.27 in speed, /5.78 in memory**, against the dense arm of its OWN process.
+  32 tokens identical to the dense arm. `oracle` MATCH (hard rule 10).
+
+So the object that scores 61.11 MMLU is the object that serves at 98.3 tok/s in
+1.39 GB. The two are no longer separate claims.
+
+A NUMBER THIS RUN ADDS, AND IT CLOSES PART OF AN OPEN GAP
+----------------------------------------------------------
+    projections 0.97 GB on the card, **2.140 b/weight**
+    (INFERENCE accounting: KeepExact tail in binary16;
+     the bench bills its own in f32)
+
+The bench of the same day billed 0.95 GB at 2.148 b/weight, and its prereg left
+a 3 % gap between `rtbits`'s stream accounting and the bench counter as
+unresolved. Part of it is here and it is not a defect: **the bench bills the
+tail in f32, the card holds it in binary16**. The two are measuring different
+objects by one field's width, which is the same f32/f16 distinction that made
+2.8126 and 2.7475 both true of the same file.
+
+AGAINST THE 2026-09-10 OBJECT, WITH THE TWO RESERVATIONS
+---------------------------------------------------------
+                          2026-09-10    2026-09-20 (fine-tuned)
+  fused tok/s                 100.8              98.3
+  GB on card                   1.39              1.39
+  tokens checked identical      256                32
+
+-2.5 % of throughput at equal memory.
+
+**Two different files.** The 09-10 object is the C4-calibrated served Q5; this
+one is DCLM-calibrated with trained row scales. A throughput difference between
+them is not attributable to the training without a same-file control, and none
+was run.
+
+**Less identity coverage.** F1e section 0 checked 256 tokens; this run checked
+32. Thirty-two greedy tokens is a weaker statement than 256, and it is written
+here rather than rounded up to "identical".
+
+DECIDED, 2026-09-20: the 256-token check is NOT re-run now. It waits for the
+throughput work already authorized — the served-path tile on sm_89, and a
+segmented kernel for Tetra — and is done once on the improved object rather
+than twice on this one.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing at 256 tokens. See above.
+- Nothing about the tile: 128, the served constant, not swept here.
+- Nothing about fusion: FUSE=0, because Tetra carries no segmented kernel
+  (`configs/README.md`), which is a fact about the layout and not a preference.
+- No ratio against the 2026-09-10 run: two files, two processes, and hard rule 5.

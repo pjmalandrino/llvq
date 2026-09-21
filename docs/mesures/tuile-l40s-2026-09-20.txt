@@ -1,0 +1,87 @@
+THE TILE ON THE SERVED PATH: 64 IS WORTH +16.1 % ON sm_89 (2026-09-20)
+================================================================================
+Job     : 6aaf90c752d0dbd7f1d7317e, l40sx1, about $0.25.
+          A first launch, 6aaf86db52d0dbd7f1d72ebc, was refused for about $0.05
+          and produced no number (E1).
+Prereg  : proofs/preregistration-tuile-l40s-2026-09-20.md, stamped
+          sha256 13474e574b939f6533f9d964..., before the first launch.
+Data    : docs/mesures/tuile-l40s-2026-09-20-brut/sweep.txt
+Subjects: ball /out/ball-ref-2026-09-20/qwen3-4b-llvq.bin
+          tetra /out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin
+Arms    : fp16,planes14,nullk,tetra48, one process a tile, everything else held.
+Nature  : *measured*
+
+THE RESULT
+-----------
+  tile    nullk   Planes14   Tetra48       R      Tetra gain
+   128    2.272     5.070     4.078     0.6455        -
+  **64**  2.288     4.995   **3.423**   0.4193    **+16.1 %**
+    32    2.388     5.044     3.553     0.4386      +12.9 %
+
+  R = (tetra - nullk) / (planes14 - nullk)
+
+Tetra against FP16: 2.71x at 128, **3.21x at 64**, 3.07x at 32.
+GB/s on the Tetra arm: 233 at 128, **278 at 64**, 268 at 32.
+
+64 wins. The prereg's gate was "64 wins by 5 % or more", and it wins by 16.1.
+
+THE MECHANISM, WHICH IS THE REAL RESULT
+----------------------------------------
+  amplitude across the three tiles
+  Planes14   **1.5 %**
+  Tetra     **19.1 %**
+
+The prereg named this as its fourth refutation line: "Tetra moves and Planes14
+does not: the effect is the decoder table's residency and not a global
+occupancy change, which is the mechanism tile.rs claims."
+
+Planes14 is flat and Tetra swings 19 %. The tile is not changing occupancy for
+everyone; it is taking L1 from a table that only Tetra has. `tile.rs` claimed
+that mechanism from a synthetic bench and from a two-card discrepancy. It is now
+measured on the served kernel, on one card, with the other arm as the control.
+
+THE PREDICTION WAS WRONG, AND IN THE FAVOURABLE DIRECTION
+----------------------------------------------------------
+  Tetra ms at tile 64   predicted 3.77 [3.5, 4.1]   measured **3.423**  OUTSIDE
+  gain on the total     predicted +8.3 % [+0, +15]  measured **+16.1 %** OUTSIDE
+
+Both fall below the floor of their intervals. The floor was set at zero gain to
+cover the case where the synthetic row did not transport at all. The case that
+happened is the opposite: the served path shows a LARGER effect than the
+synthetic bench did.
+
+  R at 128 / 64 / 32
+  synthetic, f1rankfloor   0.5784   0.4668   0.4704
+  served path, here        0.6455   0.4193   0.4386
+
+So `f1rankfloor` understated the penalty of tile 128 on sm_89, and the module's
+caution about promoting its optimum was right for the wrong reason: the
+synthetic bench was not optimistic, it was conservative.
+
+WHAT CHANGED IN THE CODE
+-------------------------
+`resolve_with`'s `Served` arm now reads `TILE_BY_SM` and falls back to
+`TILE_BLOCKS` = 128 only where a card has no row. Both rows cite a served-path
+journal: `f1d-2026-09-10` for sm_120, this one for sm_89.
+
+The provenance semantics moved with the policy. The warning marked a departure
+from the served constant; the served policy is now the table, so a measured row
+no longer warns and only an explicit `LLVQ_TILE_BLOCKS` override does. Every arm
+still names the card, because a default that varies by architecture is
+irreproducible without it.
+
+24 tests, 4 mutants, 4 killed: Served reading another card's row, sm_89 back to
+128, the override no longer warning, and the provenance dropping the card name.
+
+**Every figure published before 2026-09-20 was measured at 128.** The bench of
+the same morning, `banc-tetra-2026-09-20`, is one of them: its 4.107 ms is a
+tile-128 number, and the same arm at the new default reads 3.423.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about sm_80 or any card absent from the table. They keep 128 and say so.
+- Nothing about tiles other than 128, 64, 32. `TILE_MIN` is 32 and the parser
+  wants a power of two, so 64 is the optimum among the reachable values here.
+- Nothing in tokens a second. This is the projection bench; the floor is now
+  2.288 of Tetra's 3.423 ms, so 67 % of what is left is launch overhead.
+- Nothing about the 8B or any other model.

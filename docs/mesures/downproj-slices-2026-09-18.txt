@@ -1,0 +1,90 @@
+DOWN_PROJ'S GAIN IS CONCENTRATED: THE MIDDLE TWELVE LAYERS CARRY 68 % OF IT FOR
+A THIRD OF THE BITS (2026-09-18)
+================================================================================
+Job 6aad3aa551992417dfcc6cee, l40sx1, 70 min billed, $2.09 against the $2.16
+announced. Peak VRAM 11.782 GB.
+Prereg: proofs/preregistration-downproj-slices-2026-09-18.md, stamped
+  sha256 863fed682d3c5a6e4cdc76ba1f5efbfe5984360c9dcaf8dd1656bb6373c7c520,
+  four calendars, before the launch. Deviation E1 beside it.
+Preceded by a $0.11 smoke job that checked the layer-window grammar on the card
+before the real one was paid for.
+Data: docs/data/mmlu-dumps/mmlu-q5-down-{0-11,12-23,24-35}.csv
+Nature: *measured*
+
+THE RESULT
+-----------
+Three arms of the served Q5 file, twelve layers each, full split, one job.
+Paired against the committed shipped dump, without finite population correction.
+
+  slice     MMLU micro   paired gain   CI95              p         discordant
+  0-11        56.85        +0.48       [-0.17 ; +1.10]   0.145      14.6 %
+  **12-23**   **58.78**    **+2.41**   [+1.79 ; +3.00]   8.2e-15    13.5 %
+  24-35       57.01        +0.63       [+0.31 ; +0.96]   2.0e-04     3.9 %
+  the whole type          +4.05       [+3.28 ; +4.83]   1.9e-24    18.4 %
+
+The first slice's interval **contains zero**: the twelve early layers are not
+resolved by this protocol. The other two are.
+
+THE GATE, AND IT OPENS
+-----------------------
+The prereg set the bar at **+2.02 pp** for the best slice, which is 1.5 times the
+full type's return per bit. It also said why a lower bar would be worthless: a
+slice above +1.35 beats the type mechanically as soon as the gains are unequal.
+
+  best slice   +2.41 pp for 0.17273 kernel b/weight = **13.95 pp per b/weight**
+  whole type   +4.05 pp for 0.5182               =   7.82
+
+**1.78 times better per bit.** Decision row 1: the gain is concentrated and the
+subset lead is funded.
+
+WHAT THE DISCORDANCE RATE ADDS
+-------------------------------
+It is the cleanest picture in this file. The late twelve layers change **3.9 %**
+of the model's answers; the early and middle twelve change 14.6 % and 13.5 %.
+`down_proj` at depth 24 and beyond is nearly inert on this exam, which no
+b/weight accounting could have told us.
+
+ADDITIVITY, WHICH IS WORSE INSIDE A TYPE THAN BETWEEN TYPES
+------------------------------------------------------------
+  sum of the three slices   +3.52 pp
+  the whole type            +4.05 pp
+  **additivity 86.9 %**
+
+Against the 96.3 % measured the same day between `o_proj` and `down_proj`.
+Cutting inside a type interacts more than combining two types, and a knapsack
+over 216 matrices should carry that figure rather than the 96.
+
+WHAT IT CHANGES FOR THE ALLOCATION
+-----------------------------------
+  v + o + down entire       2.9408 kernel b/weight, margin 0.0592
+  v + o + down@12-23        **2.5953**, margin **0.4047**
+
+Keeping only the middle slice costs about 1.6 pp and frees 0.3455 b/weight,
+which is `q_proj` entire (0.2182) plus `k_proj` entire (0.0546) with 0.13 to
+spare. Their figures are exploration only, +1.81 and +1.30, with no multiplicity
+correction.
+
+So the budget stops being the binding constraint. What binds is the number of
+confirmation arms the project can pay for.
+
+CONTROLS
+---------
+1. One job, one card, one fingerprint a74a6d6213602979 on all three arms.
+2. Each arm's log declares `12 matrices, 298844160 weights`. All three do.
+3. 14,042 questions scored on all three.
+4. The three dumps committed.
+5. `oracle` ran first.
+6. The layer window is code landed the same day: five tests, five dead mutants
+   (a backwards window, both exclusive bounds, a window ignored, an unreadable
+   layer treated as covered).
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about serving it, as every int4 arm here: dense reconstruction of a
+  dequantized tensor, and no kernel has run on 9728 x 2560.
+- Nothing about a grain finer than twelve layers, nor about non-contiguous
+  subsets, which is the whole knapsack and not this arm.
+- Nothing about the other six types. `o_proj` and `v_proj` may concentrate
+  differently, or not at all.
+- The three slices were measured together, so the middle slice's +2.41 is its
+  value **alone on the served file**, not its value beside the other two.

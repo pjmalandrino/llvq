@@ -1,0 +1,27 @@
+E8 stage 0 — invariants, rate ladder, normalized second moment
+seed 0x2026091800e8, label: measured for the moments, computed for the counts
+
+1. INVARIANTS
+   norm   vectors    240*sigma3   cumulative   bits/8dim   index   b/weight of a 24-block
+      2       240          240          240       7.907       8   1.0000   (+1 gain bit 1.0417)
+      4      2160         2160         2400      11.229      12   1.5000   (+1 gain bit 1.5417)
+      6      6720         6720         9120      13.155      14   1.7500   (+1 gain bit 1.7917)
+      8     17520        17520        26640      14.701      15   1.8750   (+1 gain bit 1.9167)
+     10     30240        30240        56880      15.796      16   2.0000   (+1 gain bit 2.0417)
+   kissing number 240 , all 56880 points in E8, minimum |x|^2 = 2
+   Tetra's measured stream, for comparison: 1.9907 b/weight
+
+2. THE CONTROL: the integer lattice, whose G is exactly 1/12
+   10000000 draws, uniform over [0,1)^8, decoder = round
+   E|e|^2 0.666762 +- 0.000067   G = 0.083345   exact 1/12 = 0.083333   gap +0.014 %
+
+3. E8
+   10000000 draws, uniform over [0,2)^8, decoder = Conway and Sloane
+   E|e|^2 0.573468 +- 0.000040   G = 0.071683   cited 0.071682   gap +0.002 %
+   distance to the cited value: +0.29 standard errors
+
+4. WHAT THE RATIO BOUNDS
+   G(Leech) 0.065771 is CITED and unverified here: this repository has no
+   infinite-Lambda24 decoder, every search is shell-capped.
+   ratio G(E8)/G(Leech) = 1.0899 on the measured E8, 1.0899 on the cited one
+   so Leech leads by 9.0 % of MSE, 0.374 dB

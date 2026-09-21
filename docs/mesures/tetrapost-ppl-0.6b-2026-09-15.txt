@@ -1,0 +1,112 @@
+THE EUCLIDEAN GAIN RULE, END TO END: IT COSTS 4 % OF PERPLEXITY (2026-09-15)
+============================================================================
+Prereg: proofs/preregistration-tetrapost-ppl-0.6b-2026-09-15.md, stamped before
+  the first run. Deviations beside it, in its -ECARTS file.
+Plan: docs/plan-decision-gain-tetra-2026-09-14.md, the endpoint of its §8.
+Code: commit 09e0f65, encoder switch `tetrapost`.
+Cost: $0. 31 min of Mac, two arms, 06:29:14Z to 07:00:40Z.
+Operator go: given 2026-09-15.
+Raw logs: tetrapost-ppl-0.6b-2026-09-15-brut/, kept whole, never summarized
+  before commit.
+
+THE RESULT
+-----------
+  arm         gain rule                  ppl        degradation   b/weight
+  tetra       from the source norm       41.8875    x2.148        2.1656
+  tetrapost   after the direction        43.5739    x2.234        2.1656
+
+The Euclidean rule is WORSE by 1.6864 of perplexity, +4.026 %.
+
+The signed prediction was B below A by 0.2 % to 1.2 %, same sign on three seeds.
+It is refuted on the first pair, in the opposite direction, at three times the
+upper end of its own interval.
+
+The decision rule of the prereg §4 reads: B above A by 0.5 % or more on the
+median closes the lead and records a fourth case of a local proxy composing
+worse. It fires. The queue stopped after the first pair, as §4 requires, and
+seeds 1 and 2 were never run.
+
+THE FOUR CONTROLS
+------------------
+1 passes. Effective rate 2.1656 bits/weight on both arms. The switch moves the
+     choice of one bit, never the rate, so the comparison is at constant cost.
+2 passes. Baseline f32 perplexity 19.5038 on both arms — and it is the same
+     19.5038 the M1 journal read on 2026-09-02, so this is that protocol.
+3 passes. Both arms re-run in one generation on one machine, 196 matrices and
+     440,401,920 weights each, damping 1e-2, rho = 1, f32, Metal, nogs, rot on,
+     calibration wikitext2 prefix 64 x 2048.
+4 passes. Raw logs kept whole.
+
+The one line that differs between the two configurations:
+  A: "magnitude on the gain grid, gain selected from source norm"
+  B: "magnitude on the gain grid, gain selected after direction"
+
+The prereg §5 says a move beyond 3 % means doubting the measurement before the
+hypothesis. The four controls above are that doubt, discharged: one word of
+configuration differs, the rate is identical, the baseline is identical, the
+weight count is identical.
+
+WHY IT LOSES, MEASURED
+-----------------------
+The Euclidean rule moves every disagreed block DOWN a level — 204 of 204 on the
+real blocks of 2026-09-14, 4,618 of 4,618 on the synthetic ones. That is not a
+detail of the rule, it is the rule: <x,u> = ||x|| cos(theta) <= ||x||, so its
+target is always below the norm.
+
+So it shrinks, systematically. On the 2,016 real compensated blocks, mean
+amplitude placed over block norm (*measured*, same dumps):
+
+  served rule       0.99336   almost unbiased against the block norm
+  euclidean rule    0.97073   a systematic 2.9 % shrink
+
+  blocks placed under the euclidean target: 38.64 % served, 48.76 % euclidean
+
+That is the mechanism. The Euclidean rule buys 1.13 % of squared error by
+trading an unbiased error for a smaller but BIASED one. Squared error does not
+see the difference; 196 matrices and 28 layers do. A centred error partly
+cancels down the stack, a one-sided 2.9 % shrink of every reconstructed block
+accumulates.
+
+WHAT THIS CORRECTS IN THE PLAN
+-------------------------------
+The plan's §9 argued this lead was unlike the repository's three precedents,
+because rule C "changes which of two already-admissible codes is written, and
+leaves the compensation loop, the row scale, the direction and the format
+untouched". That argument is wrong, and this is where.
+
+Changing which code is written changes the DISTRIBUTION of the amplitude
+written, and this rule changes it in one direction on every block of the model.
+That is the same class of defect as `group_scales`, which rescales blocks after
+their codes are chosen. §9 checked that the procedure around the decision was
+untouched and did not check what the decision does in aggregate.
+
+The plan's §12 said a win at stage 2 would establish nothing about perplexity.
+It was right, and the converse is now measured: a win on the local objective of
+1.13 % produced a loss of 4.026 % at the endpoint.
+
+LIMITS
+-------
+One model, 0.6B. One calibration seed, the published prefix. One evaluation set,
+12 windows of wikitext-2 test. The cross-seed range of this protocol is large —
+the M1 journal read 38.4507, 39.6042 and 43.0721 at rho = 1 — so the ABSOLUTE
+perplexity of either arm is not a stable quantity. The COMPARISON is paired: the
+two arms share the seed, the calibration, the rotation, the windows and the
+process generation, and differ by one word.
+
+What is not measured: whether the 4 % holds at the 4B, and whether a rule that
+selects the Euclidean optimum WITHOUT the one-sided bias — there is no such rule
+over two fixed levels — would behave differently. The bias is not an
+implementation choice here, it is what the Euclidean optimum over these two
+levels IS.
+
+No MMLU arm was run and none is licensed: the sampling error is 1.339 pp and
+nothing here is of that size.
+
+COMMANDS
+---------
+LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_THREADS=12 nice -n 10 \
+  cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- \
+  64 2048 12 2048 metal nogs tetra 999 rot
+LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_THREADS=12 nice -n 10 \
+  cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- \
+  64 2048 12 2048 metal nogs tetrapost 999 rot

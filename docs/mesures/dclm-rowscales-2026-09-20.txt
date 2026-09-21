@@ -1,0 +1,162 @@
+61.11 AT 2.7475 B/PARAM: THE TRAINED SCALES PASS THE PAPER'S NON-FT LINE (2026-09-20)
+================================================================================
+Training: job 6aaeeddc52d0dbd7f1d70916, l40sx1, 1.71 h in the loop, about $4.00.
+Scoring:  job 6aaf099f52d0dbd7f1d7121b, l40sx1, about $0.72.
+Prereg:   proofs/preregistration-dclm-rowscales-2026-09-19.md, stamped
+          sha256 f2ae5244e2322261da4afbd0..., before the run.
+          Deviations E1 to E4 in the -ECARTS.md beside it.
+Data:     docs/mesures/dclm-rowscales-2026-09-19-brut/ (journal, probe)
+          docs/mesures/dclm-ft-mmlu-2026-09-20-brut/ (dump, log)
+Objects:  ~/qwen3-4b-dclm-ft.bin  sha256 f8c1c903b753fe34...
+          ~/dclm-sigma.json       sha256 ed41791dec9fc9e6...
+Code:     ops/llvqtune at commit 96343e4
+Nature:   *measured*
+
+THE RESULT
+-----------
+Same file width, same codes, same codebook, same calibration. 1,069,056
+`row_scales` change value and nothing else does.
+
+  DCLM base, Q5 served           57.95 micro / 59.82 macro
+  + trained row scales         **61.11** / 62.79
+
+  paired    +3.15 pp
+  McNemar   1,128 won against 685 lost, p = 1.759e-25, z = -10.40
+  discordant 12.9 % of the questions
+  census on both sides, fingerprint a74a6d6213602979, 14,042 questions
+
+The fold: 216 scaled, 0 untouched, 36 int4 passed through, the file keeps its
+1,794,564,765 bytes. The 36 int4 records are `v_proj`, which holds no
+`row_scales` and cannot be reached by construction.
+
+WHERE IT SITS
+--------------
+In the accounting the card has held since 2026-08-09, tail at f16, this object
+is **2.7475 b/param** whole model with a q8 embedding, not the 2.8126 the f32
+accounting prints (`rtbits` on the sealed file, 2026-09-20).
+
+(An earlier revision of this journal wrote 2.6970. That is the **bare Tetra**
+figure, 252 lattice records and no int4. This object carries 36 int4 records
+for `v_proj` at 4.25 b/weight, which is the difference.)
+
+  llama.cpp UD-IQ2_XXS        38.87 (2,280-question plan)   2.4967 b/param
+  QTIP (3INST), paper         57.4                          about 2
+  LLVQ paper, no FT           60.7                          about 2.61
+  **this object**             **61.11**                     **2.7475**
+  LLVQ paper, fine-tuned      62.8                          about 2.61
+
+It passes the paper's non-fine-tuned line. It sits **1.69 pp under** the paper's
+fine-tuned line, which is the honest comparison, because this arm is fine-tuned
+too. Deviation E4 records that the +2.1 this repository quoted for the lever is
+the 0-gain-bit row; the row matching our object reads **+1.6**.
+
+THE TWO PREDICTIONS, ARBITRATED
+--------------------------------
+Both were written before the result, the second in the deviations file.
+
+  prereg, section 3           +3.5 pp [+1.5, +4.5]   error 0.34
+  regression on Table 6       +2.27  [+1.08, +3.47]  error 0.89
+
+Both intervals contain +3.15. The prereg is closer. So the base-dependence the
+regression reads on the paper's five pairs is **real but weaker than their fit**:
+it predicted 2.27 where 3.15 was measured.
+
+That is consistent with the parameters. Between the bare-Tetra run and this one,
+the share of rows the training moves by more than 5 % falls from 12.4 % to
+8.8 %, and the spread of sigma from 0.03463 to 0.03030. There was less to
+repair, and the repair still paid.
+
+WHAT THE TRAINING DID
+----------------------
+  9,507 steps, 19,470,336 tokens, 0.6479 s a step, 47 checkpoints
+  KL first quarter 0.2434, last quarter 0.2342, a fall of 3.8 %
+
+Against the bare-Tetra run's 7.5 % fall for +4.30 pp. So the KL fall is half and
+the MMLU gain is three quarters. The two are not proportional, and reading
+either from the other is what the 2026-09-19 deviation E7 got wrong by a factor
+of ten.
+
+  sigma   mean 0.99888   sd 0.03030   p1 0.9203   p99 1.0734
+          min 0.3847     max 1.6247   8.8 % of rows beyond 5 %
+
+No global component again: the mean sits at 1.0 and individual rows move.
+
+THE EXPORT CONTROL PASSED, AND IT IS A MEASUREMENT
+---------------------------------------------------
+`export` could not read a mixed file until 2026-09-19. The int4 path added that
+day was checked by the probe's first KL, on the same seed and the same first
+batch:
+
+  bare Tetra   0.4797
+  DCLM base    0.3527
+
+**26.5 % lower.** Beside validating the new code, this is the first reading of
+how much closer the DCLM calibration puts the model to the dense one, taken on
+logits rather than on accuracy.
+
+WHERE THE GAIN SITS, BY TYPE
+-----------------------------
+Spread of sigma per projection type, this run against the bare-Tetra run:
+
+  o_proj     0.0457 -> 0.0351   -23 %
+  down_proj  0.0312 -> 0.0271   -13 %
+  up_proj    0.0337 -> 0.0298   -12 %
+  gate_proj  0.0331 -> 0.0293   -11 %
+  q_proj     0.0331 -> 0.0309    -7 %
+  k_proj     0.0360 -> 0.0346    -4 %
+
+`o_proj` was the most deformed on the bare file and is what the DCLM corpus
+repairs most. The two levers overlap, and the overlap is concentrated there.
+`k_proj` barely moves between the two: what it carries is not repaired by the
+corpus.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing about serving it. Dense reconstruction, the protocol every published
+  bar uses. The fused kernel reads the same `row_scales`, but this file has
+  never run on a card.
+- E8 of the previous arm stands: the trainer split its columns in the natural
+  basis while the artifact's tail is stored rotated. Bounded at 1.2e-4 relative,
+  stated, not repaired.
+- Nothing about the 8B. One model.
+- The IQ2 line is read on the 2,280-question plan, not the full split, and the
+  two other llama.cpp rungs failed to build or to write.
+
+PERPLEXITY IS RECOVERED AND MMLU IS NOT: THE SHARPEST DISSOCIATION IN THE FILE
+------------------------------------------------------------------------------
+Measured 2026-09-20 on the Mac, Metal, $0. Same harness and the same token
+fingerprint `3f1baca9033bf251` as every row of `docs/fiche-4b.md` section 5:
+`LLVQ_DTYPE=f16 ... --bin ppl -- 4096 12 metal <sealed>`.
+
+  f16 checkpoint                 12.2361   x1.0000   (fiche-4b)
+  Planes14, published            16.9415   x1.3845   (fiche-4b)
+  DCLM base, before training     16.2509   x1.3281   (measured here)
+  **+ trained row scales**       **12.3268**  **x1.0074**  (measured here)
+
+The training moves perplexity by **-24.1 %**, for zero bits, by changing
+1,069,056 row scales and nothing else.
+
+And then:
+
+  perplexity, ratio to f16      **1.0074**, recovered to within 0.74 %
+  MMLU, against f16's 70.14     **61.11**, nine points short
+
+This repository already holds five dissociations where perplexity improved and
+MMLU did not follow. **This one runs the other way and is larger than all of
+them**: perplexity is essentially repaired while MMLU stays nine points down.
+
+Two consequences.
+
+**Perplexity is no longer a usable quality gate on this object.** Any decision
+gated on it would now read this model as solved.
+
+**It is expected, and the paper shows it too.** The training objective is KL
+against the dense model on text, which is what perplexity measures; MMLU is a
+different task. The paper's Table 6 carries the same effect at larger amplitude:
+its fine-tuned sg-0bit reads Wiki 9.26 where its own FP16 baseline reads 12.41,
+so its fine-tuned 2-bit models are *below* f16 perplexity while their MMLU
+stays 7.4 points under. Ours is the weaker version of the same phenomenon, on
+an object whose perplexity we can attribute to one lever.
+
+What it does NOT license: reading the 1.0074 as "quality preserved". It is
+preserved on the metric the lever was trained against.

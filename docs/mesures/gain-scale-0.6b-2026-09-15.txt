@@ -1,0 +1,70 @@
+SWEEPING THE CENTROID SCALE: A SHALLOW MINIMUM AT 1.02, AND A CLIFF (2026-09-15)
+================================================================================
+Prereg: proofs/preregistration-gain-scale-0.6b-2026-09-15.md, stamped before the
+  sweep. Deviations beside it, in its -ECARTS file.
+Code: LLVQ_GAIN_SCALE, added this day, commit fb75336.
+Cost: $0. 62 min of Mac, four arms, 07:53:25Z to 08:55:33Z.
+Raw logs: gain-scale-0.6b-2026-09-15-brut/, kept whole.
+
+THE RESULT
+-----------
+  s       ppl        vs control   rate      baseline
+  1.00    41.8875    +0.000 %     2.1656    19.5038
+  1.02    41.5374    -0.836 %     2.1656    19.5038
+  1.05    42.3840    +1.185 %     2.1656    19.5038
+  1.08    52.1769   +24.564 %     2.1656    19.5038
+
+An interior minimum near 1.02, worth 0.836 %, and a cliff immediately after it.
+
+THE FOUR CONTROLS
+------------------
+1 passes, and exactly. s = 1.00 reads 41.8875, the `tetra` arm of this morning,
+     to the digit. The knob does not touch the published path.
+2 passes. Effective rate 2.1656 b/weight on all four arms: no bit is spent.
+3 passes. f32 baseline 19.5038 on all four.
+4 passes. Raw logs kept whole.
+
+AGAINST THE PREDICTION
+-----------------------
+Predicted: the minimum sits strictly above 1.00, in [1.01, 1.10], and beats the
+control by at least 2 %.
+
+Right on the location, wrong on the size. The minimum is above 1.00 and inside
+the interval; the gain is 0.836 %, under half the predicted floor. Decision rule
+line 2 fires: report it, and spend no 4B time until a map explains it.
+
+The two-block knob-check that widened this grid read 41.2339 at 1.00 and 24.4208
+at 1.05. On the real protocol, 1.05 is WORSE than 1.00 by 1.185 %. The knob-check
+was a regime artefact, as the prereg said it might be, and it is the reason the
+prereg recorded it as a knob-check rather than as a result.
+
+WHAT THE SHAPE SAYS
+--------------------
+Between 1.05 and 1.08 the perplexity moves from 42.38 to 52.18, +23 % for three
+points of scale. The objective is not gently curved around its minimum; it has a
+cliff on the high side. Two consequences.
+
+A global scalar is worth 0.836 % and no more, because it must serve matrices
+whose own optima differ. The bias map of 2026-09-14 reads the served-rule bias
+from 0.98052 on q_proj at layer 0 to 1.00274 on gate_proj at layer 27, a spread
+of 2.22 points around a mean residue of 0.66. One number cannot sit at twelve
+optima, and the sweep is measuring the compromise.
+
+And a per-matrix correction cannot be estimated loosely. A matrix pushed three
+points past its own optimum is on the cliff. Whatever sets the per-matrix scale
+has to be exact, not fitted on a handful of blocks.
+
+WHAT THIS IS NOT
+-----------------
+Four points, one model, one seed, one evaluation set. It locates a compromise
+optimum on the 0.6B and measures nothing about where each matrix's own optimum
+lies. It is the empirical anchor a closed-form rule has to reproduce, and that
+is the use it is kept for.
+
+COMMANDS
+---------
+for s in 1.00 1.02 1.05 1.08; do
+  LLVQ_MODEL=Qwen/Qwen3-0.6B LLVQ_GAIN_SCALE=$s LLVQ_THREADS=12 nice -n 10 \
+    cargo run --release -p llvq-llm --features metal,fast-linalg --bin smoke -- \
+    64 2048 12 2048 metal nogs tetra 999 rot
+done

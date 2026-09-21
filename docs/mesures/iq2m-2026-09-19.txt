@@ -1,0 +1,69 @@
+IQ2 ABANDONED AFTER TWO FAILURES AND $0.29, AND THE FIRST FAILURE IS A FINDING
+(2026-09-19)
+================================================================================
+Jobs 6aada8e351992417dfcc7eb5 (rtx-pro-6000, 0 min, $0.01) and
+     6aae2f4c51992417dfcc8a45 (l40sx1, 9 min, $0.28)
+Prereg: proofs/preregistration-iq2sm-2026-09-18.md, stamped
+  sha256 23e6e052047de1d2..., before the first attempt. Not carried out.
+Operator decision 2026-09-19: dropped.
+Nature: *measured* for what exists, a failure report for the rest
+
+WHY IT WAS ATTEMPTED
+---------------------
+The record's IQ2 figure is **XXS at 38.87** micro on 2,280 questions
+(2026-08-31). XXS is the bottom rung of llama.cpp's ladder, and setting our
+format against it flatters us. IQ2_S and IQ2_M are the rungs a reader asks
+about.
+
+FAILURE 1, AND IT IS THE FINDING: IQ2_S NEEDS AN IMATRIX
+---------------------------------------------------------
+  llama_model_quantize: failed to quantize: this quantization requires an
+  imatrix!
+
+`llama-quantize` **refuses IQ2_S outright** without an importance matrix. So
+llama.cpp's 2-bit rungs are **calibrated objects, exactly as ours are**: their
+imatrix is our Hessian by another name, built by a forward pass over a
+calibration corpus.
+
+That has a consequence for any comparison. Building our own imatrix would
+measure **our** calibration choices against our own format, which is not the
+question. The arm therefore has to read a **published** file, built by the
+people who build these, which is what a user downloads.
+
+FAILURE 2: THE SERVER WAS NOT READY, PROBABLY
+-----------------------------------------------
+`unsloth/Qwen3-4B-GGUF` publishes `Qwen3-4B-UD-IQ2_M.gguf` for this exact
+model, 1,532,931,872 bytes, sha256 `c9ae2746`. It was fetched, pushed to the
+bucket and served.
+
+The job's whole log is ten lines. `llama-server` was launched, the health probe
+passed **2 seconds later**, the scorer ran for **9 minutes** and produced no
+output and no file.
+
+Two seconds is too fast to load 1.53 GB. The health endpoint most likely
+answered before the model was in memory, and the scorer spent nine minutes
+against a server that could not answer, under its own 900-second timeout. The
+competing reading, that `python3` is absent from a C++ image and the message
+was swallowed by a `| tail -14`, is not excluded by this log.
+
+Neither was diagnosed further: a third attempt was declined.
+
+WHAT THE RECORD KEEPS, AND IT IS ENOUGH FOR THE ARGUMENT
+----------------------------------------------------------
+Rates read from the files, bytes times 8 over 4,022,468,096 parameters, the
+route this repository already uses for AWQ:
+
+  UD-IQ1_S      1.08 GB   2.1542 b/param
+  UD-IQ1_M      1.14 GB   2.2742
+  **UD-IQ2_XXS  1.26 GB   2.4967**   measured **38.87**
+  **ours, bare Tetra      2.7645**   measured **54.64**
+  UD-IQ2_M      1.53 GB   3.0487     never measured
+  Q2_K          1.67 GB   3.3203     never measured
+
+**Their most aggressive rung loses by 15.77 points while weighing 0.27 b/param
+less than ours.** IQ2_M would tighten the curve; it would not reverse that.
+
+And one correction the file sizes force: the **2.06 bits a weight** llama.cpp
+advertises for IQ2_XXS is not its b/param. The advertised figure excludes the
+embedding. By this repository's accounting it is **2.4967**, and every earlier
+comparison that used 2.06 understated their rate.

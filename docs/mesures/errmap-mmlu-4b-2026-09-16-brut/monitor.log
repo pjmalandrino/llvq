@@ -1,0 +1,37 @@
+[stage] SCHEDULING Waiting for requested hardware to become available
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[0 min billed · 0.00 $]
+[metrics] stream attached
+[stage] RUNNING 
+[2 min billed · 0.05 $]
+[4 min billed · 0.11 $]
+[6 min billed · 0.17 $]
+[8 min billed · 0.23 $]
+[10 min billed · 0.29 $]
+[12 min billed · 0.35 $]
+[14 min billed · 0.41 $]
+[16 min billed · 0.47 $]
+[18 min billed · 0.53 $]
+[20 min billed · 0.59 $]
+[22 min billed · 0.65 $]
+[24 min billed · 0.71 $]
+[26 min billed · 0.77 $]
+[28 min billed · 0.83 $]
+[30 min billed · 0.89 $]
+[32 min billed · 0.95 $]
+[34 min billed · 1.01 $]
+[36 min billed · 1.07 $]
+[38 min billed · 1.13 $]
+[40 min billed · 1.19 $]
+[42 min billed · 1.25 $]
+[44 min billed · 1.31 $]
+[stage] COMPLETED 
+[45 min billed · 1.36 $]
+
+[end] COMPLETED: 0.76 h billed, 1.36 $
+
+[VRAM] peak 11.974 GB · mean 11.142 GB · p50 11.974 · p95 11.974
+       2718 samples over 2723 s (1.00 s apart)

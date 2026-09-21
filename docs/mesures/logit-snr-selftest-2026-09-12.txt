@@ -1,0 +1,44 @@
+S1. Oracle: build an arm with a known beta and sigma, ask the estimator for them.
+    beta in  sigma in  beta out  sigma out  expected sigma out   verdict
+      0.466     1.638     0.464      1.421               1.419    passes
+      0.960     0.988     0.959      0.850               0.856    passes
+      1.000     0.100     1.000      0.087               0.087    passes
+      0.250     3.000     0.254      2.574               2.598    passes
+
+   Round trip on the accuracy: an arm built at (beta, sd), then the simulator
+   fed the pair the estimator reads back. One arm is one draw, so the bar is its
+   own spread, not zero.
+   beta 0.466 sd 1.638: twelve arms average 58.90 (spread 1.17), simulator says 58.43     passes
+   beta 0.960 sd 0.988: twelve arms average 69.30 (spread 1.02), simulator says 69.18     passes
+
+S2. Mutants, on the real published dump. Each must move a headline number.
+   no centring within a question      SNR  0.951 against 1.071     killed
+   regression run backwards           beta  1.147 against 0.466     killed
+   simulation without sqrt(4/3)        61.54 against 59.22     killed
+   arm paired to the wrong questions  SNR -0.004 against 1.071     killed
+
+S3. Power. Twelve synthetic arms spanning the measured SNR range; in the second
+   world half of them get their noise only on the options f16 ranks third and
+   fourth, at the same total variance. Those arms are better than their SNR says.
+   no second axis         rms  1.23 pp
+   half the arms tilted   rms  1.40 pp, tilted arms +1.34 pp above the rest
+   The rms is a weak detector of a second axis; the group contrast is the one to use.
+
+S4. Group contrast on the real arms, with the detector S3 qualified.
+   published-file arms minus seed-3-file arms: +1.58 pp, bootstrap CI95 [-0.48; +3.25]
+   the law therefore excludes a second axis larger than about 3.3 pp, and no smaller one is resolved.
+
+S5. Bootstrap over questions, 400 resamples, on the headline quantities.
+   awq4       beta 0.960 [0.954; 0.967]   noise share 7.0% [6.5; 7.6]   reversed 0.7% [0.3; 1.0]
+   planes14   beta 0.466 [0.453; 0.479]   noise share 46.6% [44.7; 48.6]   reversed 11.8% [10.4; 13.2]
+   tetra      beta 0.458 [0.444; 0.474]   noise share 48.6% [46.4; 50.6]   reversed 15.6% [14.1; 17.2]
+
+S6. The reversal threshold is a choice. The share at other cuts:
+    cut on rho_q        awq4    planes14       tetra
+           -0.50        0.1%        4.3%        5.5%
+           -0.25        0.2%        7.5%        9.5%
+            0.00        0.7%       11.8%       15.6%
+            0.25        1.3%       17.7%       21.8%
+            0.50        2.5%       27.7%       29.8%
+
+self-test passes

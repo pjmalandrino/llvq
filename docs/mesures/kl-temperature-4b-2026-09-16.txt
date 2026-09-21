@@ -1,0 +1,104 @@
+ONE TEMPERATURE BUYS 2.5 % OF THE GAP TO THE DENSE MODEL (2026-09-16)
+======================================================================
+Code: kltemp and llvq_llm::tempfit at d49bbac, bytes identical to what ran.
+  Cost: $0, about 5 min of Mac, Metal, f32. Artifact ~/llvq-4b-tetra.llvq
+  (0.981 GB, 252 matrices, Tetra, no correction applied).
+Data: raw logs in the -brut directory.
+
+THE RESULT
+-----------
+Qwen3-4B against its own dense checkpoint. KL(dense || quantized) in nats per
+position, full vocabulary (151,936), exact — no top-k. The temperature is
+fitted on 4,092 positions of wikitext-2 train and scored on 4,092 positions the
+fit never saw.
+
+  validation split   at T = 1    at T*      removed by one temperature
+  wikitext-2          0.627775   0.612121    2.49 %
+  C4                  0.464936   0.460625    0.93 %
+
+  fit split           0.381028   0.372136    2.33 %
+  T* = 1.07216 (beta 0.93270), one number for the whole model.
+
+So 97.5 % of the divergence on held-out text of the same domain, and 99.1 % on
+another domain, is not removed by ONE GLOBAL temperature fitted on this corpus.
+That claim is narrower than "is not a scale", and the difference matters: a
+scale deformation that varies with the context is not a global temperature, and
+would sit untouched inside the remainder. This measurement cannot see it.
+
+The quantized model is slightly over-confident relative to the dense one, and
+flattening it by 7 % is worth almost nothing.
+
+WHAT THIS REFUTES, AND IT IS MINE
+----------------------------------
+On 2026-09-16 I argued against fitting gains on a KL objective, on the ground
+that "the KL is dominated by the scale, so the optimizer will spend its freedom
+on a direction the argmax cannot see". That was an extrapolation from four MMLU
+option logits to a vocabulary of 151,936, and it is wrong by the measurement
+above: the scale direction is worth 0.93 to 2.49 % of the gap, not most of it.
+
+The reviewer who refused the claim until it was measured was right to refuse it.
+
+WHAT SURVIVES
+--------------
+Only the part that was true by construction: any fraction of a KL improvement
+obtained by a positive rescaling of logits is neutral for accuracy. That
+fraction is now measured, and it is small. The objection therefore does not
+block the pilot — it sizes a term in it.
+
+THE CONTROL
+------------
+Top-1 agreement with the dense model is 74.4501 % (wikitext) and 73.1549 % (C4),
+and it is bit-identical at T = 1 and at T*: 6093/8184 both times. It must be,
+since a positive scaling preserves an argmax, so this is a check on the harness
+rather than a result. The harness agrees with its own claim.
+
+Two facts worth keeping beside it, both stated smaller than they look.
+
+The dense and quantized models disagree on the top token at a quarter of all
+positions. That is NOT a quarter of recoverable errors: many of those positions
+are near-ties where the two top logits are within noise of each other, and the
+dense model is not a ground truth -- it is wrong on plenty of them too. The
+number bounds nothing on its own.
+
+The fraction a temperature removes moves from 2.49 % to 0.93 % between the two
+validation corpora, a factor of 2.7 on two samples of 4,092 positions. That is
+not enough to call the fraction a property of the model, and the earlier draft
+of this journal did call it that, wrongly. What is robust is only this: the
+effect is small on both corpora.
+
+DEVIATION FROM RULE 2
+----------------------
+No prereg was stamped before this measurement. Rule 2 of METHODE is
+unconditional -- "a written and timestamped prereg comes before the first
+millisecond" -- and it was not followed. Stating it here rather than
+retro-stamping, which would be worse.
+
+What limits the damage, and does not excuse it: this stage carries a
+measurement and not a gate. KL is none of the four axes nor of the three
+feasibility quantities, no kill or adoption follows from it, and the number
+informs whether to BUILD the pilot rather than deciding anything about the
+served object. Anything decisional that rests on it must be re-measured under a
+stamped prereg with its prediction written first.
+
+SHORTCUTS
+----------
+One model, one artifact, one calibration corpus, one seed. 4,092 positions per
+split, chosen so both models' full-vocabulary logits stay resident; the
+sampling error on the fraction has not been measured. The fit and validation
+splits both start past 131,072 tokens of the training corpus, so neither
+overlaps the 64 x 2048 windows GPTQ calibrates on -- but the artifact's own
+calibration was not re-read from the file to confirm that offset, it is the
+`smoke` default assumed to hold.
+
+WHICH ARTIFACT, AND WHAT THAT SCOPES
+-------------------------------------
+The artifact is the UNCORRECTED Tetra 4B -- no gain rescaling from the errmap
+map, no `artscale` pass. That is deliberate: the reference has to be frozen
+before anything is fitted against it, and it is the right reference for the
+question the next pilot asks.
+
+It also bounds what this answers. The arm whose MMLU loss started all of this is
+the CORRECTED one, and its logits are not these logits -- its option spread had
+collapsed 32.5 %. So this measurement does not refute, or confirm, any
+explanation of that arm's behaviour. It says what a temperature is worth on the
+reference the pilot would start from, and nothing about the corrected arm.

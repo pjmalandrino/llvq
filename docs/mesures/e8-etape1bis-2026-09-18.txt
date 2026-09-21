@@ -1,0 +1,121 @@
+E8 STAGE 1 BIS: INSIDE THE SAME LOOP, THE LATTICE IS WORTH WHAT THE SECOND
+MOMENT SAYS AND NO MORE (2026-09-18)
+================================================================================
+Prereg      : proofs/preregistration-e8-etape1bis-2026-09-18.md, stamped
+              sha256 8faa76613b95dd446f015d96636e5fbfaca81a788d3a0e09805c8b4af6551ec6
+              before the first cell, four calendars. Deviations E1 and E2
+              beside it.
+Code        : llvq-bench/src/e8.rs (`E8Cubed`), bin/e8gptq, ops/e8_stage1bis.py
+Job         : none. $0. Mac, 24 min a run, two runs.
+Data        : the v64 arm of docs/data/tetra-diag-4b-2026-09-18, 10 cells,
+              40 rows, rotated basis
+Nature      : *measured*; the equal-rate figure of the last section is
+              *computed* from two measured points
+Raw         : e8-etape1bis-2026-09-18-brut/, both arms and their per-row records
+
+WHAT THIS REPAIRS
+------------------
+The run of the same day (e8-etape1-2026-09-18.txt) is void by its own deviation
+E3: arm A was a sequential GPTQ witness and arm B a plain per-block encode, so
+its ratio measured the compensation and not the codebook.
+
+`E8Cubed` now implements `llvq_quant::quantizer::BlockQuantizer`, so
+`quantize_layer` runs both arms with the same `GptqFactor`, the same
+`GptqConfig`, the same gain centroids and the same row scale. The only
+difference left is which codebook the loop calls. The trait's own documentation
+invites this: the loop is meant to be exercised against codebooks that have
+nothing to do with the Leech lattice.
+
+THE GATE, WHICH THE PREREG MADE EXPLICIT
+-----------------------------------------
+The prereg refuses to read its own primary unless the two arms put their error
+in the same place, because otherwise something other than compensation
+separates them.
+
+  |B/isotropic - A/isotropic| = 0.0008 at the norm-10 cap, 0.0041 at norm 8.
+  The bar was 0.05. Both pass.
+
+Arm B's ratio to isotropic went from **0.996** as a plain encode to **0.135**
+inside the loop, against arm A's 0.134. The 6.8 of the void run was the
+compensation, entirely, exactly as that file predicted.
+
+THE RESULT, AT TWO BIT BUDGETS
+-------------------------------
+Tetra's measured stream is 1.9907 b/weight. Arm B was run on both sides of it.
+
+  cap   points    index   b/weight   J_B/J_A   unweighted B/A   cos A - cos B
+    8   26,640   15 bits   1.9167     1.2896       1.2537          +0.01697
+   10   56,880   16 bits   2.0417     1.0470       1.0379          +0.00252
+
+Per family at the norm-10 cap, where arm B holds 2.6 % more bits:
+
+  family       J_A         J_B       J B/A    A/iso   B/iso
+  down_proj  1.0072e-1   1.0551e-1   1.0476   0.1978  0.1978
+  gate_proj  1.4618e-1   1.5134e-1   1.0353   0.2028  0.1995
+  o_proj     1.9049e-1   1.9916e-1   1.0455   0.0892  0.0907
+  q_proj     2.1964e-1   2.3190e-1   1.0558   0.1433  0.1439
+  POOLED     6.5702e-1   6.8791e-1   1.0470   0.1342  0.1349
+
+Four families, four widths, four ratios inside 1.035 to 1.056. The consistency
+is the strongest thing in this file.
+
+AT EQUAL BITS
+--------------
+Neither arm sits at Tetra's 1.9907. Linear interpolation between the two
+measured points, 0.592 of the way from 1.9167 to 2.0417 (*computed*):
+
+  J_B/J_A at equal rate       **1.146**
+  unweighted at equal rate      1.126
+
+The arbitration dossier predicted **1.09** from the ratio of normalized second
+moments, G(E8)/G(Leech) = 1.0899. The prereg registered 1.09 with an interval of
+[0.95, 1.30]. Both measured arms are inside it, so the verdict does not depend
+on which one is read, and the interpolated figure sits 0.056 above the point
+prediction.
+
+So on the model's own rotated blocks, inside the production loop, the lattice is
+worth what the asymptotic second moment says it is worth, and no more. That the
+bound holds at 2 bits per dimension with shape-gain, a regime it was not derived
+for, was not obvious before this run.
+
+WHAT IT DECIDES
+----------------
+The prereg's rule: a ratio inside [0.95, 1.30] makes E8 a **simplification**
+candidate and moves the question to the kernel.
+
+The asymmetry that matters is not in the numbers above, it is in what produces
+them. The norm-10 E8 codebook is 56,880 points of 8 coordinates, **455 kB as
+i8**, and its exact nearest neighbour is a table scan. The Leech machinery is
+7,138 lines (*measured*, `llvq-core/src` 572, `llvq-search/src` 4,373,
+`llvq-search/src/tetra` 2,193) and its encoder is a trellis over three sections
+and two parities.
+
+Paying 4.7 % of weighted error to replace that with a table is a kernel and
+maintenance question, and this file does not answer it. What it establishes is
+that the quality cost of asking is small and now measured.
+
+AND THE LARGER NUMBER BESIDE IT
+--------------------------------
+The compensation moves the weighted error by a factor of **7.5**: a residual
+placed by the loop costs 0.134 of what a residual of the same energy in a random
+direction would cost. The codebook moves it by 1.05 to 1.29 depending on the bit
+budget.
+
+Whatever is left between this format and the paper's LLVQ, the lattice is not
+where to look for it.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- No quality claim. `J_local` is a local activation metric over one projection,
+  not the model's loss, not perplexity, not MMLU.
+- Nothing about a kernel. No E8 decoder has run on a card, and arm B's b/weight
+  assumes an integer index per sub-block and ignores what a real packing pays
+  in addressing.
+- The equal-rate 1.146 is interpolated between two points, not measured. A cap
+  landing exactly on 1.9907 needs a partial shell and an ordering rule inside
+  it (deviation E2).
+- `Tetra` is a trellis-searched subset of the Leech lattice, not its Voronoi
+  quantizer. The bound is confirmed for the served format, not for the lattice
+  in general.
+- Three layers of 36, four rows of thousands, one model, one calibration seed.
+  `down_proj` carries 1.7 calibration samples per dimension even here.

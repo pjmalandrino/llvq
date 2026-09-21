@@ -1,0 +1,144 @@
+THE SENSITIVITY MAP, PROBED AND VALIDATED ON DIFFERENT TEXT (2026-09-15)
+=========================================================================
+Code: errmap at d490258. Cost: $0, 2 h 02 of Mac, 13:23:07Z to 15:25:27Z.
+Data: docs/data/errmap-heldout-0.6b-2026-09-15.csv. Raw log in the -brut dir.
+Supersedes errmap-0.6b-2026-09-15.txt, whose probes read the evaluation set.
+
+WHAT CHANGED SINCE THE MORNING RUN
+-----------------------------------
+That run probed on wikitext-2 test and validated on wikitext-2 test. Its
+transfer to a held-out split measured -0.008: the map reproduced its own
+evaluation set and predicted nothing beyond it.
+
+Here the probes read 8 windows of wikitext-2 TRAIN, disjoint from the 64
+calibration windows, and both validation splits are wikitext-2 test. Nothing the
+map was fitted on is scored.
+
+THE HEADLINE
+-------------
+Corrected 2026-09-15 after an external review, on three counts. The first
+version of this section read "mean transfer +0.9149", called the error
+"conservative", and let a reader infer that ranking was preserved. One of those
+was the wrong word, one was a figure that flattered, and one was untested.
+
+Transfer, defined four ways over the 30 scorable points:
+
+  (a) mean of per-point ratios measured/predicted      +0.9148
+  (b) median of the same                               +0.8978
+  (c) slope of the regression through the origin       +0.7528
+  (d) slope with an intercept                          +0.7025  (intercept -0.0086)
+      Pearson correlation of predicted against measured +0.9900
+
+(a) is what the first version published and it is the weakest of the four: it
+weights a tiny move exactly like a large one, and the model is accurate on tiny
+moves. (c) weights by the size of the move and is the honest headline.
+
+**The model overstates the gain by about 25 %, and it does so almost linearly**
+— correlation 0.990 between predicted and measured. That is not conservative, it
+is OPTIMISTIC, and the earlier wording had it backwards. It is also the useful
+form of wrong: a systematic factor can be divided out, an erratic one cannot.
+
+Sign disagreements: 0 of 30. And the ranking, which the first version never
+tested: Spearman +0.9973 between predicted and measured order, 5 inverted pairs
+out of 435 (1.15 %). The five best configurations by prediction are the five
+best by measurement, in the same order. Direction transfers, and so does order.
+
+THE DOMAIN OF VALIDITY, WHICH IS THE POINT
+-------------------------------------------
+Prediction error as a fraction of the predicted move, split B (held out):
+
+  matrices moved     alpha = 0.5     alpha = 1.0
+  1                    +0.103          +0.102
+  2                    +0.124          +0.150
+  4                    +0.073          +0.105
+  8                    +0.062          +0.126
+  16                   +0.084          +0.152
+  32                   +0.129          +0.226
+  64                   +0.166          +0.297
+  140                  +0.188          +0.355
+
+The structure is exactly what a diagonal model predicts of itself: the error
+grows with the number of matrices moved and with the size of the move, because
+both grow the cross terms the surrogate does not carry. It is also always the
+same sign: the surrogate OVERSTATES the gain, which makes it optimistic. What
+saves the ranking is not the sign of the error but its regularity — the same
+overstatement applies across configurations, so order survives (Spearman
++0.9973) even though magnitude does not.
+
+Read as a rule: **the model predicts within 15 % up to 16 matrices at full
+amplitude, and within 20 % up to 140 matrices at half amplitude. It degrades to
+35 % at 140 matrices at full amplitude.** That is the domain, measured rather
+than assumed.
+
+Random selections behave like ranked ones at the same size, so the accuracy is a
+property of the size of the move and not of the map's own ordering.
+
+WHAT THE MOVES ARE WORTH
+-------------------------
+Measured on split A, 12 windows of wikitext-2 test, never probed:
+
+  moved            NLL                 perplexity            change
+  8 matrices    3.73499 -> 3.66946    41.8875 -> 39.2308     -6.34 %
+  32 matrices   3.73499 -> 3.59782    41.8875 -> 36.5187    -12.82 %
+  140 at half   3.73499 -> 3.60680    41.8875 -> 36.8478    -12.03 %
+  140 matrices  3.73499 -> 3.53759    41.8875 -> 34.3838    -17.91 %
+
+At identical rate, format and decoder. The correction is one scalar per matrix
+applied to the fitted gain centroids, and the centroids are already stored per
+matrix in the artifact, so this costs no bit and changes no table and no kernel.
+
+THE SHAPE OF THE SURFACE
+-------------------------
+41 of 196 directions concave or flat, against 13 on the morning run. 44
+directions invisible to the loss, and they are all q_proj and k_proj, which is
+Qwen3's per-head RMS norm making those matrices scale invariant.
+
+The ten costliest directions are dominated by v_proj/o_proj pairs and by the
+mlp triple of layer 27. Paired projections agree to four digits, which is what
+being in series requires.
+
+Pooled single scale from the map: 0.99040, against the sweep's re-encoded
+minimum of 1.02. The two still differ in sign, and the reason is unchanged:
+post-hoc scaling and re-encoding are different operations.
+
+IS IT JUST "MANY MATRICES WERE UNDER-SCALED"?
+----------------------------------------------
+The external review's sharpest objection: with 147 of 196 optima at the region's
+edge, the map may have found one systematic direction rather than a per-matrix
+structure. That is testable on the map itself, and it is refuted.
+
+Of the 140 matrices the loss can see, **72 want dilating and 68 want shrinking**
+— 51.4 % against 48.6 %. The corrections contradict each other almost exactly,
+which is why a single global scalar, swept over four re-encoded arms, bought
+0.836 % where the per-matrix map measures 17.9 %. There is no global direction
+to find; the content of the map is the disagreement between matrices.
+
+WHAT IS STILL UNTESTED
+-----------------------
+Baselines this run does not carry, all named by the same review:
+  - corrections of random SIGN and size, rather than a random subset of the
+    map's own corrections, which is what `random k` is here and is therefore a
+    much weaker control than its name suggests;
+  - a heuristic built from the local error, which is what the map is supposed
+    to beat;
+  - validation on a different corpus (C4 or dclm-edu), which is the difference
+    between generalizing across splits and generalizing at all.
+
+LIMITS
+-------
+One model, one seed. Probes and validation are all wikitext-2: the map
+generalizes across SPLITS of one corpus, which is not the same as generalizing
+across domains. A C4 validation is the next thing owed, and it is cheap.
+
+The claimed gain over all 196 matrices at their own optimum is -0.3385 of NLL.
+The measured one at 140 matrices is -0.1974. The gap is the cross terms, and the
+table above is what quantifies it.
+
+147 of 196 optima sit at the edge of the trust region, so the map is bounded by
+its own guard rail. A wider region would claim more and predict worse; where
+that trade sits is unmeasured.
+
+Post-hoc scaling is not re-encoding. Serving this correction means writing the
+scaled centroids into the artifact after the loop, which is exactly what was
+measured here — not re-running the loop with scaled centroids, which was
+measured at 1.02 and is a different thing.

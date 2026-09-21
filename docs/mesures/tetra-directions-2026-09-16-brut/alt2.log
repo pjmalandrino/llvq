@@ -1,0 +1,46 @@
+=== tetraalt ===
+pilot        /Users/pjmalandrino/tetra-schur-pilot-2026-09-14
+candidates   up to 8 distinct points per block, from 15 scales
+score        conditional cost ||e U_BB^-1||^2, not a raw block of H
+held fixed   gain rule, centroids, word, trajectory
+
+--- the curve in K, over every block ---
+    K    changed    cost gain  on reserved
+    1      0.00 %       0.000 %       0.000 %
+    2     13.00 %       1.139 %       0.474 %
+    3     23.81 %       1.902 %       1.344 %
+    4     28.52 %       2.223 %       1.765 %
+    5     29.81 %       2.292 %       1.938 %
+    6     29.96 %       2.393 %       1.918 %
+    7     29.96 %       2.393 %       1.918 %
+    8     29.96 %       2.393 %       1.918 %
+
+--- by matrix and depth, at K = 8 ---
+  cell                   blocks   changed   cost gain    reserved
+  mlp.gate_proj    L0       336    31.25 %      2.472 %      0.636 %
+  mlp.gate_proj    L13      336    33.33 %      2.667 %     -0.069 %
+  mlp.gate_proj    L27      336    28.87 %      4.205 %      0.327 %
+  self_attn.q_proj L0       336    31.85 %      3.584 %      0.466 %
+  self_attn.q_proj L13      336    29.17 %      2.290 %     -0.330 %
+  self_attn.q_proj L27      336    25.30 %      2.253 %      2.072 %
+
+  total 2016 blocks, 3.60 candidates a block, 29.96 % changed
+  conditional cost gain 2.393 %   on reserved activations 1.918 %
+
+  the served choice is in the candidate set, so the per-block selection score
+  cannot get worse. The two columns above do NOT treat the suffix alike —
+  the cost re-optimizes it continuously, the reserved one leaves it compensated —
+  so their ratio is a comparison of two different gains, not a transfer rate.
+
+--- CHAINED: the whole row walked under each policy ---
+  cell                    rows  rollout gain reserved gain
+  mlp.gate_proj    L0        8        3.796 %       -1.005 %
+  mlp.gate_proj    L13       8        1.329 %       -0.749 %
+  mlp.gate_proj    L27       8        2.876 %        5.372 %
+  self_attn.q_proj L0        8        8.573 %        5.552 %
+  self_attn.q_proj L13       8       -0.086 %       -7.008 %
+  self_attn.q_proj L27       8        0.752 %       -9.881 %
+  all                       48        0.911 %       -8.763 %
+
+  here the selector DRIVES the trajectory, so nothing is guaranteed:
+  a per-block gain can compound, cancel or reverse once chained.

@@ -1,0 +1,72 @@
+    Finished `release` profile [optimized] target(s) in 0.12s
+     Running `target/release/smoke 64 2048 12 2048 metal nogs tetra 999 rot`
+=== configuration ===
+  model        Qwen/Qwen3-0.6B
+  codebook     tetra → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+  calibration  wikitext2, 64 × 2048 = 131072 tokens requested, contiguous prefix from token 0
+  rotation     on (seed 0x110feed)
+  mode         nogs (group scales off, design C off)
+  blocks       999 at most
+  eval         wikitext-2 test, 12 windows × 2048
+  dtype        f32
+  device       Metal(MetalDevice(DeviceId(1))), 12 encoder threads
+  damping      1e-2 (relative to mean(diag H))
+  h_shrink     1 (H as is, published path)
+  gain_scale   1.08 (fitted centroids multiplied — reconstruction-bias knob)
+  artifact     (none)
+  resume       (no — start at block 0)
+=====================
+baseline perplexity over 12 windows of 2048…
+  baseline ppl = 19.5038
+tokenizing calibration set (wikitext2)…
+  64 windows of 2048 = 131072 tokens (1229 available), contiguous prefix from token 0
+quantizing blocks 0..27 of 28 of Qwen/Qwen3-0.6B — tetra → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block, retract on, group scales off, design C off, input rotation on…
+  block   1/28  0 min elapsed  29 s/block  ~13 min left  (estimated end at +0.2 h)
+  block   2/28  1 min elapsed  30 s/block  ~13 min left  (estimated end at +0.2 h)
+  block   3/28  2 min elapsed  31 s/block  ~13 min left  (estimated end at +0.2 h)
+  block   4/28  2 min elapsed  31 s/block  ~12 min left  (estimated end at +0.2 h)
+  block   5/28  3 min elapsed  31 s/block  ~12 min left  (estimated end at +0.2 h)
+  block   6/28  3 min elapsed  32 s/block  ~12 min left  (estimated end at +0.2 h)
+  block   7/28  4 min elapsed  32 s/block  ~11 min left  (estimated end at +0.2 h)
+  block   8/28  4 min elapsed  32 s/block  ~11 min left  (estimated end at +0.2 h)
+  block   9/28  5 min elapsed  32 s/block  ~10 min left  (estimated end at +0.2 h)
+  block  10/28  5 min elapsed  32 s/block  ~10 min left  (estimated end at +0.2 h)
+  block  11/28  6 min elapsed  32 s/block  ~9 min left  (estimated end at +0.2 h)
+  block  12/28  6 min elapsed  32 s/block  ~9 min left  (estimated end at +0.2 h)
+  block  13/28  7 min elapsed  32 s/block  ~8 min left  (estimated end at +0.2 h)
+  block  14/28  7 min elapsed  32 s/block  ~7 min left  (estimated end at +0.2 h)
+  block  15/28  8 min elapsed  32 s/block  ~7 min left  (estimated end at +0.2 h)
+  block  16/28  9 min elapsed  32 s/block  ~6 min left  (estimated end at +0.2 h)
+  block  17/28  9 min elapsed  32 s/block  ~6 min left  (estimated end at +0.2 h)
+  block  18/28  10 min elapsed  32 s/block  ~5 min left  (estimated end at +0.2 h)
+  block  19/28  10 min elapsed  32 s/block  ~5 min left  (estimated end at +0.2 h)
+  block  20/28  11 min elapsed  32 s/block  ~4 min left  (estimated end at +0.2 h)
+  block  21/28  11 min elapsed  32 s/block  ~4 min left  (estimated end at +0.2 h)
+  block  22/28  12 min elapsed  32 s/block  ~3 min left  (estimated end at +0.2 h)
+  block  23/28  12 min elapsed  32 s/block  ~3 min left  (estimated end at +0.2 h)
+  block  24/28  13 min elapsed  32 s/block  ~2 min left  (estimated end at +0.2 h)
+  block  25/28  13 min elapsed  32 s/block  ~2 min left  (estimated end at +0.2 h)
+  block  26/28  14 min elapsed  32 s/block  ~1 min left  (estimated end at +0.2 h)
+  block  27/28  14 min elapsed  32 s/block  ~1 min left  (estimated end at +0.2 h)
+  block  28/28  15 min elapsed  32 s/block  ~0 min left  (estimated end at +0.2 h)
+quantized 196 matrices, 440401920 weights (2.1656 bits/weight); this segment ran 897s
+phases:
+  quantization              691.3s   77.0 %
+  factorization             123.5s   13.8 %
+  capture (pass 1)           79.4s    8.9 %
+  f64 transfer                2.8s    0.3 %
+  advance (pass 2)            0.3s    0.0 %
+  artifact write              0.0s    0.0 %
+
+=== Qwen/Qwen3-0.6B [tetra, 28 blocks, rot on, mode nogs, calib wikitext2/prefix], wikitext-2, ctx 2048, 12 windows ===
+codebook                 = tetra → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration              = 64 × 2048 = 131072 tokens
+baseline (f32)       ppl = 19.5038
+LLVQ 2-bit           ppl = 52.1769
+degradation          ×2.675
+exact-ppl  baseline 1.950378648357e1  quantized 5.217691391463e1
+effective rate           = 2.1656 bits/weight
+hessian damping          = 1e-2
+hessian shrink ρ         = 1
+gain centroid scale      = 1.08
+dtype / device           = f32 / Metal(MetalDevice(DeviceId(1)))

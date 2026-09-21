@@ -1407,6 +1407,18 @@ fn decode_codes(
     })
 }
 
+/// Decode a [`Record::Lattice`] payload through the codebook its kind names.
+///
+/// [`read_matrix_with`] is this composed with [`read_matrix_raw`], and that
+/// pair refuses a mixed file by construction: it cannot step over an int4
+/// record. A reader that walks [`read_record`] instead has already consumed
+/// the record and knows which arm it got, so it needs the decode half on its
+/// own. `export` is that reader.
+pub fn decode_raw(raw: RawMatrix, cbs: &Codebooks) -> Result<QuantizedMatrix> {
+    let cb = cbs.get(raw.kind)?;
+    decode_codes(raw, &|idx, gain| cb.decode(idx, gain))
+}
+
 /// Read back what [`write_matrix`] wrote — a Ball record, refusing any other
 /// kind by name.
 ///

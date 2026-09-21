@@ -39,6 +39,31 @@ fn read_u32(r: &mut impl Read) -> anyhow::Result<u32> {
     Ok(u32::from_le_bytes(b))
 }
 
+/// One record, decoded to the `d_out × d_in` weights a checkpoint carries.
+///
+/// Extracted from the loop so the int4 arm is testable. A mutation that
+/// exported int4 records as zeros survived the suite on 2026-09-19 because
+/// nothing reached this code: a binary's `main` is not callable from a test.
+fn record_to_weights(
+    rec: llvq_artifact::Record,
+    cbs: &llvq_artifact::Codebooks,
+) -> anyhow::Result<(String, usize, usize, Vec<f32>)> {
+    Ok(match rec {
+        llvq_artifact::Record::Lattice(raw) => {
+            let m = llvq_artifact::decode_raw(raw, cbs)?;
+            let w = llvq_artifact::decode_matrix(&m);
+            (m.name, m.d_out, m.d_in, w)
+        }
+        // The same `to_f32` `sealed::load` calls to run MMLU on a mixed file,
+        // so the weights this writes for an int4 record are the weights every
+        // published bar on that file was read through.
+        llvq_artifact::Record::Int4(m) => {
+            let w = m.to_f32();
+            (m.name, m.d_out, m.d_in, w)
+        }
+    })
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let path = a
@@ -64,12 +89,11 @@ fn main() -> anyhow::Result<()> {
     // record mid-file (`NotALatticeRecord`), which is correct and late: the
     // export would already have written half a directory of tensors, and the
     // half it wrote would look complete.
-    anyhow::ensure!(
-        !head.kinds().contains(llvq_artifact::CodeKind::Int4G128),
-        "{path}: a {} file. export decodes lattice records; it has no path for \
-         Int4G128 and would leave a directory missing every matrix it refused.",
-        head.kinds()
-    );
+    // Int4G128 records are dequantized through `Int4Matrix::to_f32`, the same
+    // path `sealed::load` takes to run MMLU on a mixed file. Before 2026-09-19
+    // this was a refusal, because no path existed and a half-written directory
+    // would have looked complete. The path exists now, and refusing would have
+    // kept the served object out of every tool that reads a checkpoint.
     std::fs::create_dir_all(&out)?;
     eprintln!("reading {path} — {} quantized matrices", head.matrices);
 
@@ -84,12 +108,16 @@ fn main() -> anyhow::Result<()> {
     let cbs = llvq_artifact::Codebooks::new();
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
     let mut quantized = 0usize;
+    let mut int4 = 0usize;
     for i in 0..head.matrices {
-        let m = llvq_artifact::read_matrix_with(&mut r, head.version, &cbs)?;
-        quantized += m.d_out * m.d_in;
-        let w = llvq_artifact::decode_matrix(&m);
-        let t = Tensor::from_vec(w, (m.d_out, m.d_in), &device)?.to_dtype(DType::F16)?;
-        tensors.insert(m.name, t);
+        let rec = llvq_artifact::read_record(&mut r, head.version)?;
+        if matches!(rec, llvq_artifact::Record::Int4(_)) {
+            int4 += 1;
+        }
+        let (name, d_out, d_in, w) = record_to_weights(rec, &cbs)?;
+        quantized += d_out * d_in;
+        let t = Tensor::from_vec(w, (d_out, d_in), &device)?.to_dtype(DType::F16)?;
+        tensors.insert(name, t);
         if i % 36 == 0 {
             eprintln!("  {i:>3}/{}", head.matrices);
         }
@@ -184,7 +212,7 @@ fn main() -> anyhow::Result<()> {
     eprintln!("  {n_tensors} tensors identical bit for bit\n");
 
     println!(
-        "\n{} → {}\n  {n_tensors} tensors, {:.2} B weights dequantized + {:.0} M carried\n  \
+        "\n{} → {}\n  {n_tensors} tensors, {:.2} B weights dequantized ({int4} from Int4G128) + {:.0} M carried\n  \
          model.safetensors: {:.2} GB (f16)\n",
         path,
         out.display(),
@@ -199,4 +227,54 @@ fn main() -> anyhow::Result<()> {
     println!("Next:\n  mlx_lm.convert --hf-path {0} --mlx-path {0}-mlx\n  \
               mlx_lm.evaluate --model {0}-mlx --tasks mmlu --num-shots 5", out.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use llvq_llm::sealed::int4_record;
+
+    fn dense(d_out: usize, d_in: usize) -> candle_core::Tensor {
+        let v: Vec<f32> = (0..d_out * d_in)
+            .map(|i| ((i % 97) as f32 - 48.0) / 32.0)
+            .collect();
+        candle_core::Tensor::from_vec(v, (d_out, d_in), &candle_core::Device::Cpu).unwrap()
+    }
+
+    #[test]
+    fn an_int4_record_exports_the_weights_it_holds() {
+        let t = dense(4, 256);
+        let m = int4_record("model.layers.0.self_attn.v_proj.weight", &t).unwrap();
+        let want = m.to_f32();
+        let cbs = llvq_artifact::Codebooks::new();
+        let (name, d_out, d_in, got) =
+            record_to_weights(llvq_artifact::Record::Int4(m), &cbs).unwrap();
+        assert_eq!(name, "model.layers.0.self_attn.v_proj.weight");
+        assert_eq!((d_out, d_in), (4, 256));
+        assert_eq!(got, want, "the int4 arm must export what the record holds");
+    }
+
+    #[test]
+    fn an_int4_export_is_not_zero_and_tracks_the_dense_tensor() {
+        // The mutation that survived was `vec![0.0; n]`. Shape and length are
+        // not enough to catch it; the values have to be read.
+        let t = dense(4, 256);
+        let flat = t.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let m = int4_record("model.layers.0.self_attn.v_proj.weight", &t).unwrap();
+        let cbs = llvq_artifact::Codebooks::new();
+        let (_, _, _, got) =
+            record_to_weights(llvq_artifact::Record::Int4(m), &cbs).unwrap();
+        assert!(got.iter().any(|&x| x != 0.0), "an int4 export of zeros");
+        let err: f32 = got
+            .iter()
+            .zip(&flat)
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / got.len() as f32;
+        let scale: f32 = flat.iter().map(|x| x.abs()).sum::<f32>() / flat.len() as f32;
+        assert!(
+            err < 0.1 * scale,
+            "int4 g128 should track the dense tensor: mean |error| {err} against scale {scale}"
+        );
+    }
 }

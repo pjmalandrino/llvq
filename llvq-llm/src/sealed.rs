@@ -129,7 +129,22 @@ impl RestorePrec {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RestoreF16 {
     types: Vec<&'static str>,
+    /// Layer window per type, `None` for every layer. Parallel to `types`, so
+    /// [`Self::types`] keeps its shape for the callers that only want names.
+    ///
+    /// A window exists because an allocation is a knapsack over matrices and
+    /// not over type names: `down_proj` is 36 matrices costing 0.0144 kernel
+    /// b/weight each, and nothing says the 31st is worth what the 3rd is.
+    ranges: Vec<Option<(usize, usize)>>,
     prec: RestorePrec,
+}
+
+/// `model.layers.{b}.{site}.{proj}.weight` → `b`.
+fn layer_of(name: &str) -> Option<usize> {
+    let mut it = name.split('.');
+    (it.next()? == "model" && it.next()? == "layers")
+        .then(|| it.next()?.parse().ok())
+        .flatten()
 }
 
 impl RestoreF16 {
@@ -172,12 +187,37 @@ impl RestoreF16 {
         if spec == "all" {
             return Ok(Self {
                 types: PROJ_TYPES.to_vec(),
+                ranges: vec![None; PROJ_TYPES.len()],
                 prec: RestorePrec::default(),
             });
         }
         let mut types: Vec<&'static str> = Vec::new();
+        let mut ranges: Vec<Option<(usize, usize)>> = Vec::new();
         for raw in spec.split(',') {
-            let name = raw.trim();
+            let item = raw.trim();
+            // `down_proj@0-11` restores twelve matrices, `down_proj` all of
+            // them. The window is inclusive at both ends, which is how a
+            // reader says "layers 0 to 11" out loud.
+            let (name, window) = match item.split_once('@') {
+                None => (item, None),
+                Some((n, w)) => {
+                    let (a, b) = w.split_once('-').ok_or_else(|| {
+                        format!("LLVQ_RESTORE_F16={spec:?}: {w:?} is not a `first-last` window")
+                    })?;
+                    let lo: usize = a.trim().parse().map_err(|_| {
+                        format!("LLVQ_RESTORE_F16={spec:?}: {a:?} is not a layer index")
+                    })?;
+                    let hi: usize = b.trim().parse().map_err(|_| {
+                        format!("LLVQ_RESTORE_F16={spec:?}: {b:?} is not a layer index")
+                    })?;
+                    if lo > hi {
+                        return Err(format!(
+                            "LLVQ_RESTORE_F16={spec:?}: window {lo}-{hi} runs backwards"
+                        ));
+                    }
+                    (n.trim(), Some((lo, hi)))
+                }
+            };
             let Some(known) = PROJ_TYPES.iter().find(|t| **t == name) else {
                 return Err(format!(
                     "LLVQ_RESTORE_F16={spec:?}: {name:?} is not a projection type. \
@@ -189,9 +229,11 @@ impl RestoreF16 {
                 return Err(format!("LLVQ_RESTORE_F16={spec:?}: {name:?} is repeated"));
             }
             types.push(known);
+            ranges.push(window);
         }
         Ok(Self {
             types,
+            ranges,
             prec: RestorePrec::default(),
         })
     }
@@ -207,9 +249,16 @@ impl RestoreF16 {
     /// Whether `name` — `model.layers.{b}.{site}.{proj}.weight` — belongs to
     /// a restored type.
     pub fn covers(&self, name: &str) -> bool {
-        self.types
-            .iter()
-            .any(|t| name.ends_with(&format!(".{t}.weight")))
+        self.types.iter().enumerate().any(|(i, t)| {
+            name.ends_with(&format!(".{t}.weight"))
+                && match self.ranges.get(i).copied().flatten() {
+                    None => true,
+                    // A name whose layer cannot be read is not covered: a
+                    // window that silently matched everything would be a
+                    // window that lies about which arm ran.
+                    Some((lo, hi)) => layer_of(name).is_some_and(|b| b >= lo && b <= hi),
+                }
+        })
     }
 
     /// Comma-joined, for labels and error messages.
@@ -713,6 +762,71 @@ mod restore_tests {
         // A prefix is not a match: `k_proj` must not cover a hypothetical
         // `xk_proj`, nor a bias.
         assert!(!r.covers("model.layers.7.self_attn.xk_proj.weight"));
+    }
+
+    #[test]
+    fn restore_window_selects_layers() {
+        let r = RestoreF16::parse("down_proj@0-11").unwrap();
+        assert_eq!(r.types(), &["down_proj"]);
+        for b in 0..=11 {
+            assert!(
+                r.covers(&format!("model.layers.{b}.mlp.down_proj.weight")),
+                "layer {b} is inside 0-11"
+            );
+        }
+        for b in [12, 23, 35] {
+            assert!(
+                !r.covers(&format!("model.layers.{b}.mlp.down_proj.weight")),
+                "layer {b} is outside 0-11"
+            );
+        }
+        // The window is per type, not global.
+        assert!(!r.covers("model.layers.3.self_attn.o_proj.weight"));
+    }
+
+    #[test]
+    fn restore_window_is_inclusive_at_both_ends() {
+        let r = RestoreF16::parse("o_proj@12-23").unwrap();
+        assert!(r.covers("model.layers.12.self_attn.o_proj.weight"));
+        assert!(r.covers("model.layers.23.self_attn.o_proj.weight"));
+        assert!(!r.covers("model.layers.11.self_attn.o_proj.weight"));
+        assert!(!r.covers("model.layers.24.self_attn.o_proj.weight"));
+    }
+
+    #[test]
+    fn restore_windows_mix_with_bare_types() {
+        let r = RestoreF16::parse("o_proj,down_proj@24-35").unwrap();
+        assert!(r.covers("model.layers.0.self_attn.o_proj.weight"));
+        assert!(r.covers("model.layers.35.self_attn.o_proj.weight"));
+        assert!(!r.covers("model.layers.0.mlp.down_proj.weight"));
+        assert!(r.covers("model.layers.30.mlp.down_proj.weight"));
+    }
+
+    #[test]
+    fn restore_window_refuses_what_it_cannot_read() {
+        for bad in [
+            "down_proj@",
+            "down_proj@0",
+            "down_proj@11-0",
+            "down_proj@a-b",
+            "down_proj@0-x",
+            "down_proj@0-11,down_proj@12-23",
+        ] {
+            assert!(
+                RestoreF16::parse(bad).is_err(),
+                "{bad:?} must be refused by name, not silently widened"
+            );
+        }
+    }
+
+    #[test]
+    fn restore_window_refuses_an_unreadable_layer() {
+        // A name the window cannot place is not covered. Nothing in the
+        // repository produces such a name; the guard exists so a future
+        // renaming fails loudly instead of restoring the whole type.
+        let r = RestoreF16::parse("down_proj@0-11").unwrap();
+        assert!(!r.covers("blocks.3.mlp.down_proj.weight"));
+        assert!(!r.covers("model.couches.3.mlp.down_proj.weight"));
         assert!(!r.covers("model.layers.7.self_attn.k_proj.bias"));
     }
 

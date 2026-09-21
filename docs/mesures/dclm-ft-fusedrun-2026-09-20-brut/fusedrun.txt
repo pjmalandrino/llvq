@@ -1,0 +1,29 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 144 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 216 lone + 36 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 0.97 GB on the card, 2.140 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 99442 bytes, sha256 b848b0c2ca1f97e38b806ccd2a071ffe36cc465b5db4d3b7b821b0189db0e71e (11 parts), tile 128 (served constant), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+embedding: q8 g64 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 413.3 MB on the card (int8 389.0 + scales/biases 24.3)
+total expected on the card: 1.39 GB (projections 0.97 + carried 0.41)
+fused  : loaded in   12.1 s,   98.3 tok/s [97.5–98.6, 5 rounds], 1.39 GB on the card
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token · kv_store=cat
+dense  : loaded in   81.8 s,   43.4 tok/s [43.4–43.4, 5 rounds], 8.04 GB on the card
+         kv_store=cat
+
+--- the two arms ---
+  fused F0: 32 tokens identical to the dense arm
+  dense:  Paris. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Portugal is Lisbon. The capital
+  fused F0:  Paris. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Portugal is Lisbon. The capital
+
+--- what it costs ---
+  arm               load  tok/s (median)             range     GB card  matvec/t
+  ------------------------------------------------------------------------------
+  dense            81.8 s            43.4       [43.4–43.4]        8.04         —
+  fused F0         12.1 s            98.3       [97.5–98.6]        1.39       252
+  ------------------------------------------------------------------------------
+  fused F0: speed ×2.27 [×2.25–×2.27] against the dense arm (quotient of medians, 5 rounds per arm, never interleaved), memory ÷5.81
+
+  projections: 2.140 b/weight on the card, file 1.79 GB on disk.
+  WARNING: these two accountings do not compare. The file carries compact
+  indexes, the card reads the unfolded layout the kernel can read fast.

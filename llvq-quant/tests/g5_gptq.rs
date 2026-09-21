@@ -13,7 +13,7 @@
 use llvq_core::{SplitMix64, DIM};
 use llvq_quant::gptq::{bits_per_weight, proxy_loss, quantize_layer, GptqConfig, TailPolicy, Weights};
 use llvq_quant::linalg::{cholesky_lower, invert_lower, GptqFactor};
-use llvq_quant::quantizer::{BlockQuantizer, Identity, LeechDirection, ScalarGrid};
+use llvq_quant::quantizer::{BlockQuantizer, Identity, LeechDirection, ScalarGrid, TetraShapeGain};
 
 const TOL: f64 = 1e-8;
 
@@ -717,6 +717,54 @@ fn zero_block_is_handled() {
     let mut out = vec![9.9f64; DIM];
     q.quantize(&[0.0; DIM], &mut out);
     assert!(out.iter().all(|v| *v == 0.0), "zero block must stay zero");
+}
+
+/// Tetra's experimental post-shape rule changes only the gain bit and picks
+/// the lower Euclidean reconstruction error for the direction already found.
+#[test]
+fn tetra_post_shape_gain_minimizes_over_the_two_stored_gains() {
+    let encoder = TetraShapeGain::encoder();
+    let levels = vec![0.8, 1.1];
+    let mut norm_gain = TetraShapeGain::with_encoder(encoder.clone(), levels.clone());
+    let mut post_gain =
+        TetraShapeGain::with_encoder(encoder, levels).with_post_shape_gain();
+    norm_gain.set_row_scale(1.0);
+    post_gain.set_row_scale(1.0);
+
+    let mut rng = SplitMix64::new(0x5_000C);
+    let mut saw_changed_gain = false;
+    for _ in 0..64 {
+        // Norm one lies above the levels' midpoint, while angular distortion
+        // can put its projection below it: the exact boundary the two rules
+        // disagree on.
+        let mut v: Vec<f64> = (0..DIM).map(|_| rng.next_gaussian()).collect();
+        let n = v.iter().map(|a| a * a).sum::<f64>().sqrt();
+        for a in &mut v {
+            *a /= n;
+        }
+        let mut old = vec![0.0; DIM];
+        let mut new = vec![0.0; DIM];
+        norm_gain.quantize(&v, &mut old);
+        post_gain.quantize(&v, &mut new);
+        let old_code = norm_gain.last_code().expect("non-zero block");
+        let new_code = post_gain.last_code().expect("non-zero block");
+        assert_eq!(
+            old_code.point, new_code.point,
+            "gain policy changed the direction"
+        );
+
+        let old_error: f64 = v.iter().zip(&old).map(|(a, b)| (a - b).powi(2)).sum();
+        let new_error: f64 = v.iter().zip(&new).map(|(a, b)| (a - b).powi(2)).sum();
+        assert!(
+            new_error <= old_error + 1e-12,
+            "post-shape gain must minimize over the same two levels: {new_error} vs {old_error}"
+        );
+        if old_code.gain != new_code.gain {
+            saw_changed_gain = true;
+            assert!(new_error < old_error, "a changed gain must strictly improve the block");
+        }
+    }
+    assert!(saw_changed_gain, "the deterministic sample never crossed the gain boundary");
 }
 
 /// End to end in the configuration the paper recommends: 24-wide blocks, the

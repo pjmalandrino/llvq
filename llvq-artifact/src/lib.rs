@@ -62,7 +62,7 @@ mod sealed;
 pub use codebook::{codebook_fingerprint, tetra_fingerprint};
 pub use error::Error;
 pub use format::{
-    decode_matrix, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
+    decode_matrix, decode_raw, read_all, read_header, read_matrix, read_matrix_raw, read_matrix_with,
     read_record, split_name, write_header, write_header_kind, write_header_kinds, write_matrix,
     write_matrix_int4, write_matrix_raw, write_matrix_with, write_record, ArtifactWriter, CodeKind,
     Codebook, Codebooks, Header, Int4Matrix, KindSet, QuantizedMatrix, RawMatrix, Record,

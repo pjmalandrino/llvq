@@ -207,6 +207,10 @@ pub const F1RANK_V3_CU: &str = include_str!("../kernels/f1rank_v3.cu");
 /// `tests/tetra48_matches_rust.rs`, through the same `clang++` shim.
 pub const TETRA48_CUH: &str = include_str!("../kernels/llvq_tetra48.cuh");
 pub const TETRA48_V3G_CU: &str = include_str!("../kernels/tetra48_v3g.cu");
+/// `tv_tetra48_seg`, the fused matvec over a row-concatenation. A SECOND
+/// kernel measured beside `tv_f1r_v3g`, never a replacement: the production
+/// translation unit keeps its bytes and its register allocation.
+pub const TETRA48_SEG_CU: &str = include_str!("../kernels/tetra48_seg.cu");
 /// Planes14, the served layout, as a bench arm — so a Tetra time and a
 /// Planes14 time can be formed in ONE process. `docs/mesures/f1-rang-*` had
 /// to read `B = 2.797 ms` off another process and said so; that is what these
@@ -298,6 +302,7 @@ pub fn embedded_source(name: &str) -> Result<&'static str, String> {
         "f1rank_v3.cu" => Ok(F1RANK_V3_CU),
         "llvq_tetra48.cuh" => Ok(TETRA48_CUH),
         "tetra48_v3g.cu" => Ok(TETRA48_V3G_CU),
+        "tetra48_seg.cu" => Ok(TETRA48_SEG_CU),
         "llvq_planes.cuh" => Ok(PLANES_CUH),
         "planes.cu" => Ok(PLANES_CU),
         "llvq_rot.cuh" => Ok(ROT_CUH),

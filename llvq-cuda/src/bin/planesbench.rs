@@ -732,6 +732,44 @@ mod linux {
         Ok(())
     }
 
+    /// `tv_tetra48_seg` — `launch_tetra48` with one pointer more.
+    ///
+    /// The only difference is `gs_off`, inserted right after `gscale`, because
+    /// a row-concatenation of Tetra matrices carries one gain pair per segment
+    /// and the kernel resolves which pair a row owns. Everything else is
+    /// identical, deliberately: the words concatenate without re-encoding —
+    /// segments sharing `d_in` share `nblocks` and therefore `row_stride_u32` —
+    /// and `invnorm` is a property of the lattice rather than of a projection,
+    /// so both are passed exactly as the unfused arm passes them.
+    #[allow(clippy::too_many_arguments)]
+    fn launch_tetra48_seg(
+        cuda: &Cuda,
+        f: &cudarc::driver::CudaFunction,
+        words: &cudarc::driver::CudaSlice<u32>,
+        row_stride_u32: u32,
+        tabs: &TetraTabs,
+        gscale: &cudarc::driver::CudaSlice<f32>,
+        gs_off: &cudarc::driver::CudaSlice<u32>,
+        rscale: &cudarc::driver::CudaSlice<f32>,
+        tail: &cudarc::driver::CudaSlice<f32>,
+        x: &cudarc::driver::CudaSlice<f32>,
+        y: &mut cudarc::driver::CudaSlice<f32>,
+        nblocks: u32,
+        tail_w: u32,
+        d_out: u32,
+        threads: u32,
+        shared: u32,
+    ) -> Result<(), String> {
+        let cfg = row_grid(d_out, threads, shared);
+        let mut b = cuda.stream().launch_builder(f);
+        b.arg(words).arg(&row_stride_u32)
+            .arg(&tabs.rows).arg(&tabs.prefixes).arg(&tabs.branches).arg(&tabs.suffixes)
+            .arg(gscale).arg(gs_off).arg(&tabs.invnorm).arg(rscale).arg(tail)
+            .arg(x).arg(y).arg(&nblocks).arg(&tail_w);
+        unsafe { b.launch(cfg) }.map_err(|e| format!("tv_tetra48_seg: {e}"))?;
+        Ok(())
+    }
+
     /// `tv_planes_seg(words, tab, gscale, gs_off, rscale, tail, x, y, nblocks,
     /// tail_w)` — `tv_planes` over a row-concatenation of projections sharing
     /// an input, with one extra table naming each row's centroid pair.
@@ -1351,6 +1389,22 @@ mod linux {
         let (p12cuh, p12cu, planes12_overridden) = load_planes12_sources()?;
         let (gcuh, gcu, golay_overridden) = load_golay_sources()?;
         let (segcu, seg_overridden) = load_planes_seg_source()?;
+        // The Tetra fusion arm, OFF by default. Its bit-exact comparison is
+        // fatal when it runs — that is the whole point of it — and on
+        // 2026-09-20 it fired and took the ten-arm cost table down with it,
+        // before the table was printed. An experimental arm must not be able
+        // to do that to the table the bench exists for.
+        //
+        // Refused by name on any other value, like every flag in this file.
+        let seg_tetra = match std::env::var("LLVQ_SEG_TETRA").as_deref() {
+            Err(_) | Ok("0") => false,
+            Ok("1") => true,
+            Ok(v) => {
+                return Err(format!(
+                    "LLVQ_SEG_TETRA={v:?}: the values are 0 and 1, and unset is 0"
+                ))
+            }
+        };
         let (awqcu, awq_overridden) = load_awq_source()?;
         let (gv1cu, golay_v1_overridden) = load_golay_v1_source()?;
         // P1c. Same loader as the base pair, so `LLVQ_KERNEL_DIR` overrides it
@@ -1391,6 +1445,10 @@ mod linux {
             "llvq_f1rank_v3.cuh",
             "llvq_tetra48.cuh",
             "tetra48_v3g.cu",
+            // A4 for Tetra, appended after the served arm for the rule that
+            // governs every arrival: adding a kernel must never move a
+            // fragment of an arm that carries a published number.
+            "tetra48_seg.cu",
         ])?;
         let qtip_src = load_qtip_sources()?;
         let (qtip_cuh, qtip_glue) = match &qtip_src {
@@ -1441,6 +1499,7 @@ mod linux {
             f1.parts[1].as_str(),
             f1.parts[2].as_str(),
             f1.parts[3].as_str(),
+            f1.parts[4].as_str(),
         ];
         let src = KernelSource::new(&parts);
         // On the assembled text: the one place where what NVRTC compiles and
@@ -2707,6 +2766,13 @@ mod linux {
             tail: cudarc::driver::CudaSlice<f32>,
             slot_bytes: u64,
             planes_bytes: u64,
+            /// The Tetra stream of the same concatenation, present only when
+            /// `tetra48` is in the selection. `Option` and not a sentinel: a
+            /// group whose members are not all Tetra has no such stream, and
+            /// an empty `CudaSlice` would launch and read garbage.
+            twords: Option<cudarc::driver::CudaSlice<u32>>,
+            tstride: u32,
+            tetra_bytes: u64,
             /// Indices into `mats` of the matrices this one replaces, in row
             /// order — the fused output must equal their outputs concatenated.
             parts: Vec<usize>,
@@ -2758,6 +2824,10 @@ mod linux {
         let f_slot_seg = cuda.func("tv_slot_seg")?;
         let f_planes = cuda.func("tv_planes")?;
         let f_planes_seg = cuda.func("tv_planes_seg")?;
+        // A4 for Tetra. Loaded unconditionally like every other arm's
+        // function: the unit always contains it, and a group without a
+        // Tetra stream is skipped at launch rather than at load.
+        let f_tetra48_seg = cuda.func("tv_tetra48_seg")?;
         let f_planes12x = cuda.func("tv_planes12x")?;
         let f_golay70 = cuda.func("tv_golay70")?;
         let f_golay70_v1 = cuda.func("tv_golay70_v1")?;
@@ -2967,6 +3037,23 @@ mod linux {
                     &fm.rscale, &fm.tail, &d_x, y, fm.nblocks as u32, fm.tail_w as u32,
                     fm.d_out as u32, THREADS, shared,
                 )
+            };
+        // A fused group whose members are not all Tetra has no stream, and
+        // this returns `Ok(false)` so the caller skips it rather than launching
+        // on an absent buffer. On the served object that is every q+k+v group,
+        // because `v_proj` is int4.
+        let run_tetra48_seg =
+            |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<bool, String> {
+                let Some(w) = fm.twords.as_ref() else {
+                    return Ok(false);
+                };
+                launch_tetra48_seg(
+                    &cuda, &f_tetra48_seg, w, fm.tstride,
+                    tetra_tabs.as_ref().expect("tetra48 tables not uploaded"),
+                    &fm.gscale, &fm.gs_off, &fm.rscale, &fm.tail, &d_x, y,
+                    fm.nblocks as u32, fm.tail_w as u32, fm.d_out as u32, THREADS, shared,
+                )?;
+                Ok(true)
             };
         let run_planes_seg =
             |fm: &FusedMat, y: &mut cudarc::driver::CudaSlice<f32>| -> Result<(), String> {
@@ -3839,6 +3926,51 @@ mod linux {
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
 
+                // The Tetra stream of the same concatenation. It costs no
+                // transcoding step of its own: `transcode_tetra48` takes the
+                // indices and gains `seg_concat` already produced, and rows
+                // sharing `d_in` share `row_stride_u32`, so concatenating by
+                // rows is concatenating the word arrays.
+                //
+                // Only built when the arm is selected. A group is skipped when
+                // any member is missing from `tetra`, which is what the served
+                // object's int4 `v_proj` does to a q+k+v group: the pair that
+                // survives is q+k, and gate+up.
+                let (twords, tstride, tetra_bytes) = match seg_tetra
+                    && union.has(arms::TETRA48)
+                    && idx.iter().all(|&i| tetra.contains_key(&srcs[i].name))
+                {
+                    false => (None, 0u32, 0u64),
+                    true => {
+                        let tb = llvq_artifact::tetra48::transcode_tetra48(
+                            &seg.indices, &seg.gains, seg.d_out, seg.nblocks,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        // `data` is bytes; the kernel reads u32. Same
+                        // conversion and same assertion as the unfused arm,
+                        // because a stream that is not a whole number of row
+                        // strides would read every row after the first at a
+                        // shifted phase.
+                        let twords: Vec<u32> = tb
+                            .data
+                            .chunks_exact(4)
+                            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                            .collect();
+                        assert_eq!(
+                            twords.len(),
+                            seg.d_out * tb.stride_u32,
+                            "{key}: the fused Tetra stream is not a whole number of row strides"
+                        );
+                        // The same ledger the two ball arms keep, with the same
+                        // `gs_off` line: it is the only byte fusion ADDS.
+                        let bytes = tb.data.len() as u64
+                            + (seg.d_out * seg.tail_w) as u64 * 4
+                            + seg.d_out as u64 * 4
+                            + seg.d_out as u64 * 4;
+                        (Some(cuda.up_u32(&twords)?), tb.stride_u32 as u32, bytes)
+                    }
+                };
+
                 fused.push(FusedMat {
                     name: key.clone(),
                     d_out: seg.d_out,
@@ -3854,6 +3986,9 @@ mod linux {
                         .up_f32(if seg.tail.is_empty() { &[0.0f32] } else { &seg.tail })?,
                     slot_bytes,
                     planes_bytes,
+                    twords,
+                    tstride,
+                    tetra_bytes,
                     parts: idx.clone(),
                 });
             }
@@ -3890,22 +4025,35 @@ mod linux {
             // arm is the same claim about `tv_planes_seg` and is *not*
             // established until this block runs.
             println!("\n  Fusion (A4) — output against the unfused matrices");
+            // Counted and printed rather than assumed: on the served object
+            // every q+k+v group is skipped, because `v_proj` is int4, and a
+            // silent skip would read as a pass.
+            let mut tetra_checked = 0usize;
             for fm in &fused {
-                for layout in 0..2 {
-                    if layout == 0 {
-                        run_slot_seg(fm, &mut d_y)?
-                    } else {
-                        run_planes_seg(fm, &mut d_y)?
+                // Layout 2 is Tetra, appended for the rule every arrival
+                // follows. It is the only one that can be ABSENT: a group whose
+                // members are not all Tetra has no fused stream, and the
+                // closure says so rather than launching on nothing.
+                for layout in 0..3 {
+                    match layout {
+                        0 => run_slot_seg(fm, &mut d_y)?,
+                        1 => run_planes_seg(fm, &mut d_y)?,
+                        _ => {
+                            if !run_tetra48_seg(fm, &mut d_y)? {
+                                continue;
+                            }
+                            tetra_checked += 1;
+                        }
                     }
                     cuda.sync()?;
                     let got = cuda.down_f32(&d_y)?;
                     let mut at = 0usize;
                     for &pi in &fm.parts {
                         let m = &mats[pi];
-                        if layout == 0 {
-                            run_slot(m, &mut d_y)?
-                        } else {
-                            run_planes(m, &mut d_y)?
+                        match layout {
+                            0 => run_slot(m, &mut d_y)?,
+                            1 => run_planes(m, &mut d_y)?,
+                            _ => run_tetra48(m, &mut d_y)?,
                         }
                         cuda.sync()?;
                         let want = cuda.down_f32(&d_y)?;
@@ -3917,13 +4065,34 @@ mod linux {
                                  separate",
                                 fm.name,
                                 m.name,
-                                if layout == 0 { "Slot32" } else { "Planes14" },
+                                match layout {
+                                    0 => "Slot32",
+                                    1 => "Planes14",
+                                    _ => "Tetra48",
+                                },
                                 got[at + bad],
                                 want[bad]
                             ));
                         }
                         at += m.d_out;
                     }
+                }
+            }
+            println!(
+                "  bit-exact against the unfused arms: {} groups on Slot32 and Planes14, \
+                 {tetra_checked} on Tetra48",
+                fused.len()
+            );
+            if tetra_checked == 0 {
+                match seg_tetra {
+                    false => println!(
+                        "  Tetra fusion not requested (LLVQ_SEG_TETRA unset): \
+                         `tv_tetra48_seg` is compiled and not exercised here"
+                    ),
+                    true => println!(
+                        "  ⚠️ LLVQ_SEG_TETRA=1 and NO Tetra group was checked: no fused group \
+                         has a Tetra stream, so `tv_tetra48_seg` is compiled and UNPROVEN"
+                    ),
                 }
             }
             println!(
@@ -4302,12 +4471,26 @@ mod linux {
             // mean holding a second copy of 7.27 GB of f16 weights, so a
             // fused-LLVQ / unfused-FP16 ratio would credit the format for a
             // geometry change. Every number below is a DELTA, not a ratio.
-            let mut tf: [Vec<f64>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            // Six series, not four: arms 4 and 5 are Tetra separate and Tetra
+            // fused, appended after the historical four so no existing
+            // denominator moves. They are timed in the SAME rounds, because a
+            // delta of two minima from rounds that never coexisted is the
+            // mistake this file documents.
+            let mut tf: [Vec<f64>; 6] = [
+                Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(),
+            ];
             // A3: one series per selected arm, filled in the SAME rounds as the
             // four above, after them.
             let mut tn: Vec<Vec<f64>> = vec![Vec::new(); seg_arms.len()];
             for rep in 0..ROUNDS {
                 for (arm, ta) in tf.iter_mut().enumerate() {
+                    // Arms 4 and 5 are the Tetra pair. Without a fused stream
+                    // they would measure the same launches twice and print a
+                    // delta of zero, which reads as "the fusion is worth
+                    // nothing" rather than "the fusion did not run".
+                    if arm >= 4 && !fused.iter().any(|f| f.twords.is_some()) {
+                        continue;
+                    }
                     let tin = Instant::now();
                     match arm {
                         // 0/2: everything separate. 1/3: the fusible groups
@@ -4330,6 +4513,29 @@ mod linux {
                         2 => {
                             for m in &mats {
                                 run_planes(m, &mut d_y)?;
+                            }
+                        }
+                        4 => {
+                            for m in &mats {
+                                run_tetra48(m, &mut d_y)?;
+                            }
+                        }
+                        5 => {
+                            // A group whose members are not all Tetra has no
+                            // fused stream; its members run separately here, so
+                            // arms 4 and 5 always cover the same matrices and
+                            // their delta is the fusion and nothing else.
+                            for fm in &fused {
+                                if !run_tetra48_seg(fm, &mut d_y)? {
+                                    for &pi in &fm.parts {
+                                        run_tetra48(&mats[pi], &mut d_y)?;
+                                    }
+                                }
+                            }
+                            for (i, m) in mats.iter().enumerate() {
+                                if !fused.iter().any(|f| f.parts.contains(&i)) {
+                                    run_tetra48(m, &mut d_y)?;
+                                }
                             }
                         }
                         _ => {
@@ -4371,7 +4577,7 @@ mod linux {
                     }
                 }
             }
-            let [ts, tss, tp, tps] = tf;
+            let [ts, tss, tp, tps, tt, tts] = tf;
             // The reference series of the A3 arms, round by round, kept before
             // `spread` consumes `tps`.
             let tps_ref = tps.clone();
@@ -4388,6 +4594,24 @@ mod linux {
             let (ds_lo, ds_md, ds_hi) = spread(ds);
             let (dp_lo, dp_md, dp_hi) = spread(dp);
             let (rr_lo, rr_md, rr_hi) = spread(rr);
+            // The Tetra delta, formed round by round like the other two —
+            // and ONLY when the arms ran. Skipping arms 4 and 5 leaves their
+            // series empty, and `spread` indexes the median: on 2026-09-20
+            // that panicked at the very end of a 25-minute job, after the
+            // table it exists for had already been printed. A `continue` was
+            // added without reading what consumed its result.
+            let tetra_timed = !tt.is_empty() && !tts.is_empty();
+            let (dt_lo, dt_md, dt_hi, t_sep, t_fus) = match tetra_timed {
+                false => (0.0, 0.0, 0.0, 0.0, 0.0),
+                true => {
+                    let dt: Vec<f64> =
+                        tt.iter().zip(&tts).map(|(a, b)| (a - b) * 1e3).collect();
+                    let (_, ts_, _) = spread(tt);
+                    let (_, tf_, _) = spread(tts);
+                    let (lo, md, hi) = spread(dt);
+                    (lo, md, hi, ts_, tf_)
+                }
+            };
 
             let n_sep = mats.len();
             let n_fus = fused.len()
@@ -4441,6 +4665,37 @@ mod linux {
                 p_fus * 1e3
             );
             println!("  {}", "-".repeat(78));
+            // Tetra before the two historical gains, because its arm is the
+            // one this section was extended for. Printed even when it is zero:
+            // a fusion that fused nothing must say so, not disappear.
+            let tb_sep = unfused_bytes(|m| arm_bytes(m, arms::TETRA48));
+            let tb_fus = fused_bytes(|f| f.tetra_bytes, |m| arm_bytes(m, arms::TETRA48));
+            if !tetra_timed {
+                println!("  Tetra48 fusion: not timed (LLVQ_SEG_TETRA unset)");
+            }
+            if tetra_timed {
+            println!(
+                "  {:<34}{:>10.3} ms\n  {:<34}{:>10.3} ms",
+                "Tetra48, separate matrices",
+                t_sep * 1e3,
+                "Tetra48, q+k and gate+up fused",
+                t_fus * 1e3
+            );
+            println!(
+                "  gain Tetra48  : {dt_md:.3} ms [{dt_lo:.3}–{dt_hi:.3}]  ({:.1}%)",
+                if t_sep > 0.0 { dt_md / (t_sep * 1e3) * 100.0 } else { 0.0 }
+            );
+            println!(
+                "  bytes read — Tetra48  : {:.3} GB fused against {:.3} separate ({:+.2}%)",
+                tb_fus as f64 / 1e9,
+                tb_sep as f64 / 1e9,
+                if tb_sep > 0 {
+                    (tb_fus as f64 / tb_sep as f64 - 1.0) * 100.0
+                } else {
+                    0.0
+                }
+            );
+            }
             println!(
                 "  gain Slot32   : {ds_md:.3} ms [{ds_lo:.3}–{ds_hi:.3}]  ({:.1}%)",
                 100.0 * ds_md / (s_sep * 1e3)

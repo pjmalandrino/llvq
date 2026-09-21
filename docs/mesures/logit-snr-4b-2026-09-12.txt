@@ -1,0 +1,176 @@
+logit fidelity on the 4B MMLU dumps: 2280 questions, 9120 logits per arm, f16 sd(centred) = 3.2605
+f16 accuracy 70.32 +- 1.34
+
+1. Fidelity and accuracy, every arm scored against the same f16 dump
+arm                beta  sd_res    SNR  noise share  accuracy    NLL4
+awq4              0.960   0.856  3.656         7.0%     70.04  1.1161
+planes14          0.466   1.418  1.071        46.6%     55.59  1.2128
+tetra             0.458   1.451  1.029        48.6%     53.49  1.3632
+tetra+q5          0.498   1.443  1.125        44.1%     56.95  1.2665
+tetra+attn4       0.607   1.489  1.330        36.1%     58.48  1.2324
+seed1             0.470   1.329  1.152        43.0%     58.02  1.1867
+seed2             0.378   1.187  1.038        48.1%     52.19  1.2288
+seed3             0.519   1.487  1.137        43.6%     55.17  1.3304
+M2:q_proj         0.501   1.441  1.134        43.8%     57.44  1.2231
+M2rep:q_proj      0.532   1.498  1.157        42.7%     55.65  1.3355
+M2:k_proj         0.475   1.396  1.109        44.8%     57.69  1.1841
+M2rep:k_proj      0.478   1.299  1.200        41.0%     56.27  1.1901
+M2:v_proj         0.644   1.644  1.278        38.0%     60.07  1.3299
+M2rep:v_proj      0.559   1.390  1.310        36.8%     58.03  1.2403
+M2:o_proj         0.522   1.319  1.291        37.5%     57.94  1.1671
+M2rep:o_proj      0.595   1.613  1.203        40.9%     57.25  1.3196
+M2:gate_proj      0.541   1.415  1.247        39.2%     60.77  1.1651
+M2rep:gate_proj   0.583   1.421  1.339        35.8%     57.88  1.2136
+M2:up_proj        0.499   1.277  1.274        38.1%     60.53  1.1003
+M2rep:up_proj     0.628   1.468  1.394        34.0%     59.47  1.2206
+M2:down_proj      0.610   1.381  1.441        32.5%     58.55  1.1571
+M2rep:down_proj   0.768   1.617  1.548        29.4%     60.72  1.3335
+M2:attn           0.736   1.529  1.569        28.9%     62.49  1.2977
+M2rep:attn        0.557   1.193  1.523        30.1%     60.25  1.1158
+M2:mlp            0.692   0.989  2.283        16.1%     66.37  0.9941
+M2rep:mlp         0.904   1.216  2.426        14.5%     66.79  1.1285
+M2:v_int4         0.654   1.705  1.250        39.0%     59.19  1.3633
+M2b3:v_int4       0.588   1.543  1.243        39.3%     57.87  1.3132
+M2rep:shipped     0.519   1.487  1.137        43.6%     55.17  1.3304
+
+2. One scalar accounts for the whole family. acc = a + c ln(SNR), fitted on the
+   LLVQ-family arms only; awq4 is printed against it, not fitted into it.
+   acc = 54.60 + 14.60 ln(SNR)   over 28 arms
+   tetra            SNR 1.029  measured  53.49  law  55.02   -1.53
+   seed2            SNR 1.038  measured  52.19  law  55.15   -2.95
+   planes14         SNR 1.071  measured  55.59  law  55.61   -0.02
+   M2:k_proj        SNR 1.109  measured  57.69  law  56.12   +1.57
+   tetra+q5         SNR 1.125  measured  56.95  law  56.33   +0.63
+   M2:q_proj        SNR 1.134  measured  57.44  law  56.43   +1.00
+   M2rep:shipped    SNR 1.137  measured  55.17  law  56.47   -1.31
+   seed3            SNR 1.137  measured  55.17  law  56.47   -1.31
+   seed1            SNR 1.152  measured  58.02  law  56.67   +1.36
+   M2rep:q_proj     SNR 1.157  measured  55.65  law  56.73   -1.08
+   M2rep:k_proj     SNR 1.200  measured  56.27  law  57.26   -0.99
+   M2rep:o_proj     SNR 1.203  measured  57.25  law  57.29   -0.05
+   M2b3:v_int4      SNR 1.243  measured  57.87  law  57.77   +0.10
+   M2:gate_proj     SNR 1.247  measured  60.77  law  57.82   +2.95
+   M2:v_int4        SNR 1.250  measured  59.19  law  57.86   +1.33
+   M2:up_proj       SNR 1.274  measured  60.53  law  58.13   +2.40
+   M2:v_proj        SNR 1.278  measured  60.07  law  58.18   +1.89
+   M2:o_proj        SNR 1.291  measured  57.94  law  58.33   -0.39
+   M2rep:v_proj     SNR 1.310  measured  58.03  law  58.54   -0.51
+   tetra+attn4      SNR 1.330  measured  58.48  law  58.76   -0.28
+   M2rep:gate_proj  SNR 1.339  measured  57.88  law  58.86   -0.98
+   M2rep:up_proj    SNR 1.394  measured  59.47  law  59.45   +0.02
+   M2:down_proj     SNR 1.441  measured  58.55  law  59.93   -1.38
+   M2rep:attn       SNR 1.523  measured  60.25  law  60.75   -0.50
+   M2rep:down_proj  SNR 1.548  measured  60.72  law  60.98   -0.26
+   M2:attn          SNR 1.569  measured  62.49  law  61.18   +1.32
+   M2:mlp           SNR 2.283  measured  66.37  law  66.65   -0.28
+   M2rep:mlp        SNR 2.426  measured  66.79  law  67.54   -0.75
+   awq4             SNR 3.656  measured  70.04  law  73.53   -3.48
+   in-sample rms residual 1.31 pp, per-arm sampling SE ~1.41 pp
+   the law's exchange rate: one MMLU point costs SNR x1.071, that is noise-to-signal x0.872
+   to read 60.00 the served Tetra arm needs SNR 1.45, x1.41 of today's, noise-to-signal /2.0
+   to read 65.00 the served Tetra arm needs SNR 2.04, x1.98 of today's, noise-to-signal /3.9
+   to read 70.04 the served Tetra arm needs SNR 2.88, x2.80 of today's, noise-to-signal /7.8
+
+3. Out of sample: SNR read on 28 subjects, accuracy on the other 29.
+   rms residual 1.74 pp, spread to explain 3.33 pp, sampling SE on 29 subjects ~1.59 pp
+
+4. The error is multiplicative: per-question rms residual by f16 margin decile.
+ decile   f16 margin        awq4    planes14       tetra       seed1       seed3
+      1  0.00- 0.55       0.709       0.997       0.985       0.974       1.087
+      2  0.55- 1.27       0.733       1.057       1.013       1.040       1.125
+      3  1.27- 2.12       0.829       1.082       1.102       1.053       1.205
+      4  2.12- 3.27       0.855       1.160       1.085       1.109       1.246
+      5  3.28- 4.67       0.834       1.258       1.133       1.156       1.395
+      6  4.67- 5.86       0.728       1.363       1.386       1.298       1.490
+      7  5.86- 7.14       0.710       1.374       1.305       1.245       1.428
+      8  7.14- 8.48       0.618       1.360       1.472       1.217       1.399
+      9  8.48-10.00       0.580       1.419       1.560       1.295       1.444
+     10 10.00-13.59       0.505       1.607       1.681       1.361       1.396
+   correlation with the f16 margin, awq4: -0.181
+   correlation with the f16 margin, planes14: +0.279
+   correlation with the f16 margin, tetra: +0.323
+   correlation with the f16 margin, seed1: +0.189
+   correlation with the f16 margin, seed3: +0.160
+
+5. What the amplitude of the error alone would cost, against what it does cost.
+arm           measured   gaussian iid   own residuals   banded replay
+awq4             70.04     69.21+-0.83      69.07+-0.78      69.15+-0.83
+planes14         55.59     59.58+-1.24      60.04+-1.25      59.00+-1.15
+tetra            53.49     58.53+-1.05      58.76+-1.06      57.53+-1.03
+tetra+q5         56.95     60.03+-0.90      60.47+-1.23      60.06+-1.02
+seed1            58.02     60.66+-1.27      60.81+-1.22      60.49+-1.15
+seed2            52.19     58.74+-1.00      58.76+-0.97      57.92+-1.05
+seed3            55.17     60.34+-1.26      60.61+-0.98      60.07+-1.19
+
+6. The loss is a flip on part of the bank, not a fade everywhere.
+   Questions whose four-logit shape is reversed against f16 (rho_q < 0):
+   awq4         15 ( 0.7%), arm accuracy on them 13.3%, f16 40.0%
+   planes14    269 (11.8%), arm accuracy on them 15.2%, f16 53.5%
+   tetra       356 (15.6%), arm accuracy on them 12.9%, f16 62.4%
+   seed1       254 (11.1%), arm accuracy on them 12.2%, f16 57.9%
+   seed2       332 (14.6%), arm accuracy on them 14.2%, f16 59.0%
+   seed3       278 (12.2%), arm accuracy on them 10.8%, f16 56.1%
+   overlap between independent encodings, observed against chance:
+      planes14 & tetra      100 against  42.0, lift x2.38
+      planes14 & seed1       85 against  30.0, lift x2.84
+      planes14 & seed2      105 against  39.2, lift x2.68
+      planes14 & seed3       83 against  32.8, lift x2.53
+         tetra & seed1      103 against  39.7, lift x2.60
+         tetra & seed2      137 against  51.8, lift x2.64
+         tetra & seed3      114 against  43.4, lift x2.63
+         seed1 & seed2      120 against  37.0, lift x3.24
+         seed1 & seed3       88 against  31.0, lift x2.84
+         seed2 & seed3      111 against  40.5, lift x2.74
+   broken by at least one of the five: 810 (35.5% of the bank)
+
+7. Restoring any projection type repairs the same questions.
+   M2: base SNR 1.071, noise-to-signal 0.8712, accuracy 55.59
+   type         accuracy     N/S  N/S removed   share  weights  noise per weight
+   q_proj          57.44  0.7779       0.0933   10.7%    10.4%             0.898
+   k_proj          57.69  0.8125       0.0587    6.7%     2.6%             2.261
+   v_proj          60.07  0.6124       0.2588   29.7%     2.6%             9.962
+   o_proj          57.94  0.6003       0.2709   31.1%    10.4%             2.608
+   gate_proj       60.77  0.6435       0.2277   26.1%    24.7%             0.923
+   up_proj         60.53  0.6165       0.2547   29.2%    24.7%             1.032
+   down_proj       58.55  0.4819       0.3893   44.7%    24.7%             1.578
+     attn: measured 0.4649 (53.4%), sum of members 0.6817, sub-additivity 0.68
+     mlp: measured 0.6793 (78.0%), sum of members 0.8717, sub-additivity 0.78
+     Jaccard between the sets each single type repairs: 22.0 to 35.8%, chance 3.2 to 5.6%
+     union of the seven repaired sets 489, sum of their sizes 1365; f16 itself repairs 490, of which the union covers 70%
+   M2rep: base SNR 1.137, noise-to-signal 0.7737, accuracy 55.17
+   type         accuracy     N/S  N/S removed   share  weights  noise per weight
+   q_proj          55.65  0.7465       0.0272    3.5%    10.4%             0.261
+   k_proj          56.27  0.6945       0.0792   10.2%     2.6%             3.049
+   v_proj          58.03  0.5826       0.1911   24.7%     2.6%             7.357
+   o_proj          57.25  0.6913       0.0824   10.6%    10.4%             0.793
+   gate_proj       57.88  0.5582       0.2155   27.9%    24.7%             0.873
+   up_proj         59.47  0.5147       0.2589   33.5%    24.7%             1.049
+   down_proj       60.72  0.4173       0.3563   46.1%    24.7%             1.444
+     attn: measured 0.3428 (44.3%), sum of members 0.3798, sub-additivity 0.90
+     mlp: measured 0.6037 (78.0%), sum of members 0.8308, sub-additivity 0.73
+     Jaccard between the sets each single type repairs: 17.7 to 33.3%, chance 2.4 to 5.3%
+     union of the seven repaired sets 468, sum of their sizes 1177; f16 itself repairs 477, of which the union covers 68%
+
+8. An output temperature buys nothing back.
+   f16 NLL4 1.0218, best temperature 2.38 -> 0.7480
+   arm             NLL4   excess    T*  excess at T*  recovered
+   awq4          1.1161  +0.0943  2.52       +0.0454      51.8%
+   planes14      1.2128  +0.1909  2.13       +0.2903     -52.0%
+   tetra         1.3632  +0.3413  2.56       +0.3343       2.1%
+   tetra+q5      1.2665  +0.2447  2.34       +0.2938     -20.1%
+   seed1         1.1867  +0.1649  2.08       +0.2698     -63.6%
+   seed3         1.3304  +0.3086  2.48       +0.3015       2.3%
+
+9. Attenuation costs no MMLU point. Only the ratio does.
+   arm          beta     sd   attenuation only   noise only     both     real
+   awq4        0.960  0.988              70.27        69.29    69.23    70.04
+   planes14    0.466  1.638              70.27        59.96    59.63    55.59
+   tetra       0.458  1.676              70.27        58.75    58.71    53.49
+
+10. Across sizes, the same accounting.
+   4B   awq   beta 0.960 sd_res 0.856 SNR 3.656 accuracy 70.04 against f16 70.32
+   4B   llvq  beta 0.466 sd_res 1.418 SNR 1.071 accuracy 55.59 against f16 70.32
+   8B   awq   beta 0.971 sd_res 0.758 SNR 4.394 accuracy 73.01 against f16 76.08
+   8B   llvq  beta 0.748 sd_res 1.612 SNR 1.590 accuracy 65.52 against f16 76.08
+   14B  awq   beta 0.956 sd_res 0.499 SNR 6.638 accuracy 78.21 against f16 78.97
+   14B  llvq  beta 0.812 sd_res 1.272 SNR 2.210 accuracy 72.12 against f16 78.97
