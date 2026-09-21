@@ -418,3 +418,280 @@ kernel void tv_tetra48_metal(const device uint*   words          [[buffer(0)]],
         y[row] = fma(acc, rscale[row], tv);
     }
 }
+
+// ---------------------------------------------------------------------------
+// The same matvec with the decoder tables PINNED in threadgroup memory.
+//
+// ## The question it asks
+//
+// `tv_tetra48_metal` reads its four tables from `device` memory, three
+// DEPENDENT lookups a block, 106 blocks a row. On NVIDIA those tables sit in
+// L1 and the activation tile competes with them for the same 102,400 B of
+// SRAM; that competition is worth 19.1 % on sm_89
+// (`docs/mesures/tuile-l40s-2026-09-20.txt`). On Apple they have no residency
+// at all, and the measured matvec runs at 49 GB/s against the card's 146.
+//
+// The tables are 18,688 B and a tile of 64 is 6,144. Together 24,832 against
+// Apple's 32,768, so they FIT. This variant copies them in once a threadgroup
+// and decodes from there.
+//
+// ## Why it might lose
+//
+// Every threadgroup re-reads 18,688 B. A 2,560-row matrix launches 320 of
+// them, so that is 6.0 MB of copies against 1.6 MB of weight stream. If the
+// copies do not come out of cache, the cure is worse. And pinning 18,688 of
+// 32,768 caps the threadgroups resident on a core, trading latency for
+// occupancy.
+//
+// Which wins is a measurement. `llvq-metal/examples/metalsplit.rs` makes it.
+//
+// ## Why the decode is duplicated rather than shared
+//
+// MSL has no address-space-generic pointer, so a function that reads
+// `device const uint*` cannot read `threadgroup const uint*`. The three
+// fetch steps are repeated below with the other qualifier and nothing else
+// changed. A diff of the two bodies should show only the word `threadgroup`.
+// ---------------------------------------------------------------------------
+
+struct F1rTablesTG {
+    const threadgroup uint*   rows;
+    const threadgroup uchar*  prefixes;
+    const threadgroup ushort* branches;
+    const threadgroup uchar*  suffixes;
+};
+
+inline void f1r_v3_quads_tg(uint lo, uint hi16, F1rTablesTG t, thread uint q[6])
+{
+    uint p  = lo & 1u;
+    uint r  = (lo >> 1) & 1u;
+    uint s8 = (lo >> 2) & 63u;
+    uint b1 = (lo >> 8) & 1u;
+    uint i1 = (lo >> 9) & 0x7ffu;
+    uint b2 = (lo >> 20) & 15u;
+    uint i2 = ((lo >> 24) | ((hi16 & 7u) << 8)) & 0x7ffu;
+    uint b3 = (hi16 >> 3) & 1u;
+    uint i3 = (hi16 >> 4) & 0x7ffu;
+
+    uint c1 = t.prefixes[2u * s8 + b1];
+    uint br = t.branches[16u * s8 + b2];
+    uint c2 = br & 0xffu;
+    uint s16 = (br >> 8) & 63u;
+    uint c3 = t.suffixes[2u * s16 + b3];
+
+    uint row1 = t.rows[2048u * r + i1];
+    bool mid = i2 < F1R_N0_MIXED;
+    uint idx2 = mid ? i2 : (2048u - F1R_N0_MIXED) + i2;
+    uint row2 = t.rows[idx2];
+    uint delta = mid ? 0u : 1u;
+    uint r3 = (p ^ r ^ delta) & 1u;
+    uint row3 = t.rows[2048u * r3 + i3];
+
+    F1rV3Tab v = f1r_v3_tables(p);
+    f1r_v3_section(v, c1, row1, q[0], q[1]);
+    f1r_v3_section(v, c2, row2, q[2], q[3]);
+    f1r_v3_section(v, c3, row3, q[4], q[5]);
+}
+
+inline float tetra48_dot_tg(uint lo,
+                            uint hi16,
+                            F1rTablesTG t,
+                            const threadgroup float* xb,
+                            const device float* gscale,
+                            const device float* invnorm)
+{
+    uint q[6];
+    f1r_v3_quads_tg(lo, hi16, t, q);
+    float acc = 0.0f;
+    for (uint i = 0u; i < 6u; ++i) {
+        for (uint j = 0u; j < 4u; ++j) {
+            acc = fma(f1r_v3_float(q[i], j), xb[TETRA48_ORDER[4u * i + j]], acc);
+        }
+    }
+    uint m = (tetra48_n2(q) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+
+kernel void tv_tetra48_metal_tg(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                threadgroup uint*    t_rows         [[threadgroup(1)]],
+                                threadgroup ushort*  t_bran         [[threadgroup(2)]],
+                                threadgroup uchar*   t_pref         [[threadgroup(3)]],
+                                threadgroup uchar*   t_suff         [[threadgroup(4)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    // The copy, once a threadgroup, before anything reads a table.
+    for (uint i = tid; i < 4096u; i += tgs) t_rows[i] = rows[i];
+    for (uint i = tid; i < 1024u; i += tgs) t_bran[i] = branches[i];
+    for (uint i = tid; i < 128u; i += tgs) { t_pref[i] = prefixes[i]; t_suff[i] = suffixes[i]; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTablesTG tab = { t_rows, t_pref, t_bran, t_suff };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_tg(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The same matvec with the value computed instead of looked up.
+//
+// ## Why the v3 tables exist at all, and why that reason does not cross
+//
+// `llvq_f1rank_v3.cuh` packs the lattice coordinates into four byte tables and
+// gathers them with `prmt.b32`, ONE instruction. Its own header says so: the
+// tables are there because PRMT makes a byte gather cheaper than the
+// arithmetic.
+//
+// Metal has no PRMT. The `prmt` above emulates it with a four-trip loop of
+// shifts, masks and selects, and it is called TWELVE times a block. That is
+// roughly 240 instructions a block bought to avoid about 8.
+//
+// So this variant drops the v3 representation and computes `val(o, rho)`
+// directly, which is what the SCALAR decoder `f1r_val` in `llvq_f1rank.cuh`
+// does and has always done. Same values, no table, no emulation.
+//
+//   m : o odd (1, 3) -> 2*rho + 1
+//       o = 2        -> 2 + 4*(rho >> 1)
+//       o = 0        -> 4*((rho + 1) >> 1), zero at rho = 0
+//   sign : plus when (rho + ((o + 1) >> 1)) is odd
+//
+// Whether it wins is a measurement, and porting an optimisation whose premise
+// does not hold is the mistake this file is correcting.
+// ---------------------------------------------------------------------------
+
+/// `val(o, rho)`, branchless. A transcription of `f1r_val`.
+inline int f1r_val_m(uint o, uint rho)
+{
+    int m_odd = 2 * int(rho) + 1;
+    int m_two = 2 + 4 * int(rho >> 1);
+    int m_zero = 4 * int((rho + 1u) >> 1);
+    int m = (o & 1u) ? m_odd : ((o & 2u) ? m_two : m_zero);
+    uint plus = (rho + ((o + 1u) >> 1)) & 1u;
+    return plus ? m : -m;
+}
+
+inline float tetra48_dot_arith(uint lo,
+                               uint hi16,
+                               F1rTables t,
+                               const threadgroup float* xb,
+                               const device float* gscale,
+                               const device float* invnorm)
+{
+    F1rV3Block b = f1r_v3_fetch(lo, hi16, t);
+    uint cs[3] = { b.c1, b.c2, b.c3 };
+    uint rs[3] = { b.row1, b.row2, b.row3 };
+    float acc = 0.0f;
+    int n2 = 0;
+    for (uint sec = 0u; sec < 3u; ++sec) {
+        uint c = cs[sec];
+        uint row = rs[sec];
+        for (uint j = 0u; j < 8u; ++j) {
+            uint o = b.p + 2u * ((c >> j) & 1u);
+            uint rho = (row >> (4u * j)) & 15u;
+            int v = f1r_val_m(o, rho);
+            n2 += v * v;
+            acc = fma(float(v), xb[TETRA48_ORDER[sec * 8u + j]], acc);
+        }
+    }
+    uint m = (uint(n2) >> 4) & (TETRA48_SHELLS - 1u);
+    uint g = (hi16 >> 15) & 1u;
+    return acc * gscale[g] * invnorm[m];
+}
+
+kernel void tv_tetra48_metal_ar(const device uint*   words          [[buffer(0)]],
+                                constant uint&       row_stride_u32 [[buffer(1)]],
+                                const device uint*   rows           [[buffer(2)]],
+                                const device uchar*  prefixes       [[buffer(3)]],
+                                const device ushort* branches       [[buffer(4)]],
+                                const device uchar*  suffixes       [[buffer(5)]],
+                                const device float*  gscale         [[buffer(6)]],
+                                const device float*  invnorm        [[buffer(7)]],
+                                const device float*  rscale         [[buffer(8)]],
+                                const device half*   tail           [[buffer(9)]],
+                                const device float*  x              [[buffer(10)]],
+                                device float*        y              [[buffer(11)]],
+                                constant uint&       nblocks        [[buffer(12)]],
+                                constant uint&       tail_w         [[buffer(13)]],
+                                threadgroup float*   xs             [[threadgroup(0)]],
+                                uint tid  [[thread_position_in_threadgroup]],
+                                uint gid  [[thread_position_in_grid]],
+                                uint tgs  [[threads_per_threadgroup]],
+                                uint lane [[thread_index_in_simdgroup]])
+{
+    uint row = gid >> 5;
+    const device uint* wrow = words + row * row_stride_u32;
+    F1rTables tab = { rows, prefixes, branches, suffixes };
+    float acc = 0.0f;
+
+    uint ntiles = (nblocks + LLVQ_TILE_BLOCKS - 1u) / LLVQ_TILE_BLOCKS;
+    for (uint t = 0u; t < ntiles; ++t) {
+        uint jlo = t * LLVQ_TILE_BLOCKS;
+        uint jhi = min(jlo + LLVQ_TILE_BLOCKS, nblocks);
+        uint n = (jhi - jlo) * 24u;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint i = tid; i < n; i += tgs) {
+            xs[i] = x[jlo * 24u + i];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        for (uint j = jlo + lane; j < jhi; j += 32u) {
+            uint lo, hi16;
+            f1r_load(wrow, j, lo, hi16);
+            acc += tetra48_dot_arith(lo, hi16, tab, xs + (j - jlo) * 24u, gscale, invnorm);
+        }
+    }
+
+    acc = warp_sum(acc);
+    if (lane == 0u) {
+        float tv = 0.0f;
+        const device float* xt = x + nblocks * 24u;
+        for (uint i = 0u; i < tail_w; ++i) {
+            tv = fma(float(tail[row * tail_w + i]), xt[i], tv);
+        }
+        y[row] = fma(acc, rscale[row], tv);
+    }
+}

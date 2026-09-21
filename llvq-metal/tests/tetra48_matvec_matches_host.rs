@@ -234,9 +234,16 @@ fn run_on_metal(f: &Fixture) -> Vec<f32> {
 /// depend on it; `the_same_source_gives_the_same_numbers_with_fast_math_either_way`
 /// is what says so.
 fn run_with(f: &Fixture, exact: bool) -> Vec<f32> {
+    run_named(f, exact, "tv_tetra48_metal")
+}
+
+/// The same, naming the kernel, so the threadgroup-pinned variant is judged
+/// by this file's reference rather than by the kernel it is meant to replace.
+fn run_named(f: &Fixture, exact: bool, name: &str) -> Vec<f32> {
+    let pinned = name.ends_with("_tg");
     let k = match exact {
-        true => Kernel::new_exact(SOURCE, "tv_tetra48_metal"),
-        false => Kernel::new(SOURCE, "tv_tetra48_metal"),
+        true => Kernel::new_exact(SOURCE, name),
+        false => Kernel::new(SOURCE, name),
     }
     .expect("the matvec compiles");
     let table = RankTable::build();
@@ -281,6 +288,14 @@ fn run_with(f: &Fixture, exact: bool) -> Vec<f32> {
         enc.set_bytes(12, 4, &nb as *const u32 as *const std::ffi::c_void);
         enc.set_bytes(13, 4, &tw as *const u32 as *const std::ffi::c_void);
         enc.set_threadgroup_memory_length(0, tg_bytes);
+        if pinned {
+            // 4,096 u32 + 1,024 u16 + 128 + 128 = 18,688 B, which with the
+            // tile's 6,144 fits Apple's 32,768.
+            enc.set_threadgroup_memory_length(1, 4096 * 4);
+            enc.set_threadgroup_memory_length(2, 1024 * 2);
+            enc.set_threadgroup_memory_length(3, 128);
+            enc.set_threadgroup_memory_length(4, 128);
+        }
     });
 
     let out = unsafe { std::slice::from_raw_parts(b_y.contents() as *const f32, f.d_out) };
@@ -364,5 +379,25 @@ fn the_same_source_gives_the_same_numbers_with_fast_math_either_way() {
     for (i, ((a, b), w)) in exact.iter().zip(&fast).zip(&want).enumerate() {
         assert_eq!(a, b, "row {i}: fast math moved the answer, {a} against {b}");
         assert_eq!(a, w, "row {i}: and neither matches the host reference");
+    }
+}
+
+/// The threadgroup-pinned variant computes what the device-memory one does.
+///
+/// It exists to be faster, and a faster kernel that moves a number is worth
+/// nothing. The decode is duplicated with a second address space, which is
+/// exactly the kind of copy that drifts, so it is judged by the same host
+/// reference and demanded EQUAL.
+#[test]
+fn the_pinned_variant_matches_the_host_too() {
+    for (d_out, nblocks, tail_w) in [(64usize, TILE, 8usize), (32, 3 * TILE + 17, 5), (16, TILE + 1, 0)] {
+        let f = fixture(0x7E_48B0 + d_out as u64, d_out, nblocks, tail_w);
+        for name in ["tv_tetra48_metal_tg", "tv_tetra48_metal_ar"] {
+            let got = run_named(&f, true, name);
+            let want = reference(&f);
+            for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+                assert_eq!(g, w, "{name} d_out={d_out} nblocks={nblocks}: row {i}, {g} against host {w}");
+            }
+        }
     }
 }

@@ -73,7 +73,7 @@ const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
 /// the register allocation of a kernel no correctness test can see move.
 fn source_of(name: &str) -> Result<&'static str> {
     match name {
-        "tetra48_probe" | "tv_tetra48_metal" => Ok(SRC_TETRA),
+        "tetra48_probe" | "tv_tetra48_metal" | "tv_tetra48_metal_ar" => Ok(SRC_TETRA),
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" => Ok(SRC_Q4),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
@@ -478,7 +478,19 @@ impl CustomOp1 for TetraMatvec<'_> {
         self.check(storage.dtype(), layout)?;
         let p = self.proj;
         let dev = storage.device().clone();
-        let pipe = self.rt.pipeline("tv_tetra48_metal")?;
+        // The ARITHMETIC variant, not the faithful port.
+        //
+        // `tv_tetra48_metal` mirrors the CUDA v3 decoder, which gathers its
+        // coordinates with `prmt.b32`, one instruction. Metal has no PRMT, so
+        // that gather costs a four-trip emulation called twelve times a block.
+        // `tv_tetra48_metal_ar` computes the value instead, which is what the
+        // SCALAR CUDA decoder always did, and measures 25 to 34 percent faster
+        // at the served shapes (`llvq-metal/examples/metalsplit.rs`).
+        //
+        // Both are proven equal to the same host reference. The faithful port
+        // is kept as the reference implementation and as the thing the
+        // arithmetic one is diffed against.
+        let pipe = self.rt.pipeline("tv_tetra48_metal_ar")?;
 
         let out = dev.new_buffer(p.d_out, DType::F32, "tetra48-matvec")?;
         let enc = dev.command_encoder()?;

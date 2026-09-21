@@ -70,6 +70,11 @@ fn median(mut v: Vec<f64>) -> f64 {
 }
 
 fn time_matvec(d_out: usize, d_in: usize) -> f64 {
+    time_matvec_named(d_out, d_in, "tv_tetra48_metal")
+}
+
+fn time_matvec_named(d_out: usize, d_in: usize, name: &str) -> f64 {
+    let pinned = name.ends_with("_tg");
     let nblocks = d_in / DIM;
     let tail_w = d_in % DIM;
     let mut rng = SplitMix64::new(0x7E_4C01);
@@ -80,7 +85,7 @@ fn time_matvec(d_out: usize, d_in: usize) -> f64 {
     let gains: Vec<u32> = (0..n).map(|_| (rng.next() & 1) as u32).collect();
     let stream = transcode_tetra48(&indices, &gains, d_out, nblocks).expect("transcodes");
 
-    let k = Kernel::new_exact(TETRA_SRC, "tv_tetra48_metal").expect("compiles");
+    let k = Kernel::new_exact(TETRA_SRC, name).expect("compiles");
     let table = llvq_bench::f1::rank::RankTable::build();
     let tr = llvq_bench::f1::Trellis::new();
     let b_words = k.buffer(&stream.data);
@@ -115,6 +120,12 @@ fn time_matvec(d_out: usize, d_in: usize) -> f64 {
             enc.set_bytes(12, 4, &nb as *const u32 as *const c_void);
             enc.set_bytes(13, 4, &tw as *const u32 as *const c_void);
             enc.set_threadgroup_memory_length(0, tg);
+            if pinned {
+                enc.set_threadgroup_memory_length(1, 4096 * 4);
+                enc.set_threadgroup_memory_length(2, 1024 * 2);
+                enc.set_threadgroup_memory_length(3, 128);
+                enc.set_threadgroup_memory_length(4, 128);
+            }
         });
         t.push(r.seconds * 1e6 / K as f64);
     }
@@ -169,6 +180,30 @@ fn main() {
     let rot_inter = time_rotation(INTERMEDIATE);
     println!("rotation n={HIDDEN}       {rot_hidden:8.1} us");
     println!("rotation n={INTERMEDIATE}       {rot_inter:8.1} us\n");
+
+    // The same three shapes with the decoder tables pinned in threadgroup
+    // memory. Proven equal by `the_pinned_variant_matches_the_host_too`.
+    let tg_hidden = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_tg");
+    let tg_up = time_matvec_named(INTERMEDIATE, HIDDEN, "tv_tetra48_metal_tg");
+    let tg_down = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_tg");
+    println!("tables pinned in threadgroup memory:");
+    println!("  {HIDDEN}x{HIDDEN}   {tg_hidden:8.1} us  {:+6.1} %", 100.0 * (tg_hidden / mv_hidden - 1.0));
+    println!("  {INTERMEDIATE}x{HIDDEN}   {tg_up:8.1} us  {:+6.1} %", 100.0 * (tg_up / mv_up - 1.0));
+    println!("  {HIDDEN}x{INTERMEDIATE}   {tg_down:8.1} us  {:+6.1} %", 100.0 * (tg_down / mv_down - 1.0));
+    let tg_total = 36.0 * (3.0 * tg_hidden + 2.0 * tg_up + tg_down) / 1000.0;
+    println!("  252 launches          {tg_total:7.2} ms a token\n");
+
+    // The value computed instead of gathered, which drops the PRMT emulation
+    // the CUDA v3 representation forces. Proven equal by the same gate.
+    let ar_hidden = time_matvec_named(HIDDEN, HIDDEN, "tv_tetra48_metal_ar");
+    let ar_up = time_matvec_named(INTERMEDIATE, HIDDEN, "tv_tetra48_metal_ar");
+    let ar_down = time_matvec_named(HIDDEN, INTERMEDIATE, "tv_tetra48_metal_ar");
+    println!("value computed, no PRMT emulation:");
+    println!("  {HIDDEN}x{HIDDEN}   {ar_hidden:8.1} us  {:+6.1} %", 100.0 * (ar_hidden / mv_hidden - 1.0));
+    println!("  {INTERMEDIATE}x{HIDDEN}   {ar_up:8.1} us  {:+6.1} %", 100.0 * (ar_up / mv_up - 1.0));
+    println!("  {HIDDEN}x{INTERMEDIATE}   {ar_down:8.1} us  {:+6.1} %", 100.0 * (ar_down / mv_down - 1.0));
+    let ar_total = 36.0 * (3.0 * ar_hidden + 2.0 * ar_up + ar_down) / 1000.0;
+    println!("  252 launches          {ar_total:7.2} ms a token\n");
 
     // 36 layers. Per layer: q, k, o at hidden, gate and up at intermediate
     // output, down at intermediate input. v_proj is int4 and is not timed here.
