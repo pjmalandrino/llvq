@@ -14,6 +14,13 @@ llvq-search = { path = "../llvq-search" }
 # its own, so this costs the resolver nothing off macOS either.
 llvq-artifact = { path = "../llvq-artifact" }
 
+# Test-only, and only for the Tetra decoder gate: the rank tables the MSL
+# decoder reads are built by `llvq_bench::f1::rank`, the same builder the CUDA
+# bench uploads from. A dev-dependency, so nothing enters the shipped graph,
+# and no cycle: `llvq-bench` does not name this crate.
+[dev-dependencies]
+llvq-bench = { path = "../llvq-bench" }
+
 # Apple-only by construction. The rest of the workspace stays portable; this
 # crate exists precisely to answer a question about one GPU.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -50,7 +50,8 @@ ENV CARGO_BUILD_JOBS=2
 # n'est rattachable à aucun commit. Pour un noyau chronométré, c'est la
 # différence entre une mesure et une anecdote.
 RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
-      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun
+      --bin smoke --bin ppl --bin oracle --bin mmlu --bin gbench --bin fusedrun \
+      --bin chat
 # 🕳️ `seal` se construit SANS `cuda`, et ça se paie sinon.
 #
 # Bâti avec la feature comme les autres, il se lie à `libcuda.so.1` — que seule
@@ -119,6 +120,7 @@ COPY --from=build \
       /src/target/release/mmlu \
       /src/target/release/gbench \
       /src/target/release/fusedrun \
+      /src/target/release/chat \
       /src/target/release/seal \
       /src/target/release/preflight \
       /src/target/release/matvec \

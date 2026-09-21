@@ -232,3 +232,84 @@ impl Served {
         )
     }
 }
+
+// ---------------------------------------------------------------------------
+// Which backend loads a sealed artifact.
+//
+// One place, so a second backend registers here and nowhere else. Before the
+// device port every caller carried its own
+// `#[cfg(all(target_os = "linux", feature = "cuda"))]` around a direct
+// `fused_cuda::load_*` call: `bin/mmlu` once and `bin/fusedrun` five times.
+// Those `cfg`s are what a Metal lot would otherwise have to reopen, one by
+// one, in two binaries.
+//
+// TWO arms since 2026-09-21: `fused_cuda` on Linux and `fused_metal` on macOS.
+// Neither caller changed when the second landed, which is what the shape was
+// for. A third backend adds a third arm and touches nothing else.
+// ---------------------------------------------------------------------------
+
+/// The served object, loaded by whichever backend this build carries.
+///
+/// The argument list is `fused_cuda::load_resolved`'s, unchanged, because a
+/// second backend reads the same config file and must answer the same
+/// questions.
+#[allow(clippy::too_many_arguments)]
+pub fn load_resolved(
+    path: &str,
+    device: &candle_core::Device,
+    dtype: candle_core::DType,
+    layout: crate::fused::FusedLayout,
+    emode: crate::fused::EmbedMode,
+    share: crate::rotplan::RotShare,
+    fuse: crate::fused::FuseMode,
+    kv: crate::kvq::KvMode,
+    origin: Option<&str>,
+) -> candle_core::Result<crate::fused::FusedSealed> {
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    {
+        crate::fused_cuda::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
+    }
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        crate::fused_metal::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
+    }
+    #[cfg(not(any(
+        all(target_os = "linux", feature = "cuda"),
+        all(target_os = "macos", feature = "metal")
+    )))]
+    {
+        let _ = (path, device, dtype, layout, emode, share, fuse, kv, origin);
+        candle_core::bail!(
+            "this build carries no device backend: a sealed artifact can be served \
+             through the fused path on a CUDA build on Linux or a Metal build on macOS. \
+             Otherwise take the dense path through sealed::load"
+        )
+    }
+}
+
+/// [`load_resolved`]'s measurement door: the layout, the embedding mode and
+/// the hoist come from the environment rather than from a config file.
+pub fn load_with(
+    path: &str,
+    device: &candle_core::Device,
+    dtype: candle_core::DType,
+    fuse: crate::fused::FuseMode,
+) -> candle_core::Result<crate::fused::FusedSealed> {
+    #[cfg(all(target_os = "linux", feature = "cuda"))]
+    {
+        crate::fused_cuda::load_with(path, device, dtype, fuse)
+    }
+    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    {
+        // The measurement door stays CUDA-only. It reads the layout, the
+        // embedding mode and the hoist from the environment, and every A/B in
+        // `docs/mesures/` turns one of those between two processes on a card.
+        // A Metal arm here would let a Mac answer a question the journals ask
+        // of an L40S.
+        let _ = (path, device, dtype, fuse);
+        candle_core::bail!(
+            "this build carries no device backend for the measurement door, which is \
+             CUDA-only. Use served::load_resolved with a config file instead"
+        )
+    }
+}

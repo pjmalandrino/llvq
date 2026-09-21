@@ -250,6 +250,127 @@ impl FusedSegProj {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The CUDA adapters: the device port of `crate::device`, implemented here.
+//
+// Each owns its runtime AND its buffers, which is the whole shape of the port.
+// The model holds `Arc<dyn LatticeProj>` and cannot tell a card from a fake.
+// Nothing below computes: every method forwards to the inherent method that
+// already shipped, so the served arithmetic is unchanged by construction.
+// ---------------------------------------------------------------------------
+
+/// One `Tetra` or `Planes` projection on a card.
+pub struct CudaLattice {
+    rt: std::sync::Arc<FusedRuntime>,
+    proj: FusedProj,
+}
+
+impl crate::device::LatticeProj for CudaLattice {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn rotation(&self) -> Option<RotKey> {
+        self.proj.rotation()
+    }
+    fn prepare(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.rotate(&self.proj, x)
+    }
+    fn prepare_rows(&self, xs: &Tensor, rows: usize) -> candle_core::Result<Tensor> {
+        self.rt.rotate_rows(&self.proj, xs, rows)
+    }
+    fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated(&self.proj, xr, out_dims)
+    }
+    /// The runtime's two answers, collapsed into the one number the port
+    /// asks for. `has_rows_kernel` false and `prefill_rows` four could once
+    /// disagree; `1` here says the same thing the `bool` said, and cannot.
+    fn rows_per_launch(&self) -> usize {
+        match self.rt.has_rows_kernel() {
+            true => self.rt.prefill_rows(),
+            false => 1,
+        }
+    }
+    fn matvec_rows(&self, xr: &Tensor, n_rows: usize) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated_rows(&self.proj, xr, n_rows)
+    }
+}
+
+/// One projection served as affine int4 g128 on a card.
+pub struct CudaInt4 {
+    rt: std::sync::Arc<FusedRuntime>,
+    proj: FusedInt4Proj,
+}
+
+impl crate::device::Int4Proj for CudaInt4 {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn matvec(&self, x: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_int4(&self.proj, x, out_dims)
+    }
+}
+
+/// One row-concatenated group on a card, launched once for every part.
+pub struct CudaSeg {
+    rt: std::sync::Arc<FusedRuntime>,
+    group: FusedSegProj,
+}
+
+impl crate::device::SegGroup for CudaSeg {
+    fn name(&self) -> &str {
+        &self.group.name
+    }
+    fn d_out(&self) -> usize {
+        self.group.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.group.d_in
+    }
+    fn rotation(&self) -> Option<RotKey> {
+        self.group.rotation()
+    }
+    fn part_name(&self, rank: usize) -> &str {
+        self.group.part_name(rank)
+    }
+    fn prepare(&self, x: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.rotate_group(&self.group, x)
+    }
+    fn matvec(&self, xr: &Tensor, out_dims: &[usize]) -> candle_core::Result<Tensor> {
+        self.rt.forward_rotated_seg(&self.group, xr, out_dims)
+    }
+}
+
+/// The q8 embedding table on a card, and the `lm_head` that may share it.
+///
+/// `q` stays an `Arc` rather than being owned, because a tied model uploads
+/// ONE table and points both ends at it. Two `CudaEmbed` values then share one
+/// buffer, which is what the load-time tie check asserts.
+pub struct CudaEmbed {
+    rt: std::sync::Arc<FusedRuntime>,
+    q: std::sync::Arc<QuantEmbed>,
+}
+
+impl crate::device::QuantEmbedTable for CudaEmbed {
+    fn gather(&self, ids: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.embed(&self.q, ids)
+    }
+    fn project(&self, h: &Tensor) -> candle_core::Result<Tensor> {
+        self.rt.lm_head(&self.q, h)
+    }
+}
+
 /// The module, the shared tables, and the device everything lives on.
 pub struct FusedRuntime {
     cuda: llvq_cuda::gpu::Cuda,
@@ -2481,48 +2602,10 @@ fn upload_group(
     })
 }
 
-/// A model rebuilt from a sealed artifact **with its projections still
-/// encoded**, plus what it took to do so.
-pub struct FusedSealed {
-    pub model: crate::model::Qwen3,
-    pub tokenizer: tokenizers::Tokenizer,
-    pub config: candle_transformers::models::qwen3::Config,
-    /// The runtime layout the projections were transcoded to.
-    pub layout: FusedLayout,
-    /// The `(rows, tile)` the PREFILL kernel was compiled at. Carried out of
-    /// the runtime because a binary that prints "ceil(N/4) launches" while its
-    /// unit was compiled at eight is describing a run that did not happen.
-    pub prefill: llvq_cuda::tile::Prefill,
-    /// How the embedding and tied `lm_head` sit on the device.
-    pub embed_mode: EmbedMode,
-    /// Whether a shared activation is rotated once per group (`LLVQ_ROT_SHARE`).
-    pub rot_share: crate::rotplan::RotShare,
-    /// `rot_apply` launches one decode token costs. Printed on both arms: a
-    /// gate showing identical tokens at 252 launches each proves nothing.
-    pub rot_launches: usize,
-    /// Whether the projections that share an activation were row-concatenated
-    /// into one launch (`LLVQ_FUSE`).
-    pub fuse: FuseMode,
-    /// Matvec launches one decode token costs — 252 unfused on the published
-    /// 4B, 144 fused. Printed on the arm line for the same reason
-    /// [`Self::rot_launches`] is: a gate showing identical tokens while both
-    /// arms issued 252 matvecs proves the tokens and nothing about the lot.
-    pub matvec_launches: usize,
-    pub quantized_weights: usize,
-    pub carried_weights: usize,
-    /// Size of the file on disk.
-    pub file_bytes: u64,
-    /// Bytes the projections occupy on the device — the number that decides
-    /// whether a model fits, and the one a disk figure must never stand in for.
-    pub runtime_bytes: u64,
-    /// Bytes the carried tensors occupy on the device: `2 · carried_weights`
-    /// under `LLVQ_EMBED=f16`, the int8 payload of **every** embedding table
-    /// plus the f16 norms under `q8` — one table when the model ties its two
-    /// ends, two when it unties them. `carried_weights · 2` must no longer
-    /// stand in for this: that identity is exactly what q8 breaks, by −365 MB
-    /// on the tied 4B and −1.17 GB on the untied 8B.
-    pub carried_bytes: u64,
-}
+/// Re-exported so `fused_cuda::FusedSealed` keeps resolving. The type
+/// itself moved to [`crate::fused`] with the device port: a loader's
+/// return type cannot live in one backend's module.
+pub use crate::fused::FusedSealed;
 
 /// Load a sealed artifact straight onto the fused path.
 ///
@@ -2680,8 +2763,8 @@ pub fn load_resolved(
     let rt = Arc::new(rt);
 
     // Index every uploaded projection by the pair `Block::new_with` asks for —
-    // from **both** sources. A lone projection yields one `Proj::Fused`; a group
-    // yields one `Proj::FusedSeg` per part, all pointing at the *same*
+    // from **both** sources. A lone projection yields one `Proj::Lattice`; a
+    // group yields one `Proj::GroupPart` per part, all pointing at the *same*
     // `Arc<FusedSegProj>`, which is what `model::SegPlan::of` recognises with
     // `Arc::ptr_eq`. The `claimed != total_sites` check further down then also
     // catches a group one of whose parts the model never claimed.
@@ -2691,7 +2774,7 @@ pub fn load_resolved(
             llvq_artifact::split_name(&p.name).map_err(|e| candle_core::Error::msg(e.to_string()))?;
         by_site.insert(
             (layer, proj),
-            crate::model::Proj::Fused { rt: rt.clone(), proj: Arc::new(p) },
+            crate::model::Proj::Lattice(Arc::new(CudaLattice { rt: rt.clone(), proj: p })),
         );
     }
     // The int4 records, indexed by the same pair. They are never part of a
@@ -2705,19 +2788,24 @@ pub fn load_resolved(
             .map_err(|e| candle_core::Error::msg(e.to_string()))?;
         by_site.insert(
             (layer, proj),
-            crate::model::Proj::FusedInt4 { rt: rt.clone(), proj: Arc::new(q) },
+            crate::model::Proj::Int4(Arc::new(CudaInt4 { rt: rt.clone(), proj: q })),
         );
     }
     // The row order comes from `fused::segment_matrices`, which read it off
     // `Act::consumers()`; `model::SegPlan::of` re-derives it from these very
     // fields and refuses a group that does not tile. Two places, one table.
     for (g, group) in model.groups.iter().zip(seg_projs) {
-        let group = Arc::new(group);
+        // OUTSIDE the loop, and the single sharpest line of the port. One
+        // `Arc` per group, cloned into each part: `SegPlan::of` recognises a
+        // group by `Arc::ptr_eq` on it. Built inside the loop instead, every
+        // comparison goes false and the served path dies at the first token,
+        // type-correct and card-only.
+        let group: Arc<dyn crate::device::SegGroup> =
+            Arc::new(CudaSeg { rt: rt.clone(), group });
         for part in &g.parts {
             by_site.insert(
                 (part.layer, part.proj.clone()),
-                crate::model::Proj::FusedSeg {
-                    rt: rt.clone(),
+                crate::model::Proj::GroupPart {
                     group: group.clone(),
                     row0: part.row0,
                     d_out: part.d_out,
@@ -2834,14 +2922,14 @@ pub fn load_resolved(
             &config,
             vb,
             &mut take,
-            crate::model::Embed::Q8 {
+            crate::model::Embed::Q8(Arc::new(CudaEmbed {
                 rt: rt.clone(),
                 q: bufs[*ie].clone(),
-            },
-            crate::model::Head::Q8 {
+            })),
+            crate::model::Head::Q8(Arc::new(CudaEmbed {
                 rt: rt.clone(),
                 q: bufs[*ih].clone(),
-            },
+            })),
             kv,
         )?,
     };
@@ -2861,7 +2949,12 @@ pub fn load_resolved(
         config,
         layout,
         // From the runtime that compiled it, not from a second resolution.
-        prefill: rt.prefill,
+        // The adapter's boundary: the driver's triple into the portable one.
+        prefill: crate::device::Prefill {
+            rows: rt.prefill.rows,
+            tile: rt.prefill.tile,
+            from_env: rt.prefill.from_env,
+        },
         embed_mode: emode,
         rot_share: share,
         rot_launches,
