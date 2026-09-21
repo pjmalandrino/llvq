@@ -52,8 +52,34 @@ const LANES: usize = 32;
 /// `row < d_out` guard, exactly like the CUDA one, so `d_out` must be a
 /// multiple of the rows a group covers. Asserted at upload.
 const GROUP: usize = 256;
+/// Threadgroup memory an M3 Max offers, measured 2026-09-20 through
+/// `MTLDevice.maxThreadgroupMemoryLength`.
+///
+/// A constant rather than a device query on purpose: the kernels are compiled
+/// against it, so a machine that offered less would have to be refused rather
+/// than quietly served a kernel that stages past its limit. Asking the device
+/// and adapting would hide exactly that.
+const THREADGROUP_LIMIT: usize = 32_768;
 
-const SOURCE: &str = include_str!("../kernels/llvq_tetra48.metal");
+const SRC_TETRA: &str = include_str!("../kernels/llvq_tetra48.metal");
+const SRC_ROT: &str = include_str!("../kernels/llvq_rot.metal");
+const SRC_Q4: &str = include_str!("../kernels/tv_q4_h.metal");
+const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
+
+/// Which file carries which entry point.
+///
+/// Four translation units, not one, for the reason `tetra48_seg.cu` gives on
+/// the CUDA side: appending to a shipped unit changes its bytes and can move
+/// the register allocation of a kernel no correctness test can see move.
+fn source_of(name: &str) -> Result<&'static str> {
+    match name {
+        "tetra48_probe" | "tv_tetra48_metal" => Ok(SRC_TETRA),
+        "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
+        "tv_q4_metal" => Ok(SRC_Q4),
+        "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
+        other => candle_core::bail!("no Metal source carries {other}"),
+    }
+}
 
 /// The pipeline cache, keyed on everything that changes the compiled code.
 ///
@@ -248,11 +274,15 @@ impl MetalRuntime {
                  {want_stride}"
             );
         }
+        // The stream is `d_out * row_stride_u32` words, plus AT MOST one guard
+        // word. `f1r_load` reads `row[w]` and `row[w + 1]`, so the last block
+        // of the last row reaches one word past the table; the writer pads for
+        // it. An equality here refused the served 4B by four bytes.
         let want_bytes = d_out * row_stride_u32 * 4;
-        if words.len() != want_bytes {
+        if words.len() != want_bytes && words.len() != want_bytes + 4 {
             candle_core::bail!(
                 "{name}: {} stream bytes for {d_out} rows of {row_stride_u32} words, which \
-                 wants {want_bytes}",
+                 wants {want_bytes} or {want_bytes} plus one guard word",
                 words.len()
             );
         }
@@ -288,7 +318,7 @@ impl MetalRuntime {
         if let Some(p) = self.pipelines.read().expect("no panic held this lock").get(&key) {
             return Ok(p.clone());
         }
-        let src = format!("#define LLVQ_TILE_BLOCKS {}u\n{SOURCE}", self.tile);
+        let src = format!("#define LLVQ_TILE_BLOCKS {}u\n{}", self.tile, source_of(name)?);
         let dev = self.device.device().clone();
         // A bad source PANICS rather than returning Err: both
         // `new_library_with_source` and `new_compute_pipeline_state_with_function`
@@ -635,6 +665,928 @@ fn host_quads(t: &HostTables, lo: u32, hi16: u32) -> [u32; 6] {
         quad(row3, c3 & 0xf),
         quad(row3 >> 16, c3 >> 4),
     ]
+}
+
+
+
+// ---------------------------------------------------------------------------
+// The rotation.
+//
+// `prepare` owes this: the weights were quantized in a rotated basis, so the
+// activation has to arrive in it. The kernel is a Walsh-Hadamard transform
+// with a per-coordinate sign flip, then either a scale-out or a small mix.
+//
+// One thing differs from CUDA and it is not cosmetic. There the staging is a
+// `__shared__` array, per block and free. Here it needs `n` floats a row, and
+// `n` reaches 9,728 on the served 4B, which is 38,912 B against Apple's 32,768
+// of threadgroup memory. So the scratch is a DEVICE buffer and every stage of
+// the transform goes through global memory. Nothing about that cost is
+// measured; it is the first thing to look at if the Metal throughput
+// disappoints.
+// ---------------------------------------------------------------------------
+
+/// One rotation, uploaded. Shared by every projection that names its key.
+pub struct MetalRotation {
+    signbits: Arc<Buffer>,
+    small: Arc<Buffer>,
+    n: u32,
+    m: u32,
+    k: u32,
+    inv: f32,
+    /// Threads a threadgroup, the same rule the CUDA host uses.
+    threads: usize,
+}
+
+impl MetalRuntime {
+    /// Upload one rotation's tables.
+    pub fn upload_rotation(&self, t: &crate::fused::RotationTables) -> Result<MetalRotation> {
+        // Metal refuses a zero-length buffer. `small` is empty when k == 1,
+        // which is the common case: `rot_mix` is not reached then and the
+        // kernel never reads it.
+        let dummy = [0f32];
+        let small = if t.small.is_empty() { &dummy[..] } else { &t.small };
+        Ok(MetalRotation {
+            signbits: self.device.new_buffer_with_data(&t.signbits)?,
+            small: self.device.new_buffer_with_data(small)?,
+            n: t.n as u32,
+            m: t.m as u32,
+            k: t.k as u32,
+            inv: t.inv,
+            threads: (t.n as u32).next_power_of_two().clamp(32, 1024) as usize,
+        })
+    }
+
+    /// `x` into the basis the weights were quantized in, one vector.
+    pub fn rotate(&self, rot: &MetalRotation, name: &str, x: &Tensor) -> Result<Tensor> {
+        let dims = x.dims();
+        let rows: usize = dims[..dims.len() - 1].iter().product();
+        if rows != 1 {
+            candle_core::bail!(
+                "{name}: rotation requested for {rows} vectors. The row loop belongs to \
+                 the caller, which shares it across a group"
+            );
+        }
+        let x = x.to_dtype(DType::F16)?;
+        x.apply_op1_no_bwd(&RotOp { rt: self, rot, name: name.to_string(), rows: 1 })
+    }
+
+    /// The same for a chunk of rows, one threadgroup each.
+    pub fn rotate_rows(&self, rot: &MetalRotation, name: &str, x: &Tensor, n_rows: usize) -> Result<Tensor> {
+        let dims = x.dims();
+        let rows: usize = dims[..dims.len() - 1].iter().product();
+        if rows != n_rows {
+            candle_core::bail!("{name}: {rows} rows of activation for {n_rows}");
+        }
+        if n_rows == 0 {
+            candle_core::bail!("{name}: a rotation of zero rows");
+        }
+        let x = x.to_dtype(DType::F16)?;
+        x.apply_op1_no_bwd(&RotOp { rt: self, rot, name: name.to_string(), rows: n_rows })
+    }
+}
+
+struct RotOp<'a> {
+    rt: &'a MetalRuntime,
+    rot: &'a MetalRotation,
+    name: String,
+    rows: usize,
+}
+
+impl CustomOp1 for RotOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-rot"
+    }
+
+    /// No CPU path, and deliberately none.
+    ///
+    /// Unlike the matvec, this op has no oracle to be: the rotation is judged
+    /// by `llvq-metal/tests/rot_matches_host.rs` against the CUDA text itself,
+    /// executed. A second Rust transcription here would be a third place for
+    /// the same mistake to live.
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the LLVQ rotation has no CPU path", self.name)
+    }
+
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        if storage.dtype() != DType::F16 {
+            candle_core::bail!("{}: the rotation reads f16, got {:?}", self.name, storage.dtype());
+        }
+        let n = self.rot.n as usize;
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous activation", self.name)))?;
+        if end - start != n * self.rows {
+            candle_core::bail!(
+                "{}: activation of {} values for {} rows of n={n}",
+                self.name,
+                end - start,
+                self.rows
+            );
+        }
+        let batched = self.rows > 1;
+        let kname = if batched { "rot_apply_rows_metal" } else { "rot_apply_metal" };
+        let pipe = self.rt.pipeline(kname)?;
+        let dev = storage.device().clone();
+
+        let out = dev.new_buffer(self.rows * n, DType::F32, "llvq-metal-rot")?;
+        // The staging, in DEVICE memory. See the section header.
+        let scratch = dev.new_buffer(self.rows * n, DType::F32, "llvq-metal-rot-scratch")?;
+
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        // `x_off` is in ELEMENTS here, not bytes: the kernel indexes
+        // `xin[x_off + i]` on a ushort pointer. The Tetra matvec takes a byte
+        // offset instead, because it binds at the offset. Two kernels, two
+        // conventions, each matched to its own source.
+        set_param(&enc, 0, (storage.buffer(), 0usize));
+        set_param(&enc, 1, (&*self.rot.signbits, 0usize));
+        set_param(&enc, 2, (&*self.rot.small, 0usize));
+        set_param(&enc, 3, (&*out, 0usize));
+        set_param(&enc, 4, (&*scratch, 0usize));
+        set_param(&enc, 5, self.rot.n);
+        set_param(&enc, 6, self.rot.m);
+        set_param(&enc, 7, self.rot.k);
+        set_param(&enc, 8, self.rot.inv);
+        set_param(&enc, 9, start as u32);
+        if batched {
+            set_param(&enc, 10, n as u32);
+        }
+        for b in [storage.buffer(), &*self.rot.signbits, &*self.rot.small] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        for b in [&*out, &*scratch] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Write);
+        }
+        let threads = self.rot.threads;
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: threads * self.rows, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: threads, height: 1, depth: 1 },
+        );
+        Ok((
+            MetalStorage::new(out, dev, self.rows * n, DType::F32),
+            Shape::from(vec![self.rows, n]),
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The int4 arm: `v_proj` on the served mixed file, 36 of the 252 projections.
+// ---------------------------------------------------------------------------
+
+/// One projection served as affine int4 g128.
+pub struct MetalInt4Proj {
+    pub name: String,
+    pub d_out: usize,
+    pub d_in: usize,
+    gpr: usize,
+    wq: Arc<Buffer>,
+    scales: Arc<Buffer>,
+    biases: Arc<Buffer>,
+}
+
+impl MetalRuntime {
+    /// Upload one int4 projection.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_int4(
+        &self,
+        name: &str,
+        d_out: usize,
+        d_in: usize,
+        gpr: usize,
+        wq: &[u32],
+        scales: &[u16],
+        biases: &[u16],
+    ) -> Result<MetalInt4Proj> {
+        let rows_per_group = GROUP / LANES;
+        if !d_out.is_multiple_of(rows_per_group) {
+            candle_core::bail!(
+                "{name}: d_out {d_out} is not a multiple of {rows_per_group}, and the kernel \
+                 carries no row guard"
+            );
+        }
+        if !d_in.is_multiple_of(8) {
+            candle_core::bail!("{name}: d_in {d_in} is not a multiple of 8, so a row would \
+                                start at a shifted nibble");
+        }
+        // The whole activation is staged, with no tile.
+        let staged = d_in * 4;
+        if staged > THREADGROUP_LIMIT {
+            candle_core::bail!(
+                "{name}: staging d_in={d_in} wants {staged} B of threadgroup memory against \
+                 {THREADGROUP_LIMIT}"
+            );
+        }
+        if wq.len() != d_out * d_in / 8 {
+            candle_core::bail!("{name}: {} words for {d_out}x{d_in} int4", wq.len());
+        }
+        if scales.len() != d_out * gpr || biases.len() != d_out * gpr {
+            candle_core::bail!("{name}: {} scales and {} biases for {d_out}x{gpr}",
+                               scales.len(), biases.len());
+        }
+        Ok(MetalInt4Proj {
+            name: name.to_string(),
+            d_out,
+            d_in,
+            gpr,
+            wq: self.device.new_buffer_with_data(wq)?,
+            scales: self.device.new_buffer_with_data(scales)?,
+            biases: self.device.new_buffer_with_data(biases)?,
+        })
+    }
+
+    /// `y = W x`, one vector, through `tv_q4_metal`.
+    pub fn matvec_int4(&self, proj: &MetalInt4Proj, x: &Tensor) -> Result<Tensor> {
+        // Widened here, as `FusedRuntime::forward_int4` does. This arm reads
+        // the CALLER's activation, which arrives in the model's f16, while the
+        // kernel stages f32. `contiguous` because a narrowed row is a view.
+        let x = x.to_dtype(DType::F32)?.contiguous()?;
+        x.apply_op1_no_bwd(&Int4Op { rt: self, proj })
+    }
+}
+
+struct Int4Op<'a> {
+    rt: &'a MetalRuntime,
+    proj: &'a MetalInt4Proj,
+}
+
+impl CustomOp1 for Int4Op<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-q4"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the int4 kernel has no CPU path", self.proj.name)
+    }
+
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let p = self.proj;
+        if storage.dtype() != DType::F32 {
+            candle_core::bail!("{}: f32 only, got {:?}", p.name, storage.dtype());
+        }
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous activation", p.name)))?;
+        if end - start != p.d_in {
+            candle_core::bail!("{}: activation of {} values for d_in={}", p.name, end - start, p.d_in);
+        }
+        let pipe = self.rt.pipeline("tv_q4_metal")?;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(p.d_out, DType::F32, "llvq-metal-q4")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        set_param(&enc, 0, (&*p.wq, 0usize));
+        set_param(&enc, 1, (&*p.scales, 0usize));
+        set_param(&enc, 2, (&*p.biases, 0usize));
+        // Bound AT the offset, so the kernel's `x[i]` starts at the row.
+        set_param(&enc, 3, (storage.buffer(), start * DType::F32.size_in_bytes()));
+        set_param(&enc, 4, (&*out, 0usize));
+        set_param(&enc, 5, p.d_in as u32);
+        set_param(&enc, 6, p.gpr as u32);
+        enc.set_threadgroup_memory_length(0, p.d_in * DType::F32.size_in_bytes());
+        for b in [&*p.wq, &*p.scales, &*p.biases, storage.buffer()] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: p.d_out * LANES, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+        );
+        let mut dims = layout.dims().to_vec();
+        *dims.last_mut().expect("rank >= 1") = p.d_out;
+        Ok((MetalStorage::new(out, dev, p.d_out, DType::F32), Shape::from(dims)))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The q8 embedding, and the lm_head that reads the same table.
+//
+// 413.3 MB of the served 4B's 1.39 GB, so it is not a detail. One table, two
+// ends: `gather` for the token lookup and `project` for the logits.
+// ---------------------------------------------------------------------------
+
+/// The int8 g64 embedding table on the device.
+pub struct MetalEmbedTable {
+    pub name: String,
+    pub vocab: usize,
+    pub d: usize,
+    gpr: usize,
+    wq: Arc<Buffer>,
+    scales: Arc<Buffer>,
+    biases: Arc<Buffer>,
+}
+
+impl MetalRuntime {
+    /// Upload one q8 table. A tied model uploads ONE and points both ends at it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_embed(
+        &self,
+        name: &str,
+        vocab: usize,
+        d: usize,
+        gpr: usize,
+        wq: &[u32],
+        scales: &[u16],
+        biases: &[u16],
+    ) -> Result<Arc<MetalEmbedTable>> {
+        if !d.is_multiple_of(4) {
+            candle_core::bail!("{name}: d {d} is not a multiple of 4, so a row would start \
+                                at a shifted byte");
+        }
+        if wq.len() != vocab * d / 4 {
+            candle_core::bail!("{name}: {} words for {vocab}x{d} int8", wq.len());
+        }
+        if scales.len() != vocab * gpr || biases.len() != vocab * gpr {
+            candle_core::bail!("{name}: {} scales and {} biases for {vocab}x{gpr}",
+                               scales.len(), biases.len());
+        }
+        Ok(Arc::new(MetalEmbedTable {
+            name: name.to_string(),
+            vocab,
+            d,
+            gpr,
+            wq: self.device.new_buffer_with_data(wq)?,
+            scales: self.device.new_buffer_with_data(scales)?,
+            biases: self.device.new_buffer_with_data(biases)?,
+        }))
+    }
+}
+
+/// The table plus the runtime that can launch it.
+pub struct MetalEmbed {
+    rt: Arc<MetalRuntime>,
+    table: Arc<MetalEmbedTable>,
+}
+
+impl MetalEmbed {
+    pub fn new(rt: Arc<MetalRuntime>, table: Arc<MetalEmbedTable>) -> Self {
+        Self { rt, table }
+    }
+
+    /// The inner table, so the loader can compare two ends with `Arc::ptr_eq`.
+    ///
+    /// The tie is NOT observable on the `MetalEmbed`: a tied model wraps one
+    /// table in two of them. It IS observable here, which is where
+    /// `load_resolved` checks it against `tie_word_embeddings`, exactly as the
+    /// CUDA loader does on its own buffers.
+    pub fn table(&self) -> &Arc<MetalEmbedTable> {
+        &self.table
+    }
+}
+
+impl crate::device::QuantEmbedTable for MetalEmbed {
+    fn gather(&self, ids: &Tensor) -> Result<Tensor> {
+        let ids = ids.to_dtype(DType::U32)?.contiguous()?;
+        ids.apply_op1_no_bwd(&GatherOp { rt: &self.rt, t: &self.table })?
+            .to_dtype(DType::F16)
+    }
+
+    fn project(&self, h: &Tensor) -> Result<Tensor> {
+        let dims = h.dims();
+        let d = *dims.last().expect("rank >= 1");
+        if d != self.table.d {
+            candle_core::bail!("{}: hidden of {d} for d={}", self.table.name, self.table.d);
+        }
+        let h = h.to_dtype(DType::F16)?.contiguous()?;
+        h.apply_op1_no_bwd(&HeadOp { rt: &self.rt, t: &self.table })?
+            .to_dtype(DType::F16)
+    }
+}
+
+struct GatherOp<'a> {
+    rt: &'a MetalRuntime,
+    t: &'a MetalEmbedTable,
+}
+
+impl CustomOp1 for GatherOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-q8-gather"
+    }
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the q8 gather has no CPU path", self.t.name)
+    }
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let t = self.t;
+        if storage.dtype() != DType::U32 {
+            candle_core::bail!("{}: ids must be u32, got {:?}", t.name, storage.dtype());
+        }
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous ids", t.name)))?;
+        let n_ids = end - start;
+        if n_ids == 0 {
+            candle_core::bail!("{}: a gather of zero ids", t.name);
+        }
+        let pipe = self.rt.pipeline("emb_q8_gather_metal")?;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(n_ids * t.d, DType::F32, "llvq-metal-q8-gather")?;
+        let enc = dev.command_encoder()?;
+        enc.set_compute_pipeline_state(&pipe);
+        use candle_metal_kernels::utils::set_param;
+        set_param(&enc, 0, (&*t.wq, 0usize));
+        set_param(&enc, 1, (&*t.scales, 0usize));
+        set_param(&enc, 2, (&*t.biases, 0usize));
+        set_param(&enc, 3, (storage.buffer(), 0usize));
+        set_param(&enc, 4, (&*out, 0usize));
+        set_param(&enc, 5, t.d as u32);
+        set_param(&enc, 6, t.gpr as u32);
+        // In ELEMENTS: the kernel reads `ids[ids_off + tok]`.
+        set_param(&enc, 7, start as u32);
+        for b in [&*t.wq, &*t.scales, &*t.biases, storage.buffer()] {
+            enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+        }
+        enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+        enc.dispatch_threads(
+            objc2_metal::MTLSize { width: n_ids * GROUP, height: 1, depth: 1 },
+            objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+        );
+        let mut dims = layout.dims().to_vec();
+        dims.push(t.d);
+        Ok((MetalStorage::new(out, dev, n_ids * t.d, DType::F32), Shape::from(dims)))
+    }
+}
+
+struct HeadOp<'a> {
+    rt: &'a MetalRuntime,
+    t: &'a MetalEmbedTable,
+}
+
+impl CustomOp1 for HeadOp<'_> {
+    fn name(&self) -> &'static str {
+        "llvq-metal-q8-head"
+    }
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        candle_core::bail!("{}: the q8 head has no CPU path", self.t.name)
+    }
+    fn metal_fwd(&self, storage: &MetalStorage, layout: &Layout) -> Result<(MetalStorage, Shape)> {
+        let t = self.t;
+        if storage.dtype() != DType::F16 {
+            candle_core::bail!("{}: the head reads f16, got {:?}", t.name, storage.dtype());
+        }
+        let (start, end) = layout
+            .contiguous_offsets()
+            .ok_or_else(|| candle_core::Error::msg(format!("{}: non-contiguous hidden", t.name)))?;
+        let rows = (end - start) / t.d;
+        if rows * t.d != end - start {
+            candle_core::bail!("{}: {} values is not a whole number of rows of {}",
+                               t.name, end - start, t.d);
+        }
+        let staged = t.d * DType::F32.size_in_bytes();
+        if staged > THREADGROUP_LIMIT {
+            candle_core::bail!("{}: staging d={} wants {staged} B against {THREADGROUP_LIMIT}",
+                               t.name, t.d);
+        }
+        let pipe = self.rt.pipeline("tv_q8_metal")?;
+        let dev = storage.device().clone();
+        let out = dev.new_buffer(rows * t.vocab, DType::F32, "llvq-metal-q8-head")?;
+        use candle_metal_kernels::utils::set_param;
+        // One launch a row, which is what the CUDA host does: the kernel
+        // computes one vocabulary row per SIMD-group and takes one activation.
+        for r in 0..rows {
+            let enc = dev.command_encoder()?;
+            enc.set_compute_pipeline_state(&pipe);
+            set_param(&enc, 0, (&*t.wq, 0usize));
+            set_param(&enc, 1, (&*t.scales, 0usize));
+            set_param(&enc, 2, (&*t.biases, 0usize));
+            set_param(&enc, 3, (storage.buffer(), 0usize));
+            set_param(&enc, 4, (&*out, 0usize));
+            set_param(&enc, 5, t.d as u32);
+            set_param(&enc, 6, t.gpr as u32);
+            set_param(&enc, 7, (start + r * t.d) as u32);
+            set_param(&enc, 8, (r * t.vocab) as u32);
+            enc.set_threadgroup_memory_length(0, staged);
+            for b in [&*t.wq, &*t.scales, &*t.biases, storage.buffer()] {
+                enc.use_resource(b, objc2_metal::MTLResourceUsage::Read);
+            }
+            enc.use_resource(&*out, objc2_metal::MTLResourceUsage::Write);
+            enc.dispatch_threads(
+                objc2_metal::MTLSize { width: t.vocab * LANES, height: 1, depth: 1 },
+                objc2_metal::MTLSize { width: GROUP, height: 1, depth: 1 },
+            );
+        }
+        let mut dims = layout.dims().to_vec();
+        *dims.last_mut().expect("rank >= 1") = t.vocab;
+        Ok((MetalStorage::new(out, dev, rows * t.vocab, DType::F32), Shape::from(dims)))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The port, implemented. From here `model.rs` cannot tell a card from a Mac.
+// ---------------------------------------------------------------------------
+
+/// One Tetra projection, its runtime and its rotation, as the model sees it.
+pub struct MetalLattice {
+    rt: Arc<MetalRuntime>,
+    proj: MetalTetraProj,
+    rot: Option<Arc<MetalRotation>>,
+    key: Option<crate::fused::RotKey>,
+}
+
+impl crate::device::LatticeProj for MetalLattice {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn rotation(&self) -> Option<crate::fused::RotKey> {
+        self.key
+    }
+    fn prepare(&self, x: &Tensor) -> Result<Tensor> {
+        match &self.rot {
+            Some(r) => self.rt.rotate(r, &self.proj.name, x),
+            // An artifact without a rotation. The CUDA adapter refuses this
+            // path by name rather than guess; so does this one.
+            None => candle_core::bail!(
+                "{}: artifact without rotation, path not covered",
+                self.proj.name
+            ),
+        }
+    }
+    fn prepare_rows(&self, xs: &Tensor, rows: usize) -> Result<Tensor> {
+        match &self.rot {
+            Some(r) => self.rt.rotate_rows(r, &self.proj.name, xs, rows),
+            None => candle_core::bail!(
+                "{}: artifact without rotation, path not covered",
+                self.proj.name
+            ),
+        }
+    }
+    fn matvec(&self, xr: &Tensor, _out_dims: &[usize]) -> Result<Tensor> {
+        // Narrowed HERE, not in the kernel.
+        //
+        // The CUDA twin ends in `f2h` and stores f16; these kernels store f32,
+        // which was a deliberate staging decision. The model runs in f16, so
+        // the adapter narrows at its boundary instead. candle's conversion is
+        // the `half` crate's, which is IEEE round-to-nearest-even, the same
+        // rule `f2h` implements. So the two paths agree to the bit, and what
+        // differs is only WHERE the rounding happens, plus one f32 buffer's
+        // worth of traffic that a later lot can remove.
+        self.rt.matvec(&self.proj, xr)?.to_dtype(DType::F16)
+    }
+    /// One row a launch. There is no Metal prefill kernel, so the caller fans
+    /// a chunk out row by row: the same arithmetic, more launches.
+    fn rows_per_launch(&self) -> usize {
+        1
+    }
+}
+
+/// One int4 projection, as the model sees it.
+pub struct MetalInt4 {
+    rt: Arc<MetalRuntime>,
+    proj: MetalInt4Proj,
+}
+
+impl crate::device::Int4Proj for MetalInt4 {
+    fn name(&self) -> &str {
+        &self.proj.name
+    }
+    fn d_out(&self) -> usize {
+        self.proj.d_out
+    }
+    fn d_in(&self) -> usize {
+        self.proj.d_in
+    }
+    fn matvec(&self, x: &Tensor, _out_dims: &[usize]) -> Result<Tensor> {
+        // See MetalLattice::matvec: narrowed at the boundary, not in the kernel.
+        self.rt.matvec_int4(&self.proj, x)?.to_dtype(DType::F16)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The loader. One door, and after it `model.rs` names no backend.
+// ---------------------------------------------------------------------------
+
+impl MetalRuntime {
+    /// A runtime from the portable table builder, which is where the CUDA
+    /// loader gets the same numbers.
+    ///
+    /// `prefixes` and `suffixes` arrive packed into `u32` because that is the
+    /// shape the CUDA upload path wants. The MSL reads them as `uchar*`, and
+    /// on a little-endian machine those are the same bytes. Both sides are
+    /// Apple silicon or x86, so this is a fact rather than an assumption.
+    pub fn from_tables(
+        device: &candle_core::Device,
+        t: &crate::fused::Tetra48Tables,
+        tile: usize,
+    ) -> Result<Self> {
+        let dev = match device {
+            candle_core::Device::Metal(d) => d.clone(),
+            other => candle_core::bail!("the Metal runtime wants a Metal device, got {other:?}"),
+        };
+        if !tile.is_power_of_two() || !(32..=256).contains(&tile) {
+            candle_core::bail!("tile {tile} is not a power of two in 32..=256");
+        }
+        Ok(Self {
+            tables: MetalTables {
+                rows: dev.new_buffer_with_data(&t.rows)?,
+                prefixes: dev.new_buffer_with_data(&t.prefixes)?,
+                branches: dev.new_buffer_with_data(&t.branches)?,
+                suffixes: dev.new_buffer_with_data(&t.suffixes)?,
+                invnorm: dev.new_buffer_with_data(&t.invnorm)?,
+                // A served model keeps no host copy: it would pay for the
+                // tables twice and its CPU arm is not a fallback.
+                host: None,
+            },
+            device: dev,
+            tile,
+            pipelines: RwLock::new(HashMap::new()),
+        })
+    }
+
+    /// [`Self::upload`] from the row-strided `u32` stream the reader hands
+    /// back, rather than from bytes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_stream(
+        &self,
+        name: &str,
+        d_out: usize,
+        d_in: usize,
+        nblocks: usize,
+        row_stride_u32: usize,
+        words: &[u32],
+        gscale: &[f32; 2],
+        rscale: &[f32],
+        tail: &[u16],
+    ) -> Result<MetalTetraProj> {
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        self.upload(name, d_out, d_in, nblocks, row_stride_u32, &bytes, gscale, rscale, tail)
+    }
+}
+
+/// The served object on Metal, loaded from a sealed artifact.
+///
+/// The twin of `fused_cuda::load_resolved`, and deliberately not a copy of it:
+/// everything portable comes from [`crate::fused`], which the CUDA loader uses
+/// too. What is written here is the device half, about a hundred lines.
+#[allow(clippy::too_many_arguments)]
+pub fn load_resolved(
+    path: &str,
+    device: &candle_core::Device,
+    dtype: DType,
+    layout: crate::fused::FusedLayout,
+    emode: crate::fused::EmbedMode,
+    share: crate::rotplan::RotShare,
+    fuse: crate::fused::FuseMode,
+    kv: crate::kvq::KvMode,
+    origin: Option<&str>,
+) -> Result<crate::fused::FusedSealed> {
+    let from = |var: &str| origin.unwrap_or(var).to_string();
+    if dtype != DType::F16 {
+        candle_core::bail!("the Metal fused path serves f16, asked for {dtype:?}");
+    }
+    if layout != crate::fused::FusedLayout::Tetra48 {
+        candle_core::bail!(
+            "{}: the Metal path carries the Tetra48 kernels only, asked for {layout:?}",
+            from("LLVQ_FUSED_LAYOUT")
+        );
+    }
+    if fuse == crate::fused::FuseMode::On {
+        candle_core::bail!(
+            "{}: there is no segmented Metal kernel, so a fused group cannot launch",
+            from("LLVQ_FUSE")
+        );
+    }
+    crate::fused::check_fuse(layout, share, fuse).map_err(candle_core::Error::msg)?;
+
+    let mut model = crate::fused::load_with(path, layout, fuse).map_err(candle_core::Error::msg)?;
+    let rot_launches = crate::rotplan::rot_launches(share, &model.matrices, &model.groups);
+    let matvec_launches = model.matrices.len() + model.int4.len() + model.groups.len();
+    let quantized_weights = model.quantized_weights;
+    let carried_weights = model.carried_weights;
+    let (file_bytes, runtime_bytes) = (model.file_bytes, model.runtime_bytes);
+
+    let config: candle_transformers::models::qwen3::Config =
+        serde_json::from_slice(&model.config_json)
+            .map_err(|e| candle_core::Error::msg(format!("{path}: config.json: {e}")))?;
+    let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
+        .map_err(|e| candle_core::Error::msg(format!("{path}: tokenizer.json: {e}")))?;
+
+    let embed_tables = match emode {
+        crate::fused::EmbedMode::F16 => None,
+        crate::fused::EmbedMode::Q8 => Some(
+            crate::fused::take_embed_tables(&mut model.raw, config.tie_word_embeddings)
+                .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?,
+        ),
+    };
+
+    // The tile: no measured row for Apple, so the shader's own default.
+    // `tuile-l40s-2026-09-20` measured 64 on sm_89 and nothing here.
+    let tetra = llvq_search::tetra::Tetra::new();
+    let tables = crate::fused::tetra48_tables(&tetra);
+    let rt = Arc::new(MetalRuntime::from_tables(device, &tables, 64)?);
+
+    let mut rotations: HashMap<crate::fused::RotKey, Arc<MetalRotation>> = HashMap::new();
+    for (&key, t) in &model.rotations {
+        rotations.insert(key, Arc::new(rt.upload_rotation(t)?));
+    }
+
+    let mut by_site: HashMap<(usize, String), crate::model::Proj> = HashMap::new();
+    for m in &model.matrices {
+        let crate::fused::HostStream::Tetra48 { words, stride_u32 } = &m.stream else {
+            candle_core::bail!("{}: not a Tetra48 stream on a Tetra48 load", m.name);
+        };
+        let proj = rt.upload_stream(
+            &m.name, m.d_out, m.d_in, m.nblocks, *stride_u32 as usize, words, &m.gscale, &m.rscale, &m.tail,
+        )?;
+        let rot = match m.rotation {
+            None => None,
+            Some(k) => Some(
+                rotations
+                    .get(&k)
+                    .ok_or_else(|| candle_core::Error::msg(format!("rotation {k:?} missing")))?
+                    .clone(),
+            ),
+        };
+        let (layer, name) = llvq_artifact::split_name(&m.name)
+            .map_err(|e| candle_core::Error::msg(e.to_string()))?;
+        by_site.insert(
+            (layer, name),
+            crate::model::Proj::Lattice(Arc::new(MetalLattice {
+                rt: rt.clone(),
+                proj,
+                rot,
+                key: m.rotation,
+            })),
+        );
+    }
+
+    for q in &model.int4 {
+        let gpr = q.d_in / q.group;
+        let wq: Vec<u32> = q
+            .packed
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let proj = rt.upload_int4(&q.name, q.d_out, q.d_in, gpr, &wq, &q.scales, &q.biases)?;
+        let (layer, name) = llvq_artifact::split_name(&q.name)
+            .map_err(|e| candle_core::Error::msg(e.to_string()))?;
+        by_site.insert(
+            (layer, name),
+            crate::model::Proj::Int4(Arc::new(MetalInt4 { rt: rt.clone(), proj })),
+        );
+    }
+    finish(
+        path, device, dtype, layout, emode, share, fuse, kv, origin, model, config, tokenizer,
+        embed_tables, rt, by_site, rot_launches, matvec_launches, quantized_weights,
+        carried_weights, file_bytes, runtime_bytes,
+    )
+}
+
+/// The half of the load that names no device.
+///
+/// Carried tensors, the embedding, the `VarBuilder`, the model and the
+/// bookkeeping. It is a separate function because it is the part a third
+/// backend would reuse verbatim, and because `load_resolved` above is then
+/// short enough to read as what it is: an upload loop.
+#[allow(clippy::too_many_arguments)]
+fn finish(
+    path: &str,
+    device: &candle_core::Device,
+    dtype: DType,
+    layout: crate::fused::FusedLayout,
+    emode: crate::fused::EmbedMode,
+    share: crate::rotplan::RotShare,
+    fuse: crate::fused::FuseMode,
+    kv: crate::kvq::KvMode,
+    origin: Option<&str>,
+    model: crate::fused::FusedModel,
+    config: candle_transformers::models::qwen3::Config,
+    tokenizer: tokenizers::Tokenizer,
+    embed_tables: Option<crate::fused::EmbedTables>,
+    rt: Arc<MetalRuntime>,
+    mut by_site: HashMap<(usize, String), crate::model::Proj>,
+    rot_launches: usize,
+    matvec_launches: usize,
+    quantized_weights: usize,
+    carried_weights: usize,
+    file_bytes: u64,
+    runtime_bytes: u64,
+) -> Result<crate::fused::FusedSealed> {
+    let from = |var: &str| origin.unwrap_or(var).to_string();
+
+    let mut tensors: HashMap<String, Tensor> = HashMap::new();
+    let mut carried_bytes = 0u64;
+    for t in &model.raw {
+        carried_bytes += t.len() as u64 * 2;
+        tensors.insert(
+            t.name.clone(),
+            Tensor::from_vec(t.to_f32(), t.dims.clone(), device)?.to_dtype(dtype)?,
+        );
+    }
+
+    let quant_embed = match &embed_tables {
+        None => {
+            let carried = crate::fused::carried_embed_tables(&model.raw);
+            println!(
+                "{}",
+                crate::fused::EmbedReport::new(crate::fused::EmbedMode::F16, &carried)
+                    .line(&from("LLVQ_EMBED"))
+            );
+            None
+        }
+        Some(tables) => {
+            let to_upload = tables.buffers();
+            let report = crate::fused::EmbedReport::new(crate::fused::EmbedMode::Q8, &to_upload);
+            println!("{}", report.line(&from("LLVQ_EMBED")));
+            let mut uploaded: Vec<Arc<MetalEmbedTable>> = Vec::with_capacity(to_upload.len());
+            for t in &to_upload {
+                let llvq_artifact::RawData::Quant(q) = &t.data else {
+                    candle_core::bail!("{}: not a quantized tensor", t.name);
+                };
+                if q.bits != 8 {
+                    candle_core::bail!("{}: int{} where the kernels want int8", t.name, q.bits);
+                }
+                if t.dims.len() != 2 {
+                    candle_core::bail!("{}: dims {:?}, an embedding is 2-D", t.name, t.dims);
+                }
+                let (vocab, d) = (t.dims[0], t.dims[1]);
+                let wq: Vec<u32> = q
+                    .packed
+                    .chunks_exact(4)
+                    .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+                uploaded.push(rt.upload_embed(
+                    &t.name, vocab, d, d / q.group, &wq, &q.scales, &q.biases,
+                )?);
+                carried_bytes += (q.packed.len() + 2 * q.scales.len() + 2 * q.biases.len()) as u64;
+            }
+            Some((uploaded, tables.wiring()))
+        }
+    };
+    println!(
+        "total expected on the device: {:.2} GB (projections {:.2} + carried {:.2})",
+        (runtime_bytes + carried_bytes) as f64 / 1e9,
+        runtime_bytes as f64 / 1e9,
+        carried_bytes as f64 / 1e9
+    );
+
+    // The tie, checked on the TABLES and not on the handles. Two `MetalEmbed`
+    // values wrap one table when the ends are tied, so `Arc::ptr_eq` on them
+    // is false either way. This is the same check `fused_cuda` makes on its
+    // own buffers, and `device.rs` says so where the trait is declared.
+    if let Some((bufs, (ie, ih))) = &quant_embed {
+        let tied = Arc::ptr_eq(&bufs[*ie], &bufs[*ih]);
+        if tied != config.tie_word_embeddings {
+            candle_core::bail!(
+                "inconsistent q8 wiring: embedding and lm_head {} the same table while \
+                 tie_word_embeddings = {}",
+                if tied { "share" } else { "do not share" },
+                config.tie_word_embeddings
+            );
+        }
+    }
+
+    let vb = candle_nn::VarBuilder::from_tensors(tensors, dtype, device);
+    let total_sites = by_site.len();
+    let mut claimed = 0usize;
+    let mut take = |layer: usize, name: &str| {
+        by_site.remove(&(layer, name.to_string())).inspect(|_| {
+            claimed += 1;
+        })
+    };
+    let mut qwen = match &quant_embed {
+        None => crate::model::Qwen3::new_with(&config, vb, &mut take, kv)?,
+        Some((bufs, (ie, ih))) => crate::model::Qwen3::new_with_embed(
+            &config,
+            vb,
+            &mut take,
+            crate::model::Embed::Q8(Arc::new(MetalEmbed::new(rt.clone(), bufs[*ie].clone()))),
+            crate::model::Head::Q8(Arc::new(MetalEmbed::new(rt.clone(), bufs[*ih].clone()))),
+            kv,
+        )?,
+    };
+    if claimed != total_sites {
+        candle_core::bail!(
+            "{path}: {claimed} of {total_sites} device projections were claimed by the model. \
+             The rest would be served dense without saying so"
+        );
+    }
+    qwen.set_rot_share(share);
+
+    Ok(crate::fused::FusedSealed {
+        model: qwen,
+        tokenizer,
+        config,
+        layout,
+        // No prefill kernel on Metal, and no measured tile: `rows` is 1 and
+        // `tile` is what the shader was compiled at.
+        prefill: crate::device::Prefill { rows: 1, tile: rt.tile, from_env: false },
+        embed_mode: emode,
+        rot_share: share,
+        rot_launches,
+        fuse,
+        matvec_launches,
+        quantized_weights,
+        carried_weights,
+        file_bytes,
+        runtime_bytes,
+        carried_bytes,
+    })
 }
 
 #[cfg(test)]

@@ -287,11 +287,35 @@ fn main() -> anyhow::Result<()> {
     print!("loading {} on {dev_name}… ", a[0]);
     std::io::stdout().flush()?;
     let t0 = std::time::Instant::now();
-    let mut sealed = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
+    // `LLVQ_CONFIG` puts this REPL on the served kernel instead of the dense
+    // reconstruction. Unset, nothing changes and the binary is the demo it
+    // has always been.
+    //
+    // Chat is the one harness the fused path can carry today on Metal, and
+    // the reason is the prefill: a decode step is one vector, while `mmlu`
+    // hands 358 at once and `model::MAX_ROWS` refuses past 256. There is no
+    // Metal prefill kernel, so a prompt is fanned out one token a launch.
+    let (mut qwen, tokenizer) = match llvq_llm::served::Served::from_env()
+        .map_err(candle_core::Error::msg)?
+    {
+        None => {
+            let s = llvq_llm::sealed::load(&a[0], dtype, &device, kv_mode)?;
+            (s.model, s.tokenizer)
+        }
+        Some(cfg) => {
+            println!();
+            println!("{}", cfg.provenance());
+            let f = llvq_llm::served::load_resolved(
+                &a[0], &device, dtype, cfg.layout, cfg.embed, cfg.rot_share, cfg.fuse, cfg.kv,
+                Some("LLVQ_CONFIG"),
+            )?;
+            (f.model, f.tokenizer)
+        }
+    };
     println!("{:.1} s", t0.elapsed().as_secs_f64());
-    sealed.model.set_kv_store(kv_store);
-    let limit = sealed.model.config().max_position_embeddings;
-    let tok = &sealed.tokenizer;
+    qwen.set_kv_store(kv_store);
+    let limit = qwen.config().max_position_embeddings;
+    let tok = &tokenizer;
     let marks = Marks::resolve(tok)?;
     let stops = marks.stops();
 
@@ -330,15 +354,14 @@ fn main() -> anyhow::Result<()> {
     // The cache and the position are the conversation. They are built once and
     // carried across turns: only the NEW tokens of a turn are ever fed, which
     // is the whole difference from calling `generate` in a loop.
-    let mut caches = sealed.model.fresh_caches();
+    let mut caches = qwen.fresh_caches();
     let mut offset = 0usize;
 
     if let Ok(sys) = std::env::var("LLVQ_CHAT_SYSTEM") {
         let ids = turn(tok, &marks, "system", &sys)?;
-        sealed
-            .model
+        qwen
             .hidden_cached(
-                &Tensor::from_slice(&ids, (1, ids.len()), sealed.model.device())?,
+                &Tensor::from_slice(&ids, (1, ids.len()), qwen.device())?,
                 offset,
                 &mut caches,
                 &mut NoCapture,
@@ -364,7 +387,7 @@ fn main() -> anyhow::Result<()> {
                 // Read BEFORE the reset. Printing it after set `offset` to zero
                 // and reported that every conversation released nothing.
                 println!("  conversation dropped, {offset} positions released\n");
-                caches = sealed.model.fresh_caches();
+                caches = qwen.fresh_caches();
                 offset = 0;
                 continue;
             }
@@ -381,8 +404,8 @@ fn main() -> anyhow::Result<()> {
             );
             continue;
         }
-        let dev = sealed.model.device();
-        let mut h = sealed.model.hidden_cached(
+        let dev = qwen.device();
+        let mut h = qwen.hidden_cached(
             &Tensor::from_slice(&ids, (1, ids.len()), dev)?,
             offset,
             &mut caches,
@@ -397,7 +420,7 @@ fn main() -> anyhow::Result<()> {
         let mut said: Vec<u32> = Vec::new();
         let mut shown = String::new();
         loop {
-            let logits = sealed.model.logits_last(&h)?.i((0, 0))?;
+            let logits = qwen.logits_last(&h)?.i((0, 0))?;
             let next = sampler.pick(&logits)?;
             if stops.contains(&next) {
                 break;
@@ -426,7 +449,7 @@ fn main() -> anyhow::Result<()> {
                 println!("\n  [stopped at {max_new} tokens]");
                 break;
             }
-            h = sealed.model.hidden_cached(
+            h = qwen.hidden_cached(
                 &Tensor::from_slice(&[next], (1, 1), dev)?,
                 offset,
                 &mut caches,
@@ -438,7 +461,7 @@ fn main() -> anyhow::Result<()> {
         // turn starts inside an unterminated message and the model keeps
         // writing the previous answer.
         let close = [marks.im_end, marks.nl];
-        sealed.model.hidden_cached(
+        qwen.hidden_cached(
             &Tensor::from_slice(&close, (1, 2), dev)?,
             offset,
             &mut caches,

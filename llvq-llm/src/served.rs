@@ -243,9 +243,9 @@ impl Served {
 // Those `cfg`s are what a Metal lot would otherwise have to reopen, one by
 // one, in two binaries.
 //
-// There is ONE arm today, and the module says so rather than implying a choice
-// it cannot make. The value is the shape, not a dispatch: `fused_metal` adds
-// an arm here and touches no caller.
+// TWO arms since 2026-09-21: `fused_cuda` on Linux and `fused_metal` on macOS.
+// Neither caller changed when the second landed, which is what the shape was
+// for. A third backend adds a third arm and touches nothing else.
 // ---------------------------------------------------------------------------
 
 /// The served object, loaded by whichever backend this build carries.
@@ -269,13 +269,20 @@ pub fn load_resolved(
     {
         crate::fused_cuda::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
     }
-    #[cfg(not(all(target_os = "linux", feature = "cuda")))]
+    #[cfg(all(target_os = "macos", feature = "metal"))]
+    {
+        crate::fused_metal::load_resolved(path, device, dtype, layout, emode, share, fuse, kv, origin)
+    }
+    #[cfg(not(any(
+        all(target_os = "linux", feature = "cuda"),
+        all(target_os = "macos", feature = "metal")
+    )))]
     {
         let _ = (path, device, dtype, layout, emode, share, fuse, kv, origin);
         candle_core::bail!(
             "this build carries no device backend: a sealed artifact can be served \
-             through the fused path only on a CUDA build. Rebuild with --features cuda \
-             on Linux, or take the dense path through sealed::load"
+             through the fused path on a CUDA build on Linux or a Metal build on macOS. \
+             Otherwise take the dense path through sealed::load"
         )
     }
 }
@@ -294,10 +301,15 @@ pub fn load_with(
     }
     #[cfg(not(all(target_os = "linux", feature = "cuda")))]
     {
+        // The measurement door stays CUDA-only. It reads the layout, the
+        // embedding mode and the hoist from the environment, and every A/B in
+        // `docs/mesures/` turns one of those between two processes on a card.
+        // A Metal arm here would let a Mac answer a question the journals ask
+        // of an L40S.
         let _ = (path, device, dtype, fuse);
         candle_core::bail!(
-            "this build carries no device backend: a sealed artifact can be served \
-             through the fused path only on a CUDA build"
+            "this build carries no device backend for the measurement door, which is \
+             CUDA-only. Use served::load_resolved with a config file instead"
         )
     }
 }
