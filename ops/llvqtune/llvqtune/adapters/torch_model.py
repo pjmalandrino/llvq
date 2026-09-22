@@ -28,6 +28,9 @@ from torch import nn
 
 BLOCK = 24
 LATTICE_TYPES = ("q_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+# The norms whose weight is a per-column scale on a matrix's input, applied
+# before the rotation. `row_norms.py` says which matrix each one feeds.
+NORM_TYPES = ("input_layernorm", "post_attention_layernorm")
 
 
 class RoutedLinear(nn.Module):
@@ -64,6 +67,21 @@ class RoutedLinear(nn.Module):
         return F.linear(x, weight, self.bias)
 
 
+class RoutedNorm(nn.Module):
+    """A frozen RMSNorm whose output a Trainable rescales per column."""
+
+    def __init__(self, name: str, source: nn.Module, trainable) -> None:
+        super().__init__()
+        self.name = name
+        for parameter in source.parameters():
+            parameter.requires_grad_(False)
+        self.source = source
+        self._trainable = trainable
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self._trainable.scale_norm(self.name, self.source(x))
+
+
 class TorchModel:
     """Wraps a `transformers` causal LM and routes its quantized linears."""
 
@@ -82,6 +100,9 @@ class TorchModel:
         self._shapes: dict[str, tuple[int, int]] = {}
         self._param_count = sum(p.numel() for p in model.parameters())
         self._install(trainable, layers)
+        self._norms: dict[str, RoutedNorm] = {}
+        if hasattr(trainable, "scale_norm"):
+            self._install_norms(trainable, layers)
         if not self._routed:
             raise ValueError(f"no linear matched types {types}")
 
@@ -105,6 +126,41 @@ class TorchModel:
                     self._routed[name] = routed
                     rows, cols = child.weight.shape
                     self._shapes[name] = (rows, cols)
+
+    def _install_norms(self, trainable, layers: range | None) -> None:
+        wanted = set(trainable.norms)
+        for name, width in self.norm_widths_for(self._model, layers).items():
+            if name not in wanted:
+                continue
+            parent_name, _, child = name.rpartition(".")
+            parent = self._model.get_submodule(parent_name)
+            routed = RoutedNorm(name, getattr(parent, child), trainable)
+            setattr(parent, child, routed)
+            self._norms[name] = routed
+        missing = wanted - set(self._norms)
+        if missing:
+            raise ValueError(f"norms not found in the model: {sorted(missing)}")
+
+    @staticmethod
+    def norm_widths_for(model, layers: range | None = None) -> dict[str, int]:
+        """Every routable norm and its width, the argument `RowNorms` takes.
+
+        `model.norm` is included: it scales the columns of the language head,
+        which is the tied embedding on the 4B, and folds the same way.
+        """
+        found: dict[str, int] = {}
+        for index, block in enumerate(model.model.layers):
+            if layers is not None and index not in layers:
+                continue
+            for kind in NORM_TYPES:
+                norm = getattr(block, kind)
+                found[f"model.layers.{index}.{kind}"] = norm.weight.shape[0]
+        found["model.norm"] = model.model.norm.weight.shape[0]
+        return found
+
+    @property
+    def norms(self) -> list[str]:
+        return list(self._norms)
 
     @staticmethod
     def shapes_for(model, types=LATTICE_TYPES, layers: range | None = None):

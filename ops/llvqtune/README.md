@@ -21,11 +21,12 @@ fine-tuning here is no more than learning the per-column scales
 | `adapters/` | torch, parquet, the filesystem | which mode is running |
 | `trainables/` | one mode each | the loop, the corpus, the journal |
 
-## The three modes
+## The four modes
 
 | module | roadmap row | trains | cost |
 |---|---|---|---|
 | `row_scales.py` | 14 | 1,105,920 row scales | 0 b/param |
+| `row_norms.py` | 14 plus the input axis | row scales and the RMSNorm weights, 1,105,920 + 186,880 values | 0 b/param |
 | `free_params.py` | 17, Q6a | scales and tails, ~18 M values | 0 b/param |
 | `low_rank.py` | 20, Q6b | new factors `A @ B` | +0.131 at r=16, +0.263 at r=32 |
 

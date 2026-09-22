@@ -6,7 +6,7 @@ the objectives, the corpus and the journal are shared and untouched.
 
 from __future__ import annotations
 
-MODES = ("row_scales", "free_params", "low_rank")
+MODES = ("row_scales", "row_norms", "free_params", "low_rank")
 
 
 def build(mode: str, **kwargs):
@@ -15,6 +15,10 @@ def build(mode: str, **kwargs):
         from .row_scales import RowScales
 
         return RowScales(**kwargs)
+    if mode == "row_norms":
+        from .row_norms import RowNorms
+
+        return RowNorms(**kwargs)
     if mode == "free_params":
         from .free_params import FreeParams
 
