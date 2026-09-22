@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Trains the row scales on a card, sizing itself from a measured rate.
+# Trains the row scales (or, with MODE=row_norms, the row scales and the norms)
+# on a card, sizing itself from a measured rate.
 #
 # Preregistered: proofs/preregistration-tetranu-rowscales-2026-09-19.md
 # Deviations:    same name, -ECARTS.md
@@ -18,10 +19,11 @@ SEQ=${SEQ:-1024}
 BATCH=${BATCH:-2}
 LR=${LR:-3e-4}
 PROBE=${PROBE:-6}
+MODE=${MODE:-row_scales}        # row_norms adds the RMSNorm weights, 0 bits
 
 mkdir -p "$OUT"
 COMMON=(--student "$EXPORT" --teacher "$TEACHER"
-        --mode row_scales --objective kl
+        --mode "$MODE" --objective kl
         --seq-len "$SEQ" --batch-size "$BATCH"
         --device cuda --dtype bf16 --seed 0)
 
