@@ -198,9 +198,47 @@ fn the_8b_config_is_the_4b_served_values_on_the_8b_object() {
     assert_ne!(Some(note), f4.note, "a copied note would print the 4B as this run's object");
 }
 
+/// The 14B config is the 4B's five values on the 14B object, and nothing more.
+///
+/// Same argument as the 8B test above: the five values name runtime choices,
+/// the loader reads every shape from the sealed file, and the file exists for
+/// its note and its path, both of which a run prints. Qwen3-14B has 40 layers,
+/// so 40 `v_proj` int4 g128 records where the 4B and the 8B have 36; the note
+/// says so, because a note copied from the 8B would state the wrong count on
+/// the provenance line of every 14B run.
+///
+/// Mutation: change any one of the 14B file's five values and this fails; the
+/// 4B and 8B files are read beside it so none of the three can drift from the
+/// others in silence.
+#[test]
+fn the_14b_config_is_the_4b_served_values_on_the_14b_object() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        (f.clone(), Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}")))
+    };
+    let (f4, s4) = read("qwen3-4b-tetra-q5.json");
+    let (f8, _) = read("qwen3-8b-tetra-q5.json");
+    let (f14, s14) = read("qwen3-14b-tetra-q5.json");
+    assert_eq!(
+        (s14.layout, s14.embed, s14.rot_share, s14.fuse, s14.kv),
+        (s4.layout, s4.embed, s4.rot_share, s4.fuse, s4.kv),
+        "the 14B serves the 4B's recipe; a value that moved is a new object, not this file"
+    );
+    let note = f14.note.expect("the 14B config says which object it belongs to");
+    assert!(note.contains("Qwen3-14B"), "{note}");
+    assert!(note.contains("qwen3-14b-dclm"), "{note}");
+    assert!(note.contains("40 v_proj int4 g128"), "{note}");
+    assert!(note.contains("Untied head"), "{note}");
+    assert_ne!(Some(&note), f4.note.as_ref(), "a copied note would print the 4B as this run's object");
+    assert_ne!(Some(&note), f8.note.as_ref(), "a copied note would print the 8B as this run's object");
+}
+
 /// Every file in `configs/` resolves. A config added without a test of its own
 /// would otherwise reach a card unread: `ops/Dockerfile.cuda` copies the whole
-/// directory and tests one name.
+/// directory and checks the names it lists with `test -f`, which proves
+/// presence, not parsing.
 #[test]
 fn every_shipped_config_resolves() {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
@@ -214,7 +252,7 @@ fn every_shipped_config_resolves() {
         Served::of(f, path.clone()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         n += 1;
     }
-    assert!(n >= 2, "{n} configs found in {}", dir.display());
+    assert!(n >= 3, "{n} configs found in {}", dir.display());
 }
 
 /// A lookup that answers from a fixed table — the environment, without the
