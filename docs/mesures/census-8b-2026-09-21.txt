@@ -1,0 +1,87 @@
+THE 8B CENSUS: THE PAPER-2 BASE READS 64.87, TEN POINTS UNDER F16 (2026-09-22)
+================================================================================
+Job:    6ab196aa51992417dfcd15ed, l40sx1, 5,959 s running after 3 h 06 of queue,
+        $2.98 against $3.20 announced, cap $4.05.
+Total:  8B chain $2.98 after this job, $10.19 of the $20 cap after the five jobs
+        of 2026-09-22; project $186.99 = $183.80 in jobs.csv + $3.19 of five
+        jobs it does not list (*computed*).
+Prereg: proofs/preregistration-census-8b-2026-09-21.md, stamped
+        sha256 a3c08d367fa78ed5..., before the launch. Deviations in the -ECARTS.md.
+Launcher: ops/jobs/census-8b.sh, sha256
+        c9fc15aef3035d74d758f89a4563f2211015e4145ce44baf2cc1e10866247820,
+        unmodified since 2026-09-21 22:42, before the launch.
+Image:  Space Pier-Jean/llvq-runner-cuda at a963a020. Hub revisions: Qwen/Qwen3-8B
+        b968826d, Pier-Jean/qwen3-8b-awq-deq 6a5725cb (provenance.txt).
+Data:   docs/data/mmlu-dumps/mmlu-8b-{dclm,f16,awq}-FULL.csv;
+        docs/mesures/census-8b-2026-09-21-brut/ (outputs, pairs.txt).
+Nature: scores and pairs *measured*, 14,042 questions, fingerprint
+        a74a6d6213602979; b/param *computed* (notes under the table).
+
+THE RESULT
+-----------
+  arm                                       micro    macro   b/param
+  A  DCLM base (Tetra + v_proj int4)        64.87    66.58   3.0683 (a)
+  B  Qwen3-8B f16                           75.05    76.89   16
+  C  AWQ w4 g128, dequantized to f16        73.79    75.95   5.956  (c)
+
+Micro and macro from out-{dclm,f16,awq}.txt. b/param is whole model, embedding
+included:
+  (a) rtbits on the file's bytes, embedding at q8 as served (modeled at 8.5
+      b/param). The arm scored here carried its f16 embedding: 4.2080
+      (dclm-8b-2026-09-21-brut/rtbits.txt).
+  (c) the official packed Qwen/Qwen3-8B-AWQ (rtbits-planes-8b-2026-08-09.txt;
+      its bytes give 5.9566, rtbits-14b-2026-08-17.txt). The file scored here
+      is its f16 dequantization.
+
+Paired, stratified micro, no finite-population correction (the convention of the
+full-split journals since 2026-09-17), bootstrap 10,000 draws:
+
+  B − A   +10.18 pp   CI95 [+9.46 ; +10.90]   SE 0.37   McNemar 2,135 / 705
+  C − A    +8.92 pp   CI95 [+8.19 ; +9.65]    SE 0.37   McNemar 2,027 / 775
+  B − C    +1.27 pp   CI95 [+0.83 ; +1.70]    SE 0.22   McNemar   590 / 412
+
+Outside the prereg's published list, descriptive only: against earlier 8B files
+of other encodings, same split (not a format effect: different draws, corpus
+and code; pairs.txt):
+
+  A − bare 8B Tetra (09-06)      +1.02 pp   CI95 [+0.26 ; +1.78]
+  A − v+o+down int4 restore      −3.16 pp   CI95 [−3.90 ; −2.42]
+
+Row 1 of the decision rule: the four controls pass and A ≥ 58.0, so the
+training goes ahead.
+
+CONTROLS
+---------
+1. Oracle on CUDA: MATCH, max |Δhidden| = 0 (oracle-cuda.txt).
+2. Base on the mount: sha256 bcea0d5a7de2fbbf..., equal to the Mac's
+   (files.sha256 here and in dclm-8b-2026-09-21-brut/). The byte count
+   (4,364,205,777) is a `test` that runs before arm A under `set -e`; arm A ran.
+3. Dump headers: dtype, limit, alloc, config, arithmetic, kv and end fingerprint
+   as preregistered, on all three dumps.
+4. Harness: B and C against the 2,280-question dumps of 2026-08-13 (job
+   6a7ceb0f, which replayed the 08-08 scores to the hundredth), `--intersect`:
+   0 discordant questions out of 2,280 on both (pairs.txt). The device port of
+   2026-09-20 did not move the harness. The 8B f16 sample's 76.08 was a property
+   of the sample: the same weights read 75.05 on the full split.
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity        predicted              measured   in?
+  A               66.0 [63.1, 68.9]      64.87      yes
+  B               77.0 [75.5, 78.5]      75.05      NO, 0.45 under the bottom
+  C               74.5 [72.5, 76.5]      73.79      yes
+  C − B           −2.5 [−4.0, −1.0]      −1.27      yes
+  running time    107 min [100, 115]     99.3 min   no, 0.7 min under
+
+B and C were predicted from the samples (76.08, 73.01) moved up by half the 8B
+Tetra's sample-to-census shift (2.24 pp). That recipe gives 77.2 and 74.1; the
+prereg signed 77.0 and 74.5 and does not record the step (*computed*). The f16
+checkpoint moved the other way (−1.03 pp). The prereg already cited a precedent
+of that sign, the 4B f16 sample 0.18 pp over its census, and took the sign from
+the 8B Tetra anyway (deviation E1).
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- The base is not the object: the trained arm is scored in its own job.
+- A against Planes14 8B or the bare 8B is not a format effect: one draw each.
+- Nothing served.

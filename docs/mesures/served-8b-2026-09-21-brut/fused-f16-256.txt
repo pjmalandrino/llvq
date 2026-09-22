@@ -1,0 +1,29 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 144 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 216 lone + 36 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.82 GB on the card, 2.100 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 94120 bytes, sha256 4ea072d786866b5de3155c765e3f80e85c0313f96100918e30824df8ef155f6d (10 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+embedding: f16 (LLVQ_EMBED), 2 tables (model.embed_tokens.weight + lm_head.weight), 2489.3 MB on the card
+total expected on the card: 4.31 GB (projections 1.82 + carried 2.49)
+fused  : loaded in   14.6 s,   38.9 tok/s [38.9–39.1, 5 rounds], 4.31 GB on the card
+         LLVQ_ROT_SHARE=1, 144 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token · kv_store=cat
+dense  : loaded in  127.1 s,   26.4 tok/s [26.4–26.4, 5 rounds], 16.38 GB on the card
+         kv_store=cat
+
+--- the two arms ---
+  fused F0: 256 tokens identical to the dense arm
+  dense:  Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is
+  fused F0:  Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is Paris. The capital of the United States is Washington, D.C. The capital of the United Kingdom is London. The capital of Germany is Berlin. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of France is
+
+--- what it costs ---
+  arm               load  tok/s (median)             range     GB card  matvec/t
+  ------------------------------------------------------------------------------
+  dense           127.1 s            26.4       [26.4–26.4]       16.38         —
+  fused F0         14.6 s            38.9       [38.9–39.1]        4.31       252
+  ------------------------------------------------------------------------------
+  fused F0: speed ×1.47 [×1.47–×1.48] against the dense arm (quotient of medians, 5 rounds per arm, never interleaved), memory ÷3.80
+
+  projections: 2.100 b/weight on the card, file 4.36 GB on disk.
+  WARNING: these two accountings do not compare. The file carries compact
+  indexes, the card reads the unfolded layout the kernel can read fast.

@@ -15,4 +15,11 @@ class RecorderPort(Protocol):
 
     def step(self, index: int, loss: float, lr: float) -> None: ...
 
+    def checkpoint(
+        self, index: int, path: str, gauge: dict[str, object] | None
+    ) -> None:
+        """A partial write landed at `path`. `gauge` is the device memory then,
+        or None when no gauge is bound."""
+        ...
+
     def closed(self, summary: dict[str, object]) -> None: ...

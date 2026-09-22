@@ -1,0 +1,105 @@
+THE ROW SCALES AT 8B: +3.29 PP FOR ZERO BITS, AS MUCH AS AT THE 4B (2026-09-22)
+================================================================================
+Jobs:   training 6ab1ca3052d0dbd7f1d7c364, h200 (the project's first), 4,073 s running
+        after 1 h 12 of queue, $5.66 against $6.90 announced, cap $11.25.
+        census 6ab1eb9c51992417dfcd20ac, l40sx1, 1,966 s running, $0.98, cap $1.80.
+        8B chain to date $10.19 of the $20 cap; project $186.99 ($183.80 in
+        jobs.csv plus $3.19 of five unregistered jobs). Both *computed*.
+Prereg: proofs/preregistration-dclm-8b-rowscales-2026-09-21.md, stamped
+        sha256 d81cbfcc0cd7fb77..., before the training. Deviations in the -ECARTS.md.
+Code:   llvqtune-8b.patch (brut dir) sha256 d9177fc1..., shipped as
+        llvqtune-2026-09-21.tgz sha256 0f5d9498001d029a...; the llvqtune changes are
+        not committed. torch 2.5.1+cu124, transformers 5.17.0.
+        Fold: rowscale sha256 d25136b9... (bin-ft.sha256), built at 5d36d52.
+Objects export  dclm-8b-export-2026-09-21/model.safetensors 16,381,516,776 B
+        sigma   ~/dclm-8b-sigma.json sha256 dbd25ff50a2a7796...
+        trained ~/qwen3-8b-dclm-ft.bin 4,364,205,777 B sha256 783cef6700e0efa9...
+Data:   docs/mesures/dclm-8b-rowscales-2026-09-21-brut/ (journal, probe, fold,
+        export, census outputs, pairs.txt, llvqtune-8b.patch);
+        docs/data/mmlu-dumps/mmlu-8b-dclm-ft-FULL.csv. The FT perplexity log is
+        ppl-ft-f16.txt (copied into the brut dir).
+Nature: *measured* for training, fold, perplexity and MMLU. b/param and b/weight
+        are *computed* (rtbits over the file's bytes, or the vod-8b table). 4B
+        figures are carried from the journal named beside each.
+
+THE RESULT
+-----------
+Same file width, same codes, same codebook, same calibration. 1,363,966 of the
+1,363,968 row scales change value (2 trained to exactly 1.0, which the fold
+skips) and nothing else does. 14,042 questions, paired, stratified micro, no
+finite-population correction:
+
+  DCLM base                  64.87 micro / 66.58 macro
+  + trained row scales     **68.16** / 69.93
+
+  G = +3.29 pp   CI95 [+2.78 ; +3.80]   SE 0.26   McNemar 887 won / 425 lost,
+  p = 7.2e-38, 9.3 % discordant
+
+Row 1 of the decision rule: the lever transfers to the 8B. At the 4B it gave
++3.15 on a base of 57.95 (dclm-rowscales-2026-09-20.txt); here +3.29 on a base
+of 64.87. The prior that the gain falls as the base rises (the LLVQ paper's
+Table 6, r = −0.956) did not hold at this size, on one pair per size.
+
+  object, embed f16, 4.2080 b/param  68.16
+  AWQ w4 g128, 5.956 b/param         73.79    AWQ − object  +5.63 pp [+4.96 ; +6.31]
+  f16, 16 b/param                    75.05    f16 − object  +6.89 pp [+6.23 ; +7.54]
+  v+o+down int4 restore (09-18)      68.03    object − it   +0.13 pp [−0.58 ; +0.82]
+
+The census scored the object with f16 embedding and head: config=none, dense
+reconstruction (pairs.txt). 4.2080 is that width in rtbits, *computed*
+(dclm-8b-2026-09-21-brut/rtbits.txt). The served accounting, q8 embedding, is
+3.0683 b/param in the same table; its census MMLU is not measured. AWQ's 5.956
+is *computed* from the repo bytes, embedding f16 (docs/data/README.md).
+
+At the 4B the object sat 9.03 pp under f16, paired on the census (61.11 against
+70.14, dclm-rowscales-2026-09-20.txt); at the 8B, 6.89. The 4B AWQ gap of 8.93
+crosses plans: 4B AWQ exists only on the 2,280-question sample (70.04,
+mmlupair-4b-8b-2026-08-13.txt). It does not sit beside the 8B's paired 5.63.
+
+The object is not distinguishable from the v+o+down int4 restore of 2026-09-18
+(CI95 contains zero, McNemar p = 0.73, pairs.txt). It gets there at 2.1955
+kernel b/weight against 2.9260, both *computed* in the vod-8b table
+(vod-8b-2026-09-18.txt). rtbits on this file reads 2.0944 at tail f16. Different
+files and calibrations, not a same-file comparison.
+
+THE TRAINING
+-------------
+  probe             0.596 s/step, first KL 0.2741
+  loop              9,507 steps, 19,470,336 tokens, 3,796.7 s, 0.3994 s/step
+  KL by eighths     0.1951 0.1908 0.1924 0.1979 0.1878 0.1871 0.1934 0.1912
+                    −2.0 % last against first (4B: −6.6 %)
+  KL by quarters    −0.3 % (4B: −3.8 %, the figure dclm-rowscales-2026-09-20.txt
+                    prints). Both rows *computed* from closed.losses of the two
+                    journal.jsonl (4B: dclm-rowscales-2026-09-19-brut/).
+  GPU peak          72.65 GB allocated, 74.20 GB reserved, of 150.1
+  sigma             mean 0.99916, sd 0.02702, p1 0.9281, p99 1.0654,
+                    min 0.4833, max 1.3969; o_proj widest (sd 0.0334)
+
+THE FOLD AND THE PERPLEXITY
+----------------------------
+  all-ones control   0 scaled, 216 untouched, 36 int4 passed; BYTE-IDENTICAL
+  fold               216 scaled, 0 untouched, 36 int4 passed; 1,363,968 scales;
+                     8,690,497 bytes differ, all inside the records region
+  perplexity f16     10.7686 → 9.5725 (−11.1 %), Metal. ×1.065 of f16's 8.9899,
+                     read on the card in f16; the Mac f32 baseline 8.9893 gives
+                     the same ×1.065 (the 4B went to ×1.007,
+                     dclm-rowscales-2026-09-20.txt)
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity                     predicted            measured     in?
+  probe first KL               0.29 [0.20, 0.45]    0.2741       yes
+  loop rate on h200            0.52 [0.40, 0.70]    0.3994       NO, 0.0006 under
+  peak GPU memory allocated    76 GB [60, 95]       72.65 GB     yes
+  KL, last vs first eighth     −3 % [−7, −0.5]      −2.0 %       yes
+  G                            +2.0 [+0.5, +3.5]    +3.29        yes, near the top
+  FT perplexity f16            9.15 [9.00, 9.80]    9.5725       yes
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- One calibration draw and one training run per size: σ between draws is 2.92 pp
+  at the 4B (dclm-4b-2026-09-18.txt); the pair base → trained shares its draw
+  and is sound, the comparison across sizes is not.
+- Why the gain did not fall with the base.
+- The census MMLU of the served width (q8 embedding, 3.0683 b/param).
+- Anything past the 8B.

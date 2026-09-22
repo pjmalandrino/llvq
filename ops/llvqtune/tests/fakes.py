@@ -106,6 +106,7 @@ class FakeRecorder:
     def __init__(self) -> None:
         self.header = None
         self.steps: list[tuple[int, float, float]] = []
+        self.checkpoints: list[tuple[int, str, object]] = []
         self.summary = None
 
     def opened(self, header):
@@ -113,6 +114,9 @@ class FakeRecorder:
 
     def step(self, index, loss, lr):
         self.steps.append((index, loss, lr))
+
+    def checkpoint(self, index, path, gauge):
+        self.checkpoints.append((index, path, gauge))
 
     def closed(self, summary):
         self.summary = summary
@@ -125,3 +129,14 @@ class FakeSink:
     def write(self, payload, cost):
         self.writes.append(payload)
         return f"/tmp/fake-{len(self.writes)}.json"
+
+
+class FakeGauge:
+    """Counts its reads and returns a distinct peak each time."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def __call__(self):
+        self.reads += 1
+        return {"max_memory_allocated": 1000 * self.reads}

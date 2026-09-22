@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 
 from ..ports.corpus import CorpusPort
 from ..ports.model import ModelPort
@@ -24,6 +24,12 @@ from .trainable import Trainable
 
 class Schedule(Protocol):
     def at(self, step: int) -> float: ...
+
+
+Gauge = Callable[[], dict]
+"""Reads the device's memory. Framework-free on this side: a callable
+returning plain data. The 8B was sized for a card by computation only, so
+the peak it actually reaches has to land in the journal."""
 
 
 @dataclass(frozen=True)
@@ -140,6 +146,7 @@ def run(
     plan: Plan,
     teacher: TeacherPort | None = None,
     sink: SinkPort | None = None,
+    gauge: Gauge | None = None,
 ) -> Outcome:
     """Train `trainable` against `objective`. Returns what to write back."""
     check(
@@ -197,6 +204,7 @@ def run(
         ):
             path = sink.write(trainable.export(), cost)
             recorder.step(done, last, lr)
+            recorder.checkpoint(done, path, gauge() if gauge is not None else None)
             checkpoints.append(path)
 
     elapsed = time.monotonic() - started
@@ -204,18 +212,19 @@ def run(
         raise WiringError("the corpus yielded no batch")
 
     payload = trainable.export()
-    recorder.closed(
-        {
-            "steps_run": done,
-            "first_loss": first,
-            "last_loss": last,
-            "losses": losses,
-            "checkpoints": len(checkpoints),
-            "seconds": round(elapsed, 3),
-            "seconds_per_step": round(elapsed / done, 4) if done else 0.0,
-            "cost": str(cost),
-        }
-    )
+    summary = {
+        "steps_run": done,
+        "first_loss": first,
+        "last_loss": last,
+        "losses": losses,
+        "checkpoints": len(checkpoints),
+        "seconds": round(elapsed, 3),
+        "seconds_per_step": round(elapsed / done, 4) if done else 0.0,
+        "cost": str(cost),
+    }
+    if gauge is not None:
+        summary["gauge"] = gauge()
+    recorder.closed(summary)
     return Outcome(
         steps_run=done,
         first_loss=first,

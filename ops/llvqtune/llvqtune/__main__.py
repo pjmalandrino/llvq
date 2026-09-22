@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse(argv)
 
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
     from .adapters.dclm_corpus import DclmCorpus
     from .adapters.json_sink import JsonSink
@@ -59,9 +59,23 @@ def main(argv: list[str] | None = None) -> int:
     from .adapters.objectives import CrossEntropy, KLDistillation
     from .adapters.torch_model import TorchModel, TorchTeacher
     from .adapters.torch_optimizer import Adam
-    from .domain.loop import Plan, check, run
+    from .domain.loop import Plan, WiringError, check, run
+    from .domain.pairing import check_pairing
     from .domain.schedule import WarmupCosine
     from .trainables import build
+
+    # Before any weight is read: two config files, a few kB. The 8B student
+    # and a 4B teacher share depth and vocabulary, so a mismatch would train
+    # to the end and write a plausible file.
+    if args.teacher is not None:
+        try:
+            check_pairing(
+                AutoConfig.from_pretrained(args.student).to_dict(),
+                AutoConfig.from_pretrained(args.teacher).to_dict(),
+            )
+        except WiringError as refused:
+            print(f"refused: {refused}", file=sys.stderr)
+            return 2
 
     widths = {"f32": torch.float32, "f16": torch.float16, "bf16": torch.bfloat16}
     dtype = (
@@ -128,6 +142,12 @@ def main(argv: list[str] | None = None) -> int:
         print("dry run, nothing was trained", file=sys.stderr)
         return 0
 
+    gauge = None
+    if args.device.startswith("cuda"):
+        from .adapters.cuda_gauge import CudaGauge
+
+        gauge = CudaGauge(args.device)
+
     sink = JsonSink(args.out)
     outcome = run(
         model=model,
@@ -140,6 +160,7 @@ def main(argv: list[str] | None = None) -> int:
         plan=plan,
         teacher=teacher,
         sink=sink,
+        gauge=gauge,
     )
     path = sink.write(outcome.export, outcome.cost)
     print(f"wrote {path}", file=sys.stderr)

@@ -1,0 +1,8 @@
+216 matrices (want 216), 1363968 rows (want 1363968)
+sigma mean 0.99916 sd 0.02702 p1 0.9281 p99 1.0654 min 0.4833 max 1.3969 6.2 % beyond 5 %
+  down_proj  sd 0.0243  rows 147456
+  gate_proj  sd 0.0262  rows 442368
+  k_proj     sd 0.0274  rows 36864
+  o_proj     sd 0.0334  rows 147456
+  q_proj     sd 0.0268  rows 147456
+  up_proj    sd 0.0262  rows 442368

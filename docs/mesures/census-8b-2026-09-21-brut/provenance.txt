@@ -1,0 +1,3 @@
+image  Pier-Jean/llvq-runner-cuda a963a02010cec2d3c342ec52dd38f2dded06f2a1 2026-09-21 01:12:09+00:00
+model  Qwen/Qwen3-8B b968826d9c46dd6066d109eabc6255188de91218 public
+model  Pier-Jean/qwen3-8b-awq-deq 6a5725cb047c9f2ecda55347d57883846c66bad4 public

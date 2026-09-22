@@ -1,0 +1,19 @@
+device: Metal(MetalDevice(DeviceId(1))), context 4096, dtype f16
+sealed /Users/pjmalandrino/qwen3-8b-dclm-ft.bin: 252 quantized matrices, 4.364 GB on disk
+loading corpus wikitext2…
+299078 tokens → 12 windows of 4096 (fingerprint 3f1baca9033bf251)
+  window   1/12  nll 2.262502623  n 4095  running ppl    9.607  (11.9s)
+  window   2/12  nll 2.596378968  n 4095  running ppl   11.353  (25.7s)
+  window   3/12  nll 1.992096283  n 4095  running ppl    9.813  (47.2s)
+  window   4/12  nll 1.799340373  n 4095  running ppl    8.694  (69.7s)
+  window   5/12  nll 2.347172142  n 4095  running ppl    9.020  (93.4s)
+  window   6/12  nll 2.262581559  n 4095  running ppl    9.116  (117.2s)
+  window   7/12  nll 2.330700072  n 4095  running ppl    9.274  (139.5s)
+  window   8/12  nll 2.356726238  n 4095  running ppl    9.426  (163.8s)
+  window   9/12  nll 2.479654113  n 4095  running ppl    9.676  (187.6s)
+  window  10/12  nll 2.005954289  n 4095  running ppl    9.424  (211.8s)
+  window  11/12  nll 2.392364927  n 4095  running ppl    9.553  (230.0s)
+  window  12/12  nll 2.281249523  n 4095  running ppl    9.572  (258.9s)
+
+/Users/pjmalandrino/qwen3-8b-dclm-ft.bin [LLVQ 2-bit, sealed] — wikitext2, ctx 4096, 12 windows, dtype f16, kv f16, tokens 3f1baca9033bf251
+ppl = 9.5725
