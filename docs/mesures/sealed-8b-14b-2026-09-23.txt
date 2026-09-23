@@ -1,0 +1,75 @@
+THE 4B'S SEALED COMPOSITION TRANSFERS: +1.92 PP AT 8B, +1.46 PP AT 14B, AT LOWER B/PARAM (2026-09-24)
+================================================================================
+Jobs:   8B  6ab42f8052d0dbd7f1d86fd6, l40sx1, 1,945 s running after 1 h 39 of queue, $0.97.
+        14B 6ab4304f52d0dbd7f1d87066, l40sx1, 3,176 s running after 8 min of queue, $1.59.
+        Both exit 0.
+Prereg: proofs/preregistration-sealed-8b-14b-2026-09-23.md, stamped before the first job
+        (commit 2874f3d).
+Image:  Space Pier-Jean/llvq-runner-cuda at af907416 (commit b68b590), not republished.
+Objects (built on the Mac with int4swap then embedq q4, *measured* sizes, *computed* rates):
+        8B  qwen3-8b-sealed.bin   3,186,786,577 B, sha256 91903db9..., 3.0637 b/param served,
+            2.8058 kernel b/weight; base qwen3-8b-dclm-ft.bin (783cef67..., 3.0683).
+        14B qwen3-14b-sealed.bin  5,087,000,541 B, sha256 61db37fe..., 2.7305 b/param served,
+            2.5217 kernel b/weight; base qwen3-14b-dclm-ft.bin (c825cb92..., 2.7371).
+Data:   docs/mesures/sealed-8b-14b-2026-09-23-brut/ (prices, build logs, rtbits, mmlu-8b/ and
+        mmlu-14b/ with the census dumps and four pairs each).
+Nature: *measured* MMLU; b/param *computed* by rtbits over each file's bytes.
+
+THE RESULT
+-----------
+Paired, stratified micro, 14,042 questions, no finite-population correction:
+
+                  base FT   sealed   sealed − FT                   McNemar
+  8B              68.16     70.08    +1.92 [+1.36 ; +2.50]         981 / 712, p = 6.7e-11
+  14B             74.20     75.66    +1.46 [+0.99 ; +1.94]         673 / 468, p = 1.4e-9
+
+  gap to AWQ w4 g128     8B  −3.71 [−4.36 ; −3.07]  (was −5.63)
+                         14B −2.46 [−3.00 ; −1.92]  (was −3.92)
+  gap to f16             8B  −4.98 [−5.60 ; −4.37]  (was −6.89)
+                         14B −3.22 [−3.75 ; −2.69]  (was −4.68)
+
+With the 4B's +2.26 the composition wins at all three sizes, each time in a file lighter
+than the one it replaces (served b/param 2.7475 → 2.7320, 3.0683 → 3.0637,
+2.7371 → 2.7305).
+
+THE DECISION RULE
+------------------
+Prereg §3, both sizes: Δ ≥ +0.43 and p < 0.05. "The package is that size's reference
+object." The sealed files replace the FT files as the 8B and 14B references.
+
+THE PREDICTIONS
+----------------
+  8B   +1.8 [+0.6 ; +3.0]   measured +1.92   inside, 0.12 above the point
+  14B  +1.0 [0.0 ; +2.0]    measured +1.46   inside, 0.46 above the point
+
+The shrinking-with-size prior held in direction (4B +2.26, 8B +1.92, 14B +1.46) and was a
+little too steep at 14B. The untied q4 head, the named risk, did not cost what the int4
+tables brought at either size.
+
+CONTROLS
+---------
+1. Oracle MATCH on both jobs.
+2. Both files' bytes and sha256 on the mount equal to the Mac's.
+3. int4swap: 68 matrices transplanted at 8B (2,214,592,512 weights), 59 at 14B
+   (2,742,026,240); embedq requantized exactly model.embed_tokens.weight and lm_head.weight
+   at each size. The int4 cost matched --price to the byte (8B +611,779,104 B; 14B
+   +759,716,312 B).
+4. 14,042 questions, fingerprint a74a6d6213602979, headers as preregistered.
+5. Harness: the 14B pair is within one image (af907416); the 8B base census ran on a963a020,
+   shown identical to af907416 on 2,280 questions (census-14b-base-2026-09-22.txt control 4).
+
+DEVIATION
+----------
+The prereg gave the 14B file ~2.727 b/param, *computed* before the file existed; rtbits on
+the file reads 2.7305. The prereg itself said the file's figure decides.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- The share of the q4 tables against the int4: one arm a size.
+- Anything served. The files carry q4 tables that EmbedMode::Q4 serves (code on
+  claude/jolly-clarke-vprf0a), but no card has run them and the image does not carry it.
+- Whether another down_proj window does better: one window a size, fixed by rule.
+
+COST
+-----
+$2.56 ($0.97 + $1.59) against $2.93 announced. Project total $223.19.
