@@ -1,12 +1,10 @@
-//! `embedq` refuses a Tetra file by name.
+//! A Tetra file: what `embedq` and the fused loader do with one.
 //!
-//! The tool copies every record through `read_matrix_raw` / `push_raw` under
-//! a header rewritten by `ArtifactWriter::new` — a v4 Ball header. Over a v5
-//! Tetra file that would yield a Ball file of Tetra words, opened by every
-//! reader without complaint and wrong. The refusal is at the header, before
-//! a record is read; the evidence is the binary's exit status and its stderr,
-//! on a two-block Tetra file written into cargo's test tmpdir. Portable: no
-//! model, no card.
+//! `embedq` refused it until 2026-09-23, because it rewrote a v4 Ball header
+//! over whatever it read. It now rewrites the file's own header and walks the
+//! records undecoded, so a Tetra file goes through; this fixture carries no
+//! embedding, so the run ends in a refusal for that, with nothing left behind.
+//! The fused loader half is unchanged. Portable: no model, no card.
 
 use llvq_artifact::{ArtifactWriter, CodeKind, QuantizedMatrix, TETRA_SHELL_CAP};
 use llvq_core::DIM;
@@ -16,7 +14,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[test]
-fn embedq_refuses_a_tetra_file_by_name() {
+fn embedq_walks_a_tetra_file_and_the_ball_layouts_refuse_it() {
     let tetra = Tetra::new();
     let m = QuantizedMatrix {
         name: "model.layers.0.self_attn.q_proj.weight".into(),
@@ -50,13 +48,13 @@ fn embedq_refuses_a_tetra_file_by_name() {
         .output()
         .expect("run embedq");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "embedq accepted a Tetra file:\n{stderr}");
+    assert!(!out.status.success(), "embedq wrote a file with nothing requantized:\n{stderr}");
     assert!(
-        stderr.contains("no runtime layout for Tetra: this reads the v1 ball's classes, and a Tetra word names none"),
-        "the refusal must say why:\n{stderr}"
+        stderr.contains("kinds Tetra, 1 lattice + 0 int4 records passed through undecoded"),
+        "the Tetra record must be walked under its own header:\n{stderr}"
     );
     assert!(stderr.contains(src.to_str().unwrap()), "the refusal must name the file:\n{stderr}");
-    assert!(stderr.contains("Tetra"), "the refusal must name the kind:\n{stderr}");
+    assert!(stderr.contains("nothing was requantized"), "{stderr}");
     assert!(!dst.exists(), "embedq must not leave an output behind a refusal");
 
     // And the fused loader itself, which is what `fusedrun` and the CUDA
