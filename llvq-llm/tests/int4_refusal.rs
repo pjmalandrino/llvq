@@ -1,4 +1,8 @@
-//! `embedq`, `export` and the fused loader refuse a mixed file by name.
+//! A mixed file: what `embedq`, `export` and the fused loader do with one.
+//!
+//! `embedq` (2026-09-23) and `export` (2026-09-19) now walk it by record; the
+//! two tests below pin that and pin that neither leaves an output behind a
+//! refusal. The header text further down is the history of the first version.
 //!
 //! Twin of `tetra_refusal.rs`, one kind further. `embedq` copies every record
 //! through `read_matrix_raw` / `push_raw` under a header rewritten by
@@ -67,8 +71,13 @@ fn mixed_file(name: &str) -> PathBuf {
     path
 }
 
+/// `embedq` walks a mixed file by record since 2026-09-23, so the kind is no
+/// longer a reason to stop. This fixture carries no embedding, and the refusal
+/// is for that: it names the file, says both records went through, and leaves
+/// no output behind (the copy it used to leave under the output name read as a
+/// file the tool had produced).
 #[test]
-fn embedq_refuses_a_mixed_file_by_name() {
+fn embedq_walks_a_mixed_file_and_leaves_nothing_behind_a_refusal() {
     let src = mixed_file("int4-embedq.llvq");
     let dst = src.with_extension("out.llvq");
     let _ = std::fs::remove_file(&dst);
@@ -77,14 +86,21 @@ fn embedq_refuses_a_mixed_file_by_name() {
         .output()
         .expect("run embedq");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "embedq accepted a mixed file:\n{stderr}");
+    assert!(!out.status.success(), "embedq wrote a file with nothing requantized:\n{stderr}");
     assert!(stderr.contains(src.to_str().unwrap()), "must name the file:\n{stderr}");
-    assert!(stderr.contains("Int4G128"), "must name the kind:\n{stderr}");
+    assert!(
+        stderr.contains("1 lattice + 1 int4 records passed through undecoded"),
+        "the int4 record must be walked, not refused:\n{stderr}"
+    );
+    assert!(stderr.contains("nothing was requantized"), "{stderr}");
     assert!(!dst.exists(), "embedq must not leave an output behind a refusal");
 }
 
+/// `export` reads a mixed file since 2026-09-19 (`1190736`): the int4 record is
+/// dequantized, not refused. This fixture is sealed with no `config.json`, so
+/// the walk ends there, after both records, and no directory is created.
 #[test]
-fn export_refuses_a_mixed_file_by_name() {
+fn export_walks_a_mixed_file_and_creates_nothing_behind_a_refusal() {
     let src = mixed_file("int4-export.llvq");
     let dir = src.with_extension("dir");
     let _ = std::fs::remove_dir_all(&dir);
@@ -93,9 +109,12 @@ fn export_refuses_a_mixed_file_by_name() {
         .output()
         .expect("run export");
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(!out.status.success(), "export accepted a mixed file:\n{stderr}");
-    assert!(stderr.contains(src.to_str().unwrap()), "must name the file:\n{stderr}");
-    assert!(stderr.contains("Int4G128"), "must name the kind:\n{stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(!out.status.success(), "export wrote a model with no config:\n{stderr}");
+    assert!(stdout.contains("2 quantized matrices") || stderr.contains("2 quantized matrices"),
+        "both records must be walked:\n{stdout}\n{stderr}");
+    assert!(!stderr.contains("Int4G128"), "the kind is no longer a refusal:\n{stderr}");
+    assert!(stderr.contains("config.json"), "the refusal names what is missing:\n{stderr}");
     assert!(
         !dir.exists(),
         "export must not create its output directory behind a refusal"

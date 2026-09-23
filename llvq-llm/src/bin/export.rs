@@ -94,7 +94,11 @@ fn main() -> anyhow::Result<()> {
     // this was a refusal, because no path existed and a half-written directory
     // would have looked complete. The path exists now, and refusing would have
     // kept the served object out of every tool that reads a checkpoint.
-    std::fs::create_dir_all(&out)?;
+    //
+    // The output directory is created only once the whole file has been read
+    // and its config found (below): a refusal leaves nothing behind, which is
+    // what `export_walks_a_mixed_file_and_creates_nothing_behind_a_refusal`
+    // pins.
     eprintln!("reading {path} — {} quantized matrices", head.matrices);
 
     // ---- the quantized projections, decoded ----
@@ -145,14 +149,18 @@ fn main() -> anyhow::Result<()> {
 
     // ---- config and tokenizer, byte for byte from the sealed file ----
     let n_blob = read_u32(&mut r)?;
-    let mut wrote_config = false;
-    for _ in 0..n_blob {
-        let b = llvq_artifact::read_blob(&mut r)?;
+    let blobs = (0..n_blob)
+        .map(|_| llvq_artifact::read_blob(&mut r))
+        .collect::<Result<Vec<_>, _>>()?;
+    anyhow::ensure!(
+        blobs.iter().any(|b| b.name == "config.json"),
+        "sealed file carries no config.json"
+    );
+    std::fs::create_dir_all(&out)?;
+    for b in &blobs {
         std::fs::write(out.join(&b.name), &b.bytes)?;
-        wrote_config |= b.name == "config.json";
         eprintln!("  wrote {}", b.name);
     }
-    anyhow::ensure!(wrote_config, "sealed file carries no config.json");
 
     // `transformers` reads generation defaults from the tokenizer config; the
     // sealed file does not carry one, and its absence makes some loaders warn

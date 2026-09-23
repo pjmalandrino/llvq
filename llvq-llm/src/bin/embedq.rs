@@ -140,10 +140,22 @@ fn main() -> anyhow::Result<()> {
 
     let mut r = std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(&src)?);
     let mut w = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&dst)?);
-    let rep =
-        requantize(&mut r, &mut w, bits, min_weights).map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+    // A refusal leaves no output behind: a half-written or unchanged copy
+    // under the output name would read as a file this tool produced.
+    let fail = |e: anyhow::Error| -> anyhow::Error {
+        let _ = std::fs::remove_file(&dst);
+        e
+    };
+    let rep = match requantize(&mut r, &mut w, bits, min_weights) {
+        Ok(rep) => rep,
+        Err(e) => {
+            drop(w);
+            return Err(fail(anyhow::anyhow!("{src}: {e}")));
+        }
+    };
     use std::io::Write as _;
     w.flush()?;
+    drop(w);
 
     eprintln!(
         "{src}: format v{}, kinds {}, {} lattice + {} int4 records passed through undecoded",
@@ -157,11 +169,12 @@ fn main() -> anyhow::Result<()> {
             *b1 as f64 / 1e6,
         );
     }
-    anyhow::ensure!(
-        !rep.quantized.is_empty(),
-        "{src}: no f16 tensor of at least {min_weights} weights — nothing was requantized \
-         and {dst} is a copy"
-    );
+    if rep.quantized.is_empty() {
+        return Err(fail(anyhow::anyhow!(
+            "{src}: no f16 tensor of at least {min_weights} weights, nothing was requantized; \
+             {dst} is not written"
+        )));
+    }
 
     let (src_b, dst_b) = (
         std::fs::metadata(&src)?.len(),
