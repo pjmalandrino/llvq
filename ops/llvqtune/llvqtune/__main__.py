@@ -75,7 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.grad_checkpoint:
         student.gradient_checkpointing_enable()
 
-    shapes = TorchModel.shapes_for(student)
+    # The int4 records of the file the export came from: never routed, since
+    # an int4 record has no row scale to fold a multiplier into.
+    int4 = TorchModel.int4_modules(args.student)
+    if int4 is None:
+        print(f"no llvq-int4.json in {args.student}: every lattice type is "
+              "routed (an export written before 2026-09-23)", file=sys.stderr)
+        int4 = frozenset()
+    else:
+        print(f"{len(int4)} int4 records named by the export, never routed",
+              file=sys.stderr)
+    shapes = TorchModel.shapes_for(student, exclude=int4)
     if args.mode == "low_rank":
         full = {n: (r, student.get_submodule(n).weight.shape[1])
                 for n, (r, _) in shapes.items()}
@@ -95,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         trainable = build(args.mode, shapes=shapes, device=args.device)
 
-    model = TorchModel(student, trainable, commute=args.commute)
+    model = TorchModel(student, trainable, commute=args.commute, exclude=int4)
     cost = trainable.cost(model.param_count)
     print(f"mode {trainable.name}: {cost}", file=sys.stderr)
 

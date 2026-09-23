@@ -64,6 +64,17 @@ fn record_to_weights(
     })
 }
 
+/// The file `ops/llvqtune` reads to leave the int4 records alone
+/// (`TorchModel.int4_modules`).
+const INT4_LIST: &str = "llvq-int4.json";
+
+/// `{"int4": [names]}`, the names as the artifact stores them, sorted.
+fn int4_list_json(names: &[String]) -> String {
+    let mut names = names.to_vec();
+    names.sort();
+    serde_json::json!({ "int4": names }).to_string()
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let path = a
@@ -113,10 +124,12 @@ fn main() -> anyhow::Result<()> {
     let mut tensors: HashMap<String, Tensor> = HashMap::new();
     let mut quantized = 0usize;
     let mut int4 = 0usize;
+    let mut int4_names: Vec<String> = Vec::new();
     for i in 0..head.matrices {
         let rec = llvq_artifact::read_record(&mut r, head.version)?;
         if matches!(rec, llvq_artifact::Record::Int4(_)) {
             int4 += 1;
+            int4_names.push(rec.name().to_string());
         }
         let (name, d_out, d_in, w) = record_to_weights(rec, &cbs)?;
         quantized += d_out * d_in;
@@ -161,6 +174,13 @@ fn main() -> anyhow::Result<()> {
         std::fs::write(out.join(&b.name), &b.bytes)?;
         eprintln!("  wrote {}", b.name);
     }
+    // The int4 records by name, for the trainer: a type list cannot say
+    // "down_proj except layers 12 to 23", and a row multiplier trained on an
+    // int4 matrix has nothing to fold into. Written even when empty, so an
+    // export that looked and found none is told apart from one that predates
+    // the list.
+    std::fs::write(out.join(INT4_LIST), int4_list_json(&int4_names))?;
+    eprintln!("  wrote {INT4_LIST} ({} int4 records)", int4_names.len());
 
     // `transformers` reads generation defaults from the tokenizer config; the
     // sealed file does not carry one, and its absence makes some loaders warn
@@ -241,6 +261,24 @@ fn main() -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use llvq_llm::sealed::int4_record;
+
+    #[test]
+    fn the_int4_list_names_every_int4_record_sorted() {
+        let names = vec![
+            "model.layers.12.mlp.down_proj.weight".to_string(),
+            "model.layers.0.self_attn.v_proj.weight".to_string(),
+        ];
+        let v: serde_json::Value = serde_json::from_str(&int4_list_json(&names)).unwrap();
+        assert_eq!(
+            v["int4"],
+            serde_json::json!([
+                "model.layers.0.self_attn.v_proj.weight",
+                "model.layers.12.mlp.down_proj.weight"
+            ])
+        );
+        let empty: serde_json::Value = serde_json::from_str(&int4_list_json(&[])).unwrap();
+        assert_eq!(empty["int4"], serde_json::json!([]), "an empty list is still written");
+    }
 
     fn dense(d_out: usize, d_in: usize) -> candle_core::Tensor {
         let v: Vec<f32> = (0..d_out * d_in)

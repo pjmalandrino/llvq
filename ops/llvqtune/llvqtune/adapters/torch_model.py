@@ -18,9 +18,20 @@ multiplier on `row_scales`, and the write-back is one multiply in Rust.
 record holds no `row_scales`, so there is nothing for a row multiplier to fold
 into. It is excluded by default, the same exclusion `rhoapply` makes by
 construction.
+
+A file can hold int4 records of the lattice types too: the sealed paper-2 4B
+carries `o_proj` and `down_proj` of layers 12 to 23 as int4 g128. A type list
+cannot say "down_proj except those twelve", so `bin/export` writes the names of
+every int4 record into `llvq-int4.json` beside the checkpoint, and those names
+are never routed. Without the list, a row multiplier would be trained on a
+matrix the fold cannot write, and `bin/rowscale` would refuse the export after
+the card had billed the whole run.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -28,6 +39,8 @@ from torch import nn
 
 BLOCK = 24
 LATTICE_TYPES = ("q_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj")
+# Written by `bin/export` beside `model.safetensors`: the int4 records' names.
+INT4_LIST = "llvq-int4.json"
 # The norms whose weight is a per-column scale on a matrix's input, applied
 # before the rotation. `row_norms.py` says which matrix each one feeds.
 NORM_TYPES = ("input_layernorm", "post_attention_layernorm")
@@ -92,10 +105,12 @@ class TorchModel:
         types: tuple[str, ...] = LATTICE_TYPES,
         layers: range | None = None,
         commute: bool = False,
+        exclude: frozenset[str] = frozenset(),
     ) -> None:
         self._model = model
         self._types = types
         self._commute = commute
+        self._exclude = frozenset(exclude)
         self._routed: dict[str, RoutedLinear] = {}
         self._shapes: dict[str, tuple[int, int]] = {}
         self._param_count = sum(p.numel() for p in model.parameters())
@@ -119,6 +134,8 @@ class TorchModel:
                     if not isinstance(child, nn.Linear):
                         continue
                     name = f"model.layers.{index}.{parent_name}.{kind}"
+                    if name in self._exclude:
+                        continue
                     routed = RoutedLinear(
                         name, child, trainable, commute=self._commute
                     )
@@ -163,7 +180,26 @@ class TorchModel:
         return list(self._norms)
 
     @staticmethod
-    def shapes_for(model, types=LATTICE_TYPES, layers: range | None = None):
+    def int4_modules(student) -> frozenset[str] | None:
+        """The int4 records `bin/export` listed, as module names.
+
+        `None` when the export carries no list: one written before 2026-09-23,
+        or a checkpoint that is not an export. An empty set means the export
+        looked and found none.
+        """
+        path = Path(str(student)) / INT4_LIST
+        if not path.is_file():
+            return None
+        names = json.loads(path.read_text())["int4"]
+        return frozenset(n.removesuffix(".weight") for n in names)
+
+    @staticmethod
+    def shapes_for(
+        model,
+        types=LATTICE_TYPES,
+        layers: range | None = None,
+        exclude: frozenset[str] = frozenset(),
+    ):
         """Row and lattice-column counts, the argument `RowScales` takes.
 
         Read before the model is routed, so a mode can be built and priced
@@ -181,8 +217,11 @@ class TorchModel:
                     child = getattr(parent, kind, None)
                     if not isinstance(child, nn.Linear):
                         continue
+                    name = f"model.layers.{index}.{parent_name}.{kind}"
+                    if name in exclude:
+                        continue
                     rows, cols = child.weight.shape
-                    found[f"model.layers.{index}.{parent_name}.{kind}"] = (
+                    found[name] = (
                         rows,
                         cols - cols % BLOCK,
                     )
