@@ -1,0 +1,31 @@
+
+========================================================================
+A = /out/embed-q4-2026-09-23/qwen3-4b-dclm-ft-e4.bin [LLVQ 2-bit, sealed; restored o_proj,down_proj at int4 g128 (dequantized) (48 matrices, 676331520 weights) from Qwen/Qwen3-4B@main]
+    docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-rownorms-2026-09-23/qwen3-4b-sealed-rownorms.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-rownorms-2026-09-23-brut/mmlu/mmlu-4b-sealed-rownorms-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  63.37 %   B  63.40 %   Δ = -0.02 pp   ← the published number
+  unweighted (pooled) A  63.37 %   B  63.40 %   Δ = -0.02 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 294   A✗B✓ = 297   concordant = 13451   (4.2 % of the questions are discordant)
+  p = 0.9344   (z normal = -0.12)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = -0.02 pp   CI95 [-0.36 ; +0.31]   SE 0.17 pp
+  unweighted control = -0.02 pp   CI95 [-0.36 ; +0.31]   SE 0.17 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  professional law                          +1.2 pp × weight 10.9 % = +0.128 pp
+  miscellaneous                             -1.0 pp × weight  5.6 % = -0.057 pp
+  high school mathematics                   -2.2 pp × weight  1.9 % = -0.043 pp
+  conceptual physics                        -2.6 pp × weight  1.7 % = -0.043 pp
+  nutrition                                 -2.0 pp × weight  2.2 % = -0.043 pp

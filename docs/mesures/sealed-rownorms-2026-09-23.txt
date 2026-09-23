@@ -1,0 +1,70 @@
+A SECOND TRAINING OF THE SEALED 4B MOVES NOTHING: 63.40 AGAINST 63.37 (2026-09-23)
+================================================================================
+Jobs:   6ab3ddb451992417dfcd7bc8 (training), l40sx1, 6,188 s running after 3 h 13 of
+        queue, $3.09, status ERROR by the `improved` gauge only (ECARTS É1).
+        6ab4240452d0dbd7f1d86ac4 (MMLU census), l40sx1, 1,388 s after 4 min of queue,
+        $0.69. Exit 0.
+Prereg: proofs/preregistration-sealed-rownorms-2026-09-23.md, stamped before the training
+        (commit 1011c44). Deviations in the -ECARTS.md beside it.
+Image:  pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime for the training; the scoring on the
+        Space at af907416 (commit b68b590), not republished.
+Base:   qwen3-4b-sealed.bin, 1,418,224,685 B, sha256 886391a8c03f66dc..., 63.37.
+Object: qwen3-4b-sealed-rownorms.bin, 1,418,224,685 B, sha256 e646e8d047d18dd7...
+Data:   docs/mesures/sealed-rownorms-2026-09-23-brut/ (sigma.json, journal, probe, fold,
+        mmlu/ with the census dump and the three pairs).
+Nature: *measured*.
+
+THE RESULT
+-----------
+  trained file (row scales + norms)   63.40 micro / 65.02 macro   (14,042 questions)
+  sealed base                         63.37 micro / 64.90 macro
+
+Paired, stratified micro, no finite-population correction:
+
+  trained − sealed    +0.02 pp   CI95 [−0.31 ; +0.36]   SE 0.17   McNemar 297 / 294, p = 0.93
+  trained − 61.11     +2.29 pp   CI95 [+1.69 ; +2.88]   SE 0.31   McNemar 1,092 / 771
+  f16 − trained       +6.74 pp   CI95 [+6.01 ; +7.48]   SE 0.37
+
+4.2 % of the questions change answer between the two files, and they cancel.
+
+THE DECISION RULE
+------------------
+Prereg §3: |Δ| < 0.43, p ≥ 0.05. "Nothing measurable; the sealed file stays the
+reference." The trained file is not kept. The 4B reference object remains
+qwen3-4b-sealed.bin at 63.37 and 2.7320 b/param.
+
+THE PREDICTION
+---------------
+Signed +0.8 pp [−0.4 ; +2.0]. Measured +0.02: inside the interval, far under the point.
+The reasoning held on the KL and failed on MMLU. The KL did fall, from 0.2622 on the
+first batch to about 0.20, inside the first eighth of the run, then stayed flat (means by
+eighths 0.2011 to 0.2094). The 168 row scales re-fitted to their int4 neighbours and the
+73 norms took that KL back, and none of it reached the answers. It is one more case of the
+dissociation the 61.11 object already showed (perplexity ×1.0074 of f16, MMLU nine points
+under it): on this object, distillation KL is not a proxy for MMLU.
+
+CONTROLS
+---------
+1. Mac wiring before stamping: 84 int4 excluded, 168 matrices routed, 73 norms, export
+   folded with every multiplier found, the all-ones copy byte-identical.
+2. Card routing: first KL 0.2622, inside [0.25, 0.27] (Mac 0.2607). Passed.
+3. Inputs on the mount: the export's five sha256 and the trainer archive's, equal to the
+   Mac's; 84 names in llvq-int4.json.
+4. Fold: all-ones export byte-identical; 168 scaled, 0 untouched, 84 int4 passed through;
+   73 norms of 73 named; largest multiplier deviation 0.5045 (rows), 0.3017 (norms);
+   1,418,224,685 B.
+5. Scoring: oracle MATCH; the folded file's sha256 on the mount equal to the Mac's; 14,042
+   questions, fingerprint a74a6d6213602979, headers as preregistered.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Which half did nothing, row scales or norms: one arm, both at once.
+- The draft row_norms arm from the untrained DCLM base
+  (BROUILLON-preregistration-dclm-rownorms-2026-09-22.md): a different start. This result
+  says a second pass adds nothing on a trained object; it says nothing of norms trained
+  from the base in the first pass.
+- The spread of the training: one seed, one draw.
+
+COST
+-----
+$3.78 for the arm ($3.09 + $0.69), against $4.72 announced. Project total $220.63.
