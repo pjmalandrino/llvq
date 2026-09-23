@@ -1,0 +1,57 @@
+/Users/pjmalandrino/qwen3-4b-dclm-ft.bin: format v5, kinds Tetra+Int4G128 -> Tetra+Int4G128
+checkpoint Qwen/Qwen3-4B@main, shards:
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c/model-00001-of-00003.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c/model-00002-of-00003.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-4B/snapshots/1cfa9a7208912126459214e8b04321603b3df60c/model-00003-of-00003.safetensors
+  model.layers.0.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.1.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.2.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.3.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.4.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.5.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.6.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.7.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.8.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.9.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.10.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.11.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.12.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.12.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.13.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.13.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.14.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.14.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.15.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.15.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.16.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.16.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.17.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.17.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.18.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.18.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.19.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.19.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.20.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.20.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.21.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.21.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.22.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.22.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.23.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.23.mlp.down_proj.weight: 24903680 weights, lattice 6323216 B -> int4 g128 13230080 B
+  model.layers.24.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.25.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.26.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.27.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.28.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.29.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.30.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.31.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.32.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.33.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.34.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+  model.layers.35.self_attn.o_proj.weight: 10485760 weights, lattice 2795536 B -> int4 g128 5570560 B
+transplanted o_proj,down_proj (48 matrices, 676331520 weights); 168 lattice + 36 int4 records passed through undecoded
+
+── /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-dclm-ft-i4.bin
+   file       1.795 GB -> 1.977 GB (+182784384 B)
