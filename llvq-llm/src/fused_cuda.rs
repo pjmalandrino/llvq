@@ -434,10 +434,14 @@ pub struct FusedRuntime {
     /// question even in principle.
     f_int4: Option<CudaFunction>,
     rotations: HashMap<RotKey, RotBuffers>,
-    /// The q8 embedding kernels, `(gather, lm_head matvec)` — present exactly
-    /// when the runtime was built with [`EmbedMode::Q8`], which is when their
-    /// source was in the translation unit.
+    /// The embedding kernels, `(gather, lm_head matvec)` — present exactly
+    /// when the runtime was built with a quantized [`EmbedMode`], which is when
+    /// their source was in the translation unit: `emb_q8.cu` under `Q8`,
+    /// `emb_q4.cu` under `Q4`.
     f_emb: Option<(CudaFunction, CudaFunction)>,
+    /// The mode `f_emb` was built for. [`FusedRuntime::upload_embed`] refuses
+    /// a table of any other width, since the kernels compiled one.
+    emode: EmbedMode,
     /// Dynamic shared memory the card allows one block **without asking**,
     /// read at startup — `tv_q8_h` stages the whole activation and must be
     /// refused past it. This is the *default* allowance and not the opt-in
@@ -489,9 +493,12 @@ impl FusedRuntime {
             FusedLayout::Slot32 => None,
             layout => Some(load_planes_sources(layout).map_err(candle_core::Error::msg)?),
         };
+        // The embedding pair of the mode, and only it: q8 and q4 are separate
+        // files with separate names, so a q8 unit never carries the q4 text.
         let emb = match emode {
             EmbedMode::F16 => None,
             EmbedMode::Q8 => Some(load_emb_sources().map_err(candle_core::Error::msg)?),
+            EmbedMode::Q4 => Some(crate::fused::load_emb_q4_sources().map_err(candle_core::Error::msg)?),
         };
         // Appended when the FILE carried an int4 record, never when the layout
         // suggests one: int4 is orthogonal to the lattice layout, which is the
@@ -520,7 +527,7 @@ impl FusedRuntime {
         if let Some((es, overridden)) = &emb {
             parts.push(es.as_str());
             if let Some(d) = overridden {
-                eprintln!("WARNING: emb_q8 SOURCE OVERRIDDEN from {d}");
+                eprintln!("WARNING: emb_{} SOURCE OVERRIDDEN from {d}", emode.name());
             }
         }
         if let Some((cu, overridden)) = &int4 {
@@ -574,8 +581,10 @@ impl FusedRuntime {
         if crate::fused::planes_source_names(model.layout).contains(&"tv_planes_seg_h.cu") {
             spill_checked.push("tv_planes_seg_h");
         }
-        if emb.is_some() {
-            spill_checked.extend(["emb_q8_gather", "tv_q8_h"]);
+        // Keyed on the mode that chose the source above, through the one
+        // table `fused.rs` pins against the source text.
+        if let Some((gather, head)) = crate::fused::emb_kernel_names(emode) {
+            spill_checked.extend([gather, head]);
         }
         // 🚨 The prefill kernel, reported exactly when its source is in the
         // unit — and it is the arm where a spill is most likely and would cost
@@ -640,11 +649,11 @@ impl FusedRuntime {
         // `f_rot` is loaded further down, once the widest rotation is known:
         // staging past 48 KiB needs an opt-in posed on the *function*, and it
         // has to name the number of bytes. See the shared-memory block below.
-        let f_emb = match emb {
+        let f_emb = match crate::fused::emb_kernel_names(emode) {
             None => None,
-            Some(_) => Some((
-                cuda.func("emb_q8_gather").map_err(candle_core::Error::msg)?,
-                cuda.func("tv_q8_h").map_err(candle_core::Error::msg)?,
+            Some((gather, head)) => Some((
+                cuda.func(gather).map_err(candle_core::Error::msg)?,
+                cuda.func(head).map_err(candle_core::Error::msg)?,
             )),
         };
 
@@ -801,6 +810,7 @@ impl FusedRuntime {
                 g70_tabs,
                 rotations,
                 f_emb,
+                emode,
                 shared_limit,
                 device: dev,
                 max_d_in,
@@ -1035,46 +1045,54 @@ impl FusedRuntime {
         xr.apply_op1_no_bwd(&op)
     }
 
-    /// Upload an int8 g64 tensor — the embedding — for the two q8 kernels.
+    /// Upload a quantized g64 table, the embedding, for the runtime's two
+    /// embedding kernels: int8 under [`EmbedMode::Q8`], int4 under
+    /// [`EmbedMode::Q4`].
     ///
     /// Every assumption the kernels compile in is asserted here rather than
-    /// trusted: 8 bits, group 64, `d % 4 == 0` (rows on word boundaries),
-    /// `vocab % 8 == 0` (whole warps, no bounds guard), and the staged
-    /// activation within the card's shared memory.
-    pub fn upload_embed_q8(
+    /// trusted: the runtime's width, group 64, rows on word boundaries
+    /// (`d % 4 == 0` at 8 bits, `d % 8 == 0` at 4), `vocab % 8 == 0` (whole
+    /// warps, no bounds guard), and the staged activation within the card's
+    /// shared memory.
+    pub fn upload_embed(
         &self,
         t: &llvq_artifact::RawTensor,
     ) -> candle_core::Result<QuantEmbed> {
+        let (Some(bits), Some((_, head))) = (self.emode.bits(), crate::fused::emb_kernel_names(self.emode))
+        else {
+            candle_core::bail!("runtime built without embedding kernels (LLVQ_EMBED=f16)");
+        };
         if self.f_emb.is_none() {
-            candle_core::bail!("runtime built without the q8 kernels (LLVQ_EMBED=f16)");
+            candle_core::bail!("runtime built without the {} kernels", self.emode.name());
         }
         let llvq_artifact::RawData::Quant(q) = &t.data else {
             candle_core::bail!("{}: not a quantized tensor", t.name);
         };
-        if q.bits != 8 || q.group != EMBED_GROUP {
+        if q.bits != bits || q.group != EMBED_GROUP {
             candle_core::bail!(
-                "{}: int{} g{}, but the kernels hardcode int8 g{EMBED_GROUP}",
-                t.name, q.bits, q.group
+                "{}: int{} g{}, but the {} kernels hardcode int{bits} g{EMBED_GROUP}",
+                t.name, q.bits, q.group, self.emode.name()
             );
         }
         if t.dims.len() != 2 {
             candle_core::bail!("{}: dims {:?}, an embedding is 2-D", t.name, t.dims);
         }
         let (vocab, d) = (t.dims[0], t.dims[1]);
-        if !d.is_multiple_of(4) {
-            candle_core::bail!("{}: d={d} is not a multiple of 4", t.name);
+        let per_word = 32 / bits as usize;
+        if !d.is_multiple_of(per_word) {
+            candle_core::bail!("{}: d={d} is not a multiple of {per_word}", t.name);
         }
         if !vocab.is_multiple_of(8) {
             candle_core::bail!("{}: vocab={vocab} is not a multiple of 8", t.name);
         }
         if d * 4 > self.shared_limit {
             candle_core::bail!(
-                "{}: tv_q8_h asks for {} B of shared memory, the card offers {}",
+                "{}: {head} asks for {} B of shared memory, the card offers {}",
                 t.name, d * 4, self.shared_limit
             );
         }
         let gpr = d.div_ceil(EMBED_GROUP);
-        if q.packed.len() != vocab * d
+        if q.packed.len() != vocab * d / per_word * 4
             || q.scales.len() != vocab * gpr
             || q.biases.len() != q.scales.len()
         {
@@ -1138,7 +1156,7 @@ impl FusedRuntime {
     }
 }
 
-/// One int8 g64 embedding table, resident on the device.
+/// One quantized g64 embedding table (int8 or int4), resident on the device.
 ///
 /// When the model ties its two ends (Qwen3-4B) a single instance serves both
 /// the gather at the input and the `lm_head` at the output — which is the
@@ -1149,7 +1167,8 @@ pub struct QuantEmbed {
     pub vocab: usize,
     pub d: usize,
     gpr: u32,
-    /// Packed int8 rows as `u32` words (`d % 4 == 0`, rows word-aligned).
+    /// Packed rows as `u32` words, rows word-aligned (`upload_embed` asserts
+    /// the width that makes them so).
     words: CudaSlice<u32>,
     scales: CudaSlice<u16>,
     biases: CudaSlice<u16>,
@@ -1198,6 +1217,7 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
         }
         .map_err(|e| candle_core::Error::msg(format!("alloc emb: {e}")))?;
         let (f_gather, _) = self.rt.f_emb.as_ref().expect("checked at upload");
+        let (gather_name, _) = crate::fused::emb_kernel_names(self.rt.emode).expect("checked at upload");
         let cfg = LaunchConfig {
             grid_dim: (ntok as u32, 1, 1),
             block_dim: (THREADS, 1, 1),
@@ -1214,7 +1234,7 @@ impl candle_core::CustomOp1 for EmbedOp<'_> {
             .arg(&gpr)
             .arg(&ids_off);
         unsafe { b.launch(cfg) }
-            .map_err(|e| candle_core::Error::msg(format!("emb_q8_gather: {e}")))?;
+            .map_err(|e| candle_core::Error::msg(format!("{gather_name}: {e}")))?;
         Ok((
             CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
             self.out_shape.clone(),
@@ -1264,6 +1284,7 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
         }
         .map_err(|e| candle_core::Error::msg(format!("alloc logits: {e}")))?;
         let (_, f_head) = self.rt.f_emb.as_ref().expect("checked at upload");
+        let (_, head_name) = crate::fused::emb_kernel_names(self.rt.emode).expect("checked at upload");
         let cfg = LaunchConfig {
             grid_dim: (self.q.vocab as u32 * 32 / THREADS, 1, 1),
             block_dim: (THREADS, 1, 1),
@@ -1284,7 +1305,7 @@ impl candle_core::CustomOp1 for HeadOp<'_> {
                 .arg(&x_off)
                 .arg(&y_off);
             unsafe { b.launch(cfg) }
-                .map_err(|e| candle_core::Error::msg(format!("tv_q8_h: {e}")))?;
+                .map_err(|e| candle_core::Error::msg(format!("{head_name}: {e}")))?;
         }
         Ok((
             CudaStorage::wrap_cuda_slice(y, self.rt.device.clone()),
@@ -2751,10 +2772,10 @@ pub fn load_resolved(
     // second is `lm_head.weight`, a different weight that gets a different
     // buffer. Both go through the exact `bin/embedq` arithmetic (same
     // function), or carry the file's own q8 bytes through untouched.
-    let embed_tables = match emode {
-        EmbedMode::F16 => None,
-        EmbedMode::Q8 => Some(
-            crate::fused::take_embed_tables(&mut model.raw, config.tie_word_embeddings)
+    let embed_tables = match emode.bits() {
+        None => None,
+        Some(bits) => Some(
+            crate::fused::take_embed_tables_at(&mut model.raw, config.tie_word_embeddings, bits)
                 .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?,
         ),
     };
@@ -2843,11 +2864,11 @@ pub fn load_resolved(
         }
         Some(tables) => {
             let to_upload = tables.buffers();
-            let report = crate::fused::EmbedReport::new(EmbedMode::Q8, &to_upload);
+            let report = crate::fused::EmbedReport::new(emode, &to_upload);
             println!("{}", report.line(&from("LLVQ_EMBED")));
             let mut uploaded: Vec<Arc<QuantEmbed>> = Vec::with_capacity(to_upload.len());
             for (t, (_, packed, sb)) in to_upload.iter().zip(&report.tables) {
-                let q = rt.upload_embed_q8(t)?;
+                let q = rt.upload_embed(t)?;
                 // A hard check, not a `debug_assert!`: release is the only
                 // profile that runs on a card, and the whole point of this lot
                 // is that the printed line cannot contradict the total below

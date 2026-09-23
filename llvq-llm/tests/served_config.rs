@@ -253,3 +253,25 @@ fn resolving_the_file_does_not_read_the_environment() {
     let s = r.expect("of() is pure: the shell says planes14, the file says tetra48, of() reads the file");
     assert_eq!(s.layout, FusedLayout::Tetra48);
 }
+
+/// The sealed paper-2 object carries its embedding int4 g64, so its config
+/// names `q4`, and every other value is the 4B served one. `q4` goes through
+/// `EmbedMode::parse` like every other value; the kernels it selects are
+/// pinned by `tests/embed_q4.rs` and `llvq-metal/tests/q4e_matches_host.rs`.
+#[test]
+fn the_q4_config_is_the_4b_served_values_with_a_q4_embedding() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).expect("parses");
+        Served::of(f, path).expect("resolves")
+    };
+    let e4 = read("qwen3-4b-tetra-e4.json");
+    let q5 = read("qwen3-4b-tetra-q5.json");
+    assert_eq!(e4.embed, EmbedMode::Q4);
+    assert_eq!(
+        (e4.layout, e4.rot_share, e4.fuse, e4.kv),
+        (q5.layout, q5.rot_share, q5.fuse, q5.kv),
+        "only the embedding may differ from the 4B served object"
+    );
+}

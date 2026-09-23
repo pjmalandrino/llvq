@@ -478,18 +478,25 @@ fn report_v5(path: &str, r: &mut impl Read, h: &llvq_artifact::Header) {
     if carried_params > 0 {
         let other = carried_params - carried_embed;
         let embed_q8 = 8.0 + EMBED_GROUP_BITS / EMBED_GROUP;
+        // The `LLVQ_EMBED=q4` path: int4 plus the same f16 pair per group of
+        // 64, 4 + 32/64 = 4.5 bits, the encoding `embedq q4` writes.
+        let embed_q4 = 4.0 + EMBED_GROUP_BITS / EMBED_GROUP;
         let lin_f32 = (total_q, a.kernel_bpw(true));
         let lin_f16 = (total_q, a.kernel_bpw(false));
         println!(
             "\n  b/param WHOLE MODEL over {} parameters ({carried_embed} embedding, {other} norms)",
             total_q + carried_params
         );
-        println!("  {:<22}{:>14}{:>14}", "tail width", "embed f16", "embed q8");
+        println!(
+            "  {:<22}{:>14}{:>14}{:>14}",
+            "tail width", "embed f16", "embed q8", "embed q4"
+        );
         for (name, lin) in [("f32 (published)", lin_f32), ("f16 (served)", lin_f16)] {
             println!(
-                "  {name:<22}{:>14.4}{:>14.4}",
+                "  {name:<22}{:>14.4}{:>14.4}{:>14.4}",
                 model_bpw(&[lin, (carried_embed, 16.0), (other, 16.0)]),
-                model_bpw(&[lin, (carried_embed, embed_q8), (other, 16.0)])
+                model_bpw(&[lin, (carried_embed, embed_q8), (other, 16.0)]),
+                model_bpw(&[lin, (carried_embed, embed_q4), (other, 16.0)])
             );
         }
         println!(

@@ -132,10 +132,15 @@ impl FusedLayout {
 /// tensor, 778.1 MB on the 4B. `Q8` keeps it as the int8 g64 payload lot B
 /// validated (ppl 16.9379 identical, MMLU within sigma): 388.96 MB of int8
 /// plus 24.31 MB of f16 scales and biases, read by two dedicated kernels.
+/// `Q4` is the same scheme at four bits, the payload `bin/embedq q4` writes
+/// and the 2026-09-23 census scored (`embed-q4-swap-2026-09-23.txt`): 194.48
+/// MB of nibbles plus the same 24.31 MB of scales and biases, read by two
+/// kernels of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EmbedMode {
     F16,
     Q8,
+    Q4,
 }
 
 impl EmbedMode {
@@ -147,8 +152,9 @@ impl EmbedMode {
             None | Some("") => Ok(Self::F16),
             Some("f16") => Ok(Self::F16),
             Some("q8") => Ok(Self::Q8),
+            Some("q4") => Ok(Self::Q4),
             Some(other) => Err(format!(
-                "LLVQ_EMBED={other}: accepted values \"f16\" (default) and \"q8\""
+                "LLVQ_EMBED={other}: accepted values \"f16\" (default), \"q8\" and \"q4\""
             )),
         }
     }
@@ -163,6 +169,16 @@ impl EmbedMode {
         match self {
             Self::F16 => "f16",
             Self::Q8 => "q8",
+            Self::Q4 => "q4",
+        }
+    }
+
+    /// The width of the quantized payload, `None` when the tables stay f16.
+    pub fn bits(&self) -> Option<u8> {
+        match self {
+            Self::F16 => None,
+            Self::Q8 => Some(8),
+            Self::Q4 => Some(4),
         }
     }
 }
@@ -185,13 +201,27 @@ pub const EMBED_GROUP: usize = 64;
 ///  * anything else — int4, another group — is refused rather than silently
 ///    requantized: the validated object is q8 g64 and nothing next to it.
 pub fn embed_q8(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor, String> {
+    embed_at(t, 8)
+}
+
+/// [`embed_q8`] at four bits: an f16 tensor is quantized by the function
+/// `bin/embedq q4` calls, a tensor already int4 g64 passes through
+/// byte-identical, and anything else is refused. A q8 file is not
+/// requantized to q4, nor the reverse: each would score an object nobody
+/// measured.
+pub fn embed_q4(t: llvq_artifact::RawTensor) -> Result<llvq_artifact::RawTensor, String> {
+    embed_at(t, 4)
+}
+
+/// The rule [`embed_q8`] and [`embed_q4`] share, at `bits`.
+pub fn embed_at(t: llvq_artifact::RawTensor, bits: u8) -> Result<llvq_artifact::RawTensor, String> {
     match &t.data {
         llvq_artifact::RawData::F16(_) => {
-            crate::embedquant::quantize_affine(&t, 8, EMBED_GROUP).map_err(|e| e.to_string())
+            crate::embedquant::quantize_affine(&t, bits, EMBED_GROUP).map_err(|e| e.to_string())
         }
-        llvq_artifact::RawData::Quant(q) if q.bits == 8 && q.group == EMBED_GROUP => Ok(t),
+        llvq_artifact::RawData::Quant(q) if q.bits == bits && q.group == EMBED_GROUP => Ok(t),
         llvq_artifact::RawData::Quant(q) => Err(format!(
-            "{}: int{} g{} carried by the file, the q8 path reads only int8 g{EMBED_GROUP}",
+            "{}: int{} g{} carried by the file, the q{bits} path reads only int{bits} g{EMBED_GROUP}",
             t.name, q.bits, q.group
         )),
     }
@@ -208,6 +238,14 @@ pub fn q8_device_bytes(dims: &[usize]) -> (u64, u64) {
     let rows = n / row_len;
     let gpr = row_len.div_ceil(EMBED_GROUP);
     (n as u64, (rows * gpr) as u64 * 4)
+}
+
+/// Device bytes of the q4 embedding: `(packed, scales + biases)`. Half the
+/// payload of [`q8_device_bytes`] and the same side data: on `[151936, 2560]`
+/// 194,478,080 + 24,309,760 bytes.
+pub fn q4_device_bytes(dims: &[usize]) -> (u64, u64) {
+    let (n, sb) = q8_device_bytes(dims);
+    (n.div_ceil(2), sb)
 }
 
 /// The carried tensor holding the input embedding.
@@ -271,6 +309,15 @@ pub fn take_embed_tables(
     raw: &mut Vec<llvq_artifact::RawTensor>,
     tie: bool,
 ) -> Result<EmbedTables, String> {
+    take_embed_tables_at(raw, tie, 8)
+}
+
+/// [`take_embed_tables`] at `bits` (8 or 4), through [`embed_at`].
+pub fn take_embed_tables_at(
+    raw: &mut Vec<llvq_artifact::RawTensor>,
+    tie: bool,
+    bits: u8,
+) -> Result<EmbedTables, String> {
     fn take(
         raw: &mut Vec<llvq_artifact::RawTensor>,
         name: &str,
@@ -281,18 +328,18 @@ pub fn take_embed_tables(
         Some(raw.swap_remove(i))
     }
     let embed = take(raw, EMBED_NAME).ok_or_else(|| format!("does not carry {EMBED_NAME}"))?;
-    let embed = embed_q8(embed)?;
+    let embed = embed_at(embed, bits)?;
     let head = if tie {
         None
     } else {
         let t = take(raw, HEAD_NAME).ok_or_else(|| {
             format!(
                 "tie_word_embeddings=false, but the file does not carry {HEAD_NAME}. The \
-                 two ends are untied, and the q8 path never substitutes the embedding for \
-                 a missing lm_head"
+                 two ends are untied, and the q{bits} path never substitutes the embedding \
+                 for a missing lm_head"
             )
         })?;
-        Some(embed_q8(t)?)
+        Some(embed_at(t, bits)?)
     };
     Ok(EmbedTables { embed, head })
 }
@@ -331,6 +378,10 @@ impl EmbedReport {
                 EmbedMode::F16 => (t.name.clone(), t.len() as u64 * 2, 0),
                 EmbedMode::Q8 => {
                     let (packed, sb) = q8_device_bytes(&t.dims);
+                    (t.name.clone(), packed, sb)
+                }
+                EmbedMode::Q4 => {
+                    let (packed, sb) = q4_device_bytes(&t.dims);
                     (t.name.clone(), packed, sb)
                 }
             })
@@ -375,6 +426,13 @@ impl EmbedReport {
             EmbedMode::Q8 => format!(
                 "embedding: q8 g64 ({source}), {which}, {:.1} MB on the card \
                  (int8 {:.1} + scales/biases {:.1})",
+                self.total() as f64 / 1e6,
+                self.packed() as f64 / 1e6,
+                self.meta() as f64 / 1e6
+            ),
+            EmbedMode::Q4 => format!(
+                "embedding: q4 g64 ({source}), {which}, {:.1} MB on the card \
+                 (int4 {:.1} + scales/biases {:.1})",
                 self.total() as f64 / 1e6,
                 self.packed() as f64 / 1e6,
                 self.meta() as f64 / 1e6
@@ -657,6 +715,37 @@ pub fn load_int4_sources() -> Result<(String, Option<String>), String> {
 
 /// The `extern "C"` entry point [`load_int4_sources`] defines.
 pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
+
+/// The q4 embedding source, `emb_q4.cu`, appended under [`EmbedMode::Q4`].
+///
+/// Here rather than in `fused_cuda.rs` for [`load_int4_sources`]'s reason: the
+/// names the host looks up and the text that defines them are checked by a
+/// test on a machine with no card (`the_q4_embedding_kernel_names_match_its_source`).
+/// `LLVQ_KERNEL_DIR` overrides it on the same all-or-nothing terms.
+pub fn load_emb_q4_sources() -> Result<(String, Option<String>), String> {
+    match std::env::var("LLVQ_KERNEL_DIR") {
+        Err(_) => Ok((EMB_Q4_CU_EMBED.to_string(), None)),
+        Ok(dir) => {
+            let p = std::path::Path::new(&dir).join("emb_q4.cu");
+            let text = std::fs::read_to_string(&p)
+                .map_err(|e| format!("LLVQ_KERNEL_DIR={dir}: emb_q4.cu: {e}"))?;
+            Ok((text, Some(dir)))
+        }
+    }
+}
+
+const EMB_Q4_CU_EMBED: &str = include_str!("../kernels/emb_q4.cu");
+
+/// The `(gather, lm_head)` entry points of a quantized embedding mode, the
+/// pair the CUDA runtime looks up and reports registers for. `None` at f16,
+/// which launches neither.
+pub fn emb_kernel_names(mode: EmbedMode) -> Option<(&'static str, &'static str)> {
+    match mode {
+        EmbedMode::F16 => None,
+        EmbedMode::Q8 => Some(("emb_q8_gather", "tv_q8_h")),
+        EmbedMode::Q4 => Some(("emb_q4_gather", "tv_emb_q4_h")),
+    }
+}
 
 /// The `extern "C"` matvec entry point `layout` launches.
 pub fn matvec_kernel_name(layout: FusedLayout) -> &'static str {
@@ -2424,6 +2513,32 @@ mod tests {
         // file is the second part of EVERY unit — so appending this source
         // last is always legal, whatever the layout.
         assert!(src.contains("#ifndef TILE_COLS"), "the composition guard moved");
+    }
+
+    /// The q4 embedding pair the host looks up is the pair `emb_q4.cu`
+    /// defines, and neither name collides with a kernel of another source that
+    /// shares its translation unit: the served mixed file appends both
+    /// `tv_q4_h.cu` and `emb_q4.cu`.
+    #[test]
+    fn the_q4_embedding_kernel_names_match_its_source() {
+        let (gather, head) = emb_kernel_names(EmbedMode::Q4).expect("q4 launches two kernels");
+        for name in [gather, head] {
+            assert!(
+                EMB_Q4_CU_EMBED.contains(&format!("__global__ void {name}(")),
+                "`{name}` is not defined by emb_q4.cu"
+            );
+            assert!(
+                !Q4_H_CU_EMBED.contains(&format!(" {name}(")),
+                "`{name}` is also a name in tv_q4_h.cu"
+            );
+        }
+        assert_ne!(head, INT4_KERNEL_NAME, "the embedding head and the int4 projection share a name");
+        // Its dequant helper must not collide with tv_q4_h.cu's either.
+        assert!(!Q4_H_CU_EMBED.contains("e4_deq"));
+        assert!(!EMB_Q4_CU_EMBED.contains("q4_deq("));
+        assert!(EMB_Q4_CU_EMBED.contains("#ifndef TILE_COLS"), "the composition guard moved");
+        assert_eq!(emb_kernel_names(EmbedMode::Q8), Some(("emb_q8_gather", "tv_q8_h")));
+        assert_eq!(emb_kernel_names(EmbedMode::F16), None);
     }
 
     /// Every kernel a runtime looks up has its SOURCE in that runtime's unit.

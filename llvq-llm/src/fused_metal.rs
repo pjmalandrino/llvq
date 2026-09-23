@@ -83,6 +83,7 @@ const SRC_TETRA: &str = include_str!("../kernels/llvq_tetra48.metal");
 const SRC_ROT: &str = include_str!("../kernels/llvq_rot.metal");
 const SRC_Q4: &str = include_str!("../kernels/tv_q4_h.metal");
 const SRC_Q8: &str = include_str!("../kernels/emb_q8.metal");
+const SRC_E4: &str = include_str!("../kernels/emb_q4.metal");
 
 /// Which file carries which entry point.
 ///
@@ -95,6 +96,7 @@ fn source_of(name: &str) -> Result<&'static str> {
         "rot_apply_metal" | "rot_apply_rows_metal" => Ok(SRC_ROT),
         "tv_q4_metal" => Ok(SRC_Q4),
         "emb_q8_gather_metal" | "tv_q8_metal" => Ok(SRC_Q8),
+        "emb_q4_gather_metal" | "tv_emb_q4_metal" => Ok(SRC_E4),
         other => candle_core::bail!("no Metal source carries {other}"),
     }
 }
@@ -1062,23 +1064,27 @@ impl CustomOp1 for Int4Op<'_> {
 // ends: `gather` for the token lookup and `project` for the logits.
 // ---------------------------------------------------------------------------
 
-/// The int8 g64 embedding table on the device.
+/// A quantized g64 embedding table on the device, int8 or int4.
 pub struct MetalEmbedTable {
     pub name: String,
     pub vocab: usize,
     pub d: usize,
     gpr: usize,
+    /// 8 or 4: which pair of kernels reads this table.
+    bits: u8,
     wq: Arc<Buffer>,
     scales: Arc<Buffer>,
     biases: Arc<Buffer>,
 }
 
 impl MetalRuntime {
-    /// Upload one q8 table. A tied model uploads ONE and points both ends at it.
+    /// Upload one table at `bits` (8 or 4). A tied model uploads ONE and
+    /// points both ends at it.
     #[allow(clippy::too_many_arguments)]
     pub fn upload_embed(
         &self,
         name: &str,
+        bits: u8,
         vocab: usize,
         d: usize,
         gpr: usize,
@@ -1086,12 +1092,16 @@ impl MetalRuntime {
         scales: &[u16],
         biases: &[u16],
     ) -> Result<Arc<MetalEmbedTable>> {
-        if !d.is_multiple_of(4) {
-            candle_core::bail!("{name}: d {d} is not a multiple of 4, so a row would start \
-                                at a shifted byte");
+        if bits != 8 && bits != 4 {
+            candle_core::bail!("{name}: int{bits}, the embedding kernels read int8 or int4");
         }
-        if wq.len() != vocab * d / 4 {
-            candle_core::bail!("{name}: {} words for {vocab}x{d} int8", wq.len());
+        let per_word = 32 / bits as usize;
+        if !d.is_multiple_of(per_word) {
+            candle_core::bail!("{name}: d {d} is not a multiple of {per_word}, so a row would \
+                                start inside a word");
+        }
+        if wq.len() != vocab * d / per_word {
+            candle_core::bail!("{name}: {} words for {vocab}x{d} int{bits}", wq.len());
         }
         if scales.len() != vocab * gpr || biases.len() != vocab * gpr {
             candle_core::bail!("{name}: {} scales and {} biases for {vocab}x{gpr}",
@@ -1102,6 +1112,7 @@ impl MetalRuntime {
             vocab,
             d,
             gpr,
+            bits,
             wq: self.device.new_buffer_with_data(wq)?,
             scales: self.device.new_buffer_with_data(scales)?,
             biases: self.device.new_buffer_with_data(biases)?,
@@ -1174,7 +1185,10 @@ impl CustomOp1 for GatherOp<'_> {
         if n_ids == 0 {
             candle_core::bail!("{}: a gather of zero ids", t.name);
         }
-        let pipe = self.rt.pipeline("emb_q8_gather_metal")?;
+        let pipe = self.rt.pipeline(match t.bits {
+            4 => "emb_q4_gather_metal",
+            _ => "emb_q8_gather_metal",
+        })?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(n_ids * t.d, DType::F32, "llvq-metal-q8-gather")?;
         let enc = dev.command_encoder()?;
@@ -1233,7 +1247,10 @@ impl CustomOp1 for HeadOp<'_> {
             candle_core::bail!("{}: staging d={} wants {staged} B against {THREADGROUP_LIMIT}",
                                t.name, t.d);
         }
-        let pipe = self.rt.pipeline("tv_q8_metal")?;
+        let pipe = self.rt.pipeline(match t.bits {
+            4 => "tv_emb_q4_metal",
+            _ => "tv_q8_metal",
+        })?;
         let dev = storage.device().clone();
         let out = dev.new_buffer(rows * t.vocab, DType::F32, "llvq-metal-q8-head")?;
         use candle_metal_kernels::utils::set_param;
@@ -1470,10 +1487,10 @@ pub fn load_resolved(
     let tokenizer = tokenizers::Tokenizer::from_bytes(&model.tokenizer_json)
         .map_err(|e| candle_core::Error::msg(format!("{path}: tokenizer.json: {e}")))?;
 
-    let embed_tables = match emode {
-        crate::fused::EmbedMode::F16 => None,
-        crate::fused::EmbedMode::Q8 => Some(
-            crate::fused::take_embed_tables(&mut model.raw, config.tie_word_embeddings)
+    let embed_tables = match emode.bits() {
+        None => None,
+        Some(bits) => Some(
+            crate::fused::take_embed_tables_at(&mut model.raw, config.tie_word_embeddings, bits)
                 .map_err(|e| candle_core::Error::msg(format!("{path}: {e}")))?,
         ),
     };
@@ -1595,15 +1612,18 @@ fn finish(
         }
         Some(tables) => {
             let to_upload = tables.buffers();
-            let report = crate::fused::EmbedReport::new(crate::fused::EmbedMode::Q8, &to_upload);
+            let report = crate::fused::EmbedReport::new(emode, &to_upload);
             println!("{}", report.line(&from("LLVQ_EMBED")));
             let mut uploaded: Vec<Arc<MetalEmbedTable>> = Vec::with_capacity(to_upload.len());
             for t in &to_upload {
                 let llvq_artifact::RawData::Quant(q) = &t.data else {
                     candle_core::bail!("{}: not a quantized tensor", t.name);
                 };
-                if q.bits != 8 {
-                    candle_core::bail!("{}: int{} where the kernels want int8", t.name, q.bits);
+                if Some(q.bits) != emode.bits() {
+                    candle_core::bail!(
+                        "{}: int{} where the {} kernels want int{:?}",
+                        t.name, q.bits, emode.name(), emode.bits()
+                    );
                 }
                 if t.dims.len() != 2 {
                     candle_core::bail!("{}: dims {:?}, an embedding is 2-D", t.name, t.dims);
@@ -1615,7 +1635,7 @@ fn finish(
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                     .collect();
                 uploaded.push(rt.upload_embed(
-                    &t.name, vocab, d, d / q.group, &wq, &q.scales, &q.biases,
+                    &t.name, q.bits, vocab, d, d.div_ceil(q.group), &wq, &q.scales, &q.biases,
                 )?);
                 carried_bytes += (q.packed.len() + 2 * q.scales.len() + 2 * q.biases.len()) as u64;
             }

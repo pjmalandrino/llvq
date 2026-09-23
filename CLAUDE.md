@@ -103,7 +103,7 @@ Other `llvq-llm` binaries: `mmlu`, `mmlupair`, `embedq`, `seal`. Those of `llvq-
 |---|---|---|
 | `LLVQ_CONFIG` | path to a served config (`configs/*.json`) | **the served object, as a file.** Puts `fusedrun` on a one-arm path with no dense reference and `mmlu` on the **kernel** instead of a dense reconstruction. There is no built-in served default: unset, both binaries are the benches they have always been. A variable that contradicts the file is refused, not outvoted |
 | `LLVQ_FUSED_LAYOUT` | `planes14` (default), `planes12x`, `slot32`, `golay70`, `tetra48` | VRAM layout of the fused kernel; any other value is refused |
-| `LLVQ_EMBED` | `f16` (default), `q8` | embedding quantized at load; `q8` in both served configs (`Planes14` v1 and `Tetra48`) |
+| `LLVQ_EMBED` | `f16` (default), `q8`, `q4` | embedding quantized at load, or read as the file stores it; `q8` in the `Planes14` v1 and `Tetra48` configs, `q4` in `configs/qwen3-4b-tetra-e4.json`, whose file carries it int4 g64 |
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
 | `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` (both objects) |
 | `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `1` under `Planes14` v1, `0` under `Tetra48` (no segmented kernel, a fact about the layout — `configs/README.md`); `FUSE=1` with `ROT_SHARE=0` refused |
