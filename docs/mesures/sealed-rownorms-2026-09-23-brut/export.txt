@@ -1,0 +1,26 @@
+reading /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin — 252 quantized matrices
+    0/252
+   36/252
+   72/252
+  108/252
+  144/252
+  180/252
+  216/252
+  wrote config.json
+  wrote tokenizer.json
+  wrote llvq-int4.json (84 int4 records)
+  wrote tokenizer_config.json (minimal)
+verifying /Users/pjmalandrino/q4b-sealed-2026-09-23/export/model.safetensors …
+  398 tensors identical bit for bit
+
+
+/Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin → /Users/pjmalandrino/q4b-sealed-2026-09-23/export
+  398 tensors, 3.63 B weights dequantized (84 from Int4G128) + 389 M carried
+  model.safetensors: 8.04 GB (f16)
+
+WARNING: this file is a MEASUREMENT artifact, not a distribution one. It is
+   as large as the model in f16. The compression ratio is /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin.
+
+Next:
+  mlx_lm.convert --hf-path /Users/pjmalandrino/q4b-sealed-2026-09-23/export --mlx-path /Users/pjmalandrino/q4b-sealed-2026-09-23/export-mlx
+  mlx_lm.evaluate --model /Users/pjmalandrino/q4b-sealed-2026-09-23/export-mlx --tasks mmlu --num-shots 5

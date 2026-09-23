@@ -1,0 +1,3 @@
+{"at": "2026-09-23T13:56:35Z", "b_per_param_whole_model": 0.0, "cost": "free: 0 added parameters, 0.000000 b/param", "event": "opened", "objective": "kl_t1", "seed": 0, "steps": 2, "tokens_per_batch": 2048, "tokens_total": 4096, "trainable": "row_norms"}
+{"at": "2026-09-23T14:00:00Z", "event": "step", "index": 2, "loss": 0.2044280469417572, "lr": 1e-08}
+{"at": "2026-09-23T14:00:01Z", "checkpoints": 0, "cost": "free: 0 added parameters, 0.000000 b/param", "event": "closed", "first_loss": 0.2606765031814575, "last_loss": 0.2044280469417572, "losses": [0.2606765031814575, 0.2044280469417572], "seconds": 205.835, "seconds_per_step": 102.9175, "steps_run": 2}

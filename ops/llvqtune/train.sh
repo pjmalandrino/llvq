@@ -47,6 +47,24 @@ if [ -z "$RATE" ]; then
   exit 2
 fi
 
+# The routing check, automatic when FIRST_LOSS_BAND="lo hi" is set: the probe's
+# first KL is the model as exported, on the first batch, before any update. A
+# value outside the preregistered band means the wrong model, the wrong
+# routing or the wrong batch, and the run stops here rather than bill 2 h.
+if [ -n "${FIRST_LOSS_BAND:-}" ]; then
+  python - "$OUT/probe.jsonl" $FIRST_LOSS_BAND <<'PY'
+import json, sys
+path, lo, hi = sys.argv[1], float(sys.argv[2]), float(sys.argv[3])
+first = None
+for line in open(path):
+    r = json.loads(line)
+    if r.get("event") == "closed":
+        first = r.get("first_loss")
+print(f"first_loss {first} against the band [{lo}, {hi}]")
+sys.exit(0 if first is not None and lo <= first <= hi else 3)
+PY
+fi
+
 STEPS=$(python -c "print(max(1, int($BUDGET / $RATE)))")
 TOKENS=$(python -c "print($STEPS * $SEQ * $BATCH)")
 echo "== measured $RATE s a step, so $STEPS steps and $TOKENS tokens in $BUDGET s =="
