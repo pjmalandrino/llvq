@@ -1,0 +1,31 @@
+
+========================================================================
+A = /scratch/awq-14b [reference checkpoint]
+    ../llvq-commit-8b/docs/data/mmlu-dumps/mmlu-14b-awq-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-14b-2026-09-23/qwen3-14b-sealed.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-14b-2026-09-23-brut/mmlu-14b/mmlu-14b-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  78.12 %   B  75.66 %   Δ = +2.46 pp   ← the published number
+  unweighted (pooled) A  78.12 %   B  75.66 %   Δ = +2.46 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 925   A✗B✓ = 579   concordant = 12538   (10.7 % of the questions are discordant)
+  p = 4.062e-19   (z normal = +8.92)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +2.46 pp   CI95 [+1.92 ; +3.00]   SE 0.27 pp
+  unweighted control = +2.46 pp   CI95 [+1.92 ; +3.00]   SE 0.27 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  professional law                          +3.3 pp × weight 10.9 % = +0.356 pp
+  high school statistics                    +7.4 pp × weight  1.5 % = +0.114 pp
+  miscellaneous                             +2.0 pp × weight  5.6 % = +0.114 pp
+  security studies                          +6.5 pp × weight  1.7 % = +0.114 pp
+  clinical knowledge                        +4.9 pp × weight  1.9 % = +0.093 pp
