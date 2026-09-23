@@ -22,6 +22,13 @@
 //! The header keeps the file's version and default kind, and declares
 //! `Int4G128` if it did not already. A file below v5 is refused: its records
 //! carry no kind tag, so an int4 record cannot be written into it.
+//!
+//! `int4swap <in> --price <types>` writes nothing and needs no checkpoint: it
+//! prices the transplant in bytes, record by record. An int4 g128 record's size
+//! is a function of its shape alone, so it is built from zeros of that shape,
+//! and the lattice record it replaces is counted as the file stores it. That is
+//! what sizes a window against a budget before a 29.5 GB checkpoint is
+//! downloaded.
 
 use candle_core::{DType, Device, Tensor};
 use llvq_artifact::{self as format, CodeKind, Record};
@@ -37,7 +44,8 @@ struct Report {
     lattice_kept: u32,
     /// Int4 records the input already carried, copied through.
     int4_kept: u32,
-    /// `(name, weights, bytes before, bytes after)` of each record replaced.
+    /// `(name, weights, bytes before, bytes after)` of each record replaced,
+    /// whole records as the file frames them.
     replaced: Vec<(String, usize, u64, u64)>,
 }
 
@@ -45,6 +53,31 @@ impl Report {
     fn weights(&self) -> usize {
         self.replaced.iter().map(|r| r.1).sum()
     }
+
+    /// Bytes the transplant adds to the file, summed over replaced records.
+    fn delta(&self) -> i64 {
+        self.replaced.iter().map(|r| r.3 as i64 - r.2 as i64).sum()
+    }
+}
+
+/// A writer that keeps nothing and counts what it was given.
+struct Counter(u64);
+
+impl std::io::Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The bytes one record takes in a file of `version`, framing included.
+fn record_bytes(version: u32, rec: &Record) -> anyhow::Result<u64> {
+    let mut c = Counter(0);
+    format::write_record(&mut c, version, rec)?;
+    Ok(c.0)
 }
 
 /// Copy `r` to `w`, replacing every lattice record `spec` covers by the int4
@@ -59,7 +92,7 @@ fn transplant(
     r: &mut impl std::io::Read,
     w: &mut impl std::io::Write,
     spec: &RestoreF16,
-    mut fetch: impl FnMut(&str) -> anyhow::Result<Tensor>,
+    mut fetch: impl FnMut(&str, (usize, usize)) -> anyhow::Result<Tensor>,
 ) -> anyhow::Result<Report> {
     anyhow::ensure!(!spec.is_empty(), "no projection type to transplant");
     let head = format::read_header(r)?;
@@ -97,7 +130,7 @@ fn transplant(
                 Record::Int4(m)
             }
             Record::Lattice(m) if spec.covers(&m.name) => {
-                let t = fetch(&m.name)?;
+                let t = fetch(&m.name, (m.d_out, m.d_in))?;
                 anyhow::ensure!(
                     t.dims() == [m.d_out, m.d_in],
                     "{}: the file carries {}x{}, the checkpoint {:?}, not the same model",
@@ -107,13 +140,12 @@ fn transplant(
                     t.dims()
                 );
                 let q = int4_record(&m.name, &t)?;
-                let before =
-                    format::write_record(&mut std::io::sink(), head.version, &Record::Lattice(m))?;
+                let before = record_bytes(head.version, &Record::Lattice(m))?;
                 let rec = Record::Int4(q);
-                let after = format::write_record(&mut std::io::sink(), head.version, &rec)?;
+                let after = record_bytes(head.version, &rec)?;
                 let (d_out, d_in) = rec.dims();
                 rep.replaced
-                    .push((rec.name().to_string(), d_out * d_in, before / 8, after / 8));
+                    .push((rec.name().to_string(), d_out * d_in, before, after));
                 rec
             }
             Record::Lattice(m) => {
@@ -138,8 +170,35 @@ fn transplant(
     Ok(rep)
 }
 
+/// `--price`: the transplant against zeros of each record's shape, into a
+/// counter. Prints every replaced record and the total the file would gain.
+fn price(src: &str, spec: &RestoreF16) -> anyhow::Result<()> {
+    let zeros = |_: &str, dims: (usize, usize)| -> anyhow::Result<Tensor> {
+        Ok(Tensor::zeros(dims, DType::F16, &Device::Cpu)?)
+    };
+    let mut r = std::io::BufReader::with_capacity(1 << 20, std::fs::File::open(src)?);
+    let rep = transplant(&mut r, &mut Counter(0), spec, zeros)
+        .map_err(|e| anyhow::anyhow!("{src}: {e}"))?;
+    for (name, n, b0, b1) in &rep.replaced {
+        println!("{name}\t{n}\t{b0}\t{b1}\t{}", *b1 as i64 - *b0 as i64);
+    }
+    println!(
+        "total\t{} matrices\t{} weights\t{:+} B",
+        rep.replaced.len(),
+        rep.weights(),
+        rep.delta()
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
+    if a.get(1).map(String::as_str) == Some("--price") {
+        let (Some(src), Some(types)) = (a.first(), a.get(2)) else {
+            anyhow::bail!("usage: int4swap <in> --price <types>");
+        };
+        return price(src, &RestoreF16::parse(types).map_err(anyhow::Error::msg)?);
+    }
     let (src, dst, types) = match (a.first(), a.get(1), a.get(2)) {
         (Some(s), Some(d), Some(t)) => (s.clone(), d.clone(), t.clone()),
         _ => anyhow::bail!("usage: LLVQ_MODEL=<checkpoint> int4swap <in> <out> <types, e.g. o_proj,down_proj@12-23>"),
@@ -157,7 +216,7 @@ fn main() -> anyhow::Result<()> {
     let st = unsafe { candle_core::safetensors::MmapedSafetensors::multi(&ck.weights)? };
     // Loaded, then narrowed to f16: the order the restore path follows at
     // dtype f16, which is the dtype every census arm ran at.
-    let fetch = |name: &str| -> anyhow::Result<Tensor> {
+    let fetch = |name: &str, _: (usize, usize)| -> anyhow::Result<Tensor> {
         Ok(st.load(name, &Device::Cpu)?.to_dtype(DType::F16)?)
     };
 
@@ -243,7 +302,7 @@ mod tests {
 
     /// The checkpoint, as a pure function of the name: every call for a name
     /// returns the same tensor, and two names never share one.
-    fn checkpoint(name: &str) -> anyhow::Result<Tensor> {
+    fn checkpoint(name: &str, _: (usize, usize)) -> anyhow::Result<Tensor> {
         let seed = name.bytes().fold(0x00C0_FFEEu64, |h, b| {
             h.wrapping_mul(131).wrapping_add(b as u64)
         });
@@ -281,7 +340,7 @@ mod tests {
             w.push(&lattice(name, &mut rng, &tetra)).unwrap();
         }
         if with_int4 {
-            let v = int4_record(V_PROJ, &checkpoint(V_PROJ).unwrap()).unwrap();
+            let v = int4_record(V_PROJ, &checkpoint(V_PROJ, (D_OUT, D_IN)).unwrap()).unwrap();
             w.push_int4(&v).unwrap();
         }
         let f16 = |name: &str, n: usize, rng: &mut SplitMix64| RawTensor {
@@ -362,7 +421,7 @@ mod tests {
                 // What the dense arm restored: the same quantizer on the same
                 // tensor, decoded.
                 let want = llvq_llm::sealed::quantize_dequantize_q4(
-                    &checkpoint(a.name()).unwrap(),
+                    &checkpoint(a.name(), (D_OUT, D_IN)).unwrap(),
                     a.name(),
                     128,
                     DType::F32,
@@ -434,7 +493,7 @@ mod tests {
     fn a_shape_the_checkpoint_disagrees_on_is_refused() {
         let src = fixture(true);
         let spec = RestoreF16::parse("o_proj").unwrap();
-        let wrong = |_: &str| -> anyhow::Result<Tensor> {
+        let wrong = |_: &str, _: (usize, usize)| -> anyhow::Result<Tensor> {
             Ok(Tensor::zeros((D_OUT, 256), DType::F16, &Device::Cpu)?)
         };
         let e = transplant(
@@ -465,5 +524,28 @@ mod tests {
         w.seal(&raws, &[]).unwrap();
         let e = run(&buf, "o_proj").unwrap_err().to_string();
         assert!(e.contains("no kind tag"), "{e}");
+    }
+
+    /// The price is the transplant's byte count: pricing against zeros gives
+    /// the file size the real transplant writes, since an int4 record's size
+    /// depends on its shape alone.
+    #[test]
+    fn the_price_is_the_size_the_transplant_writes() {
+        let src = fixture(true);
+        let spec = RestoreF16::parse("o_proj,down_proj@1-1").unwrap();
+        let zeros = |_: &str, dims: (usize, usize)| -> anyhow::Result<Tensor> {
+            Ok(Tensor::zeros(dims, DType::F16, &Device::Cpu)?)
+        };
+        let priced = transplant(
+            &mut std::io::Cursor::new(src.clone()),
+            &mut Counter(0),
+            &spec,
+            zeros,
+        )
+        .unwrap();
+        let (out, real) = run(&src, "o_proj,down_proj@1-1").unwrap();
+        assert_eq!(priced.delta(), out.len() as i64 - src.len() as i64);
+        assert_eq!(priced.delta(), real.delta());
+        assert_eq!(priced.replaced.len(), 3);
     }
 }
