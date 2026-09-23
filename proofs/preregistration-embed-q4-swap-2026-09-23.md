@@ -2,11 +2,17 @@
 
 **Written and committed on 2026-09-23, BEFORE the run. To be TIMESTAMPED (`ots stamp`) before
 launch; the arm does not start on an unstamped file.**
-Operator go for "step 1" given 2026-09-23. Cost: about 24 min on l40sx1, **$0.72**, timeout 1 h
-(*estimated* from the two census arms of the same shape, jobs `6aae8c53` and `6aaf099f`,
-24 min and $0.72 each). The `embedq` pass adds CPU minutes on the same card, not a second job.
-Prerequisite outside the bill: the image republished with `embedq` in it (`ops/Dockerfile.cuda`,
-this commit).
+Operator go for "step 1" given 2026-09-23, and for the launch without republication the same
+day. Cost: about 30 min on l40sx1, **~$0.90**, timeout 1 h, ceiling $1.80 (*estimated*: the arm
+has the shape of the census arms `6aae8c53` and `6aaf099f`, 24 min and $0.72 each; the harness
+stage of §5 adds ~5 min, a 4B dense pass at limit 40 having run 4 min 22 s).
+
+Amended before stamping, the same day: **no image republication.** The Space holds `af907416`,
+built from `b68b590` (the 14B chain), whose `sealed.rs`, `bin/mmlu.rs`, `llvq-artifact` and
+`embedquant.rs` are identical to this branch's; it only lacks `embedq`. Republishing from this
+branch would have dropped the 14B chain's `export` and `rowscale` from the image and crossed
+that chain's base/FT pair over two images. So `embedq` ran on the Mac and the job scores its
+output (§2). The `ops/Dockerfile.cuda` change of this commit waits for the next publication.
 
 ## 1. The claim on trial
 
@@ -40,11 +46,14 @@ Its two halves have never been measured together, nor on this base:
 
 One file, one load, a census.
 
-1. `embedq` on the scored object `/out/dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin`
-   (sha256 `f8c1c903b753fe34...`), mode `q4`: every matrix record copied undecoded, the
-   embedding rewritten int4 g64. Its matrix section must be byte-identical to the input's.
+1. `embedq` on the scored object, on the Mac: `~/qwen3-4b-dclm-ft.bin`, sha256
+   `f8c1c903b753fe34...`, the bucket's `dclm-ft-2026-09-19/qwen3-4b-dclm-ft.bin` byte for byte
+   (1,794,564,765 B), mode `q4`: every matrix record copied undecoded, the embedding rewritten
+   int4 g64. Output sha256 `9679cae4d781dcab...`, 1,235,440,301 B, uploaded to
+   `embed-q4-2026-09-23/qwen3-4b-dclm-ft-e4.bin`; the job checks both sha256 on the mount.
 2. `mmlu` on the output, dense reconstruction, f16, flat, census, with
    `LLVQ_RESTORE_Q4=o_proj,down_proj@12-23` from `Qwen/Qwen3-4B`.
+   Script: `ops/jobs/embed-q4-swap.sh`.
 
 Paired with `docs/mesures/dclm-ft-mmlu-2026-09-20-brut/mmlu-4b-dclm-ft-FULL.csv` by `mmlupair`.
 
@@ -86,6 +95,18 @@ significance.
    12 × 9728 × 2560).
 4. 14,042 questions, plan fingerprint `a74a6d6213602979`.
 5. sha256 of the input and output files in the journal.
+6. Harness across images. 61.11 was scored on the 2026-09-19 image, before the 2026-09-20
+   refactors of `model.rs`; this arm runs on `af907416`. The job scores the 61.11 file itself,
+   unchanged, at limit 40 (2,280 questions, fingerprint `65dcd53655e8bfa5`), and the journal
+   joins it to the census dump on subject, index and qhash, as control 4 of
+   `census-14b-base-2026-09-22.txt` did. Required: 2,280 of 2,280 identical picks. A pick that
+   differs puts the harness inside the pair, and the reading of §4 waits for its size.
+
+Control 2 was run before stamping, on the Mac (*measured*): `216 lattice + 36 int4 records
+passed through undecoded`, `model.embed_tokens.weight: 388956160 weights, f16 → int4 g64
+(4.50 b/w), 777.9 → 218.8 MB`, output shorter by 559,124,464 B, and the first byte that
+differs is 1,004,826,855, the tag of the first raw tensor: header, 252 records and raw count
+identical.
 
 ## 6. What it will not establish
 
