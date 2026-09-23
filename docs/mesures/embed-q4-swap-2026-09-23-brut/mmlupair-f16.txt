@@ -1,0 +1,31 @@
+
+========================================================================
+A = Qwen/Qwen3-4B [reference checkpoint]
+    ../llvq-commit-8b/docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/embed-q4-2026-09-23/qwen3-4b-dclm-ft-e4.bin [LLVQ 2-bit, sealed; restored o_proj,down_proj at int4 g128 (dequantized) (48 matrices, 676331520 weights) from Qwen/Qwen3-4B@main]
+    docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  70.14 %   B  63.37 %   Δ = +6.77 pp   ← the published number
+  unweighted (pooled) A  70.14 %   B  63.37 %   Δ = +6.77 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 1901   A✗B✓ = 951   concordant = 11190   (20.3 % of the questions are discordant)
+  p = 5.694e-72   (z normal = +17.79)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +6.77 pp   CI95 [+6.05 ; +7.50]   SE 0.38 pp
+  unweighted control = +6.77 pp   CI95 [+6.05 ; +7.50]   SE 0.38 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  miscellaneous                             +9.7 pp × weight  5.6 % = +0.541 pp
+  professional psychology                  +10.3 pp × weight  4.4 % = +0.449 pp
+  professional law                          +3.5 pp × weight 10.9 % = +0.385 pp
+  elementary mathematics                   +13.0 pp × weight  2.7 % = +0.349 pp
+  prehistory                               +13.0 pp × weight  2.3 % = +0.299 pp

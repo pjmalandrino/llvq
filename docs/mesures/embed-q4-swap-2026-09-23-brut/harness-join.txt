@@ -1,0 +1,2 @@
+harness rows 2280, joined on (subject, index, qhash) 2280
+identical picks 2280/2280; four logits identical 2280/2280; max |dlogit| 0.0

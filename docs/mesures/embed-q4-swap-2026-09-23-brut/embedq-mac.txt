@@ -1,0 +1,8 @@
+/Users/pjmalandrino/qwen3-4b-dclm-ft.bin: format v5, kinds Tetra+Int4G128, 216 lattice + 36 int4 records passed through undecoded
+  model.embed_tokens.weight: 388956160 weights, f16 → int4 g64 (4.50 b/w), 777.9 → 218.8 MB
+
+── qwen3-4b-dclm-ft-e4.bin
+   carried    0.778 GB → 0.219 GB
+   file       1.795 GB → 1.235 GB
+
+   score the OUTPUT file (ppl + mmlu) before believing anything.

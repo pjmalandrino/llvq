@@ -1,0 +1,82 @@
+THE Q4 EMBEDDING PAYS FOR TWO INT4 TABLES: +2.26 PP OVER 61.11 (2026-09-23)
+================================================================================
+Job:    6ab3878152d0dbd7f1d835e4, l40sx1, 1,760 s running after 3 h 46 of queue,
+        $0.88, timeout ceiling $1.80. Exit 0.
+Prereg: proofs/preregistration-embed-q4-swap-2026-09-23.md, stamped
+        sha256 c45f1a1a5124b177..., before the launch (commit f0763d3).
+Launcher: ops/jobs/embed-q4-swap.sh, sha256 1277415fbf5c8594...
+Image:  Space Pier-Jean/llvq-runner-cuda at af907416 (commit b68b590), not
+        republished. The 61.11 reference ran on the 2026-09-19 image.
+Object: /out/embed-q4-2026-09-23/qwen3-4b-dclm-ft-e4.bin, 1,235,440,301 B, sha256
+        9679cae4d781dcab..., written on the Mac by `embedq q4` from the 61.11
+        object (1,794,564,765 B, sha256 f8c1c903b753fe34...).
+Data:   docs/mesures/embed-q4-swap-2026-09-23-brut/ (dumps, logs, pairs, harness
+        join, job inspect).
+Nature: *measured*; b/param and b/weight *computed*.
+
+THE RESULT
+-----------
+  arm: q4 embedding + o_proj + down_proj@12-23 int4   63.37 micro / 64.90 macro
+  reference: the 61.11 object                         61.11 micro / 62.79 macro
+  (14,042 questions each)
+
+Paired, stratified micro, no finite-population correction:
+
+  arm − 61.11   +2.26 pp   CI95 [+1.66 ; +2.87]   SE 0.31   McNemar 1,144 / 826, p = 8.2e-13
+  f16 − arm     +6.77 pp   CI95 [+6.05 ; +7.50]   SE 0.38   McNemar 1,901 / 951
+
+The f16 pair is descriptive and outside the prereg.
+
+Memory, from prereg §1: 2.7138 b/param against 2.7475, and 2.5953 kernel b/weight
+against 2.2044. The file is 16.9 MB shorter in the served accounting. That leaves
+0.405 kernel b/weight under the triplet's b_max of 3.00.
+
+THE DECISION RULE
+------------------
+Prereg §4 reads "the swap wins": +2.26 is at least +0.43, and p < 0.05. Its next
+step is step 2. That means `EmbedMode::Q4`, the two q4 head kernels, the int4
+records transplanted into a real file (L37), and the served arm scored through the
+kernel. Step 2 is code and a format change. It waits for an operator go.
+
+THE PREDICTION
+---------------
+Signed +1.2 pp [+0.2 ; +2.2]. Measured +2.26: outside, 0.06 above the top, and
+under the +3.0 named against it. The miss is in the transfer. I took 60 to 70 % of
+each table's gain measured on another base, then 85 % for their overlap. The arm
+reaches 88 % of the raw sum of the three measured parts (2.57 = 1.55 + 1.37 − 0.35).
+If the embedding costs the −0.35 measured on Planes14, the tables bring about +2.6,
+89 % of their 2.92. The row-scale training overlapped with int4 less than I assumed.
+One arm cannot split the two halves (prereg §6).
+
+CONTROLS
+---------
+1. Oracle on CUDA: MATCH, max |Δhidden| 0.
+2. `embedq` on the Mac, before stamping: 216 lattice + 36 int4 records passed
+   through undecoded; `model.embed_tokens.weight`, 388,956,160 weights, 777.9 to
+   218.8 MB; file shorter by 559,124,464 B. The first differing byte is
+   1,004,826,855, the tag of the first raw tensor.
+3. Restored: 48 matrices, 676,331,520 weights, from Qwen/Qwen3-4B@main.
+4. 14,042 questions, fingerprint a74a6d6213602979. Dump headers: dtype f16, limit
+   census, alloc flat, config none, dense reconstruction, kv f16.
+5. sha256 of both files on the mount equal to the Mac's.
+6. Harness across images: the 61.11 file scored at limit 40 on af907416, joined
+   to its census dump on subject, index and qhash. 2,280 of 2,280 identical picks,
+   all four logits identical, max |Δlogit| 0. The image change is not in the pair.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- The share of each half. A second arm, the tables alone on the f16 embedding
+  (~$0.72), would split it.
+- The q8 baseline. 61.11 carries the file's f16 embedding, so the pair measures
+  f16 to q4 plus the tables, not the served q8 to q4.
+- Anything served. The embedding is dequantized at load and the int4 tables are
+  dequantized from the checkpoint, dense. No q4 head kernel exists, and no int4
+  kernel has run at the shapes of `o_proj` or `down_proj`.
+- The restore reads the checkpoint at `main`, unpinned, and discards the trained
+  row scales of the 48 matrices it replaces.
+
+COST
+-----
+$0.88 (1,760 s at $1.80/h). Project total $214.90: the $214.02 of the 14B chain's
+registry plus this job. The 14B FT MMLU job (6ab37a50) has finished and is not in
+any registry yet.

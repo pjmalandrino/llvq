@@ -1,0 +1,4 @@
+f8c1c903b753fe3427f395f53b79e1e4ab59d212a6bc1c4c5ceedf8aea971300  /Users/pjmalandrino/qwen3-4b-dclm-ft.bin
+9679cae4d781dcabf6cd2b7e4aebd161ed91c9d76fe4ea9b60e0cefcdb31dafa  qwen3-4b-dclm-ft-e4.bin
+-rw-r--r--  1 pjmalandrino  staff  1794564765 Sep 20 00:15 /Users/pjmalandrino/qwen3-4b-dclm-ft.bin
+-rw-r--r--  1 pjmalandrino  wheel  1235440301 Sep 23 09:53 qwen3-4b-dclm-ft-e4.bin
