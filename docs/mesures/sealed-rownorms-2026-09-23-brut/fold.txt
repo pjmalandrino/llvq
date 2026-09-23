@@ -1,0 +1,3 @@
+168 scaled, 0 untouched, 84 int4 passed through
+946176 row scales read, largest multiplier deviation 0.504542
+73 norms scaled of 73 named, 186880 norm values read, largest deviation 0.301739
