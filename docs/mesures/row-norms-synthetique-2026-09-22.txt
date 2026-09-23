@@ -1,0 +1,61 @@
+ROW_NORMS ON A TOY MODEL: THE INPUT AXIS IS NOT REDUNDANT WITH THE ROW SCALES
+(2026-09-22)
+================================================================================
+Code:   ops/llvqtune/llvqtune/trainables/row_norms.py,
+        ops/llvqtune/examples/synth_rownorms.py
+Where:  cloud container, 4 CPU, no GPU, no Hugging Face access. $0, 3 min 12 s.
+Prereg: none. Nothing about the model's quality is measured: no Qwen3, no
+        MMLU, no perplexity. This checks a mechanism on a toy.
+Nature: *measured*, on a synthetic model only
+
+THE QUESTION
+-------------
+Row 14 trained one scale per output row. The paper says "per-column scales"
+(llvq-paper-notes.md:107), and the tetranu prereg §6 left the axis open. The
+RMSNorm weights are per-column scales on q/k/v and gate/up, applied before the
+rotation, carried verbatim in f16 by bin/seal: training them costs 0 bits.
+Does that axis add anything the row scales do not already reach?
+
+THE SETUP
+----------
+Teacher: a Qwen3 of 4 blocks, hidden 120, trained 400 steps on a sparse Markov
+chain (4 successors a token, vocab 256), last cross entropy 0.790.
+Student: the teacher with q, k, o, gate, up, down replaced by a crude
+shape-gain code, per 24-block `norm * sign(v) / sqrt(24)`; v_proj dense.
+Both arms: the package's own loop, KL(teacher || student) at T = 1, Adam,
+warmup 20 then cosine, peak 1e-2, 300 steps of 16 x 64 tokens.
+Held-out: 64 fresh sequences, the same for every arm.
+
+THE RESULT
+-----------
+  held-out KL before training                 0.05179
+                         seed 0     seed 1     seed 2
+  row_scales            0.01286    0.01276    0.01291
+  row_norms             0.00536    0.00534    0.00542
+  row_norms without model.norm (seed 0)   0.00973
+
+The seeds change the batch order only; the teacher and the quantized student
+are the same in every arm, so the spread across seeds is optimizer noise and
+not model noise.
+
+row_norms leaves 2.4 times less residual KL than row_scales. Both the block
+norms and the final norm contribute: without model.norm the residual is
+0.00973, between the two.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing on Qwen3-4B, nothing on MMLU. On the real object, perplexity is
+  already recovered to x1.0074 while MMLU stays nine points short
+  (dclm-rowscales-2026-09-20): a lower KL there is not evidence of MMLU.
+- The toy quantizer is 1 bit a weight in its direction, far cruder than
+  Tetra, so there is more to repair here than on the served file.
+- model.norm scales the columns of the tied language head; part of what it
+  buys may be output calibration (ROADMAP-QUALITY row B), not information.
+- The write-back is not written: bin/rowscale refuses kind "row_norms" by
+  name, so nothing can be folded half-way.
+
+WHAT DECIDES IT
+----------------
+One row_norms run on the DCLM base under the protocol of
+dclm-rowscales-2026-09-20 (l40sx1, about $4.70 with its MMLU arm), paired on
+the census against the 61.11 dump, after a stamped prereg and an operator go.

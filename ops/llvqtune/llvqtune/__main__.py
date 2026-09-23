@@ -88,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
             tails[name] = w[:, lattice:].detach().float().cpu()
         trainable = build("free_params", shapes=shapes, tails=tails,
                           device=args.device)
+    elif args.mode == "row_norms":
+        trainable = build("row_norms", shapes=shapes,
+                          norms=TorchModel.norm_widths_for(student),
+                          device=args.device)
     else:
         trainable = build(args.mode, shapes=shapes, device=args.device)
 
