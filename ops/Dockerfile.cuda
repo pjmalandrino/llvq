@@ -63,7 +63,11 @@ RUN cargo build --release --locked -p llvq-llm --features ${FEATURES} \
 #
 # Sans elle, le scellement tourne à 0,03 $/h au lieu de 0,80 sur la plus petite
 # carte — un facteur 27 sur une étape qui n'a rien à calculer.
-RUN cargo build --release --locked -p llvq-llm --bin seal
+RUN cargo build --release --locked -p llvq-llm --bin seal --bin embedq
+# `embedq` (2026-09-23) rides the same CPU-only build: it rewrites the carried
+# embedding of a sealed file and never touches a device. It joins the image so
+# a job can requantize the embedding of a file that lives only in a bucket.
+# Same trap as below: BOTH lists.
 # The CUDA kernel bench. A separate `cargo build` on purpose: `llvq-cuda`
 # links neither candle nor `faer`, so it costs one small LTO link rather than
 # joining the one that has already been SIGKILLed once. Its kernels are not
@@ -122,6 +126,7 @@ COPY --from=build \
       /src/target/release/fusedrun \
       /src/target/release/chat \
       /src/target/release/seal \
+      /src/target/release/embedq \
       /src/target/release/preflight \
       /src/target/release/matvec \
       /src/target/release/rotbench \
