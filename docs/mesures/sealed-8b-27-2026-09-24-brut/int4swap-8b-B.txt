@@ -1,0 +1,28 @@
+/Users/pjmalandrino/qwen3-8b-dclm-ft.bin: format v5, kinds Tetra+Int4G128 -> Tetra+Int4G128
+checkpoint Qwen/Qwen3-8B@main, shards:
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/model-00001-of-00005.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/model-00002-of-00005.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/model-00003-of-00005.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/model-00004-of-00005.safetensors
+  /Users/pjmalandrino/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218/model-00005-of-00005.safetensors
+  model.layers.10.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.11.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.12.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.13.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.14.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.15.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.16.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.17.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.18.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.19.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.20.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.21.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.22.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.23.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.24.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.25.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+  model.layers.26.mlp.down_proj.weight: 50331648 weights, lattice 12615776 B -> int4 g128 26738792 B
+transplanted down_proj (17 matrices, 855638016 weights); 199 lattice + 36 int4 records passed through undecoded
+
+── /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-8b-B-i4.bin
+   file       4.364 GB -> 4.604 GB (+240091272 B)

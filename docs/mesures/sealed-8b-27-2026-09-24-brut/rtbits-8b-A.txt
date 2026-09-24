@@ -1,0 +1,20 @@
+
+  ── /Users/pjmalandrino/q8b-14b-sealed-2026-09-23/qwen3-8b-sealed-A.bin — format v5, kinds Tetra+Int4G128 ──
+  174 lattice matrices, 5888802816 weights at 1.9942 b/weight of stream
+  78 int4 matrices,    1056964608 weights at 4.2500 b/weight, side data included
+  tail 17104896 weights, 1191936 row scales — the side data every arm uploads
+
+  kernel b/weight, over 6945767424 projection weights
+    tail at f32 (the accounting every published figure used) ... 2.4218
+    tail at f16 (the width the card has held since 2026-08-09) .. 2.3824
+
+  b/param WHOLE MODEL over 8190735360 parameters (1244659712 embedding, 308224 norms)
+  tail width                 embed f16      embed q8      embed q4
+  f32 (published)               4.4856        3.3459        2.7381
+  f16 (served)                  4.4522        3.3125        2.7047
+  carried MEASURED in the file: 4.5028 b/param
+
+  NO CLASS STATISTIC IS PRINTED. Every accumulator of this tool keys on a v1
+           class — masks, level histograms, slot strides, the Planes14 and E1c projections —
+           and a Tetra word names none. A plausible-looking histogram here would be worse
+           than its absence.
