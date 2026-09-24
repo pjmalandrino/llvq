@@ -1,0 +1,70 @@
+THE 8B AT 2.70 B/PARAM READS 69.58, WITHIN 0.5 PP OF THE 3.06 FILE: DOWN_PROJ BEATS O_PROJ (2026-09-24)
+================================================================================
+Jobs:   arm A 6ab4b7b052d0dbd7f1d89568, l40sx1, 2,009 s after 2 min of queue, $1.00.
+        arm B 6ab4b7b96b030d633f68d542, l40sx1, 2,000 s after 55 min of queue, $1.00.
+        Both exit 0.
+Prereg: proofs/preregistration-sealed-8b-27-2026-09-24.md, stamped before the first job
+        (commit f1da16b).
+Image:  Space Pier-Jean/llvq-runner-cuda at af907416, the image of the 70.08 census.
+Objects (int4swap then embedq q4 on qwen3-8b-dclm-ft.bin; sizes *measured*, rates *computed*):
+        A qwen3-8b-sealed-A.bin  o_proj + down_proj@15-20   2,819,588,161 B  sha256 0c6b08b3...
+          2.7047 b/param served, 2.3824 kernel b/weight.
+        B qwen3-8b-sealed-B.bin  down_proj@10-26            2,815,098,745 B  sha256 7bdb9a55...
+          2.6953 b/param served, 2.3713 kernel b/weight.
+Data:   docs/mesures/sealed-8b-27-2026-09-24-brut/ (build logs, rtbits, mmlu-A/ and mmlu-B/ with
+        the dumps and the pairs).
+Nature: *measured* MMLU; b/param *computed* by rtbits over each file's bytes.
+
+THE RESULT
+-----------
+Paired, stratified micro, 14,042 questions, no finite-population correction:
+
+                        b/param   MMLU    against the FT base (68.16)     McNemar
+  FT base (tables q8)   3.0683    68.16
+  arm A                 2.7047    68.81   +0.65 [+0.14 ; +1.13]           684 / 593, p = 0.012
+  arm B                 2.6953    69.58   +1.42 [+0.93 ; +1.92]           743 / 544, p = 3.2e-8
+  sealed (3.06)         3.0637    70.08   +1.92 [+1.36 ; +2.50]           981 / 712
+
+  B − A                 +0.77 [+0.26 ; +1.28]   McNemar 741 / 633, p = 0.0039   resolved
+  sealed 3.06 − B       +0.50 [−0.01 ; +1.01]   McNemar 723 / 653, p = 0.063    not resolved
+  AWQ − B               +4.21 [+3.54 ; +4.86]
+  f16 − B               +5.48 [+4.83 ; +6.10]
+
+Arm B keeps three quarters of the 3.06 file's gain over the FT base (+1.42 of +1.92) with
+0.37 b/param less, and the remaining 0.50 pp is not resolved on the census.
+
+THE DECISION RULE
+------------------
+Prereg §3: the better arm (B) beats the FT base by +1.42, p = 3.2e-8. **Arm B is the 8B
+reference at ~2.7 b/param.** The 3.06 file stays as the high-memory variant.
+
+THE PREDICTIONS
+----------------
+  A        +0.9 [−0.1 ; +1.9]   measured +0.65   inside
+  B        +0.7 [−0.3 ; +1.7]   measured +1.42   inside, near the top
+  A − B    +0.2 [−0.6 ; +1.0]   measured −0.77   OUTSIDE, on the side of B
+
+The prior that `o_proj` is worth more per byte than `down_proj` came from a 4B exploration on
+the 2,280-question sample; at 8B, on the census and at equal bytes, it is the other way round.
+Seventeen `down_proj` matrices beat 36 `o_proj` plus six `down_proj`.
+
+CONTROLS
+---------
+1. Oracle MATCH on both jobs.
+2. Both files' bytes and sha256 on the mount equal to the Mac's.
+3. int4swap: 42 matrices for A (905,969,664 weights), 17 for B (855,638,016); embedq requantized
+   exactly the two tables. The int4 bytes matched --price to the byte (A +244,580,688 B,
+   B +240,091,272 B).
+4. 14,042 questions, fingerprint a74a6d6213602979, headers as preregistered.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Whether the same reallocation (down_proj instead of o_proj) helps the 4B and the 14B: their
+  sealed objects still carry o_proj whole. At 8B it is the better use of the same bytes; the
+  other sizes are untested.
+- The cost of the untied q4 head alone (arm D, not run).
+- Anything served.
+
+COST
+-----
+$2.00 against $1.96 announced. Project total $225.19.

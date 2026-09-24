@@ -1,0 +1,31 @@
+
+========================================================================
+A = Qwen/Qwen3-8B [reference checkpoint]
+    ../llvq-commit-8b/docs/data/mmlu-dumps/mmlu-8b-f16-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-A.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-A/mmlu-8b-A-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  75.05 %   B  68.81 %   Δ = +6.25 pp   ← the published number
+  unweighted (pooled) A  75.05 %   B  68.81 %   Δ = +6.25 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 1567   A✗B✓ = 690   concordant = 11785   (16.1 % of the questions are discordant)
+  p = 6.761e-78   (z normal = +18.46)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +6.25 pp   CI95 [+5.60 ; +6.90]   SE 0.33 pp
+  unweighted control = +6.25 pp   CI95 [+5.60 ; +6.90]   SE 0.33 pp
+  → the CI excludes zero: the gap is resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           +8.4 pp × weight  6.4 % = +0.534 pp
+  professional psychology                   +7.7 pp × weight  4.4 % = +0.335 pp
+  professional law                          +3.0 pp × weight 10.9 % = +0.328 pp
+  elementary mathematics                   +11.1 pp × weight  2.7 % = +0.299 pp
+  miscellaneous                             +4.9 pp × weight  5.6 % = +0.271 pp

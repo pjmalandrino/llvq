@@ -1,0 +1,31 @@
+
+========================================================================
+A = /out/sealed-8b-2026-09-23/qwen3-8b-sealed.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-14b-2026-09-23-brut/mmlu-8b/mmlu-8b-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+B = /out/sealed-8b27-2026-09-24/qwen3-8b-sealed-B.bin [LLVQ 2-bit, sealed]
+    docs/mesures/sealed-8b-27-2026-09-24-brut/mmlu-B/mmlu-8b-B-sealed-FULL.csv
+    config=none, arithmetic=dense reconstruction, kv=f16
+14042 paired questions, 57 subjects · dtype f16 / f16 · limit census / census
+sampling plan: flat, 100..1534 per subject, 14042 questions / flat, 100..1534 per subject, 14042 questions
+run fingerprint: a74a6d6213602979 / a74a6d6213602979 (identical)
+
+rates (Δ = A − B, in percentage points)
+  stratified micro    A  70.08 %   B  69.58 %   Δ = +0.50 pp   ← the published number
+  unweighted (pooled) A  70.08 %   B  69.58 %   Δ = +0.50 pp   ← what McNemar tests
+
+McNemar exact (unweighted)
+  A✓B✗ = 723   A✗B✓ = 653   concordant = 12666   (9.8 % of the questions are discordant)
+  p = 0.0628   (z normal = +1.89)
+
+paired bootstrap stratified by subject (10000 draws, seed 0xb0075eed, WITHOUT finite population correction)
+  Δ stratified micro = +0.50 pp   CI95 [-0.01 ; +1.01]   SE 0.26 pp
+  unweighted control = +0.50 pp   CI95 [-0.01 ; +1.01]   SE 0.26 pp
+  → the CI contains zero: the gap is not resolved by this protocol.
+
+subjects carrying the gap (contribution to the stratified Δ)
+  moral scenarios                           -3.1 pp × weight  6.4 % = -0.199 pp
+  professional law                          +1.4 pp × weight 10.9 % = +0.157 pp
+  miscellaneous                             +1.5 pp × weight  5.6 % = +0.085 pp
+  high school macroeconomics                +2.6 pp × weight  2.8 % = +0.071 pp
+  machine learning                          +7.1 pp × weight  0.8 % = +0.057 pp
