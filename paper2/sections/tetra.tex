@@ -1,4 +1,4 @@
-\section{The Tetra construction}
+\section{The Tetra codebook}
 \label{sec:tetra}
 
 \subsection{The lattice and the quantizer}
@@ -12,15 +12,14 @@ y_j = p + 2c_j + 4k_j,\qquad \textstyle\sum_j k_j \equiv p \pmod 2 .
 \label{eq:leech}
 \end{equation}
 Two constraints cut $\mathbb{Z}^{24}$ down to the lattice
-(Fig.~\ref{fig:geom}a): $c$ must be one of the $2^{12}$ Golay codewords among
-$2^{24}$ bit patterns, and one parity couples all 24 coordinates at once. They
-are what makes the code 24-dimensional, and a decoder has to respect both.
+(Figure~\ref{fig:geom}a): $c$ must be one of the $2^{12}$ Golay codewords among
+the $2^{24}$ bit patterns, and one parity couples all 24 coordinates. A decoder
+has to respect both.
 
-The encoder is the shape--gain scheme of \citet{llvq2026} inside a GPTQ-style
-error-compensating loop~\citep{gptq2023} with an incoherence rotation on the
-input~\citep{quip2023,quarot2024}. For each block of 24 rotated weights it
-finds the nearest point of a norm-capped region of $\Lambda_{24}$ and
-reconstructs
+The encoder is the shape-gain scheme of \citet{llvq2026} inside a GPTQ-style
+loop~\citep{gptq2023}, after a rotation of the input~\citep{quip2023,quarot2024}.
+For each block of 24 rotated weights it finds the nearest point of a norm-capped
+region of $\Lambda_{24}$ and reconstructs
 \begin{equation}
 \hat{w}_j = \frac{y_j}{\lVert y\rVert}\,\mathrm{gain}[g]\,\sigma_{\mathrm{row}},
 \qquad \lVert y\rVert=\sqrt{16m},
@@ -29,19 +28,19 @@ reconstructs
 with $m$ the shell index, $g$ a gain bit and $\sigma_{\mathrm{row}}$ one f32
 scale per output row. We change two things in that pipeline: the region the
 encoder searches (\S\ref{sec:kept}) and the label it writes. The loop, the
-rotation, the gain centroids and the row scales are unchanged, and the encoder
-still runs once, offline, on CPU.
+rotation, the gain values and the row scales stay as they were, and the
+encoder still runs once, offline, on a CPU.
 
-\subsection{The trio and the trellis}
+\subsection{Three octads and a trellis}
 
-An octad is a Golay codeword of weight 8, and three pairwise disjoint octads
-cover the 24 coordinates. We fix one such \emph{trio} and read the coordinates
-in that order, octad by octad. In this order the code sectionalises: cutting
-after coordinates 8 and 16 leaves a trellis with 64 states at each cut
-(Fig.~\ref{fig:geom}b), the fewest a three-way cut of $\mathcal{G}_{24}$
+An octad is a Golay codeword of weight 8, and three disjoint octads cover the
+24 coordinates. We fix one such triple and read the coordinates in that order,
+octad by octad. In this order the code splits into sections: cutting after
+coordinates 8 and 16 leaves a trellis with 64 states at each cut
+(Figure~\ref{fig:geom}b), the fewest any three-way cut of $\mathcal{G}_{24}$
 reaches. The trellis has $64\times2\times16\times2 = 4096 = |\mathcal{G}_{24}|$
-paths, so every codeword is one path and every path a codeword; the count is
-asserted when the tables are built.
+paths, so every codeword is one path and every path is a codeword. The count is
+checked when the tables are built.
 
 \begin{figure}[t]
 \centering
@@ -64,7 +63,7 @@ asserted when the tables are built.
   {(ii)\; $\textstyle\sum_j k_j \equiv p \pmod 2$:\; one parity over all 24 coordinates};
 \end{tikzpicture}\\[6pt]
 {\footnotesize (a) $\mathbb{Z}^{24}$ under two global constraints}\\[10pt]
-% ---- (b) the sectionalised code -----------------------------------------
+% ---- (b) the same code in octad order ------------------------------------
 \begin{tikzpicture}[x=1cm, y=1cm]
 \node[box, font=\scriptsize] (s0) at (0.5,1.3) {$1$};
 \node[mem, font=\scriptsize, minimum width=9mm, minimum height=13mm]
@@ -85,16 +84,11 @@ asserted when the tables are built.
 \node[font=\scriptsize, anchor=north] at (6.2,-0.55)
   {$64\times2\times16\times2 \;=\; 4096 \;=\; |\mathcal{G}_{24}|$};
 \end{tikzpicture}\\[4pt]
-{\footnotesize (b) the same code in trio order}
-\Description{Left: four rows of 24 cells showing a lattice point as a shared
-parity bit plus a Golay codeword plus free integers, with the two constraints
-named underneath. Below: a trellis with one start state, 64 states at cut 8,
-64 at cut 16 and one end state, its three sections labelled with 2 prefix
-bytes, 16 branches and 2 suffix bytes.}
+{\footnotesize (b) the same code in octad order}
 \caption{The object and the reordering. (a) Equation~\eqref{eq:leech}, with the
-shaded cells marking $c_j=1$; three independent 8-dimensional quantizers
-respect neither constraint. (b) In trio order the same code is a trellis, and a
-codeword is a path through it.}
+shaded cells marking $c_j=1$. Three independent 8-dimensional quantizers
+would respect neither constraint. (b) In octad order the same code is a
+trellis, and a codeword is a path through it.}
 \label{fig:geom}
 \end{figure}
 
@@ -103,69 +97,62 @@ codeword is a path through it.}
 
 The word carries eight bits of state: the trellis state $s_8$ (6 bits), the
 shared parity $p$, and $r$, the parity of $\sum k_j$ over section 1. What $s_8$
-holds is exactly what section 2 needs to know about section 1, since the code
-forbids most byte triples. So $\Lambda_{24}$ adds two bits to the code's own
-state and no more: $64\times4 = 256$ lattice states at a cut.
+holds is exactly what section 2 needs to know about section 1. So
+$\Lambda_{24}$ adds two bits to the code's own state and no more:
+$64\times4 = 256$ lattice states at a cut.
 
-Each section's $k$-parity class is implicit. Section 1's is $r$. Section 2's is
-$\delta$, read off which half of the shared table its index lands in. Section
-3's is
+The $k$-parity of each section is never stored as a field. Section 1's is $r$.
+Section 2's is $\delta$, read off which half of the shared table its index
+falls in. Section 3's is
 \begin{equation}
 r_3 = p \oplus r \oplus \delta ,
 \label{eq:xor}
 \end{equation}
-and is stored nowhere: the parity constraint of Eq.~\eqref{eq:leech} costs one
-XOR and no bits.
+so the parity constraint of Equation~\eqref{eq:leech} costs one XOR and no bits.
 
-Inside a section the residues mod 4 are fixed once $p$ and the pattern byte are
-known, $o_j = p + 2c_j$, so coordinate $j$ can only take values in the
-progression $o_j + 4\mathbb{Z}$. We store its \emph{rank} in that progression
-rather than its value, counting outward from zero: for $o=0$ the progression is
-$0, +4, -4, +8, \dots$, for $o=2$ it is $+2, -2, +6, \dots$, for $o=1$
-$+1, -3, +5, \dots$, and for $o=3$ $-1, +3, -5, \dots$. A section is then a
-rank vector $\rho \in \{0\dots7\}^8$: four bits per coordinate, one
-\texttt{u32}.
+Inside a section, the residues mod 4 are fixed once $p$ and the pattern byte
+are known, $o_j = p + 2c_j$, so coordinate $j$ can only take values in
+$o_j + 4\mathbb{Z}$. We store its \emph{rank} in that progression rather than
+its value, counting outward from zero: for $o=0$ the values are
+$0, +4, -4, +8, \dots$, for $o=2$ they are $+2, -2, +6, \dots$, for $o=1$
+$+1, -3, +5, \dots$, and for $o=3$ $-1, +3, -5, \dots$. A section is then a rank
+vector $\rho \in \{0,\dots,7\}^8$: four bits per coordinate, one 32-bit word.
 
 Two properties let a single table serve every section of every block. First,
 with $\mathrm{cost}(\rho)=\sum_j(2\rho_j+1)^2$, the order of rank vectors by
 cost does not depend on $p$ or on the pattern byte, so ``keep the 2{,}048
 cheapest'' is one list rather than $4^8$ of them. Second,
 $\mathrm{cls}(\rho)=\sum_j[\rho_j\in\{1,2\}] \bmod 2$ equals the parity of
-$\sum_j k_j$ for every pattern, so a section's class is an address rather than
-a field. The table holds 4{,}096 \texttt{u32}: the 2{,}048 cheapest of class 0,
-then the 2{,}048 cheapest of class 1, with eleven bits addressing a half. The
-middle section reads the same rows in a third, mixed order, the 2{,}048
-cheapest overall, which is $N_0 = 1240$ rows of class 0 followed by 808 of
-class 1; its index therefore reveals the $\delta$ that Eq.~\eqref{eq:xor}
-consumes.
+$\sum_j k_j$ for every pattern, so a section's parity class is an address
+rather than a field. The table holds 4{,}096 words: the 2{,}048 cheapest rank
+vectors of class 0, then the 2{,}048 cheapest of class 1, with eleven bits
+addressing a half. The middle section reads the same rows in a third, mixed
+order, the 2{,}048 cheapest overall, which is $N_0 = 1240$ rows of class 0
+followed by 808 of class 1. Its index therefore gives the $\delta$ that
+Equation~\eqref{eq:xor} needs.
 
 \subsection{The word and the decode}
 \label{sec:decode}
 
-Figure~\ref{fig:word} puts the resulting 48-bit word beside the unfolded record
-it replaces. Every field range is a power of two, so any 48-bit value is a
-legal word and decodes to a point of $\Lambda_{24}$; a benchmark may stream
-pseudo-random words and check every decode against a reference.
-Figure~\ref{fig:decode} is the decode: six loads a block, three of them on a
+Figure~\ref{fig:word} shows the resulting 48-bit word next to the unfolded
+record it replaces. Every field range is a power of two, so any 48-bit value is
+a legal word and decodes to a point of $\Lambda_{24}$. A benchmark can therefore
+stream random words and check every decode against a reference.
+Figure~\ref{fig:decode} is the decode: six loads per block, three of them on a
 dependent chain.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=\linewidth]{fig_word.pdf}
-\Description{Three horizontal bit-scale bars. The Planes14 record spans 112
-bits in seven fields; the Tetra word spans 48 bits in ten fields; the third bar
-magnifies the Tetra word to the figure width so that each field can be named.}
-\caption{The record of paper 1 and the word of this one, at one bit scale, with
-the word magnified below so its ten fields can be named. \textsc{Planes14} is
-what the 47-bit index becomes after unfolding: a 9-bit class, a gain bit, a
-sign mask and three bit planes, 112 bits at a uniform 14-byte stride, read
-through a four-word window against a 12~KB class table. \textsc{Tetra} is what
-the file stores and what the kernel reads: 48 bits at a 6-byte stride, decoded
-by six table loads into 18{,}816~B of tables, of which 16~KiB of rank rows.
-Purple is trellis state, grey the edge choices, blue the row indices into the
-shared table, red the gain bit; hatching is padding. Both carry 2.000 bits of
-code per weight. Field widths are layout constants, from the record diagram at
-the head of each decoder.}
+\includegraphics{fig_word.pdf}
+\caption{The record of our earlier layout and the \Tetra{} word, at one bit
+scale, with the word magnified below so its ten fields can be named.
+\Planes{} is what the 47-bit index becomes after unfolding: a 9-bit class, a
+gain bit, a sign mask and three bit planes, 112 bits at a 14-byte stride.
+\Tetra{} is what the file stores and what the kernel reads: 48 bits at a
+6-byte stride, decoded by six loads from 18{,}816~B of tables, 16~KiB of which
+hold the rank rows. Purple is trellis state, grey the edge choices, blue the
+row indices into the shared table, red the gain bit; hatching is padding. Both
+carry 2.000 bits of code per weight.}
 \label{fig:word}
 \end{figure}
 
@@ -195,54 +182,49 @@ the head of each decoder.}
 \draw[flow] (L.south) -- (y.north west);
 \draw[flow] (R.south) -- (y.north east);
 \end{tikzpicture}
-\Description{A flowchart: the 48-bit word feeds two groups of table reads, a
-chained group of three byte lookups on the left and an independent group of
-three row lookups on the right, which join into the 24 reconstructed values.}
 \caption{The decode. The three byte lookups recover the Golay pattern bytes and
 must run in order, since each index depends on the state the previous read
-returned; the three row reads depend only on the word and issue together. The
-shell index $m$ is recomputed from the decoded values, not stored, and
-$r_3 = p \oplus r \oplus \delta$ by Eq.~\eqref{eq:xor}.}
+returned. The three row reads depend only on the word and are issued together.
+The shell index $m$ is recomputed from the decoded values, not stored, and
+$r_3 = p \oplus r \oplus \delta$ by Equation~\eqref{eq:xor}.}
 \label{fig:decode}
 \end{figure}
 
-The tables total 18{,}816~B: the rank table $4096\times$\texttt{u32}
-$=16{,}384$~B, \texttt{branches} $1024\times$\texttt{u16} $=2{,}048$~B, two
-byte tables of 128~B, and \texttt{invnorm}, $32\times$\texttt{f32}, holding
-$1/\sqrt{16m}$ with entry $0$ set to $0$ so that the origin, a legal word,
-reconstructs to zeros without a branch. The bound $m\le27$ comes from sweeping
-all 4{,}096 rows against both parities and both residues, which gives
+The tables total 18{,}816~B: the rank table, 4{,}096 words or 16{,}384~B; the
+branch table, 1{,}024 16-bit entries or 2{,}048~B; two byte tables of 128~B;
+and 32 floats holding $1/\sqrt{16m}$, with entry 0 set to 0 so that the origin,
+a legal word, decodes to zeros without a branch. The bound $m\le27$ comes from
+sweeping all 4{,}096 rows against both parities and both residues, which gives
 $\max|y_j|=10$.
 
-\subsection{What the construction changes, and what it costs}
+\subsection{What the construction costs}
 \label{sec:kept}
 
-\Tetra{} is not a repacking of the earlier codebook but a different codebook on
-the same lattice. Keeping the 2{,}048 cheapest rank vectors bounds each section
-separately, so the encoder searches a product of three 8-dimensional regions
-where \Planes{} searched a 24-dimensional ball. That is what buys the six-load
-decode, and that is what it costs.
+\Tetra{} is not a repacking of the earlier codebook. It is a different codebook
+on the same lattice. Keeping the 2{,}048 cheapest rank vectors bounds each
+section on its own, so the encoder searches a product of three 8-dimensional
+regions where \Planes{} searched a 24-dimensional ball. That is what makes the
+six-load decode possible, and it is what the format pays.
 
-How much it costs, we estimate rather than measure. The best shaping gain of a
+We estimate the price rather than measure it. The best shaping gain of a
 product of three 8-dimensional balls is 0.7292~dB, against 1.0958~dB for the
-24-dimensional ball: a difference of 0.3666~dB, or 8.81\,\% of MSE at our
-operating point, and 89.10\,\% retention against 92.14\,\% at two bits per
-dimension. Our regions are neither balls nor continuous, since they are
-rank-truncated and trellis-constrained, so those figures are a geometric
-reference and not the cost of this codebook. One related effect is measured:
-ranking rank vectors by $\mathrm{cost}(\rho)$ rather than by squared distance
-loses 0.6~pp of retention against an exact per-section enumeration.
+24-dimensional ball. The difference, 0.3666~dB, is 8.81\,\% of mean squared
+error at our operating point. Our regions are neither balls nor continuous,
+since they are rank-truncated and constrained by the trellis, so these figures
+are a geometric reference and not the cost of this codebook. One related effect
+is measured: ranking rank vectors by $\mathrm{cost}(\rho)$ rather than by exact
+squared distance loses 0.6 points of retention against an exact enumeration
+per section.
 
 What the construction keeps is the lattice. The decoded point satisfies both
-constraints of Fig.~\ref{fig:geom}: Golay membership, because the pattern bytes
-come from a trellis path; and the $\sum k$ parity, by Eq.~\eqref{eq:xor}. Three
-independent $E_8$ quantizers would keep neither, and the lattice alone is worth
-$G(E_8)/G(\Lambda_{24}) = 0.071682/0.065771 = 1.0899$, that is 9.0\,\% of
-MSE~\citep{conway1999sphere}.
+constraints of Figure~\ref{fig:geom}: Golay membership, because the pattern
+bytes come from a trellis path, and the $\sum k$ parity, by
+Equation~\eqref{eq:xor}. Three independent $E_8$ quantizers would keep neither,
+and the lattice alone is worth $G(E_8)/G(\Lambda_{24}) = 0.071682/0.065771 =
+1.0899$, that is 9.0\,\% of mean squared error~\citep{conway1999sphere}.
 
-Against the codebook it replaces, on the identical harness and the same model,
-bare \Tetra{} reads $2.10$~pp lower MMLU and $4.64\,\%$ lower perplexity than
-\Planes{}. Re-encoding the same model with a different calibration draw moves
-MMLU by $2.92$~pp over three seeds, which is larger than the difference between
-the two codebooks. This experiment therefore does not separate the effect of
-the codebook change from that of the calibration draw.
+On the same model and the same harness, bare \Tetra{} scores 2.10 MMLU points
+below \Planes{} on the 2{,}280-question sample and has a 4.64\,\% lower
+perplexity. Re-encoding one model with three different calibration draws moves
+MMLU by 2.92 points, more than the difference between the two codebooks, so
+this comparison does not separate the codebook from the calibration draw.

@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
 """Generate paper 2's figures from docs/data/*.csv.
 
-Same rules and the same art direction as paper 1's
-`paper/scripts/make_figures.py`, deliberately: the Okabe-Ito palette, serif
-type at 7-8 pt, grey axes without top and right spines, a light grid, circles
-for our arms and squares for deployed kernels, values in a column outside the
-axes. A reader who opens the two papers side by side should not be able to
-tell which script drew which figure. No number in a figure is typed by hand
-except the layout constants listed in `HARDCODED`, and every CSV row a figure
-claims to draw is drawn or the script fails with the row named.
+The art direction is paper 1's (`paper/scripts/make_figures.py`), copied rather
+than reinterpreted: Okabe-Ito palette, serif type at 7-8 pt, grey axes without
+top and right spines, a light grid, figures drawn at the 5.5 in text width they
+are printed at. Our arms are circles in the cool colours, blue for the object
+of the paper; deployed kernels are squares in the warm ones. The scale figure
+is paper 1's `fig_scale` with the same three series styles.
 
-One rule of thumb runs through all four: **anything that needs a sentence goes
-in the caption, not in the figure.** A 6.5 pt grey line under a bar is
-unreadable at print size; the same words at caption size are not. Paper 1's
-fig_records does this too — its geometry and exception rates live in its
-caption.
+No number in a figure is typed by hand except the layout constants listed in
+`HARDCODED`, and every CSV row a figure claims to draw is drawn or the script
+fails with the row named.
 
-  fig_gap.pdf      bits carried vs bits read in VRAM    echelle-formats.csv
-  fig_word.pdf     two records to bit scale, one zoom   (layout constants)
-  fig_tile.pdf     the tile sweep, three arms           tuile-l40s.csv
-  fig_dissoc.pdf   perplexity against MMLU              tetra-rowscales.csv
+  fig_gap.pdf     bits carried vs bits read in VRAM     echelle-formats.csv
+  fig_word.pdf    two records to bit scale, one zoom    (layout constants)
+  fig_tile.pdf    the tile sweep, three arms            tuile-l40s.csv
+  fig_scale.pdf   three sizes, three panels             paper2-gaps.csv,
+                                                         paper2-chain.csv,
+                                                         paper2-results.csv,
+                                                         echelle-4b-8b.csv
 """
 
 import csv
@@ -31,16 +30,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-# acmsmall's \textwidth is 395.8 pt = 5.50 in, as in paper 1. Figures are
-# drawn at the width they are included at, so 7-8 pt type prints at 7-8 pt.
+# The text block is 5.5 in wide, as in paper 1. Figures are drawn at the width
+# they are included at, so 7-8 pt type prints at 7-8 pt.
 TEXTWIDTH_IN = 5.5
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "docs" / "data"
 OUT = ROOT / "paper2" / "figures"
 
-# Okabe-Ito palette: colorblind-safe, print-safe. Identical to paper 1;
-# Tetra takes PURPLE, the one arm colour paper 1 left unassigned.
+# Okabe-Ito palette, identical to paper 1.
 BLUE = "#0072B2"
 SKY = "#56B4E9"
 GREEN = "#009E73"
@@ -85,20 +83,20 @@ def read_csv(name: str) -> list[dict]:
 
 
 def require_plotted(fig: str, csv_name: str, expected: set, plotted: set,
-                    excluded: dict[str, str]) -> None:
+                    excluded: dict) -> None:
     """Fail if a CSV row the figure should draw was not drawn."""
     missing = expected - plotted - set(excluded)
     if missing:
         raise SystemExit(
-            f"{fig}: {sorted(missing)} in {csv_name} but not plotted - "
+            f"{fig}: {sorted(missing)} in {csv_name} but not plotted: "
             "add them to the figure or list them as excluded with a reason"
         )
     for key, why in excluded.items():
-        print(f"{fig}: {csv_name} row {key!r} not drawn - {why}")
+        print(f"{fig}: {csv_name} row {key!r} not drawn ({why})")
 
 
 # ---------------------------------------------------------------------------
-# Fig. 1 - what the format carries against what the kernel reads
+# What the format carries against what the kernel reads
 # ---------------------------------------------------------------------------
 
 # Bits of code a format carries per weight. A property of the format, not a
@@ -111,19 +109,14 @@ CODE_CARRIED = {"Planes14": 2.000, "Tetra48": 2.000, "QTIP": 2.000,
 
 def fig_gap() -> None:
     """One dumbbell per format: bits of code carried (hollow) joined to bits
-    read per weight in VRAM (filled).
-
-    The x axis starts at 1.7 rather than 0 so that the two short dumbbells
-    (Tetra 2.000-2.148, AWQ 4.000-4.179) are legible segments and not blobs;
-    the two markers of a 0.148-bit gap are 5 pt apart at this scale, against
-    2 pt on a zero-based axis. Nothing is cut off: 1.7 is below every value.
-    """
+    read per weight in VRAM (filled). The x axis starts at 1.7 so that the two
+    short dumbbells stay legible segments."""
     rows = {r["layout"]: r for r in read_csv("echelle-formats.csv")}
-    hardcoded("bits of code carried, 2.000 / 4.000 (Fig. 1)",
+    hardcoded("bits of code carried, 2.000 / 4.000 (fig_gap)",
               "format definitions: 48 bits per 24 weights; 4-bit affine")
-    shown = {"AWQ": "AWQ w4g128 (4-bit)", "Planes14": "Planes14 (paper 1)",
+    shown = {"AWQ": "AWQ w4g128 (4-bit)", "Planes14": "Planes14 (our earlier layout)",
              "Tetra48": "Tetra (this paper)", "QTIP": "QTIP (2-bit)"}
-    colors = {"AWQ": ORANGE, "Planes14": BLUE, "Tetra48": PURPLE,
+    colors = {"AWQ": ORANGE, "Planes14": SKY, "Tetra48": BLUE,
               "QTIP": VERMILLION}
     markers = {"AWQ": "s", "Planes14": "o", "Tetra48": "o", "QTIP": "s"}
     order = ["AWQ", "Planes14", "Tetra48", "QTIP"]
@@ -153,7 +146,7 @@ def fig_gap() -> None:
 
     require_plotted(
         "fig_gap", "echelle-formats.csv", set(rows), plotted,
-        {"FP16": "16.000 on both ends: no gap to draw",
+        {"FP16": "16.000 on both ends, no gap to draw",
          "cuBLASf16": "the same control through cuBLAS",
          "nullk": "reads no weights",
          "Slot32": "superseded by Planes14; in the appendix table",
@@ -173,11 +166,11 @@ def fig_gap() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fig. 3 - two records, to the bit, plus the short one magnified
+# Two records, to the bit, plus the short one magnified
 # ---------------------------------------------------------------------------
 
 # Field widths are constants of each layout, transcribed from the record
-# diagram at the head of its decoder, exactly as in paper 1's Fig. A:
+# diagram at the head of its decoder, exactly as in paper 1's record figure:
 #   Planes14  llvq-cuda/kernels/llvq_planes.cuh
 #             [class 9][gain 1][smask 24][plane0 24][plane1 24][plane2 24][pad 6]
 #   Tetra     llvq-cuda/kernels/llvq_f1rank.cuh
@@ -199,18 +192,11 @@ TETRA_RECORD = [
 
 
 def fig_word() -> None:
-    """Three bars. The top two are the unfolded Planes14 record and the Tetra
-    word at ONE bit scale, which is the comparison. The third magnifies the
-    48-bit word to the width of the figure so that every field can be named —
-    the same device as paper 1's Fig. F, which magnifies the gap above the
-    DRAM floor rather than leaving five terms unreadable at true scale.
-
-    Everything that would need a sentence (what each colour means, the stride,
-    the window, the table sizes) is in the caption. At 5.5 in a 6.5 pt grey
-    line under a bar does not survive printing.
-    """
+    """The unfolded Planes14 record and the Tetra word at one bit scale, then
+    the word magnified so that every field can be named. Everything that
+    would need a sentence is in the caption."""
     rows = {r["layout"]: r for r in read_csv("echelle-formats.csv")}
-    hardcoded("record field widths (Fig. 3)",
+    hardcoded("record field widths (fig_word)",
               "llvq-cuda/kernels/llvq_planes.cuh, llvq_f1rank.cuh headers")
 
     fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN, 2.45), layout="constrained")
@@ -221,8 +207,6 @@ def fig_word() -> None:
     k = zoom_w / 48.0
 
     def draw(record, y, scale=1.0, label_min=4.0):
-        """Draw one record left-aligned at x = 0. Fields narrower than
-        `label_min` drawn units carry no inline label."""
         x = 0.0
         for label, width, kind in record:
             w = width * scale
@@ -241,7 +225,6 @@ def fig_word() -> None:
             x += w
         return x
 
-    # --- the two records at one scale
     end_p = draw(PLANES_RECORD, y_p)
     end_t = draw(TETRA_RECORD, y_t)
     for y, name, end, bits, arm in ((y_p, "Planes14", end_p, "112 b", "Planes14"),
@@ -254,7 +237,6 @@ def fig_word() -> None:
         ax.text(right, y, f"{float(rows[arm]['bpw_kernel']):.3f} b/w in VRAM",
                 ha="right", va="center", fontsize=8, color=INK)
 
-    # --- the word magnified, so the ten fields can be named
     ax.plot([0, 0], [y_t - bar_h / 2, y_z + bar_h / 2], color=GRAY,
             linewidth=0.5, linestyle=":", zorder=1)
     ax.plot([48, zoom_w], [y_t - bar_h / 2, y_z + bar_h / 2], color=GRAY,
@@ -262,15 +244,11 @@ def fig_word() -> None:
     draw(TETRA_RECORD, y_z, scale=k, label_min=9.0)
     ax.text(-4, y_z, "the word,\nmagnified", ha="right", va="center",
             fontsize=8, color=INK, linespacing=1.15)
-
-    # The 1-bit fields are 3.7 drawn units wide even magnified: they are named
-    # once, below, rather than crammed into 0.1 in of bar.
     ax.text(0, y_z - bar_h / 2 - 0.20,
             "one bit each, left to right:  $p$ shared parity · $r$ section-1 "
             "class · $b_1$, $b_3$ edge choices · $g$ gain",
             ha="left", va="top", fontsize=7.5, color=INK)
 
-    # --- the bit ruler, over the two true-scale rows only
     top = bar_h / 2 + 0.34
     for w in range(0, 129, 32):
         ax.plot([w, w], [top, y_t - bar_h / 2 - 0.06], color="#E4E4E4",
@@ -282,8 +260,8 @@ def fig_word() -> None:
 
     require_plotted(
         "fig_word", "echelle-formats.csv", set(rows), {"Planes14", "Tetra48"},
-        {k2: "this figure contrasts two layouts; the others have no record here"
-         for k2 in rows if k2 not in {"Planes14", "Tetra48"}},
+        {k2: "this figure contrasts two layouts" for k2 in rows
+         if k2 not in {"Planes14", "Tetra48"}},
     )
 
     ax.set_xlim(-40, right + 4)
@@ -294,19 +272,18 @@ def fig_word() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fig. 5 - the tile sweep
+# The tile sweep
 # ---------------------------------------------------------------------------
 
 def fig_tile() -> None:
     """Median ms against the activation tile for three arms of one process:
-    the arm with tables, the arm without, and the no-weights control. Each
-    curve is one arm against itself across tiles."""
+    the arm with tables, the arm without, and the no-weights control."""
     rows = read_csv("tuile-l40s.csv")
     rows.sort(key=lambda r: int(r["tile"]))
     tiles = [int(r["tile"]) for r in rows]
     series = [
-        ("planes14_ms", "Planes14, no tables", BLUE, "o", "-"),
-        ("tetra48_ms", "Tetra, 18.4 KiB of tables", PURPLE, "o", "-"),
+        ("planes14_ms", "Planes14, no tables", SKY, "o", "-"),
+        ("tetra48_ms", "Tetra, 18.4 KiB of tables", BLUE, "o", "-"),
         ("nullk_ms", "no-weights control", GRAY, "^", ":"),
     ]
     fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN * 0.66, 2.15),
@@ -323,7 +300,7 @@ def fig_tile() -> None:
     ax.set_xscale("log", base=2)
     ax.set_xticks(tiles, [str(t) for t in tiles])
     ax.set_xlim(27, 165)
-    ax.set_ylim(1.9, 6.1)
+    ax.set_ylim(1.9, 7.4)
     ax.set_xlabel("activation tile $T$ (blocks per CTA)")
     ax.set_ylabel("median ms, 252 projections")
     ax.grid(axis="y", zorder=0)
@@ -334,47 +311,107 @@ def fig_tile() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Fig. 6 - perplexity against MMLU
+# Three sizes, three panels (paper 1's fig_scale, same series styles)
 # ---------------------------------------------------------------------------
 
-def fig_dissoc() -> None:
-    """The served object before and after the row-scale training, against the
-    FP16 checkpoint, on the two metrics at once."""
-    rows = {r["base"]: r for r in read_csv("tetra-rowscales.csv")}
-    r = rows["served_object"]
-    f16_mmlu = float(next(x for x in read_csv("tetra-formats.csv")
-                          if x["arm"] == "f16")["mmlu"])
-    before = (float(r["ppl_ratio_before"]), float(r["mmlu_before"]))
-    after = (float(r["ppl_ratio_after"]), float(r["mmlu_after"]))
+def fig_scale() -> None:
+    """Against model size: the paired MMLU gaps, whole-model bits per
+    parameter, and decode speed at batch 1, each engine in its own series."""
+    gaps = read_csv("paper2-gaps.csv")
+    chain = read_csv("paper2-chain.csv")
+    results = read_csv("paper2-results.csv")
+    scale = read_csv("echelle-4b-8b.csv")
 
-    fig, ax = plt.subplots(figsize=(TEXTWIDTH_IN * 0.66, 2.15),
-                           layout="constrained")
-    ax.axhline(f16_mmlu, color=GRAY, linewidth=0.8, linestyle=":", zorder=1)
-    ax.axvline(1.0, color=GRAY, linewidth=0.8, linestyle=":", zorder=1)
-    ax.plot(1.0, f16_mmlu, marker="o", markersize=5.5, color=INK, zorder=3)
-    ax.annotate("FP16 checkpoint", xy=(1.0, f16_mmlu), xytext=(6, -3),
-                textcoords="offset points", ha="left", va="top", fontsize=7.5,
-                color=INK)
-    ax.plot(*before, marker="o", markersize=5.5, markerfacecolor="white",
-            markeredgecolor=PURPLE, markeredgewidth=1.3, zorder=3)
-    ax.plot(*after, marker="o", markersize=5.5, color=PURPLE, zorder=3)
-    ax.annotate("", xy=after, xytext=before,
-                arrowprops=dict(arrowstyle="->", color=PURPLE, linewidth=1.0,
-                                connectionstyle="arc3,rad=0.25",
-                                shrinkA=5, shrinkB=5), zorder=2)
-    ax.annotate("before training", xy=before, xytext=(-5, -6),
-                textcoords="offset points", ha="right", va="top",
-                fontsize=7.5, color=PURPLE)
-    ax.annotate("after, served", xy=after, xytext=(5, 5),
-                textcoords="offset points", ha="left", va="bottom",
-                fontsize=7.5, color=PURPLE)
+    sizes = {r["model"]: int(r["params_total"]) / 1e9 for r in scale}
+    models = sorted(sizes, key=sizes.get)
+    xs = [sizes[m] for m in models]
+    short = {m: m.replace("Qwen3-", "") for m in models}
 
-    ax.set_xlabel("wikitext-2 perplexity, ratio to FP16")
-    ax.set_ylabel("MMLU micro (census)")
-    ax.set_xlim(0.95, 1.42)
-    ax.set_ylim(54, 74)
-    ax.grid(zorder=0)
-    fig.savefig(OUT / "fig_dissoc.pdf")
+    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(TEXTWIDTH_IN, 1.95),
+                                     layout="constrained")
+
+    def line(ax, pts, color, label, marker="o", ls="-"):
+        """pts: (x, y, lo, hi); lo == hi == y draws no bar."""
+        pts = sorted(pts)
+        ax.errorbar([p[0] for p in pts], [p[1] for p in pts],
+                    yerr=[[p[1] - p[2] for p in pts], [p[3] - p[1] for p in pts]],
+                    fmt=marker + ls, color=color, markersize=4, linewidth=1.1,
+                    capsize=2.5, elinewidth=0.9, capthick=0.9, label=label,
+                    zorder=3)
+
+    # (i) MMLU gap in points, paired 95% CI, zero line.
+    done_gap = set()
+    a1.axhline(0, color=GRAY, linewidth=0.7, linestyle=":", zorder=1)
+    for pair, color, label, dx, marker, ls in (
+            ("f16_minus_tetra", BLUE, "FP16 − Tetra", 0, "o", "-"),
+            ("awq4_minus_tetra", VERMILLION, "AWQ − Tetra", 0.18, "s", "--"),
+            ("f16_minus_awq4", GREEN, "FP16 − AWQ", -0.18, "^", ":")):
+        rows = [r for r in gaps if r["pair"] == pair]
+        line(a1, [(sizes[r["model"]] + dx, float(r["delta_pp"]),
+                   float(r["ci_lo_pp"]), float(r["ci_hi_pp"])) for r in rows],
+             color, label, marker, ls)
+        done_gap |= {(r["model"], r["pair"]) for r in rows}
+    a1.set_ylabel("MMLU gap (points)")
+    a1.set_ylim(-1, 9)
+    a1.legend(frameon=False, loc="upper right")
+
+    # (ii) whole-model bits per parameter, served file against AWQ.
+    tetra_bpp = {r["model"]: float(r["bparam"]) for r in chain
+                 if r["stage"] == "sealed"}
+    awq_bpp = {r["model"]: float(r["vram_bits_per_param"]) for r in scale
+               if r["arm"] == "awq4"}
+    line(a2, [(sizes[m], v, v, v) for m, v in tetra_bpp.items()], BLUE,
+         "Tetra, served (ours)")
+    line(a2, [(sizes[m], v, v, v) for m, v in awq_bpp.items()], GREEN,
+         "4-bit AWQ, official", marker="s", ls="--")
+    for m, v in tetra_bpp.items():
+        a2.annotate(f"{v:.3f}", xy=(sizes[m], v), xytext=(0, -9),
+                    textcoords="offset points", ha="center", fontsize=6.5,
+                    color=BLUE)
+    for m, v in awq_bpp.items():
+        a2.annotate(f"{v:.3f}", xy=(sizes[m], v), xytext=(0, 5),
+                    textcoords="offset points", ha="center", fontsize=6.5,
+                    color=GREEN)
+    a2.set_ylabel("b/param, whole model")
+    a2.set_ylim(2.0, 6.9)
+    a2.legend(frameon=False, loc="center right")
+
+    # (iii) decode tokens per second at batch 1, each engine its own series.
+    done_speed = set()
+    pending = {}
+    for arm, engine, color, label, marker, ls in (
+            ("tetra", "ours", BLUE, "Tetra (ours)", "o", "-"),
+            ("awq", "vLLM 0.26.0", GREEN, "AWQ (vLLM)", "s", "--"),
+            ("fp16", "vLLM 0.26.0", GRAY, "FP16 (vLLM)", "^", ":")):
+        rows = [r for r in results if r["arm"] == arm and r["engine"] == engine]
+        have = [r for r in rows if r["toks"]]
+        for r in rows:
+            if not r["toks"]:
+                pending[(r["model"], arm, engine)] = "served run not back yet"
+        if have:
+            line(a3, [(sizes[r["model"]], float(r["toks"]), float(r["toks"]),
+                       float(r["toks"])) for r in have], color, label, marker, ls)
+        done_speed |= {(r["model"], r["arm"], r["engine"]) for r in have}
+    a3.set_ylabel("decode tok/s, batch 1")
+    a3.set_ylim(0, 230)
+    a3.legend(frameon=False, loc="upper right")
+
+    for ax in (a1, a2, a3):
+        ax.set_xticks(xs, [short[m] for m in models])
+        ax.set_xlim(min(xs) - 1.2, max(xs) + 1.2)
+        ax.set_xlabel("model size")
+        ax.grid(axis="y", zorder=0)
+
+    require_plotted("fig_scale", "paper2-gaps.csv",
+                    {(r["model"], r["pair"]) for r in gaps}, done_gap, {})
+    require_plotted(
+        "fig_scale", "paper2-results.csv",
+        {(r["model"], r["arm"], r["engine"]) for r in results}, done_speed,
+        {**pending,
+         **{(r["model"], r["arm"], r["engine"]): "not in the speed panel"
+            for r in results if r["arm"] == "iq2xxs"
+            or (r["arm"] == "fp16" and r["engine"] == "ours dense")}})
+    fig.savefig(OUT / "fig_scale.pdf")
     plt.close(fig)
 
 
@@ -383,7 +420,7 @@ def main() -> None:
     fig_gap()
     fig_word()
     fig_tile()
-    fig_dissoc()
+    fig_scale()
     print(f"wrote 4 figures to {OUT}")
     print("numbers not read from a CSV:")
     for what, where in HARDCODED:

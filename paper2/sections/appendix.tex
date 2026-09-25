@@ -1,133 +1,144 @@
-\section{The ten-arm benchmark}
+\section{The ten-arm kernel benchmark}
 \label{app:bench}
 
 \begin{table}[H]
-\centering\footnotesize\setlength{\tabcolsep}{5pt}
+\centering\small\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lrrrrr}
 \toprule
 arm & matrices & median ms & GB read & \bw{} & GB/s\\
 \midrule
-FP16, in-house control & 252 & 10.973 & 7.27 & 16.000 & 662\\
+FP16, our control & 252 & 10.973 & 7.27 & 16.000 & 662\\
 FP16, cuBLAS & 252 & 10.828 & 7.27 & 16.000 & 672\\
-\textsc{Slot32} (ours) & 252 & 5.732 & 2.50 & 5.510 & 437\\
-\Planes{} (ours) & 252 & 4.997 & 2.18 & 4.804 & 437\\
-\textsc{Planes12x} (ours) & 252 & 5.366 & 1.97 & 4.342 & 368\\
-\textsc{Golay70} v1 (ours) & 252 & 8.064 & 1.63 & 3.589 & 202\\
-\textsc{Golay70} v2 (ours) & 252 & 6.016 & 1.63 & 3.589 & 271\\
-\Tetra{} (ours) & 216 & 3.424 & 0.95 & 2.148 & 278\\
+\textsc{Slot32} (ours, earlier) & 252 & 5.732 & 2.50 & 5.510 & 437\\
+\Planes{} (ours, earlier) & 252 & 4.997 & 2.18 & 4.804 & 437\\
+\textsc{Planes12x} (ours, earlier) & 252 & 5.366 & 1.97 & 4.342 & 368\\
+\textsc{Golay70} v1 (ours, earlier) & 252 & 8.064 & 1.63 & 3.589 & 202\\
+\textsc{Golay70} v2 (ours, earlier) & 252 & 6.016 & 1.63 & 3.589 & 271\\
+\Tetra{} (this paper) & 216 & 3.424 & 0.95 & 2.148 & 278\\
 AWQ w4g128~\citep{awq2024} & 252 & 3.261 & 1.90 & 4.179 & 583\\
-\texttt{nullk}, no-weights control & 252 & 2.289 & 0.07 & 0.159 & 32\\
+no-weights control & 252 & 2.289 & 0.07 & 0.159 & 32\\
 QTIP 2-bit~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
 \bottomrule
 \end{tabular}
-\caption{One process, one L40S, tile 64, seven rounds with two discarded,
-ratios formed round by round. The \Tetra{} arm covers 216 matrices and the
-others 252, so the millisecond column is not a ranking (\S\ref{sec:results}).
-$^{*}$From another process (2026-08-21) and below the no-weights control; kept
-with that reservation. Data: echelle-formats.csv, from banc-t64-2026-09-20 and
-f2-p3-qtip-banc-2026-08-21.}
+\caption{One process, one L40S, 4B shapes, tile 64, seven rounds with the first
+two dropped. The \Tetra{} arm covers 216 matrices and the others 252, so the
+millisecond column is not a ranking. $^{*}$From another process (2026-08-21)
+and below the no-weights control; kept with that reservation. Data:
+echelle-formats.csv.}
 \end{table}
 
-\section{Record of trials, predictions and commands}
+\section{Record of predictions, defects and commands}
 \label{app:record}
 
-\textbf{Predictions, and how they scored.} Before the tile sweep we
-preregistered a \Tetra{} time of 3.77~ms $[3.5, 4.1]$ at $T=64$ and a gain of
-$+8.3\,\%$ $[0, +15]$; we measured 3.423~ms and $+16.1\,\%$, both outside their
-intervals, in the favourable direction. Before the first row-scale training we
-preregistered $+1.0$~pp $[-0.5, +2.5]$ of MMLU, then revised it down to $+0.4$
-because the training curve was flat; we measured $+4.30$. The revision was
-wrong for an instructive reason: we had read a 7.5\,\% fall in KL on held-out
-text as a small effect, and KL on a calibration corpus and MMLU do not scale
-together.
+\paragraph{Predictions and how they scored.} Each campaign was preregistered
+with a signed prediction and an interval before it ran.
 
-\textbf{The tile.} It is a constant injected by the host at compile time.
-Every figure we published before 2026-09-20 was measured at $T=128$. The served
-default is now whichever tile was measured fastest on that card, 64 on sm\_89
-and 32 on sm\_120, falling back to 128 on a card we have not swept; every
-benchmark prints which value it used.
+\begin{table}[H]
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrl}
+\toprule
+quantity & predicted & measured & inside?\\
+\midrule
+\Tetra{} time at tile 64 & 3.77~ms $[3.5, 4.1]$ & 3.423~ms & no, faster\\
+gain from tile 128 to 64 & $+8.3\,\%$ $[0, +15]$ & $+16.1\,\%$ & no, larger\\
+row-scale training, 4B & $+3.5$ $[+1.5, +4.5]$ & $+3.15$ & yes\\
+row-scale training, 8B & $+2.0$ $[+0.5, +3.5]$ & $+3.29$ & yes\\
+row-scale training, 14B & $+3.2$ $[+1.7, +4.7]$ & $+1.67$ & no, 0.03 under\\
+sealed composition, 4B & $+1.2$ $[+0.2, +2.2]$ & $+2.26$ & no, 0.06 over\\
+sealed composition, 14B & $+1.0$ $[0, +2.0]$ & $+1.46$ & yes\\
+8B at 2.7, $o$ and down minus down only & $+0.2$ $[-0.6, +1.0]$ & $-0.77$ & no, other sign\\
+second training, 4B & $+0.8$ $[-0.4, +2.0]$ & $+0.02$ & yes\\
+AWQ 4B, full test set & 69.9 $[69.2, 70.6]$ & 68.14 & no, lower\\
+IQ2\_XXS 4B, full test set & 39.0 $[37.5, 40.5]$ & 39.78 & yes\\
+AWQ tok/s in vLLM, 8B & 90 $[75, 110]$ & 123.2 & no, faster\\
+AWQ tok/s in vLLM, 14B & 55 $[45, 70]$ & 77.8 & no, faster\\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\textbf{The segmented kernel.} A variant fusing $q{+}k{+}v$ and
-$\mathrm{gate}{+}\mathrm{up}$ into single launches is written, compiles on the
-card and passes four host-side tests, and fails the bit-exact comparison
-against the unfused arm. It is behind \texttt{LLVQ\_SEG\_TETRA}, off by
-default, and no number in this paper comes from it.
+\paragraph{Defects found by the served runs.} The first served runs of the
+three sealed files failed before producing a number, on two defects of our
+engine. First, a group of projections with no rotation took a path that hands
+all prompt rows at once to the matrix-vector product, which is correct for a
+dense matrix and wrong for the int4 kernel, which takes one row. A lone int4
+\texttt{o\_proj} or \texttt{down\_proj} is such a group; an int4
+\texttt{v\_proj} never was, because $q$ and $k$ share its group. Second, the
+int4 kernel was bounded by the 48~KiB default of shared memory, which a 14B
+\texttt{down\_proj} exceeds. Both were fixed, tested and type-checked before
+the runs that give the speeds of Table~\ref{tab:main}. Neither affects an MMLU
+number, which all come from the dense reconstruction.
 
-\textbf{Identity checks.} The object of \S\ref{sec:results}: 32 greedy tokens
-identical to the FP16 checkpoint's (dclm-ft-fusedrun-2026-09-20). An earlier
-\Tetra{} object of 2026-09-10: 256 tokens (f1e0-2026-09-10). Both journals also
-record an \texttt{oracle} match; that binary compares our forward
-implementation with \texttt{candle-transformers} on an unquantized checkpoint
-and is not evidence about the kernel.
+\paragraph{A corrected rate.} An earlier version of our 4B table gave IQ2\_XXS
+2.4967 bits per parameter. That is the rate of a different IQ2\_XXS file,
+published by a third party and never scored here. The file we score is our own
+build, 1{,}246{,}620{,}832 bytes, 2.479 bits per parameter.
 
-\textbf{The object and the commands.} \texttt{qwen3-4b-dclm-ft.bin},
-1{,}794{,}564{,}765~B, \texttt{sha256 f8c1c903b753fe34\ldots}. On an NVIDIA
+\paragraph{The files and the commands.} The three sealed files, with the
+first eight hex digits of their SHA-256:
+\begin{itemize}
+\item \nolinkurl{qwen3-4b-sealed.bin}, \texttt{886391a8};
+\item \nolinkurl{qwen3-8b-sealed-B.bin}, \texttt{7bdb9a55};
+\item \nolinkurl{qwen3-14b-sealed.bin}, \texttt{61db37fe}.
+\end{itemize}
+Each has a served configuration in the \nolinkurl{configs/} directory, named
+after its size, for example \nolinkurl{qwen3-4b-tetra-e4.json}. On an NVIDIA
 GPU:
 
 {\footnotesize
 \begin{verbatim}
-LLVQ_CONFIG=configs/qwen3-4b-tetra-q5.json cargo run --release \
-  -p llvq-llm --features cuda --bin fusedrun -- <sealed>      # tok/s, GB
-cargo run --release -p llvq-cuda --bin planesbench -- <sealed> # Table 1
-LLVQ_DTYPE=f16 cargo run --release -p llvq-llm --features cuda \
-  --bin ppl -- 4096 12 cuda <sealed>
-cargo run --release -p llvq-llm --features cuda --bin mmlu -- <sealed> cuda 40
+# tok/s and GB, through the served kernel
+LLVQ_CONFIG=configs/qwen3-4b-tetra-e4.json cargo run --release \
+  -p llvq-llm --features cuda --bin fusedrun -- <file>
+# MMLU on the full test set, then a paired comparison of two dumps
+LLVQ_MMLU_ALLOC=flat cargo run --release -p llvq-llm \
+  --features cuda --bin mmlu -- <file> cuda
+cargo run --release -p llvq-llm --bin mmlupair -- <A> <B> --no-fpc
+# bits per parameter over the whole model
+cargo run --release -p llvq-bench --bin rtbits -- <file>
 \end{verbatim}}
 
-\noindent\texttt{LLVQ\_FUSED\_LAYOUT=tetra48} selects the layout;
-\texttt{LLVQ\_TILE\_BLOCKS} overrides the tile and defaults to the measured row
-for the card. Each binary prints a fingerprint of the scored tokens, and
-numbers compare only when fingerprints match.
-
-\textbf{Protocol notes.} A quotient of two minima gave $2.19$ on one run where
-the round-by-round median gave $2.14\times$ $[2.10$--$2.16]$; three invocations
-of one unmodified binary gave $2.029$, $2.050$ and $2.080\times$ at identical
-bytes and identical errors, so an effect of a few percent is not settled
-between two invocations. Ratios are never divided across cards or inference
-stacks; memory comparisons are stated in b/param over the whole model,
-embedding included. A benchmark must read more distinct bytes than the card's
-L2 or it measures the cache: the lightest arm here reads $9.4\times$ the L2 per
-pass.
+\noindent Each binary prints a fingerprint of the questions or tokens it
+scored, and two numbers compare only when their fingerprints match.
 
 \section{Provenance}
 \label{app:provenance}
 
 A number is \emph{measured} (read off a run), \emph{computed} (arithmetic on
-measured quantities) or \emph{cited}. Journals are files under
-\texttt{docs/mesures/} in the repository; names are abbreviated and all are
-2026. Every figure is generated from a CSV in \texttt{docs/data/} by
-\texttt{scripts/make\_figures.py}, and \texttt{scripts/check\_tables.py}
-refuses the build if a table drifts from the same CSV.
+measured quantities) or \emph{cited}. Logs are files under
+\texttt{docs/mesures/} in the repository; names are shortened and all dates
+are 2026. Every figure is generated from a CSV in \texttt{docs/data/} by
+\texttt{scripts/make\_figures.py}, and \texttt{scripts/check\_tables.py} stops
+the build if a table drifts from its CSV.
 
-{\scriptsize\setlength{\tabcolsep}{4pt}
-\begin{tabular}{p{5.4cm}lp{5.6cm}}
+{\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{4.8cm}lp{5.2cm}}
 \toprule
 claim & nature & source\\
 \midrule
 \Planes{} reads 4.804 \bw{} & measured & echelle-formats.csv; e2-golay70-bench-08-07\\
-ball holds $1.1\cdot10^{14}$ points & computed & theta-series test, \texttt{llvq-core}\\
-trio, 64 states a cut, 1024 edges, $N_0=1240$ & computed & f1a-comptes-09-04; asserted at construction\\
-table sizes, 18\,816 B & measured & printed at every launch, banc-t64-09-20\\
+ball holds $1.1\cdot10^{14}$ points & computed & theta-series test in \texttt{llvq-core}\\
+64 states a cut, 1{,}024 edges, $N_0=1240$ & computed & f1a-comptes-09-04; checked at build\\
+tables, 18{,}816~B & measured & printed at every launch; banc-t64-09-20\\
 $m\le27$, $\max|y_j|=10$ & computed & \texttt{examples/tetrashell.rs}, exhaustive\\
-$\approx$141 instructions a block & computed & \texttt{llvq\_f1rank\_v3.cuh}\\
-rank table costs 0.6 pp of retention & measured & F1 journals, 09-05\\
-product of three 8-balls: 0.7292 dB, 89.10\,\% & computed, idealised regions & \texttt{ops/f1a\_shaping.py}\\
-$G(E_8)/G(\Lambda_{24})=1.0899$ & cited & Conway \& Sloane, Table 2.3\\
-tile sweep, 19.1 / 1.5 / 5.1\,\% & measured & tuile-l40s.csv; tuile-l40s-09-20\\
-6 CTAs, 40 registers, 256 threads & measured & printed by \texttt{planesbench}\\
-Ada: 128 KB pool, $\le$100 KB shared & cited & CUDA C++ Programming Guide\\
-ten-arm benchmark & measured & echelle-formats.csv; banc-t64-09-20\\
-QTIP 2.246 ms, 0.91 GB & measured, other process & f2-p3-qtip-banc-08-21\\
-$2.1498=1.9907+0.1494+0.0097$ & computed & references-comptabilite-09-18\\
-98.3 tok/s, 1.39 GB, 32 tokens & measured & dclm-ft-fusedrun-09-20\\
-file 1\,794\,564\,765 B, 2.7475 b/param & measured & \texttt{rtbits}, 09-20\\
-ppl 12.3268; 16.2509 before training & measured & tetra-rowscales.csv; dclm-rowscales-09-20\\
-MMLU 61.11, $+3.15$ pp paired & measured & same; dump a74a6d6213602979\\
-MMLU 58.94, $+4.30$ pp paired & measured & tetranu-rowscales-09-19\\
-calibration draw moves MMLU by 2.92 pp & measured, 3 seeds & bruit-mmlu-graines-4b-08-25\\
-bare \Tetra{} against \Planes{}: ppl, MMLU & measured & tetra-4b-09-06\\
-A100: no arm beats FP16 & measured & f4-a100-08-18\\
-sm\_120 prefers tile 32 & measured & f1d-09-10\\
-training: 9\,507 steps, 19\,470\,336 tokens & measured & dclm-rowscales-09-20\\
+about 141 instructions a block & computed & \texttt{llvq\_f1rank\_v3.cuh}\\
+shaping, 0.7292 against 1.0958~dB & computed, idealised & \texttt{ops/f1a\_shaping.py}\\
+$G(E_8)/G(\Lambda_{24})=1.0899$ & cited & Conway and Sloane, Table 2.3\\
+ten-arm benchmark, Table~\ref{tab:bench} & measured & echelle-formats.csv; banc-t64-09-20\\
+tile sweep & measured & tuile-l40s.csv; tuile-l40s-09-20\\
+sealed files: bytes, bits per parameter & measured, computed & \texttt{rtbits}; embed-q4-swap-09-23, sealed-8b-14b-09-23, sealed-8b-27-09-24\\
+MMLU of the sealed files & measured & same logs; question fingerprint \texttt{a74a6d62}\\
+steps of Table~\ref{tab:chain} & measured & paper2-chain.csv; dclm-rowscales-09-20, dclm-8b-rowscales-09-21, dclm-14b-rowscales-09-22, census-8b-09-21, census-14b-base-09-22\\
+FP16 and AWQ MMLU, 8B and 14B & measured & census-8b-09-21; census-14b-ref-09-22\\
+FP16 MMLU 4B & measured & f16-full-09-18\\
+AWQ and IQ2\_XXS MMLU 4B & measured & paper-table-09-25\\
+paired gaps, Figure~\ref{fig:scale} & measured & paper2-gaps.csv; the same logs\\
+FP16 and AWQ tok/s in vLLM & measured & awq-vllm-4b-08-17; paper-table-09-25\\
+IQ2\_XXS tok/s & measured & m4-iq2-cuda-08-30\\
+FP16 tok/s, our engine & measured & dclm-ft-fusedrun-09-20; served-8b-09-21; fusedrun-14b-08-17\\
+served tok/s and GB of the sealed files & measured & \pend\\
+8B choice, $o$ against down & measured & sealed-8b-27-09-24\\
+second training, 4B & measured & sealed-rownorms-09-23\\
+calibration draw moves MMLU by 2.92 & measured, 3 draws & bruit-mmlu-graines-4b-08-25\\
+bare \Tetra{} against \Planes{} & measured & tetra-4b-09-06\\
 \bottomrule
 \end{tabular}}

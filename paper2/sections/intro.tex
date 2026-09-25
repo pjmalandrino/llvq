@@ -1,1 +1,72 @@
-% Superseded on 2026-09-20 by sections/problem.tex. Not input by main.tex.
+\section{Introduction}
+\label{sec:intro}
+
+A 14-billion-parameter model in FP16 needs 29.5~GB for its weights alone, more
+than any single consumer GPU holds. At batch 1, generating a token also means
+reading every weight once, so the same bytes set both the memory footprint and
+the speed. Bringing weights down to two or three bits per parameter is what
+lets such a model run on local hardware.
+
+At two bits per weight, vector quantization on the Leech lattice $\Lambda_{24}$
+gives the best quality in the comparison of \citet{llvq2026}, ahead of
+QuIP\#~\citep{quipsharp2024} and QTIP~\citep{qtip2024}. It encodes blocks of
+24 weights with 48 bits each. Its codebook, however, has $1.1\times10^{14}$
+points. Fast 2-bit kernels decode their codes with a small lookup table, and a
+table that size does not exist. In earlier work~\citep{llvq1preprint} we served
+this code anyway, by unfolding it at load time into a wider layout that a
+kernel reads with shifts and masks. It worked, but the kernel read 4.804 bits
+per weight from VRAM for 2 bits of code, so most of the saving was lost on the
+GPU (Figure~\ref{fig:gap}).
+
+This paper removes that loss, then builds complete models around the result.
+
+The first part is a new codebook on the same lattice, which we call \Tetra{}.
+Reading the 24 coordinates in three blocks of eight turns the Golay code inside
+$\Lambda_{24}$ into a trellis with 64 states per cut. A lattice point is then
+addressed by an 8-bit state and three 11-bit rows of one 16~KiB table. The
+block is still 48 bits. The kernel decodes it with six table loads and reads
+2.148 bits per weight.
+
+The second part turns the codebook into models worth serving. The lattice codes
+alone leave Qwen3-4B about 15 MMLU points below FP16. Three changes close part
+of that gap without touching a single code: training the per-row scales against
+the FP16 model, storing the projections that lose the most in 4-bit integers,
+and storing the embedding tables in 4 bits to pay for them. The files stay near
+2.7 bits per parameter over the whole model.
+
+\begin{figure}[t]
+\centering
+\includegraphics{fig_gap.pdf}
+\caption{Bits of code a format carries per weight (hollow marker) and bits its
+kernel reads per weight in VRAM (filled marker). Circles are our formats,
+squares deployed kernels. The three 2-bit formats carry 2.000 bits of code.
+\Planes{}, our earlier layout, reads $2.40\times$ that because its codebook is
+unfolded first. \Tetra{} reads $1.07\times$ it; the excess is the exactly-kept
+tail and the row scales, not the code. FP16 is left out: 16.000 at both ends.
+Data: echelle-formats.csv.}
+\label{fig:gap}
+\end{figure}
+
+Our contributions:
+\begin{itemize}
+\item \Tetra{}, a codebook on $\Lambda_{24}$ whose addresses factor through a
+  64-state trellis of the Golay code and one 16~KiB table, with the truncation
+  rule this forces and an estimate of what it costs (\S\ref{sec:tetra}).
+\item A fused kernel that decodes it inside the matrix-vector product and reads
+  2.148 bits per weight, against 4.804 for our earlier layout and 4.179 for
+  4-bit AWQ (\S\ref{sec:kernel}).
+\item A recipe for complete files at about 2.7 bits per parameter, measured
+  step by step on Qwen3-4B, 8B and 14B on the full MMLU test set, with paired
+  confidence intervals (\S\ref{sec:model}, \S\ref{sec:chain}).
+\item Quality, speed and memory of the served files against FP16 and AWQ at the
+  three sizes, and against 2-bit formats at 4B (\S\ref{sec:main}).
+\end{itemize}
+
+The files do not match AWQ on quality. They score 4.76, 4.21 and 2.46 points
+below it at 4B, 8B and 14B, with the gap shrinking as the model grows. They use
+about half its memory: 2.7 bits per parameter against 5.3 to 6.0. At 4B they
+score 23.6 points above llama.cpp's IQ2\_XXS, which uses 2.48 bits per
+parameter. Everything was
+measured on one card. The campaigns behind the main results were preregistered
+with predictions, and we report the ones that were wrong
+(Appendix~\ref{app:record}).

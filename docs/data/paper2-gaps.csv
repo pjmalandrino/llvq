@@ -1,0 +1,10 @@
+model,pair,delta_pp,ci_lo_pp,ci_hi_pp,source
+Qwen3-4B,f16_minus_tetra,6.77,6.05,7.50,paper-table-2026-09-25 pairs.txt
+Qwen3-4B,awq4_minus_tetra,4.76,4.02,5.49,paper-table-2026-09-25 pairs.txt
+Qwen3-4B,f16_minus_awq4,2.00,1.50,2.51,paper-table-2026-09-25 pairs.txt
+Qwen3-8B,f16_minus_tetra,5.48,4.83,6.10,sealed-8b-27-2026-09-24
+Qwen3-8B,awq4_minus_tetra,4.21,3.54,4.86,sealed-8b-27-2026-09-24
+Qwen3-8B,f16_minus_awq4,1.27,0.83,1.70,census-8b-2026-09-21
+Qwen3-14B,f16_minus_tetra,3.22,2.69,3.75,sealed-8b-14b-2026-09-23
+Qwen3-14B,awq4_minus_tetra,2.46,1.92,3.00,sealed-8b-14b-2026-09-23
+Qwen3-14B,f16_minus_awq4,0.75,0.40,1.12,census-14b-ref-2026-09-22

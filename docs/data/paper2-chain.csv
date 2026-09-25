@@ -1,0 +1,10 @@
+model,stage,bparam,mmlu,delta_pp,ci_lo_pp,ci_hi_pp,mcnemar_p,source
+Qwen3-4B,base,2.7475,57.95,,,,,dclm-rowscales-2026-09-20
+Qwen3-4B,scales,2.7475,61.11,3.15,2.56,3.74,1.8e-25,dclm-rowscales-2026-09-20
+Qwen3-4B,sealed,2.7320,63.37,2.26,1.66,2.87,8.2e-13,embed-q4-swap-2026-09-23
+Qwen3-8B,base,3.0683,64.87,,,,,census-8b-2026-09-21
+Qwen3-8B,scales,3.0683,68.16,3.29,2.78,3.80,7.2e-38,dclm-8b-rowscales-2026-09-21
+Qwen3-8B,sealed,2.6953,69.58,1.42,0.93,1.92,3.2e-8,sealed-8b-27-2026-09-24
+Qwen3-14B,base,2.7371,72.53,,,,,census-14b-base-2026-09-22
+Qwen3-14B,scales,2.7371,74.20,1.67,1.27,2.08,5.0e-16,dclm-14b-rowscales-2026-09-22
+Qwen3-14B,sealed,2.7305,75.66,1.46,0.99,1.94,1.4e-9,sealed-8b-14b-2026-09-23

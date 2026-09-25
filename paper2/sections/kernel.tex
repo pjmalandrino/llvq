@@ -1,91 +1,118 @@
 \section{The kernel}
 \label{sec:kernel}
 
-\subsection{The matrix--vector product}
+\subsection{Decoding inside the matrix-vector product}
 
-The kernel keeps the geometry of our earlier one: one warp per output row, a
-256-thread CTA holding 8 rows, the activation staged in shared memory in tiles
-of $T$ blocks ($96T$ bytes) with two barriers per tile, one lane per block, a
-shuffle reduction, and an epilogue that adds the exactly-kept tail and
-multiplies by $\sigma_{\mathrm{row}}$. Only the decode changed.
+The kernel keeps the geometry of our earlier one~\citep{llvq1preprint}: one
+warp per output row, 256-thread blocks holding 8 rows, the activation staged in
+shared memory in tiles of $T$ blocks ($96T$ bytes) with two barriers per tile,
+one lane per block, a shuffle reduction, and a last step that adds the
+exactly-kept tail and multiplies by $\sigma_{\mathrm{row}}$. Only the decode
+changed.
 
-Three choices make a six-load decode competitive with a shift-and-mask stream.
-First, table values are stored as biased bytes, $\mathrm{val}+128$. Placed
-under \texttt{0x4b0000\_\_}, such a byte reads as the float
-$2^{23}+\mathrm{byte}$ exactly, and one subtraction recovers the value, so a
-coordinate costs one \texttt{prmt}, one \texttt{FADD} and one \texttt{FFMA}
-with no integer-to-float conversion. Second, every loop is unrolled with
-constant indices, so nothing spills: the compiler reports 40 registers and no
-local memory, the same as \Planes{}. Third, the only data-dependent reads are
-the six table loads, so lanes never diverge. Counted from the source, a block
-costs about 141 instructions, of which 54 on the FMA pipe and 85 on the ALU
-pipe, against about 380 plus 24 conversions for a decoder that extracts each
-coordinate and converts it.
+Three choices make a six-load decode fast. First, table values are stored as
+biased bytes, $\mathrm{val}+128$. Placed under \texttt{0x4b0000\_\_}, such a
+byte reads as the float $2^{23}+\mathrm{byte}$ exactly, and one subtraction
+gives the value back, so a coordinate costs one byte permute, one add and one
+fused multiply-add, with no integer-to-float conversion. Second, every loop is
+unrolled with constant indices, so nothing spills: the compiler reports 40
+registers and no local memory, the same as for \Planes{}. Third, the only
+data-dependent reads are the six table loads, so lanes never diverge. Counted
+from the source, a block costs about 141 instructions, 54 of them on the FMA
+pipe and 85 on the ALU pipe. A decoder that extracts each coordinate and
+converts it needs about 380, plus 24 conversions.
 
-Because the kernel reads the file's own words there is no transcoding pass at
-load. The served object loads in 12.1~s where the f16 checkpoint loads in
-81.8~s in the same process.
+The kernel reads the file's own words, so there is no transcoding at load. The
+4B file loads in 12.1~s, where the FP16 checkpoint takes 81.8~s in the same
+process.
 
-\subsection{Where the time goes when the tile changes}
+\paragraph{The rest of a served model.} The int4 projections go through a
+separate kernel with the same geometry: one warp per row, the whole activation
+staged in shared memory, weights dequantized with their group scale and offset,
+accumulation in f32. At 14B a \texttt{down\_proj} activation takes 69{,}632~B,
+more than the 48~KiB a block gets by default, so the host asks the driver for
+more; the L40S allows 101{,}376~B. The 4-bit embedding tables use two small
+kernels, a gather that dequantizes the rows of the input tokens and a
+matrix-vector product for the output head. For a prompt, the \Tetra{} kernel
+takes four rows per launch; the int4 kernel takes them one at a time.
+
+\paragraph{How the kernel is checked.} Before any timing, each of the
+1{,}105{,}920 output rows of the 4B model is recomputed in f64 from the same
+decoded weights and compared with the kernel's row, at a threshold of
+$10^{-5}\cdot\sum|w\cdot x|$. The worst \Tetra{} row is at
+$2.1\times10^{-8}\cdot\sum|w\cdot x|$. One level down, the 24 outputs of the
+device decoder are compared bit for bit with an independent host implementation
+of the same word, on the development machine and again on the card. End to end,
+each served model generates 256 greedy tokens next to its dense reconstruction
+in the same process, and the two sequences are compared (\S\ref{sec:main}).
+
+\subsection{Bytes and time on the projections}
+\label{sec:bench}
+
+\begin{table}[t]
+\centering\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lrrrrr}
+\toprule
+ & FP16 & AWQ w4g128 & \Planes{} & \Tetra{} & no weights\\
+\midrule
+matrices timed & 252 & 252 & 252 & 216 & 252\\
+median ms & 10.973 & 3.261 & 4.997 & 3.424 & 2.289\\
+GB read per pass & 7.27 & 1.90 & 2.18 & 0.95 & 0.07\\
+\bw{} in VRAM & 16.000 & 4.179 & 4.804 & \textbf{2.148} & 0.159\\
+GB/s & 662 & 583 & 437 & 278 & 32\\
+\bottomrule
+\end{tabular}
+\caption{Kernel benchmark on the 4B shapes, tile 64, one process, one L40S,
+seven rounds with the first two dropped. ``No weights'' is a kernel with the
+same launch geometry that reads no weight byte. The \Tetra{} arm times the 216
+lattice matrices of an early 4B file; its 36 \texttt{v\_proj} are int4, read by
+the other kernel, and not timed. Its milliseconds therefore cover less work
+than the other columns, and bits per weight is the row that compares. The
+ten-arm table is in Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
+\label{tab:bench}
+\end{table}
+
+Per weight, \Tetra{} reads 2.148 bits where 4-bit AWQ reads 4.179 and \Planes{}
+reads 4.804: about half the traffic of either (Table~\ref{tab:bench}). The
+milliseconds do not rank the arms, for the reason given in the caption. They do
+show how large the fixed cost around the decode is: the kernel that reads no
+weights at all takes 2.289~ms, against 3.4 to 5.0~ms for the arms that do.
+\Tetra{} runs at 278~GB/s where AWQ reaches 583, so it is limited by decoding
+more than by memory traffic.
+
+\subsection{The tile and the L1 cache}
 \label{sec:tile}
 
-On an SM, L1 and shared memory come out of one block of SRAM: on Ada (sm\_89),
-128~KB per SM, of which at most 100~KB can be assigned to shared
-memory~\citep{cudaguide}. The activation tile is shared memory. The decoder
-tables are not; they are ordinary global reads, and what shared memory takes,
-L1 does not get. So the tile size, which changes no bit of output and costs no
-bit of storage, changes how much L1 is left for an 18.4~KiB table.
+On an Ada SM (sm\_89), L1 and shared memory share one 128~KB block of SRAM, of
+which at most 100~KB can go to shared memory~\citep{cudaguide}. The activation
+tile is shared memory. The decoder tables are not: they are ordinary global
+reads, cached in L1. So the tile size, which changes no output bit and costs no
+storage, decides how much L1 is left for 18.4~KiB of tables.
 
-Occupancy does not change with it. Both arms launch 256 threads at 40
-registers, so six CTAs are resident at every tile
+Occupancy does not change with the tile. Both lattice arms launch 256 threads
+at 40 registers, so six blocks are resident at every tile
 ($6\times256\times40 = 61{,}440$ of 65{,}536 registers), and shared memory is
 never the binding limit ($6\times12{,}288 < 102{,}400$~B). What the tile does
-change, besides the carve-out, is the loop structure: barriers per row and trip
-counts. That part is common to both arms.
+change, besides the split between L1 and shared memory, is the number of
+barriers and loop trips per row, and that part is common to all arms.
 
 \begin{figure}[t]
 \centering
-\includegraphics[width=0.60\linewidth]{fig_tile.pdf}
-\Description{Median milliseconds against tile size 32, 64 and 128 for three
-arms. Planes14 is flat near 5 ms across the three tiles, Tetra falls from 4.08
-at tile 128 to 3.42 at 64 and rises slightly at 32, and the no-weights control
-is flat near 2.3 ms.}
-\caption{The tile sweep on the served path, one process, one L40S. Each curve
-is one arm against itself across tiles; the percentage is that arm's own
-amplitude, largest over smallest. Data: tuile-l40s.csv, from
-tuile-l40s-2026-09-20.}
+\includegraphics{fig_tile.pdf}
+\caption{The tile sweep on the served path: median ms over 252 projections,
+one process, one L40S. Each curve is one arm against itself across tiles, and
+the percentage is that arm's own range, largest over smallest. At
+$T = 128, 64, 32$: no weights 2.272, 2.288, 2.388~ms; \Planes{} 5.070, 4.995,
+5.044~ms; \Tetra{} 4.078, 3.423, 3.553~ms. Data: tuile-l40s.csv.}
 \label{fig:tile}
 \end{figure}
 
-\begin{table}[t]
-\centering\footnotesize\setlength{\tabcolsep}{5pt}
-\begin{tabular}{rrrrr}
-\toprule
-$T$ & shared per SM & \texttt{nullk} & \Planes{} & \Tetra{}\\
-\midrule
-128 & 72~KB & 2.272 & 5.070 & 4.078\\
-64 & 36~KB & 2.288 & 4.995 & \textbf{3.423}\\
-32 & 18~KB & 2.388 & 5.044 & 3.553\\
-\midrule
-\multicolumn{2}{l}{amplitude} & 5.1\,\% & 1.5\,\% & 19.1\,\%\\
-\bottomrule
-\end{tabular}
-\caption{The numbers behind Fig.~\ref{fig:tile}: median ms over 252
-projections, one process, one L40S. \texttt{nullk} keeps the launch geometry
-and reads no weight byte. Shared memory per SM is six resident CTAs times
-$96T$ bytes. Data: tuile-l40s.csv.}
-\label{tab:tile}
-\end{table}
-
-Across $T \in \{128, 64, 32\}$ the \Planes{} arm moves 1.5\,\%, the
-no-weights control 5.1\,\%, and the \Tetra{} arm 19.1\,\%
-(Fig.~\ref{fig:tile}, Table~\ref{tab:tile}). The three arms share the launch
-geometry, the staging code and the occupancy; the \Tetra{} arm alone reads
-tables. We read the residue as pressure on the residency of those tables in
-L1, and we act on it: the served default is now $T=64$ on sm\_89. We have not
-demonstrated it. The rented platform denies performance counters
-(\texttt{ERR\_NVGPUCTRPERM}), so no cache hit rate or per-level traffic was
-measured, and a control that shares the schedule without reading tables cannot
-rule out an interaction between the two. On sm\_120 the same sweep prefers
-$T=32$, so the best tile is a property of the card rather than of the format.
-All kernel numbers in \S\ref{sec:results} are at $T=64$.
+Across $T \in \{128, 64, 32\}$ the \Planes{} arm moves by 1.5\,\%, the
+no-weights kernel by 5.1\,\% and the \Tetra{} arm by 19.1\,\%
+(Figure~\ref{fig:tile}). The three arms share the launch geometry, the staging
+code and the occupancy; only the \Tetra{} arm reads tables. We read the
+difference as pressure on the tables' place in L1 and set the served tile to
+$T=64$ on sm\_89. We have not proven that reading: the rented platform denies
+access to performance counters, so no cache hit rate was measured. On sm\_120
+the same sweep prefers $T=32$, so the best tile belongs to the card rather
+than to the format. All other kernel numbers in this paper are at $T=64$.

@@ -1,0 +1,80 @@
+\section{From the codebook to a served file}
+\label{sec:model}
+
+A served file holds more than lattice codes. This section lists what else it
+holds and describes the three changes that make up the files we measure. None
+of them changes a lattice code or the decoder.
+
+\subsection{What a file holds, and how we count it}
+\label{sec:file}
+
+Qwen3~\citep{qwen3_2025} has seven projection matrices per layer ($q$, $k$,
+$v$, $o$, gate, up, down): 252 in the 36 layers of the 4B and 8B models, 280 in
+the 40 layers of the 14B. Each projection is stored either as \Tetra{} blocks
+or as an int4 record: 4-bit weights in groups of 128 with an f16 scale and
+offset per group, read by a separate kernel. A \Tetra{} projection also keeps a
+small tail of weights exactly, in f16, and one scale per output row. The norms
+stay in f16. The embedding table is stored apart, and so is the output head
+when it is not tied to the embedding, which is the case at 8B and 14B.
+
+We count memory in bits per parameter over the whole model: every byte the
+served model keeps for its weights, including the embedding, the tail, the
+scales and the int4 records, divided by the number of parameters. One tool
+computes it from the file for every object in this paper. The KV cache and the
+activations are not counted.
+
+\subsection{Training the row scales}
+\label{sec:rowscales}
+
+Equation~\eqref{eq:recon} ends with one scale per output row,
+$\sigma_{\mathrm{row}}$, fitted by least squares during encoding. We retrain
+these scales and nothing else, with a KL loss against the FP16 model as
+teacher~\citep{hinton2015} on DCLM-edu text~\citep{dclmedu}. The lattice codes
+stay fixed and no bit is added: the trained scales are folded back into the
+same field. At 4B the run sees 19.5 million tokens and takes 1.7~h on one
+L40S; the 8B and 14B runs take 1.1~h and 2.0~h on one H200. This step alone
+adds 3.15, 3.29 and 1.67 MMLU points at 4B, 8B and 14B (\S\ref{sec:chain}).
+
+\subsection{int4 where the lattice loses the most}
+\label{sec:int4}
+
+The projections do not all lose the same. Every file stores \texttt{v\_proj}
+in int4: under grouped-query attention these matrices are small, and at 4B
+moving them from \Tetra{} to int4 gained 3.47 MMLU points on the 2{,}280-question
+sample for 0.05 bits per parameter. The files we call \emph{sealed} go further
+and also store \texttt{o\_proj} and a window of middle layers of
+\texttt{down\_proj} in int4 (Table~\ref{tab:files}). At 8B only
+\texttt{down\_proj} is added; \S\ref{sec:chain} shows why.
+
+\subsection{4-bit embedding tables}
+\label{sec:q4emb}
+
+Qwen3's vocabulary has 151{,}936 entries, so the embedding table is 9.7\,\% of
+the parameters at 4B. At 8B and 14B the output head is a second table of the
+same shape, and the two together are 15.2\,\% and 10.5\,\% of the parameters.
+Our earlier files stored these tables in 8 bits. The sealed files store them in
+4 bits, in groups of 64 with an f16 scale and offset per group, the scheme MLX
+uses~\citep{mlx2023}. The GPU dequantizes rows on the fly, in the gather at the
+input and inside the matrix-vector product of the head. Going from 8 to 4 bits
+frees 0.19~GB at 4B, 0.62~GB at 8B and 0.78~GB at 14B. That is what pays for
+the int4 projections: every sealed file needs fewer bits per parameter than the
+file it was built from (\S\ref{sec:chain}).
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lrrr}
+\toprule
+ & Qwen3-4B & Qwen3-8B & Qwen3-14B\\
+\midrule
+projections, \Tetra{} $+$ int4 & 168 $+$ 84 & 199 $+$ 53 & 181 $+$ 99\\
+int4 projections & $v$, $o$, down 12--23 & $v$, down 10--26 & $v$, $o$, down 10--28\\
+4-bit embedding tables & 1 (tied head) & 2 & 2\\
+file size (bytes) & 1{,}418{,}224{,}685 & 2{,}815{,}098{,}745 & 5{,}087{,}000{,}541\\
+bits per parameter, whole model & 2.7320 & 2.6953 & 2.7305\\
+\bottomrule
+\end{tabular}
+\caption{The three sealed files. Layers are numbered from 0. Bits per
+parameter count every weight byte of the served model, embedding included, as
+defined in \S\ref{sec:file}. Data: paper2-chain.csv.}
+\label{tab:files}
+\end{table}

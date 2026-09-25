@@ -2,42 +2,26 @@
 \label{sec:limitations}
 
 \begin{itemize}
-\item \textbf{The kernel benchmark compares unequal work.} The \Tetra{} arm
-  times 216 matrices and every other arm 252, so Table~\ref{tab:bench} ranks
-  bits per weight and nothing else. The run that would settle it is AWQ
-  restricted to the same 216 matrices, or \Tetra{} over the 252-record
-  pure-lattice file; it costs one job and has not been done.
-\item \textbf{One model, one card.} Every number is Qwen3-4B, and the kernel
-  result is an L40S. On an A100, under the same protocol, none of our decoding
-  arms beats FP16, and the best tile moves with the architecture.
-\item \textbf{The residency reading of \S\ref{sec:tile} is not demonstrated},
-  for the reasons given there.
-\item \textbf{The shaping cost is a geometric estimate.} The 0.3666~dB of
-  \S\ref{sec:kept} compares idealised regions, not the rank-truncated codebook
-  we ship. Nothing here measures what the truncation costs on this model.
-\item \textbf{The 2-bit competitor's timing settles nothing.} QTIP's 2.246~ms
-  is below our no-weights control at 2.289~ms and comes from another process.
-  Its quality cells come from another harness.
-\item \textbf{Quality is scored on the dense reconstruction.} The kernel is
-  tied to that reconstruction row by row (\S\ref{sec:served}), but no benchmark
-  was re-scored through the kernel itself.
-\item \textbf{The served throughput was measured at $T=128$}, before the tile
-  moved.
-\item \textbf{Batch 1 only.} A multi-row variant of the block dot exists and is
-  held bit-identical to $R$ single-row calls; it is not measured here.
-\item \textbf{One training run per starting point}, no second seed. The trainer
-  splits its columns in the natural basis while the tail is stored rotated, an
-  inconsistency bounded at $1.2\times10^{-4}$ relative and not repaired.
-\item \textbf{The fused \Tetra{} kernel fails its bit-exact test} and is not
-  claimed. On \Planes{}, fusion is worth about 6\,\% of tokens per second
-  (Appendix~\ref{app:record}).
+\item \textbf{One card.} Every measurement is on one NVIDIA L40S. On an A100,
+  under the same protocol, none of our earlier lattice kernels beat FP16, and
+  the best tile changes with the architecture (\S\ref{sec:tile}).
+\item \textbf{One calibration draw per size.} Re-encoding the 4B model with
+  three draws moved MMLU by 2.92 points, which is larger than some of the gains
+  we report. The gains of Table~\ref{tab:chain} are paired on fixed files, so
+  they are not affected; a different draw would start from a different file.
+\item \textbf{Quality is scored on the dense reconstruction}, not through the
+  kernel. The two are tied by per-row checks against f64 and by the 256-token
+  comparison, not by a second MMLU run.
+\item \textbf{No perplexity} is reported for the sealed files.
+\item \textbf{Batch 1 and short context only.} Nothing here measures serving
+  several requests at once or long prompts.
+\item \textbf{The other 2-bit methods are cited}, from another harness and
+  another MMLU protocol, and their rates count the projections only.
+\item \textbf{The kernel benchmark compares unequal work}: 216 matrices for
+  \Tetra{} against 252 for the other arms (Table~\ref{tab:bench}).
+\item \textbf{The cost of the truncation is estimated}, from idealised regions
+  (\S\ref{sec:kept}), and not measured on the codebook we use.
+\item \textbf{The choice of int4 projections is one window per size.} At 8B,
+  \texttt{down\_proj} beat \texttt{o\_proj} for the same bytes; at 4B and 14B
+  that alternative is not tested.
 \end{itemize}
-
-\medskip\noindent
-In short: a codebook on $\Lambda_{24}$ whose addressing factorises into a
-64-state trellis and one 16~KiB table, decoded by six loads per block and read
-at 2.148 bits per weight where the unfolded layout read 4.804; a product-shaped
-region as the price; and one evaluation on Qwen3-4B, 98.3 tokens/s in 1.39~GB
-against 43.4 in 8.04 for the f16 checkpoint, nine MMLU points below it. What we
-would do next, in order: the same-support timing, a second model, the
-256-token check on this object, and a fused kernel that passes its test.

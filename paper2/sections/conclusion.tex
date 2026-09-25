@@ -1,1 +1,15 @@
-% Superseded on 2026-09-20: the closing paragraph lives at the end of sections/limitations.tex. Not input by main.tex.
+\section{Conclusion}
+\label{sec:conclusion}
+
+A Leech-lattice code can be read by the GPU as it is stored. Addressing the
+lattice through a 64-state trellis of the Golay code and one 16~KiB table
+brings the bits read per weight from 4.804 to 2.148, for a codebook that
+bounds each third of a block separately rather than the whole block. Around
+that codebook, three changes that leave the codes untouched give served files
+of Qwen3-4B, 8B and 14B at about 2.7 bits per parameter, scoring 63.37, 69.58
+and 75.66 on MMLU. They stay below 4-bit AWQ, by 4.76, 4.21 and 2.46 points,
+with about half its memory, and the gap shrinks with size.
+
+The next measurements we would make, in order: \texttt{down\_proj} instead of
+\texttt{o\_proj} at 4B and 14B, a second calibration draw per size, a model
+larger than 14B, and a second GPU.

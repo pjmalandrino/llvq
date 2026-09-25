@@ -1,1 +1,44 @@
-% Superseded on 2026-09-20: folded into sections/tetra.tex. Not input by main.tex.
+\section{Background and related work}
+\label{sec:background}
+
+\paragraph{Weight-only quantization at batch 1.} When one sequence is decoded
+at a time, each token multiplies every weight matrix by a single vector, and
+the time is set by the bytes of weights read. GPTQ~\citep{gptq2023} quantizes
+a matrix column by column and pushes each rounding error onto the columns not
+yet quantized, using second-order statistics from calibration text.
+AWQ~\citep{awq2024} rescales input channels by activation size before 4-bit
+rounding. With groups of 128 weights it is the usual 4-bit baseline, and vLLM
+serves it with the Marlin kernel~\citep{vllm2023,marlin2024}.
+
+\paragraph{Two-bit vector quantization.} Below three bits, rounding each weight
+on its own loses too much, and the strong methods encode several weights at
+once against a codebook. QuIP\#~\citep{quipsharp2024} uses the $E_8$ lattice,
+QTIP~\citep{qtip2024} a trellis whose states index a small hashed table, and
+AQLM and VPTQ~\citep{aqlm2024,vptq2024} learned codebooks. Their kernels
+decode with lookup tables that fit on chip. Most of these methods first apply
+a random rotation that spreads outliers across coordinates~\citep{quip2023,quarot2024}.
+llama.cpp's IQ2 formats~\citep{llamacpp} are the 2-bit option most people run
+on their own machines.
+
+\paragraph{The Leech lattice.} \citet{llvq2026} quantize blocks of 24 rotated
+weights on $\Lambda_{24}$, the densest sphere packing in 24
+dimensions~\citep{cohn2017}, with a
+shape-gain scheme inside a GPTQ-style loop. A block carries a 47-bit index into
+a ball of $1.1\times10^{14}$ lattice points and one gain bit: 48 bits, or 2
+bits per weight. On Qwen3-4B they report 60.7 MMLU without fine-tuning and 62.8
+with it, against 57.4 and 59.5 for QTIP and 48.6 and 52.9 for QuIP\#. Their
+GPU kernel decodes a single shell of the lattice, not the multi-shell codebook
+those numbers use.
+
+\paragraph{Our earlier kernel.} In \citet{llvq1preprint} we served the same
+codebook by unfolding each 47-bit index at load time into a 112-bit record
+(\Planes{}): a class, a gain bit, a sign mask and three bit planes. A fused
+kernel reads the records and multiplies in one pass. It reads 4.804 bits per
+weight. This paper replaces that layout.
+
+\paragraph{Trellises of the Golay code.} The binary Golay code
+$\mathcal{G}_{24}$, from which $\Lambda_{24}$ is built, has small trellis
+representations when its coordinates are cut into three blocks of
+eight~\citep{forney1988,vardy1991}. They were designed for maximum-likelihood
+decoding of the code and of the lattice. We use the same structure as the
+address space of a quantizer codebook.
