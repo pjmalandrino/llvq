@@ -99,10 +99,14 @@ SPREAD_MAX_PCT = 5.0  # §7.4
 # controls were run against — and both were re-read on the Hub on 2026-08-17
 # and found identical to `main`.
 #
-# 🚨 The 8B has **no EXPECTED entry anywhere in the repository**. Its SHAs below
-# were read off the Hub on 2026-08-17 and have never passed `awq_dequant check`.
-# That is why `pinned=False` refuses the size by default: a revision that nobody
-# validated is not a pin, it is a snapshot.
+# The 8B has no EXPECTED entry in `ops/awq_dequant.py`, and `pinned=False` refused
+# it until 2026-09-25. It is pinned now for a reason that is written down, not
+# assumed: the checkpoint our 8B census scored, `Pier-Jean/qwen3-8b-awq-deq`,
+# records `revision: main` in its RECONSTRUCTION.json, and `Qwen/Qwen3-8B-AWQ` has
+# had no commit since 2025-05-21 (`4da05a8e`, read on the Hub on 2026-09-25), so
+# `main` when it was built was `4da05a8e`. Its structure control there counts
+# 6,098,581,864 bytes of AWQ tensors. The base revision is the one the census's
+# f16 arm resolved (`census-8b-2026-09-21.txt`).
 SIZES: dict[str, dict[str, Any]] = {
     "4b": dict(
         awq_repo="Qwen/Qwen3-4B-AWQ",
@@ -120,7 +124,7 @@ SIZES: dict[str, dict[str, Any]] = {
         base_rev="b968826d9c46dd6066d109eabc6255188de91218",
         base_gb=16.38,
         awq_gb=6.10,
-        pinned=False,
+        pinned=True,
     ),
     "14b": dict(
         awq_repo="Qwen/Qwen3-14B-AWQ",
