@@ -1,0 +1,6 @@
+  questions             14042 (prompts shipped, qhash carried per line)
+  four letters in the top-100: 14042/14042 OK
+
+  MMLU micro            39.78 %   <-- the paper's metric
+  MMLU macro            40.76 %
+  raw                   5586/14042

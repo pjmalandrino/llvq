@@ -1,0 +1,69 @@
+{
+ "schema": "llvq-awq-speed/1",
+ "utc": "2026-09-25T09:25:19Z",
+ "preregistration": "proofs/preregistration-awq-vllm-2026-08-17.md",
+ "image_tag": "vllm/vllm-openai:v0.26.0",
+ "image_digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+ "vllm_version": "0.26.0",
+ "accelerator": "gpu",
+ "job_id": "6ab6300e52d0dbd7f1d8edd6",
+ "size": "14b",
+ "interleaved": false,
+ "tokens": 128,
+ "warmups": 2,
+ "rounds": 5,
+ "prompt_token_ids": [
+  785,
+  6722,
+  315,
+  9625,
+  374
+ ],
+ "prompt_text": "The capital of France is",
+ "arms": {
+  "f16": {
+   "quantization_resolved": "none",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 227.0340029490003,
+   "gpu_memory_utilization": 0.85,
+   "kernel_log": [],
+   "repo": "Qwen/Qwen3-14B",
+   "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+   "quantization_requested": null,
+   "elapsed_s": [
+    4.95633766300034,
+    4.956169402999876,
+    4.9568139030002385,
+    4.95601737800007,
+    4.956720214000143
+   ],
+   "tokps": [
+    25.825520515992174,
+    25.826397282248667,
+    25.82303925562441,
+    25.827189502643066,
+    25.82352734747201
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and the seat of the U.S. government, home to important landmarks like the White House, the Capitol, and the Supreme Court. While it's not part of any state, it serves as the political center of the country. Let me know if you'd like more details! 😊\n\nOkay, so the user asked for the capital of the United States. I know it's Washington, D.C., but I should make sure I'm not mixing it up with another city",
+   "median": 25.825520515992174,
+   "min": 25.82303925562441,
+   "max": 25.827189502643066,
+   "spread_pct": 0.016070332507285526
+  }
+ },
+ "ratios": {},
+ "control": {
+  "applicable": false
+ },
+ "violations": []
+}

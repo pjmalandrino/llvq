@@ -1,0 +1,71 @@
+{
+ "schema": "llvq-awq-speed/1",
+ "utc": "2026-09-25T09:27:03Z",
+ "preregistration": "proofs/preregistration-awq-vllm-2026-08-17.md",
+ "image_tag": "vllm/vllm-openai:v0.26.0",
+ "image_digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+ "vllm_version": "0.26.0",
+ "accelerator": "gpu",
+ "job_id": "6ab6300e52d0dbd7f1d8edd6",
+ "size": "14b",
+ "interleaved": false,
+ "tokens": 128,
+ "warmups": 2,
+ "rounds": 5,
+ "prompt_token_ids": [
+  785,
+  6722,
+  315,
+  9625,
+  374
+ ],
+ "prompt_text": "The capital of France is",
+ "arms": {
+  "awq_marlin": {
+   "quantization_resolved": "auto_awq",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 79.30696497400004,
+   "gpu_memory_utilization": 0.85,
+   "kernel_log": [
+    "[vllm.entrypoints.serve.utils.api_utils] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.85, 'disable_log_stats': True, 'revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'tokenizer_revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'model': 'Qwen/Qwen3-14B-AWQ'}"
+   ],
+   "repo": "Qwen/Qwen3-14B-AWQ",
+   "revision": "31c69efc29464b6bb0aee1398b5a7b50a99340c3",
+   "quantization_requested": null,
+   "elapsed_s": [
+    1.6449460930002715,
+    1.644658746999994,
+    1.6448110700002871,
+    1.6442625390000103,
+    1.6448788580000837
+   ],
+   "tokps": [
+    77.8141001365805,
+    77.82769540093564,
+    77.8204879177872,
+    77.8464490700163,
+    77.81728081521338
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and serves as the seat of the U.S. government, housing important institutions like the White House, Congress, and the Supreme Court. While many people might think of New York City as the capital due to its prominence, it is actually Washington, D.C. that holds this title. The choice of Washington, D.C. as the capital was a compromise between Northern and Southern states during the nation's early years, and it was designed by French architect Pierre Charles L'Enfant",
+   "median": 77.8204879177872,
+   "min": 77.8141001365805,
+   "max": 77.8464490700163,
+   "spread_pct": 0.0415686592327376
+  }
+ },
+ "ratios": {},
+ "control": {
+  "applicable": false
+ },
+ "violations": []
+}

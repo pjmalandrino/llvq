@@ -1,0 +1,131 @@
+==============================================================================
+AWQ SPEED BENCH, inside vLLM, its own engine
+==============================================================================
+  image                 vllm/vllm-openai:v0.26.0
+  digest                sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52
+  vllm                  0.26.0
+  size                  14b
+  arms (fixed order)    ['awq_marlin']
+  prompt ids            [785, 6722, 315, 9625, 374]  (5 tokens, not re-tokenized)
+  tokens generated      128 (min=max, ignore_eos)
+  rounds                2 discarded + 5 timed
+  interleaving          NO, rounds NOT interleaved
+  gpu_memory_util       {'f16': 0.3, 'awq_marlin': 0.85}
+  max_model_len         2048
+==============================================================================
+WARNING: sequential mode. The arms do not coexist. Any ratio formed
+    by --merge is labelled "rounds not interleaved" and is not cited
+    as an interleaved ratio (§2.6 of the preregistration).
+==============================================================================
+INFO 09-25 09:25:33 [api_utils.py:273] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.85, 'disable_log_stats': True, 'revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'tokenizer_revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'model': 'Qwen/Qwen3-14B-AWQ'}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+config.json:   0%|          | 0.00/907 [00:00<?, ?B/s][Aconfig.json: 100%|██████████| 907/907 [00:00<00:00, 5.13MB/s]
+INFO 09-25 09:25:33 [model.py:623] Resolved architecture: Qwen3ForCausalLM
+INFO 09-25 09:25:33 [model.py:1788] Using max model len 2048
+INFO 09-25 09:25:36 [scheduler.py:252] Chunked prefill is enabled with max_num_batched_tokens=8192.
+
+model.safetensors.index.json:   0%|          | 0.00/82.3k [00:00<?, ?B/s][Amodel.safetensors.index.json: 100%|██████████| 82.3k/82.3k [00:00<00:00, 181MB/s]
+
+Parse safetensors files:   0%|          | 0/2 [00:00<?, ?it/s][AParse safetensors files: 100%|██████████| 2/2 [00:00<00:00, 10.56it/s]
+INFO 09-25 09:25:36 [vllm.py:1109] Asynchronous scheduling is enabled.
+INFO 09-25 09:25:36 [kernel.py:295] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'])
+
+tokenizer_config.json:   0%|          | 0.00/9.73k [00:00<?, ?B/s][Atokenizer_config.json: 100%|██████████| 9.73k/9.73k [00:00<00:00, 39.2MB/s]
+
+vocab.json:   0%|          | 0.00/2.78M [00:00<?, ?B/s][Avocab.json: 100%|██████████| 2.78M/2.78M [00:00<00:00, 51.3MB/s]
+
+merges.txt:   0%|          | 0.00/1.67M [00:00<?, ?B/s][Amerges.txt: 100%|██████████| 1.67M/1.67M [00:00<00:00, 46.9MB/s]
+
+tokenizer.json: reconstructing file:   0%|          |  0.00B / 11.4MB            [Atokenizer.json: downloading bytes:           |  0.00B            tokenizer.json: downloading bytes: ██████████| 3.40MB,  338kB/s  tokenizer.json: downloading bytes: ██████████| 3.40MB,  338kB/s  
+tokenizer.json: reconstructing file: 100%|██████████| 11.4MB / 11.4MB, 1.14MB/s  
+
+generation_config.json:   0%|          | 0.00/239 [00:00<?, ?B/s][Ageneration_config.json: 100%|██████████| 239/239 [00:00<00:00, 2.24MB/s]
+WARNING 09-25 09:25:39 [system_utils.py:157] We must use the `spawn` multiprocessing start method. Overriding VLLM_WORKER_MULTIPROC_METHOD to 'spawn'. See https://docs.vllm.ai/en/latest/usage/troubleshooting.html#python-multiprocessing for more information. Reasons: CUDA is initialized
+(EngineCore pid=623) INFO 09-25 09:25:47 [core.py:116] Initializing a V1 LLM engine (v0.26.0) with config: model='Qwen/Qwen3-14B-AWQ', speculative_config=None, tokenizer='Qwen/Qwen3-14B-AWQ', skip_tokenizer_init=False, tokenizer_mode=auto, revision=31c69efc29464b6bb0aee1398b5a7b50a99340c3, tokenizer_revision=31c69efc29464b6bb0aee1398b5a7b50a99340c3, trust_remote_code=False, dtype=torch.float16, max_seq_len=2048, download_dir=None, load_format=auto, tensor_parallel_size=1, pipeline_parallel_size=1, data_parallel_size=1, decode_context_parallel_size=1, dcp_comm_backend=ag_rs, disable_custom_all_reduce=False, quantization=auto_awq, quantization_config=None, enforce_eager=False, enable_return_routed_experts=False, kv_cache_dtype=auto, device_config=cuda, structured_outputs_config=StructuredOutputsConfig(backend='auto', disable_any_whitespace=False, disable_additional_properties=False, reasoning_parser='', reasoning_parser_plugin='', enable_in_reasoning=False), observability_config=ObservabilityConfig(show_hidden_metrics_for_version=None, otlp_traces_endpoint=None, collect_detailed_traces=None, kv_cache_metrics=False, kv_cache_metrics_sample=0.01, cudagraph_metrics=False, enable_layerwise_nvtx_tracing=False, enable_mfu_metrics=False, enable_mm_processor_stats=False, enable_logging_iteration_details=False, jit_monitor_mode='warn', jit_monitor_verbose=False), seed=0, served_model_name=Qwen/Qwen3-14B-AWQ, enable_prefix_caching=False, enable_chunked_prefill=True, pooler_config=None, compilation_config={'mode': <CompilationMode.VLLM_COMPILE: 3>, 'debug_dump_path': None, 'cache_dir': '', 'compile_cache_save_format': 'binary', 'backend': 'inductor', 'custom_ops': ['none'], 'ir_enable_torch_wrap': True, 'splitting_ops': ['vllm::unified_attention_with_output', 'vllm::unified_mla_attention_with_output', 'vllm::mamba_mixer2', 'vllm::mamba_mixer', 'vllm::short_conv', 'vllm::linear_attention', 'vllm::plamo2_mamba_mixer', 'vllm::qwen_gdn_attention_core', 'vllm::gdn_attention_core_xpu', 'vllm::olmo_hybrid_gdn_full_forward', 'vllm::kda_attention', 'vllm::sparse_attn_indexer', 'vllm::rocm_aiter_sparse_attn_indexer', 'vllm::deepseek_v4_attention', 'vllm::hpc_rope_norm_forward', 'vllm::unified_kv_cache_update', 'vllm::unified_mla_kv_cache_update'], 'compile_mm_encoder': False, 'cudagraph_mm_encoder': False, 'encoder_cudagraph_token_budgets': [], 'encoder_cudagraph_max_vision_items_per_batch': 0, 'encoder_cudagraph_max_frames_per_batch': None, 'compile_sizes': [], 'compile_ranges_endpoints': [8192], 'inductor_compile_config': {'enable_auto_functionalized_v2': False, 'size_asserts': False, 'alignment_asserts': False, 'scalar_asserts': False, 'combo_kernels': True, 'benchmark_combo_kernel': True}, 'inductor_passes': {}, 'cudagraph_mode': <CUDAGraphMode.FULL_AND_PIECEWISE: (2, 1)>, 'cudagraph_num_of_warmups': 1, 'cudagraph_capture_sizes': [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192, 200, 208, 216, 224, 232, 240, 248, 256, 272, 288, 304, 320, 336, 352, 368, 384, 400, 416, 432, 448, 464, 480, 496, 512], 'cudagraph_copy_inputs': False, 'cudagraph_specialize_lora': True, 'use_inductor_graph_partition': False, 'pass_config': {'fuse_norm_quant': False, 'fuse_act_quant': False, 'fuse_attn_quant': False, 'enable_sp': False, 'fuse_gemm_comms': False, 'fuse_allreduce_rms': False, 'enable_qk_norm_rope_fusion': False, 'fuse_rope_kvcache_cat_mla': False, 'fuse_act_padding': False, 'fuse_qk_norm_rope_kvcache': False}, 'max_cudagraph_capture_size': 512, 'dynamic_shapes_config': {'type': <DynamicShapesType.BACKED: 'backed'>, 'evaluate_guards': False, 'assume_32_bit_indexing': False}, 'local_cache_dir': None, 'fast_moe_cold_start': False, 'static_all_moe_layers': []}, kernel_config=KernelConfig(ir_op_priority=IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native']), enable_flashinfer_autotune=True, enable_cutedsl_warmup=True, enable_bf16x3_router_gemm=False, moe_backend='auto', linear_backend='auto')
+(EngineCore pid=623) INFO 09-25 09:25:48 [parallel_state.py:1615] world_size=1 rank=0 local_rank=0 distributed_init_method=tcp://10.113.60.57:38461 backend=nccl
+(EngineCore pid=623) INFO 09-25 09:25:48 [parallel_state.py:1946] rank 0 in world size 1 is assigned as DP rank 0, PP rank 0, PCP rank 0, TP rank 0, EP rank N/A, EPLB rank N/A
+(EngineCore pid=623) INFO 09-25 09:25:48 [gpu_worker.py:378] Using V2 Model Runner
+(EngineCore pid=623) INFO 09-25 09:25:49 [model_runner.py:284] Loading model from scratch...
+(EngineCore pid=623) INFO 09-25 09:25:49 [auto_awq.py:473] Using MarlinLinearKernel for AutoAWQMarlinLinearMethod
+(EngineCore pid=623) INFO 09-25 09:25:49 [cuda.py:482] Using FLASH_ATTN attention backend out of potential backends: ['FLASH_ATTN', 'FLASHINFER', 'TRITON_ATTN', 'FLEX_ATTENTION'].
+(EngineCore pid=623) INFO 09-25 09:25:49 [flash_attn.py:776] Using FlashAttention version 2
+(EngineCore pid=623) INFO 09-25 09:26:02 [weight_utils.py:530] Time spent downloading weights for Qwen/Qwen3-14B-AWQ: 12.738197 seconds
+(EngineCore pid=623) INFO 09-25 09:26:02 [weight_utils.py:869] Filesystem type for checkpoints: OVERLAY. Checkpoint size: 9.29 GiB. Available RAM: 54.70 GiB.
+(EngineCore pid=623) INFO 09-25 09:26:02 [weight_utils.py:892] Auto-prefetch is disabled because the filesystem (OVERLAY) is not a recognized network FS (NFS/Lustre). If you want to force prefetching, start vLLM with --safetensors-load-strategy=prefetch.
+(EngineCore pid=623) 
+(EngineCore pid=623) Loading safetensors checkpoint shards:   0% Completed | 0/2 [00:00<?, ?it/s]
+(EngineCore pid=623) [A
+(EngineCore pid=623) Loading safetensors checkpoint shards:  50% Completed | 1/2 [00:01<00:01,  1.02s/it]
+(EngineCore pid=623) [ALoading safetensors checkpoint shards: 100% Completed | 2/2 [00:02<00:00,  1.01s/it]
+(EngineCore pid=623) 
+(EngineCore pid=623) INFO 09-25 09:26:04 [default_loader.py:430] Loading weights took 2.03 seconds
+(EngineCore pid=623) INFO 09-25 09:26:06 [model_runner.py:305] Model loading took 9.44 GiB and 17.544454 seconds
+(EngineCore pid=623) INFO 09-25 09:26:06 [topk_topp_sampler.py:55] Using FlashInfer for top-p & top-k sampling.
+(EngineCore pid=623) INFO 09-25 09:26:15 [backends.py:1094] Using cache directory: /root/.cache/vllm/torch_compile_cache/6534ace0fa/rank_0_0/backbone for vLLM's torch.compile
+(EngineCore pid=623) INFO 09-25 09:26:15 [backends.py:1155] Dynamo bytecode transform time: 9.28 s
+(EngineCore pid=623) INFO 09-25 09:26:23 [backends.py:378] Cache the graph of compile range (1, 8192) for later use
+(EngineCore pid=623) INFO 09-25 09:26:29 [backends.py:393] Compiling a graph for compile range (1, 8192) takes 12.96 s
+(EngineCore pid=623) INFO 09-25 09:26:35 [decorators.py:708] saved AOT compiled function to /root/.cache/vllm/torch_compile_cache/torch_aot_compile/301a3b01b09a40eda955912d6c87f2a1c523ca690ecd5b98708e0d03d2b4f81c/rank_0_0/model
+(EngineCore pid=623) INFO 09-25 09:26:35 [monitor.py:53] torch.compile took 28.99 s in total
+(EngineCore pid=623) INFO 09-25 09:26:37 [monitor.py:81] Initial profiling/warmup run took 2.33 s
+(EngineCore pid=623) INFO 09-25 09:26:39 [gpu_worker.py:560] Available KV cache memory: 26.59 GiB
+(EngineCore pid=623) INFO 09-25 09:26:39 [kv_cache_utils.py:2177] GPU KV cache size: 174,240 tokens
+(EngineCore pid=623) INFO 09-25 09:26:39 [kv_cache_utils.py:2178] Maximum concurrency for 2,048 tokens per request: 85.08x
+(EngineCore pid=623) INFO 09-25 09:26:39 [cutedsl_warmup.py:101] Skipping CuTeDSL warmup because no compile units were requested.
+(EngineCore pid=623) 
+(EngineCore pid=623) Capturing CUDA graphs (PIECEWISE):   0%|          | 0/51 [00:00<?, ?it/s][A
+(EngineCore pid=623) Capturing CUDA graphs (PIECEWISE):  24%|██▎       | 12/51 [00:01<00:03, 11.60it/s][A
+(EngineCore pid=623) Capturing CUDA graphs (PIECEWISE):  55%|█████▍    | 28/51 [00:02<00:01, 14.04it/s][A
+(EngineCore pid=623) Capturing CUDA graphs (PIECEWISE):  98%|█████████▊| 50/51 [00:03<00:00, 17.51it/s][ACapturing CUDA graphs (PIECEWISE): 100%|██████████| 51/51 [00:03<00:00, 16.43it/s]
+(EngineCore pid=623) 
+(EngineCore pid=623) Capturing CUDA graphs (FULL):   0%|          | 0/35 [00:00<?, ?it/s][A
+(EngineCore pid=623) Capturing CUDA graphs (FULL):  54%|█████▍    | 19/35 [00:01<00:00, 18.73it/s][ACapturing CUDA graphs (FULL): 100%|██████████| 35/35 [00:01<00:00, 20.68it/s]
+(EngineCore pid=623) INFO 09-25 09:26:44 [model_runner.py:747] Graph capturing finished in 5 secs, took 0.73 GiB
+(EngineCore pid=623) INFO 09-25 09:26:44 [gpu_worker.py:857] Free memory on device (43.97/44.39 GiB) on startup. Desired GPU memory utilization is (0.85, 37.73 GiB). Actual usage is 9.44 GiB for weight, 1.61 GiB for peak activation, 0.1 GiB for non-torch memory, and 0.73 GiB for CUDAGraph memory. Replace gpu_memory_utilization config with `--kv-cache-memory=27612649370` (25.72 GiB) to fit into requested memory, or `--kv-cache-memory=34307227136` (31.95 GiB) to fully utilize gpu memory. Current kv cache memory in use is 26.59 GiB.
+(EngineCore pid=623) INFO 09-25 09:26:50 [jit_monitor.py:79] Kernel JIT monitor activated; monitored JIT compilations during inference will use mode=warn.
+(EngineCore pid=623) INFO 09-25 09:26:51 [core.py:340] init engine (profile, create kv cache, warmup model) took 44.81 s (compilation: 28.99 s)
+(EngineCore pid=623) INFO 09-25 09:26:51 [vllm.py:1109] Asynchronous scheduling is enabled.
+(EngineCore pid=623) INFO 09-25 09:26:51 [kernel.py:295] Final IR op priority after setting platform defaults: IrOpPriorityConfig(rms_norm=['native'], fused_add_rms_norm=['native'])
+
+--- arm awq_marlin loaded in 79.3 s ---
+  repository             Qwen/Qwen3-14B-AWQ
+  revision               31c69efc29464b6bb0aee1398b5a7b50a99340c3
+  quantization requested None
+  quantization resolved  auto_awq
+  dtype resolved         torch.float16
+  prefix caching         False
+  vLLM log on the selected kernel:
+    | [vllm.entrypoints.serve.utils.api_utils] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.85, 'disable_log_stats': True, 'revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'tokenizer_revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'model': 'Qwen/Qwen3-14B-AWQ'}
+
+==============================================================================
+ROUNDS
+==============================================================================
+  warmup 1   awq_marlin     1.661 s    128 tokens     77.08 tok/s
+  warmup 2   awq_marlin     1.645 s    128 tokens     77.79 tok/s
+  round 1    awq_marlin     1.645 s    128 tokens     77.81 tok/s
+  round 2    awq_marlin     1.645 s    128 tokens     77.83 tok/s
+  round 3    awq_marlin     1.645 s    128 tokens     77.82 tok/s
+  round 4    awq_marlin     1.644 s    128 tokens     77.85 tok/s
+  round 5    awq_marlin     1.645 s    128 tokens     77.82 tok/s
+
+(load control: not applicable, a published reference text exists
+ only at 4B)
+
+==============================================================================
+THROUGHPUTS, median and range over the kept rounds
+==============================================================================
+  arm            med tok/s       min       max    spread
+  awq_marlin         77.82     77.81     77.85     0.04%
+
+(no ratio formed: sequential mode, the arms did not coexist)
+
+JSON written: /out/paper-awq-speed-14b-2026-09-25/arm-awq_marlin.json
+
+==============================================================================
+OK, every guard green
+==============================================================================
+(EngineCore pid=623) INFO 09-25 09:27:03 [core.py:1313] [shutdown] EngineCore: trigger received signal=SIGTERM
+(EngineCore pid=623) INFO 09-25 09:27:03 [core.py:1432] [shutdown] EngineCore: start mode=abort timeout=0s
+(EngineCore pid=623) INFO 09-25 09:27:03 [core.py:1463] [shutdown] EngineCore: request processing complete; starting resource teardown
+(EngineCore pid=623) INFO 09-25 09:27:03 [core.py:1326] [shutdown] EngineCore: exiting busy loop

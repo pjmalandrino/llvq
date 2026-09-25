@@ -1,0 +1,124 @@
+{
+ "schema": "llvq-awq-speed/1",
+ "utc": "2026-09-25T09:25:19Z",
+ "preregistration": "proofs/preregistration-awq-vllm-2026-08-17.md",
+ "image_tag": "vllm/vllm-openai:v0.26.0",
+ "image_digest": "sha256:ffb2d59b1c059a5bd8d781320c9f5189de8293693b7d95da54befddaa54abf52",
+ "vllm_version": "0.26.0",
+ "accelerator": "gpu",
+ "job_id": "6ab6300e52d0dbd7f1d8edd6",
+ "size": "14b",
+ "interleaved": false,
+ "tokens": 128,
+ "warmups": 2,
+ "rounds": 5,
+ "prompt_token_ids": [
+  785,
+  6722,
+  315,
+  9625,
+  374
+ ],
+ "prompt_text": "The capital of France is",
+ "arms": {
+  "f16": {
+   "quantization_resolved": "none",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 227.0340029490003,
+   "gpu_memory_utilization": 0.85,
+   "kernel_log": [],
+   "repo": "Qwen/Qwen3-14B",
+   "revision": "40c069824f4251a91eefaf281ebe4c544efd3e18",
+   "quantization_requested": null,
+   "elapsed_s": [
+    4.95633766300034,
+    4.956169402999876,
+    4.9568139030002385,
+    4.95601737800007,
+    4.956720214000143
+   ],
+   "tokps": [
+    25.825520515992174,
+    25.826397282248667,
+    25.82303925562441,
+    25.827189502643066,
+    25.82352734747201
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and the seat of the U.S. government, home to important landmarks like the White House, the Capitol, and the Supreme Court. While it's not part of any state, it serves as the political center of the country. Let me know if you'd like more details! 😊\n\nOkay, so the user asked for the capital of the United States. I know it's Washington, D.C., but I should make sure I'm not mixing it up with another city",
+   "median": 25.825520515992174,
+   "min": 25.82303925562441,
+   "max": 25.827189502643066,
+   "spread_pct": 0.016070332507285526
+  },
+  "awq_marlin": {
+   "quantization_resolved": "auto_awq",
+   "quantization_readable": true,
+   "prefix_caching": false,
+   "prefix_caching_readable": true,
+   "dtype": "torch.float16",
+   "load_s": 79.30696497400004,
+   "gpu_memory_utilization": 0.85,
+   "kernel_log": [
+    "[vllm.entrypoints.serve.utils.api_utils] non-default args: {'dtype': 'float16', 'max_model_len': 2048, 'enable_prefix_caching': False, 'gpu_memory_utilization': 0.85, 'disable_log_stats': True, 'revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'tokenizer_revision': '31c69efc29464b6bb0aee1398b5a7b50a99340c3', 'model': 'Qwen/Qwen3-14B-AWQ'}"
+   ],
+   "repo": "Qwen/Qwen3-14B-AWQ",
+   "revision": "31c69efc29464b6bb0aee1398b5a7b50a99340c3",
+   "quantization_requested": null,
+   "elapsed_s": [
+    1.6449460930002715,
+    1.644658746999994,
+    1.6448110700002871,
+    1.6442625390000103,
+    1.6448788580000837
+   ],
+   "tokps": [
+    77.8141001365805,
+    77.82769540093564,
+    77.8204879177872,
+    77.8464490700163,
+    77.81728081521338
+   ],
+   "n_tokens_out": [
+    128,
+    128,
+    128,
+    128,
+    128
+   ],
+   "text": " Paris. What is the capital of the United States of America? The capital of the United States of America is Washington, D.C. It is a federal district and serves as the seat of the U.S. government, housing important institutions like the White House, Congress, and the Supreme Court. While many people might think of New York City as the capital due to its prominence, it is actually Washington, D.C. that holds this title. The choice of Washington, D.C. as the capital was a compromise between Northern and Southern states during the nation's early years, and it was designed by French architect Pierre Charles L'Enfant",
+   "median": 77.8204879177872,
+   "min": 77.8141001365805,
+   "max": 77.8464490700163,
+   "spread_pct": 0.0415686592327376
+  }
+ },
+ "ratios": {
+  "awq_marlin_vs_f16": {
+   "per_round": [
+    3.013069962651671,
+    3.01349408321962,
+    3.013606847258982,
+    3.014127768801548,
+    3.013425693869482
+   ],
+   "median": 3.01349408321962,
+   "min": 3.013069962651671,
+   "max": 3.014127768801548
+  }
+ },
+ "control": {
+  "applicable": false
+ },
+ "violations": [],
+ "ratio_label": "rounds NOT interleaved: the arms never coexisted. The ratio pairs round i of one with round i of the other and must be cited with that caveat (§2.6)"
+}

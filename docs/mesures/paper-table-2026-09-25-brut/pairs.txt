@@ -1,0 +1,4 @@
+== docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv docs/mesures/paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/mmlu-4b-awq-FULL.csv
+== docs/mesures/paper-table-2026-09-25-brut/paper-awq4b-census-2026-09-25/mmlu-4b-awq-FULL.csv docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv
+== docs/mesures/embed-q4-swap-2026-09-23-brut/mmlu-4b-embed-q4-swap-FULL.csv docs/mesures/paper-table-2026-09-25-brut/paper-iq2-census-2026-09-25/mmlu-4b-iq2xxs-FULL.csv
+== docs/data/mmlu-dumps/mmlu-4b-f16-FULL.csv docs/mesures/paper-table-2026-09-25-brut/paper-iq2-census-2026-09-25/mmlu-4b-iq2xxs-FULL.csv

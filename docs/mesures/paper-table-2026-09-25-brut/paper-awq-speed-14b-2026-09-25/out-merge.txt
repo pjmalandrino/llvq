@@ -1,0 +1,6 @@
+==============================================================================
+SEQUENTIAL MERGE, WARNING: ROUNDS NOT INTERLEAVED
+==============================================================================
+  awq_marlin_vs_f16: ×3.013 [3.013–3.014]  (arms not interleaved)
+
+JSON written: /out/paper-awq-speed-14b-2026-09-25/awq-speed-14b.json
