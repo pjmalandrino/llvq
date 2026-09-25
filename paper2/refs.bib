@@ -1,0 +1,409 @@
+% ---------------------------------------------------------------------------
+% PROVENANCE. Checked on 2026-08-08 against primary sources. Three entries
+% were wrong and are corrected here; what remains unchecked is listed at the
+% bottom of this comment rather than left to look verified.
+%
+% How each field was settled:
+%   - Title pages, read as IMAGE RENDERS and not extracted text (the LLVQ
+%     paper's embedded font is shifted by one glyph, see CLAUDE.md): titles,
+%     author lists and their order, arXiv identifiers. NeurIPS, ICLR, ICML
+%     and MLSys camera-readies additionally print their venue in a page-one
+%     footer, which settles those booktitle fields directly.
+%   - The publishers' own records where the title page carries no venue:
+%     proceedings.mlr.press/v235/egiazarian24a for aqlm2024, and
+%     aclanthology.org/2024.emnlp-main.467 for vptq2024.
+%   - Cargo.lock, for candle2023's version field (candle-core 0.9.2).
+%
+%   - Publishers' records for the entries whose venue was in doubt:
+%     proceedings.mlsys.org for awq2024, dblp/ACM for marlin2024,
+%     projecteuclid for cohn2017, and the IEEE record for adoul1988.
+%
+% Six entries were wrong:
+%   - llvq2026 carried an invented title.
+%   - gptvq2024 was missing an author (Koryakovskiy), had another placed 3rd
+%     instead of 8th, and two swapped.
+%   - awq2024 dropped "On-Device" from its title. The MLSys 6 proceedings
+%     carry it; the shorter form belongs to the paper's early arXiv versions.
+%   - marlin2024 was cited as an arXiv preprint. It appeared at PPoPP 2025.
+%   - wikitext2016 was cited as an arXiv preprint. It appeared at ICLR 2017;
+%     the key keeps its 2016 name, the year field does not.
+%   - quip2023 mis-cased "With Guarantees" (invisible under natbib, which
+%     sentence-cases titles, but wrong at the source).
+%
+% Two soft spots remain, both narrow and both stated rather than hidden:
+%   - adoul1988: title, volume, issue and pages come from the IEEE record
+%     (doi 10.1109/18.21247), which prints only a digital-library upload date
+%     of 2006. The 1988 year rests on the volume-to-year correspondence for
+%     IEEE Trans. Inf. Theory vol. 34, and the authors' full first names are
+%     expansions of the record's "J.-P." and "M.".
+%   - conway1999sphere: Springer's book page demands authentication, so
+%     edition, publisher and year were never read from a primary source. No
+%     field was added on the strength of a search summary.
+% ---------------------------------------------------------------------------
+@article{llvq2026,
+  title   = {Leech Lattice Vector Quantization for Efficient {LLM} Compression},
+  author  = {van der Ouderaa, Tycho F. A. and van Baalen, Mart and Whatmough, Paul and Nagel, Markus},
+  journal = {arXiv preprint arXiv:2603.11021},
+  year    = {2026}
+}
+
+@inproceedings{qtip2024,
+  title     = {{QTIP}: Quantization with Trellises and Incoherence Processing},
+  author    = {Tseng, Albert and Sun, Qingyao and Hou, David and De Sa, Christopher},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+  note      = {arXiv:2406.11235}
+}
+
+@inproceedings{quipsharp2024,
+  title     = {{QuIP\#}: Even Better {LLM} Quantization with {Hadamard} Incoherence and Lattice Codebooks},
+  author    = {Tseng, Albert and Chee, Jerry and Sun, Qingyao and Kuleshov, Volodymyr and De Sa, Christopher},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  year      = {2024},
+  note      = {arXiv:2402.04396}
+}
+
+@inproceedings{quip2023,
+  title     = {{QuIP}: 2-Bit Quantization of Large Language Models With Guarantees},
+  author    = {Chee, Jerry and Cai, Yaohui and Kuleshov, Volodymyr and De Sa, Christopher},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2023},
+  note      = {arXiv:2307.13304}
+}
+
+@inproceedings{gptq2023,
+  title     = {{GPTQ}: Accurate Post-Training Quantization for Generative Pre-trained Transformers},
+  author    = {Frantar, Elias and Ashkboos, Saleh and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2023},
+  note      = {arXiv:2210.17323}
+}
+
+@inproceedings{awq2024,
+  title     = {{AWQ}: Activation-aware Weight Quantization for On-Device {LLM} Compression and Acceleration},
+  author    = {Lin, Ji and Tang, Jiaming and Tang, Haotian and Yang, Shang and Chen, Wei-Ming and Wang, Wei-Chen and Xiao, Guangxuan and Dang, Xingyu and Gan, Chuang and Han, Song},
+  booktitle = {Proceedings of Machine Learning and Systems (MLSys)},
+  volume    = {6},
+  pages     = {87--100},
+  year      = {2024},
+  note      = {arXiv:2306.00978}
+}
+
+@inproceedings{marlin2024,
+  title     = {{MARLIN}: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models},
+  author    = {Frantar, Elias and Castro, Roberto L. and Chen, Jiale and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {Proceedings of the 30th {ACM} {SIGPLAN} Annual Symposium on Principles and Practice of Parallel Programming (PPoPP)},
+  pages     = {239--251},
+  year      = {2025},
+  note      = {arXiv:2408.11743}
+}
+
+@inproceedings{aqlm2024,
+  title     = {Extreme Compression of Large Language Models via Additive Quantization},
+  author    = {Egiazarian, Vage and Panferov, Andrei and Kuznedelev, Denis and Frantar, Elias and Babenko, Artem and Alistarh, Dan},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  pages     = {12284--12303},
+  year      = {2024},
+  note      = {arXiv:2401.06118}
+}
+
+@inproceedings{vptq2024,
+  title     = {{VPTQ}: Extreme Low-bit Vector Post-Training Quantization for Large Language Models},
+  author    = {Liu, Yifei and Wen, Jicheng and Wang, Yang and Ye, Shengyu and Zhang, Li Lyna and Cao, Ting and Li, Cheng and Yang, Mao},
+  booktitle = {Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing (EMNLP)},
+  pages     = {8181--8196},
+  year      = {2024},
+  note      = {arXiv:2409.17066}
+}
+
+@article{gptvq2024,
+  title   = {{GPTVQ}: The Blessing of Dimensionality for {LLM} Quantization},
+  author  = {van Baalen, Mart and Kuzmin, Andrey and Koryakovskiy, Ivan and Bastoul, Cedric and Couperus, Peter and Mahurin, Eric and Blankevoort, Tijmen and Nagel, Markus and Whatmough, Paul},
+  journal = {arXiv preprint arXiv:2402.15319},
+  year    = {2024}
+}
+
+@book{conway1999sphere,
+  title     = {Sphere Packings, Lattices and Groups},
+  author    = {Conway, John H. and Sloane, Neil J. A.},
+  edition   = {3rd},
+  publisher = {Springer},
+  year      = {1999}
+}
+
+@article{cohn2017,
+  title   = {The sphere packing problem in dimension 24},
+  author  = {Cohn, Henry and Kumar, Abhinav and Miller, Stephen D. and Radchenko, Danylo and Viazovska, Maryna},
+  journal = {Annals of Mathematics},
+  volume  = {185},
+  number  = {3},
+  pages   = {1017--1033},
+  year    = {2017}
+}
+
+@article{adoul1988,
+  title   = {Nearest neighbor algorithm for spherical codes from the {Leech} lattice},
+  author  = {Adoul, Jean-Pierre and Barth, Michel},
+  journal = {IEEE Transactions on Information Theory},
+  volume  = {34},
+  number  = {5},
+  pages   = {1188--1202},
+  year    = {1988}
+}
+
+@misc{candle2023,
+  title        = {candle: Minimalist {ML} framework for {Rust}},
+  author       = {{Hugging Face}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/huggingface/candle}},
+  note         = {Version 0.9.2}
+}
+
+@article{qwen3_2025,
+  title   = {Qwen3 Technical Report},
+  author  = {{Qwen Team}},
+  journal = {arXiv preprint arXiv:2505.09388},
+  year    = {2025}
+}
+
+@inproceedings{mmlu2021,
+  title     = {Measuring Massive Multitask Language Understanding},
+  author    = {Hendrycks, Dan and Burns, Collin and Basart, Steven and Zou, Andy and Mazeika, Mantas and Song, Dawn and Steinhardt, Jacob},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2021},
+  note      = {arXiv:2009.03300}
+}
+
+@inproceedings{wikitext2016,
+  title     = {Pointer Sentinel Mixture Models},
+  author    = {Merity, Stephen and Xiong, Caiming and Bradbury, James and Socher, Richard},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017},
+  note      = {arXiv:1609.07843}
+}
+
+% ---------------------------------------------------------------------------
+% PROVENANCE, second pass. Ten entries added on 2026-08-19 for the related
+% work of the TACO revision, checked the same way as the block at the top of
+% this file: DBLP records, publisher pages (PMLR, ACL Anthology, JMLR, ICLR
+% proceedings) and arXiv title pages, never a search summary.
+%
+% FIVE of the ten would have been WRONG cited as preprints — the defect this
+% file already carries twice (marlin2024, wikitext2016):
+%   - quarot2024 appeared at NeurIPS 2024, and its CoRR version lists EIGHT
+%     authors where the NeurIPS one lists NINE (Cameron, 5th). Copying the
+%     preprint's list would have reproduced the gptvq2024 defect exactly.
+%   - spinquant2024 appeared at ICLR 2025, spqr2023 and lutgemm2024 at ICLR
+%     2024 — spqr2023's arXiv page announces itself as an "extended preprint"
+%     and names no venue, so only the ICLR record reveals it. As with
+%     wikitext2016, those keys keep their names; their `year` fields do not.
+%   - flute2024 is in the EMNLP 2024 *Findings*, not the main track.
+%
+% One near-miss worth recording: `roofline2009` has a Berkeley technical
+% report with a DIFFERENT title ("... for Floating-Point Programs and
+% Multicore Architectures", UCB/EECS-2008-134). The entry below is the CACM
+% 2009 article, which is the one the performance-model literature cites. No
+% `doi` field is carried, for consistency with every other entry here.
+%
+% Weak spots, stated rather than hidden:
+%   - roofline2009: dl.acm.org and cacm.acm.org both answer 403, so the page
+%     range (65--76) rests on the DBLP record rather than on the article's
+%     first page, and the title's capitalization is the magazine's title-case
+%     form where DBLP records sentence case. Authors, journal, volume, number
+%     and year are confirmed by that same record.
+%   - vllm2023: the page range and the "29th" ordinal come from DBLP, the ACM
+%     page being 403. "Joseph E. Gonzalez" follows the arXiv title page;
+%     DBLP drops the initial.
+%   - spinquant2024: capitalization after the colon follows the ICLR record;
+%     OpenReview served a bot check instead of the camera-ready.
+%   - squeezellm2024: "Coleman Richard Charles Hooper" is PMLR's form, the
+%     publisher of the cited version; the arXiv title page has "Coleman
+%     Hooper". Same person, a style choice.
+%   - exllamav2 is a SOFTWARE citation and there is no paper behind it:
+%     README, releases and the GitHub API were read, and there is no arXiv,
+%     no CITATION file and no "how to cite" section. `author` is the
+%     repository owner login as the API returns it, not a claimed author, and
+%     `year` is the repository's creation date, not a publication date.
+%     llama.cpp's k-quants are in the same position — their canonical
+%     reference is a pull request — which is why the deployed-format citation
+%     here is ExLlamaV2 rather than GGUF.
+%   - llamacpp (added 2026-08-22) is the same kind of SOFTWARE citation, for
+%     the IQ2_XXS/IQ2_XS/IQ2_S formats named in Related Work. Filled from
+%     the GitHub API on the access date: `author` is the owner login
+%     (ggml-org), `year` the repository's creation date (2023-03-10), the
+%     version the latest release tag (v0.2.0, published 2026-08-21). The
+%     grid sizes quoted in the text (256 / 512 / 1024 entries) are the
+%     declared sizes of iq2xxs_grid / iq2xs_grid / iq2s_grid in
+%     ggml/src/ggml-common.h at master on that date; the E8 origin is stated
+%     by the author of pull request #4773 ("SOTA 2-bit quants").
+% ---------------------------------------------------------------------------
+
+@inproceedings{vllm2023,
+  title     = {Efficient Memory Management for Large Language Model Serving with {PagedAttention}},
+  author    = {Kwon, Woosuk and Li, Zhuohan and Zhuang, Siyuan and Sheng, Ying and Zheng, Lianmin and Yu, Cody Hao and Gonzalez, Joseph E. and Zhang, Hao and Stoica, Ion},
+  booktitle = {Proceedings of the 29th Symposium on Operating Systems Principles (SOSP)},
+  pages     = {611--626},
+  year      = {2023},
+  note      = {arXiv:2309.06180}
+}
+
+@article{c4corpus,
+  title   = {Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer},
+  author  = {Raffel, Colin and Shazeer, Noam and Roberts, Adam and Lee, Katherine and Narang, Sharan and Matena, Michael and Zhou, Yanqi and Li, Wei and Liu, Peter J.},
+  journal = {Journal of Machine Learning Research},
+  volume  = {21},
+  number  = {140},
+  pages   = {1--67},
+  year    = {2020},
+  note    = {arXiv:1910.10683}
+}
+
+@inproceedings{quarot2024,
+  title     = {{QuaRot}: Outlier-Free 4-Bit Inference in Rotated {LLMs}},
+  author    = {Ashkboos, Saleh and Mohtashami, Amirkeivan and Croci, Maximilian L. and Li, Bo and Cameron, Pashmina and Jaggi, Martin and Alistarh, Dan and Hoefler, Torsten and Hensman, James},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year      = {2024},
+  note      = {arXiv:2404.00456}
+}
+
+@inproceedings{spinquant2024,
+  title     = {{SpinQuant}: {LLM} Quantization with Learned Rotations},
+  author    = {Liu, Zechun and Zhao, Changsheng and Fedorov, Igor and Soran, Bilge and Choudhary, Dhruv and Krishnamoorthi, Raghuraman and Chandra, Vikas and Tian, Yuandong and Blankevoort, Tijmen},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2025},
+  note      = {arXiv:2405.16406}
+}
+
+@inproceedings{lutgemm2024,
+  title     = {{LUT-GEMM}: Quantized Matrix Multiplication based on {LUTs} for Efficient Inference in Large-Scale Generative Language Models},
+  author    = {Park, Gunho and Park, Baeseong and Kim, Minsub and Lee, Sungjae and Kim, Jeonghoon and Kwon, Beomseok and Kwon, Se Jung and Kim, Byeongwook and Lee, Youngjoo and Lee, Dongsoo},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  note      = {arXiv:2206.09557}
+}
+
+@inproceedings{flute2024,
+  title     = {Fast Matrix Multiplications for Lookup Table-Quantized {LLMs}},
+  author    = {Guo, Han and Brandon, William and Cholakov, Radostin and Ragan-Kelley, Jonathan and Xing, Eric P. and Kim, Yoon},
+  booktitle = {Findings of the Association for Computational Linguistics: {EMNLP} 2024},
+  pages     = {12419--12433},
+  year      = {2024},
+  note      = {arXiv:2407.10960}
+}
+
+@inproceedings{squeezellm2024,
+  title     = {{SqueezeLLM}: Dense-and-Sparse Quantization},
+  author    = {Kim, Sehoon and Hooper, Coleman Richard Charles and Gholami, Amir and Dong, Zhen and Li, Xiuyu and Shen, Sheng and Mahoney, Michael W. and Keutzer, Kurt},
+  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
+  pages     = {23901--23923},
+  year      = {2024},
+  note      = {arXiv:2306.07629}
+}
+
+@inproceedings{spqr2023,
+  title     = {{SpQR}: A Sparse-Quantized Representation for Near-Lossless {LLM} Weight Compression},
+  author    = {Dettmers, Tim and Svirschevski, Ruslan and Egiazarian, Vage and Kuznedelev, Denis and Frantar, Elias and Ashkboos, Saleh and Borzunov, Alexander and Hoefler, Torsten and Alistarh, Dan},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2024},
+  note      = {arXiv:2306.03078}
+}
+
+@article{roofline2009,
+  title   = {Roofline: An Insightful Visual Performance Model for Multicore Architectures},
+  author  = {Williams, Samuel and Waterman, Andrew and Patterson, David A.},
+  journal = {Communications of the {ACM}},
+  volume  = {52},
+  number  = {4},
+  pages   = {65--76},
+  year    = {2009}
+}
+
+@misc{exllamav2,
+  title        = {{ExLlamaV2}: A fast inference library for running {LLMs} locally on modern consumer-class {GPUs}},
+  author       = {{turboderp-org}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/turboderp-org/exllamav2}},
+  note         = {Version 0.3.2, accessed 2026-08-19}
+}
+
+@misc{llamacpp,
+  title        = {llama.cpp: {LLM} inference in {C/C++}},
+  author       = {{ggml-org}},
+  year         = {2023},
+  howpublished = {\url{https://github.com/ggml-org/llama.cpp}},
+  note         = {Release v0.2.0, accessed 2026-08-22}
+}
+
+@misc{nvidia_l40s_datasheet,
+  title        = {{NVIDIA L40S} datasheet},
+  author       = {{NVIDIA Corporation}},
+  year         = {2023},
+  howpublished = {NVIDIA Corporation},
+  note         = {Accessed 2026-08-22}
+}
+
+@misc{nvidia_a100_datasheet,
+  title        = {{NVIDIA A100} {Tensor Core} {GPU} datasheet},
+  author       = {{NVIDIA Corporation}},
+  year         = {2020},
+  howpublished = {NVIDIA Corporation},
+  note         = {Accessed 2026-08-22}
+}
+
+% ---------------------------------------------------------------------------
+% Entries added for paper 2 (2026-09-20). ⚠️ The three literature entries below
+% (forney1988, vardy1991, dclmedu) were NOT verified against a publisher record
+% in the session that added them, unlike every entry above, which was checked
+% against a title page or proceedings front matter. Verify before submission.
+% ---------------------------------------------------------------------------
+
+@misc{llvq1preprint,
+  title        = {Unfolding the {Leech} Lattice: Fused Multi-Shell Decoding and {VRAM} Layouts for 2-Bit {LLM} Weights},
+  author       = {Malandrino, Pier-Jean},
+  year         = {2026},
+  howpublished = {Author preprint, Zenodo},
+  doi          = {10.5281/zenodo.22133606},
+  note         = {DOI 10.5281/zenodo.22133606. Not peer reviewed}
+}
+
+@misc{llvqrepo,
+  title        = {{LLVQ}: {Leech} lattice vector quantization for {LLM} weights, in {Rust}},
+  author       = {Malandrino, Pier-Jean},
+  year         = {2026},
+  howpublished = {\url{https://github.com/pjmalandrino/llvq}}
+}
+
+@misc{cudaguide,
+  title        = {{CUDA} {C++} Programming Guide},
+  author       = {{NVIDIA Corporation}},
+  year         = {2025},
+  howpublished = {\url{https://docs.nvidia.com/cuda/cuda-c-programming-guide/}},
+  note         = {Compute capability 8.9: 128 KB of unified data cache and shared memory per SM, of which at most 100 KB configurable as shared memory}
+}
+
+@article{forney1988,
+  title   = {Coset Codes---Part {II}: Binary Lattices and Related Codes},
+  author  = {Forney, G. David, Jr.},
+  journal = {IEEE Transactions on Information Theory},
+  volume  = {34},
+  number  = {5},
+  pages   = {1152--1187},
+  year    = {1988}
+}
+
+@article{vardy1991,
+  title   = {More Efficient Soft Decoding of the {Golay} Codes},
+  author  = {Vardy, Alexander and Be'ery, Yair},
+  journal = {IEEE Transactions on Information Theory},
+  volume  = {37},
+  number  = {3},
+  pages   = {667--672},
+  year    = {1991}
+}
+
+@misc{dclmedu,
+  title        = {{DCLM-edu}},
+  author       = {{HuggingFaceTB}},
+  year         = {2025},
+  howpublished = {\url{https://huggingface.co/datasets/HuggingFaceTB/dclm-edu}}
+}

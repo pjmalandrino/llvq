@@ -1,0 +1,91 @@
+\section{The kernel}
+\label{sec:kernel}
+
+\subsection{The matrix--vector product}
+
+The kernel keeps the geometry of our earlier one: one warp per output row, a
+256-thread CTA holding 8 rows, the activation staged in shared memory in tiles
+of $T$ blocks ($96T$ bytes) with two barriers per tile, one lane per block, a
+shuffle reduction, and an epilogue that adds the exactly-kept tail and
+multiplies by $\sigma_{\mathrm{row}}$. Only the decode changed.
+
+Three choices make a six-load decode competitive with a shift-and-mask stream.
+First, table values are stored as biased bytes, $\mathrm{val}+128$. Placed
+under \texttt{0x4b0000\_\_}, such a byte reads as the float
+$2^{23}+\mathrm{byte}$ exactly, and one subtraction recovers the value, so a
+coordinate costs one \texttt{prmt}, one \texttt{FADD} and one \texttt{FFMA}
+with no integer-to-float conversion. Second, every loop is unrolled with
+constant indices, so nothing spills: the compiler reports 40 registers and no
+local memory, the same as \Planes{}. Third, the only data-dependent reads are
+the six table loads, so lanes never diverge. Counted from the source, a block
+costs about 141 instructions, of which 54 on the FMA pipe and 85 on the ALU
+pipe, against about 380 plus 24 conversions for a decoder that extracts each
+coordinate and converts it.
+
+Because the kernel reads the file's own words there is no transcoding pass at
+load. The served object loads in 12.1~s where the f16 checkpoint loads in
+81.8~s in the same process.
+
+\subsection{Where the time goes when the tile changes}
+\label{sec:tile}
+
+On an SM, L1 and shared memory come out of one block of SRAM: on Ada (sm\_89),
+128~KB per SM, of which at most 100~KB can be assigned to shared
+memory~\citep{cudaguide}. The activation tile is shared memory. The decoder
+tables are not; they are ordinary global reads, and what shared memory takes,
+L1 does not get. So the tile size, which changes no bit of output and costs no
+bit of storage, changes how much L1 is left for an 18.4~KiB table.
+
+Occupancy does not change with it. Both arms launch 256 threads at 40
+registers, so six CTAs are resident at every tile
+($6\times256\times40 = 61{,}440$ of 65{,}536 registers), and shared memory is
+never the binding limit ($6\times12{,}288 < 102{,}400$~B). What the tile does
+change, besides the carve-out, is the loop structure: barriers per row and trip
+counts. That part is common to both arms.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.60\linewidth]{fig_tile.pdf}
+\Description{Median milliseconds against tile size 32, 64 and 128 for three
+arms. Planes14 is flat near 5 ms across the three tiles, Tetra falls from 4.08
+at tile 128 to 3.42 at 64 and rises slightly at 32, and the no-weights control
+is flat near 2.3 ms.}
+\caption{The tile sweep on the served path, one process, one L40S. Each curve
+is one arm against itself across tiles; the percentage is that arm's own
+amplitude, largest over smallest. Data: tuile-l40s.csv, from
+tuile-l40s-2026-09-20.}
+\label{fig:tile}
+\end{figure}
+
+\begin{table}[t]
+\centering\footnotesize\setlength{\tabcolsep}{5pt}
+\begin{tabular}{rrrrr}
+\toprule
+$T$ & shared per SM & \texttt{nullk} & \Planes{} & \Tetra{}\\
+\midrule
+128 & 72~KB & 2.272 & 5.070 & 4.078\\
+64 & 36~KB & 2.288 & 4.995 & \textbf{3.423}\\
+32 & 18~KB & 2.388 & 5.044 & 3.553\\
+\midrule
+\multicolumn{2}{l}{amplitude} & 5.1\,\% & 1.5\,\% & 19.1\,\%\\
+\bottomrule
+\end{tabular}
+\caption{The numbers behind Fig.~\ref{fig:tile}: median ms over 252
+projections, one process, one L40S. \texttt{nullk} keeps the launch geometry
+and reads no weight byte. Shared memory per SM is six resident CTAs times
+$96T$ bytes. Data: tuile-l40s.csv.}
+\label{tab:tile}
+\end{table}
+
+Across $T \in \{128, 64, 32\}$ the \Planes{} arm moves 1.5\,\%, the
+no-weights control 5.1\,\%, and the \Tetra{} arm 19.1\,\%
+(Fig.~\ref{fig:tile}, Table~\ref{tab:tile}). The three arms share the launch
+geometry, the staging code and the occupancy; the \Tetra{} arm alone reads
+tables. We read the residue as pressure on the residency of those tables in
+L1, and we act on it: the served default is now $T=64$ on sm\_89. We have not
+demonstrated it. The rented platform denies performance counters
+(\texttt{ERR\_NVGPUCTRPERM}), so no cache hit rate or per-level traffic was
+measured, and a control that shares the schedule without reading tables cannot
+rule out an interaction between the two. On sm\_120 the same sweep prefers
+$T=32$, so the best tile is a property of the card rather than of the format.
+All kernel numbers in \S\ref{sec:results} are at $T=64$.

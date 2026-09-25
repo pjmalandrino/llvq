@@ -1,0 +1,57 @@
+\section{The problem}
+\label{sec:problem}
+
+A 4-billion-parameter model in f16 holds 8.04~GB of weights. Quantized to two
+bits it is 1.79~GB on disk. Whether the GPU also \emph{reads} two bits per
+weight is a separate question, and for the Leech lattice the answer has been
+no. The format we published earlier stores 2.000 bits of code per weight and
+its kernel reads 4.804 bits per weight from VRAM (Fig.~\ref{fig:gap}).
+Batch-1 decoding is bound by weight traffic, so the second number is the one
+that sets the cost.
+
+The gap comes from the size of the codebook. \citet{llvq2026} quantize 24
+weights at a time on $\Lambda_{24}$, with a 47-bit index into a ball of
+$1.1\times10^{14}$ lattice points and one gain bit: 48 bits per block, 2.000
+bits per weight. Fast 2-bit kernels decode such a label with a lookup table.
+QTIP keeps a 16-bit trellis state and reads 2~KiB~\citep{qtip2024}; QuIP\#
+reads an $E_8$ codebook of $2^{16}$ entries~\citep{quipsharp2024}; AQLM and
+VPTQ learn codebooks sized for a table~\citep{aqlm2024,vptq2024}. A table with
+$1.1\times10^{14}$ entries is not an option. We measured the two alternatives
+in earlier work~\citep{llvq1preprint}. Decoding the combinatorial index
+arithmetically inside the kernel was compute-bound in every variant we built,
+so we shipped the other one: unfolding the index at load time into a wide
+shift-and-mask stream. That is where 4.804 comes from.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{fig_gap.pdf}
+\Description{Four horizontal dumbbells, one per format. Each joins a hollow
+marker at the bits of code the format carries per weight to a filled marker at
+the bits its kernel reads per weight in VRAM. Planes14 runs from 2.000 to
+4.804, Tetra from 2.000 to 2.148, QTIP has no gap, AWQ runs from 4.000 to
+4.179.}
+\caption{What a format carries against what its kernel reads, per weight:
+hollow marker to filled marker, circles for our arms and squares for the
+deployed kernels. All three 2-bit formats carry 2.000 bits of code.
+\Planes{} reads $2.40\times$ that, because its codebook has to be unfolded
+first. \Tetra{} reads $1.07\times$ it; the excess is the exactly-kept tail and
+the row scales, not the code. FP16 is omitted: 16.000 at both ends. Data:
+echelle-formats.csv.}
+\label{fig:gap}
+\end{figure}
+
+This paper keeps the lattice and changes the codebook. Reordering the 24
+coordinates into three disjoint octads of the Golay code turns the code into a
+trellis with 64 states per cut. A lattice point then has a short address: an
+8-bit state and three 11-bit rows of one 16~KiB table that all three sections
+share. The word is still 48 bits, the kernel reads it as stored, and the VRAM
+rate falls to 2.148 bits per weight. Sectionalising $\mathcal{G}_{24}$ is a
+classical construction~\citep{forney1988,vardy1991}; what we propose is its use
+as the address space of a quantizer codebook, together with the truncation rule
+it forces and the shaping that rule gives up.
+
+\S\ref{sec:tetra} builds the codebook and states what it costs.
+\S\ref{sec:kernel} is the kernel and one measurement about where its time
+goes. \S\ref{sec:results} measures a single Qwen3-4B object: bytes, time,
+memory, perplexity, accuracy. \S\ref{sec:limitations} says what one model on
+one card does not support.
