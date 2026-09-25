@@ -1,0 +1,29 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 96 rot_launches/token for 252 projections
+projection fusion: 0 (LLVQ_FUSE), 252 matvec_launches/token for 252 projections (0 groups + 168 lone + 84 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 1.16 GB on the card, 2.550 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 94180 bytes, sha256 9ecdd8b8b3dcf0472517abf9b69d2125fad081d8cd6e2e1a960d2af2e335c739 (10 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+embedding: f16 (LLVQ_EMBED), 1 table (model.embed_tokens.weight, lm_head tied on it), 777.9 MB on the card
+total expected on the card: 1.94 GB (projections 1.16 + carried 0.78)
+fused  : loaded in    7.3 s,   55.0 tok/s [54.9–55.1, 5 rounds], 1.94 GB on the card
+         LLVQ_ROT_SHARE=1, 96 rot_lancements/token · LLVQ_FUSE=0, 252 matvec_lancements/token · kv_store=cat
+dense  : loaded in   73.0 s,   43.3 tok/s [43.2–43.3, 5 rounds], 8.04 GB on the card
+         kv_store=cat
+
+--- the two arms ---
+  fused F0: 256 tokens identical to the dense arm
+  dense:  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of
+  fused F0:  Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of France is Paris. The capital of Proofreading: The capital of France is Paris. The capital of
+
+--- what it costs ---
+  arm               load  tok/s (median)             range     GB card  matvec/t
+  ------------------------------------------------------------------------------
+  dense            73.0 s            43.3       [43.2–43.3]        8.04         —
+  fused F0          7.3 s            55.0       [54.9–55.1]        1.94       252
+  ------------------------------------------------------------------------------
+  fused F0: speed ×1.27 [×1.27–×1.27] against the dense arm (quotient of medians, 5 rounds per arm, never interleaved), memory ÷4.15
+
+  projections: 2.550 b/weight on the card, file 1.42 GB on disk.
+  WARNING: these two accountings do not compare. The file carries compact
+  indexes, the card reads the unfolded layout the kernel can read fast.

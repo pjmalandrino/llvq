@@ -1,0 +1,33 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 256 tokens
+
+shared rotation: 1 (LLVQ_ROT_SHARE), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_FUSE), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_FUSED_LAYOUT), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 94180 bytes, sha256 9ecdd8b8b3dcf0472517abf9b69d2125fad081d8cd6e2e1a960d2af2e335c739 (10 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+embedding: f16 (LLVQ_EMBED), 2 tables (model.embed_tokens.weight + lm_head.weight), 3111.6 MB on the card
+total expected on the card: 7.28 GB (projections 4.17 + carried 3.11)
+fused  : loaded in   30.6 s,   27.3 tok/s [27.1–27.3, 5 rounds], 7.28 GB on the card
+         LLVQ_ROT_SHARE=1, 101 rot_lancements/token · LLVQ_FUSE=0, 280 matvec_lancements/token · kv_store=cat
+dense  : loaded in  258.7 s,   16.9 tok/s [16.9–16.9, 5 rounds], 29.54 GB on the card
+         kv_store=cat
+
+--- the two arms ---
+  WARNING: fused F0: divergence at token 137 out of 256
+     dense [6722, 315, 14867, 374, 52550, 13, 576, 6722, 315, 279, 3639, 15072, 374, 7148, 13, 576, 6722, 315, 279, 3639, 4180, 374, 6515, 11, 422, 727, 13, 576, 6722, 315, 279, 25662, 374, 37741, 13, 576, 6722, 315, 32961, 374, 37169, 13, 576, 6722, 315, 29121, 374, 14168, 13, 576, 6722, 315, 31503, 374, 57858, 13, 576, 6722, 315, 23190, 374, 52082, 13, 576, 6722, 315, 36255, 374, 76334, 13, 576, 6722, 315, 34340, 374, 63061, 13, 576, 6722, 315, 38396, 374, 48212, 74, 61459, 1579, 13, 576, 6722, 315, 33311, 374, 80701, 13, 576, 6722, 315, 14648, 374, 32877, 13, 576, 6722, 315, 60650, 374, 4104, 1149, 2565, 13, 576, 6722, 315, 56684, 374, 451, 16627, 685, 13, 576, 6722]
+     fused [6722, 315, 33311, 374, 80701, 13, 576, 6722, 315, 23190, 374, 52082, 13, 576, 6722, 315, 31503, 374, 57858, 13, 576, 6722, 315, 36255, 374, 76334, 13, 576, 6722, 315, 34340, 374, 63061, 13, 576, 6722, 315, 25662, 374, 37741, 13, 576, 6722, 315, 32961, 374, 37169, 13, 576, 6722, 315, 29121, 374, 14168, 13, 576, 6722, 315, 34898, 374, 46287, 13, 576, 6722, 315, 42776, 374, 69595, 13, 576, 6722, 315, 27602, 374, 72176, 13, 576, 6722, 315, 33150, 5429, 374, 67289, 13, 576, 6722, 315, 80685, 374, 3240, 3605, 75, 2907, 13, 576, 6722, 315, 78217, 374, 444, 73, 392, 52735, 3362, 13, 576, 6722, 315, 57211, 374, 88618, 31475, 13, 576, 6722, 315, 58714, 374, 7828, 6937, 13]
+     a greedy decode is a chain of argmaxes: one flipped token
+     changes every token after it. Only the POSITION of the first divergence means anything.
+  dense:  Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Germany is Berlin. The capital of Japan is Tokyo. The capital of Canada is Ottawa. The capital of Australia is Canberra. The capital of Brazil is Brasília. The capital of Russia is Moscow. The capital of China is Beijing. The capital of India is New Delhi. The capital of South Africa is Pretoria. The capital of Egypt is Cairo. The capital of Mexico is Mexico City. The capital of Indonesia is Jakarta. The capital of Thailand is Bangkok. The capital of South Korea is Seoul. The capital of Turkey is Ankara. The capital of Greece is Athens. The capital of Egypt is Cairo. The capital of the United Kingdom is London. The capital of the United States is Washington, D.C. The capital of the Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of Switzerland is Bern. The capital of Norway is Oslo. The capital of Sweden is Stockholm. The capital of Finland is Helsinki. The capital of Denmark is Copenhagen. The capital of Iceland is Reykjavik. The capital of Portugal is Lisbon. The capital of Ireland is Dublin. The capital of Malta is Valletta. The capital of Cyprus is Nicosia. The capital
+  fused F0:  Paris. The capital of Italy is Rome. The capital of Spain is Madrid. The capital of Germany is Berlin. The capital of Japan is Tokyo. The capital of Canada is Ottawa. The capital of Australia is Canberra. The capital of Brazil is Brasília. The capital of Russia is Moscow. The capital of China is Beijing. The capital of India is New Delhi. The capital of South Africa is Pretoria. The capital of Egypt is Cairo. The capital of Mexico is Mexico City. The capital of Indonesia is Jakarta. The capital of Thailand is Bangkok. The capital of South Korea is Seoul. The capital of Turkey is Ankara. The capital of Greece is Athens. The capital of Portugal is Lisbon. The capital of Sweden is Stockholm. The capital of Norway is Oslo. The capital of Finland is Helsinki. The capital of Denmark is Copenhagen. The capital of Netherlands is Amsterdam. The capital of Belgium is Brussels. The capital of Switzerland is Bern. The capital of Austria is Vienna. The capital of Hungary is Budapest. The capital of Poland is Warsaw. The capital of Czech Republic is Prague. The capital of Slovakia is Bratislava. The capital of Slovenia is Ljubljana. The capital of Croatia is Zagreb. The capital of Serbia is Belgrade.
+
+--- what it costs ---
+  arm               load  tok/s (median)             range     GB card  matvec/t
+  ------------------------------------------------------------------------------
+  dense           258.7 s            16.9       [16.9–16.9]       29.54         —
+  fused F0         30.6 s            27.3       [27.1–27.3]        7.28       280
+  ------------------------------------------------------------------------------
+  fused F0: speed ×1.61 [×1.60–×1.62] against the dense arm (quotient of medians, 5 rounds per arm, never interleaved), memory ÷4.06
+
+  projections: 2.524 b/weight on the card, file 5.09 GB on disk.
+  WARNING: these two accountings do not compare. The file carries compact
+  indexes, the card reads the unfolded layout the kernel can read fast.
