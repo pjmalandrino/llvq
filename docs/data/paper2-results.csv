@@ -1,14 +1,14 @@
 model,arm,engine,bparam,mmlu,mmlu_plan,toks,gb,gb_kind,source
 Qwen3-4B,fp16,vLLM 0.26.0,16.00,70.14,census,83.1,8.04,weights,f16-full-2026-09-18; awq-vllm-4b-2026-08-17
-Qwen3-4B,fp16,ours dense,16.00,70.14,census,43.4,8.04,weights,dclm-ft-fusedrun-2026-09-20
+Qwen3-4B,fp16,ours dense,16.00,70.14,census,43.0,8.04,weights,paper-table-2026-09-25 (dense arm of the served run)
 Qwen3-4B,awq,vLLM 0.26.0,5.30,68.14,census,200.5,2.67,file,paper-table-2026-09-25; awq-vllm-4b-2026-08-17
 Qwen3-4B,iq2xxs,llama.cpp,2.48,39.78,census,312.9,1.25,file,paper-table-2026-09-25; m4-iq2-cuda-2026-08-30
-Qwen3-4B,tetra,ours,2.73,63.37,census,,,served,embed-q4-swap-2026-09-23; paper-table-2026-09-25
+Qwen3-4B,tetra,ours,2.73,63.37,census,113.8,1.38,served,embed-q4-swap-2026-09-23; paper-table-2026-09-25
 Qwen3-8B,fp16,vLLM 0.26.0,16.00,75.05,census,46.3,16.38,weights,census-8b-2026-09-21; paper-table-2026-09-25
-Qwen3-8B,fp16,ours dense,16.00,75.05,census,26.5,16.38,weights,served-8b-2026-09-21
+Qwen3-8B,fp16,ours dense,16.00,75.05,census,26.4,16.38,weights,paper-table-2026-09-25 (dense arm of the served run)
 Qwen3-8B,awq,vLLM 0.26.0,5.96,73.79,census,123.2,6.10,file,census-8b-2026-09-21; paper-table-2026-09-25
-Qwen3-8B,tetra,ours,2.70,69.58,census,,,served,sealed-8b-27-2026-09-24; paper-table-2026-09-25
+Qwen3-8B,tetra,ours,2.70,69.58,census,95.0,2.76,served,sealed-8b-27-2026-09-24; paper-table-2026-09-25
 Qwen3-14B,fp16,vLLM 0.26.0,16.00,78.88,census,25.8,29.54,weights,census-14b-ref-2026-09-22; paper-table-2026-09-25
-Qwen3-14B,fp16,ours dense,16.00,78.88,census,17.0,29.54,weights,fusedrun-14b-2026-08-17
+Qwen3-14B,fp16,ours dense,16.00,78.88,census,16.9,29.54,weights,paper-table-2026-09-25 (dense arm of the served run)
 Qwen3-14B,awq,vLLM 0.26.0,5.40,78.12,census,77.8,9.98,file,census-14b-ref-2026-09-22; paper-table-2026-09-25
-Qwen3-14B,tetra,ours,2.73,75.66,census,,,served,sealed-8b-14b-2026-09-23; paper-table-2026-09-25
+Qwen3-14B,tetra,ours,2.73,75.66,census,57.2,5.04,served,sealed-8b-14b-2026-09-23; paper-table-2026-09-25

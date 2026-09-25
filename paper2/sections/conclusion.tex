@@ -7,8 +7,9 @@ brings the bits read per weight from 4.804 to 2.148, for a codebook that
 bounds each third of a block separately rather than the whole block. Around
 that codebook, three changes that leave the codes untouched give served files
 of Qwen3-4B, 8B and 14B at about 2.7 bits per parameter, scoring 63.37, 69.58
-and 75.66 on MMLU. They stay below 4-bit AWQ, by 4.76, 4.21 and 2.46 points,
-with about half its memory, and the gap shrinks with size.
+and 75.66 on MMLU and decoding 113.8, 95.0 and 57.2 tokens per second in 1.38,
+2.76 and 5.04~GB on one L40S. They stay below 4-bit AWQ, by 4.76, 4.21 and 2.46
+points, with about half its memory, and the gap shrinks with size.
 
 The next measurements we would make, in order: \texttt{down\_proj} instead of
 \texttt{o\_proj} at 4B and 14B, a second calibration draw per size, a model

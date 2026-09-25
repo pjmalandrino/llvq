@@ -52,6 +52,10 @@ AWQ 4B, full test set & 69.9 $[69.2, 70.6]$ & 68.14 & no, lower\\
 IQ2\_XXS 4B, full test set & 39.0 $[37.5, 40.5]$ & 39.78 & yes\\
 AWQ tok/s in vLLM, 8B & 90 $[75, 110]$ & 123.2 & no, faster\\
 AWQ tok/s in vLLM, 14B & 55 $[45, 70]$ & 77.8 & no, faster\\
+sealed 4B tok/s, GB & 110 $[95, 125]$, 1.38 & 113.8, 1.38 & yes\\
+sealed 8B tok/s, GB & 100 $[88, 112]$, 2.77 & 95.0, 2.76 & yes\\
+sealed 14B tok/s, GB & 58 $[50, 66]$, 5.04 & 57.2, 5.04 & yes\\
+256 identical tokens & at each size & 4B, 8B; 14B to 78 & no at 14B\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -134,8 +138,8 @@ AWQ and IQ2\_XXS MMLU 4B & measured & paper-table-09-25\\
 paired gaps, Figure~\ref{fig:scale} & measured & paper2-gaps.csv; the same logs\\
 FP16 and AWQ tok/s in vLLM & measured & awq-vllm-4b-08-17; paper-table-09-25\\
 IQ2\_XXS tok/s & measured & m4-iq2-cuda-08-30\\
-FP16 tok/s, our engine & measured & dclm-ft-fusedrun-09-20; served-8b-09-21; fusedrun-14b-08-17\\
-served tok/s and GB of the sealed files & measured & \pend\\
+FP16 tok/s, our engine & measured & paper-table-09-25, dense arm of each served run\\
+served tok/s and GB of the sealed files & measured & paper-table-09-25\\
 8B choice, $o$ against down & measured & sealed-8b-27-09-24\\
 second training, 4B & measured & sealed-rownorms-09-23\\
 calibration draw moves MMLU by 2.92 & measured, 3 draws & bruit-mmlu-graines-4b-08-25\\

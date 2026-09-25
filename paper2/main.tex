@@ -94,7 +94,8 @@ weight. We then build complete models around it: trained row scales, 4-bit
 integer weights for the projections that lose the most, and 4-bit embedding
 tables that pay for them. On Qwen3-4B, 8B and 14B the served files hold 2.73,
 2.70 and 2.73 bits per parameter over the whole model and score 63.37, 69.58
-and 75.66 on the full MMLU test set. That is 4.76, 4.21 and 2.46 points below
+and 75.66 on the full MMLU test set, and decode 113.8, 95.0 and 57.2 tokens per
+second in 1.38, 2.76 and 5.04~GB. That is 4.76, 4.21 and 2.46 MMLU points below
 4-bit AWQ, which needs 5.3 to 6.0 bits per parameter, and 23.6 points above
 llama.cpp's IQ2\_XXS (2.48 bits per parameter) at 4B. All measurements come from one NVIDIA L40S. Code,
 measurement logs and preregistered predictions are public.

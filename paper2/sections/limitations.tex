@@ -11,7 +11,8 @@
   they are not affected; a different draw would start from a different file.
 \item \textbf{Quality is scored on the dense reconstruction}, not through the
   kernel. The two are tied by per-row checks against f64 and by the 256-token
-  comparison, not by a second MMLU run.
+  comparison, identical at 4B and 8B and parting at token 78 at 14B, not by a
+  second MMLU run.
 \item \textbf{No perplexity} is reported for the sealed files.
 \item \textbf{Batch 1 and short context only.} Nothing here measures serving
   several requests at once or long prompts.

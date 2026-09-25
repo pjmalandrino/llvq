@@ -50,25 +50,25 @@ here; their MMLU is cited from \citet{llvq2026}.
 \midrule
 \multirow{8}{*}{4B}
  & FP16, vLLM & 16.00 & 70.14 & 83.1 & 8.04\\
- & FP16, our engine$^{a}$ & 16.00 & 70.14 & 43.4 & 8.04\\
+ & FP16, our engine$^{a}$ & 16.00 & 70.14 & 43.0 & 8.04\\
  & AWQ w4g128, vLLM & 5.30 & 68.14 & 200.5 & 2.67\\
  & IQ2\_XXS, llama.cpp & 2.48 & 39.78 & 312.9 & 1.25\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{63.37} & \pend & \pend\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{63.37} & \textbf{113.8} & \textbf{1.38}\\
  & \textcolor{okGray}{LLVQ, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{62.8} & & \\
  & \textcolor{okGray}{QTIP, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{59.5} & & \\
  & \textcolor{okGray}{QuIP\#, cited$^{b}$} & \textcolor{okGray}{2 b/w$^{c}$} & \textcolor{okGray}{52.9} & & \\
 \midrule
 \multirow{4}{*}{8B}
  & FP16, vLLM & 16.00 & 75.05 & 46.3 & 16.38\\
- & FP16, our engine$^{a}$ & 16.00 & 75.05 & 26.5 & 16.38\\
+ & FP16, our engine$^{a}$ & 16.00 & 75.05 & 26.4 & 16.38\\
  & AWQ w4g128, vLLM & 5.96 & 73.79 & 123.2 & 6.10\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.70} & \textbf{69.58} & \pend & \pend\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.70} & \textbf{69.58} & \textbf{95.0} & \textbf{2.76}\\
 \midrule
 \multirow{4}{*}{14B}
  & FP16, vLLM & 16.00 & 78.88 & 25.8 & 29.54\\
- & FP16, our engine$^{a}$ & 16.00 & 78.88 & 17.0 & 29.54\\
+ & FP16, our engine$^{a}$ & 16.00 & 78.88 & 16.9 & 29.54\\
  & AWQ w4g128, vLLM & 5.40 & 78.12 & 77.8 & 9.98\\
- & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{75.66} & \pend & \pend\\
+ & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{75.66} & \textbf{57.2} & \textbf{5.04}\\
 \bottomrule
 \end{tabular}
 \caption{Quality, speed and memory at three sizes, one L40S. MMLU is on the
@@ -111,7 +111,26 @@ parameter. The cited rows come from another harness and count only the
 projections, so they place our 63.37 rather than rank it: it is next to the
 62.8 of the original LLVQ with fine-tuning and above QTIP's 59.5.
 
-\paragraph{Speed.} \pend
+\paragraph{Speed.} In our engine the sealed files decode 113.8, 95.0 and 57.2
+tokens per second at 4B, 8B and 14B, with 1.38, 2.76 and 5.04~GB of weights on
+the card (Figure~\ref{fig:scale}, right). Our dense FP16 path runs the same
+models at 43.0, 26.4 and 16.9 tokens per second in the same processes. A large
+part of the gap comes from the 4-bit output head: with the embedding and head
+kept in f16 on both sides, the sealed files decode 55.0, 38.9 and 27.3 tokens
+per second, that is 1.27, 1.47 and 1.61 times our dense path. In vLLM, AWQ
+decodes 200.5, 123.2 and 77.8 tokens per second and FP16 83.1, 46.3 and 25.8.
+We do not divide these by our numbers: vLLM runs FP16 faster than our dense
+path does, so a ratio across the two engines would mix the formats with the
+engines.
+
+\paragraph{The served tokens.} At 4B and 8B the 256 greedy tokens of each
+sealed file are identical to those of its dense reconstruction, generated in
+the same process. At 14B the two sequences part at token 78. One changed token
+changes every later one in a greedy decode, so only that position carries
+information; the preregistration treats a divergence after token 32 as two
+logits too close to order, not as a defect. The prefill check, 203 prompt
+tokens in one call against 203 single-token calls, gives the same next token
+at all three sizes.
 
 \subsection{Where the gain comes from}
 \label{sec:chain}

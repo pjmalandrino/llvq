@@ -36,11 +36,10 @@ make clean
 
 `\pdfoutput=1` must stay inside the first five lines of `main.tex`.
 
-## State (2026-09-25)
+## State (2026-09-26)
 
-Compiles clean: 15 pages, no error, no overfull box, no undefined reference.
-Waiting on the served runs of the three sealed files (tok/s, GB on the card,
-256-token identity): their cells in the main table, the speed panel of the
-scale figure and the "Speed" paragraph are `\pend`.
+Complete: 16 pages, no error, no overfull box, no undefined reference, and
+`RELEASE=1 make check` passes (no pending cell). The served speeds of the three
+sealed files come from paper-table-2026-09-25.
 
 Writing rule for every revision: short factual sentences, no em dash.

@@ -64,7 +64,9 @@ Our contributions:
 
 The files do not match AWQ on quality. They score 4.76, 4.21 and 2.46 points
 below it at 4B, 8B and 14B, with the gap shrinking as the model grows. They use
-about half its memory: 2.7 bits per parameter against 5.3 to 6.0. At 4B they
+about half its memory: 2.7 bits per parameter against 5.3 to 6.0. Served in
+our engine they decode 113.8, 95.0 and 57.2 tokens per second at 4B, 8B and
+14B, in 1.38, 2.76 and 5.04~GB of weights. At 4B they
 score 23.6 points above llama.cpp's IQ2\_XXS, which uses 2.48 bits per
 parameter. Everything was
 measured on one card. The campaigns behind the main results were preregistered
