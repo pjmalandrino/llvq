@@ -716,6 +716,19 @@ pub fn load_int4_sources() -> Result<(String, Option<String>), String> {
 /// The `extern "C"` entry point [`load_int4_sources`] defines.
 pub const INT4_KERNEL_NAME: &str = "tv_q4_h";
 
+/// The dynamic shared memory [`INT4_KERNEL_NAME`] asks for over a model's int4
+/// records: the widest activation, staged whole in f32; `0` when there is none.
+///
+/// Not a hidden size any more. The sealed objects serve `o_proj` and
+/// `down_proj` in int4, and a `down_proj` stages the intermediate width:
+/// 9,728 floats at 4B (38,912 B), 12,288 at 8B (49,152 B, the default to the
+/// byte) and 17,408 at 14B (69,632 B, past it). The 14B sealed file was
+/// refused at load on 2026-09-25 against the 49,152 default (job
+/// 6ab6212752d0dbd7f1d8eae0), while the card offers 101,376 on request.
+pub fn int4_shared_bytes(d_ins: impl IntoIterator<Item = usize>) -> usize {
+    d_ins.into_iter().map(|d| d * 4).max().unwrap_or(0)
+}
+
 /// The q4 embedding source, `emb_q4.cu`, appended under [`EmbedMode::Q4`].
 ///
 /// Here rather than in `fused_cuda.rs` for [`load_int4_sources`]'s reason: the
@@ -2454,6 +2467,25 @@ mod tests {
             let e = FuseMode::parse(Some(bad)).expect_err("must be refused");
             assert!(e.contains(bad), "the message must cite the value: {e}");
         }
+    }
+
+    /// The int4 kernel's staging, at the three sealed objects' widest int4
+    /// activation, against the L40S's bounds (49,152 by default, 101,376 on
+    /// request, `fusedrun-14b-2026-08-17.txt`): the 4B and the 8B fit the
+    /// default, the 14B needs the opt-in, and nothing needs more.
+    #[test]
+    fn the_int4_staging_fits_the_card_at_every_sealed_size() {
+        use llvq_cuda::shared::{plan, Fit};
+        let (def, optin) = (49_152, 101_376);
+        // (hidden, o_proj d_in, intermediate): Qwen3-4B, 8B, 14B.
+        let sizes = [(2560, 4096, 9728), (4096, 4096, 12288), (5120, 5120, 17408)];
+        let want = [(38_912, Fit::Default), (49_152, Fit::Default), (69_632, Fit::OptIn)];
+        for ((h, o, i), (bytes, fit)) in sizes.into_iter().zip(want) {
+            let got = int4_shared_bytes([h, o, i]);
+            assert_eq!(got, bytes, "the widest of v, o and down, in f32");
+            assert_eq!(plan(got, def, optin), Some(fit), "{bytes} B");
+        }
+        assert_eq!(int4_shared_bytes([]), 0, "no int4 record, no request");
     }
 
     /// The int4 bytes are counted, and they are counted where the weights are.

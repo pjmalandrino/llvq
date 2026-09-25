@@ -48,11 +48,12 @@
 // return;`: a return before `__syncthreads()` deadlocks, and it would break
 // the full-warp mask of `warp_sum`. The host asserts `d_out % 8 == 0`.
 //
-// ⚠️ The activation is staged whole, not tiled: `d_in` here is a hidden size
-// (2560 at 4B, 5120 at 14B), so the shared request is 10 to 20 KB. The host
-// checks it against the device limit rather than assuming it — the projection
-// kernels tile because their `d_in` can be an intermediate size, and this one
-// must not silently inherit a bound it does not share.
+// ⚠️ The activation is staged whole, not tiled. `d_in` was a hidden size while
+// only `v_proj` was int4 (10 to 20 KB); the sealed objects serve `down_proj`
+// in int4 too, whose `d_in` is the intermediate width: 69,632 B at 14B, past
+// the 48 KiB default. The host sizes the request (`fused::int4_shared_bytes`),
+// poses the opt-in on this function and checks every record against the
+// ceiling, rather than assuming a bound.
 //
 // Composition contract (NVRTC has no filesystem, the host concatenates):
 // llvq_slot.cuh (u32), matvec.cu (h2f, f2h, warp_sum), then this file. The

@@ -943,9 +943,17 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
     if projs.iter().all(|p| p.rot_key().is_none()) {
         return projs
             .iter()
-            .map(|p| {
-                let r = p.prepare(x)?;
-                p.forward_with(&r, x)
+            .map(|p| match p {
+                // `tv_q4_h` is a matvec: one vector, no row count. A group with
+                // no rotation that holds one — a lone `o_proj` or `down_proj`
+                // served int4 — fans out row by row, as the rotated branch
+                // does for an int4 `v_proj`. `Proj::Dense` still takes the
+                // whole tensor, so the dense path does not move.
+                Proj::Int4(_) => int4_rows(p, x),
+                _ => {
+                    let r = p.prepare(x)?;
+                    p.forward_with(&r, x)
+                }
             })
             .collect();
     }
@@ -1004,6 +1012,26 @@ pub fn group_forward(projs: &[&Proj], x: &Tensor, share: RotShare) -> Result<Vec
         .zip(projs)
         .map(|(rows_of_site, p)| regroup(&rows_of_site, dims, p.d_out()?))
         .collect()
+}
+
+/// `y = W x` for every row of `x` through a single-vector int4 kernel,
+/// reassembled into the caller's shape. One row is `forward_with` verbatim,
+/// so a decode step takes the call it always took.
+fn int4_rows(p: &Proj, x: &Tensor) -> Result<Tensor> {
+    let dims = x.dims();
+    let rows: usize = dims[..dims.len() - 1].iter().product();
+    if rows == 1 {
+        let r = p.prepare(x)?;
+        return p.forward_with(&r, x);
+    }
+    let ys = row_views(x)?
+        .iter()
+        .map(|xi| {
+            let r = p.prepare(xi)?;
+            p.forward_with(&r, xi)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    regroup(&ys, dims, p.d_out()?)
 }
 
 /// One segmented launch, and the map back to the projections it stands for.

@@ -632,11 +632,18 @@ impl FusedRuntime {
             Some(n) => Some(cuda.func(n).map_err(candle_core::Error::msg)?),
             None => None,
         };
+        // Staged whole, `d_in` floats a block: an int4 `down_proj` at 14B
+        // stages 69,632 B, past the 48 KiB default, so the opt-in is posed on
+        // the function here, as for `rot_apply`. Under the default,
+        // `func_dynamic_shared` is `func` and nothing changes.
         let f_int4 = match int4.is_some() {
-            true => Some(
-                cuda.func(crate::fused::INT4_KERNEL_NAME)
-                    .map_err(candle_core::Error::msg)?,
-            ),
+            true => {
+                let bytes = crate::fused::int4_shared_bytes(model.int4.iter().map(|q| q.d_in));
+                Some(
+                    cuda.func_dynamic_shared(crate::fused::INT4_KERNEL_NAME, bytes as u32)
+                        .map_err(candle_core::Error::msg)?,
+                )
+            }
             false => None,
         };
         // Looked up only when both the layout and the caller allow it: the
@@ -788,9 +795,15 @@ impl FusedRuntime {
         for g in &model.groups {
             seg_projs.push(upload_group(&cuda, g, model.layout)?);
         }
+        // `tv_q4_h` was loaded with its opt-in above, so its bound is the
+        // ceiling, not the default `tv_q8_h` keeps in `shared_limit`.
+        let int4_limit = llvq_cuda::shared::ceiling(
+            dev_report.shared_per_block as usize,
+            dev_report.shared_per_block_optin as usize,
+        );
         let mut int4_projs = Vec::with_capacity(model.int4.len());
         for q in &model.int4 {
-            int4_projs.push(upload_int4(&cuda, q, shared_limit)?);
+            int4_projs.push(upload_int4(&cuda, q, int4_limit)?);
         }
 
         Ok((
@@ -2111,10 +2124,10 @@ fn upload_int4(
             q.d_in
         );
     }
-    // The whole activation, not a tile: `d_in` here is a hidden size. Checked
-    // against the card rather than assumed — the projection kernels tile
-    // because their `d_in` can be an intermediate size, and this one must not
-    // inherit a bound it does not share.
+    // The whole activation, not a tile, and `d_in` can be the intermediate
+    // width (an int4 `down_proj`). Checked against the ceiling the caller
+    // passes, which is the opt-in one `f_int4` was loaded with
+    // (`fused::int4_shared_bytes`).
     let shared = q.d_in * 4;
     if shared > shared_limit {
         candle_core::bail!(

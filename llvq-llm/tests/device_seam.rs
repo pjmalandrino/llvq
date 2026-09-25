@@ -590,6 +590,37 @@ fn the_int4_arm_reads_the_callers_activation() -> Result<()> {
     Ok(())
 }
 
+/// A group of ONE int4 projection over several rows: the sealed objects' lone
+/// `o_proj` and `down_proj`.
+///
+/// No projection of such a group carries a rotation, so `group_forward` takes
+/// its dense branch, which hands the whole tensor to `forward_with`. A `Linear`
+/// takes that; `tv_q4_h` takes one vector. The 4B sealed file died on exactly
+/// this at the prefill gate on 2026-09-25 (job 6ab6211052d0dbd7f1d8eada,
+/// "activation of 831488 values for d_in=4096", 203 rows): an int4 `v_proj`
+/// never reached the branch because q and k rotate. Rank 3 on purpose: the
+/// block hands `[batch, seq, hidden]`.
+#[test]
+fn a_lone_int4_projection_takes_several_rows_one_at_a_time() -> Result<()> {
+    let dev = Device::Cpu;
+    let w = matrix(4, D_IN, 0.37, &dev)?;
+    let p = Proj::Int4(Arc::new(FakeInt4 { name: "000.o_proj".into(), w: w.clone() }));
+    let rows = 3usize;
+    let v: Vec<f32> = (0..rows * D_IN).map(|i| (i as f32 * 0.29).cos()).collect();
+    let xs = Tensor::from_vec(v, (1, rows, D_IN), &dev)?;
+
+    let out = group_forward(&[&p], &xs, RotShare::On)?;
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].dims(), &[1, rows, 4], "the caller's shape, d_out last");
+    let want = xs.broadcast_matmul(&w.t()?)?;
+    assert!(close(&out[0], &want)? < 1e-6, "row by row is the whole product");
+
+    // One row stays the one-row call, and gives the same row.
+    let one = group_forward(&[&p], &xs.narrow(1, 1, 1)?, RotShare::On)?;
+    assert!(close(&one[0], &want.narrow(1, 1, 1)?)? < 1e-6);
+    Ok(())
+}
+
 /// `SegPlan::run` over several rows: the cat, the narrow and the reshape.
 ///
 /// The single-row group test exercises the case the code's own comment calls
