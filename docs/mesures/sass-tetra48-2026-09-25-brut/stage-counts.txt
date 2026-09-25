@@ -1,0 +1,11 @@
+  14  A fetch the 6-byte word
+  49  B Golay path and rank rows
+  54  C values as bytes (per section)
+  10  C values as bytes (tables by parity)
+  56  D byte to float
+   9  E activation from shared
+  24  E dot (FFMA)
+  20  F magnitude and gain
+   2  G scale and accumulate
+   3  H loop control
+ 241  total per block, 10.04 per weight
