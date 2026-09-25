@@ -1,0 +1,103 @@
+THE PAPER TABLE IS COMPLETE: THE SEALED FILES SERVE AT 113.8 / 95.0 / 57.2 TOK/S IN 1.38 / 2.76 / 5.04 GB (2026-09-25 TO 09-26)
+================================================================================
+Prereg: proofs/preregistration-paper-table-2026-09-25.md, stamped before the first job
+        (commit 2afffdd). Deviations: the -ECARTS.md beside it (E1 infrastructure,
+        E2 two defects of the served path, E3 cost).
+Card:   NVIDIA L40S (sm_89), driver 580.178.04, every run.
+Data:   docs/mesures/paper-table-2026-09-25-brut/ (one directory per run, pairs.txt).
+Nature: *measured*; gaps and ratios *computed* from the dumps and the logs.
+
+RUNS AND COSTS
+---------------
+  run 1  served 4B    6ab6745c52d0dbd7f1d8fe1c   325 s  $0.16   image 0fb47462
+  run 2  served 8B    6ab674656b030d633f69143b   505 s  $0.25   image 0fb47462
+  run 3  served 14B   6ab674736b030d633f69143d   933 s  $0.47   image 0fb47462
+  run 4  AWQ 4B MMLU  6ab6212852d0dbd7f1d8eae2  1400 s  $0.70   image 89110c04
+  run 5  IQ2 4B MMLU  6ab6300c6b030d633f690a5f   852 s  $0.43   llama.cpp full-cuda
+  run 6  vLLM 8B      6ab6300d52d0dbd7f1d8edd3   245 s  $0.12   vllm-openai v0.26.0
+  run 7  vLLM 14B     6ab6300e52d0dbd7f1d8edd6   392 s  $0.20   vllm-openai v0.26.0
+  failed before any number: four container starts (4 s each, E1) and three first
+  served attempts on 89110c04 (54, 66, 88 s, E2): $0.10.
+  Total $2.43 against $3.47 announced. Project total $227.62.
+  Queue: the served runs waited 8.8 to 9.5 h for a card.
+
+THE SERVED FILES (runs 1-3), our engine, batch 1, greedy, 256 tokens, 5 rounds
+----------------------------------------------------------------------------------
+                          4B                  8B                  14B
+  prefill gate, 203 tok   argmax 9625=9625    argmax 9625=9625    argmax 9625=9625
+    max |d logit|/scale   9.5e-2 / 30.4       1.35 / 36.6         0.79 / 27.5
+  q4 tables (served)      113.8 [112.7-114.3] 95.0 [94.6-95.0]    57.2 [57.1-57.2] tok/s
+    on the card           1.38 GB             2.76 GB             5.04 GB
+    tokens vs dense       256 identical       256 identical       diverge at 78
+  f16 tables (same head)  55.0 [54.9-55.1]    38.9 [38.8-39.0]    27.3 [27.1-27.3] tok/s
+    on the card           1.94 GB             4.55 GB             7.28 GB
+    tokens vs dense       256 identical       256 identical       diverge at 137
+  dense f16, same proc.   43.0 (8.04 GB)      26.4 (16.38 GB)     16.9 (29.54 GB)
+  x dense, q4 tables      x2.65 [2.62-2.66]   x3.59 [3.58-3.60]   x3.38 [3.38-3.38]
+  x dense, f16 tables     x1.27               x1.47               x1.61
+  projections             1.16 GB, 2.550 b/w  2.06 GB, 2.377 b/w  4.17 GB, 2.524 b/w
+  split (lone + int4)     168 + 84            199 + 53            181 + 99
+  loaded in               4.1 s               7.8 s               19.2 s
+
+The ratios against the dense arm are quotients of medians over non-interleaved rounds
+(fusedrun prints them so). The q4 head carries a large part of the speed: with the
+embedding and head in f16 on both sides, the ratio falls to x1.27-x1.61 (hard rule 4).
+
+THE COMPETITORS (runs 4-7)
+---------------------------
+  AWQ 4B, census          68.14 micro / 70.23 macro (the 2,280 sample read 70.04)
+  IQ2_XXS 4B, census      39.78 micro / 40.76 macro, 14,042/14,042 four letters in top-100
+  vLLM 8B, interleaved    awq_marlin 123.16 [123.09-123.18], f16 46.31 [46.30-46.33], x2.659
+  vLLM 14B, one arm/proc  awq_marlin 77.82 [77.81-77.85], f16 25.83 [25.82-25.83], x3.013
+                          (rounds NOT interleaved; MarlinLinearKernel at both sizes)
+
+Paired on the census (pairs.txt), stratified micro, no finite-population correction:
+  f16 - AWQ 4B            +2.00 [+1.50 ; +2.51]   McNemar 787 / 506, p = 5.4e-15
+  AWQ - sealed 4B         +4.76 [+4.02 ; +5.49]   McNemar 1767 / 1098
+  f16 - sealed 4B         +6.77 [+6.05 ; +7.50]   McNemar 1901 / 951
+  (the IQ2 dump has no `# end` trailer: llama.cpp's scorer does not write it, so it is
+   reported as micro only)
+
+THE PREDICTIONS
+----------------
+  4B tok/s        110 [95, 125]      113.8   inside
+  4B GB           1.38 [1.30, 1.50]  1.38    inside
+  8B tok/s        100 [88, 112]      95.0    inside
+  8B GB           2.77 [2.62, 2.92]  2.76    inside
+  14B tok/s       58 [50, 66]        57.2    inside
+  14B GB          5.04 [4.85, 5.25]  5.04    inside
+  256 identical   at each size       4B, 8B yes; 14B NO, diverges at 78
+  AWQ 4B census   69.9 [69.2, 70.6]  68.14   OUTSIDE, lower
+  IQ2 4B census   39.0 [37.5, 40.5]  39.78   inside
+  vLLM AWQ 8B     90 [75, 110]       123.2   OUTSIDE, faster
+  vLLM AWQ 14B    55 [45, 70]        77.8    OUTSIDE, faster
+  AWQ/f16 8B      x2.4 [2.0, 2.8]    x2.66   inside
+  AWQ/f16 14B     x2.6 [2.1, 3.1]    x3.01   inside
+
+THE DECISION RULES
+-------------------
+Every served size passed its prefill gate. The 14B divergence is at token 78, past the
+prereg's threshold of 32: it is published beside the speed as the position of an argmax
+tie-break, as for every served object since 2026-09-10, not treated as a defect. All
+census headers and the fingerprint a74a6d6213602979 matched on run 4; run 5 checked
+14,042 qhash before scoring. No speed cell stays empty.
+
+CONTROLS
+---------
+1. Oracle MATCH on runs 1-4.
+2. Sealed files on the mount equal to the Mac's by bytes and sha256 (886391a8, 7bdb9a55,
+   61db37fe); configs written from the launch command and checked by sha256.
+3. Tile 64 served for sm_89 and the embedding line `q4 g64` with the right table count,
+   gated in every served log.
+4. AWQ 4B from Pier-Jean/qwen3-4b-awq-deq @ 2c78de3b, shards equal to the Mac's copy.
+5. IQ2 GGUF sha256 19a8ed49 on the mount; prompts sha256 9bd7a441.
+6. vLLM: image tag and digest, awq_marlin resolved, prefix caching read back off, 128
+   tokens every round.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- MMLU through the kernel: the census numbers are the dense reconstruction's; the link is
+  the 256-token comparison (identical at 4B and 8B, divergence at 78 at 14B) and the
+  per-row checks.
+- A ratio across engines: our tok/s and vLLM's are not divided (hard rule 5).
+- Batch > 1, long context.

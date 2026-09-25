@@ -1,0 +1,19 @@
+Cuda(CudaDevice(DeviceId(1))), dtype F16, 32 tokens
+
+served config: /out/paper-served-14b-2026-09-25-r2/qwen3-14b-tetra-e4.json (layout tetra48, embed q4, rot_share 1, fuse 0, kv f16) — Qwen3-14B paper-2 object, sealed 2026-09-23: Tetra with dclm-edu calibration and trained row scales, v_proj + o_proj + down_proj@10-28 as int4 g128 records, both untied tables stored int4 g64 in the file (qwen3-14b-sealed.bin). fuse is 0 because Tetra carries no segmented kernel, not because fusion was declined.
+shared rotation: 1 (LLVQ_CONFIG), 101 rot_launches/token for 280 projections
+projection fusion: 0 (LLVQ_CONFIG), 280 matvec_launches/token for 280 projections (0 groups + 181 lone + 99 int4)
+fused layout: tetra48 (LLVQ_CONFIG), projections 4.17 GB on the card, 2.524 b/weight (INFERENCE accounting: KeepExact tail in binary16; the bench bills its own in f32)
+NVRTC source: 99171 bytes, sha256 f9a7d5a5f16bcf350f56a75b19d4a97c9b07e44dfb5a5411492c2969ffdf04ab (11 parts), tile 64 (served: measured optimum for sm_89), prefill 4x128 (served pair), 49152 B staged of 49152, target compute_89
+embedding: q4 g64 (LLVQ_CONFIG), 2 tables (model.embed_tokens.weight + lm_head.weight), 875.2 MB on the card (int4 777.9 + scales/biases 97.2)
+total expected on the card: 5.04 GB (projections 4.17 + carried 0.88)
+prefill: 203 tokens, layout tetra48, loaded in 19.1 s
+    1991.4 ms a prefill of 203 tokens  [1989.4–1993.0], 5 rounds
+     9.810 ms a token of prompt — multiply by the prompt and by the questions
+  the census of this repository:   2280 questions ->  1.26 h at 203 tokens a prompt
+  the whole MMLU test split   :  14042 questions ->  7.77 h at 203 tokens a prompt
+  (the kernel issues ceil(203/4) launches a projection a question; the dense
+  path issues ONE and does the 2,280 in 4 min 22 s — *measured*, job 6aa414dd)
+
+  gate: 203 tokens in one call against 203 calls of one token
+  max |delta logit| = 7.930e-1 on a scale of 2.750e1, argmax 9625 vs 9625
