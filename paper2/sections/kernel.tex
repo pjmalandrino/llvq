@@ -7,8 +7,8 @@ The kernel keeps the geometry of our earlier one~\citep{llvq1preprint}: one
 warp per output row, 256-thread blocks holding 8 rows, the activation staged in
 shared memory in tiles of $T$ blocks ($96T$ bytes) with two barriers per tile,
 one lane per block, a shuffle reduction, and a last step that adds the
-exactly-kept tail and multiplies by $\sigma_{\mathrm{row}}$. Only the decode
-changed.
+exactly-kept tail and multiplies by $\sigma_{\mathrm{row}}$. What differs is
+how a block is decoded.
 
 Three choices make a six-load decode fast. First, table values are stored as
 biased bytes, $\mathrm{val}+128$. Placed under \texttt{0x4b0000\_\_}, such a
@@ -74,11 +74,11 @@ ten-arm table is in Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
 
 Per weight, \Tetra{} reads 2.148 bits where 4-bit AWQ reads 4.179 and \Planes{}
 reads 4.804: about half the traffic of either (Table~\ref{tab:bench}). The
-milliseconds do not rank the arms, for the reason given in the caption. They do
-show how large the fixed cost around the decode is: the kernel that reads no
-weights at all takes 2.289~ms, against 3.4 to 5.0~ms for the arms that do.
-\Tetra{} runs at 278~GB/s where AWQ reaches 583, so it is limited by decoding
-more than by memory traffic.
+milliseconds do not rank the arms, for the reason given in the caption. The
+kernel with the same launch geometry that reads no weights takes 2.289~ms; the
+arms that read weights take 3.4 to 5.0~ms. \Tetra{} moves its bytes at
+278~GB/s where AWQ reaches 583: reading half the bytes does not halve the
+time.
 
 \subsection{The tile and the L1 cache}
 \label{sec:tile}
