@@ -37,7 +37,8 @@ esac
 PREREG=proofs/preregistration-paper-table-2026-09-25.md
 BUCKET=Pier-Jean/jobs-artifacts
 CONF_LOCAL=configs/qwen3-$SIZE-tetra-e4.json
-O=/out/paper-served-$SIZE-2026-09-25
+# RETRY=2 names a relaunch after a failed attempt left its directory behind.
+O=/out/paper-served-$SIZE-2026-09-25${RETRY:+-r$RETRY}
 F=/out/$OBJ_DIR/$NAME
 C=$O/qwen3-$SIZE-tetra-e4.json
 DRY=${DRY_RUN:-0}
@@ -124,5 +125,5 @@ uv run ops/run.py bench \
   --image hf.co/spaces/Pier-Jean/llvq-runner-cuda \
   --flavor l40sx1 --timeout "$TIMEOUT" \
   --bucket "$BUCKET" --out-mount /out \
-  --name "paper-served-$SIZE" \
+  --name "paper-served-$SIZE${RETRY:+-r$RETRY}" \
   "$PRE" "$BODY"
