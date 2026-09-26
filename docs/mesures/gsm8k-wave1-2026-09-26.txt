@@ -61,7 +61,7 @@ Paired, 95 % interval without finite-population correction, McNemar exact:
   FP16 vLLM - AWQ        +3.11 [+1.62 ; +4.59]     71 / 30    p = 5.5e-5
 
 Against MMLU on the same files (docs/ETAT.md §3): Tetra sits 6.77 below FP16 and 4.76 below
-AWQ, FP16 sits 2.00 above AWQ. The GSM8K gaps are 1.42, 1.37 and 1.56 times those.
+AWQ, FP16 sits 2.00 above AWQ. The GSM8K gaps are 1.42, 1.37 and 1.55 times those.
 
 In errors: Tetra misses 17.51 % of the problems, FP16 7.88 %, AWQ 10.99 %. Tetra makes 2.22
 times the FP16's errors on GSM8K and 1.23 times on MMLU (36.63 % against 29.86 %).
