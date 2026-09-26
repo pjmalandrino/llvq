@@ -235,6 +235,7 @@ struct Knobs {
     codebook: Codebook,
     group_scales: bool,
     design_c: bool,
+    spherical_feedback: bool,
     lambda: f64,
     rotation_seed: Option<u64>,
     sequential_block: bool,
@@ -246,6 +247,7 @@ impl Default for Knobs {
             codebook: Codebook::Identity,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             rotation_seed: None,
             sequential_block: false,
@@ -267,6 +269,7 @@ fn run(map: &VarMap, dev: &Device, k: Knobs) -> (Report, Vec<f32>) {
             retract: true,
             group_scales: k.group_scales,
             design_c: k.design_c,
+            spherical_feedback: k.spherical_feedback,
             lambda: k.lambda,
             tail: TailPolicy::KeepExact,
         },
@@ -474,7 +477,7 @@ fn an_exact_codebook_refines_to_unity_scales() {
 ///
 /// Asserted as a difference rather than as a direction: nothing here says the
 /// sequential path is better, only that it is a different computation. Which
-/// one wins on the exam is what `docs/plan-qualite-gratuite-2026-09-19.md`
+/// one wins on the exam is what `docs/archive/plan-qualite-gratuite-2026-09-19.md`
 /// section C exists to measure, and a unit test cannot answer it.
 #[test]
 fn sequential_block_changes_the_weights() {
@@ -526,6 +529,7 @@ fn sequential_block_leaves_the_first_activation_alone() {
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             tail: TailPolicy::KeepExact,
         },

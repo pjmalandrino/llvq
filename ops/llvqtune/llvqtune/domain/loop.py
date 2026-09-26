@@ -113,6 +113,20 @@ def check(
     discover. Hard rule 1 asks for the cost up front; this is the same idea
     applied to the wiring.
     """
+    # A finite corpus says how much it holds. DCLM-edu's shard carries twenty
+    # times any run's need and offers nothing here; `auxiliary_train` carries
+    # 0.79 of the published arm's token count at seed 0 and less at every
+    # other seed, so a run can outrun it — and a run that stops at step 6,300
+    # of 9,507 writes a plausible sigma nobody would question.
+    available = getattr(corpus, "batches_available", None)
+    if available is not None:
+        held = available(plan.seed)
+        if held < plan.steps:
+            raise WiringError(
+                f"the corpus holds about {held} batches from seed {plan.seed} "
+                f"and the plan asks for {plan.steps}: lower the steps, lower "
+                "the seed, or read another corpus"
+            )
     if objective.needs_teacher and teacher is None:
         raise WiringError(
             f"objective {objective.name!r} reads reference logits "
@@ -162,6 +176,9 @@ def run(
         {
             "trainable": trainable.name,
             "objective": objective.name,
+            # Two arms of the same ladder differ by the corpus and by nothing
+            # else. A journal that does not name it cannot tell them apart.
+            "corpus": corpus.name,
             "steps": plan.steps,
             "seed": plan.seed,
             "tokens_per_batch": corpus.tokens_per_batch,

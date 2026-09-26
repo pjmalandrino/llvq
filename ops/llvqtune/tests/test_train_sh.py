@@ -98,6 +98,39 @@ def student_of(call: str) -> str:
     return words[words.index("--student") + 1]
 
 
+def corpus_of(call: str) -> str:
+    """The value argparse would read: the LAST `--corpus` on the line.
+
+    Reading the first would let a second, contradicting flag appended further
+    down pass unseen, which is exactly the probe-on-other-text mistake.
+    """
+    words = call.split()
+    last = len(words) - 1 - words[::-1].index("--corpus")
+    return words[last + 1]
+
+
+def test_the_default_corpus_is_the_one_every_published_arm_ran_on(tmp_path):
+    done, calls = train(tmp_path, BUDGET="100")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert [corpus_of(c) for c in calls] == ["dclm", "dclm"]
+
+
+def test_the_probe_reads_the_corpus_the_run_will_read(tmp_path):
+    """A rate measured on other text prices the wrong run."""
+    done, calls = train(tmp_path, BUDGET="100", CORPUS="mmlu-aux")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert [corpus_of(c) for c in calls] == ["mmlu-aux", "mmlu-aux"]
+    assert "corpus mmlu-aux" in done.stdout
+
+
+def test_the_mix_ratio_reaches_both_calls(tmp_path):
+    done, calls = train(tmp_path, BUDGET="100", CORPUS="mix", MIX_RATIO="0.25")
+    assert done.returncode == 0, done.stdout + done.stderr
+    for call in calls:
+        words = call.split()
+        assert words[words.index("--mix-ratio") + 1] == "0.25"
+
+
 def test_without_steps_the_budget_decides(tmp_path):
     done, calls = train(tmp_path, BUDGET="100")
     assert done.returncode == 0, done.stdout + done.stderr

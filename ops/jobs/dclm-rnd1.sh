@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A1 of docs/plan-qualite-gratuite-2026-09-19.md: random window draws at the
+# A1 of docs/archive/plan-qualite-gratuite-2026-09-19.md: random window draws at the
 # served volume, corpus and everything else held at the base.
 #
 # The base is dclm at x1 with a CONTIGUOUS PREFIX, 57.95. This arm changes the

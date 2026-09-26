@@ -102,6 +102,32 @@ pub struct GptqConfig {
     /// same algorithm. Off by default: the published path is bit-identical
     /// with this flag false.
     pub design_c: bool,
+    /// **Spherical GPTQ under a coded gain**: the paper's retraction applied
+    /// to the *error feedback* only, the stored block left on the gain grid.
+    ///
+    /// Algorithm 3 line 5 keeps every row block on its exact
+    /// pre-quantization norm during the loop, so the residual the Hessian
+    /// correction propagates onto later columns carries angular error only
+    /// (Table 9: 191.90 to 6.90 without rotation, +1.9 pp of MMLU with it,
+    /// `docs/llvq-paper-notes.md`). Under a coded gain the published path
+    /// cannot do that: the block is snapped to a gain level *and* the
+    /// residual is formed against the snapped block, so the radial error of
+    /// a two-level code is chased by the correction as well. That is the
+    /// paper's "Euclidean GPTQ" row.
+    ///
+    /// With this flag the stored block is still what the decoder rebuilds —
+    /// the code, the format and the rate are untouched — but the residual
+    /// `E` is formed against the block retracted to `‖w‖`, i.e.
+    /// `q · ‖w‖/‖q‖`. It is exactly "free-magnitude loop, then snap every
+    /// block to its nearest level" (the columns after a block only ever see
+    /// `E`), which is design C **without** its closed-form solve — the one
+    /// cell the design C refutation of 2026-08-07 did not isolate.
+    ///
+    /// Requires [`Self::retract`]. Mutually exclusive with
+    /// [`Self::design_c`] (whose loop already stores the exact norm) and
+    /// [`Self::group_scales`] (one variable at a time). Off by default: the
+    /// published path is bit-identical with this flag false.
+    pub spherical_feedback: bool,
     /// Ridge term for that refinement's normal equations, **relative** to
     /// the mean diagonal of the system (like the Hessian damping).
     pub lambda: f64,
@@ -116,6 +142,7 @@ impl Default for GptqConfig {
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             tail: TailPolicy::Reject,
         }
@@ -217,6 +244,17 @@ pub fn quantize_layer_capturing(
         "design C is a reading of *Spherical* GPTQ: without the retraction \
          there is no free-magnitude loop to resolve at the end of the layer"
     );
+    assert!(
+        !cfg.spherical_feedback || cfg.retract,
+        "spherical_feedback is the retraction applied to the error feedback: \
+         without `retract` there is no pre-quantization norm to retract to"
+    );
+    assert!(
+        !(cfg.spherical_feedback && (cfg.design_c || cfg.group_scales)),
+        "spherical_feedback is one variable: design C already stores the \
+         exact norm during its loop, and group_scales is a second magnitude \
+         mechanism on top of it"
+    );
     if cfg.group_scales || cfg.design_c {
         assert!(
             h.is_some_and(|m| m.len() == d_in * d_in),
@@ -304,9 +342,29 @@ pub fn quantize_layer_capturing(
                     }
                 }
             }
+            // Spherical feedback: the residual is formed against the block
+            // retracted to its exact norm, `q · ‖w‖/‖q‖`, while the block
+            // stored — and later decoded — stays the one on the gain grid.
+            // Later columns only ever see `e`, so they are compensated for
+            // the angular error alone; the radial error of the level is
+            // left where it is, as the paper's loop leaves it.
+            let fb = if cfg.spherical_feedback {
+                let n = qbuf[..b].iter().map(|a| a * a).sum::<f64>().sqrt();
+                if n > 0.0 {
+                    norm_before / n
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
             for k in 0..b {
                 // Residual against the *compensated* weights (see module doc).
-                e[i * b + k] = row[s + k] - qbuf[k];
+                e[i * b + k] = if cfg.spherical_feedback {
+                    row[s + k] - qbuf[k] * fb
+                } else {
+                    row[s + k] - qbuf[k]
+                };
                 row[s + k] = qbuf[k];
             }
             if let Some(c) = codes.as_deref_mut() {

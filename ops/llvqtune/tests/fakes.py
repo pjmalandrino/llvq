@@ -88,6 +88,8 @@ class FakeOptimizer:
 
 
 class FakeCorpus:
+    name = "fake_corpus"
+
     def __init__(self, tokens: int = 8, available: int = 1000) -> None:
         self.tokens_per_batch = tokens
         self._available = available

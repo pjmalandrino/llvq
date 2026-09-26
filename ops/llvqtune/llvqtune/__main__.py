@@ -31,6 +31,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--warmup", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--corpus", default="dclm",
+                   choices=("dclm", "mmlu-aux", "mix"),
+                   help="training text: generic (dclm-edu), MMLU-format "
+                        "prompts from auxiliary_train, or a mix of the two")
+    p.add_argument("--mix-ratio", type=float, default=0.5,
+                   help="share of MMLU-format batches under --corpus mix")
     p.add_argument("--checkpoint-every", type=int, default=0,
                    help="steps between partial writes of the export")
     p.add_argument("--device", default="cuda")
@@ -135,9 +141,27 @@ def main(argv: list[str] | None = None) -> int:
         teacher = TorchTeacher(dense)
 
     tokenizer = AutoTokenizer.from_pretrained(args.teacher or args.student)
-    corpus = DclmCorpus(
-        tokenizer, args.batch_size, args.seq_len, device=args.device
-    )
+
+    def generic():
+        return DclmCorpus(
+            tokenizer, args.batch_size, args.seq_len, device=args.device
+        )
+
+    def task_format():
+        from .adapters.mmlu_corpus import MmluAuxCorpus
+
+        return MmluAuxCorpus(
+            tokenizer, args.batch_size, args.seq_len, device=args.device
+        )
+
+    if args.corpus == "dclm":
+        corpus = generic()
+    elif args.corpus == "mmlu-aux":
+        corpus = task_format()
+    else:
+        from .adapters.mix_corpus import MixCorpus
+
+        corpus = MixCorpus(task_format(), generic(), args.mix_ratio)
     if args.repeat_one_batch:
         from .adapters.repeat_corpus import RepeatCorpus
 
@@ -147,11 +171,18 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint_every=args.checkpoint_every,
     )
 
-    check(trainable=trainable, objective=objective, teacher=teacher,
-          corpus=corpus, plan=plan)
+    # Same shape as the pairing refusal above: a wiring error is a refusal,
+    # exit 2, one line. A traceback on a card reads as a crash, and `train.sh`
+    # would then blame the probe for writing no rate.
+    try:
+        check(trainable=trainable, objective=objective, teacher=teacher,
+              corpus=corpus, plan=plan)
+    except WiringError as refused:
+        print(f"refused: {refused}", file=sys.stderr)
+        return 2
     tokens = corpus.tokens_per_batch * plan.steps
-    print(f"wiring accepted: {tokens} tokens, {len(model.matrices)} matrices",
-          file=sys.stderr)
+    print(f"wiring accepted: {tokens} tokens, {len(model.matrices)} matrices, "
+          f"corpus {corpus.name}", file=sys.stderr)
     if args.dry_run:
         print("dry run, nothing was trained", file=sys.stderr)
         return 0

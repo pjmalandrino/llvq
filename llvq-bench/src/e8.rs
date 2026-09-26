@@ -3,7 +3,7 @@
 //!
 //! ## Why this exists at all
 //!
-//! `docs/arbitrage-e8-2026-09-18.md` asks whether the 24-dimensional block
+//! `docs/archive/arbitrage-e8-2026-09-18.md` asks whether the 24-dimensional block
 //! needs the Leech lattice. The comparison the paper offers is confounded: its
 //! E8 row is cubic shaping against a Leech row with shape-gain. Answering it
 //! needs an E8 that can be held to the same accounting, and this is that E8.

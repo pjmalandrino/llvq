@@ -24,6 +24,10 @@ class RepeatCorpus:
     def tokens_per_batch(self) -> int:
         return self._inner.tokens_per_batch
 
+    @property
+    def name(self) -> str:
+        return f"repeat1({getattr(self._inner, 'name', 'inner')})"
+
     def batches(self, count: int, seed: int) -> Iterator:
         if self._batch is None:
             for first in self._inner.batches(1, self._warm_seed):

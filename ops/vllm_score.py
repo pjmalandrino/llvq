@@ -17,7 +17,7 @@ code. One brick serves every arm instead of one pipeline per format.
 
 ## What transfers across engines, and what does not
 
-Established in `docs/exp-piles-isolees-2026-08-30/PROTOCOLE.md` §0:
+Established in `docs/archive/exp-piles-isolees-2026-08-30/PROTOCOLE.md` §0:
 
 * **MMLU transfers in LEVEL.** It depends only on the tokenizer and on the
   logprob of four answer tokens.

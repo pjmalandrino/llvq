@@ -1480,7 +1480,7 @@ def main() -> int:
                         "(the resume block is read from the shard, not passed here)")
     # `leech1c12` — ball m ≤ 12, 47 index bits + 1 gain bit — is the protocol
     # every published number of this project was measured under, 4B and 8B
-    # alike (docs/echelle-4b-8b-2026-08-08.md).
+    # alike (docs/archive/echelle-4b-8b-2026-08-08.md).
     #
     # The default here used to be `leech1c12L3`, and that trailing `L3` is not
     # a detail: it caps a block at three distinct magnitudes, which is what

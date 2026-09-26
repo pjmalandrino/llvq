@@ -38,6 +38,12 @@ LR=${LR:-3e-4}
 PROBE=${PROBE:-6}
 MODE=${MODE:-row_scales}        # row_norms adds the RMSNorm weights, 0 bits
 STEPS_SET=${STEPS:-}
+# The training text. `dclm` is what every published arm ran on; `mmlu-aux`
+# is the task-format arm, `mix` interleaves the two at MIX_RATIO. The probe
+# reads the same corpus as the run: a rate measured on other text is the
+# error of 2026-09-19 in another costume.
+CORPUS=${CORPUS:-dclm}
+MIX_RATIO=${MIX_RATIO:-0.5}
 
 # Checked before anything is loaded: a typo must not cost a probe.
 positive_int() {
@@ -74,9 +80,10 @@ fi
 COMMON=(--student "$EXPORT" --teacher "$TEACHER"
         --mode "$MODE" --objective kl
         --seq-len "$SEQ" --batch-size "$BATCH"
+        --corpus "$CORPUS" --mix-ratio "$MIX_RATIO"
         --device cuda --dtype bf16 --seed 0)
 
-echo "== probe: $PROBE steps, to read this card's rate =="
+echo "== probe: $PROBE steps on corpus $CORPUS, to read this card's rate =="
 set +e
 python -m llvqtune "${COMMON[@]}" \
   --steps "$PROBE" --lr 1e-8 --warmup 1 \

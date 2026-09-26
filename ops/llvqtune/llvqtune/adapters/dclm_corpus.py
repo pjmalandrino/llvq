@@ -81,6 +81,10 @@ class DclmCorpus:
     def tokens_per_batch(self) -> int:
         return self._batch * self._seq
 
+    @property
+    def name(self) -> str:
+        return "dclm-edu"
+
     def _texts(self, seed: int) -> Iterator[str]:
         import pyarrow.parquet as pq
 

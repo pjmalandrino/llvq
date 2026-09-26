@@ -141,6 +141,7 @@ fn run_config(start: usize, limit: usize, rotation_seed: Option<u64>) -> RunConf
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             tail: TailPolicy::KeepExact,
         },

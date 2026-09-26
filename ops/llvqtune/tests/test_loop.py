@@ -49,6 +49,28 @@ def test_the_header_states_the_cost_before_the_first_step():
     assert recorder.header["tokens_total"] == 8 * 5
 
 
+def test_the_header_names_the_corpus_that_ran():
+    # Two arms of the fine-tuning ladder differ by the corpus alone. The
+    # journal is where that difference is read a month later.
+    recorder = FakeRecorder()
+    run(**wire(recorder=recorder, corpus=FakeCorpus()))
+    assert recorder.header["corpus"] == "fake_corpus"
+
+
+def test_a_plan_that_outruns_a_finite_corpus_is_refused_before_the_run():
+    class Finite(FakeCorpus):
+        def batches_available(self, seed):
+            return 4
+
+    with pytest.raises(WiringError, match="holds about 4 batches"):
+        run(**wire(corpus=Finite()))
+
+
+def test_a_corpus_that_states_no_size_is_not_refused():
+    # DCLM-edu's shard holds twenty times any run's need and says nothing.
+    run(**wire(corpus=FakeCorpus()))
+
+
 def test_an_objective_that_needs_a_teacher_refuses_to_run_without_one():
     with pytest.raises(WiringError, match="no teacher"):
         run(**wire(objective=FakeObjective(needs_teacher=True)))

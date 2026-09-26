@@ -19,4 +19,14 @@ class CorpusPort(Protocol):
     @property
     def tokens_per_batch(self) -> int: ...
 
+    @property
+    def name(self) -> str:
+        """What the journal calls this stream.
+
+        Two arms of the same ladder can differ by the corpus and by nothing
+        else — `dclm-edu` against `mmlu-aux`. A journal that does not name it
+        cannot tell them apart afterwards, and neither can a reader.
+        """
+        ...
+
     def batches(self, count: int, seed: int) -> Iterator[Tensor]: ...

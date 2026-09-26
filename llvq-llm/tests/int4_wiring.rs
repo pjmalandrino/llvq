@@ -490,6 +490,7 @@ fn mixed_run(int4_types: Vec<String>, start: usize, limit: usize) -> llvq_llm::c
             retract: true,
             group_scales: false,
             design_c: false,
+            spherical_feedback: false,
             lambda: 1e-2,
             tail: llvq_quant::gptq::TailPolicy::KeepExact,
         },

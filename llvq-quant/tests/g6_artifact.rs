@@ -90,6 +90,7 @@ fn round_trip(d_in: usize, arm: Arm, gain_bits: u32, seed: u64) {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -222,6 +223,7 @@ fn both_arms_leave_finite_residuals_on_three_blocks() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -267,6 +269,7 @@ fn parallel_capture_matches_serial_capture() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };
@@ -330,6 +333,7 @@ fn the_free_magnitude_variant_cannot_round_trip() {
         retract: true,
         group_scales: false,
         design_c: false,
+        spherical_feedback: false,
         lambda: 1e-2,
         tail: TailPolicy::KeepExact,
     };

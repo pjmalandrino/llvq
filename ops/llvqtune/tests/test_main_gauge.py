@@ -51,6 +51,7 @@ class _Tokenizer:
 class _Corpus:
     def __init__(self, *a, **k):
         self.tokens_per_batch = 8
+        self.name = "fake_corpus"
 
     def batches(self, count, seed):
         return iter(())
