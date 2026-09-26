@@ -1,0 +1,3 @@
+KILLED  regrade keeps the raw gold
+KILLED  pair ignores the gold
+restored 3aa12d33f688

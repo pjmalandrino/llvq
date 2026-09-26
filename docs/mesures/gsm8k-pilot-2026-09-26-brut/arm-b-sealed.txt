@@ -1,0 +1,66 @@
+model: /Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+device: Metal(MetalDevice(DeviceId(1))), dtype f16, kv f16, loaded in 53.8 s
+GSM8K test: 1319 problems, scoring 50 (50), revision 740312add88f781978c0658806c59bc2815b9866, max_new 1024, reasoning off
+dumping per-problem results to docs/data/gsm8k-dumps/pilot-4b-sealed-metal.jsonl
+  [   1/50] #33   ok gen  268 eos boxed acc 100.0 %  (97 s)
+  [   2/50] #46   ok gen  370 eos boxed acc 100.0 %  (229 s)
+  [   3/50] #75   -- gen  333 eos boxed acc  66.7 %  (404 s)
+  [   4/50] #160  ok gen  209 eos boxed acc  75.0 %  (504 s)
+  [   5/50] #162  -- gen  395 eos boxed acc  60.0 %  (665 s)
+  [   6/50] #185  ok gen  219 eos boxed acc  66.7 %  (749 s)
+  [   7/50] #222  ok gen  216 eos boxed acc  71.4 %  (838 s)
+  [   8/50] #231  ok gen  248 eos boxed acc  75.0 %  (946 s)
+  [   9/50] #422  ok gen  468 eos boxed acc  77.8 %  (1136 s)
+  [  10/50] #453  ok gen  368 eos boxed acc  80.0 %  (1270 s)
+  [  11/50] #461  ok gen  231 eos boxed acc  81.8 %  (1351 s)
+  [  12/50] #477  -- gen  313 eos boxed acc  75.0 %  (1469 s)
+  [  13/50] #486  ok gen  235 eos boxed acc  76.9 %  (1570 s)
+  [  14/50] #515  -- gen  260 eos boxed acc  71.4 %  (1694 s)
+  [  15/50] #547  ok gen  280 eos boxed acc  73.3 %  (1816 s)
+  [  16/50] #557  ok gen  321 eos boxed acc  75.0 %  (1948 s)
+  [  17/50] #604  ok gen  261 eos boxed acc  76.5 %  (2059 s)
+  [  18/50] #617  ok gen  280 eos boxed acc  77.8 %  (2183 s)
+  [  19/50] #657  ok gen  365 eos boxed acc  78.9 %  (2335 s)
+  [  20/50] #660  -- gen 1024 cap last  acc  75.0 %  (2751 s)
+  [  21/50] #661  ok gen  338 eos boxed acc  76.2 %  (2885 s)
+  [  22/50] #703  ok gen  320 eos boxed acc  77.3 %  (3007 s)
+  [  23/50] #717  ok gen  339 eos boxed acc  78.3 %  (3140 s)
+  [  24/50] #750  ok gen  416 eos boxed acc  79.2 %  (3303 s)
+  [  25/50] #758  ok gen  214 eos boxed acc  80.0 %  (3390 s)
+  [  26/50] #760  ok gen  360 eos boxed acc  80.8 %  (3533 s)
+  [  27/50] #783  ok gen  366 eos boxed acc  81.5 %  (3681 s)
+  [  28/50] #801  ok gen  342 eos boxed acc  82.1 %  (3817 s)
+  [  29/50] #809  ok gen  292 eos boxed acc  82.8 %  (3930 s)
+  [  30/50] #810  ok gen  360 eos boxed acc  83.3 %  (4070 s)
+  [  31/50] #811  ok gen  272 eos boxed acc  83.9 %  (4174 s)
+  [  32/50] #826  ok gen  271 eos boxed acc  84.4 %  (4285 s)
+  [  33/50] #834  ok gen  284 eos boxed acc  84.8 %  (4398 s)
+  [  34/50] #843  ok gen  248 eos boxed acc  85.3 %  (4495 s)
+  [  35/50] #888  ok gen  156 eos boxed acc  85.7 %  (4557 s)
+  [  36/50] #895  ok gen  208 eos boxed acc  86.1 %  (4642 s)
+  [  37/50] #915  ok gen  287 eos boxed acc  86.5 %  (4757 s)
+  [  38/50] #955  ok gen  338 eos boxed acc  86.8 %  (4885 s)
+  [  39/50] #965  -- gen  332 eos boxed acc  84.6 %  (4953 s)
+  [  40/50] #1042 -- gen  388 eos boxed acc  82.5 %  (5031 s)
+  [  41/50] #1072 -- gen  433 eos boxed acc  80.5 %  (5116 s)
+  [  42/50] #1108 ok gen  171 eos boxed acc  81.0 %  (5147 s)
+  [  43/50] #1140 ok gen  405 eos boxed acc  81.4 %  (5219 s)
+  [  44/50] #1169 ok gen  371 eos boxed acc  81.8 %  (5284 s)
+  [  45/50] #1170 ok gen  442 eos boxed acc  82.2 %  (5360 s)
+  [  46/50] #1217 -- gen  445 eos boxed acc  80.4 %  (5437 s)
+  [  47/50] #1219 ok gen  186 eos boxed acc  80.9 %  (5469 s)
+  [  48/50] #1258 -- gen  414 eos boxed acc  79.2 %  (5538 s)
+  [  49/50] #1260 ok gen  186 eos boxed acc  79.6 %  (5568 s)
+  [  50/50] #1266 ok gen  300 eos boxed acc  80.0 %  (5618 s)
+
+/Users/pjmalandrino/q4b-sealed-2026-09-23/qwen3-4b-sealed.bin [LLVQ 2-bit, sealed]
+GSM8K zero-shot, reasoning off, 50 problems of 1319 (50), dtype f16, kv f16, max_new 1024, tokens 94c7b98876288901
+  accuracy          = 80.00 % (40/50) ± 5.66 (binomial SE)
+  read from a box   = 40/49 right; last number 1; nothing 0
+  generated tokens  = mean 323.0, median 313, p90 416, max 1024; stopped at the cap 1
+  prompt tokens     = mean 84.8
+  timing (metal) = prefill 3.709 ms a prompt token, decode 346.948 ms a token (2.9 tok/s), 112.37 s a problem, 5618 s in all, load 54 s
+  timings price a campaign; they are not a throughput measurement
+
+  Dump written. Two arms are compared on the dumps:
+  `cargo run --release -p llvq-llm --bin gsm8kpair -- <a> <b>`.

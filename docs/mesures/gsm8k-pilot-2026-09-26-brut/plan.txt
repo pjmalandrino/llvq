@@ -1,0 +1,17 @@
+pilot (measured, Metal, 4B, 50 problems): prompt 84.8 tokens, answer FP16 295.2, sealed 323.0, sealed at the cap 2 %
+applied to 8B and 14B unchanged (assumption)
+
+our files, served kernel, batch 1
+   4b  central    84 min $ 2.52 | high    93 min $ 2.80 | every answer at the cap   263 min $ 7.88
+   8b  central    99 min $ 2.97 | high   110 min $ 3.31 | every answer at the cap   313 min $ 9.39
+  14b  central   163 min $ 4.89 | high   182 min $ 5.45 | every answer at the cap   519 min $15.56
+
+engine gate: FP16 4B through our dense path, batch 1
+  4b   central   176 min $ 5.29 | high   199 min $ 5.97
+
+references in vLLM, FP16 and AWQ, one job a size
+   4b     16 min $ 0.49  (throughput estimated)
+   8b     19 min $ 0.57  (throughput estimated)
+  14b     26 min $ 0.77  (throughput estimated)
+
+campaign: central 9.7 card-hours $17.51, high 10.8 card-hours $19.36

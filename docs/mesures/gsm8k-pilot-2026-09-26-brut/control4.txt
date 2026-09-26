@@ -1,0 +1,4 @@
+gsm8k_vllm, arm f16, Qwen/Qwen3-4B@1cfa9a7208912126459214e8b04321603b3df60c
+  problems 50 of 1319, dataset 740312add88f781978c0658806c59bc2815b9866, tokens 94c7b98876288901
+  prompts checked       50/50 identical to docs/data/gsm8k-dumps/pilot-4b-f16-metal.jsonl
+  run fingerprint       identical
