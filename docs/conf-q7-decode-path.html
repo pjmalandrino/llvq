@@ -22,13 +22,13 @@
 
     /* chart series, validated with the dataviz script (light, surface #ffffff) */
     --s-words: #0f8a74;
-    --s-side: #eb6834;
     --s-emb: #2a78d6;
     --on-series: #ffffff;
     --bar: #c2ccd6;
     --bar-hi: #1b2631;
     --on-bar-hi: #ffffff;
     --pill: #edf0f4;
+    --en-bg: #eef4fd;
 
     --serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
     --sans: "Avenir Next", "Segoe UI", -apple-system, system-ui, sans-serif;
@@ -50,13 +50,13 @@
       --c-rank: #3cc1a8;  --t-rank: #113a33;
       --c-gain: #a4b0bd;  --t-gain: #222b34;
       --s-words: #1f9e85;
-      --s-side: #e0703f;
       --s-emb: #3987e5;
       --on-series: #0b1015;
       --bar: #3a4754;
       --bar-hi: #e3e9ef;
       --on-bar-hi: #11171d;
       --pill: #222b34;
+      --en-bg: #16233a;
     }
   }
   :root[data-theme="dark"] {
@@ -74,123 +74,133 @@
     --c-rank: #3cc1a8;  --t-rank: #113a33;
     --c-gain: #a4b0bd;  --t-gain: #222b34;
     --s-words: #1f9e85;
-    --s-side: #e0703f;
     --s-emb: #3987e5;
     --on-series: #0b1015;
     --bar: #3a4754;
     --bar-hi: #e3e9ef;
     --on-bar-hi: #11171d;
     --pill: #222b34;
+    --en-bg: #16233a;
   }
 
   /* ---------- base ---------- */
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   body {
     margin: 0;
     background: var(--paper);
     color: var(--ink);
     font-family: var(--serif);
     font-size: 17px;
-    line-height: 1.6;
+    line-height: 1.62;
   }
-  .wrap { max-width: 50rem; margin: 0 auto; padding-block: 3rem 4.5rem; padding-left: 1.25rem; padding-right: 1.25rem; }
-  h1, h2, h3, .sans { font-family: var(--sans); }
-  h1 { font-size: 2.05rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; margin: 0.35rem 0 0.9rem; text-wrap: balance; }
-  h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; margin: 3rem 0 0.7rem; text-wrap: balance; }
-  h3 { font-size: 1rem; font-weight: 600; margin: 1.6rem 0 0.5rem; }
+  .wrap { max-width: 48rem; margin: 0 auto; padding-block: 2.8rem 4.5rem; padding-left: 1.25rem; padding-right: 1.25rem; }
+  h1, h2, h3, h4, .sans { font-family: var(--sans); }
+  h1 { font-size: 2rem; line-height: 1.15; font-weight: 700; letter-spacing: -0.015em; margin: 0.35rem 0 0.9rem; text-wrap: balance; }
+  h2.part { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 3.6rem 0 0; padding-top: 1rem; border-top: 2px solid var(--line-strong); }
+  h3 { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.01em; margin: 0.2rem 0 0.8rem; text-wrap: balance; }
+  h4 { font-size: 1.02rem; font-weight: 650; margin: 1.8rem 0 0.5rem; }
   p { margin: 0 0 1rem; }
   a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
-  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
   code, .mono { font-family: var(--mono); font-size: 0.86em; }
   code { background: var(--t-gain); padding: 0.08em 0.32em; border-radius: 4px; }
+  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
+  li { margin-bottom: 0.4rem; }
 
-  .eyebrow {
-    font-family: var(--sans); font-size: 0.72rem; font-weight: 600;
-    letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
-  }
-  .question {
-    margin: 0 0 1rem; padding: 0.2rem 0 0.2rem 1rem;
-    border-left: 3px solid var(--line-strong);
-    font-size: 1.12rem; font-style: italic; color: var(--ink);
-  }
+  .eyebrow { font-family: var(--sans); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  .question { margin: 0 0 0.3rem; padding: 0.15rem 0 0.15rem 1rem; border-left: 3px solid var(--line-strong); font-size: 1.1rem; font-style: italic; }
+  .translation { margin: 0 0 1rem; padding-left: 1rem; border-left: 3px solid transparent; color: var(--muted); font-size: 0.98rem; }
   .meta { font-family: var(--sans); font-size: 0.85rem; color: var(--muted); }
-  .secnum { color: var(--faint); font-weight: 500; margin-right: 0.45rem; font-variant-numeric: tabular-nums; }
-
-  .prov {
-    font-family: var(--sans); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong);
-    border-radius: 3px; padding: 0.04rem 0.3rem; white-space: nowrap; vertical-align: 0.12em;
-  }
+  .prov { font-family: var(--sans); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 3px; padding: 0.04rem 0.3rem; white-space: nowrap; vertical-align: 0.12em; }
 
   /* ---------- the three numbers ---------- */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); gap: 0.8rem; margin: 1.8rem 0 0.6rem; }
-  .tile {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-    padding: 0.9rem 1rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem;
-    font-family: var(--sans);
-  }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.8rem; margin: 1.6rem 0 1.4rem; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; font-family: var(--sans); }
   .tile .label { font-size: 0.8rem; color: var(--muted); }
-  .tile .value { font-size: 2.1rem; font-weight: 650; line-height: 1.1; letter-spacing: -0.01em; }
-  .tile .value small { font-size: 0.95rem; font-weight: 500; color: var(--muted); margin-left: 0.25rem; letter-spacing: 0; }
+  .tile .value { font-size: 2rem; font-weight: 650; line-height: 1.1; letter-spacing: -0.01em; }
+  .tile .value small { display: block; font-size: 0.85rem; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-top: 0.15rem; }
   .tile .sub { font-size: 0.82rem; color: var(--muted); line-height: 1.4; }
   .tile .prov { align-self: flex-start; margin-top: 0.25rem; }
 
-  /* ---------- the spoken answer ---------- */
-  .script {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
-    padding: 1rem 1.15rem 0.3rem; margin: 1rem 0 0.4rem;
-  }
-  .script p { font-size: 1.02rem; }
-  .script .who { font-family: var(--sans); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.35rem; }
+  /* ---------- the zoom map and the depth control ---------- */
+  .zmap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.8rem 0.9rem; display: grid; gap: 0.55rem; font-family: var(--sans); font-size: 0.86rem; }
+  .zrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.4rem; }
+  .zrow-t { font-weight: 650; min-width: 10.5rem; color: var(--ink); }
+  .zchip { text-decoration: none; color: var(--ink); background: var(--pill); border: 1px solid var(--line-strong); border-radius: 99px; padding: 0.12rem 0.65rem; white-space: nowrap; }
+  .zchip b { font-family: var(--mono); margin-right: 0.3rem; }
+  .zchip:hover { border-color: var(--accent); }
+  .zsep { color: var(--faint); }
+  .depth { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0.8rem 0 0; font-family: var(--sans); font-size: 0.86rem; color: var(--muted); }
+  .depth button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 99px; padding: 0.15rem 0.75rem; cursor: pointer; }
+  .depth button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+
+  /* ---------- zoom sections ---------- */
+  .zsec { margin-top: 2.6rem; }
+  .zline { font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0 0 0.3rem; }
+  .zdots { font-family: var(--mono); letter-spacing: 0.12em; color: var(--c-rank); margin-right: 0.35rem; }
+  .formula { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0.7rem 1rem; margin: 0.8rem 0 1rem; font-family: var(--mono); font-size: 0.92rem; overflow-x: auto; white-space: nowrap; }
+  .en { background: var(--en-bg); border-radius: 10px; padding: 0.75rem 1rem 0.1rem; margin: 1.4rem 0 0.4rem; }
+  .en-t { font-family: var(--sans); font-size: 0.7rem; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
+  .en p[lang="en"] { font-size: 0.98rem; }
 
   /* ---------- figures ---------- */
-  figure { margin: 1.4rem 0 1.2rem; }
+  figure { margin: 1.2rem 0 1.1rem; }
   figcaption { font-family: var(--sans); font-size: 0.84rem; color: var(--muted); margin-top: 0.6rem; line-height: 1.5; }
   .fig-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 0.6rem 0.6rem; }
-  .fig-scroll svg { display: block; width: 100%; height: auto; min-width: 640px; }
+  .fig-scroll svg { display: block; width: 100%; height: auto; min-width: 600px; }
   .legend { display: flex; flex-wrap: wrap; gap: 0.3rem 1.1rem; font-family: var(--sans); font-size: 0.8rem; color: var(--muted); margin: 0 0 0.6rem 0.4rem; }
   .sw { width: 0.72em; height: 0.72em; border-radius: 2px; display: inline-block; margin-right: 0.4em; vertical-align: -0.05em; border: 1px solid var(--line-strong); }
-
-  /* svg vocabulary */
-  svg text { font-family: var(--sans); fill: var(--ink); }
-  .t   { font-size: 12px; }
-  .tb  { font-size: 12.5px; font-weight: 650; }
-  .m   { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
-  .mi  { font-family: var(--mono); font-size: 11px; fill: var(--ink); }
-  .f   { font-size: 10.5px; fill: var(--muted); }
-  .pt  { font-family: var(--mono); font-size: 10.5px; font-weight: 700; fill: var(--ink); }
-  .box   { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
-  .band  { fill: var(--t-gain); stroke: var(--line-strong); stroke-width: 1; }
-  .alt   { fill: var(--paper); stroke: var(--line-strong); stroke-width: 1; }
-  .pill  { fill: var(--pill); stroke: var(--line-strong); stroke-width: 1; }
-  .fpar   { fill: var(--t-par);   stroke: var(--c-par);   stroke-width: 1; }
-  .fgolay { fill: var(--t-golay); stroke: var(--c-golay); stroke-width: 1; }
-  .frank  { fill: var(--t-rank);  stroke: var(--c-rank);  stroke-width: 1; }
-  .fgain  { fill: var(--t-gain);  stroke: var(--c-gain);  stroke-width: 1; }
-  .arr   { stroke: var(--muted); stroke-width: 1.3; fill: none; }
-  .ah    { fill: var(--muted); }
-  .grid  { stroke: var(--line); stroke-width: 1; }
-  .seg-words { fill: var(--s-words); }
-  .seg-side  { fill: var(--s-side); }
-  .seg-emb   { fill: var(--s-emb); }
-  .seg-n     { fill: var(--bar); }
-  .seg-hi    { fill: var(--bar-hi); }
-  .on-series { fill: var(--on-series); font-size: 11.5px; font-weight: 600; }
-  .on-hi     { fill: var(--on-bar-hi); font-family: var(--mono); font-size: 10px; font-weight: 700; }
-  .on-n      { fill: var(--ink); font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
-  .brk   { stroke: var(--muted); stroke-width: 1; fill: none; }
-  .sw-words { background: var(--s-words); } .sw-side { background: var(--s-side); } .sw-emb { background: var(--s-emb); }
   .sw-par { background: var(--t-par); border-color: var(--c-par); } .sw-golay { background: var(--t-golay); border-color: var(--c-golay); }
   .sw-rank { background: var(--t-rank); border-color: var(--c-rank); } .sw-gain { background: var(--t-gain); border-color: var(--c-gain); }
   .sw-hi { background: var(--bar-hi); } .sw-n { background: var(--bar); }
 
+  /* svg vocabulary */
+  svg text { font-family: var(--sans); fill: var(--ink); }
+  .t   { font-size: 12.5px; }
+  .tb  { font-size: 12.5px; font-weight: 650; }
+  .h   { font-size: 13.5px; font-weight: 700; }
+  .big { font-size: 19px; font-weight: 700; }
+  .f   { font-size: 11px; fill: var(--muted); }
+  .m   { font-family: var(--mono); font-size: 10.5px; fill: var(--muted); }
+  .mi  { font-family: var(--mono); font-size: 11.5px; fill: var(--ink); }
+  .box    { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1; }
+  .box-hi { fill: var(--t-rank); stroke: var(--c-rank); stroke-width: 1.2; }
+  .fpar   { fill: var(--t-par);   stroke: var(--c-par);   stroke-width: 1; }
+  .fgolay { fill: var(--t-golay); stroke: var(--c-golay); stroke-width: 1; }
+  .frank  { fill: var(--t-rank);  stroke: var(--c-rank);  stroke-width: 1; }
+  .fgain  { fill: var(--t-gain);  stroke: var(--c-gain);  stroke-width: 1; }
+  .cell-hi { fill: var(--t-rank); stroke: var(--c-rank); stroke-width: 1.2; }
+  .sq-n { fill: var(--bar); }
+  .sq-t { fill: var(--s-words); }
+  .arr  { stroke: var(--muted); stroke-width: 1.3; fill: none; }
+  .ah   { fill: var(--muted); }
+  .brk  { stroke: var(--muted); stroke-width: 1; fill: none; }
+  .grid { stroke: var(--line); stroke-width: 1; }
+  .avg  { stroke: var(--ink); stroke-width: 1.8; }
+  .badge   { fill: var(--ink); }
+  .badge-t { fill: var(--surface); font-size: 12.5px; font-weight: 700; }
+  .zlink { cursor: pointer; }
+  .zlink:hover .step, .zlink:focus-visible .step { stroke: var(--accent); stroke-width: 2; }
+  .zlink:focus { outline: none; }
+  .seg-words { fill: var(--s-words); }
+  .seg-emb   { fill: var(--s-emb); }
+  .seg-n     { fill: var(--bar); }
+  .seg-hi    { fill: var(--bar-hi); }
+  .on-series   { fill: var(--on-series); font-size: 12px; font-weight: 650; }
+  .on-series-s { fill: var(--on-series); font-size: 11px; }
+  .on-hi { fill: var(--on-bar-hi); font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
+  .on-n  { fill: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+
   /* ---------- stage notes ---------- */
-  .stages { list-style: none; padding: 0; margin: 0.4rem 0 1rem; display: grid; gap: 0.55rem; }
-  .stages li { display: grid; grid-template-columns: 4.6rem 1fr; gap: 0.7rem; align-items: baseline; font-size: 0.95rem; line-height: 1.5; }
-  .stages .tag { font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: var(--ink); background: var(--pill); border: 1px solid var(--line-strong); border-radius: 99px; padding: 0.05rem 0.5rem; text-align: center; white-space: nowrap; }
+  .stages { list-style: none; padding: 0; margin: 0.4rem 0 1rem; display: grid; gap: 0.6rem; }
+  .stages li { display: grid; grid-template-columns: 4.4rem 1fr; gap: 0.7rem; align-items: baseline; font-size: 0.96rem; line-height: 1.55; margin: 0; }
+  .stages .tag { font-family: var(--mono); font-size: 0.78rem; font-weight: 700; background: var(--pill); border: 1px solid var(--line-strong); border-radius: 99px; padding: 0.04rem 0.45rem; text-align: center; white-space: nowrap; }
 
   /* ---------- tables ---------- */
-  .tbl-scroll { overflow-x: auto; margin: 1rem 0 1.2rem; }
+  .tbl-scroll { overflow-x: auto; margin: 0.8rem 0 1.2rem; }
   table { border-collapse: collapse; width: 100%; font-family: var(--sans); font-size: 0.88rem; }
   th, td { padding: 0.45rem 0.6rem; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font-size: 0.7rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--line-strong); }
@@ -198,426 +208,797 @@
   td.n { font-family: var(--mono); font-size: 0.83rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
   tr.sub td { color: var(--muted); font-weight: 600; background: var(--paper); }
   tr.tot td { font-weight: 700; border-top: 1px solid var(--line-strong); }
-  td.grp { font-weight: 600; white-space: nowrap; }
+  td.grp { font-weight: 650; white-space: nowrap; }
+  td.barcell { width: 32%; min-width: 7rem; }
+  .hbar { height: 0.7rem; border-radius: 2px; background: var(--s-words); min-width: 2px; }
+  .hbar.emb { background: var(--s-emb); }
 
-  .callout { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--c-rank); border-radius: 0 10px 10px 0; padding: 0.85rem 1.1rem 0.2rem; margin: 1.2rem 0; font-size: 0.95rem; }
-  .callout h3 { margin-top: 0; }
-  ul { padding-left: 1.2rem; margin: 0 0 1rem; }
-  li { margin-bottom: 0.35rem; }
+  .callout { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--c-rank); border-radius: 0 10px 10px 0; padding: 0.85rem 1.1rem 0.2rem; margin: 1.2rem 0; font-size: 0.96rem; }
+  .callout h4 { margin-top: 0; }
 
-  footer { margin-top: 3.5rem; padding-top: 1.1rem; border-top: 1px solid var(--line); font-family: var(--sans); font-size: 0.82rem; color: var(--muted); }
+  /* ---------- glossary ---------- */
+  .gloss { display: grid; grid-template-columns: minmax(9rem, 12rem) 1fr; gap: 0.5rem 1.1rem; margin: 1rem 0; font-size: 0.95rem; }
+  .gloss dt { font-family: var(--sans); font-weight: 650; }
+  .gloss dt i { display: block; font-weight: 400; font-size: 0.8rem; color: var(--muted); font-style: normal; }
+  .gloss dd { margin: 0; line-height: 1.55; }
+
+  footer { margin-top: 3.2rem; padding-top: 1.1rem; border-top: 1px solid var(--line); font-family: var(--sans); font-size: 0.82rem; color: var(--muted); }
   footer ul { padding-left: 1.1rem; }
   footer code { background: none; padding: 0; }
 
-  @media (max-width: 30rem) {
+  @media (max-width: 34rem) {
     body { font-size: 16px; }
-    h1 { font-size: 1.7rem; }
+    h1 { font-size: 1.65rem; }
     .stages li { grid-template-columns: 1fr; gap: 0.2rem; }
     .stages .tag { justify-self: start; }
+    .gloss { grid-template-columns: 1fr; gap: 0.15rem; }
+    .gloss dd { margin-bottom: 0.6rem; }
+    .zrow-t { min-width: 0; width: 100%; }
   }
 </style>
 
 <div class="wrap">
 
 <header>
-  <p class="eyebrow">LLVQ · conference prep · question 7</p>
-  <h1>Tetra decode path</h1>
-  <p class="question">“Walk me through your decode path. How many instructions per weight, and where does the 2.7 come from?”</p>
-  <p class="meta">Qwen3-4B, the served object: 216 <code>Tetra</code> matrices, 36 <code>v_proj</code> in int4 g128, q8 embedding. Kernel <code>tv_tetra48_h</code>, the one-row kernel of token-by-token decoding, compiled for sm_89 (L40S). Written 2026-09-25; every number carries its label and its journal.</p>
+  <p class="eyebrow">LLVQ · préparation de conférence · question 7</p>
+  <h1>Le décodage Tetra, zoom par zoom</h1>
+  <p class="question" lang="en">“Walk me through your decode path. How many instructions per weight, and where does the 2.7 come from?”</p>
+  <p class="translation">« Décris ton chemin de décodage. Combien d’instructions par poids, et d’où vient le 2,7&nbsp;? »</p>
+  <p class="meta">Modèle Qwen3-4B tel qu’il est servi&nbsp;: 216 matrices en Tetra, 36 matrices <code>v_proj</code> en int4, vocabulaire en int8. Carte L40S. Rédigé le 2026-09-26. Chaque nombre porte une étiquette&nbsp;: <span class="prov">mesuré</span>, <span class="prov">calculé</span> ou <span class="prov">estimé</span>. Les termes techniques sont définis à leur première apparition et repris dans le <a href="#glossaire">glossaire</a>.</p>
 </header>
 
-<section class="tiles" aria-label="The three numbers of the answer">
+<section class="tiles" aria-label="Les trois nombres de la réponse">
   <div class="tile">
-    <span class="label">Code rate</span>
-    <span class="value">2.000<small>b / coded weight</small></span>
-    <span class="sub">One 48-bit word per 24 weights: a 47-bit lattice label and 1 gain bit.</span>
-    <span class="prov">computed</span>
+    <span class="label">Débit du code</span>
+    <span class="value">2<small>bits par poids codé</small></span>
+    <span class="sub">Un mot de 48 bits pour un paquet de 24 poids.</span>
+    <span class="prov">calculé</span>
   </div>
   <div class="tile">
-    <span class="label">Decode cost</span>
-    <span class="value">10.0<small>instr / weight</small></span>
-    <span class="sub">241 SASS instructions per 24-weight block, one FFMA per weight among them. The fp16 control: 3.86.</span>
-    <span class="prov">measured, static SASS</span>
+    <span class="label">Coût du décodage</span>
+    <span class="value">≈ 10<small>instructions par poids</small></span>
+    <span class="sub">241 instructions par paquet de 24 poids. La version fp16&nbsp;: 3,86.</span>
+    <span class="prov">mesuré, compte statique</span>
   </div>
   <div class="tile">
-    <span class="label">Whole model</span>
-    <span class="value">2.7475<small>b / param</small></span>
-    <span class="sub">Embedding and norms included, tail at fp16 as the card holds it. 1.381 GB of weights.</span>
-    <span class="prov">computed on file counts</span>
+    <span class="label">Modèle entier</span>
+    <span class="value">2,75<small>bits par paramètre</small></span>
+    <span class="sub">Exactement 2,7475, vocabulaire compris. 1,381&nbsp;Go de poids.</span>
+    <span class="prov">calculé</span>
   </div>
 </section>
 
-<h2>The answer in thirty seconds</h2>
-<div class="script">
-  <p class="who">Say it this way</p>
-  <p>Each block of 24 weights is one 48-bit word in VRAM: a 47-bit label of a Leech lattice point and one gain bit. Decoding walks a small trellis for the 12 Golay bits and reads three rows of a 16 KiB rank table. That is 18,816 bytes of constant tables for the whole model, so no codebook is stored per model. Byte permutes turn ranks into integer coordinates, an exponent trick turns them into floats without the int-to-float unit, and the 24 values meet the activation in 24 FMAs. Compiled for Ada, that loop is 241 instructions per block: about 10 per weight, one of which is the FMA itself. The fp16 control compiles to about 4.</p>
-  <p>The 2.7 is the whole model. The projection matrices hold 2.13 bits per weight: the word, plus fp16 for the 0.45 % of weights that do not fill a 24-block, one fp32 scale per row, and <code>v_proj</code> in int4. The embedding is 9.7 % of this 4B's parameters and stays at 8.5 bits. 2.13 × 90.3 % + 8.5 × 9.7 % ≈ 2.75.</p>
+<nav class="zmap" aria-label="Plan des zooms">
+  <div class="zrow"><span class="zrow-t">Le chemin de décodage</span>
+    <a class="zchip" href="#a0"><b>0</b>l’idée</a><span class="zsep" aria-hidden="true">→</span>
+    <a class="zchip" href="#a1"><b>1</b>les 4 étapes</a><span class="zsep" aria-hidden="true">→</span>
+    <a class="zchip" href="#a2"><b>2</b>les 48 bits</a><span class="zsep" aria-hidden="true">→</span>
+    <a class="zchip" href="#a3"><b>3</b>les instructions</a>
+  </div>
+  <div class="zrow"><span class="zrow-t">D’où vient le 2,7</span>
+    <a class="zchip" href="#b0"><b>0</b>la moyenne</a><span class="zsep" aria-hidden="true">→</span>
+    <a class="zchip" href="#b1"><b>1</b>les deux parts</a><span class="zsep" aria-hidden="true">→</span>
+    <a class="zchip" href="#b2"><b>2</b>tous les bits</a>
+  </div>
+  <div class="zrow"><span class="zrow-t">Aide</span>
+    <a class="zchip" href="#glossaire">glossaire</a>
+    <a class="zchip" href="#limites">ce que ces chiffres ne disent pas</a>
+  </div>
+</nav>
+<div class="depth" role="group" aria-label="Profondeur de lecture">
+  <span>Afficher jusqu’au zoom</span>
+  <button type="button" data-level="0" aria-pressed="false">0</button>
+  <button type="button" data-level="1" aria-pressed="false">1</button>
+  <button type="button" data-level="2" aria-pressed="false">2</button>
+  <button type="button" data-level="3" aria-pressed="true">3, tout</button>
 </div>
 
-<h2><span class="secnum">1</span>One block, one lane</h2>
-<p>One warp computes one output row; each lane takes one block of 24 weights per iteration and walks the row in steps of 32 blocks. The figure is one iteration, top to bottom, with the SASS count of each stage in its pill.</p>
+<h2 class="part">Partie A · Le chemin de décodage</h2>
 
-<figure>
-  <div class="legend" aria-hidden="true">
-    <span><i class="sw sw-par"></i>parity p, r · 2 bits</span>
-    <span><i class="sw sw-golay"></i>Golay path · 12 bits</span>
-    <span><i class="sw sw-rank"></i>rank rows · 33 bits</span>
-    <span><i class="sw sw-gain"></i>gain · 1 bit</span>
+<section id="a0" class="zsec" data-zoom="0">
+  <p class="zline"><span class="zdots" aria-hidden="true">●○○○</span>Zoom 0 · l’idée</p>
+  <h3>Six octets au lieu de quarante-huit</h3>
+  <p>Un modèle de langage, c’est surtout des matrices de nombres, qu’on appelle les poids. Pour produire chaque mot du texte, le GPU relit toutes ces matrices et les multiplie par un vecteur d’entrée. Moins d’octets par poids, c’est un plus gros modèle dans la même mémoire.</p>
+  <p>Dans la version d’origine, chaque poids est un nombre fp16 de 16 bits&nbsp;: un paquet de 24 poids pèse 48 octets. Avec Tetra, ces 24 poids sont remplacés par un point d’un réseau régulier en dimension 24, le réseau de Leech, et ce point s’écrit en 48 bits, soit 6 octets. Au moment du calcul, le GPU reconstruit les 24 poids à partir de ces 6 octets, les multiplie par l’entrée, puis passe au paquet suivant. La matrice décodée n’est jamais écrite en mémoire.</p>
+  <figure>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 246" role="img" aria-label="En fp16, un paquet de 24 poids occupe 48 octets, lus puis convertis : environ 4 instructions par poids. Avec Tetra, il occupe 6 octets, que le GPU reconstruit en 24 poids à l’aide de 18 816 octets de tables avant de les multiplier par l’entrée : environ 10 instructions par poids.">
+<defs><marker id="z0a" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+<text class="h" x="16" y="20">Version d’origine, fp16</text>
+<rect class="sq-n" x="16" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="33" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="16" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="45" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="16" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="57" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="16" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="69" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="16" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="81" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="16" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="28" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="40" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="52" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="64" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="76" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="88" y="93" width="10" height="10" rx="1.5"/>
+<rect class="sq-n" x="100" y="93" width="10" height="10" rx="1.5"/>
+<text class="f" x="63.0" y="119" text-anchor="middle">48 octets</text>
+<line class="arr" x1="122" y1="68" x2="166" y2="68" marker-end="url(#z0a)"/>
+<text class="f" x="144" y="61" text-anchor="middle">lecture</text>
+<rect class="box" x="170.0" y="46.0" width="190.0" height="44.0" rx="6"/>
+<text class="t" x="265" y="64" text-anchor="middle">convertir les 24 poids</text>
+<text class="f" x="265" y="80" text-anchor="middle">au format de calcul</text>
+<line class="arr" x1="362" y1="68" x2="396" y2="68" marker-end="url(#z0a)"/>
+<rect class="box" x="400.0" y="46.0" width="78.0" height="44.0" rx="6"/>
+<text class="t" x="439" y="73" text-anchor="middle">24 poids</text>
+<line class="arr" x1="480" y1="68" x2="530" y2="68" marker-end="url(#z0a)"/>
+<text class="f" x="505" y="61" text-anchor="middle">× entrée</text>
+<rect class="box" x="534.0" y="46.0" width="70.0" height="44.0" rx="6"/>
+<text class="t" x="569" y="73" text-anchor="middle">somme</text>
+<text class="big" x="662" y="62" text-anchor="middle">≈ 4</text>
+<text class="f" x="662" y="79" text-anchor="middle">instructions</text>
+<text class="f" x="662" y="93" text-anchor="middle">par poids</text>
+<text class="h" x="16" y="154">Tetra</text>
+<rect class="sq-t" x="16" y="191" width="10" height="10" rx="1.5"/>
+<rect class="sq-t" x="28" y="191" width="10" height="10" rx="1.5"/>
+<rect class="sq-t" x="40" y="191" width="10" height="10" rx="1.5"/>
+<rect class="sq-t" x="52" y="191" width="10" height="10" rx="1.5"/>
+<rect class="sq-t" x="64" y="191" width="10" height="10" rx="1.5"/>
+<rect class="sq-t" x="76" y="191" width="10" height="10" rx="1.5"/>
+<text class="f" x="51.0" y="217" text-anchor="middle">6 octets</text>
+<line class="arr" x1="122" y1="196" x2="166" y2="196" marker-end="url(#z0a)"/>
+<text class="f" x="144" y="189" text-anchor="middle">lecture</text>
+<rect class="box-hi" x="170.0" y="174.0" width="190.0" height="44.0" rx="6"/>
+<text class="t" x="265" y="192" text-anchor="middle">reconstruire les 24 poids</text>
+<text class="f" x="265" y="208" text-anchor="middle">avec 18 816 octets de tables</text>
+<line class="arr" x1="362" y1="196" x2="396" y2="196" marker-end="url(#z0a)"/>
+<rect class="box" x="400.0" y="174.0" width="78.0" height="44.0" rx="6"/>
+<text class="t" x="439" y="201" text-anchor="middle">24 poids</text>
+<line class="arr" x1="480" y1="196" x2="530" y2="196" marker-end="url(#z0a)"/>
+<text class="f" x="505" y="189" text-anchor="middle">× entrée</text>
+<rect class="box" x="534.0" y="174.0" width="70.0" height="44.0" rx="6"/>
+<text class="t" x="569" y="201" text-anchor="middle">somme</text>
+<text class="big" x="662" y="190" text-anchor="middle">≈ 10</text>
+<text class="f" x="662" y="207" text-anchor="middle">instructions</text>
+<text class="f" x="662" y="221" text-anchor="middle">par poids</text>
+<line class="grid" x1="16" y1="136" x2="704" y2="136"/>
+</svg>
+    </div>
+    <figcaption>Les carrés sont les octets en mémoire, à l’échelle. Tetra ajoute une étape, en vert&nbsp;: reconstruire les poids à partir de petites tables communes à tout le modèle.</figcaption>
+  </figure>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“A block of 24 weights is 6 bytes in memory instead of 48 in fp16. The kernel rebuilds the 24 values on the fly from those 6 bytes and 18 kilobytes of shared tables, then multiplies them by the input. The decoded matrix is never written anywhere.”</p>
   </div>
-  <div class="fig-scroll">
-  <svg viewBox="0 0 760 600" role="img" aria-label="Decode path of one 24-weight block in tv_tetra48_h: a 48-bit word is fetched in 14 instructions, its 12 Golay path bits and 33 rank bits index small tables in 49 instructions, byte permutes build 24 value bytes in 64, the bytes become floats in 56, 24 FFMA form the dot in 33, the magnitude and gain take 20, and the accumulate and loop take 5: 241 instructions per block, 10.04 per weight.">
-    <defs>
-      <marker id="q7a" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-        <path class="ah" d="M0,0 L8,4 L0,8 z"/>
-      </marker>
-    </defs>
+</section>
 
-    <!-- the word in VRAM, bit 0 on the left -->
-    <text class="tb" x="24" y="33">VRAM word</text>
-    <text class="f" x="24" y="46">6 bytes</text>
-    <g>
-      <rect class="fpar"   x="112" y="20" width="13"  height="26"/>
-      <rect class="fpar"   x="125" y="20" width="13"  height="26"/>
-      <rect class="fgolay" x="138" y="20" width="78"  height="26"/>
-      <rect class="fgolay" x="216" y="20" width="13"  height="26"/>
-      <rect class="frank"  x="229" y="20" width="143" height="26"/>
-      <rect class="fgolay" x="372" y="20" width="52"  height="26"/>
-      <rect class="frank"  x="424" y="20" width="143" height="26"/>
-      <rect class="fgolay" x="567" y="20" width="13"  height="26"/>
-      <rect class="frank"  x="580" y="20" width="143" height="26"/>
-      <rect class="fgain"  x="723" y="20" width="13"  height="26"/>
-    </g>
-    <g text-anchor="middle">
-      <text class="mi" x="118.5" y="14">p</text>
-      <text class="mi" x="131.5" y="14">r</text>
-      <text class="mi" x="177"   y="14">s8</text>
-      <text class="mi" x="222.5" y="14">b1</text>
-      <text class="mi" x="300.5" y="14">i1</text>
-      <text class="mi" x="398"   y="14">b2</text>
-      <text class="mi" x="495.5" y="14">i2</text>
-      <text class="mi" x="573.5" y="14">b3</text>
-      <text class="mi" x="651.5" y="14">i3</text>
-      <text class="mi" x="729.5" y="14">g</text>
-      <text class="m" x="118.5" y="37">1</text>
-      <text class="m" x="131.5" y="37">1</text>
-      <text class="m" x="177"   y="37">6</text>
-      <text class="m" x="222.5" y="37">1</text>
-      <text class="m" x="300.5" y="37">11</text>
-      <text class="m" x="398"   y="37">4</text>
-      <text class="m" x="495.5" y="37">11</text>
-      <text class="m" x="573.5" y="37">1</text>
-      <text class="m" x="651.5" y="37">11</text>
-      <text class="m" x="729.5" y="37">1</text>
-    </g>
-
-    <!-- A: fetch -->
-    <line class="arr" x1="424" y1="47" x2="424" y2="69" marker-end="url(#q7a)"/>
-    <rect class="band" x="24" y="70" width="712" height="26" rx="5"/>
-    <text class="tb" x="36" y="87">fetch</text>
-    <text class="m" x="80" y="87">2 × LDG.32 · rows start on a u32 · odd blocks realign by 16 bits</text>
-    <rect class="pill" x="672" y="75" width="56" height="16" rx="8"/>
-    <text class="pt" x="700" y="87" text-anchor="middle">A · 14</text>
-
-    <!-- B: the two lanes of table reads -->
-    <line class="arr" x1="192" y1="96" x2="192" y2="121" marker-end="url(#q7a)"/>
-    <text class="m" x="198" y="113">s8 b1 b2 b3</text>
-    <line class="arr" x1="568" y1="96" x2="568" y2="121" marker-end="url(#q7a)"/>
-    <text class="m" x="574" y="113">r i1 i2 i3</text>
-
-    <rect class="fgolay" x="24"  y="122" width="96" height="50" rx="6"/>
-    <rect class="fgolay" x="144" y="122" width="96" height="50" rx="6"/>
-    <rect class="fgolay" x="264" y="122" width="96" height="50" rx="6"/>
-    <rect class="frank"  x="400" y="122" width="96" height="50" rx="6"/>
-    <rect class="frank"  x="520" y="122" width="96" height="50" rx="6"/>
-    <rect class="frank"  x="640" y="122" width="96" height="50" rx="6"/>
-    <g text-anchor="middle">
-      <text class="tb" x="72"  y="140">prefixes</text>
-      <text class="m"  x="72"  y="154">[s8][b1]</text>
-      <text class="f"  x="72"  y="167">128 B</text>
-      <text class="tb" x="192" y="140">branches</text>
-      <text class="m"  x="192" y="154">[s8][b2]</text>
-      <text class="f"  x="192" y="167">2 KiB</text>
-      <text class="tb" x="312" y="140">suffixes</text>
-      <text class="m"  x="312" y="154">[s16][b3]</text>
-      <text class="f"  x="312" y="167">128 B</text>
-      <text class="tb" x="448" y="140">row 1</text>
-      <text class="m"  x="448" y="154">[2048r+i1]</text>
-      <text class="f"  x="448" y="167">16 KiB table</text>
-      <text class="tb" x="568" y="140">row 2</text>
-      <text class="m"  x="568" y="154">[mix(i2)]</text>
-      <text class="f"  x="568" y="167">δ = [i2 ≥ 1240]</text>
-      <text class="tb" x="688" y="140">row 3</text>
-      <text class="m"  x="688" y="154">[2048r₃+i3]</text>
-      <text class="f"  x="688" y="167">r₃ = p⊕r⊕δ</text>
-    </g>
-    <line class="arr" x1="240" y1="147" x2="263" y2="147" marker-end="url(#q7a)"/>
-    <text class="m" x="252" y="141" text-anchor="middle">s16</text>
-    <line class="arr" x1="616" y1="147" x2="639" y2="147" marker-end="url(#q7a)"/>
-    <text class="m" x="628" y="141" text-anchor="middle">δ</text>
-    <rect class="pill" x="364" y="130" width="32" height="34" rx="7"/>
-    <text class="tb" x="380" y="144" text-anchor="middle">B</text>
-    <text class="pt" x="380" y="158" text-anchor="middle">49</text>
-
-    <line class="arr" x1="72"  y1="172" x2="72"  y2="193" marker-end="url(#q7a)"/>
-    <line class="arr" x1="192" y1="172" x2="192" y2="193" marker-end="url(#q7a)"/>
-    <line class="arr" x1="312" y1="172" x2="312" y2="193" marker-end="url(#q7a)"/>
-    <line class="arr" x1="448" y1="172" x2="448" y2="193" marker-end="url(#q7a)"/>
-    <line class="arr" x1="568" y1="172" x2="568" y2="193" marker-end="url(#q7a)"/>
-    <line class="arr" x1="688" y1="172" x2="688" y2="193" marker-end="url(#q7a)"/>
-    <text class="m" x="77"  y="187">c1</text>
-    <text class="m" x="197" y="187">c2</text>
-    <text class="m" x="317" y="187">c3</text>
-    <text class="m" x="453" y="187">ρ1</text>
-    <text class="m" x="573" y="187">ρ2</text>
-    <text class="m" x="693" y="187">ρ3</text>
-    <rect class="fgolay" x="24"  y="194" width="336" height="22" rx="4"/>
-    <rect class="frank"  x="400" y="194" width="336" height="22" rx="4"/>
-    <text class="t" x="192" y="209" text-anchor="middle">c1 c2 c3 · 24 pattern bits, the Golay word</text>
-    <text class="t" x="568" y="209" text-anchor="middle">ρ1 ρ2 ρ3 · 24 rank nibbles</text>
-
-    <!-- C: ranks to value bytes -->
-    <line class="arr" x1="192" y1="216" x2="192" y2="239" marker-end="url(#q7a)"/>
-    <line class="arr" x1="568" y1="216" x2="568" y2="239" marker-end="url(#q7a)"/>
-    <rect class="box" x="24" y="240" width="712" height="42" rx="6"/>
-    <text class="tb" x="36" y="257">rank → value bytes</text>
-    <text class="m" x="36" y="273">y[j] = val(p + 2·c[j], ρ[j]) · value tables are bytes in registers · one PRMT = four lookups</text>
-    <rect class="pill" x="672" y="245" width="56" height="16" rx="8"/>
-    <text class="pt" x="700" y="257" text-anchor="middle">C · 64</text>
-
-    <!-- D, E on the left; F on the right, from the same bytes -->
-    <line class="arr" x1="192" y1="282" x2="192" y2="305" marker-end="url(#q7a)"/>
-    <text class="m" x="198" y="298">24 bytes</text>
-    <line class="arr" x1="568" y1="282" x2="568" y2="305" marker-end="url(#q7a)"/>
-    <text class="m" x="574" y="298">the same 24 bytes</text>
-
-    <rect class="box" x="24" y="306" width="336" height="40" rx="6"/>
-    <text class="tb" x="36" y="322">byte → float</text>
-    <text class="m" x="36" y="338">PRMT into 0x4b0000__ · FADD −(2²³+128)</text>
-    <rect class="pill" x="296" y="311" width="56" height="16" rx="8"/>
-    <text class="pt" x="324" y="323" text-anchor="middle">D · 56</text>
-
-    <line class="arr" x1="192" y1="346" x2="192" y2="369" marker-end="url(#q7a)"/>
-    <text class="m" x="198" y="362">24 floats</text>
-
-    <rect class="box" x="24" y="370" width="336" height="40" rx="6"/>
-    <text class="tb" x="36" y="386">dot</text>
-    <text class="m" x="36" y="402">24 FFMA · x′ from shared, 6 LDS.128</text>
-    <rect class="pill" x="296" y="375" width="56" height="16" rx="8"/>
-    <text class="pt" x="324" y="387" text-anchor="middle">E · 33</text>
-
-    <rect class="box" x="400" y="306" width="336" height="104" rx="6"/>
-    <text class="tb" x="412" y="322">magnitude and gain</text>
-    <text class="m" x="412" y="340">‖y‖² = 6 × IDP.4A on the bytes</text>
-    <text class="m" x="412" y="356">m = ‖y‖²/16 → invnorm[m] = 1/√(16m)</text>
-    <text class="m" x="412" y="372">m = 0 is the origin: invnorm[0] = 0</text>
-    <text class="m" x="412" y="388">g = bit 47 → gscale[g], 2 per matrix</text>
-    <rect class="pill" x="672" y="311" width="56" height="16" rx="8"/>
-    <text class="pt" x="700" y="323" text-anchor="middle">F · 20</text>
-
-    <!-- G: accumulate, loop back -->
-    <line class="arr" x1="192" y1="410" x2="192" y2="433" marker-end="url(#q7a)"/>
-    <text class="m" x="198" y="426">dot</text>
-    <line class="arr" x1="568" y1="410" x2="568" y2="433" marker-end="url(#q7a)"/>
-    <text class="m" x="574" y="426">gscale[g] · invnorm[m]</text>
-    <rect class="box" x="24" y="434" width="712" height="40" rx="6"/>
-    <text class="tb" x="36" y="450">accumulate</text>
-    <text class="m" x="36" y="466">acc += dot · gscale[g] · invnorm[m] · then the lane's next block, j += 32</text>
-    <rect class="pill" x="672" y="439" width="56" height="16" rx="8"/>
-    <text class="pt" x="700" y="451" text-anchor="middle">G · 5</text>
-    <polyline class="arr" points="24,454 12,454 12,83 23,83" marker-end="url(#q7a)"/>
-    <text class="f" transform="translate(8 268) rotate(-90)" text-anchor="middle">next block</text>
-
-    <!-- once per row -->
-    <line class="arr" x1="380" y1="474" x2="380" y2="499" marker-end="url(#q7a)"/>
-    <text class="m" x="386" y="491">after the row's last block</text>
-    <rect class="alt" x="24" y="500" width="712" height="40" rx="6"/>
-    <text class="tb" x="36" y="516">once per row, not per weight</text>
-    <text class="m" x="36" y="532">warp_sum · × rscale[row], fp32 · + fp16 tail · x · store y[row] in fp16</text>
-
-    <text class="tb" x="24" y="572">Σ 241 SASS instructions per 24-weight block = 10.04 per weight</text>
-    <text class="f" x="24" y="590">static count, NVRTC 12.4 for sm_89 · 40 registers, 0 spill · the per-row epilogue is outside the 241</text>
-  </svg>
-  </div>
-  <figcaption>The served loop of <code>tv_tetra48_h</code>, one iteration. The word is drawn bit 0 on the left. Pills give each stage's SASS instructions per block, classified line by line in the journal; nothing inside the loop branches, so the static count is the count per block.</figcaption>
-</figure>
-
-<ul class="stages">
-  <li><span class="tag">A · 14</span><span><b>Fetch.</b> Two 32-bit loads. A row starts on a u32 boundary, so an odd block's 6-byte record starts mid-word and is realigned by a 16-bit funnel shift.</span></li>
-  <li><span class="tag">B · 49</span><span><b>Table reads.</b> The 12 path bits walk the Golay trellis: <code>prefixes[s8][b1]</code> gives c1, <code>branches[s8][b2]</code> gives c2 and the next state s16, <code>suffixes[s16][b3]</code> gives c3. The rank bits pick three rows of the rank table, the third in class p⊕r⊕δ. Six loads from constant tables that share L1 with the activation tile.</span></li>
-  <li><span class="tag">C · 64</span><span><b>Rank to value.</b> Coordinate j is <code>y[j] = val(p + 2·c[j], ρ[j])</code>. The value tables are bytes held in registers, so one PRMT does four lookups; one LOP3 per four bytes lets the pattern bit choose between two candidates.</span></li>
-  <li><span class="tag">D · 56</span><span><b>Byte to float.</b> One PRMT writes each byte into <code>0x4b0000__</code>, which reads as the float 2²³ + byte, and one FADD removes 2²³ + 128. The result is an exact integer in [−10, 10], with no I2F.</span></li>
-  <li><span class="tag">E · 33</span><span><b>Dot.</b> 24 FFMA against the activation tile staged in shared memory. The trio permutation is a choice of register, fixed at compile time.</span></li>
-  <li><span class="tag">F · 20</span><span><b>Magnitude and gain.</b> ‖y‖² comes from the same bytes with six IDP.4A. m = ‖y‖²/16 indexes <code>invnorm</code>, and bit 47 picks one of the matrix's two gain centroids.</span></li>
-  <li><span class="tag">G · 5</span><span><b>Accumulate.</b> One FMUL, one FFMA, and the loop step.</span></li>
-</ul>
-
-<h2><span class="secnum">2</span>Where the 241 instructions go</h2>
-<p>Both loops pay one FFMA per weight. The dense control spends the rest loading 48 bytes per 24 weights and widening them from fp16. Tetra reads 6 bytes for the same 24 weights and spends the rest decoding them.</p>
-
-<figure>
-  <div class="legend" aria-hidden="true">
-    <span><i class="sw sw-hi"></i>FFMA, the multiply-add: 1 per weight</span>
-    <span><i class="sw sw-n"></i>everything else: decode, loads, addresses, loop</span>
-  </div>
-  <div class="fig-scroll">
-  <svg viewBox="0 0 760 150" role="img" aria-label="SASS instructions per 24 weights: the served Tetra loop takes 241, of which 24 FFMA; the fp16 control takes 92.6, of which 24 FFMA and 24 fp16-to-fp32 conversions.">
-    <g>
-      <line class="grid" x1="190" y1="20" x2="190" y2="110"/>
-      <line class="grid" x1="300" y1="20" x2="300" y2="110"/>
-      <line class="grid" x1="410" y1="20" x2="410" y2="110"/>
-      <line class="grid" x1="520" y1="20" x2="520" y2="110"/>
-      <line class="grid" x1="630" y1="20" x2="630" y2="110"/>
-      <line class="grid" x1="740" y1="20" x2="740" y2="110"/>
-    </g>
-    <g text-anchor="middle">
-      <text class="f" x="190" y="126">0</text>
-      <text class="f" x="300" y="126">50</text>
-      <text class="f" x="410" y="126">100</text>
-      <text class="f" x="520" y="126">150</text>
-      <text class="f" x="630" y="126">200</text>
-      <text class="f" x="740" y="126">250</text>
-    </g>
-    <text class="f" x="740" y="144" text-anchor="end">SASS instructions per 24 weights</text>
-
-    <text class="tb" x="24" y="38">Tetra, served</text>
-    <text class="m" x="24" y="52">241 · 10.04 per weight</text>
-    <g>
-      <rect class="seg-n"  x="190"   y="28" width="28.8"  height="26" rx="2"><title>A · fetch: 14</title></rect>
-      <rect class="seg-n"  x="220.8" y="28" width="105.8" height="26" rx="2"><title>B · table reads: 49</title></rect>
-      <rect class="seg-n"  x="328.6" y="28" width="138.8" height="26" rx="2"><title>C · rank to value bytes: 64</title></rect>
-      <rect class="seg-n"  x="469.4" y="28" width="121.2" height="26" rx="2"><title>D · byte to float: 56</title></rect>
-      <rect class="seg-n"  x="592.6" y="28" width="17.8"  height="26" rx="2"><title>E · activation loads and address: 9</title></rect>
-      <rect class="seg-hi" x="612.4" y="28" width="50.8"  height="26" rx="2"><title>E · FFMA: 24</title></rect>
-      <rect class="seg-n"  x="665.2" y="28" width="42"    height="26" rx="2"><title>F · magnitude and gain: 20</title></rect>
-      <rect class="seg-n"  x="709.2" y="28" width="11"    height="26" rx="2"><title>G · accumulate and loop: 5</title></rect>
-    </g>
-    <g text-anchor="middle">
-      <text class="on-n"  x="204.4" y="45">A</text>
-      <text class="on-n"  x="273.7" y="45">B</text>
-      <text class="on-n"  x="398"   y="45">C</text>
-      <text class="on-n"  x="530"   y="45">D</text>
-      <text class="on-n"  x="601.5" y="45">E</text>
-      <text class="on-hi" x="637.8" y="45">FFMA</text>
-      <text class="on-n"  x="686.2" y="45">F</text>
-    </g>
-
-    <text class="tb" x="24" y="86">fp16 control</text>
-    <text class="m" x="24" y="100">92.6 · 3.86 per weight</text>
-    <g>
-      <rect class="seg-n"  x="190"   y="76" width="96.2" height="26" rx="2"><title>loads, addresses, loop: 44.6</title></rect>
-      <rect class="seg-n"  x="288.2" y="76" width="50.8" height="26" rx="2"><title>HADD2.F32, fp16 to fp32: 24</title></rect>
-      <rect class="seg-hi" x="341"   y="76" width="52.8" height="26" rx="2"><title>FFMA: 24</title></rect>
-    </g>
-    <g text-anchor="middle">
-      <text class="on-n"  x="238.1" y="93">loads, address</text>
-      <text class="on-n"  x="313.6" y="93">cvt</text>
-      <text class="on-hi" x="367.4" y="93">FFMA</text>
-    </g>
-  </svg>
-  </div>
-  <figcaption>Static SASS counts from the same translation unit and the same compiler. The fp16 control (<code>tv_f16</code>) is unrolled by 8 and does 247 instructions per 64 weights; it is scaled here to 24. Letters A to G are the stages of figure 1. An instruction count is not a time: nothing here says which pipe binds.</figcaption>
-</figure>
-
-<h2><span class="secnum">3</span>Where 2.7 comes from</h2>
-<p>Every term is a rate times a share of the model's 4,022,468,096 parameters. The projections are 90.3 % of them and hold 2.1309 bits each; the embedding is 9.7 % and holds 8.5.</p>
-
-<figure>
-  <div class="legend" aria-hidden="true">
-    <span><i class="sw sw-words"></i>Tetra words</span>
-    <span><i class="sw sw-side"></i>other projection bits: <code>v_proj</code> int4, fp16 tail, fp32 row scales</span>
-    <span><i class="sw sw-emb"></i>embedding q8, and the norms (0.0008)</span>
-  </div>
-  <div class="fig-scroll">
-  <svg viewBox="0 0 760 104" role="img" aria-label="2.7475 bits per parameter: Tetra words 1.7515, other projection bits 0.1733, embedding and norms 0.8227.">
-    <path class="brk" d="M24,44 V38 H484 V44"/>
-    <text class="t" x="254" y="30" text-anchor="middle">projections: 1.7515 + 0.1733 = 1.9248 (2.1309 b per weight × 90.33 %)</text>
-    <path class="brk" d="M486,44 V38 H683.4 V44"/>
-    <text class="t" x="584.7" y="30" text-anchor="middle">embedding + norms: 0.8227</text>
-
-    <rect class="seg-words" x="24"    y="50" width="418.4" height="30" rx="2"><title>Tetra words: 2.000 b per coded weight × 87.57 % of parameters = 1.7515</title></rect>
-    <rect class="seg-side"  x="444.4" y="50" width="39.6"  height="30" rx="2"><title>v_proj int4 0.0997 + fp16 tail 0.0651 + fp32 row scales 0.0085 = 0.1733</title></rect>
-    <rect class="seg-emb"   x="486"   y="50" width="197.4" height="30" rx="2"><title>embedding q8: 8.5 b × 9.67 % = 0.8219, plus norms 0.0008</title></rect>
-    <text class="on-series" x="233" y="69" text-anchor="middle">2.000 b × 87.57 % of parameters = 1.7515</text>
-    <text class="on-series" x="584.7" y="69" text-anchor="middle">8.5 b × 9.67 % = 0.8219</text>
-    <text class="tb" x="690" y="69">2.7475</text>
-    <text class="f" x="24" y="98">0</text>
-    <text class="f" x="683.4" y="98" text-anchor="end">bits per parameter, whole model</text>
-  </svg>
-  </div>
-  <figcaption>The served object, tail at fp16 as the card holds it. Drawn to scale, 240 px per bit. The orange segment is the side data of the projections; its three parts are in the ledger below.</figcaption>
-</figure>
-
-<h3>The ledger: codes, scales, what stays exact</h3>
-<div class="tbl-scroll">
-<table>
-  <thead>
-    <tr><th>group</th><th>item</th><th>rate</th><th class="n">bits</th><th class="n">b/param</th><th class="n">share</th></tr>
-  </thead>
-  <tbody>
-    <tr><td class="grp">codes</td><td>Tetra lattice labels, 216 matrices</td><td>47 b per 24 weights</td><td class="n">6,898,378,752</td><td class="n">1.7150</td><td class="n">62.4 %</td></tr>
-    <tr><td></td><td>embedding, int8 values</td><td>8 b per value</td><td class="n">3,111,649,280</td><td class="n">0.7736</td><td class="n">28.2 %</td></tr>
-    <tr><td></td><td><code>v_proj</code>, int4 values, 36 matrices</td><td>4 b per weight</td><td class="n">377,487,360</td><td class="n">0.0938</td><td class="n">3.4 %</td></tr>
-    <tr class="sub"><td></td><td>codes</td><td></td><td class="n">10,387,515,392</td><td class="n">2.5824</td><td class="n">94.0 %</td></tr>
-    <tr><td class="grp">scales</td><td>embedding scale and bias</td><td>2 × fp16 per 64 values</td><td class="n">194,478,080</td><td class="n">0.0483</td><td class="n">1.8 %</td></tr>
-    <tr><td></td><td>Tetra gain bit, picks 1 of 2 centroids</td><td>1 b per 24 weights</td><td class="n">146,774,016</td><td class="n">0.0365</td><td class="n">1.3 %</td></tr>
-    <tr><td></td><td>row scales, 1,069,056 rows</td><td>fp32 per row</td><td class="n">34,209,792</td><td class="n">0.0085</td><td class="n">0.3 %</td></tr>
-    <tr><td></td><td><code>v_proj</code> scale and bias</td><td>2 × fp16 per 128 weights</td><td class="n">23,592,960</td><td class="n">0.0059</td><td class="n">0.2 %</td></tr>
-    <tr class="sub"><td></td><td>scales</td><td></td><td class="n">399,054,848</td><td class="n">0.0992</td><td class="n">3.6 %</td></tr>
-    <tr><td class="grp">kept exact</td><td>KeepExact tail, 16,367,616 weights (d_in mod 24 columns)</td><td>fp16</td><td class="n">261,881,856</td><td class="n">0.0651</td><td class="n">2.4 %</td></tr>
-    <tr><td></td><td>norms, 196,096</td><td>fp16</td><td class="n">3,137,536</td><td class="n">0.0008</td><td class="n">0.03 %</td></tr>
-    <tr class="sub"><td></td><td>kept exact</td><td></td><td class="n">265,019,392</td><td class="n">0.0659</td><td class="n">2.4 %</td></tr>
-    <tr class="tot"><td>total</td><td>1,381,448,704 bytes</td><td></td><td class="n">11,051,589,632</td><td class="n">2.7475</td><td class="n">100 %</td></tr>
-  </tbody>
-</table>
-</div>
-<p class="meta"><span class="prov">computed</span> on counts <span class="prov">measured</span> off the served file by <code>rtbits</code> (references-comptabilite-2026-09-18 §3): 4,022,468,096 parameters, 388,956,160 of embedding, 196,096 of norms. The q8 rate is int8 plus one fp16 scale and one fp16 bias per 64 values, 8 + 32/64 = 8.5 (<code>llvq-bench/src/bin/rtbits.rs</code>).</p>
-
-<div class="callout">
-  <h3>Codebook and metadata</h3>
+<section id="a1" class="zsec" data-zoom="1">
+  <p class="zline"><span class="zdots" aria-hidden="true">●●○○</span>Zoom 1 · on ouvre la boîte « reconstruire » du zoom 0 · <a href="#a0">↑ zoom 0</a></p>
+  <h3>Les 4 étapes d’un paquet</h3>
+  <p>Le GPU travaille par équipes de 32 fils d’exécution, qu’on appelle un <i>warp</i>. Une équipe calcule une ligne de la matrice. Chaque fil prend un paquet de 24 poids, puis le paquet situé 32 plus loin, jusqu’au bout de la ligne. Voici ce que fait un fil pour un paquet. Clique sur une étape pour zoomer dessus.</p>
+  <figure>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 222" role="img" aria-label="Les quatre étapes d’un paquet : lire le code, 14 instructions ; lire les tables, 49 ; reconstruire les 24 entiers puis les convertir, 120 ; multiplier par l’entrée et mettre à l’échelle, 58. Total 241 instructions pour 24 poids, soit 10,0 par poids.">
+<defs><marker id="z1a" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+<a href="#a2" class="zlink">
+<rect class="box step" x="0.5" y="8.5" width="161.0" height="127.0" rx="6"/>
+<circle class="badge" cx="22" cy="31" r="12"/>
+<text class="badge-t" x="22" y="35.5" text-anchor="middle">1</text>
+<text class="h" x="42" y="36">Lire le code</text>
+<text class="t" x="16" y="62">le mot de 48 bits,</text>
+<text class="t" x="16" y="78">6 octets en mémoire</text>
+<text class="tb" x="16" y="124">14 instructions</text>
+</a>
+<a href="#a2" class="zlink">
+<rect class="box step" x="186.5" y="8.5" width="161.0" height="127.0" rx="6"/>
+<circle class="badge" cx="208" cy="31" r="12"/>
+<text class="badge-t" x="208" y="35.5" text-anchor="middle">2</text>
+<text class="h" x="228" y="36">Lire les tables</text>
+<text class="t" x="202" y="62">6 lectures dans</text>
+<text class="t" x="202" y="78">18 816 octets de</text>
+<text class="t" x="202" y="94">tables communes</text>
+<text class="tb" x="202" y="124">49 instructions</text>
+</a>
+<a href="#a2" class="zlink">
+<rect class="box step" x="372.5" y="8.5" width="161.0" height="127.0" rx="6"/>
+<circle class="badge" cx="394" cy="31" r="12"/>
+<text class="badge-t" x="394" y="35.5" text-anchor="middle">3</text>
+<text class="h" x="414" y="36">Reconstruire</text>
+<text class="t" x="388" y="62">24 entiers entre</text>
+<text class="t" x="388" y="78">−10 et +10, puis</text>
+<text class="t" x="388" y="94">en virgule flottante</text>
+<text class="tb" x="388" y="124">120 instructions</text>
+</a>
+<a href="#a2-taille" class="zlink">
+<rect class="box step" x="558.5" y="8.5" width="161.0" height="127.0" rx="6"/>
+<circle class="badge" cx="580" cy="31" r="12"/>
+<text class="badge-t" x="580" y="35.5" text-anchor="middle">4</text>
+<text class="h" x="600" y="36">Multiplier</text>
+<text class="t" x="574" y="62">par l’entrée, mettre</text>
+<text class="t" x="574" y="78">à l’échelle, cumuler</text>
+<text class="tb" x="574" y="124">58 instructions</text>
+</a>
+<line class="arr" x1="163" y1="72" x2="184" y2="72" marker-end="url(#z1a)"/>
+<line class="arr" x1="349" y1="72" x2="370" y2="72" marker-end="url(#z1a)"/>
+<line class="arr" x1="535" y1="72" x2="556" y2="72" marker-end="url(#z1a)"/>
+<rect class="seg-n" x="0.0" y="156.0" width="39.8" height="26.0" rx="2"><title>étape 1 : 14 instructions</title></rect>
+<text class="on-n" x="19.91286307053942" y="173.5" text-anchor="middle">14</text>
+<rect class="seg-n" x="41.8" y="156.0" width="144.4" height="26.0" rx="2"><title>étape 2 : 49 instructions</title></rect>
+<text class="on-n" x="114.0207468879668" y="173.5" text-anchor="middle">49</text>
+<rect class="seg-n" x="188.2" y="156.0" width="356.5" height="26.0" rx="2"><title>étape 3 : 120 instructions</title></rect>
+<text class="on-n" x="366.4688796680498" y="173.5" text-anchor="middle">120</text>
+<rect class="seg-n" x="546.7" y="156.0" width="173.3" height="26.0" rx="2"><title>étape 4 : 58 instructions</title></rect>
+<text class="on-n" x="633.3609958506223" y="173.5" text-anchor="middle">58</text>
+<text class="tb" x="0" y="206">241 instructions pour un paquet de 24 poids, soit 10,0 par poids</text>
+</svg>
+    </div>
+    <figcaption>Les nombres sont des instructions du GPU par paquet, comptées dans le code compilé (zoom 3). La barre les montre à l’échelle&nbsp;: l’étape 3 fait presque la moitié du travail.</figcaption>
+  </figure>
+  <h4>Avant et après la boucle</h4>
   <ul>
-    <li><b>Codebook: none stored per model.</b> The lattice is the codebook. The card holds 18,816 bytes of constant tables for every matrix at once: rank rows 16,384, branches 2,048, prefixes 128, suffixes 128, invnorm 128. That is 0.00004 b/param, not billed in 2.7475.</li>
-    <li><b>Per matrix:</b> two fp32 gain centroids, 1,728 bytes over the 216 matrices.</li>
-    <li><b>Per row:</b> the fp32 row scale, in the ledger, and an 8-byte rounding of the row stride so the last block's 6-byte read cannot fault: 4.1 MB of landing pad, reported by the bench and not billed (+0.008 b/param).</li>
-    <li><b>Per block: nothing.</b> No header and no base table. Every 48-bit word is a valid label, so there is no index to check at load.</li>
-    <li><b>On the card:</b> 1.381 GB accounted plus the 4.1 MB pad gives 1.386 GB. The card's own counter prints 1.39 GB, and 2.140 b per projection weight, which matches 2.1309 plus the pad to the third decimal.</li>
+    <li><b>Avant, une fois par groupe de matrices qui lisent la même entrée.</b> L’entrée est tournée par une rotation de Hadamard, qui compense la rotation appliquée aux poids à l’encodage. C’est un coût par mot généré, pas par poids.</li>
+    <li><b>Après le dernier paquet de la ligne.</b> Les 32 fils additionnent leurs sommes, le total est multiplié par l’échelle de la ligne, on ajoute la contribution de la queue, puis on écrit le résultat. La queue, ce sont les 8 ou 16 derniers poids de chaque ligne&nbsp;: ils ne remplissent pas un paquet de 24 et restent en fp16.</li>
   </ul>
-</div>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“Four steps per block: fetch the 48-bit word, read the tables, rebuild 24 small integers, then multiply-accumulate with the scale applied. That compiles to 241 instructions for 24 weights, about 10 per weight.”</p>
+  </div>
+</section>
 
-<h3>One file, several numbers</h3>
-<p>The same object prints different rates depending on what is divided by what. Only the last line compares across formats (hard rule 6).</p>
-<div class="tbl-scroll">
-<table>
-  <thead><tr><th class="n">number</th><th>what it divides</th><th>where it appears</th></tr></thead>
-  <tbody>
-    <tr><td class="n">2.000 b/weight</td><td>the 48-bit word over the 24 weights it codes</td><td>the format</td></tr>
-    <tr><td class="n">2.1309 b/weight</td><td>projections as served: words, <code>v_proj</code> int4, fp16 tail, fp32 row scales, over all 3,633,315,840 projection weights</td><td><code>rtbits</code>, tail at fp16</td></tr>
-    <tr><td class="n">2.140 b/weight</td><td>the same plus the 4.1 MB row pad</td><td>the card's counter, <code>fusedrun</code></td></tr>
-    <tr><td class="n">2.148 b/weight</td><td>the 216 Tetra matrices alone, tail billed at fp32</td><td>the kernel bench, <code>planesbench</code></td></tr>
-    <tr><td class="n">2.7645 b/param</td><td>bare Tetra, no int4, tail billed at fp32</td><td>older tables, ETAT §3</td></tr>
-    <tr><td class="n">2.8126 b/param</td><td>this object, tail billed at fp32</td><td>references-comptabilite</td></tr>
-    <tr class="tot"><td class="n">2.7475 b/param</td><td>this object, whole model, tail at fp16 as the card holds it</td><td>the figure to quote</td></tr>
-  </tbody>
-</table>
-</div>
+<section id="a2" class="zsec" data-zoom="2">
+  <p class="zline"><span class="zdots" aria-hidden="true">●●●○</span>Zoom 2 · on ouvre les étapes 1 à 3 du zoom 1 · <a href="#a1">↑ zoom 1</a></p>
+  <h3>Ce qu’il y a dans les 48 bits</h3>
 
-<h2>What these numbers do not say</h2>
+  <h4>1. Un point du réseau, coordonnée par coordonnée</h4>
+  <p>À une échelle entière, chaque coordonnée d’un point du réseau de Leech s’écrit&nbsp;:</p>
+  <p class="formula">y[j] = p + 2·c[j] + 4·k[j]      pour j = 0 … 23</p>
+  <ul>
+    <li><b>p</b> vaut 0 ou 1 et il est commun aux 24 coordonnées&nbsp;: elles sont toutes paires ou toutes impaires.</li>
+    <li><b>c[j]</b> vaut 0 ou 1. Les 24 valeurs de c forment un mot du <b>code de Golay</b>&nbsp;: seulement 4&nbsp;096 motifs autorisés parmi les 16,7 millions de suites de 24 bits.</li>
+    <li><b>k[j]</b> est un entier. Une seule règle relie les 24 entiers&nbsp;: leur somme a la même parité que p.</li>
+  </ul>
+  <p>Encoder un point, c’est donc encoder un bit, un mot de Golay et 24 entiers.</p>
+
+  <h4>2. Trois sections de 8</h4>
+  <p>Les 24 coordonnées sont rangées en 3 sections de 8, choisies pour que le code de Golay se lise section par section. Ces trois groupes sont trois <i>octades</i> disjointes du code, et on appelle ce découpage le <b>trio</b>. Le mot de Golay devient alors un chemin&nbsp;: on part d’un état, on choisit une branche dans chaque section, et il n’existe que 64 états possibles entre deux sections. Ce chemin tient en 12 bits, soit exactement l’information d’un mot de Golay (2¹² = 4&nbsp;096).</p>
+  <p>Les entiers sont décrits section par section par leur <b>rang</b>&nbsp;: la position de chaque valeur dans une liste qui part de zéro et s’en éloigne. Une seule <b>table des rangs</b> sert aux trois sections&nbsp;: elle garde les 2&nbsp;048 combinaisons de 8 rangs les plus petites dans chacune des deux classes de parité, soit 4&nbsp;096 lignes.</p>
+
+  <h4>3. Les 48 bits</h4>
+  <figure>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw sw-par"></i>parité</span>
+      <span><i class="sw sw-golay"></i>chemin de Golay</span>
+      <span><i class="sw sw-rank"></i>lignes de la table des rangs</span>
+      <span><i class="sw sw-gain"></i>gain</span>
+    </div>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 196" role="img" aria-label="Le mot de 48 bits : p, r, s8, b1, i1, b2, i2, b3, i3, g dans l’ordre de stockage ; regroupés par rôle, cela fait 2 bits de parité, 12 bits de chemin de Golay, 33 bits de lignes de la table des rangs et 1 bit de gain.">
+<text class="f" x="24" y="14">tel qu’il est stocké, bit 0 à gauche</text>
+<rect class="fpar" x="24.0" y="40.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="31.0" y="34" text-anchor="middle">p</text>
+<text class="m" x="31.0" y="61" text-anchor="middle">1</text>
+<rect class="fpar" x="38.0" y="40.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="45.0" y="34" text-anchor="middle">r</text>
+<text class="m" x="45.0" y="61" text-anchor="middle">1</text>
+<rect class="fgolay" x="52.0" y="40.0" width="84.0" height="32.0" rx="0"/>
+<text class="mi" x="94.0" y="34" text-anchor="middle">s8</text>
+<text class="m" x="94.0" y="61" text-anchor="middle">6</text>
+<rect class="fgolay" x="136.0" y="40.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="143.0" y="34" text-anchor="middle">b1</text>
+<text class="m" x="143.0" y="61" text-anchor="middle">1</text>
+<rect class="frank" x="150.0" y="40.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="227.0" y="34" text-anchor="middle">i1</text>
+<text class="m" x="227.0" y="61" text-anchor="middle">11</text>
+<rect class="fgolay" x="304.0" y="40.0" width="56.0" height="32.0" rx="0"/>
+<text class="mi" x="332.0" y="34" text-anchor="middle">b2</text>
+<text class="m" x="332.0" y="61" text-anchor="middle">4</text>
+<rect class="frank" x="360.0" y="40.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="437.0" y="34" text-anchor="middle">i2</text>
+<text class="m" x="437.0" y="61" text-anchor="middle">11</text>
+<rect class="fgolay" x="514.0" y="40.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="521.0" y="34" text-anchor="middle">b3</text>
+<text class="m" x="521.0" y="61" text-anchor="middle">1</text>
+<rect class="frank" x="528.0" y="40.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="605.0" y="34" text-anchor="middle">i3</text>
+<text class="m" x="605.0" y="61" text-anchor="middle">11</text>
+<rect class="fgain" x="682.0" y="40.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="689.0" y="34" text-anchor="middle">g</text>
+<text class="m" x="689.0" y="61" text-anchor="middle">1</text>
+<text class="f" x="24" y="98">les mêmes 48 bits, regroupés par rôle</text>
+<rect class="fpar" x="24.0" y="122.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="31.0" y="116" text-anchor="middle">p</text>
+<rect class="fpar" x="38.0" y="122.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="45.0" y="116" text-anchor="middle">r</text>
+<rect class="fgolay" x="52.0" y="122.0" width="84.0" height="32.0" rx="0"/>
+<text class="mi" x="94.0" y="116" text-anchor="middle">s8</text>
+<rect class="fgolay" x="136.0" y="122.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="143.0" y="116" text-anchor="middle">b1</text>
+<rect class="fgolay" x="150.0" y="122.0" width="56.0" height="32.0" rx="0"/>
+<text class="mi" x="178.0" y="116" text-anchor="middle">b2</text>
+<rect class="fgolay" x="206.0" y="122.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="213.0" y="116" text-anchor="middle">b3</text>
+<rect class="frank" x="220.0" y="122.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="297.0" y="116" text-anchor="middle">i1</text>
+<rect class="frank" x="374.0" y="122.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="451.0" y="116" text-anchor="middle">i2</text>
+<rect class="frank" x="528.0" y="122.0" width="154.0" height="32.0" rx="0"/>
+<text class="mi" x="605.0" y="116" text-anchor="middle">i3</text>
+<rect class="fgain" x="682.0" y="122.0" width="14.0" height="32.0" rx="0"/>
+<text class="mi" x="689.0" y="116" text-anchor="middle">g</text>
+<path class="brk" d="M25,160 V165 H51 V160"/>
+<text class="t" x="38.0" y="180" text-anchor="middle">parité</text>
+<text class="f" x="38.0" y="194" text-anchor="middle">2 bits</text>
+<path class="brk" d="M53,160 V165 H219 V160"/>
+<text class="t" x="136.0" y="180" text-anchor="middle">chemin de Golay</text>
+<text class="f" x="136.0" y="194" text-anchor="middle">12 bits</text>
+<path class="brk" d="M221,160 V165 H681 V160"/>
+<text class="t" x="451.0" y="180" text-anchor="middle">lignes de la table des rangs</text>
+<text class="f" x="451.0" y="194" text-anchor="middle">33 bits</text>
+<path class="brk" d="M683,160 V165 H695 V160"/>
+<text class="t" x="689.0" y="180" text-anchor="middle">gain</text>
+<text class="f" x="689.0" y="194" text-anchor="middle">1 bit</text>
+</svg>
+    </div>
+    <figcaption>Le même mot de 48 bits, deux fois&nbsp;: dans l’ordre où il est rangé en mémoire, puis regroupé par rôle. Chaque case est à l’échelle, 1 bit par unité de largeur.</figcaption>
+  </figure>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>champ</th><th class="n">bits</th><th>ce qu’il dit</th></tr></thead>
+    <tbody>
+      <tr><td><code>p</code></td><td class="n">1</td><td>la parité commune aux 24 coordonnées</td></tr>
+      <tr><td><code>r</code></td><td class="n">1</td><td>la classe de parité de la section 1, pour respecter la règle sur la somme des entiers</td></tr>
+      <tr><td><code>s8</code></td><td class="n">6</td><td>l’état du chemin de Golay à la frontière entre les sections 1 et 2&nbsp;: un parmi 64</td></tr>
+      <tr><td><code>b1</code></td><td class="n">1</td><td>la branche prise dans la section 1&nbsp;: 2 choix</td></tr>
+      <tr><td><code>b2</code></td><td class="n">4</td><td>la branche prise dans la section 2&nbsp;: 16 choix</td></tr>
+      <tr><td><code>b3</code></td><td class="n">1</td><td>la branche prise dans la section 3&nbsp;: 2 choix</td></tr>
+      <tr><td><code>i1 i2 i3</code></td><td class="n">3 × 11</td><td>pour chaque section, un numéro de ligne dans la table des rangs</td></tr>
+      <tr><td><code>g</code></td><td class="n">1</td><td>le gain&nbsp;: choisit l’une des deux tailles de paquet de la matrice</td></tr>
+      <tr class="tot"><td>total</td><td class="n">48</td><td>1 + 1 + 12 + 33 + 1. Tout mot de 48 bits est valide&nbsp;: il n’y a rien à vérifier au chargement.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>4. Des bits aux 24 nombres</h4>
+  <figure>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 364" role="img" aria-label="Des bits aux 24 nombres : le chemin de Golay lit trois petites tables et donne le motif c ; les index lisent trois lignes de la table des rangs et donnent 24 rangs ; pour chaque coordonnée, o = p + 2·c choisit une liste de valeurs et le rang choisit la position. Exemple : o = 3, rang 2, valeur −5.">
+<defs><marker id="z2a" viewBox="0 0 8 8" refX="7.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+<text class="h" x="170" y="16" text-anchor="middle">chemin de Golay, 12 bits</text>
+<text class="h" x="550" y="16" text-anchor="middle">lignes de rangs, 3 × 11 bits</text>
+<rect class="fgolay" x="0.5" y="28.5" width="95.0" height="63.0" rx="6"/>
+<text class="tb" x="48" y="48" text-anchor="middle">préfixes</text>
+<text class="f" x="48" y="65" text-anchor="middle">128 octets</text>
+<text class="f" x="48" y="81" text-anchor="middle">→ section 1</text>
+<line class="arr" x1="48" y1="92" x2="48" y2="113" marker-end="url(#z2a)"/>
+<rect class="fgolay" x="122.5" y="28.5" width="95.0" height="63.0" rx="6"/>
+<text class="tb" x="170" y="48" text-anchor="middle">branches</text>
+<text class="f" x="170" y="65" text-anchor="middle">2 048 octets</text>
+<text class="f" x="170" y="81" text-anchor="middle">→ section 2</text>
+<line class="arr" x1="170" y1="92" x2="170" y2="113" marker-end="url(#z2a)"/>
+<rect class="fgolay" x="244.5" y="28.5" width="95.0" height="63.0" rx="6"/>
+<text class="tb" x="292" y="48" text-anchor="middle">suffixes</text>
+<text class="f" x="292" y="65" text-anchor="middle">128 octets</text>
+<text class="f" x="292" y="81" text-anchor="middle">→ section 3</text>
+<line class="arr" x1="292" y1="92" x2="292" y2="113" marker-end="url(#z2a)"/>
+<line class="arr" x1="218" y1="60" x2="242" y2="60" marker-end="url(#z2a)"/>
+<text class="f" x="230" y="54" text-anchor="middle">état</text>
+<rect class="fgolay" x="0.5" y="116.5" width="339.0" height="26.0" rx="4"/>
+<text class="t" x="170" y="134" text-anchor="middle">motif c : 24 bits, 8 par section</text>
+<rect class="frank" x="380.5" y="28.5" width="339.0" height="63.0" rx="6"/>
+<text class="tb" x="550" y="48" text-anchor="middle">table des rangs · 16 384 octets</text>
+<text class="f" x="550" y="65" text-anchor="middle">4 096 lignes de 8 rangs</text>
+<text class="f" x="550" y="81" text-anchor="middle">une ligne lue par section</text>
+<line class="arr" x1="437" y1="92" x2="437" y2="113" marker-end="url(#z2a)"/>
+<line class="arr" x1="550" y1="92" x2="550" y2="113" marker-end="url(#z2a)"/>
+<line class="arr" x1="663" y1="92" x2="663" y2="113" marker-end="url(#z2a)"/>
+<rect class="frank" x="380.5" y="116.5" width="339.0" height="26.0" rx="4"/>
+<text class="t" x="550" y="134" text-anchor="middle">rangs : 24 nombres de 0 à 4</text>
+<line class="arr" x1="170" y1="143" x2="170" y2="166" marker-end="url(#z2a)"/>
+<line class="arr" x1="550" y1="143" x2="550" y2="166" marker-end="url(#z2a)"/>
+<text class="tb" x="8" y="192">Pour chaque coordonnée j :</text>
+<text class="t" x="8" y="212">o = p + 2·c[j] choisit la ligne</text>
+<text class="t" x="8" y="232">le rang de j choisit la colonne</text>
+<text class="t" x="8" y="272">Exemple : p = 1 et c[j] = 1, donc o = 3 ;</text>
+<text class="t" x="8" y="292">rang 2 : la valeur est −5</text>
+<text class="f" x="384" y="186">rang →</text>
+<text class="f" x="459" y="186" text-anchor="middle">0</text>
+<text class="f" x="517" y="186" text-anchor="middle">1</text>
+<text class="f" x="575" y="186" text-anchor="middle">2</text>
+<text class="f" x="633" y="186" text-anchor="middle">3</text>
+<text class="f" x="691" y="186" text-anchor="middle">4</text>
+<line class="grid" x1="380" y1="194" x2="720" y2="194"/>
+<text class="mi" x="384" y="214">o = 0</text>
+<text class="mi" x="459" y="214" text-anchor="middle">0</text>
+<text class="mi" x="517" y="214" text-anchor="middle">+4</text>
+<text class="mi" x="575" y="214" text-anchor="middle">−4</text>
+<text class="mi" x="633" y="214" text-anchor="middle">+8</text>
+<text class="mi" x="691" y="214" text-anchor="middle">−8</text>
+<text class="mi" x="384" y="236">o = 1</text>
+<text class="mi" x="459" y="236" text-anchor="middle">+1</text>
+<text class="mi" x="517" y="236" text-anchor="middle">−3</text>
+<text class="mi" x="575" y="236" text-anchor="middle">+5</text>
+<text class="mi" x="633" y="236" text-anchor="middle">−7</text>
+<text class="mi" x="691" y="236" text-anchor="middle">+9</text>
+<text class="mi" x="384" y="258">o = 2</text>
+<text class="mi" x="459" y="258" text-anchor="middle">+2</text>
+<text class="mi" x="517" y="258" text-anchor="middle">−2</text>
+<text class="mi" x="575" y="258" text-anchor="middle">+6</text>
+<text class="mi" x="633" y="258" text-anchor="middle">−6</text>
+<text class="mi" x="691" y="258" text-anchor="middle">+10</text>
+<rect class="cell-hi" x="546.5" y="264.5" width="57.0" height="21.0" rx="3"/>
+<text class="mi" x="384" y="280">o = 3</text>
+<text class="mi" x="459" y="280" text-anchor="middle">−1</text>
+<text class="mi" x="517" y="280" text-anchor="middle">+3</text>
+<text class="mi" x="575" y="280" text-anchor="middle">−5</text>
+<text class="mi" x="633" y="280" text-anchor="middle">+7</text>
+<text class="mi" x="691" y="280" text-anchor="middle">−9</text>
+<line class="arr" x1="360" y1="292" x2="360" y2="315" marker-end="url(#z2a)"/>
+<rect class="box" x="0.5" y="318.5" width="719.0" height="30.0" rx="5"/>
+<text class="tb" x="360" y="338" text-anchor="middle">24 entiers y[0] … y[23], entre −10 et +10 : la forme du paquet</text>
+</svg>
+    </div>
+    <figcaption>Les deux voies sont indépendantes. À la fin, pour chaque coordonnée, la parité et le motif choisissent une liste, et le rang choisit la position dans la liste. Les rangs ne dépassent jamais 4, d’où des valeurs entre −10 et +10.</figcaption>
+  </figure>
+  <p>Deux détails. La table des branches donne à la fois le motif de la section 2 et l’état à la frontière suivante, qui sert à lire la table des suffixes&nbsp;: c’est la seule lecture qui attend le résultat d’une autre. Et la classe de parité de la section 3 n’est pas stockée&nbsp;: la règle sur la somme des entiers l’impose, à partir de p, de r et du numéro de ligne de la section 2.</p>
+
+  <h4 id="a2-taille">5. La taille du paquet</h4>
+  <p>Les 24 entiers donnent la direction du paquet, pas sa taille. La taille vient de trois facteurs&nbsp;:</p>
+  <p class="formula">poids[j] = y[j] × gain[g] × échelle de la ligne ÷ √(16·m)</p>
+  <ul>
+    <li><b>√(16·m)</b> est la longueur du point. La somme des carrés y[0]² + … + y[23]² vaut toujours 16·m, où m est la <i>couche</i> du point (de 0 à 27 ici). Diviser par cette longueur ramène le point à une longueur de 1. Le GPU lit 1/√(16·m) dans une table de 32 valeurs.</li>
+    <li><b>gain[g]</b>&nbsp;: chaque matrice a deux tailles de paquet possibles, et le bit g choisit l’une des deux.</li>
+    <li><b>échelle de la ligne</b>&nbsp;: un nombre fp32 par ligne de la matrice, appliqué une seule fois, en fin de ligne.</li>
+    <li>Le cas m = 0 est le point zéro&nbsp;: la table donne 0 au lieu de diviser par zéro, et le paquet vaut zéro.</li>
+  </ul>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“A Leech point in integer coordinates is a parity bit, plus twice a Golay codeword, plus four times an integer vector. We split the 24 coordinates into three octads, so the Golay part becomes a 12-bit walk through a 64-state trellis and the integers become three 11-bit rows of a rank table. With a class bit and a gain bit, that is exactly 48 bits.”</p>
+  </div>
+</section>
+
+<section id="a3" class="zsec" data-zoom="3">
+  <p class="zline"><span class="zdots" aria-hidden="true">●●●●</span>Zoom 3 · on ouvre les 4 étapes au niveau des instructions · <a href="#a2">↑ zoom 2</a></p>
+  <h3>Les instructions du GPU</h3>
+  <p>Le compilateur transforme la boucle en instructions machine, le <b>SASS</b> des cartes NVIDIA. On les a comptées dans le code compilé pour la L40S, sans exécuter le programme&nbsp;: 241 instructions par paquet. Rien dans la boucle ne saute d’instruction, donc chaque paquet exécute ces 241.</p>
+
+  <h4>Les familles d’instructions de la boucle</h4>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>famille</th><th>ce qu’elle fait</th><th class="n">nombre</th></tr></thead>
+    <tbody>
+      <tr><td>lectures mémoire<br><code>LDG</code> <code>LDS</code></td><td><code>LDG</code> lit dans la mémoire du GPU, en passant par les caches&nbsp;; <code>LDS</code> lit dans la mémoire partagée, petite et rapide, sur la puce</td><td class="n">10 + 6</td></tr>
+      <tr><td>calcul en virgule flottante<br><code>FFMA</code> <code>FADD</code> <code>FMUL</code></td><td>multiplication-addition a × b + c en une instruction, addition, multiplication</td><td class="n">25 + 24 + 1</td></tr>
+      <tr><td>permutation d’octets<br><code>PRMT</code></td><td>prend 4 octets parmi 8 en une instruction&nbsp;: sert de mini-table, 4 consultations à la fois</td><td class="n">36</td></tr>
+      <tr><td>logique, décalages, comparaisons<br><code>LOP3</code> <code>SHF</code> <code>SEL</code> …</td><td>extraire des champs de bits, choisir entre deux valeurs, additionner, comparer</td><td class="n">88</td></tr>
+      <tr><td>multiplication entière<br><code>IMAD</code></td><td>calculer des adresses, et quelques astuces sur les bits</td><td class="n">44</td></tr>
+      <tr><td>produit d’entiers<br><code>IDP.4A</code></td><td>4 produits d’entiers de 8 bits, additionnés en une instruction&nbsp;: sert à calculer ‖y‖²</td><td class="n">6</td></tr>
+      <tr><td>saut<br><code>BRA</code></td><td>revenir au début de la boucle pour le paquet suivant</td><td class="n">1</td></tr>
+      <tr class="tot"><td>total</td><td></td><td class="n">241</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>Les 241 instructions, étape par étape</h4>
+  <figure>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw sw-hi"></i><code>FFMA</code>, la multiplication-addition&nbsp;: 1 par poids</span>
+      <span><i class="sw sw-n"></i>le reste&nbsp;: lecture, décodage, adresses, boucle</span>
+    </div>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 168" role="img" aria-label="Instructions par paquet de 24 poids : Tetra 241, soit 10,0 par poids, dont 24 multiplications-additions ; témoin fp16 92,6, soit 3,86 par poids, dont 24 multiplications-additions et 24 conversions.">
+<line class="grid" x1="200" y1="16" x2="200" y2="126"/>
+<text class="f" x="200" y="142" text-anchor="middle">0</text>
+<line class="grid" x1="300" y1="16" x2="300" y2="126"/>
+<text class="f" x="300" y="142" text-anchor="middle">50</text>
+<line class="grid" x1="400" y1="16" x2="400" y2="126"/>
+<text class="f" x="400" y="142" text-anchor="middle">100</text>
+<line class="grid" x1="500" y1="16" x2="500" y2="126"/>
+<text class="f" x="500" y="142" text-anchor="middle">150</text>
+<line class="grid" x1="600" y1="16" x2="600" y2="126"/>
+<text class="f" x="600" y="142" text-anchor="middle">200</text>
+<line class="grid" x1="700" y1="16" x2="700" y2="126"/>
+<text class="f" x="700" y="142" text-anchor="middle">250</text>
+<text class="f" x="700" y="160" text-anchor="end">instructions par paquet de 24 poids</text>
+<text class="h" x="16" y="34">Tetra</text>
+<text class="m" x="16" y="49">241 par paquet</text>
+<text class="m" x="16" y="63">10,0 par poids</text>
+<rect class="seg-n" x="200.0" y="24.0" width="26.0" height="28.0" rx="2"><title>1 · lire le code : 14</title></rect>
+<text class="on-n" x="213.0" y="42.5" text-anchor="middle">1</text>
+<rect class="seg-n" x="228.0" y="24.0" width="96.0" height="28.0" rx="2"><title>2 · lire les tables : 49</title></rect>
+<text class="on-n" x="276.0" y="42.5" text-anchor="middle">2</text>
+<rect class="seg-n" x="326.0" y="24.0" width="126.0" height="28.0" rx="2"><title>3a · rangs vers octets : 64</title></rect>
+<text class="on-n" x="389.0" y="42.5" text-anchor="middle">3a</text>
+<rect class="seg-n" x="454.0" y="24.0" width="110.0" height="28.0" rx="2"><title>3b · octets vers flottants : 56</title></rect>
+<text class="on-n" x="509.0" y="42.5" text-anchor="middle">3b</text>
+<rect class="seg-n" x="566.0" y="24.0" width="16.0" height="28.0" rx="2"><title>4a · lectures de l’entrée : 9</title></rect>
+<text class="on-n" x="574.0" y="42.5" text-anchor="middle">4a</text>
+<rect class="seg-hi" x="584.0" y="24.0" width="46.0" height="28.0" rx="2"><title>4a · multiplications-additions : 24</title></rect>
+<text class="on-hi" x="607.0" y="42.5" text-anchor="middle">FFMA</text>
+<rect class="seg-n" x="632.0" y="24.0" width="38.0" height="28.0" rx="2"><title>4b · norme et gain : 20</title></rect>
+<text class="on-n" x="651.0" y="42.5" text-anchor="middle">4b</text>
+<rect class="seg-n" x="672.0" y="24.0" width="10.0" height="28.0" rx="2"><title>4c · cumuler, boucler : 5</title></rect>
+<text class="h" x="16" y="86">témoin fp16</text>
+<text class="m" x="16" y="101">92,6 par paquet</text>
+<text class="m" x="16" y="115">3,86 par poids</text>
+<rect class="seg-n" x="200.0" y="76.0" width="87.2" height="28.0" rx="2"><title>lectures, adresses, boucle : 44,625</title></rect>
+<rect class="seg-n" x="289.2" y="76.0" width="46.0" height="28.0" rx="2"><title>conversion fp16 vers fp32 : 24</title></rect>
+<rect class="seg-hi" x="337.2" y="76.0" width="48.0" height="28.0" rx="2"><title>multiplications-additions : 24</title></rect>
+<text class="on-hi" x="361.25" y="94.5" text-anchor="middle">FFMA</text>
+<text class="f" x="397.25" y="94.5">lectures et adresses 44,6 · conversion 24 · FFMA 24</text>
+</svg>
+    </div>
+    <figcaption>Même compilateur, même fichier source. Les étapes 3 et 4 du zoom 1 sont coupées en 3a, 3b et 4a, 4b, 4c. Le compilateur déroule la boucle du témoin fp16 par 8 (247 instructions pour 64 poids)&nbsp;; elle est ramenée ici à 24 poids.</figcaption>
+  </figure>
+  <ul class="stages">
+    <li><span class="tag">1 · 14</span><span><b>Lire le code.</b> Deux lectures de 32 bits pour le mot de 48 bits. Ce mot fait 6 octets, donc un paquet sur deux commence au milieu d’une case mémoire de 32 bits&nbsp;: on recolle les deux morceaux avec un décalage.</span></li>
+    <li><span class="tag">2 · 49</span><span><b>Lire les tables.</b> Six lectures&nbsp;: préfixe, branche, suffixe, et trois lignes de rangs. Le reste extrait les champs du mot et calcule les adresses. Ces tables passent par le cache L1, qui occupe la même mémoire de la puce que la copie de l’entrée&nbsp;: réduire cette copie de 128 à 64 paquets a réduit le temps du noyau de 16&nbsp;% sur L40S <span class="prov">mesuré</span>.</span></li>
+    <li><span class="tag">3a · 64</span><span><b>Des rangs aux octets.</b> Les 4 listes de valeurs tiennent chacune dans 8 octets, gardés dans les registres, les cases de calcul internes du GPU. Une instruction <code>PRMT</code> fait 4 consultations à la fois, puis le bit de motif choisit, octet par octet, entre deux listes.</span></li>
+    <li><span class="tag">3b · 56</span><span><b>Des octets aux nombres à virgule.</b> Convertir un entier en virgule flottante passe normalement par une unité de conversion lente. À la place, on colle l’octet sous le nombre 2²³ = 8&nbsp;388&nbsp;608 écrit en virgule flottante, ce qui donne exactement 8&nbsp;388&nbsp;608 + octet. Une soustraction de 2²³ + 128 rend la valeur, car les octets sont stockés avec 128 de plus pour rester positifs. Deux instructions par coordonnée, résultat exact.</span></li>
+    <li><span class="tag">4a · 33</span><span><b>Le produit avec l’entrée.</b> Six lectures de 16 octets ramènent les 24 valeurs d’entrée depuis la mémoire partagée, puis 24 <code>FFMA</code> font le produit scalaire. L’ordre du trio est réglé à la compilation&nbsp;: il ne coûte aucune instruction.</span></li>
+    <li><span class="tag">4b · 20</span><span><b>Norme et gain.</b> ‖y‖² se calcule sur les mêmes octets avec 6 <code>IDP.4A</code>. Puis deux lectures&nbsp;: 1/√(16·m) et le gain.</span></li>
+    <li><span class="tag">4c · 5</span><span><b>Cumuler et boucler.</b> Une multiplication et une multiplication-addition ajoutent le paquet à la somme de la ligne, puis la boucle passe au paquet suivant.</span></li>
+  </ul>
+
+  <h4>Ce que ces instructions achètent</h4>
+  <p>Le témoin fp16, compilé de la même façon, fait 3,86 instructions par poids&nbsp;: il lit 48 octets par paquet et convertit chaque poids. Tetra lit 6 octets par paquet et dépense la différence à décoder. Un compte d’instructions n’est pas un temps&nbsp;: ce zoom ne dit pas si la carte attend la mémoire ou le calcul.</p>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“Compiled for Ada, the loop is 241 instructions per block of 24 weights. Two tricks keep it short: a byte permute does four table lookups in one instruction, and the integer-to-float conversion is an exponent trick plus one add. One instruction per weight is the multiply-add itself; the fp16 control compiles to about four.”</p>
+  </div>
+</section>
+
+<h2 class="part">Partie B · D’où vient le 2,7</h2>
+
+<section id="b0" class="zsec" data-zoom="0">
+  <p class="zline"><span class="zdots" aria-hidden="true">●○○</span>Zoom 0 · la moyenne</p>
+  <h3>Une moyenne pondérée</h3>
+  <p>« 2 bits » est le débit des matrices de projection. 2,75 est le chiffre du modèle entier, vocabulaire compris&nbsp;: une moyenne des bits de chaque partie, pondérée par son nombre de paramètres. Dans le schéma, la largeur est la part des paramètres et la hauteur le nombre de bits par paramètre, donc la surface est le nombre de bits.</p>
+  <figure>
+    <div class="fig-scroll">
+<svg viewBox="0 0 720 306" role="img" aria-label="Moyenne pondérée : les matrices de projection, 90,3 % des paramètres, à 2,13 bits ; le vocabulaire, 9,7 % des paramètres, à 8,5 bits. La moyenne vaut 2,75 bits par paramètre, et le vocabulaire porte 30 % des bits.">
+<line class="grid" x1="64" y1="262.0" x2="696" y2="262.0"/>
+<text class="f" x="56" y="266.0" text-anchor="end">0</text>
+<line class="grid" x1="64" y1="210.0" x2="696" y2="210.0"/>
+<text class="f" x="56" y="214.0" text-anchor="end">2</text>
+<line class="grid" x1="64" y1="158.0" x2="696" y2="158.0"/>
+<text class="f" x="56" y="162.0" text-anchor="end">4</text>
+<line class="grid" x1="64" y1="106.0" x2="696" y2="106.0"/>
+<text class="f" x="56" y="110.0" text-anchor="end">6</text>
+<line class="grid" x1="64" y1="54.0" x2="696" y2="54.0"/>
+<text class="f" x="56" y="58.0" text-anchor="end">8</text>
+<text class="f" x="56" y="16">bits par paramètre</text>
+<rect class="seg-words" x="64.0" y="206.6" width="568.9" height="55.4" rx="2"><title>matrices de projection : 2,13 bits × 90,3 % = 1,925</title></rect>
+<rect class="seg-emb" x="634.9" y="41.0" width="61.1" height="221.0" rx="2"><title>vocabulaire : 8,5 bits × 9,7 % = 0,822</title></rect>
+<text class="on-series" x="348.4286915492791" y="232" text-anchor="middle">matrices de projection : 2,13 bits par poids</text>
+<text class="on-series-s" x="348.4286915492791" y="249" text-anchor="middle">70 % des bits du modèle</text>
+<text class="on-series" x="665.4132864958341" y="64" text-anchor="middle">8,5</text>
+<text class="on-series-s" x="665.4132864958341" y="80" text-anchor="middle">bits</text>
+<text class="on-series" x="665.4132864958341" y="112" text-anchor="middle">30 %</text>
+<text class="on-series-s" x="665.4132864958341" y="128" text-anchor="middle">des</text>
+<text class="on-series-s" x="665.4132864958341" y="144" text-anchor="middle">bits</text>
+<line class="avg" x1="64" y1="190.6" x2="696" y2="190.6"/>
+<text class="tb" x="70" y="183.56591">moyenne sur tout le modèle : 2,75 bits par paramètre</text>
+<text class="t" x="348.4286915492791" y="282" text-anchor="middle">matrices de projection</text>
+<text class="f" x="348.4286915492791" y="298" text-anchor="middle">90,3 % des paramètres</text>
+<text class="t" x="665.4132864958341" y="282" text-anchor="middle">vocabulaire</text>
+<text class="f" x="665.4132864958341" y="298" text-anchor="middle">9,7 %</text>
+</svg>
+    </div>
+    <figcaption>Qwen3-4B servi&nbsp;: 4&nbsp;022&nbsp;468&nbsp;096 paramètres. Dessiné à l’échelle. Les normes (196&nbsp;096 paramètres en fp16, 0,0008 bit par paramètre) sont trop fines pour apparaître.</figcaption>
+  </figure>
+  <p class="formula">2,13 × 90,3 % + 8,5 × 9,7 % + normes ≈ 2,75</p>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“Two bits is the rate of the projection matrices. The 2.75 is the whole model: the embedding is 9.7% of a 4B’s parameters and it stays in int8, at 8.5 bits.”</p>
+  </div>
+</section>
+
+<section id="b1" class="zsec" data-zoom="1">
+  <p class="zline"><span class="zdots" aria-hidden="true">●●○</span>Zoom 1 · on ouvre les deux rectangles du zoom 0 · <a href="#b0">↑ zoom 0</a></p>
+  <h3>Les deux parts</h3>
+  <h4>Les matrices de projection&nbsp;: 2,1309 bits par poids</h4>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>composante</th><th>débit</th><th class="n">part des poids</th><th class="n">apport</th><th>à l’échelle</th></tr></thead>
+    <tbody>
+      <tr><td>mots Tetra de 48 bits, 216 matrices</td><td>2 bits par poids codé</td><td class="n">96,95 %</td><td class="n">1,9390</td><td class="barcell"><div class="hbar" style="width:91.0%"></div></td></tr>
+      <tr><td><code>v_proj</code> en int4, 36 matrices</td><td>4,25 bits&nbsp;: 4 bits, plus une échelle et un décalage fp16 pour 128 poids</td><td class="n">2,60 %</td><td class="n">0,1104</td><td class="barcell"><div class="hbar" style="width:5.18%"></div></td></tr>
+      <tr><td>queue gardée en fp16</td><td>16 bits</td><td class="n">0,45 %</td><td class="n">0,0721</td><td class="barcell"><div class="hbar" style="width:3.38%"></div></td></tr>
+      <tr><td>échelles de ligne</td><td>32 bits par ligne, 1&nbsp;069&nbsp;056 lignes</td><td class="n">—</td><td class="n">0,0094</td><td class="barcell"><div class="hbar" style="width:0.44%"></div></td></tr>
+      <tr class="tot"><td>total</td><td></td><td class="n">100 %</td><td class="n">2,1309</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="meta">Apport en bits par poids de projection, sur 3&nbsp;633&nbsp;315&nbsp;840 poids. <span class="prov">calculé</span> sur les comptes lus dans le fichier servi.</p>
+
+  <h4>Le vocabulaire&nbsp;: 8,5 bits par valeur</h4>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>composante</th><th>débit</th><th class="n">apport</th><th>à l’échelle</th></tr></thead>
+    <tbody>
+      <tr><td>valeurs en int8</td><td>8 bits par valeur</td><td class="n">8,0</td><td class="barcell"><div class="hbar emb" style="width:94.1%"></div></td></tr>
+      <tr><td>une échelle et un décalage fp16 par groupe de 64 valeurs</td><td>32 bits ÷ 64</td><td class="n">0,5</td><td class="barcell"><div class="hbar emb" style="width:5.9%"></div></td></tr>
+      <tr class="tot"><td>total</td><td></td><td class="n">8,5</td><td></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="meta">388&nbsp;956&nbsp;160 valeurs&nbsp;: 151&nbsp;936 éléments de vocabulaire × 2&nbsp;560 nombres. Dans le 4B, la même table sert à l’entrée et à la sortie du modèle.</p>
+
+  <div class="callout">
+    <h4>La queue en fp16</h4>
+    <p>Les largeurs des matrices ne sont pas des multiples de 24&nbsp;: 2&nbsp;560 = 24 × 106 + 16, 4&nbsp;096 = 24 × 170 + 16, 9&nbsp;728 = 24 × 405 + 8. Les 8 ou 16 dernières colonnes de chaque ligne ne sont pas quantifiées&nbsp;: la méthode GPTQ s’en sert pour absorber la correction d’erreur de toute la ligne. Elles coûtent 0,065 bit par paramètre. Tous les chiffres de qualité publiés les incluent déjà en fp16. Les passer en int8 ou en int4 gagnerait 0,03 à 0,05 bit par paramètre, pour un effet sur la qualité que personne n’a mesuré.</p>
+  </div>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“The projections cost 2.13 bits per weight: the 2-bit words, v_proj in int4, a small tail kept in fp16 and one fp32 scale per row. The embedding costs 8.5: int8, plus a scale and an offset for every 64 values.”</p>
+  </div>
+</section>
+
+<section id="b2" class="zsec" data-zoom="2">
+  <p class="zline"><span class="zdots" aria-hidden="true">●●●</span>Zoom 2 · tous les bits du modèle, rangés par nature · <a href="#b1">↑ zoom 1</a></p>
+  <h3>Codes, échelles, valeurs exactes</h3>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th>nature</th><th>élément</th><th>débit</th><th class="n">bits</th><th class="n">bits par paramètre</th><th class="n">part</th></tr></thead>
+    <tbody>
+      <tr><td class="grp">codes</td><td>étiquettes de points Tetra, 216 matrices</td><td>47 bits pour 24 poids</td><td class="n">6 898 378 752</td><td class="n">1,7150</td><td class="n">62,4 %</td></tr>
+      <tr><td></td><td>vocabulaire, valeurs int8</td><td>8 bits par valeur</td><td class="n">3 111 649 280</td><td class="n">0,7736</td><td class="n">28,2 %</td></tr>
+      <tr><td></td><td><code>v_proj</code>, valeurs int4</td><td>4 bits par poids</td><td class="n">377 487 360</td><td class="n">0,0938</td><td class="n">3,4 %</td></tr>
+      <tr class="sub"><td></td><td>sous-total</td><td></td><td class="n">10 387 515 392</td><td class="n">2,5824</td><td class="n">94,0 %</td></tr>
+      <tr><td class="grp">échelles</td><td>vocabulaire, échelle et décalage</td><td>2 × fp16 pour 64 valeurs</td><td class="n">194 478 080</td><td class="n">0,0483</td><td class="n">1,8 %</td></tr>
+      <tr><td></td><td>bit de gain Tetra</td><td>1 bit pour 24 poids</td><td class="n">146 774 016</td><td class="n">0,0365</td><td class="n">1,3 %</td></tr>
+      <tr><td></td><td>échelles de ligne</td><td>fp32 par ligne</td><td class="n">34 209 792</td><td class="n">0,0085</td><td class="n">0,3 %</td></tr>
+      <tr><td></td><td><code>v_proj</code>, échelle et décalage</td><td>2 × fp16 pour 128 poids</td><td class="n">23 592 960</td><td class="n">0,0059</td><td class="n">0,2 %</td></tr>
+      <tr class="sub"><td></td><td>sous-total</td><td></td><td class="n">399 054 848</td><td class="n">0,0992</td><td class="n">3,6 %</td></tr>
+      <tr><td class="grp">valeurs exactes</td><td>queue, 16&nbsp;367&nbsp;616 poids</td><td>fp16</td><td class="n">261 881 856</td><td class="n">0,0651</td><td class="n">2,4 %</td></tr>
+      <tr><td></td><td>normes, 196&nbsp;096 valeurs</td><td>fp16</td><td class="n">3 137 536</td><td class="n">0,0008</td><td class="n">0,03 %</td></tr>
+      <tr class="sub"><td></td><td>sous-total</td><td></td><td class="n">265 019 392</td><td class="n">0,0659</td><td class="n">2,4 %</td></tr>
+      <tr class="tot"><td>total</td><td>1&nbsp;381&nbsp;448&nbsp;704 octets</td><td></td><td class="n">11 051 589 632</td><td class="n">2,7475</td><td class="n">100 %</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="meta"><span class="prov">calculé</span> sur les comptes <span class="prov">mesurés</span> dans le fichier servi par l’outil <code>rtbits</code> (references-comptabilite-2026-09-18 §3)&nbsp;: 4&nbsp;022&nbsp;468&nbsp;096 paramètres, dont 388&nbsp;956&nbsp;160 de vocabulaire et 196&nbsp;096 de normes.</p>
+
+  <div class="callout">
+    <h4>Codebook et métadonnées</h4>
+    <ul>
+      <li><b>Codebook&nbsp;: aucun n’est stocké par modèle.</b> Le réseau lui-même tient lieu de codebook. La carte garde 18&nbsp;816 octets de tables pour tout le modèle&nbsp;: rangs 16&nbsp;384, branches 2&nbsp;048, préfixes 128, suffixes 128, et 128 pour 1/√(16·m). Cela fait 0,00004 bit par paramètre, non compté dans 2,7475.</li>
+      <li><b>Par matrice&nbsp;:</b> deux gains fp32, soit 1&nbsp;728 octets pour les 216 matrices.</li>
+      <li><b>Par ligne&nbsp;:</b> l’échelle fp32, comptée plus haut, et un arrondi de chaque ligne à 8 octets pour que la lecture du dernier paquet ne déborde pas. Cet arrondi occupe 4,1&nbsp;Mo, relevés par le banc et non comptés (0,008 bit par paramètre).</li>
+      <li><b>Par paquet&nbsp;: rien.</b> Pas d’en-tête, pas de table d’index. Tout mot de 48 bits est valide.</li>
+      <li><b>Sur la carte&nbsp;:</b> 1,381&nbsp;Go comptés plus 4,1&nbsp;Mo d’arrondi font 1,386&nbsp;Go. Le compteur de la carte affiche 1,39&nbsp;Go, et 2,140 bits par poids de projection, ce qui correspond à 2,1309 plus l’arrondi, à la troisième décimale près.</li>
+    </ul>
+  </div>
+
+  <h4>Un fichier, plusieurs nombres</h4>
+  <p>Le même objet affiche des débits différents selon ce qu’on divise par quoi. Seule la dernière ligne se compare d’un format à l’autre.</p>
+  <div class="tbl-scroll">
+  <table>
+    <thead><tr><th class="n">nombre</th><th>ce qu’il divise</th><th>où on le voit</th></tr></thead>
+    <tbody>
+      <tr><td class="n">2,000 bits par poids</td><td>le mot de 48 bits, par les 24 poids qu’il code</td><td>le format</td></tr>
+      <tr><td class="n">2,1309 bits par poids</td><td>les matrices telles que servies&nbsp;: mots, <code>v_proj</code> int4, queue fp16, échelles de ligne, sur les 3&nbsp;633&nbsp;315&nbsp;840 poids de projection</td><td><code>rtbits</code>, queue en fp16</td></tr>
+      <tr><td class="n">2,140 bits par poids</td><td>la même chose, plus les 4,1&nbsp;Mo d’arrondi des lignes</td><td>le compteur de la carte</td></tr>
+      <tr><td class="n">2,148 bits par poids</td><td>les 216 matrices Tetra seules, queue comptée en fp32</td><td>le banc des noyaux</td></tr>
+      <tr><td class="n">2,7645 bits par paramètre</td><td>Tetra seul, sans int4, queue comptée en fp32</td><td>les anciens tableaux, ETAT §3</td></tr>
+      <tr><td class="n">2,8126 bits par paramètre</td><td>cet objet, queue comptée en fp32</td><td>references-comptabilite</td></tr>
+      <tr class="tot"><td class="n">2,7475 bits par paramètre</td><td>cet objet, modèle entier, queue en fp16 comme sur la carte</td><td>le chiffre à citer</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="en">
+    <p class="en-t">À dire en anglais</p>
+    <p lang="en">“No codebook is stored: the lattice is the codebook, and the card holds 18.8 kilobytes of constant tables for the whole model. There is no per-block metadata at all: every 48-bit word is a valid point.”</p>
+  </div>
+</section>
+
+<h2 class="part" id="glossaire">Glossaire</h2>
+<dl class="gloss">
+  <dt>Paquet<i>block</i></dt><dd>24 poids consécutifs d’une ligne de matrice, codés ensemble en un mot de 48 bits.</dd>
+  <dt>Poids, paramètre<i>weight, parameter</i></dt><dd>Un poids est un nombre d’une matrice du modèle. Un paramètre est n’importe quel nombre du modèle&nbsp;: poids, vocabulaire, normes.</dd>
+  <dt>Bits par poids, bits par paramètre<i>bits per weight, per parameter</i></dt><dd>Un nombre total de bits divisé par le nombre de poids des matrices, ou par le nombre de paramètres de tout le modèle.</dd>
+  <dt>Matrices de projection<i>projections</i></dt><dd>Les 7 matrices de chaque couche du modèle (q, k, v, o, gate, up, down), soit 252 pour les 36 couches du 4B.</dd>
+  <dt><code>v_proj</code></dt><dd>La matrice « valeur » de l’attention. Servie en int4&nbsp;: ce choix a été mesuré à +3,47 points de MMLU pour +0,05 bit par paramètre.</dd>
+  <dt>Vocabulaire<i>embedding</i></dt><dd>La table qui transforme chacun des 151&nbsp;936 éléments du vocabulaire, des mots ou des morceaux de mots, en un vecteur de 2&nbsp;560 nombres.</dd>
+  <dt>Normes<i>norms</i></dt><dd>De petits vecteurs de normalisation, 196&nbsp;096 nombres en tout.</dd>
+  <dt>fp32, fp16, bf16</dt><dd>Nombres à virgule flottante sur 32 ou 16 bits. fp16 garde 11 chiffres binaires de précision, bf16 en garde 8. Le modèle Qwen3 d’origine est publié en bf16.</dd>
+  <dt>int8, int4</dt><dd>Entiers sur 8 ou 4 bits, accompagnés d’une échelle et d’un décalage par groupe de valeurs&nbsp;: 64 pour le vocabulaire, 128 pour <code>v_proj</code>.</dd>
+  <dt>Réseau de Leech<i>Leech lattice</i></dt><dd>Un ensemble de points régulièrement espacés en dimension 24, le plus dense connu dans cette dimension. Chaque paquet de 24 poids est remplacé par l’un de ses points.</dd>
+  <dt>Code de Golay<i>Golay code</i></dt><dd>4&nbsp;096 motifs de 24 bits qui servent à construire le réseau de Leech.</dd>
+  <dt>Octade, trio<i>octad, trio</i></dt><dd>Une octade est un motif de Golay avec huit 1. Le trio est un choix de trois octades disjointes, qui partage les 24 coordonnées en 3 sections de 8.</dd>
+  <dt>Treillis<i>trellis</i></dt><dd>La lecture du code de Golay section par section, comme un chemin avec 64 états possibles entre deux sections.</dd>
+  <dt>Rang<i>rank</i></dt><dd>La position d’une valeur dans sa liste, en partant de zéro vers l’extérieur.</dd>
+  <dt>Couche<i>shell</i></dt><dd>L’entier m tel que la somme des carrés des 24 coordonnées vaut 16·m.</dd>
+  <dt>Gain</dt><dd>La taille du paquet. Deux valeurs possibles par matrice, choisies par le bit g.</dd>
+  <dt>Échelle de ligne<i>row scale</i></dt><dd>Un nombre fp32 par ligne de matrice, qui multiplie toute la ligne.</dd>
+  <dt>Queue<i>tail</i></dt><dd>Les 8 ou 16 derniers poids de chaque ligne, qui ne remplissent pas un paquet et restent en fp16.</dd>
+  <dt>GPTQ</dt><dd>La méthode de quantification utilisée. Elle quantifie les poids dans l’ordre et corrige à chaque pas les poids qui restent, pour compenser l’erreur commise.</dd>
+  <dt>Rotation de Hadamard<i>incoherence rotation</i></dt><dd>Une rotation appliquée aux poids à l’encodage et à l’entrée à l’exécution, pour étaler l’information sur toutes les coordonnées.</dd>
+  <dt>VRAM</dt><dd>La mémoire de la carte graphique.</dd>
+  <dt>Registre<i>register</i></dt><dd>Une case de calcul interne à un fil d’exécution&nbsp;: la mémoire la plus rapide.</dd>
+  <dt>Mémoire partagée<i>shared memory</i></dt><dd>Une petite mémoire rapide sur la puce, commune aux fils d’un même bloc de calcul. L’entrée y est copiée par morceaux.</dd>
+  <dt>Cache L1</dt><dd>Une petite mémoire rapide près des cœurs de calcul, qui garde les données relues souvent. Sur ces cartes, elle occupe la même mémoire de la puce que la mémoire partagée.</dd>
+  <dt>Fil d’exécution, warp<i>thread, warp</i></dt><dd>Le GPU exécute ses fils par équipes de 32, les warps. Ici, un warp calcule une ligne de sortie.</dd>
+  <dt>Noyau<i>kernel</i></dt><dd>Un programme qui tourne sur le GPU. Ici <code>tv_tetra48_h</code>.</dd>
+  <dt>SASS, PTX</dt><dd>Le SASS est le langage machine des GPU NVIDIA. Le PTX est un langage intermédiaire que le pilote traduit en SASS sur la carte.</dd>
+  <dt>NVRTC</dt><dd>Le compilateur de NVIDIA qui compile le noyau au lancement du programme.</dd>
+  <dt>L40S, Ada, sm_89</dt><dd>La carte utilisée, sa génération de puce, et le nom de cette génération pour le compilateur.</dd>
+  <dt>Compte statique<i>static count</i></dt><dd>Compter les instructions dans le code compilé, sans l’exécuter.</dd>
+</dl>
+
+<h2 class="part" id="limites">Ce que ces chiffres ne disent pas</h2>
 <ul>
-  <li>The instruction count is static: NVRTC 12.4 compiled to sm_89 SASS on a machine with no card. The served path hands PTX to the driver, whose compiler may schedule differently. The register count agrees with the card's report (40); the card's own SASS was not read.</li>
-  <li>An instruction count is not a time. Nothing here says whether the loop is bound by the ALU, the table reads or DRAM.</li>
-  <li>Only the one-row kernel is counted. The prefill kernel (<code>tv_tetra48_rows_h</code>) decodes each word once for 4 rows; the int4 kernel (<code>tv_q4_h</code>) that reads <code>v_proj</code> is not counted.</li>
-  <li>The whole-model rate depends on the embedding's share. At 8B the embedding and the untied head are 15.2 % of the parameters, and bare Tetra reads 3.0672 b/param (ETAT §5 septies).</li>
+  <li>Le compte d’instructions est statique&nbsp;: NVRTC 12.4 a compilé le noyau pour sm_89 sur une machine sans carte. Sur la carte, c’est le pilote qui compile, et il peut ordonner les instructions autrement. Le nombre de registres (40) correspond à celui que la carte rapporte&nbsp;; le code compilé par la carte n’a pas été lu.</li>
+  <li>Un nombre d’instructions n’est pas un temps. Rien ici ne dit si la boucle attend le calcul, les tables ou la mémoire.</li>
+  <li>Seul le noyau qui traite une ligne d’entrée est compté, celui de la génération mot par mot. Le noyau de préremplissage, qui décode chaque mot de 48 bits une fois pour 4 lignes d’entrée, et le noyau int4 de <code>v_proj</code> ne le sont pas.</li>
+  <li>Le chiffre du modèle entier dépend de la part du vocabulaire. Au 8B, le vocabulaire et la table de sortie séparée font 15,2&nbsp;% des paramètres, et Tetra seul donne 3,0672 bits par paramètre (ETAT §5 septies).</li>
 </ul>
 
 <footer>
-  <p>Sources, in the repository:</p>
+  <p>Sources, dans le dépôt&nbsp;:</p>
   <ul>
-    <li><code>docs/mesures/sass-tetra48-2026-09-25.txt</code> and its <code>-brut/</code> folder: the SASS listing, the stage classification line by line, the build script. Written with this page.</li>
-    <li><code>docs/mesures/references-comptabilite-2026-09-18.txt</code>: the counts read off the served file.</li>
-    <li><code>docs/mesures/banc-t64-2026-09-20-brut/banc.txt</code>: table sizes, 2.148 b/weight, the 4.1 MB row pad.</li>
-    <li><code>docs/mesures/dclm-ft-fusedrun-2026-09-20.txt</code>: 1.39 GB and 2.140 b/weight on the card.</li>
-    <li><code>llvq-cuda/kernels/llvq_f1rank_v3.cuh</code>, <code>llvq_tetra48.cuh</code>, <code>llvq-llm/kernels/tv_tetra48_h.cu</code>: the decoder itself.</li>
-    <li><code>docs/cours-tetra.html</code>: the construction, from Λ₂₄ to the word.</li>
+    <li><code>docs/mesures/sass-tetra48-2026-09-25.txt</code> et son dossier <code>-brut/</code>&nbsp;: le code SASS, le classement des 241 lignes par étape, le script de compilation.</li>
+    <li><code>docs/mesures/references-comptabilite-2026-09-18.txt</code>&nbsp;: les comptes lus dans le fichier servi.</li>
+    <li><code>docs/mesures/banc-t64-2026-09-20-brut/banc.txt</code>&nbsp;: tailles des tables, 2,148 bits par poids, 4,1&nbsp;Mo d’arrondi des lignes.</li>
+    <li><code>docs/mesures/tuile-l40s-2026-09-20.txt</code>&nbsp;: la copie de l’entrée de 128 à 64 paquets, 16&nbsp;% de temps en moins.</li>
+    <li><code>docs/mesures/dclm-ft-fusedrun-2026-09-20.txt</code>&nbsp;: 1,39&nbsp;Go et 2,140 bits par poids sur la carte.</li>
+    <li><code>llvq-cuda/kernels/llvq_f1rank_v3.cuh</code>, <code>llvq_tetra48.cuh</code>, <code>llvq-llm/kernels/tv_tetra48_h.cu</code>&nbsp;: le décodeur lui-même.</li>
+    <li><code>docs/cours-tetra.html</code>&nbsp;: la construction complète, du réseau de Leech au mot de 48 bits.</li>
   </ul>
 </footer>
 
 </div>
+
+<script>
+  (function () {
+    var buttons = [].slice.call(document.querySelectorAll('.depth button'));
+    var sections = [].slice.call(document.querySelectorAll('[data-zoom]'));
+    function show(level) {
+      sections.forEach(function (s) { s.hidden = Number(s.getAttribute('data-zoom')) > level; });
+      buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-level')) === level)); });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener('click', function () { show(Number(b.getAttribute('data-level'))); });
+    });
+    // A link to a section the depth control has hidden opens everything first.
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest ? e.target.closest('a') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || a.getAttribute('xlink:href') || '';
+      if (href.charAt(0) !== '#') return;
+      var target = document.getElementById(href.slice(1));
+      if (target && target.closest('[hidden]')) show(3);
+    });
+  })();
+</script>
