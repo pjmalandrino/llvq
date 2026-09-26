@@ -1,18 +1,23 @@
 # Preregistration. The paper-2 recipe at Qwen3-14B, step 1: the encoding, on a card (2026-09-22)
 
-**DRAFT, NOT STAMPED.** To be TIMESTAMPED (`ots stamp`) before `seg1` is launched. The `.ots`
-will attest these bytes, and the launcher refuses both jobs until it exists. The commit that
-carries both follows on the operator's go. Operator go, 2026-09-22, verbatim: "allé lance moi le
-14B". Card mode (x1, two segments) and the $52 cap for the whole 14B chain are the card plan's
-proposals (tasks `wghg5aptb`), not in those words. The operator's verbatim words on both go here
-before stamping.
+**Written on 2026-09-22 and TIMESTAMPED (`ots stamp`) BEFORE `seg1` is launched.** The `.ots`
+attests these bytes, and the launcher refuses both jobs until it exists. Operator go, verbatim,
+2026-09-22: "allé lance moi le 14B", given in answer to the card-mode costing ($38.3 central,
+$50.6 at the timeouts, a proposed cap of $52). Earlier the same day, verbatim: "je veux pas
+bombarder mon mac pendant 15h", hence the card. The operator did not state a cap in his own
+words; $52 for the whole 14B chain is taken as accepted with the go and is restated to him when
+`seg1` is launched.
 
 Once stamped, not edited again. A fact it gets wrong goes beside it, in a `-ECARTS.md`.
 
-Two fields are filled at stamping time, and the stamp waits for them:
-
-- measured code: the commit the rebuilt image is built from, `<commit>`;
-- image: Space `Pier-Jean/llvq-runner-cuda` at `<IMAGE_SHA>`, the rebuild that adds `export`.
+Measured code: commit `b68b590139be` (branch `tetra/8b-paper2-chain`), the commit the rebuilt
+image names in its `COMMIT` file. Image: Space `Pier-Jean/llvq-runner-cuda` at
+`af90741654a5b28c51f6993c24c94993813220bc`, built 12:57-13:13 UTC; `ops/jobs/space-build-log.py`
+read its build log and found all five markers (the `seal`+`export`+`rowscale` cargo line, the
+runtime `COPY`, the 8B and 14B config `test -f`, the `RUN` that executes `export` and `rowscale`,
+the push). That build log replaces the paid image-smoke job the card plan listed: the build
+itself fails if either binary is missing or does not run. The reference census B+C runs on the
+previous image `a963a020`; the dense scoring path has no diff between the two commits.
 
 **Scope: this step only.** Two paid jobs, `seg1` and `seg2`, on `rtx-pro-6000` x1, produce the 14B
 base file, seal it, score its perplexity and export it. **Cost $21.36 central, hard cap $24.75**

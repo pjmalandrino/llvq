@@ -1,0 +1,3 @@
+copied 40 files, 29552586033 B, in 240 s
+staged: 40 files, 33 shards, 443 tensors, 14768307200 weights, 29536614400 tensor bytes (index.json 29536614400), 48984 B of shard headers
+sha256 of the 33 local shards in 104 s: /out/census-14b-ref-2026-09-22/awq-14b.sha256

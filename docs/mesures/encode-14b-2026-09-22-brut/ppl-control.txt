@@ -1,0 +1,1 @@
+sealed f16 9.3447 against encoding 9.3450: -0.003 %

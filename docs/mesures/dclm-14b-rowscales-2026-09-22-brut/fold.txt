@@ -1,0 +1,21 @@
+240 scaled, 0 untouched, 40 int4 passed through
+2048000 row scales read, largest multiplier deviation 0.488485
+       18.12 real        15.30 user         2.57 sys
+           849952768  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              896274  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                1003  voluntary context switches
+                2893  involuntary context switches
+        249217033760  instructions retired
+         64811312612  cycles elapsed
+           809092080  peak memory footprint
+13128551 bytes differ, last at 3417412513, records end before 3439859535

@@ -1,0 +1,128 @@
+THE ROW SCALES AT 14B: +1.67 PP, HALF THE 4B AND 8B GAIN, AND THE GAUGE WAS WRONG (2026-09-23)
+================================================================================
+Jobs:   training 6ab2dc7252d0dbd7f1d8024c, h200, 7,040 s running, $9.78, exit 1.
+        census   6ab37a5052d0dbd7f1d830af, l40sx1, 3,898 s running after 3 h 24 of
+                 queue, $1.95 against $1.80 announced, ceiling $2.40.
+        14B chain $32.17 of its $52 cap; project $219.16 = $215.97 in jobs.csv plus
+        $3.19 of five unregistered jobs. Both *computed*.
+Prereg: proofs/preregistration-dclm-14b-rowscales-2026-09-22.md, stamped
+        sha256 adbbe3e92d8ed11a..., before the training. Deviations E1 to E3 in the
+        -ECARTS.md. E3 records the operator's go to fold AGAINST the stamped row
+        "training exits 1 -> stop before the fold", written before the fold ran.
+Image:  Space af90741654a5b28c for the census, the same as arm A's census.
+Fold:   rowscale sha256 d25136b9... (the 8B's binary, built at 5d36d52), on the Mac.
+Objects sigma   ~/q14b-dclm-2026-09-22/ft/sigma.json  sha256 e1d6040a7c39486d...
+        base    qwen3-14b-dclm.bin     6,563,782,117 B  sha256 f8e975b83897e96a...
+        trained qwen3-14b-dclm-ft.bin  6,563,782,117 B  sha256 c825cb92b0a0afd7...
+        both sha256 read back on the card (files.sha256).
+Data:   docs/mesures/dclm-14b-rowscales-2026-09-22-brut/ (journal, probe, sigma
+        summary, fold, census outputs, both perplexities, pairs.txt);
+        docs/data/mmlu-dumps/mmlu-14b-dclm-ft-FULL.csv.
+Nature: *measured* for training, fold, perplexity and MMLU; ratios *computed*.
+
+THE RESULT
+-----------
+Same file width, same codes, same codebook, same calibration. 240 matrices
+scaled, 40 int4 `v_proj` passed through, 2,048,000 row scales read. 14,042
+questions, paired, stratified micro, no finite-population correction:
+
+  DCLM base                  72.53 micro / 74.07 macro
+  + trained row scales     **74.20** / 75.64
+
+  G = +1.67 pp   CI95 [+1.27 ; +2.08]   SE 0.21   McNemar 535 won / 301 lost,
+  p = 5.0e-16, 6.0 % discordant
+
+Row 1 of the decision rule: the CI is above 0, the lever transfers to the 14B.
+The prereg's next step is the served decode, under its own prereg.
+
+  object, embed f16, 3.5272 b/param  74.20
+  AWQ w4 g128, 5.404 b/param         78.12    AWQ − object  +3.92 pp [+3.34 ; +4.51]
+  f16, 16 b/param                    78.88    f16 − object  +4.68 pp [+4.10 ; +5.26]
+
+The census scores the object with its f16 embedding and head (config=none,
+dense reconstruction). 3.5272 is that width in `rtbits`; the served accounting,
+q8 embedding, is 2.7371 b/param (encode-14b-2026-09-22.txt). The census MMLU at
+the served width is not measured.
+
+THE GAIN BY SIZE, ONE PAIR PER SIZE
+------------------------------------
+  size  base    trained  G                     first KL   discordant
+  4B    57.95   61.11    +3.15                 0.3527     12.9 %
+  8B    64.87   68.16    +3.29 [+2.78 ; +3.80] 0.2741      9.3 %
+  14B   72.53   74.20    +1.67 [+1.27 ; +2.08] 0.2229      6.0 %
+
+The gain halved at 14B, where the 8B had held the 4B's. The base started closer
+to its teacher: the first KL falls with R at every size, and so does the share
+of questions the training changes. One pair per size and one calibration draw
+each; this is a record, not a law.
+
+THE GAUGE SAID NO, AND IT WAS WRONG
+------------------------------------
+`llvqtune` exited 1 because `Outcome.improved` (loop.py:79-95) compares the mean
+loss of the last third with the first: 0.1559 against 0.1531, +1.8 %. By
+eighths, 0.1522 0.1537 0.1555 0.1656 0.1542 0.1529 0.1590 0.1561, +2.6 %.
+
+The gauge's own docstring says it is only meaningful on a repeated batch, and
+the DCLM corpus streams (E1). The census settles it: a resolved +1.67 pp from
+a run the gauge called unimproved. The stamped row would have discarded a real
+gain. What the flat curve does say is that the gain arrived early: the loss
+fell from 0.2229 at step 1 to about 0.15 within the first eighth and stayed
+there. Whether a shorter run would have given the same G is not measured.
+
+**Consequence for the tool, not applied here:** `improved` cannot gate a
+streaming run. Either the gate runs on a held-out fixed batch, or the exit code
+stops reading it. Neither is decided.
+
+THE PERPLEXITY, BOTH ARMS ON ONE CARD
+--------------------------------------
+L40S, f16, wikitext-2, ctx 4096, 12 windows, fingerprint 3f1baca9033bf251, one
+job, the base read after the trained file.
+
+  f16 (August, L40S)       7.9820
+  AWQ (August, L40S)       8.2858   ×1.038
+  DCLM base                9.3447   ×1.171
+  + trained row scales     8.4622   ×1.060   −9.4 % against the base
+
+The base reads 9.3447 here as it did on the RTX PRO 6000 in the encode job, to
+four decimals. The training takes perplexity down 9.4 %, against −24.1 % at 4B
+and −11.1 % at 8B. The object stays **above AWQ** in perplexity (8.46 against
+8.29), as at 8B (9.57 against 9.42); only the 4B passed under (12.33 against 13.52).
+
+THE CONTROLS
+-------------
+  1. sigma: 240 matrices, 2,048,000 rows, mean 0.99921, sd 0.02474,
+     min 0.5115, max 1.4580, 4.4 % beyond 5 %.                          PASSED
+  2. base sha256 against the encode job's line, before the fold.        PASSED
+  3. all-ones control: 0 scaled, 240 untouched, output byte-identical.  PASSED
+  4. fold: 240 scaled, 0 untouched, 40 int4 passed through; same size;
+     13,128,551 bytes differ, the last at 3,417,412,513, before the end
+     of the records at 3,439,859,535.                                   PASSED
+  5. FT file on the bucket: size by `hf buckets ls`, sha256 on the card. PASSED
+  6. Oracle on CUDA: MATCH.                                              PASSED
+  7. Dump headers as preregistered, end fingerprint a74a6d6213602979.    PASSED
+  8. Same image as arm A (af907416).                                     PASSED
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity                          predicted            measured        in?
+  probe first KL                    0.30 [0.18, 0.45]    0.2229          yes
+  probe rate, h200                  0.83 [0.72, 1.00]    0.7163 s/step   NO, 0.004 under
+  loop rate, h200                   0.734 [0.62, 0.90]   0.682 s/step    yes
+  peak GPU memory allocated         119.5 GB [108, 130]  119.4 GB        yes
+  KL, last eighth against first     −3 % [−7, −0.5]      +2.6 %          NO
+  G, paired, micro                  +3.2 [+1.7, +4.7]    +1.67           NO, 0.03 under
+  FT perplexity f16, card           8.50 [8.05, 9.20]    8.4622          yes
+  FT against base, same job         −16 % [−24, −7]      −9.4 %          yes
+
+G missed its interval by 0.03 pp. The prediction carried the 4B and 8B gains
+forward unchanged; the 14B gave half.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Nothing served: the trained file has not run through the kernel. The 55.4 tok/s
+  of census-14b-base-2026-09-22.txt is the base file's; the fold moves values,
+  not work, but that is an argument, not a measurement.
+- MMLU at the served width (q8 embedding): not measured at any size.
+- Whether the halving is the size, the card the base was encoded on, or the draw:
+  one pair per size, and the 14B base is the only one encoded on a card.
+- Whether a shorter training would have given the same G.

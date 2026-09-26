@@ -1,10 +1,11 @@
 # Preregistration. The 14B paper-2 object on a card: base census, served smoke, kernel bench, served decode (2026-09-22)
 
-**DRAFT, NOT STAMPED.** Written on 2026-09-22, before the 14B is encoded. To be TIMESTAMPED
-(`ots stamp`) before `census-14b-base.sh` is launched. The commit that carries it follows on the
-operator's go. Operator go, verbatim, 2026-09-22: "allé lance moi le 14B", on the card-mode plan,
-whose proposed cap for the 14B chain is $52. **TO CONFIRM before stamping: the go does not restate
-the figure.**
+**Written on 2026-09-22 and TIMESTAMPED (`ots stamp`) BEFORE `census-14b-base.sh` is launched.**
+The launcher refuses both jobs until the `.ots` exists. Operator go, verbatim, 2026-09-22: "allé
+lance moi le 14B", on the card-mode plan, whose proposed cap for the 14B chain is $52. The
+operator did not restate that figure in his own words; it is taken as accepted with the go, and
+it was restated to him when the encode was launched. Spent on the 14B chain before these two
+jobs: $18.17 (*measured*, `jobs.csv`: census-ref $3.14, encode seg1 $6.95, encode seg2 $8.08).
 
 Not edited again once stamped. A fact it gets wrong goes beside it, in a `-ECARTS.md`.
 

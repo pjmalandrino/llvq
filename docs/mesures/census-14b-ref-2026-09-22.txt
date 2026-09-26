@@ -1,0 +1,58 @@
+THE 14B REFERENCES ON THE FULL SPLIT: F16 78.88, AWQ 78.12 (2026-09-22)
+================================================================================
+Job:    6ab27b0f52d0dbd7f1d7ea73, l40sx1, 6,280 s running after 30 min of queue,
+        $3.14 against $3.15 announced, timeout ceiling $4.05.
+Total:  14B chain $3.14 after this job (seg1 of the encode was running beside it);
+        project $190.13 = $186.94 in jobs.csv + $3.19 of five unregistered jobs
+        (*computed*).
+Prereg: proofs/preregistration-census-14b-ref-2026-09-22.md, stamped
+        sha256 4c6beb59fc67a844..., before the launch. Deviations in the -ECARTS.md.
+Launcher: ops/jobs/census-14b-ref.sh, sha256 9c49122524ab0763...
+Image:  Space Pier-Jean/llvq-runner-cuda at a963a020 (commit afaed1e).
+        B: Qwen/Qwen3-14B@40c069824f42 (pinned); C: qwen3-14b-awq-deq-1g/ copied
+        from the bucket to local disk, 33 shards checked (awq-14b-manifest.txt,
+        stage-awq.txt, awq-14b.sha256).
+Data:   docs/data/mmlu-dumps/mmlu-14b-{f16,awq}-FULL.csv;
+        docs/mesures/census-14b-ref-2026-09-22-brut/ (outputs, pairs.txt).
+Nature: scores and pairs *measured*, 14,042 questions, fingerprint a74a6d6213602979.
+
+THE RESULT
+-----------
+  arm                                  micro    macro
+  B  Qwen3-14B f16                     78.88    80.68
+  C  AWQ w4 g128, dequantized to f16   78.12    79.73
+
+  B − C   +0.75 pp   CI95 [+0.40 ; +1.12]   SE 0.18   McNemar 384 / 278, p = 4.3e-5
+  (stratified micro, no finite-population correction, bootstrap 10,000 draws)
+
+Row 1 of the decision rule: controls 1 to 4 pass on B and C.
+
+CONTROLS
+---------
+1. Oracle on CUDA: MATCH (oracle-cuda.txt).
+2. C staged: 40 files by explicit list, sizes, 443 tensors, tensor bytes equal
+   to index.json total_size, 14B config; the stray dotfiles and LICENSE left out.
+3. Dump headers as preregistered on both dumps, end fingerprint a74a6d6213602979.
+4. Harness, joined on subject and index with equal qhash against the 2,280-question
+   dumps of 2026-08-10 (job 6a7971c3): 2,280 of 2,280 identical picks and all four
+   logits identical on both arms; mmlupair --intersect 0 discordant. The image of
+   2026-09-21 did not move the harness at 14B shapes.
+
+Descriptive, outside the published list: the published Planes14 14B sample (72.12,
+2,280 questions) against the same questions of these census dumps, --intersect:
+f16 − Planes14 +6.85 pp [+4.52 ; +9.12], AWQ − Planes14 +6.09 pp [+3.62 ; +8.52].
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity        predicted              measured   in?
+  B               77.9 [76.6, 81.3]      78.88      yes
+  C               79.0 [75.9, 80.6]      78.12      yes
+  C − B           −0.8 [−2.2, +0.7]      −0.75      yes
+  running time    105 min [95, 120]      104.7 min  yes
+
+The two sample-to-census shifts were small at 14B: f16 −0.09, AWQ −0.09 pp.
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Anything about the 14B paper-2 object, which is scored under its own prereg.
+- C as a served AWQ: scored dense, no kernel, no speed.

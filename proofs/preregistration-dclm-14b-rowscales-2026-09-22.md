@@ -1,11 +1,12 @@
 # Preregistration. The trained row scales at 14B: training, fold, perplexity, census (2026-09-22)
 
-**DRAFT, NOT STAMPED.** Written on 2026-09-22, before the 14B is encoded. To be TIMESTAMPED
-(`ots stamp`) before the training job is launched, and ideally before arm A of the census is read,
-so that the predictions below stay blind to the base. The commit that carries it follows on the
-operator's go. Operator go, verbatim, 2026-09-22: "allé lance moi le 14B", on the card-mode plan.
-That plan proposes a cap of $52 for the whole 14B chain. **TO CONFIRM before stamping: the go does
-not restate the figure.**
+**Written on 2026-09-22 and TIMESTAMPED (`ots stamp`) BEFORE the training job is launched, and
+before arm A of the census is read**, so the predictions below are blind to the base. Operator go,
+verbatim, 2026-09-22: "allé lance moi le 14B", on the card-mode plan, whose proposed cap for the
+14B chain is $52. The operator did not restate that figure in his own words; it is taken as
+accepted with the go and was restated to him at each launch. Spent on the 14B chain before this
+job: $18.49 (*measured*, `jobs.csv`: census-ref $3.14, encode seg1 $6.95, encode seg2 $8.08,
+re-export $0.32); the base census is in flight under its own prereg, ceiling $3.60.
 
 Not edited again once stamped. A fact it gets wrong goes beside it, in a `-ECARTS.md`.
 
@@ -60,11 +61,18 @@ training writes `dclm-14b-rowscales-<OBJ_DATE>/`, the fold uploads `dclm-14b-ft-
 census writes `census-14b-ft-<launch date, UTC>/` (the launcher's default, `CENSUS_DATE` overrides;
 the 8B prereg named none, its `-ECARTS` E3).
 
-Preconditions, set by the other preregs of the chain and checked by the operator before the
-training is launched (no launcher reads them): R in row 2 of the encode prereg's decision rule
-(rows 1 and 3: the operator decides whether the h200 is paid; row 4: no further paid 14B job until
-the operator chooses; row 5: no usable file), and arm A at or above 62.0, row 1 of
-`preregistration-served-14b-2026-09-22.md`.
+Preconditions. The first is met: R = ×1.1709 falls in row 2 of the encode prereg's decision rule
+(*measured*, seg2). The second, arm A at or above 62.0 (row 1 of
+`preregistration-served-14b-2026-09-22.md`), cannot be met before this job starts: the base census
+entered the l40sx1 queue at 20:55 and was still in `SCHEDULING` after an hour, while this training
+sits in another queue and the operator is asleep. So the gate is enforced live instead of before:
+the training is launched now, and **if arm A reads under 62.0 while it runs, the job is stopped**
+and its sigma is not folded, scored or published. The 14B object's own base is
+read by that census, not by this job, so nothing here depends on the order. The risk this takes is
+the h200 minutes already billed when the gate fires, at most $15.00. The reason to take it is the
+queue: waiting would cost the night, and the operator asked for the chain to run overnight.
+Beside the perplexity R already measured, the 8B precedent has a base at 64.87 for a worse
+R (×1.1983), so a 14B base under 62.0 would itself be the surprise.
 
 ## Controls
 

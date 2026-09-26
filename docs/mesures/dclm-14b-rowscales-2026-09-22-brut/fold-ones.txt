@@ -1,0 +1,4 @@
+0 scaled, 240 untouched, 40 int4 passed through
+2048000 row scales read, largest multiplier deviation 0.000000
+every multiplier was 1.0, so the output is byte-identical
+ones control: BYTE-IDENTICAL
