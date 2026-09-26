@@ -31,6 +31,12 @@ def parse(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--warmup", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--corpus", default="dclm",
+                   choices=("dclm", "mmlu-aux", "mix"),
+                   help="training text: generic (dclm-edu), MMLU-format "
+                        "prompts from auxiliary_train, or a mix of the two")
+    p.add_argument("--mix-ratio", type=float, default=0.5,
+                   help="share of MMLU-format batches under --corpus mix")
     p.add_argument("--checkpoint-every", type=int, default=0,
                    help="steps between partial writes of the export")
     p.add_argument("--device", default="cuda")
@@ -51,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse(argv)
 
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
     from .adapters.dclm_corpus import DclmCorpus
     from .adapters.json_sink import JsonSink
@@ -59,9 +65,23 @@ def main(argv: list[str] | None = None) -> int:
     from .adapters.objectives import CrossEntropy, KLDistillation
     from .adapters.torch_model import TorchModel, TorchTeacher
     from .adapters.torch_optimizer import Adam
-    from .domain.loop import Plan, check, run
+    from .domain.loop import Plan, WiringError, check, run
+    from .domain.pairing import check_pairing
     from .domain.schedule import WarmupCosine
     from .trainables import build
+
+    # Before any weight is read: two config files, a few kB. The 8B student
+    # and a 4B teacher share depth and vocabulary, so a mismatch would train
+    # to the end and write a plausible file.
+    if args.teacher is not None:
+        try:
+            check_pairing(
+                AutoConfig.from_pretrained(args.student).to_dict(),
+                AutoConfig.from_pretrained(args.teacher).to_dict(),
+            )
+        except WiringError as refused:
+            print(f"refused: {refused}", file=sys.stderr)
+            return 2
 
     widths = {"f32": torch.float32, "f16": torch.float16, "bf16": torch.bfloat16}
     dtype = (
@@ -107,9 +127,27 @@ def main(argv: list[str] | None = None) -> int:
         teacher = TorchTeacher(dense)
 
     tokenizer = AutoTokenizer.from_pretrained(args.teacher or args.student)
-    corpus = DclmCorpus(
-        tokenizer, args.batch_size, args.seq_len, device=args.device
-    )
+
+    def generic():
+        return DclmCorpus(
+            tokenizer, args.batch_size, args.seq_len, device=args.device
+        )
+
+    def task_format():
+        from .adapters.mmlu_corpus import MmluAuxCorpus
+
+        return MmluAuxCorpus(
+            tokenizer, args.batch_size, args.seq_len, device=args.device
+        )
+
+    if args.corpus == "dclm":
+        corpus = generic()
+    elif args.corpus == "mmlu-aux":
+        corpus = task_format()
+    else:
+        from .adapters.mix_corpus import MixCorpus
+
+        corpus = MixCorpus(task_format(), generic(), args.mix_ratio)
     if args.repeat_one_batch:
         from .adapters.repeat_corpus import RepeatCorpus
 
@@ -119,14 +157,27 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint_every=args.checkpoint_every,
     )
 
-    check(trainable=trainable, objective=objective, teacher=teacher,
-          corpus=corpus, plan=plan)
+    # Same shape as the pairing refusal above: a wiring error is a refusal,
+    # exit 2, one line. A traceback on a card reads as a crash, and `train.sh`
+    # would then blame the probe for writing no rate.
+    try:
+        check(trainable=trainable, objective=objective, teacher=teacher,
+              corpus=corpus, plan=plan)
+    except WiringError as refused:
+        print(f"refused: {refused}", file=sys.stderr)
+        return 2
     tokens = corpus.tokens_per_batch * plan.steps
-    print(f"wiring accepted: {tokens} tokens, {len(model.matrices)} matrices",
-          file=sys.stderr)
+    print(f"wiring accepted: {tokens} tokens, {len(model.matrices)} matrices, "
+          f"corpus {corpus.name}", file=sys.stderr)
     if args.dry_run:
         print("dry run, nothing was trained", file=sys.stderr)
         return 0
+
+    gauge = None
+    if args.device.startswith("cuda"):
+        from .adapters.cuda_gauge import CudaGauge
+
+        gauge = CudaGauge(args.device)
 
     sink = JsonSink(args.out)
     outcome = run(
@@ -140,6 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         plan=plan,
         teacher=teacher,
         sink=sink,
+        gauge=gauge,
     )
     path = sink.write(outcome.export, outcome.cost)
     print(f"wrote {path}", file=sys.stderr)

@@ -7,6 +7,7 @@ from llvqtune.domain.schedule import Constant
 
 from fakes import (
     FakeCorpus,
+    FakeGauge,
     FakeSink,
     FakeModel,
     FakeObjective,
@@ -46,6 +47,28 @@ def test_the_header_states_the_cost_before_the_first_step():
     run(**wire(recorder=recorder))
     assert recorder.header["b_per_param_whole_model"] == 0.0
     assert recorder.header["tokens_total"] == 8 * 5
+
+
+def test_the_header_names_the_corpus_that_ran():
+    # Two arms of the fine-tuning ladder differ by the corpus alone. The
+    # journal is where that difference is read a month later.
+    recorder = FakeRecorder()
+    run(**wire(recorder=recorder, corpus=FakeCorpus()))
+    assert recorder.header["corpus"] == "fake_corpus"
+
+
+def test_a_plan_that_outruns_a_finite_corpus_is_refused_before_the_run():
+    class Finite(FakeCorpus):
+        def batches_available(self, seed):
+            return 4
+
+    with pytest.raises(WiringError, match="holds about 4 batches"):
+        run(**wire(corpus=Finite()))
+
+
+def test_a_corpus_that_states_no_size_is_not_refused():
+    # DCLM-edu's shard holds twenty times any run's need and says nothing.
+    run(**wire(corpus=FakeCorpus()))
 
 
 def test_an_objective_that_needs_a_teacher_refuses_to_run_without_one():
@@ -120,3 +143,41 @@ def test_the_summary_carries_the_rate_a_job_needs_to_size_itself():
     run(**wire(recorder=recorder))
     assert "seconds_per_step" in recorder.summary
     assert recorder.summary["seconds_per_step"] >= 0.0
+
+
+def test_the_summary_carries_the_gauge_when_one_is_bound():
+    """The 8B was sized for its card by computation; the peak must be read."""
+    recorder = FakeRecorder()
+    gauge = FakeGauge()
+    run(**wire(recorder=recorder, gauge=gauge))
+    assert recorder.summary["gauge"] == {"max_memory_allocated": 1000 * gauge.reads}
+
+
+def test_every_checkpoint_reads_the_gauge():
+    recorder = FakeRecorder()
+    gauge = FakeGauge()
+    sink = FakeSink()
+    run(**wire(
+        plan=Plan(steps=6, seed=0, log_every=1, checkpoint_every=2),
+        sink=sink, recorder=recorder, gauge=gauge,
+    ))
+    assert [(i, g) for i, _, g in recorder.checkpoints] == [
+        (2, {"max_memory_allocated": 1000}),
+        (4, {"max_memory_allocated": 2000}),
+    ]
+    assert [p for _, p, _ in recorder.checkpoints] == [
+        "/tmp/fake-1.json", "/tmp/fake-2.json",
+    ]
+    assert gauge.reads == 3  # two checkpoints and the summary
+
+
+def test_without_a_gauge_the_journal_keeps_its_shape():
+    """The 4B journals carry no gauge; a run with none must write the same."""
+    recorder = FakeRecorder()
+    sink = FakeSink()
+    run(**wire(
+        plan=Plan(steps=4, seed=0, log_every=1, checkpoint_every=2),
+        sink=sink, recorder=recorder,
+    ))
+    assert "gauge" not in recorder.summary
+    assert recorder.checkpoints == [(2, "/tmp/fake-1.json", None)]

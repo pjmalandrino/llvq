@@ -165,6 +165,58 @@ fn the_shipped_config_is_the_served_object() {
     );
 }
 
+/// The 8B config is the 4B's five values on another object, and nothing more.
+///
+/// No field of a served config is model-specific: the five name a layout, an
+/// embedding mode, a hoist, a fusion mode and a KV store, and the loader reads
+/// every shape from the sealed file (`fused_cuda::load_resolved` parses the
+/// file's own `config.json`). What differs is the note, and the path the run
+/// records on its `# config=` line — which is why the 8B gets a file of its
+/// own rather than borrowing the 4B's, whose path would then name the wrong
+/// object in every 8B dump header.
+///
+/// Mutation: change any one of the 8B file's five values and this fails; the
+/// 4B file is read beside it so the two cannot drift apart in silence.
+#[test]
+fn the_8b_config_is_the_4b_served_values_on_the_8b_object() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let read = |name: &str| {
+        let path = dir.join(name);
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+        (f.clone(), Served::of(f, path).unwrap_or_else(|e| panic!("{name}: {e}")))
+    };
+    let (f4, s4) = read("qwen3-4b-tetra-q5.json");
+    let (f8, s8) = read("qwen3-8b-tetra-q5.json");
+    assert_eq!(
+        (s8.layout, s8.embed, s8.rot_share, s8.fuse, s8.kv),
+        (s4.layout, s4.embed, s4.rot_share, s4.fuse, s4.kv),
+        "the 8B serves the 4B's recipe; a value that moved is a new object, not this file"
+    );
+    let note = f8.note.expect("the 8B config says which object it belongs to");
+    assert!(note.contains("Qwen3-8B"), "{note}");
+    assert!(note.contains("qwen3-8b-dclm"), "{note}");
+    assert_ne!(Some(note), f4.note, "a copied note would print the 4B as this run's object");
+}
+
+/// Every file in `configs/` resolves. A config added without a test of its own
+/// would otherwise reach a card unread: `ops/Dockerfile.cuda` copies the whole
+/// directory and tests one name.
+#[test]
+fn every_shipped_config_resolves() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../configs");
+    let mut n = 0;
+    for entry in std::fs::read_dir(&dir).expect("configs/") {
+        let path = entry.expect("entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let f = Served::read_file(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        Served::of(f, path.clone()).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        n += 1;
+    }
+    assert!(n >= 2, "{n} configs found in {}", dir.display());
+}
+
 /// A lookup that answers from a fixed table — the environment, without the
 /// environment. What makes the contradiction branch testable at all.
 fn env_of<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {

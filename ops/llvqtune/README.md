@@ -32,6 +32,31 @@ fine-tuning here is no more than learning the per-column scales
 Adding a mode means one module and one line in `trainables/__init__.py`. The
 loop, the objectives, the corpus and the journal are untouched.
 
+## The corpus
+
+`--corpus` decides the training text. Every published arm ran on `dclm`, which
+stays the default.
+
+| value | text | holds |
+|---|---|---|
+| `dclm` | DCLM-edu, the corpus the paper calibrates on | ~1.03 G tokens, twenty times any run's need |
+| `mmlu-aux` | MMLU-format prompts, `cais/mmlu` `auxiliary_train` | ~24.75 M tokens, 0.79 of a 9,507-step run |
+| `mix` | both, interleaved at `--mix-ratio` | the smaller of the two |
+
+`mmlu-aux` exists because the DCLM arm brought perplexity to 1.0074 times f16
+and left MMLU nine points under it: the generic-text objective has given what
+it can. It reads the split MMLU ships for training, never the three the
+harness scores — `dev` supplies the five worked examples of every prompt, and
+`fetch_split` refuses all three by name. The overlap was measured before the
+adapter was written: 0 items of `test`, `dev` or `validation` share question
+and choices with any `auxiliary_train` row (`uv run ops/mmlu_aux_overlap.py`,
+2026-09-23). Blocks are written character for character as `bin/mmlu.rs`
+`block()` writes them, which one test holds literally.
+
+That corpus is finite, unlike DCLM's shard, so it says how much it holds and
+`check()` refuses a plan that outruns it. A run that quietly stops at step
+6,300 of 9,507 writes a plausible sigma and a plausible journal.
+
 ## The invariant
 
 The gradient never reaches the decoded directions. The Leech decoder is a
@@ -57,20 +82,34 @@ holds no `row_scales`, the same exclusion `rhoapply` makes by construction.
 ```bash
 uv run --project ops/llvqtune -m llvqtune \
   --student ~/qwen3-4b-export --teacher Qwen/Qwen3-4B \
-  --mode row_scales --objective kl --steps 200 --out /tmp/sigma.json --dry-run
+  --mode row_scales --objective kl --corpus dclm \
+  --steps 200 --out /tmp/sigma.json --dry-run
 ```
 
 `--dry-run` wires everything, prints the rate the run would cost and stops
 before the first batch.
 
 ```bash
-cd ops/llvqtune && uv run --with pytest --with torch python -m pytest tests -q
+cd ops/llvqtune && uv run --extra torch --with pytest python -m pytest tests -q
 ```
 
-## Not done here
+`--extra torch` brings `transformers` too; without it the tests of `main`
+skip rather than fail.
 
-The write-back. Nothing folds `sigma.json` into a `.llvq` yet.
-`llvq-bench/examples/rhoapply.rs` already multiplies `row_scales` by one
-scalar and its idempotence control at rho = 1 is byte-identical on the served
-mixed file. Generalizing it from a scalar to a per-row vector is the missing
-piece, and it is the only Rust work this module needs.
+`train.sh` is the card entry point. `EXPORT`, `OUT` and `TEACHER` are
+required; `TEACHER` has no default since 2026-09-21, and `main` refuses a
+teacher whose `hidden_size`, depth, width or vocabulary differs from the
+student's before loading a weight. `STEPS` fixes the step count instead of
+`BUDGET / rate`; the six-step probe runs either way and must close with a
+rate and a device-memory gauge. `STAGE` copies the export to local disk
+first, `MAX_TRAIN_SECONDS` and `MAX_FIRST_KL` refuse a run after the probe.
+`CORPUS` and `MIX_RATIO` reach both the probe and the run: a rate measured on
+other text prices the wrong run.
+On cuda the journal records `max_memory_allocated`, `max_memory_reserved`
+and `total_memory` at every checkpoint and in the closing summary.
+
+## The write-back
+
+`llvq-llm/src/bin/rowscale.rs` folds `sigma.json` into a sealed file:
+`rowscale <in.bin> <out.bin> <sigma.json>`. Int4 records pass through, a
+sigma of all ones writes a byte-identical file.
