@@ -1,0 +1,90 @@
+THE TETRA KERNEL SERVES THE 8B: 90.6 TOK/S IN 3.15 GB, 256 TOKENS IDENTICAL (2026-09-22)
+================================================================================
+Jobs:   bench-8b-base 6ab1c2be51992417dfcd1c17, l40sx1, 378 s running, $0.19, cap $0.90.
+        served-8b-full 6ab1ebb152d0dbd7f1d7c9fc, l40sx1, 755 s running, $0.38, cap $1.35.
+Cost:   the 8B chain so far $10.19 of its $20 cap (jobs.csv rows of 2026-09-22:
+        2.98 + 0.19 + 5.66 + 0.38 + 0.98). Project $186.99: $183.80 in jobs.csv plus
+        $3.19 of five unregistered jobs. Both *computed*.
+Prereg: proofs/preregistration-served-8b-2026-09-21.md, stamped
+        sha256 f34595208f4c18f1..., before either job. Deviations in the -ECARTS.md.
+Image:  Space a963a020, the same as the two censuses.
+Config: configs/qwen3-8b-tetra-q5.json, sha256 909847be5795033b..., written by the
+        job from the command line and checked (the image carries only the 4B's).
+Objects bench: qwen3-8b-dclm.bin (base), sha256 bcea0d5a...; decode: qwen3-8b-dclm-ft.bin
+        (trained), sha256 783cef6700e0efa9...
+Checks: oracle MATCH on both jobs (bench-oracle-cuda.txt, oracle-cuda.txt). Each
+        launcher compares the objects' bytes and sha256 to the Mac's and stops on a
+        mismatch; both jobs ran through (bench-files.sha256, files.sha256).
+Data:   docs/mesures/served-8b-2026-09-21-brut/; the bench job's controls carry `bench-`.
+Nature: *measured*, L40S sm_89, tile 64 (the served policy). GB on card: *measured* in
+        host byte count (fusedrun's runtime_bytes, projections + tables), not
+        device-reported; KV cache and activations are outside it.
+b/param: whole model, both tables included, over 8.1907 G params (*computed*: 2.100
+        b/weight on 6.9458 G projection weights, tables at 8.5 b/param in q8, 16 in f16).
+
+THE SERVED DECODE: TWO PROCESSES, EACH ARM AGAINST ITS OWN DENSE ARM
+---------------------------------------------------------------------
+  proc  arm                                tok/s [range]      GB on card  b/param  vs its dense arm
+  1     served, q8 embedding (the object)  90.6 [90.1–90.8]   3.15        3.07     ×3.42 [3.41–3.43], ÷5.21
+  1     dense f16                          26.5 [26.4–26.5]   16.38       16.00    ref
+  2     same head, f16 embedding           38.9 [38.9–39.1]   4.31        4.21     ×1.47 [1.47–1.48], ÷3.80
+  2     dense f16                          26.4 [26.4–26.4]   16.38       16.00    ref
+
+Five rounds an arm. The speed ratios are quotients of medians, envelope fused lo over
+dense hi to fused hi over dense lo. fusedrun loads one arm at a time, so rounds are
+never interleaved or paired (-ECARTS E4).
+
+256 tokens identical to the dense arm, in both processes. The prefill gate at 203 tokens
+gives the same argmax (max |Δ logit| 0.27 on a scale of 34). The log reads tile 64,
+252 launches a token (216 Tetra + 36 int4), 144 rotation launches, two q8 tables
+(untied head, 1,322.5 MB). The served door wrote a dump with `# arithmetic=served
+kernel` and `# layout=tetra48` (57 questions, a smoke, no score).
+
+The same-head ratio is ×1.47 (hard rule 4): both arms of process 2 carry the f16 head.
+At the 8B the untied f16 head is 1.24 GB read a token (*computed*, 151936 × 4096 × 2 B);
+both f16 tables hold 2.49 GB on the card. The f16 arm is 14.7 ms a token slower than
+the q8 arm (*computed* from the medians). The cause is not measured. The q8 head runs
+through `tv_q8_h`, the f16 head through a candle matmul. The f16 head reads 0.58 GB
+more than the q8 head, about 0.9 ms at the 682 GB/s FP16 rate below (*computed*):
+bytes explain under a tenth of the gap. The 4B left the same gap unexplained
+(f1e0-2026-09-10.txt, 50.2 against 92.9 tok/s).
+
+For reference, from another job on the same card type (not a same-process ratio):
+the served Planes14 8B read 75.5 tok/s in 5.41 GB, 5.322 b/param (ETAT §2, FUSE=1,
+tile 128).
+
+THE KERNEL, OUT OF THE MODEL (planesbench, one token; Tetra over 216 matrices, the rest 252)
+--------------------------------------------------------------------------------------------
+  arm              med ms   GB read  b/weight  GB/s at min  vs FP16
+  floor (nullk)     3.008    0.09     0.099       29        6.78×
+  FP16             20.388   13.89    16.000      682        ref
+  Planes14          8.033    4.13     4.752      514        2.54×
+  Tetra48           4.969    1.78     2.092      358        4.11× [4.10–4.11], unequal passes
+
+Seven rounds, two dropped, arms interleaved, ratios round by round. Tetra's ratios are
+formed over unequal passes, 216 matrices against 252. The 36 `v_proj` int4 are counted,
+not timed, in this bench. They are 2.2 % of FP16's bytes: if FP16 time scales with bytes,
+Tetra on equal support is about ×4.0 FP16 (*estimated*). Tetra against Planes14: 1.62×,
+floor removed 2.56×, over the same unequal passes. The f64 row check passes on the three
+compared arms (worst 2.8e-8, FP16; Planes14 and Tetra 1.6e-8, Tetra over its 216
+matrices). nullk is not compared (-inf). The two "f16 lm_head" lines of the log are
+struck: `planesbench.rs:3537, 3554` add the 4B's 389 M-weight head, not the 8B's 622 M.
+The bench ran on the base file; the fold changes row scales only (`rowscale.rs:17-18`).
+
+THE SIGNED PREDICTIONS
+-----------------------
+  quantity                        predicted            measured       in?
+  q8 arm, tok/s                   80 [70, 90]          90.6           NO, 0.6 over the top
+  dense arm, tok/s                26.5 [25, 28]        26.5 and 26.4  yes
+  same-head against dense         ×1.43 [1.25, 1.70]   ×1.47          yes
+  GB on card, q8 arm              3.2 [3.0, 3.5]       3.15           yes
+  first divergence                none in 256          none in 256    yes
+  planesbench FP16, ms            21 [19, 23]          20.388         yes
+  planesbench Tetra vs FP16       ×3.2 [2.6, 4.2]      ×4.11          yes, near the top; 216 vs 252 matrices
+
+WHAT THIS DOES NOT ESTABLISH
+-----------------------------
+- Why the f16 head costs 14.7 ms a token: the mechanism is not measured.
+- Tetra against AWQ at 8B in GB/s: the AWQ arm was not in the bench.
+- Anything on another card, at another batch, or with prefill served.
+- The cross-job Planes14 comparison is a reference, not a measured ratio.

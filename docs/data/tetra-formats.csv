@@ -1,0 +1,6 @@
+arm,disk_gb,bpp_whole_model,bpw_kernel,ppl,ppl_plan,mmlu,mmlu_plan
+f16,8.04,16.000,16.000,12.2361,ours,70.14,census
+AWQ,2.67,5.302,4.179,13.5207,ours,70.04,plan2280
+QTIP,,,2.000,17.04,theirs,57.4,theirs
+IQ2_XXS,1.26,2.4967,,,,38.87,plan2280
+Tetra,1.79,2.7475,2.148,12.3268,ours,61.11,census

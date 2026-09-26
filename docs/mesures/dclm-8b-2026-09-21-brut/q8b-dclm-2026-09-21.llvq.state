@@ -1,0 +1,14 @@
+# llvq run state, written beside the artifact, read back by a resume.
+# Any divergence from the resolved configuration makes the resume refuse.
+model = Qwen/Qwen3-8B
+codebook = tetra1 → Tetra word map, 47 bits of label + 1 gain bit, 3 octads of 8, 2048 rows per class, magnitude on the gain grid, gain selected from source norm, 48 bits/block
+calibration = dclm-edu
+calib_windows = 64
+calib_len = 2048
+calib_seed = prefix
+rotation = 0x110feed
+mode = nogs
+damping = 1e-2
+dtype = f32
+device = metal
+blocks_done = 36

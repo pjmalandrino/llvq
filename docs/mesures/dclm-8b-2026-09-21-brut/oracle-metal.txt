@@ -1,0 +1,6 @@
+device Metal(MetalDevice(DeviceId(1))), dtype f32
+resolving Qwen/Qwen3-8B (downloads on first use)…
+config: hidden 4096 inter 12288 layers 36 heads 32/8 head_dim 128 tied false
+window: 47 tokens
+Qwen/Qwen3-8B on Metal(MetalDevice(DeviceId(1))) — max |Δhidden| = 0.000e0   (relative to max|h| = 1.330e2) → 0.000e0
+MATCH — the observable forward reproduces candle's Qwen3

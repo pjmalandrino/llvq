@@ -1,0 +1,5 @@
+# 2026-09-22 08:02 CEST, byte counts of the two objects named in files.sha256
+$ ls -l ~/q8b-dclm-2026-09-21.llvq ~/qwen3-8b-dclm.bin
+-rw-r--r--  1 pjmalandrino  staff  1862836458 Sep 21 21:58 /Users/pjmalandrino/q8b-dclm-2026-09-21.llvq
+-rw-r--r--  1 pjmalandrino  staff  4364205777 Sep 21 22:08 /Users/pjmalandrino/qwen3-8b-dclm.bin
+# shasum -a 256 of both, same run: identical to files.sha256

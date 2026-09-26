@@ -1,0 +1,4 @@
+      328796  2026-09-22 02:42:10  dclm-8b-rowscales-2026-09-21/journal.jsonl
+     6827770  2026-09-22 01:38:32  dclm-8b-rowscales-2026-09-21/probe.json
+         876  2026-09-22 01:38:32  dclm-8b-rowscales-2026-09-21/probe.jsonl
+    27035569  2026-09-22 02:42:10  dclm-8b-rowscales-2026-09-21/sigma.json

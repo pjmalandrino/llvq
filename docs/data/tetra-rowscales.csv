@@ -1,0 +1,3 @@
+base,bpw_kernel,mmlu_before,mmlu_after,delta_pp,mcnemar_p,ppl_before,ppl_after,ppl_ratio_before,ppl_ratio_after
+bare_tetra,2.1498,54.64,58.94,4.30,4.4e-40,,,,
+served_object,2.148,57.95,61.11,3.15,1.8e-25,16.2509,12.3268,1.3281,1.0074
