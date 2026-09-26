@@ -20,18 +20,22 @@ no-weights control & 252 & 2.289 & 0.07 & 0.159 & 32\\
 QTIP 2-bit~\citep{qtip2024}$^{*}$ & 252 & 2.246 & 0.91 & 2.000 & 405\\
 \bottomrule
 \end{tabular}
-\caption{One process, one L40S, 4B shapes, tile 64, seven rounds with the first
-two dropped. The \Tetra{} arm covers 216 matrices and the others 252, so the
-millisecond column is not a ranking. $^{*}$From another process (2026-08-21)
-and below the no-weights control; kept with that reservation. Data:
-echelle-formats.csv.}
+\caption{Each row is one kernel timed on the 4B matrix shapes on one L40S,
+over seven rounds with the first two dropped. The first ten rows are the ten
+arms of one process, at tile 64: our kernels copy the activation to shared
+memory 64 activation blocks at a time. The no-weights control has the same thread
+layout and reads no weight byte. The \Tetra{} arm covers 216 matrices and the
+others 252, so the milliseconds do not rank the arms. $^{*}$This row comes from
+another process (2026-08-21) and is below the no-weights control. We keep it
+with that caveat. Data: echelle-formats.csv.}
 \end{table}
 
 \section{Record of predictions, defects and commands}
 \label{app:record}
 
-\paragraph{Predictions and how they scored.} Each campaign was preregistered
-with a signed prediction and an interval before it ran.
+\paragraph{Predictions and how they scored.} Before each campaign ran, we
+preregistered a prediction and an interval. A signed value with no unit is in
+MMLU points.
 
 \begin{table}[H]
 \centering\small\setlength{\tabcolsep}{5pt}
@@ -61,21 +65,22 @@ sealed 14B tok/s, GB & 58 $[50, 66]$, 5.04 & 57.2, 5.04 & yes\\
 \end{table}
 
 \paragraph{Defects found by the served runs.} The first served runs of the
-three sealed files failed before producing a number, on two defects of our
-engine. First, a group of projections with no rotation took a path that hands
-all prompt rows at once to the matrix-vector product, which is correct for a
-dense matrix and wrong for the int4 kernel, which takes one row. A lone int4
-\texttt{o\_proj} or \texttt{down\_proj} is such a group; an int4
-\texttt{v\_proj} never was, because $q$ and $k$ share its group. Second, the
-int4 kernel was bounded by the 48~KiB default of shared memory, which a 14B
-\texttt{down\_proj} exceeds. Both were fixed, tested and type-checked before
-the runs that give the speeds of Table~\ref{tab:main}. Neither affects an MMLU
-number, which all come from the dense reconstruction.
+three sealed files failed on two defects in our engine, before producing any
+number. First, projections that read the same input form a group. A group with
+no rotation took a code path that sends all prompt rows to the matrix-vector
+product at once. That is correct for a dense matrix and wrong for the int4
+kernel, which takes one row. A lone int4 \texttt{o\_proj} or
+\texttt{down\_proj} forms such a group. An int4 \texttt{v\_proj} never does,
+since $q$ and $k$ share its group. Second, the int4 kernel was capped at the
+default 48~KiB of shared memory. A 14B \texttt{down\_proj} needs more. We
+fixed, tested and type-checked both before the runs behind the speeds in
+Table~\ref{tab:main}. Neither defect affects an MMLU number, because MMLU is
+scored on the dense reconstruction, which does not run the kernel.
 
-\paragraph{A corrected rate.} An earlier version of our 4B table gave IQ2\_XXS
-2.4967 bits per parameter. That is the rate of a different IQ2\_XXS file,
-published by a third party and never scored here. The file we score is our own
-build, 1{,}246{,}620{,}832 bytes, 2.479 bits per parameter.
+\paragraph{A corrected IQ2\_XXS rate.} An earlier version of our 4B table gave
+IQ2\_XXS 2.4967 bits per parameter. That is the rate of a different IQ2\_XXS
+file, published by a third party and never scored here. The file we score is
+our own build: 1{,}246{,}620{,}832 bytes, or 2.479 bits per parameter.
 
 \paragraph{The files and the commands.} The three sealed files, with the
 first eight hex digits of their SHA-256:
@@ -84,9 +89,8 @@ first eight hex digits of their SHA-256:
 \item \nolinkurl{qwen3-8b-sealed-B.bin}, \texttt{7bdb9a55};
 \item \nolinkurl{qwen3-14b-sealed.bin}, \texttt{61db37fe}.
 \end{itemize}
-Each has a served configuration in the \nolinkurl{configs/} directory, named
-after its size, for example \nolinkurl{qwen3-4b-tetra-e4.json}. On an NVIDIA
-GPU:
+Each file has a served configuration in \nolinkurl{configs/}, named after its
+size, for example \nolinkurl{qwen3-4b-tetra-e4.json}. On an NVIDIA GPU:
 
 {\footnotesize
 \begin{verbatim}
@@ -101,18 +105,18 @@ cargo run --release -p llvq-llm --bin mmlupair -- <A> <B> --no-fpc
 cargo run --release -p llvq-bench --bin rtbits -- <file>
 \end{verbatim}}
 
-\noindent Each binary prints a fingerprint of the questions or tokens it
-scored, and two numbers compare only when their fingerprints match.
+\noindent Each program prints a fingerprint of the questions or tokens it
+scored. Two numbers compare only when their fingerprints match.
 
 \section{Provenance}
 \label{app:provenance}
 
-A number is \emph{measured} (read off a run), \emph{computed} (arithmetic on
-measured quantities) or \emph{cited}. Logs are files under
-\texttt{docs/mesures/} in the repository; names are shortened and all dates
-are 2026. Every figure is generated from a CSV in \texttt{docs/data/} by
-\texttt{scripts/make\_figures.py}, and \texttt{scripts/check\_tables.py} stops
-the build if a table drifts from its CSV.
+Each number is \emph{measured} (read off a run), \emph{computed} (arithmetic
+on measured quantities) or \emph{cited}. The logs are files under
+\texttt{docs/mesures/}. The table shortens their names, and all dates are in
+2026. The script \texttt{scripts/make\_figures.py} draws every figure from a
+CSV in \texttt{docs/data/}. A second script, \texttt{scripts/check\_tables.py},
+stops the build if a table no longer matches its CSV.
 
 {\footnotesize\setlength{\tabcolsep}{4pt}
 \begin{tabular}{p{4.8cm}lp{5.2cm}}

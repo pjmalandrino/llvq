@@ -1,20 +1,25 @@
 \section*{Availability}
 
-Code, the measurement logs behind every number, the preregistrations and this
-paper's source are at \url{https://github.com/pjmalandrino/llvq}, under MIT or
-Apache-2.0, and this paper under CC BY 4.0. Appendix~\ref{app:record} lists the files and the commands that
-replay the main measurements. The QTIP kernel used in the benchmark of
-Appendix~\ref{app:bench} is GPL~v3, so the benchmark fetches it at a pinned
-commit rather than redistributing it. Each measurement campaign was
-preregistered in a timestamped file naming the arms, the decision rules and a
-prediction. Those files are never edited afterwards; deviations are written
-next to them.
+The code, the measurement logs behind every number, the preregistrations and this
+paper's source are at \url{https://github.com/pjmalandrino/llvq}. They are
+under MIT or Apache-2.0, and the paper under CC BY 4.0.
+Appendix~\ref{app:record} lists the files and the commands that rerun the main
+measurements.
+
+The benchmark in Appendix~\ref{app:bench} uses the QTIP kernel. That kernel is
+under GPL~v3, so we do not redistribute it. The benchmark downloads it at a
+fixed commit.
+
+Before each measurement campaign, we wrote its plan in a timestamped file
+called a preregistration. It names the arms (the configurations compared), the
+decision rules and a prediction. These files are never edited afterwards. When
+a campaign departs from its plan, we write the change next to the file.
 
 \section*{Use of generative AI}
 
-Anthropic's Claude, through the Claude Code CLI in 2026, drafted and revised
-the text of this paper, drew its figures, wrote parts of the CUDA kernels, the
-Rust host code and the tests, and recomputed statistics from the committed
-measurement logs. The author designed the study, authorized every measurement,
-checked each number against its source, and is responsible for the whole
-content.
+Anthropic's Claude, used through the Claude Code command-line tool in 2026,
+drafted and revised the text and drew the figures. It wrote parts of the CUDA
+kernels, the Rust host code and the tests. It recomputed statistics from the
+measurement logs committed to the repository. The author designed the study,
+authorized every measurement, checked each number against its source, and is
+responsible for the whole paper.

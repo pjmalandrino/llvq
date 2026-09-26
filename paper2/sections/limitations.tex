@@ -3,26 +3,29 @@
 
 \begin{itemize}
 \item \textbf{One card.} Every measurement is on one NVIDIA L40S. On an A100,
-  under the same protocol, none of our earlier lattice kernels beat FP16, and
-  the best tile changes with the architecture (\S\ref{sec:tile}).
-\item \textbf{One calibration draw per size.} Re-encoding the 4B model with
-  three draws moved MMLU by 2.92 points, which is larger than some of the gains
-  we report. The gains of Table~\ref{tab:chain} are paired on fixed files, so
-  they are not affected; a different draw would start from a different file.
+  with the same protocol, none of our earlier lattice kernels ran faster than
+  FP16. The best tile also depends on the GPU (\S\ref{sec:tile}).
+\item \textbf{One calibration draw per size.} Encoding the 4B model with three
+  draws moved MMLU by 2.92 points, more than some of the gains we report. The
+  gains in Table~\ref{tab:chain} compare fixed files on the same questions, so
+  this spread does not affect them. A different draw would start from a
+  different file.
 \item \textbf{Quality is scored on the dense reconstruction}, not through the
-  kernel. The two are tied by per-row checks against f64 and by the 256-token
-  comparison, identical at 4B and 8B and parting at token 78 at 14B, not by a
-  second MMLU run.
+  kernel. Per-row checks against f64 and the 256-token comparison tie the two
+  together. The tokens are identical at 4B and 8B, and first differ at token 78
+  at 14B. We did not also score MMLU through the kernel.
 \item \textbf{No perplexity} is reported for the sealed files.
-\item \textbf{Batch 1 and short context only.} Nothing here measures serving
-  several requests at once or long prompts.
-\item \textbf{The other 2-bit methods are cited}, from another harness and
-  another MMLU protocol, and their rates count the projections only.
-\item \textbf{The kernel benchmark compares unequal work}: 216 matrices for
-  \Tetra{} against 252 for the other arms (Table~\ref{tab:bench}).
-\item \textbf{The cost of the truncation is estimated}, from idealised regions
-  (\S\ref{sec:kept}), and not measured on the codebook we use.
-\item \textbf{The choice of int4 projections is one window per size.} At 8B,
-  \texttt{down\_proj} beat \texttt{o\_proj} for the same bytes; at 4B and 14B
-  that alternative is not tested.
+\item \textbf{Batch 1 and short context only.} Nothing here measures several
+  requests served together, or long prompts.
+\item \textbf{The MMLU of the 2-bit methods QTIP, QuIP\# and the original LLVQ
+  is cited.} It comes from other evaluation code and another protocol. Their
+  bit rates count only the projection matrices.
+\item \textbf{The kernel benchmark does not time equal work.} It times 216
+  matrices for \Tetra{} and 252 for every other arm (Table~\ref{tab:bench}).
+\item \textbf{The cost of splitting the search region is estimated} on
+  idealized regions (\S\ref{sec:kept}). We did not measure it on the codebook
+  we use.
+\item \textbf{One int4 layer range per size.} At 8B, \texttt{down\_proj} alone
+  scored better than \texttt{o\_proj} plus \texttt{down\_proj}, with fewer
+  bytes. We did not test this at 4B and 14B.
 \end{itemize}

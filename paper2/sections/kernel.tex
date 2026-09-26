@@ -3,48 +3,57 @@
 
 \subsection{Decoding inside the matrix-vector product}
 
-The kernel keeps the geometry of our earlier one~\citep{llvq1preprint}: one
-warp per output row, 256-thread blocks holding 8 rows, the activation staged in
-shared memory in tiles of $T$ blocks ($96T$ bytes) with two barriers per tile,
-one lane per block, a shuffle reduction, and a last step that adds the
-exactly-kept tail and multiplies by $\sigma_{\mathrm{row}}$. What differs is
-how a block is decoded.
+The kernel keeps the thread layout of our earlier one~\citep{llvq1preprint}.
+One warp (threads that run in lockstep) computes each output row, and a
+256-thread block holds 8 rows. Each thread of the warp, or lane, decodes one
+block of weights at a time. The activation goes into shared memory, a small
+fast on-chip memory, in tiles of $T$ blocks ($96T$ bytes). Each tile has two
+barriers, where all threads wait. A shuffle reduction sums the lanes' results,
+and a last step adds the exactly kept tail and multiplies by
+$\sigma_{\mathrm{row}}$. What differs is how a block is decoded.
 
-Three choices make a six-load decode fast. First, table values are stored as
-biased bytes, $\mathrm{val}+128$. Placed under \texttt{0x4b0000\_\_}, such a
-byte reads as the float $2^{23}+\mathrm{byte}$ exactly, and one subtraction
-gives the value back, so a coordinate costs one byte permute, one add and one
+Decoding a block takes six table loads, and three choices make it fast. First,
+each table value is stored as a biased byte, $\mathrm{val}+128$. Placed in the
+low byte of \texttt{0x4b0000\_\_}, it reads exactly as the float
+$2^{23}+\mathrm{byte}$, and one subtraction gives the value back. A coordinate
+thus costs one byte permute (a byte move inside a register), one add and one
 fused multiply-add, with no integer-to-float conversion. Second, every loop is
-unrolled with constant indices, so nothing spills: the compiler reports 40
-registers and no local memory, the same as for \Planes{}. Third, the only
-data-dependent reads are the six table loads, so lanes never diverge. Counted
-from the source, a block costs about 141 instructions, 54 of them on the FMA
-pipe and 85 on the ALU pipe. A decoder that extracts each coordinate and
-converts it needs about 380, plus 24 conversions.
+unrolled with constant indices, so no value spills from registers to the slower
+local memory. The compiler reports 40 registers and no local memory, as for
+\Planes{}. Third, the only reads that depend on the data are the six table
+loads, so the lanes never take different paths.
 
-The kernel reads the file's own words, so there is no transcoding at load. The
-4B file loads in 12.1~s, where the FP16 checkpoint takes 81.8~s in the same
-process.
+Counted from the source, a block costs about 141 instructions: 54 on the FMA
+pipe (the multiply-add unit) and 85 on the ALU pipe (the integer and bit
+unit). A decoder that extracts and converts each coordinate needs about 380,
+plus 24 conversions.
 
-\paragraph{The rest of a served model.} The int4 projections go through a
-separate kernel with the same geometry: one warp per row, the whole activation
-staged in shared memory, weights dequantized with their group scale and offset,
-accumulation in f32. At 14B a \texttt{down\_proj} activation takes 69{,}632~B,
-more than the 48~KiB a block gets by default, so the host asks the driver for
-more; the L40S allows 101{,}376~B. The 4-bit embedding tables use two small
-kernels, a gather that dequantizes the rows of the input tokens and a
-matrix-vector product for the output head. For a prompt, the \Tetra{} kernel
-takes four rows per launch; the int4 kernel takes them one at a time.
+The kernel reads the file's 48-bit words as stored, so nothing is rewritten at
+load.
+In the same process, the 4B file loads in 12.1~s and its dense reconstruction
+(the file decoded to f16) in 81.8~s.
 
-\paragraph{How the kernel is checked.} Before any timing, each of the
-1{,}105{,}920 output rows of the 4B model is recomputed in f64 from the same
-decoded weights and compared with the kernel's row, at a threshold of
-$10^{-5}\cdot\sum|w\cdot x|$. The worst \Tetra{} row is at
-$2.1\times10^{-8}\cdot\sum|w\cdot x|$. One level down, the 24 outputs of the
-device decoder are compared bit for bit with an independent host implementation
-of the same word, on the development machine and again on the card. End to end,
-each served model generates 256 greedy tokens next to its dense reconstruction
-in the same process, and the two sequences are compared (\S\ref{sec:main}).
+\paragraph{The rest of a served model.} The int4 projections use a separate
+kernel with the same thread layout. It copies the whole activation into shared
+memory, dequantizes each weight with its group's scale and offset, and
+accumulates in f32. At 14B, a \texttt{down\_proj} activation takes
+69{,}632~B, more than the 48~KiB a thread block gets by default, so the CPU
+code asks the driver for more. The L40S allows 101{,}376~B. The 4-bit
+embedding tables use two small kernels: one looks up and dequantizes the input
+tokens' rows, the other is the output head's matrix-vector product. On a
+prompt, the \Tetra{} kernel takes four tokens per launch, the int4 kernel one
+at a time.
+
+\paragraph{How the kernel is checked.} Before any timing, we recompute all
+1{,}105{,}920 output rows of the 4B model in f64 from the same decoded
+weights. Each must match the kernel's row within
+$10^{-5}\cdot\sum|w\cdot x|$. The worst \Tetra{} row is off by
+$2.1\times10^{-8}\cdot\sum|w\cdot x|$. One level down, we compare the GPU
+decoder's outputs with an independent CPU implementation, on the development
+machine and again on the card. For each 48-bit word, the 24 decoded values
+must match bit for bit. End to end, each served model and its dense reconstruction
+generate 256 greedy tokens (always the most likely next one) in the same
+process. We compare the two sequences (\S\ref{sec:main}).
 
 \subsection{Bytes and time on the projections}
 \label{sec:bench}
@@ -62,39 +71,40 @@ GB read per pass & 7.27 & 1.90 & 2.18 & 0.95 & 0.07\\
 GB/s & 662 & 583 & 437 & 278 & 32\\
 \bottomrule
 \end{tabular}
-\caption{Kernel benchmark on the 4B shapes, tile 64, one process, one L40S,
-seven rounds with the first two dropped. ``No weights'' is a kernel with the
-same launch geometry that reads no weight byte. The \Tetra{} arm times the 216
-lattice matrices of an early 4B file; its 36 \texttt{v\_proj} are int4, read by
-the other kernel, and not timed. Its milliseconds therefore cover less work
-than the other columns, and bits per weight is the row that compares. The
-ten-arm table is in Appendix~\ref{app:bench}. Data: echelle-formats.csv.}
+\caption{Kernel benchmark on the 4B shapes at tile $T=64$: one process, one
+L40S, seven rounds with the first two dropped. ``No weights'' is a kernel with
+the same thread layout that reads no weight byte. The \Tetra{} arm times the
+216 lattice matrices of an early 4B file, not its 36 int4 \texttt{v\_proj},
+which run on the other kernel. Its time thus covers less work than the other
+columns, so bits per weight is the row to compare. Appendix~\ref{app:bench}
+has the ten-arm table. Data: echelle-formats.csv.}
 \label{tab:bench}
 \end{table}
 
-Per weight, \Tetra{} reads 2.148 bits where 4-bit AWQ reads 4.179 and \Planes{}
-reads 4.804: about half the traffic of either (Table~\ref{tab:bench}). The
-milliseconds do not rank the arms, for the reason given in the caption. The
-kernel with the same launch geometry that reads no weights takes 2.289~ms; the
-arms that read weights take 3.4 to 5.0~ms. \Tetra{} moves its bytes at
-278~GB/s where AWQ reaches 583: reading half the bytes does not halve the
-time.
+Per weight, \Tetra{} reads 2.148 bits, against 4.179 for 4-bit AWQ and 4.804
+for \Planes{}, about half the bytes of either (Table~\ref{tab:bench}). The
+milliseconds do not rank the arms (the columns of the table), because the \Tetra{}
+arm covers fewer matrices. The no-weights kernel takes 2.289~ms, against
+3.424~ms for \Tetra{} and 4.997~ms for \Planes{}. \Tetra{} reads its bytes at 278~GB/s,
+where AWQ reaches 583. Reading half the bytes does not halve the time.
 
 \subsection{The tile and the L1 cache}
 \label{sec:tile}
 
-On an Ada SM (sm\_89), L1 and shared memory share one 128~KB block of SRAM, of
-which at most 100~KB can go to shared memory~\citep{cudaguide}. The activation
-tile is shared memory. The decoder tables are not: they are ordinary global
-reads, cached in L1. So the tile size, which changes no output bit and costs no
-storage, decides how much L1 is left for 18.4~KiB of tables.
+On an Ada GPU (sm\_89), each streaming multiprocessor (SM) splits one 128~KB
+pool of on-chip memory between the L1 cache and shared memory, with at most
+100~KB for shared memory~\citep{cudaguide}. The activation tile lives in shared
+memory. The decoder tables are ordinary memory reads, cached in L1. So the tile
+size, which changes no output bit and costs no storage, decides how much L1 is
+left for the 18.4~KiB of tables.
 
-Occupancy does not change with the tile. Both lattice arms launch 256 threads
-at 40 registers, so six blocks are resident at every tile
-($6\times256\times40 = 61{,}440$ of 65{,}536 registers), and shared memory is
-never the binding limit ($6\times12{,}288 < 102{,}400$~B). What the tile does
-change, besides the split between L1 and shared memory, is the number of
-barriers and loop trips per row, and that part is common to all arms.
+Occupancy, the number of thread blocks an SM holds at once, does not change
+with the tile. Both lattice arms launch 256 threads per block at 40 registers
+per thread, so six thread blocks fit at every tile
+($6\times256\times40 = 61{,}440$ of 65{,}536 registers). Shared memory is never
+the binding limit ($6\times12{,}288 < 102{,}400$~B). Besides the L1 split, the
+tile changes how often each row loops and waits at a barrier, the same for all
+arms.
 
 \begin{figure}[t]
 \centering
@@ -107,12 +117,12 @@ $T = 128, 64, 32$: no weights 2.272, 2.288, 2.388~ms; \Planes{} 5.070, 4.995,
 \label{fig:tile}
 \end{figure}
 
-Across $T \in \{128, 64, 32\}$ the \Planes{} arm moves by 1.5\,\%, the
-no-weights kernel by 5.1\,\% and the \Tetra{} arm by 19.1\,\%
-(Figure~\ref{fig:tile}). The three arms share the launch geometry, the staging
-code and the occupancy; only the \Tetra{} arm reads tables. We read the
-difference as pressure on the tables' place in L1 and set the served tile to
-$T=64$ on sm\_89. We have not proven that reading: the rented platform denies
-access to performance counters, so no cache hit rate was measured. On sm\_120
-the same sweep prefers $T=32$, so the best tile belongs to the card rather
-than to the format. All other kernel numbers in this paper are at $T=64$.
+Across $T \in \{128, 64, 32\}$, the \Planes{} time varies by 1.5\,\%, the
+no-weights time by 5.1\,\% and the \Tetra{} time by 19.1\,\%
+(Figure~\ref{fig:tile}). The three arms share the thread layout, the activation
+copy and the occupancy. Only the \Tetra{} arm reads tables. We think the
+difference comes from pressure on the tables' room in L1, but we have not
+proven it. Our rented platform gives no access to performance counters, so we
+measured no cache hit rate. We set the served tile to $T=64$ on sm\_89. On an
+sm\_120 card the same sweep prefers $T=32$, so the best tile depends on the
+card, not on the format. All other kernel numbers in this paper are at $T=64$.

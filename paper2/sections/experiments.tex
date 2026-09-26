@@ -4,40 +4,43 @@
 \subsection{Setup}
 \label{sec:setup}
 
-\paragraph{Models and encoding.} Qwen3-4B, 8B and 14B~\citep{qwen3_2025},
-encoded with 131{,}072 tokens of DCLM-edu~\citep{dclmedu} as calibration, then
-trained and assembled as described in \S\ref{sec:model}. One calibration draw
-per size.
+\paragraph{Models and encoding.} We use Qwen3-4B, 8B and 14B~\citep{qwen3_2025}.
+Each model is encoded with 131{,}072 calibration tokens of
+DCLM-edu~\citep{dclmedu}, drawn once per size. It is then trained and
+assembled as in \S\ref{sec:model}.
 
-\paragraph{Quality.} MMLU~\citep{mmlu2021}, 5-shot, on the full test set of
-14{,}042 questions, micro-averaged, with the answer read from the logits of
-the four answer letters. Each of our files is scored as its dense
-reconstruction: the stored weights decoded to f16 and run through an ordinary
-forward pass. The kernel computes with the same decoded weights; the per-row
-checks of \S\ref{sec:kernel} and the 256-token comparison below tie the two.
-Comparisons are paired on the same questions: a 95\,\% interval from a
-bootstrap stratified by subject (10{,}000 draws) and an exact McNemar test. On
-this test set, differences under about 0.4 points are not resolved.
+\paragraph{Quality.} The benchmark is MMLU~\citep{mmlu2021}, 5-shot, on all
+14{,}042 test questions, and every question counts the same (micro-average).
+The answer is read from the logits of the four answer letters. Each file is
+scored on its dense reconstruction, run through an ordinary forward pass. The
+kernel computes with the same decoded weights. The per-row checks of
+\S\ref{sec:kernel} and the 256-token comparison below tie the two. Every comparison is paired on the same questions. Each
+gap gets a 95\,\% interval from a bootstrap that resamples questions within
+each subject (10{,}000 draws). An exact McNemar test uses the questions that
+only one of the two models gets right. This test set cannot separate two
+scores less than about 0.4 points apart.
 
-\paragraph{Speed and memory.} Decode speed is measured at batch 1 with greedy
-sampling on one NVIDIA L40S: tokens generated divided by the wall time of the
-generation, prompt included, median of five timed rounds after warm-up. Our
-files run in our engine at the served settings, 256 tokens. FP16 and AWQ run
-in vLLM 0.26.0 with the Marlin kernel, 128 tokens~\citep{vllm2023}. IQ2\_XXS
-runs in llama.cpp's \texttt{llama-bench}: 128 tokens from an empty prompt, mean
-of five repetitions. Each engine is only compared with itself, and we never
-divide one engine's speed by another's. Memory is the weight bytes: for our
-files, the device buffers the engine allocates (projections and tables); for
-the other formats, the size of their weight files. KV cache and activations
-are not counted.
+\paragraph{Speed and memory.} Decode speed is measured on one NVIDIA L40S at
+batch 1, with greedy sampling. Speed is the tokens generated divided by the
+wall-clock time, prompt included. Each speed is the median of five timed
+rounds after a warm-up. Our files run in our engine at the served settings and generate 256
+tokens. FP16 and AWQ run in vLLM 0.26.0~\citep{vllm2023}, AWQ
+with the Marlin kernel, and generate 128 tokens. IQ2\_XXS runs in llama.cpp's
+\texttt{llama-bench} on 128 tokens from an empty prompt, as the mean of five
+repetitions. Each engine is only compared with itself, and we never divide one
+engine's speed by another's. Memory counts only weight bytes: our engine's GPU
+buffers for projections and tables, and the other formats' weight files. It
+leaves out the KV cache and the activations.
 
-\paragraph{Baselines.} FP16 is the published checkpoint. AWQ is Qwen's official
-w4g128 checkpoint at each size; its MMLU is scored in our harness after
-dequantization to f16, its speed in vLLM on the packed checkpoint. IQ2\_XXS is
-built with \texttt{llama-quantize} and an importance matrix computed on the
-same calibration shard as our GPTQ runs, and scored with the same prompts
-through \texttt{llama-server}. QTIP, QuIP\# and the original LLVQ are not run
-here; their MMLU is cited from \citet{llvq2026}.
+\paragraph{Baselines.} FP16 is Qwen's published checkpoint. AWQ is Qwen's
+official w4g128 checkpoint at each size (4-bit weights in groups of 128). Its
+MMLU is scored in our harness after converting it to f16, and its speed is
+timed in vLLM on the packed checkpoint. IQ2\_XXS is built with \texttt{llama-quantize} and an
+importance matrix, which tells the quantizer which weights matter most. That
+matrix comes from the same calibration shard as our earlier GPTQ runs.
+IQ2\_XXS is scored with the same prompts through \texttt{llama-server}. We
+cite the MMLU of QTIP, QuIP\# and the original LLVQ from \citet{llvq2026}
+and do not run them.
 
 \subsection{Main results}
 \label{sec:main}
@@ -71,68 +74,71 @@ here; their MMLU is cited from \citet{llvq2026}.
  & \textbf{\Tetra{}, our engine} & \textbf{2.73} & \textbf{75.66} & \textbf{57.2} & \textbf{5.04}\\
 \bottomrule
 \end{tabular}
-\caption{Quality, speed and memory at three sizes, one L40S. MMLU is on the
-full 14{,}042-question test set. Speeds come from different engines and are
-not divided by one another. $^{a}$Our engine's dense path: the sealed file
-decoded to f16 and run as an ordinary model, in the same process as the
-kernel. Its speed is that of any f16 model of this size in our engine, which
-copies the output head at every token; it has no MMLU of its own here. $^{b}$Fine-tuned rows of Table~6 of \citet{llvq2026}, measured
-in their harness with their MMLU protocol. $^{c}$Bits per weight on the
-projections; the whole-model rate is not reported. Data: paper2-results.csv.}
+\caption{Quality, speed and memory at three sizes, on one L40S. MMLU uses all
+14{,}042 test questions. The speeds come from different engines, and we never
+divide one engine's speed by another's. $^{a}$Our engine's dense path runs the sealed file
+decoded to f16 as an ordinary model, in the same process as the kernel. Its
+speed is that of any f16 model of this size in our engine, which copies the
+output head at every token. This row has no MMLU of its own.
+$^{b}$Fine-tuned rows of Table~6 of \citet{llvq2026}, measured in their harness
+with their MMLU protocol. $^{c}$Bits per weight, on the projections only. The
+source gives no rate for the whole model. Data: paper2-results.csv.}
 \label{tab:main}
 \end{table}
 
 \begin{figure}[t]
 \centering
 \includegraphics{fig_scale.pdf}
-\caption{Against model size. Left: paired MMLU gaps with 95\,\% intervals.
-Middle: bits per parameter over the whole model, our served files against the
-official AWQ checkpoints. Right: decode speed at batch 1, each format in its
-own engine. Data: paper2-gaps.csv, paper2-chain.csv, paper2-results.csv.}
+\caption{Against model size. Left: paired MMLU gaps (FP16 minus our file, AWQ
+minus our file, FP16 minus AWQ), with 95\,\% intervals. Middle: bits per
+parameter over the whole model, our sealed files against the official AWQ
+checkpoints. Right: decode speed at batch 1, each format in its own engine.
+Data: paper2-gaps.csv, paper2-chain.csv, paper2-results.csv.}
 \label{fig:scale}
 \end{figure}
 
 \paragraph{Quality.} The sealed files score 63.37, 69.58 and 75.66 at 4B, 8B
-and 14B (Table~\ref{tab:main}). Paired on the same questions, they sit below
-FP16 by 6.77 points $[6.05, 7.50]$, 5.48 $[4.83, 6.10]$ and 3.22
-$[2.69, 3.75]$, and below AWQ by 4.76 $[4.02, 5.49]$, 4.21 $[3.54, 4.86]$ and
-2.46 $[1.92, 3.00]$. Both gaps shrink as the model grows
-(Figure~\ref{fig:scale}, left). AWQ itself is 2.00, 1.27 and 0.75 points below
-FP16.
+and 14B (Table~\ref{tab:main}). On the same questions, they sit below FP16 by
+6.77 points $[6.05, 7.50]$, 5.48 $[4.83, 6.10]$ and 3.22 $[2.69, 3.75]$. They
+sit below AWQ by 4.76 $[4.02, 5.49]$, 4.21 $[3.54, 4.86]$ and 2.46
+$[1.92, 3.00]$. Both gaps shrink as the model grows
+(Figure~\ref{fig:scale}, left). AWQ itself is 2.00, 1.27 and 0.75
+points below FP16.
 
-\paragraph{Memory.} The sealed files hold 2.73, 2.70 and 2.73 bits per
-parameter, against 5.30, 5.96 and 5.40 for AWQ: 45 to 52\,\% of its memory
-(Figure~\ref{fig:scale}, middle). AWQ's rate is highest at 8B because its
-untied embedding and head stay in f16, which is 15.2\,\% of that model's
-parameters.
+\paragraph{Memory.} The sealed files use 2.73, 2.70 and 2.73 bits per
+parameter, against 5.30, 5.96 and 5.40 for AWQ. That is 45 to 52\,\% of AWQ's
+memory (Figure~\ref{fig:scale}, middle). AWQ keeps the embedding and the
+output head in f16. At 8B these two tables are 15.2\,\% of the parameters, so
+AWQ needs the most bits per parameter there.
 
-\paragraph{Against other 2-bit formats at 4B.} IQ2\_XXS reads 39.78 at 2.48
+\paragraph{Against other 2-bit formats at 4B.} IQ2\_XXS scores 39.78 at 2.48
 bits per parameter, 23.6 points below our 4B file for 0.25 fewer bits per
-parameter. The cited rows come from another harness and count only the
-projections, so they place our 63.37 rather than rank it: it is next to the
-62.8 of the original LLVQ with fine-tuning and above QTIP's 59.5.
+parameter. The cited rows come from another harness and count bits on the
+projections only. So they show roughly where our 63.37 stands, without ranking
+it. It is close to the 62.8 of the original LLVQ with fine-tuning, and above
+the 59.5 of QTIP.
 
-\paragraph{Speed.} In our engine the sealed files decode 113.8, 95.0 and 57.2
-tokens per second at 4B, 8B and 14B, with 1.38, 2.76 and 5.04~GB of weights on
-the card (Figure~\ref{fig:scale}, right). Our engine's dense f16 path, run on
-the same files decoded to f16 in the same processes, decodes 43.0, 26.4 and
-16.9 tokens per second. A large part of the gap comes from the 4-bit output
-head: with the embedding and head
-kept in f16 on both sides, the sealed files decode 55.0, 38.9 and 27.3 tokens
-per second, that is 1.27, 1.47 and 1.61 times our dense path. In vLLM, AWQ
-decodes 200.5, 123.2 and 77.8 tokens per second and FP16 83.1, 46.3 and 25.8.
-We do not divide these by our numbers: vLLM runs FP16 faster than our dense
-path does, so a ratio across the two engines would mix the formats with the
-engines.
+\paragraph{Speed.} In our engine, the sealed files decode 113.8, 95.0 and 57.2
+tokens per second at 4B, 8B and 14B (Figure~\ref{fig:scale}, right). Their
+weights take 1.38, 2.76 and 5.04~GB on the card. Our dense path runs their
+dense reconstruction in the same processes, at 43.0, 26.4 and 16.9 tokens per
+second. A large part of this gap comes from the 4-bit output head. With the
+embedding and head in f16 on both sides, the sealed files decode 55.0, 38.9
+and 27.3 tokens per second. This is 1.27, 1.47 and 1.61
+times our dense path. In vLLM, AWQ decodes 200.5, 123.2 and 77.8 tokens per
+second, and FP16 83.1, 46.3 and 25.8. We do not divide these by our numbers,
+because vLLM runs FP16 faster than our dense path does. A ratio across the two
+engines would mix the format with the engine.
 
-\paragraph{The served tokens.} At 4B and 8B the 256 greedy tokens of each
-sealed file are identical to those of its dense reconstruction, generated in
-the same process. At 14B the two sequences part at token 78. One changed token
-changes every later one in a greedy decode, so only that position carries
-information; the preregistration treats a divergence after token 32 as two
-logits too close to order, not as a defect. The prefill check, 203 prompt
-tokens in one call against 203 single-token calls, gives the same next token
-at all three sizes.
+\paragraph{The served tokens.} At 4B and 8B, each sealed file run through the
+kernel and its dense reconstruction, in the same process, generate the same
+256 greedy tokens.
+At 14B they first differ at token 78. In a greedy decode, one changed token
+changes every later one, so only the first difference carries information. Our
+preregistration, written before measuring, counts a divergence after token 32
+as a near tie between two logits, not a defect. A second check feeds 203
+prompt tokens in one call and in 203 single-token calls. Both give the same
+next token at all three sizes.
 
 \subsection{Where the gain comes from}
 \label{sec:chain}
@@ -159,35 +165,38 @@ at all three sizes.
  & $+$ int4 $o$, down; 4-bit tables & 2.7305 & 75.66 & $+1.46$ & $[+0.99, +1.94]$, $p=1.4\cdot10^{-9}$\\
 \bottomrule
 \end{tabular}
-\caption{The files step by step, each gain paired against the row above it on
-the 14{,}042 questions. Bits per parameter are counted as served, with 8-bit
-embedding tables for the first two rows of each size. MMLU of those two rows
-was scored with f16 tables, so the last step also carries the cost of going to
-4-bit tables. Data: paper2-chain.csv.}
+\caption{How each file is built, one step per row. Each gain is paired against
+the row above on the 14{,}042 questions. Bits per parameter count the file as
+served, with 8-bit embedding tables in the first two rows of each size. Those
+rows were scored on MMLU with f16 tables. So the last gain also includes the
+cost of going to 4-bit tables. Data: paper2-chain.csv.}
 \label{tab:chain}
 \end{table}
 
 Table~\ref{tab:chain} scores each step against the previous one. Training the
-row scales gains 3.15, 3.29 and 1.67 points without adding a byte. Adding
-int4 projections and 4-bit tables gains 2.26, 1.42 and 1.46 points more, and
-the files get smaller at the same time. All six gains are resolved, with $p$
-below $10^{-7}$.
+row scales gains 3.15, 3.29 and 1.67 points without adding a byte. Adding int4
+projections and 4-bit tables gains 2.26, 1.42 and 1.46 points more, while the
+files get smaller. This test set separates all six
+gains from zero, with every $p$ below $10^{-7}$.
 
-\paragraph{Which projections get the int4 bytes.} At 8B the first sealed file
-stored all of \texttt{o\_proj} and \texttt{down\_proj} of layers 2 to 33 in
-int4. It scored 70.08 but needed 3.06 bits per parameter, because the 8B model
-has two embedding tables to pay for. To bring it to 2.7 we spent the same
-bytes in two ways. With all of \texttt{o\_proj} and \texttt{down\_proj} of
-layers 15 to 20, the file reads 68.81 at 2.7047 bits per parameter. With
-\texttt{down\_proj} of layers 10 to 26 and no \texttt{o\_proj}, it reads 69.58
-at 2.6953. The second is better by 0.77 points $[0.26, 1.28]$, $p=0.004$, for
-fewer bytes, and is the 8B file of Table~\ref{tab:main}. It sits 0.50 points
-below the 3.06-bit file, a difference this test set does not resolve
-($[-0.01, 1.01]$, $p=0.063$). We had predicted the opposite ranking, from an
-exploration on the 4B sample. The 4B and 14B files still use \texttt{o\_proj};
-whether \texttt{down\_proj} alone would do better there is not tested.
+\paragraph{Which projections get the int4 bytes.} At 8B, our first candidate
+for the sealed file stored all of \texttt{o\_proj}, plus \texttt{down\_proj}
+of layers 2 to 33, in int4. It scored 70.08 but needed 3.06 bits per parameter, because the
+8B model pays for two tables, the embedding and the output head. To reach 2.7,
+we gave int4 a smaller budget and tried two ways to spend it. The first puts
+all of \texttt{o\_proj}, plus \texttt{down\_proj} of layers 15 to 20, in int4,
+and scores 68.81 at 2.7047 bits per parameter. The second leaves
+\texttt{o\_proj} as it is, puts \texttt{down\_proj} of layers 10 to 26 in
+int4, and scores 69.58 at 2.6953.
+It beats the first by 0.77 points $[0.26, 1.28]$, $p=0.004$, with fewer bytes.
+It is the 8B file of Table~\ref{tab:main}. It sits 0.50 points below the
+3.06-bit file, and this test set cannot separate the two ($[-0.01, 1.01]$,
+$p=0.063$). We had predicted the opposite order, from an earlier exploration
+at 4B on a smaller MMLU sample. The 4B and 14B files still store
+\texttt{o\_proj} in int4, and we have not tested \texttt{down\_proj} alone
+there.
 
-\paragraph{A second training does not help.} On the sealed 4B file, a second
-training that also learns the 73 RMSNorm weight vectors lowers the KL loss from
-0.262 to about 0.20 and moves MMLU by $+0.02$ points $[-0.31, +0.36]$
-($p=0.93$). We keep the file without it.
+\paragraph{A second training does not help.} A second training on the sealed
+4B file also learns the 73 RMSNorm weight vectors. It lowers the KL loss from
+0.262 to about 0.20 and moves MMLU by $+0.02$ points $[-0.31, +0.36]$ ($p=0.93$). We keep the file
+without it.
