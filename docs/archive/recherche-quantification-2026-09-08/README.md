@@ -172,17 +172,17 @@ The third measurement, if the first two are positive, is a REAL-Q-style residual
 The exact checks can be rerun with:
 
 ```text
-python3 docs/recherche-quantification-2026-09-08/checks.py
+python3 docs/archive/recherche-quantification-2026-09-08/checks.py
 ```
 
 The current result is stored in `checks.json`: five checks pass, including 25 exact-rational unit-triangular GPTQ-2D dimensions, the Schur/trailing-factor identity, the KronQ suffix cancellation, the dense-output coupling counterexample, and the Fisher mean-field ranking reversal. These checks are deliberately small and do not replace an LLVQ model evaluation.
 
-[^1]: LLVQ project, [Metric hypothesis for Tetra, 2026-09-08](../hypothese-metrique-tetra-2026-09-08.md), consulted as the existing analytical baseline.
+[^1]: LLVQ project, [Metric hypothesis for Tetra, 2026-09-08](../archive/hypothese-metrique-tetra-2026-09-08.md), consulted as the existing analytical baseline.
 [^2]: LLVQ project, [METHODE.md](../METHODE.md), §1, “fundamental criteria” and feasibility quantities.
 
 ## Sources
 
-1. LLVQ project, [Metric hypothesis for Tetra, 2026-09-08](../hypothese-metrique-tetra-2026-09-08.md). Local analytical audit of (J=\operatorname{tr}(EHE^T)), the Schur complement, current factorization, and candidate-selection gap.
+1. LLVQ project, [Metric hypothesis for Tetra, 2026-09-08](../archive/hypothese-metrique-tetra-2026-09-08.md). Local analytical audit of (J=\operatorname{tr}(EHE^T)), the Schur complement, current factorization, and candidate-selection gap.
 2. Lee et al., [KronQ: LLM Quantization via Kronecker-Factored Hessian, arXiv:2607.07964v2](https://arxiv.org/html/2607.07964v2). v2 posted 2026-08-08; official code at [Intelligent-Computing-Lab-Panda/KronQ](https://github.com/Intelligent-Computing-Lab-Panda/KronQ).
 3. Birnick, [GPTQ-2D: Efficient Two-Sided Quantization, arXiv:2607.27042v1](https://arxiv.org/html/2607.27042). Posted 2026-07-29.
 4. Birnick, [BaKron: Backpropagation-Free Kronecker-Factored Quantization, arXiv:2608.06291v1](https://arxiv.org/html/2608.06291). Posted 2026-08-06.

@@ -5,7 +5,7 @@ thirteen rows; what it changed is in its own section below. It replaces the qual
 [ROADMAP](ROADMAP.md) §2.3, which priced an arm at $7 on a `Planes14` base that is no longer the object.
 
 **Folded on 2026-09-13**, on the operator's instruction, with the survey of 2026-09-12
-([pistes-qualite-60](pistes-qualite-60-2026-09-12.md)): the accounting header is rewritten on the served
+([pistes-qualite-60](archive/pistes-qualite-60-2026-09-12.md)): the accounting header is rewritten on the served
 object, eleven cells carry a dated correction in place, and eighteen rows are added. The gain column of
 row 6 moved — that column is the operator's, and this edit was asked for.
 
@@ -134,7 +134,7 @@ Euclidean ones say so — which is what suspends row 3.
 
 ## Eighteen rows added on 2026-09-13, from the survey of 2026-09-12
 
-The survey is [pistes-qualite-60-2026-09-12](pistes-qualite-60-2026-09-12.md): 38 leads, four readers
+The survey is [pistes-qualite-60-2026-09-12](archive/pistes-qualite-60-2026-09-12.md): 38 leads, four readers
 over the repository, six literature sweeps, two adversarial verifiers a lead and a completeness critic.
 76 agents, no run, no edit, $0. It corrected eleven cells of the table above — they carry their
 correction in place, dated — and the eighteen rows below are the ones no row above covered.

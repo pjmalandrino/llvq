@@ -10,23 +10,23 @@ for. The templates are in `docs/templates/`.
   earlier record than commit `caef2ac`, 52 min before the measurement
   (*measured*, git).
 - A gate is written on a **fundamental criterion**, never on a proxy for one.
-  The fundamental criteria are the repository's four axes — disk, VRAM,
-  throughput, quality — plus the three quantities that govern feasibility:
+  The fundamental criteria are the repository's four axes (disk, VRAM,
+  throughput, quality) plus the three quantities that govern feasibility:
   loadable model class, encoding cost, noise floor
   ([projection-gains](archive/projection-gains-2026-09-01.md) §0). A stage that
   cannot measure one of those carries a **measurement**, not a gate; the gate
   moves to the stage where the criterion becomes measurable. Paid on
-  2026-09-04: the three F1 gates were all written on proxies — Gaussian
+  2026-09-04: the three F1 gates were all written on proxies (Gaussian
   retention, table kibibytes, a competitor's milliseconds in the competitor's
-  own grid — and all three were found unsound the same day, one unsatisfiable
+  own grid), and all three were found unsound the same day, one unsatisfiable
   by construction, one resting on a factorization that does not hold, one
   firing on a decoder costing nothing ([ROADMAP](ROADMAP.md) §2.2 bis). The Q
   and M axes, whose gates were already on perplexity, MMLU and b/param, were
   untouched by the same audit.
 - A **kill is the operator's decision**, taken on a fundamental criterion; a
   floor, a bracket or a projection informs it and never pronounces it. Paid on
-  2026-09-05: the F1 decoder-table floor — a synthetic kernel that its own
-  prereg §1 declares non-decisional — was reported the same morning as "F1 is
+  2026-09-05: the F1 decoder-table floor, a synthetic kernel that its own
+  prereg §1 declares non-decisional, was reported the same morning as "F1 is
   dead on decode cost". The audit that followed found the bench geometry
   starving L1 (28 KB, six blocks per SM, not eight), the shared-memory arms
   confounding occupancy and per-block staging with placement, and a 16 KiB

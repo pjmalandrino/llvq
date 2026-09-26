@@ -7,7 +7,7 @@
 //!
 //! ## What it decides
 //!
-//! `docs/arbitrage-e8-2026-09-18.md` rests on two constants taken from the
+//! `docs/archive/arbitrage-e8-2026-09-18.md` rests on two constants taken from the
 //! literature and transcribed nowhere in this repository: G(E8) = 0.071682 and
 //! G(Leech) = 0.065771. The whole 9.0 % bound comes from their ratio, so the
 //! dossier's own section 2 calls verifying them stage 0. This verifies the E8

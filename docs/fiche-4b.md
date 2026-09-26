@@ -161,7 +161,7 @@ question. 2,280 questions out of 14,042 (40 per subject, 57 subjects), seeded dr
 | LLVQ, published bytes | 55.59 ± 1.35 | | L40S | f16 | same | *measured*, reference |
 | LLVQ, q8 embedding | 55.70 ± 1.35 | | L40S | f16 | [final campaign arm 4](mesures/campagne-finale-bras4-2026-08-07.txt) | *measured*; within the noise |
 | drop f16 → LLVQ | −14.73 pp, paired 95% CI [+11.98; +17.47] | | | | [mmlupair 4B/8B](mesures/mmlupair-4b-8b-2026-08-13.txt) | *computed*; paper −9.5 pp (60.7 / 70.2) |
-| f16 checkpoint | 70.42 ± 1.28 | 72.85 | Metal | f16 | [mmlu-micro-2026-08-02.log](mmlu-micro-2026-08-02.log), 2,620 s | *measured*, not a reference |
+| f16 checkpoint | 70.42 ± 1.28 | 72.85 | Metal | f16 | [mmlu-micro-2026-08-02.log](archive/mmlu-micro-2026-08-02.log), 2,620 s | *measured*, not a reference |
 | LLVQ, published bytes | 56.09 ± 1.36 | 57.59 | Metal | f16 | same log, 2,805 s, per-subject profile | *measured*, not a reference |
 | drop, Metal | −14.33 pp | −15.26 pp | | | | *computed*, not a reference |
 

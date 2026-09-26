@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The fine-tuned object on a card, through the served kernel, against its own
 # dense arm in the same process. This is the check every quality cell of
-# docs/table-formats-2026-09-20.md has been carrying as a caveat.
+# docs/archive/table-formats-2026-09-20.md has been carrying as a caveat.
 #
 # Flags are the served config spelled out (configs/qwen3-4b-tetra-q5.json:
 # layout tetra48, embed q8, rot_share 1, fuse 0, kv f16) rather than

@@ -31,7 +31,7 @@ on it (corrupted extraction). The journals are in `docs/mesures/`, the preregs i
 3 arms), `docs/data/mmlu-dumps/`, `docs/data/ppl-genou.csv`, `docs/data/echelle-formats.csv`,
 `docs/data/awq-speed-4b-2026-08-17.json`; `docs/data/README.md` gives the provenance of the amounts.
 `docs/fiche-4b.md` describes the published object, `docs/format-noyau.md` the kernel and its measurement traps,
-`docs/echelle-4b-8b-2026-08-08.md` the scaling.
+`docs/archive/echelle-4b-8b-2026-08-08.md` the scaling.
 
 ## Architecture
 

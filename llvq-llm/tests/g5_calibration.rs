@@ -477,7 +477,7 @@ fn an_exact_codebook_refines_to_unity_scales() {
 ///
 /// Asserted as a difference rather than as a direction: nothing here says the
 /// sequential path is better, only that it is a different computation. Which
-/// one wins on the exam is what `docs/plan-qualite-gratuite-2026-09-19.md`
+/// one wins on the exam is what `docs/archive/plan-qualite-gratuite-2026-09-19.md`
 /// section C exists to measure, and a unit test cannot answer it.
 #[test]
 fn sequential_block_changes_the_weights() {

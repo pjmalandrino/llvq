@@ -126,7 +126,7 @@ card, same harness, same token fingerprints.
 
 | axis | LLVQ 2-bit | FP16 | official AWQ 4-bit | provenance |
 |---|---|---|---|---|
-| disk | 1.771 GB | 8.045 GB | 2.67 GB | 1.771 and 8.045 *measured*, fiche-4b; 2.67 *measured*, [campagne-finale-2026-08-07.md](docs/campagne-finale-2026-08-07.md); ×4.54 over FP16 (*computed*) |
+| disk | 1.771 GB | 8.045 GB | 2.67 GB | 1.771 and 8.045 *measured*, fiche-4b; 2.67 *measured*, [campagne-finale-2026-08-07.md](docs/archive/campagne-finale-2026-08-07.md); ×4.54 over FP16 (*computed*) |
 | RAM of the dense path (`bin/run`) | 9.79 GB cpu, 17.41 GB Metal | 8.045 GB resident | not measured here | *measured*, fiche-4b |
 | VRAM of the fused path, b/param whole model | 2.56 GB, 5.162 (`Planes14` + q8 without fusion); 2.57 GB in config v1, +3,686,400 B | 8.04 GB, 16.0 | 5.302 in its own engine | 2.56 GB *measured*, b2; 5.162 *computed* on measured bytes, [rtbits-planes-8b-2026-08-09.txt](docs/mesures/rtbits-planes-8b-2026-08-09.txt); 2.57 GB and +3,686,400 B *measured*, d1 |
 | speed, L40S | 100.6 tok/s; ×1.11 same-head | 43.5 tok/s | 200.5 tok/s in vLLM, another stack, does not divide | *measured*, d1, b2, [awq-vllm-4b-2026-08-17.txt](docs/mesures/awq-vllm-4b-2026-08-17.txt) |

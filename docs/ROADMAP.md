@@ -1,407 +1,117 @@
 # Roadmap
 
-What comes next for the project, with its gates and its costs. State as of 2026-09-04. The past is
-in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in `METHODE.md`.
+What comes next, with its gate and its cost. State as of 2026-09-26. Where things stand is in
+[`ETAT.md`](ETAT.md), the past in [`HISTORIQUE.md`](HISTORIQUE.md), the rules in [`METHODE.md`](METHODE.md). The
+quality axis has its own document, [`ROADMAP-QUALITY.md`](ROADMAP-QUALITY.md), sanctioned 2026-09-06 and ordered by
+feasibility.
 
 ## 1. Starting point
 
-The published 4B gives 100.6 tok/s in 2.57 GB in served config v1 (*measured*,
-[d1-fusion-servie-2026-08-24](mesures/d1-fusion-servie-2026-08-24.txt), freeze at the three sizes in
-[vague2-fusion-8b-14b-2026-08-31](mesures/vague2-fusion-8b-14b-2026-08-31.txt)). It loses 14.73 pp of
-MMLU against f16 (*measured*, [a4-campagne-2026-08-06](mesures/a4-campagne-2026-08-06.txt)) and
-14.45 pp against 4-bit AWQ (*measured*,
-[mmlupair-4b-8b-2026-08-13](mesures/mmlupair-4b-8b-2026-08-13.txt)), for 5.162 b/param against 5.302
-(*computed* on measured bytes,
-[rtbits-planes-8b-2026-08-09](mesures/rtbits-planes-8b-2026-08-09.txt)). A2 (CUDA Graphs) gives
-+13.45% at 4B (*measured*, [a2-verdict-2026-09-01](mesures/a2-verdict-2026-09-01.txt)). It is not
-served: its KV window costs +47% of VRAM at 8k, +1.21 GB on 2.57 (*computed*,
-[preregistration-a2-a3-geometrie-2026-08-31-ECARTS](../proofs/preregistration-a2-a3-geometrie-2026-08-31-ECARTS.md)
-§É7).
+Three Qwen3 files are sealed and served at about 2.7 b/param, and paper 2 is written on them
+([`ETAT.md`](ETAT.md) §2). They score 4.76, 4.21 and 2.46 MMLU points below 4-bit AWQ for 45 to 52% of its bits per
+parameter, and the gap shrinks with size. What comes next is not another format. It is closing the gaps the paper
+itself lists, in the order below.
 
-The kernel does not reopen the product question. At 100% of its byte bound, `Planes14` tops out at
-3.33× FP16, that is 16/4.804 (*computed*,
-[plan-cloture-2026-08-27](archive/plan-cloture-2026-08-27.md)), under AWQ at 3.38× (*measured*,
-[spec-apres-awq-2026-08-10](archive/spec-apres-awq-2026-08-10.md)) and at 0.68× of QTIP (*computed*).
-Quality decides what comes next. A lever that closes 4 to 6 pp of MMLU reopens the product
-question; without it, the product strand closes on the current conclusion. The research roadmap is
-adopted (D0, commit `1e8583c`) with a $5 cap for wave 1, defined as M2 plus a replicate on a second
-seed. M2 cost ~$2.17 and the replicate $2.14 (*measured*,
-[m2rep-graine3-4b-2026-09-04](mesures/m2rep-graine3-4b-2026-09-04.txt)); wave 1 closes at $4.60 of 5.
+Every A/B at 0.6B follows the Design C gate: 28 blocks, same seed, then three seeds. Any experiment that recalibrates
+is read against 5.2% of perplexity and 2.92 pp of MMLU. An A/B at constant file is read against 0.43 pp and 0.12%
+([`ETAT.md`](ETAT.md) §4).
 
-The paper is deposited on Zenodo (concept DOI 10.5281/zenodo.22133606) after TACO returned it without
-review on 2026-08-27. On 2026-09-02, a first arXiv submission (7927047) was refused: the PDF had been
-uploaded in place of the sources. The sources were resubmitted the same day (`\pdfoutput=1` added,
-commit `e721bc5`). Neither an acceptance nor an arXiv identifier is on record.
+## 2. Next, in order
 
-## 2. Research roadmap
+### 2.1 Score the served object, not its reconstruction
 
-Three axes. M measures and builds tooling, F looks for a format without unfolding, Q looks to lose
-less. Every A/B at 0.6B follows the design C gate: 28 blocks, same seed, then 3 seeds. Any experiment
-that recalibrates is read against σ = 5.2% of perplexity (*measured*,
-[f5-graines-4b-2026-08-19](mesures/f5-graines-4b-2026-08-19.txt)) and 2.92 pp of MMLU (*measured*,
-[bruit-mmlu-graines-4b-2026-08-25](mesures/bruit-mmlu-graines-4b-2026-08-25.txt)).
+**Gate.** The census through the kernel lands within the paired bar of the dense reconstruction, or the paper's tables
+move. **Cost** about $20 by the mixed route, about $70 for the full census through the kernel at three sizes
+(*estimated*).
 
-Four leads stay closed, each measured once. They are calibration volume, a format that leaves the ALU unchanged
-(`Golay70`, E1c, E3), the decode race on `tv_planes` and the 32B before D4. The $30 cap is confirmed
-wave by wave, never as a cumulative total.
+Every MMLU we report is read on the dense reconstruction with f16 tables, while the b/param count int4 tables. The one
+measurement that ties the two arms cost $2.85 and ran on 2,280 questions at 4B on the 2026-09-09 object: the kernel
+scored 55.66 against the dense path's 55.52, three discordant questions out of 2,280, McNemar p = 0.25 (*measured*,
+[f1e-census](mesures/f1e-census-2026-09-11.txt)). That bounds the risk at one size, on an older object, with q8 tables.
 
-### 2.1 Axis M, measurement
+Code comes before the run: `ppl` does not read `LLVQ_CONFIG`, so no perplexity can be scored through the kernel today.
 
-| id | lead | cost (*measured* if done, `jobs.csv`; *estimated* otherwise) | adoption | kill | state |
-|---|---|---|---|---|---|
-| M1 | off-diagonal shrinkage of H, 0.6B, 28 blocks, 3 seeds | $0 | cross-seed range divided by 2, median held | ρ* = 1 | done, green |
-| M2 | MMLU attribution by projection type, constant file, 11 arms | ~$2.17 (*computed*) | measurement, reading criterion | none | done |
-| M2rep | the same eleven arms on the seed-3 artifact of F5 | $2.14 (*measured*) | target holds across the two draws | attribution draw-dependent | done, target retained, ranking not |
-| M2b | `v_proj` in int4 g128 dequantized, constant file | ~$0.29 (*computed*, [journal](mesures/m2b-v4bits-2026-09-02.txt)) | G4 ≥ 3.0 and CI > 1.5 | G4 < 1.5 | done, read as cashable 09-04 |
-| M3 | attention entropy per layer; MMLU-STEM column in `mmlupair` | $0 | f16/sealed gap > 3 times the cross-window gap | none | to do |
-| M4 | tooling against drift | $0 | none, hygiene | none | to do, section 3 |
+### 2.2 Time equal work in the kernel bench
 
-M1 is green. The shrinkage `H_ρ = ρ·H + (1−ρ)·diag(H)` gives, at ρ = 0.7, a cross-seed range of
-0.6847 ppl against 4.6214 at ρ = 1 (*measured*,
-[m1-hessienne-shrink-2026-09-02](mesures/m1-hessienne-shrink-2026-09-02.txt)). The median is 27.4944
-against 39.6042. ρ = 0.9 gives 27.0812 / 3.1498 and ρ = 0.5 gives 27.9506 / 2.9771. Caveat: on three
-seeds the range hangs on a single seed, a different one for each ρ. Prediction on the record: n/N is
-0.023 at 0.6B against 0.074 at 4B (*computed*, same journal), so the effect should be larger at 4B.
+**Gate.** `planesbench` times the same 252 matrices for every arm. **Cost** $0 for the code, about $1 for the run.
 
-M2 is delivered. Gains from restoring one projection type in f16, in pp of paired MMLU (*measured*,
-[m2-attribution-4b-2026-09-02](mesures/m2-attribution-4b-2026-09-02.txt)):
+Today it times 216 matrices for `Tetra` and 252 for every other arm: the int4 `v_proj` are counted and not timed. Every
+× formed on those passes compares unequal work, which is why paper 2 carries it as a limitation instead of a ratio.
+`planesbench` also refuses `d_in` 17408, the 14B `down_proj` (*measured*, census-14b-base, `planesbench.rs:1917`).
 
-| projection | `gate` | `up` | `v` | `down` | `o` | `k` | `q` |
-|---|---|---|---|---|---|---|---|
-| gain | +5.18 | +4.94 | +4.48 | +2.96 | +2.35 | +2.09 | +1.85 |
-| CI95 | [3.04; 7.34] | [2.72; 7.17] | [2.39; 6.61] | [0.71; 5.17] | [0.32; 4.32] | [0.34; 3.79] | [0.22; 3.50] |
+### 2.3 `down_proj` instead of `o_proj` in int4, at 4B and 14B
 
-Attention as a whole gives +6.90, the MLP +10.78, everything +14.73. The two controls reproduce 2,280
-picks out of 2,280. The literature prior on `k_proj` is refuted. The target is `v_proj`: 2.6% of the
-weights (*computed*, same journal) for +4.48 pp.
+**Gate.** The paired gain against the shipped file clears 0.43 pp. **Cost** about $2 a size, no encoding.
 
-M2b is delivered. `v_proj` in int4 g128 gives 59.19% of MMLU, +3.60 pp
-[1.47; 5.79], McNemar 2.0e-4, or 80.4% of the f16 gain (*measured*,
-[m2b-v4bits-2026-09-02](mesures/m2b-v4bits-2026-09-02.txt)). Memory goes down: 5.149 b/param
-(*computed*, same journal). `Planes14` unfolds to 4.804 b/weight (*measured*,
-[c1-planesbench-2026-08-06](mesures/c1-planesbench-2026-08-06.txt)). int4 g128 serves the same
-content at 4.250 (*computed*, 4 bits plus an f16 scale and bias per group). Serving `v_proj` in f16
-would cost +0.263 b/param, that is 5.425 (*computed*, same journal), above AWQ. Line 1 requires a CI
-entirely above 1.5; the lower bound is 1.47, and over eight bootstrap seeds it runs from 1.42 to
-1.49, never above 1.50 (*measured*, same journal). Lines 2 and 3 require G4 < 3.0
-([preregistration-m2b-v4bits-2026-09-02-ECARTS](../proofs/preregistration-m2b-v4bits-2026-09-02-ECARTS.md)).
+At 8B, `down_proj` of layers 10 to 26 alone scored 0.77 points better [0.26, 1.28] than `o_proj` plus `down_proj`, with
+fewer bytes, against our own signed prediction (*measured*, [sealed-8b-27](mesures/sealed-8b-27-2026-09-24.txt)). The
+4B and 14B files still spend their int4 budget the old way, and nothing says 8B's answer is theirs.
 
-On 2026-09-04 the operator reads the uncovered case as cashable: both axes move at once, +3.60 pp for
-−0.013 b/param, nothing is paid for the gain. Q5 opens. Line 1 stays failed on its letter and the rule
-is not repaired after the fact (same file, §É4). What the decision does not settle: M2b dequantizes
-`v_proj` to f16 before the matvec, so no kernel serves it in four bits and the served quality of Q5 is
-unmeasured; and the +3.60 pp rests on a single quantized file.
+### 2.4 Perplexity for the three sealed files
 
-The replicate ran on 2026-09-04, $2.14, on the seed-3 artifact of F5 (*measured*,
-[m2rep-graine3-4b-2026-09-04](mesures/m2rep-graine3-4b-2026-09-04.txt)). `v_proj` is retained by the
-preregistered clause, its CI [+1.11; +4.68] overlapping M2's [+2.39; +6.61], but no difference between
-draws is resolved and the head of the ranking swaps: `gate` from 1st to 4th, `down` from 4th to 1st.
-The f16 ceiling of `v_proj` falls to +2.87. M2b was then replayed on that same seed the same day, $0.45:
-**+2.71 pp [+0.59; +4.93]**, McNemar 0.0106 (*measured*,
-[m2b-graine3-4b-2026-09-04](mesures/m2b-graine3-4b-2026-09-04.txt)). The CI clears zero, so the gain is
-confirmed on a second draw and Q5 is adopted. The served figure is the range **+2.71 to +3.60 pp**. The
-survival rate of the f16 gain into int4 is 94.4% here against 80.4% on the published file, so it is not a
-constant and the +2.31 pp extrapolated from it was an artefact. Detail in [`ETAT.md`](ETAT.md) §5 ter and
-§5 quater.
+**Gate.** None: this is a number the paper does not have. **Cost** about $1 a size.
 
-New knobs: `LLVQ_RESTORE_F16` and `LLVQ_RESTORE_Q4` (`mmlu`, `ppl`, require `LLVQ_MODEL`),
-`LLVQ_H_SHRINK` (`smoke`).
+The 14B chain measured 8.4622 against AWQ's 8.2858 on the trained base before sealing (*measured*,
+[dclm-14b-rowscales](mesures/dclm-14b-rowscales-2026-09-22.txt)). No sealed file has a perplexity of its own, and a
+quantization paper is read for that number.
 
-### 2.2 Axis F, format without unfolding
+### 2.5 A second calibration draw per size
 
-F1 codes Λ₂₄ as a three-section E₈ coset code (Forney 1988, Lepowsky-Meurman 1982). The word is 48
-bits: `[state 8][s₁ ~13][s₂ ~13][s₃ ~13][gain 1]`. Decoding costs three lookups and two additions.
+**Gate.** The three absolute levels move by less than the 2.92 pp the draw carries at 4B. **Cost** a full encode a
+size, about $10 at 8B and $17 at 14B (*measured* on the chain of 2026-09-22).
 
-| id | lead | cost (*measured* if done, `jobs.csv`; *estimated* otherwise) | adoption | kill | state |
-|---|---|---|---|---|---|
-| F1a | count states and alphabets for 47 bits, prove the bijection | $0 (*measured*, one session) | **no gate** — a feasibility blocker: it must fit the card's 99 KiB opt-in, tile included | does not fit | states green, bijection **proved**; 92 KiB with the odd-coset restriction, 1,124 KiB without |
-| F1b | codebook in `llvq-bench`, 20,000 blocks, 48 bits packed | $0 (*measured*, 64 min Mac) | **no gate** — a measurement: retention against an in-process ball-12 control, feeding F1c's signed prediction | none | **done**: 89.55% against 92.00% (−2.45 pp), 12/16/11 89.38, 13/13/13 85.96 ([journal](mesures/f1b-retention-2026-09-04.txt)) |
-| F1 floor | decoder-table floor on L40S, `f1floorbench` | $0.02 (*measured*, three attempts) | **no gate** — a measurement of the lookups alone | none | **done**: D(8 KiB) 0.344, D(16 KiB) 0.663, L2 plateau 4.52 ms; the 67/9 table sits at 2.4–2.5× the F1d budget on the real access distribution; a **universal 16 KiB table** loses 0.6 pp of retention and prices under it ([journal](mesures/f1-plancher-table-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)) |
-| F1 ALU | floor of the universal-table decoder, compiled: word read + arithmetic decode + 16 KiB table, in `nullk`'s process | $0.01 (*measured*) | **no gate** — a measurement informing F1d | none | **done**: decoder verified on the card against the Rust reference (64,512 blocks), 48 registers, 0 local; T = 3.346 ms = 1.20 × B; the excess is arithmetic (~2 ms), not the table ([journal](mesures/f1-rang-plancher-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-rang-plancher-2026-09-05-ECARTS.md)) |
-| F1 ALU v | the same decoder, three arithmetics (no I2F; F₂-algebra patterns; PRMT byte tables), six arms in one process | $0.00 (*measured*, 4 s) | **no gate** — which writing F1d takes | none | **done**: all three equal `tv_f1r` on 30,720 rows, 40 registers; **v3 T = 1.694 ms = 0.61 × B**, v1 1.719, v2 3.444; the int→float conversions were the cost, the read chain was not ([journal](mesures/f1-rang-variantes-2026-09-05.txt), [ECARTS](../proofs/preregistration-f1-rang-variantes-2026-09-05-ECARTS.md)) |
-| F1c | format v2, encoder, 0.6B 28 blocks | $0 | **quality + encoding cost**: ppl gate — form to be set by the operator (the ±1 cross-seed range has no power at ρ = 1; proposal: paired Δ per seed at fixed ρ, signed prediction); encoder ≤ 656 µs/block/core, encoder-only figure | out of band on 3 seeds | **first gate of the axis**; encoder prototype at 290–296 µs on Gaussian blocks ([journal](mesures/f1-encodeur-prototype-2026-09-05.txt)), to be measured on real GPTQ residues before the prereg |
-| F1d | `tv_l3e8` arm in `planesbench`, QTIP control in the same process | $1 | **throughput + VRAM**: t ≤ t(`Planes14`) measured in the same process, and ≤ 2.20 b/weight kernel | t > t(`Planes14`), i.e. slower for fewer bytes | **to write with the v3 decoder** (v1 equivalent): 0.61 × B on the floor, ≈ 113 tok/s projected at the 4B (*estimated*); F1d measures it with Planes14 in-process, with the gain scale and real labels |
-| F1e | 4B sealed in v2, `fusedrun`, paired MMLU | $8 | **the four axes at once**: kernel ≤ 3.00 b/weight (the triplet's b_max; "≤ 2.6 b/param whole model" was unreachable at 4B by construction with the q8 embedding, 2.76), MMLU ≥ 55.59 − 2 SE, tok/s ≥ 100.6, disk ≤ today's | MMLU < 53% | the axis's verdict; the tok/s threshold is the operator's to confirm |
-| F2 | sequential trellis + trellis shaping, A3 geometry only | like F1 | fallback if F1a or F1b dies | none | not budgeted |
-| F3 | per-row cap, 44 to 50 bits/block, guided by M2 | $7 | +2 pp paired MMLU at constant b/param | < +1 pp | after D3, conditional on F1c |
+Each level is one draw. The chain gains of [`ETAT.md`](ETAT.md) §4 compare fixed files on the same questions and do not
+depend on it, so this is about the levels, not the gains.
 
-F1b is under its kill, and since 2026-09-04 the number is exact rather than projected. If the shaping
-region is the product of three 8-dimensional balls, the retention is **89.10%** at 2.000 b/dim against a
-kill at 90.3% (*computed*, closed form, `ops/f1a_shaping.py`). The definition of retention is checked
-against a known value on the way: the served MSE gives back 92.14%, the number of
-[fiche-4b](fiche-4b.md). The sphere shaping gain is 0.7292 dB in dimension 8 against
-1.0958 dB in dimension 24; the 0.3666 dB lost is +8.81% of MSE on the served 0.077718
-([fiche-4b](fiche-4b.md)). This supersedes the bracket of 88.9 to 89.6% (*estimated*,
-[projection-gains-2026-09-01](archive/projection-gains-2026-09-01.md) §1.4).
+### 2.6 A second kind of GPU
 
-The product is a hypothesis, not the construction: the three sections are chained by the 8 state bits.
-What F1a has left to settle is how much that coupling buys back. The region must reach 0.8742 dB of
-shaping gain to clear the kill, that is 39.6% of the gap between the product and the 24-dimensional
-ball, and 0.9585 dB to be adopted at 91.0%, that is 62.6% of it (*computed*, same closed form). Below
-that, F1 stops at its gate.
-
-### 2.2 bis Three gates removed, 2026-09-04
-
-All three F1 gates were found unsound on the same day, each for a different reason. The operator's
-standing rule, set the same evening, is that **a gate is written on a fundamental criterion and
-never on a proxy** ([METHODE](METHODE.md) §1) — and all three were proxies: Gaussian retention,
-table kibibytes, a competitor's milliseconds in the competitor's own grid. So they are not
-rewritten on better thresholds; the two that cannot measure a fundamental criterion stop being
-gates, and the axis's decisions move to F1c, F1d and F1e where quality, throughput and VRAM are
-what is actually measured. What follows records why each fell, because the reasons are the
-evidence for the rule. ⚠️ They were audited *after* computing that F1 fails them
-as written, which is the shape of a moved goalpost. Two guards against that: no reason below uses
-an F1 result as its anchor, and removing a gate is not the same move as loosening one — the F
-axis now has **fewer** decision points, all of them later and all of them on measured
-fundamentals, so F1 has to survive perplexity at 0.6B and then MMLU, throughput and b/param at 4B
-before anything is adopted.
-
-**F1d — it fired on a free decoder.** As written the thresholds were 1.15 and 1.5 times QTIP's
-2.246 ms, measured in QTIP's own `<<<128, 1024, 64 KiB>>>` grid, while our launch floor alone is
-2.306 ms in ours ([format-noyau](format-noyau.md) §6 forbids that subtraction and hard rule 5
-forbids the division). A decoder costing *nothing*, reading the 0.98 GB its own 2.159 b/weight
-implies at the 836 GB/s net rate, lands at 2.306 + 1.17 = **3.48 ms** — past the old kill of
-3.369 ms. The gate fired on arithmetic that had nothing to do with F1. Restated on our own floor
-plus the arm's own traffic, which is the only comparison a single grid supports.
-
-**F1a — 16 KiB was a guess predicated on a factorization that does not hold.** The number came
-with the words "after factorizing bases × signs"
-([ROADMAP-RECHERCHE](archive/ROADMAP-RECHERCHE.md):130); the truncation study measured that
-factorization and the sign action leaves **67 orbits** on the end-section cosets and 9 on the
-middle, not one ([f1-regle-de-troncature](archive/f1-regle-de-troncature-2026-09-04.md)). The
-card's own attributes are measured and are the honest bound: on L40S,
-`MAX_SHARED_MEMORY_PER_BLOCK` 49,152 B, `_OPTIN` 101,376 B, per SM 102,400 B (*measured* at
-preflight, [format-noyau](format-noyau.md) §8). The matvec already stages a 12 KiB activation
-tile. So 3 × 16 KiB + tile = 60 KiB fits the opt-in; the 80 KiB odd-coset variant + tile = 92 KiB
-fits with 7 KiB to spare; the 1,112 KiB variant cannot be in shared at all and would live in L2,
-where 96 MiB makes capacity a non-issue and latency the question. ⚠️ Fitting is not the same as
-being fast: 92 KiB per block against a 100 KiB per-SM budget is **one block per SM**, and A3
-measured eight occupancy variants without finding a portable one. The gate is therefore a
-feasibility bound, and occupancy moves to F1d where it can be measured.
-
-**F1b — the old gate could not be passed by anything.** "Retention ≥ 91.0%, kill < 90.3%" was
-set as "no worse than the shell-12 codebook we buried" ([ROADMAP-RECHERCHE](archive/ROADMAP-RECHERCHE.md):131).
-Shell 12 was buried for quantizing worse **at the same cost** — same 48 bits, same VRAM, strictly
-dominated ([BACKLOG](archive/BACKLOG.md):130). F1 is not dominated: it halves the VRAM. The gate
-imported a domination argument into a case with no domination, and the ceiling makes it
-unsatisfiable: any per-section region is a product of three 8-dimensional regions, the best of
-those is the ball, so 0.7292 dB is the maximum and the kill needs 0.8742 dB. A criterion no
-implementation can meet is a rejection wearing a gate's clothes.
-
-It is not replaced. Retention on a Gaussian source is two transpositions away from quality, and
-this repository has measured how loose the second one is: the paper's 4B reads 17.05 ppl for
-60.7% MMLU where ours reads 16.94 — better perplexity — for 55.59. **F1b therefore carries a
-measurement, not a gate**, and its number feeds the signed prediction F1c is read against. The
-first gate of the F axis is F1c, on perplexity.
-
-The served path freezes the gain field at 1 bit: 8 assertions, 4 shaders,
-`llvq-cuda/src/planes14_host.rs:113` refuses any other value (*measured*, grep). The v2 format of
-F1c, the per-row cap of F3 and any Q arm that changes the code reopen the runtime layout on top of
-the quantizer.
-
-### 2.2 ter The floor, and who kills, 2026-09-05
-
-The decoder-table floor ran ($0.02, [journal](mesures/f1-plancher-table-2026-09-05.txt)) and was reported the
-same morning as a kill. It was not one: its prereg §1 says the floor decides nothing, and the operator's rule of
-the day — **a kill is written on a fundamental criterion and by the operator alone**, [METHODE](METHODE.md) §1 —
-puts the verdict elsewhere. The audit that followed kept the number (the 67/9 table sits at 2.4–2.5× the F1d
-budget on the real access distribution) and struck the reading (six blocks per SM, L1 28 KB, shared-memory arms
-confounded with occupancy and staging; [ECARTS](../proofs/preregistration-f1-plancher-table-2026-09-04-ECARTS.md)).
-It also produced the decoder that fits: a universal 16 KiB rank table, −0.6 pp of retention against exact F1,
-measured twice. What remains between here and F1c, in order: the compiled floor of that decoder (F1 ALU, ≤ $0.10),
-a production encoder against the 656 µs/block gate, then format v2 and the 0.6B run. Objective set by the operator:
-**an F1 that can be tested.**
-
-**Evening of 2026-09-05.** The compiled decoder ran: 1.20× B, 48 registers, verified on the card. The
-encoder was prototyped at 290–296 µs/block/core (gate 656), the bench's points returned. The format-v2 map is
-drawn: `llvq-search` (word map, rank table, trellis, encoder), `llvq-quant` (`F1ShapeGain: BlockQuantizer`),
-`llvq-artifact` (header v5 with a second fingerprint, `PUBLISHED_FINGERPRINT` untouched, a disk→word transcoder
-because the disk is MSB-first), `llvq-llm` wiring, then a 3-block pilot on the 0.6B — oracle, smoke,
-`verify_artifact`, seal, ppl — before the three seeds. Order, each step mutation-tested: (0) the encoder on real
-GPTQ residues, 0.5 d; (1) word map and trellis in `llvq-search`, 0.5 d; (2) the production encoder and
-`F1ShapeGain`, 1–2 d; (3) format v5, 1–2 d; (4) wiring and the pilot, 1 d; (5) the F1c prereg (gate form: operator)
-and the three seeds, 1 d + ~35 min of Mac per seed. *Estimated* 5–7 days.
-
-**Later that evening.** The operator's go — test a faster arithmetic, else return to the measured decoder — ran
-three independently written kernels for the same table and word in one six-arm bench: the int→float conversions
-were ~1.6 of the ~2.0 ms, the dependent read chain nothing. **v3: T = 1.694 ms = 0.61 × B**, 40 registers; F1d takes
-it. The encoder's real-block measurement closed its last assumption (298 µs/block/core on 20,000 rotated GPTQ
-residues of the 0.6B, ratio 1.00 to Gaussian). What remains before an F1 the operator can test is the format-v2
-work of the plan above, and the form of F1c's gate.
-
-### 2.2 quater Tetra: the path to a `.llvq`, planned 2026-09-05
-
-The format's name is **Tetra**, chosen by the operator on 2026-09-06. The word has four fields,
-`[state][s₁][s₂][s₃]`, which is where the name comes from. Tokens: codebook `tetra` in `smoke`, file kind
-`Tetra` in the v5 header, VRAM layout `tetra48` for the served kernel, module `llvq_search::tetra`,
-constant `PUBLISHED_TETRA_FINGERPRINT`.
-
-The **trio** keeps its name in the code and stays a trio: three disjoint octads of the Golay code
-covering the 24 coordinates, the standard term for that partition, and the thing that makes the 8-bit
-state and the three sections possible. `llvq_search::tetra::TRIO` is the format Tetra built on a trio,
-and renaming it would have been mathematically wrong.
-
-The objective is a sealed 4B in Tetra with its quality measured, at $0 on the Mac. The card numbers (tok/s,
-VRAM) come after, at ~$1 and ~$8. Nothing in this table is a gate except step 5's reading; every step is
-mutation-tested before it is called green ([METHODE](METHODE.md) §4).
-
-| step | what it produces | files | effort (*estimated*) | check, written before the step |
-|---|---|---|---|---|
-| 0 | the Tetra word map in the dependency-free crate: trellis, rank table (N0 = 1,240), the 12 linear columns, `decode_word`, `encode_word`, field layout | `llvq-search/src/tetra/` (from `llvq-bench/src/f1/rank.rs`, the bench copy stays as the independent yardstick) | **done** 2026-09-05 (`cc23f9a`): 1,122 lines, 16 mutants killed | agreement with `llvq_bench::f1::rank::decode_word` on 10⁵ words; `encode(decode(w)) == w` on 10⁶; every decoded word in Λ₂₄; mutants: a swapped octad, a shifted rank, a class block exchanged |
-| 1 | the production encoder: closed-form membership, lazy trellis join, two adaptive scales with α and the scale pair fixed on the 4,000 training blocks | `llvq-search/src/tetra/encoder.rs` (from `llvq-bench/examples/f1enclazy.rs`), `llvq-bench/src/bin/tetraencbench.rs` | **done** 2026-09-05: 329 µs/block/core against the 656 gate, α = 0.3218 on the training blocks, 6,000 of 6,000 pairs at the bench's point | same points as the bench encoder on 2,000 blocks × 2 scales; retention on the fixed 2,000 blocks ≥ 88.85 (non-regression, not a quality claim); `tetraencbench` ≤ 656 µs/block/core, one core, median of 5; kill: over 656 |
-| 2 | `TetraShapeGain: BlockQuantizer`: gain from the norm as today, direction by the Tetra encoder, reconstruction mirroring the decoder, 48 bits per block | `llvq-quant/src/quantizer.rs` | **done** 2026-09-05 | **done**: the 4B encoded under `tetra` and read back bit for bit; `reproject` re-encodes instead of negating, because the Tetra map is not centrally symmetric (106 of 400 negations refused). Original check: codes → reconstruct equals the evaluated weights bit for bit (`g6_artifact` on Tetra); `oracle` on every backend before any number |
-| 3 | format v5: magic `LVQ5`, a per-file code kind in the header, the v1 fingerprint untouched plus the Tetra fingerprint, the disk-to-word transcoder (the disk is MSB-first, the word little-endian), refusals in every runtime transcoder and in the tools that read indices as classes | `llvq-artifact/src/{format,codebook,runtime}.rs`, `llvq-bench/src/bin/{rtbits,classhist,decbench,decfull,decprofile,lswap}.rs` | **done** 2026-09-05, with a per-matrix kind added in the next step for Q5 | legacy headers still read; `PUBLISHED_FINGERPRINT` unchanged; raw passthrough byte-identical at v4 and v5; transcoder pinned on 10⁵ words; mutants: kind ignored at read (the round trip must break), gain bit read at bit 0 (must break) |
-| 4 | the wiring: `tetra` accepted by `smoke`, writer at version 5, `seal`, `ppl`, `mmlu`, `export` read v5; `verify_artifact` bit for bit; a 3-block smoke test on the 0.6B against `leech1c12` | `llvq-llm/src/{calib,sealed,artifact2}.rs`, `bin/{smoke,seal,ppl,mmlu,export}.rs` | **done** 2026-09-05 | **done**: witness 20.7935 against Tetra 21.4947, both at 2.1656 b/weight, both sealed and reopened at their exact perplexity. Original check: the 0.6B 3-block run prints the same rate (2.1656 b/weight) on both arms, seals, reopens, and its ppl is finite; the served 4B file still reads 16.9415 at f16 |
-| 5 | the 4B in Tetra, then the four-arm quality campaign on one card | `proofs/`, `docs/mesures/` | **done** 2026-09-06: 2 h 27 of Mac, $0.79 | **done**: 2.764 b/param against 5.162, perplexity 16.1569 against 16.9422 (better by 4.64%), MMLU 53.49 against 55.59, f16 and the published file replaying their A4 values ([journal](mesures/tetra-4b-2026-09-06.txt)). No threshold was set: the operator measured and judged on sight |
-| **6, the last step** | the card: `tv_tetra48` from the v3 decoder with the gain scale, added as an arm to the published comparison bench: `nullk`, `Planes14`, QTIP and AWQ in their own grids, FP16, every arm in one process, on L40S and then A100 (F1d, ~$1 per card); then `fusedrun` on the sealed file (F1e, ~$8) | `llvq-cuda/`, `llvq-llm/src/fused*.rs` | 1 week | F1d and F1e as written above; the operator's framing of 2026-09-05: rerun the original bench with each kernel on its card, Tetra added. **Broken out into ten sub-steps in §2.2 quinquies**, because the served object the operator chose on 2026-09-08 is a *mixed* file and that adds a second kernel to the critical path |
-
-Steps 0 to 5 ran on 2026-09-05 and 09-06 for $0.79 all told, against the 5 to 7 days estimated. Both operator
-inputs are settled: the format is named Tetra, and no quality threshold was set: the operator measured and judged
-on sight (prereg §1). Step 6 is what remains, and it is the only place the card figures come from.
-
-### 2.2 quinquies Step 6 in ten pieces, planned 2026-09-08
-
-**The served object, chosen by the operator on 2026-09-08: `Tetra` with `v_proj` in int4 g128, encoded on the
-Mac at the published calibration volume.** That is arm T2 of chantier 1 — **56.95 MMLU** paired against
-Tetra's 53.49, `+3.47 pp` CI95 `[+1.42; +5.57]`, McNemar 5.0e-6 (*measured*,
-[Q5 on Tetra](mesures/q5-tetra-2026-09-06.txt)) — at **2.8138 b/param** (*computed*). Not V32's 57.17: that
-base needs the ×32 calibration volume, which fits on no rentable card under 96 GB and cost $13.60 the once it
-ran, and whose incremental `+1.95 pp` has a CI that contains zero.
-
-The choice has one consequence that changes the critical path: **the file is mixed, so two kernels are served,
-not one.** `tv_tetra48` reads the 5/6 of the projections that are lattice; `tv_q4_h` reads `v_proj`. The second
-exists — 116 lines, verified as host C++ by `llvq-llm/tests/proj_q4.rs` — and **has never run on a card**, nor
-is it named in any NVRTC source list (`llvq-llm/src/fused.rs:428-461`, `fused_cuda.rs:63`).
-
-The three refusals the mixed file meets, all in `load_with`, all deliberate:
-`fused.rs:1775` on the header's whole `KindSet`; `:1787` per record; and `:1791-1797`, *"the kernels hardcode
-1 gain bit"* — an int4 record carries no centroid at all, so that one fires on the record we most want.
-
-The write side needs nothing: `smoke` already declares `{Tetra, Int4G128}` when `LLVQ_INT4_TYPES` is set
-(`bin/smoke.rs:666-670`), `calib.rs:793-812` stores those matrices group-affine in the natural basis — never
-GPTQ, never the rotation, never the lattice — and feeds the dequantized tensor back so the block's later
-activations see the weights the file stores. `seal` carries int4 records through unchanged (`bin/seal.rs:153`).
-
-| step | what it produces | files | effort (*estimated*) | check, written before the step |
-|---|---|---|---|---|
-| 6.0 | **the artefact**, on the Mac: `tetra` plus `LLVQ_INT4_TYPES=v_proj`, then `seal` | — | 2 h 30, $0 | the run prints **one** rate and it is 2.8138 b/param; the header declares `{Tetra, Int4G128}` and the record count of `v_proj` is 36 of 252; `verify_artifact` bit for bit; sealed ppl finite and within 1% of 16.16 |
-| 6.1 | **the served decode**: the gain bit, the magnitude, the trio permutation, the origin | `llvq-cuda/kernels/llvq_tetra48.cuh`, `tests/{host_tetra48.cpp,tetra48_matches_rust.rs}` | **done** 2026-09-08, $0 | **done**: decode and permutation bit for bit against `Tetra::decode`, shell sum exact on integers, dot bit for bit against the same `__fmaf_rn` chain, gain ratio to 1e-5. Mutants killed: permutation swapped, `__dp4a` unsigned, shell read without the shift, gain bit at 46 |
-| 6.2 | the disk-to-word transcoder and `Layout::Tetra48`: the stream is MSB-first, the word little-endian | `llvq-artifact/src/runtime.rs`, `llvq-artifact/src/tetra48.rs` | 1 d | round trip pinned on 10⁵ words against `Fields::split`/`join`; the flat stream's trailing pad covers `f1r_load`'s six-byte window at both parities of `n`; mutants: the two byte orders swapped, the pad dropped |
-| 6.3 | the bench kernel `tv_tetra48` and its arm, **with `Planes14` in the same process** on a synthetic stream | `llvq-cuda/kernels/tetra48.cu`, `src/bin/f1rankfloor.rs`, `src/bin/cuhcheck.rs` | 1 d | every arm against its own f64 reference before any timing; `UNITS` and `TABLE_SHIPPED` counts bumped; the in-process `B` is a number `format-noyau.md` §6 has never had, and it survives any Tetra verdict |
-| **6.4** | **the early kill**, 20 s of L40S | — | **~$0.02** | `num_regs ≤ 40` and `local_bytes == 0` read off the loaded function (`gpu.rs:402-425`), and `t ≤ 0.90 × B` in-process. **Red here and the $8 of F1e is never spent.** Medians with ranges round by round; the same-head ratio beside the raw one |
-| 6.5 | the served kernels: `tv_tetra48_h.cu`, and `tv_q4_h.cu` embedded for the first time | `llvq-llm/kernels/`, `llvq-llm/src/fused.rs`, `fused_cuda.rs` | 2 d | **`tv_tetra48_h` DONE 2026-09-10**: it ran inside the model on an L40S, 252 projections, 256 tokens identical to the dense arm, 92.9 tok/s and 1.36 GB (*measured*, [F1e §0](mesures/f1e0-2026-09-10.txt)). **`tv_q4_h` still has never run on a card**: it is embedded, host-verified by `tests/proj_q4.rs`, and absent from every source list a runtime assembles |
-| 6.6 | the mixed loader: the three refusals opened, per kind and not wholesale | `fused.rs`, `runtime.rs` | 2 d | **the READER is done**: `check_kinds`/`serves_kind` decide by layout, `read_record` walks the mixed file, `FusedModel.int4` is populated. **The LAUNCHER is not**: `fused_cuda.rs` does not mention int4, so the 36 `v_proj` reach `model::pick` with no weights and a card run dies naming the missing tensor (*measured* 2026-09-10, $0.03). That launcher is the last piece of the served object |
-| 6.7 | `rtbits` prices a mixed file instead of refusing it | `llvq-bench/src/bin/rtbits.rs:538` | 0.5 d | the printed b/param equals the hand arithmetic of `q5-tetra-2026-09-06.txt` to the fourth decimal — 2.8138 — or the discrepancy is the finding |
-| 6.8a | **the bench itself**: `planesbench` reads a SECOND file through `read_record`, dispatches arm 17, bills b/weight per arm, resolves the tile before the source, and gains a composite `cuhcheck` unit assembled by text rather than by `#include` | `llvq-cuda/src/bin/{planesbench,cuhcheck}.rs`, `src/tile.rs`, `src/occ.rs` | **done** 2026-09-10, $0 | **done**: a bare `planesbench` panicked on arm 17 at `unreachable!` after three minutes of transcoding and now refuses in its first second; five `cuhcheck` mutants that survived the `#include` design are killed; the planesbench assembly parses as one string |
-| 6.8 | **F1d**, RTX PRO 6000 then L40S | — | **~$0.60 for both** | `t ≤ t(Planes14)` in the same process **at the served tile of 128**, and `≤ 2.20 b/weight` kernel on the arm's own denominator; kill if slower for fewer bytes. The gate is unreadable without a tile: the optimum is 64 on sm_89 and 32 on sm_120, and on sm_120 Tetra fails at 128 and passes at 32 (*measured*, [tile sweep](mesures/tile-sweep-2026-09-09.txt)). Three columns per card, prereg `proofs/preregistration-f1d-2026-09-10.md` |
-| 6.9 | **F1e**, `fusedrun` on the sealed file, paired MMLU | — | **~$8** | **§0 done 2026-09-10, $0.43**: `oracle` MATCH, then the served Tetra kernel measured on the PURE Tetra file — 92.9 tok/s [92.4–93.0] and 1.36 GB against Planes14's 86.4 [86.2–86.5] and 2.56 GB, same job, same card, same flags (`FUSE=0`, `ROT_SHARE=0`, q8 embedding); the two are NOT divided, they are two processes. ⚠️ the 100.6 tok/s bar was set at the SERVED flags and neither arm here ran them. **The MMLU census is not run**, and it waits on the int4 launcher and on the operator's arbitration of F1d |
-
-**Two gates are kills, not measurements**, and that is what orders the table: F1d fires if the kernel is slower
-than `Planes14` for fewer bytes, F1e if MMLU falls under 53%. So 6.4 exists — $0.02 and twenty seconds buys the
-signal that decides whether 6.5 to 6.9 are worth two weeks. Everything before it is $0 on the Mac, and
-6.1 to 6.3 survive a kill: the decoder is the decoder of any format that does not unfold.
-
-**What the operator still owes the prereg**, and none of it can be read off the code: whether F1e is a statement
-about the *format* (then the comparison object is `Tetra` bare at 53.49) or about the *served product* (then it
-is this mixed file); which SE the phrase "55.59 − 2 SE" means, the per-arm 1.35 or the paired ≈1.40; and whether
-"disk ≤ today's" is a real gate, since Tetra is already +1,616 bytes over the published file.
-
-### 2.3 bis Q5, the mixed file
-
-The writer exists. Format v5 has a third kind, `Int4G128` at tag 2, and `ArtifactWriter::push_int4` writes it;
-`read_record` is the only entry that reads a mixed file, and every lattice-only tool refuses one by name.
-Integrated on 2026-09-06 as code, with **no re-encoding**: no `smoke` run, no sealed file, no job.
-
-What remains is a kernel that reads the kind 2. `tv_q4_h.cu` is written and host-verified and has never run on a
-card, and until one runs, a mixed file's int4 matrices are decoded to the run dtype at load: 4.250 b/weight on
-disk, the run dtype in VRAM. Sequenced after F1's verdict, as §5 of [ETAT](ETAT.md) records.
-
-### 2.3 Axis Q, quality
-
-**Moved to [ROADMAP-QUALITY](ROADMAP-QUALITY.md), sanctioned by the operator on 2026-09-06.** That document
-is the quality roadmap: 22 leads ordered by feasibility, gains in MMLU points only, with the 2-bit
-competitive landscape and what the field does that we do not.
-
-Two facts made the table above obsolete. An arm no longer costs $7: the Mac encodes a 4B under `Tetra` in
-2 h 27 for $0, and Metal reproduces the L40S MMLU harness to within two questions out of 600, which cancel
-(*measured*, 2026-09-06). And every gain in it was measured on a `Planes14` base that is no longer the
-served object.
+**Gate.** Formulate it before the run. On an A100 none of our earlier lattice kernels beat FP16, and the best tile
+already depends on the card (64 on sm_89, 32 on sm_120). **Cost** about $2 for a served decode at three sizes.
 
 ## 3. Debt and hygiene
 
-- Timestamps: **cleared on 2026-09-06**. All 37 stamps carry at least one Bitcoin anchor, none carries
-  zero (*measured*, [ots-etat-2026-09-06](mesures/ots-etat-2026-09-06.txt)); the debt of 09-02 was
-  8 unanchored plus 3 stamped since. Every one still carries its 4 pending attestations, which is
-  normal: a calendar keeps offering them after the anchor lands. `ots upgrade` on the whole directory
-  is the whole operation, and it is worth re-running whenever a prereg is stamped.
-- Two timestamps no longer attest their file, 08-10 and 08-11, rewritten by the anonymization pass
-  `01fdbe6`. The attested version is unrecoverable. A third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`,
-  has no `.md` beside it at all (*measured*, same audit): the stamp attests bytes nobody can produce.
-- The HF bucket has never been inventoried: 69 files, 46.7 GB as of 08-17 (*measured*, `hf buckets
-  ls`). An inventory comes before any re-run quote.
-- `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` on the five core
-  crates: `#![forbid]` in `lib.rs` does not cover integration tests.
-- Host compilation of the `.cuh` files by `clang++` in CI, on the model of
-  `llvq-cuda/tests/host_e1v.cpp`. `ci.yml` does not carry it.
-- `ops/status.py` to be written: it generates `docs/ETAT.md` (counters from `mesures/`, `jobs.csv`,
-  `otsaudit`, served config) and a CI test fails on a stale counter.
-- `docs/exp-piles-isolees-2026-08-30/MACHINES.md:50-52` still gives `ROT_SHARE=0 FUSE=0` as the
-  published config; to be aligned on v1.
-- No tag points at the deposited commit `e21a8bb`; `v0.0.1` (2026-08-26) points at its direct child
-  `16c9c8b` and contains it (*measured* on 09-02, `git tag --contains`). Timestamp owed.
-- `docs/hf-model-card.md` carries 5.162 b/param since 08-17; the card online on the Hub has not been
-  republished since and diverges. Republishing: operator decision.
+- `[workspace.lints.rust] unsafe_code = "forbid"` and `[lints] workspace = true` on the five core crates.
+  `#![forbid]` in a `lib.rs` does not cover integration tests, which are separate crates.
+- Host compilation of the `.cuh` files by `clang++` in CI, on the model of `llvq-cuda/tests/host_e1v.cpp`. `ci.yml`
+  does not carry it.
+- Two timestamps no longer attest their file, 2026-08-10 and 08-11, rewritten by the anonymization pass `01fdbe6`. A
+  third, `f5-graines-4b-2026-08-19.v1-l4x4.md.ots`, has no `.md` beside it at all. The attested bytes are
+  unrecoverable. Nothing repairs this; it is recorded so no reader trusts those three.
+- `docs/hf-model-card.md` carries 5.162 b/param and the card online has not been republished since 2026-08-17. Both
+  describe the `Planes14` object, not the sealed files. Republishing is an operator decision.
+- The HF bucket has never been inventoried: 69 files, 46.7 GB as of 2026-08-17. An inventory comes before any re-run
+  quote (rule 9).
+- `ops/status.py`, which would generate [`ETAT.md`](ETAT.md) from `mesures/`, `jobs.csv` and `otsaudit`, is not
+  written. Until it is, that document is maintained by hand and can go stale.
+- No tag points at the deposited commit `e21a8bb`. `v0.0.1` points at its child `16c9c8b` and contains it.
 
 ## 4. On hold
 
-- MoE. Model settled: Qwen3-30B-A3B. A policy for experts below full rank is missing: 31.4% of
-  (layer, expert) cells, one dead expert, measured on gpt-oss-20b, a floor for the 30B-A3B
-  (*measured*,
-  [moe-routing-gptoss20b-2026-08-12](mesures/moe-routing-gptoss20b-2026-08-12.txt)). P2 is worth
-  ~$1.4 and P6 ~$69 (*estimated*).
-- q8 KV cache at long context. Quality green at short context, +0.049% of ppl and +0.33 pp of MMLU,
-  CI containing zero (*measured*, [kvq8-4b-2026-08-15](mesures/kvq8-4b-2026-08-15.txt)). Long-context
-  throughput is not measured: the n_new = 1024 series went over its cap, 661 s against 600
-  (*measured*, same journal). Reopening only on a benchmark with a resident model.
-- Batch M > 1 and prefill. Batch 1 accepted since 08-18, edge regime and sovereignty. Lazy transcoding
-  becomes exact again at M ≥ 8 (*computed*,
-  [audit-recherche-2026-09-01](archive/audit-recherche-2026-09-01.md)): the optimal format depends on
-  M, to be picked up again if prefill is served.
-- The k family. `planes14k`, k in {1, 2, 4, 8}, `TILE_BLOCKS_K = 32`, arms `nullk`, `mvkf16`,
-  `cublasf16`: not written. The prereg
-  [preregistration-p4-2026-08-14](../proofs/preregistration-p4-2026-08-14.md) is not timestamped;
-  its §7bis is still to be filled in (two waivers, and whether the 08-16 `nullk` run was a P4 job).
-  K2 reads `T(k=8) ≤ 4.80·T(k=1)`. Shared job $0.8 to $1.0, worst case $2.70 (*estimated*),
-  `--timeout 90m`. A k verdict does not carry over to interactive throughput (k = 1); a k benchmark
-  that ignores `ROT_SHARE`/`FUSE` measures a path that is no longer served.
-- 32B point. ~$62 and 11.4 h on `rtx-pro-6000x2` (*estimated* on 621 s per block, *measured* at the
-  de-risking below, no journal; $80 budget with margin). Gate to be formulated on the drop in the
-  14B → 32B gap, with its z; official 32B AWQ to be checked. The served path is walled there by
-  1,024 bytes of shared memory, `down_proj` rotation (*measured*,
-  [rot-partagee-14b-2026-08-17](mesures/rot-partagee-14b-2026-08-17.txt)). De-risking of
-  2026-08-03: 4 blocks out of 64, bf16, 59 min, $5.43 (*measured*). `faer` peak 70.6 GB host out of
-  512 and 77.4 GB VRAM out of 97 at n = 25,600 (*measured*). `verify_artifact` bit for bit on
-  1,950,351,360 weights (*measured*). C3 (bf16 loading) is a prerequisite: 131 GB of f32 do not fit
-  in 96 GB, otherwise `h200x2` at ~$180 (*computed*).
-  Profile: encoder 71.8%, factorization 16.5%, ~1.9 h of Cholesky in n³ (*measured*). The cost per
-  weight rises from 4.77e-5 core-s at 8B to 6.36e-5 at 32B (*measured*). The block predicted at
-  ~500 s (*estimated*) cost 621 (*measured*). A ×1.5 encoder brings the run down to ~$40
-  (*estimated*) and compounds over every later run.
+- **MoE.** Model settled: Qwen3-30B-A3B, gpt-oss ruled out. A policy for experts below full rank is missing: 31.4% of
+  (layer, expert) cells, one dead expert, measured on gpt-oss-20b as a floor (*measured*,
+  [moe-routing](mesures/moe-routing-gptoss20b-2026-08-12.txt)). About $1.4 to open, about $69 to serve (*estimated*).
+- **q8 KV cache at long context.** Quality green at short context, interval containing zero (*measured*,
+  [kvq8-4b](mesures/kvq8-4b-2026-08-15.txt)). Long-context throughput is unmeasured. Reopening needs a benchmark with
+  a resident model.
+- **Batch above 1, and prefill.** Batch 1 accepted since 2026-08-18, edge regime. The optimal format depends on the
+  batch, so this reopens the layout if prefill is ever served.
+- **The 32B point.** About $62 and 11.4 h on `rtx-pro-6000x2` (*estimated*). The served path is walled there by the
+  `rot_apply` limit on `down_proj`, so an encode would produce a file nothing serves. A gate on the drop in the
+  14B-to-32B gap comes first.
+- **A model above 14B in general**, for the same wall ([format-noyau](format-noyau.md) §8).
 
 ## 5. Decisions awaited
 
-| decision | deadline | default if silent |
-|---|---|---|
-| Q5 after the replicate: measure M2b on seed 3, restrict Q5 to the published file, or park it | before any Q5 kernel | nothing, Q5 does not open |
-| Q1: prereg with "ρ in [0.5; 0.9] to be re-estimated", size and seeds | before the first Q1 run | Q1 stays at 0.6B, 3 seeds |
-| wave 2 cap | before the first paid job | no job on a card |
-| `ots upgrade` of the eleven pending timestamps | after anchoring | un-upgraded timestamps in the repository |
-| format v2, `codebook_fingerprint` changes | at F1b green | F1 stops at the Gaussian benchmark |
-| first Q lead to get the 4B run ($7) | D2, mid-October | best Δppl per range at 0.6B |
-| Q6d go, over the cap | D4, December | no |
-| F1e passed: second paper or revision | D4, December | second paper |
-| next venue for the paper | open | preprint only |
-| 32B point: budget go and anchored gate | after D4 | not launched |
-| document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) and CSR, never done; CSR blocked upstream, tasks not transcribed | open | not done |
+| decision | default if silent |
+|---|---|
+| which route for the served census, $20 or $70 | neither, the tables stay unscored |
+| a spend cap for the next campaign | no paid job |
+| publishing the three sealed files, and where | nobody outside can replay an MMLU |
+| next venue for paper 2 | preprint only |
+| republishing the Hugging Face model card on the sealed object | the card keeps describing `Planes14` |
+| `ots upgrade` after each new stamp | stamps sit un-upgraded |
+| the 32B budget, once a gate exists | not launched |
+| document-extraction domain benchmark ([arXiv:2607.08734](https://arxiv.org/abs/2607.08734)) | not done |
 
-D1 end of September, D2 mid-October, D3 mid-November, D4 December (*estimated*).
+Rule 1 applies to every row: no run starts or stops, and no structural decision is taken, without an explicit go, with
+the cost announced before and the running total after.
