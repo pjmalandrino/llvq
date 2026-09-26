@@ -99,7 +99,7 @@ be in `UPLOAD_ALLOW` of `ops/run.py`, or the Space dies after 12 minutes. `rankb
 | `LLVQ_KV` | `f16` (default), `q8` | int8 KV cache, shipped, not the default (short context only) |
 | `LLVQ_ROT_SHARE` | `0`, `1` | one rotation per group of projections; served = `1` |
 | `LLVQ_FUSE` | `0`, `1` | q+k+v and gate+up fusion; served = `0` under `Tetra48`, which carries no segmented kernel; `FUSE=1` with `ROT_SHARE=0` refused |
-| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, power of two in 32..=512 | blocks of the activation one CTA stages in shared memory. Unset reads the measured row for the card, 64 on sm_89 and 32 on sm_120, and falls back to 128 where no row exists. Zero bits, bit-identical output, worth +16.1% to Tetra. Every figure published before 2026-09-20 was measured at 128 |
+| `LLVQ_TILE_BLOCKS` | unset (default), `auto`, power of two in 32..=512 | blocks of the activation one CTA stages in shared memory. Unset reads the measured row for the card, 64 on sm_89 and 32 on sm_120, and falls back to 128 where no row exists. Zero bits, bit-identical output, worth +16.1% to Tetra from tile 128 to 64 on sm_89, where `Planes14` swings 1.5% across the whole sweep. Every figure published before 2026-09-20 was measured at 128 |
 | `LLVQ_NVRTC_ARCH` | `compute_NN`, default `compute_89` | NVRTC target; `compute_80` for A100; any other form refused |
 | `LLVQ_DTYPE` | `f32` (`ppl` default), `f16` | evaluation dtype; comparing ppl or MMLU requires the same on both sides |
 | `LLVQ_CALIB` | `wikitext2` (default), `c4`, `dclm-edu`, `wikitext2-test` | `smoke`: calibration corpus; `dclm-edu` is the paper's own set and the one the sealed files use |

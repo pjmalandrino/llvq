@@ -78,9 +78,11 @@ Trained row scales gain **+3.15, +3.29 and +1.67 MMLU points for zero bits** at 
 [dclm-8b-rowscales](mesures/dclm-8b-rowscales-2026-09-21.txt),
 [dclm-14b-rowscales](mesures/dclm-14b-rowscales-2026-09-22.txt)). The gain halves from the 4B to the 14B.
 
-`LLVQ_TILE_BLOCKS` unset reads the measured row for the card since 2026-09-20: 64 on sm_89, 32 on sm_120. It is worth
-**+16.1%** to Tetra and 1.5% to `Planes14`, for zero bits and a bit-identical output (*measured*,
-[tuile-l40s](mesures/tuile-l40s-2026-09-20.txt)). Every figure published before that date was measured at tile 128.
+`LLVQ_TILE_BLOCKS` unset reads the measured row for the card since 2026-09-20: 64 on sm_89, 32 on sm_120. Going from
+tile 128 to 64 on sm_89 is worth **+16.1%** to Tetra, for zero bits and a bit-identical output. Across the whole sweep
+the Tetra arm swings 19.1% where `Planes14` swings 1.5%, which is what makes this a measurement of the mechanism: the
+tile steals L1 from the decoder table (*measured*, [tuile-l40s](mesures/tuile-l40s-2026-09-20.txt)). Every figure
+published before that date was measured at tile 128.
 
 The `nullk` floor belongs to our launch geometry, not to the card: 2.306 ms for 252 projections without reading a
 weight, where QTIP finishes the same projections in 2.246 ms (*measured*,
