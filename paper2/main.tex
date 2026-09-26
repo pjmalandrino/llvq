@@ -13,8 +13,16 @@
 \usepackage{libertine}
 \usepackage[libertine]{newtxmath}
 \usepackage[varqu]{zi4}
-\usepackage[letterpaper,textwidth=5.5in,textheight=9in,centering]{geometry}
+\usepackage[letterpaper,textwidth=5.5in,textheight=9.5in,centering]{geometry}
 \usepackage{microtype}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+
+% Floats sit closer to the text than the class default, which was written for a
+% paper with few of them. This one has six figures and six tables.
+\setlength{\textfloatsep}{10pt plus 2pt minus 2pt}
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\intextsep}{10pt plus 2pt minus 2pt}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{multirow}
@@ -33,6 +41,23 @@
 \pdfgentounicode=1
 
 \graphicspath{{figures/}}
+
+% A running header, so a page printed on its own still says what it belongs to.
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\footnotesize\textsc{Tetra: serving Leech-lattice quantized LLMs}}
+\fancyhead[R]{\footnotesize\thepage}
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[C]{\footnotesize\thepage}}
+
+% Headings in the figures' own accent colour, with a rule under level 1. The
+% spacing is tighter than the class default in the same proportion as the floats.
+\titleformat{\section}[hang]{\large\bfseries\color{okInk}}{\thesection}{0.6em}{}[{\color{okBlue}\titlerule[0.6pt]}]
+\titleformat{\subsection}[hang]{\normalsize\bfseries\color{okInk}}{\thesubsection}{0.5em}{}
+\titleformat{\paragraph}[runin]{\bfseries\color{okBlue}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{2.2ex plus 0.6ex}{1.1ex}
+\titlespacing*{\subsection}{0pt}{1.8ex plus 0.5ex}{0.7ex}
+\titlespacing*{\paragraph}{0pt}{1.2ex plus 0.3ex}{0.6em}
 
 % ---------------------------------------------------------------------------
 % Paper 1's palette and TikZ node styles, verbatim.
@@ -72,14 +97,25 @@
   pdftitle={Tetra: Serving Leech-Lattice Quantized LLMs at 2.7 Bits per Parameter},
   pdfauthor={Pier-Jean Malandrino}}
 
-\title{\textbf{Tetra: Serving Leech-Lattice Quantized LLMs\\at 2.7 Bits per Parameter}}
-\author{Pier-Jean Malandrino\\[2pt]
-  \normalsize Scub, Bordeaux, France\\
-  \normalsize\texttt{pierjean.malandrino@scub.net}}
-\date{\normalsize September 2026. Preprint, not peer reviewed.}
+% The title block is set by hand: two rules, the title, one line of author and
+% two of provenance. `\titleblock\thispagestyle{plain}` spends twice the vertical space on the same
+% words, and this paper is long enough to care.
+\newcommand{\titleblock}{%
+  \begingroup\centering
+  {\color{okBlue}\rule{\textwidth}{1.2pt}}\\[1.0ex]
+  {\LARGE\bfseries Tetra: Serving Leech-Lattice Quantized LLMs\\[2pt]
+   at 2.7 Bits per Parameter\par}
+  \vspace{1.0ex}
+  {\color{okBlue}\rule{\textwidth}{0.5pt}}\\[1.3ex]
+  {Pier-Jean Malandrino\par}
+  {\footnotesize Scub, Bordeaux, France \;\textperiodcentered\; \texttt{pierjean.malandrino@scub.net}\par}
+  \vspace{0.5ex}
+  {\footnotesize\textsc{September 2026} \;\textperiodcentered\; preprint, not peer reviewed\par}
+  {\footnotesize Code, measurement logs and preregistrations: \url{https://github.com/pjmalandrino/llvq}\par}
+  \vspace{1.6ex}\endgroup}
 
 \begin{document}
-\maketitle
+\titleblock\thispagestyle{plain}
 
 \begin{abstract}
 \noindent
