@@ -60,6 +60,10 @@ nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv | tee "$O/g
 python3 -c "import vllm; print('vllm', vllm.__version__)" | tee "$O/vllm-version.txt"
 test "$(sha256sum "$O/gsm8k_vllm.py" | cut -d' ' -f1)" = "$SSHA"
 df -h /tmp | tee "$O/disk.txt"
+# The pinned vLLM image carries no pyarrow (attempt 1 of 2026-09-26 died on it). Same pin as
+# the row-scale jobs.
+pip install --quiet --no-input pyarrow==25.0.1 2>&1 | tail -2
+python3 -c "import pyarrow; print('pyarrow', pyarrow.__version__)" | tee "$O/pyarrow-version.txt"
 echo '== FP16 =='
 date -u
 python3 "$O/gsm8k_vllm.py" --arm f16 --model "$BASE" --revision "$BASE_REV" \
