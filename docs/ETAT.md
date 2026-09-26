@@ -14,7 +14,7 @@ compiles, in [`paper2/`](../paper2/README.md).
 ## 2. Served configuration
 
 One layout, one setting, at all three sizes: `tetra48`, `LLVQ_EMBED=q4`, `LLVQ_ROT_SHARE=1`, `LLVQ_FUSE=0`,
-`LLVQ_KV=f16`. The file that carries it is [`configs/`](../configs/README.md), one per size.
+`LLVQ_KV=f16`. The files that carry it are in [`configs/`](../configs/README.md), one per size.
 
 | size | sealed file | b/param | MMLU | tok/s | GB on card |
 |---|---|---|---|---|---|
