@@ -58,7 +58,9 @@ quantization paper is read for that number.
 ### 2.5 A second calibration draw per size
 
 **Gate.** The three absolute levels move by less than the 2.92 pp the draw carries at 4B. **Cost** a full encode a
-size, about $10 at 8B and $17 at 14B (*measured* on the chain of 2026-09-22).
+size, plus the row-scale training on top of it. The 14B encode cost $15.35 on `rtx-pro-6000`, the re-export included,
+and its training $9.78 on an h200; the 8B training cost $5.66 (*measured*, `docs/data/jobs.csv`). The 8B and 4B encodes
+ran on the Mac and are not billed.
 
 Each level is one draw. The chain gains of [`ETAT.md`](ETAT.md) §4 compare fixed files on the same questions and do not
 depend on it, so this is about the levels, not the gains.
